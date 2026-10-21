@@ -1,0 +1,14 @@
+{
+  "servers": {
+    "dummy": {
+      "type": "http",
+      "url": "http://localhost:8080",
+      "enabled": true
+    },
+    "foo": {
+      "type": "stdio",
+      "command": "bar",
+      "enabled": true
+    }
+  }
+}

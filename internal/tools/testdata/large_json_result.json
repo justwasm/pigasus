@@ -1,0 +1,4507 @@
+{
+  "items": [
+    {
+      "external_id": "ext-AA",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 0,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 0 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 1
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_a/a",
+      "size_bytes": 1024
+    },
+    {
+      "external_id": "ext-BA",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 1,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 1 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 2
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_b/a",
+      "size_bytes": 1536
+    },
+    {
+      "external_id": "ext-CA",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 2,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 2 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 3
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_c/a",
+      "size_bytes": 2048
+    },
+    {
+      "external_id": "ext-DA",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 3,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 3 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 4
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_d/a",
+      "size_bytes": 2560
+    },
+    {
+      "external_id": "ext-EA",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 4,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 4 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 5
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_e/a",
+      "size_bytes": 3072
+    },
+    {
+      "external_id": "ext-FA",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 5,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 5 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 1
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_f/a",
+      "size_bytes": 3584
+    },
+    {
+      "external_id": "ext-GA",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 6,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 6 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 2
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_g/a",
+      "size_bytes": 4096
+    },
+    {
+      "external_id": "ext-HA",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 7,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 7 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 3
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_h/a",
+      "size_bytes": 4608
+    },
+    {
+      "external_id": "ext-IA",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 8,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 8 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 4
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_i/a",
+      "size_bytes": 5120
+    },
+    {
+      "external_id": "ext-JA",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 9,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 9 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 5
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_j/a",
+      "size_bytes": 5632
+    },
+    {
+      "external_id": "ext-KA",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 10,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 0 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 1
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_k/a",
+      "size_bytes": 6144
+    },
+    {
+      "external_id": "ext-LA",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 11,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 1 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 2
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_l/a",
+      "size_bytes": 6656
+    },
+    {
+      "external_id": "ext-MA",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 12,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 2 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 3
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_m/a",
+      "size_bytes": 7168
+    },
+    {
+      "external_id": "ext-NA",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 13,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 3 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 4
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_n/a",
+      "size_bytes": 7680
+    },
+    {
+      "external_id": "ext-OA",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 14,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 4 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 5
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_o/a",
+      "size_bytes": 8192
+    },
+    {
+      "external_id": "ext-PA",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 15,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 5 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 1
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_p/a",
+      "size_bytes": 8704
+    },
+    {
+      "external_id": "ext-QA",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 16,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 6 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 2
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_q/a",
+      "size_bytes": 9216
+    },
+    {
+      "external_id": "ext-RA",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 17,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 7 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 3
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_r/a",
+      "size_bytes": 9728
+    },
+    {
+      "external_id": "ext-SA",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 18,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 8 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 4
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_s/a",
+      "size_bytes": 10240
+    },
+    {
+      "external_id": "ext-TA",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 19,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 9 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 5
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_t/a",
+      "size_bytes": 10752
+    },
+    {
+      "external_id": "ext-UA",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 20,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 0 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 1
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_u/a",
+      "size_bytes": 11264
+    },
+    {
+      "external_id": "ext-VA",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 21,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 1 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 2
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_v/a",
+      "size_bytes": 11776
+    },
+    {
+      "external_id": "ext-WA",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 22,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 2 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 3
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_w/a",
+      "size_bytes": 12288
+    },
+    {
+      "external_id": "ext-XA",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 23,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 3 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 4
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_x/a",
+      "size_bytes": 12800
+    },
+    {
+      "external_id": "ext-YA",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 24,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 4 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 5
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_y/a",
+      "size_bytes": 13312
+    },
+    {
+      "external_id": "ext-ZA",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 25,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 5 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 1
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_z/a",
+      "size_bytes": 13824
+    },
+    {
+      "external_id": "ext-AB",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 26,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 6 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 2
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_a/b",
+      "size_bytes": 14336
+    },
+    {
+      "external_id": "ext-BB",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 27,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 7 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 3
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_b/b",
+      "size_bytes": 14848
+    },
+    {
+      "external_id": "ext-CB",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 28,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 8 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 4
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_c/b",
+      "size_bytes": 15360
+    },
+    {
+      "external_id": "ext-DB",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 29,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 9 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 5
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_d/b",
+      "size_bytes": 15872
+    },
+    {
+      "external_id": "ext-EB",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 30,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 0 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 1
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_e/b",
+      "size_bytes": 16384
+    },
+    {
+      "external_id": "ext-FB",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 31,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 1 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 2
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_f/b",
+      "size_bytes": 16896
+    },
+    {
+      "external_id": "ext-GB",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 32,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 2 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 3
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_g/b",
+      "size_bytes": 17408
+    },
+    {
+      "external_id": "ext-HB",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 33,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 3 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 4
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_h/b",
+      "size_bytes": 17920
+    },
+    {
+      "external_id": "ext-IB",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 34,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 4 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 5
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_i/b",
+      "size_bytes": 18432
+    },
+    {
+      "external_id": "ext-JB",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 35,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 5 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 1
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_j/b",
+      "size_bytes": 18944
+    },
+    {
+      "external_id": "ext-KB",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 36,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 6 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 2
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_k/b",
+      "size_bytes": 19456
+    },
+    {
+      "external_id": "ext-LB",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 37,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 7 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 3
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_l/b",
+      "size_bytes": 19968
+    },
+    {
+      "external_id": "ext-MB",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 38,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 8 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 4
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_m/b",
+      "size_bytes": 20480
+    },
+    {
+      "external_id": "ext-NB",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 39,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 9 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 5
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_n/b",
+      "size_bytes": 20992
+    },
+    {
+      "external_id": "ext-OB",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 40,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 0 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 1
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_o/b",
+      "size_bytes": 21504
+    },
+    {
+      "external_id": "ext-PB",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 41,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 1 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 2
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_p/b",
+      "size_bytes": 22016
+    },
+    {
+      "external_id": "ext-QB",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 42,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 2 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 3
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_q/b",
+      "size_bytes": 22528
+    },
+    {
+      "external_id": "ext-RB",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 43,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 3 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 4
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_r/b",
+      "size_bytes": 23040
+    },
+    {
+      "external_id": "ext-SB",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 44,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 4 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 5
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_s/b",
+      "size_bytes": 23552
+    },
+    {
+      "external_id": "ext-TB",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 45,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 5 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 1
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_t/b",
+      "size_bytes": 24064
+    },
+    {
+      "external_id": "ext-UB",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 46,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 6 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 2
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_u/b",
+      "size_bytes": 24576
+    },
+    {
+      "external_id": "ext-VB",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 47,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 7 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 3
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_v/b",
+      "size_bytes": 25088
+    },
+    {
+      "external_id": "ext-WB",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 48,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 8 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 4
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_w/b",
+      "size_bytes": 25600
+    },
+    {
+      "external_id": "ext-XB",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 49,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 9 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 5
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_x/b",
+      "size_bytes": 26112
+    },
+    {
+      "external_id": "ext-YB",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 50,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 0 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 1
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_y/b",
+      "size_bytes": 26624
+    },
+    {
+      "external_id": "ext-ZB",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 51,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 1 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 2
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_z/b",
+      "size_bytes": 27136
+    },
+    {
+      "external_id": "ext-AC",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 52,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 2 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 3
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_a/c",
+      "size_bytes": 27648
+    },
+    {
+      "external_id": "ext-BC",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 53,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 3 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 4
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_b/c",
+      "size_bytes": 28160
+    },
+    {
+      "external_id": "ext-CC",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 54,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 4 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 5
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_c/c",
+      "size_bytes": 28672
+    },
+    {
+      "external_id": "ext-DC",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 55,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 5 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 1
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_d/c",
+      "size_bytes": 29184
+    },
+    {
+      "external_id": "ext-EC",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 56,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 6 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 2
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_e/c",
+      "size_bytes": 29696
+    },
+    {
+      "external_id": "ext-FC",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 57,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 7 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 3
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_f/c",
+      "size_bytes": 30208
+    },
+    {
+      "external_id": "ext-GC",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 58,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 8 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 4
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_g/c",
+      "size_bytes": 30720
+    },
+    {
+      "external_id": "ext-HC",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 59,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 9 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 5
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_h/c",
+      "size_bytes": 31232
+    },
+    {
+      "external_id": "ext-IC",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 60,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 0 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 1
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_i/c",
+      "size_bytes": 31744
+    },
+    {
+      "external_id": "ext-JC",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 61,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 1 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 2
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_j/c",
+      "size_bytes": 32256
+    },
+    {
+      "external_id": "ext-KC",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 62,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 2 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 3
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_k/c",
+      "size_bytes": 32768
+    },
+    {
+      "external_id": "ext-LC",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 63,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 3 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 4
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_l/c",
+      "size_bytes": 33280
+    },
+    {
+      "external_id": "ext-MC",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 64,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 4 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 5
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_m/c",
+      "size_bytes": 33792
+    },
+    {
+      "external_id": "ext-NC",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 65,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 5 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 1
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_n/c",
+      "size_bytes": 34304
+    },
+    {
+      "external_id": "ext-OC",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 66,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 6 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 2
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_o/c",
+      "size_bytes": 34816
+    },
+    {
+      "external_id": "ext-PC",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 67,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 7 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 3
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_p/c",
+      "size_bytes": 35328
+    },
+    {
+      "external_id": "ext-QC",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 68,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 8 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 4
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_q/c",
+      "size_bytes": 35840
+    },
+    {
+      "external_id": "ext-RC",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 69,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 9 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 5
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_r/c",
+      "size_bytes": 36352
+    },
+    {
+      "external_id": "ext-SC",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 70,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 0 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 1
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_s/c",
+      "size_bytes": 36864
+    },
+    {
+      "external_id": "ext-TC",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 71,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 1 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 2
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_t/c",
+      "size_bytes": 37376
+    },
+    {
+      "external_id": "ext-UC",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 72,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 2 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 3
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_u/c",
+      "size_bytes": 37888
+    },
+    {
+      "external_id": "ext-VC",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 73,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 3 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 4
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_v/c",
+      "size_bytes": 38400
+    },
+    {
+      "external_id": "ext-WC",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 74,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 4 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 5
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_w/c",
+      "size_bytes": 38912
+    },
+    {
+      "external_id": "ext-XC",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 75,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 5 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 1
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_x/c",
+      "size_bytes": 39424
+    },
+    {
+      "external_id": "ext-YC",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 76,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 6 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 2
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_y/c",
+      "size_bytes": 39936
+    },
+    {
+      "external_id": "ext-ZC",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 77,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 7 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 3
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_z/c",
+      "size_bytes": 40448
+    },
+    {
+      "external_id": "ext-AD",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 78,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 8 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 4
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_a/d",
+      "size_bytes": 40960
+    },
+    {
+      "external_id": "ext-BD",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 79,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 9 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 5
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_b/d",
+      "size_bytes": 41472
+    },
+    {
+      "external_id": "ext-CD",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 80,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 0 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 1
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_c/d",
+      "size_bytes": 41984
+    },
+    {
+      "external_id": "ext-DD",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 81,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 1 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 2
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_d/d",
+      "size_bytes": 42496
+    },
+    {
+      "external_id": "ext-ED",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 82,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 2 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 3
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_e/d",
+      "size_bytes": 43008
+    },
+    {
+      "external_id": "ext-FD",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 83,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 3 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 4
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_f/d",
+      "size_bytes": 43520
+    },
+    {
+      "external_id": "ext-GD",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 84,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 4 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 5
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_g/d",
+      "size_bytes": 44032
+    },
+    {
+      "external_id": "ext-HD",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 85,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 5 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 1
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_h/d",
+      "size_bytes": 44544
+    },
+    {
+      "external_id": "ext-ID",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 86,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 6 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 2
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_i/d",
+      "size_bytes": 45056
+    },
+    {
+      "external_id": "ext-JD",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 87,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 7 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 3
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_j/d",
+      "size_bytes": 45568
+    },
+    {
+      "external_id": "ext-KD",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 88,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 8 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 4
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_k/d",
+      "size_bytes": 46080
+    },
+    {
+      "external_id": "ext-LD",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 89,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 9 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 5
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_l/d",
+      "size_bytes": 46592
+    },
+    {
+      "external_id": "ext-MD",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 90,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 0 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 1
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_m/d",
+      "size_bytes": 47104
+    },
+    {
+      "external_id": "ext-ND",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 91,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 1 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 2
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_n/d",
+      "size_bytes": 47616
+    },
+    {
+      "external_id": "ext-OD",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 92,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 2 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 3
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_o/d",
+      "size_bytes": 48128
+    },
+    {
+      "external_id": "ext-PD",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 93,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 3 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 4
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_p/d",
+      "size_bytes": 48640
+    },
+    {
+      "external_id": "ext-QD",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 94,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 4 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 5
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_q/d",
+      "size_bytes": 49152
+    },
+    {
+      "external_id": "ext-RD",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 95,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 5 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 1
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_r/d",
+      "size_bytes": 49664
+    },
+    {
+      "external_id": "ext-SD",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 96,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 6 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 2
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_s/d",
+      "size_bytes": 50176
+    },
+    {
+      "external_id": "ext-TD",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 97,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 7 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 3
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_t/d",
+      "size_bytes": 50688
+    },
+    {
+      "external_id": "ext-UD",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 98,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 8 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 4
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_u/d",
+      "size_bytes": 51200
+    },
+    {
+      "external_id": "ext-VD",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 99,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 9 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 5
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_v/d",
+      "size_bytes": 51712
+    },
+    {
+      "external_id": "ext-WD",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 100,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 0 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 1
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_w/d",
+      "size_bytes": 52224
+    },
+    {
+      "external_id": "ext-XD",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 101,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 1 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 2
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_x/d",
+      "size_bytes": 52736
+    },
+    {
+      "external_id": "ext-YD",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 102,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 2 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 3
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_y/d",
+      "size_bytes": 53248
+    },
+    {
+      "external_id": "ext-ZD",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 103,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 3 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 4
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_z/d",
+      "size_bytes": 53760
+    },
+    {
+      "external_id": "ext-AE",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 104,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 4 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 5
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_a/e",
+      "size_bytes": 54272
+    },
+    {
+      "external_id": "ext-BE",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 105,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 5 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 1
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_b/e",
+      "size_bytes": 54784
+    },
+    {
+      "external_id": "ext-CE",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 106,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 6 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 2
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_c/e",
+      "size_bytes": 55296
+    },
+    {
+      "external_id": "ext-DE",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 107,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 7 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 3
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_d/e",
+      "size_bytes": 55808
+    },
+    {
+      "external_id": "ext-EE",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 108,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 8 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 4
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_e/e",
+      "size_bytes": 56320
+    },
+    {
+      "external_id": "ext-FE",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 109,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 9 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 5
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_f/e",
+      "size_bytes": 56832
+    },
+    {
+      "external_id": "ext-GE",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 110,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 0 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 1
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_g/e",
+      "size_bytes": 57344
+    },
+    {
+      "external_id": "ext-HE",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 111,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 1 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 2
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_h/e",
+      "size_bytes": 57856
+    },
+    {
+      "external_id": "ext-IE",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 112,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 2 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 3
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_i/e",
+      "size_bytes": 58368
+    },
+    {
+      "external_id": "ext-JE",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 113,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 3 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 4
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_j/e",
+      "size_bytes": 58880
+    },
+    {
+      "external_id": "ext-KE",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 114,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 4 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 5
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_k/e",
+      "size_bytes": 59392
+    },
+    {
+      "external_id": "ext-LE",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 115,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 5 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 1
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_l/e",
+      "size_bytes": 59904
+    },
+    {
+      "external_id": "ext-ME",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 116,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 6 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 2
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_m/e",
+      "size_bytes": 60416
+    },
+    {
+      "external_id": "ext-NE",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 117,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 7 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 3
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_n/e",
+      "size_bytes": 60928
+    },
+    {
+      "external_id": "ext-OE",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 118,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 8 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 4
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_o/e",
+      "size_bytes": 61440
+    },
+    {
+      "external_id": "ext-PE",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 119,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 9 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 5
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_p/e",
+      "size_bytes": 61952
+    },
+    {
+      "external_id": "ext-QE",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 120,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 0 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 1
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_q/e",
+      "size_bytes": 62464
+    },
+    {
+      "external_id": "ext-RE",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 121,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 1 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 2
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_r/e",
+      "size_bytes": 62976
+    },
+    {
+      "external_id": "ext-SE",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 122,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 2 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 3
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_s/e",
+      "size_bytes": 63488
+    },
+    {
+      "external_id": "ext-TE",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 123,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 3 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 4
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_t/e",
+      "size_bytes": 64000
+    },
+    {
+      "external_id": "ext-UE",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 124,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 4 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 5
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_u/e",
+      "size_bytes": 64512
+    },
+    {
+      "external_id": "ext-VE",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 125,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 5 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 1
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_v/e",
+      "size_bytes": 65024
+    },
+    {
+      "external_id": "ext-WE",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 126,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 6 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 2
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_w/e",
+      "size_bytes": 65536
+    },
+    {
+      "external_id": "ext-XE",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 127,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 7 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 3
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_x/e",
+      "size_bytes": 66048
+    },
+    {
+      "external_id": "ext-YE",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 128,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 8 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 4
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_y/e",
+      "size_bytes": 66560
+    },
+    {
+      "external_id": "ext-ZE",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 129,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 9 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 5
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_z/e",
+      "size_bytes": 67072
+    },
+    {
+      "external_id": "ext-AF",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 130,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 0 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 1
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_a/f",
+      "size_bytes": 67584
+    },
+    {
+      "external_id": "ext-BF",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 131,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 1 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 2
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_b/f",
+      "size_bytes": 68096
+    },
+    {
+      "external_id": "ext-CF",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 132,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 2 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 3
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_c/f",
+      "size_bytes": 68608
+    },
+    {
+      "external_id": "ext-DF",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 133,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 3 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 4
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_d/f",
+      "size_bytes": 69120
+    },
+    {
+      "external_id": "ext-EF",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 134,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 4 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 5
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_e/f",
+      "size_bytes": 69632
+    },
+    {
+      "external_id": "ext-FF",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 135,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 5 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 1
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_f/f",
+      "size_bytes": 70144
+    },
+    {
+      "external_id": "ext-GF",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 136,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 6 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 2
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_g/f",
+      "size_bytes": 70656
+    },
+    {
+      "external_id": "ext-HF",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 137,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 7 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 3
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_h/f",
+      "size_bytes": 71168
+    },
+    {
+      "external_id": "ext-IF",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 138,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 8 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 4
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_i/f",
+      "size_bytes": 71680
+    },
+    {
+      "external_id": "ext-JF",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 139,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 9 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 5
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_j/f",
+      "size_bytes": 72192
+    },
+    {
+      "external_id": "ext-KF",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 140,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 0 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 1
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_k/f",
+      "size_bytes": 72704
+    },
+    {
+      "external_id": "ext-LF",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 141,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 1 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 2
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_l/f",
+      "size_bytes": 73216
+    },
+    {
+      "external_id": "ext-MF",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 142,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 2 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 3
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_m/f",
+      "size_bytes": 73728
+    },
+    {
+      "external_id": "ext-NF",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 143,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 3 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 4
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_n/f",
+      "size_bytes": 74240
+    },
+    {
+      "external_id": "ext-OF",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 144,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 4 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 5
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_o/f",
+      "size_bytes": 74752
+    },
+    {
+      "external_id": "ext-PF",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 145,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 5 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 1
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_p/f",
+      "size_bytes": 75264
+    },
+    {
+      "external_id": "ext-QF",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 146,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 6 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 2
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_q/f",
+      "size_bytes": 75776
+    },
+    {
+      "external_id": "ext-RF",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 147,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 7 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 3
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_r/f",
+      "size_bytes": 76288
+    },
+    {
+      "external_id": "ext-SF",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 148,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 8 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 4
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_s/f",
+      "size_bytes": 76800
+    },
+    {
+      "external_id": "ext-TF",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 149,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 9 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 5
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_t/f",
+      "size_bytes": 77312
+    },
+    {
+      "external_id": "ext-UF",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 150,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 0 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 1
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_u/f",
+      "size_bytes": 77824
+    },
+    {
+      "external_id": "ext-VF",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 151,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 1 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 2
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_v/f",
+      "size_bytes": 78336
+    },
+    {
+      "external_id": "ext-WF",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 152,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 2 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 3
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_w/f",
+      "size_bytes": 78848
+    },
+    {
+      "external_id": "ext-XF",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 153,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 3 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 4
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_x/f",
+      "size_bytes": 79360
+    },
+    {
+      "external_id": "ext-YF",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 154,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 4 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 5
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_y/f",
+      "size_bytes": 79872
+    },
+    {
+      "external_id": "ext-ZF",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 155,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 5 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 1
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_z/f",
+      "size_bytes": 80384
+    },
+    {
+      "external_id": "ext-AG",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 156,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 6 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 2
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_a/g",
+      "size_bytes": 80896
+    },
+    {
+      "external_id": "ext-BG",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 157,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 7 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 3
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_b/g",
+      "size_bytes": 81408
+    },
+    {
+      "external_id": "ext-CG",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 158,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 8 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 4
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_c/g",
+      "size_bytes": 81920
+    },
+    {
+      "external_id": "ext-DG",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 159,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 9 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 5
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_d/g",
+      "size_bytes": 82432
+    },
+    {
+      "external_id": "ext-EG",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 160,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 0 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 1
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_e/g",
+      "size_bytes": 82944
+    },
+    {
+      "external_id": "ext-FG",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 161,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 1 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 2
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_f/g",
+      "size_bytes": 83456
+    },
+    {
+      "external_id": "ext-GG",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 162,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 2 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 3
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_g/g",
+      "size_bytes": 83968
+    },
+    {
+      "external_id": "ext-HG",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 163,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 3 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 4
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_h/g",
+      "size_bytes": 84480
+    },
+    {
+      "external_id": "ext-IG",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 164,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 4 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 5
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_i/g",
+      "size_bytes": 84992
+    },
+    {
+      "external_id": "ext-JG",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 165,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 5 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 1
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_j/g",
+      "size_bytes": 85504
+    },
+    {
+      "external_id": "ext-KG",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 166,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 6 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 2
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_k/g",
+      "size_bytes": 86016
+    },
+    {
+      "external_id": "ext-LG",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 167,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 7 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 3
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_l/g",
+      "size_bytes": 86528
+    },
+    {
+      "external_id": "ext-MG",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 168,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 8 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 4
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_m/g",
+      "size_bytes": 87040
+    },
+    {
+      "external_id": "ext-NG",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 169,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 9 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 5
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_n/g",
+      "size_bytes": 87552
+    },
+    {
+      "external_id": "ext-OG",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 170,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 0 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 1
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_o/g",
+      "size_bytes": 88064
+    },
+    {
+      "external_id": "ext-PG",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 171,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 1 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 2
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_p/g",
+      "size_bytes": 88576
+    },
+    {
+      "external_id": "ext-QG",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 172,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 2 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 3
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_q/g",
+      "size_bytes": 89088
+    },
+    {
+      "external_id": "ext-RG",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 173,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 3 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 4
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_r/g",
+      "size_bytes": 89600
+    },
+    {
+      "external_id": "ext-SG",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 174,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 4 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 5
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_s/g",
+      "size_bytes": 90112
+    },
+    {
+      "external_id": "ext-TG",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 175,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 5 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 1
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_t/g",
+      "size_bytes": 90624
+    },
+    {
+      "external_id": "ext-UG",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 176,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 6 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 2
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_u/g",
+      "size_bytes": 91136
+    },
+    {
+      "external_id": "ext-VG",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 177,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 7 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 3
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_v/g",
+      "size_bytes": 91648
+    },
+    {
+      "external_id": "ext-WG",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 178,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 8 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 4
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_w/g",
+      "size_bytes": 92160
+    },
+    {
+      "external_id": "ext-XG",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 179,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 9 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 5
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_x/g",
+      "size_bytes": 92672
+    },
+    {
+      "external_id": "ext-YG",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 180,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 0 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 1
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_y/g",
+      "size_bytes": 93184
+    },
+    {
+      "external_id": "ext-ZG",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 181,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 1 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 2
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_z/g",
+      "size_bytes": 93696
+    },
+    {
+      "external_id": "ext-AH",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 182,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 2 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 3
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_a/h",
+      "size_bytes": 94208
+    },
+    {
+      "external_id": "ext-BH",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 183,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 3 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 4
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_b/h",
+      "size_bytes": 94720
+    },
+    {
+      "external_id": "ext-CH",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 184,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 4 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 5
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_c/h",
+      "size_bytes": 95232
+    },
+    {
+      "external_id": "ext-DH",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 185,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 5 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 1
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_d/h",
+      "size_bytes": 95744
+    },
+    {
+      "external_id": "ext-EH",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 186,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 6 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 2
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_e/h",
+      "size_bytes": 96256
+    },
+    {
+      "external_id": "ext-FH",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 187,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 7 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 3
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_f/h",
+      "size_bytes": 96768
+    },
+    {
+      "external_id": "ext-GH",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 188,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 8 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 4
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_g/h",
+      "size_bytes": 97280
+    },
+    {
+      "external_id": "ext-HH",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 189,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 9 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 5
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_h/h",
+      "size_bytes": 97792
+    },
+    {
+      "external_id": "ext-IH",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 190,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 0 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 1
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_i/h",
+      "size_bytes": 98304
+    },
+    {
+      "external_id": "ext-JH",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 191,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 1 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 2
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_j/h",
+      "size_bytes": 98816
+    },
+    {
+      "external_id": "ext-KH",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 192,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 2 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 3
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_k/h",
+      "size_bytes": 99328
+    },
+    {
+      "external_id": "ext-LH",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 193,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 3 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 4
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_l/h",
+      "size_bytes": 99840
+    },
+    {
+      "external_id": "ext-MH",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 194,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 4 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 5
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_m/h",
+      "size_bytes": 100352
+    },
+    {
+      "external_id": "ext-NH",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 195,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 5 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 1
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_n/h",
+      "size_bytes": 100864
+    },
+    {
+      "external_id": "ext-OH",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 196,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 6 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 2
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_o/h",
+      "size_bytes": 101376
+    },
+    {
+      "external_id": "ext-PH",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 197,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 7 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 3
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_p/h",
+      "size_bytes": 101888
+    },
+    {
+      "external_id": "ext-QH",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 198,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 8 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 4
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_q/h",
+      "size_bytes": 102400
+    },
+    {
+      "external_id": "ext-RH",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 199,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 9 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 5
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_r/h",
+      "size_bytes": 102912
+    },
+    {
+      "external_id": "ext-SH",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 200,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 0 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 1
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_s/h",
+      "size_bytes": 103424
+    },
+    {
+      "external_id": "ext-TH",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 201,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 1 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 2
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_t/h",
+      "size_bytes": 103936
+    },
+    {
+      "external_id": "ext-UH",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 202,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 2 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 3
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_u/h",
+      "size_bytes": 104448
+    },
+    {
+      "external_id": "ext-VH",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 203,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 3 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 4
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_v/h",
+      "size_bytes": 104960
+    },
+    {
+      "external_id": "ext-WH",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 204,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 4 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 5
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_w/h",
+      "size_bytes": 105472
+    },
+    {
+      "external_id": "ext-XH",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 205,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 5 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 1
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_x/h",
+      "size_bytes": 105984
+    },
+    {
+      "external_id": "ext-YH",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 206,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 6 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 2
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_y/h",
+      "size_bytes": 106496
+    },
+    {
+      "external_id": "ext-ZH",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 207,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 7 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 3
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_z/h",
+      "size_bytes": 107008
+    },
+    {
+      "external_id": "ext-AI",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 208,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 8 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 4
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_a/i",
+      "size_bytes": 107520
+    },
+    {
+      "external_id": "ext-BI",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 209,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 9 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 5
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_b/i",
+      "size_bytes": 108032
+    },
+    {
+      "external_id": "ext-CI",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 210,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 0 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 1
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_c/i",
+      "size_bytes": 108544
+    },
+    {
+      "external_id": "ext-DI",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 211,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 1 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 2
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_d/i",
+      "size_bytes": 109056
+    },
+    {
+      "external_id": "ext-EI",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 212,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 2 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 3
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_e/i",
+      "size_bytes": 109568
+    },
+    {
+      "external_id": "ext-FI",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 213,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 3 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 4
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_f/i",
+      "size_bytes": 110080
+    },
+    {
+      "external_id": "ext-GI",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 214,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 4 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 5
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_g/i",
+      "size_bytes": 110592
+    },
+    {
+      "external_id": "ext-HI",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 215,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 5 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 1
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_h/i",
+      "size_bytes": 111104
+    },
+    {
+      "external_id": "ext-II",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 216,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 6 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 2
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_i/i",
+      "size_bytes": 111616
+    },
+    {
+      "external_id": "ext-JI",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 217,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 7 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 3
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_j/i",
+      "size_bytes": 112128
+    },
+    {
+      "external_id": "ext-KI",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 218,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 8 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 4
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_k/i",
+      "size_bytes": 112640
+    },
+    {
+      "external_id": "ext-LI",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 219,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 9 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 5
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_l/i",
+      "size_bytes": 113152
+    },
+    {
+      "external_id": "ext-MI",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 220,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 0 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 1
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_m/i",
+      "size_bytes": 113664
+    },
+    {
+      "external_id": "ext-NI",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 221,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 1 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 2
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_n/i",
+      "size_bytes": 114176
+    },
+    {
+      "external_id": "ext-OI",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 222,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 2 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 3
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_o/i",
+      "size_bytes": 114688
+    },
+    {
+      "external_id": "ext-PI",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 223,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 3 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 4
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_p/i",
+      "size_bytes": 115200
+    },
+    {
+      "external_id": "ext-QI",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 224,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 4 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 5
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_q/i",
+      "size_bytes": 115712
+    },
+    {
+      "external_id": "ext-RI",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 225,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 5 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 1
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_r/i",
+      "size_bytes": 116224
+    },
+    {
+      "external_id": "ext-SI",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 226,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 6 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 2
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_s/i",
+      "size_bytes": 116736
+    },
+    {
+      "external_id": "ext-TI",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 227,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 7 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 3
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_t/i",
+      "size_bytes": 117248
+    },
+    {
+      "external_id": "ext-UI",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 228,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 8 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 4
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_u/i",
+      "size_bytes": 117760
+    },
+    {
+      "external_id": "ext-VI",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 229,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 9 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 5
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_v/i",
+      "size_bytes": 118272
+    },
+    {
+      "external_id": "ext-WI",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 230,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 0 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 1
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_w/i",
+      "size_bytes": 118784
+    },
+    {
+      "external_id": "ext-XI",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 231,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 1 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 2
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_x/i",
+      "size_bytes": 119296
+    },
+    {
+      "external_id": "ext-YI",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 232,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 2 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 3
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_y/i",
+      "size_bytes": 119808
+    },
+    {
+      "external_id": "ext-ZI",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 233,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 3 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 4
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_z/i",
+      "size_bytes": 120320
+    },
+    {
+      "external_id": "ext-AJ",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 234,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 4 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 5
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_a/j",
+      "size_bytes": 120832
+    },
+    {
+      "external_id": "ext-BJ",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 235,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 5 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 1
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_b/j",
+      "size_bytes": 121344
+    },
+    {
+      "external_id": "ext-CJ",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 236,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 6 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 2
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_c/j",
+      "size_bytes": 121856
+    },
+    {
+      "external_id": "ext-DJ",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 237,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 7 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 3
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_d/j",
+      "size_bytes": 122368
+    },
+    {
+      "external_id": "ext-EJ",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 238,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 8 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 4
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_e/j",
+      "size_bytes": 122880
+    },
+    {
+      "external_id": "ext-FJ",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 239,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 9 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 5
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_f/j",
+      "size_bytes": 123392
+    },
+    {
+      "external_id": "ext-GJ",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 240,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 0 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 1
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_g/j",
+      "size_bytes": 123904
+    },
+    {
+      "external_id": "ext-HJ",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 241,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 1 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 2
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_h/j",
+      "size_bytes": 124416
+    },
+    {
+      "external_id": "ext-IJ",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 242,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 2 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 3
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_i/j",
+      "size_bytes": 124928
+    },
+    {
+      "external_id": "ext-JJ",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 243,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 3 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 4
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_j/j",
+      "size_bytes": 125440
+    },
+    {
+      "external_id": "ext-KJ",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 244,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 4 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 5
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_k/j",
+      "size_bytes": 125952
+    },
+    {
+      "external_id": "ext-LJ",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 245,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 5 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 1
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_l/j",
+      "size_bytes": 126464
+    },
+    {
+      "external_id": "ext-MJ",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 246,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 6 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 2
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_m/j",
+      "size_bytes": 126976
+    },
+    {
+      "external_id": "ext-NJ",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 247,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 7 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 3
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_n/j",
+      "size_bytes": 127488
+    },
+    {
+      "external_id": "ext-OJ",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 248,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 8 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 4
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_o/j",
+      "size_bytes": 128000
+    },
+    {
+      "external_id": "ext-PJ",
+      "hash_sha256": "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+      "id": 249,
+      "metadata": {
+        "author": "user@example.com",
+        "description": "Auto-generated entry 9 for the large_json_result.json fixture; the description field pads the payload toward the ~30K-token size target so cycle 248's integration test can exercise the truncation path with a realistic MCP-tool result.",
+        "tags": [
+          "important",
+          "review"
+        ],
+        "version": 5
+      },
+      "mime_type": "application/octet-stream",
+      "modified": "2026-01-15T10:30:45Z",
+      "path": "/workspace/project/file_p/j",
+      "size_bytes": 128512
+    }
+  ],
+  "page": 1,
+  "per_page": 100,
+  "total": 250
+}

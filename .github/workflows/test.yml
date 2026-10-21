@@ -1,0 +1,56 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    name: Build & Test (Go 1.27)
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Go 1.27
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.27"
+          cache: true
+          cache-dependency-path: go.sum
+
+      - name: Show toolchain
+        run: |
+          go version
+          go env GOOS GOARCH GOPATH
+
+      - name: Download Go modules
+        run: go mod download
+
+      - name: Build (cmd/wagyu)
+        run: go build -o /tmp/wagyu ./cmd/wagyu
+
+      - name: Show built binary size
+        run: |
+          ls -la /tmp/wagyu
+          file /tmp/wagyu
+
+      # `./...` also covers scratch/, which has never built; the tested surface
+      # is cmd/ + internal/, the same set AGENTS.md documents.
+      - name: Test (cmd + internal)
+        run: go test -count=1 ./cmd/... ./internal/...
+
+      - name: Test race detector (subagent / mediagen goroutines)
+        run: go test -count=1 -race ./internal/subagent/... ./internal/mediagen/...
+
+      # `--services` / `--tool` are NOT registered: the parse-parity surface
+      # dropped them, so main.go's handlers for them are unreachable. Smoke the
+      # two flags that do exist.
+      - name: Smoke test (--version)
+        run: /tmp/wagyu --version
+
+      - name: Smoke test (--help)
+        run: /tmp/wagyu --help | head -20

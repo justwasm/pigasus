@@ -1,0 +1,172 @@
+// macOS terminal-sandbox Seatbelt profile generation.
+//
+// Cycle macos-library-sandbox: AGY 1.3.3 changelog line 44 added a
+// default-deny rule for `~/Library/Application Support` reads under the
+// macOS terminal sandbox that Auto mode and run_command use. Desktop apps
+// keep credentials and session tokens under that path; reading them out
+// of a sandboxed command was previously allowed, and a single stray
+// `cat "~/Library/Application Support/Foo/token"` could exfiltrate a
+// session. The fix layers the deny in front of the user-supplied allow
+// rules so an explicit user override still wins, exactly the way the
+// changelog describes it: "previously it was readable, and you can still
+// allow it explicitly in your sandbox rules".
+//
+// Scope: macOS only. On non-darwin platforms Render() returns "" and the
+// caller can use that as a single guard (the sandbox-exec invocation is
+// skipped entirely). The Linux/Windows paths of run_command are
+// untouched.
+//
+// The implementation is a profile-string generator. The orchestrator
+// session chose this shape because it lets us unit-test the actual
+// Seatbelt syntax without invoking sandbox-exec on the dev machine —
+// the brief was explicit about not executing the profile here. The
+// runner that consumes the profile (cmd/wagyu/run_command.go, future
+// cycle) is out of scope.
+package permissions
+
+import (
+	"fmt"
+	"os"
+	"runtime"
+	"strings"
+)
+
+// DefaultSandboxProfilePath is the location under $HOME where a user can
+// drop their own `.sb` rules. When the file exists its contents are
+// appended LAST in the generated profile, so an explicit
+// `(allow file-read* ...)` for ~/Library/Application Support (or any
+// other path) wins over the default-deny this cycle adds.
+//
+// The path mirrors the rest of the openagy config layout (sibling to
+// settings.json and skills/). The orchestrator session chose this name
+// because AGY's recovered string table mentions
+// `.gemini/config/sandbox.sb` (cycle-224 settingsKey read at
+// enableTerminalSandbox).
+const DefaultSandboxProfilePath = ".gemini/config/sandbox.sb"
+
+// DefaultDenyPaths is the list of relative paths under $HOME that the
+// generated profile denies by default. AGY 1.3.3 changelog line 44 added
+// `Library/Application Support`. Each entry is rendered as
+//
+//	(deny file-read*
+//	  (subpath (string-append (param "HOME") "/<entry>")))
+//
+// The match is exact-or-below: a `cat` of any file under the path is
+// blocked, but `cat ~/Library/Fonts/...` is unaffected.
+//
+// Layered BEFORE any user-supplied allow rules so an explicit user
+// override wins (Seatbelt evaluates rules in order; later allow wins
+// over earlier deny).
+var DefaultDenyPaths = []string{
+	"Library/Application Support",
+}
+
+// SeatbeltProfile is the input to Render. HomeDir is the user's $HOME
+// (pass the result of os.UserHomeDir() — Render fails closed when it is
+// empty because an empty home would render
+// `(string-append "" "/Library/Application Support")` and silently deny
+// reads of /Library/Application Support, which is the opposite of what
+// we want). UserOverrides is the verbatim contents of
+// `~/.gemini/config/sandbox.sb`; pass "" when the file does not exist.
+// ExtraDenyPaths layers additional default-deny entries on top of
+// DefaultDenyPaths; cycle macos-library-sandbox does not use it.
+type SeatbeltProfile struct {
+	HomeDir        string
+	UserOverrides  string
+	ExtraDenyPaths []string
+}
+
+// Render produces the full Seatbelt `.sb` profile text. Returns "" on
+// non-darwin platforms so the caller can guard with a single empty check
+// before invoking `sandbox-exec -f <tmpfile>`.
+//
+// The emitted profile is layered in three sections:
+//
+//  1. Header — `(version 1)` and the `(deny default)` baseline. Every
+//     rule below is an exception; this is the "default-deny, allowlist
+//     specific operations" idiom the AGY terminal sandbox uses.
+//  2. Allow baseline — the minimum operations any shell command needs:
+//     process fork/exec, sysctl reads, file reads everywhere, file
+//     writes under $HOME / tmpfs / /dev, and network. Cycle
+//     macos-library-sandbox does NOT change this baseline.
+//  3. Default-deny (AGY 1.3.3 line 44) — for each entry in
+//     DefaultDenyPaths ∪ ExtraDenyPaths emit a
+//     `(deny file-read* (subpath ...))` rule. These go BEFORE the user
+//     overrides so a user's explicit `(allow file-read* ...)` for the
+//     same path wins.
+//  4. User overrides — appended verbatim. Newlines normalised so the
+//     join is stable.
+func (p SeatbeltProfile) Render() string {
+	if runtime.GOOS != "darwin" {
+		return ""
+	}
+	if p.HomeDir == "" {
+		// Fail closed: an empty HomeDir would silently deny the wrong
+		// path. The orchestrator caller should always pass
+		// os.UserHomeDir(); this is the belt-and-braces case.
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("; Auto-generated by openagy internal/permissions.SeatbeltProfile.\n")
+	b.WriteString("; Cycle macos-library-sandbox. AGY 1.3.3 changelog line 44.\n")
+	b.WriteString("; Do not edit by hand — re-run the generator after editing DefaultDenyPaths.\n")
+	b.WriteString("(version 1)\n")
+	b.WriteString("(deny default)\n")
+	b.WriteString("\n")
+	b.WriteString("; --- baseline allow rules (run_command needs these to function) ---\n")
+	b.WriteString("(allow process*)\n")
+	b.WriteString("(allow sysctl-read)\n")
+	b.WriteString("(allow file-read*)\n")
+	b.WriteString("(allow file-write*\n")
+	b.WriteString("\t(subpath (param \"HOME\"))\n")
+	b.WriteString("\t(subpath \"/tmp\")\n")
+	b.WriteString("\t(subpath \"/private/tmp\")\n")
+	b.WriteString("\t(subpath \"/dev\"))\n")
+	b.WriteString("(allow network*)\n")
+	b.WriteString("\n")
+
+	denies := append([]string(nil), DefaultDenyPaths...)
+	denies = append(denies, p.ExtraDenyPaths...)
+	if len(denies) > 0 {
+		b.WriteString("; --- default-deny rules (layered before user allow so explicit override wins) ---\n")
+		for _, rel := range denies {
+			fmt.Fprintf(&b, "(deny file-read*\n\t(subpath (string-append (param \"HOME\") \"/%s\")))\n", rel)
+		}
+		b.WriteString("\n")
+	}
+
+	if p.UserOverrides != "" {
+		b.WriteString("; --- user-provided overrides from " + DefaultSandboxProfilePath + " ---\n")
+		b.WriteString(p.UserOverrides)
+		if !strings.HasSuffix(p.UserOverrides, "\n") {
+			b.WriteString("\n")
+		}
+	}
+	return b.String()
+}
+
+// LoadUserSandboxProfile reads the user-provided sandbox profile under
+// $HOME. A missing file is NOT an error — it returns "", false, nil so
+// the caller can ignore the override path when the user has not
+// configured one. Other errors (permission denied, I/O) are returned
+// verbatim so the caller can surface them.
+//
+// On non-darwin the file is not read and the function returns "", false,
+// nil so callers can use a single guard.
+func LoadUserSandboxProfile(home string) (string, bool, error) {
+	if runtime.GOOS != "darwin" {
+		return "", false, nil
+	}
+	if home == "" {
+		return "", false, nil
+	}
+	path := home + "/" + DefaultSandboxProfilePath
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return "", false, nil
+		}
+		return "", false, err
+	}
+	return string(data), true, nil
+}

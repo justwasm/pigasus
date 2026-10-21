@@ -1,0 +1,19 @@
+{"label": "open", "tool": "open_binary", "args": {"path": "/Users/you/.local/bin/agy", "provider_id": "ghidra"}}
+{"label": "overview", "tool": "binary_overview", "args": {}}
+{"label": "probe-eligibility", "tool": "search_procedures", "args": {"pattern": "waitForEligibility"}}
+{"label": "search-ineligibleTiers", "tool": "search_strings", "args": {"pattern": "ineligibleTiers"}}
+{"label": "search-cloudcodeurl", "tool": "search_strings", "args": {"pattern": "CLOUD_CODE_URL"}}
+{"label": "decomp-hideFlagsForExternal", "tool": "procedure_pseudo_code", "args": {"procedure": "0x1028b6010"}}
+{"label": "decomp-shouldBypassKeyring", "tool": "procedure_pseudo_code", "args": {"procedure": "0x1018a57b0"}}
+{"label": "decomp-KeyringLoadToken", "tool": "procedure_pseudo_code", "args": {"procedure": "0x1018b2b10"}}
+{"label": "decomp-IneligibilityFromResult", "tool": "procedure_pseudo_code", "args": {"procedure": "0x1023a4090"}}
+{"label": "decomp-EligibilityError", "tool": "procedure_pseudo_code", "args": {"procedure": "0x1023a3ea0"}}
+{"label": "decomp-storeWaitForEligibility", "tool": "procedure_pseudo_code", "args": {"procedure": "0x10260fc60"}}
+{"label": "decomp-printmodeWaitForEligibility", "tool": "procedure_pseudo_code", "args": {"procedure": "0x1028918f0"}}
+{"label": "decomp-getOauthParams", "tool": "procedure_pseudo_code", "args": {"procedure": "0x1023997d0"}}
+{"label": "decomp-TrySilentAuth", "tool": "procedure_pseudo_code", "args": {"procedure": "0x1023c27e0"}}
+{"label": "decomp-constructCodeAssistEndpoint", "tool": "procedure_pseudo_code", "args": {"procedure": "0x1018a0f20"}}
+{"label": "decomp-memoizeKeyringTimeout", "tool": "procedure_pseudo_code", "args": {"procedure": "0x101895d20"}}
+{"label": "decomp-GetManifestURLFromBase", "tool": "procedure_pseudo_code", "args": {"procedure": "0x1028a3200"}}
+{"label": "decomp-RunLogin", "tool": "procedure_pseudo_code", "args": {"procedure": "0x10239acc0"}}
+{"label": "close", "tool": "close_binary", "args": {"snapshot_path": "./ghidra-snapshot.json", "overwrite": true}}

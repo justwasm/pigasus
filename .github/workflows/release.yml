@@ -1,0 +1,127 @@
+# yaml-language-server: $schema=https://json.schemastore.org/github-workflow.json
+
+name: release
+
+on:
+  push:
+    tags:
+      - v*.*.*
+  workflow_dispatch:
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+env:
+  VERSION: ${{ github.ref_name }}
+  GONOSUMDB: 'github.com/MichaelKinsy/PiG,github.com/MichaelKinsy/PiG/*'
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Build every binary on a parallel runner. Each entry uploads:
+  #   bin-archive-<goos>-<goarch><goarm> -> user-facing tarball/zip
+  # ---------------------------------------------------------------------------
+  binary:
+    name: ${{ matrix.goos }}/${{ matrix.goarch }}${{ matrix.goarm }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { goos: linux,   goarch: amd64,   goarm: ""    }
+          - { goos: linux,   goarch: arm64,   goarm: ""    }
+          - { goos: darwin,  goarch: amd64,   goarm: ""    }
+          - { goos: darwin,  goarch: arm64,   goarm: ""    }
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Compute archive suffix
+        id: arch
+        run: |
+          raw="${{ matrix.goarch }}${{ matrix.goarm }}"
+          if   [ "${{ matrix.goarch }}" = "amd64" ]; then raw="x86_64"
+          elif [ "${{ matrix.goarch }}" = "386" ];   then raw="i386"
+          elif [ "${{ matrix.goarch }}" = "arm" ];   then raw="armv${{ matrix.goarm }}"
+          fi
+          os_title=$(echo "${{ matrix.goos }}" | awk '{print toupper(substr($0,1,1)) substr($0,2)}')
+          ext="tar.gz"; [ "${{ matrix.goos }}" = "windows" ] && ext="zip"
+          archive="pigasus_${VERSION}_${os_title}_${raw}.${ext}"
+          echo "raw=$raw"        >> "$GITHUB_OUTPUT"
+          echo "archive=$archive" >> "$GITHUB_OUTPUT"
+      - name: Build binary
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          GOARM: ${{ matrix.goarm }}
+          CGO_ENABLED: "0"
+        run: |
+          set -euo pipefail
+          raw_staging="stage-${{ steps.arch.outputs.raw }}"
+          archive="${{ steps.arch.outputs.archive }}"
+          mkdir -p "$raw_staging" dist
+          bin="$raw_staging/pigasus"
+          [ "$GOOS" = "windows" ] && bin="$raw_staging/pigasus.exe"
+          go build -trimpath -ldflags "-s -w" -o "$bin" ./cmd/wagyu
+          chmod +x "$bin"
+          # Also include wagyu binary alias in the archive
+          cp "$bin" "$raw_staging/wagyu"
+          [ "$GOOS" = "windows" ] && cp "$bin" "$raw_staging/wagyu.exe"
+          cp README.md  "$raw_staging/README.md"  2>/dev/null || true
+          cp LICENSE    "$raw_staging/LICENSE"    2>/dev/null || true
+
+          dist_staging="pigasus_${VERSION}_${{ steps.arch.outputs.raw }}"
+          mkdir -p "dist/$dist_staging"
+          cp -R "$raw_staging/." "dist/$dist_staging/"
+
+          if [ "$GOOS" = "windows" ]; then
+            (cd dist && zip -r -q "$archive" "$dist_staging")
+          else
+            tar -C dist -czf "dist/$archive" "$dist_staging"
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bin-archive-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.goarm }}
+          path: dist/${{ steps.arch.outputs.archive }}
+          if-no-files-found: error
+          retention-days: 7
+
+  # ---------------------------------------------------------------------------
+  # Finalizer: gather every artifact, build checksums, publish the GitHub
+  # Release with the auto-generated release notes.
+  # ---------------------------------------------------------------------------
+  publish:
+    needs: [binary]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+      - name: Build checksums.txt
+        working-directory: artifacts
+        run: |
+          find . -type f -print0 | sort -z \
+            | xargs -0 sha256sum > ../checksums.txt
+          cat ../checksums.txt
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          cp checksums.txt artifacts/checksums.txt
+          cd artifacts
+          files=$(find . -type f | sort | sed 's|^\./||')
+          gh release create "$VERSION" \
+            --title "$VERSION" \
+            --generate-notes \
+            $files

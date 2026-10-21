@@ -1,0 +1,250 @@
+# agy 1.4.4 file-tool result texts (【一手】)
+#
+# Captured 2026-10-21 on this machine. Method: point CLOUD_CODE_URL at a mock
+# that answers the first streamGenerateContent with one functionCall, run the
+# real agy 1.4.4 TUI, then read the functionResponse in the follow-up request
+# body the reference sends. Every result is a plain string under
+# functionResponse.response.output, never an error, even for the refusal.
+#
+# <stamp> stands for the two timestamp lines:
+#   Created At: 2026-10-21T22:54:50+08:00
+#   Completed At: 2026-10-21T22:54:50+08:00
+# (local RFC3339, second granularity, no blank line before the body)
+
+## read_file {"Path": "/tmp/refread.txt"} ; file is "line one\nline two\nline three\n"
+<stamp>
+Showing lines 1-3 of 3
+1: line one
+2: line two
+3: line three
+
+## read_file {"Path": "/tmp/refread.txt", "StartLine": 2, "EndLine": 2}
+<stamp>
+Showing lines 2-2 of 3
+2: line two
+
+## read_file {"Path": "/tmp/refempty.txt"} ; zero-byte file
+<stamp>
+File is empty
+
+## write_file {"Path": "/tmp/refwrite.txt", "Content": "alpha\nbeta\n"} ; file did not exist
+<stamp>
+Created file.
+
+## write_file {"Path": "/tmp/refwrite2.txt", "Content": "overwritten\n"} ; file exists, no Overwrite
+<stamp>
+Encountered error in tool execution: /tmp/refwrite2.txt already exists. To overwrite it, retry with Overwrite=true. To edit it, view its contents first and use a code edit tool. Otherwise, choose a different file name
+
+## write_file {"Path": "/tmp/refwrite2.txt", "Content": "delta\n", "Append": true} ; file exists
+# The file grew from "alpha\nbeta\n" to "alpha\nbeta\ndelta\n"; the message is
+# still "Created file.", not an append-specific one.
+<stamp>
+Created file.
+
+## edit_file {"Path": "/tmp/refedit2.txt", "Target": "beta", "Replacement": "gamma"}
+# "alpha beta\n" -> "alpha gamma\n"
+<stamp>
+Made 1 replacement in /tmp/refedit2.txt starting at line 1 (+1/-1 lines).
+
+## edit_file {"Path": "/tmp/refmulti.txt", "Target": "alpha\nbeta", "Replacement": "ALPHA\nBETA\nGAMMA"}
+# +N/-M are the line counts of Replacement and Target.
+<stamp>
+Made 1 replacement in /tmp/refmulti.txt starting at line 1 (+3/-2 lines).
+
+## read_file {"Path": "/tmp/rl_big.txt"} ; 900 lines, "line N"
+# The declaration promises at most 800 lines or 46080 bytes per read. The
+# 800-line cap shows in the range header; there is no extra truncation note.
+<stamp>
+Showing lines 1-800 of 900
+1: line 1
+…
+800: line 800
+
+## read_file {"Path": "/tmp/rl_big.txt", "StartLine": 100}
+<stamp>
+Showing lines 100-899 of 900
+
+## read_file {"Path": "/tmp/rl_big.txt", "StartLine": 1, "EndLine": 900}
+# EndLine beyond the cap is clamped as well.
+<stamp>
+Showing lines 1-800 of 900
+
+## read_file {"Path": "/tmp/refread.txt", "StartLine": 10, "EndLine": 20} ; 3-line file
+# A StartLine past EOF clamps to the last line (not an empty range).
+<stamp>
+Showing lines 3-3 of 3
+3: line three
+
+## read_file {"Path": "/tmp/rl_long.txt"} ; 100 lines x 1000 chars, 100100 bytes
+# The 46080-byte cap counts the NUMBERED text, so "of 100491" is larger than
+# the file. The body is exactly num[0:46080] — it ends mid-line.
+<stamp>
+Partial read (lines 1-100 of 100). Showing bytes 0-46080 of 100491 in this line range, truncated at the 46080-byte limit. To read the rest of this line range, call this tool again with the same StartLine and EndLine and ByteOffset=46080.
+1: A0000xxxx…
+
+## read_file {"Path": "/tmp/rl_long.txt", "StartLine": 1, "EndLine": 100, "ByteOffset": 46080}
+# ByteOffset is an offset into the numbered text: the body starts 140 bytes
+# into a line (the x run), so the fragment is unnumbered and the next whole
+# line is numbered 47.
+<stamp>
+Partial read (lines 1-100 of 100). Showing bytes 46080-92160 of 100491 in this line range, truncated at the 46080-byte limit. To read the rest of this line range, call this tool again with the same StartLine and EndLine and ByteOffset=92160.
+xxxx… (140 x)
+47: A0046xxxx…
+
+## edit_file {"Path": "/tmp/rl_edit.txt", "Target": "ZZZ-not-there", "Replacement": "x"}
+# A Target that does not occur is a normal result, not an error.
+<stamp>
+Encountered error in tool execution: target content not found in the file; the Target must exactly match existing file text, including whitespace
+
+## manage_task {"Action": "list"} ; no background task
+# 1.4.4 result, identical for the standard agent and for a custom agent.
+<stamp>
+No background tasks are currently running.
+
+## send_message {"Recipient": "abc123", "Message": "hi"} ; unknown id
+<stamp>
+Encountered error in tool execution: recipient "abc123" not found
+
+## define_subagent {"Name": "cycletest", "Description": "Test subagent", "SystemPrompt": "You are a test."}
+<stamp>
+Subagent "cycletest" defined successfully. It can now be invoked via invoke_subagent.
+
+## manage_subagents {"Action": "kill_all"} ; nothing running
+<stamp>
+No active subagents to kill.
+
+## invoke_subagent {"TypeName": "general", "Role": "Tester", "Prompt": "Say OK."}
+# "general" is not one of the built-ins (self, research, image-generator).
+<stamp>
+Encountered error in tool execution: subagent "general" not found or not allowed to be invoked
+
+## invoke_subagent {"TypeName": "self", "Role": "Tester", "Prompt": "Say OK and stop."}
+# The reference returns immediately (Started == Completed) with a launch
+# acknowledgement; the subagent reports back later via send_message.
+<stamp>
+Created the following subagent:
+{
+  "conversationId":  "3b29eb70-218a-4c92-b4b7-e2d4a88a337f",
+  "logAbsoluteUri":  "file:///Users/gear/.gemini/antigravity-cli/brain/3b29eb70-218a-4c92-b4b7-e2d4a88a337f/.system_generated/logs/transcript.jsonl",
+  "workspaceUris":  [
+    "file:///tmp"
+  ]
+}
+The subagent will send you a message when it has completed its task or requires guidance. There is no need to poll for its response.
+
+## schedule {"Prompt": "ping", "DurationSeconds": 3600}
+# Backgrounded: there is a Created At but NO Completed At.
+Created At: 2026-10-22T01:44:30+08:00
+Tool is running as a background task with task id: 1f5dcf00-db2f-4fff-807e-1bb5ee2d34ca/task-2
+Task logs are available at: file:///Users/gear/.gemini/antigravity-cli/brain/1f5dcf00-db2f-4fff-807e-1bb5ee2d34ca/.system_generated/tasks/task-2.log
+YOU MUST TAKE ONE OF THE FOLLOWING TWO ACTIONS: A) either proceed to other relevant work (if any) or, B) simply update the user with a short message (that you have launched the command and will wait for it to finish) and end the turn.
+ DO NOTHING ELSE.
+
+## search_web {"query": "golang", "domain": "go.dev"}
+# The reference's search is a GenerateContent call; this account/route
+# returned no grounded candidates.
+<stamp>
+Encountered error in tool execution: no candidates returned from GenerateContent
+
+## generate_image {"Prompt": "a red cube", "ImageName": "cube"} ; custom agent
+<stamp>
+Encountered error in tool execution: no response in generate content result
+
+## read_url_content {"Url": "https://go.dev/"} ; custom agent
+# Success: the page is fetched, reduced to an article, and saved under the
+# conversation's brain directory; the result carries Title/OG Description.
+<stamp>
+Title: Live Content
+
+OG Description: Fetched live
+
+The full content of the article at https://go.dev/ has been saved to: /Users/gear/.gemini/antigravity-cli/brain/043f5b42-49fb-481a-b312-3de6f873f4a2/.system_generated/steps/6/content.md
+
+You can use the view_file tool to read specific sections if needed.
+
+## ask_question {"questions": [{"question": "Pick one", "options": ["alpha", "beta"]}]}
+# The user selected the first option; one line per question.
+<stamp>
+A1: alpha
+
+## view_file {"AbsolutePath": "/tmp/agentws/a.txt"} ; "l1\nl2\nl3\nl4\n"
+# Custom-agent tool. NOT read_file's format: File Path / Total Lines /
+# Total Bytes and "Showing lines A to B". The trailing newline counts as an
+# empty fifth line. Note the trailing newline after the closing sentence.
+<stamp>
+File Path: `file:///tmp/agentws/a.txt`
+Total Lines: 5
+Total Bytes: 12
+Showing lines 1 to 5
+The following code has been modified to include a line number before every line, in the format: <line_number>: <original_line>. Please note that any changes targeting the original code should remove the line number, colon, and leading space.
+1: l1
+2: l2
+3: l3
+4: l4
+5: 
+The above content shows the entire, complete file contents of the requested file.
+
+## view_file {"AbsolutePath": "/tmp/agentws/a.txt", "StartLine": 10}
+<stamp>
+File Path: `file:///tmp/agentws/a.txt`
+Total Lines: 5
+Total Bytes: 12
+Showing lines 5 to 5
+The following code has been modified to include a line number before every line, in the format: <line_number>: <original_line>. Please note that any changes targeting the original code should remove the line number, colon, and leading space.
+5: 
+The above content does NOT show the entire file contents. If you need to view any lines of the file which were not shown to complete your task, call this tool again to view those lines.
+
+## view_file {"AbsolutePath": "/tmp/agentws/a.txt", "StartLine": 2, "EndLine": 3}
+<stamp>
+File Path: `file:///tmp/agentws/a.txt`
+Total Lines: 5
+Total Bytes: 12
+Showing lines 2 to 3
+The following code has been modified to include a line number before every line, in the format: <line_number>: <original_line>. Please note that any changes targeting the original code should remove the line number, colon, and leading space.
+2: l2
+3: l3
+The above content does NOT show the entire file contents. If you need to view any lines of the file which were not shown to complete your task, call this tool again to view those lines.
+
+## view_file {"AbsolutePath": "/tmp/rl_long.txt"} ; 46080-byte cap
+# The cap counts the RAW line range here (100100 = the file), unlike read_file.
+# The slice ends mid-line; the closing sentence differs.
+<stamp>
+File Path: `file:///tmp/rl_long.txt`
+Total Lines: 101
+Total Bytes: 100100
+Showing lines 1 to 101
+Content truncated: showing bytes 0-46080 of 100100. To see more, call this tool again with the same line range and ContentOffset=46080.
+The following code has been modified to include a line number before every line, in the format: <line_number>: <original_line>. Please note that any changes targeting the original code should remove the line number, colon, and leading space.
+1: A0000xxxx…
+…
+47: A0046xxxxx
+The above content was truncated because individual lines are very long. Only a portion of the content is shown.
+
+## view_file {"AbsolutePath": "/tmp/rl_long.txt", "StartLine": 1, "EndLine": 60, "ContentOffset": 46080}
+# The "of N" is the selected range's byte length (60059), not the file's.
+# No truncation note when the remainder fits. The returned slice is
+# renumbered from 1, so the first line reads "1: " even though it is the tail
+# of file line 47.
+<stamp>
+File Path: `file:///tmp/rl_long.txt`
+Total Lines: 101
+Total Bytes: 100100
+Showing lines 1 to 60
+The following code has been modified to include a line number before every line, in the format: <line_number>: <original_line>. Please note that any changes targeting the original code should remove the line number, colon, and leading space.
+1: xxxx… (966 x)
+2: A0047xxxx…
+…
+14: A0059xxxx…
+The above content does NOT show the entire file contents. If you need to view any lines of the file which were not shown to complete your task, call this tool again to view those lines.
+
+## view_file {"AbsolutePath": "/tmp/rl_big.txt"} ; 901 lines
+<stamp>
+File Path: `file:///tmp/rl_big.txt`
+Total Lines: 901
+Total Bytes: 7992
+Showing lines 1 to 800
+The following code has been modified to include a line number before every line, in the format: <line_number>: <original_line>. Please note that any changes targeting the original code should remove the line number, colon, and leading space.
+1: line 1
+…
+800: line 800
+The above content does NOT show the entire file contents. If you need to view any lines of the file which were not shown to complete your task, call this tool again to view those lines.

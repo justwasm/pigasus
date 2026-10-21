@@ -1,0 +1,70 @@
+{
+  "version": "1.4.4",
+  "artifacts": [
+    {
+      "path": "internal/cli/testdata/changelog_reference.txt",
+      "captured_at": "1.4.4",
+      "digest": "8804d34c72a00bd7d7d949b186f295866019d0fbb7f6dbe1ab7b87c4b6f03c83",
+      "live": true,
+      "how": "agy changelog \u003e internal/cli/testdata/changelog_reference.txt, then update the three constants in internal/cli/changelog_data_test.go (byte length, line count, sha256) and regenerate this lock"
+    },
+    {
+      "path": "internal/agyprompt/testdata/capture_1.4.4.txt",
+      "captured_at": "1.4.4",
+      "digest": "8036e140faaee0f1ce4b4469b3402294f356d639e812288e790863bcbf196da9",
+      "how": "re-record the request body through the cycle-274 capture wrapper (cmd/agy + devutils/agyproxy) against the new binary, then rebuild internal/agyprompt/sections/*.txt from it"
+    },
+    {
+      "path": "internal/agyprompt/testdata/capture_1.4.4.json",
+      "captured_at": "1.4.4",
+      "digest": "cdf6972286bc601de461083f577903e9a21d97354e5466e471cdc2dd8a794224",
+      "how": "re-recorded alongside capture_1.4.4.txt in the same proxy run; it carries the os_version / workspaces / subagents / skills inputs Build() is fed"
+    },
+    {
+      "path": "internal/tools/testdata/advertised_tools_1.4.3.txt",
+      "captured_at": "1.4.4",
+      "digest": "46dcfca2805e6efa56a3fa408cfb423636dbb2892b6072c5ee4b28094c300436",
+      "live": true,
+      "how": "agy -p='x' --output-format stream-json and collect the init.tools array; repeat from three working directories as the cycle-275 test does"
+    },
+    {
+      "path": "internal/tools/model_tools_1.4.4.json",
+      "captured_at": "1.4.4",
+      "digest": "f7dc8ddbe450dcfe84740dc3e7247e2a41491d29772659add28195f43c792c7a",
+      "live": true,
+      "how": "capture a streamGenerateContent body (cmd/agy wrapper or a CLOUD_CODE_URL mock) and extract request.tools[0].functionDeclarations; it must stay twelve, in the captured order, with the same required fields"
+    },
+    {
+      "path": "internal/tools/testdata/result_texts_1.4.4.txt",
+      "captured_at": "1.4.4",
+      "digest": "9d333356038a585d3f1ce6d58a714d8cfcfea83e73656668a996e9c88c99b284",
+      "live": true,
+      "how": "run the real 1.4.4 TUI with CLOUD_CODE_URL pointed at a mock that answers the first streamGenerateContent with one functionCall, then read functionResponse.response.output in the follow-up request; redo for read_file (whole/range/empty), write_file (create/refusal/append) and edit_file (single/multi-line)"
+    },
+    {
+      "path": "internal/agenttools/testdata/agent_decls_1.4.4.json",
+      "captured_at": "1.4.4",
+      "digest": "a7a48b9a86c9b6d535650c16fa1a2af504437ad1d59d3d52f69d632e39a6714e",
+      "live": true,
+      "how": "run the real 1.4.4 TUI in a workspace with .agents/agents/\u003cname\u003e.md and --agent \u003cname\u003e; answer the first streamGenerateContent with a CLOUD_CODE_URL mock, then extract request.tools[*].functionDeclarations. It must stay seven, in order, and keep toolSummary/toolAction required."
+    },
+    {
+      "path": "internal/remotecontrol/testdata/jetski_remote_agent_proxy_1.4.4.txt",
+      "captured_at": "1.4.4",
+      "digest": "282b5bcd2f392ef0e5fce7f5f1eed1ccc9d96848f4cba8587927a66c9bac44fe",
+      "how": "extract the uncompressed FileDescriptorProto for google/gca/aicode/v1main/remote_agent_proxy.proto from the agy binary (see out/local-macos/protos/README.md) and emit one \u003cRPC\u003e\\t\u003cRequest\u003e\\t\u003cResponse\u003e line per method; TestReferenceRPCMethodsMatchFixture pins the order"
+    },
+    {
+      "path": "out/local-macos/protos/remote_agent_proxy_1.4.4.txt",
+      "captured_at": "1.4.4",
+      "digest": "205c78acff60ab7e77a26ddf84f90ab934aba100c811f6db25c90b6b9029b43a",
+      "how": "decode the FileDescriptorProto at the offset named in out/local-macos/protos/README.md with descriptor_pb2 and print it with text_format; the offset moves on every agy release"
+    },
+    {
+      "path": "out/local-macos/protos/remote_agent_proxy_pb_1.4.4.txt",
+      "captured_at": "1.4.4",
+      "digest": "717b609f5ff6c0126ceab1ca959afcd7b5e00576b982387c57663996c48b2983",
+      "how": "same procedure as remote_agent_proxy_1.4.4.txt, for third_party/jetski/remote_agent_proxy_pb/remote_agent_proxy.proto (package exa.remote_agent_proxy_pb)"
+    }
+  ]
+}
