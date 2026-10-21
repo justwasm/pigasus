@@ -71,8 +71,12 @@ func RunUpdate(w io.Writer, args []string) error {
 	if env := os.Getenv("PIGASUS_UPDATE_REPO"); env != "" {
 		repoSlug = env
 	}
+	currentVer := ReferenceVersion
+	if env := os.Getenv("PIGASUS_CURRENT_VERSION"); env != "" {
+		currentVer = env
+	}
 
-	return runSelfUpdate(context.Background(), w, activeUpdater, ReferenceVersion, repoSlug)
+	return runSelfUpdate(context.Background(), w, activeUpdater, currentVer, repoSlug)
 }
 
 func runSelfUpdate(ctx context.Context, w io.Writer, updater Updater, currentVersion string, repoSlug string) error {
