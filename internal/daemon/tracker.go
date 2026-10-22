@@ -475,10 +475,10 @@ func (t *Tracker) Shutdown(ctx context.Context) int {
 				if tr.pgid == 0 || tr.pgid == tr.cmd.Process.Pid {
 					target = -tr.cmd.Process.Pid
 				}
-				if err := syscall.Kill(target, syscall.SIGKILL); err != nil && !errors.Is(err, syscall.ESRCH) {
-					logger.Printf("[daemon] SIGKILL %s (pid=%d): %v", tr.name, tr.cmd.Process.Pid, err)
-				} else {
+				if err := syscall.Kill(target, syscall.SIGKILL); err == nil {
 					killed++
+				} else if !errors.Is(err, syscall.ESRCH) {
+					logger.Printf("[daemon] SIGKILL %s (pid=%d): %v", tr.name, tr.cmd.Process.Pid, err)
 				}
 				if delay > 0 {
 					time.Sleep(delay)

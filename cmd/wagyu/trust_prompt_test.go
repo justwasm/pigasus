@@ -25,7 +25,11 @@ import (
 // reference and break the A/B harness's diff count.
 func TestRenderTrustPromptSmoke(t *testing.T) {
 	var buf bytes.Buffer
-	if err := renderTrustPrompt("/Users/gear/GitHub/openagy", &buf); err != nil {
+	cwd := "/Users/gear/GitHub/openagy"
+	if home, err := os.UserHomeDir(); err == nil && home != "" {
+		cwd = home + "/GitHub/openagy"
+	}
+	if err := renderTrustPrompt(cwd, &buf); err != nil {
 		t.Fatalf("render: %v", err)
 	}
 	out := buf.String()
