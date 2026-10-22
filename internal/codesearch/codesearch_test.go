@@ -220,7 +220,7 @@ func TestRunRipgrepCancelled(t *testing.T) {
 ` +
 		"EOF\n" +
 		// Now block so cmd.Wait() would hang forever if Kill didn't work.
-		"sleep 30\n"
+		"exec sleep 30\n"
 	if err := os.WriteFile(blockingPath, []byte(body), 0o755); err != nil {
 		t.Fatal(err)
 	}

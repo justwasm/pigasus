@@ -471,6 +471,9 @@ func (t *Tracker) Shutdown(ctx context.Context) int {
 			}
 			t.mu.Unlock()
 			for _, tr := range survivors {
+				if !IsRunning(tr.cmd.Process.Pid) {
+					continue
+				}
 				target := -tr.pgid
 				if tr.pgid == 0 || tr.pgid == tr.cmd.Process.Pid {
 					target = -tr.cmd.Process.Pid
