@@ -262,6 +262,10 @@ func TestLoadUserSandboxProfile_NoopOnNonDarwin(t *testing.T) {
 		t.Skip("non-darwin assertion; this machine is darwin")
 	}
 	home := t.TempDir()
+	dir := filepath.Join(home, filepath.Dir(DefaultSandboxProfilePath))
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(filepath.Join(home, DefaultSandboxProfilePath), []byte("x"), 0o644); err != nil {
 		t.Fatal(err)
 	}

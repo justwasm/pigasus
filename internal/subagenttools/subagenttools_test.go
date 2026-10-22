@@ -1,12 +1,11 @@
-// subagenttools_test.go — the six cycle-228 tests for the AGY 1.4.0
-// subagent toolset: invoke_subagent (real), send_message and
-// manage_subagents (stubs).
+// subagenttools_test.go — the cycle-228 tests for the AGY subagent
+// toolset: invoke_subagent, send_message, define_subagent and
+// manage_subagents.
 //
-// The first three probes (declaration + scripted run + error path)
-// give the AGY-shape contract test coverage today; the last three
-// freeze the stub surface (description + IsError envelope) so a
-// later cycle can swap them to real implementations without changing
-// the wire schema the model already learned.
+// The declaration and scripted-run tests pin the AGY-shaped surface the
+// model already learned; the send_message/manage_subagents tests pin the
+// reference's own result texts (【一手】 1.4.4 where captured, 【反编译】
+// where only the decompiled handler was available).
 //
 // End-to-end Invoke uses ai.TestFauxProvider via the inline
 // `pi.Model.Provider` field; PiG's `coding.Runtime` does not route
@@ -25,7 +24,6 @@ import (
 	"testing"
 	"time"
 
-	piagent "github.com/MichaelKinsy/PiG/agent"
 	pi "github.com/MichaelKinsy/PiG/ai"
 	"github.com/MichaelKinsy/PiG/coding"
 )
@@ -483,30 +481,6 @@ func TestManageSubagentsKill(t *testing.T) {
 	// An action outside the reference's enum is a caller-side error.
 	if _, err := tool.Execute(context.Background(), "call-mgr-bad", json.RawMessage(`{"Action":"nope"}`), nil); err == nil {
 		t.Fatal("unknown action returned nil error")
-	}
-}
-
-// assertStubEnvelope is a small helper the two manage_subagents
-// tests share: it confirms the body is JSON with ok=false and the
-// documented "not yet implemented (cycle 228 stub)" marker.
-func assertStubEnvelope(t *testing.T, res piagent.AgentToolResult) {
-	t.Helper()
-	if len(res.Content) != 1 {
-		t.Fatalf("Execute returned %d content blocks, want 1", len(res.Content))
-	}
-	body, ok := res.Content[0].(pi.TextContent)
-	if !ok {
-		t.Fatalf("content[0] = %T, want pi.TextContent", res.Content[0])
-	}
-	var env map[string]any
-	if err := json.Unmarshal([]byte(body.Text), &env); err != nil {
-		t.Fatalf("envelope unmarshal: %v (raw=%q)", err, body.Text)
-	}
-	if env["ok"] != false {
-		t.Fatalf("envelope.ok = %v, want false", env["ok"])
-	}
-	if msg, _ := env["error"].(string); !strings.Contains(msg, "not yet implemented (cycle 228 stub)") {
-		t.Fatalf("envelope.error = %q, want substring %q", msg, "not yet implemented (cycle 228 stub)")
 	}
 }
 
