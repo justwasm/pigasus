@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -15,9 +16,11 @@ import (
 	"github.com/justwasm/pigasus/internal/agent"
 	"github.com/justwasm/pigasus/internal/auth"
 	"github.com/justwasm/pigasus/internal/backend"
+	"github.com/justwasm/pigasus/internal/branding"
 	"github.com/justwasm/pigasus/internal/convstore"
 	"github.com/justwasm/pigasus/internal/permissions"
 	"github.com/justwasm/pigasus/internal/pluginwatch"
+	"github.com/justwasm/pigasus/internal/tuilib"
 )
 
 func checkWorkspaceTrustGate(w io.Writer, fs *flag.FlagSet) (string, bool, error) {
@@ -141,8 +144,6 @@ func setupTUIToolsAndPolicy(m *runMode, fs *flag.FlagSet) {
 
 func setupTUIConversation(m *runMode, fs *flag.FlagSet, canonicalCwd string) {
 	sel := resolveConversationSelection(fs, os.Stderr)
-	resumeHintBanner(canonicalCwd, sel.ID != "",
-		resolveBoolAlias(fs, "continue", "c"), os.Stderr)
 	if sel.ID != "" {
 		m.conversationID = sel.ID
 	}
@@ -171,15 +172,54 @@ func runLiveTUI(w io.Writer, fs *flag.FlagSet) error {
 	setupTUIConversation(m, fs, canonicalCwd)
 
 	prog := tea.NewProgram(m, tea.WithColorProfile(resolveColorProfile(os.Environ())))
+	debugOut := io.Discard
+	if isDebugMode(fs) {
+		debugOut = os.Stderr
+	}
 	m.hyperlinkCaps = hyperlinkCapsFromEnv(
-		os.Stderr,
+		debugOut,
 		os.Environ(),
-		tmuxHyperlinkProbe(),
+		tmuxHyperlinkProbe(debugOut),
 		altScreen,
 	)
 	m.prog = prog
 	_, err = prog.Run()
+	printTUIExitBanner(m, canonicalCwd)
 	return err
+}
+
+func printTUIExitBanner(m *runMode, cwd string) {
+	convID := ""
+	if m != nil && m.conversationID != "" {
+		convID = m.conversationID
+	} else if cwd != "" {
+		convID, _, _ = resolveContinue(cwd)
+	}
+	bin := filepath.Base(strings.TrimSpace(os.Args[0]))
+	banner := tuilib.RenderExitBanner(tuilib.ExitBannerOptions{
+		BinaryName:     bin,
+		ConversationID: convID,
+		LogoLines:      BannerLogoLines(),
+		AppName:        branding.Current().CLIName,
+	})
+	fmt.Fprint(os.Stderr, banner)
+}
+
+func isDebugMode(fs *flag.FlagSet) bool {
+	if fs != nil {
+		if flagBoolValue(fs, "debug") || flagBoolValue(fs, "verbose") {
+			return true
+		}
+		if flagIntValue(fs, "v") > 0 {
+			return true
+		}
+	}
+	for _, env := range []string{"PIGASUS_DEBUG", "OPENAGY_DEBUG", "DEBUG"} {
+		if v := os.Getenv(env); v != "" && v != "0" && strings.ToLower(v) != "false" {
+			return true
+		}
+	}
+	return false
 }
 
 func authResolveSettingsModelOrEmpty() string {

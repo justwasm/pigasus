@@ -198,6 +198,7 @@ func ExtraFlags() []FlagSpec {
 		// mirror slash command /feature-diff covers the TUI side.
 		// Pass --output-format json alongside it for raw JSON.
 		{Name: "diff-with-agy", Type: "bool", Def: "false", Hidden: true, Usage: "Print AGY 1.4.2 feature parity (aligned / gap / diverged)"},
+		{Name: "debug", Type: "bool", Def: "false", Hidden: true, Usage: "Enable verbose debug logging"},
 		// Cycle rc-ws-transport: --remote-control-tcp boots the
 		// JSON-RPC daemon over a TCP+WebSocket transport on the
 		// given bind address (default 127.0.0.1:0 — tests pick a

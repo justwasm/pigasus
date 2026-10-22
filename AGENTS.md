@@ -538,10 +538,12 @@ Facts that are easy to get wrong, all 【一手】 from pty captures
   a grandchild holding the stdout pipe, and a shell-only kill makes `exec.Cmd.Wait`
   (and the spinner) outlive the cancel by the orphan's lifetime. Ctrl+C also cancels
   and still arms the two-step exit confirmation on the same press.
-- **Long output is not truncated.** The reference shows the last 20 lines under a
-  `  ⎿  <output +N lines>` marker with `(ctrl+o to expand)` appended to the last row;
-  the clone prints every line and ctrl+o does not expand bash blocks. Documented gap,
-  not implemented.
+- **Long output truncates to half the terminal height.** The collapsed block is
+  `  ⎿  <output +N lines>` + the last `height/2` rows (`20` at a 40-row pty, `25` at 50,
+  `30` at 60) with ` (ctrl+o to expand)` on the final row; a body of `height/2` rows or
+  fewer never truncates. ctrl+o re-renders the block from its full body and flips the
+  hint to ` (ctrl+o to collapse)` — bash blocks are recorded in `m.blocks` with a
+  `bash *bashBlock`, so they ride the same re-render path as tool blocks.
 - The command never enters `m.session`, so it is invisible to the model; it is also
   not persisted to the conversation store (the reference's "implicit trajectory"),
   which is the main documented gap.

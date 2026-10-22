@@ -76,19 +76,21 @@ func hyperlinkCapsFromEnv(
 		env = os.Environ()
 	}
 	caps := render.DetectHyperlinkCaps(env, tmuxProbeResult)
-	fmt.Fprintf(w,
-		"%s TERM=%q altScreen=%v ssh=%v osc8=%v osc52=%v appleTerminalSSH=%v "+
-			"terminal=%q tmuxHyperlinkPassthrough=%v\n",
-		hyperlinkLogTag,
-		termValue(env),
-		altScreen,
-		caps.SSH,
-		caps.OSC8,
-		caps.OSC52,
-		caps.AppleTerminalSSH,
-		caps.Terminal,
-		caps.TmuxHyperlinkPassthrough,
-	)
+	if w != nil && w != io.Discard {
+		fmt.Fprintf(w,
+			"%s TERM=%q altScreen=%v ssh=%v osc8=%v osc52=%v appleTerminalSSH=%v "+
+				"terminal=%q tmuxHyperlinkPassthrough=%v\n",
+			hyperlinkLogTag,
+			termValue(env),
+			altScreen,
+			caps.SSH,
+			caps.OSC8,
+			caps.OSC52,
+			caps.AppleTerminalSSH,
+			caps.Terminal,
+			caps.TmuxHyperlinkPassthrough,
+		)
+	}
 	return caps
 }
 
@@ -120,7 +122,7 @@ func hyperlinkCapsFromEnv(
 //	         the tmux layer (passthrough verified).
 //	false  — caller's OSC 8 must be disabled (passthrough test
 //	         failed or no test was possible). The default.
-func tmuxHyperlinkProbe() bool {
+func tmuxHyperlinkProbe(w ...io.Writer) bool {
 	if !isTmuxSession() {
 		return false
 	}
@@ -138,7 +140,9 @@ func tmuxHyperlinkProbe() bool {
 	// passthrough" — which is exactly this branch's emissions.
 	// A future cycle replaces this stub with a real round-trip
 	// probe driven through the bubbletea Program's WithInput mode.
-	fmt.Fprintln(os.Stderr, "tmux hyperlink probe failed, assuming no OSC 8 passthrough: probe not implemented")
+	if len(w) > 0 && w[0] != nil && w[0] != io.Discard {
+		fmt.Fprintln(w[0], "tmux hyperlink probe failed, assuming no OSC 8 passthrough: probe not implemented")
+	}
 	return false
 }
 
