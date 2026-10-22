@@ -291,6 +291,13 @@ func (m *runMode) handleTabCompletion(key tea.Key) bool {
 
 func (m *runMode) handleCtrlAndTabKeys(key tea.Key) (tea.Model, tea.Cmd, bool) {
 	if key.Code == 'c' && key.Mod.Contains(tea.ModCtrl) {
+		// agy kills a running shell command on Ctrl+C and still arms the
+		// exit confirmation with the same press (【一手】: the block
+		// finalises with no body while "press ctrl+c again to exit"
+		// appears). The clone used to only arm the confirmation.
+		if m.bashCancel != nil {
+			m.cancelBashCommand()
+		}
 		if m.exitConfirm {
 			m.quitting = true
 			return m, tea.Quit, true

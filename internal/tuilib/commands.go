@@ -210,45 +210,30 @@ func FilterSlashCommands(prefix string) []SlashCommand {
 // are not valid UTF-8 fall back to bytes.Equal so non-UTF8 binary
 // names — none in the current catalog, but the picker accepts
 // arbitrary plugin names — still get a deterministic answer.
-func containsFold(s, substr string) bool {
-	if len(substr) == 0 {
-		return true
-	}
-	if len(substr) > len(s) {
+func containsFoldRunes(sr, pr []rune) bool {
+	if len(pr) > len(sr) {
 		return false
 	}
-	// Fast path: both inputs are valid UTF-8 — decode once and walk
-	// runes. The picker's input is sourced from a textinput.Buffer
-	// ([]rune) so this branch is the common case.
-	if utf8.ValidString(s) && utf8.ValidString(substr) {
-		sr := []rune(s)
-		pr := []rune(substr)
-		if len(pr) > len(sr) {
-			return false
-		}
-		for i := 0; i+len(pr) <= len(sr); i++ {
-			match := true
-			for j := 0; j < len(pr); j++ {
-				if unicode.ToLower(sr[i+j]) != unicode.ToLower(pr[j]) {
-					match = false
-					break
-				}
-			}
-			if match {
-				return true
+	for i := 0; i+len(pr) <= len(sr); i++ {
+		match := true
+		for j := 0; j < len(pr); j++ {
+			if unicode.ToLower(sr[i+j]) != unicode.ToLower(pr[j]) {
+				match = false
+				break
 			}
 		}
-		return false
+		if match {
+			return true
+		}
 	}
-	// Slow path: non-UTF8 fallback — same ASCII-folded byte scan the
-	// original implementation used. Without this, a command name
-	// containing an invalid UTF-8 sequence (rare, but possible for
-	// arbitrary plugin commands) would crash on []rune conversion.
+	return false
+}
+
+func containsFoldBytes(s, substr string) bool {
 	for i := 0; i+len(substr) <= len(s); i++ {
 		match := true
 		for j := 0; j < len(substr); j++ {
-			sc := s[i+j]
-			pc := substr[j]
+			sc, pc := s[i+j], substr[j]
 			if 'A' <= sc && sc <= 'Z' {
 				sc += 'a' - 'A'
 			}
@@ -265,6 +250,19 @@ func containsFold(s, substr string) bool {
 		}
 	}
 	return false
+}
+
+func containsFold(s, substr string) bool {
+	if len(substr) == 0 {
+		return true
+	}
+	if len(substr) > len(s) {
+		return false
+	}
+	if utf8.ValidString(s) && utf8.ValidString(substr) {
+		return containsFoldRunes([]rune(s), []rune(substr))
+	}
+	return containsFoldBytes(s, substr)
 }
 
 // hasPrefixFold is strings.HasPrefix with ASCII case-folding. The

@@ -16,6 +16,11 @@ func (m *runMode) updateCompactDoneMsg(msg compactDoneMsg) (tea.Model, tea.Cmd) 
 }
 
 func (m *runMode) updateBashDoneMsg(msg bashDoneMsg) (tea.Model, tea.Cmd) {
+	// A preempted command's completion arrives after its successor started;
+	// its generation is stale, so it must not touch the live block.
+	if msg.gen != m.bashGen {
+		return m, nil
+	}
 	m.finishBashCommand(msg)
 	if len(m.bashQueue) > 0 {
 		next := m.bashQueue[0]

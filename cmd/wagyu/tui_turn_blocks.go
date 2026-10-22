@@ -24,7 +24,12 @@ func (m *runMode) rerenderBlocks() {
 	m.rowsCacheDirty = true
 	for i := range m.blocks {
 		b := &m.blocks[i]
-		lines := toolBlockLines(b.steps, m.expanded, m.width)
+		var lines []string
+		if b.bash != nil {
+			lines = bashBlockLines(b.bash, m.expanded, m.height)
+		} else {
+			lines = toolBlockLines(b.steps, m.expanded, m.width)
+		}
 		delta := len(lines) - b.lines
 		oldEnd := b.start + b.lines
 		if delta == 0 {

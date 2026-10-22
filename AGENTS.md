@@ -527,9 +527,21 @@ Facts that are easy to get wrong, all 【一手】 from pty captures
 - Success is a green `●` with a `#586E75` body, failure a red `●` with `#DC322F`;
   the `  ⎿  ` prefix is bold blue in both, and only the first body row is indented.
 - It behaves like a local turn: spinner `Generating...`, status `esc to cancel`, and
-  Esc cancels it — leaving the head row, no body, and a **green** bullet.
-- A command submitted mid-turn queues as `▸ <cmd>` (no `(alt+m …)` suffix) and runs
-  after the turn. Up-arrow recalls it into bash mode.
+  Esc cancels it — leaving the head row, no body, and a **green** bullet (`agy` 1.4.5
+  paints that interrupt bullet amber `#B58900`; the clone pins 1.4.4's green).
+- A command submitted **while another shell command runs preempts it** (cycle
+  `bash-mode-preempt`): the old process tree is killed, the output it had already
+  produced becomes its body, its head keeps the hollow amber `○`, and the new command
+  starts immediately. Only a command submitted during a **model** turn queues as
+  `▸ <cmd>` (no `(alt+m …)` suffix). Up-arrow recalls a command into bash mode.
+- Cancelling kills the **process group**, not just the shell: `sh -c 'sleep 30'` leaves
+  a grandchild holding the stdout pipe, and a shell-only kill makes `exec.Cmd.Wait`
+  (and the spinner) outlive the cancel by the orphan's lifetime. Ctrl+C also cancels
+  and still arms the two-step exit confirmation on the same press.
+- **Long output is not truncated.** The reference shows the last 20 lines under a
+  `  ⎿  <output +N lines>` marker with `(ctrl+o to expand)` appended to the last row;
+  the clone prints every line and ctrl+o does not expand bash blocks. Documented gap,
+  not implemented.
 - The command never enters `m.session`, so it is invisible to the model; it is also
   not persisted to the conversation store (the reference's "implicit trajectory"),
   which is the main documented gap.

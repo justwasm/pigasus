@@ -53,6 +53,13 @@ func (m *runMode) submitBashMode(cmd string) (bool, tea.Cmd) {
 	}
 	m.pushHistory("!" + cmd)
 	if m.streaming {
+		// A running *shell* command is preempted: the reference stops it,
+		// keeps what it printed, and runs the new one immediately (【一手】
+		// `!top` then `!pwd`). Only a model turn queues — there the command
+		// waits behind the turn and shows as `▸ <cmd>`.
+		if m.bashCancel != nil {
+			return true, m.preemptBashCommand(cmd)
+		}
 		m.bashQueue = append(m.bashQueue, cmd)
 		return true, nil
 	}

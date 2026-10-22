@@ -155,6 +155,12 @@ type runMode struct {
 	bashRowIdx int
 	// bashCancel cancels the running shell command (Esc). Distinct from
 	bashCancel context.CancelFunc
+	// bashRun is the running command's output sink; a preemption snapshots
+	bashRun *bashOutput
+	// bashCmd is the running command's text, needed to rebuild its head row
+	bashCmd string
+	// bashGen tags every bashDoneMsg; stale generations are ignored.
+	bashGen int
 	// bashQueue holds commands submitted while a turn streamed. They run
 	bashQueue []string
 	quitting  bool
