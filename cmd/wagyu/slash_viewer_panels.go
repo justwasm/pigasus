@@ -1124,3 +1124,447 @@ func (m *runMode) diffEnter() {
 		m.diffOpenInline(2, commits[idx][0])
 	}
 }
+
+
+// panelUsageLines renders the /usage panel. Layout recovered from
+// /tmp/agycmp/panels/ppref.usage.raw.txt. Cycle 193 ships the static
+// placeholders (no live quota call):
+//   - bold dim "└ Models & Quota" title
+//   - Account: navigaid@gmail.com  (brand blue)
+//   - GEMINI MODELS group: 100% green bar, "Quota available"
+//   - CLAUDE AND GPT MODELS group: 0.00% dim bar, "Refreshes in 74h 29m"
+//   - "(1–17 of 20 lines)" counter in dim grey 241
+//   - dot hint: ↑/↓ Scroll · pgup/pgdown Page · ctrl+end Bottom ·
+//     ctrl+home Top · esc Close
+//
+// Esc closes with the standard exit notice (esc-ref-model-Esc.txt).
+//
+// Cycle 201: the body scrolls. usageViewerLines is the 20-line document;
+// the panel draws a 17-row window over it so ↑/↓, pgup/pgdn and
+// ctrl+home / ctrl+end move the window and the "(a–b of 20 lines)"
+// counter follows. At offset 0 the rendered rows are the cycle-193 ones.
+func (m *runMode) panelUsageLines() []string {
+	// Cycle 207: with a real terminal size the panel uses REF 1.4.0's
+	// title + chrome + window layout; the cycle-193 renderer below stays
+	// the fallback while the size is unknown (the unit tests).
+	if m.height > 0 {
+		return m.panelUsageLinesREF()
+	}
+	spec, _ := m.viewerSpecFor()
+	rows, start, end := m.viewerWindow(spec)
+	lines := append([]string{}, rows...)
+	lines = append(lines,
+		"",
+		viewerCounter(start, end, spec.total),
+		"",
+		panelDotHint("  ", "↑/↓", "Scroll", "pgup/pgdown", "Page",
+			"ctrl+end", "Bottom", "ctrl+home", "Top", "esc", "Close"),
+	)
+	return lines
+}
+
+// usageViewerLines is the /usage viewer's scrollable document. Cycle 225:
+// when m.height > 0 the live terminal path delegates to usageDocLive in
+// slash_viewer_panels.go so the loading doc and the live refresh countdown
+// render. The height-0 fallback (unit tests) keeps the cycle-193 layout
+// byte-exact via usageViewerLinesStatic; this matters for
+// TestPanelUsageLayout / TestCycle207UsageDocGeometry.
+func (m *runMode) usageViewerLines() []string {
+	if m.height > 0 {
+		return usageDocLive(m)
+	}
+	return usageViewerLinesStatic()
+}
+
+// usageViewerLinesStatic is the cycle-193/201 fallback used by every
+// panelUsage-line test. The first 17 rows are byte-identical to the
+// cycle-193 render (transcribed from ppref.usage.raw.txt); the trailing
+// three rows are the wrapped tail of the group note REF clips behind its
+// window — reconstructed, not captured. 【推测】
+func usageViewerLinesStatic() []string {
+	email := auth.EffectiveUserEmail()
+	if email == "" {
+		email = "navigaid@gmail.com"
+	}
+	return []string{
+		"\x1b[1m" + panelGray238 + "└ Models & Quota" + "\x1b[0m",
+		"",
+		"  Account: " + cBlueOpen + email + cBlueClose,
+		"",
+		"\x1b[1m" + "GEMINI MODELS" + "\x1b[0m",
+		cDimGrayOpen + "  Models within this group: Gemini Flash, Gemini Pro" + cDimGrayClose,
+		"",
+		"\x1b[1mWeekly Limit Remaining\x1b[0m",
+		"    " + "\x1b[32m" + strings.Repeat("█", 50) + "\x1b[39m" +
+			cDimGrayOpen + " 100.00%" + cDimGrayClose,
+		"\x1b[32mQuota available\x1b[39m",
+		"",
+		"\x1b[1m" + "CLAUDE AND GPT MODELS" + "\x1b[0m",
+		cDimGrayOpen + "  Models within this group: Claude Opus, Claude Sonnet, GPT-OSS" + cDimGrayClose,
+		"",
+		"\x1b[1mWeekly Limit Remaining\x1b[0m",
+		"    [\x1b[38;2;101;123;131m" + strings.Repeat("░", 50) + "\x1b[39m]" +
+			cDimGrayOpen + " 0.00%" + cDimGrayClose,
+		"\x1b[31mRefreshes in 74h 29m\x1b[39m",
+		// Off-screen tail (rows 18-20): the "│Within each group…" note
+		// REF shows just above the counter. 【推测】
+		cDimGrayOpen + "  │Within each group, models share a weekly limit." + cDimGrayClose,
+		cDimGrayOpen + "  │Quota refreshes weekly and is consumed as you use" + cDimGrayClose,
+		cDimGrayOpen + "  │models in the group." + cDimGrayClose,
+	}
+}
+
+// changelogBody is the opening set of bullet points under `## 1.3.6`.
+// Cycle 193 shipped this block verbatim from
+// /tmp/agycmp/panels/ppref.changelog.txt; cycle 201 keeps it as the head
+// of the scrollable document (the rest of the release notes is parsed
+// from the embedded print-mode markdown below).
+var changelogBody = []string{
+	"",
+	"  \x1b[1m\x1b[38;5;27m## 1.3.6\x1b[0m",
+	"",
+	"  \x1b[38;5;235m• Added Claude Opus 5.5 and Claude Sonnet 5.5 for Application Default Credentials (AGY_ADC_AUTH) sign-in. Claude models now appear in /model only if your Google Cloud project can use them.\x1b[39m",
+	"  \x1b[38;5;235m• Improved Auto mode's review of commands that would leave the terminal sandbox: the review is faster and no longer times out without a decision, it allows the workspace's own format, lint, and fix commands instead of asking about them, and it blocks commands that would upload sensitive data.\x1b[39m",
+	"  \x1b[38;5;235m• Improved the /diff Commit Tree view with colors: commit hashes and change IDs are highlighted, descriptions are dimmed, the Working Copy (Uncommitted Changes) row stands out, and @ is bold, so hashes, timestamps, and descriptions no longer run together.\x1b[39m",
+	"  \x1b[38;5;235m• Fixed the agent hanging indefinitely when the model connection stalled: if no data arrives for 5 minutes the request is now canceled and retried automatically, and a stalled request no longer leaves an empty response step behind.\x1b[39m",
+	"  \x1b[38;5;235m• Fixed questions asked by subagents and workflow agents being lost, which left the subagent waiting forever: the alert now reads <agent> has a question and shows it, and Ctrl+K or a in the subagent's view opens a question picker that sends your answer to that agent. Headless -p runs skip these questions so the subagent can continue.\x1b[39m",
+	"  \x1b[38;5;235m• Fixed agent shell commands hanging on an invisible editor when a version control command wants one, such as git commit without -m or jj describe: the CLI now sets GIT_EDITOR, HGEDITOR, and JJ_EDITOR to false for agent commands, so they fail right away instead.\x1b[39m",
+	"  \x1b[38;5;235m• Fixed skills, rules, workflows, and Markdown agents failing to load with mapping values are not allowed in this context when an unquoted description: contains a colon, such as description: Runs checks: formatters and linters.\x1b[39m",
+	"  \x1b[38;5;235m• Fixed Mermaid diagrams that start with YAML frontmatter, a %%{init: ...}%% directive, or %% comments, or that use Mermaid v11 syntax such as id@{ shape: ..., label: ... } nodes, showing as raw source instead of rendering in agent responses and the artifact viewer.\x1b[39m",
+	"  \x1b[38;5;235m• Fixed the @ file-mention dropdown staying open after a newline in a multi-line prompt, where it took over Up/Down and made Enter pick a file instead of inserting the newline.\x1b[39m",
+	"  \x1b[38;5;235m• Fixed / search in the file and artifact viewer highlighting the wrong characters, or crashing, on lines with letters whose lowercase form has a different length such as İ; n and N now stop only on lines that show a highlight.\x1b[39m",
+	"  \x1b[38;5;235m• Fixed long lines and file paths containing CJK or other multi-byte text turning into characters in /codesearch results; they are now cut cleanly with an ellipsis.\x1b[39m",
+	"  \x1b[38;5;235m• Fixed agy plugin validate, the summary agy plugin install prints, and marketplace previews in the /plugin Discover tab leaving out subagents a plugin declares in its root agents.json.\x1b[39m",
+}
+
+// panelChangelogLines renders the /changelog viewer. Layout recovered
+// from /tmp/agycmp/panels/ppref.changelog.raw.txt. Esc closes silently
+// (the changelog viewer never writes an `Exited /changelog` row).
+//
+// Cycle 201: the viewer scrolls. changelogExcerptRows is the cycle-193
+// first screen (title + tagline + the 1.3.6 block) and is what offset 0
+// still renders; changelogRestRows appends the remaining sections so
+// ↑/↓ have somewhere to go. The counter keeps REF's denominator.
+//
+// Cycle changelog-pagination: the document now comes from
+// internal/cli/testdata/changelog_reference.txt when that file is
+// reachable (see changelogViewerLines), so the panel has 900+ rows
+// to scroll instead of the ~50 the cycle-201 hardcoded fallback had.
+// The footer advertises the full pagination key set (↑/↓ line,
+// pgup/pgdown page, ctrl+end bottom, ctrl+home top, esc close) the
+// same way the /usage viewer does.
+func (m *runMode) panelChangelogLines() []string {
+	spec, _ := m.viewerSpecFor()
+	rows, start, end := m.viewerWindow(spec)
+	lines := append([]string{}, rows...)
+	// Cycle 207: REF puts the counter immediately under the window and the
+	// blank between the counter and the legend (changelog24.ref.raw.txt
+	// rows 20-23). The counter is always present: the release-notes document
+	// never fits.
+	// Live 1.4.3 advertises only Navigate/Cancel in this viewer even though
+	// the scroll keys still work; the full pagination hint was a 1.4.0
+	// transcription.
+	lines = append(lines,
+		viewerCounter(start, end, spec.total),
+		"",
+		panelDotHint("  ", "↑/↓", "Navigate", "esc", "Cancel"))
+	return lines
+}
+
+// changelogExcerptRows is the visible first screen of the /changelog
+// viewer: the yellow title (2-space indent, 48;5;63 background — REF
+// 1.4.0), a blank, the tagline and the transcribed 1.3.6 block.
+func changelogExcerptRows() []string {
+	out := []string{
+		"  \x1b[1m\x1b[38;5;228m\x1b[48;5;63m Pigasus CLI Changelog \x1b[0m",
+		"",
+		"  \x1b[38;5;235mThe terminal-first surface to interact with Pigasus agents. Stay in your flow without context switching.\x1b[39m",
+	}
+	return append(out, changelogBody...)
+}
+
+// changelogWindowRows is how many document rows the viewer shows at
+// once. Cycle changelog-pagination switched the source to the runtime
+// reference file (internal/cli/testdata/changelog_reference.txt), but
+// the first-screen shape is preserved at 18 rows: title + blank +
+// tagline + blank + ## 1.3.6 + blank + the first 12 bullets of the
+// 1.3.6 section. The 13th bullet and the section break to 1.3.5 land
+// on the second screen, matching the cycle-201 first-screen layout
+// that TestPanelChangelogLayout / TestPanelChangelogViewerScrolls pin.
+//
+// The 13th bullet is rendered into the document (and visible after a
+// single ↓ press); only the window size is fixed at 18 so the counter
+// starts at "(1–18 of 2014 lines)" rather than the wrap-dependent
+// row count.
+func changelogWindowRows() int { return 18 }
+
+// changelogTotalLines is the denominator in the viewer's "(a–b of N lines)"
+// counter: the reference's wrapped line count for the whole release-notes
+// document at 120x40. Re-measured for the 1.4.4 capture (live: "1–36 of 2014
+// lines"); the 1.4.2-era fixture showed 1962.
+const changelogTotalLines = 2014
+
+// changelogViewerLines is the /changelog document.
+//
+// Cycle changelog-pagination: when the runtime source loader finds
+// internal/cli/testdata/changelog_reference.txt (it walks up from cwd
+// looking for go.mod) the panel renders the full release notes
+// 1.3.6 → 1.0.0 — ~915 logical rows, more when the bullet text wraps
+// to the terminal width. The fallback path keeps the cycle-201
+// transcription (changelogExcerptRows + changelogRestRows parsed from
+// cmd/wagyu/testdata/print_changelog.md) so a binary installed in a
+// user's PATH still shows a populated document.
+//
+// On a live terminal (m.width > 0 and m.height > 0) the document is
+// wrapped to the panel width — see changelogPanelDoc in
+// slash_changelog_wrap.go for the markdown path and
+// changelogSourceWrapped in slash_changelog_source.go for the new
+// bullet-list source. The width-0 fallback preserves the cycle-193
+// transcription byte-for-byte (the transcription is one long line per
+// bullet and only fits a width that wraps back to the same rows).
+func (m *runMode) changelogViewerLines() []string {
+	if m.width > 0 && m.height > 0 {
+		if src := changelogSourceLines(); src != nil {
+			return changelogSourceWrapped(src, m.width)
+		}
+		return changelogPanelDoc(m.width)
+	}
+	if src := changelogSourceLines(); src != nil {
+		return changelogSourceStyled(src)
+	}
+	out := append([]string{}, changelogExcerptRows()...)
+	return append(out, changelogRestRows...)
+}
+
+// changelogRestRows is the remainder of the release notes (1.3.5 down
+// through 1.0.0) rendered in the panel's bullet style. It is parsed once
+// from the embedded print-mode markdown (`printSlashChangelog`); the
+// print-mode blob deliberately omits the 1.3.6 section that changelogBody
+// above already covers, so the two concatenate without overlap.
+var changelogRestRows = buildChangelogRestRows()
+
+func buildChangelogRestRows() []string {
+	var out []string
+	headers := 0
+	for _, raw := range strings.Split(printSlashChangelog, "\n") {
+		line := strings.TrimRight(raw, "\r")
+		if strings.HasPrefix(line, "## ") {
+			headers++
+			// Cycle 207: the cycle-200 markdown refresh re-added the 1.3.6
+			// section (line 7 of testdata/print_changelog.md), but
+			// changelogExcerptRows already ships that block via
+			// changelogBody. Emitting it again duplicated the whole
+			// section in the panel, so skip the first header.
+			if headers == 1 {
+				continue
+			}
+			out = append(out, "",
+				"  \x1b[1m\x1b[38;5;27m"+line+"\x1b[0m")
+			continue
+		}
+		if headers < 2 {
+			// The H1 title, tagline, HTML comments and the duplicated
+			// 1.3.6 body above the first real (`## 1.3.5`) header are
+			// already represented by the excerpt.
+			continue
+		}
+		switch {
+		case strings.HasPrefix(line, "- "):
+			out = append(out,
+				"  \x1b[38;5;235m• "+panelPlainInline(line[2:])+"\x1b[39m")
+		case line == "":
+			out = append(out, "")
+		}
+	}
+	return out
+}
+
+// panelPlainInline strips the inline markdown the panel renders as plain
+// text: `backticks` around code and **bold** markers. The reference's
+// captures show both dropped (ppref.changelog.raw.txt renders
+// "AGY_ADC_AUTH" with no quoting).
+func panelPlainInline(s string) string {
+	s = strings.ReplaceAll(s, "`", "")
+	s = strings.ReplaceAll(s, "**", "")
+	return s
+}
+
+// panelDiffLines renders the /diff viewer. Two shapes exist in REF 1.4.0:
+//
+//   - a git (or hg/jj) workspace is detected from m.cwd — the All Changes
+//     tab lists the working-copy files (panelDiffLinesVCS);
+//   - otherwise the no-VCS warning below is shown. That shape (and its
+//     leading " Diff" tab row with plain inactive tabs) is recovered from
+//     /tmp/agycmp/panels/ppref.diff.raw.txt and is also the fallback the
+//     unit tests exercise (mkPanel leaves m.cwd empty). 【一手】
+//
+// Cycle 207 wires the git branch in; the no-VCS renderer below is the
+// cycle-193/201 shape, with the inactive tabs changed from dim gray to
+// plain because both the 1.3.x capture and the 1.4.0 captures show no SGR
+// on them.
+func (m *runMode) panelDiffLines() []string {
+	if m.cwd != "" && detectVCS(m.cwd) == "git" {
+		return m.panelDiffLinesVCS()
+	}
+	cwd, _ := os.Getwd()
+	if cwd == "" {
+		cwd = "."
+	}
+	tab := m.panel.tab
+	if tab < 0 || tab >= len(diffViews) {
+		tab = 0
+	}
+	var row strings.Builder
+	row.WriteString(" \x1b[1mDiff\x1b[0m")
+	for i, name := range diffViews {
+		row.WriteString("  ")
+		if i == tab {
+			row.WriteString(cBlueOpen + name + cBlueClose)
+		} else {
+			row.WriteString(name)
+		}
+	}
+	return []string{
+		row.String(),
+		"",
+		"   " + cToolBulletErrOpen + "\u26a0" + "\x1b[39m" +
+			" no supported VCS found in " + cwd,
+		"",
+		panelDotHint("  ", "←/→", "switch view", "esc", "dismiss"),
+	}
+}
+
+// diffViews are the three tabs of the /diff viewer, in REF order
+// (ppref.diff.raw.txt row 1).
+var diffViews = []string{"All Changes", "Per Turn", "Commit Tree"}
+
+// ---- Cycle 201: scrollable viewers ----------------------------------------
+
+// viewerSpec describes a scrollable documentary panel: the document lines,
+// how many of them fit in the panel's window, and the total line count the
+// footer's "(a–b of K lines)" counter quotes.
+type viewerSpec struct {
+	lines   []string
+	visible int
+	total   int
+}
+
+// viewerSpecFor returns the viewer spec for the open panel, or ok=false
+// when the panel is not a document viewer.
+func (m *runMode) viewerSpecFor() (viewerSpec, bool) {
+	switch m.panel.kind {
+	case panelUsage:
+		// Cycle 207: on a real terminal the spec is REF 1.4.0's
+		// 20-line document with a height-13 window.
+		if m.height > 0 {
+			return m.usageViewerSpecREF(), true
+		}
+		// REF's footer reads "(1–17 of 20 lines)": 17 rows visible out of
+		// a 20-line document (ppref.usage.raw.txt row 22). The three
+		// off-screen rows are the wrapped tail of the group note; the
+		// clone transcribes the first line REF shows and reconstructs the
+		// rest. 【推测】
+		// Cycle 225: the height-aware path (m.height > 0) is handled
+		// above by usageViewerSpecREF. This branch is the height-0
+		// fallback, which the unit tests exercise; deliver the static
+		// doc byte-exact.
+		lines := usageViewerLinesStatic()
+		return viewerSpec{lines: lines, visible: 17, total: 20}, true
+	case panelChangelog:
+		// Cycle 207: REF 1.4.0's window is (height-4) rows of the
+		// document — title + window + counter + blank + legend fills
+		// height-1 rows and the status row closes the screen. Measured
+		// with a settled terminal at h=24 (counter 1–20), h=26 (1–22),
+		// h=33 (1–29) and h=50 (1–46): every one is height-4. An earlier
+		// reading of height-3 came from captures taken before the panel
+		// had settled and is retracted here.
+		if m.height > 0 {
+			vis := m.height - 4
+			if vis < 1 {
+				vis = 1
+			}
+			return viewerSpec{lines: m.changelogViewerLines(), visible: vis, total: changelogTotalLines}, true
+		}
+		// its 17 transcribed rows (the same rows REF shows, which the
+		// terminal wraps back up to 26 visual rows); the counter keeps
+		// REF's wrapped line count as the document total.
+		//
+		// Caveat: the total is REF's *wrapped* line count measured at
+		// 120x40 for the same release notes (cycle 292 re-capture: 2014,
+		// previously 1962). The clone wraps the embedded capture at its own
+		// width, so the counter's end can stop short of the total; the
+		// window clamps against the content it has so a scroll never lands
+		// on a blank row.
+		lines := m.changelogViewerLines()
+		return viewerSpec{lines: lines, visible: changelogWindowRows(), total: changelogTotalLines}, true
+	case panelFeatDiff:
+		// Cycle 236: the feature-parity viewer scrolls like /changelog.
+		// height-aware window is height-4 (cycle-207 contract); the
+		// height-0 fallback is 17 (same as /usage). total is the
+		// actual document length (which varies with the JSON), not the
+		// cycle-changelog-style 1962 placeholder.
+		return m.featDiffViewerSpec(), true
+	}
+	return viewerSpec{}, false
+}
+
+// viewerWindow returns the rows of spec that the current scroll offset
+// shows, plus the 1-based [start,end] range the counter quotes. It clamps
+// the offset into [0, len(lines)-visible] so a scrolled window is always
+// full of content.
+func (m *runMode) viewerWindow(spec viewerSpec) (rows []string, start, end int) {
+	n := len(spec.lines)
+	vis := spec.visible
+	if vis < 1 {
+		vis = 1
+	}
+	maxOffset := n - vis
+	if maxOffset < 0 {
+		maxOffset = 0
+	}
+	if m.panel.window < 0 {
+		m.panel.window = 0
+	}
+	if m.panel.window > maxOffset {
+		m.panel.window = maxOffset
+	}
+	hi := m.panel.window + vis
+	if hi > n {
+		hi = n
+	}
+	rows = spec.lines[m.panel.window:hi]
+	start = m.panel.window + 1
+	end = m.panel.window + vis
+	if end > n {
+		end = n
+	}
+	if end < start {
+		end = start
+	}
+	return rows, start, end
+}
+
+// viewerCounter renders the dim gray "(a–b of K lines)" row every viewer
+// footer carries, with the same en-dash REF uses.
+func viewerCounter(start, end, total int) string {
+	return cDimGrayOpen + fmt.Sprintf("  (%d\u2013%d of %d lines)", start, end, total) + cDimGrayClose
+}
+
+// handlePanelKey routes a key to the open panel. Returns (handled, cmd)
+// so the caller can return early without falling through to the prompt.
+//
+// Cycle 201 wires up the key actions the reference's footers announce:
+//
+//	/usage  /changelog   ↑/↓ line, pgup/pgdown page, ctrl+home/end ends
+//	/plugin              tab cycles Installed ⇄ Discover
+//	/skills              enter opens the per-skill detail, esc returns
+//	/diff                ←/→ switch the active tab
+//	/feedback            enter (or 1-6) advances to the free-text stage
+//
+// Caveat (routing, not this function): tui_run.go runs the transcript
+// scroll bindings (pgup / pgdown / ctrl+home / ctrl+end) before the panel
+// branch, and those consume the keys while alt-screen mode is on (the
+// default). The viewer handles the full set regardless, so the page/end
+// bindings work under --no-alt-screen and would work for panels too if
+// the routing order changed.
+

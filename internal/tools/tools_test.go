@@ -145,8 +145,9 @@ func TestRunCommandTokeniseQuotedArgs(t *testing.T) {
 // ordinary result text with a non-zero exit — not a clone-side parse
 // error. That is what the reference does (一手, live 1.4.2 turn):
 //
-//	The command exited with code 1.
-//	Output:
+//	Command exited with code 1.
+//
+//	Command output:
 //	zsh:1: unmatched "
 //
 // The wording is shell-specific (zsh says `unmatched "`, bash says
@@ -164,7 +165,7 @@ func TestRunCommandUnclosedQuoteIsShellError(t *testing.T) {
 		t.Fatalf("a shell error must be data, not a Go error: %v", err)
 	}
 	s, _ := out.(string)
-	if !strings.Contains(s, "The command exited with code 1.") && !strings.Contains(s, "The command exited with code 2.") {
+	if !strings.Contains(s, "Command exited with code 1.") && !strings.Contains(s, "Command exited with code 2.") {
 		t.Errorf("want exit code 1 (zsh) or 2 (bash) in result, got %q", s)
 	}
 	if !strings.Contains(s, `"`) {
@@ -206,11 +207,11 @@ func TestRunCommandPipeline(t *testing.T) {
 		t.Fatalf("Run: %v", err)
 	}
 	s, _ := out.(string)
-	if !strings.Contains(s, "The command exited with code 0.") {
+	if !strings.Contains(s, "Command exited with code 0.") {
 		t.Errorf("pipeline should succeed, got %q", s)
 	}
-	if !strings.Contains(s, "\nOutput:\na\r\n") {
-		t.Errorf("pipeline output should be `a` + CRLF, got %q", s)
+	if !strings.Contains(s, "\nCommand output:\na\n") {
+		t.Errorf("pipeline output should be `a` + LF, got %q", s)
 	}
 }
 
@@ -228,7 +229,7 @@ func TestRunCommandNonZeroExitIsData(t *testing.T) {
 		t.Fatalf("non-zero exit must not be a Go error: %v", err)
 	}
 	s, _ := out.(string)
-	if !strings.Contains(s, "The command exited with code 3.") {
+	if !strings.Contains(s, "Command exited with code 3.") {
 		t.Errorf("want exit code 3 in result, got %q", s)
 	}
 	if !strings.Contains(s, "before") {
@@ -261,11 +262,11 @@ func TestRunCommandStdinIsTTY(t *testing.T) {
 	}
 }
 
-// Cycle 277: the Output section ends lines with CRLF. The rewrite is naive —
-// it is `strings.ReplaceAll(out, "\n", "\r\n")`, not a terminal emulation —
-// which the reference pins by turning an existing CRLF into CR CR LF
-// (一手, live 1.4.2: `printf "a\r\nb\n"` -> `"a\r\r\nb\r\n"`).
-func TestRunCommandOutputIsCRLF(t *testing.T) {
+// The result keeps the command's own line endings, and a CR is a line break
+// (一手, live 1.4.4: `printf "a\r\nb\n"` -> `"a\n\nb\n"`). Cycle 277 had
+// recorded a naive LF -> CRLF rewrite here; that string is byte-identical to
+// the clone's own formatter, not to what the reference sends.
+func TestRunCommandCRBecomesLF(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("printf / POSIX quoting")
 	}
@@ -276,14 +277,14 @@ func TestRunCommandOutputIsCRLF(t *testing.T) {
 		t.Fatalf("Run: %v", err)
 	}
 	s, _ := out.(string)
-	if !strings.Contains(s, "\nOutput:\na\r\r\nb\r\n") {
-		t.Errorf("CRLF must be rewritten naively (a CR CR LF b CR LF), got %q", s)
+	if !strings.Contains(s, "\nCommand output:\na\n\nb\n") {
+		t.Errorf("want `a`, a blank line, then `b`, got %q", s)
 	}
 }
 
-// Cycle 277: ANSI colour escapes are stripped before the result is built —
-// exebox wraps the command's stdout/stderr in its (*stripANSI) writer. Live
-// 1.4.2 probe: `printf "\033[31mRED\033[0m\n"` comes back as `RED\r\n`.
+// ANSI colour escapes are stripped before the result is built — exebox wraps
+// the command's stdout/stderr in its (*stripANSI) writer. Live 1.4.4 probe:
+// `printf "\033[31mRED\033[0m\n"` comes back as `RED\n`.
 func TestRunCommandStripsANSI(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("printf / POSIX quoting")
@@ -298,8 +299,8 @@ func TestRunCommandStripsANSI(t *testing.T) {
 	if strings.ContainsRune(s, 0x1b) {
 		t.Errorf("escape byte survived into the result: %q", s)
 	}
-	if !strings.Contains(s, "\nOutput:\nRED\r\n") {
-		t.Errorf("want the SGR-wrapped RED as bare RED + CRLF, got %q", s)
+	if !strings.Contains(s, "\nCommand output:\nRED\n") {
+		t.Errorf("want the SGR-wrapped RED as bare RED, got %q", s)
 	}
 }
 
@@ -333,7 +334,7 @@ func TestRunCommandStdinReadGetsEOFInsteadOfBlocking(t *testing.T) {
 		if !strings.Contains(s, "DONE:eof") {
 			t.Errorf("want the reference's DONE:eof, got %q", s)
 		}
-		if !strings.Contains(s, "The command exited with code 0.") {
+		if !strings.Contains(s, "Command exited with code 0.") {
 			t.Errorf("want exit 0, got %q", s)
 		}
 	case <-time.After(20 * time.Second):
@@ -359,7 +360,7 @@ func TestRunCommandDoesNotStallOnPTYEcho(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}
-	if !strings.Contains(out.(string), "The command exited with code 0.") {
+	if !strings.Contains(out.(string), "Command exited with code 0.") {
 		t.Fatalf("want exit 0, got %q", out)
 	}
 	if elapsed > 1500*time.Millisecond {

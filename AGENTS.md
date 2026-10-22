@@ -324,9 +324,12 @@ because the command really had run:
   `CommandLine` through the host's default shell (cycle 276 — `DefaultShellArgv`
   → `zsh -c` / `bash -c` / `powershell -Command`) and returns the reference's
   result text verbatim: `Created At…` / `Completed At…` /
-  `The command exited with code N.` / `Output:`. **A non-zero exit is a
-  `nil`-error result, not a failure** — the model reads the code. (Returning an
-  error made `Dispatch` discard the output.)
+  `Command exited with code N.` / `Command output:` (or `No output from the
+  command.`), with no blank line after the stamp and no trailing newline.
+  **A non-zero exit is a `nil`-error result, not a failure** — the model reads
+  the code. (Returning an error made `Dispatch` discard the output.) Text and
+  truncation are captured in `docs/cycles/command-output-truncation/`; the
+  cycle's `captures.md` is the ground truth, not the older reconstructions.
 
   **The clone's `mvdan/sh/v3/interp` is a deviation, and the reference's own
   `mvdan/sh` is NOT an interpreter.** The 1.4.2 binary embeds only
@@ -353,18 +356,21 @@ because the command really had run:
   `DefaultShellName()` instead of `$SHELL`. Only `run_shell_command` — a
   clone-only compat alias the reference does not advertise — still uses the
   pure-Go `mvdan/sh/v3/interp`.
-- **stdin is a pty, and the result text is CRLF + ANSI-stripped.** The
+- **stdin is a pty, and the result text is ANSI-stripped.** The
   reference gives the child a pty on **stdin only** — stdout/stderr stay pipes
   (`TTY0=/dev/ttys005`, `TTY1=not a tty`, `speed 9600 baud; rows 24; columns
-  80; icanon echo isig icrnl opost onlcr`, `$-=569X`). Its `Output` is
-  `stripANSI` + a **naive** `strings.ReplaceAll(out, "\n", "\r\n")`: an input
-  CRLF comes out CR CR LF (`printf "a\r\nb\n"` → `a\r\r\nb\r\n`), a bare `\r`
-  passes through, a 100-char line is **not** wrapped at 80, and SGR is gone.
-  There is no terminal emulation. **Cycle 277** reproduces all of it
-  (`RunWithPTYStdin`, `normalizeCommandOutput`) and the probe output is now
-  byte-identical to the capture. Three measured traps live in
-  `pty_unix.go`: the parent must close its copy of the slave fd after `Start`
-  (else the child wedges in `exit()`, `STAT ?Es`, `wait4` never returns); the
+  80; icanon echo isig icrnl opost onlcr`, `$-=569X`). Its output is
+  `stripANSI` + `CR → LF`: `printf 'a\nb\n'` → `a\nb\n` (no CRLF rewrite),
+  `printf 'a\r\nb\n'` → `a\n\nb\n`, a bare `\r` becomes a line break, a
+  100-char line is **not** wrapped at 80, and SGR is gone. There is no
+  terminal emulation. **Cycle 277 recorded a naive `LF → CRLF` rewrite
+  instead — that capture is byte-identical to the clone's own formatter and
+  never came from the reference**; the live 1.4.4 request bodies in
+  `docs/cycles/command-output-truncation/captures.md` supersede it.
+  `RunWithPTYStdin` (pty details) is still cycle 277's and still right. Three
+  measured traps live in `pty_unix.go`: the parent must close its copy of the
+  slave fd after `Start` (else the child wedges in `exit()`, `STAT ?Es`,
+  `wait4` never returns); the
   master must be **drained** (the pty echoes our own input back, and undrained
   it costs a fixed ~600 ms per command on Darwin); and the master must not be
   closed while the child lives (SIGHUP). One deliberate deviation: the clone
@@ -385,6 +391,24 @@ The declarations and result texts are 【一手】, read out of the request bodi
 Only `run_command` and `view_file` have a captured schema; the rest are still
 cycle-98 reconstructions. Reports: `docs/cycles/cycle-275/deliverable.md`
 (the surface), `docs/cycles/cycle-277/deliverable.md` (pty + CRLF/ANSI).
+
+**Result texts are replayed, not remembered.** `internal/resultparity` parses
+`internal/tools/testdata/result_texts_1.4.4.txt` (32 captured call/result pairs)
+and replays each one against the real executors — 28 compared, 4 skipped with a
+recorded reason, and a bijection test that fails if a section is neither. Run
+`go test ./internal/resultparity/` after touching any tool result text. The
+fixture has **no `run_command` section** — the most-used tool's text lives in
+`docs/cycles/command-output-truncation/captures.md` and is pinned by
+`internal/tools/command_output_truncation_test.go` instead. It calls
+`Tool.Run`, not `Dispatch`, because `Dispatch`/`piagentbridge` add
+`ApplyOutputBudget` on top (see below).
+
+**That budget is a guess and contradicts the capture.** `DefaultMaxResultTokens
+= 8000` (cycle 248, self-described as "the reference binary ships a
+model-class-dependent value") with a `/4` chars-per-token estimate caps
+model-visible text near 32 KB and wraps it in `_truncated: true` / `_preview: |`.
+The 1.4.4 capture shows the reference handing the model a 46080-byte `read_file`
+body whole, with no wrapper. Report: `docs/cycles/result-text-replay/deliverable.md`.
 
 ## Custom agents (`--agent`, cycle `custom-agents`)
 
@@ -913,7 +937,7 @@ with SHA-256 `e1504128b7661974855e2f4009a4c6c26ee53e2f64ba587bb7b8cf7b8ba8aa3a`,
 |---|---|
 | Build and test it | `go build -o /tmp/wagyu ./cmd/wagyu` then `go test ./cmd/... ./internal/...` (27 packages ok) |
 | Understand the agent loop | the **The agent loop** section above, then `internal/pigrt/runtime.go` (print) and `internal/agent/pig.go` (TUI) |
-| See the loop run end to end | `go run ./cmd/pigloop-demo -mode loop` (scripted gateway, no network) |
+| See the loop run end to end | `go run ./devutils/pigloop-demo -mode loop` (scripted gateway, no network) |
 | Touch the agw transport | `internal/piagentbridge/agwprovider.go` + `internal/backend/agw_k0s.go` — the two must stay behaviourally identical |
 | Know what the last cycle changed | the newest `docs/cycles/cycle-<n>/` report; `git log --oneline -20` |
 | Reproduce what `agy` actually prints | the cycle-report table pattern of probe-vs-clone; `internal/cli/testdata/changelog_reference.txt` holds recovered strings |

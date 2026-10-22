@@ -758,7 +758,7 @@ func (s *ReadURLContent) Run(ctx context.Context, args json.RawMessage) (any, er
 	if conversationID == "" {
 		conversationID = processConversationID()
 	}
-	step := nextURLStep(conversationID)
+	step := nextStep(conversationID)
 	dir := filepath.Join(scheduleHome(s.Home), "brain", conversationID,
 		".system_generated", "steps", fmt.Sprintf("%d", step))
 	path := filepath.Join(dir, "content.md")
@@ -776,17 +776,18 @@ func (s *ReadURLContent) Run(ctx context.Context, args json.RawMessage) (any, er
 }
 
 var (
-	urlStepMu sync.Mutex
-	urlSteps  = map[string]int{}
+	stepMu sync.Mutex
+	steps  = map[string]int{}
 )
 
-// nextURLStep mints the per-conversation step number the reference uses for
-// `.system_generated/steps/<n>/content.md`.
-func nextURLStep(conversationID string) int {
-	urlStepMu.Lock()
-	defer urlStepMu.Unlock()
-	urlSteps[conversationID]++
-	return urlSteps[conversationID]
+// nextStep mints the per-conversation step number the reference uses for
+// `.system_generated/steps/<n>/` — shared by every tool that spills an
+// artifact there (read_url_content's content.md, run_command's output.txt).
+func nextStep(conversationID string) int {
+	stepMu.Lock()
+	defer stepMu.Unlock()
+	steps[conversationID]++
+	return steps[conversationID]
 }
 
 var (

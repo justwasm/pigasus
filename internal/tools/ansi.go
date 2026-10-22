@@ -93,16 +93,24 @@ func containsEsc(s string) bool {
 }
 
 // normalizeCommandOutput turns raw command bytes into the text the
-// reference reports in the run_command result's Output section.
+// reference reports in the run_command result's "Command output:" section.
 //
-// Two steps, both pinned by live 1.4.2 probes (一手, cycle 277):
+// Two steps, pinned by live 1.4.4 probes (一手, docs/cycles/command-output-truncation):
 //
 //  1. stripANSI — colour / cursor sequences are removed.
-//  2. every LF becomes CRLF. This is a *naive* rewrite, not a terminal
-//     emulation: an input that already contains CRLF comes out as CR CR LF
-//     (`printf "a\r\nb\n"` -> `a\r\r\nb\r\n`), a bare CR is passed through
-//     unchanged (`printf "x\rY\n"` -> `x\rY\r\n`) and a 100-character line is
-//     not wrapped at the pty's 80 columns.
+//  2. every CR becomes an LF; LFs are left alone. The reference is a byte
+//     filter here, not a terminal emulation and not a CRLF rewrite:
+//     `printf 'a\nb\n'` -> `a\nb\n`, `printf 'a\rb'` -> `a\nb`,
+//     `printf 'a\r\nb\n'` -> `a\n\nb\n`. A 100-character line is not wrapped
+//     at the pty's 80 columns.
+//
+// Cycle 277 recorded the opposite (a naive LF -> CRLF rewrite). That capture
+// reproduces this package's own formatter byte for byte, including the
+// "The command exited with code N." line the reference does not print, so it
+// was the clone's output rather than the reference's; the 1.4.4 request
+// bodies captured by cmd/agy disagree with it on every line. The truncation
+// preview is the one place the reference does emit CRLF — see
+// RunCommand.renderResult.
 func normalizeCommandOutput(s string) string {
-	return strings.ReplaceAll(stripANSI(s), "\n", "\r\n")
+	return strings.ReplaceAll(stripANSI(s), "\r", "\n")
 }

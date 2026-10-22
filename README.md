@@ -344,8 +344,7 @@ openagy/                             ← Go module root (github.com/chadgpt/open
 │   ├── wagyu/                       # Antigravity CLI 克隆主程序 (cycle 121 由 cmd/antigravity 更名)
 │   ├── openai-shim/                 # OpenAI API 兼容 shim
 │   ├── anthropic-shim/              # Anthropic API 兼容 shim
-│   ├── openagy-models/              # model 配置工具
-│   └── pigloop-demo/                # cycle 182-183 的 PiG agent loop 可跑 demo
+│   └── openagy-models/              # model 配置工具
 ├── internal/                        # 26 个包 (agent, piagentbridge, backend, tools, tuilib, ...)
 ├── docs/
 │   ├── cycles/                      # cycle-*/ 报告 (104 个)

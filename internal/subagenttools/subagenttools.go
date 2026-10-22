@@ -793,9 +793,12 @@ func BuiltinSubagentCatalog() string {
 //	Message sent to %d subagents: %s.
 //	Message sent to %d of %d subagents: %s.
 //
-// (from `tools.(*SendMessageTool).Execute` @0x101d89520; see
-// docs/cycles/async-subagent-framing/deliverable.md). They belong with an
-// asynchronous transport, which the clone does not have.
+// The first is now captured from the wire rather than decompiled (一手, live
+// 1.4.4: `Message sent to "<child-conv-id>".` — see
+// docs/cycles/subagent-async-framing-capture/deliverable.md, which also
+// records the <SYSTEM_MESSAGE> envelope a delivery arrives in). It is only
+// emitted when a recipient is live, which requires an asynchronous transport;
+// the clone does not have one.
 type sendMessageTool struct{}
 
 func (t *sendMessageTool) Name() string  { return "send_message" }

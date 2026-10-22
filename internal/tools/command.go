@@ -231,7 +231,15 @@ var runCommandSchema = json.RawMessage(`{"type":"object","properties":{` +
 // substitution) failed. It also means an unclosed quote is now the shell's
 // error — `zsh:1: unmatched "` with exit 1 — not a clone-side parse error,
 // which is what the reference returns (一手, live 1.4.2 turn).
-type RunCommand struct{ Workspace string }
+type RunCommand struct {
+	Workspace string
+	// ConversationID scopes the spilled output file under
+	// brain/<conv>/.system_generated/steps/<n>/output.txt. Empty falls back
+	// to OPENAGY_CONVERSATION_ID, then the process id (as ReadURLContent).
+	ConversationID string
+	// Home overrides the antigravity home (brain/ lives under it).
+	Home string
+}
 
 func (r *RunCommand) Name() string { return "run_command" }
 func (r *RunCommand) Schema() json.RawMessage {
@@ -300,7 +308,7 @@ func (r *RunCommand) Run(ctx context.Context, args json.RawMessage) (any, error)
 			return nil, fmt.Errorf("run_command: %w", runErr)
 		}
 	}
-	return formatCommandResult(started, time.Now(), code, normalizeCommandOutput(out.String())), nil
+	return r.renderResult(started, time.Now(), code, normalizeCommandOutput(out.String())), nil
 }
 
 // resolveCwd maps the reference's Cwd argument onto a directory. Empty means
@@ -322,11 +330,119 @@ func resolveCwd(ws, cwd string) string {
 	return ws
 }
 
-// formatCommandResult renders the reference's run_command result text — the
-// Created/Completed header, the exit code, then the combined output.
-func formatCommandResult(started, finished time.Time, code int, output string) string {
-	return fmt.Sprintf("Created At: %s\nCompleted At: %s\n\nThe command exited with code %d.\nOutput:\n%s\n",
-		started.Format(time.RFC3339), finished.Format(time.RFC3339), code, output)
+// The run_command result text, captured from live 1.4.4 traffic (一手,
+// docs/cycles/command-output-truncation). Plain path, non-empty output:
+//
+//	Created At: 2026-10-22T11:14:02+08:00
+//	Completed At: 2026-10-22T11:14:03+08:00
+//	Command exited with code 0.
+//
+//	Command output:
+//	a
+//	b
+//
+// Empty output replaces the last block with "No output from the command."
+// There is no blank line between the stamp and the exit-code line, the exit
+// line has no leading "The", the block header is "Command output:" (not
+// "Output:"), and no trailing newline is appended to the output.
+const (
+	// maxCommandBodyBytes is where the reference stops echoing the output
+	// verbatim: a 10195-byte output (10240-byte body) comes back whole, a
+	// 10196-byte one (10241) is replaced by a note plus a head+tail preview.
+	maxCommandBodyBytes = 10240
+	// commandPreviewKept is the number of body bytes that survive
+	// truncation, header included — constant across output shapes, which is
+	// what the marker's arithmetic reports.
+	commandPreviewKept = 9894
+	// commandPreviewHead / commandPreviewTail split the surviving content
+	// across the two ends, measured on output with no newlines. Newline-rich
+	// output keeps fewer bytes in the reference (its cut is tokenizer-driven:
+	// "a\n" x 10000 keeps 3269 + 3300), but the marker still reports the
+	// fixed total — see the cycle report's 存疑 section.
+	commandPreviewHead = 4902
+	commandPreviewTail = 4947
+)
+
+func commandBody(code int, output string) string {
+	if output == "" {
+		return fmt.Sprintf("Command exited with code %d.\n\nNo output from the command.", code)
+	}
+	return fmt.Sprintf("Command exited with code %d.\n\nCommand output:\n%s", code, output)
+}
+
+func commandStamp(started, finished time.Time) string {
+	return "Created At: " + started.Format(time.RFC3339) +
+		"\nCompleted At: " + finished.Format(time.RFC3339) + "\n"
+}
+
+// renderResult renders the reference's run_command result text. Output whose
+// body exceeds maxCommandBodyBytes is spilled to
+// brain/<conv>/.system_generated/steps/<n>/output.txt and replaced by a note
+// pointing at it plus a preview with the middle removed:
+//
+//	Created At: …
+//	Completed At: …
+//	The tool's output was truncated due to being too long. You can find the full output in a file at file://…/output.txt.
+//
+//	Here is a preview with the middle of the output truncated:
+//	Command exited with code 0.
+//
+//	Command output:
+//	<head>
+//	<truncated 119072 of 128964 bytes from the middle of the output>
+//	<tail>
+//
+// The preview itself is CRLF-terminated — the one place the reference emits
+// CRLF — while the plain path keeps the command's own line endings.
+func (r *RunCommand) renderResult(started, finished time.Time, code int, output string) string {
+	stamp := commandStamp(started, finished)
+	body := commandBody(code, output)
+	if len(body) <= maxCommandBodyBytes {
+		return stamp + body
+	}
+
+	rendered := strings.ReplaceAll(output, "\n", "\r\n")
+	head, tail := rendered, ""
+	if len(rendered) > commandPreviewHead+commandPreviewTail {
+		head = rendered[:commandPreviewHead]
+		tail = rendered[len(rendered)-commandPreviewTail:]
+	}
+	header := fmt.Sprintf("Command exited with code %d.\n\nCommand output:\n", code)
+	total := len(header) + len(rendered)
+	marker := fmt.Sprintf("<truncated %d of %d bytes from the middle of the output>",
+		total-commandPreviewKept, total)
+
+	note := ""
+	if path, err := r.spillOutput(output); err == nil && path != "" {
+		note = "The tool's output was truncated due to being too long. " +
+			"You can find the full output in a file at file://" + path + ".\n\n" +
+			"Here is a preview with the middle of the output truncated:\n"
+	}
+	return stamp + note + header + head + "\n" + marker + "\n" + tail
+}
+
+// spillOutput writes the full, unconverted output next to the reference's
+// per-step artifacts. The note in the result text is only emitted when this
+// succeeds — pointing the model at a file that does not exist would be worse
+// than a bare preview.
+func (r *RunCommand) spillOutput(output string) (string, error) {
+	conversationID := r.ConversationID
+	if conversationID == "" {
+		conversationID = os.Getenv("OPENAGY_CONVERSATION_ID")
+	}
+	if conversationID == "" {
+		conversationID = processConversationID()
+	}
+	dir := filepath.Join(scheduleHome(r.Home), "brain", conversationID,
+		".system_generated", "steps", fmt.Sprintf("%d", nextStep(conversationID)))
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return "", err
+	}
+	path := filepath.Join(dir, "output.txt")
+	if err := os.WriteFile(path, []byte(output), 0o600); err != nil {
+		return "", err
+	}
+	return path, nil
 }
 
 // RunShellCommand — Source: tools.run_shell_command. Pipes / redirects

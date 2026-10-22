@@ -36,25 +36,26 @@ func TestStripANSI(t *testing.T) {
 	}
 }
 
-// normalizeCommandOutput = stripANSI + naive LF -> CRLF. The expectations are
-// the reference's own captured Output strings (一手, docs/cycles/cycle-277).
+// normalizeCommandOutput = stripANSI + CR -> LF. The expectations are the
+// reference's own captured output strings (一手, live 1.4.4 request bodies;
+// docs/cycles/command-output-truncation). The reference does not rewrite LF
+// to CRLF: the plain result keeps the command's line endings.
 func TestNormalizeCommandOutput(t *testing.T) {
 	cases := []struct {
 		name string
 		in   string
 		want string
 	}{
-		{"plain-lf", "a\nb\n", "a\r\nb\r\n"},
-		// `printf "a\r\nb\n"` -> "a\r\r\nb\r\n": no CR awareness.
-		{"existing-crlf", "a\r\nb\n", "a\r\r\nb\r\n"},
-		// `printf "x\rY\n"` -> "x\rY\r\n": a bare CR is passed through.
-		{"bare-cr", "x\rY\n", "x\rY\r\n"},
-		// `printf "\033[31mRED\033[0m\n"` -> "RED\r\n".
-		{"ansi-then-crlf", "\x1b[31mRED\x1b[0m\n", "RED\r\n"},
-		{"stderr-and-stdout-merge", "TOERR\ntab\there\n", "TOERR\r\ntab\there\r\n"},
+		{"plain-lf", "a\nb\n", "a\nb\n"},
+		// `printf 'a\r\nb\n'` -> "a\n\nb\n": the CR becomes an LF, so an
+		// existing CRLF turns into a blank line.
+		{"existing-crlf", "a\r\nb\n", "a\n\nb\n"},
+		// `printf 'a\rb'` -> "a\nb": a bare CR is a line break.
+		{"bare-cr", "x\rY\n", "x\nY\n"},
+		// `printf "\033[31mRED\033[0m\n"` -> "RED\n".
+		{"ansi-then-newline", "\x1b[31mRED\x1b[0m\n", "RED\n"},
+		{"stderr-and-stdout-merge", "TOERR\ntab\there\n", "TOERR\ntab\there\n"},
 		{"empty", "", ""},
-		// A final line without a newline gets none: the formatter's own "\n"
-		// supplies the terminator, exactly as in the reference probe.
 		{"no-trailing-newline", "no-newline-tail", "no-newline-tail"},
 	}
 	for _, tc := range cases {

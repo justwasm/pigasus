@@ -279,15 +279,15 @@ func TestRunCommand_GitCommitNoMessage_FailsFast(t *testing.T) {
 	if ctx.Err() == context.DeadlineExceeded {
 		t.Fatalf("git commit hung (no editor was disabled): timed out after %s", elapsed)
 	}
-	// Cycle 275: a non-zero exit is DATA, not a Go error — the reference
-	// returns "The command exited with code N." inside the result text (see
-	// the run_command doc comment). So "fails fast" is asserted on that
+	// A non-zero exit is DATA, not a Go error — the reference returns
+	// "Command exited with code N." inside the result text (see
+	// RunCommand.renderResult). So "fails fast" is asserted on that
 	// line, not on err.
 	if err != nil {
 		t.Fatalf("git commit without -m: unexpected runner error: %v", err)
 	}
 	combined, _ := out.(string)
-	if strings.Contains(combined, "The command exited with code 0.") {
+	if strings.Contains(combined, "Command exited with code 0.") {
 		t.Fatalf("git commit without -m succeeded; want non-zero exit (output: %q)", combined)
 	}
 	// git's diagnostic is exact: "there was a problem with the editor
