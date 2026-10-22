@@ -29,6 +29,13 @@ func renderBanner(w io.Writer, email, model, tier, cwd string) {
 // shortenCwd replaces the leading $HOME with "~" so the banner
 // displays "~/GitHub/openagy" instead of "/Users/gear/GitHub/openagy".
 func shortenCwd(cwd string) string {
+	if pwd := os.Getenv("PWD"); pwd != "" {
+		if fi1, err1 := os.Stat(pwd); err1 == nil {
+			if fi2, err2 := os.Stat(cwd); err2 == nil && os.SameFile(fi1, fi2) {
+				cwd = pwd
+			}
+		}
+	}
 	home, err := os.UserHomeDir()
 	if err != nil || home == "" {
 		return cwd

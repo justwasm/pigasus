@@ -23,7 +23,6 @@ package main
 import (
 	"fmt"
 	"io"
-	"os"
 	"path/filepath"
 	"strings"
 
@@ -125,9 +124,14 @@ func generateConversationTitle(prompt string) string {
 	if prompt == "" {
 		return ""
 	}
-	// Drop markdown noise. The references to backticks / lists are
-	// heuristic — a markdown-only prompt would resolve to an empty
-	// title, which is acceptable.
+	cleaned := cleanMarkdownPrompt(prompt)
+	if cleaned == "" {
+		return ""
+	}
+	return extractTitleTokens(cleaned)
+}
+
+func cleanMarkdownPrompt(prompt string) string {
 	var b strings.Builder
 	inFence := false
 	for _, line := range strings.Split(prompt, "\n") {
@@ -139,38 +143,34 @@ func generateConversationTitle(prompt string) string {
 		if inFence {
 			continue
 		}
-		// Drop leading markdown markers.
-		for {
-			if strings.HasPrefix(trim, "> ") {
-				trim = trim[2:]
-				continue
-			}
-			if strings.HasPrefix(trim, "# ") || strings.HasPrefix(trim, "- ") ||
-				strings.HasPrefix(trim, "* ") || strings.HasPrefix(trim, "+ ") {
-				trim = trim[2:]
-				continue
-			}
-			break
-		}
+		trim = stripMarkdownPrefix(trim)
 		b.WriteString(trim)
 		b.WriteByte(' ')
 	}
-	cleaned := strings.TrimSpace(b.String())
-	if cleaned == "" {
-		return ""
+	return strings.TrimSpace(b.String())
+}
+
+func stripMarkdownPrefix(s string) string {
+	for {
+		if strings.HasPrefix(s, "> ") || strings.HasPrefix(s, "# ") ||
+			strings.HasPrefix(s, "- ") || strings.HasPrefix(s, "* ") ||
+			strings.HasPrefix(s, "+ ") {
+			s = s[2:]
+			continue
+		}
+		break
 	}
-	// Take 4-6 tokens. Stop early when a punctuation-only token would
-	// reduce information content (a "—" or "..." word is noise).
+	return s
+}
+
+func extractTitleTokens(cleaned string) string {
 	tokens := strings.Fields(cleaned)
 	out := make([]string, 0, 6)
 	for _, t := range tokens {
-		// Drop trailing colons / semicolons so a title "Foo: bar" reads
-		// "Foo bar" cleanly.
 		t = strings.TrimRight(t, ":;,.")
 		if t == "" {
 			continue
 		}
-		// Keep code (runewidth is CJK-aware).
 		if rwidth.StringWidth(strings.Join(append(out, t), " ")) > 60 {
 			break
 		}
@@ -179,10 +179,6 @@ func generateConversationTitle(prompt string) string {
 			break
 		}
 	}
-	if len(out) >= 4 {
-		return strings.Join(out, " ")
-	}
-	// Fallback: take whatever we have (could be fewer than 4 tokens).
 	if len(out) > 0 {
 		return strings.Join(out, " ")
 	}
@@ -225,9 +221,6 @@ func resumeHintBanner(cwd string, alreadyHaveID, continueFlag bool, out io.Write
 	if id == "" {
 		return
 	}
-	binary := filepath.Base(strings.TrimSpace(os.Args[0]))
-	if binary == "" || binary == "." || binary == "/" {
-		binary = "agy"
-	}
+	binary := resolveBinaryName()
 	fmt.Fprintf(out, "\nResume with -c (or command below):\n%s --conversation=%s\n\n", binary, id)
 }

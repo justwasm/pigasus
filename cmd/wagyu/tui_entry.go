@@ -195,14 +195,41 @@ func printTUIExitBanner(m *runMode, cwd string) {
 	} else if cwd != "" {
 		convID, _, _ = resolveContinue(cwd)
 	}
-	bin := filepath.Base(strings.TrimSpace(os.Args[0]))
+	email := auth.EffectiveUserEmail()
+	if email == "" {
+		email = "navigaid@gmail.com"
+	}
 	banner := tuilib.RenderExitBanner(tuilib.ExitBannerOptions{
-		BinaryName:     bin,
+		BinaryName:     resolveBinaryName(),
 		ConversationID: convID,
 		LogoLines:      BannerLogoLines(),
 		AppName:        branding.Current().CLIName,
+		Version:        cliVersion,
+		Email:          email,
+		Cwd:            shortenCwd(cwd),
 	})
 	fmt.Fprint(os.Stderr, banner)
+}
+
+func resolveBinaryName() string {
+	if env := strings.TrimSpace(os.Getenv("PIGASUS_BIN")); env != "" {
+		return env
+	}
+	raw := strings.TrimSpace(os.Args[0])
+	base := filepath.Base(raw)
+	if base != "" && base != "." && base != "/" && base != "main" && !strings.HasPrefix(base, "go-build") {
+		return base
+	}
+	if _, err := os.Stat("cmd/pigasus"); err == nil {
+		return "pigasus"
+	}
+	if _, err := os.Stat("cmd/wagyu"); err == nil {
+		return "wagyu"
+	}
+	if branding.Current().Name != "" {
+		return strings.ToLower(branding.Current().Name)
+	}
+	return "pigasus"
 }
 
 func isDebugMode(fs *flag.FlagSet) bool {
