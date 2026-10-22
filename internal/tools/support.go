@@ -208,40 +208,29 @@ func (b *bgTable) start(ws, name string, argv []string, timeout time.Duration) (
 		b.mu.Unlock()
 		return nil, err
 	}
-	go func() {
-		// Cycle 258: AGY 1.4.0 changelog line 24 — always record
-		// the final output to the task log. The defer captures the
-		// tail of the live buffer into t.log and appends a one-line
-		// exit reason. Even a panic during the goroutine body is
-		// caught — see recover() below — so an unexpected shutdown
-		// path (e.g. a future refactor that adds a step which can
-		// panic) still records the log rather than silently dropping
-		// the output.
-		var reason string
-		defer func() {
-			if r := recover(); r != nil {
-				// Panic inside this goroutine: the live
-				// buffer may not have been finalised yet,
-				// and we want the log to record that the
-				// exit was abnormal. Use a synthetic
-				// reason that names the panic value.
-				if reason == "" {
-					reason = "exited with panic: " + fmt.Sprint(r)
-				}
-			}
-			recordFinalOutput(&t.out, &t.log, reason)
-		}()
-
-		waitErr := cmd.Wait()
-		_ = stdin.Close()
-		t.mu.Lock()
-		t.done = true
-		t.err = waitErr
-		t.mu.Unlock()
-
-		reason = bgExitReason(waitErr)
-	}()
+	go t.monitor(cmd, stdin)
 	return t, nil
+}
+
+func (t *bgTask) monitor(cmd *exec.Cmd, stdin io.Closer) {
+	var reason string
+	defer func() {
+		if r := recover(); r != nil {
+			if reason == "" {
+				reason = "exited with panic: " + fmt.Sprint(r)
+			}
+		}
+		recordFinalOutput(&t.out, &t.log, reason)
+	}()
+
+	waitErr := cmd.Wait()
+	_ = stdin.Close()
+	t.mu.Lock()
+	t.done = true
+	t.err = waitErr
+	t.mu.Unlock()
+
+	reason = bgExitReason(waitErr)
 }
 
 func (b *bgTable) get(id string) (*bgTask, bool) {

@@ -119,6 +119,25 @@ func (m *runMode) panelContextEmptyLines(model string) []string {
 	return append(lines, contextTailLines()...)
 }
 
+func contextPct(x, contextMax int) string {
+	if x <= 0 {
+		return "(0.0%)"
+	}
+	return fmt.Sprintf("(%.1f%%)", float64(x)/float64(contextMax)*100)
+}
+
+func streamingContextRows(model string, used, free, contextMax, user, agent, tool int) []contextUsageRow {
+	return []contextUsageRow{
+		{fmt.Sprintf("%s · %s/1.0M tokens", model, contextTokenLabel(used)), 5},
+		{contextPct(used, contextMax), 6},
+		{"\x1b[1m\x1b[38;2;88;110;117mEstimated usage (awaiting generation)\x1b[0m", 5},
+		{fmt.Sprintf("\x1b[1m\x1b[38;5;26m◉\x1b[0m User messages: %s tokens %s", contextTokenLabel(user), contextPct(user, contextMax)), 5},
+		{fmt.Sprintf("\x1b[38;2;133;153;0m◉\x1b[39m Agent responses: %s tokens %s", contextTokenLabel(agent), contextPct(agent, contextMax)), 5},
+		{fmt.Sprintf("\x1b[1m\x1b[38;5;172m◉\x1b[0m Tool calls: %s tokens %s", contextTokenLabel(tool), contextPct(tool, contextMax)), 5},
+		{fmt.Sprintf("\x1b[38;2;101;123;131m□\x1b[39m Free space: 1.0M %s", contextPct(free, contextMax)), 5},
+	}
+}
+
 // panelContextStreamingLines is the in-flight layout.
 func (m *runMode) panelContextStreamingLines(model string, contextMax int) []string {
 	user, agent, tool := m.streamingTokenCounts()
@@ -130,12 +149,6 @@ func (m *runMode) panelContextStreamingLines(model string, contextMax int) []str
 	if free < 0 {
 		free = 0
 	}
-	pct := func(x int) string {
-		if x <= 0 {
-			return "(0.0%)"
-		}
-		return fmt.Sprintf("(%.1f%%)", float64(x)/float64(contextMax)*100)
-	}
 	fill := make([]string, 0, 3)
 	if user > 0 {
 		fill = append(fill, "\x1b[38;2;38;139;210m◉\x1b[39m")
@@ -146,18 +159,7 @@ func (m *runMode) panelContextStreamingLines(model string, contextMax int) []str
 	if tool > 0 {
 		fill = append(fill, "\x1b[38;5;172m◉\x1b[39m")
 	}
-	rows := []struct {
-		text string
-		pad  int
-	}{
-		{fmt.Sprintf("%s · %s/1.0M tokens", model, contextTokenLabel(used)), 5},
-		{pct(used), 6},
-		{"\x1b[1m\x1b[38;2;88;110;117mEstimated usage (awaiting generation)\x1b[0m", 5},
-		{fmt.Sprintf("\x1b[1m\x1b[38;5;26m◉\x1b[0m User messages: %s tokens %s", contextTokenLabel(user), pct(user)), 5},
-		{fmt.Sprintf("\x1b[38;2;133;153;0m◉\x1b[39m Agent responses: %s tokens %s", contextTokenLabel(agent), pct(agent)), 5},
-		{fmt.Sprintf("\x1b[1m\x1b[38;5;172m◉\x1b[0m Tool calls: %s tokens %s", contextTokenLabel(tool), pct(tool)), 5},
-		{fmt.Sprintf("\x1b[38;2;101;123;131m□\x1b[39m Free space: 1.0M %s", pct(free)), 5},
-	}
+	rows := streamingContextRows(model, used, free, contextMax, user, agent, tool)
 	cols := m.width / 5
 	if m.width <= 0 {
 		cols = 44
@@ -204,32 +206,17 @@ func (m *runMode) streamingTokenCounts() (user, agent, tool int) {
 	return user, agent, tool
 }
 
-// panelContextLiveLines is the non-empty branch.
-func (m *runMode) panelContextLiveLines(model string, contextMax int) []string {
-	user, agent, tool := m.sessionTokenCounts()
-	sysPrompt, skills, subagents := m.promptSectionTokens()
-	sysTools := m.toolTokenEstimate()
-	used := user + agent + tool + sysPrompt + sysTools + skills + subagents
-	if used > contextMax {
-		used = contextMax
-	}
-	free := contextMax - used
-	if free < 0 {
-		free = 0
-	}
-	pct := func(x int) string {
-		if x <= 0 {
-			return "(0.0%)"
-		}
-		return fmt.Sprintf("(%.1f%%)", float64(x)/float64(contextMax)*100)
-	}
+type contextUsageRow struct {
+	text string
+	pad  int
+}
 
-	type gridCat struct {
+func contextLiveFill(sysPrompt, user, agent, tool, sysTools, skills, subagents int) []string {
+	gray := func(glyph string) string { return "\x1b[38;2;88;110;117m" + glyph + "\x1b[39m" }
+	cats := []struct {
 		tokens int
 		cell   string
-	}
-	gray := func(glyph string) string { return "\x1b[38;2;88;110;117m" + glyph + "\x1b[39m" }
-	cats := []gridCat{
+	}{
 		{sysPrompt, gray("◉")},
 		{user, "\x1b[38;2;38;139;210m◉\x1b[39m"},
 		{agent, "\x1b[38;2;133;153;0m◉\x1b[39m"},
@@ -251,23 +238,41 @@ func (m *runMode) panelContextLiveLines(model string, contextMax int) []string {
 			fill = append(fill, c.cell)
 		}
 	}
+	return fill
+}
 
-	rows := []struct {
-		text string
-		pad  int
-	}{
+func contextLiveRows(model string, used, free, contextMax int, user, agent, tool, sysPrompt, sysTools, skills, subagents int) []contextUsageRow {
+	gray := func(glyph string) string { return "\x1b[38;2;88;110;117m" + glyph + "\x1b[39m" }
+	return []contextUsageRow{
 		{fmt.Sprintf("%s · %s/1.0M tokens", model, contextTokenLabel(used)), 5},
-		{pct(used), 6},
+		{contextPct(used, contextMax), 6},
 		{"\x1b[1m\x1b[38;2;88;110;117mToken usage by category\x1b[0m", 5},
-		{fmt.Sprintf("\x1b[1m\x1b[38;5;26m◉\x1b[0m User messages: %s tokens %s", contextTokenLabel(user), pct(user)), 5},
-		{fmt.Sprintf("\x1b[38;2;133;153;0m◉\x1b[39m Agent responses: %s tokens %s", contextTokenLabel(agent), pct(agent)), 5},
-		{fmt.Sprintf("\x1b[1m\x1b[38;5;172m◉\x1b[0m Tool calls: %s tokens %s", contextTokenLabel(tool), pct(tool)), 5},
-		{fmt.Sprintf("%s System prompt: %s tokens %s", gray("⛁"), contextTokenLabel(sysPrompt), pct(sysPrompt)), 5},
-		{fmt.Sprintf("%s System tools: %s tokens %s", gray("⛁"), contextTokenLabel(sysTools), pct(sysTools)), 5},
-		{fmt.Sprintf("%s Skills: %s tokens %s", gray("⛁"), contextTokenLabel(skills), pct(skills)), 5},
-		{fmt.Sprintf("%s Subagents: %s tokens %s", gray("⛁"), contextTokenLabel(subagents), pct(subagents)), 5},
-		{fmt.Sprintf("\x1b[38;2;101;123;131m□\x1b[39m Free space: 1.0M %s", pct(free)), 5},
+		{fmt.Sprintf("\x1b[1m\x1b[38;5;26m◉\x1b[0m User messages: %s tokens %s", contextTokenLabel(user), contextPct(user, contextMax)), 5},
+		{fmt.Sprintf("\x1b[38;2;133;153;0m◉\x1b[39m Agent responses: %s tokens %s", contextTokenLabel(agent), contextPct(agent, contextMax)), 5},
+		{fmt.Sprintf("\x1b[1m\x1b[38;5;172m◉\x1b[0m Tool calls: %s tokens %s", contextTokenLabel(tool), contextPct(tool, contextMax)), 5},
+		{fmt.Sprintf("%s System prompt: %s tokens %s", gray("⛁"), contextTokenLabel(sysPrompt), contextPct(sysPrompt, contextMax)), 5},
+		{fmt.Sprintf("%s System tools: %s tokens %s", gray("⛁"), contextTokenLabel(sysTools), contextPct(sysTools, contextMax)), 5},
+		{fmt.Sprintf("%s Skills: %s tokens %s", gray("⛁"), contextTokenLabel(skills), contextPct(skills, contextMax)), 5},
+		{fmt.Sprintf("%s Subagents: %s tokens %s", gray("⛁"), contextTokenLabel(subagents), contextPct(subagents, contextMax)), 5},
+		{fmt.Sprintf("\x1b[38;2;101;123;131m□\x1b[39m Free space: 1.0M %s", contextPct(free, contextMax)), 5},
 	}
+}
+
+// panelContextLiveLines is the non-empty branch.
+func (m *runMode) panelContextLiveLines(model string, contextMax int) []string {
+	user, agent, tool := m.sessionTokenCounts()
+	sysPrompt, skills, subagents := m.promptSectionTokens()
+	sysTools := m.toolTokenEstimate()
+	used := user + agent + tool + sysPrompt + sysTools + skills + subagents
+	if used > contextMax {
+		used = contextMax
+	}
+	free := contextMax - used
+	if free < 0 {
+		free = 0
+	}
+	fill := contextLiveFill(sysPrompt, user, agent, tool, sysTools, skills, subagents)
+	rows := contextLiveRows(model, used, free, contextMax, user, agent, tool, sysPrompt, sysTools, skills, subagents)
 	cols := m.width / 5
 	if m.width <= 0 {
 		cols = 44

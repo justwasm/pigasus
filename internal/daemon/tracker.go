@@ -51,7 +51,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"os/exec"
 	"sync"
 	"sync/atomic"
@@ -195,99 +194,33 @@ func (t *Tracker) SetKillDelay(d time.Duration) {
 // after Shutdown — the late registration is recorded but the process
 // is immediately signaled. (Useful for "spawned a daemon right as we
 // were shutting down" race.)
-func (t *Tracker) Track(name string, cmd *exec.Cmd) (int, error) {
-	if cmd == nil {
-		return 0, errors.New("daemon: Track: nil cmd")
-	}
-	if cmd.Process == nil {
-		return 0, errors.New("daemon: Track: cmd not started")
-	}
-	pid := cmd.Process.Pid
-
-	// Make sure the child leads its own process group. cmd.Start
-	// usually has this in SysProcAttr from the wrapper, but a caller
-	// that hand-rolled exec.Command without Setpgid would otherwise
-	// share the wagyu pid, and `kill -f pid` would also signal the
-	// CLI itself. Setting the group here is a one-shot syscall: if
-	// the process is already a group leader, Setpgid is a no-op.
+func ensureProcessGroup(cmd *exec.Cmd, pid int) int {
 	if cmd.SysProcAttr == nil {
 		cmd.SysProcAttr = &syscall.SysProcAttr{}
 	}
 	if !cmd.SysProcAttr.Setpgid {
-		// Setpgid best-effort: ignore the error — the child may have
-		// already execed, and even without it the per-pid kill still
-		// works (we just can't guarantee a per-tree kill).
 		_ = syscall.Setpgid(pid, pid)
 		cmd.SysProcAttr.Setpgid = true
 	}
 	pgid, err := syscall.Getpgid(pid)
 	if err != nil {
-		pgid = pid // fall back; the per-pid kill still works.
+		return pid
 	}
+	return pgid
+}
 
-	tr := &tracked{
-		name:   name,
-		cmd:    cmd,
-		pgid:   pgid,
-		exitCh: make(chan struct{}),
-	}
-
-	t.mu.Lock()
-	closed := t.closed.Load()
-	if closed {
-		t.mu.Unlock()
-		// Late registration after Shutdown: record the book-keeping
-		// but signal the daemon right away so the late spawn doesn't
-		// outlive the binary.
-		t.wg.Add(1)
-		go func() {
-			defer t.wg.Done()
-			_ = syscall.Kill(-pgid, syscall.SIGTERM)
-			time.Sleep(50 * time.Millisecond)
-			_ = syscall.Kill(-pgid, syscall.SIGKILL)
-			close(tr.exitCh)
-		}()
-		return pid, nil
-	}
-	t.procs[pid] = tr
+func (t *Tracker) handleLateTrack(pgid int, tr *tracked) {
 	t.wg.Add(1)
-	t.mu.Unlock()
+	go func() {
+		defer t.wg.Done()
+		_ = syscall.Kill(-pgid, syscall.SIGTERM)
+		time.Sleep(50 * time.Millisecond)
+		_ = syscall.Kill(-pgid, syscall.SIGKILL)
+		close(tr.exitCh)
+	}()
+}
 
-	// Reaper goroutine: poll the kernel for the pid slot to be freed
-	// and Untrack when that happens. We deliberately do NOT call
-	// cmd.Wait here because exec.Cmd.Wait calls Process.Wait, which is
-	// not idempotent — a second caller gets "no child processes". The
-	// subagent, the codesearch runner, and every other owner of an
-	// *exec.Cmd calls cmd.Wait to retrieve the exit state; stealing
-	// that slot would break them. Our observation is purely passive
-	// (kill -0 returns ESRCH once the owner has reaped), so the
-	// goroutine is invisible to the rest of the runtime.
-	//
-	// The reaper's bookkeeping contract:
-	//
-	//   - ESRCH observed: the kernel slot is gone, the daemon is
-	//     verifiably reaped. Untrack so the bookkeeping clears AND the
-	//     WaitGroup decrements. This is the "natural exit" path.
-	//
-	//   - closed.Load() true, ESRCH false: Shutdown is in flight. Do NOT
-	//     Untrack yet — Shutdown still needs `procs[pid]` to identify
-	//     survivors for SIGKILL escalation. Just return; Shutdown's
-	//     phase 4 ("force untrack after SIGKILL") will decrement the
-	//     WaitGroup when the survivors are dead or the grace has
-	//     elapsed. Leaving the reaper without decrementing means the
-	//     WaitGroup stays at 1 until Shutdown's phase 4 runs, which is
-	//     exactly the property we want.
-	//
-	//   - The earlier direct `t.wg.Done()` in the closed branch was a
-	//     double-decrement bug: a Track whose reaper had already
-	//     decremented via Untrack (or a test that manually called
-	//     Untrack) would panic on the next closed=true observation.
-	//     Removing that branch fixes the negative counter.
-	//
-	// Tests that build a raw *exec.Cmd without an owner (the daemon
-	// package's own tracker_test does this for some scenarios) must
-	// drain the cmd explicitly via cmd.Wait before asserting on
-	// Wait(); see the test helpers.
+func (t *Tracker) spawnReaper(pid int, tr *tracked) {
 	go func() {
 		ticker := time.NewTicker(20 * time.Millisecond)
 		defer ticker.Stop()
@@ -299,20 +232,40 @@ func (t *Tracker) Track(name string, cmd *exec.Cmd) (int, error) {
 				return
 			}
 			if t.closed.Load() {
-				// Shutdown owns the WaitGroup balance from here
-				// on. The reaper's job is observation only; once
-				// Shutdown has been called, the bookkeeping is
-				// either cleared naturally (ESRCH, handled above)
-				// or cleared by Shutdown's phase 4 force-Untrack
-				// after the SIGKILL escalation. Returning without
-				// decrementing keeps the WaitGroup in a known
-				// state: Shutdown is responsible for draining
-				// whatever's left.
 				return
 			}
 		}
 	}()
+}
 
+func (t *Tracker) Track(name string, cmd *exec.Cmd) (int, error) {
+	if cmd == nil {
+		return 0, errors.New("daemon: Track: nil cmd")
+	}
+	if cmd.Process == nil {
+		return 0, errors.New("daemon: Track: cmd not started")
+	}
+	pid := cmd.Process.Pid
+	pgid := ensureProcessGroup(cmd, pid)
+
+	tr := &tracked{
+		name:   name,
+		cmd:    cmd,
+		pgid:   pgid,
+		exitCh: make(chan struct{}),
+	}
+
+	t.mu.Lock()
+	if t.closed.Load() {
+		t.mu.Unlock()
+		t.handleLateTrack(pgid, tr)
+		return pid, nil
+	}
+	t.procs[pid] = tr
+	t.wg.Add(1)
+	t.mu.Unlock()
+
+	t.spawnReaper(pid, tr)
 	return pid, nil
 }
 
@@ -380,9 +333,82 @@ func (t *Tracker) Wait(ctx context.Context) error {
 // The return value is the number of daemons that did not exit cleanly
 // during the grace period and had to be SIGKILLed. Zero means every
 // tracked process exited cleanly.
+func (t *Tracker) signalSIGTERM(snapshot []*tracked, logger Logger) {
+	for _, tr := range snapshot {
+		target := -tr.pgid
+		if tr.pgid == 0 || tr.pgid == tr.cmd.Process.Pid {
+			target = -tr.cmd.Process.Pid
+		}
+		if err := syscall.Kill(target, syscall.SIGTERM); err != nil {
+			if !errors.Is(err, syscall.ESRCH) {
+				logger.Printf("[daemon] SIGTERM %s (pid=%d): %v", tr.name, tr.cmd.Process.Pid, err)
+			}
+		}
+	}
+}
+
+func (t *Tracker) escalateKill(delay time.Duration, logger Logger, ctx context.Context) int {
+	killed := 0
+	t.mu.Lock()
+	survivors := make([]*tracked, 0, len(t.procs))
+	for _, tr := range t.procs {
+		survivors = append(survivors, tr)
+	}
+	t.mu.Unlock()
+	for _, tr := range survivors {
+		if !IsRunning(tr.cmd.Process.Pid) {
+			continue
+		}
+		target := -tr.pgid
+		if tr.pgid == 0 || tr.pgid == tr.cmd.Process.Pid {
+			target = -tr.cmd.Process.Pid
+		}
+		if err := syscall.Kill(target, syscall.SIGKILL); err == nil {
+			killed++
+		} else if !errors.Is(err, syscall.ESRCH) {
+			logger.Printf("[daemon] SIGKILL %s (pid=%d): %v", tr.name, tr.cmd.Process.Pid, err)
+		}
+		if delay > 0 {
+			time.Sleep(delay)
+		}
+	}
+	for _, tr := range survivors {
+		t.Untrack(tr.cmd.Process.Pid)
+	}
+	if killed > 0 {
+		select {
+		case <-time.After(500 * time.Millisecond):
+		case <-ctx.Done():
+		}
+	}
+	if t.stopped != nil {
+		close(t.stopped)
+	}
+	return killed
+}
+
+func (t *Tracker) waitForGraceExit(graceCtx context.Context, delay time.Duration, logger Logger, ctx context.Context) int {
+	ticker := time.NewTicker(50 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		t.mu.Lock()
+		alive := len(t.procs)
+		t.mu.Unlock()
+		if alive == 0 {
+			if t.stopped != nil {
+				close(t.stopped)
+			}
+			return 0
+		}
+		select {
+		case <-graceCtx.Done():
+			return t.escalateKill(delay, logger, ctx)
+		case <-ticker.C:
+		}
+	}
+}
+
 func (t *Tracker) Shutdown(ctx context.Context) int {
-	// Once-only: signal-handler callers may race; the second caller
-	// waits on the first via stopped.
 	t.onceSignal.Do(func() {
 		t.stopped = make(chan struct{})
 	})
@@ -390,16 +416,12 @@ func (t *Tracker) Shutdown(ctx context.Context) int {
 	t.mu.Lock()
 	if t.closed.Load() {
 		t.mu.Unlock()
-		// Wait for the in-flight Shutdown to finish so callers see
-		// the same outcome.
 		if t.stopped != nil {
 			<-t.stopped
 		}
 		return 0
 	}
 	t.closed.Store(true)
-	// Snapshot the current set so we can release the mutex before
-	// blocking on signals.
 	snapshot := make([]*tracked, 0, len(t.procs))
 	for _, tr := range t.procs {
 		snapshot = append(snapshot, tr)
@@ -419,107 +441,12 @@ func (t *Tracker) Shutdown(ctx context.Context) int {
 		return 0
 	}
 	logger.Printf("[daemon] shutdown: %d tracked process(es), grace=%s", len(snapshot), grace)
+	t.signalSIGTERM(snapshot, logger)
 
-	// Phase 1: SIGTERM every group.
-	for _, tr := range snapshot {
-		// -pgid signals the whole process group; pid-only fallback if
-		// Getpgid failed at registration.
-		target := -tr.pgid
-		if tr.pgid == 0 || tr.pgid == tr.cmd.Process.Pid {
-			target = -tr.cmd.Process.Pid
-		}
-		if err := syscall.Kill(target, syscall.SIGTERM); err != nil {
-			// ESRCH means the process already exited; nothing to do.
-			if !errors.Is(err, syscall.ESRCH) {
-				logger.Printf("[daemon] SIGTERM %s (pid=%d): %v", tr.name, tr.cmd.Process.Pid, err)
-			}
-		}
-	}
-
-	// Phase 2: wait up to grace for any of them to exit. The wait
-	// channel closes when every tracked daemon has been reaped
-	// (either by its own reaper goroutine or by us below).
 	graceCtx, cancel := context.WithTimeout(ctx, grace)
 	defer cancel()
 
-	ticker := time.NewTicker(50 * time.Millisecond)
-	defer ticker.Stop()
-
-	for {
-		t.mu.Lock()
-		alive := len(t.procs)
-		t.mu.Unlock()
-		if alive == 0 {
-			// Every daemon was either reaped during the grace
-			// period (the per-Track reaper goroutine called
-			// Untrack on ESRCH) or had already exited before
-			// Shutdown was called. Either way the WaitGroup is
-			// drained; release the stopped channel.
-			if t.stopped != nil {
-				close(t.stopped)
-			}
-			return 0
-		}
-		select {
-		case <-graceCtx.Done():
-			// Grace period elapsed: escalate.
-			killed := 0
-			t.mu.Lock()
-			survivors := make([]*tracked, 0, len(t.procs))
-			for _, tr := range t.procs {
-				survivors = append(survivors, tr)
-			}
-			t.mu.Unlock()
-			for _, tr := range survivors {
-				if !IsRunning(tr.cmd.Process.Pid) {
-					continue
-				}
-				target := -tr.pgid
-				if tr.pgid == 0 || tr.pgid == tr.cmd.Process.Pid {
-					target = -tr.cmd.Process.Pid
-				}
-				if err := syscall.Kill(target, syscall.SIGKILL); err == nil {
-					killed++
-				} else if !errors.Is(err, syscall.ESRCH) {
-					logger.Printf("[daemon] SIGKILL %s (pid=%d): %v", tr.name, tr.cmd.Process.Pid, err)
-				}
-				if delay > 0 {
-					time.Sleep(delay)
-				}
-			}
-			// Phase 4: drain the bookkeeping. The reaper goroutines
-			// deliberately do NOT Untrack on `closed=true` (only on
-			// ESRCH), so the WaitGroup counter is still at 1 per
-			// survivor. We Untrack each survivor here, which
-			// decrements the WaitGroup and clears `procs`. Untrack
-			// is idempotent — if a reaper raced ahead and observed
-			// ESRCH between SIGKILL and now, present=false and we
-			// no-op.
-			for _, tr := range survivors {
-				t.Untrack(tr.cmd.Process.Pid)
-			}
-			// Best-effort: wait briefly for SIGKILL to be observed
-			// (the kernel marks the pid gone, reapers will observe
-			// ESRCH on their next tick). We bound this with a
-			// short timer so a process that ignores SIGKILL
-			// (rare but possible if it's in D state) can't hang
-			// the exit forever — the WaitGroup is already drained
-			// above, this is just so anyone observing the kernel
-			// sees a consistent state.
-			if killed > 0 {
-				select {
-				case <-time.After(500 * time.Millisecond):
-				case <-ctx.Done():
-				}
-			}
-			if t.stopped != nil {
-				close(t.stopped)
-			}
-			return killed
-		case <-ticker.C:
-			// poll again
-		}
-	}
+	return t.waitForGraceExit(graceCtx, delay, logger, ctx)
 }
 
 // Stopped returns a channel that closes when the most recent
@@ -529,8 +456,6 @@ func (t *Tracker) Stopped() <-chan struct{} {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	if t.stopped == nil {
-		// Lazy channel: callers can select on Stopped before
-		// Shutdown fires and never deadlock.
 		ch := make(chan struct{})
 		close(ch)
 		return ch
@@ -538,8 +463,7 @@ func (t *Tracker) Stopped() <-chan struct{} {
 	return t.stopped
 }
 
-// String formats the current tracker state for diagnostics. Used by
-// the test recorder and the optional log sink.
+// String formats the current tracker state for diagnostics.
 func (t *Tracker) String() string {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -553,95 +477,3 @@ func (t *Tracker) String() string {
 	return fmt.Sprintf("daemon.Tracker{closed=%v, procs=%v}", t.closed.Load(), names)
 }
 
-// IsRunning reports whether pid is still alive. Used by tests to
-// assert "the daemon is gone".
-//
-// The check is layered:
-//
-//  1. Wait4(pid, ..., WNOHANG). If it returns ESRCH, the pid is
-//     freed from the process table — definitely gone.
-//  2. If Wait4 returns the pid with status.Signaled() or
-//     status.Exited(), the pid is a zombie — the kernel has marked
-//     it dead but the parent hasn't reaped it yet. From the test's
-//     point of view the daemon is gone. Wait4's WNOHANG reaps the
-//     zombie as a side effect, so a subsequent `kill -0` returns
-//     ESRCH.
-//  3. Otherwise (pid == 0, err == nil) we cannot tell from Wait4
-//     alone. The process is either alive OR a zombie whose state we
-//     cannot reap because Wait4 only succeeds once per pid. We
-//     fall back to `kill(pid, 0)`: ESRCH means gone; nil means the
-//     pid slot exists (alive or zombie).
-//
-// macOS keeps a zombie's pid slot alive (kill -0 returns nil) until
-// the parent reaps it via wait(). The tracker always calls
-// cmd.Process.Wait in a reaper goroutine, so a daemon that was
-// killed via this tracker's Shutdown will be reaped "soon" — but
-// "soon" is racy with the test calling IsRunning right after
-// Shutdown. Tests that want a hard guarantee should call
-// Tracker.Wait before IsRunning; that drains every reaper.
-func IsRunning(pid int) bool {
-	if pid <= 0 {
-		return false
-	}
-	var status syscall.WaitStatus
-	rpid, err := syscall.Wait4(pid, &status, syscall.WNOHANG, nil)
-	switch {
-	case errors.Is(err, syscall.ECHILD):
-		// Not our child — fall back to kill -0.
-		return IsRunningViaKill(pid)
-	case errors.Is(err, syscall.ESRCH):
-		return false
-	case err != nil:
-		return IsRunningViaKill(pid)
-	case rpid == pid:
-		// Reaped the zombie. The process is gone.
-		return false
-	case rpid == 0:
-		// WNOHANG + no zombie AND no error: pid is alive OR a zombie
-		// whose state has already been reaped by a previous Wait4.
-		// The pid slot might still exist (zombie) or might not (alive
-		// but reused, very unlikely). kill -0 disambiguates.
-		return IsRunningViaKill(pid)
-	}
-	return IsRunningViaKill(pid)
-}
-
-// IsRunningViaKill is the slow path: send signal 0 and inspect the
-// error. ESRCH means gone, anything else (including nil) means we
-// couldn't determine. Used when Wait4 returns ECHILD (the pid isn't
-// our child) or some other unexpected error.
-func IsRunningViaKill(pid int) bool {
-	err := syscall.Kill(pid, 0)
-	if err == nil {
-		return true
-	}
-	if errors.Is(err, syscall.ESRCH) {
-		return false
-	}
-	// EPERM means the process exists but we can't signal it; treat
-	// that as "running" — the test infrastructure usually owns the
-	// same uid and the process shouldn't be invisible.
-	return errors.Is(err, syscall.EPERM)
-}
-
-// CmdFromArgs is a tiny helper used by subagent and the test helpers:
-// build an *exec.Cmd and Start it, returning the cmd the caller
-// should then hand to Track. The helper stamps Setpgid before Start
-// so the cmd emerges from the kernel already a group leader; this
-// keeps Track's retroactive Setpgid syscall off the hot path.
-//
-// On platforms where Setpgid isn't supported (not the case on
-// darwin/linux but documented for the future) the helper silently
-// ignores the SysProcAttr and falls back to a per-pid kill.
-func CmdFromArgs(argv0 string, argv ...string) *exec.Cmd {
-	cmd := exec.Command(argv0, argv...)
-	if cmd.SysProcAttr == nil {
-		cmd.SysProcAttr = &syscall.SysProcAttr{}
-	}
-	cmd.SysProcAttr.Setpgid = true
-	return cmd
-}
-
-// os.Exit is referenced to keep the import set stable across the
-// //-prefixed build tags the package might pick up later.
-var _ = os.Exit

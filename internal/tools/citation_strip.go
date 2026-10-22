@@ -97,13 +97,31 @@ func ShouldStripCitations(name string) bool {
 // because they do not form a contiguous trailing block. Year-style
 // brackets like `[2024]` are also left alone because they contain four
 // digits, more than a citation index.
+func findCitationStart(lines []string, end int) (int, bool) {
+	i := end
+	for i > 0 && citationLineRe.MatchString(lines[i-1]) {
+		i--
+	}
+	citeCount := end - i
+	if citeCount == 0 {
+		return 0, false
+	}
+	if i >= 1 && citationHeaderRe.MatchString(strings.TrimSpace(lines[i-1])) {
+		i--
+	} else if citeCount < 2 {
+		return 0, false
+	}
+	for i > 0 && strings.TrimSpace(lines[i-1]) == "" {
+		i--
+	}
+	return i, true
+}
+
 func StripCitationFootnotes(text string) string {
 	if text == "" {
 		return text
 	}
 	lines := strings.Split(text, "\n")
-	// Drop trailing empty lines, but remember how many there were so the
-	// trailing newline can be preserved across the strip.
 	end := len(lines)
 	for end > 0 && strings.TrimSpace(lines[end-1]) == "" {
 		end--
@@ -111,34 +129,10 @@ func StripCitationFootnotes(text string) string {
 	if end == 0 {
 		return text
 	}
-	// Walk back over consecutive citation lines.
-	i := end
-	for i > 0 && citationLineRe.MatchString(lines[i-1]) {
-		i--
-	}
-	citeCount := end - i
-	if citeCount == 0 {
+	i, ok := findCitationStart(lines, end)
+	if !ok {
 		return text
 	}
-	// If the line right before the citation block is a citation header,
-	// include it in the strip.
-	if i >= 1 && citationHeaderRe.MatchString(strings.TrimSpace(lines[i-1])) {
-		i--
-	} else if citeCount < 2 {
-		// Bare block (no header) needs ≥ 2 citation lines to be safe;
-		// a single `[1] foo` line at the end of a tool result is far
-		// more likely to be a legitimate occurrence (e.g. a grep match
-		// printing its line number) than a stray citation.
-		return text
-	}
-	// Trim trailing whitespace from the kept portion so the result does
-	// not gain a stray blank line where the citation block used to sit.
-	for i > 0 && strings.TrimSpace(lines[i-1]) == "" {
-		i--
-	}
-	// Reassemble. lines[:i] is the kept content; lines[end:] holds any
-	// trailing empty lines that were stripped from the original so the
-	// final string keeps its trailing newline convention.
 	var b strings.Builder
 	for j := 0; j < i; j++ {
 		if j > 0 {

@@ -323,6 +323,41 @@ func configVisibleRowsFor(height int) int {
 // persists before the next paint. Cycle 197 corrected the catalogue
 // (all 21 rows, real keys, real value lists — see configRow) and made
 // the window height-derived via configVisibleRowsFor.
+func configAdjustWindow(m *runMode, cursor, visible, total int) {
+	if m.panel.window < 0 {
+		m.panel.window = 0
+	}
+	if cursor < m.panel.window {
+		m.panel.window = cursor
+	}
+	if cursor >= m.panel.window+visible {
+		m.panel.window = cursor - visible + 1
+	}
+}
+
+func configRenderItemRow(row configRow, value string, isCursor bool) string {
+	pad := configNamePad(row.name, 29)
+	if !isCursor {
+		return "  " + row.name + strings.Repeat(" ", pad) + value
+	}
+	if configCursorRowIsSingleSpan(row.name) {
+		return cBlueOpen + "> " + row.name + strings.Repeat(" ", pad) + value + cBlueClose
+	}
+	return cBlueOpen + "> " + row.name + cBlueClose +
+		strings.Repeat(" ", pad) +
+		cBlueOpen + value + cBlueClose
+}
+
+func configDescriptionLines(desc string, width int) []string {
+	var lines []string
+	lines = append(lines, "")
+	for _, wrapped := range wrapPanelText(desc, width) {
+		lines = append(lines, "  "+panelGray238+wrapped+panelGray238C)
+	}
+	lines = append(lines, "")
+	return lines
+}
+
 func (m *runMode) panelConfigLines() []string {
 	rows := configRowsFiltered(m.panel.configQuery)
 	if m.panel.configSubmenu {
@@ -341,66 +376,24 @@ func (m *runMode) panelConfigLines() []string {
 		"",
 	}
 	if len(rows) == 0 {
-		lines = append(lines, "  No matching settings found.", "")
-		lines = append(lines, "", panelKeyboardHint("esc", "Clear Search/Exit"))
+		lines = append(lines, "  No matching settings found.", "", "",
+			panelKeyboardHint("esc", "Clear Search/Exit"))
 		return lines
 	}
 	cursor := m.panel.cursor
 	if cursor < 0 || cursor >= len(rows) {
 		cursor = 0
 	}
-	// Adjust window so cursor is always visible
-	if m.panel.window < 0 {
-		m.panel.window = 0
-	}
-	if cursor < m.panel.window {
-		m.panel.window = cursor
-	}
-	if cursor >= m.panel.window+visible {
-		m.panel.window = cursor - visible + 1
-	}
+	configAdjustWindow(m, cursor, visible, len(rows))
 	for i := m.panel.window; i < m.panel.window+visible && i < len(rows); i++ {
-		row := rows[i]
-		value := m.configRowValue(row)
-		pad := configNamePad(row.name, 29)
-		if i == cursor {
-			// Cycle 208: two measured cursor-row forms — see
-			// configCursorRowIsSingleSpan.
-			if configCursorRowIsSingleSpan(row.name) {
-				lines = append(lines,
-					cBlueOpen+"> "+row.name+strings.Repeat(" ", pad)+value+cBlueClose)
-			} else {
-				lines = append(lines,
-					cBlueOpen+"> "+row.name+cBlueClose+
-						strings.Repeat(" ", pad)+
-						cBlueOpen+value+cBlueClose)
-			}
-		} else {
-			lines = append(lines, "  "+row.name+strings.Repeat(" ", pad)+value)
-		}
+		lines = append(lines, configRenderItemRow(rows[i], m.configRowValue(rows[i]), i == cursor))
 	}
 	desc := rows[cursor].description
-	// Cycle 241 (AGY 1.4.1): for the locked `Enable Telemetry` row the
-	// reference substitutes a Business-account-specific description so the
-	// user understands *why* the row is non-togglable. The literal text is
-	// pinned in business_account.go.
 	if isTelemetryRow(rows[cursor]) && IsBusinessAccount() {
 		desc = telemetryBusinessDescription()
 	}
-	lines = append(lines, "")
-	for _, wrapped := range wrapPanelText(desc, m.width) {
-		lines = append(lines, "  "+panelGray238+wrapped+panelGray238C)
-	}
-	lines = append(lines, "")
-	// The counter slot is always present: the reference blanks it when
-	// every row fits rather than collapsing the line (live REF capture
-	// at height 50: rows, '', desc, '', '', '', Keyboard). Cycle 208: a
-	// *windowed* list carries one more blank than a complete one before
-	// the counter (REF at height 24: rows, '', desc, '', '', [W+1 of N],
-	// '', Keyboard).
+	lines = append(lines, configDescriptionLines(desc, m.width)...)
 	if visible < len(rows) {
-		// The description block above already ends with one blank row;
-		// the counter follows it directly (live 1.4.3 at 120x40).
 		lines = append(lines,
 			cDimGrayOpen+fmt.Sprintf("  [%d-%d of %d items]",
 				m.panel.window+1, m.panel.window+visible, len(rows))+cDimGrayClose)

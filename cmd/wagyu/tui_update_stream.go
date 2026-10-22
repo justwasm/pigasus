@@ -1,0 +1,288 @@
+package main
+
+import (
+	"fmt"
+	"strings"
+	"time"
+
+	tea "charm.land/bubbletea/v2"
+
+	"github.com/justwasm/pigasus/internal/agent"
+	"github.com/justwasm/pigasus/internal/backend"
+)
+
+func (m *runMode) resetDiscardedTurn() {
+	m.discardTurn = false
+	m.liveSteps = nil
+	m.liveStepRuns = nil
+	m.activeTool = ""
+	m.streaming = false
+	m.thinking = false
+	m.replyStart = -1
+	m.liveReplyIdx = -1
+	m.liveTextLines = 0
+	m.liveReplyBuf = ""
+	m.streamedText = false
+	m.liveBatch = 0
+	m.batchBreak = false
+}
+
+func (m *runMode) dequeueNextPrompt() string {
+	nextQueued := ""
+	if m.queuedPrompt != "" {
+		nextQueued = m.queuedPrompt
+		m.queuedPrompt = ""
+	} else if len(m.streamQueue) > 0 {
+		nextQueued = m.streamQueue[0]
+		m.streamQueue = m.streamQueue[1:]
+	}
+	return nextQueued
+}
+
+func (m *runMode) finaliseTurnReply(msg turnDoneMsg) {
+	if finalised := m.finaliseLiveTurn(msg); !finalised {
+		var replyLines []string
+		if !agent.IsEmptyAssistantTurn(msg.reply, nil, msg.reasoning) {
+			styled := renderMarkdown(msg.reply, m.width)
+			replyLines = strings.Split(styled, "\n")
+		}
+		block := toolBlockLines(msg.steps, m.expanded, m.width)
+		final := make([]string, 0, len(block)+len(replyLines)+1)
+		pad := m.liveStart > 0 && strings.TrimSpace(stripANSI(m.response[m.liveStart-1])) != ""
+		if pad {
+			final = append(final, "")
+		}
+		final = append(final, block...)
+		final = append(final, replyLines...)
+		m.replaceRange(m.liveStart, len(m.response), final)
+		if len(msg.steps) > 0 {
+			start := m.liveStart
+			if pad {
+				start++
+			}
+			m.blocks = append(m.blocks, turnBlock{
+				start: start,
+				lines: len(block),
+				steps: msg.steps,
+			})
+		}
+	} else if !m.streamedText && !agent.IsEmptyAssistantTurn(msg.reply, nil, msg.reasoning) {
+		styled := renderMarkdown(msg.reply, m.width)
+		m.response = append(m.response, strings.Split(styled, "\n")...)
+	}
+}
+
+func (m *runMode) recordTurnCompletion(msg turnDoneMsg) {
+	m.liveSteps = nil
+	m.liveStepRuns = nil
+	m.activeTool = ""
+	m.streaming = false
+	m.thinking = false
+	m.replyStart = -1
+	m.liveTextLines = 0
+	m.liveReplyBuf = ""
+	m.streamedText = false
+	m.liveBatch = 0
+	m.batchBreak = false
+	m.recordTurnOutcome(tea.ProgramStateDone)
+
+	if !agent.IsEmptyAssistantTurn(msg.reply, nil, msg.reasoning) {
+		if m.liveReplyIdx >= 0 && m.liveReplyIdx < len(m.session) {
+			m.session[m.liveReplyIdx].Content = msg.reply
+		} else {
+			m.session = append(m.session, backend.Message{Role: "assistant", Content: msg.reply})
+		}
+	}
+	if msg.err != nil {
+		m.response = append(m.response, turnErrorRow(msg.err))
+	}
+	m.replyStart = -1
+	m.liveReplyIdx = -1
+	m.saveSession()
+	if len(m.response) > 0 {
+		m.response = append(m.response, "")
+	}
+}
+
+func (m *runMode) flushNextQueued(nextQueued string) tea.Cmd {
+	if nextQueued == "" {
+		if len(m.bashQueue) > 0 {
+			next := m.bashQueue[0]
+			m.bashQueue = m.bashQueue[1:]
+			return m.startBashCommand(next)
+		}
+		return nil
+	}
+	if handled, cmd := m.dispatchSlashLine(nextQueued); handled {
+		return cmd
+	}
+	m.response = append(m.response, userPromptRow(nextQueued))
+	m.liveStart = len(m.response)
+	m.replyStart = -1
+	m.liveReplyIdx = -1
+	m.liveSteps = nil
+	m.liveStepRuns = nil
+	m.activeTool = ""
+	m.thinking = false
+	m.liveTextLines = 0
+	m.liveReplyBuf = ""
+	m.streamedText = false
+	m.liveBatch = 0
+	m.batchBreak = false
+	m.anyToolRun = false
+	m.spinFrame = 0
+	m.appendUserTurn(nextQueued)
+	m.saveSession()
+	m.streaming = true
+	m.clearLastTurnOutcome()
+	tickCmd := func() tea.Msg { return m.spinner.Tick() }
+	return tea.Batch(m.streamPrompt(nextQueued), tickCmd)
+}
+
+func (m *runMode) updateTurnDoneMsg(msg turnDoneMsg) (tea.Model, tea.Cmd) {
+	m.inputNotice = ""
+	if m.discardTurn {
+		m.resetDiscardedTurn()
+		return m, tea.ClearScreen
+	}
+	nextQueued := m.dequeueNextPrompt()
+	m.finaliseTurnReply(msg)
+	m.recordTurnCompletion(msg)
+	queueCmd := m.flushNextQueued(nextQueued)
+	return m, tea.Batch(queueCmd, tea.ClearScreen)
+}
+
+func (m *runMode) updateToolRunningMsg(msg toolRunningMsg) {
+	m.activeTool = runningSpinnerText(msg.step.name)
+	m.anyToolRun = true
+	m.streaming = true
+	if m.batchBreak {
+		m.liveBatch++
+		m.batchBreak = false
+	}
+	m.blankBefore()
+	step := msg.step
+	step.batch = m.liveBatch
+	lines := toolStepLines(step, m.expanded, m.width)
+	m.liveStepRuns = append(m.liveStepRuns, liveStepRun{
+		start: len(m.response),
+		lines: len(lines),
+		step:  step,
+	})
+	m.response = append(m.response, lines...)
+}
+
+func (m *runMode) updateToolStepMsg(msg toolStepMsg) {
+	m.liveSteps = append(m.liveSteps, msg.step)
+	m.activeTool = ""
+	m.replyStart = -1
+	m.liveTextLines = 0
+	m.liveReplyBuf = ""
+	step := msg.step
+	lines := toolStepLines(step, m.expanded, m.width)
+	replaced := false
+	if n := len(m.liveStepRuns); n > 0 && m.liveStepRuns[n-1].step.running {
+		r := &m.liveStepRuns[n-1]
+		oldEnd := r.start + r.lines
+		if r.start >= 0 && oldEnd <= len(m.response) {
+			step.batch = r.step.batch
+			lines = toolStepLines(step, m.expanded, m.width)
+			delta := len(lines) - r.lines
+			m.replaceRange(r.start, oldEnd, lines)
+			r.lines = len(lines)
+			r.step = step
+			if delta != 0 && m.replyStart >= oldEnd {
+				m.replyStart += delta
+			}
+			replaced = true
+		}
+	}
+	if !replaced {
+		if m.batchBreak {
+			m.liveBatch++
+			m.batchBreak = false
+		}
+		step.batch = m.liveBatch
+		lines = toolStepLines(step, m.expanded, m.width)
+		m.liveStepRuns = append(m.liveStepRuns, liveStepRun{
+			start: len(m.response),
+			lines: len(lines),
+			step:  step,
+		})
+		m.response = append(m.response, lines...)
+	}
+	m.liveSteps[len(m.liveSteps)-1] = step
+}
+
+func (m *runMode) updateBackendChunkMsg(msg backendChunkMsg) {
+	chunk := string(msg)
+	if chunk == "" || m.discardTurn {
+		return
+	}
+	if m.replyStart < 0 {
+		m.blankBefore()
+		m.replyStart = len(m.response)
+		m.liveTextLines = 0
+		m.liveReplyBuf = ""
+	}
+	m.liveReplyBuf += chunk
+	m.streamedText = true
+	m.batchBreak = true
+	if m.liveReplyIdx < 0 {
+		m.session = append(m.session, backend.Message{Role: "assistant", Content: chunk})
+		m.liveReplyIdx = len(m.session) - 1
+	} else {
+		m.session[m.liveReplyIdx].Content += chunk
+	}
+	styled := renderMarkdown(m.liveReplyBuf, m.width)
+	lines := strings.Split(styled, "\n")
+	m.replaceRange(m.replyStart, m.replyStart+m.liveTextLines, lines)
+	m.liveTextLines = len(lines)
+	m.streaming = true
+	m.saveSession()
+}
+
+func (m *runMode) updateStreamingMsg(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
+	switch msg := msg.(type) {
+	case turnDoneMsg:
+		mod, cmd := m.updateTurnDoneMsg(msg)
+		return mod, cmd, true
+	case toolRunningMsg:
+		m.updateToolRunningMsg(msg)
+		return m, nil, true
+	case thoughtStartMsg:
+		if !m.thinking {
+			m.thinking = true
+			m.thinkingSince = time.Now()
+		}
+		m.streaming = true
+		return m, nil, true
+	case autoContBannerMsg:
+		banner := "↻  auto-continuing… (retry " + fmt.Sprintf("%d", msg.depth) + " of " + fmt.Sprintf("%d", msg.maxDepth) + ")"
+		m.response = append(m.response, banner)
+		if m.streaming {
+			m.streaming = false
+		}
+		return m, nil, true
+	case eligibilityNoticeMsg:
+		m.setEligibilityNotice(msg.Reason, msg.VerificationURL)
+		return m, nil, true
+	case toolStepMsg:
+		m.updateToolStepMsg(msg)
+		return m, nil, true
+	case backendChunkMsg:
+		m.updateBackendChunkMsg(msg)
+		return m, nil, true
+	case backendDoneMsg:
+		m.replyStart = -1
+		m.liveReplyIdx = -1
+		m.streaming = false
+		m.thinking = false
+		m.saveSession()
+		if len(m.response) > 0 {
+			m.response = append(m.response, "")
+		}
+		return m, tea.ClearScreen, true
+	}
+	return m, nil, false
+}

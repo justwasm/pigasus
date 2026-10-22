@@ -54,7 +54,6 @@ package tools
 
 import (
 	"encoding/json"
-	"fmt"
 	"sort"
 	"strings"
 )
@@ -258,50 +257,13 @@ func truncateByFormat(content, format string, maxTokens int) string {
 // within maxTokens. The wrapped JSON is parseable by encoding/json
 // (no trailing commas, no broken escapes).
 //
-// When the object does not parse, the helper falls through to
-// truncateProse (the unparseable-content fallback).
-func truncateJSONObject(content string, maxTokens int) string {
-	var v map[string]json.RawMessage
-	if err := json.Unmarshal([]byte(content), &v); err != nil {
-		return truncateProse(content, maxTokens)
-	}
-	if len(v) == 0 {
-		// Empty object — keep the envelope shape but the preview
-		// is the literal "{}".
-		return encodeTruncatedEnvelope("{}")
-	}
-	// Sort keys for deterministic output (Go map iteration is
-	// randomised).
-	keys := make([]string, 0, len(v))
-	for k := range v {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-
-	// Reserve tokens for the envelope itself: {"_truncated": true,
-	// "_preview": "..."} + the partial object braces. Token-count
-	// the envelope and subtract from maxTokens.
-	envelopeOverhead := estimateTokens(`{"_truncated":true,"_preview":""}`)
-	budgetForPreview := maxTokens - envelopeOverhead
-	if budgetForPreview < 1 {
-		// No room for any preview content — return the envelope
-		// with an empty-object preview. The model can still see
-		// _truncated=true and infer the truncation.
-		return encodeTruncatedEnvelope("{}")
-	}
-
-	// Walk the keys accumulating the partial object string.
-	// The string starts with "{" and ends with "}" once the
-	// walk finishes; entry separator is ",".
+func buildTruncatedJSONObjectPreview(v map[string]json.RawMessage, keys []string, budget int) string {
 	var preview strings.Builder
 	preview.WriteByte('{')
 	used := 1 // opening "{"
 	first := true
 	for _, k := range keys {
 		val := v[k]
-		// Build the next entry. We re-marshal via json.Marshal
-		// for the key (escapes safely) and reuse the raw JSON
-		// for the value (it's already valid JSON).
 		keyJSON, err := json.Marshal(k)
 		if err != nil {
 			continue // skip the bad key rather than fail
@@ -312,7 +274,7 @@ func truncateJSONObject(content string, maxTokens int) string {
 			sep = ","
 		}
 		needed := estimateTokens(sep + entry)
-		if used+needed+1 > budgetForPreview { // +1 for closing "}"
+		if used+needed+1 > budget { // +1 for closing "}"
 			break
 		}
 		preview.WriteString(sep)
@@ -321,7 +283,32 @@ func truncateJSONObject(content string, maxTokens int) string {
 		first = false
 	}
 	preview.WriteByte('}')
-	return encodeTruncatedEnvelope(preview.String())
+	return preview.String()
+}
+
+// When the object does not parse, the helper falls through to
+// truncateProse (the unparseable-content fallback).
+func truncateJSONObject(content string, maxTokens int) string {
+	var v map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(content), &v); err != nil {
+		return truncateProse(content, maxTokens)
+	}
+	if len(v) == 0 {
+		return encodeTruncatedEnvelope("{}")
+	}
+	keys := make([]string, 0, len(v))
+	for k := range v {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	envelopeOverhead := estimateTokens(`{"_truncated":true,"_preview":""}`)
+	budgetForPreview := maxTokens - envelopeOverhead
+	if budgetForPreview < 1 {
+		return encodeTruncatedEnvelope("{}")
+	}
+	preview := buildTruncatedJSONObjectPreview(v, keys, budgetForPreview)
+	return encodeTruncatedEnvelope(preview)
 }
 
 // truncateJSONArray parses content as a JSON array and keeps the
@@ -369,153 +356,4 @@ func truncateJSONArray(content string, maxTokens int) string {
 		used += needed
 	}
 	return encodeTruncatedArrayEnvelope(preview)
-}
-
-// truncateYAML walks the first N lines that fit within maxTokens.
-// The output is a YAML doc with _truncated and _preview keys:
-//
-//	_truncated: true
-//	_preview: |
-//	  <first N lines of original>
-//
-// The block-scalar (`|`) preserves the original lines verbatim
-// without escaping YAML metacharacters. The wrapped output is
-// still parseable YAML.
-//
-// A future cycle can switch to a real YAML parser for proper
-// anchor/alias preservation; the current heuristic is
-// intentionally cheap.
-func truncateYAML(content string, maxTokens int) string {
-	lines := strings.Split(content, "\n")
-	var preview strings.Builder
-	used := estimateTokens("_truncated: true\n_preview: |\n")
-	first := true
-	for _, line := range lines {
-		// Account for the leading 2 spaces (block-scalar indent)
-		// plus a trailing newline.
-		entry := "  " + line + "\n"
-		needed := estimateTokens(entry)
-		if used+needed > maxTokens {
-			break
-		}
-		preview.WriteString(entry)
-		used += needed
-		first = false
-	}
-	if first {
-		// No line fit; preview is empty.
-		preview.WriteString("\n")
-	}
-	out := "_truncated: true\n_preview: |\n" + preview.String()
-	return out
-}
-
-// truncateXML wraps the first N tokens of content in a
-// <truncated> tag. The cycle does not try to parse XML — a
-// broken close tag in the middle would corrupt the document —
-// and instead emits a flat string. The model still gets the
-// structural signal (_truncated=true-equivalent via the
-// tag name) plus the leading payload.
-//
-// maxTokens here counts bytes, not nested-element-count. The
-// cycle does not ship an XML walker.
-func truncateXML(content string, maxTokens int) string {
-	// maxTokens * chars-per-token == max bytes to keep.
-	maxBytes := maxTokens * DefaultApproxCharsPerToken
-	if maxBytes >= len(content) {
-		// Should not happen — caller already short-circuited
-		// for under-budget input — but be defensive.
-		return content
-	}
-	// Walk back from maxBytes to the nearest rune boundary so we
-	// don't split a multi-byte UTF-8 character.
-	cut := maxBytes
-	for cut > 0 && !isRuneStart(content[cut:]) {
-		cut--
-	}
-	// Trim to the nearest whitespace so we don't end on a
-	// half-tag. Search backwards for space, newline, or '<'.
-	for cut > 0 {
-		c := content[cut-1]
-		if c == ' ' || c == '\n' || c == '\t' || c == '<' {
-			break
-		}
-		cut--
-	}
-	return "<truncated>" + content[:cut] + "</truncated>"
-}
-
-// truncateProse is the unknown / unparseable fallback. It keeps
-// the first maxTokens-tokens' worth of bytes and appends a marker
-// so the model can see the truncation. This is the same shape
-// the rest of the clone uses for freeform-prose truncation
-// (customize, compaction), so the cycle does not introduce a
-// second prose-truncation idiom.
-func truncateProse(content string, maxTokens int) string {
-	maxBytes := maxTokens * DefaultApproxCharsPerToken
-	if maxBytes >= len(content) {
-		return content
-	}
-	// Walk back to the nearest rune boundary so we don't split
-	// a multi-byte UTF-8 character.
-	cut := maxBytes
-	for cut > 0 && !isRuneStart(content[cut:]) {
-		cut--
-	}
-	// Trim trailing partial line so the marker doesn't replace
-	// a half-word.
-	for cut > 0 {
-		c := content[cut-1]
-		if c == ' ' || c == '\n' || c == '\t' {
-			break
-		}
-		cut--
-	}
-	return content[:cut] + "\n…[truncated]"
-}
-
-// encodeTruncatedEnvelope wraps a partial JSON-object preview
-// string in the {"_truncated": true, "_preview": "..."} envelope.
-// The _preview field is a JSON string (escaped by json.Marshal
-// for strings), so the wrapped output is always parseable.
-func encodeTruncatedEnvelope(preview string) string {
-	out := struct {
-		Truncated bool   `json:"_truncated"`
-		Preview   string `json:"_preview"`
-	}{Truncated: true, Preview: preview}
-	encoded, err := json.Marshal(out)
-	if err != nil {
-		// Should not happen — preview is a string we built.
-		// Fall back to a hand-rolled envelope.
-		return fmt.Sprintf(`{"_truncated":true,"_preview":%q}`, preview)
-	}
-	return string(encoded)
-}
-
-// encodeTruncatedArrayEnvelope wraps a slice of JSON element
-// fragments in the {"_truncated": true, "_preview": [...]} envelope.
-// The _preview field is itself a JSON array, not a string, so
-// the model sees a structured shape and can keep iterating.
-func encodeTruncatedArrayEnvelope(elements []json.RawMessage) string {
-	out := struct {
-		Truncated bool              `json:"_truncated"`
-		Preview   []json.RawMessage `json:"_preview"`
-	}{Truncated: true, Preview: elements}
-	encoded, err := json.Marshal(out)
-	if err != nil {
-		// Should not happen — RawMessages are valid JSON.
-		return fmt.Sprintf(`{"_truncated":true,"_preview":[]}`)
-	}
-	return string(encoded)
-}
-
-// isRuneStart reports whether the byte at position i is the
-// start of a UTF-8 rune (i.e. not a continuation byte). Mirrors
-// the cycle-198 / cycle-235 grapheme-aware cut pattern used in
-// the /diff and /codesearch truncation helpers.
-func isRuneStart(s string) bool {
-	if len(s) == 0 {
-		return true
-	}
-	return s[0]&0xC0 != 0x80
 }

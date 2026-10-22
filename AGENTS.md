@@ -238,9 +238,17 @@ The CloudCode wire was transcribed from live 1.4.3 traffic (report:
   consumes for MiniMax — the TUI renders `▸ Thought for …` and ctrl+o expands
   the body, while print mode strips it.
 
-The catalogue stays at 1.4.3's own `--model` list — the server advertises newer
-ids (`gemini-3.1-pro-high`, Argon) that the reference's validator itself
-rejects, so accepting them would diverge.
+The catalogue is the reference's own selectable set — the six ids
+`agy models` prints (`gemini-3.8-flash-{high,medium,low}`, `claude-sonnet-4-6`,
+`claude-opus-4-6-thinking`, `gpt-oss-120b-medium`), plus MiniMax M3 as a
+configured-only entry. The server advertises **24** ids in
+`fetchAvailableModels`; everything outside the selectable six is rejected by
+the reference's own validator (`model X is not recognized…`), so accepting it
+would diverge. The one exception is **`gemini-4-argon-disabled`** ("Gemini 4
+Argon"): it is *known* and refused with a plan reason — `"Gemini 4 Argon" is
+unavailable: Gemini 4 Argon is currently available to Ultra and paid Pro plan
+subscribers` — which `internal/cli.ReferenceGatedModels` reproduces. Report:
+`docs/cycles/model-catalogue-argon-gate/`.
 
 ---
 
@@ -491,6 +499,40 @@ byte-level pty captures (`docs/cycles/cycle-285-tool-display/`), not the
   expand to `● WebSearch(q)`; the spinner says `Searching web`. A failed
   non-command call reddens the bullet but prints no ` failed` — that word is
   command-only.
+
+## Bash mode (cycle `bash-mode`)
+
+`!` at the start of an **empty** composer runs the buffer through the shell instead
+of sending it to the model. `cmd/wagyu/tui_bash_mode.go`; the composer prompt becomes
+a bold-blue `!`, the hint row becomes ` activated bash mode · esc to cancel`
+(leading space, `#657B83`), and Enter prints a local block:
+
+```
+● ! pwd
+  ⎿  /Users/gear/GitHub/openagy
+```
+
+Facts that are easy to get wrong, all 【一手】 from pty captures
+(`docs/cycles/bash-mode/`):
+
+- The mode is a **composer state**, not a prefix in the buffer: the `!` key is
+  consumed when the buffer is empty; ` !echo hi` (leading space) is an ordinary
+  prompt and *does* go to the model.
+- The shell is the same `tools.DefaultShellArgv` the `run_command` tool uses
+  (`zsh -c` on darwin), cwd = workspace; stdout+stderr merged, trailing newlines
+  dropped.
+- The `⎿` block only exists when there is output (`!true` prints the head row
+  alone). A failed command **with** output prints just the output; the Go error text
+  (`exit status 3`) appears only when a failed command printed nothing.
+- Success is a green `●` with a `#586E75` body, failure a red `●` with `#DC322F`;
+  the `  ⎿  ` prefix is bold blue in both, and only the first body row is indented.
+- It behaves like a local turn: spinner `Generating...`, status `esc to cancel`, and
+  Esc cancels it — leaving the head row, no body, and a **green** bullet.
+- A command submitted mid-turn queues as `▸ <cmd>` (no `(alt+m …)` suffix) and runs
+  after the turn. Up-arrow recalls it into bash mode.
+- The command never enters `m.session`, so it is invisible to the model; it is also
+  not persisted to the conversation store (the reference's "implicit trajectory"),
+  which is the main documented gap.
 
 ---
 

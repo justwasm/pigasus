@@ -122,6 +122,19 @@ func catalogueLabel(id string) string {
 	return id
 }
 
+// gatedModel resolves a wire id or a display label to the server's plan gate.
+// The id and the label take the same path (`gemini-4-argon-disabled` and
+// `Gemini 4 Argon` both report the plan), while the bare `gemini-4-argon` is
+// an unknown model — 一手, live 1.4.4 probes.
+func gatedModel(name string) (cli.GatedModel, bool) {
+	for _, g := range cli.ReferenceGatedModels() {
+		if g.ID == name || g.Label == name {
+			return g, true
+		}
+	}
+	return cli.GatedModel{}, false
+}
+
 // availableModelsBlock is the list the reference appends to the unknown-model
 // error.
 func availableModelsBlock() string {
@@ -143,6 +156,14 @@ func resolveModelSelection(model, effort string) (string, error) {
 	if effort != "" && !containsStr(validEfforts, effort) {
 		return "", invalidModelSelection(model, effort,
 			fmt.Sprintf("invalid --effort %q (valid: low, medium, high, xhigh, max)", effort))
+	}
+
+	// A gated model is refused after the effort vocabulary (a bogus --effort
+	// still wins) and before every other use of --effort: `--model
+	// gemini-4-argon-disabled --effort high` reports the plan, not a conflict.
+	if g, ok := gatedModel(model); ok {
+		return "", invalidModelSelection(model, effort,
+			fmt.Sprintf("%q is unavailable: %s\n%s", g.Label, g.Reason, availableModelsBlock()))
 	}
 
 	if effort != "" {

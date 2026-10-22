@@ -70,11 +70,7 @@ func obj(props string, required ...string) json.RawMessage {
 		`{"type":"object","properties":{%s},"required":[%s]}`, props, req))
 }
 
-// referenceSpecs returns the advertised 1.3.6 tool set for a workspace, in the
-// reference's sorted order. Tools with a real executor are backed by it; the
-// rest are placeholders so the advertised surface matches the reference
-// exactly.
-func referenceSpecs(ws string) []refSpec {
+func referenceSpecsPart1(ws string) []refSpec {
 	return []refSpec{
 		// ---- permissions / questions (real) ----
 		{name: "ask_custom_permission", desc: "Ask the user to approve a custom permission request.",
@@ -118,7 +114,11 @@ func referenceSpecs(ws string) []refSpec {
 		// ---- command execution (real) ----
 		{name: "command_status", desc: "Check the status of a previously started command.",
 			back: &CommandStatus{}},
+	}
+}
 
+func referenceSpecsPart2(ws string) []refSpec {
+	return []refSpec{
 		// ---- subagents / knowledge ----
 		{name: "define_subagent", desc: "Define a reusable subagent."},
 		{name: "delete_knowledge", desc: "Delete a stored knowledge item."},
@@ -162,7 +162,11 @@ func referenceSpecs(ws string) []refSpec {
 			back: &NotebookEdit{Workspace: ws}},
 		{name: "notebook_execution", desc: "Execute a notebook cell.",
 			back: &NotebookExecution{Workspace: ws}},
+	}
+}
 
+func referenceSpecsPart3(ws string) []refSpec {
+	return []refSpec{
 		// ---- browser navigation ----
 		{name: "open_browser_url", desc: "Open a URL in the controlled browser."},
 		{name: "read_browser_page", desc: "Read the current browser page as text."},
@@ -173,10 +177,6 @@ func referenceSpecs(ws string) []refSpec {
 			back: &ReadURLContent{Workspace: ws}},
 		{name: "replace_file_content", desc: "Replace a literal string in a file.",
 			back: &EditFile{Workspace: ws}},
-		// Cycle 275: description and schema are the reference's captured
-		// 1.4.x declaration (一手), not the earlier reconstruction. The
-		// declaration is what tells the model to send `CommandLine` and to
-		// expect a shell.
 		{name: "run_command", desc: runCommandDescription(), schema: runCommandSchema,
 			back: &RunCommand{Workspace: ws}},
 		{name: "run_workflow", desc: "Run a workflow."},
@@ -197,8 +197,6 @@ func referenceSpecs(ws string) []refSpec {
 			back: &SendMessageTool{}},
 
 		// ---- filesystem read/write (real) ----
-		// Cycle 275: captured declaration (一手). AbsolutePath is required and
-		// "Must be an absolute path" — see readPath.
 		{name: "view_file", desc: viewFileDescription, schema: viewFileSchema,
 			back: &ViewFile{Workspace: ws}},
 		{name: "wait", desc: "Sleep for the given duration.",
@@ -207,6 +205,18 @@ func referenceSpecs(ws string) []refSpec {
 		{name: "write_to_file", desc: "Create or overwrite a file with the given contents.",
 			back: &CreateFile{Workspace: ws}},
 	}
+}
+
+// referenceSpecs returns the advertised 1.3.6 tool set for a workspace, in the
+// reference's sorted order. Tools with a real executor are backed by it; the
+// rest are placeholders so the advertised surface matches the reference
+// exactly.
+func referenceSpecs(ws string) []refSpec {
+	specs := make([]refSpec, 0, 60)
+	specs = append(specs, referenceSpecsPart1(ws)...)
+	specs = append(specs, referenceSpecsPart2(ws)...)
+	specs = append(specs, referenceSpecsPart3(ws)...)
+	return specs
 }
 
 // Describer is the optional interface a Tool implements to expose the

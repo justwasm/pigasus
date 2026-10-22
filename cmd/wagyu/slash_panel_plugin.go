@@ -52,55 +52,16 @@ const (
 // `←/→` first/last cursor jumps its footer announces. The box line, the legend
 // and the two key paths live in slash_plugin_search.go; the details live there
 // too (pluginDiscoverDetails). See docs/cycles/cycle-204/.
-func (m *runMode) panelPluginLines() []string {
-	// Cycle dpl (AGY 1.2.7): installed honours the "enabled-only
-	// customization query" toggle (pluginEnabledOnly) before the search
-	// filter narrows further. The filter only lives in panel state, so a
-	// fresh panel re-derives the full list — that is what makes the
-	// disabled rows reappear after panel close.
-	installed := installedPluginRowsFiltered(m.panel.pluginEnabledOnly)
-	mkts := pluginMarketplaces()
-	discover := marketplaceItems(mkts)
-	max := m.pluginLineMax()
-
+func (m *runMode) pluginPanelTitle() string {
 	title := panelTitleOpen + "  Plugins" + panelTitleClose
 	if m.panel.pluginLocalError != "" {
-		title = panelTitleOpen + "  Plugins" + panelTitleClose +
-			" \x1b[38;5;166m(Error: " + m.panel.pluginLocalError + ")\x1b[39m"
+		title += " \x1b[38;5;166m(Error: " + m.panel.pluginLocalError + ")\x1b[39m"
 	}
-	lines := []string{title}
-	lines = append(lines, pluginTabHeader(m.panel.pluginTab, len(installed), len(discover)))
-	lines = append(lines, m.pluginSearchBoxLine())
+	return title
+}
 
-	if m.panel.pluginTab == panelDiscover {
-		return append(lines, m.panelDiscoverLines(mkts, max)...)
-	}
-
-	// Cycle 219: when the Installed tab's box has focus and the typed
-	// query has not yet been committed (Enter), the rows below stay
-	// unfiltered — the user is still composing the query. After Enter,
-	// the rows filter live.
-	visible := installed
-	if m.panel.pluginSearch && m.panel.pluginQueryCommitted {
-		visible = pluginInstalledFilter(installed, m.panel.pluginQuery)
-	}
-	// The Installed count in the tab header reflects the filtered set
-	// once the query has been committed — that is what the cycle-204
-	// Discover header does. Before the commit the count is the full
-	// installed total.
-	headerInstalled := len(installed)
-	if m.panel.pluginSearch && m.panel.pluginQueryCommitted {
-		headerInstalled = len(visible)
-	}
-	lines = []string{title}
-	lines = append(lines, pluginTabHeader(m.panel.pluginTab, headerInstalled, len(discover)))
-	lines = append(lines, m.pluginSearchBoxLine())
-
-	if m.panel.pluginTab == panelDiscover {
-		return append(lines, m.panelDiscoverLines(mkts, max)...)
-	}
-
-	cursor := m.pluginCursorFor(len(visible))
+func (m *runMode) panelPluginInstalledRows(visible []pluginRow, cursor, max int, mkts []pluginMarketplace) []string {
+	var lines []string
 	for i, p := range visible {
 		isCursor := i == cursor
 		desc := pluginDescFor(p.name, mkts)
@@ -109,26 +70,61 @@ func (m *runMode) panelPluginLines() []string {
 			lines = append(lines, pluginInstalledDetails(p.name, mkts)...)
 		}
 	}
-	switch {
-	case m.panel.pluginSearch && m.panel.pluginQueryCommitted && len(visible) == 0:
-		// Cycle 219: typed-search yielded no matches. The empty-state
-		// line points at the live filter so the user knows how to
-		// recover (Backspace / Esc clears the query).
-		lines = append(lines,
-			panelGray238+"  No installed plugins match your search."+panelGray238C,
-			"")
-	case m.panel.pluginEnabledOnly && len(visible) == 0:
-		// Cycle dpl: an enabled-only customization query yielded no
-		// matches (the user just disabled the last enabled row). The
-		// reference shows this row instead of an empty list so the
-		// user knows the disabled rows are still on disk — pressing
-		// `/` once more re-toggles the filter.
-		lines = append(lines,
-			panelGray238+"  No enabled plugins — press `/` to show all."+panelGray238C,
-			"")
+	return lines
+}
+
+func pluginInstalledEmptyNote(searchCommitted, enabledOnly bool, count int) []string {
+	if count > 0 {
+		return nil
 	}
-	lines = append(lines, "",
-		m.pluginInstalledLegend())
+	if searchCommitted {
+		return []string{
+			panelGray238 + "  No installed plugins match your search." + panelGray238C,
+			"",
+		}
+	}
+	if enabledOnly {
+		return []string{
+			panelGray238 + "  No enabled plugins — press `/` to show all." + panelGray238C,
+			"",
+		}
+	}
+	return nil
+}
+
+func (m *runMode) panelPluginLines() []string {
+	installed := installedPluginRowsFiltered(m.panel.pluginEnabledOnly)
+	mkts := pluginMarketplaces()
+	discover := marketplaceItems(mkts)
+	max := m.pluginLineMax()
+
+	title := m.pluginPanelTitle()
+	visible := installed
+	if m.panel.pluginSearch && m.panel.pluginQueryCommitted {
+		visible = pluginInstalledFilter(installed, m.panel.pluginQuery)
+	}
+	headerInstalled := len(installed)
+	if m.panel.pluginSearch && m.panel.pluginQueryCommitted {
+		headerInstalled = len(visible)
+	}
+
+	lines := []string{
+		title,
+		pluginTabHeader(m.panel.pluginTab, headerInstalled, len(discover)),
+		m.pluginSearchBoxLine(),
+	}
+
+	if m.panel.pluginTab == panelDiscover {
+		return append(lines, m.panelDiscoverLines(mkts, max)...)
+	}
+
+	cursor := m.pluginCursorFor(len(visible))
+	lines = append(lines, m.panelPluginInstalledRows(visible, cursor, max, mkts)...)
+	lines = append(lines, pluginInstalledEmptyNote(
+		m.panel.pluginSearch && m.panel.pluginQueryCommitted,
+		m.panel.pluginEnabledOnly,
+		len(visible))...)
+	lines = append(lines, "", m.pluginInstalledLegend())
 	return lines
 }
 
@@ -412,129 +408,3 @@ func (m *runMode) pluginCursorFor(n int) int {
 // Cycle dpl (AGY 1.2.7): the Installed tab's bound also honours the
 // `pluginEnabledOnly` filter — disabling the last enabled row while the
 // filter is active must clamp the cursor to row 0 of an empty list, not
-// keep it on a row index that no longer exists.
-func (m *runMode) pluginRowCount() int {
-	if m.panel.pluginTab == panelDiscover {
-		return m.pluginDiscoverCount()
-	}
-	if m.panel.pluginSearch {
-		return m.pluginSearchCount()
-	}
-	return len(installedPluginRowsFiltered(m.panel.pluginEnabledOnly))
-}
-
-// togglePluginEnabled flips the highlighted Installed row's
-// plugins.<name>.enabled flag in ~/.gemini/config/config.json (probed: the
-// toggle persists across launches; the badge re-reads the flag each frame).
-//
-// Cycle psif: the toggle acts on the row the cursor visually points at.
-// That is the full installed list while the box is unfocused, and the
-// filter result once the typed query has been committed (Enter) — see
-// installedActiveRows.
-func (m *runMode) togglePluginEnabled() {
-	rows := m.installedActiveRows()
-	i := m.pluginCursorFor(len(rows))
-	if i >= len(rows) {
-		return
-	}
-	name := rows[i].name
-	on, err := auth.PluginEnabled(name)
-	if err != nil {
-		return
-	}
-	_ = auth.SetPluginEnabled(name, !on)
-}
-
-// uninstallHighlightedPlugin removes the plugin under the cursor on the
-// Installed tab. It is the ctrl+s handler — the legend has listed the
-// action since cycle 198, but this commit is the first to wire the
-// dispatcher to a real path.
-//
-// Steps:
-//
-//  1. Read the row list (the cycle-198 reader; the disabled-filter and
-//     the typed-search filter compose on top of it but a ctrl+s on a
-//     visible row targets that row directly — so we read the same set
-//     the cursor is pointing at, not the unfiltered disk scan).
-//  2. Resolve the highlighted name.
-//  3. Call uninstallFeedback (which runs validatePluginID first). The
-//     return string is the message we paint in the panel title — empty
-//     on success means the title reverts to its cycle-198 form.
-//
-// On success the directory disappears, config.json's row is cleared,
-// and the next frame's installedPluginRowsFiltered call produces a
-// shorter list; the cursor is clamped to row 0 by pluginCursorFor.
-func (m *runMode) uninstallHighlightedPlugin() (string, error) {
-	rows := installedPluginRows()
-	i := m.pluginCursorFor(len(rows))
-	if i >= len(rows) {
-		// Cursor lands in an empty list; the keystroke is a no-op.
-		return "", nil
-	}
-	name := rows[i].name
-	msg, err := uninstallFeedback(name)
-	if err != nil && msg == "" {
-		// Defensive: uninstallFeedback always returns a non-empty
-		// message on error. If it does not, surface the bare error so
-		// the panel still says *something* went wrong.
-		return "Error: " + err.Error(), err
-	}
-	// Drop any cached detail-block expansion so the next render does
-	// not leave a stale "Description:" / "Skills:" block under a row
-	// that no longer exists.
-	if m.panel.pluginExpanded != nil {
-		delete(m.panel.pluginExpanded, name)
-	}
-	return msg, err
-}
-
-// togglePluginExpanded shows/hides the detail block under the highlighted
-// Installed row. Expansion is tracked per plugin name, not by cursor index:
-// the reference leaves a block open when the cursor moves away (probed on the
-// Discover tab, where the cursor jumped back to row 0 with a block still
-// open).
-//
-// Cycle psif: same active-rows rule as togglePluginEnabled — once a
-// focused-mode commit has narrowed the list, Enter on a committed
-// Installed box opens the block under the filtered row the cursor is
-// parked on, not the same-index row of the full list.
-func (m *runMode) togglePluginExpanded() {
-	rows := m.installedActiveRows()
-	i := m.pluginCursorFor(len(rows))
-	if i >= len(rows) {
-		return
-	}
-	name := rows[i].name
-	if m.panel.pluginExpanded == nil {
-		m.panel.pluginExpanded = map[string]bool{}
-	}
-	if m.panel.pluginExpanded[name] {
-		delete(m.panel.pluginExpanded, name)
-		return
-	}
-	m.panel.pluginExpanded[name] = true
-}
-
-// installedActiveRows is the Installed-tab row list the cursor
-// currently indexes. With no focused-mode commit it is the full
-// installed list; once the typed query has been committed (Enter) it
-// is the filter result, so a Space / Enter on the focused state acts
-// on the row the cursor visually points at.
-//
-// Cycle psif: previously both togglePluginEnabled and
-// togglePluginExpanded read installedPluginRows() unconditionally,
-// which indexed the cursor into the *full* list even after a commit
-// narrowed the visible rows. With more than one installed plugin the
-// cursor and the action would disagree — Space would flip the wrong
-// row's enabled flag, Enter would open the wrong row's detail block.
-// The fix is one helper that both callers share.
-func (m *runMode) installedActiveRows() []pluginRow {
-	rows := installedPluginRows()
-	if m.panel.pluginTab == panelInstalled &&
-		m.panel.pluginSearch && m.panel.pluginQueryCommitted {
-		return pluginInstalledFilter(rows, m.panel.pluginQuery)
-	}
-	return rows
-}
-
-

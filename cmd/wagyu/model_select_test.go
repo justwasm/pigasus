@@ -5,6 +5,11 @@ import (
 	"testing"
 )
 
+// availableAll is the "Available models:" block the clone appends — the six
+// the reference prints plus the configured MiniMax M3. A gated model is not in
+// it: the plan gate is not an advertisement.
+const availableAll = "Available models:\n  Gemini 3.8 Flash (High)\n  Gemini 3.8 Flash (Medium)\n  Gemini 3.8 Flash (Low)\n  Claude Sonnet 4.6 (Thinking)\n  Claude Opus 4.6 (Thinking)\n  GPT-OSS 120B (Medium)\n  MiniMax M3"
+
 // TestResolveModelSelection pins the 1.3.6 --model/--effort validation. Every
 // "wantErr" string below was captured verbatim from the reference binary.
 func TestResolveModelSelection(t *testing.T) {
@@ -56,6 +61,22 @@ func TestResolveModelSelection(t *testing.T) {
 			"error: invalid model selection (--model \"Gemini\" --effort \"\"): model Gemini is not recognized as a known model or custom model in settings\nAvailable models:\n  Gemini 3.8 Flash (High)\n  Gemini 3.8 Flash (Medium)\n  Gemini 3.8 Flash (Low)\n  Claude Sonnet 4.6 (Thinking)\n  Claude Opus 4.6 (Thinking)\n  GPT-OSS 120B (Medium)\n  MiniMax M3"},
 		{"claude-sonnet-4.6-thinking", "", "",
 			"error: invalid model selection (--model \"claude-sonnet-4.6-thinking\" --effort \"\"): model claude-sonnet-4.6-thinking is not recognized as a known model or custom model in settings\nAvailable models:\n  Gemini 3.8 Flash (High)\n  Gemini 3.8 Flash (Medium)\n  Gemini 3.8 Flash (Low)\n  Claude Sonnet 4.6 (Thinking)\n  Claude Opus 4.6 (Thinking)\n  GPT-OSS 120B (Medium)\n  MiniMax M3"},
+		// Gated model (一手, live 1.4.4): the server advertises it, the plan
+		// refuses it. The id and the display label take the same path, and
+		// --effort does not change the answer.
+		{"gemini-4-argon-disabled", "", "",
+			`error: invalid model selection (--model "gemini-4-argon-disabled" --effort ""): "Gemini 4 Argon" is unavailable: Gemini 4 Argon is currently available to Ultra and paid Pro plan subscribers` + "\n" + availableAll},
+		{"Gemini 4 Argon", "", "",
+			`error: invalid model selection (--model "Gemini 4 Argon" --effort ""): "Gemini 4 Argon" is unavailable: Gemini 4 Argon is currently available to Ultra and paid Pro plan subscribers` + "\n" + availableAll},
+		{"gemini-4-argon-disabled", "high", "",
+			`error: invalid model selection (--model "gemini-4-argon-disabled" --effort "high"): "Gemini 4 Argon" is unavailable: Gemini 4 Argon is currently available to Ultra and paid Pro plan subscribers` + "\n" + availableAll},
+		// The bare name is *not* a known model — the gate is keyed on the
+		// advertised id (and its label), not on a prefix.
+		{"gemini-4-argon", "", "",
+			"error: invalid model selection (--model \"gemini-4-argon\" --effort \"\"): model gemini-4-argon is not recognized as a known model or custom model in settings\n" + availableAll},
+		// ...but a bogus --effort is still refused first.
+		{"gemini-4-argon-disabled", "bogus", "",
+			`error: invalid model selection (--model "gemini-4-argon-disabled" --effort "bogus"): invalid --effort "bogus" (valid: low, medium, high, xhigh, max)`},
 	} {
 		gotID, err := resolveModelSelection(tc.model, tc.effort)
 		if tc.wantErr == "" {
@@ -81,7 +102,7 @@ func TestResolveModelSelection(t *testing.T) {
 // TestAvailableModelsBlock pins the "Available models:" list appended to the
 // unknown-model error. Includes MiniMax M3 since the catalogue now lists it.
 func TestAvailableModelsBlock(t *testing.T) {
-	want := "Available models:\n  Gemini 3.8 Flash (High)\n  Gemini 3.8 Flash (Medium)\n  Gemini 3.8 Flash (Low)\n  Claude Sonnet 4.6 (Thinking)\n  Claude Opus 4.6 (Thinking)\n  GPT-OSS 120B (Medium)\n  MiniMax M3"
+	want := availableAll
 	if got := availableModelsBlock(); got != want {
 		t.Errorf("availableModelsBlock() =\n%s\nwant\n%s", got, want)
 	}

@@ -77,6 +77,38 @@ func rewindStepHeight(h int) int {
 	return v
 }
 
+func rewindClampWindow(m *runMode, total, visible int) int {
+	if m.panel.window < 0 {
+		m.panel.window = 0
+	}
+	if m.panel.cursor < 0 {
+		m.panel.cursor = 0
+	}
+	if max := total - visible; m.panel.window > max && max >= 0 {
+		m.panel.window = max
+	}
+	if m.panel.cursor > total-1 {
+		m.panel.cursor = total - 1
+	}
+	return m.panel.window
+}
+
+func rewindRenderStepRows(steps []rewindStep, cursor int) []string {
+	allRows := make([]string, len(steps))
+	for i, s := range steps {
+		label := fmt.Sprintf("Turn %d  %s", i+1, s.snippet)
+		if i == 0 {
+			label += panelGray238 + "  (current)" + panelGray238C
+		}
+		if i == cursor {
+			allRows[i] = cBlueOpen + "> " + label + cBlueClose
+		} else {
+			allRows[i] = "  " + label
+		}
+	}
+	return allRows
+}
+
 // panelRewindLines renders the /rewind picker. Cycle 189 shipped the
 // empty-state form (literal `(current)` row); cycle 222 fills in the
 // non-empty form — one row per user-anchored turn, newest first, with
@@ -85,8 +117,6 @@ func rewindStepHeight(h int) int {
 func (m *runMode) panelRewindLines() []string {
 	steps := rewindSteps(m.session)
 	if len(steps) == 0 {
-		// Cycle 189 empty form — preserved unchanged so the same
-		// TestPanelRewindEmptyLayout golden file keeps passing.
 		return []string{
 			panelTitleOpen + "Rewind Conversation" + panelTitleClose,
 			"",
@@ -100,40 +130,8 @@ func (m *runMode) panelRewindLines() []string {
 	if visible > total {
 		visible = total
 	}
-	// Clamp window + cursor to the loaded state. openSlashPanel resets
-	// both to 0; tests may have advanced them.
-	if m.panel.window < 0 {
-		m.panel.window = 0
-	}
-	if m.panel.cursor < 0 {
-		m.panel.cursor = 0
-	}
-	if max := total - visible; m.panel.window > max && max >= 0 {
-		m.panel.window = max
-	}
-	if m.panel.cursor > total-1 {
-		m.panel.cursor = total - 1
-	}
-	window := m.panel.window
-
-	// Pre-render each step row.
-	allRows := make([]string, total)
-	for i, s := range steps {
-		label := fmt.Sprintf("Turn %d  %s", i+1, s.snippet)
-		if i == 0 {
-			// Cursor's "current turn" annotation — placed in dim gray
-			// 238 (the same palette the (current) flag carries in the
-			// /model picker). Only the first step carries it; for a
-			// multi-pane capture a second `(current)` would just be
-			// visual noise.
-			label += panelGray238 + "  (current)" + panelGray238C
-		}
-		if i == m.panel.cursor {
-			allRows[i] = cBlueOpen + "> " + label + cBlueClose
-		} else {
-			allRows[i] = "  " + label
-		}
-	}
+	window := rewindClampWindow(m, total, visible)
+	allRows := rewindRenderStepRows(steps, m.panel.cursor)
 
 	lines := []string{
 		panelTitleOpen + "Rewind Conversation" + panelTitleClose,

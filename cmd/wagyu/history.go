@@ -95,7 +95,7 @@ func (m *runMode) historyUp() {
 		return
 	}
 	m.historyIdx++
-	m.input.SetValue(m.history[len(m.history)-m.historyIdx])
+	m.applyHistoryEntry(m.history[len(m.history)-m.historyIdx])
 	m.picker.Update([]rune(firstLine(m.input.Value())))
 	// feature/at-file-dropdown-newline: derive the @ file-mention
 	// dropdown from the post-SetValue buffer the same way the
@@ -112,12 +112,12 @@ func (m *runMode) historyDown() {
 	}
 	m.historyIdx--
 	if m.historyIdx == 0 {
-		m.input.SetValue(m.historyEdit)
+		m.applyHistoryEntry(m.historyEdit)
 		m.picker.Update([]rune(firstLine(m.input.Value())))
 		m.atFileDropdown.Update(m.input.Value(), m.cwd)
 		return
 	}
-	m.input.SetValue(m.history[len(m.history)-m.historyIdx])
+	m.applyHistoryEntry(m.history[len(m.history)-m.historyIdx])
 	m.picker.Update([]rune(firstLine(m.input.Value())))
 	m.atFileDropdown.Update(m.input.Value(), m.cwd)
 }

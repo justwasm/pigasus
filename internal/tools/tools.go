@@ -82,8 +82,8 @@ var ErrNotImplemented = errors.New("tool not implemented in recovered build")
 
 // RegisterAll registers the v4-aligned 32 tool primary set + 10
 // alias/backward-compat entries for 1.3.3 callers. Total: 42 entries.
-func RegisterAll(reg *Registry, workspace string) {
-	for _, t := range []Tool{
+func coreTools(workspace string) []Tool {
+	return []Tool{
 		// 8 fs primary (filesystem.go)
 		&ReadFile{Workspace: workspace},
 		&CreateFile{Workspace: workspace},
@@ -102,10 +102,11 @@ func RegisterAll(reg *Registry, workspace string) {
 		&ExecCommand{Workspace: workspace},
 		&KillProcess{},
 		&ListProcesses{},
-		// 25 v4 stub (stubs.go) — primary names, ErrNotImplemented placeholders.
-		// (28 total stubs minus 0 from existing; the user's spec lists 28 v4
-		// stub entries which together with the 4 real-implemented v4 tools
-		// (run_command, list_dir, create_file, delete_file) = 32 v4 tools.)
+	}
+}
+
+func stubTools(workspace string) []Tool {
+	return []Tool{
 		&Finish{Workspace: workspace},
 		&Schedule{Workspace: workspace},
 		&Fetch{Workspace: workspace},
@@ -134,7 +135,14 @@ func RegisterAll(reg *Registry, workspace string) {
 		&Cron{Workspace: workspace},
 		&GenerateImage{Workspace: workspace},
 		&Merge{Workspace: workspace},
-	} {
+	}
+}
+
+func RegisterAll(reg *Registry, workspace string) {
+	for _, t := range coreTools(workspace) {
+		reg.Register(t)
+	}
+	for _, t := range stubTools(workspace) {
 		reg.Register(t)
 	}
 }

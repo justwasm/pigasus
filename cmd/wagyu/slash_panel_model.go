@@ -24,20 +24,8 @@ func (m *runMode) panelEffortLines() []string {
 // true and `level` equals it, the description carries the trailing
 // "  (current)" — the standalone /effort panel does that, the /model
 // embed does not (ppref.model.raw.txt:25).
-func rebuildEffortSlider(level, curEff int, annotate bool) []string {
-	if level < 0 || level > 2 {
-		level = effortHigh
-	}
-	colours := [3]string{panelEffLowOpen, panelEffMedOpen, panelEffHighOpen}
-
-	// Bar: 7-cell lead, then for each level a marker plus the 14 cells
-	// running to the next marker. Cycle 208: the cells after the active
-	// ◉ are part of the dim run — see effortBarSegments.
+func effortSliderBar(level int, colours [3]string) string {
 	on, off := effortBarSegments(level)
-
-	// The arrows dim to 256-colour 238 when they cannot move any further
-	// (verified: REF's /effort panel shows a gray ◂ at "low" and a gray ▸
-	// at "high", both in 238 — not the 241 the legend labels use).
 	leftArrow := panelGray238 + "◂" + panelGray238C
 	if level > effortLow {
 		leftArrow = cBlueOpen + "◂" + cBlueClose
@@ -46,11 +34,11 @@ func rebuildEffortSlider(level, curEff int, annotate bool) []string {
 	if level == effortHigh {
 		rightArrow = panelGray238 + "▸" + panelGray238C
 	}
-	slider := "  " + leftArrow + " " + colours[level] + on +
+	return "  " + leftArrow + " " + colours[level] + on +
 		panelGray238 + off + panelGray238C + " " + rightArrow
+}
 
-	// Labels: three 15-cell groups, the active one bold in the level
-	// colour, the rest dim gray.
+func effortSliderLabels(level int, colours [3]string) string {
 	groups := [3]string{"      low      ", "    medium     ", "     high      "}
 	var labels strings.Builder
 	labels.WriteString("    ")
@@ -71,6 +59,16 @@ func rebuildEffortSlider(level, curEff int, annotate bool) []string {
 		}
 		labels.WriteString(panelGray238C)
 	}
+	return labels.String()
+}
+
+func rebuildEffortSlider(level, curEff int, annotate bool) []string {
+	if level < 0 || level > 2 {
+		level = effortHigh
+	}
+	colours := [3]string{panelEffLowOpen, panelEffMedOpen, panelEffHighOpen}
+	slider := effortSliderBar(level, colours)
+	labels := effortSliderLabels(level, colours)
 
 	desc := "    \x1b[3m" + panelGray238 + effortDescriptions[level]
 	if annotate && level == curEff {
@@ -82,7 +80,7 @@ func rebuildEffortSlider(level, curEff int, annotate bool) []string {
 		panelTitleOpen + "Set Effort" + panelTitleClose,
 		"",
 		slider,
-		labels.String(),
+		labels,
 		desc,
 		"",
 		panelKeyboardHint("←/→", "Effort", "enter", "Select", "esc", "Go Back"),
@@ -179,6 +177,38 @@ func modelRowsView() []modelRowType {
 // settings.json's "model" key (slug or label — both resolve), `←/→`
 // advances m.panel.effortCursor (Gemini only; the other rows are fixed
 // single-effort), and `enter` persists the selection and closes.
+func renderModelPickerRow(r modelRowType, i, cursor int, isCurrent bool) string {
+	var row string
+	ink := ""
+	if r.dim {
+		ink = cDimGrayOpen
+	}
+	if i == cursor {
+		row = cBlueOpen + "> " + r.display
+		if isCurrent {
+			row += strings.Repeat(" ", modelRowPad(r.display))
+		}
+		row += cBlueClose
+		if isCurrent {
+			row += panelGray238 + " (current)" + panelGray238C
+		}
+	} else {
+		row = "  " + ink + r.display
+		if ink != "" {
+			row += cDimGrayClose
+		}
+		if isCurrent {
+			row += strings.Repeat(" ", modelRowPad(r.display)) +
+				panelGray238 + " (current)" + panelGray238C
+		}
+	}
+	if r.note != "" {
+		row += strings.Repeat(" ", modelRowPad(r.display)+2) +
+			"\x1b[38;5;60m" + r.note + "\x1b[39m"
+	}
+	return row
+}
+
 func (m *runMode) panelModelLines() []string {
 	lines := []string{
 		panelTitleOpen + "Switch Model" + panelTitleClose,
@@ -195,43 +225,7 @@ func (m *runMode) panelModelLines() []string {
 	currentSlug := resolveCatalogueID(m.panelCurrentModelLabel())
 	for i, r := range rows {
 		isCurrent := r.slug != "" && r.catalogueID(m.panel.effortCursor) == currentSlug
-		var row string
-		ink := ""
-		if r.dim {
-			ink = cDimGrayOpen
-		}
-		if i == cursor {
-			// Cursor row: "> " + display, padded to col 30 in brand
-			// blue, then the gray annotation (ppref.model.raw.txt:18).
-			// Cycle 208: the pad exists only to align the `(current)`
-			// annotation — an un-annotated cursor row is NOT padded
-			// (fin_model_down.raw.txt row 6 has no trailing space).
-			row = cBlueOpen + "> " + r.display
-			if isCurrent {
-				row += strings.Repeat(" ", modelRowPad(r.display))
-			}
-			row += cBlueClose
-			if isCurrent {
-				row += panelGray238 + " (current)" + panelGray238C
-			}
-		} else {
-			row = "  " + ink + r.display
-			if ink != "" {
-				row += cDimGrayClose
-			}
-			if isCurrent {
-				row += strings.Repeat(" ", modelRowPad(r.display)) +
-					panelGray238 + " (current)" + panelGray238C
-			}
-		}
-		if r.note != "" {
-			// Registry-provided description: two columns past the
-			// (current) annotation, in 256-colour 60. Captured live
-			// from 1.4.3 with the agw MiniMax entry loaded.
-			row += strings.Repeat(" ", modelRowPad(r.display)+2) +
-				"\x1b[38;5;60m" + r.note + "\x1b[39m"
-		}
-		lines = append(lines, row)
+		lines = append(lines, renderModelPickerRow(r, i, cursor, isCurrent))
 	}
 	// Cycle 208: the slider (and its legend entry) only exist while the
 	// cursor is on the three-tier Gemini row.
@@ -241,9 +235,6 @@ func (m *runMode) panelModelLines() []string {
 				"enter", "Select", "esc", "Go Back"))
 		return lines
 	}
-	// Slider block: the /effort panel's bar/labels/desc shifted right by
-	// 8 cells behind a "  Effort  " prefix, and without the desc's
-	// "(current)" annotation (ppref.model.raw.txt:24–26).
 	level := m.panel.effortCursor
 	if level < 0 || level > 2 {
 		level = 1
