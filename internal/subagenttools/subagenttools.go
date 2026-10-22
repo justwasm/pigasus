@@ -20,8 +20,11 @@
 //   - `send_message` reports `recipient "X" not found` — delegations here are
 //     synchronous, so no recipient is ever live by the time the parent can
 //     message it.
-//   - `manage_subagents` reports `No active subagents to kill.` for
-//     kill/kill_all; list/status still return the cycle-228 stub envelope.
+//   - `manage_subagents` reports the reference's registry texts: `list` prints
+//     `You have N active subagent(s):` followed by the marshalled states,
+//     `kill` with explicit ConversationIds names the first id that is not an
+//     active subagent, and kill/kill_all with nothing live prints
+//     `No active subagents to kill.`
 //
 // The reference's invoke is asynchronous: it returns a launch acknowledgement
 // immediately and delivers the subagent's answer later via send_message. The
@@ -771,13 +774,28 @@ func BuiltinSubagentCatalog() string {
 	return reg.Catalog()
 }
 
-// ─── send_message (stub) ────────────────────────────────────────────────────
+// ─── send_message ──────────────────────────────────────────────────────────
 
-// sendMessageTool is the cycle-228 stub for send_message. Cycle 229
-// will resolve the subagent_id against the on-disk subagents/ tree,
-// validate the subagent is still running, and pipe the message into
-// its transcript via PiG's steering-queue APIs. Today every call
-// returns the documented not-implemented error.
+// sendMessageTool answers send_message. Delegations in this clone are
+// synchronous, so by the time the parent can message a recipient that
+// recipient's turn has already ended and its session is closed — there is
+// nothing to deliver to. The reference reports an unknown conversation with
+// the same sentence, returned as a normal (stamped, not IsError) result:
+//
+//	Encountered error in tool execution: recipient "abc123" not found
+//
+// 【一手】 agy 1.4.4, `internal/tools/testdata/result_texts_1.4.4.txt`.
+//
+// The reference's *success* texts are known but deliberately NOT emitted
+// here, because emitting them would claim a delivery that did not happen:
+//
+//	Message sent to %q.
+//	Message sent to %d subagents: %s.
+//	Message sent to %d of %d subagents: %s.
+//
+// (from `tools.(*SendMessageTool).Execute` @0x101d89520; see
+// docs/cycles/async-subagent-framing/deliverable.md). They belong with an
+// asynchronous transport, which the clone does not have.
 type sendMessageTool struct{}
 
 func (t *sendMessageTool) Name() string  { return "send_message" }
@@ -787,30 +805,34 @@ func (t *sendMessageTool) ExecutionMode() piagent.ToolExecutionMode {
 }
 
 func (t *sendMessageTool) Schema() pi.ToolSchema {
+	// Mirrors the captured 1.4.4 declaration (Recipient/Message, both
+	// minLength 1). The executor also accepts the older snake_case spellings
+	// so direct callers keep working; on the PiG path the captured declaration
+	// is what reaches the model (piagentbridge.SurfaceTools).
 	return pi.ToolSchema{
 		Name:        "send_message",
 		Description: sendMessageDescription,
 		Parameters: pi.JsonObject{
 			"type": "object",
 			"properties": pi.JsonObject{
-				"subagent_id": pi.JsonObject{
+				"Recipient": pi.JsonObject{
 					"type":        "string",
-					"description": "Identifier returned by invoke_subagent's result.session_id or result.subagent_id.",
+					"description": "Conversation ID of the agent to message.",
+					"minLength":   1,
 				},
-				"message": pi.JsonObject{
+				"Message": pi.JsonObject{
 					"type":        "string",
-					"description": "Text delivered to the subagent's transcript.",
+					"description": "Content of the message.",
+					"minLength":   1,
 				},
 			},
-			"required": []string{"subagent_id", "message"},
+			"required": []string{"Recipient", "Message"},
 		},
 	}
 }
 
-const sendMessageDescription = "Send a message to a running subagent. " +
-	"Stub: not yet implemented (cycle 228 stub). Tracked in TODO §X — " +
-	"AGY 1.4.0 pipes the message into the subagent's transcript; " +
-	"future cycle 229 wires this against the on-disk subagents/ tree."
+const sendMessageDescription = "Send a message to another agent, such as a subagent or a peer. " +
+	"Not a channel to the user."
 
 type sendMessageArgs struct {
 	SubagentID   string `json:"subagent_id"`
@@ -850,11 +872,14 @@ func (t *sendMessageTool) Execute(_ context.Context, _ string, params json.RawMe
 	}, nil
 }
 
-// ─── manage_subagents (stub) ───────────────────────────────────────────────
+// ─── manage_subagents ──────────────────────────────────────────────────────
 
-// manageSubagentsTool is the cycle-228 stub for manage_subagents. The
-// three actions (list/kill/status) are documented but no-ops; cycle
-// 229 will read the on-disk subagents/ tree and report state.
+// manageSubagentsTool answers manage_subagents. The clone has no subagent
+// registry: delegations are synchronous, so no subagent is ever live while the
+// parent runs a tool. That makes every answer deterministic, and the texts
+// below are the reference's own (【反编译】 `tools.(*ManageSubagentsTool)`
+// `.list` @0x101d5fff0 and `.kill` @0x101d60560; see
+// docs/cycles/async-subagent-framing/deliverable.md).
 type manageSubagentsTool struct{}
 
 func (t *manageSubagentsTool) Name() string  { return "manage_subagents" }
@@ -864,31 +889,35 @@ func (t *manageSubagentsTool) ExecutionMode() piagent.ToolExecutionMode {
 }
 
 func (t *manageSubagentsTool) Schema() pi.ToolSchema {
+	// Mirrors the captured 1.4.4 declaration: Action ∈ {list, kill, kill_all}
+	// plus ConversationIds. `status` is not in the reference's enum; the
+	// executor still accepts it as an alias for `list` (clone-only).
 	return pi.ToolSchema{
 		Name:        "manage_subagents",
 		Description: manageSubagentsDescription,
 		Parameters: pi.JsonObject{
 			"type": "object",
 			"properties": pi.JsonObject{
-				"action": pi.JsonObject{
+				"Action": pi.JsonObject{
 					"type":        "string",
-					"enum":        []string{"list", "kill", "status"},
-					"description": "What to do: list known subagents, kill a running one, or report status.",
+					"enum":        []string{"list", "kill", "kill_all"},
+					"description": "'kill' terminates the subagents named in ConversationIds; 'kill_all' terminates all.",
 				},
-				"subagent_id": pi.JsonObject{
-					"type":        "string",
-					"description": "Target subagent id; required for kill/status, ignored by list.",
+				"ConversationIds": pi.JsonObject{
+					"type":        "array",
+					"description": "Subagents to kill. Required for 'kill'.",
+					"items":       pi.JsonObject{"type": "string"},
 				},
 			},
-			"required": []string{"action"},
+			"required": []string{"Action"},
 		},
 	}
 }
 
-const manageSubagentsDescription = "List, kill, or query the status of subagents. " +
-	"Stub: not yet implemented (cycle 228 stub). Tracked in TODO §X — " +
-	"AGY 1.4.0 reports on the on-disk subagents/ tree; future cycle 229 " +
-	"wires list/kill/status against the persisted transcripts."
+const manageSubagentsDescription = "Manage the direct subagents of this conversation. " +
+	"'list' reports each one's conversationId (the id used to kill or message it) " +
+	"and live state. Killing a subagent also kills its descendants and deletes " +
+	"their branched workspaces; logs and artifacts are preserved."
 
 type manageSubagentsArgs struct {
 	Action             string   `json:"action"`
@@ -898,39 +927,59 @@ type manageSubagentsArgs struct {
 	ConversationIdsCap []string `json:"ConversationIds,omitempty"`
 }
 
+// effectiveAction is the action as the model spelled it, preferring the
+// reference's capitalised form. Used for error texts only.
+func (a manageSubagentsArgs) effectiveAction() string {
+	if s := strings.TrimSpace(a.Action); s != "" {
+		return s
+	}
+	return strings.TrimSpace(a.ActionCap)
+}
+
 func (t *manageSubagentsTool) Execute(_ context.Context, _ string, params json.RawMessage, _ piagent.ToolUpdateCallback) (piagent.AgentToolResult, error) {
 	var args manageSubagentsArgs
 	if err := json.Unmarshal(params, &args); err != nil {
 		return piagent.AgentToolResult{}, fmt.Errorf("manage_subagents: parse args: %w", err)
 	}
-	action := strings.TrimSpace(args.Action)
+	action := strings.ToLower(strings.TrimSpace(args.Action))
 	if action == "" {
-		action = strings.TrimSpace(args.ActionCap)
+		action = strings.ToLower(strings.TrimSpace(args.ActionCap))
 	}
+	ids := args.ConversationIds
+	if len(ids) == 0 {
+		ids = args.ConversationIdsCap
+	}
+	if len(ids) == 0 && strings.TrimSpace(args.SubagentID) != "" {
+		ids = []string{strings.TrimSpace(args.SubagentID)}
+	}
+
+	var body string
 	switch action {
-	case "list", "kill", "status", "kill_all":
-		// accepted action; no behaviour yet
+	case "list", "status":
+		// Nothing can be live: delegations are synchronous, so by the time the
+		// parent issues another tool call every subagent has finished. The
+		// reference formats the marshalled state slice after the count
+		// (【反编译】 .list). The empty slice marshals to "[]"; that zero case
+		// itself is 【推测】 — only the positive form is in the string table.
+		body = fmt.Sprintf("You have %d active subagent(s):\n%s", 0, "[]")
+	case "kill", "kill_all":
+		if len(ids) > 0 {
+			// 【反编译】 .kill: naming an id that is not a live direct subagent
+			// is reported per-id, and the message points at the list action.
+			body = fmt.Sprintf(
+				"conversation %q is not an active subagent of this conversation, so nothing was killed; "+
+					"run the %q action to see the active subagents and their ids",
+				ids[0], "list")
+			break
+		}
+		// 【一手】 1.4.4 kill_all with nothing registered.
+		body = "No active subagents to kill."
 	default:
-		return piagent.AgentToolResult{}, fmt.Errorf("manage_subagents: action must be one of list, kill, status (got %q)", action)
+		return piagent.AgentToolResult{}, fmt.Errorf("manage_subagents: action must be one of list, kill, kill_all (got %q)", args.effectiveAction())
 	}
-	// Delegations are synchronous in this clone, so no subagent is ever live
-	// when manage_subagents runs. kill/kill_all therefore report the
-	// reference's empty-registry text — 【一手】 1.4.4 (kill_all):
-	//
-	//	No active subagents to kill.
-	if action == "kill" || action == "kill_all" {
-		text := resultStamp(time.Now()) + "No active subagents to kill."
-		return piagent.AgentToolResult{
-			Content: []pi.ToolResultMessageContent{pi.TextContent{Text: text}},
-		}, nil
-	}
-	body, _ := json.Marshal(map[string]any{
-		"ok":    false,
-		"error": "manage_subagents: not yet implemented (cycle 228 stub). Tracked in TODO §X.",
-	})
+	text := resultStamp(time.Now()) + body
 	return piagent.AgentToolResult{
-		Content: []pi.ToolResultMessageContent{pi.TextContent{Text: string(body)}},
-		IsError: true,
+		Content: []pi.ToolResultMessageContent{pi.TextContent{Text: text}},
 	}, nil
 }
 

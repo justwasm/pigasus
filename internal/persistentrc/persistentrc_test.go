@@ -284,6 +284,9 @@ func TestBuildPlist_SessionFlag(t *testing.T) {
 // lifecycle with SkipLaunchd=true.  No launchctl is invoked;
 // the dry-run pidfile + plist are the source of truth.
 func TestStartStop_DryRun(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("persistent remote-control daemon is macOS only")
+	}
 	testSetup(t)
 	dir := tempPlistDir(t)
 	spec := fillSpec("machine1")
@@ -348,6 +351,9 @@ func TestStartStop_DryRun(t *testing.T) {
 // TestStatus_NotRunning confirms Status returns the canonical
 // not-running report for a name that was never started.
 func TestStatus_NotRunning(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("persistent remote-control daemon is macOS only")
+	}
 	testSetup(t)
 	tempPlistDir(t)
 	rep, err := Status(context.Background(), "never-started")
@@ -373,6 +379,9 @@ func TestStatus_NotRunning(t *testing.T) {
 // `go test -race -run TestStatus_RunningDryRun ./internal/persistentrc/`
 // must pass on every platform.
 func TestStatus_RunningDryRun(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("persistent remote-control daemon is macOS only")
+	}
 	testSetup(t)
 	dir := tempPlistDir(t)
 	spec := fillSpec("machine1")
