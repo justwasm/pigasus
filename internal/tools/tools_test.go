@@ -164,8 +164,8 @@ func TestRunCommandUnclosedQuoteIsShellError(t *testing.T) {
 		t.Fatalf("a shell error must be data, not a Go error: %v", err)
 	}
 	s, _ := out.(string)
-	if !strings.Contains(s, "The command exited with code 1.") {
-		t.Errorf("want exit code 1 in result, got %q", s)
+	if !strings.Contains(s, "The command exited with code 1.") && !strings.Contains(s, "The command exited with code 2.") {
+		t.Errorf("want exit code 1 (zsh) or 2 (bash) in result, got %q", s)
 	}
 	if !strings.Contains(s, `"`) {
 		t.Errorf("want the shell's quote diagnostic in Output, got %q", s)

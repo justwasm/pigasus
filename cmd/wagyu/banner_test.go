@@ -39,6 +39,7 @@ package main
 
 import (
 	"bytes"
+	"os"
 	"strings"
 	"testing"
 
@@ -54,7 +55,11 @@ import (
 func renderBannerForTest(t *testing.T) string {
 	t.Helper()
 	var b bytes.Buffer
-	renderBanner(&b, "u@example.com", "Gemini 3.8 Flash (High)", "Antigravity Starter Quota", "/Users/gear/Documents/GitHub/openagy")
+	cwd := "/Users/gear/Documents/GitHub/openagy"
+	if home, err := os.UserHomeDir(); err == nil && home != "" {
+		cwd = home + "/Documents/GitHub/openagy"
+	}
+	renderBanner(&b, "u@example.com", "Gemini 3.8 Flash (High)", "Antigravity Starter Quota", cwd)
 	return b.String()
 }
 
