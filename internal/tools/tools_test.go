@@ -250,7 +250,7 @@ func TestRunCommandStdinIsTTY(t *testing.T) {
 		t.Fatalf("Run: %v", err)
 	}
 	s, _ := out.(string)
-	if !strings.Contains(s, "/dev/tty") {
+	if !strings.Contains(s, "/dev/tty") && !strings.Contains(s, "/dev/pts/") {
 		t.Errorf("stdin should be a tty device, got %q", s)
 	}
 	if !strings.Contains(s, "ISTTY") {

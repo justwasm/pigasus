@@ -85,8 +85,3 @@ analysis_output*.json
 test_audit_report*.json
 diff.txt
 
-
-dist/
-stage-*
-/pigasus
-
