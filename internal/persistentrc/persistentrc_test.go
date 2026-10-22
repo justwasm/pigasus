@@ -19,6 +19,7 @@ package persistentrc
 
 import (
 	"context"
+	"runtime"
 	"errors"
 	"os"
 	"path/filepath"
@@ -194,6 +195,9 @@ func TestResolveSpec_InvalidAddr(t *testing.T) {
 // emits parses back through parsePlistProgramArgsFromBytes and
 // surfaces the same ProgramArguments we put in.
 func TestBuildPlist_RoundTrip(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("plist is macOS only")
+	}
 	spec := fillSpec("machine1")
 	spec.Addr = "192.168.1.42:9000"
 	spec.LogFile = "/tmp/logfile1.log"
@@ -251,6 +255,9 @@ func TestBuildPlist_RoundTrip(t *testing.T) {
 // (Label, ProgramArguments, ProcessType, StandardOutPath) is
 // identical to the boot-persistent variant.
 func TestBuildPlist_SessionFlag(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("plist is macOS only")
+	}
 	spec := fillSpec("machine1")
 	spec.Session = true
 	out := buildPlist(spec)
@@ -442,6 +449,9 @@ func TestStop_InvalidName(t *testing.T) {
 // a launchctl-print-formatted text blob with a "pid = N" line
 // somewhere in it.
 func TestParsePIDFromLaunchctl(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("launchctl is macOS only")
+	}
 	tests := []struct {
 		name string
 		in   string

@@ -113,3 +113,15 @@ func SetDryRun(v bool) { dryRun = v }
 // helpers stay alive on every OS.
 var _ = errors.New
 var _ = ValidateName
+// Stubs on non-darwin to allow cross-platform compilation of persistentrc tests.
+func buildPlist(spec Spec) string {
+	return ""
+}
+
+func parsePlistProgramArgsFromBytes(b []byte) ([]string, error) {
+	return nil, nil
+}
+
+func parsePIDFromLaunchctl(s string) (int, error) {
+	return 0, nil
+}

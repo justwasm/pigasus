@@ -2,6 +2,9 @@
 
 package auth
 
+// ClearKeychainTokenFn is a test seam allowing tests to mock keychain clearance.
+var ClearKeychainTokenFn func() error
+
 // LoadKeychainToken is a stub on non-darwin systems.
 func LoadKeychainToken() (*AntigravityToken, error) {
 	return nil, ErrNoToken
@@ -12,10 +15,11 @@ func HasKeychainToken() bool {
 	return false
 }
 
-// ClearKeychainToken is a no-op on non-darwin systems. The mirror
-// of ClearTokenUnified deletes the same keychain entry on macOS; every
-// other platform has nothing to remove by definition.
+// ClearKeychainToken is a no-op on non-darwin systems unless ClearKeychainTokenFn is set.
 func ClearKeychainToken() error {
+	if ClearKeychainTokenFn != nil {
+		return ClearKeychainTokenFn()
+	}
 	return nil
 }
 
