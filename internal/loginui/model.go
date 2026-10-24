@@ -49,6 +49,11 @@ type Model struct {
 	Authenticated bool
 	Width         int
 	Height        int
+	// Scroll is the first visible line of the screen. The login
+	// screen is taller than a phone-sized terminal, so the content
+	// is scrollable — the reference scrolls it with shift+up /
+	// shift+down.
+	Scroll int
 }
 
 // New creates a new Model initialized to StateSelectMethod.

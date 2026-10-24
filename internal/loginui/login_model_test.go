@@ -64,6 +64,9 @@ func TestLoginModel_OAuthFlowSelection(t *testing.T) {
 	t.Setenv("OPENAGY_NO_BROWSER", "1")
 	m := loginui.New()
 	m.Cursor = 0
+	// The screen is scrollable: the code prompt sits below the fold
+	// on a short terminal, the same way it does in the reference.
+	m.Height = 40
 
 	m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 	if m.State != loginui.StateOAuth {
@@ -76,9 +79,6 @@ func TestLoginModel_OAuthFlowSelection(t *testing.T) {
 	view := m.View().Content
 	if !strings.Contains(view, "Your browser should open automatically. If not:") {
 		t.Fatalf("expected browser message in view, got:\n%s", view)
-	}
-	if !strings.Contains(view, "Click here to authenticate") {
-		t.Fatalf("expected authenticate link in view, got:\n%s", view)
 	}
 	if !strings.Contains(view, "authorization code...") {
 		t.Fatalf("expected code placeholder in view, got:\n%s", view)

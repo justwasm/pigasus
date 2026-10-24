@@ -47,13 +47,50 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		return m, nil
+	case tea.MouseMsg:
+		m.handleScrollMouse(msg)
+		return m, nil
 	case tea.KeyPressMsg:
 		return m.handleKeyPress(msg)
 	}
 	return m, nil
 }
 
+// handleScrollMouse scrolls the screen with the wheel, the way the
+// reference's viewport does.
+func (m *Model) handleScrollMouse(msg tea.MouseMsg) {
+	switch msg.Mouse().Button {
+	case tea.MouseWheelUp:
+		m.Scroll--
+	case tea.MouseWheelDown:
+		m.Scroll++
+	}
+	if m.Scroll < 0 {
+		m.Scroll = 0
+	}
+}
+
+// handleScrollKey handles the viewport keys. The reference scrolls the
+// login screen with shift+up / shift+down.
+func (m *Model) handleScrollKey(msg tea.KeyPressMsg) bool {
+	switch msg.String() {
+	case "shift+up":
+		m.Scroll--
+	case "shift+down":
+		m.Scroll++
+	default:
+		return false
+	}
+	if m.Scroll < 0 {
+		m.Scroll = 0
+	}
+	return true
+}
+
 func (m *Model) handleKeyPress(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
+	if m.handleScrollKey(msg) {
+		return m, nil
+	}
 	switch m.State {
 	case StateSelectMethod:
 		return m.handleSelectMethodKey(msg)
@@ -114,12 +151,17 @@ func (m *Model) handleOAuthKey(msg tea.KeyPressMsg) (tea.Model, tea.Cmd) {
 		if len(m.CodeInput) > 0 {
 			m.CodeInput = m.CodeInput[:len(m.CodeInput)-1]
 		}
+	case "up", "down", "left", "right", "home", "end", "delete":
+		// Navigation keys are not text. Without this case they
+		// fall through to the default branch below, where the
+		// special key code (0x100000 and up) would be appended
+		// to the code as a private-use rune.
 	case "ctrl+c":
 		return m, tea.Quit
 	default:
 		if msg.Text != "" {
 			m.CodeInput += msg.Text
-		} else if msg.Code >= ' ' && msg.Code != tea.KeyDelete {
+		} else if msg.Code >= ' ' && msg.Code < 0x80 && msg.Code != tea.KeyDelete {
 			m.CodeInput += string(msg.Code)
 		}
 	}
