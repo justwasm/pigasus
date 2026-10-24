@@ -156,6 +156,8 @@ func Test_ViewAltScreen(t *testing.T) {
 // so it has to carry the session's terminal settings. Without them
 // bubbletea reads AltScreen off the view and leaves the alternate
 // screen in the middle of the session.
+// MouseMode is kept at None so that terminal-native text selection and
+// Cmd+click on hyperlinks are preserved while on the login modal.
 func Test_LoginViewKeepsAltScreen(t *testing.T) {
 	m := NewRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
 	m.login = loginui.New()
@@ -163,8 +165,8 @@ func Test_LoginViewKeepsAltScreen(t *testing.T) {
 	if !v.AltScreen {
 		t.Error("the login view must keep the alternate screen")
 	}
-	if v.MouseMode != tea.MouseModeCellMotion {
-		t.Errorf("the login view mouse mode = %v, want CellMotion", v.MouseMode)
+	if v.MouseMode != tea.MouseModeNone {
+		t.Errorf("the login view mouse mode = %v, want None", v.MouseMode)
 	}
 }
 

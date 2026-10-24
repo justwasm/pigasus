@@ -219,7 +219,7 @@ func (m *Model) clickHereLine() string {
 	if ansi.StringWidth(text) > w {
 		text = ansi.Truncate(text, w, "")
 	}
-	return fmt.Sprintf(" \x1b]8;;%s\x07\x1b[34;4m%s\x1b[m\x1b]8;;\x07", m.AuthURL, text)
+	return fmt.Sprintf(" \x1b]8;;%s\x1b\\\x1b[34;4m%s\x1b[m\x1b]8;;\x1b\\", m.AuthURL, text)
 }
 
 // clip trims a rendered line to the terminal width.
@@ -248,7 +248,7 @@ func (m *Model) authURLLines() []string {
 	}
 	lines := make([]string, 0, 32)
 	for _, chunk := range urlChunks(m.AuthURL, width) {
-		lines = append(lines, fmt.Sprintf(" \x1b]8;;%s\x07\x1b[34;4m%s\x1b[m\x1b]8;;\x07", m.AuthURL, chunk))
+		lines = append(lines, fmt.Sprintf(" \x1b]8;;%s\x1b\\\x1b[34;4m%s\x1b[m\x1b]8;;\x1b\\", m.AuthURL, chunk))
 	}
 	return lines
 }

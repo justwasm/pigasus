@@ -49,14 +49,20 @@ func oauthModel(width, height int) *loginui.Model {
 // skipped (it contains a space, the URL never does).
 func visibleURL(view string) string {
 	const open = "\x1b]8;;"
-	const close = "\x07"
 	var b strings.Builder
 	for _, line := range strings.Split(view, "\n") {
 		if !strings.Contains(line, open) {
 			continue
 		}
 		rest := line[strings.Index(line, open)+len(open):]
-		_, chunk, ok := strings.Cut(rest, close)
+		// Handle both \x1b\ (ST) and \x07 (BEL)
+		var chunk string
+		var ok bool
+		if strings.Contains(rest, "\x1b\\") {
+			_, chunk, ok = strings.Cut(rest, "\x1b\\")
+		} else {
+			_, chunk, ok = strings.Cut(rest, "\x07")
+		}
 		if !ok {
 			continue
 		}
@@ -107,12 +113,17 @@ func TestLoginView_URLChunksAreLinks(t *testing.T) {
 	links := 0
 	for _, line := range strings.Split(view, "\n") {
 		const open = "\x1b]8;;"
-		const close = "\x07"
 		if !strings.Contains(line, open) {
 			continue
 		}
 		rest := line[strings.Index(line, open)+len(open):]
-		target, _, ok := strings.Cut(rest, close)
+		var target string
+		var ok bool
+		if strings.Contains(rest, "\x1b\\") {
+			target, _, ok = strings.Cut(rest, "\x1b\\")
+		} else {
+			target, _, ok = strings.Cut(rest, "\x07")
+		}
 		if !ok {
 			t.Fatalf("unterminated OSC 8 sequence: %q", line)
 		}
@@ -149,14 +160,19 @@ func TestLoginView_ClickHereBlock(t *testing.T) {
 
 	// The link label is a hyperlink to the complete URL.
 	const open = "\x1b]8;;"
-	const close = "\x07"
 	found := false
 	for _, line := range strings.Split(view, "\n") {
 		if !strings.Contains(ansi.Strip(line), "Click here to authenticate") {
 			continue
 		}
 		rest := line[strings.Index(line, open)+len(open):]
-		target, _, ok := strings.Cut(rest, close)
+		var target string
+		var ok bool
+		if strings.Contains(rest, "\x1b\\") {
+			target, _, ok = strings.Cut(rest, "\x1b\\")
+		} else {
+			target, _, ok = strings.Cut(rest, "\x07")
+		}
 		if !ok {
 			t.Fatalf("unterminated OSC 8 sequence: %q", line)
 		}

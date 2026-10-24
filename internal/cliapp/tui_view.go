@@ -101,7 +101,14 @@ func (m *runMode) View() tea.View {
 		// this program's terminal: keep the session's alternate-screen
 		// setting, or the renderer leaves it (the /accounts → a flow
 		// used to drop the session out of the alt screen).
-		return m.applyTerminalSettings(m.login.View())
+		// Note: the login screen does not use in-app transcript mouse
+		// selection, so mouse tracking is left off (MouseModeNone) so
+		// that the terminal can handle native mouse text selection,
+		// copying, and Cmd+click / click on OSC 8 links without
+		// application interception.
+		v := m.login.View()
+		v.AltScreen = m.altScreen
+		return v
 	}
 	var transcript []string
 	if m.height > 0 {
