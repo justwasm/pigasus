@@ -41,11 +41,13 @@ func (m *Model) View() tea.View {
 		b.WriteString("\n")
 	}
 	if overflow {
-		fmt.Fprintf(&b, " (%d–%d of %d lines)\n\n", start+1, end, len(lines))
+		fmt.Fprintf(&b, "  (%d–%d of %d lines)\n\n", start+1, end, len(lines))
 	}
 	b.WriteString(m.footer(overflow))
 
-	return tea.NewView(b.String())
+	v := tea.NewView(b.String())
+	v.AltScreen = m.AltScreen
+	return v
 }
 
 // screenLines builds the screen's lines. Every line is already at
@@ -54,6 +56,7 @@ func (m *Model) screenLines() []string {
 	w := m.contentWidth()
 
 	lines := make([]string, 0, 32)
+	lines = append(lines, "")
 	for _, l := range tuilib.RenderLogoLines() {
 		lines = append(lines, l)
 	}
@@ -149,19 +152,23 @@ func (m *Model) selectMethodLines() []string {
 
 // oauthLines renders the OAuth step.
 //
-// The reference's 1.4.6 screen is:
+// The reference's 1.4.x screen is:
 //
 //	Your browser should open automatically. If not:
 //
 //	<the authorization URL, wrapped to the terminal width>
 //
+//	Copy and paste the URL or click on the link below:
+//	<rule>
+//	→ Click here to authenticate
+//	<rule>
+//
 //	If you aren't automatically redirected, paste the authorization code below:
 //
 //	 authorization code...
 //
-// There is no "click here" block and no rule: every chunk of the URL
-// is itself a hyperlink to the complete URL, so a tap on any chunk
-// opens the whole thing.
+// Both the URL chunks and the "click here" line are OSC 8 hyperlinks
+// to the *complete* URL, so a cmd+click on either one opens it.
 func (m *Model) oauthLines() []string {
 	w := m.contentWidth()
 
@@ -169,6 +176,11 @@ func (m *Model) oauthLines() []string {
 	lines = append(lines, wrapProse(" Your browser should open automatically. If not:", w)...)
 	lines = append(lines, "")
 	lines = append(lines, m.authURLLines()...)
+	lines = append(lines, "")
+	lines = append(lines, wrapProse(" Copy and paste the URL or click on the link below:", w)...)
+	lines = append(lines, m.rule())
+	lines = append(lines, m.clickHereLine())
+	lines = append(lines, m.rule())
 	lines = append(lines, "")
 	lines = append(lines, wrapProse(" If you aren't automatically redirected, paste the authorization code below:", w)...)
 	lines = append(lines, "")
@@ -179,6 +191,35 @@ func (m *Model) oauthLines() []string {
 	}
 	lines = append(lines, "", "")
 	return lines
+}
+
+// rule is the horizontal rule that frames the "click here" link. It
+// spans the terminal, the way the reference's does.
+func (m *Model) rule() string {
+	w := m.contentWidth() - 1
+	if w < 1 {
+		w = 1
+	}
+	return " " + strings.Repeat("─", w)
+}
+
+// clickHereLine is the "→ Click here to authenticate" link. It is an
+// OSC 8 hyperlink to the complete URL, so a cmd+click on it opens the
+// whole thing — the same target the URL chunks carry.
+//
+// The label is clipped, never wrapped: a wrapped link label would
+// split the OSC 8 target away from the text it belongs to.
+func (m *Model) clickHereLine() string {
+	const label = "→ Click here to authenticate"
+	w := m.contentWidth() - 1
+	if w < 1 {
+		w = 1
+	}
+	text := label
+	if ansi.StringWidth(text) > w {
+		text = ansi.Truncate(text, w, "")
+	}
+	return fmt.Sprintf(" \x1b]8;;%s\x07\x1b[34;4m%s\x1b[m\x1b]8;;\x07", m.AuthURL, text)
 }
 
 // clip trims a rendered line to the terminal width.
@@ -193,11 +234,13 @@ func (m *Model) clip(line string) string {
 // authURLLines writes the authorization URL, wrapped to the terminal
 // width.
 //
-// Every chunk carries the *complete* URL as its OSC 8 target, so:
+// Every chunk carries the *complete* URL as its OSC 8 target and is
+// styled with underline and blue colour (matching clickHereLine and the
+// reference binary's URL styling), so:
 //
-//   - the whole URL is on screen and can be selected and copied, even
-//     on a terminal narrower than the URL;
-//   - a tap on any chunk (the mobile path) opens the complete URL.
+//   - modern terminals render it visibly as a clickable hyperlink;
+//   - cmd+click or tap on any chunk opens the complete URL;
+//   - the whole URL is on screen and can be selected and copied.
 func (m *Model) authURLLines() []string {
 	width := m.contentWidth() - 2
 	if width < 1 {
@@ -205,7 +248,7 @@ func (m *Model) authURLLines() []string {
 	}
 	lines := make([]string, 0, 32)
 	for _, chunk := range urlChunks(m.AuthURL, width) {
-		lines = append(lines, fmt.Sprintf(" \x1b]8;;%s\x07%s\x1b]8;;\x07", m.AuthURL, chunk))
+		lines = append(lines, fmt.Sprintf(" \x1b]8;;%s\x07\x1b[34;4m%s\x1b[m\x1b]8;;\x07", m.AuthURL, chunk))
 	}
 	return lines
 }

@@ -49,6 +49,11 @@ type Model struct {
 	Authenticated bool
 	Width         int
 	Height        int
+	// AltScreen renders the screen in the terminal's alternate
+	// buffer. The reference's login screen runs there (it is a
+	// whole-screen view), so the standalone gate asks for it and the
+	// TUI keeps its own session setting.
+	AltScreen bool
 	// Scroll is the first visible line of the screen. The login
 	// screen is taller than a phone-sized terminal, so the content
 	// is scrollable — the reference scrolls it with shift+up /

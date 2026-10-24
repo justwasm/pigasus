@@ -40,6 +40,7 @@ import (
 	"github.com/justwasm/pigasus/internal/branding"
 	"github.com/justwasm/pigasus/internal/convstore"
 	"github.com/justwasm/pigasus/internal/keybind"
+	"github.com/justwasm/pigasus/internal/loginui"
 	"github.com/justwasm/pigasus/internal/wordmove"
 	"github.com/justwasm/pigasus/internal/configtest"
 	"github.com/justwasm/pigasus/internal/permissions"
@@ -147,6 +148,34 @@ func Test_ViewAltScreen(t *testing.T) {
 	}
 	if v.Cursor == nil {
 		t.Fatal("v.Cursor should not be nil")
+	}
+}
+
+// Test_LoginViewKeepsAltScreen pins the /accounts → a regression: the
+// login screen renders its own view, but it runs inside this program,
+// so it has to carry the session's terminal settings. Without them
+// bubbletea reads AltScreen off the view and leaves the alternate
+// screen in the middle of the session.
+func Test_LoginViewKeepsAltScreen(t *testing.T) {
+	m := NewRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m.login = loginui.New()
+	v := m.View()
+	if !v.AltScreen {
+		t.Error("the login view must keep the alternate screen")
+	}
+	if v.MouseMode != tea.MouseModeCellMotion {
+		t.Errorf("the login view mouse mode = %v, want CellMotion", v.MouseMode)
+	}
+}
+
+// Test_LoginViewRespectsNoAltScreen is the other half: the login view
+// must not force the alternate screen on when the session was started
+// without it.
+func Test_LoginViewRespectsNoAltScreen(t *testing.T) {
+	m := NewRunMode(&fakeClient{}, "u@t", "m", "t", "/", false)
+	m.login = loginui.New()
+	if v := m.View(); v.AltScreen {
+		t.Error("the login view must not turn the alternate screen on")
 	}
 }
 

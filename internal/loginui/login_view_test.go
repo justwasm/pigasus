@@ -43,6 +43,10 @@ func oauthModel(width, height int) *loginui.Model {
 // The URL block is a sequence of OSC 8 hyperlinks: the link target is
 // the complete URL, the visible text is one chunk of it. The chunks
 // are what the user selects and copies.
+//
+// The "→ Click here to authenticate" line is an OSC 8 hyperlink too,
+// but its visible text is a label and not a piece of the URL — it is
+// skipped (it contains a space, the URL never does).
 func visibleURL(view string) string {
 	const open = "\x1b]8;;"
 	const close = "\x07"
@@ -57,6 +61,10 @@ func visibleURL(view string) string {
 			continue
 		}
 		chunk, _, _ = strings.Cut(chunk, "\x1b]8;;")
+		chunk = ansi.Strip(chunk)
+		if strings.ContainsAny(chunk, " ") {
+			continue
+		}
 		b.WriteString(chunk)
 	}
 	return b.String()
@@ -115,6 +123,50 @@ func TestLoginView_URLChunksAreLinks(t *testing.T) {
 	}
 	if links < 2 {
 		t.Errorf("the URL is not wrapped into several links: %d link(s)", links)
+	}
+}
+
+// TestLoginView_ClickHereBlock pins the fallback block the reference
+// shows under the URL: the "copy and paste" hint, the two rules and
+// the "→ Click here to authenticate" link, which is an OSC 8
+// hyperlink to the complete URL (a cmd+click opens it).
+func TestLoginView_ClickHereBlock(t *testing.T) {
+	m := oauthModel(80, 60)
+	view := m.View().Content
+
+	stripped := ansi.Strip(view)
+	for _, want := range []string{
+		"Copy and paste the URL or click on the link below:",
+		"→ Click here to authenticate",
+	} {
+		if !strings.Contains(stripped, want) {
+			t.Errorf("the screen has no %q:\n%s", want, stripped)
+		}
+	}
+	if !strings.Contains(stripped, strings.Repeat("─", 20)) {
+		t.Errorf("the screen has no rule around the link:\n%s", stripped)
+	}
+
+	// The link label is a hyperlink to the complete URL.
+	const open = "\x1b]8;;"
+	const close = "\x07"
+	found := false
+	for _, line := range strings.Split(view, "\n") {
+		if !strings.Contains(ansi.Strip(line), "Click here to authenticate") {
+			continue
+		}
+		rest := line[strings.Index(line, open)+len(open):]
+		target, _, ok := strings.Cut(rest, close)
+		if !ok {
+			t.Fatalf("unterminated OSC 8 sequence: %q", line)
+		}
+		if target != testAuthURL {
+			t.Errorf("the click-here target = %q, want the complete URL", target)
+		}
+		found = true
+	}
+	if !found {
+		t.Fatalf("the click-here line is not a hyperlink:\n%s", stripped)
 	}
 }
 

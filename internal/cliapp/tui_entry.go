@@ -49,9 +49,17 @@ func checkWorkspaceTrustGate(w io.Writer, fs *flag.FlagSet) (string, bool, error
 	return canonicalCwd, false, nil
 }
 
-func checkStartupAuthGate() error {
+// checkStartupAuthGate asks for a sign-in when the session has no
+// credential yet.
+//
+// The login screen is a whole-screen view, and the reference runs it
+// in the terminal's alternate buffer — so the gate asks for the same
+// alternate-screen setting the session itself uses.
+func checkStartupAuthGate(fs *flag.FlagSet) error {
 	if !hasOAuthToken() && os.Getenv("GEMINI_API_KEY") == "" && os.Getenv("AGY_ADC_AUTH") == "" {
-		loginProg := tea.NewProgram(loginui.New())
+		lm := loginui.New()
+		lm.AltScreen = resolveAltScreen(fs)
+		loginProg := tea.NewProgram(lm)
 		finalM, err := loginProg.Run()
 		if err != nil {
 			return err
@@ -63,16 +71,25 @@ func checkStartupAuthGate() error {
 	return nil
 }
 
+// resolveAltScreen reads the alternate-screen setting from the flags.
+// The session and the login gate have to agree on it: a login screen
+// that switches the terminal out of the alternate buffer (or into it)
+// while the session is in the other one leaves the terminal in a state
+// the user did not ask for.
+func resolveAltScreen(fs *flag.FlagSet) bool {
+	if flagBoolValue(fs, "no-alt-screen") || !flagBoolValue(fs, "alt-screen") {
+		return false
+	}
+	return true
+}
+
 func resolveTUIModelAndBackend(fs *flag.FlagSet) (string, string, bool, backend.Client) {
 	modelName := flagStringValue(fs, "model")
 	modelName, unavailableFrom := resolveEffectiveModel(modelName)
 	if modelName == "" {
 		modelName = defaultModel
 	}
-	altScreen := true
-	if flagBoolValue(fs, "no-alt-screen") || !flagBoolValue(fs, "alt-screen") {
-		altScreen = false
-	}
+	altScreen := resolveAltScreen(fs)
 	be := pickBackend(fs, modelName)
 	if gb, ok := be.(gatewayBackend); ok {
 		extModel := strings.TrimSpace(gb.GatewayConfig().ExternalModel)
@@ -172,7 +189,7 @@ func runLiveTUI(w io.Writer, fs *flag.FlagSet) error {
 	if err != nil || shouldExit {
 		return err
 	}
-	if err := checkStartupAuthGate(); err != nil {
+	if err := checkStartupAuthGate(fs); err != nil {
 		return err
 	}
 	modelName, unavail, altScreen, be := resolveTUIModelAndBackend(fs)

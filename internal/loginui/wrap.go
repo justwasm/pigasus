@@ -44,11 +44,12 @@ func (m *Model) contentWidth() int {
 // wrapProse wraps a line of prose at the terminal width.
 //
 // The line's indent is kept on the continuation lines, the way the
-// reference's wrap does: at 40 columns
-// "Your browser should open automatically. If not:" becomes
+// reference's wrap does: at 40 columns "Your browser should open
+// automatically. If not:" becomes two lines, each starting with the
+// same one-column indent:
 //
-//	 Your browser should open automatically.
-//	 If not:
+//	Your browser should open automatically.
+//	If not:
 func wrapProse(text string, width int) []string {
 	if width <= 0 {
 		return []string{text}

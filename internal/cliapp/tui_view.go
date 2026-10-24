@@ -59,12 +59,26 @@ func (m *runMode) clipViewBody(body string, cursorY int) (string, int) {
 	return body, cursorY
 }
 
-func (m *runMode) buildTeaView(body string, cursorX, cursorY int) tea.View {
-	v := tea.NewView(body)
+// applyTerminalSettings applies the session's terminal settings to a
+// view.
+//
+// Every frame the program renders has to carry them: bubbletea reads
+// AltScreen off the view, so a view that forgets it makes the
+// renderer leave the alternate screen in the middle of the session.
+// The login screen renders its own view (it is a whole-screen modal),
+// but it lives inside this program — it must not drop the terminal out
+// of the alternate screen that the session started in.
+func (m *runMode) applyTerminalSettings(v tea.View) tea.View {
 	v.AltScreen = m.altScreen
 	if m.altScreen {
 		v.MouseMode = tea.MouseModeCellMotion
 	}
+	return v
+}
+
+func (m *runMode) buildTeaView(body string, cursorX, cursorY int) tea.View {
+	v := tea.NewView(body)
+	v = m.applyTerminalSettings(v)
 	if m.title == "on" {
 		v.WindowTitle = m.conversationTitle()
 	}
@@ -83,7 +97,11 @@ func (m *runMode) buildTeaView(body string, cursorX, cursorY int) tea.View {
 
 func (m *runMode) View() tea.View {
 	if m.login != nil {
-		return m.login.View()
+		// The login screen owns its own layout, but it still runs in
+		// this program's terminal: keep the session's alternate-screen
+		// setting, or the renderer leaves it (the /accounts → a flow
+		// used to drop the session out of the alt screen).
+		return m.applyTerminalSettings(m.login.View())
 	}
 	var transcript []string
 	if m.height > 0 {
