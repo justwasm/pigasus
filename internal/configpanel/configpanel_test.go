@@ -60,10 +60,28 @@ func TestCatalogueKeys(t *testing.T) {
 
 // TestDefaultIsAbsent pins the absence convention: the default entry of
 // every row stores nil, meaning "delete the key".
+//
+// Cycle 294 (AGY 1.4.7, measured 2026-10-25): Rendering Mode is the one
+// exception. Its default state — an absent `altScreenMode` — *is* the
+// alternate screen, and the reference's runtime reads an absent key that
+// way, but the reference's own panel writes an empty value for the inline
+// stop, which its `omitempty` writer drops from settings.json. That
+// makes the reference's inline option unreachable after a restart, so the
+// clone writes the reference's own inline value ("never") and keeps the
+// alternate screen first.
 func TestDefaultIsAbsent(t *testing.T) {
 	for _, r := range SettingsRows {
 		if len(r.Values) == 0 {
 			t.Errorf("row %q has no values", r.Name)
+			continue
+		}
+		if r.Name == "Rendering Mode" {
+			if r.Values[0].Stored != "always" {
+				t.Errorf("row %q default stores %v, want always", r.Name, r.Values[0].Stored)
+			}
+			if r.Values[1].Stored != "never" {
+				t.Errorf("row %q inline stop stores %v, want never", r.Name, r.Values[1].Stored)
+			}
 			continue
 		}
 		if r.Values[0].Stored != nil {

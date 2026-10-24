@@ -75,17 +75,20 @@ func mkAccountsPanel(t *testing.T, emails ...string) *runMode {
 	return m
 }
 
-func TestAccountsPanelIsInvocableButNotListed(t *testing.T) {
+func TestAccountsPanelIsListedInCatalogue(t *testing.T) {
 	kind, ok := panelForCommand("accounts")
 	if !ok || kind != panelAccounts {
 		t.Fatalf("panelForCommand(\"accounts\") = (%v, %v)", kind, ok)
 	}
-	// The picker's catalogue entry count is byte-pinned to the
-	// reference's 99, so a clone-only command must not be listed.
+	found := false
 	for _, c := range tuilib.DefaultSlashCommands {
 		if c.Name == "/accounts" {
-			t.Fatal("/accounts must not appear in the command catalogue")
+			found = true
+			break
 		}
+	}
+	if !found {
+		t.Fatal("/accounts must appear in the command catalogue")
 	}
 }
 

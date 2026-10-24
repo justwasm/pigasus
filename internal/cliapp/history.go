@@ -83,6 +83,34 @@ func (m *runMode) loadHistory() {
 	m.history = convstore.LoadHistory("", HistoryCap)
 }
 
+// closeComposerOverlays hides the composer overlays after a history
+// recall.
+//
+// Cycle 295: a recall is NOT a keystroke. The reference arms its
+// composer overlays from the *typed* text, not from the buffer
+// content, so a recalled entry never opens the popup.
+//
+// 【一手】 agy 1.4.7, live (tmux 220×40, 2026-10-25):
+//
+//	Up            → composer holds "/agents"   (a recalled
+//	               slash_command entry), popup CLOSED
+//	Up            → composer holds the next-older entry — the
+//	               history keeps paging across slash commands
+//	Up, then "x"  → composer holds "/agentsx", popup OPEN with the
+//	               "No matches" row — the *keystroke* re-derives it
+//
+// The same holds for the @ file-mention dropdown: recalling an entry
+// that contains "@zzzprobe" leaves the dropdown closed; typing one
+// character opens it.
+//
+// Before this the recall re-derived both overlays, so the popup
+// swallowed the next Up/Down and the history stopped paging at the
+// first slash command in the list.
+func (m *runMode) closeComposerOverlays() {
+	m.picker.Reset()
+	m.atFileDropdown.Reset()
+}
+
 // historyUp navigates one slot back.
 func (m *runMode) historyUp() {
 	if len(m.history) == 0 {
@@ -96,13 +124,9 @@ func (m *runMode) historyUp() {
 	}
 	m.historyIdx++
 	m.applyHistoryEntry(m.history[len(m.history)-m.historyIdx])
-	m.picker.Update([]rune(firstLine(m.input.Value())))
-	// feature/at-file-dropdown-newline: derive the @ file-mention
-	// dropdown from the post-SetValue buffer the same way the
-	// slash picker does. The parser handles newlines internally so
-	// a recalled history entry containing "@src" mid-line still
-	// triggers the dropdown.
-	m.atFileDropdown.Update(m.input.Value(), m.cwd)
+	// Cycle 295: the overlays are closed, not re-derived — the
+	// reference re-derives them from the next typed keystroke.
+	m.closeComposerOverlays()
 }
 
 // historyDown navigates one slot forward.
@@ -113,13 +137,11 @@ func (m *runMode) historyDown() {
 	m.historyIdx--
 	if m.historyIdx == 0 {
 		m.applyHistoryEntry(m.historyEdit)
-		m.picker.Update([]rune(firstLine(m.input.Value())))
-		m.atFileDropdown.Update(m.input.Value(), m.cwd)
+		m.closeComposerOverlays()
 		return
 	}
 	m.applyHistoryEntry(m.history[len(m.history)-m.historyIdx])
-	m.picker.Update([]rune(firstLine(m.input.Value())))
-	m.atFileDropdown.Update(m.input.Value(), m.cwd)
+	m.closeComposerOverlays()
 }
 
 // historyReset exits history navigation.

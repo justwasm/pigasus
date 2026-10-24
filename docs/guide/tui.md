@@ -93,6 +93,56 @@ Report: `docs/cycles/model-argument-completion/`.
 ---
 
 
+## Prompt-history paging and the composer overlays (cycle 295)
+
+`↑` / `↓` page the prompt history, and the reference's history **contains
+slash commands** — `~/.gemini/antigravity-cli/history.jsonl` stores them with
+`"type":"slash_command"` (the clone writes the same shape,
+`internal/convstore/write.go`). Paging up therefore lands on a buffer that
+starts with `/`.
+
+The rule that keeps that from breaking the paging: **the composer overlays are
+armed by the *typed* text, not by the buffer content.** A history recall is not
+typing. 【一手】 measured against agy 1.4.7 on 2026-10-25 (tmux 220×40):
+
+| keystroke | the composer | the popup |
+|---|---|---|
+| `↑` | `/agents` (a recalled slash command) | **closed** |
+| `↑` | the next-older entry — the history pages across slash commands | closed |
+| `↓` | `/agents` again | closed |
+| `↑`, then `x` | `/agentsx` | **open** — the `No matches` row |
+
+The `@` file-mention dropdown obeys the same rule, and `Enter` on a recalled
+slash command runs the command — a recalled command behaves exactly like a
+typed one.
+
+| file | what it does |
+|---|---|
+| `internal/cliapp/history.go` | `historyUp` / `historyDown` → `closeComposerOverlays()`: a recall **closes** the command popup and the `@` dropdown, it never re-derives them |
+| `internal/cliapp/tui_update_keys_edit.go` | `handleKeyUp` / `handleKeyDown` consult the overlays **first** — an open popup owns the arrow keys, even when it is empty (`No matches`) |
+| `internal/cliapp/tui_update_keys_edit.go` | `updateTextareaAndDropdown` re-derives both overlays on every *keystroke* — this is what arms them again after a recall |
+
+Two traps:
+
+- **Do not re-derive the overlays from a recalled buffer.** That was the bug:
+  the popup became visible on the recall, `handleKeyUp` handed it the arrow
+  keys, and the history stopped paging at the first slash command in the list.
+- **Do not gate the command popup on a trailing space.** That is the
+  `/model <query>` *argument* popup's trigger, a different widget; the command
+  popup opens on a bare `/` (the reference's own capture: `/a` →
+  `/add-dir` highlighted).
+
+The clone's **test suite** used to write into the user's real agy home —
+every `go test` run appended fixture strings to the very `history.jsonl` the
+reference pages through (15 entries per run; 1723 of the 2000 entries in the
+file were fixtures). `internal/cliapp/main_test.go` now points
+`$ANTIGRAVITY_HOME` at a scratch tree for the whole package.
+
+Report: `docs/cycles/cycle-295-history-recall-popup/`.
+
+---
+
+
 ## The transcript display (cycle 285)
 
 `internal/cliapp/tui_tools.go` renders what the model *did*, and 1.4.3's display differs
@@ -180,4 +230,56 @@ Facts that are easy to get wrong, all 【一手】 from pty captures
 - The command never enters `m.session`, so it is invisible to the model; it is also
   not persisted to the conversation store (the reference's "implicit trajectory"),
   which is the main documented gap.
+
+---
+
+## The rendering mode — alternate screen vs inline (cycle 294)
+
+The session renders either in the terminal's **alternate screen buffer**
+("no flickering (altscreen)") or **inline** ("native terminal (inline)"). The
+choice is the reference's `altScreenMode` setting, and the reference's
+vocabulary is narrow — 【一手】 measured against agy 1.4.7 on 2026-10-25 by
+capturing the terminal bytes under a pty and counting `ESC[?1049h`:
+
+| `altScreenMode` | the reference renders |
+|---|---|
+| `"always"` | the alternate screen (`ESC[?1049h`) |
+| `"never"` | inline (no `ESC[?1049h`) |
+| absent | the alternate screen — the default |
+| anything else (`"off"`, `"inline"`, `"default"`, `"auto"`, `"none"`, `"false"`) | the default; the reference's settings validation rejects the value |
+
+So only the word `"never"` means inline. Three places have to agree:
+
+| file | what it does |
+|---|---|
+| `internal/cliapp/tui_entry.go` | `resolveAltScreen` — the clone's own `--alt-screen` / `--no-alt-screen` flags win, then the setting, then the default |
+| `internal/cliapp/slash_config_preview.go` | `applyConfigValue` → `applyAltScreenLive` — the `/config` row switches the **running** session in the same keystroke |
+| `internal/configpanel/configpanel.go` | the row's catalogue: the alternate screen first, then inline (`"never"`) |
+
+Four things that are easy to get wrong:
+
+- **The reference's own panel writes an *empty* value for the inline stop**, which
+  its `json:"altScreenMode,omitempty"` writer then drops from `settings.json` — so
+  the reference's inline option does not survive a restart, because an absent key
+  is the reference's *default* and its default is the alternate screen. The clone
+  writes the reference's *own* inline value, `"never"`, which agy 1.4.7 accepts and
+  honours. 【一手】
+- **The row's order is load-bearing.** An absent key means the alternate screen,
+  so the alternate screen has to be the row's *first* entry: otherwise the row
+  labels the default "native terminal (inline)" while the session renders the
+  alternate screen, and both ← and → walk away from that state — which is
+  exactly the "the panel says inline but the UI is still altscreen" report.
+- **Ctrl+L does not toggle the mode.** The reference's Ctrl+L clears the screen —
+  its string table has "Clear CLI screen" and `cli.clear_screen`, and the 1.4.7
+  changelog says "when clearing the screen with `Ctrl+L`". The clone's
+  `/keybindings` panel and the `--alt-screen` usage used to advertise a Ctrl+L
+  toggle; both were wrong and now say what the reference does. 【一手】
+- **bubbletea reads the flag off the view, not off the program.** There is no
+  `tea.WithAltScreen` in bubbletea v2: `applyTerminalSettings` sets `v.AltScreen`
+  on every frame, and the renderer enters or leaves the alternate buffer when the
+  flag flips (`cursed_renderer.go`). Flipping `m.altScreen` is therefore enough to
+  switch modes mid-session — but only if the frame that carries the new flag is
+  actually rendered.
+
+Report: `docs/cycles/cycle-294-altscreen-rendering-mode/`.
 

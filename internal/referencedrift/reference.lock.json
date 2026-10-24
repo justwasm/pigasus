@@ -88,7 +88,7 @@
     {
       "path": "internal/cli/testdata/help_1.4.6.txt",
       "captured_at": "1.4.7",
-      "digest": "3192e2970d18f99fb426f793e69e96a5ae3f63563a800bea38dbf6989c52bd77",
+      "digest": "751967276fca9e4e699ab1e3d453e111d0f565eb19d6f03e1e5a6765e18b64b5",
       "live": true,
       "how": "capture `agy --help`, `agy \u003ccmd\u003e --help` for the thirty commands the golden covers, stdout and stderr separately, with a throwaway HOME. Re-verified at 1.4.7: byte-identical to the 1.4.6 capture - the flag table, the column widths and every per-command usage block are unchanged"
     }

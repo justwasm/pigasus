@@ -5454,11 +5454,16 @@ func TestProviderPanel_EscCancelsTheForm(t *testing.T) {
 	}
 }
 
-func TestProviderPanel_IsNotInThePickerCatalogue(t *testing.T) {
+func TestProviderPanel_IsInPickerCatalogue(t *testing.T) {
+	found := false
 	for _, c := range tuilib.DefaultSlashCommands {
 		if c.Name == "/provider" {
-			t.Fatal("/provider is in the picker's catalogue")
+			found = true
+			break
 		}
+	}
+	if !found {
+		t.Fatal("/provider must be in the picker's catalogue")
 	}
 }
 

@@ -18,8 +18,9 @@ package tuilib
 import "testing"
 
 func TestSortedSlashCommandsMatchesReferenceHelpOrder(t *testing.T) {
-	// First 12 rows of REF v1.4.0's /help COMMANDS tab.
+	// First 12 rows of the /help COMMANDS tab (reference plus openagy superset).
 	want := []string{
+		"/accounts",
 		"/add-dir",
 		"/agents",
 		"/agents-sdk",
@@ -31,7 +32,6 @@ func TestSortedSlashCommandsMatchesReferenceHelpOrder(t *testing.T) {
 		"/btw",
 		"/changelog",
 		"/chrome-devtools-plugin:a11y-debugging",
-		"/chrome-devtools-plugin:chrome-devtools",
 	}
 	got := SortedSlashCommands()
 	if len(got) != len(DefaultSlashCommands) {
@@ -74,7 +74,7 @@ func TestPickerAndHelpOrdersDiffer(t *testing.T) {
 	if picker[2].Name != "/artifact" {
 		t.Fatalf("picker row 2 = %q, want /artifact", picker[2].Name)
 	}
-	if help[2].Name != "/agents-sdk" {
-		t.Fatalf("help row 2 = %q, want /agents-sdk", help[2].Name)
+	if help[3].Name != "/agents-sdk" {
+		t.Fatalf("help row 3 = %q, want /agents-sdk", help[3].Name)
 	}
 }

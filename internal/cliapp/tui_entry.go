@@ -71,16 +71,51 @@ func checkStartupAuthGate(fs *flag.FlagSet) error {
 	return nil
 }
 
-// resolveAltScreen reads the alternate-screen setting from the flags.
+// resolveAltScreen decides whether the session renders in the terminal's
+// alternate screen buffer.
+//
+// Precedence: the clone's own flags first (they are an explicit request
+// on the command line), then the reference's `altScreenMode` setting,
+// then the default — the alternate screen.
+//
+// The setting is read because the reference reads it too. Measured
+// against agy 1.4.7 (2026-10-25, raw capture of the terminal bytes
+// under a pty): the reference enters the alternate buffer for "always"
+// and for an absent key, and stays inline for "never". Every other value
+// ("off", "inline", "default", "auto", "none", "false") is rejected by
+// the reference's settings validation and falls back to the default.
+//
 // The session and the login gate have to agree on it: a login screen
 // that switches the terminal out of the alternate buffer (or into it)
 // while the session is in the other one leaves the terminal in a state
 // the user did not ask for.
 func resolveAltScreen(fs *flag.FlagSet) bool {
-	if flagBoolValue(fs, "no-alt-screen") || !flagBoolValue(fs, "alt-screen") {
+	if flagBoolValue(fs, "no-alt-screen") {
 		return false
 	}
-	return true
+	if flagWasSet(fs, "alt-screen") {
+		return flagBoolValue(fs, "alt-screen")
+	}
+	return altScreenModeFromSettings()
+}
+
+// altScreenModeValue maps a stored `altScreenMode` value to the
+// alternate-screen flag. nil (the key is absent) and every value the
+// reference does not know mean the default, the alternate screen; only
+// "never" means the inline view.
+func altScreenModeValue(stored any) bool {
+	s, _ := stored.(string)
+	return s != "never"
+}
+
+// altScreenModeFromSettings reads `altScreenMode` out of settings.json.
+// A missing or unreadable file leaves the default in place.
+func altScreenModeFromSettings() bool {
+	stored, err := auth.SettingsField("altScreenMode")
+	if err != nil {
+		return true
+	}
+	return altScreenModeValue(stored)
 }
 
 func resolveTUIModelAndBackend(fs *flag.FlagSet) (string, string, bool, backend.Client) {

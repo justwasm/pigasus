@@ -194,17 +194,16 @@ func TestVisibleFlagsMatchReferenceHelp(t *testing.T) {
 func TestSubcommandDispatch(t *testing.T) {
 	subs := StandardSubcommands()
 
-	// 12 visible subcommands. cycle 33 had 10 (missed "help" and
-	// "plugins" alias) — fixed in cycle 38. cycle 41 added 10
-	// hidden subcommands; only the 12 visible ones count here.
+	// 15 visible subcommands: 12 reference subcommands plus openagy superset
+	// (accounts, model, provider).
 	visible := 0
 	for _, s := range subs {
 		if !s.Hidden {
 			visible++
 		}
 	}
-	if got, want := visible, 12; got != want {
-		t.Fatalf("visible subcommands: got %d, want %d (v1.3.5 visible count)", got, want)
+	if got, want := visible, 15; got != want {
+		t.Fatalf("visible subcommands: got %d, want %d (12 reference + 3 superset)", got, want)
 	}
 
 	// Sub-subcommand counts (only subcommands with children in v1.3.5).

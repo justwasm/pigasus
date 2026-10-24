@@ -435,14 +435,15 @@ func Test_CursorTracksTypedText(t *testing.T) {
 // The base count was 99 (cycle 147), the picker filter excluded 5
 // chrome-devtools-plugin:* entries (cycle 146). With the cycle-236
 // addition: 100 total / 95 filtered. With /teamwork and /boost: 102 total / 97 filtered.
+// With openagy superset /accounts and /provider: 104 total / 99 filtered.
 func Test_PickerCatalogMatchesRef(t *testing.T) {
 	got := len(tuilib.DefaultSlashCommands)
-	if got != 102 {
-		t.Fatalf("expected 102 slash commands in catalog (99 cycle-147 base + /feature-diff cycle-236 + /teamwork + /boost), got %d", got)
+	if got != 104 {
+		t.Fatalf("expected 104 slash commands in catalog (102 base + /accounts + /provider), got %d", got)
 	}
 	filtered := len(tuilib.FilterSlashCommands("/"))
-	if filtered != 97 {
-		t.Fatalf("expected 97 slash commands in picker (94 cycle-147 base + /feature-diff cycle-236 + /teamwork + /boost), got %d", filtered)
+	if filtered != 99 {
+		t.Fatalf("expected 99 slash commands in picker (97 base + /accounts + /provider), got %d", filtered)
 	}
 }
 

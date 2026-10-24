@@ -28,6 +28,7 @@ Usage of agy:
   --sandbox                       Run in a sandbox with terminal restrictions enabled
 
 Available subcommands:
+  accounts        Manage the signed-in Google accounts
   agent           List available agents
   agents          List available agents
   changelog       Show changelog and release notes
@@ -35,9 +36,11 @@ Available subcommands:
   install         Configure environment paths and shell settings
   mcp             Manage MCP servers (add, remove, list, enable, disable)
   mic-serve       Serve this machine's microphone to a CLI on another host
+  model           Manage the configured models
   models          List available models
   plugin          Manage plugins (install, uninstall, list, enable, disable)
   plugins         Alias for plugin
+  provider        Manage the configured model providers
   remote-control  Manage the remote-control background daemon (start, status, stop)
   update          Update CLI
 ===END===

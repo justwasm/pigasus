@@ -80,36 +80,47 @@ func referenceSpecsPart1(ws string) []refSpec {
 		{name: "ask_question", desc: "Ask the user a question and wait for the answer.",
 			back: &AskQuestion{}},
 
-		// ---- browser control (executors where we have them, placeholders otherwise) ----
+		// ---- browser control (executors connected to browsercdp) ----
 		{name: "browser_click_element", desc: "Click an element in the controlled browser page.",
-			back: &BrowserClick{}},
+			back: &BrowserClick{Workspace: ws}},
 		{name: "browser_drag_pixel_to_pixel", desc: "Drag the pointer between two pixel coordinates.",
-			back: &BrowserDrag{}},
-		{name: "browser_get_dom", desc: "Return the DOM of the controlled browser page."},
-		{name: "browser_get_network_request", desc: "Inspect one captured network request."},
-		{name: "browser_input", desc: "Type text into a focused browser field."},
-		{name: "browser_list_network_requests", desc: "List the network requests the browser made."},
-		{name: "browser_mouse_down", desc: "Press a mouse button at the current pointer position."},
-		{name: "browser_mouse_up", desc: "Release a mouse button at the current pointer position."},
-		{name: "browser_move_mouse", desc: "Move the pointer to a coordinate."},
+			back: &BrowserDrag{Workspace: ws}},
+		{name: "browser_get_dom", desc: "Return the DOM of the controlled browser page.",
+			back: &BrowserGetDOM{Workspace: ws}},
+		{name: "browser_get_network_request", desc: "Inspect one captured network request.",
+			back: &BrowserGetNetworkRequest{Workspace: ws}},
+		{name: "browser_input", desc: "Type text into a focused browser field.",
+			back: &BrowserInput{Workspace: ws}},
+		{name: "browser_list_network_requests", desc: "List the network requests the browser made.",
+			back: &BrowserListNetworkRequests{Workspace: ws}},
+		{name: "browser_mouse_down", desc: "Press a mouse button at the current pointer position.",
+			back: &BrowserMouseDown{Workspace: ws}},
+		{name: "browser_mouse_up", desc: "Release a mouse button at the current pointer position.",
+			back: &BrowserMouseUp{Workspace: ws}},
+		{name: "browser_move_mouse", desc: "Move the pointer to a coordinate.",
+			back: &BrowserMouseMove{Workspace: ws}},
 		{name: "browser_press_key", desc: "Send a key press to the browser page.",
-			back: &BrowserPressKey{}},
-		{name: "browser_refresh_page", desc: "Reload the current browser page."},
-		{name: "browser_resize_window", desc: "Resize the controlled browser viewport."},
+			back: &BrowserPressKey{Workspace: ws}},
+		{name: "browser_refresh_page", desc: "Reload the current browser page.",
+			back: &BrowserRefreshPage{Workspace: ws}},
+		{name: "browser_resize_window", desc: "Resize the controlled browser viewport.",
+			back: &BrowserResizeWindow{Workspace: ws}},
 		{name: "browser_scroll", desc: "Scroll the browser page.",
-			back: &BrowserScroll{}},
-		{name: "browser_scroll_dom", desc: "Scroll an element of the browser DOM."},
+			back: &BrowserScroll{Workspace: ws}},
+		{name: "browser_scroll_dom", desc: "Scroll an element of the browser DOM.",
+			back: &BrowserScrollDOM{Workspace: ws}},
 		{name: "browser_select_option", desc: "Select an option in a browser dropdown.",
-			back: &BrowserSelect{}},
+			back: &BrowserSelect{Workspace: ws}},
 		{name: "browser_subagent", desc: "Delegate a browsing task to a browser subagent."},
 
 		// ---- MCP / knowledge ----
 		{name: "call_mcp_tool", desc: "Call a tool exposed by a configured MCP server."},
 		{name: "capture_browser_console_logs", desc: "Return the browser console log.",
-			back: &BrowserConsole{}},
+			back: &BrowserConsole{Workspace: ws}},
 		{name: "capture_browser_screenshot", desc: "Screenshot the controlled browser page.",
-			back: &BrowserScreenshot{}},
-		{name: "click_browser_pixel", desc: "Click a pixel coordinate in the browser page."},
+			back: &BrowserScreenshot{Workspace: ws}},
+		{name: "click_browser_pixel", desc: "Click a pixel coordinate in the browser page.",
+			back: &ClickBrowserPixel{Workspace: ws}},
 
 		// ---- command execution (real) ----
 		{name: "command_status", desc: "Check the status of a previously started command.",
@@ -122,7 +133,8 @@ func referenceSpecsPart2(ws string) []refSpec {
 		// ---- subagents / knowledge ----
 		{name: "define_subagent", desc: "Define a reusable subagent."},
 		{name: "delete_knowledge", desc: "Delete a stored knowledge item."},
-		{name: "execute_browser_javascript", desc: "Evaluate JavaScript in the browser page."},
+		{name: "execute_browser_javascript", desc: "Evaluate JavaScript in the browser page.",
+			back: &ExecuteBrowserJavaScript{Workspace: ws}},
 
 		// ---- filesystem / search (real) ----
 		{name: "find_by_name", desc: "Find files by name glob.",
@@ -136,7 +148,8 @@ func referenceSpecsPart2(ws string) []refSpec {
 
 		// ---- subagents ----
 		{name: "invoke_subagent", desc: "Run a previously defined subagent."},
-		{name: "list_browser_pages", desc: "List the pages the browser controls."},
+		{name: "list_browser_pages", desc: "List the pages the browser controls.",
+			back: &ListBrowserPages{Workspace: ws}},
 
 		// ---- filesystem / permissions / plugins ----
 		{name: "list_dir", desc: "List the entries of a directory.",
@@ -168,8 +181,10 @@ func referenceSpecsPart2(ws string) []refSpec {
 func referenceSpecsPart3(ws string) []refSpec {
 	return []refSpec{
 		// ---- browser navigation ----
-		{name: "open_browser_url", desc: "Open a URL in the controlled browser."},
-		{name: "read_browser_page", desc: "Read the current browser page as text."},
+		{name: "open_browser_url", desc: "Open a URL in the controlled browser.",
+			back: &OpenBrowserURL{Workspace: ws}},
+		{name: "read_browser_page", desc: "Read the current browser page as text.",
+			back: &ReadBrowserPage{Workspace: ws}},
 
 		// ---- resources / web (network) ----
 		{name: "read_resource", desc: "Read a named resource."},

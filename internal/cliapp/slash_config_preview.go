@@ -178,6 +178,9 @@ func (m *runMode) applyConfigValue(row configRow, val cfgVal) {
 	if row.Name == "Color Scheme" {
 		m.applyThemeLive(val.Display)
 	}
+	if row.SettingsKey == "altScreenMode" {
+		m.applyAltScreenLive(val.Stored)
+	}
 	if row.MemoryOnly {
 		if m.panel.configMemory == nil {
 			m.panel.configMemory = map[string]string{}
@@ -190,6 +193,18 @@ func (m *runMode) applyConfigValue(row configRow, val cfgVal) {
 		return
 	}
 	_ = auth.SetSettingsField(row.SettingsKey, val.Stored)
+}
+
+// applyAltScreenLive switches the session between the terminal's
+// alternate screen buffer and the inline view.
+//
+// The reference does it in the same keystroke: agy 1.4.7 leaves the
+// alternate buffer (?1049l) right after the /config Rendering Mode row
+// is switched to "native terminal (inline)" (measured 2026-10-25).
+// bubbletea reads the flag off the view, so flipping it is enough — the
+// renderer enters or leaves the alternate buffer on the next frame.
+func (m *runMode) applyAltScreenLive(stored any) {
+	m.altScreen = altScreenModeValue(stored)
 }
 
 // cycleConfigValueFiltered cycles through the allowed values for the current row

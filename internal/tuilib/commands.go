@@ -81,6 +81,8 @@ var DefaultSlashCommands = []SlashCommand{
 	{Name: "/title", Description: "Toggle custom terminal window title"},
 	{Name: "/usage", Description: "View model quota usage", Aliases: []string{"quota"}},
 	{Name: "/voice", Description: "Dictate a prompt using your microphone", Aliases: []string{"record"}},
+	{Name: "/accounts", Description: "Manage and switch signed-in Google accounts"},
+	{Name: "/provider", Description: "Manage custom model providers and endpoints", Aliases: []string{"providers"}},
 	{Name: "/goal", Description: "Run until the specified goal is completely finished."},
 	{Name: "/compact", Description: "Compact the conversation now (summarize history to free up the context window)."},
 	{Name: "/schedule", Description: "Run an instruction on a recurring schedule or as a one-time timer."},

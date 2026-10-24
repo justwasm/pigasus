@@ -30,20 +30,18 @@ func runProxyCLI(t *testing.T, args ...string) (string, string, int) {
 	return out.String(), errb.String(), p.ExitCode()
 }
 
-// TestProxySubcommandIsHidden pins the visibility rule: `agy --help` lists
-// the reference's twelve visible subcommands, and the proxy group is not
-// one of them.
-func TestProxySubcommandIsHidden(t *testing.T) {
+// TestProxySubcommandIsVisible pins the superset rule: `pigasus --help` lists
+// the reference subcommands plus openagy's superset, including proxy.
+func TestProxySubcommandIsVisible(t *testing.T) {
 	specs := append(cli.StandardSubcommands(), proxySubcommand())
 	visible := 0
 	found := false
 	for _, s := range specs {
 		if s.Name == "proxy" {
 			found = true
-			if !s.Hidden {
-				t.Fatal("the proxy subcommand must be hidden")
+			if s.Hidden {
+				t.Fatal("the proxy subcommand must be visible")
 			}
-			continue
 		}
 		if !s.Hidden {
 			visible++
@@ -52,8 +50,8 @@ func TestProxySubcommandIsHidden(t *testing.T) {
 	if !found {
 		t.Fatal("the proxy subcommand is missing")
 	}
-	if visible != 12 {
-		t.Fatalf("visible subcommands = %d, want 12", visible)
+	if visible != 16 {
+		t.Fatalf("visible subcommands = %d, want 16 (12 ref + 4 superset)", visible)
 	}
 }
 

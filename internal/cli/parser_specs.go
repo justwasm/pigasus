@@ -224,7 +224,6 @@ func providerSubcommand() SubcommandSpec {
 	return SubcommandSpec{
 		Name:    "provider",
 		Short:   "Manage the configured model providers",
-		Hidden:  true,
 		Aliases: []string{"providers"},
 		Subs: []SubSubSpec{
 			{Name: "list", Short: "List the configured providers", RunJ: runProviderList, HelpFn: func(n string) string {
@@ -241,9 +240,8 @@ func providerSubcommand() SubcommandSpec {
 
 func modelSubcommand() SubcommandSpec {
 	return SubcommandSpec{
-		Name:   "model",
-		Short:  "Manage the configured models",
-		Hidden: true,
+		Name:  "model",
+		Short: "Manage the configured models",
 		Subs: []SubSubSpec{
 			{Name: "list", Short: "List the configured models", RunJ: runModelList, HelpFn: func(n string) string {
 				return "Usage: " + n + " model list [--provider <provider>]\n"
@@ -258,9 +256,8 @@ func modelSubcommand() SubcommandSpec {
 
 func accountsSubcommand() SubcommandSpec {
 	return SubcommandSpec{
-		Name:   "accounts",
-		Short:  "Manage the signed-in Google accounts",
-		Hidden: true,
+		Name:  "accounts",
+		Short: "Manage the signed-in Google accounts",
 		Subs: []SubSubSpec{
 			{Name: "list", Short: "List the known accounts", RunJ: runAccountsList, HelpFn: func(n string) string {
 				return "Usage: " + n + " accounts list\n"

@@ -101,10 +101,10 @@ func TestPickerView_MoreTailTracksWindow(t *testing.T) {
 	m := NewRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
 	m.Update(runeKey('/'))
 	body := m.pickerView()
-	// With /teamwork and /boost added, the picker shows 97 visible-filtered
-	// entries. With 5 in the window, the tail is "92 more".
-	if !strings.Contains(body, "92 more") {
-		t.Errorf("default picker tail should be '92 more' (=97 - 5 visible), got tail: %q", tailOf(body))
+	// With /teamwork, /boost, /accounts and /provider added, the picker shows 99 visible-filtered
+	// entries. With 5 in the window, the tail is "94 more".
+	if !strings.Contains(body, "94 more") {
+		t.Errorf("default picker tail should be '94 more' (=99 - 5 visible), got tail: %q", tailOf(body))
 	}
 	for i := 0; i < 50; i++ {
 		m.Update(key(tea.KeyDown, 0))
@@ -114,8 +114,8 @@ func TestPickerView_MoreTailTracksWindow(t *testing.T) {
 	if cnt < 0 {
 		t.Fatalf("could not parse tail count after scroll: %q", body)
 	}
-	if cnt >= 96 {
-		t.Errorf("after scrolling, tail should be < 96, got %d", cnt)
+	if cnt >= 98 {
+		t.Errorf("after scrolling, tail should be < 98, got %d", cnt)
 	}
 }
 

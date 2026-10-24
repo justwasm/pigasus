@@ -292,13 +292,12 @@ func TestModelList_FiltersByProvider(t *testing.T) {
 	}
 }
 
-func TestProviderCommands_AreHidden(t *testing.T) {
-	j := NewJetski("agy", "1.4.5")
-	for _, sub := range j.Subcommands {
+func TestProviderCommands_AreVisible(t *testing.T) {
+	for _, sub := range StandardSubcommands() {
 		switch sub.Name {
-		case "provider", "model":
-			if !sub.Hidden {
-				t.Fatalf("%q is visible in --help", sub.Name)
+		case "provider", "model", "accounts":
+			if sub.Hidden {
+				t.Fatalf("%q must be visible in --help", sub.Name)
 			}
 		}
 	}

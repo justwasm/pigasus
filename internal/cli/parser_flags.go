@@ -79,8 +79,8 @@ func ExtraFlags() []FlagSpec {
 func extraFlagsCore() []FlagSpec {
 	return []FlagSpec{
 		{Name: "backend", Type: "string", Hidden: true, Usage: "Backend type: gateway (real) or shim (mock). Default: gateway (auto-falls back to shim if no OAuth token)"},
-		{Name: "alt-screen", Type: "bool", Def: "true", Hidden: true, Usage: "Use the alternate screen buffer (default true; toggle at runtime via Ctrl+L)"},
-		{Name: "no-alt-screen", Type: "bool", Def: "false", Hidden: true, Usage: "Disable alt-screen at startup (overrides --alt-screen; runtime toggle still works)"},
+		{Name: "alt-screen", Type: "bool", Def: "true", Hidden: true, Usage: "Use the terminal's alternate screen buffer (default true; an explicit --alt-screen/--no-alt-screen overrides the /config Rendering Mode setting)"},
+		{Name: "no-alt-screen", Type: "bool", Def: "false", Hidden: true, Usage: "Disable the terminal's alternate screen buffer (overrides --alt-screen and the /config Rendering Mode setting)"},
 		{Name: "trust-cwd", Type: "bool", Def: "false", Hidden: true, Usage: "Skip the on-startup workspace-trust dialog (or set $OPENAGY_TRUST=1)"},
 		{Name: "max-thinking-budget", Type: "int", Def: "0", Hidden: true, Usage: "Cap thinking tokens per turn (integer); values <= 0 disable thinking entirely"},
 		{Name: "diff-with-agy", Type: "bool", Def: "false", Hidden: true, Usage: "Print AGY 1.4.2 feature parity (aligned / gap / diverged)"},

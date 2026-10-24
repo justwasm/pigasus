@@ -63,7 +63,7 @@ func printSlashKeybindings() string {
 		"  Enter            Submit prompt",
 		"  Shift+Enter      Newline (multiline prompt)",
 		"  Ctrl+C × 2        Exit",
-		"  Ctrl+L            Toggle alternate screen",
+		"  Ctrl+L            Clear CLI screen",
 		"  Ctrl+O            Expand / collapse tool calls",
 		"  Ctrl+T            Edit prompt in $EDITOR",
 		"  Up / Down         History navigation",

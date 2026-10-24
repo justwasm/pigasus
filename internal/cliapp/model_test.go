@@ -744,8 +744,15 @@ func TestCycle197_ConfigToolPermissionFromExplicit(t *testing.T) {
 }
 
 // TestCycle197_ConfigRenderingModeWrap covers a stored value ("always")
-// wrapping to the default ("native terminal (inline)"), which deletes the
-// key.
+// wrapping to the inline view.
+//
+// Cycle 294 (AGY 1.4.7, measured 2026-10-25): the reference's own panel
+// writes an *empty* value for the inline stop, which its
+// `json:"altScreenMode,omitempty"` writer then drops from settings.json —
+// so the reference's inline option does not survive a restart, because an
+// absent key is the reference's default and its default is the alternate
+// screen. The clone writes the reference's own inline value, "never",
+// which agy 1.4.7 accepts and honours.
 func TestCycle197_ConfigRenderingModeWrap(t *testing.T) {
 	dir := cycle196TestHome(t, map[string]any{"altScreenMode": "always"})
 	idx := configRowIndexForTest(t, "Rendering Mode")
@@ -755,8 +762,8 @@ func TestCycle197_ConfigRenderingModeWrap(t *testing.T) {
 		t.Fatalf("display = %q", got)
 	}
 	m.cycleConfigValue(+1)
-	if v, present := readCycle196Settings(t, dir)["altScreenMode"]; present {
-		t.Errorf("after right: altScreenMode = %v, want key absent", v)
+	if got := cycle196ValueAt(t, readCycle196Settings(t, dir), "altScreenMode"); got != "never" {
+		t.Errorf("after right: altScreenMode = %q, want never", got)
 	}
 }
 

@@ -57,9 +57,9 @@ addresses.
 - **A second agent shares this tree.** Re-read a file before editing it, stage
   only your own paths, commit as soon as they are green, and re-check
   `git status` before concluding that a change vanished.
-- **`pigasus --help` must show exactly the reference's twelve visible
-  subcommands.** Hidden groups (`provider`, `model`, `proxy`, `accounts`) exist
-  but must not be listed.
+- **`pigasus` commands are a superset of `agy`.** Extension commands (`provider`,
+  `model`, `proxy`, `accounts`) are publicly visible subcommands in `pigasus`.
+  In the TUI, `/accounts` and `/provider` are publicly listed slash commands.
 - **Evidence grades** — keep them when adding findings: 【一手】 first-hand
   against the binary · 【反编译】 from decompiled output at a confirmed address ·
   【strings】 string-table hit only · 【推测】 hypothesis.
@@ -94,7 +94,7 @@ cmd/pigasus ──┬── TUI (bubbletea)      → internal/agent.Loop → PiG
   `providers.json`** — answering from the shim without saying so would look
   like a working model.
 - **One configuration file**: `~/.config/openagy/providers.json`, provider
-  centric. `internal/models.Editor` is its only writer; the hidden
+  centric. `internal/models.Editor` is its only writer; the
   `provider`/`model` commands and the TUI's `/provider` panel are its only
   front-ends.
 - **The prompt is the reference's**, not PiG's: `internal/agyprompt` rebuilds
@@ -169,7 +169,7 @@ go build -o /tmp/pigasus ./cmd/pigasus          # build
 go test ./cmd/... ./internal/...                # test (never ./...)
 go build ./cmd/...                              # what CI builds
 
-/tmp/pigasus --help                              # the twelve visible subcommands
+/tmp/pigasus --help                              # visible subcommands (reference twelve + openagy superset)
 /tmp/pigasus proxy version                      # vendor binary + registry
 /tmp/pigasus provider list                       # the provider registry
 /tmp/pigasus model list                          # the models it serves

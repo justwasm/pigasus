@@ -171,8 +171,27 @@ var SettingsRows = []Row{
 		},
 		Description: "Configure when follow-up messages are sent."},
 	{Name: "Rendering Mode", SettingsKey: "altScreenMode",
+		// Cycle 294 (AGY 1.4.7, measured 2026-10-25): the row's two stops
+		// are the alternate screen ("always") and the inline view
+		// ("never"). The reference's own panel writes an *empty* value for
+		// the inline stop, which its `json:"altScreenMode,omitempty"`
+		// writer then drops from settings.json — so the reference's
+		// inline option does not survive a restart, because an absent key
+		// is the reference's *default* and its default is the alternate
+		// screen (raw pty capture: agy 1.4.7 emits ?1049h for an absent
+		// key and for "always", and stays inline for "never"; every other
+		// value — "off", "inline", "default", "auto", "none", "false" — is
+		// rejected by the reference's settings validation and falls back
+		// to the default).
+		//
+		// The clone therefore writes the reference's *own* inline value,
+		// "never", which agy 1.4.7 accepts and honours, and keeps the
+		// alternate screen first so that the absent key (the default) is
+		// the row's first entry: the catalogue's convention that the
+		// first entry is the default state, and the only way the inline
+		// stop is reachable from the default state.
 		Values: []Val{
-			V("native terminal (inline)", ""), V("no flickering (altscreen)", "always"),
+			V("no flickering (altscreen)", "always"), V("native terminal (inline)", "never"),
 		},
 		Description: "no flickering (altscreen) is ideal for long conversations but requires holding Shift/Option for native text selection. Native Terminal experience (inline) preserves native terminal behavior but may truncate long conversations and flicker when toggling views."},
 	{Name: "Sandbox Mode", SettingsKey: "enableTerminalSandbox",

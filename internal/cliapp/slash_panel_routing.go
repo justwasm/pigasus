@@ -31,14 +31,9 @@ var commandPanels = map[string]panelKind{
 	"add-dir": panelAddDir,
 	"rename": panelRename,
 	"feature-diff": panelFeatDiff,
-	// Cycle provider-model-editor: the configuration panel. It is *not*
-	// in internal/tuilib.DefaultSlashCommands — the picker's entry count
-	// is byte-pinned to the reference's 99 — so /provider is invocable
-	// but unlisted.
+	// Superset configuration and multi-account panels, listed in
+	// DefaultSlashCommands.
 	"provider": panelProvider,
-	// Cycle multi-account-switch: the account switcher. The reference
-	// has one credential and no switcher, so this is a clone-only
-	// superset — invocable but unlisted, like /provider.
 	"accounts": panelAccounts,
 }
 

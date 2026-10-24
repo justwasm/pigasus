@@ -385,11 +385,10 @@ func proxySubcommand() cli.SubcommandSpec {
 		})
 	}
 	return cli.SubcommandSpec{
-		Name:   "proxy",
-		Short:  "Manage the local CloudCode proxy",
-		Hidden: true,
-		Subs:   subs,
-		// The same wording the other hidden parents use.
+		Name:  "proxy",
+		Short: "Manage the local CloudCode proxy",
+		Subs:  subs,
+		// The same wording the other parents use.
 		UnknownSubError: "Error: unknown command: %s",
 		RunJ:            proxyParent,
 	}
