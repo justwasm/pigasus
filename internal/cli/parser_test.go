@@ -129,12 +129,12 @@ func TestParseAllFlags_RegisteredWithJetski(t *testing.T) {
 // ---- TestVisibleFlagsMatchReferenceHelp ------------------------------------
 //
 // The visible half of StandardFlags() is the reference binary's `--help`
-// column, in the reference's order. The list below is the 1.4.6 binary's
+// column, in the reference's order. The list below is the 1.4.7 binary's
 // `--help` verbatim: 21 long flags plus the 3 short aliases (-c, -i, -p).
 //
 // The flag-by-flag diff against the live binary found exactly one
 // divergence — `--print-partial-response`, which the reference does not
-// have (no string in the 1.4.6 binary, absent from its `--help`, absent
+// have (no string in the 1.4.7 binary, absent from its `--help`, absent
 // from its changelog). It is Hidden now, like `--verbose`, so the visible
 // column matches the reference again.
 //

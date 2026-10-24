@@ -1,4 +1,4 @@
-# google.gca.aicode.v1main.JetskiRemoteAgentProxyService — agy 1.4.6
+# google.gca.aicode.v1main.JetskiRemoteAgentProxyService — agy 1.4.7
 # Recovered from the FileDescriptorProto embedded in the binary.
 # Format: <RPC>	<Request>	<Response>  (declaration order)
 StartCascade	StartCascadeRequest	StartCascadeResponse
@@ -78,3 +78,5 @@ StartLocalPluginSignIn	StartLocalPluginSignInRequest	StartLocalPluginSignInRespo
 CompleteLocalPluginSignIn	CompleteLocalPluginSignInRequest	CompleteLocalPluginSignInResponse
 CreateAgent	CreateAgentRequest	CreateAgentResponse
 GetAgent	GetAgentRequest	GetAgentResponse
+ListAgents	ListAgentsRequest	ListAgentsResponse
+GetChangelistStatus	GetChangelistStatusRequest	GetChangelistStatusResponse

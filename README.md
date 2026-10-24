@@ -3,7 +3,7 @@
 > ⚠️ 本仓库是 **reverse-engineering 研究工作台**, 分两部分: `out/` + `rea-go-seeds/`
 > 是研究证据 (报告 / seed / 反编译产物, 不是程序), `cmd/` + `internal/` 是基于这些
 > 证据从零重写的 **Antigravity CLI 克隆** (可 build 可跑). 来源二进制为 Google 内部
-> 闭源 Antigravity CLI (`agy`), 当前对齐版本 **1.4.6**. 所有产出的 Go 代码均来自
+> 闭源 Antigravity CLI (`agy`), 当前对齐版本 **1.4.7**. 所有产出的 Go 代码均来自
 > pclntab 名称恢复 + Ghidra C 反编译 + 人工整理, 仅作结构分析使用, 不复制任何
 > Google 拥有源代码.
 
@@ -15,12 +15,12 @@
 
 ## 这是什么
 
-1. **研究工作台** —— 从 stripped Go binary 的 `pclntab` 段恢复函数名 (当前 agy 1.4.6
+1. **研究工作台** —— 从 stripped Go binary 的 `pclntab` 段恢复函数名 (当前 seeds 取自 agy 1.4.6
    共 **161,286** 个), 再用 Ghidra 12.1.4 反编译 priority 函数, 产出可读的 C 伪代码与
    102 份分包报告. 全部证据在 `out/`.
 2. **能跑的克隆** —— `cmd/` + `internal/` 是 Antigravity CLI 的逐字节对齐重建:
-   12 个可见子命令、参考的系统提示词 (1.4.6 抓包 70,853 B)、参考的工具面、TUI 的逐屏对齐.
-   当前对齐 **agy 1.4.6**, 版本漂移由 `internal/referencedrift` 的 gate 盯着.
+   12 个可见子命令、参考的系统提示词 (1.4.6 抓包 70,853 B, 1.4.7 复核静态段逐字节相同)、参考的工具面、TUI 的逐屏对齐.
+   当前对齐 **agy 1.4.7**, 版本漂移由 `internal/referencedrift` 的 gate 盯着.
 3. **仪器** —— 内置的 CloudCode 代理能把官方 `agy` 拉起来并抓它的真实请求/响应
    (`pigasus agy`), 官方二进制**不被 patch**. 这是逆向提示词与工具调用格式的手段.
 
@@ -179,14 +179,14 @@ pigasus proxy version
 
 ### 2. 官方 Protobuf (.proto) 定义完整逆向重建
 
-由于 Google 内部 Go 工具链将未压缩的 `FileDescriptorProto` 直接静态链接进二进制常量段 (`__TEXT,__const`)，我们开发了自动化提取工具 (`out/local-macos/extract_descriptors.py` 与 `render_proto.py`)，成功从官方 `agy 1.4.6` 二进制中完整逆向提取出核心数据结构的原始 `.proto` 定义，保存在 [`out/local-macos/protos/`](out/local-macos/protos/):
+由于 Google 内部 Go 工具链将未压缩的 `FileDescriptorProto` 直接静态链接进二进制常量段 (`__TEXT,__const`)，我们开发了自动化提取工具 (`out/local-macos/extract_descriptors.py` 与 `render_proto.py`)，成功从官方 `agy 1.4.7` 二进制中完整逆向提取出核心数据结构的原始 `.proto` 定义，保存在 [`out/local-macos/protos/`](out/local-macos/protos/):
 
 | 官方内部 Proto 路径 | 重建文件 | 规模与内容 |
 |---|---|---|
 | `third_party/gemini_coder/proto/trajectory.proto` | [`trajectory_1.4.6.proto`](out/local-macos/protos/trajectory_1.4.6.proto) | 会话与轨迹核心: `Conversation`, `Trajectory`, `Step`, `TaskDetails` |
 | `third_party/gemini_coder/cider/proto/trajectory_steps.proto` | [`trajectory_steps_1.4.6.proto`](out/local-macos/protos/trajectory_steps_1.4.6.proto) | Cider 轨迹步骤特化定义 |
 | `third_party/jetski/cortex_pb/cortex.proto` | [`cortex_1.4.6.proto`](out/local-macos/protos/cortex_1.4.6.proto) | 核心交互模型: **487 个 message** 与 **86 个 enum** (`CortexStepType`, `CortexStepGeneric`, `CortexStepUserInput` 等) |
-| `google/gca/aicode/v1main/remote_agent_proxy.proto` | [`remote_agent_proxy_1.4.6.proto`](out/local-macos/protos/remote_agent_proxy_1.4.6.proto) | 远程控制服务: **72 个 RPC 方法** 与 **158 个 message** 全量定义 |
+| `google/gca/aicode/v1main/remote_agent_proxy.proto` | [`remote_agent_proxy_1.4.7.proto`](out/local-macos/protos/remote_agent_proxy_1.4.7.proto) | 远程控制服务: **79 个 RPC 方法** 与 **174 个 message** 全量定义 |
 
 ---
 

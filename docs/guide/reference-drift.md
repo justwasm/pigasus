@@ -71,11 +71,25 @@ grew 72 → 77 RPCs, and `run_command` gained `BypassSandbox`. The clone's
 (70,853 B). `result_texts_1.4.4.txt` is the one artifact still SUSPECT — it
 was not re-captured, and the gate keeps saying so.
 
+**Re-evidenced at 1.4.7** (`docs/cycles/reference-drift-147/`): the clone is
+pinned to 1.4.7 and the changelog feed grew the `1.4.6:` section. The
+`--help` surface (30 commands), the 60-name advertised list and the twelve
+model declarations are all **byte-identical** to 1.4.6 — the `<terminal_sandbox>`
+section and `run_command.BypassSandbox` are conditional on `--sandbox`, not on
+the version. The one real behaviour change was the **custom-agent tool
+surface**: all seven declarations were rewritten (`toolSummary`/`toolAction`
+dropped, descriptions reworded, `minLength`/`enum`/`maxItems` added). The
+public proto grew 77 → 79 RPCs (`ListAgents`, `GetChangelistStatus`) and the
+internal one gained `ConfigOverrides.is_cel_only` / `cel_type`.
+`result_texts_1.4.4.txt` is still the one artifact SUSPECT — it was not
+re-captured, and the gate keeps saying so.
+
 The **seed set is now regenerated at 1.4.6** (`out/local-macos/seeds/`, 161,286
 functions), and so is everything derived from it — the Ghidra project
 (`out/local-macos/proj`), the decompiled output (`out/local-macos/dec/`), the
 priority list, the MCP query plan and the 102 per-package
 `out/local-macos/decompile-*.md` reports (2,290/2,290 addresses resolved, 0
 skipped). The seed set is a registered lock artifact, so the gate now watches
-it too.
+it too. **It was *not* regenerated at 1.4.7** — every address moves on every
+release, so the RE pipeline is a separate cycle.
 

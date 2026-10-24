@@ -1,10 +1,10 @@
 // Package remotecontrol — reference_surface.go: the reference's own
 // remote-agent RPC surface, recovered from the FileDescriptorProto
-// embedded in the agy 1.4.6 binary.
+// embedded in the agy 1.4.7 binary.
 //
 // The clone's JSON-RPC method names were guessed in cycle 16 from
 // decompiled Go symbols (`StartRemoteAgentCascade`, `ListRemoteAgentModels`,
-// …). agy 1.4.6 answers no local JSON-RPC at all — remote control is a
+// …). agy 1.4.7 answers no local JSON-RPC at all — remote control is a
 // Google webchannel (see docs/cycles/rc-wire-live-verify/) — but its gRPC
 // service descriptor *is* in the binary, uncompressed, at
 // google/gca/aicode/v1main/remote_agent_proxy.proto. That descriptor is the
@@ -12,7 +12,7 @@
 // what the messages look like:
 //
 //	google.gca.aicode.v1main.JetskiRemoteAgentProxyService
-//	  77 RPCs, 170 messages, 5 enums
+//	  79 RPCs, 174 messages, 5 enums
 //
 // 1.4.5 against 1.4.4: one RPC and three messages were added —
 // FetchSandboxPort (plus FetchSandboxPortRequest/Response and
@@ -26,6 +26,12 @@
 // (【反编译】, docs/cycles/reference-drift-146/). The internal
 // (`exa.remote_agent_proxy_pb`) descriptor did not change at all.
 //
+// 1.4.7 against 1.4.6: two RPCs were appended — ListAgents and
+// GetChangelistStatus — and four messages came with them
+// (【反编译】, docs/cycles/reference-drift-147/). The internal descriptor
+// grew two fields on one message instead: `is_cel_only` and `cel_type`
+// (a CEL — Common Expression Language — evaluation hook).
+//
 // The evidence files live in out/local-macos/protos/. This file pins the RPC
 // list (so drift is noticed) and maps each reference RPC onto the clone
 // handler that implements the same operation, if one exists. The mapping is
@@ -35,8 +41,8 @@ package remotecontrol
 
 // ReferenceRPCMethods is the method list of
 // google.gca.aicode.v1main.JetskiRemoteAgentProxyService in declaration
-// order, as recovered from agy 1.4.6. Do not reorder: the fixture in
-// testdata/jetski_remote_agent_proxy_1.4.6.txt is compared line by line.
+// order, as recovered from agy 1.4.7. Do not reorder: the fixture in
+// testdata/jetski_remote_agent_proxy_1.4.7.txt is compared line by line.
 var ReferenceRPCMethods = []string{
 	"StartCascade",
 	"SendUserCascadeMessage",
@@ -115,6 +121,8 @@ var ReferenceRPCMethods = []string{
 	"CompleteLocalPluginSignIn",
 	"CreateAgent",
 	"GetAgent",
+	"ListAgents",
+	"GetChangelistStatus",
 }
 
 // referenceRPCAliases maps a reference RPC name onto the clone's JSON-RPC

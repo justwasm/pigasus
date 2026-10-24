@@ -10,7 +10,10 @@
 //
 // Every section was captured against the 1.4.6 binary with a throwaway
 // HOME, so the mutating plugin subcommands could not touch the real
-// plugin directory.
+// plugin directory. The 1.4.7 binary's help is byte-identical to it
+// (【一手】, re-captured at 1.4.7 — 30 commands, stdout and stderr
+// separately, same throwaway HOME), so the golden keeps its name and its
+// bytes.
 //
 // The clone renders its help through a different program name
 // ("antigravity" in the test rig, "pigasus" in the binary), so the

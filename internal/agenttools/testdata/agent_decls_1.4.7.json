@@ -1,0 +1,202 @@
+[
+  {
+    "name": "send_message",
+    "description": "Send a message to another agent, such as a subagent or a peer. Not a channel to the user.",
+    "parameters": {
+      "type": "OBJECT",
+      "properties": {
+        "Message": {
+          "type": "STRING",
+          "description": "Content of the message.",
+          "minLength": "1"
+        },
+        "Recipient": {
+          "type": "STRING",
+          "description": "Conversation ID of the agent to message.",
+          "minLength": "1"
+        }
+      },
+      "required": [
+        "Recipient",
+        "Message"
+      ]
+    }
+  },
+  {
+    "name": "view_file",
+    "description": "View the contents of a file from the local filesystem. This tool supports text files and following binary files: image, pdf, video, audio.\nText file usage:\n- The lines of the file are 1-indexed\n- You can view at most 800 lines at a time\n- Specify StartLine and EndLine to view the lines of the file using slice notation:\n  - Omit both to view the entire file, or the first 800 lines of the file, whichever is smaller.\n  - Specify StartLine only to view the remaining lines of the file, or the next 800 lines, whichever is smaller\n  - Specify EndLine only to view the remaining preceding lines of the file, or the previous 800 lines, whichever is smaller\n  - Specify both to view a precise line range. This range must be smaller than 800 lines or only the first 800 lines of the range will be shown.\n- Content is limited to 46080 bytes per view. If content is truncated, use the ContentOffset parameter to view the remaining content\nBinary file usage:\n- Do not provide StartLine or EndLine arguments, this tool always returns the entire file\n- Files larger than 100 MB cannot be viewed.",
+    "parameters": {
+      "type": "OBJECT",
+      "properties": {
+        "AbsolutePath": {
+          "type": "STRING",
+          "description": "Path to file to view. Must be an absolute path."
+        },
+        "ContentOffset": {
+          "type": "INTEGER",
+          "description": "Optional. Byte offset into the content. Use this to view content beyond the initial byte limit when the tool output indicates content was truncated."
+        },
+        "EndLine": {
+          "type": "INTEGER",
+          "description": "Optional. Endline to view, 1-indexed, inclusive. When specified, this value must be greater than or equal to StartLine."
+        },
+        "StartLine": {
+          "type": "INTEGER",
+          "description": "Optional. Startline to view, 1-indexed, inclusive. When specified, this value must be less than or equal to EndLine."
+        }
+      },
+      "required": [
+        "AbsolutePath"
+      ]
+    }
+  },
+  {
+    "name": "read_url_content",
+    "description": "Fetch content from a URL via HTTP request (invisible to USER). Use when: (1) extracting text from public pages, (2) reading static content/documentation, (3) batch processing multiple URLs, (4) speed is important, or (5) no visual interaction needed. Converts HTML to markdown. No JavaScript execution, no authentication. For pages requiring login, JavaScript, or USER visibility, use read_browser_page instead.",
+    "parameters": {
+      "type": "OBJECT",
+      "properties": {
+        "Url": {
+          "type": "STRING",
+          "description": "URL to read content from"
+        }
+      },
+      "required": [
+        "Url"
+      ]
+    }
+  },
+  {
+    "name": "search_web",
+    "description": "Performs a web search for a given query. Returns a summary of relevant information along with URL citations.",
+    "parameters": {
+      "type": "OBJECT",
+      "properties": {
+        "domain": {
+          "type": "STRING",
+          "description": "Optional domain to recommend the search prioritize"
+        },
+        "query": {
+          "type": "STRING"
+        }
+      },
+      "required": [
+        "query"
+      ]
+    }
+  },
+  {
+    "name": "schedule",
+    "description": "Schedule a one-shot timer (DurationSeconds) or a recurring cron job (CronExpression) that notifies you via Prompt. This tool call runs as a background task and returns immediately; end your turn (call no more tools) to wait for notifications. A timer with a TimerCondition is cancelled early by a matching message, which is itself your wakeup. Set IsDaemon only for a cron that should keep firing after the current task is done. Set ExactTiming only when a cron must fire at the exact wall-clock time without jitter. Use the manage_task tool to cancel active schedules, and never use a shell sleep command as a timer.",
+    "parameters": {
+      "type": "OBJECT",
+      "properties": {
+        "CronExpression": {
+          "type": "STRING",
+          "description": "Standard 5-field cron expression for a recurring schedule (e.g. '*/5 * * * *' for every 5 minutes). Mutually exclusive with DurationSeconds."
+        },
+        "DurationSeconds": {
+          "type": "INTEGER",
+          "description": "Seconds to wait for a one-shot timer. Mutually exclusive with CronExpression."
+        },
+        "ExactTiming": {
+          "type": "BOOLEAN",
+          "description": "Cron only. Set true only when the user explicitly requires the schedule to fire at the exact wall-clock time without jitter. Leave false (the default) for polling, monitoring, or periodic tasks so triggers are jittered to avoid load spikes."
+        },
+        "IsDaemon": {
+          "type": "BOOLEAN",
+          "description": "Cron only. Set true only for an independent standing job that should keep firing after the current task is done."
+        },
+        "MaxIterations": {
+          "type": "INTEGER",
+          "description": "Cron only. Maximum number of triggers before the schedule stops; defaults to unlimited."
+        },
+        "Prompt": {
+          "type": "STRING",
+          "description": "Message sent to you as a high-priority notification when the timer fires or the cron triggers."
+        },
+        "TimerCondition": {
+          "type": "STRING",
+          "description": "Timer only. Cancels the timer early when a matching message arrives: 'never' (default), 'any' (any message), or a sender ID (a message from that subagent or background task)."
+        }
+      },
+      "required": [
+        "Prompt"
+      ]
+    }
+  },
+  {
+    "name": "generate_image",
+    "description": "Generate an image, or edit existing images, from a text prompt.",
+    "parameters": {
+      "type": "OBJECT",
+      "properties": {
+        "AspectRatio": {
+          "type": "STRING",
+          "description": "Defaults to 1:1.",
+          "enum": [
+            "1:1",
+            "2:3",
+            "3:2",
+            "3:4",
+            "4:3",
+            "9:16",
+            "16:9"
+          ]
+        },
+        "ImageName": {
+          "type": "STRING",
+          "description": "Short descriptive name for the saved file.",
+          "minLength": "1"
+        },
+        "ImagePaths": {
+          "type": "ARRAY",
+          "description": "Images to edit, combine, or use as references.",
+          "items": {
+            "type": "STRING"
+          },
+          "maxItems": "3"
+        },
+        "Prompt": {
+          "type": "STRING",
+          "description": "What the image should depict, or how to edit the given images.",
+          "minLength": "1"
+        }
+      },
+      "required": [
+        "Prompt",
+        "ImageName"
+      ]
+    }
+  },
+  {
+    "name": "manage_task",
+    "description": "Manage the background tasks of this conversation: 'list' the running tasks, check a task's 'status' and recent log output, 'send_input' to a running task, or 'kill' one. Refer to tasks by the TaskId that 'list' reports; keep task references human-readable when talking to the user.",
+    "parameters": {
+      "type": "OBJECT",
+      "properties": {
+        "Action": {
+          "type": "STRING",
+          "description": "'list' reports the running tasks; the other actions operate on the task named in TaskId.",
+          "enum": [
+            "list",
+            "kill",
+            "status",
+            "send_input"
+          ]
+        },
+        "Input": {
+          "type": "STRING",
+          "description": "Input to deliver to the task. Required for 'send_input'."
+        },
+        "TaskId": {
+          "type": "STRING",
+          "description": "Task to manage, as reported by 'list'. Required for 'kill', 'status' and 'send_input'."
+        }
+      },
+      "required": [
+        "Action"
+      ]
+    }
+  }
+]

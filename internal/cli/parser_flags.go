@@ -4,7 +4,7 @@ package cli
 // StandardFlags returns the top-level flags emitted by the reference
 // binary's `--help`. Order, type, short alias and aliases match 1:1.
 //
-// The visible column is the reference's 1.4.6 `--help`: 21 long flags
+// The visible column is the reference's `--help`: 21 long flags
 // plus the 3 short aliases (-c, -i, -p) — 24 entries. Three more are
 // Hidden, so they never show up in `--help`:
 //
@@ -15,13 +15,15 @@ package cli
 //   - the hidden `--print-partial-response` bool flag.
 //
 // `--print-partial-response` is hidden because the reference has no
-// such flag: the 1.4.6 binary carries no "print-partial-response"
-// string, its `--help` does not list it, and its changelog never
-// mentions it (the cycle report that added it quoted a 1.2.10
-// changelog line that is in neither the live changelog nor the
-// vendored `internal/cli/testdata/changelog_reference.txt`). It stays
+// such flag: the 1.4.7 binary carries no "print-partial-response"
+// string (【一手】, `strings` over the installed binary), its `--help`
+// does not list it, and its changelog never mentions it (the cycle
+// report that added it quoted a 1.2.10 changelog line that is in
+// neither the live changelog nor the vendored
+// `internal/cli/testdata/changelog_reference.txt`). It stays
 // parseable as a clone extra, like `--verbose`; the visible `--help`
-// stays byte-identical with the reference's.
+// stays byte-identical with the reference's — re-verified at 1.4.7,
+// where the whole help surface is byte-identical to 1.4.6.
 func StandardFlags() []FlagSpec {
 	return append(standardFlagsCore(), standardFlagsTail()...)
 }

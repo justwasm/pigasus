@@ -1,7 +1,7 @@
 // Package agenttools advertises the restricted tool surface a markdown custom
 // agent gets.
 //
-// A 1.4.3 `--agent foo -p` request captured through the cycle-274 wrapper
+// A 1.4.7 `--agent foo -p` request captured through the clone's own proxy
 // carries exactly seven declarations, in this order:
 //
 //	send_message, view_file, read_url_content, search_web, schedule,
@@ -9,8 +9,25 @@
 //
 // They are the subagent/read-only surface: no run_command, no file writes, no
 // subagent management. The declarations (descriptions and parameter schemas)
-// are reproduced byte for byte from that request in tools_1.4.3.json; the
+// are reproduced byte for byte from that request in tools_1.4.7.json; the
 // executors are the clone's existing registry tools of the same name.
+//
+// 1.4.7 against 1.4.4 (【一手】, two live request bodies through
+// internal/agyproxy): the surface kept its seven names and their order, but
+// every declaration was rewritten — `toolSummary`/`toolAction` are gone from
+// all seven, the descriptions were reworded to the current wording (the one
+// the main agent's own surface already used), and the schemas gained
+// `minLength` ("1"), an `enum` on `generate_image.AspectRatio` and
+// `manage_task.Action`, and `maxItems` ("3") on
+// `generate_image.ImagePaths`. The required lists shrank accordingly: a
+// custom agent's `send_message` call no longer has to carry a summary and an
+// action.
+//
+// The old wording ("Send a message to another agent. This tool can be used to
+// communicate with subagents, peer agents, etc." and the `toolSummary` /
+// `toolAction` parameter descriptions) is still present in the 1.4.7 binary —
+// it belongs to the reference's *subagent* surface, not to this one — so the
+// clone keeps the old capture only in git history.
 package agenttools
 
 import (
@@ -26,7 +43,7 @@ import (
 	"github.com/justwasm/pigasus/internal/tools"
 )
 
-//go:embed tools_1.4.3.json
+//go:embed tools_1.4.7.json
 var declarationsJSON []byte
 
 // Declaration is one captured function declaration.

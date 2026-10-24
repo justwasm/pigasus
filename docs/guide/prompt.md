@@ -100,7 +100,7 @@ A custom agent replaces both prompt and tool surface:
   shared library **is** in the prompt — the earlier "`/skills`-only" claim
   came from 1.4.2/1.4.3 captures taken on a machine whose library was empty
   (【一手】, live 1.4.6 request, `docs/cycles/reference-drift-146/`).
-- `internal/agenttools` holds the captured 1.4.3 declarations for exactly
+- `internal/agenttools` holds the captured 1.4.7 declarations for exactly
   `send_message, view_file, read_url_content, search_web, schedule,
   generate_image, manage_task`. `Tools` adapts them to PiG; `Registry` is the
   filtered TUI catalogue. Print mode sets `AgentBody`, `ExtraTools`, skips the
@@ -113,3 +113,14 @@ real TTY renders the in-TUI `⚠ Agent Not Found` card (orange header, `#586E75`
 dim body), not a stderr line; and only **level-1** headings split the body
 (`## Two` stays inside the enclosing block). Report:
 `docs/cycles/custom-agents/`, `docs/cycles/reference-drift-146/`.
+
+**1.4.7 rewrote all seven declarations** (【一手】, live 1.4.7 request through
+the clone's own proxy, `docs/cycles/reference-drift-147/`). The names and their
+order are unchanged, but `toolSummary`/`toolAction` are **gone** from every one
+of them (they belonged to the reference's *subagent* surface), the
+descriptions were reworded to the current wording, and the schemas gained
+`minLength: "1"`, an `enum` on `generate_image.AspectRatio`, `maxItems: "3"`
+on `generate_image.ImagePaths` and a new `schedule.ExactTiming` property. The
+required lists shrank accordingly — a custom agent's `send_message` no longer
+has to carry a summary and an action. The old wording is still in the 1.4.7
+binary, so a `strings` hit proves nothing about this surface.

@@ -58,13 +58,13 @@ func TestTools_RunsRegistryExecutor(t *testing.T) {
 	}
 }
 
-// TestDeclarationsMatch14_4Capture re-evidences the seven custom-agent
-// declarations against agy 1.4.4. The 1.4.3 fixture was captured through the
-// cycle-274 wrapper; this test pins a fresh 1.4.4 capture (a real
-// `--agent test` TUI turn answered by a CLOUD_CODE_URL mock) and asserts the
-// two are identical, which is why tools_1.4.3.json is still authoritative.
-func TestDeclarationsMatch14_4Capture(t *testing.T) {
-	raw, err := os.ReadFile(filepath.Join("testdata", "agent_decls_1.4.4.json"))
+// TestDeclarationsMatch147Capture re-evidences the seven custom-agent
+// declarations against agy 1.4.7. The 1.4.3/1.4.4 capture was taken through
+// the cycle-274 wrapper; this test pins a fresh 1.4.7 capture (a real
+// `--agent test` turn, recorded through the clone's own proxy) and asserts
+// the two are identical, which is why tools_1.4.7.json is authoritative.
+func TestDeclarationsMatch147Capture(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("testdata", "agent_decls_1.4.7.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -84,12 +84,32 @@ func TestDeclarationsMatch14_4Capture(t *testing.T) {
 			t.Fatalf("declaration %d name = %q, capture = %q", i, got[i].Name, captured[i].Name)
 		}
 		if got[i].Description != captured[i].Description {
-			t.Errorf("%s: description drifted from the 1.4.4 capture", got[i].Name)
+			t.Errorf("%s: description drifted from the 1.4.7 capture", got[i].Name)
 		}
 		a, _ := json.Marshal(got[i].Parameters)
 		b, _ := json.Marshal(captured[i].Parameters)
 		if string(a) != string(b) {
-			t.Errorf("%s: parameters drifted from the 1.4.4 capture:\n got %s\nwant %s", got[i].Name, a, b)
+			t.Errorf("%s: parameters drifted from the 1.4.7 capture:\n got %s\nwant %s", got[i].Name, a, b)
+		}
+	}
+}
+
+// TestDeclarationsCarryNoToolSummaryOrAction pins the 1.4.7 shape of the
+// custom-agent surface: the reference dropped the `toolSummary` and
+// `toolAction` parameters (they belong to its subagent surface) and the
+// clone's wire must not offer them either — a model that still sent them
+// would be asking for a parameter the reference does not accept.
+func TestDeclarationsCarryNoToolSummaryOrAction(t *testing.T) {
+	decls, err := Declarations()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, d := range decls {
+		props, _ := d.Parameters["properties"].(map[string]any)
+		for _, banned := range []string{"toolSummary", "toolAction"} {
+			if _, ok := props[banned]; ok {
+				t.Errorf("%s: still advertises %q (the 1.4.7 capture has no such parameter)", d.Name, banned)
+			}
 		}
 	}
 }

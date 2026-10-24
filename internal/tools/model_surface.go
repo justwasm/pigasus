@@ -10,10 +10,11 @@
 //
 // init.tools is the *available* surface the headless client is told about. The
 // declarations the model actually receives are the twelve captured in
-// model_tools_1.4.6.json — verified identical in the 1.4.3 and 1.4.4 request
-// bodies (13,449 B of JSON, 12 functionDeclarations, no top-level `tools`
-// wrapper). Until cycle 293 the clone advertised the 60-name catalogue as
-// declarations, which is why reference-shaped calls failed with
+// model_tools_1.4.6.json — verified identical in the 1.4.3, 1.4.4, 1.4.6 and
+// 1.4.7 request bodies (13,449 B of JSON, 12 functionDeclarations, no
+// top-level `tools` wrapper). Until cycle 293 the clone advertised the
+// 60-name catalogue as declarations, which is why reference-shaped calls
+// failed with
 // `Tool read_file not found` and why /context's System tools row read 4.3k
 // instead of the reference's 4.6k.
 //
@@ -34,6 +35,14 @@
 // permission for auth exchange, network, or port binding).") — the
 // parameter the new `<terminal_sandbox>` prompt section talks about. The 1.4.5
 // capture is kept next to the new one as model_tools_1.4.5.json.
+//
+// 1.4.7 vs 1.4.6 (【一手】, docs/cycles/reference-drift-147/): all twelve
+// declarations are byte-identical. `run_command.BypassSandbox` and the
+// `<terminal_sandbox>` prompt section are conditional on `--sandbox`, not on
+// the version — without the flag the reference omits the parameter and the
+// prompt section, which is why a capture taken without it looks like a drift
+// and is not one. The fixture keeps its name and its bytes; only the drift
+// registry's `captured_at` moved.
 package tools
 
 import (

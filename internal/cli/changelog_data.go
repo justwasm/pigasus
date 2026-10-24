@@ -2,11 +2,11 @@
 // output, embedded verbatim.
 //
 // `agy changelog` prints the release-notes block bundled in the binary.
-// The blob below is the v1.4.2 build's: 71 version sections (1.4.1,
-// 1.4.0, then 1.3.6 down through 1.0.0 — the newest section is one
-// release *behind* the binary's own version, and 1.3.7/1.3.8/1.3.9 are
-// still skipped between 1.4.0 and 1.3.6) totalling 160,313 bytes /
-// 938 lines. The reference output was captured byte-for-byte from
+// The blob below is the v1.4.7 build's: 77 version sections (1.4.6 down
+// through 1.0.0 — the newest section is one release *behind* the
+// binary's own version, and 1.3.7/1.3.8/1.3.9 are still skipped
+// between 1.4.0 and 1.3.6) totalling 174,284 bytes / 1,007
+// lines. The reference output was captured byte-for-byte from
 // `agy changelog` and committed as testdata/changelog_reference.txt;
 // this file embeds it so the binary ships the exact same bytes.
 //

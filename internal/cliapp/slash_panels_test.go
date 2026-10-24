@@ -1050,16 +1050,16 @@ func TestPanelChangelogLayout(t *testing.T) {
 	// tagline, so the window opens at 18 rows rather than the cycle-201 17.
 	//
 	// The embedded changelog_reference.txt is a verbatim `agy changelog`
-	// capture: the 1.4.6 binary's feed still ends at 1.4.5 (the 1.4.6
-	// release notes are not in it yet), so the panel opens on 1.4.5.
+	// capture: the 1.4.7 binary's feed ends at 1.4.6 (the 1.4.7 release
+	// notes are not in it yet), so the panel opens on 1.4.6.
 	joined := strings.Join(plain, "\n")
-	if !strings.Contains(joined, "## 1.4.5") {
-		t.Errorf("missing 1.4.5 heading: %s", joined)
+	if !strings.Contains(joined, "## 1.4.6") {
+		t.Errorf("missing 1.4.6 heading: %s", joined)
 	}
 	if !strings.Contains(joined, fmt.Sprintf("(1–18 of %d lines)", tuiviewer.ChangelogTotalLines)) {
 		t.Errorf("missing line counter: %s", joined)
 	}
-	if !strings.Contains(joined, "Improved how agent responses read") {
+	if !strings.Contains(joined, "Added a Configure MCP servers") {
 		t.Errorf("missing opening bullet: %s", joined)
 	}
 	last := stripSGR(plain[len(plain)-1])
@@ -1205,8 +1205,8 @@ func TestPanelChangelogViewerScrolls(t *testing.T) {
 	if m.panel.window != 0 {
 		t.Errorf("ctrl+home window = %d, want 0", m.panel.window)
 	}
-	if !strings.Contains(panelText(m), "## 1.4.5") {
-		t.Errorf("first screen should still open on 1.4.5:\n%s", panelText(m)[:200])
+	if !strings.Contains(panelText(m), "## 1.4.6") {
+		t.Errorf("first screen should still open on 1.4.6:\n%s", panelText(m)[:200])
 	}
 }
 
@@ -4911,8 +4911,8 @@ func TestChangelogSource_LoaderFindsReference(t *testing.T) {
 	if len(src) < 940 {
 		t.Errorf("source line count = %d, want ≥ 940", len(src))
 	}
-	if src[0] != "1.4.5:" {
-		t.Errorf("first source line = %q, want %q", src[0], "1.4.5:")
+	if src[0] != "1.4.6:" {
+		t.Errorf("first source line = %q, want %q", src[0], "1.4.6:")
 	}
 	if !strings.Contains(strings.Join(src, "\n"), "1.4.1:") {
 		t.Error("source missing the 1.4.1 header (binary capture block)")
@@ -4928,11 +4928,11 @@ func TestChangelogPagination_RendersDoc(t *testing.T) {
 	}
 	m := mkPanel(panelChangelog, "/changelog", 0)
 	text := panelText(m)
-	if !strings.Contains(text, "Improved how agent responses read") {
+	if !strings.Contains(text, "Added a Configure MCP servers") {
 		t.Errorf("viewer missing the opening bullet:\n%s", truncForErr(text, 400))
 	}
-	if !strings.Contains(text, "## 1.4.5") {
-		t.Errorf("viewer missing the ## 1.4.5 header row:\n%s", truncForErr(text, 400))
+	if !strings.Contains(text, "## 1.4.6") {
+		t.Errorf("viewer missing the ## 1.4.6 header row:\n%s", truncForErr(text, 400))
 	}
 	if !strings.Contains(strings.Join(m.changelogViewerLines(), "\n"), "## 1.4.3") {
 		t.Error("document missing the ## 1.4.3 header row")
@@ -5015,8 +5015,8 @@ func TestChangelogPagination_CtrlHome(t *testing.T) {
 		t.Fatalf("ctrl+home window = %d, want 0", m.panel.window)
 	}
 	text := panelText(m)
-	if !strings.Contains(text, "## 1.4.5") {
-		t.Errorf("first screen should open on 1.4.5:\n%s", truncForErr(text, 400))
+	if !strings.Contains(text, "## 1.4.6") {
+		t.Errorf("first screen should open on 1.4.6:\n%s", truncForErr(text, 400))
 	}
 	if !strings.Contains(strings.Join(m.changelogViewerLines(), "\n"), "## 1.4.3") {
 		t.Error("document missing the ## 1.4.3 header row")

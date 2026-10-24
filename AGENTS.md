@@ -31,7 +31,7 @@ things in it:
 | `cmd/`, `internal/` | the **clone**: a from-scratch Go reimplementation of the Antigravity CLI, built for byte-level parity with the reference binary |
 
 The reference is **Antigravity CLI** (`agy`) — a closed-source Google-internal
-agent CLI (`google3/third_party/jetski/…`). The clone emulates **agy 1.4.6**
+agent CLI (`google3/third_party/jetski/…`). The clone emulates **agy 1.4.7**
 (`internal/cli.ReferenceVersion`).
 
 There is a **second reference binary**: the Antigravity **IDE** ships its own

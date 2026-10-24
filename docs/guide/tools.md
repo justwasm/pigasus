@@ -30,6 +30,14 @@ outside the sandbox is not blocked by the clone's path sandbox. The prompt
 half of the same feature is the new `<terminal_sandbox>` section. Report:
 `docs/cycles/reference-drift-146/`.
 
+**1.4.7 changed nothing on the main surface** — the twelve declarations are
+byte-identical to the 1.4.6 capture (【一手】, live 1.4.7 request). Without
+`--sandbox` the reference omits `run_command.BypassSandbox`; with it, the
+whole surface matches the capture byte for byte. The *custom-agent* surface
+(`internal/agenttools`) is the one that moved — see
+[`prompt.md`](prompt.md#custom-agents---agent-cycle-custom-agents). Report:
+`docs/cycles/reference-drift-147/`.
+
 Two traps: the captured schemas use protojson's uppercase `type` values, which
 are *not* valid JSON Schema and are rejected by PiG's metaschema check before
 any call runs — `tools.SchemaParams` lowercases them for PiG and the transport
