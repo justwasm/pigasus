@@ -165,7 +165,6 @@ func replays() []replay {
 
 		// ── the 60-name / 12-declaration executors ─────────────────────────
 		{tool: "manage_task", args: `{"Action": "list"}`},
-		{tool: "search_web", args: `{"query": "golang", "domain": "go.dev"}`},
 		{tool: "generate_image", args: `{"Prompt": "a red cube", "ImageName": "cube"}`},
 
 		// ── subagent tools (routed through subagenttools, not the catalogue:
@@ -176,6 +175,9 @@ func replays() []replay {
 		{tool: "invoke_subagent", args: `{"TypeName": "general", "Role": "Tester", "Prompt": "Say OK."}`},
 
 		// ── recorded skips ─────────────────────────────────────────────────
+		{tool: "search_web", args: `{"query": "golang", "domain": "go.dev"}`,
+			skip: "needs the network: the live tool executes a real web query and returns formatSearchWebResult; " +
+				"the captured failure is the reference returning no grounded candidates when unrouted or quota-exhausted."},
 		{tool: "invoke_subagent", args: `{"TypeName": "self", "Role": "Tester", "Prompt": "Say OK and stop."}`,
 			skip: "the captured ack is inherently async ('The subagent will send you a message when it has " +
 				"completed … There is no need to poll for its response'); the clone delegates synchronously and " +

@@ -80,3 +80,54 @@ Five things that are easy to get wrong:
 
 Report: `docs/cycles/accounts-tier-usage/`.
 
+## Logging in on Android/Termux (cycle `android`)
+
+On Termux `/etc/resolv.conf` points at a loopback nameserver that nothing
+answers on, so **every** outbound hostname lookup fails — including the
+OAuth device flow the login runs on. `internal/dns` replaces
+`net.DefaultResolver` so the lookups go to a working resolver instead.
+
+| File | What it is |
+|---|---|
+| `internal/dns/android.go` | the fallback: `install`, `dialWithFallback`, the detection rule |
+| `internal/dns/android_test.go` | the proof that the plain HTTP path picks the resolver up |
+| `cmd/*/main.go` | the four binaries blank-import it (`pigasus`, the two shims, `openagy-models`) |
+
+Five things that are easy to get wrong:
+
+- **The fix is at the resolver, not at the call site.** `net.DefaultResolver`
+  is read *at dial time*: `net.Dialer.resolver()` returns it whenever the
+  Dialer's own `Resolver` field is nil, `net/http`'s default transport dials
+  through a zero `net.Dialer` (`zeroDialer`), and `golang.org/x/oauth2` falls
+  back to `http.DefaultClient`. So `auth.fetchOAuthToken`,
+  `auth.populateUserEmailFromUserInfo` and the device flow's `DeviceAuth` /
+  `DeviceAccessToken` are all covered without touching one of them.
+  `TestInstall_RoutesHTTPThroughTheCustomResolver` pins that.
+- **Two detection signals, either one is enough.** `runtime.GOOS ==
+  "android"` is baked in at build time (the release ships a
+  `GOOS=android/arm64` archive) and survives a scrubbed environment;
+  `TERMUX_VERSION` is exported by the Termux shell and also covers a
+  `linux/arm64` build inside a proot distro.
+- **The dial ignores the server the resolver asks for.** That *is* the
+  hack: the resolver wants the dead `/etc/resolv.conf` nameserver, and the
+  dial goes to the configured list instead.
+- **The fallback is a dial fallback, not a query fallback.** A UDP dial to a
+  closed port *succeeds* — the port only shows up as an ICMP error on the
+  first read — so `1.1.1.1` is only reached when `8.8.8.8` cannot be
+  routed at all.
+- **A public resolver bypasses a split-DNS setup.** `$OPENAGY_DNS_SERVERS`
+  (comma-separated `host:port`) points the fallback at a different
+  resolver — a VPN's own, or Termux's `dnsproxy` on `127.0.0.1:53`. A
+  hardcoded public resolver is never consulted by a VPN that splits DNS.
+
+**What it does not cover:** the vendor `agy` binary that `pigasus agy`
+execs. That is a separate process with its own resolver and cannot be
+patched from here. Its CloudCode traffic goes to `127.0.0.1` (the launcher
+exports `CLOUD_CODE_URL`), so only its own OAuth round trip would need
+DNS — sign in with `pigasus login` first and the child finds the token on
+disk instead.
+
+Report: `docs/cycles/android-termux-dns/` (the package landed with the
+Android release target; the tests and the `$OPENAGY_DNS_SERVERS` override
+were added later).
+

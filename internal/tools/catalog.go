@@ -186,7 +186,7 @@ func referenceSpecsPart3(ws string) []refSpec {
 			back: &ScheduleTool{}},
 		{name: "search_marketplace", desc: "Search the plugin marketplace."},
 		{name: "search_web", desc: "Search the web for a query.",
-			back: &SearchWeb{Workspace: ws}},
+			back: &SearchWeb{Workspace: ws, Provider: performWebSearch}},
 		{name: "sed_file", desc: "Apply a regex substitution to a file, optionally within a line range.",
 			back: &SedFile{Workspace: ws}},
 

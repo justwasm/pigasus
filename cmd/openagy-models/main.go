@@ -9,6 +9,9 @@ import (
 	"strings"
 
 	"github.com/justwasm/pigasus/internal/models"
+	// Termux/Android: /etc/resolv.conf points at a dead loopback
+	// nameserver, so `model test` would never resolve the provider.
+	_ "github.com/justwasm/pigasus/internal/dns"
 )
 
 const (
