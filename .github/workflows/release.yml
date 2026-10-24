@@ -37,6 +37,7 @@ jobs:
           - { goos: linux,   goarch: arm64,   goarm: ""    }
           - { goos: darwin,  goarch: amd64,   goarm: ""    }
           - { goos: darwin,  goarch: arm64,   goarm: ""    }
+          - { goos: android, goarch: arm64,   goarm: ""    }
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

@@ -6,6 +6,7 @@ import (
 	"os"
 
 	"github.com/justwasm/pigasus/internal/cliapp"
+	_ "github.com/justwasm/pigasus/internal/dns"
 )
 
 func main() {

@@ -10,6 +10,7 @@ const os = require('os');
  * - Darwin_x86_64
  * - Linux_arm64
  * - Linux_x86_64
+ * - Android_arm64
  */
 function getPlatformInfo() {
   const platform = os.platform();
@@ -20,6 +21,8 @@ function getPlatformInfo() {
     osName = 'Darwin';
   } else if (platform === 'linux') {
     osName = 'Linux';
+  } else if (platform === 'android') {
+    osName = 'Android';
   } else if (platform === 'win32') {
     throw new Error(
       'Pigasus currently does not provide native Windows binaries. ' +
