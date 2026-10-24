@@ -36,7 +36,7 @@
 //
 // Fidelity note: the reference advertises these through a Cortex protobuf tool
 // schema; this reconstruction advertises the same NAMES through the
-// OpenAI function-calling shape, which is what our agw transport speaks. The
+// OpenAI function-calling shape, which is what our gateway transport speaks. The
 // names and the user-visible behaviour match; the wire encoding does not (and
 // cannot, without a Cortex endpoint).
 package tools

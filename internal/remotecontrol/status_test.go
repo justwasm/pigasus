@@ -166,7 +166,7 @@ func newStatusDispatcher(t *testing.T) *Dispatcher {
 	t.Helper()
 	sess := NewSessionState("1.3.4-test")
 	sess.Workspace = "/tmp/workspace"
-	sess.Backend = "agw"
+	sess.Backend = "gateway"
 	sess.Model = "Gemini 3.8 Flash (Medium)"
 	sess.SetConversationID("conv-abc")
 	sess.SetTurnOutput("hello from the host")

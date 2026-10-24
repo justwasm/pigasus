@@ -37,6 +37,8 @@ import (
 	"strings"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/justwasm/pigasus/internal/plugins"
 )
 
 // Agent is one markdown agent definition.
@@ -176,61 +178,19 @@ func parseAgentFile(raw []byte) (Agent, bool) {
 
 // discoverPlugins reads `<pluginsDir>/<plugin>/agents/*.md` for every
 // installed plugin. A directory is a plugin only when it has a parseable
-// plugin.json (the reference ignores a folder without one — verified 1.4.3).
+// plugin.json (the reference ignores a folder without one — verified 1.4.3,
+// re-verified 1.4.5).
 // configPath, when non-empty, is the user config.json whose
 // plugins.<name>.enabled=false disables a plugin (workspace plugins were not
 // affected by `.agents/config.json` in the probe, so the workspace call passes
 // "").
+//
+// The plugin set itself comes from internal/plugins, so the prompt builder's
+// rule discovery and this loader agree on which plugins exist.
 func discoverPlugins(pluginsDir, configPath string) []Agent {
-	entries, err := os.ReadDir(pluginsDir)
-	if err != nil {
-		return nil
-	}
-	enabled := readPluginEnablement(configPath)
 	var out []Agent
-	for _, e := range entries {
-		if !e.IsDir() {
-			continue
-		}
-		dir := filepath.Join(pluginsDir, e.Name())
-		raw, err := os.ReadFile(filepath.Join(dir, "plugin.json"))
-		if err != nil {
-			continue
-		}
-		var manifest any
-		if err := json.Unmarshal(raw, &manifest); err != nil {
-			continue
-		}
-		if isEnabled, ok := enabled[e.Name()]; ok && !isEnabled {
-			continue
-		}
+	for _, dir := range plugins.LoadedDirs(pluginsDir, configPath) {
 		out = append(out, discoverScope(dir)...)
-	}
-	return out
-}
-
-// readPluginEnablement returns plugins.<name>.enabled from a config.json.
-// A missing file, missing entry, or entry without `enabled` means enabled.
-func readPluginEnablement(path string) map[string]bool {
-	if path == "" {
-		return nil
-	}
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		return nil
-	}
-	raw = []byte(strings.TrimPrefix(string(raw), "\ufeff"))
-	var cfg struct {
-		Plugins map[string]struct {
-			Enabled *bool `json:"enabled"`
-		} `json:"plugins"`
-	}
-	if err := json.Unmarshal(raw, &cfg); err != nil {
-		return nil
-	}
-	out := make(map[string]bool, len(cfg.Plugins))
-	for name, p := range cfg.Plugins {
-		out[name] = p.Enabled == nil || *p.Enabled
 	}
 	return out
 }

@@ -11,6 +11,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -145,6 +146,46 @@ func TestSaveTokenUnified_WritesAllPaths(t *testing.T) {
 		if _, err := os.Stat(p); err != nil {
 			t.Errorf("expected token at %s: %v", p, err)
 		}
+	}
+}
+
+// TestSaveTokenUnified_WritesTheReferenceEmailField covers the field the
+// reference reads the account from. A credential the clone writes has to
+// name the account, or the installed `agy` shows the previous one.
+func TestSaveTokenUnified_WritesTheReferenceEmailField(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("ANTIGRAVITY_HOME", filepath.Join(home, ".gemini", "antigravity-cli"))
+	t.Setenv("OPENAGY_DISABLE_KEYCHAIN", "1")
+	os.Unsetenv("JETSKI_OAUTH_TOKEN")
+
+	header := "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9"
+	payload := "eyJlbWFpbCI6InVzZXJAZXhhbXBsZS5jb20iLCJzdWIiOiIxMjM0NSJ9"
+	tok := &AntigravityToken{
+		Token:      AntigravityAccessToken{AccessToken: "ya29.unified", TokenType: "Bearer"},
+		AuthMethod: "consumer",
+		IDToken:    header + "." + payload + ".sig",
+	}
+	if err := SaveTokenUnified(tok); err != nil {
+		t.Fatalf("SaveTokenUnified: %v", err)
+	}
+	if tok.IDTokenEmail != "user@example.com" {
+		t.Fatalf("id_token_email = %q, want the token's own email", tok.IDTokenEmail)
+	}
+	raw, err := os.ReadFile(AllTokenPaths()[0])
+	if err != nil {
+		t.Fatalf("read the shared token: %v", err)
+	}
+	if !strings.Contains(string(raw), `"id_token_email": "user@example.com"`) {
+		t.Fatalf("the shared credential does not name the account: %s", raw)
+	}
+	// And it reads back as the same account.
+	back, err := LoadTokenUnified()
+	if err != nil {
+		t.Fatalf("LoadTokenUnified: %v", err)
+	}
+	if em := back.UserEmail(); em != "user@example.com" {
+		t.Fatalf("the shared credential reads back %q, want user@example.com", em)
 	}
 }
 

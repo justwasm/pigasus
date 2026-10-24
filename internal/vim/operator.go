@@ -283,87 +283,59 @@ func (s *State) replaceChar(arg rune, count int) bool {
 	return true
 }
 
+func transformRuneCase(r, op rune) rune {
+	switch op {
+	case '~':
+		return toggleCase(r)
+	case 'u':
+		return toLower(r)
+	case 'U':
+		return toUpper(r)
+	}
+	return r
+}
+
+func transformLineSliceCase(line string, lo, hi int, op rune) (string, bool) {
+	rl := []rune(line)
+	changed := false
+	for i := lo; i <= hi && i < len(rl); i++ {
+		nr := transformRuneCase(rl[i], op)
+		if nr != rl[i] {
+			rl[i] = nr
+			changed = true
+		}
+	}
+	return string(rl), changed
+}
+
 // applyCase transforms the text in an inclusive range: "~" toggles,
 // "u" lowercases and "U" uppercases.
 func (s *State) applyCase(start, end pos, linewise bool, op rune) bool {
-	// Capture the pre-edit buffer so the step is undoable: the snapshot
-	// has to be taken before the in-place transform below, not after.
 	pr, pc := s.Row, s.Col
 	before := copyLines(s.Lines)
 	changed := false
-	transform := func(line string) string {
-		rl := []rune(line)
-		for i, r := range rl {
-			var nr rune
-			switch op {
-			case '~':
-				nr = toggleCase(r)
-			case 'u':
-				nr = toLower(r)
-			case 'U':
-				nr = toUpper(r)
-			}
-			if nr != r {
-				rl[i] = nr
-				changed = true
-			}
-		}
-		return string(rl)
-	}
-	if linewise {
-		for r := start.row; r <= end.row; r++ {
-			s.Lines[r] = transform(s.Lines[r])
-		}
-	} else if start.row == end.row {
-		rl := []rune(s.Lines[start.row])
-		for i := start.col; i <= end.col && i < len(rl); i++ {
-			var nr rune
-			switch op {
-			case '~':
-				nr = toggleCase(rl[i])
-			case 'u':
-				nr = toLower(rl[i])
-			case 'U':
-				nr = toUpper(rl[i])
-			}
-			if nr != rl[i] {
-				rl[i] = nr
-				changed = true
-			}
-		}
-		s.Lines[start.row] = string(rl)
-	} else {
-		for r := start.row; r <= end.row; r++ {
-			rl := []rune(s.Lines[r])
-			lo, hi := 0, len(rl)-1
+
+	for r := start.row; r <= end.row; r++ {
+		rl := []rune(s.Lines[r])
+		lo, hi := 0, len(rl)-1
+		if !linewise {
 			if r == start.row {
 				lo = start.col
 			}
 			if r == end.row {
 				hi = end.col
 			}
-			for i := lo; i <= hi && i < len(rl); i++ {
-				var nr rune
-				switch op {
-				case '~':
-					nr = toggleCase(rl[i])
-				case 'u':
-					nr = toLower(rl[i])
-				case 'U':
-					nr = toUpper(rl[i])
-				}
-				if nr != rl[i] {
-					rl[i] = nr
-					changed = true
-				}
-			}
-			s.Lines[r] = string(rl)
+		}
+		var ch bool
+		s.Lines[r], ch = transformLineSliceCase(s.Lines[r], lo, hi, op)
+		if ch {
+			changed = true
 		}
 	}
+
 	if changed {
 		s.recordUndo(snapshot{before, pr, pc})
 	}
-	// The cursor lands on the first changed character, clamped.
 	s.Row, s.Col = start.row, start.col
 	s.clampCursor()
 	s.desiredCol = s.Col

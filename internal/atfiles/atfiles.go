@@ -14,7 +14,7 @@
 // into filepath.Glob with the prefix).
 //
 // The package deliberately contains no UI / runtime dependencies.
-// The TUI dropdown lives in cmd/wagyu and re-derives its candidate
+// The TUI dropdown lives in cmd/pigasus and re-derives its candidate
 // list on every keystroke by calling Find + Glob below.
 package atfiles
 
@@ -66,7 +66,7 @@ type Entry struct {
 	// Path is the absolute path on disk.
 	Path string
 	// Rel is the slash-separated path relative to the workspace
-	// root. Directories end in "/" (e.g. "cmd/agy/").
+	// root. Directories end in "/" (e.g. "cmd/pigasus/").
 	Rel string
 	// IsDir distinguishes the "Directory" and "File" type cells.
 	IsDir bool
@@ -111,18 +111,23 @@ func Parse(buf string) (Mention, bool) {
 		return Mention{}, false
 	}
 	end := len(buf)
-	// Cursor parked on whitespace? Refuse — the user has typed
-	// past the mention and the dropdown must close.
 	if c := buf[end-1]; c == ' ' || c == '\t' || c == '\n' || c == '\r' {
 		return Mention{}, false
 	}
-	// Step 1: walk back across the path-char / @ / space run.
-	// Token chars and `@` are always accepted. ASCII spaces
-	// (the only whitespace class we honour here) are accepted
-	// too, because file paths can contain spaces — the walk
-	// would otherwise terminate at the first internal space
-	// and lose the `@<file with spaces>` mention. The walk
-	// stops at a non-token / non-@ / non-space byte.
+	walkStart := findWalkStart(buf, end)
+	at := findValidAt(buf, walkStart, end)
+	if at < 0 {
+		return Mention{}, false
+	}
+	prefixEnd := findPrefixEnd(buf, at+1, end)
+	prefix := buf[at+1 : prefixEnd]
+	if len(prefix) > MaxPrefixLen || strings.ContainsRune(prefix, '\x00') {
+		return Mention{}, false
+	}
+	return Mention{Prefix: prefix, Start: at, End: prefixEnd}, true
+}
+
+func findWalkStart(buf string, end int) int {
 	walkStart := end
 	for i := end - 1; i >= 0; i-- {
 		c := buf[i]
@@ -131,54 +136,29 @@ func Parse(buf string) (Mention, bool) {
 		}
 		walkStart = i
 	}
-	// Step 2: find the latest '@' in [walkStart, end) whose
-	// preceding byte is NOT a token char. Mid-word '@'
-	// (e.g. the 'b' in `obj@foo`) is rejected — but a path
-	// that contains multiple '@' (e.g. `@a/@b`, an artifact
-	// where the first '@' is at start-of-buffer) still works
-	// because we fall through to the previous '@'.
-	at := -1
+	return walkStart
+}
+
+func findValidAt(buf string, walkStart, end int) int {
 	for i := walkStart; i < end; i++ {
 		if buf[i] != '@' {
 			continue
 		}
-		// Check boundary.
-		if i == 0 {
-			at = i
-			break
+		if i == 0 || !isTokenChar(buf[i-1]) {
+			return i
 		}
-		prev := buf[i-1]
-		if !isTokenChar(prev) {
-			at = i
-			break
-		}
-		// Mid-word '@'; keep searching.
 	}
-	if at < 0 {
-		return Mention{}, false
-	}
-	// Step 3: the mention's prefix runs from at+1 up to the
-	// NEXT boundary char between at+1 and end. Accept token
-	// chars, '/', '@', and ' ' (a / and a space are both
-	// legitimate inside a file path; '@' is allowed so paths
-	// like @a/@b extend through their embedded sigil to the
-	// cursor). Everything else terminates the prefix.
-	prefixEnd := end
-	for j := at + 1; j < end; j++ {
+	return -1
+}
+
+func findPrefixEnd(buf string, start, end int) int {
+	for j := start; j < end; j++ {
 		c := buf[j]
 		if !isTokenChar(c) && c != '/' && c != '@' && c != ' ' {
-			prefixEnd = j
-			break
+			return j
 		}
 	}
-	prefix := buf[at+1 : prefixEnd]
-	if len(prefix) > MaxPrefixLen {
-		return Mention{}, false
-	}
-	if strings.ContainsRune(prefix, '\x00') {
-		return Mention{}, false
-	}
-	return Mention{Prefix: prefix, Start: at, End: prefixEnd}, true
+	return end
 }
 
 // isTokenChar reports whether c can appear in a file-path token.

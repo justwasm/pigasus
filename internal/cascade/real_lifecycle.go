@@ -77,60 +77,15 @@ const (
 	CascaderError CascaderState = "error"
 )
 
-// ApprovalKind is the recovered `(*Store).updatePendingApprovalsQueue`
-// payload type. The 1.3.5 binary only ever enqueues two kinds:
-// tool-confirmation and side-question; we model both so the cascader
-// can route them to the right handler.
-type ApprovalKind string
-
-const (
-	// ApprovalToolConfirm — subagent wants to run a tool that needs
-	// user permission (recovered from `RespondToSubagentToolConfirmation`
-	// at 0x8aa3240 in cli/store/store).
-	ApprovalToolConfirm ApprovalKind = "tool_confirm"
-	// ApprovalUserInput — subagent is asking the user a question
-	// (recovered from `HandleSubagentUserInput` at 0x8aa7da0).
-	ApprovalUserInput ApprovalKind = "user_input"
-)
-
-// PendingApproval is one entry in the pending-approvals queue. The
-// recovered 1.3.5 code models it as a linked-list node
-// (next-pointer + payload); we use a slice for the same shape since
-// the typical queue depth is 1..3.
-type PendingApproval struct {
-	ID         string       // unique id (uuid-ish; we use timestamp+counter)
-	SubagentID string       // id of the subagent that requested approval
-	Kind       ApprovalKind // tool_confirm or user_input
-	ToolName   string       // populated for ApprovalToolConfirm
-	Question   string       // populated for ApprovalUserInput
-	CreatedAt  time.Time
-}
-
-// String makes PendingApproval printable. Used by the `--print` path
-// when it surfaces a blocked cascader to the user.
-func (p PendingApproval) String() string {
-	switch p.Kind {
-	case ApprovalToolConfirm:
-		return fmt.Sprintf("[%s] subagent=%s tool=%s (created %s)",
-			p.ID, p.SubagentID, p.ToolName, p.CreatedAt.Format(time.RFC3339))
-	case ApprovalUserInput:
-		return fmt.Sprintf("[%s] subagent=%s question=%q (created %s)",
-			p.ID, p.SubagentID, p.Question, p.CreatedAt.Format(time.RFC3339))
-	default:
-		return fmt.Sprintf("[%s] subagent=%s (created %s)",
-			p.ID, p.SubagentID, p.CreatedAt.Format(time.RFC3339))
-	}
-}
-
 // State is the recovered cascading state machine. It is intentionally
 // small: CascaderInit / Ready / Execute / Stream / AwaitApproval /
 // Save / Done / Error, matching the 1.3.5 `cascader.Run` lifecycle.
 type State struct {
-	mu         sync.Mutex
-	cascader   CascaderState
-	history    []Transition
-	approvals  []PendingApproval
-	counter    int64
+	mu        sync.Mutex
+	cascader  CascaderState
+	history   []Transition
+	approvals []PendingApproval
+	counter   int64
 }
 
 // Transition is one entry in the cascader's transition log. Modeled
@@ -173,15 +128,6 @@ func (s *State) History() []Transition {
 	return out
 }
 
-// PendingApprovals returns a copy of the queue.
-func (s *State) PendingApprovals() []PendingApproval {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	out := make([]PendingApproval, len(s.approvals))
-	copy(out, s.approvals)
-	return out
-}
-
 // transition is the internal state-mutator. All public methods
 // (CascaderRun, SubagentAwaitsApproval, ApproveSubagent, RejectSubagent)
 // funnel through this.
@@ -200,114 +146,6 @@ func (s *State) transition(to CascaderState, note string) {
 		Note: note,
 	})
 }
-
-// enqueueApproval is the internal queue mutator. Caller holds s.mu.
-func (s *State) enqueueApprovalLocked(p PendingApproval) {
-	s.approvals = append(s.approvals, p)
-}
-
-// dequeueApprovalByID returns the approval with id `id` and removes it
-// from the queue. Returns false if no such approval.
-func (s *State) dequeueApprovalByID(id string) (PendingApproval, bool) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	for i, p := range s.approvals {
-		if p.ID == id {
-			// Remove at i (preserves order for the rest).
-			s.approvals = append(s.approvals[:i], s.approvals[i+1:]...)
-			return p, true
-		}
-	}
-	return PendingApproval{}, false
-}
-
-// nextID generates a unique approval id.
-func (s *State) nextID() string {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.counter++
-	return fmt.Sprintf("appr-%d-%d", time.Now().UnixNano(), s.counter)
-}
-
-// ---- SubagentAwaitsApproval (real lifecycle gate) ----------------------
-
-// SubagentAwaitsApproval is the recovered `TriggerSubagentApprovalFast`
-// entry point. The 1.3.5 binary calls it whenever a subagent needs
-// user permission (tool confirmation) or has a question. The cascader
-// is blocked until the user calls `ApproveSubagent` or
-// `RejectSubagent` with the returned approval id.
-//
-// Behavior mirrors the decompiled call shape (0x8aa6f20 +
-// 0x8aa3f80 + 0x8aa7da0):
-//
-//   - enqueue the approval
-//   - transition the cascader to CascaderAwaitApproval
-//   - return the approval id so the caller can later match the
-//     response (mirrors how the store tracks approval state by id)
-//
-// Returns the new approval's id and the pending-approvals entry. The
-// caller (cmd/wagyu, the TUI, …) is responsible for surfacing
-// the entry to the user and then calling ApproveSubagent /
-// RejectSubagent.
-func (s *State) SubagentAwaitsApproval(subagentID string, kind ApprovalKind, toolName, question string) (string, PendingApproval) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	appr := PendingApproval{
-		ID:         s.nextIDLocked(),
-		SubagentID: subagentID,
-		Kind:       kind,
-		ToolName:   toolName,
-		Question:   question,
-		CreatedAt:  time.Now(),
-	}
-	s.enqueueApprovalLocked(appr)
-	s.cascader = CascaderAwaitApproval
-	s.history = append(s.history, Transition{
-		From: s.cascader,
-		To:   CascaderAwaitApproval,
-		At:   time.Now(),
-		Note: fmt.Sprintf("SubagentAwaitsApproval: %s", appr.String()),
-	})
-	return appr.ID, appr
-}
-
-// nextIDLocked is the lockless variant; caller holds s.mu.
-func (s *State) nextIDLocked() string {
-	s.counter++
-	return fmt.Sprintf("appr-%d-%d", time.Now().UnixNano(), s.counter)
-}
-
-// ApproveSubagent marks the given approval as approved and resumes
-// the cascader. Mirrors `(*Store).RespondToSubagentToolConfirmation`
-// at 0x8aa3240 (for tool_confirm) and `HandleSubagentUserInput` at
-// 0x8aa7da0 (for user_input).
-//
-// Returns the resolved approval, or an error if no such approval is
-// in the queue.
-func (s *State) ApproveSubagent(id string) (PendingApproval, error) {
-	appr, ok := s.dequeueApprovalByID(id)
-	if !ok {
-		return PendingApproval{}, fmt.Errorf("cascade: no pending approval with id %q", id)
-	}
-	s.transition(CascaderStream, fmt.Sprintf("ApproveSubagent: %s", appr.String()))
-	return appr, nil
-}
-
-// RejectSubagent is the dual of ApproveSubagent. The recovered 1.3.5
-// code doesn't have an explicit "reject" — it cancels the subagent
-// (commitSubagentStates sets it to failed) and surfaces a "user
-// declined" message. We model it as a separate method so callers can
-// distinguish yes / no in the audit log.
-func (s *State) RejectSubagent(id string) (PendingApproval, error) {
-	appr, ok := s.dequeueApprovalByID(id)
-	if !ok {
-		return PendingApproval{}, fmt.Errorf("cascade: no pending approval with id %q", id)
-	}
-	s.transition(CascaderError, fmt.Sprintf("RejectSubagent: %s", appr.String()))
-	return appr, nil
-}
-
-// ---- RealLifecycle (cascader.Run) --------------------------------------
 
 // RealLifecycle is the recovered `cascader.Run` driver. It owns a
 // State (the FSM) and drives a backend.Backend through one turn:
@@ -343,79 +181,11 @@ func NewRealLifecycle(be backend.Backend) *RealLifecycle {
 	}
 }
 
-// CascaderRun drives one turn. It mirrors `cascader.Run` in
-// google3/third_party/jetski/cortex/cascade_run_state/cascade_run_state:
-// open the conversation, run the body, await the terminal frame,
-// persist. Errors at any point funnel through to CascaderError.
-//
-// The Run() call is synchronous: it returns once the backend has
-// finished the turn (or once the cascader hits an unrecoverable
-// error). For subagent-approval flows the backend itself would have
-// called SubagentAwaitsApproval on this State (see the `WithState`
-// helper below) before Run() returns.
-func (r *RealLifecycle) CascaderRun(ctx context.Context, model, prompt string) error {
-	r.mu.Lock()
-	if r.closed {
-		r.mu.Unlock()
-		return errors.New("cascade.RealLifecycle: closed")
-	}
-	r.mu.Unlock()
-
-	if r.be == nil {
-		return errors.New("cascade.RealLifecycle: backend is nil")
-	}
-
-	// Init -> Ready
-	if _, err := r.be.Init(ctx, model); err != nil {
-		r.State.transition(CascaderError, fmt.Sprintf("Init failed: %s", err))
-		r.emitEvent(CascadeEvent{Type: EventStepEnd, StepID: "init", Title: stepTitle("init"), Error: err.Error()})
-		return fmt.Errorf("cascade.RealLifecycle: Init: %w", err)
-	}
-	r.State.transition(CascaderReady, "Init completed")
-
-	// Ready -> Execute (cycle 45 emit).
-	r.State.transition(CascaderExecute, "Run started")
-	r.emitEvent(CascadeEvent{Type: EventStepStart, StepID: "execute", Title: stepTitle("execute")})
-
-	// Run the turn body. The backend wraps the stream and pushes
-	// chunks through the Sink; we just observe the FSM.
-	runErr := r.be.Run(ctx, prompt)
-	if runErr != nil {
-		r.State.transition(CascaderError, fmt.Sprintf("Run failed: %s", runErr))
-		r.emitEvent(CascadeEvent{Type: EventStepEnd, StepID: "execute", Title: stepTitle("execute"), Error: runErr.Error()})
-		return fmt.Errorf("cascade.RealLifecycle: Run: %w", runErr)
-	}
-	// Execute -> Stream (cycle 45 emit). The "stream" step starts
-	// the moment the backend's body returns (chunks are now
-	// committed); the step ends when Save begins.
-	r.State.transition(CascaderStream, "Backend.Run returned; streaming")
-	r.emitEvent(CascadeEvent{Type: EventStepEnd, StepID: "execute", Title: stepTitle("execute")})
-	r.emitEvent(CascadeEvent{Type: EventStepStart, StepID: "stream", Title: stepTitle("stream")})
-
-	// If a subagent blocked us mid-stream, the State is in
-	// CascaderAwaitApproval; we don't proceed to Save until the user
-	// resolves it. (The cycle 41 caller is responsible for calling
-	// ApproveSubagent or RejectSubagent before invoking Save
-	// again.)
-	if r.State.Current() == CascaderAwaitApproval {
-		// Stay in await_approval; caller will resume. The
-		// "stream" step is left open — the resume path
-		// re-emits its end below.
-		return nil
-	}
-
-	// Execute -> Save -> Done
-	r.State.transition(CascaderSave, "Backend.Run returned; persisting")
-	r.emitEvent(CascadeEvent{Type: EventStepEnd, StepID: "stream", Title: stepTitle("stream")})
-	r.emitEvent(CascadeEvent{Type: EventStepStart, StepID: "save", Title: stepTitle("save")})
-	if err := r.be.Save(); err != nil {
-		r.State.transition(CascaderError, fmt.Sprintf("Save failed: %s", err))
-		r.emitEvent(CascadeEvent{Type: EventStepEnd, StepID: "save", Title: stepTitle("save"), Error: err.Error()})
-		return fmt.Errorf("cascade.RealLifecycle: Save: %w", err)
-	}
-	r.State.transition(CascaderDone, "turn complete")
-	r.emitEvent(CascadeEvent{Type: EventStepEnd, StepID: "save", Title: stepTitle("save")})
-	return nil
+// WithState returns a RealLifecycle that uses the given State. Useful
+// when a caller (e.g. a test) wants to share a single State across
+// multiple cascaders, or wants to pre-seed approvals.
+func WithState(be backend.Backend, st *State) *RealLifecycle {
+	return &RealLifecycle{State: st, be: be}
 }
 
 // Close tears down the lifecycle. Mirrors the decompiled
@@ -439,111 +209,91 @@ func (r *RealLifecycle) Close() error {
 	return nil
 }
 
-// WithState returns a RealLifecycle that uses the given State. Useful
-// when a caller (e.g. a test) wants to share a single State across
-// multiple cascaders, or wants to pre-seed approvals.
-func WithState(be backend.Backend, st *State) *RealLifecycle {
-	return &RealLifecycle{State: st, be: be}
-}
-
-// ---- CascadeEvent (cycle 45 Issue #7 integration) -----------------------
-//
-// The 1.3.5 binary's decompiled `cascader.Run` loop emits a
-// sequence of step events that the recovered TUI subscribes to
-// in order to render the live task list (cli_printmode.tui.tasksPanel).
-// Cycle 45 wires the recovered `cascade.RealLifecycle` to that same
-// event vocabulary: a real emit surface that any consumer
-// (notably internal/tui.TasksPanel.OnCascadeEvent) can hook into.
-
-// CascadeEventType is the event discriminator emitted by
-// RealLifecycle to consumers (TasksPanel, etc).
-type CascadeEventType string
-
-const (
-	// EventStepStart — a logical step just began. RealLifecycle
-	// emits this when the cascader transitions from one of
-	// {CascaderInit, CascaderReady, CascaderExecute, CascaderStream}
-	// into CascaderExecute / CascaderStream / CascaderSave.
-	EventStepStart CascadeEventType = "start"
-	// EventStepEnd — a logical step just completed. RealLifecycle
-	// emits this when the cascader leaves one of
-	// {CascaderExecute, CascaderStream, CascaderSave, CascaderDone}
-	// for CascaderSave / CascaderDone / CascaderError.
-	EventStepEnd CascadeEventType = "end"
-)
-
-// CascadeEvent is the recovered 1.3.5 step event. It carries
-// just enough information for a consumer (e.g. the TUI's
-// TasksPanel) to render the live step list without depending
-// on the cascade package's internal State.
-//
-// StepID is a stable identifier for the step (currently
-// one of "init", "execute", "stream", "save"); consumers use
-// it to match end events to start events. Title is the
-// human-readable label. Error is non-empty only for end
-// events when the step failed.
-type CascadeEvent struct {
-	Type   CascadeEventType
-	StepID string
-	Title  string
-	Error  string
-}
-
-// SetEventEmitter wires an optional event callback. The
-// callback is invoked synchronously from CascaderRun at every
-// step boundary; pass nil to silence. The cycle 45
-// integration test (internal/tui/tasks_integration_test.go)
-// uses this hook to drive a TasksPanel without a full
-// backend.Backend round-trip.
-func (r *RealLifecycle) SetEventEmitter(fn func(CascadeEvent)) {
+func (r *RealLifecycle) checkCanRun() error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.onEvent = fn
+	if r.closed {
+		return errors.New("cascade.RealLifecycle: closed")
+	}
+	if r.be == nil {
+		return errors.New("cascade.RealLifecycle: backend is nil")
+	}
+	return nil
 }
 
-// emitEvent fires the optional event callback. Safe to call
-// when no callback is wired.
-func (r *RealLifecycle) emitEvent(ev CascadeEvent) {
-	r.mu.Lock()
-	fn := r.onEvent
-	r.mu.Unlock()
-	if fn != nil {
-		fn(ev)
+func (r *RealLifecycle) runInit(ctx context.Context, model string) error {
+	if _, err := r.be.Init(ctx, model); err != nil {
+		r.State.transition(CascaderError, fmt.Sprintf("Init failed: %s", err))
+		r.emitEvent(CascadeEvent{Type: EventStepEnd, StepID: "init", Title: stepTitle("init"), Error: err.Error()})
+		return fmt.Errorf("cascade.RealLifecycle: Init: %w", err)
 	}
+	r.State.transition(CascaderReady, "Init completed")
+	return nil
 }
 
-// stepTitle is the human-readable label for a known step.
-// Keeps the event-emission code (CascaderRun) free of magic
-// strings.
-func stepTitle(stepID string) string {
-	switch stepID {
-	case "init":
-		return "Read user request"
-	case "execute":
-		return "Execute tools"
-	case "stream":
-		return "Stream response"
-	case "save":
-		return "Save session"
-	default:
-		return stepID
+func (r *RealLifecycle) runExecute(ctx context.Context, prompt string) error {
+	r.State.transition(CascaderExecute, "Run started")
+	r.emitEvent(CascadeEvent{Type: EventStepStart, StepID: "execute", Title: stepTitle("execute")})
+
+	runErr := r.be.Run(ctx, prompt)
+	if runErr != nil {
+		r.State.transition(CascaderError, fmt.Sprintf("Run failed: %s", runErr))
+		r.emitEvent(CascadeEvent{Type: EventStepEnd, StepID: "execute", Title: stepTitle("execute"), Error: runErr.Error()})
+		return fmt.Errorf("cascade.RealLifecycle: Run: %w", runErr)
 	}
+
+	r.State.transition(CascaderStream, "Backend.Run returned; streaming")
+	r.emitEvent(CascadeEvent{Type: EventStepEnd, StepID: "execute", Title: stepTitle("execute")})
+	r.emitEvent(CascadeEvent{Type: EventStepStart, StepID: "stream", Title: stepTitle("stream")})
+	return nil
 }
 
-// stepIDForState maps a CascaderState transition to the step
-// it represents. Returns "" if the transition is not a step
-// boundary (e.g. init -> ready, or save -> done).
-func stepIDForState(to CascaderState) string {
-	switch to {
-	case CascaderExecute:
-		return "execute"
-	case CascaderStream:
-		return "stream"
-	case CascaderSave:
-		return "save"
-	case CascaderDone:
-		return "save"
-	default:
-		return ""
+func (r *RealLifecycle) runSave() error {
+	r.State.transition(CascaderSave, "Backend.Run returned; persisting")
+	r.emitEvent(CascadeEvent{Type: EventStepEnd, StepID: "stream", Title: stepTitle("stream")})
+	r.emitEvent(CascadeEvent{Type: EventStepStart, StepID: "save", Title: stepTitle("save")})
+	if err := r.be.Save(); err != nil {
+		r.State.transition(CascaderError, fmt.Sprintf("Save failed: %s", err))
+		r.emitEvent(CascadeEvent{Type: EventStepEnd, StepID: "save", Title: stepTitle("save"), Error: err.Error()})
+		return fmt.Errorf("cascade.RealLifecycle: Save: %w", err)
 	}
+	r.State.transition(CascaderDone, "turn complete")
+	r.emitEvent(CascadeEvent{Type: EventStepEnd, StepID: "save", Title: stepTitle("save")})
+	return nil
+}
+
+// CascaderRun drives one turn. It mirrors `cascader.Run` in
+// google3/third_party/jetski/cortex/cascade_run_state/cascade_run_state:
+// open the conversation, run the body, await the terminal frame,
+// persist. Errors at any point funnel through to CascaderError.
+//
+// The Run() call is synchronous: it returns once the backend has
+// finished the turn (or once the cascader hits an unrecoverable
+// error). For subagent-approval flows the backend itself would have
+// called SubagentAwaitsApproval on this State (see the `WithState`
+// helper below) before Run() returns.
+func (r *RealLifecycle) CascaderRun(ctx context.Context, model, prompt string) error {
+	if err := r.checkCanRun(); err != nil {
+		return err
+	}
+	if err := r.runInit(ctx, model); err != nil {
+		return err
+	}
+	if err := r.runExecute(ctx, prompt); err != nil {
+		return err
+	}
+
+	// If a subagent blocked us mid-stream, the State is in
+	// CascaderAwaitApproval; we don't proceed to Save until the user
+	// resolves it. (The cycle 41 caller is responsible for calling
+	// ApproveSubagent or RejectSubagent before invoking Save
+	// again.)
+	if r.State.Current() == CascaderAwaitApproval {
+		// Stay in await_approval; caller will resume. The
+		// "stream" step is left open — the resume path
+		// re-emits its end below.
+		return nil
+	}
+
+	return r.runSave()
 }

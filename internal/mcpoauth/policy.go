@@ -153,18 +153,7 @@ func HTTPStatus(err error) int {
 // Transient is the inverse of ShouldClear for the network/server-error
 // path. ShouldClear adds two extra rejections on top of the inverse:
 // explicit 401 / 403 and explicit OAuth provider rejections.
-func IsTransient(err error) bool {
-	if err == nil {
-		return false
-	}
-	// Context cancellation is the caller's choice, not the server's:
-	// never treat it as a rejection.
-	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-		return true
-	}
-	// stdlib net errors: timeout, connection refused / reset, no route
-	// to host, DNS failure, unexpected EOF. These are the most common
-	// transient shapes the reference binary saw before the fix.
+func isNetTransient(err error) bool {
 	var ne net.Error
 	if errors.As(err, &ne) {
 		return true
@@ -174,22 +163,10 @@ func IsTransient(err error) bool {
 		return true
 	}
 	var dnsErr *net.DNSError
-	if errors.As(err, &dnsErr) {
-		return true
-	}
-	// HTTP 5xx — server-side failure that has nothing to do with
-	// authorization. (4xx is *not* transient — a 401/403 is exactly
-	// the rejection the policy matches.)
-	if status := HTTPStatus(err); status >= 500 && status <= 599 {
-		return true
-	}
-	// Stringly-typed stdlib errors that are never wrapped in a
-	// typed net.Error but are still clearly transient: EOF,
-	// TLS handshake failures, broken pipe, connection reset. The
-	// substring check is conservative (must be a complete word)
-	// so a server response that happens to contain "tls" in a URL
-	// path is not mis-classified.
-	msg := strings.ToLower(err.Error())
+	return errors.As(err, &dnsErr)
+}
+
+func isStringTransient(msg string) bool {
 	for _, marker := range []string{
 		"unexpected eof",
 		"tls: ",
@@ -204,6 +181,24 @@ func IsTransient(err error) bool {
 		}
 	}
 	return false
+}
+
+// IsTransient reports whether err represents a transient network or server
+// issue where authentication state should not be cleared.
+func IsTransient(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return true
+	}
+	if isNetTransient(err) {
+		return true
+	}
+	if status := HTTPStatus(err); status >= 500 && status <= 599 {
+		return true
+	}
+	return isStringTransient(strings.ToLower(err.Error()))
 }
 
 // IsRejection reports whether err looks like an actual rejection of

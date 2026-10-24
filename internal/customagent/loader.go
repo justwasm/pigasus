@@ -278,18 +278,11 @@ func LoadAgentDir(dir string) (agents []*Agent, bad []error, err error) {
 // and closing `---` fences, runs them through yaml.v3, and
 // builds the Agent.
 //
-// Frontmatter rules: must open with `---` on the first line
-// (after trimming leading whitespace) and close with another
-// `---` line later in the file. An unterminated frontmatter
-// is reported as ErrEmpty — the body that follows is probably
-// a Markdown file the user dropped in, not a custom agent.
-//
-// We deliberately do NOT use yaml.v3's "multiple documents"
-// mode; a single frontmatter block is enough.
-func parseFrontmatter(path string, raw []byte) (*Agent, error) {
+// splitFrontmatter separates the raw document into YAML frontmatter and body.
+func splitFrontmatter(raw []byte) ([]byte, string, error) {
 	lines := bytes.Split(raw, []byte{'\n'})
 	if len(lines) == 0 || !bytes.Equal(bytes.TrimSpace(lines[0]), []byte("---")) {
-		return nil, ErrEmpty
+		return nil, "", ErrEmpty
 	}
 	closeIdx := -1
 	for i := 1; i < len(lines); i++ {
@@ -299,11 +292,26 @@ func parseFrontmatter(path string, raw []byte) (*Agent, error) {
 		}
 	}
 	if closeIdx < 0 {
-		return nil, ErrEmpty
+		return nil, "", ErrEmpty
 	}
 	fmBytes := bytes.Join(lines[1:closeIdx], []byte{'\n'})
 	body := strings.Join(toStringLines(lines[closeIdx+1:]), "\n")
-	body = strings.TrimLeft(body, "\n")
+	return fmBytes, strings.TrimLeft(body, "\n"), nil
+}
+
+// Frontmatter rules: must open with `---` on the first line
+// (after trimming leading whitespace) and close with another
+// `---` line later in the file. An unterminated frontmatter
+// is reported as ErrEmpty — the body that follows is probably
+// a Markdown file the user dropped in, not a custom agent.
+//
+// We deliberately do NOT use yaml.v3's "multiple documents"
+// mode; a single frontmatter block is enough.
+func parseFrontmatter(path string, raw []byte) (*Agent, error) {
+	fmBytes, body, err := splitFrontmatter(raw)
+	if err != nil {
+		return nil, err
+	}
 
 	a := &Agent{
 		Path: path,

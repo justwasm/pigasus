@@ -112,18 +112,8 @@ func (t *Trimmer) Budget() Budget { return t.budget }
 // descending walk reads the candidates from the most valuable
 // down, accepting each until the budget is full, which is the
 // knapsack greedy that matches the priority contract.
-func (t *Trimmer) Trim() []*Token {
-	capacity := t.budget.Capacity()
-	// Reset state so a second Trim call (rare, but allowed) starts
-	// from scratch.
-	t.kept = t.kept[:0]
-	t.dropped = t.dropped[:0]
-	if len(t.tokens) == 0 {
-		return nil
-	}
-	// Empty content yields zero tokens and we never want to drop a
-	// zero-cost customization. Pre-walk to absorb those into the
-	// kept set so the budget walk only sees real candidates.
+// filterZeroCost absorbs zero-cost tokens into kept and returns real candidates.
+func (t *Trimmer) filterZeroCost() []*Token {
 	var real []*Token
 	for _, tok := range t.tokens {
 		if tok.Tokens() == 0 {
@@ -132,10 +122,23 @@ func (t *Trimmer) Trim() []*Token {
 		}
 		real = append(real, tok)
 	}
-	// Stable sort, descending by Priority — /commands first,
-	// /customize last. sort.SliceStable keeps registration order
-	// on ties (two tokens with the same priority retain their
-	// relative order).
+	return real
+}
+
+func reverseTokens(toks []*Token) {
+	for i, j := 0, len(toks)-1; i < j; i, j = i+1, j-1 {
+		toks[i], toks[j] = toks[j], toks[i]
+	}
+}
+
+func (t *Trimmer) Trim() []*Token {
+	capacity := t.budget.Capacity()
+	t.kept = t.kept[:0]
+	t.dropped = t.dropped[:0]
+	if len(t.tokens) == 0 {
+		return nil
+	}
+	real := t.filterZeroCost()
 	sort.SliceStable(real, func(i, j int) bool {
 		return real[i].Priority > real[j].Priority
 	})
@@ -143,32 +146,13 @@ func (t *Trimmer) Trim() []*Token {
 	for _, tok := range real {
 		next := used + tok.Tokens()
 		if next > capacity {
-			// Once the budget is full, every remaining candidate
-			// has lower priority than what we already kept; the
-			// contract is "drop the lowest first", and the
-			// candidates we haven't visited yet are exactly the
-			// lowest. Stop tracking — fall through to the
-			// "everything left goes into dropped" tail below.
 			t.dropped = append(t.dropped, tok)
 			continue
 		}
 		used = next
 		t.kept = append(t.kept, tok)
 	}
-	// The dropped slice is in descending priority order (because
-	// that's the order we visited them). Reverse it so callers see
-	// "customize first, then config, then …" — matches what the
-	// "low priority trimmed first" contract implies about the
-	// order of dropped names. We do this in place: the slice is
-	// owned by the trimmer.
-	for i, j := 0, len(t.dropped)-1; i < j; i, j = i+1, j-1 {
-		t.dropped[i], t.dropped[j] = t.dropped[j], t.dropped[i]
-	}
-	// Restore registration order so the caller does not have to
-	// re-think the layout after every Trim call. Sort the kept
-	// slice back into the order tokens were registered in. The
-	// zero-cost shortcuts are already in registration order, so we
-	// can merge them in via a single sort.
+	reverseTokens(t.dropped)
 	sort.SliceStable(t.kept, func(i, j int) bool {
 		return registrationIndex(t.tokens, t.kept[i]) < registrationIndex(t.tokens, t.kept[j])
 	})

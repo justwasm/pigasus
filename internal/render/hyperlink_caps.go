@@ -162,101 +162,68 @@ func DetectHyperlinkCaps(env []string, tmuxProbeResult bool) HyperlinkCaps {
 		caps.SSH = true
 	}
 
-	// Terminal label — kept simple: a small lookup that records the
-	// first match against the recovered AGY strings table. The label
-	// is diagnostic only; it does not gate OSC 8 on its own.
-	switch {
-	case termProgram == terminalAppMarker:
-		caps.Terminal = "Apple_Terminal"
-	case termProgram == "WezTerm":
-		caps.Terminal = "WezTerm"
-	case termProgram == "kitty":
-		caps.Terminal = "kitty"
-	case termProgram == "ghostty":
-		caps.Terminal = "ghostty"
-	case termProgram == "iTerm.app", termProgram == "iTerm2":
-		caps.Terminal = "iTerm2"
-	case termProgram == "vscode":
-		caps.Terminal = "vscode"
-	case termProgram == "konsole":
-		caps.Terminal = "konsole"
-	case termProgram == "alacritty":
-		caps.Terminal = "alacritty"
-	case termProgram == "foot":
-		caps.Terminal = "foot"
-	case tmux != "":
-		caps.Terminal = "tmux"
-	case strings.HasPrefix(term, "screen"):
-		caps.Terminal = "screen"
-	case term != "":
-		caps.Terminal = term
-	}
-
-	// OSC 8 disable rules. Apply in priority order so the most
-	// specific rule wins. Apple Terminal is always disabled — the
-	// changelog says so for both local and SSH use.
-	//
-	// GNU screen never implements OSC 8 (the 4.9.x patches are not
-	// shipped by any major distro); disable unconditionally.
-	switch {
-	case termProgram == terminalAppMarker:
-		// Apple Terminal — never emits OSC 8. AGY 1.4.0 changelog
-		// rule (verbatim): "raw OSC 8 escape sequences rendering in
-		// `Apple_Terminal` over SSH connections by disabling
-		// unsupported hyperlink sequences". The "over SSH" is
-		// special-cased *below*; local Apple Terminal is also
-		// disabled unconditionally because the terminal does not
-		// implement OSC 8 in any version.
-		caps.OSC8 = false
-		caps.AppleTerminalSSH = caps.SSH // remember for the debug log
-	case strings.HasPrefix(term, "screen"):
-		// GNU screen — no OSC 8. AGY 1.4.0 changelog (verbatim):
-		// "Fixed the sign-in URL and other links rendering as
-		// garbled text on terminals that do not parse OSC 8
-		// hyperlinks, such as GNU `screen`, which are now detected
-		// and given plain text instead."
-		caps.OSC8 = false
-	case tmux != "" && !tmuxProbeResult:
-		// tmux without the hyperlink-passthrough patch — round-trip
-		// probe came back negative, so OSC 8 frames would be stripped
-		// before reaching the underlying terminal. AGY's strings
-		// table carries the literal "tmux hyperlink probe failed,
-		// assuming no OSC 8 passthrough" message; the OSC 8 disable
-		// here is the cycle's response.
-		caps.OSC8 = false
-		if !caps.TmuxHyperlinkPassthrough {
-			// Probe didn't enable it explicitly; record the
-			// negative so the debug log can show "tmux
-			// passthrough: no".
-			caps.TmuxHyperlinkPassthrough = false
-		}
-	default:
-		// Default: OSC 8 on. Modern terminals (kitty, ghostty,
-		// WezTerm ≥ 2024, foot ≥ 1.17, iTerm2, konsole, alacritty,
-		// vscode ≥ 1.79) all implement OSC 8; older xterm and the
-		// SSH-connected variants that pass through to one of the
-		// above pass through too. The conservative "unknown
-		// terminal" path is also "on" — modern tcTerm/xterm builds
-		// (≥ X.Org xterm 379) accept OSC 8, and the worst case
-		// when the terminal truly doesn't understand is the
-		// pre-cycle behaviour (raw escape sequences, ignored by
-		// the user).
-		caps.OSC8 = true
-	}
-
-	// OSC 52 detection is out of scope for cycle osc-hyperlinks; the
-	// value is recorded as the same default but not acted on. A
-	// future cycle gates the selection clipboard emission on this.
-	// Apple_Terminal and GNU screen are explicit "no OSC 52" so the
-	// debug log can record the same shape AGY uses.
-	switch {
-	case termProgram == terminalAppMarker, strings.HasPrefix(term, "screen"):
-		caps.OSC52 = false
-	default:
-		caps.OSC52 = true
-	}
+	caps.Terminal = detectTerminalLabel(termProgram, term, tmux)
+	caps.OSC8 = detectOSC8(termProgram, term, tmux, tmuxProbeResult, &caps)
+	caps.OSC52 = detectOSC52(termProgram, term)
 
 	return caps
+}
+
+func detectTerminalLabel(termProgram, term, tmux string) string {
+	switch {
+	case termProgram == terminalAppMarker:
+		return "Apple_Terminal"
+	case termProgram == "WezTerm":
+		return "WezTerm"
+	case termProgram == "kitty":
+		return "kitty"
+	case termProgram == "ghostty":
+		return "ghostty"
+	case termProgram == "iTerm.app", termProgram == "iTerm2":
+		return "iTerm2"
+	case termProgram == "vscode":
+		return "vscode"
+	case termProgram == "konsole":
+		return "konsole"
+	case termProgram == "alacritty":
+		return "alacritty"
+	case termProgram == "foot":
+		return "foot"
+	case tmux != "":
+		return "tmux"
+	case strings.HasPrefix(term, "screen"):
+		return "screen"
+	case term != "":
+		return term
+	default:
+		return ""
+	}
+}
+
+func detectOSC8(termProgram, term, tmux string, tmuxProbeResult bool, caps *HyperlinkCaps) bool {
+	switch {
+	case termProgram == terminalAppMarker:
+		caps.AppleTerminalSSH = caps.SSH
+		return false
+	case strings.HasPrefix(term, "screen"):
+		return false
+	case tmux != "" && !tmuxProbeResult:
+		if !caps.TmuxHyperlinkPassthrough {
+			caps.TmuxHyperlinkPassthrough = false
+		}
+		return false
+	default:
+		return true
+	}
+}
+
+func detectOSC52(termProgram, term string) bool {
+	switch {
+	case termProgram == terminalAppMarker, strings.HasPrefix(term, "screen"):
+		return false
+	default:
+		return true
+	}
 }
 
 // lookupEnvValue returns the value side of the first "KEY=VALUE" entry

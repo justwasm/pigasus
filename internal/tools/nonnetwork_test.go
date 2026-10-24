@@ -405,14 +405,17 @@ func TestBackgroundCommands(t *testing.T) {
 	if !strings.Contains(out, "cmd-") {
 		t.Fatalf("background start = %q", out)
 	}
-	id := "cmd-1"
-	if !strings.Contains(out, id) {
-		// ids are process-global; extract whatever was returned
-		for _, f := range strings.Fields(out) {
-			if strings.HasPrefix(f, "cmd-") {
-				id = strings.TrimSuffix(f, ".")
-			}
+	// The id is process-global, so it cannot be hardcoded: under
+	// -count>1 the registry still holds the tasks of the earlier runs
+	// and the counter has moved on. Extract the id the tool reported.
+	var id string
+	for _, f := range strings.Fields(out) {
+		if strings.HasPrefix(f, "cmd-") {
+			id = strings.TrimSuffix(f, ".")
 		}
+	}
+	if id == "" {
+		t.Fatalf("no command id in %q", out)
 	}
 	if got := dispatch(t, reg, "send_command_input", `{"id":"`+id+`","input":"hello"}`); !strings.Contains(got, "running") && !strings.Contains(got, "finished") {
 		t.Errorf("send_command_input = %q", got)

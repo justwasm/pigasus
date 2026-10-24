@@ -8,7 +8,7 @@
 // whole surface is unit-testable without a terminal.
 //
 // The feature set is fixed by the reference's own changelog (see
-// cmd/wagyu/testdata/print_changelog.md, entries collapsed under
+// cmd/pigasus/testdata/print_changelog.md, entries collapsed under
 // 1.1.11) and was re-confirmed against the decompiled Vim engine of the
 // reference binary: Normal/Insert/Visual/Visual-Line modes, the
 // h/j/k/l, w/b/e and W/B/E motions, the 0/^/$/gg/G boundaries, the

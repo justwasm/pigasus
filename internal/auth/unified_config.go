@@ -73,44 +73,18 @@ func EnvRefreshToken() string { return os.Getenv("ANTIGRAVITY_REFRESH_TOKEN") }
 // Returns *AntigravityToken 或 error. Priority 1-4 直接有 access_token,
 // priority 5 没 access_token 但有 refresh_token, 调用方应该走 Refresh flow.
 func LoadTokenUnified() (*AntigravityToken, error) {
-	// 1. JETSKI_OAUTH_TOKEN env var (v1.3.5 binary keyring 自动 load 这条 path)
-	if at := EnvOAuthToken(); at != "" {
-		// env var 只给 access_token, refresh_token 走 ANTIGRAVITY_REFRESH_TOKEN 或 load file
-		tok := &AntigravityToken{
-			Token: AntigravityAccessToken{
-				AccessToken:  at,
-				TokenType:    "Bearer",
-				RefreshToken: EnvRefreshToken(),
-			},
-			AuthMethod: "consumer",
-		}
-		// Try load refresh_token + id_token from file (env 缺这两个)
-		if t, err := LoadAntigravityToken(); err == nil && t.Token.RefreshToken != "" && tok.Token.RefreshToken == "" {
-			tok.Token.RefreshToken = t.Token.RefreshToken
-			tok.IDToken = t.IDToken
-			tok.AuthMethod = t.AuthMethod
-			if t.Token.Expiry != "" {
-				tok.Token.Expiry = t.Token.Expiry
-			}
-		}
+	if tok, ok := loadTokenFromEnv(); ok {
 		return tok, nil
 	}
-
-	// 2. OS Keychain (macOS: service "gemini", account "antigravity" - 1:1 agy parity)
-	// The reference stores the live token in the login keychain; on-disk files can be stale fixtures.
 	if tok, err := LoadKeychainToken(); err == nil && tok != nil && tok.Token.AccessToken != "" {
 		return tok, nil
 	}
-
-	// 3-5. cascade file load (priority 1→2→3)
 	for _, p := range AllTokenPaths() {
 		tok, err := LoadAntigravityTokenFrom(p)
 		if err == nil && tok.Token.AccessToken != "" {
 			return tok, nil
 		}
 	}
-
-	// 5. ANTIGRAVITY_REFRESH_TOKEN env var only (refresh flow)
 	if rt := EnvRefreshToken(); rt != "" {
 		return &AntigravityToken{
 			Token: AntigravityAccessToken{
@@ -120,13 +94,51 @@ func LoadTokenUnified() (*AntigravityToken, error) {
 			AuthMethod: "consumer",
 		}, nil
 	}
-
 	return nil, ErrNoToken
+}
+
+func loadTokenFromEnv() (*AntigravityToken, bool) {
+	at := EnvOAuthToken()
+	if at == "" {
+		return nil, false
+	}
+	tok := &AntigravityToken{
+		Token: AntigravityAccessToken{
+			AccessToken:  at,
+			TokenType:    "Bearer",
+			RefreshToken: EnvRefreshToken(),
+		},
+		AuthMethod: "consumer",
+	}
+	if t, err := LoadAntigravityToken(); err == nil && t.Token.RefreshToken != "" && tok.Token.RefreshToken == "" {
+		tok.Token.RefreshToken = t.Token.RefreshToken
+		tok.IDToken = t.IDToken
+		tok.AuthMethod = t.AuthMethod
+		if t.Token.Expiry != "" {
+			tok.Token.Expiry = t.Token.Expiry
+		}
+	}
+	return tok, true
 }
 
 // SaveTokenUnified 写所有 3 个 v1.3.5 + v4 binary 路径 (keep in sync) 并更新 Keychain.
 // 共享同一个 token, recovered + 真 binary 都能 load.
+//
+// The token also carries the account's email in the reference's own
+// id_token_email field. The reference keeps the email there rather than
+// in the id_token — its refresh response has no id_token — and it reads
+// that field back when it renders the account, so a credential written
+// by the clone names the account the installed `agy` shows.
+//
+// The email is the token's own identity (the id_token claim), so a
+// stale value left by an earlier sign-in is corrected rather than
+// carried over.
 func SaveTokenUnified(tok *AntigravityToken) error {
+	if tok != nil {
+		if email := tok.UserEmail(); email != "" {
+			tok.IDTokenEmail = email
+		}
+	}
 	var firstErr error
 	for _, p := range AllTokenPaths() {
 		if err := SaveAntigravityTokenTo(p, tok); err != nil {
@@ -165,37 +177,85 @@ func (t *AntigravityToken) RefreshIfNeeded(ctx context.Context) (*AntigravityTok
 	if !exp.IsZero() && time.Until(exp) > 5*time.Minute {
 		return t, false, nil
 	}
-	// 缺 refresh_token 走不了
 	if t.Token.RefreshToken == "" {
 		if t.Token.AccessToken == "" {
 			return t, false, errors.New("antigravity-token: no access_token and no refresh_token")
 		}
 		return t, false, nil
 	}
-	// Refresh (now with client_secret, cycle 42 fix)
 	resp, err := RefreshTokenRealWithSecret(ctx, CLIClientID, publicClientSecret, t.Token.RefreshToken)
 	if err != nil {
-		// ClassifyRefreshError returns a typed *AuthError when the
-		// wire response carries enough information (HTTP status +
-		// JSON `error` body). We always wrap the returned error in
-		// that classification so downstream IsAuthRejected /
-		// IsTransientAuthError / errors.As checks work uniformly
-		// regardless of which branch ended up here.
+		werr := handleUnifiedRefreshError(err)
+		if IsAuthRejected(werr) {
+			// The credential is gone: the caller must sign in again,
+			// and handing the stale token back would let it be used
+			// by accident.
+			return nil, false, werr
+		}
+		// A transient failure — network error, 5xx, rate limit — keeps
+		// the credential: the stale token is the best we have, and the
+		// user can try again without re-authenticating.
+		return t, false, werr
+	}
+	applyUnifiedRefreshResponse(t, resp)
+	return t, true, nil
+}
+
+func handleUnifiedRefreshError(err error) error {
+	aerr := ClassifyRefreshError(err)
+	if aerr == nil {
+		aerr = &AuthError{Endpoint: "refresh", Cause: err}
+	}
+	if aerr.Rejection {
+		cleared, _ := ClearTokenUnified()
+		return fmt.Errorf("refresh: %w (sign-in rejected: cleared %d stale credential path(s); please run /login)", aerr, cleared)
+	}
+	return fmt.Errorf("refresh failed: %w (returning stale token)", aerr)
+}
+
+func applyUnifiedRefreshResponse(t *AntigravityToken, resp *TokenResponse) {
+	t.Token.AccessToken = resp.AccessToken
+	t.Token.TokenType = resp.TokenType
+	if resp.RefreshToken != "" {
+		t.Token.RefreshToken = resp.RefreshToken
+	}
+	expiry := time.Now().Add(time.Duration(resp.ExpiresIn) * time.Second)
+	t.Token.Expiry = expiry.Format(time.RFC3339Nano)
+	_ = SaveTokenUnified(t)
+}
+
+// RefreshQuiet 刷新 token, 但**不写共享凭据**、**不清除共享凭据**.
+//
+// 它是 inactive account 的唯一安全刷新路径: 多账号面板要查每个账号的
+// quota, 每个账号用自己的 access token; 如果那个 token 过期了, 刷新是
+// 必须的 —— 但 RefreshIfNeeded 会把新 token 写进共享凭据 (那等于把活跃
+// 账号换掉了), 而 refresh 被拒绝时还会 ClearTokenUnified (那等于把用户
+// 登出). 两者对一个 *非活跃* 账号都是错的.
+//
+// 返回值同 RefreshIfNeeded: (token, refreshed, error). 刷新失败时返回
+// 原 token (可能 stale) 和错误, 绝不碰共享凭据.
+func (t *AntigravityToken) RefreshQuiet(ctx context.Context) (*AntigravityToken, bool, error) {
+	if t == nil {
+		return nil, false, ErrNoToken
+	}
+	exp := t.ExpiryTime()
+	if !exp.IsZero() && time.Until(exp) > 5*time.Minute {
+		return t, false, nil
+	}
+	if t.Token.RefreshToken == "" {
+		if t.Token.AccessToken == "" {
+			return t, false, errors.New("antigravity-token: no access_token and no refresh_token")
+		}
+		return t, false, nil
+	}
+	resp, err := RefreshTokenRealWithSecret(ctx, CLIClientID, publicClientSecret, t.Token.RefreshToken)
+	if err != nil {
 		aerr := ClassifyRefreshError(err)
 		if aerr == nil {
-			// Untyped failure (network / parse): synthesise a
-			// non-rejection *AuthError so the wrap remains
-			// inspectable.
 			aerr = &AuthError{Endpoint: "refresh", Cause: err}
 		}
-		if aerr.Rejection {
-			// Definitive rejection from the sign-in server. Drop the
-			// stale credentials so the next /login can take over;
-			// returning the stale-refresh-token to the caller would
-			// just cause the same invalid_grant on the next refresh.
-			cleared, _ := ClearTokenUnified()
-			return nil, false, fmt.Errorf("refresh: %w (sign-in rejected: cleared %d stale credential path(s); please run /login)", aerr, cleared)
-		}
+		// A rejected refresh of an inactive account is that account's
+		// problem: it must not sign the user out of the active one.
 		return t, false, fmt.Errorf("refresh failed: %w (returning stale token)", aerr)
 	}
 	t.Token.AccessToken = resp.AccessToken
@@ -205,8 +265,6 @@ func (t *AntigravityToken) RefreshIfNeeded(ctx context.Context) (*AntigravityTok
 	}
 	expiry := time.Now().Add(time.Duration(resp.ExpiresIn) * time.Second)
 	t.Token.Expiry = expiry.Format(time.RFC3339Nano)
-	// 写所有路径 (sync 跟真 binary 共享)
-	_ = SaveTokenUnified(t)
 	return t, true, nil
 }
 

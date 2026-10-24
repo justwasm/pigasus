@@ -86,10 +86,24 @@ func (l Line) RenderWithStyle(style midterm.Format) string {
 		return ""
 	}
 
-	// Cell positions are not a 1:1 with rune indices (CJK runes
-	// span 2 cells). Pre-compute cellWidths (per-rune cell width),
-	// runeWidth (total cells), and cellToRune (cell → rune index,
-	// so we can slice contentRunes by cell boundary).
+	cellWidths, width, cellToRune := buildCellMetrics(runes)
+	if width == 0 {
+		return ""
+	}
+
+	cellHighlights := byteHighlightsToCell(l.Content, cellWidths, l.Highlights)
+	c := &midterm.Canvas{Width: width}
+	c.Paint(0, 0, midterm.EmptyFormat)
+
+	for col := 0; col < width; col++ {
+		if col < len(cellHighlights) && cellHighlights[col] != 0 {
+			c.Paint(0, col, style)
+		}
+	}
+	return renderRegionsString(c, width, cellToRune, runes, len(l.Content)+32)
+}
+
+func buildCellMetrics(runes []rune) ([]int, int, []int) {
 	cellWidths := make([]int, len(runes))
 	width := 0
 	for i, r := range runes {
@@ -101,7 +115,7 @@ func (l Line) RenderWithStyle(style midterm.Format) string {
 		width += w
 	}
 	if width == 0 {
-		return ""
+		return nil, 0, nil
 	}
 	cellToRune := make([]int, width+1)
 	cc := 0
@@ -110,39 +124,12 @@ func (l Line) RenderWithStyle(style midterm.Format) string {
 		cc += w
 	}
 	cellToRune[width] = len(runes)
+	return cellWidths, width, cellToRune
+}
 
-	// Convert Highlights (byte ranges) into cell ranges so we can
-	// walk cells in order and Paint the right ones. We don't paint
-	// contiguous ranges in bulk: Paint's neighbour-coalescing does
-	// the merging for us and produces a clean Canvas.Regions(0).
-	cellHighlights := byteHighlightsToCell(l.Content, cellWidths, l.Highlights)
-
-	// Bootstrap the Canvas WITHOUT pre-sizing it. We let Paint
-	// create the row on first call (Canvas defaults to Width=0,
-	// which means each Paint is a single-cell operation; the
-	// resulting row is rebuilt each time Paint sees a new cell).
-	// To get a single contiguous EmptyFormat region, we instead
-	// size the canvas to width and paint just the trailing
-	// headroom cell, which forces a single row of size=width.
-	c := &midterm.Canvas{Width: width}
-	// Touch col=0 once with EmptyFormat so Region(0) yields exactly
-	// one "padding then highlight" pattern. We paint the
-	// highlighted cells next; their same-format grow path will
-	// extend the bootstrap region by the trailing width.
-	c.Paint(0, 0, midterm.EmptyFormat)
-
-	for col := 0; col < width; col++ {
-		if col < len(cellHighlights) && cellHighlights[col] != 0 {
-			c.Paint(0, col, style)
-		}
-	}
-
-	// Walk Regions(0), emit format codes interleaved with the
-	// content slice. The trailing SGR reset is required so any
-	// styling we set doesn't bleed into whatever the caller
-	// appends next on the same line.
+func renderRegionsString(c *midterm.Canvas, width int, cellToRune []int, runes []rune, capHint int) string {
 	var sb strings.Builder
-	sb.Grow(len(l.Content) + 32)
+	sb.Grow(capHint)
 	pos := 0
 	lastFmt := midterm.Format{}
 	for region := range c.Regions(0) {
@@ -161,8 +148,6 @@ func (l Line) RenderWithStyle(style midterm.Format) string {
 			sb.WriteString(region.F.RenderFgBg(nil, nil))
 			lastFmt = region.F
 		}
-		// cellToRune[pos]/[end] give the rune indices that span the
-		// cell range [pos, end).
 		sb.WriteString(string(runes[cellToRune[pos]:cellToRune[end]]))
 		pos = end
 	}
@@ -170,11 +155,6 @@ func (l Line) RenderWithStyle(style midterm.Format) string {
 	return sb.String()
 }
 
-// byteHighlightsToCell converts a list of byte-half-open highlight
-// ranges over `content` into a per-cell boolean slice, the slice
-// length being the line's total display width. Byte ranges are
-// clamped to [0, len(content)]; zero-width or fully-outside ranges
-// are dropped. cellWidths[i] is the cell width of the i-th rune.
 func byteHighlightsToCell(content string, cellWidths []int, ranges []Range) []int {
 	if len(ranges) == 0 {
 		return nil
@@ -187,7 +167,6 @@ func byteHighlightsToCell(content string, cellWidths []int, ranges []Range) []in
 		return nil
 	}
 
-	// Cumulative cell position per rune, plus a sentry at len(runes).
 	runes := []rune(content)
 	runeToCell := make([]int, len(runes)+1)
 	cc := 0
@@ -202,64 +181,66 @@ func byteHighlightsToCell(content string, cellWidths []int, ranges []Range) []in
 		if r.End <= r.Start {
 			continue
 		}
-		bStart := r.Start
-		if bStart < 0 {
-			bStart = 0
-		}
-		bEnd := r.End
-		if bEnd > len(content) {
-			bEnd = len(content)
-		}
+		bStart, bEnd := clampRange(r.Start, r.End, len(content))
 		if bEnd <= bStart {
 			continue
 		}
-
-		// Find the first rune whose starting byte offset is >= bStart;
-		// the highlight begins at this rune's cell position.
-		startRune := -1
-		bytePos := 0
-		for i, r := range runes {
-			if bytePos >= bStart {
-				startRune = i
-				break
-			}
-			bytePos += utf8Len(r)
-		}
-		if startRune < 0 {
-			startRune = len(runes)
-		}
-
-		// Find one past the last rune whose starting byte offset is < bEnd;
-		// the highlight ends at the end of that rune's cells.
-		endRune := -1
-		bytePos = 0
-		for i, r := range runes {
-			if bytePos >= bEnd {
-				break
-			}
-			endRune = i + 1
-			bytePos += utf8Len(r)
-		}
-		if endRune < 0 || endRune <= startRune {
+		startRune, endRune := findRuneByteRange(runes, bStart, bEnd)
+		if endRune <= startRune {
 			continue
 		}
-
-		cStart := runeToCell[startRune]
-		cEnd := runeToCell[endRune]
-		if cEnd <= cStart {
-			continue
-		}
-		if cStart >= width {
-			continue
-		}
-		if cEnd > width {
-			cEnd = width
-		}
-		for cc := cStart; cc < cEnd; cc++ {
-			out[cc] = 1
-		}
+		markCellRange(runeToCell, startRune, endRune, width, out)
 	}
 	return out
+}
+
+func clampRange(start, end, maxLen int) (int, int) {
+	if start < 0 {
+		start = 0
+	}
+	if end > maxLen {
+		end = maxLen
+	}
+	return start, end
+}
+
+func findRuneByteRange(runes []rune, bStart, bEnd int) (int, int) {
+	startRune := -1
+	bytePos := 0
+	for i, r := range runes {
+		if bytePos >= bStart {
+			startRune = i
+			break
+		}
+		bytePos += utf8Len(r)
+	}
+	if startRune < 0 {
+		startRune = len(runes)
+	}
+	endRune := -1
+	bytePos = 0
+	for i, r := range runes {
+		if bytePos >= bEnd {
+			break
+		}
+		endRune = i + 1
+		bytePos += utf8Len(r)
+	}
+	return startRune, endRune
+}
+
+func markCellRange(runeToCell []int, startRune, endRune, width int, out []int) {
+	cStart := runeToCell[startRune]
+	cEnd := runeToCell[endRune]
+	if cEnd <= cStart || cStart >= width {
+		return
+	}
+	if cEnd > width {
+		cEnd = width
+	}
+	for cc := cStart; cc < cEnd; cc++ {
+		out[cc] = 1
+	}
 }
 
 // utf8Len returns the byte length of the UTF-8 encoding of r. Kept

@@ -1,8 +1,8 @@
 // alwaysload.go — the AGY 1.3.3 "always loaded MCP tool" hint parser.
 //
 // AGY 1.3.3 changelog line 42 (also recovered verbatim from the v1.3.4
-// binary at offset 0x8745 in out/local-macos/seeds/seeds.txt and in the
-// decompiled strings dump at docs/decompiled-v1.3.4/strings-new-in-v1.3.4.txt):
+// binary and listed at docs/decompiled-v1.3.4/strings-new-in-v1.3.4.txt:8745;
+// the same sentence sits at file offset 0x3b39e39 of the agy 1.4.5 binary):
 //
 //	Added support for MCP servers to mark a tool as always loaded by
 //	setting `_meta: {"antigravity/alwaysLoad": true}` on it in their
@@ -333,3 +333,72 @@ func MergeAlwaysLoadHints(static, dynamic []AlwaysLoadHint) []AlwaysLoadHint {
 	})
 	return merged
 }
+
+// AlwaysLoadedTools is the canonical `mcp__<server>__<tool>` name of every tool
+// the runtime parsed out of the AGY 1.3.3 always-load config.
+func (r *Runtime) AlwaysLoadedTools() []string {
+	if r == nil || len(r.alwaysLoad) == 0 {
+		return nil
+	}
+	out := make([]string, len(r.alwaysLoad))
+	for i, hint := range r.alwaysLoad {
+		out[i] = MCPName(hint.Server, hint.Tool)
+	}
+	return out
+}
+
+// AlwaysLoadByServer groups the canonical tool names by their server prefix.
+func (r *Runtime) AlwaysLoadByServer() map[string][]string {
+	if r == nil || len(r.alwaysLoad) == 0 {
+		return nil
+	}
+	keys := make([]string, 0)
+	group := make(map[string][]string)
+	for _, hint := range r.alwaysLoad {
+		if _, ok := group[hint.Server]; !ok {
+			keys = append(keys, hint.Server)
+		}
+		group[hint.Server] = append(group[hint.Server], MCPName(hint.Server, hint.Tool))
+	}
+	sort.Strings(keys)
+	out := make(map[string][]string, len(group))
+	for _, server := range keys {
+		names := group[server]
+		sort.Strings(names)
+		out[server] = names
+	}
+	return out
+}
+
+// AlwaysLoadHints returns the parsed hints (server, tool, source) the runtime knows about.
+func (r *Runtime) AlwaysLoadHints() []AlwaysLoadHint {
+	if r == nil || len(r.alwaysLoad) == 0 {
+		return nil
+	}
+	out := make([]AlwaysLoadHint, len(r.alwaysLoad))
+	copy(out, r.alwaysLoad)
+	return out
+}
+
+// loadAlwaysLoadHints reads the MCP config once and merges static and dynamic hints.
+func loadAlwaysLoadHints(opts Options) []AlwaysLoadHint {
+	var static []AlwaysLoadHint
+	if opts.MCPConfigPath != "" {
+		doc, err := LoadAgyMCPFile(opts.MCPConfigPath)
+		if err == nil {
+			static = AlwaysLoadHintsFromConfig(doc.Servers)
+		}
+	}
+	var dynamic []AlwaysLoadHint
+	for server, tools := range opts.AlwaysLoadToolsByServer {
+		for _, tool := range tools {
+			dynamic = append(dynamic, AlwaysLoadHint{
+				Server: server,
+				Tool:   tool,
+				Source: "dynamic",
+			})
+		}
+	}
+	return MergeAlwaysLoadHints(static, dynamic)
+}
+

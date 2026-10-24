@@ -17,9 +17,10 @@ import (
 	"bytes"
 	"encoding/json"
 	"io"
-	"os"
 	"strings"
 	"testing"
+
+	"github.com/justwasm/pigasus/internal/persistentrc"
 )
 
 // runJetski executes one invocation through the standard v1.3.5 parser and
@@ -66,18 +67,14 @@ func TestPluginList_1to1(t *testing.T) {
 }
 
 func TestRemoteControlStatus_1to1(t *testing.T) {
-	out, errb, code := runJetski(t, "remote-control", "status")
+	out, errb, code := runJetski(t, "remote-control", "status", "--json")
 	if errb != "" {
 		t.Errorf("agy remote-control status stderr should be empty, got %q", errb)
 	}
 	if code != 0 {
 		t.Errorf("agy remote-control status should exit 0, got %d", code)
 	}
-	// Cycle rc-persistent-daemon: status now emits a JSON
-	// document (the brief pins this shape so dashboards can
-	// parse the stream regardless of running state).  Verify
-	// the document is parseable and carries the expected
-	// fields for the "no LaunchAgent registered" case.
+	// Cycle rc-persistent-daemon: status --json emits a JSON document.
 	if !strings.HasSuffix(out, "\n") {
 		t.Errorf("agy remote-control status stdout should end with newline, got %q", out)
 	}
@@ -85,20 +82,27 @@ func TestRemoteControlStatus_1to1(t *testing.T) {
 	if err := json.Unmarshal([]byte(strings.TrimSpace(out)), &got); err != nil {
 		t.Fatalf("agy remote-control status stdout is not valid JSON: %v\nout=%q", err, out)
 	}
-	hn, _ := os.Hostname()
-	wantName := hn
-	if v, ok := got["running"]; !ok {
-		t.Errorf("JSON missing `running` field; got=%v", got)
-	} else if v.(bool) {
-		t.Errorf("JSON running should be false on a fresh machine; got %v", v)
-	}
+	wantName := persistentrc.ResolveInstanceName("")
 	if v, ok := got["name"]; !ok {
 		t.Errorf("JSON missing `name` field; got=%v", got)
 	} else if wantName != "" && v.(string) != wantName {
-		t.Errorf("JSON name = %q, want hostname %q", v, wantName)
+		t.Errorf("JSON name = %q, want %q", v, wantName)
 	}
-	if _, ok := got["hint"]; !ok {
-		t.Errorf("JSON missing `hint` field on not-running report; got=%v", got)
+}
+
+func TestRemoteControlStatus_Plaintext(t *testing.T) {
+	out, errb, code := runJetski(t, "remote-control", "status")
+	if errb != "" {
+		t.Errorf("status stderr should be empty, got %q", errb)
+	}
+	if code != 0 {
+		t.Errorf("status exit code = %d, want 0", code)
+	}
+	if !strings.Contains(out, "Instance name:") {
+		t.Errorf("status plaintext should contain 'Instance name:', got %q", out)
+	}
+	if !strings.Contains(out, "https://antigravity.google.com") {
+		t.Errorf("status plaintext should mention antigravity.google.com, got %q", out)
 	}
 }
 

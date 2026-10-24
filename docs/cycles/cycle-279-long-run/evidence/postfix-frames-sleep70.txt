@@ -1,0 +1,55 @@
+# cycle 279 — post-fix live confirmation (re-captured 2026-10-20 14:52-14:54)
+#
+# Clone: /tmp/wagyu-main built from main @ 2391ae4 (cycle 279 + 281 landed)
+# Model: MiniMax M3 via agw.k0s.io, TUI 200x40 in tmux, ANTIGRAVITY_HOME=/tmp/m3-home
+# Prompt: 'Run the shell command `sleep 70` using run_command, wait for it to finish,
+#          then tell me in one sentence how long it slept. Do not background it.'
+# Prompt entered 14:52:38. Pre-fix the turn died at 1m0.017s with text=0; here the
+# tool is still running at 14:53:53 (75 s) and the reply lands at 14:54:06.
+
+===== 14:53:53 (75 s after the prompt; the old 60 s deadline would have fired 15 s ago) =====
+===== 14:53:53 =====
+      ▄▀▀▄        Antigravity CLI 1.4.2
+     ▀▀▀▀▀▀       navigaid@gmail.com (Antigravity Starter Quota)
+    ▀▀▀▀▀▀▀▀      MiniMax M3
+   ▄▀▀    ▀▀▄     /tmp/m3-ws
+  ▄▀▀      ▀▀▄
+> Run the shell command `sleep 70` using run_command, wait for it to finish, then tell me in one sentence how long it slept. Do not background it.
+  Post "https://agw.k0s.io/v1/chat/completions": net/http: TLS handshake timeoutI'll run the sleep command synchronously now.
+▸ Thinking... (3.3s)
+⡿  Bash (sleep 70)
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+>
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+? for shortcuts                                                                                                                                                                               MiniMax M3
+
+===== 14:54:04 (tool done, turn alive: 'Thinking... (1m13.3s)') =====
+===== 14:54:04 =====
+      ▄▀▀▄        Antigravity CLI 1.4.2
+     ▀▀▀▀▀▀       navigaid@gmail.com (Antigravity Starter Quota)
+    ▀▀▀▀▀▀▀▀      MiniMax M3
+   ▄▀▀    ▀▀▄     /tmp/m3-ws
+  ▄▀▀      ▀▀▄
+> Run the shell command `sleep 70` using run_command, wait for it to finish, then tell me in one sentence how long it slept. Do not background it.
+  Post "https://agw.k0s.io/v1/chat/completions": net/http: TLS handshake timeoutI'll run the sleep command synchronously now.
+● Bash (sleep 70) (ctrl+o to expand)
+▸ Thinking... (1m13.3s)
+⡿  Generating...
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+>
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+? for shortcuts                                                                                                                                                                               MiniMax M3
+
+===== 14:54:06 (final answer) =====
+===== 14:54:06 =====
+      ▄▀▀▄        Antigravity CLI 1.4.2
+     ▀▀▀▀▀▀       navigaid@gmail.com (Antigravity Starter Quota)
+    ▀▀▀▀▀▀▀▀      MiniMax M3
+   ▄▀▀    ▀▀▄     /tmp/m3-ws
+  ▄▀▀      ▀▀▄
+> Run the shell command `sleep 70` using run_command, wait for it to finish, then tell me in one sentence how long it slept. Do not background it.
+  I'll run the sleep command synchronously now.The sleep 70 command completed successfully after sleeping for exactly 70 seconds (from 14:52:53 to 14:54:03).
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+>
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+? for shortcuts                                                                                                                                                                               MiniMax M3

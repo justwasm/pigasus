@@ -30,27 +30,64 @@ jobs:
       - name: Download Go modules
         run: go mod download
 
-      - name: Build (cmd/wagyu)
-        run: go build -o /tmp/wagyu ./cmd/wagyu
+      - name: Build (cmd/pigasus)
+        run: go build -o /tmp/pigasus ./cmd/pigasus
+
+      # The other entry points (openagy-models, openai-shim, anthropic-shim)
+      # are compiled but not shipped in the release archive; a broken one must
+      # still fail CI. `go build` with several main packages discards the
+      # binaries, so nothing lands in the workspace.
+      - name: Build (every cmd)
+        run: go build ./cmd/...
 
       - name: Show built binary size
         run: |
-          ls -la /tmp/wagyu
-          file /tmp/wagyu
+          ls -la /tmp/pigasus
+          file /tmp/pigasus
 
       # `./...` also covers scratch/, which has never built; the tested surface
       # is cmd/ + internal/, the same set AGENTS.md documents.
       - name: Test (cmd + internal)
         run: go test -count=1 ./cmd/... ./internal/...
 
-      - name: Test race detector (subagent / mediagen goroutines)
-        run: go test -count=1 -race ./internal/subagent/... ./internal/mediagen/...
+      # The race detector over the packages that own goroutines: the
+      # agent's own workers (subagent, mediagen), the TUI's panels
+      # (cliapp), the code search's runner (codesearch), the tool
+      # subprocesses (tools), the remote-control server (rchost), the
+      # plugin watcher (pluginwatch) and the credential refresh
+      # (auth). Every one of these packages was race-clean when this
+      # list was widened; the step keeps it that way.
+      - name: Test race detector (goroutine-owning packages)
+        run: go test -count=1 -race ./internal/subagent/... ./internal/mediagen/... ./internal/cliapp/... ./internal/codesearch/... ./internal/tools/... ./internal/rchost/... ./internal/pluginwatch/... ./internal/auth/...
 
       # `--services` / `--tool` are NOT registered: the parse-parity surface
       # dropped them, so main.go's handlers for them are unreachable. Smoke the
       # two flags that do exist.
       - name: Smoke test (--version)
-        run: /tmp/wagyu --version
+        run: /tmp/pigasus --version
 
+      # The reference prints its help on stderr (the top level
+      # included), so the smoke step has to capture stderr explicitly
+      # or it would assert nothing. The second half is the invariant
+      # AGENTS.md pins: the visible subcommand list is exactly the
+      # reference's twelve, and the hidden groups stay hidden.
       - name: Smoke test (--help)
-        run: /tmp/wagyu --help | head -20
+        run: |
+          /tmp/pigasus --help 2>&1 | head -20
+          /tmp/pigasus --help 2>&1 | sed -n '/^Available subcommands:/,$p' | tail -n +2 | awk '{print $1}' | sort > /tmp/subs_got.txt
+          printf 'agent\nagents\nchangelog\nhelp\ninstall\nmcp\nmic-serve\nmodels\nplugin\nplugins\nremote-control\nupdate\n' | sort > /tmp/subs_want.txt
+          diff /tmp/subs_want.txt /tmp/subs_got.txt
+
+      # The surfaces the clone adds on top of the reference's twelve visible
+      # subcommands: the CloudCode proxy's admin group and the provider
+      # registry. Both are hidden, so nothing else exercises them. They must
+      # work with no vendor `agy` and no registry file present — both exit 0
+      # in that state, so the smoke test is offline-safe.
+      - name: Smoke test (proxy admin)
+        run: /tmp/pigasus proxy version
+
+      - name: Smoke test (provider registry)
+        run: /tmp/pigasus provider list
+
+      - name: Smoke test (model registry)
+        run: /tmp/pigasus model list

@@ -199,9 +199,14 @@ type scheduleParams struct {
 	IsDaemon        bool   `json:"is_daemon"`
 	MaxIterations   int    `json:"max_iterations"`
 	TimerCondition  string `json:"timer_condition"`
-	Command         string `json:"command"`
-	DelaySeconds    int    `json:"delay_seconds"`
-	Cron            string `json:"cron"`
+	// ExactTiming is the 1.4.5 addition to the reference's schedule
+	// declaration: "Set ExactTiming only when a cron must fire at the exact
+	// wall-clock time without jitter" (【一手】, live 1.4.5 request body). The
+	// clone has no scheduler, so the flag is carried but nothing acts on it.
+	ExactTiming  bool   `json:"exact_timing"`
+	Command      string `json:"command"`
+	DelaySeconds int    `json:"delay_seconds"`
+	Cron         string `json:"cron"`
 }
 
 func parseScheduleParams(args json.RawMessage) (*scheduleParams, error) {
@@ -257,12 +262,25 @@ func (s *ScheduleTool) Run(ctx context.Context, args json.RawMessage) (any, erro
 	if conversationID == "" {
 		conversationID = processConversationID()
 	}
-	taskID := nextScheduleTaskID(conversationID)
+	taskID := ScheduleTableFor(conversationID).nextTaskID()
 	logPath := filepath.Join(scheduleHome(s.Home), "brain", conversationID,
 		".system_generated", "tasks", taskID+".log")
 	if err := writeScheduleTaskLog(logPath, p); err != nil {
 		return nil, err
 	}
+	// The conversation now owns the schedule: the table is what the
+	// rehydration pass rebuilds when the conversation is resumed, and
+	// what the task-id counter is restored from.
+	ScheduleTableFor(conversationID).add(ScheduleEntry{
+		ID:              conversationID + "/" + taskID,
+		Prompt:          p.Prompt,
+		DurationSeconds: p.DurationSeconds,
+		CronExpression:  p.CronExpression,
+		TimerCondition:  p.TimerCondition,
+		IsDaemon:        p.IsDaemon,
+		MaxIterations:   p.MaxIterations,
+		LogPath:         logPath,
+	})
 
 	// The reference has no Completed At on this result: the command was backgrounded.
 	return "Created At: " + start.Format(time.RFC3339) + "\n" +
@@ -273,19 +291,9 @@ func (s *ScheduleTool) Run(ctx context.Context, args json.RawMessage) (any, erro
 }
 
 var (
-	scheduleSeqMu sync.Mutex
-	scheduleSeq   = map[string]int{}
-	procConvID    string
-	procConvOnce  sync.Once
+	procConvID   string
+	procConvOnce sync.Once
 )
-
-// nextScheduleTaskID mints the reference's per-conversation task ids.
-func nextScheduleTaskID(conversationID string) string {
-	scheduleSeqMu.Lock()
-	defer scheduleSeqMu.Unlock()
-	scheduleSeq[conversationID]++
-	return fmt.Sprintf("task-%d", scheduleSeq[conversationID])
-}
 
 // processConversationID is a last-resort stable id so the acknowledged log path stays inside one dir.
 func processConversationID() string {

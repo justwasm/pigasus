@@ -13,6 +13,7 @@ package cli
 // observable behaviour is measured against.
 //
 // Source of truth: `$ ~/.local/bin/agy --version` prints the literal
-// string we mirror here. Cycle 283 moved to 1.4.3; updated to 1.4.4
-// for full parity with the installed 1.4.4 reference binary.
-const ReferenceVersion = "1.4.4"
+// string we mirror here. Cycle 283 moved to 1.4.3; 1.4.5 was the
+// reference-drift-145 bump; 1.4.6 is the reference-drift-146 bump
+// (the installed binary prints 1.4.6).
+const ReferenceVersion = "1.4.6"

@@ -65,7 +65,7 @@ const bgLogTailBytes = 4096
 //
 // The function is nil-safe: nil receivers return without writing so the
 // defer in start() can call it unconditionally before fields are wired
-// up. (bgTask.start constructs t.log as a zero-value safeBuffer, so in
+// up. (bgTask.start constructs t.log as a zero-value SafeBuffer, so in
 // practice nil only happens for a future caller that passes literals.)
 //
 // Every bg exit path goes through this function:
@@ -79,7 +79,7 @@ const bgLogTailBytes = 4096
 // Invoked via defer from the cmd.Wait goroutine so a panic or an
 // unexpected goroutine termination still captures the tail before the
 // task is forgotten. See start() in support.go for the call site.
-func recordFinalOutput(buf, log *safeBuffer, reason string) {
+func recordFinalOutput(buf, log *SafeBuffer, reason string) {
 	if buf == nil || log == nil {
 		return
 	}

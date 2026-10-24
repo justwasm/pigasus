@@ -176,3 +176,122 @@ func TestPickerSetIdx_ClampsAndHides(t *testing.T) {
 		t.Errorf("Idx after SetIdx(9999) = %d, want %d", p.Idx(), last)
 	}
 }
+
+// modelCatalogue is the row set the "/model <query>" popup filters.
+func modelCatalogue() []ModelRow {
+	return []ModelRow{
+		{Label: "Gemini 3.8 Flash (High)", ID: "gemini-3.8-flash-high"},
+		{Label: "Gemini 3.8 Flash (Medium)", ID: "gemini-3.8-flash-medium"},
+		{Label: "Claude Sonnet 4.6 (Thinking)", ID: "claude-sonnet-4-6"},
+		{Label: "Claude Opus 4.6 (Thinking)", ID: "claude-opus-4-6-thinking"},
+		{Label: "GPT-OSS 120B (Medium)", ID: "gpt-oss-120b-medium"},
+	}
+}
+
+// The "/model " line is not a command prefix but an *argument* being
+// typed: the reference swaps the command rows for the model rows and
+// lists the whole catalogue for an empty query
+// (【一手】 agy 1.4.6, live).
+func TestPickerUpdate_ModelModeListsCatalogue(t *testing.T) {
+	var p PickerState
+	p.SetModelCatalogueSource(modelCatalogue)
+	p.Update([]rune("/model "))
+	if p.Kind() != PickerKindModel {
+		t.Fatalf("Kind = %v, want PickerKindModel", p.Kind())
+	}
+	if !p.Visible() {
+		t.Fatal("picker should be visible for /model ")
+	}
+	if p.Len() != len(modelCatalogue()) {
+		t.Errorf("Len = %d, want %d", p.Len(), len(modelCatalogue()))
+	}
+	if got := p.Query(); got != "" {
+		t.Errorf("Query = %q, want empty", got)
+	}
+}
+
+// A bare "/model" is still a command prefix: the reference shows the
+// command rows, not the models (【一手】 agy 1.4.6, live).
+func TestPickerUpdate_BareModelStaysACommand(t *testing.T) {
+	var p PickerState
+	p.SetModelCatalogueSource(modelCatalogue)
+	p.Update([]rune("/model"))
+	if p.Kind() != PickerKindCommand {
+		t.Fatalf("Kind = %v, want PickerKindCommand", p.Kind())
+	}
+	sel := p.Selected()
+	if sel == nil || sel.Name != "/model" {
+		t.Fatalf("selected row = %v, want /model", sel)
+	}
+}
+
+// The filter is a case-insensitive *substring* of the label or of the
+// catalogue id — not a subsequence. "son" matches Sonnet and not Opus
+// (【一手】 agy 1.4.6, live: "onnet", "4.6", "ink", "flash", "oss" and
+// "120" all match, "son" matches only Sonnet).
+func TestPickerUpdate_ModelModeFiltersBySubstring(t *testing.T) {
+	cases := []struct {
+		query string
+		want  []string
+	}{
+		{"claude", []string{"Claude Sonnet 4.6 (Thinking)", "Claude Opus 4.6 (Thinking)"}},
+		{"son", []string{"Claude Sonnet 4.6 (Thinking)"}},
+		{"sonnet-4-6", []string{"Claude Sonnet 4.6 (Thinking)"}},
+		{"4.6", []string{"Claude Sonnet 4.6 (Thinking)", "Claude Opus 4.6 (Thinking)"}},
+		{"oss", []string{"GPT-OSS 120B (Medium)"}},
+		{"120", []string{"GPT-OSS 120B (Medium)"}},
+		{"ink", []string{"Claude Sonnet 4.6 (Thinking)", "Claude Opus 4.6 (Thinking)"}},
+	}
+	for _, tc := range cases {
+		var p PickerState
+		p.SetModelCatalogueSource(modelCatalogue)
+		p.Update([]rune("/model " + tc.query))
+		if p.Kind() != PickerKindModel {
+			t.Fatalf("%q: Kind = %v, want PickerKindModel", tc.query, p.Kind())
+		}
+		if p.Len() != len(tc.want) {
+			t.Errorf("%q: Len = %d, want %d", tc.query, p.Len(), len(tc.want))
+			continue
+		}
+		for i, want := range tc.want {
+			if got := p.all[i].Name; got != want {
+				t.Errorf("%q: row %d = %q, want %q", tc.query, i, got, want)
+			}
+		}
+	}
+}
+
+// A query that matches nothing keeps the popup visible with no rows, so
+// the overlay can render the "   No matches" row
+// (【一手】 agy 1.4.6, live).
+func TestPickerUpdate_ModelModeNoMatch(t *testing.T) {
+	var p PickerState
+	p.SetModelCatalogueSource(modelCatalogue)
+	p.Update([]rune("/model zzz"))
+	if !p.Visible() {
+		t.Fatal("picker should stay visible when no model matches")
+	}
+	if p.Len() != 0 {
+		t.Errorf("Len = %d, want 0", p.Len())
+	}
+	if !p.Empty() {
+		t.Error("Empty() should be true when no model matches")
+	}
+}
+
+// The catalogue is re-read on every update, so a configuration change
+// shows up on the next keystroke.
+func TestPickerUpdate_ModelModeRereadsCatalogue(t *testing.T) {
+	rows := modelCatalogue()
+	var p PickerState
+	p.SetModelCatalogueSource(func() []ModelRow { return rows })
+	p.Update([]rune("/model "))
+	if p.Len() != len(rows) {
+		t.Fatalf("Len = %d, want %d", p.Len(), len(rows))
+	}
+	rows = append(rows, ModelRow{Label: "MiniMax M3", ID: "minimax-m3"})
+	p.Update([]rune("/model "))
+	if p.Len() != len(rows) {
+		t.Errorf("Len after catalogue grew = %d, want %d", p.Len(), len(rows))
+	}
+}

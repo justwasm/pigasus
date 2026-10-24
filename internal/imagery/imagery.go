@@ -162,29 +162,7 @@ var ErrDecodeFailed = errors.New("imagery: decoder rejected the image")
 // PNG for WebP because golang.org/x/image/webp only ships a decoder.
 // In every case the result is a valid raster image well under the
 // per-side limit, which is what the model's image limits check for.
-func ScaleIfOversized(data []byte) (out []byte, wasScaled bool, err error) {
-	if len(data) < 12 {
-		return nil, false, fmt.Errorf("%w: %d bytes", ErrTooShort, len(data))
-	}
-	format := Detect(data)
-	if format == FormatUnknown {
-		return data, false, nil
-	}
-	img, _, err := image.Decode(bytes.NewReader(data))
-	if err != nil {
-		// Fall through with the original bytes so a malformed WebP (or
-		// any other supported format the decoder rejects) doesn't break
-		// the caller. The byte stream is what the model would otherwise
-		// have seen.
-		return data, false, fmt.Errorf("%w: %v", ErrDecodeFailed, err)
-	}
-	bounds := img.Bounds()
-	w, h := bounds.Dx(), bounds.Dy()
-	if w <= MaxSide && h <= MaxSide {
-		return data, false, nil
-	}
-	// Compute the target size so the longer edge equals MaxSide.
-	dw, dh := w, h
+func targetScaledDimensions(w, h int) (dw, dh int) {
 	if w >= h {
 		dw = MaxSide
 		dh = (h * MaxSide) / w
@@ -198,28 +176,53 @@ func ScaleIfOversized(data []byte) (out []byte, wasScaled bool, err error) {
 			dw = 1
 		}
 	}
-	dst := image.NewNRGBA(image.Rect(0, 0, dw, dh))
-	draw.CatmullRom.Scale(dst, dst.Bounds(), img, bounds, draw.Src, nil)
+	return dw, dh
+}
+
+func encodeScaledImage(dst image.Image, format Format) ([]byte, error) {
 	var buf bytes.Buffer
 	switch format {
 	case FormatPNG:
 		if err := png.Encode(&buf, dst); err != nil {
-			return data, false, fmt.Errorf("imagery: png re-encode: %w", err)
+			return nil, fmt.Errorf("imagery: png re-encode: %w", err)
 		}
 	case FormatJPEG:
 		if err := jpeg.Encode(&buf, dst, &jpeg.Options{Quality: 85}); err != nil {
-			return data, false, fmt.Errorf("imagery: jpeg re-encode: %w", err)
+			return nil, fmt.Errorf("imagery: jpeg re-encode: %w", err)
 		}
 	default:
-		// WebP and any other format that doesn't have a stdlib encoder:
-		// re-encode as PNG. golang.org/x/image/webp only ships a
-		// decoder, so the antigravity CLI does the same — every WebP
-		// that goes through the size-limiter comes back as PNG.
 		if err := png.Encode(&buf, dst); err != nil {
-			return data, false, fmt.Errorf("imagery: png re-encode for %s: %w", format, err)
+			return nil, fmt.Errorf("imagery: png re-encode for %s: %w", format, err)
 		}
 	}
-	return buf.Bytes(), true, nil
+	return buf.Bytes(), nil
+}
+
+func ScaleIfOversized(data []byte) (out []byte, wasScaled bool, err error) {
+	if len(data) < 12 {
+		return nil, false, fmt.Errorf("%w: %d bytes", ErrTooShort, len(data))
+	}
+	format := Detect(data)
+	if format == FormatUnknown {
+		return data, false, nil
+	}
+	img, _, err := image.Decode(bytes.NewReader(data))
+	if err != nil {
+		return data, false, fmt.Errorf("%w: %v", ErrDecodeFailed, err)
+	}
+	bounds := img.Bounds()
+	w, h := bounds.Dx(), bounds.Dy()
+	if w <= MaxSide && h <= MaxSide {
+		return data, false, nil
+	}
+	dw, dh := targetScaledDimensions(w, h)
+	dst := image.NewNRGBA(image.Rect(0, 0, dw, dh))
+	draw.CatmullRom.Scale(dst, dst.Bounds(), img, bounds, draw.Src, nil)
+	encoded, err := encodeScaledImage(dst, format)
+	if err != nil {
+		return data, false, err
+	}
+	return encoded, true, nil
 }
 
 // Dimensions returns the (width, height) of data without holding the

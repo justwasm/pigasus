@@ -193,6 +193,32 @@ func BuildAuthorizationURL(challenge, state string) string {
 // ExchangeAuthorizationCode exchanges an OAuth authorization code for tokens,
 // returning an *AntigravityToken on success.
 func ExchangeAuthorizationCode(ctx context.Context, code, verifier string) (*AntigravityToken, error) {
+	tr, err := fetchOAuthToken(ctx, code, verifier)
+	if err != nil {
+		return nil, err
+	}
+
+	expiry := time.Now().Add(time.Duration(tr.ExpiresIn) * time.Second).UTC().Format(time.RFC3339)
+	tok := &AntigravityToken{
+		Token: AntigravityAccessToken{
+			AccessToken:  tr.AccessToken,
+			RefreshToken: tr.RefreshToken,
+			TokenType:    tr.TokenType,
+			Expiry:       expiry,
+		},
+		AuthMethod: "consumer",
+		IDToken:    tr.IDToken,
+	}
+
+	if tok.UserEmail() == "" && tr.AccessToken != "" && flag.Lookup("test.v") == nil {
+		populateUserEmailFromUserInfo(ctx, tok, tr.AccessToken)
+	}
+
+	_ = SaveTokenUnified(tok)
+	return tok, nil
+}
+
+func fetchOAuthToken(ctx context.Context, code, verifier string) (*TokenResponse, error) {
 	data := url.Values{}
 	data.Set("client_id", CLIClientID)
 	data.Set("client_secret", publicClientSecret)
@@ -217,7 +243,6 @@ func ExchangeAuthorizationCode(ctx context.Context, code, verifier string) (*Ant
 	if err != nil {
 		return nil, err
 	}
-
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("token endpoint returned status %d: %s", resp.StatusCode, string(body))
 	}
@@ -229,42 +254,29 @@ func ExchangeAuthorizationCode(ctx context.Context, code, verifier string) (*Ant
 	if tr.AccessToken == "" {
 		return nil, errors.New("token response missing access_token")
 	}
+	return &tr, nil
+}
 
-	expiry := time.Now().Add(time.Duration(tr.ExpiresIn) * time.Second).UTC().Format(time.RFC3339)
-	tok := &AntigravityToken{
-		Token: AntigravityAccessToken{
-			AccessToken:  tr.AccessToken,
-			RefreshToken: tr.RefreshToken,
-			TokenType:    tr.TokenType,
-			Expiry:       expiry,
-		},
-		AuthMethod: "consumer",
-		IDToken:    tr.IDToken,
+func populateUserEmailFromUserInfo(ctx context.Context, tok *AntigravityToken, accessToken string) {
+	uReq, _ := http.NewRequestWithContext(ctx, "GET", "https://www.googleapis.com/oauth2/v3/userinfo", nil)
+	uReq.Header.Set("Authorization", "Bearer "+accessToken)
+	uResp, err := http.DefaultClient.Do(uReq)
+	if err != nil || uResp.StatusCode != http.StatusOK {
+		return
 	}
-
-	// If IDToken did not carry the email, query userinfo to capture user's email
-	if tok.UserEmail() == "" && tr.AccessToken != "" && flag.Lookup("test.v") == nil {
-		uReq, _ := http.NewRequestWithContext(ctx, "GET", "https://www.googleapis.com/oauth2/v3/userinfo", nil)
-		uReq.Header.Set("Authorization", "Bearer "+tr.AccessToken)
-		if uResp, err := http.DefaultClient.Do(uReq); err == nil && uResp.StatusCode == http.StatusOK {
-			defer uResp.Body.Close()
-			var info struct {
-				Email string `json:"email"`
-				Sub   string `json:"sub"`
-			}
-			if err := json.NewDecoder(uResp.Body).Decode(&info); err == nil && info.Email != "" {
-				header := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"RS256","typ":"JWT"}`))
-				payloadBytes, _ := json.Marshal(map[string]interface{}{
-					"email":          info.Email,
-					"email_verified": true,
-					"sub":            info.Sub,
-				})
-				payload := base64.RawURLEncoding.EncodeToString(payloadBytes)
-				tok.IDToken = header + "." + payload + ".sig"
-			}
-		}
+	defer uResp.Body.Close()
+	var info struct {
+		Email string `json:"email"`
+		Sub   string `json:"sub"`
 	}
-
-	_ = SaveTokenUnified(tok)
-	return tok, nil
+	if err := json.NewDecoder(uResp.Body).Decode(&info); err == nil && info.Email != "" {
+		header := base64.RawURLEncoding.EncodeToString([]byte(`{"alg":"RS256","typ":"JWT"}`))
+		payloadBytes, _ := json.Marshal(map[string]interface{}{
+			"email":          info.Email,
+			"email_verified": true,
+			"sub":            info.Sub,
+		})
+		payload := base64.RawURLEncoding.EncodeToString(payloadBytes)
+		tok.IDToken = header + "." + payload + ".sig"
+	}
 }

@@ -135,7 +135,7 @@ func (e *HTTPError) KindError() ErrorKind {
 // Error keeps the historical one-line shape so existing callers and logs are
 // unchanged; Message() is the extracted, user-facing form.
 func (e *HTTPError) Error() string {
-	return fmt.Sprintf("agw: upstream %d: %s", e.StatusCode, e.Message())
+	return fmt.Sprintf("gateway: upstream %d: %s", e.StatusCode, e.Message())
 }
 
 // Message is the user-facing message for the response body, in the reference's

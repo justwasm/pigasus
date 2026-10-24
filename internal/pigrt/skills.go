@@ -1,13 +1,12 @@
 // skills.go — the skill roots that appear in the model's system prompt.
 //
 // The reference's <skills> section is built from the builtin bundle, the
-// workspace's .agents/skills, and every installed plugin's skills/ directory
-// (workspace .agents/plugins and user ~/.gemini/config/plugins), then sorted
-// globally by name. The shared ~/.gemini/skills library is visible in
-// `/skills` but is deliberately NOT part of the prompt (verified against the
-// 1.4.2 capture and live 1.4.3 requests); including it changes the prompt by
-// ~10 KB. Workspace and workspace-plugin skills WERE verified in their prompt
-// (1.4.3 captures with a fixture skill).
+// shared ~/.gemini/skills library, the workspace's .agents/skills, and every
+// installed plugin's skills/ directory (workspace .agents/plugins and user
+// ~/.gemini/config/plugins), then sorted globally by name. The shared
+// ~/.gemini/skills library is listed by `/skills` as well — a live 1.4.6
+// request carries all nine of this machine's shared skills in the prompt
+// (【一手】, docs/cycles/reference-drift-146/).
 //
 // PiG's DefaultResourceLoader discovers skills from its own convention (a
 // `skills/` directory under the agent dir and the project), so the runtime
@@ -21,6 +20,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/justwasm/pigasus/internal/plugins"
 )
 
 // AgySkillPaths returns the skill directories whose entries appear in the
@@ -40,6 +41,13 @@ func AgySkillPaths(agentHome, workspace string) []string {
 	gemini := filepath.Dir(agentHome) // ~/.gemini
 	candidates := []string{
 		filepath.Join(agentHome, "builtin", "skills"),
+		// The shared ~/.gemini/skills library IS in the reference's prompt.
+		// The earlier "it is /skills-only" conclusion came from 1.4.2/1.4.3
+		// captures taken on a machine whose shared library was empty; a live
+		// 1.4.6 request lists all nine of this machine's shared skills
+		// (agents-sdk, cloudflare, …) with their ~/.gemini/skills paths
+		// (【一手】, docs/cycles/reference-drift-146/).
+		filepath.Join(gemini, "skills"),
 	}
 	if workspace != "" {
 		candidates = append(candidates, filepath.Join(workspace, ".agents", "skills"))
@@ -62,9 +70,13 @@ func AgySkillPaths(agentHome, workspace string) []string {
 	return out
 }
 
-// pluginSkillDirs lists <plugins>/<name>/skills for every loadable plugin.
+// pluginSkillDirs lists the skill directories of every loadable plugin.
 // configPath, when non-empty, is a config.json whose plugins.<name>.enabled
 // can disable one.
+//
+// The directories come from the plugin's plugin.json "skills" field when it
+// has one — an array of paths or a single path string — and fall back to
+// <plugin>/skills otherwise (plugins.SkillDirs).
 func pluginSkillDirs(pluginsDir, configPath string) []string {
 	entries, err := os.ReadDir(pluginsDir)
 	if err != nil {
@@ -88,7 +100,7 @@ func pluginSkillDirs(pluginsDir, configPath string) []string {
 		if on, ok := enabled[e.Name()]; ok && !on {
 			continue
 		}
-		out = append(out, filepath.Join(dir, "skills"))
+		out = append(out, plugins.SkillDirs(dir)...)
 	}
 	return out
 }

@@ -61,7 +61,7 @@ func TestHTTPErrorMessage_Empty(t *testing.T) {
 func TestHTTPErrorError(t *testing.T) {
 	// Error() keeps the historical one-line shape.
 	e := &HTTPError{StatusCode: 429, Body: []byte(`{"error":{"message":"quota"}}`)}
-	if got := e.Error(); got != "agw: upstream 429: quota" {
+	if got := e.Error(); got != "gateway: upstream 429: quota" {
 		t.Errorf("Error() = %q", got)
 	}
 }

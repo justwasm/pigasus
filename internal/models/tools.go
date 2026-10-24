@@ -1,7 +1,7 @@
 // Package models — tools.go
 //
 // Cycle 274 added function-calling to the provider layer so the agy wrapper
-// (devutils/agyproxy) can round-trip Gemini `functionCall` parts through an
+// (internal/agyproxy) can round-trip Gemini `functionCall` parts through an
 // OpenAI-shaped endpoint. Everything here is additive: a provider that never
 // populates these fields behaves exactly as it did before.
 //

@@ -256,6 +256,15 @@ func (w *Watcher) queueFlip() {
 	w.debounceTimer = time.AfterFunc(debounceWindow, w.flipStale)
 }
 
+// hasPendingTimer reports whether a debounce timer is armed. The
+// timer field is guarded by debounceMu, so it is never read directly
+// from outside the lock.
+func (w *Watcher) hasPendingTimer() bool {
+	w.debounceMu.Lock()
+	defer w.debounceMu.Unlock()
+	return w.debounceTimer != nil
+}
+
 // flipStale is the timer callback. Atomic store so concurrent
 // IsStale readers see the transition.
 func (w *Watcher) flipStale() {

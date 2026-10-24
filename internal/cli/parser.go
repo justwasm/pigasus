@@ -112,20 +112,21 @@ type Parser struct {
 // specs. extraFlags are appended to the standard flag set; they're for
 // openagy-specific (post-v4) flags the parse-parity tests must not reject.
 func NewParser(flags []FlagSpec, subs []SubcommandSpec, use, short, long string, extraFlags ...FlagSpec) *Parser {
-	jc := NewJetski(use, "") // version set later by main
+	jc := NewJetski(use, "")
 	allFlags := append(append([]FlagSpec{}, flags...), extraFlags...)
-	// Cycle 57: register --version as an explicit hidden bool flag so
-	// `antigravity --version` (and `-version`) work byte-for-byte with the
-	// v1.3.5 binary (which prints "1.3.5\n"). The v1.3.5 binary uses
-	// stdlib `flag` and prints the version via `flag.PrintDefaults` skipping
-	// — that's done by NOT including --version in `flag.Visit` output. We
-	// achieve the same: register the flag but mark its Usage empty so it
-	// doesn't appear in --help (stdlib's PrintDefaults omits flags whose
-	// Usage is the empty string). j.Out is the jc's `Out` writer; the
-	// "version" value is read by jetski.Parse() via getBoolFlag.
 	allFlags = append(allFlags, FlagSpec{Name: "version", Type: "bool", Usage: ""})
+	registerParserFlags(jc, allFlags)
+
+	for _, s := range subs {
+		js := buildJetskiSubcommand(jc, s, use)
+		jc.AddSubcommand(js)
+	}
+	return &Parser{root: jc, specs: subs, flags: allFlags}
+}
+
+func registerParserFlags(jc *JetskiCLI, allFlags []FlagSpec) {
 	for _, f := range allFlags {
-		jf := &JetskiFlag{
+		jc.AddFlag(&JetskiFlag{
 			Name:     f.Name,
 			Short:    f.Short,
 			Type:     f.Type,
@@ -133,56 +134,57 @@ func NewParser(flags []FlagSpec, subs []SubcommandSpec, use, short, long string,
 			Usage:    f.Usage,
 			Required: false,
 			Hidden:   f.Hidden,
-		}
-		jc.AddFlag(jf)
+		})
 	}
-	for _, s := range subs {
-		help := s.Help
-		if s.HelpFn != nil {
-			help = s.HelpFn(use)
-		}
-		js := &JetskiSubcommand{
-			Name:            s.Name,
-			Aliases:         s.Aliases,
-			Description:     s.Short,
-			Hidden:          s.Hidden,
-			Help:            help,
-			HelpExit:        s.HelpExit,
-			UnknownSubError: s.UnknownSubError,
-		}
-		// Wrap the spec Run so it gets the jetski Out writer as first arg.
-		specRun := s.Run
-		js.RunJ = s.RunJ
-		js.Run = func(args []string) error {
+}
+
+func buildJetskiSubcommand(jc *JetskiCLI, s SubcommandSpec, use string) *JetskiSubcommand {
+	help := s.Help
+	if s.HelpFn != nil {
+		help = s.HelpFn(use)
+	}
+	specRun := s.Run
+	js := &JetskiSubcommand{
+		Name:            s.Name,
+		Aliases:         s.Aliases,
+		Description:     s.Short,
+		Hidden:          s.Hidden,
+		Help:            help,
+		HelpExit:        s.HelpExit,
+		UnknownSubError: s.UnknownSubError,
+		RunJ:            s.RunJ,
+		Run: func(args []string) error {
 			if specRun == nil {
 				return nil
 			}
 			return specRun(jc.Out, args)
-		}
-		for _, ss := range s.Subs {
-			specSS := ss
-			ssHelp := ss.Help
-			if ss.HelpFn != nil {
-				ssHelp = ss.HelpFn(use)
-			}
-			jss := &JetskiSubSubcommand{
-				Name:        ss.Name,
-				Description: ss.Short,
-				Help:        ssHelp,
-				HelpExit:    ss.HelpExit,
-				RunJ:        ss.RunJ,
-				Run: func(args []string) error {
-					if specSS.Run == nil {
-						return nil
-					}
-					return specSS.Run(jc.Out, args)
-				},
-			}
-			js.Subs = append(js.Subs, jss)
-		}
-		jc.AddSubcommand(js)
+		},
 	}
-	return &Parser{root: jc, specs: subs, flags: allFlags}
+	for _, ss := range s.Subs {
+		js.Subs = append(js.Subs, buildJetskiSubSubcommand(jc, ss, use))
+	}
+	return js
+}
+
+func buildJetskiSubSubcommand(jc *JetskiCLI, ss SubSubSpec, use string) *JetskiSubSubcommand {
+	specSS := ss
+	ssHelp := ss.Help
+	if ss.HelpFn != nil {
+		ssHelp = ss.HelpFn(use)
+	}
+	return &JetskiSubSubcommand{
+		Name:        ss.Name,
+		Description: ss.Short,
+		Help:        ssHelp,
+		HelpExit:    ss.HelpExit,
+		RunJ:        ss.RunJ,
+		Run: func(args []string) error {
+			if specSS.Run == nil {
+				return nil
+			}
+			return specSS.Run(jc.Out, args)
+		},
+	}
 }
 
 // SetOut redirects parser output (used by tests to capture --help).

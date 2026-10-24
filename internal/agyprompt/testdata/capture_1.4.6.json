@@ -1,0 +1,361 @@
+{
+  "app_data_dir": "/Users/gear/.gemini/antigravity-cli",
+  "artifact_dir": "",
+  "conversation_id": "d9faaa6e-e8c4-468f-b840-09fe8a51cfd8",
+  "cwd": "/Users/gear/Documents/GitHub/openagy",
+  "os_version": "mac",
+  "skills": [
+    {
+      "Name": "a11y-debugging",
+      "Path": "/Users/gear/.gemini/config/plugins/chrome-devtools-plugin/skills/a11y-debugging/SKILL.md",
+      "Description": "Uses Chrome DevTools MCP for accessibility (a11y) debugging and auditing based on web.dev guidelines. Use when testing semantic HTML, ARIA labels, focus states, keyboard navigation, tap targets, and color contrast."
+    },
+    {
+      "Name": "agents-sdk",
+      "Path": "/Users/gear/.gemini/skills/agents-sdk/SKILL.md",
+      "Description": "Build AI agents on Cloudflare Workers using the Agents SDK. Load when creating stateful agents, durable workflows, real-time WebSocket apps, scheduled tasks, MCP servers, chat applications, voice agents, or browser automation. Covers Agent class, state management, callable RPC, Workflows, durable execution, queues, retries, observability, and React hooks. Biases towards retrieval from Cloudflare docs over pre-trained knowledge."
+    },
+    {
+      "Name": "agy-customizations",
+      "Path": "/Users/gear/.gemini/antigravity-cli/builtin/skills/agy-customizations/SKILL.md",
+      "Description": "Comprehensive guide and reference for the Antigravity Customization System. Use to explain how customizations work, their loading priority, discovery mechanisms, and to guide the creation of skills, rules, plugins, hooks, and MCP servers."
+    },
+    {
+      "Name": "alphafold-database-fetch-and-analyze",
+      "Path": "/Users/gear/.gemini/config/plugins/science/skills/alphafold_database_fetch_and_analyze/SKILL.md",
+      "Description": "Retrieve and analyze AlphaFold predicted structures for a protein. Use when the user provides a specific UniProt Accession ID and wants structural confidence metrics (pLDDT), domain boundary analysis, or disorder assessment. Do not use if the user only has a protein name, gene name, or amino acid sequence — ask for a UniProt ID first."
+    },
+    {
+      "Name": "alphagenome-atlas-website-links",
+      "Path": "/Users/gear/.gemini/config/plugins/science/skills/alphagenome_atlas_website_links/SKILL.md",
+      "Description": "Constructs deep-links and URLs for the AlphaGenome Atlas website. Supports generating single-variant exploration links (1-based chr:pos:ref\u003ealt), genomic locus views (1-based closed chr:start-end), candidate summary tables, and AlphaGenome reference vs. alternate predictions. Use whenever visualizing, exploring, charting, or linking genetic variants and genomic loci on the AlphaGenome Atlas, or when asked to inspect, view, or link predictions for a genomic variant."
+    },
+    {
+      "Name": "alphagenome-single-variant-analysis",
+      "Path": "/Users/gear/.gemini/config/plugins/science/skills/alphagenome_single_variant_analysis/SKILL.md",
+      "Description": "Analyzes genetic variant effects on gene expression (RNA-seq), chromatin accessibility (DNASE), histone marks (ChIP), and transcription factors using the AlphaGenome API. Use when the user asks about non-coding variant effects, pathogenicity, clinical significance, disease associations, functional effects, gene expression changes, splicing disruption, or regulatory effects in promoters and enhancers. Also use for resolving biological terms to tissue/cell-type ontologies (UBERON/CL) or analyzing variants in chr:pos:ref\u003ealt format."
+    },
+    {
+      "Name": "alphagenome-variant-impact-score",
+      "Path": "/Users/gear/.gemini/config/plugins/science/skills/alphagenome_variant_impact_score/SKILL.md",
+      "Description": "Score, annotate, and analyze the functional impact of genetic variants using AlphaGenome Variant Impact (AVI) scores. Query variants in chr:pos:ref\u003ealt format, annotate VCF/tabular callsets, perform saturation mutagenesis window scans (1-based closed chr:start-end), and extract GENCODE v46 GTF gene/exon/junction coordinates all via the AlphaGenome Atlas API."
+    },
+    {
+      "Name": "antigravity-guide",
+      "Path": "/Users/gear/.gemini/antigravity-cli/builtin/skills/antigravity_guide/SKILL.md",
+      "Description": "Provides a comprehensive guide, quick reference, and sitemap for Google Antigravity (AGY), including the Antigravity CLI (agy), Antigravity 2.0, Antigravity IDE, Python SDK, slash commands, keybindings, and customizations (skills, rules, MCP, sidecars). Activate this skill when the user asks questions about how to use, configure, or customize Antigravity, AGY, the agy CLI, the Antigravity IDE, or Antigravity 2.0."
+    },
+    {
+      "Name": "biomolecular-structure-viewer",
+      "Path": "/Users/gear/.gemini/config/plugins/science/skills/biomolecular_structure_viewer/SKILL.md",
+      "Description": "Interactive 3D biomolecular structure viewer via Mol*. Renders 3D molecular structures from local workspace files (.cif, .mmcif, .pdb) or conversation artifacts, and manages user 3D annotations and highlighted residues. Use when the user asks to visualise a protein or nucleic acid, display a 3D structure, or asks about 3D biomolecular structure annotations and highlighted residues."
+    },
+    {
+      "Name": "chembl-database",
+      "Path": "/Users/gear/.gemini/config/plugins/science/skills/chembl_database/SKILL.md",
+      "Description": "Query the ChEMBL database for bioactive molecules, drug targets, bioactivity data, approved drugs, and chemical structures. Use when the user asks about compounds, targets, IC50/Ki values, drug mechanisms, or structure searches."
+    },
+    {
+      "Name": "chrome-devtools",
+      "Path": "/Users/gear/.gemini/config/plugins/chrome-devtools-plugin/skills/chrome-devtools/SKILL.md",
+      "Description": "Uses Chrome DevTools via MCP for efficient debugging, troubleshooting and browser automation. Use when debugging web pages, automating browser interactions, analyzing performance, or inspecting network requests. This skill does not apply to `--slim` mode (MCP configuration)."
+    },
+    {
+      "Name": "chrome-extensions",
+      "Path": "/Users/gear/.gemini/config/plugins/modern-web-guidance-plugin/skills/chrome-extensions/SKILL.md",
+      "Description": "Build and publish Chrome Extensions using Manifest V3 best practices. Use this skill whenever the user asks to create, modify, debug, or understand Chrome browser extensions, add-ons, or anything involving the Chrome Extensions API. Trigger on mentions of: 'Chrome extension', 'browser extension', 'manifest.json', 'content script', 'service worker' (in browser context), 'popup' (in browser extension context), 'side panel', 'chrome.* API', 'declarativeNetRequest', 'omnibox', 'context menu' (in extension context), 'userScripts', 'user script', 'script manager', or any request to build functionality that integrates with the Chrome browser UI. Also trigger for publishing to the Chrome Web Store: 'publish extension', preparing an extension for publishing, responding to a review rejection, writing permission justifications, or drafting a privacy policy."
+    },
+    {
+      "Name": "clinical-trials-database",
+      "Path": "/Users/gear/.gemini/config/plugins/science/skills/clinical_trials_database/SKILL.md",
+      "Description": "Query ClinicalTrials.gov via APIv2. Use when you want to search for trials by condition, drug, location, status, or phase; retrieve trial details by NCT ID; check eligibility/inclusion criteria; count trials across conditions or time periods; identify a sponsor's trial portfolio; find recruiting trials for patient matching."
+    },
+    {
+      "Name": "clinvar-database",
+      "Path": "/Users/gear/.gemini/config/plugins/science/skills/clinvar_database/SKILL.md",
+      "Description": "Use when needing clinical significance, pathogenicity classifications (e.g., Pathogenic, Benign, VUS), clinical evidence rationales, or finding \"hard positive\" benchmark controls for human genomic variants."
+    },
+    {
+      "Name": "cloudflare",
+      "Path": "/Users/gear/.gemini/skills/cloudflare/SKILL.md",
+      "Description": "Comprehensive Cloudflare platform skill covering Workers, Pages, storage (KV, D1, R2), AI (Workers AI, Vectorize, Agents SDK), feature flags (Flagship), networking (Tunnel, Spectrum), security (WAF, DDoS), and infrastructure-as-code (Terraform, Pulumi). Use for any Cloudflare development task. Biases towards retrieval from Cloudflare docs over pre-trained knowledge."
+    },
+    {
+      "Name": "cloudflare-email-service",
+      "Path": "/Users/gear/.gemini/skills/cloudflare-email-service/SKILL.md",
+      "Description": "Send and receive transactional emails with Cloudflare Email Service (Email Sending + Email Routing). Use when building email sending (Workers binding or REST API), email routing, Agents SDK email handling, or integrating email into any app — Workers, Node.js, Python, Go, etc. Also use for email deliverability, SPF/DKIM/DMARC, wrangler email setup, MCP email tools, or when a coding agent needs to send emails. Even for simple requests like \"add email to my Worker\" — this skill has critical config details."
+    },
+    {
+      "Name": "cookie-debugging",
+      "Path": "/Users/gear/.gemini/config/plugins/chrome-devtools-plugin/skills/cookie-debugging/SKILL.md",
+      "Description": "Uses Chrome DevTools MCP for inspecting, debugging, and testing cookies, session state, authentication issues, and cookie consent compliance. Use when diagnosing 401/403 errors, authentication redirects, session expiration, Cookie/Set-Cookie header issues, cookie banner consent conformance, or third-party cookie/SameSite/Partitioned cookie warnings."
+    },
+    {
+      "Name": "credentials",
+      "Path": "/Users/gear/.gemini/config/plugins/science/skills/credentials/SKILL.md",
+      "Description": "Instructions for handling API keys and credentials safely, verifying their presence, and prompting the user to add them if missing using a safe protocol."
+    },
+    {
+      "Name": "dbsnp-database",
+      "Path": "/Users/gear/.gemini/config/plugins/science/skills/dbsnp_database/SKILL.md",
+      "Description": "Use when you want to look up, map, and search for short genetic variants (SNPs, indels) in NCBI's dbSNP database. Resolves between rsIDs, genomic coordinates in VCF format, and HGVS strings. For an rsID, returns variant type, gene associations, clinical significance, allele frequencies, and genomic coordinates (GRCh38)."
+    },
+    {
+      "Name": "debug-optimize-lcp",
+      "Path": "/Users/gear/.gemini/config/plugins/chrome-devtools-plugin/skills/debug-optimize-lcp/SKILL.md",
+      "Description": "Guides debugging and optimizing Largest Contentful Paint (LCP) using Chrome DevTools MCP tools. Use this skill whenever the user asks about LCP performance, slow page loads, Core Web Vitals optimization, or wants to understand why their page's main content takes too long to appear. Also use when the user mentions \"largest contentful paint\", \"page load speed\", \"CWV\", or wants to improve how fast their hero image or main content renders."
+    },
+    {
+      "Name": "durable-objects",
+      "Path": "/Users/gear/.gemini/skills/durable-objects/SKILL.md",
+      "Description": "Create and review Cloudflare Durable Objects. Use when building stateful coordination (chat rooms, multiplayer games, booking systems), implementing RPC methods, SQLite storage, alarms, WebSockets, or reviewing DO code for best practices. Covers Workers integration, wrangler config, and testing with Vitest. Biases towards retrieval from Cloudflare docs over pre-trained knowledge."
+    },
+    {
+      "Name": "embl-ebi-ols",
+      "Path": "/Users/gear/.gemini/config/plugins/science/skills/embl_ebi_ols/SKILL.md",
+      "Description": "Query and search the EMBL-EBI Ontology Lookup Service (OLS) for biomedical ontology terms, definitions, and hierarchies across 250+ ontologies (e.g., GO, DOID, HP). Use when the user asks to search for terms, retrieve details, navigate hierarchies (parents, children, ancestors), look up properties and individuals, get autocomplete suggestions, or access ontology metadata and statistics."
+    },
+    {
+      "Name": "encode-ccres-database",
+      "Path": "/Users/gear/.gemini/config/plugins/science/skills/encode_ccres_database/SKILL.md",
+      "Description": "Query the ENCODE Registry of cis-Regulatory Elements (cCREs) via the SCREEN GraphQL API, or make custom queries to the ENCODE Portal REST API for experiments and files (ChIP-seq peaks, etc.). Use when you want to query regulatory annotations or raw experimental data across human cell types."
+    },
+    {
+      "Name": "ensembl-database",
+      "Path": "/Users/gear/.gemini/config/plugins/science/skills/ensembl_database/SKILL.md",
+      "Description": "Query the Ensembl database to resolve gene, transcript, and protein IDs, fetch genomic or protein sequences, retrieve gene structures (exons), and get variant consequence and effect predictions (VEP). Use this skill as a primary ID translator, genomic sequence database and variant effect prediction tool."
+    },
+    {
+      "Name": "foldseek-structural-search",
+      "Path": "/Users/gear/.gemini/config/plugins/science/skills/foldseek_structural_search/SKILL.md",
+      "Description": "Performs 3D structural searches of proteins against various databases (PDB, AlphaFold, CATH, MGnify, etc.) using the Foldseek API. Use ONLY when the user provides a physical 3D coordinate file (.cif, .mmcif, or .pdb) and wants to find structurally similar proteins. Do NOT use if the user only provides a protein sequence, gene name, or UniProt ID."
+    },
+    {
+      "Name": "gnomad-database",
+      "Path": "/Users/gear/.gemini/config/plugins/science/skills/gnomad_database/SKILL.md",
+      "Description": "Query the Genome Aggregation Database (gnomAD). Use when determining the rarity or allele frequency of specific genetic variants, retrieving gene constraint metrics (pLI, LOEUF) to assess loss-of-function intolerance, finding variants in a genomic region or gene, or querying structural variants. Don't use for analyzing individual patient genomes, tracking somatic mutations in cancer (use COSMIC), or requesting raw sequencing reads (use ENA)."
+    },
+    {
+      "Name": "google-antigravity-sdk",
+      "Path": "/Users/gear/.gemini/config/plugins/google-antigravity-sdk/skills/google-antigravity-sdk/SKILL.md",
+      "Description": "Design, implement, and debug autonomous AI agents and multi-agent systems using the Google Antigravity (AGY) SDK. ACTIVATE this skill when the user wants to create, configure, or orchestrate Google Antigravity agents."
+    },
+    {
+      "Name": "gtex-database",
+      "Path": "/Users/gear/.gemini/config/plugins/science/skills/gtex_database/SKILL.md",
+      "Description": "Use when you want to retrieve quantitative RNA expression data and variant eQTL information from the GTEx (Genotype-Tissue Expression) Project across 54 non-diseased tissue sites."
+    },
+    {
+      "Name": "human-protein-atlas-database",
+      "Path": "/Users/gear/.gemini/config/plugins/science/skills/human_protein_atlas_database/SKILL.md",
+      "Description": "Use when you want to retrieve semi-quantitative protein expression and spatial localisation data from the Human Protein Atlas (HPA)."
+    },
+    {
+      "Name": "interpro-database",
+      "Path": "/Users/gear/.gemini/config/plugins/science/skills/interpro_database/SKILL.md",
+      "Description": "Identify domains, families, and sites in proteins; find all proteins in a family or sharing a domain; explore species distribution for a domain; annotate genomes with protein families and GO terms. InterPro combines 14 databases (e.g., Pfam, CDD) into one searchable resource. InterPro-N significantly expands annotation and sequence coverage with deep learning. Includes domain architecture (IDA) search."
+    },
+    {
+      "Name": "jaspar-database",
+      "Path": "/Users/gear/.gemini/config/plugins/science/skills/jaspar_database/SKILL.md",
+      "Description": "Query the JASPAR database for Transcription Factor (TF) binding profiles. Use when retrieving Position Frequency Matrices (PFMs) or Position Weight Matrices (PWMs) for specific TFs, resolving gene symbols to JASPAR Matrix IDs, or getting TF metadata. Supports multiple output formats (MEME, TRANSFAC, PFM, JASPAR, YAML)."
+    },
+    {
+      "Name": "literature-search-arxiv",
+      "Path": "/Users/gear/.gemini/config/plugins/science/skills/literature_search_arxiv/SKILL.md",
+      "Description": "Search for scientific papers, preprints, and publications on arXiv. Extract metadata, abstracts, and download full-text PDFs or HTML versions of papers. Use when the user asks to find research papers, literature, or specific arXiv IDs."
+    },
+    {
+      "Name": "literature-search-biorxiv",
+      "Path": "/Users/gear/.gemini/config/plugins/science/skills/literature_search_biorxiv/SKILL.md",
+      "Description": "Browse, filter, and download life sciences, biology, and medical preprints from bioRxiv and medRxiv. Supports fetching paper metadata by DOI, and browsing by date range with category and keyword filters. Keyword filtering is local, so date ranges MUST be narrow (1-4 weeks) with a category to prevent timeouts."
+    },
+    {
+      "Name": "literature-search-europepmc",
+      "Path": "/Users/gear/.gemini/config/plugins/science/skills/literature_search_europepmc/SKILL.md",
+      "Description": "Search Europe PMC for scientific literature and download open-access full texts and PDFs. Retrieve full-text XML/plain text by PMCID, get citation lists and bibliography."
+    },
+    {
+      "Name": "literature-search-openalex",
+      "Path": "/Users/gear/.gemini/config/plugins/science/skills/literature_search_openalex/SKILL.md",
+      "Description": "Query the OpenAlex scholarly database for research papers, authors, institutions, topics, sources, publishers, funders, geo-locations, and keywords. Use when searching academic papers, resolving DOIs, downloading open-access PDFs, finding an author's publications, aggregating bibliometric data (citation counts, h-index, impact factor), exploring the research taxonomies, or performing DOI lookups."
+    },
+    {
+      "Name": "memory-leak-debugging",
+      "Path": "/Users/gear/.gemini/config/plugins/chrome-devtools-plugin/skills/memory-leak-debugging/SKILL.md",
+      "Description": "Diagnoses and resolves memory leaks in JavaScript/Node.js applications. Use when a user reports high memory usage, OOM errors, or wants to capture, compare, or inspect heap snapshots with Chrome DevTools MCP memory tools."
+    },
+    {
+      "Name": "modern-web-guidance",
+      "Path": "/Users/gear/.gemini/config/plugins/modern-web-guidance-plugin/skills/modern-web-guidance/SKILL.md",
+      "Description": "Search tool for modern web development best practices. MANDATORY: Execute FIRST for all HTML/CSS and clientside JS tasks. Do NOT skip — web APIs evolve rapidly and training weights contain obsolete patterns.\n\nTrigger immediately for:\n- UI/Layout: Modals, dialogs, popovers, Glassmorphism/backdrop-filters, anchor positioning, container queries, `:has()`, `:user-valid`.\n- Scroll/Motion: View Transitions, Scroll-driven animations, scroll parallax/reveals.\n- Performance: CWV (LCP, INP), content-visibility, Fetch Priority, image optimization.\n- System/APIs: Local filesystem access, WebUSB, WebSockets sync, WebAssembly widgets.\n- Frameworks: Adapting layout/styles in React, Vue, Angular.\n- General Frontend: Forms, autofill, advanced inputs, custom scrollbars, modern component states, etc.\n\nDO NOT trigger for:\n- Backend: Database SQL, ORMs, Express API routes.\n- Pipelines: CI/CD deployment, Docker, Actions.\n- Generic: Local scripts (Python/Go tools), ESLint, Git."
+    },
+    {
+      "Name": "ncbi-sequence-fetch",
+      "Path": "/Users/gear/.gemini/config/plugins/science/skills/ncbi_sequence_fetch/SKILL.md",
+      "Description": "Retrieve protein and nucleotide sequences from NCBI databases using E-utilities. Supports direct accession lookup, CDS translation, gene+organism search, locus lookup, PubMed-linked sequences, patent protein extraction, and organism+length fallback search. Use when you need to fetch biological sequences by accession, gene name, locus tag, PubMed ID, or patent number."
+    },
+    {
+      "Name": "openfda-database",
+      "Path": "/Users/gear/.gemini/config/plugins/science/skills/openfda_database/SKILL.md",
+      "Description": "Query, search, and download data from the openFDA API for drugs, devices, foods, tobacco, cosmetics, animal and veterinary products, substances, and transparency data. Use for FDA adverse events, recalls, labeling, approvals, shortages, 510(k) clearances, NDC lookups, and any FDA safety or regulatory data query across all 28 API endpoints."
+    },
+    {
+      "Name": "opentargets-database",
+      "Path": "/Users/gear/.gemini/config/plugins/science/skills/opentargets_database/SKILL.md",
+      "Description": "Query Open Targets Platform for target-disease associations, drug target discovery, tractability/safety data, genetics/omics evidence, known drugs, for therapeutic target identification."
+    },
+    {
+      "Name": "pdb-database",
+      "Path": "/Users/gear/.gemini/config/plugins/science/skills/pdb_database/SKILL.md",
+      "Description": "Use when you want to search for or download experimentally-determined 3D structures for biomolecules (proteins, nucleic acids, bound ligands). Supports searching by sequence similarity, structure similarity, chemical and other attributes. Also use to get metadata about biomolecular structure experiments."
+    },
+    {
+      "Name": "predictingthepast",
+      "Path": "/Users/gear/.gemini/config/plugins/science/skills/predictingthepast/SKILL.md",
+      "Description": "Ancient text restoration, attribution, dating, contextualization, and embedding via Aeneas (Latin) / Ithaca (Ancient Greek). Use when asked to \"restore\", \"attribute\", \"date\", \"contextualize\", \"find parallels\", \"where was it written\", \"when was it written\", \"embed\", or \"analyze\" an ancient text, inscription, or epigraphic document, or when the user mentions \"Aeneas\", or \"Ithaca\"."
+    },
+    {
+      "Name": "protein-sequence-msa",
+      "Path": "/Users/gear/.gemini/config/plugins/science/skills/protein_sequence_msa/SKILL.md",
+      "Description": "Performs multiple sequence alignment of proteins with EBI Clustal Omega. Use when you need to align multiple sequences to assess similarity, domain conservation, or key residue conservation. Supports up to 4000 sequences and a maximum file size of 4 MB. Do not use to search for homologous proteins in a database (use MMseqs2, BLAST), align non-protein sequences (DNA, RNA), perform structural alignment (use Foldseek, PyMOL), or if you only have a single sequence."
+    },
+    {
+      "Name": "protein-sequence-similarity-search",
+      "Path": "/Users/gear/.gemini/config/plugins/science/skills/protein_sequence_similarity_search/SKILL.md",
+      "Description": "Searches for homologous protein sequences using MMseqs2 (fast, default) or BLAST (comprehensive, fallback). Trigger this whenever the user provides a protein sequence or FASTA file and asks to find homologues, sequence matches, or wants to infer protein function based on sequence similarity, but not when the user wants to infer protein function based on structural similarity."
+    },
+    {
+      "Name": "pubchem-database",
+      "Path": "/Users/gear/.gemini/config/plugins/science/skills/pubchem_database/SKILL.md",
+      "Description": "Query PubChem, search by name/CID/SMILES, retrieve properties, similarity/substructure searches, bioactivity, for cheminformatics. Use when a user asks about a specific chemical, drug, or molecule."
+    },
+    {
+      "Name": "pubmed-database",
+      "Path": "/Users/gear/.gemini/config/plugins/science/skills/pubmed_database/SKILL.md",
+      "Description": "Search PubMed for scientific literature, including published clinical trials. Fetch abstracts and full text. Link published research to biological databases (gene, protein, nucleotide, PubChem) to discover associations between papers and specific compounds or genes. Verify medical spelling, match raw citations, and cache result sets for bulk processing. Interfaces NCBI E-utilities and PMC BioC APIs."
+    },
+    {
+      "Name": "pymol",
+      "Path": "/Users/gear/.gemini/config/plugins/science/skills/pymol/SKILL.md",
+      "Description": "Visualize, analyze, and render protein and molecular structures using PyMOL. Use when the user wants to create images of protein structures, perform structural alignments or superposition, measure distances or contacts, highlight binding sites or active site residues, color by B-factor/pLDDT, or analyze protein-ligand interactions. Do not use for docking, molecular dynamics, or sequence-only analysis."
+    },
+    {
+      "Name": "quickgo-database",
+      "Path": "/Users/gear/.gemini/config/plugins/science/skills/quickgo_database/SKILL.md",
+      "Description": "Query the QuickGO and Evidence \u0026 Conclusion Ontology (ECO) REST API. Use this when you need to map genes to biological processes, molecular functions, or cellular components, find genes associated with a specific pathway/GO term, or explore the Gene Ontology hierarchy. Do not use for querying drug targets (use OpenTargets) or mechanistic signaling pathway diagrams (use KEGG)."
+    },
+    {
+      "Name": "reactome-database",
+      "Path": "/Users/gear/.gemini/config/plugins/science/skills/reactome_database/SKILL.md",
+      "Description": "Query the Reactome database (Analysis and Content Services). Use when the user asks about pathway analysis, gene list enrichment, retrieving results by token, finding unmapped or not-found identifiers, mapping identifiers, reaction participants (inputs, outputs), pathway hierarchy (including top-level pathways), diagram export, cross-reference mapping, or searching the knowledgebase."
+    },
+    {
+      "Name": "sandbox-sdk",
+      "Path": "/Users/gear/.gemini/skills/sandbox-sdk/SKILL.md",
+      "Description": "Build sandboxed applications for secure code execution. Load when building AI code execution, code interpreters, CI/CD systems, interactive dev environments, or executing untrusted code. Covers Sandbox SDK lifecycle, commands, files, code interpreter, and preview URLs. Biases towards retrieval from Cloudflare docs over pre-trained knowledge."
+    },
+    {
+      "Name": "science-skills-common",
+      "Path": "/Users/gear/.gemini/config/plugins/science/skills/science_skills_common/SKILL.md",
+      "Description": "Shared Python package for Science Skills, currently containing http_client -- a unified HTTP client with rate limiting, retries, and exponential backoff. Not a standalone agent skill. Do not invoke directly."
+    },
+    {
+      "Name": "scienceskillscommon",
+      "Path": "/Users/gear/.gemini/config/plugins/science/skills/scienceskillscommon/SKILL.md",
+      "Description": "Shared Python package for Science Skills, currently containing http_client -- a unified HTTP client with rate limiting, retries, and exponential backoff. Not a standalone agent skill. Do not invoke directly."
+    },
+    {
+      "Name": "string-database",
+      "Path": "/Users/gear/.gemini/config/plugins/science/skills/string_database/SKILL.md",
+      "Description": "Query the STRING database for protein-protein interactions (PPIs), functional enrichment, and homology. Use when the user asks about interactions between specific proteins, interaction evidence, confidence scores, protein interaction partners, or pathway enrichments."
+    },
+    {
+      "Name": "terminal-browser",
+      "Path": "/Users/gear/.gemini/skills/terminal-browser/SKILL.md",
+      "Description": "A real browser running inside the terminal. It splits the human's terminal pane automatically, so you can show a website side by side with the conversation, render HTML to visualize something, and drive whatever tab is open — snapshot, click, fill, eval — with the `terminal-browser action` subcommand."
+    },
+    {
+      "Name": "troubleshooting",
+      "Path": "/Users/gear/.gemini/config/plugins/chrome-devtools-plugin/skills/troubleshooting/SKILL.md",
+      "Description": "Uses Chrome DevTools MCP and documentation to troubleshoot connection and target issues. Trigger this skill when list_pages, new_page, or navigate_page fail, or when the server initialization fails."
+    },
+    {
+      "Name": "ucsc-conservation-and-tfbs",
+      "Path": "/Users/gear/.gemini/config/plugins/science/skills/ucsc_conservation_and_tfbs/SKILL.md",
+      "Description": "Fetch Evolutionary Conservation scores (phyloP, phastCons) and Transcription Factor Binding Sites (TFBS) from the UCSC Genome Browser. Use when analyzing whether genomic variants or regions are evolutionarily conserved, functionally important, or bounded by TF regulators across major projects (ENCODE, JASPAR, ReMap)."
+    },
+    {
+      "Name": "unibind-database",
+      "Path": "/Users/gear/.gemini/config/plugins/science/skills/unibind_database/SKILL.md",
+      "Description": "Queries the UniBind database for experimentally validated transcription factor (TF) binding sites. Use when retrieving direct TF-DNA interaction datasets, downloading binding site coordinates (BED/FASTA) for local analysis, or listing available datasets by species, cell line, or TF name. Don't use to query specific intervals, locations, genes, motif models or expression data."
+    },
+    {
+      "Name": "uniprot-database",
+      "Path": "/Users/gear/.gemini/config/plugins/science/skills/uniprot_database/SKILL.md",
+      "Description": "Access protein metadata, function, taxonomy, and sequences across UniProtKB, UniParc, and UniRef. Use when searching for proteins, mapping identifiers, or retrieving functional annotations and publications. Don't use for sequence alignment, protein folding, or sequence similarity search (use specialized skills for those tasks)."
+    },
+    {
+      "Name": "uv",
+      "Path": "/Users/gear/.gemini/config/plugins/science/skills/uv/SKILL.md",
+      "Description": "Checks whether the uv Python package manager is installed and installs it if missing. Ensures uv is on PATH. Use when another skill requires uv as a prerequisite."
+    },
+    {
+      "Name": "web-perf",
+      "Path": "/Users/gear/.gemini/skills/web-perf/SKILL.md",
+      "Description": "Analyzes web performance using Chrome DevTools MCP. Measures Core Web Vitals (LCP, INP, CLS) and supplementary metrics (FCP, TBT, Speed Index), identifies render-blocking resources, network dependency chains, layout shifts, caching issues, and accessibility gaps. Use when asked to audit, profile, debug, or optimize page load performance, Lighthouse scores, or site speed. Biases towards retrieval from current documentation over pre-trained knowledge."
+    },
+    {
+      "Name": "workers-best-practices",
+      "Path": "/Users/gear/.gemini/skills/workers-best-practices/SKILL.md",
+      "Description": "Reviews and authors Cloudflare Workers code against production best practices. Load when writing new Workers, reviewing Worker code, configuring wrangler.jsonc, or checking for common Workers anti-patterns (streaming, floating promises, global state, secrets, bindings, observability). Biases towards retrieval from Cloudflare docs over pre-trained knowledge."
+    },
+    {
+      "Name": "workflow-skill-creator",
+      "Path": "/Users/gear/.gemini/config/plugins/science/skills/workflow_skill_creator/SKILL.md",
+      "Description": "Distills a completed user workflow or interaction into a reusable agent skill. Use when the user asks to turn their workflow, interaction, or multi-step process into a skill, or when they say \"make this a skill\", \"create a skill from what we just did\", \"package this workflow\" or similar. Do not use for creating skills from scratch without an existing workflow (use a generic skill-creator for that)."
+    },
+    {
+      "Name": "wrangler",
+      "Path": "/Users/gear/.gemini/skills/wrangler/SKILL.md",
+      "Description": "Cloudflare Workers CLI for deploying, developing, and managing Workers, KV, R2, D1, Vectorize, Hyperdrive, Workers AI, Containers, Queues, Workflows, Pipelines, and Secrets Store. Load before running wrangler commands to ensure correct syntax and best practices. Biases towards retrieval from Cloudflare docs over pre-trained knowledge."
+    }
+  ],
+  "subagents": [
+    {
+      "Name": "self",
+      "Description": "Subagent that inherits the parent agent's full configuration including tools, system prompt, and model. Use this when you need to run a task in a separate conversation context but with the same capabilities as the current agent."
+    },
+    {
+      "Name": "research",
+      "Description": "Research subagent with read-only tools for exploring the codebase, searching the web, and reading files. Delegate to this agent when you need to run a task in a separate conversation context but with the same capabilities as the current agent, when a research task requires many search and file-reading steps that would clutter your context, or when you need a broad survey of the codebase or documentation. Prefer doing research yourself for quick, targeted lookups."
+    },
+    {
+      "Name": "image-generator",
+      "Description": "Generates or edits images from a brief and replies with the saved file paths."
+    },
+    {
+      "Name": "alpha",
+      "Description": "Alpha demo agent"
+    },
+    {
+      "Name": "zeta",
+      "Description": "Zeta demo agent"
+    }
+  ],
+  "user_rules": [
+    {
+      "Path": "/Users/gear/.gemini/config/plugins/science/rules/AGENTS.md",
+      "Label": "/Users/gear/.gemini/config/plugins/science/rules/AGENTS.md",
+      "Content": "# Science Visualization Priority Rules\n\nFor any science visualization task, **prefer the interactive sidecar viewers**\n(e.g. Biomolecular Structure Viewer) over static image generation, Generative\nUI, or text-based representations. The sidecars provide an interactive\nexperience that the user can explore directly.\n\n## Key Rules\n\n-   Only fall back to other visualization skills (e.g. `pymol`) when no viewer\n    sidecar can do what the user needs.\n\n-   **Always surface a sidecar link.** Whenever the agent loads or updates a\n    visualization in a sidecar (e.g. by calling its MCP tools), it **MUST**\n    include that viewer's `sidecar://` pill link in the chat response so the\n    user can open the viewer panel with one click. Copy the exact link given in\n    the viewer's skill; don't read sidecar files to build it.\n"
+    },
+    {
+      "Path": "/Users/gear/Documents/GitHub/openagy/AGENTS.md",
+      "Label": "/Users/gear/Documents/GitHub/openagy/AGENTS.md",
+      "Content": "# AGENTS.md\n\n## What this repository is\n\nThis is **not an application**. It is a reverse-engineering research workspace with three\nthings in it:\n\n| Path | What it is |\n|---|---|\n| `rea-go-seeds/` | A vendored copy of the upstream OSS project [`VallierDev/rea-go-seeds`](https://github.com/VallierDev/rea-go-seeds). One Go file (`main.go`, ~175 lines) that recovers Go function names from a stripped binary's `pclntab` and writes a REA/Ghidra seed file. Module name is `pclnseeds`, **stdlib-only, zero third-party dependencies** (a hard project constraint — see `out/two-prong-attack.md` §9). |\n| `out/` | The committed evidence directory: reports, seed files, call graph, Ghidra postScripts, raw `readelf`/`strings` dumps. Everything here is a *result*, not a program. |\n| `cmd/wagyu/`, `internal/` | The **clone**: a from-scratch Go reimplementation of the Antigravity CLI, aiming for byte-level parity with the reference binary. Built with `go build -o /tmp/wagyu ./cmd/wagyu`; the tested surface is `go test ./cmd/... ./internal/...` (never `./...` — `scratch/` has never compiled). Each change is a numbered *cycle* with a report under `docs/cycles/cycle-\u003cn\u003e/`. Renamed from `cmd/antigravity` in cycle 121 so the command no longer collides with the reference's own name. Since cycle 183 the agent loop is `github.com/MichaelKinsy/PiG`'s, wrapped by `internal/piagentbridge` — see **The agent loop** below. |\n| `cmd/agy/`, `devutils/` | The **`agy` wrapper** (cycle 274): launches the *official* `agy` with a local CloudCode proxy, so it can use models it does not ship with (MiniMax M3, configured in `~/.config/openagy/providers.json`) and so its requests/responses can be captured. Does not patch the vendor binary. Separate from the clone — see **The `agy` wrapper** below. |\n\nReports written before cycle 121 spell the clone's entry point `cmd/antigravity`; the\nrename is a directory move only — the package is `main` and nothing imports it.\n\n`gofmt -l` is **not** clean for the clone and never has been: 50 files under `internal/`\nplus `cmd/wagyu/picker_view.go` and `cmd/wagyu/tui_v135_test.go`. Leave them alone unless\nyou are already editing them; do not reformat them wholesale (it buries real diffs).\n\nThree subtrees live under `out/`, and they are **not interchangeable**:\n\n| Subtree | Target | Built on |\n|---|---|---|\n| `out/` top level + `out/decompile/` | Linux/ELF sandbox | Debian 12 at `/workspace/agy/`, agy ~1.0 |\n| `out/local-macos/` | **this machine**, macOS/arm64 | agy **1.3.4** — the working pipeline |\n| `rea-go-seeds/README.md`, `docs/TUTORIAL.md` | macOS/Mach-O walkthrough | the tutorial case |\n\n`out/local-macos/` is the live one. Start there; `out/local-macos/FINDINGS.md` records\nwhat the current agy build actually contains.\n\nThe target binary under study is **Antigravity CLI** (`agy`) — a closed-source Google\ninternal monorepo agent CLI (`google3/third_party/jetski/...`), built with Google’s\ninternal Go toolchain (`go1.28-20260921-RC02`, tags `fieldtrack,boringcrypto,simd`).\n\n---\n\n## Two different environments — the single biggest source of confusion\n\nThe committed artifacts were produced in a **Debian 12 x86-64 sandbox rooted at\n`/workspace/agy/`**. This checkout lives on macOS/arm64. Two distinct targets exist:\n\n| | macOS/arm64 case | Linux sandbox case |\n|---|---|---|\n| Target | `~/.local/bin/agy` | `/workspace/agy/install/antigravity` |\n| Format | Mach-O arm64, 180 MB | ELF64 x86-64 PIE, 214 MB |\n| pclntab section | `__lrodata_gopcln` (62.5 MB) | folded into `.lrodata` |\n| `.text` start address | `0x1000011c0` (loaded at `0x100000000`) | `0x5dc5000` (PIE, no fixed base) |\n| Write-ups | `rea-go-seeds/README.md`, `rea-go-seeds/docs/TUTORIAL.md` | everything in `out/` |\n\n**Never mix addresses between the two.** A function named\n`.../store.store.(*Manager).waitForEligibility` exists at `0x899cd40` in the ELF build\nand at `0x10262f660` in the Mach-O build. The `.text` start address is what gets\nhanded to `gosym.NewLineTable`, and getting it wrong silently shifts every PC.\n\nEverything under `out/` — except `out/local-macos/` — is hardcoded to `/workspace/agy/`.\n`out/decompile/DecompilePriority.java` has 6 such references and\n`out/decompile/build_reports.py` has 4. **Rewrite these constants if you run them\nelsewhere**, or they will silently write to a nonexistent tree.\n\n### Toolchain — installed and working on this machine\n\nThe macOS/arm64 pipeline has been configured and run end-to-end here; see\n**`out/local-macos/FINDINGS.md`** for results and `out/local-macos/env.sh` for the\nenvironment.\n\n| Tool | Version | Path |\n|---|---|---|\n| Go | 1.27.0 | `/Users/gear/go/bin/go` |\n| JDK | 21.0.12.1 (Homebrew `openjdk@21`) | `/opt/homebrew/opt/openjdk@21` |\n| Ghidra | 12.1.4 | `~/tools/ghidra_12.1.4_PUBLIC` |\n| rea-agents | 6.4.0 | `/opt/homebrew/bin/rea` |\n\n`rea doctor --provider ghidra` is all-green. Node is v26.11.1 (REA needs 22/24/26+).\n\nSix things this machine gotcha-checks, each of which cost real time:\n\n1. **The official Ghidra zip ships no macOS decompiler.** You must build it:\n   `cd ~/tools/ghidra_12.1.4_PUBLIC/support/gradle \u0026\u0026 JAVA_HOME=\u003cjdk21\u003e ./gradlew buildNatives`\n   (~3 min) → `Ghidra/Features/Decompiler/build/os/mac_arm_64/decompile`. Without it\n   `rea doctor` fails `ghidra-native_decompiler`.\n2. **REA defaults Ghidra's heap to `-Xmx2G`** (`dist/ghidra/GhidraJavaLaunch.js:53`);\n   override with `GHIDRA_HEADLESS_MAXMEM`. Raising it is worth doing but is **not** the\n   cause of the wrapper failures — see the next section.\n3. **Ghidra searches the current working directory for scripts before `-scriptPath`.** A\n   stray `DecompilePriority.java` in the CWD is picked up and fails with *\"Failed to find\n   source bundle containing script\"*. Run `analyzeHeadless` from a neutral CWD (e.g.\n   `/tmp`) and keep the script in its own directory.\n4. **`~/GitHub` is a symlink to `~/Documents/GitHub`.** Ghidra canonicalises paths, which\n   shows up in error messages; harmless once you know.\n5. **The seeds, the Ghidra project and `dec/` are version-scoped, and they are\n   currently at agy 1.4.5.** `out/local-macos/seeds/` holds **160,664**\n   functions — regenerated from the installed binary\n   (`cd rea-go-seeds \u0026\u0026 mkdir -p /tmp/seeds \u0026\u0026 go run . ~/.local/bin/agy /tmp/seeds`\n   — ~2 seconds, no network), with `out/local-macos/proj` (the seeded Ghidra\n   project) and `out/local-macos/dec/` rebuilt from it: **2,257/2,257**\n   priority addresses resolved, **0 skipped**, 330,089 LOC. **Every address\n   moves on every release**, so the moment `agy` updates, every address in\n   `seeds.txt`, in the project, in `dec/` and in the committed\n   `out/local-macos/decompile-*.md` reports is stale, and citing one for a\n   newer finding means decompiling whatever function happens to sit there.\n   Regenerate before anything else. Related: Ghidra's `\u0026UNK_\u003caddr\u003e,\u003clen\u003e` refs\n   are unreliable for literals whose pointer it failed to track — read the\n   instruction stream instead (`out/local-macos/scan_strings.py`,\n   `out/local-macos/find_callers.py`). See\n   `docs/cycles/reference-drift-145/deliverable.md`.\n6. **A second agent may commit or revert files under you.** The tree is shared.\n   Re-read a file before editing it, commit your own paths as soon as they are\n   green, and re-check `git status` before concluding that a change vanished.\n\n`.crush/` is Crush runtime state (sqlite db + logs), not project content. `.crush/init` is\nempty.\n\n---\n\n## The agent loop (cycle 183; print mode moved onto PiG in cycle 210)\n\nThere are **two** turn engines in the tree, and the split is now sharp:\n\n| Engine | Owns | Where |\n|---|---|---|\n| `internal/pigrt` (PiG `coding.Session`) | **`--print`** — the whole headless surface | `cmd/wagyu/print_pig.go` |\n| `internal/agent.Loop` (PiG `agent.Agent`) | the **interactive TUI** only | `cmd/wagyu/tui_run.go` |\n\n`internal/agent.Loop` was the clone's turn engine. Until cycle 182 it walked the\nmodel → tool → model cycle itself; since cycle 183 `Send` delegates to\n`github.com/MichaelKinsy/PiG`'s `agent.Agent`, with `internal/piagentbridge` as\nthe only translation layer. Since cycle 210 a `-p` turn does not go through it\nat all — the print path runs PiG's `coding.Runtime`/`coding.Session` directly,\nwhich is what brings MCP and skills. Read in this order:\n\n| File | What it is |\n|---|---|\n| `cmd/wagyu/print_pig.go` | the print path: `runPigPrintTurn`, `pigPrintModel` (which `ai.Provider`), `pigHistory` (`-c` seeding) |\n| `internal/pigrt/runtime.go` | the `coding.Session` wrapper: `New`, `Run`/`RunWith`, the event drain, `turnFailure` |\n| `internal/pigrt/mcpconfig.go` | the agy `mcp.json` → PiG `mcp`-extension config bridge |\n| `internal/pigrt/skills.go`, `errors.go`, `history.go` | skill roots, the out-of-band `ErrorSlot`, `SeedHistory` |\n| `internal/piagentbridge/backendprovider.go` | any `backend.Client` → `ai.Provider` for the session (mock/shim; the OpenAI-shaped configured endpoint uses the native provider) |\n| `internal/agent/pig.go` | the *TUI*'s translation: `sendPig`, `pigMessages`, `chunkSink`, `runnerTool`, `toolCallFromPig`, `metaFromPig`, and `nativeProvider` |\n| `internal/agent/loop.go` | `agent.Loop`'s **public API, unchanged since 183**. `Send` is a one-line delegation. `Options` gained `Provider` as an *override* |\n| `internal/piagentbridge/bridge.go` | `backend.Client` → PiG, the tool catalogue bridge, `Describer`/`Describe` |\n| `internal/piagentbridge/stream.go` | `BackendStreamFn`, `pump`, `ToStreamRequest`; `BackendStreamFnWithObserver` carries chunk metadata that `ai.Usage` cannot |\n| `internal/piagentbridge/gatewayprovider.go` | the self-written native `ai.Provider` over the configured endpoint's OpenAI-shaped SSE endpoint |\n\nFour things about PiG's stream contract are **undocumented upstream** and the\nadapter depends on all four. They were found by reading `agent/agent_loop.go`:\n\n1. Event order is `Start → Text* → ToolCall* → Done|Error`.\n2. `End(result)` is **mandatory** — `consumeStream` reads `stream.Result()`.\n3. `StopReasonToolUse` is the only signal that triggers the tool batch.\n4. Tool declarations ride on the initial `SystemMessage.ToolsAdded`.\n\nFive further traps, all load-bearing:\n\n- `ai.Provider.Stream(ctx, transcript, opts)` **does not receive the model**\n  (`agent_loop.go:412`), so a multi-model provider must be pinned per model —\n  hence `Provider.Model(label)` / `pinnedProvider`.\n- PiG copies only `err.Error()` across the stream boundary\n  (`agent_loop.go:494`, `return errorAssistant, nil, nil`). Any error whose\n  concrete type matters — `*backend.HTTPError`, which\n  `cmd/wagyu/api_error.go:102` recovers with `errors.As` — has to be recorded\n  out-of-band. Hence `errorSlot` in `pig.go` (TUI) and `pigrt.ErrorSlot`\n  (print), and the rule that both transports return a **pre-stream** failure as\n  `(nil, err)` rather than an in-stream event.\n- Because of that same line **`coding.Session.Send` can return a nil error for a\n  turn that failed.** The print path recovers the failure from the returned\n  messages (`pigrt.turnFailure`) and prefers the recorded original; check\n  `ctx.Err()` *before* it so `--print-timeout` stays a partial-output success.\n- PiG's `emit` **blocks** until the event is received, so the event drain\n  goroutine must run independently of `Send` (128-buffer channel, `EventDone`\n  left open).\n- `Send` returns before the drain has *processed* the last events, so a trailing\n  text delta can still be in flight. `pigrt.RunWith` calls\n  `session.FlushEvents(ctx)` (a FIFO barrier the drain acknowledges) before\n  clearing `onText`, or stdout gets truncated.\n\n**Do not re-add a second transport.** The clone's gateway client and the native\nprovider must stay behaviourally identical: `ExternalModel` remap,\n`SystemFingerprint` (`backend.GatewaySystemFingerprint`), `User-Agent`\n(`backend.GatewayUserAgent`), and the `*backend.HTTPError` classification. The\nswitch is implicit — `nativeProvider` derives a provider from any backend that\nimplements `GatewayConfig()`, so `cmd/wagyu` is edited by zero lines and both the\n`--print` and TUI paths move together. `backend.NewMock()` and the lifecycle\nwrappers do not describe themselves: the TUI keeps the `StreamFn` path, and the\nprint path wraps them in `piagentbridge.BackendProvider` (the same `StreamFn`).\n\n**The native provider is OpenAI-shaped only.** `NativeProvider` returns nil for\nthe Anthropic dialect, so an Anthropic-configured provider goes through the\ngeneric `BackendProvider`/`StreamFn` path. That is deliberate: one\nimplementation of the Messages dialect (`internal/backend/gateway_anthropic.go`),\nnot two.\n\nCost, and the reason to be careful: `cmd/wagyu` was **+12.1 MB (+50.8 %)** since\n`b36b3cb` (24.9 MB → 37.6 MB) when cycle 183 added PiG, and PiG brings 1 direct\n+ 24 indirect module requirements. Cycle 210 then put PiG's `coding` runtime on\nthe print path unconditionally, so the binary is now **~69 MB**\n(`-tags nocodemode` → ~64 MB). Cycle 278 moved PiG to **v0.5.1**, another\n**+11 MB** (→ 102 MB) because 0.5 links `go/types`, `go/doc`, `go/format`,\n`runtime/pprof` and `internal/zstd`. Two things about that upgrade are worth\nremembering:\n\n- **`sum.golang.org` has no checksum for `v0.5.1`.** Both the proxy and\n  `GOPROXY=direct` fail with `unknown revision v0.5.1`; use\n  `GONOSUMDB='github.com/MichaelKinsy/PiG,github.com/MichaelKinsy/PiG/*'`.\n- **The extension runtime must be shared.** Built-ins are factories in 0.5,\n  and the `*extension.ExtensionRuntime` passed to `RuntimeOptions` has to be\n  the same one the factories registered into, or MCP servers never reach\n  `session_start` (`TestRuntimeConnectsMCPFromAgyConfig`).\n\nReports: `docs/cycles/cycle-183/`, `docs/cycles/cycle-209/`,\n`docs/cycles/cycle-210/`, `docs/cycles/cycle-278/`.\n\n---\n\n## Model routing (`cmd/wagyu/main_backend.go`, cycle `provider-config-gateway`)\n\nThere are **two real transports**, and the selected model decides which one runs:\n\n| The model is… | Transport | Endpoint |\n|---|---|---|\n| in the reference's catalogue (Gemini / Claude / GPT-OSS) | `backend.CloudCodeClient` | `https://daily-cloudcode-pa.googleapis.com/v1internal:streamGenerateContent?alt=sse` |\n| configured by the user | `backend.GatewayClient` | the configured endpoint: `\u003cbase\u003e/chat/completions` (OpenAI) or `\u003cbase\u003e/v1/messages` (Anthropic) |\n\n`pickBackendWithLog` (`cmd/wagyu/main_backend.go`) does the split at startup; the TUI\ndoes it again on every `/model` change through `runMode.backendFor`\n(`syncBackendForModel`). An explicit `--backend gateway` /\n`OPENAGY_BACKEND=gateway` still forces the configured endpoint. `--backend cloudcode`\n(`google`, `gemini`, `cc`) forces the official path. A model nobody configured\nlands on the shim **with a warning that names `providers.json`** — answering\nfrom the shim without saying so would look like a working model.\n\n**The catalogue is configuration.** `~/.config/openagy/providers.json` holds one\nentry per provider: the endpoint, the credential (`$NAME` is expanded from the\nenvironment), the wire protocol (`openai` | `anthropic`) and the models that\nprovider serves. That file is the **only** configuration shape — the legacy flat\n`~/.config/openagy/models.json` has been retired (read path, write path and the\n`agw` provider-type alias with it; report:\n`docs/cycles/legacy-config-retirement/`). `cli.ReferenceModels()` is\nthe *pure* reference catalogue; `cli.ModelCatalogue()` merges the configured\nmodels in (reference rows first, configured rows sorted by id). The transport\nhas **no** built-in endpoint, credential or model — an unset endpoint is an\nerror, not a fallback. Report: `docs/cycles/provider-config-gateway/`.\n\nThe CloudCode wire was transcribed from live 1.4.3 traffic (report:\n`docs/cycles/cloudcode-model-switching/`). Five things are load-bearing:\n\n- **`daily-` matters.** `cloudcode-pa.googleapis.com` answers 429 for this\n  account; `daily-cloudcode-pa` answers 200. The `cmd/agy` wrapper's upstream\n  is the prod host, which is why it looked quota-exhausted.\n- **`sessionId` is a JSON string**, not a number\n  (`400 Invalid value at 'request.session_id' (TYPE_STRING)`).\n- **Tool results are model-role contents** with\n  `functionResponse{id,name,response:{output}}`, and the model's\n  `thoughtSignature` is replayed on the `functionCall` part. Signatures are kept\n  in memory per client.\n- **Function declarations must be unique.** The clone advertises\n  `invoke_subagent` twice (its catalogue + PiG); Gemini rejects the whole\n  request. The transport keeps the first per name.\n- **macOS token = keychain, not the files.** The reference stores the live token\n  in the login keychain (`gemini`/`antigravity`); the on-disk cascade can be a\n  stale fixture. The client prefers the keychain and refreshes there.\n- **Reasoning is wrapped, not dropped.** CloudCode sends reasoning as\n  `thought:true` text parts (Claude does; Gemini Flash's measured turns return\n  only signature-only parts). The transport wraps each run in the reference's\n  `\u003cthink\u003e…\u003c/think\u003e` markers, which is what `internal/agent.Sanitizer` already\n  consumes for MiniMax — the TUI renders `▸ Thought for …` and ctrl+o expands\n  the body, while print mode strips it.\n\nThe catalogue is the reference's own selectable set — the six ids\n`agy models` prints (`gemini-3.8-flash-{high,medium,low}`, `claude-sonnet-4-6`,\n`claude-opus-4-6-thinking`, `gpt-oss-120b-medium`). Configured models (MiniMax\nM3 and friends) are **not** in it: they come from the user's configuration.\nThe server advertises **24** ids in\n`fetchAvailableModels`; everything outside the selectable six is rejected by\nthe reference's own validator (`model X is not recognized…`), so accepting it\nwould diverge. The one exception is **`gemini-4-argon-disabled`** (\"Gemini 4\nArgon\"): it is *known* and refused with a plan reason — `\"Gemini 4 Argon\" is\nunavailable: Gemini 4 Argon is currently available to Ultra and paid Pro plan\nsubscribers` — which `internal/cli.ReferenceGatedModels` reproduces. Report:\n`docs/cycles/model-catalogue-argon-gate/`.\n\n---\n\n## Editing the configuration (`internal/models/edit.go`, cycle `provider-model-editor`)\n\n`~/.config/openagy/providers.json` has **one writer** and **three front-ends**.\n\n| File | What it is |\n|---|---|\n| `internal/models/edit.go` | `Editor` — `List` / `PutProvider` / `DeleteProvider` / `PutModel` / `DeleteModel`, the lock (`\u003cpath\u003e.lock`, `O_CREATE|O_EXCL`, 5 s wait, 30 s stale) and the atomic `0600` write |\n| `internal/models/jsonedit.go` | the ordered JSON object: a write replaces the one field that changed, so the key order and the unknown fields survive |\n| `internal/models/render.go` | the shared renderers (`SortedProviderIDs`, `MaskAPIKey`, `RenderProviderTable`, `RenderModelTable`, `RenderProviderDetail`, `RenderModelDetail`) |\n| `internal/models/verify.go` | the verification probe: one request against the endpoint, classified by the HTTP status |\n| `internal/models/errors.go` | `UpstreamError` / `UpstreamStatus` — the typed upstream failure (the message is unchanged: `upstream 401: …`) |\n| `internal/cli/provider_cmds.go` | the hidden `agy provider` / `agy model` subcommands |\n| `cmd/wagyu/slash_panel_provider.go` | the `/provider` TUI panel |\n| `cmd/agy/wrapper.go` | the wrapper's `wrapper providers` / `wrapper models`, on the same editor |\n| `cmd/openagy-models/main.go` | the legacy tool, repointed at the provider-centric file |\n\nSix things to know:\n\n- **Merge, not replace.** Every `add` keeps the fields the user did not\n  pass. Clearing a field is an explicit act.\n- **The credential is never rendered.** `MaskAPIKey` shows `$NAME` verbatim\n  and masks a literal as `**** (literal, hidden)`. The panel's credential\n  field starts *empty* for a literal and an empty field **keeps** the\n  stored value.\n- **The mutated child must be re-attached to its parent** (`providers.Set(id, obj)`\n  *then* `doc.Set(\"providers\", providers)`). A `DeleteModel` that forgets\n  the second call reports success and changes nothing — the bug class that\n  `internal/models/edit_test.go` exists to catch.\n- **`provider` and `model` are hidden subcommands.** `agy --help` lists the\n  reference's twelve visible subcommands and nothing else, and `agy models`'\n  output is byte-pinned — so the commands that *change* the configuration\n  live under their own names. The identifier may come before or after the\n  flags (`splitPositionalID` knows which flags take a value).\n- **`/provider` is invocable but *not* listed.** `internal/tuilib.DefaultSlashCommands`\n  holds 99 entries and the \"↓ 94 more\" hint is byte-pinned, so the panel is\n  routed through `commandPanels` / `slashHandlers` only. Keys: `↑/↓`\n  navigate, `enter` edit, `a` add provider, `m` add model, `d` delete\n  (twice), `v` verify, `esc` exit; the form's `←/→` cycles a choice field\n  like `/config`.\n- **The credential is verified, like crush.** `v` probes the endpoint with\n  the credential **the user has typed** (the probe takes the credential as\n  an argument, so an unsaved key is what is probed); a save starts a probe\n  too. The probe is one request — a minimal chat completion when the\n  provider has a model, a `GET \u003cbase\u003e/models` listing when it does not —\n  and its verdict is classified by the status (`the credential was\n  rejected (HTTP 401)`, `the endpoint could not be reached: …`). The headless\n  twin is `agy provider test \u003cid\u003e` (exit code 1 on a failed probe). The\n  probe runs as a `tea.Cmd`, so the modal never blocks on the network.\n- **The provider type is the *wire dialect*, and there is no alias for it.**\n  `NewProvider`'s switch accepts `openai`, `anthropic`, `ollama`, `openrouter`,\n  `google` and `custom`. Earlier versions of this clone wrote a tenant name\n  into the field (`\"provider\": \"agw\"`), and the rename to the generic names\n  dropped that value from the switch — every such configuration then failed\n  with `models: unknown provider \"agw\"`, which the `agy` wrapper answers with\n  a `502` (and the TUI hangs at *generating*). A read-only alias\n  (`legacyProviderTypes`) papered over it for one cycle; it is **gone** now\n  that the flat configuration file it belonged to is retired. A tenant that\n  wants a label of its own puts it in the provider's `name` field and keeps\n  `type: openai`. Report: `docs/cycles/legacy-config-retirement/`.\n\nReport: `docs/cycles/provider-model-editor/`.\n\n---\n\n## The `/model` picker (cycle `model-picker-search`)\n\n`cmd/wagyu/slash_panel_model.go` draws the picker; `cmd/wagyu/slash_panel_keymap.go`\nroutes its keys. The reference's picker is a **search field first** — every\nprintable character lands in `Search:` and the rows filter live (captured\nlive against agy 1.4.5, `docs/cycles/model-picker-search/captures.md`):\n\n- the match is a **case-insensitive subsequence of the display label** —\n  not a substring (`clauson` matches `Claude Sonnet 4.6 (Thinking)`) and\n  not a match on the catalogue id (`cl-opus` matches nothing);\n- a printable key **filters**; it does not navigate (`j` goes into the\n  box). `handleModelKey` therefore does **not** use\n  `tuilib.ClassifyListNavKey`, which reads `j`/`k`/`h`/`l`/`g`/`q` as\n  navigation;\n- the rows come back in a **relevance order**: an unselectable (dim) row\n  last, then the rows whose match lands on a word boundary, then the\n  shorter label, then the earlier first match. The reference's own score\n  function was not recovered — this rule reproduces every measured query;\n- no match renders `  No models match \"\u003cquery\u003e\"` (256-colour 60) and the\n  legend collapses to `esc Clear search`;\n- Esc clears a live query and keeps the panel open; the legend's last\n  entry reads `esc Clear search` while a query is live and `esc Go Back`\n  when the box is empty.\n\nTwo things that are easy to get wrong:\n\n- **The row count is not a constant.** `panelRowCount(panelModel)` is\n  `len(m.modelRows())` — the reference's five static rows, plus the\n\u003ctruncated 63373 bytes\u003e"
+    }
+  ],
+  "workspaces": [
+    "/Users/gear/Documents/GitHub/openagy"
+  ]
+}

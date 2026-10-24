@@ -84,7 +84,7 @@ type MessageBackend interface {
 // already), so a backend implementing this interface does not
 // need to know about a Cascade — it just sees the prompt it
 // should run. BackendLabel is the resolved backend identifier
-// ("agw" | "shim") so a future multi-backend router can pick
+// ("gateway" | "cloudcode" | "shim") so a future multi-backend router can pick
 // without rereading the cascade value.
 type MessagePrompt struct {
 	// ConversationID is the cascade's current conversation id.
@@ -103,7 +103,8 @@ type MessagePrompt struct {
 	Scaffold bool
 	// SessionMode is opaque passthrough.
 	SessionMode string
-	// BackendLabel is "agw" / "shim" / "" — see Cascade.BackendLabel.
+	// BackendLabel is "gateway" / "cloudcode" / "shim" / "" — see
+	// Cascade.BackendLabel.
 	BackendLabel string
 }
 

@@ -14,9 +14,9 @@ import (
 
 func TestReorderArgsSticksFlagsFirst(t *testing.T) {
 	fs := makeAddFlagSet()
-	// Mixed: positional "agw" first, then flags.
+	// Mixed: positional "minimax-m3" first, then flags.
 	got := reorderArgs([]string{
-		"agw",
+		"minimax-m3",
 		"--provider=openai",
 		"--api-url", "https://example.com",
 		"--external-model", "m",
@@ -24,9 +24,9 @@ func TestReorderArgsSticksFlagsFirst(t *testing.T) {
 	if got[0] != "--provider=openai" {
 		t.Errorf("first arg = %q, want --provider=openai", got[0])
 	}
-	// "agw" should be the last arg.
-	if got[len(got)-1] != "agw" {
-		t.Errorf("last arg = %q, want 'agw' (positional last)", got[len(got)-1])
+	// "minimax-m3" should be the last arg.
+	if got[len(got)-1] != "minimax-m3" {
+		t.Errorf("last arg = %q, want 'minimax-m3' (positional last)", got[len(got)-1])
 	}
 }
 
@@ -35,7 +35,7 @@ func TestReorderArgsPreservesOrder(t *testing.T) {
 	got := reorderArgs([]string{
 		"--provider=openai",
 		"--api-url=https://example.com",
-		"agw",
+		"minimax-m3",
 	}, fs)
 	if got[0] != "--provider=openai" {
 		t.Errorf("got[0] = %q", got[0])
@@ -43,22 +43,22 @@ func TestReorderArgsPreservesOrder(t *testing.T) {
 	if got[1] != "--api-url=https://example.com" {
 		t.Errorf("got[1] = %q", got[1])
 	}
-	if got[2] != "agw" {
-		t.Errorf("got[2] = %q, want 'agw' positional", got[2])
+	if got[2] != "minimax-m3" {
+		t.Errorf("got[2] = %q, want 'minimax-m3' positional", got[2])
 	}
 }
 
 func TestRunAddListRemoveRoundTrip(t *testing.T) {
 	dir := t.TempDir()
-	cfg := filepath.Join(dir, "models.json")
+	cfg := filepath.Join(dir, "providers.json")
 
 	// Add.
 	err := runAdd(cfg, []string{
-		"--provider=agw",
-		"--api-url=https://agw.k0s.io/v1/chat/completions",
+		"--provider=openai",
+		"--api-url=https://gateway.example.com/v1/chat/completions",
 		"--external-model=MiniMax-M3",
 		"--api-key=-",
-		"agw",
+		"minimax-m3",
 	})
 	if err != nil {
 		t.Fatalf("runAdd: %v", err)
@@ -70,7 +70,7 @@ func TestRunAddListRemoveRoundTrip(t *testing.T) {
 	}
 
 	// Remove.
-	if err := runRemove(cfg, []string{"agw"}); err != nil {
+	if err := runRemove(cfg, []string{"minimax-m3"}); err != nil {
 		t.Fatalf("runRemove: %v", err)
 	}
 
@@ -82,8 +82,8 @@ func TestRunAddListRemoveRoundTrip(t *testing.T) {
 
 func TestRunAddRejectsIncomplete(t *testing.T) {
 	dir := t.TempDir()
-	cfg := filepath.Join(dir, "models.json")
-	err := runAdd(cfg, []string{"--provider=agw"})
+	cfg := filepath.Join(dir, "providers.json")
+	err := runAdd(cfg, []string{"--provider=openai"})
 	if err == nil {
 		t.Fatal("expected error on incomplete add")
 	}
@@ -94,7 +94,7 @@ func TestRunAddRejectsIncomplete(t *testing.T) {
 
 func TestRunInstallContextWritesFiles(t *testing.T) {
 	dir := t.TempDir()
-	cfg := filepath.Join(dir, "models.json")
+	cfg := filepath.Join(dir, "providers.json")
 	if err := runInstallContext(cfg, []string{"lite"}); err != nil {
 		t.Fatalf("runInstallContext lite: %v", err)
 	}
@@ -118,4 +118,105 @@ func readFile(path string) (int, error) {
 		return 0, err
 	}
 	return len(data), nil
+}
+
+// TestAddWritesTheProviderCentricForm pins the shape the CLI writes: the
+// provider carries the endpoint and the credential, and the model is
+// listed under it.
+func TestAddWritesTheProviderCentricForm(t *testing.T) {
+	dir := t.TempDir()
+	cfg := filepath.Join(dir, "providers.json")
+
+	err := runAdd(cfg, []string{
+		"--provider=gateway",
+		"--api-url=https://gateway.example.com/v1/chat/completions",
+		"--external-model=MiniMax-M3",
+		"--api-key=$OPENAGY_GATEWAY_KEY",
+		"minimax-m3",
+	})
+	if err != nil {
+		t.Fatalf("runAdd: %v", err)
+	}
+	body, err := osReadFile(cfg)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	for _, want := range []string{
+		`"providers"`,
+		`"gateway"`,
+		`"api_url": "https://gateway.example.com/v1/chat/completions"`,
+		`"api_key": "$OPENAGY_GATEWAY_KEY"`,
+		`"id": "minimax-m3"`,
+		`"model": "MiniMax-M3"`,
+	} {
+		if !strings.Contains(string(body), want) {
+			t.Fatalf("the file is missing %s:\n%s", want, body)
+		}
+	}
+}
+
+// TestAddMergesIntoAnExistingProvider pins the merge: a second add that
+// only carries a new model must not drop the provider's credential.
+func TestAddMergesIntoAnExistingProvider(t *testing.T) {
+	dir := t.TempDir()
+	cfg := filepath.Join(dir, "providers.json")
+
+	if err := runAdd(cfg, []string{
+		"--provider=gateway",
+		"--api-url=https://gateway.example.com/v1/chat/completions",
+		"--external-model=One",
+		"--api-key=$OPENAGY_GATEWAY_KEY",
+		"one",
+	}); err != nil {
+		t.Fatalf("runAdd: %v", err)
+	}
+	if err := runAdd(cfg, []string{
+		"--provider=gateway",
+		"--external-model=Two",
+		"two",
+	}); err != nil {
+		t.Fatalf("runAdd: %v", err)
+	}
+	body, err := osReadFile(cfg)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if !strings.Contains(string(body), `"api_key": "$OPENAGY_GATEWAY_KEY"`) {
+		t.Fatalf("the credential was dropped:\n%s", body)
+	}
+	if !strings.Contains(string(body), `"id": "one"`) {
+		t.Fatalf("the first model was dropped:\n%s", body)
+	}
+	if !strings.Contains(string(body), `"id": "two"`) {
+		t.Fatalf("the second model was not added:\n%s", body)
+	}
+}
+
+// TestRemoveKeepsTheProvider pins that removing a model leaves the
+// provider (and its endpoint) in place.
+func TestRemoveKeepsTheProvider(t *testing.T) {
+	dir := t.TempDir()
+	cfg := filepath.Join(dir, "providers.json")
+
+	if err := runAdd(cfg, []string{
+		"--provider=gateway",
+		"--api-url=https://gateway.example.com/v1/chat/completions",
+		"--external-model=One",
+		"one",
+	}); err != nil {
+		t.Fatalf("runAdd: %v", err)
+	}
+	if err := runRemove(cfg, []string{"one"}); err != nil {
+		t.Fatalf("runRemove: %v", err)
+	}
+	body, err := osReadFile(cfg)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if !strings.Contains(string(body), `"gateway"`) {
+		t.Fatalf("the provider was removed too:\n%s", body)
+	}
+	if strings.Contains(string(body), `"id": "one"`) {
+		t.Fatalf("the model survived:\n%s", body)
+	}
 }

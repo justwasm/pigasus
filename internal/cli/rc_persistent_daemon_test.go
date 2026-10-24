@@ -18,10 +18,14 @@ import (
 )
 
 // TestRemoteControlStart_HelpOnly pins the help text the parser
-// emits on `wagyu remote-control start --help`.  Cycle
-// rc-persistent-daemon added --addr, --log-file, --name,
-// --session; the test fails immediately if any of them drops
-// out of the usage block.
+// emits on `wagyu remote-control start --help`.
+//
+// The usage block is the reference's, byte for byte: the reference
+// advertises `--name` and `--session` only. The clone also accepts
+// `--addr` and `--log-file` (the foreground daemon's overrides and
+// the persistent daemon's log path), but the reference does not list
+// them — `agy remote-control start --addr 1.2.3.4:9` prints this very
+// usage block — so the clone does not either.
 func TestRemoteControlStart_HelpOnly(t *testing.T) {
 	out, errb, code := runJetski(t, "remote-control", "start", "--help")
 	if code != 0 {
@@ -30,15 +34,21 @@ func TestRemoteControlStart_HelpOnly(t *testing.T) {
 	if out != "" {
 		t.Errorf("start --help stdout should be empty, got %q", out)
 	}
-	for _, flag := range []string{"--addr", "--log-file", "--name", "--session"} {
+	for _, flag := range []string{"--name", "--session"} {
 		if !strings.Contains(errb, flag) {
 			t.Errorf("start --help usage missing %q; stderr=%q", flag, errb)
+		}
+	}
+	for _, flag := range []string{"--addr", "--log-file"} {
+		if strings.Contains(errb, flag) {
+			t.Errorf("start --help usage must not advertise %q (the reference does not); stderr=%q", flag, errb)
 		}
 	}
 }
 
 // TestRemoteControlStop_HelpOnly pins the help text the parser
-// emits on `wagyu remote-control stop --help`.
+// emits on `wagyu remote-control stop --help`. The reference's block
+// lists the two help flags only.
 func TestRemoteControlStop_HelpOnly(t *testing.T) {
 	out, errb, code := runJetski(t, "remote-control", "stop", "--help")
 	if code != 0 {
@@ -47,10 +57,8 @@ func TestRemoteControlStop_HelpOnly(t *testing.T) {
 	if out != "" {
 		t.Errorf("stop --help stdout should be empty, got %q", out)
 	}
-	for _, flag := range []string{"--name"} {
-		if !strings.Contains(errb, flag) {
-			t.Errorf("stop --help usage missing %q; stderr=%q", flag, errb)
-		}
+	if strings.Contains(errb, "--name") {
+		t.Errorf("stop --help usage must not advertise --name (the reference does not); stderr=%q", errb)
 	}
 }
 
@@ -60,7 +68,7 @@ func TestRemoteControlStop_HelpOnly(t *testing.T) {
 // no LaunchAgent registered; "name" defaults to hostname;
 // "hint" surfaces the operator's next step.
 func TestRemoteControlStatus_JSONOutput(t *testing.T) {
-	out, errb, code := runJetski(t, "remote-control", "status")
+	out, errb, code := runJetski(t, "remote-control", "status", "--json")
 	if code != 0 {
 		t.Fatalf("status exit code = %d, want 0; stderr=%q", code, errb)
 	}
@@ -86,7 +94,7 @@ func TestRemoteControlStatus_JSONOutput(t *testing.T) {
 // the JSON document.
 func TestRemoteControlStatus_NameOverride(t *testing.T) {
 	out, errb, code := runJetski(t,
-		"remote-control", "status", "--name", "test-machine")
+		"remote-control", "status", "--json", "--name", "test-machine")
 	if code != 0 {
 		t.Fatalf("status --name exit code = %d, want 0; stderr=%q", code, errb)
 	}
@@ -95,6 +103,12 @@ func TestRemoteControlStatus_NameOverride(t *testing.T) {
 	}
 	if !strings.Contains(out, `"name": "test-machine"`) {
 		t.Errorf("status JSON name was not threaded through; got=%q", out)
+	}
+
+	outPlain, _, _ := runJetski(t,
+		"remote-control", "status", "--name", "test-machine")
+	if !strings.Contains(outPlain, "Instance name: test-machine") {
+		t.Errorf("status plaintext name was not threaded through; got=%q", outPlain)
 	}
 }
 
@@ -166,11 +180,12 @@ func TestRemoteControlForeground_DirectInvocation(t *testing.T) {
 // path by inspecting the JSON output of `status` — which
 // resolves --name to hostname when the user didn't pass one.
 func TestRemoteControlStart_HostnameDefault(t *testing.T) {
+	t.Setenv("GEMINI_CONFIG_HOME", t.TempDir())
 	hn, err := os.Hostname()
 	if err != nil || hn == "" {
 		t.Skipf("no hostname; skipping (err=%v)", err)
 	}
-	out, _, code := runJetski(t, "remote-control", "status")
+	out, _, code := runJetski(t, "remote-control", "status", "--json")
 	if code != 0 {
 		t.Fatalf("status exit = %d", code)
 	}

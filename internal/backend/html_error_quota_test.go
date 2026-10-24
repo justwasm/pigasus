@@ -44,7 +44,7 @@ func TestHTMLError(t *testing.T) {
 	}
 	// Error() keeps the historical one-line shape on top of the extracted
 	// message — so log scrapers continue to see the upstream status.
-	if errStr := e.Error(); !strings.Contains(errStr, "agw: upstream 502: ") ||
+	if errStr := e.Error(); !strings.Contains(errStr, "gateway: upstream 502: ") ||
 		!strings.Contains(errStr, want) {
 		t.Errorf("Error() = %q, missing the upstream prefix or title", errStr)
 	}

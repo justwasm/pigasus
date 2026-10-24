@@ -28,7 +28,7 @@ const EnvSocketPath = "OPENAGY_RC_SOCKET"
 type HostConfig struct {
 	// Version is the CLI version string ("1.3.4", "1.3.4-test", …).
 	Version string
-	// Backend is the resolved backend ("agw" | "shim").
+	// Backend is the resolved backend ("gateway" | "shim").
 	Backend string
 	// Model is the resolved model label.
 	Model string

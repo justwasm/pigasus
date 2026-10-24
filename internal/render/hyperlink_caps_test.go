@@ -42,13 +42,12 @@ func envFrom(kvs ...string) []string {
 	return out
 }
 
-func TestDetectHyperlinkCaps(t *testing.T) {
-	cases := []struct {
-		name            string
-		env             []string
-		tmuxProbeResult bool
-		want            HyperlinkCaps
-	}{
+var detectHyperlinkCases = []struct {
+	name            string
+	env             []string
+	tmuxProbeResult bool
+	want            HyperlinkCaps
+}{
 		{
 			name: "empty env defaults to OSC 8 off",
 			env:  nil,
@@ -264,7 +263,9 @@ func TestDetectHyperlinkCaps(t *testing.T) {
 			},
 		},
 	}
-	for _, c := range cases {
+
+func TestDetectHyperlinkCaps(t *testing.T) {
+	for _, c := range detectHyperlinkCases {
 		t.Run(c.name, func(t *testing.T) {
 			got := DetectHyperlinkCaps(c.env, c.tmuxProbeResult)
 			if got != c.want {
@@ -286,44 +287,45 @@ func TestDetectHyperlinkCaps(t *testing.T) {
 // intact even when the label would otherwise be clamped; this
 // matches the "the user asked us to print a link, not just a label"
 // semantic AGY's emitted fallback carries.
+var plainTextFallbackCases = []struct {
+	name     string
+	url      string
+	text     string
+	maxWidth int
+	want     string
+}{
+	{
+		name: "Apple Terminal fallback",
+		url:  "https://example.com/sign-in",
+		text: "Sign in",
+		want: "Sign in (https://example.com/sign-in)",
+	},
+	{
+		name: "GNU screen fallback",
+		url:  "https://docs.example.com",
+		text: "Docs",
+		want: "Docs (https://docs.example.com)",
+	},
+	{
+		name: "tmux-without-passthrough fallback ignores maxWidth",
+		url:  "https://example.com/very/long/url/that/overflows",
+		text: "label",
+		// Without the OSC 8 frame, the helper returns the
+		// label and the URL untouched; maxWidth is irrelevant
+		// on the disabled branch.
+		maxWidth: 5,
+		want:     "label (https://example.com/very/long/url/that/overflows)",
+	},
+	{
+		name: "empty URL still returns text unchanged",
+		url:  "",
+		text: "plain text",
+		want: "plain text",
+	},
+}
+
 func TestHyperlinkPlainTextFallback(t *testing.T) {
-	cases := []struct {
-		name     string
-		url      string
-		text     string
-		maxWidth int
-		want     string
-	}{
-		{
-			name: "Apple Terminal fallback",
-			url:  "https://example.com/sign-in",
-			text: "Sign in",
-			want: "Sign in (https://example.com/sign-in)",
-		},
-		{
-			name: "GNU screen fallback",
-			url:  "https://docs.example.com",
-			text: "Docs",
-			want: "Docs (https://docs.example.com)",
-		},
-		{
-			name: "tmux-without-passthrough fallback ignores maxWidth",
-			url:  "https://example.com/very/long/url/that/overflows",
-			text: "label",
-			// Without the OSC 8 frame, the helper returns the
-			// label and the URL untouched; maxWidth is irrelevant
-			// on the disabled branch.
-			maxWidth: 5,
-			want:     "label (https://example.com/very/long/url/that/overflows)",
-		},
-		{
-			name: "empty URL still returns text unchanged",
-			url:  "",
-			text: "plain text",
-			want: "plain text",
-		},
-	}
-	for _, c := range cases {
+	for _, c := range plainTextFallbackCases {
 		t.Run(c.name, func(t *testing.T) {
 			caps := HyperlinkCaps{OSC8: false}
 			got := Hyperlink(c.url, c.text, c.maxWidth, caps)

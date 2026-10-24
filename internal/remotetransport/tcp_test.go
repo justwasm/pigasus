@@ -50,7 +50,7 @@ func newTestTCPServer(t *testing.T) (*TCPServer, *remotecontrol.SessionState, fu
 	t.Helper()
 	sess := remotecontrol.NewSessionState("1.3.4-test")
 	sess.Workspace = "/tmp/ws-workspace"
-	sess.Backend = "agw"
+	sess.Backend = "gateway"
 	sess.Model = "Gemini 3.8 Flash (Medium)"
 	sess.SetConversationID("conv-ws")
 	sess.SetTurnOutput("hello from the ws host")
@@ -706,7 +706,7 @@ func newTestTCPServerWithCap(t *testing.T, cascadeCap int) (*TCPServer, *remotec
 	t.Helper()
 	sess := remotecontrol.NewSessionState("1.3.4-test")
 	sess.Workspace = "/tmp/ws-workspace"
-	sess.Backend = "agw"
+	sess.Backend = "gateway"
 	sess.Model = "Gemini 3.8 Flash (Medium)"
 	sess.SetConversationID("conv-ws")
 	sess.SetTurnOutput("hello from the ws host")
@@ -1970,7 +1970,7 @@ func newTestTCPServerWithListBackend(t *testing.T) (*TCPServer, *remotecontrol.S
 	t.Helper()
 	sess := remotecontrol.NewSessionState("1.4.0")
 	sess.Workspace = "/tmp/list-rw-workspace"
-	sess.Backend = "agw"
+	sess.Backend = "gateway"
 	sess.Model = "Gemini 3.8 Flash (Medium)"
 
 	disp, err := remotecontrol.NewDispatcher(remotecontrol.Config{
@@ -2215,7 +2215,7 @@ func newTestTCPServerWithFS(t *testing.T) (*TCPServer, *remotecontrol.SessionSta
 	t.Helper()
 	sess := remotecontrol.NewSessionState("1.4.0")
 	sess.Workspace = "/tmp/ws-workspace"
-	sess.Backend = "agw"
+	sess.Backend = "gateway"
 	sess.Model = "Gemini 3.8 Flash (Medium)"
 
 	dir := t.TempDir()
@@ -2255,7 +2255,7 @@ func newTestTCPServerWithMemFS(t *testing.T) (*TCPServer, *remotecontrol.Session
 	t.Helper()
 	sess := remotecontrol.NewSessionState("1.4.0")
 	sess.Workspace = "/allowed"
-	sess.Backend = "agw"
+	sess.Backend = "gateway"
 	sess.Model = "Gemini 3.8 Flash (Medium)"
 
 	mfs := remotecontrol.NewMemFS(map[string][]remotecontrol.MemFSEntry{
@@ -3361,7 +3361,7 @@ func newTestTCPServerWithSessionMeta(t *testing.T) (*TCPServer, *remotecontrol.S
 	t.Helper()
 	sess := remotecontrol.NewSessionState("1.4.0")
 	sess.Workspace = "/tmp/ws-status"
-	sess.Backend = "agw"
+	sess.Backend = "gateway"
 	sess.Model = "Gemini 3.8 Flash (Medium)"
 
 	meta := &remotecontrol.DaemonMeta{

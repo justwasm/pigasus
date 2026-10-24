@@ -217,6 +217,11 @@ func TestHyperlink_Underflow(t *testing.T) {
 // of cell widths + (ncols-1) separators.
 func TestTable_ColumnWidths(t *testing.T) {
 	tbl := NewTable(20, 3)
+	checkDefaultAndCustomWidths(t, tbl)
+	checkTableRenderRows(t, tbl)
+}
+
+func checkDefaultAndCustomWidths(t *testing.T, tbl *Table) {
 	// With width=20 and 3 columns, the helper distributes
 	// MinColumnWidth=3 to the leading ncols-1 (=2) and the final
 	// column absorbs the remainder: 3, 3, 14.
@@ -238,6 +243,9 @@ func TestTable_ColumnWidths(t *testing.T) {
 			t.Errorf("col %d width = %d, want %d", i, w[i], want)
 		}
 	}
+}
+
+func checkTableRenderRows(t *testing.T, tbl *Table) {
 	// Render two rows; row[1] has a Cell with Width=0 (the missing
 	// column-width workaround) — it should fall back to the
 	// column's resolved width and still align.

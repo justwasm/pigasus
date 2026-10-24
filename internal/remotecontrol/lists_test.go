@@ -137,7 +137,7 @@ func TestListRemoteAgentModels_WithBackend(t *testing.T) {
 }
 
 // TestListRemoteAgentModels_BadBackend verifies the closed-set
-// validation: backend must be in {agw, shim, ""} — anything else
+// validation: backend must be in {gateway, shim, ""} — anything else
 // yields -32602. The "filter" field is not constrained and is
 // pass-through; the closed set is for backend only.
 func TestListRemoteAgentModels_BadBackend(t *testing.T) {
@@ -164,9 +164,9 @@ func TestListRemoteAgentModels_Filter(t *testing.T) {
 	lb := ListBackend{
 		Models: func(backend, filter string) ([]ModelInfo, error) {
 			return []ModelInfo{
-				{ID: "gemini-3.8-flash-medium", Label: "Gemini 3.8 Flash (Medium)", Backend: "agw"},
-				{ID: "claude-opus-4-6-thinking", Label: "Claude Opus 4.6 (Thinking)", Backend: "agw"},
-				{ID: "gpt-oss-120b-medium", Label: "GPT-OSS 120B (Medium)", Backend: "agw"},
+				{ID: "gemini-3.8-flash-medium", Label: "Gemini 3.8 Flash (Medium)", Backend: "gateway"},
+				{ID: "claude-opus-4-6-thinking", Label: "Claude Opus 4.6 (Thinking)", Backend: "gateway"},
+				{ID: "gpt-oss-120b-medium", Label: "GPT-OSS 120B (Medium)", Backend: "gateway"},
 			}, nil
 		},
 	}

@@ -309,8 +309,8 @@ func TestBackendStreamFn_ErrorChunkBecomesErrorEvent(t *testing.T) {
 }
 
 // TestBackendStreamFn_EmptyChannelSurfacesError is the backendprovider
-// twin of agwprovider_test.go's TestProvider_EmptyBodySurfacesError
-// (cycle agwprovider-eof-without-done): when the backend.StreamChunk
+// twin of gatewayprovider_test.go's TestProvider_EmptyBodySurfacesError
+// (cycle gatewayprovider-eof-without-done): when the backend.StreamChunk
 // channel closes without sending any chunk and without a terminal
 // Done chunk, the stream must surface an error rather than
 // pretending the empty payload is a clean turn. Pre-cycle the
@@ -344,13 +344,13 @@ func TestBackendStreamFn_EmptyChannelSurfacesError(t *testing.T) {
 }
 
 // TestBackendStreamFn_ChannelClosedWithoutDoneWithChunksStillTerminates
-// pins back-compat with the agw.k0s.io default behaviour: the
+// pins back-compat with the the configured gateway default behaviour: the
 // backend.StreamChunk channel closes after the final usage chunk
 // without an explicit Done chunk. As long as at least one chunk
 // reached the channel, the run is a clean stop and the streamed
-// text is preserved verbatim. Cycle agwprovider-eof-without-done
+// text is preserved verbatim. Cycle gatewayprovider-eof-without-done
 // deliberately keeps this path unchanged because changing it would
-// mis-report every normal agw.k0s.io request as a stream error.
+// mis-report every normal the configured gateway request as a stream error.
 func TestBackendStreamFn_ChannelClosedWithoutDoneWithChunksStillTerminates(t *testing.T) {
 	client := &fakeClient{turns: [][]backend.StreamChunk{{{Text: "no done chunk"}}}}
 	stream, err := BackendStreamFn(client, "m")(context.Background(), Model("m"), pi.TranscriptContext{}, pi.StreamOptions{})
@@ -360,7 +360,7 @@ func TestBackendStreamFn_ChannelClosedWithoutDoneWithChunksStillTerminates(t *te
 
 	events := collect(t, stream)
 	if got := eventTypes(events); got[len(got)-1] != "done" {
-		t.Errorf("event types = %v, want a trailing done (back-compat with agw.k0s.io)", got)
+		t.Errorf("event types = %v, want a trailing done (back-compat with the configured gateway)", got)
 	}
 	if got := assistantText(stream.Result().Content); got != "no done chunk" {
 		t.Errorf("result text = %q", got)

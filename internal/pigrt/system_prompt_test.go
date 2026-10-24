@@ -69,7 +69,8 @@ func TestRuntimeDefaultsToAgySystemPrompt(t *testing.T) {
 		t.Fatalf("prompt does not open with the reference identity:\n%.120s", got)
 	}
 	for _, want := range []string{
-		"</identity>\n<artifacts>",
+		"</identity>\n<terminal_sandbox>",
+		"</terminal_sandbox>\n<artifacts>",
 		"<communication_style>",
 		"<slash_commands>",
 		"<subagents>",

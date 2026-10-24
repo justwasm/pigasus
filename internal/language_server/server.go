@@ -116,6 +116,13 @@ func RegisterServer(srv *Server) http.Handler {
 		panic("language_server: RegisterServer called with nil Server")
 	}
 	mux := http.NewServeMux()
+	registerCascadeRoutes(mux, srv)
+	registerAgentRoutes(mux, srv)
+	registerSystemRoutes(mux, srv)
+	return mux
+}
+
+func registerCascadeRoutes(mux *http.ServeMux, srv *Server) {
 	mux.HandleFunc("/"+ServiceName+"/StartCascade", func(w http.ResponseWriter, r *http.Request) {
 		req, err := decodeStartCascadeRequest(r)
 		if err != nil {
@@ -155,6 +162,9 @@ func RegisterServer(srv *Server) http.Handler {
 		}
 		encodeCancelCascadeResponse(w, resp)
 	})
+}
+
+func registerAgentRoutes(mux *http.ServeMux, srv *Server) {
 	mux.HandleFunc("/"+ServiceName+"/SkipBrowserSubagent", func(w http.ResponseWriter, r *http.Request) {
 		req, err := decodeSkipBrowserSubagentRequest(r)
 		if err != nil {
@@ -192,6 +202,9 @@ func RegisterServer(srv *Server) http.Handler {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 		}
 	})
+}
+
+func registerSystemRoutes(mux *http.ServeMux, srv *Server) {
 	mux.HandleFunc("/"+ServiceName+"/Shutdown", func(w http.ResponseWriter, r *http.Request) {
 		req, err := decodeShutdownRequest(r)
 		if err != nil {
@@ -205,7 +218,6 @@ func RegisterServer(srv *Server) http.Handler {
 		}
 		encodeShutdownResponse(w, resp)
 	})
-	return mux
 }
 
 // RegisterServerWithRegistrar is the recovered convenience for

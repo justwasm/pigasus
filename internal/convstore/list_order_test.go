@@ -5,7 +5,7 @@
 // flag off, as observed on agy 1.4.2) calls scanConversations, and its
 // listConversationsFromDir walks conversations/*.db and merges every file
 // the cache does not know. A conversation written by another client — the
-// cmd/agy wrapper's reference run, for example — is therefore listed by the
+// proxy's reference run, for example — is therefore listed by the
 // reference even though nothing flushed a cache entry for it.
 package convstore
 

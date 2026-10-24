@@ -28,10 +28,9 @@ var BuiltinSkillDirs = map[string]bool{
 // back to the directory name.
 //
 // The roots are the ones whose skills appear in the prompt: the builtin
-// bundle (allowlisted by BuiltinSkillDirs), <workspace>/.agents/skills, and
-// each loadable plugin's skills/ directory. The shared ~/.gemini/skills
-// library is listed by `/skills` but is NOT in the prompt (verified against
-// 1.4.3); pigrt.AgySkillPaths computes the prompt roots.
+// bundle (allowlisted by BuiltinSkillDirs), the shared ~/.gemini/skills
+// library, <workspace>/.agents/skills, and each loadable plugin's skills/
+// directory. pigrt.AgySkillPaths computes the prompt roots.
 func DiscoverSkills(roots []string) []Skill {
 	var out []Skill
 	for _, root := range roots {

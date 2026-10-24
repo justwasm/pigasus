@@ -81,7 +81,7 @@ func TestConnectionDropRetried(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := NewAgwK0sWithConfig(AgwK0sConfig{
+	c := NewGatewayWithConfig(GatewayConfig{
 		URL:           srv.URL + "/v1/chat/completions",
 		ExternalModel: "MiniMax-M3",
 	})
@@ -170,7 +170,7 @@ func TestEOFRetried(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := NewAgwK0sWithConfig(AgwK0sConfig{
+	c := NewGatewayWithConfig(GatewayConfig{
 		URL:           srv.URL + "/v1/chat/completions",
 		ExternalModel: "MiniMax-M3",
 	})
@@ -253,7 +253,7 @@ func TestNetworkTimeoutRetried(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := NewAgwK0sWithConfig(AgwK0sConfig{
+	c := NewGatewayWithConfig(GatewayConfig{
 		URL:           srv.URL + "/v1/chat/completions",
 		ExternalModel: "MiniMax-M3",
 	})
@@ -309,7 +309,7 @@ func TestNormalCompletionNoRetry(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := NewAgwK0sWithConfig(AgwK0sConfig{
+	c := NewGatewayWithConfig(GatewayConfig{
 		URL:           srv.URL + "/v1/chat/completions",
 		ExternalModel: "MiniMax-M3",
 	})
@@ -369,7 +369,7 @@ func TestMaxRetriesHit(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := NewAgwK0sWithConfig(AgwK0sConfig{
+	c := NewGatewayWithConfig(GatewayConfig{
 		URL:           srv.URL + "/v1/chat/completions",
 		ExternalModel: "MiniMax-M3",
 	})
@@ -459,7 +459,7 @@ func TestClassifyTransportErrorMapping(t *testing.T) {
 		{"io.ErrUnexpectedEOF", io.ErrUnexpectedEOF, true},
 		{"syscall.ECONNRESET", syscall.ECONNRESET, true},
 		{"syscall.EPIPE", syscall.EPIPE, true},
-		{"wrapped EOF", fmt.Errorf("agw: sse read: %w", io.EOF), true},
+		{"wrapped EOF", fmt.Errorf("gateway: sse read: %w", io.EOF), true},
 		{"net.OpError", &net.OpError{Op: "dial", Err: errors.New("no such host")}, true},
 		{"context.Canceled", context.Canceled, false},
 		{"context.DeadlineExceeded", context.DeadlineExceeded, false},
@@ -543,7 +543,7 @@ func TestContextCancelledNotRetried(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	c := NewAgwK0sWithConfig(AgwK0sConfig{
+	c := NewGatewayWithConfig(GatewayConfig{
 		URL:           srv.URL + "/v1/chat/completions",
 		ExternalModel: "MiniMax-M3",
 	})
@@ -615,9 +615,9 @@ func TestClassifyTransportErrorStringMatch(t *testing.T) {
 		{"http2: client connection lost", "http2: client connection lost", true},
 		{"connection refused", "dial tcp 127.0.0.1:1: connect: connection refused", true},
 		{"no such host", "dial tcp: lookup example.invalid: no such host", true},
-		{"EOF in message", "agw: sse read: unexpected EOF", true},
-		{"decode error", "agw: sse decode: invalid character", false},
-		{"plain message", "agw: http: bad request", false},
+		{"EOF in message", "gateway: sse read: unexpected EOF", true},
+		{"decode error", "gateway: sse decode: invalid character", false},
+		{"plain message", "gateway: http: bad request", false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

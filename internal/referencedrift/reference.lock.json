@@ -1,70 +1,88 @@
 {
-  "version": "1.4.4",
+  "version": "1.4.6",
   "artifacts": [
     {
       "path": "internal/cli/testdata/changelog_reference.txt",
-      "captured_at": "1.4.4",
-      "digest": "8804d34c72a00bd7d7d949b186f295866019d0fbb7f6dbe1ab7b87c4b6f03c83",
+      "captured_at": "1.4.6",
+      "digest": "4a2470be55d99589a1c86a6bbbd31a4bb45985e5515bda657c141ab281ce5914",
       "live": true,
-      "how": "agy changelog \u003e internal/cli/testdata/changelog_reference.txt, then update the three constants in internal/cli/changelog_data_test.go (byte length, line count, sha256) and regenerate this lock"
+      "how": "agy changelog \u003e internal/cli/testdata/changelog_reference.txt, then update the five constants in internal/cli/changelog_data_test.go (byte length, line count, section count, bullet count, sha256) and regenerate this lock. At 1.4.6 the newest section is 1.4.5 — the 1.4.6 release notes are not in the changelog feed yet"
     },
     {
-      "path": "internal/agyprompt/testdata/capture_1.4.4.txt",
-      "captured_at": "1.4.4",
-      "digest": "8036e140faaee0f1ce4b4469b3402294f356d639e812288e790863bcbf196da9",
-      "how": "re-record the request body through the cycle-274 capture wrapper (cmd/agy + devutils/agyproxy) against the new binary, then rebuild internal/agyprompt/sections/*.txt from it"
+      "path": "internal/agyprompt/testdata/capture_1.4.6.txt",
+      "captured_at": "1.4.6",
+      "digest": "4443318b8dad0fb895187a6cb36f1552aad4a35f1c006d438173e2ed1242a7cc",
+      "how": "the full system prompt of a live agy 1.4.6 request body, recorded through the cycle-274 capture wrapper (cmd/agy + devutils/agyproxy). It is the reference for every static section: 1.4.6 added \u003cterminal_sandbox\u003e (second position) and one \u003cguidelines\u003e bullet. To refresh: re-record a request body against the new binary, then rebuild internal/agyprompt/sections/*.txt from it"
     },
     {
-      "path": "internal/agyprompt/testdata/capture_1.4.4.json",
-      "captured_at": "1.4.4",
-      "digest": "cdf6972286bc601de461083f577903e9a21d97354e5466e471cdc2dd8a794224",
-      "how": "re-recorded alongside capture_1.4.4.txt in the same proxy run; it carries the os_version / workspaces / subagents / skills inputs Build() is fed"
+      "path": "internal/agyprompt/testdata/capture_1.4.6.json",
+      "captured_at": "1.4.6",
+      "digest": "faf60288a629245f9827bbea275a6ff38719b077f2dba16c753a79abdf1c3f0c",
+      "how": "re-recorded alongside capture_1.4.6.txt in the same proxy run; it carries the os_version / workspaces / subagents / skills / user_rules inputs Build() is fed. The 1.4.4 pair stays on disk as the previous release's evidence"
+    },
+    {
+      "path": "internal/agyprompt/testdata/user_rules_1.4.5.txt",
+      "captured_at": "1.4.6",
+      "digest": "cbb1527b70f6ba44c962e5e22158bc6256c3f68bdd926b8d32def2eb4ea0614a",
+      "how": "the \u003cuser_rules\u003e block of a controlled probe request body. The block's own bytes are from 1.4.5; the rendering it pins was re-verified at 1.4.6 by the byte-identity of the whole 70,853-byte prompt (capture_1.4.6.txt) — preamble wording, user_global labels, plugin rules and the 24 KB truncation marker included"
     },
     {
       "path": "internal/tools/testdata/advertised_tools_1.4.3.txt",
-      "captured_at": "1.4.4",
+      "captured_at": "1.4.6",
       "digest": "46dcfca2805e6efa56a3fa408cfb423636dbb2892b6072c5ee4b28094c300436",
       "live": true,
-      "how": "agy -p='x' --output-format stream-json and collect the init.tools array; repeat from three working directories as the cycle-275 test does"
+      "how": "agy -p='x' --output-format stream-json and collect the init.tools array; repeat from three working directories as the cycle-275 test does. Re-verified at 1.4.6: sixty names, byte-identical to the 1.4.3/1.4.5 capture"
     },
     {
-      "path": "internal/tools/model_tools_1.4.4.json",
-      "captured_at": "1.4.4",
-      "digest": "f7dc8ddbe450dcfe84740dc3e7247e2a41491d29772659add28195f43c792c7a",
+      "path": "internal/tools/model_tools_1.4.6.json",
+      "captured_at": "1.4.6",
+      "digest": "8a7173c6579ee076f131b2f9d8866731c3c22fba62fd704957a33a156cc49ed9",
       "live": true,
-      "how": "capture a streamGenerateContent body (cmd/agy wrapper or a CLOUD_CODE_URL mock) and extract request.tools[0].functionDeclarations; it must stay twelve, in the captured order, with the same required fields"
+      "how": "capture a streamGenerateContent body (cmd/agy wrapper or a CLOUD_CODE_URL mock) and extract request.tools[0].functionDeclarations; it must stay twelve, in the captured order, with the same required fields. 1.4.6 added the run_command BypassSandbox boolean. The 1.4.5 and 1.4.4 captures remain on disk as the previous releases' evidence"
     },
     {
       "path": "internal/tools/testdata/result_texts_1.4.4.txt",
       "captured_at": "1.4.4",
       "digest": "9d333356038a585d3f1ce6d58a714d8cfcfea83e73656668a996e9c88c99b284",
       "live": true,
-      "how": "run the real 1.4.4 TUI with CLOUD_CODE_URL pointed at a mock that answers the first streamGenerateContent with one functionCall, then read functionResponse.response.output in the follow-up request; redo for read_file (whole/range/empty), write_file (create/refusal/append) and edit_file (single/multi-line)"
+      "how": "run the real 1.4.4 TUI with CLOUD_CODE_URL pointed at a mock that answers the first streamGenerateContent with one functionCall, then read functionResponse.response.output in the follow-up request; redo for read_file (whole/range/empty), write_file (create/refusal/append) and edit_file (single/multi-line). NOT re-captured at 1.4.6 — it needs a tool-using turn under a pty harness"
     },
     {
       "path": "internal/agenttools/testdata/agent_decls_1.4.4.json",
-      "captured_at": "1.4.4",
+      "captured_at": "1.4.6",
       "digest": "a7a48b9a86c9b6d535650c16fa1a2af504437ad1d59d3d52f69d632e39a6714e",
       "live": true,
-      "how": "run the real 1.4.4 TUI in a workspace with .agents/agents/\u003cname\u003e.md and --agent \u003cname\u003e; answer the first streamGenerateContent with a CLOUD_CODE_URL mock, then extract request.tools[*].functionDeclarations. It must stay seven, in order, and keep toolSummary/toolAction required."
+      "how": "run the real agy TUI in a workspace with .agents/agents/\u003cname\u003e.md and --agent \u003cname\u003e; answer the first streamGenerateContent with a CLOUD_CODE_URL mock, then extract request.tools[*].functionDeclarations. It must stay seven, in order, and keep toolSummary/toolAction required. Re-verified at 1.4.6: identical, schedule included"
     },
     {
-      "path": "internal/remotecontrol/testdata/jetski_remote_agent_proxy_1.4.4.txt",
-      "captured_at": "1.4.4",
-      "digest": "282b5bcd2f392ef0e5fce7f5f1eed1ccc9d96848f4cba8587927a66c9bac44fe",
-      "how": "extract the uncompressed FileDescriptorProto for google/gca/aicode/v1main/remote_agent_proxy.proto from the agy binary (see out/local-macos/protos/README.md) and emit one \u003cRPC\u003e\\t\u003cRequest\u003e\\t\u003cResponse\u003e line per method; TestReferenceRPCMethodsMatchFixture pins the order"
+      "path": "internal/remotecontrol/testdata/jetski_remote_agent_proxy_1.4.6.txt",
+      "captured_at": "1.4.6",
+      "digest": "5b80624aa214e3967eee332a13ee8756ccbb9bfc5ef683b046c61a676368e7b1",
+      "how": "extract the uncompressed FileDescriptorProto for google/gca/aicode/v1main/remote_agent_proxy.proto from the agy binary (see out/local-macos/protos/README.md) and emit one \u003cRPC\u003e\\t\u003cRequest\u003e\\t\u003cResponse\u003e line per method; TestReferenceRPCMethodsMatchFixture pins the order. Seventy-seven methods at 1.4.6 (1.4.6 appended SearchFiles, StartLocalPluginSignIn, CompleteLocalPluginSignIn, CreateAgent and GetAgent); the 1.4.5 and 1.4.4 captures remain on disk as the previous releases' evidence"
     },
     {
-      "path": "out/local-macos/protos/remote_agent_proxy_1.4.4.txt",
-      "captured_at": "1.4.4",
-      "digest": "205c78acff60ab7e77a26ddf84f90ab934aba100c811f6db25c90b6b9029b43a",
-      "how": "decode the FileDescriptorProto at the offset named in out/local-macos/protos/README.md with descriptor_pb2 and print it with text_format; the offset moves on every agy release"
+      "path": "out/local-macos/protos/remote_agent_proxy_1.4.6.txt",
+      "captured_at": "1.4.6",
+      "digest": "646c0f7419621cc41c747e54d3dc938088c0ae75d59c62166c9be316579274d6",
+      "how": "decode the FileDescriptorProto at the offset named in out/local-macos/protos/README.md with descriptor_pb2 and print it with text_format; the offset moves on every agy release, and the naive top-level field walk overshoots the public descriptor — the syntax:\"proto3\" marker is the reliable end"
     },
     {
-      "path": "out/local-macos/protos/remote_agent_proxy_pb_1.4.4.txt",
-      "captured_at": "1.4.4",
-      "digest": "717b609f5ff6c0126ceab1ca959afcd7b5e00576b982387c57663996c48b2983",
-      "how": "same procedure as remote_agent_proxy_1.4.4.txt, for third_party/jetski/remote_agent_proxy_pb/remote_agent_proxy.proto (package exa.remote_agent_proxy_pb)"
+      "path": "out/local-macos/protos/remote_agent_proxy_pb_1.4.6.txt",
+      "captured_at": "1.4.6",
+      "digest": "883e0633579911e2cce497c6e2d2dca5f4f26ed3351447ae938b895f85840b35",
+      "how": "same procedure as remote_agent_proxy_1.4.6.txt, for third_party/jetski/remote_agent_proxy_pb/remote_agent_proxy.proto (package exa.remote_agent_proxy_pb). The internal descriptor did not change at 1.4.6 — the file is byte-identical to the 1.4.5 capture"
+    },
+    {
+      "path": "out/local-macos/seeds/seeds.txt",
+      "captured_at": "1.4.6",
+      "digest": "0844c0f1f575ceafdbd6cb7359701982f16908e3a05f907f13f14bb715cdd319",
+      "how": "cd rea-go-seeds \u0026\u0026 mkdir -p \u003coutdir\u003e \u0026\u0026 go run . ~/.local/bin/agy \u003coutdir\u003e. Every address moves on every agy release, so the Ghidra project (out/local-macos/proj) and the decompiled output (out/local-macos/dec/) have to be rebuilt from this file; the committed decompile reports carry the addresses this file held when they were written"
+    },
+    {
+      "path": "out/local-macos/seeds/funcs.txt",
+      "captured_at": "1.4.6",
+      "digest": "b55db63fd7836624298ba73aed838a4f26809201301ec1faaaa2ce50de0950b6",
+      "how": "written by the same rea-go-seeds run as seeds.txt; the leaf-name inventory used by out/local-macos/find_callers.py and out/local-macos/xref/analyze.py"
     }
   ]
 }

@@ -114,8 +114,8 @@ func TestSanitizeText_NoThinkBlockKeepsBlankLines(t *testing.T) {
 // TestSanitizer_StripsSingleBlockChunked is the headline
 // streaming test: feed the sanitizer one chunk at a time and
 // confirm the visible text emerges cleanly. The chunking here
-// matches the 12-byte SSE windows the recovered agw_k0s backend
-// emits (see internal/backend/agw_k0s.go:98).
+// matches the 12-byte SSE windows the recovered gateway backend
+// emits (see internal/backend/gateway.go:98).
 func TestSanitizer_StripsSingleBlockChunked(t *testing.T) {
 	s := NewSanitizer()
 	full := "<think>The user just wants a simple greeting.</think>\n\nHi there! 👋 How can I help you today?"

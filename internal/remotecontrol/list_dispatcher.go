@@ -114,7 +114,7 @@ type dispatcherList struct {
 // ListRemoteAgentModels. Param shape:
 //
 //	{
-//	  "backend": "agw" | "shim" | "",   // optional, default ""
+//	  "backend": "gateway" | "shim" | "",   // optional, default ""
 //	  "filter":  "<substring>"          // optional, default ""
 //	}
 //
@@ -125,7 +125,7 @@ type dispatcherList struct {
 //	  "default_model": "<id>"
 //	}
 //
-// `backend` is validated against the closed set { "agw",
+// `backend` is validated against the closed set { "gateway",
 // "shim", "" } — anything else yields -32602. `filter` is
 // pass-through; the helper applies a substring match against
 // ModelInfo.ID and ModelInfo.Label.
@@ -136,7 +136,7 @@ type dispatcherList struct {
 //
 // Errors:
 //
-//   - bad backend value → -32602 "backend must be one of: agw, shim"
+//   - bad backend value → -32602 "backend must be one of: gateway, shim"
 //   - underlying Models closure returned error → -32603
 func (l dispatcherList) handleListRemoteAgentModels(params []byte) (any, *rpcErrorBody) {
 	var p struct {
@@ -148,8 +148,8 @@ func (l dispatcherList) handleListRemoteAgentModels(params []byte) (any, *rpcErr
 			return nil, invalidParams(err.Error())
 		}
 	}
-	if p.Backend != "" && p.Backend != "agw" && p.Backend != "shim" {
-		return nil, invalidParams("backend must be one of: agw, shim, \"\"")
+	if p.Backend != "" && p.Backend != "gateway" && p.Backend != "shim" {
+		return nil, invalidParams("backend must be one of: gateway, shim, \"\"")
 	}
 
 	var (

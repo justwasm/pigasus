@@ -9,12 +9,18 @@ import (
 	"testing"
 )
 
-// The capture is a real agy 1.4.4 request body recorded by the cycle-274
-// wrapper. Reproducing it byte for byte is the whole point of this package:
-// every static section, the list rendering, and the user_information layout
-// are pinned by the reference rather than by our reading of it.
+// The capture is a real agy 1.4.6 request body recorded by the cycle-274
+// wrapper (the 1.4.4 capture is kept beside it as history). Reproducing it
+// byte for byte is the whole point of this package: every static section,
+// the list rendering, and the user_information layout are pinned by the
+// reference rather than by our reading of it.
+//
+// The 1.4.6 fixture carries a <user_rules> section — this repository's own
+// AGENTS.md was one of the discovered rule files — so the options carry the
+// rules too. That is what pins the rule rendering (labels, verbatim bodies,
+// the 24,000-byte truncation) against the reference.
 func TestBuildMatchesCapture(t *testing.T) {
-	raw, err := os.ReadFile("testdata/capture_1.4.4.json")
+	raw, err := os.ReadFile("testdata/capture_1.4.6.json")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -27,11 +33,12 @@ func TestBuildMatchesCapture(t *testing.T) {
 		ArtifactDir    string     `json:"artifact_dir"`
 		Subagents      []Subagent `json:"subagents"`
 		Skills         []Skill    `json:"skills"`
+		UserRules      []UserRule `json:"user_rules"`
 	}
 	if err := json.Unmarshal(raw, &fx); err != nil {
 		t.Fatal(err)
 	}
-	want, err := os.ReadFile("testdata/capture_1.4.4.txt")
+	want, err := os.ReadFile("testdata/capture_1.4.6.txt")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -45,6 +52,7 @@ func TestBuildMatchesCapture(t *testing.T) {
 		ArtifactDir:    fx.ArtifactDir,
 		Subagents:      fx.Subagents,
 		Skills:         fx.Skills,
+		UserRules:      fx.UserRules,
 	})
 	if got != string(want) {
 		// Report the first divergence rather than dumping 34 KB.
@@ -67,7 +75,7 @@ func TestSectionOrderAndFraming(t *testing.T) {
 			names = append(names, m[1])
 		}
 	}
-	want := []string{"identity", "artifacts", "conversation_transcript", "guidelines",
+	want := []string{"identity", "terminal_sandbox", "artifacts", "conversation_transcript", "guidelines",
 		"communication_style", "slash_commands", "messaging", "subagents", "skills", "user_information"}
 	if strings.Join(names, ",") != strings.Join(want, ",") {
 		t.Fatalf("sections = %v, want %v", names, want)

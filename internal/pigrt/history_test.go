@@ -39,14 +39,14 @@ func TestHistoryMessageRoles(t *testing.T) {
 	}
 }
 
-// TestTurnFailure covers the recovery of a failure PiG encoded in the message
-// list rather than returned as a Go error.
-func TestTurnFailure(t *testing.T) {
-	tests := []struct {
-		name string
-		msgs []agent.AgentMessage
-		want string
-	}{
+type turnFailureCase struct {
+	name string
+	msgs []agent.AgentMessage
+	want string
+}
+
+func turnFailureCases() []turnFailureCase {
+	return []turnFailureCase{
 		{name: "empty"},
 		{
 			name: "clean stop",
@@ -80,7 +80,12 @@ func TestTurnFailure(t *testing.T) {
 			},
 		},
 	}
-	for _, tc := range tests {
+}
+
+// TestTurnFailure covers the recovery of a failure PiG encoded in the message
+// list rather than returned as a Go error.
+func TestTurnFailure(t *testing.T) {
+	for _, tc := range turnFailureCases() {
 		t.Run(tc.name, func(t *testing.T) {
 			err := turnFailure(tc.msgs)
 			switch {

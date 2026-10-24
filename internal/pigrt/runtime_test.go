@@ -14,9 +14,9 @@ import (
 )
 
 // fauxModel builds a model whose Provider is PiG's recorded test provider and
-// whose ProviderID is "test-faux". The clone's own provider (agw) is exercised
+// whose ProviderID is "test-faux". The clone's own provider (gateway) is exercised
 // elsewhere; here the point is only that a Session built by New accepts a
-// caller-supplied ai.Provider, which is the seam the agw transport rides in on.
+// caller-supplied ai.Provider, which is the seam the gateway transport rides in on.
 //
 // "test-faux" is also the one ProviderID the coding runtime does not demand
 // credentials for (coding.modelRuntimeRequiresAuth), so a test host without an
@@ -69,8 +69,8 @@ func TestRuntimeRunsFirstTurn(t *testing.T) {
 	}
 }
 
-func TestRuntimeDiscoversAgySkills(t *testing.T) {
-	dir := t.TempDir()
+func setupDemoSkill(t *testing.T, dir string) (string, string, string) {
+	t.Helper()
 	agentHome := filepath.Join(dir, ".gemini", "antigravity-cli")
 	pluginDir := filepath.Join(dir, ".gemini", "config", "plugins", "demo-plugin")
 	skillDir := filepath.Join(pluginDir, "skills", "demo-skill")
@@ -84,30 +84,35 @@ func TestRuntimeDiscoversAgySkills(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte(body), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	// The shared ~/.gemini/skills library is /skills-only: the reference does
-	// not put it in the system prompt, so AgySkillPaths must not return it.
 	shared := filepath.Join(dir, ".gemini", "skills")
 	if err := os.MkdirAll(shared, 0o755); err != nil {
 		t.Fatal(err)
 	}
+	want := filepath.Join(dir, ".gemini", "config", "plugins", "demo-plugin", "skills")
+	return agentHome, want, shared
+}
+
+func TestRuntimeDiscoversAgySkills(t *testing.T) {
+	dir := t.TempDir()
+	agentHome, want, shared := setupDemoSkill(t, dir)
 
 	paths := pigrt.AgySkillPaths(agentHome, dir)
-	want := filepath.Join(dir, ".gemini", "config", "plugins", "demo-plugin", "skills")
-	found := false
+	found, sharedFound := false, false
 	for _, p := range paths {
 		if p == want {
 			found = true
 		}
 		if p == shared {
-			t.Fatalf("AgySkillPaths included the /skills-only shared root %q", p)
+			sharedFound = true
 		}
 	}
 	if !found {
 		t.Fatalf("AgySkillPaths(%q) = %v, missing %q", agentHome, paths, want)
 	}
+	if !sharedFound {
+		t.Fatalf("AgySkillPaths(%q) = %v, missing the shared library %q", agentHome, paths, shared)
+	}
 
-	// End to end: the loader the session uses discovers the same skill, so it
-	// is in the state PiG builds the system prompt from.
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 	rt, err := pigrt.New(ctx, pigrt.Options{

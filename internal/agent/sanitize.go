@@ -219,92 +219,75 @@ func (s *Sanitizer) Push(text string) string {
 	s.buf.Reset()
 
 	var out strings.Builder
-	i := 0
-	for i < len(combined) {
+	for i := 0; i < len(combined); {
 		if s.inside {
-			// Inside a think block — scan for the end tag.
-			idx := strings.Index(combined[i:], thinkEndTag)
-			if idx < 0 {
-				// No end tag in this chunk. Hold back
-				// the longest matching tag prefix in
-				// case the next chunk starts the end
-				// tag. Everything before the hold is
-				// thought text: hand it to OnThought
-				// (if set) and drop it from the output.
-				hold := longestMatchingPrefix(combined[i:])
-				holdStart := len(combined) - len(hold)
-				if holdStart < i {
-					holdStart = i
-				}
-				if s.OnThought != nil && holdStart > i {
-					s.OnThought(combined[i:holdStart])
-				}
-				if hold != "" {
-					s.buf.WriteString(hold)
-				}
+			if s.stepInside(combined, &i, &out) {
 				return out.String()
 			}
-			// End tag found. The run before it is thought
-			// text. Consume up to and including the end
-			// tag, then transition to outside and enter
-			// the "justAfter" state so the next
-			// non-whitespace emission drops any leading
-			// whitespace.
-			if s.OnThought != nil && idx > 0 {
-				s.OnThought(combined[i : i+idx])
+		} else {
+			if s.stepOutside(combined, &i, &out) {
+				return out.String()
 			}
-			i += idx + len(thinkEndTag)
-			s.inside = false
-			s.justAfter = true
-			continue
 		}
-		// Outside a think block — look for the start tag.
-		idx := strings.Index(combined[i:], thinkStartTag)
-		if idx < 0 {
-			// No start tag in this chunk. Emit the
-			// visible portion (skipping leading
-			// whitespace if justAfter is set), then
-			// hold back the longest matching tag
-			// prefix.
-			hold := longestMatchingPrefix(combined[i:])
-			holdStart := len(combined) - len(hold)
-			if holdStart < i {
-				holdStart = i
-			}
-			emitRange := combined[i:holdStart]
-			if s.justAfter {
-				// Skip leading whitespace.
-				emitRange = strings.TrimLeft(emitRange, " \t\n\r")
-				// Only clear justAfter if we
-				// actually emitted something. If
-				// the entire range was whitespace,
-				// stay in justAfter so we keep
-				// skipping until the model
-				// produces a real character.
-				if emitRange != "" {
-					s.justAfter = false
-				}
-			}
-			out.WriteString(emitRange)
-			if hold != "" {
-				s.buf.WriteString(hold)
-			}
-			return out.String()
-		}
-		// Start tag found. Emit the text before it,
-		// respecting justAfter (so any leading
-		// whitespace between previous emission and
-		// <think> is also skipped if justAfter is set).
-		emitRange := combined[i : i+idx]
-		if s.justAfter {
-			emitRange = strings.TrimLeft(emitRange, " \t\n\r")
-			s.justAfter = false
-		}
-		out.WriteString(emitRange)
-		i += idx + len(thinkStartTag)
-		s.inside = true
 	}
 	return out.String()
+}
+
+func (s *Sanitizer) stepInside(combined string, i *int, out *strings.Builder) bool {
+	idx := strings.Index(combined[*i:], thinkEndTag)
+	if idx < 0 {
+		hold := longestMatchingPrefix(combined[*i:])
+		holdStart := len(combined) - len(hold)
+		if holdStart < *i {
+			holdStart = *i
+		}
+		if s.OnThought != nil && holdStart > *i {
+			s.OnThought(combined[*i:holdStart])
+		}
+		if hold != "" {
+			s.buf.WriteString(hold)
+		}
+		return true
+	}
+	if s.OnThought != nil && idx > 0 {
+		s.OnThought(combined[*i : *i+idx])
+	}
+	*i += idx + len(thinkEndTag)
+	s.inside = false
+	s.justAfter = true
+	return false
+}
+
+func (s *Sanitizer) stepOutside(combined string, i *int, out *strings.Builder) bool {
+	idx := strings.Index(combined[*i:], thinkStartTag)
+	if idx < 0 {
+		hold := longestMatchingPrefix(combined[*i:])
+		holdStart := len(combined) - len(hold)
+		if holdStart < *i {
+			holdStart = *i
+		}
+		emitRange := combined[*i:holdStart]
+		if s.justAfter {
+			emitRange = strings.TrimLeft(emitRange, " \t\n\r")
+			if emitRange != "" {
+				s.justAfter = false
+			}
+		}
+		out.WriteString(emitRange)
+		if hold != "" {
+			s.buf.WriteString(hold)
+		}
+		return true
+	}
+	emitRange := combined[*i : *i+idx]
+	if s.justAfter {
+		emitRange = strings.TrimLeft(emitRange, " \t\n\r")
+		s.justAfter = false
+	}
+	out.WriteString(emitRange)
+	*i += idx + len(thinkStartTag)
+	s.inside = true
+	return false
 }
 
 // Finish returns the remaining text in the buffer. Call this

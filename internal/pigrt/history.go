@@ -64,7 +64,7 @@ func historyMessage(turn HistoryTurn) (agent.AgentMessage, error) {
 			},
 			Timestamp:  now,
 			StopReason: ai.StopReasonStop,
-			Provider:   "agw",
+			Provider:   "gateway",
 		}}, nil
 	}
 	return agent.AgentMessage{User: &agent.UserMessage{

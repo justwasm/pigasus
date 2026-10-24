@@ -10,7 +10,7 @@
 // bgExitReason, bgLogTailBytes) and is wired into the cmd.Wait
 // goroutine and kill() in internal/tools/support.go.
 //
-// The tests below drive recordFinalOutput directly through safeBuffer,
+// The tests below drive recordFinalOutput directly through SafeBuffer,
 // because the function is the single exit point every bg termination
 // reason converges on. End-to-end coverage of the bgTable integration
 // lives in nonnetwork_test.go (TestBackgroundCommands,
@@ -23,9 +23,9 @@ import (
 	"testing"
 )
 
-// fillBuffer writes s into a fresh safeBuffer and returns it.
-func fillBuffer(s string) *safeBuffer {
-	var b safeBuffer
+// fillBuffer writes s into a fresh SafeBuffer and returns it.
+func fillBuffer(s string) *SafeBuffer {
+	var b SafeBuffer
 	if s != "" {
 		b.WriteString(s)
 	}
@@ -60,7 +60,7 @@ func assertNotContains(t *testing.T, haystack, needle, label string) {
 func TestRecordFinalOutput_NormalExit(t *testing.T) {
 	payload := strings.Repeat("a", 100)
 	buf := fillBuffer(payload)
-	var log safeBuffer
+	var log SafeBuffer
 
 	recordFinalOutput(buf, &log, "exit code 0")
 
@@ -84,7 +84,7 @@ func TestRecordFinalOutput_NormalExit(t *testing.T) {
 func TestRecordFinalOutput_ErrorExit(t *testing.T) {
 	payload := strings.Repeat("e", 50)
 	buf := fillBuffer(payload)
-	var log safeBuffer
+	var log SafeBuffer
 
 	recordFinalOutput(buf, &log, "exit code 137")
 
@@ -108,7 +108,7 @@ func TestRecordFinalOutput_ErrorExit(t *testing.T) {
 func TestRecordFinalOutput_KilledBySignal(t *testing.T) {
 	payload := strings.Repeat("k", 200)
 	buf := fillBuffer(payload)
-	var log safeBuffer
+	var log SafeBuffer
 
 	recordFinalOutput(buf, &log, "killed by user")
 
@@ -126,7 +126,7 @@ func TestRecordFinalOutput_KilledBySignal(t *testing.T) {
 func TestRecordFinalOutput_CanceledByUser(t *testing.T) {
 	payload := strings.Repeat("c", 64)
 	buf := fillBuffer(payload)
-	var log safeBuffer
+	var log SafeBuffer
 
 	recordFinalOutput(buf, &log, "canceled")
 
@@ -153,7 +153,7 @@ func TestRecordFinalOutput_CanceledByUser(t *testing.T) {
 // empty preserves that distinction — a reason line with no preceding
 // body is unambiguous.
 func TestRecordFinalOutput_EmptyOutput(t *testing.T) {
-	var buf, log safeBuffer
+	var buf, log SafeBuffer
 	recordFinalOutput(&buf, &log, "exit code 0")
 
 	got := log.String()
@@ -197,7 +197,7 @@ func TestRecordFinalOutput_LargeOutput(t *testing.T) {
 		t.Fatalf("payload length = %d, want %d (test setup wrong)", len(payload), total)
 	}
 	buf := fillBuffer(payload)
-	var log safeBuffer
+	var log SafeBuffer
 
 	recordFinalOutput(buf, &log, "exit code 0")
 
@@ -242,7 +242,7 @@ func TestRecordFinalOutput_LargeOutput(t *testing.T) {
 func TestRecordFinalOutput_Idempotent(t *testing.T) {
 	const payload = "alpha\nbeta\ngamma" // 17 bytes
 	buf := fillBuffer(payload)
-	var log safeBuffer
+	var log SafeBuffer
 
 	recordFinalOutput(buf, &log, "exit code 0")
 	recordFinalOutput(buf, &log, "killed by user") // second call: no-op
@@ -263,13 +263,13 @@ func TestRecordFinalOutput_Idempotent(t *testing.T) {
 // cmd.Wait goroutine calls recordFinalOutput unconditionally; if a
 // future refactor ever lets the goroutine run before t.log is wired
 // up (it can't today — bgTask is constructed zero-valued, which is a
-// usable safeBuffer — but the contract should hold even if a caller
+// usable SafeBuffer — but the contract should hold even if a caller
 // passes literals), the function must not panic.
 func TestRecordFinalOutput_NilSafe(t *testing.T) {
 	// Should not panic on nil buf.
-	recordFinalOutput(nil, &safeBuffer{}, "exit code 0")
+	recordFinalOutput(nil, &SafeBuffer{}, "exit code 0")
 	// Should not panic on nil log.
-	recordFinalOutput(&safeBuffer{}, nil, "exit code 0")
+	recordFinalOutput(&SafeBuffer{}, nil, "exit code 0")
 	// Should not panic on both nil.
 	recordFinalOutput(nil, nil, "exit code 0")
 }

@@ -64,7 +64,7 @@ import (
 //	{
 //	  "id":                "<catalogue-id>",      // e.g. "gemini-3.8-flash-medium"
 //	  "label":             "<display-name>",      // e.g. "Gemini 3.8 Flash (Medium)"
-//	  "backend":           "agw" | "shim",
+//	  "backend":           "gateway" | "shim",
 //	  "effort_supported":  true | false,           // whether the model exposes --effort
 //	  "default":           true | false            // exactly one row per backend has default=true
 //	}
@@ -279,7 +279,7 @@ var DefaultEnvKeyProbe = []string{
 // Every closure is allowed to return an error; the dispatcher
 // maps that to a -32603 envelope. Today the production closures
 // return nil error — they're pure reads — but the field type
-// keeps future cycles (e.g. an agw-backed model fetch) free
+// keeps future cycles (e.g. an gateway-backed model fetch) free
 // to surface a -32603 envelope cleanly.
 //
 // All fields are optional; a nil closure is treated as "the
@@ -356,7 +356,7 @@ func filterModels(in []ModelInfo, filter string) []ModelInfo {
 
 // defaultBackendLabel returns the configured backend label
 // for "default model" purposes. Reads $OPENAGY_BACKEND and
-// falls back to "agw" — matches the cycle-44 default the
+// falls back to "gateway" — matches the cycle-44 default the
 // host's resolveBackend produces. The fallback here is the
 // dispatcher's own fallback (the host may have left the env
 // empty); it does NOT call resolveBackend in cmd/wagyu/
@@ -365,7 +365,7 @@ func defaultBackendLabel() string {
 	if v := strings.TrimSpace(os.Getenv("OPENAGY_BACKEND")); v != "" {
 		return strings.ToLower(v)
 	}
-	return "agw"
+	return "gateway"
 }
 
 // resolveTimeFormat is the RFC3339 formatter the four list

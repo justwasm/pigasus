@@ -231,12 +231,51 @@ func WalkLegacy(root string, fn WalkFunc) error {
 // before deciding whether to descend. A child that stat()s is a
 // directory from the loader's perspective, even when it is a
 // symlink to one.
-func walkSym(root string, fn fs.WalkDirFunc) error {
-	type frame struct {
-		path    string
-		real    string
-		entries []os.DirEntry
+type symFrame struct {
+	path    string
+	real    string
+	entries []os.DirEntry
+}
+
+func invokeSymEntry(topPath, child string, e os.DirEntry, fn fs.WalkDirFunc) (os.FileInfo, error) {
+	childInfo, infoErr := os.Stat(child)
+	if infoErr != nil {
+		shim := &dirEntryShim{entry: e, resolved: false}
+		werr := fn(topPath, shim, infoErr)
+		if werr != nil && !errors.Is(werr, fs.SkipAll) && !errors.Is(werr, fs.SkipDir) {
+			return nil, werr
+		}
+		return nil, nil
 	}
+	shim := &dirEntryShim{entry: e, resolved: true, info: childInfo}
+	werr := fn(topPath, shim, nil)
+	if werr != nil && !errors.Is(werr, fs.SkipAll) && !errors.Is(werr, fs.SkipDir) {
+		return nil, werr
+	}
+	if errors.Is(werr, fs.SkipDir) || !childInfo.IsDir() {
+		return nil, nil
+	}
+	return childInfo, nil
+}
+
+func tryDescendSymDir(stack []symFrame, child string) []symFrame {
+	childReal, rerr := filepath.EvalSymlinks(child)
+	if rerr != nil {
+		return stack
+	}
+	for _, f := range stack {
+		if f.real == childReal {
+			return stack
+		}
+	}
+	kids, err := os.ReadDir(child)
+	if err != nil {
+		return stack
+	}
+	return append(stack, symFrame{path: child, real: childReal, entries: kids})
+}
+
+func walkSym(root string, fn fs.WalkDirFunc) error {
 	rootReal, err := filepath.EvalSymlinks(root)
 	if err != nil {
 		rootReal = root
@@ -250,10 +289,9 @@ func walkSym(root string, fn fs.WalkDirFunc) error {
 		if !errors.Is(werr, fs.SkipDir) {
 			return werr
 		}
-		// SkipDir at the root stops the walk.
 		return nil
 	}
-	stack := []frame{{path: root, real: rootReal, entries: rootEntries}}
+	stack := []symFrame{{path: root, real: rootReal, entries: rootEntries}}
 	for len(stack) > 0 {
 		top := &stack[len(stack)-1]
 		if len(top.entries) == 0 {
@@ -263,55 +301,13 @@ func walkSym(root string, fn fs.WalkDirFunc) error {
 		e := top.entries[0]
 		top.entries = top.entries[1:]
 		child := filepath.Join(top.path, e.Name())
-		// Resolve the symlink target so descent decisions
-		// follow the link. A broken link fails the stat;
-		// we still call fn with the unresolved entry so
-		// the caller can record its presence.
-		childInfo, infoErr := os.Stat(child)
-		if infoErr != nil {
-			shim := &dirEntryShim{entry: e, resolved: false}
-			if werr := fn(top.path, shim, infoErr); werr != nil && !errors.Is(werr, fs.SkipAll) {
-				if errors.Is(werr, fs.SkipDir) {
-					continue
-				}
-				return werr
-			}
-			continue
-		}
-		shim := &dirEntryShim{entry: e, resolved: true, info: childInfo}
-		// WalkDir semantics: invoke fn on every entry
-		// before deciding to descend.
-		if werr := fn(top.path, shim, nil); werr != nil && !errors.Is(werr, fs.SkipAll) {
-			if errors.Is(werr, fs.SkipDir) {
-				continue
-			}
-			return werr
-		}
-		if !childInfo.IsDir() {
-			continue
-		}
-		// Cycle detection: compare child's realpath to
-		// each ancestor's realpath. A hit means a
-		// symlink loop.
-		childReal, rerr := filepath.EvalSymlinks(child)
-		if rerr != nil {
-			continue
-		}
-		cycle := false
-		for _, f := range stack {
-			if f.real == childReal {
-				cycle = true
-				break
-			}
-		}
-		if cycle {
-			continue
-		}
-		kids, err := os.ReadDir(child)
+		info, err := invokeSymEntry(top.path, child, e, fn)
 		if err != nil {
-			continue
+			return err
 		}
-		stack = append(stack, frame{path: child, real: childReal, entries: kids})
+		if info != nil {
+			stack = tryDescendSymDir(stack, child)
+		}
 	}
 	return nil
 }

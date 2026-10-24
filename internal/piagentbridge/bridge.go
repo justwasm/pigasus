@@ -38,12 +38,13 @@ import (
 	pi "github.com/MichaelKinsy/PiG/ai"
 
 	"github.com/justwasm/pigasus/internal/backend"
+	"github.com/justwasm/pigasus/internal/modelctx"
 	"github.com/justwasm/pigasus/internal/tools"
 )
 
 // ProviderID is the provider name stamped on every assistant message the
 // bridge produces, whichever path answered the request.
-const ProviderID = "agw"
+const ProviderID = "gateway"
 
 // BridgeAPI tags assistant messages produced by the StreamFn adapter, which
 // re-wraps the clone's own transport rather than speaking the wire itself.
@@ -51,15 +52,15 @@ const BridgeAPI pi.API = "openagy-backend"
 
 // ProviderAPI tags assistant messages produced by Provider, which speaks the
 // OpenAI Chat-Completions dialect directly.
-const ProviderAPI pi.API = "agw-chat-completions"
+const ProviderAPI pi.API = "gateway-chat-completions"
 
 // Options configures a PiG agent that talks to the clone's backend.
 type Options struct {
 	// Client is the clone's provider transport. It is used with
 	// BackendStreamFn. Exactly one of Client and Provider must be set.
 	Client backend.Client
-	// Provider is the native agw-backed PiG provider. When set it takes
-	// precedence over Client and the loop reaches agw through
+	// Provider is the native gateway-backed PiG provider. When set it takes
+	// precedence over Client and the loop reaches gateway through
 	// ProviderStreamFn, which dispatches to the model's own provider.
 	Provider *Provider
 	// ModelID is the Antigravity model id (e.g. "claude-sonnet-4-6") sent
@@ -148,6 +149,7 @@ func Model(id string) *pi.Model {
 			ProviderID: ProviderID,
 			API:        BridgeAPI,
 		},
-		Input: []string{"text"},
+		Capabilities: pi.ModelCapabilities{ContextWindow: modelctx.ContextWindowFor(id)},
+		Input:        []string{"text"},
 	}
 }

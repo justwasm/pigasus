@@ -282,7 +282,7 @@ func TestNewCascade_ClientInfoPopulated(t *testing.T) {
 		Scaffold:     scaffold,
 		SessionMode:  "remote_only",
 		Workspace:    "/tmp/proj",
-		BackendLabel: "agw",
+		BackendLabel: "gateway",
 	})
 	if err != nil {
 		t.Fatalf("NewCascade: %v", err)
@@ -311,8 +311,8 @@ func TestNewCascade_ClientInfoPopulated(t *testing.T) {
 	if c.Workspace != "/tmp/proj" {
 		t.Errorf("Workspace = %q, want /tmp/proj", c.Workspace)
 	}
-	if c.BackendLabel != "agw" {
-		t.Errorf("BackendLabel = %q, want agw", c.BackendLabel)
+	if c.BackendLabel != "gateway" {
+		t.Errorf("BackendLabel = %q, want gateway", c.BackendLabel)
 	}
 	if c.Effort != "high" {
 		t.Errorf("Effort = %q, want high", c.Effort)
@@ -330,7 +330,7 @@ func TestNewCascade_ClientInfoPopulated(t *testing.T) {
 func TestDispatcher_StartRemoteAgentCascade_OK(t *testing.T) {
 	sess := NewSessionState("1.3.4-test")
 	sess.Model = "Gemini 3.8 Flash (Medium)"
-	sess.Backend = "agw"
+	sess.Backend = "gateway"
 
 	d, err := NewDispatcher(Config{Session: sess})
 	if err != nil {
@@ -377,7 +377,7 @@ func TestDispatcher_StartRemoteAgentCascade_OK(t *testing.T) {
 func TestDispatcher_StartRemoteAgentCascade_CreatedAtRFC3339Nano(t *testing.T) {
 	sess := NewSessionState("1.3.4-test")
 	sess.Model = "Gemini 3.8 Flash (Medium)"
-	sess.Backend = "agw"
+	sess.Backend = "gateway"
 
 	d, err := NewDispatcher(Config{Session: sess})
 	if err != nil {
@@ -427,8 +427,8 @@ func TestDispatcher_StartRemoteAgentCascade_CreatedAtRFC3339Nano(t *testing.T) {
 func TestDispatcher_StartRemoteAgentCascade_ParamsBackendWins(t *testing.T) {
 	sess := NewSessionState("1.3.4-test")
 	sess.Model = "Gemini 3.8 Flash (Medium)"
-	// Host session wants agw; the dashboard wants shim.
-	sess.Backend = "agw"
+	// Host session wants gateway; the dashboard wants shim.
+	sess.Backend = "gateway"
 
 	d, err := NewDispatcher(Config{Session: sess})
 	if err != nil {
@@ -472,7 +472,7 @@ func TestDispatcher_StartRemoteAgentCascade_ParamsBackendWins(t *testing.T) {
 func TestDispatcher_StartRemoteAgentCascade_ParamsBackendEmptyFallsBack(t *testing.T) {
 	sess := NewSessionState("1.3.4-test")
 	sess.Model = "Gemini 3.8 Flash (Medium)"
-	sess.Backend = "agw"
+	sess.Backend = "gateway"
 
 	d, err := NewDispatcher(Config{Session: sess})
 	if err != nil {
@@ -490,8 +490,8 @@ func TestDispatcher_StartRemoteAgentCascade_ParamsBackendEmptyFallsBack(t *testi
 	if !ok {
 		t.Fatalf("no result, got %#v", resp)
 	}
-	if res["backend"] != "agw" {
-		t.Errorf("response.backend = %v, want agw (host session backend when params.backend is empty)", res["backend"])
+	if res["backend"] != "gateway" {
+		t.Errorf("response.backend = %v, want gateway (host session backend when params.backend is empty)", res["backend"])
 	}
 }
 

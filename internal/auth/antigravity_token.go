@@ -44,32 +44,50 @@ import (
 // Source: 1.3.3 binary decompilation — google3/third_party/jetski/cli/store/store
 // (see /decompiled/c/google3_third_party_jetski_cli_store_store/google3_third_party_jetski_cli_store_store_AuthState.c).
 type AntigravityToken struct {
-	Token       AntigravityAccessToken `json:"token"`
-	AuthMethod  string                 `json:"auth_method"` // "consumer" / "antigravity-hub" / etc
-	IDToken     string                 `json:"id_token"`
+	Token      AntigravityAccessToken `json:"token"`
+	AuthMethod string                 `json:"auth_method"` // "consumer" / "antigravity-hub" / etc
+	IDToken    string                 `json:"id_token"`
+	// IDTokenEmail is the reference's own field. The reference stores
+	// the account's email next to the token instead of the id_token
+	// itself, and writes it on every refresh — the refresh response
+	// carries no id_token, so the email would be lost otherwise.
+	//
+	// It is what lets a shared credential keep its identity across a
+	// refresh, and it is what the multi-account registry falls back to
+	// when the id_token is gone.
+	IDTokenEmail string `json:"id_token_email,omitempty"`
 }
 
 // UserEmail extracts the email claim from an ID token (JWT) if present.
+//
+// It falls back to the reference's own id_token_email field, which is
+// what a credential keeps after the reference refreshed it away its
+// id_token.
 func (t *AntigravityToken) UserEmail() string {
-	if t == nil || t.IDToken == "" {
+	if t == nil {
 		return ""
 	}
-	parts := strings.Split(t.IDToken, ".")
-	if len(parts) < 2 {
-		return ""
-	}
-	data, err := base64.RawURLEncoding.DecodeString(parts[1])
-	if err != nil {
-		data, err = base64.URLEncoding.DecodeString(parts[1])
-		if err != nil {
-			return ""
+	if t.IDToken != "" {
+		parts := strings.Split(t.IDToken, ".")
+		if len(parts) >= 2 {
+			data, err := base64.RawURLEncoding.DecodeString(parts[1])
+			if err != nil {
+				data, err = base64.URLEncoding.DecodeString(parts[1])
+				if err != nil {
+					data = nil
+				}
+			}
+			if data != nil {
+				var claims struct {
+					Email string `json:"email"`
+				}
+				if err := json.Unmarshal(data, &claims); err == nil && claims.Email != "" {
+					return claims.Email
+				}
+			}
 		}
 	}
-	var claims struct {
-		Email string `json:"email"`
-	}
-	_ = json.Unmarshal(data, &claims)
-	return claims.Email
+	return strings.TrimSpace(t.IDTokenEmail)
 }
 
 // EffectiveUserEmail returns the email associated with the active credentials,
@@ -309,34 +327,28 @@ func (c *TokenCache) Get(ctx context.Context) (*AntigravityToken, error) {
 	if !c.tok.IsExpired() {
 		return c.tok, nil
 	}
-	// Refresh
 	resp, err := RefreshTokenReal(ctx, CLIClientID, c.tok.Token.RefreshToken)
 	if err != nil {
-		// Same inspection as the unified config path: classify first,
-		// then act on rejection. ClassifyRefreshError returns a typed
-		// *AuthError on structured failures; for unstructured ones we
-		// synthesise one so callers can always errors.As to it.
-		aerr := ClassifyRefreshError(err)
-		if aerr == nil {
-			aerr = &AuthError{Endpoint: "refresh", Cause: err}
-		}
-		if aerr.Rejection {
-			// Cycle 225: drop the stale credentials. ClearTokenUnified
-			// walks AllTokenPaths() so the legacy ~/.config/antigravity
-			// fallbacks get wiped too; the keychain call best-effort
-			// purges the macOS credential.
-			cleared, _ := ClearTokenUnified()
-			// Also reset the in-memory copy so this cache instance
-			// does not hand back the stale token after the clear.
-			c.tok = nil
-			return nil, fmt.Errorf("antigravity-token: refresh: %w (sign-in rejected: cleared %d stale credential path(s); please run /login)", aerr, cleared)
-		}
-		// Refresh failed; return the (possibly-stale) token anyway
-		// so callers can decide. Callers may use the access_token
-		// directly if it's still valid.
-		return c.tok, fmt.Errorf("antigravity-token: refresh failed: %w (returning stale)", aerr)
+		return c.handleRefreshFailure(err)
 	}
-	// Update in-memory + on-disk
+	c.applyRefreshResponse(resp)
+	return c.tok, nil
+}
+
+func (c *TokenCache) handleRefreshFailure(err error) (*AntigravityToken, error) {
+	aerr := ClassifyRefreshError(err)
+	if aerr == nil {
+		aerr = &AuthError{Endpoint: "refresh", Cause: err}
+	}
+	if aerr.Rejection {
+		cleared, _ := ClearTokenUnified()
+		c.tok = nil
+		return nil, fmt.Errorf("antigravity-token: refresh: %w (sign-in rejected: cleared %d stale credential path(s); please run /login)", aerr, cleared)
+	}
+	return c.tok, fmt.Errorf("antigravity-token: refresh failed: %w (returning stale)", aerr)
+}
+
+func (c *TokenCache) applyRefreshResponse(resp *TokenResponse) {
 	c.tok.Token.AccessToken = resp.AccessToken
 	c.tok.Token.TokenType = resp.TokenType
 	if resp.RefreshToken != "" {
@@ -345,5 +357,4 @@ func (c *TokenCache) Get(ctx context.Context) (*AntigravityToken, error) {
 	expiry := time.Now().Add(time.Duration(resp.ExpiresIn) * time.Second)
 	c.tok.Token.Expiry = expiry.Format(time.RFC3339Nano)
 	_ = SaveAntigravityTokenTo(c.path, c.tok)
-	return c.tok, nil
 }

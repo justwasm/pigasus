@@ -75,7 +75,7 @@ var transientNetworkSubstrings = []string{
 	// these three times (AutoContMaxDepth) instead of eight
 	// (AutoContMaxNetworkDepth); the print path already retried them
 	// through PiG's own policy, which made the two surfaces disagree.
-	// Only phrases that can reach us over agw/OpenAI-compatible SSE are
+	// Only phrases that can reach us over gateway/OpenAI-compatible SSE are
 	// added — the Node-only wording (getaddrinfo, ENOTFOUND, fetch failed)
 	// stays out.
 	"unable to forward upstream",

@@ -285,7 +285,6 @@ func recoveryForError(err error) string {
 // changelog_reference.txt:10 ("socket disconnect errors ... retrying
 // automatically and reporting a network error if retries fail").
 func (l *Loop) sendPigAuto(ctx context.Context, input TurnInput) error {
-	// First attempt — this is the user's original request, not a retry.
 	err := l.sendPig(ctx, input)
 	if err == nil {
 		return nil
@@ -301,80 +300,45 @@ func (l *Loop) sendPigAuto(ctx context.Context, input TurnInput) error {
 		return err
 	}
 
-	// Pick the budget for this error class (cycle 266 network-retry).
-	// Transient network/socket errors get AutoContMaxNetworkDepth so a
-	// long tool-call chain can ride out several wifi handoffs; every
-	// other class keeps the historical AutoContMaxDepth so permanent
-	// failures still fail fast.
-	maxDepth := AutoContMaxDepth
-	typedGiveUp := func() error {
-		return &ErrAutoContMaxDepth{Depth: AutoContMaxDepth, Last: err}
-	}
+	maxDepth, typedGiveUp := selectAutoContBudget(err)
+	return l.runAutoContLoop(ctx, input, recovery, maxDepth, typedGiveUp, err)
+}
+
+func selectAutoContBudget(err error) (int, func() error) {
 	if IsTransientNetworkErr(err) {
-		maxDepth = AutoContMaxNetworkDepth
-		typedGiveUp = func() error {
+		return AutoContMaxNetworkDepth, func() error {
 			return &ErrAutoContNetworkFailed{Attempts: AutoContMaxNetworkDepth, Last: err}
 		}
 	}
+	return AutoContMaxDepth, func() error {
+		return &ErrAutoContMaxDepth{Depth: AutoContMaxDepth, Last: err}
+	}
+}
 
-	// Each loop iteration is one retry. The first attempt above has
-	// already failed, so the loop covers (maxDepth - 1) retries before
-	// we give up — totalling maxDepth attempts in line with the budget
-	// name.
+func (l *Loop) runAutoContLoop(ctx context.Context, input TurnInput, recovery string, maxDepth int, typedGiveUp func() error, err error) error {
 	for attempt := 1; attempt < maxDepth; attempt++ {
-		// A cancelled context is the caller's own abort; auto-continue would
-		// burn a quota slot on a session the user no longer wants.
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return ctxErr
 		}
-		// Flash the depth-N banner BEFORE the last-iteration guard
-		// so a banner fires for every retry, including the last
-		// (matched-by the test
-		// TestLoop_AutoContGiveUpAfterMaxDepth's expectation of
-		// exactly AutoContMaxDepth-1 banner firings).
 		if l.opts.AutoContBanner != nil {
 			l.opts.AutoContBanner(attempt, maxDepth)
 		}
-		// Last retry — already failed. Don't re-enter the loop.
 		if attempt == maxDepth-1 {
 			return typedGiveUp()
 		}
-		// Append the recovery message as a user-role turn. The fresh PiG
-		// agent built on the next sendPig call will see the original
-		// conversation plus this verbatim AGY copy and resume.
-		input.Messages = append(input.Messages, backend.Message{
-			Role:    "user",
-			Content: recovery,
-		})
-		// Re-run sendPig. If it returns the same class of error, we
-		// loop again and try the next recovery copy; if it succeeds,
-		// the outer Send returns nil and the loop's caller sees the
-		// final transcript.
+		input.Messages = append(input.Messages, backend.Message{Role: "user", Content: recovery})
 		if err = l.sendPig(ctx, input); err == nil {
-				return nil
+			return nil
 		}
-		// A late-stage quota failure (e.g. the user burned their
-		// remaining credits on attempt N — 1) must still surface
-		// without further retries. Recheck the bail-out conditions
-		// here because the error class may have changed.
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return ctxErr
 		}
 		if backend.IsQuotaReachedErr(err) {
 			return err
 		}
-		// If the error class changed (e.g. quota recovered but a
-		// transient network blip hit, OR we promoted a transient
-		// socket to a hard 5xx), re-evaluate the recovery copy. The
-		// typedGiveUp wrapper remains bound to the *first* error's
-		// class so the user sees a consistent banner — a "network
-		// error after N retries" stays a network error even if the
-		// eventual cause was different.
 		if newRecovery := recoveryForError(err); newRecovery != "" {
 			recovery = newRecovery
 		}
 	}
-	// Unreachable: the loop returns either inside (attempts 1..N-2)
-	// or via the last-iteration guard at attempt == maxDepth-1.
 	return typedGiveUp()
 }

@@ -196,67 +196,71 @@ func parseStepPayload(s *Step, payload []byte) {
 	top := protoFields(payload)
 	switch s.Type {
 	case StepUserInput:
-		p19 := protoBytes(top, 19)
-		if p19 == nil {
-			return
-		}
-		p3 := protoBytes(protoFields(p19), 3)
-		if p3 == nil {
-			return
-		}
-		if t1 := protoBytes(protoFields(p3), 1); t1 != nil {
-			s.Text = string(t1)
-		} else {
-			s.Text = string(p3)
-		}
+		parseUserInputStep(s, top)
 	case StepModelResponse:
 		if p20 := protoBytes(top, 20); p20 != nil {
 			s.Text = protoText(protoFields(p20), 1)
 		}
 	case StepToolCall:
-		p5 := protoBytes(top, 5)
-		if p5 == nil {
-			return
-		}
-		p4 := protoBytes(protoFields(p5), 4)
-		if p4 == nil {
-			return
-		}
-		f4 := protoFields(p4)
-		s.ToolName = protoText(f4, 2)
-		s.ToolArgs = protoText(f4, 3)
-		// Cycle 163: recover the tool-call output text so an expanded
-		// loaded step (ctrl+o) actually shows the result. The output
-		// lives at step_payload.field_140.field_2.field_1 — verified
-		// against real convstore DBs; the byte trail is:
-		//   field 140 = "tool result wrapper"
-		//     field 1 = tool param (repeated: toolSummary, CommandLine, ...)
-		//     field 2 = "tool result content wrapper"
-		//       field 1 = result text (e.g. "The command exited with code 0.\nOutput:\n...")
-		if p140 := protoBytes(top, 140); p140 != nil {
-			f140 := protoFields(p140)
-			if p2 := protoText(f140, 2); p2 != "" {
-				if txt := protoText(protoFields([]byte(p2)), 1); txt != "" {
-					s.ToolResult = cleanToolResult(txt)
-				} else {
-					s.ToolResult = cleanToolResult(p2)
-				}
+		parseToolCallStep(s, top)
+	case StepError, StepSystemNotice:
+		parseErrorStep(s, top)
+	}
+}
+
+func parseUserInputStep(s *Step, top []protoField) {
+	p19 := protoBytes(top, 19)
+	if p19 == nil {
+		return
+	}
+	p3 := protoBytes(protoFields(p19), 3)
+	if p3 == nil {
+		return
+	}
+	if t1 := protoBytes(protoFields(p3), 1); t1 != nil {
+		s.Text = string(t1)
+	} else {
+		s.Text = string(p3)
+	}
+}
+
+func parseToolCallStep(s *Step, top []protoField) {
+	p5 := protoBytes(top, 5)
+	if p5 == nil {
+		return
+	}
+	p4 := protoBytes(protoFields(p5), 4)
+	if p4 == nil {
+		return
+	}
+	f4 := protoFields(p4)
+	s.ToolName = protoText(f4, 2)
+	s.ToolArgs = protoText(f4, 3)
+	if p140 := protoBytes(top, 140); p140 != nil {
+		f140 := protoFields(p140)
+		if p2 := protoText(f140, 2); p2 != "" {
+			if txt := protoText(protoFields([]byte(p2)), 1); txt != "" {
+				s.ToolResult = cleanToolResult(txt)
+			} else {
+				s.ToolResult = cleanToolResult(p2)
 			}
 		}
-	case StepError, StepSystemNotice:
-		p24 := protoBytes(top, 24)
-		if p24 == nil {
-			return
-		}
-		p3 := protoBytes(protoFields(p24), 3)
-		if p3 == nil {
-			return
-		}
-		f3 := protoFields(p3)
-		s.Text = protoText(f3, 1)
-		if s.Text == "" {
-			s.Text = protoText(f3, 2)
-		}
+	}
+}
+
+func parseErrorStep(s *Step, top []protoField) {
+	p24 := protoBytes(top, 24)
+	if p24 == nil {
+		return
+	}
+	p3 := protoBytes(protoFields(p24), 3)
+	if p3 == nil {
+		return
+	}
+	f3 := protoFields(p3)
+	s.Text = protoText(f3, 1)
+	if s.Text == "" {
+		s.Text = protoText(f3, 2)
 	}
 }
 

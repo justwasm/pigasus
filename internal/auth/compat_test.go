@@ -13,22 +13,7 @@ import (
 	"time"
 )
 
-func TestWriteCompatDefaults_AllFiles(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("ANTIGRAVITY_HOME", home)
-
-	written, err := WriteCompatDefaults()
-	if err != nil {
-		t.Fatalf("WriteCompatDefaults: %v", err)
-	}
-
-	// Expect at least 7 files (installation_id / settings / mcp /
-	// jetbox_state / jetski_state / last_check / cli.log symlink).
-	if len(written) < 7 {
-		t.Errorf("expected >= 7 files written, got %d: %v", len(written), written)
-	}
-
-	// 1. installation_id — UUID v4
+func checkInstallationID(t *testing.T, home string) {
 	uid, err := os.ReadFile(filepath.Join(home, "installation_id"))
 	if err != nil {
 		t.Fatal(err)
@@ -40,8 +25,9 @@ func TestWriteCompatDefaults_AllFiles(t *testing.T) {
 	if uidStr[14] != '4' {
 		t.Errorf("installation_id not v4: %q", uidStr)
 	}
+}
 
-	// 2. settings.json — dark + 1 trusted workspace
+func checkSettingsAndMCP(t *testing.T, home string) {
 	sdata, err := os.ReadFile(filepath.Join(home, "settings.json"))
 	if err != nil {
 		t.Fatal(err)
@@ -57,7 +43,6 @@ func TestWriteCompatDefaults_AllFiles(t *testing.T) {
 		t.Errorf("trustedWorkspaces empty")
 	}
 
-	// 3. mcp.json — empty servers
 	mdata, err := os.ReadFile(filepath.Join(home, "mcp.json"))
 	if err != nil {
 		t.Fatal(err)
@@ -72,8 +57,9 @@ func TestWriteCompatDefaults_AllFiles(t *testing.T) {
 	if len(m.Servers) != 0 {
 		t.Errorf("servers not empty: %v", m.Servers)
 	}
+}
 
-	// 4. jetbox_state.json — 6 fields
+func checkJetboxAndJetski(t *testing.T, home string) {
 	jdata, err := os.ReadFile(filepath.Join(home, "jetbox_state.json"))
 	if err != nil {
 		t.Fatal(err)
@@ -86,7 +72,6 @@ func TestWriteCompatDefaults_AllFiles(t *testing.T) {
 		t.Errorf("jetbox_state: %+v", j)
 	}
 
-	// 5. jetski_state.pbtxt — prototext hand-written
 	jtdata, err := os.ReadFile(filepath.Join(home, "jetski_state.pbtxt"))
 	if err != nil {
 		t.Fatal(err)
@@ -104,11 +89,11 @@ func TestWriteCompatDefaults_AllFiles(t *testing.T) {
 	if !strings.Contains(jtStr, "MIGRATION_STATUS_COMPLETED") {
 		t.Errorf("jetski_state.pbtxt missing migration: %s", jtStr)
 	}
+}
 
-	// 6. last_check.timestamp — Unix epoch
+func checkLastCheckAndLog(t *testing.T, home string) {
 	ts, err := os.ReadFile(filepath.Join(home, "last_check.timestamp"))
 	if err != nil {
-		// ts may be skipped (file already exists in temp dir)
 		if !os.IsNotExist(err) {
 			t.Fatal(err)
 		}
@@ -119,7 +104,6 @@ func TestWriteCompatDefaults_AllFiles(t *testing.T) {
 		}
 	}
 
-	// 7. cli.log — symlink to log/cli-*.log
 	linkInfo, err := os.Lstat(filepath.Join(home, "cli.log"))
 	if err != nil {
 		t.Fatal(err)
@@ -134,6 +118,27 @@ func TestWriteCompatDefaults_AllFiles(t *testing.T) {
 	if !strings.Contains(target, "log/cli-") {
 		t.Errorf("cli.log target not in log/: %q", target)
 	}
+}
+
+func TestWriteCompatDefaults_AllFiles(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("ANTIGRAVITY_HOME", home)
+
+	written, err := WriteCompatDefaults()
+	if err != nil {
+		t.Fatalf("WriteCompatDefaults: %v", err)
+	}
+
+	// Expect at least 7 files (installation_id / settings / mcp /
+	// jetbox_state / jetski_state / last_check / cli.log symlink).
+	if len(written) < 7 {
+		t.Errorf("expected >= 7 files written, got %d: %v", len(written), written)
+	}
+
+	checkInstallationID(t, home)
+	checkSettingsAndMCP(t, home)
+	checkJetboxAndJetski(t, home)
+	checkLastCheckAndLog(t, home)
 }
 
 func TestWriteCompatDefaults_Idempotent(t *testing.T) {

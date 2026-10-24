@@ -18,6 +18,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -108,6 +109,19 @@ func FetchQuotaSummary(ctx context.Context) (*QuotaSummary, error) {
 	if err != nil {
 		return nil, err
 	}
+	return FetchQuotaSummaryWithToken(ctx, tok)
+}
+
+// FetchQuotaSummaryWithToken calls retrieveUserQuotaSummary with an
+// explicit bearer token.
+//
+// The quota belongs to the account behind the token, so the multi-account
+// registry queries one account at a time, each with its own access token.
+func FetchQuotaSummaryWithToken(ctx context.Context, accessToken string) (*QuotaSummary, error) {
+	if strings.TrimSpace(accessToken) == "" {
+		return nil, errors.New("retrieveUserQuotaSummary: no access token")
+	}
+	tok := accessToken
 	body := []byte(`{"project":"aicode-consumers"}`)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
 		CloudCodeEndpoint+"/v1internal:retrieveUserQuotaSummary", bytes.NewReader(body))

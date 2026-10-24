@@ -50,6 +50,21 @@ type Summary struct {
 	// m.session as a single user-role message (so the next model
 	// turn sees the summary in its history).
 	Text string
+	// InputTokens is the model-reported prompt-token count of the
+	// compaction request — the context size at the moment of the
+	// compaction. The reference's stats row prints this as the
+	// number before the arrow ("context 13.1k → …"), because its
+	// checkpoint config sets use_model_reported_token_count.
+	//
+	// Zero when the backend does not report usage; callers fall
+	// back to the transcript estimate.
+	InputTokens int
+	// OutputTokens is the model-reported completion-token count of
+	// the compaction request: the size of the summary itself, which
+	// the reference prints in parentheses ("(266 summary)").
+	//
+	// Zero when the backend does not report usage.
+	OutputTokens int
 	// StatsBefore is the transcript stats the user sees on the
 	// "Compacted: …" line. Always populated, even on cancellation
 	// (the caller's "Nothing to compact" / "Cancelled" paths need
@@ -72,10 +87,15 @@ var ErrCancelled = errors.New("compaction: cancelled")
 // yet." without calling the model.
 var ErrEmptyTranscript = errors.New("compaction: empty transcript")
 
-// ComputeSummary calls client with SummarizePrompt and the joined
-// transcript as a single user-role turn. The model's reply becomes
-// Summary.Text; StatsBefore / StatsAfter drive the reduction
+// ComputeSummary calls client with the joined transcript and the
+// reference's continuation-summary instruction, and returns the model's
+// reply as Summary.Text; StatsBefore / StatsAfter drive the reduction
 // headline.
+//
+// systemPrompt is the request's system prompt — the caller passes the
+// *normal* Antigravity instructions, because the reference keeps them
+// there and appends the summary instruction as the last user turn
+// instead of replacing the system prompt.
 //
 // Cancellation contract:
 //
@@ -88,10 +108,10 @@ var ErrEmptyTranscript = errors.New("compaction: empty transcript")
 //
 // The original transcript is preserved on the caller side; this
 // function never mutates sess.
-func ComputeSummary(ctx context.Context, client backend.Client, model, systemPrefix string, sess []backend.Message) (Summary, error) {
+func ComputeSummary(ctx context.Context, client backend.Client, model, systemPrompt string, sess []backend.Message) (Summary, error) {
 	before := Stats{
 		Messages: len(sess),
-		Tokens:   transcriptTokens(sess),
+		Tokens:   TranscriptTokens(sess),
 	}
 	if len(sess) == 0 {
 		return Summary{StatsBefore: before, StatsAfter: before}, ErrEmptyTranscript
@@ -102,22 +122,7 @@ func ComputeSummary(ctx context.Context, client backend.Client, model, systemPre
 	if model == "" {
 		model = "claude-sonnet-4-6"
 	}
-	system := SummarizePrompt
-	if systemPrefix != "" {
-		system = systemPrefix + "\n\n" + SummarizePrompt
-	}
-
-	// Build the request. One user-role turn carrying the joined
-	// transcript. The transcript text already carries "USER: …" /
-	// "ASSISTANT: …" markers so the model can tell turns apart
-	// without parsing.
-	req := backend.StreamRequest{
-		Model:        model,
-		SystemPrompt: system,
-		Messages: []backend.Message{
-			{Role: "user", Content: transcriptText(sess)},
-		},
-	}
+	req := buildSummarizeRequest(model, systemPrompt, sess)
 
 	chunks, err := client.Stream(ctx, req)
 	if err != nil {
@@ -130,38 +135,60 @@ func ComputeSummary(ctx context.Context, client backend.Client, model, systemPre
 		return Summary{StatsBefore: before}, errors.New("compaction: nil channel")
 	}
 
+	text, inputTokens, outputTokens, err := consumeSummaryChunks(ctx, chunks)
+	if err != nil {
+		statsAfter := Stats{Tokens: EstimateTokens(text)}
+		return Summary{StatsBefore: before, StatsAfter: statsAfter}, err
+	}
+	summary := strings.TrimSpace(text)
+	after := Stats{Messages: 1, Tokens: EstimateTokens(summary)}
+	return Summary{
+		Text:         summary,
+		StatsBefore:  before,
+		StatsAfter:   after,
+		InputTokens:  inputTokens,
+		OutputTokens: outputTokens,
+	}, nil
+}
+
+func buildSummarizeRequest(model, systemPrompt string, sess []backend.Message) backend.StreamRequest {
+	return backend.StreamRequest{
+		Model:        model,
+		SystemPrompt: systemPrompt,
+		Messages: []backend.Message{
+			{Role: "user", Content: transcriptText(sess)},
+			{Role: "user", Content: SummarizePrompt + OnDemandCompactionSuffix},
+		},
+	}
+}
+
+func consumeSummaryChunks(ctx context.Context, chunks <-chan backend.StreamChunk) (string, int, int, error) {
 	var b strings.Builder
+	var inputTokens, outputTokens int
 	for chunk := range chunks {
 		if chunk.Error != nil {
 			if errors.Is(chunk.Error, context.Canceled) || errors.Is(chunk.Error, context.DeadlineExceeded) {
-				return Summary{
-					StatsBefore: before,
-					StatsAfter:  Stats{Tokens: EstimateTokens(b.String())},
-				}, ErrCancelled
+				return b.String(), inputTokens, outputTokens, ErrCancelled
 			}
-			return Summary{StatsBefore: before}, fmt.Errorf("compaction: chunk error: %w", chunk.Error)
+			return b.String(), inputTokens, outputTokens, fmt.Errorf("compaction: chunk error: %w", chunk.Error)
 		}
 		b.WriteString(chunk.Text)
+		if chunk.Meta != nil {
+			if chunk.Meta.PromptTokens > 0 {
+				inputTokens = chunk.Meta.PromptTokens
+			}
+			if chunk.Meta.CompletionTokens > 0 {
+				outputTokens = chunk.Meta.CompletionTokens
+			}
+		}
 		if chunk.Done {
 			break
 		}
 		if ctx.Err() != nil {
-			return Summary{
-				StatsBefore: before,
-				StatsAfter:  Stats{Tokens: EstimateTokens(b.String())},
-			}, ErrCancelled
+			return b.String(), inputTokens, outputTokens, ErrCancelled
 		}
 	}
-	summary := strings.TrimSpace(b.String())
-	after := Stats{
-		Messages: 1,
-		Tokens:   EstimateTokens(summary),
-	}
-	return Summary{
-		Text:        summary,
-		StatsBefore: before,
-		StatsAfter:  after,
-	}, nil
+	return b.String(), inputTokens, outputTokens, nil
 }
 
 // ReductionPercent returns the integer percentage reduction from
@@ -215,11 +242,12 @@ func transcriptText(sess []backend.Message) string {
 	return b.String()
 }
 
-// transcriptTokens is the byte-count / 4 sum across every message
-// in sess. Cheaper than calling EstimateTokens on the joined
-// transcript (avoids one allocation), and keeps the bytes-typed
-// estimate.go helper out of this file.
-func transcriptTokens(sess []backend.Message) int {
+// TranscriptTokens is the byte-count sum across every message in sess,
+// divided by the reference's three-bytes-per-token divisor. Cheaper
+// than calling EstimateTokens on the joined transcript (avoids one
+// allocation), and keeps the bytes-typed estimate.go helper out of this
+// file.
+func TranscriptTokens(sess []backend.Message) int {
 	if len(sess) == 0 {
 		return 0
 	}
@@ -230,5 +258,5 @@ func transcriptTokens(sess []backend.Message) int {
 			total += len(tc.Arguments)
 		}
 	}
-	return total / 4
+	return total / BytesPerToken
 }

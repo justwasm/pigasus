@@ -151,17 +151,8 @@ type LoadRoots struct {
 	GlobalDir string
 }
 
-// Load walks the three roots and returns the merged catalog plus
-// every conflict encountered. The catalog is sorted by Name in
-// byte-ascending order so the loader's output is deterministic
-// across runs — Go map iteration is randomised and the AGY 1.2.16
-// contract requires that "/foo" lookup succeed the same way on every
-// invocation regardless of filesystem walk order.
-func Load(roots LoadRoots) (catalog []Command, conflicts []Conflict) {
-	// Collect raw candidates from every root, then merge with the
-	// precedence rule. The raw list is sorted by (Source, Path) so
-	// two plugins shipping the same "<plugin>:foo" file resolve
-	// deterministically (the alphabetically first path wins).
+// collectRawCandidates gathers candidates from all configured roots and sorts them.
+func collectRawCandidates(roots LoadRoots) []Command {
 	var raw []Command
 	raw = append(raw, scanDir(roots.GlobalDir, SourceGlobal, "")...)
 	raw = append(raw, scanProjectDir(roots.ProjectDir)...)
@@ -172,6 +163,17 @@ func Load(roots LoadRoots) (catalog []Command, conflicts []Conflict) {
 		}
 		return raw[i].Path < raw[j].Path
 	})
+	return raw
+}
+
+// Load walks the three roots and returns the merged catalog plus
+// every conflict encountered. The catalog is sorted by Name in
+// byte-ascending order so the loader's output is deterministic
+// across runs — Go map iteration is randomised and the AGY 1.2.16
+// contract requires that "/foo" lookup succeed the same way on every
+// invocation regardless of filesystem walk order.
+func Load(roots LoadRoots) (catalog []Command, conflicts []Conflict) {
+	raw := collectRawCandidates(roots)
 
 	// First-write wins within a single source (the loader has no
 	// notion of "later" within a source — alphabetical path sort

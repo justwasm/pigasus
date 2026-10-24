@@ -100,8 +100,8 @@ type bgTask struct {
 	started time.Time
 
 	mu     sync.Mutex
-	out    safeBuffer
-	log    safeBuffer // cycle 258: persistent task log (finalized once at exit)
+	out    SafeBuffer
+	log    SafeBuffer // cycle 258: persistent task log (finalized once at exit)
 	cmd    *exec.Cmd
 	stdin  io.WriteCloser
 	cancel context.CancelFunc
@@ -109,7 +109,7 @@ type bgTask struct {
 	err    error
 }
 
-// safeBuffer wraps a bytes.Buffer with a mutex so concurrent writes
+// SafeBuffer wraps a bytes.Buffer with a mutex so concurrent writes
 // from os/exec's stdout/stderr goroutines and reads from status() do
 // not race. The pre-cycle-tasks-panel bytes.Buffer-as-Reader pattern
 // was racy under -race (cmd.Wait → cmd.writerDescriptor writes the
@@ -123,13 +123,14 @@ type bgTask struct {
 // the "first writer wins" guarantee idempotent. It is a zero-value
 // sync.Once, so callers can use it without explicit initialisation.
 // See bg_output.go for the call sites.
-type safeBuffer struct {
+type SafeBuffer struct {
 	mu         sync.Mutex
 	buf        bytes.Buffer
 	appendOnce sync.Once
 }
 
-func (b *safeBuffer) Write(p []byte) (int, error) {
+// Write appends p to the buffer under the lock.
+func (b *SafeBuffer) Write(p []byte) (int, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	return b.buf.Write(p)
@@ -139,7 +140,7 @@ func (b *safeBuffer) Write(p []byte) (int, error) {
 // Cycle 258 added this method so recordFinalOutput can append the exit
 // reason without allocating a []byte for the literal — same trick as
 // bytes.Buffer.WriteString.
-func (b *safeBuffer) WriteString(s string) (int, error) {
+func (b *SafeBuffer) WriteString(s string) (int, error) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	return b.buf.WriteString(s)
@@ -148,13 +149,14 @@ func (b *safeBuffer) WriteString(s string) (int, error) {
 // WriteByte appends a single byte to the buffer. Cycle 258 added this
 // method for the "\n" terminator recordFinalOutput writes after the
 // pending output and the exit reason.
-func (b *safeBuffer) WriteByte(c byte) error {
+func (b *SafeBuffer) WriteByte(c byte) error {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	return b.buf.WriteByte(c)
 }
 
-func (b *safeBuffer) String() string {
+// String returns the buffer's contents under the lock.
+func (b *SafeBuffer) String() string {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	return b.buf.String()
@@ -279,9 +281,9 @@ func (t *bgTask) status() string {
 	} else {
 		body = t.out.String()
 	}
-	// safeBuffer.String() takes its own lock — release t.mu first so
+	// SafeBuffer.String() takes its own lock — release t.mu first so
 	// the writer goroutine can grab it if it ever needs to (it doesn't
-	// today; safeBuffer is fully independent of t.mu).
+	// today; SafeBuffer is fully independent of t.mu).
 	return fmt.Sprintf("%s\t%s\t%s\t%gs\n%s", id, state, command,
 		time.Since(started).Seconds(), strings.TrimRight(body, "\n"))
 }

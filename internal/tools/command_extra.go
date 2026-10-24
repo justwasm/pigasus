@@ -47,7 +47,13 @@ func (r *RunShellCommand) Run(ctx context.Context, args json.RawMessage) (any, e
 		return nil, fmt.Errorf("run_shell_command: parse: %w", err)
 	}
 
-	var stdout, stderr bytes.Buffer
+	// SafeBuffer, not bytes.Buffer: the interpreter starts every
+	// external command through os/exec, which copies the child's
+	// output in a goroutine of its own. A script with a background job
+	// (`cmd &`) therefore has two writers on the same buffer at once,
+	// which is a data race on bytes.Buffer's internal slice. The
+	// same reason run_command uses SafeBuffer above.
+	var stdout, stderr SafeBuffer
 	runner, err := interp.New(
 		interp.StdIO(io.Reader(nil), &stdout, &stderr),
 		interp.Dir(r.Workspace),

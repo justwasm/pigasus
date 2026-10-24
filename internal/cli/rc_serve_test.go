@@ -47,27 +47,30 @@ func TestRemoteControlServe_HelpOnly(t *testing.T) {
 	}
 }
 
-// TestRemoteControlServe_ListedInParentUsage pins the brief:
-// the parent `remote-control` usage block lists serve
-// alongside start / status / stop. Cycle rc-serve-subcommand.
-func TestRemoteControlServe_ListedInParentUsage(t *testing.T) {
+// TestRemoteControlServe_HiddenInParentUsage pins the reference's
+// 1.4.6 listing: the parent `remote-control` usage block shows
+// start, status and stop only — `serve` exists in the reference (it
+// starts the foreground daemon) but is not advertised.
+//
+//	$ agy remote-control --help
+//	Usage: agy remote-control <subcommand>
+//
+//	Available subcommands:
+//	  start    Register and start the remote-control daemon
+//	  status   Show the daemon's status
+//	  stop     Stop the daemon and unregister it
+func TestRemoteControlServe_HiddenInParentUsage(t *testing.T) {
 	_, errb, code := runJetski(t, "remote-control", "--help")
 	if code != 0 {
 		t.Fatalf("remote-control --help exit code = %d, want 0; stderr=%q", code, errb)
 	}
-	if !strings.Contains(errb, "serve") {
-		t.Errorf("remote-control --help missing 'serve' subcommand; stderr=%q", errb)
+	if strings.Contains(errb, "serve") {
+		t.Errorf("remote-control --help must not list 'serve' (the reference does not); stderr=%q", errb)
 	}
-	// And it must come AFTER `start` so the help block
-	// reads the same way the v1.3.5 binary lists its
-	// foreground-after-persistent subcommands.
-	startIdx := strings.Index(errb, "start")
-	serveIdx := strings.Index(errb, "serve")
-	if startIdx < 0 || serveIdx < 0 {
-		t.Fatalf("remote-control --help missing start/serve markers; stderr=%q", errb)
-	}
-	if startIdx >= serveIdx {
-		t.Errorf("'start' must come before 'serve' in parent usage; start=%d serve=%d stderr=%q", startIdx, serveIdx, errb)
+	for _, sub := range []string{"start", "status", "stop"} {
+		if !strings.Contains(errb, sub) {
+			t.Errorf("remote-control --help missing %q; stderr=%q", sub, errb)
+		}
 	}
 }
 

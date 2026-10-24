@@ -186,21 +186,7 @@ func Migrate() error {
 	return nil
 }
 
-// MigrateToken converts the v1.0..v1.2 antigravity-auth.json into
-// the v4 binary's antigravity-oauth-token format. Best-effort: a
-// parse failure is reported via error so the caller can log it; the
-// destination is not written in that case.
-//
-// Returns nil if the source file is missing (no-op migration).
-func MigrateToken(srcPath, dstPath string) error {
-	raw, err := os.ReadFile(srcPath)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil
-		}
-		return fmt.Errorf("read %s: %w", srcPath, err)
-	}
-	// v1.0..v1.2 shape: {"access_token":"...","refresh_token":"...","expiry":"..."}
+func buildV4MigratedPayload(raw []byte, srcPath string) ([]byte, error) {
 	var legacy struct {
 		AccessToken  string `json:"access_token"`
 		RefreshToken string `json:"refresh_token"`
@@ -208,10 +194,10 @@ func MigrateToken(srcPath, dstPath string) error {
 		TokenType    string `json:"token_type"`
 	}
 	if err := json.Unmarshal(raw, &legacy); err != nil {
-		return fmt.Errorf("parse %s: %w", srcPath, err)
+		return nil, fmt.Errorf("parse %s: %w", srcPath, err)
 	}
 	if legacy.AccessToken == "" {
-		return fmt.Errorf("%s: empty access_token (nothing to migrate)", srcPath)
+		return nil, fmt.Errorf("%s: empty access_token (nothing to migrate)", srcPath)
 	}
 	v4 := struct {
 		Token struct {
@@ -228,15 +214,32 @@ func MigrateToken(srcPath, dstPath string) error {
 	v4.Token.AccessToken = legacy.AccessToken
 	v4.Token.RefreshToken = legacy.RefreshToken
 	v4.Token.Expiry = legacy.Expiry
+	v4.Token.TokenType = legacy.TokenType
 	if v4.Token.TokenType == "" {
 		v4.Token.TokenType = "Bearer"
 	}
-	out, err := json.MarshalIndent(&v4, "", "  ")
+	return json.MarshalIndent(&v4, "", "  ")
+}
+
+// MigrateToken converts the v1.0..v1.2 antigravity-auth.json into
+// the v4 binary's antigravity-oauth-token format. Best-effort: a
+// parse failure is reported via error so the caller can log it; the
+// destination is not written in that case.
+//
+// Returns nil if the source file is missing (no-op migration).
+func MigrateToken(srcPath, dstPath string) error {
+	raw, err := os.ReadFile(srcPath)
 	if err != nil {
-		return fmt.Errorf("marshal: %w", err)
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return fmt.Errorf("read %s: %w", srcPath, err)
+	}
+	out, err := buildV4MigratedPayload(raw, srcPath)
+	if err != nil {
+		return err
 	}
 	if _, err := os.Stat(dstPath); err == nil {
-		// Destination already exists; don't overwrite. Caller logs.
 		return fmt.Errorf("%s: destination exists (skipped)", dstPath)
 	}
 	if err := os.WriteFile(dstPath, out, 0o600); err != nil {

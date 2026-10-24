@@ -76,7 +76,7 @@ type Options struct {
 	// Provider, when set, is used instead of the Provider that would
 	// otherwise be derived from Backend. It is an override, not the only
 	// way to reach the native path: when Backend is a client that can
-	// describe itself (internal/backend.AgwK0sClient.AgwConfig), the Loop
+	// describe itself (internal/backend.GatewayClient.GatewayConfig), the Loop
 	// derives the matching piagentbridge.Provider and serves the turn from
 	// it, so cmd/wagyu needs no change and keeps the exact wire behaviour
 	// — the ExternalModel remap, the SystemFingerprint, the User-Agent, and

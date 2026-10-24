@@ -1,13 +1,13 @@
 // Package piagentbridge — native_provider.go: the function that
-// derives a PiG-native agw Provider from a backend.Client.
+// derives a PiG-native gateway Provider from a backend.Client.
 //
 // Cycle rc-piagent-bind moves the type-assertion helper out of
 // internal/agent/pig.go into the bridge package so the cycle's
 // remote-control factory (piagent_remote.go) can call it
 // without dragging the loop package into its dependency
 // graph. The behaviour is identical: a backend that knows how
-// to describe itself as an agw endpoint (today only
-// *backend.AgwK0sClient) yields a native provider; anything
+// to describe itself as a gateway endpoint (today only
+// *backend.GatewayClient) yields a native provider; anything
 // else falls through to the StreamFn path of
 // NewBackendProvider.
 //
@@ -34,15 +34,15 @@ import (
 	"github.com/justwasm/pigasus/internal/backend"
 )
 
-// agwBackend is implemented by backend clients that can describe
-// how they reach agw. The interface is private — the only
-// implementor today is *backend.AgwK0sClient, and the goal is to
+// gatewayBackend is implemented by backend clients that can describe
+// how they reach their endpoint. The interface is private — the only
+// implementor today is *backend.GatewayClient, and the goal is to
 // keep the seam invisible to the rest of the codebase.
-type agwBackend interface {
-	AgwConfig() backend.AgwK0sConfig
+type gatewayBackend interface {
+	GatewayConfig() backend.GatewayConfig
 }
 
-// NativeProvider derives a PiG-native agw Provider from the
+// NativeProvider derives a PiG-native gateway Provider from the
 // supplied backend.Client, when the backend is one this
 // migration knows how to mirror.
 //
@@ -55,24 +55,43 @@ type agwBackend interface {
 //
 // A backend that does not describe itself (backend.NewMock,
 // the lifecycle wrappers, anything not type-assertable to
-// agwBackend) returns nil — the signal to fall through to
+// gatewayBackend) returns nil — the signal to fall through to
 // NewBackendProvider's StreamFn path, which keeps the shims
 // and the parity harnesses on the transport they already
 // exercise.
+//
+// Two configured endpoints also return nil:
+//
+//   - one that speaks the Anthropic Messages dialect. This provider
+//     speaks the OpenAI Chat-Completions dialect, and mirroring a
+//     protocol it does not speak would put the wrong bytes on the
+//     wire. The Anthropic dialect is served by the clone's own
+//     transport (internal/backend/gateway_anthropic.go) through the
+//     StreamFn path.
+//   - one with no endpoint configured. There is nothing to talk to,
+//     and a provider that would fail on its first request is worse
+//     than the transport's own "no endpoint configured" error.
 func NativeProvider(client backend.Client) *Provider {
 	if client == nil {
 		return nil
 	}
-	described, ok := client.(agwBackend)
+	described, ok := client.(gatewayBackend)
 	if !ok {
 		return nil
 	}
-	cfg := described.AgwConfig()
+	cfg := described.GatewayConfig()
+	if cfg.Type != "" && cfg.Type != backend.GatewayProtocolOpenAI {
+		return nil
+	}
+	if cfg.URL == "" || cfg.ExternalModel == "" {
+		return nil
+	}
 	return NewProvider(ProviderConfig{
 		URL:        cfg.URL,
 		APIKey:     cfg.APIKey,
 		Model:      cfg.ExternalModel,
 		Timeout:    time.Duration(cfg.TimeoutSeconds) * time.Second,
 		HTTPClient: cfg.HTTPClient,
+		Headers:    cfg.Headers,
 	})
 }

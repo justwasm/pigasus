@@ -236,7 +236,7 @@ func reflectionStructFields(s any) []string {
 // "wagyu-rc/<version>/<short-hash>" pattern.
 func TestTopLevelStatus_Shape(t *testing.T) {
 	sess := NewSessionState("1.4.2-test")
-	sess.Backend = "agw"
+	sess.Backend = "gateway"
 	sess.Model = "Gemini 3.8 Flash (Medium)"
 	d, err := NewDispatcher(Config{
 		Session: sess,

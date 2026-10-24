@@ -10,11 +10,11 @@ import (
 )
 
 // TestReferenceRPCMethodsMatchFixture pins ReferenceRPCMethods to the
-// method list recovered from agy 1.4.4's embedded FileDescriptorProto. If
+// method list recovered from agy 1.4.6's embedded FileDescriptorProto. If
 // this fails, either the fixture was refreshed against a new reference
 // release (update the slice) or the slice was edited by hand (don't).
 func TestReferenceRPCMethodsMatchFixture(t *testing.T) {
-	f, err := os.Open("testdata/jetski_remote_agent_proxy_1.4.4.txt")
+	f, err := os.Open("testdata/jetski_remote_agent_proxy_1.4.6.txt")
 	if err != nil {
 		t.Fatalf("open fixture: %v", err)
 	}
@@ -36,8 +36,8 @@ func TestReferenceRPCMethodsMatchFixture(t *testing.T) {
 	if err := sc.Err(); err != nil {
 		t.Fatalf("scan fixture: %v", err)
 	}
-	if len(want) != 71 {
-		t.Fatalf("fixture has %d RPCs, want 71", len(want))
+	if len(want) != 77 {
+		t.Fatalf("fixture has %d RPCs, want 77", len(want))
 	}
 	if len(ReferenceRPCMethods) != len(want) {
 		t.Fatalf("ReferenceRPCMethods has %d entries, fixture has %d", len(ReferenceRPCMethods), len(want))

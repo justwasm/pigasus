@@ -108,7 +108,11 @@ func TestCloudCode_TextStream(t *testing.T) {
 		t.Errorf("meta = %+v", done.Meta)
 	}
 
-	body := srv.bodies[0]
+	verifyTextStreamEnvelope(t, srv.bodies[0])
+}
+
+func verifyTextStreamEnvelope(t *testing.T, body map[string]any) {
+	t.Helper()
 	if body["model"] != "gemini-3.8-flash-high" || body["project"] != "aicode-consumers" ||
 		body["userAgent"] != "antigravity" || body["requestType"] != "agent" {
 		t.Errorf("envelope = %#v", body)
@@ -174,7 +178,13 @@ func TestCloudCode_ToolCallAndSignatureReplay(t *testing.T) {
 	}
 	collectChunks(t, ch)
 
-	inner := srv.bodies[1]["request"].(map[string]any)
+	verifyReplayContents(t, srv.bodies[1])
+	verifyReplaySchema(t, srv.bodies[0])
+}
+
+func verifyReplayContents(t *testing.T, body map[string]any) {
+	t.Helper()
+	inner := body["request"].(map[string]any)
 	contents := inner["contents"].([]any)
 	if len(contents) != 3 {
 		t.Fatalf("contents = %d, want 3", len(contents))
@@ -198,9 +208,11 @@ func TestCloudCode_ToolCallAndSignatureReplay(t *testing.T) {
 	if out := fr["response"].(map[string]any)["output"]; out != "hi\n" {
 		t.Errorf("output = %q", out)
 	}
+}
 
-	// Tool schema is uppercased and additionalProperties pruned.
-	firstInner := srv.bodies[0]["request"].(map[string]any)
+func verifyReplaySchema(t *testing.T, body map[string]any) {
+	t.Helper()
+	firstInner := body["request"].(map[string]any)
 	tools := firstInner["tools"].([]any)
 	decls := tools[0].(map[string]any)["functionDeclarations"].([]any)
 	params := decls[0].(map[string]any)["parameters"].(map[string]any)

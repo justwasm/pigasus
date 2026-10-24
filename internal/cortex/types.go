@@ -39,84 +39,6 @@ import (
 	"time"
 )
 
-// ---- Core orchestrator ----------------------------------------------------
-
-// CascadeManager is the recovered 1.3.5 `(*CascadeManager)` from
-// google3/third_party/jetski/cortex/cortex.
-//
-// pclntab entry: `cortex/cortex.(*CascadeManager).New` (0x7fdb120, the
-// constructor) + ~150 methods spanning lifecycle, battle mode, fork,
-// trajectory, sensitivity, and subagent management.
-//
-// This is the **central** orchestrator: it owns the conversation, the
-// trajectory store, the workspace URIs, the subagent hub, the
-// presence tracker, the executor (sdkExecutor / ordinaryExecutor),
-// and the agent script. Everything in the v1.3.5 binary that talks
-// to the LLM goes through a CascadeManager.
-//
-// Stub-only — fields are not yet mapped 1:1 to the v1.3.5 binary
-// layout. They will be filled in by future cycles.
-type CascadeManager struct {
-	mu sync.Mutex
-
-	// Trajectory / store
-	storedTrajectory string // cached trajectory id (storedTrajectory 0x7fd8ec0)
-	// Executor
-	executor Executor // sdkExecutor or ordinaryExecutor
-	// Subagent hub (gatedSubagentHub 0x7fe46e0, SubagentHub getter)
-	subagentHub SubagentHubLike
-	// Workspace
-	workspaceURIs []string // resolved workspace URIs
-	// Sensitivity
-	sensitivityLevel SensitivityLevel
-	// Battle mode
-	battleMode *BattleModeState // nil when not in battle mode
-	// Background runner
-	bg *backgroundRunner
-	// Presence tracker
-	presence *presenceTracker
-	// Project lookup
-	projectLookup *projectLookupImpl
-	// Provider URL map
-	providerURLs *providerServerURLMap
-	// Annotations
-	annotations *AnnotationsManager
-	// Summaries store
-	summaries stateSyncSummariesStore
-	// Settings provider (in-memory CLI settings)
-	cliSettings *CLISettingsProvider
-	// State
-	closed bool
-}
-
-// ---- Annotations manager --------------------------------------------------
-
-// AnnotationsManager is the recovered `(*AnnotationsManager)` from
-// google3/third_party/jetski/cortex/cortex.
-//
-// pclntab entries: NewAnnotationsManager 0x7fc3f20, lockFor 0x7fc4020,
-// GetAnnotations 0x7fc4100, UpdateAnnotations 0x7fc4360, Mutate 0x7fc4660,
-// save 0x7fc48a0, DeleteAnnotations 0x7fc4d00.
-//
-// Models the per-conversation file annotation store (think "user
-// starred this file" / "this file has comment X"). The 1.3.5 binary
-// persists annotations to a per-trajectory JSON file.
-type AnnotationsManager struct {
-	mu    sync.Mutex
-	trajectoryID string
-	store  string // backing path (cycle 41 doc: lifecycle.go)
-	cache  map[string]Annotation // path -> annotation
-}
-
-// Annotation is a single annotation entry (file + key/value tag).
-type Annotation struct {
-	Path     string
-	Key      string
-	Value    string
-	Created  time.Time
-	Modified time.Time
-}
-
 // ---- Errors ---------------------------------------------------------------
 
 // EndBattleModeError is the recovered `(*EndBattleModeError)` from
@@ -150,40 +72,6 @@ func (e *EndBattleModeError) Unwrap() error {
 	return e.Inner
 }
 
-// ---- background runner ----------------------------------------------------
-
-// backgroundRunner is the recovered `(*backgroundRunner)` from
-// google3/third_party/jetski/cortex/cortex. pclntab: Go 0x7fd6e00,
-// CancelAndWait 0x7fd6e60.
-//
-// The 1.3.5 binary uses this to track in-flight goroutines so
-// CascadeManager.Shutdown can wait for them.
-type backgroundRunner struct {
-	mu    sync.Mutex
-	tasks []bgTask
-}
-
-// bgTask is one entry in the runner's task list.
-type bgTask struct {
-	Name string
-	Stop chan struct{}
-	Done chan struct{}
-}
-
-// ---- jetbox summaries store adapter --------------------------------------
-
-// jetboxSummariesStoreAdapter is the recovered
-// `(*jetboxSummariesStoreAdapter)` from
-// google3/third_party/jetski/cortex/cortex. pclntab: WriteSummary
-// 0x7ff47a0, DeleteSummary 0x7ff4820, GetSummary 0x7ff48a0.
-//
-// Bridges between the state-sync summaries store and the jetbox
-// summaries store (the cycle 25 `internal/language_server_pb/jetbox_summaries_store`).
-type jetboxSummariesStoreAdapter struct {
-	delegate SummariesStore
-	prefix   string
-}
-
 // ---- nopPlacer ------------------------------------------------------------
 
 // nopPlacer is the recovered `(*nopPlacer)` from
@@ -203,117 +91,6 @@ func (n *nopPlacer) NewWorkspaceProject(name string) (WorkspaceProject, error) {
 // AddWorktreeEnvironment is a no-op (mirrors nopPlacer.AddWorktreeEnvironment at 0x7fefe00).
 func (n *nopPlacer) AddWorktreeEnvironment(_ WorkspaceProject, _ WorktreeEnv) error {
 	return nil
-}
-
-// ---- ordinaryExecutor -----------------------------------------------------
-
-// ordinaryExecutor is the recovered `(*ordinaryExecutor)` from
-// google3/third_party/jetski/cortex/cortex. pclntab: Run 0x7fffd80,
-// Send 0x7fffe20, Listen 0x7fffc60, Close 0x7fff860, MaybeRevive
-// 0x7fffce0, GetTrajectory 0x7fffaa0, GetAgentState 0x7fff8c0,
-// GetExecutorLoopStatus 0x7fff920,
-// GetExecutorLoopStatusAndLastIdleTime 0x7fff980, GetRunStateInternal
-// 0x7fff9a0, HandleExecutionError 0x7fffbc0, SendBookmark 0x7fffea0,
-// WaitAndFlushSnapshot 0x7ffff20.
-//
-// The "ordinary" executor wraps the in-process agent loop (vs. the
-// sdkExecutor which forks a process). It is what the cycle 41
-// RealLifecycle drives.
-type ordinaryExecutor struct {
-	mu       sync.Mutex
-	trajectoryID string
-	closed   bool
-}
-
-// ---- presenceTracker ------------------------------------------------------
-
-// presenceTracker is the recovered `(*presenceTracker)` from
-// google3/third_party/jetski/cortex/cortex. pclntab: newPresenceTracker
-// 0x7fedc80, acquire 0x7fedd20, probe 0x7fedfc0, release 0x7fee2a0,
-// remove 0x7fee600.
-//
-// Tracks the liveness of all subagents across the trajectory tree.
-// Used by StartBattleMode to verify no other subagent is running.
-type presenceTracker struct {
-	mu     sync.Mutex
-	active map[string]*presenceEntry
-}
-
-// presenceEntry is one tracked subagent presence.
-type presenceEntry struct {
-	SubagentID string
-	AcquiredAt time.Time
-	Holder     string
-}
-
-// ---- projectLookupImpl ----------------------------------------------------
-
-// projectLookupImpl is the recovered `(*projectLookupImpl)` from
-// google3/third_party/jetski/cortex/cortex. pclntab:
-// GetProjectIDForConversationID 0x7feb960.
-//
-// Maps conversation id to CITC project id.
-type projectLookupImpl struct {
-	mu sync.Mutex
-	cache map[string]string
-}
-
-// ---- providerServerURLMap -------------------------------------------------
-
-// providerServerURLMap is the recovered `(*providerServerURLMap)` from
-// google3/third_party/jetski/cortex/cortex. pclntab: get 0x7fec5e0,
-// update 0x7fec480, remove 0x7fec540 (inferred from pclntab).
-//
-// A thread-safe map from provider name (e.g. "anthropic", "openai")
-// to the server URL.
-type providerServerURLMap struct {
-	mu  sync.RWMutex
-	urls map[string]string
-}
-
-// ---- sdkExecutor ----------------------------------------------------------
-
-// sdkExecutor is the recovered `(*sdkExecutor)` from
-// google3/third_party/jetski/cortex/cortex. pclntab: Run 0x7fff640,
-// Send 0x7fec700, Listen 0x7fff480, Close 0x7ffedc0, MaybeRevive
-// 0x7fff560, GetTrajectory 0x7fff240, GetAgentState 0x7ffee80,
-// GetExecutorLoopStatus 0x7ffef40,
-// GetExecutorLoopStatusAndLastIdleTime 0x7fff000, GetRunStateInternal
-// 0x7fff020, HandleExecutionError 0x7fff3a0, SendBookmark 0x7fff720,
-// WaitAndFlushSnapshot 0x7fff800, WarmUpAgentProcess 0x7fd9400,
-// surfaceAgentProcessError 0x7fd9900, updateSdkExecutableStatus
-// 0x7fda160, updateSdkExecutableStatusLocked 0x7fda2e0, executeScript
-// 0x7fd8600, getDefaultWorkspaceCwd 0x7fd6ea0, getWorkspaceCwd
-// 0x7fd7040.
-//
-// The "sdk" executor forks a child process to run the agent — vs. the
-// ordinaryExecutor which runs in-process.
-type sdkExecutor struct {
-	mu       sync.Mutex
-	cmd      *sdkProcess // child process handle
-	trajectoryID string
-	closed   bool
-}
-
-// sdkProcess is the recovered child-process handle. The 1.3.5 binary
-// uses os/exec.Cmd; the stub here captures the same surface.
-type sdkProcess struct {
-	Path string
-	Args []string
-	Env  []string
-}
-
-// ---- stateSyncSummariesStore ----------------------------------------------
-
-// stateSyncSummariesStore is the recovered
-// `(*stateSyncSummariesStore)` from
-// google3/third_party/jetski/cortex/cortex. pclntab: WriteSummary
-// 0x7ff4680, DeleteSummary 0x7ff4700.
-//
-// Implements SummariesStore (cycle 25: internal/language_server_pb/jetbox_summaries_store).
-type stateSyncSummariesStore struct {
-	mu      sync.Mutex
-	backend SummariesStore
 }
 
 // ---- supporting types -----------------------------------------------------
@@ -341,18 +118,18 @@ const (
 // EliminateBattleModeArm (0x7fd28a0), and the helpers
 // cleanupBattleMode (0x7fca8a0) / applyBattleModeWinner (0x7fcd500).
 type BattleModeState struct {
-	Arms       []BattleModeArm
-	Winner     string
-	StartedAt  time.Time
-	Forks      []string // trajectory ids of the forked arms
+	Arms      []BattleModeArm
+	Winner    string
+	StartedAt time.Time
+	Forks     []string // trajectory ids of the forked arms
 }
 
 // BattleModeArm is one arm in a battle-mode run.
 type BattleModeArm struct {
-	Index       int
+	Index        int
 	TrajectoryID string
-	Model       string
-	Status      string // "running" | "done" | "eliminated"
+	Model        string
+	Status       string // "running" | "done" | "eliminated"
 }
 
 // SubagentHubLike is the recovered "subagent hub" interface. The 1.3.5
@@ -384,12 +161,12 @@ type SubagentGate interface {
 // binary has these in the `(*CascadeManager).backfillSubagentsIfEmpty`
 // path (0x7fdc8c0).
 type SubagentState struct {
-	ID        string
-	Parent    string
+	ID           string
+	Parent       string
 	TrajectoryID string
-	Status    SubagentStatus
-	CreatedAt time.Time
-	UpdatedAt time.Time
+	Status       SubagentStatus
+	CreatedAt    time.Time
+	UpdatedAt    time.Time
 }
 
 // SubagentStatus is the recovered subagent status enum.
@@ -448,9 +225,9 @@ type AgentMessage struct {
 
 // AgentState is the recovered agent state.
 type AgentState struct {
-	Status    SubagentStatus
+	Status       SubagentStatus
 	TrajectoryID string
-	UpdatedAt time.Time
+	UpdatedAt    time.Time
 }
 
 // AgentStateUpdate is one update on the executor's Listen channel.

@@ -20,25 +20,36 @@ import (
 	"github.com/justwasm/pigasus/internal/pigrt"
 )
 
-// TestRuntimeConnectsMCPFromAgyConfig is the proof that MCP comes along with
-// the runtime: a server configured in the *agy* mcp.json (its own schema, its
-// own file) is connected by PiG's built-in mcp extension, and its tool shows up
-// in the session's tool list as `mcp__<server>__<tool>`.
-//
-// The transport is PiG's in-process pair rather than a spawned child, so the
-// test pins the wiring — config translation, extension construction, transport
-// selection, tool registration — without a subprocess and without the network.
-func TestRuntimeConnectsMCPFromAgyConfig(t *testing.T) {
-	dir := t.TempDir()
+func waitForSessionTool(rt *pigrt.Runtime, toolName string, timeout time.Duration) piagent.AgentTool {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		for _, candidate := range rt.Session().Tools() {
+			if candidate.Name() == toolName {
+				return candidate
+			}
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	return nil
+}
+
+func setupDocsMCP(t *testing.T, dir string) string {
+	t.Helper()
 	agentDir := filepath.Join(dir, "agent")
 	if err := os.MkdirAll(agentDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	// The agy schema: top-level `servers`, `enabled` as a plain bool.
 	mcpDoc := `{"servers":{"docs":{"type":"stdio","command":"/bin/true","enabled":true}}}`
 	if err := os.WriteFile(filepath.Join(agentDir, "mcp.json"), []byte(mcpDoc), 0o644); err != nil {
 		t.Fatal(err)
 	}
+	return agentDir
+}
+
+// TestRuntimeConnectsMCPFromAgyConfig is the proof that MCP comes along with the runtime.
+func TestRuntimeConnectsMCPFromAgyConfig(t *testing.T) {
+	dir := t.TempDir()
+	agentDir := setupDocsMCP(t, dir)
 
 	clientTransport, serverTransport := mcptest.NewInMemoryTransportPair()
 	go serveDocsMCP(serverTransport)
@@ -64,32 +75,11 @@ func TestRuntimeConnectsMCPFromAgyConfig(t *testing.T) {
 		}
 	}()
 
-	// The extension connects on its own goroutine in session_start; the first
-	// prompt waits for it (Extension.BeforeAgentStart), so a test that inspects
-	// the tool list directly has to wait too.
-	var tool piagent.AgentTool
-	deadline := time.Now().Add(10 * time.Second)
-	for time.Now().Before(deadline) {
-		for _, candidate := range rt.Session().Tools() {
-			if candidate.Name() == "mcp__docs__echo" {
-				tool = candidate
-			}
-		}
-		if tool != nil {
-			break
-		}
-		time.Sleep(20 * time.Millisecond)
-	}
+	tool := waitForSessionTool(rt, "mcp__docs__echo", 10*time.Second)
 	if tool == nil {
-		names := make([]string, 0, 16)
-		for _, candidate := range rt.Session().Tools() {
-			names = append(names, candidate.Name())
-		}
-		t.Fatalf("session tools %v never included %q", names, "mcp__docs__echo")
+		t.Fatalf("session tools never included %q", "mcp__docs__echo")
 	}
 
-	// Call it: this is the round trip the feature exists for — arguments go out
-	// as tools/call, the server's content comes back as the tool result.
 	res, err := tool.Execute(ctx, "call-1", json.RawMessage(`{"text":"hi"}`), nil)
 	if err != nil {
 		t.Fatalf("Execute: %v", err)
@@ -171,32 +161,55 @@ func orderedStringsToMap(o *extension.OrderedStrings) map[string]string {
 	return out
 }
 
-// TestRuntimeSurfacesAlwaysLoadHints exercises the AGY 1.3.3 line-42
-// behaviour end-to-end: a server in mcp.json whose `alwaysLoad` list
-// names a tool causes the runtime to record that tool as
-// always-loaded, and AlwaysLoadedTools() surfaces the canonical
-// `mcp__<server>__<tool>` name. The dynamic Options channel is
-// exercised separately (it is the path a programmatic MCP manager
-// would take) — both routes land in the same merged list.
+func verifyAlwaysLoadResults(t *testing.T, rt *pigrt.Runtime) {
+	loaded := rt.AlwaysLoadedTools()
+	want := []string{
+		"mcp__browser__screenshot",
+		"mcp__docs__echo",
+		"mcp__docs__pinned",
+		"mcp__docs__search",
+	}
+	if len(loaded) != len(want) {
+		t.Fatalf("AlwaysLoadedTools: got %d entries, want %d (got=%v)", len(loaded), len(want), loaded)
+	}
+	for i, w := range want {
+		if loaded[i] != w {
+			t.Errorf("AlwaysLoadedTools[%d] = %q, want %q", i, loaded[i], w)
+		}
+	}
+	byServer := rt.AlwaysLoadByServer()
+	if got := byServer["docs"]; !reflect.DeepEqual(got, []string{"mcp__docs__echo", "mcp__docs__pinned", "mcp__docs__search"}) {
+		t.Errorf("byServer[docs] = %v", got)
+	}
+	if got := byServer["browser"]; !reflect.DeepEqual(got, []string{"mcp__browser__screenshot"}) {
+		t.Errorf("byServer[browser] = %v", got)
+	}
+	hints := rt.AlwaysLoadHints()
+	wantSources := map[string]string{
+		"mcp__docs__echo":          "static",
+		"mcp__docs__search":        "static",
+		"mcp__docs__pinned":        "dynamic",
+		"mcp__browser__screenshot": "dynamic",
+	}
+	if len(hints) != 4 {
+		t.Fatalf("AlwaysLoadHints: got %d, want 4 (%+v)", len(hints), hints)
+	}
+	for _, hint := range hints {
+		key := pigrt.MCPName(hint.Server, hint.Tool)
+		if wantSource, ok := wantSources[key]; !ok || hint.Source != wantSource {
+			t.Errorf("hint %s: Source=%q, want %q", key, hint.Source, wantSources[key])
+		}
+	}
+}
+
+// TestRuntimeSurfacesAlwaysLoadHints exercises static and dynamic hints.
 func TestRuntimeSurfacesAlwaysLoadHints(t *testing.T) {
 	dir := t.TempDir()
 	agentDir := filepath.Join(dir, "agent")
 	if err := os.MkdirAll(agentDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	// Two static hints on `docs`; one of which the dynamic channel
-	// will redundantly re-declare so the merge's "dynamic wins" rule
-	// is visible on the resulting slice.
-	mcpDoc := `{
-		"servers":{
-			"docs":{
-				"type":"stdio",
-				"command":"/bin/true",
-				"enabled":true,
-				"alwaysLoad":["echo","search"]
-			}
-		}
-	}`
+	mcpDoc := `{"servers":{"docs":{"type":"stdio","command":"/bin/true","enabled":true,"alwaysLoad":["echo","search"]}}}`
 	if err := os.WriteFile(filepath.Join(agentDir, "mcp.json"), []byte(mcpDoc), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -215,8 +228,6 @@ func TestRuntimeSurfacesAlwaysLoadHints(t *testing.T) {
 		CreateTransport: func(mcpext.McpServerEntry, string, mcp.AuthProvider) (mcp.Transport, error) {
 			return clientTransport, nil
 		},
-		// Dynamic channel adds a tool absent from the static hint,
-		// so the merge sees a dynamic-only entry too.
 		AlwaysLoadToolsByServer: map[string][]string{
 			"docs":    {"pinned"},
 			"browser": {"screenshot"},
@@ -231,56 +242,7 @@ func TestRuntimeSurfacesAlwaysLoadHints(t *testing.T) {
 		}
 	}()
 
-	loaded := rt.AlwaysLoadedTools()
-	want := []string{
-		"mcp__browser__screenshot",
-		"mcp__docs__echo",
-		"mcp__docs__pinned",
-		"mcp__docs__search",
-	}
-	if len(loaded) != len(want) {
-		t.Fatalf("AlwaysLoadedTools: got %d entries, want %d (got=%v)", len(loaded), len(want), loaded)
-	}
-	for i, w := range want {
-		if loaded[i] != w {
-			t.Errorf("AlwaysLoadedTools[%d] = %q, want %q", i, loaded[i], w)
-		}
-	}
-
-	byServer := rt.AlwaysLoadByServer()
-	if got := byServer["docs"]; !reflect.DeepEqual(got, []string{
-		"mcp__docs__echo", "mcp__docs__pinned", "mcp__docs__search",
-	}) {
-		t.Errorf("byServer[docs] = %v", got)
-	}
-	if got := byServer["browser"]; !reflect.DeepEqual(got, []string{
-		"mcp__browser__screenshot",
-	}) {
-		t.Errorf("byServer[browser] = %v", got)
-	}
-
-	// And the low-level hint view shows the merge's Source label.
-	hints := rt.AlwaysLoadHints()
-	wantSources := map[string]string{
-		"mcp__docs__echo":          "static",
-		"mcp__docs__search":        "static",
-		"mcp__docs__pinned":        "dynamic",
-		"mcp__browser__screenshot": "dynamic",
-	}
-	if len(hints) != 4 {
-		t.Fatalf("AlwaysLoadHints: got %d, want 4 (%+v)", len(hints), hints)
-	}
-	for _, hint := range hints {
-		key := pigrt.MCPName(hint.Server, hint.Tool)
-		wantSource, ok := wantSources[key]
-		if !ok {
-			t.Errorf("unexpected hint %s", key)
-			continue
-		}
-		if hint.Source != wantSource {
-			t.Errorf("hint %s: Source=%q, want %q", key, hint.Source, wantSource)
-		}
-	}
+	verifyAlwaysLoadResults(t, rt)
 }
 
 // TestRuntimeNoConfigHasNoAlwaysLoad verifies the negative case: a

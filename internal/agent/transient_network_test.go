@@ -85,7 +85,7 @@ func TestIsTransientNetworkErr_PiG051GatewayPhrases(t *testing.T) {
 		err  error
 		want bool
 	}{
-		{"unable to forward upstream", fmt.Errorf("agw: upstream 500: Unable to forward upstream stream"), true},
+		{"unable to forward upstream", fmt.Errorf("gateway: upstream 500: Unable to forward upstream stream"), true},
 		{"upstream request failed", fmt.Errorf("gateway: upstream request failed"), true},
 		{"upstream_stream_read_error", fmt.Errorf("upstream_stream_read_error"), true},
 		{"stream was interrupted", fmt.Errorf("stream was interrupted"), true},

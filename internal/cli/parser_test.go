@@ -126,6 +126,59 @@ func TestParseAllFlags_RegisteredWithJetski(t *testing.T) {
 	}
 }
 
+// ---- TestVisibleFlagsMatchReferenceHelp ------------------------------------
+//
+// The visible half of StandardFlags() is the reference binary's `--help`
+// column, in the reference's order. The list below is the 1.4.6 binary's
+// `--help` verbatim: 21 long flags plus the 3 short aliases (-c, -i, -p).
+//
+// The flag-by-flag diff against the live binary found exactly one
+// divergence — `--print-partial-response`, which the reference does not
+// have (no string in the 1.4.6 binary, absent from its `--help`, absent
+// from its changelog). It is Hidden now, like `--verbose`, so the visible
+// column matches the reference again.
+//
+// Hidden flags are the clone's extras (the recovered `-v N`, `--verbose`,
+// `--print-partial-response`); they must never leak into `--help`.
+func TestVisibleFlagsMatchReferenceHelp(t *testing.T) {
+	want := []string{
+		"add-dir",
+		"agent",
+		"c",
+		"continue",
+		"conversation",
+		"dangerously-skip-permissions",
+		"disable-slash-commands",
+		"effort",
+		"i",
+		"input-format",
+		"json-schema",
+		"log-file",
+		"mode",
+		"model",
+		"new-project",
+		"output-format",
+		"p",
+		"print",
+		"print-timeout",
+		"project",
+		"prompt",
+		"prompt-interactive",
+		"remote-control",
+		"sandbox",
+	}
+	var got []string
+	for _, f := range StandardFlags() {
+		if f.Hidden {
+			continue
+		}
+		got = append(got, f.Name)
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("visible flags = %v\nwant %v\n(the reference's --help column, in order)", got, want)
+	}
+}
+
 // ---- TestSubcommandDispatch ------------------------------------------------
 
 // v1.3.5 binary has 12 visible subcommands:

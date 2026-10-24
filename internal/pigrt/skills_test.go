@@ -8,14 +8,8 @@ import (
 	"github.com/justwasm/pigasus/internal/pigrt"
 )
 
-// The prompt's <skills> list includes the workspace's .agents/skills and the
-// skills of every loadable plugin, but excludes the shared ~/.gemini/skills
-// library and plugins without a plugin.json or with enabled=false. Verified
-// against live 1.4.3 captures.
-func TestAgySkillPaths_WorkspaceAndPluginFiltering(t *testing.T) {
-	root := t.TempDir()
-	agentHome := filepath.Join(root, ".gemini", "antigravity-cli")
-	workspace := filepath.Join(root, "ws")
+func setupSkillDirs(t *testing.T, root, agentHome, workspace string) (string, string, string) {
+	t.Helper()
 	mk := func(path string) {
 		t.Helper()
 		if err := os.MkdirAll(path, 0o755); err != nil {
@@ -40,14 +34,23 @@ func TestAgySkillPaths_WorkspaceAndPluginFiltering(t *testing.T) {
 		[]byte(`{"plugins":{"off":{"enabled":false}}}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
-
 	wsPlugin := filepath.Join(workspace, ".agents", "plugins", "wp")
 	mk(filepath.Join(wsPlugin, "skills", "wp-skill"))
 	if err := os.WriteFile(filepath.Join(wsPlugin, "plugin.json"), []byte(`{"name":"wp"}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	// A folder without plugin.json contributes nothing.
 	mk(filepath.Join(workspace, ".agents", "plugins", "ghost", "skills", "ghost-skill"))
+	return userPlugin, disabled, wsPlugin
+}
+
+// The prompt's <skills> list includes the shared ~/.gemini/skills library,
+// the workspace's .agents/skills and the skills of every loadable plugin, but
+// excludes plugins without a plugin.json or with enabled=false.
+func TestAgySkillPaths_WorkspaceAndPluginFiltering(t *testing.T) {
+	root := t.TempDir()
+	agentHome := filepath.Join(root, ".gemini", "antigravity-cli")
+	workspace := filepath.Join(root, "ws")
+	userPlugin, disabled, wsPlugin := setupSkillDirs(t, root, agentHome, workspace)
 
 	paths := pigrt.AgySkillPaths(agentHome, workspace)
 	has := func(want string) bool {
@@ -60,6 +63,7 @@ func TestAgySkillPaths_WorkspaceAndPluginFiltering(t *testing.T) {
 	}
 	for _, want := range []string{
 		filepath.Join(agentHome, "builtin", "skills"),
+		filepath.Join(root, ".gemini", "skills"),
 		filepath.Join(workspace, ".agents", "skills"),
 		filepath.Join(userPlugin, "skills"),
 		filepath.Join(wsPlugin, "skills"),
@@ -69,7 +73,6 @@ func TestAgySkillPaths_WorkspaceAndPluginFiltering(t *testing.T) {
 		}
 	}
 	for _, absent := range []string{
-		filepath.Join(root, ".gemini", "skills"),
 		filepath.Join(disabled, "skills"),
 		filepath.Join(workspace, ".agents", "plugins", "ghost", "skills"),
 	} {

@@ -33,7 +33,7 @@
 //
 //   - the turn engine (still PiG's coding.Session, see session.Send
 //     at coding/session.go:715);
-//   - the transport (the agw provider, the ErrorSlot out-of-band record;
+//   - the transport (the gateway provider, the ErrorSlot out-of-band record;
 //     pigrt.opts.ErrorSlot is still the path for the original
 //     *backend.HTTPError);
 //   - the event drain (runtime.drain still routes text deltas to onText —
@@ -237,6 +237,13 @@ func (r *Runtime) runAutoContCycle(ctx context.Context, msgs []agent.AgentMessag
 // the recursion is the original Session.Send return — but PiG sometimes
 // flattens the typed *backend.HTTPError to its message and returns it nil,
 // so the chain walks a nil runErr path. cmd/wagyu/api_error.go classifies
+func slotErr(err error, slot *ErrorSlot) error {
+	if err == nil && slot != nil {
+		return slot.Err()
+	}
+	return err
+}
+
 // a turn with errors.As(err, &he) to recover the AGY_ERROR envelope; to
 // keep that contract we also look in r.opts.ErrorSlot, which is filled by
 // RecordProvider every time PiG's Stream returns a typed error.
@@ -249,26 +256,12 @@ func (r *Runtime) maybeAutoContinue(ctx context.Context, msgs []agent.AgentMessa
 	}
 	// Changelog 1.3.3: "reaching your individual quota is reported right
 	// away instead of being retried". A *backend.HTTPError flagged as
-	// "individual quota reached" must surface immediately — every
-	// auto-continue attempt burns an extra upstream request that the user's
-	// quota is going to reject anyway. The error chain may be wrapped
-	// several times (PiG encodes the provider failure into an assistant
-	// message and the recordingProvider writes the typed error to the
-	// ErrorSlot; the order of those two paths determines which one we
-	// see, but IsQuotaReachedErr walks the chain).
+	// "individual quota reached" must surface immediately.
 	if backend.IsQuotaReachedErr(runErr) {
 		return msgs, runErr
 	}
 	if depth >= AutoContMaxDepth {
-		// Re-arm: PiG may have wrapped an HTTPError into the assistant
-		// message and returned nil; surface the typed one from the
-		// ErrorSlot the agent.Loop pattern recordProvider already
-		// exposes. Without this the give-up loses the chain and the
-		// AGY_ERROR envelope + exit code 3 never fire.
-		last := runErr
-		if last == nil && r.opts.ErrorSlot != nil {
-			last = r.opts.ErrorSlot.Err()
-		}
+		last := slotErr(runErr, r.opts.ErrorSlot)
 		return msgs, &ErrAutoContMaxDepth{Depth: depth, Last: last}
 	}
 	recovery := classifyInterruption(msgs, runErr)
@@ -277,18 +270,9 @@ func (r *Runtime) maybeAutoContinue(ctx context.Context, msgs []agent.AgentMessa
 	}
 	continued, err := r.runAutoContCycle(ctx, msgs, recovery)
 	if err != nil {
-		// A second error means either ctx cancelled (handled above) or the
-		// session closed mid-Continue. Surface the typed error so callers
-		// can still match via errors.As.
 		return continued, err
 	}
-	// Continue() may return nil while still encoding a stream failure in
-	// the messages (PiG's flatten at agent_loop.go:494). Pull the typed
-	// error out of the slot one more time so the give-up below still
-	// classifies through errors.As.
-	if err == nil && r.opts.ErrorSlot != nil {
-		err = r.opts.ErrorSlot.Err()
-	}
+	err = slotErr(err, r.opts.ErrorSlot)
 	return r.maybeAutoContinue(ctx, continued, err, depth+1)
 }
 

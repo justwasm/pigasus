@@ -442,15 +442,7 @@ func TestRunPluginInstall_UpgradeKillsProcesses(t *testing.T) {
 	// the v1 install dir, then pre-create the v1 install dir itself
 	// (runPluginInstall only kills processes whose install dir is
 	// already on disk — the bug we're closing).
-	pluginsRoot := filepath.Join(env, ".gemini", "config", "plugins")
-	dst := filepath.Join(pluginsRoot, "demo")
-	if err := os.MkdirAll(dst, 0700); err != nil {
-		t.Fatalf("mkdir old install: %v", err)
-	}
-	oldVersionDir := filepath.Join(dst, "1.0")
-	if err := os.MkdirAll(oldVersionDir, 0700); err != nil {
-		t.Fatalf("mkdir old version: %v", err)
-	}
+	dst, oldVersionDir := setupOldInstall(t, env)
 	pid := longRunningPID(t)
 	writeRegistry(t, PluginProcessRegistryPath(home), []PluginProcessRecord{
 		{PID: pid, PluginName: "demo", ServerName: "fs",
@@ -466,16 +458,7 @@ func TestRunPluginInstall_UpgradeKillsProcesses(t *testing.T) {
 		t.Fatalf("expected install confirmation, got %q", out.String())
 	}
 	// Allow the kernel a moment to deliver SIGTERM.
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
-		if !pidAlive(pid) {
-			break
-		}
-		time.Sleep(20 * time.Millisecond)
-	}
-	if pidAlive(pid) {
-		t.Fatalf("pid %d still alive after upgrade", pid)
-	}
+	waitForPIDDead(t, pid)
 	if left := readRegistry(t, PluginProcessRegistryPath(home)); len(left) != 0 {
 		t.Fatalf("registry should be drained, got %d", len(left))
 	}
@@ -487,4 +470,30 @@ func TestRunPluginInstall_UpgradeKillsProcesses(t *testing.T) {
 	if _, err := os.Stat(oldVersionDir); !os.IsNotExist(err) {
 		t.Fatalf("old version subdir still present: %v", err)
 	}
+}
+
+func waitForPIDDead(t *testing.T, pid int) {
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if !pidAlive(pid) {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if pidAlive(pid) {
+		t.Fatalf("pid %d still alive after upgrade", pid)
+	}
+}
+
+func setupOldInstall(t *testing.T, env string) (string, string) {
+	t.Helper()
+	dst := filepath.Join(env, ".gemini", "config", "plugins", "demo")
+	if err := os.MkdirAll(dst, 0700); err != nil {
+		t.Fatalf("mkdir old install: %v", err)
+	}
+	oldVersionDir := filepath.Join(dst, "1.0")
+	if err := os.MkdirAll(oldVersionDir, 0700); err != nil {
+		t.Fatalf("mkdir old version: %v", err)
+	}
+	return dst, oldVersionDir
 }

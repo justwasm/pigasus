@@ -96,7 +96,7 @@ func InstallContext(dir string, mode Mode) ([]string, error) {
 		return nil, fmt.Errorf("agent-context: unknown mode %q", mode)
 	}
 	if strings.TrimSpace(dir) == "" {
-		dir = filepath.Dir(DefaultConfigPath())
+		dir = filepath.Dir(ProvidersPath())
 	}
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, fmt.Errorf("mkdir %s: %w", dir, err)
@@ -157,23 +157,35 @@ OpenAI and Anthropic wire formats, and routes completions to one of:
 
   1. The original Antigravity cloudaicompanion endpoint (gRPC; not
      reachable from the sandbox, so this path is dormant by default).
-  2. A user-configured provider in ` + "`~/.config/openagy/models.json`" + `.
+  2. A user-configured provider in ` + "`~/.config/openagy/providers.json`" + `.
 
 Provider types currently supported: openai, anthropic, ollama, google,
-openrouter, agw, custom. See ` + "`openagy-models --help`" + ` to manage
+openrouter, custom. See ` + "`openagy-models --help`" + ` to manage
 them.
 
 ## Quick start
 
-  1. Add a model:   openagy-models add agw --provider=agw \
-                       --api-url=https://agw.k0s.io/v1/chat/completions \
-                       --external-model=MiniMax-M3 --api-key=-
-  2. Smoke test:    openagy-models test agw
-  3. Use it:        antigravity --print --model=agw "hi"
+  1. Configure a provider and the models it serves, in
+     ` + "`~/.config/openagy/providers.json`" + `:
+
+       {
+         "providers": {
+           "gateway": {
+             "type": "openai",
+             "base_url": "https://gateway.example.com/v1",
+             "api_key": "$OPENAGY_GATEWAY_KEY",
+             "models": [
+               {"id": "my-model", "name": "My Model", "model": "Upstream-1"}
+             ]
+           }
+         }
+       }
+
+  2. Use it:        wagyu --print --model=my-model "hi"
 
 ## Files
 
-  ` + "`~/.config/openagy/models.json`" + `       — the registry
+  ` + "`~/.config/openagy/providers.json`" + `    — the provider registry
   ` + "`~/.config/openagy/agent-context.md`" + `  — full context (this file)
   ` + "`~/.config/openagy/agent-context-lite.md`" + ` — short context
 
@@ -211,15 +223,14 @@ Two reasons:
      (a) a TUIC tunnel to a public egress or (b) a patched binary.
      Neither is acceptable for a dev sentinel.
   2. The user wants to test against endpoints OTHER than the Antigravity
-     backend (OpenRouter, agw.k0s.io, local Ollama, …). The upstream
+     backend (OpenRouter, a private gateway, local Ollama, …). The upstream
      binary's hard-coded model list does not include any of those.
 
 The recovery approach is the same as kelvinzer0's ` + "`free-antigravity`" + `,
 but written in Go (no Node.js, no runtime binary patching):
 
-  - The ` + "`~/.config/openagy/models.json`" + ` registry mirrors
-    kelvinzer0's ` + "`~/.free-antigravity/models.json`" + ` schema. Existing
-    config files drop in unchanged.
+  - The ` + "`~/.config/openagy/providers.json`" + ` registry holds one
+    provider per endpoint, with the models it serves listed under it.
   - The CLI subcommand ` + "`openagy-models`" + ` replaces the Node.js
     ` + "`models`" + ` menu: list / add / remove / test / install-context.
   - The antigravity entry point reads the registry, picks a provider by
@@ -233,7 +244,6 @@ but written in Go (no Node.js, no runtime binary patching):
   openrouter   | OpenAI chat       | Authorization: Bearer …   | adds HTTP-Referer
   ollama       | OpenAI chat       | (none)                    | local; no auth
   anthropic    | Anthropic msgs    | x-api-key: …              | path /v1/messages
-  agw          | OpenAI chat       | Authorization: Bearer -   | dev sentinel "-"
   google       | (passthrough)     | n/a                       | not implemented
   custom       | OpenAI chat       | Authorization: Bearer …   | user-configured
 
@@ -258,22 +268,21 @@ URL, auth header, and a few optional headers differ. The
 ## 4. Quick start (copy-paste)
 
   mkdir -p ~/.config/openagy
-  openagy-models add agw \\
-      --provider=agw \\
-      --api-url=https://agw.k0s.io/v1/chat/completions \\
-      --external-model=MiniMax-M3 \\
+  openagy-models add my-model \\
+      --provider=openai \\
+      --api-url=https://gateway.example.com/v1/chat/completions \\
+      --external-model=Upstream-1 \\
       --api-key=-
-  openagy-models test agw
-  antigravity --print --model=agw "what is 2+2?"
+  openagy-models test my-model
+  wagyu --print --model=my-model "what is 2+2?"
 
 ## 5. Troubleshooting recipes
 
   - "upstream 401": the api_key is wrong. Re-run ` + "`openagy-models add`" + `
-    with the corrected value. (For agw, the dev sentinel is literally
-    the single character "-", not an empty string.)
+    with the corrected value.
   - "upstream 404": the api_url is wrong. OpenAI uses
-    /v1/chat/completions, Anthropic uses /v1/messages. agw.k0s.io
-    supports BOTH paths.
+    /v1/chat/completions, Anthropic uses /v1/messages. Some gateways
+    expose BOTH paths.
   - "context deadline exceeded": raise ` + "`--timeout-seconds`" + ` on the
     add command. Default is 60s, which is too short for some reasoning
     models.
@@ -282,7 +291,7 @@ URL, auth header, and a few optional headers differ. The
 
 ## 6. File layout
 
-  ` + "`~/.config/openagy/models.json`" + `              — registry
+  ` + "`~/.config/openagy/providers.json`" + `         — registry
   ` + "`~/.config/openagy/agent-context.md`" + `         — this file
   ` + "`~/.config/openagy/agent-context-lite.md`" + `    — short version
 
@@ -296,7 +305,6 @@ URL, auth header, and a few optional headers differ. The
 ## 8. References
 
   - kelvinzer0/free-antigravity:  https://github.com/kelvinzer0/free-antigravity
-  - agw.k0s.io (Avalanche Native AI Gateway):  https://agw.k0s.io
   - OpenAI Chat Completions:  https://platform.openai.com/docs/api-reference/chat
   - Anthropic Messages:       https://docs.anthropic.com/en/api/messages
 `

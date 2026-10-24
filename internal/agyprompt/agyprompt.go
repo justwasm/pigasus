@@ -1,16 +1,22 @@
 // Package agyprompt reproduces the system prompt the Antigravity CLI sends.
 //
-// The text was frozen from a real `agy` 1.4.2 request captured by the cycle-274
-// wrapper (see testdata/capture_1.4.4.txt). The CLI composes ten XML-tagged
-// sections in a fixed order; seven are byte-for-byte constant, two carry a
-// generated list (subagents, skills) and one describes the host and the
-// conversation (user_information).
+// The text was frozen from real `agy` request bodies captured by the cycle-274
+// wrapper: testdata/capture_1.4.6.txt is the current ground truth (the 1.4.4
+// capture is kept beside it as history). The CLI composes twelve XML-tagged
+// sections in a fixed order; eight are byte-for-byte constant, two carry a
+// generated list (subagents, skills), one describes the host and the
+// conversation (user_information) and one (`<user_rules>`) is conditional on
+// the host.
 //
-//	<identity><artifacts><conversation_transcript><guidelines>
-//	<communication_style><slash_commands><messaging><subagents>
-//	<skills><user_information>
+//	<identity><terminal_sandbox><artifacts><conversation_transcript>
+//	<guidelines><communication_style><slash_commands><messaging><subagents>
+//	<user_rules><skills><user_information>
 //
-// agy sends tool declarations separately (13 of them, as
+// 1.4.6 vs 1.4.5 (【一手】, docs/cycles/reference-drift-146/): the reference
+// added the whole `<terminal_sandbox>` section (second position) and one
+// bullet to `<guidelines>`. Everything else static is byte-identical.
+//
+// agy sends tool declarations separately (twelve of them, as
 // functionDeclarations); they are NOT part of this text.
 //
 // Build is the only entry point. Options carries the dynamic inputs; pass the
@@ -72,6 +78,7 @@ type Options struct {
 // sectionOrder is the order agy emits its tags in.
 var sectionOrder = []string{
 	"identity",
+	"terminal_sandbox",
 	"artifacts",
 	"conversation_transcript",
 	"guidelines",
@@ -116,6 +123,7 @@ func Build(o Options) string {
 func sectionBodies(o Options) map[string]string {
 	return map[string]string{
 		"identity":                mustSection("identity.txt"),
+		"terminal_sandbox":        mustSection("terminal_sandbox.txt"),
 		"artifacts":               mustSection("artifacts.txt"),
 		"conversation_transcript": mustSection("conversation_transcript.txt"),
 		"guidelines":              mustSection("guidelines.txt"),
@@ -137,12 +145,18 @@ func SectionBody(o Options, name string) string {
 }
 
 // agentSectionOrder is the order the reference emits the sections of a custom
-// markdown agent's prompt (captured from a 1.4.3 `--agent foo -p` request).
+// markdown agent's prompt (captured from a 1.4.3 `--agent foo -p` request,
+// re-checked against a 1.4.5 live request).
 // It is a different prompt, not the default prompt with the identity replaced:
 // agent/artifacts/transcript/slash_commands/subagents are gone, and the
 // remaining sections are reordered.
+//
+// <user_rules> sits between <user_information> and <skills>, exactly as in
+// the default prompt, and is omitted when the user has no rule files
+// (【一手】 agy 1.4.5, live `--agent` request body).
 var agentSectionOrder = []string{
 	"user_information",
+	"user_rules",
 	"skills",
 	"messaging",
 	"artifacts",
@@ -151,31 +165,24 @@ var agentSectionOrder = []string{
 }
 
 // BuildAgent renders the system prompt for a markdown custom agent. The body
-// is the agent file's Markdown body; the reference wraps it in a literal
-// `<System Prompt>` tag (with a space) and sends six sections in
-// agentSectionOrder.
+// is the agent file's Markdown body; the reference splits it at level-1
+// Markdown headings and wraps each part in a tag named after the heading —
+// the part before the first heading keeps the literal `<System Prompt>` tag
+// (with a space) — then sends seven sections in agentSectionOrder.
 //
-// Two differences from Build beyond the section set, both captured:
+// Four differences from Build beyond the section set, all captured:
 //   - `<messaging>` omits the subagent/peer-agent clauses, because a custom
 //     agent cannot receive those messages.
 //   - `<skills>` omits the CLI's built-in skills (everything under
 //     <AppDataDir>/builtin/skills); plugin and user skills stay.
+//   - `<user_rules>` is dropped when Options.UserRules is empty, like Build.
+//   - the body is split at `# ` headings (see agentBlocks). Level-2 and
+//     level-3 headings do not split: they stay inside the enclosing block.
 func BuildAgent(body string, o Options) string {
-	skills := o.Skills
-	if o.AppDataDir != "" {
-		builtin := filepath.Join(o.AppDataDir, "builtin", "skills")
-		filtered := make([]Skill, 0, len(skills))
-		for _, s := range skills {
-			if strings.HasPrefix(filepath.Clean(s.Path), builtin+string(filepath.Separator)) {
-				continue
-			}
-			filtered = append(filtered, s)
-		}
-		skills = filtered
-	}
-
+	skills := filterBuiltinSkills(o.Skills, o.AppDataDir)
 	bodies := map[string]string{
 		"user_information":    renderUserInformation(o),
+		"user_rules":          renderUserRules(o.UserRules),
 		"skills":              renderSkills(skills),
 		"messaging":           mustSection("agent_messaging.txt"),
 		"artifacts":           mustSection("artifacts.txt"),
@@ -184,10 +191,48 @@ func BuildAgent(body string, o Options) string {
 	}
 
 	var b strings.Builder
-	b.WriteString("<System Prompt>\n")
-	b.WriteString(strings.TrimSpace(body))
-	b.WriteString("\n</System Prompt>\n")
-	for i, name := range agentSectionOrder {
+	writeAgentBlocks(&b, body)
+	writeAgentSections(&b, bodies, len(o.UserRules))
+	return b.String()
+}
+
+func filterBuiltinSkills(skills []Skill, appDataDir string) []Skill {
+	if appDataDir == "" {
+		return skills
+	}
+	builtin := filepath.Join(appDataDir, "builtin", "skills")
+	filtered := make([]Skill, 0, len(skills))
+	for _, s := range skills {
+		if strings.HasPrefix(filepath.Clean(s.Path), builtin+string(filepath.Separator)) {
+			continue
+		}
+		filtered = append(filtered, s)
+	}
+	return filtered
+}
+
+func writeAgentBlocks(b *strings.Builder, body string) {
+	for _, blk := range agentBlocks(body) {
+		b.WriteString("<")
+		b.WriteString(blk.tag)
+		b.WriteString(">\n")
+		b.WriteString(blk.text)
+		b.WriteString("\n</")
+		b.WriteString(blk.tag)
+		b.WriteString(">\n")
+	}
+}
+
+func writeAgentSections(b *strings.Builder, bodies map[string]string, userRulesCount int) {
+	wrote := 0
+	for _, name := range agentSectionOrder {
+		if name == "user_rules" && userRulesCount == 0 {
+			continue
+		}
+		if wrote > 0 {
+			b.WriteString("\n")
+		}
+		wrote++
 		b.WriteString("<")
 		b.WriteString(name)
 		b.WriteString(">")
@@ -195,11 +240,57 @@ func BuildAgent(body string, o Options) string {
 		b.WriteString("</")
 		b.WriteString(name)
 		b.WriteString(">")
-		if i < len(agentSectionOrder)-1 {
-			b.WriteString("\n")
-		}
 	}
-	return b.String()
+}
+
+// agentBlock is one wrapped part of a custom agent's Markdown body.
+type agentBlock struct {
+	tag  string
+	text string
+}
+
+// agentBlocks splits a custom agent's Markdown body at level-1 headings.
+//
+// 【一手】 agy 1.4.6, four live `--agent` request bodies
+// (docs/cycles/reference-drift-146/):
+//
+//	"# Title\n\nText"          -> <Title>\nText\n</Title>
+//	"Text only"                -> <System Prompt>\nText\n</System Prompt>
+//	"Intro\n\n# Later\n\nText"  -> <System Prompt>\nIntro\n</System Prompt>
+//	                              <Later>\nText\n</Later>
+//	"# One\n\n## Two\n\nText"  -> <One>\n## Two\n\nText\n</One>
+//
+// The part before the first heading keeps the literal "System Prompt" tag; a
+// body that starts with a heading has no preamble block at all. Each block's
+// text is trimmed at both ends, blank lines inside a block are kept, and a
+// level-2 or level-3 heading does not split — it stays inside the enclosing
+// block. A block with no text at all is 【推测】: rendered empty.
+func agentBlocks(body string) []agentBlock {
+	var blocks []agentBlock
+	tag := "System Prompt"
+	var buf []string
+	flush := func() {
+		text := strings.TrimSpace(strings.Join(buf, "\n"))
+		buf = nil
+		if tag == "System Prompt" && text == "" {
+			return
+		}
+		blocks = append(blocks, agentBlock{tag: tag, text: text})
+	}
+	for _, line := range strings.Split(body, "\n") {
+		if strings.HasPrefix(line, "# ") {
+			flush()
+			tag = strings.TrimSpace(strings.TrimPrefix(line, "# "))
+			continue
+		}
+		buf = append(buf, line)
+	}
+	flush()
+	if len(blocks) == 0 {
+		// An empty body still renders one (empty) System Prompt block.
+		blocks = append(blocks, agentBlock{tag: "System Prompt", text: strings.TrimSpace(body)})
+	}
+	return blocks
 }
 
 // renderSubagents mirrors agy's list rendering: a fixed head, one "- name:

@@ -3,7 +3,7 @@ package sidequestion_test
 // sidequestion_test.go — cycle 230: the /btw side-question runtime.
 //
 // Tests exercise the package via the scripted ai.TestFauxProvider
-// PiG ships (no real agw network call). The pattern mirrors
+// PiG ships (no real gateway network call). The pattern mirrors
 // internal/pigrt/runtime_test.go: the provider is pinned on a
 // constructed *ai.Model, the test calls Ask, and asserts on the
 // returned Card. PiG's faux provider streams "42" as a single text

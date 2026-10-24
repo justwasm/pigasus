@@ -4,13 +4,14 @@ package tools
 
 import (
 	"os/exec"
+
+	"github.com/justwasm/pigasus/internal/procgroup"
 )
 
-func setProcessGroup(cmd *exec.Cmd) {}
+func setProcessGroup(cmd *exec.Cmd) {
+	procgroup.Set(cmd)
+}
 
 func killProcessGroup(cmd *exec.Cmd) error {
-	if cmd == nil || cmd.Process == nil {
-		return nil
-	}
-	return cmd.Process.Kill()
+	return procgroup.Kill(cmd)
 }

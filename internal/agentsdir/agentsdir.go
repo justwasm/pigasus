@@ -77,52 +77,54 @@ func Walk(startDir, stopDir string, dirNames []string) []Entry {
 	if len(names) == 0 {
 		return nil
 	}
-	start, err := filepath.Abs(startDir)
-	if err != nil || start == "" {
+	start, stop, ok := resolveStartStop(startDir, stopDir)
+	if !ok {
 		return nil
-	}
-	stop := stopDir
-	if stop == "" {
-		stop = string(filepath.Separator)
-	}
-	stopAbs, err := filepath.Abs(stop)
-	if err == nil && stopAbs != "" {
-		stop = stopAbs
 	}
 
 	seen := make(map[string]bool)
 	out := make([]Entry, 0, 8)
 	for cur := start; ; cur = filepath.Dir(cur) {
-		depth := depthBetween(start, cur)
 		if cur == "" {
 			break
 		}
-		for _, n := range names {
-			p := filepath.Join(cur, n)
-			if !isDir(p) {
-				continue
-			}
-			abs, err := filepath.Abs(p)
-			if err != nil || abs == "" {
-				continue
-			}
-			if seen[abs] {
-				continue
-			}
-			seen[abs] = true
-			out = append(out, Entry{Path: abs, Depth: depth})
-		}
-		// Stop AFTER the check at this directory: stopDir is inclusive.
-		if cur == stop {
+		out = append(out, findEntriesInDir(cur, start, names, seen)...)
+		if cur == stop || filepath.Dir(cur) == cur {
 			break
 		}
-		parent := filepath.Dir(cur)
-		// Reached the filesystem root without hitting stopDir (e.g. the
-		// caller passed a stopDir that is not an ancestor). The walker
-		// stops here anyway — walking above root is impossible.
-		if parent == cur {
-			break
+	}
+	return out
+}
+
+func resolveStartStop(startDir, stopDir string) (string, string, bool) {
+	start, err := filepath.Abs(startDir)
+	if err != nil || start == "" {
+		return "", "", false
+	}
+	stop := stopDir
+	if stop == "" {
+		stop = string(filepath.Separator)
+	}
+	if stopAbs, err := filepath.Abs(stop); err == nil && stopAbs != "" {
+		stop = stopAbs
+	}
+	return start, stop, true
+}
+
+func findEntriesInDir(cur, start string, names []string, seen map[string]bool) []Entry {
+	depth := depthBetween(start, cur)
+	var out []Entry
+	for _, n := range names {
+		p := filepath.Join(cur, n)
+		if !isDir(p) {
+			continue
 		}
+		abs, err := filepath.Abs(p)
+		if err != nil || abs == "" || seen[abs] {
+			continue
+		}
+		seen[abs] = true
+		out = append(out, Entry{Path: abs, Depth: depth})
 	}
 	return out
 }

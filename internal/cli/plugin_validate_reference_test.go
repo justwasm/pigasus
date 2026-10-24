@@ -303,8 +303,31 @@ func TestPluginValidate_FooterRoutingAndStrict(t *testing.T) {
 	}
 }
 
+// TestPluginValidate_FlagSurface pins the reference's 1.4.6 behaviour:
+// `--help` / `-h` print the usage block on stderr and exit 0, every
+// other argument is an error.
+//
+// The probe that produced the first implementation concluded that
+// `--help` was rejected like any other unknown argument. The live
+// binary says otherwise:
+//
+//	$ agy plugin validate --help
+//	Usage: agy plugin validate [path] [--strict] [--json]
+//	… (exit 0)
 func TestPluginValidate_FlagSurface(t *testing.T) {
-	for _, arg := range []string{"--help", "--wat", "extra"} {
+	for _, arg := range []string{"--help", "-h"} {
+		out, errb, code := runValidateRef(t, arg)
+		if code != 0 {
+			t.Errorf("%q: exit = %d, want 0", arg, code)
+		}
+		if !strings.HasPrefix(errb, "Usage: ") || !strings.Contains(errb, "plugin validate [path] [--strict] [--json]") {
+			t.Errorf("%q: stderr = %q, want the usage block", arg, errb)
+		}
+		if out != "" {
+			t.Errorf("%q: stdout should be empty, got %q", arg, out)
+		}
+	}
+	for _, arg := range []string{"--wat", "extra"} {
 		args := []string{arg}
 		if arg == "extra" {
 			args = []string{".", arg}
@@ -313,7 +336,7 @@ func TestPluginValidate_FlagSurface(t *testing.T) {
 		if code != 1 {
 			t.Errorf("%q: exit = %d, want 1", arg, code)
 		}
-		if !strings.Contains(errb, `unknown validate argument "`+arg+`": usage is validate [path] [--strict] [--json]`) {
+		if !strings.Contains(errb, `unknown validate argument "`+arg+`": usage is validate [path] [--strict] [--json]. See validate --help`) {
 			t.Errorf("%q: stderr = %q", arg, errb)
 		}
 		if out != "" {

@@ -300,40 +300,23 @@ func indentChromaBlock(s, indent string) string {
 // replyStart is the index of the first row of the assistant turn
 // (i.e. m.replyStart). Rows before that index are unchanged (and
 // the returned slice mirrors the input).
-func HighlightStreamingFences(rows []string, replyStart int) []string {
-	if len(rows) == 0 || replyStart < 0 || replyStart >= len(rows) {
-		return append([]string(nil), rows...)
-	}
-	// Walk back from the end looking for a closing fence.
-	end := len(rows)
-	// Find the most recent closing fence. The row may have a
-	// language tag (e.g. "```go") -- we accept both bare and tagged
-	// closers.
-	closerIdx := -1
-	for i := end - 1; i >= replyStart; i-- {
+func findFenceBounds(rows []string, replyStart int) (openerIdx, closerIdx int, lang string, ok bool) {
+	closerIdx = -1
+	for i := len(rows) - 1; i >= replyStart; i-- {
 		if isClosingFenceRow(rows[i]) {
 			closerIdx = i
 			break
 		}
 	}
 	if closerIdx <= replyStart {
-		// No closer, or the closer is the very first row (no body).
-		return append([]string(nil), rows...)
+		return -1, -1, "", false
 	}
-	// Walk back from closerIdx-1 looking for the matching opening
-	// fence. The opening fence line is the row whose trimmed form
-	// starts with "```" and is NOT a closer (no non-whitespace
-	// after the backticks). We accept the closest opener before
-	// the closer.
-	openerIdx := -1
-	lang := ""
+	openerIdx = -1
 	for i := closerIdx - 1; i >= replyStart; i-- {
-		l, ok := parseFenceRow(rows[i])
-		if !ok {
+		l, isOpener := parseFenceRow(rows[i])
+		if !isOpener {
 			continue
 		}
-		// An opener: trim starts with "```" and the rest is either
-		// empty (bare ``` opener) or a language tag.
 		if l != "" {
 			lang = l
 		}
@@ -341,26 +324,25 @@ func HighlightStreamingFences(rows []string, replyStart int) []string {
 		break
 	}
 	if openerIdx < 0 {
+		return -1, -1, "", false
+	}
+	return openerIdx, closerIdx, lang, true
+}
+
+func HighlightStreamingFences(rows []string, replyStart int) []string {
+	if len(rows) == 0 || replyStart < 0 || replyStart >= len(rows) {
 		return append([]string(nil), rows...)
 	}
-	// Body is rows[openerIdx+1 : closerIdx]. Body language was
-	// captured above (or empty for bare ``` fence).
+	openerIdx, closerIdx, lang, ok := findFenceBounds(rows, replyStart)
+	if !ok {
+		return append([]string(nil), rows...)
+	}
 	body := strings.Join(rows[openerIdx+1:closerIdx], "\n")
 	rendered, err := HighlightCodeBlock(lang, body)
 	if err != nil || rendered == "" {
-		// Fallback path: HighlightCodeBlock already returned the
-		// raw source wrapped in a `!` banner. Keep that as the
-		// emitted block.
 		rendered, _ = HighlightCodeBlock(lang, body)
 	}
-	// Split the rendered block into rows so each row fits in one
-	// transcript cell. Indent each row by 2 spaces to match
-	// glamour's CodeBlock.Margin (cycle 271; was 4 spaces).
 	renderedRows := strings.Split(indentChromaBlock(rendered, "  "), "\n")
-	// Replace rows[openerIdx : closerIdx+1] with renderedRows.
-	// The opening fence and closing fence rows are gone -- chroma
-	// output doesn't include them, and glamour would have
-	// stripped them anyway at turn-end.
 	out := make([]string, 0, len(rows)+len(renderedRows)-(closerIdx-openerIdx+1))
 	out = append(out, rows[:openerIdx]...)
 	out = append(out, renderedRows...)

@@ -199,33 +199,7 @@ var ErrEmptyQuestion = errors.New("sidequestion: empty question")
 // On error the Card's State is "failed" and Err carries the original
 // failure. The non-nil error return mirrors the contract pigrt.Runtime
 // exposes for its own runs.
-func (m *Manager) Ask(ctx context.Context, question string) (*Card, error) {
-	if question == "" {
-		return nil, ErrEmptyQuestion
-	}
-	if m.model == nil {
-		return nil, errors.New("sidequestion: Manager.Model is required")
-	}
-
-	card := &Card{
-		ID:       m.allocID(),
-		Question: question,
-		State:    StatePending,
-	}
-	m.addCard(card)
-
-	services, rt, session, err := m.openSession(ctx)
-	if err != nil {
-		card.mu.Lock()
-		card.State = StateFailed
-		card.Err = err
-		card.mu.Unlock()
-		return card, err
-	}
-
-	// Drain the session event channel on its own goroutine, exactly
-	// the way pigrt.Runtime.drain does. AcknowledgeEvent is a barrier
-	// helper; pi-coding-agent uses it to keep FlushEvents honest.
+func drainSessionEvents(session *coding.Session, card *Card) <-chan struct{} {
 	drainDone := make(chan struct{})
 	go func() {
 		defer close(drainDone)
@@ -249,52 +223,79 @@ func (m *Manager) Ask(ctx context.Context, question string) (*Card, error) {
 			card.mu.Unlock()
 		}
 	}()
+	return drainDone
+}
 
-	askCtx, cancel := context.WithTimeout(ctx, m.sessionTimeout)
-	defer cancel()
-	msgs, err := session.Send(askCtx, question)
-	// FlushEvents is the same barrier pigrt uses: it waits until every
-	// event before the marker has been read by the consumer. Close
-	// the session so the events channel is closed and the drain
-	// goroutine exits, then wait for the drain to finish before
-	// returning so Card.Answer is final.
-	_ = session.FlushEvents(askCtx)
-	_ = session.Close()
-	_ = rt.Close()
-	services.Close()
-	<-drainDone
-
+func finalizeCard(card *Card, msgs []agent.AgentMessage, sendErr error) error {
 	card.mu.Lock()
 	defer card.mu.Unlock()
-	if err != nil {
+	if sendErr != nil {
 		card.State = StateFailed
-		card.Err = err
-		return card, err
+		card.Err = sendErr
+		return sendErr
 	}
 	if total, ok := totalTokens(msgs); ok {
 		card.Tokens = total
 	}
-	if msgs != nil {
-		// Recover the failure PiG folded into the assistant message
-		// (see pigrt.Runtime.turnFailure). An end-of-turn stop with a
-		// non-empty ErrorMessage is the agent-loop way of saying "the
-		// stream stopped with a recoverable error". Surface it as a
-		// failed card so /copy btw and the TUI both render the
-		// recovered error.
-		if last := lastAssistant(msgs); last != nil {
-			switch last.StopReason {
-			case ai.StopReasonError, ai.StopReasonAborted:
-				card.State = StateFailed
-				msg := last.ErrorMessage
-				if msg == "" {
-					msg = "side-question: upstream stream failed"
-				}
-				card.Err = errors.New(msg)
-				return card, card.Err
+	if last := lastAssistant(msgs); last != nil {
+		switch last.StopReason {
+		case ai.StopReasonError, ai.StopReasonAborted:
+			card.State = StateFailed
+			msg := last.ErrorMessage
+			if msg == "" {
+				msg = "side-question: upstream stream failed"
 			}
+			card.Err = errors.New(msg)
+			return card.Err
 		}
 	}
 	card.State = StateDone
+	return nil
+}
+
+func runSession(ctx context.Context, session *coding.Session, question string, timeout time.Duration, card *Card) ([]agent.AgentMessage, error) {
+	drainDone := drainSessionEvents(session, card)
+	askCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	msgs, err := session.Send(askCtx, question)
+	_ = session.FlushEvents(askCtx)
+	_ = session.Close()
+	<-drainDone
+	return msgs, err
+}
+
+func (m *Manager) Ask(ctx context.Context, question string) (*Card, error) {
+	if question == "" {
+		return nil, ErrEmptyQuestion
+	}
+	if m.model == nil {
+		return nil, errors.New("sidequestion: Manager.Model is required")
+	}
+
+	card := &Card{
+		ID:       m.allocID(),
+		Question: question,
+		State:    StatePending,
+	}
+	m.addCard(card)
+
+	services, rt, session, err := m.openSession(ctx)
+	if err != nil {
+		card.mu.Lock()
+		card.State = StateFailed
+		card.Err = err
+		card.mu.Unlock()
+		return card, err
+	}
+	defer func() {
+		_ = rt.Close()
+		services.Close()
+	}()
+
+	msgs, sendErr := runSession(ctx, session, question, m.sessionTimeout, card)
+	if err := finalizeCard(card, msgs, sendErr); err != nil {
+		return card, err
+	}
 	return card, nil
 }
 

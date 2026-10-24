@@ -379,7 +379,7 @@ func (r *RefreshingTokenSource) With401Retry(ctx context.Context, fn func(token 
 }
 
 // newAuthExpiredHTTPError wraps the original 401 error as a
-// *backend.HTTPError with KindAuthExpired so the cmd/wagyu api_error
+// *backend.HTTPError with KindAuthExpired so the cmd/pigasus api_error
 // formatter renders the verbatim "Authentication expired. Please log
 // back in." string. The Body is the upstream message (kept for the
 // AGY_ERROR JSON envelope's status code); the formatter overrides the
@@ -404,7 +404,7 @@ func newAuthExpiredHTTPError(orig error) error {
 // httpErrAuthExpired is a typed wrapper. It embeds *backend.HTTPError
 // (pointer) so the wrapped error carries the verbatim
 // AuthExpiredMessage contract and an As(any) bool shim so the
-// cmd/wagyu classifyAPIError path can extract the *backend.HTTPError
+// cmd/pigasus classifyAPIError path can extract the *backend.HTTPError
 // via errors.As (Go 1.20+ As-target support). The original error is
 // preserved via Unwrap so callers that want the raw 401 can use
 // errors.Is/As on the inner chain.
@@ -420,7 +420,7 @@ func (e *httpErrAuthExpired) Unwrap() error { return e.original }
 
 // As supports errors.As target extraction. The wrapped *HTTPError is
 // the canonical KindAuthExpired envelope; assigning it to *target
-// gives the cmd/wagyu classifier direct access to the StatusCode and
+// gives the cmd/pigasus classifier direct access to the StatusCode and
 // Kind fields. Go 1.20+ honours the As(any) bool method on error
 // chains — earlier Go versions fall back to Unwrap-only matching,
 // which does NOT walk into embedded pointer fields, so this is the

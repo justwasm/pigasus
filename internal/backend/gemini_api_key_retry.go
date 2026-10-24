@@ -9,7 +9,7 @@
 //
 // Before 1.3.1 a network-level interruption on the Gemini API stream
 // surfaced to the user as if they had cancelled the turn. The clone's
-// Gemini-API transport (which routes through agw.k0s.io for the
+// Gemini-API transport (which routes through the configured gateway for the
 // dev-sandbox model and would route to generativelanguage.googleapis.com
 // for a real GEMINI_API_KEY tenant) classifies any of those
 // interruptions as a typed *ConnectionDroppedError, then retries the
@@ -39,7 +39,7 @@
 //
 // What this file deliberately does NOT own
 //
-//   - The actual retry loop. Each transport (agw_k0s, piagentbridge)
+//   - The actual retry loop. Each transport (gateway, piagentbridge)
 //     wraps its stream in its own retry helper because the stream
 //     shapes differ (the wire-neutral chunk channel vs. PiG's event
 //     union). This file is the policy; the transports apply it.
@@ -161,7 +161,7 @@ func (e *ConnectionDroppedError) Unwrap() error { return e.Err }
 // drop. It accepts both a *ConnectionDroppedError directly and the
 // ErrConnectionDropped sentinel through errors.Is. nil returns false.
 //
-// Callers who want to drive the retry budget themselves (the agw_k0s
+// Callers who want to drive the retry budget themselves (the gateway
 // and piagentbridge transports do; tests use it too) can short-circuit
 // on:
 //
@@ -212,23 +212,24 @@ func IsConnectionDropped(err error) bool {
 // returned *ConnectionDroppedError so logs can identify the failing
 // hop when the error escapes a retry context.
 func ClassifyTransportError(err error, url string) error {
-	if err == nil {
-		return nil
-	}
-	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+	if err == nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		return err
 	}
-	// Re-classifying an already-typed drop just preserves the URL.
 	if cde, ok := err.(*ConnectionDroppedError); ok {
 		if cde.URL == "" && url != "" {
 			cde.URL = url
 		}
 		return cde
 	}
-	if errors.Is(err, ErrConnectionDropped) {
+	if isTypedConnectionDropped(err) || isStringConnectionDropped(err.Error()) {
 		return &ConnectionDroppedError{Err: err, URL: url}
 	}
-	if errors.Is(err, io.ErrUnexpectedEOF) ||
+	return err
+}
+
+func isTypedConnectionDropped(err error) bool {
+	if errors.Is(err, ErrConnectionDropped) ||
+		errors.Is(err, io.ErrUnexpectedEOF) ||
 		errors.Is(err, io.EOF) ||
 		errors.Is(err, ErrConnectionStalled) ||
 		errors.Is(err, syscall.ECONNRESET) ||
@@ -237,41 +238,34 @@ func ClassifyTransportError(err error, url string) error {
 		errors.Is(err, syscall.ENETDOWN) ||
 		errors.Is(err, syscall.ENETUNREACH) ||
 		errors.Is(err, syscall.EHOSTUNREACH) {
-		return &ConnectionDroppedError{Err: err, URL: url}
+		return true
 	}
 	var opErr *net.OpError
-	if errors.As(err, &opErr) {
-		return &ConnectionDroppedError{Err: err, URL: url}
+	return errors.As(err, &opErr)
+}
+
+func isStringConnectionDropped(msg string) bool {
+	phrases := []string{
+		"connection reset by peer",
+		"broken pipe",
+		"software caused connection abort",
+		"network is down",
+		"http2: client connection lost",
+		"client connection lost",
+		"connection refused",
+		"no such host",
+		"network is unreachable",
+		"no route to host",
+		"connection reset",
+		"connection stalled",
+		"EOF",
 	}
-	// Last-ditch: string match. The transport layer's wrapped errors
-	// (e.g. "agw: http: dial tcp: ..." or "agw: sse read: ...") end
-	// up here; the substring check covers the common syscall-level
-	// phrasings without a brittle dependency on a specific transport's
-	// wrapping. We deliberately do NOT match "connection error" or
-	// "network error" — those would also match the upstream PiG retry
-	// patterns and double-retry.
-	//
-	// AGY 1.4.1 / 1.3.6: socket disconnect errors like broken pipe,
-	// software caused connection abort, network is down, and
-	// http2: client connection lost (after sleep or Wi-Fi change).
-	msg := err.Error()
-	switch {
-	case strings.Contains(msg, "connection reset by peer"),
-		strings.Contains(msg, "broken pipe"),
-		strings.Contains(msg, "software caused connection abort"),
-		strings.Contains(msg, "network is down"),
-		strings.Contains(msg, "http2: client connection lost"),
-		strings.Contains(msg, "client connection lost"),
-		strings.Contains(msg, "connection refused"),
-		strings.Contains(msg, "no such host"),
-		strings.Contains(msg, "network is unreachable"),
-		strings.Contains(msg, "no route to host"),
-		strings.Contains(msg, "connection reset"),
-		strings.Contains(msg, "connection stalled"),
-		strings.Contains(msg, "EOF"):
-		return &ConnectionDroppedError{Err: err, URL: url}
+	for _, p := range phrases {
+		if strings.Contains(msg, p) {
+			return true
+		}
 	}
-	return err
+	return false
 }
 
 // IdleTimeoutReader wraps an io.ReadCloser and triggers ErrConnectionStalled

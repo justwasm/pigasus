@@ -214,14 +214,48 @@ func ensureFenceClosed(src string) string {
 // Pin in: TestGlamour_StripAndRestore_Mermaid,
 // TestGlamour_StripAndRestore_Math, and the cycle-233 chroma tests
 // in chroma_inline_test.go.
+func createBlockPlaceholder(lang, body string) (BlockPlaceholder, bool) {
+	switch lang {
+	case "mermaid":
+		yamlBody, cleanedSrc, hasFM := MermaidFrontmatter(body)
+		var fm map[string]any
+		if hasFM {
+			if parsed, err := ParseMermaidFrontmatter(yamlBody); err == nil {
+				fm = parsed
+			}
+		}
+		return BlockPlaceholder{
+			Kind:        blockMermaid,
+			Raw:         body,
+			Source:      cleanedSrc,
+			Body:        MermaidRenderBlock(MermaidBlock{Source: cleanedSrc}),
+			Frontmatter: fm,
+		}, true
+	case "math", "latex", "tex", "katex":
+		return BlockPlaceholder{
+			Kind:   blockMath,
+			Raw:    body,
+			Source: body,
+			Body:   "    " + expandLaTeX(strings.TrimSpace(body)),
+		}, true
+	default:
+		if lang != "" && lexers.Get(lang) != nil {
+			return BlockPlaceholder{
+				Kind:     blockCode,
+				Raw:      body,
+				Source:   body,
+				Language: lang,
+			}, true
+		}
+		return BlockPlaceholder{}, false
+	}
+}
+
 func StripMermaidAndMath(src string) (cleaned string, placeholders map[string]BlockPlaceholder) {
 	placeholders = map[string]BlockPlaceholder{}
 	if src == "" {
 		return src, placeholders
 	}
-	// Cycle 272: close an unterminated fence so partial input (the live
-	// streaming buffer) chromas like the reference renderer does; see
-	// ensureFenceClosed.
 	src = ensureFenceClosed(src)
 	out := src
 	type sub struct {
@@ -232,59 +266,12 @@ func StripMermaidAndMath(src string) (cleaned string, placeholders map[string]Bl
 	for _, m := range fencedRe.FindAllStringSubmatchIndex(src, -1) {
 		lang := strings.ToLower(src[m[2]:m[3]])
 		body := src[m[4]:m[5]]
-		var ph BlockPlaceholder
-		switch lang {
-		case "mermaid":
-			yamlBody, cleanedSrc, hasFM := MermaidFrontmatter(body)
-			var fm map[string]any
-			if hasFM {
-				parsed, err := ParseMermaidFrontmatter(yamlBody)
-				if err == nil {
-					fm = parsed
-				}
-			}
-			ph = BlockPlaceholder{
-				Kind:        blockMermaid,
-				Raw:         body,
-				Source:      cleanedSrc,
-				Body:        MermaidRenderBlock(MermaidBlock{Source: cleanedSrc}),
-				Frontmatter: fm,
-			}
-		case "math", "latex", "tex", "katex":
-			ph = BlockPlaceholder{
-				Kind:   blockMath,
-				Raw:    body,
-				Source: body,
-				Body:   "    " + expandLaTeX(strings.TrimSpace(body)),
-			}
-		default:
-			// Cycle 233: any other non-empty language tag that
-			// chroma knows about is a chroma-targeted code block.
-			// The lang field stays on the placeholder so the
-			// Restore pass can look up the lexer; Source is the
-			// raw body (no frontmatter / cleaning — code fences
-			// don't carry YAML metadata).
-			if lang != "" && lexers.Get(lang) != nil {
-				ph = BlockPlaceholder{
-					Kind:     blockCode,
-					Raw:      body,
-					Source:   body,
-					Language: lang,
-				}
-				// Body is intentionally left empty here — the
-				// Restore pass will set it via HighlightCodeBlock
-				// once chroma has been queried. Leaving Body empty
-				// is the documented "rendered during Restore"
-				// marker.
-			} else {
-				continue
-			}
+		ph, ok := createBlockPlaceholder(lang, body)
+		if !ok {
+			continue
 		}
 		subs = append(subs, sub{m[0], m[1], ph})
 	}
-	// Apply substitutions back-to-front so earlier indices stay
-	// valid. The placeholder body in the cleaned source stays
-	// empty; Restore fills it in.
 	for i := len(subs) - 1; i >= 0; i-- {
 		s := subs[i]
 		key := blockPlaceholderPrefix + strconv.Itoa(i)
@@ -349,6 +336,48 @@ func visiblePrefix(s string) string {
 	return v
 }
 
+func renderPlaceholderBody(ph BlockPlaceholder) string {
+	switch ph.Kind {
+	case blockMermaid:
+		mb := MermaidBlock{
+			Source:      ph.Source,
+			Raw:         ph.Raw,
+			Frontmatter: ph.Frontmatter,
+		}
+		out, _ := RenderMermaidBlock(mb, 0)
+		if out == "" {
+			return ph.Body
+		}
+		return out
+	case blockMath:
+		return ph.Body
+	case blockCode:
+		out, _ := HighlightCodeBlock(ph.Language, ph.Source)
+		return indentChromaBlock(out, "  ")
+	default:
+		return ph.Body
+	}
+}
+
+func alignPlaceholderPrefix(rendered, key, body string) string {
+	idx := strings.Index(rendered, key)
+	if idx < 0 {
+		return body
+	}
+	lineStart := strings.LastIndex(rendered[:idx], "\n") + 1
+	prefix := visiblePrefix(rendered[lineStart:idx])
+	if prefix == "" {
+		return body
+	}
+	lines := strings.Split(body, "\n")
+	for i := 1; i < len(lines); i++ {
+		if lines[i] != "" {
+			lines[i] = prefix + lines[i]
+		}
+	}
+	return strings.Join(lines, "\n")
+}
+
 func RestoreMermaidAndMath(rendered string, placeholders map[string]BlockPlaceholder) string {
 	if rendered == "" || len(placeholders) == 0 {
 		return rendered
@@ -357,68 +386,8 @@ func RestoreMermaidAndMath(rendered string, placeholders map[string]BlockPlaceho
 		if !strings.Contains(rendered, key) {
 			continue
 		}
-		var body string
-		switch ph.Kind {
-		case blockMermaid:
-			mb := MermaidBlock{
-				Source:      ph.Source,
-				Raw:         ph.Raw,
-				Frontmatter: ph.Frontmatter,
-			}
-			out, _ := RenderMermaidBlock(mb, 0 /* width streamed */)
-			if out == "" {
-				out = ph.Body // backstop: cycle-228 four-space indent
-			}
-			body = out
-		case blockMath:
-			body = ph.Body
-		case blockCode:
-			// Cycle 233: chroma the body and indent each line
-			// by 2 spaces (cycle 271; glamour's CodeBlock.Margin).
-			// HighlightCodeBlock returns raw source with a `!`
-			// banner on error, so the chat pipeline never
-			// produces a blank block.
-			out, _ := HighlightCodeBlock(ph.Language, ph.Source)
-			body = indentChromaBlock(out, "  ")
-		default:
-			// Should not happen — Strip must drop unknown
-			// kinds. If a placeholder with an unknown kind
-			// shows up it's a programmer error, not a render
-			// failure, so leave Body in place.
-			body = ph.Body
-		}
-		// A block renderer returns its lines with a trailing newline.
-		// The placeholder paragraph already supplies the line break,
-		// so keeping the body's final newline would add a blank row
-		// between the block and whatever follows (the reference has
-		// exactly one blank at a code→table or code→paragraph
-		// boundary, from the next block's prefix).
-		body = strings.TrimRight(body, "\n")
-		// The placeholder was rendered as its own paragraph, so its
-		// first line already carries the document margin (two spaces
-		// for the ANSI variant). The replacement's later lines do not,
-		// because the margin is applied per rendered paragraph, not
-		// inside the text we splice in. Reuse the placeholder line's
-		// leading whitespace as the prefix for every line after the
-		// first so a code block's rows stay aligned at
-		// (document margin + chroma indent).
-		if idx := strings.Index(rendered, key); idx >= 0 {
-			lineStart := strings.LastIndex(rendered[:idx], "\n") + 1
-			prefix := visiblePrefix(rendered[lineStart:idx])
-			if prefix != "" {
-				// Prefix only non-empty lines: a blank line
-				// inside a code block stays empty, and the
-				// body's trailing newline is a terminator,
-				// not an indented line.
-				lines := strings.Split(body, "\n")
-				for i := 1; i < len(lines); i++ {
-					if lines[i] != "" {
-						lines[i] = prefix + lines[i]
-					}
-				}
-				body = strings.Join(lines, "\n")
-			}
-		}
+		body := strings.TrimRight(renderPlaceholderBody(ph), "\n")
+		body = alignPlaceholderPrefix(rendered, key, body)
 		rendered = strings.ReplaceAll(rendered, key, body)
 	}
 	return rendered

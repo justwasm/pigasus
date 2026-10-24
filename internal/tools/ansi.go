@@ -108,7 +108,8 @@ func containsEsc(s string) bool {
 // reproduces this package's own formatter byte for byte, including the
 // "The command exited with code N." line the reference does not print, so it
 // was the clone's output rather than the reference's; the 1.4.4 request
-// bodies captured by cmd/agy disagree with it on every line. The truncation
+// bodies captured through the proxy (internal/agyproxy) disagree with it on
+// every line. The truncation
 // preview is the one place the reference does emit CRLF — see
 // RunCommand.renderResult.
 func normalizeCommandOutput(s string) string {

@@ -155,6 +155,30 @@ func DefaultShellArgv(src string) []string {
 	return []string{DefaultShellName(), "-c", src}
 }
 
+// BypassSandboxRequested reports whether a tool call asked to run outside the
+// terminal sandbox.
+//
+// 【一手】 agy 1.4.6 added the flag to the run_command declaration
+// ("Set to true to run outside the sandbox (requires elevated user permission
+// for auth exchange, network, or port binding).", docs/cycles/reference-drift-146/).
+// The reference treats it as a per-call decision — the sandbox package keeps
+// it off the Sandbox state for exactly that reason.
+func BypassSandboxRequested(args json.RawMessage) bool {
+	var p map[string]json.RawMessage
+	if err := json.Unmarshal(args, &p); err != nil {
+		return false
+	}
+	raw, ok := p["BypassSandbox"]
+	if !ok {
+		return false
+	}
+	var b bool
+	if err := json.Unmarshal(raw, &b); err != nil {
+		return false
+	}
+	return b
+}
+
 // runCommandSchema is the reference's 1.4.x declaration for run_command
 // (一手: copied from a captured request body, with Google's OBJECT / STRING /
 // INTEGER / BOOLEAN upper-case type names lowered to JSON-Schema's). The
@@ -169,6 +193,7 @@ func DefaultShellArgv(src string) []string {
 var runCommandSchema = json.RawMessage(`{"type":"object","properties":{` +
 	`"CommandLine":{"type":"string","description":"The exact command line string to execute."},` +
 	`"Cwd":{"type":"string","description":"The current working directory for the command"},` +
+	`"BypassSandbox":{"type":"boolean","description":"Set to true to run outside the sandbox (requires elevated user permission for auth exchange, network, or port binding)."},` +
 	`"IsDaemon":{"type":"boolean","description":"Set to true for long-running support processes that are meant to keep running in the background indefinitely (e.g. dev servers, file watchers, tunnels)."},` +
 	`"RequestedTerminalID":{"type":"string","description":"Optional ID of a persistent terminal to reuse."},` +
 	`"RunPersistent":{"type":"boolean","description":"Set to true to run this command in a persistent terminal."},` +
@@ -271,7 +296,7 @@ func (r *RunCommand) Run(ctx context.Context, args json.RawMessage) (any, error)
 		defer cancel()
 	}
 	started := time.Now()
-	var out safeBuffer
+	var out SafeBuffer
 	argv := DefaultShellArgv(p.Command)
 	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
 	cmd.Dir = resolveCwd(r.Workspace, p.Cwd)
@@ -443,4 +468,3 @@ func (r *RunCommand) spillOutput(output string) (string, error) {
 	}
 	return path, nil
 }
-

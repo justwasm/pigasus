@@ -325,3 +325,121 @@ func WithCascade(cl *CortexLifecycle, rl *cascade.RealLifecycle) *cascade.RealLi
 	_ = cl
 	return rl
 }
+
+// ---- CascadeManager lifecycle methods -------------------------------------
+
+// Run drives the trajectory forward. v1.3.5 binary addr 0x7fd9ce0
+// (.processAgentExecution is the actual body; Run is exposed via
+// ordinaryExecutor.Run at 0x7fffd80), name=Run, signature=(cm
+// *CascadeManager, ctx context.Context, prompt string) error.
+func (cm *CascadeManager) Run(ctx context.Context, prompt string) error {
+	cm.mu.Lock()
+	if cm.closed {
+		cm.mu.Unlock()
+		return ErrClosed
+	}
+	cm.mu.Unlock()
+	// TODO: cortex.(*CascadeManager).Run — wire executor.Run
+	return nil
+}
+
+// Cancel cancels an in-flight turn. v1.3.5 binary addr 0x7fdd480-area
+// (.Cancel / .beginCreation is the entry), name=Cancel,
+// signature=(cm *CascadeManager, ctx context.Context) error.
+func (cm *CascadeManager) Cancel(ctx context.Context) error {
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
+	if cm.closed {
+		return ErrClosed
+	}
+	return nil
+}
+
+// CancelSteps cancels specific steps. v1.3.5 binary addr (per pclntab
+// .CancelSteps area), name=CancelSteps, signature=(cm
+// *CascadeManager, ctx context.Context, steps []int) error.
+func (cm *CascadeManager) CancelSteps(ctx context.Context, steps []int) error {
+	if cm.closed {
+		return ErrClosed
+	}
+	return nil
+}
+
+// AcknowledgeCodeActionStep acknowledges a code-action step. v1.3.5
+// binary addr (per pclntab .AcknowledgeCodeActionStep area),
+// name=AcknowledgeCodeActionStep, signature=(cm *CascadeManager, ctx
+// context.Context, step int) error.
+func (cm *CascadeManager) AcknowledgeCodeActionStep(ctx context.Context, step int) error {
+	if cm.closed {
+		return ErrClosed
+	}
+	return nil
+}
+
+// Shutdown tears down the CascadeManager. v1.3.5 binary addr
+// 0x7fec1a0, name=Shutdown, signature=(cm *CascadeManager, ctx
+// context.Context) error.
+func (cm *CascadeManager) Shutdown(ctx context.Context) error {
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
+	if cm.closed {
+		return nil
+	}
+	cm.closed = true
+	if cm.executor != nil {
+		_ = cm.executor.Close()
+	}
+	return nil
+}
+
+// Save persists the current trajectory. v1.3.5 binary addr 0x7fddf20
+// (.SaveTrajectory), name=SaveTrajectory, signature=(cm
+// *CascadeManager) error.
+func (cm *CascadeManager) Save() error {
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
+	if cm.closed {
+		return ErrClosed
+	}
+	if cm.storedTrajectory == "" {
+		return ErrNoTrajectory
+	}
+	return nil
+}
+
+// WaitForConversationFullyIdle blocks until the conversation is idle.
+// v1.3.5 binary addr 0x7febc20, name=WaitForConversationFullyIdle,
+// signature=(cm *CascadeManager, ctx context.Context) error.
+func (cm *CascadeManager) WaitForConversationFullyIdle(ctx context.Context) error {
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
+	if cm.closed {
+		return ErrClosed
+	}
+	return nil
+}
+
+// ResumeConversationsFromRestart resumes conversations after a
+// restart. v1.3.5 binary addr 0x7fdd380, name=ResumeConversationsFromRestart,
+// signature=(cm *CascadeManager, ctx context.Context) error.
+func (cm *CascadeManager) ResumeConversationsFromRestart(ctx context.Context) error {
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
+	if cm.closed {
+		return ErrClosed
+	}
+	return nil
+}
+
+// ForceStopTree force-stops the trajectory tree. v1.3.5 binary addr
+// (per pclntab .ForceStopTree), name=ForceStopTree, signature=(cm
+// *CascadeManager) error.
+func (cm *CascadeManager) ForceStopTree() error {
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
+	if cm.closed {
+		return ErrClosed
+	}
+	return nil
+}
+

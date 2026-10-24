@@ -171,7 +171,7 @@ func pump(ctx context.Context, out *pi.AssistantMessageEventStream, chunks <-cha
 }
 
 // bridgePumpState holds the per-stream state shared by the chunk
-// handlers. It is the bridge adapter's mirror of agwprovider_stream.go's
+// handlers. It is the bridge adapter's mirror of gatewayprovider_stream.go's
 // streamState: both play the same role (accumulate one response into PiG's
 // event union), just with different data sources.
 type bridgePumpState struct {
@@ -212,7 +212,7 @@ func (s *bridgePumpState) run(ctx context.Context, watcher *StallWatcher, chunks
 			return
 		}
 	}
-	// Cycle agwprovider-eof-without-done: the channel closed without a
+	// Cycle gatewayprovider-eof-without-done: the channel closed without a
 	// Done chunk. backend.Client promises one, but a misbehaving
 	// transport that closes without Done (network blip, idle-evict,
 	// abrupt disconnect) used to be classified as a clean stop,
@@ -223,14 +223,14 @@ func (s *bridgePumpState) run(ctx context.Context, watcher *StallWatcher, chunks
 	//
 	// The fix distinguishes "no chunks at all" from "some chunks but
 	// no terminal Done": only the former is an error. The latter is
-	// the documented agw.k0s.io behaviour — the gateway closes the
+	// the documented behaviour of the configured gateway — the gateway closes the
 	// channel after the usage frame without sending an explicit Done
 	// — and is preserved for back-compat with the production
 	// gateway. Trade-off #1 of this cycle, accepted explicitly: a
 	// half-streamed reply that saw at least one chunk still appears
 	// as a clean stop; the user usually sees the partial text so
 	// the cost of leaving it alone is lower than the cost of
-	// mis-reporting agw.k0s.io normal streams as errors.
+	// mis-reporting the configured gateway normal streams as errors.
 	if watcher.Fired() {
 		s.finish(pi.StopReasonAborted, ErrStallCancelled.Error())
 		return

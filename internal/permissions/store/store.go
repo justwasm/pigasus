@@ -247,3 +247,32 @@ func ParseRule(s string) Rule {
 	}
 	return Rule{Pattern: s}
 }
+
+// AlwaysAllowFromSource writes one "Always allow" rule with the given source tag to DefaultPath().
+func AlwaysAllowFromSource(source Source, rule string) error {
+	parsed, err := parseSharedRule(rule)
+	if err != nil {
+		return err
+	}
+	return AlwaysAllow(DefaultPath(), source, parsed)
+}
+
+// RemoveAllowFromSource deletes one rule from DefaultPath() filtered by source tag.
+func RemoveAllowFromSource(source Source, rule string) error {
+	parsed, err := parseSharedRule(rule)
+	if err != nil {
+		return err
+	}
+	return RemoveAllow(DefaultPath(), source, parsed)
+}
+
+func parseSharedRule(s string) (Rule, error) {
+	s = strings.TrimSpace(s)
+	if strings.HasPrefix(s, "{") {
+		return Rule{}, os.ErrInvalid
+	}
+	if s == "" {
+		return Rule{}, os.ErrInvalid
+	}
+	return ParseRule(s), nil
+}

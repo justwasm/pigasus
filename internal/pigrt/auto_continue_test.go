@@ -23,22 +23,16 @@ import (
 	"github.com/justwasm/pigasus/internal/backend"
 )
 
-// TestClassifyInterruptionMatrix pins the cycle's trigger matrix:
-//
-//	ctx-cancel | nil err              → ""
-//	ErrMaxTurnsReached                  → Status banner
-//	last.Assistant.StopReason Error/Aborted/Length → stream interrupted
-//	last.Assistant.StopReason Stop/ToolUse         → ""
-func TestClassifyInterruptionMatrix(t *testing.T) {
-	cases := []struct {
-		name string
-		msgs []agent.AgentMessage
-		err  error
-		want string
-	}{
-		{"nil err no assistant",
-			nil, nil, "",
-		},
+type interruptionCase struct {
+	name string
+	msgs []agent.AgentMessage
+	err  error
+	want string
+}
+
+func interruptionMatrixCases() []interruptionCase {
+	return []interruptionCase{
+		{"nil err no assistant", nil, nil, ""},
 		{"ErrMaxTurnsReached yields status",
 			nil,
 			fmt.Errorf("%w (%d turns)", agent.ErrMaxTurnsReached, 9),
@@ -81,7 +75,16 @@ func TestClassifyInterruptionMatrix(t *testing.T) {
 			"",
 		},
 	}
-	for _, tc := range cases {
+}
+
+// TestClassifyInterruptionMatrix pins the cycle's trigger matrix:
+//
+//	ctx-cancel | nil err              → ""
+//	ErrMaxTurnsReached                  → Status banner
+//	last.Assistant.StopReason Error/Aborted/Length → stream interrupted
+//	last.Assistant.StopReason Stop/ToolUse         → ""
+func TestClassifyInterruptionMatrix(t *testing.T) {
+	for _, tc := range interruptionMatrixCases() {
 		t.Run(tc.name, func(t *testing.T) {
 			got := classifyInterruption(tc.msgs, tc.err)
 			if got != tc.want {

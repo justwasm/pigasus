@@ -11,7 +11,7 @@ import (
 var logoHandler func(w io.Writer, args []string) error
 
 // RegisterLogoHandler installs the cmd/wagyu-supplied logo printer.
-// Called from cmd/wagyu/main.go at process init.
+// Called from cmd/pigasus/main.go at process init.
 func RegisterLogoHandler(fn func(w io.Writer, args []string) error) {
 	logoHandler = fn
 }
@@ -20,7 +20,7 @@ func RegisterLogoHandler(fn func(w io.Writer, args []string) error) {
 // When unbridged (e.g. standalone cli tests), it prints fallback text.
 func runLogoHandler(w io.Writer, args []string) error {
 	if logoHandler == nil {
-		fmt.Fprintln(w, "logo: not bridged (build with cmd/wagyu to enable)")
+		fmt.Fprintln(w, "logo: not bridged (build with cmd/pigasus to enable)")
 		return nil
 	}
 	return logoHandler(w, args)

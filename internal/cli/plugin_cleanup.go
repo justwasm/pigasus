@@ -5,28 +5,6 @@
 //	plugin versions and staging directories from the marketplace cache
 //	on startup.
 //
-// The clone never launches real MCP servers / sidecars, but it models
-// the two surfaces the recovery gap is about:
-//
-//  1. A registry of plugin-owned processes. Each record carries the
-//     PID, the plugin + server name, the install directory the
-//     process was started from, and a start timestamp. The registry
-//     lives at <antigravity home>/state/plugin-processes.json.
-//
-//  2. A marketplace cache layout:
-//
-//     <antigravity home>/cache/marketplaces/<mkt>/
-//     marketplace.json
-//     plugins/<plugin>/<version>/...
-//     staging/<...>/
-//
-//     "Superseded" = a version directory under plugins/<plugin>/ that
-//     no longer matches the installed plugin's manifest version.
-//     "Staging" = any directory named staging/ at any depth under
-//     <root>; the reference uses these as scratch space while a
-//     download is in flight, and a clean boot should drop anything
-//     left over from a crashed one.
-//
 // The startup hook (PruneOrphanPluginProcesses + PruneMarketplaceCache)
 // runs once per process launch from main(), before the parser dispatches.
 // The upgrade hook (KillPluginProcessesForInstall) runs from
@@ -39,30 +17,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
-	"syscall"
-	"time"
 )
-
-// PluginProcessRecord is one row of the plugin process registry. The
-// schema is intentionally minimal: the only required field is PID, the
-// others are diagnostic and survive a registry rewrite even when the
-// process itself is long gone.
-type PluginProcessRecord struct {
-	PID        int    `json:"pid"`
-	PluginName string `json:"plugin"`
-	ServerName string `json:"server"`
-	InstallDir string `json:"install_dir"`
-	StartedAt  int64  `json:"started_at"`
-}
-
-// PluginProcessRegistryPath returns the on-disk location of the registry.
-// The directory is created lazily by callers (RegisterPluginProcess,
-// SavePluginProcessRegistry) so this getter never touches the filesystem.
-func PluginProcessRegistryPath(antigravityHome string) string {
-	return filepath.Join(antigravityHome, "state", "plugin-processes.json")
-}
 
 // RunPluginCleanupOnStartup is the AGY 1.2.7 startup hook: kill any
 // MCP server / sidecar processes whose install directory has been
@@ -131,90 +87,6 @@ func antigravityHomeFromLegacy() string {
 		return filepath.Join(filepath.Dir(dir), "antigravity-cli")
 	}
 	return ""
-}
-
-// LoadPluginProcessRegistry reads the registry file. A missing file is
-// not an error: a fresh install has never recorded a plugin process
-// and the registry is created on the first RegisterPluginProcess call.
-// Parse errors and unreadable files yield (nil, err) so callers can
-// decide whether the corruption is fatal or merely informational.
-func LoadPluginProcessRegistry(path string) ([]PluginProcessRecord, error) {
-	data, err := os.ReadFile(path)
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return nil, nil
-		}
-		return nil, err
-	}
-	var doc struct {
-		Records []PluginProcessRecord `json:"records"`
-	}
-	if err := json.Unmarshal(data, &doc); err != nil {
-		return nil, err
-	}
-	return doc.Records, nil
-}
-
-// SavePluginProcessRegistry writes the registry atomically (write to
-// <path>.tmp, rename) so a concurrent read by KillPluginProcessesForInstall
-// never sees a half-written file. The parent directory is created with
-// 0700 perms.
-func SavePluginProcessRegistry(path string, records []PluginProcessRecord) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
-		return err
-	}
-	doc := struct {
-		Records []PluginProcessRecord `json:"records"`
-	}{Records: records}
-	buf, err := json.MarshalIndent(doc, "", "  ")
-	if err != nil {
-		return err
-	}
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, buf, 0600); err != nil {
-		return err
-	}
-	return os.Rename(tmp, path)
-}
-
-// RegisterPluginProcess appends rec to the registry at path. Duplicates
-// (matching PID) are silently dropped — a process that is already
-// tracked should not be tracked twice. A missing registry is created.
-func RegisterPluginProcess(path string, rec PluginProcessRecord) error {
-	records, err := LoadPluginProcessRegistry(path)
-	if err != nil {
-		return err
-	}
-	for _, existing := range records {
-		if existing.PID == rec.PID {
-			return nil
-		}
-	}
-	records = append(records, rec)
-	return SavePluginProcessRegistry(path, records)
-}
-
-// UnregisterPluginProcess removes every record with the given PID from
-// the registry. Missing PIDs are a no-op (the caller's intent is
-// satisfied either way).
-func UnregisterPluginProcess(path string, pid int) error {
-	records, err := LoadPluginProcessRegistry(path)
-	if err != nil {
-		return err
-	}
-	out := records[:0]
-	changed := false
-	for _, r := range records {
-		if r.PID == pid {
-			changed = true
-			continue
-		}
-		out = append(out, r)
-	}
-	if !changed {
-		return nil
-	}
-	return SavePluginProcessRegistry(path, out)
 }
 
 // PluginKillResult summarises a KillPluginProcessesForInstall run:
@@ -340,13 +212,12 @@ func PruneMarketplaceCache(root string, installedVersion func(pluginName string)
 	if strings.TrimSpace(root) == "" {
 		return stats, nil
 	}
-	// 1. Staging directories at any depth.
 	stagingRemoved, err := removeStagingDirs(root)
 	if err != nil {
 		return stats, err
 	}
 	stats.StagingRemoved = stagingRemoved
-	// 2. Superseded version directories.
+
 	mkts, err := os.ReadDir(root)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
@@ -359,29 +230,36 @@ func PruneMarketplaceCache(root string, installedVersion func(pluginName string)
 			continue
 		}
 		stats.MarketplacesScanned++
-		pluginsDir := filepath.Join(root, mkt.Name(), "plugins")
-		pluginEntries, err := os.ReadDir(pluginsDir)
-		if err != nil {
-			if errors.Is(err, os.ErrNotExist) {
-				continue
-			}
+		if err := pruneMarketplacePlugins(root, mkt.Name(), &stats, installedVersion); err != nil {
 			return stats, err
-		}
-		for _, plugin := range pluginEntries {
-			if !plugin.IsDir() {
-				continue
-			}
-			stats.PluginsScanned++
-			kept := installedVersion(plugin.Name())
-			versionsDir := filepath.Join(pluginsDir, plugin.Name())
-			removed, err := removeSupersededVersions(versionsDir, kept)
-			if err != nil {
-				return stats, err
-			}
-			stats.SupersededRemoved += removed
 		}
 	}
 	return stats, nil
+}
+
+func pruneMarketplacePlugins(root, mktName string, stats *PluginCachePruneStats, installedVersion func(string) string) error {
+	pluginsDir := filepath.Join(root, mktName, "plugins")
+	pluginEntries, err := os.ReadDir(pluginsDir)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		return err
+	}
+	for _, plugin := range pluginEntries {
+		if !plugin.IsDir() {
+			continue
+		}
+		stats.PluginsScanned++
+		kept := installedVersion(plugin.Name())
+		versionsDir := filepath.Join(pluginsDir, plugin.Name())
+		removed, err := removeSupersededVersions(versionsDir, kept)
+		if err != nil {
+			return err
+		}
+		stats.SupersededRemoved += removed
+	}
+	return nil
 }
 
 // removeStagingDirs walks root and removes any directory named
@@ -442,82 +320,4 @@ func removeSupersededVersions(versionsDir, keep string) (int, error) {
 		removed++
 	}
 	return removed, nil
-}
-
-// signalProcess sends SIGTERM to pid and ignores ESRCH (the process
-// has already exited). SIGKILL is not escalated here because the caller
-// controls the lifecycle: the next startup's PruneOrphanPluginProcesses
-// picks up anything that ignored SIGTERM, and the upgrade flow does
-// not block on the kill.
-func signalProcess(pid int) error {
-	if pid <= 0 {
-		return fmt.Errorf("invalid pid %d", pid)
-	}
-	proc, err := os.FindProcess(pid)
-	if err != nil {
-		return err
-	}
-	if err := proc.Signal(syscall.SIGTERM); err != nil {
-		if errors.Is(err, os.ErrProcessDone) || errors.Is(err, syscall.ESRCH) {
-			return nil
-		}
-		return err
-	}
-	return nil
-}
-
-// dirExists reports whether path is an existing directory. Symlinks
-// are followed. A non-existent path returns false, not an error.
-func dirExists(path string) bool {
-	if strings.TrimSpace(path) == "" {
-		return false
-	}
-	info, err := os.Stat(path)
-	if err != nil {
-		return false
-	}
-	return info.IsDir()
-}
-
-// canonicalInstallDir resolves symlinks and cleans installDir so two
-// paths that differ only by an intermediate symlink compare equal.
-// On any error it falls back to filepath.Clean — the registry row
-// still matches as long as the caller and the writer agreed on the
-// same string form.
-func canonicalInstallDir(p string) string {
-	if real, err := filepath.EvalSymlinks(p); err == nil {
-		return real
-	}
-	return filepath.Clean(p)
-}
-
-// PluginProcessRecordNow is a small helper for tests and callers that
-// want to record a freshly-started process: it stamps StartedAt with
-// the current Unix time so the registry has a stable sort order and
-// operators can age out stale rows later.
-func PluginProcessRecordNow(pid int, plugin, server, installDir string) PluginProcessRecord {
-	return PluginProcessRecord{
-		PID:        pid,
-		PluginName: plugin,
-		ServerName: server,
-		InstallDir: installDir,
-		StartedAt:  time.Now().Unix(),
-	}
-}
-
-// SortedPluginProcessRecords returns records sorted by (PluginName,
-// ServerName, PID). Tests rely on the stable order; the registry
-// itself does not require sorting.
-func SortedPluginProcessRecords(in []PluginProcessRecord) []PluginProcessRecord {
-	out := append([]PluginProcessRecord(nil), in...)
-	sort.Slice(out, func(i, k int) bool {
-		if out[i].PluginName != out[k].PluginName {
-			return out[i].PluginName < out[k].PluginName
-		}
-		if out[i].ServerName != out[k].ServerName {
-			return out[i].ServerName < out[k].ServerName
-		}
-		return out[i].PID < out[k].PID
-	})
-	return out
 }

@@ -44,7 +44,7 @@ type SessionState struct {
 	// Version is the CLI version string the host advertised
 	// (the v1.3.4 binary prints exactly "1.3.4\n" — we mirror).
 	Version string
-	// Backend is "agw", "shim" or "" when the host hasn't decided
+	// Backend is "gateway", "shim" or "" when the host hasn't decided
 	// (e.g. pre-flag-parse). Mirrors --backend / $OPENAGY_BACKEND.
 	Backend string
 	// Model is the resolved model label or id. Empty for
@@ -265,7 +265,7 @@ func (s *SessionState) SetModel(model string) {
 	s.mu.Unlock()
 }
 
-// SetBackend records the resolved backend ("agw" / "shim") so the
+// SetBackend records the resolved backend ("gateway" / "shim") so the
 // status tool can report what the host is actually talking to.
 // Mirrors SetModel — same locking discipline, same no-op-on-nil.
 func (s *SessionState) SetBackend(backend string) {

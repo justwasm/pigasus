@@ -74,7 +74,7 @@ import (
 //
 // Field semantics:
 //
-//   - Backend is the agw (or shim) transport. Cycle
+//   - Backend is the gateway (or shim) transport. Cycle
 //     rc-piagent-bind passes the same backend
 //     `pickBackendWithLog` returns to the print path,
 //     so a `StartRemoteAgentCascade` →
@@ -158,7 +158,7 @@ func resolveRemoteBackend(supplied backend.Client, label string) backend.Client 
 
 // resolveRemoteModel picks the wire model id the runtime will talk to.
 // An explicit prompt.Model wins; otherwise we ask NativeProvider what
-// it would put on the wire (the agw-native path); failing that we
+// it would put on the wire (the gateway-native path); failing that we
 // fall back to the PiG default model.
 func resolveRemoteModel(client backend.Client, label string) string {
 	if label != "" {
@@ -279,7 +279,7 @@ func (e *remoteClosedError) Error() string { return e.msg }
 
 // buildRemoteCascadeModel picks the PiG model the runtime
 // drives. Mirrors cmd/wagyu/print_pig.go's pigPrintModel:
-// an agw backend yields the native provider; everything
+// a gateway backend yields the native provider; everything
 // else is wrapped via NewBackendProvider. Today the
 // remote-control surface has no offline-mock path; the
 // shim fallback (prompt.BackendLabel == "shim") goes

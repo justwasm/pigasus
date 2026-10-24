@@ -2,7 +2,7 @@
 // response, plus the retry-with-30s-backoff-cap that recovery prompts hand
 // to a retrying caller. Both pieces live here so the native provider's pump
 // and the StreamFn bridge pump wire them through exactly the same primitives
-// (see agwprovider.go pump and stream.go pump).
+// (see gatewayprovider.go pump and stream.go pump).
 //
 // Why a dedicated watcher: AGY 1.3.6 changelog line 5 + 1.3.4 line 29 —
 // "Added a 5-minute stall detection for stuck API requests. When the API

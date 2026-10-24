@@ -133,6 +133,11 @@ cleanup() {
 trap cleanup EXIT
 
 # Snapshot Allowlist
+#
+# `docs/guide`, `docs/cycles` and `docs/research` are the only `docs/` subtrees
+# that ship: they are what README.md and AGENTS.md link to, and together they are
+# ~7 MB. The rest of `docs/` is RE artefacts (decompiled dumps, Ghidra
+# projects, 500+ MB) and stays out of the published tree.
 ALLOWLIST=(
   cmd
   internal
@@ -140,6 +145,9 @@ ALLOWLIST=(
   rea-go-seeds
   scripts
   .github
+  docs/guide
+  docs/cycles
+  docs/research
   go.mod
   go.sum
   AGENTS.md
@@ -202,6 +210,7 @@ fi
 
 REMOTE_TAG_EXISTS=$(git -C "$TARGET_DIR" ls-remote --tags origin "refs/tags/${TAG}" | wc -l | tr -d ' ')
 
+TAG_PUSHED=false
 if [[ "$REMOTE_TAG_EXISTS" -gt 0 ]]; then
   if $FORCE_TAG; then
     log_warn "Tag ${TAG} already exists on remote. Overwriting (--force-tag)..."
@@ -209,6 +218,7 @@ if [[ "$REMOTE_TAG_EXISTS" -gt 0 ]]; then
     git -C "$TARGET_DIR" push --delete origin "$TAG" || true
     git -C "$TARGET_DIR" tag -a "$TAG" -m "Pigasus CLI ${TAG}"
     git -C "$TARGET_DIR" push origin "$TAG"
+    TAG_PUSHED=true
     log_ok "Tag ${TAG} re-pushed."
   else
     log_info "Tag ${TAG} already exists on remote. To re-release this tag, use --force-tag."
@@ -217,17 +227,33 @@ else
   log_info "Creating and pushing tag ${TAG}..."
   git -C "$TARGET_DIR" tag -a "$TAG" -m "Pigasus CLI ${TAG}"
   git -C "$TARGET_DIR" push origin "$TAG"
+  TAG_PUSHED=true
   log_ok "Tag ${TAG} pushed. GitHub Actions release workflow triggered!"
 fi
 
 log_ok "Release URL: https://github.com/${REPO}/releases/tag/${TAG}"
 
 if $WATCH; then
-  log_info "Watching GitHub Actions runs for ${REPO}..."
-  sleep 3
-  RUN_ID=$(gh run list --repo "$REPO" --limit 1 --json databaseId -q '.[0].databaseId')
-  if [[ -n "$RUN_ID" ]]; then
-    gh run watch "$RUN_ID" --repo "$REPO"
+  if ! $TAG_PUSHED; then
+    log_warn "The tag was not (re-)pushed, so there is no new run to watch."
+  else
+    log_info "Watching the release workflow for ${REPO}..."
+    # The release run starts a moment after the tag lands. The main-branch
+    # push queued a CI run too, so filter by workflow *and* by the tag —
+    # otherwise the watch lands on the wrong run.
+    RUN_ID=""
+    for _ in $(seq 1 20); do
+      RUN_ID=$(gh run list --repo "$REPO" --workflow release.yml --limit 10 \
+        --json databaseId,headBranch \
+        -q ".[] | select(.headBranch == \"${TAG}\") | .databaseId" 2>/dev/null | head -1)
+      [[ -n "$RUN_ID" ]] && break
+      sleep 3
+    done
+    if [[ -n "$RUN_ID" ]]; then
+      gh run watch "$RUN_ID" --repo "$REPO"
+    else
+      log_warn "No release run for ${TAG} yet — check ${REPO}/actions manually."
+    fi
   fi
 fi
 

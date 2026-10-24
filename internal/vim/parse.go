@@ -52,37 +52,7 @@ const (
 	statusComplete
 )
 
-// parse resolves an accumulated Normal/Visual key sequence. visual
-// switches on the disambiguation rules that only exist in Visual mode
-// (d/c/y/x are complete operations rather than operator prefixes, and
-// i/a start text objects instead of insert entries).
-func parse(seq string, visual bool) (command, parseStatus) {
-	i := 0
-	count := readCount(seq, &i)
-	rest := seq[i:]
-	if rest == "" {
-		if count > 0 {
-			return command{}, statusIncomplete
-		}
-		return command{}, statusInvalid
-	}
-
-	if visual {
-		if c, st := parseVisual(rest, count); st != statusInvalid {
-			return c, st
-		}
-	}
-
-	// Operators d/c/y: either doubled (linewise) or followed by a count
-	// plus a motion or text object.
-	if rest[0] == 'd' || rest[0] == 'c' || rest[0] == 'y' {
-		return parseOperator(rest, count)
-	}
-
-	if c, st := parseMotionSeq(rest, count); st != statusInvalid {
-		return c, st
-	}
-
+func parseActionCommand(rest string, count int) (command, parseStatus) {
 	switch rest[0] {
 	case 'i', 'a', 'I', 'A', 'o', 'O':
 		if len(rest) != 1 {
@@ -110,8 +80,6 @@ func parse(seq string, visual bool) (command, parseStatus) {
 	case 'V':
 		return one(rest, cmdVisualLine, count)
 	case 'Z':
-		// ZZ writes-and-quits in Vim; here it maps to the reference's
-		// "submit the current query" (its own /help labels it that way).
 		if len(rest) == 1 {
 			return command{}, statusIncomplete
 		}
@@ -129,6 +97,38 @@ func parse(seq string, visual bool) (command, parseStatus) {
 		return command{kind: cmdReplaceChar, arg: rune(rest[1]), count: count}, statusComplete
 	}
 	return command{}, statusInvalid
+}
+
+// parse resolves an accumulated Normal/Visual key sequence. visual
+// switches on the disambiguation rules that only exist in Visual mode
+// (d/c/y/x are complete operations rather than operator prefixes, and
+// i/a start text objects instead of insert entries).
+func parse(seq string, visual bool) (command, parseStatus) {
+	i := 0
+	count := readCount(seq, &i)
+	rest := seq[i:]
+	if rest == "" {
+		if count > 0 {
+			return command{}, statusIncomplete
+		}
+		return command{}, statusInvalid
+	}
+
+	if visual {
+		if c, st := parseVisual(rest, count); st != statusInvalid {
+			return c, st
+		}
+	}
+
+	if rest[0] == 'd' || rest[0] == 'c' || rest[0] == 'y' {
+		return parseOperator(rest, count)
+	}
+
+	if c, st := parseMotionSeq(rest, count); st != statusInvalid {
+		return c, st
+	}
+
+	return parseActionCommand(rest, count)
 }
 
 // one builds a complete single-key command, rejecting stray trailing
@@ -231,43 +231,53 @@ func readCount(seq string, i *int) int {
 	return n
 }
 
+var basicMotions = map[byte]motion{
+	'h': motionLeft,
+	'l': motionRight,
+	'j': motionDown,
+	'k': motionUp,
+	'w': motionWordNext,
+	'b': motionWordBack,
+	'e': motionWordEnd,
+	'W': motionWORDNext,
+	'B': motionWORDBack,
+	'E': motionWORDEnd,
+	'0': motionLineStart,
+	'^': motionFirstNonBlank,
+	'$': motionLineEnd,
+	'G': motionDocEnd,
+	';': motionRepeatFind,
+	',': motionRepeatFindRev,
+}
+
+func parseFindMotion(rest string) (motion, rune, parseStatus) {
+	if len(rest) == 1 {
+		return 0, 0, statusIncomplete
+	}
+	if len(rest) != 2 {
+		return 0, 0, statusInvalid
+	}
+	arg := rune(rest[1])
+	switch rest[0] {
+	case 'f':
+		return motionFind, arg, statusComplete
+	case 'F':
+		return motionFindBack, arg, statusComplete
+	case 't':
+		return motionTill, arg, statusComplete
+	case 'T':
+		return motionTillBack, arg, statusComplete
+	}
+	return 0, 0, statusInvalid
+}
+
 // motionFromKey maps a motion key sequence to a motion. f/F/t/T consume
 // one following character; gg consumes two.
 func motionFromKey(rest string) (motion, rune, parseStatus) {
-	switch rest[0] {
-	case 'h':
-		return motionLeft, 0, complete(rest)
-	case 'l':
-		return motionRight, 0, complete(rest)
-	case 'j':
-		return motionDown, 0, complete(rest)
-	case 'k':
-		return motionUp, 0, complete(rest)
-	case 'w':
-		return motionWordNext, 0, complete(rest)
-	case 'b':
-		return motionWordBack, 0, complete(rest)
-	case 'e':
-		return motionWordEnd, 0, complete(rest)
-	case 'W':
-		return motionWORDNext, 0, complete(rest)
-	case 'B':
-		return motionWORDBack, 0, complete(rest)
-	case 'E':
-		return motionWORDEnd, 0, complete(rest)
-	case '0':
-		return motionLineStart, 0, complete(rest)
-	case '^':
-		return motionFirstNonBlank, 0, complete(rest)
-	case '$':
-		return motionLineEnd, 0, complete(rest)
-	case 'G':
-		return motionDocEnd, 0, complete(rest)
-	case ';':
-		return motionRepeatFind, 0, complete(rest)
-	case ',':
-		return motionRepeatFindRev, 0, complete(rest)
-	case 'g':
+	if m, ok := basicMotions[rest[0]]; ok {
+		return m, 0, complete(rest)
+	}
+	if rest[0] == 'g' {
 		if len(rest) == 1 {
 			return 0, 0, statusIncomplete
 		}
@@ -275,26 +285,9 @@ func motionFromKey(rest string) (motion, rune, parseStatus) {
 			return motionDocStart, 0, statusComplete
 		}
 		return 0, 0, statusInvalid
-	case 'f', 'F', 't', 'T':
-		if len(rest) == 1 {
-			return 0, 0, statusIncomplete
-		}
-		if len(rest) != 2 {
-			return 0, 0, statusInvalid
-		}
-		arg := rune(rest[1])
-		var m motion
-		switch rest[0] {
-		case 'f':
-			m = motionFind
-		case 'F':
-			m = motionFindBack
-		case 't':
-			m = motionTill
-		case 'T':
-			m = motionTillBack
-		}
-		return m, arg, statusComplete
+	}
+	if rest[0] == 'f' || rest[0] == 'F' || rest[0] == 't' || rest[0] == 'T' {
+		return parseFindMotion(rest)
 	}
 	return 0, 0, statusInvalid
 }

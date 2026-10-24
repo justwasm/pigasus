@@ -27,6 +27,30 @@ package tuilib
 
 import "strings"
 
+// PickerKind says which row set the completion popup is holding.
+//
+// The reference has one popup widget with two row sets: the slash
+// command list (the buffer starts with "/") and the model list (the
+// buffer is "/model <query>"). 【一手】 agy 1.4.6, live: typing
+// "/model claude" swaps the command rows for model rows — one row per
+// model, the display label and the catalogue id side by side.
+type PickerKind int
+
+const (
+	// PickerKindCommand is the slash command list.
+	PickerKindCommand PickerKind = iota
+	// PickerKindModel is the "/model <query>" model list.
+	PickerKindModel
+)
+
+// ModelRow is one row of the "/model <query>" completion popup: the
+// display label the reference shows ("Gemini 3.8 Flash (High)") and the
+// catalogue id ("gemini-3.8-flash-high").
+type ModelRow struct {
+	Label string
+	ID    string
+}
+
 // PickerState is the tuilib slash command picker state.
 type PickerState struct {
 	// visible is true while the picker overlay should be rendered.
@@ -51,6 +75,16 @@ type PickerState struct {
 	// substring filter on "/remote". Nil means no overrides; the
 	// picker behaves exactly as before.
 	hiddenCommands map[string]bool
+	// kind says which row set all holds. The model mode is entered
+	// when the buffer is "/model <query>".
+	kind PickerKind
+	// modelSource returns the catalogue the model mode filters. It is
+	// a function so the catalogue can change under the picker (the
+	// user edited the provider configuration) without the caller
+	// re-arming the picker on every keystroke.
+	modelSource func() []ModelRow
+	// query is the text after "/model " in the model mode.
+	query string
 }
 
 // Reset clears picker state. Called whenever the buffer's slash
@@ -60,7 +94,25 @@ func (p *PickerState) Reset() {
 	p.empty = false
 	p.all = nil
 	p.idx = -1
+	p.kind = PickerKindCommand
+	p.query = ""
 }
+
+// SetModelCatalogueSource installs the function that returns the rows the
+// "/model <query>" popup offers. It is called on every re-derivation, so a
+// catalogue that changes (the user edited the provider configuration)
+// shows up on the next keystroke. A nil source leaves the model mode
+// empty.
+func (p *PickerState) SetModelCatalogueSource(fn func() []ModelRow) {
+	p.modelSource = fn
+}
+
+// Kind reports which row set the popup is holding.
+func (p *PickerState) Kind() PickerKind { return p.kind }
+
+// Query returns the text after "/model " in the model mode. Empty in the
+// command mode.
+func (p *PickerState) Query() string { return p.query }
 
 // SetHiddenCommands replaces the picker's hidden-name set. Empty or
 // nil arg list clears the set (the picker behaves like the cycle-83
@@ -100,33 +152,15 @@ func (p *PickerState) SetHiddenCommands(names ...string) {
 //   - buffer starts with "/" with matches       -> visible, populated
 //   - when the filtered count drops below idx+1, clamp idx to last
 //     valid row.
-func (p *PickerState) Update(buffer []rune) bool {
-	prev := *p
-	if len(buffer) == 0 || buffer[0] != '/' {
-		p.Reset()
-		return p.visible != prev.visible || len(p.all) != len(prev.all)
-	}
-	// Buffer starts with "/". Split on whitespace to get the prefix.
-	// Picker matches the prefix as a slash command substring.
-	prefix := readToken(buffer)
-	p.all = FilterSlashCommands(prefix)
-	if len(p.hiddenCommands) > 0 && len(p.all) > 0 {
-		filtered := p.all[:0:0]
-		for _, c := range p.all {
-			if p.hiddenCommands[c.Name] {
-				continue
-			}
-			filtered = append(filtered, c)
-		}
-		p.all = filtered
-	}
-	p.visible = true
+//
+// The "/model <query>" line is the one exception: it is not a command
+// prefix but an *argument* being typed, and the reference swaps the
+// command rows for the model rows (【一手】 agy 1.4.6, live).
+func (p *PickerState) clampSelection() {
 	if len(p.all) == 0 {
-		// Cycle 93: keep the overlay visible so it can render the
-		// "No matches" row + hint row (matches ref byte-for-byte).
 		p.empty = true
 		p.idx = -1
-		return true
+		return
 	}
 	p.empty = false
 	if p.idx < 0 {
@@ -134,6 +168,41 @@ func (p *PickerState) Update(buffer []rune) bool {
 	} else if p.idx >= len(p.all) {
 		p.idx = len(p.all) - 1
 	}
+}
+
+func (p *PickerState) filterVisibleCommands(prefix string) []SlashCommand {
+	cmds := FilterSlashCommands(prefix)
+	if len(p.hiddenCommands) == 0 || len(cmds) == 0 {
+		return cmds
+	}
+	filtered := cmds[:0:0]
+	for _, c := range cmds {
+		if !p.hiddenCommands[c.Name] {
+			filtered = append(filtered, c)
+		}
+	}
+	return filtered
+}
+
+func (p *PickerState) Update(buffer []rune) bool {
+	prev := *p
+	if query, ok := modelQuery(buffer); ok {
+		p.kind = PickerKindModel
+		p.query = query
+		p.all = p.filterModels(query)
+		p.visible = true
+		p.clampSelection()
+		return true
+	}
+	p.kind = PickerKindCommand
+	p.query = ""
+	if len(buffer) == 0 || buffer[0] != '/' {
+		p.Reset()
+		return p.visible != prev.visible || len(p.all) != len(prev.all)
+	}
+	p.all = p.filterVisibleCommands(readToken(buffer))
+	p.visible = true
+	p.clampSelection()
 	return true
 }
 
@@ -241,4 +310,47 @@ func readToken(buffer []rune) string {
 		}
 	}
 	return string(buffer[:end])
+}
+
+// modelQuery reports whether the buffer is a "/model <query>" line and
+// returns the query — the text after the command and its space.
+//
+// The reference enters the model mode as soon as the command is followed
+// by a space, even with an empty query: "/model " lists every model
+// (【一手】 agy 1.4.6, live). A bare "/model" is still a command prefix
+// and shows the command rows.
+func modelQuery(buffer []rune) (string, bool) {
+	s := string(buffer)
+	const prefix = "/model "
+	if !strings.HasPrefix(s, prefix) {
+		return "", false
+	}
+	return s[len(prefix):], true
+}
+
+// filterModels returns the catalogue rows whose label or id contains the
+// query, case-insensitively.
+//
+// The reference matches a *substring* of the display label or of the
+// catalogue id — not a subsequence. 【一手】 agy 1.4.6, live: "onnet"
+// matches "Claude Sonnet 4.6 (Thinking)" (both the label and the id
+// contain it), "4.6" matches both Claude rows (the label), and "son"
+// matches only the Sonnet row: "Claude Opus 4.6 (Thinking)" has no "son"
+// substring, even though a subsequence matcher would accept it.
+func (p *PickerState) filterModels(query string) []SlashCommand {
+	if p.modelSource == nil {
+		return nil
+	}
+	rows := p.modelSource()
+	q := strings.ToLower(query)
+	out := make([]SlashCommand, 0, len(rows))
+	for _, r := range rows {
+		if q != "" &&
+			!strings.Contains(strings.ToLower(r.Label), q) &&
+			!strings.Contains(strings.ToLower(r.ID), q) {
+			continue
+		}
+		out = append(out, SlashCommand{Name: r.Label, Description: r.ID})
+	}
+	return out
 }

@@ -1,6 +1,7 @@
 package tools
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"os"
@@ -38,6 +39,85 @@ func TestModelDeclarationsMatchCapture(t *testing.T) {
 		if len(params.Required) == 0 {
 			t.Errorf("%s: no required properties", name)
 		}
+	}
+}
+
+// The embedded fixture must be the file on disk, byte for byte: the wire
+// bytes come from the fixture, not from a reconstruction.
+func TestModelToolsFixtureMatchesDisk(t *testing.T) {
+	onDisk, err := os.ReadFile("model_tools_1.4.6.json")
+	if err != nil {
+		t.Fatalf("read fixture: %v", err)
+	}
+	if !bytes.Equal(onDisk, ModelToolsJSON()) {
+		t.Errorf("embedded fixture differs from model_tools_1.4.6.json (%d vs %d bytes)",
+			len(ModelToolsJSON()), len(onDisk))
+	}
+}
+
+// 1.4.6 added a BypassSandbox flag to the run_command declaration (【一手】,
+// live 1.4.6 request body; the 1.4.5 capture does not have it).
+func TestRunCommandDeclarationCarriesBypassSandbox(t *testing.T) {
+	var decl ModelToolDecl
+	for _, d := range ModelDeclarations() {
+		if d.Name == "run_command" {
+			decl = d
+		}
+	}
+	if decl.Name == "" {
+		t.Fatal("no run_command declaration")
+	}
+	var params struct {
+		Properties map[string]struct {
+			Type        string `json:"type"`
+			Description string `json:"description"`
+		} `json:"properties"`
+	}
+	if err := json.Unmarshal(decl.Parameters, &params); err != nil {
+		t.Fatalf("parameters: %v", err)
+	}
+	bypass, ok := params.Properties["BypassSandbox"]
+	if !ok {
+		t.Fatalf("run_command declaration has no BypassSandbox property: %v", params.Properties)
+	}
+	if bypass.Type != "BOOLEAN" {
+		t.Errorf("BypassSandbox type = %q, want BOOLEAN", bypass.Type)
+	}
+	if !strings.Contains(bypass.Description, "Set to true to run outside the sandbox") {
+		t.Errorf("BypassSandbox description is not the 1.4.6 text: %q", bypass.Description)
+	}
+}
+
+// 1.4.5 added an ExactTiming flag to the schedule declaration (【一手】, live
+// 1.4.5 request body; the 1.4.4 capture does not have it).
+func TestScheduleDeclarationCarriesExactTiming(t *testing.T) {
+	var decl ModelToolDecl
+	for _, d := range ModelDeclarations() {
+		if d.Name == "schedule" {
+			decl = d
+		}
+	}
+	if decl.Name == "" {
+		t.Fatal("no schedule declaration")
+	}
+	var params struct {
+		Properties map[string]struct {
+			Type        string `json:"type"`
+			Description string `json:"description"`
+		} `json:"properties"`
+	}
+	if err := json.Unmarshal(decl.Parameters, &params); err != nil {
+		t.Fatalf("parameters: %v", err)
+	}
+	exact, ok := params.Properties["ExactTiming"]
+	if !ok {
+		t.Fatalf("schedule declaration has no ExactTiming property: %v", params.Properties)
+	}
+	if exact.Type != "BOOLEAN" {
+		t.Errorf("ExactTiming type = %q, want BOOLEAN", exact.Type)
+	}
+	if !strings.Contains(decl.Description, "Set ExactTiming only when a cron must fire at the exact wall-clock time without jitter.") {
+		t.Errorf("schedule description is not the 1.4.5 text: %q", decl.Description)
 	}
 }
 

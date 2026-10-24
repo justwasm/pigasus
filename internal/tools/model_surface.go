@@ -10,7 +10,7 @@
 //
 // init.tools is the *available* surface the headless client is told about. The
 // declarations the model actually receives are the twelve captured in
-// model_tools_1.4.4.json — verified identical in the 1.4.3 and 1.4.4 request
+// model_tools_1.4.6.json — verified identical in the 1.4.3 and 1.4.4 request
 // bodies (13,449 B of JSON, 12 functionDeclarations, no top-level `tools`
 // wrapper). Until cycle 293 the clone advertised the 60-name catalogue as
 // declarations, which is why reference-shaped calls failed with
@@ -20,6 +20,20 @@
 // The capture is stored verbatim (name, description, parameters) so the wire
 // bytes come from the fixture rather than from a hand-written reconstruction.
 // Order matters: the reference sends this order, not the sorted init.tools.
+//
+// 1.4.5 vs 1.4.4 (【一手】, two live request bodies through the cycle-274
+// capture wrapper): eleven declarations are byte-identical; `schedule` gained
+// an `ExactTiming` boolean and one sentence in its description ("Set
+// ExactTiming only when a cron must fire at the exact wall-clock time without
+// jitter."). The older capture is kept next to the new one as
+// model_tools_1.4.4.json.
+//
+// 1.4.6 vs 1.4.5 (【一手】, docs/cycles/reference-drift-146/): eleven
+// declarations are byte-identical; `run_command` gained a `BypassSandbox`
+// boolean ("Set to true to run outside the sandbox (requires elevated user
+// permission for auth exchange, network, or port binding).") — the
+// parameter the new `<terminal_sandbox>` prompt section talks about. The 1.4.5
+// capture is kept next to the new one as model_tools_1.4.5.json.
 package tools
 
 import (
@@ -30,7 +44,7 @@ import (
 	"sync"
 )
 
-//go:embed model_tools_1.4.4.json
+//go:embed model_tools_1.4.6.json
 var modelToolsJSON []byte
 
 // ModelToolDecl is one function declaration exactly as the reference sends it.
@@ -56,7 +70,7 @@ func ModelDeclarations() []ModelToolDecl {
 		if err := json.Unmarshal(modelToolsJSON, &modelTools); err != nil {
 			// The fixture is embedded at build time; a parse failure is a
 			// programming error, not a runtime condition.
-			panic("tools: model_tools_1.4.4.json: " + err.Error())
+			panic("tools: model_tools_1.4.6.json: " + err.Error())
 		}
 	})
 	out := make([]ModelToolDecl, len(modelTools))

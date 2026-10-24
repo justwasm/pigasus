@@ -220,7 +220,7 @@ func TestIsEmptyAssistantTurn_ReasoningOnly(t *testing.T) {
 }
 
 // TestIsEmptyAssistantTurn_TrimHandlesSSELeadingNewline pins the
-// gateway's leading-newline SSE framing: the agw transport delivers
+// gateway's leading-newline SSE framing: the gateway transport delivers
 // "\n" as the very first delta on every stream, and the recovered
 // sanitizer keeps that byte in `full`. A classification that
 // required content == "" instead of strings.TrimSpace(content) == ""

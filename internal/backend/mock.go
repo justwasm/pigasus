@@ -104,52 +104,35 @@ func (m *MockCodeAssistClient) StreamGenerateContentFromAICode(ctx context.Conte
 		return nil, errors.New("mock: prompt is empty")
 	}
 	out := make(chan grpc.StreamChunk, 8)
+	go streamMockContent(ctx, model, prompt, out)
+	return out, nil
+}
 
-	go func() {
-		defer close(out)
-		// 1. Echo acknowledgment.
+func streamMockContent(ctx context.Context, model, prompt string, out chan<- grpc.StreamChunk) {
+	defer close(out)
+	select {
+	case <-ctx.Done():
+		return
+	case out <- grpc.StreamChunk{Text: "Echo: " + prompt + "\n", ModelVersion: model}:
+	}
+	for _, toolName := range []string{"read_file", "list_dir"} {
 		select {
 		case <-ctx.Done():
 			return
-		case out <- grpc.StreamChunk{
-			Text:         "Echo: " + prompt + "\n",
-			ModelVersion: model,
-		}:
+		case out <- grpc.StreamChunk{Text: "Tool: " + toolName + "\n", ModelVersion: model}:
 		}
-		// 2. Tool plan: emit ToolStartMsg-equivalent chunks.
-		for _, toolName := range []string{"read_file", "list_dir"} {
-			select {
-			case <-ctx.Done():
-				return
-			case out <- grpc.StreamChunk{
-				Text:         "Tool: " + toolName + "\n",
-				ModelVersion: model,
-			}:
-			}
-			// Tiny pause so the test can observe streaming.
-			time.Sleep(5 * time.Millisecond)
+		time.Sleep(5 * time.Millisecond)
+	}
+	response := buildMockResponse(prompt)
+	for _, chunk := range splitForStream(response, 8) {
+		select {
+		case <-ctx.Done():
+			return
+		case out <- grpc.StreamChunk{Text: chunk, ModelVersion: model}:
 		}
-		// 3. Final response.
-		response := buildMockResponse(prompt)
-		for i, chunk := range splitForStream(response, 8) {
-			select {
-			case <-ctx.Done():
-				return
-			case out <- grpc.StreamChunk{
-				Text:         chunk,
-				ModelVersion: model,
-			}:
-			}
-			time.Sleep(5 * time.Millisecond)
-			_ = i
-		}
-		// 4. Done marker.
-		out <- grpc.StreamChunk{
-			Done:         true,
-			ModelVersion: model,
-		}
-	}()
-	return out, nil
+		time.Sleep(5 * time.Millisecond)
+	}
+	out <- grpc.StreamChunk{Done: true, ModelVersion: model}
 }
 
 // FetchConfigFromAICode returns a fixed per-user config.

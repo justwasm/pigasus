@@ -46,8 +46,8 @@ type ChunkMeta struct {
 	TotalTokens      int `json:"total_tokens"`
 	// ReasoningTokens is the number of completion tokens the model spent
 	// inside its thinking block. OpenAI-shaped gateways surface this as
-	// usage.completion_tokens_details.reasoning_tokens (agw.k0s.io does;
-	// see agw_k0s.go). The reference CLI renders it in the conversation
+	// usage.completion_tokens_details.reasoning_tokens (the configured gateway does;
+	// see gateway.go). The reference CLI renders it in the conversation
 	// view's thought step ("Thought for 1.5s, 24 tokens") and in the
 	// `/usage` token summary ("%s in | %s out | %s thinking").
 	ReasoningTokens   int    `json:"reasoning_tokens,omitempty"`
@@ -372,7 +372,7 @@ func parseExpiry(s string) time.Time {
 // typo in --model= without a stack trace.
 //
 // This is the cycle 33 entry point: it lets the recovered binary route
-// completions to OpenAI / Anthropic / Ollama / agw.k0s.io / etc. without
+// completions to OpenAI / Anthropic / Ollama / the configured gateway / etc. without
 // any Node.js wrapper, runtime patching, or proxy.
 func NewRealClient(reg *models.Registry, modelName string) (Client, error) {
 	if reg == nil || strings.TrimSpace(modelName) == "" {
@@ -410,7 +410,7 @@ func (r *realClient) Stream(ctx context.Context, req StreamRequest) (<-chan Stre
 	for i, m := range req.Messages {
 		msgs[i] = models.ChatMessage{Role: m.Role, Content: m.Content}
 	}
-	// IMPORTANT: req.Model is the *registry* handle (e.g. "agw"), not the
+	// IMPORTANT: req.Model is the *registry* handle (e.g. "minimax-m3"), not the
 	// upstream model id (e.g. "MiniMax-M3"). We deliberately ignore it
 	// here and let the provider layer use Model.ExternalModelName. The
 	// handle only exists to look up the registry entry in NewRealClient;

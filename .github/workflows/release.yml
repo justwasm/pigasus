@@ -17,6 +17,9 @@ permissions:
 
 env:
   VERSION: ${{ github.ref_name }}
+  # Belt and braces: the PiG module's checksum-database lookup is skipped, so
+  # a first fetch of a new PiG release cannot fail on the sumdb. Harmless once
+  # the version is in go.sum (the hash is then verified against go.sum alone).
   GONOSUMDB: 'github.com/MichaelKinsy/PiG,github.com/MichaelKinsy/PiG/*'
 
 jobs:
@@ -69,11 +72,15 @@ jobs:
           mkdir -p "$raw_staging" dist
           bin="$raw_staging/pigasus"
           [ "$GOOS" = "windows" ] && bin="$raw_staging/pigasus.exe"
-          go build -trimpath -ldflags "-s -w" -o "$bin" ./cmd/wagyu
+          go build -trimpath -ldflags "-s -w" -o "$bin" ./cmd/pigasus
           chmod +x "$bin"
-          # Also include wagyu binary alias in the archive
-          cp "$bin" "$raw_staging/wagyu"
-          [ "$GOOS" = "windows" ] && cp "$bin" "$raw_staging/wagyu.exe"
+          # `wagyu` was the command name before the rename; shipping it as an
+          # alias keeps an existing install (or a script that calls `wagyu`)
+          # working. The program name in the usage text comes from argv[0], so
+          # each spelling prints its own.
+          alias_bin="$raw_staging/wagyu"
+          [ "$GOOS" = "windows" ] && alias_bin="$raw_staging/wagyu.exe"
+          cp "$bin" "$alias_bin"
           cp README.md  "$raw_staging/README.md"  2>/dev/null || true
           cp LICENSE    "$raw_staging/LICENSE"    2>/dev/null || true
 
@@ -121,7 +128,14 @@ jobs:
           cp checksums.txt artifacts/checksums.txt
           cd artifacts
           files=$(find . -type f | sort | sed 's|^\./||')
-          gh release create "$VERSION" \
-            --title "$VERSION" \
-            --generate-notes \
-            $files
+          # A re-run of a failed release must not fail on the tag's release
+          # already existing: replace the assets in place instead.
+          if gh release view "$VERSION" >/dev/null 2>&1; then
+            echo "Release $VERSION already exists — replacing its assets."
+            gh release upload "$VERSION" $files --clobber
+          else
+            gh release create "$VERSION" \
+              --title "$VERSION" \
+              --generate-notes \
+              $files
+          fi

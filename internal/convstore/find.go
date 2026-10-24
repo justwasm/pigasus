@@ -83,38 +83,40 @@ func FindMostRecent(start string, maxDepth int) (*WorkspaceCandidate, error) {
 		return nil, fmt.Errorf("convstore: FindMostRecent: %w", err)
 	}
 	abs = filepath.Clean(abs)
-
 	if maxDepth < 0 {
 		maxDepth = 0
 	}
 
-	// 1. start itself
 	cand, err := scanWorkspace(abs)
-	if err != nil {
-		return nil, err
-	}
-	if cand != nil {
-		return cand, nil
+	if err != nil || cand != nil {
+		return cand, err
 	}
 
-	// 2. parent walk
+	cand, err = findAncestorCandidate(abs, maxDepth)
+	if err != nil || cand != nil {
+		return cand, err
+	}
+
+	return findImmediateChildCandidate(abs)
+}
+
+func findAncestorCandidate(abs string, maxDepth int) (*WorkspaceCandidate, error) {
 	dir := abs
 	for i := 0; i < maxDepth; i++ {
 		parent := filepath.Dir(dir)
 		if parent == dir {
-			break // reached filesystem root
+			break
 		}
 		dir = parent
-		cand, err = scanWorkspace(dir)
-		if err != nil {
-			return nil, err
-		}
-		if cand != nil {
-			return cand, nil
+		cand, err := scanWorkspace(dir)
+		if err != nil || cand != nil {
+			return cand, err
 		}
 	}
+	return nil, nil
+}
 
-	// 3. immediate children of start (one level).
+func findImmediateChildCandidate(abs string) (*WorkspaceCandidate, error) {
 	entries, err := os.ReadDir(abs)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) || errors.Is(err, os.ErrPermission) {
@@ -134,16 +136,10 @@ func FindMostRecent(start string, maxDepth int) (*WorkspaceCandidate, error) {
 		if child == nil {
 			continue
 		}
-		// Stable tie-break by path so the harness and the user see the
-		// same result every run; the recovered chooser is "most recent"
-		// so mtime is the primary key.
 		if best == nil || child.LastUsed.After(best.LastUsed) ||
 			(child.LastUsed.Equal(best.LastUsed) && child.Dir < best.Dir) {
 			best = child
 		}
-	}
-	if best == nil {
-		return nil, nil
 	}
 	return best, nil
 }

@@ -62,6 +62,32 @@ func TestAntigravityToken_UserEmail(t *testing.T) {
 	}
 }
 
+// TestAntigravityToken_UserEmailFallsBackToTheReferenceField covers the
+// credential the reference writes after a refresh: the refresh response
+// carries no id_token, so the account lives in the reference's own
+// id_token_email field.
+func TestAntigravityToken_UserEmailFallsBackToTheReferenceField(t *testing.T) {
+	tok := &AntigravityToken{IDTokenEmail: "user@example.com"}
+	if em := tok.UserEmail(); em != "user@example.com" {
+		t.Fatalf("tok.UserEmail() = %q, want %q", em, "user@example.com")
+	}
+}
+
+// TestAntigravityToken_UserEmailPrefersTheClaim: the signed claim wins
+// over the field, because the field can be stale — the reference keeps
+// it across a refresh.
+func TestAntigravityToken_UserEmailPrefersTheClaim(t *testing.T) {
+	header := "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9"
+	payload := "eyJlbWFpbCI6InVzZXJAZXhhbXBsZS5jb20iLCJzdWIiOiIxMjM0NSJ9"
+	tok := &AntigravityToken{
+		IDToken:      header + "." + payload + ".sig",
+		IDTokenEmail: "other@example.com",
+	}
+	if em := tok.UserEmail(); em != "user@example.com" {
+		t.Fatalf("tok.UserEmail() = %q, want %q", em, "user@example.com")
+	}
+}
+
 func TestSaveAndLoad_RoundTrip(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "antigravity-oauth-token")

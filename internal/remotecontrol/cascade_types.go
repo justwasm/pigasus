@@ -109,7 +109,7 @@ type Cascade struct {
 	// dashboard omitted model.
 	Model string
 	// BackendLabel is the backend the cascade should route to
-	// ("agw" | "shim"). Empty means "use the host's default".
+	// ("gateway" | "shim"). Empty means "use the host's default".
 	BackendLabel string
 	// Agent is the agent name (default, explorer, …).
 	Agent string

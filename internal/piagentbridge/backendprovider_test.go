@@ -11,7 +11,7 @@ import (
 
 // TestBackendProviderModel pins the ai.Provider surface BackendProvider
 // presents to PiG: the clone's provider id (so a session it drives is
-// indistinguishable from one on the native agw provider), and a model whose id
+// indistinguishable from one on the native gateway provider), and a model whose id
 // is the caller's label rather than the wire model.
 func TestBackendProviderModel(t *testing.T) {
 	p := NewBackendProvider(backend.NewMock(), "MiniMax-M3")

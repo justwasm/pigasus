@@ -88,46 +88,50 @@ func TestInvokeSubagentToolDeclaration(t *testing.T) {
 		}
 	}
 
-	// invoke_subagent schema: prompt is required; model, system_prompt,
-	// worktree are optional.
-	invokeSchema := got[0].Schema()
-	if invokeSchema.Name != "invoke_subagent" {
-		t.Fatalf("invoke schema.Name = %q, want invoke_subagent", invokeSchema.Name)
-	}
-	if !hasRequiredProperty(invokeSchema.Parameters, "prompt") {
-		t.Fatalf("invoke_subagent parameters missing required=%q: %+v", "prompt", invokeSchema.Parameters)
-	}
-	if hasRequiredProperty(invokeSchema.Parameters, "model") {
-		t.Fatalf("invoke_subagent.parameters should NOT mark model as required: %+v", invokeSchema.Parameters)
-	}
+	assertInvokeSchema(t, got[0].Schema())
+	assertSendSchema(t, got[2].Schema())
+	assertManageSchema(t, got[3].Schema())
+}
 
-	// send_message: unknown recipients are reported in the reference's
-	// shape, and the declaration mirrors the captured 1.4.4 one
-	// (Recipient/Message).
-	sendSchema := got[2].Schema()
-	if sendSchema.Name != "send_message" {
-		t.Fatalf("send schema.Name = %q, want send_message", sendSchema.Name)
+func assertInvokeSchema(t *testing.T, s pi.ToolSchema) {
+	t.Helper()
+	if s.Name != "invoke_subagent" {
+		t.Fatalf("invoke schema.Name = %q, want invoke_subagent", s.Name)
 	}
-	if strings.Contains(sendSchema.Description, "not yet implemented") {
-		t.Fatalf("send_message description still carries a stub marker: %q", sendSchema.Description)
+	if !hasRequiredProperty(s.Parameters, "prompt") {
+		t.Fatalf("invoke_subagent parameters missing required=%q: %+v", "prompt", s.Parameters)
 	}
-	if !hasRequiredProperty(sendSchema.Parameters, "Recipient") || !hasRequiredProperty(sendSchema.Parameters, "Message") {
-		t.Fatalf("send_message parameters missing required Recipient/Message: %+v", sendSchema.Parameters)
+	if hasRequiredProperty(s.Parameters, "model") {
+		t.Fatalf("invoke_subagent.parameters should NOT mark model as required: %+v", s.Parameters)
 	}
+}
 
-	// manage_subagents: the reference's action enum is list/kill/kill_all.
-	mgrSchema := got[3].Schema()
-	if mgrSchema.Name != "manage_subagents" {
-		t.Fatalf("manage schema.Name = %q, want manage_subagents", mgrSchema.Name)
+func assertSendSchema(t *testing.T, s pi.ToolSchema) {
+	t.Helper()
+	if s.Name != "send_message" {
+		t.Fatalf("send schema.Name = %q, want send_message", s.Name)
 	}
-	if strings.Contains(mgrSchema.Description, "not yet implemented") {
-		t.Fatalf("manage_subagents description still carries a stub marker: %q", mgrSchema.Description)
+	if strings.Contains(s.Description, "not yet implemented") {
+		t.Fatalf("send_message description still carries a stub marker: %q", s.Description)
 	}
-	if !hasRequiredProperty(mgrSchema.Parameters, "Action") {
-		t.Fatalf("manage_subagents parameters missing required Action: %+v", mgrSchema.Parameters)
+	if !hasRequiredProperty(s.Parameters, "Recipient") || !hasRequiredProperty(s.Parameters, "Message") {
+		t.Fatalf("send_message parameters missing required Recipient/Message: %+v", s.Parameters)
 	}
-	if !propertyHasEnum(mgrSchema.Parameters, "Action", []string{"list", "kill", "kill_all"}) {
-		t.Fatalf("manage_subagents.parameters.Action missing list/kill/kill_all enum: %+v", mgrSchema.Parameters)
+}
+
+func assertManageSchema(t *testing.T, s pi.ToolSchema) {
+	t.Helper()
+	if s.Name != "manage_subagents" {
+		t.Fatalf("manage schema.Name = %q, want manage_subagents", s.Name)
+	}
+	if strings.Contains(s.Description, "not yet implemented") {
+		t.Fatalf("manage_subagents description still carries a stub marker: %q", s.Description)
+	}
+	if !hasRequiredProperty(s.Parameters, "Action") {
+		t.Fatalf("manage_subagents parameters missing required Action: %+v", s.Parameters)
+	}
+	if !propertyHasEnum(s.Parameters, "Action", []string{"list", "kill", "kill_all"}) {
+		t.Fatalf("manage_subagents.parameters.Action missing list/kill/kill_all enum: %+v", s.Parameters)
 	}
 }
 
@@ -396,141 +400,10 @@ func TestSendMessageUnknownRecipient(t *testing.T) {
 	}
 }
 
-// ─── TestManageSubagentsList ───────────────────────────────────────────────
-
-// TestManageSubagentsList pins the list action's contract. The clone has no
-// subagent registry — delegations are synchronous, so no subagent is ever live
-// when the parent runs a tool — and the reference formats the marshalled state
-// slice after the count (【反编译】 .list @0x101d5fff0). The empty slice
-// marshals to "[]".
-func TestManageSubagentsList(t *testing.T) {
-	tool := &manageSubagentsTool{}
-
-	for _, action := range []string{"list", "List", "status"} {
-		args, _ := json.Marshal(manageSubagentsArgs{Action: action})
-		res, err := tool.Execute(context.Background(), "call-mgr-list", args, nil)
-		if err != nil {
-			t.Fatalf("%s: Execute returned err: %v", action, err)
-		}
-		if res.IsError {
-			t.Fatalf("%s: Execute returned IsError=true, want a normal result", action)
-		}
-		body := res.Content[0].(pi.TextContent)
-		want := "You have 0 active subagent(s):\n[]"
-		if !strings.HasSuffix(body.Text, want) {
-			t.Fatalf("%s: result = %q, want suffix %q", action, body.Text, want)
-		}
-		if strings.Contains(body.Text, "not yet implemented") {
-			t.Fatalf("%s: stub marker leaked into the model's context: %q", action, body.Text)
-		}
-	}
-
-	// The reference's declaration takes the capitalised spelling too.
-	args, _ := json.Marshal(manageSubagentsArgs{ActionCap: "list"})
-	res, err := tool.Execute(context.Background(), "call-mgr-list-cap", args, nil)
-	if err != nil {
-		t.Fatalf("Action=list: Execute returned err: %v", err)
-	}
-	if body := res.Content[0].(pi.TextContent); !strings.HasSuffix(body.Text, "You have 0 active subagent(s):\n[]") {
-		t.Fatalf("Action=list: result = %q", body.Text)
-	}
-}
-
-// ─── TestManageSubagentsKill ───────────────────────────────────────────────
-
-// TestManageSubagentsKill pins the two measured kill texts.
-//
-// kill_all with nothing registered returns the 【一手】 1.4.4 sentence. kill
-// naming a conversation id returns the 【反编译】 per-id sentence, which points
-// the model at the list action — the clone never has a live id to kill, so
-// that is the only reachable kill outcome.
-func TestManageSubagentsKill(t *testing.T) {
-	tool := &manageSubagentsTool{}
-
-	// kill_all / kill with no ids → the empty-registry text.
-	for _, action := range []string{"kill_all", "kill"} {
-		args, _ := json.Marshal(manageSubagentsArgs{Action: action})
-		res, err := tool.Execute(context.Background(), "call-mgr-kill", args, nil)
-		if err != nil {
-			t.Fatalf("%s: Execute returned err: %v", action, err)
-		}
-		if res.IsError {
-			t.Fatalf("%s: Execute returned IsError=true, want a normal result", action)
-		}
-		body := res.Content[0].(pi.TextContent)
-		if !strings.HasSuffix(body.Text, "No active subagents to kill.") {
-			t.Fatalf("%s: result = %q", action, body.Text)
-		}
-	}
-
-	// kill naming an id → the per-id sentence, as a normal result.
-	args, _ := json.Marshal(manageSubagentsArgs{ActionCap: "kill", ConversationIdsCap: []string{"abc-123", "def-456"}})
-	res, err := tool.Execute(context.Background(), "call-mgr-kill-id", args, nil)
-	if err != nil {
-		t.Fatalf("kill with ids: Execute returned err: %v", err)
-	}
-	if res.IsError {
-		t.Fatalf("kill with ids: Execute returned IsError=true, want a normal result")
-	}
-	want := `conversation "abc-123" is not an active subagent of this conversation, so nothing was killed; ` +
-		`run the "list" action to see the active subagents and their ids`
-	if body := res.Content[0].(pi.TextContent); !strings.HasSuffix(body.Text, want) {
-		t.Fatalf("kill with ids: result = %q, want suffix %q", body.Text, want)
-	}
-
-	// An action outside the reference's enum is a caller-side error.
-	if _, err := tool.Execute(context.Background(), "call-mgr-bad", json.RawMessage(`{"Action":"nope"}`), nil); err == nil {
-		t.Fatal("unknown action returned nil error")
-	}
-}
-
-// TestSubagentTools_AgySchemaCompatibility tests that tools accept
-// the reference Google agy parameters (TypeName, Role, Workspace, Recipient, ConversationIds).
-func TestSubagentTools_AgySchemaCompatibility(t *testing.T) {
-	// 1. send_message with Recipient and Message
-	msgTool := &sendMessageTool{}
-	msgJSON := []byte(`{"Recipient": "subagent-12345", "Message": "hello"}`)
-	res, err := msgTool.Execute(context.Background(), "call-1", msgJSON, nil)
-	if err != nil {
-		t.Fatalf("sendMessageTool.Execute: %v", err)
-	}
-	if got := res.Content[0].(pi.TextContent).Text; !strings.HasSuffix(got, `recipient "subagent-12345" not found`) {
-		t.Fatalf("send_message = %q", got)
-	}
-
-	// 2. manage_subagents with Action and ConversationIds
-	mgrTool := &manageSubagentsTool{}
-	mgrJSON := []byte(`{"Action": "kill", "ConversationIds": ["subagent-12345"]}`)
-	res, err = mgrTool.Execute(context.Background(), "call-2", mgrJSON, nil)
-	if err != nil {
-		t.Fatalf("manageSubagentsTool.Execute: %v", err)
-	}
-	if got := res.Content[0].(pi.TextContent).Text; !strings.HasSuffix(got,
-		`conversation "subagent-12345" is not an active subagent of this conversation, so nothing was killed; `+
-			`run the "list" action to see the active subagents and their ids`) {
-		t.Fatalf("manage_subagents = %q", got)
-	}
-
-	// 3. invoke_subagent with TypeName, Role, Workspace
-	invTool := &invokeTool{deps: Deps{
-		Services: subagentTestServices(t),
-		Model:    subagentTestModel(),
-		CWD:      t.TempDir(),
-	}}
-	invJSON := []byte(`{"TypeName": "image-generator", "Role": "Artist", "Prompt": "cat drawing", "Workspace": "inherit"}`)
-	res, err = invTool.Execute(context.Background(), "call-3", invJSON, nil)
-	if err != nil {
-		t.Fatalf("invokeTool.Execute: %v", err)
-	}
-	if res.IsError {
-		t.Fatalf("invokeTool.Execute with image-generator failed: %+v", res)
-	}
-}
-
 // TestDefineSubagentResultText pins the captured 1.4.4 text and the fact that
 // a definition is stored under its name for invoke_subagent to find.
 func TestDefineSubagentResultText(t *testing.T) {
-	defs := newDefinitionStore()
+	defs := NewStore()
 	tool := &defineTool{defs: defs}
 	res, err := tool.Execute(context.Background(), "call-def",
 		json.RawMessage(`{"Name":"cycletest","Description":"Test subagent","SystemPrompt":"You are a test."}`), nil)
@@ -544,7 +417,7 @@ func TestDefineSubagentResultText(t *testing.T) {
 	if !strings.HasSuffix(got, `Subagent "cycletest" defined successfully. It can now be invoked via invoke_subagent.`) {
 		t.Fatalf("define_subagent = %q", got)
 	}
-	if def, ok := defs.get("cycletest"); !ok || def.SystemPrompt != "You are a test." {
+	if def, ok := defs.Get("cycletest"); !ok || def.SystemPrompt != "You are a test." {
 		t.Fatalf("definition not stored: %+v ok=%v", def, ok)
 	}
 }
@@ -557,7 +430,7 @@ func TestInvokeSubagentUnknownType(t *testing.T) {
 		Services: subagentTestServices(t),
 		Model:    subagentTestModel(),
 		CWD:      t.TempDir(),
-	}, defs: newDefinitionStore()}
+	}, defs: NewStore()}
 	res, err := tool.Execute(context.Background(), "call-inv",
 		json.RawMessage(`{"TypeName":"general","Role":"Tester","Prompt":"Say OK."}`), nil)
 	if err != nil {

@@ -29,7 +29,7 @@
 //
 //   - TestWith401Retry_KindAuthExpired_FormatterRendersVerbatim:
 //     end-to-end check that the KindAuthExpired envelope renders
-//     the verbatim canonical message via cmd/wagyu's classifyAPIError.
+//     the verbatim canonical message via cmd/pigasus's classifyAPIError.
 package codeassistclient
 
 import (
@@ -149,7 +149,7 @@ func TestWith401Retry_InflightRefresh_PropagatesAuthExpired(t *testing.T) {
 	}
 
 	// The returned error must unwrap to an *backend.HTTPError with
-	// KindAuthExpired so the cmd/wagyu api_error formatter renders
+	// KindAuthExpired so the cmd/pigasus api_error formatter renders
 	// the verbatim canonical message.
 	var he *backend.HTTPError
 	if !errors.As(err, &he) {
@@ -311,7 +311,7 @@ func TestRefresh_Success_NextTokenReturnsNewValue(t *testing.T) {
 // TestWith401Retry_KindAuthExpired_FormatterRendersVerbatim is the
 // integration check across the package boundary: the KindAuthExpired
 // HTTPError returned by With401Retry, when fed into the
-// cmd/wagyu.api_error classifier (mirrored here for testability),
+// cmd/pigasus.api_error classifier (mirrored here for testability),
 // renders the verbatim "Authentication expired. Please log back in."
 // string and reports 401 → UNAUTHENTICATED. This guards the cycle's
 // delivery contract end-to-end.

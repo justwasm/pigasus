@@ -23,7 +23,7 @@ import (
 )
 
 // PlanTierRequest is the metadata block agy 1.4.3 sends to
-// v1internal:loadCodeAssist (captured by cmd/agy:
+// v1internal:loadCodeAssist (captured through the proxy:
 // {"metadata":{"ideType":"ANTIGRAVITY"}}).
 type PlanTierRequest struct {
 	Metadata struct {
@@ -77,11 +77,29 @@ func cloudCodeAccessToken() (string, error) {
 // FetchPlanTier asks daily-cloudcode-pa for the account's paid tier. It
 // returns "" when no token is available, the request fails, or the
 // response has no tier; callers keep their existing default in that case.
+//
+// The tier belongs to the account behind the shared credential. The
+// multi-account panel needs the tier of *other* accounts too, so the
+// token-scoped variant below is the one that does the work.
 func FetchPlanTier(ctx context.Context) string {
 	tok, err := cloudCodeAccessToken()
 	if err != nil {
 		return ""
 	}
+	return FetchPlanTierWithToken(ctx, tok)
+}
+
+// FetchPlanTierWithToken asks daily-cloudcode-pa for the paid tier of
+// the account behind an explicit bearer token.
+//
+// It is the tier of *that* account, not of the shared credential: the
+// multi-account registry queries one account at a time, each with its
+// own access token.
+func FetchPlanTierWithToken(ctx context.Context, accessToken string) string {
+	if strings.TrimSpace(accessToken) == "" {
+		return ""
+	}
+	tok := accessToken
 	var reqBody PlanTierRequest
 	reqBody.Metadata.IDEType = "ANTIGRAVITY"
 	body, err := json.Marshal(reqBody)

@@ -46,7 +46,7 @@ import (
 //	{
 //	  "pid":               <int>,
 //	  "version":           "<cli-version>",
-//	  "backend":           "agw" | "shim",
+//	  "backend":           "gateway" | "shim",
 //	  "model":             "<label>",
 //	  "workspace":         "<abs>",
 //	  "started_at":        "<RFC3339>",

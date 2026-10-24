@@ -77,8 +77,12 @@ func TestModels_SignedIn(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("models exit code: got %d, want 0 (stderr=%q)", code, errb)
 	}
-	if !strings.HasPrefix(out, "Fetching available models...\n") {
-		t.Errorf("models stdout should start with the fetch banner, got:\n%s", out)
+	// 【一手】 The fetch banner is on stderr; stdout carries only the rows.
+	if errb != "Fetching available models...\n" {
+		t.Errorf("models stderr should be the fetch banner, got:\n%s", errb)
+	}
+	if strings.HasPrefix(out, "Fetching available models...") {
+		t.Errorf("models stdout should not carry the fetch banner, got:\n%s", out)
 	}
 	// Every line after the banner is "<id>\t<label>".
 	for _, want := range []string{

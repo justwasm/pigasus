@@ -43,6 +43,49 @@ type Section struct {
 	Line int
 }
 
+func parseSectionHeader(path string, lineNum int, line string) (*Section, error) {
+	s := &Section{Line: lineNum}
+	rest := strings.TrimPrefix(line, "## ")
+	sp := strings.IndexByte(rest, ' ')
+	if sp < 0 {
+		return nil, fmt.Errorf("%s:%d: section header has no arguments: %q", path, lineNum, line)
+	}
+	s.Name = rest[:sp]
+	rest = rest[sp+1:]
+
+	obj, tail, err := scanJSONObject(rest)
+	if err != nil {
+		return nil, fmt.Errorf("%s:%d: %w", path, lineNum, err)
+	}
+	var compact bytes.Buffer
+	if err := json.Compact(&compact, obj); err != nil {
+		return nil, fmt.Errorf("%s:%d: bad argument JSON: %w", path, lineNum, err)
+	}
+	s.Args = json.RawMessage(compact.Bytes())
+	s.Note = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(tail), ";"))
+	return s, nil
+}
+
+func parseSectionBody(s *Section, block []string) {
+	k := 0
+	for ; k < len(block); k++ {
+		t := strings.TrimSpace(block[k])
+		if t == "" {
+			continue
+		}
+		if strings.HasPrefix(t, "#") {
+			s.Notes = append(s.Notes, strings.TrimSpace(strings.TrimPrefix(t, "#")))
+			continue
+		}
+		break
+	}
+	if k < len(block) && strings.TrimSpace(block[k]) == "<stamp>" {
+		s.HasStamp = true
+		k++
+	}
+	s.Body = strings.TrimRight(strings.Join(block[k:], "\n"), "\n")
+}
+
 // Load parses the result-text capture at path.
 func Load(path string) ([]Section, error) {
 	raw, err := os.ReadFile(path)
@@ -56,53 +99,18 @@ func Load(path string) ([]Section, error) {
 		if !strings.HasPrefix(lines[i], "## ") {
 			continue
 		}
-		s := Section{Line: i + 1}
-		rest := strings.TrimPrefix(lines[i], "## ")
-		sp := strings.IndexByte(rest, ' ')
-		if sp < 0 {
-			return nil, fmt.Errorf("%s:%d: section header has no arguments: %q", path, i+1, lines[i])
-		}
-		s.Name = rest[:sp]
-		rest = rest[sp+1:]
-
-		obj, tail, err := scanJSONObject(rest)
+		s, err := parseSectionHeader(path, i+1, lines[i])
 		if err != nil {
-			return nil, fmt.Errorf("%s:%d: %w", path, i+1, err)
+			return nil, err
 		}
-		var compact bytes.Buffer
-		if err := json.Compact(&compact, obj); err != nil {
-			return nil, fmt.Errorf("%s:%d: bad argument JSON: %w", path, i+1, err)
-		}
-		s.Args = json.RawMessage(compact.Bytes())
-		s.Note = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(tail), ";"))
-
-		// The block runs to the next header.
 		var block []string
 		j := i + 1
 		for ; j < len(lines) && !strings.HasPrefix(lines[j], "## "); j++ {
 			block = append(block, lines[j])
 		}
 		i = j - 1
-
-		// Leading comment and blank lines belong to the section, not the body.
-		k := 0
-		for ; k < len(block); k++ {
-			t := strings.TrimSpace(block[k])
-			if t == "" {
-				continue
-			}
-			if strings.HasPrefix(t, "#") {
-				s.Notes = append(s.Notes, strings.TrimSpace(strings.TrimPrefix(t, "#")))
-				continue
-			}
-			break
-		}
-		if k < len(block) && strings.TrimSpace(block[k]) == "<stamp>" {
-			s.HasStamp = true
-			k++
-		}
-		s.Body = strings.TrimRight(strings.Join(block[k:], "\n"), "\n")
-		out = append(out, s)
+		parseSectionBody(s, block)
+		out = append(out, *s)
 	}
 	if len(out) == 0 {
 		return nil, fmt.Errorf("%s: no sections found", path)

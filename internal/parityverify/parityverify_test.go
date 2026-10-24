@@ -62,7 +62,7 @@ func TestParityMatrix(t *testing.T) {
 	}
 
 	// Repo root is the parent of internal/. We need it both for
-	// the chdir (so WorkdirScope accepts cmd/wagyu / go.mod / the
+	// the chdir (so WorkdirScope accepts cmd/pigasus / go.mod / the
 	// project workspace) and for the `go build` of the wagyu
 	// binary. The harness resolves it from this test file's path.
 	repoRoot, err := findRepoRoot()
@@ -105,7 +105,7 @@ func runParity(t *testing.T, repoRoot, binPath string) runResult {
 	addr := fmt.Sprintf("0.0.0.0:%d", port)
 
 	// chdir to repo root before starting the daemon so the
-	// foreground handler's WorkdirScope accepts cmd/wagyu,
+	// foreground handler's WorkdirScope accepts cmd/pigasus,
 	// go.mod, and the project workspace path. The harness
 	// restores the cwd on exit.
 	origCwd, err := os.Getwd()
@@ -232,7 +232,7 @@ func runParity(t *testing.T, repoRoot, binPath string) runResult {
 	matrix = append(matrix, checkRow(v, "ReadRemoteAgentFile", "rc-file-ops",
 		func(v *verifier) (string, string) { return verifyReadFile(v, "go.mod") }))
 	matrix = append(matrix, checkRow(v, "ReadRemoteAgentDir", "rc-file-ops",
-		func(v *verifier) (string, string) { return verifyReadDir(v, "cmd/wagyu") }))
+		func(v *verifier) (string, string) { return verifyReadDir(v, "cmd/pigasus") }))
 
 	// --- project CRUD ---
 	matrix = append(matrix, checkRow(v, "ListRemoteAgentProjects", "rc-projects", verifyListProjects))
@@ -906,8 +906,8 @@ func ensureWagyuBinary(repoRoot, outDir string) (string, error) {
 			return p, nil
 		}
 	}
-	binPath := filepath.Join(outDir, "wagyu")
-	cmd := exec.Command("go", "build", "-o", binPath, "./cmd/wagyu")
+	binPath := filepath.Join(outDir, "pigasus")
+	cmd := exec.Command("go", "build", "-o", binPath, "./cmd/pigasus")
 	cmd.Dir = repoRoot
 	cmd.Stdout = io.Discard
 	cmd.Stderr = io.Discard

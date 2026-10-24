@@ -13,9 +13,9 @@
 //	go run ./cmd/pigloop-demo                    # bridge, scripted 2-turn tool round trip
 //	go run ./cmd/pigloop-demo -mode loop         # the migrated internal/agent.Loop
 //	go run ./cmd/pigloop-demo -provider mock     # the clone's backend.NewMock
-//	go run ./cmd/pigloop-demo -provider agw -model MiniMax-M3
-//	                                             # the native agw.k0s.io provider
-//	                                             # (OPENAGY_AGW_URL / OPENAGY_AGW_KEY)
+//	go run ./cmd/pigloop-demo -provider gateway -model MiniMax-M3
+//	                                             # the native the configured gateway provider
+//	                                             # (OPENAGY_GATEWAY_URL / OPENAGY_GATEWAY_KEY)
 package main
 
 import (
@@ -38,20 +38,20 @@ import (
 	"github.com/justwasm/pigasus/internal/tools"
 )
 
-// agwDefaultModel is the wire model agw.k0s.io serves; the Antigravity model
+// gatewayDefaultModel is the wire model the configured gateway serves; the Antigravity model
 // names are not accepted there.
-const agwDefaultModel = "MiniMax-M3"
+const gatewayDefaultModel = "MiniMax-M3"
 
 func main() {
 	mode := flag.String("mode", "bridge", `"bridge" (PiG agent over piagentbridge) or "loop" (the migrated internal/agent.Loop)`)
-	provider := flag.String("provider", "scripted", `"scripted" (2-turn tool round trip), "mock" (backend.NewMock) or "agw" (the native agw.k0s.io provider)`)
+	provider := flag.String("provider", "scripted", `"scripted" (2-turn tool round trip), "mock" (backend.NewMock) or "gateway" (the native the configured gateway provider)`)
 	model := flag.String("model", "claude-sonnet-4-6", "model id sent upstream")
 	prompt := flag.String("prompt", "What Go module is this repository?", "user prompt for the run")
 	flag.Parse()
 
-	if *provider == "agw" && !flagPassed("model") {
-		// agw is not an Antigravity model router: it serves its own wire ids.
-		*model = agwDefaultModel
+	if *provider == "gateway" && !flagPassed("model") {
+		// gateway is not an Antigravity model router: it serves its own wire ids.
+		*model = gatewayDefaultModel
 	}
 
 	// The clone's real tool registry, backed by its real filesystem executor.
@@ -113,7 +113,7 @@ func runBridge(ctx context.Context, providerName, model, prompt string, registry
 		Registry:     registry,
 		Events:       events,
 	}
-	if providerName == "agw" {
+	if providerName == "gateway" {
 		options.Provider = piagentbridge.NewProvider(piagentbridge.ProviderConfig{Model: model})
 	} else {
 		options.Client = chooseClient(providerName)
@@ -141,7 +141,7 @@ func runBridge(ctx context.Context, providerName, model, prompt string, registry
 
 // runLoop drives the clone's own Loop, whose Send is now PiG's loop. Nothing
 // about the call site is cycle-183 specific: this is the same Options /
-// TurnInput / Handler / ToolRunner shape cmd/wagyu and both HTTP shims use.
+// TurnInput / Handler / ToolRunner shape cmd/pigasus and both HTTP shims use.
 func runLoop(ctx context.Context, providerName, model, prompt string, registry *tools.Registry) {
 	options := agent.Options{
 		DefaultModel: model,
@@ -150,7 +150,7 @@ func runLoop(ctx context.Context, providerName, model, prompt string, registry *
 		Tools:        declsFrom(registry),
 		ToolRunner:   &registryRunner{reg: registry},
 	}
-	if providerName == "agw" {
+	if providerName == "gateway" {
 		options.Provider = piagentbridge.NewProvider(piagentbridge.ProviderConfig{Model: model})
 	} else {
 		options.Backend = chooseClient(providerName)
@@ -197,7 +197,7 @@ func metaLine(meta *backend.ChunkMeta) string {
 }
 
 // registryRunner adapts a tools.Registry to agent.ToolRunner, the same way
-// cmd/wagyu/main.go does.
+// cmd/pigasus/main.go does.
 type registryRunner struct{ reg *tools.Registry }
 
 func (r *registryRunner) Run(ctx context.Context, call backend.ToolCall) (string, error) {
@@ -205,7 +205,7 @@ func (r *registryRunner) Run(ctx context.Context, call backend.ToolCall) (string
 }
 
 // declsFrom advertises the registry to the model. It exists in the demo only
-// because cmd/wagyu/main.go's toolDeclsFromRegistry is package-private; note
+// because cmd/pigasus/main.go's toolDeclsFromRegistry is package-private; note
 // that it can carry tools.Describe now that the catalog exposes descriptions.
 func declsFrom(reg *tools.Registry) []backend.ToolDecl {
 	names := reg.List()

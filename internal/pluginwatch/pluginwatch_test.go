@@ -129,7 +129,7 @@ func TestWatcher_Debounce(t *testing.T) {
 
 	// Sleep until the watcher is settled (no pending timer), so the
 	// burst we emit starts from a known-fresh state.
-	if !waitFor(t, 500*time.Millisecond, func() bool { return w.debounceTimer == nil }) {
+	if !waitFor(t, 500*time.Millisecond, func() bool { return !w.hasPendingTimer() }) {
 		t.Fatal("watcher never reached the no-pending-timer idle state")
 	}
 

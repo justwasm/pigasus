@@ -1,0 +1,43 @@
+package themepreview
+
+import (
+	"strings"
+	"testing"
+
+	"github.com/justwasm/pigasus/internal/onboarding"
+)
+
+func TestColorsFor(t *testing.T) {
+	p, ph := ColorsFor("Tokyo Night")
+	if p != "#82aaff" || ph != "#828bb8" {
+		t.Errorf("ColorsFor(Tokyo Night) = (%s, %s)", p, ph)
+	}
+
+	p, ph = ColorsFor("dark")
+	if p != "#268BD2" || ph != "#839496" {
+		t.Errorf("ColorsFor(dark) = (%s, %s)", p, ph)
+	}
+}
+
+func TestSchemeFromString(t *testing.T) {
+	if got := SchemeFromString("solarized light"); got != onboarding.SchemeSolarizedLight {
+		t.Errorf("SchemeFromString(solarized light) = %v", got)
+	}
+	if got := SchemeFromString("dark"); got != onboarding.SchemeDark {
+		t.Errorf("SchemeFromString(dark) = %v", got)
+	}
+	if got := SchemeFromString("unknown"); got != onboarding.SchemeSolarizedLight {
+		t.Errorf("SchemeFromString(unknown) = %v", got)
+	}
+}
+
+func TestBuildPreviewLines(t *testing.T) {
+	displays := []string{"Dark", "Light"}
+	lines := BuildPreviewLines(displays, 0, "Dark", "<blue>", "</blue>")
+	if len(lines) != 22 {
+		t.Fatalf("expected 22 lines, got %d", len(lines))
+	}
+	if !strings.Contains(lines[1], "Dark (current)") {
+		t.Errorf("expected current marker, got %q", lines[1])
+	}
+}
