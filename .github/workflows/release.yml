@@ -130,10 +130,12 @@ jobs:
           cd artifacts
           files=$(find . -type f | sort | sed 's|^\./||')
           # A re-run of a failed release must not fail on the tag's release
-          # already existing: replace the assets in place instead.
+          # already existing: replace the assets in place instead, and ensure
+          # it is not left in draft state.
           if gh release view "$VERSION" >/dev/null 2>&1; then
-            echo "Release $VERSION already exists — replacing its assets."
+            echo "Release $VERSION already exists — replacing its assets and publishing."
             gh release upload "$VERSION" $files --clobber
+            gh release edit "$VERSION" --draft=false
           else
             gh release create "$VERSION" \
               --title "$VERSION" \

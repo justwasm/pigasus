@@ -1,6 +1,6 @@
 {
   "name": "pigasus",
-  "version": "1.4.7",
+  "version": "1.4.7-1",
   "pigasusVersion": "1.4.7",
   "description": "Cross-platform runner for Pigasus (Antigravity CLI compatible agent)",
   "bin": {
