@@ -65,7 +65,7 @@ out/local-macos/gosrc/
 # /go-recovered/internal/tools/git.go
 /antigravity
 internal/tools/.finished
-bin/
+/bin/
 
 # Per-session scratchpad (fails to build against current bubbletea)
 scratch/

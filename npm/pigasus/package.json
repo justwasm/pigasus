@@ -1,0 +1,45 @@
+{
+  "name": "pigasus",
+  "version": "1.4.6",
+  "description": "Cross-platform runner for Pigasus (Antigravity CLI compatible agent)",
+  "bin": {
+    "pigasus": "bin/pigasus.js",
+    "agy": "bin/pigasus.js"
+  },
+  "main": "index.js",
+  "files": [
+    "bin/",
+    "lib/",
+    "index.js",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "test": "node ./bin/pigasus.js --version"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/justwasm/pigasus.git"
+  },
+  "keywords": [
+    "pigasus",
+    "antigravity",
+    "agy",
+    "agent",
+    "ai",
+    "cli"
+  ],
+  "author": "justwasm",
+  "license": "Apache-2.0",
+  "bugs": {
+    "url": "https://github.com/justwasm/pigasus/issues"
+  },
+  "homepage": "https://github.com/justwasm/pigasus#readme",
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
+  "engines": {
+    "node": ">=16.0.0"
+  }
+}

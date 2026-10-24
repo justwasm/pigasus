@@ -144,6 +144,7 @@ ALLOWLIST=(
   devutils
   rea-go-seeds
   scripts
+  npm
   .github
   docs/guide
   docs/cycles
