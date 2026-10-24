@@ -1,7 +1,7 @@
 'use strict';
 
 const fs = require('fs');
-const path = require('os').homedir ? require('path') : null;
+const path = require('path');
 const os = require('os');
 const https = require('https');
 const http = require('http');
@@ -20,6 +20,24 @@ function getCacheDir() {
   }
   const home = os.homedir();
   return path.join(home, '.cache', 'pigasus', 'bin');
+}
+
+/**
+ * Recursively locates the binary inside an extracted directory.
+ * Handles nested archive structures like dist/pigasus_v1.4.6_arm64/pigasus.
+ */
+function findBinary(dir, targetName) {
+  const entries = fs.readdirSync(dir, { withFileTypes: true });
+  for (const entry of entries) {
+    const fullPath = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      const found = findBinary(fullPath, targetName);
+      if (found) return found;
+    } else if (entry.isFile() && (entry.name === targetName || entry.name === `${targetName}.exe`)) {
+      return fullPath;
+    }
+  }
+  return null;
 }
 
 /**
@@ -132,9 +150,12 @@ async function ensureBinary(version) {
     return process.env.PIGASUS_BINARY_PATH;
   }
 
+  const pkg = require('../package.json');
+  const binaryVersion = pkg.pigasusVersion || (version ? version.replace(/[-+].*$/, '') : '1.4.6');
+
   const platformInfo = getPlatformInfo();
   const cacheDir = getCacheDir();
-  const binaryFileName = `pigasus-${version}-${platformInfo.os}-${platformInfo.arch}`;
+  const binaryFileName = `pigasus-${binaryVersion}-${platformInfo.os}-${platformInfo.arch}`;
   const targetBinaryPath = path.join(cacheDir, binaryFileName);
 
   // If cached and executable, return immediately
@@ -143,7 +164,6 @@ async function ensureBinary(version) {
       fs.accessSync(targetBinaryPath, fs.constants.X_OK);
       return targetBinaryPath;
     } catch (_) {
-      // If not executable, re-chmod or re-download
       try {
         fs.chmodSync(targetBinaryPath, 0o755);
         return targetBinaryPath;
@@ -156,9 +176,9 @@ async function ensureBinary(version) {
   // Ensure cache directory exists
   fs.mkdirSync(cacheDir, { recursive: true });
 
-  const archiveName = `pigasus_v${version}_${platformInfo.archiveSuffix}`;
+  const archiveName = `pigasus_v${binaryVersion}_${platformInfo.archiveSuffix}`;
   let baseDownloadUrl = process.env.PIGASUS_DOWNLOAD_URL ||
-    `https://github.com/${GITHUB_REPO}/releases/download/v${version}`;
+    `https://github.com/${GITHUB_REPO}/releases/download/v${binaryVersion}`;
 
   if (process.env.GITHUB_MIRROR) {
     baseDownloadUrl = baseDownloadUrl.replace('https://github.com/', process.env.GITHUB_MIRROR.replace(/\/$/, '') + '/');
@@ -172,7 +192,7 @@ async function ensureBinary(version) {
 
   const isTTY = process.stderr.isTTY;
   if (isTTY) {
-    process.stderr.write(`Downloading Pigasus v${version} for ${platformInfo.os}_${platformInfo.arch}...\n`);
+    process.stderr.write(`Downloading Pigasus v${binaryVersion} for ${platformInfo.os}_${platformInfo.arch}...\n`);
   }
 
   const destStream = fs.createWriteStream(tmpArchive);
@@ -212,7 +232,6 @@ async function ensureBinary(version) {
         }
       }
     } catch (csErr) {
-      // If fetching checksums failed or strict mismatch, log warning if network error
       if (csErr.message.includes('checksum mismatch')) {
         throw csErr;
       }
@@ -227,9 +246,9 @@ async function ensureBinary(version) {
       });
     });
 
-    // Locate binary in extracted dir
-    const extractedBinary = path.join(tmpExtractDir, platformInfo.binaryName);
-    if (!fs.existsSync(extractedBinary)) {
+    // Locate binary in extracted dir (supports flat or nested release archives)
+    const extractedBinary = findBinary(tmpExtractDir, platformInfo.binaryName);
+    if (!extractedBinary) {
       throw new Error(`Extracted archive did not contain binary '${platformInfo.binaryName}'`);
     }
 
@@ -248,4 +267,5 @@ async function ensureBinary(version) {
 module.exports = {
   getCacheDir,
   ensureBinary,
+  findBinary,
 };
