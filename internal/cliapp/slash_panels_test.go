@@ -1709,6 +1709,7 @@ func TestChangelogViewer_VimAndBubbleteaKeybindings(t *testing.T) {
 }
 
 func TestListPanels_VimKeybindings(t *testing.T) {
+	withSyntheticCatalog(t, cycSharedSkills(3))
 	m := mkPanel(panelSkills, "/skills", 0)
 	m.panel.cursor = 0
 
@@ -1769,7 +1770,7 @@ func TestHelpMode_VimKeybindings(t *testing.T) {
 }
 
 func TestSkillsDetail_VimKeybindings(t *testing.T) {
-	m := mkPanel(panelSkills, "/skills", 0)
+	m := longDetailRunner(t, 50, 80)
 	m.panel.detail = true
 	m.panel.window = 0
 
