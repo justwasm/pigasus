@@ -8,10 +8,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/justwasm/pigasus/agentbrowser"
 	"github.com/justwasm/pigasus/internal/auth"
 	"github.com/justwasm/pigasus/internal/backend"
 	"github.com/justwasm/pigasus/internal/cli"
 	"github.com/justwasm/pigasus/internal/convstore"
+	"github.com/justwasm/pigasus/internal/models"
 	"github.com/justwasm/pigasus/internal/piagentbridge"
 	"github.com/justwasm/pigasus/internal/remotecontrol"
 )
@@ -24,43 +26,130 @@ var BackendPicker = func(modelName string) backend.Client {
 
 // buildHostMessageBackend returns the production `remotecontrol.MessageBackend`
 // the dispatcher's Config.MessageBackend field gets.
-func buildHostMessageBackend(workspace, modelName string) remotecontrol.MessageBackend {
-	be := BackendPicker(modelName)
+//
+// The transport is chosen per turn: the Web UI picks the model when the
+// conversation starts, and the daemon is started long before that. A
+// fixed client would have to be built for a model that does not exist
+// yet — the empty name landed on the shim, and the dashboard answered
+// "mock reply from model=…" to every message.
+//
+// The broker is the agent↔browser bridge: the same instance the
+// dispatcher's three LanguageServerService RPCs serve, so the IDE half
+// (the Web UI's window) and the agent half (the turn's
+// `webview_browser` tool) meet in one place.
+func buildHostMessageBackend(workspace, modelName string, broker *agentbrowser.Broker) remotecontrol.MessageBackend {
+	be := BackendPicker(resolveModelName(modelName))
 	return &remotecontrol.PiagentBackend{
 		SessionFactory: piagentbridge.NewRemoteCascadeSession(
 			piagentbridge.RemoteCascadeOptions{
-				Backend:   be,
+				Backend: be,
+				BackendFactory: func(m string) backend.Client {
+					return BackendPicker(resolveModelName(m))
+				},
 				Workspace: workspace,
 				AgentDir:  auth.AntigravityHome(),
+				Browser:   broker,
 			},
 		),
 	}
 }
 
+// resolveModelName returns the model a turn runs on: the model's own id
+// when the request carries one, the user's configured default
+// otherwise.
+func resolveModelName(modelName string) string {
+	name := strings.TrimSpace(modelName)
+	if name != "" {
+		return name
+	}
+	return defaultConfiguredModel()
+}
+
+// defaultConfiguredModel returns the first model the user's provider
+// configuration serves, or "" when nothing is configured.
+func defaultConfiguredModel() string {
+	for _, m := range models.CachedRegistry().List() {
+		if name := strings.TrimSpace(m.Name); name != "" {
+			return name
+		}
+	}
+	return ""
+}
+
 // hostListModels returns models supported by reference, filtered by backend.
+//
+// The user's configured models come first: they are the ones the clone
+// can actually reach. The reference's own catalogue follows — those
+// models need the CloudCode endpoint and an OAuth token.
+//
+// A configured model that declares reasoning tiers is listed once per
+// tier — the reference's own shape ("Gemini 3.8 Flash (High)"). The
+// Web UI's picker shows the label it is handed and sends the row's id
+// back, so the tiers reach the picker without a frontend change.
 func hostListModels(backend, filter, defaultModel string) ([]remotecontrol.ModelInfo, error) {
 	chosen := strings.TrimSpace(backend)
 	if chosen == "" {
 		chosen = defaultModel
 	}
 	chosen = strings.ToLower(chosen)
-	entries := cli.ReferenceModels()
-	if len(entries) == 0 {
-		return remotecontrol.DefaultModelInfo, nil
+	out := make([]remotecontrol.ModelInfo, 0, 8)
+	for _, m := range models.TierRows(models.CachedRegistry().List()) {
+		label := strings.TrimSpace(m.DisplayName)
+		if label == "" {
+			label = m.Name
+		}
+		out = append(out, remotecontrol.ModelInfo{
+			ID:              m.Name,
+			Label:           label,
+			Backend:         "gateway",
+			EffortSupported: effortSupportedOrDefault(m.EffortSupported),
+			Default:         len(out) == 0,
+			SupportsImages:  m.SupportsImages,
+			// The model's own attributes, as the configuration states
+			// them. A model that says nothing carries nothing, and the
+			// Web UI's picker falls back to its own defaults.
+			SupportedMimeTypes:         m.SupportedMimeTypes,
+			Disabled:                   m.Disabled,
+			QuotaInfo:                  m.QuotaInfo,
+			SupportsThoughtCirculation: m.SupportsThoughtCirculation,
+			ModelURL:                   m.ModelURL,
+			ModelID:                    m.ExternalModelName,
+			TagTitle:                   m.TagTitle,
+			TagDescription:             m.TagDescription,
+		})
 	}
-	out := make([]remotecontrol.ModelInfo, 0, len(entries))
-	firstForBackend := true
+	entries := cli.ReferenceModels()
 	for _, e := range entries {
+		// The reference's own catalogue states nothing about pictures:
+		// the family table decides (remotecontrol.modelTakesImages).
 		out = append(out, remotecontrol.ModelInfo{
 			ID:              e.ID,
 			Label:           e.Label,
 			Backend:         chosen,
 			EffortSupported: true,
-			Default:         firstForBackend,
+			Default:         len(out) == 0,
 		})
-		firstForBackend = false
+	}
+	if len(out) == 0 {
+		return remotecontrol.DefaultModelInfo, nil
 	}
 	return out, nil
+}
+
+// effortSupportedOrDefault resolves the model's reasoning-level
+// marker: the configuration's own word when it has one, and the
+// clone's long-standing default (every model offers an effort level)
+// when it does not.
+//
+// The Web UI's picker does not read the marker at all; the clone's own
+// surfaces do — the `/effort` command and the model list. So a
+// configuration that says "this model has no reasoning level" turns it
+// off, and a configuration that says nothing changes nothing.
+func effortSupportedOrDefault(stated *bool) bool {
+	if stated == nil {
+		return true
+	}
+	return *stated
 }
 
 // hostListConversations lists conversations from the conversation store.

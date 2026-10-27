@@ -58,10 +58,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strings"
 	"sync"
 	"sync/atomic"
 
-	"github.com/justwasm/pigasus/internal/originpolicy"
+	"github.com/justwasm/pigasus/originpolicy"
 )
 
 // Dispatcher is the JSON-RPC protocol engine. It owns the Config
@@ -99,6 +100,21 @@ type Dispatcher struct {
 	// surface; the brief's "registry lives per-Daemon" rule means
 	// cycles reset cascades across restarts.
 	cascades *CascadeRegistry
+
+	// trajectories holds one trajectory per conversation the
+	// Antigravity Web UI has open. The Web UI renders a
+	// conversation from the StreamAgentStateUpdates server
+	// stream, whose frames carry the step list the trajectory
+	// owns. Keyed by the conversation id, which is the cascade id
+	// the Web UI minted.
+	trajectories *lsTrajectoryStore
+
+	// state holds the Web UI's server-owned state: the app state
+	// (onboarding flags, the model selection) and the user config
+	// (the user settings). The Web UI reads them through
+	// JetboxReadAppState / JetboxSubscribeToState and writes them
+	// back through JetboxWriteState (state.go).
+	state *stateStore
 
 	// broadcasterMu guards broadcaster. RWMutex so the
 	// hot-path (BroadcastNotify) takes a read lock while
@@ -179,7 +195,7 @@ func NewDispatcher(cfg Config) (*Dispatcher, error) {
 	if err := applyDispatcherDefaults(&cfg); err != nil {
 		return nil, err
 	}
-	return &Dispatcher{cfg: cfg, cascades: cfg.Cascades}, nil
+	return &Dispatcher{cfg: cfg, cascades: cfg.Cascades, trajectories: newLSTrajectoryStore(), state: newStateStore()}, nil
 }
 
 // applyDispatcherDefaults walks every Config field with a
@@ -334,6 +350,22 @@ func (d *Dispatcher) Session() *SessionState {
 	return d.cfg.Session
 }
 
+// MendelUserAgent reports the identity the GetMendelFlags answer's
+// backend read carries.
+//
+// Empty → the CLI's own identity (auth.MendelUserAgentCLI); the
+// hub's identity → the desktop app's flag set. The backend serves a
+// different set per product, so the identity decides which UI the
+// page shows.
+//
+// Cycle web-desktop-mode-remote-control adds the accessor.
+func (d *Dispatcher) MendelUserAgent() string {
+	if d == nil {
+		return ""
+	}
+	return d.cfg.MendelUserAgent
+}
+
 // Dispatch routes one JSON-RPC request to its handler. It
 // returns nil for notifications (which the protocol defines as
 // having no "id" field) so the transport can skip the write.
@@ -375,6 +407,32 @@ func (d *Dispatcher) Dispatch(ctx context.Context, raw []byte) map[string]any {
 // dispatch_route.go; this function is a thin fan-out so the
 // hot-path stays small.
 func (d *Dispatcher) routeMethod(ctx context.Context, method string, params json.RawMessage) (any, *rpcErrorBody) {
+	// The quota route is checked before the LanguageServerService
+	// table: RetrieveUserQuotaSummary is a LanguageServerService
+	// method, but it has its own file (dispatch_quota.go) because its
+	// answer is the account's quota, not a conversation's state.
+	if result, rpcErr, ok := d.routeQuotaMethods(ctx, method, params); ok {
+		return result, rpcErr
+	}
+	// The code-assist state is the account's tier, not a
+	// conversation's state — the same reason it has its own file
+	// (dispatch_codeassist.go). It is checked before the
+	// LanguageServerService table for the same reason: the Web UI's
+	// credits panel calls it, and without a route the panel throws
+	// ("loadCodeAssist returned no response").
+	if result, rpcErr, ok := d.routeCodeAssistMethods(ctx, method, params); ok {
+		return result, rpcErr
+	}
+	if result, rpcErr, ok := d.routeLanguageServerMethods(ctx, method, params); ok {
+		return result, rpcErr
+	}
+	// The IDE dialect's three cancel methods (ls_cancel.go). They are
+	// consulted before the alias table: the IDE's own names win over
+	// the clone's legacy ones, and the legacy
+	// `CancelRemoteAgentCascade` keeps its own envelope.
+	if result, rpcErr, ok := d.routeLSCancelMethods(ctx, method, params); ok {
+		return result, rpcErr
+	}
 	// The reference's gRPC method names (StartCascade, ReadFile, …) are
 	// accepted as aliases for the clone's legacy JSON-RPC names; see
 	// reference_surface.go.
@@ -403,4 +461,24 @@ func (d *Dispatcher) routeMethod(ctx context.Context, method string, params json
 		}
 	}
 	return nil, &rpcErrorBody{Code: -32601, Message: "Method not found", Data: method}
+}
+
+// DispatchDirect dispatches an RPC method directly with a JSON payload string
+// (e.g. from gRPC-Web or WebChannel proxy), returning the JSON result string.
+func (d *Dispatcher) DispatchDirect(ctx context.Context, method string, payloadText string) (string, error) {
+	if strings.TrimSpace(payloadText) == "" {
+		payloadText = "{}"
+	}
+	result, rpcErr := d.routeMethod(ctx, method, json.RawMessage(payloadText))
+	if rpcErr != nil {
+		return "", &rpcCodedError{Code: rpcErr.Code, Message: rpcErr.Message, Data: rpcErr.Data}
+	}
+	if result == nil {
+		return "{}", nil
+	}
+	b, err := marshalAnswer(method, result)
+	if err != nil {
+		return "{}", err
+	}
+	return string(b), nil
 }

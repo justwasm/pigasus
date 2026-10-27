@@ -21,7 +21,7 @@
 //     echoed in the result).
 //
 // Wire-level tests live in
-// internal/remotetransport/tcp_test.go
+// remotetransport/tcp_test.go
 // (mirroring the project's split: in-process
 // envelopes vs. wire round-trips).
 package remotecontrol
@@ -33,7 +33,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/justwasm/pigasus/internal/originpolicy"
+	"github.com/justwasm/pigasus/originpolicy"
 )
 
 // sampleOriginPolicy returns a small canned

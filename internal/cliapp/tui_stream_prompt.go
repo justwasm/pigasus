@@ -15,6 +15,7 @@ import (
 	"github.com/justwasm/pigasus/internal/agyprompt"
 	"github.com/justwasm/pigasus/internal/auth"
 	"github.com/justwasm/pigasus/internal/backend"
+	"github.com/justwasm/pigasus/internal/browsersubagent"
 	"github.com/justwasm/pigasus/internal/compaction"
 	"github.com/justwasm/pigasus/internal/pigrt"
 	"github.com/justwasm/pigasus/internal/tuilib"
@@ -26,15 +27,39 @@ func firstLine(s string) string {
 	return tuilib.FirstLine(s)
 }
 
+// prepareStreamTurnMessages turns the session into the messages the turn
+// hands to the model.
+//
+// A user turn keeps the reference's <USER_REQUEST> envelope (appendUserTurn
+// builds it). A system notice — a background task's notification — does
+// not: the reference's own lead-in says the message was not sent by the
+// user, so it travels in the user-content position without the envelope
+// the reference wraps around what the user typed.
+//
+// The implicit trajectory's messages come first: the reference's cumulative
+// prompt carries the persistent context ahead of the turn's own messages,
+// and the `!` commands the user ran outside the conversation are part of
+// that context (see tui_cumulative.go).
 func (m *runMode) prepareStreamTurnMessages() []backend.Message {
-	msgs := make([]backend.Message, len(m.session))
-	copy(msgs, m.session)
+	// A notification that arrived after the turn was set up still has to
+	// reach the model: it joins the session here.
+	m.drainTaskNotifications()
+	// A `!` command that finished since the last turn reaches the model
+	// with this one.
+	m.collectImplicitMessages()
+	msgs := make([]backend.Message, 0, len(m.implicitMsgs)+len(m.session))
+	msgs = append(msgs, m.implicitMsgs...)
+	msgs = append(msgs, m.session...)
 	for i := range msgs {
-		if msgs[i].Role != "user" {
-			continue
+		switch msgs[i].Role {
+		case "user":
+			msgs[i].Content = msgs[i].WireText()
+			msgs[i].WireContent = ""
+		case "system":
+			msgs[i].Role = "user"
+			msgs[i].Content = msgs[i].WireText()
+			msgs[i].WireContent = ""
 		}
-		msgs[i].Content = msgs[i].WireText()
-		msgs[i].WireContent = ""
 	}
 	return msgs
 }
@@ -364,6 +389,11 @@ func (m *runMode) promptOptions() agyprompt.Options {
 	opts.UserRules = agyprompt.DiscoverUserRules(workspace, agentDir)
 	opts.Skills = agyprompt.DiscoverSkills(pigrt.AgySkillPaths(agentDir, m.cwd))
 	if m.agentBody == "" {
+		// The browser agent is one of the built-in subagent types, and it
+		// comes before the user's own agents: the reference's list puts
+		// its built-ins first (the 1.4.6 capture lists self, research and
+		// image-generator ahead of the user's alpha and zeta).
+		opts.Subagents = append(opts.Subagents, browsersubagent.Subagent())
 		opts.Subagents = append(opts.Subagents, customSubagents()...)
 	}
 	return opts

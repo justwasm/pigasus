@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/justwasm/pigasus/internal/palette"
+	"github.com/justwasm/pigasus/palette"
 	"github.com/justwasm/pigasus/internal/tuilib"
 )
 

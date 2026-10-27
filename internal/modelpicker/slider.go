@@ -5,8 +5,8 @@ package modelpicker
 import (
 	"strings"
 
-	"github.com/justwasm/pigasus/internal/palette"
 	"github.com/justwasm/pigasus/internal/tuilib"
+	"github.com/justwasm/pigasus/palette"
 )
 
 // Effort level constants matching the reference's 3-tier effort geometry.
@@ -15,7 +15,6 @@ const (
 	EffortMedium = 1
 	EffortHigh   = 2
 
-	PanelGray238  = "\x1b[38;2;88;110;117m" // dim descriptions
 	PanelGray238C = "\x1b[39m"
 
 	PanelTitleOpen  = "\x1b[1m\x1b[39m" // panel title: bold + default fg
@@ -25,6 +24,20 @@ const (
 	PanelEffMedOpen  = "\x1b[38;5;172m"       // effort slider, level 1 (orange)
 	PanelEffHighOpen = "\x1b[38;5;166m"       // effort slider, level 2 (red-orange)
 )
+
+// PanelGray238 is the dim grey the slider's arrows and labels are
+// painted in — the selected scheme's muted foreground.
+var PanelGray238 = palette.SubtleOpen
+
+func init() {
+	palette.OnSchemeChange(refreshColours)
+}
+
+// refreshColours re-reads the palette after the selected colour scheme
+// changed.
+func refreshColours() {
+	PanelGray238 = palette.SubtleOpen
+}
 
 // EffortDescriptions are the three blurbs the /effort slider shows.
 // Captured by driving REF's /effort panel with ←/→ (/tmp/agycmp/effort_probe.py).

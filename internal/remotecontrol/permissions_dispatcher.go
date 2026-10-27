@@ -465,7 +465,7 @@ func mapPermissionsError(err error, op string) *rpcErrorBody {
 // concrete transport type.
 //
 // SetBroadcaster is the seam documented in
-// notify.go. The internal/remotetransport package
+// notify.go. The remotetransport package
 // wires its own broadcaster at TCPServer
 // construction (see the rc-permissions-grants cycle
 // commit). Without a registered broadcaster the

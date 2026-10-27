@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/justwasm/pigasus/internal/palette"
+	"github.com/justwasm/pigasus/palette"
 )
 
 func TestEffortBarSegmentsLevels(t *testing.T) {

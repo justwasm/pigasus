@@ -6,7 +6,7 @@
 // conversation is loaded: the subagents it defined, the schedules it
 // created, the tasks it managed (【反编译】 the reference's
 // `cortex/rehydration` package and the cascade manager's
-// `processLoadedTrajectory`, CLI 0x101e4e8a0; see
+// `processLoadedTrajectory`, CLI 0x101f26440; see
 // out/ide-language-server/README.md §10.9).
 //
 // The print mode replays a continued conversation's earlier turns

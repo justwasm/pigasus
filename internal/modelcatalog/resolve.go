@@ -63,6 +63,16 @@ func CanonicalModelLabel(name string) string {
 	if name == "gemini-3.8-flash" || name == "Gemini 3.8 Flash" {
 		return "Gemini 3.8 Flash (High)"
 	}
+	// The bare id of a configured model that declares reasoning tiers is
+	// not a catalogue row of its own — the catalogue lists one row per
+	// tier ("minimax-m3.1-flash-max"). The id still names the model the
+	// user configured, at its default tier, and a model the user
+	// configured must not fall through to the reference's default: that
+	// sends the request to the CloudCode account instead of the
+	// configured endpoint.
+	if label := cli.ConfiguredModelDefaultLabel(name); label != "" {
+		return label
+	}
 	return ""
 }
 

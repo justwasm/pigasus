@@ -57,7 +57,7 @@ import (
 	"encoding/json"
 	"time"
 
-	"github.com/justwasm/pigasus/internal/originpolicy"
+	"github.com/justwasm/pigasus/originpolicy"
 )
 
 // NotifOriginPolicyChangedMethod is the
@@ -217,7 +217,7 @@ func (d *Dispatcher) handleSetRemoteControlOriginPatterns(params json.RawMessage
 // concrete transport type.
 //
 // SetBroadcaster is the seam documented in
-// notify.go. The internal/remotetransport
+// notify.go. The remotetransport
 // package wires its own broadcaster at
 // TCPServer construction. Without a
 // registered broadcaster the method is a

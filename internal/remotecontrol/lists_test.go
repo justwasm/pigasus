@@ -7,7 +7,7 @@
 //   - the read-only pre-flight contract on dispatchList.
 //
 // Wire-level round-trips (ws adapter + JSON marshalling) live in
-// internal/remotetransport/tcp_test.go, mirroring the split the
+// remotetransport/tcp_test.go, mirroring the split the
 // rc-cascade-message cycle established.
 package remotecontrol
 

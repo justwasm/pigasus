@@ -37,6 +37,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/justwasm/pigasus/atomicfile"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/pretty"
 	"github.com/tidwall/sjson"
@@ -248,6 +249,36 @@ func updateModelFields(raw []byte, target string, m ProviderModel) ([]byte, erro
 	if raw, err = setOrDeleteInt(raw, target+".default_max_tokens", m.DefaultMaxTokens); err != nil {
 		return nil, err
 	}
+	if raw, err = setOrDeleteBool(raw, target+".supports_images", m.SupportsImages); err != nil {
+		return nil, err
+	}
+	if raw, err = setOrDeleteStringSlice(raw, target+".supported_mime_types", m.SupportedMimeTypes); err != nil {
+		return nil, err
+	}
+	if raw, err = setOrDeleteBool(raw, target+".disabled", boolPointer(m.Disabled)); err != nil {
+		return nil, err
+	}
+	if raw, err = setOrDeleteQuotaInfo(raw, target+".quota_info", m.QuotaInfo); err != nil {
+		return nil, err
+	}
+	if raw, err = setOrDeleteBool(raw, target+".supports_thought_circulation", m.SupportsThoughtCirculation); err != nil {
+		return nil, err
+	}
+	if raw, err = setOrDelete(raw, target+".model_url", m.ModelURL); err != nil {
+		return nil, err
+	}
+	if raw, err = setOrDelete(raw, target+".tag_title", m.TagTitle); err != nil {
+		return nil, err
+	}
+	if raw, err = setOrDelete(raw, target+".tag_description", m.TagDescription); err != nil {
+		return nil, err
+	}
+	if raw, err = setOrDeleteBool(raw, target+".effort_supported", m.EffortSupported); err != nil {
+		return nil, err
+	}
+	if raw, err = setOrDeleteStringSlice(raw, target+".reasoning_efforts", m.ReasoningEfforts); err != nil {
+		return nil, err
+	}
 	return setOrDelete(raw, target+".reasoning_effort", m.ReasoningEffort)
 }
 
@@ -267,6 +298,60 @@ func modelToMap(m ProviderModel) map[string]any {
 	}
 	if m.ReasoningEffort != "" {
 		out["reasoning_effort"] = m.ReasoningEffort
+	}
+	if len(m.ReasoningEfforts) > 0 {
+		out["reasoning_efforts"] = m.ReasoningEfforts
+	}
+	if m.SupportsImages != nil {
+		out["supports_images"] = *m.SupportsImages
+	}
+	if len(m.SupportedMimeTypes) > 0 {
+		out["supported_mime_types"] = m.SupportedMimeTypes
+	}
+	if m.Disabled {
+		out["disabled"] = true
+	}
+	if m.QuotaInfo != nil {
+		if quota := quotaInfoToMap(m.QuotaInfo); len(quota) > 0 {
+			out["quota_info"] = quota
+		}
+	}
+	if m.SupportsThoughtCirculation != nil {
+		out["supports_thought_circulation"] = *m.SupportsThoughtCirculation
+	}
+	if m.ModelURL != "" {
+		out["model_url"] = m.ModelURL
+	}
+	if m.TagTitle != "" {
+		out["tag_title"] = m.TagTitle
+	}
+	if m.TagDescription != "" {
+		out["tag_description"] = m.TagDescription
+	}
+	if m.EffortSupported != nil {
+		out["effort_supported"] = *m.EffortSupported
+	}
+	return out
+}
+
+// boolPointer returns a pointer to the bool, so a plain bool can be
+// written through the tri-state writer: "disabled: true" is a
+// statement, "disabled: false" says nothing.
+func boolPointer(v bool) *bool {
+	if !v {
+		return nil
+	}
+	return &v
+}
+
+// quotaInfoToMap renders the quota state the way the file spells it.
+func quotaInfoToMap(q *QuotaInfo) map[string]any {
+	out := map[string]any{}
+	if q.RemainingFraction != nil {
+		out["remaining_fraction"] = *q.RemainingFraction
+	}
+	if q.ResetTime != "" {
+		out["reset_time"] = q.ResetTime
 	}
 	return out
 }
@@ -364,12 +449,8 @@ func writeFormattedJSON(path string, raw []byte) error {
 		}
 	}
 	formatted := pretty.Pretty(raw)
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, formatted, 0o600); err != nil {
-		return fmt.Errorf("write %s: %w", tmp, err)
-	}
-	if err := os.Rename(tmp, path); err != nil {
-		return fmt.Errorf("rename: %w", err)
+	if err := atomicfile.WriteFile(path, formatted, 0o600); err != nil {
+		return fmt.Errorf("write %s: %w", path, err)
 	}
 	return nil
 }
@@ -386,6 +467,38 @@ func setOrDeleteInt(raw []byte, path string, val int) ([]byte, error) {
 		return sjson.SetBytes(raw, path, val)
 	}
 	return sjson.DeleteBytes(raw, path)
+}
+
+// setOrDeleteBool writes a boolean that may be *unstated*: a nil pointer
+// removes the key, so a model entry that says nothing about pictures
+// carries no key at all.
+func setOrDeleteBool(raw []byte, path string, val *bool) ([]byte, error) {
+	if val != nil {
+		return sjson.SetBytes(raw, path, *val)
+	}
+	return sjson.DeleteBytes(raw, path)
+}
+
+// setOrDeleteStringSlice writes a list of strings, or removes the key
+// when the list is empty.
+func setOrDeleteStringSlice(raw []byte, path string, val []string) ([]byte, error) {
+	if len(val) == 0 {
+		return sjson.DeleteBytes(raw, path)
+	}
+	return sjson.SetBytes(raw, path, val)
+}
+
+// setOrDeleteQuotaInfo writes the model's quota state, or removes the
+// key when there is none.
+func setOrDeleteQuotaInfo(raw []byte, path string, q *QuotaInfo) ([]byte, error) {
+	if q == nil {
+		return sjson.DeleteBytes(raw, path)
+	}
+	out := quotaInfoToMap(q)
+	if len(out) == 0 {
+		return sjson.DeleteBytes(raw, path)
+	}
+	return sjson.SetBytes(raw, path, out)
 }
 
 func escapePath(key string) string {

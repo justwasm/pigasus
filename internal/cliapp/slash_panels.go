@@ -47,7 +47,8 @@ import (
 
 	"github.com/justwasm/pigasus/internal/agent"
 	"github.com/justwasm/pigasus/internal/auth"
-	"github.com/justwasm/pigasus/internal/palette"
+	"github.com/justwasm/pigasus/internal/modelcatalog"
+	"github.com/justwasm/pigasus/palette"
 )
 
 // panelKind identifies which reference panel is open on the runMode.
@@ -79,6 +80,13 @@ const (
 	panelFeatDiff  // /feature-diff viewer (cycle 236) — feature parity panel
 	panelProvider  // /provider configuration panel (cycle provider-model-editor)
 	panelAccounts  // /accounts switcher (cycle multi-account-switch)
+	// Cycle 315: the /tasks detail sub-views. Enter on a row of the
+	// /tasks panel opens one of them — the task detail for a background
+	// task, the subagent detail for an agent (subagent) task. They are
+	// sub-views of /tasks, not panels of their own: Esc goes back to the
+	// list, and a second Esc leaves /tasks.
+	panelTaskDetail
+	panelSubagentDetail
 )
 
 // Palette. Indices are the xterm-256 codes REF emits (post-tmux
@@ -92,7 +100,7 @@ const (
 	panelTitleOpen  = "\x1b[1m\x1b[39m" // panel title: bold + default fg
 	panelTitleClose = "\x1b[0m"
 
-	panelBoldBlueOpen  = palette.PanelBoldBlueOpen  // key glyphs in the "· " hint rows
+	panelBoldBlueOpen  = palette.PanelBoldBlueOpen // key glyphs in the "· " hint rows
 	panelBoldBlueClose = palette.PanelBoldBlueClose
 
 	panelEffLowOpen  = "\x1b[38;2;133;153;0m" // effort slider, level 0 (green)
@@ -101,10 +109,11 @@ const (
 
 	panelGreen34 = "\x1b[38;5;34m" // the ● next to an available agent
 
-	// panelGray166 is the orange-red foreground used by the cycle-194
-	// "Individual quota reached" warning line on /schedule and /browser
-	// (recovered verbatim from /tmp/agycmp/panels/ppref.schedule.raw.txt and
-	// ppref.browser.raw.txt — both lines were captured at fg 166; cycle 217).
+	// panelGray166 is the orange-red foreground the reference uses for a
+	// warning line (recovered verbatim from
+	// /tmp/agycmp/panels/ppref.schedule.raw.txt and ppref.browser.raw.txt
+	// — both lines were captured at fg 166; cycle 217). The clone uses it
+	// for the warning row a failing /browser run prints.
 	panelGray166  = "\x1b[38;5;166m"
 	panelGray166C = "\x1b[39m"
 )
@@ -271,6 +280,13 @@ type slashPanel struct {
 	// are re-read from the account registry on every open and after
 	// every switch, so the panel never shows a stale account list.
 	acct accountsPanelState
+
+	// Cycle 315: the /tasks detail sub-view's state. taskDetailID is the
+	// registry id of the row the user opened (the panel kind decides
+	// whether the task detail or the subagent detail is rendered), and
+	// panel.window holds the body's first visible row while the
+	// sub-view is open.
+	taskDetailID string
 }
 
 // Effort levels. The reference orders them low, medium, high and the
@@ -317,25 +333,34 @@ var effortDescriptions = [3]string{
 }
 
 // panelExitNotice reports whether Escaping the panel leaves the
-// "⎿  Exited /<cmd> command" line in the transcript. REF does this for
-// most panels but closes /mcp, /permissions, /codesearch, /feedback,
-// /rewind, /context, /plugin, /changelog and /diff silently
-// (/tmp/agycmp/panels/esc-ref-*.txt, /tmp/agycmp/esc2.log,
-// /tmp/agycmp/esc3.log). Cycle 193 added the four
-// /plugin /changelog /diff silent-pairings (and verified the others by
-// driving REF's panel and looking for an Exited echo row).
+// "⎿  Exited /<cmd> command" line in the transcript.
+//
+// Cycle 351 re-derived the whole set from agy 1.4.8 itself. The
+// reference's binary carries the ten literal messages "Exited /diff
+// command", "Exited /help command", "Exited /hooks command", "Exited
+// /model command", "Exited /tasks command", "Exited /agents command",
+// "Exited /effort command", "Exited /skills command", "Exited /credits
+// command" and "Exited /artifact command" — plus one generic format
+// string, "Exited %-*s %s", which is how /config's own message is
+// built. Every other panel closes silently.
+//
+// A live 1.4.8 probe (one command, one Esc, one capture per panel)
+// agrees with that reading: /config, /diff, /skills, /agents, /effort,
+// /credits, /artifact, /model, /hooks, /tasks and /help echo the
+// notice, while /usage, /permissions, /context, /codesearch,
+// /changelog, /plugin, /mcp, /feedback and /rewind close silently.
+// /add-dir is not a panel at all in the reference — it answers "error:
+// no directory specified" inline — so it does not echo either.
+//
+// Evidence 【一手】: agy 1.4.8 (tmux, one probe per panel).
+// Evidence 【strings】: the 1.4.8 string table.
 func (p panelKind) exitNotice() bool {
 	switch p {
 	case panelMCP, panelPermissions, panelCodeSearch, panelFeedback,
-		panelRewind, panelContext, panelPlugin, panelChangelog, panelDiff,
-		panelRename, panelFeatDiff:
+		panelRewind, panelContext, panelPlugin, panelChangelog,
+		panelUsage, panelAddDir, panelRename, panelFeatDiff:
 		return false
 	}
-	// Cycle 205 note: /agents keeps the pre-existing notice behaviour.
-	// The reference's Esc-from-/agents is ambiguous — a 220x50 live probe
-	// shows the panel surviving two Esc presses, while the cycle-195
-	// capture esc-ref-agents-Esc.txt shows a closed, echo-free screen — so
-	// the guarded pre-cycle behaviour was left untouched (存疑).
 	return true
 }
 
@@ -417,6 +442,12 @@ func (m *runMode) initOpenedSlashPanelData(kind panelKind) {
 		m.reloadAccountsRows()
 		m.panel.acct.notice = ""
 		m.panel.cursor = 0
+		// /pool opens the same panel on its Pool tab: the policy that
+		// decides which account serves a turn.
+		if m.panel.cmd == "/pool" {
+			m.panel.acct.tab = accountsTabPool
+		}
+		m.reloadPoolPolicy()
 	}
 }
 
@@ -445,7 +476,7 @@ func (m *runMode) openSlashPanel(cmd string) bool {
 // fallback row current and parks the slider on its tier. Returns 1
 // (medium) when the label carries no low/medium/high tier.
 func initialEffortCursorFromSettings() int {
-	lbl, _ := resolveEffectiveModel("")
+	lbl, _ := modelcatalog.ResolveEffectiveModel("")
 	return effortCursorForLabel(lbl)
 }
 
@@ -475,6 +506,6 @@ func (m *runMode) panelCurrentModelLabel() string {
 	if lbl := strings.TrimSpace(m.model); lbl != "" {
 		return lbl
 	}
-	lbl, _ := resolveEffectiveModel("")
+	lbl, _ := modelcatalog.ResolveEffectiveModel("")
 	return lbl
 }

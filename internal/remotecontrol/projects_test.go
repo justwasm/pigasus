@@ -22,7 +22,7 @@
 //     t.TempDir() so the on-disk format is exercised.
 //
 // Wire-level round-trips (ws adapter + JSON marshalling)
-// live in internal/remotetransport/tcp_test.go,
+// live in remotetransport/tcp_test.go,
 // mirroring the split the rc-file-ops cycle established.
 package remotecontrol
 

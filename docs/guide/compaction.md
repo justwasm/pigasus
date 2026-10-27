@@ -53,14 +53,24 @@ Three more things the clone now does the reference's way:
 
 - **The summary request.** The reference sends *no* summariser system prompt:
   the normal Antigravity instructions stay in the system prompt and the
-  **verbatim** continuation-summary instruction (2409 bytes, captured live) is
-  the **final user turn** — `internal/compaction/prompt.go`
-  (`SummarizePrompt` + `OnDemandCompactionSuffix`). The **body** of that
-  instruction (2289 bytes) is byte-identical to the catalogue's per-model
-  `session_summary_prompt_override` — the reference's *automatic* checkpoint
-  asks for the same six-section `<summary>` block, so the clone needs no second
-  prompt. Pinned by `internal/compaction/prompt_test.go`
+  **verbatim** continuation-summary instruction is the **final user turn** —
+  `internal/compaction/prompt.go` (`SummarizePrompt` +
+  `OnDemandCompactionSuffix`). The body is **3 937 bytes** (3 931 characters
+  — the text carries three em-dashes) and the tail 120, so the user turn the
+  clone sends is **4 057 bytes**. The body is byte-identical to the
+  `session_summary_prompt_override` of the reference's two `SAME_MODEL`
+  profiles — the reference's *automatic* checkpoint asks for the same
+  **seven**-section `<summary>` block, so the clone needs no second prompt.
+  Pinned by `internal/compaction/prompt_test.go`
   (`TestSummarizePrompt_MatchesCheckpointOverride`).
+  **The instruction is versioned.** The body above is **agy 1.4.8**'s — a
+  string literal at file offset `0x37bdb8d` of the binary, and the same
+  bytes in the embedded catalogue (§ below). The clone carried the **1.4.4**
+  revision (2 289 bytes, six sections) until cycle 303; it is kept as
+  evidence at
+  `internal/compaction/testdata/session_summary_prompt_override_1.4.4.txt`,
+  and the live one at
+  `internal/compaction/testdata/session_summary_prompt_1.4.7.txt`.
 - **The post-compaction context.** The compacted history is replaced by the
   reference's `# Resuming from a compaction` block — preamble, the **ten** most
   recent user requests (`CheckpointConfig.max_user_requests`), and the
@@ -69,26 +79,39 @@ Three more things the clone now does the reference's way:
   writes no trajectory files.
 - **The PiG context window is the reference's per-model budget.** Every model
   handle the clone builds carries `Capabilities.ContextWindow` from
-  `internal/modelctx` — the captured server catalogue
-  (`docs/cycles/model-catalogue-argon-gate/fetchAvailableModels_1.4.4.json`):
-  the effective limit is `min(catalogue maxTokens, the model's checkpoint
-  max_token_limit)` — 256 000 for `gemini-3.8-flash-*`, 160 000 for the
-  Claude 4.6 family, 80 000 for `gpt-oss-120b-medium`, 1 000 000 for
-  `custom-minimax-m3`. `internal/pigrt.ContextWindow` is only the fallback for
-  a model the clone cannot name. The *reserve* PiG holds back is the
-  checkpoint's `max_output_tokens` (16 384, except gpt-oss's 8 192; minimax has
-  no checkpoint experiment, so its reserve is the catalogue's own output cap,
+  `internal/modelctx` — which reads the reference's **own** catalogue first
+  (the `model_profiles.json` agy 1.4.8 embeds at file offset `0x9ab160a`,
+  committed at `internal/modelctx/testdata/model_profiles_1.4.8.json`) and
+  the server's 1.4.4 probe second
+  (`docs/cycles/model-catalogue-argon-gate/fetchAvailableModels_1.4.4.json`,
+  for the models the catalogue does not carry). The effective limit is
+  `min(model input limit, the model's checkpoint max_token_limit)` — 256 000
+  for `gemini-3.8-flash-*`, 160 000 for the Claude 4.6 family, 80 000 for
+  `gpt-oss-120b-medium`, 1 000 000 for `custom-minimax-m3`.
+  `internal/pigrt.ContextWindow` is only the fallback for a model the clone
+  cannot name. The *reserve* PiG holds back is the checkpoint's
+  `max_output_tokens` (16 384, except gpt-oss's 8 192; minimax has no
+  checkpoint experiment, so its reserve is the catalogue's own output cap,
   8 192) — so PiG's rule `contextTokens > contextWindow − ReserveTokens` is the
   reference's own comparison. Without a window PiG's rule degenerated to
   "always" (window 0), so any session past 20 000 tokens would have compacted
   on *every* turn.
 
-The reference's own auto-compaction model (per-model `max_token_limit`
-80k…840k, `token_threshold` 50000, `max_overhead_ratio` 0.15, the
-`CASCADE_USE_EXPERIMENT_CHECKPOINTER` payload, the checkpoint proto, the
-summary cache, the continuation-summary prompt) is documented from the binary
-and **not implemented** — the clone has no cascade layer. Report:
-`docs/cycles/auto-compact-parity/deliverable.md` (+ `captures.md`).
+The reference's **checkpoint configuration** is now mirrored as well
+(cycle `303-cascade-model-profiles`): the profile table, the model→profile
+alias map, the `claude-1m_840k` variant payload, the validator (the
+reference's four messages, byte for byte) and the clamps
+(`max_token_limit ≤ 256000`, `max_output_tokens ≤ 16384`, model 323's
+1 000 000-token window) — `internal/modelctx/profiles_1.4.8.go`,
+`internal/modelctx/validate.go`. The 1.4.8 overflow message (438 bytes, at
+file offset `0x36c73e2`) is pinned at `internal/modelctx/overflow.go`.
+
+The reference's own auto-compaction *runtime* — the cascade's planner and
+executor split, the steps, the trajectory, `shouldCheckpoint`, the summary
+cache — is still **not implemented**: the clone has no cascade layer. The
+`CheckpointConfig` field list and the evidence grades are in the report's
+§0.1 and §2.3, and the catalogue work in
+`docs/cycles/cycle-303-cascade-model-profiles/deliverable.md`.
 
 **"Cascade" = one run of the agent** (Codeium/Windsurf's product name, kept
 inside the Antigravity runtime — the binary still carries `You are Cascade, a

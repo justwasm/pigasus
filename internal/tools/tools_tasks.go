@@ -9,6 +9,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/justwasm/pigasus/internal/agystep"
 )
 
 // CommandStatus — Source: tools.command_status.
@@ -34,6 +36,14 @@ func (c *CommandStatus) Run(ctx context.Context, args json.RawMessage) (any, err
 
 // SendCommandInput — Source: tools.send_command_input. Writes a line to the
 // stdin of a background command.
+//
+// The result text is the reference's own: the step string that
+// step_strings/send_command_input.tmpl renders. That template is the only
+// source of the wording in the reference's binary — "Input sent
+// successfully.", "The command is still running." and "The command exited
+// with code N." each appear exactly once in `strings -a ~/.local/bin/agy`,
+// inside that template file — so this is the reference's rendering, not a
+// guess. See internal/agystep.
 type SendCommandInput struct{}
 
 func (s *SendCommandInput) Name() string { return "send_command_input" }
@@ -57,18 +67,45 @@ func (s *SendCommandInput) Run(ctx context.Context, args json.RawMessage) (any, 
 	if err := t.writeStdin(p.Input + "\n"); err != nil {
 		return nil, err
 	}
-	return t.status(), nil
+	output, running, exitCode := t.stepState()
+	step := agystep.NewStep(agystep.StepOptions{
+		Status: agystep.StatusDone,
+		Source: agystep.SourceModel,
+		SendCommandInput: agystep.NewSendCommandInput(agystep.SendCommandInputOptions{
+			Output:   output,
+			Running:  running,
+			ExitCode: exitCode,
+		}),
+	})
+	// The template's rendering starts with a newline — its own whitespace
+	// handling, which the reference's step strings carry between a result's
+	// stamp and the text. This result has no stamp, so the newline goes.
+	return strings.TrimPrefix(agystep.SendCommandInputString(step), "\n"), nil
 }
 
-// ManageTask — Source: tools.manage_task. Lists or kills background commands.
-// The reference's fuller task model (subagents, scheduled triggers) is not
-// reproduced; the local process table is what this clone can manage.
+// ManageTask — Source: tools.manage_task. Lists or drives the background
+// tasks of the conversation.
+//
+// 【一手】 The reference's own declaration (the captured 1.4.6 wire
+// declaration and the CLI-side description recovered from the 1.4.8
+// binary) advertises four actions:
+//
+//	- 'list': List all currently running background tasks
+//	- 'kill': Cancel the task's execution
+//	- 'status': Check the task's current status and log file location
+//	- 'send_input': Send input to a running task
+//
+// The clone implements all four. The tasks it manages are the
+// conversation's background commands; the schedules a conversation owns
+// are listed by the /tasks panel (internal/cliapp), which is where the
+// reference puts them too.
 type ManageTask struct{}
 
 func (m *ManageTask) Name() string { return "manage_task" }
 func (m *ManageTask) Schema() json.RawMessage {
-	return obj(`"action":{"type":"string","description":"list or kill."},`+
-		`"id":{"type":"string","description":"Command id, required for kill."}`,
+	return obj(`"action":{"type":"string","description":"One of list, kill, status or send_input."},`+
+		`"id":{"type":"string","description":"Task id, required for kill, status and send_input."},`+
+		`"input":{"type":"string","description":"Input sent to the task's stdin, for send_input."}`,
 		"action")
 }
 func (m *ManageTask) Run(ctx context.Context, args json.RawMessage) (any, error) {
@@ -76,6 +113,7 @@ func (m *ManageTask) Run(ctx context.Context, args json.RawMessage) (any, error)
 	var p struct {
 		Action string `json:"action"`
 		ID     string `json:"id"`
+		Input  string `json:"input"`
 	}
 	if err := argsOf(args, &p); err != nil {
 		return nil, err
@@ -100,15 +138,36 @@ func (m *ManageTask) Run(ctx context.Context, args json.RawMessage) (any, error)
 		}
 		t, ok := backgroundTasks.get(p.ID)
 		if !ok {
-			return nil, fmt.Errorf("manage_task: unknown command id %q", p.ID)
+			return nil, fmt.Errorf("manage_task: unknown task id %q", p.ID)
 		}
 		out, err := t.kill()
 		if err != nil {
 			return out, err
 		}
 		return resultStamp(start) + fmt.Sprint(out), nil
+	case "status":
+		if p.ID == "" {
+			return nil, fmt.Errorf("manage_task: id is required for status")
+		}
+		t, ok := backgroundTasks.get(p.ID)
+		if !ok {
+			return nil, fmt.Errorf("manage_task: unknown task id %q", p.ID)
+		}
+		return resultStamp(start) + t.status(), nil
+	case "send_input":
+		if p.ID == "" {
+			return nil, fmt.Errorf("manage_task: id is required for send_input")
+		}
+		t, ok := backgroundTasks.get(p.ID)
+		if !ok {
+			return nil, fmt.Errorf("manage_task: unknown task id %q", p.ID)
+		}
+		if err := t.writeStdin(p.Input + "\n"); err != nil {
+			return nil, err
+		}
+		return resultStamp(start) + "Input sent successfully.", nil
 	}
-	return nil, fmt.Errorf("manage_task: unknown action %q (want list or kill)", p.Action)
+	return nil, fmt.Errorf("manage_task: unknown action %q (want list, kill, status or send_input)", p.Action)
 }
 
 // ---- control flow ----------------------------------------------------------
@@ -166,8 +225,8 @@ func (f *FinishTool) Run(ctx context.Context, args json.RawMessage) (any, error)
 
 // ScheduleTool — Source: tools.schedule. The reference registers a deferred or
 // recurring prompt with the session's scheduler and returns immediately with a
-// background-task acknowledgement (【一手】 1.4.4; see
-// testdata/result_texts_1.4.4.txt). This clone has no scheduler backend yet, so
+// background-task acknowledgement (【一手】 1.4.7; see
+// testdata/result_texts_1.4.7.txt). This clone has no scheduler backend yet, so
 // it mints the task, writes the log file the reference names, and returns the
 // reference's text verbatim. Nothing fires when the delay elapses; that gap is
 // recorded in docs/cycles/cycle-293-model-tool-surface/deliverable.md.
@@ -282,12 +341,11 @@ func (s *ScheduleTool) Run(ctx context.Context, args json.RawMessage) (any, erro
 		LogPath:         logPath,
 	})
 
-	// The reference has no Completed At on this result: the command was backgrounded.
-	return "Created At: " + start.Format(time.RFC3339) + "\n" +
-		"Tool is running as a background task with task id: " + conversationID + "/" + taskID + "\n" +
-		"Task logs are available at: file://" + logPath + "\n" +
-		"YOU MUST TAKE ONE OF THE FOLLOWING TWO ACTIONS: A) either proceed to other relevant work (if any) or, B) simply update the user with a short message (that you have launched the command and will wait for it to finish) and end the turn.\n" +
-		" DO NOTHING ELSE.", nil
+	// The reference has no Completed At on this result: the command was
+	// backgrounded. The text is the reference's launch acknowledgement
+	// (background_task.go) — the same text a backgrounded run_command
+	// returns, because in the reference both are tasks.
+	return taskLaunchResult(start, conversationID, taskID, logPath), nil
 }
 
 var (

@@ -29,7 +29,7 @@
 //     search token.
 //   - The OSC 8 hyperlink emitter only fires when the running terminal
 //     advertises OSC 8 capability (cycle 2 of the OSC pair in this
-//     repo's history; see internal/render.DetectHyperlinkCaps). The
+//     repo's history; see render.DetectHyperlinkCaps). The
 //     fallback is "label (url)" so plain-text agents still see the
 //     URL.
 //
@@ -53,6 +53,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/justwasm/pigasus/endpoints"
 	"github.com/justwasm/pigasus/internal/auth"
 )
 
@@ -67,7 +68,11 @@ import (
 // `MarketplaceLinkPattern + url.QueryEscape(skillName)` to mint a URL. A
 // future AGY release that moves this URL only requires editing this
 // constant; the rest of the cycle is pattern-agnostic.
-const MarketplaceLinkPattern = "https://marketplace.antigravity.com/skills?q="
+//
+// It is the compiled-in default. The live prefix is
+// endpoints.Current().Marketplace — the configuration file may point the
+// marketplace link at a local service.
+const MarketplaceLinkPattern = endpoints.DefaultMarketplace
 
 // skillFolderName is the directory the user-installed skills live in, taken
 // relative to auth.AntigravityConfigHome(). The same path appears in
@@ -185,7 +190,7 @@ func buildMarketplaceURL(skillName string) string {
 		return ""
 	}
 	encoded = strings.ReplaceAll(encoded, "+", "%20")
-	return MarketplaceLinkPattern + encoded
+	return endpoints.Current().Marketplace + encoded
 }
 
 // EmitMarketplaceLink renders a marketplace link with OSC 8 when the
@@ -221,7 +226,7 @@ func EmitMarketplaceLink(url string, label string, termSupportsOSC8 bool) string
 	//	ESC ] 8 ; ; URL ESC \  LABEL  ESC ] 8 ; ; ESC \
 	//
 	// The ";" parameter slot is left empty (matches render.Hyperlink
-	// in internal/render/render.go) — the param slot is reserved for
+	// in render/render.go) — the param slot is reserved for
 	// future styling hints (AGY 1.4.0 ships with the empty-param
 	// convention).
 	const osc = "\x1b]8;;"

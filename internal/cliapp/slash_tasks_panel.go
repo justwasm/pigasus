@@ -8,14 +8,22 @@
 // so a background shell that finishes while the user is reading the
 // panel re-renders within a frame.
 //
-// Layout (verified against REF v1.4.0 220×50):
+// Layout (the row is the reference's own — recovered from
+// model.TasksModel.View (0x102bed580) in the 1.4.7 binary; see
+// docs/cycles/cycle-319-tui-tasks-row-layout/deliverable.md):
 //
 //	Tasks
-//	⎿  ⠿ running  sub-12345…  bash -c sleep 60                   2s
-//	⎿  ⠿ running  sub-67890…  bash -c ls -la /tmp | head -50    0s
-//	⎿  ⠿ done     sub-11111…  bash -c echo done                 12s
+//	> ● [15:04:05] bash -c sleep 60                running
+//	  ● [15:04:05] bash -c ls -la /tmp | head -50    running
+//	  ● [15:04:05] bash -c echo done               completed
 //
-//	Keyboard: ↑/↓ Navigate  enter View output  k Kill Task  x Remove Task From List
+// The row is "<prefix><marker> [<time>] <name><padding><status>": the
+// prefix is "> " on the cursor's row and "  " on the others, the
+// marker is the reference's "●" in the state's colour, the time cell
+// is the task's start time in brackets, and the padding pushes the
+// status cell to the right edge of the panel.
+//
+//	Keyboard: ↑/↓ Navigate  ←/→ Page  enter View output  k Kill Task  x Remove Task From List
 //
 // When the registry is empty the panel renders the cycle-205 empty
 // form ("No background tasks." in dim gray) so the visual contract is
@@ -23,19 +31,15 @@
 //
 // State glyphs:
 //
-//	⠿   running
-//	⠿   pending
-//	⠿   done
-//	⠿   failed  (red — cToolRemoveOpen)
-//	⠿   killed  (orange — cWarningOpen)
+//	●   running
+//	●   completed
+//	●   failed  (red — cToolRemoveOpen)
+//	●   cancelled  (orange — cWarningOpen)
 //
-// The bullets use the same Braille character (U+283F "⠿") that the
-// transcript tool-step renderer uses for the leading ⏺ step marker
-// (cycle 127's bullet char), so the panel reads "in family" with the
-// transcript when the user scrolls. We pick the Braille glyph rather
-// than a circle because a circle is already the *tool step* marker
-// in the transcript — using a circle here would confuse users into
-// thinking the panel itself was a tool call.
+// The marker is the reference's own — render.StatusMarker (0x1028c8040)
+// returns the filled circle "●" in the state's colour, the same glyph
+// for every state. The panel reads "in family" with the transcript,
+// whose tool-step rows carry the same circle.
 package cliapp
 
 import (
@@ -83,15 +87,12 @@ func (m *runMode) panelTasksLines() []string {
 		lines = append(lines,
 			"  "+cDimGrayOpen+"No background tasks."+cDimGrayClose)
 	} else {
-		// Each row: ⎿  ⠿ <state>  <name>  <duration>
-		// The "⎿" prefix is the cycle-205 brand blue bullet,
-		// the state glyph and the row text are in the runMode's
-		// recovered palette (cycle 126). Rows above the cursor
-		// are styled like idle rows; the cursor row is bold so
-		// the user can see the focus even on the 220×30 panel
-		// where rows are tightly packed.
+		// Each row is the reference's own: "<prefix><marker> [<time>]
+		// <name><padding><status>". The prefix marks the cursor's
+		// row, the marker is the state's colour, and the padding
+		// pushes the status cell to the right edge of the panel.
 		for i, t := range tasks {
-			lines = append(lines, tasksRowLine(t, i == m.panel.cursor))
+			lines = append(lines, tasksRowLine(t, i == m.panel.cursor, m.width))
 		}
 		if rows.Filtered() > 0 {
 			lines = append(lines,
@@ -106,8 +107,10 @@ func (m *runMode) panelTasksLines() []string {
 }
 
 // tasksRowLine renders a single task row. Delegated to taskregistry.RowLine.
-func tasksRowLine(t *taskregistry.Task, cursor bool) string {
-	return taskregistry.RowLine(t, cursor)
+// The width is the panel's width — the reference's row pads the name so
+// that the status cell lands on the right edge of it.
+func tasksRowLine(t *taskregistry.Task, cursor bool, width int) string {
+	return taskregistry.RowLine(t, cursor, width)
 }
 
 // tasksPanelKey handles Enter / k / x while the panel is open.
@@ -115,15 +118,19 @@ func tasksRowLine(t *taskregistry.Task, cursor bool) string {
 // 206), so this only sees the three action keys. Returns
 // (handled, cmd) per the handlePanelKey contract.
 //
-//	enter on a running row → SIGTERM-equivalent via subagent.Kill,
-//	                         registry will emit "updated" → killed
-//	enter on a done row    → expand the row (cycle 226's /diff
-//	                         viewer pattern — TBD in cycle 230)
-//	k on a running row      → same as Enter
+//	enter on any row      → open the row's detail view (cycle 315 —
+//	                         the task detail for a background task,
+//	                         the subagent detail for an agent task)
+//	k on a running row      → kill it (the reference's KeyTaskKill
+//	                         binding — "k Kill Task" in the legend)
 //	k on a non-running row  → no-op (no made-up exit code per
 //	                         the 1.4.0 changelog line)
 //	x on any row            → Hide(id) — list refreshes on the
 //	                         next subscriber event
+//
+// 【反编译】 the reference's /tasks scope binds KeyEnter, KeyTaskKill
+// and KeyTaskRemove. Enter opens the detail view; it does not kill
+// (the clone used to kill on Enter — that was the cycle-315 bug).
 func (m *runMode) tasksPanelKey(key tea.Key) (bool, tea.Cmd) {
 	if m.taskReg == nil {
 		return false, nil
@@ -143,13 +150,15 @@ func (m *runMode) tasksPanelKey(key tea.Key) (bool, tea.Cmd) {
 	}
 	t := tasks[cursor]
 	switch key.Code {
-	case tea.KeyEnter, tea.KeySpace:
-		// Enter: kill if running, otherwise expand (the expand
-		// half is a TODO — cycle 230 wires the per-row detail
-		// viewer, mirroring cycle 226's /diff subview).
-		if t.State == taskregistry.StateRunning || t.State == taskregistry.StatePending {
-			m.killSelectedTask(t)
-		}
+	case tea.KeyEnter:
+		// Cycle 315: Enter opens the row's detail view. The panel
+		// kind decides which one — the task detail for a background
+		// task, the subagent detail for an agent (subagent) task.
+		m.openTaskDetail(t)
+		return true, nil
+	case tea.KeySpace:
+		// The reference binds only KeyEnter in the /tasks scope. A
+		// space is swallowed here so it never reaches the prompt.
 		return true, nil
 	case 'k':
 		if t.State == taskregistry.StateRunning || t.State == taskregistry.StatePending {

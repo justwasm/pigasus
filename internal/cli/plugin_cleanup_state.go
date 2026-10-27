@@ -12,6 +12,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/justwasm/pigasus/atomicfile"
 )
 
 // PluginProcessRecord is one row of the plugin process registry. The
@@ -70,11 +72,7 @@ func SavePluginProcessRegistry(path string, records []PluginProcessRecord) error
 	if err != nil {
 		return err
 	}
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, buf, 0600); err != nil {
-		return err
-	}
-	return os.Rename(tmp, path)
+	return atomicfile.WriteFile(path, buf, 0o600)
 }
 
 // RegisterPluginProcess appends rec to the registry at path. Duplicates

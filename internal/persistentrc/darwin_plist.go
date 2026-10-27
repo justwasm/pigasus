@@ -42,6 +42,7 @@ import (
 //   - ProgramArguments     — [binary, "remote-control-foreground",
 //     "--addr", addr, "--name", name,
 //     "--log-file", logFile]
+//     plus "--desktop" when spec.Desktop is set.
 //   - RunAtLoad + KeepAlive— only when !spec.Session
 //   - ProcessType=Background — keep the daemon out of the Dock
 //   - StandardOutPath/ErrorPath — both point at LogFile
@@ -51,6 +52,10 @@ import (
 // the plist launchd will see".
 func buildPlist(spec Spec) string {
 	label := Label(spec.Name)
+	desktopArg := ""
+	if spec.Desktop {
+		desktopArg = "\n\t\t<string>--desktop</string>"
+	}
 	var b bytes.Buffer
 	fmt.Fprintf(&b, `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -67,9 +72,9 @@ func buildPlist(spec Spec) string {
 		<string>--name</string>
 		<string>%s</string>
 		<string>--log-file</string>
-		<string>%s</string>
+		<string>%s</string>%s
 	</array>
-`, label, spec.BinaryPath, spec.Addr, spec.Name, spec.LogFile)
+`, label, spec.BinaryPath, spec.Addr, spec.Name, spec.LogFile, desktopArg)
 	if !spec.Session {
 		// Boot-persistent.  RunAtLoad + KeepAlive give us:
 		//   - launchd spawns the daemon immediately on bootstrap

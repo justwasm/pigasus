@@ -65,7 +65,7 @@
 //
 //   - No third-party dependencies added. The file imports only
 //     errors, fmt, os, strings, github.com/justwasm/pigasus/internal/backend,
-//     github.com/justwasm/pigasus/internal/render. The internal/render
+//     github.com/justwasm/pigasus/render. The render
 //     import is the cycle-240 OSC 8 hyperlink encoder — same import
 //     slash_skills.go and others already use, so this cycle does not
 //     extend the dependency graph.

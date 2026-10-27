@@ -1,0 +1,12 @@
+You are connected to a messaging system where you may receive messages from: {{.Sources}}.
+
+## Receiving Messages
+
+You receive messages automatically at the start of each invocation. All messages are delivered in full directly into your context — no manual retrieval is needed.
+
+## Reactive Wakeup (No Polling Needed)
+
+The system automatically resumes your execution when:
+{{.Wakeup}}
+
+This means you do **NOT** need to poll in a loop while waiting for messages or updates. {{.Closing}} The system will notify you when there is something to process.

@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"os"
 	"strings"
+
+	"github.com/justwasm/pigasus/internal/persistentrc"
 )
 
 // usageRCServe documents the `remote-control serve` subcommand. The
@@ -22,13 +24,18 @@ func usageRCServe(n string) string {
 		"  --help     Show help\n" +
 		"  --addr     Bind address for the foreground daemon (host:port, default 0.0.0.0:8787)\n" +
 		"  --name     Set this machine's instance name shown in Remote Control (default: hostname)\n" +
-		"  --no-login Skip the inline OAuth device-code login when no bearer token is on disk\n"
+		"  --no-login Skip the inline OAuth device-code login when no bearer token is on disk\n" +
+		"  --desktop  Serve the desktop UI: the voice input, the jetbox\n" +
+		"             terminal, the redesigned aux pane. The page and the\n" +
+		"             bundle are the same either way — the switch is the\n" +
+		"             identity the page's Mendel read carries\n"
 }
 
 type rcServeOpts struct {
 	addr     string
 	name     string
 	noLogin  bool
+	desktop  bool
 	showHelp bool
 }
 
@@ -64,6 +71,8 @@ func parseRCServeFlags(j *JetskiCLI, args []string, usage string) (rcServeOpts, 
 			}
 		case "--no-login":
 			opts.noLogin = true
+		case "--desktop":
+			opts.desktop = true
 		default:
 			return opts, usageFail(j, usage, "Error: flags provided but not defined: "+flagName(a))
 		}
@@ -97,6 +106,14 @@ func parseRCServeFlags(j *JetskiCLI, args []string, usage string) (rcServeOpts, 
 // production default is "login if no token" so the brief's "when
 // OAuth is required and the user isn't logged in, serve triggers
 // the OAuth browser flow synchronously" semantic holds.
+//
+// The handler also accepts --desktop (the twin of `pigasus web
+// --desktop`): the daemon's Mendel read then carries the hub
+// identity, so the page the daemon serves is the reference's
+// desktop UI — the voice input, the jetbox terminal, the aux pane
+// redesign. The page and the bundle are the same either way; only
+// the identity differs. See internal/auth's package comment for
+// the measurement.
 func runRCServe(j *JetskiCLI, args []string) error {
 	usage := usageRCServe(j.Name)
 	opts, err := parseRCServeFlags(j, args, usage)
@@ -108,11 +125,16 @@ func runRCServe(j *JetskiCLI, args []string) error {
 		return nil
 	}
 	if opts.name == "" {
-		hn, herr := os.Hostname()
-		if herr != nil || hn == "" {
-			return ExitCodeError(1, fmt.Sprintf("Error: --name is required (could not determine hostname: %v)", herr))
+		opts.name = persistentrc.ResolveInstanceName("")
+		if opts.name == "" {
+			hn, herr := os.Hostname()
+			if herr != nil || hn == "" {
+				return ExitCodeError(1, fmt.Sprintf("Error: --name is required (could not determine hostname: %v)", herr))
+			}
+			opts.name = hn
 		}
-		opts.name = hn
+	} else {
+		opts.name = persistentrc.ResolveInstanceName(opts.name)
 	}
 	if serveHandler == nil {
 		fmt.Fprintln(j.ErrOut, "remote-control serve: no handler registered (binary was built without the serve bridge)")
@@ -122,6 +144,7 @@ func runRCServe(j *JetskiCLI, args []string) error {
 		Addr:    opts.addr,
 		Name:    opts.name,
 		NoLogin: opts.noLogin,
+		Desktop: opts.desktop,
 	}); err != nil {
 		return err
 	}

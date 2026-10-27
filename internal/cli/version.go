@@ -16,5 +16,8 @@ package cli
 // string we mirror here. Cycle 283 moved to 1.4.3; 1.4.5 was the
 // reference-drift-145 bump; 1.4.6 is the reference-drift-146 bump
 // (the installed binary prints 1.4.6); 1.4.7 is the reference-drift-147
-// bump (the installed binary prints 1.4.7).
-const ReferenceVersion = "1.4.7"
+// bump (the installed binary prints 1.4.7); 1.4.8 is the cycle-350 bump
+// (the installed binary prints 1.4.8 — see
+// docs/cycles/cycle-350-agy-1.4.8-alignment/deliverable.md for the
+// 1.4.7 → 1.4.8 delta).
+const ReferenceVersion = "1.4.8"

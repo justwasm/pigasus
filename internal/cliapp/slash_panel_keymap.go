@@ -7,6 +7,7 @@ import (
 
 	"github.com/justwasm/pigasus/internal/tuilib"
 	"github.com/justwasm/pigasus/internal/tuiviewer"
+	"github.com/justwasm/pigasus/palette"
 )
 
 // searchCursorBlock is the `Search:` input cursor REF draws as one
@@ -15,8 +16,8 @@ import (
 const searchCursorBlock = "\x1b[7m\x1b[37m \x1b[0m"
 
 // searchUnderline is the 20-cell `─` row REF draws under the Search:
-// input, in separator grey (256-colour 253).
-const searchUnderline = "\x1b[38;2;238;232;213m────────────────────\x1b[39m"
+// input, in the selected scheme's separator colour.
+var searchUnderline = palette.SeparatorOpen + "────────────────────\x1b[39m"
 
 func (m *runMode) handlePanelEarlyMiscRoutes(key tea.Key) (bool, tea.Cmd, bool) {
 	switch {
@@ -44,6 +45,14 @@ func (m *runMode) handlePanelEarlyMiscRoutes(key tea.Key) (bool, tea.Cmd, bool) 
 }
 
 func (m *runMode) handlePanelEarlyRoutes(key tea.Key) (bool, tea.Cmd, bool) {
+	// Cycle 315: the /tasks detail sub-views own every key while they are
+	// open. They are routed before the /tasks list handling because the
+	// panel kind is no longer panelTasks — the list handler must not see
+	// the keys.
+	if detailPanelKind(m.panel.kind) {
+		h, c := m.handleTaskDetailKey(key)
+		return h, c, true
+	}
 	if m.panel.kind == panelCodeSearch && len(m.panel.cs.hits) > 0 {
 		if handled, _, ok := m.codesearchPanelKey(key); ok {
 			return handled, nil, true
@@ -230,6 +239,16 @@ func listPanelKind(k panelKind) bool {
 		return true
 	}
 	return false
+}
+
+// detailPanelKind reports whether k is one of the two /tasks detail
+// sub-views (cycle 315): the task detail and the subagent detail.
+//
+// They are not list panels — they have no rows to pick from — but they
+// own every key while they are open, so the global key handlers must
+// not see them.
+func detailPanelKind(k panelKind) bool {
+	return k == panelTaskDetail || k == panelSubagentDetail
 }
 
 // canonicalPanelCommand resolves a slash-command alias to the name the

@@ -9,6 +9,7 @@ import (
 
 	"golang.org/x/oauth2"
 
+	"github.com/justwasm/pigasus/endpoints"
 	"github.com/justwasm/pigasus/internal/accounts"
 	"github.com/justwasm/pigasus/internal/auth"
 )
@@ -67,7 +68,7 @@ func RunDeviceFlowLogin(ctx context.Context, out, err io.Writer) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	fmt.Fprintln(out, "starting OAuth device-code flow against accounts.google.com")
+	fmt.Fprintf(out, "starting OAuth device-code flow against %s\n", endpoints.Current().OAuth2AuthHost())
 	fmt.Fprintf(out, "client_id:    %s\n", auth.DeviceFlowClientID)
 	fmt.Fprintf(out, "scopes:       %d\n", len(auth.DeviceFlowScopes))
 	fmt.Fprintln(out, "")

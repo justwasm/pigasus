@@ -23,7 +23,7 @@
 //
 // Wire-level tests for the
 // SetRemoteControlOriginPatterns RPC live in
-// internal/remotetransport/tcp_test.go (mirroring
+// remotetransport/tcp_test.go (mirroring
 // the project's split: in-process envelopes vs.
 // wire round-trips).
 package remotecontrol
@@ -39,7 +39,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/justwasm/pigasus/internal/originpolicy"
+	"github.com/justwasm/pigasus/originpolicy"
 )
 
 // newOriginPolicyDispatcher returns a Dispatcher with the

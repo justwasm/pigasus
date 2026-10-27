@@ -21,9 +21,9 @@ import (
 	"time"
 
 	"github.com/justwasm/pigasus/internal/auth"
-	"github.com/justwasm/pigasus/internal/palette"
 	"github.com/justwasm/pigasus/internal/pluginsui"
 	"github.com/justwasm/pigasus/internal/tuiviewer"
+	"github.com/justwasm/pigasus/palette"
 )
 
 // NoteText is the group note. REF wraps it; the clone stores it
@@ -40,7 +40,17 @@ const NoteWrap = 77
 
 // PanelGray238 is the dim-gray the reference uses for the title's trailing
 // glyph run and the panel's descriptive rows.
-const PanelGray238 = "\x1b[38;2;88;110;117m"
+var PanelGray238 = palette.SubtleOpen
+
+func init() {
+	palette.OnSchemeChange(refreshColours)
+}
+
+// refreshColours re-reads the palette after the selected colour scheme
+// changed.
+func refreshColours() {
+	PanelGray238 = palette.SubtleOpen
+}
 
 // Title is the fixed bold title row.
 func Title() string {
@@ -101,11 +111,11 @@ func Bar(pct float64, cells int) string {
 		b.WriteString(strings.Repeat("█", fill))
 	}
 	if cells-fill > 0 {
-		b.WriteString("\x1b[38;2;101;123;131m")
+		b.WriteString(palette.DimGrayOpen)
 		b.WriteString(strings.Repeat("░", cells-fill))
 	}
 	b.WriteString("\x1b[39m]")
-	b.WriteString("\x1b[38;2;101;123;131m")
+	b.WriteString(palette.DimGrayOpen)
 	fmt.Fprintf(&b, " %.2f%%", pct)
 	b.WriteString("\x1b[39m")
 	return b.String()
@@ -141,7 +151,7 @@ func Doc(width int) []string {
 		"\x1b[31m", "Refreshes in 64h 47m")...)
 	doc = append(doc, "", "")
 	for _, l := range wrapWords(NoteText, WrapWidth(width)) {
-		doc = append(doc, "  \x1b[38;2;238;232;213m│\x1b[38;2;101;123;131m"+l+"\x1b[39m")
+		doc = append(doc, "  " + palette.SeparatorOpen + "│" + palette.DimGrayOpen+l+"\x1b[39m")
 	}
 	return doc
 }
@@ -174,7 +184,7 @@ func DocSummary(s *auth.QuotaSummary, width int) []string {
 		note = NoteText
 	}
 	for _, l := range wrapWords(note, WrapWidth(width)) {
-		doc = append(doc, "  \x1b[38;2;238;232;213m│\x1b[38;2;101;123;131m"+l+"\x1b[39m")
+		doc = append(doc, "  " + palette.SeparatorOpen + "│" + palette.DimGrayOpen+l+"\x1b[39m")
 	}
 	return doc
 }
@@ -262,7 +272,7 @@ func ClaudeGroupRows() []string {
 		palette.DimGrayOpen + "  Models within this group: Claude Opus, Claude Sonnet, GPT-OSS" + palette.DimGrayClose,
 		"",
 		"\x1b[1mWeekly Limit Remaining\x1b[0m",
-		"    [\x1b[38;2;101;123;131m" + strings.Repeat("░", 50) + "\x1b[39m]" +
+		"    [" + palette.DimGrayOpen + strings.Repeat("░", 50) + "\x1b[39m]" +
 			palette.DimGrayOpen + " 0.00%" + palette.DimGrayClose,
 		"\x1b[31mRefreshes in 74h 29m\x1b[39m",
 		palette.DimGrayOpen + "  │Within each group, models share a weekly limit." + palette.DimGrayClose,

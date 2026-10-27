@@ -280,6 +280,64 @@ func TestBuildPlist_SessionFlag(t *testing.T) {
 	}
 }
 
+// TestBuildPlist_DesktopFlag verifies that the desktop switch
+// reaches the daemon through the plist's ProgramArguments: the
+// foreground subcommand reads `--desktop` and turns it into the
+// hub's Mendel identity.
+//
+// Without the switch the plist is byte-identical to the reference's
+// shape — the flag is appended, never substituted.
+func TestBuildPlist_DesktopFlag(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("plist is macOS only")
+	}
+	spec := fillSpec("machine1")
+	spec.Desktop = true
+	out := buildPlist(spec)
+	if !strings.Contains(out, "<string>--desktop</string>") {
+		t.Errorf("plist (desktop) missing --desktop\n--- plist ---\n%s\n--- end ---", out)
+	}
+	args, err := parsePlistProgramArgsFromBytes([]byte(out))
+	if err != nil {
+		t.Fatalf("parsePlistProgramArgsFromBytes: %v", err)
+	}
+	if len(args) == 0 || args[len(args)-1] != "--desktop" {
+		t.Errorf("parsed args = %v; want the last one to be --desktop", args)
+	}
+
+	// The default plist must NOT carry the switch.
+	plain := buildPlist(fillSpec("machine1"))
+	if strings.Contains(plain, "--desktop") {
+		t.Errorf("plist (default) unexpectedly carries --desktop\n--- plist ---\n%s\n--- end ---", plain)
+	}
+	plainArgs, err := parsePlistProgramArgsFromBytes([]byte(plain))
+	if err != nil {
+		t.Fatalf("parsePlistProgramArgsFromBytes (default): %v", err)
+	}
+	for _, a := range plainArgs {
+		if a == "--desktop" {
+			t.Errorf("default parsed args = %v; want no --desktop", plainArgs)
+		}
+	}
+}
+
+// TestBuildOfficialPlist_DesktopFlag: the official daemon's plist
+// (the one `remote-control start` writes on macOS) hands the switch
+// to `remote-control serve`.
+func TestBuildOfficialPlist_DesktopFlag(t *testing.T) {
+	plain := BuildOfficialPlist("/usr/local/bin/pigasus", false, false)
+	if strings.Contains(plain, "--desktop") {
+		t.Errorf("official plist (default) unexpectedly carries --desktop")
+	}
+	if !strings.Contains(plain, "exec '/usr/local/bin/pigasus' 'remote-control' 'serve'") {
+		t.Errorf("official plist lost its command line\n%s", plain)
+	}
+	desktop := BuildOfficialPlist("/usr/local/bin/pigasus", false, true)
+	if !strings.Contains(desktop, "exec '/usr/local/bin/pigasus' 'remote-control' 'serve' '--desktop'") {
+		t.Errorf("official plist (desktop) did not carry the switch\n%s", desktop)
+	}
+}
+
 // TestStartStop_DryRun exercises the Start → Status → Stop
 // lifecycle with SkipLaunchd=true.  No launchctl is invoked;
 // the dry-run pidfile + plist are the source of truth.

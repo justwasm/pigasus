@@ -92,7 +92,7 @@ func (m *Model) startOAuth() tea.Cmd {
 	m.Verifier = v
 	m.Challenge = c
 	m.StateCode = s
-	m.AuthURL = auth.BuildAuthorizationURL(c, s)
+	m.AuthURL = auth.BuildAuthorizationURL(v, s)
 	m.State = StateOAuth
 	m.CodeInput = ""
 

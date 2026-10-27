@@ -102,14 +102,14 @@ func TestAccountsPanelLayout(t *testing.T) {
 	if lines[0] != "Accounts" {
 		t.Errorf("title = %q, want Accounts", lines[0])
 	}
-	if !strings.Contains(lines[2], "a@example.com") {
-		t.Errorf("the first row is not the first account: %q", lines[2])
+	if !strings.Contains(lines[3], "a@example.com") {
+		t.Errorf("the first row is not the first account: %q", lines[3])
 	}
-	if !strings.Contains(lines[2], "(active)") {
-		t.Errorf("the active account is not marked: %q", lines[2])
+	if !strings.Contains(lines[3], "(active)") {
+		t.Errorf("the active account is not marked: %q", lines[3])
 	}
-	if strings.Contains(lines[3], "(active)") {
-		t.Errorf("the inactive account is marked active: %q", lines[3])
+	if strings.Contains(lines[4], "(active)") {
+		t.Errorf("the inactive account is marked active: %q", lines[4])
 	}
 	if !strings.HasPrefix(lines[len(lines)-1], "Keyboard: ") {
 		t.Errorf("legend = %q", lines[len(lines)-1])
@@ -125,8 +125,8 @@ func TestAccountsPanelEmptyState(t *testing.T) {
 	m.panel = slashPanel{kind: panelAccounts, cmd: "/accounts"}
 	m.reloadAccountsRows()
 	lines := plainLines(m)
-	if !strings.Contains(lines[2], "No accounts") {
-		t.Fatalf("empty state = %q", lines[2])
+	if !strings.Contains(lines[3], "No accounts") {
+		t.Fatalf("empty state = %q", lines[3])
 	}
 }
 
@@ -318,7 +318,7 @@ func TestAccountsPanelShowsTheCachedTierAndQuota(t *testing.T) {
 	}
 	m.reloadAccountsRows()
 	lines := plainLines(m)
-	row := lines[2]
+	row := lines[3]
 	if !strings.Contains(row, "Google AI Pro") {
 		t.Errorf("the row does not carry the tier: %q", row)
 	}
@@ -332,11 +332,11 @@ func TestAccountsPanelShowsTheCachedTierAndQuota(t *testing.T) {
 	}
 	// The account that was never queried shows dashes, not zeroes: a
 	// zero would read as an exhausted quota.
-	if !strings.Contains(lines[3], "wk      -") {
-		t.Errorf("the account without a snapshot does not show a dash: %q", lines[3])
+	if !strings.Contains(lines[4], "wk      -") {
+		t.Errorf("the account without a snapshot does not show a dash: %q", lines[4])
 	}
-	if strings.Contains(lines[3], "0.0%") {
-		t.Errorf("the account without a snapshot shows a percentage: %q", lines[3])
+	if strings.Contains(lines[4], "0.0%") {
+		t.Errorf("the account without a snapshot shows a percentage: %q", lines[4])
 	}
 }
 
@@ -384,11 +384,11 @@ func TestAccountsPanelDoesNotRenderThePlaceholderTier(t *testing.T) {
 	m.tier = "Antigravity Starter Quota"
 	m.tierFetched = false
 	lines := plainLines(m)
-	if strings.Contains(lines[2], "Starter Quota") {
-		t.Errorf("the placeholder tier is rendered as the account's tier: %q", lines[2])
+	if strings.Contains(lines[3], "Starter Quota") {
+		t.Errorf("the placeholder tier is rendered as the account's tier: %q", lines[3])
 	}
-	if !strings.Contains(lines[2], "-") {
-		t.Errorf("the account without a tier does not show a dash: %q", lines[2])
+	if !strings.Contains(lines[3], "-") {
+		t.Errorf("the account without a tier does not show a dash: %q", lines[3])
 	}
 }
 
@@ -437,8 +437,8 @@ func TestAccountsPanelRendersTheFetchedSessionTier(t *testing.T) {
 	m.tierFetched = true
 	m.tierAccount = "a@example.com"
 	lines := plainLines(m)
-	if !strings.Contains(lines[2], "Google AI Pro") {
-		t.Errorf("the fetched tier is not rendered: %q", lines[2])
+	if !strings.Contains(lines[3], "Google AI Pro") {
+		t.Errorf("the fetched tier is not rendered: %q", lines[3])
 	}
 }
 
@@ -455,8 +455,8 @@ func TestAccountsPanelDoesNotRenderAnotherAccountsTier(t *testing.T) {
 	// The tier was read for another account.
 	m.tierAccount = "b@example.com"
 	lines := plainLines(m)
-	if strings.Contains(lines[2], "Google AI Plus") {
-		t.Errorf("another account's tier is rendered against this row: %q", lines[2])
+	if strings.Contains(lines[3], "Google AI Plus") {
+		t.Errorf("another account's tier is rendered against this row: %q", lines[3])
 	}
 }
 
@@ -493,8 +493,8 @@ func TestAccountsPanelShowsNoTierAfterASignIn(t *testing.T) {
 	// The sign-in switched the session to another account.
 	m.forgetSessionTier()
 	lines := plainLines(m)
-	if strings.Contains(lines[2], "Google AI Plus") {
-		t.Errorf("the previous account's tier survived the sign-in: %q", lines[2])
+	if strings.Contains(lines[3], "Google AI Plus") {
+		t.Errorf("the previous account's tier survived the sign-in: %q", lines[3])
 	}
 	if m.tier != "" {
 		t.Errorf("the session's tier = %q, want none", m.tier)

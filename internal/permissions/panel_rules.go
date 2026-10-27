@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/justwasm/pigasus/internal/auth"
+	"github.com/justwasm/pigasus/palette"
 )
 
 const (
@@ -156,9 +157,9 @@ func PermTabRow(active int, counts [3]int) string {
 			b.WriteString("\x1b[1;4m\x1b[38;5;69m" + name +
 				"\x1b[0;4m\x1b[38;5;69m " + "\x1b[1m" + cnt + "\x1b[0m")
 		} else {
-			b.WriteString("\x1b[38;2;238;232;213m" + name + " " + cnt + "\x1b[39m")
+			b.WriteString(palette.SeparatorOpen + name + " " + cnt + "\x1b[39m")
 		}
 	}
-	b.WriteString(" \x1b[38;2;238;232;213m  (←/→ to switch)\x1b[39m")
+	b.WriteString(" " + palette.SeparatorOpen + "  (←/→ to switch)\x1b[39m")
 	return b.String()
 }

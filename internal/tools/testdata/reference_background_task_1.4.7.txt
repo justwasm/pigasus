@@ -1,0 +1,82 @@
+The reference's background-task texts, captured verbatim from the
+reference's own artifacts.
+
+Reference: Antigravity CLI "agy" 1.4.7 (the vendor binary at
+~/.local/bin/agy), running against this repository on 2026-10-25.
+
+Provenance
+----------
+Conversation 45fde9e1-76d5-4b87-bd23-1b2c626bbf26 of the reference's own
+brain directory:
+
+  ~/.gemini/antigravity-cli/brain/45fde9e1-76d5-4b87-bd23-1b2c626bbf26/
+      .system_generated/logs/transcript.jsonl
+
+The reference ran `go test -v ./internal/cliapp -run
+TestAccountsPanelIsInvocableButNotListed` with "WaitMsBeforeAsync": 5000
+(step 56); the command outlived the wait window, so the reference sent it
+to the background as a task. Steps 61, 100 and 114 are three more
+backgrounded commands from the same conversation.
+
+The reference renders a backgrounded task in two shapes:
+
+  1. the *step content* — what the reference logs for the step. It is the
+     launch acknowledgement plus a "Task Description:" line and, when the
+     command has produced output by then, a "Log output:" section. The
+     three step contents below are that shape.
+  2. the *function response* — what the model receives. It is the launch
+     acknowledgement without the "Task Description:" line and without the
+     "Log output:" section: the reference's own conversation store carries
+     exactly that text for the `schedule` tool, whose result is the same
+     acknowledgement (see testdata/result_texts_1.4.7.txt).
+
+The clone implements shape 2: the model receives the launch
+acknowledgement. The step contents below are kept as the evidence for the
+wording and for the two extras the step content carries.
+
+---- launch acknowledgement (the step content, step 56) ----
+Created At: 2026-10-25T03:15:13+08:00
+Tool is running as a background task with task id: 45fde9e1-76d5-4b87-bd23-1b2c626bbf26/task-56
+Task Description: go test -v ./internal/cliapp -run TestAccountsPanelIsInvocableButNotListed
+Task logs are available at: file:///Users/gear/.gemini/antigravity-cli/brain/45fde9e1-76d5-4b87-bd23-1b2c626bbf26/.system_generated/tasks/task-56.log
+YOU MUST TAKE ONE OF THE FOLLOWING TWO ACTIONS: A) either proceed to other relevant work (if any) or, B) simply update the user with a short message (that you have launched the command and will wait for it to finish) and end the turn.
+ DO NOTHING ELSE.
+---- launch acknowledgement with output (the step content, step 100) ----
+Created At: 2026-10-25T03:17:45+08:00
+Tool is running as a background task with task id: 45fde9e1-76d5-4b87-bd23-1b2c626bbf26/task-100
+Task Description: go test ./cmd/... ./internal/...
+Task logs are available at: file:///Users/gear/.gemini/antigravity-cli/brain/45fde9e1-76d5-4b87-bd23-1b2c626bbf26/.system_generated/tasks/task-100.log
+Log output:
+?   	github.com/justwasm/pigasus/cmd/anthropic-shim	[no test files]
+ok  	github.com/justwasm/pigasus/cmd/openagy-models	(cached)
+?   	github.com/justwasm/pigasus/cmd/openai-shim	[no test files]
+?   	github.com/justwasm/pigasus/cmd/pigasus	[no test files]
+ok  	github.com/justwasm/pigasus/internal/accounts	(cached)
+ok  	github.com/justwasm/pigasus/internal/agent	(cached)
+ok  	github.com/justwasm/pigasus/internal/agentsdir	(cached)
+ok  	github.com/justwasm/pigasus/internal/agenttools	(cached)
+
+YOU MUST TAKE ONE OF THE FOLLOWING TWO ACTIONS: A) either proceed to other relevant work (if any) or, B) simply update the user with a short message (that you have launched the command and will wait for it to finish) and end the turn.
+ DO NOTHING ELSE.
+---- launch acknowledgement (the step content, step 114) ----
+Created At: 2026-10-25T03:18:32+08:00
+Tool is running as a background task with task id: 45fde9e1-76d5-4b87-bd23-1b2c626bbf26/task-114
+Task Description: sleep 10
+Task logs are available at: file:///Users/gear/.gemini/antigravity-cli/brain/45fde9e1-76d5-4b87-bd23-1b2c626bbf26/.system_generated/tasks/task-114.log
+YOU MUST TAKE ONE OF THE FOLLOWING TWO ACTIONS: A) either proceed to other relevant work (if any) or, B) simply update the user with a short message (that you have launched the command and will wait for it to finish) and end the turn.
+ DO NOTHING ELSE.
+---- completion notification (the SYSTEM_MESSAGE) ----
+The following is a <SYSTEM_MESSAGE> not actually sent by the user. It is provided by the system as important information to pay attention to.
+
+<SYSTEM_MESSAGE>
+[Message] timestamp=2026-10-24T19:15:22Z sender=45fde9e1-76d5-4b87-bd23-1b2c626bbf26/task-56 priority=MESSAGE_PRIORITY_HIGH content=Task id "45fde9e1-76d5-4b87-bd23-1b2c626bbf26/task-56" finished with result:
+Command exited with code 0.
+
+Command output:
+=== RUN   TestAccountsPanelIsInvocableButNotListed
+--- PASS: TestAccountsPanelIsInvocableButNotListed (0.00s)
+PASS
+ok  	github.com/justwasm/pigasus/internal/cliapp	1.579s
+
+Log: file:///Users/gear/.gemini/antigravity-cli/brain/45fde9e1-76d5-4b87-bd23-1b2c626bbf26/.system_generated/tasks/task-56.log
+</SYSTEM_MESSAGE>

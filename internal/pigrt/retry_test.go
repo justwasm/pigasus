@@ -24,7 +24,7 @@ import (
 	"time"
 
 	"github.com/justwasm/pigasus/internal/pigrt"
-	"github.com/justwasm/pigasus/internal/retry"
+	"github.com/justwasm/pigasus/retry"
 )
 
 // TestRuntimeRetryCapIs30s proves the agent-side retry cap is the

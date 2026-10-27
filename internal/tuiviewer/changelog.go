@@ -3,7 +3,7 @@ package tuiviewer
 import (
 	"strings"
 
-	"github.com/justwasm/pigasus/internal/palette"
+	"github.com/justwasm/pigasus/palette"
 )
 
 // ChangelogTotalLines is the denominator in the viewer's "(a–b of N lines)" counter.

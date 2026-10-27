@@ -42,15 +42,48 @@ const (
 	AgentBrowserToolsEnabled     AgentBrowserTools = 2
 )
 
-// AgentPermissionPreset — recovered enum.
+// AgentPermissionPreset — the reference's own enum.
+//
+// 【一手】 2026-10-27: the FileDescriptorProto of
+// third_party/jetski/codeium_common_pb/codeium_common.proto in the agy
+// 1.4.8 binary (file offset 0x3cd5130). The names and the numbers are
+// the descriptor's.
+//
+// The 1.3.5 recovery guessed four values from the binary's *strings*;
+// the descriptor shows seven, and none of the four old names is one of
+// them. The wire spells an enum by its name, so the names matter more
+// than the numbers.
 type AgentPermissionPreset int32
 
 const (
-	AgentPermissionPresetUnspecified AgentPermissionPreset = 0
-	AgentPermissionPresetStrict     AgentPermissionPreset = 1
-	AgentPermissionPresetBalanced   AgentPermissionPreset = 2
-	AgentPermissionPresetPermissive AgentPermissionPreset = 3
+	AgentPermissionPresetUnspecified   AgentPermissionPreset = 0
+	AgentPermissionPresetDefault       AgentPermissionPreset = 1
+	AgentPermissionPresetRequestReview AgentPermissionPreset = 2
+	AgentPermissionPresetTurbo         AgentPermissionPreset = 3
+	AgentPermissionPresetVetted        AgentPermissionPreset = 4
+	AgentPermissionPresetNone          AgentPermissionPreset = 5
+	AgentPermissionPresetAuto          AgentPermissionPreset = 6
 )
+
+// AgentPermissionPresetName returns the reference's name for a
+// preset — the spelling proto-JSON puts on the wire.
+func AgentPermissionPresetName(p AgentPermissionPreset) string {
+	switch p {
+	case AgentPermissionPresetDefault:
+		return "AGENT_PERMISSION_PRESET_DEFAULT"
+	case AgentPermissionPresetRequestReview:
+		return "AGENT_PERMISSION_PRESET_REQUEST_REVIEW"
+	case AgentPermissionPresetTurbo:
+		return "AGENT_PERMISSION_PRESET_TURBO"
+	case AgentPermissionPresetVetted:
+		return "AGENT_PERMISSION_PRESET_VETTED"
+	case AgentPermissionPresetNone:
+		return "AGENT_PERMISSION_PRESET_NONE"
+	case AgentPermissionPresetAuto:
+		return "AGENT_PERMISSION_PRESET_AUTO"
+	}
+	return "AGENT_PERMISSION_PRESET_UNSPECIFIED"
+}
 
 // AgentSettingPolicy — recovered enum.
 type AgentSettingPolicy int32
@@ -82,14 +115,33 @@ const (
 	ArtifactApprovalStatusRejected    ArtifactApprovalStatus = 3
 )
 
-// ArtifactReviewMode — recovered enum.
+// ArtifactReviewMode — the reference's own enum.
+//
+// 【一手】 2026-10-27: the same 1.4.8 descriptor as
+// AgentPermissionPreset. The 1.3.5 recovery guessed three values
+// ("inline", "sidebar") that the descriptor does not have.
 type ArtifactReviewMode int32
 
 const (
 	ArtifactReviewModeUnspecified ArtifactReviewMode = 0
-	ArtifactReviewModeInline      ArtifactReviewMode = 1
-	ArtifactReviewModeSidebar     ArtifactReviewMode = 2
+	ArtifactReviewModeAlways      ArtifactReviewMode = 1
+	ArtifactReviewModeTurbo       ArtifactReviewMode = 2
+	ArtifactReviewModeAuto        ArtifactReviewMode = 3
 )
+
+// ArtifactReviewModeName returns the reference's name for a review
+// mode — the spelling proto-JSON puts on the wire.
+func ArtifactReviewModeName(m ArtifactReviewMode) string {
+	switch m {
+	case ArtifactReviewModeAlways:
+		return "ARTIFACT_REVIEW_MODE_ALWAYS"
+	case ArtifactReviewModeTurbo:
+		return "ARTIFACT_REVIEW_MODE_TURBO"
+	case ArtifactReviewModeAuto:
+		return "ARTIFACT_REVIEW_MODE_AUTO"
+	}
+	return "ARTIFACT_REVIEW_MODE_UNSPECIFIED"
+}
 
 // ArtifactType — recovered enum.
 type ArtifactType int32
@@ -3039,10 +3091,15 @@ type PostgresDbStats struct {
 }
 
 // PermissionGrantsConfig is the permission grants config.
+//
+// 【一手】 2026-10-27: the 1.4.8 descriptor. The message carries three
+// lists of rules — `allow`, `deny` and `ask` — and nothing else; the
+// 1.3.5 recovery had a `grants` list, a `mode` string and a `deny`
+// list, none of which matches.
 type PermissionGrantsConfig struct {
-	Grants []string `protobuf:"bytes,1,rep,name=grants,proto3" json:"grants,omitempty"`
-	Mode   string  `protobuf:"bytes,2,opt,name=mode,proto3" json:"mode,omitempty"`
-	Deny   []string `protobuf:"bytes,3,rep,name=deny,proto3" json:"deny,omitempty"`
+	Allow []string `protobuf:"bytes,1,rep,name=allow,proto3" json:"allow,omitempty"`
+	Deny  []string `protobuf:"bytes,2,rep,name=deny,proto3" json:"deny,omitempty"`
+	Ask   []string `protobuf:"bytes,3,rep,name=ask,proto3" json:"ask,omitempty"`
 }
 
 // CascadeModelHeaderWarningExperimentPayload is the payload for the

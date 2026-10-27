@@ -17,8 +17,8 @@ package cliapp
 import (
 	"io"
 
-	tea "charm.land/bubbletea/v2"
 	"charm.land/bubbles/v2/viewport"
+	tea "charm.land/bubbletea/v2"
 
 	"github.com/justwasm/pigasus/internal/featdiff"
 	"github.com/justwasm/pigasus/internal/tuilib"
@@ -263,5 +263,3 @@ func (m *runMode) handleFeatDiffPanelKey(key tea.Key) (bool, tea.Cmd) {
 func (m *runMode) panelFeatDiffOpen() bool {
 	return m.panel.kind == panelFeatDiff
 }
-
-

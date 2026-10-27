@@ -25,6 +25,11 @@ import (
 //     cascade (caller forgot to StopCancel), the previous one
 //     is fired so the cascade is at most one-active-cancel at
 //     any time.
+//   - The cascade's cancelled flag is cleared: a new turn is not
+//     a cancelled turn. The flag decides how a *failed* turn is
+//     reported (see mapStreamError), and a turn that failed
+//     after an earlier turn was cancelled has to report its own
+//     failure.
 //
 // Nil-safe: a nil *Cascade returns parent verbatim.
 func (c *Cascade) StartCancel(parent context.Context) context.Context {
@@ -47,6 +52,8 @@ func (c *Cascade) StartCancel(parent context.Context) context.Context {
 	}
 	ctx, cancel := context.WithCancel(parent)
 	c.cancel = cancel
+	c.cancelReason = ""
+	c.cancelled.Store(false)
 	return ctx
 }
 
@@ -82,6 +89,9 @@ func (c *Cascade) StopCancel() {
 // first returns false even though the cancelled flag is
 // already set.
 //
+// The flag is per turn: the next turn's StartCancel clears it
+// (see StartCancel).
+//
 // The optional `reason` argument is the human-readable text
 // the cancel was requested with. It is captured on the
 // cascade so the cancel notification and the error-ring entry
@@ -108,8 +118,11 @@ func (c *Cascade) Cancel(reason string) bool {
 }
 
 // IsCancelled reports whether Cancel has been called on this
-// cascade. The accessor is lock-free (atomic.Bool.Load) so the
-// dispatcher's status-tool poll path stays cheap.
+// cascade for the turn in flight. The accessor is lock-free
+// (atomic.Bool.Load) so the dispatcher's status-tool poll path
+// stays cheap.
+//
+// The flag is cleared when the next turn starts (see StartCancel).
 //
 // Nil-safe: a nil *Cascade returns false.
 func (c *Cascade) IsCancelled() bool {

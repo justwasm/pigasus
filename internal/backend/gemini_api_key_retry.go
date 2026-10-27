@@ -59,6 +59,8 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/justwasm/pigasus/retry"
 )
 
 // StreamIdleTimeout is the maximum duration a model response stream may stall
@@ -101,10 +103,6 @@ var MaxConnectionRetryInterval = 30 * time.Second
 // Declared as a var for the same reason as the other two: tests
 // shorten the schedule.
 var InitialConnectionRetryInterval = 1 * time.Second
-
-// connectionRetryMultiplier is the growth factor between successive
-// retries. AGY's exponential schedule doubles per attempt.
-const connectionRetryMultiplier = 2.0
 
 // ErrConnectionDropped is the sentinel recognised by errors.Is. A
 // *ConnectionDroppedError satisfies the comparison via Unwrap.
@@ -334,14 +332,18 @@ func (r *IdleTimeoutReader) Close() error {
 
 // NextConnectionRetryDelay returns the delay that precedes retry
 // attempt `attempt` (zero-indexed: 0 is the first retry, after the
-// initial failure). The schedule is exponential with
-// connectionRetryMultiplier, clamped to MaxConnectionRetryInterval:
+// initial failure). The schedule is exponential with a factor of 2,
+// clamped to MaxConnectionRetryInterval:
 //
 //	attempt 0 -> InitialConnectionRetryInterval (1s)
 //	attempt 1 -> 2s
 //	attempt 2 -> 4s
 //	attempt 3 -> 8s
 //	attempt 4 -> 16s   (budget exhausted past this)
+//
+// The schedule itself is retry's Step — the clone's one
+// exponential backoff, shared with the canonical schedule and the
+// stall recovery's.
 //
 // attempt must be in [0, MaxConnectionRetries). An attempt index past
 // the budget returns MaxConnectionRetryInterval — that is the cap, by
@@ -356,21 +358,5 @@ func NextConnectionRetryDelay(attempt int) time.Duration {
 	if attempt >= MaxConnectionRetries {
 		return MaxConnectionRetryInterval
 	}
-	ms := float64(InitialConnectionRetryInterval) * pow2(attempt)
-	if ms > float64(MaxConnectionRetryInterval) {
-		return MaxConnectionRetryInterval
-	}
-	return time.Duration(int64(ms))
-}
-
-// pow2 returns 2^attempt as a float64 without overflowing. A simple
-// left-shift would overflow at attempt >= 63 (1<<63 overflows int64),
-// and the cap is much smaller, but a float avoids the corner entirely
-// and keeps the math readable.
-func pow2(attempt int) float64 {
-	out := 1.0
-	for i := 0; i < attempt; i++ {
-		out *= connectionRetryMultiplier
-	}
-	return out
+	return retry.Step(attempt, InitialConnectionRetryInterval, MaxConnectionRetryInterval)
 }

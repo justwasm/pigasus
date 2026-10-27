@@ -8,6 +8,7 @@ import (
 	"github.com/justwasm/pigasus/internal/permissions"
 	"github.com/justwasm/pigasus/internal/programstatus"
 	"github.com/justwasm/pigasus/internal/tuilib"
+	"github.com/justwasm/pigasus/palette"
 )
 
 func (m *runMode) clipViewBody(body string, cursorY int) (string, int) {
@@ -79,8 +80,8 @@ func (m *runMode) applyTerminalSettings(v tea.View) tea.View {
 func (m *runMode) buildTeaView(body string, cursorX, cursorY int) tea.View {
 	v := tea.NewView(body)
 	v = m.applyTerminalSettings(v)
-	if m.title == "on" {
-		v.WindowTitle = m.conversationTitle()
+	if title := m.windowTitleText(); title != "" {
+		v.WindowTitle = title
 	}
 	v.ProgramStatus = m.programStatus()
 	if m.helpMode {
@@ -96,6 +97,10 @@ func (m *runMode) buildTeaView(body string, cursorX, cursorY int) tea.View {
 }
 
 func (m *runMode) View() tea.View {
+	// The frame is painted with the selected scheme's colours: the
+	// palette resolves them from the scheme the session wears.
+	restore := palette.PushScheme(m.colorScheme)
+	defer restore()
 	if m.login != nil {
 		// The login screen owns its own layout, but it still runs in
 		// this program's terminal: keep the session's alternate-screen
@@ -191,7 +196,7 @@ func (m *runMode) formatInputView() string {
 }
 
 func (m *runMode) renderBodyPrompt(b *strings.Builder) int {
-	b.WriteString(m.separator() + "\n")
+	b.WriteString(m.promptRule(true) + "\n")
 	m.renderBodyQueuesAndCard(b)
 
 	rowsAbovePrompt := viewRows(b.String())
@@ -200,11 +205,20 @@ func (m *runMode) renderBodyPrompt(b *strings.Builder) int {
 	inputView := m.formatInputView()
 	b.WriteString(inputView)
 
+	// The reference answers a turn the user cancelled with Esc with a
+	// hint in the composer, not with an error row in the transcript.
+	if hint := m.interruptedHintRow(); hint != "" {
+		b.WriteString(hint + "\n")
+	}
+
 	cursorY := rowsAbovePrompt
 	if c := m.input.Cursor(); c != nil {
 		cursorY += c.Y
 	}
-	b.WriteString(m.separator() + "\n")
+	if activeView := m.activeItemsView(); activeView != "" {
+		b.WriteString(activeView + "\n")
+	}
+	b.WriteString(m.promptRule(false) + "\n")
 	return cursorY
 }
 
@@ -242,7 +256,20 @@ func (m *runMode) renderBodyStatusLine(b *strings.Builder) {
 				b.WriteString(row + "\n")
 			}
 		}
-		b.WriteString(m.statusRow())
+		m.writeStatusArea(b)
+	}
+}
+
+// writeStatusArea writes the status area's rows. The last row carries no
+// trailing newline: it is the last thing on the screen.
+func (m *runMode) writeStatusArea(b *strings.Builder) {
+	rows := m.statusAreaRows()
+	for i, row := range rows {
+		if i < len(rows)-1 {
+			b.WriteString(row + "\n")
+			continue
+		}
+		b.WriteString(row)
 	}
 }
 
@@ -254,7 +281,7 @@ func (m *runMode) viewBody(transcript []string) (string, int) {
 	if (m.panel.kind == panelChangelog || m.panel.kind == panelDiff) && m.height > 0 {
 		b.WriteString(m.panelView())
 		if m.statusLine != "off" {
-			b.WriteString(m.statusRow())
+			m.writeStatusArea(&b)
 		}
 		return b.String(), 0
 	}

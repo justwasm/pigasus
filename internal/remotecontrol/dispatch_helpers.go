@@ -34,6 +34,51 @@ type rpcErrorBody struct {
 	Data    any
 }
 
+// rpcCodedError is the error a failed dispatch returns.
+//
+// It carries the JSON-RPC code and the message apart from the
+// formatted string, so a transport that speaks Connect can answer
+// with the code the reference answers with: the reference answers a
+// terminal that is gone with HTTP 404 and
+// {"code":"not_found","message":"not_found: terminal … not found"},
+// where the clone used to answer HTTP 200 with `{}`.
+//
+// The transport learns the code through a duck-typed interface (the
+// import direction is the other way round: the dispatcher must not
+// import the transport).
+type rpcCodedError struct {
+	// Code is the JSON-RPC code of the failure.
+	Code int
+	// Message is the message a client sees.
+	Message string
+	// Data is the failure's detail, if it has one.
+	Data any
+}
+
+// Error implements error.
+func (e *rpcCodedError) Error() string {
+	if e.Data != nil {
+		return fmt.Sprintf("rpc error %d: %s (%v)", e.Code, e.Message, e.Data)
+	}
+	return fmt.Sprintf("rpc error %d: %s", e.Code, e.Message)
+}
+
+// JSONRPCCode is the JSON-RPC code the failure carries.
+func (e *rpcCodedError) JSONRPCCode() int { return e.Code }
+
+// ConnectMessage is the message a Connect client sees.
+//
+// The detail (the failure's data) is the message when it has one: the
+// clone's JSON-RPC envelope carries the detail in the error's "data"
+// member, while the reference's Connect answer carries it in the
+// "message" member.
+func (e *rpcCodedError) ConnectMessage() string {
+	if detail, ok := e.Data.(string); ok && detail != "" {
+		return detail
+	}
+	return e.Message
+}
+
 // rpcError wraps an error body into a JSON-RPC 2.0 envelope. id
 // may be nil (for parse errors) or any JSON value (for everything
 // else).

@@ -30,6 +30,7 @@ import (
 
 	"github.com/justwasm/pigasus/internal/atconversation"
 	"github.com/justwasm/pigasus/internal/backend"
+	"github.com/justwasm/pigasus/internal/cliflags"
 	"github.com/justwasm/pigasus/internal/convstore"
 	"github.com/justwasm/pigasus/internal/rehydration"
 	"github.com/justwasm/pigasus/internal/subagenttools"
@@ -47,8 +48,8 @@ type conversationSelection = convstore.Selection
 // resolveConversationSelection decides what a run continues, printing the
 // reference's warning on warn when an explicitly named conversation is missing.
 func resolveConversationSelection(fs *flag.FlagSet, warn io.Writer) conversationSelection {
-	convID := flagStringValue(fs, "conversation")
-	cont := resolveBoolAlias(fs, "continue", "c")
+	convID := cliflags.StringValue(fs, "conversation")
+	cont := cliflags.ResolveBoolAlias(fs, "continue", "c")
 	return convstore.ResolveSelection(convID, cont, workspaceDir(), warn)
 }
 
@@ -93,7 +94,7 @@ func (m *runMode) seedConversation(c *convstore.Conversation) {
 // conversation is loaded: the subagents it defined, the schedules it
 // created, the tasks it managed (【反编译】 the reference's
 // `cortex/rehydration` package and the cascade manager's
-// `processLoadedTrajectory`, CLI 0x101e4e8a0; see
+// `processLoadedTrajectory`, CLI 0x101f26440; see
 // out/ide-language-server/README.md §10.9).
 //
 // The clone's transcript comes back from the store, but the state the

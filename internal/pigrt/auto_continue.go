@@ -45,6 +45,9 @@
 // internal/agent and five + four tests respectively; see the deliverable in
 // docs/cycles/auto-continue-interrupt/ for the trigger matrix and the recovery
 // copy catalogue.
+//
+// Cycle 346: the recovery copies themselves now live in internal/autocont —
+// one declaration, two aliases. The TUI's copy is internal/agent.
 package pigrt
 
 import (
@@ -56,30 +59,40 @@ import (
 	"github.com/MichaelKinsy/PiG/agent"
 	"github.com/MichaelKinsy/PiG/ai"
 
+	"github.com/justwasm/pigasus/internal/autocont"
 	"github.com/justwasm/pigasus/internal/backend"
 )
 
-// AutoContStreamInterrupted is the verbatim recovery copy AGY emits at
-// loadfile offset 0x33dc41b (binary ~/.local/bin/agy, build 1.4.0). The model
-// sees this exact text on a stream-interrupt failure; the print path
-// stream-prints it as a marker line, the TUI surfaces it verbatim as a
-// styled status banner.
+// The recovery vocabulary is the reference's own bytes, and it is
+// declared once, in internal/autocont. These aliases keep the print
+// path's historical names.
 //
-// Source: docs/research/agy-feature-strings.md §3, evidence grade 【strings】.
-const AutoContStreamInterrupted = "The stream was interrupted. Please continue the task you were working on."
+// Cycle 346: this file used to declare its own copy of each constant —
+// two literal copies of a string that has to be byte-exact against the
+// binary. The header comment above claimed "a TUI/print divergence is
+// impossible by construction", but two declarations are not a
+// construction; they are two chances to drift. The TUI's copy
+// (internal/agent) now aliases the same declarations.
+const (
+	// AutoContStreamInterrupted is the verbatim recovery copy AGY emits
+	// at loadfile offset 0x33dc41b (binary ~/.local/bin/agy, build
+	// 1.4.0). The model sees this exact text on a stream-interrupt
+	// failure; the print path stream-prints it as a marker line, the TUI
+	// surfaces it verbatim as a styled status banner.
+	AutoContStreamInterrupted = autocont.StreamInterrupted
 
-// AutoContIterationCapFormat is the verbatim **Status** banner AGY emits at
-// loadfile offset 0x33a3d44 with a single %d placeholder for the iteration
-// count. fmt.Sprintf(AutoContIterationCapFormat, n) reproduces AGY's banner
-// byte-for-byte (modulo the %d substitution).
-//
-// Source: docs/research/agy-feature-strings.md §3, evidence grade 【strings】.
-const AutoContIterationCapFormat = "**Status**: Cancelled after %d iterations"
+	// AutoContIterationCapFormat is the verbatim **Status** banner AGY
+	// emits at loadfile offset 0x33a3d44 with a single %d placeholder
+	// for the iteration count. fmt.Sprintf(AutoContIterationCapFormat,
+	// n) reproduces AGY's banner byte-for-byte (modulo the %d
+	// substitution).
+	AutoContIterationCapFormat = autocont.IterationCapFormat
 
-// AutoContMaxDepth bounds auto-continue recursion. Three consecutive
-// stream-interrupt or iteration-cap failures in the same user-turn trip the
-// "user input required" path; see ErrAutoContMaxDepth.
-const AutoContMaxDepth = 3
+	// AutoContMaxDepth bounds auto-continue recursion. Three consecutive
+	// stream-interrupt or iteration-cap failures in the same user-turn
+	// trip the "user input required" path; see ErrAutoContMaxDepth.
+	AutoContMaxDepth = autocont.MaxDepth
+)
 
 // ErrAutoContMaxDepth is returned when auto-continue recurses AutoContMaxDepth
 // times in one user-turn without settling. Callers surface this as a user
@@ -126,7 +139,7 @@ func (e *ErrAutoContMaxDepth) Unwrap() error { return e.Last }
 //     see agent_loop.go:494). The matrix must catch both.
 func classifyInterruption(msgs []agent.AgentMessage, runErr error) string {
 	if errors.Is(runErr, agent.ErrMaxTurnsReached) {
-		return fmt.Sprintf(AutoContIterationCapFormat, iterationCountFromErr(runErr))
+		return fmt.Sprintf(AutoContIterationCapFormat, autocont.IterationCount(runErr))
 	}
 	last := lastAssistant(msgs)
 	if last == nil {
@@ -147,33 +160,6 @@ func lastAssistant(msgs []agent.AgentMessage) *agent.AssistantMessage {
 		}
 	}
 	return nil
-}
-
-// iterationCountFromErr extracts the iteration count from the message PiG
-// embeds in agent.ErrMaxTurnsReached. The exact text is "agent: exceeded
-// tool-iteration budget (%d)" (or "%d" prefix in upstream variants), so we
-// fish for the integer after the last parenthesis.
-//
-// Returning 0 is fine: the recovery copy will read "**Status**: Cancelled
-// after 0 iterations", which is still a valid prompt. The depth counter is
-// the real bound on recursion, not the literal count.
-func iterationCountFromErr(err error) int {
-	if err == nil {
-		return 0
-	}
-	// Parse "budget (N)" or "after N iterations" whichever upstream emits.
-	// The clone's own loop returns fmt.Errorf("agent: exceeded tool-iteration
-	// budget (%d)", maxTurns) when the budget is exceeded; runtime.runPig's
-	// path bubbles agent.ErrMaxTurnsReached up, so we unwrap via errors.As in
-	// the TUI path's recursion. The recovery copy formatted against 0 still
-	// works, which is what the cycle auto-continue-interrupt spec calls for.
-	var last int
-	for _, r := range err.Error() {
-		if r >= '0' && r <= '9' {
-			last = last*10 + int(r-'0')
-		}
-	}
-	return last
 }
 
 // appendRecoveryMessage returns a copy of msgs with a synthetic user message

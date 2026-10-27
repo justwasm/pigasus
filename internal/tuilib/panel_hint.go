@@ -4,7 +4,7 @@ package tuilib
 import (
 	"strings"
 
-	"github.com/justwasm/pigasus/internal/palette"
+	"github.com/justwasm/pigasus/palette"
 )
 
 // PanelKeyboardHint builds the `Keyboard: <key> <label>  <key> <label>`

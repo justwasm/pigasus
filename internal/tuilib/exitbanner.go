@@ -3,12 +3,19 @@ package tuilib
 import (
 	"fmt"
 	"strings"
+
+	"github.com/justwasm/pigasus/palette"
 )
 
 const (
-	cBlueBoldOpen = "\x1b[38;2;38;139;210;1m"
-	cDimGrayOpen  = "\x1b[38;2;101;123;131m"
-	ansiReset     = "\x1b[0m"
+	ansiReset = "\x1b[0m"
+)
+
+// The banner's colours follow the selected colour scheme; the refresh
+// in help.go re-reads them when the scheme changes.
+var (
+	cBlueBoldOpen = palette.BlueBoldOpen
+	cDimGrayOpen  = palette.DimGrayOpen
 )
 
 // ExitBannerOptions configures the post-exit terminal banner.

@@ -182,7 +182,13 @@ func TestToStreamRequest_MapsEveryMessageKind(t *testing.T) {
 	}
 }
 
-func TestToStreamRequest_DropsImageContent(t *testing.T) {
+// TestToStreamRequest_CarriesImageContent pins that a picture the
+// user attached rides with the message.
+//
+// The clone used to drop the image blocks: the neutral message shape
+// had nowhere to put them. It has a place now — backend.Message.Images
+// — and every transport spells it its own way.
+func TestToStreamRequest_CarriesImageContent(t *testing.T) {
 	transcript := pi.NormalizeContext(pi.Context{
 		Messages: []pi.Message{pi.UserMessage{Content: pi.UserContentBlocks{
 			pi.TextContent{Text: "look"},
@@ -193,6 +199,16 @@ func TestToStreamRequest_DropsImageContent(t *testing.T) {
 	got := ToStreamRequest(transcript, "m", pi.StreamOptions{})
 	if len(got.Messages) != 1 || got.Messages[0].Content != "look" {
 		t.Fatalf("Messages = %+v", got.Messages)
+	}
+	images := got.Messages[0].Images
+	if len(images) != 1 {
+		t.Fatalf("the message carries %d images, want 1", len(images))
+	}
+	if images[0].MIMEType != "image/png" {
+		t.Errorf("the image's mime type = %q, want image/png", images[0].MIMEType)
+	}
+	if len(images[0].Data) != 3 {
+		t.Errorf("the image holds %d bytes, want the three its base64 spells", len(images[0].Data))
 	}
 }
 
@@ -501,7 +517,9 @@ func TestTools_CarriesTheReferenceDescriptions(t *testing.T) {
 			"PROPOSE a command to run on behalf of the user.",
 			"Make sure to specify CommandLine exactly as it should be run in the shell.",
 		},
-		"list_dir": {"List the entries of a directory."},
+		// Cycle 305: the catalogue's descriptions are the reference's own
+		// text now, not the clone's paraphrase.
+		"list_dir": {"List the contents of a directory"},
 	}
 	seen := map[string]bool{}
 	for _, tool := range adapted {

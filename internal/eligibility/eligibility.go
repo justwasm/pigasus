@@ -7,8 +7,8 @@ import (
 	"strings"
 
 	"github.com/justwasm/pigasus/internal/apierror"
-	"github.com/justwasm/pigasus/internal/palette"
-	"github.com/justwasm/pigasus/internal/render"
+	"github.com/justwasm/pigasus/palette"
+	"github.com/justwasm/pigasus/render"
 )
 
 // HTTPStatus is the recovered HTTP status code the upstream returns for the

@@ -94,6 +94,22 @@ type Spec struct {
 	// foreground caller via os.Executable.  Required.
 	BinaryPath string
 
+	// Desktop asks the daemon for the reference's *desktop* UI:
+	// the voice input, the jetbox terminal, the redesigned aux
+	// pane.
+	//
+	// It reaches the daemon through the LaunchAgent plist's
+	// ProgramArguments (`--desktop` after the foreground
+	// subcommand), and the foreground handler turns it into the
+	// hub's Mendel identity — the backend serves a different
+	// flag set per product, and the desktop features are in the
+	// hub's set.
+	//
+	// False (default) → the CLI's own identity → the CLI's page.
+	//
+	// Cycle web-desktop-mode-remote-control adds this.
+	Desktop bool
+
 	// SkipLaunchd is the test-mode flag.  When true, Start
 	// writes the plist (or session detach) to a temp directory
 	// and returns a fake PID; Status reads it back.  No actual
@@ -134,6 +150,7 @@ type StatusReport struct {
 	PID       int    `json:"pid,omitempty"`
 	Name      string `json:"name"`
 	Addr      string `json:"addr,omitempty"`
+	Account   string `json:"account,omitempty"`
 	StartedAt string `json:"started_at,omitempty"` // RFC3339Nano
 	Uptime    string `json:"uptime,omitempty"`     // e.g. "1h23m"
 	StartedAtEpoch int64 `json:"started_at_epoch,omitempty"`

@@ -6,14 +6,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"path/filepath"
-	"regexp"
-	"strconv"
 	"strings"
-)
 
-const (
-	cSpinnerBaseOpen = "\x1b[38;2;101;123;131m"
-	cSpinnerHiOpen   = "\x1b[38;2;38;139;210m"
+	"github.com/justwasm/pigasus/internal/agystep"
+	"github.com/justwasm/pigasus/palette"
 )
 
 // ToolStepTitleFile returns the formatted title for file tools.
@@ -190,7 +186,7 @@ func SpinnerText(phrase string, frame int) string {
 		if dots > 3 {
 			dots = 3
 		}
-		return cSpinnerBaseOpen + phrase + strings.Repeat(".", dots) + "\x1b[m"
+		return palette.SpinnerBaseOpen + phrase + strings.Repeat(".", dots) + "\x1b[m"
 	}
 	n := 6 + f
 	if n > total {
@@ -205,22 +201,22 @@ func SpinnerText(phrase string, frame int) string {
 	if split < 0 {
 		split = 0
 	}
-	return cSpinnerBaseOpen + visible[:split] + cSpinnerHiOpen + visible[split:] + "\x1b[m"
+	return palette.SpinnerBaseOpen + visible[:split] + palette.SpinnerHiOpen + visible[split:] + "\x1b[m"
 }
 
-var commandExitRe = regexp.MustCompile(`The command exited with code (-?\d+)\.`)
-
 // CommandExitCode parses the exit code out of a run_command result body.
+//
+// The reference prints the exit line in one of two shapes — "Command exited
+// with code N." (the CLI's own formatter, which is what agy 1.4.4 and 1.4.7
+// send) and "The command exited with code N." (the step string, which is
+// what the reference produced at 1.4.2 and 1.4.3). One reader for both
+// lives in internal/agystep; this is its thin wrapper.
 func CommandExitCode(result string) (code int, ok bool) {
-	m := commandExitRe.FindStringSubmatch(result)
-	if m == nil {
+	res, ok := agystep.ParseRunCommandResult(result)
+	if !ok {
 		return 0, false
 	}
-	n, err := strconv.Atoi(m[1])
-	if err != nil {
-		return 0, false
-	}
-	return n, true
+	return res.ExitCode, true
 }
 
 // ArgStr returns the first present string-ish argument among keys in JSON args.

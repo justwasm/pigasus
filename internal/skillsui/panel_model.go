@@ -55,15 +55,22 @@ type PanelModel struct {
 	SkillItem []int
 }
 
-// builtinSkillPanelOrder is the 1.4.3 /skills display order for the five
-// bundled skills. Captured live at 120x40; the name sort used by the
-// slash picker would put "schedule automation" last.
+// builtinSkillPanelOrder is the 1.4.8 /skills display order for the five
+// bundled skills. Captured live at 120x40.
+//
+// The order is keyed on the *bare* frontmatter name, not on the rendered
+// name: the reference sorts the built-in group by the declared name, so
+// "automation" sits between "antigravity-guide" and "migrate-workflows"
+// even though its rendered row reads "schedule automation".
+//
+// 【一手】 agy 1.4.8 panel: agy-customizations, antigravity-guide,
+// schedule automation, migrate-workflows, run-workflow.
 var builtinSkillPanelOrder = map[string]int{
-	"agy-customizations":  0,
-	"antigravity-guide":   1,
-	"schedule automation": 2,
-	"migrate-workflows":   3,
-	"run-workflow":        4,
+	"agy-customizations": 0,
+	"antigravity-guide":  1,
+	"automation":         2,
+	"migrate-workflows":  3,
+	"run-workflow":       4,
 }
 
 // SortBuiltinSkills puts the bundled skills in the reference's fixed

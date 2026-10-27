@@ -3,8 +3,9 @@
 package printmode
 
 import (
+	"bytes"
 	"encoding/json"
-	"strconv"
+	"fmt"
 )
 
 // jsonHelpCommand is one row of the `commands` list in the `/help` JSON payload.
@@ -39,6 +40,10 @@ func helpCommandsData() any {
 
 // printSlashConfigTypes records each settings key's JSON type, recovered from
 // the `command.data.config` payload of `agy -p=/config --output-format json`.
+//
+// The type decides what an explicit `null` in settings.json decodes to: the
+// zero value of the key's type ("" for a string key, false for a bool key, 0
+// for a number key, null for the nullable ones).
 var printSlashConfigTypes = map[string]string{
 	"agentMode":               "string",
 	"allowNonWorkspaceAccess": "bool",
@@ -64,6 +69,8 @@ var printSlashConfigTypes = map[string]string{
 	"queuedMessages":          "string",
 	"runningLightSpeed":       "string",
 	"sandboxProxy":            "null",
+	"seasonalThemesOff":       "string",
+	"seasonalThemesOptIn":     "string",
 	"showFeedbackSurvey":      "bool",
 	"showTips":                "bool",
 	"statusLine":              "null",
@@ -76,43 +83,88 @@ var printSlashConfigTypes = map[string]string{
 	"vimInsertFirst":          "bool",
 }
 
-// configValues resolves every known settings key to the typed value the JSON
-// payload carries.
+// configValues resolves every settings key the reference reports to the typed
+// value its JSON payload carries.
+//
+// The key set is the union of the reference's known keys and every key
+// present in settings.json — see printSlashConfigKeySet.
 func configValues() map[string]any {
-	raw := map[string]json.RawMessage{}
-	if b, err := readSettingsFile(); err == nil {
-		_ = json.Unmarshal(b, &raw)
-	}
-	out := make(map[string]any, len(printSlashConfigKeys))
-	for _, k := range printSlashConfigKeys {
+	raw := readRawConfigSettings()
+	out := make(map[string]any, len(raw))
+	for _, k := range printSlashConfigKeySet(raw) {
 		out[k] = configValue(k, raw[k])
 	}
 	return out
 }
 
 // configValue resolves one key. raw is nil when the key is absent.
+//
+//   - absent → the compiled default, with the key's JSON type
+//   - present and null → the zero value of the key's type
+//   - present → the file's value
+//
+// 【一手】 agy 1.4.8: with `{"editor":null}` in settings.json the text dump
+// prints an empty cell for `editor` and the JSON payload carries the empty
+// string; a key the reference does not know keeps its null.
 func configValue(key string, raw json.RawMessage) any {
-	if len(raw) > 0 && string(raw) != "null" {
-		var v any
-		if json.Unmarshal(raw, &v) == nil {
-			return v
-		}
-	}
-	switch printSlashConfigTypes[key] {
-	case "null":
-		return nil
-	case "bool":
-		return printSlashConfigDefaults[key] == "true"
-	case "int":
-		n, _ := strconv.Atoi(printSlashConfigDefaults[key])
-		return n
-	case "list":
-		return []any{}
-	case "object":
-		return map[string]any{}
-	default:
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) == 0 {
 		return printSlashConfigDefaults[key]
 	}
+	if bytes.Equal(trimmed, []byte("null")) {
+		return configZeroValue(key)
+	}
+	return configRawValue(key, trimmed)
+}
+
+// configZeroValue is the value an explicit null decodes to for one key.
+func configZeroValue(key string) any {
+	switch printSlashConfigTypes[key] {
+	case "string":
+		return ""
+	case "bool":
+		return false
+	case "int":
+		return 0
+	}
+	return nil
+}
+
+// configRawValue decodes a settings value that is present in the file.
+//
+// The two object-valued settings with a recovered field order decode into
+// their struct, so the encoder keeps the reference's member order (type,
+// command, enabled) instead of re-sorting it alphabetically.
+func configRawValue(key string, raw json.RawMessage) any {
+	if orderSensitiveConfigKeys[key] {
+		var sl jsonStatusLineSetting
+		if err := json.Unmarshal(raw, &sl); err == nil {
+			return sl
+		}
+	}
+	var v any
+	if err := json.Unmarshal(raw, &v); err == nil {
+		return v
+	}
+	return nil
+}
+
+// configValueText renders a resolved settings value the way the reference's
+// text dump does: a string bare, everything else through the standard JSON
+// encoder — so a null renders as an empty cell, a number as its literal, and
+// an object on one line with Go's HTML escaping (`<` comes back as \u003c).
+func configValueText(v any) string {
+	switch t := v.(type) {
+	case nil:
+		return ""
+	case string:
+		return t
+	}
+	b, err := json.Marshal(v)
+	if err != nil {
+		return fmt.Sprint(v)
+	}
+	return string(b)
 }
 
 // configData renders the `/config` command payload.

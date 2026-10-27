@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/justwasm/pigasus/internal/palette"
 	"github.com/justwasm/pigasus/internal/tuilib"
+	"github.com/justwasm/pigasus/palette"
 )
 
 // WidthInset is how much narrower than the terminal the list rows and the
@@ -25,7 +25,6 @@ const (
 const (
 	HeaderOpen  = "\x1b[4m\x1b[38;5;32m"
 	HeaderReset = "\x1b[0m"
-	RuleOpen    = "\x1b[38;2;238;232;213m"
 	ErrorOpen   = "\x1b[38;5;166m"
 )
 
@@ -114,7 +113,7 @@ func RuleRow(width int) string {
 	if n < 1 {
 		n = 1
 	}
-	return RuleOpen + strings.Repeat("─", n) + palette.DimGrayClose
+	return palette.SeparatorOpen + strings.Repeat("─", n) + palette.DimGrayClose
 }
 
 // Fill lays out hits[start:] while they fit the row budget and returns the
@@ -188,4 +187,3 @@ func Follow(window, cursor, height, width int, hits []Hit) int {
 	}
 	return window
 }
-

@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/justwasm/pigasus/atomicfile"
 	"github.com/justwasm/pigasus/internal/auth"
 )
 
@@ -314,11 +315,7 @@ func saveMCPDoc(path string, doc *mcpDoc) error {
 	if err != nil {
 		return err
 	}
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, buf, 0o600); err != nil {
-		return err
-	}
-	return os.Rename(tmp, path)
+	return atomicfile.WriteFile(path, buf, 0o600)
 }
 
 // defaultMCPConfigPath returns the fallback MCP config path when none is configured.

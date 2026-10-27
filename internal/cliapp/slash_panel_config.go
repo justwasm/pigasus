@@ -6,6 +6,7 @@ import (
 
 	"github.com/justwasm/pigasus/internal/auth"
 	"github.com/justwasm/pigasus/internal/configpanel"
+	"github.com/justwasm/pigasus/internal/seasonal"
 )
 
 // cfgVal is one stopping point of a setting's ←/→ cycle, as measured
@@ -77,7 +78,51 @@ func configRows() []configRow {
 		}
 		out = append(out, r)
 	}
+	// The seasonal row is drawn only while a seasonal event is in
+	// season, so it is not part of the static catalogue.
+	if ev := seasonalEvent(); ev != nil {
+		out = insertSeasonalRow(out, seasonalConfigRow(ev))
+	}
 	return out
+}
+
+// seasonalConfigRow is the "Seasonal Themes" row.
+//
+// 【一手】 agy 1.4.7's /config (out/changelog-147/ref/config.txt):
+//
+//	Seasonal Themes              on                 seasonalThemesOptIn
+//
+// The row's help line is verbatim in seasonal.RowDescription, its two
+// stops read "off" and "on", and switching it on writes the event's own
+// id into settings.json ("seasonalThemesOptIn": "halloween-2026").
+// Switching it off deletes the key again — the reference's own
+// "a setting at its default is absent" convention.
+func seasonalConfigRow(ev *seasonal.Event) configRow {
+	return configRow{
+		Name:        seasonal.RowName,
+		SettingsKey: seasonal.OptInKey,
+		Values: []cfgVal{
+			configpanel.V("off", ""),
+			configpanel.V("on", ev.ID),
+		},
+		Description: seasonal.RowDescription,
+	}
+}
+
+// insertSeasonalRow puts the seasonal row where the reference draws it:
+// between "Sandbox Mode" and "Show Active Tasks".
+func insertSeasonalRow(rows []configRow, row configRow) []configRow {
+	for i, r := range rows {
+		if r.Name != "Show Active Tasks" {
+			continue
+		}
+		out := make([]configRow, 0, len(rows)+1)
+		out = append(out, rows[:i]...)
+		out = append(out, row)
+		out = append(out, rows[i:]...)
+		return out
+	}
+	return append(rows, row)
 }
 
 // rawString renders a settings.json leaf as the string form used for

@@ -21,13 +21,19 @@ func (m *runMode) handleGlobalOrModalKeys(key tea.Key) (tea.Model, tea.Cmd, bool
 		if r == 'm' {
 			return m, m.toggleQueueMode(), true
 		}
+		if r == 'j' {
+			if len(m.getActiveItems()) > 0 {
+				m.activeItems.SetFocus(!m.activeItems.Focused())
+				return m, nil, true
+			}
+		}
 	}
 	if m.voiceMode {
 		if handled, cmd := m.handleVoiceKey(key); handled {
 			return m, cmd, true
 		}
 	}
-	if listPanelKind(m.panel.kind) {
+	if listPanelKind(m.panel.kind) || detailPanelKind(m.panel.kind) {
 		if handled, cmd := m.handlePanelKey(key); handled {
 			return m, cmd, true
 		}
@@ -186,8 +192,15 @@ func (m *runMode) handleResumeModeKeys(key tea.Key) (tea.Model, tea.Cmd, bool) {
 	if !m.resumeMode {
 		return m, nil, false
 	}
+	if m.resumeTreeActive() {
+		return m.handleResumeTreeKeys(key)
+	}
 	rows := m.resumeFiltered()
 	total := len(rows)
+	if key.Code == 'f' && key.Mod.Contains(tea.ModCtrl) {
+		m.toggleResumeGrouped()
+		return m, nil, true
+	}
 	if m.handleResumeNav(key, total) {
 		return m, nil, true
 	}
@@ -257,6 +270,10 @@ func (m *runMode) handleEscKeyMsg() (tea.Model, tea.Cmd) {
 	if m.streaming && m.turnCancel != nil {
 		m.turnCancel()
 		m.turnCancel = nil
+		// The reference does not report a cancelled turn as an error: it
+		// answers with the composer's interrupted hint instead
+		// (【反编译】 agy 1.4.8's `(*PromptModel).interruptedLine`).
+		m.turnInterrupted = true
 		return m, nil
 	}
 	if m.bashCancel != nil {
@@ -395,6 +412,11 @@ func (m *runMode) updateKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 	if mod, cmd, handled := m.handleResumeModeKeys(key); handled {
 		return mod, cmd
+	}
+	if m.activeItems.Focused() {
+		if handled, cmd := m.handleActiveItemsKey(key); handled {
+			return m, cmd
+		}
 	}
 	if m.subAgentQuestionPickerOpen {
 		return m, m.handleSubAgentQuestionPickerKey(key)

@@ -21,7 +21,14 @@ import (
 
 // fixturePath is the 【一手】 capture: one "## <tool> {args}" header per call
 // followed by the result text the reference sent back.
-const fixturePath = "../tools/testdata/result_texts_1.4.4.txt"
+//
+// The capture was re-taken at agy 1.4.7 (2026-10-25). The 1.4.4 capture is
+// kept next to it as the previous evidence: every read_file, write_file and
+// edit_file section came back byte-identical, and the six sections that differ
+// (schedule, invoke_subagent "self", search_web, generate_image,
+// read_url_content, ask_question) each carry a note saying what moved - the
+// reference, the capture harness, or the capture mode.
+const fixturePath = "../tools/testdata/result_texts_1.4.7.txt"
 
 // stampRE is the Created At / Completed At header the reference puts in front
 // of every result. The timestamps themselves are wall-clock, so they are
@@ -39,10 +46,10 @@ const (
 	// normalisation and the /tmp/ → fixture-root rewrite).
 	exactBody mode = iota
 	// proseBody compares only the non-numbered, non-elided lines, plus the
-	// first and last numbered lines that survive. The capture abbreviates the
-	// 800-line and 46080-byte bodies with "…", so those sections cannot be
-	// compared byte for byte — but their prose (the header, the truncation
-	// note, the closing sentence) is exactly what makes them reference-shaped.
+	// first and last numbered lines that survive. It exists for the 1.4.4
+	// capture, which abbreviated the 800-line and 46080-byte bodies with "…"
+	// and could not be compared byte for byte. The 1.4.7 capture carries
+	// those bodies in full, so every section is exactBody today.
 	proseBody
 )
 
@@ -110,26 +117,19 @@ func replays() []replay {
 		{tool: "read_file", args: `{"Path": "/tmp/refempty.txt"}`,
 			setup: func(t *testing.T, root string) { file(t, root, "refempty.txt", "") }},
 		{tool: "read_file", args: `{"Path": "/tmp/rl_big.txt"}`,
-			setup: func(t *testing.T, root string) { file(t, root, "rl_big.txt", lineFile(900)) },
-			mode:  proseBody},
-		// These two captures kept only the range header and dropped the body
-		// without an elision marker, so only the prose is comparable.
+			setup: func(t *testing.T, root string) { file(t, root, "rl_big.txt", lineFile(900)) }},
 		{tool: "read_file", args: `{"Path": "/tmp/rl_big.txt", "StartLine": 100}`,
-			setup: func(t *testing.T, root string) { file(t, root, "rl_big.txt", lineFile(900)) },
-			mode:  proseBody},
+			setup: func(t *testing.T, root string) { file(t, root, "rl_big.txt", lineFile(900)) }},
 		{tool: "read_file", args: `{"Path": "/tmp/rl_big.txt", "StartLine": 1, "EndLine": 900}`,
-			setup: func(t *testing.T, root string) { file(t, root, "rl_big.txt", lineFile(900)) },
-			mode:  proseBody},
+			setup: func(t *testing.T, root string) { file(t, root, "rl_big.txt", lineFile(900)) }},
 		{tool: "read_file", args: `{"Path": "/tmp/refread.txt", "StartLine": 10, "EndLine": 20}`,
 			setup: func(t *testing.T, root string) {
 				file(t, root, "refread.txt", "line one\nline two\nline three\n")
 			}},
 		{tool: "read_file", args: `{"Path": "/tmp/rl_long.txt"}`,
-			setup: func(t *testing.T, root string) { file(t, root, "rl_long.txt", longFile()) },
-			mode:  proseBody},
+			setup: func(t *testing.T, root string) { file(t, root, "rl_long.txt", longFile()) }},
 		{tool: "read_file", args: `{"Path": "/tmp/rl_long.txt", "StartLine": 1, "EndLine": 100, "ByteOffset": 46080}`,
-			setup: func(t *testing.T, root string) { file(t, root, "rl_long.txt", longFile()) },
-			mode:  proseBody},
+			setup: func(t *testing.T, root string) { file(t, root, "rl_long.txt", longFile()) }},
 
 		// ── write_file ─────────────────────────────────────────────────────
 		{tool: "write_file", args: `{"Path": "/tmp/refwrite.txt", "Content": "alpha\nbeta\n"}`},
@@ -154,18 +154,21 @@ func replays() []replay {
 		{tool: "view_file", args: `{"AbsolutePath": "/tmp/agentws/a.txt", "StartLine": 2, "EndLine": 3}`,
 			setup: func(t *testing.T, root string) { file(t, root, "agentws/a.txt", "l1\nl2\nl3\nl4\n") }},
 		{tool: "view_file", args: `{"AbsolutePath": "/tmp/rl_long.txt"}`,
-			setup: func(t *testing.T, root string) { file(t, root, "rl_long.txt", longFile()) },
-			mode:  proseBody},
+			setup: func(t *testing.T, root string) { file(t, root, "rl_long.txt", longFile()) }},
 		{tool: "view_file", args: `{"AbsolutePath": "/tmp/rl_long.txt", "StartLine": 1, "EndLine": 60, "ContentOffset": 46080}`,
-			setup: func(t *testing.T, root string) { file(t, root, "rl_long.txt", longFile()) },
-			mode:  proseBody},
+			setup: func(t *testing.T, root string) { file(t, root, "rl_long.txt", longFile()) }},
 		{tool: "view_file", args: `{"AbsolutePath": "/tmp/rl_big.txt"}`,
-			setup: func(t *testing.T, root string) { file(t, root, "rl_big.txt", lineFile(900)) },
-			mode:  proseBody},
+			setup: func(t *testing.T, root string) { file(t, root, "rl_big.txt", lineFile(900)) }},
 
 		// ── the 60-name / 12-declaration executors ─────────────────────────
 		{tool: "manage_task", args: `{"Action": "list"}`},
-		{tool: "generate_image", args: `{"Prompt": "a red cube", "ImageName": "cube"}`},
+		{tool: "generate_image", args: `{"Prompt": "a red cube", "ImageName": "cube"}`,
+			skip: "the 1.4.7 capture records a successful generation - the reference calls the non-streaming " +
+				"generateContent RPC (requestType \"image_gen\", model \"gemini-3.1-flash-image\"), the capture " +
+				"harness forwards it to the real CloudCode endpoint, and the reference returns the brain path " +
+				"of the .jpg it saved. The clone has no image backend wired (GenerateImage.Provider is nil), " +
+				"so it still returns the 1.4.4 error text; the two bodies are not comparable until a provider " +
+				"exists."},
 
 		// ── subagent tools (routed through subagenttools, not the catalogue:
 		// the catalogue's entries for these names are pendingTool stubs) ────
@@ -176,23 +179,30 @@ func replays() []replay {
 
 		// ── recorded skips ─────────────────────────────────────────────────
 		{tool: "search_web", args: `{"query": "golang", "domain": "go.dev"}`,
-			skip: "needs the network: the live tool executes a real web query and returns formatSearchWebResult; " +
-				"the captured failure is the reference returning no grounded candidates when unrouted or quota-exhausted."},
+			skip: "needs the network: the live tool executes a real web query and returns formatSearchWebResult. " +
+				"The 1.4.7 capture records a live grounded summary because the capture harness forwards the " +
+				"model RPC to the real CloudCode endpoint; the 1.4.4 capture recorded the \"no candidates " +
+				"returned from GenerateContent\" failure because the mock could not fake a grounded answer " +
+				"(cycle 293 said so at the time). Neither body is reproducible."},
 		{tool: "invoke_subagent", args: `{"TypeName": "self", "Role": "Tester", "Prompt": "Say OK and stop."}`,
 			skip: "the captured ack is inherently async ('The subagent will send you a message when it has " +
 				"completed … There is no need to poll for its response'); the clone delegates synchronously and " +
 				"returns the subagent's answer in the same result instead. Emitting the ack would either drop " +
 				"that answer or invent a hybrid the reference never prints. See " +
-				"docs/cycles/subagent-registry-texts/deliverable.md."},
+				"docs/cycles/subagent-registry-texts/deliverable.md. The 1.4.7 capture confirms the ack's " +
+				"shape; only the per-run conversation id and brain path differ."},
 		{tool: "schedule", args: `{"Prompt": "ping", "DurationSeconds": 3600}`,
 			skip: "the captured result is a backgrounded launch: it carries a runtime task id, a brain-directory " +
 				"path, and no Completed At. The clone runs the command synchronously (documented deviation, " +
 				"cycle 277), so no analogue exists to compare against."},
 		{tool: "read_url_content", args: `{"Url": "https://go.dev/"}`,
 			skip: "needs the network: the captured body is the fetched article's Title / OG Description and the " +
-				"brain-directory path it was saved to."},
+				"brain-directory path it was saved to. The reference does not fetch the URL itself - it asks " +
+				"CloudCode (rewriteUri, then fetchFromTrawlerCache) and gets a Trawler-cache article back."},
 		{tool: "ask_question", args: `{"questions": [{"question": "Pick one", "options": ["alpha", "beta"]}]}`,
-			skip: "needs an interactive answer: the captured 'A1: alpha' is the user selecting the first option."},
+			skip: "needs an interactive answer: the 1.4.7 capture was taken in print mode, where there is no user " +
+				"to answer, and records \"A1: User Skipped\"; the 1.4.4 capture was taken in the TUI and recorded " +
+				"\"A1: alpha\" - the user selecting the first option."},
 	}
 }
 

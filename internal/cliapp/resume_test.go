@@ -23,10 +23,10 @@ import (
 	"github.com/justwasm/pigasus/internal/agent"
 	"github.com/justwasm/pigasus/internal/backend"
 	"github.com/justwasm/pigasus/internal/cli"
+	"github.com/justwasm/pigasus/internal/convstore"
 	"github.com/justwasm/pigasus/internal/permissions"
 	"github.com/justwasm/pigasus/internal/sandbox"
 	"github.com/justwasm/pigasus/internal/tools"
-	"github.com/justwasm/pigasus/internal/convstore"
 	_ "github.com/ncruces/go-sqlite3/driver"
 )
 
@@ -280,24 +280,28 @@ func TestResume_UpDownMovesCursor(t *testing.T) {
 	if !m.resumeMode {
 		t.Fatal("/resume should open")
 	}
-	if m.resumeCursor != 0 {
-		t.Fatalf("initial cursor = %d, want 0", m.resumeCursor)
-	}
-	m.Update(key(tea.KeyDown, 0))
+	// Cycle 336: the picker opens on the workspace tree (agy 1.4.7). The
+	// three conversations above share one workspace — no workspace at all —
+	// so the tree is one group row followed by its three conversations,
+	// and the cursor opens on the first conversation (row 1).
 	if m.resumeCursor != 1 {
-		t.Fatalf("after down, cursor = %d, want 1", m.resumeCursor)
+		t.Fatalf("initial cursor = %d, want 1 (the first conversation of the expanded group)", m.resumeCursor)
 	}
 	m.Update(key(tea.KeyDown, 0))
 	if m.resumeCursor != 2 {
-		t.Fatalf("after 2nd down, cursor = %d, want 2", m.resumeCursor)
+		t.Fatalf("after down, cursor = %d, want 2", m.resumeCursor)
 	}
 	m.Update(key(tea.KeyDown, 0))
-	if m.resumeCursor != 2 {
-		t.Fatalf("down should clamp at last (2), got %d", m.resumeCursor)
+	if m.resumeCursor != 3 {
+		t.Fatalf("after 2nd down, cursor = %d, want 3", m.resumeCursor)
+	}
+	m.Update(key(tea.KeyDown, 0))
+	if m.resumeCursor != 3 {
+		t.Fatalf("down should clamp at last (3), got %d", m.resumeCursor)
 	}
 	m.Update(key(tea.KeyUp, 0))
-	if m.resumeCursor != 1 {
-		t.Fatalf("after up, cursor = %d, want 1", m.resumeCursor)
+	if m.resumeCursor != 2 {
+		t.Fatalf("after up, cursor = %d, want 2", m.resumeCursor)
 	}
 	m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEsc}))
 	if m.resumeMode {

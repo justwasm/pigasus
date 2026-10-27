@@ -78,6 +78,10 @@ func ValidateAndSaveModel(
 	if !ok {
 		return "", "", errors.New("the model needs an id")
 	}
+	// A tier nobody can select is a typo, and the file is left alone.
+	if err := models.ValidateEfforts(entry.ReasoningEfforts); err != nil {
+		return "", "", err
+	}
 	if ed != nil {
 		if err := ed.PutModel(provider, entry); err != nil {
 			return "", "", err

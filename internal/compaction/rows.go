@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"github.com/charmbracelet/x/ansi"
+
+	"github.com/justwasm/pigasus/palette"
 )
 
 // The reference paints the /compact completion as two *centred* rows
@@ -39,9 +41,6 @@ const (
 	// off the right edge of the rule (width−1 at every measured
 	// width).
 	DividerInset = 1
-
-	cSubtleOpen  = "\x1b[38;2;88;110;117m"
-	cDimGrayOpen = "\x1b[38;2;101;123;131m"
 )
 
 // DividerRow renders the reference's "Conversation compacted"
@@ -58,7 +57,7 @@ func DividerRow(width int) string {
 			body = strings.Repeat("─", before) + DividerLabel + strings.Repeat("─", after)
 		}
 	}
-	return cSubtleOpen + body + "\x1b[m"
+	return palette.SubtleOpen + body + "\x1b[m"
 }
 
 // StatsText is the reference's stats line, unstyled.
@@ -124,7 +123,7 @@ func StatsRow(width int, steps, beforeTokens, afterTokens, summaryTokens int, to
 	if width > cells {
 		pad = (width - cells) / 2
 	}
-	return cDimGrayOpen + strings.Repeat(" ", pad) + text + "\x1b[m"
+	return palette.DimGrayOpen + strings.Repeat(" ", pad) + text + "\x1b[m"
 }
 
 // TokenMagnitude formats a token count the way the reference's

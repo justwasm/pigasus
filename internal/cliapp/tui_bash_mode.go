@@ -49,6 +49,7 @@ package cliapp
 
 import (
 	"context"
+	"errors"
 	"os/exec"
 	"strings"
 	"time"
@@ -58,11 +59,14 @@ import (
 	"github.com/justwasm/pigasus/internal/bashmode"
 	"github.com/justwasm/pigasus/internal/procgroup"
 	"github.com/justwasm/pigasus/internal/tools"
+	"github.com/justwasm/pigasus/palette"
 )
 
-const (
-	bashBodyOKOpen   = bashmode.BodyOKOpen
-	bashBodyFailOpen = bashmode.BodyFailOpen
+var (
+	// The bash block's body colours follow the selected colour scheme;
+	// refreshPaletteAliases re-reads them when the scheme changes.
+	bashBodyOKOpen   = palette.WarningBodyOpen
+	bashBodyFailOpen = palette.ToolRemoveBodyOpen
 )
 
 type bashOutput = tools.SafeBuffer
@@ -73,6 +77,11 @@ type bashDoneMsg struct {
 	output    string
 	failed    bool
 	cancelled bool
+	// code is the command's exit status. It is only meaningful when
+	// hasCode is set: a canceled command has no exit status, and the
+	// reference's record leaves the field unset for one.
+	code    int
+	hasCode bool
 }
 
 // bashHeadRow renders the transcript head row.
@@ -177,9 +186,24 @@ func execBashCommand(ctx context.Context, dir, command string, out *bashOutput, 
 		if text == "" {
 			text = err.Error()
 		}
-		return bashDoneMsg{gen: gen, cmd: command, output: text, failed: true}
+		code, hasCode := bashExitCode(err)
+		return bashDoneMsg{gen: gen, cmd: command, output: text, failed: true, code: code, hasCode: hasCode}
 	}
-	return bashDoneMsg{gen: gen, cmd: command, output: text}
+	return bashDoneMsg{gen: gen, cmd: command, output: text, hasCode: true}
+}
+
+// bashExitCode returns the command's exit status. The second result is false
+// when the command has no exit status at all — a command that never ran, or
+// one that was canceled.
+func bashExitCode(err error) (int, bool) {
+	if err == nil {
+		return 0, true
+	}
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) {
+		return exitErr.ExitCode(), true
+	}
+	return 0, false
 }
 
 func trimBashOutput(s string) string { return bashmode.TrimOutput(s) }
@@ -199,6 +223,9 @@ func (m *runMode) finishBashCommand(msg bashDoneMsg) {
 	}
 	m.placeBashBlock(b)
 	m.bashRowIdx = -1
+	// The reference records the command in its implicit trajectory: this is
+	// the only place a `!` command is written down.
+	m.recordImplicitStep(msg.cmd, msg.output, msg.code, msg.hasCode, msg.cancelled)
 }
 
 // placeBashBlock paints a finished block. When an in-flight head row exists it
@@ -240,6 +267,10 @@ func (m *runMode) preemptBashCommand(next string) tea.Cmd {
 	m.bashRun = nil
 	m.placeBashBlock(&bashBlock{cmd: cmd, body: partial, running: true})
 	m.bashRowIdx = -1
+	// The preempted command is recorded as canceled: the reference's
+	// tracker finishes it when the process tree is stopped, and the step it
+	// writes carries CORTEX_STEP_STATUS_CANCELED.
+	m.recordImplicitStep(cmd, partial, 0, false, true)
 	return m.startBashCommand(next)
 }
 

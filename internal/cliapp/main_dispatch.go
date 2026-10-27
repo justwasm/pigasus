@@ -21,7 +21,9 @@ import (
 	"github.com/justwasm/pigasus/internal/backend"
 	"github.com/justwasm/pigasus/internal/backendselect"
 	"github.com/justwasm/pigasus/internal/cli"
+	"github.com/justwasm/pigasus/internal/cliflags"
 	"github.com/justwasm/pigasus/internal/convstore"
+	"github.com/justwasm/pigasus/internal/modelcatalog"
 	"github.com/justwasm/pigasus/internal/onboarding"
 	"github.com/justwasm/pigasus/internal/permissions"
 	"github.com/justwasm/pigasus/internal/printmode"
@@ -33,29 +35,29 @@ import (
 
 // checkRootShortCircuits handles flags that print catalog/info and exit.
 func checkRootShortCircuits(fs *flag.FlagSet, p *cli.Parser, out io.Writer) (bool, error) {
-	if flagBoolValue(fs, "version") {
+	if cliflags.BoolValue(fs, "version") {
 		fmt.Fprint(out, p.Root().Version)
 		return true, nil
 	}
-	if flagBoolValue(fs, "tools") {
+	if cliflags.BoolValue(fs, "tools") {
 		printTools(out)
 		return true, nil
 	}
-	if flagBoolValue(fs, "services") {
+	if cliflags.BoolValue(fs, "services") {
 		printServices(out)
 		return true, nil
 	}
-	if flagBoolValue(fs, "oauth") {
+	if cliflags.BoolValue(fs, "oauth") {
 		printOAuthConfig(out)
 		return true, nil
 	}
-	if flagBoolValue(fs, "tui") {
+	if cliflags.BoolValue(fs, "tui") {
 		return true, renderTUI(out)
 	}
-	if toolName := flagStringValue(fs, "tool"); toolName != "" {
-		return true, dispatchTool(out, toolName, flagStringValue(fs, "tool-args"))
+	if toolName := cliflags.StringValue(fs, "tool"); toolName != "" {
+		return true, dispatchTool(out, toolName, cliflags.StringValue(fs, "tool-args"))
 	}
-	if flagBoolValue(fs, "diff-with-agy") {
+	if cliflags.BoolValue(fs, "diff-with-agy") {
 		runFeatDiffCLI(out, printmode.PrintOutputFormat(fs))
 		return true, nil
 	}
@@ -75,12 +77,12 @@ func validateRootFlags(fs *flag.FlagSet, printMode bool) error {
 	if err := printmode.ValidateJSONSchemaFlag(fs); err != nil {
 		return cli.ExitCodeError(1, err.Error())
 	}
-	agentErr := agent.ValidateAgent(flagStringValue(fs, "agent"))
+	agentErr := agent.ValidateAgent(cliflags.StringValue(fs, "agent"))
 	if agentErr != nil && printMode {
 		return cli.ExitCodeError(1, agentErr.Error())
 	}
 	if printMode {
-		if _, err := resolveModelSelection(flagStringValue(fs, "model"), flagStringValue(fs, "effort")); err != nil {
+		if _, err := modelcatalog.ResolveModelSelection(cliflags.StringValue(fs, "model"), cliflags.StringValue(fs, "effort")); err != nil {
 			return cli.ExitCodeError(1, err.Error())
 		}
 	} else if agentErr != nil && !isTerminalInteractive(os.Stdin) {
@@ -100,7 +102,7 @@ func dispatchPrintMode(fs *flag.FlagSet, out io.Writer) error {
 		fmt.Fprintln(os.Stderr, "antigravity: --print requires a positional prompt argument")
 		return fmt.Errorf("missing prompt")
 	}
-	if resolveBoolAlias(fs, "continue", "c") {
+	if cliflags.ResolveBoolAlias(fs, "continue", "c") {
 		cwd, _ := os.Getwd()
 		id, _, err := convstore.ResolveContinue(cwd)
 		if err != nil {
@@ -134,7 +136,7 @@ func dispatchDefaultRoot(args []string, fs *flag.FlagSet, out io.Writer) error {
 }
 
 func maybeRunOnboarding(fs *flag.FlagSet, out io.Writer) {
-	if flagBoolValue(fs, "no-onboarding") || auth.OnboardingCompleted() {
+	if cliflags.BoolValue(fs, "no-onboarding") || auth.OnboardingCompleted() {
 		return
 	}
 	wz := onboarding.NewWizard()

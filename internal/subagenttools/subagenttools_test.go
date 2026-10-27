@@ -130,8 +130,16 @@ func assertManageSchema(t *testing.T, s pi.ToolSchema) {
 	if !hasRequiredProperty(s.Parameters, "Action") {
 		t.Fatalf("manage_subagents parameters missing required Action: %+v", s.Parameters)
 	}
+	// 【反编译】 agy 1.4.8's CLI-side Action field carries the jsonschema tag
+	// "required,enum=list,enum=kill,enum=kill_all" (file offset 0x9404b5a),
+	// and a live 1.4.8 session sends exactly those three values. The
+	// reference's handler still knows a fourth action, `list_peers`; the
+	// clone's executor keeps that, the schema does not.
 	if !propertyHasEnum(s.Parameters, "Action", []string{"list", "kill", "kill_all"}) {
 		t.Fatalf("manage_subagents.parameters.Action missing list/kill/kill_all enum: %+v", s.Parameters)
+	}
+	if propertyHasEnum(s.Parameters, "Action", []string{"list", "list_peers", "kill", "kill_all"}) {
+		t.Fatalf("manage_subagents.parameters.Action carries the harness-side four-value enum: %+v", s.Parameters)
 	}
 }
 
@@ -238,16 +246,28 @@ func TestInvokeSubagentStubProvider(t *testing.T) {
 	}
 }
 
-// TestInvokeSubagentToolExecuteEnvelope exercises the parent-facing
-// Execute path (not the package-internal Invoke) to assert the
-// success envelope AGY's model will see: ok=true, subagent_id set,
-// text carrying the subagent's reply. This is the on-the-wire shape
-// the parent's prompt reads.
-func TestInvokeSubagentToolExecuteEnvelope(t *testing.T) {
+// TestInvokeSubagentToolExecuteAcknowledgement exercises the parent-facing
+// Execute path (not the package-internal Invoke) to assert the launch
+// acknowledgement AGY's model will see.
+//
+// 【一手】 agy 1.4.4: `invoke_subagent` does not wait for the subagent. It
+// creates the subagent's conversation, sends it the task, and returns an
+// acknowledgement naming the new conversation — the subagent reports back
+// later, as a message to the parent.
+//
+// (docs/cycles/subagent-async-framing-capture/deliverable.md)
+//
+// The result also carries Terminate: the parent's turn ends with the
+// acknowledgement, because the parent has nothing to do until the subagent
+// reports back.
+func TestInvokeSubagentToolExecuteAcknowledgement(t *testing.T) {
+	registry := NewRegistry("parent-conversation")
+	defer registry.Close()
 	tool := &invokeTool{deps: Deps{
 		Services: subagentTestServices(t),
 		Model:    subagentTestModel(),
 		CWD:      t.TempDir(),
+		Registry: registry,
 	}}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
@@ -261,6 +281,9 @@ func TestInvokeSubagentToolExecuteEnvelope(t *testing.T) {
 	if res.IsError {
 		t.Fatalf("Execute returned IsError=true on success envelope: %+v", res)
 	}
+	if !res.Terminate {
+		t.Fatalf("Execute returned Terminate=false, want true: the parent's turn ends with the acknowledgement")
+	}
 	if len(res.Content) != 1 {
 		t.Fatalf("Execute returned %d content blocks, want 1", len(res.Content))
 	}
@@ -268,19 +291,28 @@ func TestInvokeSubagentToolExecuteEnvelope(t *testing.T) {
 	if !ok {
 		t.Fatalf("Execute content[0] = %T, want pi.TextContent", res.Content[0])
 	}
-	var envelope map[string]any
-	if err := json.Unmarshal([]byte(body.Text), &envelope); err != nil {
-		t.Fatalf("envelope unmarshal: %v (raw=%q)", err, body.Text)
+	text := body.Text
+	for _, want := range []string{
+		"Created At: ",
+		"Completed At: ",
+		"Created the following subagent:\n",
+		"  \"conversationId\":  \"",
+		"  \"logAbsoluteUri\":  \"file://",
+		"  \"workspaceUris\":  [\n",
+		"The subagent will send you a message when it has completed its task or requires guidance. There is no need to poll for its response.",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("acknowledgement %q does not contain %q", text, want)
+		}
 	}
-	if ok, _ := envelope["ok"].(bool); !ok {
-		t.Fatalf("envelope.ok = %v, want true", envelope["ok"])
+	// The acknowledgement names a live conversation: the registry holds
+	// the child the acknowledgement reports.
+	children := registry.List()
+	if len(children) != 1 {
+		t.Fatalf("registry holds %d children, want 1", len(children))
 	}
-	if _, has := envelope["subagent_id"]; !has {
-		t.Fatalf("envelope missing subagent_id: %+v", envelope)
-	}
-	text, _ := envelope["text"].(string)
-	if !strings.Contains(text, "42") {
-		t.Fatalf("envelope.text = %q, want substring %q", text, "42")
+	if !strings.Contains(text, children[0].ConversationID) {
+		t.Fatalf("acknowledgement %q does not name the child %q", text, children[0].ConversationID)
 	}
 }
 

@@ -64,10 +64,21 @@ func TermNeedsOptionMeta() bool {
 }
 
 // DefaultPath returns the canonical keybindings.json location the
-// reference binary uses: ~/.gemini/config/keybindings.json. The
-// v1.3.4 decompilation recovered this path
+// reference binary uses: ~/.gemini/config/keybindings.json.
+//
+// 【反编译】 agy 1.4.8: `(*ServerBackend).KeybindingsFilePath`
+// (0x1026c9d80) hands back the path the backend holds at +0x160/+0x170,
+// and the two literals it is assembled from are "~/.gemini/config"
+// (0x1034d870f) and "keybindings.json" (0x1034c8c4f) — so the path is
+// unchanged.
+//
+// The path was first recovered from the v1.3.4 decompilation
 // (re-docs/decompile-google3_third_party_jetski_cli_backend_backend..md,
-// KeybindingsFilePath @ 0x1023c8ee0). Tests override via Load.
+// KeybindingsFilePath @ 0x1023c8ee0). That address is a v1.3.4 one —
+// every address moves on every release, and at 1.4.8 that address holds
+// pion/dtls/v3/dtls.flight5Generate.
+//
+// Tests override via Load.
 func DefaultPath() string {
 	home, _ := os.UserHomeDir()
 	return filepath.Join(home, ".gemini", "config", "keybindings.json")

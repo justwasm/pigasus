@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/justwasm/pigasus/internal/geminiwire"
+	"github.com/justwasm/pigasus/geminicode"
 	"github.com/justwasm/pigasus/internal/models"
 )
 
@@ -28,7 +28,7 @@ import (
 // Thought parts are dropped: they are Gemini's chain-of-thought echo and no
 // provider in the registry has a field for them yet (see the deliverable's
 // follow-ups).
-func ToChatRequest(m models.Model, inner *geminiwire.GenerateContentRequest) models.ChatRequest {
+func ToChatRequest(m models.Model, inner *geminicode.GenerateContentRequest) models.ChatRequest {
 	req := models.ChatRequest{
 		ExternalModel:   m.ExternalModelName,
 		SystemPrompt:    inner.SystemText(),
@@ -42,7 +42,7 @@ func ToChatRequest(m models.Model, inner *geminiwire.GenerateContentRequest) mod
 	return req
 }
 
-func translateGenerationConfig(inner *geminiwire.GenerateContentRequest, req *models.ChatRequest) {
+func translateGenerationConfig(inner *geminicode.GenerateContentRequest, req *models.ChatRequest) {
 	if gc := inner.GenerationConfig; gc != nil {
 		if gc.MaxOutputTokens > 0 {
 			req.MaxTokens = gc.MaxOutputTokens
@@ -53,7 +53,7 @@ func translateGenerationConfig(inner *geminiwire.GenerateContentRequest, req *mo
 	}
 }
 
-func translateContentToMessages(c geminiwire.Content) []models.ChatMessage {
+func translateContentToMessages(c geminicode.Content) []models.ChatMessage {
 	role := strings.ToLower(strings.TrimSpace(c.Role))
 	if role == "" {
 		role = "user"
@@ -78,7 +78,7 @@ func translateContentToMessages(c geminiwire.Content) []models.ChatMessage {
 	}
 }
 
-func translateCallMessage(c geminiwire.Content) models.ChatMessage {
+func translateCallMessage(c geminicode.Content) models.ChatMessage {
 	msg := models.ChatMessage{Role: "assistant"}
 	for _, p := range c.Parts {
 		if p.FunctionCall != nil {
@@ -96,7 +96,7 @@ func translateCallMessage(c geminiwire.Content) models.ChatMessage {
 	return msg
 }
 
-func translateResponseMessage(c geminiwire.Content) []models.ChatMessage {
+func translateResponseMessage(c geminicode.Content) []models.ChatMessage {
 	var msgs []models.ChatMessage
 	for _, p := range c.Parts {
 		if p.FunctionResponse != nil {
@@ -110,7 +110,7 @@ func translateResponseMessage(c geminiwire.Content) []models.ChatMessage {
 	return msgs
 }
 
-func translateTextPartMessage(c geminiwire.Content, role string) []models.ChatMessage {
+func translateTextPartMessage(c geminicode.Content, role string) []models.ChatMessage {
 	outRole := "user"
 	if role == "model" || role == "assistant" {
 		outRole = "assistant"
@@ -131,7 +131,7 @@ func translateTextPartMessage(c geminiwire.Content, role string) []models.ChatMe
 	return []models.ChatMessage{{Role: outRole, Content: strings.Join(parts, sep)}}
 }
 
-func translateTools(tools []geminiwire.Tool) []models.ToolSpec {
+func translateTools(tools []geminicode.Tool) []models.ToolSpec {
 	var specs []models.ToolSpec
 	for _, t := range tools {
 		for _, fd := range t.FunctionDeclarations {
@@ -147,25 +147,38 @@ func translateTools(tools []geminiwire.Tool) []models.ToolSpec {
 	return specs
 }
 
-func callID(fc *geminiwire.FunctionCall) string {
+func callID(fc *geminicode.FunctionCall) string {
 	if fc.ID != "" {
 		return fc.ID
 	}
 	return "call_" + fc.Name
 }
 
-func responseCallID(fr *geminiwire.FunctionResponse) string {
+func responseCallID(fr *geminicode.FunctionResponse) string {
 	if fr.ID != "" {
 		return fr.ID
 	}
 	return "call_" + fr.Name
 }
 
-func jsonArgs(args map[string]any) string {
+// jsonArgs renders the arguments of a functionCall as the string the
+// provider-neutral shape carries.
+//
+// The provider gets the arguments re-encoded, not the reference's own
+// bytes: the two sides of the proxy speak different JSON dialects, and the
+// neutral shape carries a string.
+func jsonArgs(args json.RawMessage) string {
 	if len(args) == 0 {
 		return "{}"
 	}
-	b, err := json.Marshal(args)
+	var m map[string]any
+	if err := json.Unmarshal(args, &m); err != nil {
+		return "{}"
+	}
+	if len(m) == 0 {
+		return "{}"
+	}
+	b, err := json.Marshal(m)
 	if err != nil {
 		return "{}"
 	}
@@ -175,7 +188,7 @@ func jsonArgs(args map[string]any) string {
 // functionResponseText is what the tool result looks like on the wire. Gemini
 // lets a response be any JSON value; OpenAI wants a string, so a string stays
 // verbatim and everything else is serialised.
-func functionResponseText(fr *geminiwire.FunctionResponse) string {
+func functionResponseText(fr *geminicode.FunctionResponse) string {
 	switch v := fr.Response.(type) {
 	case nil:
 		return "{}"
@@ -224,7 +237,7 @@ func lowerSchemaTypes(v any) any {
 // custom model: translate the request, stream through internal/models, and
 // re-emit Gemini wire format.
 func (s *Server) handleCustom(w http.ResponseWriter, r *http.Request, m models.Model, body []byte, stream, wrapped bool) {
-	var env geminiwire.GenerateContentRequest
+	var env geminicode.GenerateContentRequest
 	if err := json.Unmarshal(body, &env); err != nil {
 		writeJSONError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
 		return
@@ -251,7 +264,7 @@ func handleCustomNonStream(w http.ResponseWriter, ctx context.Context, prov mode
 		writeJSONError(w, http.StatusBadGateway, "upstream: "+err.Error())
 		return
 	}
-	out := geminiwire.NewResponse(responseParts(resp.Content, resp.ToolCalls), "STOP")
+	out := geminicode.NewResponse(responseParts(resp.Content, resp.ToolCalls), "STOP")
 	out.UsageMetadata = usage(resp.PromptTokens, resp.OutputTokens, resp.TotalTokens)
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
@@ -276,7 +289,7 @@ func (s *Server) handleCustomStream(w http.ResponseWriter, ctx context.Context, 
 }
 
 func (s *Server) streamCustomEvents(w http.ResponseWriter, flusher http.Flusher, events <-chan models.StreamEvent, modelName string, wrapped bool) {
-	var tools []geminiwire.Part
+	var tools []geminicode.Part
 	var meta *models.StreamMeta
 	for ev := range events {
 		if ev.Error != nil {
@@ -292,7 +305,7 @@ func (s *Server) streamCustomEvents(w http.ResponseWriter, flusher http.Flusher,
 			tools = append(tools, toolCallParts(ev.ToolCalls)...)
 		}
 		if ev.Text != "" {
-			chunk := geminiwire.NewResponse([]geminiwire.Part{{Text: ev.Text}}, "")
+			chunk := geminicode.NewResponse([]geminicode.Part{{Text: ev.Text}}, "")
 			writeSSE(w, flusher, wrapResponse(chunk, wrapped))
 		}
 		if ev.Done {
@@ -301,7 +314,7 @@ func (s *Server) streamCustomEvents(w http.ResponseWriter, flusher http.Flusher,
 		}
 	}
 
-	final := geminiwire.NewResponse(tools, "STOP")
+	final := geminicode.NewResponse(tools, "STOP")
 	if meta != nil {
 		final.UsageMetadata = usage(meta.PromptTokens, meta.CompletionTokens, meta.TotalTokens)
 	}
@@ -309,10 +322,10 @@ func (s *Server) streamCustomEvents(w http.ResponseWriter, flusher http.Flusher,
 }
 
 // responseParts renders a completed turn: text first, then any function calls.
-func responseParts(text string, calls []models.ToolCall) []geminiwire.Part {
-	var parts []geminiwire.Part
+func responseParts(text string, calls []models.ToolCall) []geminicode.Part {
+	var parts []geminicode.Part
 	if text != "" {
-		parts = append(parts, geminiwire.Part{Text: text})
+		parts = append(parts, geminicode.Part{Text: text})
 	}
 	return append(parts, toolCallParts(calls)...)
 }
@@ -320,8 +333,8 @@ func responseParts(text string, calls []models.ToolCall) []geminiwire.Part {
 // toolCallParts maps provider tool calls to Gemini functionCall parts. The id
 // is preserved: agy echoes it back on the functionResponse, which is how the
 // next turn pairs result with call.
-func toolCallParts(calls []models.ToolCall) []geminiwire.Part {
-	out := make([]geminiwire.Part, 0, len(calls))
+func toolCallParts(calls []models.ToolCall) []geminicode.Part {
+	out := make([]geminicode.Part, 0, len(calls))
 	for _, c := range calls {
 		args := map[string]any{}
 		if s := strings.TrimSpace(c.Arguments); s != "" {
@@ -331,24 +344,28 @@ func toolCallParts(calls []models.ToolCall) []geminiwire.Part {
 				args = map[string]any{"_raw": c.Arguments}
 			}
 		}
+		raw, err := json.Marshal(args)
+		if err != nil {
+			raw = []byte(`{}`)
+		}
 		id := c.ID
 		if id == "" {
 			id = "call_" + c.Name
 		}
-		out = append(out, geminiwire.Part{FunctionCall: &geminiwire.FunctionCall{
-			Name: c.Name,
-			Args: args,
+		out = append(out, geminicode.Part{FunctionCall: &geminicode.FunctionCall{
 			ID:   id,
+			Name: c.Name,
+			Args: json.RawMessage(raw),
 		}})
 	}
 	return out
 }
 
-func usage(prompt, output, total int) *geminiwire.UsageMetadata {
+func usage(prompt, output, total int) *geminicode.UsageMetadata {
 	if total == 0 {
 		total = prompt + output
 	}
-	return &geminiwire.UsageMetadata{
+	return &geminicode.UsageMetadata{
 		PromptTokenCount:     prompt,
 		CandidatesTokenCount: output,
 		TotalTokenCount:      total,
@@ -358,11 +375,11 @@ func usage(prompt, output, total int) *geminiwire.UsageMetadata {
 // wrapResponse reproduces the envelope agy sent. CloudCode calls arrive with a
 // `request` wrapper and agy reads the `response` wrapper back; plain Gemini
 // calls stay bare.
-func wrapResponse(resp geminiwire.GenerateContentResponse, wrapped bool) any {
+func wrapResponse(resp geminicode.GenerateContentResponse, wrapped bool) any {
 	if !wrapped {
 		return resp
 	}
-	return geminiwire.CloudCodeResponse{
+	return geminicode.CloudCodeResponse{
 		Response: resp,
 		TraceID:  "",
 		Metadata: map[string]any{},

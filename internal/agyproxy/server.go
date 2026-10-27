@@ -28,13 +28,18 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/justwasm/pigasus/endpoints"
 	"github.com/justwasm/pigasus/internal/models"
 )
 
 // DefaultUpstream is the CloudCode endpoint agy talks to.
 // Use daily-cloudcode-pa because prod cloudcode-pa returns 429 for this account
 // while daily- returns 200 (matches internal/backend/cloudcode.go).
-const DefaultUpstream = "https://daily-cloudcode-pa.googleapis.com"
+//
+// It is the compiled-in default. The live upstream is
+// endpoints.Current().CloudCode — the configuration file may point the
+// proxy at a local service.
+const DefaultUpstream = endpoints.DefaultCloudCode
 
 // DefaultAddr binds an ephemeral loopback port.
 const DefaultAddr = "127.0.0.1:0"
@@ -77,7 +82,7 @@ func New(cfg Config) (*Server, error) {
 		cfg.Addr = DefaultAddr
 	}
 	if strings.TrimSpace(cfg.Upstream) == "" {
-		cfg.Upstream = DefaultUpstream
+		cfg.Upstream = endpoints.Current().CloudCode
 	}
 	u, err := url.Parse(cfg.Upstream)
 	if err != nil {

@@ -3,12 +3,14 @@ package loginui_test
 import (
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/justwasm/pigasus/endpoints"
 	"github.com/justwasm/pigasus/internal/auth"
 	"github.com/justwasm/pigasus/internal/loginui"
 )
@@ -167,16 +169,16 @@ func TestOAuthPKCE_Generation(t *testing.T) {
 		t.Fatalf("expected non-empty PKCE parameters, got verifier=%q challenge=%q state=%q", verifier, challenge, state)
 	}
 
-	authURL := auth.BuildAuthorizationURL(challenge, state)
-	if !strings.HasPrefix(authURL, "https://accounts.google.com/o/oauth2/auth?") {
-		t.Fatalf("expected google oauth URL, got %q", authURL)
+	authURL := auth.BuildAuthorizationURL(verifier, state)
+	if !strings.HasPrefix(authURL, endpoints.Current().OAuth2Auth+"?") {
+		t.Fatalf("expected the oauth URL, got %q", authURL)
 	}
 	for _, expectedParam := range []string{
 		"access_type=offline",
 		"code_challenge=" + challenge,
 		"code_challenge_method=S256",
 		"prompt=consent",
-		"redirect_uri=https%3A%2F%2Fantigravity.google%2Foauth-callback",
+		"redirect_uri=" + url.QueryEscape(endpoints.Current().OAuthRedirect),
 		"state=" + state,
 	} {
 		if !strings.Contains(authURL, expectedParam) {

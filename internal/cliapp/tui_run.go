@@ -34,17 +34,22 @@ import (
 	"github.com/justwasm/pigasus/internal/loginui"
 	"github.com/justwasm/pigasus/internal/permissions"
 	"github.com/justwasm/pigasus/internal/pluginwatch"
-	"github.com/justwasm/pigasus/internal/render"
+	"github.com/justwasm/pigasus/internal/resumetree"
 	"github.com/justwasm/pigasus/internal/sandbox"
+	"github.com/justwasm/pigasus/internal/seasonal"
 	"github.com/justwasm/pigasus/internal/sidequestion"
+	"github.com/justwasm/pigasus/internal/statusline"
 	"github.com/justwasm/pigasus/internal/subagent"
 	"github.com/justwasm/pigasus/internal/subagentquestions"
 	"github.com/justwasm/pigasus/internal/subagentrouter"
 	"github.com/justwasm/pigasus/internal/subagenttools"
 	"github.com/justwasm/pigasus/internal/taskregistry"
+	"github.com/justwasm/pigasus/internal/tools"
 	"github.com/justwasm/pigasus/internal/tuilib"
-	"github.com/justwasm/pigasus/internal/vim"
 	"github.com/justwasm/pigasus/internal/voice"
+	"github.com/justwasm/pigasus/palette"
+	"github.com/justwasm/pigasus/render"
+	"github.com/justwasm/pigasus/vim"
 )
 
 // logoLines are the four *text* rows of the v1.3.5 binary 1:1 banner —
@@ -118,7 +123,14 @@ type runMode struct {
 	// session actually asked about.
 	tierAccount string
 	cwd         string
-	backend     backend.Client
+	// seasonal is the seasonal event the session is themed with, or
+	// nil when no event is in season or the user has not opted in.
+	//
+	// 【一手】 agy 1.4.7: the theme is a settings.json opt-in
+	// (`seasonalThemesOptIn`), and the themed banner, the themed
+	// prompt-box rules and the moon-phase spinner all follow it.
+	seasonal *seasonal.Event
+	backend  backend.Client
 	// backendFor rebuilds the transport after a model change, so the
 	backendFor func(model string) backend.Client
 	// Cycle 86: per-session conversation UUID shown in the /help
@@ -134,6 +146,20 @@ type runMode struct {
 	// survive that. A resumed conversation gets its definitions back
 	// from the trajectory (see internal/rehydration).
 	subagentDefs *subagenttools.Store
+	// subagentRegistry is the conversation's live-subagent registry.
+	//
+	// A delegated subagent runs in the background: the reference's
+	// `invoke_subagent` returns a launch acknowledgement and the
+	// subagent reports back later, as a message to the parent
+	// (【一手】 the 1.4.4 capture, docs/cycles/subagent-async-framing-capture/).
+	// The registry is what makes that reachable — the parent messages a
+	// live child by its conversation id, a child messages its parent the
+	// same way, and `manage_subagents` lists and kills them.
+	//
+	// It belongs to the conversation, like the definition store: the
+	// subagent tool set is rebuilt every turn, and the children have to
+	// survive that.
+	subagentRegistry *subagenttools.Registry
 	// trajLoaded holds the steps of the conversation the run adopted,
 	// trajCalls the tool calls of the turns that ran since, and
 	// trajSeededLen the number of session messages the adopted
@@ -163,7 +189,7 @@ type runMode struct {
 	// Cycle 81: when the configured model (settings.json's
 	fallbackFrom string
 	fallbackTo   string
-	altScreen bool
+	altScreen    bool
 	// Cycle 174: in-app text selection state. MouseModeCellMotion
 	selDragging bool
 	selStartRow int
@@ -174,9 +200,33 @@ type runMode struct {
 	inputSelDragging bool
 	inputSelStart    int // byte offset in m.input.Value()
 	inputSelEnd      int // byte offset in m.input.Value()
-	session []backend.Message
+	session          []backend.Message
+	// implicitMsgs are the chat messages the cumulative prompt carries
+	// from the implicit trajectory — the `!` commands the user ran outside
+	// the conversation.
+	//
+	// They live here and not in m.session: the reference records a `!`
+	// command in the implicit trajectory only, and the conversation store
+	// holds no record of it (see tui_implicit.go). The cumulative prompt
+	// carries the trajectory ahead of the current turn instead.
+	implicitMsgs []backend.Message
+	// implicitCursor is the number of trajectory steps already converted
+	// into implicitMsgs.
+	implicitCursor int
+	// Cycle 309: the session's queue of task notifications — the
+	// messages a background task hands to the model when it finishes.
+	//
+	// The queue lives on the run mode, not on the agent.Loop: the TUI
+	// builds a fresh Loop for every turn (tui_stream_prompt.go), so a
+	// per-loop queue would drop every notification that arrives between
+	// turns — which is exactly when a background task finishes.
+	taskInbox *agent.TaskInbox
 	// Cycle 229: the manual /compact slash command hooks into PiG's
 	compactor manualCompactor
+	// catalog is the session's advertised tool registry. The
+	// browser_subagent tool needs it: the browser agent's tool set is
+	// the browser-control surface the registry carries (cycle 311).
+	catalog *tools.Registry
 	// Cycle 71: input component. charm.land/bubbles/v2 textarea
 	input tas.Model
 	// Cycle 216: the Vim editing engine, created on first use when the
@@ -190,10 +240,16 @@ type runMode struct {
 	altEscBuf keybind.EscBuffer
 	// altKeyFires records every alt+letter dispatch in chronological
 	altKeyFires []altKeyFire
-	response  []string
-	streaming bool
+	response    []string
+	streaming   bool
 	// Cycle 235: cancel function for the in-flight turn's stream
 	turnCancel context.CancelFunc
+	// turnInterrupted is true when the user cancelled the latest turn with
+	// Esc. The reference answers a cancelled turn with a composer hint
+	// (agent.InterruptedHintLine) and leaves no error row in the
+	// transcript; this flag drives both. It is cleared when the next turn
+	// starts.
+	turnInterrupted bool
 	// bashMode arms the reference's "!" mode: the composer prompt becomes a
 	bashMode bool
 	// bashRowIdx is the m.response index of the in-flight bash head row, so
@@ -213,11 +269,11 @@ type runMode struct {
 	exitConfirm   bool
 	exitConfirmAt time.Time
 	// Cycle 76: streaming spinner. The v1.3.5 binary renders a Braille
-	spinner sp.Model
+	spinner     sp.Model
 	history     []string
 	historyIdx  int
 	historyEdit string
-	picker tuilib.PickerState
+	picker      tuilib.PickerState
 	// Cycle 129: picker scroll offset. The picker renders a fixed
 	pickerOffset int
 	// feature/at-file-dropdown-newline: the @ file-mention
@@ -305,6 +361,14 @@ type runMode struct {
 	resumeWindow int
 	// resumeCursorOn is the blink phase of the search cursor. REF blinks
 	resumeCursorOn bool
+	// Cycle 336: the /resume picker's workspace tree. agy 1.4.7 groups
+	// the conversations by workspace and shows the groups as a tree;
+	// ctrl+f switches back to the flat list.
+	resumeGrouped bool
+	// resumeExpanded holds the expanded workspace groups, by their key.
+	resumeExpanded map[string]bool
+	// resumeGroups is the computed tree.
+	resumeGroups []resumetree.Group
 	// flags is the parsed top-level flag set. Cycle 102: the TUI reuses the
 	flags *flag.FlagSet
 	// mode is the agent execution mode for this session ("", "accept-edits",
@@ -316,11 +380,29 @@ type runMode struct {
 	// Cycle status-line-script: AGY 1.1.27 wires statusLine.command into
 	statusLineExternal bool
 	statusLineCommand  string
+	// statusLineCfg is the cached `statusLine` block. The status area is
+	// re-rendered on every frame, so the block is read from disk once at
+	// startup and refreshed whenever /statusline changes it.
+	statusLineCfg statusline.Config
+	// titleCfg is the cached `title` block, read the same way.
+	titleCfg statusline.Config
+	// titleCommand is the configured window-title command.
+	titleCommand string
+	// titleStore holds the window title the title script produced. The
+	// script runs on the tick goroutine and the renderer reads the title
+	// on the model's goroutine, so the value needs its own lock.
+	titleStore *windowTitleStore
+	// statusLineTickArmed records whether the status-line tick is
+	// running, so /statusline can start it after the fact.
+	statusLineTickArmed bool
 	// Cycle status-line-script: per-session token totals accumulated from
 	sessionPromptTokens     int64
 	sessionCompletionTokens int64
 	// Cycle 292: the completion count the *last* streamed step reported.
 	lastTurnCompletionTokens int64
+	// lastTurnPromptTokens is the prompt count the *last* streamed step
+	// reported. The status-line payload reports it as `current_usage`.
+	lastTurnPromptTokens int64
 	// Cycle 292: true on the first user turn of a conversation and again
 	wireSettingsPending bool
 	// Cycle 292: set when a mid-stream local command (/clear, /new, /fork,
@@ -330,8 +412,9 @@ type runMode struct {
 	// statusLineExternalState is the cached rendered output / tick counter
 	statusLineExternalState *statusLineExternalState
 	// Cycle 106: /rename name (used by conversationTitle) and the
-	conversationName string
-	remoteControl    bool
+	conversationName  string
+	remoteControl     bool
+	remoteControlUUID string
 	// Cycle 250: /narration session state. narrationOff is true after
 	narrationOff   bool
 	narrationStart time.Time
@@ -433,9 +516,25 @@ type runMode struct {
 	hyperlinkCaps render.HyperlinkCaps
 	// Cycle plugin-fsnotify: pluginWatcher is the optional
 	pluginWatcher *pluginwatch.Watcher
+	// activeItems manages inline active subagents/tasks preview below input.
+	activeItems activeItemsModel
+	// colorScheme is the name of the colour scheme the session wears.
+	//
+	// 【一手】 agy 1.4.8 resolves the interface's colours from the
+	// selected scheme, so picking a scheme in /config repaints the
+	// interface with that scheme's colours. The TUI pushes this name
+	// around the work that paints a frame (Update and View), so the
+	// frame is painted with the selected scheme's colours.
+	colorScheme string
 }
-	// NewRunMode constructs the v1.3.5 binary 1:1 run mode.
+
+// NewRunMode constructs the v1.3.5 binary 1:1 run mode.
 func (m *runMode) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	// The palette's colours follow the selected scheme while the
+	// update runs: the rows this update paints (the streamed text, the
+	// tool rows, the panels) wear the scheme's colours.
+	restore := palette.PushScheme(m.colorScheme)
+	defer restore()
 	if mod, cmd, handled := m.updateLogin(msg); handled {
 		return mod, cmd
 	}
@@ -458,5 +557,3 @@ func (m *runMode) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 	return m, nil
 }
-
-

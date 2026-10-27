@@ -29,6 +29,10 @@ gofmt -l .        # clean
 - With only one argument, output goes to the *current* directory, not next to the binary
   (the doc comment in `main.go` says otherwise — the comment is wrong, the code defaults
   `outdir = "."`).
+- The tracked seed set is `out/local-macos/seeds/{seeds,funcs}.txt`. Because the tool
+  defaults `outdir` to `.`, a run without an explicit outdir drops a `seeds.txt` next to
+  the tool — that file is **gitignored, stale, and a different seed set**. Always pass the
+  outdir explicitly, and never read the tool's directory as the source of truth.
 
 
 ### REA + Ghidra (historical; requires the gitignored toolchains)
@@ -69,12 +73,17 @@ Bypass the wrapper entirely — this is the verified-working recipe:
 cd /tmp                                  # neutral CWD, see gotcha 3 above
 export JAVA_HOME=/opt/homebrew/opt/openjdk@21
 export GHIDRA_INSTALL_DIR=~/tools/ghidra_12.1.4_PUBLIC
-SEEDS=/Users/gear/GitHub/openagy/out/local-macos/seeds/seeds.txt
-SCRIPTS=/Users/gear/GitHub/openagy/out/local-macos/ghidra-scripts
-PROJ=/Users/gear/GitHub/openagy/out/local-macos/proj
+REPO=/Users/gear/Documents/GitHub/openagy
+SEEDS=$REPO/out/local-macos/seeds/seeds.txt
+SCRIPTS=$REPO/out/local-macos/ghidra-scripts
+PROJ=$REPO/out/local-macos/proj
 mkdir -p "$PROJ"
 
-# ① import + seed  (~11 min, measured)
+# ⓪ the priority list — MUST be built from the same seeds.txt as step ①
+python3 "$REPO/out/local-macos/build_priority.py" "$SEEDS" \
+  > "$REPO/out/local-macos/priority-funcs.txt"
+
+# ① import + seed  (1.5 min at agy 1.4.7, ~11 min at 1.4.6)
 MAXMEM=8G VMARGS="-XX:ParallelGCThreads=4 -XX:CICompilerCount=4" \
   "$GHIDRA_INSTALL_DIR/support/analyzeHeadless" "$PROJ" agy \
   -import ~/.local/bin/agy -noanalysis -max-cpu 4 \
@@ -83,12 +92,24 @@ MAXMEM=8G VMARGS="-XX:ParallelGCThreads=4 -XX:CICompilerCount=4" \
   -postScript ReaGhidraNoReturnFix.java
 # no -deleteProject: you want the project to persist for step ②
 
-# ② decompile a hand-picked list  (56 s for 1,959 functions)
+# ② decompile a hand-picked list  (26 s for 2,313 functions at 1.4.7)
 MAXMEM=8G VMARGS="-XX:ParallelGCThreads=4 -XX:CICompilerCount=4" \
   "$GHIDRA_INSTALL_DIR/support/analyzeHeadless" "$PROJ" agy \
   -process -noanalysis -max-cpu 4 \
   -scriptPath "$SCRIPTS" -postScript DecompilePriority.java
+
+# ③ the committed reports
+python3 "$REPO/out/local-macos/build_reports.py"   # prints "N/N decompiled"
 ```
+
+**Step ⓪ is not optional, and the three files it feeds are coupled by address.**
+`DecompilePriority.java` names each output `dec/<HEX>_<stem>.c` from the address in
+`priority-funcs.txt`, and `build_reports.py` pairs the two by that same hex prefix. A
+priority list built from a *different* seed set therefore produces reports that match
+nothing — and the failure is silent: `build_reports.py` prints `0/2290 decompiled` and
+rewrites every report with empty tables instead of failing. Always check that line
+before committing the reports. See the gotchas below for the two ways this happened
+in practice.
 
 - **`-noanalysis` is the single most important flag.** Two separate reasons:
   1. Ghidra’s *Decompiler Switch Analyzer* decompiles every function to recover switch
@@ -104,6 +125,38 @@ MAXMEM=8G VMARGS="-XX:ParallelGCThreads=4 -XX:CICompilerCount=4" \
   already exists and is >100 bytes, so re-running only decompiles what is new (the
   second run above took 13 s to add 142 functions).
 - Heap for this machine (16 GB): `MAXMEM=8G`. The sandbox used `MAXMEM=2G` on 3 GB.
+
+### Embedded assets (no decompiler needed)
+
+Some of a Go binary's payload needs no Ghidra at all. `devutils/embedextract`
+(scans the image, standard library only) takes out two things:
+
+```bash
+go build -o /tmp/embedextract ./devutils/embedextract
+
+# list everything it can verify
+/tmp/embedextract -bin ~/.local/bin/agy -list
+
+# write it out: -embed-out for the //go:embed file systems,
+#               -zip-out for one embedded ZIP archive (-zip-index, 0-based)
+/tmp/embedextract -bin ~/.local/bin/agy \
+  -embed-out out/ide-language-server/embed-fs \
+  -zip-out  out/ide-language-server/frontend -zip-index 1
+```
+
+Two mechanisms, both **self-verifying**:
+
+- `//go:embed` compiles each file into a 48-byte record (name string, data
+  string, 16-byte truncated hash). The binary is stripped, so the record is
+  found by **scanning**: a candidate is accepted only when the referenced
+  bytes hash to the stored value. The hash is *not* a plain SHA-256 — files
+  ≤ 1 KiB use `sha256(content)` with the first byte XORed by `0xff`, larger
+  files use `sha256(0x01 ‖ content)`.
+- An embedded **ZIP** is found through its end-of-central-directory record
+  (`PK\x05\x06`); the archive's own start is `eocd − cdSize − cdOffset`, and
+  every candidate is opened with `archive/zip` before it counts.
+
+Output and findings: `out/ide-language-server/embedded-assets.md`.
 
 ### MCP plan format
 
@@ -267,3 +320,30 @@ with SHA-256 `e1504128b7661974855e2f4009a4c6c26ee53e2f64ba587bb7b8cf7b8ba8aa3a`,
   `rea doctor` report `missing_dependency` even though the CLI runs.
 - `observe-native-calls` sets breakpoints **by symbol name**, so it is useless on a
   stripped Go binary unless you re-symbolize first.
+
+**The macOS pass (the traps that actually bite)**
+
+- **Every address moves on every `agy` release.** The seed set is a function of the
+  binary, so the Ghidra project, `priority-funcs.txt`, `dec/<hex>_*.c` and the
+  committed reports all have to be regenerated *together*. At 1.4.7 the
+  `codeassistclient.init` seed sits at `0x101a7e3f0`; at 1.4.6 it was at
+  `0x1019c3bb0`.
+- **`rea-go-seeds/seeds.txt` is a trap: it is gitignored, it is a *different* seed
+  set, and it is easy to mistake for the committed one.** The canonical seed set
+  lives in `out/local-macos/seeds/seeds.txt` (tracked, 165,692 names at 1.4.7,
+  SHA-256 `dd73b4f2…`). A `seeds.txt` left inside `rea-go-seeds/` by an earlier
+  run is a stale local artifact — never use it as the source for
+  `build_priority.py`.
+- **A priority list built from the wrong seed set silently empties every
+  report.** `build_reports.py` pairs `dec/<hex>_*.c` with `priority-funcs.txt`
+  by the hex prefix; when they disagree it prints `0/N decompiled` and rewrites
+  all 105 reports with empty tables — it does **not** fail. Read the
+  `N/N decompiled` line before committing anything under `out/local-macos/`.
+- **`dec/` is resume-safe, so a stale directory looks like a good run.** The
+  decompile step skips any function whose output file already exists and is
+  `> 100` bytes. After changing the seed set, clear `out/local-macos/dec/`
+  before re-running, or the old files (with the old addresses) stay in place.
+- **Measured at agy 1.4.7 on this machine:** seed generation ~12 s for a
+  214 MB binary; Ghidra import + seeding 1.5 min (165,673 functions created,
+  0 failed, 0 unmapped); decompile of the 2,313 priority functions 26 s
+  (336,278 LOC); report build instant.

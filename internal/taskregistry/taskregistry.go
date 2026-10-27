@@ -24,6 +24,7 @@ package taskregistry
 import (
 	"errors"
 	"sort"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -76,6 +77,30 @@ type Task struct {
 	ExitCode  int       // ExitCodeUnset while still running
 	OwnerID   string
 	Err       error
+	// Command is the command line a shell task runs. The /tasks detail
+	// view renders it under the reference's "Command: " label.
+	Command string
+	// Output is the task's captured output — a shell's stdout, or the
+	// assistant text an LLM subagent produced. The detail view renders
+	// it under the reference's "Output" heading.
+	Output string
+	// Prompt is the prompt an LLM subagent was given. The subagent
+	// detail view renders it under the reference's "Prompt" heading.
+	Prompt string
+	// Tools lists the tool names an LLM subagent called, in call
+	// order. The subagent detail view renders them under the
+	// reference's "Tools" heading ("No tools used yet" when empty).
+	Tools []string
+	// Steps lists the subagent's trajectory steps, in order — the
+	// turns it took while it ran. The subagent detail view renders
+	// them under the reference's "Trajectory — <name> (<N> steps)"
+	// heading ("No steps yet" when empty).
+	//
+	// 【反编译】 the reference's trajectory section is headed by
+	// "Trajectory — %s (%d steps)" (0x10358a89d) and its empty form
+	// is "No steps yet" (0x10346f0a3); see
+	// docs/cycles/cycle-317-tui-subagent-trajectory/deliverable.md.
+	Steps []string
 	// hidden is true once a user removes a task via the x key. Hidden
 	// tasks are still in the map (so late subscribers see the full
 	// history) but List() filters them out and the panel renders the
@@ -364,24 +389,7 @@ func (r *Registry) fanout(ev TaskEvent) {
 // time.Now() so two calls in the same nanosecond still get distinct
 // IDs.
 func fmtMintID(n uint64) string {
-	return "task-" + itoa(n)
-}
-
-// itoa is a small allocation-free uint64 → string. We avoid strconv
-// here so the registry has no third-party dependencies (the
-// research-tool half of the repo is stdlib-only; see AGENTS.md).
-func itoa(n uint64) string {
-	if n == 0 {
-		return "0"
-	}
-	var buf [20]byte
-	i := len(buf)
-	for n > 0 {
-		i--
-		buf[i] = byte('0' + n%10)
-		n /= 10
-	}
-	return string(buf[i:])
+	return "task-" + strconv.FormatUint(n, 10)
 }
 
 // ErrClosed is returned by helpers that refuse to act on a closed

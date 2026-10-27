@@ -14,18 +14,19 @@ import (
 
 	"golang.org/x/sys/unix"
 
+	"github.com/justwasm/pigasus/agentbrowser"
 	"github.com/justwasm/pigasus/internal/auth"
 	"github.com/justwasm/pigasus/internal/cli"
 	"github.com/justwasm/pigasus/internal/convstore"
-	"github.com/justwasm/pigasus/internal/originpolicy"
 	"github.com/justwasm/pigasus/internal/persistentrc"
 	"github.com/justwasm/pigasus/internal/remotecontrol"
-	"github.com/justwasm/pigasus/internal/remotetransport"
+	"github.com/justwasm/pigasus/originpolicy"
+	"github.com/justwasm/pigasus/remotetransport"
 )
 
 // RunForeground is the `remote-control-foreground` hidden subcommand's Run handler.
 func RunForeground(j *cli.JetskiCLI, args []string) error {
-	addr, name, logFile, model, err := parseForegroundFlags(args)
+	addr, name, logFile, model, desktop, err := parseForegroundFlags(args)
 	if err != nil {
 		return err
 	}
@@ -38,11 +39,23 @@ func RunForeground(j *cli.JetskiCLI, args []string) error {
 	sess.Workspace = cwd
 	sess.Model = model
 
-	disp, err := buildForegroundDispatcher(cwd, model, addr, sess)
+	// Cycle rc-auth-bearer-required: the secret a client from another
+	// machine has to present. The persistent daemon's output goes to
+	// a log file, so the operator is told where the secret is kept
+	// rather than what it is.
+	token, warn, err := resolveRCToken()
+	if err != nil {
+		return cli.ExitCodeError(1, fmt.Sprintf("Error: could not mint the remote-control secret: %v", err))
+	}
+	if warn != "" {
+		fmt.Fprintf(j.ErrOut, "remote-control-foreground: %s\n", warn)
+	}
+
+	disp, err := buildForegroundDispatcher(cwd, model, addr, sess, desktop)
 	if err != nil {
 		return err
 	}
-	srv, err := startForegroundServer(disp, addr)
+	srv, err := startForegroundServer(disp, addr, token)
 	if err != nil {
 		return err
 	}
@@ -50,17 +63,18 @@ func RunForeground(j *cli.JetskiCLI, args []string) error {
 	return runForegroundEventLoop(srv, name)
 }
 
-func parseForegroundFlags(args []string) (string, string, string, string, error) {
+func parseForegroundFlags(args []string) (string, string, string, string, bool, error) {
 	fs := flag.NewFlagSet("remote-control-foreground", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	addr := fs.String("addr", "", "Bind address for the JSON-RPC-over-WebSocket transport (host:port)")
 	name := fs.String("name", "", "Machine instance label (matches the launchd label suffix)")
 	logFile := fs.String("log-file", "", "Absolute log file path for stdout / stderr")
 	model := fs.String("model", "", "Default model label forwarded to PiagentBackend; empty uses the host's resolved model")
+	desktop := fs.Bool("desktop", false, "Serve the desktop UI: the Mendel read carries the hub identity")
 	if err := fs.Parse(args); err != nil {
-		return "", "", "", "", cli.ExitCodeError(2, fmt.Sprintf("Error: bad remote-control-foreground flags: %v", err))
+		return "", "", "", "", false, cli.ExitCodeError(2, fmt.Sprintf("Error: bad remote-control-foreground flags: %v", err))
 	}
-	return *addr, *name, *logFile, *model, nil
+	return *addr, *name, *logFile, *model, *desktop, nil
 }
 
 func setupForegroundLogging(logFile string, errOut io.Writer) {
@@ -87,9 +101,21 @@ func validateForegroundArgs(name, addr string) error {
 	return nil
 }
 
-func buildForegroundDispatcher(cwd, model, addr string, sess *remotecontrol.SessionState) (*remotecontrol.Dispatcher, error) {
+// buildForegroundDispatcher builds the dispatcher the persistent
+// daemon answers its RPCs with.
+//
+// desktop asks for the reference's desktop UI: the dispatcher's
+// Mendel read then carries the hub identity, so the dashboard's page
+// behind the tunnel is the desktop one. The flag arrives from the
+// LaunchAgent plist's ProgramArguments (the persistentrc spec's
+// Desktop field) or from the command line.
+func buildForegroundDispatcher(cwd, model, addr string, sess *remotecontrol.SessionState, desktop bool) (*remotecontrol.Dispatcher, error) {
 	fsProvider := buildHostFSProvider(nil, cwd)
 	projects := buildHostProjectStore(fsProvider)
+	// One broker for the whole daemon: the dispatcher's three
+	// LanguageServerService RPCs and the turn's `webview_browser` tool
+	// have to meet in the same instance.
+	broker := agentbrowser.NewBroker()
 	disp, err := remotecontrol.NewDispatcher(remotecontrol.Config{
 		Session:                 sess,
 		Agents:                  remotecontrol.DefaultAgentLister,
@@ -100,11 +126,15 @@ func buildForegroundDispatcher(cwd, model, addr string, sess *remotecontrol.Sess
 		Conversations:           buildHostConversationStore(projects),
 		AuthState:               authStateForCaller(),
 		DaemonMeta:              daemonMetaForCaller("tcp+ws", addr, "persistent"),
-		MessageBackend:          buildHostMessageBackend(cwd, model),
+		MessageBackend:          buildHostMessageBackend(cwd, model, broker),
+		Browser:                 broker,
 		ResourceStore:           buildHostResourceStore(projects),
 		ConversationConfigStore: buildHostConversationConfigStore(),
 		TerminalsRegistry:       buildHostTerminalsRegistry(),
+		WebTerminals:            buildHostWebTerminalsRegistry(),
+		WebAudio:                buildHostWebAudioRegistry(),
 		OriginPolicyStore:       buildHostOriginPolicyStore(),
+		MendelUserAgent:         desktopMendelUserAgent(desktop),
 	})
 	if err != nil {
 		return nil, cli.ExitCodeError(1, fmt.Sprintf("Error: dispatcher init failed: %v", err))
@@ -112,12 +142,13 @@ func buildForegroundDispatcher(cwd, model, addr string, sess *remotecontrol.Sess
 	return disp, nil
 }
 
-func startForegroundServer(disp *remotecontrol.Dispatcher, addr string) (*remotetransport.TCPServer, error) {
+func startForegroundServer(disp *remotecontrol.Dispatcher, addr, token string) (*remotetransport.TCPServer, error) {
 	seed := originpolicy.LoadOriginPolicyFromEnv()
 	srv, err := remotetransport.NewTCPServer(context.Background(), disp, remotetransport.TCPConfig{
 		Addr:         addr,
 		Path:         "/rpc",
 		OriginPolicy: &seed,
+		CSRFToken:    token,
 	})
 	if err != nil {
 		return nil, cli.ExitCodeError(1, fmt.Sprintf("Error: failed to bind %s: %v", addr, err))
@@ -132,6 +163,7 @@ func runForegroundEventLoop(srv *remotetransport.TCPServer, name string) error {
 
 	fmt.Fprintf(os.Stderr, "remote-control-foreground: listening on %s (path=/rpc, name=%s, antigravity_home=%s)\n",
 		srv.HTTPURL(), name, auth.AntigravityHome())
+	announceRCSecretPath(os.Stderr, "remote-control-foreground")
 
 	sig := <-sigCh
 	fmt.Fprintf(os.Stderr, "remote-control-foreground: caught signal %v, shutting down\n", sig)

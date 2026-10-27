@@ -25,6 +25,7 @@ import (
 	"github.com/justwasm/pigasus/internal/auth"
 	"github.com/justwasm/pigasus/internal/backend"
 	"github.com/justwasm/pigasus/internal/branding"
+	"github.com/justwasm/pigasus/internal/builtinskills"
 	"github.com/justwasm/pigasus/internal/cli"
 	"github.com/justwasm/pigasus/internal/cliflags"
 	"github.com/justwasm/pigasus/internal/daemon"
@@ -62,6 +63,11 @@ func Run(args []string) int {
 
 	_, _ = auth.WriteCompatDefaults()
 	_ = cli.RunPluginCleanupOnStartup(auth.AntigravityConfigHome())
+	// The reference unpacks its builtin skill bundle into
+	// <AppDataDir>/builtin/skills on startup; the clone ships the same
+	// bundle and fills in whatever is missing. Files that are already there
+	// are left alone, so the reference's own install always wins.
+	_, _ = builtinskills.Install(auth.AntigravityConfigHome())
 
 	p := setupCLIParser()
 	if err := p.Execute(); err != nil {
@@ -73,7 +79,7 @@ func Run(args []string) int {
 func setupCLIParser() *cli.Parser {
 	p := cli.NewParser(
 		cli.StandardFlags(),
-		append(cli.StandardSubcommands(), proxySubcommand()),
+		append(cli.StandardSubcommands(), proxySubcommand(), cli.WebSubcommand()),
 		filepath.Base(os.Args[0]),
 		"Recovered "+branding.Current().CLIName+" (1:1 parse parity with v4 binary)",
 		"pigasus is a 1:1 parse-parity shell of Google Antigravity CLI v1.3.3.\n"+
@@ -96,6 +102,7 @@ func registerParserBridges() {
 	cli.SetChatBridge(runLiveTUI)
 	cli.RegisterForegroundHandler(rchost.RunForeground)
 	cli.RegisterServeHandler(rchost.RunServe)
+	cli.RegisterWebHandler(rchost.RunWeb)
 	cli.RegisterLogoHandler(tuilib.RunLogoSubcommand)
 	rchost.BackendPicker = func(modelName string) backend.Client {
 		return pickBackendWithLog(nil, modelName, io.Discard, backend.GatewayTimeoutUnlimited)
@@ -107,7 +114,7 @@ func registerParserBridges() {
 		return resolveBackend(fs, w)
 	}
 	printmode.ModelResolver = func(model, effort string) (string, error) {
-		return resolveModelSelection(model, effort)
+		return modelcatalog.ResolveModelSelection(model, effort)
 	}
 	printmode.ConversationResolver = func(fs *flag.FlagSet, warn io.Writer) printmode.ConversationSelection {
 		sel := resolveConversationSelection(fs, warn)
@@ -138,6 +145,9 @@ func runRoot(args []string, p *cli.Parser) error {
 	if fs == nil {
 		return nil
 	}
+	// The browser's policy comes from the reference's own four hidden
+	// flags; the browser client reads them from here on.
+	applyBrowserFlags(fs)
 	if done, err := checkRootShortCircuits(fs, p, out); done || err != nil {
 		return err
 	}
@@ -151,7 +161,7 @@ func runRoot(args []string, p *cli.Parser) error {
 	if flagWasSet(fs, "prompt-interactive") || flagWasSet(fs, "i") {
 		return dispatchInteractiveMode(fs, out)
 	}
-	if resolveBoolAlias(fs, "continue", "c") {
+	if cliflags.ResolveBoolAlias(fs, "continue", "c") {
 		return dispatchInteractiveMode(fs, out)
 	}
 	return dispatchDefaultRoot(args, fs, out)
@@ -217,7 +227,7 @@ func printPromptSet(fs *flag.FlagSet) bool {
 func printPrompt(fs *flag.FlagSet) string {
 	for _, n := range []string{"print", "prompt", "p"} {
 		if flagWasSet(fs, n) {
-			return flagStringValue(fs, n)
+			return cliflags.StringValue(fs, n)
 		}
 	}
 	return ""
@@ -233,79 +243,26 @@ func warnAgentMode(fs *flag.FlagSet, sessionCreation bool) {
 	if fs == nil {
 		return
 	}
-	if flagStringValue(fs, "agent") != "" && flagStringValue(fs, "mode") != "" {
+	if cliflags.StringValue(fs, "agent") != "" && cliflags.StringValue(fs, "mode") != "" {
 		fmt.Fprintln(os.Stderr, "warning: --mode is ignored when --agent is set")
 	}
 }
 
-// resolveBoolAlias reads the canonical flag name first, falling back to alias.
-func resolveBoolAlias(fs *flag.FlagSet, canonical, alias string) bool {
-	return cliflags.ResolveBoolAlias(fs, canonical, alias)
-}
-
-// flagBoolValue returns the bool value of a flag, or false if unset.
-func flagBoolValue(fs *flag.FlagSet, name string) bool {
-	return cliflags.BoolValue(fs, name)
-}
-
-// flagIntValue returns the int value of a flag, or 0 if unset or not an int.
-func flagIntValue(fs *flag.FlagSet, name string) int {
-	return cliflags.IntValue(fs, name)
-}
-
-// flagStringValue returns the string value of a flag, or "" if unset.
-func flagStringValue(fs *flag.FlagSet, name string) string {
-	return cliflags.StringValue(fs, name)
-}
-
 // --- the model-label vocabulary ---------------------------------------------
+//
+// Cycle 346: this block used to hold eighteen one-line wrappers —
+// flagBoolValue, flagStringValue, flagIntValue, resolveBoolAlias,
+// formatModelLabel, resolveEffectiveModel, canonicalModelLabel,
+// wireModelLabel, resolveDefaultEffort, availableModelsBlock,
+// resolveModelSelection, modelSlug and the tuilib help renderers — each
+// forwarding to internal/cliflags, internal/modelcatalog or
+// internal/tuilib. The call sites now name the package directly, so
+// there is one hop instead of two, and a new helper in one of those
+// packages is reachable without touching this one.
+//
+// The two aliases that stay are the ones the TUI reads as *values*:
+// the default model label and the effort vocabulary.
 
 const defaultModel = modelcatalog.DefaultModel
 
-func formatModelLabel(name string) string {
-	return modelcatalog.FormatModelLabel(name)
-}
-
-func resolveEffectiveModel(flagModel string) (effective, unavailableFrom string) {
-	return modelcatalog.ResolveEffectiveModel(flagModel)
-}
-
-func canonicalModelLabel(name string) string {
-	return modelcatalog.CanonicalModelLabel(name)
-}
-
-// wireModelLabel maps an upstream model id back to the catalogue label the
-// TUI shows.
-func wireModelLabel(wire string) (string, bool) {
-	return modelcatalog.WireLabel(wire)
-}
-
-type baseModelSpec struct {
-	levels []string
-	def    string
-}
-
-var baseModelEfforts = map[string]baseModelSpec{
-	"gemini-3.8-flash": {levels: []string{"low", "medium", "high"}, def: "high"},
-	"gpt-oss-120b":     {levels: []string{"medium"}, def: "medium"},
-}
 var validEfforts = modelcatalog.ValidEfforts
-
-func resolveDefaultEffort(spec baseModelSpec) string {
-	return modelcatalog.ResolveDefaultEffort(modelcatalog.BaseModelSpec{
-		Levels: spec.levels,
-		Def:    spec.def,
-	})
-}
-
-func availableModelsBlock() string {
-	return modelcatalog.AvailableModelsBlock()
-}
-
-func resolveModelSelection(model, effort string) (string, error) {
-	return modelcatalog.ResolveModelSelection(model, effort)
-}
-
-func modelSlug(name string) string {
-	return modelcatalog.ModelSlug(name)
-}

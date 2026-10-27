@@ -8,6 +8,23 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/justwasm/pigasus/internal/convstore"
+	"github.com/justwasm/pigasus/palette"
+)
+
+// The reference's /resume picker colours.
+//
+// 【一手】 agy 1.4.7, tmux capture (out/resume-tree/ref/tree.txt): the
+// cursor and the row under it are the brand blue (38;2;66;133;244), the
+// right-hand cells are the dimmed body gray (38;2;60;64;67), the inactive
+// tab and the rule above the picker are (38;2;218;220;224) and the hint
+// labels are (38;2;95;99;104).
+// The row's colours are the selected scheme's slots — the accent, the
+// muted foreground, the dim foreground and the border.
+var (
+	resumeBlueOpen     = palette.BlueOpen
+	resumeCellOpen     = palette.SubtleOpen
+	resumeLabelOpen    = palette.DimGrayOpen
+	resumeInactiveOpen = palette.SeparatorOpen
 )
 
 func resumeListWindowFor(height int) int {
@@ -149,16 +166,16 @@ func (m *runMode) resumeListPage(total, dir int) {
 func renderResumeTabBar(b *strings.Builder, activeTab int) {
 	writeTab := func(name string, active bool) {
 		if active {
-			b.WriteString("\x1b[1;4m" + cBlueOpen + name + pickerKeyClose)
+			b.WriteString("\x1b[1;4m" + resumeBlueOpen + name + pickerKeyClose)
 			return
 		}
-		b.WriteString(cSeparatorOpen + name + pickerReset)
+		b.WriteString(resumeInactiveOpen + name + pickerReset)
 	}
 	b.WriteString("   ")
 	writeTab("CLI", activeTab == 0)
 	b.WriteString("    ")
 	writeTab("Other", activeTab == 1)
-	b.WriteString(" " + cSeparatorOpen + "  (tab to cycle)" + pickerReset + "\n\n\x1b[1m  Conversations\x1b[0m\n")
+	b.WriteString(" " + resumeInactiveOpen + "  (tab to cycle)" + pickerReset + "\n\n\x1b[1m  Conversations\x1b[0m\n")
 }
 
 func (m *runMode) renderResumeSearchRow(b *strings.Builder, storeEmpty bool) {
@@ -166,10 +183,10 @@ func (m *runMode) renderResumeSearchRow(b *strings.Builder, storeEmpty bool) {
 		return
 	}
 	if m.resumeQuery == "" {
-		b.WriteString(cHelpDescOpen + "  Type to search conversations..." + cHelpDescClose + "\n")
+		b.WriteString(resumeCellOpen + "  Type to search conversations..." + pickerReset + "\n")
 		return
 	}
-	b.WriteString(cHelpDescOpen + "  Search: " + cHelpDescClose + m.resumeQuery)
+	b.WriteString(resumeCellOpen + "  Search: " + pickerReset + m.resumeQuery)
 	if m.resumeCursorOn {
 		b.WriteString("\x1b[7m\x1b[37m \x1b[0m")
 	} else {
@@ -179,34 +196,34 @@ func (m *runMode) renderResumeSearchRow(b *strings.Builder, storeEmpty bool) {
 }
 
 func (m *runMode) renderResumeEmpty(b *strings.Builder, storeEmpty bool) string {
-	b.WriteString(cHelpDescOpen)
+	b.WriteString(resumeCellOpen)
 	if m.resumeTab == 0 && !storeEmpty {
 		b.WriteString("  No matching conversations.")
 	} else {
 		b.WriteString("  No conversations available.")
 	}
-	b.WriteString(cHelpDescClose + "\n")
+	b.WriteString(pickerReset + "\n")
 	if m.resumeTab != 0 || storeEmpty {
-		b.WriteString(cHelpDescOpen + "  Press Enter to return." + cHelpDescClose + "\n")
+		b.WriteString(resumeCellOpen + "  Press Enter to return." + pickerReset + "\n")
 	}
 	b.WriteString("\n" + resumeKeyboardHint(m.resumeTab == 0 && !storeEmpty, false) + "\n\n")
 	return b.String()
 }
 
 func renderResumeRowCursor(b *strings.Builder, title string, pad int, c convstore.ConversationMeta, hasAge bool) {
-	b.WriteString(cBlueOpen + "> " + title + pickerReset + strings.Repeat(" ", pad))
+	b.WriteString(resumeBlueOpen + "> " + title + pickerReset + strings.Repeat(" ", pad))
 	if c.Project != "" {
-		b.WriteString(cHelpDescOpen + resumeProjectCell(c.Project) + cHelpDescClose + "  ")
+		b.WriteString(resumeCellOpen + resumeProjectCell(c.Project) + pickerReset + "  ")
 	}
-	b.WriteString("\x1b[3m" + cBlueOpen + resumeStepsCell(c.StepCount))
+	b.WriteString("\x1b[3m" + resumeBlueOpen + resumeStepsCell(c.StepCount))
 	if hasAge {
-		b.WriteString(pickerKeyClose + "  \x1b[3m" + cBlueOpen + resumeAgeCell(c.ModTime))
+		b.WriteString(pickerKeyClose + "  \x1b[3m" + resumeBlueOpen + resumeAgeCell(c.ModTime))
 	}
 	b.WriteString(pickerKeyClose + "\n")
 }
 
 func renderResumeRowNormal(b *strings.Builder, title string, pad int, c convstore.ConversationMeta, hasAge bool) {
-	b.WriteString(pickerKeyClose + "  " + title + strings.Repeat(" ", pad) + cHelpDescOpen)
+	b.WriteString(pickerKeyClose + "  " + title + strings.Repeat(" ", pad) + resumeCellOpen)
 	if c.Project != "" {
 		b.WriteString(resumeProjectCell(c.Project) + "  ")
 	}
@@ -214,7 +231,7 @@ func renderResumeRowNormal(b *strings.Builder, title string, pad int, c convstor
 	if hasAge {
 		b.WriteString("  " + resumeAgeCell(c.ModTime))
 	}
-	b.WriteString(cHelpDescClose + "\n")
+	b.WriteString(pickerReset + "\n")
 }
 
 func renderResumeRow(b *strings.Builder, c convstore.ConversationMeta, isCursor bool, width int) {
@@ -271,9 +288,21 @@ func (m *runMode) renderResumeList(b *strings.Builder, rows []convstore.Conversa
 	}
 	if total > window {
 		fmt.Fprintf(b, "%s  [%d-%d of %d items]%s\n",
-			cDimGrayOpen, m.resumeWindow+1, end, total, pickerReset)
+			resumeLabelOpen, m.resumeWindow+1, end, total, pickerReset)
 	}
-	b.WriteString("\n" + resumeKeyboardHint(true, resumeProjectGroups(rows) >= 2) + "\n\n")
+	b.WriteString("\n" + m.resumeFlatHint(rows) + "\n\n")
+}
+
+// resumeFlatHint is the flat list's keyboard hint.
+//
+// 【一手】 agy 1.4.7: the flat list offers "ctrl+f Grouped View", and a
+// search keeps the grouped flag — so the filtered list still offers
+// "ctrl+f Conversation View" and drops the ctrl+e element.
+func (m *runMode) resumeFlatHint(rows []convstore.ConversationMeta) string {
+	if m.resumeGrouped {
+		return resumeKeyboardHintParts(true, "Conversation View", "")
+	}
+	return resumeKeyboardHint(true, resumeProjectGroups(rows) >= 2)
 }
 
 func (m *runMode) resumeView() string {
@@ -294,6 +323,12 @@ func (m *runMode) resumeView() string {
 	if total == 0 {
 		return m.renderResumeEmpty(&b, storeEmpty)
 	}
+	if m.resumeTreeActive() {
+		tree := m.resumeTreeRows()
+		m.clampResumeWindow(len(tree), window)
+		m.renderResumeTree(&b, tree, len(tree), window, width)
+		return b.String()
+	}
 	m.clampResumeWindow(total, window)
 	m.renderResumeList(&b, rows, total, window, width)
 	return b.String()
@@ -309,23 +344,52 @@ func resumeProjectGroups(rows []convstore.ConversationMeta) int {
 	return len(seen)
 }
 
+// resumeKeyboardHint is the flat list's hint.
+//
+// withNav adds the navigation keys â the CLI tab with a visible list.
+// grouped advertises the workspace tree as the view ctrl+f switches to.
+//
+// 【一手】 agy 1.4.2 showed "ctrl+f Grouped View" over a store whose rows
+// carry project names and omitted it when no visible row has one.
 func resumeKeyboardHint(withNav, grouped bool) string {
+	view := ""
+	if grouped {
+		view = "Grouped View"
+	}
+	return resumeKeyboardHintParts(withNav, view, "")
+}
+
+// resumeKeyboardHintParts renders the picker's keyboard hint.
+//
+// view names the view ctrl+f switches to â "Grouped View" for the workspace
+// tree, "Conversation View" for the flat list â and is empty when the
+// picker does not offer the switch. collapse names the ctrl+e action.
+//
+// 【一手】 agy 1.4.7 (out/resume-tree/ref/tree.txt):
+//
+//	Keyboard: ↑/↓ Navigate  ←/→ Page  ctrl+f Conversation View  ctrl+e
+//	Collapse  enter Select  f2 Rename  f4 Delete  tab Switch Tab  esc Go
+//	back / Clear search
+func resumeKeyboardHintParts(withNav bool, view, collapse string) string {
 	key := func(s string) string {
-		return cBlueOpen + s + pickerReset
+		return resumeBlueOpen + s + pickerReset
 	}
 	label := func(s string) string {
-		return cDimGrayOpen + s + pickerReset
+		return resumeLabelOpen + s + pickerReset
 	}
 	var b strings.Builder
-	b.WriteString("\x1b[1m")
+	b.WriteString("[1m")
 	b.WriteString("Keyboard: ")
-	b.WriteString("\x1b[0m")
+	b.WriteString("[0m")
 	if withNav {
-		b.WriteString(key("\u2191/\u2193") + " " + label("Navigate") + "  ")
-		b.WriteString(key("\u2190/\u2192") + " " + label("Page") + "  ")
-	}
-	if withNav && grouped {
-		b.WriteString(key("ctrl+f") + " " + label("Grouped View") + "  ")
+		b.WriteString(key("↑/↓") + " " + label("Navigate") + "  ")
+		b.WriteString(key("←/→") + " " + label("Page") + "  ")
+		if view != "" {
+			b.WriteString(key("ctrl+f") + " " + label(view) + "  ")
+		}
+		if collapse != "" {
+			b.WriteString(key("ctrl+e") + " " + label(collapse) + "  ")
+		}
 	}
 	b.WriteString(key("enter") + " " + label("Select") + "  ")
 	if withNav {

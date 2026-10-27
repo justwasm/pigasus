@@ -8,18 +8,26 @@ import (
 
 	"github.com/justwasm/pigasus/internal/auth"
 	"github.com/justwasm/pigasus/internal/mdrender"
+	"github.com/justwasm/pigasus/internal/seasonal"
 	"github.com/justwasm/pigasus/internal/themepreview"
 )
 
 const ansiReset = "\x1b[0m"
 
 // applyThemeLive applies the selected color scheme live across the TUI:
-// updating mdrender's markdown and chroma syntax highlighting styles,
-// updating the textarea prompt/placeholder styles, and returning tea.ClearScreen.
+// recording the scheme the session wears, updating mdrender's markdown and
+// chroma syntax highlighting styles, updating the textarea prompt/placeholder
+// styles, and returning tea.ClearScreen.
+//
+// The reference repaints the whole interface when the scheme changes, not
+// only the preview card: every colour the interface paints is resolved
+// from the scheme's slots. The TUI pushes the recorded scheme around the
+// work that paints a frame (Update and View), so the frame wears it.
 func (m *runMode) applyThemeLive(scheme string) tea.Cmd {
 	mdrender.SetColorScheme(scheme)
 	promptColor, placeholderColor := themepreview.ColorsFor(scheme)
 	if m != nil {
+		m.colorScheme = scheme
 		st := m.input.Styles()
 		promptStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(promptColor))
 		placeholderStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(placeholderColor))
@@ -190,9 +198,24 @@ func (m *runMode) applyConfigValue(row configRow, val cfgVal) {
 	}
 	if val.Stored == nil {
 		_ = auth.DeleteSettingsField(row.SettingsKey)
+		m.applySeasonalOptIn(row.SettingsKey)
 		return
 	}
 	_ = auth.SetSettingsField(row.SettingsKey, val.Stored)
+	m.applySeasonalOptIn(row.SettingsKey)
+}
+
+// applySeasonalOptIn re-reads the seasonal theme after the /config row
+// switched it.
+//
+// 【一手】 agy 1.4.7: the theme follows the setting, so the themed
+// banner, the themed prompt-box rules and the moon-phase spinner follow
+// the row as it is switched.
+func (m *runMode) applySeasonalOptIn(key string) {
+	if key != seasonal.OptInKey {
+		return
+	}
+	m.refreshSeasonalTheme()
 }
 
 // applyAltScreenLive switches the session between the terminal's

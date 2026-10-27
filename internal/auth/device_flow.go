@@ -38,7 +38,8 @@ import (
 	"time"
 
 	"golang.org/x/oauth2"
-	"golang.org/x/oauth2/endpoints"
+
+	"github.com/justwasm/pigasus/endpoints"
 )
 
 // DeviceFlowScopes is the canonical scope list the recovered v1.3.5
@@ -61,9 +62,27 @@ var DeviceFlowScopes = []string{
 var DeviceFlowClientID = CLIClientID
 
 // DeviceFlowEndpoint is the oauth2.Endpoint the device-flow library
-// posts to. Defaults to endpoints.Google; tests redirect this to a
-// local httptest.Server so they never hit the public OAuth endpoint.
-var DeviceFlowEndpoint = endpoints.Google
+// posts to. It is the test seam: tests redirect this to a local
+// httptest.Server so they never hit the public OAuth endpoint. Leave it
+// empty to let the endpoint resolver answer.
+var DeviceFlowEndpoint = oauth2.Endpoint{}
+
+// deviceFlowEndpoint returns the endpoint the device grant posts to.
+//
+// A non-empty DeviceFlowEndpoint is the test seam and wins. Otherwise the
+// three URLs come from the endpoint resolver, so the configuration file
+// may point the device flow at a local service.
+func deviceFlowEndpoint() oauth2.Endpoint {
+	if DeviceFlowEndpoint != (oauth2.Endpoint{}) {
+		return DeviceFlowEndpoint
+	}
+	e := endpoints.Current()
+	return oauth2.Endpoint{
+		AuthURL:       e.OAuth2Auth,
+		TokenURL:      e.OAuth2Token,
+		DeviceAuthURL: e.OAuth2Device,
+	}
+}
 
 // DeviceFlowTimeout is the total time we are willing to wait for the
 // user to complete the verification step. The DeviceAccessToken call
@@ -90,7 +109,7 @@ func NewDeviceFlowConfig(clientID string, scopes []string) *oauth2.Config {
 	}
 	return &oauth2.Config{
 		ClientID: clientID,
-		Endpoint: DeviceFlowEndpoint,
+		Endpoint: deviceFlowEndpoint(),
 		Scopes:   scopes,
 	}
 }

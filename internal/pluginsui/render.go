@@ -8,18 +8,22 @@ import (
 	"strings"
 
 	"github.com/justwasm/pigasus/internal/auth"
-	"github.com/justwasm/pigasus/internal/palette"
 	"github.com/justwasm/pigasus/internal/plugins"
+	"github.com/justwasm/pigasus/internal/textwrap"
+	"github.com/justwasm/pigasus/palette"
 )
 
 const (
-	PluginColor253  = "\x1b[38;2;238;232;213m"
 	PluginColor253C = "\x1b[39m"
 	PluginGray244   = "\x1b[38;5;244m"
 	PluginGray244C  = "\x1b[0m"
 	PanelGray238    = "\x1b[38;5;238m"
 	PanelGray238C   = "\x1b[0m"
 )
+
+// PluginColor253 is the panel's rule colour — the selected scheme's
+// border.
+var PluginColor253 = palette.SeparatorOpen
 
 // KeyboardHint formats key-action pairs with the recovered reference palette.
 func KeyboardHint(pairs ...string) string {
@@ -61,7 +65,7 @@ func TabLabel(label string, n int, active bool) string {
 // Badge renders the [enabled] or [disabled] tag.
 func Badge(enabled bool) string {
 	if enabled {
-		return "\x1b[38;2;133;153;0m[enabled] \x1b[39m"
+		return palette.AgentFgOpen + "[enabled] \x1b[39m"
 	}
 	return PluginColor253 + "[disabled]" + PluginColor253C
 }
@@ -113,7 +117,7 @@ func DiscoverLine(isCursor, installed bool, name, desc string, max int) string {
 	desc = TruncateTo(desc, max-(5+len(name)))
 	bulletColor := PluginColor253
 	if installed {
-		bulletColor = "\x1b[38;2;133;153;0m"
+		bulletColor = palette.AgentFgOpen
 	}
 	bullet := bulletColor + "●" + PluginColor253C
 	if isCursor {
@@ -158,25 +162,17 @@ func TruncateTo(s string, avail int) string {
 }
 
 // WrapWords wraps s into lines not exceeding width on single space boundaries.
+//
+// The wrap is the shared one (internal/textwrap), which is
+// charmbracelet/x/ansi's word wrap — the library the reference's own
+// binary embeds. Two things change with it: the budget is counted in
+// terminal cells rather than in bytes (so a row of CJK holds half as
+// many characters as a row of ASCII), and the rows are the library's.
+//
+// The reference's own rule holds: a word that is wider than the budget
+// is emitted whole. It does not hyphenate it.
 func WrapWords(s string, width int) []string {
-	if s == "" {
-		return []string{""}
-	}
-	words := strings.Split(s, " ")
-	var out []string
-	cur := ""
-	for _, w := range words {
-		switch {
-		case cur == "":
-			cur = w
-		case len(cur)+1+len(w) <= width:
-			cur += " " + w
-		default:
-			out = append(out, cur)
-			cur = w
-		}
-	}
-	return append(out, cur)
+	return textwrap.Words(s, width)
 }
 
 // WrappedDetail renders a labelled detail line whose value is word-wrapped.

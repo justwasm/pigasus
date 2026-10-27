@@ -18,6 +18,7 @@
 package cli
 
 import (
+	"github.com/justwasm/pigasus/endpoints"
 	"os"
 	"path/filepath"
 	"strings"
@@ -56,7 +57,7 @@ func TestMarketplaceLinkForSkill_SkillPresentNoPlugin(t *testing.T) {
 		t.Fatalf("mkdir alpha skill: %v", err)
 	}
 	got := marketplaceLinkForSkillInRoute("alpha", skillRoot, nil)
-	want := MarketplaceLinkPattern + "alpha"
+	want := endpoints.Current().Marketplace + "alpha"
 	if got != want {
 		t.Errorf("MarketplaceLinkForSkill(alpha) = %q, want %q", got, want)
 	}
@@ -115,7 +116,7 @@ func TestMarketplaceLinkForSkill_URLEncoded(t *testing.T) {
 		t.Fatalf("mkdir \"My Skill\": %v", err)
 	}
 	got := marketplaceLinkForSkillInRoute("My Skill", skillRoot, nil)
-	want := MarketplaceLinkPattern + "My%20Skill"
+	want := endpoints.Current().Marketplace + "My%20Skill"
 	if got != want {
 		t.Errorf("MarketplaceLinkForSkill(\"My Skill\") = %q, want %q", got, want)
 	}
@@ -137,7 +138,7 @@ func TestMarketplaceLinkForSkill_SpecialCharsEscaped(t *testing.T) {
 		t.Fatalf("mkdir weird-name: %v", err)
 	}
 	got := marketplaceLinkForSkillInRoute("a&b?c=d", skillRoot, nil)
-	want := MarketplaceLinkPattern + "a%26b%3Fc%3Dd"
+	want := endpoints.Current().Marketplace + "a%26b%3Fc%3Dd"
 	if got != want {
 		t.Errorf("MarketplaceLinkForSkill(\"a&b?c=d\") = %q, want %q", got, want)
 	}

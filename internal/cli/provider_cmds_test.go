@@ -267,6 +267,127 @@ func TestModelAdd_MergesIntoAnExistingModel(t *testing.T) {
 	}
 }
 
+// TestModelAdd_CarriesTheSupportsImagesMarker pins the per-model
+// marker that says a model takes pictures — the flag's three states:
+// unstated (no key at all), stated yes, stated no.
+func TestModelAdd_CarriesTheSupportsImagesMarker(t *testing.T) {
+	configtest.Isolate(t)
+	if _, _, err := runProviderCmd(t, runProviderAdd,
+		"gateway", "--base-url", "https://gw.example/v1"); err != nil {
+		t.Fatalf("provider add: %v", err)
+	}
+	if _, _, err := runProviderCmd(t, runModelAdd, "silent", "--provider", "gateway"); err != nil {
+		t.Fatalf("model add: %v", err)
+	}
+	if body := readProviders(t); strings.Contains(body, "supports_images") {
+		t.Fatalf("a model that says nothing must carry no marker:\n%s", body)
+	}
+	if _, _, err := runProviderCmd(t, runModelAdd, "yes", "--provider", "gateway",
+		"--supports-images"); err != nil {
+		t.Fatalf("model add: %v", err)
+	}
+	if _, _, err := runProviderCmd(t, runModelAdd, "no", "--provider", "gateway",
+		"--supports-images=false"); err != nil {
+		t.Fatalf("model add: %v", err)
+	}
+	body := readProviders(t)
+	if !strings.Contains(body, `"supports_images": true`) {
+		t.Errorf("the marker was not written:\n%s", body)
+	}
+	if !strings.Contains(body, `"supports_images": false`) {
+		t.Errorf("the marker's no was not written:\n%s", body)
+	}
+	// A later write that does not mention the flag keeps the marker.
+	if _, _, err := runProviderCmd(t, runModelAdd, "yes", "--provider", "gateway",
+		"--name", "Yes"); err != nil {
+		t.Fatalf("model add: %v", err)
+	}
+	if body := readProviders(t); !strings.Contains(body, `"supports_images": true`) {
+		t.Errorf("the marker did not survive the write:\n%s", body)
+	}
+}
+
+// TestModelAdd_CarriesTheModelAttributes pins the flags that write the
+// attributes the Web UI's model picker reads.
+//
+// Each flag has the same three states as the image marker: a flag that
+// is not passed keeps the file's value, a passed flag states its own.
+func TestModelAdd_CarriesTheModelAttributes(t *testing.T) {
+	configtest.Isolate(t)
+	if _, _, err := runProviderCmd(t, runProviderAdd,
+		"gateway", "--base-url", "https://gw.example/v1"); err != nil {
+		t.Fatalf("provider add: %v", err)
+	}
+	if _, _, err := runProviderCmd(t, runModelAdd, "silent", "--provider", "gateway"); err != nil {
+		t.Fatalf("model add: %v", err)
+	}
+	body := readProviders(t)
+	for _, key := range []string{
+		"supported_mime_types", "disabled", "quota_info",
+		"supports_thought_circulation", "model_url", "tag_title",
+		"tag_description", "effort_supported",
+	} {
+		if strings.Contains(body, key) {
+			t.Errorf("a model that says nothing must carry no %q:\n%s", key, body)
+		}
+	}
+
+	if _, _, err := runProviderCmd(t, runModelAdd, "full", "--provider", "gateway",
+		"--supported-mime-types", "image/png,application/pdf",
+		"--disabled",
+		"--quota-reset-time", "2026-10-27T00:00:00Z",
+		"--quota-remaining-fraction", "0.25",
+		"--supports-thought-circulation",
+		"--model-url", "https://example.com/models/full",
+		"--tag-title", "Fast",
+		"--tag-description", "A quick model",
+		"--effort-supported=false"); err != nil {
+		t.Fatalf("model add: %v", err)
+	}
+	body = readProviders(t)
+	for _, want := range []string{
+		`"supported_mime_types": [`,
+		`"image/png"`,
+		`"application/pdf"`,
+		`"disabled": true`,
+		`"quota_info": {`,
+		`"remaining_fraction": 0.25`,
+		`"reset_time": "2026-10-27T00:00:00Z"`,
+		`"supports_thought_circulation": true`,
+		`"model_url": "https://example.com/models/full"`,
+		`"tag_title": "Fast"`,
+		`"tag_description": "A quick model"`,
+		`"effort_supported": false`,
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("the file does not carry %s:\n%s", want, body)
+		}
+	}
+
+	// A later write that does not mention the flags keeps them.
+	if _, _, err := runProviderCmd(t, runModelAdd, "full", "--provider", "gateway",
+		"--name", "Full"); err != nil {
+		t.Fatalf("model add: %v", err)
+	}
+	body = readProviders(t)
+	for _, want := range []string{`"disabled": true`, `"tag_title": "Fast"`, `"quota_info": {`} {
+		if !strings.Contains(body, want) {
+			t.Errorf("the attribute %s did not survive the write:\n%s", want, body)
+		}
+	}
+
+	// A bad timestamp is caught at the flag, not at the picker's screen.
+	if _, _, err := runProviderCmd(t, runModelAdd, "bad", "--provider", "gateway",
+		"--quota-reset-time", "not-a-timestamp"); err == nil {
+		t.Errorf("a broken timestamp was accepted")
+	}
+	// A fraction outside the share it is must be caught too.
+	if _, _, err := runProviderCmd(t, runModelAdd, "bad", "--provider", "gateway",
+		"--quota-remaining-fraction", "2"); err == nil {
+		t.Errorf("a fraction above one was accepted")
+	}
+}
+
 func TestModelList_FiltersByProvider(t *testing.T) {
 	configtest.Isolate(t)
 	if _, _, err := runProviderCmd(t, runProviderAdd,

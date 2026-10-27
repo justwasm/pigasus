@@ -38,7 +38,7 @@ import (
 	"github.com/MichaelKinsy/PiG/coding/extension"
 
 	"github.com/justwasm/pigasus/internal/agyprompt"
-	"github.com/justwasm/pigasus/internal/retrybudget"
+	"github.com/justwasm/pigasus/retrybudget"
 )
 
 // Runtime is one configured session. It is not safe for concurrent Run calls:
@@ -138,6 +138,21 @@ func resolveSystemPrompt(opts *Options, skillPaths []string) string {
 		opts.ConversationID = conversationID
 	}
 	return systemPrompt
+}
+
+// SystemPromptFor computes the system prompt a runtime would use for
+// these options — the same text pigrt.New sends, without building a
+// runtime.
+//
+// The print mode needs it before its session exists: its subagent tool
+// set is built first, and a `self` delegation runs on the parent's own
+// prompt.
+func SystemPromptFor(opts Options) string {
+	skillPaths := opts.SkillPaths
+	if skillPaths == nil {
+		skillPaths = AgySkillPaths(opts.AgentDir, opts.CWD)
+	}
+	return resolveSystemPrompt(&opts, skillPaths)
 }
 
 // initRetryBudget constructs the budget observer or returns nil if disabled.

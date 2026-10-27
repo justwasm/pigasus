@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"strings"
 
-	"github.com/justwasm/pigasus/internal/palette"
+	"github.com/justwasm/pigasus/palette"
 )
 
 // Indent prepends an indent prefix to each non-empty line of a styled block.

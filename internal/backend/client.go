@@ -54,10 +54,27 @@ type ChunkMeta struct {
 	SystemFingerprint string `json:"system_fingerprint,omitempty"`
 }
 
+// ImagePart is one image a user attached to a message.
+//
+// The neutral shape is the mime type and the bytes: every transport
+// spells it its own way, and the bytes are what all of them carry.
+//
+// The reference's own transports put an image *inline* — the CloudCode
+// dialect as `inlineData` (a mime type and the base64 payload), the
+// OpenAI-shaped dialect as an `image_url` content part carrying a
+// `data:` URL, and the Anthropic one as an image source block. The
+// mime types the reference's catalogue names are `image/jpeg` and
+// `image/png`.
+type ImagePart struct {
+	// MIMEType is the image's media type — "image/png", "image/jpeg".
+	MIMEType string `json:"mime_type,omitempty"`
+	// Data is the image's bytes.
+	Data []byte `json:"data,omitempty"`
+}
+
 // Message is one round of a conversation. Role mirrors OpenAI/Anthropic roles
 // (`system`, `user`, `assistant`, and `tool` for tool results). Content is
-// plain text only (the cycle 9 shim dropped multimodal parts silently; we keep
-// that behavior).
+// the message's text; the images a user attached ride in Images.
 //
 // Tool-call plumbing (cycle 97): an assistant message that requested tools
 // carries ToolCalls; the corresponding `tool` role message that feeds a
@@ -68,11 +85,36 @@ type Message struct {
 	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`
 	ToolCallID string     `json:"tool_call_id,omitempty"`
 	Name       string     `json:"name,omitempty"`
+	// Images are the pictures the user attached to this message. Only
+	// a user message carries them; every transport drops them on the
+	// other roles.
+	Images []ImagePart `json:"images,omitempty"`
 	// WireContent is the <USER_REQUEST> envelope the reference sends in
 	// place of a user message's raw text (see WrapUserContent). Transcript
 	// and persistence keep Content; only the request uses this. It is not
 	// part of the wire type here, so it never marshals.
 	WireContent string `json:"-"`
+	// Result is the structured payload a tool answered with, when the tool
+	// has one. Most tools answer with text, which the transports wrap in
+	// an `output` member; a tool that answers with a value — the
+	// reference's `grep_search` answers with the files it matched —
+	// carries that value here and the transport sends it as it is.
+	//
+	// It is filled in from the tool result's details (see
+	// internal/piagentbridge) and never marshals on its own.
+	Result map[string]any `json:"-"`
+	// IsError marks a tool result that is the reference's *failure*
+	// text. The transports read it to pick the envelope: a call that
+	// failed travels under the `error` member, a call that succeeded
+	// under `output`.
+	//
+	// 【一手】 agy 1.4.8 sends a failed call back as
+	// `"response": {"error": "Created At: …\nCompleted At: …\nEncountered error in tool execution: file does not exist"}`
+	// — the reference's 1.4.7 release notes call the change out: "failed
+	// tool calls … were being passed back to the agent as ordinary
+	// results; the agent now sees them as errors and can recover on its
+	// next step".
+	IsError bool `json:"-"`
 }
 
 // WireText returns the text that goes to the model for this message. User

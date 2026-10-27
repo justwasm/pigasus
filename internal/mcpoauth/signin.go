@@ -33,7 +33,6 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
-	"strings"
 	"sync"
 	"time"
 )
@@ -304,34 +303,13 @@ func (s *Store) writeLocked() error {
 	if err := os.MkdirAll(filepath.Dir(s.path), 0o700); err != nil {
 		return err
 	}
-	// Stable JSON output: marshal the map in sorted key order so two
-	// stores with the same records produce identical bytes (handy
-	// for diffing and for the test fixture golden file).
-	keys := make([]string, 0, len(s.records))
-	for k := range s.records {
-		keys = append(keys, k)
+	// Stable JSON output: encoding/json sorts map keys, so two stores
+	// with the same records produce identical bytes (handy for diffing
+	// and for the test fixture golden file).
+	data, err := json.Marshal(s.records)
+	if err != nil {
+		return err
 	}
-	sort.Strings(keys)
-	buf := strings.Builder{}
-	buf.WriteByte('{')
-	for i, k := range keys {
-		if i > 0 {
-			buf.WriteByte(',')
-		}
-		kb, err := json.Marshal(k)
-		if err != nil {
-			return err
-		}
-		vb, err := json.Marshal(s.records[k])
-		if err != nil {
-			return err
-		}
-		buf.Write(kb)
-		buf.WriteByte(':')
-		buf.Write(vb)
-	}
-	buf.WriteByte('}')
-	data := []byte(buf.String())
 	if err := os.WriteFile(s.path, data, 0o600); err != nil {
 		return err
 	}

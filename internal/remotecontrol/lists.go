@@ -56,6 +56,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/justwasm/pigasus/internal/models"
 )
 
 // ModelInfo is the JSON shape ListRemoteAgentModels emits for one
@@ -74,11 +76,46 @@ import (
 // reasoning-level toggle. The "default" row is the one the
 // dispatcher picks when the dashboard omits model=.
 type ModelInfo struct {
-	ID              string `json:"id"`
-	Label           string `json:"label"`
+	ID    string `json:"id"`
+	Label string `json:"label"`
+	// Value is the numeric exa.codeium_common_pb.Model value the Web
+	// UI's picker sends back when the user selects the model. Zero
+	// means "unknown": the dispatcher derives a stable value from the
+	// model's id instead (modelvalue.go).
+	Value           int    `json:"value"`
 	Backend         string `json:"backend"`
 	EffortSupported bool   `json:"effort_supported"`
 	Default         bool   `json:"default"`
+	// SupportsImages is the model's own word about pictures. It is
+	// omitted when the model says nothing: nil means "not stated",
+	// and the catalogue's family table decides then (model_mime_types.go).
+	// A stated value is the user's answer and nothing overrides it.
+	//
+	// crush's model list carries the same marker per model
+	// (catwalk.Model.SupportsImages, json "supports_attachments"), and
+	// its UI reads it off the selected model the same way.
+	SupportsImages *bool `json:"supports_images,omitempty"`
+	// SupportedMimeTypes are the media types the model accepts — the
+	// fuller form of the same answer. The list wins over
+	// SupportsImages.
+	SupportedMimeTypes []string `json:"supported_mime_types,omitempty"`
+	// Disabled takes the model out of the Web UI's picker.
+	Disabled bool `json:"disabled,omitempty"`
+	// QuotaInfo is how much of the model's quota is left, and when it
+	// comes back.
+	QuotaInfo *models.QuotaInfo `json:"quota_info,omitempty"`
+	// SupportsThoughtCirculation says the model circulates its
+	// thoughts: nil means "not stated".
+	SupportsThoughtCirculation *bool `json:"supports_thought_circulation,omitempty"`
+	// ModelURL is a link to the model's own page.
+	ModelURL string `json:"model_url,omitempty"`
+	// ModelID is the model's own id as the endpoint knows it — the
+	// upstream id for a model of the user's own.
+	ModelID string `json:"model_id,omitempty"`
+	// TagTitle and TagDescription are the picker's tag line under the
+	// model's name.
+	TagTitle       string `json:"tag_title,omitempty"`
+	TagDescription string `json:"tag_description,omitempty"`
 }
 
 // DefaultModelInfo is the one-row model catalog the default

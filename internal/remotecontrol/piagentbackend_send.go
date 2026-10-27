@@ -123,13 +123,13 @@ func (b *PiagentBackend) SendStream(ctx context.Context, prompt MessagePrompt, s
 		_ = sess.Close()
 	}()
 
-	events, done := b.startSession(turnCtx, prompt.Text, sess)
+	events, done, finished := b.startSession(turnCtx, prompt.Text, sess)
 
-	state := b.drainEvents(events, turnCtx, sink)
+	state := b.drainEvents(events, finished, turnCtx, sink)
 
 	// The turn goroutine has already exited (Send
-	// returned before close(events)). Read its result
-	// for the NewConversationID and the final error.
+	// returned before the drain loop stopped). Read its
+	// result for the NewConversationID and the final error.
 	turn := <-done
 
 	emitResultToSink(&state, turn, sink)
@@ -153,10 +153,18 @@ func deriveTurnCtx(ctx context.Context, opts MessageSendOptions) (context.Contex
 
 // startSession mints the event channel (cap 128, matching
 // internal/agent.pig.go's drain size) and spawns a
-// goroutine that runs sess.Send and closes the events
-// channel when it returns. Returns the (events, done)
-// channel pair the drain loop and the result-assembler
-// use.
+// goroutine that runs sess.Send. Returns the (events, done,
+// finished) channel trio the drain loop and the
+// result-assembler use.
+//
+// The events channel is deliberately never closed. PiG's event
+// drain goroutine outlives the turn: the runtime's drain keeps
+// forwarding until the session closes, so a session that has
+// already returned can still have an event in flight. Closing
+// the channel at that moment made the late write panic with
+// "send on closed channel", and the panic ran in the daemon's
+// tunnel goroutine — it took the whole process down. The
+// `finished` channel is the completion signal instead.
 //
 // The session's `Send` call drives the turn on its own
 // goroutine — we do not need the returned []agent.AgentMessage
@@ -164,15 +172,16 @@ func deriveTurnCtx(ctx context.Context, opts MessageSendOptions) (context.Contex
 // about Reply / ToolCalls / StopReason / NewConversationID,
 // which we assemble from the event stream) — but we read
 // them to honour ctx cancellation cleanly.
-func (b *PiagentBackend) startSession(turnCtx context.Context, promptText string, sess Session) (chan agent.AgentEvent, chan turnResult) {
+func (b *PiagentBackend) startSession(turnCtx context.Context, promptText string, sess Session) (chan agent.AgentEvent, chan turnResult, chan struct{}) {
 	events := make(chan agent.AgentEvent, 128)
 	done := make(chan turnResult, 1)
+	finished := make(chan struct{})
 	go func() {
+		defer close(finished)
 		msgs, err := sess.Send(turnCtx, promptText, events)
-		close(events)
 		done <- turnResult{msgs: msgs, err: err}
 	}()
-	return events, done
+	return events, done, finished
 }
 
 // drainEvents consumes the session's event channel and
@@ -218,7 +227,7 @@ func (b *PiagentBackend) startSession(turnCtx context.Context, promptText string
 // of truth for the cancelled notification so the
 // dashboard sees exactly one cascade/state{phase:cancelled}
 // frame.
-func (b *PiagentBackend) drainEvents(events chan agent.AgentEvent, turnCtx context.Context, sink EventSink) drainState {
+func (b *PiagentBackend) drainEvents(events chan agent.AgentEvent, finished <-chan struct{}, turnCtx context.Context, sink EventSink) drainState {
 	state := drainState{}
 	for {
 		select {
@@ -227,15 +236,21 @@ func (b *PiagentBackend) drainEvents(events chan agent.AgentEvent, turnCtx conte
 				return state
 			}
 			applyMessageUpdateEvent(ev, &state, sink)
+		case <-finished:
+			// The session returned. Take whatever it left in
+			// the channel and stop: the channel stays open,
+			// because a late event may still be on its way.
+			drainRemaining(events, &state, sink)
+			return state
 		case <-turnCtx.Done():
 			// Cycle rc-cancel-cascade: the cascade's
 			// cancel func fired. Mark the loop as
 			// cancelled so subsequent events are
 			// dropped without reaching the sink.
 			// We keep draining so the session
-			// goroutine can finish its close(events)
-			// cleanly — otherwise a session that's
-			// mid-send could block on its own emit.
+			// goroutine can finish its send cleanly —
+			// otherwise a session that's mid-send could
+			// block on its own emit.
 			//
 			// The dispatcher's Cancel handler is
 			// responsible for emitting the
@@ -245,6 +260,27 @@ func (b *PiagentBackend) drainEvents(events chan agent.AgentEvent, turnCtx conte
 			// partial result. Avoids the dashboard
 			// seeing two cancelled frames.
 			state.cancelled = true
+		}
+	}
+}
+
+// drainRemaining consumes the events the session left in the channel
+// and folds them into the accumulator.
+//
+// It is a non-blocking drain: the channel is not closed, so "empty"
+// is the only end condition. A late event that arrives after this
+// returns is dropped — the turn's result is already assembled, and
+// the turn is over.
+func drainRemaining(events chan agent.AgentEvent, state *drainState, sink EventSink) {
+	for {
+		select {
+		case ev, ok := <-events:
+			if !ok {
+				return
+			}
+			applyMessageUpdateEvent(ev, state, sink)
+		default:
+			return
 		}
 	}
 }

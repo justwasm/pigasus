@@ -13,9 +13,11 @@ import (
 
 // Cycle 293: the reference prefixes every file-tool result with a
 // Created At / Completed At header and returns a human summary rather than
-// raw bytes. The bodies below are 【一手】 — captured from agy 1.4.4 by
-// pointing CLOUD_CODE_URL at a mock that returns one functionCall, then
-// reading the functionResponse the reference sent back.
+// raw bytes. The bodies below are 【一手】 — captured from agy by pointing
+// CLOUD_CODE_URL at a mock that returns one functionCall, then reading the
+// functionResponse the reference sent back. The full capture lives in
+// testdata/result_texts_1.4.7.txt (re-captured at agy 1.4.7; the bodies are
+// byte-identical to the 1.4.4 ones).
 var stampRE = regexp.MustCompile(`^Created At: \S+\nCompleted At: \S+\n`)
 
 func stripStamp(t *testing.T, out any) string {

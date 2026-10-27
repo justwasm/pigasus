@@ -19,7 +19,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/justwasm/pigasus/internal/originpolicy"
+	"github.com/justwasm/pigasus/atomicfile"
+	"github.com/justwasm/pigasus/originpolicy"
 )
 
 // ensureParentDir creates the parent
@@ -111,11 +112,7 @@ func (s *FSOriginPolicyStore) atomicWrite(state OriginPolicyState) error {
 	if err != nil {
 		return err
 	}
-	tmp := s.Path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o600); err != nil {
-		return err
-	}
-	if err := os.Rename(tmp, s.Path); err != nil {
+	if err := atomicfile.WriteFile(s.Path, data, 0o600); err != nil {
 		return err
 	}
 	if d := filepath.Dir(s.Path); d != "" && d != "." {

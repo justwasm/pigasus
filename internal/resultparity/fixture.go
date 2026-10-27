@@ -1,12 +1,14 @@
-// Package resultparity binds the captured agy 1.4.4 tool-result transcript to
+// Package resultparity binds the captured agy tool-result transcript to
 // the clone's executors.
 //
-// internal/tools/testdata/result_texts_1.4.4.txt is the only 【一手】 record of
-// what the reference returns to the model for each of its declared tools. Until
-// this package existed it was cited in code comments and hand-copied into test
-// constants, so nothing failed when a constant drifted from the capture —
-// cycle 228's `not yet implemented (cycle 228 stub)` text reached the model for
-// months that way, and was found by grep rather than by a test.
+// internal/tools/testdata/result_texts_1.4.7.txt is the current 【一手】
+// record of what the reference returns to the model for each of its declared
+// tools; result_texts_1.4.4.txt is the previous capture, kept beside it.
+// Until this package existed the transcript was cited in code comments and
+// hand-copied into test constants, so nothing failed when a constant drifted
+// from the capture — cycle 228's `not yet implemented (cycle 228 stub)` text
+// reached the model for months that way, and was found by grep rather than by
+// a test.
 //
 // Load parses the capture into sections; replay_test.go replays every section
 // it can and records an explicit, reasoned skip for the rest. A section that is

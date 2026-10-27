@@ -13,7 +13,7 @@ import (
 // ANSI transcript strips them to stay byte-aligned and to keep row
 // height math from seeing zero-width control strings. Explicit
 // clickable surfaces (elig_inline.go) still build OSC 8 through
-// internal/render.Hyperlink.
+// render.Hyperlink.
 var osc8Re = regexp.MustCompile(`\x1b\]8;[^\x1b\x07]*(?:\x07|\x1b\\)`)
 
 // stripOSC8 removes OSC 8 hyperlink sequences from rendered markdown output.

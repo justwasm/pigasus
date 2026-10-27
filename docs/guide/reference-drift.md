@@ -84,12 +84,62 @@ internal one gained `ConfigOverrides.is_cel_only` / `cel_type`.
 `result_texts_1.4.4.txt` is still the one artifact SUSPECT — it was not
 re-captured, and the gate keeps saying so.
 
+**Re-evidenced at 1.4.8** (`docs/cycles/cycle-350-agy-1.4.8-alignment/`): the
+clone is pinned to 1.4.8. The **served changelog feed did not grow** — its
+newest section is still 1.4.7, so the 1.4.8 release notes (published in the
+public repository) are not in the feed the reference reads. `--help`, the
+60-name advertised list, the twelve model declarations and the prompt's static
+sections are all **byte-identical**; the public proto kept its 79 RPCs and
+gained one field (`ProjectResource.default_branch`), the internal proto and
+the prompt descriptor are byte-identical, and chroma is still upstream
+v2.27.0. What did move: the **language server's** proto grew 351 → 358 RPCs
+(eight arrived, `GetResolvedCascadeConfig` left), the embedded
+`model_profiles.json` changed (three new aliases, the browser-subagent
+placeholder, the marketplace-search flag), the seed set moved 165,692 →
+166,181 names, and the one **behavioural** change on the wire: a failed tool
+call now comes back under `response.error` instead of `response.output`
+(【一手】, captured live — `internal/tools/testdata/tool_errors_1.4.8.txt`).
+
 The **seed set is now regenerated at 1.4.6** (`out/local-macos/seeds/`, 161,286
 functions), and so is everything derived from it — the Ghidra project
 (`out/local-macos/proj`), the decompiled output (`out/local-macos/dec/`), the
 priority list, the MCP query plan and the 102 per-package
 `out/local-macos/decompile-*.md` reports (2,290/2,290 addresses resolved, 0
 skipped). The seed set is a registered lock artifact, so the gate now watches
-it too. **It was *not* regenerated at 1.4.7** — every address moves on every
-release, so the RE pipeline is a separate cycle.
+it too. **It was *not* regenerated at 1.4.7 or 1.4.8** — every address moves on every
+release, so the RE pipeline is a separate cycle. The 1.4.8 seed set is not
+committed either: only the *name-level* difference is
+(`out/local-macos/seeds/diff_1.4.7_1.4.8.txt`, 782 names added, 293 removed).
+
+### Re-anchoring the citations without rebuilding the pipeline
+
+The seed *set* staying at 1.4.7 does **not** mean the repository's addresses
+stay at 1.4.7. Cycle `359` re-anchored every address this repository cites
+against the 1.4.8 binary without touching the RE pipeline:
+
+| what | how it was re-anchored |
+|---|---|
+| function entries | each 1.4.7 address was looked up in the 1.4.7 seed set, its *name* taken from there, and that name looked up again in the 1.4.8 seed set |
+| rodata literals | each 1.4.7 address was resolved to its bytes in the 1.4.7 binary, the bytes matched against the 1.4.8 binary, and the 1.4.8 address taken from the match |
+| data globals | slice headers and string headers were re-read out of the 1.4.8 binary's data section |
+
+The second row is the one that cannot be skipped: a *name* is not a unique
+key in a Go binary (a method is emitted once per receiver shape), so a
+function address was never remapped by arithmetic — it was remapped by name
+lookup plus a byte-level confirmation. Every remapped pair was then checked
+back against the 1.4.8 seed set, and every literal against the 1.4.8
+binary's bytes. Report:
+[`cycle-359-agy-1.4.8-reanchor`](../cycles/cycle-359-agy-1.4.8-reanchor/deliverable.md).
+
+Two things this cycle could **not** do, and therefore did not do:
+
+- the **IDE language server** is a *different binary* with its own address
+  space. Its 164,772-name seed set is byte-identical to the committed one, so
+  every `LS 0x…` citation in the tree is still correct and was left alone.
+  The `localharness` binary is a third address space and was left alone for
+  the same reason.
+- the **type descriptor** addresses (`abi.Type` pointers) cannot be resolved
+  out of a stripped Go binary — the `namedata` layout they point at is not
+  recoverable statically. Two citations that used one were replaced with
+  evidence that *is* recoverable, rather than being carried forward.
 

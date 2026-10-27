@@ -10,14 +10,14 @@ package cliapp
 
 import (
 	"bytes"
-	"encoding/json"
-	"go/ast"
-	"go/parser"
-	"go/token"
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"io"
 	"os"
 	"path/filepath"
@@ -26,8 +26,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
-	"unicode/utf8"
 	"time"
+	"unicode/utf8"
 
 	sp "charm.land/bubbles/v2/spinner"
 	tas "charm.land/bubbles/v2/textarea"
@@ -38,14 +38,15 @@ import (
 	"github.com/justwasm/pigasus/internal/announce"
 	"github.com/justwasm/pigasus/internal/backend"
 	"github.com/justwasm/pigasus/internal/branding"
+	"github.com/justwasm/pigasus/internal/cli"
+	"github.com/justwasm/pigasus/internal/configtest"
 	"github.com/justwasm/pigasus/internal/convstore"
 	"github.com/justwasm/pigasus/internal/keybind"
 	"github.com/justwasm/pigasus/internal/loginui"
-	"github.com/justwasm/pigasus/internal/wordmove"
-	"github.com/justwasm/pigasus/internal/configtest"
 	"github.com/justwasm/pigasus/internal/permissions"
 	tuilib "github.com/justwasm/pigasus/internal/tuilib"
-	"github.com/justwasm/pigasus/internal/vim"
+	"github.com/justwasm/pigasus/internal/wordmove"
+	"github.com/justwasm/pigasus/vim"
 )
 
 // runeKey returns a tea.KeyPressMsg for a printable rune with Text
@@ -428,22 +429,23 @@ func Test_CursorTracksTypedText(t *testing.T) {
 //	                       captured at
 //	                       /tmp/agycmp/hotpath/picker/ref.000-slash.txt
 //
-// Cycle 135's chrome-devtools-plugin:* filter was correct; cycle
-// 146's revert was wrong. Cycle 147 restores cycle 135's filter.
+// Cycle 351 (agy 1.4.8): the chrome-devtools-plugin:* filter is GONE —
+// the 1.4.8 picker shows every catalogue row, 105 of them, the same
+// count the /help COMMANDS tab reports ("[1-33 of 105 items]"). The
+// catalogue holds those 105 plus the clone's four superset commands
+// (/feature-diff, /accounts, /provider, /pool): 109 rows, and the
+// picker shows all of them.
 //
-// Cycle 236: /feature-diff was added to the catalog (one new row).
-// The base count was 99 (cycle 147), the picker filter excluded 5
-// chrome-devtools-plugin:* entries (cycle 146). With the cycle-236
-// addition: 100 total / 95 filtered. With /teamwork and /boost: 102 total / 97 filtered.
-// With openagy superset /accounts and /provider: 104 total / 99 filtered.
+// Cycle 361 adds /pool: the /accounts panel's Pool tab on its own — the
+// account-routing policy that decides which account serves a turn.
 func Test_PickerCatalogMatchesRef(t *testing.T) {
 	got := len(tuilib.DefaultSlashCommands)
-	if got != 104 {
-		t.Fatalf("expected 104 slash commands in catalog (102 base + /accounts + /provider), got %d", got)
+	if got != 109 {
+		t.Fatalf("expected 109 slash commands in catalog (105 ref + /feature-diff + /accounts + /provider + /pool), got %d", got)
 	}
 	filtered := len(tuilib.FilterSlashCommands("/"))
-	if filtered != 99 {
-		t.Fatalf("expected 99 slash commands in picker (97 base + /accounts + /provider), got %d", filtered)
+	if filtered != 109 {
+		t.Fatalf("expected 109 slash commands in picker (no chrome-devtools-plugin filter since 1.4.8), got %d", filtered)
 	}
 }
 
@@ -758,7 +760,7 @@ func Test_SlashNonSlashFallsThrough(t *testing.T) {
 // bold prefix + true-colour blue keys + dim gray labels.
 func Test_HelpGeneralPanelStyling(t *testing.T) {
 	var b strings.Builder
-	renderHelpGeneral(&b, "Gemini 3.8 Flash (High)", "Antigravity Starter Quota", "~/GitHub/openagy", "navigaid@gmail.com", "test-uuid-0000-0000-0000-000000000000")
+	tuilib.RenderHelpGeneral(&b, "Gemini 3.8 Flash (High)", "Antigravity Starter Quota", "~/GitHub/openagy", "navigaid@gmail.com", "test-uuid-0000-0000-0000-000000000000")
 	out := b.String()
 
 	// Description block must be wrapped in dim gray.
@@ -3470,44 +3472,87 @@ func TestLoadStatusLineConfig_DisabledAndMissing(t *testing.T) {
 	}
 }
 
-// TestStatusLinePayload_Fields pins the JSON wire form. The contract
-// is `{"model", "cost", "conversation_title", "current_dir"}` — cycle
-// 1.1.27's changelog called out the first three; current_dir is the
-// obvious companion field the live probes recover.
+// TestStatusLinePayload_Fields pins the JSON wire form. The contract is
+// the reference's `types.StatusLineData`: the field order, the JSON names
+// and the omit rules are all part of it, because the official example
+// scripts read the members by name.
+//
+// Evidence 【一手】: agy 1.4.7's captured payloads — for example
+//
+//	{"cwd":"/tmp/agyprobe/repo","session_id":"eab2…","conversation_id":"eab2…",
+//	 "conversation_title":"ProbeTitle","transcript_path":"…/transcript.jsonl",
+//	 "model":{"id":"Gemini 3.8 Flash (High)","display_name":"Gemini 3.8 Flash (High)",
+//	          "effort":"high"},
+//	 "workspace":{"current_dir":"/tmp/agyprobe/repo","project_dir":"/tmp/agyprobe/repo"},
+//	 "version":"1.4.7","context_window":{…},"exceeds_200k_tokens":false,
+//	 "product":"antigravity","quota":{…},"agent_state":"idle","vcs":{"type":"git"},
+//	 "cycle_mode":"auto","sandbox":{"enabled":false},"plan_tier":"Google AI Pro",
+//	 "email":"…","terminal_width":120}
 func TestStatusLinePayload_Fields(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("ANTIGRAVITY_HOME", home)
 	m := &runMode{
 		statusModel:             "MiniMax M3",
+		model:                   "MiniMax M3",
 		cwd:                     "/Users/foo/project",
 		sessionPromptTokens:     1000,
 		sessionCompletionTokens: 500,
 	}
 	m.conversationName = "My Session"
 	got := m.buildStatusLinePayload()
-	if got.Model != "MiniMax M3" {
-		t.Errorf("Model = %q", got.Model)
+	if got.Model == nil || got.Model.DisplayName != "MiniMax M3" {
+		t.Errorf("Model = %+v", got.Model)
 	}
 	if got.ConversationTitle != "My Session" {
 		t.Errorf("ConversationTitle = %q", got.ConversationTitle)
 	}
-	if got.CurrentDir != "/Users/foo/project" {
-		t.Errorf("CurrentDir = %q", got.CurrentDir)
+	if got.Cwd != "/Users/foo/project" {
+		t.Errorf("Cwd = %q", got.Cwd)
 	}
-	// MiniMax M3 is a configured-only model with $0 pricing — the
-	// cost field is named correctly (it's a number), the value is
-	// zero, and the field order in the JSON matches the recovered
-	// wire form.
+	if got.Workspace.CurrentDir != "/Users/foo/project" ||
+		got.Workspace.ProjectDir != "/Users/foo/project" {
+		t.Errorf("Workspace = %+v", got.Workspace)
+	}
+	if got.Version != cli.ReferenceVersion {
+		t.Errorf("Version = %q, want %q", got.Version, cli.ReferenceVersion)
+	}
+	if got.Product != "antigravity" {
+		t.Errorf("Product = %q", got.Product)
+	}
+	if got.AgentState != "idle" {
+		t.Errorf("AgentState = %q", got.AgentState)
+	}
+	if got.ContextWindow.TotalInputTokens != 1000 ||
+		got.ContextWindow.TotalOutputTokens != 500 {
+		t.Errorf("ContextWindow = %+v", got.ContextWindow)
+	}
+	if got.Exceeds200kTokens != nil {
+		t.Errorf("Exceeds200kTokens = %v, want null before the first response", *got.Exceeds200kTokens)
+	}
+	// The transcript path is the brain directory's log file.
+	if !strings.HasSuffix(got.TranscriptPath,
+		filepath.Join("brain", "", ".system_generated", "logs", "transcript.jsonl")) {
+		t.Errorf("TranscriptPath = %q", got.TranscriptPath)
+	}
 	out, err := json.Marshal(got)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !bytes.HasPrefix(out, []byte(`{"model":"MiniMax M3",`)) {
+	// The field order is part of the contract.
+	if !bytes.HasPrefix(out, []byte(`{"cwd":"/Users/foo/project","session_id":`)) {
 		t.Errorf("field order = %s", out)
-	}
-	if !bytes.Contains(out, []byte(`"cost":0`)) {
-		t.Errorf("cost field missing or wrong type: %s", out)
 	}
 	if !bytes.Contains(out, []byte(`"conversation_title":"My Session"`)) {
 		t.Errorf("conversation_title field missing: %s", out)
+	}
+	if !bytes.Contains(out, []byte(`"model":{"id":"MiniMax M3","display_name":"MiniMax M3"`)) {
+		t.Errorf("model field missing: %s", out)
+	}
+	if !bytes.Contains(out, []byte(`"product":"antigravity"`)) {
+		t.Errorf("product field missing: %s", out)
+	}
+	if !bytes.Contains(out, []byte(`"exceeds_200k_tokens":null`)) {
+		t.Errorf("exceeds_200k_tokens field missing: %s", out)
 	}
 }
 
@@ -3643,9 +3688,13 @@ func TestRunStatusLineScript_EmptyOutput(t *testing.T) {
 	}
 }
 
-// TestSplitStatusLineCommand is the surface `loadStatusLineConfig`
-// hands `runStatusLineScript`. The first field is the executable;
-// the rest are flags.
+// TestSplitStatusLineCommand pins the whitespace split the clone keeps for
+// its own bookkeeping. The command itself reaches the script through a
+// shell — `sh -c "<command>"`, verbatim — so the split does *not* describe
+// how the script is invoked.
+//
+// Evidence 【一手】: agy 1.4.7 rendered a command of `~/bin/probe.sh | cat`,
+// which only works when the command reaches a shell.
 func TestSplitStatusLineCommand(t *testing.T) {
 	cases := []struct {
 		in   string
@@ -3674,129 +3723,95 @@ func TestSplitStatusLineCommand(t *testing.T) {
 	}
 }
 
-// TestStatuslineExternalToggle_NeverConfigured makes sure the
-// cycle-105 two-state toggle still flips between "" and "off" when
-// no statusLine.command is configured — the regression test that
-// kept the existing tests green.
-func TestStatuslineExternalToggle_NeverConfigured(t *testing.T) {
+// TestStatuslineExternal_NeverConfigured pins the reference's behaviour when
+// no status-line command is configured: `/statusline` toggles the
+// statusline on and the built-in row stays.
+//
+// Evidence 【一手】: agy 1.4.8 with an empty `statusLine` block answered
+// the bare `/statusline` with "Statusline on." (and flipped
+// settings.json's `statusLine.enabled` to true). agy 1.4.7 answered the
+// same command with the usage block.
+func TestStatuslineExternal_NeverConfigured(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("ANTIGRAVITY_HOME", home)
 	writeSettings(t, home, `{}`)
 
 	m := newSlashModel(t)
 	m.handleSlashCommand("/statusline")
-	if m.statusLine != "off" {
-		t.Errorf("after /statusline from default: %q, want off", m.statusLine)
+	rows := afterEcho(m)
+	if len(rows) == 0 || rows[0] != "Statusline on." {
+		t.Fatalf("/statusline rendered %q", rows)
 	}
-	m.handleSlashCommand("/statusline")
-	if m.statusLine != "on" && m.statusLine != "" {
-		// Cycle-184 reader: settings.json's `true` round-trips to
-		// "on", which `statusRow()` treats identically to "".
-		t.Errorf("after /statusline from off: %q, want on or empty", m.statusLine)
+	if m.statusLineExternal {
+		t.Error("statusLineExternal must stay off without a command")
+	}
+	// The built-in row is still rendered.
+	if !strings.Contains(m.View().Content, "? for shortcuts") {
+		t.Error("built-in status row missing")
 	}
 }
 
-// TestStatuslineExternalToggle_ThreeState covers the new path:
-// a configured + enabled statusLine.command locks the /statusline
-// slash command into the three-state cycle (off → built-in →
-// external → off). At each step the test asserts both the runMode
-// field that moved and the persisted settings.json row.
-func TestStatuslineExternalToggle_ThreeState(t *testing.T) {
+// TestStatuslineExternal_CommandLifecycle covers the reference's
+// status-line transitions with a command configured.
+//
+// Evidence 【一手】: agy 1.4.7 —
+//
+//	/statusline <command> → "Statusline set to: <command>", the script runs
+//	/statusline off       → "Statusline off.", the script stops and the
+//	                        built-in row comes back
+//	/statusline on        → "Statusline on. (<command>)", the script runs
+//	/statusline delete    → the command is dropped
+func TestStatuslineExternal_CommandLifecycle(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("ANTIGRAVITY_HOME", home)
 	writeSettings(t, home, `{"statusLine":{"type":"command","command":"/bin/echo","enabled":true}}`)
 
 	m := newSlashModel(t)
-	// Seed the model with the cycle's starting state: hidden.
-	m.statusLineExternal = false
-	m.statusLine = "off"
-
-	// Cycle 1: off → built-in. statusLine clears, statusLineExternal
-	// stays false (state A is "external rendering inactive").
-	m.handleSlashCommand("/statusline")
-	if m.statusLine != "" && m.statusLine != "on" {
-		t.Errorf("cycle 1 (off→built-in): statusLine = %q, want \"\" or on", m.statusLine)
-	}
-	if m.statusLineExternal {
-		t.Error("cycle 1 (off→built-in) must leave statusLineExternal = false")
-	}
-
-	// Cycle 2: built-in → external. statusLine stays the same;
-	// statusLineExternal flips on (state B is "external rendering
-	// active").
-	m.statusLine = ""
-	m.handleSlashCommand("/statusline")
+	m.reloadStatusLineConfig()
 	if !m.statusLineExternal {
-		t.Error("cycle 2 (built-in→external) must turn statusLineExternal on")
+		t.Fatal("statusLineExternal must be on with an enabled command")
+	}
+
+	// off: the script stops, the built-in row returns, the command stays.
+	m.handleSlashCommand("/statusline off")
+	if m.statusLineExternal {
+		t.Error("statusLineExternal must be off after /statusline off")
 	}
 	if m.statusLine == "off" {
-		t.Error("cycle 2 (built-in→external) must not hide the row")
+		t.Error("the built-in row must come back after /statusline off")
 	}
-
-	// Cycle 3: external → off. statusLine becomes "off" and the
-	// bool clears so the cycle's wrap-around lands on built-in, not
-	// back on external.
-	m.handleSlashCommand("/statusline")
-	if m.statusLine != "off" {
-		t.Errorf("cycle 3 (external→off): statusLine = %q, want off", m.statusLine)
+	body := readSettings(t, home)
+	if !strings.Contains(body, `"enabled": false`) {
+		t.Errorf("settings.json missing enabled=false:\n%s", body)
 	}
-	if m.statusLineExternal {
-		t.Error("cycle 3 (external→off) must clear statusLineExternal")
-	}
-	// settings.json was written by cycle 3 (the B → C transition is
-	// the only one that touches the statusLine.enabled persistence
-	// bit; the cycle writes it through SetSettingsField so the
-	// statusLine.command block survives).
-	if body := readSettings(t, home); !strings.Contains(body, `"enabled": false`) {
-		t.Errorf("settings.json missing enabled=false after cycle 3:\n%s", body)
-	}
-	// The statusLine.command path must NOT have been clobbered by
-	// the visibility write — the cycle persists via `enabled`,
-	// not by overwriting the top-level statusLine key.
-	if body := readSettings(t, home); !strings.Contains(body, `"command": "/bin/echo"`) {
+	if !strings.Contains(body, `"command": "/bin/echo"`) {
 		t.Errorf("settings.json clobbered the command field:\n%s", body)
 	}
-}
 
-// TestStatuslineExternalToggle_NextAfterOff_BackToBuiltIn
-// confirms the cycle's wrap-around from cycle N=3 (off) back to
-// built-in via a fourth /statusline press.
-func TestStatuslineExternalToggle_NextAfterOff_BackToBuiltIn(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("ANTIGRAVITY_HOME", home)
-	writeSettings(t, home, `{"statusLine":{"type":"command","command":"/bin/echo","enabled":true}}`)
-
-	m := newSlashModel(t)
-	m.statusLineExternal = false
-	m.statusLine = "off"
-
-	// Walk four presses and assert the state at each one.
-	type want struct {
-		statusLine string
-		external   bool
+	// on: the script runs again.
+	m.handleSlashCommand("/statusline on")
+	if !m.statusLineExternal {
+		t.Error("statusLineExternal must be on after /statusline on")
 	}
-	presses := []want{
-		// 1st press: off → built-in.
-		{"", false},
-		// 2nd press: built-in → external.
-		{"", true},
-		// 3rd press: external → off.
-		{"off", false},
-		// 4th press: off → built-in (cycle wraps around).
-		{"", false},
+	body = readSettings(t, home)
+	if !strings.Contains(body, `"enabled": true`) {
+		t.Errorf("settings.json missing enabled=true:\n%s", body)
 	}
-	for i, w := range presses {
-		m.handleSlashCommand("/statusline")
-		// `m.statusLine = "on"` is also acceptable — the cycle-184
-		// reader treats "on" identically to "" in the row renderer.
-		if m.statusLine != w.statusLine && !(w.statusLine == "" && m.statusLine == "on") {
-			t.Errorf("press %d: statusLine = %q, want %q",
-				i+1, m.statusLine, w.statusLine)
-		}
-		if m.statusLineExternal != w.external {
-			t.Errorf("press %d: statusLineExternal = %v, want %v",
-				i+1, m.statusLineExternal, w.external)
-		}
+	if !strings.Contains(body, `"command": "/bin/echo"`) {
+		t.Errorf("settings.json clobbered the command field:\n%s", body)
+	}
+
+	// delete: the whole block is removed.
+	//
+	// Evidence 【一手】: agy 1.4.7's settings.json after `/statusline
+	// delete` held no `statusLine` key at all.
+	m.handleSlashCommand("/statusline delete")
+	if m.statusLineExternal {
+		t.Error("statusLineExternal must be off after /statusline delete")
+	}
+	body = readSettings(t, home)
+	if strings.Contains(body, `"statusLine"`) {
+		t.Errorf("settings.json still carries the statusLine block:\n%s", body)
 	}
 }
 
@@ -3821,27 +3836,35 @@ func TestStatusLineRowUsesExternalRender(t *testing.T) {
 	}
 }
 
-// TestStatusLineRowFallsBackOnError covers the recovery path: a
-// transient script error should drop the row back to the built-in
-// template so the user is never staring at a blank row.
+// TestStatusLineRowFallsBackOnError covers the recovery path: a failed
+// script shows the reference's error card in the custom row's place, so
+// the user is never staring at a blank row.
+//
+// Evidence 【一手】: agy 1.4.7 rendered
+//
+//	⚠ Statusline Error
+//	  ⎿  Statusline error:
+//	     command failed: exit status 3 (stderr: boom)
 func TestStatusLineRowFallsBackOnError(t *testing.T) {
 	m := newSlashModel(t)
 	m.width = 80
 	m.height = 24
 	m.statusLineExternal = true
 	m.statusLine = "on"
-	// Simulate a transient error: cached output is "" (empty after
-	// TrimSpace), so externalRenderedForRow returns "" and the
-	// built-in template takes over.
+	// Simulate a transient error: the script failed, so the cached
+	// output is empty and the error card takes the custom row's place.
 	state := m.ensureExternalState()
 	state.SetRendered("", errTestBoom)
 
 	view := m.View().Content
-	if !strings.Contains(view, "? for shortcuts") {
-		t.Error("built-in hint missing after script error")
+	if !strings.Contains(view, "Statusline Error") {
+		t.Error("status-line error card missing after script error")
 	}
-	if strings.Contains(strings.TrimSpace(m.extractStatusRowOnly()), "") == false {
-		t.Error("status row is empty")
+	if !strings.Contains(view, "boom") {
+		t.Error("status-line error card missing the error text")
+	}
+	if strings.Contains(view, "? for shortcuts") {
+		t.Error("built-in hint rendered alongside the error card")
 	}
 }
 
@@ -3986,48 +4009,44 @@ func TestStatusLinePayload_EmptyTitleWhenUntitled(t *testing.T) {
 	}
 }
 
-// TestStatusLinePayload_BackwardCompatible pins the existing wire
-// shape. AGY 1.1.27 added `conversation_title` *additively* —
-// scripts that pre-date 1.1.27 only know about `model`, `cost`,
-// and `current_dir`. A cycle-257 regression that, say, renamed
-// `cost` → `total_cost` would silently break every existing user
-// script; this test catches that.
+// TestStatusLinePayload_ReferenceShape pins the payload to the
+// reference's `types.StatusLineData`.
 //
-// Field order in the JSON object is also pinned: `model`, `cost`,
-// `conversation_title`, `current_dir` (struct field order; Go's
-// `encoding/json` honours it).
-func TestStatusLinePayload_BackwardCompatible(t *testing.T) {
+// The clone used to invent its own four-field shape (`model` as a string,
+// `cost` as a number, `current_dir`). The reference never had that shape:
+// at 1.4.7 `model` is an object, the directory lives in `workspace`, and
+// the cost is an object. The official example scripts read the reference's
+// members — `.model.display_name`, `.workspace.current_dir`,
+// `.context_window.used_percentage` — so the clone now sends the
+// reference's document.
+//
+// Evidence 【一手】: agy 1.4.7's captured payloads.
+func TestStatusLinePayload_ReferenceShape(t *testing.T) {
 	m := &runMode{
 		statusModel:             "MiniMax M3",
 		model:                   "MiniMax M3",
 		cwd:                     "/Users/foo/project",
 		sessionPromptTokens:     1000,
 		sessionCompletionTokens: 500,
+		width:                   120,
 	}
 	m.conversationName = "Refactor auth"
 	payload := m.buildStatusLinePayload()
 
-	// Go-level: every old field is still on the struct, with the
-	// same types.
-	if payload.Model != "MiniMax M3" {
-		t.Errorf("Model = %q", payload.Model)
+	// Go-level: the members the reference exposes.
+	if payload.Model == nil || payload.Model.ID != "MiniMax M3" ||
+		payload.Model.DisplayName != "MiniMax M3" {
+		t.Errorf("Model = %+v", payload.Model)
 	}
-	// Cost is the unrounded USD running total. MiniMax M3 is a
-	// configured-only model with $0 pricing (cycle 225 quota UI),
-	// so a known-shape input produces a known value of 0. The
-	// field is *present* and a number; the value is allowed to be
-	// 0 here.
-	if payload.Cost != 0 {
-		t.Errorf("Cost = %v, want 0 (MiniMax M3 is free)", payload.Cost)
+	if payload.Workspace.CurrentDir != "/Users/foo/project" {
+		t.Errorf("Workspace.CurrentDir = %q", payload.Workspace.CurrentDir)
 	}
-	if payload.CurrentDir != "/Users/foo/project" {
-		t.Errorf("CurrentDir = %q", payload.CurrentDir)
+	if payload.ContextWindow.TotalInputTokens != 1000 ||
+		payload.ContextWindow.TotalOutputTokens != 500 {
+		t.Errorf("ContextWindow = %+v", payload.ContextWindow)
 	}
 
-	// JSON-level: every old key is still in the wire form. The
-	// decoder path (rather than Contains on a substring) is the
-	// safer test — it catches a future refactor that renames the
-	// JSON tag.
+	// JSON-level: every member the reference's payload carries.
 	out, err := json.Marshal(payload)
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
@@ -4036,14 +4055,31 @@ func TestStatusLinePayload_BackwardCompatible(t *testing.T) {
 	if err := json.Unmarshal(out, &decoded); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
-	for _, key := range []string{"model", "cost", "current_dir"} {
+	for _, key := range []string{
+		"cwd", "session_id", "conversation_id", "conversation_title",
+		"transcript_path", "model", "workspace", "version", "context_window",
+		"exceeds_200k_tokens", "product", "agent_state", "sandbox",
+		"terminal_width",
+	} {
 		if _, ok := decoded[key]; !ok {
-			t.Errorf("legacy key %q missing from JSON: %s", key, out)
+			t.Errorf("reference key %q missing from JSON: %s", key, out)
 		}
 	}
-	// And the new key lands alongside them, not by replacing one.
-	if _, ok := decoded["conversation_title"]; !ok {
-		t.Errorf("new key conversation_title missing from JSON: %s", out)
+	// The model is an object, not a string.
+	model, ok := decoded["model"].(map[string]any)
+	if !ok {
+		t.Fatalf("model is not an object: %s", out)
+	}
+	if _, ok := model["display_name"]; !ok {
+		t.Errorf("model.display_name missing: %s", out)
+	}
+	// The workspace holds the directories.
+	workspace, ok := decoded["workspace"].(map[string]any)
+	if !ok {
+		t.Fatalf("workspace is not an object: %s", out)
+	}
+	if workspace["current_dir"] != "/Users/foo/project" {
+		t.Errorf("workspace.current_dir = %v", workspace["current_dir"])
 	}
 }
 
@@ -4065,7 +4101,7 @@ func TestStatusLinePayload_PrintModeUnaffected(t *testing.T) {
 	m.session = []backend.Message{{Role: "user", Content: "hello"}}
 	a := m.buildStatusLinePayload()
 	b := m.buildStatusLinePayload()
-	if a != b {
+	if !reflect.DeepEqual(a, b) {
 		t.Errorf("buildStatusLinePayload not deterministic: %+v vs %+v", a, b)
 	}
 
@@ -7004,12 +7040,12 @@ func TestPinnedPrompt_EnterJumpsToPrompt(t *testing.T) {
 // so a future refactor that accidentally wires the pinned prompt
 // into runPrintMode (e.g. by sharing a helper file) is caught:
 //
-//   1. m.pinnedPromptText is populated only inside runMode's
-//      transcriptWindow — print mode has no runMode, so
-//      pinnedPromptText is meaningless outside the TUI.
-//   2. The TUI click handler is in runMode.Update() and is only
-//      reachable when the user is driving the alt-screen
-//      programme; -p does not.
+//  1. m.pinnedPromptText is populated only inside runMode's
+//     transcriptWindow — print mode has no runMode, so
+//     pinnedPromptText is meaningless outside the TUI.
+//  2. The TUI click handler is in runMode.Update() and is only
+//     reachable when the user is driving the alt-screen
+//     programme; -p does not.
 //
 // The test stands up a normal runMode with altscreen enabled and
 // sends a tea.MouseClickMsg at row 0. The jump fires; it does NOT

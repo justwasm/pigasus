@@ -10,7 +10,7 @@
 //   - the JSON-RPC envelope shape the dashboard sees.
 //
 // Wire-level round-trips (ws adapter + JSON marshalling)
-// live in internal/remotetransport/tcp_test.go, mirroring
+// live in remotetransport/tcp_test.go, mirroring
 // the split the rc-list-readonly cycle established.
 package remotecontrol
 

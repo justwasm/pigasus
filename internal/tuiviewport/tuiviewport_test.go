@@ -5,8 +5,8 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/justwasm/pigasus/internal/palette"
 	"github.com/justwasm/pigasus/internal/tuiviewport"
+	"github.com/justwasm/pigasus/palette"
 )
 
 func TestSelectionRange(t *testing.T) {

@@ -31,6 +31,8 @@ import (
 	"os"
 	"path/filepath"
 	"time"
+
+	"github.com/justwasm/pigasus/atomicfile"
 )
 
 // NewFSConversationConfigStore returns a fresh
@@ -140,11 +142,7 @@ func (s *FSConversationConfigStore) atomicWrite(state ConversationConfigState) e
 	if err != nil {
 		return err
 	}
-	tmp := s.Path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o600); err != nil {
-		return err
-	}
-	if err := os.Rename(tmp, s.Path); err != nil {
+	if err := atomicfile.WriteFile(s.Path, data, 0o600); err != nil {
 		return err
 	}
 	// Best-effort dir fsync: ensures the rename

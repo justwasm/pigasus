@@ -8,6 +8,8 @@ import (
 	"sync"
 
 	"github.com/justwasm/pigasus/internal/auth"
+	"github.com/justwasm/pigasus/internal/rcaudio"
+	"github.com/justwasm/pigasus/internal/rcterminal"
 	"github.com/justwasm/pigasus/internal/remotecontrol"
 )
 
@@ -98,4 +100,60 @@ func buildHostTerminalsRegistry() *remotecontrol.TerminalsRegistry {
 var (
 	terminalsRegistryOnce      sync.Once
 	terminalsRegistrySingleton *remotecontrol.TerminalsRegistry
+)
+
+// buildHostWebTerminalsRegistry returns the registry the Web UI's
+// terminal methods (CreateTerminal, ListTerminals,
+// SendTerminalInput, StreamTerminalOutput, CloseTerminal) call
+// into. The terminals it owns are live shells on a pty — the
+// reference's own shape.
+//
+// The registry is a process-wide singleton so every dashboard
+// connection on the dispatcher sees the same terminals, the way the
+// cascade registry works.
+//
+// The registry's own fallback — the directory a terminal starts in
+// when its request names no workspace — is the user's home
+// directory, not the server's working directory.
+//
+// 【一手】 2026-10-27, the reference's own process table: the
+// Antigravity IDE's language_server runs with the working directory
+// "/" while the shell it spawns for a terminal runs in "/Users/gear".
+//
+// Cycle rc-web-terminals.
+func buildHostWebTerminalsRegistry() *rcterminal.Registry {
+	webTerminalsRegistryOnce.Do(func() {
+		webTerminalsRegistrySingleton = rcterminal.NewRegistry()
+	})
+	return webTerminalsRegistrySingleton
+}
+
+var (
+	webTerminalsRegistryOnce      sync.Once
+	webTerminalsRegistrySingleton *rcterminal.Registry
+)
+
+// buildHostWebAudioRegistry returns the registry the Web UI's voice
+// methods (StreamAudioTranscription, SendAudioChunk,
+// EndAudioSession) call into.
+//
+// The sessions transcribe with the Gemini transport the clone already
+// speaks: the recording rides in an `inlineData` part, the way an
+// image attachment rides. The reference transcribes with a local
+// engine; the clone has none (see internal/rcaudio).
+//
+// The registry is a process-wide singleton so every dashboard
+// connection on the dispatcher sees the same sessions.
+//
+// Cycle rc-web-terminals.
+func buildHostWebAudioRegistry() *rcaudio.Registry {
+	webAudioRegistryOnce.Do(func() {
+		webAudioRegistrySingleton = rcaudio.NewRegistry(rcaudio.NewCloudCodeTranscriber())
+	})
+	return webAudioRegistrySingleton
+}
+
+var (
+	webAudioRegistryOnce      sync.Once
+	webAudioRegistrySingleton *rcaudio.Registry
 )

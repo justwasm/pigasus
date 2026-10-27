@@ -72,40 +72,56 @@ func TestAddDirFeedback_Success(t *testing.T) {
 	}
 }
 
-func TestStatuslineFeedback(t *testing.T) {
-	if next, msg := StatuslineFeedback(""); next != "off" || msg != "Statusline off. Run /statusline to re-enable." {
-		t.Errorf("empty current = (%q, %q)", next, msg)
+// TestStatuslineMessages pins the reference's /statusline messages.
+//
+// Evidence 【一手】: agy 1.4.7's own output, plus the string table
+// (`Statusline on. (%s)`, `Statusline on.`, `Statusline off.`,
+// `Statusline set to: %s`).
+func TestStatuslineMessages(t *testing.T) {
+	if got := StatuslineEnabledMessage(""); got != "Statusline on." {
+		t.Errorf("StatuslineEnabledMessage(\"\") = %q", got)
 	}
-	if next, msg := StatuslineFeedback("on"); next != "off" || msg != "Statusline off. Run /statusline to re-enable." {
-		t.Errorf("on current = (%q, %q)", next, msg)
+	if got := StatuslineEnabledMessage("/bin/echo hi"); got != "Statusline on. (/bin/echo hi)" {
+		t.Errorf("StatuslineEnabledMessage(command) = %q", got)
 	}
-	if next, msg := StatuslineFeedback("off"); next != "on" || msg != "Statusline on." {
-		t.Errorf("off current = (%q, %q)", next, msg)
+	if got := StatuslineDisabledMessage; got != "Statusline off." {
+		t.Errorf("StatuslineDisabledMessage = %q", got)
+	}
+	if got := StatuslineSetMessage("/bin/echo hi"); got != "Statusline set to: /bin/echo hi" {
+		t.Errorf("StatuslineSetMessage = %q", got)
+	}
+	if got := StatuslineClearedMessage; got != "Custom statusline command cleared. Reverted to built-in default." {
+		t.Errorf("StatuslineClearedMessage = %q", got)
+	}
+	want := "Usage:\n" +
+		"  /statusline                 Toggle statusline on/off.\n" +
+		"  /statusline <command>       Configure a custom shell command to render the statusline.\n" +
+		"  /statusline delete          Delete the custom command and revert to the built-in default.\n" +
+		"  /statusline on | enable     Enable the statusline.\n" +
+		"  /statusline off | disable   Disable the statusline.\n" +
+		"  /statusline help            Show this help message."
+	if StatuslineUsage != want {
+		t.Errorf("StatuslineUsage =\n%s\nwant\n%s", StatuslineUsage, want)
 	}
 }
 
-func TestTitleFeedback(t *testing.T) {
-	cases := []struct {
-		arg       string
-		cur       string
-		titleText string
-		wantNext  string
-		wantMsg   string
-	}{
-		{"", "", "agy", "on", "Custom title enabled. (agy)"},
-		{"", "on", "agy", "off", "Custom title disabled."},
-		{"on", "", "agy", "on", "Custom title enabled. (agy)"},
-		{"ON", "off", "agy", "on", "Custom title enabled. (agy)"},
-		{"off", "on", "agy", "off", "Custom title disabled."},
-		{"OFF", "on", "agy", "off", "Custom title disabled."},
-		{"invalid", "cur", "agy", "cur", "Usage: /title [on|off]"},
+// TestTitleMessages pins the reference's /title messages.
+//
+// Evidence 【一手】: the reference's own string table
+// (`Usage: /title [on|off]`, `Custom title enabled. (%s)`,
+// `Custom title disabled.`).
+func TestTitleMessages(t *testing.T) {
+	if got := TitleUsage; got != "Usage: /title [on|off]" {
+		t.Errorf("TitleUsage = %q", got)
 	}
-	for _, tc := range cases {
-		next, msg := TitleFeedback(tc.arg, tc.cur, tc.titleText)
-		if next != tc.wantNext || msg != tc.wantMsg {
-			t.Errorf("TitleFeedback(%q, %q, %q) = (%q, %q), want (%q, %q)",
-				tc.arg, tc.cur, tc.titleText, next, msg, tc.wantNext, tc.wantMsg)
-		}
+	if got := TitleEnabledMessage("/bin/echo hi"); got != "Custom title enabled. (/bin/echo hi)" {
+		t.Errorf("TitleEnabledMessage = %q", got)
+	}
+	if got := TitleDisabledMessage; got != "Custom title disabled." {
+		t.Errorf("TitleDisabledMessage = %q", got)
+	}
+	if got := TitleNoCommandMessage; got != `Error: No title command configured in settings.json. Please add a "title" block.` {
+		t.Errorf("TitleNoCommandMessage = %q", got)
 	}
 }
 

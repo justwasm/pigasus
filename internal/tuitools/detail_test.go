@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/justwasm/pigasus/internal/palette"
+	"github.com/justwasm/pigasus/palette"
 )
 
 func TestStepDetailText_Commands(t *testing.T) {
@@ -32,6 +32,28 @@ func TestStepDetailText_Commands(t *testing.T) {
 			tool:   "run_command",
 			detail: "tool blew up",
 			want:   "tool blew up",
+		},
+		{
+			// The clone's own result — the shape agy 1.4.4 and 1.4.7 send.
+			// Before cycle 298 this one did not parse, so the timestamp
+			// stamp reached the screen and a failed command was never
+			// marked as failed.
+			name:   "current shape",
+			tool:   "run_command",
+			detail: "Created At: x\nCompleted At: y\nCommand exited with code 0.\n\nCommand output:\nhello\n",
+			want:   "Command exited with code 0.\n\nCommand output:\nhello",
+		},
+		{
+			name:   "current shape, failed command",
+			tool:   "run_command",
+			detail: "Created At: x\nCompleted At: y\nCommand exited with code 2.\n\nCommand output:\nboom\n",
+			want:   "Command exited with code 2.\n\nCommand output:\nboom",
+		},
+		{
+			name:   "current shape, empty output",
+			tool:   "run_command",
+			detail: "Created At: x\nCompleted At: y\nCommand exited with code 0.\n\nNo output from the command.",
+			want:   "Command exited with code 0.\n\nNo output from the command.",
 		},
 	}
 	for _, c := range cases {

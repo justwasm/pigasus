@@ -60,7 +60,7 @@ package mdrender
 import (
 	"regexp"
 
-	"github.com/justwasm/pigasus/internal/render"
+	"github.com/justwasm/pigasus/render"
 )
 
 // markdownLinkRe finds every `[label](url)` markdown link with a

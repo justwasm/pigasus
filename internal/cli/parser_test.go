@@ -63,6 +63,9 @@ func TestParseAllFlags(t *testing.T) {
 		"add-dir":                      "stringSlice",
 		"agent":                        "string",
 		"c":                            "bool",
+		// The reference's local-Chrome CDP control: four hidden flags
+		// 【一手 + 反编译 — out/local-macos/FINDINGS.md §2, items 4-7】.
+		"cdp_port":                     "int",
 		"continue":                     "bool",
 		"conversation":                 "string",
 		"dangerously-skip-permissions": "bool",
@@ -71,6 +74,8 @@ func TestParseAllFlags(t *testing.T) {
 		"i":                           "string", // cycle 101: string alias for --prompt-interactive
 		"input-format":                "string",
 		"json-schema":                 "string",
+		"local_chrome_headless":        "bool",
+		"local_chrome_user_data_dir":   "string",
 		"log-file":                    "string",
 		"mode":                        "string",
 		"model":                       "string",
@@ -86,6 +91,7 @@ func TestParseAllFlags(t *testing.T) {
 		"prompt-interactive":     "string",
 		"remote-control":              "bool",
 		"sandbox":                     "bool",
+		"use_local_chrome":             "bool",
 		// cycle 101: recovered hidden `-v N` int flag. Absent from --help
 		// (Hidden, empty Usage) but parseable, matching 1.3.6.
 		"v": "int",
@@ -114,14 +120,17 @@ func TestParseAllFlags(t *testing.T) {
 }
 
 // Sanity-check that we can actually build a Parser with the standard
-// spec set, and that the resulting JetskiCLI has all 28 flag descriptors
+// spec set, and that the resulting JetskiCLI has all 32 flag descriptors
 // registered (24 long incl. the recovered hidden -v + 3 short: c, i, p +
 // the cycle 57 hidden --version bool flag + the cycle
 // headless-jsonl-mode-trailing-newline hidden --verbose bool flag). Cycle
 // headless-partial-response-flag adds the long --print-partial-response.
+// The reference's four hidden local-Chrome flags (cdp_port,
+// local_chrome_headless, local_chrome_user_data_dir, use_local_chrome)
+// add four more.
 func TestParseAllFlags_RegisteredWithJetski(t *testing.T) {
 	p := NewParser(StandardFlags(), nil, "test", "test", "test")
-	if got, want := len(p.Root().Flags), 28; got != want {
+	if got, want := len(p.Root().Flags), 32; got != want {
 		t.Fatalf("JetskiCLI has %d flag descriptors, want %d (v1.3.5 --help count + hidden)", got, want)
 	}
 }
@@ -194,16 +203,16 @@ func TestVisibleFlagsMatchReferenceHelp(t *testing.T) {
 func TestSubcommandDispatch(t *testing.T) {
 	subs := StandardSubcommands()
 
-	// 15 visible subcommands: 12 reference subcommands plus openagy superset
-	// (accounts, model, provider).
+	// 16 visible subcommands: 12 reference subcommands plus openagy superset
+	// (accounts, model, provider, halloween).
 	visible := 0
 	for _, s := range subs {
 		if !s.Hidden {
 			visible++
 		}
 	}
-	if got, want := visible, 15; got != want {
-		t.Fatalf("visible subcommands: got %d, want %d (12 reference + 3 superset)", got, want)
+	if got, want := visible, 16; got != want {
+		t.Fatalf("visible subcommands: got %d, want %d (12 reference + 4 superset)", got, want)
 	}
 
 	// Sub-subcommand counts (only subcommands with children in v1.3.5).
@@ -235,17 +244,51 @@ func TestSubcommandDispatch(t *testing.T) {
 //
 // v1.3.5 binary --help output (parity with /workspace/agy/install/antigravity)
 // shows -c, -i, -p short forms. The only long-form alias is --prompt → --print.
-// We keep the AliasMap table populated so cmd/wagyu can fold short
-// forms into canonical flag values via LookupFlagValueCmd.
+//
+// Cycle 346: the alias table used to be a second copy of this knowledge
+// (internal/cli.AliasMap / StandardAliasMap, "kept for source
+// compatibility with cycle 33-37 callers" — no caller left). The live
+// surface is the flag spec table, which registers the short forms as
+// real flags, and the parser, which folds them into the canonical
+// names. The assertion moved with the knowledge.
 func TestAliasMatching(t *testing.T) {
-	want := AliasMap{
-		"c":      "continue",
-		"i":      "prompt-interactive",
-		"p":      "print",
-		"prompt": "print",
+	flags := StandardFlags()
+	have := map[string]bool{}
+	for _, f := range flags {
+		have[f.Name] = true
 	}
-	if !reflect.DeepEqual(StandardAliasMap, want) {
-		t.Errorf("StandardAliasMap drift: got %v, want %v", StandardAliasMap, want)
+	// The short forms the reference's --help shows, and the one
+	// long-form alias.
+	for _, name := range []string{"c", "i", "p", "prompt", "print", "continue", "prompt-interactive"} {
+		if !have[name] {
+			t.Errorf("flag spec table lost %q", name)
+		}
+	}
+	// --prompt folds into --print; -p is the short form of --print;
+	// -i is the short form of --prompt-interactive. The fold is the
+	// parser's own: firstSetFlag picks the first of the names that was
+	// actually set, in the order the reference resolves them.
+	p, err := ParseForTest([]string{"--prompt", "hello"})
+	if err != nil {
+		t.Fatalf("ParseForTest(--prompt): %v", err)
+	}
+	if got := p.LookupFlagValue("prompt"); got != "hello" {
+		t.Errorf("--prompt = %q, want %q", got, "hello")
+	}
+	fs := p.Root().FlagSet()
+	if got := firstSetFlag(fs, "print", "prompt", "p"); got != "prompt" {
+		t.Errorf("firstSetFlag(print, prompt, p) = %q, want %q", got, "prompt")
+	}
+	// The short forms resolve to their own canonical names.
+	p2, err := ParseForTest([]string{"-p", "hello"})
+	if err != nil {
+		t.Fatalf("ParseForTest(-p): %v", err)
+	}
+	if got := p2.LookupFlagValue("p"); got != "hello" {
+		t.Errorf("-p = %q, want %q", got, "hello")
+	}
+	if got := firstSetFlag(p2.Root().FlagSet(), "print", "prompt", "p"); got != "p" {
+		t.Errorf("firstSetFlag(print, prompt, p) = %q, want %q", got, "p")
 	}
 }
 

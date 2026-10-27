@@ -1,16 +1,32 @@
 // Package agyprompt reproduces the system prompt the Antigravity CLI sends.
 //
-// The text was frozen from real `agy` request bodies captured by the cycle-274
-// wrapper: testdata/capture_1.4.6.txt is the current ground truth (the 1.4.4
-// capture is kept beside it as history). The CLI composes twelve XML-tagged
-// sections in a fixed order; eight are byte-for-byte constant, two carry a
-// generated list (subagents, skills), one describes the host and the
-// conversation (user_information) and one (`<user_rules>`) is conditional on
-// the host.
+// The prompt is not a frozen string in the reference. The CLI carries Go
+// text/template sources under
+// google3/third_party/jetski/prompt/template_provider/templates/ and renders
+// the prompt from them at request time. This package does the same: the
+// recovered templates are embedded by internal/agytemplates (see
+// internal/agytemplates/templates/PROVENANCE.md for the extraction recipe and
+// the digests) and rendered through text/template.
+//
+// The CLI composes twelve XML-tagged sections in a fixed order:
 //
 //	<identity><terminal_sandbox><artifacts><conversation_transcript>
 //	<guidelines><communication_style><slash_commands><messaging><subagents>
 //	<user_rules><skills><user_information>
+//
+// Seven of them come from a recovered template — identity, artifacts,
+// conversation_transcript, guidelines, communication_style, slash_commands
+// and skills. The rest have no template next to them in the binary and stay
+// as they were:
+//
+//	terminal_sandbox, messaging, subagents — literal prompt text in the
+//	  reference binary;
+//	user_rules, user_information — assembled from the host, not from a file.
+//
+// The ground truth is still the captured request body:
+// testdata/capture_1.4.6.txt, recorded by the cycle-274 wrapper (the 1.4.4
+// capture is kept beside it as history). Rendering the reference's own
+// templates reproduces it byte for byte — see TestBuildMatchesCapture.
 //
 // 1.4.6 vs 1.4.5 (【一手】, docs/cycles/reference-drift-146/): the reference
 // added the whole `<terminal_sandbox>` section (second position) and one
@@ -30,6 +46,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"text/template"
 )
 
 //go:embed sections/*.txt
@@ -73,6 +90,42 @@ type Options struct {
 	// UserRules populate the <user_rules> section: AGENTS.md / GEMINI.md
 	// files discovered from the workspace and the global config home.
 	UserRules []UserRule
+	// SlashCommands populate the "Available slash commands you can recommend
+	// to the user" list. DefaultOptions fills in the reference's nine.
+	SlashCommands []SlashCommand
+
+	// The flags below are the branches the recovered templates take. The
+	// reference reads them from its cascade configuration (fetched from the
+	// server) and its experiment list; the clone has no server, so they are
+	// inputs. Every default reproduces the captured 1.4.6 request.
+
+	// Autonomous renders the prompt for an agent that cannot ask the user
+	// anything. The reference's own value is false for the CLI.
+	Autonomous bool
+	// SupportsLatex adds the LaTeX paragraphs to <communication_style> and
+	// <artifacts>. The captured request does not have them.
+	SupportsLatex bool
+	// PlanModel selects the "CRITICAL INSTRUCTION 1/2" block in
+	// <communication_style>. The reference adds it for a handful of
+	// MODEL_PLACEHOLDER_* plan models; the captured request has none.
+	PlanModel string
+	// Experiments maps an experiment name to its enabled state. The only one
+	// the recovered templates ask about is "enable-url-artifacts".
+	Experiments map[string]bool
+	// ArtifactDirectoryPath is the path the <artifacts> section names. The
+	// reference puts a literal "<appDataDir>/brain/<conversation-id>" there
+	// — the same literal is in the binary next to the templates — so the
+	// default is that placeholder and not the real directory.
+	ArtifactDirectoryPath string
+	// TranscriptLogsPath is the path the <conversation_transcript> section
+	// names; the reference's literal is
+	// "<appDataDir>/brain/<conversation-id>/.system_generated/logs".
+	TranscriptLogsPath string
+	// KnowledgeDirectoryPath and MetadataFileName feed the reference's
+	// test_funcmap.tmpl, a self-check template that is not part of the
+	// shipped prompt.
+	KnowledgeDirectoryPath string
+	MetadataFileName       string
 }
 
 // sectionOrder is the order agy emits its tags in.
@@ -120,21 +173,47 @@ func Build(o Options) string {
 
 // sectionBodies renders every section body once. Build and SectionBody share
 // it so the /context token breakdown measures exactly the bytes Build emits.
+//
+// Seven sections come from the reference's own templates (see template.go);
+// the rest have no recovered template and keep their frozen bodies:
+//
+//	terminal_sandbox, messaging, subagents — literal prompt text in the
+//	  reference binary, with no template next to it;
+//	user_rules, user_information — assembled from the host, not from a file.
 func sectionBodies(o Options) map[string]string {
+	data := o.templateOptions()
+	set := newTemplateSet(data)
+
+	slash := data
+	slash.Data = o.SlashCommands
+	if o.SlashCommands == nil {
+		slash.Data = DefaultSlashCommands()
+	}
+
+	skills := data
+	skills.Data = skillsData{Skills: tmplSkills(o.Skills)}
+
 	return map[string]string{
-		"identity":                mustSection("identity.txt"),
+		"identity":                framed(renderTemplate(set, "system_prompts/identity.tmpl", data)),
 		"terminal_sandbox":        mustSection("terminal_sandbox.txt"),
-		"artifacts":               mustSection("artifacts.txt"),
-		"conversation_transcript": mustSection("conversation_transcript.txt"),
-		"guidelines":              mustSection("guidelines.txt"),
-		"communication_style":     mustSection("communication_style.txt"),
-		"slash_commands":          mustSection("slash_commands.txt"),
+		"artifacts":               framed(renderTemplate(set, "system_prompts/artifacts.tmpl", data)),
+		"conversation_transcript": framed(renderTemplate(set, "system_prompts/conversation_transcript.tmpl", data)),
+		"guidelines":              framed(renderTemplate(set, "system_prompts/guidelines.tmpl", data)),
+		"communication_style":     framed(renderTemplate(set, "system_prompts/communication_style.tmpl", data)),
+		"slash_commands":          framed(renderTemplate(set, "system_prompts/slash_commands.tmpl", slash)),
 		"messaging":               mustSection("messaging.txt"),
 		"subagents":               renderSubagents(o.Subagents),
 		"user_rules":              renderUserRules(o.UserRules),
-		"skills":                  renderSkills(o.Skills),
+		"skills":                  framed(renderTemplate(set, "system_prompts/skills.tmpl", skills)),
 		"user_information":        renderUserInformation(o),
 	}
+}
+
+// framed is how the reference assembles a section: the opening tag, a
+// newline, the rendered body, a newline, the closing tag. The frozen bodies
+// in sections/ carry the same two newlines, which is why they start with one.
+func framed(rendered string) string {
+	return "\n" + rendered + "\n"
 }
 
 // SectionBody returns the body of one XML section exactly as Build renders it.
@@ -180,14 +259,16 @@ var agentSectionOrder = []string{
 //     level-3 headings do not split: they stay inside the enclosing block.
 func BuildAgent(body string, o Options) string {
 	skills := filterBuiltinSkills(o.Skills, o.AppDataDir)
+	set := newTemplateSet(o.templateOptions())
+	data := o.templateOptions()
 	bodies := map[string]string{
 		"user_information":    renderUserInformation(o),
 		"user_rules":          renderUserRules(o.UserRules),
-		"skills":              renderSkills(skills),
+		"skills":              renderSkills(set, o, skills),
 		"messaging":           mustSection("agent_messaging.txt"),
-		"artifacts":           mustSection("artifacts.txt"),
-		"guidelines":          mustSection("guidelines.txt"),
-		"communication_style": mustSection("communication_style.txt"),
+		"artifacts":           framed(renderTemplate(set, "system_prompts/artifacts.tmpl", data)),
+		"guidelines":          framed(renderTemplate(set, "system_prompts/guidelines.tmpl", data)),
+		"communication_style": framed(renderTemplate(set, "system_prompts/communication_style.tmpl", data)),
 	}
 
 	var b strings.Builder
@@ -305,17 +386,14 @@ func renderSubagents(subagents []Subagent) string {
 	return head + strings.Join(lines, "\n") + tail
 }
 
-// renderSkills mirrors agy's list rendering: a fixed preamble, one
-// "- name (path): description" line per skill, then the fixed tail. A
-// description may itself contain newlines; agy prints it verbatim and so do we.
-func renderSkills(skills []Skill) string {
-	head := mustSection("skills_head.txt")
-	tail := mustSection("skills_tail.txt")
-	lines := make([]string, 0, len(skills))
-	for _, s := range skills {
-		lines = append(lines, "- "+s.Name+" ("+s.Path+"): "+s.Description)
-	}
-	return head + strings.Join(lines, "\n") + tail
+// renderSkills renders the <skills> section from the reference's
+// system_prompts/skills.tmpl: a fixed preamble, the list of skills, and the
+// optional preloaded-skill blocks. A description may itself contain
+// newlines; the template prints it verbatim and so do we.
+func renderSkills(set *template.Template, o Options, skills []Skill) string {
+	data := o.templateOptions()
+	data.Data = skillsData{Skills: tmplSkills(skills)}
+	return framed(renderTemplate(set, "system_prompts/skills.tmpl", data))
 }
 
 // renderUserInformation is the one section agy builds entirely from the host.
@@ -391,7 +469,8 @@ func BuiltinSubagents() []Subagent {
 }
 
 // DefaultOptions is what the reference emits for a fresh single-workspace
-// conversation: the builtin subagents, no custom skills, and the host facts.
+// conversation: the builtin subagents, the nine slash commands it recommends,
+// no custom skills, and the host facts.
 func DefaultOptions(cwd, appDataDir, conversationID string) Options {
 	return Options{
 		OSVersion:      OSName(),
@@ -400,5 +479,11 @@ func DefaultOptions(cwd, appDataDir, conversationID string) Options {
 		AppDataDir:     appDataDir,
 		ConversationID: conversationID,
 		Subagents:      BuiltinSubagents(),
+		SlashCommands:  DefaultSlashCommands(),
+		// The reference names the artifact and transcript directories with
+		// placeholders, not with the real paths — the real paths are in
+		// <user_information>. Both literals are in the reference binary.
+		ArtifactDirectoryPath: "<appDataDir>/brain/<conversation-id>",
+		TranscriptLogsPath:    "<appDataDir>/brain/<conversation-id>/.system_generated/logs",
 	}
 }

@@ -178,7 +178,7 @@ func (m *runMode) applyEffortSelection(level int) tea.Cmd {
 //     rejected by the caller; persistence errors are swallowed because the
 //     user-typed echo must survive a read-only settings file.
 func resolveEffortBeforeModel() string {
-	before, _ := resolveEffectiveModel("")
+	before, _ := modelcatalog.ResolveEffectiveModel("")
 	if !hasEffortTiers(before) {
 		// The model resolved to a label the reference publishes no tier
 		// for — a model the user configured. The reference cannot run

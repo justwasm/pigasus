@@ -5,8 +5,9 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/justwasm/pigasus/internal/agystep"
 	"github.com/justwasm/pigasus/internal/mdrender"
-	"github.com/justwasm/pigasus/internal/palette"
+	"github.com/justwasm/pigasus/palette"
 )
 
 // MaxDetailLines caps how many output lines the expanded view shows
@@ -17,17 +18,17 @@ const MaxDetailLines = 20
 // expanded step actually shows. The tool *result* and the transcript
 // *display* are different strings:
 //
-//	run_command result:  Created At: …\nCompleted At: …\n\nThe command
-//	                     exited with code 0.\nOutput:\n<out>\n
+//	run_command result:  Created At: …\nCompleted At: …\nCommand exited
+//	                     with code 0.\n\nCommand output:\n<out>\n
 //
 //	run_command display: Command exited with code 0.\n\nCommand output:\n<out>
 //	                     (empty output: "No output from the command.")
 //	view_file result:    <file bytes>
 //	view_file display:   Read 3 lines
 //
-// Verified against agy 1.4.3 with `echo one`, `true` and `false`
-// (docs/cycles/cycle-285-tool-display/deliverable.md). Anything we have
-// not captured (write/replace/search) keeps the raw result.
+// The display form was verified against agy 1.4.3 with `echo one`, `true`
+// and `false` (docs/cycles/cycle-285-tool-display/deliverable.md). Anything
+// we have not captured (write/replace/search) keeps the raw result.
 //
 // isThought marks a reasoning step, whose detail is shown verbatim.
 func StepDetailText(name, detail string, isThought bool) string {
@@ -49,18 +50,22 @@ func StepDetailText(name, detail string, isThought bool) string {
 // display form. ok is false when the body carries no exit-code line (a
 // tool-level failure or a timeout note), in which case the caller keeps the
 // raw text.
+//
+// The reader is internal/agystep's: it knows the reference's two shapes —
+// the CLI's own formatter ("Command exited with code N." / "Command
+// output:") and the step string ("The command exited with code N." /
+// "Output:"). Before cycle 298 this function only knew the second one, so
+// it stopped recognising the clone's own results: a failed command was not
+// marked as failed and the "Created At / Completed At" stamp reached the
+// screen, which cycle 285 says it never does.
 func CommandDetailText(result string) (string, bool) {
-	code, ok := CommandExitCode(result)
+	res, ok := agystep.ParseRunCommandResult(result)
 	if !ok {
 		return "", false
 	}
-	out := ""
-	if i := strings.Index(result, "Output:"); i >= 0 {
-		out = strings.TrimPrefix(result[i+len("Output:"):], "\n")
-	}
-	out = strings.TrimRight(out, "\n")
+	out := strings.TrimRight(res.Output, "\n")
 	var b strings.Builder
-	fmt.Fprintf(&b, "Command exited with code %d.", code)
+	fmt.Fprintf(&b, "Command exited with code %d.", res.ExitCode)
 	if strings.TrimSpace(out) == "" {
 		b.WriteString("\n\nNo output from the command.")
 	} else {

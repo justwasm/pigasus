@@ -79,6 +79,20 @@ type MessageBackend interface {
 	Send(ctx context.Context, prompt MessagePrompt) (MessageResult, error)
 }
 
+// MessageHistoryTurn is one earlier turn of the conversation, in the
+// neutral shape the backends replay.
+//
+// The shape is deliberately the clone's own: the backends do not
+// import the conversation store, and the store's ChatTurn is the same
+// two fields.
+type MessageHistoryTurn struct {
+	// Role is "user" or "assistant" (case-insensitive). Anything
+	// else is replayed as a user turn.
+	Role string
+	// Text is the turn's plain text.
+	Text string
+}
+
 // MessagePrompt is one user message turned into a backend turn.
 // Fields are the resolved set (per-turn overrides applied
 // already), so a backend implementing this interface does not
@@ -93,6 +107,22 @@ type MessagePrompt struct {
 	ConversationID string
 	// Text is the dashboard-supplied user message.
 	Text string
+	// Images are the pictures the user attached to this turn's
+	// message. They are the message's own content: a backend that
+	// can carry them sends them with the text, and one that cannot
+	// answers a text-only turn.
+	Images []MessageImage
+	// History is the conversation's earlier turns, oldest first.
+	//
+	// A turn that runs on a fresh session has to be told what came
+	// before it: the Web UI's composer sends one message at a time,
+	// and the message before it is not in the prompt. A backend that
+	// owns a session log replays these ahead of the new prompt; one
+	// that does not ignore them.
+	//
+	// Empty on the first turn of a conversation: there is nothing
+	// before it.
+	History []MessageHistoryTurn
 	// Model is the resolved model label.
 	Model string
 	// Agent is the resolved agent name.

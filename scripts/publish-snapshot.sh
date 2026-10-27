@@ -138,6 +138,10 @@ trap cleanup EXIT
 # that ship: they are what README.md and AGENTS.md link to, and together they are
 # ~7 MB. The rest of `docs/` is RE artefacts (decompiled dumps, Ghidra
 # projects, 500+ MB) and stays out of the published tree.
+#
+# The twenty-four public packages ship too: they are the module's own
+# importable surface (`cmd/` and `internal/` import them), so a snapshot
+# without them does not build.
 ALLOWLIST=(
   cmd
   internal
@@ -146,6 +150,31 @@ ALLOWLIST=(
   scripts
   npm
   .github
+  accountpool
+  agentbrowser
+  atomicfile
+  browserbridge
+  browsercdp
+  budget
+  diffsyntax
+  endpoints
+  envref
+  geminicode
+  grpc
+  harnessprompt
+  imagery
+  lifecyclehooks
+  localharness
+  lsproto
+  mcp
+  originpolicy
+  palette
+  rctoken
+  remotetransport
+  render
+  retry
+  retrybudget
+  vim
   docs/guide
   docs/cycles
   docs/research

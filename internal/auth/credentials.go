@@ -52,6 +52,8 @@ import (
 	"os"
 	"strings"
 	"syscall"
+
+	"golang.org/x/oauth2"
 )
 
 // AuthError classifies a non-success response from the OAuth token / device
@@ -281,47 +283,40 @@ func ClassifyDeviceError(err error, endpoint string) *AuthError {
 }
 
 // parseRefreshError pulls the status code, OAuth `error` code, and raw
-// body out of an error returned by postTokenForm / RefreshTokenReal*. The
-// encoding is `antigravity-token: refresh: HTTP <code>: <body>` (see
-// unified_config.go postTokenForm and antigravity_token.go
-// RefreshTokenReal). We tolerate ordering variation because the wrapping
-// may add multiple "X: " prefixes if RefreshIfNeeded added its own.
+// body out of an error returned by a refresh (see unified_config.go
+// refreshTokenGrant).
+//
+// The refresh fails with a *oauth2.RetrieveError: the token endpoint's
+// status and its RFC 6749 `error` field travel with the error, so both
+// are read structurally. A transport failure (no response at all)
+// carries neither.
+//
+// The body is decoded as JSON as a fallback for the endpoints that
+// answer an error with a JSON body under a non-JSON content type:
+// x/oauth2 only fills ErrorCode from a JSON content type, and the
+// rejection table below needs the code.
 func parseRefreshError(err error) (status int, oauthCode string, body []byte) {
 	if err == nil {
 		return 0, "", nil
 	}
-	msg := err.Error()
-	idx := strings.Index(msg, "HTTP ")
-	if idx < 0 {
+	var retrieve *oauth2.RetrieveError
+	if !errors.As(err, &retrieve) {
 		// Transport-level failure: no status, no body.
 		return 0, "", nil
 	}
-	digits := idx + len("HTTP ")
-	end := digits
-	for end < len(msg) && msg[end] >= '0' && msg[end] <= '9' {
-		end++
+	if retrieve.Response != nil {
+		status = retrieve.Response.StatusCode
 	}
-	if end == digits {
-		return 0, "", nil
-	}
-	for i := digits; i < end; i++ {
-		status = status*10 + int(msg[i]-'0')
-	}
-	if end >= len(msg) || msg[end] != ':' {
-		return status, "", nil
-	}
-	raw := strings.TrimSpace(msg[end+1:])
-	body = []byte(raw)
-	// Try to decode as JSON {"error":"<code>","error_description":"..."}.
-	if len(body) > 0 && body[0] == '{' {
+	body = retrieve.Body
+	oauthCode = retrieve.ErrorCode
+	if oauthCode == "" && len(body) > 0 && body[0] == '{' {
+		// Try to decode as JSON {"error":"<code>","error_description":"..."}.
 		var probe struct {
 			Error            string `json:"error"`
 			ErrorDescription string `json:"error_description"`
 		}
 		if json.Unmarshal(body, &probe) == nil {
-			if probe.Error != "" {
-				oauthCode = probe.Error
-			}
+			oauthCode = probe.Error
 		}
 	}
 	return status, oauthCode, body

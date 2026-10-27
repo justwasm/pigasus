@@ -8,7 +8,7 @@ import (
 	"strings"
 	"unicode"
 
-	"github.com/justwasm/pigasus/internal/geminiwire"
+	"github.com/justwasm/pigasus/geminicode"
 	"github.com/justwasm/pigasus/internal/models"
 )
 
@@ -395,7 +395,7 @@ func (s *Server) writeMergedModels(w http.ResponseWriter, upstream []byte, cause
 // turn; forwarding a placeholder model to Google would 404 and abort the turn
 // before our translator ever runs. The estimate is ~4 chars/token, which is
 // only used for display and window checks.
-func (s *Server) handleCountTokens(w http.ResponseWriter, inner *geminiwire.GenerateContentRequest) {
+func (s *Server) handleCountTokens(w http.ResponseWriter, inner *geminicode.GenerateContentRequest) {
 	chars := len(inner.SystemText())
 	for _, c := range inner.Contents {
 		for _, p := range c.Parts {

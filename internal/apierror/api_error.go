@@ -8,12 +8,11 @@
 package apierror
 
 import (
-	"crypto/rand"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"strings"
+
+	"github.com/google/uuid"
 
 	"github.com/justwasm/pigasus/internal/backend"
 )
@@ -113,26 +112,14 @@ func (e *APIError) Lines() string {
 }
 
 // NewErrorID generates a random error ID matching reference format.
+//
+// The reference's shape is a v4 UUID followed by "-1".
 func NewErrorID() string {
-	var b [16]byte
-	if _, err := rand.Read(b[:]); err != nil {
+	u, err := uuid.NewRandom()
+	if err != nil {
 		return "-1"
 	}
-	b[6] = (b[6] & 0x0f) | 0x40
-	b[8] = (b[8] & 0x3f) | 0x80
-	h := hex.EncodeToString(b[:])
-	var sb strings.Builder
-	sb.WriteString(h[0:8])
-	sb.WriteByte('-')
-	sb.WriteString(h[8:12])
-	sb.WriteByte('-')
-	sb.WriteString(h[12:16])
-	sb.WriteByte('-')
-	sb.WriteString(h[16:20])
-	sb.WriteByte('-')
-	sb.WriteString(h[20:32])
-	sb.WriteString("-1")
-	return sb.String()
+	return u.String() + "-1"
 }
 
 func newErrorID() string {

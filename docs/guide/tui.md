@@ -183,6 +183,79 @@ byte-level pty captures (`docs/cycles/cycle-285-tool-display/`), not the
   command-only.
 
 
+## Syntax highlighting (cycles 233, 271, 300)
+
+Code is highlighted with **chroma**, on two surfaces, and the version is
+pinned to the reference's.
+
+| Surface | Where | What it does |
+|---|---|---|
+| fenced code blocks in the transcript | `internal/mdrender/chroma_inline.go` | `quick.Highlight(…, "terminal256", "solarized-light")` |
+| syntax-coloured diff hunks | `diffsyntax/syntax.go` | chroma token types → the TUI's diff token classes |
+
+The **style** and the **formatter** are not taste: cycle 271 recovered them
+from a live 1.4.2 pty capture — `package` renders `ESC[1m ESC[38;5;166m`,
+`func` renders `ESC[38;5;100m`, punctuation falls back to the 242 base
+colour. That triple is chroma's `solarized-light` through the **terminal256**
+formatter, and no other embedded style matches it. The clone's
+`ChromaStyleForScheme` maps the reference's colour-scheme names onto chroma
+styles on top of that default.
+
+The **version** is pinned too (cycle 300): the reference's binary embeds
+chroma's own assets — 279 XML lexers under the embed FS root `embedded/` and
+74 XML styles at its root — and all 353 files are **byte-identical to
+upstream chroma v2.27.0**. The clone must stay on v2.27.0; v2.24.1 (what it
+pinned before) cannot highlight Arturo, Gemfile.lock, LilyPond or Templ.
+`internal/mdrender/chroma_reference_test.go` is the fence: every one of the
+reference's 279 lexers must resolve, and the list must still have 279
+entries. The bump changes no rendered byte — 30 common languages hash
+identically under both versions — so a rendering golden cannot catch a
+downgrade; only the fence can.
+
+The reference also links chroma's **HTML** and **SVG** formatters (28 and 8
+recovered functions). The clone has no surface that renders code to HTML or
+to an SVG image, so they have no consumer here yet.
+
+
+## The diff row (cycle 361)
+
+A diff row is **not** the git body with a `+` in front of it. The reference
+draws three columns — a gutter, a marker column and the text:
+
+```
+   3 -  gamma
+   3 +  GAMMA
+   3    delta
+```
+
+`internal/diffrow` owns the model; `internal/tuitools` renders the
+transcript's inline diff preview with it and `internal/diffaction` renders the
+`/diff` file view with it.
+
+- The **gutter** is `fmt.Sprintf("%*d", numWidth, num)` — the number,
+  right-aligned in `max(4, digits)` columns. Not a hardcoded `%4d`.
+- The **marker column** is four wide: `" +  "`, `" -  "`, `"    "`. The
+  added and removed bodies carry one space more than the unchanged body, so
+  the text starts in the same column in all three.
+- The **content width** is `max(1, width-numWidth-2)`. An added or a
+  removed body is padded to it with spaces; an unchanged body is not. The
+  padding is measured in runes against the **plain** text — an escape
+  sequence is not a visible column — and that is what lets the row's
+  background span the row.
+- The **summary** is per change and has three forms: `Added N lines`,
+  `Removed N lines`, and the `+N / -M lines` pair. A change shows **20
+  rows** at most; the rest collapse into `… and N more lines`.
+- The inline preview's block is indented by **five** columns, so its text
+  lines up under the `⎿` bullet's text.
+
+【一手】 the shape and the colours come from agy 1.4.3's captured diff
+(`docs/cycles/cycle-285-tool-display/deliverable.md`); 【反编译】 the widths,
+the summary forms and the cap come from agy 1.4.8's
+`render.codeActionDetail`. The **palette** is not part of the model: the row
+model assembles the escapes from `palette.*`'s current values, so the rows
+follow the selected colour scheme.
+
+
 ## Bash mode (cycle `bash-mode`)
 
 `!` at the start of an **empty** composer runs the buffer through the shell instead
@@ -283,3 +356,735 @@ Four things that are easy to get wrong:
 
 Report: `docs/cycles/cycle-294-altscreen-rendering-mode/`.
 
+
+---
+
+## The custom status line and the custom window title (cycle 301)
+
+Both are **user scripts**: the CLI pipes a JSON document to the script's
+stdin and shows (or titles) what the script prints. The clone's own
+example scripts live in the upstream repository —
+`examples/statusline/statusline.sh` and `examples/title/title.sh` — and
+they read members the clone's old four-field payload never wrote.
+
+| file | what it is |
+|---|---|
+| `internal/statusline/payload.go` | the document — the reference's `types.StatusLineData`, member for member |
+| `internal/statusline/config.go` | the `statusLine` / `title` blocks in `settings.json` |
+| `internal/statusline/script.go` | `sh -c "<command>"`, the payload on stdin, the 5 s timeout, the title's sanitising |
+| `internal/statusline/state.go` | the render cache, the tick counter, the 30-failure budget |
+| `internal/statusline/vcs.go` | the repository probe behind the payload's `vcs` member |
+| `internal/cliapp/statusline_payload.go` | the payload builder, the cached block |
+| `internal/cliapp/statusline_render.go` | the status area's layout, the error card |
+| `internal/cliapp/slash_statusline_external.go` | the tick, the script runs |
+| `internal/cliapp/windowtitle.go` | the synchronised window title |
+
+Five things that are easy to get wrong:
+
+- **The payload is 27 members in the reference's declaration order**, and
+  the omit rules are not uniform: `model` is written as JSON **null** while
+  it is unresolved, `exceeds_200k_tokens` and `context_window.current_usage`
+  are written as **null** too, `product` is *absent* until the CLI knows
+  it, and `version` is written as `""`. `payload_test.go` pins the order
+  and the bytes against a payload agy 1.4.7 produced.
+- **`vcs` carries the type only.** The reference has `branch` and `dirty`
+  in its struct but 1.4.7 never filled them: 14 payloads from a clean and
+  a dirty repository all read `"vcs": {"type": "git"}`. The upstream
+  script's `// ""` fallback absorbs it.
+- **`enabled` defaults to true.** A block without the member is *on* — the
+  reference's documented default, and its observed behaviour. A boolean
+  block is an object without a command, so no script runs.
+- **`/statusline delete` removes the `statusLine` key** from
+  `settings.json`; it does not leave an empty block behind. And
+  `/statusline <command>` writes the block *without* an `enabled` member —
+  which is why the script starts running immediately.
+- **The title script's output is not ANSI.** The status line keeps its
+  escape sequences (the upstream script uses them); the window title drops
+  the control characters, joins the lines with single spaces and keeps the
+  rest as literal text: `TITLE-A\nTITLE-B\t\e[31mCOLOR\a` becomes
+  `TITLE-A TITLE-B[31mCOLOR`.
+
+And one trap that is not about the reference at all:
+
+- **The title is written on the tick goroutine and read on the render
+  goroutine.** A Go string is two words, and the writer's store of the
+  length can be observed before its store of the pointer — on arm64 the
+  renderer saw an *empty* title and fell back to the program name. The
+  title lives behind a mutex (`internal/cliapp/windowtitle.go`), and the
+  payload is built on the model's own goroutine, because the session's
+  quota cache is an unguarded map and a concurrent read during a write is
+  a fatal error.
+
+Report: `docs/cycles/cycle-301-statusline-title-scripts/`.
+
+---
+
+## The `/tasks` panel and its two detail views (cycle 315)
+
+`/tasks` is a **list panel**; Enter on a row opens a **detail view**. There
+are two of them, because the reference has two detail models: the background
+task's (`model.TaskDetailModel`) and the agent (subagent) task's
+(`model.SubagentDetailModel`).
+
+| file | what it is |
+|---|---|
+| `internal/cliapp/slash_tasks_panel.go` | the list panel and its keys |
+| `internal/cliapp/slash_tasks_detail.go` | the two detail views, their scroll and their keys |
+| `internal/taskregistry/detail.go` | the two renderers and the reference's labels |
+| `internal/taskregistry/format.go` | the reference's state vocabulary |
+
+Five things that are easy to get wrong:
+
+- **Enter opens the detail; `k` kills; `x` removes.** The reference's
+  `/tasks` keybinding scope binds three separate actions (`KeyEnter`,
+  `KeyTaskKill`, `KeyTaskRemove`). The clone used to kill on Enter, which
+  is why the detail view never appeared.
+- **The detail view is a sub-view, not a panel of its own.** Esc leaves it
+  and returns to the list *without* the `Exited /tasks command` line; a
+  second Esc leaves `/tasks` and prints it. The detail view is also modal —
+  it owns every key, so `ctrl+g` and `ctrl+o` do not reach the editor while
+  it is open.
+- **The state word is the reference's.** `model.taskStatus()` returns
+  `running` / `completed` / `failed` / `cancelled` — four words, no fifth
+  (cycle 318) — and appends ` (exit N)` to the completed and failed forms
+  only. One function (`taskregistry.TaskStatus`) serves both the row and
+  the detail view.
+- **The task detail's labels are a nine-cell column** — `Command: `,
+  `Status:  ` and `Type:    ` are the reference's own strings, and the
+  values start at the same column. The reference's `Type:` carries the
+  task's *origin* (`Agent` / `User`); the clone renders the task's *kind*
+  there, because every task it registers is model-spawned and the origin
+  would be constant.
+- **The subagent detail is built from data the registry has to carry.**
+  `Task.Prompt`, `Task.Output` and `Task.Tools` are filled by
+  `internal/subagenttools` when the subagent runs — the prompt up front,
+  the answer and the tool names afterwards.
+
+Report: `docs/cycles/cycle-315-tui-subagent-task-panels/`.
+
+## The detail views' shapes (cycle 316)
+
+Cycle 315 built the two detail views but drew them from the binary's
+*string table*. The decompilation of the two render functions
+(`model.TaskDetailModel.buildTaskDetailLines`,
+`model.SubagentDetailModel.buildHeaderLines` and
+`model.SubagentDetailModel.buildContentLines`) shows the real shapes, and
+they are not the same.
+
+| | the task detail | the subagent detail |
+|---|---|---|
+| **the heading** | `Task Details` (`RenderHeader`) | none — the first header line *is* the title |
+| **the header** | — | five lines: `main ▸ <name>`, the elapsed time, the steps line, `ID: <id>`, a rule |
+| **the rule** | a fixed **forty** cells | `min(60, width-4)` cells |
+| **the body's indent** | flush left | two cells; the tool list's items four |
+
+Five things that are easy to get wrong:
+
+- **`ID: ` has no brackets.** The binary carries the literal `ID: [%s]`,
+  but the reference's header uses only its first four bytes.
+- **The elapsed line changes with the state.** `worked 12s` once the
+  agent is done; the bare `12s` while it runs.
+- **The subagent detail has its own state vocabulary** —
+  `running` / `done` / `error` / `killed`, each with the reference's own
+  ANSI-256 colour (196 / 34 / 220). `model.taskStatus()`'s words
+  (`completed` / `failed` / `cancelled`) belong to the `/tasks` row and
+  the *task* detail.
+- **The header's depth is chrome.** The body window is
+  `height - 6 - (headerRows - 1)`, so the subagent detail's five-row
+  header leaves four rows fewer than the task detail's one.
+- **The step count is the trajectory's.** The reference counts the
+  subagent's trajectory steps — the same number its trajectory section
+  shows (cycle 317).
+
+Report: `docs/cycles/cycle-316-tui-detail-headers/`.
+
+## The subagent detail's trajectory section (cycle 317)
+
+The reference's subagent detail has a **fourth** section, after the
+answer: the agent's *trajectory* — the steps it took.
+
+```
+  Trajectory — <name> (<N> steps)
+  No steps yet                              ← only when there are none
+    1. read_file
+    2. run_command
+```
+
+| | what it is |
+|---|---|
+| **the heading** | `Trajectory — %s (%d steps)` — the reference's own 28-byte literal |
+| **the empty form** | `No steps yet` |
+| **the items** | numbered rows, four-cell indent, one per step |
+
+Four things that are easy to get wrong:
+
+- **The section is last.** The reference renders prompt → tools → answer
+  → trajectory. The order was recovered from the *offsets* of the
+  literals inside `buildContentLines`, not from the decompiler's
+  statement order.
+- **The count is shared with the header.** The header's `· %d steps` and
+  the trajectory's `(%d steps)` are the same `max(model step count,
+  walked counter)` in the reference, so the clone reads both from
+  `Task.Steps`.
+- **The steps come from the subagent's own messages.**
+  `internal/subagenttools` fills `Task.Steps` when the run ends — one
+  step per assistant content block: a tool call by its name, a text
+  block by its first line.
+- **The clone fills the list when the run ends.** The reference's
+  trajectory grows *live*; a running subagent there already shows a
+  partial trajectory, while the clone shows `No steps yet`.
+
+Report: `docs/cycles/cycle-317-tui-subagent-trajectory/`.
+
+## The `/tasks` row's status cell (cycle 318)
+
+The row's status cell is the reference's own, and it carries the exit
+code.
+
+```
+  ● [15:04:05] npm test                                 completed (exit 0)
+```
+
+| | the reference |
+|---|---|
+| **the words** | `running` / `completed` / `failed` / `cancelled` — four, no fifth |
+| **the exit code** | ` (exit N)` appended to `completed` and `failed` only |
+| **the cell** | the word and the suffix are one styled span |
+
+Three things that are easy to get wrong:
+
+- **A task that has not started is a *running* one.** `model.taskStatus()`
+  has four leaves and no `waiting` — cycle 315's fifth word was a guess,
+  and cycle 318 removed it.
+- **The exit code belongs to the cell**, not to a separate column: the
+  reference formats ` (exit %d)` and concatenates it onto the word
+  *before* it styles the cell.
+- **A cancelled task never shows an exit code** — and neither does a
+  running one.
+
+The row's *rest* — the `●` marker, the `[15:04:05]` timestamp, the
+name's truncation and the right-aligned padding — was mapped in the
+cycle's report but **not implemented** then: the six `%s` arguments of
+the reference's `%s%s %s %s%s%s` row format could not be paired.
+Cycle 319 paired them and shipped the row.
+
+Report: `docs/cycles/cycle-318-tui-tasks-row-status/`.
+
+## The `/tasks` row's shape (cycle 319)
+
+The row is the reference's own, cell for cell.
+
+```
+> ● [15:04:05] echo done                                     completed
+  ● [15:04:51] ddgr --num=5 cats                             running
+```
+
+| | the reference |
+|---|---|
+| **the format** | `%s%s %s %s%s%s` — prefix, marker, time cell, name, padding, status |
+| **the prefix** | `> ` on the cursor's row, `  ` on the others — two cells, always |
+| **the marker** | `●` — the same glyph for every state, coloured by the state |
+| **the time cell** | `[15:04:05]`, or `[          ]` when the task has no time |
+| **the name** | cut to `max(10, width − len(status) − 17)` cells, with `...` |
+| **the padding** | `max(2, width − len(status) − width(name) − 15)` spaces |
+| **the status cell** | the word, plus ` (exit N)` on the completed and failed forms |
+
+Five things that are easy to get wrong:
+
+- **The status cell is right-aligned, not padded.** The gap in front of
+  it is the row's own padding cell, so the row comes out exactly as
+  wide as the panel and the status ends on its right edge. The clone
+  used to pad the *word* to nine cells.
+- **The row carries no id, no elapsed time and no error reason.** The
+  clone invented all three; the reference has none of them.
+- **The ellipsis is three dots**, not `…` — and a name cut to fewer
+  than four cells becomes a single `.`.
+- **A name is flattened before it is measured**, so a name with a
+  newline in it becomes one line.
+- **The prefix says *selected*, not *tool call*.** The clone's `⎿`
+  bullet (borrowed from the transcript's tool steps) is gone.
+
+Report: `docs/cycles/cycle-319-tui-tasks-row-layout/`.
+
+## The ActiveItems row — the block under the input box (cycle 320)
+
+The row the active-items block draws is the reference's own shared task
+row, and it is *not* the `/tasks` row.
+
+```
+  ● [15:04:05] Search Shanghai Weather running
+> ● [15:04:05] Running tests in background running
+```
+
+| | the reference |
+|---|---|
+| **the renderer** | `render.RenderTaskItem` — the same one the reference uses wherever a task is listed |
+| **the prefix** | `> ` on the focused cursor's row, `  ` on the others — two cells, always |
+| **the marker** | `●` — the same glyph for every state, coloured by the state |
+| **the time cell** | `[15:04:05] ` — the format carries the trailing space |
+| **the name** | cut to `max(0, width − width(cell) − width(statusCell))` cells, with `...` |
+| **the status cell** | a space and the state word, in the state's colour |
+| **the overflow lines** | `  ↑ %d more` in front, `  ↓ %d more` behind |
+
+Four things that are easy to get wrong:
+
+- **The row carries no id, no elapsed time and no error reason.** The
+  clone invented all three; the reference's record has no other string
+  field.
+- **The row has no padding cell.** The `/tasks` row pads the name so
+  that the status lands on the panel's right edge; this row puts the
+  status right behind the name, separated by one space.
+- **The empty time cell is `[] `, not `[          ]`.** The two rows pad
+  the time column differently.
+- **Only the prefix reacts to the focus.** The clone used to bold the
+  whole row; the reference styles the `"> "` and nothing else.
+
+The row's body is laid out in the block's width minus the prefix's two
+cells — the same two cells the prefix occupies.
+
+Report: `docs/cycles/cycle-320-tui-active-items-row/`.
+
+## The ActiveItems row for a subagent (cycle 321)
+
+A subagent in the active-items block is **not** drawn as a task — the
+dispatcher picks the renderer by the record's kind, and a subagent gets
+the reference's own subagent row.
+
+```
+  ● Agent(Search Shanghai Weather)  Processing... · 1m35s
+```
+
+| | the reference |
+|---|---|
+| **the renderer** | `render.RenderSubagentItem` — its own row, not the task row |
+| **the format** | `%s %s  ` — the marker, the tool info, two spaces |
+| **the tool info** | `Agent(<name>)` while the subagent calls no tool, `<tool> › <name>` while it is inside one |
+| **the status word** | `Done`, `Error: <message>`, `Killed`, `Processing...` — the subagent's own vocabulary, not the task's `running` / `completed` / `failed` |
+| **the elapsed cell** | ` · 1m30s` while the subagent runs, ` · worked 1m30s` once it is done |
+| **the marker** | `●` in the ANSI-256 palette — `220` while it runs, `34` once it is done, `196` when it failed or was killed |
+| **the flexible cell** | the status word, cut to `max(0, width − width(cell) − width(elapsedCell))` cells |
+
+Six things that are easy to get wrong:
+
+- **The status word is cut, never the name.** A long name overflows the
+  row; the reference does not shorten it.
+- **The elapsed cell has two forms.** A running subagent shows the bare
+  duration, a finished one the duration behind a `worked` — the same
+  rule the subagent detail's second header line follows.
+- **The status word is the subagent's own, not the task's.** The
+  reference never says `running` here; it says `Processing...`.
+- **The marker uses the ANSI-256 palette**, not the true-colour one the
+  rest of the clone's palette carries.
+- **The status word's own style is the theme's** — cycle 323 recovered
+  the scheme table the theme comes from; the clone still paints the
+  status word in the subagent's state colour, the colour its marker
+  carries.
+- **A blocked subagent gets `Blocked · ` in front of the status word**,
+  painted in the orange `214`. The clone has no approval flow yet, so
+  the prefix never appears.
+
+Report: `docs/cycles/cycle-321-tui-active-items-subagent-row/`.
+
+## The interrupted hint — a cancelled turn answers in the composer (cycle 353)
+
+Pressing `Esc` during a turn does **not** leave an error row in the
+transcript. The reference answers the cancelled turn in the **composer**,
+under the input box:
+
+```
+  ⎿  Interrupted · What should Antigravity CLI do instead?
+```
+
+【反编译】 agy 1.4.8 — the literal is 48 bytes at `0x103617a41`, and
+`cli/model/model.(*PromptModel).View` (`0x102bb49f0`) renders it through
+`(*PromptModel).interruptedLine` (`0x102bb48b0`) when
+`PromptModel.IsInterrupted` (`0x102bb4800`) says the latest turn was
+interrupted. The `%s` is the name of the CLI the user is talking to
+(`Antigravity CLI`, or `Jetski CLI` in the internal build); the clone
+fills it with `branding.Current().CLIName`.
+
+| | the reference | the clone |
+|---|---|---|
+| the transcript | stays empty | stays empty — no error row, and the cancelled turn's own `"context canceled"` chunk is dropped |
+| the composer | one hint row | the same hint row, under the input box |
+| the next turn | the hint is gone | the same — the flag is cleared when the next turn starts |
+
+The clone's own pieces:
+
+| | |
+|---|---|
+| the literal | `internal/agent/interrupted.go` — `InterruptedHintFormat`, `InterruptedHintLine` |
+| the flag | `runMode.turnInterrupted` — set by the `Esc`, cleared by the next turn |
+| the row | `internal/cliapp/tui_interrupted.go` — `interruptedHintRow()` |
+
+The colours are the clone's own: the `⎿` hook in the blue the other `⎿`
+rows use, the sentence in dim gray. The reference paints the line with one
+lipgloss style that the decompilation does not name.
+
+Report: `docs/cycles/cycle-353-subagent-peers-interrupt/deliverable.md`.
+
+## The colour schemes and the style tree (cycle 323)
+
+The reference paints its panels from a **colour scheme**: `palette`
+carries all eight of them, the twenty slots each one holds and the
+whole style tree — the ninety-one styles, and where each one's colour
+comes from.
+
+```go
+scheme, _ := palette.SchemeByName("solarized light")
+color, _ := palette.StyleColor(scheme, palette.StyleToolDone)
+```
+
+| | the reference |
+|---|---|
+| **the schemes** | eight — `light`, `solarized light`, `colorblind-friendly light`, `dark`, `solarized dark`, `colorblind-friendly dark`, `tokyo night`, `terminal` |
+| **a scheme** | twenty slots of sixteen bytes: `Bg`, `Fg`, `Accent`, `Border`, `UserFg`, `AgentFg`, `AddFg`, `AddBg`, `AddWordBg`, `RemoveFg`, `RemoveBg`, `RemoveWordBg`, `LineNumFg`, `ToolFg`, `TaskFg`, `ErrorFg`, `WarningFg`, `LinkFg`, `MutedFg`, `DimFg` |
+| **the colours** | true colours (`#rrggbb`) in seven of the schemes, terminal indices in `terminal` |
+| **the resolver** | `render.resolveStyles` — **two branches**: the scheme path (the name was in the map) and the fallback path (it was not) |
+| **the style set** | `render.Styles` — 91 fields, 57,720 bytes, passed by value |
+| **the four task styles** | `ToolDone`, `ToolRunning`, `ToolCanceled`, `ToolError` — the marker and the status word both use them, so they always carry the same colour |
+
+Four things that are easy to get wrong:
+
+- **The two branches disagree.** On the scheme path a *failed* task is
+  painted with the scheme's **agent** colour (green in solarized
+  light) and a *running* one with the **error** colour; on the
+  fallback path a failed task is index 1 (red) and a running one index
+  3 (yellow). The clone keeps the colours its own capture produced
+  rather than either branch.
+- **`AgentFg` and `AddFg` are the same colour in every scheme**, so a
+  capture cannot tell an agent's colour from an added line's.
+- **`SharedStyles` resolves once per process** — the first caller's
+  name decides the colours for the whole run, and a later caller with
+  a different name gets the first one's set.
+- **The clone's captured palette is the "solarized light" scheme** —
+  nine of its constants are scheme slots, five of which differ between
+  the solarized light and the solarized dark scheme. A test pins this.
+
+Report: `docs/cycles/cycle-323-tui-render-style-scheme-table/`.
+
+## The Color Scheme preview card, and the live palette (cycle 362)
+
+`/config` → **Color Scheme** shows a 63-column, 22-line card beside the
+eight schemes. The card is painted in the **hovered** scheme, and the
+whole interface follows it.
+
+| | the reference |
+|---|---|
+| **the card** | `internal/themepreview.Render` — the border, the user's line, the heading, the diff, the thought, the tool/task/error/warning rows, the link, the accent and the dim hint |
+| **the code roles** | 24-bit escapes under the seven true-colour schemes; under `terminal` the basic sixteen-colour codes — `94` the keyword, `33` the string, `34` the function, `35` the type — and the keyword is bold |
+| **the escape form** | the colour **and** the attribute in **one** escape: `38;2;25;103;210;1` for the user's line, `38;2;26;115;232;4` for the link |
+| **the body after a bold run** | the body colour and `;22` in one escape, or a full reset when the body colour is unset |
+| **the palette** | live — `palette.PushScheme` around the frame's `Update` and `View`; `palette.OnSchemeChange` for the packages that copy the palette's colours |
+
+The card's palette is read off the reference's own output bytes, in a
+true-colour pty, one run per scheme: `palette.SyntaxColorsFor` holds the
+eight schemes' code palettes. `palette.Syntax` — the 256 indices — stays
+for `internal/onboarding`, the pre-TUI wizard.
+
+Two things that are easy to get wrong:
+
+- **The palette is live, not a table.** `palette`'s colours are recomputed
+  from the scheme's slots when the scheme changes, so a package that
+  copies a colour into its own variable has to refresh it
+  (`palette.OnSchemeChange`) — otherwise the copy keeps the old scheme's
+  escape.
+- **The reference's *first* paint of the card is not its *hover* paint.**
+  The first paint leaves the blank row's left border unpainted; every
+  hover paint draws it. The clone always renders the whole card, so it
+  matches the reference's **hovered** card on all eight schemes.
+
+Report: `docs/cycles/cycle-362-theme-live-parity/`.
+
+## The task record and its four-way rule (cycle 324)
+
+The reference's task row renders a **record**, and the record has a name:
+`types.BackgroundTaskInfo` — 120 bytes, eleven fields, in the package
+`google3/third_party/jetski/cli/types` (the same package that holds
+`types.ColorScheme` and `types.SchemeColors`).
+
+| offset | field | what the row does with it |
+|---|---|---|
+| +0x00 | `Index` | — |
+| +0x08 | `Command` | the row's name — via `model.activeItem.name` |
+| +0x18 | `Running` | the running branch |
+| +0x20 | `Result` | — |
+| +0x30 | `IsError` | the failed branch |
+| +0x38 | `ExitCode` | the `(exit N)` suffix |
+| +0x40 | `NoExitCode` | suppresses that suffix |
+| +0x41 | `IsAgentTask` | the cancelled branch |
+| +0x44 | `Status` | the cancelled branch |
+| +0x48 | `StartTime` | the row's time cell |
+| +0x60 | `LastUpdatedTime` | — |
+
+The rule the row and the marker both run — `render.RenderTaskItem`
+(0x1028a0d60) and `render.StatusMarker` (0x10289fe70) run the same one
+on the same four fields:
+
+1. `Running` → **running**, `ToolRunning`
+2. `IsAgentTask` **and** `Status == CORTEX_STEP_STATUS_CANCELED` →
+   **cancelled**, `ToolCanceled`
+3. `IsError` → **failed**, `ToolError`
+4. everything else → **completed**, `ToolDone`
+
+Four things that are easy to get wrong:
+
+- **Six is a step status, not an exit code.** The int32 at +0x44 is
+  the record's `Status`, a `cortex_go_proto.CortexStepStatus`, and 6 is
+  `CORTEX_STEP_STATUS_CANCELED`. Reading it as a process exit code
+  sends the whole rule down the wrong path.
+- **The cancelled branch needs both fields.** `IsAgentTask` alone is
+  not enough — the status has to be the cancelled one.
+- **The exit code belongs to the completed and the failed word only.**
+  A running and a cancelled task never carry one, and `NoExitCode`
+  suppresses it even then.
+- **The record's `Command` is the row's name.** `getActiveItems` copies
+  it into `model.activeItem.name`; the renderer takes it as a separate
+  argument, which is why reading the row alone makes it look like it
+  comes from somewhere else. `Result` is copied into the record and
+  read by none of the row's rules.
+
+The clone already renders the reference's four words, the `(exit N)`
+suffix and the same rule; cycle 324 only named the fields. The
+clone's `taskregistry.ExitCodeUnset` is the reference's `NoExitCode`.
+
+Report: `docs/cycles/cycle-324-tui-task-record-type/`.
+
+## The record's producer (cycle 325)
+
+The record the row renders is **not** what the store holds. The store's
+own record is `types.CommandOutput` (120 bytes, eleven fields); the
+row's record is `types.BackgroundTaskInfo` (120 bytes, eleven fields),
+and three producers fill it.
+
+| producer | the source | `Status` | `IsAgentTask` |
+|---|---|---|---|
+| `store.(*TaskManager).GetBackgroundTasks` (0x1029a39b0) | the store's `[]types.CommandOutput`, filtered on `Backgrounded` | 0 | false |
+| `model.activeTasks` (0x102bc0160) | the same slice, filtered on `Backgrounded` **and** `Running` | 0 | false |
+| `model.agentTaskInfo` (0x102bc0730) | a **cortex step** | the step's own status | **true** |
+
+`model.activeTasks` and `model.backgroundTasks` each have both paths:
+the projection for the shell commands, and a call to
+`model.agentTaskInfo` for the agent steps (0x102bc04a8 and
+0x102bbff3c).
+
+The first two are **projections**, field by field: `Command` ← +0x00,
+`Result` ← +0x10, `Running` ← +0x39, `IsError` ← +0x38,
+`ExitCode` ← +0x40, `StartTime` ← +0x48, `LastUpdatedTime` ← +0x60, and
+`Index` ← the loop counter — the record's index in the **source**
+list, not in the result. `NoExitCode`, `IsAgentTask` and `Status` are
+left zero.
+
+The third is the agent path, and it is the only one that can reach the
+cancelled word:
+
+- `Status` ← the step's own int32 status, and `IsError` ←
+  (`Status == CORTEX_STEP_STATUS_ERROR`, 7).
+- `NoExitCode` ← the same boolean as `Running` — a running task has no
+  exit code yet.
+- `IsAgentTask` is **true**, and it is set by the *static composite
+  literal* the compiler copies into the record (120 bytes at
+  0x103da8138 in `__rodata`), not by a store. That is why a search for
+  a store at +0x41 finds nothing and the field is nevertheless true.
+
+The row's **name cell** is the record's `Command` — `getActiveItems`
+copies it into `model.activeItem.name` — and the row's **time cell** is
+the record's `StartTime`, not `LastUpdatedTime`.
+
+The enum's tenth number has no value: `CORTEX_STEP_STATUS_HALTED` is a
+**reserved name** and 10 a **reserved range** (`start = 10`,
+`end = 10`) in the enum's protobuf descriptor. It is never compared
+against.
+
+Report: `docs/cycles/cycle-325-tui-task-record-producer/`.
+
+## The `/resume` picker — the workspace tree (cycle 336)
+
+`internal/cliapp/picker_resume.go` draws the flat list and the picker's
+palette; `internal/cliapp/picker_resume_tree.go` draws the **tree**, which
+is agy 1.4.7's default view of the picker. The model lives in its own
+package, `internal/resumetree`: the label rule, the grouping, the
+comparator and the pin (captured live against agy 1.4.7,
+`docs/cycles/cycle-336-resume-workspace-tree/deliverable.md`).
+
+| file | what it is |
+|---|---|
+| `internal/resumetree/resumetree.go` | `Build`, `WorkspaceLabels`, `BaseWorkspaceLabel`, `ItemWorkspaceURI`, the comparator |
+| `internal/resumetree/store.go` | the readers of the reference's `conversation_summaries.db` and its metadata cache |
+| `internal/cliapp/picker_resume_tree.go` | the rows, the marker, the five-children cap, the hint, the keys, the cursor's target |
+
+Five things that are easy to get wrong:
+
+- **The tree is the default view.** `ctrl+f` switches between the tree and
+  the flat "Conversation View"; the flat list's hint reads `ctrl+f Grouped
+  View`, the tree's `ctrl+f Conversation View`. A *search* leaves the tree
+  and draws the flat filtered list, and then there is no `ctrl+e` at all.
+- **The group order is the reference's comparator** (0x102bde610): the group
+  of the session's current conversation first, then the other workspaces by
+  their newest conversation (descending), then by label, and the
+  workspace-less group (`[No Workspace]`) last. The pin is what puts the
+  reference's own `gear` group on top although its timestamp is older than
+  the next group's — it is not a different comparator.
+- **A group shows at most five conversations.** The cap is on the *model*,
+  not on the window: expanding the reference's 486-conversation group grew
+  its tree from 12 rows to 15.
+- **`enter` and `ctrl+e` both toggle the group under the cursor**, and the
+  cursor stays where it was (a group row stays a group row; a conversation
+  stays its conversation). `f2` and `f4` act on a *conversation* and do
+  nothing at all on a group row.
+- **The picker's palette is its own**, not the command picker's: the cursor
+  and the hint's keys are `38;2;66;133;244`, the right-hand cells of a row
+  are `38;2;60;64;67`, the hint's labels and the page indicator are
+  `38;2;95;99;104`, the inactive tab is `38;2;218;220;224`.
+
+The geometry, measured at a 200-column window — **both** rows are 200 cells
+wide and both right-hand blocks end at the last column:
+
+```
+group row         2 cursor + 2 marker + 170 label + 12 count + 14 age
+conversation row  2 cursor + 2 indent + 170 title + 12 steps + 2 + 12 age
+```
+
+Measure the rows in **cells**, not in runes: a CJK title is two cells wide,
+so the reference's own conversation row reads 194 runes but 200 cells.
+
+Report: `docs/cycles/cycle-336-resume-workspace-tree/`.
+
+---
+
+## The slash-command surface (cycle 351)
+
+The reference's slash surface is three surfaces that share one command
+vocabulary: the **picker** (`/` at an empty prefix), the **TUI panels**
+(the commands that open one), and the **print mode** (`agy -p /<cmd>`).
+This section records what agy 1.4.8 does on each, and the three places the
+clone was wrong.
+
+### The picker's catalogue
+
+The reference's picker lists **105** entries — the `/help` COMMANDS tab
+reports the same count ("[1-33 of 105 items]"). The clone's catalogue holds
+**109**: the reference's 105 plus four documented clone-only commands
+(`/feature-diff`, `/accounts`, `/provider`, `/pool`).
+
+| | |
+|---|---|
+| the reference's rows | 105 — 59 built-in commands and workspace skills, 41 `/science:*` skills, 6 `/chrome-devtools-plugin:*` skills, 2 `/modern-web-guidance-plugin:*` skills |
+| the clone's own four | `/feature-diff`, `/accounts`, `/provider`, `/pool` |
+| the filter | **none** — 1.4.8 shows every row, including the `chrome-devtools-plugin:*` ones the 1.3.6 filter used to hide |
+
+The plugin rows are environment state: the reference enumerates the installed
+plugins at runtime, and the clone keeps a snapshot of them
+(`internal/tuilib/commands.go`).
+
+### Which panels echo "Exited /<cmd> command"
+
+Escaping a panel leaves a `⎿  Exited /<cmd> command` line in the
+transcript — for **ten** commands only. The reference's own binary carries
+ten literal messages ("Exited /diff command", "/help", "/hooks", "/model",
+"/tasks", "/agents", "/effort", "/skills", "/credits", "/artifact") plus one
+generic format string ("Exited %-*s %s"), which is how `/config`'s own
+message is built. Every other panel closes silently.
+
+| echoes | closes silently |
+|---|---|
+| `/config`, `/diff`, `/skills`, `/agents`, `/effort`, `/credits`, `/artifact`, `/model`, `/hooks`, `/tasks`, `/help` | `/usage`, `/permissions`, `/context`, `/codesearch`, `/changelog`, `/plugin`, `/mcp`, `/feedback`, `/rewind`, `/add-dir` |
+
+`/add-dir` is not a panel at all in the reference — it answers
+`error: no directory specified` inline — so it does not echo either.
+
+### `/statusline` is a toggle
+
+A **bare** `/statusline` toggles the status line:
+
+| input | answer |
+|---|---|
+| `/statusline` (off → on) | `Statusline on.` |
+| `/statusline` (on → off) | `Statusline off. Run /statusline to re-enable.` |
+| `/statusline on` / `/statusline enable` | `Statusline on.` |
+| `/statusline off` / `/statusline disable` | `Statusline off.` |
+
+The explicit `off` answers with the **short** form; only the bare toggle
+answers with the long one, which also tells the user how to switch it back
+on (`internal/tuilib/feedback.go`).
+
+### The `/skills` panel renders the icon next to the name
+
+The catalogue keeps the **bare** frontmatter name — `agy -p /skills` prints
+`automation`, and the JSON payload carries the six keys `name`,
+`description`, `path`, `plugin`, `builtin`, `model_invocable` and **no**
+icon. The *panel* is the surface that renders the icon: the frontmatter's
+`metadata.icon`, one space, then the name.
+
+```
+metadata:            name: automation
+  icon: schedule   →  "schedule automation"
+```
+
+The icon is rendered **verbatim** — the reference filters it against no table
+of known glyphs, so a skill with `metadata.icon: zzznotanicon` lists as
+`zzznotanicon zziconprobe`. It travels next to the name rather than inside
+it (`printmode.SkillInfo.Icon` is `json:"-"`), and it heads the skill's
+detail view as well.
+
+The built-in group is sorted by the **bare** name — `agy-customizations`,
+`antigravity-guide`, `automation`, `migrate-workflows`, `run-workflow` —
+which is why "automation" sits between "antigravity-guide" and
+"migrate-workflows" even though its row reads "schedule automation".
+
+### The print-mode surfaces: `/config`, `/usage`, `/changelog`
+
+- **`/config` is a union.** The dump carries the reference's 36 known keys
+  **plus every key in `settings.json`** — a file-only key
+  (`dismissedAnnouncements`) sits at its alphabetical place. The keys are
+  sorted globally, and a value renders by its JSON type: a string bare, an
+  object or a list as compact JSON on one line, a number or a boolean as its
+  literal, and a null as an **empty cell**.
+- **The defaults are the reference's 1.4.8 defaults**, not the 1.3.6 ones
+  the clone carried: `artifactReviewPolicy` is `asks-for-review`,
+  `toolPermission` is `request-review` and `colorScheme` is `terminal`. The
+  seven nullable keys (`customModelsConfig`, `gcp`, `permissions`,
+  `sandboxProxy`, `statusLine`, `title`, `trustedWorkspaces`) are **null**
+  when they are absent — not an empty object and not an empty list. The
+  official settings reference agrees on every default it lists.
+- **An explicit `null` decodes to the zero value of the key's type**: a
+  string key becomes `""` (not its default), a number key `0`, a boolean key
+  `false`; a key the reference does not know keeps its `null`.
+- **`init.permission_mode` follows the same setting.** With an empty
+  `settings.json` the reference's init event reports `request-review` — the
+  value the 1.1.0 changelog calls the default. The `always-proceed` the
+  cycle-113 capture carries came from a capture machine whose `settings.json`
+  set `toolPermission` explicitly; the file value wins.
+- **`/usage` is tab-separated**, four columns per row —
+  `<group>\t<bucket>\t<pct>%\t<RFC3339 UTC>` — and the text answer is the
+  payload rendered, not a separate "Quota:" line.
+- **`/changelog` prints the reference's own release blob** — 176 788 bytes
+  at 1.4.8, topping out at `## 1.4.7` — with a single trailing newline.
+
+Report: `docs/cycles/cycle-351-slash-command-alignment/deliverable.md`.
+
+### A tabbed panel: `/accounts` (cycle 361)
+
+The reference's panels are single-view. The clone's `/accounts` panel has
+**two**: the accounts the user signed in to, and the **Pool** tab — the
+account-routing policy that decides which of them serves a turn. The tab bar
+is the `/resume` picker's own: the active tab is bold, underlined and blue, the
+inactive one is the separator grey, and the row ends with *"(tab to cycle)"*.
+
+`/pool` is the same panel opened on the Pool tab, so the policy has a command
+of its own as well as a place in the account list.
+
+The rules that make it work:
+
+- **The cursor belongs to the view.** `m.panel.cursor` is shared by every
+  panel kind, so a tab change resets it — the Pool tab opens on its first row,
+  the account list on its first account.
+- **The panel owns every key.** The Pool tab turns `←/→` into "change this
+  value" and `enter` into "edit this field", so its handler runs *before* the
+  generic list navigation (`internal/cliapp/slash_panel_keymap.go`) and never
+  falls through to it.
+- **A change is written out at once.** The policy is read per turn, so a
+  policy changed in the panel is the policy the next turn runs on. See
+  [`accounts.md`](accounts.md) for the writer and the router.
+
+Report: `docs/cycles/cycle-361-account-pool-panel/deliverable.md`.

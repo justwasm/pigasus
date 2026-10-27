@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"io"
 	"strings"
+
+	"github.com/justwasm/pigasus/palette"
 )
 
 // ColorScheme is one of the 8 named options in the color-scheme
@@ -194,8 +196,22 @@ func Palettes() []Palette {
 
 // PaletteFor returns the palette for a given scheme. Convenience
 // helper used by renderGoPreview.
+//
+// The four syntax roles are the reference's own: it paints the preview
+// card's `import`/`func` in the keyword colour, `"fmt"` in the string
+// colour, `main`/`greet` in the function colour and `string` in the
+// type colour, and every one of them changes with the scheme.
+//
+// 【一手】 agy 1.4.8's /config → Color Scheme preview card, read off
+// under each of the eight schemes (see palette.SyntaxFor).
 func PaletteFor(c ColorScheme) Palette {
-	return Palettes()[int(c)]
+	p := Palettes()[int(c)]
+	syn := palette.SyntaxFor(c.String())
+	p.Keyword = syn.Keyword
+	p.String = syn.String
+	p.FunctionName = syn.Function
+	p.Type = syn.Type
+	return p
 }
 
 // stepNameColorScheme is the literal header line shown at the top of the wizard

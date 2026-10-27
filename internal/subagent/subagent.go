@@ -278,6 +278,19 @@ func (s *Subagent) ErrorReason() string {
 	return s.LastError
 }
 
+// Output returns the output the sub-process wrote to stdout.
+//
+// It is empty until the process exits — Wait copies the capture buffer
+// into Result before it reports the terminal state. The taskregistry
+// bridge reads it through this accessor (not the public Result field)
+// so the /tasks detail view can show a finished task's output without
+// racing Wait's write.
+func (s *Subagent) Output() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.Result
+}
+
 // StatusLine returns the one-line status label the /agents panel and
 // the running-agents list render for the Subagent:
 //

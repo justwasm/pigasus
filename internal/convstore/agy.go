@@ -6,6 +6,9 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
+
+	"github.com/justwasm/pigasus/internal/agystep"
 )
 
 // Step type ids, recovered from the reference's own conversation databases.
@@ -30,6 +33,19 @@ type Step struct {
 	// Text holds the user prompt, the model's response, an error message or a
 	// system notice, depending on Type.
 	Text string
+	// Thinking holds the model's reasoning for StepModelResponse.
+	//
+	// 【一手】 the reference's own stored model-response blob carries the
+	// thinking: the planner-response message has a `thinking` field next to
+	// the answer, and the Web UI's collapsible "Thought for Ns" panel is
+	// rendered from it. A step without it shows the answer alone.
+	Thinking string
+	// ThinkingDuration is how long the model thought before it answered.
+	//
+	// 【一手】 the reference's blob carries it as a
+	// google.protobuf.Duration next to the thinking — the stored value
+	// read back as "6.773079s".
+	ThinkingDuration time.Duration
 	// ToolName and ToolArgs are set for StepToolCall. ToolArgs is the raw JSON
 	// the model produced, e.g. {"CommandLine":"ls","Cwd":"/tmp"}.
 	ToolName string
@@ -199,7 +215,15 @@ func parseStepPayload(s *Step, payload []byte) {
 		parseUserInputStep(s, top)
 	case StepModelResponse:
 		if p20 := protoBytes(top, 20); p20 != nil {
-			s.Text = protoText(protoFields(p20), 1)
+			f20 := protoFields(p20)
+			s.Text = protoText(f20, 1)
+			// The planner-response message carries the model's
+			// reasoning next to the answer: field 3 is the thinking,
+			// field 11 the google.protobuf.Duration it took.
+			s.Thinking = protoText(f20, 3)
+			if d := protoBytes(f20, 11); d != nil {
+				s.ThinkingDuration = protoDuration(protoFields(d))
+			}
 		}
 	case StepToolCall:
 		parseToolCallStep(s, top)
@@ -418,9 +442,10 @@ func FindConversation(id string) string {
 // step_payload.field_140.field_2.field_1 so it matches what the
 // reference's tool-result renderer shows.
 //
-// The convstore records run_command output as
+// The reference prints a run_command result in one of two shapes:
 //
-//	"The command exited with code N.\nOutput:\n<actual stdout>\n"
+//	"The command exited with code N.\nOutput:\n<actual stdout>\n"   (step string)
+//	"Command exited with code N.\n\nCommand output:\n<actual stdout>\n"   (CLI formatter)
 //
 // with CRLF (`\r\n`) line endings inside the actual stdout. The
 // reference strips both the boilerplate prefix and the trailing `\r`
@@ -434,15 +459,33 @@ func FindConversation(id string) string {
 //     when it leads the text,
 //   - normalise CRLF to LF,
 //   - trim leading and trailing newlines.
+//
+// Cycle 298: the reference's 1.4.4+ results carry the CLI formatter's
+// shape, so the same prefix has to go. The reader is internal/agystep's,
+// which knows both shapes.
 func cleanToolResult(raw string) string {
 	s := raw
-	// Drop the run_command boilerplate prefix when present. Only strip
-	// when the prefix is at the head of the string, so a user payload
-	// that happens to contain "Output:" mid-line is preserved verbatim.
-	if i := strings.Index(s, "Output:\n"); i >= 0 {
-		pre := strings.TrimSpace(s[:i])
-		if pre == "" || strings.HasPrefix(pre, "The command exited with code") {
-			s = s[i+len("Output:\n"):]
+	// A command result is read whole: internal/agystep's reader knows both
+	// shapes and hands back the output without the boilerplate. It only
+	// fires when the result carries an output block — a command that
+	// printed nothing keeps its text.
+	if res, ok := agystep.ParseRunCommandResult(s); ok && res.HasOutput {
+		s = res.Output
+	} else {
+		// Drop the run_command boilerplate prefix when present. Only strip
+		// when the prefix is at the head of the string, so a user payload
+		// that happens to contain "Output:" mid-line is preserved verbatim.
+		if i := strings.Index(s, "Output:\n"); i >= 0 {
+			pre := strings.TrimSpace(s[:i])
+			if pre == "" || strings.HasPrefix(pre, "The command exited with code") {
+				s = s[i+len("Output:\n"):]
+			}
+		}
+		if i := strings.Index(s, "Command output:\n"); i >= 0 {
+			pre := strings.TrimSpace(s[:i])
+			if pre == "" || strings.HasPrefix(pre, "Command exited with code") {
+				s = s[i+len("Command output:\n"):]
+			}
 		}
 	}
 	// CRLF -> LF so a stray carriage return doesn't move the cursor

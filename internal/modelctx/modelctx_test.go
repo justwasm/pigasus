@@ -145,7 +145,8 @@ func TestForUnknownModelFallsBack(t *testing.T) {
 // compaction rule needs: `contextWindow - reserveTokens` must stay
 // positive, or every turn would cross the threshold.
 func TestEveryLimitLeavesRoomForTheReserve(t *testing.T) {
-	for id, l := range limits {
+	for id, m := range catalogue {
+		l := m.limit()
 		if l.ContextWindow <= 0 {
 			t.Errorf("%s: window = %d, want > 0", id, l.ContextWindow)
 		}

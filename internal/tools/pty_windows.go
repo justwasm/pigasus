@@ -8,10 +8,24 @@
 // so no pty is claimed here.
 package tools
 
-import "os/exec"
+import (
+	"io"
+	"os/exec"
+)
 
 // RunWithPTYStdin runs cmd without a pseudo-terminal. See the unix build for
 // the pty path and docs/cycles/cycle-277 for what that path reproduces.
 func RunWithPTYStdin(cmd *exec.Cmd) error {
-	return cmd.Run()
+	wait, _, err := startWithPTYStdin(cmd, true)
+	if err != nil {
+		return err
+	}
+	return wait()
+}
+
+// startWithPTYStdin is the windows counterpart of the unix build's split:
+// there is no pty, so the command runs with the caller's stdio and there
+// is no stdin writer to hand back.
+func startWithPTYStdin(cmd *exec.Cmd, eof bool) (func() error, io.WriteCloser, error) {
+	return func() error { return cmd.Run() }, nil, nil
 }

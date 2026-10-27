@@ -35,11 +35,19 @@ import (
 // synthesized prompt to m.session, and starts the model stream via
 // sendAsPrompt. /keybindings opens ~/.gemini/antigravity-cli/keybindings.json
 // in the configured editor (creates the file with "{}" if missing).
-// /schedule and /browser return a "Error ID: <uuid>-1" message to match
-// the reference's behaviour for commands that have no backend.
+//
+// Cycle 342: /schedule joined the prompt-sending commands — the
+// reference's capture of it shows model output under the command, and
+// the model registers the schedule through the `schedule` tool. /browser
+// runs the browser agent (the reference's own description: "Invoke a
+// browser agent for web tasks."). Both used to print a hard-coded
+// "Error ID: <uuid>-1" quota block: the reference's capture of them was
+// taken while the *reference account's* quota was exhausted, so the
+// capture held the failure and the clone reproduced it — a false
+// statement about the reader's own quota (see slash_browser.go).
 //
 // Handlers mutate m.response to show user echo + feedback, reset
-// m.input/m.picker, and never call the model — except the four prompt-
+// m.input/m.picker, and never call the model — except the five prompt-
 // sending commands above, which delegate to sendAsPrompt.
 //
 // Cycle 195: every slash command that produces a transcript message now
@@ -348,6 +356,19 @@ func boostPrompt() string {
 
 func grillMePrompt() string {
 	return "Interrogate my reasoning on the topic I just raised. Ask probing questions that expose weak assumptions, missing evidence, or unstated tradeoffs. Keep going until I've either tightened the argument or admitted it's not yet defensible."
+}
+
+// schedulePrompt is the prompt /schedule sends to the model.
+//
+// The reference's /schedule is a shortcut for a normal model call — the
+// reference's capture shows model output under the command (cycle 194) —
+// and the model then registers the schedule through the `schedule` tool,
+// which the clone carries (internal/tools/schedule_state.go).
+//
+// The wording is the clone's own, like the other prompt-sending
+// commands' (the reference's own prompt text is not recoverable).
+func schedulePrompt() string {
+	return "Register this instruction to run later, as a one-time timer or on a recurring schedule. Tell me when it is registered, when it will first run, and what it will do."
 }
 
 func (m *runMode) slashPlan(args string) (bool, tea.Cmd) {

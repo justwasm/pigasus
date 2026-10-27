@@ -160,9 +160,11 @@ func RehydrateSendMessage(args json.RawMessage) (map[string]string, bool) {
 // into the store.
 //
 // The definition comes back exactly as the live handler stored it: the
-// name is the key, and the system prompt is both the prompt and the
-// system prompt of the invocation (that is what the live handler does
-// — see define.go).
+// name is the key, the system prompt is both the prompt and the system
+// prompt of the invocation (that is what the live handler does — see
+// define.go), and the three tool grants come back with it, so a
+// resumed conversation's subagents run under the same authorization
+// they were defined with.
 func (d *Store) RestoreDefinition(meta map[string]string) bool {
 	name := strings.TrimSpace(meta[metaName])
 	if name == "" {
@@ -175,8 +177,33 @@ func (d *Store) RestoreDefinition(meta map[string]string) bool {
 	if name == "" || prompt == "" {
 		return false
 	}
-	d.Put(name, Invocation{Prompt: prompt, SystemPrompt: prompt})
+	d.Put(name, Invocation{
+		Prompt:       prompt,
+		SystemPrompt: prompt,
+		Grant: Grant{
+			Write:    metaBool(meta, metaEnableWriteTools, metaEnableWriteToolsAlt),
+			MCP:      metaBool(meta, metaEnableMCPTools, metaEnableMCPToolsAlt),
+			Subagent: metaBool(meta, metaEnableSubagentTools, metaEnableSubagentToolsAlt),
+		},
+	})
 	return true
+}
+
+// metaBool reads a boolean grant out of the rehydration metadata.
+//
+// The reference writes both spellings of the three grants, and only
+// the ones the argument set — an absent key means "not granted".
+func metaBool(meta map[string]string, key, alt string) bool {
+	for _, k := range []string{key, alt} {
+		raw, ok := meta[k]
+		if !ok {
+			continue
+		}
+		if b, err := strconv.ParseBool(strings.TrimSpace(raw)); err == nil {
+			return b
+		}
+	}
+	return false
 }
 
 // RestoreManageSubagents writes a rehydrated manage_subagents delta

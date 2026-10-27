@@ -76,10 +76,10 @@ func (m *runMode) btwModel() *ai.Model {
 //
 // In reference agy:
 //   - If args is empty:
-//       If history exists and no question is active, shows history card (ShowBtwHistory).
-//       Else emits "Usage: /btw <question>".
+//     If history exists and no question is active, shows history card (ShowBtwHistory).
+//     Else emits "Usage: /btw <question>".
 //   - If a question is already active (IsBtwActive), emits:
-//       "A /btw question is already in progress. Please wait for it to finish."
+//     "A /btw question is already in progress. Please wait for it to finish."
 //   - Otherwise, dispatches the question, sets active card index, and renders above the input.
 func (m *runMode) runBtwSideQuestion(args string) tea.Cmd {
 	trimmed := strings.TrimSpace(args)
@@ -422,4 +422,3 @@ func (m *runMode) aboveInputCard() string {
 	}
 	return ""
 }
-

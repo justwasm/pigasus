@@ -5,7 +5,13 @@
 // Stdlib-only. No third-party deps.
 package remotecontrol
 
-import "os"
+import (
+	"os"
+
+	"github.com/justwasm/pigasus/agentbrowser"
+	"github.com/justwasm/pigasus/internal/rcaudio"
+	"github.com/justwasm/pigasus/internal/rcterminal"
+)
 
 // DefaultPermissions is the file mode used when Config.Permissions is zero.
 const DefaultPermissions os.FileMode = 0o600
@@ -128,6 +134,18 @@ type Config struct {
 	//
 	// Cycle rc-piagent-bind adds this.
 	MessageBackend MessageBackend
+
+	// Browser is the seam the three agent↔browser RPCs
+	// (SubscribeToAgentBrowserRequests /
+	// UpdateAgentBrowserSubscription /
+	// FulfillAgentBrowserRequest) call into.
+	// nil → the dispatcher has no browser surface and the three
+	// methods answer with a -32603; production wiring installs one
+	// broker that the IDE turn's `webview_browser` tool shares, so
+	// the agent half and the IDE half meet in the same instance.
+	//
+	// Cycle rc-agent-browser adds this.
+	Browser *agentbrowser.Broker
 
 	// LastDeepLink is the threadsafe holder the
 	// remoteControlDeepLink handler stamps on
@@ -319,6 +337,29 @@ type Config struct {
 	// cascade's TerminalOutput() chan.
 	TerminalsRegistry *TerminalsRegistry
 
+	// WebTerminals is the seam the Web UI's terminal methods
+	// (CreateTerminal, ListTerminals, SendTerminalInput,
+	// StreamTerminalOutput, CloseTerminal) call into. nil → the
+	// dispatcher has no terminal surface; production wires a
+	// registry whose terminals are live shells on a pty.
+	//
+	// This is a *different* surface from TerminalsRegistry: the
+	// dashboard's RemoteAgentTerminal* methods keep their own
+	// contract, the Web UI's own methods keep the reference's
+	// exa.language_server_pb messages.
+	//
+	// Cycle rc-web-terminals adds this.
+	WebTerminals *rcterminal.Registry
+
+	// WebAudio is the seam the Web UI's voice methods
+	// (StreamAudioTranscription, SendAudioChunk, EndAudioSession)
+	// call into. nil → the dispatcher has no voice surface;
+	// production wires a registry whose sessions transcribe with
+	// the Gemini transport.
+	//
+	// Cycle rc-web-terminals adds this.
+	WebAudio *rcaudio.Registry
+
 	// OriginPolicyStore is the seam the
 	// single SetRemoteControlOriginPatterns
 	// method (cycle rc-auth-tokens) calls
@@ -340,6 +381,43 @@ type Config struct {
 	//
 	// Cycle rc-auth-tokens adds this.
 	OriginPolicyPath string
+
+	// AccountEmail is the signed-in account's email address. The
+	// Web UI shows it in its account chip, so it must be the real
+	// address of the account the user is signed in to — not a
+	// synthesised local one. Empty → the dispatcher falls back to
+	// "<user>@pigasus.local" (the placeholder the clone used
+	// before the Web UI's account chip was wired).
+	//
+	// The host owns this seam (rchost reads it from
+	// accounts.Current) so this package keeps no dependency on the
+	// accounts store.
+	AccountEmail string
+
+	// RemoteControlInstanceID is the id the cloud tunnel registered
+	// this instance under. GetRemoteControlInfo hands it to the Web
+	// UI, which builds the browser URL
+	// "{companionOrigin}/r/{instanceId}" out of it — so it has to
+	// be the very id the registration carried, not a local
+	// placeholder. Empty → the dispatcher falls back to
+	// "pigasus-local".
+	//
+	// The host owns this seam (rchost mints the id with
+	// rctunnel.NewInstanceID and passes it to both the dispatcher
+	// and the tunnel client).
+	RemoteControlInstanceID string
+
+	// CompanionOrigin is the origin of the companion web app that
+	// serves the browser-side remote-control view. The Web UI
+	// appends "/r/{instanceId}" to it.
+	//
+	// 【strings】 the reference binary carries the documentation
+	// link "https://antigravity.google/docs/ide/browser" — the
+	// browser IDE — and the Web UI builds the remote-control URL as
+	// "{companionOrigin}/r/{instanceId}", so the companion app
+	// lives under the same origin. Empty → the dispatcher falls
+	// back to "https://antigravity.google".
+	CompanionOrigin string
 
 	// DeferredFeatures is the
 	// forward-compat map the
@@ -392,4 +470,26 @@ type Config struct {
 	// Cycle rc-webrtc-mesh-defer adds
 	// this.
 	DeferredFeatures map[string]bool
+
+	// MendelUserAgent is the identity the GetMendelFlags answer's
+	// backend read carries.
+	//
+	// The backend serves a *different* flag set per product: the
+	// hub's set carries the desktop app's features (voice input, the
+	// jetbox terminal, the aux pane redesign), the CLI's set does
+	// not. The Web UI drops the features those flags gate, so the
+	// identity decides which UI the page shows.
+	//
+	// 【一手】 measured 2026-10-27 — the same token, the same body,
+	// the same endpoint, only the User-Agent differing:
+	//
+	//	antigravity/hub/…  → enable-audio-transcription: true
+	//	antigravity/cli/…  → enable-audio-transcription: false
+	//	antigravity/ide/…  → enable-audio-transcription: false
+	//
+	// Empty → the CLI's own identity (auth.MendelUserAgentCLI), which
+	// is the default: the clone's page is the CLI's page.
+	//
+	// Cycle web-desktop-mode adds this.
+	MendelUserAgent string
 }

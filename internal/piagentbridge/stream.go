@@ -2,6 +2,7 @@ package piagentbridge
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"strings"
 	"time"
@@ -10,6 +11,7 @@ import (
 	pi "github.com/MichaelKinsy/PiG/ai"
 
 	"github.com/justwasm/pigasus/internal/backend"
+	"github.com/justwasm/pigasus/internal/tools"
 )
 
 // BackendStreamFn adapts a backend.Client into an agent.StreamFn.
@@ -86,16 +88,50 @@ func appendStreamRequestMessage(req *backend.StreamRequest, message pi.Message) 
 		}
 		appendStreamRequestTools(req, m.ToolsAdded)
 	case pi.UserMessage:
-		req.Messages = append(req.Messages, backend.Message{Role: "user", Content: userText(m)})
+		req.Messages = append(req.Messages, backend.Message{
+			Role:    "user",
+			Content: userText(m),
+			Images:  userImages(m),
+		})
 	case pi.AssistantMessage:
 		req.Messages = append(req.Messages, buildStreamRequestAssistant(m))
 	case pi.ToolResultMessage:
+		text := toolResultText(m)
 		req.Messages = append(req.Messages, backend.Message{
 			Role:       "tool",
-			Content:    toolResultText(m),
+			Content:    text,
 			ToolCallID: m.ToolCallID,
 			Name:       m.ToolName,
+			Result:     toolResultPayload(m),
+			// A tool that *threw* is flagged by the runtime; a tool
+			// that failed the way the reference's own tools fail — by
+			// writing its failure text — is not, because the wording
+			// is what the clone has to read. Both are errors on the
+			// wire (【一手】 agy 1.4.8, see internal/tools/failure.go).
+			IsError: m.IsError || tools.IsFailureText(text),
 		})
+	}
+}
+
+// toolResultPayload returns the structured value a tool answered with, when
+// it answered with one.
+//
+// A tool's details are where a structured answer travels: the reference's
+// `grep_search` answers with the files it matched rather than with text, so
+// its details carry that value and the transport sends it as it is instead
+// of wrapping the text in an `output` member.
+//
+// Anything that is not an object is dropped — the transports have no way to
+// send a bare value, and the text still carries whatever the tool wrote.
+func toolResultPayload(m pi.ToolResultMessage) map[string]any {
+	switch details := m.Details.(type) {
+	case map[string]any:
+		if len(details) == 0 {
+			return nil
+		}
+		return details
+	default:
+		return nil
 	}
 }
 
@@ -458,6 +494,32 @@ func userText(message pi.UserMessage) string {
 		return builder.String()
 	}
 	return ""
+}
+
+// userImages reads the images a user message carries.
+//
+// PiG's image block holds the base64 payload (ai.ImageContent.Data) and
+// the media type beside it; the clone's neutral shape holds the bytes.
+// A block whose payload is not valid base64 is dropped rather than sent
+// as garbage — the model would answer a broken image with a guess.
+func userImages(message pi.UserMessage) []backend.ImagePart {
+	content, ok := message.Content.(pi.UserContentBlocks)
+	if !ok {
+		return nil
+	}
+	var images []backend.ImagePart
+	for _, block := range content {
+		image, ok := block.(pi.ImageContent)
+		if !ok || image.Data == "" {
+			continue
+		}
+		data, err := base64.StdEncoding.DecodeString(image.Data)
+		if err != nil || len(data) == 0 {
+			continue
+		}
+		images = append(images, backend.ImagePart{MIMEType: image.MimeType, Data: data})
+	}
+	return images
 }
 
 // assistantText joins the text blocks of an assistant turn. It takes the block

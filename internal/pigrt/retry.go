@@ -24,14 +24,14 @@
 // 1.3.4 cap. This file is the single seam: ConfigureProviderRetry is
 // the provider knob, and the SettingsManager is built with the same
 // constant in runtime.buildDefaultSettingsManager. The retry package
-// itself (internal/retry) owns the number; everything in this file
+// itself (retry) owns the number; everything in this file
 // reads from it so the cap cannot drift between paths.
 package pigrt
 
 import (
 	"github.com/MichaelKinsy/PiG/ai"
 
-	"github.com/justwasm/pigasus/internal/retry"
+	"github.com/justwasm/pigasus/retry"
 )
 
 // init pins the provider-request retry transport to the clone's

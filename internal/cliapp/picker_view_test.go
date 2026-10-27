@@ -101,10 +101,12 @@ func TestPickerView_MoreTailTracksWindow(t *testing.T) {
 	m := NewRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
 	m.Update(runeKey('/'))
 	body := m.pickerView()
-	// With /teamwork, /boost, /accounts and /provider added, the picker shows 99 visible-filtered
-	// entries. With 5 in the window, the tail is "94 more".
-	if !strings.Contains(body, "94 more") {
-		t.Errorf("default picker tail should be '94 more' (=99 - 5 visible), got tail: %q", tailOf(body))
+	// Cycle 351: the picker now holds every catalogue row — the
+	// chrome-devtools-plugin:* filter is gone — so the 109 entries
+	// (the reference's 105 plus /feature-diff, /accounts, /provider,
+	// /pool) give a "104 more" tail with 5 in the window.
+	if !strings.Contains(body, "104 more") {
+		t.Errorf("default picker tail should be '104 more' (=109 - 5 visible), got tail: %q", tailOf(body))
 	}
 	for i := 0; i < 50; i++ {
 		m.Update(key(tea.KeyDown, 0))
@@ -114,8 +116,8 @@ func TestPickerView_MoreTailTracksWindow(t *testing.T) {
 	if cnt < 0 {
 		t.Fatalf("could not parse tail count after scroll: %q", body)
 	}
-	if cnt >= 98 {
-		t.Errorf("after scrolling, tail should be < 98, got %d", cnt)
+	if cnt >= 108 {
+		t.Errorf("after scrolling, tail should be < 108, got %d", cnt)
 	}
 }
 
@@ -188,8 +190,9 @@ func min(a, b int) int {
 // Cycle 131: descriptions longer than 48 chars are truncated to
 // 45 chars + "...". Short descriptions pass through unchanged.
 // Captured reference truncation widths:
-//   /btw (57 chars) → "Ask a side question without interrupting the ..."
-//   /codesearch (57 chars) → "Search code in the workspace (usage: /codesea..."
+//
+//	/btw (57 chars) → "Ask a side question without interrupting the ..."
+//	/codesearch (57 chars) → "Search code in the workspace (usage: /codesea..."
 func TestPickerView_DescriptionTruncation(t *testing.T) {
 	if got := truncatePickerDesc("short"); got != "short" {
 		t.Errorf("short desc should pass through, got %q", got)

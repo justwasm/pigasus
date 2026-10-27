@@ -214,6 +214,13 @@ type Cascade struct {
 // stays empty, etc.). The host's main() builds a CascadeOpts
 // from the resolved CLI flags, but tests construct one directly.
 type CascadeOpts struct {
+	// ID is an explicit cascade id. Empty means "mint one" — the
+	// clone's own "cas_<hex>" format. The IDE's Web UI mints the
+	// uuid itself and sends it as StartCascade's `cascadeId`, then
+	// uses the same uuid as the conversation id; a non-empty ID
+	// makes the clone keep the client's id so the follow-up
+	// SendUserCascadeMessage finds the cascade.
+	ID           string
 	ClientInfo   CascadeClientInfo
 	ProjectID    string
 	Model        string

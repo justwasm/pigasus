@@ -14,12 +14,15 @@
 //   - RunShellCommand.Run   (the `run_shell_command` tool, mvdan/sh)
 //   - ExecCommand.Run       (the `exec_command` tool, explicit env)
 //   - bgTable.start         (background-mode run_command)
-//   - gitBase.run           (the `git_*` tools, e.g. git_commit)
 //
 // Each is covered below. The `git commit` no-`-m` test is the
 // behavioural one — without the env override it would block forever on
 // $EDITOR; with GIT_EDITOR=false git exits non-zero immediately with a
 // "there was a problem with the editor 'false'" message on stderr.
+//
+// Cycle 346: the `git_*` tools (a fifth, now-deleted call site of
+// AgentShellEnv) are gone with their two tests. The reference's 1.4.7
+// surface does not advertise them.
 package tools
 
 import (
@@ -305,29 +308,6 @@ func TestRunCommand_GitCommitNoMessage_FailsFast(t *testing.T) {
 	}
 }
 
-// TestGitCommitTool_NoMessage_FailsFast covers the same scenario
-// through the typed `git_commit` tool. With our env injection the tool
-// returns a non-nil error immediately when invoked with the empty
-// message (which is also a required-field error, see git.go:141).
-// The 1.3.6 changelog fix only matters if a future caller drops the
-// empty-message guard; we test both paths.
-func TestGitCommitTool_RequiresMessage(t *testing.T) {
-	dir := initGitRepoForTest(t)
-	g := &GitCommit{Workspace: dir}
-
-	// Empty message is rejected by the schema guard in git.go —
-	// before we even reach exec.Command. This is a guard, not the
-	// fix; the env-based fail-fast is what TestRunCommand_GitCommitNoMessage_FailsFast
-	// covers.
-	_, err := g.Run(context.Background(), json.RawMessage(`{"message":""}`))
-	if err == nil {
-		t.Errorf("git_commit with empty message should error (required-field guard), got nil")
-	}
-	if !strings.Contains(err.Error(), "required") {
-		t.Errorf("err = %q, want it to mention 'required'", err.Error())
-	}
-}
-
 // TestBackgroundCommand_GitEditorSet confirms background-mode
 // run_command also receives the env. We start a background `env`
 // job, wait briefly for it to finish, and check the captured output
@@ -354,7 +334,7 @@ func TestBackgroundCommand_GitEditorSet(t *testing.T) {
 		t.Fatalf("RunCommand(background): %v\n%s", err, out)
 	}
 	s, _ := out.(string)
-	if !strings.Contains(s, "Started cmd-") {
+	if !strings.Contains(s, "Tool is running as a background task with task id: ") {
 		t.Fatalf("background launch did not return the started marker; got: %q", s)
 	}
 
@@ -390,34 +370,9 @@ func TestBackgroundCommand_GitEditorSet(t *testing.T) {
 	}
 }
 
-// TestGitBase_GitEditorSet confirms the gitBase shared by all `git_*`
-// tools also receives the env. We use `git_status --porcelain` after
-// seeding the repo, and assert the env by interposing a one-off
-// `git -c` invocation that prints vars.
-func TestGitBase_GitEditorSet(t *testing.T) {
-	dir := initGitRepoForTest(t)
-	// Sanity probe: gitBase.run is reachable, the env-wrapped
-	// `git config --get user.email` works. Skip on git-version drift
-	// rather than fail the cycle's headline assertion.
-	out, err := (&gitBase{Workspace: dir}).run(context.Background(),
-		"-c", "include.path=/dev/null", // keep config minimal
-		"config", "--get", "user.email")
-	if err != nil {
-		t.Skipf("git --get user.email failed (env already broken?): %v / %s", err, out)
-	}
-	if !strings.Contains(out, "test@example.test") {
-		t.Errorf("gitBase.run output = %q, want it to contain user.email", out)
-	}
-
-	// Headline assertion: a custom args path through gitBase that
-	// requires our env to reach git. `git var GIT_EDITOR` prints
-	// the resolved value of GIT_EDITOR — with our env, it should
-	// print "false".
-	out2, err := (&gitBase{Workspace: dir}).run(context.Background(), "var", "GIT_EDITOR")
-	if err != nil {
-		t.Fatalf("git var GIT_EDITOR: %v (%s)", err, out2)
-	}
-	if got := strings.TrimSpace(out2); got != "false" {
-		t.Errorf("git var GIT_EDITOR = %q, want %q (env fix not reaching git_*)", got, "false")
-	}
-}
+// TestGitBase_GitEditorSet was removed in cycle 346 together with the
+// `git_*` tools it covered: the reference's 1.4.7 surface does not
+// advertise any of them, so the catalogue never registered them and
+// the tools themselves are gone. The env fix they exercised —
+// AgentShellEnv — is still covered by the run_command / run_shell_command
+// / exec_command / background-command tests above.

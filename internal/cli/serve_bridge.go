@@ -25,8 +25,6 @@
 // leave it nil; runRCServe handles that case gracefully.
 package cli
 
-import "fmt"
-
 // ServeArgs is the typed argv slice the parser-supplied
 // runRCServe hands to the cmd/wagyu-supplied serveHandler.
 // We pass a struct (rather than the raw argv tail) so the
@@ -49,6 +47,25 @@ type ServeArgs struct {
 	// this; production leaves it false so the brief's
 	// "trigger OAuth login inline" semantic holds.
 	NoLogin bool
+
+	// Desktop asks the daemon for the reference's *desktop*
+	// UI: the voice input, the jetbox terminal, the
+	// redesigned aux pane.
+	//
+	// The page and the bundle are the same either way — the
+	// switch is the identity the page's Mendel read carries:
+	// the backend serves a different flag set per product,
+	// and the desktop features are in the hub's set.
+	//
+	// 【一手】 measured 2026-10-27 — the same token, the same
+	// body, the same endpoint, only the User-Agent differing:
+	// `antigravity/hub/…` answers enable-audio-transcription:
+	// true, `antigravity/cli/…` answers it false. See
+	// internal/auth.
+	//
+	// This is the `remote-control serve` twin of
+	// `pigasus web --desktop` (WebArgs.Desktop).
+	Desktop bool
 }
 
 // serveHandler is the cmd/wagyu-supplied entry point for
@@ -75,23 +92,3 @@ var serveHandler func(j *JetskiCLI, args ServeArgs) error
 func RegisterServeHandler(fn func(j *JetskiCLI, args ServeArgs) error) {
 	serveHandler = fn
 }
-
-// EnsureServeHandlerRegistered is a small test seam: it
-// reports whether the cmd/wagyu bridge has been wired into
-// the parser. The cli-internal test rig uses it to gate
-// integration assertions (e.g. "did main.go actually call
-// RegisterServeHandler?") without exposing the package-level
-// var directly.
-func EnsureServeHandlerRegistered() bool {
-	return serveHandler != nil
-}
-
-// errServeHandlerNotRegistered is the in-package error
-// sentinel a future direct-caller path can return when the
-// bridge has not been wired. Today runRCServe itself emits
-// the "no handler registered" notice to stderr and exits
-// nil; this sentinel is parked for a future cycle that
-// wants to surface the gap as an actual exit-3 (e.g. so the
-// parity verifier can spot a binary built without the
-// bridge).
-var errServeHandlerNotRegistered = fmt.Errorf("serve handler not registered")

@@ -9,6 +9,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/justwasm/pigasus/endpoints"
+	"github.com/justwasm/pigasus/internal/accounts"
+	"github.com/justwasm/pigasus/internal/auth"
 	"github.com/justwasm/pigasus/internal/persistentrc"
 )
 
@@ -89,6 +92,8 @@ func runRCParent(j *JetskiCLI, args []string) error {
 //	              $TMPDIR/openagy-remote-control-<name>.log)
 //	--name        machine instance label (default: hostname)
 //	--session     login-scoped instead of boot-time
+//	--desktop     serve the desktop UI (the voice input, the
+//	              jetbox terminal, the aux pane)
 //
 // On success, prints
 //
@@ -97,11 +102,18 @@ func runRCParent(j *JetskiCLI, args []string) error {
 // to stdout so wrapper scripts can parse the PID without parsing
 // the launchd label.  Errors return as cli.ExitCodeError(1, …) so
 // the process exits with the right code without an extra banner.
+//
+// `--desktop` is a clone extension: the reference's `start` usage
+// block lists `--name` and `--session` only, and so does ours —
+// the flag is accepted, not advertised, the same way `--addr` and
+// `--log-file` are. It reaches the daemon through the LaunchAgent
+// plist and turns the daemon's Mendel read into the hub's identity.
 type rcStartOpts struct {
 	addr     string
 	name     string
 	logFile  string
 	session  bool
+	desktop  bool
 	showHelp bool
 }
 
@@ -140,6 +152,8 @@ func parseRCStartFlags(j *JetskiCLI, args []string, usage string) (rcStartOpts, 
 			}
 		case "--session":
 			opts.session = true
+		case "--desktop":
+			opts.desktop = true
 		default:
 			return opts, usageFail(j, usage, "Error: flags provided but not defined: "+flagName(a))
 		}
@@ -148,14 +162,18 @@ func parseRCStartFlags(j *JetskiCLI, args []string, usage string) (rcStartOpts, 
 }
 
 func startOfficialDaemon(j *JetskiCLI, ctx context.Context, opts rcStartOpts) error {
-	if err := persistentrc.StartOfficialDaemon(ctx, opts.name, opts.session); err != nil {
+	if curTok, curEmail := accounts.Current(); curTok != nil && curEmail != "" {
+		_ = auth.SaveTokenUnified(curTok)
+	}
+	name := persistentrc.ResolveInstanceName(opts.name)
+	if err := persistentrc.StartOfficialDaemon(ctx, name, opts.session, opts.desktop); err != nil {
 		return ExitCodeError(1, fmt.Sprintf("Error: %v", err))
 	}
 	fmt.Fprintln(j.Out, "Remote-control daemon started.")
-	if opts.name != "" {
-		fmt.Fprintf(j.Out, "Open https://antigravity.google.com and look for %q.\n", opts.name)
+	if name != "" {
+		fmt.Fprintf(j.Out, "Open %s and look for %q.\n", endpoints.Current().CompanionOrigin, name)
 	} else {
-		fmt.Fprintf(j.Out, "Run `%s remote-control status` to get this machine's instance name, then open https://antigravity.google.com to find it.\n", j.Name)
+		fmt.Fprintf(j.Out, "Run `%s remote-control status` to get this machine's instance name, then open %s to find it.\n", j.Name, endpoints.Current().CompanionOrigin)
 	}
 	return nil
 }
@@ -178,6 +196,7 @@ func startRCDaemon(j *JetskiCLI, opts rcStartOpts) error {
 		LogFile:    opts.logFile,
 		BinaryPath: binary,
 		Session:    opts.session,
+		Desktop:    opts.desktop,
 	}
 	if err := persistentrc.Start(ctx, spec); err != nil {
 		return ExitCodeError(1, fmt.Sprintf("Error: %v", err))
@@ -210,11 +229,16 @@ func runRCStart(j *JetskiCLI, args []string) error {
 	}
 
 	if opts.name == "" {
-		hn, herr := os.Hostname()
-		if herr != nil || hn == "" {
-			return ExitCodeError(1, fmt.Sprintf("Error: --name is required (could not determine hostname: %v)", herr))
+		opts.name = persistentrc.ResolveInstanceName("")
+		if opts.name == "" {
+			hn, herr := os.Hostname()
+			if herr != nil || hn == "" {
+				return ExitCodeError(1, fmt.Sprintf("Error: --name is required (could not determine hostname: %v)", herr))
+			}
+			opts.name = hn
 		}
-		opts.name = hn
+	} else {
+		opts.name = persistentrc.ResolveInstanceName(opts.name)
 	}
 
 	if opts.logFile == "" {
@@ -301,6 +325,9 @@ func printRCStatusJSON(j *JetskiCLI, ctx context.Context, name string) error {
 	}
 	if report.Name == "" {
 		report.Name = name
+	}
+	if report.Account == "" {
+		report.Account = persistentrc.ResolveActiveAccount()
 	}
 	out, err := json.MarshalIndent(report, "", "  ")
 	if err != nil {

@@ -2,13 +2,12 @@ package announce
 
 import (
 	"strings"
+
+	"github.com/justwasm/pigasus/palette"
 )
 
 const (
-	colorSeparatorOpen  = "\x1b[38;2;95;99;104m"
 	colorSeparatorClose = "\x1b[0m"
-	colorDimGrayOpen    = "\x1b[38;2;95;99;104m"
-	colorWarningBlue    = "\x1b[38;2;66;133;244m"
 	colorWarningClose   = "\x1b[39m"
 )
 
@@ -18,7 +17,7 @@ func RenderCard(card *Card) string {
 		return ""
 	}
 	var b strings.Builder
-	b.WriteString(colorSeparatorOpen)
+	b.WriteString(palette.DimGrayOpen)
 	b.WriteString("  ┌─ announcement ")
 	padLen := 56 - len("  ┌─ announcement ")
 	if padLen < 0 {
@@ -27,15 +26,15 @@ func RenderCard(card *Card) string {
 	b.WriteString(strings.Repeat("─", padLen))
 	b.WriteString(colorSeparatorClose + "\n")
 
-	b.WriteString(colorDimGrayOpen + "  │  " + colorWarningBlue + "ⓘ " + colorWarningClose + card.Title + "\n")
-	b.WriteString(colorDimGrayOpen + "  │  " + card.Body + "\n")
+	b.WriteString(palette.DimGrayOpen + "  │  " + palette.BlueOpen + "ⓘ " + colorWarningClose + card.Title + "\n")
+	b.WriteString(palette.DimGrayOpen + "  │  " + card.Body + "\n")
 
 	hint := card.Hint
 	if hint == "" {
 		hint = "Esc to dismiss · Send a message to hide"
 	}
-	b.WriteString(colorDimGrayOpen + "  │  " + hint + "\n")
+	b.WriteString(palette.DimGrayOpen + "  │  " + hint + "\n")
 
-	b.WriteString(colorSeparatorOpen + "  └" + strings.Repeat("─", 70) + colorSeparatorClose + "\n")
+	b.WriteString(palette.DimGrayOpen + "  └" + strings.Repeat("─", 70) + colorSeparatorClose + "\n")
 	return b.String()
 }

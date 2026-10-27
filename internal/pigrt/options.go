@@ -20,7 +20,7 @@ import (
 
 	"github.com/justwasm/pigasus/internal/agyprompt"
 	"github.com/justwasm/pigasus/internal/modelctx"
-	"github.com/justwasm/pigasus/internal/retry"
+	"github.com/justwasm/pigasus/retry"
 )
 
 // Options configures one runtime. CWD and Model are required; AgentDir
@@ -173,7 +173,7 @@ type Options struct {
 	// aborting the in-flight wait. PiG's own RetryPolicy.MaxDelayMs is
 	// unchanged either way; this option is layered on top.
 	//
-	// Cycle retry-30s-cap-stays: see internal/retrybudget and
+	// Cycle retry-30s-cap-stays: see retrybudget and
 	// docs/cycles/retry-30s-cap-stays/.
 	RetryBudgetCap time.Duration
 }

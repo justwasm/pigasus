@@ -601,6 +601,86 @@ func TestProvider_SendsOpenAIRequestBody(t *testing.T) {
 	}
 }
 
+// TestProvider_SendsAnImageInTheContentArray pins the picture's way
+// to a configured endpoint: the OpenAI content array, with the image
+// part's url a `data:` URL carrying the base64 payload.
+//
+// 【一手】 the shape is the OpenAI Chat Completions one, and it is the
+// shape PiG's own OpenAI dialect writes (ai/openai.go). The clone's
+// own transport writes the same array
+// (backend.formatOpenAIContentParts), so a picture reaches a gateway
+// the same way whichever transport carries it.
+func TestProvider_SendsAnImageInTheContentArray(t *testing.T) {
+	gateway := newFakeGateway(t, []string{contentFrame("ok"), "[DONE]"})
+
+	transcript := pi.NormalizeContext(pi.Context{
+		Messages: []pi.Message{
+			pi.UserMessage{Content: pi.UserContentBlocks{
+				pi.TextContent{Text: "what color?"},
+				pi.ImageContent{Data: "aGk=", MimeType: "image/png"},
+			}},
+		},
+	})
+
+	stream, err := gateway.provider(t).Stream(context.Background(), transcript, pi.StreamOptions{})
+	if err != nil {
+		t.Fatalf("Stream: %v", err)
+	}
+	collect(t, stream)
+
+	requests := gateway.requests()
+	if len(requests) != 1 {
+		t.Fatalf("requests = %d", len(requests))
+	}
+	parts, ok := requests[0].Messages[0].Content.([]any)
+	if !ok {
+		t.Fatalf("the user message carries no content array: %+v", requests[0].Messages[0])
+	}
+	if len(parts) != 2 {
+		t.Fatalf("the content array holds %d parts, want the text and the picture: %+v", len(parts), parts)
+	}
+	text, _ := parts[0].(map[string]any)
+	if text["type"] != "text" || text["text"] != "what color?" {
+		t.Errorf("parts[0] = %+v, want the text part", text)
+	}
+	image, _ := parts[1].(map[string]any)
+	if image["type"] != "image_url" {
+		t.Fatalf("parts[1] = %+v, want the image part", image)
+	}
+	payload, _ := image["image_url"].(map[string]any)
+	if payload["url"] != "data:image/png;base64,aGk=" {
+		t.Errorf("the image url = %v, want the data url of the picture", payload["url"])
+	}
+}
+
+// TestProvider_KeepsTheStringContentForATextOnlyMessage pins the other
+// half: a message with no picture keeps the string form, so the request
+// the clone sent before the picture support is the request it sends now.
+func TestProvider_KeepsTheStringContentForATextOnlyMessage(t *testing.T) {
+	gateway := newFakeGateway(t, []string{contentFrame("ok"), "[DONE]"})
+
+	transcript := pi.NormalizeContext(pi.Context{
+		Messages: []pi.Message{
+			pi.UserMessage{Content: pi.UserContentBlocks{pi.TextContent{Text: "read go.mod"}}},
+		},
+	})
+
+	stream, err := gateway.provider(t).Stream(context.Background(), transcript, pi.StreamOptions{})
+	if err != nil {
+		t.Fatalf("Stream: %v", err)
+	}
+	collect(t, stream)
+
+	requests := gateway.requests()
+	if len(requests) != 1 {
+		t.Fatalf("requests = %d", len(requests))
+	}
+	content, ok := requests[0].Messages[0].Content.(string)
+	if !ok || content != "read go.mod" {
+		t.Errorf("content = %+v, want the plain text", requests[0].Messages[0].Content)
+	}
+}
+
 func TestProvider_RejectsEmptyModel(t *testing.T) {
 	gateway := newFakeGateway(t)
 	provider := gateway.provider(t)

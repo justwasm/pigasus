@@ -78,11 +78,6 @@ func printSlashKeybindings() string {
 	return strings.TrimRight(b.String(), "\n")
 }
 
-// newUUIDv4 makes a v4 UUID. Delegated to convstore.NewUUIDv4.
-func newUUIDv4() (string, error) {
-	return convstore.NewUUIDv4()
-}
-
 const keybindingsFileName = "keybindings.json"
 
 func resolveKeybindingsEditor(configuredEditor string) (name string, args []string, source string, ok bool) {

@@ -125,15 +125,38 @@ func usageModelAdd(n string) string {
 		"Create or update a model\n" +
 		"\n" +
 		"Flags:\n" +
-		"  --provider             Provider that serves this model (required)\n" +
-		"  --model                Model id sent upstream\n" +
-		"  --name                 Display name\n" +
-		"  --context-window       Declared context window in tokens\n" +
-		"  --default-max-tokens   Declared output cap in tokens\n" +
-		"  --reasoning-effort     low, medium, high or default\n" +
+		"  --provider                 Provider that serves this model (required)\n" +
+		"  --model                    Model id sent upstream\n" +
+		"  --name                     Display name\n" +
+		"  --context-window           Declared context window in tokens\n" +
+		"  --default-max-tokens       Declared output cap in tokens\n" +
+		"  --reasoning-effort         low, medium, high or default\n" +
+		"  --reasoning-efforts        The reasoning tiers the model offers,\n" +
+		"                             comma separated: low, medium, high,\n" +
+		"                             xhigh, max\n" +
+		"  --supports-images          The model takes pictures\n" +
+		"  --supported-mime-types     Media types the model accepts, comma separated\n" +
+		"  --disabled                 The model is out of service\n" +
+		"  --quota-reset-time         When the model's quota comes back (RFC 3339)\n" +
+		"  --quota-remaining-fraction How much of the model's quota is left\n" +
+		"  --supports-thought-circulation  The model circulates its thoughts\n" +
+		"  --model-url                Link to the model's own page\n" +
+		"  --tag-title                The picker's tag line under the model's name\n" +
+		"  --tag-description          The picker's tag line, in full\n" +
+		"  --effort-supported         The model exposes a reasoning level\n" +
 		"\n" +
 		"Notes:\n" +
-		"  A flag that is not passed keeps the value the file already had.\n"
+		"  A flag that is not passed keeps the value the file already had.\n" +
+		"  --supports-images=false states the opposite; without the flag the\n" +
+		"  catalogue's family table decides.\n" +
+		"  --supported-mime-types wins over --supports-images: it is the fuller\n" +
+		"  answer, and it names the media types the model takes.\n" +
+		"  The flags the Web UI's model picker reads are --disabled, --quota-reset-time,\n" +
+		"  --quota-remaining-fraction, --supported-mime-types, --tag-title,\n" +
+		"  --tag-description, --supports-thought-circulation and --model-url.\n" +
+		"  A model that declares --reasoning-efforts is listed once per tier, the way\n" +
+		"  the reference lists its own (Gemini 3.8 Flash (High)). The tier rides the\n" +
+		"  model's id, and --reasoning-effort says which one it runs at.\n"
 }
 
 func usageModelRemove(n string) string {

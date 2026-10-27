@@ -24,6 +24,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -32,6 +33,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"golang.org/x/oauth2"
 )
 
 // makeStaleToken returns an *AntigravityToken whose expiry is < 5 minutes
@@ -559,46 +562,70 @@ func TestStaleCredentialsCleared_ParserRules(t *testing.T) {
 }
 
 // TestStaleCredentialsCleared_ParseRefreshError exercises the
-// brittle-looking parseRefreshError helper that pulls the status code
-// and OAuth `error` field out of the existing fmt.Errorf wrapping in
-// postTokenForm. Keeping this in a dedicated test makes it obvious
-// when the format string changes.
+// parseRefreshError helper that pulls the status code and the OAuth
+// `error` field out of a refresh failure.
+//
+// The failure is a *oauth2.RetrieveError: the token endpoint's status
+// and its RFC 6749 `error` field travel with the error, so the helper
+// reads them structurally instead of scraping them out of an error
+// message. The last case pins the JSON fallback for the endpoints
+// that answer an error with a JSON body under a non-JSON content type.
 func TestStaleCredentialsCleared_ParseRefreshError(t *testing.T) {
 	cases := []struct {
 		name       string
-		msg        string
+		err        error
 		wantStatus int
 		wantOAuth  string
 	}{
 		{
-			name:       "auth.token refresh: HTTP 400: invalid_grant JSON",
-			msg:        `antigravity-token: refresh: HTTP 400: {"error":"invalid_grant","error_description":"revoked"}`,
+			name: "invalid_grant JSON",
+			err: &oauth2.RetrieveError{
+				Response:  &http.Response{StatusCode: 400},
+				Body:      []byte(`{"error":"invalid_grant","error_description":"revoked"}`),
+				ErrorCode: "invalid_grant",
+			},
 			wantStatus: 400,
 			wantOAuth:  "invalid_grant",
 		},
 		{
-			name:       "wrapped once",
-			msg:        `refresh failed: antigravity-token: refresh: HTTP 401: {"error":"invalid_grant"}`,
+			name: "wrapped once",
+			err: fmt.Errorf("refresh failed: %w", &oauth2.RetrieveError{
+				Response:  &http.Response{StatusCode: 401},
+				Body:      []byte(`{"error":"invalid_grant"}`),
+				ErrorCode: "invalid_grant",
+			}),
 			wantStatus: 401,
 			wantOAuth:  "invalid_grant",
 		},
 		{
-			name:       "no body",
-			msg:        `antigravity-token: refresh: HTTP 500: internal`,
+			name: "no body",
+			err: &oauth2.RetrieveError{
+				Response: &http.Response{StatusCode: 500},
+				Body:     []byte("internal"),
+			},
 			wantStatus: 500,
 			wantOAuth:  "",
 		},
 		{
-			name:       "transport failure: no HTTP marker",
-			msg:        "antigravity-token: refresh: connection refused",
+			name:       "transport failure: no HTTP response",
+			err:        errors.New("antigravity-token: refresh: connection refused"),
 			wantStatus: 0,
 			wantOAuth:  "",
+		},
+		{
+			name: "JSON body under a non-JSON content type",
+			err: &oauth2.RetrieveError{
+				Response: &http.Response{StatusCode: 400},
+				Body:     []byte(`{"error":"invalid_grant"}`),
+			},
+			wantStatus: 400,
+			wantOAuth:  "invalid_grant",
 		},
 	}
 	for _, tc := range cases {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
-			status, oauth, _ := parseRefreshError(errors.New(tc.msg))
+			status, oauth, _ := parseRefreshError(tc.err)
 			if status != tc.wantStatus {
 				t.Errorf("status = %d, want %d", status, tc.wantStatus)
 			}

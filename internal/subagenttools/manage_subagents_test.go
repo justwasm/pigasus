@@ -12,7 +12,7 @@ import (
 // TestManageSubagentsList pins the list action's contract. The clone has no
 // subagent registry — delegations are synchronous, so no subagent is ever live
 // when the parent runs a tool — and the reference formats the marshalled state
-// slice after the count (【反编译】 .list @0x101d5fff0). The empty slice
+// slice after the count (【反编译】 .list @0x101deeef0). The empty slice
 // marshals to "[]".
 func TestManageSubagentsList(t *testing.T) {
 	tool := &manageSubagentsTool{}
@@ -56,8 +56,8 @@ func TestManageSubagentsList(t *testing.T) {
 func TestManageSubagentsKill(t *testing.T) {
 	tool := &manageSubagentsTool{}
 
-	// kill_all / kill with no ids → the empty-registry text.
-	for _, action := range []string{"kill_all", "kill"} {
+	// kill_all with nothing registered returns the 【一手】 1.4.4 sentence.
+	for _, action := range []string{"kill_all"} {
 		args, _ := json.Marshal(manageSubagentsArgs{Action: action})
 		res, err := tool.Execute(context.Background(), "call-mgr-kill", args, nil)
 		if err != nil {
@@ -72,9 +72,22 @@ func TestManageSubagentsKill(t *testing.T) {
 		}
 	}
 
+	// kill with no ids → the reference's own sentence. 【反编译】 agy 1.4.8
+	// (the literal is at 0x103695f3b).
+	args, _ := json.Marshal(manageSubagentsArgs{Action: "kill"})
+	res, err := tool.Execute(context.Background(), "call-mgr-kill-no-ids", args, nil)
+	if err != nil {
+		t.Fatalf("kill without ids: Execute returned err: %v", err)
+	}
+	wantNoIDs := `the "kill" action requires ConversationIds; run "list" to get the ids of the active subagents, ` +
+		`or use "kill_all" to kill all of them`
+	if body := res.Content[0].(pi.TextContent); !strings.HasSuffix(body.Text, wantNoIDs) {
+		t.Fatalf("kill without ids: result = %q, want suffix %q", body.Text, wantNoIDs)
+	}
+
 	// kill naming an id → the per-id sentence, as a normal result.
-	args, _ := json.Marshal(manageSubagentsArgs{ActionCap: "kill", ConversationIdsCap: []string{"abc-123", "def-456"}})
-	res, err := tool.Execute(context.Background(), "call-mgr-kill-id", args, nil)
+	args, _ = json.Marshal(manageSubagentsArgs{ActionCap: "kill", ConversationIdsCap: []string{"abc-123", "def-456"}})
+	res, err = tool.Execute(context.Background(), "call-mgr-kill-id", args, nil)
 	if err != nil {
 		t.Fatalf("kill with ids: Execute returned err: %v", err)
 	}

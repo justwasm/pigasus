@@ -2,27 +2,23 @@
 package convstore
 
 import (
-	"crypto/rand"
-	"encoding/hex"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/google/uuid"
 
 	"github.com/justwasm/pigasus/internal/backend"
 )
 
 // NewUUIDv4 makes a v4 UUID (8-4-4-4-12 hex digits).
 func NewUUIDv4() (string, error) {
-	var b [16]byte
-	if _, err := rand.Read(b[:]); err != nil {
+	u, err := uuid.NewRandom()
+	if err != nil {
 		return "", fmt.Errorf("rand: %w", err)
 	}
-	b[6] = (b[6] & 0x0f) | 0x40
-	b[8] = (b[8] & 0x3f) | 0x80
-	hx := hex.EncodeToString(b[:])
-	return fmt.Sprintf("%s-%s-%s-%s-%s",
-		hx[0:8], hx[8:12], hx[12:16], hx[16:20], hx[20:32]), nil
+	return u.String(), nil
 }
 
 // SessionToSteps converts an in-memory session into the convstore Step shape.

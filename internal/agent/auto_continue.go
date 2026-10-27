@@ -7,13 +7,13 @@
 // "stream error" line instead of the part of the response the model
 // already had. Same shape for tool-iteration-cap.
 //
-// internal/pigrt/auto_continue.go owns the print-path counterpart. Both files
-// expose the same recovery copy constants (AutoContStreamInterrupted /
-// AutoContIterationCapFormat) so a future cycle that wants to verify byte-
-// match against the AGY verbatim strings (loadfile offsets 0x33dc41b /
-// 0x33a3d44, see docs/research/agy-feature-strings.md §3) reads one
-// constant, not two — and a TUI/print divergence is impossible by
-// construction.
+// internal/pigrt/auto_continue.go owns the print-path counterpart. The
+// recovery copy constants (AutoContStreamInterrupted /
+// AutoContIterationCapFormat) are declared once, in internal/autocont, and
+// both files alias them — so a cycle that wants to verify byte-match
+// against the AGY verbatim strings (loadfile offsets 0x33dc41b / 0x33a3d44,
+// see docs/research/agy-feature-strings.md §3) reads one constant, and a
+// TUI/print divergence is impossible by construction.
 //
 // Trigger matrix — see the deliverable in
 // docs/cycles/auto-continue-interrupt/ for the full version:
@@ -44,53 +44,40 @@ import (
 	piagent "github.com/MichaelKinsy/PiG/agent"
 	pi "github.com/MichaelKinsy/PiG/ai"
 
+	"github.com/justwasm/pigasus/internal/autocont"
 	"github.com/justwasm/pigasus/internal/backend"
 )
 
-// AutoContStreamInterrupted is the verbatim AGY recovery copy at loadfile
-// 0x33dc41b. See pigrt/auto_continue.go for the source citation.
-const AutoContStreamInterrupted = "The stream was interrupted. Please continue the task you were working on."
-
-// AutoContIterationCapFormat is the verbatim AGY **Status** banner at loadfile
-// 0x33a3d44 with a single %d placeholder for the iteration count. See
-// pigrt/auto_continue.go for the source citation.
-const AutoContIterationCapFormat = "**Status**: Cancelled after %d iterations"
-
-// AutoContMaxDepth bounds recursion for generic failures (quota,
-// scope, auth, marshal errors, anything we cannot confidently fix by
-// retrying). Past this the loop returns ErrAutoContMaxDepth.
+// The recovery vocabulary is the reference's own bytes, and it is
+// declared once, in internal/autocont. These aliases keep the TUI's
+// historical names.
 //
-// Cycles auto-continue-interrupt (and its predecessors) picked 3 from
-// the AGY 1.2.13 wire — short enough to fail fast on permanent
-// failures, long enough to ride out a single transient hiccup. That
-// is the right ceiling for permanent errors and the wrong ceiling
-// for transient network/socket drops, which the changelog
-// (internal/cli/testdata/changelog_reference.txt:10) calls out as
-// "retrying automatically and reporting a network error if retries
-// fail". See AutoContMaxNetworkDepth below.
-const AutoContMaxDepth = 3
+// Cycle 346: this file used to declare its own copy of each constant —
+// two literal copies of a string that has to be byte-exact against the
+// binary. The header comment above claimed "a TUI/print divergence is
+// impossible by construction", but two declarations are not a
+// construction; they are two chances to drift. The print path's copy
+// (internal/pigrt) now aliases the same declarations.
+const (
+	// AutoContStreamInterrupted is the verbatim AGY recovery copy at
+	// loadfile 0x33dc41b.
+	AutoContStreamInterrupted = autocont.StreamInterrupted
 
-// AutoContMaxNetworkDepth caps auto-continue recursion for transient
-// network/socket errors (see IsTransientNetworkErr). It is much
-// higher than AutoContMaxDepth because (a) socket disconnects in
-// long tool-call chains are common — every laptop sleep, every wifi
-// handoff, every short container restart can drop a single frame,
-// and (b) the recovery copy the loop appends ("The stream was
-// interrupted. Please continue the task you were working on.") is
-// the AGY verbatim string at loadfile 0x33dc41b, so the user sees
-// a consistent story regardless of which branch serves them. Once
-// this ceiling is exhausted the loop returns
-// *ErrAutoContNetworkFailed so the TUI / print path can render a
-// clear network-error banner with the last underlying cause.
-//
-// Value picked at 8: enough to ride out several mid-task wifi
-// reconnects (typical retry-after-wifi-handoff sequence is 3-4
-// reconnects over 10-30 s) without turning a permanent failure into
-// a long stall. The user can still see progress — every retry
-// fires the Options.AutoContBanner callback and appends a recovery
-// message to the transcript — so 8 retries with steady feedback is
-// strictly nicer than the previous "3-skip-then-die" cliff.
-const AutoContMaxNetworkDepth = 8
+	// AutoContIterationCapFormat is the verbatim AGY **Status** banner at
+	// loadfile 0x33a3d44 with a single %d placeholder for the iteration
+	// count.
+	AutoContIterationCapFormat = autocont.IterationCapFormat
+
+	// AutoContMaxDepth bounds recursion for generic failures (quota,
+	// scope, auth, marshal errors, anything we cannot confidently fix by
+	// retrying). Past this the loop returns ErrAutoContMaxDepth.
+	AutoContMaxDepth = autocont.MaxDepth
+
+	// AutoContMaxNetworkDepth caps auto-continue recursion for transient
+	// network/socket errors (see IsTransientNetworkErr). See
+	// autocont.MaxNetworkDepth for the reasoning behind the ceiling.
+	AutoContMaxNetworkDepth = autocont.MaxNetworkDepth
+)
 
 // ErrAutoContMaxDepth is returned when auto-continue recurses
 // AutoContMaxDepth times without settling. The TUI surfaces this as a
@@ -171,48 +158,13 @@ func (t *autoContTracker) next() (int, bool) {
 // helper assumes the ctx is still alive.
 func classifyInterruption(err error, lastStopReason pi.StopReason) string {
 	if errors.Is(err, piagent.ErrMaxTurnsReached) {
-		return fmt.Sprintf(AutoContIterationCapFormat, turnsFromErr(err))
+		return fmt.Sprintf(AutoContIterationCapFormat, autocont.IterationCount(err))
 	}
 	switch lastStopReason {
 	case pi.StopReasonError, pi.StopReasonAborted, pi.StopReasonLength:
 		return AutoContStreamInterrupted
 	}
 	return ""
-}
-
-// turnsFromErr fishes the iteration count out of PiG's wrapped
-// ErrMaxTurnsReached and a few observed upstream variants. Best-effort:
-// the parser returns the LAST contiguous run of digits in err.Error(),
-// which matches every format we have evidence for in the upstream PiG
-// error stream:
-//
-//   - pigrt-style wrap: "%w (%d turns)"            → "8"
-//   - clone-style wrap: "agent: exceeded ... (%d)"  → "8"
-//   - direct integer:   "agent: ... 21 turns"      → "21"
-//
-// Returning 0 is fine: the recovery copy will read "**Status**: Cancelled
-// after 0 iterations", which is still a valid prompt. The depth counter
-// is the real bound on recursion, not the literal count.
-func turnsFromErr(err error) int {
-	if err == nil {
-		return 0
-	}
-	var best, current int
-	for _, r := range err.Error() {
-		switch {
-		case r >= '0' && r <= '9':
-			current = current*10 + int(r-'0')
-		default:
-			if current > best {
-				best = current
-			}
-			current = 0
-		}
-	}
-	if current > best {
-		best = current
-	}
-	return best
 }
 
 // recoveryMessageFromMessages returns the last synthetic recovery copy in
@@ -247,7 +199,7 @@ func recoveryForError(err error) string {
 		return ""
 	}
 	if errors.Is(err, piagent.ErrMaxTurnsReached) {
-		return fmt.Sprintf(AutoContIterationCapFormat, turnsFromErr(err))
+		return fmt.Sprintf(AutoContIterationCapFormat, autocont.IterationCount(err))
 	}
 	return AutoContStreamInterrupted
 }

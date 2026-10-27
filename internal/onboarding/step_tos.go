@@ -2,6 +2,7 @@ package onboarding
 
 import (
 	"fmt"
+	"github.com/justwasm/pigasus/endpoints"
 	"io"
 )
 
@@ -31,10 +32,17 @@ const TermsCheckboxLabel = "Yes, I agree to help improve Pigasus CLI by allowing
 // "Terms of Service". The binary's onboarding screen renders this
 // as a hyperlink with the URL underlined; the parity test asserts the
 // URL string is present.
-const TermsLinkTerms = "https://antigravity.google/terms"
+//
+// It is the compiled-in default. The live link is
+// endpoints.Current().Terms — the configuration file may point it at a
+// local service.
+const TermsLinkTerms = endpoints.DefaultTerms
 
 // TermsLinkPrivacy is the URL rendered for "Privacy Policy".
-const TermsLinkPrivacy = "https://policies.google.com/privacy"
+//
+// It is the compiled-in default. The live link is
+// endpoints.Current().Privacy.
+const TermsLinkPrivacy = endpoints.DefaultPrivacy
 
 // termsCheckboxOn / termsCheckboxOff are the two glyph states. The
 // v1.3.5 binary uses a Unicode ballot box with check mark on / off.
@@ -86,10 +94,10 @@ func renderTerms(w io.Writer, agreed bool) error {
 	if _, err := fmt.Fprintln(w); err != nil {
 		return err
 	}
-	if _, err := fmt.Fprintf(w, "  Terms of Service: %s%s%s%s\n", ansiUnder, TermsLinkTerms, ansiReset, ""); err != nil {
+	if _, err := fmt.Fprintf(w, "  Terms of Service: %s%s%s%s\n", ansiUnder, endpoints.Current().Terms, ansiReset, ""); err != nil {
 		return err
 	}
-	if _, err := fmt.Fprintf(w, "  Privacy Policy:  %s%s%s%s\n", ansiUnder, TermsLinkPrivacy, ansiReset, ""); err != nil {
+	if _, err := fmt.Fprintf(w, "  Privacy Policy:  %s%s%s%s\n", ansiUnder, endpoints.Current().Privacy, ansiReset, ""); err != nil {
 		return err
 	}
 	if _, err := fmt.Fprintln(w); err != nil {

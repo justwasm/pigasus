@@ -12,7 +12,10 @@ import (
 	"net/url"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
+
+	"golang.org/x/sync/singleflight"
 
 	"github.com/justwasm/pigasus/internal/backend"
 )
@@ -61,26 +64,25 @@ type RefreshingTokenSource struct {
 	refreshFn    TokenRefresher
 	refreshHook  func(*TokenResponse) // called after a successful refresh
 
-	// inflight tracks a refresh currently in progress so concurrent
-	// callers don't race two parallel oauth2.googleapis.com/token
-	// requests. Cycle auth-expired-message (AGY 1.3.3 line 47):
-	// when a 401 arrives *while* a refresh is already in flight,
-	// With401Retry propagates the 401 instead of starting a second
-	// refresh — the new token, when it lands, is for the next
-	// request, not this one.
-	inflight *inflightRefresh
+	// refreshGroup is the singleflight group: concurrent Refresh()
+	// calls share one oauth2.googleapis.com/token round-trip instead
+	// of racing two of them. golang.org/x/sync is the library the
+	// reference's own binary carries (errgroup + singleflight); the
+	// clone now imports it too.
+	refreshGroup singleflight.Group
+
+	// inflight counts the refreshes currently running. With401Retry
+	// needs to know whether a refresh is in flight *without joining
+	// it*: cycle auth-expired-message (AGY 1.3.3 line 47) — when a
+	// 401 arrives while a refresh is already in flight, the new
+	// token, when it lands, is for the next request, not this one,
+	// so the 401 is propagated instead of retried.
+	inflight atomic.Int64
 }
 
-// inflightRefresh is one in-progress refresh. The first caller closes
-// `done` after writing resp/err; concurrent callers either share the
-// result via waitInflight (Refresh, singleflight) or bail out
-// immediately when they observe the field is non-nil (With401Retry,
-// auth-expired propagation).
-type inflightRefresh struct {
-	done chan struct{} // closed when the refresh finishes
-	resp *TokenResponse
-	err  error
-}
+// refreshKey is the singleflight key: one token source has one
+// refresh at a time.
+const refreshKey = "refresh"
 
 // NewRefreshingTokenSource constructs a RefreshingTokenSource backed by
 // a refresh token and the standard OAuth2 /token endpoint.
@@ -119,9 +121,10 @@ func (r *RefreshingTokenSource) Token() (string, error) {
 	if r.cached != nil && r.cached.AccessToken != "" && Now().Before(r.cachedExpiry.Add(-5*time.Minute)) {
 		return r.cached.AccessToken, nil
 	}
-	// Proactive refresh: at most 5 minutes before expiry. Cycle
-	// auth-expired-message: piggyback on the singleflight path so a
-	// concurrent Refresh() call shares this network round-trip.
+	// Proactive refresh: at most 5 minutes before expiry. This path
+	// runs its own round-trip while r.mu is held — it does not join a
+	// concurrent Refresh(), because Token() has no context to hand the
+	// shared call and the lock is already taken here.
 	if err := r.refreshLocked(context.Background()); err != nil {
 		// If the cached token is still good, fall back to it.
 		if r.cached != nil && r.cached.AccessToken != "" && Now().Before(r.cachedExpiry) {
@@ -141,35 +144,55 @@ func (r *RefreshingTokenSource) Token() (string, error) {
 // requests for the same refresh token. r.mu is released during the
 // network round-trip so concurrent Token() callers and inflight probes
 // are not blocked.
+//
+// The join half is x/sync's singleflight; the "is one running" probe
+// With401Retry needs is the inflight counter.
 func (r *RefreshingTokenSource) Refresh(ctx context.Context) error {
-	r.mu.Lock()
-	if r.inflight != nil {
-		ir := r.inflight
-		r.mu.Unlock()
-		return waitInflight(ctx, ir)
+	ch := r.refreshGroup.DoChan(refreshKey, func() (any, error) {
+		// The counter answers With401Retry's question: is a refresh
+		// running right now? It is raised for the duration of the
+		// round-trip and nothing else.
+		r.inflight.Add(1)
+		defer r.inflight.Add(-1)
+		return r.refreshOnce(ctx)
+	})
+	select {
+	case res := <-ch:
+		return res.Err
+	case <-ctx.Done():
+		// The refresh keeps running for the callers that joined it;
+		// this caller walks away with its own cancellation.
+		return ctx.Err()
 	}
-	ir := &inflightRefresh{done: make(chan struct{})}
-	r.inflight = ir
-	// Snapshot the refresh token under the lock so we can release it
-	// before the network call. Without the snapshot the locked window
-	// would extend over the entire oauth2 round-trip.
+}
+
+// refreshOnce is the body of the shared refresh: it snapshots the
+// refresh token under the lock, runs the round-trip without the lock,
+// and writes the new token back under the lock.
+//
+// Only the first caller of a singleflight key runs this; the others
+// share its result.
+func (r *RefreshingTokenSource) refreshOnce(ctx context.Context) (*TokenResponse, error) {
+	r.mu.Lock()
+	// Snapshot the refresh token (and the hooks) under the lock so
+	// the locked window does not extend over the entire oauth2
+	// round-trip.
 	rt := r.cachedRefreshTokenLocked()
+	refreshFn := r.refreshFn
+	refreshHook := r.refreshHook
 	r.mu.Unlock()
 
-	// Run the refresh WITHOUT holding r.mu.
-	resp, err := r.callRefreshLocked(ctx, rt)
-
-	// Re-acquire r.mu briefly to apply the writeback and clear
-	// r.inflight.
-	r.mu.Lock()
-	if err == nil && resp != nil {
-		r.applyRefreshLocked(resp)
+	resp, err := r.callRefresh(ctx, rt, refreshFn)
+	if err != nil {
+		return nil, err
 	}
-	ir.err = err
-	r.inflight = nil
+	if refreshHook != nil {
+		go refreshHook(resp)
+	}
+	r.mu.Lock()
+	r.applyRefreshLocked(resp)
 	r.mu.Unlock()
-	close(ir.done)
-	return err
+	return resp, nil
 }
 
 // cachedRefreshTokenLocked returns the current refresh_token while the
@@ -181,11 +204,11 @@ func (r *RefreshingTokenSource) cachedRefreshTokenLocked() string {
 	return r.cached.RefreshToken
 }
 
-// callRefreshLocked runs the underlying refresh function WITHOUT
-// holding r.mu. The refresh token is snapshotted in the caller. The
-// returned *TokenResponse is owned by the caller; applyRefreshLocked
-// takes it under the lock when the call succeeds.
-func (r *RefreshingTokenSource) callRefreshLocked(ctx context.Context, refreshToken string) (*TokenResponse, error) {
+// callRefresh runs the underlying refresh function WITHOUT holding
+// r.mu. The refresh token and the refresher are snapshotted by the
+// caller. The returned *TokenResponse is owned by the caller;
+// applyRefreshLocked takes it under the lock when the call succeeds.
+func (r *RefreshingTokenSource) callRefresh(ctx context.Context, refreshToken string, refreshFn TokenRefresher) (*TokenResponse, error) {
 	if refreshToken == "" {
 		return nil, ErrNoTokenSource
 	}
@@ -193,8 +216,8 @@ func (r *RefreshingTokenSource) callRefreshLocked(ctx context.Context, refreshTo
 		resp *TokenResponse
 		err  error
 	)
-	if r.refreshFn != nil {
-		resp, err = r.refreshFn.RefreshToken(ctx, refreshToken)
+	if refreshFn != nil {
+		resp, err = refreshFn.RefreshToken(ctx, refreshToken)
 	} else {
 		resp, err = defaultRefresh(ctx, r.clientID, refreshToken, r.scopes)
 	}
@@ -207,9 +230,6 @@ func (r *RefreshingTokenSource) callRefreshLocked(ctx context.Context, refreshTo
 	// Keep existing refresh token if the response omits one.
 	if resp.RefreshToken == "" {
 		resp.RefreshToken = refreshToken
-	}
-	if r.refreshHook != nil {
-		go r.refreshHook(resp)
 	}
 	return resp, nil
 }
@@ -225,30 +245,15 @@ func (r *RefreshingTokenSource) applyRefreshLocked(resp *TokenResponse) {
 	}
 }
 
-// waitInflight blocks until the shared refresh finishes and returns its
-// result. Honours ctx cancellation; if cancelled, returns ctx.Err()
-// without touching r.inflight — the running refresh is left to finish
-// on its own so the next caller still gets the new token.
-func waitInflight(ctx context.Context, ir *inflightRefresh) error {
-	select {
-	case <-ir.done:
-		return ir.err
-	case <-ctx.Done():
-		return ctx.Err()
-	}
-}
-
 // inflightActive reports whether a refresh is currently in flight. It
-// takes r.mu briefly so the answer is consistent with the field's
-// writes. Used by With401Retry to detect the "401 while another
-// refresh is in flight" race the AGY 1.3.3 line 47 changelog calls
-// out: when a 401 arrives and another refresh is already mid-flight,
-// the auth has genuinely expired — propagate the 401 as KindAuthExpired
-// instead of waiting on the in-flight refresh and retrying.
+// answers the "is one running" question without joining it. Used by
+// With401Retry to detect the "401 while another refresh is in flight"
+// race the AGY 1.3.3 line 47 changelog calls out: when a 401 arrives
+// and another refresh is already mid-flight, the auth has genuinely
+// expired — propagate the 401 as KindAuthExpired instead of waiting
+// on the in-flight refresh and retrying.
 func (r *RefreshingTokenSource) inflightActive() bool {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	return r.inflight != nil
+	return r.inflight.Load() > 0
 }
 
 // OAuthTokenInfo returns the parsed OAuth token info for diagnostics.
@@ -273,24 +278,9 @@ func (r *RefreshingTokenSource) refreshLocked(ctx context.Context) error {
 	if r.cached == nil || r.cached.RefreshToken == "" {
 		return ErrNoTokenSource
 	}
-	var (
-		resp *TokenResponse
-		err  error
-	)
-	if r.refreshFn != nil {
-		resp, err = r.refreshFn.RefreshToken(ctx, r.cached.RefreshToken)
-	} else {
-		resp, err = defaultRefresh(ctx, r.clientID, r.cached.RefreshToken, r.scopes)
-	}
+	resp, err := r.callRefresh(ctx, r.cached.RefreshToken, r.refreshFn)
 	if err != nil {
 		return err
-	}
-	if resp.AccessToken == "" {
-		return fmt.Errorf("codeassistclient: refresh returned empty access token")
-	}
-	// Keep existing refresh token if the response omits one.
-	if resp.RefreshToken == "" {
-		resp.RefreshToken = r.cached.RefreshToken
 	}
 	r.cached = resp
 	if resp.ExpiresIn > 0 {

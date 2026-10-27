@@ -1,12 +1,17 @@
 package cliapp
 
 import (
+	"context"
 	"fmt"
+	"net/url"
+	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/justwasm/pigasus/endpoints"
 	"github.com/justwasm/pigasus/internal/accounts"
 	"github.com/justwasm/pigasus/internal/auth"
 	"github.com/justwasm/pigasus/internal/codesearchaction"
@@ -14,9 +19,14 @@ import (
 	"github.com/justwasm/pigasus/internal/customize"
 	"github.com/justwasm/pigasus/internal/isolation"
 	"github.com/justwasm/pigasus/internal/loginui"
+	"github.com/justwasm/pigasus/internal/modelcatalog"
+	"github.com/justwasm/pigasus/internal/persistentrc"
+	"github.com/justwasm/pigasus/internal/pluginsui"
 	"github.com/justwasm/pigasus/internal/printmode"
 	"github.com/justwasm/pigasus/internal/rchost"
+	"github.com/justwasm/pigasus/internal/statusline"
 	"github.com/justwasm/pigasus/internal/subagenttools"
+	"github.com/justwasm/pigasus/internal/tuilib"
 )
 
 // slash_commands_handlers.go — individual slash command action handlers.
@@ -72,7 +82,7 @@ func (m *runMode) slashModel(args string) (bool, tea.Cmd) {
 	if m.flags != nil {
 		m.slashContent(printmode.PrintSlashModels(m.flags))
 	} else {
-		m.slashContent(modelSlug(m.model) + "\t" + m.model)
+		m.slashContent(modelcatalog.ModelSlug(m.model) + "\t" + m.model)
 	}
 	return true, nil
 }
@@ -139,8 +149,21 @@ func (m *runMode) slashCopy(args string) (bool, tea.Cmd) {
 	return true, nil
 }
 
+// slashCredits opens the credits panel.
+//
+// 【一手】 agy 1.4.8, live: `/credits` opens the panel — on the picker path
+// and on the direct path alike (the composer holding "/credits" with the
+// picker dismissed). The panel's own text is
+//
+//	Remaining AI Credits: AI Credits not enabled (enable in /settings)
+//
+// while the account carries no enabled G1 credits.
+//
+// The clone used to answer the command with an error line ("no credits info
+// found"), which is both the wrong surface and a wrong claim: the account's
+// G1 credits are readable (see internal/printmode/print_slash_credits.go).
 func (m *runMode) slashCredits(args string) (bool, tea.Cmd) {
-	m.slashContent("error: /credits failed: retrieving credits: no credits info found")
+	m.openSlashPanel("credits")
 	return true, nil
 }
 
@@ -281,9 +304,69 @@ func (m *runMode) slashRemoteControl(args string) (bool, tea.Cmd) {
 	next, msg := remoteControlFeedback(args, m.remoteControl)
 	m.remoteControl = next
 	if msg == "Remote control on for this session." {
-		m.slashRespond("/remote-control", msg,
-			"     Hostname: <host>",
-			"     Open https://antigravity.google.com/r/<uuid>-v2 on another device to take over.")
+		if curTok, curEmail := accounts.Current(); curTok != nil && curEmail != "" {
+			_ = auth.SaveTokenUnified(curTok)
+		}
+		hostname := persistentrc.ResolveInstanceName("")
+		if hostname == "" {
+			hn, err := os.Hostname()
+			if err == nil && hn != "" {
+				hostname = hn
+			}
+		}
+		if hostname == "" {
+			hostname = "localhost"
+		}
+		// The browser URL must name the id the daemon *registers*
+		// with the remote service. A random uuid was never
+		// registered, so the cloud had no row for it at all and the
+		// companion app answered "Instance unavailable — No instance
+		// found."
+		//
+		// 【一手】 the reference's id is "<uuid>-v2" (the
+		// "remote-control-" in its log lines is the session's tag)
+		// and the companion app lives on antigravity.google.com
+		// ("https://antigravity.google.com/r/<id>" loads the remote
+		// view; "https://antigravity.google/r/<id>" answers 404).
+		//
+		// The bare "/r/<id>" form is the reference's own, and the
+		// instance cannot know the browser's account index: the
+		// cloud's registry rows are per Google account and the bare
+		// URL resolves against the browser's *default* one, so with
+		// several accounts signed in the cloud answers "No instance
+		// found. Try switching to a different account." The user opens
+		// the dashboard on the account the daemon registered with.
+		// See docs/cycles/rc-cloud-remote-view/deliverable.md §7.4.
+		if m.remoteControlUUID == "" {
+			m.remoteControlUUID = persistentrc.InstallationUUID()
+		}
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			_ = persistentrc.StartOfficialDaemon(ctx, hostname, false, false)
+		}()
+		baseURL := fmt.Sprintf("%s/r/%s%s%s", endpoints.Current().CompanionOrigin,
+			persistentrc.InstanceIDPrefix, m.remoteControlUUID, persistentrc.InstanceIDSuffix)
+		var text string
+		if m.conversationID != "" {
+			fullURL := baseURL + "?p=" + url.QueryEscape("c/"+m.conversationID)
+			text = fmt.Sprintf("Open %s on another device to continue this conversation.", fullURL)
+		} else {
+			text = fmt.Sprintf("Open %s on another device to take over.", baseURL)
+		}
+		var extra []string
+		if hostname != "" {
+			extra = append(extra, "     Hostname: "+hostname)
+		}
+		wrapWidth := m.width - 5
+		if wrapWidth > 0 {
+			for _, w := range pluginsui.WrapWords(text, wrapWidth) {
+				extra = append(extra, "     "+w)
+			}
+		} else {
+			extra = append(extra, "     "+text)
+		}
+		m.slashRespond("/remote-control", msg, extra...)
 	} else {
 		m.slashRespond("/remote-control", msg)
 	}
@@ -323,6 +406,9 @@ func (m *runMode) slashResume(args string) (bool, tea.Cmd) {
 	m.resumeTab = 0
 	m.resumeCursorOn = false
 	m.resumeMode = true
+	m.resetResumeTreeState()
+	m.buildResumeGroups()
+	m.expandFirstResumeGroup()
 	return true, nil
 }
 
@@ -342,33 +428,117 @@ func (m *runMode) slashSkills(args string) (bool, tea.Cmd) {
 	return true, nil
 }
 
+// slashStatusline handles /statusline and its subcommands.
+//
+// The reference's subcommand set (agy 1.4.8):
+//
+//	/statusline                 → *toggles* the statusline
+//	/statusline <command>       → "Statusline set to: <command>"
+//	/statusline on | enable     → "Statusline on." (" (<command>)" when one
+//	                              is configured)
+//	/statusline off | disable   → "Statusline off."
+//	/statusline delete | reset  → "Custom statusline command cleared. …"
+//	/statusline help            → the usage block
+//
+// The bare command is a toggle, not a usage block: 1.4.8 flips the
+// `statusLine.enabled` member in settings.json and answers "Statusline
+// on." when it switches the statusline on, "Statusline off. Run
+// /statusline to re-enable." when it switches it off. The explicit
+// `off` / `disable` subcommands answer with the short "Statusline off.".
+//
+// The subcommand names are matched case-insensitively — the upstream
+// changelog for 1.0.1 records the fix that made the parsing
+// case-insensitive.
+//
+// Evidence 【一手】: agy 1.4.7, driven through every subcommand; agy 1.4.8,
+// driven through the bare toggle (twice, reading settings.json's
+// `statusLine.enabled` after each press) and through `on`, `off`,
+// `enable`, `disable` and `help`.
 func (m *runMode) slashStatusline(args string) (bool, tea.Cmd) {
-	if _, ok := loadStatusLineConfig(); ok {
-		switch {
-		case m.statusLine == "off":
-			m.statusLine = ""
-			persistStatusLineVisibility(true)
-			m.slashRespond("/statusline", "Statusline on.")
-		case m.statusLineExternal:
-			m.statusLine = "off"
-			m.statusLineExternal = false
-			persistStatusLineVisibility(false)
-			m.slashRespond("/statusline", "Statusline off. Run /statusline to re-enable.")
-		default:
-			m.statusLineExternal = true
-			persistStatusLineVisibility(true)
-			m.slashRespond("/statusline", "Statusline on.")
+	// The command may have been changed outside the TUI, so the block is
+	// re-read before it is answered.
+	m.reloadStatusLineConfig()
+	verb := strings.ToLower(strings.TrimSpace(args))
+	if verb == "" {
+		// Cycle 351: the bare command toggles (agy 1.4.8).
+		if m.statusLineCfg.Enabled {
+			m.applyStatuslineOff(tuilib.StatuslineToggledOffMessage)
+		} else {
+			m.applyStatuslineOn()
 		}
+		return true, m.maybeArmStatusLineTick()
+	}
+	switch verb {
+	case "help":
+		head, rows := tuilib.StatuslineUsageRows()
+		m.slashRespond("/statusline", head, indentStatuslineUsage(rows)...)
 		return true, nil
+	case "on", "enable":
+		m.applyStatuslineOn()
+	case "off", "disable":
+		m.applyStatuslineOff(tuilib.StatuslineDisabledMessage)
+	case "delete", "reset":
+		statusline.ClearCommand()
+		m.statusLine = "on"
+		m.statusLineExternal = false
+		m.statusLineCommand = ""
+		m.statusLineCfg = statusline.Config{}
+		m.ensureExternalState().ResetDisabled()
+		m.slashRespond("/statusline", tuilib.StatuslineClearedMessage)
+	default:
+		command := strings.TrimSpace(args)
+		if err := statusline.PersistCommand(command); err != nil {
+			m.slashRespond("/statusline", "Error: "+err.Error())
+			return true, nil
+		}
+		m.statusLine = "on"
+		m.statusLineExternal = true
+		m.statusLineCommand = command
+		// The layout members survive: only the command and the
+		// visibility change.
+		m.statusLineCfg.Type = "command"
+		m.statusLineCfg.Command = command
+		m.statusLineCfg.Enabled = true
+		m.ensureExternalState().ResetDisabled()
+		m.slashRespond("/statusline", tuilib.StatuslineSetMessage(command))
 	}
-	next, msg := statuslineFeedback(m.statusLine)
-	if err := auth.SetSettingsBool("statusLine", next == "on"); err == nil {
-		m.statusLine = next
-	}
-	m.slashRespond("/statusline", msg)
-	return true, nil
+	return true, m.maybeArmStatusLineTick()
 }
 
+// applyStatuslineOn switches the statusline on and answers with the
+// reference's "Statusline on." message (" (<command>)" when a custom
+// command is configured).
+func (m *runMode) applyStatuslineOn() {
+	cfg := m.statusLineConfig()
+	statusline.PersistVisibility(true)
+	m.statusLine = "on"
+	m.statusLineExternal = strings.TrimSpace(cfg.Command) != ""
+	m.statusLineCfg.Enabled = true
+	m.slashRespond("/statusline", tuilib.StatuslineEnabledMessage(cfg.Command))
+}
+
+// applyStatuslineOff switches the statusline off and answers with msg —
+// the short "Statusline off." for the explicit subcommand, the long
+// "Statusline off. Run /statusline to re-enable." for the bare toggle.
+func (m *runMode) applyStatuslineOff(msg string) {
+	statusline.PersistVisibility(false)
+	m.statusLine = "on"
+	m.statusLineExternal = false
+	m.statusLineCfg.Enabled = false
+	m.slashRespond("/statusline", msg)
+}
+
+// indentStatuslineUsage indents the usage block's rows so they line up
+// under the `⎿` line's message.
+func indentStatuslineUsage(rows []string) []string {
+	out := make([]string, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, "     "+row)
+	}
+	return out
+}
+
+// slashTasks handles /tasks.
 func (m *runMode) slashTasks(args string) (bool, tea.Cmd) {
 	running, done := 0, 0
 	if m.taskReg != nil {
@@ -385,13 +555,64 @@ func (m *runMode) slashTasks(args string) (bool, tea.Cmd) {
 	return true, nil
 }
 
+// slashTitle handles /title, /title on and /title off.
+//
+// The reference accepts `on`/`enable` and `off`/`disable`
+// (case-insensitively); a bare `/title` toggles the feature, and anything
+// else is answered with the usage line.
+//
+// Turning the title on needs a `title` block in settings.json; without one
+// the reference reports that the command is missing — and it reports that
+// for every verb, the toggle included.
+//
+// Evidence 【一手】: agy 1.4.7, driven through every verb:
+//   - `/title` with the title on → "Custom title disabled."
+//   - `/title` with the title off → "Custom title enabled. (<command>)"
+//   - `/title bogus` → "Usage: /title [on|off]"
+//   - `/title` without a command → the "No title command configured" error
 func (m *runMode) slashTitle(args string) (bool, tea.Cmd) {
-	next, _ := titleFeedback(args, m.title, m.conversationTitle())
-	if err := auth.SetSettingsBool("title", next == "on"); err == nil {
-		m.title = next
+	// The block may have been changed outside the TUI, so it is re-read
+	// before it is answered.
+	m.reloadStatusLineConfig()
+	verb := strings.ToLower(strings.TrimSpace(args))
+	switch verb {
+	case "on", "enable", "off", "disable", "":
+	default:
+		m.slashRespond("/title", tuilib.TitleUsage)
+		return true, nil
 	}
-	m.slashRespond("/title", "Error: No title command configured in settings.json. Please add a \"title\" block.")
-	return true, nil
+	cfg := m.titleConfig()
+	if strings.TrimSpace(cfg.Command) == "" {
+		m.slashRespond("/title", tuilib.TitleNoCommandMessage)
+		return true, nil
+	}
+	switch verb {
+	case "on", "enable":
+		return true, m.setTitleEnabled(true, cfg.Command)
+	case "off", "disable":
+		return true, m.setTitleEnabled(false, cfg.Command)
+	default:
+		// A bare /title toggles the feature.
+		return true, m.setTitleEnabled(!cfg.Enabled, cfg.Command)
+	}
+}
+
+// setTitleEnabled persists the title block's visibility and answers the
+// command.
+func (m *runMode) setTitleEnabled(enabled bool, command string) tea.Cmd {
+	if err := statusline.PersistTitleEnabled(enabled); err != nil {
+		m.slashRespond("/title", "Error: "+err.Error())
+		return nil
+	}
+	m.titleCfg.Enabled = enabled
+	if enabled {
+		m.title = "on"
+		m.slashRespond("/title", tuilib.TitleEnabledMessage(command))
+	} else {
+		m.title = "off"
+		m.slashRespond("/title", tuilib.TitleDisabledMessage)
+	}
+	return m.maybeArmStatusLineTick()
 }
 
 func (m *runMode) slashUsage(args string) (bool, tea.Cmd) {
@@ -453,32 +674,32 @@ func (m *runMode) slashCompact(args string) (bool, tea.Cmd) {
 	return true, nil
 }
 
+// slashBrowser runs the browser agent.
+//
+// Cycle 342: the command used to print a hard-coded quota block, because
+// the reference's capture of it was taken while the reference account's
+// quota was exhausted — the capture held the failure, and the clone
+// reproduced it for every user. The command now does the work the
+// reference's own description names: "Invoke a browser agent for web
+// tasks." (see slash_browser.go).
 func (m *runMode) slashBrowser(args string) (bool, tea.Cmd) {
-	errID, err := newUUIDv4()
-	if err != nil {
-		m.slashRespond("/browser", "Failed to generate error ID: "+err.Error())
-		return true, nil
-	}
-	quota := panelGray166 +
-		"\u26a0 Individual quota reached. Please upgrade your subscription to increase your limits. Resets in 0h0m0s." +
-		panelGray166C
-	errLine := panelGray241 + "Error ID: " + errID + "-1" + panelGray241C
-	m.slashRespond("/browser", quota, errLine)
-	return true, nil
+	return m.runBrowserCommand(args)
 }
 
+// slashSchedule sends the instruction to the model, which registers the
+// schedule through the `schedule` tool.
+//
+// Cycle 342: the command used to print the same hard-coded quota block
+// /browser printed. The reference's capture of /schedule shows model
+// output under the command, so the command is a prompt-sending one —
+// like /plan and /goal — and the clone now sends one.
 func (m *runMode) slashSchedule(args string) (bool, tea.Cmd) {
-	errID, err := newUUIDv4()
-	if err != nil {
-		m.slashRespond("/schedule", "Failed to generate error ID: "+err.Error())
+	instruction := strings.TrimSpace(args)
+	if instruction == "" {
+		m.slashRespond("/schedule", "Usage: /schedule <instruction>")
 		return true, nil
 	}
-	quota := panelGray166 +
-		"\u26a0 Individual quota reached. Please upgrade your subscription to increase your limits. Resets in 0h0m0s." +
-		panelGray166C
-	errLine := panelGray241 + "Error ID: " + errID + "-1" + panelGray241C
-	m.slashRespond("/schedule", quota, errLine)
-	return true, nil
+	return true, m.sendAsPrompt("/schedule", instruction+"\n\n"+schedulePrompt())
 }
 
 func (m *runMode) slashBranch(args string) (bool, tea.Cmd) {

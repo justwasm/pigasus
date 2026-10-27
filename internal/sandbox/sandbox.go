@@ -60,6 +60,12 @@ type Sandbox struct {
 	// ScratchDir is the per-conversation scratch directory. Empty
 	// when no conversation is active.
 	ScratchDir string
+	// ExtraPaths are further directories a sandboxed command may read or
+	// write. They are not part of the reference's own three roots
+	// (workspace, artifact dir, scratch dir); a subagent's worktree is
+	// the reason they exist — the child runs in its own directory, and
+	// the gate that guards its commands has to allow that directory.
+	ExtraPaths []string
 }
 
 // Resolve builds the sandbox for the cwd + antigravity home. The home
@@ -101,6 +107,11 @@ func (s Sandbox) AllowedPaths() []string {
 	}
 	var out []string
 	for _, p := range []string{s.Cwd, s.ArtifactDir, s.ScratchDir} {
+		if p != "" {
+			out = append(out, p)
+		}
+	}
+	for _, p := range s.ExtraPaths {
 		if p != "" {
 			out = append(out, p)
 		}

@@ -19,7 +19,8 @@ import (
 	"strings"
 
 	"github.com/aymanbagabas/go-udiff"
-	"github.com/justwasm/pigasus/internal/render"
+	"github.com/charmbracelet/x/ansi"
+	"github.com/justwasm/pigasus/render"
 )
 
 // UnifiedDiff computes a unified diff between oldText and newText using udiff.
@@ -27,22 +28,17 @@ func UnifiedDiff(oldLabel, newLabel, oldText, newText string) string {
 	return udiff.Unified(oldLabel, newLabel, oldText, newText)
 }
 
-// ansiEscapeRE matches CSI escape sequences of the form ESC [ params final,
-// where params are digits / ';' / '?' (the parameter bytes per ECMA-48) and
-// the final byte is a letter in the range '@'..'~' (most commonly 'm' for
-// SGR colour). It does not match OSC sequences or single-character escapes,
-// which VCS diff commands do not emit. The 1.3.4 changelog line 33 records
-// the regression this helper fixes: /diff showed "No uncommitted changes"
-// for clean repositories whose diff command still emitted colour codes
-// because colour.ui = always (or hg/jj equivalents) overrode the --no-color /
-// HGPLAIN=1 / --color=never belt-and-braces that VCSDiff already applies.
-var ansiEscapeRE = regexp.MustCompile(`\x1b\[[0-9;?]*[a-zA-Z]`)
-
-// StripANSI removes ANSI CSI escape sequences from s. The returned string
+// StripANSI removes ANSI escape sequences from s. The returned string
 // preserves all other bytes, including embedded newlines and surrounding
 // whitespace, so a caller's TrimSpace / Split pipeline keeps working.
+//
+// The stripping is x/ansi's, the same stripper the rest of the tree uses
+// for its own rows. It is a full VT parser, so it removes the OSC / DCS
+// sequences a colour-always VCS configuration can emit too — the old
+// CSI-only regex left them in the body, which is exactly the kind of
+// residue the 1.3.4 regression was about.
 func StripANSI(s string) string {
-	return ansiEscapeRE.ReplaceAllString(s, "")
+	return ansi.Strip(s)
 }
 
 // RenderDiffFooter writes the `[/N of /N]  (end of diff)` trailer the

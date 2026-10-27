@@ -5,22 +5,22 @@ import (
 	"sync/atomic"
 )
 
-// Payload is the JSON object the CLI writes to the status-line script stdin.
-type Payload struct {
-	Model             string  `json:"model"`
-	Cost              float64 `json:"cost"`
-	ConversationTitle string  `json:"conversation_title"`
-	CurrentDir        string  `json:"current_dir"`
-}
-
-// State manages thread-safe cached rendered output and tick tracking for an
-// external status line.
+// State manages thread-safe cached rendered output, tick tracking and the
+// consecutive-failure counter for an external status line.
+//
+// The reference stops running a status-line script after 30 failed runs in
+// a row and shows `⚠ Statusline disabled after 30 consecutive failures.`
+// for the rest of the session. Evidence: the reference's own status line
+// documentation; the format string `Statusline disabled after %d
+// consecutive failures` is in agy 1.4.7's string table.
 type State struct {
 	renderMu        sync.Mutex
 	rendered        string
 	lastErr         error
 	lastErrReported bool
 	tickCount       int64
+	failures        int
+	disabled        bool
 }
 
 // MarkTick records a tick occurrence.
@@ -71,4 +71,63 @@ func (s *State) Current() (out string, err error) {
 	s.renderMu.Lock()
 	defer s.renderMu.Unlock()
 	return s.rendered, s.lastErr
+}
+
+// RecordFailure counts one failed script run and returns the new
+// consecutive-failure count together with whether the status line has just
+// been disabled.
+func (s *State) RecordFailure() (count int, disabled bool) {
+	if s == nil {
+		return 0, false
+	}
+	s.renderMu.Lock()
+	defer s.renderMu.Unlock()
+	s.failures++
+	if s.failures >= MaxConsecutiveFailures {
+		s.disabled = true
+	}
+	return s.failures, s.disabled
+}
+
+// RecordSuccess clears the consecutive-failure counter.
+func (s *State) RecordSuccess() {
+	if s == nil {
+		return
+	}
+	s.renderMu.Lock()
+	defer s.renderMu.Unlock()
+	s.failures = 0
+}
+
+// Failures returns the number of consecutive failures.
+func (s *State) Failures() int {
+	if s == nil {
+		return 0
+	}
+	s.renderMu.Lock()
+	defer s.renderMu.Unlock()
+	return s.failures
+}
+
+// Disabled reports whether too many consecutive failures have switched the
+// status line off for the rest of the session.
+func (s *State) Disabled() bool {
+	if s == nil {
+		return false
+	}
+	s.renderMu.Lock()
+	defer s.renderMu.Unlock()
+	return s.disabled
+}
+
+// ResetDisabled clears the disabled flag. It is used when the user points
+// the status line at a different command.
+func (s *State) ResetDisabled() {
+	if s == nil {
+		return
+	}
+	s.renderMu.Lock()
+	defer s.renderMu.Unlock()
+	s.failures = 0
+	s.disabled = false
 }

@@ -11,6 +11,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/justwasm/pigasus/internal/branding"
+	"github.com/justwasm/pigasus/internal/seasonal"
 	"github.com/justwasm/pigasus/internal/tuilib"
 	"github.com/justwasm/pigasus/internal/voice"
 )
@@ -25,7 +26,7 @@ func renderHelp(tab int, model, tier, cwd, email, conversationID string, m *runM
 	b.WriteString("\n")
 	switch tab {
 	case 0:
-		renderHelpGeneral(&b, model, tier, shortenCwd(cwd), email, conversationID)
+		tuilib.RenderHelpGeneral(&b, model, tier, shortenCwd(cwd), email, conversationID)
 	case 1:
 		renderHelpCommands(&b, m)
 	case 2:
@@ -36,7 +37,9 @@ func renderHelp(tab int, model, tier, cwd, email, conversationID string, m *runM
 	return b.String()
 }
 
-const (
+// The palette's colours follow the selected colour scheme, so these
+// aliases are refreshed whenever the scheme changes.
+var (
 	helpHeaderOpen  = tuilib.HelpHeaderOpen
 	helpHeaderClose = tuilib.HelpHeaderClose
 	cHelpDescOpen   = tuilib.HelpDescOpen
@@ -45,21 +48,9 @@ const (
 
 var helpKeyboardHint = tuilib.HelpKeyboardHint
 
-func renderHelpGeneralDescription(b *strings.Builder) {
-	tuilib.RenderHelpGeneralDescription(b)
-}
-
-func renderHelpGeneralMetadata(b *strings.Builder, tier, cwd, email, conversationID string) {
-	tuilib.RenderHelpGeneralMetadata(b, tier, cwd, email, conversationID)
-}
-
-func renderHelpGeneralQuickRef(b *strings.Builder) {
-	tuilib.RenderHelpGeneralQuickRef(b)
-}
-
-func renderHelpGeneral(b *strings.Builder, model, tier, cwd, email, conversationID string) {
-	tuilib.RenderHelpGeneral(b, model, tier, cwd, email, conversationID)
-}
+// Cycle 346: the four renderHelpGeneral* helpers this file used to
+// declare were one-line forwarders to internal/tuilib, and three of
+// them had no caller at all. The call sites name tuilib directly now.
 
 func renderHelpCommands(b *strings.Builder, m *runMode) {
 	b.WriteString(helpHeaderOpen + "Available Commands" + helpHeaderClose + "\n\n")
@@ -96,13 +87,14 @@ func renderHelpShortcuts(b *strings.Builder, m *runMode) {
 	b.WriteString(helpKeyboardHint + "\n\n")
 }
 
-const (
+var (
 	helpBlueOpen     = tuilib.HelpBlueOpen
 	helpBlueClose    = tuilib.HelpBlueClose
 	helpDimGrayOpen  = tuilib.HelpDimGrayOpen
 	helpDimGrayClose = tuilib.HelpDimGrayClose
-	helpDescColumn   = tuilib.HelpDescColumn
 )
+
+const helpDescColumn = tuilib.HelpDescColumn
 
 func formatShortcutDesc(b *strings.Builder, desc string, highlighted bool) {
 	tuilib.FormatShortcutDesc(b, desc, highlighted)
@@ -118,7 +110,21 @@ func buildCommandRow(c tuilib.SlashCommand, highlighted bool, width int) string 
 	return tuilib.BuildCommandRow(c, highlighted, width)
 }
 
+// renderBanner renders the startup banner.
+//
+// 【一手】 agy 1.4.7: with a seasonal event switched on the banner is
+// the event's own art block and gains the seasonal sentence; otherwise
+// it is the plain logo.
 func renderBanner(w io.Writer, email, model, tier, cwd string) {
+	renderBannerWithTheme(w, seasonalTheme(), email, model, tier, cwd)
+}
+
+// renderBannerWithTheme renders the banner, themed when ev is not nil.
+func renderBannerWithTheme(w io.Writer, ev *seasonal.Event, email, model, tier, cwd string) {
+	if ev != nil {
+		renderSeasonalBanner(w, ev, email, model, tier, cwd)
+		return
+	}
 	artRows := tuilib.RenderLogoLines()
 	fmt.Fprintf(w, "%s  "+cBlueBoldOpen+"%s "+cliVersion+"\x1b[0m\n", artRows[0], branding.Current().CLIName)
 	emailLine := email
@@ -155,7 +161,7 @@ func renderWarning(from, to string) string {
 	return tuilib.RenderWarning(from, to)
 }
 
-const (
+var (
 	tabBarBrandOpen     = tuilib.HelpBlueOpen
 	tabBarBrandClose    = tuilib.HelpBlueClose
 	tabBarActiveOpen    = tuilib.TabBarActiveOpen
@@ -164,8 +170,9 @@ const (
 	tabBarInactiveClose = tuilib.TabBarInactiveClose
 	tabBarHintOpen      = tuilib.TabBarHintOpen
 	tabBarHintClose     = tuilib.TabBarHintClose
-	tabBarHintSuffix    = tuilib.TabBarHintSuffix
 )
+
+const tabBarHintSuffix = tuilib.TabBarHintSuffix
 
 // renderTabBar emits the cycle-85 styled tab bar.
 func renderTabBar(active int) string {

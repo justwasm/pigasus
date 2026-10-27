@@ -54,11 +54,13 @@ jobs:
       # agent's own workers (subagent, mediagen), the TUI's panels
       # (cliapp), the code search's runner (codesearch), the tool
       # subprocesses (tools), the remote-control server (rchost), the
-      # plugin watcher (pluginwatch) and the credential refresh
-      # (auth). Every one of these packages was race-clean when this
-      # list was widened; the step keeps it that way.
+      # plugin watcher (pluginwatch), the credential refresh
+      # (auth) and the delegated subagents (subagenttools — each
+      # background subagent runs on its own goroutine). Every one of
+      # these packages was race-clean when this list was widened; the
+      # step keeps it that way.
       - name: Test race detector (goroutine-owning packages)
-        run: go test -count=1 -race ./internal/subagent/... ./internal/mediagen/... ./internal/cliapp/... ./internal/codesearch/... ./internal/tools/... ./internal/rchost/... ./internal/pluginwatch/... ./internal/auth/...
+        run: go test -count=1 -race ./internal/subagent/... ./internal/mediagen/... ./internal/cliapp/... ./internal/codesearch/... ./internal/tools/... ./internal/rchost/... ./internal/pluginwatch/... ./internal/auth/... ./internal/subagenttools/...
 
       # `--services` / `--tool` are NOT registered: the parse-parity surface
       # dropped them, so main.go's handlers for them are unreachable. Smoke the

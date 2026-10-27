@@ -5,14 +5,13 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/justwasm/pigasus/internal/palette"
+	"github.com/justwasm/pigasus/palette"
 )
 
-const (
-	BodyOKOpen   = "\x1b[38;2;88;110;117;22m"
-	BodyFailOpen = "\x1b[38;2;220;50;47;22m"
-	HintColour   = "\x1b[38;2;88;110;117m"
-)
+// The block's body colours come from the palette, so they follow the
+// selected colour scheme: the muted foreground at the body's own
+// intensity for a successful command, the remove foreground for a
+// failed one.
 
 // HeadRow renders the transcript head row for a bash-mode command.
 func HeadRow(cmd string, failed, running bool) string {
@@ -30,9 +29,9 @@ func HeadRow(cmd string, failed, running bool) string {
 
 // BodyRows renders the "  ⎿  " body block.
 func BodyRows(lines []string, failed bool) []string {
-	bodyOpen, bodyCont := BodyOKOpen, palette.SubtleOpen
+	bodyOpen, bodyCont := palette.WarningBodyOpen, palette.SubtleOpen
 	if failed {
-		bodyOpen, bodyCont = BodyFailOpen, palette.ToolRemoveOpen
+		bodyOpen, bodyCont = palette.ToolRemoveBodyOpen, palette.ToolRemoveOpen
 	}
 	rows := make([]string, 0, len(lines))
 	for i, line := range lines {
@@ -77,9 +76,9 @@ func BodyCap(height int) int {
 // MarkerColour returns the body text color escape sequence for success/failure.
 func MarkerColour(failed bool) string {
 	if failed {
-		return BodyFailOpen
+		return palette.ToolRemoveBodyOpen
 	}
-	return BodyOKOpen
+	return palette.WarningBodyOpen
 }
 
 // BlockLines renders a finished bash block plus its trailing blank row.
@@ -106,7 +105,7 @@ func BlockLines(cmd, body string, failed, running, expanded bool, height int) []
 		out = append(out, BodyRows(lines, failed)...)
 	}
 	if hint != "" {
-		out[len(out)-1] += " " + HintColour + hint + "\x1b[m"
+		out[len(out)-1] += " " + palette.SubtleOpen + hint + "\x1b[m"
 	}
 	return append(out, "")
 }

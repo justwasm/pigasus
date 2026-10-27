@@ -491,3 +491,42 @@ func itoa10(n int) string {
 	}
 	return string(buf[i:])
 }
+
+// TestTaskNotificationText pins the reference's task notification text.
+//
+// 【一手】 The reference's own notification, from its own transcript (the
+// SYSTEM_MESSAGE that carries it) and from its own conversation store (the
+// function response of a backgrounded `go test`):
+//
+//	Task id "<conversation-id>/task-<n>" finished with result:
+//	Command exited with code 0.
+//
+//	Command output:
+//	...
+//
+//	Log: file://<home>/brain/<conversation-id>/.system_generated/tasks/task-<n>.log
+//
+// The reference formats it "Task id %q %s%s" and appends "\nLog: %s"; the
+// blank line before "Log:" is the result's own trailing newline.
+func TestTaskNotificationText(t *testing.T) {
+	const taskID = "45fde9e1-76d5-4b87-bd23-1b2c626bbf26/task-56"
+	const log = "/Users/gear/.gemini/antigravity-cli/brain/45fde9e1-76d5-4b87-bd23-1b2c626bbf26/.system_generated/tasks/task-56.log"
+	got := TaskNotificationText(taskID, "finished", "Command exited with code 0.\n", log)
+	want := "Task id \"" + taskID + "\" finished with result:\n" +
+		"Command exited with code 0.\n" +
+		"\nLog: file://" + log
+	if got != want {
+		t.Errorf("TaskNotificationText() =\n%q\nwant\n%q", got, want)
+	}
+	// The reference's own status words.
+	for _, tc := range []struct{ status, want string }{
+		{"finished", "Task id \"t\" finished"},
+		{"canceled", "Task id \"t\" was canceled"},
+		{"failed", "Task id \"t\" failed"},
+		{"nonsense", "Task id \"t\" finished"},
+	} {
+		if got := TaskNotificationText("t", tc.status, "", ""); got != tc.want {
+			t.Errorf("status %q: TaskNotificationText() = %q, want %q", tc.status, got, tc.want)
+		}
+	}
+}

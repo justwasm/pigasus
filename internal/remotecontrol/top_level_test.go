@@ -3,7 +3,7 @@
 // share the same data-model package (top_level.go) and
 // the same dispatcher-level test fixture pattern; the
 // cycle's wire-level coverage lives next to the
-// transport in internal/remotetransport/tcp_test.go.
+// transport in remotetransport/tcp_test.go.
 //
 // What this file pins:
 //
@@ -25,7 +25,7 @@
 //     → -32602 envelope.
 //
 // Wire-level coverage:
-//   - internal/remotetransport/tcp_test.go:
+//   - remotetransport/tcp_test.go:
 //   - TestRemoteControlStatus_WS_Ok
 //   - TestRemoteControlOnOutput_WS_Ok
 //   - TestRemoteControlOnMessage_WS_Allowed
@@ -50,7 +50,7 @@ import (
 // handler that returns a TopLevelStatus struct
 // produces a struct value on the in-process path,
 // and a map[string]any only after a JSON round-trip.
-// The wire tests in internal/remotetransport/tcp_test.go
+// The wire tests in remotetransport/tcp_test.go
 // go through the JSON round-trip and see a map; the
 // in-process tests here see either shape depending on
 // whether the handler returned a struct or a map.

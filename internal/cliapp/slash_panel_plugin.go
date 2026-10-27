@@ -3,6 +3,7 @@ package cliapp
 import (
 	"github.com/justwasm/pigasus/internal/auth"
 	"github.com/justwasm/pigasus/internal/pluginsui"
+	"github.com/justwasm/pigasus/palette"
 )
 
 // pluginColor253 is the xterm-253 grey REF uses for the inactive tab, the
@@ -11,9 +12,11 @@ import (
 // was not recovered; `capture-pane` normalises REF's RGB down to this index
 // anyway (see the colour caveat at the top of this file).
 const (
-	pluginColor253  = "\x1b[38;2;238;232;213m"
 	pluginColor253C = "\x1b[39m"
 )
+
+// pluginColor253 is the selected scheme's separator colour.
+var pluginColor253 = palette.SeparatorOpen
 
 // panelPluginLines renders the /plugin picker. Layout recovered from
 // /tmp/agycmp/panels/ppref.plugin.raw.txt and re-probed key-by-key in cycle

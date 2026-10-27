@@ -183,16 +183,25 @@ func TestFilterSlashCommandsWithCustom_FilterAppliesAfterMerge(t *testing.T) {
 	}
 }
 
-// TestFilterSlashCommandsWithCustom_ChromeDevtoolsPluginPrefixStillFiltered
-// pins the cycle-146 invariant: chrome-devtools-plugin:* built-in
-// rows are still excluded from the picker overlay even after the
-// merge. The custom command loader does not change that filter.
-func TestFilterSlashCommandsWithCustom_ChromeDevtoolsPluginPrefixStillFiltered(t *testing.T) {
+// TestFilterSlashCommandsWithCustom_ChromeDevtoolsPluginPrefixKept
+// pins the cycle-351 invariant: the chrome-devtools-plugin:* built-in
+// rows are *kept* in the picker overlay after the merge. The 1.3.6
+// filter that hid them is gone — agy 1.4.8's picker lists every
+// catalogue row (105 items, the same count the /help COMMANDS tab
+// reports).
+func TestFilterSlashCommandsWithCustom_ChromeDevtoolsPluginPrefixKept(t *testing.T) {
 	rows := FilterSlashCommandsWithCustom("", nil)
+	seen := 0
 	for _, r := range rows {
 		if strings.Contains(r.Name, "chrome-devtools-plugin:") {
-			t.Errorf("chrome-devtools-plugin:* built-in leaked into picker: %q", r.Name)
+			seen++
 		}
+	}
+	if seen != 6 {
+		t.Errorf("picker holds %d chrome-devtools-plugin:* rows, want 6", seen)
+	}
+	if len(rows) != len(DefaultSlashCommands) {
+		t.Errorf("picker holds %d rows, want the whole catalogue (%d)", len(rows), len(DefaultSlashCommands))
 	}
 }
 

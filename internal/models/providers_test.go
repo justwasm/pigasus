@@ -240,6 +240,41 @@ func TestRegistry_SaveAndReloadKeepsProviders(t *testing.T) {
 	}
 }
 
+// TestSaveProviders_WritesTheFilePrivately pins the mode of the
+// provider file: it holds the API keys, so it is 0600 even when the
+// file was already there with a wider mode (the atomic write replaces
+// the file rather than editing it in place, so the old mode must not
+// survive).
+func TestSaveProviders_WritesTheFilePrivately(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "providers.json")
+	if err := os.WriteFile(path, []byte("{}"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := SaveProviders(path, map[string]ProviderConfig{
+		"gateway": {Type: "anthropic", BaseURL: "https://host/anthropic"},
+	}); err != nil {
+		t.Fatalf("SaveProviders: %v", err)
+	}
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if perm := info.Mode().Perm(); perm != 0o600 {
+		t.Fatalf("file mode = %o, want 600", perm)
+	}
+	// No sibling temp file is left behind.
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		if e.Name() != "providers.json" {
+			t.Errorf("leftover file %q", e.Name())
+		}
+	}
+}
+
 func TestLoadAll_ReadsTheProviderFile(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", dir)

@@ -10,7 +10,7 @@ import (
 	"strings"
 
 	"github.com/justwasm/pigasus/internal/auth"
-	"github.com/justwasm/pigasus/internal/palette"
+	"github.com/justwasm/pigasus/palette"
 )
 
 const (
@@ -100,7 +100,7 @@ func LocalInstallRow(isCursor bool, query string, blinkOn bool) string {
 		prefix = palette.BlueOpen + "> " + label + palette.BlueClose + " "
 	}
 	if query == "" {
-		return prefix + PluginCursorSpan + "\x1b[38;2;101;123;131m" + PluginLocalPlaceholder + "\x1b[39m"
+		return prefix + PluginCursorSpan + palette.DimGrayOpen + PluginLocalPlaceholder + "\x1b[39m"
 	}
 	if blinkOn {
 		return prefix + query + PluginCursorSpan
@@ -117,15 +117,15 @@ func LocalInstallHint(query string) string {
 	info, err := os.Stat(q)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return "  \x1b[38;2;238;232;213m└─ \x1b[38;2;101;123;131m✗ Directory not found (press Tab to complete)\x1b[39m"
+			return "  " + palette.SeparatorOpen + "└─ " + palette.DimGrayOpen + "✗ Directory not found (press Tab to complete)\x1b[39m"
 		}
-		return "  \x1b[38;2;238;232;213m└─ \x1b[38;2;101;123;131m✗ Directory not readable\x1b[39m"
+		return "  " + palette.SeparatorOpen + "└─ " + palette.DimGrayOpen + "✗ Directory not readable\x1b[39m"
 	}
 	if !info.IsDir() {
-		return "  \x1b[38;2;238;232;213m└─ \x1b[38;2;101;123;131m✗ Path is not a directory\x1b[39m"
+		return "  " + palette.SeparatorOpen + "└─ " + palette.DimGrayOpen + "✗ Path is not a directory\x1b[39m"
 	}
 	if _, err := os.Stat(filepath.Join(q, "plugin.json")); err != nil {
-		return "  \x1b[38;2;238;232;213m└─ \x1b[38;2;101;123;131m✗ Directory does not contain plugin.json (press Tab to complete subdirs)\x1b[39m"
+		return "  " + palette.SeparatorOpen + "└─ " + palette.DimGrayOpen + "✗ Directory does not contain plugin.json (press Tab to complete subdirs)\x1b[39m"
 	}
 	return ""
 }

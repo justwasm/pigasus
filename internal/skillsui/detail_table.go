@@ -3,6 +3,9 @@ package skillsui
 import (
 	"fmt"
 	"strings"
+
+	"github.com/charmbracelet/x/ansi"
+	"github.com/justwasm/pigasus/internal/textwrap"
 )
 
 // MDFootnote is one [N]: url line emitted at the bottom of a table.
@@ -78,8 +81,14 @@ func MDCellSplit(raw string, fns *MDTableFootnotes) (string, []string) {
 	return b.String(), urls
 }
 
+// mdTableColWidth is the natural width of one column: the width of its
+// widest cell, in terminal cells.
+//
+// The cells are counted the way the wrap counts them — in terminal
+// cells, not in runes or bytes. A CJK character is two cells wide, so a
+// column of ideographs is twice as wide as its rune count says.
 func mdTableColWidth(text string) int {
-	return len([]rune(strings.TrimSpace(text)))
+	return ansi.StringWidth(strings.TrimSpace(text))
 }
 
 func mdCellRender(text string, colWidth int) []string {
@@ -92,60 +101,26 @@ func mdCellRender(text string, colWidth int) []string {
 		rows = append(rows, "")
 	}
 	for i, r := range rows {
-		w := len([]rune(r))
+		w := ansi.StringWidth(r)
 		if w < colWidth {
 			rows[i] = r + strings.Repeat(" ", colWidth-w)
 		} else if w > colWidth {
-			rows[i] = r[:colWidth]
+			rows[i] = ansi.Truncate(r, colWidth, "")
 		}
 	}
 	return rows
 }
 
 // MDWrapTableCell word-wraps s to colWidth columns.
+//
+// The wrap is the shared one (internal/textwrap): the rows break on
+// word boundaries and the budget is counted in terminal cells, not in
+// bytes. A token that is wider than the column is broken at the
+// column's boundary — a shrunk column whose data is one long URL would
+// overflow the column otherwise (cycle 218's finding for the GFM pipe
+// tables).
 func MDWrapTableCell(s string, colWidth int) []string {
-	if s == "" {
-		return []string{""}
-	}
-	if colWidth < 1 {
-		return []string{s}
-	}
-	words := strings.Fields(s)
-	if len(words) == 0 {
-		return []string{""}
-	}
-	var out []string
-	cur := ""
-	for _, w := range words {
-		if len(w) > colWidth {
-			if cur != "" {
-				out = append(out, cur)
-				cur = ""
-			}
-			for len(w) > colWidth {
-				out = append(out, w[:colWidth])
-				w = w[colWidth:]
-			}
-			cur = w
-			continue
-		}
-		switch {
-		case cur == "":
-			cur = w
-		case len(cur)+1+len(w) <= colWidth:
-			cur += " " + w
-		default:
-			out = append(out, cur)
-			cur = w
-		}
-	}
-	if cur != "" {
-		out = append(out, cur)
-	}
-	if len(out) == 0 {
-		return []string{""}
-	}
-	return out
+	return textwrap.Break(s, colWidth)
 }
 
 func mdComputeColWidths(headerText []string, dataText [][]string, ncols int) []int {

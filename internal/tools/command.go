@@ -94,7 +94,7 @@ func runCommandDescription() string {
 		"If you have this tool, note that you DO have the ability to run commands directly on the USER's system.\n" +
 		"Make sure to specify CommandLine exactly as it should be run in the shell.\n" +
 		"If the step doesn't return the command output, it means that the command was sent to the background as a task. You will receive messages with the command's output as it runs. To interact with a running command, use the manage_task tool. Use `send_input` to send stdin, `kill` to terminate the command, and `status` to check current status. IMPORTANT: Do NOT poll or loop on `status` to wait for completion. The system will automatically notify you with a message when the command finishes. Simply proceed with other work or stop calling tools after launching a command.\n" +
-		"Commands will be run with PAGER=cat. You may want to limit the length of output for commands that usually rely on paging and may contain very long output (e.g. git log, use git log -n <N>).\n" +
+		"Commands will be run with PAGER=cat. You may want to limit the length of output for commands that usually rely on paging and may contain very long output (e.g. git log, use git log -n <N>)." +
 		"IMPORTANT: The Cwd (working directory) MUST be within the user's workspace. If you need a temporary directory for scratch scripts or intermediate outputs, use the scratch/ directory in your artifact directory instead of writing temporary files to the workspace."
 }
 
@@ -190,6 +190,19 @@ func BypassSandboxRequested(args json.RawMessage) bool {
 // `background` is a clone extension kept from cycle 43 so command_status /
 // send_command_input / manage_task have something to address — the reference
 // starts long-running commands through this same tool.
+//
+// `NotificationTimeoutSeconds` is the reference's own parameter, read out
+// of the 1.4.8 binary (【反编译】
+// cortex/core/tools.(*RunCommandTool).withTimeoutNotificationField at
+// 0x101dfa4b0, which bolts it onto the reflected schema with
+// utils.AugmentSchemaField — name 26 B, type "integer" 7 B, description
+// 386 B, all copied verbatim here). The reference's *default* declaration
+// does not carry it — the field is added only when the tool has the
+// notification capability — and the request bodies captured on 2026-10-22
+// do not have it either, so the shipped wire fixture
+// (model_tools_1.4.6.json) is untouched. The catalogue is the clone's own
+// surface for custom agents, and there the parameter is advertised, so the
+// model can actually use it.
 var runCommandSchema = json.RawMessage(`{"type":"object","properties":{` +
 	`"CommandLine":{"type":"string","description":"The exact command line string to execute."},` +
 	`"Cwd":{"type":"string","description":"The current working directory for the command"},` +
@@ -198,6 +211,7 @@ var runCommandSchema = json.RawMessage(`{"type":"object","properties":{` +
 	`"RequestedTerminalID":{"type":"string","description":"Optional ID of a persistent terminal to reuse."},` +
 	`"RunPersistent":{"type":"boolean","description":"Set to true to run this command in a persistent terminal."},` +
 	`"WaitMsBeforeAsync":{"type":"integer","description":"Milliseconds to wait before sending the command to the background."},` +
+	`"NotificationTimeoutSeconds":{"type":"integer","description":"Optional. If the command runs for longer than this duration (in seconds) after the wait time (WaitMsBeforeAsync), the system will notify you that it is still running. Use this instead of setting a manual timer for checking status of commands. Highly recommended if the command is expected to terminate at all. Do not set this for daemon commands, which are expected to run indefinitely."},` +
 	`"background":{"type":"boolean","description":"Start the command and return an id instead of waiting for it."},` +
 	`"toolAction":{"type":"string","description":"Brief 2-5 word phrase in -ing form describing the specific action."},` +
 	`"toolSummary":{"type":"string","description":"Brief 2-5 word noun phrase describing the specific task."}` +
@@ -264,13 +278,34 @@ func (r *RunCommand) Name() string { return "run_command" }
 func (r *RunCommand) Schema() json.RawMessage {
 	return runCommandSchema
 }
+
+// runCommandParams are run_command's arguments.
+//
+// The reference's own parameter names are in the captured 1.4.6
+// declaration: CommandLine, Cwd, BypassSandbox, WaitMsBeforeAsync,
+// IsDaemon, toolSummary. The clone's canonicaliser maps CommandLine to
+// "command" (tools_params.go) and the rest arrive as they are.
+type runCommandParams struct {
+	Command    string `json:"command"`
+	Cwd        string `json:"cwd"`
+	Timeout    int    `json:"timeout"`
+	Background bool   `json:"background"`
+	// WaitMsBeforeAsync is the reference's own parameter: how long (in
+	// milliseconds) the command gets to finish before it is sent to the
+	// background as a task.
+	WaitMsBeforeAsync int `json:"wait_ms_before_async"`
+	// NotificationTimeoutSeconds is the reference's own parameter: how
+	// long (in seconds) the command may keep running after the wait
+	// window before the system notifies the model that it is still
+	// running. Zero means no such notification.
+	NotificationTimeoutSeconds int `json:"notification_timeout_seconds"`
+	// IsDaemon marks a command that is expected to run indefinitely; the
+	// reference sends it to the background straight away.
+	IsDaemon bool `json:"is_daemon"`
+}
+
 func (r *RunCommand) Run(ctx context.Context, args json.RawMessage) (any, error) {
-	var p struct {
-		Command    string `json:"command"`
-		Cwd        string `json:"cwd"`
-		Timeout    int    `json:"timeout"`
-		Background bool   `json:"background"`
-	}
+	var p runCommandParams
 	// argsOf canonicalises the reference's CommandLine / Cwd keys.
 	if err := argsOf(args, &p); err != nil {
 		return nil, err
@@ -279,16 +314,24 @@ func (r *RunCommand) Run(ctx context.Context, args json.RawMessage) (any, error)
 	if p.Command == "" {
 		return nil, errors.New("empty command")
 	}
+	// 【一手】 The reference's own transcript (1.4.7): a run_command with
+	// "WaitMsBeforeAsync": "5000" that outlives the wait window comes
+	// back as "Tool is running as a background task with task id: …" —
+	// the command keeps running as a task of the conversation.
+	if p.IsDaemon {
+		// A daemon command is expected to run forever, so there is
+		// nothing to wait for: it goes straight to the background.
+		return r.sendToBackground(p)
+	}
 	if p.Background {
 		// Cycle 276: the background path now goes through the same shell as
 		// the foreground one, so `background: true` can finally express a
 		// pipeline / redirect (it used to shlex-split argv and reach the
 		// program with `|` as a literal argument).
-		t, err := backgroundTasks.start(r.Workspace, p.Command, DefaultShellArgv(p.Command), secondsToDuration(p.Timeout))
-		if err != nil {
-			return nil, err
-		}
-		return fmt.Sprintf("Started %s in the background.\n%s", t.id, t.status()), nil
+		return r.sendToBackground(p)
+	}
+	if p.WaitMsBeforeAsync > 0 {
+		return r.runWithAsyncWindow(ctx, p)
 	}
 	if p.Timeout > 0 {
 		var cancel context.CancelFunc
@@ -312,6 +355,114 @@ func (r *RunCommand) Run(ctx context.Context, args json.RawMessage) (any, error)
 		return nil, err
 	}
 	return r.renderResult(started, time.Now(), code, normalizeCommandOutput(out.String())), nil
+}
+
+// runWithAsyncWindow runs the command and gives it the reference's
+// WaitMsBeforeAsync to finish.
+//
+// A command that finishes inside the window returns the foreground
+// result — the same text the plain foreground path returns. A command
+// that is still running when the window closes is sent to the background
+// as a task: it keeps running, it gets the conversation's task id and
+// task log, and the tool returns the reference's launch acknowledgement
+// (【一手】 the reference's own transcript, 1.4.7).
+//
+// The command runs with the reference's pty on stdin and *without* the
+// clone's VEOF: the reference's pty belongs to a persistent terminal
+// whose input end stays open, so a command that reads stdin blocks, the
+// wait window elapses and the command is handed to the background — which
+// is what the reference does. The plain foreground path keeps the VEOF:
+// it has no wait window, so a blocking read would wedge the turn.
+func (r *RunCommand) runWithAsyncWindow(ctx context.Context, p runCommandParams) (any, error) {
+	started := time.Now()
+	convID := r.conversationID()
+	taskID := nextTaskID(convID)
+	// The task's id in the reference's shape: "<conversation-id>/task-<n>".
+	// The table is keyed by it, so command_status, manage_task and
+	// send_command_input all address a task the way the model names it.
+	fullID := convID + "/" + taskID
+	logPath := taskLogPath(scheduleHome(r.Home), convID, taskID)
+	if err := createTaskLog(logPath); err != nil {
+		return nil, err
+	}
+
+	argv := DefaultShellArgv(p.Command)
+	// context.Background, not the caller's ctx: a command that outlives
+	// the wait window must outlive the turn that started it.
+	cmd := exec.CommandContext(context.Background(), argv[0], argv[1:]...)
+	cmd.Dir = resolveCwd(r.Workspace, p.Cwd)
+	cmd.Env = AgentShellEnv()
+
+	// The task is created before the command starts: the command's
+	// output is the task's output, and the task may yet become a
+	// background task.
+	t, err := backgroundTasks.newTask(fullID, logPath, p.Command, cmd)
+	if err != nil {
+		return nil, err
+	}
+	wait, stdin, err := startWithPTYStdin(cmd, false)
+	if err != nil {
+		backgroundTasks.remove(fullID)
+		return nil, err
+	}
+	t.stdin = stdin
+	backgroundTasks.watch(t, wait, stdin)
+
+	window := time.Duration(p.WaitMsBeforeAsync) * time.Millisecond
+	timer := time.NewTimer(window)
+	defer timer.Stop()
+	select {
+	case <-t.finished:
+		// The command finished inside the window: the foreground result.
+		code, err := runExitCode(ctx, t.err)
+		if err != nil {
+			return nil, err
+		}
+		output, _, _ := t.stepState()
+		return r.renderResult(started, time.Now(), code, normalizeCommandOutput(output)), nil
+	case <-timer.C:
+		// The window closed with the command still running: it is a task
+		// now, and the model gets the reference's launch acknowledgement.
+		// The reference arms the notification timer here too — after the
+		// wait window, not before it.
+		armNotificationTimeout(t, p.NotificationTimeoutSeconds)
+		// The task is a task now, so it owes the model a completion
+		// notification when the command is gone.
+		notifyOnCompletion(t)
+		return taskLaunchResult(started, convID, taskID, logPath), nil
+	}
+}
+
+// sendToBackground starts the command as a background task and returns the
+// reference's launch acknowledgement.
+func (r *RunCommand) sendToBackground(p runCommandParams) (any, error) {
+	convID := r.conversationID()
+	taskID := nextTaskID(convID)
+	fullID := convID + "/" + taskID
+	logPath := taskLogPath(scheduleHome(r.Home), convID, taskID)
+	if err := createTaskLog(logPath); err != nil {
+		return nil, err
+	}
+	if _, err := backgroundTasks.start(r.Workspace, fullID, logPath, p.Command,
+		DefaultShellArgv(p.Command), secondsToDuration(p.Timeout)); err != nil {
+		return nil, err
+	}
+	if t, ok := backgroundTasks.get(fullID); ok {
+		armNotificationTimeout(t, p.NotificationTimeoutSeconds)
+		notifyOnCompletion(t)
+	}
+	return taskLaunchResult(time.Now(), convID, taskID, logPath), nil
+}
+
+// conversationID resolves the conversation the task belongs to.
+func (r *RunCommand) conversationID() string {
+	if r.ConversationID != "" {
+		return r.ConversationID
+	}
+	if id := os.Getenv("OPENAGY_CONVERSATION_ID"); id != "" {
+		return id
+	}
+	return processConversationID()
 }
 
 func runExitCode(ctx context.Context, err error) (int, error) {
@@ -419,10 +570,27 @@ func commandStamp(started, finished time.Time) string {
 // The preview itself is CRLF-terminated — the one place the reference emits
 // CRLF — while the plain path keeps the command's own line endings.
 func (r *RunCommand) renderResult(started, finished time.Time, code int, output string) string {
-	stamp := commandStamp(started, finished)
+	return commandStamp(started, finished) + commandResultBody(code, output, r.spillOutput)
+}
+
+// commandResultBody renders the reference's run_command result body: the
+// exit-code line, the output block, and — when the body is longer than
+// maxCommandBodyBytes — the reference's head+tail preview with the middle
+// removed.
+//
+// The body is what the tool result is made of, minus the timestamp stamp.
+// The reference's completion notification carries the body alone (the
+// captured notification in internal/tools/testdata/reference_background_task_1.4.7.txt
+// has no "Created At:"/"Completed At:" line), so the notification path
+// calls this directly.
+//
+// spill writes the untruncated output to a file and returns its path. A nil
+// spill omits the note — the task notification names the task log instead,
+// and that log holds the command's whole output.
+func commandResultBody(code int, output string, spill func(string) (string, error)) string {
 	body := commandBody(code, output)
 	if len(body) <= maxCommandBodyBytes {
-		return stamp + body
+		return body
 	}
 
 	rendered := strings.ReplaceAll(output, "\n", "\r\n")
@@ -437,12 +605,14 @@ func (r *RunCommand) renderResult(started, finished time.Time, code int, output 
 		total-commandPreviewKept, total)
 
 	note := ""
-	if path, err := r.spillOutput(output); err == nil && path != "" {
-		note = "The tool's output was truncated due to being too long. " +
-			"You can find the full output in a file at file://" + path + ".\n\n" +
-			"Here is a preview with the middle of the output truncated:\n"
+	if spill != nil {
+		if path, err := spill(output); err == nil && path != "" {
+			note = "The tool's output was truncated due to being too long. " +
+				"You can find the full output in a file at file://" + path + ".\n\n" +
+				"Here is a preview with the middle of the output truncated:\n"
+		}
 	}
-	return stamp + note + header + head + "\n" + marker + "\n" + tail
+	return note + header + head + "\n" + marker + "\n" + tail
 }
 
 // spillOutput writes the full, unconverted output next to the reference's

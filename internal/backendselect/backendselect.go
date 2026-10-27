@@ -28,6 +28,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/justwasm/pigasus/internal/accountrouting"
 	"github.com/justwasm/pigasus/internal/auth"
 	"github.com/justwasm/pigasus/internal/backend"
 	"github.com/justwasm/pigasus/internal/cli"
@@ -119,6 +120,10 @@ func newConfiguredBackend(modelName string, timeoutSeconds int, logWriter io.Wri
 		Headers:          m.ExtraHeaders,
 		TimeoutSeconds:   timeout,
 		DefaultMaxTokens: m.DefaultMaxTokens,
+		// The reasoning level the model runs at. On a tier row
+		// ("minimax-m3.1-flash-xhigh") this is the tier itself, so
+		// the tier rides the row into the request.
+		ReasoningEffort: strings.TrimSpace(m.ReasoningEffort),
 	})
 }
 
@@ -127,6 +132,16 @@ func newConfiguredBackend(modelName string, timeoutSeconds int, logWriter io.Wri
 // CloudCode is the reference's own transport and it needs an OAuth token. A
 // machine without one gets the shim instead, with a warning — the same
 // choice the reference makes when it cannot sign in.
+//
+// The token comes from the account pool: the router hands the transport the
+// credential of the account the policy picked, and the decision is taken
+// per turn. With no policy in the configuration file the router answers
+// with the transport's own credential — the same source the client would
+// have built for itself — so the default path is unchanged.
+//
+// The router is installed **always**, not only when a policy is present:
+// the policy is read per turn, so a policy the user turns on from the
+// TUI's own panel takes effect on the next turn, without a restart.
 func newOfficialBackend(modelName string, logWriter io.Writer, catalogueID CatalogueIDFunc) backend.Client {
 	if !HasOAuthToken() {
 		fmt.Fprintln(logWriter, "[warn] no OAuth token found (need $JETSKI_OAUTH_TOKEN or ~/.config/antigravity/oauth-token); falling back to shim backend")
@@ -139,7 +154,17 @@ func newOfficialBackend(modelName string, logWriter io.Writer, catalogueID Catal
 	if slug == "" {
 		slug = strings.TrimSpace(modelName)
 	}
-	return backend.NewCloudCodeWithConfig(backend.CloudCodeConfig{Model: slug})
+	router := accountrouting.Shared()
+	// The router answers with the transport's own credential while the
+	// policy is off. It is installed here, at build time, so the answer
+	// is the one this transport would have given by itself — and a
+	// rebuilt transport installs a fresh one.
+	router.SetFallback(backend.DefaultTokenSource())
+	client := backend.NewCloudCodeWithConfig(backend.CloudCodeConfig{
+		Model:     slug,
+		TokenFunc: router.TokenFunc,
+	})
+	return accountrouting.Wrap(client, logWriter)
 }
 
 // Resolve decides which backend to use.

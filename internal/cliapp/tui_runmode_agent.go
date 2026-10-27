@@ -19,11 +19,16 @@ import (
 	"github.com/justwasm/pigasus/internal/agenttools"
 	"github.com/justwasm/pigasus/internal/auth"
 	"github.com/justwasm/pigasus/internal/backend"
+	"github.com/justwasm/pigasus/internal/browsersubagent"
+	"github.com/justwasm/pigasus/internal/builtinsubagent"
 	"github.com/justwasm/pigasus/internal/hooks"
 	"github.com/justwasm/pigasus/internal/keybind"
+	"github.com/justwasm/pigasus/internal/modelcatalog"
 	"github.com/justwasm/pigasus/internal/permissions"
+	"github.com/justwasm/pigasus/internal/piagentbridge"
 	"github.com/justwasm/pigasus/internal/subagentquestions"
 	"github.com/justwasm/pigasus/internal/subagenttools"
+	"github.com/justwasm/pigasus/internal/themepreview"
 	"github.com/justwasm/pigasus/internal/toolrunner"
 	"github.com/justwasm/pigasus/internal/tools"
 	"github.com/justwasm/pigasus/internal/wordmove"
@@ -49,7 +54,8 @@ func compactDuration(start, end time.Time) string {
 
 func (m *runMode) Init() tea.Cmd {
 	cmds := []tea.Cmd{tas.Blink, armTasksTick(), m.fetchPlanTierCmd()}
-	if m.statusLineExternal {
+	if m.statusLineScriptActive() || m.titleScriptActive() {
+		m.statusLineTickArmed = true
 		cmds = append(cmds, armExternalStatusLineTick())
 	}
 	return tea.Batch(cmds...)
@@ -175,7 +181,7 @@ func (m *runMode) subAgentExtras(_ context.Context, be backend.Client, modelLabe
 		tuiSilenceLogger.Printf("[tui] subagent services: %v", err)
 		return nil, func() {}
 	}
-	subTools := subagenttools.Tools(subagenttools.Deps{
+	subDeps := subagenttools.Deps{
 		Services: services,
 		Model:    piModel,
 		CWD:      workspace,
@@ -184,7 +190,57 @@ func (m *runMode) subAgentExtras(_ context.Context, be backend.Client, modelLabe
 		// long as the conversation does, so they survive the per-turn
 		// rebuild of the tool set.
 		Definitions: m.subagentDefs,
-	})
+		Tasks:       m.taskReg,
+		// The conversation's live-subagent registry: a delegated
+		// subagent runs in the background and is reachable by its
+		// conversation id until it is killed.
+		Registry: m.ensureSubagentRegistry(),
+		// The parent's own conversation id. A subagent's message
+		// reaches the parent by it, and the parent's messages carry
+		// it as the sender.
+		ConversationID: m.conversationID,
+		// The conversation's one permission policy, applied to the
+		// subagent's own tool calls as well.
+		PermissionGateFor: m.subagentGateFactory,
+		// The parent's own prompt: the reference's `self` type
+		// "inherits the parent agent's full configuration including
+		// tools, system prompt, and model".
+		//
+		// It is a function value, so the prompt is built only when a
+		// delegation needs it — building it walks the skills
+		// directories, and the turn's own prompt is built already.
+		SystemPrompt: m.systemPrompt,
+		// The parent's tool catalogue: a subagent's tool set is drawn
+		// from it, because the reference's grants say which of the
+		// parent's tools a subagent may call.
+		Catalogue: piagentbridge.Tools(m.catalog),
+	}
+	subTools := subagenttools.Tools(subDeps)
+	// The browser_subagent tool needs the session's model and the
+	// browser tools; the runner is installed process-wide, like the MCP
+	// pool.
+	if m.catalog != nil {
+		tools.SetBrowserSubagentProvider(browsersubagent.New(subagenttools.Deps{
+			Services: services,
+			Model:    piModel,
+			CWD:      workspace,
+			AgentDir: agentDir,
+		}, browsersubagent.Tools(m.catalog)))
+		// The browser agent is also a built-in subagent *type*, under
+		// the reference's own name: that is how the model reaches it,
+		// because the model's twelve wire declarations carry no browser
+		// tool (the reference reaches its browser agent the same way).
+		//
+		// The registry is rebuilt every turn, so the handler carries
+		// this turn's model and services — the ones the turn's own
+		// subagent tools use.
+		reg := builtinsubagent.Default()
+		if err := browsersubagent.InstallBuiltin(reg, subDeps, m.catalog); err != nil {
+			tuiSilenceLogger.Printf("[tui] browser built-in: %v", err)
+		} else {
+			subagenttools.SetBuiltinSubagentRegistry(reg)
+		}
+	}
 	closeFn := func() { services.Close() }
 	return subTools, closeFn
 }
@@ -219,7 +275,7 @@ func resolveRunModeDefaults(b backend.Client, email, model, tier, cwd string) (s
 	}
 	if b != nil && model == "" {
 		if gb, ok := b.(gatewayBackend); ok {
-			if label, ok := wireModelLabel(gb.GatewayConfig().ExternalModel); ok {
+			if label, ok := modelcatalog.WireLabel(gb.GatewayConfig().ExternalModel); ok {
 				model = label
 			}
 		}
@@ -227,7 +283,7 @@ func resolveRunModeDefaults(b backend.Client, email, model, tier, cwd string) (s
 	if model != "" && !isReferenceModel(model) {
 		// A configured model keeps its own label: the label has to name
 		// the one the endpoint is serving, not collapse to another.
-		model = formatModelLabel(model)
+		model = modelcatalog.FormatModelLabel(model)
 	}
 	if model == "" {
 		model = "Gemini 3.8 Flash (High)"
@@ -272,6 +328,9 @@ func newRunModeBase(b backend.Client, email, model, tier, cwd string, altScreen 
 		hooks:                   hooks.NewManager(),
 		narrationStart:          time.Now(),
 		wireSettingsPending:     true,
+		activeItems:             newActiveItemsModel(),
+		titleStore:              &windowTitleStore{},
+		taskInbox:               agent.NewTaskInbox(),
 	}
 }
 
@@ -298,8 +357,17 @@ func initRunModeInput(m *runMode) {
 	m.input.DynamicHeight = true
 	m.input.MinHeight = 1
 
-	promptBlueStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#268BD2"))
-	placeholderStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("#657B83"))
+	// The prompt wears the selected scheme's accent and the placeholder
+	// its dim foreground; the colours follow the scheme, so they are
+	// resolved from it rather than hard-coded.
+	initScheme := auth.SettingsString("colorScheme")
+	// The session wears the configured scheme from the first frame, so
+	// the whole interface is painted in it — the reference resolves
+	// every colour from the selected scheme.
+	m.colorScheme = initScheme
+	promptColor, placeholderColor := themepreview.ColorsFor(initScheme)
+	promptBlueStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(promptColor))
+	placeholderStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(placeholderColor))
 	st := m.input.Styles()
 	st.Focused.Base = lipgloss.NewStyle()
 	st.Focused.CursorLine = lipgloss.NewStyle()
@@ -314,7 +382,7 @@ func initRunModeInput(m *runMode) {
 	st.Blurred.EndOfBuffer = lipgloss.NewStyle()
 	m.input.SetStyles(st)
 	m.input.Focus()
-	if initScheme := auth.SettingsString("colorScheme"); initScheme != "" {
+	if initScheme != "" {
 		m.applyThemeLive(initScheme)
 	}
 }
@@ -331,6 +399,10 @@ func NewRunMode(b backend.Client, email, model, tier, cwd string, altScreen bool
 	initRunModeInput(m)
 
 	m.spinner = sp.New(sp.WithSpinner(sp.Dot))
+	// 【一手】 agy 1.4.7: with a seasonal event switched on the
+	// streaming spinner is the event's own — the Halloween event shows
+	// a four-frame moon phase ("◐  Generating…").
+	m.refreshSeasonalTheme()
 	if len(pickerHidden) > 0 {
 		m.picker.SetHiddenCommands(pickerHidden...)
 	}

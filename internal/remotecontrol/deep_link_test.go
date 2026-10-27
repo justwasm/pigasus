@@ -2,7 +2,7 @@
 // new surface. The pure-parse side lives in
 // ParseDeepLink (deep_link.go); the dispatcher's
 // handler is exercised via Dispatch — wire-level
-// coverage lives in internal/remotetransport/tcp_test.go.
+// coverage lives in remotetransport/tcp_test.go.
 //
 // Split rationale: deep_link_test.go is pure parse +
 // dispatch-only tests. Wire tests would just be
@@ -271,7 +271,7 @@ func TestCascade_Focus(t *testing.T) {
 
 // ----- dispatcher-level (in-process) coverage
 // for handleRemoteControlDeepLink. Wire-level
-// coverage lives in internal/remotetransport/
+// coverage lives in remotetransport/
 // tcp_test.go.
 
 // TestDispatcher_RemoteControlDeepLink_Open pins

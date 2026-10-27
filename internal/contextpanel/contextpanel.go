@@ -15,14 +15,35 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+
+	"github.com/justwasm/pigasus/palette"
 )
 
 // MaxContextTokens is the 1.0M-token window the panel reports. The
 // reference keeps the magic number in the panel itself.
 const MaxContextTokens = 1_000_000
 
-// Cell is one `□` of the usage grid, painted in dim gray 241.
-const Cell = "\x1b[38;2;101;123;131m□\x1b[39m"
+// The panel's colours follow the selected colour scheme, so the
+// painted glyphs are rebuilt whenever the scheme changes.
+var (
+	// Cell is one `□` of the usage grid, painted in the dim foreground.
+	Cell = palette.DimGrayOpen + "□\x1b[39m"
+)
+
+func init() {
+	palette.OnSchemeChange(refreshColours)
+}
+
+// refreshColours re-reads the palette after the selected colour scheme
+// changed.
+func refreshColours() {
+	Cell = palette.DimGrayOpen + "□\x1b[39m"
+	UserGlyph = palette.UserFgOpen + "◉\x1b[39m"
+	AgentGlyph = palette.AgentFgOpen + "◉\x1b[39m"
+	SystemGlyph = palette.SubtleOpen + "⛁\x1b[39m"
+	FreeSpaceRow = palette.DimGrayOpen + "□\x1b[39m Free space: 1.0M %s"
+	Header = "\x1b[1m" + palette.SubtleOpen + "└ Context Usage\x1b[0m"
+}
 
 // DefaultCols is the historical 220-column shape: one cell per five
 // columns.
@@ -126,16 +147,23 @@ type Row struct {
 }
 
 // The category glyphs the panel paints for a non-empty category.
-const (
-	UserGlyph    = "\x1b[38;2;38;139;210m◉\x1b[39m"
-	AgentGlyph   = "\x1b[38;2;133;153;0m◉\x1b[39m"
-	ToolGlyph    = "\x1b[38;5;172m◉\x1b[39m"
-	SystemGlyph  = "\x1b[38;2;88;110;117m⛁\x1b[39m"
-	FreeSpaceRow = "\x1b[38;2;101;123;131m□\x1b[39m Free space: 1.0M %s"
+//
+// The user's, the agent's and the system's glyphs come from the
+// selected scheme's slots; the tool's glyph is a colour the reference
+// hard-codes.
+var (
+	UserGlyph    = palette.UserFgOpen + "◉\x1b[39m"
+	AgentGlyph   = palette.AgentFgOpen + "◉\x1b[39m"
+	SystemGlyph  = palette.SubtleOpen + "⛁\x1b[39m"
+	FreeSpaceRow = palette.DimGrayOpen + "□\x1b[39m Free space: 1.0M %s"
 )
 
+// ToolGlyph is the tool category's glyph — a colour the reference
+// hard-codes, so it does not move with the scheme.
+const ToolGlyph = "\x1b[38;5;172m◉\x1b[39m"
+
 // grayGlyph is the dim-gray variant of the system-prompt glyph.
-func grayGlyph(glyph string) string { return "\x1b[38;2;88;110;117m" + glyph + "\x1b[39m" }
+func grayGlyph(glyph string) string { return palette.SubtleOpen + glyph + "\x1b[39m" }
 
 // StreamingRows are the descriptor rows of the in-flight layout (cycle 289):
 // a turn in flight shows only the user/agent/tool rows and one grid cell
@@ -145,9 +173,9 @@ func StreamingRows(model string, used, free, contextMax, user, agent, tool int) 
 	return []Row{
 		{fmt.Sprintf("%s · %s/1.0M tokens", model, TokenLabel(used)), 5},
 		{Pct(used, contextMax), 6},
-		{"\x1b[1m\x1b[38;2;88;110;117mEstimated usage (awaiting generation)\x1b[0m", 5},
+		{"\x1b[1m" + palette.SubtleOpen + "Estimated usage (awaiting generation)\x1b[0m", 5},
 		{fmt.Sprintf("\x1b[1m\x1b[38;5;26m◉\x1b[0m User messages: %s tokens %s", TokenLabel(user), Pct(user, contextMax)), 5},
-		{fmt.Sprintf("\x1b[38;2;133;153;0m◉\x1b[39m Agent responses: %s tokens %s", TokenLabel(agent), Pct(agent, contextMax)), 5},
+		{fmt.Sprintf("%s Agent responses: %s tokens %s", AgentGlyph, TokenLabel(agent), Pct(agent, contextMax)), 5},
 		{fmt.Sprintf("\x1b[38;5;172m◉\x1b[0m Tool calls: %s tokens %s", TokenLabel(tool), Pct(tool, contextMax)), 5},
 		{fmt.Sprintf(FreeSpaceRow, Pct(free, contextMax)), 5},
 	}
@@ -158,9 +186,9 @@ func LiveRows(model string, used, free, contextMax int, user, agent, tool, sysPr
 	return []Row{
 		{fmt.Sprintf("%s · %s/1.0M tokens", model, TokenLabel(used)), 5},
 		{Pct(used, contextMax), 6},
-		{"\x1b[1m\x1b[38;2;88;110;117mToken usage by category\x1b[0m", 5},
+		{"\x1b[1m" + palette.SubtleOpen + "Token usage by category\x1b[0m", 5},
 		{fmt.Sprintf("\x1b[1m\x1b[38;5;26m◉\x1b[0m User messages: %s tokens %s", TokenLabel(user), Pct(user, contextMax)), 5},
-		{fmt.Sprintf("\x1b[38;2;133;153;0m◉\x1b[39m Agent responses: %s tokens %s", TokenLabel(agent), Pct(agent, contextMax)), 5},
+		{fmt.Sprintf("%s Agent responses: %s tokens %s", AgentGlyph, TokenLabel(agent), Pct(agent, contextMax)), 5},
 		{fmt.Sprintf("\x1b[38;5;172m◉\x1b[0m Tool calls: %s tokens %s", TokenLabel(tool), Pct(tool, contextMax)), 5},
 		{fmt.Sprintf("%s System prompt: %s tokens %s", grayGlyph("⛁"), TokenLabel(sysPrompt), Pct(sysPrompt, contextMax)), 5},
 		{fmt.Sprintf("%s System tools: %s tokens %s", grayGlyph("⛁"), TokenLabel(sysTools), Pct(sysTools, contextMax)), 5},

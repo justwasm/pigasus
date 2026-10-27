@@ -32,6 +32,7 @@ Available subcommands:
   agent           List available agents
   agents          List available agents
   changelog       Show changelog and release notes
+  halloween       Print the seasonal banner art
   help            Show help for subcommands
   install         Configure environment paths and shell settings
   mcp             Manage MCP servers (add, remove, list, enable, disable)

@@ -155,6 +155,10 @@ func (r *CascadeRegistry) SendStream(ctx context.Context, cascadeID string, prom
 	defer cancelTimeout()
 	turnCtx := c.StartCancel(timeoutCtx)
 	defer c.StopCancel()
+	// The interactive tools ask the user through the turn's
+	// interaction host: the host publishes the waiting step the Web
+	// UI's card reads, and blocks until the user answered.
+	turnCtx = lsInstallInteractionHost(turnCtx, c, sink)
 	res, err := r.runStreamBackend(turnCtx, c, prompt, sink, opts)
 	if err != nil {
 		return MessageResult{}, r.mapStreamError(c, err, timeoutCtx, opts)

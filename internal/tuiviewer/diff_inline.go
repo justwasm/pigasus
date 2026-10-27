@@ -3,7 +3,7 @@ package tuiviewer
 import (
 	"strconv"
 
-	"github.com/justwasm/pigasus/internal/palette"
+	"github.com/justwasm/pigasus/palette"
 )
 
 // DiffFirstChangedPath returns the path of the first change in the working copy.

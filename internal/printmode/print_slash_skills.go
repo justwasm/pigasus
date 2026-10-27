@@ -23,6 +23,17 @@ import (
 // `model_invocable` is true for all 57 skills on the capture machine; the
 // frontmatter marker that would clear it is unrecovered, so the clone always
 // reports true.
+//
+// `Icon` carries the frontmatter `metadata.icon` value out of band: it is
+// deliberately NOT part of the JSON payload, because the reference's payload
+// has exactly the six keys above — no icon. The reference *does* render the
+// icon in its TUI panel, as "<icon> <name>" (see skillsui.DisplayName), so
+// the value has to travel next to the name rather than inside it.
+//
+// 【一手】 agy 1.4.8: a probe skill whose frontmatter declares
+// `metadata.icon: zzznotanicon` lists as `zzznotanicon zziconprobe` in the
+// /skills panel and in the skill's detail header, and prints as
+// `zziconprobe` in `agy -p /skills`.
 type SkillInfo struct {
 	Name           string `json:"name"`
 	Description    string `json:"description"`
@@ -30,6 +41,7 @@ type SkillInfo struct {
 	Plugin         string `json:"plugin,omitempty"`
 	Builtin        bool   `json:"builtin"`
 	ModelInvocable bool   `json:"model_invocable"`
+	Icon           string `json:"-"`
 }
 
 type jsonSkillInfo = SkillInfo
@@ -49,27 +61,22 @@ func collectSkillsFromDir(dir, prefix string, listed map[string]bool, builtin bo
 			continue
 		}
 		skillMD := filepath.Join(path, "SKILL.md")
-		name, desc := skillFrontmatter(skillMD)
+		fm := skillFrontmatterFields(skillMD)
+		name := fm.Name
 		if name == "" {
 			name = e.Name()
-		}
-		if builtin && e.Name() == "automation" {
-			// The bundled automation skill declares `name: automation`
-			// plus `metadata.icon: schedule`; agy 1.4.3 lists it as
-			// "schedule automation" in /skills. Other builtin names
-			// come straight from frontmatter.
-			name = "schedule automation"
 		}
 		if prefix != "" {
 			name = prefix + ":" + name
 		}
 		found = append(found, jsonSkillInfo{
 			Name:           name,
-			Description:    desc,
+			Description:    fm.Description,
 			Path:           skillMD,
 			Plugin:         prefix,
 			Builtin:        builtin,
 			ModelInvocable: true,
+			Icon:           fm.Icon,
 		})
 	}
 	return found
@@ -221,18 +228,49 @@ func extractFrontmatterBytes(b []byte) ([]byte, bool) {
 // callers append it to a `\t` separator in `/skills` output, where a trailing
 // newline would emit a stray blank line.
 func skillFrontmatter(path string) (name, description string) {
+	f := skillFrontmatterFields(path)
+	return f.Name, f.Description
+}
+
+// skillFrontmatterValues holds the frontmatter fields the clone reads from a
+// SKILL.md: the declared name, the description and the `metadata.icon`
+// glyph name.
+type skillFrontmatterValues struct {
+	Name        string
+	Description string
+	Icon        string
+}
+
+// skillFrontmatterFields parses the frontmatter of a SKILL.md and returns
+// the name, the description and the `metadata.icon` value.
+//
+// The icon is read from the nested `metadata` mapping:
+//
+//	metadata:
+//	  icon: schedule
+//
+// It is decoded into an `any` rather than a typed struct so that a SKILL.md
+// whose `metadata` is a scalar or a sequence still parses — a typed struct
+// would make the whole document fail to unmarshal and lose the name with it.
+//
+// 【一手】 agy 1.4.8 renders the icon verbatim in the /skills panel, next to
+// the bare name ("schedule automation" for the bundled automation skill), and
+// ignores any unknown icon name (a probe skill with `metadata.icon:
+// zzznotanicon` renders "zzznotanicon zziconprobe").
+func skillFrontmatterFields(path string) skillFrontmatterValues {
 	b, err := os.ReadFile(path)
 	if err != nil {
-		return "", ""
+		return skillFrontmatterValues{}
 	}
 	fm, ok := extractFrontmatterBytes(b)
 	if !ok {
-		return "", ""
+		return skillFrontmatterValues{}
 	}
 
 	var doc struct {
 		Name        string `yaml:"name"`
 		Description string `yaml:"description"`
+		Metadata    any    `yaml:"metadata"`
 	}
 
 	// Cycle `yaml-colon-description`: every plain-scalar value in the
@@ -249,9 +287,18 @@ func skillFrontmatter(path string) (name, description string) {
 	// reference never does this) still fails to unmarshal, and we
 	// surface that as empty, matching the prior "best effort" contract.
 	if err := yaml.Unmarshal(normalizeFrontmatter(fm), &doc); err != nil {
-		return "", ""
+		return skillFrontmatterValues{}
 	}
-	return strings.TrimSpace(doc.Name), strings.TrimRight(doc.Description, "\n")
+	out := skillFrontmatterValues{
+		Name:        strings.TrimSpace(doc.Name),
+		Description: strings.TrimRight(doc.Description, "\n"),
+	}
+	if meta, ok := doc.Metadata.(map[string]any); ok {
+		if icon, ok := meta["icon"].(string); ok {
+			out.Icon = strings.TrimSpace(icon)
+		}
+	}
+	return out
 }
 
 // needsDoubleQuoting reports whether v is a plain-scalar YAML value whose

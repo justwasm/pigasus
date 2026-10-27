@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"github.com/justwasm/pigasus/internal/mdrender"
-	"github.com/justwasm/pigasus/internal/palette"
+	"github.com/justwasm/pigasus/palette"
 )
 
 func TestIndent(t *testing.T) {

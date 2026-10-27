@@ -335,9 +335,16 @@ func printTimeoutWarning(d time.Duration) string {
 		filepath.Base(os.Args[0]), d)
 }
 
-// printPermissionMode returns the `permission_mode` the init event reports. The
-// captured value is "always-proceed", which is the `toolPermission` setting's
-// default.
+// printPermissionMode returns the `permission_mode` the init event reports.
+//
+// The reference reads the `toolPermission` setting and falls back to its
+// default when the key is absent.
+//
+// 【一手】 agy 1.4.8: with an empty settings.json the init event reports
+// "request-review"; the 1.1.0 changelog entry ("Added `request-review`
+// (default) mode as the default execution behavior") agrees. The
+// "always-proceed" the cycle-113 capture carries came from a capture machine
+// whose settings.json set `toolPermission` explicitly — the file value wins.
 func printPermissionMode() string {
 	raw := map[string]json.RawMessage{}
 	if b, err := readSettingsFile(); err == nil {
@@ -348,7 +355,7 @@ func printPermissionMode() string {
 		_ = json.Unmarshal(raw["toolPermission"], &v)
 	}
 	if v == "" {
-		v = printSlashConfigDefaults["toolPermission"]
+		v = printSlashConfigDefaultString("toolPermission")
 	}
 	return v
 }

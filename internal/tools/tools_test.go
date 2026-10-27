@@ -3,12 +3,15 @@ package tools
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/justwasm/pigasus/browsercdp"
 )
 
 func TestReadFile(t *testing.T) {
@@ -401,79 +404,41 @@ func TestDefaultShellArgv(t *testing.T) {
 	}
 }
 
-func TestStubs_RealImpl(t *testing.T) {
-	// Cycle 30: 28 v4 stubs now have real implementations (cycle 29 was
-	// ErrNotImplemented). Verify they run without error and return a
-	// non-empty result. Browser tools remain stubs.
-	allReal := []Tool{
-		&Finish{}, &Schedule{}, &Fetch{}, &Revert{}, &GrepSearch{},
-		&NotifyUser{}, &SearchWeb{}, &TaskBoundary{}, &Diff{}, &Unzip{},
-		&WebSearch{}, &Grep{}, &Pull{}, &Show{}, &ReadURLContent{},
-		&Codesearch{}, &FileSearch{}, &SkillSearch{}, &Wait{}, &Branch{},
-		&Checkout{}, &Reset{}, &CreateTask{}, &SendMessage{}, &Status{},
-		&Cron{}, &GenerateImage{}, &Merge{},
-	}
-	for _, tool := range allReal {
-		out, err := tool.Run(context.Background(), json.RawMessage(`{}`))
-		// Some may fail (e.g. unzip without args, fetch in non-git dir).
-		// Just ensure they ran (no panic) and produced some output.
-		_ = out
-		_ = err
-	}
-	// Browser tools remain stubs.
-	browserStubs := []Tool{
+func TestBrowserTools_AnswerWithoutPanic(t *testing.T) {
+	// The browser tools are real (cycle 311): they drive a Chrome over
+	// the DevTools Protocol, and the browser starts on the first tool
+	// call — the reference's rule ("Browser starts automatically on first
+	// tool call using a persistent Chrome profile", the
+	// chrome-devtools-mcp skill the reference ships).
+	//
+	// A unit test must not start a browser and must not drive the
+	// user's own Chrome, so the client is pointed at a closed port, the
+	// home directory is a scratch one (the DevToolsActivePort discovery
+	// must not find the user's Chrome), and the binary cannot be run.
+	// Every tool then fails to reach a browser, and the test pins the
+	// contract that matters: the tool answers — a result or an error,
+	// never a panic.
+	browserTools := []Tool{
 		&BrowserClick{}, &BrowserConsole{}, &BrowserDrag{}, &BrowserPressKey{},
 		&BrowserScreenshot{}, &BrowserScroll{}, &BrowserSelect{},
 	}
-	for _, tool := range browserStubs {
-		_, err := tool.Run(context.Background(), json.RawMessage(`{}`))
-		if err == nil {
-			t.Errorf("%s: browser tool should return error (CDP not available)", tool.Name())
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("CHROME_REMOTE_DEBUGGING_PORT", "1")
+	t.Setenv("CHROME_BIN", t.TempDir())
+	for _, tool := range browserTools {
+		out, err := tool.Run(context.Background(), json.RawMessage(`{}`))
+		if err == nil && out == nil {
+			t.Errorf("%s: the tool returned neither a result nor an error", tool.Name())
 		}
-	}
-}
-
-func TestRegisterAll_32PlusAlias(t *testing.T) {
-	reg := NewRegistry()
-	RegisterAll(reg, "/tmp")
-	// 32 v4 tool primary + 10 alias/backward-compat = 42 entries.
-	if reg.Size() != 42 {
-		t.Errorf("got %d tools, want 42", reg.Size())
-	}
-	// Verify all 32 v4 tool names are registered.
-	v4Tools := []string{
-		"finish", "run_command", "schedule", "fetch", "revert",
-		"grep_search", "notify_user", "search_web", "task_boundary", "diff",
-		"unzip", "list_dir", "web_search", "create_file", "grep",
-		"pull", "show", "read_url_content", "codesearch", "delete_file",
-		"file_search", "skill_search", "wait", "branch", "checkout",
-		"reset", "create_task", "send_message", "status", "cron",
-		"generate_image", "merge",
-	}
-	for _, name := range v4Tools {
-		if _, ok := reg.Get(name); !ok {
-			t.Errorf("missing v4 tool: %s", name)
-		}
-	}
-	// Verify the 10 alias/backward-compat entries are registered.
-	compatTools := []string{
-		// write_file = create_file alias
-		"write_file",
-		// 5 fs backward-compat (not in v4 32, kept for 1.3.3 callers)
-		"read_file", "edit_file", "append_file", "rename_file", "copy_file",
-		// 4 cmd alias / 1.3.3-compat process tools
-		"run_shell_command", "exec_command", "kill_process", "list_processes",
-	}
-	for _, name := range compatTools {
-		if _, ok := reg.Get(name); !ok {
-			t.Errorf("missing backward-compat tool: %s", name)
+		if errors.Is(err, browsercdp.ErrBrowserUnavailable) &&
+			!strings.Contains(err.Error(), "CHROME_BIN") {
+			t.Errorf("%s: the browser-unavailable error does not name the overrides: %v", tool.Name(), err)
 		}
 	}
 }
 
 func TestSchema_AllValidJSON(t *testing.T) {
-	reg := NewRegistry()
-	RegisterAll(reg, "/tmp")
+	reg := Catalog("/tmp")
 	for _, name := range reg.List() {
 		tool, _ := reg.Get(name)
 		var v any

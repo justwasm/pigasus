@@ -22,11 +22,11 @@
 //     CancelCascade, SkipBrowserSubagent, GetAgentInstance,
 //     StreamAgentUpdates, Shutdown).
 //
-// Integration with internal/grpc/: the LanguageServerService
-// descriptor in internal/grpc/ is the v4 unified surface; this
+// Integration with grpc/: the LanguageServerService
+// descriptor in grpc/ is the v4 unified surface; this
 // package's Server struct is the v1.3.5 language_server process. The
 // antigravity TUI / IDE / CLI dispatch to either via the
-// internal/grpc AllServices list.
+// grpc AllServices list.
 package language_server
 
 import (

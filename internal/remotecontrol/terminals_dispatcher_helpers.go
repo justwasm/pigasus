@@ -24,7 +24,7 @@ import (
 // transport type.
 //
 // SetBroadcaster is the seam documented in notify.go.
-// The internal/remotetransport package wires its own
+// The remotetransport package wires its own
 // broadcaster at TCPServer construction (see the
 // rc-permissions-grants cycle commit). Without a
 // registered broadcaster the method is a no-op —

@@ -33,6 +33,15 @@ func standardFlagsCore() []FlagSpec {
 		{Name: "add-dir", Type: "stringSlice", Def: "[]", Usage: "Add a directory to the workspace (repeatable)"},
 		{Name: "agent", Type: "string", Usage: "Agent for the current CLI session"},
 		{Name: "c", Type: "bool", Usage: "Short alias for --continue"},
+		// Hidden: the reference's local-Chrome CDP control 【一手 +
+		// 反编译 — out/local-macos/FINDINGS.md §2, items 4-7】. The
+		// names, the types, the defaults and the usage strings are the
+		// reference's own — they are in its 1.3.4 strings dump
+		// ("Port for Chrome DevTools Protocol", "Chrome user data
+		// directory.", "Whether Chrome runs in headless mode.",
+		// "Whether to use local chrome" 【strings】). The clone's
+		// browser client reads them (browsercdp.Config).
+		{Name: "cdp_port", Type: "int", Hidden: true, Def: "9222", Usage: "Port for Chrome DevTools Protocol"},
 		{Name: "continue", Type: "bool", Usage: "Continue the most recent conversation"},
 		{Name: "conversation", Type: "string", Usage: "Resume a previous conversation by ID"},
 		{Name: "dangerously-skip-permissions", Type: "bool", Usage: "Auto-approve all tool permission requests without prompting"},
@@ -41,6 +50,11 @@ func standardFlagsCore() []FlagSpec {
 		{Name: "i", Type: "string", Usage: "Short alias for --prompt-interactive"},
 		{Name: "input-format", Type: "string", Def: "text", Usage: "Input format for print mode (text, stream-json). stream-json reads one NDJSON message per line from stdin and runs a turn for each; it requires --output-format stream-json"},
 		{Name: "json-schema", Type: "string", Usage: "Optional JSON schema string or path to a schema file to enforce structured output (for stream-json, only applicable to the final result)"},
+		// Hidden: the reference's local-Chrome CDP control, the rest
+		// of the four 【一手 + 反编译 — out/local-macos/FINDINGS.md §2,
+		// items 5 and 6】.
+		{Name: "local_chrome_headless", Type: "bool", Hidden: true, Def: "true", Usage: "Whether Chrome runs in headless mode."},
+		{Name: "local_chrome_user_data_dir", Type: "string", Hidden: true, Def: "", Usage: "Chrome user data directory."},
 		{Name: "log-file", Type: "string", Usage: "Override CLI log file path"},
 		{Name: "mode", Type: "string", Usage: "Set the agent execution mode for this session (" + ModeList() + ")"},
 		{Name: "model", Type: "string", Usage: "Model for the current CLI session"},
@@ -65,6 +79,10 @@ func standardFlagsTail() []FlagSpec {
 		{Name: "prompt-interactive", Type: "string", Usage: "Run an initial prompt interactively and continue the session"},
 		{Name: "remote-control", Type: "bool", Usage: "Create a remote connection for the CLI session on start up"},
 		{Name: "sandbox", Type: "bool", Usage: "Run in a sandbox with terminal restrictions enabled"},
+		// Hidden: the reference's local-Chrome CDP control, the last of
+		// the four 【一手 + 反编译 — out/local-macos/FINDINGS.md §2,
+		// item 7】.
+		{Name: "use_local_chrome", Type: "bool", Hidden: true, Def: "false", Usage: "Whether to use local chrome"},
 		{Name: "v", Type: "int", Hidden: true, Usage: ""},
 		{Name: "verbose", Type: "bool", Hidden: true, Def: "false", Usage: "Print extra stream-json events (assistant_message) in --output-format stream-json"},
 	}

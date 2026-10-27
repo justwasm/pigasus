@@ -6,18 +6,53 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/justwasm/pigasus/internal/interaction"
 	"github.com/justwasm/pigasus/internal/permissions"
 	"github.com/justwasm/pigasus/internal/subagentquestions"
 )
 
 // ---- user interaction ------------------------------------------------------
 //
-// Every tool below reports that the user cannot be reached. This is the
-// headless behaviour: the reference's no-tool-call reminder ends "Remember
-// that the user cannot answer any questions.", and print mode has no prompt.
+// The three tools below need the user: ask_question asks one or more
+// questions, ask_permission and ask_custom_permission ask for one
+// action to be allowed.
+//
+// There are three ways to reach a user, and the tool takes the first
+// one that exists:
+//
+//  1. The turn's interaction host (internal/interaction) — the Web UI's
+//     interaction card puts one on the turn's context, and the tool
+//     blocks on it until the user answers. The answer becomes the
+//     tool's result.
+//  2. The subagent-question store — the TUI's picker, and the print
+//     runtime's own store.
+//  3. Nobody — headless print mode. The reference's no-tool-call
+//     reminder ends "Remember that the user cannot answer any
+//     questions.", and the tool says the same thing.
 
 // noUserText is returned by the interactive tools when nothing can be asked.
 const noUserText = "The user cannot be asked in this mode, so no answer was provided."
+
+// questionCancelledText is the tool's result when the user dismissed
+// the prompt instead of answering it.
+//
+// 【推测】 the reference's own text for a dismissed questionnaire is not
+// in the recovered evidence; the clone says what happened, so the model
+// knows the question was not answered rather than answered empty.
+const questionCancelledText = "The user dismissed the question without answering it."
+
+// permissionGrantedText is the tool's result when the user allowed the
+// action.
+//
+// 【推测】 as above: the reference's grant text is not in the recovered
+// evidence. The clone names the action and the target, so the model
+// knows what it may now do.
+func permissionGrantedText(action, target string) string {
+	if target == "" {
+		return "The user allowed the action '" + action + "'."
+	}
+	return "The user allowed the action '" + action + "' on target '" + target + "'."
+}
 
 // AskQuestion — Source: tools.ask_question.
 type AskQuestion struct {
@@ -68,10 +103,40 @@ func (a *AskQuestion) Run(ctx context.Context, args json.RawMessage) (any, error
 	if len(p.Questions) == 0 {
 		return nil, fmt.Errorf("ask_question: at least one question is required")
 	}
+	if host := interaction.HostFrom(ctx); host != nil {
+		return a.askHost(ctx, host, p.Questions, string(args))
+	}
 	if a.SubAgentQuestions == nil {
 		return noUserText, nil
 	}
 	return a.askSubagentQuestions(p.Questions), nil
+}
+
+// askHost asks the user through the turn's interaction host.
+//
+// The host is the transport that can reach the user — the Web UI's
+// interaction card today. The tool blocks until the answer arrives,
+// and the answer becomes the tool's result: the model reads it as the
+// user's reply.
+func (a *AskQuestion) askHost(ctx context.Context, host interaction.Host, questions []questionItem, argsJSON string) (any, error) {
+	req := interaction.Request{Kind: interaction.KindQuestion, ToolName: a.Name(), ArgsJSON: argsJSON}
+	for _, q := range questions {
+		req.Questions = append(req.Questions, interaction.Question{
+			Prompt:  q.Question,
+			Options: q.Options,
+		})
+	}
+	ans, err := host.Ask(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	if ans.Cancelled {
+		return questionCancelledText, nil
+	}
+	if ans.Text == "" {
+		return noUserText, nil
+	}
+	return ans.Text, nil
 }
 
 // AskPermission — Source: tools.ask_permission.
@@ -94,7 +159,33 @@ func (a *AskPermission) Run(ctx context.Context, args json.RawMessage) (any, err
 	if p.Action == "" {
 		return nil, fmt.Errorf("ask_permission: action is required")
 	}
+	if host := interaction.HostFrom(ctx); host != nil {
+		return a.askHost(ctx, host, p.Action, p.Target, "", string(args))
+	}
 	return permissions.DeniedToolResult(p.Action, p.Target), nil
+}
+
+// askHost asks the user through the turn's interaction host.
+//
+// A refusal is the reference's own denial text — the same string the
+// headless path returns — so the model's next turn is the same either
+// way. A grant says what was allowed.
+func (a *AskPermission) askHost(ctx context.Context, host interaction.Host, action, target, reason, argsJSON string) (any, error) {
+	ans, err := host.Ask(ctx, interaction.Request{
+		Kind:     interaction.KindPermission,
+		ToolName: a.Name(),
+		ArgsJSON: argsJSON,
+		Action:   action,
+		Target:   target,
+		Reason:   reason,
+	})
+	if err != nil {
+		return nil, err
+	}
+	if ans.Cancelled || !ans.Allowed {
+		return permissions.DeniedToolResult(action, target), nil
+	}
+	return permissionGrantedText(action, target), nil
 }
 
 // AskCustomPermission — Source: tools.ask_custom_permission.
@@ -119,7 +210,32 @@ func (a *AskCustomPermission) Run(ctx context.Context, args json.RawMessage) (an
 	if p.Action == "" {
 		return nil, fmt.Errorf("ask_custom_permission: action is required")
 	}
+	if host := interaction.HostFrom(ctx); host != nil {
+		return a.askHost(ctx, host, p.Action, p.Target, p.Reason, string(args))
+	}
 	return permissions.DeniedToolResult(p.Action, p.Target), nil
+}
+
+// askHost asks the user through the turn's interaction host.
+//
+// Same contract as AskPermission's: a refusal is the reference's own
+// denial text, a grant names the action.
+func (a *AskCustomPermission) askHost(ctx context.Context, host interaction.Host, action, target, reason, argsJSON string) (any, error) {
+	ans, err := host.Ask(ctx, interaction.Request{
+		Kind:     interaction.KindPermission,
+		ToolName: a.Name(),
+		ArgsJSON: argsJSON,
+		Action:   action,
+		Target:   target,
+		Reason:   reason,
+	})
+	if err != nil {
+		return nil, err
+	}
+	if ans.Cancelled || !ans.Allowed {
+		return permissions.DeniedToolResult(action, target), nil
+	}
+	return permissionGrantedText(action, target), nil
 }
 
 // NotifyUserTool — Source: tools.notify_user. Records a notification in the

@@ -18,6 +18,7 @@ import (
 	"github.com/justwasm/pigasus/internal/permissions"
 	"github.com/justwasm/pigasus/internal/rchost"
 	"github.com/justwasm/pigasus/internal/remotecontrol"
+	"github.com/justwasm/pigasus/internal/toolrunner"
 	"github.com/justwasm/pigasus/internal/tools"
 )
 
@@ -186,8 +187,12 @@ func executePrintModelTurn(w io.Writer, fs *flag.FlagSet, cfg *printRunConfig) e
 
 func initPrintCatalogAndStream(w io.Writer, cfg *printRunConfig) (string, *tools.Registry, error) {
 	workspace, _ := os.Getwd()
+	// The three MCP tools (call_mcp_tool, list_resources, read_resource)
+	// need a live MCP connection; the pool is lazy, so this costs nothing
+	// when no server is configured.
+	InstallMCPProvider(auth.AntigravityHome())
 	catalog := tools.Catalog(workspace)
-	initTools := toolDeclsFromRegistry(catalog)
+	initTools := toolrunner.ToolDeclsFromRegistry(catalog)
 	tools.AddReferenceTools(catalog, workspace)
 	if err := maybeEmitStreamInit(w, cfg, workspace, initTools); err != nil {
 		return "", nil, err
@@ -214,19 +219,39 @@ func maybeEmitStreamInit(w io.Writer, cfg *printRunConfig, workspace string, ini
 	})
 }
 
-func setupPrintBackendAndGate(fs *flag.FlagSet, cfg *printRunConfig, workspace string, catalog *tools.Registry) (backend.Client, *permissionRunner, *permissions.Policy) {
-	be := BackendPicker(fs, cfg.modelName, printModeSilenceLogger.Writer())
+func setupPrintBackendAndGate(fs *flag.FlagSet, cfg *printRunConfig, workspace string, catalog *tools.Registry) (backend.Client, *toolrunner.PermissionRunner, *permissions.Policy) {
+	be := BackendPicker(fs, printBackendModel(fs, cfg.modelName), printModeSilenceLogger.Writer())
 	if resolvedBackend, _ := BackendResolver(fs, io.Discard); resolvedBackend != "" && cfg.rcDaemon != nil {
 		cfg.rcSess.SetBackend(resolvedBackend)
 	}
 	printPolicy := printModePolicy(fs)
 	printSandbox := printModeSandbox(fs, workspace, cfg.conversationID)
-	gate := &permissionRunner{
-		inner:   &registryRunner{reg: catalog},
-		policy:  &printPolicy,
-		sandbox: printSandbox,
+	gate := &toolrunner.PermissionRunner{
+		Inner:   &toolrunner.RegistryRunner{Reg: catalog},
+		Policy:  &printPolicy,
+		Sandbox: printSandbox,
 	}
 	return be, gate, &printPolicy
+}
+
+// printBackendModel is the model the turn asks the transport for.
+//
+// The reference spells the reasoning tier into the model's own id
+// ("gemini-3.8-flash-low"), so the (--model, --effort) pair is resolved
+// into the catalogue id that carries it. A model the user configured
+// declares its tiers the same way — "minimax-m3.1-flash-xhigh" is that
+// model at the xhigh tier — and the tier then rides the request as the
+// upstream's reasoning-effort hint.
+//
+// A pair that does not resolve (an unknown model, a tier the model does
+// not offer) keeps the name the user wrote: the resolution's own error
+// belongs to the /model command, not to a turn.
+func printBackendModel(fs *flag.FlagSet, modelName string) string {
+	resolved, err := ModelResolver(modelName, flagStringValue(fs, "effort"))
+	if err != nil || strings.TrimSpace(resolved) == "" {
+		return modelName
+	}
+	return resolved
 }
 
 func buildPrintChunkHandler(w io.Writer, cfg *printRunConfig, st *printTurnState) func(backend.StreamChunk) error {

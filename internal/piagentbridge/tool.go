@@ -56,13 +56,44 @@ func Tools(registry *tools.Registry) []piagent.AgentTool {
 // override: print mode hands PiG a flat list of AgentTools, so the wrapper has
 // to carry both halves.
 func SurfaceTools(registry *tools.Registry, extras []piagent.AgentTool) []piagent.AgentTool {
+	return SurfaceToolsFor(registry, extras, tools.ModelDeclarations())
+}
+
+// SurfaceToolsFor advertises the given declarations, each wired to an
+// executor. extras (PiG's subagenttools) win over the registry for a name
+// they own, so invoke_subagent / send_message / manage_subagents keep
+// their real implementations while advertising the captured schema.
+//
+// The harness uses it with the harness's own declarations: the harness
+// names its tools differently from the CLI, so it cannot reuse the CLI's
+// list.
+func SurfaceToolsFor(registry *tools.Registry, extras []piagent.AgentTool, decls []tools.ModelToolDecl) []piagent.AgentTool {
+	return surfaceToolsFor(registry, extras, decls, false)
+}
+
+// LenientSurfaceToolsFor advertises the given declarations and accepts a
+// call whose arguments miss a field the schema requires.
+//
+// The reference's harness runs such a call: the captured `view_file` call
+// carries only `AbsolutePath`, and the reference ran the tool rather than
+// refusing it. PiG's runtime validates a call's arguments against the
+// tool's schema before it dispatches, so the harness's runtime schema drops
+// the requirement.
+//
+// The advertised schema is untouched — the model is still told which
+// fields the tool wants, and the request body still carries the captured
+// declaration byte for byte. Only the runtime check is relaxed.
+func LenientSurfaceToolsFor(registry *tools.Registry, extras []piagent.AgentTool, decls []tools.ModelToolDecl) []piagent.AgentTool {
+	return surfaceToolsFor(registry, extras, decls, true)
+}
+
+func surfaceToolsFor(registry *tools.Registry, extras []piagent.AgentTool, decls []tools.ModelToolDecl, lenient bool) []piagent.AgentTool {
 	byName := make(map[string]piagent.AgentTool, len(extras))
 	for _, t := range extras {
 		if t != nil {
 			byName[t.Name()] = t
 		}
 	}
-	decls := tools.ModelDeclarations()
 	out := make([]piagent.AgentTool, 0, len(decls))
 	for _, d := range decls {
 		exec := byName[d.Name]
@@ -71,7 +102,7 @@ func SurfaceTools(registry *tools.Registry, extras []piagent.AgentTool) []piagen
 				exec = Tool(t)
 			}
 		}
-		out = append(out, &surfaceTool{decl: d, exec: exec})
+		out = append(out, &surfaceTool{decl: d, exec: exec, lenient: lenient})
 	}
 	return out
 }
@@ -83,6 +114,9 @@ func SurfaceTools(registry *tools.Registry, extras []piagent.AgentTool) []piagen
 type surfaceTool struct {
 	decl tools.ModelToolDecl
 	exec piagent.AgentTool
+	// lenient drops the schema's `required` list from the *runtime*
+	// validation. See LenientSurfaceToolsFor.
+	lenient bool
 }
 
 func (t *surfaceTool) Name() string { return t.decl.Name }
@@ -100,6 +134,32 @@ func (t *surfaceTool) Schema() pi.ToolSchema {
 		schema.Parameters = params
 	}
 	return schema
+}
+
+// ArgumentSchema is the schema the runtime validates a call's arguments
+// against.
+//
+// PiG prefers this over Schema().Parameters when a tool carries it. The
+// lenient surface drops the schema's `required` list, because the
+// reference's harness runs a call that misses a required field; the
+// strict surface validates against exactly what Schema() advertises, so
+// the behaviour is unchanged.
+func (t *surfaceTool) ArgumentSchema() json.RawMessage {
+	if t.lenient {
+		if len(t.decl.Parameters) == 0 {
+			return json.RawMessage("{}")
+		}
+		return tools.RelaxedSchema(t.decl.Parameters)
+	}
+	params := tools.SchemaParams(t.decl.Parameters)
+	if params == nil {
+		return json.RawMessage("{}")
+	}
+	raw, err := json.Marshal(params)
+	if err != nil {
+		return json.RawMessage("{}")
+	}
+	return raw
 }
 
 func (t *surfaceTool) ExecutionMode() piagent.ToolExecutionMode {

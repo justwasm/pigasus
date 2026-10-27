@@ -97,7 +97,7 @@ func (a manageTaskArgs) taskInput() string {
 // 【反编译】 the reference's `rehydrateManageTask` (LS 0x100f3e1a0)
 // writes `action`, `input`, `task_id` and `task_ids`; the task ids are
 // joined with a comma (`strings.Join`, the one-byte separator at
-// 0x103510350).
+// 0x103dd2668).
 func RehydrateManageTask(args json.RawMessage) (map[string]string, bool) {
 	var a manageTaskArgs
 	if err := json.Unmarshal(args, &a); err != nil {

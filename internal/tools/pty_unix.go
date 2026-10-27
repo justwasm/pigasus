@@ -80,16 +80,39 @@ const vEOF = 0x04
 // reference's own captured result text contains stdout+stderr only, so this
 // was not observed to differ.
 func RunWithPTYStdin(cmd *exec.Cmd) error {
+	wait, _, err := startWithPTYStdin(cmd, true)
+	if err != nil {
+		return err
+	}
+	return wait()
+}
+
+// startWithPTYStdin is RunWithPTYStdin split in two: it starts cmd with a
+// pty on stdin and hands back the wait function, so a caller that has to
+// wait with a deadline can start the command, give it the deadline, and
+// still let it run on when the deadline passes.
+//
+// eof writes the VEOF the clone uses to end the input side (see the
+// deviation note above). The reference does not: its pty belongs to a
+// persistent terminal whose input end stays open, so a command that reads
+// stdin blocks until the reference's WaitMsBeforeAsync elapses and the
+// command is handed to the background as a task. A backgrounded command
+// keeps its stdin open so a later send_command_input can still write to
+// it — hence eof=false on that path.
+//
+// The returned stdin writer is the pty master: writing to it sends input
+// to the child. It stays valid until the wait function returns.
+func startWithPTYStdin(cmd *exec.Cmd, eof bool) (func() error, io.WriteCloser, error) {
 	ptmx, tty, err := pty.Open()
 	if err != nil {
 		// No pty (e.g. a resource-limited host): fall back to running with
 		// the caller's stdio rather than failing the command.
-		return cmd.Run()
+		return func() error { return cmd.Run() }, nil, nil
 	}
-	defer ptmx.Close()
 	if err := pty.Setsize(ptmx, &pty.Winsize{Rows: referencePTYRows, Cols: referencePTYCols}); err != nil {
 		tty.Close()
-		return cmd.Run()
+		ptmx.Close()
+		return func() error { return cmd.Run() }, nil, nil
 	}
 
 	cmd.Stdin = tty
@@ -99,12 +122,21 @@ func RunWithPTYStdin(cmd *exec.Cmd) error {
 
 	if err := cmd.Start(); err != nil {
 		tty.Close()
-		return err
+		ptmx.Close()
+		return nil, nil, err
 	}
 	tty.Close()
 	go io.Copy(io.Discard, ptmx)
-	// Deliver EOF through the line discipline. A failure here is not fatal —
-	// the command may simply not read stdin, and by then the slave is gone.
-	_, _ = ptmx.Write([]byte{vEOF})
-	return cmd.Wait()
+	if eof {
+		// Deliver EOF through the line discipline. A failure here is not
+		// fatal — the command may simply not read stdin, and by then the
+		// slave is gone.
+		_, _ = ptmx.Write([]byte{vEOF})
+	}
+	wait := func() error {
+		err := cmd.Wait()
+		ptmx.Close()
+		return err
+	}
+	return wait, ptmx, nil
 }

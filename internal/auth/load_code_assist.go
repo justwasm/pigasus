@@ -35,19 +35,27 @@ import (
 	"io"
 	"net/http"
 	"time"
+
+	"github.com/justwasm/pigasus/endpoints"
 )
 
 // CloudCodeEndpoint is the v1.3.5 binary's default API endpoint.
 // Source: 1.3.5 binary strings: "https://daily-cloudcode-pa.googleapis.com"
 // Cycle 42 close-gap: daily returns 200 OK, production times out (30s)
 // in the user's sandbox. The v1.3.5 binary is on the daily endpoint.
-const CloudCodeEndpoint = "https://daily-cloudcode-pa.googleapis.com"
+//
+// The live endpoint is endpoints.Current().CloudCode — the configuration
+// file may point it at a local service, and this constant stays the name
+// of what it falls back to.
+const CloudCodeEndpoint = endpoints.DefaultCloudCode
 
 // CloudCodeEndpointFallback is the production endpoint. Use this when
 // the daily endpoint is unreachable and we need to fall back to
 // production. Cycle 50 reserved constant for ops-driven fallback
 // (NOT in the v1.3.5 binary code path).
-const CloudCodeEndpointFallback = "https://cloudcode-pa.googleapis.com"
+//
+// The live endpoint is endpoints.Current().CloudCodeProd.
+const CloudCodeEndpointFallback = endpoints.DefaultCloudCodeProd
 
 // CloudCodeAPIClient is a thin HTTPS client for the daily endpoint.
 // It uses the same OAuth Bearer token the v1.3.5 binary reads from
@@ -61,7 +69,7 @@ type CloudCodeAPIClient struct {
 // NewCloudCodeAPIClient constructs a client using the on-disk token.
 func NewCloudCodeAPIClient(tok *AntigravityToken) *CloudCodeAPIClient {
 	return &CloudCodeAPIClient{
-		Endpoint: CloudCodeEndpoint,
+		Endpoint: endpoints.Current().CloudCode,
 		Token:    tok,
 		HTTP:     &http.Client{Timeout: 30 * time.Second},
 	}

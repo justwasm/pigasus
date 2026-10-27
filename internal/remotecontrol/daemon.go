@@ -14,12 +14,12 @@
 //     so the existing cmd/wagyu/remote_control.go wiring and
 //     the daemon_test.go suite keep working unchanged. The
 //     accept loop lives here too (NOT moved to
-//     internal/remotetransport) so the package stays
+//     remotetransport) so the package stays
 //     import-cycle-free: the daemon_test.go test uses
 //     *remotecontrol.Daemon directly, and a test file in
-//     internal/remotetransport imports this package for
+//     remotetransport imports this package for
 //     *remotecontrol.Dispatcher. An import-direction
-//     dependency from this package onto internal/remotetransport
+//     dependency from this package onto remotetransport
 //     would cycle through that test.
 //   - daemon_session.go — the SessionState struct + its
 //     lock-protected mutators (SetTurnOutput, AppendTurnOutput,
@@ -46,7 +46,7 @@
 //   - wire.go           — production OutputReader backed by
 //     internal/convstore.
 //
-// internal/remotetransport/unix.go holds a parallel UnixServer
+// remotetransport/unix.go holds a parallel UnixServer
 // implementation (same wire format, same Dispatcher). The two are
 // functionally equivalent; the duplication is documented in the
 // daemon.go acceptLoop comment.
@@ -102,11 +102,11 @@ const (
 // format is unchanged because the dispatcher (shared with the
 // TCP+WS transport) holds the JSON-RPC parser + tool catalogue;
 // only the framing layer conceptually moved. (The
-// internal/remotetransport/unix.go file is a parallel
+// remotetransport/unix.go file is a parallel
 // implementation of the same accept loop — same Dispatcher, same
 // wire format. Daemon and the unix-server dual-exist for the
 // reason called out in this file's package doc: importing
-// internal/remotetransport from here would create a cycle through
+// remotetransport from here would create a cycle through
 // the smoketest in tcp_test.go.)
 type Daemon struct {
 	cfg        Config
@@ -232,15 +232,15 @@ func (d *Daemon) Accepted() uint64 { return d.accepted.Load() }
 // sequentially — a dashboard never needs parallel requests.
 //
 // This loop is intentionally a copy of the equivalent loop in
-// internal/remotetransport/unix.go. Sharing the code through a
+// remotetransport/unix.go. Sharing the code through a
 // common helper would force internal/remotecontrol to import
-// internal/remotetransport, which cycles through the smoketest
-// in internal/remotetransport/tcp_test.go (that test imports
+// remotetransport, which cycles through the smoketest
+// in remotetransport/tcp_test.go (that test imports
 // *remotecontrol.Dispatcher from this package). The duplication
 // is small (~30 lines) and the two loops must stay in sync; a
 // future refactor that wants to break the duplication will need
 // to lift both implementations onto a shared interface owned by
-// internal/remotetransport.
+// remotetransport.
 func (d *Daemon) acceptLoop(ctx context.Context) {
 	defer d.wg.Done()
 	for {

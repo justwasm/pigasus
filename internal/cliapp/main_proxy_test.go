@@ -50,8 +50,8 @@ func TestProxySubcommandIsVisible(t *testing.T) {
 	if !found {
 		t.Fatal("the proxy subcommand is missing")
 	}
-	if visible != 16 {
-		t.Fatalf("visible subcommands = %d, want 16 (12 ref + 4 superset)", visible)
+	if visible != 17 {
+		t.Fatalf("visible subcommands = %d, want 17 (12 ref + 5 superset)", visible)
 	}
 }
 

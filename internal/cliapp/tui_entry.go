@@ -17,16 +17,19 @@ import (
 	"github.com/justwasm/pigasus/internal/auth"
 	"github.com/justwasm/pigasus/internal/backend"
 	"github.com/justwasm/pigasus/internal/branding"
+	"github.com/justwasm/pigasus/internal/cliflags"
 	"github.com/justwasm/pigasus/internal/convstore"
 	"github.com/justwasm/pigasus/internal/loginui"
+	"github.com/justwasm/pigasus/internal/modelcatalog"
 	"github.com/justwasm/pigasus/internal/permissions"
 	"github.com/justwasm/pigasus/internal/pluginwatch"
 	"github.com/justwasm/pigasus/internal/printmode"
-	"github.com/justwasm/pigasus/internal/render"
 	"github.com/justwasm/pigasus/internal/termcolor"
 	"github.com/justwasm/pigasus/internal/toolrunner"
 	"github.com/justwasm/pigasus/internal/tuilib"
 	"github.com/justwasm/pigasus/internal/workspacetrust"
+	"github.com/justwasm/pigasus/palette"
+	"github.com/justwasm/pigasus/render"
 )
 
 func checkWorkspaceTrustGate(w io.Writer, fs *flag.FlagSet) (string, bool, error) {
@@ -90,11 +93,11 @@ func checkStartupAuthGate(fs *flag.FlagSet) error {
 // while the session is in the other one leaves the terminal in a state
 // the user did not ask for.
 func resolveAltScreen(fs *flag.FlagSet) bool {
-	if flagBoolValue(fs, "no-alt-screen") {
+	if cliflags.BoolValue(fs, "no-alt-screen") {
 		return false
 	}
 	if flagWasSet(fs, "alt-screen") {
-		return flagBoolValue(fs, "alt-screen")
+		return cliflags.BoolValue(fs, "alt-screen")
 	}
 	return altScreenModeFromSettings()
 }
@@ -119,8 +122,8 @@ func altScreenModeFromSettings() bool {
 }
 
 func resolveTUIModelAndBackend(fs *flag.FlagSet) (string, string, bool, backend.Client) {
-	modelName := flagStringValue(fs, "model")
-	modelName, unavailableFrom := resolveEffectiveModel(modelName)
+	modelName := cliflags.StringValue(fs, "model")
+	modelName, unavailableFrom := modelcatalog.ResolveEffectiveModel(modelName)
 	if modelName == "" {
 		modelName = defaultModel
 	}
@@ -134,7 +137,7 @@ func resolveTUIModelAndBackend(fs *flag.FlagSet) (string, string, bool, backend.
 		// whatever the configuration calls it — two configured models
 		// must not collapse into one name, or the picker would name a
 		// model the endpoint is not serving.
-		if label, ok := wireModelLabel(extModel); ok {
+		if label, ok := modelcatalog.WireLabel(extModel); ok {
 			modelName = label
 			unavailableFrom = ""
 		}
@@ -145,12 +148,15 @@ func resolveTUIModelAndBackend(fs *flag.FlagSet) (string, string, bool, backend.
 func initTUIRunMode(fs *flag.FlagSet, be backend.Client, modelName, unavailableFrom string, altScreen bool) (*runMode, context.CancelFunc) {
 	userEmail := auth.EffectiveUserEmail()
 	m := NewRunMode(be, userEmail, modelName, "", "", altScreen)
+	// Cycle 309: the background task's completion notification reaches
+	// the model through the session's inbox.
+	m.installTaskNotifier()
 	// Cycle multi-account-switch: the account the session starts on
 	// becomes a known account, so /accounts lists it and the user can
 	// add a second one and switch back to this one later.
 	registerCurrentAccount(userEmail)
 	m.backendFor = func(label string) backend.Client { return pickBackend(fs, label) }
-	if name := flagStringValue(fs, "agent"); name != "" {
+	if name := cliflags.StringValue(fs, "agent"); name != "" {
 		if err := agent.ValidateAgent(name); err != nil {
 			var nf *agent.AgentNotFoundError
 			if errors.As(err, &nf) {
@@ -160,7 +166,7 @@ func initTUIRunMode(fs *flag.FlagSet, be backend.Client, modelName, unavailableF
 	}
 	m.agentBody = printmode.AgentBody(printmode.CustomAgentFromFlags(fs))
 	if m.agentBody != "" {
-		m.agentName = strings.TrimSpace(flagStringValue(fs, "agent"))
+		m.agentName = strings.TrimSpace(cliflags.StringValue(fs, "agent"))
 	}
 	m.reloadVimSettings()
 	m.loadAnnouncements()
@@ -181,7 +187,12 @@ func initTUIRunMode(fs *flag.FlagSet, be backend.Client, modelName, unavailableF
 
 func setupTUIToolsAndPolicy(m *runMode, fs *flag.FlagSet) {
 	workspace, _ := os.Getwd()
+	// The three MCP tools (call_mcp_tool, list_resources, read_resource)
+	// need a live MCP connection; the pool is lazy, so this costs nothing
+	// when no server is configured.
+	printmode.InstallMCPProvider(auth.AntigravityHome())
 	catalog := agentToolRegistry(workspace, m.agentBody)
+	m.catalog = catalog
 	m.registerSubagentQuestionTool(catalog)
 	sessionPolicy := printModePolicy(fs)
 	sessionSandbox := printModeSandbox(fs, workspace, m.conversationID)
@@ -196,16 +207,17 @@ func setupTUIToolsAndPolicy(m *runMode, fs *flag.FlagSet) {
 	m.input.Placeholder = permissions.ModeBanner(m.mode)
 	m.statusLine = "on"
 	if v, ok := auth.SettingsBool("statusLine"); ok && !v {
+		// The legacy boolean form. The reference reads it as an object
+		// without a command, so no script runs and the built-in row
+		// stays; the clone additionally hides the row, which is its
+		// cycle-105 behaviour.
 		m.statusLine = "off"
 	}
 	m.title = "off"
 	if v, ok := auth.SettingsBool("title"); ok && v {
 		m.title = "on"
 	}
-	if cmd, ok := loadStatusLineConfig(); ok {
-		m.statusLineExternal = true
-		m.statusLineCommand = cmd
-	}
+	m.reloadStatusLineConfig()
 }
 
 func setupTUIConversation(m *runMode, fs *flag.FlagSet, canonicalCwd string) {
@@ -217,6 +229,10 @@ func setupTUIConversation(m *runMode, fs *flag.FlagSet, canonicalCwd string) {
 }
 
 func runLiveTUI(w io.Writer, fs *flag.FlagSet) error {
+	// The chat bridge and the remote-control daemon reach the TUI
+	// without going through runRoot, so the browser's policy is read
+	// from the flag set here too.
+	applyBrowserFlags(fs)
 	if !isTerminalInteractive(os.Stdin) {
 		return renderTUI(w)
 	}
@@ -274,6 +290,12 @@ func printTUIExitBanner(m *runMode, cwd string) {
 		Email:          email,
 		Cwd:            shortenCwd(cwd),
 	})
+	// The banner is painted after the session ended, so it wears the
+	// scheme the session wore.
+	if m != nil {
+		restore := palette.PushScheme(m.colorScheme)
+		defer restore()
+	}
 	fmt.Fprint(os.Stderr, banner)
 }
 
@@ -300,10 +322,10 @@ func resolveBinaryName() string {
 
 func isDebugMode(fs *flag.FlagSet) bool {
 	if fs != nil {
-		if flagBoolValue(fs, "debug") || flagBoolValue(fs, "verbose") {
+		if cliflags.BoolValue(fs, "debug") || cliflags.BoolValue(fs, "verbose") {
 			return true
 		}
-		if flagIntValue(fs, "v") > 0 {
+		if cliflags.IntValue(fs, "v") > 0 {
 			return true
 		}
 	}
@@ -338,4 +360,22 @@ func (m *runMode) reloadResumeList() {
 		list = filtered
 	}
 	m.resumeList = list
+	m.buildResumeGroups()
+}
+
+// expandFirstResumeGroup expands the group the reference opens the tree
+// with and puts the cursor on its first conversation.
+//
+// 【一手】 agy 1.4.7: the tree opens with the group of the current
+// conversation expanded and the cursor on that conversation.
+func (m *runMode) expandFirstResumeGroup() {
+	if len(m.resumeGroups) == 0 {
+		return
+	}
+	first := m.resumeGroups[0]
+	m.expandResumeGroup(first.Key, true)
+	if len(first.Items) > 0 {
+		m.resumeCursor = 1
+		m.resumeWindow = 0
+	}
 }

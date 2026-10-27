@@ -27,9 +27,9 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 	uv "github.com/charmbracelet/ultraviolet"
+	"github.com/justwasm/pigasus/diffsyntax"
 	"github.com/justwasm/pigasus/internal/agenttools"
 	"github.com/justwasm/pigasus/internal/backend"
-	"github.com/justwasm/pigasus/internal/diffsyntax"
 	"github.com/justwasm/pigasus/internal/mdrender"
 	"github.com/justwasm/pigasus/internal/tools"
 	"github.com/justwasm/pigasus/internal/tuilib"
@@ -1727,14 +1727,27 @@ func TestFailedNonCommand_NoFailedWord(t *testing.T) {
 	}
 }
 
-// TestEditDiff_141_SyntaxHighlightAndUntintedGutter verifies the AGY 1.4.1
-// changelog requirement:
+// TestEditDiff_141_SyntaxHighlightAndStripedGutter pins the inline diff
+// preview's row colours.
+//
+// The AGY 1.4.1 changelog line is the promise:
 // "Improved the inline diff preview when the agent asks to edit or create a
 // file so it renders like the /diff file view, with syntax highlighting for
 // your color scheme, background tints on added and removed lines (picked from
 // your terminal's light or dark background when using the Terminal color scheme),
 // and an untinted line-number gutter."
-func TestEditDiff_141_SyntaxHighlightAndUntintedGutter(t *testing.T) {
+//
+// 【一手】 the *shape* of that promise is settled by agy 1.4.3's captured
+// diff (docs/cycles/cycle-285-tool-display/deliverable.md), and the
+// capture supersedes the changelog's "untinted gutter": the changed rows
+// carry the reference's stripe — the line number in the line-number grey
+// on the row's background — and the body in the add or the remove colour:
+//
+//	\x1b[6G\x1b[38;2;131;148;150;48;2;238;232;213m   3\x1b[38;2;220;50;47m -  gamma\x1b[K\x1b[m
+//
+// 【strings】 the syntax highlighting is the 1.4.1 changelog's promise
+// (internal/cli/testdata/changelog_reference.txt:88).
+func TestEditDiff_141_SyntaxHighlightAndStripedGutter(t *testing.T) {
 	d := buildEditDiff(
 		"package main\n\nfunc oldFunction() int {\n\treturn 1\n}\n",
 		"package main\n\nfunc newFunction() int {\n\treturn 2\n}\n",
@@ -1749,44 +1762,47 @@ func TestEditDiff_141_SyntaxHighlightAndUntintedGutter(t *testing.T) {
 		t.Fatalf("expected at least 5 lines, got %d: %q", len(lines), lines)
 	}
 
-	// Line-number gutter must be untinted (cDiffNumOpen with NO background tint).
-	for i, l := range lines[1:] {
-		if strings.TrimSpace(l) == "" {
-			continue
-		}
-		// Must NOT have the whole-row gutter stripe background.
-		if strings.HasPrefix(l, "     "+cDiffStripeOpen) {
-			t.Errorf("line %d has tinted gutter: %q", i+1, l)
-		}
-		// Must use untinted line-number gutter prefix.
-		if !strings.HasPrefix(l, "     "+cDiffNumOpen) {
-			t.Errorf("line %d missing untinted gutter prefix: %q", i+1, l)
-		}
-	}
-
-	// Removed line must contain red background tint (cDiffRemoveTintOpen)
-	// and syntax-highlighted keywords (such as func / return).
-	var hasRemovedTint, hasAddedTint, hasFuncSyntax bool
-	for _, l := range lines {
-		if strings.Contains(l, cDiffRemoveTintOpen) {
-			hasRemovedTint = true
-		}
-		if strings.Contains(l, cDiffAddTintOpen) {
-			hasAddedTint = true
+	var hasRemoved, hasAdded, hasContext, hasFuncSyntax bool
+	for _, l := range lines[1:] {
+		switch {
+		case strings.Contains(l, " -  "):
+			hasRemoved = true
+			if !strings.HasPrefix(l, "     "+cDiffStripeOpen) {
+				t.Errorf("removed row missing the stripe gutter: %q", l)
+			}
+			if !strings.Contains(l, cToolRemoveOpen) {
+				t.Errorf("removed row missing the remove colour: %q", l)
+			}
+		case strings.Contains(l, " +  "):
+			hasAdded = true
+			if !strings.HasPrefix(l, "     "+cDiffStripeOpen) {
+				t.Errorf("added row missing the stripe gutter: %q", l)
+			}
+			if !strings.Contains(l, cToolAddOpen) {
+				t.Errorf("added row missing the add colour: %q", l)
+			}
+		default:
+			hasContext = true
+			if !strings.HasPrefix(l, "     "+cDiffNumOpen) {
+				t.Errorf("context row missing the plain gutter: %q", l)
+			}
 		}
 		if strings.Contains(l, diffsyntax.TokenOpen(diffsyntax.Keyword)+"func"+cSyntaxTokenClose) {
 			hasFuncSyntax = true
 		}
 	}
 
-	if !hasRemovedTint {
-		t.Errorf("missing removed background tint (%q)", cDiffRemoveTintOpen)
+	if !hasRemoved {
+		t.Error("the diff carries no removed row")
 	}
-	if !hasAddedTint {
-		t.Errorf("missing added background tint (%q)", cDiffAddTintOpen)
+	if !hasAdded {
+		t.Error("the diff carries no added row")
+	}
+	if !hasContext {
+		t.Error("the diff carries no unchanged row")
 	}
 	if !hasFuncSyntax {
-		t.Errorf("missing syntax-highlighted keyword 'func' in diff lines")
+		t.Error("missing syntax-highlighted keyword 'func' in diff lines")
 	}
 }
 
@@ -1812,12 +1828,16 @@ func TestCreateFile_InlineDiffPreview(t *testing.T) {
 	if len(lines) != 5 { // 1 header + 3 added lines + 1 trailing newline context
 		t.Fatalf("expected 5 lines, got %d: %q", len(lines), lines)
 	}
-	if !strings.Contains(lines[0], "+3") || !strings.Contains(lines[0], "-0") {
-		t.Errorf("header = %q, want +3 / -0 lines", lines[0])
+	// 【反编译】 the reference summarises a change that only adds lines
+	// as "Added %d line%s" (0x1034b43b4) and one that only removes lines
+	// as "Removed %d line%s" (0x1034dcd2d); the "+%d / -%d lines" pair
+	// is the third form.
+	if !strings.Contains(lines[0], "Added 3 lines") {
+		t.Errorf("header = %q, want \"Added 3 lines\"", lines[0])
 	}
 	for i, l := range lines[1:4] {
-		if !strings.Contains(l, cDiffAddTintOpen) {
-			t.Errorf("row %d missing added tint: %q", i+1, l)
+		if !strings.HasPrefix(l, "     "+cDiffStripeOpen) {
+			t.Errorf("row %d missing the stripe gutter: %q", i+1, l)
 		}
 		if !strings.Contains(l, " +  ") {
 			t.Errorf("row %d missing diff add marker: %q", i+1, l)

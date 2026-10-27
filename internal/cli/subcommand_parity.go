@@ -56,16 +56,23 @@ func flagName(a string) string {
 }
 
 // UsageLogo returns the usage block for the logo subcommand.
+//
+// The `logo` subcommand is the clone's own — the reference has no such
+// command — so the block grows with it: `--seasonal` and `--scene`
+// print the seasonal banner art, the five scenes the reference's
+// Halloween banner draws at startup.
 func UsageLogo(n string) string {
 	return "Usage: " + n + " logo [flags]\n" +
 		"\n" +
 		"Print the startup banner logo\n" +
 		"\n" +
 		"Flags:\n" +
-		"  --flip   Transform to apply: none|both|ref|vert|row-rev|horiz|invert (default \"none\")\n" +
-		"  -h       Show help\n" +
-		"  --help   Show help\n" +
-		"  --style  Style of logo: default|simple (or half|block)\n"
+		"  --flip      Transform to apply: none|both|ref|vert|row-rev|horiz|invert (default \"none\")\n" +
+		"  -h          Show help\n" +
+		"  --help      Show help\n" +
+		"  --scene     Seasonal scene to print: pumpkin|moon|ghost|witch-hat|bat|all|random\n" +
+		"  --seasonal  Print a seasonal banner scene, the way the reference draws it at startup\n" +
+		"  --style     Style of logo: default|simple (or half|block)\n"
 }
 
 // ---- models ---------------------------------------------------------------

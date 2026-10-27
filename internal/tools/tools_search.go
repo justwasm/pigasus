@@ -40,12 +40,20 @@ func grepFileLines(data []byte, rel string, re *regexp.Regexp, out *[]string, li
 func (g *GrepSearchTool) Run(ctx context.Context, args json.RawMessage) (any, error) {
 	var p struct {
 		Pattern    string `json:"pattern"`
+		Query      string `json:"query"`
 		Path       string `json:"path"`
 		Include    string `json:"include"`
 		MaxResults int    `json:"max_results"`
 	}
 	if err := argsOf(args, &p); err != nil {
 		return nil, err
+	}
+	// The reference's own search calls its pattern a "Query", and the
+	// canonicaliser maps that name to "query" — the spelling the web
+	// search uses. The two tools share the alias table, so the pattern is
+	// read from both names here.
+	if p.Pattern == "" {
+		p.Pattern = p.Query
 	}
 	re, err := regexp.Compile(p.Pattern)
 	if err != nil {

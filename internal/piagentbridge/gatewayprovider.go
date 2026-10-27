@@ -62,6 +62,13 @@ type ProviderConfig struct {
 	// Model is the wire model id used when a caller passes an empty id to
 	// Model().
 	Model string
+	// ReasoningEffort is the reasoning level the model runs at — the tier
+	// of a model that declares tiers. It is sent as the OpenAI dialect's
+	// `reasoning_effort` hint.
+	//
+	// The Anthropic dialect has no such field, so the hint is dropped
+	// there: the Messages API spells its thinking budget differently.
+	ReasoningEffort string
 	// Timeout bounds one request. Zero means 60s; a negative value disables
 	// the client timeout so the caller's context is the only bound (this is
 	// what the headless path wants — see backend.GatewayTimeoutUnlimited).
@@ -205,7 +212,7 @@ func (p *Provider) stream(ctx context.Context, transcript pi.TranscriptContext, 
 	// that is the model that actually answered.
 	partial := newAssistantMessage(&pi.Model{ID: wireModel}, ProviderAPI)
 
-	body, err := buildChatRequest(wireModel, transcript, opts)
+	body, err := buildChatRequest(wireModel, p.cfg.ReasoningEffort, transcript, opts)
 	if err != nil {
 		return nil, err
 	}

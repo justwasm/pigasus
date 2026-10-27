@@ -12,18 +12,20 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	piagent "github.com/MichaelKinsy/PiG/agent"
+	"github.com/justwasm/pigasus/endpoints"
 	"github.com/justwasm/pigasus/internal/auth"
 	"github.com/justwasm/pigasus/internal/backend"
+	"github.com/justwasm/pigasus/internal/branding"
 	"github.com/justwasm/pigasus/internal/cli"
 	"github.com/justwasm/pigasus/internal/compaction"
 	"github.com/justwasm/pigasus/internal/editorkit"
+	"github.com/justwasm/pigasus/internal/persistentrc"
 	"github.com/justwasm/pigasus/internal/rchost"
 	"github.com/justwasm/pigasus/internal/tuilib"
 
@@ -208,77 +210,224 @@ func TestSlashCopy_ArgumentForms(t *testing.T) {
 	}
 }
 
-func TestStatuslineFeedback(t *testing.T) {
-	// The status line is on by default, so the first toggle turns it off.
-	if next, msg := statuslineFeedback(""); next != "off" || msg != "Statusline off. Run /statusline to re-enable." {
-		t.Errorf("statuslineFeedback(\"\") = (%q, %q)", next, msg)
+// TestSlashStatusline_Subcommands pins the reference's /statusline
+// behaviour.
+//
+// Evidence 【一手】: agy 1.4.8, driven through every subcommand:
+//
+//	/statusline                 → *toggles* ("Statusline on." /
+//	                              "Statusline off. Run /statusline to re-enable.")
+//	/statusline <command>       → "Statusline set to: <command>"
+//	/statusline on | enable     → "Statusline on." (" (<command>)" with one)
+//	/statusline off | disable   → "Statusline off."
+//	/statusline delete | reset  → "Custom statusline command cleared. …"
+//	/statusline help            → the usage block
+//
+// The subcommand names are matched case-insensitively (upstream 1.0.1).
+func TestSlashStatusline_Subcommands(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("ANTIGRAVITY_HOME", home)
+	writeSettings(t, home, `{"colorScheme":"light"}`)
+
+	// Cycle 351: the bare command toggles instead of printing the usage
+	// block. The fresh settings.json has no statusLine block, so the
+	// toggle switches it on.
+	m := newSlashModel(t)
+	m.handleSlashCommand("/statusline")
+	rows := afterEcho(m)
+	if len(rows) == 0 || rows[0] != "Statusline on." {
+		t.Fatalf("/statusline rendered %q", rows)
 	}
-	if next, msg := statuslineFeedback("off"); next != "on" || msg != "Statusline on." {
-		t.Errorf("statuslineFeedback(off) = (%q, %q)", next, msg)
+	// A second bare press switches it off again, with the long form.
+	m.response = nil
+	m.handleSlashCommand("/statusline")
+	rows = afterEcho(m)
+	if len(rows) == 0 || rows[0] != "Statusline off. Run /statusline to re-enable." {
+		t.Fatalf("/statusline (toggle off) rendered %q", rows)
+	}
+
+	m = newSlashModel(t)
+	m.handleSlashCommand("/statusline help")
+	rows = afterEcho(m)
+	if len(rows) == 0 || rows[0] != "Usage:" {
+		t.Errorf("/statusline help rendered %q", rows)
+	}
+	if !strings.Contains(strings.Join(rows, "\n"), "/statusline on | enable     Enable the statusline.") {
+		t.Errorf("/statusline usage block = %q", rows)
+	}
+	m = newSlashModel(t)
+	m.handleSlashCommand("/statusline /bin/echo hi")
+	if got := strings.Join(afterEcho(m), "\n"); got != "Statusline set to: /bin/echo hi" {
+		t.Errorf("/statusline <command> rendered %q", got)
+	}
+	body := readSettings(t, home)
+	if !strings.Contains(body, `"command": "/bin/echo hi"`) {
+		t.Errorf("settings.json missing the command:\n%s", body)
+	}
+	// The reference writes the block *without* an `enabled` member: the
+	// member's default is true, so the script runs right away.
+	//
+	// Evidence 【一手】: agy 1.4.7's `/statusline <command>` wrote
+	// `{"type":"command","command":"…"}`.
+	if strings.Contains(body, `"enabled"`) {
+		t.Errorf("settings.json must not carry an enabled member:\n%s", body)
+	}
+	if !m.statusLineExternal {
+		t.Error("statusLineExternal must be on after /statusline <command>")
+	}
+
+	// The subcommand names are matched case-insensitively.
+	m = newSlashModel(t)
+	m.handleSlashCommand("/statusline ON")
+	if got := strings.Join(afterEcho(m), "\n"); got != "Statusline on. (/bin/echo hi)" {
+		t.Errorf("/statusline ON rendered %q", got)
+	}
+	m = newSlashModel(t)
+	m.handleSlashCommand("/statusline OFF")
+	if got := strings.Join(afterEcho(m), "\n"); got != "Statusline off." {
+		t.Errorf("/statusline OFF rendered %q", got)
+	}
+	if m.statusLineExternal {
+		t.Error("statusLineExternal must be off after /statusline off")
+	}
+	body = readSettings(t, home)
+	if !strings.Contains(body, `"enabled": false`) {
+		t.Errorf("settings.json missing enabled=false:\n%s", body)
+	}
+	// The command survives the visibility write.
+	if !strings.Contains(body, `"command": "/bin/echo hi"`) {
+		t.Errorf("settings.json clobbered the command:\n%s", body)
+	}
+
+	m = newSlashModel(t)
+	m.handleSlashCommand("/statusline delete")
+	if got := strings.Join(afterEcho(m), "\n"); got != "Custom statusline command cleared. Reverted to built-in default." {
+		t.Errorf("/statusline delete rendered %q", got)
+	}
+	body = readSettings(t, home)
+	// The reference removes the whole `statusLine` key.
+	//
+	// Evidence 【一手】: agy 1.4.7's settings.json after `/statusline
+	// delete` held no `statusLine` key at all.
+	if strings.Contains(body, `"statusLine"`) {
+		t.Errorf("settings.json still carries the statusLine block:\n%s", body)
 	}
 }
 
-func TestTitleFeedback(t *testing.T) {
-	if next, msg := titleFeedback("", "", "agy"); next != "on" ||
-		msg != "Custom title enabled. (agy)" {
-		t.Errorf("titleFeedback(\"\") = (%q, %q)", next, msg)
+// TestSlashTitle_Subcommands pins the reference's /title behaviour.
+//
+// Evidence 【一手】: agy 1.4.7, driven through every verb —
+//   - `/title on` without a command → the "No title command configured" error
+//   - `/title bogus` → "Usage: /title [on|off]"
+//   - `/title ON` → "Custom title enabled. (/bin/echo hi)"
+//   - `/title off` → "Custom title disabled."
+//   - a bare `/title` toggles the feature
+func TestSlashTitle_Subcommands(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("ANTIGRAVITY_HOME", home)
+	writeSettings(t, home, `{"colorScheme":"light"}`)
+
+	// Without a title block the reference reports the missing command.
+	m := newSlashModel(t)
+	m.handleSlashCommand("/title on")
+	if got := strings.Join(afterEcho(m), "\n"); got != tuilib.TitleNoCommandMessage {
+		t.Errorf("/title on without a block rendered %q", got)
 	}
-	if next, msg := titleFeedback("on", "", "agy"); next != "on" ||
-		msg != "Custom title enabled. (agy)" {
-		t.Errorf("titleFeedback(on) = (%q, %q)", next, msg)
+
+	// The bare verb is a toggle, so it needs a command too.
+	m = newSlashModel(t)
+	m.handleSlashCommand("/title")
+	if got := strings.Join(afterEcho(m), "\n"); got != tuilib.TitleNoCommandMessage {
+		t.Errorf("/title without a block rendered %q", got)
 	}
-	if next, msg := titleFeedback("OFF", "on", "agy"); next != "off" ||
-		msg != "Custom title disabled." {
-		t.Errorf("titleFeedback(OFF) = (%q, %q)", next, msg)
+
+	// An unknown verb is answered with the usage line.
+	m = newSlashModel(t)
+	m.handleSlashCommand("/title bogus")
+	if got := strings.Join(afterEcho(m), "\n"); got != tuilib.TitleUsage {
+		t.Errorf("/title bogus rendered %q", got)
 	}
-	// Toggling from on turns it off.
-	if next, msg := titleFeedback("", "on", "agy"); next != "off" ||
-		msg != "Custom title disabled." {
-		t.Errorf("titleFeedback(\"\", on) = (%q, %q)", next, msg)
+
+	writeSettings(t, home, `{"title":{"type":"command","command":"/bin/echo hi","enabled":false}}`)
+	m = newSlashModel(t)
+	m.reloadStatusLineConfig()
+	m.handleSlashCommand("/title ON")
+	if got := strings.Join(afterEcho(m), "\n"); got != "Custom title enabled. (/bin/echo hi)" {
+		t.Errorf("/title ON rendered %q", got)
 	}
-	// A bad argument keeps the current state and prints the usage line.
-	if next, msg := titleFeedback("maybe", "on", "agy"); next != "on" ||
-		msg != "Usage: /title [on|off]" {
-		t.Errorf("titleFeedback(maybe) = (%q, %q)", next, msg)
+	if m.title != "on" {
+		t.Errorf("after /title ON m.title = %q", m.title)
+	}
+	body := readSettings(t, home)
+	if !strings.Contains(body, `"enabled": true`) {
+		t.Errorf("settings.json missing enabled=true:\n%s", body)
+	}
+	// The command survives the visibility write.
+	if !strings.Contains(body, `"command": "/bin/echo hi"`) {
+		t.Errorf("settings.json clobbered the command:\n%s", body)
+	}
+
+	m = newSlashModel(t)
+	m.reloadStatusLineConfig()
+	m.handleSlashCommand("/title off")
+	if got := strings.Join(afterEcho(m), "\n"); got != "Custom title disabled." {
+		t.Errorf("/title off rendered %q", got)
+	}
+	if m.title != "off" {
+		t.Errorf("after /title off m.title = %q", m.title)
+	}
+
+	// A bare /title toggles the feature back on.
+	m = newSlashModel(t)
+	m.reloadStatusLineConfig()
+	m.handleSlashCommand("/title")
+	if got := strings.Join(afterEcho(m), "\n"); got != "Custom title enabled. (/bin/echo hi)" {
+		t.Errorf("/title rendered %q", got)
+	}
+	body = readSettings(t, home)
+	if !strings.Contains(body, `"enabled": true`) {
+		t.Errorf("settings.json missing enabled=true:\n%s", body)
 	}
 }
 
 // TestSlashToggles_Persist checks that /statusline and /title write
 // settings.json and that the model tracks the new state.
+//
+// The reference stores both blocks as objects — `type`, `command` and
+// `enabled` — and the other keys survive the writes.
+//
+// Evidence 【一手】: agy 1.4.7's settings.json after `/statusline delete`
+// holds `{"type":"","command":"","enabled":false}`.
 func TestSlashToggles_Persist(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("ANTIGRAVITY_HOME", home)
 	writeSettings(t, home, `{"colorScheme":"light"}`)
 
 	m := newSlashModel(t)
-	m.handleSlashCommand("/statusline")
-	if m.statusLine != "off" {
-		t.Errorf("after /statusline m.statusLine = %q, want off", m.statusLine)
-	}
-	if body := readSettings(t, home); !strings.Contains(body, `"statusLine": false`) {
-		t.Errorf("settings.json missing statusLine=false:\\n%s", body)
-	}
-	m = newSlashModel(t)
-	m.statusLine = "off"
-	m.handleSlashCommand("/statusline")
+	m.handleSlashCommand("/statusline on")
 	if m.statusLine != "on" {
-		t.Errorf("second /statusline m.statusLine = %q, want on", m.statusLine)
+		t.Errorf("after /statusline on m.statusLine = %q, want on", m.statusLine)
 	}
-	if body := readSettings(t, home); !strings.Contains(body, `"statusLine": true`) {
-		t.Errorf("settings.json missing statusLine=true:\\n%s", body)
+	if body := readSettings(t, home); !strings.Contains(body, `"enabled": true`) {
+		t.Errorf("settings.json missing enabled=true:\n%s", body)
 	}
 
 	m = newSlashModel(t)
-	m.handleSlashCommand("/title on")
-	if m.title != "on" {
-		t.Errorf("after /title on m.title = %q", m.title)
+	m.handleSlashCommand("/statusline off")
+	if body := readSettings(t, home); !strings.Contains(body, `"enabled": false`) {
+		t.Errorf("settings.json missing enabled=false:\n%s", body)
 	}
-	if body := readSettings(t, home); !strings.Contains(body, `"title": true`) {
-		t.Errorf("settings.json missing title=true:\\n%s", body)
+
+	// /title needs a title block: without one the reference reports the
+	// missing command and leaves the state alone.
+	m = newSlashModel(t)
+	m.handleSlashCommand("/title on")
+	if m.title == "on" {
+		t.Error("after /title on without a block the title must stay off")
 	}
 	// The other keys survive both writes.
 	if body := readSettings(t, home); !strings.Contains(body, `"colorScheme": "light"`) {
-		t.Errorf("colorScheme lost:\\n%s", body)
+		t.Errorf("colorScheme lost:\n%s", body)
 	}
 }
 
@@ -648,7 +797,7 @@ func TestSlashLogout_RemovesToken(t *testing.T) {
 
 	m := newSlashModel(t)
 	m.handleSlashCommand("/logout")
-	want := "Signed out from server: daily-cloudcode-pa.googleapis.com"
+	want := "Signed out from server: " + endpoints.Current().CloudCodeHost()
 	if got := strings.Join(afterEcho(m), "\n"); got != want {
 		t.Errorf("/logout rendered %q, want %q", got, want)
 	}
@@ -665,7 +814,7 @@ func TestSlashLogout_RemovesToken(t *testing.T) {
 }
 
 func TestAuthServerName(t *testing.T) {
-	if got := authServerName(); got != "daily-cloudcode-pa.googleapis.com" {
+	if got := authServerName(); got != endpoints.Current().CloudCodeHost() {
 		t.Errorf("authServerName() = %q", got)
 	}
 }
@@ -742,64 +891,6 @@ func TestOpenFeedback_FileNotFound(t *testing.T) {
 	want := "File not found: /tmp/nonexistent-217"
 	if msg != want {
 		t.Errorf("openFeedback(missing) = %q, want %q", msg, want)
-	}
-}
-
-// quotaRe is the cycle-194 verbatim phrasing for the warning line, modulo
-// the `<hh>h<mm>m<ss>s` placeholder. The clone uses `0h0m0s` because it
-// cannot reproduce a real quota state.
-var quotaRe = regexp.MustCompile(`^` + regexp.QuoteMeta("\u26a0 Individual quota reached. Please upgrade your subscription to increase your limits. Resets in ") + `[0-9]+h[0-9]+m[0-9]+s\.$`)
-
-// TestRunSchedule_TwoLineError pins the cycle-217 two-line layout.
-func TestRunSchedule_TwoLineError(t *testing.T) {
-	m := newSlashModel(t)
-	_, cmd := m.handleSlashCommand("/schedule")
-	if cmd != nil {
-		t.Error("/schedule should NOT schedule a tea.Cmd")
-	}
-	if m.streaming {
-		t.Error("/schedule should leave m.streaming=false")
-	}
-	if len(m.response) < 4 {
-		t.Fatalf("/schedule produced %d transcript rows, want ≥ 4",
-			len(m.response))
-	}
-	warn := stripSGR(m.response[1])
-	warn = strings.TrimPrefix(warn, "  \u23bf  ")
-	if !quotaRe.MatchString(warn) {
-		t.Errorf("/schedule warning line = %q, want quota-warning verbatim", warn)
-	}
-	id := stripSGR(m.response[2])
-	idRe := regexp.MustCompile(`^Error ID: [0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}-1$`)
-	if !idRe.MatchString(id) {
-		t.Errorf("/schedule error id = %q, want Error ID: <uuid>-1", id)
-	}
-}
-
-// TestRunBrowser_TwoLineError mirrors TestRunSchedule_TwoLineError for
-// /browser. Same two-line layout, same verbatim phrasing.
-func TestRunBrowser_TwoLineError(t *testing.T) {
-	m := newSlashModel(t)
-	_, cmd := m.handleSlashCommand("/browser")
-	if cmd != nil {
-		t.Error("/browser should NOT schedule a tea.Cmd")
-	}
-	if m.streaming {
-		t.Error("/browser should leave m.streaming=false")
-	}
-	if len(m.response) < 4 {
-		t.Fatalf("/browser produced %d transcript rows, want ≥ 4",
-			len(m.response))
-	}
-	warn := stripSGR(m.response[1])
-	warn = strings.TrimPrefix(warn, "  \u23bf  ")
-	if !quotaRe.MatchString(warn) {
-		t.Errorf("/browser warning line = %q, want quota-warning verbatim", warn)
-	}
-	id := stripSGR(m.response[2])
-	idRe := regexp.MustCompile(`^Error ID: [0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}-1$`)
-	if !idRe.MatchString(id) {
-		t.Errorf("/browser error id = %q, want Error ID: <uuid>-1", id)
 	}
 }
 
@@ -1532,6 +1623,133 @@ func TestRemoteControl_AllowedUnderOAuth(t *testing.T) {
 	if !m.remoteControl {
 		t.Errorf("m.remoteControl = false after /remote-control under OAuth; want true")
 	}
+}
+
+func TestRemoteControl_OutputFormatting(t *testing.T) {
+	t.Run("with conversation id and wrap", func(t *testing.T) {
+		m := slashRemoteControlRunMode(t)
+		m.conversationID = "45fde9e1-76d5-4b87-bd23-1b2c626bbf26"
+		m.width = 155
+
+		handled, _ := m.handleSlashCommand("/remote-control")
+		if !handled {
+			t.Fatal("expected handled=true")
+		}
+		var clean []string
+		for _, r := range m.response {
+			clean = append(clean, stripSGR(r))
+		}
+		joined := strings.Join(clean, "\n")
+		if !strings.Contains(joined, "> /remote-control") {
+			t.Errorf("missing command echo in:\n%s", joined)
+		}
+		if !strings.Contains(joined, "⎿  Remote control on for this session.") {
+			t.Errorf("missing remote control on notice in:\n%s", joined)
+		}
+		if !strings.Contains(joined, "     Hostname: ") {
+			t.Errorf("missing Hostname line in:\n%s", joined)
+		}
+		// The reference's instance id is "<uuid>-v2" — the bare uuid it
+		// registers with (its "remote-control-" is the session's log
+		// tag). Cycle 195's capture of the reference's own output:
+		//   Open https://antigravity.google.com/r/<uuid>-v2 on another
+		//   device to take over.
+		wantURLPattern := fmt.Sprintf("%s/r/%s-v2?p=c%%2F45fde9e1-76d5-4b87-bd23-1b2c626bbf26", endpoints.Current().CompanionOrigin, m.remoteControlUUID)
+		if !strings.Contains(joined, wantURLPattern) {
+			t.Errorf("expected URL pattern %q in:\n%s", wantURLPattern, joined)
+		}
+		// The id carries no "remote-control-" prefix, so the line fits
+		// further: at width 155 it wraps after "to continue".
+		if !strings.Contains(joined, "on another device to continue") {
+			t.Errorf("expected continue message in:\n%s", joined)
+		}
+		if !strings.Contains(joined, "     this conversation.") {
+			t.Errorf("expected wrapped '     this conversation.' line at width 155 in:\n%s", joined)
+		}
+
+		// Stability of UUID across multiple /remote-control invocations
+		uuid1 := m.remoteControlUUID
+		m.response = nil
+		m.handleSlashCommand("/remote-control")
+		if m.remoteControlUUID != uuid1 {
+			t.Errorf("remoteControlUUID changed from %q to %q", uuid1, m.remoteControlUUID)
+		}
+	})
+
+	t.Run("without conversation id", func(t *testing.T) {
+		m := slashRemoteControlRunMode(t)
+		m.conversationID = ""
+		m.width = 200
+
+		handled, _ := m.handleSlashCommand("/remote-control")
+		if !handled {
+			t.Fatal("expected handled=true")
+		}
+		var clean []string
+		for _, r := range m.response {
+			clean = append(clean, stripSGR(r))
+		}
+		joined := strings.Join(clean, "\n")
+		wantURL := fmt.Sprintf("%s/r/%s-v2", endpoints.Current().CompanionOrigin, m.remoteControlUUID)
+		wantMsg := fmt.Sprintf("     Open %s on another device to take over.", wantURL)
+		if !strings.Contains(joined, wantMsg) {
+			t.Errorf("expected %q in:\n%s", wantMsg, joined)
+		}
+	})
+
+	t.Run("remote control off", func(t *testing.T) {
+		m := slashRemoteControlRunMode(t)
+		m.remoteControl = true
+
+		handled, _ := m.handleSlashCommand("/remote-control off")
+		if !handled {
+			t.Fatal("expected handled=true")
+		}
+		if m.remoteControl {
+			t.Errorf("expected m.remoteControl = false")
+		}
+		var clean []string
+		for _, r := range m.response {
+			clean = append(clean, stripSGR(r))
+		}
+		joined := strings.Join(clean, "\n")
+		if !strings.Contains(joined, "Remote control off. This machine is no longer reachable from other devices.") {
+			t.Errorf("expected off notice in:\n%s", joined)
+		}
+	})
+
+	t.Run("hostname branding prefix", func(t *testing.T) {
+		defer branding.Reset()
+		tmpDir := t.TempDir()
+		t.Setenv("GEMINI_CONFIG_HOME", tmpDir)
+		_ = persistentrc.SetInstanceName("test-device-noble-bolt")
+
+		// Pigasus branding
+		branding.SetCurrent(branding.BrandPigasus)
+		m1 := slashRemoteControlRunMode(t)
+		m1.handleSlashCommand("/remote-control")
+		var clean1 []string
+		for _, r := range m1.response {
+			clean1 = append(clean1, stripSGR(r))
+		}
+		joined1 := strings.Join(clean1, "\n")
+		if !strings.Contains(joined1, "Hostname: pigasus-test-device-noble-bolt") {
+			t.Errorf("expected Pigasus hostname prefix in:\n%s", joined1)
+		}
+
+		// Antigravity branding
+		branding.SetCurrent(branding.BrandAntigravity)
+		m2 := slashRemoteControlRunMode(t)
+		m2.handleSlashCommand("/remote-control")
+		var clean2 []string
+		for _, r := range m2.response {
+			clean2 = append(clean2, stripSGR(r))
+		}
+		joined2 := strings.Join(clean2, "\n")
+		if !strings.Contains(joined2, "Hostname: test-device-noble-bolt") || strings.Contains(joined2, "pigasus-") {
+			t.Errorf("expected raw Antigravity hostname without prefix in:\n%s", joined2)
+		}
+	})
 }
 
 // ---- 3. picker filter --------------------------------------------------------

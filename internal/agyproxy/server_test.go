@@ -1,6 +1,7 @@
 package agyproxy
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"io"
@@ -10,8 +11,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
-	"github.com/justwasm/pigasus/internal/geminiwire"
+	"github.com/justwasm/pigasus/geminicode"
 	"github.com/justwasm/pigasus/internal/models"
 )
 
@@ -87,7 +89,7 @@ func TestToChatRequestFull(t *testing.T) {
 	    "generationConfig": {"temperature": 0.25, "maxOutputTokens": 1234}
 	  }
 	}`
-	var env geminiwire.GenerateContentRequest
+	var env geminicode.GenerateContentRequest
 	if err := json.Unmarshal([]byte(raw), &env); err != nil {
 		t.Fatal(err)
 	}
@@ -183,14 +185,14 @@ func TestCustomModelStreamRoundTrip(t *testing.T) {
 	}
 
 	var texts []string
-	var final geminiwire.CloudCodeResponse
+	var final geminicode.CloudCodeResponse
 	frames := 0
 	for _, line := range strings.Split(body, "\n") {
 		if !strings.HasPrefix(line, "data: ") {
 			continue
 		}
 		frames++
-		var cc geminiwire.CloudCodeResponse
+		var cc geminicode.CloudCodeResponse
 		if err := json.Unmarshal([]byte(strings.TrimPrefix(line, "data: ")), &cc); err != nil {
 			t.Fatalf("frame %d not a CloudCode envelope: %v (%s)", frames, err, line)
 		}
@@ -214,7 +216,7 @@ func TestCustomModelStreamRoundTrip(t *testing.T) {
 	if cand.FinishReason != "STOP" {
 		t.Errorf("finishReason = %q, want STOP", cand.FinishReason)
 	}
-	var call *geminiwire.FunctionCall
+	var call *geminicode.FunctionCall
 	for _, p := range cand.Content.Parts {
 		if p.FunctionCall != nil {
 			call = p.FunctionCall
@@ -226,8 +228,12 @@ func TestCustomModelStreamRoundTrip(t *testing.T) {
 	if call.Name != "ls" || call.ID == "" {
 		t.Errorf("functionCall = %+v", call)
 	}
-	if got := call.Args["dir"]; got != "/tmp" {
-		t.Errorf("args = %+v, want dir=/tmp", call.Args)
+	var args map[string]any
+	if err := json.Unmarshal(call.Args, &args); err != nil {
+		t.Fatalf("unmarshal args: %v", err)
+	}
+	if got := args["dir"]; got != "/tmp" {
+		t.Errorf("args = %+v, want dir=/tmp", args)
 	}
 	if final.Response.UsageMetadata == nil || final.Response.UsageMetadata.TotalTokenCount != 18 {
 		t.Errorf("usage = %+v", final.Response.UsageMetadata)
@@ -271,7 +277,7 @@ func TestCustomModelNonStreaming(t *testing.T) {
 		t.Fatalf("status = %d", resp.StatusCode)
 	}
 	raw, _ := io.ReadAll(resp.Body)
-	var cc geminiwire.CloudCodeResponse
+	var cc geminicode.CloudCodeResponse
 	if err := json.Unmarshal(raw, &cc); err != nil {
 		t.Fatalf("body is not a CloudCode envelope: %v\n%s", err, raw)
 	}
@@ -283,7 +289,7 @@ func TestCustomModelNonStreaming(t *testing.T) {
 		t.Errorf("finishReason = %q", cand.FinishReason)
 	}
 	var text string
-	var call *geminiwire.FunctionCall
+	var call *geminicode.FunctionCall
 	for _, p := range cand.Content.Parts {
 		if p.Text != "" {
 			text += p.Text
@@ -322,7 +328,7 @@ func TestCustomModelBareGeminiEnvelope(t *testing.T) {
 		`{"contents":[{"role":"user","parts":[{"text":"hi"}]}],"model":"MiniMax-M3"}`)
 	defer resp.Body.Close()
 	raw, _ := io.ReadAll(resp.Body)
-	var bare geminiwire.GenerateContentResponse
+	var bare geminicode.GenerateContentResponse
 	if err := json.Unmarshal(raw, &bare); err != nil {
 		t.Fatal(err)
 	}
@@ -447,6 +453,51 @@ func TestPassthroughStreamsWithoutBuffering(t *testing.T) {
 	raw, _ := io.ReadAll(resp.Body)
 	if got := strings.Count(string(raw), "data: "); got != 3 {
 		t.Fatalf("frames = %d, want 3 (%q)", got, raw)
+	}
+}
+
+// TestPassthroughDeliversFramesIncrementally pins the streaming
+// contract the pass-through owes agy: a frame must reach the client
+// when the upstream writes it, not when the upstream closes the
+// response. The upstream holds the second frame back until the client
+// has seen the first one, so a buffered proxy deadlocks here instead
+// of quietly passing the byte-count assertion.
+func TestPassthroughDeliversFramesIncrementally(t *testing.T) {
+	release := make(chan struct{})
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		fl := w.(http.Flusher)
+		_, _ = io.WriteString(w, "data: 1\n\n")
+		fl.Flush()
+		select {
+		case <-release:
+		case <-time.After(10 * time.Second):
+			t.Error("the first frame never reached the client")
+		}
+		_, _ = io.WriteString(w, "data: 2\n\n")
+		fl.Flush()
+	}))
+	defer upstream.Close()
+
+	s := newTestServer(t, upstream.URL, miniMax())
+	resp := post(t, s, "/v1internal:streamGenerateContent?alt=sse", `{"model":"gemini-2.5-pro","request":{}}`)
+	defer resp.Body.Close()
+
+	br := bufio.NewReader(resp.Body)
+	line, err := br.ReadString('\n')
+	if err != nil {
+		t.Fatalf("read the first frame: %v", err)
+	}
+	if line != "data: 1\n" {
+		t.Fatalf("first line = %q, want %q", line, "data: 1\n")
+	}
+	close(release)
+	rest, err := io.ReadAll(br)
+	if err != nil {
+		t.Fatalf("read the rest: %v", err)
+	}
+	if !strings.Contains(string(rest), "data: 2") {
+		t.Fatalf("rest = %q, want it to hold the second frame", rest)
 	}
 }
 

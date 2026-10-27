@@ -7,6 +7,7 @@ import (
 	"github.com/justwasm/pigasus/internal/backend"
 	"github.com/justwasm/pigasus/internal/contextpanel"
 	"github.com/justwasm/pigasus/internal/rewindpanel"
+	"github.com/justwasm/pigasus/palette"
 )
 
 // contextGridRow renders one row of the /context panel's 44-cell `□`
@@ -69,12 +70,12 @@ func contextTailLines() []string {
 	return []string{
 		"",
 		"System files · auto-loaded",
-		"\x1b[38;2;101;123;131m └ ~/.gemini/GEMINI.md\x1b[39m",
-		"\x1b[38;2;101;123;131m └ ~/.gemini/skills/\x1b[39m",
-		"\x1b[38;2;101;123;131m └ ~/.gemini/antigravity/skills/\x1b[39m",
-		"\x1b[38;2;101;123;131m └ .agents/agents/\x1b[39m",
+		" " + palette.DimGrayOpen + "└ ~/.gemini/GEMINI.md\x1b[39m",
+		" " + palette.DimGrayOpen + "└ ~/.gemini/skills/\x1b[39m",
+		" " + palette.DimGrayOpen + "└ ~/.gemini/antigravity/skills/\x1b[39m",
+		" " + palette.DimGrayOpen + "└ .agents/agents/\x1b[39m",
 		"",
-		"\x1b[38;2;101;123;131mRelated: /artifact · /skill · /rewind\x1b[39m",
+		palette.DimGrayOpen + "Related: /artifact · /skill · /rewind\x1b[39m",
 		panelDotHint("  ", "↑/↓", "Scroll", "pgup/pgdown", "Page",
 			"ctrl+end", "Bottom", "ctrl+home", "Top", "esc", "Close"),
 	}

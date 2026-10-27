@@ -27,7 +27,7 @@
 //     NewConnectHostBridge as constructor stubs (these exist in the
 //     v1.3.5 binary at 0x8601700+, see the decompile for details).
 //   - Provides RegisterServer / Serve / Stream entry points in
-//     server.go that integrate with internal/grpc/.
+//     server.go that integrate with grpc/.
 //
 // The package is intended to be 1:1 with the v1.3.5 binary at the
 // type/function-name level. The actual server semantics are stubs:

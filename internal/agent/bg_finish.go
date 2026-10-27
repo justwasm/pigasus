@@ -86,6 +86,9 @@ type BgFinishNotification struct {
 	OriginalTask string
 	PlanIndex    int
 	TotalSteps   int
+	// LogPath is the task's log file — the reference's notification ends
+	// with "Log: file://<path>".
+	LogPath string
 }
 
 // BgFinishCoordinator pins the agent's focus state across the
@@ -350,8 +353,10 @@ func (c *BgFinishCoordinator) NotifyBgFinished(taskID, status, output string) (B
 }
 
 // FormatBgFinishNotification builds the task-notification transcript
-// chunk that combines the bg result with the agent's focus reminder.
-// The shape is:
+// chunk the clone re-feeds to the model after a background task finishes.
+//
+// This is the clone's own re-orientation chunk, *not* the reference's
+// notification text — see TaskNotificationText for that. The shape is:
 //
 //	<task-notification>
 //	task-id: <id>
@@ -407,4 +412,59 @@ func FormatBgFinishNotification(n BgFinishNotification, planSteps []string) stri
 	}
 	sb.WriteString("</task-notification>\n")
 	return sb.String()
+}
+
+// TaskNotificationText renders the reference's task notification — the
+// text the reference delivers to the model when a background task
+// finishes.
+//
+// 【一手】 The reference's own notification, from its own transcript (the
+// SYSTEM_MESSAGE that carries it) and from its own conversation store (the
+// function response of a backgrounded `go test`):
+//
+//	Task id "<conversation-id>/task-<n>" finished with result:
+//	Command exited with code 0.
+//
+//	Command output:
+//	...
+//
+//	Log: file://<home>/brain/<conversation-id>/.system_generated/tasks/task-<n>.log
+//
+// The reference formats it "Task id %q %s%s" and appends "\nLog: %s"; the
+// status word is one of "finished", "was canceled" or "failed", and the
+// blank line before "Log:" is the result's own trailing newline.
+//
+// The AGY 1.4.0 focus behaviour ("the agent stays focused on the original
+// task after a background command finishes") is *not* a line in this
+// notification: the reference delivers it by re-feeding the recent context,
+// which is what the OnReorient hook does here — the chunk above is the
+// clone's own re-orientation aid.
+//
+// The status word is the reference's own: "finished", "was canceled" or
+// "failed". A finished task carries its result; the reference's suffix for
+// a canceled or failed task was not observed (存疑), so those carry no
+// result.
+//
+// The log line is the task's log file; it is left out when the caller does
+// not know the path.
+func TaskNotificationText(taskID, status, output, logPath string) string {
+	word := "finished"
+	switch status {
+	case "finished":
+	case "canceled":
+		word = "was canceled"
+	case "failed":
+		word = "failed"
+	default:
+		word = "finished"
+	}
+	suffix := ""
+	if word == "finished" && output != "" {
+		suffix = " with result:\n" + output
+	}
+	text := "Task id \"" + taskID + "\" " + word + suffix
+	if logPath != "" {
+		text += "\nLog: file://" + logPath
+	}
+	return text
 }

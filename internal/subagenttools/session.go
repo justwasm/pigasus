@@ -16,6 +16,7 @@ import (
 	"github.com/MichaelKinsy/PiG/coding/extension"
 	"github.com/MichaelKinsy/PiG/coding/extension/builtin"
 	"github.com/MichaelKinsy/PiG/coding/extension/factoryload"
+	"github.com/justwasm/pigasus/internal/taskregistry"
 )
 
 // Invoke runs the subagent synchronously: builds a fresh
@@ -45,7 +46,7 @@ func Invoke(ctx context.Context, inv Invocation, deps Deps) (Result, error) {
 
 	systemPrompt := inv.SystemPrompt
 	if systemPrompt == "" {
-		systemPrompt = deps.SystemPrompt
+		systemPrompt = deps.parentPrompt()
 	}
 
 	subID := newSubagentID()
@@ -57,8 +58,46 @@ func Invoke(ctx context.Context, inv Invocation, deps Deps) (Result, error) {
 	cwd, worktreePath := resolveSubagentCWD(agentDir, subID, inv.Worktree, deps)
 	startedAt := time.Now()
 
-	rt, session, err := createSubagentSession(ctx, deps, model, systemPrompt, cwd)
+	// Register in taskregistry if available so /tasks and ActiveItems preview reflect the running subagent.
+	taskReg := deps.Tasks
+	if taskReg != nil {
+		taskName := inv.Prompt
+		if len(taskName) > 60 {
+			taskName = taskName[:57] + "..."
+		}
+		taskReg.Register(&taskregistry.Task{
+			ID:        subID,
+			Name:      taskName,
+			Kind:      taskregistry.KindSubagent,
+			State:     taskregistry.StateRunning,
+			StartedAt: startedAt,
+			// The prompt and the answer are what the /tasks detail
+			// view shows for a subagent row (the reference's
+			// "Prompt" and "Answer" sections). The prompt is known
+			// up front; the answer is filled in once the run ends.
+			Prompt: inv.Prompt,
+		})
+		defer func() {
+			taskReg.Update(subID, func(t *taskregistry.Task) {
+				// A failed run already recorded the failure; do not
+				// overwrite it with "done" on the way out.
+				if t.State != taskregistry.StateFailed {
+					t.State = taskregistry.StateDone
+				}
+				t.EndedAt = time.Now()
+			})
+		}()
+	}
+
+	rt, session, err := createSubagentSession(ctx, deps, model, systemPrompt, cwd, inv.Tools)
 	if err != nil {
+		if taskReg != nil {
+			taskReg.Update(subID, func(t *taskregistry.Task) {
+				t.State = taskregistry.StateFailed
+				t.Err = err
+				t.EndedAt = time.Now()
+			})
+		}
 		return Result{}, err
 	}
 	defer func() { _ = rt.Close() }()
@@ -67,7 +106,85 @@ func Invoke(ctx context.Context, inv Invocation, deps Deps) (Result, error) {
 	defer purgeWorktreeArtifacts(worktreePath, subID)
 
 	msgs, runErr := session.Send(ctx, inv.Prompt)
-	return buildInvokeResult(subID, startedAt, worktreePath, msgs, runErr, subDir, session)
+	if runErr != nil && taskReg != nil {
+		taskReg.Update(subID, func(t *taskregistry.Task) {
+			t.State = taskregistry.StateFailed
+			t.Err = runErr
+			t.EndedAt = time.Now()
+		})
+	}
+	result, buildErr := buildInvokeResult(subID, startedAt, worktreePath, msgs, runErr, subDir, session)
+	if taskReg != nil {
+		taskReg.Update(subID, func(t *taskregistry.Task) {
+			t.Output = result.Text
+			t.Tools = usedTools(msgs)
+			t.Steps = usedSteps(msgs)
+		})
+	}
+	return result, buildErr
+}
+
+// usedTools lists the tools a subagent called, in call order and
+// without repeats. The /tasks detail view renders them under the
+// reference's "Tools" heading.
+func usedTools(msgs []piagent.AgentMessage) []string {
+	var out []string
+	seen := map[string]bool{}
+	for _, m := range msgs {
+		if m.Assistant == nil {
+			continue
+		}
+		for _, block := range m.Assistant.Content {
+			call, ok := block.(pi.ToolCall)
+			if !ok || call.Name == "" || seen[call.Name] {
+				continue
+			}
+			seen[call.Name] = true
+			out = append(out, call.Name)
+		}
+	}
+	return out
+}
+
+// usedSteps lists the subagent's trajectory steps, in order: one per
+// assistant content block — a tool call by its name, a text block by
+// its first line.
+//
+// The /tasks detail view renders them under the reference's
+// "Trajectory — <name> (<N> steps)" heading, one numbered row per
+// step. The reference walks the messages of its own trajectory there;
+// the clone's PiG session hands back the same conversation, and each
+// assistant block of it is one step.
+func usedSteps(msgs []piagent.AgentMessage) []string {
+	var out []string
+	for _, m := range msgs {
+		if m.Assistant == nil {
+			continue
+		}
+		for _, block := range m.Assistant.Content {
+			switch b := block.(type) {
+			case pi.ToolCall:
+				if b.Name != "" {
+					out = append(out, b.Name)
+				}
+			case pi.TextContent:
+				if line := firstLine(b.Text); line != "" {
+					out = append(out, line)
+				}
+			}
+		}
+	}
+	return out
+}
+
+// firstLine returns a text block's first non-empty line, trimmed.
+func firstLine(s string) string {
+	for _, line := range strings.Split(s, "\n") {
+		if trimmed := strings.TrimSpace(line); trimmed != "" {
+			return trimmed
+		}
+	}
+	return ""
 }
 
 func resolveSubagentCWD(agentDir, subID, invWorktree string, deps Deps) (string, string) {
@@ -86,7 +203,7 @@ func resolveSubagentCWD(agentDir, subID, invWorktree string, deps Deps) (string,
 	return worktreePath, worktreePath
 }
 
-func createSubagentSession(ctx context.Context, deps Deps, model *pi.Model, systemPrompt, cwd string) (*coding.Runtime, *coding.Session, error) {
+func createSubagentSession(ctx context.Context, deps Deps, model *pi.Model, systemPrompt, cwd string, extraTools []piagent.AgentTool) (*coding.Runtime, *coding.Session, error) {
 	exts, extRuntime := minimalBuiltinExtensions()
 	rt, err := coding.NewRuntime(coding.RuntimeOptions{
 		Services:         deps.Services,
@@ -104,8 +221,8 @@ func createSubagentSession(ctx context.Context, deps Deps, model *pi.Model, syst
 		CWDOverride:      stringPtr(cwd),
 		NoSession:        true,
 		SkipBuiltinTools: true,
-		ExtraTools:       nil,
-		BeforeToolCall:   deps.beforeToolCallHooks(),
+		ExtraTools:       extraTools,
+		BeforeToolCall:   deps.beforeToolCallHooks(cwd),
 	})
 	if err != nil {
 		_ = rt.Close()

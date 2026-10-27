@@ -4,9 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
 
-	"github.com/justwasm/pigasus/internal/browsercdp"
+	"github.com/justwasm/pigasus/browsercdp"
 )
 
 // browserStubBase provides fallback and common helper methods for browser tools.
@@ -16,9 +15,15 @@ type browserStubBase struct {
 
 var browserUnavailable = browsercdp.ErrBrowserUnavailable
 
+// reject reports that the browser is not available.
+//
+// The returned error is the only channel. The tool must not write to
+// stderr: the TUI owns the screen, and a stray write lands on top of
+// the rendered frame (cycle 342 — the browser agent's tools used to
+// corrupt the alt screen that way). The error names the tool that
+// failed and wraps the sentinel, so errors.Is still finds it.
 func (b *browserStubBase) reject(name string) (any, error) {
-	fmt.Fprintf(os.Stderr, "[%s] %v\n", name, browserUnavailable)
-	return nil, browserUnavailable
+	return nil, fmt.Errorf("%s: %w", name, browserUnavailable)
 }
 
 func getActions(ctx context.Context) (*browsercdp.Actions, error) {

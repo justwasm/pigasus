@@ -13,7 +13,7 @@ import (
 	"sort"
 	"sync"
 
-	"github.com/justwasm/pigasus/internal/originpolicy"
+	"github.com/justwasm/pigasus/originpolicy"
 )
 
 // Snapshot returns a defensive copy of the

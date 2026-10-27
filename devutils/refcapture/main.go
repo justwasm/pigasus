@@ -14,15 +14,25 @@
 //
 // Usage:
 //
-//	go run ./devutils/refcapture -script script.json -out capture.json
+//	go run ./devutils/refcapture -script script.json -out capture.json \
+//	    -upstream https://daily-cloudcode-pa.googleapis.com
 //	# prints "listening http://127.0.0.1:PORT" on stdout
 //	CLOUD_CODE_URL=http://127.0.0.1:PORT agy -p "go" --dangerously-skip-permissions
+//
+// -upstream is load-bearing. Every RPC *except* streamGenerateContent is
+// forwarded to it verbatim, because at agy 1.4.7 the reference runs an
+// eligibility check against loadCodeAssist before the first turn and a
+// stubbed response cannot satisfy it — the reference retries with
+// "Eligibility check attempt 1 failed transiently" and never reaches the
+// model. Without -upstream the mock answers every other RPC with "{}".
 //
 // script.json is a JSON array of call steps:
 //
 //	[{"name": "read_file", "args": {"Path": "/tmp/x.txt"}, "note": "free text"}]
 //
-// out.json receives one record per captured functionResponse.
+// out.json receives one record per captured functionResponse. The reference
+// replays the whole conversation on every request, so the same response
+// arrives again and again; records are de-duplicated by the call id.
 package main
 
 import (
@@ -54,6 +64,7 @@ type record struct {
 	Args    string `json:"args"`
 	Output  string `json:"output"`
 	HasCall bool   `json:"has_function_call"`
+	CallID  string `json:"call_id"`
 }
 
 // ---------------------------------------------------------------------------
@@ -144,7 +155,8 @@ func main() {
 		os.Exit(1)
 	}
 
-	h := &handler{steps: steps, outPath: *outPath, rawDir: *rawDir, upstream: *upstream}
+	h := &handler{steps: steps, outPath: *outPath, rawDir: *rawDir, upstream: *upstream,
+		seen: map[string]bool{}, stepOf: map[string]int{}}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", h.serve)
@@ -167,6 +179,8 @@ type handler struct {
 	steps    []step
 	next     int // index of the next step to issue
 	records  []record
+	seen     map[string]bool
+	stepOf   map[string]int
 	outPath  string
 	rawDir   string
 	upstream string
@@ -216,7 +230,9 @@ func (h *handler) serve(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Collect the functionResponses the reference sent back.
+	// Collect the functionResponses the reference sent back. The reference
+	// replays the whole conversation on every request, so only the ones that
+	// have not been seen yet are new.
 	var got []record
 	for _, c := range req.Request.Contents {
 		for _, p := range c.Parts {
@@ -224,21 +240,34 @@ func (h *handler) serve(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 			out, _ := p.FunctionResponse.Response["output"].(string)
+			key := p.FunctionResponse.ID
+			if key == "" {
+				key = p.FunctionResponse.Name + "\x00" + out
+			}
+			h.mu.Lock()
+			seen := h.seen[key]
+			if !seen {
+				h.seen[key] = true
+			}
+			h.mu.Unlock()
+			if seen {
+				continue
+			}
 			got = append(got, record{
 				Name:    p.FunctionResponse.Name,
 				Output:  out,
 				HasCall: p.FunctionResponse.ID != "",
+				CallID:  p.FunctionResponse.ID,
 			})
 		}
 	}
 
 	h.mu.Lock()
 	for _, g := range got {
-		stepIdx := h.next - 1
-		if stepIdx >= 0 && stepIdx < len(h.steps) {
-			g.Step = stepIdx
-			g.Args = string(h.steps[stepIdx].Args)
-			g.Note = h.steps[stepIdx].Note
+		if idx, ok := h.stepOf[g.CallID]; ok {
+			g.Step = idx
+			g.Args = string(h.steps[idx].Args)
+			g.Note = h.steps[idx].Note
 		}
 		h.records = append(h.records, g)
 	}
@@ -249,8 +278,11 @@ func (h *handler) serve(w http.ResponseWriter, r *http.Request) {
 	// script is exhausted.
 	h.mu.Lock()
 	var next *step
+	var callID string
 	if h.next < len(h.steps) {
 		next = &h.steps[h.next]
+		callID = fmt.Sprintf("call_%d", h.next+1)
+		h.stepOf[callID] = h.next
 		h.next++
 	}
 	h.mu.Unlock()
@@ -263,7 +295,7 @@ func (h *handler) serve(w http.ResponseWriter, r *http.Request) {
 		writeFrame(w, flusher, textFrame("done"))
 		return
 	}
-	writeFrame(w, flusher, callFrame(next, h.next))
+	writeFrame(w, flusher, callFrame(next, callID))
 }
 
 // forward relays one RPC to the real CloudCode endpoint, verbatim.
@@ -328,14 +360,14 @@ func textFrame(text string) frame {
 }
 
 // callFrame builds a turn that asks for one tool call.
-func callFrame(s *step, idx int) frame {
+func callFrame(s *step, id string) frame {
 	var f frame
 	var c candidate
 	c.Content.Role = "model"
 	c.Content.Parts = []part{{
 		ThoughtSignature: "c2lnay1fZw==",
 		FunctionCall: &functionCall{
-			ID:   fmt.Sprintf("call_%d", idx),
+			ID:   id,
 			Name: s.Name,
 			Args: s.Args,
 		},

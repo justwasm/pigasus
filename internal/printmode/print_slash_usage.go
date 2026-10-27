@@ -137,29 +137,24 @@ func liveOrStaticUsagePayload() jsonUsagePayload {
 	return printSlashUsagePayload()
 }
 
-// printSlashUsageText renders the tabular text output for -p /usage:
-// starts with "Quota:\n" and aligns each bucket to fixed columns with
-// local time display, matching agy 1.4.3.
-func printSlashUsageText(payload jsonUsagePayload) string {
-	var b strings.Builder
-	b.WriteString("Quota:\n")
-	for _, g := range payload.Groups {
-		for _, bk := range g.Buckets {
-			resetStr := bk.ResetTime
-			if t, err := time.Parse(time.RFC3339, bk.ResetTime); err == nil && !t.IsZero() {
-				resetStr = t.Local().Format("2006-01-02 15:04 MST")
-			}
-			fmt.Fprintf(&b, "%-23s%-27s%3.0f%%  %s\n",
-				g.Name, bk.Name, bk.RemainingFraction*100, resetStr)
-		}
-	}
-	return b.String()
-}
-
 // printSlashUsage renders the `/usage` payload as the text answer: one
 // "<group>\t<bucket>\t<pct>%\t<reset>" line per bucket, in group order. The
 // percentage is the bucket's remaining fraction rounded to the nearest whole
 // number, which is what the reference prints (fraction 0.8987 → "90%").
+//
+// The shape is the reference's, captured 【一手】 from agy 1.4.8 on 2026-10-28:
+//
+//	Gemini Models	Weekly Limit Remaining	97%	2026-11-02T06:18:32Z
+//	Gemini Models	Five Hour Limit Remaining	96%	2026-10-27T22:08:47Z
+//	Claude and GPT models	Weekly Limit Remaining	100%	2026-11-03T18:57:37Z
+//	Claude and GPT models	Five Hour Limit Remaining	100%	2026-10-27T23:57:37Z
+//
+// The same bytes are the JSON envelope's `response` field — the reference
+// renders one text form and carries it in both places. The earlier
+// "Quota:\n%-23s%-27s%3.0f%%  %s" table is a 1.4.3-era shape with no
+// counterpart in the 1.4.8 string table (no `%-23s`, no `%3.0f%%`), and it
+// printed the reset time in local time rather than the reference's UTC
+// RFC 3339.
 func printSlashUsage() string {
 	return printSlashUsageWithPayload(printSlashUsagePayload())
 }

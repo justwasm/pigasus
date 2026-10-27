@@ -16,7 +16,7 @@
 //   - A placeholder gRPC client stub (cortexClient) that mirrors the wire
 //     format but does not actually dial the live endpoint.
 //
-// The recovered build integrates with internal/grpc/ (which has the
+// The recovered build integrates with grpc/ (which has the
 // exa.api_server_pb.ApiServerService entry) by exposing itself as
 // another Service descriptor (CortexService{}) for the unified
 // antigravity --services CLI surface.
@@ -242,12 +242,12 @@ func (c *cortexClient) FetchToolCatalog(ctx context.Context, req *FetchToolCatal
 func (c *cortexClient) Close() error { return nil }
 
 // ---------------------------------------------------------------------------
-// Service descriptor (for integration with internal/grpc).
+// Service descriptor (for integration with grpc).
 // ---------------------------------------------------------------------------
 
 // CortexService is the recovered service descriptor for the
 // cortex_pb CortexService. Mirrors the v4 Service interface from
-// internal/grpc/grpc.go.
+// grpc/grpc.go.
 type CortexService struct{}
 
 // Name returns the fully-qualified proto service name.

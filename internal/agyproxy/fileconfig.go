@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/justwasm/pigasus/atomicfile"
 	"github.com/justwasm/pigasus/internal/models"
 )
 
@@ -92,11 +93,7 @@ func saveConfig(c fileConfig) error {
 		return err
 	}
 	buf = append(buf, '\n')
-	tmp := p + ".tmp"
-	if err := os.WriteFile(tmp, buf, 0o600); err != nil {
-		return err
-	}
-	return os.Rename(tmp, p)
+	return atomicfile.WriteFile(p, buf, 0o600)
 }
 
 // settings is the resolved (env > file > default) view used by the launcher.

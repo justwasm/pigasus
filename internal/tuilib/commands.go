@@ -1,27 +1,37 @@
 // commands.go — hardcoded slash command catalog for tuilib picker.
 //
-// Source of truth: /tmp/ref_p*.bin captures from running the v1.3.5 binary
-// (agy.bak-1.3.5-2026-10-15T08-23-29-532Z) and pressing "/" to trigger the
-// slash menu. The picker shows 5 visible rows on first page:
+// Source of truth: the agy 1.4.8 binary's own picker
+// (sha256 09fcdd8554e03bed9b2ec936e454c7f115d5610610de09ed7d79fa2feae76940).
+// Pressing "/" at an empty prefix shows five rows and "↓ 100 more":
 //
 //   /add-dir          Add a directory to the workspace
 //   /agents           List available custom agents
 //   /artifact         View and review artifacts
 //   /btw              Ask a side question without interrupting the current task
 //   /changelog        Show release notes and changes
-//    ↓ 94 more
+//    ↓ 100 more
 //
-// The full catalog (99 entries total: 36 system + 6 skill-plugin-prefixed +
-// 57 /science:* + 1 /wrangler) is recovered by sending Down 95 times in the
-// live picker and capturing the cursor row at each offset. Cursor positions
-// from /tmp/scan_0.bin through /tmp/scan_95.bin yield 96 unique entries;
-// the last 3 (/web-perf, /workers-best-practices, /wrangler) are confirmed
-// via /tmp/scan_98.bin (cursor at /wrangler, last visible row).
+// — five visible rows plus 100 more is 105 entries, the same count the
+// /help COMMANDS tab reports ("[1-33 of 105 items]"). A Down-walk of the
+// whole picker yields those 105 names.
+//
+// The catalog holds 108 entries: the reference's 105 plus the clone's
+// three documented superset commands (/feature-diff, /accounts,
+// /provider). The reference's own rows are the 41 /science:* skills of
+// the installed `science` plugin, the 6 chrome-devtools-plugin:* skills
+// of the installed `chrome-devtools-plugin` plugin, the 11 workspace
+// skills and the 47 built-in commands. The plugin rows are environment
+// state — the reference enumerates the installed plugins at runtime and
+// the clone keeps a snapshot of them.
+//
+// Cycle 351 (agy 1.4.8): the chrome-devtools-plugin:* rows are back in
+// the picker (the 1.3.6 filter that hid them is gone), the six rows the
+// snapshot was missing are in, and the two stale `/science:*skills-common`
+// spellings the plugin no longer ships are out.
 package tuilib
 
 import (
 	"sort"
-	"strings"
 	"unicode"
 	"unicode/utf8"
 
@@ -82,6 +92,7 @@ var DefaultSlashCommands = []SlashCommand{
 	{Name: "/usage", Description: "View model quota usage", Aliases: []string{"quota"}},
 	{Name: "/voice", Description: "Dictate a prompt using your microphone", Aliases: []string{"record"}},
 	{Name: "/accounts", Description: "Manage and switch signed-in Google accounts"},
+	{Name: "/pool", Description: "Configure the account-pool routing policy"},
 	{Name: "/provider", Description: "Manage custom model providers and endpoints", Aliases: []string{"providers"}},
 	{Name: "/goal", Description: "Run until the specified goal is completely finished."},
 	{Name: "/compact", Description: "Compact the conversation now (summarize history to free up the context window)."},
@@ -97,6 +108,7 @@ var DefaultSlashCommands = []SlashCommand{
 	{Name: "/antigravity-guide", Description: "Provides a comprehensive guide, quick reference, and sitemap for Google Antigravity (AGY), including the Antigravity CLI (agy), Antigravity 2.0, browser surface, and configuration conventions."},
 	{Name: "/chrome-devtools-plugin:a11y-debugging", Description: "Uses Chrome DevTools MCP for accessibility (a11y) debugging and auditing based on web.dev guidelines. Use when testing semantic HTML, ARIA labels, keyboard navigation, color contrast, and screen-reader landmarks."},
 	{Name: "/chrome-devtools-plugin:chrome-devtools", Description: "Uses Chrome DevTools via MCP for efficient debugging, troubleshooting and browser automation. Use when debugging web pages, automating browser interactions, capturing screenshots, or inspecting network/CPU profiles."},
+	{Name: "/chrome-devtools-plugin:cookie-debugging", Description: "Uses Chrome DevTools MCP for inspecting, debugging, and testing cookies, session state, authentication issues, and cookie consent compliance. Use when diagnosing 401/403 errors, authentication redirects, session expiration, Cookie/Set-Cookie header issues, cookie banner consent conformance, or third-party cookie/SameSite/Partitioned cookie warnings."},
 	{Name: "/chrome-devtools-plugin:debug-optimize-lcp", Description: "Guides debugging and optimizing Largest Contentful Paint (LCP) using Chrome DevTools MCP tools. Use this skill whenever the user asks about LCP performance, hero image loading, font-render blocking, or critical resource prioritization."},
 	{Name: "/chrome-devtools-plugin:memory-leak-debugging", Description: "Diagnoses and resolves memory leaks in JavaScript/Node.js applications. Use when a user reports high memory usage, OOM errors, or wants to analyze heap snapshots, retained objects, or detached DOM nodes."},
 	{Name: "/chrome-devtools-plugin:troubleshooting", Description: "Uses Chrome DevTools MCP and documentation to troubleshoot connection and target issues. Trigger this skill when list_pages, new_page, or navigate commands fail or hang, or when browser attachment errors occur."},
@@ -108,10 +120,14 @@ var DefaultSlashCommands = []SlashCommand{
 	{Name: "/modern-web-guidance-plugin:modern-web-guidance", Description: "Search tool for modern web development best practices. MANDATORY: Execute FIRST for all HTML/CSS and clientside JS tasks. Do NOT skip — web APIs and CSS evolve quickly."},
 	{Name: "/sandbox-sdk", Description: "Build sandboxed applications for secure code execution. Load when building AI code execution, code interpreters, CI/CD systems, interactive developer environments, or any untrusted-code runtime."},
 	{Name: "/science:alphafold-database-fetch-and-analyze", Description: "Retrieve and analyze AlphaFold predicted structures for a protein. Use when the user provides a specific UniProt Accession ID and wants structural predictions, pLDDT confidence scores, or predicted aligned error visualization."},
+	{Name: "/science:alphagenome-atlas-website-links", Description: "Constructs deep-links and URLs for the AlphaGenome Atlas website. Supports generating single-variant exploration links (1-based VCF-style coordinates), genomic locus views (1-based closed chr:start-end), candidate summary tables, and AlphaGenome reference vs. alternate predictions. Use when visualizing, exploring, charting, or linking genetic variants and genomic loci on the AlphaGenome Atlas, or when asked to inspect, view, or link predictions for a genomic variant. Don't use for computing raw AlphaGenome variant predictions directly without Atlas URLs (use alphagenome-single-variant-analysis or alphagenome-variant-impact-score)."},
 	{Name: "/science:alphagenome-single-variant-analysis", Description: "Analyzes genetic variant effects on gene expression (RNA-seq), chromatin accessibility (DNASE), histone marks (ChIP), and transcription factors using AlphaGenome. Use when the user asks for variant-effect prediction at a single locus."},
+	{Name: "/science:alphagenome-variant-impact-score", Description: "Score, annotate, and analyze the functional impact of genetic variants using AlphaGenome Variant Impact (AVI) scores. Query variants in chr:pos:ref>alt format, annotate VCF/tabular callsets, perform saturation mutagenesis window scans (1-based closed chr:start-end), and extract GENCODE v46 GTF gene/exon/junction coordinates all via the AlphaGenome Atlas API."},
+	{Name: "/science:biomolecular-structure-viewer", Description: "Interactive 3D biomolecular structure viewer via Mol*. Renders 3D molecular structures from local workspace files (.cif, .mmcif, .pdb) or conversation artifacts, and manages user 3D annotations and highlighted residues. Use when the user asks to visualise a protein or nucleic acid, display a 3D structure, or asks about 3D biomolecular structure annotations and highlighted residues."},
 	{Name: "/science:chembl-database", Description: "Query the ChEMBL database for bioactive molecules, drug targets, bioactivity data, approved drugs, and chemical structures. Use when the user asks about drug-target interactions, IC50/Ki values, or medicinal chemistry."},
 	{Name: "/science:clinical-trials-database", Description: "Query ClinicalTrials.gov via APIv2. Use when you want to search for trials by condition, drug, location, status, or phase; retrieve trial details; or filter by eligibility criteria."},
 	{Name: "/science:clinvar-database", Description: "Use when needing clinical significance, pathogenicity classifications (e.g., Pathogenic, Benign, VUS), clinical evidence rationales, or finding variants that have been reviewed by expert panels (ClinGen)."},
+	{Name: "/science:credentials", Description: "Instructions for handling API keys and credentials safely, verifying their presence, and prompting the user to add them if missing using a safe protocol."},
 	{Name: "/science:dbsnp-database", Description: "Use when you want to look up, map, and search for short genetic variants (SNPs, indels) in NCBI's dbSNP database. Resolves between rsIDs, genomic coordinates (GRCh37/GRCh38), and allele frequencies."},
 	{Name: "/science:embl-ebi-ols", Description: "Query and search the EMBL-EBI Ontology Lookup Service (OLS) for biomedical ontology terms, definitions, and hierarchies across 250+ ontologies (GO, HPO, DO, ChEBI, MONDO, Uberon, CL, etc.)."},
 	{Name: "/science:encode-ccres-database", Description: "Query the ENCODE Registry of cis-Regulatory Elements (cCREs) via the SCREEN GraphQL API, or make custom queries to the ENCODE Portal REST API for processed epigenomic signal tracks."},
@@ -130,6 +146,7 @@ var DefaultSlashCommands = []SlashCommand{
 	{Name: "/science:openfda-database", Description: "Query, search, and download data from the openFDA API for drugs, devices, foods, tobacco, cosmetics, animal and veterinary products, substances, and enforcement reports."},
 	{Name: "/science:opentargets-database", Description: "Query Open Targets Platform for target-disease associations, drug target discovery, tractability/safety data, genetics/omics evidence, known drugs, and clinical trial information for a target or disease."},
 	{Name: "/science:pdb-database", Description: "Use when you want to search for or download experimentally-determined 3D structures for biomolecules (proteins, nucleic acids, bound ligands). Supports PDB ID queries, sequence search, and structure fetch."},
+	{Name: "/science:predictingthepast", Description: "Ancient text restoration, attribution, dating, contextualization, and embedding via Aeneas (Latin) / Ithaca (Ancient Greek). Use when asked to \"restore\", \"attribute\", \"date\", \"contextualize\", \"find parallels\", \"where was it written\", \"when was it written\", \"embed\", or \"analyze\" an ancient text, inscription, or epigraphic document, or when the user mentions \"Aeneas\", or \"Ithaca\"."},
 	{Name: "/science:protein-sequence-msa", Description: "Perform multiple sequence alignment of proteins with EBI Clustal Omega. Use when you need to align multiple sequences to assess similarity, domain conservation, or phylogenetic relationships."},
 	{Name: "/science:protein-sequence-similarity-search", Description: "Searches for homologous protein sequences using MMseqs2 (fast, default) or BLAST (comprehensive, fallback). Trigger this whenever the user provides a query protein and wants similar sequences, homologs, or remote homology."},
 	{Name: "/science:pubchem-database", Description: "Query PubChem, search by name/CID/SMILES, retrieve properties, similarity/substructure searches, bioactivity, for cheminformatics. Use when a user asks about a small molecule's identifiers, structure, or bioactivity data."},
@@ -137,8 +154,6 @@ var DefaultSlashCommands = []SlashCommand{
 	{Name: "/science:pymol", Description: "Visualize, analyze, and render protein and molecular structures using PyMOL. Use when the user wants to create images of protein structures, perform structural alignment, measure distances/angles, or color by property."},
 	{Name: "/science:quickgo-database", Description: "Query QuickGO and the Evidence & Conclusion Ontology (ECO) REST API. Use this when you need to map genes to biological processes, molecular functions, or cellular components; retrieve GO annotations; or traverse the ontology graph."},
 	{Name: "/science:reactome-database", Description: "Query the Reactome database (Analysis and Content Services). Use when the user asks about pathway analysis, gene list enrichment, retrieving reaction/pathway diagrams, or mapping identifiers across biological systems."},
-	{Name: "/science:science-skills-common", Description: "Shared Python package for Science Skills, currently containing http_client -- a unified HTTP client with rate limiting, retries, and exponential backoff, plus helpers used across all Science Skills."},
-	{Name: "/science:scienceskillscommon", Description: "Shared Python package for Science Skills, currently containing http_client -- a unified HTTP client with rate limiting, retries, and exponential backoff, plus helpers used across all Science Skills."},
 	{Name: "/science:string-database", Description: "Query the STRING database for protein-protein interactions (PPIs), functional enrichment, and homology. Use when the user asks about interactions for a gene set, network visualization, or functional partners across species."},
 	{Name: "/science:ucsc-conservation-and-tfbs", Description: "Fetch Evolutionary Conservation scores (phyloP, phastCons) and Transcription Factor Binding Sites (TFBS) from the UCSC Genome Browser. Use when analysing a variant's conservation or whether a region is bound by known TFs."},
 	{Name: "/science:unibind-database", Description: "Queries the UniBind database for experimentally validated transcription factor (TF) binding sites. Use when retrieving direct TF-DNA interaction evidence for a TF of interest in human/mouse."},
@@ -177,24 +192,23 @@ func SortedSlashCommands() []SlashCommand {
 // (contains "s"), `/config (settings)`, `/resume (switch)`, and
 // any other command name with an "s" anywhere.
 //
-// Cycle 146: chrome-devtools-plugin:* entries ARE excluded from
-// the picker (cycle 135's filter, restored after cycle 146's
-// revert was wrong). The reference v1.3.6 picker at empty prefix
-// shows 94 entries (5 visible + "↓ 89 more" at offset=0;
-// "↓ 86 more" at offset=3 after 5 Down presses — 86 + 3 + 5 =
-// 94 total). The /help COMMANDS tab uses a separate filter that
-// keeps all 99 entries (footer "[1-18 of 99 items]").
+// Cycle 351: the chrome-devtools-plugin:* filter is GONE. The
+// reference's picker at 1.4.8 shows every command the catalogue holds,
+// plugin skills included: the picker at an empty prefix reads "↓ 100
+// more" under the five visible rows (5 + 100 = 105 items), and a
+// Down-walk of the whole list yields the same 105 names the /help
+// COMMANDS tab counts ("[1-33 of 105 items]"). The chrome-devtools-plugin
+// rows are six of them.
 //
-// /help COMMANDS tab uses a separate filter (the cycle-83 helper)
-// and includes the chrome-devtools-plugin:* entries — captured at
-// /tmp/agycmp/hotpath/help_tabs/ref.001-second.txt showing
-// "[1-18 of 99 items]".
+// The 1.3.6 evidence the filter was built on (cycle 135 / cycle 146)
+// said the picker held 94 entries while /help held 99; at 1.4.8 both
+// surfaces hold the same set, so the split no longer exists.
+//
+// Evidence 【一手】: agy 1.4.8, "/" at an empty prefix plus a 130-step
+// Down-walk of the picker.
 func FilterSlashCommands(prefix string) []SlashCommand {
 	out := make([]SlashCommand, 0, len(DefaultSlashCommands))
 	for _, c := range DefaultSlashCommands {
-		if strings.Contains(c.Name, "chrome-devtools-plugin:") {
-			continue
-		}
 		if prefix == "" || containsFold(c.Name, prefix) {
 			out = append(out, c)
 		}
@@ -303,8 +317,11 @@ func hasPrefixFold(s, prefix string) bool {
 // back to FilterSlashCommands with no extra rows.
 //
 // The existing FilterSlashCommands stays unchanged so the cycle-83 /
-// cycle-146 / cycle-184 picker tests (which compare the catalog
-// against DefaultSlashCommands alone) still pin their invariants.
+// cycle-184 picker tests (which compare the catalog against
+// DefaultSlashCommands alone) still pin their invariants.
+//
+// Cycle 351: the chrome-devtools-plugin:* filter is gone here too — the
+// 1.4.8 picker shows plugin rows (see FilterSlashCommands).
 func FilterSlashCommandsWithCustom(prefix string, custom []customcmd.Command) []SlashCommand {
 	if len(custom) == 0 {
 		return FilterSlashCommands(prefix)
@@ -317,9 +334,6 @@ func FilterSlashCommandsWithCustom(prefix string, custom []customcmd.Command) []
 	out := make([]SlashCommand, 0, len(merged))
 	for _, c := range merged {
 		name := "/" + c.Name
-		if strings.Contains(name, "chrome-devtools-plugin:") {
-			continue
-		}
 		if prefix == "" || containsFold(name, prefix) {
 			out = append(out, SlashCommand{Name: name, Description: c.Description})
 		}

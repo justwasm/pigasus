@@ -38,10 +38,26 @@ import (
 	"github.com/justwasm/pigasus/internal/loginui"
 )
 
+// The /accounts panel's tabs.
+//
+// The panel has two views: the accounts the clone knows about, and the
+// pool policy that decides which of them serves a turn. The tab bar is
+// the /resume picker's (see poolTabBar).
+const (
+	accountsTabAccounts = iota
+	accountsTabPool
+)
+
 // accountsPanelState is the /accounts panel's state. The rows are
 // re-read from the registry on every open and after every action, so
 // the panel never shows a stale account list.
 type accountsPanelState struct {
+	// tab is the active view: the account list or the pool policy.
+	tab int
+
+	// pool holds the Pool tab's state. See slash_panel_pool.go.
+	pool poolPanelState
+
 	rows   []accounts.Account
 	active string
 	notice string
@@ -134,7 +150,11 @@ func (m *runMode) currentAccountEmail(st *accounts.Store) string {
 
 // panelAccountsLines renders the /accounts panel.
 func (m *runMode) panelAccountsLines() []string {
-	lines := []string{panelTitleOpen + "Accounts" + panelTitleClose, ""}
+	if m.panel.acct.tab == accountsTabPool {
+		return m.panelPoolLines()
+	}
+	lines := []string{panelTitleOpen + "Accounts" + panelTitleClose}
+	lines = append(lines, m.poolTabBar(), "")
 	rows := m.panel.acct.rows
 	if len(rows) == 0 {
 		lines = append(lines, "  "+panelGray238+"No accounts. Press a to sign in."+panelGray238C)
@@ -158,7 +178,7 @@ func (m *runMode) panelAccountsLines() []string {
 	}
 	lines = append(lines, "", "  "+panelGray238+accounts.Path()+panelGray238C)
 	lines = append(lines, panelKeyboardHint("↑/↓", "Navigate", "enter", "Switch", "a", "Add account",
-		"d", "Remove", "r", "Refresh", "esc", "Exit"))
+		"d", "Remove", "r", "Refresh", "tab", "Pool", "esc", "Exit"))
 	return lines
 }
 
@@ -187,8 +207,17 @@ func quotaSnapshotAge(snap *auth.QuotaSnapshot) string {
 // handleAccountsPanelKey routes the /accounts panel's keys. The panel
 // owns every key, so the generic list navigation must not see them.
 func (m *runMode) handleAccountsPanelKey(key tea.Key) (bool, tea.Cmd) {
+	if m.panel.acct.tab == accountsTabPool {
+		return m.handlePoolPanelKey(key)
+	}
 	rows := m.panel.acct.rows
 	switch key.String() {
+	case "tab":
+		m.switchAccountsTab(accountsTabPool)
+		return true, nil
+	case "shift+tab":
+		m.switchAccountsTab(accountsTabAccounts)
+		return true, nil
 	case "esc":
 		return true, m.closePanel()
 	case "up":
@@ -225,6 +254,31 @@ func (m *runMode) selectedAccountEmail() string {
 		return ""
 	}
 	return rows[m.panel.cursor].Email
+}
+
+// switchAccountsTab moves the panel to the given tab.
+//
+// The cursor belongs to the view, not to the panel: it is reset when
+// the tab changes, so the Pool tab opens on its first row and the
+// account list opens on its first account.
+//
+// The Pool tab re-reads the policy from the configuration file when it
+// is shown: the file is shared with the CLI and the wrapper, so the
+// tab must show what is on disk now.
+func (m *runMode) switchAccountsTab(tab int) {
+	if m.panel.acct.tab == tab {
+		return
+	}
+	m.panel.acct.tab = tab
+	m.panel.cursor = 0
+	m.panel.acct.notice = ""
+	m.panel.acct.pool.notice = ""
+	m.panel.acct.pool.editing = false
+	m.panel.acct.pool.allowOpen = false
+	m.panel.acct.pool.allowCursor = 0
+	if tab == accountsTabPool {
+		m.reloadPoolPolicy()
+	}
 }
 
 // ---- actions -----------------------------------------------------------

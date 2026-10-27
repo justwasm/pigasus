@@ -5,36 +5,41 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/justwasm/pigasus/internal/cliflags"
+	"github.com/justwasm/pigasus/internal/models"
 	"github.com/justwasm/pigasus/internal/tuilib"
 )
 
 var commandPanels = map[string]panelKind{
-	"mcp": panelMCP,
-	"tasks": panelTasks,
-	"effort": panelEffort,
-	"hooks": panelHooks,
-	"permissions": panelPermissions,
-	"agents": panelAgents,
-	"credits": panelCredits,
-	"codesearch": panelCodeSearch,
-	"artifact": panelArtifact,
-	"feedback": panelFeedback,
-	"rewind": panelRewind,
-	"context": panelContext,
-	"model": panelModel,
-	"config": panelConfig,
-	"plugin": panelPlugin,
-	"skills": panelSkills,
-	"usage": panelUsage,
-	"changelog": panelChangelog,
-	"diff": panelDiff,
-	"add-dir": panelAddDir,
-	"rename": panelRename,
+	"mcp":          panelMCP,
+	"tasks":        panelTasks,
+	"effort":       panelEffort,
+	"hooks":        panelHooks,
+	"permissions":  panelPermissions,
+	"agents":       panelAgents,
+	"credits":      panelCredits,
+	"codesearch":   panelCodeSearch,
+	"artifact":     panelArtifact,
+	"feedback":     panelFeedback,
+	"rewind":       panelRewind,
+	"context":      panelContext,
+	"model":        panelModel,
+	"config":       panelConfig,
+	"plugin":       panelPlugin,
+	"skills":       panelSkills,
+	"usage":        panelUsage,
+	"changelog":    panelChangelog,
+	"diff":         panelDiff,
+	"add-dir":      panelAddDir,
+	"rename":       panelRename,
 	"feature-diff": panelFeatDiff,
 	// Superset configuration and multi-account panels, listed in
 	// DefaultSlashCommands.
 	"provider": panelProvider,
 	"accounts": panelAccounts,
+	// /pool is the /accounts panel's Pool tab on its own: the policy
+	// that decides which account serves a turn.
+	"pool": panelAccounts,
 }
 
 func panelForCommand(cmd string) (panelKind, bool) {
@@ -47,7 +52,7 @@ func panelForCommand(cmd string) (panelKind, bool) {
 // "low" or "medium" is treated as high, which is the reference default
 // and the value the clone printed before this cycle.
 func (m *runMode) currentEffort() int {
-	switch flagStringValue(m.flags, "effort") {
+	switch cliflags.StringValue(m.flags, "effort") {
 	case "low":
 		return effortLow
 	case "medium":
@@ -69,7 +74,19 @@ func (m *runMode) currentEffort() int {
 //
 // Cycle effort-picker: the TUI's per-turn loop and the print path's PiG
 // session both read the same flag value through this helper.
+//
+// A model that declares reasoning tiers runs at its own tier, and the
+// slider's three positions cannot say "xhigh": the label carries the
+// tier ("MiniMax M3.1 Flash (Xhigh)"), so it is read from there. The
+// --effort flag still wins — it is the user's own word.
 func (m *runMode) currentEffortName() string {
+	switch word := strings.ToLower(strings.TrimSpace(cliflags.StringValue(m.flags, "effort"))); word {
+	case "low", "medium", "high", "xhigh", "max":
+		return word
+	}
+	if tier := models.TierFromLabel(m.model); tier != "" {
+		return tier
+	}
 	return effortLevelName(m.currentEffort())
 }
 
@@ -148,6 +165,9 @@ func (m *runMode) panelRowCount(k panelKind) int {
 	case panelProvider:
 		return len(m.panel.prov.rows)
 	case panelAccounts:
+		if m.panel.acct.tab == accountsTabPool {
+			return poolRowCount
+		}
 		return len(m.panel.acct.rows)
 	}
 	return 0
@@ -210,6 +230,10 @@ func (m *runMode) panelLinesCore() []string {
 		}
 	case panelTasks:
 		return m.panelTasksLines()
+	case panelTaskDetail:
+		return m.panelTaskDetailLines()
+	case panelSubagentDetail:
+		return m.panelSubagentDetailLines()
 	case panelEffort:
 		return m.panelEffortLines()
 	case panelHooks:
@@ -283,10 +307,6 @@ func panelDotHint(lead string, pairs ...string) string {
 	return tuilib.PanelDotHint(lead, pairs...)
 }
 
-
-
-
-
 // closePanel clears the panel and, when the reference does so, appends
 // the "> /cmd" + "⎿  Exited /cmd command" block to the transcript.
 func (m *runMode) closePanel() tea.Cmd {
@@ -322,9 +342,7 @@ func (m *runMode) closePanelSilent() tea.Cmd {
 	return nil
 }
 
-
 // slashEchoLines renders the reference's transcript block for one slash command.
 func slashEchoLines(cmd, msg string) []string {
 	return tuilib.SlashEchoLines(cmd, msg)
 }
-

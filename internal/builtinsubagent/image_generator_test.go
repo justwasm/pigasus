@@ -35,7 +35,7 @@ import (
 
 // pngMagic is the 8-byte PNG signature every conforming PNG begins
 // with: 0x89 'P' 'N' 'G' \r \n 0x1A \n. The package's Detect helper
-// in internal/imagery has the same constant; we duplicate it here
+// in imagery has the same constant; we duplicate it here
 // to avoid a cross-package dependency for what is, fundamentally,
 // a single test fixture.
 var pngMagic = []byte{0x89, 'P', 'N', 'G', 0x0D, 0x0A, 0x1A, 0x0A}

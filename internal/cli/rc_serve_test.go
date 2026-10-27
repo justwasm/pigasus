@@ -17,9 +17,16 @@
 package cli
 
 import (
+	"bytes"
 	"strings"
 	"testing"
 )
+
+// serveHandlerRegistered reports whether the cmd/wagyu bridge has been
+// wired into the parser. Cycle 346: this seam used to live in
+// production code (cli.EnsureServeHandlerRegistered) and was used only
+// by the tests below; it is a test concern, so it lives here now.
+func serveHandlerRegistered() bool { return serveHandler != nil }
 
 // TestRemoteControlServe_HelpOnly pins the help text the
 // parser emits on `wagyu remote-control serve --help`.
@@ -85,7 +92,7 @@ func TestRemoteControlServe_NoBridgeNotice(t *testing.T) {
 	// bridge (cmd/wagyu/main.go does). If a future test
 	// forgets that contract and installs one, this test
 	// becomes meaningless; skip rather than fail.
-	if EnsureServeHandlerRegistered() {
+	if serveHandlerRegistered() {
 		t.Skip("serve handler is registered; the no-bridge notice is not testable")
 	}
 	out, errb, code := runJetski(t, "remote-control", "serve", "--no-login")
@@ -143,7 +150,7 @@ func TestRemoteControlServe_HostnameDefault(t *testing.T) {
 	// receives (the bridge is what prints the banner),
 	// so we pin the parser path instead: --name must
 	// not be required.
-	if EnsureServeHandlerRegistered() {
+	if serveHandlerRegistered() {
 		t.Skip("serve handler is registered; the hostname-default path is exercised end-to-end in cmd/wagyu/")
 	}
 	_, _, code := runJetski(t, "remote-control", "serve", "--no-login")
@@ -157,7 +164,7 @@ func TestRemoteControlServe_HostnameDefault(t *testing.T) {
 // The flag's behaviour (skip OAuth device flow) is exercised
 // in the cmd/wagyu integration test rig.
 func TestRemoteControlServe_NoLoginAccepted(t *testing.T) {
-	if EnsureServeHandlerRegistered() {
+	if serveHandlerRegistered() {
 		t.Skip("serve handler is registered; --no-login behaviour is exercised in cmd/wagyu/")
 	}
 	_, errb, code := runJetski(t, "remote-control", "serve", "--no-login")
@@ -166,5 +173,74 @@ func TestRemoteControlServe_NoLoginAccepted(t *testing.T) {
 	}
 	if strings.Contains(errb, "--no-login") {
 		t.Errorf("serve --no-login stderr should not mention --no-login (flag is accepted); got=%q", errb)
+	}
+}
+
+// TestRemoteControlServe_DesktopAccepted pins the remote-control
+// twin of `pigasus web --desktop`: the switch is accepted by the
+// parser (no usage error) and it is advertised in the usage block.
+//
+// The flag's behaviour (the hub's Mendel identity) is exercised in
+// internal/rchost.
+func TestRemoteControlServe_DesktopAccepted(t *testing.T) {
+	if serveHandlerRegistered() {
+		t.Skip("serve handler is registered; --desktop behaviour is exercised in internal/rchost")
+	}
+	_, errb, code := runJetski(t, "remote-control", "serve", "--desktop")
+	if code != 0 {
+		t.Errorf("serve --desktop exit code = %d, want 0; stderr=%q", code, errb)
+	}
+	if strings.Contains(errb, "--desktop") {
+		t.Errorf("serve --desktop stderr should not mention --desktop (flag is accepted); got=%q", errb)
+	}
+}
+
+// TestRemoteControlServe_DesktopInUsage pins that the switch is
+// discoverable: the usage block lists it.
+func TestRemoteControlServe_DesktopInUsage(t *testing.T) {
+	_, errb, code := runJetski(t, "remote-control", "serve", "--help")
+	if code != 0 {
+		t.Fatalf("serve --help exit code = %d, want 0; stderr=%q", code, errb)
+	}
+	if !strings.Contains(errb, "--desktop") {
+		t.Errorf("serve --help usage missing --desktop; stderr=%q", errb)
+	}
+}
+
+// TestRemoteControlServe_DesktopReachesTheBridge pins the whole
+// parser→bridge hop: the switch travels from the argv into the
+// typed ServeArgs the handler body reads.
+//
+// It is the remote-control twin of TestWebSubcommand_DesktopFlag —
+// 【一手】 measured 2026-10-27: the hub's identity gets the desktop
+// flag set, the CLI's does not. See internal/auth's package comment.
+func TestRemoteControlServe_DesktopReachesTheBridge(t *testing.T) {
+	var captured ServeArgs
+	RegisterServeHandler(func(j *JetskiCLI, args ServeArgs) error {
+		captured = args
+		return nil
+	})
+	t.Cleanup(func() { RegisterServeHandler(nil) })
+
+	out := &bytes.Buffer{}
+	errOut := &bytes.Buffer{}
+	j := &JetskiCLI{
+		Name:   "pigasus",
+		Out:    out,
+		ErrOut: errOut,
+	}
+
+	if err := runRCServe(j, []string{"--desktop"}); err != nil {
+		t.Fatalf("runRCServe(--desktop) failed: %v", err)
+	}
+	if !captured.Desktop {
+		t.Errorf("expected Desktop=true")
+	}
+
+	if err := runRCServe(j, []string{}); err != nil {
+		t.Fatalf("runRCServe failed: %v", err)
+	}
+	if captured.Desktop {
+		t.Errorf("expected Desktop=false without the flag")
 	}
 }

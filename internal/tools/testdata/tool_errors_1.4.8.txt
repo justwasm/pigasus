@@ -1,0 +1,69 @@
+# agy 1.4.8 tool-call envelopes (【一手】)
+#
+# Captured 2026-10-27 on this machine. Reference binary:
+# ~/.local/bin/agy, `agy --version` = 1.4.8, SHA-256
+# 09fcdd8554e03bed9b2ec936e454c7f115d5610610de09ed7d79fa2feae76940.
+#
+# Method: point CLOUD_CODE_URL at devutils/refcapture, a mock that forwards
+# every RPC except streamGenerateContent to the real CloudCode endpoint,
+# answers the agent turn with one functionCall, and then reads the
+# functionResponse the reference sends back in the follow-up request body.
+# The three bodies below are copied verbatim out of those request bodies
+# (the harness keeps them under its raw/ directory as req-NN.json).
+#
+# What changed at 1.4.8: a call that FAILED comes back under the `error`
+# member, a call that succeeded under `output`. The body's wording is the
+# reference's own and it did not change — the two stamp lines, then the
+# sentence. The reference's own release notes call the change out:
+#
+#   "Fixed failed tool calls, including calls to a tool that doesn't exist
+#    and canceled or interrupted calls, being passed back to the agent as
+#    ordinary results; the agent now sees them as errors and can recover
+#    on its next step."
+#
+# The 1.4.7 capture (internal/tools/testdata/result_texts_1.4.7.txt) says
+# the same thing from the other side: "Every result is a plain string under
+# functionResponse.response.output, never an error, even for the refusal."
+
+## 1. A call that succeeded — read_file on a file that exists
+#
+# Scripted call: {"name":"read_file","args":{"Path":"/tmp/cap148c/ws/present.txt"}}
+# The file held two lines ("hello 1.4.8" / "second line").
+
+{
+  "id": "call_1",
+  "name": "read_file",
+  "response": {
+    "output": "Created At: 2026-10-27T23:40:16+08:00\nCompleted At: 2026-10-27T23:40:16+08:00\nShowing lines 1-2 of 2\n1: hello 1.4.8\n2: second line"
+  }
+}
+
+## 2. A call that failed in the tool — read_file on a file that does not exist
+#
+# Scripted call: {"name":"read_file","args":{"Path":"/tmp/cap148b/missing-1.4.8.txt"}}
+
+{
+  "id": "call_1",
+  "name": "read_file",
+  "response": {
+    "error": "Created At: 2026-10-27T23:34:41+08:00\nCompleted At: 2026-10-27T23:34:41+08:00\nEncountered error in tool execution: file does not exist"
+  }
+}
+
+## 3. A call that never ran — a tool that is not in the model-facing surface
+#
+# Scripted call: {"name":"view_file","args":{"AbsolutePath":"/tmp/cap148/missing-1.4.8.txt"}}
+#
+# `view_file` is one of the reference's 63 tool names, but the model-facing
+# surface carries `read_file` instead — so the call is refused by the
+# reference's own validation, under `validation` rather than `execution`.
+# The wording (the em dash, the quotes around the name, "check spelling")
+# is the reference's.
+
+{
+  "id": "call_1",
+  "name": "view_file",
+  "response": {
+    "error": "Created At: 2026-10-27T23:33:40+08:00\nCompleted At: 2026-10-27T23:33:40+08:00\nEncountered error in tool validation: unknown tool: \"view_file\" — check spelling"
+  }
+}

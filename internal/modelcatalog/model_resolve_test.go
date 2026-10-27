@@ -105,6 +105,26 @@ func TestResolveEffectiveModel_ConfiguredModelResolves(t *testing.T) {
 	}
 }
 
+// TestResolveEffectiveModel_ConfiguredTieredModelBareID pins that the bare
+// id of a configured model that declares reasoning tiers resolves to that
+// model's default tier.
+//
+// The catalogue lists one row per tier ("custom-model-max"), so the bare id
+// ("custom-model") is not a row of its own. It still names the model the
+// user configured, and falling through to the reference's default model
+// would send the request to the CloudCode account instead of the configured
+// endpoint — with the reference's own quota as the limit.
+func TestResolveEffectiveModel_ConfiguredTieredModelBareID(t *testing.T) {
+	configtest.WriteProviders(t, `{"providers": {"gateway": {
+		"type": "openai", "base_url": "https://host/v1",
+		"models": [{"id": "custom-model", "name": "Custom Model", "model": "Upstream-1",
+		            "reasoning_efforts": ["low", "medium", "high"], "reasoning_effort": "medium"}]}}}`)
+	got, from := ResolveEffectiveModel("custom-model")
+	if got != "Custom Model (Medium)" || from != "" {
+		t.Fatalf("got (%q, %q), want (%q, %q)", got, from, "Custom Model (Medium)", "")
+	}
+}
+
 // TestModelCatalogueIncludesConfiguredModels pins that a configured model
 // reaches the catalogue, and that it does not displace a reference model
 // whose id it collides with.

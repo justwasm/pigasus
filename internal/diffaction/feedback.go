@@ -13,7 +13,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/justwasm/pigasus/internal/diffsyntax"
+	"github.com/justwasm/pigasus/diffsyntax"
 )
 
 // DiffFunc runs the working-copy diff of a detected VCS in a directory.

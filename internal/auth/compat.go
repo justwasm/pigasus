@@ -38,8 +38,10 @@ package auth
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -178,7 +180,12 @@ func renderJetskiStatePbtxt(uuid string, steps []string, migrations map[uint32]s
 	b = append(b, "installation_uuid:  \""...)
 	b = append(b, uuid...)
 	b = append(b, "\"\n"...)
-	for k, v := range migrations {
+	// The migrations are written in key order: a Go map iterates in a
+	// random order, and the file's bytes have to be the same on every
+	// run — the reference writes one block per migration, and the
+	// block order is part of the file.
+	for _, k := range slices.Sorted(maps.Keys(migrations)) {
+		v := migrations[k]
 		b = append(b, "migrations:  {\n"...)
 		b = append(b, fmt.Sprintf("  key:  %d\n", k)...)
 		b = append(b, "  value:  "...)

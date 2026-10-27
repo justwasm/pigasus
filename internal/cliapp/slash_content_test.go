@@ -13,7 +13,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"runtime"
 	"strings"
 	"syscall"
@@ -186,13 +185,29 @@ func TestSlashContent_ChangelogAndQuota(t *testing.T) {
 
 	for _, tc := range []struct{ cmd, want string }{
 		{"/usage", "error: /usage failed: retrieving quota summary: failed to retrieve user quota summary: no quota summary is available for this account"},
-		{"/credits", "error: /credits failed: retrieving credits: no credits info found"},
 	} {
 		m = newSlashModel(t)
 		m.handleSlashCommand(tc.cmd)
 		if got := strings.Join(afterEcho(m), "\n"); got != tc.want {
 			t.Errorf("%s rendered %q, want %q", tc.cmd, got, tc.want)
 		}
+	}
+}
+
+// TestSlashCreditsOpensPanel pins that `/credits` opens the credits panel
+// instead of answering with an error line.
+//
+// 【一手】 agy 1.4.8, live: the command opens the panel on the picker path
+// and on the direct path alike (the composer holding "/credits" with the
+// picker dismissed).
+func TestSlashCreditsOpensPanel(t *testing.T) {
+	m := newSlashModel(t)
+	handled, _ := m.handleSlashCommand("/credits")
+	if !handled {
+		t.Fatal("/credits was not handled")
+	}
+	if m.panel.kind != panelCredits {
+		t.Fatalf("/credits opened panel %v, want panelCredits", m.panel.kind)
 	}
 }
 
@@ -916,109 +931,6 @@ func TestRunBoost_SendsPrompt(t *testing.T) {
 	if got := lastUserMessage(m); !strings.Contains(got, "deep thinking") &&
 		!strings.Contains(got, "verification") {
 		t.Errorf("/boost session message lost the boost intent: %q", got)
-	}
-}
-
-// TestRunSchedule_ErrorID exercises the cycle-194 /schedule handler.
-// REF returns "Error ID: <uuid>-1" for commands with no backend;
-// cycle 194 surfaces the same row verbatim. Cycle 217 also surfaces
-// the cycle-194 quota-warning line that precedes the Error ID
-// (`/tmp/agycmp/panels/ppref.schedule.raw.txt`: the warning line is
-// fg 166, the Error ID line is fg 241). m.streaming stays false
-// because there is no model call.
-func TestRunSchedule_ErrorID(t *testing.T) {
-	m := newSlashModel(t)
-	_, cmd := m.handleSlashCommand("/schedule")
-	if cmd != nil {
-		t.Error("/schedule should NOT schedule a tea.Cmd (no model call)")
-	}
-	if m.streaming {
-		t.Error("/schedule should leave m.streaming=false")
-	}
-	if len(m.response) < 4 {
-		t.Fatalf("/schedule produced %d transcript rows, want at least 4",
-			len(m.response))
-	}
-	// Cycle 195 layout:
-	//   [0] > /<cmd>
-	//   [1]   ⎿  <warning line>      (fg 166)
-	//   [2] <Error ID line>           (fg 241)
-	//   [3] <blank>
-	warnRow := stripSGR(m.response[1])
-	warnRow = strings.TrimPrefix(warnRow, "  \u23bf  ")
-	if !strings.HasPrefix(warnRow, "\u26a0 Individual quota reached. Please upgrade your subscription to increase your limits. Resets in ") {
-		t.Errorf("/schedule warning row = %q", warnRow)
-	}
-	row := stripSGR(m.response[2])
-	// Format is "Error ID: <8-4-4-4-12 hex>-1".
-	re := regexp.MustCompile(`^Error ID: [0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}-1$`)
-	if !re.MatchString(row) {
-		t.Errorf("/schedule Error ID row = %q, want Error ID: <uuid>-1", row)
-	}
-}
-
-// TestRunBrowser_ErrorID mirrors TestRunSchedule_ErrorID for /browser.
-// Same "Error ID: <uuid>-1" shape; same no-stream behaviour; same
-// cycle-217 quota-warning line preceding it.
-func TestRunBrowser_ErrorID(t *testing.T) {
-	m := newSlashModel(t)
-	_, cmd := m.handleSlashCommand("/browser")
-	if cmd != nil {
-		t.Error("/browser should NOT schedule a tea.Cmd")
-	}
-	if m.streaming {
-		t.Error("/browser should leave m.streaming=false")
-	}
-	if len(m.response) < 4 {
-		t.Fatalf("/browser produced %d transcript rows, want at least 4",
-			len(m.response))
-	}
-	warnRow := stripSGR(m.response[1])
-	warnRow = strings.TrimPrefix(warnRow, "  \u23bf  ")
-	if !strings.HasPrefix(warnRow, "\u26a0 Individual quota reached. Please upgrade your subscription to increase your limits. Resets in ") {
-		t.Errorf("/browser warning row = %q", warnRow)
-	}
-	row := stripSGR(m.response[2])
-	re := regexp.MustCompile(`^Error ID: [0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}-1$`)
-	if !re.MatchString(row) {
-		t.Errorf("/browser Error ID row = %q, want Error ID: <uuid>-1", row)
-	}
-}
-
-// TestRunScheduleAndBrowser_ErrorIDsAreUnique verifies two
-// consecutive invocations produce different UUIDs. The TODO
-// interpretation is that REF regenerates the ID per call so the
-// user can correlate a fresh error with logs / support tickets.
-// Cycle 217: the layout now has two `Error ID:` rows on the page
-// (one per call) — we read those specifically.
-func TestRunScheduleAndBrowser_ErrorIDsAreUnique(t *testing.T) {
-	m := newSlashModel(t)
-	m.handleSlashCommand("/schedule")
-	m.handleSlashCommand("/browser")
-	if len(m.response) < 8 {
-		t.Fatalf("need 8 transcript rows, got %d", len(m.response))
-	}
-	// Cycle-217 layout per call:
-	//   [0] > /<cmd>
-	//   [1]   ⎿  <warning>
-	//   [2] <Error ID line>
-	//   [3] <blank>
-	// Schedule fills [0..3], browser fills [4..7]. Strip SGR + prefix
-	// from the two Error ID rows and assert they differ.
-	stripErr := func(raw string) string {
-		s := stripSGR(raw)
-		s = strings.TrimPrefix(s, "  \u23bf  ")
-		return s
-	}
-	schedID := stripErr(m.response[2])
-	browserID := stripErr(m.response[6])
-	if schedID == browserID {
-		t.Errorf("two error IDs collided: %q == %q", schedID, browserID)
-	}
-	if !strings.HasPrefix(schedID, "Error ID: ") ||
-		!strings.HasPrefix(browserID, "Error ID: ") {
-		t.Errorf("missing Error ID prefix: schedule=%q browser=%q",
-			schedID, browserID)
 	}
 }
 

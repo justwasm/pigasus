@@ -248,7 +248,7 @@ func encodeContent(data []byte, isBinary bool) string {
 //   - Data: the file's content (ignored when IsDir).
 //
 // The struct is exported so tests in other packages
-// (notably internal/remotetransport/tcp_test.go, which
+// (notably remotetransport/tcp_test.go, which
 // exercises the wire envelope) can construct entries
 // without re-implementing the unexported shape.
 type MemFSEntry struct {

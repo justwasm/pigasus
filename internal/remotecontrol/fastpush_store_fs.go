@@ -15,6 +15,8 @@ import (
 	"path/filepath"
 	"sync"
 	"time"
+
+	"github.com/justwasm/pigasus/atomicfile"
 )
 
 // FSFastpushStore is the production FastpushStore
@@ -194,11 +196,7 @@ func (s *FSFastpushStore) atomicWrite(state FastpushState) error {
 	if err != nil {
 		return err
 	}
-	tmp := s.Path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o600); err != nil {
-		return err
-	}
-	if err := os.Rename(tmp, s.Path); err != nil {
+	if err := atomicfile.WriteFile(s.Path, data, 0o600); err != nil {
 		return err
 	}
 	// Best-effort dir fsync: ensures the rename is

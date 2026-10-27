@@ -87,11 +87,12 @@ func NativeProvider(client backend.Client) *Provider {
 		return nil
 	}
 	return NewProvider(ProviderConfig{
-		URL:        cfg.URL,
-		APIKey:     cfg.APIKey,
-		Model:      cfg.ExternalModel,
-		Timeout:    time.Duration(cfg.TimeoutSeconds) * time.Second,
-		HTTPClient: cfg.HTTPClient,
-		Headers:    cfg.Headers,
+		URL:             cfg.URL,
+		APIKey:          cfg.APIKey,
+		Model:           cfg.ExternalModel,
+		ReasoningEffort: cfg.ReasoningEffort,
+		Timeout:         time.Duration(cfg.TimeoutSeconds) * time.Second,
+		HTTPClient:      cfg.HTTPClient,
+		Headers:         cfg.Headers,
 	})
 }

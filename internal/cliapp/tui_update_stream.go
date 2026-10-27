@@ -1,6 +1,7 @@
 package cliapp
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"time"
@@ -97,7 +98,11 @@ func (m *runMode) recordTurnCompletion(msg turnDoneMsg) {
 	// The turn's tool calls join the trajectory before the save: the
 	// calls are what the rehydration pass reads back.
 	m.recordTrajectoryCalls(msg.steps)
-	if msg.err != nil {
+	// A turn the user cancelled with Esc leaves no error row behind. The
+	// reference answers a cancelled turn with the composer's interrupted
+	// hint instead (【反编译】 agy 1.4.8's `(*PromptModel).interruptedLine`),
+	// and the turn's own failure is the cancellation itself.
+	if msg.err != nil && !m.turnInterrupted {
 		m.response = append(m.response, turnErrorRow(msg.err))
 	}
 	m.replyStart = -1
@@ -114,6 +119,12 @@ func (m *runMode) flushNextQueued(nextQueued string) tea.Cmd {
 			next := m.bashQueue[0]
 			m.bashQueue = m.bashQueue[1:]
 			return m.startBashCommand(next)
+		}
+		// A background task that finished while the turn was running has
+		// a notification to deliver. The reference's agent picks it up
+		// and carries on without waiting for the user.
+		if m.taskInbox != nil && m.taskInbox.Len() > 0 {
+			return m.startNotificationTurn()
 		}
 		return nil
 	}
@@ -138,6 +149,7 @@ func (m *runMode) flushNextQueued(nextQueued string) tea.Cmd {
 	m.appendUserTurn(nextQueued)
 	m.saveSession()
 	m.streaming = true
+	m.turnInterrupted = false
 	m.clearLastTurnOutcome()
 	tickCmd := func() tea.Msg { return m.spinner.Tick() }
 	return tea.Batch(m.streamPrompt(nextQueued), tickCmd)
@@ -223,6 +235,13 @@ func (m *runMode) updateBackendChunkMsg(msg backendChunkMsg) {
 	if chunk == "" || m.discardTurn {
 		return
 	}
+	// The cancelled turn's own stream error — the loop reports the
+	// cancellation as a chunk — is not part of the answer either. The
+	// reference's cancelled turn shows the composer's interrupted hint and
+	// nothing else.
+	if m.turnInterrupted && chunk == context.Canceled.Error() {
+		return
+	}
 	if m.replyStart < 0 {
 		m.blankBefore()
 		m.replyStart = len(m.response)
@@ -273,6 +292,15 @@ func (m *runMode) updateStreamingMsg(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
 		return m, nil, true
 	case toolStepMsg:
 		m.updateToolStepMsg(msg)
+		return m, nil, true
+	case taskNotificationMsg:
+		// A background task finished. When the agent is idle the
+		// notification is delivered in a turn of its own; when a turn is
+		// in flight it waits for the next one.
+		return m, m.updateTaskNotificationMsg(), true
+	case browserAgentDoneMsg:
+		// The browser agent behind the /browser slash command answered.
+		m.updateBrowserAgentDoneMsg(msg)
 		return m, nil, true
 	case backendChunkMsg:
 		m.updateBackendChunkMsg(msg)

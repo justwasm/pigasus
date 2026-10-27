@@ -18,6 +18,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
+	"strings"
 	"time"
 )
 
@@ -100,9 +101,13 @@ func (c *Cascade) AddInteraction(kind, title, prompt string, opts []InteractionO
 // Cycle rc-piagent-bind: NewCascade additionally accepts a
 // dispatcher-supplied default (CascadeOpts.DispatchDefault).
 func NewCascade(opts CascadeOpts) (*Cascade, error) {
-	id, err := mintCascadeID()
-	if err != nil {
-		return nil, err
+	id := strings.TrimSpace(opts.ID)
+	if id == "" {
+		var err error
+		id, err = mintCascadeID()
+		if err != nil {
+			return nil, err
+		}
 	}
 	now := opts.Now
 	if now.IsZero() {

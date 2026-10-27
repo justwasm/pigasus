@@ -21,7 +21,7 @@
 // The tests use (*Dispatcher).Dispatch directly so they pin the
 // in-process surface without dragging in the Unix-socket or the
 // WS transport; the wire-level surface is covered by the WS
-// round-trip tests in internal/remotetransport/tcp_test.go.
+// round-trip tests in remotetransport/tcp_test.go.
 package remotecontrol
 
 import (

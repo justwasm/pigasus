@@ -570,8 +570,6 @@ func TestTUISessionPersistence(t *testing.T) {
 	}
 }
 
-
-
 // fakeClient is the tiny stub used by other viewport tests, declared
 // in tui_run_test.go. Reusing it here keeps the test file
 // dependency-free.
@@ -714,7 +712,7 @@ func TestEligibilityError_InlineNotStacked(t *testing.T) {
 //	ESC ] 8 ; ; URL ST  TEXT  ESC ] 8 ; ; ST
 //
 // where the URL portion is percent-encoded by
-// internal/render.urlForOSC8. The test asserts on three
+// render.urlForOSC8. The test asserts on three
 // independent shapes (against the raw view, not the ANSI-stripped
 // view: the OSC 8 frame IS the cycle-240 contract, stripping the
 // OSC 8 frame would erase the very bytes under test):

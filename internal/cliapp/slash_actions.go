@@ -107,18 +107,6 @@ func resolveCopy(args string, responses []string) (string, string) {
 	return responses[len(responses)-n], fmt.Sprintf("Copied response %d to clipboard.", n)
 }
 
-// statuslineFeedback toggles the status line and returns (persisted value,
-// message).
-func statuslineFeedback(current string) (string, string) {
-	return tuilib.StatuslineFeedback(current)
-}
-
-// titleFeedback handles /title, /title on and /title off and returns
-// (persisted value, message).
-func titleFeedback(arg, current, titleText string) (string, string) {
-	return tuilib.TitleFeedback(arg, current, titleText)
-}
-
 // normalizeTitle cleans a session/conversation title so it can be safely shown
 // in lists, breadcrumbs and the terminal window title.
 func normalizeTitle(s string) string {

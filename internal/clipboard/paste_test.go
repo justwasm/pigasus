@@ -11,19 +11,21 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/justwasm/pigasus/internal/imagery"
+	"github.com/justwasm/pigasus/imagery"
 )
 
 // readFixture is a tiny helper that fails the test on read errors so
 // the body of each test stays focused on the assertion. The WebP
-// fixtures live in internal/imagery/testdata because that package is
+// fixtures live in imagery/testdata because that package is
 // the one that decodes them; clipboard borrows them via the
-// directory at the package root.
+// directory at the package root. The path climbs two levels because
+// imagery now lives at the top of the tree, beside internal/ — it
+// used to be internal/imagery, one level down.
 func readFixture(t *testing.T, name string) []byte {
 	t.Helper()
-	data, err := os.ReadFile(filepath.Join("..", "imagery", "testdata", name))
+	data, err := os.ReadFile(filepath.Join("..", "..", "imagery", "testdata", name))
 	if err != nil {
-		t.Fatalf("read fixture ../imagery/testdata/%s: %v", name, err)
+		t.Fatalf("read fixture ../../imagery/testdata/%s: %v", name, err)
 	}
 	return data
 }

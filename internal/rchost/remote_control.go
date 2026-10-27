@@ -15,10 +15,11 @@ import (
 	"sync"
 	"time"
 
+	"github.com/justwasm/pigasus/agentbrowser"
 	"github.com/justwasm/pigasus/internal/cli"
-	"github.com/justwasm/pigasus/internal/originpolicy"
 	"github.com/justwasm/pigasus/internal/remotecontrol"
-	"github.com/justwasm/pigasus/internal/remotetransport"
+	"github.com/justwasm/pigasus/originpolicy"
+	"github.com/justwasm/pigasus/remotetransport"
 )
 
 // remoteControlOnce guards the package-level daemon pointer so a
@@ -57,16 +58,30 @@ func MaybeStartTCPDaemon(ctx context.Context, fs *flag.FlagSet, sess *remotecont
 		return nil
 	}
 	cfg := buildHostConfig(fs, sess, "", "tcp+ws", addr)
-	disp, err := remotecontrol.NewDispatcher(buildHostDispatcherConfig(cfg))
+	// The TCP host has no Unix socket; the dispatcher is the same one
+	// the Unix host builds, from the same translation — cycle 346, when
+	// this path carried its own, shorter translation that dropped the
+	// Web UI's terminal and voice registries.
+	disp, err := remotecontrol.NewDispatcher(remotecontrol.ConfigFromHost(cfg, ""))
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "[remote-control-tcp] dispatcher init failed: %v\n", err)
 		return nil
 	}
 	seed := originpolicy.LoadOriginPolicyFromEnv()
+	// Cycle rc-auth-bearer-required: the secret a client from another
+	// machine has to present. The flag is documented as a way to
+	// reach the daemon from elsewhere, so the daemon asks for a
+	// credential.
+	token, _, err := resolveRCToken()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "[remote-control-tcp] could not mint the remote-control secret: %v\n", err)
+		return nil
+	}
 	srv, err := remotetransport.NewTCPServer(ctx, disp, remotetransport.TCPConfig{
 		Addr:         addr,
 		Path:         "/rpc",
 		OriginPolicy: &seed,
+		CSRFToken:    token,
 	})
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "[remote-control-tcp] daemon failed to start on %s: %v\n", addr, err)
@@ -74,6 +89,7 @@ func MaybeStartTCPDaemon(ctx context.Context, fs *flag.FlagSet, sess *remotecont
 	}
 	disp.SetOriginPolicySetter(srv.SetOriginPolicy)
 	fmt.Fprintf(os.Stderr, "[remote-control-tcp] ws daemon listening on: %s\n", srv.HTTPURL())
+	announceRCToken(os.Stderr, "[remote-control-tcp]", addr, token)
 	return srv
 }
 
@@ -82,6 +98,10 @@ func buildHostConfig(fs *flag.FlagSet, sess *remotecontrol.SessionState, sockPat
 	cwd, _ := os.Getwd()
 	fsProv := buildHostFSProvider(fs, cwd)
 	projStore := buildHostProjectStore(fsProv)
+	// One broker for the whole daemon: the dispatcher's three
+	// LanguageServerService RPCs and the turn's `webview_browser` tool
+	// have to meet in the same instance.
+	broker := agentbrowser.NewBroker()
 	return remotecontrol.HostConfig{
 		Version:                 cli.ReferenceVersion,
 		Backend:                 "",
@@ -96,7 +116,8 @@ func buildHostConfig(fs *flag.FlagSet, sess *remotecontrol.SessionState, sockPat
 		Conversations:           buildHostConversationStore(projStore),
 		AuthState:               authStateForCaller(),
 		DaemonMeta:              daemonMetaForCaller(transport, addr, "in-process"),
-		MessageBackend:          buildHostMessageBackend(cwd, flagStringValue(fs, "model")),
+		MessageBackend:          buildHostMessageBackend(cwd, flagStringValue(fs, "model"), broker),
+		Browser:                 broker,
 		PermissionsStore:        buildHostPermissionStore(),
 		PluginsStore:            buildHostPluginStore(),
 		TriggersStore:           buildHostTriggerStore(),
@@ -104,31 +125,9 @@ func buildHostConfig(fs *flag.FlagSet, sess *remotecontrol.SessionState, sockPat
 		ResourceStore:           buildHostResourceStore(projStore),
 		ConversationConfigStore: buildHostConversationConfigStore(),
 		TerminalsRegistry:       buildHostTerminalsRegistry(),
+		WebTerminals:            buildHostWebTerminalsRegistry(),
+		WebAudio:                buildHostWebAudioRegistry(),
 		OriginPolicyStore:       buildHostOriginPolicyStore(),
-	}
-}
-
-// buildHostDispatcherConfig maps a HostConfig into remotecontrol.Config.
-func buildHostDispatcherConfig(hc remotecontrol.HostConfig) remotecontrol.Config {
-	return remotecontrol.Config{
-		Session:                 hc.Session,
-		Agents:                  remotecontrol.DefaultAgentLister,
-		Reader:                  remotecontrol.ConvstoreOutputReader{},
-		ListBackend:             hc.ListBackend,
-		FS:                      hc.FS,
-		Projects:                hc.Projects,
-		Conversations:           hc.Conversations,
-		AuthState:               hc.AuthState,
-		DaemonMeta:              hc.DaemonMeta,
-		MessageBackend:          hc.MessageBackend,
-		PermissionsStore:        hc.PermissionsStore,
-		PluginsStore:            hc.PluginsStore,
-		TriggersStore:           hc.TriggersStore,
-		FastpushStore:           hc.FastpushStore,
-		ResourceStore:           hc.ResourceStore,
-		ConversationConfigStore: hc.ConversationConfigStore,
-		TerminalsRegistry:       hc.TerminalsRegistry,
-		OriginPolicyStore:       hc.OriginPolicyStore,
 	}
 }
 

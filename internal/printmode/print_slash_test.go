@@ -7,10 +7,14 @@ package printmode
 // these tests pin that behaviour so it cannot regress silently.
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
+	"sort"
 	"strings"
 	"testing"
 
@@ -95,16 +99,79 @@ func TestPrintSlashHelpTextShape(t *testing.T) {
 	}
 }
 
-// TestPrintSlashConfigShape pins the recovered settings dump: 34 keys, sorted,
+// TestPrintSlashConfigShape pins the recovered settings dump: the union of
+// the reference's known keys and the keys present in settings.json, sorted,
 // each "key\tvalue".
+//
+// 【一手】 agy 1.4.8: the dump carries the known 36 keys plus every key the
+// user has set — a file-only key ("dismissedAnnouncements" on the capture
+// machine) sits at its alphabetical place, between "disableSlashCommands"
+// and "editor".
 func TestPrintSlashConfigShape(t *testing.T) {
+	dir := t.TempDir()
+	settings := `{"toolPermission":"always-proceed","dismissedAnnouncements":["a"],"editor":"vim"}`
+	if err := os.WriteFile(filepath.Join(dir, "settings.json"), []byte(settings), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("ANTIGRAVITY_HOME", dir)
+
 	got := printSlashConfig()
 	lines := strings.Split(strings.TrimRight(got, "\n"), "\n")
-	if len(lines) != 34 {
-		t.Fatalf("/config printed %d rows, want 34", len(lines))
+	if len(lines) != 37 {
+		t.Fatalf("/config printed %d rows, want 37", len(lines))
 	}
-	if len(printSlashConfigKeys) != 34 {
-		t.Fatalf("printSlashConfigKeys has %d entries, want 34", len(printSlashConfigKeys))
+	if len(printSlashConfigKeys) != 36 {
+		t.Fatalf("printSlashConfigKeys has %d entries, want 36", len(printSlashConfigKeys))
+	}
+	keys := make([]string, 0, len(lines))
+	for _, l := range lines {
+		key, _, ok := strings.Cut(l, "\t")
+		if !ok {
+			t.Fatalf("row %q has no tab", l)
+		}
+		keys = append(keys, key)
+	}
+	if !sort.StringsAreSorted(keys) {
+		t.Errorf("keys are not sorted: %v", keys)
+	}
+	if !slices.Contains(keys, "dismissedAnnouncements") {
+		t.Errorf("file-only key missing from %v", keys)
+	}
+	want := map[string]string{
+		"artifactReviewPolicy":   "asks-for-review",
+		"colorScheme":            "terminal",
+		"customModelsConfig":     "",
+		"dismissedAnnouncements": `["a"]`,
+		"editor":                 "vim",
+		"historySize":            "2000",
+		"toolPermission":         "always-proceed",
+	}
+	for _, l := range lines {
+		key, val, _ := strings.Cut(l, "\t")
+		if w, ok := want[key]; ok && val != w {
+			t.Errorf("%s = %q, want %q", key, val, w)
+		}
+	}
+}
+
+// TestPrintSlashConfigDefaults pins the built-in defaults the reference
+// reports for a key the user has never set.
+//
+// 【一手】 agy 1.4.8, `agy -p /config` with an empty settings.json: 36 rows,
+// the values below. The 1.4.8 defaults differ from the 1.3.6 capture the
+// clone used to carry — artifactReviewPolicy is "asks-for-review",
+// toolPermission is "request-review" and colorScheme is "terminal".
+func TestPrintSlashConfigDefaults(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "settings.json"), []byte(`{}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("ANTIGRAVITY_HOME", dir)
+
+	got := printSlashConfig()
+	lines := strings.Split(strings.TrimRight(got, "\n"), "\n")
+	if len(lines) != 36 {
+		t.Fatalf("/config printed %d rows, want 36", len(lines))
 	}
 	for i, l := range lines {
 		key, _, ok := strings.Cut(l, "\t")
@@ -113,6 +180,26 @@ func TestPrintSlashConfigShape(t *testing.T) {
 		}
 		if key != printSlashConfigKeys[i] {
 			t.Errorf("row %d key = %q, want %q", i, key, printSlashConfigKeys[i])
+		}
+	}
+	want := map[string]string{
+		"agentMode":               "",
+		"allowNonWorkspaceAccess": "false",
+		"artifactReviewPolicy":    "asks-for-review",
+		"colorScheme":             "terminal",
+		"customModelsConfig":      "",
+		"editor":                  "auto",
+		"historySize":             "2000",
+		"permissions":             "",
+		"statusLine":              "",
+		"toolPermission":          "request-review",
+		"trustedWorkspaces":       "",
+		"verbosity":               "medium",
+	}
+	for _, l := range lines {
+		key, val, _ := strings.Cut(l, "\t")
+		if w, ok := want[key]; ok && val != w {
+			t.Errorf("%s = %q, want %q", key, val, w)
 		}
 	}
 }
@@ -154,7 +241,8 @@ func TestDispatchPrintSlash_Rejections(t *testing.T) {
 }
 
 // TestDispatchPrintSlash_PluginAndCredits pins the two commands with bespoke
-// messages: /plugin exits 2, /credits exits 1.
+// messages: /plugin exits 2, /credits answers with the account's live G1
+// credit state (exit 0).
 func TestDispatchPrintSlash_PluginAndCredits(t *testing.T) {
 	fs := newStandardFlagSetForTest(t, nil)
 
@@ -168,17 +256,52 @@ func TestDispatchPrintSlash_PluginAndCredits(t *testing.T) {
 	if res.Err.Error() != printSlashPluginRejection {
 		t.Errorf("/plugin message = %q", res.Err.Error())
 	}
+}
 
-	res = dispatchPrintSlash("/credits", fs)
-	if !res.Handled || res.Err == nil {
-		t.Fatalf("/credits: handled=%v err=%v; want an error", res.Handled, res.Err)
+// TestDispatchPrintSlash_Credits pins the live `/credits` answer: the two
+// tab-separated records and the JSON payload.
+//
+// 【一手】 agy 1.4.8, `agy -p /credits`:
+//
+//	Remaining credits	0
+//	Upgrade	https://antigravity.google/g1-upgrade
+//
+// and `--output-format json`:
+//
+//	{"name":"credits","data":{"remaining_credits":0,
+//	                          "upgrade_uri":"https://antigravity.google/g1-upgrade"}}
+func TestDispatchPrintSlash_Credits(t *testing.T) {
+	restore := stubCreditsState(`{"paidTier":{"availableCredits":[{"creditType":"GOOGLE_ONE_AI"}],"upgradeSubscriptionUri":"https://antigravity.google/g1-upgrade"}}`)
+	defer restore()
+
+	fs := newStandardFlagSetForTest(t, nil)
+	res := dispatchPrintSlash("/credits", fs)
+	if !res.Handled || res.Err != nil {
+		t.Fatalf("/credits: handled=%v err=%v", res.Handled, res.Err)
 	}
-	if code, _ := cli.ExitCodeOf(res.Err); code != 1 {
-		t.Errorf("/credits exit code = %d, want 1", code)
+	want := "Remaining credits\t0\nUpgrade\thttps://antigravity.google/g1-upgrade\n"
+	if res.Output != want {
+		t.Errorf("/credits output =\n%q\nwant\n%q", res.Output, want)
 	}
-	if res.Err.Error() != "error: /credits failed: retrieving credits: no credits info found" {
-		t.Errorf("/credits message = %q", res.Err.Error())
+	payload, ok := res.Data.(jsonCreditsPayload)
+	if !ok {
+		t.Fatalf("/credits payload = %T, want jsonCreditsPayload", res.Data)
 	}
+	if payload.RemainingCredits != 0 {
+		t.Errorf("/credits remaining_credits = %d, want 0", payload.RemainingCredits)
+	}
+	if payload.UpgradeURI != "https://antigravity.google/g1-upgrade" {
+		t.Errorf("/credits upgrade_uri = %q", payload.UpgradeURI)
+	}
+}
+
+// stubCreditsState swaps the account-state reader for a fixed answer.
+func stubCreditsState(state string) func() {
+	prev := creditsStateFetcher
+	creditsStateFetcher = func(ctx context.Context) (json.RawMessage, error) {
+		return json.RawMessage(state), nil
+	}
+	return func() { creditsStateFetcher = prev }
 }
 
 // TestDispatchPrintSlash_RejectionTailSubstitution pins that the "%s" in each
@@ -240,6 +363,87 @@ func TestModelSlug(t *testing.T) {
 // "no frontmatter at all" case. Cycle 175 moved the parser to
 // gopkg.in/yaml.v3, so the folded block follows YAML 1.2 paragraph-break
 // rules (blank line ⇒ one `\n`, not two).
+// TestParseG1Credits pins the parsing of the account's code-assist state into
+// the `/credits` answer's two figures.
+//
+// 【一手】 agy 1.4.8: the capture account's paid tier carries
+// availableCredits [{"creditType":"GOOGLE_ONE_AI","minimumCreditAmountForUsage":"50"}]
+// — a credit entry with **no** amount — and the reference answers
+// "Remaining credits 0" and the paid tier's upgrade URI verbatim. An account
+// without a paid tier gets the reference's own "GetG1Credits: paidTier is
+// nil" message.
+func TestParseG1Credits(t *testing.T) {
+	state := []byte(`{"currentTier":{"id":"free-tier"},"paidTier":{"availableCredits":[{"creditType":"GOOGLE_ONE_AI","minimumCreditAmountForUsage":"50"}],"upgradeSubscriptionUri":"https://antigravity.google/g1-upgrade"}}`)
+	remaining, uri, err := parseG1Credits(state)
+	if err != nil {
+		t.Fatalf("parseG1Credits: %v", err)
+	}
+	if remaining != 0 {
+		t.Errorf("remaining = %d, want 0", remaining)
+	}
+	if uri != "https://antigravity.google/g1-upgrade" {
+		t.Errorf("uri = %q, want the paid tier's upgrade URI", uri)
+	}
+
+	state = []byte(`{"paidTier":{"availableCredits":[{"creditAmount":"1500"},{"creditAmount":250}],"upgradeSubscriptionUri":"https://example.invalid/upgrade"}}`)
+	remaining, uri, err = parseG1Credits(state)
+	if err != nil {
+		t.Fatalf("parseG1Credits: %v", err)
+	}
+	if remaining != 1750 {
+		t.Errorf("remaining = %d, want 1750", remaining)
+	}
+	if uri != "https://example.invalid/upgrade" {
+		t.Errorf("uri = %q", uri)
+	}
+
+	if _, _, err := parseG1Credits([]byte(`{"currentTier":{"id":"free-tier"}}`)); err == nil ||
+		err.Error() != "GetG1Credits: paidTier is nil" {
+		t.Errorf("no paid tier: err = %v, want the reference's message", err)
+	}
+}
+
+// TestSkillFrontmatterReadsIcon pins that the frontmatter's `metadata.icon`
+// is read out of band: the JSON payload carries no icon key, but the TUI
+// panel renders it next to the name.
+//
+// 【一手】 agy 1.4.8: the bundled automation skill declares
+// `name: automation` plus `metadata.icon: schedule`; `agy -p /skills` prints
+// the bare name "automation", while the /skills panel lists
+// "schedule automation".
+func TestSkillFrontmatterReadsIcon(t *testing.T) {
+	dir := t.TempDir()
+	write := func(name, body string) string {
+		p := filepath.Join(dir, name+".md")
+		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+
+	withIcon := write("withicon", "---\nname: automation\ndescription: A guide.\nmetadata:\n  icon: schedule\n---\n\nbody\n")
+	f := skillFrontmatterFields(withIcon)
+	if f.Name != "automation" || f.Description != "A guide." || f.Icon != "schedule" {
+		t.Errorf("withicon: name=%q desc=%q icon=%q", f.Name, f.Description, f.Icon)
+	}
+
+	noIcon := write("noicon", "---\nname: plain\ndescription: One line only.\n---\n\nbody\n")
+	f = skillFrontmatterFields(noIcon)
+	if f.Name != "plain" || f.Icon != "" {
+		t.Errorf("noicon: name=%q icon=%q", f.Name, f.Icon)
+	}
+
+	// A `metadata` that is not a mapping must not cost the document its
+	// name — the icon is decoded leniently on purpose.
+	scalarMeta := write("scalarmeta", "---\nname: scalar\ndescription: One line only.\nmetadata: none\n---\n\nbody\n")
+	f = skillFrontmatterFields(scalarMeta)
+	if f.Name != "scalar" {
+		t.Errorf("scalarmeta: name=%q", f.Name)
+	}
+}
+
+// TestSkillFrontmatter calls the two-value wrapper on a SKILL.md with an
+// icon, to pin that the wrapper keeps its old contract.
 func TestSkillFrontmatter(t *testing.T) {
 	dir := t.TempDir()
 	write := func(name, body string) string {
@@ -382,15 +586,22 @@ func TestPrintSlashUsagePercentMatchesFraction(t *testing.T) {
 }
 
 // TestUsageCreditsFailureText pins the recovered failure vocabulary for
-// /credits, the one quota command that still fails on the capture machine. It
-// is a live service call in the reference; the strings below are the ones the
-// reference wraps its errors in (verified present in the string table):
-// "/%s failed: %w", "retrieving credits: %w", "no credits info found".
+// /credits: the reference wraps its errors in "/%s failed: %w" and
+// "retrieving credits: %w" (both verified present in the string table).
 //
 // /usage used to share this test — cycle 200 moved it to a success path
 // (TestDispatchPrintSlash_Usage), because the reference prints quota lines for
 // it rather than failing.
+//
+// Cycle 351: /credits answers with the account's live credit state, so the
+// failure is only the account-state read's own.
 func TestUsageCreditsFailureText(t *testing.T) {
+	prev := creditsStateFetcher
+	creditsStateFetcher = func(ctx context.Context) (json.RawMessage, error) {
+		return nil, errors.New("no credits info found")
+	}
+	defer func() { creditsStateFetcher = prev }()
+
 	fs := newStandardFlagSetForTest(t, nil)
 
 	const want = "error: /credits failed: retrieving credits: no credits info found"
@@ -403,16 +614,26 @@ func TestUsageCreditsFailureText(t *testing.T) {
 	}
 }
 
-// TestPrintSlashChangelogIs140 pins that the embedded /changelog blob is the
-// REF v1.4.0 capture: 153,612 bytes (the 1.3.6 capture was 150,390) and
-// prefixed by the 1.3.6 section. A stale embed is the one /changelog failure
-// the sweep can catch silently, because the command still exits 0.
-func TestPrintSlashChangelogIs140(t *testing.T) {
-	if len(printSlashChangelog) != 153612 {
-		t.Errorf("embedded changelog is %d bytes, want 153612 (REF v1.4.0)", len(printSlashChangelog))
+// TestPrintSlashChangelogIs148 pins that the embedded /changelog blob is the
+// REF v1.4.8 capture: 176,788 bytes (the 1.4.0 capture was 153,612 and the
+// 1.3.6 capture 150,390) and prefixed by the 1.4.7 section. A stale embed is
+// the one /changelog failure the sweep can catch silently, because the
+// command still exits 0.
+//
+// The reference's blob is embedded in its own binary (offset 63,610,524 in
+// ~/.local/bin/agy 1.4.8, 176,787 bytes) and the command prints that blob
+// plus one trailing newline — 176,788 bytes. 【一手】 agy 1.4.8, three runs
+// on 2026-10-28 all returned sha256
+// 5c3100a90ee102abc1f604719edac2c7d88e188fcd61890446dd987d99e8e34f.
+func TestPrintSlashChangelogIs148(t *testing.T) {
+	if len(printSlashChangelog) != 176788 {
+		t.Errorf("embedded changelog is %d bytes, want 176788 (REF v1.4.8)", len(printSlashChangelog))
 	}
-	if !strings.Contains(printSlashChangelog, "\n## 1.3.6\n") {
-		t.Error("embedded changelog has no 1.3.6 section; it is stale")
+	if !strings.Contains(printSlashChangelog, "\n## 1.4.7\n") {
+		t.Error("embedded changelog has no 1.4.7 section; it is stale")
+	}
+	if !strings.HasSuffix(printSlashChangelog, "- Initial release of the Antigravity CLI.\n") {
+		t.Error("embedded changelog does not end with the 1.0.0 section's last line")
 	}
 }
 

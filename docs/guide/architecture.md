@@ -66,6 +66,8 @@ flowchart TB
 | `internal/cli` | the reference's *visible* CLI surface, plus the hidden `provider` / `model` registry commands |
 | `internal/tools` | the tool catalogue: 60 advertised names, 12 wire declarations, the executors and the result texts |
 | `internal/agyprompt` | the reference's system prompt, rebuilt byte for byte, and the skill/rule discovery |
+| `internal/agytemplates` | the reference's seventeen recovered `.tmpl` files, embedded once, with their digests |
+| `internal/agystep` | the reference's step strings (rendered from `step_strings/*.tmpl`) and the reader for both command-result shapes |
 | `internal/agenttools` | the seven declarations a custom `--agent` gets |
 | `internal/tuilib`, `internal/cliapp` | the TUI widgets and the panels |
 | `internal/agyproxy`, `internal/agybin` | the CloudCode proxy and the vendor-binary resolver |

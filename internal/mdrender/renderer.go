@@ -11,7 +11,7 @@ import (
 
 	"github.com/yuin/goldmark/ast"
 
-	"github.com/justwasm/pigasus/internal/render"
+	"github.com/justwasm/pigasus/render"
 )
 
 // Walk implements the goldmark ast.Walker function signature:

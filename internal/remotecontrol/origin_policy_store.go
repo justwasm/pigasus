@@ -38,7 +38,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/justwasm/pigasus/internal/originpolicy"
+	"github.com/justwasm/pigasus/originpolicy"
 )
 
 // FSOriginPolicyStore is the production

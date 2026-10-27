@@ -19,9 +19,11 @@ package cliapp
 //	6. TestModelNoEffortPreservedWithEffort  — --model <base> --effort <level> preserved
 //	7. TestEffortPickerAcceptsBareName       — /model picker opens for a bare base slug
 //
-// Tests 1–4 are pure unit tests on the resolveDefaultEffort helper; tests 5–6
-// ride through the public resolveModelSelection pipeline; test 7 drives the
-// /model panel the TUI's slash router opens for "model".
+// Cycle 346: tests 1–4 are pure unit tests on the default-effort chain and
+// moved to internal/modelcatalog, next to the code they cover; the cliapp
+// copy drove a local wrapper that is gone. Tests 5–6 ride through the
+// public model selection pipeline; test 7 drives the /model panel the
+// TUI's slash router opens for "model".
 
 import (
 	"flag"
@@ -30,82 +32,14 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/justwasm/pigasus/internal/accountrouting"
 	"github.com/justwasm/pigasus/internal/backend"
 	"github.com/justwasm/pigasus/internal/cli"
+	"github.com/justwasm/pigasus/internal/cliflags"
 	"github.com/justwasm/pigasus/internal/configtest"
+	"github.com/justwasm/pigasus/internal/modelcatalog"
 	"github.com/justwasm/pigasus/internal/printmode"
 )
-
-// TestDefaultEffortServerDefault pins the chain's first tier: when
-// spec.def is set and present in spec.levels, the chain returns it
-// unchanged. This is the canonical gemini-3.8-flash path — the server
-// default is "high", which is in [low, medium, high].
-//
-// Recovered: --model gemini-3.8-flash -> gemini-3.8-flash-high.
-func TestDefaultEffortServerDefault(t *testing.T) {
-	got := resolveDefaultEffort(baseModelSpec{levels: []string{"low", "medium", "high"}, def: "high"})
-	if got != "high" {
-		t.Errorf("resolveDefaultEffort(server-default high) = %q, want %q", got, "high")
-	}
-
-	// gpt-oss-120b's server default is also its only option.
-	got = resolveDefaultEffort(baseModelSpec{levels: []string{"medium"}, def: "medium"})
-	if got != "medium" {
-		t.Errorf("resolveDefaultEffort(server-default medium) = %q, want %q", got, "medium")
-	}
-}
-
-// TestDefaultEffortMediumFallback pins the chain's second tier: when
-// spec.def is empty (or refers to a tier the model does not expose), the
-// chain picks "medium" if the model exposes it. This is the future
-// "baseModelEfforts entry with def unset" path.
-func TestDefaultEffortMediumFallback(t *testing.T) {
-	// def == "" — server has no preference, chain falls to medium.
-	got := resolveDefaultEffort(baseModelSpec{levels: []string{"low", "medium", "high"}, def: ""})
-	if got != "medium" {
-		t.Errorf("resolveDefaultEffort(empty def + levels w/ medium) = %q, want %q", got, "medium")
-	}
-
-	// def set to a tier not in levels — chain ignores the bad def and falls to medium.
-	got = resolveDefaultEffort(baseModelSpec{levels: []string{"low", "medium", "high"}, def: "xhigh"})
-	if got != "medium" {
-		t.Errorf("resolveDefaultEffort(invalid def + levels w/ medium) = %q, want %q (xhigh -> medium)", got, "medium")
-	}
-}
-
-// TestDefaultEffortLowestFallback pins the chain's third tier: when
-// neither the server default nor medium applies, the chain returns the
-// first element of spec.levels. The reference's levels slice is in
-// ascending order, so the first element is the lowest available.
-func TestDefaultEffortLowestFallback(t *testing.T) {
-	// def empty, medium absent — chain returns the lowest available.
-	got := resolveDefaultEffort(baseModelSpec{levels: []string{"low", "high"}, def: ""})
-	if got != "low" {
-		t.Errorf("resolveDefaultEffort(no def, no medium, [low,high]) = %q, want %q", got, "low")
-	}
-
-	// def set to a tier absent from levels, medium also absent — chain
-	// ignores the bad def and returns the lowest available.
-	got = resolveDefaultEffort(baseModelSpec{levels: []string{"low", "high"}, def: "xhigh"})
-	if got != "low" {
-		t.Errorf("resolveDefaultEffort(bad def, no medium, [low,high]) = %q, want %q", got, "low")
-	}
-}
-
-// TestDefaultEffortEmptyLevels: an empty spec.levels means the base
-// model has no thinking tier to pick (e.g. baked-in "thinking" models
-// that resolveEffectiveModel handles separately). The helper returns
-// "" and resolveModelSelection falls through to the catalogue lookup.
-func TestDefaultEffortEmptyLevels(t *testing.T) {
-	got := resolveDefaultEffort(baseModelSpec{levels: nil, def: "high"})
-	if got != "" {
-		t.Errorf("resolveDefaultEffort(nil levels, def=high) = %q, want %q", got, "")
-	}
-	got = resolveDefaultEffort(baseModelSpec{levels: []string{}, def: ""})
-	if got != "" {
-		t.Errorf("resolveDefaultEffort([] levels, def=empty) = %q, want %q", got, "")
-	}
-}
 
 // TestModelNoEffortSucceeds: --model <base> without --effort must NOT
 // fail. resolveModelSelection returns the resolved catalogue ID with
@@ -132,13 +66,13 @@ func TestModelNoEffortSucceeds(t *testing.T) {
 		fs := flag.NewFlagSet("t", flag.ContinueOnError)
 		fs.String("model", tc.model, "")
 		fs.String("effort", "", "")
-		got, err := resolveModelSelection(tc.model, "")
+		got, err := modelcatalog.ResolveModelSelection(tc.model, "")
 		if err != nil {
-			t.Errorf("resolveModelSelection(%q, \"\") = error %v, want %q", tc.model, err, tc.wantID)
+			t.Errorf("modelcatalog.ResolveModelSelection(%q, \"\") = error %v, want %q", tc.model, err, tc.wantID)
 			continue
 		}
 		if got != tc.wantID {
-			t.Errorf("resolveModelSelection(%q, \"\") = %q, want %q", tc.model, got, tc.wantID)
+			t.Errorf("modelcatalog.ResolveModelSelection(%q, \"\") = %q, want %q", tc.model, got, tc.wantID)
 		}
 	}
 }
@@ -162,13 +96,13 @@ func TestModelNoEffortPreservedWithEffort(t *testing.T) {
 		fs := flag.NewFlagSet("t", flag.ContinueOnError)
 		fs.String("model", tc.model, "")
 		fs.String("effort", tc.effort, "")
-		got, err := resolveModelSelection(tc.model, tc.effort)
+		got, err := modelcatalog.ResolveModelSelection(tc.model, tc.effort)
 		if err != nil {
-			t.Errorf("resolveModelSelection(%q, %q) = error %v, want %q", tc.model, tc.effort, err, tc.wantID)
+			t.Errorf("modelcatalog.ResolveModelSelection(%q, %q) = error %v, want %q", tc.model, tc.effort, err, tc.wantID)
 			continue
 		}
 		if got != tc.wantID {
-			t.Errorf("resolveModelSelection(%q, %q) = %q, want %q", tc.model, tc.effort, got, tc.wantID)
+			t.Errorf("modelcatalog.ResolveModelSelection(%q, %q) = %q, want %q", tc.model, tc.effort, got, tc.wantID)
 		}
 	}
 }
@@ -200,7 +134,7 @@ func TestEffortPickerAcceptsBareName(t *testing.T) {
 	// settings.json's persisted "model" value, which the cycle-197
 	// resolveEffectiveModel already lifts. The test seeds the displayed
 	// label directly so the panel's panelCurrentModelLabel() round-trips.
-	m.model = canonicalModelLabel("gemini-3.8-flash")
+	m.model = modelcatalog.CanonicalModelLabel("gemini-3.8-flash")
 	if m.model == "" {
 		m.model = "Gemini 3.8 Flash (High)" // fallback if canonical returned ""
 	}
@@ -371,9 +305,9 @@ func TestModelCatalog_Claude55Absent_ADCFalse(t *testing.T) {
 		}
 	}
 
-	got := availableModelsBlock()
+	got := modelcatalog.AvailableModelsBlock()
 	if strings.Contains(got, "Claude Opus 5.5") || strings.Contains(got, "Claude Sonnet 5.5") {
-		t.Errorf("availableModelsBlock() leaks 5.5 entries under ADC=false:\n%s", got)
+		t.Errorf("modelcatalog.AvailableModelsBlock() leaks 5.5 entries under ADC=false:\n%s", got)
 	}
 }
 
@@ -417,7 +351,7 @@ func TestPickBackend_RoutesByModelFamily(t *testing.T) {
 			be := pickBackendWithLog(modelTransportTestFlags(t, ""), tc.model, nil, 0)
 			switch tc.want {
 			case "cloudcode":
-				cc, ok := be.(*backend.CloudCodeClient)
+				cc, ok := accountrouting.Unwrap(be).(*backend.CloudCodeClient)
 				if !ok {
 					t.Fatalf("backend = %T, want *backend.CloudCodeClient", be)
 				}
@@ -529,7 +463,7 @@ func TestPickBackend_ExplicitCloudCode(t *testing.T) {
 	t.Setenv("OPENAGY_BACKEND", "")
 	configtest.Isolate(t)
 	be := pickBackendWithLog(modelTransportTestFlags(t, "cloudcode"), "Custom Model", nil, 0)
-	if _, ok := be.(*backend.CloudCodeClient); !ok {
+	if _, ok := accountrouting.Unwrap(be).(*backend.CloudCodeClient); !ok {
 		t.Fatalf("backend = %T, want *backend.CloudCodeClient (explicit --backend cloudcode)", be)
 	}
 }
@@ -1575,7 +1509,7 @@ func TestEffortSlashDirect(t *testing.T) {
 	if !strings.Contains(got, "Effort set to high") {
 		t.Errorf("expected 'Effort set to high' in response, got %q", got)
 	}
-	if got := flagStringValue(m.flags, "effort"); got != "high" {
+	if got := cliflags.StringValue(m.flags, "effort"); got != "high" {
 		t.Errorf("flags.effort = %q, want %q", got, "high")
 	}
 }
@@ -1598,7 +1532,7 @@ func TestEffortSlashInvalidLevel(t *testing.T) {
 	if !strings.Contains(got, "Use low|medium|high") {
 		t.Errorf("expected 'Use low|medium|high' hint, got %q", got)
 	}
-	if got := flagStringValue(m.flags, "effort"); got != "high" {
+	if got := cliflags.StringValue(m.flags, "effort"); got != "high" {
 		t.Errorf("invalid input must not mutate flags.effort: %q", got)
 	}
 }
@@ -1651,7 +1585,7 @@ func TestEffortPickerNavigate(t *testing.T) {
 	if !strings.Contains(got, "Effort set to medium") {
 		t.Errorf("expected 'Effort set to medium' in response, got %q", got)
 	}
-	if got := flagStringValue(m.flags, "effort"); got != "medium" {
+	if got := cliflags.StringValue(m.flags, "effort"); got != "medium" {
 		t.Errorf("flags.effort = %q, want %q", got, "medium")
 	}
 }
@@ -1684,7 +1618,7 @@ func TestEffortPickerEscape(t *testing.T) {
 	if strings.Contains(got, "Effort set to") {
 		t.Errorf("esc must not echo 'Effort set to ...', got %q", got)
 	}
-	if got := flagStringValue(m.flags, "effort"); got != "high" {
+	if got := cliflags.StringValue(m.flags, "effort"); got != "high" {
 		t.Errorf("esc must revert effort: flags.effort = %q, want %q", got, "high")
 	}
 }
@@ -1694,7 +1628,7 @@ func TestEffortDefaultFallback(t *testing.T) {
 	fs.String("model", "gemini-3.8-flash", "")
 	fs.String("effort", "", "")
 
-	id, err := resolveModelSelection(flagStringValue(fs, "model"), flagStringValue(fs, "effort"))
+	id, err := modelcatalog.ResolveModelSelection(cliflags.StringValue(fs, "model"), cliflags.StringValue(fs, "effort"))
 	if err != nil {
 		t.Fatalf("resolveModelSelection: %v", err)
 	}
@@ -1705,7 +1639,7 @@ func TestEffortDefaultFallback(t *testing.T) {
 	fs2 := flag.NewFlagSet("t2", flag.ContinueOnError)
 	fs2.String("model", "gpt-oss-120b", "")
 	fs2.String("effort", "", "")
-	id, err = resolveModelSelection(flagStringValue(fs2, "model"), flagStringValue(fs2, "effort"))
+	id, err = modelcatalog.ResolveModelSelection(cliflags.StringValue(fs2, "model"), cliflags.StringValue(fs2, "effort"))
 	if err != nil {
 		t.Fatalf("resolveModelSelection: %v", err)
 	}

@@ -5,18 +5,26 @@ import (
 	"strings"
 
 	"github.com/justwasm/pigasus/internal/onboarding"
+	"github.com/justwasm/pigasus/palette"
 )
 
 // ColorsFor returns the (promptColor, placeholderColor) for a given colorScheme.
+//
+// The prompt wears the scheme's accent and the placeholder its dim
+// foreground — the same two slots the picker keys and the tab bar's
+// brand wear, so the prompt follows the selected scheme with the rest
+// of the interface.
+//
+// 【一手】 the slot each one reads was read off agy 1.4.8's own scheme
+// table; the clone's own table had the dark schemes wearing solarized
+// light's accent, which is why the prompt did not move with the
+// scheme.
 func ColorsFor(scheme string) (promptColor, placeholderColor string) {
-	switch strings.ToLower(strings.TrimSpace(scheme)) {
-	case "dark", "solarized dark", "colorblind-friendly dark":
-		return "#268BD2", "#839496"
-	case "tokyo night":
-		return "#82aaff", "#828bb8"
-	default:
-		return "#268BD2", "#657B83"
+	sc, ok := palette.SchemeByName(strings.ToLower(strings.TrimSpace(scheme)))
+	if !ok {
+		sc = palette.SolarizedLight
 	}
+	return sc.Accent.Value(), sc.DimFg.Value()
 }
 
 // SchemeFromString parses a scheme name into an onboarding.ColorScheme.

@@ -3,8 +3,8 @@
 package cliapp
 
 import (
+	"github.com/justwasm/pigasus/internal/diffaction"
 	"github.com/justwasm/pigasus/internal/difffold"
-	"github.com/justwasm/pigasus/internal/diffsyntax"
 )
 
 // diffHunk describes one hunk of a git diff body: the "@@ -a,b +c,d @@"
@@ -23,14 +23,23 @@ func splitDiffHunks(body []string) (pre []string, hunks []diffHunk) {
 type diffFoldedHunkLayout = difffold.Layout
 
 // renderDiffBody emits the styled rendered rows for one git diff body.
+//
+// 【strings】 the reference's `/diff` file view carries "syntax
+// highlighting ... and a background tint on added and removed lines"
+// (internal/cli/testdata/changelog_reference.txt:127), so the rows are
+// rendered in the reference's row model — the line number in the gutter,
+// the marker column and the text — rather than as raw git output.
+//
+// The fold state is untouched: difffold.RenderBody still walks the hunks
+// and drops a folded hunk's body, and the styler only sees the lines it
+// hands over.
+//
+// The body rows carry two columns of their own (the line number and the
+// marker), so the width the styler gets is the panel's width minus the
+// two spaces difffold.RenderBody puts in front of every row.
 func (m *runMode) renderDiffBody(pre []string, hunks []diffHunk, langFile string) ([]string, []diffFoldedHunkLayout) {
-	style := func(l string) string {
-		if langFile != "" {
-			return diffsyntax.RenderInlineLine(langFile, l)
-		}
-		return diffInlineStyle(l)
-	}
-	return difffold.RenderBody(pre, hunks, m.panel.diffFolded, style, cDimGrayOpen, cDimGrayClose)
+	styler := diffaction.NewRowStyler(langFile, m.width-2, diffaction.MaxLineNumber(hunks))
+	return difffold.RenderBody(pre, hunks, m.panel.diffFolded, styler.Style, cDimGrayOpen, cDimGrayClose)
 }
 
 // renderDiffFromBody is the top-level entry point used by the renderer.

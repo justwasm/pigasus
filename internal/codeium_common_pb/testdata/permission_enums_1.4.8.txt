@@ -1,0 +1,17 @@
+# The permission enums of exa.codeium_common_pb, read out of the agy 1.4.8
+# binary's FileDescriptorProto for
+#   third_party/jetski/codeium_common_pb/codeium_common.proto
+# (file offset 0x3cd5130). One value per line: <NAME> = <number>.
+enum exa.codeium_common_pb.AgentPermissionPreset
+  AGENT_PERMISSION_PRESET_UNSPECIFIED = 0
+  AGENT_PERMISSION_PRESET_DEFAULT = 1
+  AGENT_PERMISSION_PRESET_REQUEST_REVIEW = 2
+  AGENT_PERMISSION_PRESET_TURBO = 3
+  AGENT_PERMISSION_PRESET_VETTED = 4
+  AGENT_PERMISSION_PRESET_NONE = 5
+  AGENT_PERMISSION_PRESET_AUTO = 6
+enum exa.codeium_common_pb.ArtifactReviewMode
+  ARTIFACT_REVIEW_MODE_UNSPECIFIED = 0
+  ARTIFACT_REVIEW_MODE_ALWAYS = 1
+  ARTIFACT_REVIEW_MODE_TURBO = 2
+  ARTIFACT_REVIEW_MODE_AUTO = 3

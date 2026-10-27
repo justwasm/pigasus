@@ -144,7 +144,7 @@ func TestMigrateLegacyPayload(t *testing.T) {
 //
 // 【反编译】 the reference gates the same pass behind the boolean flag
 // `cascade-disable-rehydration` (CLI `shouldDisableRehydration`,
-// 0x101e51cc0). The clone has no flag service, so the switch is an
+// 0x101f29860). The clone has no flag service, so the switch is an
 // environment variable.
 func TestEnabledKillSwitch(t *testing.T) {
 	t.Setenv(DisableEnvVar, "")

@@ -144,6 +144,44 @@ func RenderModelDetail(w io.Writer, m Model) {
 	if m.ReasoningEffort != "" {
 		fmt.Fprintf(w, "  effort:       %s\n", m.ReasoningEffort)
 	}
+	if len(m.ReasoningEfforts) > 0 {
+		fmt.Fprintf(w, "  tiers:        %s\n", strings.Join(m.ReasoningEfforts, ", "))
+	}
+	// The per-model attributes: what the Web UI's model picker reads
+	// off this model. A model that states none of them prints none of
+	// them — the lines are the model's own words.
+	if m.SupportsImages != nil {
+		fmt.Fprintf(w, "  images:       %t\n", *m.SupportsImages)
+	}
+	if len(m.SupportedMimeTypes) > 0 {
+		fmt.Fprintf(w, "  mime types:   %s\n", strings.Join(m.SupportedMimeTypes, ", "))
+	}
+	if m.Disabled {
+		fmt.Fprintf(w, "  disabled:     true\n")
+	}
+	if m.QuotaInfo != nil {
+		if m.QuotaInfo.RemainingFraction != nil {
+			fmt.Fprintf(w, "  quota:        %.2f left\n", *m.QuotaInfo.RemainingFraction)
+		}
+		if reset := strings.TrimSpace(m.QuotaInfo.ResetTime); reset != "" {
+			fmt.Fprintf(w, "  quota reset:  %s\n", reset)
+		}
+	}
+	if m.SupportsThoughtCirculation != nil && *m.SupportsThoughtCirculation {
+		fmt.Fprintf(w, "  thoughts:     circulated\n")
+	}
+	if m.ModelURL != "" {
+		fmt.Fprintf(w, "  model url:    %s\n", m.ModelURL)
+	}
+	if m.TagTitle != "" {
+		fmt.Fprintf(w, "  tag:          %s\n", m.TagTitle)
+	}
+	if m.TagDescription != "" {
+		fmt.Fprintf(w, "  tag note:     %s\n", m.TagDescription)
+	}
+	if m.EffortSupported != nil {
+		fmt.Fprintf(w, "  effort level: %t\n", *m.EffortSupported)
+	}
 }
 
 // orNone renders an empty value as a placeholder.

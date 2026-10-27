@@ -95,7 +95,39 @@ type Model struct {
 	DefaultMaxTokens int `json:"default_max_tokens,omitempty"`
 	// ReasoningEffort is the OpenAI o-series hint: "low"/"medium"/"high"/
 	// "default". Empty means "don't send the hint".
+	//
+	// On a tier row (see ReasoningEfforts) it is the tier itself: the
+	// row's level is what the request carries.
 	ReasoningEffort string `json:"reasoning_effort,omitempty"`
+	// ReasoningEfforts are the reasoning tiers the model offers — the
+	// levels it can be selected at. Empty means the model has no tiers
+	// of its own and is listed as one row.
+	ReasoningEfforts []string `json:"reasoning_efforts,omitempty"`
+	// SupportsImages is the model's own word about pictures: nil means
+	// "not stated", and the catalogue's family table decides then. A
+	// stated value is the user's answer, and nothing overrides it.
+	SupportsImages *bool `json:"supports_images,omitempty"`
+	// SupportedMimeTypes are the media types the model accepts — the
+	// fuller form of the same answer. The list wins over
+	// SupportsImages.
+	SupportedMimeTypes []string `json:"supported_mime_types,omitempty"`
+	// Disabled takes the model out of the Web UI's picker.
+	Disabled bool `json:"disabled,omitempty"`
+	// QuotaInfo is how much of the model's quota is left, and when it
+	// comes back.
+	QuotaInfo *QuotaInfo `json:"quota_info,omitempty"`
+	// SupportsThoughtCirculation says the model circulates its
+	// thoughts: nil means "not stated".
+	SupportsThoughtCirculation *bool `json:"supports_thought_circulation,omitempty"`
+	// ModelURL is a link to the model's own page.
+	ModelURL string `json:"model_url,omitempty"`
+	// TagTitle and TagDescription are the picker's tag line under the
+	// model's name.
+	TagTitle       string `json:"tag_title,omitempty"`
+	TagDescription string `json:"tag_description,omitempty"`
+	// EffortSupported says the model exposes a reasoning level: nil
+	// means "not stated".
+	EffortSupported *bool `json:"effort_supported,omitempty"`
 	// TimeoutSeconds is the per-request timeout. 0 defaults to 60s.
 	TimeoutSeconds int `json:"timeout_seconds,omitempty"`
 	// MaxRetries is the number of retries on 5xx / network. 0 means 1 try.
@@ -171,6 +203,12 @@ func (r *Registry) Path() string {
 // must not mutate it) and whether it was found. The second return is the
 // canonical bool-ok pattern, not an error, because "not configured" is
 // expected when --model points at something the user hasn't set up yet.
+//
+// A catalogue id that carries a tier ("minimax-m3.1-flash-xhigh") names
+// the base model at that tier: the reference spells the tier into the id,
+// so a configured model is listed the same way. The model that comes back
+// then carries the tier as its reasoning effort — the tier rides the row
+// into the request.
 func (r *Registry) GetByName(name string) (*Model, bool) {
 	if r == nil {
 		return nil, false
@@ -183,7 +221,34 @@ func (r *Registry) GetByName(name string) (*Model, bool) {
 			return &cp, true
 		}
 	}
+	base := BaseModelID(name)
+	if base == name {
+		return nil, false
+	}
+	tier := TierFromID(name)
+	for _, m := range r.providerModels() {
+		if m.Name != base {
+			continue
+		}
+		if !modelHasTier(m, tier) {
+			return nil, false
+		}
+		cp := m
+		cp.Name = name
+		cp.ReasoningEffort = tier
+		return &cp, true
+	}
 	return nil, false
+}
+
+// modelHasTier reports whether the model offers the tier.
+func modelHasTier(m Model, tier string) bool {
+	for _, t := range NormalizeEfforts(m.ReasoningEfforts) {
+		if t == tier {
+			return true
+		}
+	}
+	return false
 }
 
 // List returns a sorted copy of the configured models: every model listed

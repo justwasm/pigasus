@@ -3,12 +3,12 @@ package tuilib
 
 import (
 	"fmt"
-	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
 	"unicode"
 
+	"github.com/justwasm/pigasus/endpoints"
 	"github.com/justwasm/pigasus/internal/auth"
 )
 
@@ -66,34 +66,80 @@ func AddDirFeedback(arg string) string {
 	return fmt.Sprintf("Added %s to workspace", dir)
 }
 
-// StatuslineFeedback toggles the status line and returns (persisted value,
-// message). Recovered: the off-state message includes a re-enable instruction
-// ("Statusline off. Run /statusline to re-enable."); the on-state message is
-// just "Statusline on." (/tmp/agycmp/statusline_probe.py).
-func StatuslineFeedback(current string) (string, string) {
-	if current == "off" {
-		return "on", "Statusline on."
+// StatuslineUsage is the reference's `/statusline` usage block.
+//
+// Evidence 【一手】: agy 1.4.7 prints this exact block when `/statusline` is
+// typed with no argument and when `/statusline help` is typed.
+const StatuslineUsage = `Usage:
+  /statusline                 Toggle statusline on/off.
+  /statusline <command>       Configure a custom shell command to render the statusline.
+  /statusline delete          Delete the custom command and revert to the built-in default.
+  /statusline on | enable     Enable the statusline.
+  /statusline off | disable   Disable the statusline.
+  /statusline help            Show this help message.`
+
+// StatuslineUsageRows splits the usage block into the row the `⎿` line
+// carries and the rows that follow it.
+func StatuslineUsageRows() (head string, rows []string) {
+	lines := strings.Split(StatuslineUsage, "\n")
+	if len(lines) == 0 {
+		return StatuslineUsage, nil
 	}
-	return "off", "Statusline off. Run /statusline to re-enable."
+	return lines[0], lines[1:]
 }
 
-// TitleFeedback handles /title, /title on and /title off and returns
-// (persisted value, message). Recovered: `Usage: /title [on|off]`,
-// `Custom title enabled. (%s)` and `Custom title disabled.`
-func TitleFeedback(arg, current, titleText string) (string, string) {
-	switch strings.ToLower(trimSpace(arg)) {
-	case "":
-		if current == "on" {
-			return "off", "Custom title disabled."
-		}
-		return "on", fmt.Sprintf("Custom title enabled. (%s)", titleText)
-	case "on":
-		return "on", fmt.Sprintf("Custom title enabled. (%s)", titleText)
-	case "off":
-		return "off", "Custom title disabled."
+// StatuslineEnabledMessage is the reference's `/statusline on` message. The
+// command is named in parentheses when one is configured.
+//
+// Evidence 【一手】: agy 1.4.7 printed "Statusline on.
+// (/tmp/agyprobe/cap-statusline.sh)" with a command configured and plain
+// "Statusline on." without one. Both forms are in the binary's string table
+// (`Statusline on. (%s)` and `Statusline on.`).
+func StatuslineEnabledMessage(command string) string {
+	if strings.TrimSpace(command) == "" {
+		return "Statusline on."
 	}
-	return current, "Usage: /title [on|off]"
+	return "Statusline on. (" + command + ")"
 }
+
+// StatuslineDisabledMessage is the reference's `/statusline off` message.
+const StatuslineDisabledMessage = "Statusline off."
+
+// StatuslineToggledOffMessage is the reference's message when the *bare*
+// `/statusline` turns the statusline off.
+//
+// The explicit `off` / `disable` subcommands answer with the short
+// "Statusline off."; the bare toggle answers with the long form, which
+// also tells the user how to turn the statusline back on.
+//
+// Evidence 【一手】: agy 1.4.8, driven through the bare toggle twice and
+// through `off` / `disable` once — the bare toggle's second press
+// answered "Statusline off. Run /statusline to re-enable." while the
+// explicit subcommand answered "Statusline off.".
+const StatuslineToggledOffMessage = "Statusline off. Run /statusline to re-enable."
+
+// StatuslineClearedMessage is the reference's `/statusline delete` message.
+const StatuslineClearedMessage = "Custom statusline command cleared. Reverted to built-in default."
+
+// StatuslineSetMessage is the reference's `/statusline <command>` message.
+func StatuslineSetMessage(command string) string {
+	return "Statusline set to: " + command
+}
+
+// TitleUsage is the reference's `/title` usage line.
+const TitleUsage = "Usage: /title [on|off]"
+
+// TitleEnabledMessage is the reference's `/title on` message.
+func TitleEnabledMessage(command string) string {
+	return "Custom title enabled. (" + command + ")"
+}
+
+// TitleDisabledMessage is the reference's `/title off` message.
+const TitleDisabledMessage = "Custom title disabled."
+
+// TitleNoCommandMessage is the reference's answer when the `title` block is
+// missing from settings.json.
+const TitleNoCommandMessage = `Error: No title command configured in settings.json. Please add a "title" block.`
 
 // NormalizeTitle cleans a session/conversation title so it can be safely shown
 // in lists, breadcrumbs and the terminal window title.
@@ -163,11 +209,7 @@ func MCPServersFeedback(hasServers bool) string {
 // AuthServerName is the value interpolated into the recovered
 // `Signed out from server: %s`.
 func AuthServerName() string {
-	u, err := url.Parse(auth.CloudCodeEndpoint)
-	if err != nil || u.Host == "" {
-		return auth.CloudCodeEndpoint
-	}
-	return u.Host
+	return endpoints.Current().CloudCodeHost()
 }
 
 // LogoutFeedback deletes the stored OAuth token and returns the recovered

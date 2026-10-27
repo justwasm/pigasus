@@ -39,6 +39,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/justwasm/pigasus/accountpool"
+	"github.com/justwasm/pigasus/endpoints"
 	"github.com/justwasm/pigasus/internal/accounts"
 	"github.com/justwasm/pigasus/internal/agent"
 	"github.com/justwasm/pigasus/internal/cli"
@@ -174,7 +176,7 @@ func dispatchPrintSlashCommand(name, args string, fs *flag.FlagSet) (printSlashR
 	case "usage":
 		return handlePrintSlashUsage(fs), true
 	case "credits":
-		return rejected(1, "/credits failed: retrieving credits: no credits info found"), true
+		return handlePrintSlashCredits(), true
 	case "plugin":
 		return rejected(2, strings.TrimPrefix(printSlashPluginRejection, "error: ")), true
 	case "accounts":
@@ -182,6 +184,11 @@ func dispatchPrintSlashCommand(name, args string, fs *flag.FlagSet) (printSlashR
 		// and no account command, so this is a clone-only superset.
 		// The TUI's /accounts panel is the interactive twin.
 		return handlePrintSlashAccounts(), true
+	case "pool":
+		// Cycle 361: the account-routing policy. The print mode is
+		// one-shot and has no panel, so it *shows* the policy — the
+		// interactive twin is the TUI's Pool tab.
+		return handlePrintSlashPool(), true
 	default:
 		return printSlashResult{}, false
 	}
@@ -251,6 +258,70 @@ func printSlashAccountsData(st *accounts.Store, active string) map[string]any {
 		list = append(list, entry)
 	}
 	return map[string]any{"accounts": list, "active": active}
+}
+
+// handlePrintSlashPool shows the account-routing policy.
+//
+// The print mode is one-shot and has no panel, so it *shows* the policy
+// rather than editing it: the section the configuration file carries,
+// with its defaults filled in. A file without the section is a pool that
+// is switched off, and that is what it says.
+func handlePrintSlashPool() printSlashResult {
+	policy := endpoints.CurrentAccountPool()
+	present := policy != nil
+	if !present {
+		policy = &accountpool.Config{}
+	}
+	cfg := policy.Normalised()
+	allow := "all"
+	if len(cfg.Accounts) > 0 {
+		allow = strings.Join(cfg.Accounts, ", ")
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "routing      %s\n", printSlashOnOff(cfg.Enabled))
+	fmt.Fprintf(&b, "strategy     %s\n", cfg.Strategy)
+	fmt.Fprintf(&b, "threshold    %.0f%%\n", cfg.Threshold*100)
+	fmt.Fprintf(&b, "refresh      %s\n", cfg.RefreshInterval)
+	fmt.Fprintf(&b, "cooldown     %s\n", cfg.Cooldown)
+	fmt.Fprintf(&b, "attempts     %d\n", cfg.MaxAttempts)
+	fmt.Fprintf(&b, "switch       %s\n", printSlashOnOff(cfg.SwitchOnQuotaErrorEnabled()))
+	fmt.Fprintf(&b, "accounts     %s\n", allow)
+	return printSlashResult{
+		Handled: true,
+		Output:  b.String(),
+		Name:    "pool",
+		Data:    printSlashPoolData(cfg, present),
+	}
+}
+
+// printSlashOnOff renders a boolean the way the print mode's tables do.
+func printSlashOnOff(on bool) string {
+	if on {
+		return "on"
+	}
+	return "off"
+}
+
+// printSlashPoolData is the JSON envelope's payload for /pool.
+func printSlashPoolData(cfg accountpool.Config, present bool) map[string]any {
+	accounts := cfg.Accounts
+	if accounts == nil {
+		accounts = []string{}
+	}
+	switchOnQuota := cfg.SwitchOnQuotaErrorEnabled()
+	return map[string]any{
+		"pool": map[string]any{
+			"present":               present,
+			"enabled":               cfg.Enabled,
+			"strategy":              string(cfg.Strategy),
+			"threshold":             cfg.Threshold,
+			"refresh_interval":      cfg.RefreshInterval,
+			"cooldown":              cfg.Cooldown,
+			"max_attempts":          cfg.MaxAttempts,
+			"switch_on_quota_error": switchOnQuota,
+			"accounts":              accounts,
+		},
+	}
 }
 
 func handlePrintSlashFeatDiff(fs *flag.FlagSet) printSlashResult {
@@ -327,13 +398,10 @@ func handlePrintSlashUsage(fs *flag.FlagSet) printSlashResult {
 			Name: "usage", Data: printSlashUsagePayload()}
 	}
 	payload := liveOrStaticUsagePayload()
-	var out string
-	if printOutputFormat(fs) == printFormatText {
-		out = printSlashUsageText(payload)
-	} else {
-		out = printSlashUsageWithPayload(payload)
-	}
-	return printSlashResult{Handled: true, Output: out,
+	// The reference renders one text form and carries it in both places: the
+	// `--output-format text` answer and the JSON envelope's `response` field
+	// are the same bytes (【一手】, agy 1.4.8).
+	return printSlashResult{Handled: true, Output: printSlashUsageWithPayload(payload),
 		Name: "usage", Data: payload}
 }
 
@@ -401,11 +469,17 @@ const printSlashPluginRejection = "error: /plugin failed: /plugin opens the inte
 // printSlashChangelog is the markdown blob `agy -p /changelog` prints.
 //
 // It is NOT the same rendering as the `changelog` subcommand (`agy changelog`
-// prints a compact "1.3.5:\n· Added …" bullet list, embedded in
+// prints a compact "1.4.7:\n· Added …" bullet list, embedded in
 // internal/cli/testdata). `/changelog` in print mode prints the markdown form
-// — 153,612 bytes, captured byte-for-byte from the 1.4.0 binary (cycle 200
+// — 176,788 bytes, captured byte-for-byte from the 1.4.8 binary (cycle 200
 // refreshed it from the 1.3.6 capture, which was 150,390 bytes and stopped at
-// the 1.3.5 section).
+// the 1.3.5 section; cycle 351 refreshed it again from the 1.4.0 capture,
+// which was 153,612 bytes and stopped at the 1.3.6 section).
+//
+// The reference carries the blob inside its own binary — 176,787 bytes at
+// offset 63,610,524 of ~/.local/bin/agy 1.4.8 — and prints it with one
+// trailing newline, hence the 176,788. 【一手】 agy 1.4.8, three runs on
+// 2026-10-28 returned the same sha256.
 //
 //go:embed testdata/print_changelog.md
 var PrintSlashChangelog string

@@ -35,7 +35,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/justwasm/pigasus/internal/imagery"
+	"github.com/justwasm/pigasus/imagery"
 )
 
 // Sentinel errors returned by ReadImage and AcceptPaste. All of them

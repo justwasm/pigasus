@@ -14,6 +14,7 @@ import (
 	"time"
 
 	_ "github.com/ncruces/go-sqlite3/driver"
+	"google.golang.org/protobuf/encoding/protowire"
 )
 
 // HistoryEntry is one line in history.jsonl, matching the reference agy
@@ -206,13 +207,7 @@ func updateConversationSummariesDB(path, id, workspace string, steps []Step) {
 	}
 	defer sdb.Close()
 
-	_, _ = sdb.Exec(`CREATE TABLE IF NOT EXISTS conversation_summaries (
-		conversation_id text PRIMARY KEY,
-		title text,
-		preview text,
-		step_count integer,
-		workspace_uris text,
-		last_modified_time text)`)
+	_, _ = sdb.Exec(summariesTableDDL)
 
 	preview := ""
 	for _, s := range steps {
@@ -230,15 +225,25 @@ func updateConversationSummariesDB(path, id, workspace string, steps []Step) {
 		uris = "file://" + filepath.Clean(workspace)
 	}
 
-	_, _ = sdb.Exec(`INSERT INTO conversation_summaries (conversation_id, title, preview, step_count, workspace_uris, last_modified_time)
-		VALUES (?, ?, ?, ?, ?, ?)
+	// The reference's table declares last_modified_time and
+	// last_user_input_time NOT NULL with no default, so the write has
+	// to name both of them — otherwise the insert fails and the
+	// conversation never reaches the index.
+	//
+	// The title is written when the row is created and is left alone
+	// afterwards: a conversation the reference named keeps its name when
+	// the clone rewrites the conversation file, and the clone's own
+	// generated title is written by WriteSummariesTitle.
+	_, _ = sdb.Exec(`INSERT INTO conversation_summaries (conversation_id, title, preview, step_count, workspace_uris, last_modified_time, last_user_input_time)
+		VALUES (?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(conversation_id) DO UPDATE SET
-			title=excluded.title,
-			preview=excluded.preview,
+			title=CASE WHEN conversation_summaries.title='' THEN excluded.title ELSE conversation_summaries.title END,
+			preview=CASE WHEN conversation_summaries.preview='' THEN excluded.preview ELSE conversation_summaries.preview END,
 			step_count=excluded.step_count,
 			workspace_uris=excluded.workspace_uris,
-			last_modified_time=excluded.last_modified_time`,
-		id, preview, preview, len(steps), uris, nowStr)
+			last_modified_time=excluded.last_modified_time,
+			last_user_input_time=excluded.last_user_input_time`,
+		id, preview, preview, len(steps), uris, nowStr, nowStr)
 }
 
 // WriteConversation creates a fresh SQLite database at path with the
@@ -334,8 +339,26 @@ func encodeForkPayload(s Step) []byte {
 		mid := encodeProtoField(3, 2, inner)
 		return encodeProtoField(19, 2, mid)
 	case StepModelResponse:
-		// field 20 -> field 1 (text)
-		return encodeProtoField(20, 2, encodeProtoField(1, 2, []byte(s.Text)))
+		// field 20 (the planner response) -> field 1 (the answer),
+		// field 3 (the thinking), field 11 (the duration).
+		//
+		// 【一手】 the reference's own stored model-response blob carries
+		// all three: its planner-response message reads back with the
+		// answer, the model's reasoning and a "6.773079s" duration, and
+		// the Web UI's collapsible "Thought for Ns" panel is rendered
+		// from the last two. A blob without them shows the answer alone.
+		planner := encodeProtoField(1, 2, []byte(s.Text))
+		if s.Thinking != "" {
+			planner = append(planner, encodeProtoField(3, 2, []byte(s.Thinking))...)
+		}
+		if s.ThinkingDuration > 0 {
+			duration := encodeProtoVarint(1, uint64(s.ThinkingDuration/time.Second))
+			if nanos := uint64(s.ThinkingDuration % time.Second); nanos > 0 {
+				duration = append(duration, encodeProtoVarint(2, nanos)...)
+			}
+			planner = append(planner, encodeProtoField(11, 2, duration)...)
+		}
+		return encodeProtoField(20, 2, planner)
 	case StepToolCall:
 		return encodeToolCallPayload(s)
 	case StepError, StepSystemNotice:
@@ -374,28 +397,13 @@ func encodeToolCallPayload(s Step) []byte {
 
 // encodeProtoVarint emits one tag + varint pair. wireType 0 is varint.
 func encodeProtoVarint(num int, value uint64) []byte {
-	tag := uint64(num<<3 | 0x0)
-	out := appendVarint(nil, tag)
-	return appendVarint(out, value)
+	out := protowire.AppendTag(nil, protowire.Number(num), protowire.VarintType)
+	return protowire.AppendVarint(out, value)
 }
 
 // encodeProtoField emits one tag + length + value triple. wireType 2
 // is length-delimited; wireType 0 is varint.
 func encodeProtoField(num, wireType int, value []byte) []byte {
-	tag := uint64(num<<3 | (wireType & 0x7))
-	out := appendVarint(nil, tag)
-	out = appendVarint(out, uint64(len(value)))
-	out = append(out, value...)
-	return out
-}
-
-// appendVarint encodes v as a base-128 varint (the same shape
-// parseStepPayload reads via pbVarint in protobuf.go).
-func appendVarint(out []byte, v uint64) []byte {
-	for v >= 0x80 {
-		out = append(out, byte(v)|0x80)
-		v >>= 7
-	}
-	out = append(out, byte(v))
-	return out
+	out := protowire.AppendTag(nil, protowire.Number(num), protowire.Type(wireType))
+	return protowire.AppendBytes(out, value)
 }

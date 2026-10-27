@@ -14,7 +14,7 @@
 // (LS 0x100f3c890) routes it by the type of the stored payload, and
 // `RehydrateStep` (LS 0x100f41860) picks between the two and migrates the
 // legacy records. The cascade manager runs the pass when it loads a
-// trajectory (`processLoadedTrajectory`, CLI 0x101e4e8a0).
+// trajectory (`processLoadedTrajectory`, CLI 0x101f26440).
 // See out/ide-language-server/README.md §10.9.
 //
 // # The shape
@@ -136,7 +136,7 @@ const StepToolCall = 132
 // A tool call that failed or was cancelled changed nothing, so its
 // state delta is not applied. This is the clone's reading of the
 // reference's `StepIndicesExcludingStatuses` (【反编译】 CLI
-// 0x101191990): the trajectory can be asked for the steps that are
+// 0x1016bba40): the trajectory can be asked for the steps that are
 // *not* in a given set of statuses, and the rehydration pass walks the
 // complement.
 func Succeeded(status int64) bool {
@@ -290,7 +290,7 @@ func (d *Dispatcher) Apply(deltas []Delta) int {
 //
 // The reference gates the same pass behind the boolean flag
 // `cascade-disable-rehydration` (【反编译】 CLI
-// `(*CascadeManager).shouldDisableRehydration` 0x101e51cc0, LS
+// `(*CascadeManager).shouldDisableRehydration` 0x101f29860, LS
 // 0x101f1fef0); the flag is read from the reference's internal flag
 // service. The clone has no flag service, so the switch is an
 // environment variable, named after the clone's own `OPENAGY_*`

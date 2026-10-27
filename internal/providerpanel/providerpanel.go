@@ -117,6 +117,7 @@ const (
 	FieldContext   = "Context window"
 	FieldMaxTokens = "Max output tokens"
 	FieldEffort    = "Reasoning effort"
+	FieldTiers     = "Reasoning tiers"
 )
 
 // FormInputWidth is the width of the form's text input.
@@ -269,7 +270,15 @@ func ModelFields(m models.ProviderModel, isNew bool) []FormField {
 			Label:   FieldEffort,
 			Value:   effort,
 			Kind:    FieldChoice,
-			Choices: []string{"", "low", "medium", "high", "default"},
+			Choices: []string{"", "low", "medium", "high", "xhigh", "max", "default"},
+		},
+		// The tiers the model offers. A model that declares them is
+		// listed once per tier — the reference's own shape — and the
+		// tier rides the row's id.
+		FormField{
+			Label:       FieldTiers,
+			Value:       strings.Join(m.ReasoningEfforts, ", "),
+			Placeholder: "low, medium, high, xhigh, max",
 		},
 	)
 	return fields
@@ -336,7 +345,22 @@ func ProviderModel(f *Form, existing models.ProviderModel) (models.ProviderModel
 	entry.ContextWindow = f.IntValue(FieldContext)
 	entry.DefaultMaxTokens = f.IntValue(FieldMaxTokens)
 	entry.ReasoningEffort = f.Value(FieldEffort)
+	entry.ReasoningEfforts = models.NormalizeEfforts(splitTiers(f.Value(FieldTiers)))
 	return entry, true
+}
+
+// splitTiers splits the tiers field's comma-separated list.
+func splitTiers(raw string) []string {
+	parts := strings.Split(raw, ",")
+	out := make([]string, 0, len(parts))
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		out = append(out, part)
+	}
+	return out
 }
 
 // ProbeModel is the wire id of the first model in the list — the one the

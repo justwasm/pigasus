@@ -48,7 +48,7 @@ import (
 	"github.com/MichaelKinsy/PiG/coding/extension"
 	"github.com/MichaelKinsy/PiG/coding/mcpext"
 
-	"github.com/justwasm/pigasus/internal/mcp"
+	"github.com/justwasm/pigasus/mcp"
 )
 
 // stripUTF8BOM drops a leading UTF-8 byte order mark (EF BB BF) if present.
@@ -60,48 +60,21 @@ import (
 // not have to import internal/auth (it is meant to be usable in isolation,
 // see the file header).
 func stripUTF8BOM(b []byte) []byte {
-	if len(b) >= 3 && b[0] == 0xEF && b[1] == 0xBB && b[2] == 0xBF {
-		return b[3:]
-	}
-	return b
+	return mcp.StripBOM(b)
 }
 
-// AgyMCPFile mirrors auth.MCPConfig's on-disk JSON. It is redeclared here
-// rather than imported so this package does not depend on internal/auth: the
-// runtime is meant to be usable without the clone's compatibility layer.
-type AgyMCPFile struct {
-	Servers map[string]AgyMCPServer `json:"servers"`
-}
+// AgyMCPFile mirrors auth.MCPConfig's on-disk JSON. It is an alias of the
+// clone's single parser (mcp.ConfigFile) so the reference's file
+// has exactly one reader in the tree: the PiG-shaped translation below and
+// the client in mcp/client.go see the same bytes.
+type AgyMCPFile = mcp.ConfigFile
 
 // AgyMCPServer mirrors auth.MCPServer: "http" uses URL, "stdio" uses
 // Command/Args/Env. Enabled is a plain bool (the reference always writes it),
 // so an absent field decodes as false — matching `auth.LoadMCPConfig`, and
 // matching the reference's own behaviour of treating a server as enabled only
 // when the key is present and true.
-type AgyMCPServer struct {
-	Type    string            `json:"type"`
-	URL     string            `json:"url,omitempty"`
-	Command string            `json:"command,omitempty"`
-	Args    []string          `json:"args,omitempty"`
-	Env     map[string]string `json:"env,omitempty"`
-	// Headers is the AGY 1.4.0 per-server HTTP header map (an
-	// http-only field). Values support shell-style variable
-	// substitution (`${VAR}`, `$VAR`, `${VAR:-default}`, `$$`)
-	// against the merged server-env + host-env at lock time, in
-	// agyToPiGServer below. The keys are never substituted.
-	Headers map[string]string `json:"headers,omitempty"`
-	Enabled bool              `json:"enabled"`
-	// AlwaysLoad is the AGY 1.3.3 (line 42) per-server static
-	// always-loaded-tool hint. Servers listed here get each named
-	// tool pinned — the runtime registers the tool directly before
-	// the session starts, so the model sees the tool's own entry
-	// instead of needing to reach it through call_mcp_tool.
-	//
-	// The list is the AGY admin's view; the runtime merges it
-	// with the dynamic `tools/list` `_meta.antigravity/alwaysLoad`
-	// flag and dynamic wins on a (server, tool) collision.
-	AlwaysLoad []string `json:"alwaysLoad,omitempty"`
-}
+type AgyMCPServer = mcp.ServerFile
 
 // LoadAgyMCP translates an agy `mcp.json` at path into PiG's loaded-config
 // shape. A missing or unreadable file yields an empty config (no servers), the

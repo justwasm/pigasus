@@ -29,7 +29,7 @@
 //     constructor (sorting, deep-copy).
 //
 // Wire-level tests live in
-// internal/remotetransport/tcp_test.go (mirroring the
+// remotetransport/tcp_test.go (mirroring the
 // project's split: in-process envelopes vs. wire round-
 // trips).
 package remotecontrol

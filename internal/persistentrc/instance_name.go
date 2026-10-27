@@ -8,28 +8,69 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"github.com/justwasm/pigasus/endpoints"
+	"github.com/justwasm/pigasus/internal/accounts"
+	"github.com/justwasm/pigasus/internal/auth"
+	"github.com/justwasm/pigasus/internal/branding"
 )
 
 // DefaultOfficialDaemonLabel is the launchd service label used by the official agy binary.
 const DefaultOfficialDaemonLabel = "com.google.antigravity-cli-daemon"
 
+// ResolveActiveAccount returns the active Google account's email address.
+func ResolveActiveAccount() string {
+	_, email := accounts.Current()
+	if email != "" {
+		return email
+	}
+	tok, err := auth.LoadTokenUnified()
+	if err == nil && tok != nil {
+		if em := tok.UserEmail(); em != "" {
+			return em
+		}
+	}
+	return ""
+}
+
+// OfficialDaemonLabel returns the active launchd service label.
+// Under pigasus branding, it adds a "pigasus-" prefix to keep services isolated.
+func OfficialDaemonLabel() string {
+	if branding.Current().ID == branding.BrandPigasus {
+		return "pigasus-" + DefaultOfficialDaemonLabel
+	}
+	return DefaultOfficialDaemonLabel
+}
+
 // ResolveInstanceName resolves the instance name for remote control:
 // 1. explicitName if non-empty
 // 2. cliRemoteControlHostname from ~/.gemini/config/config.json
 // 3. system hostname fallback
+// Under pigasus branding, it runtime-prepends "pigasus-" while sharing the same base tail.
 func ResolveInstanceName(explicitName string) string {
+	var raw string
 	if explicitName != "" {
-		return explicitName
+		raw = explicitName
+	} else {
+		cfgName := readConfigRemoteControlHostname()
+		if cfgName != "" {
+			raw = cfgName
+		} else {
+			hn, err := os.Hostname()
+			if err == nil && hn != "" {
+				raw = hn
+			}
+		}
 	}
-	cfgName := readConfigRemoteControlHostname()
-	if cfgName != "" {
-		return cfgName
+	if raw == "" {
+		return ""
 	}
-	hn, err := os.Hostname()
-	if err == nil && hn != "" {
-		return hn
+	if branding.Current().ID == branding.BrandPigasus {
+		if !strings.HasPrefix(raw, "pigasus-") {
+			return "pigasus-" + raw
+		}
 	}
-	return ""
+	return raw
 }
 
 func stripBOM(b []byte) []byte {
@@ -73,7 +114,10 @@ func readConfigRemoteControlHostname() string {
 }
 
 // SetInstanceName updates userSettings.cliRemoteControlHostname in ~/.gemini/config/config.json.
+// Notice: the "pigasus-" prefix is never written to ~/.gemini/config/config.json; it is
+// only prepended at runtime by ResolveInstanceName so agy and pigasus share the exact same base name.
 func SetInstanceName(name string) error {
+	name = strings.TrimPrefix(name, "pigasus-")
 	configPath := resolveConfigPath()
 	if configPath == "" {
 		return fmt.Errorf("cannot resolve gemini config path")
@@ -104,7 +148,7 @@ func SetInstanceName(name string) error {
 // PlaintextDaemonStatus queries launchd for daemon status lines and prints them
 // in parity with official `agy remote-control status`.
 func PlaintextDaemonStatus(ctx context.Context, name string) []string {
-	label := DefaultOfficialDaemonLabel
+	label := OfficialDaemonLabel()
 	uid := os.Getuid()
 	cmd := exec.CommandContext(ctx, "launchctl", "print", fmt.Sprintf("gui/%d/%s", uid, label))
 	out, err := cmd.CombinedOutput()
@@ -129,9 +173,16 @@ func PlaintextDaemonStatus(ctx context.Context, name string) []string {
 		lines = append(lines, fmt.Sprintf("Logs: %s", logPath))
 	}
 
+	account := ResolveActiveAccount()
+	if account != "" {
+		lines = append(lines, fmt.Sprintf("Account: %s", account))
+	} else {
+		lines = append(lines, "Account: not signed in")
+	}
+
 	instName := ResolveInstanceName(name)
 	if instName != "" {
-		lines = append(lines, fmt.Sprintf("Instance name: %s (find it at https://antigravity.google.com)", instName))
+		lines = append(lines, fmt.Sprintf("Instance name: %s (find it at %s)", instName, endpoints.Current().CompanionOrigin))
 	} else {
 		lines = append(lines, "Instance name: not assigned yet; the daemon generates one on its first start.")
 	}
@@ -144,11 +195,24 @@ func OfficialPlistPath() string {
 	if home == "" {
 		home, _ = os.UserHomeDir()
 	}
-	return filepath.Join(home, "Library", "LaunchAgents", DefaultOfficialDaemonLabel+".plist")
+	return filepath.Join(home, "Library", "LaunchAgents", OfficialDaemonLabel()+".plist")
 }
 
 // OfficialBinaryPath resolves the binary to invoke for remote-control serve.
 func OfficialBinaryPath() string {
+	if branding.Current().ID == branding.BrandPigasus {
+		if p, err := exec.LookPath("pigasus"); err == nil {
+			return p
+		}
+		if _, err := os.Stat("/tmp/pigasus"); err == nil {
+			return "/tmp/pigasus"
+		}
+		bin, err := os.Executable()
+		if err == nil && bin != "" && !strings.HasSuffix(bin, ".test") {
+			return bin
+		}
+		return os.Args[0]
+	}
 	home := strings.TrimSpace(os.Getenv("HOME"))
 	localAgy := filepath.Join(home, ".local", "bin", "agy")
 	if _, err := os.Stat(localAgy); err == nil {
@@ -170,12 +234,27 @@ func OfficialLogPath() string {
 	if home == "" {
 		home, _ = os.UserHomeDir()
 	}
-	return filepath.Join(home, "Library", "Logs", "antigravity-cli-daemon.log")
+	logFile := "antigravity-cli-daemon.log"
+	if branding.Current().ID == branding.BrandPigasus {
+		logFile = "pigasus-" + logFile
+	}
+	return filepath.Join(home, "Library", "Logs", logFile)
 }
 
 // BuildOfficialPlist renders the LaunchAgent plist matching official agy.
-func BuildOfficialPlist(binary string, session bool) string {
+//
+// desktop appends the `--desktop` switch to the daemon's own
+// command line, so the persistent daemon's Mendel read carries the
+// hub identity and the dashboard's page is the reference's desktop
+// UI. Without it the plist is byte-identical to the reference's
+// shape.
+func BuildOfficialPlist(binary string, session bool, desktop bool) string {
 	logPath := OfficialLogPath()
+	label := OfficialDaemonLabel()
+	desktopArg := ""
+	if desktop {
+		desktopArg = " '--desktop'"
+	}
 	var b strings.Builder
 	b.WriteString(`<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -196,7 +275,7 @@ func BuildOfficialPlist(binary string, session bool) string {
     <array>
       <string>/bin/sh</string>
       <string>-c</string>
-      <string>exec '%s' 'remote-control' 'serve'</string>
+      <string>exec '%s' 'remote-control' 'serve'%s</string>
     </array>
     <key>RunAtLoad</key>
     <true/>
@@ -205,18 +284,18 @@ func BuildOfficialPlist(binary string, session bool) string {
     <key>StandardOutPath</key>
     <string>%s</string>
   </dict>
-</plist>`, DefaultOfficialDaemonLabel, binary, logPath, logPath)
+</plist>`, label, binary, desktopArg, logPath, logPath)
 	return b.String()
 }
 
 // StartOfficialDaemon writes and bootstraps the official LaunchAgent daemon.
-func StartOfficialDaemon(ctx context.Context, name string, session bool) error {
+func StartOfficialDaemon(ctx context.Context, name string, session bool, desktop bool) error {
 	if name != "" {
 		_ = SetInstanceName(name)
 	}
 	plistPath := OfficialPlistPath()
 	bin := OfficialBinaryPath()
-	content := BuildOfficialPlist(bin, session)
+	content := BuildOfficialPlist(bin, session, desktop)
 	if err := os.MkdirAll(filepath.Dir(plistPath), 0755); err != nil {
 		return err
 	}
@@ -224,10 +303,11 @@ func StartOfficialDaemon(ctx context.Context, name string, session bool) error {
 		return err
 	}
 	uid := os.Getuid()
+	label := OfficialDaemonLabel()
 	cmd := exec.CommandContext(ctx, "launchctl", "bootstrap", fmt.Sprintf("gui/%d", uid), plistPath)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		// If already registered, kickstart -k restarts it cleanly.
-		kick := exec.CommandContext(ctx, "launchctl", "kickstart", "-k", fmt.Sprintf("gui/%d/%s", uid, DefaultOfficialDaemonLabel))
+		kick := exec.CommandContext(ctx, "launchctl", "kickstart", "-k", fmt.Sprintf("gui/%d/%s", uid, label))
 		if kOut, kErr := kick.CombinedOutput(); kErr != nil {
 			return fmt.Errorf("launchctl bootstrap failed: %s (%w); kickstart failed: %s (%v)", strings.TrimSpace(string(out)), err, strings.TrimSpace(string(kOut)), kErr)
 		}
@@ -238,7 +318,8 @@ func StartOfficialDaemon(ctx context.Context, name string, session bool) error {
 // StopOfficialDaemon unregisters and deletes the LaunchAgent daemon.
 func StopOfficialDaemon(ctx context.Context) error {
 	uid := os.Getuid()
-	_ = exec.CommandContext(ctx, "launchctl", "bootout", fmt.Sprintf("gui/%d/%s", uid, DefaultOfficialDaemonLabel)).Run()
+	label := OfficialDaemonLabel()
+	_ = exec.CommandContext(ctx, "launchctl", "bootout", fmt.Sprintf("gui/%d/%s", uid, label)).Run()
 	_ = os.Remove(OfficialPlistPath())
 	dir := DefaultLaunchAgentDir()
 	if dir != "" {

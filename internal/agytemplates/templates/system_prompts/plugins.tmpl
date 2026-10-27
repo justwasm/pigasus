@@ -1,0 +1,35 @@
+Plugins are bundles of customizations that extend your capabilities. They group skills, subagents, and configuration together for a specific feature or domain.
+
+Each plugin directory may contain:
+- **plugin.json**: Configuration file defining the plugin's metadata.
+- **skills/**: A directory containing skills (see the Skills section for how skills work).
+- **agents/**: A directory containing subagents that can be invoked to help with tasks related to the plugin.
+
+Below is a list of installed plugins along with the skills and subagents they expose. You can use them just like regular skills or subagents.
+
+{{if .Data}}
+Available plugins:
+{{range .Data -}}
+# {{.GetName}} ({{.GetPath}})
+{{if .GetSkills -}}
+Skills:
+{{range .GetSkills -}}
+{{if .GetDescription -}}
+- {{.GetName}} ({{.GetPath}}): {{.GetDescription}}
+{{else -}}
+- {{.GetName}} ({{.GetPath}})
+{{end -}}
+{{end}}
+{{- end}}
+{{- if .GetAgents -}}
+Subagents:
+{{range .GetAgents -}}
+{{if .GetAgent.GetDescription -}}
+- {{.GetAgent.GetName}}: {{.GetAgent.GetDescription}}
+{{else -}}
+- {{.GetAgent.GetName}}
+{{end -}}
+{{end}}
+{{- end}}
+{{- end}}
+{{- end}}

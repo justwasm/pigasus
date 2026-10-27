@@ -25,6 +25,7 @@
 package permissions
 
 import (
+	"strconv"
 	"strings"
 )
 
@@ -212,20 +213,58 @@ func StrictFromEnv(v string) bool {
 // skip-permissions wins outright; an explicit deny rule blocks; an explicit
 // allow rule permits; then the mode's auto-approval rules; then the default.
 func (p Policy) Decide(req Request) Verdict {
+	return p.DecideNames(req.Target, req.Tool)
+}
+
+// DecideNames returns the verdict for one tool call under any of the names
+// the same tool is known by.
+//
+// The reference publishes two spellings of every tool: the twelve
+// model-facing declarations (read_file, write_file, edit_file, …) and the
+// catalogue the advertised surface names (view_file, write_to_file,
+// replace_file_content, …). A subagent calls the catalogue's spelling
+// (its tool set is drawn from the catalogue, the way a custom agent's is —
+// 【一手】 the 1.4.7 custom-agent capture), while the parent calls the
+// declaration's. A rule the user wrote for the parent must not stop
+// applying to the child, so the call is judged under both spellings.
+//
+// The order is the reference's, and it is applied across the spellings
+// together: a deny rule that matches under either spelling blocks, an allow
+// rule that matches under either spelling permits, and only then do the
+// mode's auto-approval rules and the default decide.
+//
+// A name that classifies as nothing (the MCP tools, the browser tools) does
+// not narrow the other spelling's class: the mode's auto-approval looks at
+// the strictest class any spelling carries.
+func (p Policy) DecideNames(target string, names ...string) Verdict {
 	if p.SkipPermissions {
 		return Allow
 	}
-	for _, r := range p.Deny {
-		if r.matches(req) {
-			return Deny
+	if len(names) == 0 {
+		names = []string{""}
+	}
+	for _, n := range names {
+		for _, r := range p.Deny {
+			if r.matches(Request{Tool: n, Target: target}) {
+				return Deny
+			}
 		}
 	}
-	for _, r := range p.Allow {
-		if r.matches(req) {
-			return Allow
+	for _, n := range names {
+		for _, r := range p.Allow {
+			if r.matches(Request{Tool: n, Target: target}) {
+				return Allow
+			}
 		}
 	}
-	cls := Classify(req.Tool)
+	cls := ClassOther
+	for _, n := range names {
+		if c := Classify(n); c != ClassOther {
+			if cls == ClassOther || classRank(c) > classRank(cls) {
+				cls = c
+			}
+		}
+	}
 	switch p.Mode {
 	case ModeAcceptEdits:
 		if cls == ClassEdit {
@@ -246,11 +285,27 @@ func (p Policy) Decide(req Request) Verdict {
 	return Allow
 }
 
+// classRank orders the classes by how much a mode's auto-approval should
+// hesitate: a read is the weakest, a file edit the strongest.
+func classRank(c Class) int {
+	switch c {
+	case ClassRead:
+		return 1
+	case ClassOther:
+		return 2
+	case ClassCommand:
+		return 3
+	case ClassEdit:
+		return 4
+	}
+	return 0
+}
+
 // HeadlessNotice is the reference's end-of-run notice about tool calls it
 // auto-denied because headless mode cannot prompt for them. Recovered
 // verbatim; `n` is the count of denied calls.
 func HeadlessNotice(n int) string {
-	return "the " + itoa(n) + " tool(s) required approval that headless mode cannot prompt for, " +
+	return "the " + strconv.Itoa(n) + " tool(s) required approval that headless mode cannot prompt for, " +
 		"so they were auto-denied. Settings allow-rules do not apply; re-run with " +
 		"--dangerously-skip-permissions to auto-approve all tools."
 }
@@ -345,26 +400,3 @@ const (
 	NoToolCallNudge         = "You did not call any tools. You should continue calling tools until you've completed your task. If you have completed your task call the finish tool."
 	NoToolCallNudgeHeadless = "You did not call any tools. You should continue calling tools until you've completed your task. If you have completed your task call the finish tool. Remember that the user cannot answer any questions."
 )
-
-// itoa avoids importing strconv for one call.
-func itoa(n int) string {
-	if n == 0 {
-		return "0"
-	}
-	neg := n < 0
-	if neg {
-		n = -n
-	}
-	var b [20]byte
-	i := len(b)
-	for n > 0 {
-		i--
-		b[i] = byte('0' + n%10)
-		n /= 10
-	}
-	if neg {
-		i--
-		b[i] = '-'
-	}
-	return string(b[i:])
-}

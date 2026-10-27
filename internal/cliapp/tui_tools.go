@@ -60,14 +60,13 @@ import (
 // against the dim gray transcript body. The detail bullet was
 // already wrapped in `cWarningBlueOpen` (used by the warning block)
 // — cycle 127 keeps that.
-const (
+var (
 	// Cycle 156: tool-bullet glyph. v1.3.6 emits U+25CF BLACK CIRCLE
 	// ("●") in the brand teal (256-colour 29); the cycle-127 clone
 	// used U+23FA ⏺ "record" in brand blue, picked from Aider/Cursor
 	// convention rather than the v1.3.6 binary itself. The recovered
 	// capture-pane diff in docs/cycles/cycle-156/ confirms the byte.
-	stepBulletOpen  = cToolBulletOpen + "\u25cf" + cToolBulletClose
-	stepBulletPlain = "\u25cf"
+	stepBulletOpen = cToolBulletOpen + "\u25cf" + cToolBulletClose
 
 	// Cycle 157: failed-tool-bullet glyph. v1.3.6 swaps the bullet
 	// palette to red (256-colour 166) when the tool exited non-zero,
@@ -78,8 +77,7 @@ const (
 	// RIGHT-POINTING SMALL TRIANGLE ("▸") in dim gray (256-colour
 	// 238); the cycle-127 clone used U+23BF ⎿ "down tack and overbar"
 	// in warning-blue, again from a non-v1.3.6 source.
-	thoughtBulletOpen  = cThoughtBulletOpen + "\u25b8" + cThoughtBulletClose
-	thoughtBulletPlain = "\u25b8"
+	thoughtBulletOpen = cThoughtBulletOpen + "\u25b8" + cThoughtBulletClose
 
 	// Detail (tool-step expansion) bullet. Unchanged by cycle 156 —
 	// the diff-add / diff-remove chevrons render in their own
@@ -88,8 +86,13 @@ const (
 	// secondary gray and resets after the trailing spaces (measured:
 	// "\x1b[38;2;88;110;117m  ⎿  \x1b[mCommand exited…"), so the prefix
 	// owns its leading spaces too and callers append it verbatim.
-	detailBulletOpen  = cDetailBulletOpen + "  \u23bf  " + "\x1b[m"
-	detailBulletPlain = "\u23bf"
+	detailBulletOpen = cDetailBulletOpen + "  \u23bf  " + "\x1b[m"
+)
+
+const (
+	stepBulletPlain    = "\u25cf"
+	thoughtBulletPlain = "\u25b8"
+	detailBulletPlain  = "\u23bf"
 )
 
 // styledStepBullet is the bullet the transcript paints for a call in the

@@ -2,6 +2,7 @@ package tuitools
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -87,6 +88,132 @@ func TestBuildEditDiff_ReferenceHunk(t *testing.T) {
 	if len(d.Rows) != 7 {
 		t.Fatalf("expected 7 rows (including trailing empty line context), got %d (%v)", len(d.Rows), d.Rows)
 	}
+}
+
+func TestRenderDiffLines_ReferenceShape(t *testing.T) {
+	// 【一手】 agy 1.4.3's captured diff
+	// (docs/cycles/cycle-285-tool-display/deliverable.md) shows the
+	// reference's row shape: the line number in the gutter, the marker
+	// column and the text. The 1.4.8 binary pads an added or a removed
+	// body to the content width, so those rows are one column
+	// narrower than the width they were given.
+	oldT := "alpha\nbeta\ngamma\ndelta\nepsilon\n"
+	newT := "alpha\nbeta\nGAMMA\ndelta\nepsilon\n"
+	d := BuildEditDiff(oldT, newT)
+	if d == nil {
+		t.Fatal("expected a diff")
+	}
+	lines := RenderDiffLines(d, 80)
+	want := []string{
+		"  ⎿  +1 / -1 lines",
+		"        1    alpha",
+		"        2    beta",
+		"        3 -  gamma",
+		"        3 +  GAMMA",
+		"        4    delta",
+		"        5    epsilon",
+		"        6    ",
+	}
+	if len(lines) != len(want) {
+		t.Fatalf("got %d lines, want %d:\n%q", len(lines), len(want), plainLines(lines))
+	}
+	for i, l := range lines {
+		got := stripANSI(l)
+		// The reference pads an added or a removed body to the content
+		// width; an unchanged body is not padded.
+		if i > 0 && (strings.Contains(want[i], "-  ") || strings.Contains(want[i], "+  ")) {
+			if !strings.HasPrefix(got, want[i]) {
+				t.Errorf("line %d = %q, want the prefix %q", i, got, want[i])
+			}
+			if n := len([]rune(got)); n != 80-1 {
+				t.Errorf("line %d is %d columns wide, want %d", i, n, 80-1)
+			}
+			continue
+		}
+		if got != want[i] {
+			t.Errorf("line %d = %q, want %q", i, got, want[i])
+		}
+	}
+}
+
+func TestRenderDiffLines_SummaryForms(t *testing.T) {
+	// 【反编译】 the reference's per-change summary is one of three
+	// forms: "Added %d line%s", "Removed %d line%s" and the
+	// "+%d / -%d lines" pair.
+	for _, tc := range []struct {
+		name       string
+		old, new   string
+		wantPrefix string
+	}{
+		{"create", "", "a\nb\n", "Added 2 lines"},
+		{"delete", "a\nb\n", "", "Removed 2 lines"},
+		{"change", "a\nb\n", "a\nc\n", "+1 / -1 lines"},
+	} {
+		d := BuildEditDiff(tc.old, tc.new)
+		if d == nil {
+			t.Fatalf("%s: expected a diff", tc.name)
+		}
+		lines := RenderDiffLines(d, 80)
+		if len(lines) == 0 {
+			t.Fatalf("%s: expected a head line", tc.name)
+		}
+		if got := stripANSI(lines[0]); !strings.HasSuffix(got, tc.wantPrefix) {
+			t.Errorf("%s: head = %q, want the summary %q", tc.name, got, tc.wantPrefix)
+		}
+	}
+}
+
+func TestRenderDiffLines_CapsTheRows(t *testing.T) {
+	// 【反编译】 the reference shows at most MaxDetailLines rows of a
+	// change and counts the rest in its "… and %d more lines" marker.
+	var oldT, newT strings.Builder
+	for i := 0; i < 40; i++ {
+		oldT.WriteString("line\n")
+		newT.WriteString("LINE\n")
+	}
+	d := BuildEditDiff(oldT.String(), newT.String())
+	if d == nil {
+		t.Fatal("expected a diff")
+	}
+	lines := RenderDiffLines(d, 80)
+	if len(lines) != 1+MaxDetailLines+1 {
+		t.Fatalf("got %d lines, want %d", len(lines), 1+MaxDetailLines+1)
+	}
+	rows := len(d.Hunks[0].Rows)
+	// 【反编译】 the reference formats the marker with
+	// "%*s    … and %d more lines" (0x10358a97d) — the gutter's width
+	// of spaces, four more, the ellipsis and the count of the rows it
+	// did not show. The clone's own indent sits in front of it.
+	want := fmt.Sprintf("     %s    … and %d more lines", strings.Repeat(" ", 4), rows-MaxDetailLines)
+	if got := stripANSI(lines[len(lines)-1]); got != want {
+		t.Errorf("last line = %q, want %q", got, want)
+	}
+}
+
+// plainLines strips the escape sequences from a rendered block.
+func plainLines(lines []string) []string {
+	out := make([]string, 0, len(lines))
+	for _, l := range lines {
+		out = append(out, stripANSI(l))
+	}
+	return out
+}
+
+// stripANSI removes the escape sequences from a rendered line.
+func stripANSI(s string) string {
+	var b strings.Builder
+	for i := 0; i < len(s); {
+		if s[i] == 0x1b {
+			for i < len(s) && s[i] != 'm' {
+				i++
+			}
+			i++
+			continue
+		}
+		b.WriteByte(s[i])
+		i++
+	}
+	return b.String()
 }
 
 func TestCommandExitCode(t *testing.T) {

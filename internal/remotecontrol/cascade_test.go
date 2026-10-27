@@ -2,7 +2,7 @@
 // per-process CascadeRegistry (Register/Get/Drop/Len/IDs) and
 // the over-cap error path. The end-to-end "StartRemoteAgentCascade
 // over the wire" tests live next to the TCP+WS transport
-// (internal/remotetransport/tcp_test.go) — the same split
+// (remotetransport/tcp_test.go) — the same split
 // rc-ws-transport established for "test the daemon's Unix-socket
 // surface here, test the WS adapter's surface next to the
 // transport".
@@ -322,7 +322,7 @@ func TestNewCascade_ClientInfoPopulated(t *testing.T) {
 // TestDispatcher_StartRemoteAgentCascade_OK covers the
 // dispatcher's StartRemoteAgentCascade handler at the in-process
 // level — no Unix socket, no ws adapter, just Dispatcher.Dispatch.
-// Complements the WS-level tests in internal/remotetransport
+// Complements the WS-level tests in remotetransport
 // (which pin the wire envelope byte-for-byte) by exercising
 // the param-validation paths cheaply. The dispatcher is built
 // the same way daemon_test.go builds one: NewDispatcher with a
@@ -593,7 +593,7 @@ func TestDispatcher_InjectedRegistry(t *testing.T) {
 // in-process face of SendRemoteAgentCascadeMessage) and the
 // dispatcher's envelope mapping. Wire-level (over the WS
 // adapter) coverage lives in
-// internal/remotetransport/tcp_test.go next to the rc-
+// remotetransport/tcp_test.go next to the rc-
 // cascade-start round-trip tests.
 //
 // The tests use StubBackend as a fixture; no real PiG
@@ -913,7 +913,7 @@ func TestIsValidEffort(t *testing.T) {
 // at the in-process level — same pattern as the
 // StartRemoteAgentCascade dispatcher-level test, but
 // for the message-send path. Complements the WS-level
-// tests in internal/remotetransport/tcp_test.go.
+// tests in remotetransport/tcp_test.go.
 func TestDispatcher_SendRemoteAgentCascadeMessage_OK(t *testing.T) {
 	be := &StubBackend{
 		Reply:          "answer",
@@ -1159,7 +1159,7 @@ func TestDispatcher_SendRemoteAgentCascadeMessage_PropagatesError(t *testing.T) 
 // in-process cascade tests because the seam is the
 // (*CascadeRegistry).SendStream entry point — wire-level
 // coverage that pins the JSON envelope shape lives next to
-// the transport in internal/remotetransport/tcp_test.go.
+// the transport in remotetransport/tcp_test.go.
 
 // recordingBackend is a StreamingMessageBackend test double
 // that captures every EventSink call. Tests assert against
@@ -1616,7 +1616,7 @@ func errorCode(env map[string]any) int {
 // (*Cascade).recordCancel error-ring hook, and the
 // dispatcher's CancelRemoteAgentCascade handler.
 // Wire-level coverage (full WS round-trip) lives next
-// to the transport in internal/remotetransport/tcp_test.go.
+// to the transport in remotetransport/tcp_test.go.
 
 // TestCascade_Cancel_Idempotent pins the headline
 // ask of the rc-cancel-cascade cycle's cascade

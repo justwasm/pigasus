@@ -44,7 +44,7 @@ import (
 
 	rwidth "github.com/mattn/go-runewidth"
 
-	"github.com/justwasm/pigasus/internal/render"
+	"github.com/justwasm/pigasus/render"
 )
 
 // cjkSentence is a 12-codepoint CJK string: each ideograph is 3 UTF-8
@@ -118,6 +118,27 @@ func TestPlanRender_WrapsCJKOnCellWidth(t *testing.T) {
 	// no codepoint lost, no replacement char.
 	if strings.Join(rows, "") != cjkSentence {
 		t.Errorf("rows concatenated = %q, want %q", strings.Join(rows, ""), cjkSentence)
+	}
+}
+
+// TestPlanRender_WrapKeepsLeadingSpaces pins the wrap's whitespace
+// behaviour.
+//
+// charmbracelet/x/ansi's hard wrap drops the spaces at the beginning of
+// a wrapped row unless it is told not to. The plan rows keep their
+// indentation, so the library is called with preserveSpace set — and
+// the space that falls on the break stays at the end of the row before
+// it, not at the head of the row after it.
+func TestPlanRender_WrapKeepsLeadingSpaces(t *testing.T) {
+	rows := wrapPlanLine("    alpha beta gamma", 10)
+	want := []string{"    alpha ", "beta gamma"}
+	if len(rows) != len(want) {
+		t.Fatalf("wrapPlanLine returned %d rows, want %d: %q", len(rows), len(want), rows)
+	}
+	for i := range want {
+		if rows[i] != want[i] {
+			t.Errorf("row %d = %q, want %q", i, rows[i], want[i])
+		}
 	}
 }
 

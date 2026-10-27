@@ -46,11 +46,11 @@ import (
 	"github.com/justwasm/pigasus/internal/featdiff"
 	"github.com/justwasm/pigasus/internal/mdrender"
 	"github.com/justwasm/pigasus/internal/models"
-	"github.com/justwasm/pigasus/internal/onboarding"
 	"github.com/justwasm/pigasus/internal/subagent"
 	"github.com/justwasm/pigasus/internal/taskregistry"
 	"github.com/justwasm/pigasus/internal/tuilib"
 	"github.com/justwasm/pigasus/internal/tuiviewer"
+	"github.com/justwasm/pigasus/palette"
 )
 
 var _ = textinput.New
@@ -282,9 +282,10 @@ func TestPanelCodeSearchLayout(t *testing.T) {
 	m := mkPanel(panelCodeSearch, "/codesearch", 0)
 	assertLines(t, plainLines(m), []string{
 		"Code Search:",
-		// Cycle 228: the panel's usage line now names the f:/file:
-		// glob flags alongside the -F/--literal flag.
-		"  Usage: /codesearch [-F|--literal] <query> [f:<glob>] [file:<glob>]",
+		// Cycle 351: the usage line matches the reference byte for
+		// byte again — agy 1.4.8's string table carries no
+		// "f:<glob>" / "file:<glob>" literal.
+		"  Usage: /codesearch [-F|--literal] <query>",
 		"",
 		"Keyboard: ↑/↓ Navigate  ←/→ Prev/Next File  enter Open File  ctrl+g Open in Editor  esc Close Search",
 	})
@@ -720,10 +721,11 @@ func TestSlashEchoLines(t *testing.T) {
 }
 
 func TestPanelExitNotice(t *testing.T) {
-	// Cycle 193: the silent-on-Esc set grows to include /plugin,
-	// /changelog and /diff in addition to the cycle-185 trio (mcp,
-	// permissions, codesearch) and the later cycle-187/189/190 trio
-	// (feedback, rewind, context).
+	// Cycle 351: the whole set was re-derived from agy 1.4.8. The
+	// reference echoes "Exited /<cmd> command" for /config, /diff,
+	// /skills, /agents, /effort, /credits, /artifact, /model, /hooks,
+	// /tasks and /help; every other panel closes silently — /usage and
+	// /add-dir among them.
 	silent := map[panelKind]bool{
 		panelMCP:         true,
 		panelPermissions: true,
@@ -733,7 +735,8 @@ func TestPanelExitNotice(t *testing.T) {
 		panelContext:     true,
 		panelPlugin:      true,
 		panelChangelog:   true,
-		panelDiff:        true,
+		panelUsage:       true,
+		panelAddDir:      true,
 	}
 	for k := panelMCP; k <= panelDiff; k++ {
 		if got, want := k.exitNotice(), !silent[k]; got != want {
@@ -1050,16 +1053,18 @@ func TestPanelChangelogLayout(t *testing.T) {
 	// tagline, so the window opens at 18 rows rather than the cycle-201 17.
 	//
 	// The embedded changelog_reference.txt is a verbatim `agy changelog`
-	// capture: the 1.4.7 binary's feed ends at 1.4.6 (the 1.4.7 release
-	// notes are not in it yet), so the panel opens on 1.4.6.
+	// capture. Re-captured against the 1.4.8 binary on 2026-10-27, the
+	// feed's newest section is 1.4.7 — the 1.4.8 release notes are in the
+	// public repository but the served feed does not carry them yet — so
+	// the panel opens on 1.4.7.
 	joined := strings.Join(plain, "\n")
-	if !strings.Contains(joined, "## 1.4.6") {
-		t.Errorf("missing 1.4.6 heading: %s", joined)
+	if !strings.Contains(joined, "## 1.4.7") {
+		t.Errorf("missing 1.4.7 heading: %s", joined)
 	}
 	if !strings.Contains(joined, fmt.Sprintf("(1–18 of %d lines)", tuiviewer.ChangelogTotalLines)) {
 		t.Errorf("missing line counter: %s", joined)
 	}
-	if !strings.Contains(joined, "Added a Configure MCP servers") {
+	if !strings.Contains(joined, "Added lastUserInput to the JSON that hook commands receive on stdin") {
 		t.Errorf("missing opening bullet: %s", joined)
 	}
 	last := stripSGR(plain[len(plain)-1])
@@ -1070,8 +1075,11 @@ func TestPanelChangelogLayout(t *testing.T) {
 
 // /diff — no-VCS variant with tab row + warning + dot hint.
 func TestPanelDiffLayout(t *testing.T) {
-	if panelDiff.exitNotice() {
-		t.Error("panelDiff.exitNotice() = true, want false")
+	// Cycle 351: the reference echoes "Exited /diff command" on Esc
+	// (the 1.4.8 binary carries that literal, and a live probe sees
+	// the notice in the transcript).
+	if !panelDiff.exitNotice() {
+		t.Error("panelDiff.exitNotice() = false, want true")
 	}
 	m := mkPanel(panelDiff, "/diff", 0)
 	plain := plainLines(m)
@@ -1205,8 +1213,8 @@ func TestPanelChangelogViewerScrolls(t *testing.T) {
 	if m.panel.window != 0 {
 		t.Errorf("ctrl+home window = %d, want 0", m.panel.window)
 	}
-	if !strings.Contains(panelText(m), "## 1.4.6") {
-		t.Errorf("first screen should still open on 1.4.6:\n%s", panelText(m)[:200])
+	if !strings.Contains(panelText(m), "## 1.4.7") {
+		t.Errorf("first screen should still open on 1.4.7:\n%s", panelText(m)[:200])
 	}
 }
 
@@ -1220,15 +1228,15 @@ func TestPanelViewerKeySwallowAndEsc(t *testing.T) {
 	if handled, _ := m.handlePanelKey(tea.Key{Code: 'c', Mod: tea.ModCtrl}); handled {
 		t.Error("ctrl+c must fall through to the global binding")
 	}
-	// /usage emits the standard "Exited" notice on Esc.
+	// Cycle 351: /usage closes silently in the reference (agy 1.4.8).
 	if handled, _ := m.handlePanelKey(tea.Key{Code: tea.KeyEsc}); !handled {
 		t.Fatal("esc not handled")
 	}
 	if m.panel.kind != panelNone {
 		t.Fatal("esc did not close the panel")
 	}
-	if got := stripSGR(strings.Join(m.response, "\n")); !strings.Contains(got, "Exited /usage command") {
-		t.Errorf("usage esc notice = %q", got)
+	if got := stripSGR(strings.Join(m.response, "\n")); strings.Contains(got, "Exited") {
+		t.Errorf("usage esc should be silent, got %q", got)
 	}
 	// /changelog closes silently.
 	c := mkPanel(panelChangelog, "/changelog", 0)
@@ -1276,8 +1284,9 @@ func TestPanelDiffTabSwitch(t *testing.T) {
 	if m.panel.kind != panelNone {
 		t.Fatal("esc did not close the diff panel")
 	}
-	if len(m.response) != 0 {
-		t.Errorf("diff esc should be silent, got %q", m.response)
+	// Cycle 351: the reference echoes "Exited /diff command" on Esc.
+	if got := stripSGR(strings.Join(m.response, "\n")); !strings.Contains(got, "Exited /diff command") {
+		t.Errorf("diff esc notice = %q", got)
 	}
 }
 
@@ -2268,11 +2277,10 @@ func TestPanelAddDirEnterInvalid(t *testing.T) {
 	}
 }
 
-// TestPanelAddDirEsc — Esc closes the panel with the standard exit
-// notice (`Exited /add-dir command`). The exit-notice=true group is
-// the panel default; panelAddDir is intentionally NOT in the
-// cycle-193 silent-close set so the close is loud enough to confirm
-// the panel actually went away.
+// TestPanelAddDirEsc — Esc closes the panel. Cycle 351: the reference's
+// /add-dir is not a panel at all (it answers "error: no directory
+// specified" inline) and it never carries an "Exited /add-dir command"
+// notice, so the close is silent.
 func TestPanelAddDirEsc(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("ANTIGRAVITY_HOME", home)
@@ -2287,18 +2295,17 @@ func TestPanelAddDirEsc(t *testing.T) {
 		t.Errorf("panel still open: kind = %v", m.panel.kind)
 	}
 	resp := stripSGR(strings.Join(m.response, "\n"))
-	if !strings.Contains(resp, "Exited /add-dir command") {
-		t.Errorf("missing exit notice; got %q", resp)
+	if strings.Contains(resp, "Exited /add-dir command") {
+		t.Errorf("add-dir esc should be silent; got %q", resp)
 	}
 }
 
-// TestPanelAddDirExitNotice — `/add-dir` must be in the exit-notice=true
-// group (panel default), unlike /mcp /feedback /rewind /context. The
-// brief's "Esc closes with the standard exit notice" depends on this
-// switch falling through to `return true`.
+// TestPanelAddDirExitNotice — `/add-dir` closes silently: the 1.4.8
+// binary carries no "Exited /add-dir command" literal, and the live
+// reference answers /add-dir inline instead of opening a panel.
 func TestPanelAddDirExitNotice(t *testing.T) {
-	if !panelAddDir.exitNotice() {
-		t.Error("panelAddDir.exitNotice() = false, want true (Esc should emit \"Exited /add-dir command\")")
+	if panelAddDir.exitNotice() {
+		t.Error("panelAddDir.exitNotice() = true, want false (the reference's /add-dir closes silently)")
 	}
 }
 
@@ -2348,8 +2355,8 @@ func Test_HelpListVisible(t *testing.T) {
 		{99, 0, 18, 18},
 		{99, 90, 18, 9}, // last window is short
 		{99, 99, 18, 0}, // window start past the end
-		{34, 0, 18, 18}, // shortcuts, first window
-		{34, 30, 18, 4}, // shortcuts, last window
+		{27, 0, 18, 18}, // shortcuts, first window
+		{27, 18, 18, 9}, // shortcuts, last window
 		{0, 0, 18, 0},   // no catalog
 		{5, 0, 18, 5},   // catalog smaller than the window
 		{99, 0, 0, 18},  // size < 1 is coerced to 1 -> clipped to 1
@@ -2426,11 +2433,11 @@ func Test_HelpListNavigation(t *testing.T) {
 	}
 }
 
-// Test_HelpListNavigationShortCatalog covers the SHORTCUTS tab (34
-// rows), where the catalog never scrolls: the window stays at 0 and
-// only the cursor moves.
+// Test_HelpListNavigationShortCatalog covers the SHORTCUTS tab (27
+// rows as of v1.4.7), where the catalog scrolls exactly once past the
+// window's edge.
 func Test_HelpListNavigationShortCatalog(t *testing.T) {
-	const total = 34
+	const total = 27
 	m := NewRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
 	m.width, m.height = 220, 30
 	for i := 0; i < total-1; i++ {
@@ -2439,7 +2446,7 @@ func Test_HelpListNavigationShortCatalog(t *testing.T) {
 	if m.helpCursor != total-1 {
 		t.Fatalf("cursor = %d, want %d", m.helpCursor, total-1)
 	}
-	// A 34-row catalog in an 18-row window does scroll once past the
+	// A 27-row catalog in an 18-row window does scroll once past the
 	// edge — but only to total-size.
 	wantWindow := total - m.helpListWindowSize()
 	if m.helpWindow != wantWindow {
@@ -2453,7 +2460,9 @@ func Test_HelpListNavigationShortCatalog(t *testing.T) {
 
 // Test_HelpListLenMatchesCatalogs guards the row counts the /help
 // status indicator prints: REF v1.4.0 reports "of 99 items" on the
-// COMMANDS tab and "of 34 items" on SHORTCUTS.
+// COMMANDS tab and "of 34 items" on SHORTCUTS. v1.4.7 leaves the basic
+// navigation keys out of the SHORTCUTS tab, so the reference reports
+// "of 27 items" there now.
 func Test_HelpListLenMatchesCatalogs(t *testing.T) {
 	if got := helpListLen(1); got != len(tuilib.DefaultSlashCommands) {
 		t.Errorf("helpListLen(1) = %d, want %d", got, len(tuilib.DefaultSlashCommands))
@@ -2464,8 +2473,8 @@ func Test_HelpListLenMatchesCatalogs(t *testing.T) {
 	if got := helpListLen(0); got != 0 {
 		t.Errorf("helpListLen(0) = %d, want 0 (GENERAL has no list)", got)
 	}
-	if len(helpShortcuts) != 34 {
-		t.Errorf("helpShortcuts has %d rows, want 34 (v1.4.0)", len(helpShortcuts))
+	if len(helpShortcuts) != 27 {
+		t.Errorf("helpShortcuts has %d rows, want 27 (v1.4.7)", len(helpShortcuts))
 	}
 }
 
@@ -2546,7 +2555,7 @@ func Test_BuildCommandRowCursorStyling(t *testing.T) {
 // raw capture shows 'navigaid@gmail.com (Antigravity Starter Quota)'.
 func Test_RenderHelpGeneralTierSuffix(t *testing.T) {
 	var b strings.Builder
-	renderHelpGeneral(&b, "Gemini 3.8 Flash (High)", "Antigravity Starter Quota",
+	tuilib.RenderHelpGeneral(&b, "Gemini 3.8 Flash (High)", "Antigravity Starter Quota",
 		"~/GitHub/openagy", "navigaid@gmail.com", "uuid")
 	out := b.String()
 	if !strings.Contains(out, helpDimGrayOpen+"navigaid@gmail.com (Antigravity Starter Quota)"+helpDimGrayClose) {
@@ -2555,7 +2564,7 @@ func Test_RenderHelpGeneralTierSuffix(t *testing.T) {
 
 	// An empty tier must not leave a dangling " ()".
 	b.Reset()
-	renderHelpGeneral(&b, "Gemini 3.8 Flash", "", "~/x", "u@t", "uuid")
+	tuilib.RenderHelpGeneral(&b, "Gemini 3.8 Flash", "", "~/x", "u@t", "uuid")
 	out = b.String()
 	if strings.Contains(out, "u@t (") {
 		t.Errorf("empty tier should not render parentheses: %q", out)
@@ -4261,22 +4270,39 @@ func TestSlashTasksList(t *testing.T) {
 		t.Errorf("line[0] = %q, want Tasks", lines[0])
 	}
 	// Row 1 is t3 (oldest StartedAt); rows 2 and 3 are t1 and
-	// t2 (running). The state glyph + ID together pin the row.
+	// t2 (running). The reference's row carries the task's name and
+	// its status cell — the task's id never appears in it.
+	//
+	// 【反编译】 model.TasksModel.View (0x102bed580): the row is
+	// "<prefix><marker> [<time>] <name><padding><status>".
 	wantRows := []struct {
-		id    string
-		state string
+		name   string
+		status string
 	}{
-		{"t3", "done"},
-		{"t1", "running"},
-		{"t2", "running"},
+		{"echo done", "completed"},
+		{"bash -c sleep 60", "running"},
+		{"ddgr --num=5 cats", "running"},
 	}
 	for i, want := range wantRows {
 		line := lines[1+i]
-		if !strings.Contains(line, want.state) {
-			t.Errorf("line[%d] = %q, want to contain %q", 1+i, line, want.state)
+		if !strings.Contains(line, want.status) {
+			t.Errorf("line[%d] = %q, want to contain %q", 1+i, line, want.status)
 		}
-		if !strings.Contains(line, want.id) {
-			t.Errorf("line[%d] = %q, want to contain %q", 1+i, line, want.id)
+		if !strings.Contains(line, want.name) {
+			t.Errorf("line[%d] = %q, want to contain %q", 1+i, line, want.name)
+		}
+		if strings.Contains(line, want.name+want.name) {
+			t.Errorf("line[%d] = %q, want the name once", 1+i, line)
+		}
+	}
+	// The cursor's row is the first one and it carries the "> "
+	// prefix; the others start with two spaces.
+	if !strings.HasPrefix(lines[1], "> ") {
+		t.Errorf("line[1] = %q, want the '> ' prefix", lines[1])
+	}
+	for _, i := range []int{2, 3} {
+		if !strings.HasPrefix(lines[i], "  ") {
+			t.Errorf("line[%d] = %q, want the idle prefix", i, lines[i])
 		}
 	}
 	// Footer is on row 5.
@@ -4317,12 +4343,16 @@ func TestSlashTasksKillRunning(t *testing.T) {
 		t.Fatalf("post-Start state = %q, want running", got)
 	}
 
-	// Press Enter on the cursor row. The cursor defaults to 0,
+	// Press "k" on the cursor row. The cursor defaults to 0,
 	// and with one task that is the running row.
+	//
+	// Cycle 315: Enter no longer kills — it opens the row's detail
+	// view. Killing moved to "k", the reference's KeyTaskKill binding
+	// (the /tasks legend says "k Kill Task").
 	m.panel = slashPanel{kind: panelTasks, cmd: "/tasks", cursor: 0}
-	handled, _ := m.tasksPanelKey(tea.Key{Code: tea.KeyEnter})
+	handled, _ := m.tasksPanelKey(tea.Key{Code: 'k'})
 	if !handled {
-		t.Fatal("tasksPanelKey(Enter) reported unhandled")
+		t.Fatal("tasksPanelKey(k) reported unhandled")
 	}
 
 	// The Kill must propagate through the StateChangeFunc and
@@ -4911,8 +4941,11 @@ func TestChangelogSource_LoaderFindsReference(t *testing.T) {
 	if len(src) < 940 {
 		t.Errorf("source line count = %d, want ≥ 940", len(src))
 	}
-	if src[0] != "1.4.6:" {
-		t.Errorf("first source line = %q, want %q", src[0], "1.4.6:")
+	// The feed's newest section is 1.4.7: re-captured against the 1.4.8
+	// binary on 2026-10-27, the served feed carries the 1.4.7 release
+	// notes but not the 1.4.8 ones.
+	if src[0] != "1.4.7:" {
+		t.Errorf("first source line = %q, want %q", src[0], "1.4.7:")
 	}
 	if !strings.Contains(strings.Join(src, "\n"), "1.4.1:") {
 		t.Error("source missing the 1.4.1 header (binary capture block)")
@@ -4928,11 +4961,11 @@ func TestChangelogPagination_RendersDoc(t *testing.T) {
 	}
 	m := mkPanel(panelChangelog, "/changelog", 0)
 	text := panelText(m)
-	if !strings.Contains(text, "Added a Configure MCP servers") {
+	if !strings.Contains(text, "Added lastUserInput to the JSON that hook commands receive on stdin") {
 		t.Errorf("viewer missing the opening bullet:\n%s", truncForErr(text, 400))
 	}
-	if !strings.Contains(text, "## 1.4.6") {
-		t.Errorf("viewer missing the ## 1.4.6 header row:\n%s", truncForErr(text, 400))
+	if !strings.Contains(text, "## 1.4.7") {
+		t.Errorf("viewer missing the ## 1.4.7 header row:\n%s", truncForErr(text, 400))
 	}
 	if !strings.Contains(strings.Join(m.changelogViewerLines(), "\n"), "## 1.4.3") {
 		t.Error("document missing the ## 1.4.3 header row")
@@ -5015,8 +5048,8 @@ func TestChangelogPagination_CtrlHome(t *testing.T) {
 		t.Fatalf("ctrl+home window = %d, want 0", m.panel.window)
 	}
 	text := panelText(m)
-	if !strings.Contains(text, "## 1.4.6") {
-		t.Errorf("first screen should open on 1.4.6:\n%s", truncForErr(text, 400))
+	if !strings.Contains(text, "## 1.4.7") {
+		t.Errorf("first screen should open on 1.4.7:\n%s", truncForErr(text, 400))
 	}
 	if !strings.Contains(strings.Join(m.changelogViewerLines(), "\n"), "## 1.4.3") {
 		t.Error("document missing the ## 1.4.3 header row")
@@ -6497,10 +6530,11 @@ func TestDiffFolding_FOnNonHunkNoOp(t *testing.T) {
 	body0 := diffInlineBodyRows(lines0)
 
 	// Find a "+" or "-" line in the body, advance the cursor onto
-	// it. The change blocks both use the +CHANGED-* markers.
+	// it. The change blocks both use the CHANGED-* markers, which the
+	// reference's row model carries in its four-wide marker column.
 	idxPlus := -1
 	for i, l := range body0 {
-		if rowStartsWith(l, "+CHANGED-") {
+		if strings.Contains(l, " +  CHANGED-") {
 			idxPlus = i
 			break
 		}
@@ -6799,10 +6833,11 @@ func TestCycle226AllChangesEnter(t *testing.T) {
 	if plain[0] != "f.txt" {
 		t.Errorf("inline title = %q, want f.txt", plain[0])
 	}
-	// The body should mention a real + line (the "+CHANGED" addition).
+	// The body should mention a real + line (the CHANGED addition).
+	// The reference's row model carries the sign in its marker column.
 	foundPlus := false
 	for _, l := range plain {
-		if strings.Contains(l, "+CHANGED") {
+		if strings.Contains(l, " +  CHANGED") {
 			foundPlus = true
 			break
 		}
@@ -7112,7 +7147,9 @@ func TestDiffTrimEndToEndRealRepo(t *testing.T) {
 	for i, l := range lines {
 		plain[i] = stripSGR(l)
 	}
-	const want = "  +line WITH TRAILING TAB"
+	// The reference's row model carries the sign in its four-wide marker
+	// column, in front of the text.
+	const want = " +  line WITH TRAILING TAB"
 	found := false
 	for _, l := range plain {
 		if strings.Contains(l, want) {
@@ -7844,8 +7881,14 @@ func TestColorSchemePreviewCardRendering(t *testing.T) {
 	m.panel.configSubmenuCursor = 7
 	linesTokyo := m.panelConfigLines()
 	joinedTokyo := strings.Join(linesTokyo, "\n")
-	pTokyo := onboarding.PaletteFor(onboarding.SchemeTokyoNight)
-	tokyoCodeStr := fmt.Sprintf("\x1b[38;5;%dm", pTokyo.Keyword)
+	// The card paints its keywords in the scheme's own true colour.
+	//
+	// 【一手】 agy 1.4.8's preview card writes 24-bit escapes for the
+	// code roles — it never falls back to a 256-colour index — so the
+	// expectation is the scheme's keyword colour, not onboarding's
+	// index form.
+	tokyoSyn := palette.SyntaxColorsFor("tokyo night")
+	tokyoCodeStr := palette.SeqWith(tokyoSyn.Keyword, tokyoSyn.KeywordAttr)
 	if !strings.Contains(joinedTokyo, tokyoCodeStr) {
 		t.Fatalf("expected Tokyo Night keyword color %s in preview output", tokyoCodeStr)
 	}

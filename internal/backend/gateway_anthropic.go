@@ -10,6 +10,7 @@ package backend
 import (
 	"bufio"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -39,6 +40,20 @@ type anthropicContent struct {
 	Input     json.RawMessage `json:"input,omitempty"`
 	ToolUseID string          `json:"tool_use_id,omitempty"`
 	Content   string          `json:"content,omitempty"`
+	// Source carries an image block's payload: the base64 image and its
+	// media type.
+	Source *anthropicImageSource `json:"source,omitempty"`
+}
+
+// anthropicImageSource is the source of an image block.
+//
+// 【一手】 the shape is the Anthropic Messages one, and it is the shape
+// PiG's own Anthropic dialect writes (ai/anthropic.go): a base64
+// source with the media type beside it.
+type anthropicImageSource struct {
+	Type      string `json:"type"`
+	MediaType string `json:"media_type"`
+	Data      string `json:"data"`
 }
 
 type anthropicTool struct {
@@ -181,9 +196,23 @@ func formatAnthropicMessage(m Message) (anthropicMessage, bool) {
 			}},
 		}, true
 	default:
+		blocks := []anthropicContent{{Type: "text", Text: m.WireText()}}
+		for _, img := range m.Images {
+			if len(img.Data) == 0 {
+				continue
+			}
+			blocks = append(blocks, anthropicContent{
+				Type: "image",
+				Source: &anthropicImageSource{
+					Type:      "base64",
+					MediaType: img.MIMEType,
+					Data:      base64.StdEncoding.EncodeToString(img.Data),
+				},
+			})
+		}
 		return anthropicMessage{
 			Role:    "user",
-			Content: []anthropicContent{{Type: "text", Text: m.WireText()}},
+			Content: blocks,
 		}, true
 	}
 }

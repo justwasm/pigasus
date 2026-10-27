@@ -94,10 +94,22 @@ func trimTo(s string, n int) string {
 // ---- background commands ---------------------------------------------------
 
 // bgTask is one background command started by run_command.
+//
+// 【一手】 The reference's background commands are *tasks*: they carry the
+// conversation's task id ("<conversation-id>/task-<n>"), write their output
+// to the conversation's task log, and are addressed by that id. See
+// background_task.go.
 type bgTask struct {
+	// id is the reference's task id: "<conversation-id>/task-<n>".
 	id      string
 	command string
 	started time.Time
+	// logPath is the reference's task log file. The command's output is
+	// written there when it finishes.
+	logPath string
+	// finished is closed when the command exits. A caller that waits with
+	// a deadline (the reference's WaitMsBeforeAsync) selects on it.
+	finished chan struct{}
 
 	mu     sync.Mutex
 	out    SafeBuffer
@@ -107,6 +119,14 @@ type bgTask struct {
 	cancel context.CancelFunc
 	done   bool
 	err    error
+	// completed is set when the command is gone. The "the command is
+	// still running" timer checks it: a command that finished gets the
+	// completion notification, never both.
+	completed bool
+	// killed is set when the task was stopped on purpose (the user killed
+	// it through manage_task, or the tool's own cancel path). A killed
+	// task reports "was canceled", not a result.
+	killed bool
 }
 
 // SafeBuffer wraps a bytes.Buffer with a mutex so concurrent writes
@@ -171,8 +191,45 @@ type bgTable struct {
 
 var backgroundTasks = &bgTable{tasks: map[string]*bgTask{}}
 
-// start registers and launches a background command.
-func (b *bgTable) start(ws, name string, argv []string, timeout time.Duration) (*bgTask, error) {
+// newTask creates a task, wires the command's output streams to it and
+// registers it in the table.
+//
+// The task has to exist before the command starts: the command's stdout
+// and stderr are the task's buffers, and the wait-window path (the
+// reference's WaitMsBeforeAsync) starts the command before it knows
+// whether the command will be foregrounded or backgrounded.
+func (b *bgTable) newTask(taskID, logPath, name string, cmd *exec.Cmd) (*bgTask, error) {
+	t := &bgTask{
+		id:       taskID,
+		command:  name,
+		cmd:      cmd,
+		started:  time.Now(),
+		cancel:   context.CancelFunc(func() {}),
+		logPath:  logPath,
+		finished: make(chan struct{}),
+	}
+	if cmd != nil {
+		cmd.Stdout = &t.out
+		cmd.Stderr = &t.out
+	}
+	if !b.register(t) {
+		return nil, errDuplicateTask
+	}
+	return t, nil
+}
+
+// watch hands the task's wait function to the monitor goroutine.
+func (b *bgTable) watch(t *bgTask, wait func() error, stdin io.Closer) {
+	go t.monitor(wait, stdin)
+}
+
+// start registers and launches a background command over a pipe.
+//
+// The command's stdin is a pipe (not the reference's pty) so that
+// send_command_input can write to it. taskID and logPath are the task's
+// identity in the reference's shape — the caller mints them because the
+// tool knows the conversation.
+func (b *bgTable) start(ws, taskID, logPath, name string, argv []string, timeout time.Duration) (*bgTask, error) {
 	if len(argv) == 0 {
 		return nil, errors.New("empty command")
 	}
@@ -186,35 +243,61 @@ func (b *bgTable) start(ws, name string, argv []string, timeout time.Duration) (
 	cmd.Env = AgentShellEnv()
 	setProcessGroup(cmd)
 
-	t := &bgTask{command: name, cmd: cmd, started: time.Now(), cancel: cancel}
-	stdin, err := cmd.StdinPipe()
+	t, err := b.newTask(taskID, logPath, name, cmd)
 	if err != nil {
 		cancel()
 		return nil, err
 	}
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		cancel()
+		b.remove(taskID)
+		return nil, err
+	}
 	t.stdin = stdin
-	cmd.Stdout = &t.out
-	cmd.Stderr = &t.out
-
-	b.mu.Lock()
-	b.seq++
-	t.id = fmt.Sprintf("cmd-%d", b.seq)
-	b.tasks[t.id] = t
-	b.order = append(b.order, t.id)
-	b.mu.Unlock()
 
 	if err := cmd.Start(); err != nil {
 		cancel()
-		b.mu.Lock()
-		delete(b.tasks, t.id)
-		b.mu.Unlock()
+		b.remove(t.id)
 		return nil, err
 	}
-	go t.monitor(cmd, stdin)
+	b.watch(t, func() error { return cmd.Wait() }, stdin)
 	return t, nil
 }
 
-func (t *bgTask) monitor(cmd *exec.Cmd, stdin io.Closer) {
+// errDuplicateTask is returned when a task id is already in the table.
+var errDuplicateTask = errors.New("background task id already in use")
+
+// register adds the task to the table. It reports false when the id is
+// already taken.
+func (b *bgTable) register(t *bgTask) bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if _, ok := b.tasks[t.id]; ok {
+		return false
+	}
+	b.tasks[t.id] = t
+	b.order = append(b.order, t.id)
+	return true
+}
+
+// remove drops the task from the table.
+func (b *bgTable) remove(id string) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	delete(b.tasks, id)
+}
+
+// monitor waits for the command and records its final state.
+//
+// The wait function owns the process (cmd.Wait for the pipe path, the pty
+// helper's wait for the pty path); stdin is closed once the command is
+// gone. When the command finishes, its output is written to the task log
+// — the reference's own task logs hold exactly the command's output
+// (【一手】 ~/.gemini/antigravity-cli/brain/<conv>/.system_generated/tasks/
+// task-56.log holds the `go test` output of a backgrounded run_command, and
+// the log of a still-running task is empty).
+func (t *bgTask) monitor(wait func() error, stdin io.Closer) {
 	var reason string
 	defer func() {
 		if r := recover(); r != nil {
@@ -223,16 +306,127 @@ func (t *bgTask) monitor(cmd *exec.Cmd, stdin io.Closer) {
 			}
 		}
 		recordFinalOutput(&t.out, &t.log, reason)
+		t.writeTaskLog()
+		t.mu.Lock()
+		t.done = true
+		t.completed = true
+		t.mu.Unlock()
+		close(t.finished)
 	}()
 
-	waitErr := cmd.Wait()
-	_ = stdin.Close()
+	waitErr := wait()
+	if stdin != nil {
+		_ = stdin.Close()
+	}
 	t.mu.Lock()
-	t.done = true
 	t.err = waitErr
 	t.mu.Unlock()
 
 	reason = bgExitReason(waitErr)
+}
+
+// hasCompleted reports whether the command is gone.
+func (t *bgTask) hasCompleted() bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.completed
+}
+
+// notifyOnCompletion arms the reference's completion notification for a
+// task: the model is told that the task is over once the command is gone.
+//
+// The notification is armed, not fired: the command may still be running,
+// and the task's own monitor closes t.finished when it is gone. A command
+// that finished inside the wait window never became a task, so nothing is
+// armed for it — the foreground result is what the model reads.
+func notifyOnCompletion(t *bgTask) {
+	if t == nil {
+		return
+	}
+	go func() {
+		<-t.finished
+		t.notifyCompletion()
+	}()
+}
+
+// notifyCompletion fires the reference's completion notification for a
+// finished background task.
+//
+// 【一手】 The reference delivers the notification when the command is gone:
+// the model is told that the task finished and what it produced, and the
+// task log is named so the model can read the whole output. The captured
+// notification — the reference's own text — is in
+// internal/tools/testdata/reference_background_task_1.4.7.txt:
+//
+//	Task id "<conv>/task-56" finished with result:
+//	Command exited with code 0.
+//
+//	Command output:
+//	...
+//
+//	Log: file://<task log>
+//
+// A canceled task has no result: the reference's own status word for it is
+// "was canceled", and the log still names the output the command produced
+// before it was stopped.
+//
+// A non-zero exit is not a failure here (the repo's own invariant: a
+// non-zero exit is a nil-error result, not an error), so the task
+// "finished" and the result carries the exit code.
+func (t *bgTask) notifyCompletion() {
+	t.mu.Lock()
+	err, killed := t.err, t.killed
+	t.mu.Unlock()
+
+	code := 0
+	var exitErr *exec.ExitError
+	if errors.As(err, &exitErr) {
+		code = exitErr.ExitCode()
+		if code < 0 {
+			code = 128
+		}
+	}
+	// A task that was stopped on purpose — the user killed it, or the
+	// command's own context was canceled — reports the reference's own
+	// status word and carries no result.
+	if killed || errors.Is(err, context.Canceled) || (exitErr != nil && exitErr.ExitCode() < 0) {
+		notifyTask(TaskNotification{
+			TaskID:   t.id,
+			Body:     taskNotification(t.id, "was canceled", "", t.logPath),
+			LogPath:  t.logPath,
+			Priority: TaskPriorityHigh,
+			At:       time.Now(),
+		})
+		return
+	}
+	// The result is the CLI's own formatter text for the finished command
+	// — the exit-code line and the output — without the "Created At:" /
+	// "Completed At:" stamp the tool result carries: the reference's
+	// completion notification has no stamp.
+	result := commandResultBody(code, normalizeCommandOutput(t.out.String()), nil)
+	notifyTask(TaskNotification{
+		TaskID:   t.id,
+		Body:     taskCompletionNotification(t.id, result, t.logPath),
+		LogPath:  t.logPath,
+		Priority: TaskPriorityHigh,
+		At:       time.Now(),
+	})
+}
+
+// writeTaskLog writes the task's output to the reference's task log file.
+//
+// The reference rewrites the file with the command's raw output (【一手】
+// the reference's own task-56.log holds exactly the `go test` output of a
+// backgrounded run_command, with no exit-reason line), so this writes the
+// live buffer rather than the in-memory task log.
+func (t *bgTask) writeTaskLog() {
+	if t.logPath == "" {
+		return
+	}
+	if err := os.MkdirAll(filepath.Dir(t.logPath), 0o755); err != nil {
+		return
+	}
+	_ = os.WriteFile(t.logPath, []byte(t.out.String()), 0o644)
 }
 
 func (b *bgTable) get(id string) (*bgTask, bool) {
@@ -254,6 +448,32 @@ func (b *bgTable) list() []string {
 		}
 	}
 	return out
+}
+
+// stepState returns the command's state in the form the reference's
+// send_command_input step string reads: the output as it stands, whether
+// the command is still running, and the exit code once it has one.
+//
+// The step string is the reference's own renderer
+// (step_strings/send_command_input.tmpl); see internal/agystep.
+func (t *bgTask) stepState() (output string, running bool, exitCode int) {
+	t.mu.Lock()
+	done, err := t.done, t.err
+	t.mu.Unlock()
+	// Cycle 258: a finished task's authoritative output is the
+	// persistent task log, not the live buffer — see status().
+	if done {
+		output = t.log.String()
+	} else {
+		output = t.out.String()
+	}
+	if !done {
+		return output, true, 0
+	}
+	if exitErr, ok := err.(*exec.ExitError); ok {
+		return output, false, exitErr.ExitCode()
+	}
+	return output, false, 0
 }
 
 func (t *bgTask) status() string {
@@ -325,7 +545,20 @@ func (t *bgTask) kill() (string, error) {
 	// propagates within microseconds) the sync.Once in log.appendOnce
 	// makes this call a no-op.
 	recordFinalOutput(&t.out, &t.log, "killed by user")
+	t.mu.Lock()
+	t.killed = true
+	t.mu.Unlock()
 	t.cancel()
+	// Wait for the command to be reaped before returning. The task's log
+	// file is written by the monitor goroutine when the command exits
+	// (writeTaskLog), so a caller that tears the workspace down right
+	// after the kill would race that write: the file would reappear in a
+	// directory that is being removed. The signal is SIGKILL, so the wait
+	// is short; the bound keeps a wedged child from blocking the caller.
+	select {
+	case <-t.finished:
+	case <-time.After(5 * time.Second):
+	}
 	return fmt.Sprintf("Killed %s.", t.id), nil
 }
 

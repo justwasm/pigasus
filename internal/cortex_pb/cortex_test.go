@@ -114,7 +114,7 @@ func TestFetchToolCatalog(t *testing.T) {
 	})
 	defer client.Close()
 	resp, err := client.FetchToolCatalog(context.Background(), &FetchToolCatalogRequest{
-		Tier: ModelTierSonnet,
+		Tier: ModelTierPro,
 	})
 	if err != nil {
 		t.Fatalf("FetchToolCatalog: %v", err)
@@ -202,24 +202,26 @@ func TestProtoMessageGetters(t *testing.T) {
 }
 
 func TestEnums(t *testing.T) {
-	// Spot-check a few of the 30+ enums.
-	if AgentModeChat.String() != "CHAT" {
-		t.Errorf("AgentModeChat.String() = %q, want CHAT", AgentModeChat.String())
+	// Spot-check a few of the recovered enums. The String() method
+	// returns the reference's own enum member name, so the value is the
+	// full proto spelling.
+	if AgentModePlanning.String() != "AGENT_MODE_PLANNING" {
+		t.Errorf("AgentModePlanning.String() = %q, want AGENT_MODE_PLANNING", AgentModePlanning.String())
 	}
-	if CascadeRunStatusRunning.String() != "RUNNING" {
-		t.Errorf("CascadeRunStatusRunning.String() = %q, want RUNNING", CascadeRunStatusRunning.String())
+	if CascadeRunStatusRunning.String() != "CASCADE_RUN_STATUS_RUNNING" {
+		t.Errorf("CascadeRunStatusRunning.String() = %q, want CASCADE_RUN_STATUS_RUNNING", CascadeRunStatusRunning.String())
 	}
-	if CortexStepTypeRunCommand.String() != "RUN_COMMAND" {
-		t.Errorf("CortexStepTypeRunCommand.String() = %q, want RUN_COMMAND", CortexStepTypeRunCommand.String())
+	if CortexStepTypeRunCommand.String() != "CORTEX_STEP_TYPE_RUN_COMMAND" {
+		t.Errorf("CortexStepTypeRunCommand.String() = %q, want CORTEX_STEP_TYPE_RUN_COMMAND", CortexStepTypeRunCommand.String())
 	}
-	if PlanStatusApproved.String() != "APPROVED" {
-		t.Errorf("PlanStatusApproved.String() = %q, want APPROVED", PlanStatusApproved.String())
+	if PlanStatusPlanned.String() != "PLAN_STATUS_PLANNED" {
+		t.Errorf("PlanStatusPlanned.String() = %q, want PLAN_STATUS_PLANNED", PlanStatusPlanned.String())
 	}
 	if GoalStateAwaitingApproval.String() != "AWAITING_APPROVAL" {
 		t.Errorf("GoalStateAwaitingApproval.String() = %q, want AWAITING_APPROVAL", GoalStateAwaitingApproval.String())
 	}
-	if ModelTierSonnet.String() != "SONNET" {
-		t.Errorf("ModelTierSonnet.String() = %q, want SONNET", ModelTierSonnet.String())
+	if ModelTierPro.String() != "MODEL_TIER_PRO" {
+		t.Errorf("ModelTierPro.String() = %q, want MODEL_TIER_PRO", ModelTierPro.String())
 	}
 }
 

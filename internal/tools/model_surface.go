@@ -41,8 +41,16 @@
 // `<terminal_sandbox>` prompt section are conditional on `--sandbox`, not on
 // the version — without the flag the reference omits the parameter and the
 // prompt section, which is why a capture taken without it looks like a drift
-// and is not one. The fixture keeps its name and its bytes; only the drift
-// registry's `captured_at` moved.
+// and is not one.
+//
+// Cycle 306 refined that: the 1.4.8 binary holds a *second* variant of four
+// of these descriptions (`run_command`, `send_message`, `manage_subagents`,
+// `edit_file` — see internal/tools/variants.go). The selection is runtime/flag
+// dependent and was not traced, but the request bodies captured on 2026-10-22
+// (with and without `--sandbox`) both carry the *older* variant, which is the
+// one this fixture holds — so the clone ships the variant the reference
+// actually puts on the wire. The newer ones are recorded as evidence in
+// testdata/tool_variants_1.4.7.json.
 package tools
 
 import (
@@ -110,6 +118,39 @@ func SchemaParams(raw json.RawMessage) map[string]any {
 		return nil
 	}
 	out, _ := lowercaseSchemaTypes(schema).(map[string]any)
+	return out
+}
+
+// RelaxedSchema returns a schema with its `required` list dropped.
+//
+// The reference's harness *runs* a tool call whose arguments miss a field
+// the schema requires. The captured `view_file` call carries only
+// `AbsolutePath` — no `toolSummary`, no `toolAction` — and the reference
+// ran the tool instead of refusing the call. PiG's runtime validates the
+// arguments against the schema before it dispatches, so a harness session
+// has to validate against the relaxed schema or every such call fails.
+//
+// The *advertised* schema keeps the requirement: the model is still told
+// to send the fields. Only the runtime check is relaxed.
+//
+// A schema that cannot be decoded is returned unchanged — the caller then
+// validates exactly as before.
+func RelaxedSchema(raw json.RawMessage) json.RawMessage {
+	if len(raw) == 0 {
+		return raw
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &fields); err != nil {
+		return raw
+	}
+	if _, ok := fields["required"]; !ok {
+		return raw
+	}
+	delete(fields, "required")
+	out, err := json.Marshal(fields)
+	if err != nil {
+		return raw
+	}
 	return out
 }
 

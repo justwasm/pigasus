@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/justwasm/pigasus/internal/cli"
+	"github.com/justwasm/pigasus/internal/models"
 )
 
 // BaseModelSpec is a base model slug's thinking-level table: the levels it
@@ -37,7 +38,11 @@ func ResolveDefaultEffort(spec BaseModelSpec) string {
 }
 
 // ValidEfforts is the global vocabulary the reference accepts for --effort.
-var ValidEfforts = []string{"low", "medium", "high", "xhigh", "max"}
+//
+// It is the models package's closed set — the same five words the Web UI's
+// dispatcher accepts, and the ones a configured model may declare as its
+// reasoning tiers.
+var ValidEfforts = models.EffortLevels
 
 type modelSelectionError struct{ msg string }
 
@@ -126,6 +131,17 @@ func resolveModelWithEffort(model, effort string) (string, error) {
 	if model != "" {
 		if _, ok := BaseModelEfforts[model]; ok {
 			base = model
+		} else if tiers, ok := configuredTiers(model); ok {
+			// A model the user configured, with the tiers its own
+			// configuration states. The reference's own rule applies:
+			// a tier the model does not offer is refused, and the
+			// answer is the model's id with the tier spelled into it.
+			if !containsStr(tiers, effort) {
+				return "", invalidModelSelection(model, effort,
+					fmt.Sprintf("%s has no %q effort (available: %s)", model, effort, strings.Join(tiers, ", ")))
+			}
+			m, _ := configuredModel(model)
+			return models.TierRowID(m.Name, effort), nil
 		} else if _, ok := CatalogueIDBySlug(model); ok {
 			return "", invalidModelSelection(model, effort,
 				fmt.Sprintf("--model %s conflicts with --effort=%s", model, effort))
@@ -154,8 +170,52 @@ func resolveModelWithoutEffort(model string) (string, error) {
 	if id, ok := CatalogueID(model); ok {
 		return id, nil
 	}
+	// A model the user configured, with tiers: its bare id stands for
+	// the model's default tier — the reference's own rule ("--model
+	// <name>" without "--effort" picks the model's server default).
+	if m, ok := configuredModel(model); ok {
+		if tier := models.DefaultEffort(m); tier != "" {
+			return models.TierRowID(m.Name, tier), nil
+		}
+	}
 	return "", invalidModelSelection(model, "",
 		"model "+model+" is not recognized as a known model or custom model in settings\n"+availableModelsBlock())
+}
+
+// configuredModel returns the configured model a name names — by its
+// catalogue id or by its display label — and whether it names one at all.
+func configuredModel(name string) (models.Model, bool) {
+	reg := models.CachedRegistry()
+	if reg == nil {
+		return models.Model{}, false
+	}
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return models.Model{}, false
+	}
+	for _, m := range reg.List() {
+		if m.Name == name || strings.TrimSpace(m.DisplayName) == name {
+			return m, true
+		}
+	}
+	return models.Model{}, false
+}
+
+// configuredTiers returns the reasoning tiers a configured model offers,
+// and whether the name names a configured model with tiers at all.
+//
+// A model that declares no tiers is not "a model with tiers": it is one
+// row, and the reference's --effort refuses to override it.
+func configuredTiers(name string) ([]string, bool) {
+	m, ok := configuredModel(name)
+	if !ok {
+		return nil, false
+	}
+	tiers := models.NormalizeEfforts(m.ReasoningEfforts)
+	if len(tiers) == 0 {
+		return nil, false
+	}
+	return tiers, true
 }
 
 // ParseEffortWord normalises a user-typed effort string to canonical effort.
@@ -182,21 +242,12 @@ func containsStr(xs []string, s string) bool {
 // "gemini-3.8-flash-high" -> "gemini-3.8-flash". Ids that carry no effort
 // suffix (claude-sonnet-4-6, claude-opus-4-6-thinking) are returned unchanged.
 func ModelBaseSlug(id string) string {
-	for _, e := range ValidEfforts {
-		if strings.HasSuffix(id, "-"+e) {
-			return strings.TrimSuffix(id, "-"+e)
-		}
-	}
-	return id
+	return models.BaseModelID(id)
 }
 
 // ModelEffortFromID returns the effort a catalogue id encodes, or "".
 func ModelEffortFromID(id string) string {
-	base := ModelBaseSlug(id)
-	if base == id {
-		return ""
-	}
-	return strings.TrimPrefix(id, base+"-")
+	return models.TierFromID(id)
 }
 
 // ModelSlug turns a display model name into the reference's slug form:

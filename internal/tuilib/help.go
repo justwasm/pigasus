@@ -4,18 +4,47 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/justwasm/pigasus/internal/palette"
+	"github.com/justwasm/pigasus/palette"
 )
 
-const (
+// The palette's colours follow the selected colour scheme, so these
+// aliases are refreshed whenever the scheme changes.
+var (
 	HelpBlueOpen     = palette.BlueOpen
 	HelpBlueClose    = palette.BlueClose
 	HelpDimGrayOpen  = palette.DimGrayOpen
 	HelpDimGrayClose = palette.DimGrayClose
-	HelpDescOpen     = "\x1b[38;2;88;110;117m"
-	HelpDescClose    = "\x1b[39m"
-	HelpDescColumn   = 51
+	HelpDescOpen     = palette.SubtleOpen
 )
+
+const (
+	HelpDescClose  = "\x1b[39m"
+	HelpDescColumn = 51
+)
+
+func init() {
+	palette.OnSchemeChange(refreshPaletteAliases)
+}
+
+// refreshPaletteAliases re-reads the palette's colours after the
+// selected colour scheme changed, and rebuilds the footer's text with
+// them.
+func refreshPaletteAliases() {
+	HelpBlueOpen = palette.BlueOpen
+	HelpBlueClose = palette.BlueClose
+	HelpDimGrayOpen = palette.DimGrayOpen
+	HelpDimGrayClose = palette.DimGrayClose
+	HelpDescOpen = palette.SubtleOpen
+	HelpHeaderOpen = "\x1b[1m" + palette.SubtleOpen
+	cBlueBoldOpen = palette.BlueBoldOpen
+	cDimGrayOpen = palette.DimGrayOpen
+	TabBarActiveOpen = "\x1b[1;4m" + palette.BlueOpen
+	TabBarInactiveOpen = palette.SeparatorOpen
+	TabBarInactiveClose = palette.SeparatorClose
+	TabBarHintOpen = palette.SeparatorOpen
+	TabBarHintClose = palette.SeparatorClose
+	HelpKeyboardHint = buildHelpKeyboardHint()
+}
 
 // HelpListWindowFor returns the number of list rows the /help overlay
 // renders at once for a terminal of the given height. Cycle 132 hard-
@@ -61,6 +90,11 @@ func HelpListVisible(total, window, size int) int {
 }
 
 // HelpShortcuts is the keyboard binding catalog displayed in the /help SHORTCUTS tab.
+//
+// v1.4.7 dropped the basic navigation keys (up, down, left, right, tab,
+// pgup, pgdown) from this list so the more useful shortcuts are easier to
+// find; the reference's own /help shows 27 rows and the clone matches it
+// row for row.
 var HelpShortcuts = []string{
 	"> /                               Open slash commands",
 	"  \\ + enter                       Insert newline fallback",
@@ -81,21 +115,14 @@ var HelpShortcuts = []string{
 	"  ctrl+shift+z                    Redo",
 	"  ctrl+y                          Yank (paste from kill ring)",
 	"  ctrl+z                          Suspend CLI",
-	"  down                            Move down",
 	"  enter                           Send message or confirm",
 	"  f2                              Rename",
 	"  f4                              Delete",
 	"  f5                              Start voice dictation",
-	"  left                            Move left / Prev tab",
-	"  pgdown                          Page down",
-	"  pgup                            Page up",
-	"  right                           Move right / Next tab",
 	"  shift+down                      Half page down",
 	"  shift+tab                       Cycle mode",
 	"  shift+up                        Half page up",
 	"  shift/alt+click                 Select and copy text",
-	"  tab                             Tab",
-	"  up                              Move up",
 }
 
 // FormatShortcutDesc renders the description column with either highlighted or dim formatting.

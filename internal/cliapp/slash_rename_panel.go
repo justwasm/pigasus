@@ -37,6 +37,7 @@ import (
 	"github.com/justwasm/pigasus/internal/auth"
 	"github.com/justwasm/pigasus/internal/canvas"
 	"github.com/justwasm/pigasus/internal/keybind"
+	"github.com/justwasm/pigasus/palette"
 )
 
 // textinputPrompt is the prefix the reference draws before the typed
@@ -45,7 +46,8 @@ import (
 // Confirmed by `strings ~/.local/bin/agy | grep -E 'Rename.*Conversation'`
 // — the panel title is rendered with the same palette the rest of the
 // panel surfaces use (cycle 126's brand blue at 38;2;66;133;244).
-const textinputRenamePrompt = "\x1b[1m\x1b[38;2;38;139;210mRename:\x1b[0m "
+// The prompt's colour is the selected scheme's accent.
+var textinputRenamePrompt = "\x1b[1m" + palette.BlueOpen + "Rename:\x1b[0m "
 
 // textinputRenamePlaceholder is the grey "type a name…" line shown
 // when the user has not typed anything yet. Cycle 283: the colour is

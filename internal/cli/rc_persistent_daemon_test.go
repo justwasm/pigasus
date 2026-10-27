@@ -12,6 +12,7 @@
 package cli
 
 import (
+	"bytes"
 	"os"
 	"strings"
 	"testing"
@@ -26,6 +27,8 @@ import (
 // the persistent daemon's log path), but the reference does not list
 // them — `agy remote-control start --addr 1.2.3.4:9` prints this very
 // usage block — so the clone does not either.
+//
+// `--desktop` follows the same rule: accepted, not advertised.
 func TestRemoteControlStart_HelpOnly(t *testing.T) {
 	out, errb, code := runJetski(t, "remote-control", "start", "--help")
 	if code != 0 {
@@ -43,6 +46,39 @@ func TestRemoteControlStart_HelpOnly(t *testing.T) {
 		if strings.Contains(errb, flag) {
 			t.Errorf("start --help usage must not advertise %q (the reference does not); stderr=%q", flag, errb)
 		}
+	}
+	if strings.Contains(errb, "--desktop") {
+		t.Errorf("start --help usage must not advertise --desktop (the reference does not); stderr=%q", errb)
+	}
+}
+
+// TestRemoteControlStart_DesktopAccepted pins that the parser
+// accepts the desktop switch on `remote-control start`.
+//
+// The full flow (the LaunchAgent plist carrying `--desktop`) is
+// pinned in internal/persistentrc; here the parser surface is what
+// is under test. The flag is *not* advertised in the usage block —
+// the reference's `start` block is byte for byte, and the clone
+// follows the same rule it follows for `--addr` and `--log-file`.
+func TestRemoteControlStart_DesktopAccepted(t *testing.T) {
+	j := &JetskiCLI{
+		Name:   "pigasus",
+		Out:    &bytes.Buffer{},
+		ErrOut: &bytes.Buffer{},
+	}
+	opts, err := parseRCStartFlags(j, []string{"--desktop"}, usageRCStart("pigasus"))
+	if err != nil {
+		t.Fatalf("parseRCStartFlags(--desktop): %v", err)
+	}
+	if !opts.desktop {
+		t.Errorf("--desktop did not reach the parser")
+	}
+	opts, err = parseRCStartFlags(j, []string{"--name", "x"}, usageRCStart("pigasus"))
+	if err != nil {
+		t.Fatalf("parseRCStartFlags(--name x): %v", err)
+	}
+	if opts.desktop {
+		t.Errorf("desktop = true without --desktop")
 	}
 }
 

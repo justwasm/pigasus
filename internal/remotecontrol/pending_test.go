@@ -10,7 +10,7 @@
 // Wire-level coverage (cascade/user_interaction_required
 // notification + HandleRemoteAgentCascadeUserInteraction RPC
 // over coder/websocket) lives next to the TCP+WS transport
-// in internal/remotetransport/tcp_test.go.
+// in remotetransport/tcp_test.go.
 package remotecontrol
 
 import (

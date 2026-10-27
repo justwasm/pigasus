@@ -42,9 +42,9 @@ import (
 	"strings"
 
 	"github.com/justwasm/pigasus/internal/mdrender"
-	"github.com/justwasm/pigasus/internal/palette"
 	"github.com/justwasm/pigasus/internal/termcolor"
 	"github.com/justwasm/pigasus/internal/tuilib"
+	"github.com/justwasm/pigasus/palette"
 )
 
 // applyRenderer returns the bytes the renderer should emit given
@@ -128,16 +128,17 @@ func styleInlineBackticks(line string) string {
 	return mdrender.StyleInlineBackticks(line)
 }
 
-const (
-	cBlueOpen        = palette.BlueOpen
-	cBlueBoldOpen    = palette.BlueBoldOpen
-	cDimGrayOpen     = palette.DimGrayOpen
-	cWarningOpen     = palette.WarningOpen
-	cWarningBlueOpen = palette.WarningBlueOpen
-	cWarningBodyOpen = palette.WarningBodyOpen
-	cSeparatorOpen   = palette.SeparatorOpen
-	cSubtleOpen      = palette.SubtleOpen
-
+// The palette's colours follow the selected colour scheme, so these
+// aliases are refreshed whenever the scheme changes.
+var (
+	cBlueOpen              = palette.BlueOpen
+	cBlueBoldOpen          = palette.BlueBoldOpen
+	cDimGrayOpen           = palette.DimGrayOpen
+	cWarningOpen           = palette.WarningOpen
+	cWarningBlueOpen       = palette.WarningBlueOpen
+	cWarningBodyOpen       = palette.WarningBodyOpen
+	cSeparatorOpen         = palette.SeparatorOpen
+	cSubtleOpen            = palette.SubtleOpen
 	cToolAddOpen           = palette.ToolAddOpen
 	cToolRemoveOpen        = palette.ToolRemoveOpen
 	cToolBulletOpen        = palette.ToolBulletOpen
@@ -154,47 +155,143 @@ const (
 	cToolHintClose         = palette.ToolHintClose
 	cToolFailedSuffixOpen  = palette.ToolFailedSuffixOpen
 	cToolFailedSuffixClose = palette.ToolFailedSuffixClose
+	cDetailBulletOpen      = palette.DetailBulletOpen
+	cDiffNumOpen           = palette.DiffNumOpen
+	cDiffStripeOpen        = palette.DiffStripeOpen
+	cDiffAddTintDark       = palette.DiffAddTintDark
+	cDiffRemoveTintDark    = palette.DiffRemoveTintDark
+	cDiffAddTintLight      = palette.DiffAddTintLight
+	cDiffRemoveTintLight   = palette.DiffRemoveTintLight
+	cDiffAddTintOpen       = palette.DiffAddTintOpen
+	cDiffRemoveTintOpen    = palette.DiffRemoveTintOpen
+	cThoughtBulletOpen     = palette.ThoughtBulletOpen
+	cThoughtBulletClose    = palette.ThoughtBulletClose
+	cBodyOpen              = palette.BodyOpen
+	cBodyClose             = palette.BodyClose
+	cSpinnerBaseOpen       = palette.SpinnerBaseOpen
+	cSpinnerHiOpen         = palette.SpinnerHiOpen
+	cInlineCodeOpen        = palette.InlineCodeOpen
+	cInlineCodeClose       = palette.InlineCodeClose
+	cBoldOpen              = palette.BoldOpen
+	cBoldClose             = palette.BoldClose
+	cBlueClose             = palette.BlueClose
+	cBlueBoldClose         = palette.BlueBoldClose
+	cDimGrayClose          = palette.DimGrayClose
+	cWarningClose          = palette.WarningClose
+	cWarningBlueClose      = palette.WarningBlueClose
+	cWarningBodyClose      = palette.WarningBodyClose
+	cSeparatorClose        = palette.SeparatorClose
+	cToolAddClose          = palette.ToolAddClose
+	cToolRemoveClose       = palette.ToolRemoveClose
+	cSyntaxKeywordOpen     = palette.SyntaxKeywordOpen
+	cSyntaxStringOpen      = palette.SyntaxStringOpen
+	cSyntaxNumberOpen      = palette.SyntaxNumberOpen
+	cSyntaxCommentOpen     = palette.SyntaxCommentOpen
+	cSyntaxTypeOpen        = palette.SyntaxTypeOpen
+	cSyntaxTokenClose      = palette.SyntaxTokenClose
+)
 
-	cDetailBulletOpen    = palette.DetailBulletOpen
-	cDiffNumOpen         = palette.DiffNumOpen
-	cDiffStripeOpen      = palette.DiffStripeOpen
-	cDiffAddTintDark     = palette.DiffAddTintDark
-	cDiffRemoveTintDark  = palette.DiffRemoveTintDark
-	cDiffAddTintLight    = palette.DiffAddTintLight
+func init() {
+	palette.OnSchemeChange(refreshPaletteAliases)
+}
+
+// refreshPaletteAliases re-reads the palette's colours after the
+// selected colour scheme changed.
+func refreshPaletteAliases() {
+	cBlueOpen = palette.BlueOpen
+	cBlueBoldOpen = palette.BlueBoldOpen
+	cDimGrayOpen = palette.DimGrayOpen
+	cWarningOpen = palette.WarningOpen
+	cWarningBlueOpen = palette.WarningBlueOpen
+	cWarningBodyOpen = palette.WarningBodyOpen
+	cSeparatorOpen = palette.SeparatorOpen
+	cSubtleOpen = palette.SubtleOpen
+	cToolAddOpen = palette.ToolAddOpen
+	cToolRemoveOpen = palette.ToolRemoveOpen
+	cToolBulletOpen = palette.ToolBulletOpen
+	cToolBulletClose = palette.ToolBulletClose
+	cToolBulletRunningOpen = palette.ToolBulletRunningOpen
+	cToolBulletErrOpen = palette.ToolBulletErrOpen
+	cToolVerbOpen = palette.ToolVerbOpen
+	cToolVerbClose = palette.ToolVerbClose
+	cToolArgsOpen = palette.ToolArgsOpen
+	cToolArgsClose = palette.ToolArgsClose
+	cToolArgsOuterOpen = palette.ToolArgsOuterOpen
+	cToolArgsOuterClose = palette.ToolArgsOuterClose
+	cToolHintOpen = palette.ToolHintOpen
+	cToolHintClose = palette.ToolHintClose
+	cToolFailedSuffixOpen = palette.ToolFailedSuffixOpen
+	cToolFailedSuffixClose = palette.ToolFailedSuffixClose
+	cDetailBulletOpen = palette.DetailBulletOpen
+	cDiffNumOpen = palette.DiffNumOpen
+	cDiffStripeOpen = palette.DiffStripeOpen
+	cDiffAddTintDark = palette.DiffAddTintDark
+	cDiffRemoveTintDark = palette.DiffRemoveTintDark
+	cDiffAddTintLight = palette.DiffAddTintLight
 	cDiffRemoveTintLight = palette.DiffRemoveTintLight
-	cDiffAddTintOpen     = palette.DiffAddTintOpen
-	cDiffRemoveTintOpen  = palette.DiffRemoveTintOpen
-
-	cThoughtBulletOpen  = palette.ThoughtBulletOpen
+	cDiffAddTintOpen = palette.DiffAddTintOpen
+	cDiffRemoveTintOpen = palette.DiffRemoveTintOpen
+	cThoughtBulletOpen = palette.ThoughtBulletOpen
 	cThoughtBulletClose = palette.ThoughtBulletClose
-	cBodyOpen           = palette.BodyOpen
-	cBodyClose          = palette.BodyClose
-
+	cBodyOpen = palette.BodyOpen
+	cBodyClose = palette.BodyClose
 	cSpinnerBaseOpen = palette.SpinnerBaseOpen
-	cSpinnerHiOpen   = palette.SpinnerHiOpen
-
-	cInlineCodeOpen  = palette.InlineCodeOpen
+	cSpinnerHiOpen = palette.SpinnerHiOpen
+	cInlineCodeOpen = palette.InlineCodeOpen
 	cInlineCodeClose = palette.InlineCodeClose
-	cBoldOpen        = palette.BoldOpen
-	cBoldClose       = palette.BoldClose
-
-	cBlueClose        = palette.BlueClose
-	cBlueBoldClose    = palette.BlueBoldClose
-	cDimGrayClose     = palette.DimGrayClose
-	cWarningClose     = palette.WarningClose
+	cBoldOpen = palette.BoldOpen
+	cBoldClose = palette.BoldClose
+	cBlueClose = palette.BlueClose
+	cBlueBoldClose = palette.BlueBoldClose
+	cDimGrayClose = palette.DimGrayClose
+	cWarningClose = palette.WarningClose
 	cWarningBlueClose = palette.WarningBlueClose
 	cWarningBodyClose = palette.WarningBodyClose
-	cSeparatorClose   = palette.SeparatorClose
-	cToolAddClose     = palette.ToolAddClose
-	cToolRemoveClose  = palette.ToolRemoveClose
-
+	cSeparatorClose = palette.SeparatorClose
+	cToolAddClose = palette.ToolAddClose
+	cToolRemoveClose = palette.ToolRemoveClose
 	cSyntaxKeywordOpen = palette.SyntaxKeywordOpen
-	cSyntaxStringOpen  = palette.SyntaxStringOpen
-	cSyntaxNumberOpen  = palette.SyntaxNumberOpen
+	cSyntaxStringOpen = palette.SyntaxStringOpen
+	cSyntaxNumberOpen = palette.SyntaxNumberOpen
 	cSyntaxCommentOpen = palette.SyntaxCommentOpen
-	cSyntaxTypeOpen    = palette.SyntaxTypeOpen
-	cSyntaxTokenClose  = palette.SyntaxTokenClose
-)
+	cSyntaxTypeOpen = palette.SyntaxTypeOpen
+	cSyntaxTokenClose = palette.SyntaxTokenClose
+
+	// The help overlay's own aliases, declared in tui_help.go.
+	helpHeaderOpen = tuilib.HelpHeaderOpen
+	helpHeaderClose = tuilib.HelpHeaderClose
+	cHelpDescOpen = tuilib.HelpDescOpen
+	cHelpDescClose = tuilib.HelpDescClose
+	helpBlueOpen = tuilib.HelpBlueOpen
+	helpBlueClose = tuilib.HelpBlueClose
+	helpDimGrayOpen = tuilib.HelpDimGrayOpen
+	helpDimGrayClose = tuilib.HelpDimGrayClose
+	tabBarBrandOpen = tuilib.HelpBlueOpen
+	tabBarBrandClose = tuilib.HelpBlueClose
+	tabBarActiveOpen = tuilib.TabBarActiveOpen
+	tabBarActiveClose = tuilib.TabBarActiveClose
+	tabBarInactiveOpen = tuilib.TabBarInactiveOpen
+	tabBarInactiveClose = tuilib.TabBarInactiveClose
+	tabBarHintOpen = tuilib.TabBarHintOpen
+	tabBarHintClose = tuilib.TabBarHintClose
+	helpKeyboardHint = tuilib.HelpKeyboardHint
+
+	// The transcript's own bullets, declared in tui_tools.go.
+	stepBulletOpen = cToolBulletOpen + "\u25cf" + cToolBulletClose
+	stepBulletErrOpen = cToolBulletErrOpen + "\u25cf" + cToolBulletClose
+	thoughtBulletOpen = cThoughtBulletOpen + "\u25b8" + cThoughtBulletClose
+	detailBulletOpen = cDetailBulletOpen + "  \u23bf  " + "\x1b[m"
+
+	// The picker's own colours, declared in picker_view.go.
+	pickerNameHi = cBlueOpen
+	pickerDescDim = cSubtleOpen
+	pickerLabelDim = cDimGrayOpen
+	pickerKeyOpen = "\x1b[1m" + cBlueOpen
+
+	// The bash block's body colours, declared in tui_bash_mode.go.
+	bashBodyOKOpen = palette.WarningBodyOpen
+	bashBodyFailOpen = palette.ToolRemoveBodyOpen
+}
 
 func cRule(width int) string {
 	return palette.Rule(width)
@@ -208,5 +305,3 @@ func statusModeColor(mode string) string {
 func stripSGR(s string) string {
 	return termcolor.StripSGR(s)
 }
-
-

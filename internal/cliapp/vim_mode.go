@@ -7,11 +7,11 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/justwasm/pigasus/internal/auth"
-	"github.com/justwasm/pigasus/internal/vim"
+	"github.com/justwasm/pigasus/vim"
 )
 
 // Cycle 216: the TUI half of the Vim editing mode. The engine lives in
-// internal/vim and knows nothing about bubbles or the run loop; this file
+// vim and knows nothing about bubbles or the run loop; this file
 // is the only bridge. It translates a bubbletea key into the engine's
 // normalised Key, keeps the textarea in step with the engine's buffer and
 // cursor, and hands a submit result to the shared submitPrompt path.

@@ -18,11 +18,11 @@ func RunPrintModeAuthIfNeeded(w io.Writer, r io.Reader) error {
 	if auth.HasOAuthToken() || os.Getenv("GEMINI_API_KEY") != "" || os.Getenv("AGY_ADC_AUTH") != "" {
 		return nil
 	}
-	verifier, challenge, state, err := auth.GeneratePKCE()
+	verifier, _, state, err := auth.GeneratePKCE()
 	if err != nil {
 		return err
 	}
-	authURL := auth.BuildAuthorizationURL(challenge, state)
+	authURL := auth.BuildAuthorizationURL(verifier, state)
 	fmt.Fprintf(w, "Authentication required. Please visit the URL to log in:\n  %s\n\nWaiting for authentication (timeout 60s)...\nOr, paste the authorization code here and press Enter:\n", authURL)
 	_ = auth.OpenBrowser(authURL)
 

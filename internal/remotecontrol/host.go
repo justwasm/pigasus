@@ -11,6 +11,10 @@ import (
 	"context"
 	"fmt"
 	"io"
+
+	"github.com/justwasm/pigasus/agentbrowser"
+	"github.com/justwasm/pigasus/internal/rcaudio"
+	"github.com/justwasm/pigasus/internal/rcterminal"
 )
 
 // EnvSocketPath is the env var the host honours to override the
@@ -126,6 +130,18 @@ type HostConfig struct {
 	// backend on first Send. nil keeps the cascade
 	// on the seeded *StubBackend.
 	MessageBackend MessageBackend
+
+	// Browser is the agent↔browser bridge the three
+	// LanguageServerService RPCs serve and the IDE turn's
+	// `webview_browser` tool runs its actions in.
+	//
+	// The two halves have to share one instance: the window answers a
+	// browser action over the subscribe stream, and the turn waits for
+	// that answer in the broker. nil → the dispatcher has no browser
+	// surface and the turn advertises no browser tool.
+	//
+	// Cycle rc-agent-browser adds this.
+	Browser *agentbrowser.Broker
 
 	// Permissions is the seam the four
 	// permission-mutation methods (cycle
@@ -312,6 +328,30 @@ type HostConfig struct {
 	// Cycle rc-terminals adds this.
 	TerminalsRegistry *TerminalsRegistry
 
+	// WebTerminals is the seam the Web UI's terminal methods
+	// (CreateTerminal, ListTerminals, SendTerminalInput,
+	// StreamTerminalOutput, CloseTerminal) call into. nil →
+	// Start wires nothing into Config.WebTerminals and the
+	// dispatcher answers "terminals are not wired". Production
+	// passes a registry whose terminals are live shells on a
+	// pty.
+	//
+	// This is a *different* surface from TerminalsRegistry: the
+	// dashboard's RemoteAgentTerminal* contract stays as it is.
+	//
+	// Cycle rc-web-terminals adds this.
+	WebTerminals *rcterminal.Registry
+
+	// WebAudio is the seam the Web UI's voice methods
+	// (StreamAudioTranscription, SendAudioChunk, EndAudioSession)
+	// call into. nil → Start wires nothing into Config.WebAudio
+	// and the dispatcher answers "audio is not wired". Production
+	// passes a registry whose sessions transcribe with the Gemini
+	// transport.
+	//
+	// Cycle rc-web-terminals adds this.
+	WebAudio *rcaudio.Registry
+
 	// OriginPolicyStore is the seam the
 	// single
 	// SetRemoteControlOriginPatterns
@@ -391,7 +431,7 @@ func StartHostSession(ctx context.Context, hc HostConfig) (*Daemon, error) {
 	if err != nil {
 		return nil, err
 	}
-	d, err := Start(ctx, hostConfigToDispatcherConfig(hc, sock))
+	d, err := Start(ctx, ConfigFromHost(hc, sock))
 	if err != nil {
 		return nil, err
 	}

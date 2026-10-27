@@ -2,10 +2,8 @@ package tuilib
 
 import (
 	"strings"
-	"unicode/utf8"
 
 	"github.com/charmbracelet/x/ansi"
-	"github.com/mattn/go-runewidth"
 )
 
 // ViewRows counts the displayed rows in a string.
@@ -55,6 +53,17 @@ func FitLines(s string, w int) string {
 }
 
 // WrapRows soft-wraps one rendered line into terminal rows no wider than width.
+//
+// The wrap is charmbracelet/x/ansi's hard wrap — the library the
+// reference's own binary embeds. Two things it does that the
+// hand-rolled cell index did not:
+//
+//   - it never cuts a grapheme cluster in half. The cell index cut at
+//     the cell boundary, so a wide character that straddled it lost
+//     half of itself.
+//   - it keeps the ANSI escape sequences where they are, and it counts
+//     the cells the way the rest of this package counts them (the
+//     library's grapheme width, not the rune width).
 func WrapRows(line string, width int) []string {
 	if width <= 0 {
 		if line == "" {
@@ -68,30 +77,21 @@ func WrapRows(line string, width int) []string {
 			out = append(out, "")
 			continue
 		}
-		w := ansi.StringWidth(sub)
-		if w <= width {
+		if ansi.StringWidth(sub) <= width {
 			out = append(out, sub)
 			continue
 		}
-		idx := CellByteIndex(sub)
-		cells := len(idx) - 1
-		if cells <= width {
-			out = append(out, sub)
-			continue
-		}
-		for start := 0; start < cells; start += width {
-			end := start + width
-			if end > cells {
-				end = cells
-			}
-			out = append(out, sub[idx[start]:idx[end]])
-		}
+		out = append(out, strings.Split(ansi.Hardwrap(sub, width, true), "\n")...)
 	}
 	return out
 }
 
 // CellByteIndex returns idx where idx[c] is the byte offset of the byte just
 // past the c-th visible cell.
+//
+// The cells are the library's: charmbracelet/x/ansi measures a string in
+// grapheme clusters, so a combining mark or an emoji sequence counts as the
+// one cluster it renders as.
 func CellByteIndex(s string) []int {
 	idx := []int{0}
 	for i := 0; i < len(s); {
@@ -99,17 +99,13 @@ func CellByteIndex(s string) []int {
 			i = SkipEscape(s, i)
 			continue
 		}
-		r, size := utf8.DecodeRuneInString(s[i:])
-		if size == 0 {
+		cluster, width := ansi.FirstGraphemeCluster(s[i:], ansi.GraphemeWidth)
+		if len(cluster) == 0 {
 			i++
 			continue
 		}
-		w := runewidth.RuneWidth(r)
-		if w < 0 {
-			w = 0
-		}
-		i += size
-		for k := 0; k < w; k++ {
+		i += len(cluster)
+		for k := 0; k < width; k++ {
 			idx = append(idx, i)
 		}
 	}

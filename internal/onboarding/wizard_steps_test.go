@@ -3,6 +3,7 @@ package onboarding
 
 import (
 	"bytes"
+	"github.com/justwasm/pigasus/endpoints"
 	"strings"
 	"testing"
 )
@@ -88,11 +89,11 @@ func TestWizardTermsRender(t *testing.T) {
 	if !strings.Contains(out, "Yes, I agree to help improve Pigasus CLI") {
 		t.Errorf("terms render missing checkbox label")
 	}
-	if !strings.Contains(out, TermsLinkTerms) {
-		t.Errorf("terms render missing %q", TermsLinkTerms)
+	if !strings.Contains(out, endpoints.Current().Terms) {
+		t.Errorf("terms render missing %q", endpoints.Current().Terms)
 	}
-	if !strings.Contains(out, TermsLinkPrivacy) {
-		t.Errorf("terms render missing %q", TermsLinkPrivacy)
+	if !strings.Contains(out, endpoints.Current().Privacy) {
+		t.Errorf("terms render missing %q", endpoints.Current().Privacy)
 	}
 	if !strings.Contains(out, termsCheckboxOn) {
 		t.Errorf("terms render (agreed=true) missing %q", termsCheckboxOn)

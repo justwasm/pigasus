@@ -19,29 +19,14 @@ import (
 type statusLineExternalConfig = statusline.Config
 
 func loadStatusLineConfig() (command string, ok bool) {
-	return statusline.LoadConfig()
-}
-
-func persistStatusLineVisibility(visible bool) {
-	statusline.PersistVisibility(visible)
+	cfg, found := statusline.LoadConfig()
+	if !found || !cfg.Active() {
+		return "", false
+	}
+	return cfg.Command, true
 }
 
 type statusLinePayload = statusline.Payload
-
-func (m *runMode) buildStatusLinePayload() statusLinePayload {
-	model := m.statusModel
-	if model == "" {
-		model = m.model
-	}
-	prompt, completion := m.sessionTokenTotals()
-	cost := pricingForModel(model, prompt, completion)
-	return statusLinePayload{
-		Model:             model,
-		Cost:              cost,
-		ConversationTitle: m.conversationTitle(),
-		CurrentDir:        m.cwd,
-	}
-}
 
 type pricingRow = statusline.PricingRow
 
@@ -65,6 +50,7 @@ func (m *runMode) recordTurnUsage(meta *backend.ChunkMeta) {
 	}
 	atomic.AddInt64(&m.sessionPromptTokens, int64(meta.PromptTokens))
 	atomic.AddInt64(&m.sessionCompletionTokens, int64(meta.CompletionTokens))
+	atomic.StoreInt64(&m.lastTurnPromptTokens, int64(meta.PromptTokens))
 	atomic.StoreInt64(&m.lastTurnCompletionTokens, int64(meta.CompletionTokens))
 }
 
@@ -97,39 +83,108 @@ func (m *runMode) ensureExternalState() *statusLineExternalState {
 	return m.statusLineExternalState
 }
 
+// runExternalStatusLineTick renders the configured status-line script and,
+// when one is configured, the window-title script.
+//
+// It runs on the model's own goroutine: it reads the session's state (the
+// quota cache, the task registry, the token counters) and builds the
+// payload there, so no other goroutine ever touches that state. The
+// scripts themselves run in a goroutine, because one of them can take up
+// to five seconds.
+//
+// The reference runs the scripts at most once every 300 ms and gives up on
+// a run that takes longer than five seconds. It also stops running a
+// status-line script after 30 failed runs in a row.
 func (m *runMode) runExternalStatusLineTick() {
 	if m == nil {
 		return
 	}
-	command, ok := m.drainExternalStatusLine()
-	if !ok {
+	statusCfg := m.statusLineConfig()
+	titleCfg := m.titleConfig()
+	if !statusCfg.Active() && !titleCfg.Active() {
 		return
 	}
-	m.runExternalStatusLineRender(command)
-}
-
-func (m *runMode) runExternalStatusLineRender(command string) {
-	if m == nil {
-		return
-	}
-	state := m.ensureExternalState()
 	payload, err := json.Marshal(m.buildStatusLinePayload())
 	if err != nil {
-		state.SetRendered("", fmt.Errorf("status-line payload marshal: %w", err))
+		if statusCfg.Active() {
+			state := m.ensureExternalState()
+			state.SetRendered("", fmt.Errorf("status-line payload marshal: %w", err))
+			m.recordStatusLineFailure()
+		}
 		return
 	}
-	res := runStatusLineScript(command, payload)
+	go func() {
+		m.runExternalStatusLineRender(statusCfg, payload)
+		m.runExternalTitleRender(titleCfg, payload)
+	}()
+}
+
+// runExternalStatusLineRender runs the status-line script once. It reports
+// whether a script was configured and enabled.
+func (m *runMode) runExternalStatusLineRender(cfg statusline.Config, payload []byte) bool {
+	if m == nil || !cfg.Active() {
+		return false
+	}
+	state := m.ensureExternalState()
+	if state.Disabled() {
+		return true
+	}
+	res := runStatusLineScript(cfg.Command, payload)
 	if res.Err != nil {
 		state.SetRendered("", res.Err)
-		return
+		m.recordStatusLineFailure()
+		return true
 	}
 	state.SetRendered(res.Output, nil)
+	state.RecordSuccess()
+	return true
+}
+
+// recordStatusLineFailure counts one failed script run. The reference
+// switches the status line off after 30 failures in a row.
+func (m *runMode) recordStatusLineFailure() {
+	state := m.ensureExternalState()
+	state.RecordFailure()
+}
+
+// runExternalTitleRender runs the window-title script once and stores the
+// sanitized title.
+func (m *runMode) runExternalTitleRender(cfg statusline.Config, payload []byte) {
+	if m == nil || !cfg.Active() {
+		return
+	}
+	res := runStatusLineScript(cfg.Command, payload)
+	if res.Err != nil {
+		return
+	}
+	m.setWindowTitle(statusline.SanitizeTitle(res.Output))
 }
 
 type statusLineExternalTickMsg struct{}
 
+// armExternalStatusLineTick re-arms the status-line tick.
+//
+// The reference runs the script at most once every 300 ms; the clone's
+// tick fires at the same cadence.
 func armExternalStatusLineTick() tea.Cmd {
-	return tea.Tick(100*time.Millisecond, func(time.Time) tea.Msg { return statusLineExternalTickMsg{} })
+	return tea.Tick(statusline.ScriptInterval, func(time.Time) tea.Msg { return statusLineExternalTickMsg{} })
+}
+
+// maybeArmStatusLineTick starts the status-line tick when a script is
+// configured and the tick is not running yet.
+//
+// The tick re-arms itself, so it is started once: at startup when the
+// settings already hold a script, and by /statusline or /title when the
+// user points the CLI at one.
+func (m *runMode) maybeArmStatusLineTick() tea.Cmd {
+	if m == nil || m.statusLineTickArmed {
+		return nil
+	}
+	if !m.statusLineScriptActive() && !m.titleScriptActive() {
+		return nil
+	}
+	m.statusLineTickArmed = true
+	return armExternalStatusLineTick()
 }
 
 func (m *runMode) drainExternalStatusLine() (command string, ok bool) {
@@ -141,18 +196,17 @@ func (m *runMode) drainExternalStatusLine() (command string, ok bool) {
 		return "", false
 	}
 	state.ResetTick()
-	cmd, ok := loadStatusLineConfig()
-	if !ok {
-		return "", false
-	}
-	return cmd, true
+	return loadStatusLineConfig()
 }
 
 func (m *runMode) externalRenderOK() bool {
 	if m == nil {
 		return false
 	}
-	if !m.statusLineExternal || m.statusLine == "off" {
+	if m.statusLine == "off" {
+		return false
+	}
+	if !m.statusLineScriptActive() {
 		return false
 	}
 	state := m.externalStateFor()

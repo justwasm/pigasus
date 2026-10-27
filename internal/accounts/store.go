@@ -42,6 +42,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/justwasm/pigasus/atomicfile"
 	"github.com/justwasm/pigasus/internal/auth"
 )
 
@@ -165,25 +166,8 @@ func (s *Store) saveLocked() error {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return fmt.Errorf("accounts: create %s: %w", dir, err)
 	}
-	tmp, err := os.CreateTemp(dir, ".accounts-*.json")
-	if err != nil {
-		return fmt.Errorf("accounts: create temp: %w", err)
-	}
-	tmpName := tmp.Name()
-	defer os.Remove(tmpName)
-	if err := tmp.Chmod(0o600); err != nil {
-		tmp.Close()
-		return fmt.Errorf("accounts: chmod: %w", err)
-	}
-	if _, err := tmp.Write(raw); err != nil {
-		tmp.Close()
+	if err := atomicfile.WriteFile(path, raw, 0o600); err != nil {
 		return fmt.Errorf("accounts: write: %w", err)
-	}
-	if err := tmp.Close(); err != nil {
-		return fmt.Errorf("accounts: close: %w", err)
-	}
-	if err := os.Rename(tmpName, path); err != nil {
-		return fmt.Errorf("accounts: rename: %w", err)
 	}
 	return nil
 }

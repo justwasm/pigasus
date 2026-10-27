@@ -5,39 +5,44 @@
 // 还 ~9h 有效, 验证 userinfo 返 "Hangbiao Zou" sub=105126221582794464410)。
 //
 // v4 binary 实际存的 token:
-//   ~/.gemini/antigravity-cli/antigravity-oauth-token
+//
+//	~/.gemini/antigravity-cli/antigravity-oauth-token
+//
 // 格式:
-//   {"token": {"access_token": "ya29...", "refresh_token": "1//...", "expiry": "..."},
-//    "auth_method": "consumer", "id_token": "eyJ..."}
+//
+//	{"token": {"access_token": "ya29...", "refresh_token": "1//...", "expiry": "..."},
+//	 "auth_method": "consumer", "id_token": "eyJ..."}
 //
 // 之前 recovered code 用 keyring.FileStore 默认路径:
-//   ~/.config/antigravity/antigravity-auth.json
+//
+//	~/.config/antigravity/antigravity-auth.json
+//
 // 格式 (Auth struct) 跟 v4 binary 不兼容。
 //
 // 这个文件加 AntigravityTokenFile 跟 v4 binary 1:1 兼容:
-//   1. LoadAntigravityToken() 读 ~/.gemini/antigravity-cli/antigravity-oauth-token
-//   2. SaveAntigravityToken() 写同一个路径
-//   3. 跟 ANTIGRAVITY_HOME env 兼容 (默认 ~/.gemini/antigravity-cli)
-//   4. RefreshToken() 走真 oauth2.googleapis.com/token 拿新 access_token
-//   5. WriteAntigravityToken 原子 (temp+rename) + 0600 perms
+//  1. LoadAntigravityToken() 读 ~/.gemini/antigravity-cli/antigravity-oauth-token
+//  2. SaveAntigravityToken() 写同一个路径
+//  3. 跟 ANTIGRAVITY_HOME env 兼容 (默认 ~/.gemini/antigravity-cli)
+//  4. RefreshToken() 走真 oauth2.googleapis.com/token 拿新 access_token
+//  5. WriteAntigravityToken 原子 (temp+rename) + 0600 perms
 package auth
 
 import (
-	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
-	"io"
 	"net/http"
-	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/justwasm/pigasus/atomicfile"
+	"github.com/justwasm/pigasus/endpoints"
 )
 
 // AntigravityToken is the on-disk format used by the v4 binary.
@@ -107,7 +112,7 @@ func EffectiveUserEmail() string {
 		// If IDToken was missing or didn't contain email, try userinfo endpoint
 		// if access token is present (skipped in tests).
 		if tok.Token.AccessToken != "" && flag.Lookup("test.v") == nil {
-			req, err := http.NewRequest("GET", "https://www.googleapis.com/oauth2/v3/userinfo", nil)
+			req, err := http.NewRequest("GET", endpoints.Current().UserInfo, nil)
 			if err == nil {
 				req.Header.Set("Authorization", "Bearer "+tok.Token.AccessToken)
 				client := &http.Client{Timeout: 2 * time.Second}
@@ -198,12 +203,8 @@ func SaveAntigravityTokenTo(path string, tok *AntigravityToken) error {
 	if err != nil {
 		return err
 	}
-	// Atomic: write to temp, fsync, rename
-	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0600); err != nil {
-		return err
-	}
-	return os.Rename(tmp, path)
+	// Atomic: write to a sibling temp file, fsync, rename.
+	return atomicfile.WriteFile(path, data, 0o600)
 }
 
 // ExpiryTime parses the ISO 8601 expiry string. Returns zero time on
@@ -251,45 +252,9 @@ func RefreshTokenReal(ctx context.Context, clientID, refreshToken string) (*Toke
 	if refreshToken == "" {
 		return nil, errors.New("antigravity-token: empty refresh_token")
 	}
-	form := url.Values{
-		"client_id":     {clientID},
-		"refresh_token": {refreshToken},
-		"grant_type":    {"refresh_token"},
-	}
-	// The CLI client is a public OAuth2 client. The v1.3.5 binary
-	// does NOT use a device-code flow at runtime — it loads the
-	// bearer token from $JETSKI_OAUTH_TOKEN or the keyring. This
-	// refresh path is therefore server-side: the response will say
-	// so if the server requires a client_secret for this client_id
-	// and we surface the error verbatim. Callers that need the
-	// paired client_secret should switch to
-	// RefreshTokenRealWithSecret in unified_config.go (cycle 42 fix).
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
-		TokenURL, bytes.NewBufferString(form.Encode()))
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.Header.Set("Accept", "application/json")
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("antigravity-token: refresh: %w", err)
-	}
-	defer resp.Body.Close()
-	body, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("antigravity-token: refresh: HTTP %d: %s",
-			resp.StatusCode, string(body))
-	}
-	var out TokenResponse
-	if err := json.Unmarshal(body, &out); err != nil {
-		return nil, fmt.Errorf("antigravity-token: parse refresh: %w", err)
-	}
-	if out.AccessToken == "" {
-		return nil, fmt.Errorf("antigravity-token: empty access_token in refresh response: %s",
-			string(body))
-	}
-	return &out, nil
+	// The same grant as RefreshTokenRealWithSecret, without the
+	// paired client_secret (see unified_config.go).
+	return refreshTokenGrant(ctx, tokenURL(), clientID, "", refreshToken)
 }
 
 // TokenCache is a small thread-safe in-memory cache for the

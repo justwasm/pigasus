@@ -12,6 +12,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -160,6 +161,241 @@ func TestEditor_PutModelAddsReplacesAndKeepsTheOthers(t *testing.T) {
 	}
 	if models[1].ID != "two" {
 		t.Fatalf("the other model was lost: %+v", models[1])
+	}
+}
+
+// TestEditor_PutModelCarriesTheSupportsImagesMarker pins the
+// per-model marker that says a model takes pictures.
+//
+// It is a pointer because "not stated" is an answer of its own: a model
+// that says nothing carries no key at all, and the catalogue's family
+// table decides for it. crush's own model list carries the same marker
+// per model (catwalk.Model.SupportsImages, json "supports_attachments").
+func TestEditor_PutModelCarriesTheSupportsImagesMarker(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "providers.json")
+	ed := NewEditor(path)
+	if err := ed.PutProvider("gateway", ProviderConfig{ID: "gateway", BaseURL: "https://x/v1"}); err != nil {
+		t.Fatalf("PutProvider: %v", err)
+	}
+	yes, no := true, false
+	if err := ed.PutModel("gateway", ProviderModel{ID: "yes", Model: "Yes", SupportsImages: &yes}); err != nil {
+		t.Fatalf("PutModel: %v", err)
+	}
+	if err := ed.PutModel("gateway", ProviderModel{ID: "no", Model: "No", SupportsImages: &no}); err != nil {
+		t.Fatalf("PutModel: %v", err)
+	}
+	if err := ed.PutModel("gateway", ProviderModel{ID: "silent", Model: "Silent"}); err != nil {
+		t.Fatalf("PutModel: %v", err)
+	}
+	body := readFile(t, path)
+	var doc struct {
+		Providers map[string]struct {
+			Models []map[string]any `json:"models"`
+		} `json:"providers"`
+	}
+	if err := json.Unmarshal([]byte(body), &doc); err != nil {
+		t.Fatalf("unmarshal the file: %v\n%s", err, body)
+	}
+	for _, m := range doc.Providers["gateway"].Models {
+		id, _ := m["id"].(string)
+		want, stated := map[string]any{"yes": true, "no": false}[id]
+		got, ok := m["supports_images"]
+		if !stated {
+			if ok {
+				t.Errorf("the model %q carries a marker it never stated: %v", id, got)
+			}
+			continue
+		}
+		if !ok || got != want {
+			t.Errorf("the model %q carries supports_images = %v, want %v", id, got, want)
+		}
+	}
+	// A model that says nothing carries no key: the family table
+	// decides for it, and a key with a default would be a statement.
+	providers, err := ed.List()
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	for _, m := range providers["gateway"].Models {
+		switch m.ID {
+		case "yes":
+			if m.SupportsImages == nil || !*m.SupportsImages {
+				t.Errorf("the marker did not survive the write: %+v", m)
+			}
+		case "no":
+			if m.SupportsImages == nil || *m.SupportsImages {
+				t.Errorf("the marker's no did not survive the write: %+v", m)
+			}
+		case "silent":
+			if m.SupportsImages != nil {
+				t.Errorf("a model that says nothing must carry no marker: %+v", m)
+			}
+		}
+	}
+}
+
+// TestEditor_PutModelCarriesTheModelAttributes pins the per-model
+// attributes the Web UI's model picker reads.
+//
+// The names are the reference's own (the `ClientModelConfig` proto):
+// `disabled`, `supported_mime_types`, `quota_info`,
+// `supports_thought_circulation`, `model_url`, `tag_title`,
+// `tag_description` and `effort_supported`. The file spells them in
+// snake_case, the wire in camelCase — the conversion is the picker
+// builder's job (remotecontrol/model_config_fields.go).
+//
+// A model that says nothing carries none of the keys: the file is the
+// operator's own words, and a default in it would be a statement the
+// operator never made.
+func TestEditor_PutModelCarriesTheModelAttributes(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "providers.json")
+	ed := NewEditor(path)
+	if err := ed.PutProvider("gateway", ProviderConfig{ID: "gateway", BaseURL: "https://x/v1"}); err != nil {
+		t.Fatalf("PutProvider: %v", err)
+	}
+	yes, no := true, false
+	fraction := 0.25
+	full := ProviderModel{
+		ID:                         "full",
+		Model:                      "Full",
+		SupportedMimeTypes:         []string{"image/png", "application/pdf"},
+		Disabled:                   true,
+		QuotaInfo:                  &QuotaInfo{RemainingFraction: &fraction, ResetTime: "2026-10-27T00:00:00Z"},
+		SupportsThoughtCirculation: &yes,
+		ModelURL:                   "https://example.com/models/full",
+		TagTitle:                   "Fast",
+		TagDescription:             "A quick model",
+		EffortSupported:            &no,
+	}
+	if err := ed.PutModel("gateway", full); err != nil {
+		t.Fatalf("PutModel: %v", err)
+	}
+	if err := ed.PutModel("gateway", ProviderModel{ID: "silent", Model: "Silent"}); err != nil {
+		t.Fatalf("PutModel: %v", err)
+	}
+
+	body := readFile(t, path)
+	var doc struct {
+		Providers map[string]struct {
+			Models []map[string]any `json:"models"`
+		} `json:"providers"`
+	}
+	if err := json.Unmarshal([]byte(body), &doc); err != nil {
+		t.Fatalf("unmarshal the file: %v\n%s", err, body)
+	}
+	models := doc.Providers["gateway"].Models
+	if len(models) != 2 {
+		t.Fatalf("models = %d, want 2: %+v", len(models), models)
+	}
+	fullRow := models[0]
+	if got, want := fullRow["supported_mime_types"], []any{"image/png", "application/pdf"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("supported_mime_types = %v, want %v", got, want)
+	}
+	if got := fullRow["disabled"]; got != true {
+		t.Errorf("disabled = %v, want true", got)
+	}
+	quota, ok := fullRow["quota_info"].(map[string]any)
+	if !ok {
+		t.Fatalf("quota_info = %v, want an object", fullRow["quota_info"])
+	}
+	if got := quota["remaining_fraction"]; got != 0.25 {
+		t.Errorf("quota_info.remaining_fraction = %v, want 0.25", got)
+	}
+	if got := quota["reset_time"]; got != "2026-10-27T00:00:00Z" {
+		t.Errorf("quota_info.reset_time = %v, want the timestamp", got)
+	}
+	if got := fullRow["supports_thought_circulation"]; got != true {
+		t.Errorf("supports_thought_circulation = %v, want true", got)
+	}
+	if got := fullRow["model_url"]; got != "https://example.com/models/full" {
+		t.Errorf("model_url = %v", got)
+	}
+	if got := fullRow["tag_title"]; got != "Fast" {
+		t.Errorf("tag_title = %v", got)
+	}
+	if got := fullRow["tag_description"]; got != "A quick model" {
+		t.Errorf("tag_description = %v", got)
+	}
+	if got := fullRow["effort_supported"]; got != false {
+		t.Errorf("effort_supported = %v, want false", got)
+	}
+	// A model that says nothing carries none of the keys.
+	for _, key := range []string{
+		"supported_mime_types", "disabled", "quota_info",
+		"supports_thought_circulation", "model_url", "tag_title",
+		"tag_description", "effort_supported",
+	} {
+		if got, ok := models[1][key]; ok {
+			t.Errorf("the model that said nothing carries %q = %v", key, got)
+		}
+	}
+
+	// The attributes survive the round trip through the file.
+	providers, err := ed.List()
+	if err != nil {
+		t.Fatalf("List: %v", err)
+	}
+	rows := providers["gateway"].Models
+	if len(rows) != 2 {
+		t.Fatalf("models = %d, want 2", len(rows))
+	}
+	got := rows[0]
+	if !reflect.DeepEqual(got.SupportedMimeTypes, []string{"image/png", "application/pdf"}) {
+		t.Errorf("supported_mime_types = %v", got.SupportedMimeTypes)
+	}
+	if !got.Disabled {
+		t.Errorf("disabled did not survive the write")
+	}
+	if got.QuotaInfo == nil || got.QuotaInfo.RemainingFraction == nil || *got.QuotaInfo.RemainingFraction != 0.25 {
+		t.Errorf("quota_info did not survive the write: %+v", got.QuotaInfo)
+	}
+	if got.QuotaInfo != nil && got.QuotaInfo.ResetTime != "2026-10-27T00:00:00Z" {
+		t.Errorf("quota_info.reset_time = %q", got.QuotaInfo.ResetTime)
+	}
+	if got.SupportsThoughtCirculation == nil || !*got.SupportsThoughtCirculation {
+		t.Errorf("supports_thought_circulation did not survive the write: %+v", got.SupportsThoughtCirculation)
+	}
+	if got.ModelURL != "https://example.com/models/full" {
+		t.Errorf("model_url = %q", got.ModelURL)
+	}
+	if got.TagTitle != "Fast" || got.TagDescription != "A quick model" {
+		t.Errorf("the tag line did not survive the write: %+v", got)
+	}
+	if got.EffortSupported == nil || *got.EffortSupported {
+		t.Errorf("effort_supported did not survive the write: %+v", got.EffortSupported)
+	}
+
+	// Clearing the quota removes the object, not just its fields.
+	full.QuotaInfo = nil
+	if err := ed.PutModel("gateway", full); err != nil {
+		t.Fatalf("PutModel: %v", err)
+	}
+	body = readFile(t, path)
+	if strings.Contains(body, "quota_info") {
+		t.Errorf("the cleared quota is still in the file:\n%s", body)
+	}
+}
+
+// TestEditor_PutModelReplacesTheModelAttributes pins that a second
+// write replaces the attributes rather than merging them: a model that
+// used to take PDF and no longer does must say so in the file.
+func TestEditor_PutModelReplacesTheModelAttributes(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "providers.json")
+	ed := NewEditor(path)
+	if err := ed.PutProvider("gateway", ProviderConfig{ID: "gateway", BaseURL: "https://x/v1"}); err != nil {
+		t.Fatalf("PutProvider: %v", err)
+	}
+	entry := ProviderModel{ID: "m", Model: "M", SupportedMimeTypes: []string{"image/png"}}
+	if err := ed.PutModel("gateway", entry); err != nil {
+		t.Fatalf("PutModel: %v", err)
+	}
+	entry.SupportedMimeTypes = nil
+	if err := ed.PutModel("gateway", entry); err != nil {
+		t.Fatalf("PutModel: %v", err)
+	}
+	body := readFile(t, path)
+	if strings.Contains(body, "supported_mime_types") {
+		t.Errorf("the old list is still in the file:\n%s", body)
 	}
 }
 

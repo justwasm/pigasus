@@ -89,7 +89,7 @@ func (t *Trajectory) StepIndicesByType(stepType int64) []int64 {
 //
 // The reference's trajectory asks the store for this list
 // (【反编译】 `dbtrajectory.(*sqliteStore).StepIndicesExcludingStatuses`,
-// CLI 0x1011919a0) so the rehydration pass can walk the steps that
+// CLI 0x1016bba40) so the rehydration pass can walk the steps that
 // actually ran.
 func (t *Trajectory) StepIndicesExcludingStatuses(statuses ...int64) []int64 {
 	if t == nil {

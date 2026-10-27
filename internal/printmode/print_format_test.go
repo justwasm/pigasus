@@ -5,6 +5,7 @@ import (
 	"errors"
 	"flag"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -83,8 +84,12 @@ func TestHelpTableMatchesCapturedText(t *testing.T) {
 }
 
 // TestConfigValueTypes pins the typed defaults the `/config` payload carries
-// for keys the user has never set. The reference distinguishes five *nullable*
-// keys (null) from the rest, which fall back to a zero value of their kind.
+// for keys the user has never set.
+//
+// 【一手】 agy 1.4.8, `agy -p /config` with an empty settings.json: the seven
+// nullable keys (customModelsConfig, gcp, permissions, sandboxProxy,
+// statusLine, title, trustedWorkspaces) are null — not an empty object and
+// not an empty list — and the rest fall back to their built-in default.
 func TestConfigValueTypes(t *testing.T) {
 	cases := []struct {
 		key  string
@@ -93,16 +98,20 @@ func TestConfigValueTypes(t *testing.T) {
 		{"agentMode", ""},
 		{"allowNonWorkspaceAccess", false},
 		{"altScreenMode", "default"},
+		{"artifactReviewPolicy", "asks-for-review"},
 		{"clearScrollbackOnResize", true},
+		{"colorScheme", "terminal"},
 		{"customModelsConfig", nil},
+		{"editor", "auto"},
 		{"gcp", nil},
 		{"historySize", 2000},
 		{"model", ""},
-		{"permissions", map[string]any{}},
+		{"permissions", nil},
 		{"sandboxProxy", nil},
 		{"statusLine", nil},
 		{"title", nil},
-		{"trustedWorkspaces", []any{}},
+		{"toolPermission", "request-review"},
+		{"trustedWorkspaces", nil},
 		{"verbosity", "medium"},
 	}
 	for _, c := range cases {
@@ -118,6 +127,28 @@ func TestConfigValueTypes(t *testing.T) {
 		if string(gb) != string(wb) {
 			t.Errorf("configValue(%q) = %s, want %s", c.key, gb, wb)
 		}
+	}
+}
+
+// TestConfigValueNullDecodesToZero pins that an explicit null in
+// settings.json decodes to the zero value of the key's type, not to the
+// built-in default.
+//
+// 【一手】 agy 1.4.8: with `{"editor":null}` in settings.json the text dump
+// prints an empty cell for `editor` and the JSON payload carries the empty
+// string — not "auto". A key the reference does not know keeps its null.
+func TestConfigValueNullDecodesToZero(t *testing.T) {
+	if got := configValue("editor", json.RawMessage(`null`)); got != "" {
+		t.Errorf("editor null = %#v, want \"\"", got)
+	}
+	if got := configValue("historySize", json.RawMessage(`null`)); got != 0 {
+		t.Errorf("historySize null = %#v, want 0", got)
+	}
+	if got := configValue("showTips", json.RawMessage(`null`)); got != false {
+		t.Errorf("showTips null = %#v, want false", got)
+	}
+	if got := configValue("zzzUnknownKey", json.RawMessage(`null`)); got != nil {
+		t.Errorf("unknown key null = %#v, want nil", got)
 	}
 }
 
@@ -288,13 +319,32 @@ func TestEmitStep(t *testing.T) {
 }
 
 // TestPrintPermissionModeDefault pins the init event's `permission_mode`
-// fallback: the captured value is the `toolPermission` setting's default.
+// fallback: the `toolPermission` setting's default.
+//
+// 【一手】 agy 1.4.8: with an empty settings.json the init event reports
+// "request-review" — the value the 1.1.0 changelog calls the default
+// ("Added `request-review` (default) mode as the default execution
+// behavior"). The "always-proceed" the cycle-113 capture carries came from a
+// capture machine whose settings.json set `toolPermission` explicitly.
 func TestPrintPermissionModeDefault(t *testing.T) {
-	if got := printSlashConfigDefaults["toolPermission"]; got != "always-proceed" {
-		t.Fatalf("toolPermission default = %q, want always-proceed", got)
+	if got := printSlashConfigDefaultString("toolPermission"); got != "request-review" {
+		t.Fatalf("toolPermission default = %q, want request-review", got)
 	}
 	if got := printPermissionMode(); got == "" {
 		t.Error("printPermissionMode returned an empty mode")
+	}
+}
+
+// TestPrintPermissionModeReadsSettings pins that the file wins over the
+// default: the reference reports the setting the user actually set.
+func TestPrintPermissionModeReadsSettings(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "settings.json"), []byte(`{"toolPermission":"always-proceed"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("ANTIGRAVITY_HOME", dir)
+	if got := printPermissionMode(); got != "always-proceed" {
+		t.Fatalf("printPermissionMode = %q, want always-proceed", got)
 	}
 }
 

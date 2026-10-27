@@ -8,14 +8,28 @@ import (
 )
 
 func TestColorsFor(t *testing.T) {
+	// The prompt wears the scheme's accent and the placeholder its dim
+	// foreground.
 	p, ph := ColorsFor("Tokyo Night")
-	if p != "#82aaff" || ph != "#828bb8" {
+	if p != "#7aa2f7" || ph != "#9aa5ce" {
 		t.Errorf("ColorsFor(Tokyo Night) = (%s, %s)", p, ph)
 	}
 
 	p, ph = ColorsFor("dark")
-	if p != "#268BD2" || ph != "#839496" {
+	if p != "#8ab4f8" || ph != "#9aa0a6" {
 		t.Errorf("ColorsFor(dark) = (%s, %s)", p, ph)
+	}
+
+	// The terminal scheme's slots are terminal indices.
+	p, ph = ColorsFor("terminal")
+	if p != "12" || ph != "8" {
+		t.Errorf("ColorsFor(terminal) = (%s, %s)", p, ph)
+	}
+
+	// An unknown name falls back to the solarized light scheme.
+	p, ph = ColorsFor("nope")
+	if p != "#268bd2" || ph != "#657b83" {
+		t.Errorf("ColorsFor(nope) = (%s, %s)", p, ph)
 	}
 }
 

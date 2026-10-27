@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	"github.com/justwasm/pigasus/internal/cli"
-	"github.com/justwasm/pigasus/internal/palette"
+	"github.com/justwasm/pigasus/palette"
 )
 
 // RenderModelPickerRow formats a single picker row with cursor, padding,
@@ -97,8 +97,13 @@ func PanelModelBaseSlug(label string) string {
 // CatalogueEntry looks up the catalogue by slug. Used by
 // selectModelEffort to derive the display label from a chosen row's
 // catalogue ID — a name like "minimax-m3" maps to "MiniMax M3".
+//
+// The whole catalogue is searched, the configured models included: a row
+// of a model that declares reasoning tiers carries its own id
+// ("minimax-m3.1-flash-xhigh") and its own label ("MiniMax M3.1 Flash
+// (Xhigh)").
 func CatalogueEntry(slug string) (cli.ModelEntry, bool) {
-	for _, m := range cli.ReferenceModels() {
+	for _, m := range cli.ModelCatalogue() {
 		if m.ID == slug {
 			return m, true
 		}

@@ -15,7 +15,6 @@ const (
 	csFixedRows   = codesearch.FixedRows
 	csHeaderOpen  = codesearch.HeaderOpen
 	csHeaderReset = codesearch.HeaderReset
-	csRuleOpen    = codesearch.RuleOpen
 	csErrorOpen   = codesearch.ErrorOpen
 )
 
@@ -46,9 +45,15 @@ func (m *runMode) codesearchPanelLines() []string {
 		"ctrl+g", "Open in Editor", "esc", "Close Search")
 
 	if cs.query == "" {
+		// Cycle 351: the reference's usage line is exactly
+		// "Usage: /codesearch [-F|--literal] <query>" — the 1.4.8 string
+		// table carries no "f:<glob>" / "file:<glob>" literal at all
+		// (【strings】). The clone still *accepts* those two filters in
+		// internal/codesearch, but they are not advertised: the visible
+		// line matches the reference byte for byte.
 		return []string{
 			panelTitleOpen + "Code Search" + panelTitleClose + ":",
-			cDimGrayOpen + "  Usage: /codesearch [-F|--literal] <query> [f:<glob>] [file:<glob>]" + cDimGrayClose,
+			cDimGrayOpen + "  Usage: /codesearch [-F|--literal] <query>" + cDimGrayClose,
 			"",
 			keyboard,
 		}

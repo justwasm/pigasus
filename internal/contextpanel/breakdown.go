@@ -6,10 +6,12 @@ import (
 	"time"
 
 	"github.com/justwasm/pigasus/internal/backend"
+	"github.com/justwasm/pigasus/palette"
 )
 
-// Header is the ANSI-styled title header of the /context panel.
-const Header = "\x1b[1m\x1b[38;2;88;110;117m└ Context Usage\x1b[0m"
+// Header is the ANSI-styled title header of the /context panel. Its
+// colour follows the selected colour scheme.
+var Header = "\x1b[1m" + palette.SubtleOpen + "└ Context Usage\x1b[0m"
 
 // Breakdown holds token counts across all context categories.
 type Breakdown struct {
@@ -237,11 +239,11 @@ func EmptyRows(model string) []Row {
 	return []Row{
 		{model + " · 0/1.0M tokens", 5},
 		{"(0.0%)", 6},
-		{"\x1b[1m\x1b[38;2;88;110;117mEstimated usage (awaiting generation)\x1b[0m", 5},
+		{"\x1b[1m" + palette.SubtleOpen + "Estimated usage (awaiting generation)\x1b[0m", 5},
 		{"\x1b[1m\x1b[38;5;26m◉\x1b[0m User messages: 0 tokens (0.0%)", 5},
-		{"\x1b[38;2;133;153;0m◉\x1b[39m Agent responses: 0 tokens (0.0%)", 5},
+		{AgentGlyph + " Agent responses: 0 tokens (0.0%)", 5},
 		{"\x1b[1m\x1b[38;5;172m◉\x1b[0m Tool calls: 0 tokens (0.0%)", 5},
-		{"\x1b[38;2;101;123;131m□\x1b[39m Free space: 1.0M (100.0%)", 5},
+		{palette.DimGrayOpen + "□\x1b[39m Free space: 1.0M (100.0%)", 5},
 	}
 }
 

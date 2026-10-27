@@ -31,6 +31,8 @@ import (
 	"errors"
 	"sync"
 	"time"
+
+	"github.com/justwasm/pigasus/retry"
 )
 
 // StallTimeout is the canonical idle window the watcher's default uses.
@@ -190,27 +192,18 @@ func (w *StallWatcher) fire() {
 // the AGY 1.3.4 changelog value; callers that need a different cap pass
 // it explicitly so BackoffStep stays a pure function and stays unit-
 // testable without time.Sleep.
+//
+// The schedule is retry's Step — the clone's one exponential
+// backoff, shared with the canonical schedule and the connection
+// retry's.
 func BackoffStep(attempt int, initial, cap time.Duration) time.Duration {
-	if attempt < 0 {
-		attempt = 0
-	}
 	if initial <= 0 {
 		initial = StallRecoveryInitialBackoff
 	}
 	if cap <= 0 {
 		cap = StallRecoveryBackoffCap
 	}
-	delay := initial
-	for i := 0; i < attempt; i++ {
-		delay *= 2
-		if delay >= cap {
-			return cap
-		}
-	}
-	if delay > cap {
-		return cap
-	}
-	return delay
+	return retry.Step(attempt, initial, cap)
 }
 
 // RetryWithBackoff runs fn at most maxAttempts times. After a non-nil

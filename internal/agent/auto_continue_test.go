@@ -70,30 +70,6 @@ func TestRecoveryForError(t *testing.T) {
 	}
 }
 
-// TestTurnsFromErr pins the iteration-count extractor. sendPig wraps
-// piagent.ErrMaxTurnsReached with the cycle-budget integer; the helper
-// has to fish that number back out for the **Status** banner.
-func TestTurnsFromErr(t *testing.T) {
-	cases := []struct {
-		name string
-		err  error
-		want int
-	}{
-		{"nil", nil, 0},
-		{"empty", errors.New(""), 0},
-		{"agent message", fmt.Errorf("agent: exceeded tool-iteration budget (%d)", 12), 12},
-		{"wrapped turns suffix", fmt.Errorf("%w (%d turns)", piagent.ErrMaxTurnsReached, 8), 8},
-		{"PiG detailed", fmt.Errorf("agent: exceeded turn limit: 21 turns completed"), 21},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			if got := turnsFromErr(tc.err); got != tc.want {
-				t.Errorf("turnsFromErr(%q) = %d, want %d", tc.err, got, tc.want)
-			}
-		})
-	}
-}
-
 // TestRecoveryMessageFromMessagesPicksLastSynthetic pins the helper
 // the cycle auto-continue-interrupt transcript tests use to verify the
 // recovery copy landed at byte-fidelity to the AGY verbatim strings.

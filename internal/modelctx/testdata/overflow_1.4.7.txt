@@ -1,0 +1,6 @@
+%w; the most recent step (%s) could not fit in the available context limit:
+  Total attempted tokens: ~%d (exceeding cascade_config.checkpoint_config.max_token_limit (%d))
+    - Base context: ~%d tokens (instructions: ~%d, tool definitions: ~%d)
+    - Most recent step: ~%d tokens (text: %d, image: %d)
+
+Consider reducing the size of the system instructions or tool definitions, or adjusting tool implementations to return smaller outputs

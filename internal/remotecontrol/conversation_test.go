@@ -12,7 +12,7 @@
 // — see the delete.go side of the seam).
 //
 // Wire-level round-trips live in
-// internal/remotetransport/tcp_test.go (mirroring
+// remotetransport/tcp_test.go (mirroring
 // the rc-file-ops / rc-projects split the previous
 // cycles established).
 package remotecontrol

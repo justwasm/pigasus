@@ -28,6 +28,8 @@ import (
 	"path/filepath"
 	"sync"
 	"time"
+
+	"golang.org/x/oauth2"
 )
 
 // LegacyTokenPath = v1.3.5 真 binary 用的 oauth-token path (cycle 42 实证 keyring auto-load)
@@ -282,57 +284,50 @@ func RefreshTokenRealWithSecret(ctx context.Context, clientID, clientSecret, ref
 	if refreshToken == "" {
 		return nil, errors.New("antigravity-token: empty refresh_token")
 	}
-	form := make(map[string][]string)
-	form["client_id"] = []string{clientID}
-	if clientSecret != "" {
-		form["client_secret"] = []string{clientSecret}
-	}
-	form["refresh_token"] = []string{refreshToken}
-	form["grant_type"] = []string{"refresh_token"}
-	return postTokenForm(ctx, TokenURL, form)
+	return refreshTokenGrant(ctx, tokenURL(), clientID, clientSecret, refreshToken)
 }
 
-// postTokenForm shared helper for TokenURL form posts.
-func postTokenForm(ctx context.Context, url string, form map[string][]string) (*TokenResponse, error) {
-	// encode
-	values := make([]string, 0, len(form))
-	for k, vs := range form {
-		for _, v := range vs {
-			values = append(values, urlEncode(k)+"="+urlEncode(v))
-		}
+// refreshTokenGrant performs the refresh_token grant against a token
+// endpoint through golang.org/x/oauth2.
+//
+// The wire bytes are the ones the clone has always sent: client_id
+// and client_secret in the form body (the endpoint pins
+// AuthStyleInParams — the CLI is a public OAuth2 client and Google
+// wants the secret in the form; x/oauth2's default would probe with
+// the secret in an Authorization header first, which changes the
+// request), grant_type=refresh_token and refresh_token=<token>. The
+// body is url.Values-encoded, i.e. the parameters come out in a
+// stable order — the hand-rolled builder walked a map, so the order
+// used to differ from request to request.
+//
+// A failure comes back as a *oauth2.RetrieveError: the status code
+// and the OAuth `error` field travel with the error, so the caller
+// reads them structurally instead of scraping them out of a message.
+func refreshTokenGrant(ctx context.Context, tokenURL, clientID, clientSecret, refreshToken string) (*TokenResponse, error) {
+	cfg := &oauth2.Config{
+		ClientID:     clientID,
+		ClientSecret: clientSecret,
+		Endpoint: oauth2.Endpoint{
+			TokenURL:  tokenURL,
+			AuthStyle: oauth2.AuthStyleInParams,
+		},
 	}
-	body := ""
-	for i, v := range values {
-		if i > 0 {
-			body += "&"
-		}
-		body += v
-	}
-	req, err := httpNewRequest(ctx, "POST", url, body)
+	// A token with no access token is never valid, so the source
+	// always performs the refresh: this is a forced refresh, not a
+	// cached one.
+	src := cfg.TokenSource(ctx, &oauth2.Token{RefreshToken: refreshToken})
+	tok, err := src.Token()
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.Header.Set("Accept", "application/json")
-	resp, err := httpDefaultClient().Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("antigravity-token: refresh: %w", err)
-	}
-	defer resp.Body.Close()
-	rawBody := readAll(resp.Body)
-	if resp.StatusCode != 200 {
-		return nil, fmt.Errorf("antigravity-token: refresh: HTTP %d: %s",
-			resp.StatusCode, string(rawBody))
-	}
-	var out TokenResponse
-	if err := jsonUnmarshal(rawBody, &out); err != nil {
-		return nil, fmt.Errorf("antigravity-token: parse refresh: %w", err)
-	}
-	if out.AccessToken == "" {
-		return nil, fmt.Errorf("antigravity-token: empty access_token in refresh response: %s",
-			string(rawBody))
-	}
-	return &out, nil
+	return &TokenResponse{
+		AccessToken:  tok.AccessToken,
+		RefreshToken: tok.RefreshToken,
+		IDToken:      tokenExtraString(tok, "id_token"),
+		TokenType:    tok.TokenType,
+		ExpiresIn:    int(tok.ExpiresIn),
+		Scope:        tokenExtraString(tok, "scope"),
+	}, nil
 }
 
 // UnifiedTokenCache 跟 cycle 35 TokenCache 类似, 但走 unified load + multi-path save.

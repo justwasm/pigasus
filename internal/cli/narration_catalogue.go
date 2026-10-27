@@ -47,6 +47,7 @@
 package cli
 
 import (
+	"hash/fnv"
 	"strings"
 	"time"
 )
@@ -93,34 +94,22 @@ const narrationDefaultPrefix = "narration-default\n"
 // hash input — different taskTypes yield different paragraphs.
 const narrationAutoPrefix = "narration-auto\n"
 
-// narrationHashOffset is the FNV-1a 64-bit offset basis. Defined locally
-// rather than imported because the cycle-250 helper is the only place
-// in the tree that needs it; pulling in hash/fnv for one call site
-// would be overkill.
-const narrationHashOffset uint64 = 0xcbf29ce484222325
-
-// narrationHashPrime is the FNV-1a 64-bit prime. See narrationHashOffset.
-const narrationHashPrime uint64 = 0x100000001b3
-
-// fnvNarration is the cycle-250 tiny FNV-1a over bytes. Mirrors the
-// reference encoding the standard library uses (fnv.New64a) but inlines
-// the loop so the helper stays import-free.
+// fnvNarration is the cycle-250 FNV-1a over bytes. It is the
+// standard library's hash/fnv.New64a — the same hash the reference
+// encodes with, byte for byte.
 //
 // Domain separation: the caller always prepends one of the two
 // narration*Prefix strings before calling this, so two
 // selectors whose user-supplied bytes happen to be identical still
 // hash to different values when their mode differs.
 func fnvNarration(seed string, payload []byte) uint64 {
-	h := narrationHashOffset
-	for i := 0; i < len(seed); i++ {
-		h ^= uint64(seed[i])
-		h *= narrationHashPrime
-	}
-	for _, b := range payload {
-		h ^= uint64(b)
-		h *= narrationHashPrime
-	}
-	return h
+	h := fnv.New64a()
+	// hash.Hash64.Write never returns an error (it is an in-memory
+	// hash); the err-return signature is preserved for stdlib API
+	// compatibility, so the value is ignored here.
+	_, _ = h.Write([]byte(seed))
+	_, _ = h.Write(payload)
+	return h.Sum64()
 }
 
 // SelectNarration returns the paragraph /narration writes to the

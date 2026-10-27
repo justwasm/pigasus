@@ -19,12 +19,12 @@
 // non-absolute paths are rejected so the dispatcher's
 // bind step never sees a relative path.
 //
-// hostConfigToDispatcherConfig: translates a
-// HostConfig into the dispatcher's Config. The
-// conversion is non-trivial because HostConfig
-// exposes a curated subset (the daemon wire-bound
-// surface) while Config exposes the full dispatcher
-// surface (used by in-process embedders).
+// ConfigFromHost: translates a HostConfig into the
+// dispatcher's Config. The conversion is non-trivial
+// because HostConfig exposes a curated subset (the
+// daemon wire-bound surface) while Config exposes the
+// full dispatcher surface (used by in-process
+// embedders).
 //
 // Stdlib-only. No third-party deps.
 package remotecontrol
@@ -84,17 +84,21 @@ func resolveHostSocketPath(hc HostConfig) (string, error) {
 	return sock, nil
 }
 
-// hostConfigToDispatcherConfig translates a
-// HostConfig into the dispatcher's Config. Most
-// fields are 1:1; the conversion is non-trivial
-// because HostConfig exposes a curated subset
-// (the daemon wire-bound surface) while Config
-// exposes the full dispatcher surface (used by
-// in-process embedders). Extracted from
-// StartHostSession to keep that function under the
-// 50-fn ceiling that cycle
-// rc-filesize-internal-remotecontrol enforces.
-func hostConfigToDispatcherConfig(hc HostConfig, sock string) Config {
+// ConfigFromHost translates a HostConfig into the dispatcher's Config.
+// The conversion is non-trivial because HostConfig exposes a curated
+// subset (the daemon wire-bound surface) while Config exposes the full
+// dispatcher surface (used by in-process embedders).
+//
+// Cycle 346: this was the package-private hostConfigToDispatcherConfig.
+// It is exported now because two callers need it — the Unix-socket host
+// (StartHostSession) and the TCP host (internal/rchost, the
+// `--remote-control-tcp` path) — and the second one used to carry its
+// own, shorter translation that silently dropped the Web UI's terminal
+// and voice registries. One translation, one set of fields.
+//
+// The socket path is a parameter because the Unix host binds one and
+// the TCP host does not ("" means "no Unix socket").
+func ConfigFromHost(hc HostConfig, sock string) Config {
 	return Config{
 		SocketPath:              sock,
 		Session:                 hc.Session,
@@ -122,6 +126,16 @@ func hostConfigToDispatcherConfig(hc HostConfig, sock string) Config {
 		ConversationConfigStore: hc.ConversationConfigStore,
 		ConversationConfigPath:  hc.ConversationConfigPath,
 		TerminalsRegistry:       hc.TerminalsRegistry,
+		// Cycle rc-web-terminals: the Web UI's terminal
+		// surface (a live shell per terminal).
+		WebTerminals: hc.WebTerminals,
+		// Cycle rc-web-terminals: the Web UI's voice input.
+		WebAudio: hc.WebAudio,
+		// The agent↔browser bridge (cycle 347): the three
+		// agent-browser RPCs answer through this seam. It was
+		// missing here, so the Unix-socket host came up with a
+		// nil broker and the bridge answered nothing.
+		Browser: hc.Browser,
 		// Cycle rc-auth-tokens: production
 		// wires an FSOriginPolicyStore rooted
 		// at $ANTIGRAVITY_HOME/origin_policy.json

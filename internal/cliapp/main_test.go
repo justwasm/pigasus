@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 // TestMain points $ANTIGRAVITY_HOME at a scratch tree for the whole
@@ -49,6 +50,14 @@ func TestMain(m *testing.M) {
 	}
 	if err := os.Setenv("ANTIGRAVITY_HOME", agy); err != nil {
 		panic(err)
+	}
+	// The seasonal theme is a *calendar* feature: the reference draws
+	// the "Seasonal Themes" row in /config only while the event is in
+	// season (October), so the panel's row count would follow the
+	// wall clock. The tests pin the clock outside the season; the
+	// seasonal tests pin it inside.
+	seasonalNow = func() time.Time {
+		return time.Date(2026, time.January, 15, 12, 0, 0, 0, time.UTC)
 	}
 	code := m.Run()
 	_ = os.RemoveAll(root)

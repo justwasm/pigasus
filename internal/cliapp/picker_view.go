@@ -4,27 +4,27 @@
 // /tmp/agy_slash.txt captured state when the user typed "/" into the
 // prompt (v1.3.5 binary 1:1):
 //
-//   > /
-//   ───────────────────────────────────────────────────────────────────────
-//   > /add-dir          Add a directory to the workspace
-//     /agents           List available custom agents
-//     /artifact         View and review artifacts
-//     /btw              Ask a side question without interrupting the current task
-//     /changelog        Show release notes and changes
-//     /compact          Compact the conversation now (cycle 237, AGY 1.4.2)
-//      ↓ 89 more
+//	> /
+//	───────────────────────────────────────────────────────────────────────
+//	> /add-dir          Add a directory to the workspace
+//	  /agents           List available custom agents
+//	  /artifact         View and review artifacts
+//	  /btw              Ask a side question without interrupting the current task
+//	  /changelog        Show release notes and changes
+//	  /compact          Compact the conversation now (cycle 237, AGY 1.4.2)
+//	   ↓ 89 more
 //
-//     ↑/↓ Navigate · enter Select · tab Complete
-//   esc to cancel                                          Gemini 3.8 Flash · high
+//	  ↑/↓ Navigate · enter Select · tab Complete
+//	esc to cancel                                          Gemini 3.8 Flash · high
 //
 // Cycle 126 alignment with the v1.3.6 ref capture:
-//   * Highlighted row: "> " is part of the command name in true-colour
+//   - Highlighted row: "> " is part of the command name in true-colour
 //     blue (38;2;66;133;244) — same as the brand blue
-//   * Non-highlighted: "  " prefix + name (no color), dim gray desc
-//   * Name column padded to 51 chars ("> " + 49 or "  " + 49)
-//   * "↓ N more" tail row in dim gray (same as descriptions)
-//   * Blank row between "↓ N more" and the hint row
-//   * "esc to cancel" stays in statusRow when picker is visible
+//   - Non-highlighted: "  " prefix + name (no color), dim gray desc
+//   - Name column padded to 51 chars ("> " + 49 or "  " + 49)
+//   - "↓ N more" tail row in dim gray (same as descriptions)
+//   - Blank row between "↓ N more" and the hint row
+//   - "esc to cancel" stays in statusRow when picker is visible
 //
 // The original cycle-74 capture used 256-colour 38;5;69/238/241;
 // cycle 126 normalises them to the recovered 24-bit RGB palette
@@ -46,15 +46,18 @@ import (
 // the keys and 24-bit RGB dim gray (38;2;95;99;104) for the
 // labels — matching the prompt and the tab-bar brand palette.
 // See colors.go.
-const (
-	pickerNameHi   = cBlueOpen
+var (
+	pickerNameHi = cBlueOpen
 	// Cycle 283: the reference renders picker descriptions and the
 	// "↓ N more" counter in Solarized base01 #586E75 (verified from a
 	// truecolour capture of the `/` picker: 38;2;88;110;117), one step
 	// dimmer than the labels.
-	pickerDescDim  = cSubtleOpen // #586E75 for descriptions
+	pickerDescDim  = cSubtleOpen  // #586E75 for descriptions
 	pickerLabelDim = cDimGrayOpen // dim gray for keyboard labels (same gray)
 	pickerKeyOpen  = "\x1b[1m" + cBlueOpen
+)
+
+const (
 	pickerKeyClose = "\x1b[0m"
 	pickerReset    = "\x1b[39m"
 )
@@ -359,4 +362,3 @@ func (m *runMode) handlePickerWheel(ev tea.Mouse) bool {
 	}
 	return false
 }
-

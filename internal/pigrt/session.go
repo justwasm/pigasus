@@ -3,11 +3,12 @@ package pigrt
 import (
 	"context"
 	"errors"
+	"time"
 
 	"github.com/MichaelKinsy/PiG/agent"
 	"github.com/MichaelKinsy/PiG/ai"
 	"github.com/MichaelKinsy/PiG/coding"
-	"github.com/justwasm/pigasus/internal/retrybudget"
+	"github.com/justwasm/pigasus/retrybudget"
 )
 
 // Session exposes the underlying PiG session for callers that need more than
@@ -70,13 +71,32 @@ func (r *Runtime) classifyTurnResult(msgs []agent.AgentMessage, err error) ([]ag
 
 // RunWith is Run with an event observer attached for the duration of the turn.
 func (r *Runtime) RunWith(ctx context.Context, prompt string, onText func(string), onEvent EventFunc) ([]agent.AgentMessage, error) {
+	return r.runTurn(ctx, func(ctx context.Context) ([]agent.AgentMessage, error) {
+		return r.session.Send(ctx, prompt)
+	}, onText, onEvent)
+}
+
+// RunWithContent is RunWith for a turn whose user message carries
+// images.
+//
+// The content blocks are the user message's: a leading text block, then
+// one block per image — the shape PiG's own BuildUserContent builds
+// (coding/session.go). A turn with no image goes through the plain
+// Send path, so the text-only behaviour is byte for byte the one it
+// had before.
+func (r *Runtime) RunWithContent(ctx context.Context, content []ai.UserContentBlock, onText func(string), onEvent EventFunc) ([]agent.AgentMessage, error) {
+	return r.runTurn(ctx, func(ctx context.Context) ([]agent.AgentMessage, error) {
+		return r.session.SendContent(ctx, content)
+	}, onText, onEvent)
+}
+
+// runTurn is the turn body both RunWith and RunWithContent share.
+func (r *Runtime) runTurn(ctx context.Context, send func(context.Context) ([]agent.AgentMessage, error), onText func(string), onEvent EventFunc) ([]agent.AgentMessage, error) {
 	cleanup := r.setupTurnObservers(onText, onEvent)
 	defer cleanup()
 
-	msgs, err := r.session.Send(ctx, prompt)
-	if r.session != nil {
-		_ = r.session.FlushEvents(ctx)
-	}
+	msgs, err := send(ctx)
+	r.flushEvents(ctx)
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		return msgs, ctxErr
 	}
@@ -88,6 +108,36 @@ func (r *Runtime) RunWith(ctx context.Context, prompt string, onText func(string
 		msgs, err = recovered, nil
 	}
 	return r.classifyTurnResult(msgs, err)
+}
+
+// eventFlushTimeout bounds the end-of-turn event barrier.
+const eventFlushTimeout = 5 * time.Second
+
+// flushEvents waits until every event of the turn has been forwarded.
+//
+// PiG's barrier is the only thing that says "the drain goroutine is
+// done with this turn". The turn's own context cannot carry it: a
+// cancelled turn skips the barrier, and the drain goroutine — which
+// outlives the turn — is then still forwarding events when the caller
+// tears the event channel down. That late write panicked with "send
+// on closed channel" and, running in the daemon's tunnel goroutine,
+// took the whole process down.
+//
+// A context that is already dead gets a fresh one, bounded by a
+// timeout, so the barrier is still enqueued.
+func (r *Runtime) flushEvents(ctx context.Context) {
+	if r.session == nil {
+		return
+	}
+	flushCtx := ctx
+	cancel := func() {}
+	if ctx.Err() != nil {
+		var fresh context.Context
+		fresh, cancel = context.WithTimeout(context.WithoutCancel(ctx), eventFlushTimeout)
+		flushCtx = fresh
+	}
+	defer cancel()
+	_ = r.session.FlushEvents(flushCtx)
 }
 
 // turnFailure reports the failure PiG encoded in the turn's messages: the last

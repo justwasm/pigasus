@@ -94,32 +94,6 @@ func TestClassifyInterruptionMatrix(t *testing.T) {
 	}
 }
 
-// TestIterationCountFromErr pins the parser used in **Status** banner
-// formatting. Returning 0 (best-effort) is acceptable for the
-// recovery-copy path; the depth counter is the real bound on
-// recursion. The cycles observed are the wrap PiG emits (pigrt-style
-// "%w (%d turns)"), the clone-style wrap, and a bare integer.
-func TestIterationCountFromErr(t *testing.T) {
-	cases := []struct {
-		name string
-		err  error
-		want int
-	}{
-		{"nil", nil, 0},
-		{"empty", errors.New(""), 0},
-		{"pigrt format", fmt.Errorf("%w (%d turns)", agent.ErrMaxTurnsReached, 12), 12},
-		{"pigrt zero", fmt.Errorf("%w (%d turns)", agent.ErrMaxTurnsReached, 0), 0},
-		{"plain integer", errors.New("exceeded at 21 iterations"), 21},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			if got := iterationCountFromErr(tc.err); got != tc.want {
-				t.Errorf("iterationCountFromErr(%q) = %d, want %d", tc.err, got, tc.want)
-			}
-		})
-	}
-}
-
 // TestAppendRecoveryMessageKeepsTailUser pins the synthetic user
 // recovery copy lands at the tail of the agent transcript — PiG
 // rejects an assistant tail from Continue(), and the recovery copy is

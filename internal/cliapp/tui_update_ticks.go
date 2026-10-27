@@ -177,7 +177,10 @@ func (m *runMode) updateTickMsg(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
 		return m, nil, true
 	case statusLineExternalTickMsg:
 		m.ensureExternalState().MarkTick()
-		go m.runExternalStatusLineTick()
+		// The tick builds the payload on this goroutine — the session's
+		// state is not safe to read from another one — and runs the
+		// scripts in a goroutine of their own.
+		m.runExternalStatusLineTick()
 		return m, armExternalStatusLineTick(), true
 	}
 	return m, nil, false

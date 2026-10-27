@@ -7,8 +7,11 @@ package auth
 
 import (
 	"context"
+	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/justwasm/pigasus/endpoints"
 )
 
 func TestRefreshToken(t *testing.T) {
@@ -50,9 +53,18 @@ func TestConstants(t *testing.T) {
 	if CloudCodeDaily != "https://daily-cloudcode-pa.googleapis.com" {
 		t.Errorf("CloudCodeDaily = %q, want daily-cloudcode-pa", CloudCodeDaily)
 	}
-	// TokenURL must point at the plain oauth2 endpoint (no mTLS).
-	if TokenURL != "https://oauth2.googleapis.com/token" {
-		t.Errorf("TokenURL = %q, want https://oauth2.googleapis.com/token", TokenURL)
+	// TokenURL is the test seam and is empty by default: the live
+	// endpoint comes from the resolver, so the configuration file can
+	// point the refresh grant at a local service. The resolved value
+	// must point at the plain oauth2 endpoint (no mTLS).
+	if TokenURL != "" {
+		t.Errorf("TokenURL = %q, want the empty default", TokenURL)
+	}
+	// The resolved endpoint is the configured one; with no
+	// configuration file that is the compiled-in default.
+	t.Setenv(endpoints.ConfigPathEnvVar, filepath.Join(t.TempDir(), "absent.json"))
+	if got := tokenURL(); got != endpoints.DefaultOAuth2Token {
+		t.Errorf("tokenURL() = %q, want %q", got, endpoints.DefaultOAuth2Token)
 	}
 	// Scopes (cycle 44 ship: 6 scopes for refresh).
 	if ScopeCloudPlatform == "" {

@@ -213,6 +213,19 @@ func (m *runMode) separator() string {
 	return separator
 }
 
+// promptRule returns the rule that frames the prompt box.
+//
+// 【一手】 agy 1.4.7: with a seasonal event switched on the prompt box's
+// two rules become the event's own — a gradient rule with face motifs in
+// it (out/changelog-147/ref/seasonal-prompt.txt) — while the rule that
+// separates the queued messages from the transcript stays plain.
+func (m *runMode) promptRule(top bool) string {
+	if m.seasonal == nil {
+		return m.separator()
+	}
+	return m.seasonal.Border.Rule(m.width, top)
+}
+
 const inputPrompt = "> "
 
 // inputWidth is the textarea render width.
@@ -384,10 +397,17 @@ func (m *runMode) statusRightSegment() statusRightInfo {
 	}
 }
 
+// statusRow is the status area's single row: the custom script's output
+// when one is active, the built-in template otherwise.
 func (m *runMode) statusRow() string {
 	if out, _ := m.externalRenderedForRow(); out != "" {
 		return out
 	}
+	return m.builtinStatusRow()
+}
+
+// builtinStatusRow is the reference's built-in status line.
+func (m *runMode) builtinStatusRow() string {
 	left, leftPlain := m.statusLeftSegment()
 	rightInfo := m.statusRightSegment()
 

@@ -24,6 +24,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/justwasm/pigasus/endpoints"
 )
 
 // QuotaBucket is one quota window in a group (weekly, 5h).
@@ -124,7 +126,7 @@ func FetchQuotaSummaryWithToken(ctx context.Context, accessToken string) (*Quota
 	tok := accessToken
 	body := []byte(`{"project":"aicode-consumers"}`)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
-		CloudCodeEndpoint+"/v1internal:retrieveUserQuotaSummary", bytes.NewReader(body))
+		endpoints.Current().CloudCode+"/v1internal:retrieveUserQuotaSummary", bytes.NewReader(body))
 	if err != nil {
 		return nil, err
 	}

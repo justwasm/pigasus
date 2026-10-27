@@ -6,9 +6,10 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"net/http/httputil"
 	"strings"
 
-	"github.com/justwasm/pigasus/internal/geminiwire"
+	"github.com/justwasm/pigasus/geminicode"
 	"github.com/justwasm/pigasus/internal/models"
 )
 
@@ -18,7 +19,7 @@ type reqInfo struct {
 	custom  bool
 	tuned   models.Model
 	wrapped bool
-	inner   *geminiwire.GenerateContentRequest
+	inner   *geminicode.GenerateContentRequest
 }
 
 // inspect parses the body only for the RPCs that carry a model. The path test
@@ -31,7 +32,7 @@ func (s *Server) inspect(path string, body []byte) reqInfo {
 	if !strings.Contains(p, "generatecontent") && !strings.HasSuffix(p, ":counttokens") {
 		return reqInfo{}
 	}
-	var env geminiwire.GenerateContentRequest
+	var env geminicode.GenerateContentRequest
 	if err := json.Unmarshal(body, &env); err != nil {
 		return reqInfo{}
 	}
@@ -46,23 +47,63 @@ func (s *Server) inspect(path string, body []byte) reqInfo {
 
 // passthrough forwards one RPC verbatim (method, headers, body, status,
 // headers, body) and streams the response through without buffering it.
+//
+// The forwarding is httputil.ReverseProxy's — the standard library's
+// reverse proxy. The clone's own copy loop was a re-implementation of
+// it: the same hop-by-hop header list, the same 32 KiB copy buffer, the
+// same flush after every chunk. The Rewrite hook keeps the three
+// deviations the clone needs:
+//
+//   - the body is the buffer the router already read (the router
+//     inspects it to decide whether the call targets a custom model),
+//     so it is handed to the proxy rather than re-read from the wire;
+//   - the client's Accept-Encoding is dropped, so the upstream's answer
+//     arrives decoded and the capture files hold plain text;
+//   - the client's forwarding headers are put back, because the
+//     Rewrite hook strips them and the clone forwards the request as it
+//     came in.
 func (s *Server) passthrough(w http.ResponseWriter, r *http.Request, body []byte) {
-	req, err := s.upstreamRequest(r, body)
-	if err != nil {
-		writeJSONError(w, http.StatusBadGateway, err.Error())
-		return
-	}
-	resp, err := s.client.Do(req)
-	if err != nil {
-		s.logf("%s %s: upstream error: %v", r.Method, r.URL.Path, err)
-		writeJSONError(w, http.StatusBadGateway, "upstream request failed: "+err.Error())
-		return
-	}
-	defer resp.Body.Close()
+	proxy := &httputil.ReverseProxy{
+		Transport: s.client.Transport,
+		// Flush after every chunk: the upstream streams SSE frames and
+		// they have to reach agy as they arrive, not at EOF.
+		FlushInterval: -1,
+		Rewrite: func(pr *httputil.ProxyRequest) {
+			u := *s.upstream
+			u.Path = joinPath(s.upstream.Path, pr.In.URL.Path)
+			// The upstream's own query is replaced by the inbound one,
+			// not appended to it.
+			u.RawQuery = pr.In.URL.RawQuery
+			pr.Out.URL = &u
+			pr.Out.Host = u.Host
 
-	copyResponseHeaders(w.Header(), resp.Header)
-	w.WriteHeader(resp.StatusCode)
-	streamCopy(w, resp.Body)
+			pr.Out.Body = io.NopCloser(bytes.NewReader(body))
+			pr.Out.ContentLength = int64(len(body))
+			pr.Out.GetBody = func() (io.ReadCloser, error) {
+				return io.NopCloser(bytes.NewReader(body)), nil
+			}
+			// The body may have been rewritten, so a copied Content-Length
+			// would lie.
+			pr.Out.Header.Del("Content-Length")
+			// Let Go negotiate identity encoding: we forward the decoded
+			// bytes and would otherwise have to rewrite Content-Encoding.
+			pr.Out.Header.Del("Accept-Encoding")
+
+			for _, h := range []string{"Forwarded", "X-Forwarded-For", "X-Forwarded-Host", "X-Forwarded-Proto"} {
+				if vs := pr.In.Header.Values(h); len(vs) > 0 {
+					pr.Out.Header.Del(h)
+					for _, v := range vs {
+						pr.Out.Header.Add(h, v)
+					}
+				}
+			}
+		},
+		ErrorHandler: func(w http.ResponseWriter, _ *http.Request, err error) {
+			s.logf("%s %s: upstream error: %v", r.Method, r.URL.Path, err)
+			writeJSONError(w, http.StatusBadGateway, "upstream request failed: "+err.Error())
+		},
+	}
+	proxy.ServeHTTP(w, r)
 }
 
 func (s *Server) upstreamRequest(r *http.Request, body []byte) (*http.Request, error) {
@@ -112,17 +153,6 @@ func copyHeaders(dst, src http.Header) {
 	}
 }
 
-func copyResponseHeaders(dst, src http.Header) {
-	for k, vv := range src {
-		if isHopByHop(k) || strings.EqualFold(k, "Content-Length") {
-			continue
-		}
-		for _, v := range vv {
-			dst.Add(k, v)
-		}
-	}
-}
-
 func isHopByHop(k string) bool {
 	switch strings.ToLower(k) {
 	case "connection", "keep-alive", "proxy-authenticate", "proxy-authorization",
@@ -130,27 +160,6 @@ func isHopByHop(k string) bool {
 		return true
 	}
 	return false
-}
-
-// streamCopy copies src to w flushing after every chunk so SSE frames reach
-// agy as they arrive instead of at EOF.
-func streamCopy(w http.ResponseWriter, src io.Reader) {
-	flusher, _ := w.(http.Flusher)
-	buf := make([]byte, 32*1024)
-	for {
-		n, err := src.Read(buf)
-		if n > 0 {
-			if _, werr := w.Write(buf[:n]); werr != nil {
-				return
-			}
-			if flusher != nil {
-				flusher.Flush()
-			}
-		}
-		if err != nil {
-			return
-		}
-	}
 }
 
 func readAll(r io.Reader, limit int64) ([]byte, error) {

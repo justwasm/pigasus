@@ -27,6 +27,7 @@ import (
 	"context"
 	"encoding/json"
 	"strings"
+	"sync"
 	"testing"
 
 	pi "github.com/MichaelKinsy/PiG/ai"
@@ -173,6 +174,111 @@ func TestInvokeSubagentBuiltinRouting_SchemaMentionsBuiltins(t *testing.T) {
 	}
 	if desc, _ := agentName["description"].(string); !strings.Contains(desc, "image-generator") {
 		t.Errorf("agent_name.description does not reference image-generator:\n%s", desc)
+	}
+}
+
+// TestInvokeSubagentBuiltinRouting_TypeNameReachesTheBuiltin pins the
+// route the model actually uses for the browser agent.
+//
+// The model's wire declaration is the reference's captured one, so the
+// parameter it writes is `TypeName` — not the clone's `agent_name`. The
+// browser agent is a built-in *type* (the reference's own name for it
+// is `chrome_devtools`), and this is the path that reaches it: the
+// TypeName is looked up in the built-in registry and the handler runs;
+// the parent's session never starts.
+func TestInvokeSubagentBuiltinRouting_TypeNameReachesTheBuiltin(t *testing.T) {
+	resetBuiltinRegistry(t)
+
+	reg := builtinsubagent.NewRegistry()
+	var gotPrompt string
+	if err := reg.Register(builtinsubagent.Spec{
+		Name:        builtinsubagent.KindBrowser,
+		Description: "the browser agent",
+		Handler: func(_ context.Context, prompt string) (builtinsubagent.Result, error) {
+			gotPrompt = prompt
+			return builtinsubagent.Result{Text: "the page said Example Domain"}, nil
+		},
+	}); err != nil {
+		t.Fatalf("register the fake browser agent: %v", err)
+	}
+	SetBuiltinSubagentRegistry(reg)
+	t.Cleanup(func() { resetBuiltinRegistry(t) })
+
+	tool := &invokeTool{deps: Deps{
+		Services: subagentTestServices(t),
+		Model:    subagentTestModel(),
+		CWD:      t.TempDir(),
+	}}
+
+	args, _ := json.Marshal(invokeArgs{
+		TypeName: string(builtinsubagent.KindBrowser),
+		Prompt:   "open https://example.com and report the title",
+	})
+	res, err := tool.Execute(context.Background(), "call-browser", args, nil)
+	if err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("Execute returned IsError=true: %+v", res)
+	}
+	if gotPrompt != "open https://example.com and report the title" {
+		t.Errorf("the handler saw %q", gotPrompt)
+	}
+	body, ok := res.Content[0].(pi.TextContent)
+	if !ok {
+		t.Fatalf("content[0] = %T, want pi.TextContent", res.Content[0])
+	}
+	var env map[string]any
+	if err := json.Unmarshal([]byte(body.Text), &env); err != nil {
+		t.Fatalf("envelope unmarshal: %v (raw=%q)", err, body.Text)
+	}
+	if ok, _ := env["ok"].(bool); !ok {
+		t.Fatalf("envelope.ok = %v, want true", env["ok"])
+	}
+	if name, _ := env["agent_name"].(string); name != string(builtinsubagent.KindBrowser) {
+		t.Errorf("envelope.agent_name = %q, want %q", name, builtinsubagent.KindBrowser)
+	}
+	if text, _ := env["text"].(string); !strings.Contains(text, "Example Domain") {
+		t.Errorf("envelope.text = %q, want the agent's answer", text)
+	}
+}
+
+// TestSetBuiltinSubagentRegistrySurvivesTheFirstRead is the regression
+// test for the lazy default overwriting a session's registry.
+//
+// The registry is seeded lazily: the first read builds the default. A
+// session that installs its own registry *before* that first read — the
+// browser agent does exactly that, at session setup — used to lose it:
+// the lazy seed replaced the installed registry with the default, and
+// the browser agent was never routed to. The symptom was invisible:
+// the model simply saw a catalogue without the browser agent.
+func TestSetBuiltinSubagentRegistrySurvivesTheFirstRead(t *testing.T) {
+	// The lazy seed is a package-level sync.Once, so the test resets it
+	// to reproduce the "install before the first read" order.
+	builtinRegistryMu.Lock()
+	oldOnce, oldReg := builtinRegistryOnce, builtinRegistry
+	builtinRegistryOnce, builtinRegistry = sync.Once{}, nil
+	builtinRegistryMu.Unlock()
+	t.Cleanup(func() {
+		builtinRegistryMu.Lock()
+		builtinRegistryOnce, builtinRegistry = oldOnce, oldReg
+		builtinRegistryMu.Unlock()
+	})
+
+	reg := builtinsubagent.Default()
+	if err := reg.Register(builtinsubagent.Spec{
+		Name:        builtinsubagent.KindBrowser,
+		Description: "the browser agent",
+		Handler: func(_ context.Context, _ string) (builtinsubagent.Result, error) {
+			return builtinsubagent.Result{Text: "ok"}, nil
+		},
+	}); err != nil {
+		t.Fatalf("register: %v", err)
+	}
+	SetBuiltinSubagentRegistry(reg)
+
+	if catalog := BuiltinSubagentCatalog(); !strings.Contains(catalog, string(builtinsubagent.KindBrowser)) {
+		t.Errorf("the installed registry did not survive the first read; catalogue:\n%s", catalog)
 	}
 }
 

@@ -12,8 +12,8 @@ import (
 //
 // The reference's rehydration has no such struct: it rebuilds a step
 // and lets the cascade manager apply the delta to the agent state it
-// owns (【反编译】 CLI `processLoadedTrajectory` 0x101e4e8a0 →
-// `updateStateForLoadedTrajectory` 0x101e4fc00). The clone collects
+// owns (【反编译】 CLI `processLoadedTrajectory` 0x101f26440 →
+// `updateStateForLoadedTrajectory` 0x101f277a0). The clone collects
 // the live stores in one place so the pass has a single entry point.
 type State struct {
 	// ConversationID is the conversation being rehydrated. The

@@ -43,7 +43,21 @@ func StandardSubcommands() []SubcommandSpec {
 	subs = append(subs, generalSubcommands()...)
 	subs = append(subs, hiddenUtilitySubcommands()...)
 	subs = append(subs, providerSubcommand(), modelSubcommand(), accountsSubcommand())
+	subs = append(subs, halloweenSubcommand())
 	return subs
+}
+
+// halloweenSubcommand is the clone's own command for printing the
+// seasonal banner art. The reference has no such command — the art only
+// ever appears in its startup banner — so it is a pigasus addition, next
+// to the other openagy commands.
+func halloweenSubcommand() SubcommandSpec {
+	return SubcommandSpec{
+		Name:   "halloween",
+		Short:  "Print the seasonal banner art",
+		HelpFn: usageHalloween,
+		RunJ:   runHalloween,
+	}
 }
 
 func standardPluginSubs() []SubSubSpec {

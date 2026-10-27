@@ -158,6 +158,8 @@ var toolKeyAliases = map[string]string{
 	"directory":           "path",
 	"SearchPath":          "path",
 	"search_path":         "path",
+	"SearchDirectory":     "path",
+	"search_directory":    "path",
 	"CommandLine":         "command",
 	"command_line":        "command",
 	"Command":             "command",

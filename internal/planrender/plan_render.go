@@ -32,7 +32,7 @@
 //     `utf8.RuneCountInString(line)` — byte-aware / rune-aware but
 //     not cell-aware.
 //   - The byte-width / rune-count clamp is in
-//     internal/render/render.go (cycle 245 fixes the runeWidth →
+//     render/render.go (cycle 245 fixes the runeWidth →
 //     cellWidth substitution; truncateToCells uses runewidth.Truncate
 //     which truncates on grapheme cluster boundaries, the AGY 1.4.0
 //     recovery path).
@@ -66,6 +66,7 @@ package planrender
 import (
 	"strings"
 
+	"github.com/charmbracelet/x/ansi"
 	rwidth "github.com/mattn/go-runewidth"
 )
 
@@ -256,49 +257,23 @@ func padCells(s string, width int) string {
 // in width=40 without wrap; in width=30 it wraps to two rows at the
 // cell boundary, not at byte / rune boundary.
 //
-// Soft-wrap algorithm: walk runes, accumulate cell count via
-// runewidth.RuneWidth, emit a row each time the next rune would
-// exceed the budget. Combining marks (width 0) are absorbed into the
-// preceding row's last rune so they don't desynchronise the wrap
-// boundary.
+// Soft-wrap algorithm: the rows are cut at the cell boundary, and a
+// grapheme cluster is never split across two rows.
+//
+// The wrap itself is charmbracelet/x/ansi's hard wrap. That is the
+// library the reference's own binary embeds: its seeds carry
+// charmbracelet/x/ansi's Hardwrap, Wordwrap and DecodeSequence
+// (out/seeds/funcs.txt), so the plan rows are wrapped the way the
+// reference wraps them.
+//
+// The third argument keeps the spaces at the beginning of a line —
+// the clone's own wrap kept them, and a plan row's indentation is
+// part of the row.
 func wrapPlanLine(line string, width int) []string {
 	if width <= 0 || line == "" {
 		return []string{line}
 	}
-	if rwidth.StringWidth(line) <= width {
-		return []string{line}
-	}
-	var rows []string
-	var cur strings.Builder
-	used := 0
-	flush := func() {
-		rows = append(rows, cur.String())
-		cur.Reset()
-		used = 0
-	}
-	for _, r := range line {
-		rw := rwidth.RuneWidth(r)
-		if rw < 0 {
-			// Negative widths (control chars) — treat as zero so
-			// they don't accidentally count toward the budget.
-			rw = 0
-		}
-		if rw == 0 {
-			// Combining mark / ZWJ-joiner. Always attaches to the
-			// preceding rune so it doesn't desync the wrap boundary.
-			cur.WriteRune(r)
-			continue
-		}
-		if used+rw > width {
-			flush()
-		}
-		cur.WriteRune(r)
-		used += rw
-	}
-	if cur.Len() > 0 || len(rows) == 0 {
-		flush()
-	}
-	return rows
+	return strings.Split(ansi.Hardwrap(line, width, true), "\n")
 }
 
 // truncatePlanLine shortens line to at most width terminal cells,

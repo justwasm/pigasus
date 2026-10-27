@@ -178,6 +178,9 @@ func (r *Registry) Names() []string {
 // a defensive copy of the registered value, so callers can mutate it
 // without disturbing the registry.
 func (r *Registry) Spec(name string) (Spec, bool) {
+	if r == nil {
+		return Spec{}, false
+	}
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	s, ok := r.entries[name]
@@ -211,6 +214,9 @@ var ErrAlreadyRegistered = errors.New("builtinsubagent: name already registered"
 // registry. errors.Is(err, ErrUnknownName) still matches so the
 // caller can route on the sentinel alone.
 func (r *Registry) Invoke(ctx context.Context, name, prompt string) (Result, error) {
+	if r == nil {
+		return Result{}, fmt.Errorf("%w: %q", ErrUnknownName, name)
+	}
 	r.mu.RLock()
 	spec, ok := r.entries[name]
 	r.mu.RUnlock()

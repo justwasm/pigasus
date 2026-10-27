@@ -117,6 +117,15 @@ separate 520-char-prompt conversation-title call. A third came later: the ~34 KB
 byte in `internal/agyprompt` (cycle agy-system-prompt) — see
 `docs/research/REFERENCES.md` for the external material it was checked against.
 
+**A second user: the reference backend.** `pigasus web
+--reference-backend=<language_server>` starts the IDE's own
+`language_server` with `-cloud_code_endpoint` pointing at **this** proxy
+(`internal/refbackend/custommodels.go`). The reference reads its
+catalogue from that endpoint and promotes it into the entries its own
+model picker shows, so the operator's models appear there too — and a
+turn that picks one is translated to the operator's provider, exactly as
+on the `agy` path. With no configured model there is no proxy at all.
+
 Known limits before trusting a capture: the Google path is location-blocked for
 this account (403 passthrough only, so Google-turn fidelity is **unproven**),
 images / `thought` / compaction are not forwarded, and the Anthropic/Google

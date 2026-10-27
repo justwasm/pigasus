@@ -19,17 +19,19 @@ var (
 )
 
 // formatSearchWebResult replicates the reference binary's
-// google3/third_party/jetski/cortex/core/tools/tools.formatSearchWebResult byte for byte.
+// google3/third_party/oneharness/internal/tools/tools.formatSearchWebResult
+// byte for byte.
 //
-// Decompiled signature:
+// 【反编译】 agy 1.4.8, 0x101e059f0. Decompiled signature:
 //
 //	func formatSearchWebResult(query string, summary string) string
 //
-// String parts from 0x101e0f100:
-//  1. fmt.Sprintf("The search for \"%s\"", query)
-//  2. " returned the following summary:\n"
+// String parts:
+//  1. fmt.Sprintf("The search for \"%s\"", query) — 19 B, vm 0x103502675
+//  2. " returned the following summary:\n"            — 32 B, vm 0x1035be804
 //  3. summary
-//  4. "\n\nNote: Source URLs are HTTP redirects; check where they resolve if you need the direct link."
+//  4. "\n\nNote: Source URLs are HTTP redirects; check where they resolve
+//     if you need the direct link."                   — 93 B, vm 0x103685a11
 func formatSearchWebResult(query, summary string) string {
 	var b strings.Builder
 	b.WriteString(fmt.Sprintf("The search for %q", query))

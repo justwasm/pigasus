@@ -191,3 +191,21 @@ cmd/wagyu/render_user_text_test.go   | remove 5 cycle-167 tests (no longer apply
 cmd/wagyu/slash_cycle194_test.go     | new file, 10 cycle-194 tests
 docs/cycles/cycle-194/deliverable-class-d-behavioral.md | this file
 ```
+
+## Superseded (cycle 342)
+
+The `/schedule` and `/browser` rows of this report are **superseded** by
+`docs/cycles/cycle-342-browser-slash-command/deliverable.md`.
+
+The reasoning this report records — the reference's capture of the two
+commands was taken while the *reference account's* quota was exhausted, so
+the clone generates the error locally instead of spending quota on a
+guaranteed failure — reproduced the capture's **failure** and made the clone
+assert, for every user and every account, that the reader's quota was spent.
+Cycle 342 makes the commands do their work instead: `/browser <task>` runs
+the browser agent (the reference's own description: *"Invoke a browser
+agent for web tasks."*), and `/schedule <instruction>` sends the instruction
+to the model, which registers the schedule through the `schedule` tool.
+
+The `newUUIDv4` helper and the `Error ID: <uuid>-1` row this report
+introduced are gone from the tree.

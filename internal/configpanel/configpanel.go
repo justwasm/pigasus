@@ -17,6 +17,8 @@ package configpanel
 import (
 	"strings"
 	"unicode/utf8"
+
+	"github.com/justwasm/pigasus/internal/textwrap"
 )
 
 // Val is one stopping point of a setting's ←/→ cycle, as measured
@@ -366,20 +368,13 @@ func WrapText(s string, width int) []string {
 	if width <= 2 {
 		return []string{s}
 	}
-	avail := width - 2
 	words := strings.Fields(s)
 	if len(words) == 0 {
 		return []string{s}
 	}
-	out := []string{}
-	line := words[0]
-	for _, word := range words[1:] {
-		if utf8.RuneCountInString(line)+1+utf8.RuneCountInString(word) <= avail {
-			line += " " + word
-			continue
-		}
-		out = append(out, line)
-		line = word
-	}
-	return append(out, line)
+	// The wrap is the shared one (internal/textwrap): the rows break on
+	// word boundaries and the budget is counted in terminal cells, not
+	// in runes — a CJK word is two cells per character, so a row of
+	// ideographs holds half as many characters as a row of ASCII.
+	return textwrap.Words(strings.Join(words, " "), width-2)
 }

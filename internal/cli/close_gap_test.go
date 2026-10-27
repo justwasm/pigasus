@@ -20,6 +20,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/justwasm/pigasus/endpoints"
 	"github.com/justwasm/pigasus/internal/persistentrc"
 )
 
@@ -101,8 +102,8 @@ func TestRemoteControlStatus_Plaintext(t *testing.T) {
 	if !strings.Contains(out, "Instance name:") {
 		t.Errorf("status plaintext should contain 'Instance name:', got %q", out)
 	}
-	if !strings.Contains(out, "https://antigravity.google.com") {
-		t.Errorf("status plaintext should mention antigravity.google.com, got %q", out)
+	if !strings.Contains(out, endpoints.Current().CompanionOrigin) {
+		t.Errorf("status plaintext should mention the companion origin, got %q", out)
 	}
 }
 

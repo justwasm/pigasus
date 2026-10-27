@@ -609,24 +609,8 @@ func TestLoadedToolStep_RendersFailedSuffix(t *testing.T) {
 
 // convstoreStep is a tiny helper to build a convstore.Step without
 // importing the package's other helpers.
-func convstoreStep(toolName, toolArgs string, status int64) struct {
-	Idx        int64
-	Type       int64
-	Status     int64
-	Text       string
-	ToolName   string
-	ToolArgs   string
-	ToolResult string
-} {
-	return struct {
-		Idx        int64
-		Type       int64
-		Status     int64
-		Text       string
-		ToolName   string
-		ToolArgs   string
-		ToolResult string
-	}{Status: status, ToolName: toolName, ToolArgs: toolArgs}
+func convstoreStep(toolName, toolArgs string, status int64) convstore.Step {
+	return convstore.Step{Status: status, ToolName: toolName, ToolArgs: toolArgs}
 }
 
 // TestEmptyAssistantNotSaved — assistant message with empty Content is

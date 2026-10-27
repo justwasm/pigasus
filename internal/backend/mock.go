@@ -1,7 +1,7 @@
 // Package backend — mock.go: a sandbox-safe stand-in for the real
 // cloudaicompanion gRPC backend. The recovered 1.3.3 build's real
 // backend (CodeAssistClient.StreamGenerateContentFromAICode) is wired
-// through internal/grpc/api_server.go and reaches
+// through grpc/api_server.go and reaches
 // https://cloudcode-pa.googleapis.com via Google's internal mTLS
 // trust, which is not available in the dev sandbox.
 //
@@ -28,7 +28,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/justwasm/pigasus/internal/grpc"
+	"github.com/justwasm/pigasus/grpc"
 )
 
 // MockCodeAssistClient is a sandbox-safe implementation of the

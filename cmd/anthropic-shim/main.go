@@ -15,6 +15,7 @@ import (
 	"github.com/justwasm/pigasus/internal/backend"
 	// Termux/Android: /etc/resolv.conf points at a dead loopback
 	// nameserver, so the default upstream would never resolve.
+	"github.com/justwasm/pigasus/endpoints"
 	_ "github.com/justwasm/pigasus/internal/dns"
 )
 
@@ -41,7 +42,7 @@ func parseShimFlags() shimFlags {
 		proxyURL:  flag.String("proxy-url", envOr("ANTHROPIC_SHIM_PROXY", "socks5h://127.0.0.1:2081"), "Proxy URL"),
 		publicURL: flag.String("public-url", envOr("ANTHROPIC_SHIM_PUBLIC_URL", ""), "Public URL"),
 		tokenFile: flag.String("token-file", envOr("ANTHROPIC_SHIM_TOKEN_FILE", "/workspace/.home/.gemini/antigravity-cli/antigravity-oauth-token"), "Token file"),
-		upstream:  flag.String("upstream", envOr("ANTHROPIC_SHIM_UPSTREAM", "https://daily-cloudcode-pa.googleapis.com/v1internal:generateChat"), "Upstream URL"),
+		upstream:  flag.String("upstream", envOr("ANTHROPIC_SHIM_UPSTREAM", endpoints.Current().CloudCode+"/v1internal:generateChat"), "Upstream URL"),
 	}
 	flag.Parse()
 	return f

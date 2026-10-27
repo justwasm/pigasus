@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/justwasm/pigasus/internal/render"
+	"github.com/justwasm/pigasus/render"
 )
 
 func TestError_Formatting(t *testing.T) {

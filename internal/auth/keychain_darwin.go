@@ -3,47 +3,50 @@
 package auth
 
 import (
-	"context"
-	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"flag"
 	"os"
-	"os/exec"
 	"strings"
-	"time"
+
+	"github.com/zalando/go-keyring"
+)
+
+// The reference binary keeps the Antigravity OAuth token in the macOS
+// Keychain through github.com/zalando/go-keyring, under the service
+// "gemini" and the account "antigravity". The clone uses the same
+// library with the same service and account, so the two binaries read
+// and write each other's entry.
+const (
+	keychainService = "gemini"
+	keychainAccount = "antigravity"
 )
 
 // LoadKeychainToken retrieves the Antigravity OAuth token from macOS Keychain.
-// Real agy binary uses github.com/zalando/go-keyring with service "gemini" and
-// account "antigravity", storing a base64-encoded JSON blob prefixed with "go-keyring-base64:".
+//
+// go-keyring owns the storage format: its macOS backend encodes the
+// secret as "go-keyring-base64:" + base64(payload) and decodes that
+// prefix on the way back, so what crosses this function's boundary is
+// the plain JSON blob. The reference stores the same bytes — it uses
+// the same library — so an entry written by either binary is readable
+// by the other.
+//
+// An entry written by something else (a raw JSON blob, no prefix) is
+// still understood: go-keyring hands such a value back unchanged.
 func LoadKeychainToken() (*AntigravityToken, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-
-	cmd := exec.CommandContext(ctx, "/usr/bin/security", "find-generic-password", "-s", "gemini", "-a", "antigravity", "-w")
-	out, err := cmd.Output()
+	val, err := keyring.Get(keychainService, keychainAccount)
 	if err != nil {
-		return nil, ErrNoToken
-	}
-
-	val := strings.TrimSpace(string(out))
-	if !strings.HasPrefix(val, "go-keyring-base64:") {
-		// Try raw JSON if not base64-prefixed
-		var rawTok AntigravityToken
-		if err := json.Unmarshal([]byte(val), &rawTok); err == nil && rawTok.Token.AccessToken != "" {
-			return &rawTok, nil
+		if errors.Is(err, keyring.ErrNotFound) {
+			return nil, ErrNoToken
 		}
-		return nil, ErrNoToken
-	}
-
-	payload := strings.TrimPrefix(val, "go-keyring-base64:")
-	rawBytes, err := base64.StdEncoding.DecodeString(payload)
-	if err != nil {
 		return nil, err
 	}
-
+	val = strings.TrimSpace(val)
+	if val == "" {
+		return nil, ErrNoToken
+	}
 	var tok AntigravityToken
-	if err := json.Unmarshal(rawBytes, &tok); err != nil {
+	if err := json.Unmarshal([]byte(val), &tok); err != nil {
 		return nil, err
 	}
 	if tok.Token.AccessToken == "" {
@@ -58,11 +61,11 @@ func HasKeychainToken() bool {
 	return err == nil && tok != nil && tok.Token.AccessToken != ""
 }
 
-// ClearKeychainToken deletes the antigravity token from the macOS
+// ClearKeychainToken deletes the Antigravity OAuth token from the macOS
 // Keychain. Returns nil when no entry exists (the "fresh machine"
-// case), or any error from /usr/bin/security that is not "item not
-// found". Called by ClearTokenUnified when a stale credential must be
-// wiped out (AGY 1.2.5).
+// case), or any error from the keychain that is not "item not found".
+// Called by ClearTokenUnified when a stale credential must be wiped out
+// (AGY 1.2.5).
 func ClearKeychainToken() error {
 	if ClearKeychainTokenFn != nil {
 		return ClearKeychainTokenFn()
@@ -70,18 +73,10 @@ func ClearKeychainToken() error {
 	if os.Getenv("OPENAGY_DISABLE_KEYCHAIN") != "" || flag.Lookup("test.v") != nil {
 		return nil
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-	// `security delete-generic-password` returns exit code 44 when the
-	// item is missing, which is the desired steady state for a fresh
-	// machine and not an error from the caller's perspective.
-	cmd := exec.CommandContext(ctx, "/usr/bin/security",
-		"delete-generic-password", "-s", "gemini", "-a", "antigravity")
-	if err := cmd.Run(); err != nil {
-		// exit 44 == "The specified item could not be found in the keychain."
-		if exitErr, ok := err.(*exec.ExitError); ok && exitErr.ExitCode() == 44 {
-			return nil
-		}
+	// A missing entry is the desired steady state for a fresh machine
+	// and not an error from the caller's perspective.
+	err := keyring.Delete(keychainService, keychainAccount)
+	if err != nil && !errors.Is(err, keyring.ErrNotFound) {
 		return err
 	}
 	return nil
@@ -95,6 +90,12 @@ var SaveKeychainTokenFn func(tok *AntigravityToken) error
 
 // SaveKeychainToken persists the Antigravity OAuth token to the macOS Keychain
 // using the same service ("gemini") and account ("antigravity") as the reference binary.
+//
+// go-keyring encodes the secret itself ("go-keyring-base64:" + base64 of the
+// payload), which is exactly the encoding the clone used to write by hand,
+// and it hands the secret to `security` on stdin — the clone's own call put
+// the token on the command line, where every process on the machine could
+// read it out of the process table.
 func SaveKeychainToken(tok *AntigravityToken) error {
 	if SaveKeychainTokenFn != nil {
 		return SaveKeychainTokenFn(tok)
@@ -109,12 +110,5 @@ func SaveKeychainToken(tok *AntigravityToken) error {
 	if err != nil {
 		return err
 	}
-	payload := "go-keyring-base64:" + base64.StdEncoding.EncodeToString(rawBytes)
-
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-
-	cmd := exec.CommandContext(ctx, "/usr/bin/security",
-		"add-generic-password", "-U", "-s", "gemini", "-a", "antigravity", "-w", payload)
-	return cmd.Run()
+	return keyring.Set(keychainService, keychainAccount, string(rawBytes))
 }

@@ -141,6 +141,22 @@ func TestCleanToolResult(t *testing.T) {
 			raw:  "Output:\nfoo\rbar\n",
 			want: "foo\rbar",
 		},
+		{
+			// The reference's 1.4.4+ shape: the CLI's own formatter.
+			name: "current shape prefix stripped",
+			raw:  "Command exited with code 0.\n\nCommand output:\nhello\nworld\n",
+			want: "hello\nworld",
+		},
+		{
+			name: "current shape with the stamp",
+			raw:  "Created At: x\nCompleted At: y\nCommand exited with code 2.\n\nCommand output:\nboom\n",
+			want: "boom",
+		},
+		{
+			name: "current shape, no output",
+			raw:  "Created At: x\nCompleted At: y\nCommand exited with code 0.\n\nNo output from the command.",
+			want: "Created At: x\nCompleted At: y\nCommand exited with code 0.\n\nNo output from the command.",
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

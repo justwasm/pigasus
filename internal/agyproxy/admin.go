@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/justwasm/pigasus/endpoints"
 	"github.com/justwasm/pigasus/internal/agybin"
 	"github.com/justwasm/pigasus/internal/models"
 )
@@ -94,7 +95,7 @@ func cmdDoctor(opts AdminOptions, args []string) error {
 	set := resolveSettings(cfg)
 	fmt.Fprintf(opts.Out, "config      %s\n", configPath())
 	fmt.Fprintf(opts.Out, "log         %s\n", logSink())
-	fmt.Fprintf(opts.Out, "upstream    %s\n", emptyAs(set.Upstream, DefaultUpstream))
+	fmt.Fprintf(opts.Out, "upstream    %s\n", emptyAs(set.Upstream, endpoints.Current().CloudCode))
 
 	var configured []models.Model
 	if regErr == nil {
@@ -161,7 +162,7 @@ func doctorPrintServer(opts AdminOptions, set settings, configured []models.Mode
 }
 
 func doctorPrintProbe(opts AdminOptions, set settings, probeTimeout time.Duration) {
-	upstream := emptyAs(set.Upstream, DefaultUpstream)
+	upstream := emptyAs(set.Upstream, endpoints.Current().CloudCode)
 	if status, elapsed, perr := probeUpstream(upstream, probeTimeout); perr != nil {
 		fmt.Fprintf(opts.Out, "probe       %s: %v\n", upstream, perr)
 	} else {

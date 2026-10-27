@@ -24,6 +24,8 @@
 package taskregistry
 
 import (
+	"strings"
+
 	"github.com/justwasm/pigasus/internal/subagent"
 )
 
@@ -53,6 +55,7 @@ func (r *Registry) AttachSubagent(s *subagent.Subagent, owner string) string {
 		Kind:    subagentKind,
 		State:   StatePending,
 		OwnerID: owner,
+		Command: subagentCommandLine(s),
 	}
 	id := r.Register(t)
 	if id == "" {
@@ -72,15 +75,18 @@ func (r *Registry) AttachSubagent(s *subagent.Subagent, owner string) string {
 				t.State = StateDone
 				t.ExitCode = 0
 				t.EndedAt = nowFn()
+				t.Output = sa.Output()
 			case StateFailed:
 				t.State = StateFailed
 				t.ExitCode = 1
 				t.EndedAt = nowFn()
 				t.Err = sa.Err
+				t.Output = sa.Output()
 			case StateKilled:
 				t.State = StateKilled
 				t.ExitCode = 137 // SIGKILL convention
 				t.EndedAt = nowFn()
+				t.Output = sa.Output()
 			}
 		})
 	})
@@ -165,6 +171,32 @@ func subagentDisplayName(s *subagent.Subagent) string {
 		return name + " " + joined
 	}
 	return name
+}
+
+// subagentCommandLine renders the command line a Subagent runs — the
+// binary's name plus its arguments, e.g. "bash -c sleep 60".
+//
+// Unlike subagentDisplayName it is never truncated: the /tasks row
+// shows a shortened form (60 cells), while the detail view shows the
+// whole command under the reference's "Command: " label.
+func subagentCommandLine(s *subagent.Subagent) string {
+	if s == nil {
+		return ""
+	}
+	name := s.Name
+	if name == "" && s.Cmd != nil && len(s.Cmd.Args) > 0 {
+		// exec.Cmd.Path is the absolute binary path (e.g.
+		// "/bin/bash"); the base name reads better.
+		name = baseName(s.Cmd.Path)
+	}
+	parts := []string{}
+	if name != "" {
+		parts = append(parts, name)
+	}
+	if s.Cmd != nil && len(s.Cmd.Args) > 1 {
+		parts = append(parts, s.Cmd.Args[1:]...)
+	}
+	return strings.Join(parts, " ")
 }
 
 // baseName is filepath.Base without dragging in the path package.

@@ -1,0 +1,63 @@
+{
+  "captured_at": "1.4.8",
+  "source": "the 1.4.8 binary (~/.local/bin/agy, sha256 09fcdd8554e03bed9b2ec936e454c7f115d5610610de09ed7d79fa2feae76940) holds two variants of four model-facing tool descriptions. the default variant - the one a live session sends - is the text internal/tools/model_tools_1.4.6.json carries; the alternates below are the newer ones. the selection between them is runtime/flag dependent and was not traced, so the clone ships the default. every address below was re-derived against the 1.4.8 binary: the texts are byte-identical to the 1.4.7 capture, only their addresses moved. note that agy 1.4.8 moved the CLI's tool package from jetski/cortex/core/tools/tools to oneharness/internal/tools/tools, so the runtime function names behind these texts changed.",
+  "default_state": "confirmed first-hand against the live reference: the request bodies captured on 2026-10-22 (/tmp/agy-cap-147 and /tmp/agy-cap-sb, the default agent surface with and without --sandbox) carry the default variant of all four tools - run_command 397 B with no NotificationTimeoutSeconds parameter, send_message 89 B, manage_subagents 261 B, edit_file 393 B. only BypassSandbox differs between the two captures, and that one is the --sandbox flag. re-verified statically against the 1.4.8 binary: all four default texts and all four alternate texts are present byte for byte at the addresses recorded here.",
+  "variants": {
+    "run_command": {
+      "layer": "model-facing (runtime)",
+      "default_length": 397,
+      "default_vmaddr": [
+        "0x103661bc5/68",
+        "0x103696774/117",
+        "0x1036ae3c3/208"
+      ],
+      "alternate_length": 499,
+      "alternate_vmaddr": [
+        "0x103661bc5/68",
+        "0x103696774/117",
+        "0x1036b9cc8/286"
+      ],
+      "alternate_text": "Execute a command in the workspace. Operating System: mac. Shell: zsh. Each command runs in a new session (working directory changes and environment variables do not persist across calls). Commands that do not finish within the specified wait time continue running in the background as tasks; the system will notify you when they finish, so do not poll their status or set timers to check on them. Instead, set NotificationTimeoutSeconds to be notified if a command is still running after that long.",
+      "note": "the same first two literals; the third one renders the extra sentence 'Instead, set %s to be notified if a command is still running after that long.' with %s = NotificationTimeoutSeconds - the parameter the runtime's (*RunCommandTool).ParameterSchema names (0x101dfa2c0, the name at 0x1035712d0/26, its prose at 0x1036c2c0d/386, the function that bolts it on at 0x101dfa4b0). the default variant's schema has no such parameter."
+    },
+    "send_message": {
+      "layer": "model-facing (runtime)",
+      "default_length": 89,
+      "default_vmaddr": [
+        "0x1036824e9/89"
+      ],
+      "alternate_length": 164,
+      "alternate_vmaddr": [
+        "0x1036a5cb6/164"
+      ],
+      "alternate_text": "Send a message to another agent, such as a subagent or a peer, or pass Recipient='@children' to broadcast to all active direct subagents. Not a channel to the user.",
+      "note": "the alternate adds \"or pass Recipient='@children' to broadcast to all active direct subagents\""
+    },
+    "manage_subagents": {
+      "layer": "model-facing (runtime)",
+      "default_length": 261,
+      "default_vmaddr": [
+        "0x1036b6ce9/261"
+      ],
+      "alternate_length": 388,
+      "alternate_vmaddr": [
+        "0x1036c3399/388"
+      ],
+      "alternate_text": "Manage the direct subagents of this conversation, or discover sibling subagents. 'list' reports each direct subagent's conversationId (the id used to kill or message it) and live state. 'list_peers' reports active sibling subagents sharing the same parent conversation. Killing a subagent also kills its descendants and deletes their branched workspaces; logs and artifacts are preserved.",
+      "note": "the alternate adds the 'list_peers' sentence. agy 1.4.8 carries both shapes of this tool: the runtime oneharness/internal/tools/tools.(*ManageSubagentsTool).Description (@0x101dedb70) picks between the two texts, and the CLI's own converter cortex/tools/subagent/subagent.(*ManageSubagentsToolConverter).GetToolDefinition (@0x101af8f00) picks between two description templates (434 B at 0x1036c67f4, 562 B at 0x1036d1495) - the 562 B one adds the 'list_peers' bullet. both defaults are the variant without 'list_peers'."
+    },
+    "edit_file": {
+      "layer": "model-facing (runtime)",
+      "default_length": 393,
+      "default_vmaddr": [
+        "0x1036c4152/393"
+      ],
+      "alternate_length": 656,
+      "alternate_vmaddr": [
+        "0x1036d6c1e/656"
+      ],
+      "alternate_text": "Use this tool to edit an existing file. Follow these rules:\n1. For one change, set Target and Replacement. To change several separate places in the same file, set Edits to a list of {Target, Replacement} pairs instead and make them all in one call. Edits are applied in order and all-or-nothing.\n2. Target must exactly match existing file text, including whitespace. Replacement must be a complete drop-in replacement for the Target. No line numbers are needed.\n3. Target must appear exactly once in the file. If it appears multiple times, the edit fails: add surrounding context to make it unique, or set AllowMultiple to true to replace every occurrence.",
+      "note": "the alternate is the multi-edit form: an Edits list plus an AllowMultiple flag, and 'Target must appear exactly once in the file'"
+    }
+  }
+}

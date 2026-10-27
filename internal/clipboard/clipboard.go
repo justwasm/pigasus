@@ -1,11 +1,9 @@
 package clipboard
 
 import (
-	"fmt"
 	"os"
-	"os/exec"
-	"runtime"
-	"strings"
+
+	atotto "github.com/atotto/clipboard"
 )
 
 // Reader is the seam tests can override to mock clipboard reads.
@@ -24,80 +22,33 @@ func Write(text string) error {
 	return Writer(text)
 }
 
+// defaultRead reads the system clipboard through atotto/clipboard —
+// the library the reference binary vendors. 【反编译】 the reference's
+// own recovered symbols are
+// google3/third_party/golang/github_com/atotto/clipboard/v/v0/clipboard.readAll
+// and …clipboard.getPasteCommand, i.e. the reference shells out to
+// the same utilities this now calls.
+//
+// A clipboard that cannot be read is an empty clipboard: the read
+// half of this API has no error to return, so a missing or failing
+// utility means an empty string — as before.
 func defaultRead() string {
-	var cmd *exec.Cmd
-	switch runtime.GOOS {
-	case "darwin":
-		cmd = exec.Command("pbpaste")
-	case "linux":
-		cmd = linuxPasteCmd()
-		if cmd == nil {
-			return ""
-		}
-	default:
-		return ""
-	}
-	out, err := cmd.Output()
+	out, err := atotto.ReadAll()
 	if err != nil {
 		return ""
 	}
-	return string(out)
+	return out
 }
 
-func linuxPasteCmd() *exec.Cmd {
-	switch {
-	case haveExec("wl-paste"):
-		return exec.Command("wl-paste", "--no-newline")
-	case haveExec("xclip"):
-		return exec.Command("xclip", "-selection", "clipboard", "-o")
-	case haveExec("xsel"):
-		return exec.Command("xsel", "--clipboard", "--output")
-	default:
-		return nil
-	}
-}
-
+// defaultWrite writes to the system clipboard.
+//
+// The OSC 52 escape goes first: a terminal that understands it can
+// carry the text across an SSH hop, where no local clipboard utility
+// exists at all. Only when the terminal cannot take it does the write
+// fall through to the system clipboard.
 func defaultWrite(text string) error {
 	if SupportsOSC52() && WriteOSC52(os.Stderr, text) {
 		return nil
 	}
-	return shellOutWrite(text)
-}
-
-func shellOutWrite(text string) error {
-	cmd := writeCmd()
-	if cmd == nil {
-		return fmt.Errorf("clipboard is not supported on %s", runtime.GOOS)
-	}
-	cmd.Stdin = strings.NewReader(text)
-	return cmd.Run()
-}
-
-func writeCmd() *exec.Cmd {
-	switch runtime.GOOS {
-	case "darwin":
-		return exec.Command("pbcopy")
-	case "linux":
-		return linuxCopyCmd()
-	default:
-		return nil
-	}
-}
-
-func linuxCopyCmd() *exec.Cmd {
-	switch {
-	case haveExec("wl-copy"):
-		return exec.Command("wl-copy")
-	case haveExec("xclip"):
-		return exec.Command("xclip", "-selection", "clipboard")
-	case haveExec("xsel"):
-		return exec.Command("xsel", "--clipboard", "--input")
-	default:
-		return nil
-	}
-}
-
-func haveExec(name string) bool {
-	_, err := exec.LookPath(name)
-	return err == nil
+	return atotto.WriteAll(text)
 }

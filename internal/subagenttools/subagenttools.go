@@ -70,6 +70,7 @@ import (
 	piagent "github.com/MichaelKinsy/PiG/agent"
 	pi "github.com/MichaelKinsy/PiG/ai"
 	"github.com/MichaelKinsy/PiG/coding"
+	"github.com/justwasm/pigasus/internal/taskregistry"
 )
 
 // Invocation is the LLM-driven delegation request from the parent
@@ -98,6 +99,36 @@ type Invocation struct {
 	// focuses on WHERE the worktree lives so files written there are
 	// never picked up as artifacts in the user's workspace.
 	Worktree string
+	// Tools are the tools the subagent's own session may call, on top of
+	// the ones its extensions contribute. Nil (the default) gives the
+	// subagent no tools at all — the plain delegation shape this package
+	// shipped with.
+	//
+	// Cycle 311 uses the seam for the reference's browser agent: the
+	// browser subagent's whole point is that it drives the browser, so
+	// its session carries the browser-control tools (see
+	// internal/browsersubagent).
+	Tools []piagent.AgentTool
+	// Grant is the tool authorization the subagent runs under. It is
+	// what define_subagent's three switches recorded, and it is what
+	// the invoke tool turns into the subagent's tool set.
+	//
+	// A zero Grant is the reference's base set: the research tools and
+	// the messaging tool.
+	Grant Grant
+	// TypeName is the subagent type the call named ("self", "research",
+	// or a definition's own name). The reference's list entry reports
+	// it, and it is the type's own name the role falls back to.
+	TypeName string
+	// Role is the role the call asked for ("A 2-5 word description of
+	// the subagent's role"). Empty means the type's own name.
+	Role string
+	// InheritPrompt marks a delegation that inherits the parent's own
+	// system prompt as it is — the reference's `self` type, "inherits
+	// the parent agent's full configuration including tools, system
+	// prompt, and model". The task instruction is not added to such a
+	// prompt: the prompt *is* the parent's.
+	InheritPrompt bool
 }
 
 // Deps is the cross-call state Invoke needs: PiG services (for the
@@ -118,9 +149,28 @@ type Deps struct {
 	// model's own Provider is what the subagent's session uses. Nil is
 	// fine.
 	Provider pi.Provider
-	// SystemPrompt is the default subagent system prompt. Used when
-	// Invocation.SystemPrompt is empty.
-	SystemPrompt string
+	// SystemPrompt is the parent's own system prompt, resolved when a
+	// delegation needs it. Used when Invocation.SystemPrompt is empty.
+	//
+	// The parent hands its own prompt in here: the reference's `self`
+	// type "inherits the parent agent's full configuration including
+	// tools, system prompt, and model", so a `self` delegation runs on
+	// the parent's text. A delegation that names its own type runs on
+	// that type's own prompt and never reads this field.
+	//
+	// It is a function because building the prompt is not free (the
+	// reference's prompt walks the skills directories), and a turn that
+	// spawns no subagent should not pay for it.
+	SystemPrompt func() string
+	// Catalogue is the parent's own tool catalogue, adapted to PiG's
+	// tool interface.
+	//
+	// A subagent's tool set is drawn from it: the reference's grants
+	// say *which* of the parent's tools a subagent may call, not that
+	// the subagent gets new ones. Nil gives every subagent no
+	// catalogue tools — only the messaging tool (and, with the subagent
+	// grant, define_subagent and invoke_subagent).
+	Catalogue []piagent.AgentTool
 	// CWD is a fallback used only when the worktree-isolation
 	// allocation fails (read-only tests, sandboxes that block
 	// mkdir). In normal operation Invoke never reads this field:
@@ -136,7 +186,30 @@ type Deps struct {
 	// the subagent issues. A denied call is reported to the subagent's
 	// model as the reference's denial text (matching the parent's
 	// `permissionRunner` semantics).
-	PermissionGate BeforeToolCallGate
+	//
+	// It is a factory rather than a gate because the sandbox that guards
+	// a subagent's commands has to allow the subagent's own worktree,
+	// and the worktree is only known once the delegation has been
+	// launched. The factory is called with the directory the subagent
+	// runs in.
+	//
+	// The policy behind it is the conversation's one policy: a rule the
+	// user wrote for the parent governs the subagent too, and the tool
+	// is judged under both of its names (see
+	// internal/tools.PermissionNames).
+	PermissionGateFor func(worktree string) BeforeToolCallGate
+	// Registry is the conversation's live-subagent registry.
+	//
+	// It is what makes a delegation asynchronous: the child is reachable
+	// by its conversation id while it runs, it can message the parent,
+	// and the parent can message it. Nil turns every recipient into the
+	// reference's "not found" answer.
+	Registry *Registry
+	// ConversationID is the id of the conversation that owns this tool
+	// set — the parent's own id. A subagent's messaging tool addresses
+	// the parent by it, and the parent's messages carry it as the
+	// sender.
+	ConversationID string
 	// Definitions is the conversation's subagent definition store. The
 	// reference scopes a definition to the conversation
 	// ("Define a subagent for the duration of this conversation"), so
@@ -144,6 +217,8 @@ type Deps struct {
 	// resumed conversation passes the store the rehydration pass
 	// filled in; a fresh one leaves it nil and Tools creates it.
 	Definitions *Store
+	// Tasks is the optional task registry to register running subagents into.
+	Tasks *taskregistry.Registry
 }
 
 // BeforeToolCallGate is the optional policy hook a subagent's tool
@@ -214,8 +289,8 @@ func Tools(deps Deps) []piagent.AgentTool {
 	return []piagent.AgentTool{
 		&invokeTool{deps: deps, defs: defs},
 		&defineTool{defs: defs},
-		&sendMessageTool{},
-		&manageSubagentsTool{},
+		&sendMessageTool{registry: deps.Registry, owner: deps.ConversationID},
+		&manageSubagentsTool{registry: deps.Registry, owner: deps.ConversationID},
 	}
 }
 
@@ -303,15 +378,31 @@ func (d *Store) Killed(conversationID string) bool {
 	return d.killed[conversationID]
 }
 
-// beforeToolCallHooks turns the optional Deps.PermissionGate into the
+// parentPrompt returns the parent's system prompt, or "" when the
+// caller does not know one.
+func (d Deps) parentPrompt() string {
+	if d.SystemPrompt == nil {
+		return ""
+	}
+	return d.SystemPrompt()
+}
+
+// beforeToolCallHooks turns the optional Deps.PermissionGateFor into the
 // PiG-shaped hook PiG's session runs before every tool call.
-func (d Deps) beforeToolCallHooks() []piagent.BeforeToolCallHook {
-	if d.PermissionGate == nil {
+//
+// The gate is built for the directory the subagent runs in, so the sandbox
+// behind it can allow the subagent's own worktree.
+func (d Deps) beforeToolCallHooks(worktree string) []piagent.BeforeToolCallHook {
+	if d.PermissionGateFor == nil {
+		return nil
+	}
+	gate := d.PermissionGateFor(worktree)
+	if gate == nil {
 		return nil
 	}
 	return []piagent.BeforeToolCallHook{
 		func(_ context.Context, _ string, toolName string, args json.RawMessage) piagent.ToolCallHookResult {
-			decision := d.PermissionGate.Decide(context.Background(), toolName, args)
+			decision := gate.Decide(context.Background(), toolName, args)
 			if decision.Allow {
 				return piagent.ToolCallHookResult{}
 			}

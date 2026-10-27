@@ -151,6 +151,9 @@ func (m *runMode) resetLiveTurnState(prompt string) {
 	m.atFileDropdown.Reset()
 	m.clearEligibilityNotice()
 	m.streaming = true
+	// A new turn replaces the interrupted one: the reference's composer
+	// hint belongs to the turn that was cancelled, not to the next one.
+	m.turnInterrupted = false
 	m.historyIdx = 0
 	m.historyEdit = ""
 	m.clearLastTurnOutcome()

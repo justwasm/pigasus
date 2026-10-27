@@ -18,6 +18,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/justwasm/pigasus/atomicfile"
 )
 
 // ensureRootDir creates the project's RootDir if it
@@ -420,9 +422,5 @@ func (s *FSProjectStore) writeRecord(rec onDiskProject) error {
 		return err
 	}
 	final := s.pathFor(rec.ID)
-	tmp := final + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o600); err != nil {
-		return err
-	}
-	return os.Rename(tmp, final)
+	return atomicfile.WriteFile(final, data, 0o600)
 }

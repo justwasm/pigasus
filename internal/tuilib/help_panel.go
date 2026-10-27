@@ -15,12 +15,14 @@ import (
 
 	"github.com/justwasm/pigasus/internal/branding"
 	"github.com/justwasm/pigasus/internal/cli"
-	"github.com/justwasm/pigasus/internal/palette"
+	"github.com/justwasm/pigasus/palette"
 )
 
-const (
+// The palette's colours follow the selected colour scheme, so these
+// aliases are refreshed whenever the scheme changes.
+var (
 	// HelpHeaderOpen / HelpHeaderClose wrap the overlay's section headers.
-	HelpHeaderOpen  = "\x1b[1m\x1b[38;2;88;110;117m"
+	HelpHeaderOpen  = "\x1b[1m" + palette.SubtleOpen
 	HelpHeaderClose = "\x1b[0m"
 
 	// TabBarActiveOpen / TabBarActiveClose wrap the active tab's label.
@@ -34,19 +36,27 @@ const (
 	// TabBarHintOpen / TabBarHintClose wrap the "cycle the tabs" hint.
 	TabBarHintOpen  = palette.SeparatorOpen
 	TabBarHintClose = palette.SeparatorClose
+)
 
+const (
 	// TabBarHintSuffix is the text after the tab labels.
 	TabBarHintSuffix = "  (←/→ or tab to cycle)"
 )
 
 // HelpKeyboardHint is the footer the COMMANDS and SHORTCUTS tabs render.
-var HelpKeyboardHint = "\x1b[1m" + "Keyboard: " + "\x1b[0m" +
-	HelpBlueOpen + "↑/↓" + HelpBlueClose + " " +
-	HelpDimGrayOpen + "Navigate" + HelpDimGrayClose + "  " +
-	HelpBlueOpen + "←/→" + HelpBlueClose + " " +
-	HelpDimGrayOpen + "Switch View" + HelpDimGrayClose + "  " +
-	HelpBlueOpen + "esc" + HelpBlueClose + " " +
-	HelpDimGrayOpen + "Close" + HelpDimGrayClose
+var HelpKeyboardHint = buildHelpKeyboardHint()
+
+// buildHelpKeyboardHint renders the footer's text with the current
+// palette colours.
+func buildHelpKeyboardHint() string {
+	return "\x1b[1m" + "Keyboard: " + "\x1b[0m" +
+		HelpBlueOpen + "↑/↓" + HelpBlueClose + " " +
+		HelpDimGrayOpen + "Navigate" + HelpDimGrayClose + "  " +
+		HelpBlueOpen + "←/→" + HelpBlueClose + " " +
+		HelpDimGrayOpen + "Switch View" + HelpDimGrayClose + "  " +
+		HelpBlueOpen + "esc" + HelpBlueClose + " " +
+		HelpDimGrayOpen + "Close" + HelpDimGrayClose
+}
 
 // FormatLogTS is the timestamp suffix of the CLI's log file name.
 func FormatLogTS() string {

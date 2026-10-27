@@ -6,7 +6,7 @@
 // loaded: the subagents it defined, the schedules it created, the
 // subagents it killed (【反编译】 the reference's `cortex/rehydration`
 // package and the cascade manager's `processLoadedTrajectory`, CLI
-// 0x101e4e8a0; see out/ide-language-server/README.md §10.9).
+// 0x101f26440; see out/ide-language-server/README.md §10.9).
 //
 // The clone used to write only the model messages, so a resumed
 // conversation lost every tool call it had made — and, because the
@@ -44,6 +44,22 @@ func (m *runMode) trajectorySteps() []convstore.Step {
 			steps = append(steps, convstore.Step{
 				Idx:    idx,
 				Type:   convstore.StepUserInput,
+				Status: 3,
+				Text:   msg.Content,
+			})
+			idx++
+		case "system":
+			// A background task's notification is the reference's own
+			// system message: CORTEX_STEP_TYPE_SYSTEM_MESSAGE = 101
+			// (the recovered .proto,
+			// out/local-macos/protos/cortex_1.4.6.proto), with the
+			// step status DONE = 3.
+			if strings.TrimSpace(msg.Content) == "" {
+				continue
+			}
+			steps = append(steps, convstore.Step{
+				Idx:    idx,
+				Type:   convstore.StepSystemNotice,
 				Status: 3,
 				Text:   msg.Content,
 			})

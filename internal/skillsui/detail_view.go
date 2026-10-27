@@ -3,8 +3,8 @@ package skillsui
 import (
 	"fmt"
 
-	"github.com/justwasm/pigasus/internal/palette"
 	"github.com/justwasm/pigasus/internal/pluginsui"
+	"github.com/justwasm/pigasus/palette"
 )
 
 // DetailLine is one logical document line.

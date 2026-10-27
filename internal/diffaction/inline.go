@@ -5,9 +5,9 @@ import (
 	"os/exec"
 	"strings"
 
-	"github.com/justwasm/pigasus/internal/diffsyntax"
-	"github.com/justwasm/pigasus/internal/palette"
+	"github.com/justwasm/pigasus/diffsyntax"
 	"github.com/justwasm/pigasus/internal/tuilib"
+	"github.com/justwasm/pigasus/palette"
 )
 
 // FirstChangedPath returns the path of the first change in the working copy.

@@ -207,7 +207,7 @@ func clipToScreenRowsPrefix(visible []string, prefix []int, scrollOff, maxRows i
 func (m *runMode) scrollHeaderRows(width int) []string {
 	var b strings.Builder
 	b.WriteString("\n")
-	renderBanner(&b, m.email, m.model, m.tier, m.cwd)
+	renderBannerWithTheme(&b, m.seasonal, m.email, m.model, m.tier, m.cwd)
 	if m.agentWarning != "" {
 		b.WriteString("\n")
 		b.WriteString(renderAgentWarning(m.agentWarning))

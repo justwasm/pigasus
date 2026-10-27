@@ -20,6 +20,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/justwasm/pigasus/endpoints"
 )
 
 // PlanTierRequest is the metadata block agy 1.4.3 sends to
@@ -107,7 +109,7 @@ func FetchPlanTierWithToken(ctx context.Context, accessToken string) string {
 		return ""
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
-		CloudCodeEndpoint+"/v1internal:loadCodeAssist", bytes.NewReader(body))
+		endpoints.Current().CloudCode+"/v1internal:loadCodeAssist", bytes.NewReader(body))
 	if err != nil {
 		return ""
 	}

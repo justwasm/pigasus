@@ -24,6 +24,10 @@ func TestStripANSI(t *testing.T) {
 		{"mixed-newlines", "\x1b[m\n\x1b[m\n", "\n\n"},
 		{"non-sgr-csi", "\x1b[2Jcursor home\x1b[H", "cursor home"},
 		{"non-letter-final-not-matched", "\x1b[mz", "z"},
+		// x/ansi is a full VT parser, so the OSC sequences a
+		// colour-always VCS configuration can emit are removed too.
+		{"osc-hyperlink", "\x1b]8;;https://example.test\x07link\x1b]8;;\x07", "link"},
+		{"osc-title", "\x1b]0;the title\x07body", "body"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if got := StripANSI(tc.in); got != tc.want {

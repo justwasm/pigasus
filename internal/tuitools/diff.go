@@ -5,11 +5,11 @@ import (
 	"fmt"
 	"os"
 	"strings"
-	"unicode/utf8"
 
 	"github.com/aymanbagabas/go-udiff"
-	"github.com/justwasm/pigasus/internal/diffsyntax"
-	"github.com/justwasm/pigasus/internal/palette"
+	"github.com/justwasm/pigasus/diffsyntax"
+	"github.com/justwasm/pigasus/internal/diffrow"
+	"github.com/justwasm/pigasus/palette"
 )
 
 // IsWriteTool reports whether name is a file-creation/overwrite tool.
@@ -35,6 +35,22 @@ type EditDiff struct {
 	Path           string
 	Added, Removed int
 	Rows           []EditDiffRow
+	// Hunks groups the rows into the changes they came from. The
+	// reference prints one summary per change, so the rows have to be
+	// grouped back into the changes they came from.
+	//
+	// 【反编译】 `render.codeActionDetail` walks a list of changes — each
+	// one a start line, an end line and the number of added and of
+	// removed lines — and prints a summary for each of them before that
+	// change's rows.
+	Hunks []EditHunk
+}
+
+// EditHunk is one change of an edit: the rows it touched and how many
+// lines it added and removed.
+type EditHunk struct {
+	Added, Removed int
+	Rows           []EditDiffRow
 }
 
 // EditDiffRow is one row in a diff hunk.
@@ -42,6 +58,15 @@ type EditDiffRow struct {
 	Kind byte
 	Num  int
 	Text string
+	// Hunk is the index of the hunk the row belongs to. The reference
+	// prints one summary per change, so the rows have to be grouped
+	// back into the changes they came from.
+	//
+	// 【反编译】 the reference's `render.codeActionDetail` walks a list
+	// of changes — each one a start line, an end line and the number of
+	// added and of removed lines — and prints a summary for each of
+	// them before that change's rows.
+	Hunk int
 }
 
 // EditDiffFor recovers old and new file text and builds the hunk.
@@ -110,22 +135,25 @@ func BuildEditDiff(oldText, newText string) *EditDiff {
 func appendHunkRows(d *EditDiff, h *udiff.Hunk, oldText, newText string) {
 	oldLine := h.FromLine
 	newLine := h.ToLine
+	hunk := EditHunk{}
 	var lastChangeNew int
 	for _, l := range h.Lines {
 		text := strings.TrimRight(l.Content, "\r\n")
 		switch l.Kind {
 		case udiff.Equal:
-			d.Rows = append(d.Rows, EditDiffRow{Kind: ' ', Num: newLine, Text: text})
+			hunk.Rows = append(hunk.Rows, EditDiffRow{Kind: ' ', Num: newLine, Text: text})
 			oldLine++
 			newLine++
 		case udiff.Delete:
-			d.Rows = append(d.Rows, EditDiffRow{Kind: '-', Num: oldLine, Text: text})
+			hunk.Rows = append(hunk.Rows, EditDiffRow{Kind: '-', Num: oldLine, Text: text})
 			oldLine++
+			hunk.Removed++
 			d.Removed++
 		case udiff.Insert:
-			d.Rows = append(d.Rows, EditDiffRow{Kind: '+', Num: newLine, Text: text})
+			hunk.Rows = append(hunk.Rows, EditDiffRow{Kind: '+', Num: newLine, Text: text})
 			lastChangeNew = newLine
 			newLine++
+			hunk.Added++
 			d.Added++
 		}
 	}
@@ -133,38 +161,11 @@ func appendHunkRows(d *EditDiff, h *udiff.Hunk, oldText, newText string) {
 		newLines := strings.Split(newText, "\n")
 		totalLines := len(newLines)
 		if lastChangeNew > 0 && totalLines-lastChangeNew <= udiff.DefaultContextLines && newLine == totalLines {
-			d.Rows = append(d.Rows, EditDiffRow{Kind: ' ', Num: newLine, Text: ""})
+			hunk.Rows = append(hunk.Rows, EditDiffRow{Kind: ' ', Num: newLine, Text: ""})
 		}
 	}
-}
-
-func renderDiffRowWithPath(r EditDiffRow, path string, pad func(string) string) string {
-	styledText := r.Text
-	if tokens := diffsyntax.TokenizeLine(path, " "+r.Text); len(tokens) > 1 {
-		styledText = diffsyntax.RenderInlineTokenStream(tokens[1:])
-	}
-	gutter := "     " + palette.DiffNumOpen + fmt.Sprintf("%4d", r.Num) + "\x1b[m"
-	switch r.Kind {
-	case '-':
-		return gutter + palette.DiffRemoveTintOpen + palette.ToolRemoveOpen + " -  " + styledText + pad(r.Text) + "\x1b[m"
-	case '+':
-		return gutter + palette.DiffAddTintOpen + palette.ToolAddOpen + " +  " + styledText + pad(r.Text) + "\x1b[m"
-	default:
-		return gutter + "    " + styledText
-	}
-}
-
-func renderDiffRowFallback(r EditDiffRow, pad func(string) string) string {
-	switch r.Kind {
-	case '-':
-		return "     " + palette.DiffStripeOpen + fmt.Sprintf("%4d", r.Num) +
-			palette.ToolRemoveOpen + " -  " + r.Text + pad(r.Text) + "\x1b[m"
-	case '+':
-		return "     " + palette.DiffStripeOpen + fmt.Sprintf("%4d", r.Num) +
-			palette.ToolAddOpen + " +  " + r.Text + pad(r.Text) + "\x1b[m"
-	default:
-		return "     " + palette.DiffNumOpen + fmt.Sprintf("%4d", r.Num) + "\x1b[m    " + r.Text
-	}
+	d.Rows = append(d.Rows, hunk.Rows...)
+	d.Hunks = append(d.Hunks, hunk)
 }
 
 // Lines renders the hunk rows for the diff. It is the method form of
@@ -173,35 +174,125 @@ func (d *EditDiff) Lines(width int) []string {
 	return RenderDiffLines(d, width)
 }
 
-// RenderDiffLines renders the hunk rows for EditDiff.
+// RenderDiffLines renders the diff body for EditDiff.
+//
+// 【反编译】 the reference's transcript diff is a list of changes, and
+// each change prints a summary of its own before its rows:
+//
+//	⎿  +1 / -1 lines
+//	   3    -  gamma
+//	   3    +  GAMMA
+//
+// The summary is one of three forms — "Added %d line%s",
+// "Removed %d line%s" and the "+%d / -%d lines" pair — and the rows are
+// the reference's `render.codeActionDetail.func2` rows: a right-aligned
+// line number in the gutter, a four-character marker column and the
+// text.
+//
+// The clone's hunk plays the reference's change: a contiguous region
+// with its own added and removed counts, and its own summary.
+//
+// A change prints at most MaxDetailLines rows; the rest are counted in
+// the reference's "… and %d more lines" marker.
+//
+// 【一手】 agy 1.4.3's captured diff (docs/cycles/cycle-285-tool-display/
+// deliverable.md) shows the same shape: the number in the gutter is
+// gray, an unchanged line's text is plain, a changed line's text is
+// green or red, and the changed rows carry the reference's stripe.
+//
+// 【strings】 the reference's inline diff preview carries "syntax
+// highlighting for your color scheme" (the 1.4.1 changelog line,
+// internal/cli/testdata/changelog_reference.txt:88), so the rows are
+// highlighted when the file's language is known.
 func RenderDiffLines(d *EditDiff, width int) []string {
 	if d == nil {
 		return nil
 	}
-	head := palette.DetailBulletOpen + "  \u23bf  \x1b[m" + palette.ToolAddOpen + fmt.Sprintf("+%d", d.Added) + "\x1b[m / " +
-		palette.ToolRemoveOpen + fmt.Sprintf("-%d", d.Removed) + "\x1b[m lines"
-	out := []string{head}
-	pad := func(text string) string {
-		if width <= 0 {
-			return ""
+	style := diffrow.TranscriptStyle()
+	layout := diffrow.NewLayout(width-diffIndentWidth, maxLineNum(d))
+	var out []string
+	lastKind := byte(' ')
+	for _, hunk := range d.Hunks {
+		out = append(out, palette.DetailBulletOpen+"  \u23bf  "+"\x1b[m"+diffSummary(hunk))
+		rows := hunk.Rows
+		more := 0
+		if len(rows) > MaxDetailLines {
+			more = len(rows) - MaxDetailLines
+			rows = rows[:MaxDetailLines]
 		}
-		n := width - 13 - utf8.RuneCountInString(text)
-		if n <= 0 {
-			return ""
+		for _, r := range rows {
+			out = append(out, diffIndent+diffrow.RenderStyled(layout, style,
+				diffrow.Kind(r.Kind), r.Num, r.Text, highlightDiffText(d.Path, r.Text)))
+			if more == 0 {
+				lastKind = r.Kind
+			}
 		}
-		return strings.Repeat(" ", n)
+		if more > 0 {
+			out = append(out, diffIndent+diffrow.More(layout.NumWidth, more))
+		}
 	}
-	for _, r := range d.Rows {
-		if d.Path != "" {
-			out = append(out, renderDiffRowWithPath(r, d.Path, pad))
-		} else {
-			out = append(out, renderDiffRowFallback(r, pad))
-		}
-	}
-	if n := len(d.Rows); n > 0 {
-		if k := d.Rows[n-1].Kind; k == '+' || k == '-' {
-			out = append(out, "    ")
-		}
+	// A changed row is padded to the content width, so the reference's
+	// hint — which the transcript hangs on the last row — needs a row of
+	// its own. The capture the clone follows puts the hint on the last
+	// *unchanged* row (docs/cycles/cycle-285-tool-display/deliverable.md),
+	// where it fits.
+	if lastKind == '+' || lastKind == '-' {
+		out = append(out, "    ")
 	}
 	return out
+}
+
+// highlightDiffText renders a diff row's text with the file's syntax
+// colours. A file whose language the highlighter does not know comes
+// back unchanged.
+func highlightDiffText(path, text string) string {
+	if path == "" {
+		return text
+	}
+	tokens := diffsyntax.TokenizeLine(path, " "+text)
+	if len(tokens) <= 1 {
+		return text
+	}
+	return diffsyntax.RenderInlineTokenStream(tokens[1:])
+}
+
+// diffIndent is the indent the reference's diff rows carry.
+//
+// 【一手】 agy 1.4.3's captured diff moves the cursor to column six
+// before every row (docs/cycles/cycle-285-tool-display/deliverable.md),
+// so the line number's field starts at the same column as the detail
+// bullet's text — the sixth column of the terminal.
+const diffIndent = "     "
+
+// diffIndentWidth is the width of diffIndent.
+const diffIndentWidth = 5
+
+// diffSummary renders the reference's per-change summary.
+//
+// 【反编译】 `render.codeActionDetail` picks one of three forms:
+// "Added %d line%s" (0x1034b43b4), "Removed %d line%s" (0x1034dcd2d)
+// and, for a change that both adds and removes, the styled "+%d" and
+// "-%d" pair joined by " / " and closed by " lines". The first two
+// forms are plain text in the reference; only the pair's counts are
+// painted.
+func diffSummary(hunk EditHunk) string {
+	switch {
+	case hunk.Removed == 0:
+		return diffrow.Summary(hunk.Added, 0)
+	case hunk.Added == 0:
+		return diffrow.Summary(0, hunk.Removed)
+	}
+	return palette.ToolAddOpen + fmt.Sprintf("+%d", hunk.Added) + "\x1b[m / " +
+		palette.ToolRemoveOpen + fmt.Sprintf("-%d", hunk.Removed) + "\x1b[m lines"
+}
+
+// maxLineNum returns the largest line number the diff prints.
+func maxLineNum(d *EditDiff) int {
+	max := 0
+	for _, r := range d.Rows {
+		if r.Num > max {
+			max = r.Num
+		}
+	}
+	return max
 }

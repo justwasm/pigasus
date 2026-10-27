@@ -3,7 +3,7 @@ package tuiviewer
 import (
 	"fmt"
 
-	"github.com/justwasm/pigasus/internal/palette"
+	"github.com/justwasm/pigasus/palette"
 )
 
 // Spec describes a scrollable documentary panel.

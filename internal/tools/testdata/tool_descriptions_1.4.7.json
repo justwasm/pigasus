@@ -1,0 +1,194 @@
+{
+  "captured_at": "1.4.8",
+  "source": "the reference's own per-tool descriptions, read out of agy 1.4.8 (~/.local/bin/agy, sha256 09fcdd8554e03bed9b2ec936e454c7f115d5610610de09ed7d79fa2feae76940) and re-verified against that binary in cycle 359: every text here reconstructs, chunk by chunk, from 1.4.8 literals with no gap, so the wording is unchanged from the 1.4.7 capture - the converter-layer texts live in the binary as fmt.Sprintf templates (%[1]d, %d) and this fixture holds their rendered form. three layers exist in that binary: the advertised list (names only), the converter layer (cortex/tools/*, gemini_coder/framework/toolconverters - the prose that builds a tool definition) and the runtime layer (cortex/core/tools/tools + oneharness/internal/tools/tools - the Description() methods, of which twelve are the declarations the reference sends to the model; in 1.4.8 the CLI's own tool package moved from cortex/core/tools/tools to oneharness/internal/tools/tools). 'layer' records which one a text came from. 'complete' is false for run_workflow, whose text was only recovered as fragments. the texts are the ones a live session sends: the model-facing ones are byte-identical to the request body captured on 2026-10-22 (the default agent surface, with and without --sandbox). where the binary holds a second, newer variant of a text, that variant is recorded in testdata/tool_variants_1.4.7.json instead of here, so that this file stays the surface the reference actually puts on the wire. a fourth surface shows up too: the built-in agents package (cortex/customizations/builtin/agents) carries the browser agent's own description, which is the description the browser_subagent tool advertises.",
+  "tools": {
+    "ask_custom_permission": {
+      "layer": "converter",
+      "text": "Requests a custom permission that a skill's documentation explicitly tells you to request.\nONLY call this tool when a skill file you have read (its SKILL.md or a file it references) explicitly instructs you to call this tool, and pass the grant string in the exact format that skill specifies.\nNEVER call this tool in any other situation. In particular, NEVER use it to:\n- Get access to files or directories, before or after reading, writing, editing, or listing them.\n- Get permission to run a command, or to retry a command that failed or was blocked.\nA grant from this tool only matches the skill's own custom action. It NEVER grants file, command, network, or tool access, so calling it for those only interrupts the user with a prompt that has no effect.\nThe single input is the grant string. Keep it as lean as possible; include only what the skill requires.\n",
+      "complete": true
+    },
+    "ask_permission": {
+      "layer": "converter",
+      "text": "Use this tool to ask for permission after a failure due to insufficient permissions, specifically when you need additional permissions for file reads or writes after a terminal command or file operation encounters a permission error.\nCRITICAL: Request the narrowest scope that covers your planned operations without requiring repeated asks. For example, prefer a subdirectory over a whole project. Never request wildcard (`*`) or root-level permissions.\nIMPORTANT: Do NOT use this tool to request persistent exceptions for commands that make network requests, run arbitrary code, or download unverified files (e.g., curl, wget, pip, npm). For such operations, invoke the run_command tool directly so the user can explicitly review and approve the individual process execution.\nValid actions, their target formats, and matching behaviors are:\n- `%s`:\n  - Target Format: %s\n  - Matching: %s\n- Each token in the granted target is matched as a full word (internally treated as an anchored regular expression: `^(?:pattern)$`).\n- The system checks if the granted tokens form a prefix of the requested command tokens.\n- Example: `git commit` matches `git commit -m \"msg\"` but NOT `git commit-next`.\n\nNote: `read_file` and `write_file` apply to both files and directories (providing recursive access).\n- To allow `blaze build`: Action=`command`, Target=`blaze build`\n- To read anything in a directory: Action=`read_file`, Target=`/path/to/directory`\n- To read a specific file: Action=`read_file`, Target=`/path/to/file`\n- To edit files in a directory: Action=`write_file`, Target=`/path/to/directory`\n- To edit a specific file: Action=`write_file`, Target=`/path/to/file`\n- To fetch any Google page: Action=`read_url`, Target=`google.com`\n- For all tools on an MCP server: Action=`mcp`, Target=`server_name/*`\nask_permission",
+      "complete": true
+    },
+    "ask_question": {
+      "layer": "model-facing (runtime)",
+      "text": "Ask the user one or more multiple-choice questions, e.g. to clarify requirements, and wait for the answers. Don't use it for trivial yes/no questions; ask those in plain text.",
+      "complete": true
+    },
+    "browser_subagent": {
+      "layer": "agent catalogue (builtin/agents)",
+      "text": "Browser agent that can perform actions in user's Google Chrome browser with the given task description. The agent has access to tools for interacting with web page content (clicking, typing, navigating, etc) and controlling the browser window itself (resizing window and emulating). Please make sure to define a clear condition to return on.\n\nThe chrome_devtools MCP server is started automatically when this agent is invoked — no manual setup is required.",
+      "complete": true,
+      "note": "the browser_subagent tool's description is the reference's browser-agent description; four variants of it live in cortex/customizations/builtin/agents and this is the Chrome one (0x1036c8c48, 458 bytes). the other three are the Chrome variant with the recording note (0x1036d8b82, 683 bytes) and the two webview variants (0x1036da128, 709 bytes and 0x1036db1f8, 724 bytes). the clone ships the Chrome one: it drives Chrome over the DevTools Protocol (internal/browsercdp) and records nothing, so the recording sentence would be a lie."
+    },
+    "call_mcp_tool": {
+      "layer": "converter",
+      "text": "Call a lazy-loaded MCP tool. Read the tool's schema file to understand the tool's arguments and usage.",
+      "complete": true
+    },
+    "command_status": {
+      "layer": "converter",
+      "text": "Get the status of a previously executed terminal command by its ID. Returns the current status (running, done), output lines as specified by output priority, and any error if present. Do not try to check the status of any IDs other than Background command IDs.",
+      "complete": true
+    },
+    "define_subagent": {
+      "layer": "model-facing (runtime)",
+      "text": "Define a new subagent type that can then be invoked repeatedly. Subagents always have tools to research the codebase and to communicate with other agents.",
+      "complete": true
+    },
+    "find_by_name": {
+      "layer": "converter",
+      "text": "Search for files and subdirectories within a specified directory using fd.\nSearch uses smart case and will ignore gitignored files by default.\nPattern and Excludes both use the glob format. If you are searching for Extensions, there is no need to specify both Pattern AND Extensions.\nTo avoid overwhelming output, the results are capped at 50 matches. Use the various arguments to filter the search scope as needed.\nResults will include the type, size, modification time, and relative path.",
+      "complete": true
+    },
+    "finish": {
+      "layer": "converter",
+      "text": "Finish your task and end the interaction. Don't call this tool unless you are confident that your solution is correct, for example after you've written tests, executed them, and verified the task is complete.",
+      "complete": true
+    },
+    "generate_image": {
+      "layer": "converter",
+      "text": "Generate an image or edit existing images based on a text prompt. The resulting image will be saved as an artifact for use. You can use this tool to generate user interfaces and iterate on a design with the USER for an application or website that you are building. When creating UI designs, generate only the interface itself without surrounding device frames (laptops, phones, tablets, etc.) unless the user explicitly requests them. You can also use this tool to generate assets for use in an application or website.",
+      "complete": true
+    },
+    "grep_search": {
+      "layer": "converter",
+      "text": "Use ripgrep to find exact pattern matches within files or directories.\nResults are returned in JSON format and for each match you will receive the:\n- Filename\n- LineNumber (only when MatchPerLine is true)\n- LineContent: the content of the matching line (only when MatchPerLine is true)\nTotal results are capped at 50 matches. Use the Includes option to filter by file type or specific paths to refine your search.",
+      "complete": true
+    },
+    "invoke_subagent": {
+      "layer": "model-facing (runtime)",
+      "text": "Launch a subagent. It runs in the background with its own prompt and sends you a message when it completes or needs guidance; there is no need to poll.\n\nGuidelines:\n* The subagent is identified by the conversationId returned; message it with the send_message tool.\n* Multiple subagents may share a type name; each still gets a unique conversationId.\n* If a task continues an existing subagent's work, message that subagent instead of launching a new one.\n* Default the Model argument to 'inherit' unless the user explicitly requests a different model.",
+      "complete": true
+    },
+    "list_dir": {
+      "layer": "converter",
+      "text": "List the contents of a directory, i.e. all files and subdirectories that are children of the directory. Directory path must be an absolute path to a directory that exists. For each child in the directory, output will have: relative path to the directory, whether it is a directory or file, size in bytes if file, and number of children (recursive) if directory. Number of children may be missing if the workspace is too large, since we are not able to track the entire workspace.",
+      "complete": true
+    },
+    "list_permissions": {
+      "layer": "converter",
+      "text": "Use this tool to list all current permission grants. This helps you understand what resources you can access without prompting.",
+      "complete": true
+    },
+    "list_plugin_accounts": {
+      "layer": "runtime (listpluginaccounts)",
+      "text": "List the accounts the user has connected for installed plugins: each plugin's auth providers, their sign-in status, the identity signed in as, and the CLIs they power. Use this to check whether the user is signed in before running a plugin CLI, and to tell the user exactly which provider to reconnect in the Plugins Manager when authentication fails. When a provider has multiple accounts connected, select one for a sandboxed CLI command by prefixing the command with AGY_ACCOUNT=<account> (an account name from this tool's output); without the prefix, the default account is used. Accounts may carry a user-chosen label such as \"personal\" or \"work\"; when the user refers to an account by its label, pass that account's name (not the label) as AGY_ACCOUNT.",
+      "complete": true
+    },
+    "list_resources": {
+      "layer": "converter",
+      "text": "Lists the available resources from an MCP server.",
+      "complete": true
+    },
+    "manage_inbox": {
+      "layer": "converter",
+      "text": "Manage your message inbox. Use this tool to list all messages or read the full content of a specific message. Do not use this tool to poll for messages.",
+      "complete": true
+    },
+    "manage_subagents": {
+      "layer": "model-facing (runtime)",
+      "text": "Manage the direct subagents of this conversation. 'list' reports each one's conversationId (the id used to kill or message it) and live state. Killing a subagent also kills its descendants and deletes their branched workspaces; logs and artifacts are preserved.",
+      "complete": true
+    },
+    "manage_task": {
+      "layer": "model-facing (runtime)",
+      "text": "Manage the background tasks of this conversation: 'list' the running tasks, check a task's 'status' and recent log output, 'send_input' to a running task, or 'kill' one. Refer to tasks by the TaskId that 'list' reports; keep task references human-readable when talking to the user.",
+      "complete": true
+    },
+    "multi_replace_file_content": {
+      "layer": "converter",
+      "text": "Use this tool ONLY when you are making MULTIPLE, NON-CONTIGUOUS edits to the same file (i.e., you are changing more than one separate block of text). If you are making a single contiguous block of edits, use the replace_file_content tool instead.\nDo NOT make multiple parallel calls to this tool or the replace_file_content tool for the same file.\nDo NOT use this tool if you are only editing a single contiguous block of lines.",
+      "complete": true
+    },
+    "notebook_edit": {
+      "layer": "converter",
+      "text": "Edit Jupyter Notebook (.ipynb) files at the cell level. This tool provides safe, structured operations on notebooks without risking JSON corruption.\n\nActions:\n- 'list': List all cells with their index, type, and preview\n- 'get': Get the full content of a specific cell\n- 'get_with_outputs': Get cell content and outputs\n- 'add': Add a new cell (code or markdown)\n- 'update': Update the content of an existing cell\n- 'delete': Delete a cell\n- 'create': Create a new empty notebook\n\nThis tool should be used instead of regular file editing tools for .ipynb files.",
+      "complete": true
+    },
+    "notebook_execution": {
+      "layer": "converter",
+      "text": "Execute cells in a Colab/Jupyter Notebook (.ipynb) file.\n\nThis tool executes the specified cells. Cell IDs are required for each cell to execute. Before using this tool, read the notebook and identify the cell IDs to execute. These are alpha numeric IDs that are part of the notebook's JSON structure. Do not use cell indexes. Only for use when editor or active document is detected.\nReturns the execution status, count of executed cells, and cell outputs/error trace.",
+      "complete": true
+    },
+    "read_resource": {
+      "layer": "converter",
+      "text": "Retrieves a specified resource's contents.",
+      "complete": true
+    },
+    "read_url_content": {
+      "layer": "converter",
+      "text": "Fetch content from a URL via HTTP request (invisible to USER). Use when: (1) extracting text from public pages, (2) reading static content/documentation, (3) batch processing multiple URLs, (4) speed is important, or (5) no visual interaction needed. Converts HTML to markdown. No JavaScript execution, no authentication. For pages requiring login, JavaScript, or USER visibility, use read_browser_page instead.",
+      "complete": true
+    },
+    "replace_file_content": {
+      "layer": "converter",
+      "text": "Use this tool ONLY when you are making a SINGLE CONTIGUOUS block of edits to the same file (i.e. replacing a single contiguous block of text).\nDo NOT make multiple parallel calls to this tool for the same file.",
+      "complete": true
+    },
+    "run_command": {
+      "layer": "converter",
+      "text": "PROPOSE a command to run on behalf of the user. Operating System: mac. Shell: zsh.\n**NEVER PROPOSE A cd COMMAND**.\nIf you have this tool, note that you DO have the ability to run commands directly on the USER's system.\nMake sure to specify CommandLine exactly as it should be run in the shell.\nIf the step doesn't return the command output, it means that the command was sent to the background as a task. You will receive messages with the command's output as it runs. To interact with a running command, use the manage_task tool. Use `send_input` to send stdin, `kill` to terminate the command, and `status` to check current status. IMPORTANT: Do NOT poll or loop on `status` to wait for completion. The system will automatically notify you with a message when the command finishes. Simply proceed with other work or stop calling tools after launching a command.\nCommands will be run with PAGER=cat. You may want to limit the length of output for commands that usually rely on paging and may contain very long output (e.g. git log, use git log -n <N>).IMPORTANT: The Cwd (working directory) MUST be within the user's workspace. If you need a temporary directory for scratch scripts or intermediate outputs, use the scratch/ directory in your artifact directory instead of writing temporary files to the workspace.",
+      "complete": true,
+      "model_facing": "Execute a command in the workspace. Operating System: mac. Shell: zsh. Each command runs in a new session (working directory changes and environment variables do not persist across calls). Commands that do not finish within the specified wait time continue running in the background as tasks; the system will notify you when they finish, so do not poll their status or set timers to check on them.",
+      "note": "the converter text is rendered per host (operating system and shell); this capture is the darwin rendering. 'model_facing' is the runtime text the reference's own declaration carries - byte-identical to the live request body captured on 2026-10-22. The 1.4.8 binary holds a second, newer runtime variant (499 B, adds the NotificationTimeoutSeconds sentence); the captured session did not send it. See testdata/tool_variants_1.4.7.json."
+    },
+    "run_workflow": {
+      "layer": "runtime (cortex/core)",
+      "text": "Ru,  Scripts can call these tools with call_tool: %s.",
+      "complete": false
+    },
+    "schedule": {
+      "layer": "model-facing (runtime)",
+      "text": "Schedule a one-shot timer (DurationSeconds) or a recurring cron job (CronExpression) that notifies you via Prompt. This tool call runs as a background task and returns immediately; end your turn (call no more tools) to wait for notifications. A timer with a TimerCondition is cancelled early by a matching message, which is itself your wakeup. Set IsDaemon only for a cron that should keep firing after the current task is done. Set ExactTiming only when a cron must fire at the exact wall-clock time without jitter. Use the manage_task tool to cancel active schedules, and never use a shell sleep command as a timer.",
+      "complete": true
+    },
+    "search_marketplace": {
+      "layer": "runtime (cortex/core)",
+      "text": "Searches the Agent Marketplace catalog for plugins and skills by keyword, returning matches in relevance order with their id, name, kind, description, and install status. Use when the user asks to browse, find, or install plugins or skills, or proactively whenever the task involves a product, service, or workflow that no installed tool, MCP server, or skill covers — check here before improvising a workaround or saying you cannot do it.\n\nGuidelines:\n- Suggest 1 strong match (at most 2 if substantially different, or up to 3 when browsing) with a one-sentence reason and <plugin-card catalog-id=\"<id>\"></plugin-card> on its own line. Tell the user they can add it from the card; never install it yourself.\n- If the entry is needed for the core task or would replace a fragile workaround, suggest it upfront and stop so the user can add it from the card and let you continue with it or ask you to use a workaround instead. If you can already complete the task cleanly with existing tools, do that first and put the suggestion at the end of your reply.\n- Never emit a <plugin-card> for installed entries — tell the user it is already installed (and to enable it if disabled).",
+      "complete": true
+    },
+    "search_web": {
+      "layer": "model-facing (runtime)",
+      "text": "Performs a web search for a given query. Returns a summary of relevant information along with URL citations.",
+      "complete": true
+    },
+    "sed_file": {
+      "layer": "converter",
+      "text": "Edit files using sed expressions. Executes GNU sed with the given Basic Regular Expressions sequentially on the target file in-place. SUBSTITUTIONS: 's/old/new/' replaces text. Add 'g' flag to replace all occurrences on each line.\nDELETIONS: 'Nd' deletes line N. 'N,Md' deletes lines N through M.\nAPPENDS: Use the file_content argument with the r command to append lines — this avoids all escaping issues.Pass file_content: {\"block1\": \"your code here...\"} and use 'Nr block1' in expressions to append the content at the end of line N. The content is written verbatim with no escaping needed.\nREPLACING: You should generally lean on deleting + appending with the r command to replace lines to avoid escape issues. For example to replace lines 20-35, use expressions: [\"20,35d\", \"19r new\"] with file_content: {\"new\": \"\\nint add(int a, int b) {\\n  return a + b;\\n}\"}. You still have a/i/c commands but be careful with escaping characters, in general err on the side of caution and use d + r to do line replacements/insertions/appending. Note the \\n at the beginning of new, since r APPENDS to the END of line 19 in the example.\nRULES:\n- Order line-addressed expressions from BOTTOM of file to TOP to prevent line number shifts.\n- You should try plan all changes upfront in a single call, but sometimes it may be better to make sequential sed edits if they're overlapping.\n- Do NOT make parallel sed_file calls to the same file.\n- Only reference line numbers you have actually viewed.\n- Newline in a/i/c/s requires escaping the backslashes with \\\\n.\n- Use alternate delimiters when patterns contain '/': 's|old/path|new/path|g'.\n- Case conversion modifiers (\\U, \\L, \\u, \\l) are NOT supported.\n",
+      "complete": true
+    },
+    "send_command_input": {
+      "layer": "converter",
+      "text": "Send standard input to a running command or to terminate a command. Use this to interact with REPLs, interactive commands, and long-running processes. The command must have been created by a previous run_command call. Use the command_status tool to check the status and output of the command after sending input.",
+      "complete": true
+    },
+    "send_message": {
+      "layer": "model-facing (runtime)",
+      "text": "Send a message to another agent, such as a subagent or a peer. Not a channel to the user.",
+      "complete": true
+    },
+    "view_file": {
+      "layer": "converter",
+      "text": "View the contents of a file from the local filesystem. This tool supports text files and following binary files: image, pdf, video, audio.\nText file usage:\n- The lines of the file are 1-indexed\n- You can view at most 800 lines at a time\n- Specify StartLine and EndLine to view the lines of the file using slice notation:\n  - Omit both to view the entire file, or the first 800 lines of the file, whichever is smaller.\n  - Specify StartLine only to view the remaining lines of the file, or the next 800 lines, whichever is smaller\n  - Specify EndLine only to view the remaining preceding lines of the file, or the previous 800 lines, whichever is smaller\n  - Specify both to view a precise line range. This range must be smaller than 800 lines or only the first 800 lines of the range will be shown.\n- Content is limited to 46080 bytes per view. If content is truncated, use the ContentOffset parameter to view the remaining content\nBinary file usage:\n- Do not provide StartLine or EndLine arguments, this tool always returns the entire file\n- Files larger than 100 MB cannot be viewed.",
+      "complete": true
+    },
+    "wait": {
+      "layer": "converter",
+      "text": "Wait before continuing execution.",
+      "complete": true
+    },
+    "wait_5_seconds": {
+      "layer": "converter",
+      "text": "Wait for 5 seconds before continuing execution.",
+      "complete": true
+    },
+    "write_to_file": {
+      "layer": "converter",
+      "text": "Use this tool to create new files. The file and any parent directories will be created for you if they do not already exist.\n\t\tFollow these instructions:\n\t\t1. By default this tool will error if TargetFile already exists. To overwrite an existing file, set Overwrite to true. To append to an existing file (or create it if it does not exist), set Append to true.",
+      "complete": true
+    }
+  }
+}

@@ -119,7 +119,7 @@ func (m *runMode) skillsDetailLegacyLines() []string {
 	return []string{
 		panelTitleOpen + "Skills" + panelTitleClose,
 		"",
-		"  " + "\x1b[1m" + cBlueOpen + s.Name + "\x1b[0m",
+		"  " + "\x1b[1m" + cBlueOpen + skillsui.DisplayName(s) + "\x1b[0m",
 		"",
 		"  " + panelGray238 + s.Description + panelGray238C,
 		"",
@@ -212,7 +212,7 @@ type skillsDetailLine = skillsui.DetailLine
 
 // skillsDetailDocument is the viewer's logical-line sequence.
 func (m *runMode) skillsDetailDocument(s jsonSkillInfo) []skillsDetailLine {
-	return skillsui.SkillsDetailDocument(s.Name, s.Description, s.Path, m.width)
+	return skillsui.SkillsDetailDocument(skillsui.DisplayName(s), s.Description, s.Path, m.width)
 }
 
 // skillsDetailVisible is the window height in visual rows the REF /skills-detail viewer fits.

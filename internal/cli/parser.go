@@ -21,8 +21,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"strings"
-	"time"
 )
 
 // SubcommandSpec is the static description of a single (sub)subcommand. It
@@ -261,38 +259,6 @@ func (p *Parser) LookupFlagValue(canonical string) string {
 	return ""
 }
 
-// AliasMap is kept for source compatibility with cycle 33-37 callers.
-type AliasMap map[string]string
-
-// LookupFlagValueCmd is the legacy API used by cmd/wagyu. It
-// preserves the (cmd, canonical) signature so callers don't have to
-// change. Internally it forwards to the new method.
-func (a AliasMap) LookupFlagValueCmd(p *Parser, canonical string) string {
-	v := p.LookupFlagValue(canonical)
-	if v != "" {
-		return v
-	}
-	for alias, real := range a {
-		if real == canonical {
-			if v := p.LookupFlagValue(alias); v != "" {
-				return v
-			}
-		}
-	}
-	return ""
-}
-
-// StandardAliasMap is the alias table the v1.3.5 binary implicitly
-// defines. v1.3.5 --help shows -c / -i / -p short forms plus the
-// --prompt long-form alias. We keep this table for cmd/wagyu
-// to fold the short forms into the canonical flag values.
-var StandardAliasMap = AliasMap{
-	"c":      "continue",
-	"i":      "prompt-interactive",
-	"p":      "print",
-	"prompt": "print",
-}
-
 // ParseForTest is a parse-only entry point used by the test rig. It builds
 // a fresh Parser with the standard v4 specs and runs jetski against args.
 // Returns the resulting Parser so tests can inspect Flag values.
@@ -310,7 +276,3 @@ func ParseForTest(args []string) (*Parser, error) {
 	err := p.ExecuteArgs(args)
 	return p, err
 }
-
-// keep imports referenced
-var _ = time.Second
-var _ = strings.Join

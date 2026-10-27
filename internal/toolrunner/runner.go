@@ -64,25 +64,55 @@ type PermissionRunner struct {
 
 // Run gates tool execution through policy and sandbox checks.
 func (r *PermissionRunner) Run(ctx context.Context, call backend.ToolCall) (string, error) {
+	gate := Decide(r.Policy, r.Sandbox, call)
+	if !gate.Allow {
+		r.Denials = append(r.Denials, call.Name)
+		return gate.Reason, nil
+	}
+	res, err := r.Inner.Run(ctx, call)
+	if err == nil {
+		budget := tools.ApplyOutputBudget(res, "", tools.DefaultMaxResultTokens)
+		res = budget.Content
+	}
+	return res, err
+}
+
+// Gate is the verdict the permission gate reports for one tool call.
+//
+// Allow lets the call run; Reason is the text the model reads when it does
+// not — the reference's own denial text, or the sandbox's own refusal.
+type Gate struct {
+	Allow  bool
+	Reason string
+}
+
+// Decide evaluates the sandbox and the policy for one tool call.
+//
+// It is the decision half of PermissionRunner.Run, split out because a
+// subagent's tool calls are gated by the same rules but dispatched by PiG
+// (the session owns the executor), so the caller needs the verdict without
+// running the call.
+//
+// The tool is judged under both of its names — the catalogue's and the
+// declaration's (internal/tools.PermissionNames) — so a rule the user wrote
+// for the parent reaches the subagent, whichever spelling either of them
+// uses.
+func Decide(policy *permissions.Policy, sb sandbox.Sandbox, call backend.ToolCall) Gate {
 	target := ToolTarget(call)
-	if r.Sandbox.Enabled && (call.Name == "run_command" || call.Name == "run_shell_command") {
+	if sb.Enabled && (call.Name == "run_command" || call.Name == "run_shell_command") {
 		// BypassSandbox is a per-call decision (【一手】 agy 1.4.6): the model
 		// may ask for one call to run outside the sandbox.
-		if res := r.Sandbox.CheckCommandWithBypass(target, tools.BypassSandboxRequested(call.Arguments)); res.Outside {
-			r.Denials = append(r.Denials, call.Name)
-			return SandboxDeniedToolResult(call.Name, target, r.Sandbox.AllowedPaths()), nil
+		if res := sb.CheckCommandWithBypass(target, tools.BypassSandboxRequested(call.Arguments)); res.Outside {
+			return Gate{Allow: false, Reason: SandboxDeniedToolResult(call.Name, target, sb.AllowedPaths())}
 		}
 	}
-	if v := r.Policy.Decide(permissions.Request{Tool: call.Name, Target: target}); v == permissions.Allow {
-		res, err := r.Inner.Run(ctx, call)
-		if err == nil {
-			budget := tools.ApplyOutputBudget(res, "", tools.DefaultMaxResultTokens)
-			res = budget.Content
-		}
-		return res, err
+	if policy == nil {
+		return Gate{Allow: true}
 	}
-	r.Denials = append(r.Denials, call.Name)
-	return permissions.DeniedToolResult(call.Name, target), nil
+	if v := policy.DecideNames(target, tools.PermissionNames(call.Name)...); v == permissions.Allow {
+		return Gate{Allow: true}
+	}
+	return Gate{Allow: false, Reason: permissions.DeniedToolResult(call.Name, target)}
 }
 
 // SandboxDeniedToolResult formats the rejection message when sandbox blocks a command.

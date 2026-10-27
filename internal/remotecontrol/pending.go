@@ -125,6 +125,14 @@ type PendingInteraction struct {
 	CreatedAt time.Time           // stamped at AddInteraction time
 	ExpiresAt time.Time           // zero = never expires; non-zero = wall-clock deadline
 
+	// StepIndex is the index of the trajectory step that carries the
+	// request. The Web UI answers with the trajectory id and the step
+	// index — it reads both off the step's metadata — so the answer
+	// finds the entry through them.
+	StepIndex int
+	// TrajectoryID is the trajectory the step lives on.
+	TrajectoryID string
+
 	// ResultCh is the channel Resolve sends the InteractionResult on.
 	// Buffered with len 1 so a slow / unresponsive caller doesn't wedge the
 	// dispatcher's RPC handler — but a buggy caller that reads the channel
@@ -228,6 +236,35 @@ func (p *PendingInteractions) Get(id string) (*PendingInteraction, bool) {
 	defer p.mu.Unlock()
 	intr, ok := p.m[id]
 	return intr, ok
+}
+
+// GetByStep returns the pending interaction the Web UI's answer names.
+//
+// The IDE's answer carries the trajectory id and the step index, not
+// the interaction id the legacy dashboard uses: the frontend reads
+// both off the step's metadata (`metadata.sourceTrajectoryStepInfo`).
+//
+// A trajectory id that does not match is not this interaction. An
+// empty trajectory id matches any: the answer does not have to name
+// the trajectory to be found.
+//
+// nil-safe (nil receiver returns (nil, false)).
+func (p *PendingInteractions) GetByStep(trajectoryID string, stepIndex int) (*PendingInteraction, bool) {
+	if p == nil {
+		return nil, false
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	for _, intr := range p.m {
+		if intr.StepIndex != stepIndex {
+			continue
+		}
+		if trajectoryID != "" && intr.TrajectoryID != "" && intr.TrajectoryID != trajectoryID {
+			continue
+		}
+		return intr, true
+	}
+	return nil, false
 }
 
 // Resolve delivers result to intr.ResultCh (closing the

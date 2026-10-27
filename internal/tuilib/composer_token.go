@@ -20,7 +20,7 @@ import (
 
 	"github.com/charmbracelet/x/ansi"
 
-	"github.com/justwasm/pigasus/internal/palette"
+	"github.com/justwasm/pigasus/palette"
 )
 
 // ComposerPrompt is the prompt glyph the composer draws before the typed

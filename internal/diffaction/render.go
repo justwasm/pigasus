@@ -5,7 +5,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/justwasm/pigasus/internal/palette"
+	"github.com/justwasm/pigasus/palette"
 )
 
 // Views are the three tabs of the /diff viewer, in REF order:

@@ -10,6 +10,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/justwasm/pigasus/endpoints"
 )
 
 // NewProvider is the single entry point used by the registry, the CLI, and
@@ -55,7 +57,7 @@ func (p *googleProvider) Chat(ctx context.Context, req ChatRequest) (ChatRespons
 	return ChatResponse{}, errors.New(
 		"google: Gemini native client is not implemented in this build. " +
 			"Use provider=openai with api_url pointing at a Gemini-compatible OpenAI proxy " +
-			"(e.g. https://generativelanguage.googleapis.com/v1beta/openai/chat/completions).")
+			"(e.g. " + endpoints.Current().GenerativeLanguage + "/v1beta/openai/chat/completions).")
 }
 
 // Stream implements Provider.

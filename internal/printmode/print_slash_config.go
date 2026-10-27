@@ -1,11 +1,11 @@
 package printmode
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/justwasm/pigasus/internal/auth"
@@ -38,6 +38,8 @@ var printSlashConfigKeys = []string{
 	"queuedMessages",
 	"runningLightSpeed",
 	"sandboxProxy",
+	"seasonalThemesOff",
+	"seasonalThemesOptIn",
 	"showFeedbackSurvey",
 	"showTips",
 	"statusLine",
@@ -50,65 +52,105 @@ var printSlashConfigKeys = []string{
 	"vimInsertFirst",
 }
 
-// printSlashConfigDefaults are the reference's built-in settings defaults, as
-// printed for keys the user has never set. Recovered from a default-profile
-// `agy -p /config` capture.
-var printSlashConfigDefaults = map[string]string{
-	"allowNonWorkspaceAccess": "false",
+// printSlashConfigDefaults are the reference's built-in settings defaults —
+// the value it reports for a key the user has never set.
+//
+// 【一手】 agy 1.4.8: `agy -p /config` with an empty settings.json prints
+// exactly these values, and the `--output-format json` payload carries the
+// same values with their JSON types (a string default is a string, a bool
+// default is a bool, historySize is a number, and the seven nullable keys —
+// customModelsConfig, gcp, permissions, sandboxProxy, statusLine, title,
+// trustedWorkspaces — are null).
+//
+// The 1.4.8 defaults differ from the 1.3.6 capture the clone used to carry:
+// artifactReviewPolicy is "asks-for-review" (was "always-proceed"),
+// toolPermission is "request-review" (was "always-proceed") and colorScheme
+// is "terminal" (was "light").
+var printSlashConfigDefaults = map[string]any{
+	"agentMode":               "",
+	"allowNonWorkspaceAccess": false,
 	"altScreenMode":           "default",
-	"artifactReviewPolicy":    "always-proceed",
-	"clearScrollbackOnResize": "true",
-	"colorScheme":             "light",
-	"copyOnSelect":            "true",
-	"disableSlashCommands":    "false",
+	"artifactReviewPolicy":    "asks-for-review",
+	"clearScrollbackOnResize": true,
+	"colorScheme":             "terminal",
+	"contextWindow":           "",
+	"copyOnSelect":            true,
+	"customModelsConfig":      nil,
+	"disableSlashCommands":    false,
 	"editor":                  "auto",
 	"editorMode":              "default",
-	"enableTerminalSandbox":   "false",
-	"hideActiveItems":         "false",
-	"historySize":             "2000",
-	"notifications":           "false",
+	"enableTerminalSandbox":   false,
+	"gcp":                     nil,
+	"hideActiveItems":         false,
+	"historySize":             2000,
+	"model":                   "",
+	"modelProvider":           "",
+	"notifications":           false,
+	"permissions":             nil,
 	"pickerGrouping":          "none",
 	"queuedMessages":          "queue",
 	"runningLightSpeed":       "medium",
-	"showFeedbackSurvey":      "true",
-	"showTips":                "true",
-	"toolPermission":          "always-proceed",
-	"useG1Credits":            "false",
-	"useTerminalCursor":       "false",
+	"sandboxProxy":            nil,
+	"seasonalThemesOff":       "",
+	"seasonalThemesOptIn":     "",
+	"showFeedbackSurvey":      true,
+	"showTips":                true,
+	"statusLine":              nil,
+	"title":                   nil,
+	"toolPermission":          "request-review",
+	"trustedWorkspaces":       nil,
+	"useG1Credits":            false,
+	"useTerminalCursor":       false,
 	"verbosity":               "medium",
-	"vimInsertFirst":          "false",
+	"vimInsertFirst":          false,
+}
+
+// printSlashConfigDefaultString returns a default as a string. Keys whose
+// default is not a string yield "".
+func printSlashConfigDefaultString(key string) string {
+	s, _ := printSlashConfigDefaults[key].(string)
+	return s
+}
+
+// printSlashConfigKeySet returns the union of the reference's known settings
+// keys and every key present in settings.json, sorted alphabetically.
+//
+// 【一手】 agy 1.4.8 reports the union: a key the reference does not know
+// ("dismissedAnnouncements" on the capture machine) is printed next to the
+// known keys, at its alphabetical place — between "disableSlashCommands" and
+// "editor".
+func printSlashConfigKeySet(raw map[string]json.RawMessage) []string {
+	keys := make([]string, 0, len(printSlashConfigKeys)+len(raw))
+	seen := make(map[string]bool, len(printSlashConfigKeys))
+	for _, k := range printSlashConfigKeys {
+		keys = append(keys, k)
+		seen[k] = true
+	}
+	for k := range raw {
+		if !seen[k] {
+			keys = append(keys, k)
+		}
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+// readRawConfigSettings reads settings.json into raw JSON messages.
+func readRawConfigSettings() map[string]json.RawMessage {
+	raw := map[string]json.RawMessage{}
+	if b, err := readSettingsFile(); err == nil {
+		_ = json.Unmarshal(b, &raw)
+	}
+	return raw
 }
 
 // printSlashConfig dumps the settings as "key\tvalue" lines. String values are
 // unquoted and everything else keeps its raw JSON, matching the reference.
 func printSlashConfig() string {
-	raw := map[string]json.RawMessage{}
-	if b, err := os.ReadFile(filepath.Join(auth.AntigravityHome(), "settings.json")); err == nil {
-		_ = json.Unmarshal(b, &raw)
-	}
+	raw := readRawConfigSettings()
 	var b strings.Builder
-	for _, k := range printSlashConfigKeys {
-		val := printSlashConfigDefaults[k]
-		if v, ok := raw[k]; ok {
-			var s string
-			if enc, done := encodeOrderedConfigValue(k, v); done {
-				val = enc
-			} else if json.Unmarshal(v, &s) == nil {
-				val = s
-			} else if anyVal := any(nil); json.Unmarshal(v, &anyVal) == nil {
-				// The reference re-encodes non-string values with the
-				// standard library encoder, so a pretty-printed
-				// settings.json still prints on one line and `<`/`>`/`&`
-				// come back as \u003c/\u003e/\u0026 (Go's default HTML
-				// escaping).
-				if b, err := json.Marshal(anyVal); err == nil {
-					val = string(b)
-				}
-			} else {
-				val = string(v)
-			}
-		}
-		fmt.Fprintf(&b, "%s\t%s\n", k, val)
+	for _, k := range printSlashConfigKeySet(raw) {
+		fmt.Fprintf(&b, "%s\t%s\n", k, configValueText(configValue(k, raw[k])))
 	}
 	return b.String()
 }
@@ -228,65 +270,15 @@ var orderSensitiveConfigKeys = map[string]bool{
 	"title":      true,
 }
 
-// encodeOrderedConfigValue renders one settings value the way the reference
-// does for the text dump. Simple values keep their raw JSON (so a string is
-// printed unquoted, its surrounding quotes stripped by the caller), while an
-// object with a recovered struct order is re-marshaled from that struct.
-//
-// Returns ("", false) when the value is not one this helper knows how to
-// render — the caller falls back to its generic path.
-func encodeOrderedConfigValue(key string, raw json.RawMessage) (string, bool) {
-	if !orderSensitiveConfigKeys[key] {
-		return "", false
-	}
-	if len(bytes.TrimSpace(raw)) == 0 || bytes.Equal(bytes.TrimSpace(raw), []byte("null")) {
-		return "", false
-	}
-	var sl jsonStatusLineSetting
-	if err := json.Unmarshal(raw, &sl); err != nil {
-		return "", false
-	}
-	b, err := json.Marshal(sl)
-	if err != nil {
-		return "", false
-	}
-	return string(b), true
-}
-
 // printSlashConfigData renders the `/config` JSON payload.
 //
-// It wraps configData (print_format.go) — which returns a plain
-// map[string]any — and swaps the two object-valued settings for their struct
-// form so the `--output-format json` payload keeps the reference's field order
-// (type, command, enabled) instead of the alphabetical order a nested map
-// would produce. The settings' top-level keys are unaffected: the reference
+// The two object-valued settings keep the reference's field order (type,
+// command, enabled) because configValue resolves them into their struct form
+// rather than a map — the encoder would otherwise re-sort them
+// alphabetically. The settings' top-level keys are unaffected: the reference
 // emits those alphabetically too, which is what a map gives us.
 func printSlashConfigData() any {
-	data := configData()
-	outer, ok := data.(map[string]any)
-	if !ok {
-		return data
-	}
-	vals, ok := outer["config"].(map[string]any)
-	if !ok {
-		return data
-	}
-	for k := range orderSensitiveConfigKeys {
-		m, ok := vals[k].(map[string]any)
-		if !ok {
-			continue // unset (nil) or already a non-object value
-		}
-		b, err := json.Marshal(m)
-		if err != nil {
-			continue
-		}
-		var sl jsonStatusLineSetting
-		if json.Unmarshal(b, &sl) != nil {
-			continue
-		}
-		vals[k] = sl
-	}
-	return data
+	return configData()
 }
 
 // PrintSlashConfig dumps the settings as "key\tvalue" lines.

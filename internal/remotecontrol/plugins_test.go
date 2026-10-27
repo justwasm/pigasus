@@ -29,7 +29,7 @@
 //     constructor (sorting, deep-copy).
 //
 // Wire-level tests live in
-// internal/remotetransport/tcp_test.go (mirroring
+// remotetransport/tcp_test.go (mirroring
 // the project's split: in-process envelopes vs.
 // wire round-trips).
 package remotecontrol
@@ -731,7 +731,7 @@ func TestListRemoteAgentPlugins_OkWithParams(t *testing.T) {
 // mutation state (mcp-bridge gone) is verified
 // via a follow-up List call and via the
 // plugins/changed broadcast pinned by the
-// wire-level test in internal/remotetransport/.
+// wire-level test in remotetransport/.
 func TestDisconnectRemoteAgentPlugin_Ok(t *testing.T) {
 	ps := NewMemPluginStore(nil)
 	d := newPluginsDispatcher(t, ps)

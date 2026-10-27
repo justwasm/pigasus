@@ -1,8 +1,8 @@
 package tuiviewport
 
 import (
-	"github.com/justwasm/pigasus/internal/palette"
 	"github.com/justwasm/pigasus/internal/tuilib"
+	"github.com/justwasm/pigasus/palette"
 )
 
 // ComputeVisibleWindow extracts and clips the visible slice of rows.

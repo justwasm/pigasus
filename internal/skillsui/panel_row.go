@@ -7,13 +7,43 @@ import (
 	"strings"
 
 	"github.com/justwasm/pigasus/internal/cli"
-	"github.com/justwasm/pigasus/internal/palette"
+	"github.com/justwasm/pigasus/palette"
 )
 
 const (
-	PanelGray238  = "\x1b[38;2;88;110;117m"
 	PanelGray238C = "\x1b[39m"
 )
+
+// PanelGray238 is the dim grey the row's descriptions are painted in —
+// the selected scheme's muted foreground.
+var PanelGray238 = palette.SubtleOpen
+
+func init() {
+	palette.OnSchemeChange(refreshColours)
+}
+
+// refreshColours re-reads the palette after the selected colour scheme
+// changed.
+func refreshColours() {
+	PanelGray238 = palette.SubtleOpen
+}
+
+// DisplayName is the name the reference's /skills panel renders for a skill:
+// the frontmatter `metadata.icon` (when the skill declares one), a space, and
+// the bare name.
+//
+// 【一手】 agy 1.4.8: the bundled automation skill lists as
+// "schedule automation" (its frontmatter declares `name: automation` plus
+// `metadata.icon: schedule`), a probe skill with `metadata.icon: rocket`
+// lists as "rocket zziconprobe", and an icon the reference does not know
+// ("zzznotanicon") is rendered verbatim — there is no glyph table and no
+// filtering. The same string heads the skill's detail view.
+func DisplayName(s SkillInfo) string {
+	if s.Icon == "" {
+		return s.Name
+	}
+	return s.Icon + " " + s.Name
+}
 
 // PanelRow formats one skill row in the /skills picker list.
 func PanelRow(s SkillInfo, cursor bool, width int) string {
@@ -26,8 +56,9 @@ func PanelRow(s SkillInfo, cursor bool, width int) string {
 		suffixPlain = " · built-in"
 		suffixRaw = " · \x1b[3m\x1b[38;2;101;123;131mbuilt-in\x1b[0m"
 	}
+	name := DisplayName(s)
 	desc := s.Description
-	fixed := len([]rune(prefix)) + len([]rune(s.Name)) + 2 + len([]rune(suffixPlain))
+	fixed := len([]rune(prefix)) + len([]rune(name)) + 2 + len([]rune(suffixPlain))
 	if avail := width - 1 - fixed; avail < len([]rune(desc)) {
 		dr := []rune(desc)
 		if avail < 0 {
@@ -41,9 +72,9 @@ func PanelRow(s SkillInfo, cursor bool, width int) string {
 	}
 	var head string
 	if cursor {
-		head = palette.BlueOpen + prefix + s.Name + palette.BlueClose + ": "
+		head = palette.BlueOpen + prefix + name + palette.BlueClose + ": "
 	} else {
-		head = prefix + palette.BlueOpen + s.Name + palette.BlueClose + ": "
+		head = prefix + palette.BlueOpen + name + palette.BlueClose + ": "
 	}
 	return head + PanelGray238 + desc + PanelGray238C + suffixRaw
 }

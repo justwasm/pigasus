@@ -394,6 +394,23 @@ func TestHeadlessInteractionTools(t *testing.T) {
 	}
 }
 
+// taskIDFrom extracts the task id from a background launch
+// acknowledgement: "Tool is running as a background task with task id:
+// <id>".
+func taskIDFrom(t *testing.T, out string) string {
+	t.Helper()
+	const marker = "task id: "
+	i := strings.Index(out, marker)
+	if i < 0 {
+		t.Fatalf("no task id in %q", out)
+	}
+	rest := out[i+len(marker):]
+	if j := strings.IndexAny(rest, " \n"); j >= 0 {
+		rest = rest[:j]
+	}
+	return rest
+}
+
 // TestBackgroundCommands exercises run_command(background) end to end through
 // command_status, send_command_input and manage_task.
 func TestBackgroundCommands(t *testing.T) {
@@ -402,18 +419,13 @@ func TestBackgroundCommands(t *testing.T) {
 	// `head -1` reads one line and exits on its own, so the task reaches
 	// "finished" without needing an explicit EOF on stdin.
 	out := dispatch(t, reg, "run_command", `{"command":"head -1","background":true}`)
-	if !strings.Contains(out, "cmd-") {
+	if !strings.Contains(out, "Tool is running as a background task with task id: ") {
 		t.Fatalf("background start = %q", out)
 	}
 	// The id is process-global, so it cannot be hardcoded: under
 	// -count>1 the registry still holds the tasks of the earlier runs
 	// and the counter has moved on. Extract the id the tool reported.
-	var id string
-	for _, f := range strings.Fields(out) {
-		if strings.HasPrefix(f, "cmd-") {
-			id = strings.TrimSuffix(f, ".")
-		}
-	}
+	id := taskIDFrom(t, out)
 	if id == "" {
 		t.Fatalf("no command id in %q", out)
 	}
@@ -445,13 +457,7 @@ func TestBackgroundCommands(t *testing.T) {
 func TestBackgroundCommandKill(t *testing.T) {
 	reg := Catalog(t.TempDir())
 	out := dispatch(t, reg, "run_command", `{"command":"sleep 30","background":true}`)
-	var id string
-	for _, f := range strings.Fields(out) {
-		if strings.HasPrefix(f, "cmd-") {
-			id = strings.TrimSuffix(f, ".")
-			break
-		}
-	}
+	id := taskIDFrom(t, out)
 	if id == "" {
 		t.Fatalf("no command id in %q", out)
 	}

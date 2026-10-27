@@ -83,7 +83,14 @@ type GatewayConfig struct {
 	Headers          map[string]string
 	TimeoutSeconds   int
 	DefaultMaxTokens int
-	HTTPClient       *http.Client
+	// ReasoningEffort is the reasoning level the model runs at — the
+	// "tier" of a model that declares tiers. It is sent as the OpenAI
+	// dialect's `reasoning_effort` hint.
+	//
+	// The Anthropic dialect has no such field, so the hint is dropped
+	// there: the Messages API spells its thinking budget differently.
+	ReasoningEffort string
+	HTTPClient      *http.Client
 }
 
 // withDefaults fills in the values that can be defaulted without inventing
