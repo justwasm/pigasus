@@ -80,6 +80,61 @@ func ConfiguredModelDefaultLabel(id string) string {
 	return ""
 }
 
+// TieredModelEntry is one configured model: its own id and label, plus
+// the reasoning tiers it declares.
+//
+// The catalogue (ModelCatalogue) lists a model that declares tiers once
+// per tier — the reference's own shape ("Gemini 3.8 Flash (High)"). This
+// entry is the other view of the same model: one row, with the tiers
+// spelled out. The /model picker's slider needs the second one; the
+// id↔label lookup needs the first.
+type TieredModelEntry struct {
+	// ID is the model's own catalogue id — no tier suffix.
+	ID string
+	// Label is the model's display name — no tier in brackets.
+	Label string
+	// Tiers are the reasoning levels the model offers, in the order
+	// the configuration declared them.
+	Tiers []string
+	// DefaultTier is the tier the model runs at when nothing else
+	// says: the configuration's own `reasoning_effort`, or medium when
+	// it offers one.
+	DefaultTier string
+}
+
+// ConfiguredModelEntries returns one entry per model the user configured,
+// each carrying the reasoning tiers it declares.
+//
+// The rows are grouped by the model they belong to, and the tiers keep
+// the order the configuration declared them in.
+func ConfiguredModelEntries() []TieredModelEntry {
+	reg := models.CachedRegistry()
+	if reg == nil {
+		return nil
+	}
+	var out []TieredModelEntry
+	for _, m := range reg.List() {
+		id := strings.TrimSpace(m.Name)
+		if id == "" {
+			continue
+		}
+		label := strings.TrimSpace(m.DisplayName)
+		if label == "" {
+			label = id
+		}
+		out = append(out, TieredModelEntry{
+			ID:          id,
+			Label:       label,
+			Tiers:       models.NormalizeEfforts(m.ReasoningEfforts),
+			DefaultTier: models.DefaultEffort(m),
+		})
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		return models.BaseModelID(out[i].ID) < models.BaseModelID(out[j].ID)
+	})
+	return out
+}
+
 // configuredModelEntries reads the user's provider configuration and turns
 // it into catalogue rows.
 //

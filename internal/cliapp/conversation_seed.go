@@ -150,8 +150,12 @@ func (m *runMode) seedNonToolStep(s convstore.Step) {
 		if strings.TrimSpace(s.Text) == "" {
 			return
 		}
-		m.response = append(m.response, renderMarkdown(s.Text, m.width))
+		styled := renderMarkdown(s.Text, m.width)
+		lines := strings.Split(styled, "\n")
+		start := len(m.response)
+		m.response = append(m.response, lines...)
 		m.session = append(m.session, backend.Message{Role: "assistant", Content: s.Text})
+		m.assistants = append(m.assistants, assistantBlock{start: start, lines: len(lines), raw: s.Text})
 	default:
 		m.response = append(m.response, "  "+firstLine(s.Text))
 	}

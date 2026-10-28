@@ -614,23 +614,24 @@ func TestUsageCreditsFailureText(t *testing.T) {
 	}
 }
 
-// TestPrintSlashChangelogIs148 pins that the embedded /changelog blob is the
-// REF v1.4.8 capture: 176,788 bytes (the 1.4.0 capture was 153,612 and the
-// 1.3.6 capture 150,390) and prefixed by the 1.4.7 section. A stale embed is
-// the one /changelog failure the sweep can catch silently, because the
-// command still exits 0.
+// TestPrintSlashChangelogIs149 pins that the embedded /changelog blob is the
+// REF v1.4.9 capture: 180,070 bytes (the 1.4.8 capture was 176,788, the
+// 1.4.0 capture 153,612 and the 1.3.6 capture 150,390) and prefixed by the
+// 1.4.8 section — the binary ships its own release notes one release
+// behind. A stale embed is the one /changelog failure the sweep can catch
+// silently, because the command still exits 0.
 //
-// The reference's blob is embedded in its own binary (offset 63,610,524 in
-// ~/.local/bin/agy 1.4.8, 176,787 bytes) and the command prints that blob
-// plus one trailing newline — 176,788 bytes. 【一手】 agy 1.4.8, three runs
+// The reference's blob is embedded in its own binary (file offset 63,893,369
+// in ~/.local/bin/agy 1.4.9, 180,070 bytes including the trailing newline)
+// and the command prints those bytes verbatim. 【一手】 agy 1.4.9, three runs
 // on 2026-10-28 all returned sha256
-// 5c3100a90ee102abc1f604719edac2c7d88e188fcd61890446dd987d99e8e34f.
-func TestPrintSlashChangelogIs148(t *testing.T) {
-	if len(printSlashChangelog) != 176788 {
-		t.Errorf("embedded changelog is %d bytes, want 176788 (REF v1.4.8)", len(printSlashChangelog))
+// 0b911c6fb5187c9286ac2a318a432c8ae1bfdd3f9820edc720a4f13c5ed38d56.
+func TestPrintSlashChangelogIs149(t *testing.T) {
+	if len(printSlashChangelog) != 180070 {
+		t.Errorf("embedded changelog is %d bytes, want 180070 (REF v1.4.9)", len(printSlashChangelog))
 	}
-	if !strings.Contains(printSlashChangelog, "\n## 1.4.7\n") {
-		t.Error("embedded changelog has no 1.4.7 section; it is stale")
+	if !strings.Contains(printSlashChangelog, "\n## 1.4.8\n") {
+		t.Error("embedded changelog has no 1.4.8 section; it is stale")
 	}
 	if !strings.HasSuffix(printSlashChangelog, "- Initial release of the Antigravity CLI.\n") {
 		t.Error("embedded changelog does not end with the 1.0.0 section's last line")

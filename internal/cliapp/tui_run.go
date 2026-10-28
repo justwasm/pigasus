@@ -28,6 +28,7 @@ import (
 	"github.com/justwasm/pigasus/internal/agent"
 	"github.com/justwasm/pigasus/internal/announce"
 	"github.com/justwasm/pigasus/internal/backend"
+	"github.com/justwasm/pigasus/internal/clipboard"
 	"github.com/justwasm/pigasus/internal/convstore"
 	"github.com/justwasm/pigasus/internal/hooks"
 	"github.com/justwasm/pigasus/internal/keybind"
@@ -336,6 +337,9 @@ type runMode struct {
 	expanded bool
 	// blocks records where each turn's step block lives in m.response so
 	blocks []turnBlock
+	// assistants records where each completed assistant markdown reply lives
+	// in m.response so a live colour scheme change can re-render it.
+	assistants []assistantBlock
 	// Cycle 83: 3-tab /help TUI menu overlay. When helpMode is true,
 	helpMode bool
 	helpTab  int // 0/1/2
@@ -409,6 +413,11 @@ type runMode struct {
 	discardTurn bool
 	// Cycle 292: transient text in the empty input's placeholder slot. The
 	inputNotice string
+	// Cycle 362 (agy 1.4.9): the images the user attached to the next
+	// turn. A paste of an image — from the clipboard or from a dropped
+	// image file — lands here and rides along with the next user
+	// message as an image part.
+	pendingMedia []clipboard.Media
 	// statusLineExternalState is the cached rendered output / tick counter
 	statusLineExternalState *statusLineExternalState
 	// Cycle 106: /rename name (used by conversationTitle) and the

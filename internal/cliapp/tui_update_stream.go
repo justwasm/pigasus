@@ -55,6 +55,7 @@ func (m *runMode) finaliseTurnReply(msg turnDoneMsg) {
 			final = append(final, "")
 		}
 		final = append(final, block...)
+		replyStart := m.liveStart + len(final)
 		final = append(final, replyLines...)
 		m.replaceRange(m.liveStart, len(m.response), final)
 		if len(msg.steps) > 0 {
@@ -68,9 +69,35 @@ func (m *runMode) finaliseTurnReply(msg turnDoneMsg) {
 				steps: msg.steps,
 			})
 		}
+		if len(replyLines) > 0 {
+			m.assistants = append(m.assistants, assistantBlock{
+				start: replyStart,
+				lines: len(replyLines),
+				raw:   msg.reply,
+			})
+		}
 	} else if !m.streamedText && !agent.IsEmptyAssistantTurn(msg.reply, nil, msg.reasoning) {
 		styled := renderMarkdown(msg.reply, m.width)
-		m.response = append(m.response, strings.Split(styled, "\n")...)
+		lines := strings.Split(styled, "\n")
+		start := len(m.response)
+		m.response = append(m.response, lines...)
+		m.assistants = append(m.assistants, assistantBlock{
+			start: start,
+			lines: len(lines),
+			raw:   msg.reply,
+		})
+	} else if m.streamedText && !agent.IsEmptyAssistantTurn(msg.reply, nil, msg.reasoning) {
+		if m.replyStart >= 0 && m.liveTextLines > 0 {
+			raw := msg.reply
+			if raw == "" {
+				raw = m.liveReplyBuf
+			}
+			m.assistants = append(m.assistants, assistantBlock{
+				start: m.replyStart,
+				lines: m.liveTextLines,
+				raw:   raw,
+			})
+		}
 	}
 }
 

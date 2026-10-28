@@ -44,7 +44,7 @@ things in it:
 | `accountpool/` | the **account-routing policy** as a public package: the `config.json` section's shape, the four strategies, the quota threshold, the decision. Pure — no I/O, no `internal/` dependency — so it imports on its own; the runtime is `internal/accountrouting`. See [`docs/guide/accounts.md`](docs/guide/accounts.md) |
 
 The reference is **Antigravity CLI** (`agy`) — a closed-source Google-internal
-agent CLI (`google3/third_party/jetski/…`). The clone emulates **agy 1.4.8**
+agent CLI (`google3/third_party/jetski/…`). The clone emulates **agy 1.4.9**
 (`internal/cli.ReferenceVersion`).
 
 There is a **second reference binary**: the Antigravity **IDE** ships its own

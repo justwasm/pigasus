@@ -14,6 +14,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/justwasm/pigasus/internal/cli"
+	"github.com/justwasm/pigasus/internal/models"
 )
 
 // Row is one picker row the reference renders between the Search field
@@ -22,11 +23,26 @@ import (
 // effort slider instead), the dim "Gemini 4 Argon" row is drawn in gray
 // 241 (unavailable on this account). Slug is the catalogue ID prefix;
 // the effort suffix is appended from the slider.
+//
+// Tiers are the reasoning levels the row's model offers, in the order
+// the slider shows them. A row with more than one tier gets the effort
+// slider; a row with none is a fixed model whose id carries no tier.
+//
+// The reference's own picker has exactly one multi-tier row — Gemini 3.8
+// Flash, whose three tiers are low, medium and high. A model the user
+// configured may declare more (the Web UI's dispatcher accepts five
+// words), and it gets the same slider, widened to fit.
 type Row struct {
 	Display string // label column, verbatim from REF
 	Slug    string // catalogue base ID (no effort suffix)
 	Dim     bool   // row is drawn in dim gray 241
 	Note    string // optional trailing description (custom registry models)
+
+	// Tiers are the effort levels the row's model offers.
+	Tiers []string
+	// DefaultTier is the tier the row's model runs at when nothing
+	// else says. The reference's own default is high.
+	DefaultTier string
 }
 
 // Rows is the static, always-present portion of the /model picker.
@@ -40,11 +56,12 @@ type Row struct {
 // reference's, they are not static, and their labels belong to the user's
 // own configuration. ConfiguredRows adds them.
 var Rows = []Row{
-	{"Gemini 3.8 Flash", "gemini-3.8-flash", false, ""},
-	{"Claude Sonnet 4.6 (Thinking)", "claude-sonnet-4-6", false, ""},
-	{"Claude Opus 4.6 (Thinking)", "claude-opus-4-6-thinking", false, ""},
-	{"GPT-OSS 120B (Medium)", "gpt-oss-120b-medium", false, ""},
-	{"Gemini 4 Argon", "", true, ""}, // slug unknown (not in `agy models`); cannot be selected
+	{Display: "Gemini 3.8 Flash", Slug: "gemini-3.8-flash",
+		Tiers: []string{"low", "medium", "high"}, DefaultTier: "high"},
+	{Display: "Claude Sonnet 4.6 (Thinking)", Slug: "claude-sonnet-4-6"},
+	{Display: "Claude Opus 4.6 (Thinking)", Slug: "claude-opus-4-6-thinking"},
+	{Display: "GPT-OSS 120B (Medium)", Slug: "gpt-oss-120b-medium"},
+	{Display: "Gemini 4 Argon", Dim: true}, // slug unknown (not in `agy models`); cannot be selected
 }
 
 // Rows55 returns the conditional Claude Opus 5.5 / Claude Sonnet
@@ -60,8 +77,8 @@ func Rows55() []Row {
 		return nil
 	}
 	return []Row{
-		{"Claude Opus 5.5", "claude-opus-5-5", false, ""},
-		{"Claude Sonnet 5.5", "claude-sonnet-5-5", false, ""},
+		{Display: "Claude Opus 5.5", Slug: "claude-opus-5-5"},
+		{Display: "Claude Sonnet 5.5", Slug: "claude-sonnet-5-5"},
 	}
 }
 
@@ -73,21 +90,36 @@ func Rows55() []Row {
 // whatever the configuration calls it. The rows are appended after the
 // reference's own, so the cursor indices of the reference rows stay stable
 // no matter what the user configured.
+//
+// A model that declares reasoning tiers is *one* row, not one row per
+// tier: the tiers live on the effort slider, exactly as the reference's
+// own Gemini row does. The catalogue itself (cli.ModelCatalogue) still
+// lists one row per tier — that is the shape the id↔label lookup needs —
+// so the two views answer different questions and both are kept.
+//
+// A configured model whose id collides with one of the reference's is
+// dropped: the reference's row wins, because that id is the reference's
+// own. The collision is checked against the *base* id too, so a
+// configured "gemini-3.8-flash" does not shadow the reference's
+// "gemini-3.8-flash-high" rows.
 func ConfiguredRows() []Row {
-	reference := make(map[string]bool, 8)
+	reference := make(map[string]bool, 16)
 	for _, m := range cli.ReferenceModels() {
 		reference[m.ID] = true
+		reference[m.Label] = true
+		reference[models.BaseModelID(m.ID)] = true
 	}
 	var out []Row
-	for _, m := range cli.ModelCatalogue() {
-		if reference[m.ID] {
+	for _, m := range cli.ConfiguredModelEntries() {
+		if reference[m.ID] || reference[m.Label] {
 			continue
 		}
 		out = append(out, Row{
-			Display: m.Label,
-			Slug:    m.ID,
-			Dim:     false,
-			Note:    "configured model",
+			Display:     m.Label,
+			Slug:        m.ID,
+			Note:        "configured model",
+			Tiers:       m.Tiers,
+			DefaultTier: m.DefaultTier,
 		})
 	}
 	return out
@@ -211,18 +243,64 @@ func SearchMatch(label, query string) (boundary, first int, ok bool) {
 }
 
 // CatalogueID returns the full catalogue ID a picker row represents at
-// the given effort cursor. Only the three-tier Gemini encodes the
-// cursor; the other rows are fixed IDs.
+// the given effort cursor.
+//
+// A row that offers tiers spells the tier into its id — the reference's
+// own shape ("gemini-3.8-flash-high", and the same for a configured
+// model's "minimax-m3.1-flash-xhigh"). A row that offers none keeps its
+// fixed id: the cursor means nothing there.
+//
+// A hand-built row for the reference's Gemini that carries no tier list
+// still spells its tier into the id, so the three-tier geometry keeps
+// working for a row assembled outside this package.
 func (r Row) CatalogueID(effortCursor int) string {
-	if r.Slug == "gemini-3.8-flash" {
-		return r.Slug + "-" + EffortSlugForCursor(r.Slug, effortCursor)
+	tiers := r.Tiers
+	if len(tiers) == 0 && r.Slug == GeminiFlashSlug {
+		tiers = EffortTiers
 	}
-	return r.Slug
+	if len(tiers) == 0 {
+		return r.Slug
+	}
+	if effortCursor < 0 {
+		effortCursor = 0
+	}
+	if effortCursor > len(tiers)-1 {
+		effortCursor = len(tiers) - 1
+	}
+	return r.Slug + "-" + tiers[effortCursor]
 }
+
+// GeminiFlashSlug is the catalogue id of the reference's own three-tier
+// model.
+const GeminiFlashSlug = "gemini-3.8-flash"
+
+// TierIndex returns the index of a tier word in the row's tier list, or
+// -1 when the row does not offer that tier.
+func (r Row) TierIndex(tier string) int {
+	tier = strings.ToLower(strings.TrimSpace(tier))
+	if tier == "" {
+		return -1
+	}
+	for i, t := range r.Tiers {
+		if strings.ToLower(strings.TrimSpace(t)) == tier {
+			return i
+		}
+	}
+	return -1
+}
+
+// HasEffortSlider reports whether the row offers more than one effort —
+// the reference's slider only appears on such a row (its other rows are
+// fixed models, fin_model_down.raw.txt rows 10–11).
+func (r Row) HasEffortSlider() bool { return len(r.Tiers) > 1 }
 
 // EffortSlugForCursor maps (base, cursor) to the effort slug that
 // belongs in the catalogue ID. For Gemini (low/medium/high) the cursor
 // directly indexes; for Claude/GPT-OSS the cursor is forced to "medium".
+//
+// The picker no longer needs this: a row carries its own tier list and
+// Row.CatalogueID indexes it. The helper stays for the callers that
+// still think in the reference's three tiers.
 func EffortSlugForCursor(base string, cursor int) string {
 	switch base {
 	case "gemini-3.8-flash":

@@ -154,6 +154,10 @@ func SanitizeText(s string) string {
 	// minimum that satisfies that constraint without altering
 	// the model's own paragraph breaks).
 	stripped = collapseBlankLines(stripped)
+	// Drop the invisible interlinear-annotation characters — they
+	// reach the terminal around wrapped code and some terminals
+	// draw a box for them.
+	stripped, _ = stripInvisible(stripped)
 	// Trim leading/trailing whitespace so the first/last
 	// visible character is the model's first/last token.
 	return strings.TrimSpace(stripped)
@@ -189,6 +193,14 @@ type Sanitizer struct {
 	inside    bool
 	justAfter bool // set true when we just exited a think block
 	buf       strings.Builder
+	// pending holds the trailing bytes that could be the start of an
+	// invisible interlinear-annotation character (U+FFF9 / U+FFFA).
+	// A chunk can end in the middle of one of the three-byte
+	// sequences; the bytes are prepended to the next chunk so the
+	// halves are recognised and dropped as one character.
+	//
+	// 【一手】 agy 1.4.9 — see invisible.go.
+	pending string
 
 	// OnThought, when non-nil, receives the thinking text as it is consumed
 	// (i.e. the content inside a ` thinking...</think>` block). It is never
@@ -215,8 +227,21 @@ func (s *Sanitizer) Push(text string) string {
 	if text == "" {
 		return ""
 	}
-	combined := s.buf.String() + text
+	// The pending bytes come first: they are the tail of the previous
+	// chunk, so they precede the new text. The think-tag hold-back
+	// (s.buf) is also a tail, and the two holds are mutually exclusive
+	// — a tail is either a partial think tag or a partial invisible
+	// character, never both.
+	combined := s.buf.String() + s.pending + text
 	s.buf.Reset()
+	s.pending = ""
+
+	// 【一手】 agy 1.4.9: the invisible interlinear-annotation
+	// characters never reach the terminal. The strip happens on the
+	// input side, so a character split across two chunks is dropped
+	// as one character rather than as two broken runes.
+	combined, held := stripInvisible(combined)
+	s.pending = held
 
 	var out strings.Builder
 	for i := 0; i < len(combined); {
@@ -302,5 +327,12 @@ func (s *Sanitizer) Finish() string {
 	s.buf.Reset()
 	s.inside = false
 	s.justAfter = false
+	// The held-back invisible bytes are text like any other: at the
+	// end of the stream they are flushed (and the invisible characters
+	// they might have completed are dropped).
+	pending := s.pending
+	s.pending = ""
+	remaining += pending
+	remaining, _ = stripInvisible(remaining)
 	return remaining
 }

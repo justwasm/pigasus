@@ -335,6 +335,33 @@ carry their own conventions. The Anthropic `tool_result` block has an
 `is_error` member the clone does not set; the OpenAI dialect has no error
 channel at all.
 
+## An image the model cannot see (`internal/tools/image_probe.go`, cycle 362)
+
+**agy 1.4.9** changed what a corrupt image does to a conversation:
+
+> Fixed conversations failing every later model request with `INVALID_MEDIA`
+> after the agent viewed a corrupt image or one with text in front of its
+> header, such as a screenshot captured with `adb exec-out screencap -p >
+> screenshot.png` that also captured a warning; such images are now rejected
+> with an error that says where the real image header starts, so the agent
+> can fix the command.
+
+The failure is not local: the model has the bad image **in its history**,
+so every later request carries it and every later request fails. The fix is
+therefore to reject the image *at the tool*, with an error the model can
+act on.
+
+| where | what the clone does |
+|---|---|
+| `imagery/header.go` | `HeaderOffset` finds the real header of a payload whose first bytes are not the header; `HeaderOffsetError` carries the reference's own wording — `invalid %s: header found at byte offset %d after leading non-image bytes` |
+| `internal/tools/image_probe.go` | `read_file` and `view_file` reject such an image, the same shape as the WebM probe |
+| `internal/clipboard/paste.go` | a pasted payload with leading non-image bytes is rejected with the same error |
+
+The rule is deliberately narrow: a payload whose header is **not** at byte 0
+is rejected; a payload with **no** header at all keeps the old answer — the
+upstream note's "says where the real header starts" has no offset to report
+for a payload that has no header.
+
 ## The background-task subsystem
 
 Since cycle 302 a backgrounded command is a **task** in the reference's

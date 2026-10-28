@@ -160,6 +160,9 @@ func (m *runMode) resetLiveTurnState(prompt string) {
 	if m.autoTitle == "" {
 		m.autoTitle = convstore.GenerateConversationTitle(prompt)
 	}
+	for _, row := range m.mediaRows() {
+		m.response = append(m.response, row)
+	}
 	m.response = append(m.response, userPromptRow(prompt))
 	m.liveStart = len(m.response)
 	m.replyStart = -1
@@ -227,11 +230,19 @@ func (m *runMode) submitPrompt() tea.Cmd {
 }
 
 func (m *runMode) appendUserTurn(text string) {
-	m.session = append(m.session, backend.Message{
+	msg := backend.Message{
 		Role:        "user",
 		Content:     text,
 		WireContent: backend.WrapUserContent(text, m.model, m.wireSettingsPending, time.Now()),
-	})
+	}
+	// The images the user attached ride along with the turn (agy 1.4.9's
+	// image pasting). The transports carry them as image parts, so the
+	// model receives them the way the reference sends them.
+	if parts := m.mediaImageParts(); len(parts) > 0 {
+		msg.Images = parts
+		m.pendingMedia = nil
+	}
+	m.session = append(m.session, msg)
 	m.wireSettingsPending = false
 }
 

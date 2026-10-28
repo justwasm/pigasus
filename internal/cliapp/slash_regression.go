@@ -67,6 +67,10 @@ func effortIndexForName(name string) int {
 // reference derives it from the *live* effort (verified: after Enter on
 // /effort at medium the row reads `Gemini 3.8 Flash · medium`), so the
 // clone can no longer use a constant.
+//
+// The word is the tier the model actually runs at, so a model that
+// declares a tier the reference's own three-tier slider cannot name
+// ("xhigh", "max") still says the right thing.
 func (m *runMode) statusEffortSuffix() string {
 	// A model the reference publishes no effort tiers for carries no
 	// suffix: the reference never prints " · high" / " · medium" for it,
@@ -74,7 +78,7 @@ func (m *runMode) statusEffortSuffix() string {
 	if !hasEffortTiers(m.statusModel) {
 		return ""
 	}
-	return " \u00b7 " + effortLevelName(m.currentEffort())
+	return " \u00b7 " + m.currentEffortName()
 }
 
 // hasEffortTiers reports whether a model carries the reference's effort
@@ -90,16 +94,17 @@ func effortBarSegments(level int) (on, off string) {
 }
 
 // modelRowHasEffortSlider reports whether the /model cursor is on a row
-// that has more than one effort. Only the three-tier Gemini row does; the
-// reference hides the whole slider block (and the `←/→ Effort` legend
-// entry) on Claude/GPT-OSS/Argon (fin_model_down.raw.txt rows 10–11).
+// that has more than one effort. The reference's own picker has exactly
+// one such row — the three-tier Gemini — and hides the whole slider
+// block (and the `←/→ Effort` legend entry) on Claude/GPT-OSS/Argon
+// (fin_model_down.raw.txt rows 10–11). A model the user configured that
+// declares reasoning tiers gets the same slider, widened to fit.
 func (m *runMode) modelRowHasEffortSlider() bool {
-	idx := m.panel.cursor
-	rows := m.modelRows()
-	if idx < 0 || idx >= len(rows) {
-		idx = 0
+	row, ok := m.currentModelRow()
+	if !ok {
+		return false
 	}
-	return rows[idx].Slug == "gemini-3.8-flash"
+	return row.HasEffortSlider()
 }
 
 // configNamePad is the padding between a /config row's name and its value.

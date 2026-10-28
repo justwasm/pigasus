@@ -10,13 +10,13 @@ func (s *State) handleNormalCtrl(k Key) (Result, bool) {
 	case k.Name == "enter" || k.Rune == 's':
 		return Result{Consumed: true, Submit: true}, true
 	case k.Rune == 'r':
-		s.Pending = ""
+		s.clearPending()
 		s.redoOp()
 		return Result{Consumed: true}, true
 	case k.Rune == 'j':
 		// Vim's <C-j> is a plain down-motion. Consume it here so the
 		// host's insert-newline fallback never fires in Normal mode.
-		s.Pending = ""
+		s.clearPending()
 		s.applyMotion(motionDown, 1, 0)
 		return Result{Consumed: true}, true
 	}
@@ -41,7 +41,7 @@ func (s *State) handleNormalNav(name string) bool {
 	default:
 		return false
 	}
-	s.Pending = ""
+	s.clearPending()
 	s.applyMotion(m, 1, 0)
 	return true
 }
@@ -51,7 +51,7 @@ func (s *State) handleNormal(k Key) Result {
 		return res
 	}
 	if k.Name == "esc" {
-		s.Pending = ""
+		s.clearPending()
 		if s.Mode == Visual || s.Mode == VisualLine {
 			s.Mode = Normal
 		}
@@ -72,15 +72,32 @@ func (s *State) handleNormal(k Key) Result {
 	if k.Rune == 0 {
 		return Result{}
 	}
-	s.Pending += string(k.Rune)
+	return s.handleNormalRune(k.Rune)
+}
+
+// handleNormalRune feeds one printable rune into the Normal-mode key
+// accumulator.
+//
+// A pending operator that was carried over from an earlier prompt may
+// only *complete*: it never makes the engine wait for more keys. When
+// the key does not complete it, the operator is dropped and the key is
+// read on its own — otherwise the stale "d" would swallow the "i" the
+// user presses to start typing the next prompt.
+func (s *State) handleNormalRune(r rune) Result {
+	carried := s.pendingCarried
+	s.Pending += string(r)
 	c, st := parse(s.Pending, s.Mode == Visual || s.Mode == VisualLine)
+	if carried && st != statusComplete {
+		s.clearPending()
+		return s.handleNormalRune(r)
+	}
 	switch st {
 	case statusIncomplete:
 		return Result{Consumed: true}
 	case statusInvalid:
-		s.Pending = ""
+		s.clearPending()
 		return Result{Consumed: true, Bell: true}
 	}
-	s.Pending = ""
+	s.clearPending()
 	return s.execute(c)
 }

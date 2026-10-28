@@ -2,8 +2,11 @@ package onboarding
 
 import (
 	"fmt"
-	"github.com/justwasm/pigasus/endpoints"
 	"io"
+	"strings"
+
+	"github.com/justwasm/pigasus/endpoints"
+	"github.com/justwasm/pigasus/internal/textwrap"
 )
 
 // stepNameTerms is the literal header line shown at the top of the ToS screen.
@@ -70,41 +73,143 @@ const (
 //	│                       [ Previous ]    [ Done ]                   │
 //	└──────────────────────────────────────────────────────────────────┘
 func renderTerms(w io.Writer, agreed bool) error {
-	if _, err := fmt.Fprintln(w, stepNameTerms); err != nil {
-		return err
-	}
-	if _, err := fmt.Fprintln(w); err != nil {
-		return err
-	}
+	return renderTermsWithDims(w, agreed, 0, 0, 0)
+}
+
+func renderTermsLines(agreed bool, width int) []string {
+	var lines []string
+	lines = append(lines, stepNameTerms, "")
 	for _, line := range TermsWarning {
-		if _, err := fmt.Fprintln(w, "  ", line); err != nil {
+		if width > 0 {
+			lines = append(lines, wrapProseLines(line, width, "  ")...)
+		} else {
+			lines = append(lines, "  "+line)
+		}
+	}
+	lines = append(lines, "")
+	check := termsCheckboxOff
+	if agreed {
+		check = termsCheckboxOn
+	}
+	if width > 0 {
+		lines = append(lines, wrapCheckboxLines(TermsCheckboxLabel, width, "  "+check+" ")...)
+	} else {
+		lines = append(lines, fmt.Sprintf("  %s %s", check, TermsCheckboxLabel))
+	}
+	lines = append(lines, "")
+	tosLink := fmt.Sprintf("Terms of Service: %s%s%s", ansiUnder, endpoints.Current().Terms, ansiReset)
+	privLink := fmt.Sprintf("Privacy Policy:  %s%s%s", ansiUnder, endpoints.Current().Privacy, ansiReset)
+	if width > 0 {
+		lines = append(lines, wrapLinkLines("Terms of Service: ", endpoints.Current().Terms, width)...)
+		lines = append(lines, wrapLinkLines("Privacy Policy:  ", endpoints.Current().Privacy, width)...)
+	} else {
+		lines = append(lines, "  "+tosLink, "  "+privLink)
+	}
+	return lines
+}
+
+func renderTermsWithDims(w io.Writer, agreed bool, width, height, scroll int) error {
+	lines := renderTermsLines(agreed, width)
+	footer := "                       [ Previous ]    [ Done ]"
+	if width > 0 && len(footer) > width {
+		btn := "[ Previous ]  [ Done ]"
+		if len(btn) <= width {
+			pad := (width - len(btn)) / 2
+			footer = strings.Repeat(" ", pad) + btn
+		} else {
+			footer = btn
+		}
+	}
+	if height > 0 {
+		area := height - 3
+		if area < 1 {
+			area = 1
+		}
+		if len(lines) > area {
+			start := scroll
+			if start > len(lines)-area {
+				start = len(lines) - area
+			}
+			if start < 0 {
+				start = 0
+			}
+			end := start + area
+			if end > len(lines) {
+				end = len(lines)
+			}
+			lines = lines[start:end]
+		}
+	}
+	for _, l := range lines {
+		if _, err := fmt.Fprintln(w, l); err != nil {
 			return err
 		}
 	}
 	if _, err := fmt.Fprintln(w); err != nil {
 		return err
 	}
-	check := termsCheckboxOff
-	if agreed {
-		check = termsCheckboxOn
+	_, err := fmt.Fprintln(w, footer)
+	return err
+}
+
+func wrapProseLines(text string, width int, indent string) []string {
+	if width <= 0 || len(indent)+len(text) <= width {
+		return []string{indent + text}
 	}
-	if _, err := fmt.Fprintf(w, "  %s %s\n", check, TermsCheckboxLabel); err != nil {
-		return err
+	limit := width - len(indent)
+	if limit < 1 {
+		limit = 1
 	}
-	if _, err := fmt.Fprintln(w); err != nil {
-		return err
+	chunks := textwrap.Words(text, limit)
+	out := make([]string, len(chunks))
+	for i, c := range chunks {
+		out[i] = indent + c
 	}
-	if _, err := fmt.Fprintf(w, "  Terms of Service: %s%s%s%s\n", ansiUnder, endpoints.Current().Terms, ansiReset, ""); err != nil {
-		return err
+	return out
+}
+
+func wrapCheckboxLines(text string, width int, prefix string) []string {
+	if width <= 0 || len(prefix)+len(text) <= width {
+		return []string{prefix + text}
 	}
-	if _, err := fmt.Fprintf(w, "  Privacy Policy:  %s%s%s%s\n", ansiUnder, endpoints.Current().Privacy, ansiReset, ""); err != nil {
-		return err
+	limit := width - len(prefix)
+	if limit < 1 {
+		limit = 1
 	}
-	if _, err := fmt.Fprintln(w); err != nil {
-		return err
+	chunks := textwrap.Words(text, limit)
+	if len(chunks) == 0 {
+		return []string{prefix}
 	}
-	if _, err := fmt.Fprintln(w, "                       [ Previous ]    [ Done ]"); err != nil {
-		return err
+	out := make([]string, len(chunks))
+	out[0] = prefix + chunks[0]
+	contIndent := strings.Repeat(" ", len(prefix))
+	for i := 1; i < len(chunks); i++ {
+		out[i] = contIndent + chunks[i]
 	}
-	return nil
+	return out
+}
+
+func wrapLinkLines(label, url string, width int) []string {
+	fullLine := "  " + label + ansiUnder + url + ansiReset
+	if width <= 0 || len("  "+label)+len(url) <= width {
+		return []string{fullLine}
+	}
+	limit := width - len("  "+label)
+	if limit < 10 {
+		return []string{
+			"  " + label,
+			"    " + ansiUnder + url + ansiReset,
+		}
+	}
+	chunks := textwrap.Break(url, limit)
+	if len(chunks) == 0 {
+		return []string{fullLine}
+	}
+	out := make([]string, len(chunks))
+	out[0] = "  " + label + ansiUnder + chunks[0] + ansiReset
+	contIndent := "  " + strings.Repeat(" ", len(label))
+	for i := 1; i < len(chunks); i++ {
+		out[i] = contIndent + ansiUnder + chunks[i] + ansiReset
+	}
+	return out
 }

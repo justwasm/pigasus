@@ -228,3 +228,71 @@ func TestNextMode(t *testing.T) {
 		t.Errorf("after %d steps the cycle ended at %q, want default", len(CycleModes), cur)
 	}
 }
+
+func TestRuleMatches_MultilineAndRegex(t *testing.T) {
+	// 1. Multiline script matching with \r\n vs \n
+	multilineCmd := "python -c '\r\nimport os\r\nprint(os.getcwd())\r\n'"
+	rule := Rule{
+		Tool:    "run_command",
+		Pattern: "python -c '\nimport os\nprint(os.getcwd())\n'",
+	}
+	if !rule.matches(Request{Tool: "run_command", Target: multilineCmd}) {
+		t.Errorf("rule failed to match multiline script with CRLF normalization")
+	}
+
+	// 2. Strict prefix on multiline script
+	prefixRule := Rule{
+		Tool:    "run_command",
+		Pattern: "python -c",
+	}
+	if !prefixRule.matches(Request{Tool: "run_command", Target: multilineCmd}) {
+		t.Errorf("rule failed to match prefix of multiline script")
+	}
+
+	// 3. Opt-in regex matching
+	regexRule := Rule{
+		Tool:    "run_command",
+		Pattern: "regex:^git (status|diff|log)",
+	}
+	if !regexRule.matches(Request{Tool: "run_command", Target: "git status -s"}) {
+		t.Errorf("regex rule failed to match valid target")
+	}
+	if regexRule.matches(Request{Tool: "run_command", Target: "git push origin main"}) {
+		t.Errorf("regex rule incorrectly matched non-matching target")
+	}
+
+	// 4. Wildcard pattern
+	wildcardRule := Rule{
+		Tool:    "run_command",
+		Pattern: "*",
+	}
+	if !wildcardRule.matches(Request{Tool: "run_command", Target: "echo anything"}) {
+		t.Errorf("wildcard rule should match any target")
+	}
+}
+
+func TestSuggestAllowAlwaysPattern(t *testing.T) {
+	// Script runner: npm run test -> npm run test
+	if got := SuggestAllowAlwaysPattern("npm run test:unit --watch"); got != "npm run test:unit" {
+		t.Errorf("npm run suggestion = %q, want 'npm run test:unit'", got)
+	}
+	// yarn dev -> yarn dev
+	if got := SuggestAllowAlwaysPattern("yarn dev --port 3000"); got != "yarn dev" {
+		t.Errorf("yarn suggestion = %q, want 'yarn dev'", got)
+	}
+	// Inline python -c
+	pyCmd := "python -c 'import sys; print(sys.version)'"
+	if got := SuggestAllowAlwaysPattern(pyCmd); got != pyCmd {
+		t.Errorf("python -c suggestion = %q, want full command %q", got, pyCmd)
+	}
+	// Multi-line python script
+	pyMulti := "python -c '\nimport os\nprint(os.name)\n'"
+	if got := SuggestAllowAlwaysPattern(pyMulti); got != pyMulti {
+		t.Errorf("multiline python suggestion = %q, want %q", got, pyMulti)
+	}
+	// Chained compound command
+	chained := "git fetch origin && git rebase origin/main"
+	if got := SuggestAllowAlwaysPattern(chained); got != chained {
+		t.Errorf("chained command suggestion = %q, want %q", got, chained)
+	}
+}

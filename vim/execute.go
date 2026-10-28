@@ -4,6 +4,9 @@ import "strings"
 
 func (s *State) executeEdit(c command) (Result, bool) {
 	cnt := max(c.count, 1)
+	if actsAtCursor(c.kind) {
+		s.actOnLineAbove()
+	}
 	switch c.kind {
 	case cmdDeleteChar:
 		s.deleteChars(c.count, false)
@@ -144,6 +147,9 @@ func (s *State) resolveOperatorRange(c command, mc int) (pos, pos, bool, bool) {
 // runOperator resolves and applies d/c/y.
 func (s *State) runOperator(c command) {
 	s.recordFind(c.motion, c.arg)
+	// The operator acts at the cursor, so an empty last line hands the
+	// command to the line above (agy 1.4.9).
+	s.actOnLineAbove()
 	mc := max(c.count, 1) * max(c.opCount, 1)
 	start, end, linewise, ok := s.resolveOperatorRange(c, mc)
 	if !ok {

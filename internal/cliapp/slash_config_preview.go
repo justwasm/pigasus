@@ -10,6 +10,7 @@ import (
 	"github.com/justwasm/pigasus/internal/mdrender"
 	"github.com/justwasm/pigasus/internal/seasonal"
 	"github.com/justwasm/pigasus/internal/themepreview"
+	"github.com/justwasm/pigasus/palette"
 )
 
 const ansiReset = "\x1b[0m"
@@ -24,6 +25,7 @@ const ansiReset = "\x1b[0m"
 // from the scheme's slots. The TUI pushes the recorded scheme around the
 // work that paints a frame (Update and View), so the frame wears it.
 func (m *runMode) applyThemeLive(scheme string) tea.Cmd {
+	palette.SetScheme(scheme)
 	mdrender.SetColorScheme(scheme)
 	promptColor, placeholderColor := themepreview.ColorsFor(scheme)
 	if m != nil {
@@ -36,6 +38,7 @@ func (m *runMode) applyThemeLive(scheme string) tea.Cmd {
 		st.Blurred.Prompt = promptStyle
 		st.Blurred.Placeholder = placeholderStyle
 		m.input.SetStyles(st)
+		m.rerenderTranscriptForTheme()
 	}
 	return tea.ClearScreen
 }

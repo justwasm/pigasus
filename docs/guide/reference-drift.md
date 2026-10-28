@@ -100,6 +100,30 @@ placeholder, the marketplace-search flag), the seed set moved 165,692 →
 call now comes back under `response.error` instead of `response.output`
 (【一手】, captured live — `internal/tools/testdata/tool_errors_1.4.8.txt`).
 
+**Re-evidenced at 1.4.9** (`docs/cycles/cycle-362-agy-1.4.9-alignment/`): the
+clone is pinned to 1.4.9 (sha256 `a66421b7…`). The **served changelog feed
+grew by one section** — the 1.4.8 section arrived, so the feed is now
+180,524 bytes / 1,038 lines / 79 sections / 881 bullets — but its newest
+section is **still 1.4.8**: the 1.4.9 release notes live in the vendor's
+public repository only, and they are recorded verbatim in
+`internal/cli/testdata/changelog_upstream_1.4.9.md`, the way the 1.4.8 notes
+were. `--help` is byte-identical to the 1.4.6 capture once the clone's own
+four commands are removed. What did move is **behaviour**, and the clone
+implements six of the fourteen 1.4.9 bullets: an unmatched tool call or
+result is left out of the request (both the CloudCode dialect and the
+Gemini API-key dialect), the invisible U+FFF9 / U+FFFA never reach the
+terminal, the plugin validator checks the name and the logo, Vim's empty
+last line and carried operator behave, a corrupt image is rejected with the
+real header offset, and image pasting attaches an image from the clipboard
+or from a dropped file. The other eight are documented in the cycle report
+— four are not applicable to the clone's architecture, four are open.
+
+**Not** re-verified at 1.4.9, and therefore still stamped 1.4.8: the sixty
+advertised tool names, the twelve model declarations, the system prompt's
+static sections, the remote-control and language-server descriptors, chroma,
+the embedded `model_profiles.json`, the overflow message, the
+session-summary prompt and the tool result texts.
+
 The **seed set is now regenerated at 1.4.6** (`out/local-macos/seeds/`, 161,286
 functions), and so is everything derived from it — the Ghidra project
 (`out/local-macos/proj`), the decompiled output (`out/local-macos/dec/`), the

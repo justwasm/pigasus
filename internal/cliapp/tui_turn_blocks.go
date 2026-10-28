@@ -11,6 +11,7 @@ import (
 	"github.com/justwasm/pigasus/internal/compaction"
 	"github.com/justwasm/pigasus/internal/printmode"
 	"github.com/justwasm/pigasus/internal/tuilib"
+	"github.com/justwasm/pigasus/palette"
 )
 
 type compactSpinnerTickMsg struct{}
@@ -50,6 +51,11 @@ func (m *runMode) rerenderBlocks() {
 				m.blocks[j].start += delta
 			}
 		}
+		for j := range m.assistants {
+			if m.assistants[j].start >= oldEnd {
+				m.assistants[j].start += delta
+			}
+		}
 		if m.liveStart >= oldEnd {
 			m.liveStart += delta
 		}
@@ -57,6 +63,110 @@ func (m *runMode) rerenderBlocks() {
 			m.replyStart += delta
 		}
 	}
+}
+
+// rerenderTranscriptForTheme repaints all user prompts, assistant replies,
+// and tool step blocks across m.response under the active colour scheme.
+//
+// 【反编译】 agy 1.4.8 model.(*ConversationModel).handleSettingsChanges
+// calls store.(*Manager).RerenderAll when the colour scheme changes,
+// repainting the entire transcript with the new scheme's colours.
+func (m *runMode) rerenderTranscriptForTheme() {
+	if m == nil {
+		return
+	}
+	m.rowsCacheDirty = true
+
+	// 1. Re-render all user prompt rows and slash echo blocks in m.response in-place
+	for i, line := range m.response {
+		inBlock := false
+		for _, b := range m.blocks {
+			if i >= b.start && i < b.start+b.lines {
+				inBlock = true
+				break
+			}
+		}
+		if !inBlock {
+			for _, a := range m.assistants {
+				if i >= a.start && i < a.start+a.lines {
+					inBlock = true
+					break
+				}
+			}
+		}
+		if inBlock {
+			continue
+		}
+
+		if isUserPromptRow(line) {
+			plain := stripANSI(line)
+			if idx := strings.Index(plain, "> "); idx >= 0 {
+				prompt := plain[idx+2:]
+				if strings.HasPrefix(prompt, "/") {
+					m.response[i] = palette.WarningBlueOpen + "> " + prompt + palette.WarningBlueClose
+				} else {
+					m.response[i] = userPromptRow(prompt)
+				}
+			}
+		} else if strings.Contains(line, "\u23bf") || strings.Contains(line, "⎿") {
+			plain := stripANSI(line)
+			var hookGlyph string
+			var msg string
+			if idx := strings.Index(plain, "\u23bf"); idx >= 0 {
+				hookGlyph = "\u23bf"
+				msg = strings.TrimSpace(plain[idx+len("\u23bf"):])
+			} else if idx := strings.Index(plain, "⎿"); idx >= 0 {
+				hookGlyph = "⎿"
+				msg = strings.TrimSpace(plain[idx+len("⎿"):])
+			}
+			if hookGlyph != "" {
+				m.response[i] = palette.WarningBlueOpen + "  " + hookGlyph + "  " + palette.WarningBlueClose + palette.SubtleOpen + msg + "\x1b[39m"
+			}
+		}
+	}
+
+	// 2. Re-render all assistant markdown replies
+	for k := range m.assistants {
+		a := &m.assistants[k]
+		if a.start < 0 || a.start > len(m.response) {
+			continue
+		}
+		oldEnd := a.start + a.lines
+		if oldEnd > len(m.response) {
+			oldEnd = len(m.response)
+		}
+		styled := renderMarkdown(a.raw, m.width)
+		lines := strings.Split(styled, "\n")
+		delta := len(lines) - a.lines
+		m.replaceRange(a.start, oldEnd, lines)
+		a.lines = len(lines)
+		if delta != 0 {
+			for j := k + 1; j < len(m.assistants); j++ {
+				if m.assistants[j].start >= oldEnd {
+					m.assistants[j].start += delta
+				}
+			}
+			for j := range m.blocks {
+				if m.blocks[j].start >= oldEnd {
+					m.blocks[j].start += delta
+				}
+			}
+			if m.liveStart >= oldEnd {
+				m.liveStart += delta
+			}
+			if m.replyStart >= oldEnd {
+				m.replyStart += delta
+			}
+		}
+	}
+
+	// 3. Re-render all tool step blocks (using new palette colours)
+	m.rerenderBlocks()
+
+	// 4. Invalidate view caches so viewport redraws completely
+	m.rowsCacheDirty = true
+	m.rowsCache = wrapSlot{}
+	m.rowsView = composedRows{}
 }
 
 func (m *runMode) blankBefore() {

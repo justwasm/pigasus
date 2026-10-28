@@ -60,6 +60,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/justwasm/pigasus/geminicode"
 )
 
 // GeminiAPIVersion is the API version segment the reference harness used.
@@ -669,8 +671,10 @@ func (c *GeminiClient) buildRequest(req StreamRequest) geminiRequest {
 			Parts: []geminiPart{{Text: req.SystemPrompt}},
 		}
 	}
+	paired := geminicode.PairedToolCallIDs(
+		geminiCallIDs(req.Messages), geminiResultIDs(req.Messages))
 	for _, message := range req.Messages {
-		body.Contents = append(body.Contents, geminiContentsFor(message)...)
+		body.Contents = append(body.Contents, geminiContentsFor(message, paired)...)
 	}
 	if len(req.Tools) > 0 {
 		decls := make([]geminiFunctionDeclaration, 0, len(req.Tools))
@@ -711,6 +715,32 @@ func isJSONSchema(schema json.RawMessage) bool {
 	return probe.Schema != nil || len(probe.AdditionalProperties) > 0
 }
 
+// geminiCallIDs collects the ids of the tool calls the conversation holds.
+func geminiCallIDs(messages []Message) []string {
+	var ids []string
+	for _, m := range messages {
+		if m.Role != "assistant" {
+			continue
+		}
+		for _, call := range m.ToolCalls {
+			ids = append(ids, call.ID)
+		}
+	}
+	return ids
+}
+
+// geminiResultIDs collects the ids of the tool results the conversation holds.
+func geminiResultIDs(messages []Message) []string {
+	var ids []string
+	for _, m := range messages {
+		if m.Role != "tool" {
+			continue
+		}
+		ids = append(ids, m.ToolCallID)
+	}
+	return ids
+}
+
 // geminiContentsFor maps one neutral message onto Gemini contents.
 //
 // The clone's roles are `user`, `assistant` and `tool`; Gemini's are `user`
@@ -724,7 +754,11 @@ func isJSONSchema(schema json.RawMessage) bool {
 //	{"parts": [{"functionResponse": {"id": "…", "name": "view_file", "response": {…}}}], "role": "model"}
 //
 // The answer carries the id the call carried, so the API can pair them.
-func geminiContentsFor(message Message) []geminiContent {
+//
+// 【一手】 agy 1.4.9: a tool call with no result and a result with no call
+// are left out of the request — the pairing rule the CloudCode dialect
+// applies too, and the one implementation of it lives in geminicode.
+func geminiContentsFor(message Message, paired map[string]bool) []geminiContent {
 	switch message.Role {
 	case "assistant":
 		parts := make([]geminiPart, 0, len(message.ToolCalls)+1)
@@ -732,6 +766,9 @@ func geminiContentsFor(message Message) []geminiContent {
 			parts = append(parts, geminiPart{Text: text})
 		}
 		for _, call := range message.ToolCalls {
+			if paired != nil && !paired[call.ID] {
+				continue
+			}
 			args := map[string]any{}
 			if len(call.Arguments) > 0 {
 				_ = json.Unmarshal(call.Arguments, &args)
@@ -745,6 +782,9 @@ func geminiContentsFor(message Message) []geminiContent {
 		}
 		return []geminiContent{{Role: "model", Parts: parts}}
 	case "tool":
+		if paired != nil && !paired[message.ToolCallID] {
+			return nil
+		}
 		name := message.Name
 		if name == "" {
 			name = message.ToolCallID

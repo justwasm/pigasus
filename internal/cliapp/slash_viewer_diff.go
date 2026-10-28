@@ -96,11 +96,48 @@ func diffAllChangesRow(c diffChange, cursor bool) string {
 	return diffaction.AllChangesRow(c, cursor)
 }
 
+// diffVisibleRowsFor returns the number of visible rows in /diff panel based on height.
+func diffVisibleRowsFor(height int) int {
+	if height <= 0 {
+		return 0
+	}
+	vis := height - 6
+	if vis < 3 {
+		return 3
+	}
+	return vis
+}
+
+func (m *runMode) diffAdjustWindow(cursor, visible, total int) {
+	if visible <= 0 || total <= visible {
+		m.panel.window = 0
+		return
+	}
+	if m.panel.window < 0 {
+		m.panel.window = 0
+	}
+	if cursor < m.panel.window {
+		m.panel.window = cursor
+	}
+	if cursor >= m.panel.window+visible {
+		m.panel.window = cursor - visible + 1
+	}
+	if m.panel.window > total-visible {
+		m.panel.window = total - visible
+	}
+}
+
 // diffAllChangesLines renders the tab's file list, or the empty state.
 func diffAllChangesLines(tracked, untracked []diffChange, cursor int) []string {
 	emptyHint := panelDotHint("", "←/→", "switch view", "esc", "dismiss")
 	navHint := panelDotHint("", "←/→", "switch view", "↑/↓/j/k", "navigate", "enter", "view diff", "esc", "dismiss")
 	return diffaction.AllChangesLines(tracked, untracked, cursor, emptyHint, navHint)
+}
+
+func diffAllChangesLinesWindowed(tracked, untracked []diffChange, cursor, window, visible int) []string {
+	emptyHint := panelDotHint("", "←/→", "switch view", "esc", "dismiss")
+	navHint := panelDotHint("", "←/→", "switch view", "↑/↓/j/k", "navigate", "enter", "view diff", "esc", "dismiss")
+	return diffaction.AllChangesLinesWindowed(tracked, untracked, cursor, window, visible, emptyHint, navHint)
 }
 
 // panelDiffLinesVCS renders /diff in a git workspace: the All Changes list,
@@ -128,6 +165,12 @@ func (m *runMode) panelDiffLinesVCS() []string {
 		return m.diffCommitTreeLines()
 	default:
 		tracked, untracked, _ := gitDiffChanges(m.cwd)
+		total := len(tracked) + len(untracked)
+		vis := diffVisibleRowsFor(m.height)
+		if vis > 0 && total > vis {
+			m.diffAdjustWindow(m.panel.cursor, vis, total)
+			return diffAllChangesLinesWindowed(tracked, untracked, m.panel.cursor, m.panel.window, vis)
+		}
 		return diffAllChangesLines(tracked, untracked, m.panel.cursor)
 	}
 }

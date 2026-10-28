@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"time"
 
@@ -46,7 +47,7 @@ func convertMessage(message backend.Message, now int64) (piagent.AgentMessage, b
 	case "user":
 		return piagent.AgentMessage{User: &piagent.UserMessage{
 			Role:      piagent.RoleUser,
-			Content:   pi.UserText(message.Content),
+			Content:   userContent(message),
 			Timestamp: now,
 		}}, true
 	case "assistant":
@@ -67,6 +68,45 @@ func convertMessage(message backend.Message, now int64) (piagent.AgentMessage, b
 	default:
 		return piagent.AgentMessage{}, false
 	}
+}
+
+// userContent renders a user message's content for PiG.
+//
+// A message with no picture stays the union's plain-text arm, so a
+// text-only turn is byte for byte what it was before the clone learned to
+// attach images. A message that carries pictures becomes a block list: the
+// text first, then one image block per picture.
+//
+// That is the shape PiG's own BuildUserContent builds (coding/session.go)
+// and the shape the transports read back — piagentbridge.userImages
+// (CloudCode, Gemini, Anthropic) and piagentbridge.userContentParts (the
+// gateway's OpenAI-shaped array) both read the image blocks and nothing
+// else. The picture's bytes travel base64-encoded, because PiG's image
+// block holds the payload as a string.
+//
+// An image with no bytes is dropped rather than sent as an empty picture:
+// the model would answer a broken image with a guess.
+func userContent(message backend.Message) pi.UserContent {
+	if len(message.Images) == 0 {
+		return pi.UserText(message.Content)
+	}
+	blocks := make(pi.UserContentBlocks, 0, len(message.Images)+1)
+	blocks = append(blocks, pi.TextContent{Text: message.Content})
+	for _, image := range message.Images {
+		if len(image.Data) == 0 {
+			continue
+		}
+		blocks = append(blocks, pi.ImageContent{
+			Data:     base64.StdEncoding.EncodeToString(image.Data),
+			MimeType: image.MIMEType,
+		})
+	}
+	if len(blocks) == 1 {
+		// Every picture was empty — the turn carries text and nothing else,
+		// so it stays the plain-text arm.
+		return pi.UserText(message.Content)
+	}
+	return blocks
 }
 
 func convertAssistantMessage(message backend.Message, now int64) piagent.AgentMessage {

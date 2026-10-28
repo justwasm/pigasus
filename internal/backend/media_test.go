@@ -173,7 +173,7 @@ func TestTheAnthropicRequestCarriesThePicture(t *testing.T) {
 // TestTheGeminiRequestCarriesThePicture pins the Gemini dialect's
 // inline data part.
 func TestTheGeminiRequestCarriesThePicture(t *testing.T) {
-	contents := geminiContentsFor(mediaMessage())
+	contents := geminiContentsFor(mediaMessage(), nil)
 	if len(contents) != 1 {
 		t.Fatalf("the request carries %d contents, want 1", len(contents))
 	}
@@ -201,7 +201,7 @@ func TestAPictureWithoutTextIsAMessage(t *testing.T) {
 	contents := geminiContentsFor(Message{
 		Role:   "user",
 		Images: []ImagePart{{MIMEType: "image/png", Data: mediaBytes}},
-	})
+	}, nil)
 	if len(contents) != 1 {
 		t.Fatalf("the request carries %d contents, want 1", len(contents))
 	}

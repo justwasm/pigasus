@@ -152,6 +152,11 @@ func (r *ReadFile) Run(ctx context.Context, args json.RawMessage) (any, error) {
 			return nil, err
 		}
 	}
+	if IsImagePath(p.Path) {
+		if err := probeImage(p.Path, data); err != nil {
+			return nil, err
+		}
+	}
 	return formatReadFileResult(start, data, p.StartLine, p.EndLine, p.ContentOffset)
 }
 
@@ -284,9 +289,13 @@ func (v *ViewFile) Run(ctx context.Context, args json.RawMessage) (any, error) {
 			return nil, err
 		}
 	}
+	if IsImagePath(p.Path) {
+		if err := probeImage(p.Path, data); err != nil {
+			return nil, err
+		}
+	}
 	raw := string(data)
 	lines := strings.Split(raw, "\n")
 	first, last, rangeRaw := viewFileRange(lines, len(lines), p.StartLine, p.EndLine)
 	return formatViewFileBody(full, rangeRaw, len(lines), len(raw), first, last, p.ContentOffset, start), nil
 }
-

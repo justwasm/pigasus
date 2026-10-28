@@ -184,6 +184,22 @@ func AcceptPaste(data []byte, opts Options) (PasteImage, error) {
 	}
 	format := imagery.Detect(data)
 	if format == imagery.FormatUnknown {
+		// The payload does not start with an image header. It may still
+		// hold an image behind some leading bytes — a screenshot that
+		// captured a warning on top of the PNG bytes, the shape
+		// `adb exec-out screencap -p > screenshot.png` produces when the
+		// device also prints something.
+		//
+		// 【一手】 agy 1.4.9, the vendor's own release notes: "such
+		// images are now rejected with an error that says where the real
+		// image header starts, so the agent can fix the command."
+		if offset, f := imagery.HeaderOffset(data); f != imagery.FormatUnknown {
+			return PasteImage{Format: f}, &imagery.HeaderOffsetError{
+				Subject: "clipboard image",
+				Offset:  offset,
+				Format:  f,
+			}
+		}
 		// Non-image bytes (a typed text payload, a short buffer, a
 		// random binary blob) fall through with a populated sentinel
 		// so callers can distinguish "not an image" from "decode

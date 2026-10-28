@@ -133,6 +133,8 @@ func styleInlineBackticks(line string) string {
 var (
 	cBlueOpen              = palette.BlueOpen
 	cBlueBoldOpen          = palette.BlueBoldOpen
+	cUserFgOpen            = palette.UserFgOpen
+	cUserFgBoldOpen        = palette.UserFgBoldOpen
 	cDimGrayOpen           = palette.DimGrayOpen
 	cWarningOpen           = palette.WarningOpen
 	cWarningBlueOpen       = palette.WarningBlueOpen
@@ -200,12 +202,15 @@ func init() {
 func refreshPaletteAliases() {
 	cBlueOpen = palette.BlueOpen
 	cBlueBoldOpen = palette.BlueBoldOpen
+	cUserFgOpen = palette.UserFgOpen
+	cUserFgBoldOpen = palette.UserFgBoldOpen
 	cDimGrayOpen = palette.DimGrayOpen
 	cWarningOpen = palette.WarningOpen
 	cWarningBlueOpen = palette.WarningBlueOpen
 	cWarningBodyOpen = palette.WarningBodyOpen
 	cSeparatorOpen = palette.SeparatorOpen
 	cSubtleOpen = palette.SubtleOpen
+	panelGray238 = palette.SubtleOpen
 	cToolAddOpen = palette.ToolAddOpen
 	cToolRemoveOpen = palette.ToolRemoveOpen
 	cToolBulletOpen = palette.ToolBulletOpen

@@ -148,16 +148,41 @@ func (m *runMode) panelDiscoverLines(mkts []pluginMarketplace, max int) []string
 	}
 	cursor := m.pluginCursorFor(len(rows) + offset)
 	installedSet := installedNames()
-	for i, p := range rows {
-		lines = append(lines, pluginDiscoverLine(cursor == i+offset, installedSet[p.name], p.name, p.desc, max))
-		if m.panel.pluginExpanded[p.name] {
-			lines = append(lines, pluginDiscoverDetails(p.name, mkts, max)...)
+	if !searching {
+		sections := pluginsui.GroupDiscoverSections(toPluginRows(marketplaceItems(mkts)))
+		if len(sections) > 1 {
+			idx := 0
+			for _, sec := range sections {
+				lines = append(lines, "", pluginsui.DiscoverSectionHeader(sec.Name))
+				for _, it := range sec.Items {
+					p := fromPluginRow(it)
+					lines = append(lines, pluginDiscoverLine(cursor == idx+offset, installedSet[p.name], p.name, p.desc, max))
+					if m.panel.pluginExpanded[p.name] {
+						lines = append(lines, pluginDiscoverDetails(p.name, mkts, max)...)
+					}
+					idx++
+				}
+			}
+		} else {
+			for i, p := range rows {
+				lines = append(lines, pluginDiscoverLine(cursor == i+offset, installedSet[p.name], p.name, p.desc, max))
+				if m.panel.pluginExpanded[p.name] {
+					lines = append(lines, pluginDiscoverDetails(p.name, mkts, max)...)
+				}
+			}
 		}
-	}
-	if searching && len(rows) == 0 {
-		lines = append(lines,
-			panelGray238+"  No marketplace plugins match your search."+panelGray238C,
-			"")
+	} else {
+		for i, p := range rows {
+			lines = append(lines, pluginDiscoverLine(cursor == i+offset, installedSet[p.name], p.name, p.desc, max))
+			if m.panel.pluginExpanded[p.name] {
+				lines = append(lines, pluginDiscoverDetails(p.name, mkts, max)...)
+			}
+		}
+		if len(rows) == 0 {
+			lines = append(lines,
+				panelGray238+"  No marketplace plugins match your search."+panelGray238C,
+				"")
+		}
 	}
 	if prompt {
 		lines = append(lines, "", pluginLocalInstallLegend())

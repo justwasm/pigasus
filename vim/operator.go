@@ -91,18 +91,23 @@ func (s *State) rangeText(start, end pos, linewise bool) string {
 	}
 	if start.row == end.row {
 		rl := s.lineRunes(start.row)
-		return string(rl[start.col : end.col+1])
+		lo := min(start.col, len(rl))
+		hi := min(end.col+1, len(rl))
+		if lo > hi {
+			lo = hi
+		}
+		return string(rl[lo:hi])
 	}
 	var b strings.Builder
 	rl := s.lineRunes(start.row)
-	b.WriteString(string(rl[start.col:]))
+	b.WriteString(string(rl[min(start.col, len(rl)):]))
 	b.WriteByte('\n')
 	for r := start.row + 1; r < end.row; r++ {
 		b.WriteString(s.Lines[r])
 		b.WriteByte('\n')
 	}
 	rl2 := s.lineRunes(end.row)
-	b.WriteString(string(rl2[:end.col+1]))
+	b.WriteString(string(rl2[:min(end.col+1, len(rl2))]))
 	return b.String()
 }
 
@@ -123,6 +128,18 @@ func (s *State) deleteRange(start, end pos, linewise bool) {
 	if n := s.lineLen(end.row); end.col > n-1 {
 		end.col = max(n-1, 0)
 	}
+	if !linewise {
+		// An empty range has nothing to delete: the range covers an
+		// empty line, or a line whose end sits before its start. Vim
+		// calls that an empty range and leaves the buffer alone — and
+		// the register untouched.
+		if start.row == end.row {
+			n := s.lineLen(start.row)
+			if n == 0 || end.col < start.col || start.col >= n {
+				return
+			}
+		}
+	}
 	s.register = s.rangeText(start, end, linewise)
 	s.registerLinewise = linewise
 	switch {
@@ -140,7 +157,7 @@ func (s *State) deleteRange(start, end pos, linewise bool) {
 	default:
 		rl := s.lineRunes(start.row)
 		rl2 := s.lineRunes(end.row)
-		joined := string(rl[:start.col]) + string(rl2[end.col+1:])
+		joined := string(rl[:min(start.col, len(rl))]) + string(rl2[min(end.col+1, len(rl2)):])
 		s.Lines = append(s.Lines[:start.row+1], s.Lines[end.row+1:]...)
 		s.Lines[start.row] = joined
 		s.Row, s.Col = start.row, start.col

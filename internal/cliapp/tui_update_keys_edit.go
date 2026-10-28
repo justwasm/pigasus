@@ -192,7 +192,10 @@ func (m *runMode) handleWordMoveAndChords(key tea.Key) (tea.Model, tea.Cmd, bool
 		}
 	}
 	if key.Code == 'v' && key.Mod.Contains(tea.ModCtrl) && !key.Mod.Contains(tea.ModAlt) {
-		return m, m.insertPastedText(clipboardReadText()), true
+		// The paste key's image half (agy 1.4.9): an image on the
+		// clipboard is attached, a dropped image file is attached, and
+		// only a clipboard with neither stays text.
+		return m, m.handlePasteContent(clipboardReadText()), true
 	}
 	return m, nil, false
 }

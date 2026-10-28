@@ -54,6 +54,11 @@ type Wizard struct {
 	// off. The v1.3.5 binary stores the boolean (default: on for
 	// new installs) and writes it to ~/.antigravity/admin_settings.json.
 	OptOut bool
+	// Terminal adaptation (agy 1.4.9): width/height for small terminals,
+	// and scroll position for over-tall steps.
+	Width  int
+	Height int
+	Scroll int
 	// lastMsg is the most recent user-visible info / error message
 	// (e.g. "请先勾选" when the user hits Enter on the ToS screen
 	// without checking the box). The Bubble Tea adapter reads this
@@ -89,9 +94,9 @@ func (wz *Wizard) Render(w io.Writer) error {
 	}
 	switch wz.Step {
 	case StepColorScheme:
-		return renderColorScheme(w, wz.Selected)
+		return renderColorSchemeWithDims(w, wz.Selected, wz.Width, wz.Height, wz.Scroll)
 	case StepTerms:
-		return renderTerms(w, !wz.OptOut)
+		return renderTermsWithDims(w, !wz.OptOut, wz.Width, wz.Height, wz.Scroll)
 	case StepDone:
 		return renderDone(w)
 	default:
@@ -117,6 +122,7 @@ func renderDone(w io.Writer) error {
 // to StepTerms; after StepTerms it sets StepDone and returns
 // (nil, true) so Run() can hand off to the main TUI.
 func (wz *Wizard) Next() (err error, done bool) {
+	wz.Scroll = 0
 	switch wz.Step {
 	case StepColorScheme:
 		wz.Step = StepTerms
@@ -139,6 +145,7 @@ func (wz *Wizard) Next() (err error, done bool) {
 // (returns to StepColorScheme); on StepColorScheme it returns an
 // error because there is no prior step.
 func (wz *Wizard) Previous() error {
+	wz.Scroll = 0
 	switch wz.Step {
 	case StepTerms:
 		wz.Step = StepColorScheme
@@ -150,6 +157,58 @@ func (wz *Wizard) Previous() error {
 	default:
 		return fmt.Errorf("onboarding: Previous from unknown step %d", int(wz.Step))
 	}
+}
+
+// ScrollUp moves the visible viewport up by one line.
+func (wz *Wizard) ScrollUp() {
+	if wz.Scroll > 0 {
+		wz.Scroll--
+	}
+}
+
+// ScrollDown moves the visible viewport down by one line.
+func (wz *Wizard) ScrollDown() {
+	wz.Scroll++
+}
+
+// PageUp moves the visible viewport up by one page.
+func (wz *Wizard) PageUp() {
+	step := wz.Height - 4
+	if step < 1 {
+		step = 5
+	}
+	wz.Scroll -= step
+	if wz.Scroll < 0 {
+		wz.Scroll = 0
+	}
+}
+
+// PageDown moves the visible viewport down by one page.
+func (wz *Wizard) PageDown() {
+	step := wz.Height - 4
+	if step < 1 {
+		step = 5
+	}
+	wz.Scroll += step
+}
+
+// HandleKey handles scrolling keys (Shift+Up, Shift+Down, PgUp, PgDn).
+func (wz *Wizard) HandleKey(key string) bool {
+	switch key {
+	case "shift+up":
+		wz.ScrollUp()
+		return true
+	case "shift+down":
+		wz.ScrollDown()
+		return true
+	case "pgup", "pageup":
+		wz.PageUp()
+		return true
+	case "pgdown", "pagedown":
+		wz.PageDown()
+		return true
+	}
+	return false
 }
 
 // Toggle flips the opt-in checkbox on the ToS screen. It is a no-op

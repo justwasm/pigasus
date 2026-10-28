@@ -18,6 +18,7 @@ import (
 	"sync"
 
 	"charm.land/glamour/v2/ansi"
+	"github.com/justwasm/pigasus/palette"
 )
 
 var (
@@ -180,16 +181,32 @@ func buildPlainConfig() ansi.StyleConfig {
 	return cfg
 }
 
-func resolveColorSchemeColors(scheme string) (docColor, headColor, h1Bg string) {
-	switch strings.ToLower(strings.TrimSpace(scheme)) {
-	case "dark", "solarized dark", "colorblind-friendly dark":
-		return "#839496", "33", "24"
+func resolveColorSchemeColors(scheme string) (docColor, headColor, h1Bg string, isDark bool) {
+	norm := strings.ToLower(strings.TrimSpace(scheme))
+	switch norm {
+	case "dark", "colorblind-friendly dark":
+		sc := palette.Schemes[norm]
+		return sc.Fg.Value(), sc.Accent.Value(), "24", true
+	case "solarized dark":
+		sc := palette.Schemes[norm]
+		return sc.Fg.Value(), sc.Accent.Value(), "24", true
 	case "tokyo night":
-		return "#c8d3f5", "75", "60"
+		sc := palette.Schemes[norm]
+		return sc.Fg.Value(), sc.Accent.Value(), "60", true
 	case "terminal":
-		return "", "33", "24"
+		return "", "33", "24", true
+	case "light", "colorblind-friendly light":
+		sc := palette.Schemes[norm]
+		return sc.Fg.Value(), sc.Accent.Value(), "63", false
+	case "solarized light":
+		sc := palette.Schemes[norm]
+		return sc.Fg.Value(), sc.Accent.Value(), "63", false
 	default:
-		return "#073642", "27", "63"
+		if sc, ok := palette.Schemes[norm]; ok {
+			isDk := sc.Bg.IsSet() && (strings.Contains(norm, "dark") || norm == "tokyo night")
+			return sc.Fg.Value(), sc.Accent.Value(), "24", isDk
+		}
+		return "#073642", "27", "63", false
 	}
 }
 
@@ -197,7 +214,7 @@ func resolveColorSchemeColors(scheme string) (docColor, headColor, h1Bg string) 
 // byte from the AGY 1.4.2 `--conversation` PTY capture (cycle 271).
 func buildANSIConfig() ansi.StyleConfig {
 	scheme := CurrentColorScheme()
-	docColor, headColor, h1Bg := resolveColorSchemeColors(scheme)
+	docColor, headColor, h1Bg, isDark := resolveColorSchemeColors(scheme)
 
 	var docColorPtr *string
 	if docColor != "" {
@@ -234,7 +251,7 @@ func buildANSIConfig() ansi.StyleConfig {
 		},
 	}
 	applyANSIHeadings(&cfg, headColor, h1Bg)
-	applyANSITextAndCodeStyles(&cfg)
+	applyANSITextAndCodeStyles(&cfg, headColor, isDark)
 	return cfg
 }
 
@@ -262,23 +279,36 @@ func applyANSIHeadings(cfg *ansi.StyleConfig, headColor, h1Bg string) {
 	cfg.H6 = ansi.StyleBlock{StylePrimitive: ansi.StylePrimitive{Prefix: "###### ", Bold: boolPtr(false)}}
 }
 
-func applyANSITextAndCodeStyles(cfg *ansi.StyleConfig) {
+func applyANSITextAndCodeStyles(cfg *ansi.StyleConfig, accentColor string, isDark bool) {
 	cfg.Strikethrough = ansi.StylePrimitive{CrossedOut: boolPtr(true)}
 	cfg.Emph = ansi.StylePrimitive{Italic: boolPtr(true)}
 	cfg.Strong = ansi.StylePrimitive{Bold: boolPtr(true)}
+	linkColor := "36"
+	if accentColor != "" {
+		linkColor = accentColor
+	}
 	cfg.Link = ansi.StylePrimitive{
-		Color:     strPtr("36"),
+		Color:     strPtr(linkColor),
 		Underline: boolPtr(true),
 	}
 	cfg.LinkText = ansi.StylePrimitive{
 		Color: strPtr("29"),
 		Bold:  boolPtr(true),
 	}
-	cfg.Code = ansi.StyleBlock{
-		StylePrimitive: ansi.StylePrimitive{
-			Color:           strPtr("32"),
-			BackgroundColor: strPtr("254"),
-		},
+	if isDark {
+		cfg.Code = ansi.StyleBlock{
+			StylePrimitive: ansi.StylePrimitive{
+				Color:           strPtr("222"),
+				BackgroundColor: strPtr("237"),
+			},
+		}
+	} else {
+		cfg.Code = ansi.StyleBlock{
+			StylePrimitive: ansi.StylePrimitive{
+				Color:           strPtr("32"),
+				BackgroundColor: strPtr("254"),
+			},
+		}
 	}
 	cfg.CodeBlock = ansi.StyleCodeBlock{
 		StyleBlock: ansi.StyleBlock{

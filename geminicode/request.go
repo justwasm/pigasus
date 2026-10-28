@@ -173,8 +173,17 @@ func ToolsJSON(tools []TurnTool) []byte {
 // buildContents renders the conversation into the inner request's contents
 // and returns the system prompt separately — the reference carries the
 // system instruction as its own member, not as a leading content.
+//
+// 【一手】 agy 1.4.9: a tool call whose result never arrived, and a result
+// whose call is gone — "such as after older history was trimmed" — are
+// left out of the request. The reference's release notes name the failure
+// it fixes: "Fixed conversations getting stuck failing on every turn after
+// a tool result was left without its matching tool call …; unmatched tool
+// calls and results are now left out of the request." The API pairs the
+// two halves itself, so either half on its own fails the request.
 func buildContents(messages []TurnMessage, initialSystem string, signatures map[string]string) ([]Content, string) {
 	system := strings.TrimSpace(initialSystem)
+	paired := pairedToolCallIDs(messages)
 	var contents []Content
 	for _, m := range messages {
 		switch strings.ToLower(m.Role) {
@@ -190,10 +199,13 @@ func buildContents(messages []TurnMessage, initialSystem string, signatures map[
 				contents = append(contents, Content{Role: "user", Parts: parts})
 			}
 		case "assistant":
-			if part := buildAssistantContent(m, signatures); len(part.Parts) > 0 {
+			if part := buildAssistantContent(m, signatures, paired); len(part.Parts) > 0 {
 				contents = append(contents, part)
 			}
 		case "tool":
+			if !paired[m.ToolCallID] {
+				continue
+			}
 			contents = append(contents, Content{
 				Role: "model",
 				Parts: []Part{{
@@ -207,6 +219,51 @@ func buildContents(messages []TurnMessage, initialSystem string, signatures map[
 		}
 	}
 	return contents, system
+}
+
+// pairedToolCallIDs returns the ids of the tool calls that have both a
+// call and a result in this conversation.
+//
+// An id that appears on only one side is an orphan: a call the agent never
+// answered (or whose answer was trimmed away) and a result whose call is
+// gone. 【一手】 agy 1.4.9 — both are left out of the request.
+func pairedToolCallIDs(messages []TurnMessage) map[string]bool {
+	var calls, results []string
+	for _, m := range messages {
+		switch strings.ToLower(m.Role) {
+		case "assistant":
+			for _, tc := range m.ToolCalls {
+				calls = append(calls, tc.ID)
+			}
+		case "tool":
+			results = append(results, m.ToolCallID)
+		}
+	}
+	return PairedToolCallIDs(calls, results)
+}
+
+// PairedToolCallIDs returns the ids that appear in both lists — the tool
+// calls that have a result and the results that have a call.
+//
+// It is the one place the pairing rule lives: the CloudCode dialect
+// (geminicode) and the Gemini API-key dialect (internal/backend) both
+// drop the halves that do not match, and both call this.
+func PairedToolCallIDs(calls, results []string) map[string]bool {
+	called := make(map[string]bool, len(calls))
+	for _, id := range calls {
+		called[id] = true
+	}
+	answered := make(map[string]bool, len(results))
+	for _, id := range results {
+		answered[id] = true
+	}
+	paired := make(map[string]bool, len(called))
+	for id := range called {
+		if answered[id] {
+			paired[id] = true
+		}
+	}
+	return paired
 }
 
 // toolResponse picks the envelope a tool's answer travels in.
@@ -260,12 +317,18 @@ func buildUserParts(m TurnMessage) []Part {
 // part. The signature is keyed by call id, which survives the trip through
 // the caller's own message type, so the caller passes the map it collected
 // from the previous turn.
-func buildAssistantContent(m TurnMessage, signatures map[string]string) Content {
+//
+// A call with no result in the conversation is left out — 【一手】 agy
+// 1.4.9 — so the request never carries half a pair.
+func buildAssistantContent(m TurnMessage, signatures map[string]string, paired map[string]bool) Content {
 	parts := make([]Part, 0, len(m.ToolCalls)+1)
 	if m.Content != "" {
 		parts = append(parts, Part{Text: m.Content})
 	}
 	for _, tc := range m.ToolCalls {
+		if paired != nil && !paired[tc.ID] {
+			continue
+		}
 		parts = append(parts, callPart(tc, signatures))
 	}
 	return Content{Role: "model", Parts: parts}

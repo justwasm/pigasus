@@ -84,9 +84,11 @@ func MaybeConsumeStaleness() {
 // detail block's `Version:` value); the Installed rows leave it empty and read
 // their version from plugin.json instead.
 type Row struct {
-	Name    string
-	Desc    string
-	Version string
+	Name     string
+	Desc     string
+	Version  string
+	Category string
+	Keywords []string
 }
 
 // InstalledFallback is the stock Installed tab — the four plugins a
@@ -257,9 +259,11 @@ func Marketplaces() []Marketplace {
 		}
 		var doc struct {
 			Plugins []struct {
-				Name        string `json:"name"`
-				Description string `json:"description"`
-				Version     string `json:"version"`
+				Name        string   `json:"name"`
+				Description string   `json:"description"`
+				Version     string   `json:"version"`
+				Category    string   `json:"category"`
+				Keywords    []string `json:"keywords"`
 			} `json:"plugins"`
 		}
 		if json.Unmarshal(data, &doc) != nil {
@@ -270,7 +274,13 @@ func Marketplaces() []Marketplace {
 			if strings.TrimSpace(p.Name) == "" {
 				continue
 			}
-			items = append(items, Row{Name: p.Name, Desc: p.Description, Version: p.Version})
+			items = append(items, Row{
+				Name:     p.Name,
+				Desc:     p.Description,
+				Version:  p.Version,
+				Category: p.Category,
+				Keywords: p.Keywords,
+			})
 		}
 		if len(items) > 0 {
 			out = append(out, Marketplace{Name: e.Name, Items: items})

@@ -133,7 +133,14 @@ func (m *runMode) handleVimKey(key tea.Key) (tea.Cmd, bool) {
 
 	if res.Submit {
 		m.syncVimInput()
-		return m.submitPrompt(), true
+		cmd := m.submitPrompt()
+		// 【一手】 agy 1.4.9, the vendor's own release notes: "a
+		// half-typed operator such as `d` carrying over after you submit
+		// a prompt". The submit clears the composer, so the engine is
+		// re-seeded from it — with the half-typed operator intact.
+		m.vimEng.SetTextKeepingPending(m.input.Value())
+		m.syncVimInput()
+		return cmd, true
 	}
 	if !handled {
 		return nil, false

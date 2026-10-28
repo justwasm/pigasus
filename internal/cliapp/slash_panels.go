@@ -93,10 +93,12 @@ const (
 // normalisation). cBlueOpen / cDimGrayOpen / cWarningBlueOpen are the
 // repo's recovered true-colour constants and are reused rather than
 // duplicated.
-const (
-	panelGray238  = "\x1b[38;2;88;110;117m" // dim descriptions ("No MCP servers configured.")
+var (
+	panelGray238  = palette.SubtleOpen // dim descriptions ("No MCP servers configured.")
 	panelGray238C = "\x1b[39m"
+)
 
+const (
 	panelTitleOpen  = "\x1b[1m\x1b[39m" // panel title: bold + default fg
 	panelTitleClose = "\x1b[0m"
 
@@ -392,7 +394,13 @@ func (m *runMode) initOpenedSlashPanelCursor(kind panelKind) {
 		m.panel.cursor = m.currentEffort()
 	}
 	if kind == panelModel {
-		m.panel.effortCursor = effortCursorForLabel(m.panelCurrentModelLabel())
+		// The slider's position is an index into the cursor row's own
+		// tier list, so it is seeded from the row the cursor lands on:
+		// the running model's tier when the running model *is* that
+		// row, the row's own default otherwise.
+		if r, ok := m.currentModelRow(); ok {
+			m.panel.effortCursor = m.modelEffortCursor(r)
+		}
 	}
 	if kind == panelSkills {
 		m.panel.cursor = -1

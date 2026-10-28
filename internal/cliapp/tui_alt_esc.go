@@ -29,9 +29,7 @@ func (m *runMode) altDispatchAction(letter rune, action string) {
 func (m *runMode) handleEscKey() (tea.Cmd, bool) {
 	if m.helpMode {
 		m.helpMode = false
-		m.response = append(m.response,
-			cWarningBlueOpen+"  \u23bf  "+cWarningBlueClose+
-				cDimGrayOpen+"Exited /help command"+cDimGrayClose)
+		m.response = append(m.response, slashEchoLines("/help", "Exited /help command")...)
 		return nil, true
 	}
 	if m.picker.Visible() {

@@ -25,6 +25,8 @@
 package permissions
 
 import (
+	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 )
@@ -181,10 +183,92 @@ func (r Rule) matches(req Request) bool {
 	if r.Tool != "" && r.Tool != req.Tool {
 		return false
 	}
-	if r.Pattern == "" {
+	if r.Pattern == "" || r.Pattern == "*" {
 		return true
 	}
-	return strings.HasPrefix(req.Target, r.Pattern)
+	target := strings.ReplaceAll(req.Target, "\r\n", "\n")
+	pattern := strings.ReplaceAll(r.Pattern, "\r\n", "\n")
+
+	// 1. Explicit regex match opt-in ("regex:<pattern>")
+	if strings.HasPrefix(pattern, "regex:") {
+		re, err := regexp.Compile(pattern[6:])
+		if err == nil && re.MatchString(target) {
+			return true
+		}
+	}
+
+	// 2. Exact match (ignoring trailing whitespace/newlines)
+	if strings.TrimRight(target, " \t\r\n") == strings.TrimRight(pattern, " \t\r\n") {
+		return true
+	}
+
+	// 3. Prefix match
+	if strings.HasPrefix(target, pattern) {
+		return true
+	}
+
+	// 4. For multi-line commands or compound commands:
+	trimmedTarget := strings.TrimSpace(target)
+	trimmedPattern := strings.TrimSpace(pattern)
+	if strings.HasPrefix(trimmedTarget, trimmedPattern) {
+		return true
+	}
+
+	return false
+}
+
+// SuggestAllowAlwaysPattern derives an "Always allow" permission pattern from a command string.
+// - Normalizes line endings (\r\n -> \n) and trims surrounding whitespace.
+// - For multi-line commands and inline script runners (python -c, node -e, ruby -e, bash -c, sh -c, perl -e),
+//   preserves the exact script or command so approving one script does not grant arbitrary execution.
+// - For compound commands (e.g. chained with && or ;), preserves the exact compound chain.
+// - For script runners (npm run, yarn, pnpm, cargo run), pins the specific script/target name.
+// - For standard CLI commands, suggests the command or subcommand prefix.
+func SuggestAllowAlwaysPattern(cmd string) string {
+	cmd = strings.ReplaceAll(cmd, "\r\n", "\n")
+	cmd = strings.TrimSpace(cmd)
+	if cmd == "" {
+		return ""
+	}
+
+	// If the command is multi-line, preserve the entire multi-line command
+	if strings.Contains(cmd, "\n") {
+		return cmd
+	}
+
+	// Check for script runners with inline code: python -c, node -e, bash -c, sh -c, etc.
+	fields := strings.Fields(cmd)
+	if len(fields) >= 2 {
+		base := filepath.Base(fields[0])
+		switch base {
+		case "python", "python3", "node", "ruby", "perl", "bash", "sh", "zsh":
+			for _, arg := range fields[1:] {
+				if arg == "-c" || arg == "-e" {
+					// Inline script execution: pin exact command
+					return cmd
+				}
+			}
+		case "npm", "yarn", "pnpm":
+			// Pin the specific script name (e.g. npm run dev, yarn build)
+			if len(fields) >= 3 && fields[1] == "run" {
+				return fields[0] + " run " + fields[2]
+			}
+			if len(fields) >= 2 && base != "npm" { // yarn dev, pnpm build
+				return fields[0] + " " + fields[1]
+			}
+		case "cargo":
+			if len(fields) >= 3 && fields[1] == "run" {
+				return strings.Join(fields[:3], " ")
+			}
+		}
+	}
+
+	// If it contains compound operators (&&, ;, ||, |)
+	if strings.Contains(cmd, "&&") || strings.Contains(cmd, ";") || strings.Contains(cmd, "||") || strings.Contains(cmd, "|") {
+		return cmd
+	}
+
+	return cmd
 }
 
 // Policy is the local permission engine.

@@ -52,7 +52,7 @@ func (m *runMode) handleModelKey(key tea.Key, n int) (bool, tea.Cmd, bool) {
 	}
 	if key.Mod == 0 && key.Text != "" && key.Text != "\t" && key.Text != "\n" && key.Text != "\r" {
 		m.panel.modelQuery += key.Text
-		m.panel.cursor = 0
+		m.setModelCursor(0)
 		return true, nil, true
 	}
 	return false, nil, false
@@ -68,7 +68,7 @@ func (m *runMode) handleModelQueryKey(key tea.Key) (bool, tea.Cmd, bool) {
 		// ("esc Clear search"); an empty box closes the panel.
 		if m.panel.modelQuery != "" {
 			m.panel.modelQuery = ""
-			m.panel.cursor = 0
+			m.setModelCursor(0)
 			return true, nil, true
 		}
 		return true, m.closePanel(), true
@@ -79,7 +79,7 @@ func (m *runMode) handleModelQueryKey(key tea.Key) (bool, tea.Cmd, bool) {
 		if m.panel.modelQuery != "" {
 			r := []rune(m.panel.modelQuery)
 			m.panel.modelQuery = string(r[:len(r)-1])
-			m.panel.cursor = 0
+			m.setModelCursor(0)
 		}
 		return true, nil, true
 	}
@@ -92,14 +92,12 @@ func (m *runMode) handleModelNavKey(key tea.Key, n int) (bool, tea.Cmd, bool) {
 	switch key.Code {
 	case tea.KeyUp:
 		if m.panel.cursor > 0 {
-			m.panel.cursor--
-			m.panel.effortCursor = effortCursorForLabel(m.panelCurrentModelLabel())
+			m.setModelCursor(m.panel.cursor - 1)
 		}
 		return true, nil, true
 	case tea.KeyDown:
 		if m.panel.cursor < n-1 {
-			m.panel.cursor++
-			m.panel.effortCursor = effortCursorForLabel(m.panelCurrentModelLabel())
+			m.setModelCursor(m.panel.cursor + 1)
 		}
 		return true, nil, true
 	case tea.KeyLeft:
@@ -109,13 +107,11 @@ func (m *runMode) handleModelNavKey(key tea.Key, n int) (bool, tea.Cmd, bool) {
 		m.cycleModelEffort(+1)
 		return true, nil, true
 	case tea.KeyHome:
-		m.panel.cursor = 0
-		m.panel.effortCursor = effortCursorForLabel(m.panelCurrentModelLabel())
+		m.setModelCursor(0)
 		return true, nil, true
 	case tea.KeyEnd:
 		if n > 0 {
-			m.panel.cursor = n - 1
-			m.panel.effortCursor = effortCursorForLabel(m.panelCurrentModelLabel())
+			m.setModelCursor(n - 1)
 		}
 		return true, nil, true
 	}

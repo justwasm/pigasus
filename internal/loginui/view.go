@@ -54,31 +54,39 @@ func (m *Model) View() tea.View {
 // most the terminal width wide, so the renderer cannot clip it.
 func (m *Model) screenLines() []string {
 	w := m.contentWidth()
+	area := m.contentArea()
 
-	lines := make([]string, 0, 32)
-	lines = append(lines, "")
-	for _, l := range tuilib.RenderLogoLines() {
-		lines = append(lines, l)
-	}
-	lines = append(lines, "")
-
+	body := make([]string, 0, 32)
 	switch m.State {
 	case StateSelectMethod:
-		lines = append(lines, wrapProse(" Welcome to the \x1b[38;2;66;133;244mAntigravity CLI\x1b[m. You are currently not signed in.", w)...)
-		lines = append(lines, "")
-		lines = append(lines, m.selectMethodLines()...)
+		body = append(body, wrapProse(" Welcome to the \x1b[38;2;66;133;244mAntigravity CLI\x1b[m. You are currently not signed in.", w)...)
+		body = append(body, "")
+		body = append(body, m.selectMethodLines()...)
 	case StateOAuth:
-		lines = append(lines, m.oauthLines()...)
+		body = append(body, m.oauthLines()...)
 	case StateExchanging:
-		lines = append(lines, m.exchangingLines()...)
+		body = append(body, m.exchangingLines()...)
 	case StateCloudProject:
-		lines = append(lines, m.cloudProjectLines()...)
+		body = append(body, m.cloudProjectLines()...)
 	case StateSuccess:
-		lines = append(lines, "\x1b[32m Authentication successful!\x1b[m")
+		body = append(body, "\x1b[32m Authentication successful!\x1b[m")
 	case StateError:
-		lines = append(lines, m.errorLines()...)
+		body = append(body, m.errorLines()...)
 	}
 
+	logo := tuilib.RenderLogoLines()
+	bannerLines := len(logo) + 2
+	showBanner := m.Height <= 0 || len(body)+bannerLines <= area
+
+	lines := make([]string, 0, bannerLines+len(body))
+	if showBanner {
+		lines = append(lines, "")
+		for _, l := range logo {
+			lines = append(lines, l)
+		}
+		lines = append(lines, "")
+	}
+	lines = append(lines, body...)
 	return lines
 }
 

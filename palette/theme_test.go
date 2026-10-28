@@ -30,6 +30,7 @@ func TestSetSchemeRecomputesTheColours(t *testing.T) {
 		{"SeparatorOpen", palette.SeparatorOpen, dark.Border.Seq(false)},
 		{"SubtleOpen", palette.SubtleOpen, dark.MutedFg.Seq(false)},
 		{"UserFgOpen", palette.UserFgOpen, dark.UserFg.Seq(false)},
+		{"UserFgBoldOpen", palette.UserFgBoldOpen, palette.SeqWith(dark.UserFg, "1")},
 		{"AgentFgOpen", palette.AgentFgOpen, dark.AgentFg.Seq(false)},
 		{"TaskFgOpen", palette.TaskFgOpen, dark.TaskFg.Seq(false)},
 		{"ToolAddOpen", palette.ToolAddOpen, dark.AddFg.Seq(false)},

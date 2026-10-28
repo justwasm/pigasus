@@ -126,6 +126,17 @@ type State struct {
 	// for tests.
 	Pending string
 
+	// pendingCarried marks a Pending that was carried over from an
+	// earlier prompt rather than typed in this one.
+	//
+	// 【一手】 agy 1.4.9, the vendor's own release notes: "a half-typed
+	// operator such as `d` carrying over after you submit a prompt".
+	// A carried-over operator must not swallow the next key: when that
+	// key does not complete it, the operator is dropped and the key is
+	// read as a fresh command — otherwise "i" (the way into Insert
+	// mode) would be eaten by the stale "d".
+	pendingCarried bool
+
 	// register is the unnamed register filled by yanks/deletes and
 	// read by p/P. registerLinewise records whether it holds whole
 	// lines (yy/dd), which changes how p/P splice it back.
@@ -183,9 +194,37 @@ func (s *State) SetInsertFirst(v bool) {
 // it when something outside the engine (history recall, a /-command
 // substitution, the external editor) changes the prompt text.
 func (s *State) SetText(text string) {
+	s.setText(text, false)
+}
+
+// SetTextKeepingPending replaces the buffer but keeps a half-typed
+// operator — the "d" of a "dw" the user was in the middle of typing.
+//
+// 【一手】 agy 1.4.9, the vendor's own release notes: "a half-typed
+// operator such as `d` carrying over after you submit a prompt". The
+// reference's editor survives the submit with its pending sequence
+// intact, so the operator is still waiting for its motion when the
+// next prompt is edited.
+func (s *State) SetTextKeepingPending(text string) {
+	s.setText(text, true)
+}
+
+// setText replaces the buffer. keepPending decides whether a half-typed
+// operator survives the replacement; only the submit path keeps it.
+func (s *State) setText(text string, keepPending bool) {
 	s.Lines = strings.Split(text, "\n")
-	s.Pending = ""
+	if !keepPending {
+		s.clearPending()
+	} else if s.Pending != "" {
+		s.pendingCarried = true
+	}
 	s.clampCursor()
+}
+
+// clearPending drops the half-typed Normal/Visual key sequence.
+func (s *State) clearPending() {
+	s.Pending = ""
+	s.pendingCarried = false
 }
 
 // Text returns the buffer as one string with "\n" line separators.

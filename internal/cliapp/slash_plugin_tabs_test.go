@@ -4027,3 +4027,64 @@ func TestPSIF_SpaceInTypingStillAppends(t *testing.T) {
 		t.Errorf("after commit: %d rows, want 1", got)
 	}
 }
+
+// TestDiscoverSectionsGrouping verifies that when marketplace items span multiple
+// categories/sections, the Discover tab renders bold section headers separating them,
+// cursor navigation indexes all selectable items across sections, and search mode
+// drops the section headers and shows flat filtered results.
+func TestDiscoverSectionsGrouping(t *testing.T) {
+	root := cycle204Root(t)
+	seedMarketplace204(t, root, "mkt", "", []marketplaceEntry204{
+		{"sql-master", "BigQuery and SQL analytics tool.", "1.0.0"},
+		{"cloud-runner", "Deploy containers to Kubernetes cloud.", "1.0.0"},
+		{"calendar-sync", "Sync Google Calendar schedule and tasks.", "1.0.0"},
+		{"code-lint", "Linter and developer tooling.", "1.0.0"},
+	})
+
+	m := mkPanel(panelPlugin, "/plugin", 0)
+	m.panel.pluginTab = panelDiscover
+
+	lines := plainLines(m)
+	joined := strings.Join(lines, "\n")
+
+	// Verify all 4 section headers are present
+	for _, sec := range []string{"Developer Tools", "Productivity", "DevOps", "Data & Analytics"} {
+		if !strings.Contains(joined, sec) {
+			t.Errorf("missing expected section header %q in Discover view:\n%s", sec, joined)
+		}
+	}
+
+	// Verify cursor starts on "+ Install from local directory..." (row 0)
+	if m.panel.cursor != 0 {
+		t.Fatalf("initial cursor = %d, want 0", m.panel.cursor)
+	}
+
+	// A plugin appears in every section it belongs to:
+	// sql-master belongs to both "Data & Analytics" and "Developer Tools".
+	// Total rows = 1 (local install) + 6 (section occurrences) = 7.
+	if cnt := m.pluginRowCount(); cnt != 7 {
+		t.Errorf("pluginRowCount = %d, want 7", cnt)
+	}
+
+	// Pressing Down navigates to the first item (in Developer Tools)
+	m.handlePanelKey(tea.Key{Code: tea.KeyDown})
+	if m.panel.cursor != 1 {
+		t.Fatalf("after Down: cursor = %d, want 1", m.panel.cursor)
+	}
+
+	// Navigate to the bottom
+	for i := 0; i < 10; i++ {
+		m.handlePanelKey(tea.Key{Code: tea.KeyDown})
+	}
+	if m.panel.cursor != 6 {
+		t.Fatalf("after repeated Down: cursor = %d, want 6", m.panel.cursor)
+	}
+
+	// Enter search mode: section headers should be omitted
+	m.handlePanelKey(tea.Key{Code: tea.KeySpace})
+	m.handlePanelKey(tea.Key{Code: 's', Text: "s"})
+	searchLines := strings.Join(plainLines(m), "\n")
+	if strings.Contains(searchLines, "Developer Tools") || strings.Contains(searchLines, "Data & Analytics") {
+		t.Errorf("search results should not include section headers:\n%s", searchLines)
+	}
+}

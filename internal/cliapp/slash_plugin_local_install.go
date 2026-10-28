@@ -225,17 +225,31 @@ func installLocalPlugin(src string) error {
 }
 
 type pluginRow struct {
-	name    string
-	desc    string
-	version string
+	name     string
+	desc     string
+	version  string
+	category string
+	keywords []string
 }
 
 func fromPluginRow(r plugins.Row) pluginRow {
-	return pluginRow{name: r.Name, desc: r.Desc, version: r.Version}
+	return pluginRow{
+		name:     r.Name,
+		desc:     r.Desc,
+		version:  r.Version,
+		category: r.Category,
+		keywords: r.Keywords,
+	}
 }
 
 func toPluginRow(r pluginRow) plugins.Row {
-	return plugins.Row{Name: r.name, Desc: r.desc, Version: r.version}
+	return plugins.Row{
+		Name:     r.name,
+		Desc:     r.desc,
+		Version:  r.version,
+		Category: r.category,
+		Keywords: r.keywords,
+	}
 }
 
 func toPluginRows(rows []pluginRow) []plugins.Row {

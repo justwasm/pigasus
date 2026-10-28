@@ -57,3 +57,16 @@ func TestLineIsBlankANSI(t *testing.T) {
 		t.Error("expected text to not be blank")
 	}
 }
+
+func TestRenderMarkdown_ColorSchemeDark(t *testing.T) {
+	orig := mdrender.CurrentColorScheme()
+	defer mdrender.SetColorScheme(orig)
+
+	mdrender.SetColorScheme("dark")
+	out := mdrender.RenderMarkdown("Hello world", 80)
+	// #e8eaed in 24-bit truecolour escape is \x1b[38;2;232;234;237m
+	wantFg := "\x1b[38;2;232;234;237m"
+	if !strings.Contains(out, wantFg) {
+		t.Errorf("expected dark scheme output to contain %q, got: %q", wantFg, out)
+	}
+}

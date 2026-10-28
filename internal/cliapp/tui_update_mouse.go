@@ -181,8 +181,11 @@ func (m *runMode) updateMouseAndMiscMsg(msg tea.Msg) (tea.Model, tea.Cmd, bool) 
 		mod, cmd := m.handleVoiceTick()
 		return mod, cmd, true
 	case tea.PasteMsg:
-		cmd := m.insertPastedText(msg.Content)
+		cmd := m.handlePasteContent(msg.Content)
 		return m, cmd, true
+	case pasteMediaMsg:
+		mod, cmd := m.updatePasteMedia(msg)
+		return mod, cmd, true
 	}
 	return m, nil, false
 }

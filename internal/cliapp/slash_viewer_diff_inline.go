@@ -1,12 +1,14 @@
 package cliapp
 
 import (
+	"fmt"
 	"strconv"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/justwasm/pigasus/internal/diffaction"
+	"github.com/justwasm/pigasus/palette"
 )
 
 // /diff — cycle 226 follow-up: Per Turn rows, inline-diff subview
@@ -74,13 +76,28 @@ func (m *runMode) diffPerTurnLines() []string {
 	}
 	first := diffFirstChangedPath(tracked, untracked)
 	all := append(append([]diffChange{}, tracked...), untracked...)
+
+	vis := diffVisibleRowsFor(m.height)
+	start := 0
+	end := turns
+	indicator := ""
+	if vis > 0 && turns > vis {
+		m.diffAdjustWindow(m.panel.cursor, vis, turns)
+		start = m.panel.window
+		end = start + vis
+		if end > turns {
+			end = turns
+		}
+		indicator = fmt.Sprintf("  [%d-%d of %d rows]", start+1, end, turns)
+	}
+
 	lines := []string{
 		diffTabRow("git", 1, true),
 		" " + panelGray238 + "  " + strconv.Itoa(turns) + " turn(s) · " +
-			strconv.Itoa(len(all)) + " file(s) changed" + panelGray238C,
+			strconv.Itoa(len(all)) + " file(s) changed" + palette.DimGrayOpen + indicator + palette.DimGrayClose + panelGray238C,
 		"",
 	}
-	for i := 0; i < turns; i++ {
+	for i := start; i < end; i++ {
 		file := first
 		if len(all) > 1 {
 			file = all[i%len(all)].Path
@@ -288,17 +305,41 @@ func (m *runMode) diffCommitTreeLines() []string {
 			commits = append(commits, [2]string{fields[0], fields[1]})
 		}
 	}
+
+	vis := diffVisibleRowsFor(m.height)
+	start := 0
+	end := len(commits)
+	indicator := ""
+	if vis > 0 && len(commits) > vis {
+		commitCursor := m.panel.cursor - 1
+		if commitCursor < 0 {
+			commitCursor = 0
+		}
+		m.diffAdjustWindow(commitCursor, vis, len(commits))
+		start = m.panel.window
+		end = start + vis
+		if end > len(commits) {
+			end = len(commits)
+		}
+		indicator = fmt.Sprintf("  [%d-%d of %d commits]", start+1, end, len(commits))
+	}
+
 	lines := []string{
 		diffTabRow("git", 2, true),
-		" " + panelGray238 + "  " + strconv.Itoa(len(commits)) + " commit(s) available" + panelGray238C,
+		" " + panelGray238 + "  " + strconv.Itoa(len(commits)) + " commit(s) available" + palette.DimGrayOpen + indicator + palette.DimGrayClose + panelGray238C,
 		"",
 		" \x1b[38;5;69m\x1b[48;5;255m▌\x1b[39m \x1b[1m*\x1b[0m\x1b[48;5;255m  \x1b[1m\x1b[38;5;172mWorking Copy (Uncommitted Changes)\x1b[0m\x1b[48;5;255m",
 	}
-	for i, c := range commits {
+	for i := start; i < end; i++ {
+		c := commits[i]
 		if i == 0 {
 			lines = append(lines, "\x1b[49m   |")
 		}
-		lines = append(lines, "   * "+cBlueOpen+c[0]+cBlueClose+" "+panelGray238+c[1]+panelGray238C)
+		marker := "   * "
+		if i+1 == m.panel.cursor {
+			marker = " " + cBlueOpen + "> *" + cBlueClose + " "
+		}
+		lines = append(lines, marker+cBlueOpen+c[0]+cBlueClose+" "+panelGray238+c[1]+panelGray238C)
 	}
 	lines = append(lines, "",
 		"   "+panelDotHint("", "↑/↓", "navigate", "enter", "view diff", "←/→", "switch view", "esc", "dismiss"))

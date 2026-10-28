@@ -1,10 +1,12 @@
 package onboarding
 
 import (
+	"bytes"
 	"fmt"
 	"io"
 	"strings"
 
+	"github.com/justwasm/pigasus/internal/textwrap"
 	"github.com/justwasm/pigasus/palette"
 )
 
@@ -234,34 +236,90 @@ func renderSchemeList(w io.Writer, selected ColorScheme) error {
 
 // renderColorScheme writes Step 1 of the wizard to w.
 func renderColorScheme(w io.Writer, selected ColorScheme) error {
-	if _, err := fmt.Fprintln(w, stepNameColorScheme); err != nil {
-		return err
+	return renderColorSchemeWithDims(w, selected, 0, 0, 0)
+}
+
+func renderColorSchemeLines(selected ColorScheme, width int) []string {
+	var lines []string
+	lines = append(lines, stepNameColorScheme, "")
+	for _, scheme := range AllSchemes() {
+		marker := " "
+		if int(scheme) == int(selected) {
+			marker = "▸"
+		}
+		lines = append(lines, fmt.Sprintf("  %s  %s", marker, scheme.String()))
+	}
+
+	// In very narrow terminals (< 60 cols), the color preview is hidden.
+	if width > 0 && width < 60 {
+		return lines
+	}
+
+	lines = append(lines, "")
+	rule := "─── Preview ──────────────────────────────────────────────────────────────"
+	if width >= 60 && width < 80 {
+		chunks := textwrap.Break(rule, width)
+		if len(chunks) > 0 {
+			rule = chunks[0]
+		}
+	}
+	lines = append(lines, rule)
+
+	var buf bytes.Buffer
+	_ = renderGoPreview(&buf, selected)
+	_ = renderMarkersFooter(&buf)
+	previewStr := strings.TrimRight(buf.String(), "\n")
+	for _, l := range strings.Split(previewStr, "\n") {
+		if width >= 60 && width < 80 {
+			lines = append(lines, textwrap.Words(l, width)...)
+		} else {
+			lines = append(lines, l)
+		}
+	}
+	return lines
+}
+
+func renderColorSchemeWithDims(w io.Writer, selected ColorScheme, width, height, scroll int) error {
+	lines := renderColorSchemeLines(selected, width)
+	footer := "                              [ Next ]"
+	if width > 0 && len(footer) > width {
+		btn := "[ Next ]"
+		if len(btn) <= width {
+			pad := (width - len(btn)) / 2
+			footer = strings.Repeat(" ", pad) + btn
+		} else {
+			footer = btn
+		}
+	}
+	if height > 0 {
+		area := height - 3
+		if area < 1 {
+			area = 1
+		}
+		if len(lines) > area {
+			start := scroll
+			if start > len(lines)-area {
+				start = len(lines) - area
+			}
+			if start < 0 {
+				start = 0
+			}
+			end := start + area
+			if end > len(lines) {
+				end = len(lines)
+			}
+			lines = lines[start:end]
+		}
+	}
+	for _, l := range lines {
+		if _, err := fmt.Fprintln(w, l); err != nil {
+			return err
+		}
 	}
 	if _, err := fmt.Fprintln(w); err != nil {
 		return err
 	}
-	if err := renderSchemeList(w, selected); err != nil {
-		return err
-	}
-	if _, err := fmt.Fprintln(w); err != nil {
-		return err
-	}
-	if _, err := fmt.Fprintln(w, "─── Preview ──────────────────────────────────────────────────────────────"); err != nil {
-		return err
-	}
-	if err := renderGoPreview(w, selected); err != nil {
-		return err
-	}
-	if _, err := fmt.Fprintln(w); err != nil {
-		return err
-	}
-	if err := renderMarkersFooter(w); err != nil {
-		return err
-	}
-	if _, err := fmt.Fprintln(w); err != nil {
-		return err
-	}
-	_, err := fmt.Fprintln(w, "                              [ Next ]")
+	_, err := fmt.Fprintln(w, footer)
 	return err
 }
 

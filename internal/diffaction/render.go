@@ -2,6 +2,7 @@
 package diffaction
 
 import (
+	"fmt"
 	"strconv"
 	"strings"
 
@@ -93,6 +94,46 @@ func AllChangesLines(tracked, untracked []Change, cursor int, emptyHint, navHint
 	}
 	for i, c := range untracked {
 		lines = append(lines, AllChangesRow(c, cursor == len(tracked)+i))
+	}
+	lines = append(lines, "", "  "+navHint)
+	return lines
+}
+
+// AllChangesLinesWindowed renders the All Changes tab's file list with windowing
+// and the reference position indicator "  [%d-%d of %d files]".
+func AllChangesLinesWindowed(tracked, untracked []Change, cursor, window, visible int, emptyHint, navHint string) []string {
+	total := len(tracked) + len(untracked)
+	if total == 0 || visible <= 0 || total <= visible {
+		return AllChangesLines(tracked, untracked, cursor, emptyHint, navHint)
+	}
+	if cursor < 0 || cursor >= total {
+		cursor = 0
+	}
+	start := window
+	if start < 0 {
+		start = 0
+	}
+	if start > total-visible {
+		start = total - visible
+	}
+	end := start + visible
+	if end > total {
+		end = total
+	}
+
+	all := make([]Change, 0, total)
+	all = append(all, tracked...)
+	all = append(all, untracked...)
+
+	indicator := fmt.Sprintf("  [%d-%d of %d files]", start+1, end, total)
+	lines := []string{
+		TabRow("git", 0, false, Views),
+		palette.SubtleOpen + "  " + strconv.Itoa(total) + " file(s) changed" +
+			palette.DimGrayOpen + indicator + palette.DimGrayClose + "\x1b[39m",
+		"",
+	}
+	for i := start; i < end; i++ {
+		lines = append(lines, AllChangesRow(all[i], cursor == i))
 	}
 	lines = append(lines, "", "  "+navHint)
 	return lines

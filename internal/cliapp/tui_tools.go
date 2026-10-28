@@ -192,6 +192,14 @@ type turnBlock struct {
 	bash *bashBlock
 }
 
+// assistantBlock records where a completed assistant markdown reply lives inside
+// m.response so a live colour scheme change can re-render it in place.
+type assistantBlock struct {
+	start int
+	lines int
+	raw   string
+}
+
 // liveStepRun records where a single in-flight step was painted in
 // m.response. Until turnDoneMsg lands, a running turn's steps live only as
 // rows in the transcript (they are not a turnBlock yet), so ctrl+o needs its

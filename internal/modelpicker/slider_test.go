@@ -99,6 +99,137 @@ func TestRebuildEffortSliderAnnotation(t *testing.T) {
 	}
 }
 
+// TestEffortSliderBarMatchesTheReference pins the reference's own
+// three-tier bar, byte for byte.
+//
+// The strings are the live capture of the reference's /effort panel
+// (agy 1.4.x): three 15-cell groups, the active one replaced by a
+// single ◉, and only the segment up to and including the active marker
+// coloured.
+func TestEffortSliderBarMatchesTheReference(t *testing.T) {
+	colours := [3]string{PanelEffLowOpen, PanelEffMedOpen, PanelEffHighOpen}
+	cases := []struct {
+		level int
+		want  string
+	}{
+		{0, "  ◂        ◉──────────────○──────────────○        ▸"},
+		{1, "  ◂        ●━━━━━━━━━━━━━━◉──────────────○        ▸"},
+		{2, "  ◂        ●━━━━━━━━━━━━━━●━━━━━━━━━━━━━━◉        ▸"},
+	}
+	for _, c := range cases {
+		got := stripSGR(EffortSliderBar(c.level, colours))
+		if got != c.want {
+			t.Errorf("level %d: bar = %q, want %q", c.level, got, c.want)
+		}
+	}
+}
+
+// TestEffortSliderLabelsMatchTheReference pins the reference's own three
+// tier labels, byte for byte: each centred inside its own 15-cell group.
+func TestEffortSliderLabelsMatchTheReference(t *testing.T) {
+	colours := [3]string{PanelEffLowOpen, PanelEffMedOpen, PanelEffHighOpen}
+	want := "          low          medium          high      "
+	for level := 0; level < 3; level++ {
+		got := stripSGR(EffortSliderLabels(level, colours))
+		if got != want {
+			t.Errorf("level %d: labels = %q, want %q", level, got, want)
+		}
+	}
+}
+
+// TestEffortFieldWidthIsFixed pins the field the slider draws into: 45
+// cells, whatever the tier count. The reference's own bar measures 45,
+// and a longer bar packs more tiers into the same field.
+func TestEffortFieldWidthIsFixed(t *testing.T) {
+	for _, n := range []int{3, 5} {
+		tiers := make([]string, n)
+		for i := range tiers {
+			tiers[i] = "t"
+		}
+		bar := stripSGR(EffortSliderBarN(0, n, EffortColours(n)))
+		// The bar is "  ◂ " + field + " ▸".
+		if got := len([]rune(bar)); got != 4+EffortFieldWidth+2 {
+			t.Errorf("n=%d: the bar is %d cells, want %d", n, got, 4+EffortFieldWidth+2)
+		}
+		labels := stripSGR(EffortSliderLabelsN(0, tiers, EffortColours(n)))
+		// The labels are "    " + the groups.
+		if got := len([]rune(labels)); got != 4+n*EffortGroupWidth(n) {
+			t.Errorf("n=%d: the labels are %d cells, want %d", n, got, 4+n*EffortGroupWidth(n))
+		}
+	}
+}
+
+// TestEffortBarSegmentsNPlacesEveryMarker pins the marker's positions in
+// a longer bar: the first marker sits one half-group from the left edge
+// and the rest are one group apart.
+func TestEffortBarSegmentsNPlacesEveryMarker(t *testing.T) {
+	tiers := []string{"low", "medium", "high", "xhigh", "max"}
+	for level := range tiers {
+		on, off := EffortBarSegmentsN(level, len(tiers))
+		lit := on + off
+		markers := []int{}
+		for i, r := range []rune(lit) {
+			switch r {
+			case '◉', '○', '●':
+				markers = append(markers, i)
+			}
+		}
+		if len(markers) != len(tiers) {
+			t.Fatalf("level %d: %d markers, want %d", level, len(markers), len(tiers))
+		}
+		w := EffortGroupWidth(len(tiers))
+		pad := (w - 1) / 2
+		for i, pos := range markers {
+			if want := pad + i*w; pos != want {
+				t.Errorf("level %d: marker %d at %d, want %d", level, i, pos, want)
+			}
+		}
+		// The lit run stops at the active marker.
+		if !strings.HasSuffix(on, "◉") {
+			t.Errorf("level %d: the lit run does not end at the active marker: %q", level, on)
+		}
+	}
+}
+
+// TestEffortDescription pins the blurb of every tier the clone knows:
+// the reference's own three, byte for byte, and the clone's own two for
+// the tiers the reference never names.
+func TestEffortDescription(t *testing.T) {
+	for tier, want := range map[string]string{
+		"low":    EffortDescriptions[0],
+		"medium": EffortDescriptions[1],
+		"high":   EffortDescriptions[2],
+		"xhigh":  "Near-maximum reasoning for very hard problems — slower, barely stronger",
+		"max":    "Maximum reasoning depth — slowest, strongest results",
+	} {
+		if got := EffortDescription(tier); got != want {
+			t.Errorf("EffortDescription(%q) = %q, want %q", tier, got, want)
+		}
+	}
+	// An unknown tier falls back to the balanced blurb.
+	if got := EffortDescription("nonsense"); got != EffortDescriptions[EffortMedium] {
+		t.Errorf("EffortDescription(nonsense) = %q, want the balanced blurb", got)
+	}
+}
+
+// stripSGR removes the SGR escape sequences from a rendered line.
+func stripSGR(s string) string {
+	var b strings.Builder
+	for i := 0; i < len(s); {
+		if s[i] == 0x1b {
+			j := i + 1
+			for j < len(s) && s[j] != 'm' {
+				j++
+			}
+			i = j + 1
+			continue
+		}
+		b.WriteByte(s[i])
+		i++
+	}
+	return b.String()
+}
+
 func TestRenderModelPickerRowCursor(t *testing.T) {
 	row := Row{Display: "Gemini 3.8 Flash", Slug: "gemini-3.8-flash"}
 	cursorLine := RenderModelPickerRow(row, 0, 0, false)

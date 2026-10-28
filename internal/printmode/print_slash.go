@@ -469,17 +469,24 @@ const printSlashPluginRejection = "error: /plugin failed: /plugin opens the inte
 // printSlashChangelog is the markdown blob `agy -p /changelog` prints.
 //
 // It is NOT the same rendering as the `changelog` subcommand (`agy changelog`
-// prints a compact "1.4.7:\n· Added …" bullet list, embedded in
+// prints a compact "1.4.8:\n· Added …" bullet list, embedded in
 // internal/cli/testdata). `/changelog` in print mode prints the markdown form
-// — 176,788 bytes, captured byte-for-byte from the 1.4.8 binary (cycle 200
+// — 180,070 bytes, captured byte-for-byte from the 1.4.9 binary (cycle 200
 // refreshed it from the 1.3.6 capture, which was 150,390 bytes and stopped at
 // the 1.3.5 section; cycle 351 refreshed it again from the 1.4.0 capture,
 // which was 153,612 bytes and stopped at the 1.3.6 section).
 //
-// The reference carries the blob inside its own binary — 176,787 bytes at
-// offset 63,610,524 of ~/.local/bin/agy 1.4.8 — and prints it with one
-// trailing newline, hence the 176,788. 【一手】 agy 1.4.8, three runs on
-// 2026-10-28 returned the same sha256.
+// The reference carries the blob inside its own binary — 180,070 bytes at
+// file offset 63,893,369 of ~/.local/bin/agy 1.4.9, trailing newline
+// included — and prints it verbatim. 【一手】 agy 1.4.9, three runs on
+// 2026-10-28 returned the same sha256
+// 0b911c6fb5187c9286ac2a318a432c8ae1bfdd3f9820edc720a4f13c5ed38d56,
+// which is also the sha256 of the 180,070 bytes read out of the binary
+// at that offset.
+//
+// The blob's newest section is 1.4.8 — the binary ships its own release
+// notes one release behind, so the 1.4.9 notes live in the public
+// repository only (see internal/cli/testdata/changelog_upstream_1.4.9.md).
 //
 //go:embed testdata/print_changelog.md
 var PrintSlashChangelog string

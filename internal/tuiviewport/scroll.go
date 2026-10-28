@@ -14,19 +14,46 @@ const PinnedPromptJumpHint = "  ↳ jump to prompt"
 
 // IsUserPromptRow reports whether row is a row that begins a user prompt.
 func IsUserPromptRow(row string) bool {
-	if !strings.HasPrefix(row, palette.WarningBlueOpen) {
-		return false
-	}
-	rest := row[len(palette.WarningBlueOpen):]
-	// Strip any leading ANSI that may precede the literal ">".
-	for len(rest) >= 2 && rest[0] == '\x1b' {
-		end := strings.IndexByte(rest, 'm')
-		if end < 0 {
-			return false
+	if strings.HasPrefix(row, palette.UserFgBoldOpen) {
+		rest := row[len(palette.UserFgBoldOpen):]
+		for len(rest) >= 2 && rest[0] == '\x1b' {
+			end := strings.IndexByte(rest, 'm')
+			if end < 0 {
+				return false
+			}
+			rest = rest[end+1:]
 		}
-		rest = rest[end+1:]
+		return strings.HasPrefix(rest, "> ")
 	}
-	return strings.HasPrefix(rest, "> ")
+	if strings.HasPrefix(row, palette.WarningBlueOpen) {
+		rest := row[len(palette.WarningBlueOpen):]
+		// Strip any leading ANSI that may precede the literal ">".
+		for len(rest) >= 2 && rest[0] == '\x1b' {
+			end := strings.IndexByte(rest, 'm')
+			if end < 0 {
+				return false
+			}
+			rest = rest[end+1:]
+		}
+		return strings.HasPrefix(rest, "> ")
+	}
+	for _, sc := range palette.Schemes {
+		open := palette.SeqWith(sc.UserFg, "1")
+		if open != "" && strings.HasPrefix(row, open) {
+			rest := row[len(open):]
+			for len(rest) >= 2 && rest[0] == '\x1b' {
+				end := strings.IndexByte(rest, 'm')
+				if end < 0 {
+					return false
+				}
+				rest = rest[end+1:]
+			}
+			if strings.HasPrefix(rest, "> ") {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // StickyUserPromptRow returns the index (in the full rows array) of the

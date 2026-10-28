@@ -71,13 +71,21 @@ func TestCloudCode_ToolCallEnvelope(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			envelope := geminicode.BuildRequest(geminicode.Turn{
-				Messages: []geminicode.TurnMessage{{
-					Role:       tc.message.Role,
-					Content:    tc.message.Content,
-					ToolCallID: tc.message.ToolCallID,
-					Name:       tc.message.Name,
-					IsError:    tc.message.IsError,
-				}},
+				Messages: []geminicode.TurnMessage{
+					{
+						Role: "assistant",
+						ToolCalls: []geminicode.TurnToolCall{{
+							ID: "call_1", Name: "read_file", Arguments: []byte(`{"path":"x"}`),
+						}},
+					},
+					{
+						Role:       tc.message.Role,
+						Content:    tc.message.Content,
+						ToolCallID: tc.message.ToolCallID,
+						Name:       tc.message.Name,
+						IsError:    tc.message.IsError,
+					},
+				},
 			})
 			contents := envelope.Request.Contents
 			body := toolResponseEnvelope(t, contents)

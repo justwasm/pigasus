@@ -43,6 +43,110 @@ Report: `docs/cycles/model-picker-search/`.
 ---
 
 
+## The `/model` effort slider (cycle 362)
+
+The picker's **effort slider** is the second half of the panel: while the
+cursor sits on a row that offers more than one reasoning tier, the panel
+draws a horizontal bar under the rows, and `←`/`→` move the marker.
+
+The reference's own picker has exactly **one** such row — Gemini 3.8 Flash,
+whose three tiers are `low`, `medium`, `high`. Every other reference row
+is a fixed model, and the whole slider block (and the `←/→ Effort` legend
+entry) disappears on it.
+
+### One row per model, not one row per tier
+
+A model the user configured declares its own tiers in
+`providers.json`:
+
+```json
+{"id": "minimax-m3.1-flash", "name": "MiniMax M3.1 Flash",
+ "reasoning_efforts": ["low", "medium", "high", "xhigh", "max"],
+ "reasoning_effort": "medium"}
+```
+
+The clone lists it as **one row**, with the tiers on the slider — the
+reference's own shape. So:
+
+- `modelpicker.Row` carries `Tiers []string` and `DefaultTier string`.
+  `Rows` (the reference's own rows) gives Gemini its three tiers and
+  `DefaultTier: "high"`; the other reference rows carry none.
+- `modelpicker.ConfiguredRows()` returns **one row per model**, not one
+  per tier. It reads `cli.ConfiguredModelEntries()`, the tier-aware view
+  of the catalogue.
+- `cli.ModelCatalogue()` still lists **one entry per tier** — that is the
+  shape the id↔label lookup needs (`CatalogueEntry("minimax-m3.1-flash-xhigh")`
+  → `MiniMax M3.1 Flash (Xhigh)`). The two views answer different
+  questions, and both are kept.
+- `Row.CatalogueID(cursor)` spells the tier into the id:
+  `minimax-m3.1-flash` + `xhigh` → `minimax-m3.1-flash-xhigh`. A row with
+  no tiers keeps its fixed id.
+
+### The geometry
+
+The field between the two arrows is **45 cells wide, whatever the tier
+count** — measured on the reference's own capture, and a longer bar packs
+more tiers into the same field. The tiers divide it into equal groups:
+
+```
+w   = 45 / N, rounded down to the nearest odd number   (group width)
+pad = (w - 1) / 2                                        (margin per side)
+marker i sits at column pad + i*w                        (inside the field)
+```
+
+For the reference's three tiers: `w = 15`, `pad = 7` — the markers sit at
+columns 7, 22 and 37 of the field, and the reference's own bar and label
+row are reproduced byte for byte (`internal/modelpicker/slider_test.go`).
+For five tiers: `w = 9`, `pad = 4`.
+
+The label row centres each tier word inside its own group, so the labels
+follow the markers. The three-tier result is the reference's own:
+
+```
+  ◂        ◉──────────────○──────────────○        ▸
+          low          medium          high      
+```
+
+### The colours
+
+The first tier is green (`PanelEffLowOpen`), the last is red-orange
+(`PanelEffHighOpen`) and everything between is orange
+(`PanelEffMedOpen`). With the reference's three tiers that is exactly the
+reference's own palette; with more tiers the middle colour repeats.
+
+### The cursor is row-relative
+
+`m.panel.effortCursor` is an index **into the cursor row's own tier
+list** — a five-tier row and a three-tier row never share a number. The
+helpers that keep that true:
+
+| helper | what it does |
+|---|---|
+| `m.currentModelRow()` | the row the cursor is on |
+| `m.modelEffortCursor(row)` | the slider index a row shows: the running model's own tier when the running model *is* that row, the row's default otherwise |
+| `m.setModelCursor(idx)` | moves the cursor and re-seeds the slider for the row it lands on |
+
+Every cursor move in `tui_keymap_model.go` goes through `setModelCursor`.
+A row **without** a slider leaves the position alone — the slider is not
+on screen there, and the reference keeps the position so that coming back
+to the row restores it.
+
+### Clone-side text
+
+The reference's slider has three places, so it says neither `xhigh` nor
+`max`. The blurbs for those two tiers are the **clone's own** words
+(`modelpicker.EffortDescription`), written in the reference's shape (a
+speed clause and a strength clause joined by an em dash):
+
+- `xhigh` — *Near-maximum reasoning for very hard problems — slower, barely stronger*
+- `max` — *Maximum reasoning depth — slowest, strongest results*
+
+The three tiers the reference does publish carry the reference's own text,
+byte for byte.
+
+---
+
+
 ## The `/model <name>` completion popup (cycle `model-argument-completion`)
 
 The **argument** of `/model` completes in the composer. This is a *second
@@ -139,6 +243,126 @@ file were fixtures). `internal/cliapp/main_test.go` now points
 `$ANTIGRAVITY_HOME` at a scratch tree for the whole package.
 
 Report: `docs/cycles/cycle-295-history-recall-popup/`.
+
+---
+
+## The paste key and the image attachments (cycle 362)
+
+`ctrl+v` and the terminal's own bracketed paste land in **one** place —
+`internal/cliapp/tui_paste_media.go`'s `handlePasteContent` — and that place
+decides what the paste *means*:
+
+| the paste delivered | the clone does |
+|---|---|
+| a path to an image file | **attaches the image**; the path is *not* inserted into the composer |
+| any other text | inserts it as text (unchanged) |
+| nothing | **probes the platform clipboard** — the "Cmd+V with only an image copied" case |
+
+A terminal cannot hand a file to a program, so a dragged image arrives as
+its **path**; that is the whole of "dragging image files into the prompt,
+which attaches them instead of inserting their paths".
+
+The attachment waits in `runMode.pendingMedia`, is shown above the composer
+(`[Attached: <name>]`), and rides the **next** user turn as
+`backend.Message.Images` — the shape the transports already carry
+(CloudCode's `inlineData`, the gateway's and Anthropic's content parts,
+PiG's `ImageContent`). The conversation store keeps the trajectory steps,
+so the attachment lives in memory only.
+
+### The three routes into one place
+
+| the route | the user does | what arrives |
+|---|---|---|
+| the paste key | `ctrl+v` | a key event |
+| the terminal's own paste | `Cmd+V` / `Ctrl+Shift+V` | the terminal's **bracketed paste** — an image-only clipboard delivers *nothing*, so the paste is empty |
+| a dragged file | drags an image into the prompt | the file's **path**, as text |
+
+The second route is why the empty paste has to probe the clipboard: the
+terminal has no way to hand over image bytes, so "only an image copied"
+reaches the program as an empty paste. The third route is why a paste that
+*is* text still has to be checked against the file system.
+
+The reference has the same two *code* routes and no more — reverse
+engineering the 1.4.9 binary shows `model.PromptModel.handlePasteMedia`
+(the explicit paste) and `model.PromptModel.handleImplicitPasteMedia` (the
+empty paste's probe, whose closure carries the reference's own log line
+`Implicit clipboard media probe: result=%v err=%v`). The clone's single
+`handlePasteContent` covers both.
+
+### The transport leg — where the picture must survive
+
+The attachment is **not** delivered by the TUI. It travels as data, and the
+chain has three links:
+
+```
+runMode.pendingMedia
+   └─ appendUserTurn ──────────► backend.Message.Images
+                                    └─ internal/agent/pig_messages.go
+                                         └─ pi.UserContentBlocks
+                                              └─ the transport
+```
+
+`internal/agent/pig_messages.go`'s `userContent` is the **only** place where
+`backend.Message.Images` becomes PiG content, and it is where the chain used
+to break: a user turn built as `pi.UserText` silently loses every picture,
+so the model answered the text and never saw the image. The rule now:
+
+- a turn with **no** picture stays the union's plain-text arm — every byte
+  the clone sent before it learned to attach images goes out unchanged;
+- a turn that **carries** pictures becomes a block list: the text first,
+  then one `pi.ImageContent` per picture, the payload base64-encoded
+  because PiG's image block holds it as a string;
+- a picture with **no bytes** is dropped rather than sent as an empty one —
+  the model would answer a broken image with a guess.
+
+The transports read the image blocks and nothing else
+(`piagentbridge.userImages` for CloudCode / Gemini / Anthropic,
+`piagentbridge.userContentParts` for the gateway's OpenAI-shaped array), so
+this one function is the whole leg.
+
+The **`--print`** path carries no picture: the headless mode builds its turn
+with `pigrt.Runtime.RunWith` (a plain prompt string), not `RunWithContent`.
+An attachment is an interactive-path feature.
+
+The read half is `internal/clipboard`'s platform readers, and every
+sentence they can show is the reference's own:
+
+| when | the composer says |
+|---|---|
+| the clipboard holds no image | `No image or video found in the clipboard` |
+| the clipboard helper is not installed | names the tool and its package (`wl-paste` / `wl-clipboard`) |
+| the session is over SSH with no display | `Can't read your clipboard over SSH: connect with ssh -X (and install xclip on this host) to paste images` |
+
+The macOS reader runs the reference's **two AppleScript sources verbatim** —
+the file-URL one and the image one — and tries the class codes in the
+reference's own order (`PNGf`, `JPEG`, `GIFf`, `TIFF`), converting what the
+imagery pipeline cannot decode with `sips`. The Linux reader picks
+`wl-paste` on Wayland and `xclip` on X11.
+
+Three traps:
+
+- **A paste never submits.** It attaches or inserts; the empty-paste probe
+  must not touch the composer buffer.
+- **A panel owns its own paste.** The `/rename` field pastes into its own
+  input; the composer's paste path must not reach it.
+- **An attachment must reach the transport.** Attaching is not delivering:
+  a picture that is dropped on the way into PiG's transcript is invisible to
+  the model, and the turn looks like it succeeded.
+
+### The known gaps
+
+- **No `alt+v`.** The reference has it — but as the **1.0.15** bullet
+  ("an alternative paste shortcut on Windows to resolve issues where ctrl+v
+  is intercepted by the terminal emulator"), not a 1.4.9 feature — and it
+  collides with the Vim engine's `alt` chords, so the clone leaves it out.
+- **One path per paste.** The reference splits **several** paths out of one
+  paste (`model.splitPastedPaths`) and reads each of them; the clone's
+  `clipboard.MediaFromPath` recognises one.
+- **No `cli_clipboard_paste` action name, and no iTerm2 upload.** The
+  reference registers an action name for the paste key and can ask iTerm2 to
+  upload the picture itself (`model.isITerm2` → `model.startITermUpload`).
+
+Report: `docs/cycles/cycle-362-agy-1.4.9-alignment/`.
 
 ---
 

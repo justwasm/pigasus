@@ -43,3 +43,30 @@ func TestAllChangesLines(t *testing.T) {
 		t.Errorf("AllChangesLines empty mismatch: %v", lines)
 	}
 }
+
+func TestAllChangesLinesWindowed(t *testing.T) {
+	var tracked []Change
+	for i := 1; i <= 20; i++ {
+		tracked = append(tracked, Change{Path: strings.Repeat("f", i) + ".go", Added: i})
+	}
+	// Total 20 files, visible 5, window 0
+	lines := AllChangesLinesWindowed(tracked, nil, 2, 0, 5, "empty", "nav")
+	joined := strings.Join(lines, "\n")
+	if !strings.Contains(joined, "[1-5 of 20 files]") {
+		t.Errorf("expected position indicator [1-5 of 20 files], got:\n%s", joined)
+	}
+
+	// Scrolled: window 5, visible 5
+	linesScrolled := AllChangesLinesWindowed(tracked, nil, 7, 5, 5, "empty", "nav")
+	joinedScrolled := strings.Join(linesScrolled, "\n")
+	if !strings.Contains(joinedScrolled, "[6-10 of 20 files]") {
+		t.Errorf("expected position indicator [6-10 of 20 files], got:\n%s", joinedScrolled)
+	}
+
+	// When all fit: no indicator
+	linesFit := AllChangesLinesWindowed(tracked, nil, 0, 0, 50, "empty", "nav")
+	joinedFit := strings.Join(linesFit, "\n")
+	if strings.Contains(joinedFit, "files]") {
+		t.Errorf("expected no indicator when all fit, got:\n%s", joinedFit)
+	}
+}

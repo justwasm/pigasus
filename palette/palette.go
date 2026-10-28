@@ -33,9 +33,10 @@ var (
 
 	// The user's and the agent's own colours — the two glyph roles the
 	// transcript and the panels paint.
-	UserFgOpen  = "\x1b[38;2;38;139;210m"
-	AgentFgOpen = "\x1b[38;2;133;153;0m"
-	TaskFgOpen  = "\x1b[38;2;211;54;130m"
+	UserFgOpen     = "\x1b[38;2;38;139;210m"
+	UserFgBoldOpen = "\x1b[38;2;38;139;210;1m"
+	AgentFgOpen    = "\x1b[38;2;133;153;0m"
+	TaskFgOpen     = "\x1b[38;2;211;54;130m"
 
 	// Tool step palette
 	ToolAddOpen           = "\x1b[38;2;133;153;0m" // Solarized green #859900
@@ -154,6 +155,7 @@ func applyScheme(sc SchemeColors) {
 
 	// The user's and the agent's own colours
 	UserFgOpen = sc.UserFg.Seq(false)
+	UserFgBoldOpen = seqWith(sc.UserFg, false, "1")
 	AgentFgOpen = sc.AgentFg.Seq(false)
 	TaskFgOpen = sc.TaskFg.Seq(false)
 

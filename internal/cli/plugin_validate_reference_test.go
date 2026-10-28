@@ -162,7 +162,8 @@ func TestPluginValidate_ManifestFindings(t *testing.T) {
 	out, _, _ := runValidateRef(t, root)
 	for _, want := range []string{
 		`⚠ plugin.json: unknown field "bogus" is ignored`,
-		`⚠ plugin.json: name "bad name" has characters other than letters, digits, - and _, so ` + "`plugin install` refuses it",
+		`⚠ plugin.json: name "bad name" isn't strict kebab-case (lowercase letters, digits and single hyphens), so ` + "`plugin install` refuses it and it can't be published to the Antigravity Marketplace; try \"bad-name\"",
+		`· plugin.json: no logo: the plugin shows a generic icon. Add "logo": "assets/logo.svg" (a .png, .svg, .jpg, .jpeg or .webp file inside the plugin)`,
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("missing %q in:\n%s", want, out)

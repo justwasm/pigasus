@@ -202,6 +202,13 @@ func (m *runMode) renderBodyPrompt(b *strings.Builder) int {
 	rowsAbovePrompt := viewRows(b.String())
 	m.promptBodyStart = rowsAbovePrompt
 
+	// The attachments of the next turn (agy 1.4.9's image pasting) sit
+	// above the composer, so the user can see what will be sent.
+	for _, row := range m.mediaRows() {
+		b.WriteString(row + "\n")
+		rowsAbovePrompt++
+	}
+
 	inputView := m.formatInputView()
 	b.WriteString(inputView)
 

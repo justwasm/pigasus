@@ -137,13 +137,24 @@ func pluginInstalledFilter(rows []pluginRow, query string) []pluginRow {
 }
 
 // pluginDiscoverRows is the Discover row list for the current query: every
-// marketplace entry when the box is unfocused, the filtered set when it has
-// focus.
+// marketplace entry (grouped into sections when unfocused) when the box is
+// unfocused, the filtered set when it has focus.
 func (m *runMode) pluginDiscoverRows(mkts []pluginMarketplace) []pluginRow {
 	if m.panel.pluginSearch {
 		return pluginDiscoverFilter(mkts, m.panel.pluginQuery)
 	}
-	return marketplaceItems(mkts)
+	items := marketplaceItems(mkts)
+	sections := pluginsui.GroupDiscoverSections(toPluginRows(items))
+	if len(sections) <= 1 {
+		return items
+	}
+	var out []pluginRow
+	for _, sec := range sections {
+		for _, it := range sec.Items {
+			out = append(out, fromPluginRow(it))
+		}
+	}
+	return out
 }
 
 // pluginDiscoverCount is the cursor bound of the Discover tab. The unfocused

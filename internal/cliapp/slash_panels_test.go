@@ -1053,18 +1053,18 @@ func TestPanelChangelogLayout(t *testing.T) {
 	// tagline, so the window opens at 18 rows rather than the cycle-201 17.
 	//
 	// The embedded changelog_reference.txt is a verbatim `agy changelog`
-	// capture. Re-captured against the 1.4.8 binary on 2026-10-27, the
-	// feed's newest section is 1.4.7 — the 1.4.8 release notes are in the
+	// capture. Re-captured against the 1.4.9 binary on 2026-10-28, the
+	// feed's newest section is 1.4.8 — the 1.4.9 release notes are in the
 	// public repository but the served feed does not carry them yet — so
-	// the panel opens on 1.4.7.
+	// the panel opens on 1.4.8.
 	joined := strings.Join(plain, "\n")
-	if !strings.Contains(joined, "## 1.4.7") {
-		t.Errorf("missing 1.4.7 heading: %s", joined)
+	if !strings.Contains(joined, "## 1.4.8") {
+		t.Errorf("missing 1.4.8 heading: %s", joined)
 	}
 	if !strings.Contains(joined, fmt.Sprintf("(1–18 of %d lines)", tuiviewer.ChangelogTotalLines)) {
 		t.Errorf("missing line counter: %s", joined)
 	}
-	if !strings.Contains(joined, "Added lastUserInput to the JSON that hook commands receive on stdin") {
+	if !strings.Contains(joined, "Added [ and ] to the Per Turn tab in /diff to jump to the first file") {
 		t.Errorf("missing opening bullet: %s", joined)
 	}
 	last := stripSGR(plain[len(plain)-1])
@@ -1213,8 +1213,8 @@ func TestPanelChangelogViewerScrolls(t *testing.T) {
 	if m.panel.window != 0 {
 		t.Errorf("ctrl+home window = %d, want 0", m.panel.window)
 	}
-	if !strings.Contains(panelText(m), "## 1.4.7") {
-		t.Errorf("first screen should still open on 1.4.7:\n%s", panelText(m)[:200])
+	if !strings.Contains(panelText(m), "## 1.4.8") {
+		t.Errorf("first screen should still open on 1.4.8:\n%s", panelText(m)[:200])
 	}
 }
 
@@ -4941,11 +4941,11 @@ func TestChangelogSource_LoaderFindsReference(t *testing.T) {
 	if len(src) < 940 {
 		t.Errorf("source line count = %d, want ≥ 940", len(src))
 	}
-	// The feed's newest section is 1.4.7: re-captured against the 1.4.8
-	// binary on 2026-10-27, the served feed carries the 1.4.7 release
-	// notes but not the 1.4.8 ones.
-	if src[0] != "1.4.7:" {
-		t.Errorf("first source line = %q, want %q", src[0], "1.4.7:")
+	// The feed's newest section is 1.4.8: re-captured against the 1.4.9
+	// binary on 2026-10-28, the served feed carries the 1.4.8 release
+	// notes but not the 1.4.9 ones.
+	if src[0] != "1.4.8:" {
+		t.Errorf("first source line = %q, want %q", src[0], "1.4.8:")
 	}
 	if !strings.Contains(strings.Join(src, "\n"), "1.4.1:") {
 		t.Error("source missing the 1.4.1 header (binary capture block)")
@@ -4961,11 +4961,11 @@ func TestChangelogPagination_RendersDoc(t *testing.T) {
 	}
 	m := mkPanel(panelChangelog, "/changelog", 0)
 	text := panelText(m)
-	if !strings.Contains(text, "Added lastUserInput to the JSON that hook commands receive on stdin") {
+	if !strings.Contains(text, "Added [ and ] to the Per Turn tab in /diff to jump to the first file") {
 		t.Errorf("viewer missing the opening bullet:\n%s", truncForErr(text, 400))
 	}
-	if !strings.Contains(text, "## 1.4.7") {
-		t.Errorf("viewer missing the ## 1.4.7 header row:\n%s", truncForErr(text, 400))
+	if !strings.Contains(text, "## 1.4.8") {
+		t.Errorf("viewer missing the ## 1.4.8 header row:\n%s", truncForErr(text, 400))
 	}
 	if !strings.Contains(strings.Join(m.changelogViewerLines(), "\n"), "## 1.4.3") {
 		t.Error("document missing the ## 1.4.3 header row")
@@ -5048,8 +5048,8 @@ func TestChangelogPagination_CtrlHome(t *testing.T) {
 		t.Fatalf("ctrl+home window = %d, want 0", m.panel.window)
 	}
 	text := panelText(m)
-	if !strings.Contains(text, "## 1.4.7") {
-		t.Errorf("first screen should open on 1.4.7:\n%s", truncForErr(text, 400))
+	if !strings.Contains(text, "## 1.4.8") {
+		t.Errorf("first screen should open on 1.4.8:\n%s", truncForErr(text, 400))
 	}
 	if !strings.Contains(strings.Join(m.changelogViewerLines(), "\n"), "## 1.4.3") {
 		t.Error("document missing the ## 1.4.3 header row")

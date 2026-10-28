@@ -71,15 +71,30 @@ func (m *Model) handleScrollMouse(msg tea.MouseMsg) {
 }
 
 // handleScrollKey handles the viewport keys. The reference scrolls the
-// login screen with shift+up / shift+down.
+// login screen with shift+up / shift+down or PgUp / PgDn.
 func (m *Model) handleScrollKey(msg tea.KeyPressMsg) bool {
+	step := m.contentArea()
+	if step < 1 {
+		step = 1
+	}
 	switch msg.String() {
 	case "shift+up":
 		m.Scroll--
 	case "shift+down":
 		m.Scroll++
+	case "pgup", "pageup":
+		m.Scroll -= step
+	case "pgdown", "pagedown":
+		m.Scroll += step
 	default:
-		return false
+		switch msg.Code {
+		case tea.KeyPgUp:
+			m.Scroll -= step
+		case tea.KeyPgDown:
+			m.Scroll += step
+		default:
+			return false
+		}
 	}
 	if m.Scroll < 0 {
 		m.Scroll = 0

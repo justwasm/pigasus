@@ -3,7 +3,7 @@
 > ⚠️ 本仓库是 **reverse-engineering 研究工作台**, 分两部分: `out/` + `rea-go-seeds/`
 > 是研究证据 (报告 / seed / 反编译产物, 不是程序), `cmd/` + `internal/` 是基于这些
 > 证据从零重写的 **Antigravity CLI 克隆** (可 build 可跑). 来源二进制为 Google 内部
-> 闭源 Antigravity CLI (`agy`), 当前对齐版本 **1.4.8**. 所有产出的 Go 代码均来自
+> 闭源 Antigravity CLI (`agy`), 当前对齐版本 **1.4.9**. 所有产出的 Go 代码均来自
 > pclntab 名称恢复 + Ghidra C 反编译 + 人工整理, 仅作结构分析使用, 不复制任何
 > Google 拥有源代码.
 
@@ -20,7 +20,7 @@
    102 份分包报告. 全部证据在 `out/`.
 2. **能跑的克隆** —— `cmd/` + `internal/` 是 Antigravity CLI 的逐字节对齐重建:
    12 个可见子命令、参考的系统提示词 (1.4.6 抓包 70,853 B, 1.4.7 复核静态段逐字节相同)、参考的工具面、TUI 的逐屏对齐.
-   当前对齐 **agy 1.4.8**, 版本漂移由 `internal/referencedrift` 的 gate 盯着.
+   当前对齐 **agy 1.4.9**, 版本漂移由 `internal/referencedrift` 的 gate 盯着.
 3. **仪器** —— 内置的 CloudCode 代理能把官方 `agy` 拉起来并抓它的真实请求/响应
    (`pigasus agy`), 官方二进制**不被 patch**. 这是逆向提示词与工具调用格式的手段.
 

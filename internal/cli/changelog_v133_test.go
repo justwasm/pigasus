@@ -147,7 +147,7 @@ func TestChangelogReference_NewestBulletIsUpstream(t *testing.T) {
 		t.Fatalf("read %s: %v", path, err)
 	}
 	text := string(data)
-	const want = "1.4.7:\n\u00b7 Added `lastUserInput` to the JSON that hook commands receive on stdin"
+	const want = "1.4.8:\n\u00b7 Added `[` and `]` to the `Per Turn` tab in `/diff` to jump to the first file of the previous or next turn"
 	if !strings.HasPrefix(text, want) {
 		t.Errorf("newest section is not the upstream capture:\n  want prefix: %q\n  file head: %.200q\u2026", want, text)
 	}

@@ -5985,12 +5985,16 @@ func TestPasteMsgDoesNotSubmit(t *testing.T) {
 	}
 }
 
-func TestPasteMsgEmptyIsNoOp(t *testing.T) {
+// TestPasteMsgEmptyProbesTheClipboard covers agy 1.4.9's image pasting:
+// a paste that delivered nothing is the "Cmd+V with only an image
+// copied" case, so the composer asks the platform clipboard for an
+// image. The buffer itself is left alone.
+func TestPasteMsgEmptyProbesTheClipboard(t *testing.T) {
 	m := NewRunMode(&fakeClient{}, "u@t", "m", "t", "/tmp", true)
 	m.input.SetValue("keep")
 
-	if _, cmd := m.Update(tea.PasteMsg{Content: ""}); cmd != nil {
-		t.Fatalf("empty paste returned a cmd")
+	if _, cmd := m.Update(tea.PasteMsg{Content: ""}); cmd == nil {
+		t.Fatalf("empty paste returned no cmd; it must probe the clipboard")
 	}
 	if got := m.input.Value(); got != "keep" {
 		t.Fatalf("empty paste changed the buffer: %q", got)

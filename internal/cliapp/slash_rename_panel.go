@@ -258,8 +258,10 @@ func (m *runMode) handleAddDirKey(key tea.Key) (bool, tea.Cmd) {
 }
 
 // userPromptRow renders the user's own message in the transcript.
+// 【反编译】 agy 1.4.8 render.UserPromptText styles the prompt row with
+// Scheme.UserFg + bold.
 func userPromptRow(text string) string {
-	return cWarningBlueOpen + "> " + text + cWarningBlueClose
+	return cUserFgBoldOpen + "> " + text + cBlueBoldClose
 }
 
 // renderLineHighlighted renders a single transcript line, optionally

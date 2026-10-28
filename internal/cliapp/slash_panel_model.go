@@ -6,6 +6,7 @@ import (
 	"github.com/justwasm/pigasus/internal/auth"
 	"github.com/justwasm/pigasus/internal/cli"
 	"github.com/justwasm/pigasus/internal/modelpicker"
+	"github.com/justwasm/pigasus/internal/models"
 )
 
 // panelEffortLines renders the /effort panel. The slider geometry was
@@ -35,6 +36,13 @@ func effortSliderLabels(level int, colours [3]string) string {
 
 func rebuildEffortSlider(level, curEff int, annotate bool) []string {
 	return modelpicker.RebuildEffortSlider(level, curEff, annotate)
+}
+
+// rebuildEffortSliderTiers renders the slider for a row that offers its
+// own tiers — the /model embed's slider, whose width follows the row's
+// tier count.
+func rebuildEffortSliderTiers(level, curEff int, tiers []string, annotate bool) []string {
+	return modelpicker.RebuildEffortSliderN(level, curEff, tiers, annotate)
 }
 
 // modelRowType is one picker row REF renders between the Search field
@@ -130,10 +138,66 @@ func (m *runMode) panelModelLines() []string {
 	}
 	currentSlug := resolveCatalogueID(m.panelCurrentModelLabel())
 	for i, r := range rows {
-		isCurrent := r.Slug != "" && r.CatalogueID(m.panel.effortCursor) == currentSlug
+		isCurrent := r.Slug != "" && r.CatalogueID(m.modelEffortCursor(r)) == currentSlug
 		lines = append(lines, renderModelPickerRow(r, i, cursor, isCurrent))
 	}
 	return m.panelModelFooter(lines)
+}
+
+// currentModelRow returns the picker row the cursor is on.
+func (m *runMode) currentModelRow() (modelRowType, bool) {
+	rows := m.modelRows()
+	idx := m.panel.cursor
+	if idx < 0 || idx >= len(rows) {
+		return modelRowType{}, false
+	}
+	return rows[idx], true
+}
+
+// modelEffortCursor returns the slider index a row shows.
+//
+// The running model's own tier wins when it belongs to the row: the
+// reference's slider parks on the tier the session runs at. A row that
+// is not the running model parks on its own default — the reference's
+// default is high.
+//
+// The index is into *that row's* tier list, so a row with five tiers and
+// a row with three never share a number.
+func (m *runMode) modelEffortCursor(r modelRowType) int {
+	if len(r.Tiers) <= 1 {
+		return 0
+	}
+	current := m.panelCurrentModelLabel()
+	curSlug := resolveCatalogueID(current)
+	if curSlug != "" && models.BaseModelID(curSlug) == models.BaseModelID(r.Slug) {
+		if i := r.TierIndex(models.TierFromLabel(current)); i >= 0 {
+			return i
+		}
+	}
+	if i := r.TierIndex(r.DefaultTier); i >= 0 {
+		return i
+	}
+	return len(r.Tiers) - 1
+}
+
+// setModelCursor moves the /model picker's cursor and re-seeds the
+// effort slider for the row it lands on.
+//
+// The re-seed matters because the slider's position is an index into the
+// row's tier list: the cursor leaving the three-tier Gemini row for a
+// configured model's five tiers has to move the slider too, or the
+// marker would sit on the wrong tier.
+//
+// A row without a slider leaves the position alone — the slider is not
+// on screen there, and the reference keeps the position so that coming
+// back to the row restores it.
+func (m *runMode) setModelCursor(idx int) {
+	m.panel.cursor = idx
+	r, ok := m.currentModelRow()
+	if !ok || !r.HasEffortSlider() {
+		return
+	}
+	m.panel.effortCursor = m.modelEffortCursor(r)
 }
 
 // panelModelHeader renders the picker's title and search box.
@@ -177,17 +241,21 @@ func (m *runMode) panelModelFooter(lines []string) []string {
 		back = "Clear search"
 	}
 	// Cycle 208: the slider (and its legend entry) only exist while the
-	// cursor is on the three-tier Gemini row.
-	if !m.modelRowHasEffortSlider() {
+	// cursor is on a row that offers more than one effort. The
+	// reference's own picker has exactly one such row (the three-tier
+	// Gemini); a configured model that declares tiers gets the same
+	// slider, widened to fit its own tier count.
+	row, ok := m.currentModelRow()
+	if !ok || !row.HasEffortSlider() {
 		return append(lines, "",
 			panelKeyboardHint("↑/↓", "Navigate",
 				"enter", "Select", "esc", back))
 	}
 	level := m.panel.effortCursor
-	if level < 0 || level > 2 {
-		level = 1
+	if level < 0 || level > len(row.Tiers)-1 {
+		level = m.modelEffortCursor(row)
 	}
-	eff := rebuildEffortSlider(level, effortLow, false)
+	eff := rebuildEffortSliderTiers(level, effortLow, row.Tiers, false)
 	return append(lines, "",
 		"  Effort  "+eff[2][2:],
 		"        "+eff[3],
@@ -256,26 +324,24 @@ func (m *runMode) syncBackendForModel() {
 // picks up the new tier on the next render, and the picker slider
 // redraws because panelModelLines reads m.panel.effortCursor live.
 //
-// Only the three-tier Gemini row is multi-effort; the other rows are
-// fixed and ←/→ remain inert on them — calling catalogueID(c) on a
-// non-Gemini row would still yield the row's fixed slug, but we never
-// want to overwrite the user's pinned model just because their cursor
-// wandered onto Claude Sonnet and they pressed an arrow.
+// Only a row that offers more than one effort is multi-effort; the
+// other rows are fixed and ←/→ remain inert on them — calling
+// catalogueID(c) on a fixed row would still yield the row's fixed slug,
+// but we never want to overwrite the user's pinned model just because
+// their cursor wandered onto Claude Sonnet and they pressed an arrow.
+//
+// The wrap is over the row's *own* tiers: the reference's Gemini row has
+// three (low ⇆ high), a configured model may have five.
 func (m *runMode) cycleModelEffort(dir int) {
-	idx := m.panel.cursor
-	rows := m.modelRows()
-	if idx < 0 || idx >= len(rows) {
+	row, ok := m.currentModelRow()
+	if !ok || !row.HasEffortSlider() {
 		return
 	}
-	row := rows[idx]
-	if row.Slug != "gemini-3.8-flash" {
-		return
-	}
-	// 3-tier wrap: low → medium → high → low → … in either direction.
+	// Wrap: the lowest tier ⇆ the highest one in either direction.
 	c := m.panel.effortCursor + dir
 	if c < 0 {
-		c = 2
-	} else if c > 2 {
+		c = len(row.Tiers) - 1
+	} else if c > len(row.Tiers)-1 {
 		c = 0
 	}
 	m.panel.effortCursor = c
@@ -285,11 +351,12 @@ func (m *runMode) cycleModelEffort(dir int) {
 		m.model = entry.Label
 		m.statusModel = stripTier(entry.Label)
 	} else {
-		// Defensive: the Gemini-low/medium/high IDs are always in the
-		// catalogue (cli.ReferenceModels pins all three), so this
-		// branch is unreachable in practice. Falling back to the slug
-		// mirrors selectModelEffort's custom-name fallback so we don't
-		// leak a half-applied state.
+		// Defensive: the tier ids are always in the catalogue
+		// (cli.ReferenceModels pins Gemini's three, and the configured
+		// models' own tier rows are listed there too), so this branch
+		// is unreachable in practice. Falling back to the slug mirrors
+		// selectModelEffort's custom-name fallback so we don't leak a
+		// half-applied state.
 		m.model = slug
 		m.statusModel = stripTier(slug)
 	}
