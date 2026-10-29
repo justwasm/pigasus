@@ -16,6 +16,10 @@
 // carries it (`vZ` in internal/rcfrontend/assets/main.js).
 package remotecontrol
 
+import (
+	"github.com/justwasm/pigasus/imagery"
+)
+
 // MessageImage is one picture a user attached to a message.
 //
 // The mime type is the one the frontend read off the file, and the
@@ -33,6 +37,17 @@ type MessageImage struct {
 // A media that carries no bytes is not a picture the turn can send —
 // the frontend uploads it first and the bytes ride along — so it is
 // dropped rather than sent as an empty image.
+//
+// 【一手】 agy 1.4.10, the vendor's own release notes: "images are now
+// capped at 2000 pixels per side and large PNGs are sent as JPEGs when
+// that is much smaller, and an image saved as JPEG but labeled PNG,
+// such as a pasted image or browser screenshot, is no longer rejected
+// for a mismatched type."
+//
+// So the media type follows the **bytes**, not the name the frontend
+// read off the file: a JPEG the browser labelled "image/png" goes out
+// as "image/jpeg", and a picture over the pixel cap (or a large PNG)
+// goes out through the imagery pipeline.
 func messageImagesFromMedia(media []lsMediaItem) []MessageImage {
 	var images []MessageImage
 	for _, item := range media {
@@ -40,7 +55,12 @@ func messageImagesFromMedia(media []lsMediaItem) []MessageImage {
 		if !ok {
 			continue
 		}
-		images = append(images, MessageImage{MIMEType: item.MIMEType, Data: data})
+		mimeType := item.MIMEType
+		if out, format, _, err := imagery.Prepare(data); err == nil && format != imagery.FormatUnknown {
+			data = out
+			mimeType = format.MIMEType()
+		}
+		images = append(images, MessageImage{MIMEType: mimeType, Data: data})
 	}
 	return images
 }

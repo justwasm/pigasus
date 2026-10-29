@@ -129,3 +129,37 @@ cascade_config.checkpoint_config.max_token_limit (%d))`, and hence the
 clone's gap: it has no cascade layer (no config proto, no planner/executor
 split, no steps, no trajectory). The `CheckpointConfig` field list and the
 evidence grades are in the report's §0.1 and §2.3.
+
+## What the after-compaction size counts (cycle 363, agy 1.4.10)
+
+【一手】 agy 1.4.10: "Improved the after-compaction size shown in the
+compaction marker and in `/context` to also count what the summary carries
+into the next prompt, such as your earlier requests and artifact, subagent,
+and running-task snapshots, so it is closer to the real size; the `(N
+summary)` label still shows the summary alone."
+
+The clone's resume block is now **split in two**, and the split is what
+lets the stats row count the carried half separately from the summary:
+
+| piece | builder | what it is |
+|---|---|---|
+| the carried block | `compaction.CarriedBlock(requests)` | the header + the `# User Requests` list |
+| the resume block | `compaction.ResumingBlock(requests, summary)` | the carried block's bytes **+** the summary |
+
+`ResumingBlock`'s **bytes are unchanged** — the split is a refactor, not a
+reformat, so the prompt the model sees after a compaction is byte-for-byte
+what it was before. `compaction.ComputeCompactTokens(..., carriedTokens)`
+adds the carried size to the *after* figure only; the summary figure — the
+one the `(N summary)` label shows — stays the summary alone.
+
+The call site is `internal/cliapp/slash_compact.go`:
+`applyGenericCompactSuccess` computes
+`carriedTokens = compaction.EstimateTokens(compaction.CarriedBlock(requests))`
+from the *same* request list it puts into the resume block, so the figure
+and the block cannot drift apart.
+
+The clone carries one kind of content (the earlier requests); the reference
+names four (requests, artifact, subagent and running-task snapshots) — the
+other three are the reference's own checkpoint sections.
+
+Report: `docs/cycles/cycle-363-agy-1.4.10-alignment/deliverable.md` §3.

@@ -47,7 +47,7 @@ func TestCreateSubagentSessionCarriesTheInvocationTools(t *testing.T) {
 	}
 	ctx := context.Background()
 	rt, session, err := createSubagentSession(ctx, deps, deps.Model, "you are a test", deps.CWD,
-		[]piagent.AgentTool{&stubTool{name: "browser_click_element"}})
+		[]piagent.AgentTool{&stubTool{name: "browser_click_element"}}, nil)
 	if err != nil {
 		t.Fatalf("createSubagentSession: %v", err)
 	}
@@ -77,7 +77,7 @@ func TestCreateSubagentSessionWithoutToolsHasNone(t *testing.T) {
 		CWD:      t.TempDir(),
 	}
 	ctx := context.Background()
-	rt, session, err := createSubagentSession(ctx, deps, deps.Model, "you are a test", deps.CWD, nil)
+	rt, session, err := createSubagentSession(ctx, deps, deps.Model, "you are a test", deps.CWD, nil, nil)
 	if err != nil {
 		t.Fatalf("createSubagentSession: %v", err)
 	}

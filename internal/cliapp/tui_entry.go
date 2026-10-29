@@ -20,6 +20,7 @@ import (
 	"github.com/justwasm/pigasus/internal/cliflags"
 	"github.com/justwasm/pigasus/internal/convstore"
 	"github.com/justwasm/pigasus/internal/loginui"
+	"github.com/justwasm/pigasus/internal/memtrim"
 	"github.com/justwasm/pigasus/internal/modelcatalog"
 	"github.com/justwasm/pigasus/internal/permissions"
 	"github.com/justwasm/pigasus/internal/pluginwatch"
@@ -265,6 +266,16 @@ func runLiveTUI(w io.Writer, fs *flag.FlagSet) error {
 		altScreen,
 	)
 	m.prog = prog
+	// 【一手】 agy 1.4.10: "the CLI now returns about 100 MB of memory
+	// left over from startup to the operating system 15 seconds after
+	// the interactive UI opens; print and headless modes are
+	// unaffected."
+	//
+	// The trim lives here and not in the print path: the headless runs
+	// never build the interactive UI's start-up state, so there is
+	// nothing of that size to give back.
+	cancelMemTrim := memtrim.After(memtrim.Delay)
+	defer cancelMemTrim()
 	_, err = prog.Run()
 	printTUIExitBanner(m, canonicalCwd)
 	return err

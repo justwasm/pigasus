@@ -43,19 +43,19 @@ import (
 
 const (
 	// referenceChangelogByteLen is the size of the embedded blob, a
-	// verbatim `agy changelog` capture from the v1.4.9 binary (the
+	// verbatim `agy changelog` capture from the v1.4.10 binary (the
 	// cycle-235 hand-written 1.4.2 stub is gone; upstream ships its own
 	// release notes, so the blob is capture-only).
-	referenceChangelogByteLen = 180524
+	referenceChangelogByteLen = 184882
 	// referenceChangelogLines is the embedded blob's line count.
-	referenceChangelogLines = 1038
+	referenceChangelogLines = 1054
 	// referenceChangelogSections is the number of `X.Y.Z:` version headers
-	// (1.4.8 down to 1.0.0; 1.3.7/1.3.8/1.3.9 are absent upstream too).
-	referenceChangelogSections = 79
+	// (1.4.9 down to 1.0.0; 1.3.7/1.3.8/1.3.9 are absent upstream too).
+	referenceChangelogSections = 80
 	// referenceChangelogBullets is the number of `· ` top-level bullets.
-	referenceChangelogBullets = 881
+	referenceChangelogBullets = 895
 	// referenceChangelogSHA256 is the SHA-256 of the embedded bytes.
-	referenceChangelogSHA256 = "86f8368165d040a45bb475459e50b2d2fced7bd02a9df8d996640a7cb3aae2d7"
+	referenceChangelogSHA256 = "a9c4ce87e4ab753fe475d270240922decd76d2237a05d8b4cb642876331c34ec"
 )
 
 // TestReferenceVersion_MatchesDriftLock pins cli.ReferenceVersion -- the
@@ -104,14 +104,14 @@ func TestChangelog_SHA256(t *testing.T) {
 }
 
 // TestChangelog_Shape asserts the release-notes structure: it starts at
-// 1.4.8 (the 1.4.9 binary ships the 1.4.9 release notes nowhere — its
-// changelog feed's newest section is still 1.4.8), carries 79 version
-// headers and 881 top-level bullets, contains the 1.4.2, 1.4.1 and
+// 1.4.9 (the 1.4.10 binary ships the 1.4.10 release notes nowhere — its
+// changelog feed's newest section is still 1.4.9), carries 80 version
+// headers and 895 top-level bullets, contains the 1.4.2, 1.4.1 and
 // 1.4.0 sections from the binary capture, and ends at the 1.0.0
 // initial-release section.
 func TestChangelog_Shape(t *testing.T) {
-	if !strings.HasPrefix(referenceChangelog, "1.4.8:\n") {
-		t.Errorf("referenceChangelog must start with %q", "1.4.8:\n")
+	if !strings.HasPrefix(referenceChangelog, "1.4.9:\n") {
+		t.Errorf("referenceChangelog must start with %q", "1.4.9:\n")
 	}
 	if !strings.Contains(referenceChangelog, "\n1.4.1:\n") {
 		t.Errorf("referenceChangelog must contain a 1.4.1 section")

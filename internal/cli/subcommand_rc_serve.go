@@ -2,10 +2,7 @@ package cli
 
 import (
 	"fmt"
-	"os"
 	"strings"
-
-	"github.com/justwasm/pigasus/internal/persistentrc"
 )
 
 // usageRCServe documents the `remote-control serve` subcommand. The
@@ -124,32 +121,24 @@ func runRCServe(j *JetskiCLI, args []string) error {
 		fmt.Fprint(j.ErrOut, usage)
 		return nil
 	}
-	if opts.name == "" {
-		opts.name = persistentrc.ResolveInstanceName("")
-		if opts.name == "" {
-			hn, herr := os.Hostname()
-			if herr != nil || hn == "" {
-				return ExitCodeError(1, fmt.Sprintf("Error: --name is required (could not determine hostname: %v)", herr))
-			}
-			opts.name = hn
-		}
-	} else {
-		opts.name = persistentrc.ResolveInstanceName(opts.name)
+	name, err := resolveRCForegroundName(opts.name)
+	if err != nil {
+		return err
 	}
-	if serveHandler == nil {
+	err = runRCForegroundDaemon(j, rcForegroundArgs{
+		Addr:    opts.addr,
+		Name:    name,
+		NoLogin: opts.noLogin,
+		Desktop: opts.desktop,
+		Label:   "remote-control serve",
+	})
+	if err == errNoServeHandler {
+		// The reference's own behaviour: a notice, and a zero exit
+		// code. Pinned by a test.
 		fmt.Fprintln(j.ErrOut, "remote-control serve: no handler registered (binary was built without the serve bridge)")
 		return nil
 	}
-	if err := serveHandler(j, ServeArgs{
-		Addr:    opts.addr,
-		Name:    opts.name,
-		NoLogin: opts.noLogin,
-		Desktop: opts.desktop,
-	}); err != nil {
-		return err
-	}
-	fmt.Fprintln(j.Out, "Remote-control daemon stopped.")
-	return nil
+	return err
 }
 
 // serveADCErrorMessage is the single source of truth for the

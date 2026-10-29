@@ -67,6 +67,9 @@ func TestCurrentReturnsTheCompiledInDefaults(t *testing.T) {
 	if got.CompanionOrigin != DefaultCompanionOrigin {
 		t.Errorf("CompanionOrigin = %q, want %q", got.CompanionOrigin, DefaultCompanionOrigin)
 	}
+	if got.AccountChooser != DefaultAccountChooser {
+		t.Errorf("AccountChooser = %q, want %q", got.AccountChooser, DefaultAccountChooser)
+	}
 	if got.Terms != DefaultTerms {
 		t.Errorf("Terms = %q, want %q", got.Terms, DefaultTerms)
 	}
@@ -130,6 +133,50 @@ func TestTheConfigurationOverridesTheNamedEndpoint(t *testing.T) {
 	// The ones that were not named keep their defaults.
 	if got.UserInfo != DefaultUserInfo {
 		t.Errorf("UserInfo = %q, want the default %q", got.UserInfo, DefaultUserInfo)
+	}
+}
+
+// TestTheAccountChooserURL pins the shape of the link that reaches an
+// instance's remote view.
+//
+// The chooser names the account and carries the whole target in
+// "continue", percent-encoded. The parameters come out in the order
+// Google's own links carry them ("Email" first) because
+// url.Values.Encode sorts the keys.
+func TestTheAccountChooserURL(t *testing.T) {
+	writeConfig(t, `{}`)
+
+	got := Current().AccountChooserURL("naivgaid@gmail.com",
+		"https://antigravity.google.com/r/d4465084-5df7-4817-84ee-355a7801b045-v2")
+	want := "https://accounts.google.com/AccountChooser?Email=naivgaid%40gmail.com" +
+		"&continue=https%3A%2F%2Fantigravity.google.com%2Fr%2Fd4465084-5df7-4817-84ee-355a7801b045-v2"
+	if got != want {
+		t.Errorf("AccountChooserURL =\n  %q\nwant\n  %q", got, want)
+	}
+}
+
+// TestTheAccountChooserURLWithoutAnAccount pins the fallback: a chooser
+// that names no account chooses nothing, so the target is the link.
+func TestTheAccountChooserURLWithoutAnAccount(t *testing.T) {
+	writeConfig(t, `{}`)
+
+	got := Current().AccountChooserURL("", "https://antigravity.google.com/r/abc-v2")
+	want := "https://antigravity.google.com/r/abc-v2"
+	if got != want {
+		t.Errorf("AccountChooserURL(no account) = %q, want %q", got, want)
+	}
+}
+
+// TestTheAccountChooserURLFollowsTheConfiguration pins that the chooser
+// is a named endpoint: the configuration may point it at a local
+// service.
+func TestTheAccountChooserURLFollowsTheConfiguration(t *testing.T) {
+	writeConfig(t, `{"endpoints": {"account_chooser": "http://127.0.0.1:9999/chooser"}}`)
+
+	got := Current().AccountChooserURL("a@b.com", "https://antigravity.google.com/r/abc-v2")
+	want := "http://127.0.0.1:9999/chooser?Email=a%40b.com&continue=https%3A%2F%2Fantigravity.google.com%2Fr%2Fabc-v2"
+	if got != want {
+		t.Errorf("AccountChooserURL =\n  %q\nwant\n  %q", got, want)
 	}
 }
 

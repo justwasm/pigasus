@@ -59,6 +59,7 @@ starts. A half-written edit must not take the CLI down.
 | `webchannel` | `https://jetski-webchannel.googleapis.com/v1internal:connectInstanceV2` | the cloud tunnel the remote-control view connects to (a **full** URL — the RPC path is part of it) |
 | `generativelanguage` | `https://generativelanguage.googleapis.com` | the Generative Language API host, passed to the spawned reference as `--api_server_url` |
 | `companion_origin` | `https://antigravity.google.com` | the browser origin the companion web app lives on: the URL the user is told to open, the `companionOrigin` the Web UI is told about |
+| `account_chooser` | `https://accounts.google.com/AccountChooser` | Google's account chooser — the remote-control link goes *through* it, so the browser picks the account the daemon registered with and then continues to the deep link |
 | `origin_patterns` | `https://antigravity.google,https://antigravity-companion.google` | the browser **Origin allowlist** the remote-control host serves — a comma-separated list |
 | `terms` | `https://antigravity.google/terms` | the Terms of Service link the onboarding renders |
 | `privacy` | `https://policies.google.com/privacy` | the Privacy Policy link the onboarding renders |

@@ -319,19 +319,26 @@ func modelDeclarationsJSON() []byte {
 	return b
 }
 
-func computeCompactTokens(msg genericCompactDoneMsg) (int, int, int) {
-	return compaction.ComputeCompactTokens(msg.StatsBefore.Tokens, msg.InputTokens, msg.StatsAfter.Tokens, msg.OutputTokens, msg.Overhead, msg.Summary)
+func computeCompactTokens(msg genericCompactDoneMsg, carriedTokens int) (int, int, int) {
+	return compaction.ComputeCompactTokens(msg.StatsBefore.Tokens, msg.InputTokens, msg.StatsAfter.Tokens, msg.OutputTokens, msg.Overhead, msg.Summary, carriedTokens)
 }
 
 func (m *runMode) applyGenericCompactSuccess(msg genericCompactDoneMsg, customInstructions string) tea.Cmd {
+	// What the summary carries into the next prompt is counted beside
+	// the summary in the "after" figure — the earlier requests and the
+	// snapshots the reference's checkpoint carries. The clone's resume
+	// block carries the requests; it has no artifact, subagent or
+	// running-task snapshots.
+	carriedTokens := 0
 	if msg.Summary != "" {
 		requests := compaction.UserRequests(m.session, compaction.MaxUserRequests)
+		carriedTokens = compaction.EstimateTokens(compaction.CarriedBlock(requests))
 		m.session = []backend.Message{{
 			Role:    "user",
 			Content: compaction.ResumingBlock(requests, msg.Summary),
 		}}
 	}
-	beforeTokens, afterTokens, summaryTokens := computeCompactTokens(msg)
+	beforeTokens, afterTokens, summaryTokens := computeCompactTokens(msg, carriedTokens)
 	m.response = append(m.response,
 		compaction.DividerRow(m.width),
 		compaction.StatsRow(m.width,

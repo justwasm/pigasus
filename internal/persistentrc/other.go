@@ -12,7 +12,8 @@
 //   - Start returns ErrUnsupported unless SkipLaunchd is set
 //     (test-only).  The error message names the platform so the
 //     CLI surfaces a clear "macOS-only" hint and points at the
-//     per-turn --remote-control variant.
+//     foreground path (`remote-control run` runs the daemon in the
+//     foreground here).
 //   - Stop is a no-op (no plist to clean up).  Returns nil so
 //     `remote-control stop` exits 0 even on Linux/Windows.
 //   - Status returns a zero-value report with a hint field
@@ -47,7 +48,7 @@ func Start(ctx context.Context, spec Spec) error {
 		// Spec out.
 		return nil
 	}
-	return fmt.Errorf("%w (running on %s/%s); use `wagyu --remote-control` for the per-session variant",
+	return fmt.Errorf("%w (running on %s/%s); run `remote-control run` to run the daemon in the foreground",
 		ErrUnsupported, runtime.GOOS, runtime.GOARCH)
 }
 
@@ -71,7 +72,7 @@ func Status(ctx context.Context, name string) (StatusReport, error) {
 	return StatusReport{
 		Running: false,
 		Name:    name,
-		Hint:    fmt.Sprintf("persistent remote-control daemon is only supported on macOS in this build (running on %s/%s); use `wagyu --remote-control` for the per-session variant", runtime.GOOS, runtime.GOARCH),
+		Hint:    fmt.Sprintf("the persistent remote-control daemon needs launchd, which only macOS has (running on %s/%s); `remote-control run` runs the daemon in the foreground here", runtime.GOOS, runtime.GOARCH),
 	}, nil
 }
 
@@ -113,6 +114,7 @@ func SetDryRun(v bool) { dryRun = v }
 // helpers stay alive on every OS.
 var _ = errors.New
 var _ = ValidateName
+
 // Stubs on non-darwin to allow cross-platform compilation of persistentrc tests.
 func buildPlist(spec Spec) string {
 	return ""

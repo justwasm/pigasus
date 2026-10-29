@@ -151,6 +151,7 @@ The remote-control family asks for the same thing with the same switch:
 
 ```bash
 pigasus remote-control serve --desktop    # the foreground daemon
+pigasus remote-control run --desktop      # the same, under the clone's own name
 pigasus remote-control start --desktop    # the persistent daemon
 ```
 
@@ -173,11 +174,13 @@ on two more surfaces:
 | | |
 |---|---|
 | `remote-control serve` | `internal/cli/serve_bridge.go`'s `ServeArgs.Desktop` → `internal/rchost/remote_control_serve.go`'s `buildServeStack` → the same `desktopMendelUserAgent(desktop)` |
+| `remote-control run` | the same `ServeArgs.Desktop` — `run` and `serve` share one foreground implementation, so the switch travels the same path |
 | `remote-control start` | the **plist** carries it: the macOS daemon's `ProgramArguments` end in `'--desktop'`, and the clone's own plist (`persistentrc.Spec.Desktop`) ends in `--desktop` for the hidden `remote-control-foreground` |
 | the foreground twin | `internal/rchost/remote_control_foreground.go`'s `parseForegroundFlags` reads `--desktop` → `buildForegroundDispatcher` → the same `Config.MendelUserAgent` |
 
 The usage blocks differ on purpose. `remote-control serve --help` **lists**
-the switch — that block is the clone's own. `remote-control start --help`
+the switch — that block is the clone's own. `remote-control run --help`
+lists it too (the clone's own block). `remote-control start --help`
 does **not** — that block is the reference's, byte for byte, and the clone
 follows the same rule it follows for `--addr` and `--log-file`: accepted,
 not advertised.
@@ -323,6 +326,181 @@ https://antigravity.google.com/u/3/r/<instance-id>
 (`https://antigravity.google.com/r/<id>`) resolves against the browser's
 *default* account and answers "No instance found. Try switching to a
 different account."; the reference's bare URL fails the same way.
+
+## The printed link goes through Google's account chooser
+
+The account-index problem above is the browser's, not the daemon's: the
+instance knows **which account** it registered under, but not **which
+index** that account has in the browser's chooser. The bare deep link
+(`/r/<id>`) therefore resolves against the browser's default account, and
+with several accounts signed in the dashboard answers "No instance found.
+Try switching to a different account." — the row exists, the dashboard
+looks in the wrong account's.
+
+Google's account chooser resolves it. It asks which account to use, names
+the one the daemon registered with, and continues to the target:
+
+```
+https://accounts.google.com/AccountChooser?Email=<address>&continue=<deep link>
+```
+
+Every browser link the clone prints goes through it. `Email` is the
+signed-in account's address; `continue` carries the whole deep link,
+percent-encoded. The parameters come out in the order Google's own links
+carry them ("Email" first) because `url.Values.Encode` sorts the keys.
+
+| where | the line |
+|---|---|
+| `remote-control start` | `Open <chooser url> on another device to take over.` + `Instance name: <name>` |
+| `remote-control serve` | `remote-control serve: open <chooser url> on another device to take over.` |
+| `remote-control status` | `Instance name: <name> (find it at <chooser url>)` |
+| the TUI's `/remote-control` | the lead line, then the hostname, then the URL — **cut into chunks, one chunk per row** |
+
+### The TUI's URL is cut into chunks, and every chunk is the link
+
+The TUI draws its view into a cell buffer the size of the terminal, so a
+line wider than the terminal is **clipped**, not soft wrapped: the tail of
+a long line simply disappears. The chooser URL is ~164 characters and its
+tail carries the instance id — the part that names the daemon — so a URL
+left on one line was a URL whose tail the user could not see, could not
+select and could not click.
+
+So the TUI shows it the way the **add-account screen** shows a URL
+(`internal/loginui`): the URL is cut into chunks, one chunk per row, and
+**every chunk carries the complete URL as its OSC 8 hyperlink target**. A
+cmd+click (or a tap) on any part of the displayed URL opens the whole
+link.
+
+```
+> /remote-control
+  ⎿  Remote control on for this session.
+     Open on another device to take over:
+     Hostname: laptop
+     https://accounts.google.com/AccountChooser?Email=naivgaid%40gmail.com&cont
+     inue=https%3A%2F%2Fantigravity.google.com%2Fr%2F98bc1aa9-eb81-4c35-8c20-fd
+     e1e5b64300-v2
+```
+
+The chunking and the hyperlink frame live in **`internal/urlchunk`**,
+which the add-account screen shares — the two surfaces show a URL the
+same way, so they cut it the same way. The transcript's chunk budget is
+the terminal width less the five-column indent and one column of slack.
+
+**Copying the chunks yields the URL.** The transcript's own mouse
+selection (`internal/tuiviewport.SelectionText`) treats two rows that
+carry the *same* hyperlink target as one logical string: they are joined
+without a newline, and the continuation row's indent — the layout's, not
+the link's — is dropped. Two rows that link to *different* URLs keep
+their newline.
+
+A terminal that does not speak OSC 8 sees the plain text: the URL, one
+row at a time, with no escape sequences.
+
+**This shape is the clone's own.** The reference prints the bare companion
+origin and asks the user to look for the instance by name ("Open
+https://antigravity.google.com and look for %q.") — it never builds a
+chooser link. The *deep link* it points at is the reference's own
+(`{companionOrigin}/r/{instanceID}`); the chooser around it is not.
+
+The chooser is a **named endpoint** (`account_chooser` in
+`~/.config/openagy/config.json`), so a local service can stand in for it.
+The builder lives in `internal/rclink`; the resolver in
+`endpoints.Set.AccountChooserURL`.
+
+A chooser that names **no** account chooses nothing, so with nothing
+signed in the link falls back to the bare deep link — a fallback that
+costs the user a click would be worse than none.
+
+## The daemon runs in the foreground where there is no launchd
+
+`remote-control start` registers a **launchd** agent on macOS. There is no
+launchd on Linux, and the clone ships no systemd unit, so the *persistent*
+daemon cannot be registered there — `persistentrc.Start` refuses with
+"launchd-backed mode requires macOS".
+
+The daemon itself is not macOS-only. The foreground path brings up the
+very same stack — the dispatcher, the TCP+WebSocket server, the cloud
+tunnel — and blocks until the user interrupts it. So on every other
+platform `remote-control start` **runs the daemon in the foreground**
+instead of pretending to be a service manager:
+
+```
+$ pigasus remote-control start
+remote-control start: linux/amd64 has no launchd — running the daemon in the foreground, as `remote-control run` does (Ctrl-C to stop)
+remote-control start: listening on ws://127.0.0.1:8787/rpc (path=/rpc, name=pigasus-1f1f8239a9bf, antigravity_home=/root/.gemini/antigravity-cli)
+remote-control start: open https://accounts.google.com/AccountChooser?Email=…&continue=… on another device to take over.
+```
+
+The note is on **stderr**; the stdout lines are the daemon's own. The
+daemon prints the sentinel `Remote-control daemon stopped.` when it comes
+down — the same sentence `remote-control stop` prints, so a script can
+share one grep between the two.
+
+`remote-control stop` on such a platform keeps the reference's stdout
+sentinel and adds a stderr note saying where the daemon actually is (there
+is no registered daemon to stop — the daemon runs in the terminal that
+started it).
+
+`remote-control status` gains a `Daemon mode: foreground` line there.
+
+The reference's `start` usage block is unchanged: it lists `--name` and
+`--session` only, and `--addr` / `--log-file` / `--desktop` stay
+accepted-but-not-advertised.
+
+### `remote-control run` is the platform-independent spelling
+
+`start` is the platform-dependent command: a launchd agent on macOS, the
+foreground everywhere else. `remote-control run` is the foreground one —
+**the same on every platform**, macOS included:
+
+```
+$ pigasus remote-control run
+remote-control run: listening on ws://127.0.0.1:8787/rpc (path=/rpc, name=pigasus-7411f32fc696, antigravity_home=/root/.gemini/antigravity-cli)
+remote-control run: open https://accounts.google.com/AccountChooser?Email=…&continue=… on another device to take over.
+```
+
+It takes the same flags as `serve` — `--addr`, `--name`, `--no-login`,
+`--desktop` — and it is the same implementation: `serve`, `run` and the
+non-darwin `start` all go through one `runRCForegroundDaemon`. The only
+difference between them is the **label** the daemon's progress lines
+carry, so the user sees the command they actually typed.
+
+| command | platform | what it does |
+|---|---|---|
+| `remote-control start` | macOS | registers a launchd agent; the daemon runs in its own process |
+| `remote-control start` | elsewhere | runs the daemon in the foreground |
+| `remote-control run` | everywhere | runs the daemon in the foreground |
+| `remote-control serve` | everywhere | the reference's name for the same thing; the launchd plist runs it |
+
+`run` is **hidden**: the reference's `remote-control --help` lists start,
+status and stop only, and that block is the reference's, byte for byte.
+`run` is accepted, not advertised — the same way `serve` is.
+
+### The instance id the link names is the id the daemon registered
+
+The link has to name the id the cloud's registry knows the instance by —
+the id the tunnel **registered**. So the printed link reuses the id the
+daemon resolved, rather than deriving a second one.
+
+Deriving it twice is not safe: the installation's uuid is persisted in
+`~/.config/openagy/remote-control-instance-id`, and a configuration
+directory that cannot be written (a read-only home, a container's
+read-only mount) would mint a **fresh** uuid on every call. The daemon
+would then register one id and print a link naming another — and the
+dashboard would answer "No instance found" for a link the daemon itself
+printed. The uuid is therefore memoised for the life of the process
+(`persistentrc.InstallationUUID`).
+
+On macOS the memoisation is not enough on its own: `remote-control start`
+bootstraps a LaunchAgent that runs `<binary> remote-control serve` as its
+**own process**, and that process reads the id from the same file. The id
+is therefore resolved *and persisted* before the daemon is bootstrapped
+(`persistentrc.EnsureInstanceID`), so the starter and the daemon cannot
+each mint one. The file holds the **uuid**, not the full id — the reader
+rejects anything that is not a uuid, and the id adds the `-v2` suffix.
+
+If the id cannot be persisted, `remote-control start` says so on stderr
+rather than printing a link that may not resolve.
 
 ## The trajectory is the shared state
 
@@ -763,6 +941,14 @@ cancel respectively. `killBackgroundTasks` kills the background tasks through
 
 | | |
 |---|---|
+| `internal/rclink/rclink.go` | the browser link: the deep link, and the account chooser around it |
+| `internal/urlchunk/urlchunk.go` | the URL block: the chunking and the OSC 8 frame — shared with the add-account screen |
+| `internal/cliapp/slash_rc_url.go` | the TUI's `/remote-control` link rows |
+| `internal/persistentrc/instance_id.go` | the installation uuid — memoised, so the daemon and the printed link agree |
+| `internal/cli/subcommand_rc.go` | `remote-control start`: the launchd branch, and the foreground branch |
+| `internal/cli/subcommand_rc_foreground.go` | the one foreground implementation: `serve`, `run` and the non-darwin `start` share it |
+| `internal/cli/subcommand_rc_run.go` | `remote-control run` — the platform-independent foreground command |
+| `internal/rchost/remote_control_serve.go` | the daemon: the dispatcher, the server, the tunnel, and the printed link |
 | `internal/rctunnel/client.go` | the handshake, the version string, the instance registration |
 | `internal/rctunnel/httpproxy.go` | the chunk framer and the streaming forward |
 | `lsproto`/lsproto.go` | the descriptor closure and the service index |
@@ -848,8 +1034,16 @@ cancel respectively. `killBackgroundTasks` kills the background tasks through
   app iframe reports its UI as ready.
 - The registry row is scoped to the account the daemon authenticates as,
   and the instance cannot know the browser's account index: the printed
-  bare URL lands on the browser's default account and the cloud answers
-  "No instance found. Try switching to a different account."
+  link therefore goes through Google's account chooser, which resolves the
+  account and continues to the deep link. The chooser is the clone's own
+  shape — the reference prints the bare origin and asks the user to find
+  the instance by name.
+- The chooser resolves the account, but the `/u/<N>/` segment it lands on
+  is the **browser's** account index. Remove the account from the
+  browser's list and the chooser asks again, and the index changes; the
+  link stays correct, its target URL does not.
+- The foreground daemon is **not persistent**: it dies with its terminal
+  and does not come back after a crash. A systemd unit would fix that.
 - Several instances live under one account — the reference's daemon and the
   clone's read the same token file — and the page binds by **instance id**:
   each view talks to its own instance, and both mount the app iframe.

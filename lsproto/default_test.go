@@ -21,6 +21,8 @@ func TestDefaultAnswer(t *testing.T) {
 		// them, so the answer is the empty object.
 		{method: "GetStatus", want: "{}"},
 		{method: "GetAllWorkflows", want: "{}"},
+		{method: "GetMarketplaceFeatured", want: "{}"},
+		{method: "ListBackgroundTasks", want: "{}"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.method, func(t *testing.T) {

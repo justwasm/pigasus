@@ -70,10 +70,11 @@ var (
 // suitable for showing in the prompt's "[Attached: <name>] <prompt
 // text]" line.
 //
-// Scaled is true iff the bytes were resized by imagery.ScaleIfOversized
-// (false means the image already fit imagery.MaxSide on both axes, or
-// the decoder rejected the bytes and the originals were returned
-// verbatim).
+// Scaled is true iff the bytes were re-encoded by imagery.Prepare
+// (resized to the pixel cap, or written as a JPEG because that is much
+// smaller — false means the image already fit imagery.MaxSide on both
+// axes, or the decoder rejected the bytes and the originals were
+// returned verbatim).
 type PasteImage struct {
 	Format   imagery.Format
 	Data     []byte
@@ -171,8 +172,8 @@ func ReadImage(src ImageSource, opts Options) (PasteImage, error) {
 }
 
 // AcceptPaste is the pure, source-free half of ReadImage. It runs the
-// bytes through imagery.Detect and imagery.ScaleIfOversized, applying
-// the Options.WebPEnabled gate only for WebP input. PNG and JPEG are
+// bytes through imagery.Detect and imagery.Prepare, applying the
+// Options.WebPEnabled gate only for WebP input. PNG and JPEG are
 // always accepted; WebP is rejected with ErrWebPDisabled when
 // Options.WebPEnabled is false.
 //
@@ -209,7 +210,7 @@ func AcceptPaste(data []byte, opts Options) (PasteImage, error) {
 	if format == imagery.FormatWebP && !opts.WebPEnabled {
 		return PasteImage{Format: format}, fmt.Errorf("%w", ErrWebPDisabled)
 	}
-	scaled, wasScaled, err := imagery.ScaleIfOversized(data)
+	scaled, outFormat, wasScaled, err := imagery.Prepare(data)
 	if err != nil {
 		// imagery returns ErrDecodeFailed for "recognised format,
 		// decoder rejected" and ErrTooShort for sub-header-sized
@@ -224,9 +225,9 @@ func AcceptPaste(data []byte, opts Options) (PasteImage, error) {
 		return PasteImage{Format: format}, err
 	}
 	return PasteImage{
-		Format:   format,
+		Format:   outFormat,
 		Data:     scaled,
-		Filename: suggestedFilename(format, opts.Counter),
+		Filename: suggestedFilename(outFormat, opts.Counter),
 		Scaled:   wasScaled,
 	}, nil
 }

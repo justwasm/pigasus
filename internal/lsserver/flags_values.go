@@ -49,7 +49,7 @@ func registerStringFlags(fs *flag.FlagSet, f *Flags) {
 	fs.StringVar(&f.StubbyAuthCloudProject, "stubby_auth_cloud_project", "", "Cloud project ID to use for StubbyAuthProvider")
 	fs.StringVar(&f.StubbyAuthMode, "stubby_auth_mode", "", "Auth mode to use when using StubbyAuthProvider (personal_consumer, business_licensed_enterprise, business_agent_platform_paygo)")
 	fs.StringVar(&f.SubclientType, "subclient_type", "", "Subclient type for HTTP requests (e.g. 'sdk', 'cli', 'hub')")
-	fs.StringVar(&f.TrafficStreamSelfID, "traffic_stream_selfid", "", "Census traffic_stream_selfid tag for model API traffic isolation")
+	fs.StringVar(&f.TrafficStreamSelfID, "traffic_stream_selfid", "", "Default Census traffic_stream_selfid tag for model API traffic isolation. A Beyond quota bucket with an l1 level takes precedence.")
 	fs.StringVar(&f.WebBundlePath, "web_bundle_path", "", "Directory or .zip holding the compiled web UI to serve, in preference to the bundle compiled into this binary.")
 	fs.StringVar(&f.WorkspaceID, "workspace_id", "", "Workspace ID")
 	fs.StringVar(&f.ZerogHTTPSocketPath, "zerog_http_socket_path", "", "Path to the Unix Domain Socket for Zerog HTTP service.")

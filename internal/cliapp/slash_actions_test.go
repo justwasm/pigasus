@@ -27,6 +27,7 @@ import (
 	"github.com/justwasm/pigasus/internal/editorkit"
 	"github.com/justwasm/pigasus/internal/persistentrc"
 	"github.com/justwasm/pigasus/internal/rchost"
+	"github.com/justwasm/pigasus/internal/rclink"
 	"github.com/justwasm/pigasus/internal/tuilib"
 
 	tea "charm.land/bubbletea/v2"
@@ -1654,17 +1655,35 @@ func TestRemoteControl_OutputFormatting(t *testing.T) {
 		// tag). Cycle 195's capture of the reference's own output:
 		//   Open https://antigravity.google.com/r/<uuid>-v2 on another
 		//   device to take over.
-		wantURLPattern := fmt.Sprintf("%s/r/%s-v2?p=c%%2F45fde9e1-76d5-4b87-bd23-1b2c626bbf26", endpoints.Current().CompanionOrigin, m.remoteControlUUID)
-		if !strings.Contains(joined, wantURLPattern) {
-			t.Errorf("expected URL pattern %q in:\n%s", wantURLPattern, joined)
+		//
+		// The clone prints the account chooser wrapping that deep link
+		// (see internal/rclink): the cloud's instance rows are per
+		// Google account, so the bare link resolves against the
+		// browser's default account and the dashboard answers "No
+		// instance found." The chooser names the account and continues
+		// to the deep link. With no account signed in it falls back to
+		// the bare deep link, so the test asserts on the deep link
+		// either way.
+		instanceID := persistentrc.InstanceIDPrefix + m.remoteControlUUID + persistentrc.InstanceIDSuffix
+		wantURL := rclink.BrowserURL(instanceID, "p=c%2F45fde9e1-76d5-4b87-bd23-1b2c626bbf26")
+		if !strings.Contains(joined, wantURL) {
+			t.Errorf("expected URL %q in:\n%s", wantURL, joined)
 		}
-		// The id carries no "remote-control-" prefix, so the line fits
-		// further: at width 155 it wraps after "to continue".
-		if !strings.Contains(joined, "on another device to continue") {
-			t.Errorf("expected continue message in:\n%s", joined)
+		if !strings.Contains(joined, "/r/"+instanceID) {
+			t.Errorf("expected the deep link to name the instance id %q in:\n%s", instanceID, joined)
 		}
-		if !strings.Contains(joined, "     this conversation.") {
-			t.Errorf("expected wrapped '     this conversation.' line at width 155 in:\n%s", joined)
+		// The link gets a line of its own. It is the account chooser
+		// wrapping the deep link, so it is long enough that it is cut
+		// into chunks when the terminal is narrower than it (see
+		// TestRemoteControlURL_*); what matters here is that the
+		// visible text of the link rows is the URL itself.
+		if got := linkText(m.response); got != wantURL {
+			t.Errorf("the link rows show %q, want %q", got, wantURL)
+		}
+		// The prose leads on its own line — the id no longer rides in
+		// the sentence.
+		if !strings.Contains(joined, "     Open on another device to continue this conversation:") {
+			t.Errorf("expected the continue lead line in:\n%s", joined)
 		}
 
 		// Stability of UUID across multiple /remote-control invocations
@@ -1690,10 +1709,14 @@ func TestRemoteControl_OutputFormatting(t *testing.T) {
 			clean = append(clean, stripSGR(r))
 		}
 		joined := strings.Join(clean, "\n")
-		wantURL := fmt.Sprintf("%s/r/%s-v2", endpoints.Current().CompanionOrigin, m.remoteControlUUID)
-		wantMsg := fmt.Sprintf("     Open %s on another device to take over.", wantURL)
+		instanceID := persistentrc.InstanceIDPrefix + m.remoteControlUUID + persistentrc.InstanceIDSuffix
+		wantURL := rclink.BrowserURL(instanceID, "")
+		wantMsg := "     Open on another device to take over:"
 		if !strings.Contains(joined, wantMsg) {
 			t.Errorf("expected %q in:\n%s", wantMsg, joined)
+		}
+		if got := linkText(m.response); got != wantURL {
+			t.Errorf("the link rows show %q, want %q", got, wantURL)
 		}
 	})
 
@@ -2231,8 +2254,9 @@ func TestSlashCompact_SuccessReplacesSession(t *testing.T) {
 	overhead := compaction.ContextOverheadTokens(m.systemPrompt(), modelDeclarationsJSON())
 	before := overhead + compaction.TranscriptTokens(sess)
 	summaryTokens := compaction.EstimateTokens("compacted summary line.")
-	after := overhead + summaryTokens
-	want := fmt.Sprintf("context %s \u2192 ~%s (%d summary)",
+	carriedTokens := compaction.EstimateTokens(compaction.CarriedBlock(compaction.UserRequests(sess, compaction.MaxUserRequests)))
+	after := overhead + summaryTokens + carriedTokens
+	want := fmt.Sprintf("context %s → ~%s (%d summary)",
 		compaction.TokenMagnitude(before), compaction.TokenMagnitude(after), summaryTokens)
 	if !responseContains(m, want) {
 		t.Errorf("transcript missing the context/summary stats group %q:\n%q", want, m.response)

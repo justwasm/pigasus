@@ -39,7 +39,22 @@ type ManualDoneMsg struct {
 }
 
 // ComputeCompactTokens calculates before, after, and summary token counts.
-func ComputeCompactTokens(beforeTokens, inputTokens, afterTokens, outputTokens, overhead int, summary string) (before, after, sumTokens int) {
+//
+// carriedTokens is the size of what the summary *carries into the next
+// prompt* beside the summary itself — the resume block's header and its
+// "# User Requests" list.
+//
+// 【一手】 agy 1.4.10: "Improved the after-compaction size shown in the
+// compaction marker and in `/context` to also count what the summary
+// carries into the next prompt, such as your earlier requests and
+// artifact, subagent, and running-task snapshots, so it is closer to
+// the real size; the `(N summary)` label still shows the summary
+// alone."
+//
+// So the *after* figure counts the base context, the summary **and**
+// the carried content; the summary figure — the one the "(N summary)"
+// label shows — is the summary alone, unchanged.
+func ComputeCompactTokens(beforeTokens, inputTokens, afterTokens, outputTokens, overhead int, summary string, carriedTokens int) (before, after, sumTokens int) {
 	b := beforeTokens
 	if overhead > 0 {
 		b = overhead + b
@@ -53,7 +68,7 @@ func ComputeCompactTokens(beforeTokens, inputTokens, afterTokens, outputTokens, 
 	}
 	a := afterTokens
 	if overhead > 0 {
-		a = overhead + st
+		a = overhead + st + carriedTokens
 	}
 	return b, a, st
 }

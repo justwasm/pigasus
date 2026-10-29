@@ -28,13 +28,20 @@ import (
 	"github.com/justwasm/pigasus/internal/codesearch"
 	"github.com/justwasm/pigasus/internal/hooks"
 	"github.com/justwasm/pigasus/internal/isolation"
+	"github.com/justwasm/pigasus/internal/mdrender"
 	"github.com/justwasm/pigasus/internal/printmode"
 	"github.com/justwasm/pigasus/internal/sidequestion"
 	"github.com/justwasm/pigasus/internal/voice"
+	"github.com/justwasm/pigasus/palette"
 )
 
 func newSlashModel(t *testing.T) *runMode {
 	t.Helper()
+	origScheme, _ := palette.CurrentScheme()
+	t.Cleanup(func() {
+		palette.SetScheme(origScheme)
+		mdrender.SetColorScheme(origScheme)
+	})
 	// Test runs use HOME=/Users/gear by default, where settings.json pins
 	// "model": "MiniMax-M3" — make /model's effective-model lookup start
 	// from a clean slate by pointing HOME at an empty tempdir. Only

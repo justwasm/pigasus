@@ -7142,6 +7142,14 @@ func bannerHasArtRow(banner string) bool {
 			return true
 		}
 	}
+	// Under LogoStyleSimple (Apple_Terminal / iTerm2), the bottom row has background-color spaces with no readable text.
+	for _, line := range strings.Split(banner, "\n") {
+		plainLine := ansi.Strip(line)
+		trimmed := strings.TrimSpace(plainLine)
+		if trimmed == "" && strings.Contains(line, "\x1b[48;2;") {
+			return true
+		}
+	}
 	return false
 }
 

@@ -158,7 +158,12 @@ func TestAcceptPaste_PNGStillWorks(t *testing.T) {
 // ─── brief case 3: oversized WebP is scaled down ───────────────────────────
 
 // TestAcceptPaste_OversizedWebPScaledDown verifies the WebP branch of
-// imagery.ScaleIfOversized is reachable from the clipboard path.
+// imagery.Prepare is reachable from the clipboard path.
+//
+// The format the paste carries is the one the **bytes** are in, not the
+// one the bytes arrived under: golang.org/x/image/webp only ships a
+// decoder, so a scaled WebP leaves as a PNG — and a PNG labelled
+// "image/webp" is the mismatched type the 1.4.10 note calls out.
 func TestAcceptPaste_OversizedWebPScaledDown(t *testing.T) {
 	data := readFixture(t, "large.webp")
 	w0, h0, err := imagery.Dimensions(data)
@@ -172,8 +177,11 @@ func TestAcceptPaste_OversizedWebPScaledDown(t *testing.T) {
 	if err != nil {
 		t.Fatalf("AcceptPaste(oversized WebP): %v", err)
 	}
-	if paste.Format != imagery.FormatWebP {
-		t.Errorf("Format = %s, want FormatWebP", paste.Format)
+	if paste.Format != imagery.FormatPNG {
+		t.Errorf("Format = %s, want FormatPNG — the media type follows the bytes", paste.Format)
+	}
+	if got := imagery.Detect(paste.Data); got != paste.Format {
+		t.Errorf("Detect(paste.Data) = %s, want %s — the media type follows the bytes", got, paste.Format)
 	}
 	if !paste.Scaled {
 		t.Errorf("Scaled = false on a %dx%d WebP", w0, h0)

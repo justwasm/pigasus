@@ -1,6 +1,8 @@
 package tuiviewport
 
 import (
+	"strings"
+
 	"github.com/charmbracelet/x/ansi"
 	"github.com/justwasm/pigasus/internal/tuilib"
 )
@@ -37,6 +39,14 @@ func SelectionRange(sr, sc, er, ec int, dragging bool) (int, int, int, int, bool
 //
 // ANSI escapes are stripped via ansi.Strip because the rows carry embedded colour
 // codes that won't survive a raw byte copy to the clipboard. Newlines are kept as \n.
+//
+// The one exception is two rows that are pieces of the *same* hyperlink: they
+// are one logical string, so they are joined without a newline, and the
+// continuation row's indent — the layout's, not the link's — is dropped. A URL
+// too long for the terminal is cut into chunks, one chunk per row, and every
+// chunk carries the complete URL as its OSC 8 target (internal/urlchunk) —
+// copying the rows that way is what makes the copy a URL and not a stack of
+// lines.
 func SelectionText(rows []string, sr, sc, er, ec int) string {
 	if sr < 0 || sr >= len(rows) || er < 0 || er >= len(rows) {
 		return ""
@@ -55,12 +65,45 @@ func SelectionText(rows []string, sr, sc, er, ec int) string {
 		if from > to {
 			from = to
 		}
-		out = append(out, ansi.Cut(plain, from, to)...)
-		if r != er {
+		text := ansi.Cut(plain, from, to)
+		if r > sr && sameLink(rows[r-1], rows[r]) {
+			text = strings.TrimLeft(text, " \t")
+		}
+		out = append(out, text...)
+		if r != er && !sameLink(rows[r], rows[r+1]) {
 			out = append(out, '\n')
 		}
 	}
 	return string(out)
+}
+
+// sameLink reports whether two rows are pieces of the same hyperlink.
+//
+// A row that is a piece of a hyperlink carries the *complete* link as
+// its target — the URL chunk rows do (internal/urlchunk) — so the
+// target names the logical string the row belongs to.
+func sameLink(a, b string) bool {
+	ta := linkTarget(a)
+	return ta != "" && ta == linkTarget(b)
+}
+
+// linkTarget returns the OSC 8 target of a row, or "" when the row is
+// not a hyperlink.
+func linkTarget(row string) string {
+	const open = "\x1b]8;;"
+	i := strings.Index(row, open)
+	if i < 0 {
+		return ""
+	}
+	rest := row[i+len(open):]
+	// The target ends at the string terminator: ST (ESC \) or BEL.
+	if j := strings.Index(rest, "\x1b\\"); j >= 0 {
+		return rest[:j]
+	}
+	if j := strings.Index(rest, "\x07"); j >= 0 {
+		return rest[:j]
+	}
+	return ""
 }
 
 // ApplySelectionHighlight returns the given transcript row with selection

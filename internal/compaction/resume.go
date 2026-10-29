@@ -59,6 +59,34 @@ func UserRequests(sess []backend.Message, limit int) []string {
 	return out
 }
 
+// CarriedBlock builds the part of the post-compaction context that
+// carries the conversation forward **besides** the summary: the
+// reference's own header and the "# User Requests" list.
+//
+// 【一手】 agy 1.4.10, the vendor's own release notes: "Improved the
+// after-compaction size shown in the compaction marker and in `/context`
+// to also count what the summary carries into the next prompt, such as
+// your earlier requests and artifact, subagent, and running-task
+// snapshots, so it is closer to the real size; the `(N summary)` label
+// still shows the summary alone."
+//
+// The clone's resume block carries the earlier requests; it has no
+// artifact, subagent or running-task snapshots — those are the
+// reference's own checkpoint sections — so what is counted here is the
+// header and the request list.
+func CarriedBlock(userRequests []string) string {
+	var b strings.Builder
+	b.WriteString("# Resuming from a compaction\n\n")
+	b.WriteString("You are continuing work on the task described above, but you have lost access to the full conversation history, and need to resume work efficiently using the progress summary below:\n\n")
+	b.WriteString("# User Requests\n")
+	b.WriteString("The following were user requests from the truncated conversation in chronological order:\n")
+	for i, r := range userRequests {
+		fmt.Fprintf(&b, "%d. %s\n", i+1, r)
+	}
+	b.WriteString("\n")
+	return b.String()
+}
+
 // ResumingBlock builds the context the reference installs in place of the
 // compacted history. The reference's own CHECKPOINT step carries this
 // shape:
@@ -82,18 +110,15 @@ func UserRequests(sess []backend.Message, limit int) []string {
 // memory and writes no such files, so that section is omitted; the three
 // sections above it are reproduced byte for byte.
 //
+// The block is CarriedBlock's bytes followed by the summary — the split
+// is what lets the stats row count the carried half separately from the
+// summary (agy 1.4.10).
+//
 // summary is the model's reply, which already carries the reference's
 // <summary></summary> wrapper because the instruction asks for it.
 func ResumingBlock(userRequests []string, summary string) string {
 	var b strings.Builder
-	b.WriteString("# Resuming from a compaction\n\n")
-	b.WriteString("You are continuing work on the task described above, but you have lost access to the full conversation history, and need to resume work efficiently using the progress summary below:\n\n")
-	b.WriteString("# User Requests\n")
-	b.WriteString("The following were user requests from the truncated conversation in chronological order:\n")
-	for i, r := range userRequests {
-		fmt.Fprintf(&b, "%d. %s\n", i+1, r)
-	}
-	b.WriteString("\n")
+	b.WriteString(CarriedBlock(userRequests))
 	b.WriteString(strings.TrimSpace(summary))
 	b.WriteString("\n")
 	return b.String()

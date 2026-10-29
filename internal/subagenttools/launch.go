@@ -175,7 +175,20 @@ func runChild(
 		})
 	}
 
-	rt, session, err := createSubagentSession(ctx, deps, model, childSystemPrompt(systemPrompt, inv), cwd, childTools)
+	parentID := ""
+	if deps.Registry != nil {
+		parentID = deps.Registry.ParentID()
+	}
+	if parentID == "" {
+		parentID = deps.ConversationID
+	}
+	// The parent's half of the child's conversation: the task it was
+	// given and the messages it sent afterwards. The child's own
+	// compaction summary carries it, so a compaction does not leave the
+	// child without its task (agy 1.4.10).
+	pctx := parentContextOf(deps, inv)
+
+	rt, session, err := createSubagentSession(ctx, deps, model, childSystemPrompt(systemPrompt, inv), cwd, childTools, pctx)
 	if err != nil {
 		child.setState(StateErrored)
 		if taskReg != nil {
@@ -191,11 +204,6 @@ func runChild(
 	defer func() { _ = rt.Close() }()
 	defer func() { _ = session.Close() }()
 	defer purgeWorktreeArtifacts(worktreePath, child.ConversationID)
-
-	parentID := ""
-	if deps.Registry != nil {
-		parentID = deps.Registry.ParentID()
-	}
 
 	// The first message is the task, delivered the way the reference
 	// delivers it: as a message from the agent that invoked the child,
@@ -229,6 +237,10 @@ func runChild(
 			return
 		}
 		child.setState(StateRunning)
+		// The parent's message joins the parent's half of the
+		// child's conversation: the child's summary carries the ten
+		// most recent ones (agy 1.4.10).
+		pctx.Record(msg.Content, msg.At)
 		envelope := agentmessage.Render(parentID, msg.Content, msg.At, agentmessage.PriorityHigh)
 		msgs, runErr = session.Send(ctx, envelope)
 		recordChildTurn(taskReg, child, msgs, runErr)

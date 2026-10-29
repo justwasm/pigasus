@@ -11,7 +11,6 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/justwasm/pigasus/endpoints"
 	"github.com/justwasm/pigasus/internal/accounts"
 	"github.com/justwasm/pigasus/internal/auth"
 	"github.com/justwasm/pigasus/internal/codesearchaction"
@@ -21,9 +20,9 @@ import (
 	"github.com/justwasm/pigasus/internal/loginui"
 	"github.com/justwasm/pigasus/internal/modelcatalog"
 	"github.com/justwasm/pigasus/internal/persistentrc"
-	"github.com/justwasm/pigasus/internal/pluginsui"
 	"github.com/justwasm/pigasus/internal/printmode"
 	"github.com/justwasm/pigasus/internal/rchost"
+	"github.com/justwasm/pigasus/internal/rclink"
 	"github.com/justwasm/pigasus/internal/statusline"
 	"github.com/justwasm/pigasus/internal/subagenttools"
 	"github.com/justwasm/pigasus/internal/tuilib"
@@ -329,14 +328,15 @@ func (m *runMode) slashRemoteControl(args string) (bool, tea.Cmd) {
 		// ("https://antigravity.google.com/r/<id>" loads the remote
 		// view; "https://antigravity.google/r/<id>" answers 404).
 		//
-		// The bare "/r/<id>" form is the reference's own, and the
-		// instance cannot know the browser's account index: the
+		// The instance cannot know the browser's account index: the
 		// cloud's registry rows are per Google account and the bare
 		// URL resolves against the browser's *default* one, so with
 		// several accounts signed in the cloud answers "No instance
-		// found. Try switching to a different account." The user opens
-		// the dashboard on the account the daemon registered with.
-		// See docs/cycles/rc-cloud-remote-view/deliverable.md §7.4.
+		// found. Try switching to a different account." The link the
+		// clone prints therefore goes through Google's account
+		// chooser, which names the account the daemon registered with
+		// and then continues to the deep link. See
+		// docs/cycles/rc-cloud-remote-view/deliverable.md §7.4.
 		if m.remoteControlUUID == "" {
 			m.remoteControlUUID = persistentrc.InstallationUUID()
 		}
@@ -345,27 +345,29 @@ func (m *runMode) slashRemoteControl(args string) (bool, tea.Cmd) {
 			defer cancel()
 			_ = persistentrc.StartOfficialDaemon(ctx, hostname, false, false)
 		}()
-		baseURL := fmt.Sprintf("%s/r/%s%s%s", endpoints.Current().CompanionOrigin,
-			persistentrc.InstanceIDPrefix, m.remoteControlUUID, persistentrc.InstanceIDSuffix)
-		var text string
+		instanceID := persistentrc.InstanceIDPrefix + m.remoteControlUUID + persistentrc.InstanceIDSuffix
+		lead := "Open on another device to take over:"
+		rawQuery := ""
 		if m.conversationID != "" {
-			fullURL := baseURL + "?p=" + url.QueryEscape("c/"+m.conversationID)
-			text = fmt.Sprintf("Open %s on another device to continue this conversation.", fullURL)
-		} else {
-			text = fmt.Sprintf("Open %s on another device to take over.", baseURL)
+			lead = "Open on another device to continue this conversation:"
+			rawQuery = "p=" + url.QueryEscape("c/"+m.conversationID)
 		}
-		var extra []string
+		extra := []string{rcURLIndent + lead}
 		if hostname != "" {
-			extra = append(extra, "     Hostname: "+hostname)
+			extra = append(extra, rcURLIndent+"Hostname: "+hostname)
 		}
-		wrapWidth := m.width - 5
-		if wrapWidth > 0 {
-			for _, w := range pluginsui.WrapWords(text, wrapWidth) {
-				extra = append(extra, "     "+w)
-			}
-		} else {
-			extra = append(extra, "     "+text)
-		}
+		// The link is shown the way the add-account screen shows a
+		// URL: cut into chunks, one chunk per row, and every chunk a
+		// hyperlink to the *complete* URL.
+		//
+		// The renderer draws the view into a cell buffer the size of
+		// the terminal, so a line longer than the terminal is
+		// *clipped*, not soft wrapped: the tail of a long line simply
+		// disappears. The chooser URL is ~170 characters, so on one
+		// line its tail — the instance id, the part that names the
+		// daemon — was not on screen at all, and a link the user
+		// cannot see is a link the user cannot open.
+		extra = append(extra, m.rcURLRows(rclink.BrowserURL(instanceID, rawQuery))...)
 		m.slashRespond("/remote-control", msg, extra...)
 	} else {
 		m.slashRespond("/remote-control", msg)

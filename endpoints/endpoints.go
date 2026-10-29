@@ -85,6 +85,12 @@ const (
 	// is served from, and the companionOrigin the Web UI is told about.
 	CompanionOrigin = "companion_origin"
 
+	// AccountChooser is Google's account chooser. The remote-control
+	// deep link goes *through* it, so the browser asks which account to
+	// use — naming the one the daemon registered with — and then
+	// continues to the target page.
+	AccountChooser = "account_chooser"
+
 	// OriginPatterns is the browser Origin allowlist the remote-control
 	// host serves. Its value is a comma-separated list, the same shape
 	// $ANTIGRAVITY_RC_ORIGIN_PATTERNS uses.
@@ -116,6 +122,7 @@ const (
 	DefaultWebChannel         = "https://jetski-webchannel.googleapis.com/v1internal:connectInstanceV2"
 	DefaultGenerativeLanguage = "https://generativelanguage.googleapis.com"
 	DefaultCompanionOrigin    = "https://antigravity.google.com"
+	DefaultAccountChooser     = "https://accounts.google.com/AccountChooser"
 	DefaultTerms              = "https://antigravity.google/terms"
 	DefaultPrivacy            = "https://policies.google.com/privacy"
 	DefaultMarketplace        = "https://marketplace.antigravity.com/skills?q="
@@ -158,6 +165,7 @@ func Names() []Name {
 		{WebChannel, DefaultWebChannel},
 		{GenerativeLanguage, DefaultGenerativeLanguage},
 		{CompanionOrigin, DefaultCompanionOrigin},
+		{AccountChooser, DefaultAccountChooser},
 		{OriginPatterns, strings.Join(DefaultOriginPatterns, ",")},
 		{Terms, DefaultTerms},
 		{Privacy, DefaultPrivacy},
@@ -192,6 +200,8 @@ type Set struct {
 	GenerativeLanguage string
 	// CompanionOrigin is the companion web app's browser origin.
 	CompanionOrigin string
+	// AccountChooser is Google's account chooser.
+	AccountChooser string
 	// OriginPatterns is the browser Origin allowlist.
 	OriginPatterns []string
 	// Terms is the Terms of Service link.
@@ -219,11 +229,40 @@ func Current() Set {
 		WebChannel:         pick(o, WebChannel, DefaultWebChannel),
 		GenerativeLanguage: pick(o, GenerativeLanguage, DefaultGenerativeLanguage),
 		CompanionOrigin:    pick(o, CompanionOrigin, DefaultCompanionOrigin),
+		AccountChooser:     pick(o, AccountChooser, DefaultAccountChooser),
 		OriginPatterns:     pickList(o, OriginPatterns, DefaultOriginPatterns),
 		Terms:              pick(o, Terms, DefaultTerms),
 		Privacy:            pick(o, Privacy, DefaultPrivacy),
 		Marketplace:        pick(o, Marketplace, DefaultMarketplace),
 	}
+}
+
+// AccountChooserURL returns the URL that asks Google's account chooser
+// to continue to target with the given account.
+//
+// The chooser's parameters are Google's own: "Email" names the account
+// and "continue" carries the whole target URL, percent-encoded. The
+// parameters come out in the order Google's own links carry them —
+// "Email" first — because that is what url.Values.Encode does: it
+// sorts the keys.
+//
+// An empty email yields the target itself: a chooser that names no
+// account chooses nothing, and the link would only cost the user a
+// click.
+func (s Set) AccountChooserURL(email, target string) string {
+	target = strings.TrimSpace(target)
+	email = strings.TrimSpace(email)
+	if email == "" {
+		return target
+	}
+	chooser := strings.TrimRight(strings.TrimSpace(s.AccountChooser), "/")
+	if chooser == "" {
+		return target
+	}
+	q := url.Values{}
+	q.Set("Email", email)
+	q.Set("continue", target)
+	return chooser + "?" + q.Encode()
 }
 
 // WebChannelHostPort returns the tunnel endpoint's host:port — the form

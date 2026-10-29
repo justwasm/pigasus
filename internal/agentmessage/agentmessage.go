@@ -70,12 +70,22 @@ const (
 // An empty priority means PriorityHigh: a delivered message is information
 // the model has to pay attention to.
 func Render(sender, content string, at time.Time, priority string) string {
+	return Preamble + "\n\n" + fmt.Sprintf(Wrapper, RenderLine(sender, content, at, priority))
+}
+
+// RenderLine renders one agent message in the reference's own one-line
+// format, without the envelope around it.
+//
+// The envelope (Render) is what a *delivered* message looks like; the
+// line is the message itself. A summary that has to carry ten of them
+// uses the line: the reference's own format, without the preamble
+// repeated ten times.
+func RenderLine(sender, content string, at time.Time, priority string) string {
 	if priority == "" {
 		priority = PriorityHigh
 	}
 	if at.IsZero() {
 		at = time.Now()
 	}
-	msg := fmt.Sprintf(LineFormat, at.UTC().Format(time.RFC3339), sender, priority, content)
-	return Preamble + "\n\n" + fmt.Sprintf(Wrapper, msg)
+	return fmt.Sprintf(LineFormat, at.UTC().Format(time.RFC3339), sender, priority, content)
 }

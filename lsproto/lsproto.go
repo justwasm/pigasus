@@ -93,7 +93,7 @@ func (c *Codec) HasMethod(name string) bool {
 }
 
 // MethodCount returns the number of methods the service declares. The
-// reference's service has 351.
+// reference's service has 356.
 func (c *Codec) MethodCount() int {
 	if c == nil {
 		return 0

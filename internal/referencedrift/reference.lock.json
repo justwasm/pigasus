@@ -1,13 +1,13 @@
 {
-  "version": "1.4.9",
-  "lag_note": "1.4.9 is the live binary (sha256 a66421b7962ffe5642e00cffdd2844dfde440e540502a29d206be5544a065c7b) and the clone's pin, so no lag is acknowledged. What DID move: the served changelog feed - its newest section is now 1.4.8 (180,524 B, 1,038 lines, 79 sections, 881 bullets; the 1.4.9 notes are published in the public repository but the feed does not carry them yet, so the feed and the /changelog markdown blob both still stop one release short) - and the /changelog markdown blob itself (180,070 B, byte-identical to the upstream CHANGELOG.md as of 2026-10-27, sha256 0b911c6fb5187c9286ac2a318a432c8ae1bfdd3f9820edc720a4f13c5ed38d56). What did NOT move, re-measured first-hand against the 1.4.9 binary: --help (byte-identical to the 1.4.6 capture once the clone's own four commands - accounts, halloween, model, provider - are removed). What was NOT re-verified at 1.4.9 and therefore keeps its 1.4.8 stamp: the sixty advertised tool names, the twelve model declarations, the system prompt's static sections, the remote-control descriptor (79 RPCs), the language-server descriptor (358 RPCs), chroma (still pinned at upstream v2.27.0), the embedded model_profiles.json, the overflow message, the session-summary prompt and the tool result texts. The pclntab seed set and the Ghidra project stay at 1.4.7 (the 20 MB seed file is not committed; only the name-level diff is, at out/local-macos/seeds/diff_1.4.7_1.4.8.txt), so every address this repository cites is still the 1.4.7 one and no address was cited for 1.4.9.",
+  "version": "1.4.10",
+  "lag_note": "1.4.10 is the live binary (sha256 35605054a9dc4591dd7e6ea83a9392238153d4c55d265512ed9b5b7f97cc0423) and the clone's pin, so no lag is acknowledged. What DID move: the served changelog feed - its newest section is now 1.4.9 (184,882 B, 1,054 lines, 80 sections, 895 bullets; the 1.4.10 notes are published in the public repository and recorded verbatim in internal/cli/testdata/changelog_upstream_1.4.10.md). What did NOT move, re-measured first-hand against the 1.4.10 binary: --help (byte-identical to the 1.4.6 capture once the clone's own four commands - accounts, halloween, model, provider - are removed). What was regenerated at 1.4.10: the pclntab seed set (167,678 functions), priority list (2,366 functions), the Ghidra project and 2,366/2,366 decompiled functions (345,662 LOC), with reports in out/local-macos/ and seed diff in out/local-macos/seeds/diff_1.4.8_1.4.10.txt. What was NOT re-verified at 1.4.10 and therefore keeps its 1.4.8 stamp: the sixty advertised tool names, the twelve model declarations, the system prompt's static sections, the remote-control descriptor (79 RPCs), the language-server descriptor (358 RPCs), chroma (still pinned at upstream v2.27.0), the embedded model_profiles.json, the overflow message, the session-summary prompt and the tool result texts.",
   "artifacts": [
     {
       "path": "internal/cli/testdata/changelog_reference.txt",
-      "captured_at": "1.4.9",
-      "digest": "86f8368165d040a45bb475459e50b2d2fced7bd02a9df8d996640a7cb3aae2d7",
+      "captured_at": "1.4.10",
+      "digest": "a9c4ce87e4ab753fe475d270240922decd76d2237a05d8b4cb642876331c34ec",
       "live": true,
-      "how": "agy changelog \u003e internal/cli/testdata/changelog_reference.txt, then update the five constants in internal/cli/changelog_data_test.go (byte length, line count, section count, bullet count, sha256) and regenerate this lock. Re-captured at 1.4.9 (2026-10-28): the feed gained the 1.4.8 section and is 180,524 bytes / 1,038 lines / 79 sections / 881 bullets, sha256 86f8368165d040a45bb475459e50b2d2fced7bd02a9df8d996640a7cb3aae2d7. It still ends at 1.4.8 - the 1.4.9 release notes are published in the public repository but the served feed does not carry them yet (they are recorded verbatim in internal/cli/testdata/changelog_upstream_1.4.9.md)."
+      "how": "agy changelog \u003e internal/cli/testdata/changelog_reference.txt, then update the five constants in internal/cli/changelog_data_test.go (byte length, line count, section count, bullet count, sha256) and regenerate this lock. Re-captured at 1.4.10 (2026-10-29): the feed gained the 1.4.9 section and is 184,882 bytes / 1,054 lines / 80 sections / 895 bullets, sha256 a9c4ce87e4ab753fe475d270240922decd76d2237a05d8b4cb642876331c34ec. It still ends at 1.4.9 - the 1.4.10 release notes are published in the public repository but the served feed does not carry them yet (they are recorded verbatim in internal/cli/testdata/changelog_upstream_1.4.10.md)."
     },
     {
       "path": "internal/agyprompt/testdata/capture_1.4.6.txt",
@@ -88,15 +88,15 @@
     },
     {
       "path": "out/local-macos/seeds/seeds.txt",
-      "captured_at": "1.4.7",
-      "digest": "dd73b4f2a2bef107d0767046642e3a420c538a11c809e59a82e5afd4fe2e8d84",
-      "how": "cd rea-go-seeds \u0026\u0026 mkdir -p \u003coutdir\u003e \u0026\u0026 go run . ~/.local/bin/agy \u003coutdir\u003e. Every address moves on every agy release, so the Ghidra project (out/local-macos/proj) and the decompiled output (out/local-macos/dec/) have to be rebuilt from this file; the committed decompile reports carry the addresses this file held when they were written. Regenerated at 1.4.7 (2026-10-25): 165,692 recovered names (was 161,286 at 1.4.6), priority list 2313 functions (was 2290) across 104 packages, Ghidra project rebuilt from the new seeds (165,673 functions created, 0 failed) and 2313/2313 priority functions decompiled, 336,278 LOC. The priority list, the dec/ filenames and this file must be regenerated together - build_reports.py matches them by address, so a stale priority list silently empties every report. Regenerated again for agy 1.4.8 (2026-10-28): 166,181 recovered names. The committed file stays at 1.4.7 (the 20 MB seed set and the Ghidra project are not committed at 1.4.8; only the name-level diff is, at out/local-macos/seeds/diff_1.4.7_1.4.8.txt). Cycle 354 re-anchored every address this repository cites on the 1.4.7 seed set - function entries and rodata literals alike - against the 1.4.8 seed set and the 1.4.8 binary's bytes; out/local-macos/dec/ and priority-funcs.txt stay at 1.4.7 and must be rebuilt together with the seed file"
+      "captured_at": "1.4.10",
+      "digest": "12f28efa0d8f76785b7b7264ac46e61707bf8f80938654a1ab48d893fdc0fec1",
+      "how": "cd rea-go-seeds \u0026\u0026 mkdir -p \u003coutdir\u003e \u0026\u0026 go run . ~/.local/bin/agy \u003coutdir\u003e. Regenerated at 1.4.10 (2026-10-29): 167,678 recovered names, priority list 2,366 functions across 110 packages, Ghidra project rebuilt from the new seeds (167,658 functions created, 0 failed) and 2,366/2,366 priority functions decompiled, 345,662 LOC."
     },
     {
       "path": "out/local-macos/seeds/funcs.txt",
-      "captured_at": "1.4.7",
-      "digest": "86659088cd6355563a1aa5ea2e0e7a2d0fc8611ce4ca86c088681fb22e768541",
-      "how": "written by the same rea-go-seeds run as seeds.txt; the leaf-name inventory used by out/local-macos/find_callers.py and out/local-macos/xref/analyze.py. Regenerated at 1.4.7 (2026-10-25) together with seeds.txt. Regenerated for agy 1.4.8 (2026-10-28) together with seeds.txt (166,181 names); the committed file stays at 1.4.7 for the same reason"
+      "captured_at": "1.4.10",
+      "digest": "ff26859904a0a2176976d15b1b98a075a92a005ed622a5885c38839c42d9edd3",
+      "how": "written by the same rea-go-seeds run as seeds.txt; regenerated at 1.4.10 (2026-10-29) together with seeds.txt (167,678 names)."
     },
     {
       "path": "internal/cli/testdata/help_1.4.6.txt",
@@ -175,7 +175,13 @@
       "path": "out/local-macos/seeds/diff_1.4.7_1.4.8.txt",
       "captured_at": "1.4.8",
       "digest": "85def99084b4d31e3eecebb36a806fbfdf68d4276cfc56cb3be1b01fa387be80",
-      "how": "the name-level difference between the pclntab seed sets of the two binaries: cd rea-go-seeds \u0026\u0026 go run . ~/.local/bin/agy \u003coutdir\u003e for each release, then diff the recovered names. 166,181 names at 1.4.8 against 165,692 at 1.4.7 - 782 added, 293 removed. The 20 MB seed file itself is not committed at 1.4.8 (only the diff is), so out/local-macos/seeds/seeds.txt stays at 1.4.7 and the address space in this repository is still the 1.4.7 one"
+      "how": "the name-level difference between the pclntab seed sets of the two binaries: cd rea-go-seeds \u0026\u0026 go run . ~/.local/bin/agy \u003coutdir\u003e for each release, then diff the recovered names. 166,181 names at 1.4.8 against 165,692 at 1.4.7 - 782 added, 293 removed."
+    },
+    {
+      "path": "out/local-macos/seeds/diff_1.4.8_1.4.10.txt",
+      "captured_at": "1.4.10",
+      "digest": "a497c0da22849312f9502ef8c172760c74f228c89f7134316059e1806f5ee5ee",
+      "how": "the name-level difference between the pclntab seed sets of the two binaries: cd rea-go-seeds \u0026\u0026 go run . ~/.local/bin/agy \u003coutdir\u003e for each release, then diff the recovered names. 167,678 names at 1.4.10 against 166,181 at 1.4.8 - 3,751 added, 2,255 removed."
     }
   ]
 }

@@ -20,6 +20,7 @@ import (
 	"github.com/justwasm/pigasus/internal/cli"
 	"github.com/justwasm/pigasus/internal/persistentrc"
 	"github.com/justwasm/pigasus/internal/rcfrontend"
+	"github.com/justwasm/pigasus/internal/rclink"
 	"github.com/justwasm/pigasus/internal/rctunnel"
 	"github.com/justwasm/pigasus/internal/remotecontrol"
 	"github.com/justwasm/pigasus/originpolicy"
@@ -41,6 +42,14 @@ func RunServe(j *cli.JetskiCLI, args cli.ServeArgs) error {
 		return err
 	}
 	announceSettingsFile(j.ErrOut)
+
+	// The label names the subcommand the user typed: "remote-control
+	// serve" for the serve subcommand, and "remote-control start" for
+	// the foreground path `start` takes where there is no launchd.
+	label := strings.TrimSpace(args.Label)
+	if label == "" {
+		label = "remote-control serve"
+	}
 
 	instanceName := persistentrc.ResolveInstanceName(args.Name)
 	// The instance id is resolved here, not inside the tunnel client:
@@ -86,10 +95,10 @@ func RunServe(j *cli.JetskiCLI, args cli.ServeArgs) error {
 		Handler:      srv.Handler(),
 		LogWriter:    j.ErrOut,
 		DebugForward: os.Getenv("PIGASUS_DEBUG_FORWARD") != "",
-	}, j.ErrOut)
+	}, j.ErrOut, label)
 	defer stopTunnel()
 
-	return runServeEventLoop(srv, tunnelClient, args.Name, addr, token, j.ErrOut)
+	return runServeEventLoop(srv, tunnelClient, args.Name, addr, token, j.ErrOut, label, instanceID)
 }
 
 // buildServeStack builds the session snapshot, the dispatcher and the
@@ -123,12 +132,12 @@ func buildServeStack(addr, instanceID, token string, desktop bool) (*remotecontr
 
 // startServeTunnel starts the cloud tunnel client in the background
 // and returns the client plus the function that stops it.
-func startServeTunnel(opts rctunnel.ClientOptions, errOut io.Writer) (*rctunnel.Client, func()) {
+func startServeTunnel(opts rctunnel.ClientOptions, errOut io.Writer, label string) (*rctunnel.Client, func()) {
 	client := rctunnel.NewClient(opts)
 	ctx, cancel := context.WithCancel(context.Background())
 	go func() {
 		if err := client.Run(ctx); err != nil && ctx.Err() == nil {
-			fmt.Fprintf(errOut, "remote-control serve: cloud tunnel client exited: %v\n", err)
+			fmt.Fprintf(errOut, "%s: cloud tunnel client exited: %v\n", label, err)
 		}
 	}()
 	return client, cancel
@@ -229,23 +238,40 @@ func startServeServer(disp *remotecontrol.Dispatcher, addr, token string) (*remo
 	return srv, nil
 }
 
-func runServeEventLoop(srv *remotetransport.TCPServer, tunnelClient *rctunnel.Client, name, addr, token string, errOut io.Writer) error {
+// runServeEventLoop waits for the interrupt signal and shuts the stack
+// down.
+//
+// instanceID is the id the tunnel *registered* with. The link that is
+// printed has to name that exact id: the cloud's registry keys its
+// rows by it, so a link naming any other id resolves to "No instance
+// found". It is passed in rather than re-derived — a second derivation
+// would be a second id whenever the installation's uuid could not be
+// persisted.
+func runServeEventLoop(srv *remotetransport.TCPServer, tunnelClient *rctunnel.Client, name, addr, token string, errOut io.Writer, label, instanceID string) error {
 	sigCh := make(chan os.Signal, 1)
 	serveSignalChProvider(sigCh)
 	defer signal.Stop(sigCh)
 
-	fmt.Fprintf(errOut, "remote-control serve: listening on %s (path=/rpc, name=%s, antigravity_home=%s)\n",
-		srv.HTTPURL(), name, auth.AntigravityHome())
-	if webURL := srv.WebURL(); webURL != "" {
-		fmt.Fprintf(errOut, "remote-control serve: web UI available at %s\n", webURL)
+	if label == "" {
+		label = "remote-control serve"
 	}
+	fmt.Fprintf(errOut, "%s: listening on %s (path=/rpc, name=%s, antigravity_home=%s)\n",
+		label, srv.HTTPURL(), name, auth.AntigravityHome())
+	if webURL := srv.WebURL(); webURL != "" {
+		fmt.Fprintf(errOut, "%s: web UI available at %s\n", label, webURL)
+	}
+	// The link that reaches *this* instance from another device — the
+	// account chooser wrapping the deep link, so the browser picks the
+	// account the tunnel registered with. See internal/rclink.
+	fmt.Fprintf(errOut, "%s: open %s on another device to take over.\n",
+		label, rclink.BrowserURL(instanceID, ""))
 	// Cycle rc-auth-bearer-required: the secret a client from another
 	// machine has to present. The URL carries it, so the operator can
 	// hand one line to somebody else.
-	announceRCToken(errOut, "remote-control serve", addr, token)
+	announceRCToken(errOut, label, addr, token)
 
 	sig := <-sigCh
-	fmt.Fprintf(errOut, "remote-control serve: caught signal %v, shutting down\n", sig)
+	fmt.Fprintf(errOut, "%s: caught signal %v, shutting down\n", label, sig)
 
 	if tunnelClient != nil {
 		tunnelClient.Stop()

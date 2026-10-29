@@ -8,6 +8,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"github.com/justwasm/pigasus/internal/tuilib"
+	"github.com/justwasm/pigasus/internal/urlchunk"
 )
 
 // View renders the login screen.
@@ -227,7 +228,7 @@ func (m *Model) clickHereLine() string {
 	if ansi.StringWidth(text) > w {
 		text = ansi.Truncate(text, w, "")
 	}
-	return fmt.Sprintf(" \x1b]8;;%s\x1b\\\x1b[34;4m%s\x1b[m\x1b]8;;\x1b\\", m.AuthURL, text)
+	return " " + urlchunk.HyperlinkChunk(m.AuthURL, text)
 }
 
 // clip trims a rendered line to the terminal width.
@@ -255,8 +256,8 @@ func (m *Model) authURLLines() []string {
 		width = 1
 	}
 	lines := make([]string, 0, 32)
-	for _, chunk := range urlChunks(m.AuthURL, width) {
-		lines = append(lines, fmt.Sprintf(" \x1b]8;;%s\x1b\\\x1b[34;4m%s\x1b[m\x1b]8;;\x1b\\", m.AuthURL, chunk))
+	for _, chunk := range urlchunk.Chunks(m.AuthURL, width) {
+		lines = append(lines, " "+urlchunk.HyperlinkChunk(m.AuthURL, chunk))
 	}
 	return lines
 }

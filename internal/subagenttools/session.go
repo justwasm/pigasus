@@ -89,7 +89,7 @@ func Invoke(ctx context.Context, inv Invocation, deps Deps) (Result, error) {
 		}()
 	}
 
-	rt, session, err := createSubagentSession(ctx, deps, model, systemPrompt, cwd, inv.Tools)
+	rt, session, err := createSubagentSession(ctx, deps, model, systemPrompt, cwd, inv.Tools, parentContextOf(deps, inv))
 	if err != nil {
 		if taskReg != nil {
 			taskReg.Update(subID, func(t *taskregistry.Task) {
@@ -203,8 +203,9 @@ func resolveSubagentCWD(agentDir, subID, invWorktree string, deps Deps) (string,
 	return worktreePath, worktreePath
 }
 
-func createSubagentSession(ctx context.Context, deps Deps, model *pi.Model, systemPrompt, cwd string, extraTools []piagent.AgentTool) (*coding.Runtime, *coding.Session, error) {
+func createSubagentSession(ctx context.Context, deps Deps, model *pi.Model, systemPrompt, cwd string, extraTools []piagent.AgentTool, pctx *ParentContext) (*coding.Runtime, *coding.Session, error) {
 	exts, extRuntime := minimalBuiltinExtensions()
+	exts = loadParentContextExtension(exts, extRuntime, pctx)
 	rt, err := coding.NewRuntime(coding.RuntimeOptions{
 		Services:         deps.Services,
 		NewExtensions:    exts,

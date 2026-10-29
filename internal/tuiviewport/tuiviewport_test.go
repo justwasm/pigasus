@@ -50,6 +50,62 @@ func TestSelectionText(t *testing.T) {
 	}
 }
 
+// linkRows builds two rows that are pieces of one hyperlink: a URL
+// cut into two chunks, each chunk carrying the complete URL as its
+// OSC 8 target, each row indented like a transcript row.
+func linkRows(url string) []string {
+	half := len(url) / 2
+	chunk := func(s string) string {
+		return "\x1b]8;;" + url + "\x1b\\\x1b[34;4m" + s + "\x1b[m\x1b]8;;\x1b\\"
+	}
+	return []string{"     " + chunk(url[:half]), "     " + chunk(url[half:])}
+}
+
+// TestSelectionText_JoinsLinkChunks pins the link rule: two rows that
+// are pieces of the same hyperlink are one logical string, so the copy
+// carries no newline between them and no indent in front of the
+// continuation.
+//
+// A URL too long for the terminal is cut into chunks, one chunk per
+// row (internal/urlchunk) — a copy that kept the newline and the
+// indent would be a stack of lines, not a URL.
+func TestSelectionText_JoinsLinkChunks(t *testing.T) {
+	const url = "https://example.com/a?b=c&d=e"
+	rows := linkRows(url)
+
+	// The whole selection, starting at the first column: the first
+	// row's indent is the layout's and stays, the continuation's is
+	// dropped.
+	got := tuiviewport.SelectionText(rows, 0, 0, 1, 20)
+	if strings.Contains(got, "\n") {
+		t.Errorf("the copy carries a newline: %q", got)
+	}
+	if want := "     " + url; got != want {
+		t.Errorf("the copy = %q, want %q", got, want)
+	}
+
+	// A selection that starts at the link's first character copies the
+	// URL and nothing else.
+	got = tuiviewport.SelectionText(rows, 0, 5, 1, 20)
+	if got != url {
+		t.Errorf("the copy = %q, want %q", got, url)
+	}
+}
+
+// TestSelectionText_KeepsTheNewlineBetweenDifferentLinks pins the
+// other side of the rule: two rows that link to *different* URLs are
+// two lines, and the newline stays.
+func TestSelectionText_KeepsTheNewlineBetweenDifferentLinks(t *testing.T) {
+	rows := []string{
+		"     \x1b]8;;https://a.example/\x1b\\\x1b[34;4mhttps://a.example/\x1b[m\x1b]8;;\x1b\\",
+		"     \x1b]8;;https://b.example/\x1b\\\x1b[34;4mhttps://b.example/\x1b[m\x1b]8;;\x1b\\",
+	}
+	got := tuiviewport.SelectionText(rows, 0, 0, 1, 20)
+	if !strings.Contains(got, "\n") {
+		t.Errorf("the copy lost the newline between two different links: %q", got)
+	}
+}
+
 func TestClipToScreenRows(t *testing.T) {
 	rows := []string{"a\nb", "c", "d"}
 	counts := tuiviewport.ScreenRowCounts(rows)

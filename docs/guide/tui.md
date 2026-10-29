@@ -1312,3 +1312,80 @@ The rules that make it work:
   [`accounts.md`](accounts.md) for the writer and the router.
 
 Report: `docs/cycles/cycle-361-account-pool-panel/deliverable.md`.
+
+## The start-up memory trim (`internal/memtrim`, cycle 363, agy 1.4.10)
+
+【一手】 agy 1.4.10: "Improved memory use shortly after startup: the CLI
+now returns about 100 MB of memory left over from startup to the operating
+system 15 seconds after the interactive UI opens; print and headless modes
+are unaffected."
+
+The interactive UI is where the memory is: the start-up path builds the tool
+catalogue, the plugin registry, the prompt and the banner before the first
+frame, and most of it is dead once the first turn is on screen. The Go
+runtime keeps those pages for the next allocation instead of handing them
+back, so the process looks like it is holding a hundred megabytes it is not
+using.
+
+`runtime/debug.FreeOSMemory` is the call that gives the pages back — it runs
+a collection and then returns as much of the freed heap to the OS as it can.
+
+| what | where |
+|---|---|
+| the delay (15 s) | `memtrim.Delay` |
+| the trim itself | `memtrim.Release` / `memtrim.After` (the cancellable schedule) |
+| the only arming site | `internal/cliapp/tui_entry.go` — `runLiveTUI` |
+
+The trim is armed **only in the interactive TUI**, which is the reference's
+own scope: print and headless modes are explicitly unaffected, so arming it
+there would be a behaviour the reference does not have. `memtrim.After`
+returns the cancel function, and the entry point defers it, so a session that
+ends before the delay does not leave a timer behind.
+
+Report: `docs/cycles/cycle-363-agy-1.4.10-alignment/deliverable.md` §2.
+
+## The scrollback (cycle 363, agy 1.4.10) — **open**
+
+【一手】 agy 1.4.10: "Improved streaming performance: the CLI now streams
+model output into the terminal scrollback instead of redrawing the whole
+conversation, and uses about 70% fewer bytes on the wire."
+
+The reference owns the mechanism in its own view layer, and the clone can
+see it in the 1.4.10 symbol table:
+
+| reference symbol | address |
+|---|---|
+| `jetski/cli/viewport.InlineStrategy.FlushToScrollback` | `0x102aeb830` |
+| `jetski/cli/viewport.InlineStrategy.CommitScrollback` | `0x102aec2f0` |
+| `jetski/cli/viewport.buildScrollbackContent` | `0x102aec400` |
+| `jetski/cli/viewport.prepareScrollbackContent` | `0x102aecaa0` |
+| `jetski/cli/viewport.computeSplitPoint` | `0x102aec380` |
+| `model.(*ConversationModel).pushToScrollback` | `0x102b68a00` |
+
+The shape is: the live region is an **inline** strategy over the terminal's
+scrollback, and a completed turn is *committed* into it — the content is
+split at a computed point, the finished part is written to the scrollback
+once, and only the unfinished tail stays in the live region.
+
+The clone **does not implement this yet**, and the reason is structural
+rather than a missing feature:
+
+- The clone's TUI renders through **bubbletea v2** (`charm.land/bubbletea/v2`
+  v2.1.0). Its renderer (`cursed_renderer.go`) has **no** notion of a
+  scrollback — the string "scrollback" does not appear in it — so the
+  terminal's own scrollback is never written to; the alternate screen is
+  used instead (see *The rendering mode* above).
+- The clone's turn output therefore **redraws the whole conversation** on
+  every frame, which is the half of the 1.4.10 note the clone does not
+  match.
+- The "70% fewer bytes on the wire" half is the reference's *transport*
+  change (streaming deltas instead of whole-message payloads). The clone's
+  CloudCode dialect (`geminicode/`) carries its own framing and was not
+  changed by this cycle.
+
+To close the gap the clone would need a renderer it owns — one that writes
+to the terminal's scrollback directly and keeps a live region on top of it —
+which means replacing or wrapping bubbletea's renderer rather than
+configuring it. That is a separate cycle.
+
+Report: `docs/cycles/cycle-363-agy-1.4.10-alignment/deliverable.md` §1.

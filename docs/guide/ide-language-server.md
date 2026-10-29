@@ -15,12 +15,12 @@
 | | |
 |---|---|
 | Path | `/Applications/Antigravity.app/Contents/Resources/bin/language_server` |
-| Size / SHA-256 | 161,803,376 B · `6f7e5004629070ac0c4651a1dc29030eaadcd5dc68fa9edf170047d7f8424f4d` |
-| Go build info | `go1.28-20261015-RC01 cl/1000353293 +18a2e1f59d X:fieldtrack,boringcrypto,simd` |
+| Size / SHA-256 | 166,394,176 B · `7e25e79c819ab9b2e27ad5cfbc5822e5d47885a6c5c033e8d9b7b2e79b8565b0` |
+| Go build info | `go1.28-20261015-RC02 cl/1000353293 +18a2e1f59d X:fieldtrack,boringcrypto,simd,nogolistexportnewformat` |
 | The CLI for comparison | `go1.28-20261015-RC02 cl/1000353293 +18a2e1f59d` — **same CL, same commit** |
 | `.text` base | `0x100000f80` (the CLI's is `0x1000011c0` — **addresses are not comparable**) |
-| pclntab | `__lrodata_gopcln`, 48.7 MB — the seed tool takes it as-is |
-| App version | Antigravity 2.26.0 (`com.google.antigravity`) |
+| pclntab | `__lrodata_gopcln`, 50.1 MB — the seed tool takes it as-is |
+| App version | Antigravity 2.28.0 (`com.google.antigravity`), stamp CL 1008300195 |
 
 **Never mix its addresses with the CLI's.** Only the *names* are comparable —
 and the names are the point.

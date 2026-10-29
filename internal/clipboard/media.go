@@ -183,6 +183,12 @@ func mediaFromFile(path string) (Media, bool) {
 // mediaFromBytes turns raw bytes into a Media, scaling them through the
 // imagery pipeline on the way. ok is false when the bytes are not an
 // image the pipeline understands.
+//
+// 【一手】 agy 1.4.10: "an image saved as JPEG but labeled PNG, such as
+// a pasted image or browser screenshot, is no longer rejected for a
+// mismatched type." The format the Media carries is therefore the one
+// the **bytes** are in — a JPEG that arrived under a .png name leaves
+// as image/jpeg.
 func mediaFromBytes(data []byte, name string) (Media, bool) {
 	if len(data) == 0 {
 		return Media{}, false
@@ -191,17 +197,18 @@ func mediaFromBytes(data []byte, name string) (Media, bool) {
 	if format == imagery.FormatUnknown {
 		return Media{}, false
 	}
-	scaled, _, err := imagery.ScaleIfOversized(data)
+	scaled, outFormat, _, err := imagery.Prepare(data)
 	if err != nil {
 		// A header the pipeline recognises but cannot decode is still an
 		// image as far as the attachment is concerned; the bytes go out
 		// unchanged rather than being dropped.
 		scaled = data
+		outFormat = format
 	}
 	if name == "" {
-		name = "pasted-image.png"
+		name = "pasted-image." + outFormat.String()
 	}
-	return Media{Data: scaled, Format: format, Filename: name}, true
+	return Media{Data: scaled, Format: outFormat, Filename: name}, true
 }
 
 // pastedName is the name a pasted image carries: "pasted-image-1.png".

@@ -81,7 +81,7 @@ def main():
     clone = json.load(open(sys.argv[2]))
     out = {
         "_说明": {
-            "证据等级": "一手 —— 参考实现和克隆都在跑，351 个方法逐个实测",
+            "证据等级": f"一手 —— 参考实现和克隆都在跑，{len(reference)} 个方法逐个实测",
             "抓取时间_utc": datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
             "方法路径": "exa.language_server_pb.LanguageServerService",
             "方法数": len(reference),
@@ -126,7 +126,7 @@ def main():
             if "Method not found" in (clone.get(m, {}).get("grpc_message") or "")
         ),
     }
-    path = pathlib.Path("out/langserver/coverage-351.json")
+    path = pathlib.Path(sys.argv[3]) if len(sys.argv) > 3 else pathlib.Path(f"out/langserver/coverage-{len(reference)}.json")
     path.write_text(json.dumps(out, ensure_ascii=False, indent=1) + "\n")
     print("wrote", path, path.stat().st_size, "bytes")
     print("reference:", kinds["reference"])

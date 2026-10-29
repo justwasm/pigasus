@@ -22,5 +22,8 @@ package cli
 // 1.4.7 → 1.4.8 delta); 1.4.9 is the cycle-362 bump (the installed
 // binary prints 1.4.9 — see
 // docs/cycles/cycle-362-agy-1.4.9-alignment/deliverable.md for the
-// 1.4.8 → 1.4.9 delta).
-const ReferenceVersion = "1.4.9"
+// 1.4.8 → 1.4.9 delta); 1.4.10 is the cycle-363 bump (the installed
+// binary prints 1.4.10 — see
+// docs/cycles/cycle-363-agy-1.4.10-alignment/deliverable.md for the
+// 1.4.9 → 1.4.10 delta).
+const ReferenceVersion = "1.4.10"

@@ -66,6 +66,14 @@ type ServeArgs struct {
 	// This is the `remote-control serve` twin of
 	// `pigasus web --desktop` (WebArgs.Desktop).
 	Desktop bool
+
+	// Label is the name the handler prefixes its progress lines
+	// with ("remote-control serve"). It is empty for the `serve`
+	// subcommand itself, and the handler falls back to that name;
+	// `remote-control start` on a platform without launchd reuses
+	// the same handler and passes its own label, so the user sees
+	// the subcommand they actually typed.
+	Label string
 }
 
 // serveHandler is the cmd/wagyu-supplied entry point for

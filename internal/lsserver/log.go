@@ -36,14 +36,14 @@ const bootstrapPrefix = "ERROR: logging before google.Init: "
 // operator reads and the evidence diff compares, so they are carried
 // verbatim rather than replaced with the clone's own.
 const (
-	locStartPID      = "server.go:1710"
-	locGoMaxProcs    = "server.go:513"
-	locVersion       = "server.go:1766"
-	locListenHost    = "server.go:672"
-	locListenHTTPS   = "server.go:687"
-	locListenHTTP    = "server.go:695"
-	locDiscoveryFile = "server.go:2965"
-	locInitialized   = "server.go:2789"
+	locStartPID      = "server.go:1798"
+	locGoMaxProcs    = "server.go:574"
+	locVersion       = "server.go:1854"
+	locListenHost    = "server.go:742"
+	locListenHTTPS   = "server.go:757"
+	locListenHTTP    = "server.go:765"
+	locDiscoveryFile = "server.go:3115"
+	locInitialized   = "server.go:2935"
 	locMigration     = "migrate.go:50"
 	locMigrationDone = "migrate.go:158"
 )

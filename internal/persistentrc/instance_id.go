@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"github.com/google/uuid"
 )
@@ -77,7 +78,47 @@ func InstanceID() string {
 
 // InstallationUUID returns the persisted uuid this installation is
 // known by, minting and storing one on the first call.
+//
+// The value is **memoised for the life of the process**: a read-only
+// or missing configuration directory would otherwise mint a fresh
+// uuid on every call, so the daemon would register one id and the
+// link it prints would name another — the dashboard would answer "No
+// instance found" for a link the daemon itself printed.
+//
+// 【一手】 2026-10-29, Linux container: the configuration directory
+// was mounted read-only, so the file could not be written. The daemon
+// registered "3da6eeed-0f99-4998-91cd-a7617327d4ac-v2" while the link
+// it printed named "7327d0cc-f915-45a4-884a-3b7592f1d1f6-v2" —
+// two ids for one daemon.
 func InstallationUUID() string {
+	installationUUIDOnce.Do(func() {
+		installationUUID = loadOrMintInstallationUUID()
+	})
+	return installationUUID
+}
+
+// installationUUIDOnce guards the memoisation of the installation
+// uuid; installationUUID holds the memoised value.
+var (
+	installationUUIDOnce sync.Once
+	installationUUID     string
+)
+
+// resetInstallationUUIDForTest clears the memoised installation uuid
+// so a test can start from a clean slate.
+//
+// The memoisation is process-global by design — the id must not change
+// under a running daemon — so a test that wants a *fresh* id (one
+// bound to its own temporary configuration directory) has to ask for
+// the reset explicitly.
+func resetInstallationUUIDForTest() {
+	installationUUIDOnce = sync.Once{}
+	installationUUID = ""
+}
+
+// loadOrMintInstallationUUID reads the persisted uuid, or mints one
+// and tries to persist it.
+func loadOrMintInstallationUUID() string {
 	path := InstanceIDPath()
 	if path == "" {
 		// No home to persist into: fall back to a per-process uuid.
@@ -93,6 +134,48 @@ func InstallationUUID() string {
 		_ = os.WriteFile(path, []byte(u+"\n"), 0600)
 	}
 	return u
+}
+
+// EnsureInstanceID resolves the installation's instance id **and
+// persists it**, so that a *separate* process — the launchd daemon
+// `remote-control start` bootstraps — reads the same id.
+//
+// The persistent daemon is a different process from the one that
+// starts it, and the id has to be the same in both: the daemon
+// registers it with the cloud, and the link the starter prints has to
+// name it. Persisting it *before* the daemon starts removes the race —
+// without it, the daemon and the starter could each mint one.
+//
+// The file holds the **uuid**, not the full instance id: the id adds
+// the "-v2" suffix, and the uuid is what
+// loadOrMintInstallationUUID reads back.
+//
+// The second return value reports whether the file now holds the id.
+// When it is false the id lives only in this process, and a separate
+// daemon would mint its own.
+func EnsureInstanceID() (string, bool) {
+	uuid := InstallationUUID()
+	id := InstanceIDPrefix + uuid + InstanceIDSuffix
+	path := InstanceIDPath()
+	if path == "" {
+		return id, false
+	}
+	if b, err := os.ReadFile(path); err == nil {
+		if strings.TrimSpace(string(b)) == uuid {
+			return id, true
+		}
+		// The file holds a *different* uuid — it changed under this
+		// process. The starter owns the daemon it is about to launch,
+		// so it writes its own uuid back: the daemon reads the file,
+		// and the two have to agree.
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0700); err != nil {
+		return id, false
+	}
+	if err := os.WriteFile(path, []byte(uuid+"\n"), 0600); err != nil {
+		return id, false
+	}
+	return id, true
 }
 
 // InstanceIDPath returns the file the installation uuid is kept in.

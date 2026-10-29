@@ -20,8 +20,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/justwasm/pigasus/endpoints"
 	"github.com/justwasm/pigasus/internal/persistentrc"
+	"github.com/justwasm/pigasus/internal/rclink"
 )
 
 // runJetski executes one invocation through the standard v1.3.5 parser and
@@ -102,8 +102,15 @@ func TestRemoteControlStatus_Plaintext(t *testing.T) {
 	if !strings.Contains(out, "Instance name:") {
 		t.Errorf("status plaintext should contain 'Instance name:', got %q", out)
 	}
-	if !strings.Contains(out, endpoints.Current().CompanionOrigin) {
-		t.Errorf("status plaintext should mention the companion origin, got %q", out)
+	// The link the status prints is the account chooser wrapping the
+	// deep link, so the companion origin travels percent-encoded
+	// inside the "continue" parameter — the raw origin does not
+	// appear as a substring any more.
+	if !strings.Contains(out, "find it at ") {
+		t.Errorf("status plaintext should carry the link to the instance, got %q", out)
+	}
+	if !strings.Contains(out, rclink.BrowserURL(persistentrc.InstanceID(), "")) {
+		t.Errorf("status plaintext should carry the browser link, got %q", out)
 	}
 }
 

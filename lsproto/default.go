@@ -8,7 +8,7 @@
 // rather than guessed from the method name.
 //
 // 【一手】 2026-10-27: the reference itself answers most of the
-// methods with exactly that. Of the 351 methods of the service, the
+// methods with exactly that. Of the 356 methods of the service, the
 // reference answers 153 — and 111 of those 153 answers are exactly
 // `{}`, the default instance of their response message
 // (out/langserver/coverage-351.json).

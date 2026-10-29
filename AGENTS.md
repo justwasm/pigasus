@@ -44,7 +44,7 @@ things in it:
 | `accountpool/` | the **account-routing policy** as a public package: the `config.json` section's shape, the four strategies, the quota threshold, the decision. Pure — no I/O, no `internal/` dependency — so it imports on its own; the runtime is `internal/accountrouting`. See [`docs/guide/accounts.md`](docs/guide/accounts.md) |
 
 The reference is **Antigravity CLI** (`agy`) — a closed-source Google-internal
-agent CLI (`google3/third_party/jetski/…`). The clone emulates **agy 1.4.9**
+agent CLI (`google3/third_party/jetski/…`). The clone emulates **agy 1.4.10**
 (`internal/cli.ReferenceVersion`).
 
 There is a **second reference binary**: the Antigravity **IDE** ships its own
@@ -326,7 +326,8 @@ subtle if it is violated.
     read sends the CLI's identity, so its page is the CLI's page;
     `pigasus web --desktop` switches that one read to the hub's identity
     and the desktop UI appears. The `remote-control` family has the same
-    switch — `remote-control serve --desktop` and
+    switch — `remote-control serve --desktop`,
+    `remote-control run --desktop` and
     `remote-control start --desktop` (the plist carries it into the
     daemon) — on the same rule. The cache is **per identity**
     (`internal/remotecontrol/mendel_flags.go`) — one shared cache hands the
@@ -342,6 +343,82 @@ subtle if it is violated.
     (`internal/rcaudio`) — the reference's own STT is local. The wire is
     canonical proto-JSON (the member name at the top level), not
     protobuf-es's `{case,value}` envelope.
+31. **The printed link goes through Google's account chooser.** The cloud's
+    instance rows are **per Google account** and the dashboard's `/u/<N>/`
+    segment selects one, so the bare `/r/<id>` link resolves against the
+    browser's *default* account and answers "No instance found". Every link
+    the clone prints is therefore
+    `https://accounts.google.com/AccountChooser?Email=<addr>&continue=<deep link>`
+    (`internal/rclink`, the chooser is the named endpoint
+    `account_chooser`). The **deep link** is the reference's own; the
+    chooser around it is the clone's own and does **not** match the
+    reference's bytes. A URL shown in the TUI is **never left on one
+    line**: the renderer *clips* a line that is wider than the terminal,
+    so the tail of a long URL disappears. It is cut into chunks, and
+    every chunk carries the **complete** URL as its OSC 8 target
+    (`internal/urlchunk`, shared with the add-account screen). The
+    transcript's selection joins two rows with the same hyperlink target
+    without a newline, so copying the chunks yields the URL.
+32. **The printed link must name the id the tunnel registered.** The
+    installation uuid is persisted in
+    `~/.config/openagy/remote-control-instance-id`; a configuration
+    directory that cannot be written would mint a **fresh** uuid on every
+    call, and the daemon would register one id while the link it printed
+    named another — the dashboard answers "No instance found" for a link
+    the daemon itself printed. So the uuid is **memoised per process**
+    (`persistentrc.InstallationUUID`) and the daemon's id is threaded into
+    the printer (`rchost.runServeEventLoop`). On macOS the starter and the
+    daemon are **separate processes**, so the id is resolved *and
+    persisted* before the daemon is bootstrapped
+    (`persistentrc.EnsureInstanceID`) — and that file holds the **uuid**,
+    not the full id: the reader rejects anything that is not a uuid.
+33. **There is no launchd off macOS, so the daemon runs in the
+    foreground.** `remote-control start` registers a launchd agent on
+    macOS; on every other platform it runs the daemon in the foreground
+    (the same stack as `remote-control serve`, through the `serveHandler`
+    bridge) instead of failing with "launchd-backed mode requires
+    macOS". The stderr note says so; the stdout sentinel
+    `Remote-control daemon stopped.` is shared with `remote-control stop`.
+    The `start` **usage block stays the reference's**, byte for byte.
+    `remote-control run` is the **platform-independent** spelling — the
+    foreground daemon on every platform — and `serve`, `run` and the
+    non-darwin `start` share one implementation
+    (`cli.runRCForegroundDaemon`); only the label differs. `run` is
+    **hidden**: the reference's `remote-control --help` lists start,
+    status and stop only, and that block is the reference's.
+
+**The 1.4.10 alignment (cycle 363)**
+
+34. **The memory trim is armed in the interactive TUI only.** The
+    reference returns ~100 MB of start-up memory to the OS 15 s after the
+    *interactive UI* opens; print and headless are explicitly unaffected
+    (`internal/memtrim`, armed in `internal/cliapp/tui_entry.go`).
+    Arming it elsewhere is a behaviour the reference does not have.
+35. **The resume block's bytes must not change.** The 1.4.10 split
+    (`compaction.CarriedBlock` + `compaction.ResumingBlock`) is a
+    *refactor*: the bytes the model sees after a compaction are
+    byte-for-byte what they were. The carried tokens are added to the
+    *after* figure only — the `(N summary)` label stays the summary
+    alone.
+36. **The media type follows the bytes, never the file name.** A JPEG
+    saved as a PNG must travel as `image/jpeg`; `imagery.Prepare` returns
+    the format it produced and every attachment path sends *that*
+    (`internal/clipboard/media.go`, `internal/clipboard/paste.go`,
+    `internal/remotecontrol/message_image.go`). The cap is 2000 px per
+    side (`imagery.MaxSide`).
+37. **A subagent's parent context lives in the child's own session.** The
+    parent's task and id are the *oldest* messages of the subagent's
+    conversation, so a summary drops them first — the clone keeps the
+    parent's half itself (`internal/subagenttools/parentcontext.go`) and
+    installs it through PiG's `session_before_compact` hook. The hook's
+    extension is loaded into the **subagent's** session with the
+    **shared** `*extension.ExtensionRuntime` (invariant 2) — a runtime
+    the session's runner does not use never fires the handler.
+38. **There is no scrollback yet.** bubbletea v2's renderer has no notion
+    of one (the string does not appear in `cursed_renderer.go`), so the
+    clone redraws the whole conversation every frame; the 1.4.10
+    streaming scrollback is **open** — it needs a renderer the clone
+    owns, not a bubbletea setting.
 
 ---
 

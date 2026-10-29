@@ -32,16 +32,16 @@ import (
 // override each of them.
 var (
 	// StampBuiltOn is the reference binary's build time.
-	StampBuiltOn = "2026-10-23 04:48:42 +0800 CST"
+	StampBuiltOn = "2026-10-28 03:41:13 +0800 CST"
 	// StampCL is the reference binary's changelist number.
-	StampCL = "1005016104"
+	StampCL = "1008300195"
 	// StampBaseline is the reference binary's baseline changelist.
-	StampBaseline = "1002541031"
+	StampBaseline = "1006933201"
 	// StampLabel is the reference binary's build label. The
 	// reference prints an empty one.
 	StampLabel = ""
 	// StampBranch is the branch the reference binary was cut from.
-	StampBranch = "//depot/branches/antigravity_web_release_branch/1002541031.1/google3"
+	StampBranch = "//depot/branches/antigravity_web_release_branch/1006933201.1/google3"
 )
 
 // WriteStamp writes the reference's stamp to w.

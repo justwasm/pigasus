@@ -115,3 +115,56 @@ Reports: `docs/cycles/cycle-183/`, `docs/cycles/cycle-209/`,
 `docs/cycles/cycle-210/`, `docs/cycles/cycle-278/`,
 `docs/cycles/pig-bump-052/`.
 
+
+## The subagent's parent context (`internal/subagenttools`, cycle 363, agy 1.4.10)
+
+【一手】 agy 1.4.10: "Fixed subagents losing the task their parent agent
+gave them, and the parent's ID, after their context was compacted,
+including with `/compact`; a subagent's summary now keeps the parent
+agent's 10 most recent messages."
+
+A subagent's conversation is **two conversations in one**: the parent's half
+(the task it was given, the messages it was sent afterwards) and the child's
+own half (the turns it worked through). A compaction rewrites the child's
+half into a summary — and a summary that only knows about the child's own
+turns leaves the child without the task it was given and without the id it
+has to answer on. The parent's task and id are the **oldest** messages of
+the conversation, so they are the first ones a summary drops.
+
+The clone keeps the parent's half itself:
+
+| piece | where | what it is |
+|---|---|---|
+| the record | `internal/subagenttools/parentcontext.go` — `ParentContext` | the parent's id, the task, and the parent's messages (oldest first, at most `MaxParentMessages` = 10) |
+| the rendering | `ParentContext.Summary()` | the task in the reference's own message envelope, the parent's id, and the ten most recent messages one line each |
+| the summary | `internal/subagenttools/compaction.go` — `SubagentSummary` | the parent's half followed by a digest of the subagent's own work (at most `MaxDigestLines` = 40 lines) |
+| the hook | `parentContextExtension` | answers PiG's `session_before_compact` with `extension.CompactionResult` |
+
+Two rules make the hook work:
+
+- **The extension is loaded into the subagent's own session**, not into the
+  parent's — so the parent's half travels with the session and not with the
+  process (`createSubagentSession` in `internal/subagenttools/session.go`).
+  The extension is loaded from a factory through
+  `factoryload.LoadExtensionFromFactory`, under the name
+  `subagent-parent-context`.
+- **The `*extension.ExtensionRuntime` must be the shared one.** The same
+  rule as the built-in factories in
+  *The agent loop (cycle 183)*: an extension loaded into a runtime the
+  session's runner does not use never fires its handler. `loadParentContextExtension`
+  therefore takes the runtime the built-in extensions were loaded into.
+
+The parent's messages are recorded while the delegation is **waited on**
+(`internal/subagenttools/launch.go`): the parent context is built *before*
+the session is created, and every message the parent sends to the subagent
+is recorded as it arrives.
+
+PiG asks the hook on **both** compaction paths — the manual `compact` and
+the automatic one — so the clone's hook covers `/compact` and the
+auto-compaction alike.
+
+【推测】 The reference's own summary is written by its model and its exact
+shape is not recoverable from the release note; the clone's summary is its
+own document carrying exactly the three things the note names.
+
+Report: `docs/cycles/cycle-363-agy-1.4.10-alignment/deliverable.md` §4.

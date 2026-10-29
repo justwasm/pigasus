@@ -124,6 +124,26 @@ static sections, the remote-control and language-server descriptors, chroma,
 the embedded `model_profiles.json`, the overflow message, the
 session-summary prompt and the tool result texts.
 
+**Re-evidenced at 1.4.10** (`docs/cycles/cycle-363-agy-1.4.10-alignment/`): the
+clone is pinned to 1.4.10 (sha256 `35605054…`). The **served changelog feed
+grew by one section** — the 1.4.9 section arrived, so the feed is now
+184,882 bytes / 1,054 lines / 80 sections / 895 bullets — but its newest
+section is **still 1.4.9**: the 1.4.10 release notes live in the vendor's
+public repository only, and they are recorded verbatim in
+`internal/cli/testdata/changelog_upstream_1.4.10.md`, the way the 1.4.9 notes
+were. `--help` is byte-identical to the 1.4.6 capture once the clone's own
+four commands are removed. What did move is **behaviour**, and the clone
+implements four of the six 1.4.10 bullets: startup memory trim after 15 seconds
+via `runtime/debug.FreeOSMemory` (`internal/memtrim`), post-compaction size
+counts carried content (`internal/compaction`), subagent compaction keeps
+parent's task, ID, and 10 most recent parent messages (`internal/subagenttools`),
+and image limits are capped at 2000px per side with large PNG converted to JPEG
+and MIME type following bytes (`imagery`). The pclntab seed set is regenerated
+from the 1.4.10 binary (167,678 names recovered, 3,751 added and 2,255 removed
+vs 1.4.8), the Ghidra project was rebuilt (167,658 functions created, 0 failed),
+and 2,366/2,366 priority functions were decompiled with 0 errors across 110 packages
+(345,662 LOC).
+
 The **seed set is now regenerated at 1.4.6** (`out/local-macos/seeds/`, 161,286
 functions), and so is everything derived from it — the Ghidra project
 (`out/local-macos/proj`), the decompiled output (`out/local-macos/dec/`), the

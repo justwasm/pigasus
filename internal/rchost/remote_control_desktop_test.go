@@ -12,6 +12,7 @@
 package rchost
 
 import (
+	"context"
 	"strings"
 	"testing"
 
@@ -77,6 +78,35 @@ func TestForegroundDispatcher_DefaultIdentityIsTheCLIs(t *testing.T) {
 	}
 	if got := disp.MendelUserAgent(); got != "" {
 		t.Errorf("MendelUserAgent = %q, want the CLI's own identity (empty)", got)
+	}
+}
+
+// TestServeStack_DesktopIdentity pins the last link of the chain:
+// the switch the foreground surfaces pass in — `remote-control serve
+// --desktop`, `remote-control run --desktop`, and `remote-control
+// start --desktop` on a platform without launchd — reaches the
+// dispatcher's Mendel read as the hub's identity.
+//
+// The other tests pin the pieces; this one pins the seam between the
+// flag and the identity, which is the one every foreground surface
+// shares.
+func TestServeStack_DesktopIdentity(t *testing.T) {
+	for _, desktop := range []bool{false, true} {
+		disp, srv, err := buildServeStack("127.0.0.1:0", "inst", "token", desktop)
+		if err != nil {
+			t.Fatalf("buildServeStack(desktop=%v): %v", desktop, err)
+		}
+		t.Cleanup(func() { _ = srv.Shutdown(context.Background()) })
+		got := disp.MendelUserAgent()
+		if desktop {
+			if !strings.HasPrefix(got, "antigravity/hub/") {
+				t.Errorf("MendelUserAgent = %q, want the hub identity", got)
+			}
+			continue
+		}
+		if got != "" {
+			t.Errorf("MendelUserAgent = %q, want the CLI's own identity (empty)", got)
+		}
 	}
 }
 

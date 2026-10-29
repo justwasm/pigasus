@@ -1328,3 +1328,36 @@ own gate:
 | `--dangerously-skip-permissions` | the session's own flag | read through `Policy.SkipPermissions` |
 
 Report: `docs/cycles/cycle-352-subagent-async/deliverable.md`.
+
+## The image pipeline (`imagery`, cycle 363, agy 1.4.10)
+
+【一手】 agy 1.4.10: "Fixed conversations with many or large images, such
+as screenshots or pasted images, being rejected for exceeding the model's
+request size limit: images are now capped at 2000 pixels per side and
+large PNGs are sent as JPEGs when that is much smaller, and an image saved
+as JPEG but labeled PNG, such as a pasted image or browser screenshot, is
+no longer rejected for a mismatched type."
+
+Three rules, and one entry point:
+
+| rule | where |
+|---|---|
+| the cap is **2000** px per side (it was 2576 — the 1.3.2 value) | `imagery.MaxSide` |
+| a **large** PNG travels as a JPEG when the JPEG is **much** smaller | `imagery.LargePNGBytes` (64 KiB), `imagery.JPEGMuchSmaller` (2×) |
+| the media type follows the **bytes**, never the file name | `imagery.Prepare` returns the format it produced |
+
+`imagery.Prepare(data)` is the single entry point of the three attachment
+paths — `internal/clipboard/media.go` (a pasted picture),
+`internal/clipboard/paste.go` (the drag-and-drop route) and
+`internal/remotecontrol/message_image.go` (the Web UI's attachment) — and
+each of them sends the format `Prepare` reports. That is what makes "a
+JPEG saved as a PNG" work: the bytes say JPEG, so the request says
+`image/jpeg`. The PNG→JPEG conversion flattens transparency onto white
+(a JPEG has no alpha channel).
+
+The two thresholds are the clone's own choice (【推测】): the note names
+neither "large" nor "much smaller". `imagery.ScaleIfOversized` survives as
+the scale-only wrapper it became — the format-changing half moved into
+`Prepare`.
+
+Report: `docs/cycles/cycle-363-agy-1.4.10-alignment/deliverable.md` §5.

@@ -68,25 +68,12 @@ func wrapProse(text string, width int) []string {
 	return out
 }
 
-// urlChunks splits the authorization URL into the chunks the
-// reference shows: one column of indent and width-2 characters of URL
-// per line.
+// The chunking of the authorization URL lives in internal/urlchunk,
+// which the /remote-control transcript row shares: the two surfaces
+// show a URL the same way, so they cut it the same way. The
+// reference's geometry is one column of indent and width-2 characters
+// of URL per line.
 //
 // The URL is one unbroken run of characters, so the break points are
 // arbitrary character boundaries — the reference breaks it the same
 // way (".../oauth2/a" / "uth?access_type=offline&...").
-func urlChunks(url string, width int) []string {
-	if width < 1 {
-		width = 1
-	}
-	runes := []rune(url)
-	if len(runes) == 0 {
-		return []string{""}
-	}
-	var out []string
-	for len(runes) > width {
-		out = append(out, string(runes[:width]))
-		runes = runes[width:]
-	}
-	return append(out, string(runes))
-}

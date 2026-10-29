@@ -7,12 +7,13 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 
-	"github.com/justwasm/pigasus/endpoints"
 	"github.com/justwasm/pigasus/internal/accounts"
 	"github.com/justwasm/pigasus/internal/auth"
 	"github.com/justwasm/pigasus/internal/branding"
+	"github.com/justwasm/pigasus/internal/rclink"
 )
 
 // DefaultOfficialDaemonLabel is the launchd service label used by the official agy binary.
@@ -182,9 +183,18 @@ func PlaintextDaemonStatus(ctx context.Context, name string) []string {
 
 	instName := ResolveInstanceName(name)
 	if instName != "" {
-		lines = append(lines, fmt.Sprintf("Instance name: %s (find it at %s)", instName, endpoints.Current().CompanionOrigin))
+		// The link reaches this instance: the account chooser wrapping
+		// the deep link, so the browser picks the account the daemon
+		// registered with. See internal/rclink.
+		lines = append(lines, fmt.Sprintf("Instance name: %s (find it at %s)", instName, rclink.BrowserURL(InstanceID(), "")))
 	} else {
 		lines = append(lines, "Instance name: not assigned yet; the daemon generates one on its first start.")
+	}
+	if runtime.GOOS != "darwin" {
+		// There is no launchd here, so there is no registered daemon to
+		// ask: the daemon runs in the foreground, in the terminal that
+		// started it.
+		lines = append(lines, "Daemon mode: foreground (this platform has no launchd; `remote-control run` runs the daemon in the foreground)")
 	}
 	return lines
 }

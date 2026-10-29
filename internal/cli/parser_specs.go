@@ -103,6 +103,13 @@ func standardRCSubs() []SubSubSpec {
 			RunJ: runRCStart, HelpFn: usageRCStart},
 		{Name: "serve", Short: "Run the remote-control daemon in the foreground (OAuth login inline)",
 			RunJ: runRCServe, HelpFn: usageRCServe},
+		// `run` is the clone's own, platform-independent spelling of
+		// `serve`: the same daemon, in the foreground, on every
+		// platform. It is hidden — the reference's `remote-control
+		// --help` lists start, status and stop only, and that block
+		// is the reference's, byte for byte.
+		{Name: "run", Short: "Run the remote-control daemon in the foreground (same on every platform)",
+			RunJ: runRCRun, HelpFn: usageRCRun},
 		{Name: "status", Short: "Show the daemon's status",
 			RunJ: runRCStatus, HelpFn: usageRCStatus},
 		{Name: "stop", Short: "Stop the daemon and unregister it",

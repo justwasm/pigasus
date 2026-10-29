@@ -21,11 +21,22 @@ func newTestCodec(t *testing.T) *Codec {
 }
 
 // TestServiceMethodCount pins the size of the surface the web UI
-// speaks. The reference's LanguageServerService declares 351 RPCs.
+// speaks. The reference's LanguageServerService declares 356 RPCs
+// (added 6 methods, removed GetResolvedCascadeConfig).
 func TestServiceMethodCount(t *testing.T) {
 	c := newTestCodec(t)
-	if got := c.MethodCount(); got != 351 {
-		t.Fatalf("MethodCount = %d, want 351", got)
+	if got := c.MethodCount(); got != 356 {
+		t.Fatalf("MethodCount = %d, want 356", got)
+	}
+	// Check new methods in 2.28.0:
+	for _, m := range []string{"GetMarketplaceFeatured", "CallMcpAppTool", "WarmUpEnvironment", "SetPluginAuthAccountLabel", "GetVoiceCallDebug", "ListBackgroundTasks"} {
+		if !c.HasMethod(m) {
+			t.Errorf("expected method %s to exist", m)
+		}
+	}
+	// Check removed method:
+	if c.HasMethod("GetResolvedCascadeConfig") {
+		t.Errorf("GetResolvedCascadeConfig should have been removed")
 	}
 }
 
