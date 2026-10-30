@@ -461,6 +461,40 @@ subtle if it is violated.
 
 ---
 
+## The plugin panels and the instance rename (cycle 367)
+
+46. **A known member with the wrong JSON type fails the Web UI's
+    decode.** The Web UI decodes with the reference's own descriptor
+    and `ignoreUnknownFields: true` — an unknown member is fine, but a
+    *known* member with the wrong type fails the whole decode, and the
+    panel renders an error instead of the list. Every plugin answer
+    goes through the reference's own codec in a round-trip test
+    (`internal/remotecontrol/plugins_ls_test.go`).
+47. **The rename must not drop the tunnel.** The reference renames a
+    registered instance over the API (`{proxyURL}/v1internal:updateInstance`)
+    with the session up; a reconnect would restore the **old** name,
+    because the re-registration carries the name the client holds — so
+    a successful rename also moves `Client`'s own name. The source of
+    truth is the configuration file
+    (`userSettings.cliRemoteControlHostname`), and the watcher reads the
+    **configured** name, not the resolved one: the resolved name falls
+    back to the host name, which would look like a rename nobody asked
+    for.
+48. **Every answer member must be a member the descriptor knows, and
+    every enum value must be a value the enum *names*.** An unknown
+    member is dropped by the Web UI's decoder without an error, and an
+    unknown **enum name** takes the whole list with it — protojson
+    rejects the message that carries it. The wire carries
+    `REFRESH_CUSTOMIZATION_TYPE_PLUGIN`, never `PLUGIN` (the bundle's
+    own enum is numeric, which is why the short name looks right in the
+    source and is wrong on the wire). The audit runs over the **whole**
+    service — every method of the 1.4.8 fixture against every answer
+    (`internal/remotecontrol/ls_schema_audit_test.go`). The language
+    server's contracts and the clone's legacy dashboard contracts are
+    **not** each other's: an alias between them drops every member.
+
+---
+
 ## Commands
 
 ```bash

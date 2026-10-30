@@ -36,6 +36,22 @@
 // the mechanism. The mechanism the reference ships is the API call
 // above, and it is the one the clone uses: the tunnel session stays
 // up.
+//
+// # What the watcher watches
+//
+// The *configured* name — the value of
+// userSettings.cliRemoteControlHostname — not the resolved one.
+//
+// The resolved name (persistentrc.ResolveInstanceName) falls back to
+// the machine's host name when the configuration carries none, and
+// that fallback would look like a rename the user never made: the
+// watcher would see a name it did not write and push it. The
+// configured name is the one the user writes, so a change in it is a
+// rename and nothing else.
+//
+// A configured name that is empty is skipped — the reference refuses
+// an empty hostname outright ("[RemoteControl] Cannot update hostname
+// to empty. Rejecting update.").
 package rchost
 
 import (
@@ -55,30 +71,34 @@ import (
 // the interval is short enough that a rename shows up on the dashboard
 // while the user is still looking at it, and long enough that the
 // daemon is not a busy loop.
-const instanceNamePollInterval = 2 * time.Second
+//
+// It is a variable so a test can shorten it; nothing else writes it.
+var instanceNamePollInterval = 2 * time.Second
 
-// watchInstanceName polls the persisted instance name and pushes a
+// watchInstanceName polls the configured instance name and pushes a
 // rename to the cloud over the tunnel session that is already up.
 //
-// The watcher owns no state beyond the last name it pushed: the
+// The watcher owns no state beyond the last name it saw: the
 // configuration file is the source of truth, and the tunnel's own
 // registration name is the baseline.
 //
-// A name that resolves to nothing is skipped — the reference refuses
-// an empty hostname outright ("[RemoteControl] Cannot update hostname
-// to empty. Rejecting update."), and an empty name would unregister
-// the instance's identity on the dashboard.
+// baseline is the configured name at the moment the daemon started.
+// It is passed in rather than read here so that the baseline is
+// captured *before* the watcher begins — a name written between the
+// daemon's start-up and the watcher's first tick would otherwise look
+// like a rename the watcher had already seen.
 //
 // A failed push is not fatal: the next tick tries again, because the
 // configuration still carries the new name.
-func watchInstanceName(ctx context.Context, client *rctunnel.Client, errOut io.Writer, label string) {
+func watchInstanceName(ctx context.Context, client *rctunnel.Client, errOut io.Writer, label, baseline string) {
 	if client == nil {
 		return
 	}
 	if label == "" {
 		label = "remote-control serve"
 	}
-	last := client.InstanceName()
+	last := baseline
+	lastPushed := client.InstanceName()
 
 	ticker := time.NewTicker(instanceNamePollInterval)
 	defer ticker.Stop()
@@ -90,12 +110,20 @@ func watchInstanceName(ctx context.Context, client *rctunnel.Client, errOut io.W
 		case <-ticker.C:
 		}
 
-		name := persistentrc.ResolveInstanceName("")
-		if name == "" || name == last {
+		configured := persistentrc.ConfiguredInstanceName()
+		if configured == "" || configured == last {
+			continue
+		}
+		last = configured
+
+		// The name the dashboard shows is the resolved one — the
+		// clone's own brand prefix and all.
+		name := persistentrc.ResolveInstanceName(configured)
+		if name == "" || name == lastPushed {
 			continue
 		}
 		fmt.Fprintf(errOut, "%s: [RemoteControl] Hostname changed from %q to %q, updating via API\n",
-			label, last, name)
+			label, lastPushed, name)
 		if err := client.UpdateInstanceName(ctx, name); err != nil {
 			fmt.Fprintf(errOut, "%s: [RemoteControl] Failed to update instance metadata: %v\n", label, err)
 			continue
@@ -105,6 +133,6 @@ func watchInstanceName(ctx context.Context, client *rctunnel.Client, errOut io.W
 		// rename has to move it, or the next reconnect would put the
 		// old name back.
 		client.SetInstanceName(name)
-		last = name
+		lastPushed = name
 	}
 }

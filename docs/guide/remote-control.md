@@ -502,6 +502,57 @@ rejects anything that is not a uuid, and the id adds the `-v2` suffix.
 If the id cannot be persisted, `remote-control start` says so on stderr
 rather than printing a link that may not resolve.
 
+## The rename does not drop the connection
+
+The instance's name is the nickname the dashboard shows for this machine.
+The reference changes it **over the API, with the tunnel session up** — the
+dashboard follows the new name and the instance never drops off and
+re-registers.
+
+【反编译】 `remotecontrol.UpdateInstanceMetadata` (0x1025aad50 in the
+1.4.11 binary) posts to `{proxyURL}/v1internal:updateInstance`:
+
+```json
+{"instanceId":"…","metadata":{"name":"…"},"updateMask":"metadata.name"}
+```
+
+The caller is `language_server.(*Server).updateRemoteControlConnection.func1`
+(0x1026a6020), and the reference's own log lines are reproduced verbatim:
+
+```
+[RemoteControl] Hostname changed from %q to %q, updating via API
+[RemoteControl] Failed to update instance metadata: %v
+```
+
+The clone's model is the reference's own: **the configuration file is the
+source of truth**.
+
+```
+~/.gemini/config/config.json
+  → userSettings.cliRemoteControlHostname
+```
+
+`persistentrc.SetInstanceName` writes it (the CLI side of the reference's
+`(*Daemon).SetInstanceName` → `config.ApplyProtoUpdate`), and the daemon's
+watcher (`internal/rchost/instance_name.go`) reads it back and pushes the
+change over the API.
+
+| | |
+|---|---|
+| `pigasus remote-control rename <name>` | writes the configuration file — **hidden**, because the reference's `remote-control --help` block is the reference's, byte for byte (the same rule `serve` and `run` follow) |
+| the watcher | polls the **configured** name every two seconds; an empty one is skipped, because the reference refuses an empty hostname outright |
+| the push | `internal/rctunnel/update_instance.go` — the reference's wire body and error strings, a Bearer header, a 30 s timeout |
+| the endpoint | a **named endpoint** (`update_instance`) derived from the tunnel's own host, so a local mock answers the rename on the same port |
+| the tunnel's own name | moves with a successful rename — the tunnel re-registers on every reconnect, and the re-registration carries the name the client holds. Without that, the next reconnect would put the old name back |
+
+The watcher watches the **configured** name, not the resolved one:
+`persistentrc.ResolveInstanceName` falls back to the machine's host name
+when the configuration carries none, and that fallback would look like a
+rename nobody asked for. The baseline is captured by the caller *before*
+the watcher goroutine starts, so a name written between the daemon's
+start-up and the watcher's first tick is not mistaken for a rename the
+watcher had already seen.
+
 ## The trajectory is the shared state
 
 A conversation is a list of steps, and the Web UI renders that list. The
@@ -756,6 +807,86 @@ The answers' **field order** is the descriptor's declaration order, the
 same rule the Mendel flags answer follows
 (`lsproto`/order.go`).
 
+## The plugin panels answer
+
+The Web UI's plugin panels are driven by the language server's own plugin
+RPCs. The clone answers **28 of them** — the 27 the page's bundle calls
+(`internal/rcfrontend/assets/main.js`), plus `GetSkillMarketplaceLink`,
+which the CLI's own `plugin link` flow calls.
+
+They answer from the reference's own on-disk state:
+
+| | |
+|---|---|
+| the installed plugins | `~/.gemini/config/plugins/<plugin>/plugin.json` — plus the skills' YAML frontmatter, the agents, the rules, the MCP servers and the sidecars |
+| the catalogues | `~/.gemini/antigravity-cli/cache/marketplaces/<mkt>/marketplace.json` |
+
+The reader is `internal/features/plugins/core/catalog.go` — the *second*
+reader, next to the `/plugin` panel's own: the panel needs a name, a
+description and a version, the Web UI needs the logo, the author, the
+repository, the suggested prompts and the marketplace an entry came from.
+
+| file | what |
+|---|---|
+| `internal/remotecontrol/plugins_ls.go` | the installed half (`GetAllPlugins`, `GetPlugin`, `DeletePlugin`, `ResolveCommandPlugin`, `GetCustomizationStates`, `GetAllSkills`, `DeleteSkill`, `GetAllRules`, `GetAgentScripts`) and the remote-plugin half (`ListRemotePlugins`, `DisconnectRemotePlugin`) |
+| `internal/remotecontrol/plugins_marketplace.go` | the catalogue half (`SearchMarketplace`, `SearchMarketplaceCustomizations`, `GetMarketplaceCustomization`, `GetMarketplaceBundles`, `GetMarketplaceFeatured`, `GetSkillMarketplaceLink`, `GetAvailableCascadePlugins`) and the cloud-only surfaces |
+
+**Two plugin notions, kept apart.** The *customization* plugin
+(`exa.language_server_pb.Plugin`, on disk) and the *remote* plugin
+(`exa.remote_agent_proxy_pb.PluginInfo`, in the `PluginStore` seam) are
+different messages with different states. The clone keeps them apart, and
+the remote half keeps its legacy JSON-RPC names (`ListRemoteAgentPlugins`
+/ `DisconnectRemoteAgentPlugin`) beside the language server's own.
+
+**The cloud-only surfaces answer empty, or refuse.** A plugin auth
+provider, a "build with Google" plugin and a marketplace install all need
+the reference's cloud, and the clone has no account there. An empty list is
+the truth — "nothing featured" is what the panel should render. The two
+methods that would otherwise *look* like a success (`InstallCustomization`,
+`DownloadBuildWithGooglePlugin`) refuse explicitly and never report an
+install directory they did not create.
+
+**The answers must survive the reference's own decoder.** The Web UI
+decodes with the reference's descriptor and `ignoreUnknownFields: true`: an
+unknown member is fine, but a **known member with the wrong JSON type fails
+the whole decode**, and the panel renders an error instead of the plugin
+list. `TestThePluginAnswersParseWithTheReferenceSchema` encodes and decodes
+every one of the twenty-eight answers through the clone's own codec.
+
+## Every answer is audited against the descriptor
+
+The clone's language-server answers are hand-written maps, and a member the
+reference's descriptor does not know is dropped on the way to the Web UI —
+**silently**: the browser's decoder ignores an unknown member, and
+`protojson` (the clone's own encoder) drops the whole list that carries one.
+
+The audit walks every answer against the reference's own descriptor and
+reports a member the schema does not know — and an enum value the schema
+does not *name*. It runs over the **whole service**: every method of the
+1.4.8 fixture (`internal/remotecontrol/testdata/language_server_rpcs_1.4.8.txt`,
+358 methods) against every answer the clone gives.
+
+```go
+// internal/remotecontrol/ls_schema_audit_test.go
+func TestEveryLanguageServerAnswerUsesMembersTheSchemaKnows(t *testing.T)
+```
+
+**An enum is named by its full name.** `protojson` writes
+`REFRESH_CUSTOMIZATION_TYPE_PLUGIN`, not `PLUGIN`; the short name is not a
+value the enum knows, and the whole list that carries it goes with it. The
+bundle's own `RefreshCustomizationType` is a *numeric* JS enum
+(`{UNSPECIFIED:0, RULE:1, …, PLUGIN:5}`) used for the display labels, which
+is why the short name looks right in the source and is wrong on the wire.
+
+**The two services' contracts are not each other's.** The language server's
+`ListEnvironments` / `ListResourceProviders` / `ListAvailableResources` and
+the clone's legacy `ListRemoteAgent*` methods are different answers, not two
+spellings of one — an alias between them drops every member. The language
+server's own table answers the three now
+(`internal/remotecontrol/dispatch_ls_cloud.go`); the cloud registries are
+Google's, so their lists are **empty**, and the clone's own resource registry
+stays on the dashboard's own surface.
+
 ## The reference mode serves the reference's own page
 
 `pigasus web --reference-backend 127.0.0.1:8802` makes the clone a **front**
@@ -951,6 +1082,14 @@ cancel respectively. `killBackgroundTasks` kills the background tasks through
 | `internal/rchost/remote_control_serve.go` | the daemon: the dispatcher, the server, the tunnel, and the printed link |
 | `internal/rctunnel/client.go` | the handshake, the version string, the instance registration |
 | `internal/rctunnel/httpproxy.go` | the chunk framer and the streaming forward |
+| `internal/rctunnel/update_instance.go` | the rename call: the wire body, the Bearer header, the reference's error strings |
+| `internal/rchost/instance_name.go` | the daemon-side rename watcher: the configuration is the source of truth |
+| `internal/cli/subcommand_rc_rename.go` | `remote-control rename` — hidden, like `serve` and `run` |
+| `internal/remotecontrol/plugins_ls.go` | the plugin panels: the installed plugins, the skills, the remote plugins |
+| `internal/remotecontrol/plugins_marketplace.go` | the catalogue half, the cascade templates, the cloud-only surfaces |
+| `internal/remotecontrol/dispatch_ls_cloud.go` | the language server's cloud surfaces: the licence, the environments, the resource registries |
+| `internal/remotecontrol/ls_schema_audit_test.go` | the audit: every answer of the whole service against the reference's descriptor |
+| `internal/features/plugins/core/catalog.go` | the plugin and marketplace documents the plugin panels read |
 | `lsproto`/lsproto.go` | the descriptor closure and the service index |
 | `lsproto`/decode.go` | `DecodeStep` — the stored blob, and the `Any` the schema cannot resolve |
 | `internal/remotecontrol/ls_trajectory.go` | the trajectory |

@@ -19,6 +19,7 @@ import (
 	"context"
 	"net"
 	"net/http"
+	"os"
 	"runtime"
 	"strings"
 	"testing"
@@ -136,5 +137,33 @@ func TestNameservers_HonoursTheOverride(t *testing.T) {
 	t.Setenv(EnvNameservers, " , ")
 	if got := nameservers(); len(got) != len(defaultNameservers) {
 		t.Fatalf("a blank override must fall back to the default list, got %v", got)
+	}
+}
+
+// TestResolvConfNameservers_FiltersLoopbackAndKeepsNonLoopback tests that
+// loopback nameservers (127.0.0.1, ::1) are excluded while valid non-loopback
+// nameservers are extracted and formatted with port 53.
+func TestResolvConfNameservers_FiltersLoopbackAndKeepsNonLoopback(t *testing.T) {
+	dir := t.TempDir()
+	confPath := dir + "/resolv.conf"
+	content := "# Generated resolv.conf\n" +
+		"nameserver 127.0.0.1\n" +
+		"nameserver ::1\n" +
+		"nameserver 0.0.0.0\n" +
+		"nameserver 192.168.1.1\n" +
+		"nameserver 10.0.0.2\n"
+	if err := os.WriteFile(confPath, []byte(content), 0644); err != nil {
+		t.Fatalf("write resolv.conf: %v", err)
+	}
+
+	got := resolvConfNameserversFromPaths(confPath)
+	want := []string{"192.168.1.1:53", "10.0.0.2:53"}
+	if len(got) != len(want) {
+		t.Fatalf("resolvConfNameserversFromPaths() = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("got[%d] = %q, want %q", i, got[i], want[i])
+		}
 	}
 }

@@ -130,6 +130,14 @@ var ReferenceRPCMethods = []string{
 // listed: ListIdentities has no clone equivalent, ListWorkspaces is not
 // ListRemoteAgentEnvironments, and GetConversation's paginated trajectory
 // shape is not what ListRemoteAgentConversations returns.
+//
+// Three names that used to be here are not: ListEnvironments,
+// ListResourceProviders and ListAvailableResources. They are the *language
+// server's* methods, and their answers carry members the clone's legacy
+// dashboard methods do not have — the alias sent the two services'
+// contracts into each other, and proto-JSON dropped every member of the
+// answer. The language server's own table answers them now (see
+// dispatch_ls_cloud.go); the clone's legacy methods keep their own names.
 var referenceRPCAliases = map[string]string{
 	"StartCascade":                 "StartRemoteAgentCascade",
 	"SendUserCascadeMessage":       "SendRemoteAgentCascadeMessage",
@@ -138,7 +146,6 @@ var referenceRPCAliases = map[string]string{
 	"ListConversations":            "ListRemoteAgentConversations",
 	"ListAvailableModels":          "ListRemoteAgentModels",
 	"ListSlashCommands":            "ListRemoteAgentSlashCommands",
-	"ListEnvironments":             "ListRemoteAgentEnvironments",
 	"ReadFile":                     "ReadRemoteAgentFile",
 	"ReadDir":                      "ReadRemoteAgentDir",
 	"ListTriggerOptions":           "ListRemoteAgentTriggerOptions",
@@ -152,8 +159,6 @@ var referenceRPCAliases = map[string]string{
 	"ListProjects":                 "ListRemoteAgentProjects",
 	"UpdateProject":                "UpdateRemoteAgentProject",
 	"DeleteProject":                "DeleteRemoteAgentProject",
-	"ListResourceProviders":        "ListRemoteAgentResourceProviders",
-	"ListAvailableResources":       "ListRemoteAgentAvailableResources",
 	"UpdateProjectResources":       "UpdateRemoteAgentProjectResources",
 	"DeleteAgentMessage":           "DeleteRemoteAgentMessage",
 	"DeleteConversation":           "DeleteRemoteAgentConversation",

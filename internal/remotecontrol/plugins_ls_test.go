@@ -23,6 +23,7 @@ import (
 	"testing"
 
 	"github.com/justwasm/pigasus/lsproto"
+	"google.golang.org/protobuf/reflect/protoreflect"
 )
 
 // seedPluginTree writes a plugins tree and a marketplace catalogue
@@ -325,22 +326,97 @@ func TestResolveCommandPlugin_ResolvesASkill(t *testing.T) {
 	}
 }
 
+// TestGetAllRules_ListsThePluginRules pins the rules read.
+//
+// The memory carries the rule's text under `textMemory.content` — the
+// member the schema knows — and the `plugin_rule` tag the Web UI's own
+// rules list filters on.
+func TestGetAllRules_ListsThePluginRules(t *testing.T) {
+	seedPluginTree(t)
+	d := pluginTestDispatcher(t)
+
+	answer := callPluginRPC(t, d, "GetAllRules", "{}")
+	memories, ok := answer["memories"].([]any)
+	if !ok {
+		t.Fatalf("the answer carries no memories list: %#v", answer)
+	}
+	if len(memories) != 1 {
+		t.Fatalf("got %d memories, want 1: %#v", len(memories), memories)
+	}
+	memory, _ := memories[0].(map[string]any)
+	if memory["memoryId"] != "AGENTS" {
+		t.Errorf("the rule's id is %v, want AGENTS", memory["memoryId"])
+	}
+	text, _ := memory["textMemory"].(map[string]any)
+	if text["content"] != "Be careful.\n" {
+		t.Errorf("the rule's text is %q, want %q", text["content"], "Be careful.\n")
+	}
+	metadata, _ := memory["metadata"].(map[string]any)
+	tags, _ := metadata["tags"].([]any)
+	if len(tags) != 1 || tags[0] != "plugin_rule" {
+		t.Errorf("the rule's tags are %v, want [plugin_rule]", tags)
+	}
+	if memory["discoveryCategory"] != "DISCOVERY_CATEGORY_INSTALLED" {
+		t.Errorf("the rule's category is %v, want DISCOVERY_CATEGORY_INSTALLED", memory["discoveryCategory"])
+	}
+}
+
+// TestGetAgentScripts_ListsThePluginAgents pins the agent read.
+//
+// The Web UI's agent picker reads the customizations: the path, the
+// agent's name, its description and whether it is global.
+func TestGetAgentScripts_ListsThePluginAgents(t *testing.T) {
+	seedPluginTree(t)
+	d := pluginTestDispatcher(t)
+
+	answer := callPluginRPC(t, d, "GetAgentScripts", "{}")
+	scripts, ok := answer["agentScripts"].([]any)
+	if !ok {
+		t.Fatalf("the answer carries no agentScripts list: %#v", answer)
+	}
+	customizations, ok := answer["agentCustomizations"].([]any)
+	if !ok {
+		t.Fatalf("the answer carries no agentCustomizations list: %#v", answer)
+	}
+	if len(scripts) != 1 || len(customizations) != 1 {
+		t.Fatalf("got %d scripts and %d customizations, want 1 and 1: %#v %#v", len(scripts), len(customizations), scripts, customizations)
+	}
+	script, _ := scripts[0].(map[string]any)
+	if script["name"] != "reviewer" {
+		t.Errorf("the agent's name is %v, want reviewer", script["name"])
+	}
+	if script["pluginName"] != "demo-plugin" {
+		t.Errorf("the agent's plugin is %v, want demo-plugin", script["pluginName"])
+	}
+	customization, _ := customizations[0].(map[string]any)
+	if customization["isGlobal"] != true {
+		t.Errorf("the agent's customization is not global: %#v", customization)
+	}
+	agent, _ := customization["agent"].(map[string]any)
+	if agent["name"] != "reviewer" {
+		t.Errorf("the customization's agent is %v, want reviewer", agent["name"])
+	}
+}
+
 // TestGetCustomizationStates_ListsThePluginsAndSkills pins the loaded
 // customization list.
+//
+// The list has one entry per loaded customization: the two installed
+// plugins, the plugin's skill, its rule and its agent.
 func TestGetCustomizationStates_ListsThePluginsAndSkills(t *testing.T) {
 	seedPluginTree(t)
 	d := pluginTestDispatcher(t)
 
 	answer := callPluginRPC(t, d, "GetCustomizationStates", "{}")
 	states, _ := answer["states"].([]any)
-	if len(states) != 3 {
-		t.Fatalf("got %d states, want 3 (two plugins, one skill): %#v", len(states), states)
+	if len(states) != 5 {
+		t.Fatalf("got %d states, want 5 (two plugins, a skill, a rule, an agent): %#v", len(states), states)
 	}
-	var sawPlugin, sawSkill bool
+	var sawPlugin, sawSkill, sawRule, sawAgent bool
 	for _, s := range states {
 		m := s.(map[string]any)
 		switch m["type"] {
-		case "PLUGIN":
+		case "REFRESH_CUSTOMIZATION_TYPE_PLUGIN":
 			sawPlugin = true
 			if m["scope"] != "SCOPE_GLOBAL" {
 				t.Errorf("a plugin's scope is %v, want SCOPE_GLOBAL", m["scope"])
@@ -348,15 +424,25 @@ func TestGetCustomizationStates_ListsThePluginsAndSkills(t *testing.T) {
 			if m["status"] != "STATUS_ENABLED" {
 				t.Errorf("a plugin's status is %v, want STATUS_ENABLED", m["status"])
 			}
-		case "SKILL":
+		case "REFRESH_CUSTOMIZATION_TYPE_SKILL":
 			sawSkill = true
 			if m["pluginName"] != "demo-plugin" {
 				t.Errorf("the skill's plugin is %v, want demo-plugin", m["pluginName"])
 			}
+		case "REFRESH_CUSTOMIZATION_TYPE_RULE":
+			sawRule = true
+			if m["pluginName"] != "demo-plugin" {
+				t.Errorf("the rule's plugin is %v, want demo-plugin", m["pluginName"])
+			}
+		case "REFRESH_CUSTOMIZATION_TYPE_AGENT":
+			sawAgent = true
+			if m["pluginName"] != "demo-plugin" {
+				t.Errorf("the agent's plugin is %v, want demo-plugin", m["pluginName"])
+			}
 		}
 	}
-	if !sawPlugin || !sawSkill {
-		t.Errorf("the list is missing a plugin or a skill: %#v", states)
+	if !sawPlugin || !sawSkill || !sawRule || !sawAgent {
+		t.Errorf("the list is missing a plugin, a skill, a rule or an agent: %#v", states)
 	}
 }
 
@@ -447,23 +533,16 @@ func TestGetSkillMarketplaceLink_ResolvesThePlugin(t *testing.T) {
 	}
 }
 
-// TestThePluginAnswersParseWithTheReferenceSchema pins the thing the
-// Web UI actually breaks on: a *known* member with the wrong JSON type
-// fails the decode.
+// pluginRPCCases is the list of plugin methods and the parameters each
+// one is called with.
 //
-// 【反编译】 the descriptor is the reference's own — the
-// FileDescriptorProto of third_party/jetski/language_server_pb/
-// language_server.proto, read out of the agy 1.4.8 binary and
-// committed at lsproto/descriptor/language_server.protoset.
-func TestThePluginAnswersParseWithTheReferenceSchema(t *testing.T) {
-	seedPluginTree(t)
-	d := pluginTestDispatcher(t)
-
-	codec, err := lsproto.Shared()
-	if err != nil {
-		t.Fatalf("lsproto.Shared: %v", err)
-	}
-	cases := []struct {
+// Every method the clone answers is in here, so the two schema tests
+// below cover the whole surface.
+func pluginRPCCases() []struct {
+	method string
+	params string
+} {
+	return []struct {
 		method string
 		params string
 	}{
@@ -475,6 +554,8 @@ func TestThePluginAnswersParseWithTheReferenceSchema(t *testing.T) {
 		{"SubscribeToPlugins", "{}"},
 		{"GetAllSkills", "{}"},
 		{"DeleteSkill", `{"skillId":"nope"}`},
+		{"GetAllRules", "{}"},
+		{"GetAgentScripts", "{}"},
 		{"SearchMarketplace", `{"query":"demo"}`},
 		{"SearchMarketplaceCustomizations", `{"query":"demo"}`},
 		{"GetMarketplaceCustomization", `{"id":"demo-plugin"}`},
@@ -494,7 +575,25 @@ func TestThePluginAnswersParseWithTheReferenceSchema(t *testing.T) {
 		{"SetDefaultPluginAuthAccount", `{"plugin":"demo-plugin","provider":"p"}`},
 		{"SetPluginAuthAccountLabel", `{"plugin":"demo-plugin","provider":"p"}`},
 	}
-	for _, c := range cases {
+}
+
+// TestThePluginAnswersParseWithTheReferenceSchema pins the thing the
+// Web UI actually breaks on: a *known* member with the wrong JSON type
+// fails the decode.
+//
+// 【反编译】 the descriptor is the reference's own — the
+// FileDescriptorProto of third_party/jetski/language_server_pb/
+// language_server.proto, read out of the agy 1.4.8 binary and
+// committed at lsproto/descriptor/language_server.protoset.
+func TestThePluginAnswersParseWithTheReferenceSchema(t *testing.T) {
+	seedPluginTree(t)
+	d := pluginTestDispatcher(t)
+
+	codec, err := lsproto.Shared()
+	if err != nil {
+		t.Fatalf("lsproto.Shared: %v", err)
+	}
+	for _, c := range pluginRPCCases() {
 		answer := callPluginRPC(t, d, c.method, c.params)
 		body, err := json.Marshal(answer)
 		if err != nil {
@@ -509,6 +608,151 @@ func TestThePluginAnswersParseWithTheReferenceSchema(t *testing.T) {
 			t.Errorf("%s: DecodeResponse: %v", c.method, err)
 		}
 	}
+}
+
+// TestThePluginAnswersOnlyUseMembersTheSchemaKnows pins the quieter
+// half of the same failure.
+//
+// A member the schema does **not** know is dropped by the Web UI's
+// decoder without an error — the page renders, and the member's data
+// is simply not there. So a misspelled member is invisible: the
+// plugin panel shows a rule with no text, and nothing says why.
+//
+// This walks every answer against the descriptor and reports a member
+// the schema does not know, at every level.
+//
+// It found one: the plugin's rules answered
+// `{"textMemory":{"text":…}}`, and the schema's CortexMemoryText has
+// a single member, `content` (1). The rule's text was being dropped
+// on the floor.
+func TestThePluginAnswersOnlyUseMembersTheSchemaKnows(t *testing.T) {
+	seedPluginTree(t)
+	d := pluginTestDispatcher(t)
+
+	codec, err := lsproto.Shared()
+	if err != nil {
+		t.Fatalf("lsproto.Shared: %v", err)
+	}
+	for _, c := range pluginRPCCases() {
+		md, ok := codec.OutputMessage(c.method)
+		if !ok {
+			t.Errorf("%s: the schema carries no answer for it", c.method)
+			continue
+		}
+		answer := callPluginRPC(t, d, c.method, c.params)
+		t.Run(c.method, func(t *testing.T) {
+			assertMembersKnown(t, md, answer, c.method)
+		})
+	}
+}
+
+// assertMembersKnown walks a proto-JSON answer against its descriptor
+// and fails on a member the schema does not know, and on an enum value
+// the schema does not know.
+//
+// A member is known when the descriptor has a field with that JSON
+// name (or with that protobuf name — proto-JSON accepts both).
+//
+// An enum value is known when the enum names it, or when it is the
+// number of one of the enum's values.
+//
+// A map field's keys are the map's own, not the schema's, so the walk
+// descends into the map's *values*.
+func assertMembersKnown(t *testing.T, md protoreflect.MessageDescriptor, obj map[string]any, path string) {
+	t.Helper()
+	for key, val := range obj {
+		fd := findSchemaField(md, key)
+		if fd == nil {
+			t.Errorf("%s: the schema does not know the member %q", path, key)
+			continue
+		}
+		if fd.Kind() == protoreflect.EnumKind {
+			// A repeated enum is a list of names, not a name: the
+			// walk has to descend into it (the app state's
+			// postOnboarding.completedSteps is one).
+			if fd.IsList() {
+				list, ok := val.([]any)
+				if !ok {
+					continue
+				}
+				for _, item := range list {
+					assertEnumValueKnown(t, fd, item, path+"."+key+"[]")
+				}
+				continue
+			}
+			assertEnumValueKnown(t, fd, val, path+"."+key)
+			continue
+		}
+		if fd.Kind() != protoreflect.MessageKind {
+			continue
+		}
+		if fd.IsMap() {
+			values, ok := val.(map[string]any)
+			if !ok {
+				continue
+			}
+			for _, item := range values {
+				if m, ok := item.(map[string]any); ok {
+					assertMembersKnown(t, fd.MapValue().Message(), m, path+"."+key+"{}")
+				}
+			}
+			continue
+		}
+		if fd.IsList() {
+			list, ok := val.([]any)
+			if !ok {
+				continue
+			}
+			for _, item := range list {
+				if m, ok := item.(map[string]any); ok {
+					assertMembersKnown(t, fd.Message(), m, path+"."+key+"[]")
+				}
+			}
+			continue
+		}
+		if m, ok := val.(map[string]any); ok {
+			assertMembersKnown(t, fd.Message(), m, path+"."+key)
+		}
+	}
+}
+
+// assertEnumValueKnown fails on an enum value the schema does not
+// name.
+//
+// An unknown enum name is *worse* than an unknown member: protojson
+// rejects the whole message that carries it, so the member's **list**
+// is dropped with it. A customization list whose entries name their
+// type "PLUGIN" instead of
+// "REFRESH_CUSTOMIZATION_TYPE_PLUGIN" arrives at the Web UI as an
+// empty list — with no error anywhere.
+func assertEnumValueKnown(t *testing.T, fd protoreflect.FieldDescriptor, val any, path string) {
+	t.Helper()
+	switch v := val.(type) {
+	case string:
+		if fd.Enum().Values().ByName(protoreflect.Name(v)) == nil {
+			t.Errorf("%s: the enum does not know the value %q", path, v)
+		}
+	case float64:
+		if fd.Enum().Values().ByNumber(protoreflect.EnumNumber(int32(v))) == nil {
+			t.Errorf("%s: the enum does not know the number %v", path, v)
+		}
+	case nil:
+	default:
+		t.Errorf("%s: the enum member is a %T, want a name or a number", path, val)
+	}
+}
+
+// findSchemaField returns the descriptor's field with that JSON name,
+// or its protobuf name.
+func findSchemaField(md protoreflect.MessageDescriptor, key string) protoreflect.FieldDescriptor {
+	fields := md.Fields()
+	for i := 0; i < fields.Len(); i++ {
+		fd := fields.Get(i)
+		if fd.JSONName() == key || string(fd.Name()) == key {
+			return fd
+		}
+	}
+	return nil
 }
 
 // TestSubscribeToPlugins_EmitsTheInstalledPlugins pins the stream's

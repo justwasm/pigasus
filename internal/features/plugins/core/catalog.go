@@ -290,6 +290,18 @@ func skillFrontmatter(path string) (name, description string, ok bool) {
 	return doc.Name, strings.TrimSpace(doc.Description), true
 }
 
+// AgentFrontmatter reads the YAML frontmatter of an agent's markdown
+// definition and returns its name and description.
+//
+// It is the skill frontmatter contract applied to an agent file: the
+// two files have the same shape, and the Web UI's agent picker shows
+// the description the frontmatter carries.
+//
+// A file without a readable frontmatter yields ("", "", false).
+func AgentFrontmatter(path string) (name, description string, ok bool) {
+	return skillFrontmatter(path)
+}
+
 // MarketplaceEntry is one plugin inside a marketplace.json.
 type MarketplaceEntry struct {
 	Name             string   `json:"name"`

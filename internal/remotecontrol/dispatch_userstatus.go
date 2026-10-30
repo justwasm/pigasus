@@ -20,6 +20,20 @@ import (
 	"strings"
 )
 
+// The plan tier the clone reports to the Web UI.
+//
+// The clone serves the user's own account from the user's own machine;
+// there is no cloud project to hold a licence, so the tier is the one
+// the local account is entitled to. The two surfaces that report a
+// tier — the account chip's user_status and the licence read — have to
+// agree on it, so both use these two constants.
+const (
+	// lsPlanTierID is the tier's id (the message's `id` member).
+	lsPlanTierID = "pro-tier"
+	// lsPlanTierName is the tier's display name.
+	lsPlanTierName = "Pro"
+)
+
 // handleGetUserStatus answers the Web UI's GetUserStatus call. The
 // Web UI's account chip shows the `email` field verbatim, so the
 // address has to be the signed-in account's real one — the host
@@ -46,9 +60,9 @@ func (d *Dispatcher) handleGetUserStatus() (any, *rpcErrorBody, bool) {
 			// invent "userTier"/"tierDisplayName" keys, which no
 			// field of the message can carry.
 			"userTier": map[string]any{
-				"id":          "pro-tier",
-				"name":        "Pro",
-				"description": "Pro",
+				"id":          lsPlanTierID,
+				"name":        lsPlanTierName,
+				"description": lsPlanTierName,
 			},
 			"disableTelemetry": true,
 			"cascadeModelConfigData": map[string]any{

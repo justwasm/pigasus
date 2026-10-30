@@ -33,11 +33,13 @@ var (
 	SetPlistDirOverride    = persistent.SetPlistDirOverride
 	LogFilePath            = persistent.LogFilePath
 	ValidateName           = persistent.ValidateName
+	InvalidNameReason      = persistent.InvalidNameReason
 	ValidateAddr           = persistent.ValidateAddr
 	Now                    = persistent.Now
 	ResolveActiveAccount   = persistent.ResolveActiveAccount
 	OfficialDaemonLabel    = persistent.OfficialDaemonLabel
 	ResolveInstanceName    = persistent.ResolveInstanceName
+	ConfiguredInstanceName = persistent.ConfiguredInstanceName
 	SetInstanceName        = persistent.SetInstanceName
 	PlaintextDaemonStatus  = persistent.PlaintextDaemonStatus
 	OfficialPlistPath      = persistent.OfficialPlistPath

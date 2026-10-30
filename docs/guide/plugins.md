@@ -1,8 +1,9 @@
 # The plugin surfaces
 
-> The plugin domain has two front-ends in the clone: the `/plugin` panel in
-> the TUI, and the `agy plugin import` command on the shell. Both were
-> touched by cycle 364 (agy 1.4.11).
+> The plugin domain has three front-ends in the clone: the `/plugin` panel in
+> the TUI, the `agy plugin import` command on the shell, and the Web UI's own
+> plugin panels — which the cloud reaches over the remote-control tunnel. The
+> first two were touched by cycle 364 (agy 1.4.11); the third by cycle 367.
 
 | what | where |
 |---|---|
@@ -12,6 +13,61 @@
 | the panel's state | `internal/cliapp` (`slash_panel_plugin.go`, `slash_plugin_shelf.go`) |
 | the panel's rendering | `internal/pluginsui` (`sections.go`, `render.go`) |
 | the import command | `internal/cli/subcommand_plugin.go` → `internal/features/plugins/import` |
+| the Web UI's plugin panels | `internal/remotecontrol/plugins_ls.go`, `internal/remotecontrol/plugins_marketplace.go` |
+| the documents both read | `internal/features/plugins/core/catalog.go` |
+
+---
+
+## The Web UI's plugin panels (cycle 367)
+
+The cloud's web view drives the plugin panels through the language server's
+own plugin RPCs. The clone answers **28** of them — the 27 the page's bundle
+calls, plus `GetSkillMarketplaceLink`, which the CLI's own `plugin link`
+flow calls — against the reference's own on-disk state.
+
+Two of them read what the plugin contributes besides the plugin itself:
+`GetAllRules` answers the plugin's rules as `CortexMemory` memories (with
+the `plugin_rule` tag the Web UI's own rules list filters on, so a rule is
+shown once), and `GetAgentScripts` answers the plugin's agents as
+`AgentScriptItem`s and `AgentCustomization`s.
+
+The reader is a **second** one: `internal/features/plugins/core/catalog.go`,
+next to the `/plugin` panel's own reader. The panel needs a name, a
+description and a version; the Web UI needs the logo, the author, the
+repository, the suggested prompts, the marketplace an entry came from, and
+the skills' frontmatter. The manifest grew those fields — the panel ignores
+the extra ones, the Web UI does not.
+
+Two shapes the reader has to know about:
+
+- **The author is an object in the reference's own plugins and a plain string
+  in the plugins imported from Claude Code.** `Author` reads both.
+- **A directory without a `plugin.json` is not a plugin.** The `/plugin`
+  panel's stock fallback list (four plugins a fresh install ships) is
+  deliberately *not* used here: the Web UI's list is a list of what is
+  installed, and answering with plugins that are not installed would be a lie.
+
+**Two plugin notions, kept apart.** The *customization* plugin
+(`exa.language_server_pb.Plugin`, on disk) and the *remote* plugin
+(`exa.remote_agent_proxy_pb.PluginInfo`, in the `PluginStore` seam) are
+different messages with different states.
+
+**The cloud-only surfaces answer empty, or refuse.** A plugin auth provider,
+a "build with Google" plugin and a marketplace install all need the
+reference's cloud. An empty list is the truth; the two methods that would
+otherwise *look* like a success (`InstallCustomization`,
+`DownloadBuildWithGooglePlugin`) refuse explicitly.
+
+**Every answer is audited against the reference's descriptor.** A member the
+schema does not know is dropped on the way to the Web UI — silently, and
+an enum name the schema does not *name* takes the whole list with it. The
+audit runs over the whole language server, not over the plugin surface
+alone (`internal/remotecontrol/ls_schema_audit_test.go`); see
+[`docs/guide/remote-control.md`](remote-control.md).
+
+Report: `docs/cycles/cycle-367-plugin-rpcs-and-instance-rename/deliverable.md` §3.
+The wire, and the reference's own decoder, are in
+[`docs/guide/remote-control.md`](remote-control.md).
 
 ---
 

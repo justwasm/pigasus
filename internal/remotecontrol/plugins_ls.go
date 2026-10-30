@@ -103,6 +103,10 @@ func (d *Dispatcher) routeLanguageServerPluginMethods(method string, params json
 		return d.handleLSGetAllSkills(params)
 	case "DeleteSkill":
 		return d.handleLSDeleteSkill(params)
+	case "GetAllRules":
+		return d.handleLSGetAllRules(params)
+	case "GetAgentScripts":
+		return d.handleLSGetAgentScripts(params)
 	case "SubscribeToPlugins":
 		// The server-streaming method answers the same list; the
 		// stream itself is served by ls_streams.go.
@@ -297,9 +301,15 @@ func (d *Dispatcher) handleLSGetCustomizationStates(params json.RawMessage) (any
 	catalog := readLSPluginCatalog()
 	states := make([]any, 0, len(catalog.Plugins))
 	for _, p := range catalog.Plugins {
-		states = append(states, lsCustomizationStateJSON("PLUGIN", p.Name, p.Path, p.Disabled, ""))
+		states = append(states, lsCustomizationStateJSON("REFRESH_CUSTOMIZATION_TYPE_PLUGIN", p.Name, p.Path, p.Disabled, ""))
 		for _, skill := range core.PluginSkills(p.Name) {
-			states = append(states, lsCustomizationStateJSON("SKILL", skill.Name, skill.Path, p.Disabled, p.Name))
+			states = append(states, lsCustomizationStateJSON("REFRESH_CUSTOMIZATION_TYPE_SKILL", skill.Name, skill.Path, p.Disabled, p.Name))
+		}
+		for _, rule := range lsPluginRules(p) {
+			states = append(states, lsCustomizationStateJSON("REFRESH_CUSTOMIZATION_TYPE_RULE", rule.Name, rule.Path, p.Disabled, p.Name))
+		}
+		for _, agent := range core.Agents(p.Name) {
+			states = append(states, lsCustomizationStateJSON("REFRESH_CUSTOMIZATION_TYPE_AGENT", agent, lsAgentPath(p, agent), p.Disabled, p.Name))
 		}
 	}
 	return map[string]any{"states": states}, nil, true
@@ -326,6 +336,67 @@ func (d *Dispatcher) handleLSGetAllSkills(params json.RawMessage) (any, *rpcErro
 		}
 	}
 	return map[string]any{"skills": skills}, nil, true
+}
+
+// handleLSGetAllRules answers GetAllRules.
+//
+// 【反编译】 exa.language_server_pb.GetAllRulesResponse carries one
+// repeated member, `memories` — a repeated exa.cortex_pb.CortexMemory.
+//
+// The memories are the rules the installed plugins contribute: one
+// memory per rule file under a plugin's rules/ directory. The
+// request's workspace URIs do not narrow the answer — the clone's
+// rules live in the plugins tree, the user's own tree, and the
+// reference's own workspace rules live in the workspace, which the
+// clone does not scan here.
+//
+// The memory carries a `metadata` whose `tags` name it a plugin rule:
+// the Web UI's own rules list filters the plugin rules out
+// (`metadata?.tags.includes("plugin_rule")`), so a plugin's rule is
+// shown in the plugin panel and not twice.
+func (d *Dispatcher) handleLSGetAllRules(params json.RawMessage) (any, *rpcErrorBody, bool) {
+	_ = params
+	memories := make([]any, 0)
+	for _, p := range readLSPluginCatalog().Plugins {
+		memories = append(memories, lsPluginRulesJSON(p)...)
+	}
+	return map[string]any{"memories": memories}, nil, true
+}
+
+// handleLSGetAgentScripts answers GetAgentScripts.
+//
+// 【反编译】 exa.language_server_pb.GetAgentScriptsResponse carries
+// `agent_scripts` (a repeated exa.cortex_pb.AgentScriptItem) and
+// `agent_customizations` (a repeated exa.cortex_pb.AgentCustomization).
+//
+// The scripts are the agents the installed plugins contribute: one
+// agent per file under a plugin's agents/ directory. A customization
+// is the same agent with the path it was found at; the script is the
+// agent itself.
+//
+// The Web UI's agent picker reads the customizations (path, the
+// agent's name and description, is_global) and keeps the scripts for
+// the agent's own configuration.
+func (d *Dispatcher) handleLSGetAgentScripts(params json.RawMessage) (any, *rpcErrorBody, bool) {
+	_ = params
+	scripts := make([]any, 0)
+	customizations := make([]any, 0)
+	for _, p := range readLSPluginCatalog().Plugins {
+		for _, agent := range core.Agents(p.Name) {
+			script := lsAgentScriptJSON(p, agent)
+			scripts = append(scripts, script)
+			customizations = append(customizations, map[string]any{
+				"path":      filepath.Join(p.Path, "agents", agent+".md"),
+				"agent":     script,
+				"isGlobal":  true,
+				"isBuiltin": false,
+			})
+		}
+	}
+	return map[string]any{
+		"agentScripts":        scripts,
+		"agentCustomizations": customizations,
+	}, nil, true
 }
 
 // handleLSDeleteSkill answers DeleteSkill.
@@ -565,7 +636,7 @@ func lsPluginAgentsJSON(p core.InstalledPlugin) []any {
 	out := make([]any, 0, len(agents))
 	for _, a := range agents {
 		out = append(out, map[string]any{
-			"path":      filepath.Join(p.Path, "agents", a+".md"),
+			"path":      lsAgentPath(p, a),
 			"agent":     map[string]any{"name": a},
 			"isGlobal":  true,
 			"isBuiltin": false,
@@ -648,12 +719,18 @@ type lsMCPConfigServer struct {
 //
 // 【反编译】 a rule is an exa.cortex_pb.CortexMemory: memory_id (1),
 // title (6), source (3), scope (4), text_memory (5),
-// absolute_path (7), discovered_in (8).
+// absolute_path (7), discovered_in (8), discovery_category (9).
+//
+// The text lives in a CortexMemoryText — a message with a single
+// member, `content` (1). The member is *not* `text`: a rule answered
+// with `{"textMemory":{"text":…}}` decodes without an error (the
+// Web UI ignores unknown members) and arrives with **no text at all**,
+// because the member it wrote is not the member the schema knows.
+//
+// The scope is the rule's own file, in the global scope: the plugin
+// tree is the user's own tree, not the workspace's.
 func lsPluginRulesJSON(p core.InstalledPlugin) []any {
-	rules, err := lsReadRuleFiles(p.Path)
-	if err != nil || len(rules) == 0 {
-		return []any{}
-	}
+	rules := lsPluginRules(p)
 	out := make([]any, 0, len(rules))
 	for _, r := range rules {
 		out = append(out, map[string]any{
@@ -661,10 +738,99 @@ func lsPluginRulesJSON(p core.InstalledPlugin) []any {
 			"title":        r.Name,
 			"absolutePath": r.Path,
 			"discoveredIn": p.Name,
-			"textMemory":   map[string]any{"text": r.Text},
+			"scope": map[string]any{
+				"globalScope": map[string]any{"absoluteFilePath": r.Path},
+			},
+			// The tags name the rule a plugin's rule: the Web UI's
+			// own rules list filters them out, so a plugin's rule is
+			// shown in the plugin panel and not twice.
+			//
+			// The tags have to be there: the filter reads
+			// `metadata?.tags.includes(...)`, and a metadata message
+			// without a tags member would throw in the browser.
+			"metadata":          map[string]any{"tags": []any{"plugin_rule"}},
+			"discoveryCategory": "DISCOVERY_CATEGORY_INSTALLED",
+			"textMemory":        map[string]any{"content": r.Text},
 		})
 	}
 	return out
+}
+
+// lsPluginRules reads the plugin's rule files.
+func lsPluginRules(p core.InstalledPlugin) []lsRuleFile {
+	rules, err := lsReadRuleFiles(p.Path)
+	if err != nil {
+		return nil
+	}
+	return rules
+}
+
+// lsAgentScriptJSON renders one agent as an
+// exa.cortex_pb.AgentScriptItem.
+//
+// 【反编译】 the message declares name (1), description (8), disabled
+// (9), hidden (10), subagent (12), main_agent (13), command_spec (3),
+// python_spec (4), config_path (6), config (7), cascade_config (11),
+// disable_model_selection (14), model_tier (15), input_placeholder
+// (16) and plugin_name (17).
+//
+// The clone knows the agent's name, the description its markdown
+// definition's frontmatter carries, the plugin it belongs to and
+// whether that plugin is disabled. The five `source` members
+// (command_spec, python_spec, config_path, config, cascade_config)
+// are oneofs the clone does not have a value for — a plugin's agent is
+// a markdown definition, not a script — so they stay unset.
+//
+// The agent is a subagent (the clone's own reader calls the plugin's
+// agents/*.md "subagent definitions") and never the main agent.
+func lsAgentScriptJSON(p core.InstalledPlugin, agent string) map[string]any {
+	out := map[string]any{
+		"name":       agent,
+		"disabled":   p.Disabled,
+		"hidden":     false,
+		"subagent":   true,
+		"mainAgent":  false,
+		"pluginName": p.Name,
+	}
+	if description := lsAgentDescription(p, agent); description != "" {
+		out["description"] = description
+	}
+	return out
+}
+
+// lsAgentDescription returns the description an agent's markdown
+// frontmatter carries, or "" when the file has none.
+//
+// The name is *not* taken from the frontmatter: the clone's own
+// readers take the file's stem as the agent's name (the reference
+// prefers the frontmatter's `name:`), so the two agree on the file and
+// differ only where a plugin ships a different name in the
+// frontmatter.
+func lsAgentDescription(p core.InstalledPlugin, agent string) string {
+	_, description, ok := core.AgentFrontmatter(lsAgentPath(p, agent))
+	if !ok {
+		return ""
+	}
+	return description
+}
+
+// lsAgentPath returns the file an agent is defined in.
+//
+// A plugin may declare its agents in agents.json, where the entry
+// carries the path; an agent that is only a markdown file lives under
+// the plugin's agents/ directory.
+func lsAgentPath(p core.InstalledPlugin, agent string) string {
+	entries, _ := core.ReadAgentsJSON(p.Name)
+	for _, e := range entries {
+		if e.Name != agent || e.Path == "" {
+			continue
+		}
+		if filepath.IsAbs(e.Path) {
+			return e.Path
+		}
+		return filepath.Join(p.Path, e.Path)
+	}
+	return filepath.Join(p.Path, "agents", agent+".md")
 }
 
 // lsRuleFile is one rule file of a plugin.
@@ -739,6 +905,14 @@ func lsPluginReadme(p core.InstalledPlugin) string {
 // 【反编译】 exa.cortex_pb.LoadedCustomizations.LoadedCustomization
 // declares type (1), name (2), path (3), scope (4), status (5),
 // plugin_name (6), error_detail (7), version (8), installed_from (9).
+//
+// The type is the *full* enum name —
+// REFRESH_CUSTOMIZATION_TYPE_PLUGIN, REFRESH_CUSTOMIZATION_TYPE_SKILL —
+// because the field is a
+// exa.codeium_common_pb.RefreshCustomizationType. A short name
+// ("PLUGIN") is not a value the enum knows: protojson drops the
+// message that carries it, so the whole `states` list would reach
+// the Web UI empty and without an error.
 //
 // The scope is SCOPE_GLOBAL (2) — the plugins tree is the user's own
 // tree — and the status is STATUS_ENABLED (1) or STATUS_DISABLED (2).

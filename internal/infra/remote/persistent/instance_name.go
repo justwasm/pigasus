@@ -114,6 +114,21 @@ func readConfigRemoteControlHostname() string {
 	return doc.UserSettings.CliRemoteControlHostname
 }
 
+// ConfiguredInstanceName returns the instance name the configuration
+// file carries, without the fallbacks.
+//
+// ResolveInstanceName falls back to the machine's host name when the
+// configuration carries none. A watcher that wants to know whether the
+// *user* renamed the instance cannot use that: the host name is
+// always there, so the watcher would see a name it did not write and
+// push a rename nobody asked for.
+//
+// This is the raw value: the empty string when the configuration
+// carries none.
+func ConfiguredInstanceName() string {
+	return strings.TrimSpace(readConfigRemoteControlHostname())
+}
+
 // SetInstanceName updates userSettings.cliRemoteControlHostname in ~/.gemini/config/config.json.
 // Notice: the "pigasus-" prefix is never written to ~/.gemini/config/config.json; it is
 // only prepended at runtime by ResolveInstanceName so agy and pigasus share the exact same base name.
@@ -300,6 +315,10 @@ func BuildOfficialPlist(binary string, session bool, desktop bool) string {
 
 // StartOfficialDaemon writes and bootstraps the official LaunchAgent daemon.
 func StartOfficialDaemon(ctx context.Context, name string, session bool, desktop bool) error {
+	if runtime.GOOS != "darwin" {
+		return fmt.Errorf("%w (running on %s/%s); run `pigasus remote-control run` to start the daemon in the foreground",
+			ErrUnsupported, runtime.GOOS, runtime.GOARCH)
+	}
 	if name != "" {
 		_ = SetInstanceName(name)
 	}
@@ -331,6 +350,9 @@ func StartOfficialDaemon(ctx context.Context, name string, session bool, desktop
 
 // StopOfficialDaemon unregisters and deletes the LaunchAgent daemon.
 func StopOfficialDaemon(ctx context.Context) error {
+	if runtime.GOOS != "darwin" {
+		return nil
+	}
 	uid := os.Getuid()
 	label := OfficialDaemonLabel()
 	_ = exec.CommandContext(ctx, "launchctl", "bootout", fmt.Sprintf("gui/%d/%s", uid, label)).Run()

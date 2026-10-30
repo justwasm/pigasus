@@ -178,6 +178,14 @@ func (e *ErrInvalidAddr) Error() string {
 	return fmt.Sprintf("invalid --addr %q: %s", e.Addr, e.Why)
 }
 
+// InvalidNameReason is the rule a name has to satisfy: non-empty, and
+// only letters, digits, '.', '-' and '_'.
+//
+// It is a constant so a caller that names the value something else —
+// the `remote-control rename` subcommand, which takes the name
+// positionally — can state the same rule in its own words.
+const InvalidNameReason = "must be non-empty and contain only letters, digits, '.', '-', '_'"
+
 // ErrInvalidName is returned when Spec.Name is empty or carries
 // characters that wouldn't survive a launchd label or a path
 // component unquoted.
@@ -186,7 +194,7 @@ type ErrInvalidName struct {
 }
 
 func (e *ErrInvalidName) Error() string {
-	return fmt.Sprintf("invalid --name %q: must be non-empty and contain only letters, digits, '.', '-', '_'", e.Name)
+	return fmt.Sprintf("invalid --name %q: %s", e.Name, InvalidNameReason)
 }
 
 // ResolveSpec fills the zero-value fields of spec with the

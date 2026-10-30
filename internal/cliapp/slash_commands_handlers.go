@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"runtime"
 	"strconv"
 	"strings"
 	"time"
@@ -362,6 +363,11 @@ func (m *runMode) handleRemoteControl(args, conversationID string) (bool, tea.Cm
 			_ = persistentrc.StartOfficialDaemon(ctx, hostname, false, desktop)
 		}()
 		_, extra := buildRemoteControlCard(conversationID, m.remoteControlUUID, hostname, m.rcURLRows)
+		if runtime.GOOS != "darwin" {
+			extra = append(extra,
+				"Note: this platform has no launchd to auto-start the background daemon.",
+				"Run `pigasus remote-control run` in another terminal to connect.")
+		}
 		m.slashRespond("/remote-control", msg, extra...)
 	} else {
 		m.slashRespond("/remote-control", msg)

@@ -96,8 +96,7 @@ func (d *Dispatcher) routeLanguageServerMethods(ctx context.Context, method stri
 	case "GetGrantedScopes", "getGrantedScopes":
 		return map[string]any{"scopes": []string{"https://www.googleapis.com/auth/userinfo.email"}}, nil, true
 	case "Login", "login", "LoginWithBrowser", "loginWithBrowser",
-		"ValidateProject", "validateProject", "SelectLicense", "selectLicense",
-		"SelfAssignLicense", "selfAssignLicense":
+		"ValidateProject", "validateProject", "SelectLicense", "selectLicense":
 		return map[string]any{
 			"authResult": map[string]any{
 				"hasValidAuth":  true,
@@ -106,10 +105,24 @@ func (d *Dispatcher) routeLanguageServerMethods(ctx context.Context, method stri
 				"grantedScopes": []string{"https://www.googleapis.com/auth/userinfo.email"},
 			},
 		}, nil, true
+	case "SelfAssignLicense", "selfAssignLicense":
+		// The answer is *not* an authResult: the message the clone
+		// used to send here was the shape of LoginResponse and
+		// SelectLicenseResponse. See handleLSSelfAssignLicense.
+		return d.handleLSSelfAssignLicense(params)
 	case "AuthLogout", "authLogout":
 		return map[string]any{}, nil, true
 	case "ListLicenses", "listLicenses":
 		return map[string]any{"licenses": []any{}}, nil, true
+	case "ListEnvironments", "listEnvironments",
+		"ListResourceProviders", "listResourceProviders",
+		"ListAvailableResources", "listAvailableResources":
+		// The language server's own cloud surfaces. They are answered
+		// here, not through the alias table: the alias sent them to
+		// the clone's legacy dashboard methods, whose members the
+		// language server's schema does not know. See
+		// dispatch_ls_cloud.go.
+		return d.routeLSCloudMethods(method, params)
 	case "JetboxSubscribeToState", "jetboxSubscribeToState":
 		// The stream carries the app state and the user config — the
 		// Web UI hydrates both from its first message (the frontend's

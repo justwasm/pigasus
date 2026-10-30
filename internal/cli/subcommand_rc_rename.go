@@ -68,7 +68,10 @@ func runRCRename(j *JetskiCLI, args []string) error {
 		return usageFail(j, usage, "Error: rename needs a name")
 	}
 	if err := persistentrc.ValidateName(name); err != nil {
-		return ExitCodeError(2, fmt.Sprintf("Error: %v", err))
+		// The shared validator's own message names the `--name`
+		// flag; this subcommand takes the name positionally, so it
+		// states the same rule in its own words.
+		return ExitCodeError(2, fmt.Sprintf("Error: invalid instance name %q: %s", name, persistentrc.InvalidNameReason))
 	}
 	if err := persistentrc.SetInstanceName(name); err != nil {
 		return ExitCodeError(1, fmt.Sprintf("Error: %v", err))

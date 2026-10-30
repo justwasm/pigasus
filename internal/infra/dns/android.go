@@ -31,12 +31,14 @@ import (
 	"context"
 	"net"
 	"os"
+	"os/exec"
+	"path/filepath"
 	"runtime"
 	"strings"
 )
 
 // defaultNameservers are tried in order by dialWithFallback.
-var defaultNameservers = []string{"8.8.8.8:53", "1.1.1.1:53"}
+var defaultNameservers = []string{"223.5.5.5:53", "1.1.1.1:53", "8.8.8.8:53"}
 
 // EnvNameservers overrides the nameserver list on Android/Termux.
 //
@@ -79,23 +81,101 @@ func init() {
 // $OPENAGY_DNS_SERVERS.
 func nameservers() []string {
 	raw := strings.TrimSpace(os.Getenv(EnvNameservers))
-	if raw == "" {
+	if raw != "" {
+		var out []string
+		for _, part := range strings.Split(raw, ",") {
+			p := strings.TrimSpace(part)
+			if p == "" {
+				continue
+			}
+			if _, _, err := net.SplitHostPort(p); err != nil {
+				// A bare address is a DNS server on the DNS port.
+				p = net.JoinHostPort(p, "53")
+			}
+			out = append(out, p)
+		}
+		if len(out) > 0 {
+			return out
+		}
+	}
+
+	if !android() {
 		return defaultNameservers
 	}
+
+	var candidates []string
+	// 1. Android system properties (e.g. Wi-Fi / cellular DNS assigned by Android OS)
+	candidates = append(candidates, androidSystemDNS()...)
+	// 2. Non-loopback nameservers from resolv.conf (e.g. in container / proot)
+	candidates = append(candidates, resolvConfNameservers()...)
+	// 3. Fallback public nameservers
+	candidates = append(candidates, defaultNameservers...)
+
+	seen := make(map[string]bool)
 	var out []string
-	for _, part := range strings.Split(raw, ",") {
-		p := strings.TrimSpace(part)
-		if p == "" {
-			continue
+	for _, c := range candidates {
+		if !seen[c] {
+			seen[c] = true
+			out = append(out, c)
 		}
-		if _, _, err := net.SplitHostPort(p); err != nil {
-			// A bare address is a DNS server on the DNS port.
-			p = net.JoinHostPort(p, "53")
-		}
-		out = append(out, p)
 	}
 	if len(out) == 0 {
 		return defaultNameservers
+	}
+	return out
+}
+
+// androidSystemDNS attempts to read Android system DNS properties (net.dns1, net.dns2)
+// via the getprop command when running on Android.
+func androidSystemDNS() []string {
+	if runtime.GOOS != "android" && os.Getenv("TERMUX_VERSION") == "" {
+		return nil
+	}
+	var out []string
+	for _, prop := range []string{"net.dns1", "net.dns2"} {
+		cmd := exec.Command("getprop", prop)
+		if b, err := cmd.Output(); err == nil {
+			val := strings.TrimSpace(string(b))
+			if val != "" {
+				ip := net.ParseIP(val)
+				if ip != nil && !ip.IsLoopback() && !ip.IsUnspecified() {
+					out = append(out, net.JoinHostPort(val, "53"))
+				}
+			}
+		}
+	}
+	return out
+}
+
+// resolvConfNameservers extracts any non-loopback nameservers found in resolv.conf.
+func resolvConfNameservers() []string {
+	paths := []string{"/etc/resolv.conf"}
+	if termuxPrefix := os.Getenv("PREFIX"); termuxPrefix != "" {
+		paths = append([]string{filepath.Join(termuxPrefix, "etc", "resolv.conf")}, paths...)
+	}
+	return resolvConfNameserversFromPaths(paths...)
+}
+
+func resolvConfNameserversFromPaths(paths ...string) []string {
+	var out []string
+	for _, path := range paths {
+		b, err := os.ReadFile(path)
+		if err != nil {
+			continue
+		}
+		for _, line := range strings.Split(string(b), "\n") {
+			line = strings.TrimSpace(line)
+			if strings.HasPrefix(line, "nameserver") {
+				fields := strings.Fields(line)
+				if len(fields) >= 2 {
+					ns := fields[1]
+					ip := net.ParseIP(ns)
+					if ip != nil && !ip.IsLoopback() && !ip.IsUnspecified() {
+						out = append(out, net.JoinHostPort(ns, "53"))
+					}
+				}
+			}
+		}
 	}
 	return out
 }

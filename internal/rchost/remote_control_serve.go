@@ -103,7 +103,7 @@ func RunServe(j *cli.JetskiCLI, args cli.ServeArgs) error {
 	// without the tunnel session dropping. See instance_name.go.
 	watchCtx, stopWatch := context.WithCancel(context.Background())
 	defer stopWatch()
-	go watchInstanceName(watchCtx, tunnelClient, j.ErrOut, label)
+	go watchInstanceName(watchCtx, tunnelClient, j.ErrOut, label, persistentrc.ConfiguredInstanceName())
 
 	return runServeEventLoop(srv, tunnelClient, args.Name, addr, token, j.ErrOut, label, instanceID)
 }

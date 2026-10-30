@@ -331,6 +331,11 @@ func renderTUIWithFlags(w io.Writer, fs *flag.FlagSet) error {
 			msg, extra := buildRemoteControlCard(convID, uuid, hostname, func(u string) []string {
 				return urlchunk.Rows(u, rcURLIndent, targetChunk, render.HyperlinkCaps{})
 			})
+			if runtime.GOOS != "darwin" {
+				extra = append(extra,
+					"  Note: this platform has no launchd to auto-start the background daemon.",
+					"  Run `pigasus remote-control run` in another terminal to connect.")
+			}
 			fmt.Fprintln(w, cWarningBlueOpen+"> /remote-control"+cWarningBlueClose)
 			fmt.Fprintln(w, cWarningBlueOpen+"  \u23bf  "+cWarningBlueClose+panelGray238+msg+panelGray238C)
 			for _, line := range extra {

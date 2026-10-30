@@ -224,7 +224,7 @@ func TestSubcommandDispatch(t *testing.T) {
 	wantSubs := map[string]int{
 		"plugin":         9, // list, import, install, uninstall, enable, disable, validate, link, help
 		"mcp":            5, // add, remove, list, enable, disable
-		"remote-control": 5, // start, serve, run, status, stop (cycle rc-serve-subcommand; `run` is the clone's own foreground spelling)
+		"remote-control": 6, // start, serve, run, status, stop (cycle rc-serve-subcommand; `run` is the clone's own foreground spelling), rename (cycle 367 — the clone's own instance rename)
 		"agent":          0, // leaf
 		"agents":         0, // leaf (alias of agent)
 	}
