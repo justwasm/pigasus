@@ -22,10 +22,10 @@ github.com/MakeNowJust/heredoc v1.0.0 h1:cXCdzVdstXyiTqTvfqk9SDHpKNjxuom+DOlyEeQ
 github.com/MakeNowJust/heredoc v1.0.0/go.mod h1:mG5amYoWBHf8vpLOuehzbGGw0EHxpZZ6lCpQ4fNJ8LE=
 github.com/Masterminds/semver/v3 v3.5.0 h1:kQceYJfbupGfZOKZQg0kou0DgAKhzDg2NZPAwZ/2OOE=
 github.com/Masterminds/semver/v3 v3.5.0/go.mod h1:4V+yj/TJE1HU9XfppCwVMZq3I84lprf4nC11bSS5beM=
-github.com/MichaelKinsy/PiG v0.5.2 h1:RJpz3DqE8Cj+7rZKyRZQel76DOPFYnqPhmJougayJfI=
-github.com/MichaelKinsy/PiG v0.5.2/go.mod h1:3pE6fQQ7x6NBb8lZKcpLZTi0DL0IkD7wI33NR9sXSa0=
-github.com/MichaelKinsy/PiG/extensions/sdk v0.5.2 h1:V6R50PNK6nu/icwHRMYCeeIwkJedAMFCIDcgCyhb5R0=
-github.com/MichaelKinsy/PiG/extensions/sdk v0.5.2/go.mod h1:4j0XhCW0EPOBWvqYE7XKjTvIAahI7K1VyyW3KpjTKj8=
+github.com/MichaelKinsy/PiG v0.5.3 h1:hEVnVIPQLQK5GAosu7SdOuA1NhaLMK3gyt470Ks0F7c=
+github.com/MichaelKinsy/PiG v0.5.3/go.mod h1:4e/1OyiBWOs+Q/UD04+v+8eUdSSpvXbwDl16F+A8Wps=
+github.com/MichaelKinsy/PiG/extensions/sdk v0.5.3 h1:mgLZchfHrmjoyuKNzP5rpn/D/6hx6ZFoDfwHsqcU8Yo=
+github.com/MichaelKinsy/PiG/extensions/sdk v0.5.3/go.mod h1:4j0XhCW0EPOBWvqYE7XKjTvIAahI7K1VyyW3KpjTKj8=
 github.com/Microsoft/go-winio v0.6.2 h1:F2VQgta7ecxGYO8k3ZZz3RS8fVIXVxONVUPlNERoyfY=
 github.com/Microsoft/go-winio v0.6.2/go.mod h1:yd8OoFMLzJbo9gZq8j5qaps8bJ9aShtEA8Ipt1oGCvU=
 github.com/alecthomas/assert/v2 v2.11.0 h1:2Q9r3ki8+JYXvGsDyBXwH3LcJ+WK5D0gc5E8vS6K3D0=

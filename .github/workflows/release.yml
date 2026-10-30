@@ -58,8 +58,11 @@ jobs:
           os_title=$(echo "${{ matrix.goos }}" | awk '{print toupper(substr($0,1,1)) substr($0,2)}')
           ext="tar.gz"; [ "${{ matrix.goos }}" = "windows" ] && ext="zip"
           archive="pigasus_${VERSION}_${os_title}_${raw}.${ext}"
-          echo "raw=$raw"        >> "$GITHUB_OUTPUT"
-          echo "archive=$archive" >> "$GITHUB_OUTPUT"
+          pigga_archive="pigga_${VERSION}_${os_title}_${raw}.${ext}"
+          echo "raw=$raw"                  >> "$GITHUB_OUTPUT"
+          echo "archive=$archive"          >> "$GITHUB_OUTPUT"
+          echo "pigga_archive=$pigga_archive" >> "$GITHUB_OUTPUT"
+          echo "ext=$ext"                  >> "$GITHUB_OUTPUT"
       - name: Build binary
         env:
           GOOS: ${{ matrix.goos }}
@@ -69,12 +72,24 @@ jobs:
         run: |
           set -euo pipefail
           raw_staging="stage-${{ steps.arch.outputs.raw }}"
+          pigga_staging="stage-pigga-${{ steps.arch.outputs.raw }}"
           archive="${{ steps.arch.outputs.archive }}"
-          mkdir -p "$raw_staging" dist
+          pigga_archive="${{ steps.arch.outputs.pigga_archive }}"
+          mkdir -p "$raw_staging" "$pigga_staging" dist
+
           bin="$raw_staging/pigasus"
+          pigga_bin="$pigga_staging/pigga"
+          agy_update_bin="$raw_staging/agy-update"
           [ "$GOOS" = "windows" ] && bin="$raw_staging/pigasus.exe"
+          [ "$GOOS" = "windows" ] && pigga_bin="$pigga_staging/pigga.exe"
+          [ "$GOOS" = "windows" ] && agy_update_bin="$raw_staging/agy-update.exe"
+
           go build -trimpath -ldflags "-s -w" -o "$bin" ./cmd/pigasus
-          chmod +x "$bin"
+          go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" -o "$pigga_bin" ./cmd/pigga
+          go build -trimpath -ldflags "-s -w" -o "$agy_update_bin" ./cmd/agy-update
+
+          chmod +x "$bin" "$pigga_bin" "$agy_update_bin"
+
           # `wagyu` was the command name before the rename; shipping it as an
           # alias keeps an existing install (or a script that calls `wagyu`)
           # working. The program name in the usage text comes from argv[0], so
@@ -82,22 +97,36 @@ jobs:
           alias_bin="$raw_staging/wagyu"
           [ "$GOOS" = "windows" ] && alias_bin="$raw_staging/wagyu.exe"
           cp "$bin" "$alias_bin"
+
+          # Include pigga in the main pigasus distribution archive as well:
+          cp "$pigga_bin" "$raw_staging/"
+
           cp README.md  "$raw_staging/README.md"  2>/dev/null || true
           cp LICENSE    "$raw_staging/LICENSE"    2>/dev/null || true
+          cp README.md  "$pigga_staging/README.md"  2>/dev/null || true
+          cp LICENSE    "$pigga_staging/LICENSE"    2>/dev/null || true
 
           dist_staging="pigasus_${VERSION}_${{ steps.arch.outputs.raw }}"
           mkdir -p "dist/$dist_staging"
           cp -R "$raw_staging/." "dist/$dist_staging/"
 
+          dist_pigga_staging="pigga_${VERSION}_${{ steps.arch.outputs.raw }}"
+          mkdir -p "dist/$dist_pigga_staging"
+          cp -R "$pigga_staging/." "dist/$dist_pigga_staging/"
+
           if [ "$GOOS" = "windows" ]; then
             (cd dist && zip -r -q "$archive" "$dist_staging")
+            (cd dist && zip -r -q "$pigga_archive" "$dist_pigga_staging")
           else
             tar -C dist -czf "dist/$archive" "$dist_staging"
+            tar -C dist -czf "dist/$pigga_archive" "$dist_pigga_staging"
           fi
       - uses: actions/upload-artifact@v4
         with:
           name: bin-archive-${{ matrix.goos }}-${{ matrix.goarch }}${{ matrix.goarm }}
-          path: dist/${{ steps.arch.outputs.archive }}
+          path: |
+            dist/${{ steps.arch.outputs.archive }}
+            dist/${{ steps.arch.outputs.pigga_archive }}
           if-no-files-found: error
           retention-days: 7
 

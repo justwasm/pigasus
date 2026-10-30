@@ -110,6 +110,15 @@ func standardRCSubs() []SubSubSpec {
 		// is the reference's, byte for byte.
 		{Name: "run", Short: "Run the remote-control daemon in the foreground (same on every platform)",
 			RunJ: runRCRun, HelpFn: usageRCRun},
+		// `rename` is the clone's own: it writes the instance name
+		// into the configuration file, and a running daemon picks it
+		// up and renames the instance on the dashboard without
+		// dropping the tunnel. It is hidden for the same reason `run`
+		// is — the reference's `remote-control --help` lists start,
+		// status and stop only, and that block is byte for byte the
+		// reference's.
+		{Name: "rename", Short: "Set this machine's instance name shown in Remote Control",
+			RunJ: runRCRename, HelpFn: usageRCRename},
 		{Name: "status", Short: "Show the daemon's status",
 			RunJ: runRCStatus, HelpFn: usageRCStatus},
 		{Name: "stop", Short: "Stop the daemon and unregister it",
@@ -289,3 +298,55 @@ func accountsSubcommand() SubcommandSpec {
 		RunJ: runAccountsParent,
 	}
 }
+
+// Exported subcommand constructors for modular composition:
+
+func AccountsSubcommand() SubcommandSpec  { return accountsSubcommand() }
+func ProviderSubcommand() SubcommandSpec  { return providerSubcommand() }
+func ModelSubcommand() SubcommandSpec     { return modelSubcommand() }
+func HalloweenSubcommand() SubcommandSpec { return halloweenSubcommand() }
+
+func AgentSubcommands() []SubcommandSpec {
+	subs := generalSubcommands()
+	return []SubcommandSpec{subs[0], subs[1]}
+}
+
+func ChangelogSubcommand() SubcommandSpec { return generalSubcommands()[2] }
+func UpdateSubcommand() SubcommandSpec    { return generalSubcommands()[3] }
+func ModelsSubcommand() SubcommandSpec    { return generalSubcommands()[4] }
+func HelpSubcommand() SubcommandSpec      { return generalSubcommands()[5] }
+
+func PluginSubcommands() []SubcommandSpec {
+	return pluginAndMCPSubcommands(standardPluginSubs(), standardMCPSubs())[:2]
+}
+
+func MCPSubcommand() SubcommandSpec {
+	return pluginAndMCPSubcommands(standardPluginSubs(), standardMCPSubs())[2]
+}
+
+func InstallSubcommand() SubcommandSpec {
+	return pluginAndMCPSubcommands(standardPluginSubs(), standardMCPSubs())[3]
+}
+
+func MicServeSubcommand() SubcommandSpec {
+	return rcAndMediaSubcommands(standardRCSubs())[0]
+}
+
+func RCSubcommands() []SubcommandSpec {
+	return rcAndMediaSubcommands(standardRCSubs())[1:]
+}
+
+func WASMSubcommands() []SubcommandSpec {
+	return []SubcommandSpec{
+		accountsSubcommand(),
+		generalSubcommands()[0], // agent
+		generalSubcommands()[1], // agents
+		generalSubcommands()[2], // changelog
+		halloweenSubcommand(),
+		generalSubcommands()[5], // help
+		modelSubcommand(),
+		generalSubcommands()[4], // models
+		providerSubcommand(),
+	}
+}
+

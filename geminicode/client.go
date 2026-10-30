@@ -64,6 +64,7 @@ type Config struct {
 	// MaxOutputTokens and ThinkingBudget override the per-model defaults.
 	MaxOutputTokens int
 	ThinkingBudget  int
+	ThinkingLevel   string
 
 	// TimeoutSeconds bounds the whole exchange. Zero means no timeout.
 	TimeoutSeconds int
@@ -157,6 +158,9 @@ func (c *Client) Request(turn Turn) GenerateContentRequest {
 	}
 	if turn.ThinkingBudget == 0 {
 		turn.ThinkingBudget = c.cfg.ThinkingBudget
+	}
+	if turn.ThinkingLevel == "" {
+		turn.ThinkingLevel = c.cfg.ThinkingLevel
 	}
 	turn.Signatures = c.Signatures()
 	return BuildRequest(turn)

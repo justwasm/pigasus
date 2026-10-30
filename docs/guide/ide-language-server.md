@@ -15,12 +15,12 @@
 | | |
 |---|---|
 | Path | `/Applications/Antigravity.app/Contents/Resources/bin/language_server` |
-| Size / SHA-256 | 166,394,176 B · `7e25e79c819ab9b2e27ad5cfbc5822e5d47885a6c5c033e8d9b7b2e79b8565b0` |
+| Size / SHA-256 | 166,410,752 B · `8b660ea42c9e24b7a6be339bfa573d25b19d0770dba6e5185c205f2ad1da26d6` |
 | Go build info | `go1.28-20261015-RC02 cl/1000353293 +18a2e1f59d X:fieldtrack,boringcrypto,simd,nogolistexportnewformat` |
 | The CLI for comparison | `go1.28-20261015-RC02 cl/1000353293 +18a2e1f59d` — **same CL, same commit** |
 | `.text` base | `0x100000f80` (the CLI's is `0x1000011c0` — **addresses are not comparable**) |
 | pclntab | `__lrodata_gopcln`, 50.1 MB — the seed tool takes it as-is |
-| App version | Antigravity 2.28.0 (`com.google.antigravity`), stamp CL 1008300195 |
+| App version | Antigravity 2.28.2 (`com.google.antigravity`), stamp CL 1009437749 |
 
 **Never mix its addresses with the CLI's.** Only the *names* are comparable —
 and the names are the point.
@@ -176,17 +176,83 @@ Two things this settles that strings alone could not:
   capture. Note that the CLI's and the IDE's copies are **not** the same
   bytes: the CLI's `guidelines.tmpl` carries one bullet the IDE's does not,
   and the captured CLI request contains it.
-- The CLI and the IDE ship the **same frontend** — 301 of 304 entries are
-  byte-identical; the three that differ (`compiled_tailwind.css`,
-  `index.html`, `main.js`) are **build-version** differences, not packaging
-  ones. The CLI additionally embeds **280 TextMate grammar definitions**
-  (`embedded/*.xml`) that the IDE's server does not have at all.
+- The CLI and the IDE ship the **same frontend** — 296 of the 299 files the
+  two have in common are byte-identical; the three that differ
+  (`compiled_tailwind.css`, `main.js`,
+  `symbols-icons/symbol-icon-theme.json`) are **build-version**
+  differences, not packaging ones. The CLI ships 240 files the IDE's server
+  does not have at all — 179 Prism language components, 32 extra file-type
+  icons, 27 voice assets and two extra page bundles — and it additionally
+  embeds the **TextMate grammar definitions** (`embedded/*.xml`) that the
+  IDE's server does not have at all.
 - The **builtin skill bundle** the CLI unpacks into
   `<AppDataDir>/builtin/skills` is nine skills — two `assets/external/skills/`
   and seven `assets/shared/skills/`. The clone ships the same bundle
   (`internal/builtinskills/`).
 
 Full write-up: `out/ide-language-server/embedded-assets.md`.
+
+## The App 2.28.2 alignment
+
+The installed app moved from **2.28.0 (CL 1008300195)** to **2.28.2
+(CL 1009437749)**. The delta was measured from the binary; the vendor's
+changelog for 2.28.2 is not published yet (the newest published entry is
+v2.28.1, Oct 28 2026).
+
+**What the app ships that the clone now serves:**
+
+| | 2.28.0 | 2.28.2 |
+|---|---|---|
+| `main.js` | 10,647,600 B | **10,652,379 B** |
+| `compiled_tailwind.css` | 263,374 B | **263,273 B** |
+| the other 297 files | — | byte-identical |
+
+The bundle's *semantic* delta is the **tail of the v2.28.1 release note**
+— the third-party developer tools notice and the plugin's developer, version
+and links on its page:
+
+- a new message `exa.cortex_pb.PluginAuthor { name, url }`;
+- `PluginItem`, `Plugin` and `MarketplaceCustomization` each gained
+  `author`, `homepage` and `repository` (the last two are plain strings — the
+  `{"type":"git","url":…}` object form in `plugin.json` is flattened to the
+  URL);
+- the front end gained the plugin detail page's **Links** footer
+  (`plugin-detail-footer-homepage` / `plugin-detail-footer-repository`).
+
+Also new in 2.28.2: the **third-party developer tools** notice (release note
+bullet 2), which reads the Mendel flag `third-party-tools-disclaimer-text`
+and links `https://policies.google.com/privacy`. The clone passes the flag
+through verbatim, so the notice appears as soon as the backend serves it.
+
+The **conversation navigator** (the first bullet of the v2.28.1 note) was
+**already in the 2.28.0 bundle** — this release did not touch it.
+
+**What the clone carries:**
+
+- `internal/rcfrontend/assets/` — the re-extracted 2.28.2 bundle (byte for
+  byte the reference's own HTTP answer; `out/ide-language-server/frontend-http-2282.txt`).
+- `lsproto/descriptor/language_server.protoset` — the regenerated descriptor
+  closure (769,273 → **769,601 B**), carrying the three new messages'
+  fields. The service's **method count did not change** (356).
+- `internal/features/tools/skills/skills/plugin/SKILL.md` and
+  `.../agy-customizations/docs/plugins.md` — the reference's own bundled
+  documentation, which now describes `author` / `homepage` / `repository` as
+  supported `plugin.json` fields instead of saying they are "silently
+  discarded".
+- `internal/lsserver/stamp.go` — the new build identity.
+
+**What the clone does not have:** the plugin page's new footer needs the
+plugin RPCs (`GetPlugin`, `GetAllPlugins`, `SearchMarketplaceCustomizations`,
+…) to answer with the author and the links — the clone implements **none** of
+them, so its Web UI's Marketplace tab has no data to show either way. That
+gap predates 2.28.2; it is not introduced by it.
+
+**What was *not* re-run:** the RE pipeline. The seed set, the Ghidra project
+and the decompiled output still describe the 2.28.0 binary — every address
+moves on every release, so that is its own cycle. `out/ide-language-server/summary.txt`
+says so where the stale numbers are.
+
+Full write-up: `docs/cycles/cycle-366-antigravity-app-2.28.2/deliverable.md`.
 
 ## What it buys the clone
 
@@ -312,6 +378,12 @@ Evidence: `out/langserver/` (zh-CN) · cycle:
 [`cycle-341-langserver-replica`](../cycles/cycle-341-langserver-replica/deliverable.md).
 
 ## The 351 methods, measured
+
+> The service has **356 methods** today — the number in the current
+> descriptor closure (`lsproto/descriptor/language_server.protoset`, extracted
+> from the App 2.28.2 bundle). It had **351** when the coverage capture
+> below was taken, so the prose keeps the capture's number and the tables
+> describe that capture.
 
 The service has **351 methods**. The table above covers the 15 whose
 answers were compared byte for byte — that number is a *comparison

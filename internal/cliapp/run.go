@@ -148,6 +148,8 @@ func runRoot(args []string, p *cli.Parser) error {
 	// The browser's policy comes from the reference's own four hidden
 	// flags; the browser client reads them from here on.
 	applyBrowserFlags(fs)
+	applyProjectFlags(fs)
+	applyLogFileFlag(fs)
 	if done, err := checkRootShortCircuits(fs, p, out); done || err != nil {
 		return err
 	}

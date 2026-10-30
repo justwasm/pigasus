@@ -123,3 +123,19 @@ func TestAskCustomPermission_AsksTheHost(t *testing.T) {
 		t.Errorf("request tool = %q, want ask_custom_permission", host.request.ToolName)
 	}
 }
+
+func TestSendMessageTool_RejectsTaskInput(t *testing.T) {
+	taskID := "task-123"
+	backgroundTasks.register(&bgTask{id: taskID})
+	defer backgroundTasks.remove(taskID)
+
+	s := &SendMessageTool{}
+	_, err := s.Run(context.Background(), json.RawMessage(`{"Recipient":"task-123","Message":"hello"}`))
+	if err == nil {
+		t.Fatalf("expected error when sending message to background task ID, got nil")
+	}
+	want := "send_message should not be used to provide input to tasks; use the manage_task tool with action 'send_input' instead"
+	if !strings.Contains(err.Error(), want) {
+		t.Fatalf("error = %q, want %q", err.Error(), want)
+	}
+}

@@ -388,11 +388,16 @@ func (c *GeminiClient) readBody(ctx context.Context, resp *http.Response, out ch
 		if payload == "" {
 			continue
 		}
+		if sErr := geminicode.ParseFrameError(payload); sErr != nil {
+			code := sErr.Code
+			if code == 0 {
+				code = 500
+			}
+			return &HTTPError{StatusCode: code, Body: []byte(sErr.Error()), URL: c.endpointURL()}
+		}
 		var chunk geminiResponse
 		if err := json.Unmarshal([]byte(payload), &chunk); err != nil {
-			classified := ClassifyTransportError(fmt.Errorf("backend gemini: sse decode: %w", err), c.baseURL)
-			out <- StreamChunk{Error: classified, Done: true}
-			return classified
+			return ClassifyTransportError(fmt.Errorf("backend gemini: sse decode: %w", err), c.baseURL)
 		}
 		if usage := chunk.UsageMetadata; usage != nil {
 			meta = &ChunkMeta{
@@ -400,6 +405,7 @@ func (c *GeminiClient) readBody(ctx context.Context, resp *http.Response, out ch
 				CompletionTokens: usage.CandidatesTokenCount,
 				TotalTokens:      usage.TotalTokenCount,
 				ReasoningTokens:  usage.ThoughtsTokenCount,
+				CachedTokens:     usage.CachedContentTokenCount,
 			}
 		}
 		if err := c.emitChunk(ctx, chunk, calls, out); err != nil {
@@ -407,9 +413,7 @@ func (c *GeminiClient) readBody(ctx context.Context, resp *http.Response, out ch
 		}
 	}
 	if err := scanner.Err(); err != nil {
-		classified := ClassifyTransportError(fmt.Errorf("backend gemini: sse read: %w", err), c.baseURL)
-		out <- StreamChunk{Error: classified, Done: true}
-		return classified
+		return ClassifyTransportError(fmt.Errorf("backend gemini: sse read: %w", err), c.baseURL)
 	}
 	if !calls.emit(ctx, out) {
 		return nil
@@ -425,6 +429,9 @@ func (c *GeminiClient) emitChunk(ctx context.Context, chunk geminiResponse, call
 		for _, part := range candidate.Content.Parts {
 			if part.FunctionCall != nil {
 				calls.add(part.FunctionCall)
+				continue
+			}
+			if part.Thought {
 				continue
 			}
 			if part.Text == "" {
@@ -490,7 +497,7 @@ func (a *geminiToolAccumulator) list() []ToolCall {
 		}
 		out = append(out, ToolCall{
 			ID:        newToolCallID(),
-			Name:      call.Name,
+			Name:      geminicode.NormalizeToolName(call.Name),
 			Arguments: raw,
 		})
 	}
@@ -557,6 +564,8 @@ type geminiPart struct {
 	FunctionCall     *geminiFunctionCall     `json:"functionCall,omitempty"`
 	FunctionResponse *geminiFunctionResponse `json:"functionResponse,omitempty"`
 	Text             string                  `json:"text,omitempty"`
+	Thought          bool                    `json:"thought,omitempty"`
+	ThoughtSignature string                  `json:"thoughtSignature,omitempty"`
 	// InlineData carries an image the user attached: the mime type and
 	// the base64 payload, in one part. The spelling is the reference's
 	// own — its JSON wire types (the geminicode package) name the member
@@ -658,8 +667,12 @@ func (c *GeminiClient) buildRequest(req StreamRequest) geminiRequest {
 		},
 		SessionID: c.sessionID(),
 	}
-	if c.cfg.ThinkingLevel != "" {
-		body.GenerationConfig.ThinkingConfig = &geminiThinkingConfig{ThinkingLevel: c.cfg.ThinkingLevel}
+	level := c.cfg.ThinkingLevel
+	if level == "" && geminicode.GeminiGeneration(c.cfg.Model) >= 3 {
+		level = "high"
+	}
+	if level != "" {
+		body.GenerationConfig.ThinkingConfig = &geminiThinkingConfig{ThinkingLevel: level}
 	}
 	if req.Temperature != 0 {
 		temperature := req.Temperature
@@ -676,6 +689,7 @@ func (c *GeminiClient) buildRequest(req StreamRequest) geminiRequest {
 	for _, message := range req.Messages {
 		body.Contents = append(body.Contents, geminiContentsFor(message, paired)...)
 	}
+	body.Contents = hardenGeminiContents(body.Contents)
 	if len(req.Tools) > 0 {
 		decls := make([]geminiFunctionDeclaration, 0, len(req.Tools))
 		for _, tool := range req.Tools {
@@ -774,7 +788,8 @@ func geminiContentsFor(message Message, paired map[string]bool) []geminiContent 
 				_ = json.Unmarshal(call.Arguments, &args)
 			}
 			parts = append(parts, geminiPart{
-				FunctionCall: &geminiFunctionCall{Args: args, ID: call.ID, Name: call.Name},
+				FunctionCall:     &geminiFunctionCall{Args: args, ID: call.ID, Name: call.Name},
+				ThoughtSignature: geminicode.SkipThoughtSignature,
 			})
 		}
 		if len(parts) == 0 {
@@ -869,3 +884,36 @@ func geminiSessionID() string {
 func goRuntimeTag() string {
 	return strings.TrimPrefix(runtime.Version(), "go")
 }
+
+// hardenGeminiContents ensures conversation contents conform to Gemini's role sequence
+// constraints, matching the reference Gemini CLI hardenHistory behavior learned
+// from magpie:
+//  1. Gemini turns away requests whose first turn is a model turn (e.g. after history
+//     trimming or compaction) with 400 "The first turn must be a user turn". Prepend
+//     a synthetic user turn.
+//  2. Gemini turns away requests whose last turn is an assistant turn (without function
+//     response) with 400 "Requests ending with a model turn are not supported".
+//     Append a synthetic user turn asking to continue.
+func hardenGeminiContents(contents []geminiContent) []geminiContent {
+	if len(contents) == 0 {
+		return contents
+	}
+	out := contents
+	if out[0].Role == "model" {
+		out = append([]geminiContent{{Role: "user", Parts: []geminiPart{{Text: "[Continuing from previous AI thoughts...]"}}}}, out...)
+	}
+	if n := len(out); n > 0 && out[n-1].Role == "model" && !geminiHasFunctionResponse(out[n-1]) {
+		out = append(out, geminiContent{Role: "user", Parts: []geminiPart{{Text: "Continue."}}})
+	}
+	return out
+}
+
+func geminiHasFunctionResponse(c geminiContent) bool {
+	for _, p := range c.Parts {
+		if p.FunctionResponse != nil {
+			return true
+		}
+	}
+	return false
+}
+

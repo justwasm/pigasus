@@ -137,22 +137,20 @@ func pluginInstalledFilter(rows []pluginRow, query string) []pluginRow {
 }
 
 // pluginDiscoverRows is the Discover row list for the current query: every
-// marketplace entry (grouped into sections when unfocused) when the box is
+// marketplace entry (grouped into shelves when unfocused) when the box is
 // unfocused, the filtered set when it has focus.
+//
+// Cycle 364 (agy 1.4.11): the unfocused list is the shelf layout — each
+// shelf's first plugins plus its "⋯ N more — enter to show" row — so the
+// list carries the more-rows the cursor can land on. The filtered list is
+// flat: a search result set has no shelves.
 func (m *runMode) pluginDiscoverRows(mkts []pluginMarketplace) []pluginRow {
 	if m.panel.pluginSearch {
 		return pluginDiscoverFilter(mkts, m.panel.pluginQuery)
 	}
-	items := marketplaceItems(mkts)
-	sections := pluginsui.GroupDiscoverSections(toPluginRows(items))
-	if len(sections) <= 1 {
-		return items
-	}
 	var out []pluginRow
-	for _, sec := range sections {
-		for _, it := range sec.Items {
-			out = append(out, fromPluginRow(it))
-		}
+	for _, sh := range m.pluginDiscoverShelves(mkts) {
+		out = append(out, sh.Rows...)
 	}
 	return out
 }
@@ -173,6 +171,9 @@ func (m *runMode) pluginDiscoverCount() int {
 // highlighted Discover row. On the unfocused tab row 0 is the local-install
 // row, whose Enter opens the reference's inline path prompt (not implemented —
 // see the cycle-204 report), so it is inert here.
+//
+// Cycle 364 (agy 1.4.11): Enter on a shelf's "⋯ N more — enter to show" row
+// shows the shelf's tail instead of a detail block.
 func (m *runMode) togglePluginDiscoverExpanded() {
 	if !m.panel.pluginSearch && m.panel.cursor == 0 {
 		return
@@ -183,6 +184,10 @@ func (m *runMode) togglePluginDiscoverExpanded() {
 		i--
 	}
 	if i < 0 || i >= len(rows) {
+		return
+	}
+	if rows[i].more {
+		m.setPluginShelfExpanded(rows[i].shelf, true)
 		return
 	}
 	name := rows[i].name

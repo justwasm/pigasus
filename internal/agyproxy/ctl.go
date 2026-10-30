@@ -60,6 +60,10 @@ func Admin(opts AdminOptions, args []string) int {
 		return wrapErr(opts, cmdVersion(opts, args[1:]))
 	case "capture":
 		return wrapErr(opts, cmdCapture(opts, args[1:]))
+	case "balance":
+		return wrapErr(opts, cmdBalance(opts, args[1:]))
+	case "aggregate":
+		return wrapErr(opts, cmdAggregate(opts, args[1:]))
 	case "log":
 		return wrapErr(opts, cmdLog(opts, args[1:]))
 	case "doctor":
@@ -90,6 +94,8 @@ func usageText(prog string) string {
 
   capture on|off             toggle request/response capture
   capture dir [path]         show or set the capture directory
+  balance on|off             toggle multi-account load balancing
+  aggregate on|off           toggle unified virtual account aggregation
   log [-n N]                 tail the proxy log (default 40 lines)
   doctor                     agy path/version, registry, port, capture, upstream
   version                    proxy and agy versions

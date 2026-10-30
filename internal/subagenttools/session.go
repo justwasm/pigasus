@@ -1,6 +1,8 @@
 package subagenttools
 
 import (
+	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -339,14 +341,8 @@ func persistTranscript(subDir, subID string, msgs []piagent.AgentMessage, runErr
 	if subDir == "" || subID == "" {
 		return
 	}
-	path := filepath.Join(subDir, subID+".jsonl")
-	f, err := os.Create(path)
-	if err != nil {
-		return
-	}
-	defer f.Close()
-
-	encoder := json.NewEncoder(f)
+	var buf bytes.Buffer
+	encoder := json.NewEncoder(&buf)
 	for i, msg := range msgs {
 		line := map[string]any{
 			"subagent": subID,
@@ -363,6 +359,56 @@ func persistTranscript(subDir, subID string, msgs []piagent.AgentMessage, runErr
 			"error":    runErr.Error(),
 		})
 	}
+	path := filepath.Join(subDir, subID+".jsonl")
+	tmpPath := path + ".tmp"
+	if err := os.WriteFile(tmpPath, buf.Bytes(), 0o644); err == nil {
+		_ = os.Rename(tmpPath, path)
+	} else {
+		_ = os.WriteFile(path, buf.Bytes(), 0o644)
+	}
+}
+
+// loadTranscript reads a persisted subagent JSONL transcript from disk,
+// reconstructing the sequence of AgentMessages so execution can be resumed without losing progress.
+func loadTranscript(subDir, subID string) ([]piagent.AgentMessage, error) {
+	if subDir == "" || subID == "" {
+		return nil, nil
+	}
+	path := filepath.Join(subDir, subID+".jsonl")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+
+	var msgs []piagent.AgentMessage
+	scanner := bufio.NewScanner(bytes.NewReader(data))
+	for scanner.Scan() {
+		line := bytes.TrimSpace(scanner.Bytes())
+		if len(line) == 0 {
+			continue
+		}
+		var record struct {
+			Subagent string          `json:"subagent"`
+			Index    int             `json:"index"`
+			Role     string          `json:"role"`
+			Message  json.RawMessage `json:"message"`
+			Error    string          `json:"error"`
+		}
+		if err := json.Unmarshal(line, &record); err != nil {
+			continue
+		}
+		if record.Role == "error" || len(record.Message) == 0 {
+			continue
+		}
+		var msg piagent.AgentMessage
+		if err := json.Unmarshal(record.Message, &msg); err == nil && msg.Role() != "" {
+			msgs = append(msgs, msg)
+		}
+	}
+	return msgs, scanner.Err()
 }
 
 func minimalBuiltinExtensions() ([]extension.Extension, *extension.ExtensionRuntime) {

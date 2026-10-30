@@ -5,6 +5,7 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/justwasm/pigasus/internal/tuilib"
 	"github.com/justwasm/pigasus/internal/tuitools"
 	"github.com/justwasm/pigasus/internal/tuiviewport"
@@ -83,13 +84,49 @@ func (m *runMode) stickyUserPromptRow() int {
 	return tuiviewport.StickyUserPromptRow(m.userPromptRows, m.autoScroll, m.scroll)
 }
 
+func isPromptTurnSeparator(row string) bool {
+	stripped := strings.TrimSpace(ansi.Strip(row))
+	return len(stripped) > 0 && strings.Trim(stripped, "─") == ""
+}
+
+func (m *runMode) promptTurnStart(rows []string, promptIdx int) int {
+	if promptIdx <= 0 || promptIdx >= len(rows) {
+		return 0
+	}
+	start := promptIdx
+	for start > 0 && isPromptTurnSeparator(rows[start-1]) {
+		start--
+	}
+	if start > 0 && strings.TrimSpace(rows[start-1]) == "" {
+		start--
+	}
+	return start
+}
+
+func (m *runMode) isPromptTurnVisible(rows []string, idx int) bool {
+	if m.scroll <= idx {
+		return true
+	}
+	for _, p := range m.userPromptRows {
+		if p > idx {
+			start := m.promptTurnStart(rows, p)
+			if m.scroll >= start && m.scroll <= p {
+				return true
+			}
+			break
+		}
+	}
+	return false
+}
+
 // jumpToPinnedPrompt scrolls the viewport so the producing user-prompt row lands at top.
 func (m *runMode) jumpToPinnedPrompt() bool {
 	if m.pinnedPromptRowIdx < 0 {
 		return false
 	}
 	m.autoScroll = false
-	m.scroll = m.pinnedPromptRowIdx
+	rows, _, _ := m.syncRowsView()
+	m.scroll = m.promptTurnStart(rows, m.pinnedPromptRowIdx)
 	return true
 }
 
@@ -308,25 +345,24 @@ func (m *runMode) syncRowsView() ([]string, []string, []string) {
 	return m.rowsView.Rows, header, resp
 }
 
-func (m *runMode) updateStickyPrompt(header, resp []string, avail int) int {
+func (m *runMode) updateStickyPrompt(rows, header, resp []string, avail int) int {
 	m.stickyBarRow = ""
 	m.pinnedPromptRowIdx = -1
 	m.pinnedPromptText = ""
+	if !m.altScreen {
+		return avail
+	}
 	if idx := m.stickyUserPromptRow(); idx >= 0 {
-		respIdx := idx - len(header)
-		if respIdx >= 0 && respIdx < len(resp) {
-			if m.altScreen {
+		if !m.isPromptTurnVisible(rows, idx) {
+			respIdx := idx - len(header)
+			if respIdx >= 0 && respIdx < len(resp) {
 				m.pinnedPromptRowIdx = idx
 				m.pinnedPromptText = renderPinnedPrompt(resp[respIdx], m.width)
-			} else {
-				m.stickyBarRow = resp[respIdx]
 			}
 		}
 	}
 	availScroll := avail
-	if m.altScreen && m.pinnedPromptText != "" {
-		availScroll -= 1
-	} else if m.stickyBarRow != "" {
+	if m.pinnedPromptText != "" {
 		availScroll -= 2
 	}
 	return availScroll
@@ -368,7 +404,7 @@ func (m *runMode) transcriptWindow() []string {
 		return m.transcriptRows(0)
 	}
 	rows, header, resp := m.syncRowsView()
-	availScroll := m.updateStickyPrompt(header, resp, avail)
+	availScroll := m.updateStickyPrompt(rows, header, resp, avail)
 	if len(rows) <= availScroll {
 		m.scroll = 0
 		m.autoScroll = true

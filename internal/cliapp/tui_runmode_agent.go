@@ -15,6 +15,7 @@ import (
 	"charm.land/lipgloss/v2"
 	piagent "github.com/MichaelKinsy/PiG/agent"
 	"github.com/MichaelKinsy/PiG/coding"
+	"github.com/justwasm/pigasus/internal/accounts"
 	"github.com/justwasm/pigasus/internal/agent"
 	"github.com/justwasm/pigasus/internal/agenttools"
 	"github.com/justwasm/pigasus/internal/auth"
@@ -271,7 +272,7 @@ func resolveRunModeDefaults(b backend.Client, email, model, tier, cwd string) (s
 		email = auth.EffectiveUserEmail()
 	}
 	if email == "" {
-		email = "navigaid@gmail.com"
+		_, email = accounts.Current()
 	}
 	if b != nil && model == "" {
 		if gb, ok := b.(gatewayBackend); ok {
@@ -302,6 +303,7 @@ func resolveRunModeDefaults(b backend.Client, email, model, tier, cwd string) (s
 }
 
 func newRunModeBase(b backend.Client, email, model, tier, cwd string, altScreen bool) *runMode {
+	initConvID := newConversationID()
 	return &runMode{
 		email:                   email,
 		model:                   model,
@@ -316,7 +318,8 @@ func newRunModeBase(b backend.Client, email, model, tier, cwd string, altScreen 
 		taskSubagentManager:     tools.SharedSubagentManager(),
 		subAgentQuestions:       subagentquestions.NewManager(false),
 		subAgentQuestionsActive: subagentquestions.ParentKey,
-		conversationID:          newConversationID(),
+		conversationID:          initConvID,
+		initialConversationID:   initConvID,
 		autoScroll:              true,
 		rowsCacheDirty:          true,
 		pinnedPromptRowIdx:      -1,

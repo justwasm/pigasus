@@ -15,6 +15,7 @@ import (
 
 	pi "github.com/MichaelKinsy/PiG/ai"
 
+	"github.com/justwasm/pigasus/internal/accounts"
 	"github.com/justwasm/pigasus/internal/agent"
 	"github.com/justwasm/pigasus/internal/agyproxy"
 	"github.com/justwasm/pigasus/internal/auth"
@@ -26,11 +27,15 @@ import (
 	"github.com/justwasm/pigasus/internal/modelcatalog"
 	"github.com/justwasm/pigasus/internal/onboarding"
 	"github.com/justwasm/pigasus/internal/permissions"
+	"github.com/justwasm/pigasus/internal/persistentrc"
 	"github.com/justwasm/pigasus/internal/printmode"
 	"github.com/justwasm/pigasus/internal/rchost"
 	"github.com/justwasm/pigasus/internal/sandbox"
 	"github.com/justwasm/pigasus/internal/toolrunner"
 	"github.com/justwasm/pigasus/internal/tools"
+	"github.com/justwasm/pigasus/internal/urlchunk"
+	"github.com/justwasm/pigasus/render"
+	"golang.org/x/term"
 )
 
 // checkRootShortCircuits handles flags that print catalog/info and exit.
@@ -264,11 +269,20 @@ func printOAuthConfig(w io.Writer) {
 	_ = enc.Encode(cfg)
 }
 
+// RenderTUI prints the static TUI snapshot to w.
+func RenderTUI(w io.Writer) error {
+	return renderTUI(w)
+}
+
 // renderTUI prints the static TUI snapshot.
 func renderTUI(w io.Writer) error {
+	return renderTUIWithFlags(w, nil)
+}
+
+func renderTUIWithFlags(w io.Writer, fs *flag.FlagSet) error {
 	email := auth.EffectiveUserEmail()
 	if email == "" {
-		email = "navigaid@gmail.com"
+		_, email = accounts.Current()
 	}
 	model := "Gemini 3.8 Flash (High)"
 	// The tier is filled in once the server names it; until then the
@@ -280,6 +294,51 @@ func renderTUI(w io.Writer) error {
 	}
 	renderBanner(w, email, model, tier, cwd)
 	fmt.Fprintln(w, separator)
+	if fs != nil && cliflags.BoolValue(fs, "remote-control") {
+		if IsBusinessAccount() {
+			fmt.Fprintln(w, cWarningBlueOpen+"> /remote-control"+cWarningBlueClose)
+			fmt.Fprintln(w, cWarningBlueOpen+"  \u23bf  "+cWarningBlueClose+panelGray238+rchost.SlashADCErrorMessage()+panelGray238C)
+			fmt.Fprintln(w, "")
+		} else {
+			convID := cliflags.StringValue(fs, "conversation")
+			if convID == "" && cliflags.ResolveBoolAlias(fs, "continue", "c") {
+				sel := resolveConversationSelection(fs, io.Discard)
+				convID = sel.ID
+			}
+			uuid := persistentrc.InstallationUUID()
+			hostname := persistentrc.ResolveInstanceName("")
+			if hostname == "" {
+				hn, err := os.Hostname()
+				if err == nil && hn != "" {
+					hostname = hn
+				}
+			}
+			if hostname == "" {
+				hostname = "localhost"
+			}
+			chunkWidth := rcURLDefaultWidth
+			if f, ok := w.(*os.File); ok {
+				if cols, _, err := term.GetSize(int(f.Fd())); err == nil && cols > 0 {
+					chunkWidth = cols
+				}
+			} else if cols, _, err := term.GetSize(int(os.Stdout.Fd())); err == nil && cols > 0 {
+				chunkWidth = cols
+			}
+			targetChunk := chunkWidth - len(rcURLIndent) - 1
+			if targetChunk < 1 {
+				targetChunk = 1
+			}
+			msg, extra := buildRemoteControlCard(convID, uuid, hostname, func(u string) []string {
+				return urlchunk.Rows(u, rcURLIndent, targetChunk, render.HyperlinkCaps{})
+			})
+			fmt.Fprintln(w, cWarningBlueOpen+"> /remote-control"+cWarningBlueClose)
+			fmt.Fprintln(w, cWarningBlueOpen+"  \u23bf  "+cWarningBlueClose+panelGray238+msg+panelGray238C)
+			for _, line := range extra {
+				fmt.Fprintln(w, line)
+			}
+			fmt.Fprintln(w, "")
+		}
+	}
 	fmt.Fprintln(w, "\033[38;2;138;180;248m>\033[39m")
 	fmt.Fprintln(w, separator)
 	fmt.Fprintln(w, staticStatusRow(model))
@@ -377,7 +436,7 @@ type gatewayBackend interface {
 // The provider/model registry is *not* here: it belongs to the clone
 // (`wagyu provider`, `wagyu model`), and the proxy only reads it.
 func proxySubcommand() cli.SubcommandSpec {
-	names := []string{"doctor", "log", "capture", "version"}
+	names := []string{"doctor", "log", "capture", "balance", "aggregate", "version", "help"}
 	subs := make([]cli.SubSubSpec, 0, len(names))
 	for _, name := range names {
 		subs = append(subs, cli.SubSubSpec{
@@ -405,8 +464,14 @@ func proxySubShort(name string) string {
 		return "Tail the proxy log"
 	case "capture":
 		return "Toggle the request/response capture"
+	case "balance":
+		return "Toggle multi-account load balancing"
+	case "aggregate":
+		return "Toggle unified virtual account aggregation"
 	case "version":
 		return "Print the proxy and agy versions"
+	case "help":
+		return "Show help for proxy commands"
 	default:
 		return ""
 	}
@@ -445,5 +510,6 @@ func proxyUsage(prog string) string {
 		"  doctor     agy path/version, registry, port, capture, upstream\n" +
 		"  log        tail the proxy log\n" +
 		"  capture    toggle the request/response capture\n" +
+		"  balance    toggle multi-account load balancing\n" +
 		"  version    proxy and agy versions\n"
 }

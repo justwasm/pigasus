@@ -158,7 +158,14 @@ func (m *runMode) flushNextQueued(nextQueued string) tea.Cmd {
 	if handled, cmd := m.dispatchSlashLine(nextQueued); handled {
 		return cmd
 	}
-	m.response = append(m.response, userPromptRow(nextQueued))
+	for len(m.response) > 0 && strings.TrimSpace(m.response[len(m.response)-1]) == "" {
+		m.response = m.response[:len(m.response)-1]
+	}
+	if len(m.response) == 0 {
+		m.response = append(m.response, turnSeparator(m.width), userPromptRow(nextQueued))
+	} else {
+		m.response = append(m.response, "", turnSeparator(m.width), userPromptRow(nextQueued))
+	}
 	m.liveStart = len(m.response)
 	m.replyStart = -1
 	m.liveReplyIdx = -1

@@ -91,6 +91,20 @@ func (m *runMode) handlePluginDiscoverKey(key tea.Key) (bool, tea.Cmd, bool) {
 			m.openPluginLocalInstall()
 			return true, pluginBlink(), true
 		}
+	// Cycle 364 (agy 1.4.11): ctrl+e expands or collapses the shelf
+	// under the cursor, and `[` / `]` jump to the previous or the next
+	// shelf. The two bracket keys are printable, so they are taken here
+	// — before the typed-text fallback below, which would otherwise put
+	// them in the search box.
+	case key.Code == 'e' && key.Mod.Contains(tea.ModCtrl):
+		m.togglePluginShelfExpanded()
+		return true, nil, true
+	case key.Code == '[':
+		m.jumpPluginShelf(-1)
+		return true, nil, true
+	case key.Code == ']':
+		m.jumpPluginShelf(1)
+		return true, nil, true
 	}
 	if keybind.IsTypedText(key) {
 		m.enterPluginSearch()

@@ -22,6 +22,9 @@ func TestParseStrategy(t *testing.T) {
 		"failover":    StrategyFailover,
 		"  STICKY  ":  StrategySticky,
 		"fail-over":   StrategyFailover,
+		"aggregate":   StrategyAggregate,
+		"unified":     StrategyAggregate,
+		"agg":         StrategyAggregate,
 	}
 	for name, want := range cases {
 		got, ok := ParseStrategy(name)
@@ -265,5 +268,21 @@ func TestChooseEmptyPool(t *testing.T) {
 	}
 	if d.Reason == "" {
 		t.Error("an empty pool should say why")
+	}
+}
+
+func TestChooseAggregate(t *testing.T) {
+	cfg := Config{Strategy: StrategyAggregate, Threshold: 0.15}.Normalised()
+	if !cfg.Aggregate {
+		t.Errorf("StrategyAggregate should automatically set Aggregate=true")
+	}
+	states := []State{
+		state("a@example.com", 0.3, true, true),
+		state("b@example.com", 0.8, true, false),
+		state("c@example.com", 0.05, true, false), // below threshold
+	}
+	d := Choose(cfg, states, 0)
+	if d.Email != "b@example.com" {
+		t.Errorf("chose %q, want b@example.com (most quota left in aggregate pool)", d.Email)
 	}
 }

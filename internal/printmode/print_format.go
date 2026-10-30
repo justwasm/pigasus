@@ -108,6 +108,29 @@ type jsonCommandPayload struct {
 // jsonEnvelope is the object `--output-format json` prints, and the `result`
 // member of the `--output-format stream-json` stream. Field order matches the
 // reference's wire order.
+//
+// 【一手】 agy 1.4.11 added `finished_reason`: "Added a `finished_reason`
+// field to the result of `--output-format json` and `stream-json` runs
+// that says why a turn ended early, `print_timeout` when `--print-timeout`
+// expired and the response is partial, `interrupted` when the run was
+// canceled such as with `Ctrl+C`, or `error` for any other failure, so
+// scripts can tell a cut-off answer from a complete one; the field is
+// omitted when the turn finishes normally."
+//
+// The field is captured first-hand from the 1.4.11 binary, on the error
+// path (a `-p` run with no credentials), where it is the **last** member
+// of the envelope:
+//
+//	{"conversation_id":"","status":"ERROR","response":"",
+//	 "error":"authentication failed or timed out","duration_seconds":0,
+//	 "num_turns":0,"usage":{"input_tokens":0,"output_tokens":0,
+//	 "thinking_tokens":0,"cache_read_tokens":0,"total_tokens":0},
+//	 "finished_reason":"error"}
+//
+// `command` and `finished_reason` never travel together — a command
+// result is answered locally and finishes normally — so their relative
+// order is unobservable; `finished_reason` is last in the struct because
+// the reference *added* it to the 1.3.6 field order.
 type jsonEnvelope struct {
 	ConversationID  string              `json:"conversation_id"`
 	Status          string              `json:"status"`
@@ -117,7 +140,20 @@ type jsonEnvelope struct {
 	NumTurns        int                 `json:"num_turns"`
 	Usage           jsonUsage           `json:"usage"`
 	Command         *jsonCommandPayload `json:"command,omitempty"`
+	FinishedReason  string              `json:"finished_reason,omitempty"`
 }
+
+// The three `finished_reason` values the reference reports.
+//
+// 【一手】 agy 1.4.11's own wording: "print_timeout" when
+// `--print-timeout` expired and the response is partial, "interrupted"
+// when the run was canceled such as with `Ctrl+C`, and "error" for any
+// other failure.
+const (
+	finishedReasonPrintTimeout = "print_timeout"
+	finishedReasonInterrupted  = "interrupted"
+	finishedReasonError        = "error"
+)
 
 // writeJSONLine marshals v and writes it followed by a newline.
 func writeJSONLine(w io.Writer, v any) error {

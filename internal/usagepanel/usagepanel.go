@@ -20,6 +20,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/justwasm/pigasus/internal/accounts"
 	"github.com/justwasm/pigasus/internal/auth"
 	"github.com/justwasm/pigasus/internal/pluginsui"
 	"github.com/justwasm/pigasus/internal/tuiviewer"
@@ -64,7 +65,7 @@ func Chrome(email string) []string {
 		email = auth.EffectiveUserEmail()
 	}
 	if email == "" {
-		email = "navigaid@gmail.com"
+		_, email = accounts.Current()
 	}
 	return []string{
 		"",
@@ -289,7 +290,7 @@ func ClaudeGroupRows() []string {
 func ViewerLinesStatic() []string {
 	email := auth.EffectiveUserEmail()
 	if email == "" {
-		email = "navigaid@gmail.com"
+		_, email = accounts.Current()
 	}
 	out := []string{
 		"\x1b[1m" + PanelGray238 + "└ Models & Quota" + "\x1b[0m",

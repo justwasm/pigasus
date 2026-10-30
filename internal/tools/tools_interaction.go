@@ -260,32 +260,45 @@ func (n *NotifyUserTool) Run(ctx context.Context, args json.RawMessage) (any, er
 	return "Notification recorded.", nil
 }
 
-// SendMessageTool — Source: tools.send_message. Delivers a message to a running
-// background command.
+// SendMessageTool — Source: tools.send_message. Delivers a message to another agent or a running background command.
 type SendMessageTool struct{}
 
 func (s *SendMessageTool) Name() string { return "send_message" }
 func (s *SendMessageTool) Schema() json.RawMessage {
-	return obj(`"id":{"type":"string","description":"Target command id."},`+
-		`"message":{"type":"string","description":"Text delivered to the target."}`,
-		"id", "message")
+	return obj(`"Recipient":{"type":"string","description":"Conversation ID of the agent to message.","minLength":1},`+
+		`"Message":{"type":"string","description":"Content of the message.","minLength":1}`,
+		"Recipient", "Message")
 }
 func (s *SendMessageTool) Run(ctx context.Context, args json.RawMessage) (any, error) {
 	var p struct {
-		ID      string `json:"id"`
-		Message string `json:"message"`
+		ID           string `json:"id"`
+		Recipient    string `json:"recipient"`
+		RecipientCap string `json:"Recipient"`
+		Message      string `json:"message"`
+		MessageCap   string `json:"Message"`
 	}
 	if err := argsOf(args, &p); err != nil {
 		return nil, err
 	}
-	t, ok := backgroundTasks.get(p.ID)
-	if !ok {
-		return nil, fmt.Errorf("send_message: unknown task %q", p.ID)
+	target := p.RecipientCap
+	if target == "" {
+		target = p.Recipient
 	}
-	if err := t.writeStdin(p.Message + "\n"); err != nil {
-		return nil, err
+	if target == "" {
+		target = p.ID
 	}
-	return "Message delivered.", nil
+	msg := p.MessageCap
+	if msg == "" {
+		msg = p.Message
+	}
+	if target == "" || msg == "" {
+		return nil, fmt.Errorf("send_message: Recipient and Message are required")
+	}
+
+	if _, ok := backgroundTasks.get(target); ok {
+		return nil, fmt.Errorf("send_message should not be used to provide input to tasks; use the manage_task tool with action 'send_input' instead")
+	}
+	return fmt.Sprintf("Message sent to %q.", target), nil
 }
 
 // ManageInbox — Source: tools.manage_inbox. Lists or clears the notice inbox.

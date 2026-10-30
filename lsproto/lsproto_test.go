@@ -308,3 +308,85 @@ func TestOutputMessageIsCallable(t *testing.T) {
 	}
 	var _ protoreflect.MessageDescriptor = md
 }
+
+func TestStreamTerminalOutputCodec(t *testing.T) {
+	c := newTestCodec(t)
+	
+	// Test title frame
+	titleJSON := `{"title":"bash"}`
+	bTitle, err := c.EncodeResponse("StreamTerminalOutput", []byte(titleJSON))
+	if err != nil {
+		t.Fatalf("Encode title failed: %v", err)
+	}
+	t.Logf("bTitle len=%d: %x", len(bTitle), bTitle)
+	
+	// Test output frame
+	outJSON := `{"output":"aGVsbG8=","isScrollback":true}`
+	bOut, err := c.EncodeResponse("StreamTerminalOutput", []byte(outJSON))
+	if err != nil {
+		t.Fatalf("Encode output failed: %v", err)
+	}
+	t.Logf("bOut len=%d: %x", len(bOut), bOut)
+	
+	// Test exitCode frame
+	exitJSON := `{"exitCode":0}`
+	bExit, err := c.EncodeResponse("StreamTerminalOutput", []byte(exitJSON))
+	if err != nil {
+		t.Fatalf("Encode exitCode failed: %v", err)
+	}
+	t.Logf("bExit len=%d: %x", len(bExit), bExit)
+
+	// Decode back
+	decTitle, err := c.DecodeResponse("StreamTerminalOutput", bTitle)
+	if err != nil {
+		t.Fatalf("DecodeResponse title failed: %v", err)
+	}
+	t.Logf("decTitle: %s", string(decTitle))
+
+	decOut, err := c.DecodeResponse("StreamTerminalOutput", bOut)
+	if err != nil {
+		t.Fatalf("DecodeResponse output failed: %v", err)
+	}
+	t.Logf("decOut: %s", string(decOut))
+
+	decExit, err := c.DecodeResponse("StreamTerminalOutput", bExit)
+	if err != nil {
+		t.Fatalf("DecodeResponse exit failed: %v", err)
+	}
+	t.Logf("decExit: %s", string(decExit))
+
+	// Test CreateTerminal response
+	createJSON := `{"terminal":{"terminalId":"term-1","pid":1234,"title":"bash","createdAt":"2026-10-30T12:00:00Z"}}`
+	bCreate, err := c.EncodeResponse("CreateTerminal", []byte(createJSON))
+	if err != nil {
+		t.Fatalf("Encode CreateTerminal failed: %v", err)
+	}
+	decCreate, err := c.DecodeResponse("CreateTerminal", bCreate)
+	if err != nil {
+		t.Fatalf("Decode CreateTerminal failed: %v", err)
+	}
+	t.Logf("decCreate: %s", string(decCreate))
+
+	// Test StreamTerminalOutput request decode
+	inMsg, ok := c.InputMessage("StreamTerminalOutput")
+	if !ok {
+		t.Fatalf("InputMessage(StreamTerminalOutput) not found")
+	}
+	t.Logf("StreamTerminalOutput input msg: %s", inMsg.FullName())
+	for i := 0; i < inMsg.Fields().Len(); i++ {
+		fd := inMsg.Fields().Get(i)
+		t.Logf("  field %d: %s (%s, json_name=%s)", fd.Number(), fd.Name(), fd.Kind(), fd.JSONName())
+	}
+
+	dynReq := dynamicpb.NewMessage(inMsg)
+	dynReq.Set(inMsg.Fields().ByName("terminal_id"), protoreflect.ValueOfString("term-1234"))
+	bReq, err := proto.Marshal(dynReq)
+	if err != nil {
+		t.Fatalf("Marshal dynReq failed: %v", err)
+	}
+	decReq, err := c.DecodeRequest("StreamTerminalOutput", bReq)
+	if err != nil {
+		t.Fatalf("DecodeRequest failed: %v", err)
+	}
+	t.Logf("decReq: %s", string(decReq))
+}

@@ -28,6 +28,8 @@ import (
 type Options struct {
 	// CWD is the working directory the session is anchored to.
 	CWD string
+	// Workspaces are additional workspace roots (e.g. from --add-dir).
+	Workspaces []string
 	// AgentDir is the global config directory. Empty uses DefaultAgentHome()
 	// — the reference's ~/.gemini/antigravity-cli.
 	AgentDir string

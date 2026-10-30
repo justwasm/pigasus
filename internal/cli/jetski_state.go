@@ -68,7 +68,7 @@ func newDestFor(typ, def string) (any, error) {
 		return &d, nil
 	case "stringSlice":
 		ss := &stringSliceValue{}
-		if def != "" {
+		if def != "" && def != "[]" {
 			for _, p := range strings.Split(def, ",") {
 				ss.items = append(ss.items, p)
 			}
@@ -213,3 +213,4 @@ type stringSliceValue struct{ items []string }
 
 func (ss *stringSliceValue) String() string     { return strings.Join(ss.items, ",") }
 func (ss *stringSliceValue) Set(v string) error { ss.items = append(ss.items, v); return nil }
+func (ss *stringSliceValue) Get() any           { return ss.items }

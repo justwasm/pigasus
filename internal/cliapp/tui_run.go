@@ -136,6 +136,10 @@ type runMode struct {
 	backendFor func(model string) backend.Client
 	// Cycle 86: per-session conversation UUID shown in the /help
 	conversationID string
+	// initialConversationID is the UUID generated at runMode creation.
+	// Used to distinguish a brand new unstarted session from an active conversation.
+	initialConversationID string
+	conversationStarted   bool
 	// Cycle tasks-panel: the registry that backs /tasks and the
 	taskReg *taskregistry.Registry
 	// subagentDefs is the conversation's subagent definition store.
@@ -421,9 +425,10 @@ type runMode struct {
 	// statusLineExternalState is the cached rendered output / tick counter
 	statusLineExternalState *statusLineExternalState
 	// Cycle 106: /rename name (used by conversationTitle) and the
-	conversationName  string
-	remoteControl     bool
-	remoteControlUUID string
+	conversationName     string
+	remoteControl        bool
+	remoteControlUUID    string
+	remoteControlDesktop bool
 	// Cycle 250: /narration session state. narrationOff is true after
 	narrationOff   bool
 	narrationStart time.Time

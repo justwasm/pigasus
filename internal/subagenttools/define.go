@@ -129,6 +129,12 @@ func (t *defineTool) Execute(_ context.Context, _ string, params json.RawMessage
 	if name == "" || prompt == "" {
 		return piagent.AgentToolResult{}, errors.New("define_subagent: Name and SystemPrompt are required")
 	}
+	switch name {
+	case "self", "research",
+		"DeepCoder", "DeepCoderWorkerL0", "DeepCoderImprovementWorker",
+		"DeepInvestigator", "DeepInvestigatorWorkerL0", "DeepInvestigatorImprovementWorker":
+		return piagent.AgentToolResult{}, fmt.Errorf("define_subagent: %q is a reserved built-in subagent name and cannot be redefined", name)
+	}
 	if t.defs != nil {
 		t.defs.Put(name, Invocation{Prompt: prompt, SystemPrompt: prompt, Grant: args.grant()})
 	}

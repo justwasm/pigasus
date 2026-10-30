@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -155,6 +156,22 @@ func executePrintModelTurn(w io.Writer, fs *flag.FlagSet, cfg *printRunConfig) e
 
 	ctx, cancel := printContext(cfg.timeout)
 	defer cancel()
+	// agy 1.4.11: a Ctrl+C ends the turn and the envelope says so
+	// (`finished_reason: interrupted`). Catching the signal is what
+	// makes the envelope possible at all.
+	guard := newPrintInterruptGuard()
+	defer guard.Close()
+	guard.cancel(cancel)
+
+	workspaces := []string{workspace}
+	for _, dir := range flagStringValues(fs, "add-dir") {
+		if abs, err := filepath.Abs(dir); err == nil {
+			workspaces = append(workspaces, abs)
+		}
+	}
+	if len(workspaces) > 1 {
+		tools.SetExtraWorkspaces(workspaces[1:])
+	}
 
 	denials, runErr := runPigPrintTurn(ctx, pigPrintConfig{
 		Backend:        be,
@@ -165,6 +182,7 @@ func executePrintModelTurn(w io.Writer, fs *flag.FlagSet, cfg *printRunConfig) e
 		Policy:         policy,
 		Handler:        chunkHandler,
 		Workspace:      workspace,
+		Workspaces:     workspaces,
 		AgentDir:       auth.AntigravityHome(),
 		ConversationID: cfg.conversationID,
 		Effort:         flagStringValue(fs, "effort"),
@@ -174,11 +192,17 @@ func executePrintModelTurn(w io.Writer, fs *flag.FlagSet, cfg *printRunConfig) e
 	gate.Denials = append(gate.Denials, denials...)
 
 	timedOut, runErr := handlePrintTurnTimeout(ctx, cfg.timeout, runErr)
+	interrupted := guard.Interrupted()
 	reportHeadlessDenials(gate.Denials)
 	exit := classifyHeadlessExit(runErr)
+	if interrupted {
+		// A Ctrl+C is not an API failure: it keeps the generic exit
+		// path but with the conventional 128+SIGINT status.
+		exit = cli.ExitCodeError(printInterruptedExitCode, printInterruptedMessage(runErr))
+	}
 
 	if cfg.format != printFormatText {
-		if err := emitFinalPrintEnvelope(w, fs, cfg, state, runErr, timedOut); err != nil {
+		if err := emitFinalPrintEnvelope(w, fs, cfg, state, runErr, timedOut, interrupted); err != nil {
 			return err
 		}
 	}
@@ -364,7 +388,7 @@ func classifyHeadlessExit(runErr error) error {
 	return runErr
 }
 
-func emitFinalPrintEnvelope(w io.Writer, fs *flag.FlagSet, cfg *printRunConfig, st *printTurnState, runErr error, timedOut bool) error {
+func emitFinalPrintEnvelope(w io.Writer, fs *flag.FlagSet, cfg *printRunConfig, st *printTurnState, runErr error, timedOut, interrupted bool) error {
 	env := jsonEnvelope{
 		ConversationID:  cfg.conversationID,
 		Status:          printStatusSuccess,
@@ -379,6 +403,16 @@ func emitFinalPrintEnvelope(w io.Writer, fs *flag.FlagSet, cfg *printRunConfig, 
 		env.Status = printStatusError
 		env.Response = ""
 		env.Error = printErrorMessage(runErr)
+	}
+	// agy 1.4.11's `finished_reason`: why the turn ended early. It is
+	// omitted when the turn finished normally.
+	switch {
+	case timedOut:
+		env.FinishedReason = finishedReasonPrintTimeout
+	case interrupted:
+		env.FinishedReason = finishedReasonInterrupted
+	case runErr != nil:
+		env.FinishedReason = finishedReasonError
 	}
 	if cfg.format == printFormatStreamJSON {
 		return emitFinalStreamJSON(w, fs, cfg, &env, runErr, st.turnBegan, timedOut)

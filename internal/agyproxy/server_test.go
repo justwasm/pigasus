@@ -776,3 +776,208 @@ func names(entries []os.DirEntry) []string {
 	}
 	return out
 }
+
+func TestTranslateTools_MagpieNormalization(t *testing.T) {
+	tools := []geminicode.Tool{
+		{
+			FunctionDeclarations: []geminicode.FunctionDeclaration{
+				{
+					Name:        "default_api:custom_tool",
+					Description: "a tool with non-standard schema",
+					Parameters: map[string]any{
+						"type": "OBJECT",
+						"properties": map[string]any{
+							"flag": true,
+							"tags": map[string]any{
+								"type": "ARRAY",
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	specs := translateTools(tools)
+	if len(specs) != 1 {
+		t.Fatalf("expected 1 spec, got %d", len(specs))
+	}
+	if specs[0].Name != "custom_tool" {
+		t.Errorf("tool name = %q, want custom_tool", specs[0].Name)
+	}
+
+	var parsed map[string]any
+	if err := json.Unmarshal(specs[0].Parameters, &parsed); err != nil {
+		t.Fatalf("invalid json: %v", err)
+	}
+
+	if parsed["type"] != "object" {
+		t.Errorf("type = %v, want object", parsed["type"])
+	}
+
+	props, ok := parsed["properties"].(map[string]any)
+	if !ok {
+		t.Fatalf("missing properties map")
+	}
+
+	// flag: true should have been converted to type: string
+	flagProp, ok := props["flag"].(map[string]any)
+	if !ok || flagProp["type"] != "string" {
+		t.Errorf("flag prop = %+v, want type: string", props["flag"])
+	}
+
+	// tags should have items: {type: string}
+	tagsProp, ok := props["tags"].(map[string]any)
+	if !ok || tagsProp["type"] != "array" {
+		t.Errorf("tags prop = %+v, want type: array", props["tags"])
+	}
+	if items, ok := tagsProp["items"].(map[string]any); !ok || items["type"] != "string" {
+		t.Errorf("tags.items = %+v, want type: string", tagsProp["items"])
+	}
+
+	parts := toolCallParts([]models.ToolCall{{Name: "custom_tool", Arguments: "{}"}})
+	if len(parts) != 1 || parts[0].ThoughtSignature != geminicode.SkipThoughtSignature {
+		t.Errorf("expected ThoughtSignature %q on toolCallParts", geminicode.SkipThoughtSignature)
+	}
+}
+
+func TestSanitizeUpstreamBody_ThoughtSignatureAndThinkingConfig(t *testing.T) {
+	raw := `{
+		"model": "gemini-3.8-flash",
+		"request": {
+			"contents": [
+				{
+					"role": "model",
+					"parts": [
+						{"functionCall": {"name": "run_cmd", "args": {}}}
+					]
+				}
+			],
+			"generationConfig": {
+				"thinkingConfig": {
+					"includeThoughts": true,
+					"thinkingBudget": 2048
+				}
+			}
+		}
+	}`
+
+	var env geminicode.GenerateContentRequest
+	if err := json.Unmarshal([]byte(raw), &env); err != nil {
+		t.Fatal(err)
+	}
+
+	info := reqInfo{
+		model:   env.ModelName(),
+		wrapped: env.Wrapped(),
+		inner:   env.Inner(),
+	}
+
+	sanitized := sanitizeUpstreamBody([]byte(raw), info)
+
+	var res map[string]any
+	if err := json.Unmarshal(sanitized, &res); err != nil {
+		t.Fatal(err)
+	}
+
+	reqMap, ok := res["request"].(map[string]any)
+	if !ok {
+		t.Fatalf("missing request map in %s", string(sanitized))
+	}
+
+	// Check thoughtSignature was injected into functionCall part
+	contents := reqMap["contents"].([]any)
+	parts := contents[0].(map[string]any)["parts"].([]any)
+	part0 := parts[0].(map[string]any)
+	if part0["thoughtSignature"] != geminicode.SkipThoughtSignature {
+		t.Errorf("expected thoughtSignature %q, got %v", geminicode.SkipThoughtSignature, part0["thoughtSignature"])
+	}
+
+	// Check thinkingBudget was pruned and thinkingLevel set to high
+	genCfg := reqMap["generationConfig"].(map[string]any)
+	tc := genCfg["thinkingConfig"].(map[string]any)
+	if tc["thinkingLevel"] != "high" {
+		t.Errorf("expected thinkingLevel 'high', got %v", tc["thinkingLevel"])
+	}
+	if b, ok := tc["thinkingBudget"].(float64); ok && b != 0 {
+		t.Errorf("expected thinkingBudget 0 or pruned, got %v", b)
+	}
+}
+
+func TestToChatRequest_HardenAndNormalizeToolNames(t *testing.T) {
+	req := &geminicode.GenerateContentRequest{
+		Contents: []geminicode.Content{
+			{
+				Role: "model",
+				Parts: []geminicode.Part{
+					{
+						FunctionCall: &geminicode.FunctionCall{
+							Name: "default_api:run_command",
+							Args: json.RawMessage(`{"CommandLine":"ls -la"}`),
+						},
+					},
+				},
+			},
+			{
+				Role: "user",
+				Parts: []geminicode.Part{
+					{
+						FunctionResponse: &geminicode.FunctionResponse{
+							Name:     "default_api:run_command",
+							Response: "file.txt",
+						},
+					},
+				},
+			},
+		},
+		Tools: []geminicode.Tool{
+			{
+				FunctionDeclarations: []geminicode.FunctionDeclaration{
+					{
+						Name:        "default_api:run_command",
+						Description: "Execute a command",
+					},
+				},
+			},
+		},
+	}
+
+	m := models.Model{Name: "claude-3-5-sonnet", ExternalModelName: "claude-3-5-sonnet-20241022"}
+	chatReq := ToChatRequest(m, req)
+
+	// HardenContents must have prepended a user message because history started with a model turn
+	if len(chatReq.Messages) < 3 {
+		t.Fatalf("expected at least 3 messages after hardening, got %d", len(chatReq.Messages))
+	}
+	if chatReq.Messages[0].Role != "user" {
+		t.Errorf("expected first message to be user role, got %s", chatReq.Messages[0].Role)
+	}
+
+	// The assistant turn tool call name must be normalized
+	modelMsg := chatReq.Messages[1]
+	if modelMsg.Role != "assistant" {
+		t.Errorf("expected second message to be assistant role, got %s", modelMsg.Role)
+	}
+	if len(modelMsg.ToolCalls) != 1 {
+		t.Fatalf("expected 1 tool call, got %d", len(modelMsg.ToolCalls))
+	}
+	if modelMsg.ToolCalls[0].Name != "run_command" {
+		t.Errorf("expected tool call name 'run_command', got %q", modelMsg.ToolCalls[0].Name)
+	}
+
+	// The tool response message tool call ID must match
+	toolMsg := chatReq.Messages[2]
+	if toolMsg.Role != "tool" {
+		t.Errorf("expected third message to be tool role, got %s", toolMsg.Role)
+	}
+	if toolMsg.ToolCallID != modelMsg.ToolCalls[0].ID {
+		t.Errorf("tool response ToolCallID %q != model ToolCall ID %q", toolMsg.ToolCallID, modelMsg.ToolCalls[0].ID)
+	}
+
+	// Tools list must also be normalized
+	if len(chatReq.Tools) != 1 || chatReq.Tools[0].Name != "run_command" {
+		t.Errorf("expected declared tool name 'run_command', got %+v", chatReq.Tools)
+	}
+}
+
+

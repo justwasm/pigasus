@@ -74,6 +74,9 @@ func (s *TCPServer) isStreamingRequest(r *http.Request) bool {
 	if strings.Contains(ct, "grpc-web") {
 		return s.protoCodec != nil && s.protoCodec.IsServerStreaming(methodFromPath(r.URL.Path))
 	}
+	if s.protoCodec != nil && s.protoCodec.IsServerStreaming(methodFromPath(r.URL.Path)) {
+		return true
+	}
 	return false
 }
 

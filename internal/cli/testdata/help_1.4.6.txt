@@ -26,6 +26,7 @@ Usage of agy:
   --prompt-interactive            Run an initial prompt interactively and continue the session
   --remote-control                Create a remote connection for the CLI session on start up
   --sandbox                       Run in a sandbox with terminal restrictions enabled
+  --settings                      Settings for this session only, never saved: a JSON object of settings.json keys, inline or as a file path
 
 Available subcommands:
   accounts        Manage the signed-in Google accounts

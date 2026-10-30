@@ -2212,6 +2212,7 @@ func TestVimDeclinesGlobalKeys(t *testing.T) {
 // presses Up/Down on the input box.
 func upKey() tea.KeyPressMsg   { return tea.KeyPressMsg(tea.Key{Code: tea.KeyUp}) }
 func downKey() tea.KeyPressMsg { return tea.KeyPressMsg(tea.Key{Code: tea.KeyDown}) }
+func leftKey() tea.KeyPressMsg { return tea.KeyPressMsg(tea.Key{Code: tea.KeyLeft}) }
 
 // --- pure helpers ----------------------------------------------------
 
@@ -2431,29 +2432,181 @@ func TestUpOnFirstLineSingleLine_TriggersHistory(t *testing.T) {
 	}
 }
 
-func TestUpOnFirstLineMultiLine_TriggersHistory(t *testing.T) {
+func TestUpOnFirstLineMultiLine_PreservesUnsubmittedInput(t *testing.T) {
 	m := runModeForTest()
 	m.pushHistory("previous prompt")
 	m.input.SetValue("first\nsecond\nthird")
-	// SetValue leaves the cursor at the end (line 2). MoveToBegin
-	// anchors it at row 0 col 0 so the test exercises the
-	// first-line history path.
 	m.input.MoveToBegin()
 	if m.input.Line() != 0 {
 		t.Fatalf("pre-condition: cursor should be on line 0, got line %d", m.input.Line())
 	}
 	valueBefore := m.input.Value()
 	m.Update(upKey())
-	if got := m.input.Value(); got == valueBefore {
-		t.Errorf("Up on first line of multi-line input should call historyUp; input unchanged (%q)", got)
+	// Parity with agy: unsubmitted text must never be blown away by Up arrow.
+	if got := m.input.Value(); got != valueBefore {
+		t.Errorf("Up on first line of unsubmitted multi-line input must preserve input; got %q, want %q", got, valueBefore)
 	}
-	if got := m.input.Value(); got != "previous prompt" {
-		t.Errorf("Up on first line should recall history %q, got %q", "previous prompt", got)
-	}
-	if m.historyIdx != 1 {
-		t.Errorf("historyIdx = %d, want 1 after one historyUp", m.historyIdx)
+	if m.historyIdx != 0 {
+		t.Errorf("historyIdx = %d, want 0 (no history recall for unsubmitted text)", m.historyIdx)
 	}
 }
+
+func TestHistory_MultiLineEntry_PagingDirectlyWithoutIntraLineNavigation(t *testing.T) {
+	m := runModeForTest()
+	m.pushHistory("older prompt")
+	m.pushHistory("multi\n[Pasted text #1 +16 lines]\nthird line")
+
+	// Up #1 recalls newest entry
+	m.Update(upKey())
+	if got := m.input.Value(); got != "multi\n[Pasted text #1 +16 lines]\nthird line" {
+		t.Fatalf("Up #1: got %q", got)
+	}
+	if m.historyIdx != 1 {
+		t.Fatalf("Up #1: historyIdx = %d, want 1", m.historyIdx)
+	}
+
+	// Up #2 directly jumps to next older entry without moving within the multi-line entry
+	m.Update(upKey())
+	if got := m.input.Value(); got != "older prompt" {
+		t.Fatalf("Up #2: got %q, want %q", got, "older prompt")
+	}
+	if m.historyIdx != 2 {
+		t.Fatalf("Up #2: historyIdx = %d, want 2", m.historyIdx)
+	}
+
+	// Down #1 directly jumps back to the multi-line entry
+	m.Update(downKey())
+	if got := m.input.Value(); got != "multi\n[Pasted text #1 +16 lines]\nthird line" {
+		t.Fatalf("Down #1: got %q", got)
+	}
+	if m.historyIdx != 1 {
+		t.Fatalf("Down #1: historyIdx = %d, want 1", m.historyIdx)
+	}
+
+	// Down #2 returns to initial empty prompt
+	m.Update(downKey())
+	if got := m.input.Value(); got != "" {
+		t.Fatalf("Down #2: got %q, want empty", got)
+	}
+	if m.historyIdx != 0 {
+		t.Fatalf("Down #2: historyIdx = %d, want 0", m.historyIdx)
+	}
+}
+
+func TestHistory_MultiLineEntry_HorizontalCursorMoveExitsHistoryNavigation(t *testing.T) {
+	m := runModeForTest()
+	m.pushHistory("older prompt")
+	m.pushHistory("multi\nline2\nline3")
+
+	// Up #1 recalls newest entry
+	m.Update(upKey())
+	if m.historyIdx != 1 {
+		t.Fatalf("Up #1: historyIdx = %d, want 1", m.historyIdx)
+	}
+
+	// Left arrow moves cursor and exits history browsing mode
+	m.Update(leftKey())
+	if m.historyIdx != 0 {
+		t.Fatalf("Left arrow should exit history mode; got historyIdx = %d, want 0", m.historyIdx)
+	}
+
+	// Subsequent Up arrow navigates lines inside the entry instead of jumping history
+	m.Update(upKey())
+	if got := m.input.Value(); got != "multi\nline2\nline3" {
+		t.Fatalf("Up after cursor move should navigate within text; got %q", got)
+	}
+	if m.historyIdx != 0 {
+		t.Fatalf("historyIdx should remain 0; got %d", m.historyIdx)
+	}
+}
+
+func TestHistory_SlashCommandMultiLineEntry_NavigatesLinesAfterLeftArrow(t *testing.T) {
+	m := runModeForTest()
+	m.pushHistory("older prompt")
+	entry := "/btw 现在进行到什么进度了\n\n[Pasted text #1 +16 lines]\n\n根据这个进程，现在是第几阶段"
+	m.pushHistory(entry)
+
+	// Up #1 recalls newest entry
+	m.Update(upKey())
+	if m.historyIdx != 1 {
+		t.Fatalf("Up #1: historyIdx = %d, want 1", m.historyIdx)
+	}
+	if got := m.input.Value(); got != entry {
+		t.Fatalf("Up #1: input value = %q, want %q", got, entry)
+	}
+	if m.picker.Visible() {
+		t.Fatal("recalled history entry should not leave picker visible")
+	}
+
+	// Left arrow moves cursor and exits history browsing mode
+	m.Update(leftKey())
+	if m.historyIdx != 0 {
+		t.Fatalf("Left arrow should exit history mode; got historyIdx = %d, want 0", m.historyIdx)
+	}
+	if m.picker.Visible() {
+		t.Fatal("Left arrow navigation in /btw multi-line prompt should not open picker")
+	}
+
+	lastLine := m.input.Line()
+	if lastLine == 0 {
+		t.Fatalf("pre-condition: cursor should start near bottom line, got %d", lastLine)
+	}
+
+	// Subsequent Up arrow navigates lines inside the entry instead of being blocked by picker or jumping history
+	m.Update(upKey())
+	if got := m.input.Value(); got != entry {
+		t.Fatalf("Up after cursor move should navigate within text; got %q", got)
+	}
+	if m.historyIdx != 0 {
+		t.Fatalf("historyIdx should remain 0; got %d", m.historyIdx)
+	}
+	if m.input.Line() >= lastLine {
+		t.Fatalf("Up arrow should have moved cursor up a line, but line is %d (was %d)", m.input.Line(), lastLine)
+	}
+
+	// Subsequent Down arrow moves cursor down a line
+	lineBeforeDown := m.input.Line()
+	m.Update(downKey())
+	if m.input.Line() <= lineBeforeDown {
+		t.Fatalf("Down arrow should have moved cursor down a line, but line is %d (was %d)", m.input.Line(), lineBeforeDown)
+	}
+}
+
+func TestPastePlaceholder_AtomicDeletion(t *testing.T) {
+	m := runModeForTest()
+	entry := "prefix [Pasted text #1 +16 lines] suffix"
+	m.input.SetValue(entry)
+
+	// Position cursor inside the placeholder (e.g. byte offset 20)
+	m.setInputCursorOffset(20)
+	if off := tuilib.InputCursorByteOffset(m.input); off != 20 {
+		t.Fatalf("pre-condition: cursor offset = %d, want 20", off)
+	}
+
+	// Backspace inside the placeholder atomically deletes the entire placeholder
+	m.Update(tea.KeyPressMsg{Code: tea.KeyBackspace})
+	if got := m.input.Value(); got != "prefix  suffix" {
+		t.Fatalf("Backspace inside placeholder: got %q, want %q", got, "prefix  suffix")
+	}
+	if off := tuilib.InputCursorByteOffset(m.input); off != len("prefix ") {
+		t.Fatalf("Cursor after atomic Backspace: got offset %d, want %d", off, len("prefix "))
+	}
+
+	// Test Delete at start of placeholder
+	entry2 := "before [Pasted text #2 42 chars] after"
+	m.input.SetValue(entry2)
+	startOfPlaceholder := len("before ")
+	m.setInputCursorOffset(startOfPlaceholder)
+
+	m.Update(tea.KeyPressMsg{Code: tea.KeyDelete})
+	if got := m.input.Value(); got != "before  after" {
+		t.Fatalf("Delete at start of placeholder: got %q, want %q", got, "before  after")
+	}
+	if off := tuilib.InputCursorByteOffset(m.input); off != startOfPlaceholder {
+		t.Fatalf("Cursor after atomic Delete: got offset %d, want %d", off, startOfPlaceholder)
+	}
+}
+
 
 func TestUpOnMiddleLine_DoesNotTriggerHistory(t *testing.T) {
 	m := runModeForTest()
@@ -2484,34 +2637,25 @@ func TestUpOnMiddleLine_DoesNotTriggerHistory(t *testing.T) {
 	}
 }
 
-func TestDownOnLastLine_TriggersHistory(t *testing.T) {
+func TestDownOnLastLine_PreservesUnsubmittedInput(t *testing.T) {
 	m := runModeForTest()
-	// Two history entries so historyDown has somewhere to land.
 	m.pushHistory("older prompt")
 	m.pushHistory("newer prompt")
-	// Navigate up to the newest entry so historyIdx > 0 and
-	// historyDown has work to do.
-	m.Update(upKey()) // historyIdx=1, value="newer prompt"
-	m.Update(upKey()) // historyIdx=2, value="older prompt"
-	if m.historyIdx != 2 {
-		t.Fatalf("setup: historyIdx = %d, want 2", m.historyIdx)
-	}
-	// Put a fresh multi-line prompt and place the cursor on the
-	// last line.
+	// User types unsubmitted multi-line input (historyIdx remains 0)
 	m.input.SetValue("alpha\nbeta\ngamma")
 	m.input.CursorDown() // row=1
 	m.input.CursorDown() // row=2, last line
 	if m.input.Line() != 2 {
 		t.Fatalf("pre-condition: cursor should be on last line (2), got line %d", m.input.Line())
 	}
+	valueBefore := m.input.Value()
 	m.Update(downKey())
-	// historyDown: historyIdx goes from 2 back to 1, value
-	// becomes "newer prompt".
-	if m.historyIdx != 1 {
-		t.Errorf("historyIdx = %d, want 1 after one historyDown", m.historyIdx)
+	// Parity with agy: Down on last line of unsubmitted text must NOT trigger history.
+	if got := m.input.Value(); got != valueBefore {
+		t.Errorf("Down on last line should preserve unsubmitted text; got %q, want %q", got, valueBefore)
 	}
-	if got := m.input.Value(); got != "newer prompt" {
-		t.Errorf("Down on last line should call historyDown; got %q, want %q", got, "newer prompt")
+	if m.historyIdx != 0 {
+		t.Errorf("historyIdx = %d, want 0", m.historyIdx)
 	}
 }
 
@@ -6898,16 +7042,17 @@ func TestPinnedPrompt_AltscreenAtTop(t *testing.T) {
 // TestPinnedPrompt_AltscreenScrolledIntoAssistant: when altscreen
 // is ON and the viewport is scrolled away from the bottom, the
 // pinned-prompt header is rendered with the producing prompt's
-// text + the dim "↳ jump to prompt" hint. We seed the transcript
-// with "prompt-a" as the first user prompt and assert that the
-// rendered view contains that exact string plus the hint while
-// scrolled into the assistant reply region.
+// text followed by a horizontal divider rule (matching agy 1.4.10,
+// with no jump hint suffix). We seed the transcript with "prompt-a"
+// as the first user prompt and assert that the rendered view contains
+// that exact string and divider rule while scrolled into the assistant
+// reply region.
 func TestPinnedPrompt_AltscreenScrolledIntoAssistant(t *testing.T) {
 	m := pinnedPromptMode(t, true)
 	scrollAwayFromBottom(m)
 	view := pinnedPromptView(t, m)
-	if !strings.Contains(view, "↳ jump to prompt") {
-		t.Errorf("altscreen+scrolled: expected jump hint in view, got:\n%s", view)
+	if strings.Contains(view, "jump to prompt") {
+		t.Errorf("altscreen+scrolled: expected no jump hint in view, got:\n%s", view)
 	}
 	// Find one of the prompt texts we seeded — pinnedPromptText
 	// should carry the producing prompt's "> <text>" prefix.
@@ -6917,98 +7062,71 @@ func TestPinnedPrompt_AltscreenScrolledIntoAssistant(t *testing.T) {
 	if !strings.HasPrefix(ansi.Strip(m.pinnedPromptText), "> prompt-") {
 		t.Errorf("m.pinnedPromptText = %q, want a \"> prompt-<x>\" prefix", ansi.Strip(m.pinnedPromptText))
 	}
-	if !strings.Contains(ansi.Strip(m.pinnedPromptText), "↳ jump to prompt") {
-		t.Errorf("m.pinnedPromptText = %q, want the jump hint appended", ansi.Strip(m.pinnedPromptText))
+	if strings.Contains(ansi.Strip(m.pinnedPromptText), "jump to prompt") {
+		t.Errorf("m.pinnedPromptText = %q, want no jump hint appended", ansi.Strip(m.pinnedPromptText))
 	}
 	if m.pinnedPromptRowIdx < 0 {
 		t.Errorf("altscreen+scrolled: m.pinnedPromptRowIdx should be >= 0, got %d", m.pinnedPromptRowIdx)
 	}
 }
 
-// TestPinnedPrompt_AltscreenScrolledIntoUser: when the cursor
-// (visible row) is on a user message, the pinned prompt is the
-// prompt of the *current* turn — i.e. the most recent user prompt
-// at or above the visible scroll position. The cycle-253 spec
-// pins the prompt that "produced the response you're reading";
-// when the visible content is itself a user prompt (the user
-// just scrolled to the start of a turn), the owning prompt is
-// the one whose response immediately follows. We set scroll so
-// the top of the viewport lands on a user-prompt row and assert
-// pinnedPromptText carries that prompt's text.
+// TestPinnedPrompt_AltscreenScrolledIntoUser: when the visible
+// content is itself a user prompt (the user just scrolled or jumped to
+// that turn), the prompt is already visible in the viewport, so the
+// sticky header is deactivated (agy 1.4.10) to prevent showing the
+// prompt message twice.
 func TestPinnedPrompt_AltscreenScrolledIntoUser(t *testing.T) {
 	m := pinnedPromptMode(t, true)
-	// First render populates m.userPromptRows. We then pick a
-	// user-prompt row index (absolute, in `rows`) that is > 0
-	// (stickyUserPromptRow returns -1 when scroll <= 0).
 	_ = m.View()
 	if len(m.userPromptRows) == 0 {
 		t.Fatal("precondition: userPromptRows should be populated after View()")
 	}
-	// Pick the second user prompt (skipping the very first, whose
-	// scroll position would still be 0 — stickyUserPromptRow only
-	// fires when scroll > 0).
 	if len(m.userPromptRows) < 2 {
 		t.Fatal("seeded transcript has fewer than 2 user prompts")
 	}
 	targetRow := m.userPromptRows[1]
 	m.autoScroll = false
 	m.scroll = targetRow
-	// Map back to the resp index for the substring assertion: the
-	// prompt text is stored verbatim in m.response.
-	respIdx := targetRow - 7 // 7 rows of header (banner + warning)
-	if respIdx < 0 || respIdx >= len(m.response) {
-		t.Fatalf("could not map target row %d back to resp index", targetRow)
-	}
-	promptRow := m.response[respIdx]
-	wantBody := strings.TrimPrefix(strings.TrimSuffix(ansi.Strip(promptRow), "\x1b[0m"), "> ")
-	// Re-render with the new scroll position so m.pinnedPromptText
-	// is repopulated from the post-scroll state.
-	view := pinnedPromptView(t, m)
-	if !strings.Contains(view, "↳ jump to prompt") {
-		t.Errorf("scrolled-onto-user-prompt: expected jump hint, got:\n%s", view)
-	}
-	if !strings.Contains(ansi.Strip(m.pinnedPromptText), wantBody) {
-		t.Errorf("pinned prompt body = %q, want it to contain %q",
-			ansi.Strip(m.pinnedPromptText), wantBody)
+	// When scrolled directly to the user prompt, the prompt is on screen,
+	// so sticky prompt must be inactive (no duplicate prompt display).
+	_ = m.View()
+	if m.pinnedPromptText != "" {
+		t.Errorf("scrolled-onto-user-prompt: expected pinnedPromptText to be empty (no duplicate display), got %q", m.pinnedPromptText)
 	}
 }
 
 // TestPinnedPrompt_EnterJumpsToPrompt: pressing Enter on the
 // pinned-prompt header (with an empty input buffer) scrolls the
-// viewport back to that prompt's row. We seed a transcript with
+// viewport back to that prompt's turn. We seed a transcript with
 // several turns, scroll past the first user prompt, take a
 // snapshot of the pinned prompt's row index, press Enter, and
-// assert m.scroll snaps to that index.
-//
-// The handler runs only when the input buffer is empty — Enter
-// with content in the buffer must keep submitting the prompt
-// (cycle 71 / cycle 244 behaviour). The test exercises the empty
-// path; a sibling assertion below verifies the submit path is
-// preserved when the buffer has content.
+// assert m.scroll snaps to that turn.
 func TestPinnedPrompt_EnterJumpsToPrompt(t *testing.T) {
 	m := pinnedPromptMode(t, true)
 	scrollAwayFromBottom(m)
-	// Force a render so m.pinnedPromptRowIdx is populated.
 	_ = m.View()
 	if m.pinnedPromptRowIdx < 0 {
 		t.Fatal("precondition: pinnedPromptRowIdx should be populated after View()")
 	}
 	target := m.pinnedPromptRowIdx
-	// Sanity: scroll is currently far past the prompt (we set 50
-	// in scrollAwayFromBottom), and the prompt should be earlier
-	// in the transcript (within the first ~50 rows).
 	if m.scroll <= target {
 		t.Fatalf("precondition: scroll=%d should be > target=%d for the jump to be non-trivial",
 			m.scroll, target)
 	}
-	// Enter with empty buffer should jump.
+	// Enter with empty buffer should jump to prompt turn start.
 	m.Update(enterKey())
-	if m.scroll != target {
-		t.Errorf("after Enter: scroll=%d, want %d (the pinned prompt's row)", m.scroll, target)
+	if m.scroll > target {
+		t.Errorf("after Enter: scroll=%d, want <= %d (prompt turn start)", m.scroll, target)
 	}
 	if m.autoScroll {
 		t.Errorf("after Enter: autoScroll should be cleared (we jumped away from the bottom), got true")
 	}
+	// After jump, prompt is on screen so sticky header must be deactivated
+	_ = m.View()
+	if m.pinnedPromptText != "" {
+		t.Errorf("after jump: expected sticky header to be deactivated, got %q", m.pinnedPromptText)
+	}
+
 	// Buffer-non-empty case: re-scroll away, type a char, press
 	// Enter, and assert the submit path fires (streaming flips to
 	// true and the input is cleared). The cycle-71/244 submit path
@@ -7066,16 +7184,18 @@ func TestPinnedPrompt_NoClickInPrintMode(t *testing.T) {
 	// Snapshot the session length so the click-jump is asserted
 	// to leave it unchanged.
 	preLen := len(m.session)
+	target := m.pinnedPromptRowIdx
+	rows, _, _ := m.syncRowsView()
+	wantScroll := m.promptTurnStart(rows, target)
 	// Click row 0 (the pinned-prompt header).
 	m.Update(mouseClick(0, 0, tea.MouseLeft))
-	// Jump should have fired: m.scroll should equal pinnedPromptRowIdx
-	// (i.e. no longer 50 from scrollAwayFromBottom).
+	// Jump should have fired: m.scroll should equal prompt turn start.
 	if m.scroll == 50 {
 		t.Errorf("click on row 0 did not jump: scroll stayed at 50")
 	}
-	if m.scroll != m.pinnedPromptRowIdx {
-		t.Errorf("click jump: scroll=%d, want %d (= pinnedPromptRowIdx)",
-			m.scroll, m.pinnedPromptRowIdx)
+	if m.scroll != wantScroll {
+		t.Errorf("click jump: scroll=%d, want %d (promptTurnStart)",
+			m.scroll, wantScroll)
 	}
 	// The pinned-prompt feature must NOT touch m.session.
 	if len(m.session) != preLen {

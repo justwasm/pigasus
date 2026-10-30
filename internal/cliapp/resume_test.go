@@ -454,11 +454,9 @@ func TestContinueFlag(t *testing.T) {
 	m.conversationID = sel.ID
 	m.seedConversation(sel.Store)
 	joined := strings.Join(m.response, "\n")
-	// Cycle 271: the resumed transcript shows model steps only, so the
-	// prior user prompt lives in m.session (model context) but not in
-	// m.response.
-	if strings.Contains(joined, "say what?") {
-		t.Errorf("cycle 271: resumed transcript must not echo user prompts; got:\n%s", joined)
+	// Resumed transcript echoes user prompts matching agy.
+	if !strings.Contains(joined, "say what?") {
+		t.Errorf("resumed transcript must echo user prompts; got:\n%s", joined)
 	}
 	seededUser := false
 	for _, msg := range m.session {
@@ -596,12 +594,12 @@ func TestSlashContinueResumeLast(t *testing.T) {
 		t.Errorf("m.conversationID = %q, want %q", m.conversationID, id)
 	}
 	joined := strings.Join(m.response, "\n")
-	// Cycle 271: user prompts are not echoed on resume; the model reply is.
+	// Resumed transcript echoes user prompts and model reply matching agy.
 	if !strings.Contains(joined, "old reply") {
 		t.Errorf("missing the prior model reply: %q", joined)
 	}
-	if strings.Contains(joined, "old prompt") {
-		t.Errorf("cycle 271: resumed transcript must not echo user prompts: %q", joined)
+	if !strings.Contains(joined, "old prompt") {
+		t.Errorf("resumed transcript must echo user prompts: %q", joined)
 	}
 	if !strings.Contains(joined, "Resumed conversation "+id) {
 		t.Errorf("missing the resumed banner: %q", joined)
@@ -1252,3 +1250,52 @@ func writeFile(t *testing.T, path, body string) error {
 	}
 	return os.WriteFile(path, []byte(body), 0o600)
 }
+
+func TestResumeConversation_BoostStepTextRestored(t *testing.T) {
+	longReply := "好的，我开始检查 1.4.10。\n" + strings.Repeat("检查细节...\n", 30)
+	c := &convstore.Conversation{
+		ID: "test-boost-conv",
+		Steps: []convstore.Step{
+			{Idx: 0, Type: convstore.StepUserInput, Text: "/boost 1.4.10 又出来了，请重新对齐"},
+			{Idx: 1, Type: convstore.StepModelResponse, Text: longReply},
+		},
+	}
+	m := NewRunMode(nil, "", "m", "", "/tmp", true)
+	m.width, m.height = 120, 24
+	m.altScreen = true
+	m.seedConversation(c)
+	_ = m.View()
+
+	if len(m.userPromptRows) == 0 {
+		t.Fatal("expected at least 1 user prompt row")
+	}
+	header := m.scrollHeaderRows(m.width)
+	wrapped := m.wrappedResponse(m.width)
+	promptIdx := m.userPromptRows[0] - len(header)
+	if promptIdx < 0 || promptIdx >= len(wrapped) {
+		t.Fatalf("promptIdx %d out of bounds for wrapped (len %d)", promptIdx, len(wrapped))
+	}
+	got := ansi.Strip(wrapped[promptIdx])
+	want := "> /boost 1.4.10 又出来了，请重新对齐"
+	if got != want {
+		t.Errorf("prompt row = %q, want %q", got, want)
+	}
+
+	// Verify sticky header when scrolled down past prompt
+	m.scroll = m.userPromptRows[0] + 5
+	m.autoScroll = false
+	_ = m.View()
+
+	if m.stickyUserPromptRow() < 0 {
+		t.Fatalf("stickyUserPromptRow = %d, want >= 0", m.stickyUserPromptRow())
+	}
+	if !strings.Contains(m.pinnedPromptText, "1.4.10") {
+		t.Errorf("pinnedPromptText = %q, want to contain '1.4.10'", m.pinnedPromptText)
+	}
+	if strings.Contains(m.pinnedPromptText, "jump to prompt") {
+		t.Errorf("pinnedPromptText = %q, expected no 'jump to prompt' hint matching agy 1.4.10", m.pinnedPromptText)
+	}
+}
+
+
+

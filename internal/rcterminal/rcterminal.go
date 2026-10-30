@@ -227,6 +227,7 @@ func (r *Registry) Create(req CreateRequest) (*Info, error) {
 	if dir == "" {
 		dir = homeDir()
 	}
+	_ = os.MkdirAll(dir, 0o755)
 	session, err := spawn(dir)
 	if err != nil {
 		return nil, err

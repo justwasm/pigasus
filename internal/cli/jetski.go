@@ -23,6 +23,8 @@ import (
 	"sort"
 	"strings"
 	"text/tabwriter"
+
+	"github.com/justwasm/pigasus/internal/auth"
 )
 
 // JetskiCLI mirrors the internal `jetski/cli` engine. It owns:
@@ -190,11 +192,41 @@ func (j *JetskiCLI) Parse(args []string) int {
 		return 0
 	}
 
+	if v := flagStrValue(fs, "settings"); v != "" {
+		overlay, err := auth.ParseAndValidateSettingsFlag(v)
+		if err != nil {
+			fmt.Fprintf(j.ErrOut, "Error: %s\n", err)
+			return 1
+		}
+		auth.SetSessionSettingsOverlay(overlay)
+	}
+
+	if v := flagStrValue(fs, "input-format"); v != "" && v != "text" && v != "stream-json" {
+		fmt.Fprintf(j.ErrOut, "Error: unknown --input-format %q (want text or stream-json)\n", v)
+		return 2
+	}
+	if v := flagStrValue(fs, "input-format"); v == "stream-json" && flagStrValue(fs, "output-format") != "stream-json" {
+		fmt.Fprintf(j.ErrOut, "Error: --input-format %s requires --output-format %s\n", v, "stream-json")
+		return 2
+	}
+
+	if v := flagStrValue(fs, "json-schema"); strings.TrimSpace(v) != "" {
+		outFmt := flagStrValue(fs, "output-format")
+		if outFmt != "json" && outFmt != "stream-json" {
+			fmt.Fprintln(j.ErrOut, "Error: --json-schema can only be used when --output-format is 'json' or 'stream-json'")
+			return 1
+		}
+	}
+
 	printFlag := firstSetFlag(fs, "print", "prompt", "p")
 	interFlag := firstSetFlag(fs, "prompt-interactive", "i")
 	if printFlag != "" || interFlag != "" {
 		if code, ok := j.validatePrintFlags(fs, printFlag, interFlag, remaining); !ok {
 			return code
+		}
+		WarnMode(j.ErrOut, j.FlagMode())
+		if printFlag != "" && j.FlagMode() == "auto" {
+			fmt.Fprintln(j.ErrOut, AutoUnavailableWarning("auto"))
 		}
 	}
 
@@ -244,6 +276,10 @@ func (j *JetskiCLI) validatePrintFlags(fs *flag.FlagSet, printFlag, interFlag st
 		fmt.Fprintf(j.ErrOut, "Error: unknown --input-format %q (want text or stream-json)\n", v)
 		return 2, false
 	}
+	if v := flagStrValue(fs, "input-format"); v == "stream-json" && flagStrValue(fs, "output-format") != "stream-json" {
+		fmt.Fprintf(j.ErrOut, "Error: --input-format %s requires --output-format %s\n", v, "stream-json")
+		return 2, false
+	}
 	return 0, true
 }
 
@@ -258,6 +294,7 @@ func (j *JetskiCLI) dispatchArgs(remaining []string, lookForSubcommand bool) int
 			fmt.Fprintln(j.ErrOut, "Prompts are read only from -p/--print, -i/--prompt-interactive, or stdin, so this argument would have been ignored.")
 			return 2
 		}
+		WarnMode(j.ErrOut, j.FlagMode())
 	}
 
 	if j.RootRun != nil {

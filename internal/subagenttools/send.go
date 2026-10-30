@@ -184,7 +184,15 @@ func (t *sendMessageTool) deliver(recipient, message string) bool {
 		return false
 	}
 	if child, ok := t.registry.Get(recipient); ok {
+		if child.State() == StateStopped {
+			msg := Message{From: t.owner, Content: message, At: time.Now()}
+			return child.Revive(context.Background(), &msg)
+		}
 		if !child.Deliver(Message{From: t.owner, Content: message, At: time.Now()}) {
+			if child.State() == StateErrored || !child.IsRunning() {
+				msg := Message{From: t.owner, Content: message, At: time.Now()}
+				return child.Revive(context.Background(), &msg)
+			}
 			return false
 		}
 		return true

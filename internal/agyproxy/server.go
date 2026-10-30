@@ -15,6 +15,7 @@
 package agyproxy
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -28,7 +29,10 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/justwasm/pigasus/accountpool"
 	"github.com/justwasm/pigasus/endpoints"
+	"github.com/justwasm/pigasus/internal/accountrouting"
+	"github.com/justwasm/pigasus/internal/auth"
 	"github.com/justwasm/pigasus/internal/models"
 )
 
@@ -51,11 +55,14 @@ const maxRequestBody = 64 << 20
 
 // Config configures a Server. Zero values select the documented defaults.
 type Config struct {
-	Addr       string         // default DefaultAddr
-	Upstream   string         // default DefaultUpstream
-	Models     []models.Model // custom models to advertise/serve
-	CaptureDir string         // "" disables capture
+	Addr       string                 // default DefaultAddr
+	Upstream   string                 // default DefaultUpstream
+	Models     []models.Model         // custom models to advertise/serve
+	CaptureDir string                 // "" disables capture
 	Logf       func(string, ...any)
+	Balance    bool                   // enables multi-account load balancing in proxy
+	Aggregate  bool                   // enables virtual unified pool account aggregation
+	Router     *accountrouting.Router // optional router (defaults to accountrouting.Shared())
 }
 
 // Server is the proxy. Create with New, run with Start, stop with Close.
@@ -65,6 +72,10 @@ type Server struct {
 	client   *http.Client
 	logf     func(string, ...any)
 	cap      *capture
+	router   *accountrouting.Router
+
+	quotaFetcher      func(ctx context.Context, email string) (*auth.QuotaSummary, error)
+	codeAssistFetcher func(ctx context.Context, token string) (*auth.LoadCodeAssistResponse, error)
 
 	httpSrv *http.Server
 	ln      net.Listener
@@ -110,11 +121,120 @@ func New(cfg Config) (*Server, error) {
 			ExpectContinueTimeout: 1 * time.Second,
 		},
 	}
-	s := &Server{cfg: cfg, upstream: u, client: client, logf: logf}
+	rtr := cfg.Router
+	if rtr == nil {
+		rtr = accountrouting.NewRouter()
+	}
+	s := &Server{cfg: cfg, upstream: u, client: client, logf: logf, router: rtr}
+	s.router.SetPolicy(s.effectivePolicy)
 	if cfg.CaptureDir != "" {
 		s.cap = newCapture(cfg.CaptureDir, logf)
 	}
 	return s, nil
+}
+
+// balanceEnabled reports whether the account balance feature flag is set.
+func (s *Server) balanceEnabled() bool {
+	if s.cfg.Balance || s.cfg.Aggregate {
+		return true
+	}
+	for _, env := range []string{EnvBalance, EnvAccountPool, EnvAggregate, EnvAccountPoolAggregate} {
+		if val, ok := os.LookupEnv(env); ok && strings.TrimSpace(val) != "" {
+			if isTruthy(val) {
+				return true
+			}
+			if isFalsy(val) {
+				return false
+			}
+		}
+	}
+	if p := endpoints.CurrentAccountPool(); p != nil {
+		if p.ProxyBalance || p.Aggregate || p.Strategy == accountpool.StrategyAggregate {
+			return true
+		}
+	}
+	return false
+}
+
+// aggregateActive reports whether virtual unified account aggregation is active.
+func (s *Server) aggregateActive() bool {
+	if s.cfg.Aggregate {
+		return true
+	}
+	for _, env := range []string{EnvAggregate, EnvAccountPoolAggregate} {
+		if val, ok := os.LookupEnv(env); ok && strings.TrimSpace(val) != "" {
+			if isTruthy(val) {
+				return true
+			}
+			if isFalsy(val) {
+				return false
+			}
+		}
+	}
+	if p := endpoints.CurrentAccountPool(); p != nil {
+		if p.Aggregate || p.Strategy == accountpool.StrategyAggregate {
+			return true
+		}
+	}
+	return false
+}
+
+// effectivePolicy returns the account-routing policy from endpoints/config.json,
+// filling in enabled state and sensible defaults for proxy balancing.
+func (s *Server) effectivePolicy() *accountpool.Config {
+	p := endpoints.CurrentAccountPool()
+	if p == nil {
+		t := true
+		cp := &accountpool.Config{
+			Enabled:            true,
+			Strategy:           accountpool.DefaultStrategy,
+			Threshold:          0.15,
+			MaxAttempts:        3,
+			SwitchOnQuotaError: &t,
+		}
+		if s.aggregateActive() {
+			cp.Aggregate = true
+			cp.Strategy = accountpool.StrategyAggregate
+		}
+		return cp
+	}
+	cp := *p
+	cp.Enabled = true
+	if cp.Strategy == "" {
+		cp.Strategy = accountpool.DefaultStrategy
+	}
+	if s.aggregateActive() {
+		cp.Aggregate = true
+		if cp.Strategy == accountpool.DefaultStrategy {
+			cp.Strategy = accountpool.StrategyAggregate
+		}
+	}
+	if cp.MaxAttempts <= 1 && cp.SwitchOnQuotaErrorEnabled() {
+		cp.MaxAttempts = 3
+	}
+	return &cp
+}
+
+// policy returns the account-routing policy from endpoints/config.json.
+func (s *Server) policy() *accountpool.Config {
+	return accountrouting.Policy()
+}
+
+// balanceActive reports whether balancing is active for this server.
+func (s *Server) balanceActive() bool {
+	return s.balanceEnabled()
+}
+
+// models returns configured custom models, dynamically reading models.CachedRegistry()
+// if no explicit models were supplied in Config.
+func (s *Server) models() []models.Model {
+	if len(s.cfg.Models) > 0 {
+		return s.cfg.Models
+	}
+	if reg := models.CachedRegistry(); reg != nil && reg.Len() > 0 {
+		return reg.List()
+	}
+	return nil
 }
 
 // Start binds the listener and serves in the background. It returns the
@@ -141,7 +261,7 @@ func (s *Server) Start() (string, error) {
 		}
 	}()
 	s.logf("listening on http://%s (upstream %s, %d custom model(s), capture %s)",
-		s.addr, s.upstream, len(s.cfg.Models), captureState(s.cfg.CaptureDir))
+		s.addr, s.upstream, len(s.models()), captureState(s.cfg.CaptureDir))
 	return s.addr, nil
 }
 
@@ -185,11 +305,33 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	s.logf("%s %s%s -> %d (%s)", r.Method, r.URL.Path, querySuffix(r.URL.RawQuery), cw.statusCode(), time.Since(started).Round(time.Millisecond))
 }
 
+// SetQuotaFetcher overrides the quota summary retrieval logic (used in tests).
+func (s *Server) SetQuotaFetcher(fn func(ctx context.Context, email string) (*auth.QuotaSummary, error)) {
+	s.quotaFetcher = fn
+}
+
+// SetCodeAssistFetcher overrides the code assist retrieval logic (used in tests).
+func (s *Server) SetCodeAssistFetcher(fn func(ctx context.Context, token string) (*auth.LoadCodeAssistResponse, error)) {
+	s.codeAssistFetcher = fn
+}
+
 func (s *Server) dispatch(w http.ResponseWriter, r *http.Request, body []byte, info reqInfo) {
 	lp := strings.ToLower(r.URL.Path)
 	switch {
 	case strings.HasSuffix(lp, ":fetchavailablemodels"):
 		s.handleFetchAvailableModels(w, r, body)
+	case strings.HasSuffix(lp, ":retrieveuserquotasummary"), strings.HasSuffix(lp, ":retrieveuserquota"):
+		if s.aggregateActive() {
+			s.handleAggregatedQuota(w, r, body)
+		} else {
+			s.passthrough(w, r, body)
+		}
+	case strings.HasSuffix(lp, ":loadcodeassist"):
+		if s.aggregateActive() {
+			s.handleAggregatedCodeAssist(w, r, body)
+		} else {
+			s.passthrough(w, r, body)
+		}
 	// The streaming case is tested first: ":streamgeneratecontent" does not
 	// end in ":generatecontent", but keeping the order explicit documents the
 	// precedence rather than relying on that.
@@ -197,13 +339,23 @@ func (s *Server) dispatch(w http.ResponseWriter, r *http.Request, body []byte, i
 		if info.custom {
 			s.handleCustom(w, r, info.tuned, body, true, info.wrapped)
 		} else {
-			s.passthrough(w, r, body)
+			body = sanitizeUpstreamBody(body, info)
+			if s.balanceActive() {
+				s.handleBalancedPassthrough(w, r, body, true)
+			} else {
+				s.passthrough(w, r, body)
+			}
 		}
 	case strings.HasSuffix(lp, ":generatecontent"):
 		if info.custom {
 			s.handleCustom(w, r, info.tuned, body, false, info.wrapped)
 		} else {
-			s.passthrough(w, r, body)
+			body = sanitizeUpstreamBody(body, info)
+			if s.balanceActive() {
+				s.handleBalancedPassthrough(w, r, body, false)
+			} else {
+				s.passthrough(w, r, body)
+			}
 		}
 	case strings.HasSuffix(lp, ":counttokens") && info.custom:
 		s.handleCountTokens(w, info.inner)

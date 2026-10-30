@@ -3,9 +3,12 @@ package auth
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
+	"sync"
 
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/pretty"
@@ -23,6 +26,102 @@ type Settings struct {
 
 var jsonPrettyOpts = pretty.Options{Indent: "  ", SortKeys: true}
 
+// ValidSettingsKeys is the set of all recognized keys in settings.json.
+var ValidSettingsKeys = map[string]bool{
+	"agentMode":               true,
+	"allowNonWorkspaceAccess": true,
+	"altScreenMode":           true,
+	"artifactReviewPolicy":    true,
+	"clearScrollbackOnResize": true,
+	"colorScheme":             true,
+	"contextWindow":           true,
+	"copyOnSelect":            true,
+	"customModelsConfig":      true,
+	"disableSlashCommands":    true,
+	"editor":                  true,
+	"editorMode":              true,
+	"enableTerminalSandbox":   true,
+	"gcp":                     true,
+	"hideActiveItems":         true,
+	"historySize":             true,
+	"model":                   true,
+	"modelProvider":           true,
+	"notifications":           true,
+	"permissions":             true,
+	"pickerGrouping":          true,
+	"queuedMessages":          true,
+	"runningLightSpeed":       true,
+	"sandboxProxy":            true,
+	"seasonalThemesOff":       true,
+	"seasonalThemesOptIn":     true,
+	"showFeedbackSurvey":      true,
+	"showTips":                true,
+	"statusLine":              true,
+	"title":                   true,
+	"toolPermission":          true,
+	"trustedWorkspaces":       true,
+	"useG1Credits":            true,
+	"useTerminalCursor":       true,
+	"verbosity":               true,
+	"vimInsertFirst":          true,
+}
+
+var (
+	sessionSettingsMu      sync.RWMutex
+	sessionSettingsOverlay map[string]any
+)
+
+// ParseAndValidateSettingsFlag parses and validates the --settings flag argument.
+// If the argument starts with '{', it is treated as inline JSON; otherwise it is read as a file path.
+// Returns the parsed settings overlay map or an error matching the reference binary.
+func ParseAndValidateSettingsFlag(raw string) (map[string]any, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil, nil
+	}
+	var data []byte
+	if strings.HasPrefix(raw, "{") {
+		data = []byte(raw)
+	} else {
+		var err error
+		data, err = os.ReadFile(raw)
+		if err != nil {
+			return nil, fmt.Errorf("reading --settings file: %w", err)
+		}
+	}
+	var overlay map[string]any
+	if err := json.Unmarshal(data, &overlay); err != nil {
+		return nil, fmt.Errorf("--settings must be a JSON object of settings.json keys: %w", err)
+	}
+
+	keys := make([]string, 0, len(overlay))
+	for k := range overlay {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys {
+		if !ValidSettingsKeys[k] {
+			return nil, fmt.Errorf("--settings: unknown setting %q", k)
+		}
+	}
+	return overlay, nil
+}
+
+// SetSessionSettingsOverlay sets the transient in-memory overlay for --settings.
+// These settings override settings.json for the active session and are never persisted to disk.
+func SetSessionSettingsOverlay(overlay map[string]any) {
+	sessionSettingsMu.Lock()
+	defer sessionSettingsMu.Unlock()
+	sessionSettingsOverlay = overlay
+}
+
+// ClearSessionSettingsOverlay clears the transient in-memory overlay.
+func ClearSessionSettingsOverlay() {
+	sessionSettingsMu.Lock()
+	defer sessionSettingsMu.Unlock()
+	sessionSettingsOverlay = nil
+}
+
 func formatSettingsJSON(data []byte) []byte {
 	return bytes.TrimSpace(pretty.PrettyOptions(data, &jsonPrettyOpts))
 }
@@ -30,10 +129,41 @@ func formatSettingsJSON(data []byte) []byte {
 func readSettingsBytes() ([]byte, error) {
 	path := filepath.Join(AntigravityConfigHome(), "settings.json")
 	data, err := os.ReadFile(path)
-	if err != nil {
+	if err != nil && !os.IsNotExist(err) {
 		return nil, err
 	}
-	return stripBOM(data), nil
+	if err != nil && os.IsNotExist(err) {
+		data = []byte("{}")
+	} else {
+		data = stripBOM(data)
+	}
+
+	sessionSettingsMu.RLock()
+	overlay := sessionSettingsOverlay
+	sessionSettingsMu.RUnlock()
+
+	if len(overlay) == 0 {
+		if err != nil {
+			return nil, err
+		}
+		return data, nil
+	}
+
+	var base map[string]any
+	if len(data) > 0 && gjson.ValidBytes(data) {
+		_ = json.Unmarshal(data, &base)
+	}
+	if base == nil {
+		base = make(map[string]any)
+	}
+	for k, v := range overlay {
+		base[k] = v
+	}
+	merged, mErr := json.Marshal(base)
+	if mErr != nil {
+		return data, nil
+	}
+	return merged, nil
 }
 
 func modifySettings(createIfMissing bool, mutate func(data []byte) ([]byte, error)) error {

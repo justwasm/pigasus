@@ -128,6 +128,9 @@ func resolveSystemPrompt(opts *Options, skillPaths []string) string {
 			conversationID = agyprompt.NewConversationID()
 		}
 		promptOpts := agyprompt.DefaultOptions(opts.CWD, opts.AgentDir, conversationID)
+		if len(opts.Workspaces) > 0 {
+			promptOpts.Workspaces = opts.Workspaces
+		}
 		promptOpts.Skills = agyprompt.DiscoverSkills(skillPaths)
 		promptOpts.Subagents = append(promptOpts.Subagents, opts.CustomSubagents...)
 		if opts.AgentBody != "" {

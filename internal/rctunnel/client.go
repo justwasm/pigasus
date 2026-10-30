@@ -71,6 +71,10 @@ type ClientOptions struct {
 	Version      string
 	Account      string
 	Dispatcher   RPCHandler
+	// UpdateInstanceEndpoint is the URL the instance-rename call posts
+	// to. It is the tunnel's own host with a different RPC path, so it
+	// is derived from Endpoint when it is not given.
+	UpdateInstanceEndpoint string
 	// Handler serves the inbound proxy requests. When it is set the
 	// tunnel builds an `http.Request` out of every inbound
 	// `ProxyRequestV2` and serves it against the local HTTP handler —
@@ -115,14 +119,24 @@ type Client struct {
 
 // NewClient constructs a new WebChannel tunnel Client.
 func NewClient(opts ClientOptions) *Client {
+	set := endpoints.Current()
 	if opts.Endpoint == "" {
-		opts.Endpoint = endpoints.Current().WebChannel
+		opts.Endpoint = set.WebChannel
 	}
 	if opts.Version == "" {
 		opts.Version = DefaultClientVersion
 	}
 	if opts.InstanceID == "" {
 		opts.InstanceID = NewInstanceID()
+	}
+	if opts.UpdateInstanceEndpoint == "" {
+		opts.UpdateInstanceEndpoint = set.UpdateInstanceURL()
+		if opts.Endpoint != set.WebChannel {
+			// An explicitly given tunnel endpoint wins: the rename
+			// goes to the host the tunnel itself talks to, so a local
+			// mock answers it on the same port.
+			opts.UpdateInstanceEndpoint = endpoints.UpdateInstanceURLFor(opts.Endpoint)
+		}
 	}
 	c := &Client{
 		opts: opts,
@@ -159,7 +173,21 @@ func (c *Client) InstanceID() string {
 
 // InstanceName returns the instance name advertised to antigravity.google.com.
 func (c *Client) InstanceName() string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	return c.opts.InstanceName
+}
+
+// SetInstanceName changes the name the tunnel registers with.
+//
+// A rename travels to the cloud over the API, but a reconnect
+// re-registers the instance — and the re-registration carries the name
+// the client holds. So a successful rename has to update it here, or
+// the next reconnect would put the old name back on the dashboard.
+func (c *Client) SetInstanceName(name string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.opts.InstanceName = name
 }
 
 func (c *Client) log(format string, a ...any) {
@@ -283,9 +311,10 @@ func (c *Client) connectAndServe(ctx context.Context) error {
 	}
 
 	// 3. Send registration via ForwardChannel
+	instanceName := c.InstanceName()
 	regReq := ConnectInstanceRequestV2{
 		Metadata: &InstanceMetadata{
-			Name:             c.opts.InstanceName,
+			Name:             instanceName,
 			Version:          c.opts.Version,
 			SupportsChunking: true,
 		},
@@ -301,7 +330,7 @@ func (c *Client) connectAndServe(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("send registration: %w", err)
 	}
-	c.log("registered instance %q (id: %s)", c.opts.InstanceName, c.opts.InstanceID)
+	c.log("registered instance %q (id: %s)", instanceName, c.opts.InstanceID)
 	if s := strings.TrimSpace(regBody); s != "" {
 		// The cloud answers the forward channel with its own JSON even
 		// when it refuses the registration, so the answer is the only

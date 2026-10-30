@@ -64,6 +64,7 @@ starts. A half-written edit must not take the CLI down.
 | `terms` | `https://antigravity.google/terms` | the Terms of Service link the onboarding renders |
 | `privacy` | `https://policies.google.com/privacy` | the Privacy Policy link the onboarding renders |
 | `marketplace` | `https://marketplace.antigravity.com/skills?q=` | the plugin marketplace's skill search endpoint (the trailing `?` is part of it) |
+| `auto_updater` | `https://antigravity-cli-auto-updater-974169037036.us-central1.run.app` | the Cloud Run auto-updater service host used to fetch update manifests |
 
 `endpoints.Names()` returns this table, so a front-end can print it without
 repeating the list.

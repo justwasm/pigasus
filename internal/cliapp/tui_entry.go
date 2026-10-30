@@ -9,16 +9,22 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"golang.org/x/term"
 
+	"github.com/justwasm/pigasus/browsercdp"
+	"github.com/justwasm/pigasus/internal/accounts"
 	"github.com/justwasm/pigasus/internal/agent"
 	"github.com/justwasm/pigasus/internal/auth"
 	"github.com/justwasm/pigasus/internal/backend"
 	"github.com/justwasm/pigasus/internal/branding"
+	"github.com/justwasm/pigasus/internal/builtinskills"
+	"github.com/justwasm/pigasus/internal/cli"
 	"github.com/justwasm/pigasus/internal/cliflags"
 	"github.com/justwasm/pigasus/internal/convstore"
+	"github.com/justwasm/pigasus/internal/daemon"
 	"github.com/justwasm/pigasus/internal/loginui"
 	"github.com/justwasm/pigasus/internal/memtrim"
 	"github.com/justwasm/pigasus/internal/modelcatalog"
@@ -27,6 +33,7 @@ import (
 	"github.com/justwasm/pigasus/internal/printmode"
 	"github.com/justwasm/pigasus/internal/termcolor"
 	"github.com/justwasm/pigasus/internal/toolrunner"
+	"github.com/justwasm/pigasus/internal/tools"
 	"github.com/justwasm/pigasus/internal/tuilib"
 	"github.com/justwasm/pigasus/internal/workspacetrust"
 	"github.com/justwasm/pigasus/palette"
@@ -188,6 +195,17 @@ func initTUIRunMode(fs *flag.FlagSet, be backend.Client, modelName, unavailableF
 
 func setupTUIToolsAndPolicy(m *runMode, fs *flag.FlagSet) {
 	workspace, _ := os.Getwd()
+	if fs != nil {
+		var extraWs []string
+		for _, dir := range cliflags.GetterStringValues(fs, "add-dir") {
+			if abs, err := filepath.Abs(dir); err == nil {
+				extraWs = append(extraWs, abs)
+			}
+		}
+		if len(extraWs) > 0 {
+			tools.SetExtraWorkspaces(extraWs)
+		}
+	}
 	// The three MCP tools (call_mcp_tool, list_resources, read_resource)
 	// need a live MCP connection; the pool is lazy, so this costs nothing
 	// when no server is configured.
@@ -225,8 +243,32 @@ func setupTUIConversation(m *runMode, fs *flag.FlagSet, canonicalCwd string) {
 	sel := resolveConversationSelection(fs, os.Stderr)
 	if sel.ID != "" {
 		m.conversationID = sel.ID
+		m.conversationStarted = true
 	}
 	m.seedConversation(sel.Store)
+}
+
+// RunLiveTUI launches the interactive Bubbletea TUI session (or renders static snapshot if non-interactive).
+func RunLiveTUI(w io.Writer, fs *flag.FlagSet) error {
+	if w == nil {
+		w = os.Stdout
+	}
+	if fs == nil {
+		fs = flag.NewFlagSet("pigga", flag.ContinueOnError)
+	}
+	daemon.InstallSignalHandlers()
+	defer func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		daemon.Global().Shutdown(ctx)
+		browsercdp.Shutdown()
+	}()
+
+	registerParserBridges()
+	_, _ = auth.WriteCompatDefaults()
+	_ = cli.RunPluginCleanupOnStartup(auth.AntigravityConfigHome())
+	_, _ = builtinskills.Install(auth.AntigravityConfigHome())
+	return runLiveTUI(w, fs)
 }
 
 func runLiveTUI(w io.Writer, fs *flag.FlagSet) error {
@@ -234,8 +276,10 @@ func runLiveTUI(w io.Writer, fs *flag.FlagSet) error {
 	// without going through runRoot, so the browser's policy is read
 	// from the flag set here too.
 	applyBrowserFlags(fs)
+	applyProjectFlags(fs)
+	applyLogFileFlag(fs)
 	if !isTerminalInteractive(os.Stdin) {
-		return renderTUI(w)
+		return renderTUIWithFlags(w, fs)
 	}
 	canonicalCwd, shouldExit, err := checkWorkspaceTrustGate(w, fs)
 	if err != nil || shouldExit {
@@ -254,10 +298,32 @@ func runLiveTUI(w io.Writer, fs *flag.FlagSet) error {
 	setupTUIToolsAndPolicy(m, fs)
 	setupTUIConversation(m, fs, canonicalCwd)
 
+	return runTUIProgram(m, fs, altScreen, canonicalCwd)
+}
+
+func setupTUIRemoteControl(m *runMode, fs *flag.FlagSet) {
+	if m == nil || fs == nil {
+		return
+	}
+	m.remoteControlDesktop = cliflags.BoolValue(fs, "desktop")
+	if cliflags.BoolValue(fs, "remote-control") {
+		convID := cliflags.StringValue(fs, "conversation")
+		if convID == "" && cliflags.ResolveBoolAlias(fs, "continue", "c") {
+			sel := resolveConversationSelection(fs, io.Discard)
+			convID = sel.ID
+		}
+		m.handleRemoteControl("", convID)
+	}
+}
+
+func runTUIProgram(m *runMode, fs *flag.FlagSet, altScreen bool, canonicalCwd string) error {
 	prog := tea.NewProgram(m, tea.WithColorProfile(termcolor.Resolve(os.Environ())))
 	debugOut := io.Discard
 	if isDebugMode(fs) {
 		debugOut = os.Stderr
+	}
+	if cols, rows, err := term.GetSize(int(os.Stdout.Fd())); err == nil && cols > 0 {
+		m.width, m.height = cols, rows
 	}
 	m.hyperlinkCaps = render.ProbeHyperlinkCaps(
 		debugOut,
@@ -266,6 +332,7 @@ func runLiveTUI(w io.Writer, fs *flag.FlagSet) error {
 		altScreen,
 	)
 	m.prog = prog
+	setupTUIRemoteControl(m, fs)
 	// 【一手】 agy 1.4.10: "the CLI now returns about 100 MB of memory
 	// left over from startup to the operating system 15 seconds after
 	// the interactive UI opens; print and headless modes are
@@ -276,7 +343,7 @@ func runLiveTUI(w io.Writer, fs *flag.FlagSet) error {
 	// nothing of that size to give back.
 	cancelMemTrim := memtrim.After(memtrim.Delay)
 	defer cancelMemTrim()
-	_, err = prog.Run()
+	_, err := prog.Run()
 	printTUIExitBanner(m, canonicalCwd)
 	return err
 }
@@ -290,7 +357,7 @@ func printTUIExitBanner(m *runMode, cwd string) {
 	}
 	email := auth.EffectiveUserEmail()
 	if email == "" {
-		email = "navigaid@gmail.com"
+		_, email = accounts.Current()
 	}
 	banner := tuilib.RenderExitBanner(tuilib.ExitBannerOptions{
 		BinaryName:     resolveBinaryName(),

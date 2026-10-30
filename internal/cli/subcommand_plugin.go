@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+
+	pluginimport "github.com/justwasm/pigasus/internal/features/plugins/import"
 )
 
 // ---- usage blocks ---------------------------------------------------------
@@ -217,13 +219,45 @@ func runPluginList(j *JetskiCLI, args []string) error {
 	return nil
 }
 
+// runPluginImport implements `agy plugin import [source]`.
+//
+// 【一手】 agy 1.4.11: the bare command imports from both sources — the
+// Gemini CLI importer first, the Claude Code importer second — and each
+// source that finds something ends with its own "Staged to <dir>" line.
+// The importers themselves live in internal/features/plugins/import.
+//
+// The usage line is the reference's:
+//
+//	import [source]        Import plugins from gemini or claude
 func runPluginImport(j *JetskiCLI, args []string) error {
-	if len(args) == 0 {
-		fmt.Fprintln(j.Out, "No gemini extensions found.")
-		fmt.Fprintln(j.Out, "No claude extensions found.")
+	opts := pluginimport.Options{
+		Roots:  pluginimport.DefaultRoots(),
+		Out:    j.Out,
+		ErrOut: j.ErrOut,
+	}
+	var sources []pluginimport.Source
+	for _, arg := range args {
+		switch arg {
+		case "--force":
+			opts.Force = true
+		case string(pluginimport.SourceGemini):
+			sources = append(sources, pluginimport.SourceGemini)
+		case string(pluginimport.SourceClaude):
+			sources = append(sources, pluginimport.SourceClaude)
+		default:
+			return fail(j, 1, fmt.Sprintf("Error: unknown import source or invalid path: %s", arg))
+		}
+	}
+	if len(sources) == 0 {
+		sources = []pluginimport.Source{pluginimport.SourceGemini, pluginimport.SourceClaude}
+	}
+	if err := pluginimport.Run(opts, sources); err != nil {
+		// The reference reports a discovery failure on stderr and still
+		// exits 0 — the error is the command's whole output.
+		fmt.Fprintln(j.ErrOut, err)
 		return nil
 	}
-	return fail(j, 1, fmt.Sprintf("Error: unknown import source or invalid path: %s", args[0]))
+	return nil
 }
 
 // runPluginValidate is the entry point for `agy plugin validate [path]`.

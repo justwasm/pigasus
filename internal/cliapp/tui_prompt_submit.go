@@ -163,7 +163,14 @@ func (m *runMode) resetLiveTurnState(prompt string) {
 	for _, row := range m.mediaRows() {
 		m.response = append(m.response, row)
 	}
-	m.response = append(m.response, userPromptRow(prompt))
+	for len(m.response) > 0 && strings.TrimSpace(m.response[len(m.response)-1]) == "" {
+		m.response = m.response[:len(m.response)-1]
+	}
+	if len(m.response) == 0 {
+		m.response = append(m.response, turnSeparator(m.width), userPromptRow(prompt))
+	} else {
+		m.response = append(m.response, "", turnSeparator(m.width), userPromptRow(prompt))
+	}
 	m.liveStart = len(m.response)
 	m.replyStart = -1
 	m.liveReplyIdx = -1
@@ -194,6 +201,7 @@ func (m *runMode) startModelTurn(prompt string) tea.Cmd {
 	// account changed, and the stream command runs after this Update
 	// returns — so it picks the rebuilt transport up.
 	syncCmd := m.syncAccountIdentity()
+	m.conversationStarted = true
 	m.resetLiveTurnState(prompt)
 	m.appendUserTurn(prompt)
 	m.saveSession()

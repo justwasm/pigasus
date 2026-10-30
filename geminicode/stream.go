@@ -27,10 +27,12 @@ type Chunk struct {
 
 // Meta is the usage the terminating chunk carries.
 type Meta struct {
-	PromptTokens     int
-	CompletionTokens int
-	TotalTokens      int
-	ReasoningTokens  int
+	PromptTokens        int
+	CompletionTokens    int
+	TotalTokens         int
+	ReasoningTokens     int
+	CachedContentTokens int
+	FinishReason        string
 }
 
 const (
@@ -62,6 +64,7 @@ type Decoder struct {
 	finished  bool
 	sawFinish bool
 	inThought bool
+	streamErr error
 }
 
 // NewDecoder returns a decoder for one stream. The client may be nil when
@@ -90,6 +93,12 @@ func (d *Decoder) Feed(line string) []Chunk {
 	if payload == "[DONE]" {
 		return d.finalChunks()
 	}
+	if sErr := ParseFrameError(payload); sErr != nil {
+		d.streamErr = sErr
+		d.finished = true
+		out := d.closeThought()
+		return append(out, Chunk{Error: sErr, Done: true})
+	}
 	resp, ok := ParseFrame(payload)
 	if !ok {
 		return nil
@@ -109,6 +118,9 @@ func (d *Decoder) Finish(scanErr error) ([]Chunk, error) {
 	if scanErr != nil {
 		return d.closeThought(), scanErr
 	}
+	if d.streamErr != nil {
+		return d.closeThought(), d.streamErr
+	}
 	if !d.sawFinish && len(d.calls) == 0 {
 		return d.closeThought(), io.ErrUnexpectedEOF
 	}
@@ -127,15 +139,15 @@ func (d *Decoder) processResponse(resp GenerateContentResponse) []Chunk {
 		}
 		if cand.FinishReason != "" {
 			d.sawFinish = true
+			d.meta.FinishReason = cand.FinishReason
 		}
 	}
 	if u := resp.UsageMetadata; u != nil && u.TotalTokenCount > 0 {
-		d.meta = Meta{
-			PromptTokens:     u.PromptTokenCount,
-			CompletionTokens: u.CandidatesTokenCount,
-			TotalTokens:      u.TotalTokenCount,
-			ReasoningTokens:  u.ThoughtsTokenCount,
-		}
+		d.meta.PromptTokens = u.PromptTokenCount
+		d.meta.CompletionTokens = u.CandidatesTokenCount
+		d.meta.TotalTokens = u.TotalTokenCount
+		d.meta.ReasoningTokens = u.ThoughtsTokenCount
+		d.meta.CachedContentTokens = u.CachedContentTokenCount
 	}
 	if d.sawFinish {
 		return append(out, d.finalChunks()...)
@@ -163,7 +175,7 @@ func (d *Decoder) handlePart(part Part) []Chunk {
 // handleFunctionCall collects a tool call and remembers the signature the
 // model returned with it.
 func (d *Decoder) handleFunctionCall(part Part) {
-	call := TurnToolCall{Name: part.FunctionCall.Name, Arguments: part.FunctionCall.Args}
+	call := TurnToolCall{Name: NormalizeToolName(part.FunctionCall.Name), Arguments: part.FunctionCall.Args}
 	call.ID = part.FunctionCall.ID
 	if call.ID == "" {
 		call.ID = fmt.Sprintf("call_%d", len(d.calls)+1)
@@ -217,4 +229,26 @@ func (d *Decoder) finalChunks() []Chunk {
 		chunk.Meta = &meta
 	}
 	return append(out, chunk)
+}
+
+// NormalizeToolName strips the Gemini namespace ("default_api:" or "default_api.")
+// that Google models sometimes prefix onto tool names.
+func NormalizeToolName(name string) string {
+	for _, prefix := range []string{"default_api:", "default_api."} {
+		if strings.HasPrefix(name, prefix) && len(name) > len(prefix) {
+			return name[len(prefix):]
+		}
+	}
+	return name
+}
+
+// IsSafetyFinishReason reports whether a finishReason from Gemini indicates
+// the content was filtered or blocked by Google's safety systems.
+func IsSafetyFinishReason(reason string) bool {
+	switch strings.ToUpper(strings.TrimSpace(reason)) {
+	case "SAFETY", "PROHIBITED_CONTENT", "BLOCKLIST", "SPII", "IMAGE_SAFETY":
+		return true
+	default:
+		return false
+	}
 }

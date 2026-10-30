@@ -15,6 +15,7 @@
 > | change the prompt or `--agent` | [`docs/guide/prompt.md`](docs/guide/prompt.md) |
 > | change a tool or its result text | [`docs/guide/tools.md`](docs/guide/tools.md) |
 > | change a TUI panel | [`docs/guide/tui.md`](docs/guide/tui.md) |
+> | change the `/plugin` panel or `agy plugin import` | [`docs/guide/plugins.md`](docs/guide/plugins.md) |
 > | change the cloud remote view, its tunnel or its wire | [`docs/guide/remote-control.md`](docs/guide/remote-control.md) |
 > | re-run the Ghidra pipeline | [`docs/guide/reverse-engineering.md`](docs/guide/reverse-engineering.md) |
 > | the reference binary moved | [`docs/guide/reference-drift.md`](docs/guide/reference-drift.md) |
@@ -44,7 +45,7 @@ things in it:
 | `accountpool/` | the **account-routing policy** as a public package: the `config.json` section's shape, the four strategies, the quota threshold, the decision. Pure — no I/O, no `internal/` dependency — so it imports on its own; the runtime is `internal/accountrouting`. See [`docs/guide/accounts.md`](docs/guide/accounts.md) |
 
 The reference is **Antigravity CLI** (`agy`) — a closed-source Google-internal
-agent CLI (`google3/third_party/jetski/…`). The clone emulates **agy 1.4.10**
+agent CLI (`google3/third_party/jetski/…`). The clone emulates **agy 1.4.11**
 (`internal/cli.ReferenceVersion`).
 
 There is a **second reference binary**: the Antigravity **IDE** ships its own
@@ -420,6 +421,44 @@ subtle if it is violated.
     streaming scrollback is **open** — it needs a renderer the clone
     owns, not a bubbletea setting.
 
+## The 1.4.11 alignment (cycle 364)
+
+39. **`finished_reason` is the envelope's last member, and it is omitted
+    on a normal finish.** The field is `json:"finished_reason,omitempty"`
+    on `printmode.jsonEnvelope`; it is never an empty string. Its three
+    values are `print_timeout`, `interrupted` and `error` — the
+    reference's own words.
+40. **The interrupt has to be caught.** An uncaught `SIGINT` kills the
+    process, and a killed process writes no envelope, so the
+    `interrupted` reason would be unreachable. The guard
+    (`internal/printmode/print_interrupt.go`) cancels the turn's context
+    on the first `Ctrl+C` and restores the default disposition with
+    `signal.Reset` **before** the cancel — the second `Ctrl+C` stays
+    fatal.
+41. **A shelf shows six plugins and a `⋯ N more — enter to show` row.**
+    `Ctrl+E` expands or collapses the shelf under the cursor and `[`/`]`
+    jump between shelves. `Ctrl+E` is matched as
+    `key.Code == 'e' && key.Mod.Contains(tea.ModCtrl)` — Bubble Tea
+    v2 v2.1.0 has no `tea.KeyCtrlE`.
+42. **The import's report lines go to stdout; only the `[error]` line
+    goes to stderr.** A discovery failure also goes to stderr and still
+    exits **0**; an unknown source exits **1**. `Staged to <dir>` is
+    printed **per source**, so the bare `agy plugin import` prints it
+    twice when both sources find something.
+43. **The import's components are recorded in two different orders.** The
+    report prints `skills, agents, commands, mcpServers`; the
+    `import_manifest.json` stores `skills, agents, mcpServers,
+    commands`. Both are the reference's own — do not "tidy" one into
+    the other.
+44. **`${CLAUDE_PLUGIN_ROOT}` expands to the staged plugin directory**,
+    not to the Claude Code directory the plugin came from. A staged
+    `plugin.json` carries only `name`, `version`, `description` and
+    `author` (the author's *name*).
+45. **A `project` or `local` scoped Claude record is skipped silently** —
+    no line at all, not a `[skip]` line — and the "already imported"
+    skip is keyed on the **(name, source)** pair, decided by
+    `import_manifest.json` and not by the staged directory's existence.
+
 ---
 
 ## Commands
@@ -485,6 +524,7 @@ Four machine gotchas, each of which cost real time:
 | Know what the last cycle changed | `git log --oneline -20` and the newest `docs/cycles/cycle-<n>/` |
 | Match the reference's system prompt | [`docs/guide/prompt.md`](docs/guide/prompt.md) — `internal/agyprompt`, ground truth `internal/agyprompt/testdata/capture_1.4.6.txt` |
 | Change what the model can call | [`docs/guide/tools.md`](docs/guide/tools.md) — `internal/tools/catalog.go` |
+| Change the `/plugin` panel or `agy plugin import` | [`docs/guide/plugins.md`](docs/guide/plugins.md) — `internal/pluginsui`, `internal/cliapp`'s plugin panel, `internal/features/plugins/import` |
 | Change how code is highlighted | [`docs/guide/tui.md`](docs/guide/tui.md) — `internal/mdrender/chroma_inline.go` (fences) and `diffsyntax/syntax.go` (diffs); chroma is pinned to **v2.27.0** |
 | Configure a model | [`docs/guide/models.md`](docs/guide/models.md) — `~/.config/openagy/providers.json` |
 | Point a Google service at a local one | [`docs/guide/endpoints.md`](docs/guide/endpoints.md) — `~/.config/openagy/config.json`, `endpoints` |

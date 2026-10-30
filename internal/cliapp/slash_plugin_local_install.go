@@ -230,6 +230,16 @@ type pluginRow struct {
 	version  string
 	category string
 	keywords []string
+	// shelf is the name of the Discover shelf the row belongs to, and
+	// inShelf says the row is part of a shelf at all (the rows of the
+	// Installed tab and of the search-filtered list are not).
+	shelf   string
+	inShelf bool
+	// more marks a shelf's "⋯ N more — enter to show" row. Such a row
+	// stands for the shelf's hidden tail: it has no plugin, and `hidden`
+	// says how many plugins it stands for.
+	more   bool
+	hidden int
 }
 
 func fromPluginRow(r plugins.Row) pluginRow {
@@ -285,7 +295,7 @@ func toPluginMarketplaces(mkts []pluginMarketplace) []plugins.Marketplace {
 	return out
 }
 
-var pluginWatcherPtr = &plugins.WatcherPtr
+var pluginWatcherPtr = plugins.WatcherPtr
 
 var pluginInstalledFallback = []pluginRow{
 	{name: "chrome-devtools-plugin", desc: "Reliable automation, in-depth debugging, and performance analysis in Chrome using Chrome DevTools and Puppeteer"},

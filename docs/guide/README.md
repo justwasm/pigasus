@@ -14,6 +14,7 @@
 | [`accounts.md`](accounts.md) | the account registry, the shared credential, the tier/quota cache | touch `internal/accounts`, `internal/auth` |
 | [`prompt.md`](prompt.md) | the system prompt, the skill/rule discovery, `--agent`, the recovered `.tmpl` bundle | touch `internal/agyprompt`, `internal/agytemplates`, `internal/agystep`, `internal/agenttools` |
 | [`tools.md`](tools.md) | the 12 wire declarations, the 60 advertised names, the result texts, the two command-result shapes | touch `internal/tools`, `internal/toolrunner`, `internal/tuitools` |
+| [`plugins.md`](plugins.md) | the `/plugin` Discover tab's shelves, `agy plugin import`, the MCP server conversion | touch `internal/pluginsui`, `internal/cliapp`'s plugin panel, or the plugin importer |
 | [`tui.md`](tui.md) | the transcript display, the model picker, argument completion, bash mode, syntax highlighting | touch a panel or the composer |
 | [`compaction.md`](compaction.md) | the two compaction paths, the reference's numbers, the context window | touch `internal/compaction`, `internal/pigrt` |
 | [`reference-drift.md`](reference-drift.md) | the gate, the version-scoped artefacts, re-evidencing | the reference binary moves |

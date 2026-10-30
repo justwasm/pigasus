@@ -396,3 +396,245 @@ func TestSchemaProtoIntStrings(t *testing.T) {
 		t.Errorf("minLength = %#v, want the protojson string %q", msg["minLength"], "1")
 	}
 }
+
+func TestDecoder_InStreamError(t *testing.T) {
+	dec := NewDecoder(nil)
+	chunks := dec.Feed(`data: {"error":{"code":429,"message":"Resource has been exhausted (e.g. check quota)","status":"RESOURCE_EXHAUSTED"}}`)
+	if len(chunks) != 1 {
+		t.Fatalf("chunks len = %d, want 1", len(chunks))
+	}
+	if chunks[0].Error == nil {
+		t.Fatalf("expected error in chunk, got nil")
+	}
+	if !strings.Contains(chunks[0].Error.Error(), "Resource has been exhausted") {
+		t.Errorf("unexpected error: %v", chunks[0].Error)
+	}
+	if !chunks[0].Done {
+		t.Errorf("expected Done chunk on in-stream error")
+	}
+
+	closing, ferr := dec.Finish(nil)
+	if ferr == nil || !strings.Contains(ferr.Error(), "Resource has been exhausted") {
+		t.Errorf("Finish err = %v, want stream error", ferr)
+	}
+	_ = closing
+}
+
+func TestDecoder_FinishReason(t *testing.T) {
+	dec := NewDecoder(nil)
+	chunks := dec.Feed(`data: {"response":{"candidates":[{"content":{"role":"model","parts":[{"text":"safe text"}]},"finishReason":"SAFETY"}],"usageMetadata":{"promptTokenCount":5,"candidatesTokenCount":2,"totalTokenCount":7}},"traceId":"t"}`)
+	fin, err := dec.Finish(nil)
+	if err != nil {
+		t.Fatalf("Finish error: %v", err)
+	}
+	chunks = append(chunks, fin...)
+	if len(chunks) == 0 {
+		t.Fatalf("expected chunks")
+	}
+	last := chunks[len(chunks)-1]
+	if last.Meta == nil || last.Meta.FinishReason != "SAFETY" {
+		t.Errorf("FinishReason = %v, want SAFETY", last.Meta)
+	}
+}
+
+func TestHardenContents(t *testing.T) {
+	// Leading model turn gets prepended with user context
+	leading := []Content{
+		{Role: "model", Parts: []Part{{Text: "I thought about it"}}},
+		{Role: "user", Parts: []Part{{Text: "next question"}}},
+	}
+	hardened := HardenContents(leading)
+	if len(hardened) != 3 || hardened[0].Role != "user" || hardened[1].Role != "model" {
+		t.Errorf("leading model turn hardening failed: %v", hardened)
+	}
+
+	// Trailing assistant message (without tool response) gets appended with Continue.
+	trailing := []Content{
+		{Role: "user", Parts: []Part{{Text: "hi"}}},
+		{Role: "model", Parts: []Part{{Text: "hello"}}},
+	}
+	hardenedTrailing := HardenContents(trailing)
+	if len(hardenedTrailing) != 3 || hardenedTrailing[2].Role != "user" || hardenedTrailing[2].Parts[0].Text != "Continue." {
+		t.Errorf("trailing model turn hardening failed: %v", hardenedTrailing)
+	}
+
+	// Trailing tool response does not get appended
+	toolResp := []Content{
+		{Role: "user", Parts: []Part{{Text: "hi"}}},
+		{Role: "model", Parts: []Part{{FunctionResponse: &FunctionResponse{ID: "1", Name: "t", Response: map[string]any{"output": "ok"}}}}},
+	}
+	hardenedTool := HardenContents(toolResp)
+	if len(hardenedTool) != 2 {
+		t.Errorf("tool response should not be appended: len = %d", len(hardenedTool))
+	}
+}
+
+func TestBuildRequest_ThinkingLevel(t *testing.T) {
+	req := BuildRequest(Turn{
+		Model:         "gemini-3.8-flash-high",
+		ThinkingLevel: "high",
+		Messages:      []TurnMessage{{Role: "user", Content: "think"}},
+	})
+	gc := req.Request.GenerationConfig
+	if gc == nil || gc.ThinkingConfig == nil {
+		t.Fatalf("expected ThinkingConfig")
+	}
+	if gc.ThinkingConfig.ThinkingLevel != "high" {
+		t.Errorf("ThinkingLevel = %q, want high", gc.ThinkingConfig.ThinkingLevel)
+	}
+	if gc.ThinkingConfig.ThinkingBudget != 0 {
+		t.Errorf("ThinkingBudget = %d, want 0 (omitted) when ThinkingLevel is active", gc.ThinkingConfig.ThinkingBudget)
+	}
+
+	raw, err := json.Marshal(gc.ThinkingConfig)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if strings.Contains(string(raw), "thinkingBudget") {
+		t.Errorf("thinkingBudget must be omitted in json: %s", raw)
+	}
+}
+
+func TestNormalizeToolName(t *testing.T) {
+	cases := map[string]string{
+		"default_api:run_command": "run_command",
+		"default_api.view_file":   "view_file",
+		"run_command":             "run_command",
+		"custom_tool":             "custom_tool",
+		"default_api:":            "default_api:",
+	}
+	for in, want := range cases {
+		if got := NormalizeToolName(in); got != want {
+			t.Errorf("NormalizeToolName(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+func TestGeminiGeneration(t *testing.T) {
+	cases := map[string]int{
+		"gemini-3.8-flash":       3,
+		"gemini-3-pro":           3,
+		"models/gemini-4-flash":  4,
+		"gemini-2.5-pro":         2,
+		"claude-3-5-sonnet-2024": 0,
+		"gpt-4o":                 0,
+	}
+	for in, want := range cases {
+		if got := GeminiGeneration(in); got != want {
+			t.Errorf("GeminiGeneration(%q) = %d, want %d", in, got, want)
+		}
+	}
+}
+
+func TestHardenContents_LeadingToolResponse(t *testing.T) {
+	// A history opening with a tool response (model role) must be prepended with a user turn
+	leadingTool := []Content{
+		{Role: "model", Parts: []Part{{FunctionResponse: &FunctionResponse{ID: "1", Name: "t", Response: map[string]any{"output": "ok"}}}}},
+		{Role: "user", Parts: []Part{{Text: "next"}}},
+	}
+	hardened := HardenContents(leadingTool)
+	if len(hardened) != 3 || hardened[0].Role != "user" || hardened[1].Role != "model" {
+		t.Fatalf("expected user turn before leading tool response: %+v", hardened)
+	}
+}
+
+func TestIsSafetyFinishReason(t *testing.T) {
+	for _, reason := range []string{"SAFETY", "PROHIBITED_CONTENT", "BLOCKLIST", "SPII", "IMAGE_SAFETY", "safety"} {
+		if !IsSafetyFinishReason(reason) {
+			t.Errorf("IsSafetyFinishReason(%q) = false, want true", reason)
+		}
+	}
+	for _, reason := range []string{"STOP", "MAX_TOKENS", "RECITATION", ""} {
+		if IsSafetyFinishReason(reason) {
+			t.Errorf("IsSafetyFinishReason(%q) = true, want false", reason)
+		}
+	}
+}
+
+func TestDecoder_CachedContentTokens(t *testing.T) {
+	dec := NewDecoder(nil)
+	chunks := dec.Feed(`data: {"response":{"candidates":[{"content":{"role":"model","parts":[{"text":"hi"}]},"finishReason":"STOP"}],"usageMetadata":{"promptTokenCount":100,"candidatesTokenCount":5,"totalTokenCount":105,"cachedContentTokenCount":80}}}`)
+	if len(chunks) == 0 {
+		t.Fatalf("expected chunks")
+	}
+	last := chunks[len(chunks)-1]
+	if last.Meta == nil {
+		t.Fatalf("expected meta")
+	}
+	if last.Meta.CachedContentTokens != 80 {
+		t.Errorf("CachedContentTokens = %d, want 80", last.Meta.CachedContentTokens)
+	}
+}
+
+func TestInjectSkipThoughtSignatures(t *testing.T) {
+	contents := []Content{
+		{
+			Role: "model",
+			Parts: []Part{
+				{
+					FunctionCall: &FunctionCall{ID: "call_1", Name: "run_command"},
+				},
+				{
+					ThoughtSignature: "existing_sig",
+					FunctionCall:     &FunctionCall{ID: "call_2", Name: "view_file"},
+				},
+				{
+					Text: "just text",
+				},
+			},
+		},
+	}
+
+	modified := InjectSkipThoughtSignatures(contents)
+	if !modified {
+		t.Errorf("expected modified = true")
+	}
+	if contents[0].Parts[0].ThoughtSignature != SkipThoughtSignature {
+		t.Errorf("call_1 expected signature %q, got %q", SkipThoughtSignature, contents[0].Parts[0].ThoughtSignature)
+	}
+	if contents[0].Parts[1].ThoughtSignature != "existing_sig" {
+		t.Errorf("call_2 signature clobbered: got %q", contents[0].Parts[1].ThoughtSignature)
+	}
+}
+
+func TestResolveThinkingConfig(t *testing.T) {
+	// Gemini 3+ with budget should prune budget and default to "high"
+	gc := &GenerationConfig{
+		ThinkingConfig: &ThinkingConfig{
+			IncludeThoughts: true,
+			ThinkingBudget:  2048,
+		},
+	}
+	mod := ResolveThinkingConfig("gemini-3.8-flash", gc)
+	if !mod {
+		t.Errorf("expected modified = true")
+	}
+	if gc.ThinkingConfig.ThinkingLevel != "high" {
+		t.Errorf("expected thinkingLevel 'high', got %q", gc.ThinkingConfig.ThinkingLevel)
+	}
+	if gc.ThinkingConfig.ThinkingBudget != 0 {
+		t.Errorf("expected thinkingBudget 0, got %d", gc.ThinkingConfig.ThinkingBudget)
+	}
+
+	// Gemini 3+ without thinkingConfig should get one with high
+	gcNil := &GenerationConfig{}
+	mod = ResolveThinkingConfig("gemini-3-pro", gcNil)
+	if !mod || gcNil.ThinkingConfig == nil || gcNil.ThinkingConfig.ThinkingLevel != "high" {
+		t.Errorf("expected thinkingConfig with level 'high', got %+v", gcNil.ThinkingConfig)
+	}
+
+	// Explicit thinkingLevel should prune budget on any model
+	gcCustom := &GenerationConfig{
+		ThinkingConfig: &ThinkingConfig{
+			ThinkingLevel:  "low",
+			ThinkingBudget: 512,
+		},
+	}
+	mod = ResolveThinkingConfig("gemini-2.5-flash", gcCustom)
+	if !mod || gcCustom.ThinkingConfig.ThinkingBudget != 0 || gcCustom.ThinkingConfig.ThinkingLevel != "low" {
+		t.Errorf("expected budget pruned to 0, got %+v", gcCustom.ThinkingConfig)
+	}
+}
+
+
+

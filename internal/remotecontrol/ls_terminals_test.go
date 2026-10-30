@@ -13,6 +13,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/justwasm/pigasus/internal/rcterminal"
 )
@@ -204,5 +205,62 @@ func TestTheDashboardTerminalContractIsUntouched(t *testing.T) {
 		`{"conversationId":"c-1"}`)
 	if err != nil {
 		t.Fatalf("CreateTerminal: %v", err)
+	}
+}
+
+func TestStreamTerminalOutputEndToEnd(t *testing.T) {
+	disp := newTerminalDispatcher(t)
+	body, err := disp.DispatchDirect(context.Background(), "CreateTerminal",
+		`{"workspaceUri":"file:///tmp/web-ws","conversationId":"c-1","projectId":"p-1"}`)
+	if err != nil {
+		t.Fatalf("CreateTerminal: %v", err)
+	}
+	var answer struct {
+		Terminal struct {
+			TerminalID string `json:"terminalId"`
+		} `json:"terminal"`
+	}
+	if err := json.Unmarshal([]byte(body), &answer); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	terminalID := answer.Terminal.TerminalID
+	if terminalID == "" {
+		t.Fatalf("no terminalId in answer: %s", body)
+	}
+
+	frames := make(chan json.RawMessage, 10)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	streamErr := make(chan error, 1)
+	go func() {
+		handled, err := disp.DispatchStream(ctx, "StreamTerminalOutput", `{"terminalId":"`+terminalID+`"}`, func(msg json.RawMessage) error {
+			frames <- msg
+			return nil
+		})
+		if !handled {
+			streamErr <- errors.New("StreamTerminalOutput not handled")
+			return
+		}
+		streamErr <- err
+	}()
+
+	// Expect title frame first
+	select {
+	case frame := <-frames:
+		t.Logf("Got first frame: %s", string(frame))
+		if !strings.Contains(string(frame), "title") {
+			t.Fatalf("expected title frame, got: %s", string(frame))
+		}
+	case err := <-streamErr:
+		t.Fatalf("stream ended unexpectedly: %v", err)
+	case <-time.After(3 * time.Second):
+		t.Fatalf("timed out waiting for first frame")
+	}
+
+	// Close terminal
+	_, err = disp.DispatchDirect(context.Background(), "CloseTerminal", `{"terminalId":"`+terminalID+`","force":true}`)
+	if err != nil {
+		t.Fatalf("CloseTerminal: %v", err)
 	}
 }

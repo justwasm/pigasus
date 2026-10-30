@@ -302,7 +302,11 @@ func (c *CloudCodeClient) turn(req StreamRequest, model string) geminicode.Turn 
 // emitChunk translates one dialect chunk into the application's chunk and
 // hands it to the caller. It reports whether the stream may continue.
 func emitChunk(ctx context.Context, out chan<- StreamChunk, chunk geminicode.Chunk) bool {
-	mapped := StreamChunk{Text: chunk.Text, Done: chunk.Done, Error: chunk.Error}
+	chunkErr := chunk.Error
+	if chunkErr != nil {
+		chunkErr = toBackendError(chunkErr, "")
+	}
+	mapped := StreamChunk{Text: chunk.Text, Done: chunk.Done, Error: chunkErr}
 	if len(chunk.ToolCalls) > 0 {
 		mapped.ToolCalls = make([]ToolCall, 0, len(chunk.ToolCalls))
 		for _, tc := range chunk.ToolCalls {
@@ -319,6 +323,7 @@ func emitChunk(ctx context.Context, out chan<- StreamChunk, chunk geminicode.Chu
 			CompletionTokens: chunk.Meta.CompletionTokens,
 			TotalTokens:      chunk.Meta.TotalTokens,
 			ReasoningTokens:  chunk.Meta.ReasoningTokens,
+			CachedTokens:     chunk.Meta.CachedContentTokens,
 		}
 	}
 	select {
@@ -363,6 +368,14 @@ func toBackendError(err error, url string) error {
 	var he *geminicode.HTTPError
 	if errors.As(err, &he) {
 		return NewHTTPError(he.StatusCode, he.Body, he.URL)
+	}
+	var se *geminicode.StreamError
+	if errors.As(err, &se) {
+		code := se.Code
+		if code == 0 {
+			code = 500
+		}
+		return NewHTTPError(code, []byte(se.Error()), url)
 	}
 	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		return err

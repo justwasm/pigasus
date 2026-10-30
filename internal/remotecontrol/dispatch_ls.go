@@ -158,12 +158,24 @@ func (d *Dispatcher) routeLanguageServerCascadeMethods(ctx context.Context, meth
 		return map[string]any{"nuxes": []any{}}, nil, true
 	case "GetAllWorkflows":
 		return map[string]any{"workflows": []any{}}, nil, true
-	case "GetCustomizationStates":
-		return map[string]any{"states": []any{}}, nil, true
 	case "ListMcpPrompts":
 		return map[string]any{"prompts": []any{}}, nil, true
-	case "SubscribeToPlugins":
-		return map[string]any{"plugins": []any{}}, nil, true
+	case "GetAllPlugins", "GetPlugin", "DeletePlugin",
+		"ResolveCommandPlugin", "GetCustomizationStates",
+		"GetAllSkills", "DeleteSkill",
+		"SearchMarketplace", "SearchMarketplaceCustomizations",
+		"GetMarketplaceCustomization", "GetMarketplaceBundles",
+		"GetMarketplaceFeatured", "GetSkillMarketplaceLink",
+		"GetAvailableCascadePlugins", "GetBuildWithGooglePlugins",
+		"ListPluginAuthProviders", "InstallCustomization",
+		"ListRemotePlugins", "DisconnectRemotePlugin",
+		"DownloadBuildWithGooglePlugin", "StartPluginAuthSignIn",
+		"SignInPluginAuthProvider", "SignOutPluginAuthProvider",
+		"SetDefaultPluginAuthAccount", "SetPluginAuthAccountLabel",
+		"SubscribeToPlugins":
+		// The Web UI's plugin panels. See plugins_ls.go and
+		// plugins_marketplace.go.
+		return d.routeLanguageServerPluginMethods(method, params)
 	}
 	return nil, nil, false
 }

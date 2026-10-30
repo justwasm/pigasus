@@ -68,6 +68,9 @@ func (m *runMode) seedConversation(c *convstore.Conversation) {
 	if c == nil {
 		return
 	}
+	if len(c.Steps) > 0 || c.ID != "" {
+		m.conversationStarted = true
+	}
 	m.rehydrateConversation(c)
 	steps := c.Transcript()
 	for i := 0; i < len(steps); {
@@ -84,6 +87,8 @@ func (m *runMode) seedConversation(c *convstore.Conversation) {
 	m.trajLoaded = c.Steps
 	m.trajCalls = nil
 	m.trajSeededLen = len(m.session)
+	m.rowsCacheDirty = true
+	m.rowsGen++
 }
 
 // rehydrateConversation rebuilds the conversation's live state from its
@@ -144,7 +149,18 @@ func (m *runMode) seedToolGroup(steps []convstore.Step, startIdx int) int {
 func (m *runMode) seedNonToolStep(s convstore.Step) {
 	switch s.Role() {
 	case "user":
+		if strings.TrimSpace(s.Text) == "" {
+			return
+		}
 		m.session = append(m.session, backend.Message{Role: "user", Content: s.Text})
+		for len(m.response) > 0 && strings.TrimSpace(m.response[len(m.response)-1]) == "" {
+			m.response = m.response[:len(m.response)-1]
+		}
+		if len(m.response) == 0 {
+			m.response = append(m.response, turnSeparator(m.width), userPromptRow(s.Text))
+		} else {
+			m.response = append(m.response, "", turnSeparator(m.width), userPromptRow(s.Text))
+		}
 		return
 	case "model":
 		if strings.TrimSpace(s.Text) == "" {
@@ -188,6 +204,12 @@ func (m *runMode) resumeConversation(meta convstore.ConversationMeta) tea.Cmd {
 	m.blocks = nil
 	m.liveSteps = nil
 	m.activeTool = ""
+	m.rowsCacheDirty = true
+	m.rowsCache = wrapSlot{}
+	m.rowsCacheN1 = wrapSlot{}
+	m.rowsView = composedRows{}
+	m.scroll = 0
+	m.autoScroll = true
 	m.seedConversation(c)
 	m.conversationID = meta.ID
 	if c != nil && c.ID != "" {

@@ -168,3 +168,58 @@ shape is not recoverable from the release note; the clone's summary is its
 own document carrying exactly the three things the note names.
 
 Report: `docs/cycles/cycle-363-agy-1.4.10-alignment/deliverable.md` §4.
+
+---
+
+## The print envelope's `finished_reason` (cycle 364, agy 1.4.11)
+
+【一手】 agy 1.4.11: "Added a `finished_reason` field to the result of
+`--output-format json` and `stream-json` runs that says why a turn ended
+early, `print_timeout` when `--print-timeout` expired and the response is
+partial, `interrupted` when the run was canceled such as with `Ctrl+C`, or
+`error` for any other failure, so scripts can tell a cut-off answer from a
+complete one; the field is omitted when the turn finishes normally."
+
+The field was captured first-hand from the 1.4.11 binary on its error path
+(a `-p` run with no credentials), where it is the **last** member of the
+envelope:
+
+```json
+{"conversation_id":"","status":"ERROR","response":"",
+ "error":"authentication failed or timed out","duration_seconds":0,
+ "num_turns":0,"usage":{…},"finished_reason":"error"}
+```
+
+| what | where |
+|---|---|
+| the envelope's member | `printmode.jsonEnvelope.FinishedReason` (`json:"finished_reason,omitempty"`) |
+| the three values | `printmode.finishedReasonPrintTimeout` / `finishedReasonInterrupted` / `finishedReasonError` |
+| the reason's choice | `internal/printmode/main_print.go` — after the turn, in the order timeout → interrupt → error |
+| the SIGINT guard | `internal/printmode/print_interrupt.go` |
+
+**The field is omitted when the turn finishes normally** — `omitempty` and
+no assignment, never an empty string.
+
+**The interrupt has to be caught.** An uncaught `SIGINT` kills the process,
+and a killed process writes no envelope at all, so the `interrupted` reason
+would be unreachable. `printInterruptGuard` therefore installs a handler,
+cancels the turn's context on the first `Ctrl+C` and lets the turn unwind
+so the envelope can be written.
+
+**A second `Ctrl+C` is still fatal.** The guard restores the default
+disposition (`signal.Reset(os.Interrupt)`) **before** it cancels, so a
+user who wants the process gone can always have it — the graceful path must
+not be a trap.
+
+`command` and `finished_reason` never travel together (a command result is
+answered locally and finishes normally), so their relative order is
+unobservable; `finished_reason` is last in the struct because the reference
+*added* it to the 1.3.6 field order.
+
+【推测】 The exit status of an interrupted headless run is 130 (128 +
+`SIGINT`, the shell's own convention) — the 1.4.11 note pins the *field*,
+not the status. The rank between the three values when more than one
+applies (a run that was interrupted *and* timed out) is the clone's own
+choice; the note does not rank them.
+
+Report: `docs/cycles/cycle-364-agy-1.4.11-alignment/deliverable.md` §4.

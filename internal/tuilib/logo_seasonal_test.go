@@ -15,6 +15,7 @@ import (
 // (out/changelog-147/ref/seasonal-scenes/).
 
 func TestLogoSubcommand_SeasonalFlags(t *testing.T) {
+	t.Setenv("AGY_CLI_LOGO_STYLE", "default")
 	t.Run("--scene=pumpkin prints that scene", func(t *testing.T) {
 		out := captureLogo(t, []string{"--scene=pumpkin"})
 		lines := strings.Split(strings.TrimRight(out, "\n"), "\n")

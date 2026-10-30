@@ -91,6 +91,7 @@ func TestParseAllFlags(t *testing.T) {
 		"prompt-interactive":     "string",
 		"remote-control":              "bool",
 		"sandbox":                     "bool",
+		"settings":                    "string",
 		"use_local_chrome":             "bool",
 		// cycle 101: recovered hidden `-v N` int flag. Absent from --help
 		// (Hidden, empty Usage) but parseable, matching 1.3.6.
@@ -120,7 +121,7 @@ func TestParseAllFlags(t *testing.T) {
 }
 
 // Sanity-check that we can actually build a Parser with the standard
-// spec set, and that the resulting JetskiCLI has all 32 flag descriptors
+// spec set, and that the resulting JetskiCLI has all 33 flag descriptors
 // registered (24 long incl. the recovered hidden -v + 3 short: c, i, p +
 // the cycle 57 hidden --version bool flag + the cycle
 // headless-jsonl-mode-trailing-newline hidden --verbose bool flag). Cycle
@@ -130,7 +131,7 @@ func TestParseAllFlags(t *testing.T) {
 // add four more.
 func TestParseAllFlags_RegisteredWithJetski(t *testing.T) {
 	p := NewParser(StandardFlags(), nil, "test", "test", "test")
-	if got, want := len(p.Root().Flags), 32; got != want {
+	if got, want := len(p.Root().Flags), 33; got != want {
 		t.Fatalf("JetskiCLI has %d flag descriptors, want %d (v1.3.5 --help count + hidden)", got, want)
 	}
 }
@@ -175,6 +176,7 @@ func TestVisibleFlagsMatchReferenceHelp(t *testing.T) {
 		"prompt-interactive",
 		"remote-control",
 		"sandbox",
+		"settings",
 	}
 	var got []string
 	for _, f := range StandardFlags() {

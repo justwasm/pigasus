@@ -3,7 +3,6 @@ package cliapp
 import (
 	"context"
 	"fmt"
-	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -13,6 +12,7 @@ import (
 
 	"github.com/justwasm/pigasus/internal/accounts"
 	"github.com/justwasm/pigasus/internal/auth"
+	"github.com/justwasm/pigasus/internal/cliflags"
 	"github.com/justwasm/pigasus/internal/codesearchaction"
 	"github.com/justwasm/pigasus/internal/convstore"
 	"github.com/justwasm/pigasus/internal/customize"
@@ -22,7 +22,6 @@ import (
 	"github.com/justwasm/pigasus/internal/persistentrc"
 	"github.com/justwasm/pigasus/internal/printmode"
 	"github.com/justwasm/pigasus/internal/rchost"
-	"github.com/justwasm/pigasus/internal/rclink"
 	"github.com/justwasm/pigasus/internal/statusline"
 	"github.com/justwasm/pigasus/internal/subagenttools"
 	"github.com/justwasm/pigasus/internal/tuilib"
@@ -296,6 +295,21 @@ func (m *runMode) slashPlugin(args string) (bool, tea.Cmd) {
 }
 
 func (m *runMode) slashRemoteControl(args string) (bool, tea.Cmd) {
+	convID := m.activeRemoteConversationID()
+	return m.handleRemoteControl(args, convID)
+}
+
+func (m *runMode) activeRemoteConversationID() string {
+	if m == nil || m.conversationID == "" {
+		return ""
+	}
+	if m.conversationStarted || len(m.session) > 0 || len(m.trajLoaded) > 0 || m.conversationID != m.initialConversationID {
+		return m.conversationID
+	}
+	return ""
+}
+
+func (m *runMode) handleRemoteControl(args, conversationID string) (bool, tea.Cmd) {
 	if IsBusinessAccount() {
 		m.slashRespond("/remote-control", rchost.SlashADCErrorMessage())
 		return true, nil
@@ -340,34 +354,14 @@ func (m *runMode) slashRemoteControl(args string) (bool, tea.Cmd) {
 		if m.remoteControlUUID == "" {
 			m.remoteControlUUID = persistentrc.InstallationUUID()
 		}
+		persistentrc.EnsureInstanceID()
+		desktop := m.remoteControlDesktop || (m.flags != nil && cliflags.BoolValue(m.flags, "desktop"))
 		go func() {
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 			defer cancel()
-			_ = persistentrc.StartOfficialDaemon(ctx, hostname, false, false)
+			_ = persistentrc.StartOfficialDaemon(ctx, hostname, false, desktop)
 		}()
-		instanceID := persistentrc.InstanceIDPrefix + m.remoteControlUUID + persistentrc.InstanceIDSuffix
-		lead := "Open on another device to take over:"
-		rawQuery := ""
-		if m.conversationID != "" {
-			lead = "Open on another device to continue this conversation:"
-			rawQuery = "p=" + url.QueryEscape("c/"+m.conversationID)
-		}
-		extra := []string{rcURLIndent + lead}
-		if hostname != "" {
-			extra = append(extra, rcURLIndent+"Hostname: "+hostname)
-		}
-		// The link is shown the way the add-account screen shows a
-		// URL: cut into chunks, one chunk per row, and every chunk a
-		// hyperlink to the *complete* URL.
-		//
-		// The renderer draws the view into a cell buffer the size of
-		// the terminal, so a line longer than the terminal is
-		// *clipped*, not soft wrapped: the tail of a long line simply
-		// disappears. The chooser URL is ~170 characters, so on one
-		// line its tail — the instance id, the part that names the
-		// daemon — was not on screen at all, and a link the user
-		// cannot see is a link the user cannot open.
-		extra = append(extra, m.rcURLRows(rclink.BrowserURL(instanceID, rawQuery))...)
+		_, extra := buildRemoteControlCard(conversationID, m.remoteControlUUID, hostname, m.rcURLRows)
 		m.slashRespond("/remote-control", msg, extra...)
 	} else {
 		m.slashRespond("/remote-control", msg)

@@ -101,6 +101,8 @@ type pigPrintConfig struct {
 	Handler func(backend.StreamChunk) error
 	// Workspace is the session cwd.
 	Workspace string
+	// Workspaces are the workspace roots (e.g. from --add-dir).
+	Workspaces []string
 	// AgentDir is the agy config home.
 	AgentDir string
 	// ConversationID is the id the system prompt's <user_information> section
@@ -464,6 +466,7 @@ func printSubagents(agentBody string) []agyprompt.Subagent {
 func pigPrintOptions(cfg pigPrintConfig, model *pi.Model, hook piagent.BeforeToolCallHook, slot *pigrt.ErrorSlot) pigrt.Options {
 	return pigrt.Options{
 		CWD:              cfg.Workspace,
+		Workspaces:       cfg.Workspaces,
 		AgentDir:         cfg.AgentDir,
 		ConversationID:   cfg.ConversationID,
 		Model:            model,

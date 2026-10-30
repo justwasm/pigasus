@@ -107,7 +107,7 @@ func parseInvokeArgs(params json.RawMessage, deps Deps) (invokeArgs, error) {
 			args.Worktree = deps.Services.CWD()
 		}
 	}
-	args.TypeName = firstNonEmpty(args.TypeName, args.TypeNameCap)
+	args.TypeName = firstNonEmpty(args.TypeName, args.TypeNameCap, args.AgentName)
 	args.Role = firstNonEmpty(args.Role, args.RoleCap)
 	return args, nil
 }
@@ -158,6 +158,48 @@ func (t *invokeTool) resolve(ctx context.Context, args invokeArgs) (Invocation, 
 	case "research":
 		inv := t.invocation(args, Grant{}, grantedToolSet(t.deps, t.defs, Grant{}))
 		inv.SystemPrompt = t.resolveSystemPrompt(args, researchSystemPrompt)
+		return inv, false, piagent.AgentToolResult{}, nil
+	case string(builtinsubagent.KindDeepCoder):
+		inv := t.invocation(args, Grant{}.All(), selfToolSet(t.deps, t.defs))
+		inv.SystemPrompt = t.resolveSystemPrompt(args, builtinsubagent.DeepCoderCoordinatorPrompt(2))
+		if inv.Role == "" {
+			inv.Role = builtinsubagent.RoleDeepCoder
+		}
+		return inv, false, piagent.AgentToolResult{}, nil
+	case string(builtinsubagent.KindDeepCoderWorkerL0):
+		inv := t.invocation(args, Grant{Write: true, MCP: true}, grantedToolSet(t.deps, t.defs, Grant{Write: true, MCP: true}))
+		inv.SystemPrompt = t.resolveSystemPrompt(args, builtinsubagent.DeepCoderWorkerL0Prompt)
+		if inv.Role == "" {
+			inv.Role = builtinsubagent.RoleDeepCoderWorkerL0
+		}
+		return inv, false, piagent.AgentToolResult{}, nil
+	case string(builtinsubagent.KindDeepCoderImprovementWorker):
+		inv := t.invocation(args, Grant{Write: true, MCP: true}, grantedToolSet(t.deps, t.defs, Grant{Write: true, MCP: true}))
+		inv.SystemPrompt = t.resolveSystemPrompt(args, builtinsubagent.DeepCoderImprovementWorkerPrompt)
+		if inv.Role == "" {
+			inv.Role = builtinsubagent.RoleDeepCoderImprovementWorker
+		}
+		return inv, false, piagent.AgentToolResult{}, nil
+	case string(builtinsubagent.KindDeepInvestigator):
+		inv := t.invocation(args, Grant{MCP: true, Subagent: true}, grantedToolSet(t.deps, t.defs, Grant{MCP: true, Subagent: true}))
+		inv.SystemPrompt = t.resolveSystemPrompt(args, builtinsubagent.DeepInvestigatorCoordinatorPrompt(2))
+		if inv.Role == "" {
+			inv.Role = builtinsubagent.RoleDeepInvestigator
+		}
+		return inv, false, piagent.AgentToolResult{}, nil
+	case string(builtinsubagent.KindDeepInvestigatorWorkerL0):
+		inv := t.invocation(args, Grant{MCP: true}, grantedToolSet(t.deps, t.defs, Grant{MCP: true}))
+		inv.SystemPrompt = t.resolveSystemPrompt(args, builtinsubagent.DeepInvestigatorWorkerL0Prompt)
+		if inv.Role == "" {
+			inv.Role = builtinsubagent.RoleDeepInvestigatorWorkerL0
+		}
+		return inv, false, piagent.AgentToolResult{}, nil
+	case string(builtinsubagent.KindDeepInvestigatorImprovementWorker):
+		inv := t.invocation(args, Grant{MCP: true}, grantedToolSet(t.deps, t.defs, Grant{MCP: true}))
+		inv.SystemPrompt = t.resolveSystemPrompt(args, builtinsubagent.DeepInvestigatorImprovementWorkerPrompt)
+		if inv.Role == "" {
+			inv.Role = builtinsubagent.RoleDeepInvestigatorImprovementWorker
+		}
 		return inv, false, piagent.AgentToolResult{}, nil
 	}
 	if def, ok := t.definition(typeName); ok {
@@ -213,7 +255,9 @@ func (t *invokeTool) resolveSystemPrompt(args invokeArgs, base string) string {
 // reference's, and the switch in resolve has already answered for them.
 func (t *invokeTool) definition(typeName string) (Invocation, bool) {
 	switch typeName {
-	case "", "self", "research":
+	case "", "self", "research",
+		"DeepCoder", "DeepCoderWorkerL0", "DeepCoderImprovementWorker",
+		"DeepInvestigator", "DeepInvestigatorWorkerL0", "DeepInvestigatorImprovementWorker":
 		return Invocation{}, false
 	}
 	if t.defs == nil {

@@ -73,10 +73,9 @@ func InputCursorByteOffset(m tas.Model) int {
 
 	rest := value[rowStart:rowEnd]
 	byteOff := 0
-	for i := 0; i < col && i < len(rest); {
-		_, size := utf8.DecodeRuneInString(rest[i:])
+	for runesWalked := 0; runesWalked < col && byteOff < len(rest); runesWalked++ {
+		_, size := utf8.DecodeRuneInString(rest[byteOff:])
 		byteOff += size
-		i += size
 	}
 	return rowStart + byteOff
 }

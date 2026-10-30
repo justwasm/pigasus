@@ -110,8 +110,9 @@ type GenerationConfig struct {
 // 【一手】 agy always asks for thoughts (includeThoughts is true on every
 // request the clone sends) and budgets them per model — see Limits.
 type ThinkingConfig struct {
-	IncludeThoughts bool `json:"includeThoughts"`
-	ThinkingBudget  int  `json:"thinkingBudget,omitempty"`
+	IncludeThoughts bool   `json:"includeThoughts"`
+	ThinkingBudget  int    `json:"thinkingBudget,omitempty"`
+	ThinkingLevel   string `json:"thinkingLevel,omitempty"`
 }
 
 // GenerateContentRequest is both the outer CloudCode envelope and the inner
@@ -222,10 +223,11 @@ type Candidate struct {
 // ThoughtsTokenCount is the reasoning the model spent inside its thinking
 // block; the reference renders it as "Thought for 1.5s, 24 tokens".
 type UsageMetadata struct {
-	PromptTokenCount     int `json:"promptTokenCount"`
-	CandidatesTokenCount int `json:"candidatesTokenCount"`
-	TotalTokenCount      int `json:"totalTokenCount"`
-	ThoughtsTokenCount   int `json:"thoughtsTokenCount,omitempty"`
+	PromptTokenCount        int `json:"promptTokenCount"`
+	CandidatesTokenCount    int `json:"candidatesTokenCount"`
+	TotalTokenCount         int `json:"totalTokenCount"`
+	ThoughtsTokenCount      int `json:"thoughtsTokenCount,omitempty"`
+	CachedContentTokenCount int `json:"cachedContentTokenCount,omitempty"`
 }
 
 // GenerateContentResponse is the bare Gemini response.

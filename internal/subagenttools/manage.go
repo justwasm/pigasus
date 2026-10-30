@@ -145,6 +145,10 @@ func (t *manageSubagentsTool) handleManageAction(action string, ids []string, ef
 		return t.kill(ids, effectiveAction)
 	case "kill_all":
 		return t.killAll()
+	case "stop", "pause":
+		return t.stop(ids, effectiveAction)
+	case "resume", "revive":
+		return t.resume(ids, effectiveAction)
 	default:
 		// 【反编译】 agy 1.4.8 — the reference's own sentence (the literal
 		// is at 0x103670e2d) names three actions even though its handler
@@ -292,4 +296,64 @@ func (t *manageSubagentsTool) killAll() (string, error) {
 	}
 	return fmt.Sprintf("Successfully killed %d subagent(s) and their descendants.\nKilled roles: %s",
 		len(children), strings.Join(roles, ", ")), nil
+}
+
+// stop halts the named subagents or all active subagents if no IDs are given.
+func (t *manageSubagentsTool) stop(ids []string, effectiveAction string) (string, error) {
+	if t.registry == nil {
+		return "No active subagents to stop.", nil
+	}
+	if len(ids) == 0 {
+		children := t.registry.List()
+		stopped := 0
+		for _, child := range children {
+			if child.State() == StateRunning || child.State() == StateIdle {
+				child.Stop()
+				stopped++
+			}
+		}
+		if stopped == 0 {
+			return "No active subagents to stop.", nil
+		}
+		return fmt.Sprintf("Successfully stopped %d subagent(s).", stopped), nil
+	}
+	stopped := 0
+	for _, id := range ids {
+		if child, ok := t.registry.Get(id); ok {
+			child.Stop()
+			stopped++
+		}
+	}
+	return fmt.Sprintf("Successfully stopped %d subagent(s).", stopped), nil
+}
+
+// resume restarts the named subagents or all stopped subagents without losing progress.
+func (t *manageSubagentsTool) resume(ids []string, effectiveAction string) (string, error) {
+	if t.registry == nil {
+		return "No stopped subagents to resume.", nil
+	}
+	if len(ids) == 0 {
+		children := t.registry.List()
+		resumed := 0
+		for _, child := range children {
+			if child.State() == StateStopped {
+				if child.Revive(context.Background(), nil) {
+					resumed++
+				}
+			}
+		}
+		if resumed == 0 {
+			return "No stopped subagents to resume.", nil
+		}
+		return fmt.Sprintf("Successfully resumed %d subagent(s).", resumed), nil
+	}
+	resumed := 0
+	for _, id := range ids {
+		if child, ok := t.registry.Get(id); ok {
+			if child.Revive(context.Background(), nil) {
+				resumed++
+			}
+		}
+	}
+	return fmt.Sprintf("Successfully resumed %d subagent(s).", resumed), nil
 }

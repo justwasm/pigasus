@@ -28,3 +28,8 @@ func flagBoolValue(fs *flag.FlagSet, name string) bool {
 func flagStringValue(fs *flag.FlagSet, name string) string {
 	return cliflags.StringValue(fs, name)
 }
+
+func flagStringValues(fs *flag.FlagSet, name string) []string {
+	return cliflags.GetterStringValues(fs, name)
+}
+

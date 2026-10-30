@@ -85,6 +85,30 @@ func TestPrintModeArgs_1to1(t *testing.T) {
 			wantErr: "invalid value \"foo\" for flag -v: strconv.Atoi: parsing \"foo\": invalid syntax\n",
 			wantRC:  2,
 		},
+		{
+			name:    "input_format_stream_json_requires_output_format",
+			args:    []string{"-p", "hi", "--input-format", "stream-json"},
+			wantErr: "Error: --input-format stream-json requires --output-format stream-json\n",
+			wantRC:  2,
+		},
+		{
+			name:    "settings_unknown_key",
+			args:    []string{"--settings", "{\"bogus\": 1}"},
+			wantErr: "Error: --settings: unknown setting \"bogus\"\n",
+			wantRC:  1,
+		},
+		{
+			name:    "settings_file_missing",
+			args:    []string{"--settings", "nonexistent_file"},
+			wantErr: "Error: reading --settings file: open nonexistent_file: no such file or directory\n",
+			wantRC:  1,
+		},
+		{
+			name:    "json_schema_without_output_format",
+			args:    []string{"--json-schema", "{}"},
+			wantErr: "Error: --json-schema can only be used when --output-format is 'json' or 'stream-json'\n",
+			wantRC:  1,
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			_, errb, code := runJetski(t, tc.args...)

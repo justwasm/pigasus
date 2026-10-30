@@ -95,6 +95,7 @@ func TestLogoSubcommand_SimpleStyle(t *testing.T) {
 // TestLogoSubcommand_FlipFlag exercises the `--flip=...` surface.
 // Pigasus CLI displays the 180°-rotated ("both") logo by default.
 func TestLogoSubcommand_FlipFlag(t *testing.T) {
+	t.Setenv("AGY_CLI_LOGO_STYLE", "default")
 	baseline := captureLogo(t, nil)
 
 	t.Run("--flip=both matches baseline Pigasus logo", func(t *testing.T) {

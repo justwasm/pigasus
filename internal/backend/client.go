@@ -51,6 +51,7 @@ type ChunkMeta struct {
 	// view's thought step ("Thought for 1.5s, 24 tokens") and in the
 	// `/usage` token summary ("%s in | %s out | %s thinking").
 	ReasoningTokens   int    `json:"reasoning_tokens,omitempty"`
+	CachedTokens      int    `json:"cached_tokens,omitempty"`
 	SystemFingerprint string `json:"system_fingerprint,omitempty"`
 }
 

@@ -5,8 +5,22 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
+	"sync"
 	"unicode"
 )
+
+var (
+	extraWorkspacesMu sync.RWMutex
+	extraWorkspaces   []string
+)
+
+// SetExtraWorkspaces sets additional workspace roots (e.g. from --add-dir)
+// where tool writes are allowed.
+func SetExtraWorkspaces(ws []string) {
+	extraWorkspacesMu.Lock()
+	defer extraWorkspacesMu.Unlock()
+	extraWorkspaces = ws
+}
 
 // ---- workspace paths -------------------------------------------------------
 
@@ -18,16 +32,34 @@ func workspacePath(ws, p string) (string, error) {
 	root := canonicalPath(ws)
 	if filepath.IsAbs(p) {
 		full := filepath.Clean(p)
-		if !within(root, canonicalPath(full)) {
-			return "", fmt.Errorf("expected path %s to not start with /", p)
+		canonFull := canonicalPath(full)
+		if within(root, canonFull) {
+			return full, nil
 		}
-		return full, nil
+		extraWorkspacesMu.RLock()
+		extras := extraWorkspaces
+		extraWorkspacesMu.RUnlock()
+		for _, extra := range extras {
+			if within(canonicalPath(extra), canonFull) {
+				return full, nil
+			}
+		}
+		return "", fmt.Errorf("expected path %s to not start with /", p)
 	}
 	full := filepath.Join(ws, p)
-	if !within(root, canonicalPath(full)) {
-		return "", fmt.Errorf("path %s escapes the workspace", p)
+	canonFull := canonicalPath(full)
+	if within(root, canonFull) {
+		return full, nil
 	}
-	return full, nil
+	extraWorkspacesMu.RLock()
+	extras := extraWorkspaces
+	extraWorkspacesMu.RUnlock()
+	for _, extra := range extras {
+		if within(canonicalPath(extra), canonFull) {
+			return full, nil
+		}
+	}
+	return "", fmt.Errorf("path %s escapes the workspace", p)
 }
 
 // readPath resolves a model-supplied path for a READ-ONLY tool.

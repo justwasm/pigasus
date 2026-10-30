@@ -29,6 +29,8 @@ const (
 	StateCanceling = "canceling"
 	// StateErrored is a subagent whose turn failed.
 	StateErrored = "errored"
+	// StateStopped is a subagent that was stopped or paused and can be resumed.
+	StateStopped = "stopped"
 )
 
 // Message is one agent-to-agent message.
@@ -64,11 +66,14 @@ type Child struct {
 	// Worktree is the directory the child's session is anchored to.
 	Worktree string
 
-	mu       sync.Mutex
-	state    string
-	cancel   context.CancelFunc
-	inbox    chan Message
-	reported bool
+	mu        sync.Mutex
+	state     string
+	cancel    context.CancelFunc
+	abortTurn func()
+	inbox     chan Message
+	reported  bool
+	launchFn  func(ctx context.Context, initialMsg *Message)
+	subDir    string
 }
 
 // NewChild returns a child in the running state.
@@ -178,10 +183,117 @@ func (c *Child) Kill() {
 	c.setState(StateCanceling)
 	c.mu.Lock()
 	cancel := c.cancel
+	abort := c.abortTurn
 	c.mu.Unlock()
+	if abort != nil {
+		abort()
+	}
 	if cancel != nil {
 		cancel()
 	}
+}
+
+// Stop pauses/halts the child subagent and sets its state to StateStopped.
+// The in-flight turn context is canceled, any abort callback is invoked,
+// and the child remains registered and can be resumed/revived later without losing progress.
+func (c *Child) Stop() {
+	if c == nil {
+		return
+	}
+	c.setState(StateStopped)
+	c.mu.Lock()
+	cancel := c.cancel
+	abort := c.abortTurn
+	c.mu.Unlock()
+	if abort != nil {
+		abort()
+	}
+	if cancel != nil {
+		cancel()
+	}
+}
+
+// Revive restarts or unpauses a stopped child subagent without losing progress.
+// If initialMsg is provided, it is sent as the revival prompt.
+func (c *Child) Revive(ctx context.Context, initialMsg *Message) bool {
+	if c == nil {
+		return false
+	}
+	c.mu.Lock()
+	if c.state == StateRunning {
+		c.mu.Unlock()
+		if initialMsg != nil {
+			return c.Deliver(*initialMsg)
+		}
+		return false
+	}
+	launch := c.launchFn
+	c.mu.Unlock()
+	if launch == nil {
+		return false
+	}
+	launch(ctx, initialMsg)
+	return true
+}
+
+// SetLaunch installs the callback to restart/revive the child.
+func (c *Child) SetLaunch(fn func(ctx context.Context, initialMsg *Message)) {
+	if c == nil {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.launchFn = fn
+}
+
+// SetAbort installs the callback to abort the active session turn.
+func (c *Child) SetAbort(fn func()) {
+	if c == nil {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.abortTurn = fn
+}
+
+// SetCancel sets the context cancel function for the current turn.
+func (c *Child) SetCancel(cancel context.CancelFunc) {
+	if c == nil {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.cancel = cancel
+}
+
+// IsRunning reports whether the child is currently running.
+func (c *Child) IsRunning() bool {
+	if c == nil {
+		return false
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.state == StateRunning
+}
+
+// SubDir returns the persisted subagents directory for this child.
+func (c *Child) SubDir() string {
+	if c == nil {
+		return ""
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.subDir
+}
+
+// SetSubDir sets the persisted subagents directory for this child.
+func (c *Child) SetSubDir(dir string) {
+	if c == nil {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.subDir = dir
 }
 
 // Registry is the conversation's set of live subagents.
@@ -319,6 +431,23 @@ func (r *Registry) Remove(conversationID string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	delete(r.children, conversationID)
+}
+
+// Stop halts the child with conversationID and puts it into StateStopped.
+func (r *Registry) Stop(conversationID string) bool {
+	if c, ok := r.Get(conversationID); ok {
+		c.Stop()
+		return true
+	}
+	return false
+}
+
+// Revive restarts or unpauses the child with conversationID without losing progress.
+func (r *Registry) Revive(ctx context.Context, conversationID string, initialMsg *Message) bool {
+	if c, ok := r.Get(conversationID); ok {
+		return c.Revive(ctx, initialMsg)
+	}
+	return false
 }
 
 // Close kills every child and refuses further deliveries.

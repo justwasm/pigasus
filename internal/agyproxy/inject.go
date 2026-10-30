@@ -202,12 +202,13 @@ func matchesExactly(requested string, m models.Model) bool {
 // shorter model, which sorts first, would swallow the longer one's requests
 // and the turn would run on the wrong model.
 func (s *Server) matchCustom(requested string) (models.Model, bool) {
-	for _, m := range s.cfg.Models {
+	mods := s.models()
+	for _, m := range mods {
 		if matchesExactly(requested, m) {
 			return m, true
 		}
 	}
-	for _, m := range s.cfg.Models {
+	for _, m := range mods {
 		if MatchModel(requested, m) {
 			return m, true
 		}
@@ -364,7 +365,7 @@ func (s *Server) handleFetchAvailableModels(w http.ResponseWriter, r *http.Reque
 	if readErr != nil {
 		s.logf("fetchAvailableModels: read upstream: %v", readErr)
 	}
-	merged, mergeErr := MergeAvailableModels(raw, s.cfg.Models)
+	merged, mergeErr := MergeAvailableModels(raw, s.models())
 	if mergeErr != nil {
 		s.logf("fetchAvailableModels: upstream HTTP %d, %v — custom models only", resp.StatusCode, mergeErr)
 		s.writeMergedModels(w, nil, mergeErr)
@@ -377,7 +378,7 @@ func (s *Server) handleFetchAvailableModels(w http.ResponseWriter, r *http.Reque
 }
 
 func (s *Server) writeMergedModels(w http.ResponseWriter, upstream []byte, cause error) {
-	merged, err := MergeAvailableModels(upstream, s.cfg.Models)
+	merged, err := MergeAvailableModels(upstream, s.models())
 	if err != nil {
 		writeJSONError(w, http.StatusBadGateway, "upstream models unavailable: "+err.Error())
 		return

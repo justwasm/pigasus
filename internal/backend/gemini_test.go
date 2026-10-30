@@ -420,3 +420,83 @@ func asHTTPError(err error, target **HTTPError) bool {
 	}
 	return false
 }
+
+func TestGeminiStreamInStreamError(t *testing.T) {
+	sse := "data: {\"error\":{\"code\":429,\"message\":\"Resource has been exhausted (e.g. check quota)\",\"status\":\"RESOURCE_EXHAUSTED\"}}\n\n"
+	g := newGeminiServer(t, sse)
+
+	client := NewGeminiWithConfig(GeminiConfig{BaseURL: g.server.URL, Model: "m"})
+	chunks, err := client.Stream(context.Background(), StreamRequest{Model: "m"})
+	if err != nil {
+		t.Fatalf("Stream: %v", err)
+	}
+
+	var gotErr error
+	var doneCount int
+	for chunk := range chunks {
+		if chunk.Done {
+			doneCount++
+		}
+		if chunk.Error != nil {
+			gotErr = chunk.Error
+		}
+	}
+	if doneCount != 1 {
+		t.Errorf("doneCount = %d, want exactly 1", doneCount)
+	}
+	if gotErr == nil {
+		t.Fatalf("expected error chunk, got nil")
+	}
+	var he *HTTPError
+	if !asHTTPError(gotErr, &he) {
+		t.Fatalf("expected *HTTPError, got %T (%v)", gotErr, gotErr)
+	}
+	if he.StatusCode != 429 {
+		t.Errorf("StatusCode = %d, want 429", he.StatusCode)
+	}
+}
+
+func TestGeminiStreamToolCallNamespaceStripping(t *testing.T) {
+	sse := "data: {\"candidates\":[{\"content\":{\"parts\":[{\"functionCall\":{\"name\":\"default_api:run_command\",\"args\":{\"CommandLine\":\"echo 1\"}}}],\"role\":\"model\"}}]}\n\n"
+	g := newGeminiServer(t, sse)
+
+	client := NewGeminiWithConfig(GeminiConfig{BaseURL: g.server.URL, Model: "m"})
+	chunks, err := client.Stream(context.Background(), StreamRequest{Model: "m"})
+	if err != nil {
+		t.Fatalf("Stream: %v", err)
+	}
+	var calls []ToolCall
+	for chunk := range chunks {
+		calls = append(calls, chunk.ToolCalls...)
+	}
+	if len(calls) != 1 {
+		t.Fatalf("calls len = %d, want 1", len(calls))
+	}
+	if calls[0].Name != "run_command" {
+		t.Errorf("call.Name = %q, want run_command (namespace stripped)", calls[0].Name)
+	}
+}
+
+func TestGeminiStreamCachedTokens(t *testing.T) {
+	sse := "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"cached\"}],\"role\":\"model\"}}]}\n\n" +
+		"data: {\"usageMetadata\":{\"promptTokenCount\":150,\"candidatesTokenCount\":10,\"totalTokenCount\":160,\"cachedContentTokenCount\":120}}\n\n"
+	g := newGeminiServer(t, sse)
+
+	client := NewGeminiWithConfig(GeminiConfig{BaseURL: g.server.URL, Model: "m"})
+	chunks, err := client.Stream(context.Background(), StreamRequest{Model: "m"})
+	if err != nil {
+		t.Fatalf("Stream: %v", err)
+	}
+	var meta *ChunkMeta
+	for chunk := range chunks {
+		if chunk.Done && chunk.Meta != nil {
+			meta = chunk.Meta
+		}
+	}
+	if meta == nil {
+		t.Fatalf("expected meta")
+	}
+	if meta.CachedTokens != 120 {
+		t.Errorf("CachedTokens = %d, want 120", meta.CachedTokens)
+	}
+}

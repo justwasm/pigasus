@@ -269,3 +269,45 @@ func TestRecordedResponseJoinsRepeatedHeaders(t *testing.T) {
 		t.Errorf("Set-Cookie = %q, want it to contain a=1", headers["Set-Cookie"])
 	}
 }
+
+func TestProxyResponseChunkBinaryProtoUsesPayload(t *testing.T) {
+	rec := newRecordedResponse(nil)
+	rec.Header().Set("Content-Type", "application/proto")
+	// ASCII bytes (valid UTF-8) that represent protobuf
+	chunk := []byte("\nZ\n$7b2e2299-7c44-44da-b548-ed67b006831c")
+
+	resp := proxyResponseChunk("req-proto", rec, chunk)
+	if resp.PayloadText != "" {
+		t.Errorf("PayloadText = %q, want empty for proto response", resp.PayloadText)
+	}
+	if string(resp.Payload) != string(chunk) {
+		t.Errorf("Payload = %q, want %q", string(resp.Payload), string(chunk))
+	}
+}
+
+func TestProxyResponseChunkConnectStreamWithNULUsesPayload(t *testing.T) {
+	rec := newRecordedResponse(nil)
+	rec.Header().Set("Content-Type", "application/connect+proto")
+	// Connect envelope with NUL bytes followed by title:bash
+	chunk := []byte{0x00, 0x00, 0x00, 0x00, 0x06, 0x1a, 0x04, 'b', 'a', 's', 'h'}
+
+	resp := proxyResponseChunk("req-stream", rec, chunk)
+	if resp.PayloadText != "" {
+		t.Errorf("PayloadText = %q, want empty for Connect stream frame", resp.PayloadText)
+	}
+	if len(resp.Payload) != len(chunk) {
+		t.Errorf("len(Payload) = %d, want %d", len(resp.Payload), len(chunk))
+	}
+}
+
+func TestIsStreamingRPCIdentifiesKnownStreamingMethods(t *testing.T) {
+	if !isStreamingRPC(nil, "/exa.language_server_pb.LanguageServerService/StreamTerminalOutput") {
+		t.Error("StreamTerminalOutput want streaming = true")
+	}
+	if !isStreamingRPC(nil, "StreamTerminalOutput") {
+		t.Error("StreamTerminalOutput want streaming = true")
+	}
+	if isStreamingRPC(nil, "/exa.language_server_pb.LanguageServerService/CreateTerminal") {
+		t.Error("CreateTerminal want streaming = false")
+	}
+}

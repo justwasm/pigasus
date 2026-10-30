@@ -161,6 +161,11 @@ type slashPanel struct {
 	// plugin name. Cycle 198.
 	pluginTab      int
 	pluginExpanded map[string]bool
+	// Cycle 364 (agy 1.4.11): pluginShelfExpanded holds the Discover
+	// shelves whose full list is shown, keyed by shelf name. A collapsed
+	// shelf shows its first plugins plus a "⋯ N more — enter to show"
+	// row; ctrl+e toggles the shelf under the cursor.
+	pluginShelfExpanded map[string]bool
 	// Cycle 204: pluginSearch holds the Discover search box's focus and
 	// pluginQuery the typed text. They are only consulted for the Discover tab
 	// (space / a printable key focuses the box, which filters the list live).

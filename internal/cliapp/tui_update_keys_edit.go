@@ -1,10 +1,15 @@
 package cliapp
 
 import (
+	"regexp"
+
 	tas "charm.land/bubbles/v2/textarea"
 	tea "charm.land/bubbletea/v2"
 	"github.com/justwasm/pigasus/internal/tuilib"
 )
+
+var pastePlaceholderPattern = regexp.MustCompile(`\[Pasted text #\d+(?:\s+\+\d+\s+lines|\s+\d+\s+chars)?\]`)
+
 
 func (m *runMode) handleKeyUp() (tea.Model, tea.Cmd, bool) {
 	if m.picker.Visible() {
@@ -27,7 +32,7 @@ func (m *runMode) handleKeyUp() (tea.Model, tea.Cmd, bool) {
 		m.modeHintDismissed = true
 		return m, nil, true
 	}
-	if isOnFirstLine(m.input.Value(), inputCursorByteOffset(m.input)) {
+	if m.historyIdx > 0 || isBlank(m.input.Value()) {
 		m.historyUp()
 		return m, nil, true
 	}
@@ -48,7 +53,7 @@ func (m *runMode) handleKeyDown() (tea.Model, tea.Cmd, bool) {
 			return m, nil, true
 		}
 	}
-	if isOnLastLine(m.input.Value(), inputCursorByteOffset(m.input)) {
+	if m.historyIdx > 0 {
 		m.historyDown()
 		return m, nil, true
 	}
@@ -78,6 +83,7 @@ func (m *runMode) handleEnterKey(key tea.Key) (tea.Model, tea.Cmd, bool) {
 		m.modeHintDismissed = true
 		m.picker.Update([]rune(firstLine(m.input.Value())))
 		m.atFileDropdown.Update(m.input.Value(), m.cwd)
+		m.historyReset()
 		return m, nil, true
 	}
 	if key.Mod.Contains(tea.ModCtrl) {
@@ -139,7 +145,32 @@ func (m *runMode) handleInputSelectionKeys(key tea.Key) (tea.Model, tea.Cmd, boo
 		m.picker.Update([]rune(firstLine(m.input.Value())))
 		m.clearEligibilityNotice()
 		m.atFileDropdown.Update(m.input.Value(), m.cwd)
+		m.historyReset()
 		return m, nil, true
+	}
+	if (key.Code == tea.KeyBackspace || key.Code == tea.KeyDelete) && !m.hasInputSelection() {
+		val := m.input.Value()
+		offset := tuilib.InputCursorByteOffset(m.input)
+		for _, loc := range pastePlaceholderPattern.FindAllStringIndex(val, -1) {
+			start, end := loc[0], loc[1]
+			matched := false
+			if key.Code == tea.KeyBackspace && offset > start && offset <= end {
+				matched = true
+			} else if key.Code == tea.KeyDelete && offset >= start && offset < end {
+				matched = true
+			}
+			if matched {
+				newVal := val[:start] + val[end:]
+				m.input.SetValue(newVal)
+				m.setInputCursorOffset(start)
+				m.modeHintDismissed = true
+				m.picker.Update([]rune(firstLine(m.input.Value())))
+				m.clearEligibilityNotice()
+				m.atFileDropdown.Update(m.input.Value(), m.cwd)
+				m.historyReset()
+				return m, nil, true
+			}
+		}
 	}
 	if (key.Code == tea.KeyLeft || key.Code == tea.KeyRight) && m.hasInputSelection() && !key.Mod.Contains(tea.ModShift) {
 		start, end := m.inputSelectionRange()
@@ -149,6 +180,7 @@ func (m *runMode) handleInputSelectionKeys(key tea.Key) (tea.Model, tea.Cmd, boo
 		} else {
 			m.setInputCursorOffset(end)
 		}
+		m.historyReset()
 		return m, nil, true
 	}
 	if m.hasInputSelection() && key.Text != "" && !key.Mod.Contains(tea.ModCtrl) && !key.Mod.Contains(tea.ModAlt) && !key.Mod.Contains(tea.ModSuper) {
@@ -157,6 +189,7 @@ func (m *runMode) handleInputSelectionKeys(key tea.Key) (tea.Model, tea.Cmd, boo
 		m.picker.Update([]rune(firstLine(m.input.Value())))
 		m.clearEligibilityNotice()
 		m.atFileDropdown.Update(m.input.Value(), m.cwd)
+		m.historyReset()
 		return m, nil, true
 	}
 	return m, nil, false
@@ -167,12 +200,14 @@ func (m *runMode) handleWordMoveAndChords(key tea.Key) (tea.Model, tea.Cmd, bool
 		m.input.InsertRune('\n')
 		m.picker.Update([]rune(firstLine(m.input.Value())))
 		m.atFileDropdown.Update(m.input.Value(), m.cwd)
+		m.historyReset()
 		return m, nil, true
 	}
 	if key.Code == tea.KeyLeft {
 		if key.Mod.Contains(tea.ModAlt) && key.Mod&(tea.ModCtrl|tea.ModShift) == 0 {
 			m.moveWordLeft()
 			m.picker.Update([]rune(firstLine(m.input.Value())))
+			m.historyReset()
 			return m, nil, true
 		}
 		if m.isBtwCardVisible() && m.input.Value() == "" && len(m.btwCards) > 1 {
@@ -184,6 +219,7 @@ func (m *runMode) handleWordMoveAndChords(key tea.Key) (tea.Model, tea.Cmd, bool
 		if key.Mod.Contains(tea.ModAlt) && key.Mod&(tea.ModCtrl|tea.ModShift) == 0 {
 			m.moveWordRight()
 			m.picker.Update([]rune(firstLine(m.input.Value())))
+			m.historyReset()
 			return m, nil, true
 		}
 		if m.isBtwCardVisible() && m.input.Value() == "" && len(m.btwCards) > 1 {
@@ -195,18 +231,31 @@ func (m *runMode) handleWordMoveAndChords(key tea.Key) (tea.Model, tea.Cmd, bool
 		// The paste key's image half (agy 1.4.9): an image on the
 		// clipboard is attached, a dropped image file is attached, and
 		// only a clipboard with neither stays text.
+		m.historyReset()
 		return m, m.handlePasteContent(clipboardReadText()), true
 	}
 	return m, nil, false
 }
 
 func (m *runMode) updateTextareaAndDropdown(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	oldVal := m.input.Value()
+	oldLine := m.input.Line()
+	oldCol := m.input.Column()
 	var cmd tea.Cmd
 	m.input, cmd = m.input.Update(msg)
 	m.modeHintDismissed = true
 	m.picker.Update([]rune(firstLine(m.input.Value())))
 	m.clearEligibilityNotice()
 	m.atFileDropdown.Update(m.input.Value(), m.cwd)
+
+	if m.historyIdx > 0 {
+		newVal := m.input.Value()
+		newLine := m.input.Line()
+		newCol := m.input.Column()
+		if newVal != oldVal || newLine != oldLine || newCol != oldCol {
+			m.historyReset()
+		}
+	}
 	return m, cmd
 }
 

@@ -8,7 +8,9 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/justwasm/pigasus/accountpool"
 	"github.com/justwasm/pigasus/atomicfile"
+	"github.com/justwasm/pigasus/endpoints"
 	"github.com/justwasm/pigasus/internal/models"
 )
 
@@ -20,6 +22,10 @@ const (
 	EnvCaptureDir    = "OPENAGY_CAPTURE_DIR"
 	EnvUpstream      = "OPENAGY_UPSTREAM"
 	EnvRealBin       = "AGY_REAL_BIN"
+	EnvBalance       = "OPENAGY_ACCOUNT_BALANCE"
+	EnvAccountPool   = "OPENAGY_ACCOUNT_POOL"
+	EnvAggregate     = "OPENAGY_PROXY_AGGREGATE"
+	EnvAccountPoolAggregate = "OPENAGY_ACCOUNT_POOL_AGGREGATE"
 )
 
 // fileConfig is the persisted proxy state. Pointers distinguish "absent"
@@ -35,6 +41,8 @@ type fileConfig struct {
 	CaptureDir string `json:"capture_dir,omitempty"`
 	Upstream   string `json:"upstream,omitempty"`
 	Addr       string `json:"addr,omitempty"`
+	Balance    *bool  `json:"balance,omitempty"`
+	Aggregate  *bool  `json:"aggregate,omitempty"`
 }
 
 // defaultCaptureDir is where captures land: ~/.openagy/captures.
@@ -102,6 +110,8 @@ type settings struct {
 	Upstream   string
 	CaptureOn  bool
 	CaptureDir string
+	Balance    bool
+	Aggregate  bool
 }
 
 func resolveSettings(c fileConfig) settings {
@@ -110,6 +120,8 @@ func resolveSettings(c fileConfig) settings {
 		Upstream:   firstNonEmpty(os.Getenv(EnvUpstream), c.Upstream, ""),
 		CaptureDir: firstNonEmpty(os.Getenv(EnvCaptureDir), c.CaptureDir, defaultCaptureDir()),
 		CaptureOn:  true,
+		Balance:    resolveBool([]string{EnvBalance, EnvAccountPool}, c.Balance, false),
+		Aggregate:  resolveBool([]string{EnvAggregate, EnvAccountPoolAggregate}, c.Aggregate, false),
 	}
 	if c.Capture != nil {
 		s.CaptureOn = *c.Capture
@@ -117,7 +129,54 @@ func resolveSettings(c fileConfig) settings {
 	if !s.CaptureOn {
 		s.CaptureDir = ""
 	}
+	if p := endpoints.CurrentAccountPool(); p != nil {
+		if p.ProxyBalance {
+			s.Balance = true
+		}
+		if p.Aggregate || p.Strategy == accountpool.StrategyAggregate {
+			s.Aggregate = true
+			s.Balance = true
+		}
+	}
+	if s.Aggregate {
+		s.Balance = true
+	}
 	return s
+}
+
+func resolveBool(envVars []string, fileVal *bool, def bool) bool {
+	for _, env := range envVars {
+		if val, ok := os.LookupEnv(env); ok && strings.TrimSpace(val) != "" {
+			if isTruthy(val) {
+				return true
+			}
+			if isFalsy(val) {
+				return false
+			}
+		}
+	}
+	if fileVal != nil {
+		return *fileVal
+	}
+	return def
+}
+
+func isTruthy(v string) bool {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "1", "true", "yes", "on", "enable", "enabled":
+		return true
+	default:
+		return false
+	}
+}
+
+func isFalsy(v string) bool {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "0", "false", "no", "off", "disable", "disabled":
+		return true
+	default:
+		return false
+	}
 }
 
 func firstNonEmpty(vals ...string) string {

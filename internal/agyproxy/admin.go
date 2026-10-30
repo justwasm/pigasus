@@ -63,6 +63,70 @@ func cmdCapture(opts AdminOptions, args []string) error {
 	}
 }
 
+// ---- balance -------------------------------------------------------------
+
+func cmdBalance(opts AdminOptions, args []string) error {
+	c := loadConfig()
+	if len(args) == 0 {
+		s := resolveSettings(c)
+		fmt.Fprintf(opts.Out, "balance: %s\n", onOff(s.Balance))
+		return nil
+	}
+	switch strings.ToLower(args[0]) {
+	case "on", "enable", "enabled", "1", "true":
+		b := true
+		c.Balance = &b
+		if err := saveConfig(c); err != nil {
+			return err
+		}
+		fmt.Fprintln(opts.Out, "balance: on")
+		return nil
+	case "off", "disable", "disabled", "0", "false":
+		b := false
+		c.Balance = &b
+		if err := saveConfig(c); err != nil {
+			return err
+		}
+		fmt.Fprintln(opts.Out, "balance: off")
+		return nil
+	default:
+		return fmt.Errorf("balance: unknown subcommand %q (want on|off)", args[0])
+	}
+}
+
+// ---- aggregate -----------------------------------------------------------
+
+func cmdAggregate(opts AdminOptions, args []string) error {
+	c := loadConfig()
+	if len(args) == 0 {
+		s := resolveSettings(c)
+		fmt.Fprintf(opts.Out, "aggregate: %s\n", onOff(s.Aggregate))
+		return nil
+	}
+	switch strings.ToLower(args[0]) {
+	case "on", "enable", "enabled", "1", "true":
+		b := true
+		c.Aggregate = &b
+		// Enabling aggregate automatically enables balance
+		c.Balance = &b
+		if err := saveConfig(c); err != nil {
+			return err
+		}
+		fmt.Fprintln(opts.Out, "aggregate: on (virtual unified account across pool)")
+		return nil
+	case "off", "disable", "disabled", "0", "false":
+		b := false
+		c.Aggregate = &b
+		if err := saveConfig(c); err != nil {
+			return err
+		}
+		fmt.Fprintln(opts.Out, "aggregate: off")
+		return nil
+	default:
+		return fmt.Errorf("aggregate: unknown subcommand %q (want on|off)", args[0])
+	}
+}
+
 func onOff(b bool) string {
 	if b {
 		return "on"
@@ -146,6 +210,7 @@ func doctorPrintServer(opts AdminOptions, set settings, configured []models.Mode
 		Models:     configured,
 		CaptureDir: set.CaptureDir,
 		Logf:       func(string, ...any) {},
+		Balance:    set.Balance,
 	})
 	if err != nil {
 		fmt.Fprintf(opts.Out, "port        BIND FAILED: %v\n", err)
@@ -158,6 +223,18 @@ func doctorPrintServer(opts AdminOptions, set settings, configured []models.Mode
 	fmt.Fprintf(opts.Out, "capture     %s (%s)\n", emptyAs(set.CaptureDir, "(disabled)"), onOff(set.CaptureOn && set.CaptureDir != ""))
 	if set.CaptureDir != "" {
 		fmt.Fprintf(opts.Out, "            %d file%s, %s\n", countCaptureFiles(set.CaptureDir), plural(countCaptureFiles(set.CaptureDir)), dirSize(set.CaptureDir))
+	}
+	fmt.Fprintf(opts.Out, "balance     %s\n", onOff(set.Balance))
+	if set.Balance {
+		fmt.Fprintf(opts.Out, "aggregate   %s\n", onOff(set.Aggregate))
+	}
+	if pol := endpoints.CurrentAccountPool(); pol != nil {
+		strategy := pol.Strategy
+		if strategy == "" {
+			strategy = pol.Normalised().Strategy
+		}
+		fmt.Fprintf(opts.Out, "pool        %s (strategy: %s, threshold: %.1f%%)\n",
+			onOff(pol.Enabled), strategy, pol.Threshold*100)
 	}
 }
 

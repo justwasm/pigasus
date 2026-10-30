@@ -130,6 +130,19 @@ func DiscoverLine(isCursor, installed bool, name, desc string, max int) string {
 		palette.DimGrayOpen + desc + palette.DimGrayClose
 }
 
+// ShelfMoreLine renders a shelf's "⋯ N more — enter to show" row.
+//
+// 【一手】 agy 1.4.11 introduced the row; the reference's own text is the
+// row's label, so the label is drawn dim like the rest of the panel's
+// secondary text and the cursor row is drawn in the panel's blue.
+func ShelfMoreLine(isCursor bool, hidden int) string {
+	text := ShelfMoreText(hidden)
+	if isCursor {
+		return palette.BlueOpen + "> " + "\x1b[1m" + palette.BlueOpen + text + "\x1b[0m"
+	}
+	return "  " + PanelGray238 + text + PanelGray238C
+}
+
 // LocalRow renders Discover's "+ Install from local directory..." row.
 func LocalRow(isCursor bool) string {
 	text := "\x1b[1m+ Install from local directory...\x1b[0m"
@@ -263,7 +276,11 @@ func InstalledEmptyNote(searchCommitted, enabledOnly bool, count int) []string {
 }
 
 // DiscoverLegend is the Discover footer.
-func DiscoverLegend(onLocal, search bool) string {
+//
+// 【strings】 the 1.4.11 binary carries the two shelf hints of the new
+// keys: "Expand Shelf" / "Collapse Shelf" (ctrl+e) and "Prev/Next Shelf"
+// (`[` and `]`).
+func DiscoverLegend(onLocal, search, shelfExpanded bool) string {
 	esc := "Exit"
 	if search {
 		esc = "Exit Search"
@@ -273,6 +290,13 @@ func DiscoverLegend(onLocal, search bool) string {
 		args = append(args, "enter / ctrl+s", "Enter Local Path")
 	} else {
 		args = append(args, "enter", "Expand Details", "ctrl+s", "Install")
+	}
+	if !search {
+		expand := "Expand Shelf"
+		if shelfExpanded {
+			expand = "Collapse Shelf"
+		}
+		args = append(args, "ctrl+e", expand, "[/]", "Prev/Next Shelf")
 	}
 	args = append(args, "esc", esc)
 	return KeyboardHint(args...)

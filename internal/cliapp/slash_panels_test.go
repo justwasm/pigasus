@@ -4941,11 +4941,11 @@ func TestChangelogSource_LoaderFindsReference(t *testing.T) {
 	if len(src) < 940 {
 		t.Errorf("source line count = %d, want ≥ 940", len(src))
 	}
-	// The feed's newest section is 1.4.9: re-captured against the 1.4.10
-	// binary on 2026-10-29, the served feed carries the 1.4.9 release
-	// notes but not the 1.4.10 ones.
-	if src[0] != "1.4.9:" {
-		t.Errorf("first source line = %q, want %q", src[0], "1.4.9:")
+	// The feed's newest section is 1.4.10: re-captured against the 1.4.11
+	// binary on 2026-10-30, the served feed carries the 1.4.10 release
+	// notes but not the 1.4.11 ones.
+	if src[0] != "1.4.10:" {
+		t.Errorf("first source line = %q, want %q", src[0], "1.4.10:")
 	}
 	if !strings.Contains(strings.Join(src, "\n"), "1.4.1:") {
 		t.Error("source missing the 1.4.1 header (binary capture block)")

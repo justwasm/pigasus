@@ -95,6 +95,9 @@ func TestModeWarning_EmissionSurface(t *testing.T) {
 		{"mcp", []string{"--mode", "bogus", "mcp", "list"}, false},
 		{"models+valid-mode", []string{"--mode", "plan", "models"}, false},
 		{"models+no-mode", []string{"models"}, false},
+		{"print", []string{"-p", "hi", "--mode", "bogus"}, true},
+		{"interactive", []string{"--mode", "bogus"}, true},
+		{"prompt-interactive", []string{"-i", "hi", "--mode", "bogus"}, true},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -104,6 +107,14 @@ func TestModeWarning_EmissionSurface(t *testing.T) {
 				t.Errorf("args %v: warned=%v want %v\nstderr:\n%s", c.args, warned, c.wantWarn, errb)
 			}
 		})
+	}
+}
+
+func TestPrintMode_AutoUnavailableWarning(t *testing.T) {
+	_, errb, _ := runJetski(t, "-p", "hi", "--mode", "auto")
+	want := "warning: --mode auto is not available for this account; continuing in the default mode.\n"
+	if errb != want {
+		t.Errorf("stderr = %q, want %q", errb, want)
 	}
 }
 

@@ -253,11 +253,9 @@ func TestSeedConversationRendersTranscript(t *testing.T) {
 	m.seedConversation(sel.Store)
 
 	joined := strings.Join(m.response, "\n")
-	// Cycle 271: the AGY 1.4.2 resumed transcript renders only model
-	// steps; the user prompt is seeded into m.session below but not
-	// echoed as a "> " row.
-	if strings.Contains(joined, userPromptRow("summarise the repository layout")) {
-		t.Errorf("cycle 271: resumed transcript must not echo user prompts:\n%s", joined)
+	// Resumed transcript echoes user prompts as "> " rows matching agy.
+	if !strings.Contains(joined, userPromptRow("summarise the repository layout")) {
+		t.Errorf("resumed transcript must echo user prompts:\n%s", joined)
 	}
 	if !strings.Contains(joined, "I will start by listing the top level.") {
 		t.Errorf("missing the first reply:\n%s", joined)
@@ -285,6 +283,85 @@ func TestSeedConversationNilIsSafe(t *testing.T) {
 	m.seedConversation(nil)
 	if len(m.response) != 0 {
 		t.Errorf("nil store produced %d rows", len(m.response))
+	}
+}
+
+func TestResumeConversation_RendersUserPromptsAndStickyHeader(t *testing.T) {
+	dir := storeFixture(t, fixtureID)
+	dbPath := filepath.Join(dir, "conversations", fixtureID+".db")
+	m := NewRunMode(nil, "", "Gemini 3.8 Flash (High)", "", "/tmp", true)
+	m.width, m.height = 100, 12
+	m.altScreen = true
+
+	// Simulate initial conversation state before resume
+	m.response = []string{"previous text"}
+	m.scroll = 10
+
+	// Resume the conversation
+	m.resumeConversation(convstore.ConversationMeta{ID: fixtureID, Path: dbPath})
+
+	// User prompt must be present in response
+	promptStr := userPromptRow("summarise the repository layout")
+	joined := strings.Join(m.response, "\n")
+	if !strings.Contains(joined, promptStr) {
+		t.Fatalf("resumed response missing user prompt; response:\n%s", joined)
+	}
+
+	// Render view to populate cache and prompt rows
+	m.View()
+	if len(m.userPromptRows) == 0 {
+		t.Fatal("expected userPromptRows to be populated after View()")
+	}
+
+	// When parked at bottom with autoScroll=true, no sticky header
+	if m.stickyUserPromptRow() >= 0 {
+		t.Errorf("at bottom autoScroll: stickyUserPromptRow = %d, want -1", m.stickyUserPromptRow())
+	}
+
+	// Scroll up past the bottom but remaining >= first prompt row
+	m.scrollBy(-3)
+	m.View()
+
+	if m.stickyUserPromptRow() < 0 {
+		t.Fatalf("stickyUserPromptRow = %d, want >= 0 when scrolled up; promptRows=%v, scroll=%d",
+			m.stickyUserPromptRow(), m.userPromptRows, m.scroll)
+	}
+	if m.pinnedPromptText == "" {
+		t.Errorf("pinnedPromptText should be populated when scrolled up past user prompt")
+	}
+}
+
+func TestUserPromptRow_MultiLineIndentation(t *testing.T) {
+	single := userPromptRow("single line")
+	if !strings.HasPrefix(single, cUserFgBoldOpen+"> ") {
+		t.Fatalf("single line prompt missing prefix: %q", single)
+	}
+	if !strings.HasSuffix(single, cBlueBoldClose) {
+		t.Fatalf("single line prompt missing close: %q", single)
+	}
+	if !isUserPromptRow(single) {
+		t.Fatal("isUserPromptRow should match single line prompt")
+	}
+
+	multi := userPromptRow("line 1\nline 2\nline 3")
+	lines := strings.Split(multi, "\n")
+	if len(lines) != 3 {
+		t.Fatalf("expected 3 lines, got %d: %q", len(lines), multi)
+	}
+	if !isUserPromptRow(lines[0]) {
+		t.Fatalf("line 0 should match isUserPromptRow: %q", lines[0])
+	}
+	if !strings.HasPrefix(lines[1], "  line 2") {
+		t.Fatalf("line 1 should be indented with 2 spaces: %q", lines[1])
+	}
+	if isUserPromptRow(lines[1]) {
+		t.Fatalf("line 1 should not match isUserPromptRow: %q", lines[1])
+	}
+	if !strings.HasPrefix(lines[2], "  line 3") {
+		t.Fatalf("line 2 should be indented with 2 spaces: %q", lines[2])
+	}
+	if isUserPromptRow(lines[2]) {
+		t.Fatalf("line 2 should not match isUserPromptRow: %q", lines[2])
 	}
 }
 

@@ -148,3 +148,44 @@ func TestCloudCode_AdapterMapsTheHTTPError(t *testing.T) {
 		t.Errorf("HTTPError = %#v", he)
 	}
 }
+
+func TestCloudCode_AdapterInStreamError(t *testing.T) {
+	srv := &adapterServer{t: t, frames: []string{
+		"data: {\"response\":{\"candidates\":[{\"content\":{\"role\":\"model\",\"parts\":[{\"text\":\"starting...\"}]}}]}}\n\n",
+		"data: {\"error\":{\"code\":429,\"message\":\"Resource has been exhausted (e.g. check quota).\",\"status\":\"RESOURCE_EXHAUSTED\"}}\n\n",
+	}}
+	server := httptest.NewServer(srv)
+	defer server.Close()
+	c := newAdapterClient(server)
+
+	ch, err := c.Stream(context.Background(), StreamRequest{
+		Messages: []Message{{Role: "user", Content: "hi"}},
+	})
+	if err != nil {
+		t.Fatalf("Stream: %v", err)
+	}
+
+	var doneCount int
+	var gotErr error
+	for chunk := range ch {
+		if chunk.Done {
+			doneCount++
+		}
+		if chunk.Error != nil {
+			gotErr = chunk.Error
+		}
+	}
+	if doneCount != 1 {
+		t.Errorf("doneCount = %d, want exactly 1 (no duplicate Done chunk)", doneCount)
+	}
+	if gotErr == nil {
+		t.Fatalf("expected error chunk")
+	}
+	he, ok := gotErr.(*HTTPError)
+	if !ok {
+		t.Fatalf("error type = %T, want *HTTPError", gotErr)
+	}
+	if he.StatusCode != 429 {
+		t.Errorf("StatusCode = %d, want 429", he.StatusCode)
+	}
+}

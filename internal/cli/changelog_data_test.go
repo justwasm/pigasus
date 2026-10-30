@@ -1,5 +1,5 @@
 // Tests for changelog_data.go: byte-level 1:1 of referenceChangelog against
-// the v1.4.9 binary's `antigravity changelog` output.
+// the v1.4.11 binary's `antigravity changelog` output.
 //
 // The v1.4.2 binary's release-notes block is 160,313 bytes / 938 lines
 // holding 72 version sections (1.4.1, 1.4.0, 1.3.6 down to 1.0.0 — note
@@ -17,7 +17,7 @@
 // The gates below are hard equality checks, not contains-checks, so any
 // edit to a bullet line fails loudly:
 //
-//  1. exact byte length (180,524)
+//  1. exact byte length (186,601)
 //  2. exact SHA-256 of the embedded bytes
 //  3. the block shape (first/last version header, section and bullet
 //     counts, absence of a 1.4.0 section)
@@ -43,19 +43,19 @@ import (
 
 const (
 	// referenceChangelogByteLen is the size of the embedded blob, a
-	// verbatim `agy changelog` capture from the v1.4.10 binary (the
+	// verbatim `agy changelog` capture from the v1.4.11 binary (the
 	// cycle-235 hand-written 1.4.2 stub is gone; upstream ships its own
 	// release notes, so the blob is capture-only).
-	referenceChangelogByteLen = 184882
+	referenceChangelogByteLen = 186601
 	// referenceChangelogLines is the embedded blob's line count.
-	referenceChangelogLines = 1054
+	referenceChangelogLines = 1062
 	// referenceChangelogSections is the number of `X.Y.Z:` version headers
-	// (1.4.9 down to 1.0.0; 1.3.7/1.3.8/1.3.9 are absent upstream too).
-	referenceChangelogSections = 80
+	// (1.4.10 down to 1.0.0; 1.3.7/1.3.8/1.3.9 are absent upstream too).
+	referenceChangelogSections = 81
 	// referenceChangelogBullets is the number of `· ` top-level bullets.
-	referenceChangelogBullets = 895
+	referenceChangelogBullets = 901
 	// referenceChangelogSHA256 is the SHA-256 of the embedded bytes.
-	referenceChangelogSHA256 = "a9c4ce87e4ab753fe475d270240922decd76d2237a05d8b4cb642876331c34ec"
+	referenceChangelogSHA256 = "209a0518b09896b97bb053ab3e352442f7a050bf08373105f67a23455ba411f1"
 )
 
 // TestReferenceVersion_MatchesDriftLock pins cli.ReferenceVersion -- the
@@ -104,14 +104,14 @@ func TestChangelog_SHA256(t *testing.T) {
 }
 
 // TestChangelog_Shape asserts the release-notes structure: it starts at
-// 1.4.9 (the 1.4.10 binary ships the 1.4.10 release notes nowhere — its
-// changelog feed's newest section is still 1.4.9), carries 80 version
-// headers and 895 top-level bullets, contains the 1.4.2, 1.4.1 and
+// 1.4.10 (the 1.4.11 binary ships the 1.4.11 release notes nowhere — its
+// changelog feed's newest section is still 1.4.10), carries 81 version
+// headers and 901 top-level bullets, contains the 1.4.2, 1.4.1 and
 // 1.4.0 sections from the binary capture, and ends at the 1.0.0
 // initial-release section.
 func TestChangelog_Shape(t *testing.T) {
-	if !strings.HasPrefix(referenceChangelog, "1.4.9:\n") {
-		t.Errorf("referenceChangelog must start with %q", "1.4.9:\n")
+	if !strings.HasPrefix(referenceChangelog, "1.4.10:\n") {
+		t.Errorf("referenceChangelog must start with %q", "1.4.10:\n")
 	}
 	if !strings.Contains(referenceChangelog, "\n1.4.1:\n") {
 		t.Errorf("referenceChangelog must contain a 1.4.1 section")
@@ -185,6 +185,9 @@ func TestChangelog_MatchesReferenceBinary(t *testing.T) {
 	bin := referencedrift.FindBinary()
 	if bin == "" {
 		t.Skip("no reference agy binary found (set $AGY_REF to enable this gate)")
+	}
+	if v, err := referencedrift.BinaryVersion(bin); err == nil && v != ReferenceVersion {
+		t.Skipf("reference binary at %s is version %s (clone emulates %s)", bin, v, ReferenceVersion)
 	}
 	out, err := exec.Command(bin, "changelog").Output()
 	if err != nil {

@@ -79,6 +79,9 @@ func TestCurrentReturnsTheCompiledInDefaults(t *testing.T) {
 	if got.Marketplace != DefaultMarketplace {
 		t.Errorf("Marketplace = %q, want %q", got.Marketplace, DefaultMarketplace)
 	}
+	if got.AutoUpdater != DefaultAutoUpdater {
+		t.Errorf("AutoUpdater = %q, want %q", got.AutoUpdater, DefaultAutoUpdater)
+	}
 	if len(got.OriginPatterns) != len(DefaultOriginPatterns) {
 		t.Errorf("OriginPatterns = %v, want %v", got.OriginPatterns, DefaultOriginPatterns)
 	}
@@ -116,7 +119,8 @@ func TestTheConfigurationOverridesTheNamedEndpoint(t *testing.T) {
 	  "endpoints": {
 	    "cloudcode": "http://127.0.0.1:8080",
 	    "oauth2_token": "http://127.0.0.1:8080/oauth/token",
-	    "companion_origin": "http://localhost:5173"
+	    "companion_origin": "http://localhost:5173",
+	    "auto_updater": "http://127.0.0.1:9090"
 	  }
 	}`)
 
@@ -130,9 +134,40 @@ func TestTheConfigurationOverridesTheNamedEndpoint(t *testing.T) {
 	if got.CompanionOrigin != "http://localhost:5173" {
 		t.Errorf("CompanionOrigin = %q, want the configured origin", got.CompanionOrigin)
 	}
+	if got.AutoUpdater != "http://127.0.0.1:9090" {
+		t.Errorf("AutoUpdater = %q, want the configured auto_updater", got.AutoUpdater)
+	}
 	// The ones that were not named keep their defaults.
 	if got.UserInfo != DefaultUserInfo {
 		t.Errorf("UserInfo = %q, want the default %q", got.UserInfo, DefaultUserInfo)
+	}
+}
+
+func TestAutoUpdaterManifestURL(t *testing.T) {
+	writeConfig(t, `{}`)
+	s := Current()
+	got := s.AutoUpdaterManifestURL("darwin", "arm64")
+	want := "https://antigravity-cli-auto-updater-974169037036.us-central1.run.app/manifests/darwin_arm64.json"
+	if got != want {
+		t.Errorf("AutoUpdaterManifestURL = %q, want %q", got, want)
+	}
+
+	// Override with custom host
+	writeConfig(t, `{"endpoints": {"auto_updater": "http://localhost:8080/custom"}}`)
+	s = Current()
+	got = s.AutoUpdaterManifestURL("linux", "amd64")
+	want = "http://localhost:8080/custom/manifests/linux_amd64.json"
+	if got != want {
+		t.Errorf("AutoUpdaterManifestURL = %q, want %q", got, want)
+	}
+
+	// Override with exact .json URL
+	writeConfig(t, `{"endpoints": {"auto_updater": "http://localhost:8080/my_manifest.json"}}`)
+	s = Current()
+	got = s.AutoUpdaterManifestURL("darwin", "arm64")
+	want = "http://localhost:8080/my_manifest.json"
+	if got != want {
+		t.Errorf("AutoUpdaterManifestURL = %q, want %q", got, want)
 	}
 }
 

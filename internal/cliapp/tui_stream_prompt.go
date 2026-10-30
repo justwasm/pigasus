@@ -3,6 +3,7 @@ package cliapp
 import (
 	"context"
 	"errors"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -16,6 +17,7 @@ import (
 	"github.com/justwasm/pigasus/internal/auth"
 	"github.com/justwasm/pigasus/internal/backend"
 	"github.com/justwasm/pigasus/internal/browsersubagent"
+	"github.com/justwasm/pigasus/internal/cliflags"
 	"github.com/justwasm/pigasus/internal/compaction"
 	"github.com/justwasm/pigasus/internal/pigrt"
 	"github.com/justwasm/pigasus/internal/tuilib"
@@ -386,6 +388,13 @@ func (m *runMode) promptOptions() agyprompt.Options {
 	}
 	agentDir := auth.AntigravityConfigHome()
 	opts := agyprompt.DefaultOptions(workspace, agentDir, conversationID)
+	if m.flags != nil {
+		for _, dir := range cliflags.GetterStringValues(m.flags, "add-dir") {
+			if abs, err := filepath.Abs(dir); err == nil {
+				opts.Workspaces = append(opts.Workspaces, abs)
+			}
+		}
+	}
 	opts.UserRules = agyprompt.DiscoverUserRules(workspace, agentDir)
 	opts.Skills = agyprompt.DiscoverSkills(pigrt.AgySkillPaths(agentDir, m.cwd))
 	if m.agentBody == "" {

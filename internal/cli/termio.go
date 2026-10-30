@@ -11,17 +11,20 @@ package cli
 import (
 	"fmt"
 	"io"
+	"log"
 	"os"
 )
 
 // SavedStreams captures the original stdout/stderr/terminal-writer
 // triple so a deferred restore is possible.
 type SavedStreams struct {
-	OriginalStdout  io.Writer
-	OriginalStderr  io.Writer
-	TerminalWriter  io.Writer
-	restoreStderrFn func() error
-	restoreStdoutFn func() error
+	OriginalStdout   io.Writer
+	OriginalStderr   io.Writer
+	RedirectedStdout io.Writer
+	RedirectedStderr io.Writer
+	Terminal         io.Writer
+	restoreStderrFn  func() error
+	restoreStdoutFn  func() error
 }
 
 // Redirect swaps os.Stdout / os.Stderr for the provided writers and
@@ -35,11 +38,13 @@ type SavedStreams struct {
 // explicitly.
 func Redirect(stdout, stderr io.Writer) *SavedStreams {
 	return &SavedStreams{
-		OriginalStdout:  os.Stdout,
-		OriginalStderr:  os.Stderr,
-		TerminalWriter:  stdout,
-		restoreStdoutFn: func() error { return nil },
-		restoreStderrFn: func() error { return nil },
+		OriginalStdout:   os.Stdout,
+		OriginalStderr:   os.Stderr,
+		RedirectedStdout: stdout,
+		RedirectedStderr: stderr,
+		Terminal:         stdout,
+		restoreStdoutFn:  func() error { return nil },
+		restoreStderrFn:  func() error { return nil },
 	}
 }
 
@@ -48,7 +53,11 @@ func Redirect(stdout, stderr io.Writer) *SavedStreams {
 // terminal stays clean and all logging goes to a file.
 func RedirectStderr(stderr io.Writer) *SavedStreams {
 	ss := Redirect(os.Stdout, stderr)
-	ss.restoreStderrFn = func() error { return nil }
+	log.SetOutput(stderr)
+	ss.restoreStderrFn = func() error {
+		log.SetOutput(os.Stderr)
+		return nil
+	}
 	return ss
 }
 
@@ -73,16 +82,24 @@ func (s *SavedStreams) Close() error {
 
 // StdoutWriter returns the redirected stdout (or the original if not redirected).
 func (s *SavedStreams) StdoutWriter() io.Writer {
-	if s == nil || s.TerminalWriter == nil {
+	if s == nil || s.RedirectedStdout == nil {
 		return os.Stdout
 	}
-	return s.TerminalWriter
+	return s.RedirectedStdout
 }
 
 // StderrWriter returns the redirected stderr.
 func (s *SavedStreams) StderrWriter() io.Writer {
-	if s == nil || s.TerminalWriter == nil {
+	if s == nil || s.RedirectedStderr == nil {
 		return os.Stderr
 	}
-	return s.TerminalWriter
+	return s.RedirectedStderr
+}
+
+// TerminalWriter returns the terminal writer.
+func (s *SavedStreams) TerminalWriter() io.Writer {
+	if s == nil || s.Terminal == nil {
+		return os.Stdout
+	}
+	return s.Terminal
 }

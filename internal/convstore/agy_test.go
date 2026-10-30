@@ -261,3 +261,43 @@ func TestLoadConversationToleratesEmptyFile(t *testing.T) {
 		t.Errorf("expected an empty conversation, got %d steps", len(c.Steps))
 	}
 }
+
+func TestParseUserInputStep_Shapes(t *testing.T) {
+	// Shape 1: field 19 -> field 2 (CortexStepUserInput.user_response)
+	payload1 := encodeProtoField(19, 2, encodeProtoField(2, 2, []byte("/boost hello world")))
+	s1 := &Step{Type: StepUserInput}
+	parseStepPayload(s1, payload1)
+	if s1.Text != "/boost hello world" {
+		t.Errorf("shape 1 (user_response): got %q, want %q", s1.Text, "/boost hello world")
+	}
+
+	// Shape 2: field 19 with multiple field 3 items (first is subagent orchestrator config, second is user prompt text)
+	orchestratorItem := encodeProtoField(2, 2, []byte("orchestrator config binary bytes"))
+	userPromptItem := encodeProtoField(1, 2, []byte("actual user prompt"))
+	f19Bytes := append(encodeProtoField(3, 2, orchestratorItem), encodeProtoField(3, 2, userPromptItem)...)
+	payload2 := encodeProtoField(19, 2, f19Bytes)
+	s2 := &Step{Type: StepUserInput}
+	parseStepPayload(s2, payload2)
+	if s2.Text != "actual user prompt" {
+		t.Errorf("shape 2 (multi item): got %q, want %q", s2.Text, "actual user prompt")
+	}
+
+	// Shape 3: user_response takes precedence over items
+	f19WithBoth := append(encodeProtoField(2, 2, []byte("user verbatim response")), encodeProtoField(3, 2, userPromptItem)...)
+	payload3 := encodeProtoField(19, 2, f19WithBoth)
+	s3 := &Step{Type: StepUserInput}
+	parseStepPayload(s3, payload3)
+	if s3.Text != "user verbatim response" {
+		t.Errorf("shape 3 (precedence): got %q, want %q", s3.Text, "user verbatim response")
+	}
+
+	// Shape 4: binary non-printable bytes in field 3 must never leak into s.Text
+	binaryItem := []byte{0x12, 0xaa, 0x04, 0xda, 0x01, 0xa6, 0x04}
+	payload4 := encodeProtoField(19, 2, encodeProtoField(3, 2, binaryItem))
+	s4 := &Step{Type: StepUserInput}
+	parseStepPayload(s4, payload4)
+	if s4.Text != "" {
+		t.Errorf("shape 4 (binary reject): got %q, want empty", s4.Text)
+	}
+}
+

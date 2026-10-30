@@ -79,6 +79,7 @@ func standardFlagsTail() []FlagSpec {
 		{Name: "prompt-interactive", Type: "string", Usage: "Run an initial prompt interactively and continue the session"},
 		{Name: "remote-control", Type: "bool", Usage: "Create a remote connection for the CLI session on start up"},
 		{Name: "sandbox", Type: "bool", Usage: "Run in a sandbox with terminal restrictions enabled"},
+		{Name: "settings", Type: "string", Usage: "Settings for this session only, never saved: a JSON object of settings.json keys, inline or as a file path"},
 		// Hidden: the reference's local-Chrome CDP control, the last of
 		// the four 【一手 + 反编译 — out/local-macos/FINDINGS.md §2,
 		// item 7】.
@@ -108,6 +109,7 @@ func extraFlagsCore() []FlagSpec {
 
 func extraFlagsRC() []FlagSpec {
 	return []FlagSpec{
+		{Name: "desktop", Type: "bool", Def: "false", Hidden: true, Usage: "Serve the reference desktop UI (the voice input, the jetbox terminal, the aux pane redesign)"},
 		{Name: "remote-control-tcp", Type: "string", Def: "", Hidden: true, Usage: "Bind addr (host:port) for the WebSocket JSON-RPC transport; empty disables. Replaces --remote-control when set"},
 		{Name: "remote-control-socket", Type: "string", Def: "", Hidden: true, Usage: "Override the unix socket path for --remote-control. $OPENAGY_RC_SOCKET still wins"},
 		{Name: "experimental-rc-v2", Type: "bool", Hidden: true, Usage: "Opt-in to the deferred v2 (WebRTC mesh / Hub) features. No-op today; reserved for forward compat."},

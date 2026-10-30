@@ -98,6 +98,13 @@ func RunServe(j *cli.JetskiCLI, args cli.ServeArgs) error {
 	}, j.ErrOut, label)
 	defer stopTunnel()
 
+	// The name watcher: a rename written into the configuration file
+	// travels to the cloud over the API, so the dashboard picks it up
+	// without the tunnel session dropping. See instance_name.go.
+	watchCtx, stopWatch := context.WithCancel(context.Background())
+	defer stopWatch()
+	go watchInstanceName(watchCtx, tunnelClient, j.ErrOut, label)
+
 	return runServeEventLoop(srv, tunnelClient, args.Name, addr, token, j.ErrOut, label, instanceID)
 }
 

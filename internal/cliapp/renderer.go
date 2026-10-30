@@ -302,6 +302,17 @@ func cRule(width int) string {
 	return palette.Rule(width)
 }
 
+func turnSeparator(width int) string {
+	w := 60
+	if width > 0 && width-3 < w {
+		w = width - 3
+		if w < 10 {
+			w = width
+		}
+	}
+	return palette.Rule(w)
+}
+
 func statusModeColor(mode string) string {
 	return palette.StatusModeColor(mode)
 }

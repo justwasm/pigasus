@@ -104,6 +104,7 @@ func Launch(ctx context.Context, inv Invocation, deps Deps) (Launched, error) {
 	// killed subagent, or a closed conversation, ends it.
 	childCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
 	child := NewChild(conversationID, inv.TypeName, inv.Role, worktreePath, cancel)
+	child.SetSubDir(subDir)
 
 	ack := Acknowledgement{
 		ConversationID: conversationID,
@@ -119,7 +120,14 @@ func Launch(ctx context.Context, inv Invocation, deps Deps) (Launched, error) {
 	tools := rebindMessaging(inv.Tools, deps.Registry, conversationID)
 	childTools := tools
 
-	go runChild(childCtx, child, deps, model, systemPrompt, cwd, worktreePath, subDir, inv, childTools, startedAt)
+	launchFn := func(runCtx context.Context, initialMsg *Message) {
+		childRunCtx, runCancel := context.WithCancel(context.WithoutCancel(runCtx))
+		child.SetCancel(runCancel)
+		child.setState(StateRunning)
+		go runChild(childRunCtx, child, deps, model, systemPrompt, cwd, worktreePath, subDir, inv, childTools, startedAt, initialMsg)
+	}
+	child.SetLaunch(launchFn)
+	launchFn(childCtx, nil)
 
 	return Launched{Acknowledgement: ack, Child: child}, nil
 }
@@ -158,21 +166,28 @@ func runChild(
 	inv Invocation,
 	childTools []piagent.AgentTool,
 	startedAt time.Time,
+	initialMsg *Message,
 ) {
 	taskReg := deps.Tasks
 	if taskReg != nil {
-		taskName := inv.Prompt
-		if len(taskName) > 60 {
-			taskName = taskName[:57] + "..."
+		if taskReg.Get(child.ConversationID) == nil {
+			taskName := inv.Prompt
+			if len(taskName) > 60 {
+				taskName = taskName[:57] + "..."
+			}
+			taskReg.Register(&taskregistry.Task{
+				ID:        child.ConversationID,
+				Name:      taskName,
+				Kind:      taskregistry.KindSubagent,
+				State:     taskregistry.StateRunning,
+				StartedAt: startedAt,
+				Prompt:    inv.Prompt,
+			})
+		} else {
+			taskReg.Update(child.ConversationID, func(t *taskregistry.Task) {
+				t.State = taskregistry.StateRunning
+			})
 		}
-		taskReg.Register(&taskregistry.Task{
-			ID:        child.ConversationID,
-			Name:      taskName,
-			Kind:      taskregistry.KindSubagent,
-			State:     taskregistry.StateRunning,
-			StartedAt: startedAt,
-			Prompt:    inv.Prompt,
-		})
 	}
 
 	parentID := ""
@@ -187,6 +202,9 @@ func runChild(
 	// compaction summary carries it, so a compaction does not leave the
 	// child without its task (agy 1.4.10).
 	pctx := parentContextOf(deps, inv)
+
+	// Load existing transcript from disk if resuming/reviving.
+	loadedMsgs, _ := loadTranscript(subDir, child.ConversationID)
 
 	rt, session, err := createSubagentSession(ctx, deps, model, childSystemPrompt(systemPrompt, inv), cwd, childTools, pctx)
 	if err != nil {
@@ -205,19 +223,58 @@ func runChild(
 	defer func() { _ = session.Close() }()
 	defer purgeWorktreeArtifacts(worktreePath, child.ConversationID)
 
-	// The first message is the task, delivered the way the reference
-	// delivers it: as a message from the agent that invoked the child,
-	// wrapped in the reference's envelope.
-	//
-	// 【一手】 the 1.4.4 capture: "The child sees the mirror image: its
-	// first user message is the envelope carrying the parent's Prompt,
-	// with sender = the parent's conversation id."
-	first := agentmessage.Render(parentID, inv.Prompt, time.Now(), agentmessage.PriorityHigh)
-	msgs, runErr := session.Send(ctx, first)
+	child.SetAbort(func() {
+		_ = session.Abort(context.Background())
+	})
 
-	recordChildTurn(taskReg, child, msgs, runErr)
+	// Seed existing transcript into the session.
+	if len(loadedMsgs) > 0 {
+		if mgr := session.SessionManager(); mgr != nil {
+			for _, m := range loadedMsgs {
+				_, _ = mgr.AppendMessage(m)
+			}
+		}
+		if ag := session.Agent(); ag != nil {
+			ag.SetMessages(loadedMsgs)
+		}
+	}
+
+	var msgs []piagent.AgentMessage
+	var runErr error
+
+	if initialMsg != nil {
+		pctx.Record(initialMsg.Content, initialMsg.At)
+		envelope := agentmessage.Render(parentID, initialMsg.Content, initialMsg.At, agentmessage.PriorityHigh)
+		msgs, runErr = session.Send(ctx, envelope)
+	} else if len(loadedMsgs) == 0 {
+		first := agentmessage.Render(parentID, inv.Prompt, time.Now(), agentmessage.PriorityHigh)
+		msgs, runErr = session.Send(ctx, first)
+	} else if loadedMsgs[len(loadedMsgs)-1].Role() == "user" {
+		msgs, runErr = session.Agent().ContinueMessages(ctx)
+	} else {
+		// Prior turn already completed; resume in idle state waiting for next message.
+		msgs = loadedMsgs
+	}
+
+	if child.State() == StateStopped {
+		allMsgs := msgs
+		if session.Agent() != nil && len(session.Agent().Messages()) > 0 {
+			allMsgs = session.Agent().Messages()
+		}
+		recordChildTurn(taskReg, child, allMsgs, nil)
+		if subDir != "" {
+			persistTranscript(subDir, child.ConversationID, allMsgs, nil)
+		}
+		return
+	}
+
+	allMsgs := msgs
+	if session.Agent() != nil && len(session.Agent().Messages()) > 0 {
+		allMsgs = session.Agent().Messages()
+	}
+	recordChildTurn(taskReg, child, allMsgs, runErr)
 	if subDir != "" {
-		persistTranscript(subDir, child.ConversationID, msgs, runErr)
+		persistTranscript(subDir, child.ConversationID, allMsgs, runErr)
 	}
 
 	for {
@@ -234,6 +291,16 @@ func runChild(
 		// wakes it up for another turn.
 		msg, ok := child.Wait(ctx)
 		if !ok {
+			if child.State() == StateStopped {
+				allMsgs := msgs
+				if session.Agent() != nil && len(session.Agent().Messages()) > 0 {
+					allMsgs = session.Agent().Messages()
+				}
+				recordChildTurn(taskReg, child, allMsgs, nil)
+				if subDir != "" {
+					persistTranscript(subDir, child.ConversationID, allMsgs, nil)
+				}
+			}
 			return
 		}
 		child.setState(StateRunning)
@@ -243,9 +310,26 @@ func runChild(
 		pctx.Record(msg.Content, msg.At)
 		envelope := agentmessage.Render(parentID, msg.Content, msg.At, agentmessage.PriorityHigh)
 		msgs, runErr = session.Send(ctx, envelope)
-		recordChildTurn(taskReg, child, msgs, runErr)
+
+		if child.State() == StateStopped {
+			allMsgs = msgs
+			if session.Agent() != nil && len(session.Agent().Messages()) > 0 {
+				allMsgs = session.Agent().Messages()
+			}
+			recordChildTurn(taskReg, child, allMsgs, nil)
+			if subDir != "" {
+				persistTranscript(subDir, child.ConversationID, allMsgs, nil)
+			}
+			return
+		}
+
+		allMsgs = msgs
+		if session.Agent() != nil && len(session.Agent().Messages()) > 0 {
+			allMsgs = session.Agent().Messages()
+		}
+		recordChildTurn(taskReg, child, allMsgs, runErr)
 		if subDir != "" {
-			persistTranscript(subDir, child.ConversationID, msgs, runErr)
+			persistTranscript(subDir, child.ConversationID, allMsgs, runErr)
 		}
 	}
 }
@@ -317,6 +401,16 @@ func reportFailure(deps Deps, child *Child, err error) {
 // /tasks panel shows what the subagent did.
 func recordChildTurn(taskReg *taskregistry.Registry, child *Child, msgs []piagent.AgentMessage, runErr error) {
 	if taskReg == nil {
+		return
+	}
+	if child != nil && child.State() == StateStopped {
+		taskReg.Update(child.ConversationID, func(t *taskregistry.Task) {
+			t.State = taskregistry.StateStopped
+			t.Output = assistantText(msgs)
+			t.Tools = usedTools(msgs)
+			t.Steps = usedSteps(msgs)
+			t.EndedAt = time.Now()
+		})
 		return
 	}
 	if runErr != nil {

@@ -72,8 +72,8 @@ func changelogReferencePath(t *testing.T) string {
 // introduced: the loaded /changelog source starts with a version header,
 // and that header is the highest version the file contains. The reference
 // binary always ships one release behind its own version, so the newest
-// block here is the release before the installed binary (1.4.3 while the
-// binary reports 1.4.4).
+// block here is the release before the installed binary (1.4.10 while the
+// binary reports 1.4.11).
 func TestChangelogReference_TopsOutAt142(t *testing.T) {
 	path := changelogReferencePath(t)
 	if path == "" {
@@ -88,7 +88,7 @@ func TestChangelogReference_TopsOutAt142(t *testing.T) {
 	// preamble, no blank line ahead of it.
 	first := firstNonEmpty(lines)
 	if first != lines[0] || !isVersionHeader(first) {
-		t.Fatalf("first line = %q, want a version header such as %q", first, "1.4.3:")
+		t.Fatalf("first line = %q, want a version header such as %q", first, "1.4.10:")
 	}
 	newest := strings.TrimSuffix(first, ":")
 	for _, l := range lines {
@@ -147,7 +147,7 @@ func TestChangelogReference_NewestBulletIsUpstream(t *testing.T) {
 		t.Fatalf("read %s: %v", path, err)
 	}
 	text := string(data)
-	const want = "1.4.9:\n\u00b7 Added image pasting through your terminal's own paste shortcut, such as `Cmd+V` or `Ctrl+Shift+V` with only an image copied"
+	const want = "1.4.10:\n\u00b7 Improved streaming of agent replies: lines that scroll off the top of the screen"
 	if !strings.HasPrefix(text, want) {
 		t.Errorf("newest section is not the upstream capture:\n  want prefix: %q\n  file head: %.200q\u2026", want, text)
 	}

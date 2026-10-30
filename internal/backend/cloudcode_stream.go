@@ -110,14 +110,24 @@ func (c *CloudCodeClient) readBodyOnce(ctx context.Context, resp *http.Response,
 	scanner.Buffer(make([]byte, 0, 64*1024), 4<<20)
 
 	dec := geminicode.NewDecoder(c.cc)
+	var emittedDone bool
 	for scanner.Scan() {
 		for _, chunk := range dec.Feed(scanner.Text()) {
+			if chunk.Done {
+				emittedDone = true
+			}
 			if !emitChunk(ctx, out, chunk) {
 				return nil
 			}
+			if chunk.Done {
+				break
+			}
+		}
+		if emittedDone {
+			break
 		}
 	}
-	return c.finishScan(ctx, dec, scanner.Err(), out)
+	return c.finishScan(ctx, dec, scanner.Err(), out, emittedDone)
 }
 
 // finishScan closes the stream: it emits the decoder's closing chunks and
@@ -126,9 +136,12 @@ func (c *CloudCodeClient) readBodyOnce(ctx context.Context, resp *http.Response,
 // A dropped connection is returned to the caller without an error chunk —
 // the caller may re-issue the request, and a chunk saying "the connection
 // dropped" would be a lie if the re-issue succeeds.
-func (c *CloudCodeClient) finishScan(ctx context.Context, dec *geminicode.Decoder, scanErr error, out chan<- StreamChunk) error {
+func (c *CloudCodeClient) finishScan(ctx context.Context, dec *geminicode.Decoder, scanErr error, out chan<- StreamChunk, emittedDone bool) error {
 	chunks, err := dec.Finish(scanErr)
 	for _, chunk := range chunks {
+		if chunk.Done {
+			emittedDone = true
+		}
 		if !emitChunk(ctx, out, chunk) {
 			return nil
 		}
@@ -138,6 +151,9 @@ func (c *CloudCodeClient) finishScan(ctx context.Context, dec *geminicode.Decode
 	}
 	classified := toBackendError(err, c.cfg.Endpoint)
 	if IsConnectionDropped(classified) {
+		return classified
+	}
+	if emittedDone {
 		return classified
 	}
 	select {

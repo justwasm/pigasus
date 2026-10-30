@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/justwasm/pigasus/internal/agystep"
 )
@@ -237,16 +238,36 @@ func parseUserInputStep(s *Step, top []protoField) {
 	if p19 == nil {
 		return
 	}
-	p3 := protoBytes(protoFields(p19), 3)
-	if p3 == nil {
+	f19 := protoFields(p19)
+	// Field 2 is CortexStepUserInput.user_response (the user's verbatim input).
+	if txt := protoText(f19, 2); strings.TrimSpace(txt) != "" {
+		s.Text = txt
 		return
 	}
-	if t1 := protoBytes(protoFields(p3), 1); t1 != nil {
-		s.Text = string(t1)
-	} else {
+	// Field 3 is repeated CortexStepUserInput.items. Find an item with field 1 (text).
+	for _, f := range f19 {
+		if f.num == 3 && f.wire == 2 {
+			if t1 := protoBytes(protoFields(f.data), 1); len(t1) > 0 {
+				s.Text = string(t1)
+				return
+			}
+		}
+	}
+	// Shallow payload fallback: field 3 itself is plain text if valid UTF-8 and printable.
+	if p3 := protoBytes(f19, 3); len(p3) > 0 && utf8.Valid(p3) && isPrintableText(string(p3)) {
 		s.Text = string(p3)
 	}
 }
+
+func isPrintableText(s string) bool {
+	for _, r := range s {
+		if r < 0x20 && r != '\t' && r != '\n' && r != '\r' {
+			return false
+		}
+	}
+	return true
+}
+
 
 func parseToolCallStep(s *Step, top []protoField) {
 	p5 := protoBytes(top, 5)

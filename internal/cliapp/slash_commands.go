@@ -1,11 +1,13 @@
 package cliapp
 
 import (
+	"fmt"
 	"strings"
 	"unicode/utf8"
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/justwasm/pigasus/internal/app/subagent/builtin"
 	"github.com/justwasm/pigasus/internal/backend"
 	"github.com/justwasm/pigasus/internal/printmode"
 	"github.com/justwasm/pigasus/internal/slashquote"
@@ -81,6 +83,7 @@ func (m *runMode) slashRespond(cmd, msg string, extra ...string) {
 	)
 	m.response = append(m.response, extra...)
 	m.response = append(m.response, "")
+	m.rowsCacheDirty = true
 }
 
 // slashRespondPlain appends a single message line to m.response WITHOUT
@@ -90,6 +93,7 @@ func (m *runMode) slashRespond(cmd, msg string, extra ...string) {
 // by writing the styled line to the transcript instead.
 func (m *runMode) slashRespondPlain(msg string) {
 	m.response = append(m.response, panelGray238+msg+panelGray238C)
+	m.rowsCacheDirty = true
 }
 
 type slashHandler func(m *runMode, args string) (bool, tea.Cmd)
@@ -351,7 +355,7 @@ func teamworkPrompt() string {
 }
 
 func boostPrompt() string {
-	return "Apply deep thinking, strategic planning, multiple perspectives, and rigorous verification to solve the task at hand. Explore alternative approaches, evaluate tradeoffs, and verify each step thoroughly."
+	return fmt.Sprintf("<ORCHESTRATOR>\n%s\n</ORCHESTRATOR>", builtin.OrchestratorPrompt())
 }
 
 func grillMePrompt() string {
@@ -393,8 +397,9 @@ func (m *runMode) slashTeamwork(args string) (bool, tea.Cmd) {
 
 func (m *runMode) slashBoost(args string) (bool, tea.Cmd) {
 	prompt := boostPrompt()
-	if args != "" {
-		prompt = args + "\n\n" + prompt
+	clean := strings.TrimSpace(args)
+	if clean != "" {
+		prompt = fmt.Sprintf("%s\n\n#### Current Task to Execute\n\n**Task**: %s", prompt, clean)
 	}
 	return true, m.sendAsPrompt("/boost", prompt)
 }

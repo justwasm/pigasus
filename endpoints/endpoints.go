@@ -37,7 +37,9 @@
 package endpoints
 
 import (
+	"fmt"
 	"net/url"
+	"runtime"
 	"strings"
 )
 
@@ -75,6 +77,13 @@ const (
 	// to. It is a full URL: the RPC path is part of it.
 	WebChannel = "webchannel"
 
+	// UpdateInstance is the cloud RPC that renames a registered
+	// instance. It lives on the tunnel's own host — only the RPC path
+	// differs from the WebChannel endpoint — so an override rarely
+	// needs to name it: the resolver derives it from the WebChannel
+	// endpoint when the file does not carry one.
+	UpdateInstance = "update_instance"
+
 	// GenerativeLanguage is the Generative Language API host. The
 	// clone passes it to the spawned reference binary as its
 	// --api_server_url.
@@ -106,6 +115,9 @@ const (
 	// Its value ends with "?", because the caller appends the
 	// URL-escaped skill name.
 	Marketplace = "marketplace"
+
+	// AutoUpdater is the Cloud Run auto-updater service host.
+	AutoUpdater = "auto_updater"
 )
 
 // The compiled-in defaults. They are what the clone used before the
@@ -120,12 +132,14 @@ const (
 	DefaultOAuthRedirect      = "https://antigravity.google/oauth-callback"
 	DefaultUserInfo           = "https://www.googleapis.com/oauth2/v3/userinfo"
 	DefaultWebChannel         = "https://jetski-webchannel.googleapis.com/v1internal:connectInstanceV2"
+	DefaultUpdateInstance     = "https://jetski-webchannel.googleapis.com/v1internal:updateInstance"
 	DefaultGenerativeLanguage = "https://generativelanguage.googleapis.com"
 	DefaultCompanionOrigin    = "https://antigravity.google.com"
 	DefaultAccountChooser     = "https://accounts.google.com/AccountChooser"
 	DefaultTerms              = "https://antigravity.google/terms"
 	DefaultPrivacy            = "https://policies.google.com/privacy"
 	DefaultMarketplace        = "https://marketplace.antigravity.com/skills?q="
+	DefaultAutoUpdater        = "https://antigravity-cli-auto-updater-974169037036.us-central1.run.app"
 )
 
 // DefaultOriginPatterns is the browser Origin allowlist the remote-control
@@ -163,6 +177,7 @@ func Names() []Name {
 		{OAuthRedirect, DefaultOAuthRedirect},
 		{UserInfo, DefaultUserInfo},
 		{WebChannel, DefaultWebChannel},
+		{UpdateInstance, DefaultUpdateInstance},
 		{GenerativeLanguage, DefaultGenerativeLanguage},
 		{CompanionOrigin, DefaultCompanionOrigin},
 		{AccountChooser, DefaultAccountChooser},
@@ -170,6 +185,7 @@ func Names() []Name {
 		{Terms, DefaultTerms},
 		{Privacy, DefaultPrivacy},
 		{Marketplace, DefaultMarketplace},
+		{AutoUpdater, DefaultAutoUpdater},
 	}
 }
 
@@ -196,6 +212,10 @@ type Set struct {
 	UserInfo string
 	// WebChannel is the remote-control cloud tunnel endpoint.
 	WebChannel string
+	// UpdateInstance is the endpoint the instance-metadata update
+	// posts to. It is derived from the WebChannel endpoint unless the
+	// configuration file names one; see UpdateInstanceURL.
+	UpdateInstance string
 	// GenerativeLanguage is the Generative Language API host.
 	GenerativeLanguage string
 	// CompanionOrigin is the companion web app's browser origin.
@@ -210,6 +230,8 @@ type Set struct {
 	Privacy string
 	// Marketplace is the plugin marketplace's skill search endpoint.
 	Marketplace string
+	// AutoUpdater is the auto-updater service host.
+	AutoUpdater string
 }
 
 // Current returns the resolved endpoint set.
@@ -227,6 +249,7 @@ func Current() Set {
 		OAuthRedirect:      pick(o, OAuthRedirect, DefaultOAuthRedirect),
 		UserInfo:           pick(o, UserInfo, DefaultUserInfo),
 		WebChannel:         pick(o, WebChannel, DefaultWebChannel),
+		UpdateInstance:     pick(o, UpdateInstance, ""),
 		GenerativeLanguage: pick(o, GenerativeLanguage, DefaultGenerativeLanguage),
 		CompanionOrigin:    pick(o, CompanionOrigin, DefaultCompanionOrigin),
 		AccountChooser:     pick(o, AccountChooser, DefaultAccountChooser),
@@ -234,6 +257,7 @@ func Current() Set {
 		Terms:              pick(o, Terms, DefaultTerms),
 		Privacy:            pick(o, Privacy, DefaultPrivacy),
 		Marketplace:        pick(o, Marketplace, DefaultMarketplace),
+		AutoUpdater:        pick(o, AutoUpdater, DefaultAutoUpdater),
 	}
 }
 
@@ -263,6 +287,48 @@ func (s Set) AccountChooserURL(email, target string) string {
 	q.Set("Email", email)
 	q.Set("continue", target)
 	return chooser + "?" + q.Encode()
+}
+
+// UpdateInstanceURL returns the URL the instance-metadata update posts
+// to.
+//
+// The configuration file wins when it names the endpoint. Otherwise the
+// URL is derived from the WebChannel endpoint: the reference posts to
+// "{proxyURL}/v1internal:updateInstance", where proxyURL is the
+// tunnel's own host, so the update lives on the same host as the
+// tunnel and only the RPC path differs.
+//
+// Deriving it — rather than hard-coding the compiled-in default — is
+// what keeps a local mock working: a tunnel pointed at 127.0.0.1
+// answers the rename on the same port.
+func (s Set) UpdateInstanceURL() string {
+	if v := strings.TrimSpace(s.UpdateInstance); v != "" {
+		return v
+	}
+	return UpdateInstanceURLFor(s.WebChannel)
+}
+
+// UpdateInstanceURLFor derives the instance-update URL for a tunnel
+// endpoint.
+//
+// An endpoint that carries no host — an empty value, or one that does
+// not parse — yields the compiled-in default.
+func UpdateInstanceURLFor(webChannel string) string {
+	raw := strings.TrimSpace(webChannel)
+	if raw == "" {
+		return DefaultUpdateInstance
+	}
+	u, err := url.Parse(raw)
+	if err != nil || u.Host == "" {
+		return DefaultUpdateInstance
+	}
+	scheme := u.Scheme
+	if scheme == "" {
+		// The reference's own rule: a proxy URL without a scheme is
+		// read as https.
+		scheme = "https"
+	}
+	return scheme + "://" + u.Host + "/v1internal:updateInstance"
 }
 
 // WebChannelHostPort returns the tunnel endpoint's host:port — the form
@@ -307,6 +373,27 @@ func (s Set) CloudCodeHost() string {
 // endpoint itself.
 func (s Set) OAuth2AuthHost() string {
 	return hostOf(s.OAuth2Auth)
+}
+
+// AutoUpdaterManifestURL returns the full URL to the update manifest for
+// the given goos and goarch. If the AutoUpdater endpoint already ends with
+// ".json", it is returned directly as in the reference binary.
+func (s Set) AutoUpdaterManifestURL(goos, goarch string) string {
+	base := strings.TrimSpace(s.AutoUpdater)
+	if base == "" {
+		base = DefaultAutoUpdater
+	}
+	if strings.HasSuffix(base, ".json") {
+		return base
+	}
+	if goos == "" {
+		goos = runtime.GOOS
+	}
+	if goarch == "" {
+		goarch = runtime.GOARCH
+	}
+	base = strings.TrimRight(base, "/")
+	return fmt.Sprintf("%s/manifests/%s_%s.json", base, goos, goarch)
 }
 
 // hostOf returns the host of a URL, or the URL itself when it carries

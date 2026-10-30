@@ -141,12 +141,20 @@ func (d *Dispatcher) streamSubscribeToMcpServerStates(ctx context.Context, paylo
 // current list and then holds the stream open.
 //
 // The frame is exa.language_server_pb.SubscribeToPluginsResponse: the
-// `plugins` list. The clone has no plugins, so the list is empty — and
-// the stream stays open, for the same reason as the MCP one: the Web
+// `plugins` list. The list is the *installed* plugins — the same list
+// GetAllPlugins answers — so the Web UI's plugin panel and the
+// stream agree.
+//
+// The stream stays open, for the same reason as the MCP one: the Web
 // UI reads the first frame as the current list and every later frame
 // as "the plugins changed".
 func (d *Dispatcher) streamSubscribeToPlugins(ctx context.Context, payload string, emit func(json.RawMessage) error) (bool, error) {
-	if err := emitLSJSON(emit, "SubscribeToPlugins", map[string]any{"plugins": []any{}}); err != nil {
+	catalog := readLSPluginCatalog()
+	plugins := make([]any, 0, len(catalog.Plugins))
+	for _, p := range catalog.Plugins {
+		plugins = append(plugins, lsPluginJSON(p, catalog.Marketplaces))
+	}
+	if err := emitLSJSON(emit, "SubscribeToPlugins", map[string]any{"plugins": plugins}); err != nil {
 		return true, err
 	}
 	return true, lsHoldStream(ctx)

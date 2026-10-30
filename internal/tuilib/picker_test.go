@@ -295,3 +295,30 @@ func TestPickerUpdate_ModelModeRereadsCatalogue(t *testing.T) {
 		t.Errorf("Len after catalogue grew = %d, want %d", p.Len(), len(rows))
 	}
 }
+
+func TestPickerUpdate_TrailingWhitespaceClosesCommandPicker(t *testing.T) {
+	var p PickerState
+	p.Update([]rune("/btw"))
+	if !p.Visible() {
+		t.Fatal("/btw should open the command picker")
+	}
+
+	// Trailing space means command token is done; picker must close.
+	p.Update([]rune("/btw "))
+	if p.Visible() {
+		t.Error("/btw with trailing space should close the picker")
+	}
+
+	// Arguments after command should keep picker closed.
+	p.Update([]rune("/btw 现在进行到什么进度了"))
+	if p.Visible() {
+		t.Error("/btw with arguments should keep the picker closed")
+	}
+
+	// Backspacing space reopens picker.
+	p.Update([]rune("/btw"))
+	if !p.Visible() {
+		t.Fatal("backspacing space back to /btw should reopen the picker")
+	}
+}
+

@@ -149,26 +149,29 @@ func (m *runMode) panelDiscoverLines(mkts []pluginMarketplace, max int) []string
 	cursor := m.pluginCursorFor(len(rows) + offset)
 	installedSet := installedNames()
 	if !searching {
-		sections := pluginsui.GroupDiscoverSections(toPluginRows(marketplaceItems(mkts)))
-		if len(sections) > 1 {
-			idx := 0
-			for _, sec := range sections {
-				lines = append(lines, "", pluginsui.DiscoverSectionHeader(sec.Name))
-				for _, it := range sec.Items {
-					p := fromPluginRow(it)
-					lines = append(lines, pluginDiscoverLine(cursor == idx+offset, installedSet[p.name], p.name, p.desc, max))
-					if m.panel.pluginExpanded[p.name] {
-						lines = append(lines, pluginDiscoverDetails(p.name, mkts, max)...)
-					}
-					idx++
-				}
+		// Cycle 364 (agy 1.4.11): the Discover list is a shelf layout —
+		// each shelf shows its first plugins plus a "⋯ N more — enter to
+		// show" row. A feed that groups into more than one section draws
+		// the section headers; one that does not is shown as a single
+		// unnamed shelf, as before.
+		shelves := m.pluginDiscoverShelves(mkts)
+		multi := len(shelves) > 1
+		idx := 0
+		for _, sh := range shelves {
+			if multi {
+				lines = append(lines, "", pluginsui.DiscoverSectionHeader(sh.Name))
 			}
-		} else {
-			for i, p := range rows {
-				lines = append(lines, pluginDiscoverLine(cursor == i+offset, installedSet[p.name], p.name, p.desc, max))
+			for _, p := range sh.Rows {
+				if p.more {
+					lines = append(lines, pluginShelfMoreLine(cursor == idx+offset, p.hidden))
+					idx++
+					continue
+				}
+				lines = append(lines, pluginDiscoverLine(cursor == idx+offset, installedSet[p.name], p.name, p.desc, max))
 				if m.panel.pluginExpanded[p.name] {
 					lines = append(lines, pluginDiscoverDetails(p.name, mkts, max)...)
 				}
+				idx++
 			}
 		}
 	} else {
@@ -284,7 +287,17 @@ func (m *runMode) pluginCursorFor(n int) int {
 
 // pluginDiscoverLegend is the Discover footer.
 func (m *runMode) pluginDiscoverLegend(onLocal bool) string {
-	return pluginsui.DiscoverLegend(onLocal, m.panel.pluginSearch)
+	return pluginsui.DiscoverLegend(onLocal, m.panel.pluginSearch, m.pluginCursorShelfExpanded())
+}
+
+// pluginCursorShelfExpanded reports whether the shelf under the Discover
+// cursor is expanded — the footer says "Collapse Shelf" then.
+func (m *runMode) pluginCursorShelfExpanded() bool {
+	row, ok := m.pluginDiscoverCursorRow()
+	if !ok || !row.inShelf {
+		return false
+	}
+	return m.pluginShelfIsExpanded(row.shelf)
 }
 
 // pluginInstalledLegend is the Installed tab footer.

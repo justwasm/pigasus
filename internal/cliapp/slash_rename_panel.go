@@ -30,6 +30,8 @@
 package cliapp
 
 import (
+	"strings"
+
 	"charm.land/bubbles/v2/textinput"
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
@@ -259,9 +261,21 @@ func (m *runMode) handleAddDirKey(key tea.Key) (bool, tea.Cmd) {
 
 // userPromptRow renders the user's own message in the transcript.
 // 【反编译】 agy 1.4.8 render.UserPromptText styles the prompt row with
-// Scheme.UserFg + bold.
+// Scheme.UserFg + bold. Continuation lines in multi-line prompts are
+// indented with 2 spaces to align with the "> " prefix.
 func userPromptRow(text string) string {
-	return cUserFgBoldOpen + "> " + text + cBlueBoldClose
+	if !strings.Contains(text, "\n") {
+		return cUserFgBoldOpen + "> " + text + cBlueBoldClose
+	}
+	lines := strings.Split(text, "\n")
+	for i, l := range lines {
+		if i == 0 {
+			lines[i] = cUserFgBoldOpen + "> " + l + cBlueBoldClose
+		} else if l != "" {
+			lines[i] = "  " + l
+		}
+	}
+	return strings.Join(lines, "\n")
 }
 
 // renderLineHighlighted renders a single transcript line, optionally

@@ -19,6 +19,11 @@
 package cliapp
 
 import (
+	"net/url"
+	"strings"
+
+	"github.com/justwasm/pigasus/internal/persistentrc"
+	"github.com/justwasm/pigasus/internal/rclink"
 	"github.com/justwasm/pigasus/internal/urlchunk"
 )
 
@@ -56,3 +61,37 @@ func (m *runMode) rcURLChunkWidth() int {
 func (m *runMode) rcURLRows(url string) []string {
 	return urlchunk.Rows(url, rcURLIndent, m.rcURLChunkWidth(), m.hyperlinkCaps)
 }
+
+// buildRemoteControlCard constructs the status message and extra transcript lines
+// for the /remote-control card (used both by the /remote-control slash command
+// and the startup --remote-control flag).
+func buildRemoteControlCard(conversationID, uuid, hostname string, urlRows func(string) []string) (string, []string) {
+	return buildRemoteControlCardForAccount("", conversationID, uuid, hostname, urlRows)
+}
+
+// buildRemoteControlCardForAccount constructs the /remote-control card with an explicit account email.
+func buildRemoteControlCardForAccount(email, conversationID, uuid, hostname string, urlRows func(string) []string) (string, []string) {
+	msg := "Remote control on for this session."
+	instanceID := persistentrc.InstanceIDPrefix + uuid + persistentrc.InstanceIDSuffix
+	lead := "Open on another device to take over:"
+	rawQuery := ""
+	if conversationID != "" {
+		lead = "Open on another device to continue this conversation:"
+		rawQuery = "p=" + url.QueryEscape("c/"+conversationID)
+	}
+	extra := []string{rcURLIndent + lead}
+	if hostname != "" {
+		extra = append(extra, rcURLIndent+"Hostname: "+hostname)
+	}
+	if strings.TrimSpace(email) == "" {
+		email = rclink.ActiveAccount()
+	}
+	browserURL := rclink.BrowserURLForAccount(strings.TrimSpace(email), instanceID, rawQuery)
+	if urlRows != nil {
+		extra = append(extra, urlRows(browserURL)...)
+	} else {
+		extra = append(extra, rcURLIndent+browserURL)
+	}
+	return msg, extra
+}
+

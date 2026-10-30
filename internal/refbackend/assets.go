@@ -8,18 +8,19 @@
 // product name) and its own bundle, and serving the clone's copy of the
 // page next to the reference's answers mixes two products.
 //
-// 【一手】 2026-10-26, the reference's own HTTP answers (a standalone
-// `language_server` on 127.0.0.1:8802):
+// 【一手】 2026-10-30, the reference's own HTTP answers (a standalone
+// `language_server` on 127.0.0.1:8944, the Antigravity App 2.28.2
+// binary — the capture is in out/ide-language-server/frontend-http-2282.txt):
 //
-//	GET /                      → 200 text/html      3870 bytes
-//	GET /index.html            → 200 text/html      3870 bytes
-//	GET /main.js               → 200 text/javascript  10461461 bytes
+//	GET /                      → 200 text/html      3969 bytes
+//	GET /index.html            → 200 text/html      3969 bytes
+//	GET /main.js               → 200 text/javascript  10652379 bytes
 //	GET /jetbox.css            → 200 text/css           95487 bytes
-//	GET /compiled_tailwind.css → 200 text/css          249475 bytes
+//	GET /compiled_tailwind.css → 200 text/css          263273 bytes
 //	GET /prism_bundle.js       → 200 text/javascript   141963 bytes
 //	GET /diff_worker.js        → 200 text/javascript     9952 bytes
-//	GET /symbols-icons/x.svg   → 200 text/html          3870 bytes
-//	GET /unknown               → 200 text/html          3870 bytes
+//	GET /symbols-icons/x.svg   → 200 text/html          3969 bytes
+//	GET /unknown               → 200 text/html          3969 bytes
 //
 // The last two are the reference's SPA fallback: a path it does not
 // know answers with its index.html, not with a 404. The proxy

@@ -1,13 +1,13 @@
 {
-  "version": "1.4.10",
-  "lag_note": "1.4.10 is the live binary (sha256 35605054a9dc4591dd7e6ea83a9392238153d4c55d265512ed9b5b7f97cc0423) and the clone's pin, so no lag is acknowledged. What DID move: the served changelog feed - its newest section is now 1.4.9 (184,882 B, 1,054 lines, 80 sections, 895 bullets; the 1.4.10 notes are published in the public repository and recorded verbatim in internal/cli/testdata/changelog_upstream_1.4.10.md). What did NOT move, re-measured first-hand against the 1.4.10 binary: --help (byte-identical to the 1.4.6 capture once the clone's own four commands - accounts, halloween, model, provider - are removed). What was regenerated at 1.4.10: the pclntab seed set (167,678 functions), priority list (2,366 functions), the Ghidra project and 2,366/2,366 decompiled functions (345,662 LOC), with reports in out/local-macos/ and seed diff in out/local-macos/seeds/diff_1.4.8_1.4.10.txt. What was NOT re-verified at 1.4.10 and therefore keeps its 1.4.8 stamp: the sixty advertised tool names, the twelve model declarations, the system prompt's static sections, the remote-control descriptor (79 RPCs), the language-server descriptor (358 RPCs), chroma (still pinned at upstream v2.27.0), the embedded model_profiles.json, the overflow message, the session-summary prompt and the tool result texts.",
+  "version": "1.4.11",
+  "lag_note": "The live binary is 1.4.11 and the clone is pinned to 1.4.11, so no lag is acknowledged - lag_acknowledged_through must be strictly newer than the pin. The changelog feed was re-captured from the 1.4.11 binary (it gained the 1.4.10 section); every other artefact keeps its own captured_at, and the gate reports each one as SUSPECT because it was recorded from an older binary.",
   "artifacts": [
     {
       "path": "internal/cli/testdata/changelog_reference.txt",
-      "captured_at": "1.4.10",
-      "digest": "a9c4ce87e4ab753fe475d270240922decd76d2237a05d8b4cb642876331c34ec",
+      "captured_at": "1.4.11",
+      "digest": "209a0518b09896b97bb053ab3e352442f7a050bf08373105f67a23455ba411f1",
       "live": true,
-      "how": "agy changelog \u003e internal/cli/testdata/changelog_reference.txt, then update the five constants in internal/cli/changelog_data_test.go (byte length, line count, section count, bullet count, sha256) and regenerate this lock. Re-captured at 1.4.10 (2026-10-29): the feed gained the 1.4.9 section and is 184,882 bytes / 1,054 lines / 80 sections / 895 bullets, sha256 a9c4ce87e4ab753fe475d270240922decd76d2237a05d8b4cb642876331c34ec. It still ends at 1.4.9 - the 1.4.10 release notes are published in the public repository but the served feed does not carry them yet (they are recorded verbatim in internal/cli/testdata/changelog_upstream_1.4.10.md)."
+      "how": "agy changelog \u003e internal/cli/testdata/changelog_reference.txt, then update the five constants in internal/cli/changelog_data_test.go (byte length, line count, section count, bullet count, sha256) and regenerate this lock. Re-captured at 1.4.11 (2026-10-30): the feed gained the 1.4.10 section and is 186,601 bytes / 1,062 lines / 81 sections / 901 bullets, sha256 209a0518b09896b97bb053ab3e352442f7a050bf08373105f67a23455ba411f1. It still ends at 1.4.10 - the 1.4.11 release notes are published in the public repository but the served feed does not carry them yet (they are recorded verbatim in internal/cli/testdata/changelog_upstream_1.4.11.md)."
     },
     {
       "path": "internal/agyprompt/testdata/capture_1.4.6.txt",
@@ -88,20 +88,20 @@
     },
     {
       "path": "out/local-macos/seeds/seeds.txt",
-      "captured_at": "1.4.10",
-      "digest": "12f28efa0d8f76785b7b7264ac46e61707bf8f80938654a1ab48d893fdc0fec1",
-      "how": "cd rea-go-seeds \u0026\u0026 mkdir -p \u003coutdir\u003e \u0026\u0026 go run . ~/.local/bin/agy \u003coutdir\u003e. Regenerated at 1.4.10 (2026-10-29): 167,678 recovered names, priority list 2,366 functions across 110 packages, Ghidra project rebuilt from the new seeds (167,658 functions created, 0 failed) and 2,366/2,366 priority functions decompiled, 345,662 LOC."
+      "captured_at": "1.4.11",
+      "digest": "c1084acd08ed5906a45fbef58cc60fc9f78bd1b2323e5c5fd833c2adab8cfa92",
+      "how": "cd rea-go-seeds \u0026\u0026 mkdir -p \u003coutdir\u003e \u0026\u0026 go run . ~/.local/bin/agy \u003coutdir\u003e. Regenerated at 1.4.11 (2026-10-30): 168,548 recovered names."
     },
     {
       "path": "out/local-macos/seeds/funcs.txt",
-      "captured_at": "1.4.10",
-      "digest": "ff26859904a0a2176976d15b1b98a075a92a005ed622a5885c38839c42d9edd3",
-      "how": "written by the same rea-go-seeds run as seeds.txt; regenerated at 1.4.10 (2026-10-29) together with seeds.txt (167,678 names)."
+      "captured_at": "1.4.11",
+      "digest": "5fb32f97976fa57f5abc2e44ad4b6fb71ace292fb13b7d61252a26256b1e3b18",
+      "how": "written by the same rea-go-seeds run as seeds.txt; regenerated at 1.4.11 (2026-10-30) together with seeds.txt (168,548 names)."
     },
     {
       "path": "internal/cli/testdata/help_1.4.6.txt",
       "captured_at": "1.4.8",
-      "digest": "6d52f2952f58378ed859fc03b8cc305709637d6a96ae9713ad38cf2bba725ab7",
+      "digest": "5a603a7d8385b0b07a98cc9fa31e9b1597bf389d0954f9e80b3913181b463540",
       "live": true,
       "how": "capture `agy --help`, `agy \u003ccmd\u003e --help` for the thirty commands the golden covers, stdout and stderr separately, with a throwaway HOME. Re-verified at 1.4.8: byte-identical to the 1.4.6 capture - the flag table, the column widths and every per-command usage block are unchanged. The golden's top-level section also carries the clone's own commands (accounts, model, provider, halloween) next to the reference's twelve, because it pins the clone's help surface - the reference lists none of them"
     },

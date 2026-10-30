@@ -200,7 +200,12 @@ func (p *PickerState) Update(buffer []rune) bool {
 		p.Reset()
 		return p.visible != prev.visible || len(p.all) != len(prev.all)
 	}
-	p.all = p.filterVisibleCommands(readToken(buffer))
+	tok := readToken(buffer)
+	if len([]rune(tok)) < len(buffer) {
+		p.Reset()
+		return p.visible != prev.visible || len(p.all) != len(prev.all)
+	}
+	p.all = p.filterVisibleCommands(tok)
 	p.visible = true
 	p.clampSelection()
 	return true

@@ -122,7 +122,11 @@ func buildProxiedRequest(ctx context.Context, req *ProxyRequestV2) (*http.Reques
 	}
 	httpReq.Header.Set(headerViaRemoteControl, "true")
 	httpReq.Header.Set(headerRemoteTransport, transportWebChannel)
-	httpReq.Header.Set("Content-Type", proxiedContentType(req.Headers, isStreamingRequest(req.Headers)))
+	isStreaming := isStreamingRPC(req.Headers, req.RPCPath)
+	httpReq.Header.Set("Content-Type", proxiedContentType(req.Headers, isStreaming))
+	if isStreaming {
+		httpReq.Header.Set(headerStreamingFlag, "true")
+	}
 	if httpReq.Header.Get(headerConnectVersion) == "" {
 		httpReq.Header.Set(headerConnectVersion, "1")
 	}
@@ -251,6 +255,25 @@ func isStreamingRequest(headers map[string]string) bool {
 	return false
 }
 
+// isStreamingRPC reports whether the request is a server stream either via header
+// or well-known streaming RPC method name.
+func isStreamingRPC(headers map[string]string, rpcPath string) bool {
+	if isStreamingRequest(headers) {
+		return true
+	}
+	method := rpcPath
+	if idx := strings.LastIndex(rpcPath, "/"); idx != -1 {
+		method = rpcPath[idx+1:]
+	}
+	switch method {
+	case "StreamTerminalOutput", "StreamAgentStateUpdates", "JetboxSubscribeToState",
+		"ProjectUpdatesStream", "SubscribeToPlugins", "SubscribeToMcpServerStates",
+		"JetboxSubscribeToSummaries", "SubscribeToPlanState":
+		return true
+	}
+	return false
+}
+
 // recordedResponse captures what the local handler wrote, chunk by
 // chunk. It is the clone's counterpart of the reference's response
 // recorder.
@@ -296,10 +319,13 @@ func (r *recordedResponse) WriteHeader(code int) {
 // proxyResponseChunk renders one chunk of a recorded response as a
 // tunnel frame.
 //
-// The chunk goes into `payloadText` when it is valid UTF-8 and into
-// `payload` otherwise — the reference's `proxyResponseFramer` makes
-// the same choice, and it is the only lossless one: a JSON string
-// cannot carry bytes that are not valid UTF-8.
+// The chunk goes into `payload` when it is binary data (protobuf,
+// Connect/gRPC-Web streaming frames, non-UTF8 bytes, or chunks with NUL bytes),
+// and into `payloadText` when it is plain UTF-8 text (e.g. unary JSON).
+// The remote-control web client's WebChannel transport (Vcc / fKc) decodes
+// binary frames from field 1 (`payload`); sending binary protobuf or Connect
+// envelopes in `payloadText` causes the browser to drop the chunk or fail
+// decoding.
 func proxyResponseChunk(reqID string, rec *recordedResponse, chunk []byte) *ProxyResponseV2 {
 	resp := &ProxyResponseV2{
 		RequestID:  reqID,
@@ -307,12 +333,33 @@ func proxyResponseChunk(reqID string, rec *recordedResponse, chunk []byte) *Prox
 		Headers:    flattenHeaders(rec.header),
 		IsFinal:    false,
 	}
-	if utf8.Valid(chunk) {
-		resp.PayloadText = string(chunk)
-	} else {
+	if isBinaryResponse(rec, chunk) {
 		resp.Payload = chunk
+	} else {
+		resp.PayloadText = string(chunk)
 	}
 	return resp
+}
+
+func isBinaryResponse(rec *recordedResponse, chunk []byte) bool {
+	if !utf8.Valid(chunk) {
+		return true
+	}
+	if rec != nil {
+		ct := strings.ToLower(rec.header.Get("Content-Type"))
+		if strings.Contains(ct, "proto") ||
+			strings.Contains(ct, "connect+") ||
+			strings.Contains(ct, "grpc-web") ||
+			strings.Contains(ct, "octet-stream") {
+			return true
+		}
+	}
+	// Connect/gRPC-Web framing and binary protobuf frequently contain NUL bytes.
+	// Valid JSON or text never contains raw NUL bytes.
+	if bytes.IndexByte(chunk, 0) != -1 {
+		return true
+	}
+	return false
 }
 
 // proxyResponseFinal renders the last frame of a recorded response: it
@@ -448,6 +495,7 @@ const responsePostTimeout = 30 * time.Second
 // day, every one of them with "context canceled", and each loss left
 // the web UI waiting for an answer that never came.
 func (c *Client) sendProxyResponse(ctx context.Context, token string, resp *ProxyResponseV2) {
+	c.log("sendProxyResponse reqID=%s status=%d isFinal=%v payloadTextLen=%d payloadLen=%d", resp.RequestID, resp.StatusCode, resp.IsFinal, len(resp.PayloadText), len(resp.Payload))
 	wrapReq := ConnectInstanceRequestV2{
 		Metadata: &InstanceMetadata{
 			Name:             c.opts.InstanceName,

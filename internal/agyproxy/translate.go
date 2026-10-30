@@ -35,7 +35,14 @@ func ToChatRequest(m models.Model, inner *geminicode.GenerateContentRequest) mod
 		ReasoningEffort: m.ReasoningEffort,
 	}
 	translateGenerationConfig(inner, &req)
-	for _, c := range inner.Contents {
+	contents := inner.Contents
+	if len(contents) > 0 && contents[0].Role == "model" {
+		contents = append([]geminicode.Content{{
+			Role:  "user",
+			Parts: []geminicode.Part{{Text: "[Continuing from previous AI thoughts...]"}},
+		}}, contents...)
+	}
+	for _, c := range contents {
 		req.Messages = append(req.Messages, translateContentToMessages(c)...)
 	}
 	req.Tools = translateTools(inner.Tools)
@@ -84,7 +91,7 @@ func translateCallMessage(c geminicode.Content) models.ChatMessage {
 		if p.FunctionCall != nil {
 			msg.ToolCalls = append(msg.ToolCalls, models.ToolCall{
 				ID:        callID(p.FunctionCall),
-				Name:      p.FunctionCall.Name,
+				Name:      geminicode.NormalizeToolName(p.FunctionCall.Name),
 				Arguments: jsonArgs(p.FunctionCall.Args),
 			})
 			continue
@@ -135,9 +142,9 @@ func translateTools(tools []geminicode.Tool) []models.ToolSpec {
 	var specs []models.ToolSpec
 	for _, t := range tools {
 		for _, fd := range t.FunctionDeclarations {
-			spec := models.ToolSpec{Name: fd.Name, Description: fd.Description}
+			spec := models.ToolSpec{Name: geminicode.NormalizeToolName(fd.Name), Description: fd.Description}
 			if fd.Parameters != nil {
-				if b, err := json.Marshal(lowerSchemaTypes(fd.Parameters)); err == nil {
+				if b, err := json.Marshal(geminicode.NormalizeToolSchema(fd.Parameters, true)); err == nil {
 					spec.Parameters = b
 				}
 			}
@@ -151,14 +158,14 @@ func callID(fc *geminicode.FunctionCall) string {
 	if fc.ID != "" {
 		return fc.ID
 	}
-	return "call_" + fc.Name
+	return "call_" + geminicode.NormalizeToolName(fc.Name)
 }
 
 func responseCallID(fr *geminicode.FunctionResponse) string {
 	if fr.ID != "" {
 		return fr.ID
 	}
-	return "call_" + fr.Name
+	return "call_" + geminicode.NormalizeToolName(fr.Name)
 }
 
 // jsonArgs renders the arguments of a functionCall as the string the
@@ -203,33 +210,6 @@ func functionResponseText(fr *geminicode.FunctionResponse) string {
 	}
 }
 
-// lowerSchemaTypes rewrites Gemini's upper-case JSON-Schema types ("STRING",
-// "OBJECT") to the lower-case spelling OpenAI requires. Unknown keys are copied
-// untouched.
-func lowerSchemaTypes(v any) any {
-	switch t := v.(type) {
-	case map[string]any:
-		out := make(map[string]any, len(t))
-		for k, val := range t {
-			if k == "type" {
-				if s, ok := val.(string); ok {
-					out[k] = strings.ToLower(s)
-					continue
-				}
-			}
-			out[k] = lowerSchemaTypes(val)
-		}
-		return out
-	case []any:
-		out := make([]any, len(t))
-		for i, e := range t {
-			out[i] = lowerSchemaTypes(e)
-		}
-		return out
-	default:
-		return v
-	}
-}
 
 // ---- provider → Gemini --------------------------------------------------
 
@@ -352,11 +332,14 @@ func toolCallParts(calls []models.ToolCall) []geminicode.Part {
 		if id == "" {
 			id = "call_" + c.Name
 		}
-		out = append(out, geminicode.Part{FunctionCall: &geminicode.FunctionCall{
-			ID:   id,
-			Name: c.Name,
-			Args: json.RawMessage(raw),
-		}})
+		out = append(out, geminicode.Part{
+			ThoughtSignature: geminicode.SkipThoughtSignature,
+			FunctionCall: &geminicode.FunctionCall{
+				ID:   id,
+				Name: c.Name,
+				Args: json.RawMessage(raw),
+			},
+		})
 	}
 	return out
 }

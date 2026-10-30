@@ -1,4 +1,4 @@
-//go:build !windows
+//go:build !windows && !js
 
 // Pseudo-terminal plumbing for run_command.
 //

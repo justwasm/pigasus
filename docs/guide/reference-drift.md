@@ -144,6 +144,24 @@ vs 1.4.8), the Ghidra project was rebuilt (167,658 functions created, 0 failed),
 and 2,366/2,366 priority functions were decompiled with 0 errors across 110 packages
 (345,662 LOC).
 
+**Re-evidenced at 1.4.11** (`docs/cycles/cycle-365-agy-1.4.11-version-alignment/`):
+the clone is pinned to 1.4.11 (sha256 `09cefed6…`). Cycle 364 had already
+mapped the 1.4.11 *behaviour* onto the clone; this cycle moves the **version
+number** with it — `internal/cli.ReferenceVersion`, the drift lock, the npm
+wrapper's `version` / `pigasusVersion`, the wasm runner's `1.4.11-wasm`, and
+the `README.md` / `AGENTS.md` statements (which still said 1.4.9). The
+**served changelog feed grew by one section** — the 1.4.10 section arrived,
+so the feed is now 186,601 bytes / 1,062 lines / 81 sections / 901 bullets —
+but its newest section is **still 1.4.10**: the 1.4.11 release notes live in
+the vendor's public repository only, and they are recorded verbatim in
+`internal/cli/testdata/changelog_upstream_1.4.11.md`, the way the 1.4.10
+notes were. Because the pin now equals the live binary's version, the lock's
+`lag_acknowledged_through` was **removed** (a lag acknowledgement must be
+strictly newer than the pin) and the gate reports the twenty-odd artefacts
+that were captured from an older binary as SUSPECT. The **RE pipeline was not
+regenerated** at 1.4.11 — the seed set, the Ghidra project and the
+decompiled output still describe the 1.4.10 binary, and the lock says so.
+
 The **seed set is now regenerated at 1.4.6** (`out/local-macos/seeds/`, 161,286
 functions), and so is everything derived from it — the Ghidra project
 (`out/local-macos/proj`), the decompiled output (`out/local-macos/dec/`), the

@@ -1934,7 +1934,7 @@ func TestRemoteControl_ADCDetectionViaEnv(t *testing.T) {
 func buildRemoteControlFlagSet(t *testing.T, args []string) *flag.FlagSet {
 	t.Helper()
 	p := cli.NewParser(cli.StandardFlags(), cli.StandardSubcommands(),
-		"antigravity", "recovered", "recovered")
+		"antigravity", "recovered", "recovered", cli.ExtraFlags()...)
 	if code := p.Root().Parse(args); code != 0 {
 		t.Fatalf("Parse(%v) = %d; want 0", args, code)
 	}
@@ -2822,6 +2822,37 @@ func TestStatusRowCompactNoStart(t *testing.T) {
 	}
 	if !strings.Contains(row, "? for shortcuts") {
 		t.Errorf("end-without-start should leave the idle hint: %q", row)
+	}
+}
+
+func TestSlashBoostPromptFormatting(t *testing.T) {
+	p := boostPrompt()
+	if !strings.HasPrefix(p, "<ORCHESTRATOR>\n") || !strings.HasSuffix(p, "\n</ORCHESTRATOR>") {
+		t.Fatalf("boostPrompt missing <ORCHESTRATOR> envelope: %q", p)
+	}
+	if !strings.Contains(p, "Solo Routine") || !strings.Contains(p, "Delegation Routine") {
+		t.Fatalf("boostPrompt missing Solo/Delegation routines")
+	}
+	if !strings.Contains(p, "DeepCoder") || !strings.Contains(p, "DeepInvestigator") {
+		t.Fatalf("boostPrompt missing DeepCoder/DeepInvestigator routing")
+	}
+
+	t.Setenv("ANTIGRAVITY_HOME", t.TempDir())
+	t.Setenv("HOME", t.TempDir())
+	m := NewRunMode(&fakeClient{}, "u@t", "m", "t", t.TempDir(), true)
+	ok, cmd := m.slashBoost("Fix memory leak in network buffer")
+	if !ok || cmd == nil {
+		t.Fatalf("slashBoost returned ok=%v, cmd=%v", ok, cmd)
+	}
+	foundTask := false
+	for _, msg := range m.session {
+		if strings.Contains(msg.Content, "**Task**: Fix memory leak in network buffer") {
+			foundTask = true
+			break
+		}
+	}
+	if !foundTask {
+		t.Fatalf("slashBoost did not format **Task**: Fix memory leak in network buffer into conversation: %+v", m.session)
 	}
 }
 

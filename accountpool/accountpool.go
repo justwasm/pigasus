@@ -83,6 +83,11 @@ const (
 	// StrategyFailover keeps the account the session is signed in with
 	// and leaves it when the server says the quota is spent.
 	StrategyFailover Strategy = "failover"
+
+	// StrategyAggregate treats all accounts in the pool as a single unified
+	// virtual account, routing each turn to the account with the most quota
+	// left while presenting aggregate quota metrics to callers.
+	StrategyAggregate Strategy = "aggregate"
 )
 
 // The defaults the policy falls back to.
@@ -111,6 +116,7 @@ func Strategies() []Strategy {
 		StrategyRoundRobin,
 		StrategyQuotaAware,
 		StrategyFailover,
+		StrategyAggregate,
 	}
 }
 
@@ -132,6 +138,8 @@ func ParseStrategy(name string) (Strategy, bool) {
 		return StrategyQuotaAware, true
 	case "failover", "fail_over", "fail-over":
 		return StrategyFailover, true
+	case "aggregate", "agg", "unified", "super", "pool_aggregate":
+		return StrategyAggregate, true
 	}
 	return DefaultStrategy, false
 }
@@ -174,6 +182,14 @@ type Config struct {
 	// quota error. It is on by default; set it to false to keep the turn
 	// on the account that failed.
 	SwitchOnQuotaError *bool `json:"switch_on_quota_error,omitempty"`
+
+	// ProxyBalance enables multi-account load balancing in agyproxy (pigasus agy).
+	ProxyBalance bool `json:"proxy_balance,omitempty"`
+
+	// Aggregate enables virtual unified account aggregation in agyproxy.
+	// When enabled, proxy intercepts quota and codeassist queries and presents
+	// a unified view across all pool accounts, transparently rotating turns.
+	Aggregate bool `json:"aggregate,omitempty"`
 }
 
 // Normalised returns the policy with its defaults filled in.
@@ -188,6 +204,9 @@ func (c Config) Normalised() Config {
 		out.Strategy = s
 	} else {
 		out.Strategy = DefaultStrategy
+	}
+	if out.Strategy == StrategyAggregate {
+		out.Aggregate = true
 	}
 	if out.Threshold < 0 {
 		out.Threshold = 0
@@ -374,6 +393,12 @@ func Choose(cfg Config, states []State, cursor int) Decision {
 		chosen := mostRemaining(eligible)
 		decision.Email = chosen.Email
 		decision.Reason = fmt.Sprintf("the most quota left (%.1f%%)", chosen.Remaining*100)
+		return decision
+
+	case StrategyAggregate:
+		chosen := mostRemaining(eligible)
+		decision.Email = chosen.Email
+		decision.Reason = fmt.Sprintf("unified pool: most quota left (%.1f%%)", chosen.Remaining*100)
 		return decision
 
 	case StrategyFailover:

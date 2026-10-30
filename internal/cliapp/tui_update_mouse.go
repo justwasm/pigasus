@@ -29,7 +29,7 @@ func (m *runMode) updateMouseClick(ev tea.Mouse) (tea.Model, tea.Cmd) {
 	if m.picker.Visible() && !m.isInputY(ev.Y) {
 		m.picker.Reset()
 	}
-	if m.pinnedPromptText != "" && ev.Y == 0 {
+	if m.pinnedPromptText != "" && (ev.Y == 0 || ev.Y == 1) {
 		if m.jumpToPinnedPrompt() {
 			return m, nil
 		}

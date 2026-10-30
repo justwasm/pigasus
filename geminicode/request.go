@@ -7,6 +7,8 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"regexp"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -35,6 +37,7 @@ type Turn struct {
 	// MaxOutputTokens and ThinkingBudget override the per-model defaults.
 	MaxOutputTokens int
 	ThinkingBudget  int
+	ThinkingLevel   string
 	// SessionID is the reference's sessionId member. Zero picks a random
 	// one.
 	SessionID string
@@ -98,6 +101,7 @@ type TurnImage struct {
 // `request` member, with the envelope's own members around it.
 func BuildRequest(t Turn) GenerateContentRequest {
 	contents, system := buildContents(t.Messages, t.SystemPrompt, t.Signatures)
+	contents = HardenContents(contents)
 	inner := GenerateContentRequest{Contents: contents}
 	if system != "" {
 		inner.SystemInstruction = &SystemInstruction{Role: "user", Parts: []Part{{Text: system}}}
@@ -107,9 +111,19 @@ func BuildRequest(t Turn) GenerateContentRequest {
 	}
 	maxOut, budget := Limits(t.Model, t.MaxOutputTokens, t.ThinkingBudget)
 	temp := t.Temperature
+	tc := &ThinkingConfig{IncludeThoughts: true}
+	level := strings.TrimSpace(t.ThinkingLevel)
+	if level == "" && GeminiGeneration(t.Model) >= 3 {
+		level = "high"
+	}
+	if level != "" {
+		tc.ThinkingLevel = level
+	} else {
+		tc.ThinkingBudget = budget
+	}
 	inner.GenerationConfig = &GenerationConfig{
 		MaxOutputTokens: maxOut,
-		ThinkingConfig:  &ThinkingConfig{IncludeThoughts: true, ThinkingBudget: budget},
+		ThinkingConfig:  tc,
 	}
 	if temp != 0 {
 		inner.GenerationConfig.Temperature = &temp
@@ -129,6 +143,51 @@ func BuildRequest(t Turn) GenerateContentRequest {
 		env.RequestID = NewRequestID()
 	}
 	return env
+}
+
+var geminiVersion = regexp.MustCompile(`(?:^|/)gemini-(\d+)`)
+
+// GeminiGeneration returns the major generation of a Gemini model name
+// (e.g. 3 for "gemini-3.8-flash", 4 for "gemini-4-flash"), or 0 if unknown.
+func GeminiGeneration(model string) int {
+	m := geminiVersion.FindStringSubmatch(strings.ToLower(model))
+	if m == nil {
+		return 0
+	}
+	n, _ := strconv.Atoi(m[1])
+	return n
+}
+
+// HardenContents ensures conversation contents conform to Gemini's role sequence
+// constraints, matching the reference Gemini CLI hardenHistory behavior learned
+// from magpie:
+//  1. Gemini turns away requests whose first turn is a model turn (e.g. after history
+//     trimming or compaction) with 400 "The first turn must be a user turn". Prepend
+//     a synthetic user turn.
+//  2. Gemini turns away requests whose last turn is an assistant turn (without function
+//     response) with 400 "Requests ending with a model turn are not supported".
+//     Append a synthetic user turn asking to continue.
+func HardenContents(contents []Content) []Content {
+	if len(contents) == 0 {
+		return contents
+	}
+	out := contents
+	if out[0].Role == "model" {
+		out = append([]Content{{Role: "user", Parts: []Part{{Text: "[Continuing from previous AI thoughts...]"}}}}, out...)
+	}
+	if n := len(out); n > 0 && out[n-1].Role == "model" && !hasFunctionResponse(out[n-1]) {
+		out = append(out, Content{Role: "user", Parts: []Part{{Text: "Continue."}}})
+	}
+	return out
+}
+
+func hasFunctionResponse(c Content) bool {
+	for _, p := range c.Parts {
+		if p.FunctionResponse != nil {
+			return true
+		}
+	}
+	return false
 }
 
 // BuildTools turns the provider-neutral catalogue into the CloudCode
@@ -334,16 +393,75 @@ func buildAssistantContent(m TurnMessage, signatures map[string]string, paired m
 	return Content{Role: "model", Parts: parts}
 }
 
+// SkipThoughtSignature is the sentinel Google documents for tool calls
+// in history that have no thought signature: "skip_thought_signature_validator".
+// Gemini 3 rejects history containing tool calls without a signature unless
+// this validator bypass is provided (learned from magpie).
+const SkipThoughtSignature = "skip_thought_signature_validator"
+
+// InjectSkipThoughtSignatures scans conversation contents and injects
+// SkipThoughtSignature ("skip_thought_signature_validator") on any historical
+// FunctionCall parts that lack a ThoughtSignature. Returns true if any part was modified.
+func InjectSkipThoughtSignatures(contents []Content) bool {
+	modified := false
+	for i := range contents {
+		for j := range contents[i].Parts {
+			p := &contents[i].Parts[j]
+			if p.FunctionCall != nil && p.ThoughtSignature == "" {
+				p.ThoughtSignature = SkipThoughtSignature
+				modified = true
+			}
+		}
+	}
+	return modified
+}
+
+// ResolveThinkingConfig resolves any conflict between thinkingLevel and thinkingBudget.
+// For Gemini 3+ models, thinkingBudget is pruned and thinkingLevel defaults to "high"
+// if not set. If thinkingLevel is present, thinkingBudget is always pruned (set to 0).
+// Returns true if gc was modified.
+func ResolveThinkingConfig(model string, gc *GenerationConfig) bool {
+	if gc == nil {
+		return false
+	}
+	gen := GeminiGeneration(model)
+	if gc.ThinkingConfig == nil {
+		if gen >= 3 {
+			gc.ThinkingConfig = &ThinkingConfig{
+				IncludeThoughts: true,
+				ThinkingLevel:   "high",
+			}
+			return true
+		}
+		return false
+	}
+	modified := false
+	tc := gc.ThinkingConfig
+	level := strings.TrimSpace(tc.ThinkingLevel)
+	if level == "" && gen >= 3 {
+		level = "high"
+		tc.ThinkingLevel = level
+		modified = true
+	}
+	if level != "" && tc.ThinkingBudget != 0 {
+		tc.ThinkingBudget = 0
+		modified = true
+	}
+	return modified
+}
+
 // callPart builds a functionCall part and replays the thoughtSignature
-// Gemini 3 returned with it.
+// Gemini 3 returned with it, or passes SkipThoughtSignature if unrecorded.
 func callPart(tc TurnToolCall, signatures map[string]string) Part {
 	args := json.RawMessage(tc.Arguments)
 	if len(args) == 0 || !json.Valid(args) {
 		args = json.RawMessage(`{}`)
 	}
 	part := Part{FunctionCall: &FunctionCall{ID: tc.ID, Name: tc.Name, Args: args}}
-	if signatures != nil {
+	if signatures != nil && signatures[tc.ID] != "" {
 		part.ThoughtSignature = signatures[tc.ID]
+	} else {
+		part.ThoughtSignature = SkipThoughtSignature
 	}
 	return part
 }
