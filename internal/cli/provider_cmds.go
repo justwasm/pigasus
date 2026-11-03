@@ -31,7 +31,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/justwasm/pigasus/internal/models"
+	"github.com/justwasm/pigasus/internal/features/models"
 )
 
 // ---- usage ---------------------------------------------------------------
@@ -43,11 +43,18 @@ func usageProvider(n string) string {
 		"\n" +
 		"Subcommands:\n" +
 		"  list     List the configured providers and their models\n" +
+		"  presets  List available preset providers from the Catwalk catalog\n" +
 		"  show     Show one provider in detail\n" +
 		"  add      Create or update a provider\n" +
 		"  remove   Remove a provider and its models\n" +
 		"\n" +
 		"The configuration file is " + models.ProvidersPath() + "\n"
+}
+
+func usageProviderPresets(n string) string {
+	return "Usage: " + n + " provider presets\n" +
+		"\n" +
+		"List available preset providers from the Catwalk catalog\n"
 }
 
 func usageProviderShow(n string) string {

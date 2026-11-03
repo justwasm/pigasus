@@ -12,6 +12,7 @@ package printmode
 // exercised here. See slash_skills.go for the captured aliases / prompt choice.
 
 import (
+	"github.com/justwasm/pigasus/internal/features/tools/skills"
 	"testing"
 )
 
@@ -20,7 +21,7 @@ import (
 // Handled stays false so the model turn still runs.
 func TestDispatchPrintSlash_SkillExpandsToPrompt(t *testing.T) {
 	p := writeSkillMD(t, "---\nname: demo-skill\ndescription: a demo\n---\nSkill instructions here.\n")
-	withSyntheticCatalog(t, []jsonSkillInfo{{Name: "demo-skill", Description: "a demo", Path: p}})
+	withSyntheticCatalog(t, []skills.SkillInfo{{Name: "demo-skill", Description: "a demo", Path: p}})
 	fs := newStandardFlagSetForTest(t, nil)
 
 	res := dispatchPrintSlash("/demo-skill", fs)
@@ -42,7 +43,7 @@ func TestDispatchPrintSlash_SkillExpandsToPrompt(t *testing.T) {
 // model as a second block, and that a bare "/<skill>" (no args) still resolves.
 func TestDispatchPrintSlash_SkillForwardsArgs(t *testing.T) {
 	p := writeSkillMD(t, "---\nname: demo-skill\n---\nBody.\n")
-	withSyntheticCatalog(t, []jsonSkillInfo{{Name: "demo-skill", Path: p}})
+	withSyntheticCatalog(t, []skills.SkillInfo{{Name: "demo-skill", Path: p}})
 	fs := newStandardFlagSetForTest(t, nil)
 
 	res := dispatchPrintSlash("/demo-skill inspect example.com", fs)
@@ -60,7 +61,7 @@ func TestDispatchPrintSlash_SkillForwardsArgs(t *testing.T) {
 // SKILL.md-directory spellings through the print dispatcher, matching the TUI.
 func TestDispatchPrintSlash_SkillAliases(t *testing.T) {
 	p := writeSkillMD(t, "---\nname: chrome-devtools\n---\nCDP body.\n")
-	withSyntheticCatalog(t, []jsonSkillInfo{{
+	withSyntheticCatalog(t, []skills.SkillInfo{{
 		Name: "chrome-devtools-plugin:chrome-devtools", Path: p,
 	}})
 	fs := newStandardFlagSetForTest(t, nil)
@@ -96,7 +97,7 @@ func TestDispatchPrintSlash_UnknownNonSkillUnchanged(t *testing.T) {
 // no Prompt is produced.
 func TestDispatchPrintSlash_SkillDisableFlag(t *testing.T) {
 	p := writeSkillMD(t, "---\nname: demo-skill\n---\nBody.\n")
-	withSyntheticCatalog(t, []jsonSkillInfo{{Name: "demo-skill", Path: p}})
+	withSyntheticCatalog(t, []skills.SkillInfo{{Name: "demo-skill", Path: p}})
 	fs := newStandardFlagSetForTest(t, []string{"--disable-slash-commands"})
 
 	res := dispatchPrintSlash("/demo-skill do it", fs)
@@ -110,7 +111,7 @@ func TestDispatchPrintSlash_SkillDisableFlag(t *testing.T) {
 // the command rather than expanding the skill.
 func TestDispatchPrintSlash_RejectionBeatsSkill(t *testing.T) {
 	p := writeSkillMD(t, "---\nname: clear\n---\nBody.\n")
-	withSyntheticCatalog(t, []jsonSkillInfo{{Name: "clear", Path: p}})
+	withSyntheticCatalog(t, []skills.SkillInfo{{Name: "clear", Path: p}})
 	fs := newStandardFlagSetForTest(t, nil)
 
 	res := dispatchPrintSlash("/clear", fs)

@@ -12,7 +12,7 @@ package catalog
 import (
 	"testing"
 
-	"github.com/justwasm/pigasus/internal/configtest"
+	"github.com/justwasm/pigasus/internal/features/models/configtest"
 )
 
 // tieredProviders is a configuration with one model that declares the five
@@ -112,6 +112,14 @@ func TestAvailableModelsBlockListsTheTiers(t *testing.T) {
 		"  Gemini 3.8 Flash (High)\n" +
 		"  Gemini 3.8 Flash (Medium)\n" +
 		"  Gemini 3.8 Flash (Low)\n" +
+		"  Gemini 3.7 Flash (High)\n" +
+		"  Gemini 3.7 Flash (Medium)\n" +
+		"  Gemini 3.7 Flash (Low)\n" +
+		"  Gemini 3.6 Flash (High)\n" +
+		"  Gemini 3.6 Flash (Medium)\n" +
+		"  Gemini 3.6 Flash (Low)\n" +
+		"  Gemini 3.1 Pro (High)\n" +
+		"  Gemini 3.1 Pro (Low)\n" +
 		"  Claude Sonnet 4.6 (Thinking)\n" +
 		"  Claude Opus 4.6 (Thinking)\n" +
 		"  GPT-OSS 120B (Medium)\n" +

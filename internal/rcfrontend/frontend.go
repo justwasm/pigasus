@@ -15,7 +15,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/justwasm/pigasus/internal/accounts"
+	accounts "github.com/justwasm/pigasus/internal/features/accounts/core"
 	"github.com/justwasm/pigasus/internal/rctunnel/patches"
 )
 

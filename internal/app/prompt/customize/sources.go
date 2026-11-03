@@ -18,7 +18,7 @@ package customize
 //      drops /customize before /agents when both are big, and
 //      Source makes the setup trivial.
 //   2. The context-assembly step in cmd/wagyu can iterate the
-//      CommandNames slice, ask each Source to Render, and hand
+//      canonical Source slice, ask each Source to Render, and hand
 //      the resulting tokens to the Trimmer without importing the
 //      slash-command handlers themselves. The current bridge
 //      lives in cmd/wagyu/customize_bridge.go and uses this
@@ -159,7 +159,7 @@ func (c *CommandsSource) Priority() int { return int(PriorityCommands) }
 // Render implements Source.
 func (c *CommandsSource) Render() string { return c.Body }
 
-// RegisterSources walks CommandNames in canonical order and
+// RegisterSources walks the sources in canonical order and
 // appends a Token to the trimmer for each source. Sources whose
 // Render returns "" are skipped so the trimmer does not have to
 // pay the bookkeeping cost of a zero-token entry (which would

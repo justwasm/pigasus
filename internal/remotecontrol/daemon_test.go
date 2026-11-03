@@ -19,6 +19,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/justwasm/pigasus/internal/remotecontrol/cascades"
 )
 
 // stubReader is a hand-rolled OutputReader for tests. TurnOutputs
@@ -329,18 +331,18 @@ func TestStatusToolReturnsSnapshot(t *testing.T) {
 
 	// cascades block: {total, active, max}. A freshly-started
 	// daemon has 0 / 0 / default-cap.
-	cascades, ok := snap["cascades"].(map[string]any)
+	cascadeBlock, ok := snap["cascades"].(map[string]any)
 	if !ok {
 		t.Fatalf("status.cascades missing or not an object: %v", snap["cascades"])
 	}
-	if got := int(cascades["total"].(float64)); got != 0 {
+	if got := int(cascadeBlock["total"].(float64)); got != 0 {
 		t.Errorf("status.cascades.total = %d, want 0", got)
 	}
-	if got := int(cascades["active"].(float64)); got != 0 {
+	if got := int(cascadeBlock["active"].(float64)); got != 0 {
 		t.Errorf("status.cascades.active = %d, want 0", got)
 	}
-	if got := int(cascades["max"].(float64)); got != CascadeRegistryDefaultMax {
-		t.Errorf("status.cascades.max = %d, want %d", got, CascadeRegistryDefaultMax)
+	if got := int(cascadeBlock["max"].(float64)); got != cascades.RegistryDefaultMax {
+		t.Errorf("status.cascades.max = %d, want %d", got, cascades.RegistryDefaultMax)
 	}
 
 	// auth block: {method, session_id, user_id, scopes, expires_at}.

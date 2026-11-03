@@ -14,9 +14,9 @@ import (
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 
-	"github.com/justwasm/pigasus/internal/harnesstools"
-	"github.com/justwasm/pigasus/internal/tools"
+	"github.com/justwasm/pigasus/internal/app/harnesstools"
 	pb "github.com/justwasm/pigasus/localharness/pb/localharness"
+	"github.com/justwasm/pigasus/internal/app/tools/surface"
 )
 
 // protojsonText renders a message the way the wire carries it.
@@ -453,7 +453,7 @@ func TestViewFileRangeMatchesTheReferenceProbes(t *testing.T) {
 		if err := os.WriteFile(path, []byte(tc.content), 0o600); err != nil {
 			t.Fatalf("%s: write the probe: %v", tc.name, err)
 		}
-		reg := tools.RuntimeCatalog(dir)
+		reg := surface.RuntimeCatalog(dir)
 		out, err := reg.Dispatch(context.Background(), "view_file",
 			json.RawMessage(`{"AbsolutePath":"`+path+`"}`))
 		if err != nil {

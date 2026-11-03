@@ -10,9 +10,9 @@ import (
 	"time"
 
 	"github.com/justwasm/pigasus/internal/cli"
-	"github.com/justwasm/pigasus/internal/convstore"
-	"github.com/justwasm/pigasus/internal/persistentrc"
-	"github.com/justwasm/pigasus/internal/rclink"
+	"github.com/justwasm/pigasus/internal/app/session/convstore"
+	rclink "github.com/justwasm/pigasus/internal/infra/remote/link"
+	persistentrc "github.com/justwasm/pigasus/internal/infra/remote/persistent"
 )
 
 // TestRemoteControlStartup_InteractiveFlagOn verifies that starting the TUI

@@ -10,7 +10,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/justwasm/pigasus/internal/convstore"
+	"github.com/justwasm/pigasus/internal/app/session/convstore"
 )
 
 func main() {

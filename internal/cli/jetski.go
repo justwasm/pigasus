@@ -24,7 +24,7 @@ import (
 	"strings"
 	"text/tabwriter"
 
-	"github.com/justwasm/pigasus/internal/auth"
+	settings "github.com/justwasm/pigasus/internal/core/settings"
 )
 
 // JetskiCLI mirrors the internal `jetski/cli` engine. It owns:
@@ -193,12 +193,12 @@ func (j *JetskiCLI) Parse(args []string) int {
 	}
 
 	if v := flagStrValue(fs, "settings"); v != "" {
-		overlay, err := auth.ParseAndValidateSettingsFlag(v)
+		overlay, err := settings.ParseAndValidateFlag(v)
 		if err != nil {
 			fmt.Fprintf(j.ErrOut, "Error: %s\n", err)
 			return 1
 		}
-		auth.SetSessionSettingsOverlay(overlay)
+		settings.SetSessionOverlay(overlay)
 	}
 
 	if v := flagStrValue(fs, "input-format"); v != "" && v != "text" && v != "stream-json" {
@@ -220,7 +220,8 @@ func (j *JetskiCLI) Parse(args []string) int {
 
 	printFlag := firstSetFlag(fs, "print", "prompt", "p")
 	interFlag := firstSetFlag(fs, "prompt-interactive", "i")
-	if printFlag != "" || interFlag != "" {
+	isStreamJSON := flagStrValue(fs, "input-format") == "stream-json"
+	if printFlag != "" || interFlag != "" || isStreamJSON {
 		if code, ok := j.validatePrintFlags(fs, printFlag, interFlag, remaining); !ok {
 			return code
 		}
@@ -230,7 +231,7 @@ func (j *JetskiCLI) Parse(args []string) int {
 		}
 	}
 
-	return j.dispatchArgs(remaining, printFlag == "" && interFlag == "")
+	return j.dispatchArgs(remaining, printFlag == "" && interFlag == "" && !isStreamJSON)
 }
 
 func (j *JetskiCLI) initFlagSet() (*flag.FlagSet, *bool, *bool) {
@@ -266,6 +267,16 @@ func (j *JetskiCLI) validatePrintFlags(fs *flag.FlagSet, printFlag, interFlag st
 	if printFlag != "" && flagStrValue(fs, printFlag) == "" {
 		fmt.Fprintf(j.ErrOut, "error: Error: empty prompt. Usage: %s --print \"your prompt here\"\n", j.Name)
 		return 1, false
+	}
+	if isStreamJSON := flagStrValue(fs, "input-format") == "stream-json"; isStreamJSON {
+		if printFlag != "" {
+			fmt.Fprintf(j.ErrOut, "Error: --input-format stream-json reads prompts from stdin, so a prompt given on the command line would be ignored\n")
+			return 2, false
+		}
+		if len(remaining) > 0 {
+			fmt.Fprintf(j.ErrOut, "Error: --input-format stream-json reads prompts from stdin, so a prompt given on the command line would be ignored\n")
+			return 2, false
+		}
 	}
 	if len(remaining) > 0 {
 		fmt.Fprintf(j.ErrOut, "Error: unexpected argument %q.\n", remaining[0])

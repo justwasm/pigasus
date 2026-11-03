@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/justwasm/pigasus/internal/auth"
+	"github.com/justwasm/pigasus/internal/features/auth"
 )
 
 // quotaAccount builds an account whose cached quota carries the given

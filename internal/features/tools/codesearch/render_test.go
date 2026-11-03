@@ -39,8 +39,18 @@ func TestStatusRow(t *testing.T) {
 }
 
 func TestListBudget(t *testing.T) {
-	if got := ListBudget(0); got != 0 {
-		t.Errorf("ListBudget(0) = %d, want 0", got)
+	// The per-height row budget for the live list: it bounds the
+	// rendered window.
+	cases := []struct{ height, want int }{
+		{0, 0},   // unknown → no windowing
+		{24, 10}, // floor(24*11/15) - 7 = 17 - 7
+		{50, 29}, // floor(50*11/15) - 7 = 36 - 7
+		{120, 81},
+	}
+	for _, tc := range cases {
+		if got := ListBudget(tc.height); got != tc.want {
+			t.Errorf("ListBudget(%d) = %d, want %d", tc.height, got, tc.want)
+		}
 	}
 	if got := ListBudget(30); got <= 0 {
 		t.Errorf("ListBudget(30) = %d, want > 0", got)
@@ -97,5 +107,3 @@ func TestWindowStartAndFollow(t *testing.T) {
 		t.Errorf("Follow = %d, want 0", w)
 	}
 }
-
-

@@ -11,8 +11,8 @@ import (
 	"io"
 	"testing"
 
-	"github.com/justwasm/pigasus/internal/accountrouting"
-	"github.com/justwasm/pigasus/internal/backend"
+	accountrouting "github.com/justwasm/pigasus/internal/features/accounts/routing"
+	"github.com/justwasm/pigasus/internal/infra/backend/cloudcode"
 )
 
 // TestTheAccountRouterIsInstalledEvenWithoutAPolicy pins the live
@@ -26,12 +26,12 @@ func TestTheAccountRouterIsInstalledEvenWithoutAPolicy(t *testing.T) {
 	client := newOfficialBackend("Gemini 3.8 Flash", io.Discard, func(string) string {
 		return "gemini-3.8-flash"
 	})
-	if _, ok := client.(*backend.CloudCodeClient); ok {
+	if _, ok := client.(*cloudcode.CloudCodeClient); ok {
 		t.Fatal("the transport is not routed through the account pool")
 	}
 	// The pool wraps the reference's own transport, and the wrapper
 	// hands the inner client back for the callers that need it.
-	inner, ok := accountrouting.Unwrap(client).(*backend.CloudCodeClient)
+	inner, ok := accountrouting.Unwrap(client).(*cloudcode.CloudCodeClient)
 	if !ok {
 		t.Fatalf("the routed transport wraps %T, want the CloudCode client", accountrouting.Unwrap(client))
 	}

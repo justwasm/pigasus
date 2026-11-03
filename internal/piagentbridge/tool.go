@@ -9,7 +9,8 @@ import (
 	piagent "github.com/MichaelKinsy/PiG/agent"
 	pi "github.com/MichaelKinsy/PiG/ai"
 
-	"github.com/justwasm/pigasus/internal/tools"
+	"github.com/justwasm/pigasus/internal/app/tools"
+	"github.com/justwasm/pigasus/internal/app/tools/surface"
 )
 
 // Tool adapts one clone tools.Tool into an agent.AgentTool, so PiG's loop can
@@ -56,7 +57,7 @@ func Tools(registry *tools.Registry) []piagent.AgentTool {
 // override: print mode hands PiG a flat list of AgentTools, so the wrapper has
 // to carry both halves.
 func SurfaceTools(registry *tools.Registry, extras []piagent.AgentTool) []piagent.AgentTool {
-	return SurfaceToolsFor(registry, extras, tools.ModelDeclarations())
+	return SurfaceToolsFor(registry, extras, surface.ModelDeclarations())
 }
 
 // SurfaceToolsFor advertises the given declarations, each wired to an
@@ -67,7 +68,7 @@ func SurfaceTools(registry *tools.Registry, extras []piagent.AgentTool) []piagen
 // The harness uses it with the harness's own declarations: the harness
 // names its tools differently from the CLI, so it cannot reuse the CLI's
 // list.
-func SurfaceToolsFor(registry *tools.Registry, extras []piagent.AgentTool, decls []tools.ModelToolDecl) []piagent.AgentTool {
+func SurfaceToolsFor(registry *tools.Registry, extras []piagent.AgentTool, decls []surface.ModelToolDecl) []piagent.AgentTool {
 	return surfaceToolsFor(registry, extras, decls, false)
 }
 
@@ -83,11 +84,11 @@ func SurfaceToolsFor(registry *tools.Registry, extras []piagent.AgentTool, decls
 // The advertised schema is untouched — the model is still told which
 // fields the tool wants, and the request body still carries the captured
 // declaration byte for byte. Only the runtime check is relaxed.
-func LenientSurfaceToolsFor(registry *tools.Registry, extras []piagent.AgentTool, decls []tools.ModelToolDecl) []piagent.AgentTool {
+func LenientSurfaceToolsFor(registry *tools.Registry, extras []piagent.AgentTool, decls []surface.ModelToolDecl) []piagent.AgentTool {
 	return surfaceToolsFor(registry, extras, decls, true)
 }
 
-func surfaceToolsFor(registry *tools.Registry, extras []piagent.AgentTool, decls []tools.ModelToolDecl, lenient bool) []piagent.AgentTool {
+func surfaceToolsFor(registry *tools.Registry, extras []piagent.AgentTool, decls []surface.ModelToolDecl, lenient bool) []piagent.AgentTool {
 	byName := make(map[string]piagent.AgentTool, len(extras))
 	for _, t := range extras {
 		if t != nil {
@@ -112,7 +113,7 @@ func surfaceToolsFor(registry *tools.Registry, extras []piagent.AgentTool, decls
 // wire (the declaration set is fixed) and reports the missing implementation
 // the same way a pending catalogue entry does.
 type surfaceTool struct {
-	decl tools.ModelToolDecl
+	decl surface.ModelToolDecl
 	exec piagent.AgentTool
 	// lenient drops the schema's `required` list from the *runtime*
 	// validation. See LenientSurfaceToolsFor.
@@ -130,7 +131,7 @@ func (t *surfaceTool) Label() string {
 
 func (t *surfaceTool) Schema() pi.ToolSchema {
 	schema := pi.ToolSchema{Name: t.decl.Name, Description: t.decl.Description}
-	if params := tools.SchemaParams(t.decl.Parameters); params != nil {
+	if params := surface.SchemaParams(t.decl.Parameters); params != nil {
 		schema.Parameters = params
 	}
 	return schema
@@ -149,9 +150,9 @@ func (t *surfaceTool) ArgumentSchema() json.RawMessage {
 		if len(t.decl.Parameters) == 0 {
 			return json.RawMessage("{}")
 		}
-		return tools.RelaxedSchema(t.decl.Parameters)
+		return surface.RelaxedSchema(t.decl.Parameters)
 	}
-	params := tools.SchemaParams(t.decl.Parameters)
+	params := surface.SchemaParams(t.decl.Parameters)
 	if params == nil {
 		return json.RawMessage("{}")
 	}

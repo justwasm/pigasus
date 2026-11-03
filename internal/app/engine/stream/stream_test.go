@@ -5,9 +5,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/justwasm/pigasus/internal/backend"
+	"github.com/justwasm/pigasus/internal/app/engine/stream"
+	"github.com/justwasm/pigasus/internal/core/backend"
 	"github.com/justwasm/pigasus/internal/modular"
-	"github.com/justwasm/pigasus/internal/modular/engines/stream"
 )
 
 func TestStreamEngineRegistration(t *testing.T) {

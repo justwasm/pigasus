@@ -2,6 +2,8 @@ package remotecontrol
 
 import (
 	"time"
+
+	"github.com/justwasm/pigasus/internal/remotecontrol/rpc"
 )
 
 // Package remotecontrol — list_dispatcher.go: the read-only
@@ -100,11 +102,11 @@ func isListReadOnly(method string) bool {
 //
 // Each handler signature is:
 //
-//	func(d *Dispatcher, params json.RawMessage) (any, *rpcErrorBody)
+//	func(d *Dispatcher, params json.RawMessage) (any, *rpc.ErrorBody)
 //
-// Matching the existing (any, *rpcErrorBody) pattern so the
-// dispatcher doesn't grow a second pass through rpcErrorBody /
-// rpcResult. The handlers return the same (nil, *rpcErrorBody)
+// Matching the existing (any, *rpc.ErrorBody) pattern so the
+// dispatcher doesn't grow a second pass through rpc.ErrorBody /
+// rpcResult. The handlers return the same (nil, *rpc.ErrorBody)
 // shape as the existing handlers.
 type dispatcherList struct {
 	d *Dispatcher
@@ -138,18 +140,18 @@ type dispatcherList struct {
 //
 //   - bad backend value → -32602 "backend must be one of: gateway, shim"
 //   - underlying Models closure returned error → -32603
-func (l dispatcherList) handleListRemoteAgentModels(params []byte) (any, *rpcErrorBody) {
+func (l dispatcherList) handleListRemoteAgentModels(params []byte) (any, *rpc.ErrorBody) {
 	var p struct {
 		Backend string `json:"backend"`
 		Filter  string `json:"filter"`
 	}
 	if len(params) > 0 {
 		if err := jsonUnmarshal(params, &p); err != nil {
-			return nil, invalidParams(err.Error())
+			return nil, rpc.InvalidParams(err.Error())
 		}
 	}
 	if p.Backend != "" && p.Backend != "gateway" && p.Backend != "shim" {
-		return nil, invalidParams("backend must be one of: gateway, shim, \"\"")
+		return nil, rpc.InvalidParams("backend must be one of: gateway, shim, \"\"")
 	}
 
 	var (
@@ -161,7 +163,7 @@ func (l dispatcherList) handleListRemoteAgentModels(params []byte) (any, *rpcErr
 		out, err = l.d.cfg.ListBackend.Models(p.Backend, p.Filter)
 	}
 	if err != nil {
-		return nil, internalError(err.Error())
+		return nil, rpc.InternalError(err.Error())
 	}
 	// No closure installed: fall back to the package-level
 	// DefaultModelInfo (always non-empty) so a dashboard
@@ -199,13 +201,13 @@ func (l dispatcherList) handleListRemoteAgentModels(params []byte) (any, *rpcErr
 //
 // Errors:
 //   - underlying SlashCommands closure returned error → -32603
-func (l dispatcherList) handleListRemoteAgentSlashCommands(params []byte) (any, *rpcErrorBody) {
+func (l dispatcherList) handleListRemoteAgentSlashCommands(params []byte) (any, *rpc.ErrorBody) {
 	// Param shape is intentionally tolerant: empty / {} /
 	// {"unrelated":"…"} are all valid.
 	var p map[string]any
 	if len(params) > 0 && string(params) != "null" {
 		if err := jsonUnmarshal(params, &p); err != nil {
-			return nil, invalidParams(err.Error())
+			return nil, rpc.InvalidParams(err.Error())
 		}
 	}
 	var (
@@ -216,7 +218,7 @@ func (l dispatcherList) handleListRemoteAgentSlashCommands(params []byte) (any, 
 		out, err = l.d.cfg.ListBackend.SlashCommands()
 	}
 	if err != nil {
-		return nil, internalError(err.Error())
+		return nil, rpc.InternalError(err.Error())
 	}
 	if out == nil {
 		// Default command catalog is a package-level
@@ -255,7 +257,7 @@ func (l dispatcherList) handleListRemoteAgentSlashCommands(params []byte) (any, 
 //   - limit < 0 or > 200 → -32602
 //   - bad RFC3339 on `before` → -32602
 //   - underlying Conversations closure error → -32603
-func (l dispatcherList) handleListRemoteAgentConversations(params []byte) (any, *rpcErrorBody) {
+func (l dispatcherList) handleListRemoteAgentConversations(params []byte) (any, *rpc.ErrorBody) {
 	limit, before, perr := decodeListConversationsParams(params)
 	if perr != nil {
 		return nil, perr
@@ -269,7 +271,7 @@ func (l dispatcherList) handleListRemoteAgentConversations(params []byte) (any, 
 		out, cursor, err = l.d.cfg.ListBackend.Conversations(limit, before)
 	}
 	if err != nil {
-		return nil, internalError(err.Error())
+		return nil, rpc.InternalError(err.Error())
 	}
 	if out == nil {
 		out = []ConversationInfo{}
@@ -288,21 +290,21 @@ func (l dispatcherList) handleListRemoteAgentConversations(params []byte) (any, 
 // Extracted from handleListRemoteAgentConversations
 // to keep the handler body under the 50-fn ceiling
 // cycle rc-filesize-internal-remotecontrol enforces.
-func decodeListConversationsParams(params []byte) (int, time.Time, *rpcErrorBody) {
+func decodeListConversationsParams(params []byte) (int, time.Time, *rpc.ErrorBody) {
 	var p struct {
 		Limit  int    `json:"limit"`
 		Before string `json:"before"`
 	}
 	if len(params) > 0 {
 		if err := jsonUnmarshal(params, &p); err != nil {
-			return 0, time.Time{}, invalidParams(err.Error())
+			return 0, time.Time{}, rpc.InvalidParams(err.Error())
 		}
 	}
 	if p.Limit < 0 {
-		return 0, time.Time{}, invalidParams("limit must be >= 0")
+		return 0, time.Time{}, rpc.InvalidParams("limit must be >= 0")
 	}
 	if p.Limit > 200 {
-		return 0, time.Time{}, invalidParams("limit must be <= 200")
+		return 0, time.Time{}, rpc.InvalidParams("limit must be <= 200")
 	}
 	if p.Limit == 0 {
 		p.Limit = 50
@@ -314,7 +316,7 @@ func decodeListConversationsParams(params []byte) (int, time.Time, *rpcErrorBody
 			t, err = timeParse(time.RFC3339, p.Before)
 		}
 		if err != nil {
-			return 0, time.Time{}, invalidParams("before must be RFC3339")
+			return 0, time.Time{}, rpc.InvalidParams("before must be RFC3339")
 		}
 		before = t
 	}
@@ -333,11 +335,11 @@ func decodeListConversationsParams(params []byte) (int, time.Time, *rpcErrorBody
 // cwd, etc. — keeping stdlib reads out of this file means a
 // future cycle that wants to substitute a mock for tests
 // only has to wire a different closure into Config.ListBackend.
-func (l dispatcherList) handleListRemoteAgentEnvironments(params []byte) (any, *rpcErrorBody) {
+func (l dispatcherList) handleListRemoteAgentEnvironments(params []byte) (any, *rpc.ErrorBody) {
 	var p map[string]any
 	if len(params) > 0 && string(params) != "null" {
 		if err := jsonUnmarshal(params, &p); err != nil {
-			return nil, invalidParams(err.Error())
+			return nil, rpc.InvalidParams(err.Error())
 		}
 	}
 	var (
@@ -348,7 +350,7 @@ func (l dispatcherList) handleListRemoteAgentEnvironments(params []byte) (any, *
 		info, err = l.d.cfg.ListBackend.Environments()
 	}
 	if err != nil {
-		return nil, internalError(err.Error())
+		return nil, rpc.InternalError(err.Error())
 	}
 	return map[string]any{
 		"os":               info.OS,
@@ -366,10 +368,10 @@ func (l dispatcherList) handleListRemoteAgentEnvironments(params []byte) (any, *
 
 // dispatchList is the entry point the dispatcher's main switch
 // calls for the four read-only methods. It returns the same
-// (any, *rpcErrorBody) shape as handleSendRemoteAgentCascadeMessage
+// (any, *rpc.ErrorBody) shape as handleSendRemoteAgentCascadeMessage
 // etc.
 //
-// On unknown method names it returns (nil, *rpcErrorBody{-32601})
+// On unknown method names it returns (nil, *rpc.ErrorBody{-32601})
 // so the caller can decide whether to fall through to the
 // cascade-stream registry path or surface the not-found.
 //
@@ -378,12 +380,12 @@ func (l dispatcherList) handleListRemoteAgentEnvironments(params []byte) (any, *
 // registry, sends network traffic, etc.) gets rejected at
 // this boundary with -32601. The cycle ships the hook but no
 // handlers trip it yet — production handlers are pure reads.
-func (d *Dispatcher) dispatchList(method string, params []byte) (any, *rpcErrorBody) {
+func (d *Dispatcher) dispatchList(method string, params []byte) (any, *rpc.ErrorBody) {
 	if d == nil {
-		return nil, internalError("dispatcher is nil")
+		return nil, rpc.InternalError("dispatcher is nil")
 	}
 	if !isListReadOnly(method) {
-		return nil, &rpcErrorBody{Code: -32601, Message: "Method not found", Data: method}
+		return nil, &rpc.ErrorBody{Code: -32601, Message: "Method not found", Data: method}
 	}
 
 	// Read-only pre-flight. Today every list handler is
@@ -393,7 +395,7 @@ func (d *Dispatcher) dispatchList(method string, params []byte) (any, *rpcErrorB
 	// to assert "this closure is pure" via reflection or a
 	// bool field on the struct.
 	if isSideEffectingListBackend(&d.cfg.ListBackend) {
-		return nil, &rpcErrorBody{
+		return nil, &rpc.ErrorBody{
 			Code:    -32601,
 			Message: "Method not allowed",
 			Data:    method + " is read-only; handler reports side effects",
@@ -402,20 +404,20 @@ func (d *Dispatcher) dispatchList(method string, params []byte) (any, *rpcErrorB
 
 	l := dispatcherList{d: d}
 	switch method {
-	case "ListRemoteAgentModels":
+	case "ListAvailableModels", "ListRemoteAgentModels":
 		return l.handleListRemoteAgentModels(params)
-	case "ListRemoteAgentSlashCommands":
+	case "ListSlashCommands", "ListRemoteAgentSlashCommands":
 		return l.handleListRemoteAgentSlashCommands(params)
-	case "ListRemoteAgentConversations":
+	case "ListConversations", "ListRemoteAgentConversations":
 		return l.handleListRemoteAgentConversations(params)
-	case "ListRemoteAgentEnvironments":
+	case "ListEnvironments", "ListRemoteAgentEnvironments":
 		return l.handleListRemoteAgentEnvironments(params)
 	}
 	// Unreachable when isListReadOnly(method) is true
 	// (ListMethodsNoSideEffects enumerates the four
 	// names). Defensive fallback in case the slice and
 	// the switch drift.
-	return nil, &rpcErrorBody{Code: -32601, Message: "Method not found", Data: method}
+	return nil, &rpc.ErrorBody{Code: -32601, Message: "Method not found", Data: method}
 }
 
 // isSideEffectingListBackend reports whether the configured

@@ -5,11 +5,9 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"sort"
 	"sync"
 
-	"github.com/justwasm/pigasus/internal/backend"
-	"github.com/justwasm/pigasus/internal/cli"
+	"github.com/justwasm/pigasus/internal/core/backend"
 )
 
 var (
@@ -17,7 +15,6 @@ var (
 	engines             = make(map[string]Engine)
 	providers           = make(map[string]ToolProvider)
 	subsystems          = make(map[string]Subsystem)
-	subcommands         = make(map[string]cli.SubcommandSpec)
 	tools               = make(map[string]Tool)
 	defaultEng          = ""
 	tuiRunner           func(w io.Writer, fs *flag.FlagSet) error
@@ -197,36 +194,6 @@ func HasSubsystem(name string) bool {
 	return ok && s.Enabled()
 }
 
-// RegisterSubcommand registers a subcommand spec.
-func RegisterSubcommand(spec cli.SubcommandSpec) {
-	registryMu.Lock()
-	defer registryMu.Unlock()
-	subcommands[spec.Name] = spec
-}
-
-// RegisterSubcommands registers multiple subcommand specs.
-func RegisterSubcommands(specs ...cli.SubcommandSpec) {
-	registryMu.Lock()
-	defer registryMu.Unlock()
-	for _, spec := range specs {
-		subcommands[spec.Name] = spec
-	}
-}
-
-// GetSubcommands returns all registered subcommand specs, sorted by Name.
-func GetSubcommands() []cli.SubcommandSpec {
-	registryMu.RLock()
-	defer registryMu.RUnlock()
-	list := make([]cli.SubcommandSpec, 0, len(subcommands))
-	for _, spec := range subcommands {
-		list = append(list, spec)
-	}
-	sort.Slice(list, func(i, j int) bool {
-		return list[i].Name < list[j].Name
-	})
-	return list
-}
-
 // SetTUIRunner registers the interactive TUI runner.
 func SetTUIRunner(fn func(w io.Writer, fs *flag.FlagSet) error) {
 	registryMu.Lock()
@@ -262,7 +229,6 @@ func ClearRegistry() {
 	engines = make(map[string]Engine)
 	providers = make(map[string]ToolProvider)
 	subsystems = make(map[string]Subsystem)
-	subcommands = make(map[string]cli.SubcommandSpec)
 	tools = make(map[string]Tool)
 	defaultEng = ""
 	tuiRunner = nil

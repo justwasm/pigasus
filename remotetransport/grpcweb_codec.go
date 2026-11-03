@@ -28,8 +28,6 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
-	"net/http"
-	"strconv"
 	"strings"
 )
 
@@ -45,26 +43,6 @@ const (
 	// 13 is INTERNAL.
 	grpcWebStatusInternal = 13
 )
-
-// grpcWebTrailers renders the trailers envelope's payload: the header
-// block the reference writes.
-func grpcWebTrailers(status int, message string) []byte {
-	var b strings.Builder
-	b.WriteString("grpc-status: ")
-	b.WriteString(strconv.Itoa(status))
-	b.WriteString("\r\n")
-	if message != "" {
-		b.WriteString("grpc-message: ")
-		b.WriteString(message)
-		b.WriteString("\r\n")
-	}
-	return []byte(b.String())
-}
-
-// writeGRPCWebMessage writes the message envelope of a unary answer.
-func writeGRPCWebMessage(w http.ResponseWriter, flusher http.Flusher, payload []byte) error {
-	return writeConnectEnvelope(w, flusher, ConnectFlagMessage, payload)
-}
 
 // grpcWebErrorMessage renders the message a failed gRPC-Web call
 // carries.
@@ -88,11 +66,14 @@ func grpcWebErrorMessage(err error) string {
 	var coded connectErrorCoder
 	if errors.As(err, &coded) {
 		text = coded.ConnectMessage()
-		if code, ok := connectErrorFor(err); ok && !strings.HasPrefix(text, code.name+": ") {
+		if code, ok := connectErrorFor(err); ok && code.name != connectUnknown && code.name != connectInternal && !strings.HasPrefix(text, code.name+": ") {
 			text = code.name + ": " + text
 		}
 	}
-	return text + " (error ID: " + grpcErrorID() + ")"
+	if !strings.Contains(text, "(error ID:") {
+		return text + " (error ID: " + grpcErrorID() + ")"
+	}
+	return text
 }
 
 // grpcErrorID mints the id a failed call carries.
@@ -105,10 +86,4 @@ func grpcErrorID() string {
 		return "00000000000000000000000000000000"
 	}
 	return hex.EncodeToString(buf[:])
-}
-
-// writeGRPCWebTrailers writes the trailers envelope: the status of the
-// call, in the header block the reference writes.
-func writeGRPCWebTrailers(w http.ResponseWriter, flusher http.Flusher, status int, message string) error {
-	return writeConnectEnvelope(w, flusher, grpcWebFlagTrailers, grpcWebTrailers(status, message))
 }

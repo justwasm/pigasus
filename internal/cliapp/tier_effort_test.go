@@ -9,7 +9,7 @@ import (
 	"flag"
 	"testing"
 
-	"github.com/justwasm/pigasus/internal/configtest"
+	"github.com/justwasm/pigasus/internal/features/models/configtest"
 )
 
 // TestCurrentEffortNameReadsTheTier pins the tier-aware word: the model's

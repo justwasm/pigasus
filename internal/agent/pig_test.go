@@ -12,7 +12,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/justwasm/pigasus/internal/backend"
+	"github.com/justwasm/pigasus/internal/core/apierror"
+	"github.com/justwasm/pigasus/internal/core/backend"
+	gatewayapi "github.com/justwasm/pigasus/internal/infra/backend/gateway"
 	"github.com/justwasm/pigasus/internal/piagentbridge"
 )
 
@@ -262,16 +264,16 @@ func TestNew_RequiresBackendOrProvider(t *testing.T) {
 // ─── the gateway transport switch (cycle 183, part 2) ────────────────────────────
 
 // countingGatewayBackend implements backend.Client and describes itself the way
-// *backend.GatewayClient does, so nativeProvider derives a provider from it. The
+// *gatewayapi.GatewayClient does, so nativeProvider derives a provider from it. The
 // StreamFn path is poisoned: reaching it is a test failure, not a silent
 // fallback.
 type countingGatewayBackend struct {
-	cfg     backend.GatewayConfig
+	cfg     gatewayapi.GatewayConfig
 	mu      sync.Mutex
 	streams int
 }
 
-func (c *countingGatewayBackend) GatewayConfig() backend.GatewayConfig { return c.cfg }
+func (c *countingGatewayBackend) GatewayConfig() gatewayapi.GatewayConfig { return c.cfg }
 
 func (c *countingGatewayBackend) Stream(context.Context, backend.StreamRequest) (<-chan backend.StreamChunk, error) {
 	c.mu.Lock()
@@ -290,14 +292,14 @@ func (c *countingGatewayBackend) streamCount() int {
 }
 
 func TestNativeProviderDerivesOnlyFromGatewayClients(t *testing.T) {
-	client := backend.NewGatewayWithConfig(backend.GatewayConfig{
+	client := gatewayapi.NewGatewayWithConfig(gatewayapi.GatewayConfig{
 		URL:            "http://127.0.0.1:1/v1/chat/completions",
 		ExternalModel:  "MiniMax-M3",
 		TimeoutSeconds: 7,
 	})
 	provider := nativeProvider(client)
 	if provider == nil {
-		t.Fatal("nativeProvider(*backend.GatewayClient) = nil")
+		t.Fatal("nativeProvider(*gatewayapi.GatewayClient) = nil")
 	}
 	if got := provider.Endpoint(); got != "http://127.0.0.1:1/v1/chat/completions" {
 		t.Errorf("Endpoint() = %q", got)
@@ -320,7 +322,7 @@ func TestNativeProviderDerivesOnlyFromGatewayClients(t *testing.T) {
 // ExternalModel on the wire — exactly what GatewayClient does.
 func TestLoop_GatewayBackendGoesThroughTheDerivedProvider(t *testing.T) {
 	gateway := newScriptedGateway(t, []string{gatewayText("hi"), gatewayFinish("stop"), "[DONE]"})
-	client := &countingGatewayBackend{cfg: backend.GatewayConfig{
+	client := &countingGatewayBackend{cfg: gatewayapi.GatewayConfig{
 		URL:            gateway.server.URL,
 		APIKey:         "test",
 		ExternalModel:  "MiniMax-M3",
@@ -375,7 +377,7 @@ func TestLoop_GatewayBackendFailureKeepsTheHTTPError(t *testing.T) {
 
 	var sawChunkError error
 	l, err := New(Options{
-		Backend:      backend.NewGatewayWithConfig(backend.GatewayConfig{URL: gateway.server.URL, ExternalModel: "MiniMax-M3"}),
+		Backend:      gatewayapi.NewGatewayWithConfig(gatewayapi.GatewayConfig{URL: gateway.server.URL, ExternalModel: "MiniMax-M3"}),
 		DefaultModel: "MiniMax-M3",
 		Handler: func(chunk backend.StreamChunk) error {
 			sawChunkError = chunk.Error
@@ -393,9 +395,9 @@ func TestLoop_GatewayBackendFailureKeepsTheHTTPError(t *testing.T) {
 	if sendErr == nil {
 		t.Fatal("Send = nil, want the upstream failure")
 	}
-	var httpErr *backend.HTTPError
+	var httpErr *apierror.HTTPError
 	if !errors.As(sendErr, &httpErr) {
-		t.Fatalf("Send error %v (%T) does not keep the *backend.HTTPError", sendErr, sendErr)
+		t.Fatalf("Send error %v (%T) does not keep the *apierror.HTTPError", sendErr, sendErr)
 	}
 	if httpErr.StatusCode != http.StatusBadGateway {
 		t.Errorf("StatusCode = %d", httpErr.StatusCode)

@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/justwasm/pigasus/internal/rcterminal"
+	"github.com/justwasm/pigasus/rcterminal"
 	"github.com/justwasm/pigasus/internal/remotecontrol"
 	"github.com/justwasm/pigasus/lsproto"
 	"github.com/justwasm/pigasus/originpolicy"

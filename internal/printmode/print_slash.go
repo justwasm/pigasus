@@ -32,18 +32,19 @@
 package printmode
 
 import (
-	_ "embed"
 	"flag"
 	"fmt"
+	"github.com/justwasm/pigasus/internal/ui/views/changelog"
 	"sort"
 	"strings"
 	"time"
 
 	"github.com/justwasm/pigasus/accountpool"
 	"github.com/justwasm/pigasus/endpoints"
-	"github.com/justwasm/pigasus/internal/accounts"
-	"github.com/justwasm/pigasus/internal/agent"
 	"github.com/justwasm/pigasus/internal/cli"
+	"github.com/justwasm/pigasus/internal/core/slashparse"
+	accounts "github.com/justwasm/pigasus/internal/features/accounts/core"
+	"github.com/justwasm/pigasus/internal/features/agents"
 )
 
 // printSlashResult is the outcome of dispatching a print-mode slash command.
@@ -112,6 +113,12 @@ func rejected(code int, msg string) printSlashResult {
 // dispatchPrintSlash classifies a print-mode prompt. A prompt that is not a
 // slash command, or that arrives with --disable-slash-commands set, is left
 // alone (Handled=false) and forwarded to the model.
+//
+// The prompt is parsed with slashparse.SplitFields — the print mode's
+// rule, whose separator set is every Unicode whitespace rune. The
+// interactive host parses with slashparse.Split, whose separator set is
+// space, tab and newline; the two rules are neighbours in that package
+// and are not the same rule.
 func dispatchPrintSlash(prompt string, fs *flag.FlagSet) printSlashResult {
 	if !strings.HasPrefix(prompt, "/") {
 		return printSlashResult{}
@@ -119,7 +126,7 @@ func dispatchPrintSlash(prompt string, fs *flag.FlagSet) printSlashResult {
 	if flagBoolValue(fs, "disable-slash-commands") {
 		return printSlashResult{}
 	}
-	name, args := splitSlash(prompt)
+	name, args := slashparse.SplitFields(prompt)
 	if name == "" {
 		// A bare "/" is not a command; the reference forwards it.
 		return printSlashResult{}
@@ -172,7 +179,7 @@ func dispatchPrintSlashCommand(name, args string, fs *flag.FlagSet) (printSlashR
 	case "permissions":
 		return printSlashResult{Handled: true, Output: printSlashPermissions(), Name: "permissions", Data: printSlashPermissionsData()}, true
 	case "skills":
-		return printSlashResult{Handled: true, Output: printSlashSkills(), Name: "skills", Data: printSlashSkillsData()}, true
+		return printSlashSkillsResult(args), true
 	case "usage":
 		return handlePrintSlashUsage(fs), true
 	case "credits":
@@ -345,25 +352,31 @@ func handlePrintSlashModel(fs *flag.FlagSet) printSlashResult {
 }
 
 func handlePrintSlashEffort(fs *flag.FlagSet, args string) printSlashResult {
-	// Cycle effort-picker: `/effort <level>` direct setter. The
-	// reference's print mode validates the word, applies it to
-	// the flag set, and echoes the same "Effort set to <level>"
-	// line the picker Enter prints in the TUI. We mirror that for
-	// symmetry, then fall through to the bare `/effort` answer so
-	// the JSON envelope still carries the current level.
-	if trimmed := trimSpace(args); trimmed != "" {
-		if level, ok := ParseEffortWord(trimmed); ok {
-			if err := fs.Set("effort", level); err != nil {
-				return rejected(1, "error: "+err.Error())
-			}
-			return printSlashResult{
-				Handled: true,
-				Output:  "Effort set to " + level + "\n",
-				Name:    "effort",
-				Data:    printSlashEffortData("", level),
-			}
-		}
-		return rejected(1, "error: invalid --effort "+trimmed+" (valid: low, medium, high)")
+	// Cycle 383 (A-3): the reference's print mode refuses an argument
+	// here — /effort is read-only in headless mode and the level is
+	// chosen with --effort instead (official-docs/cli/commands/effort.md).
+	// The reference's own first-hand capture is
+	//
+	//	$ agy -p "/effort high"
+	//	error: /effort takes no arguments, got "high"
+	//
+	// and the binary carries the generic `/%s takes no arguments, got %q`.
+	// The clone used to *apply* the level and echo "Effort set to
+	// <level>", which the reference never does in print mode.
+	//
+	// 【一手】 agy 1.4.12, live (/Users/gear/.local/bin/agy):
+	//
+	//	$ agy -p "/effort high"
+	//	error: /effort takes no arguments, got "high"
+	//	$ echo $?
+	//	2
+	//
+	// The same answer covers every argument, valid level or not — the
+	// reference never looks at the word, so /effort turbo is refused the
+	// same way. The bare /effort still reports the current level and
+	// exits 0.
+	if trimmed := slashparse.TrimUnicode(args); trimmed != "" {
+		return rejected(2, fmt.Sprintf("/%s takes no arguments, got %q", "effort", trimmed))
 	}
 	id, _, err := printSlashModelID(fs)
 	if err != nil {
@@ -374,9 +387,9 @@ func handlePrintSlashEffort(fs *flag.FlagSet, args string) printSlashResult {
 }
 
 func handlePrintSlashAgents(fs *flag.FlagSet) printSlashResult {
-	agents := agent.Discover()
-	names := make([]string, 0, len(agents))
-	for _, a := range agents {
+	found := agents.Discover()
+	names := make([]string, 0, len(found))
+	for _, a := range found {
 		names = append(names, a.Name)
 	}
 	sort.Strings(names)
@@ -466,32 +479,10 @@ const printSlashPluginRejection = "error: /plugin failed: /plugin opens the inte
 	"which is not available in print mode; use /plugin [list|install|uninstall|enable|disable] " +
 	"or the `plugin` CLI subcommand"
 
-// printSlashChangelog is the markdown blob `agy -p /changelog` prints.
-//
-// It is NOT the same rendering as the `changelog` subcommand (`agy changelog`
-// prints a compact "1.4.8:\n· Added …" bullet list, embedded in
-// internal/cli/testdata). `/changelog` in print mode prints the markdown form
-// — 180,070 bytes, captured byte-for-byte from the 1.4.9 binary (cycle 200
-// refreshed it from the 1.3.6 capture, which was 150,390 bytes and stopped at
-// the 1.3.5 section; cycle 351 refreshed it again from the 1.4.0 capture,
-// which was 153,612 bytes and stopped at the 1.3.6 section).
-//
-// The reference carries the blob inside its own binary — 180,070 bytes at
-// file offset 63,893,369 of ~/.local/bin/agy 1.4.9, trailing newline
-// included — and prints it verbatim. 【一手】 agy 1.4.9, three runs on
-// 2026-10-28 returned the same sha256
-// 0b911c6fb5187c9286ac2a318a432c8ae1bfdd3f9820edc720a4f13c5ed38d56,
-// which is also the sha256 of the 180,070 bytes read out of the binary
-// at that offset.
-//
-// The blob's newest section is 1.4.8 — the binary ships its own release
-// notes one release behind, so the 1.4.9 notes live in the public
-// repository only (see internal/cli/testdata/changelog_upstream_1.4.9.md).
-//
-//go:embed testdata/print_changelog.md
-var PrintSlashChangelog string
-
-var printSlashChangelog = PrintSlashChangelog
+// printSlashChangelog is the reference's own release notes. The document
+// lives in the changelog package now — the TUI's /changelog panel and this
+// print path show the same bytes.
+var printSlashChangelog = changelog.Markdown
 
 // printSlashHelpText is the exact table `agy -p /help` prints (1.3.6).
 const printSlashHelpText = `/agents	List available custom agents

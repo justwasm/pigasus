@@ -10,15 +10,18 @@
 //
 // Cycle 41: the 12 v1.3.5-visible subcommands stay 1:1 in --help
 // (the v1.3.5 binary's 39-line help output is the parse-parity
-// contract). We add 10 hidden subcommands (version, login, logout,
-// auth, chat, acp, http, hooks, migrate, stats) that wire to the
-// runXxx handlers in dispatch.go. The hidden flag keeps --help at
+// contract). We add hidden subcommands (version, login, logout,
+// auth, chat, acp, http, hooks, migrate, stats, logo) that wire to the
+// runXxx handlers in dispatch.go, plus four visible ones of the
+// clone's own (accounts, halloween, model, provider — the last three
+// beside the reference's models). The hidden flag keeps --help at
 // 39 lines; the new subcommands are invokable as
 // `antigravity <name>` and route to real internal/ handlers.
 package cli
 
 import (
 	"context"
+	"github.com/justwasm/pigasus/internal/ui/tuilib"
 	"io"
 	"os"
 )
@@ -246,7 +249,7 @@ func hiddenUtilitySubcommands() []SubcommandSpec {
 		{Name: "hooks", Short: "List configured lifecycle hooks", Run: wrapRunXxx("hooks"), Hidden: true},
 		{Name: "migrate", Short: "Migrate legacy config to the v4 layout", Run: wrapRunXxx("migrate"), Hidden: true},
 		{Name: "stats", Short: "Show on-disk session statistics", Run: wrapRunXxx("stats"), Hidden: true},
-		{Name: "logo", Short: "Print the startup banner logo (hidden)", HelpFn: UsageLogo, Run: runLogoHandler, Hidden: true},
+		{Name: "logo", Short: "Print the startup banner logo (hidden)", HelpFn: tuilib.UsageLogo, Run: runLogoHandler, Hidden: true},
 	}
 }
 
@@ -259,6 +262,7 @@ func providerSubcommand() SubcommandSpec {
 			{Name: "list", Short: "List the configured providers", RunJ: runProviderList, HelpFn: func(n string) string {
 				return "Usage: " + n + " provider list\n"
 			}},
+			{Name: "presets", Short: "List available preset providers from Catwalk", RunJ: runProviderPresets, HelpFn: usageProviderPresets},
 			{Name: "show", Short: "Show one provider in detail", RunJ: runProviderShow, HelpFn: usageProviderShow},
 			{Name: "add", Short: "Create or update a provider", RunJ: runProviderAdd, HelpFn: usageProviderAdd},
 			{Name: "remove", Short: "Remove a provider and its models", RunJ: runProviderRemove, HelpFn: usageProviderRemove},
@@ -316,13 +320,7 @@ func UpdateSubcommand() SubcommandSpec    { return generalSubcommands()[3] }
 func ModelsSubcommand() SubcommandSpec    { return generalSubcommands()[4] }
 func HelpSubcommand() SubcommandSpec      { return generalSubcommands()[5] }
 
-func PluginSubcommands() []SubcommandSpec {
-	return pluginAndMCPSubcommands(standardPluginSubs(), standardMCPSubs())[:2]
-}
 
-func MCPSubcommand() SubcommandSpec {
-	return pluginAndMCPSubcommands(standardPluginSubs(), standardMCPSubs())[2]
-}
 
 func InstallSubcommand() SubcommandSpec {
 	return pluginAndMCPSubcommands(standardPluginSubs(), standardMCPSubs())[3]

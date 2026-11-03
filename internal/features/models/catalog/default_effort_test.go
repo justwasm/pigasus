@@ -9,7 +9,7 @@
 //
 // Cycle 346: these four cases lived in internal/cliapp/model_test.go,
 // driving the cliapp-local `resolveDefaultEffort` wrapper. The wrapper is
-// gone (the call sites name internal/modelcatalog directly) and the
+// gone (the call sites name internal/features/models/catalog directly) and the
 // cases moved here, with the code they cover.
 package catalog
 

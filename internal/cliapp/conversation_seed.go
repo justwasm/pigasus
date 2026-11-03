@@ -20,6 +20,8 @@
 package cliapp
 
 import (
+	"github.com/justwasm/pigasus/internal/ui/tuilib"
+
 	"encoding/json"
 	"flag"
 	"io"
@@ -27,41 +29,28 @@ import (
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
+	"golang.org/x/term"
 
-	"github.com/justwasm/pigasus/internal/atconversation"
-	"github.com/justwasm/pigasus/internal/backend"
-	"github.com/justwasm/pigasus/internal/cliflags"
-	"github.com/justwasm/pigasus/internal/convstore"
-	"github.com/justwasm/pigasus/internal/rehydration"
-	"github.com/justwasm/pigasus/internal/subagenttools"
-	"github.com/justwasm/pigasus/internal/tools"
+	"github.com/justwasm/pigasus/internal/ui/mdrender"
+
+	atconversation "github.com/justwasm/pigasus/internal/app/prompt/mentions/conversation"
+	"github.com/justwasm/pigasus/internal/app/session/convstore"
+	"github.com/justwasm/pigasus/internal/app/session/rehydration"
+	"github.com/justwasm/pigasus/internal/app/subagenttools"
+	"github.com/justwasm/pigasus/internal/app/tools/shell"
+	"github.com/justwasm/pigasus/internal/core/backend"
+	"github.com/justwasm/pigasus/internal/core/cliflags"
+	"github.com/justwasm/pigasus/internal/core/workspace"
+	"github.com/justwasm/pigasus/internal/ui/toolsteps"
+	"github.com/justwasm/pigasus/internal/ui/transcript"
 )
-
-const (
-	conversationHistoryTurns = convstore.DefaultHistoryTurns
-	conversationHistoryChars = convstore.DefaultHistoryChars
-)
-
-// conversationSelection is an alias for convstore.Selection.
-type conversationSelection = convstore.Selection
 
 // resolveConversationSelection decides what a run continues, printing the
 // reference's warning on warn when an explicitly named conversation is missing.
-func resolveConversationSelection(fs *flag.FlagSet, warn io.Writer) conversationSelection {
+func resolveConversationSelection(fs *flag.FlagSet, warn io.Writer) convstore.Selection {
 	convID := cliflags.StringValue(fs, "conversation")
 	cont := cliflags.ResolveBoolAlias(fs, "continue", "c")
-	return convstore.ResolveSelection(convID, cont, workspaceDir(), warn)
-}
-
-func loadConversationSelection(id, source, path string) conversationSelection {
-	return convstore.LoadSelection(id, source, path)
-}
-
-func workspaceDir() string {
-	if d, err := os.Getwd(); err == nil {
-		return d
-	}
-	return ""
+	return convstore.ResolveSelection(convID, cont, workspace.Current(), warn)
 }
 
 func (m *runMode) seedConversation(c *convstore.Conversation) {
@@ -126,7 +115,7 @@ func (m *runMode) rehydrateConversation(c *convstore.Conversation) {
 	state := &rehydration.State{
 		ConversationID: convID,
 		Definitions:    m.subagentDefs,
-		Schedules:      tools.ScheduleTableFor(convID),
+		Schedules:      shell.ScheduleTableFor(convID),
 		Tasks:          m.taskReg,
 	}
 	rehydration.Restore(c.RehydrationSteps(), state)
@@ -134,15 +123,26 @@ func (m *runMode) rehydrateConversation(c *convstore.Conversation) {
 
 func (m *runMode) seedToolGroup(steps []convstore.Step, startIdx int) int {
 	j := startIdx
-	var group []toolStep
+	var group []toolsteps.Step
 	for j < len(steps) && steps[j].Role() == "tool" {
 		group = append(group, loadedToolStep(steps[j]))
 		j++
 	}
-	block := toolBlockLines(group, m.expanded, m.width)
+	verb := m.currentVerbosity()
+	exp := m.effectiveExpanded(verb)
+	block := toolsteps.RenderBlock(group, toolsteps.RenderOptions{
+		Expanded:  exp,
+		Width:     m.width,
+		Verbosity: verb,
+	})
 	start := len(m.response)
 	m.response = append(m.response, block...)
-	m.blocks = append(m.blocks, turnBlock{start: start, lines: len(block), steps: group})
+	m.blocks = append(m.blocks, transcript.NewBlock(transcript.Block{
+		Start:    start,
+		Lines:    len(block),
+		Steps:    group,
+		Expanded: exp,
+	}, block, m.width, verb))
 	return j
 }
 
@@ -156,40 +156,44 @@ func (m *runMode) seedNonToolStep(s convstore.Step) {
 		for len(m.response) > 0 && strings.TrimSpace(m.response[len(m.response)-1]) == "" {
 			m.response = m.response[:len(m.response)-1]
 		}
+		sep := transcript.TurnSeparator(m.width)
 		if len(m.response) == 0 {
-			m.response = append(m.response, turnSeparator(m.width), userPromptRow(s.Text))
+			m.response = append(m.response, sep)
 		} else {
-			m.response = append(m.response, "", turnSeparator(m.width), userPromptRow(s.Text))
+			m.response = append(m.response, "", sep)
 		}
+		start := len(m.response)
+		promptLines := transcript.RenderUserPrompt(s.Text, m.width)
+		m.response = append(m.response, promptLines...)
+		m.userBlocks = append(m.userBlocks, transcript.UserBlock{
+			Start: start,
+			Lines: len(promptLines),
+			Raw:   s.Text,
+		})
 		return
 	case "model":
 		if strings.TrimSpace(s.Text) == "" {
 			return
 		}
-		styled := renderMarkdown(s.Text, m.width)
+		styled := mdrender.RenderMarkdown(s.Text, m.width)
 		lines := strings.Split(styled, "\n")
 		start := len(m.response)
 		m.response = append(m.response, lines...)
 		m.session = append(m.session, backend.Message{Role: "assistant", Content: s.Text})
-		m.assistants = append(m.assistants, assistantBlock{start: start, lines: len(lines), raw: s.Text})
+		m.assistants = append(m.assistants, transcript.AssistantBlock{Start: start, Lines: len(lines), Raw: s.Text})
 	default:
-		m.response = append(m.response, "  "+firstLine(s.Text))
+		m.response = append(m.response, "  "+tuilib.FirstLine(s.Text))
 	}
 	m.response = append(m.response, "")
 }
 
-func loadedToolStep(s convstore.Step) toolStep {
-	st := newToolStep(s.ToolName, json.RawMessage(s.ToolArgs), s.ToolResult, loadedStepErr(s.Status))
+func loadedToolStep(s convstore.Step) toolsteps.Step {
+	// A step that failed or was cancelled changed nothing: the
+	// rehydration pass reads the same set of statuses the reference's
+	// `StepIndicesExcludingStatuses` excludes.
+	failed := !rehydration.Succeeded(s.Status)
+	st := toolsteps.NewToolStep(s.ToolName, json.RawMessage(s.ToolArgs), s.ToolResult, failed)
 	return st
-}
-
-func loadedStepErr(status int64) bool {
-	switch status {
-	case 4, 6, 7:
-		return true
-	default:
-		return false
-	}
 }
 
 func (m *runMode) resumeConversation(meta convstore.ConversationMeta) tea.Cmd {
@@ -202,15 +206,32 @@ func (m *runMode) resumeConversation(meta convstore.ConversationMeta) tea.Cmd {
 	m.response = nil
 	m.session = nil
 	m.blocks = nil
+	m.assistants = nil
+	m.userBlocks = nil
 	m.liveSteps = nil
+	m.liveStepRuns = nil
 	m.activeTool = ""
+	m.replyStart = -1
+	m.liveTextLines = 0
+	m.liveReplyBuf = ""
 	m.rowsCacheDirty = true
 	m.rowsCache = wrapSlot{}
 	m.rowsCacheN1 = wrapSlot{}
 	m.rowsView = composedRows{}
 	m.scroll = 0
 	m.autoScroll = true
+	if m.width <= 0 {
+		if cols, rows, err := term.GetSize(int(os.Stdout.Fd())); err == nil && cols > 0 {
+			m.width, m.height = cols, rows
+		}
+	}
+	if m.width > 0 {
+		mdrender.SetCurrentWidth(m.width)
+	}
 	m.seedConversation(c)
+	if m.width > 0 {
+		m.reflowTranscript(m.width)
+	}
 	m.conversationID = meta.ID
 	if c != nil && c.ID != "" {
 		m.conversationID = c.ID
@@ -219,52 +240,14 @@ func (m *runMode) resumeConversation(meta convstore.ConversationMeta) tea.Cmd {
 	return nil
 }
 
-const (
-	atConversationMentionPrefix = atconversation.MentionPrefix
-	atConversationTimeout       = atconversation.Timeout
-	atConversationMaxMatches    = atconversation.MaxMatches
-)
-
-type AtConversationSource = atconversation.Source
-
-const (
-	atSourceRemote        = atconversation.SourceRemote
-	atSourceLocalFallback = atconversation.SourceLocalFallback
-	atSourceEmpty         = atconversation.SourceEmpty
-)
-
-type atConversationMatch = atconversation.Match
-
-type atConversationLocalFn = atconversation.LocalFn
-
-type atConversationSearchFn = atconversation.SearchFn
-
-var defaultAtConversationSearcher = atconversation.DefaultSearcher
-
-func parseAtConversationMention(buf string) (string, bool) {
-	return atconversation.ParseMention(buf)
-}
-
-func searchAtConversationMatches(searcher atConversationSearchFn, local atConversationLocalFn, query string) ([]atConversationMatch, AtConversationSource) {
-	return atconversation.SearchMatches(searcher, local, query)
-}
-
-func listLocalAtConversationMatches(query string) []atConversationMatch {
-	return atconversation.ListLocalMatches(query)
-}
-
 func handleAtConversationMention(buf string) (bool, tea.Cmd) {
-	query, ok := parseAtConversationMention(buf)
+	query, ok := atconversation.ParseMention(buf)
 	if !ok {
 		return false, nil
 	}
-	matches, _ := searchAtConversationMatches(defaultAtConversationSearcher, nil, query)
+	matches, _ := atconversation.SearchMatches(atconversation.DefaultSearcher, nil, query)
 	if len(matches) == 0 {
 		return false, nil
 	}
 	return true, nil
-}
-
-func atConversationMentionInsert(id string) string {
-	return atconversation.MentionInsert(id)
 }

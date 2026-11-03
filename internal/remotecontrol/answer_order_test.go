@@ -6,8 +6,25 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/justwasm/pigasus/internal/auth"
+	"github.com/justwasm/pigasus/internal/features/auth"
+	"github.com/justwasm/pigasus/internal/remotecontrol/mendel"
 )
+
+// installMendelFetcher installs a fetcher for one test and restores
+// the live one afterwards.
+//
+// The cache is keyed by the identity, so the test dispatches under an
+// identity of its own and never reads another test's cached set.
+func installMendelFetcher(t *testing.T, flags []auth.MendelFlag) {
+	t.Helper()
+	old := mendel.Fetcher
+	mendel.Fetcher = func(context.Context, string) ([]auth.MendelFlag, error) {
+		return flags, nil
+	}
+	t.Cleanup(func() {
+		mendel.Fetcher = old
+	})
+}
 
 // TestTheDispatchedAnswerKeepsTheSchemaOrder pins the byte order of a
 // unary answer.
@@ -29,7 +46,7 @@ func TestTheDispatchedAnswerKeepsTheSchemaOrder(t *testing.T) {
 	})
 
 	sess := NewSessionState("test")
-	d, err := NewDispatcher(Config{Session: sess})
+	d, err := NewDispatcher(Config{Session: sess, MendelUserAgent: "test-schema-order"})
 	if err != nil {
 		t.Fatalf("NewDispatcher: %v", err)
 	}

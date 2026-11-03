@@ -1,11 +1,11 @@
 // feedback.go — the one-shot /diff feedback body.
 //
 // The interactive /diff *panel* is a different subsystem (it lives in
-// cmd/wagyu/slash_viewer_diff*.go and its state is bound to runMode).
+// internal/ui/views/diffpanel and its state is the panel's own).
 // This file holds the one-shot path: the transcript row the reference
 // echoes when the user types /diff.
 //
-// The rule itself now lives in internal/diffaction.
+// The rule itself now lives in internal/ui/views/diff/action.
 
 package action
 

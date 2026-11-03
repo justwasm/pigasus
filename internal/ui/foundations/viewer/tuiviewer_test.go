@@ -3,7 +3,6 @@ package viewer
 import (
 	"strings"
 	"testing"
-	"time"
 )
 
 func TestWindow(t *testing.T) {
@@ -37,41 +36,6 @@ func TestCounter(t *testing.T) {
 	}
 }
 
-func TestQuotaCountdown(t *testing.T) {
-	now := time.Now()
-	if got := QuotaCountdown(now.Add(3665*time.Second + 500*time.Millisecond)); got != "1h 1m" {
-		t.Fatalf("expected '1h 1m', got %q", got)
-	}
-	if got := QuotaCountdown(now.Add(125*time.Second + 500*time.Millisecond)); got != "2m" {
-		t.Fatalf("expected '2m', got %q", got)
-	}
-	if got := QuotaCountdown(now.Add(35*time.Second + 500*time.Millisecond)); got != "35s" {
-		t.Fatalf("expected '35s', got %q", got)
-	}
-	if got := QuotaCountdown(now.Add(-10 * time.Second)); got != "0s" {
-		t.Fatalf("expected '0s', got %q", got)
-	}
-}
-
-func TestChangelogExcerpt(t *testing.T) {
-	rows := ChangelogExcerptRows()
-	if len(rows) < 3 || !strings.Contains(rows[0], "Pigasus CLI Changelog") {
-		t.Fatalf("unexpected excerpt rows: %v", rows)
-	}
-}
-
-func TestDiffFirstChangedPath(t *testing.T) {
-	if got := DiffFirstChangedPath([]string{"a.go"}, []string{"b.go"}); got != "a.go" {
-		t.Fatalf("expected a.go, got %q", got)
-	}
-	if got := DiffFirstChangedPath(nil, []string{"b.go"}); got != "b.go" {
-		t.Fatalf("expected b.go, got %q", got)
-	}
-	if got := DiffFirstChangedPath(nil, nil); got != "" {
-		t.Fatalf("expected empty string, got %q", got)
-	}
-}
-
 func TestMaxOffset(t *testing.T) {
 	spec := Spec{
 		Lines:   []string{"1", "2", "3", "4", "5"},
@@ -88,4 +52,3 @@ func TestMaxOffset(t *testing.T) {
 		t.Errorf("MaxOffset small = %d, want 0", got)
 	}
 }
-

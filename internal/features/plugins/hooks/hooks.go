@@ -1,11 +1,14 @@
 // Package hooks is the lifecycle-hook bus for the clone's TUI.
 //
-// The Antigravity CLI ships five hook events: PreToolUse, PostToolUse,
-// PreInvocation, PostInvocation, and Stop. The /hooks panel lists them
-// (cmd/wagyu/slash_panels.go: hookRows); cycle 205 added the panel
-// state machine; the dispatch — actually firing the registered hooks
-// from each event — has never been wired. This package is the
-// dispatch.
+// The Antigravity CLI ships six hook events: SessionStart, PreToolUse,
+// PostToolUse, PreInvocation, PostInvocation, and Stop. The /hooks panel
+// lists them (cycle 205 added the panel state machine; the panel itself
+// lives in internal/ui/views/hookspanel since cycle 381), and the
+// documented hooks.json runtime — the loader, the execution and the
+// decisions — lives in internal/core/policy/hooks, which owns the event
+// names. This package is the dispatch: it hands an event to the
+// registered handlers, and it is where the documented handlers join the
+// in-process ones.
 //
 // The shape mirrors what a Claude-Code-style hooks.json would emit:
 //
@@ -38,6 +41,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	corehooks "github.com/justwasm/pigasus/internal/core/policy/hooks"
 )
 
 // Event is the typed hook event name. New events are added here so
@@ -55,24 +60,26 @@ const (
 	// case Answer/Tokens are empty and the payload's Blocked field
 	// is true with the upstream block reason.
 	PostSideQuestion Event = "PostSideQuestion"
+
+	// The six documented events. Their names belong to the core tier
+	// (internal/core/policy/hooks) — the bus spells them in its own
+	// vocabulary, and the two cannot drift apart.
+	//
+	// SessionStart fires once when a new conversation session starts,
+	// before the first model invocation.
+	SessionStart Event = Event(corehooks.EventSessionStart)
+	// PreToolUse fires before a tool is executed.
+	PreToolUse Event = Event(corehooks.EventPreToolUse)
+	// PostToolUse fires after a tool completes.
+	PostToolUse Event = Event(corehooks.EventPostToolUse)
+	// PreInvocation fires before the model is called.
+	PreInvocation Event = Event(corehooks.EventPreInvocation)
+	// PostInvocation fires immediately after each model invocation
+	// completes.
+	PostInvocation Event = Event(corehooks.EventPostInvocation)
+	// Stop fires when the execution loop terminates.
+	Stop Event = Event(corehooks.EventStop)
 )
-
-// KnownEvents is the cycle btw-runs-hooks catalog. /hooks panel
-// rendering is unchanged (still lists the recovered REF five); this
-// slice is the dispatch side.
-var KnownEvents = []Event{PreSideQuestion, PostSideQuestion}
-
-// IsKnown reports whether e is one of the typed events this package
-// dispatches. Unknown events still register and fire, but callers
-// should prefer the typed constants.
-func IsKnown(e Event) bool {
-	for _, k := range KnownEvents {
-		if k == e {
-			return true
-		}
-	}
-	return false
-}
 
 // Decision is what a HookFunc returns. Allow is the default;
 // Block stops the parent action; Modify updates one payload field.
@@ -128,6 +135,10 @@ type Payload struct {
 	Blocked bool
 	// BlockReason is the reason the upstream hook gave for blocking.
 	BlockReason string
+	// Input is the payload of one of the six documented events — the
+	// JSON the documented handlers receive on stdin. It is empty for
+	// the side-question events.
+	Input corehooks.Input
 	// Timestamp records when the dispatch began. Useful for tests
 	// that want to assert the order of side-question events.
 	Timestamp time.Time
@@ -154,16 +165,8 @@ func SideQuestion(event Event, question string) Payload {
 // error's message.
 type HookFunc func(ctx context.Context, p Payload) (Decision, string, error)
 
-// HookRecord is the public-facing view of a registered hook. It
-// exists so tests and observability code can list what is registered
-// without touching the manager's mutex.
-type HookRecord struct {
-	Event    Event
-	Priority int
-}
-
 // Manager is the hook bus. One Manager per TUI session; production
-// callers wire it in NewRunMode so /btw can dispatch through it,
+// callers wire it in the run mode so /btw can dispatch through it,
 // tests build a fresh Manager per test (Register is concurrency-safe
 // but the test pattern is single-goroutine).
 type Manager struct {
@@ -298,4 +301,47 @@ func (m *Manager) Reset() {
 	defer m.mu.Unlock()
 	m.handlers = make(map[Event][]registeredHandler)
 	m.fireCount = make(map[Event]int)
+}
+
+// FireDocumented dispatches one of the six documented events.
+//
+// The bus's own in-process handlers run first: a handler that blocks
+// stops the call before the documented handlers run, and the outcome
+// becomes a denial. The documented handlers then run through rt, and
+// their aggregate outcome — the strongest decision they gave — is what
+// the caller gets.
+//
+// An event the documentation does not name does nothing.
+func (m *Manager) FireDocumented(ctx context.Context, rt *corehooks.Runtime, ev corehooks.Event, in corehooks.Input) (corehooks.Outcome, error) {
+	e, ok := documentedEvent(ev)
+	if !ok {
+		return corehooks.Outcome{}, nil
+	}
+	blocked, _, reason := m.Fire(ctx, e, Payload{Event: e, Input: in, Timestamp: time.Now()})
+	if blocked {
+		return corehooks.Outcome{Decision: corehooks.DecisionDeny, Reason: reason}, nil
+	}
+	if rt == nil {
+		return corehooks.Outcome{}, nil
+	}
+	return rt.Fire(ctx, ev, in), nil
+}
+
+// documentedEvent maps a documented event onto the bus's own event.
+func documentedEvent(ev corehooks.Event) (Event, bool) {
+	switch ev {
+	case corehooks.EventSessionStart:
+		return SessionStart, true
+	case corehooks.EventPreToolUse:
+		return PreToolUse, true
+	case corehooks.EventPostToolUse:
+		return PostToolUse, true
+	case corehooks.EventPreInvocation:
+		return PreInvocation, true
+	case corehooks.EventPostInvocation:
+		return PostInvocation, true
+	case corehooks.EventStop:
+		return Stop, true
+	}
+	return "", false
 }

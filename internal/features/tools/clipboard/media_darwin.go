@@ -97,7 +97,11 @@ func readMedia(opts Options) (Media, error) {
 			return media, nil
 		}
 	}
-	return Media{}, ErrNoMedia
+	// Nothing to attach. Over SSH that is the reference's own case: the
+	// terminal's clipboard is not forwarded, so the paste reaches
+	// nothing — "local pasteboard is empty or unreachable over SSH
+	// connection". Locally the clipboard is simply empty.
+	return Media{}, pasteboardUnavailableError()
 }
 
 // darwinClipboardFileURL runs the reference's file-URL script and

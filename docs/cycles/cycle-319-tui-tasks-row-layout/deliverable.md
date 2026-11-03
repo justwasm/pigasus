@@ -248,7 +248,7 @@ styles at `sp+0x24<<12+0x900` (running), `+0xb88` (cancelled),
 | `internal/taskregistry/format_test.go` | the row test rewritten: the cell order, the `[15:04:05]` cell, the `> ` / `  ` prefixes, the width, the truncation, the flattened name; the padded-label assertions replaced |
 | `internal/cliapp/slash_tasks_panel.go` | the panel passes its width to the row; the layout comment is the reference's |
 | `internal/cliapp/slash_panels_test.go` | the panel test keys off the name and the status cell instead of the id |
-| `out/local-macos/ghidra-scripts/DisasmRange.java` | the parameterised disassembler this cycle's evidence came from |
+| `scripts/re/ghidra-scripts/DisasmRange.java` | the parameterised disassembler this cycle's evidence came from |
 
 The row before and after (a completed task with exit code 0, in an
 80-cell panel):
@@ -344,7 +344,7 @@ cd /tmp && GHIDRA_INSTALL_DIR=~/tools/ghidra_12.1.4_PUBLIC \
   JAVA_HOME=/opt/homebrew/opt/openjdk@21 MAXMEM=8G \
   ~/tools/ghidra_12.1.4_PUBLIC/support/analyzeHeadless \
   out/local-macos/proj agy -process -noanalysis -max-cpu 4 \
-  -scriptPath out/local-macos/ghidra-scripts \
+  -scriptPath scripts/re/ghidra-scripts \
   -postScript DisasmRange.java 0x102bbe370 1139
 ```
 

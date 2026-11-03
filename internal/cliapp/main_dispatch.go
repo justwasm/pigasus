@@ -13,29 +13,32 @@ import (
 	"strings"
 	"time"
 
-	pi "github.com/MichaelKinsy/PiG/ai"
-
-	"github.com/justwasm/pigasus/internal/accounts"
-	"github.com/justwasm/pigasus/internal/agent"
-	"github.com/justwasm/pigasus/internal/agyproxy"
-	"github.com/justwasm/pigasus/internal/auth"
-	"github.com/justwasm/pigasus/internal/backend"
-	"github.com/justwasm/pigasus/internal/backendselect"
+	"github.com/justwasm/pigasus/internal/infra/agyproxy"
 	"github.com/justwasm/pigasus/internal/cli"
-	"github.com/justwasm/pigasus/internal/cliflags"
-	"github.com/justwasm/pigasus/internal/convstore"
-	"github.com/justwasm/pigasus/internal/modelcatalog"
-	"github.com/justwasm/pigasus/internal/onboarding"
-	"github.com/justwasm/pigasus/internal/permissions"
-	"github.com/justwasm/pigasus/internal/persistentrc"
+	"github.com/justwasm/pigasus/internal/app/session/convstore"
+	"github.com/justwasm/pigasus/internal/core/backend"
+	"github.com/justwasm/pigasus/internal/core/cliflags"
+	"github.com/justwasm/pigasus/internal/core/policy/permissions"
+	"github.com/justwasm/pigasus/internal/core/policy/sandbox"
+	settings "github.com/justwasm/pigasus/internal/core/settings"
+	accounts "github.com/justwasm/pigasus/internal/features/accounts/core"
+	"github.com/justwasm/pigasus/internal/features/agents"
+	"github.com/justwasm/pigasus/internal/features/auth"
+	modelcatalog "github.com/justwasm/pigasus/internal/features/models/catalog"
+	"github.com/justwasm/pigasus/internal/app/toolrunner"
+	"github.com/justwasm/pigasus/internal/infra/backend/gateway"
+	"github.com/justwasm/pigasus/internal/ui/views/permissionprompt"
+	persistentrc "github.com/justwasm/pigasus/internal/infra/remote/persistent"
+	uirows "github.com/justwasm/pigasus/internal/ui/rows"
+	featdiff "github.com/justwasm/pigasus/internal/ui/views/diff/feat"
+	"github.com/justwasm/pigasus/internal/ui/views/onboarding"
+	"github.com/justwasm/pigasus/internal/ui/views/statusrow"
 	"github.com/justwasm/pigasus/internal/printmode"
 	"github.com/justwasm/pigasus/internal/rchost"
-	"github.com/justwasm/pigasus/internal/sandbox"
-	"github.com/justwasm/pigasus/internal/toolrunner"
-	"github.com/justwasm/pigasus/internal/tools"
-	"github.com/justwasm/pigasus/internal/urlchunk"
 	"github.com/justwasm/pigasus/render"
+	"github.com/justwasm/pigasus/urlchunk"
 	"golang.org/x/term"
+	"github.com/justwasm/pigasus/internal/app/tools/shell"
 )
 
 // checkRootShortCircuits handles flags that print catalog/info and exit.
@@ -63,7 +66,7 @@ func checkRootShortCircuits(fs *flag.FlagSet, p *cli.Parser, out io.Writer) (boo
 		return true, dispatchTool(out, toolName, cliflags.StringValue(fs, "tool-args"))
 	}
 	if cliflags.BoolValue(fs, "diff-with-agy") {
-		runFeatDiffCLI(out, printmode.PrintOutputFormat(fs))
+		featdiff.RunCLI(out, printmode.PrintOutputFormat(fs))
 		return true, nil
 	}
 	return false, nil
@@ -74,7 +77,7 @@ func validateRootFlags(fs *flag.FlagSet, printMode bool) error {
 	if err := rchost.CheckRemoteControlADC(fs); err != nil {
 		return err
 	}
-	promptInter := flagWasSet(fs, "prompt-interactive") || flagWasSet(fs, "i")
+	promptInter := cliflags.WasSet(fs, "prompt-interactive") || cliflags.WasSet(fs, "i")
 	if printMode && promptInter {
 		fmt.Fprintln(os.Stderr, "error: --print and --prompt-interactive are mutually exclusive")
 		return cli.ExitCodeError(2, "error: --print and --prompt-interactive are mutually exclusive")
@@ -82,16 +85,22 @@ func validateRootFlags(fs *flag.FlagSet, printMode bool) error {
 	if err := printmode.ValidateJSONSchemaFlag(fs); err != nil {
 		return cli.ExitCodeError(1, err.Error())
 	}
-	agentErr := agent.ValidateAgent(cliflags.StringValue(fs, "agent"))
+	agentErr := agents.ValidateAgent(cliflags.StringValue(fs, "agent"))
 	if agentErr != nil && printMode {
 		return cli.ExitCodeError(1, agentErr.Error())
 	}
 	if printMode {
 		if _, err := modelcatalog.ResolveModelSelection(cliflags.StringValue(fs, "model"), cliflags.StringValue(fs, "effort")); err != nil {
+			outFmt := cliflags.StringValue(fs, "output-format")
+			if outFmt == "json" || outFmt == "stream-json" {
+				errMsg := strings.TrimPrefix(err.Error(), "error: ")
+				envJSON := fmt.Sprintf(`{"conversation_id":"","status":"ERROR","response":"","error":%q,"duration_seconds":0,"num_turns":0,"usage":{"input_tokens":0,"output_tokens":0,"thinking_tokens":0,"cache_read_tokens":0,"total_tokens":0}}`+"\n", errMsg)
+				fmt.Fprint(os.Stdout, envJSON)
+			}
 			return cli.ExitCodeError(1, err.Error())
 		}
 	} else if agentErr != nil && !isTerminalInteractive(os.Stdin) {
-		var nf *agent.AgentNotFoundError
+		var nf *agents.AgentNotFoundError
 		if errors.As(agentErr, &nf) {
 			fmt.Fprintf(os.Stderr, "Agent Not Found: %s. Using the default agent instead.\n",
 				strings.TrimPrefix(nf.Error(), "error: "))
@@ -102,6 +111,10 @@ func validateRootFlags(fs *flag.FlagSet, printMode bool) error {
 
 // dispatchPrintMode runs the headless print mode turn.
 func dispatchPrintMode(fs *flag.FlagSet, out io.Writer) error {
+	if cliflags.StringValue(fs, "input-format") == "stream-json" {
+		warnAgentMode(fs, false)
+		return printmode.RunStreamJSON(out, os.Stdin, fs)
+	}
 	prompt := printPrompt(fs)
 	if prompt == "" {
 		fmt.Fprintln(os.Stderr, "antigravity: --print requires a positional prompt argument")
@@ -145,9 +158,10 @@ func maybeRunOnboarding(fs *flag.FlagSet, out io.Writer) {
 		return
 	}
 	wz := onboarding.NewWizard()
+	wz.MigrationItems = onboarding.DetectGeminiAssets("")
 	wz.Out = out
 	if err := wz.Run(); err == nil && wz.Step == onboarding.StepDone {
-		_ = auth.SaveSettingsColorScheme(wz.Selected.String())
+		_ = settings.SaveColorScheme(wz.Selected.String())
 		s, _ := auth.LoadJetboxState()
 		s.PostOnboardingStep = "agent_configuration"
 		if s.AgentEnvironment == "" {
@@ -170,42 +184,72 @@ func maybeRunOnboarding(fs *flag.FlagSet, out io.Writer) {
 }
 
 type permissionRunner struct {
-	inner   agent.ToolRunner
+	inner   backend.ToolRunner
 	policy  *permissions.Policy
 	sandbox sandbox.Sandbox
 	Denials []string
+	// hook is the documented PreToolUse gate. It is nil when the
+	// session armed no documented hooks.
+	hook func(ctx context.Context, call backend.ToolCall) hookToolGate
+	// post is the documented PostToolUse dispatch. It is nil when the
+	// session armed no documented hooks.
+	post func(ctx context.Context, call backend.ToolCall, err error)
 }
 
 func (r *permissionRunner) Run(ctx context.Context, call backend.ToolCall) (string, error) {
+	policy := r.policy
+	if r.hook != nil {
+		gate := r.hook(ctx, call)
+		if gate.Denied {
+			r.Denials = append(r.Denials, call.Name)
+			return gate.Reason, nil
+		}
+		if len(gate.Overwrite) > 0 {
+			call.Arguments = mergeHookArgs(call.Arguments, gate.Overwrite)
+		}
+		if gate.Approved {
+			policy = approvedPolicy(r.policy)
+		}
+	}
+	denials := len(r.Denials)
 	runner := toolrunner.PermissionRunner{
 		Inner:   r.inner,
-		Policy:  r.policy,
+		Policy:  policy,
 		Sandbox: r.sandbox,
 		Denials: r.Denials,
+		PromptUser: func(ctx context.Context, call backend.ToolCall) (bool, error) {
+			kind := permissionprompt.KindDefault
+			switch call.Name {
+			case "write_to_file", "write_file":
+				kind = permissionprompt.KindFileCreate
+			case "replace_file_content", "edit_file":
+				kind = permissionprompt.KindFileEdit
+			}
+			var args map[string]any
+			if len(call.Arguments) > 0 {
+				_ = json.Unmarshal(call.Arguments, &args)
+			}
+			req := permissionprompt.Request{
+				Tool: call.Name,
+				Kind: kind,
+				Args: args,
+			}
+			p := RaisePermissionPrompt(req)
+			res, err := p.Wait(ctx)
+			if err != nil {
+				return false, err
+			}
+			return res.IsApproved(), nil
+		},
 	}
 	res, err := runner.Run(ctx, call)
 	r.Denials = runner.Denials
+	// The documented PostToolUse event fires after a tool completes: a
+	// call the policy blocked never ran, so it has no completion.
+	if r.post != nil && len(r.Denials) == denials {
+		r.post(ctx, call, err)
+	}
 	return res, err
-}
-
-func advertisedToolDecls(agentBody string, reg *tools.Registry) []backend.ToolDecl {
-	return toolrunner.AdvertisedToolDecls(agentBody, reg)
-}
-
-func toolTarget(call backend.ToolCall) string {
-	return toolrunner.ToolTarget(call)
-}
-
-func printModePolicy(fs *flag.FlagSet) permissions.Policy {
-	return printmode.PrintModePolicy(fs)
-}
-
-func printModeSandbox(fs *flag.FlagSet, workspace, conversationID string) sandbox.Sandbox {
-	return printmode.PrintModeSandbox(fs, workspace, conversationID)
-}
-
-func pigPrintModel(be backend.Client, modelName string) *pi.Model {
-	return printmode.PigPrintModel(be, modelName)
 }
 
 // dispatchTool is the --tool NAME --tool-args JSON path.
@@ -225,14 +269,14 @@ func dispatchTool(w io.Writer, name, argsJSON string) error {
 	if cmdStr == "" {
 		return fmt.Errorf("run_command: --tool-args must include {\"command\": \"...\"}")
 	}
-	argv := tools.DefaultShellArgv(cmdStr)
-	if runtime.GOOS == "windows" && tools.SelectWindowsShell() == "" {
+	argv := shell.DefaultShellArgv(cmdStr)
+	if runtime.GOOS == "windows" && shell.SelectWindowsShell() == "" {
 		return fmt.Errorf("run_command: no powershell found on PATH (looked for powershell.exe, then pwsh.exe)")
 	}
 	c := exec.Command(argv[0], argv[1:]...)
 	c.Stdout = w
 	c.Stderr = w
-	return tools.RunWithPTYStdin(c)
+	return shell.RunWithPTYStdin(c)
 }
 
 // printTools writes the recovered tools catalog to w.
@@ -295,9 +339,9 @@ func renderTUIWithFlags(w io.Writer, fs *flag.FlagSet) error {
 	renderBanner(w, email, model, tier, cwd)
 	fmt.Fprintln(w, separator)
 	if fs != nil && cliflags.BoolValue(fs, "remote-control") {
-		if IsBusinessAccount() {
+		if auth.IsBusinessAccount() {
 			fmt.Fprintln(w, cWarningBlueOpen+"> /remote-control"+cWarningBlueClose)
-			fmt.Fprintln(w, cWarningBlueOpen+"  \u23bf  "+cWarningBlueClose+panelGray238+rchost.SlashADCErrorMessage()+panelGray238C)
+			fmt.Fprintln(w, uirows.NoticeIndented(rchost.SlashADCErrorMessage()))
 			fmt.Fprintln(w, "")
 		} else {
 			convID := cliflags.StringValue(fs, "conversation")
@@ -337,7 +381,7 @@ func renderTUIWithFlags(w io.Writer, fs *flag.FlagSet) error {
 					"  Run `pigasus remote-control run` in another terminal to connect.")
 			}
 			fmt.Fprintln(w, cWarningBlueOpen+"> /remote-control"+cWarningBlueClose)
-			fmt.Fprintln(w, cWarningBlueOpen+"  \u23bf  "+cWarningBlueClose+panelGray238+msg+panelGray238C)
+			fmt.Fprintln(w, uirows.NoticeIndented(msg))
 			for _, line := range extra {
 				fmt.Fprintln(w, line)
 			}
@@ -346,22 +390,8 @@ func renderTUIWithFlags(w io.Writer, fs *flag.FlagSet) error {
 	}
 	fmt.Fprintln(w, "\033[38;2;138;180;248m>\033[39m")
 	fmt.Fprintln(w, separator)
-	fmt.Fprintln(w, staticStatusRow(model))
+	fmt.Fprintln(w, statusrow.Static(model, separatorWidth))
 	return nil
-}
-
-// runOnboardingWizard runs the onboarding wizard.
-func runOnboardingWizard(w io.Writer) error {
-	wz := onboarding.NewWizard()
-	wz.Out = w
-	return wz.Run()
-}
-
-// tuiSnapshot returns the rendered snapshot string.
-func tuiSnapshot() string {
-	var sb strings.Builder
-	_ = renderTUI(&sb)
-	return sb.String()
 }
 
 // ---- merged from main_backend.go ----
@@ -381,50 +411,11 @@ func tuiSnapshot() string {
 // user configured goes to its own endpoint. An explicit `--backend gateway`
 // forces the configured endpoint even for a reference model.
 //
-// The rule itself now lives in internal/backendselect; the wrappers here
+// The rule itself now lives in internal/infra/backend/select; the wrappers here
 // keep the clone's own vocabulary (and its tests').
 
-// pickBackend implements the backend dispatch.
-func pickBackend(fs *flag.FlagSet, modelName string) backend.Client {
-	return pickBackendWithLog(fs, modelName, io.Discard, backend.GatewayTimeoutUnlimited)
-}
-
-// pickBackendWithLog is the underlying dispatch with a caller-supplied log writer.
-func pickBackendWithLog(fs *flag.FlagSet, modelName string, logWriter io.Writer, gatewayTimeout int) backend.Client {
-	return backendselect.PickWithLog(fs, modelName, logWriter, gatewayTimeout, resolveCatalogueID)
-}
-
-// isReferenceModel reports whether name resolves to a model the reference
-// serves itself — one of the models in its own catalogue.
-//
-// A model the user configured is not one of those: it has its own endpoint,
-// and the configured transport is what reaches it.
-func isReferenceModel(name string) bool {
-	return backendselect.IsReferenceModel(name, resolveCatalogueID)
-}
-
-// resolveBackend decides which backend to use.
-func resolveBackend(fs *flag.FlagSet, logWriter io.Writer) (string, bool) {
-	return backendselect.Resolve(fs, logWriter)
-}
-
-// normaliseBackend maps accepted values to "gateway", "cloudcode" or "shim".
-func normaliseBackend(raw string, logWriter io.Writer) string {
-	return backendselect.Normalise(raw, logWriter)
-}
-
-// hasOAuthToken returns true if an OAuth token exists in env, on disk, or in Keychain.
-func hasOAuthToken() bool {
-	return backendselect.HasOAuthToken()
-}
-
-// authHome returns $XDG_CONFIG_HOME/antigravity or $HOME/.config/antigravity.
-func authHome() string {
-	return backendselect.AuthHome()
-}
-
 type gatewayBackend interface {
-	GatewayConfig() backend.GatewayConfig
+	GatewayConfig() gateway.GatewayConfig
 }
 
 // proxySubcommand is the hidden `proxy` group: the local CloudCode proxy's
@@ -441,7 +432,7 @@ type gatewayBackend interface {
 // The provider/model registry is *not* here: it belongs to the clone
 // (`wagyu provider`, `wagyu model`), and the proxy only reads it.
 func proxySubcommand() cli.SubcommandSpec {
-	names := []string{"doctor", "log", "capture", "balance", "aggregate", "version", "help"}
+	names := []string{"doctor", "log", "capture", "balance", "aggregate", "serve", "version", "help"}
 	subs := make([]cli.SubSubSpec, 0, len(names))
 	for _, name := range names {
 		subs = append(subs, cli.SubSubSpec{
@@ -473,6 +464,8 @@ func proxySubShort(name string) string {
 		return "Toggle multi-account load balancing"
 	case "aggregate":
 		return "Toggle unified virtual account aggregation"
+	case "serve":
+		return "Run the gateway server in foreground"
 	case "version":
 		return "Print the proxy and agy versions"
 	case "help":

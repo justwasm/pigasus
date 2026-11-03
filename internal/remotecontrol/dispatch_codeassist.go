@@ -40,8 +40,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/justwasm/pigasus/internal/accounts"
-	"github.com/justwasm/pigasus/internal/auth"
+	accounts "github.com/justwasm/pigasus/internal/features/accounts/core"
+	"github.com/justwasm/pigasus/internal/features/auth"
+	"github.com/justwasm/pigasus/internal/remotecontrol/rpc"
 )
 
 // codeAssistFreshness is how long the account's code-assist state is
@@ -65,7 +66,7 @@ var codeAssistCache struct {
 // routeCodeAssistMethods serves the code-assist state RPCs the Web
 // UI's credits panel needs. Returns ok=true when the method was
 // handled.
-func (d *Dispatcher) routeCodeAssistMethods(ctx context.Context, method string, params json.RawMessage) (any, *rpcErrorBody, bool) {
+func (d *Dispatcher) routeCodeAssistMethods(ctx context.Context, method string, params json.RawMessage) (any, *rpc.ErrorBody, bool) {
 	switch method {
 	case "GetLoadCodeAssist":
 		return d.handleLSGetLoadCodeAssist(ctx, params)
@@ -79,7 +80,7 @@ func (d *Dispatcher) routeCodeAssistMethods(ctx context.Context, method string, 
 // read is not an error: the panel is a read, not a command, and the
 // clone answers with the account's cached tier so the panel has
 // something to render.
-func (d *Dispatcher) handleLSGetLoadCodeAssist(ctx context.Context, params json.RawMessage) (any, *rpcErrorBody, bool) {
+func (d *Dispatcher) handleLSGetLoadCodeAssist(ctx context.Context, params json.RawMessage) (any, *rpc.ErrorBody, bool) {
 	var req struct {
 		ForceRefresh bool `json:"forceRefresh"`
 	}

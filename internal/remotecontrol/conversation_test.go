@@ -22,18 +22,20 @@ import (
 	"errors"
 	"strings"
 	"testing"
+
+	"github.com/justwasm/pigasus/internal/remotecontrol/projects"
 )
 
 // newDeleteDispatcher returns a Dispatcher with the
 // supplied seams pre-installed. Mirrors
 // newProjectsDispatcher / newFileTestDispatcher
 // from the prior cycles.
-func newDeleteDispatcher(t *testing.T, projects ProjectStore, conv ConversationStore) *Dispatcher {
+func newDeleteDispatcher(t *testing.T, projectStore projects.Store, conv ConversationStore) *Dispatcher {
 	t.Helper()
 	sess := NewSessionState("1.4.0")
 	d, err := NewDispatcher(Config{
 		Session:       sess,
-		Projects:      projects,
+		Projects:      projectStore,
 		Conversations: conv,
 	})
 	if err != nil {
@@ -366,8 +368,8 @@ func TestDeleteRemoteAgentConversation_EmptyParams(t *testing.T) {
 // TestDeleteRemoteAgentProject_Dispatcher pins
 // the happy-path project delete envelope.
 func TestDeleteRemoteAgentProject_Dispatcher(t *testing.T) {
-	ps := NewMemProjectStore(nil)
-	created, err := ps.Create(context.Background(), NewProject{
+	ps := projects.NewMemStore(nil)
+	created, err := ps.Create(context.Background(), projects.Create{
 		Name:      "alpha",
 		Workspace: "/ws/alpha",
 	})
@@ -393,7 +395,7 @@ func TestDeleteRemoteAgentProject_Dispatcher(t *testing.T) {
 // TestDeleteRemoteAgentProject_NotFound pins the
 // -32004 envelope.
 func TestDeleteRemoteAgentProject_NotFound(t *testing.T) {
-	ps := NewMemProjectStore(nil)
+	ps := projects.NewMemStore(nil)
 	d := newDeleteDispatcher(t, ps, nil)
 
 	_, errObj := dispatchDelete(t, d, "DeleteRemoteAgentProject", map[string]any{
@@ -410,7 +412,7 @@ func TestDeleteRemoteAgentProject_NotFound(t *testing.T) {
 // TestDeleteRemoteAgentProject_EmptyParams pins
 // the -32602 envelope.
 func TestDeleteRemoteAgentProject_EmptyParams(t *testing.T) {
-	ps := NewMemProjectStore(nil)
+	ps := projects.NewMemStore(nil)
 	d := newDeleteDispatcher(t, ps, nil)
 
 	_, errObj := dispatchDelete(t, d, "DeleteRemoteAgentProject", map[string]any{
@@ -427,8 +429,8 @@ func TestDeleteRemoteAgentProject_EmptyParams(t *testing.T) {
 // TestDeleteRemoteAgentProject_Bound pins the
 // -32013 envelope.
 func TestDeleteRemoteAgentProject_Bound(t *testing.T) {
-	ps := NewMemProjectStore(nil)
-	created, err := ps.Create(context.Background(), NewProject{
+	ps := projects.NewMemStore(nil)
+	created, err := ps.Create(context.Background(), projects.Create{
 		Name:      "beta",
 		Workspace: "/ws/beta",
 	})
@@ -458,8 +460,8 @@ func TestDeleteRemoteAgentProject_Bound(t *testing.T) {
 // the "fail_if_bound=false" override that
 // bypasses the bound check.
 func TestDeleteRemoteAgentProject_BoundForce(t *testing.T) {
-	ps := NewMemProjectStore(nil)
-	created, err := ps.Create(context.Background(), NewProject{
+	ps := projects.NewMemStore(nil)
+	created, err := ps.Create(context.Background(), projects.Create{
 		Name:      "gamma",
 		Workspace: "/ws/gamma",
 	})

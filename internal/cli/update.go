@@ -18,7 +18,7 @@ import (
 
 	"github.com/creativeprojects/go-selfupdate"
 	"github.com/justwasm/pigasus/atomicfile"
-	"github.com/justwasm/pigasus/internal/branding"
+	"github.com/justwasm/pigasus/internal/core/branding"
 )
 
 // Release describes an available version update.

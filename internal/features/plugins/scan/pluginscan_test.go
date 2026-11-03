@@ -27,7 +27,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/justwasm/pigasus/internal/pluginscan"
+	pluginscan "github.com/justwasm/pigasus/internal/features/plugins/scan"
 )
 
 // TestSymlinkSkillFound: a skill directory placed behind a symlink

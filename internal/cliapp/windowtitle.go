@@ -1,39 +1,16 @@
-// windowtitle.go — the terminal window title.
+// windowtitle.go — the host's side of the window title.
 //
-// The title script runs on the tick goroutine and the renderer reads the
-// title on the model's goroutine, so the value needs its own lock: an
-// unsynchronised string write can be read as an empty title (a string is
-// two words, and the writer's store of the length can be observed before
-// its store of the pointer).
+// The store itself is internal/ui/views/statusline's: the title script
+// runs on the tick goroutine and the renderer reads the title on the
+// model's goroutine, so the value needs its own lock. The host keeps the
+// lazily created store and the accessor the status area reads it through.
 package cliapp
 
-import "sync"
+import (
+	"sync"
 
-// windowTitleStore holds the title the title script produced.
-type windowTitleStore struct {
-	mu    sync.Mutex
-	title string
-}
-
-// set stores a new title.
-func (s *windowTitleStore) set(title string) {
-	if s == nil {
-		return
-	}
-	s.mu.Lock()
-	s.title = title
-	s.mu.Unlock()
-}
-
-// get returns the current title.
-func (s *windowTitleStore) get() string {
-	if s == nil {
-		return ""
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return s.title
-}
+	"github.com/justwasm/pigasus/internal/ui/views/statusline"
+)
 
 // windowTitleInitMu guards the creation of a runMode's title store.
 //
@@ -43,24 +20,14 @@ var windowTitleInitMu sync.Mutex
 
 // titleStoreFor returns the model's title store, creating it if the model
 // was built without one.
-func (m *runMode) titleStoreFor() *windowTitleStore {
+func (m *runMode) titleStoreFor() *statusline.TitleStore {
 	if m == nil {
 		return nil
 	}
 	windowTitleInitMu.Lock()
 	defer windowTitleInitMu.Unlock()
 	if m.titleStore == nil {
-		m.titleStore = &windowTitleStore{}
+		m.titleStore = &statusline.TitleStore{}
 	}
 	return m.titleStore
-}
-
-// setWindowTitle stores the title the title script produced.
-func (m *runMode) setWindowTitle(title string) {
-	m.titleStoreFor().set(title)
-}
-
-// windowTitleValue returns the title the title script produced.
-func (m *runMode) windowTitleValue() string {
-	return m.titleStoreFor().get()
 }

@@ -1,10 +1,19 @@
+// slash_panel_accounts_test.go — the host's side of the /accounts panel.
+//
+// The panel itself lives in internal/ui/views/accountspanel: it owns
+// the account list, the pool policy, the tab bar, the keys and the
+// writes. Its own behaviour is pinned in that package's tests.
+//
+// What is left here is what the host owns: the command's catalogue
+// entry, the session's account identity (the banner's email, the
+// transport and the tier the session runs at), the sign-out, and the
+// /usage panel's quota cache.
 package cliapp
 
 import (
 	"bytes"
 	"encoding/base64"
 	"encoding/json"
-	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -14,9 +23,10 @@ import (
 
 	"github.com/charmbracelet/x/ansi"
 
-	"github.com/justwasm/pigasus/internal/accounts"
-	"github.com/justwasm/pigasus/internal/auth"
-	"github.com/justwasm/pigasus/internal/tuilib"
+	accounts "github.com/justwasm/pigasus/internal/features/accounts/core"
+	"github.com/justwasm/pigasus/internal/features/auth"
+	"github.com/justwasm/pigasus/internal/ui/panelregistry"
+	"github.com/justwasm/pigasus/internal/ui/slashcommands"
 )
 
 // accountsFakeToken builds a token whose id_token carries an email
@@ -70,18 +80,18 @@ func mkAccountsPanel(t *testing.T, emails ...string) *runMode {
 		}
 	}
 	m := &runMode{}
-	m.panel = slashPanel{kind: panelAccounts, cmd: "/accounts"}
-	m.reloadAccountsRows()
+	m.panel = slashPanel{kind: panelregistry.Accounts, cmd: "/accounts"}
+	m.initOpenedSlashPanelData(panelregistry.Accounts)
 	return m
 }
 
 func TestAccountsPanelIsListedInCatalogue(t *testing.T) {
-	kind, ok := panelForCommand("accounts")
-	if !ok || kind != panelAccounts {
-		t.Fatalf("panelForCommand(\"accounts\") = (%v, %v)", kind, ok)
+	kind, ok := slashcommands.PanelFor("accounts")
+	if !ok || kind != panelregistry.Accounts {
+		t.Fatalf("slashcommands.PanelFor(\"accounts\") = (%v, %v)", kind, ok)
 	}
 	found := false
-	for _, c := range tuilib.DefaultSlashCommands {
+	for _, c := range slashcommands.Default {
 		if c.Name == "/accounts" {
 			found = true
 			break
@@ -92,138 +102,43 @@ func TestAccountsPanelIsListedInCatalogue(t *testing.T) {
 	}
 }
 
-func TestAccountsPanelLayout(t *testing.T) {
+// TestAccountsPanelSwitchUpdatesTheSession is the seam test: the panel
+// owns the switch, and the session's own state — the banner's email —
+// follows it.
+//
+// The tier is dropped with it: the tier belongs to the account it was
+// read for, so the new account's row must not show the old account's
+// tier.
+func TestAccountsPanelSwitchUpdatesTheSession(t *testing.T) {
 	accountsIsolate(t)
 	m := mkAccountsPanel(t, "a@example.com", "b@example.com")
-	lines := plainLines(m)
-	if len(lines) < 6 {
-		t.Fatalf("too few lines: %q", lines)
-	}
-	if lines[0] != "Accounts" {
-		t.Errorf("title = %q, want Accounts", lines[0])
-	}
-	if !strings.Contains(lines[3], "a@example.com") {
-		t.Errorf("the first row is not the first account: %q", lines[3])
-	}
-	if !strings.Contains(lines[3], "(active)") {
-		t.Errorf("the active account is not marked: %q", lines[3])
-	}
-	if strings.Contains(lines[4], "(active)") {
-		t.Errorf("the inactive account is marked active: %q", lines[4])
-	}
-	if !strings.HasPrefix(lines[len(lines)-1], "Keyboard: ") {
-		t.Errorf("legend = %q", lines[len(lines)-1])
-	}
-	if !strings.Contains(lines[len(lines)-1], "enter Switch") {
-		t.Errorf("legend is missing the switch action: %q", lines[len(lines)-1])
-	}
-}
+	m.tier = "Google AI Pro"
+	m.tierFetched = true
+	m.tierAccount = "a@example.com"
 
-func TestAccountsPanelEmptyState(t *testing.T) {
-	accountsIsolate(t)
-	m := &runMode{}
-	m.panel = slashPanel{kind: panelAccounts, cmd: "/accounts"}
-	m.reloadAccountsRows()
-	lines := plainLines(m)
-	if !strings.Contains(lines[3], "No accounts") {
-		t.Fatalf("empty state = %q", lines[3])
-	}
-}
+	m.accountsPanel().SetCursor(1)
+	m.accountsPanel().HandleKey(tea.Key{Code: tea.KeyEnter})
 
-func TestAccountsPanelNavigation(t *testing.T) {
-	accountsIsolate(t)
-	m := mkAccountsPanel(t, "a@example.com", "b@example.com")
-	if m.panel.cursor != 0 {
-		t.Fatalf("cursor = %d, want 0", m.panel.cursor)
-	}
-	m.handleAccountsPanelKey(tea.Key{Code: tea.KeyDown})
-	if m.panel.cursor != 1 {
-		t.Fatalf("cursor = %d, want 1", m.panel.cursor)
-	}
-	m.handleAccountsPanelKey(tea.Key{Code: tea.KeyUp})
-	if m.panel.cursor != 0 {
-		t.Fatalf("cursor = %d, want 0", m.panel.cursor)
-	}
-	// The cursor clamps at the top.
-	m.handleAccountsPanelKey(tea.Key{Code: tea.KeyUp})
-	if m.panel.cursor != 0 {
-		t.Fatalf("cursor = %d, want 0", m.panel.cursor)
-	}
-}
-
-func TestAccountsPanelSwitchRewritesTheSharedCredential(t *testing.T) {
-	home := accountsIsolate(t)
-	m := mkAccountsPanel(t, "a@example.com", "b@example.com")
-	m.panel.cursor = 1
-	m.handleAccountsPanelKey(tea.Key{Code: tea.KeyEnter})
-
-	if !strings.Contains(m.panel.acct.notice, "Switched to b@example.com") {
-		t.Fatalf("notice = %q", m.panel.acct.notice)
-	}
-	// The shared credential — the file the reference reads — must now
-	// hold the second account.
-	raw, err := os.ReadFile(filepath.Join(home, ".gemini", "antigravity-cli", "antigravity-oauth-token"))
-	if err != nil {
-		t.Fatalf("read the shared token: %v", err)
-	}
-	if !strings.Contains(string(raw), "at-b@example.com") {
-		t.Fatalf("the shared credential did not follow the switch: %s", raw)
-	}
-	// The session state follows too.
 	if m.email != "b@example.com" {
 		t.Fatalf("m.email = %q, want b@example.com", m.email)
 	}
+	if m.tier != "" {
+		t.Errorf("the session's tier = %q, want none", m.tier)
+	}
+	if m.tierFetched {
+		t.Error("the session kept the previous account's fetched tier")
+	}
 }
 
-func TestAccountsPanelSwitchToTheActiveAccountIsANoOp(t *testing.T) {
+// TestAccountsPanelRemoveSignsTheSessionOut is the seam test for the
+// sign-out: removing the active account signs the session out and
+// continues on another account when one is left.
+func TestAccountsPanelRemoveSignsTheSessionOut(t *testing.T) {
 	accountsIsolate(t)
 	m := mkAccountsPanel(t, "a@example.com", "b@example.com")
-	m.handleAccountsPanelKey(tea.Key{Code: tea.KeyEnter})
-	if !strings.Contains(m.panel.acct.notice, "already the active account") {
-		t.Fatalf("notice = %q", m.panel.acct.notice)
-	}
-}
 
-func TestAccountsPanelRemove(t *testing.T) {
-	accountsIsolate(t)
-	m := mkAccountsPanel(t, "a@example.com", "b@example.com")
-	m.panel.cursor = 1
-	m.handleAccountsPanelKey(tea.Key{Code: 'd', Text: "d"})
-	if !strings.Contains(m.panel.acct.notice, "Removed b@example.com") {
-		t.Fatalf("notice = %q", m.panel.acct.notice)
-	}
-	st, err := accounts.Load()
-	if err != nil {
-		t.Fatalf("Load: %v", err)
-	}
-	if len(st.Accounts) != 1 {
-		t.Fatalf("accounts = %d, want 1", len(st.Accounts))
-	}
-	if st.Accounts[0].Email != "a@example.com" {
-		t.Fatalf("the wrong account was removed: %v", st.Emails())
-	}
-}
+	m.accountsPanel().HandleKey(tea.Key{Code: 'd', Text: "d"})
 
-// TestAccountsPanelRemoveTheActiveAccountContinuesOnAnother is the
-// point of the feature: signing one account out does not end the
-// session when another account is left.
-func TestAccountsPanelRemoveTheActiveAccountContinuesOnAnother(t *testing.T) {
-	home := accountsIsolate(t)
-	m := mkAccountsPanel(t, "a@example.com", "b@example.com")
-	m.handleAccountsPanelKey(tea.Key{Code: 'd', Text: "d"})
-	if !strings.Contains(m.panel.acct.notice, "Signed out of a@example.com") {
-		t.Fatalf("notice = %q", m.panel.acct.notice)
-	}
-	if !strings.Contains(m.panel.acct.notice, "Now signed in as") {
-		t.Fatalf("notice = %q", m.panel.acct.notice)
-	}
-	raw, err := os.ReadFile(filepath.Join(home, ".gemini", "antigravity-cli", "antigravity-oauth-token"))
-	if err != nil {
-		t.Fatalf("read the shared token: %v", err)
-	}
-	if !strings.Contains(string(raw), "at-b@example.com") {
-		t.Fatalf("the session did not continue on the other account: %s", raw)
-	}
 	if m.email != "b@example.com" {
 		t.Fatalf("m.email = %q, want b@example.com", m.email)
 	}
@@ -274,110 +189,14 @@ func TestSyncAccountIdentityFollowsAnOutsideSwitch(t *testing.T) {
 	}
 }
 
-// TestAccountsPanelLearnsAnAccountActivatedOutside keeps the panel's
-// list complete: an account that became active outside the clone is
-// unknown to the registry, and it has to show up as the active one.
-func TestAccountsPanelLearnsAnAccountActivatedOutside(t *testing.T) {
-	accountsIsolate(t)
-	mkAccountsPanel(t, "a@example.com")
-	if err := auth.SaveTokenUnified(accountsFakeToken(t, "b@example.com", "at-b@example.com")); err != nil {
-		t.Fatalf("SaveTokenUnified: %v", err)
-	}
-	m := &runMode{}
-	m.panel = slashPanel{kind: panelAccounts, cmd: "/accounts"}
-	m.reloadAccountsRows()
-	if m.panel.acct.active != "b@example.com" {
-		t.Fatalf("active = %q, want b@example.com", m.panel.acct.active)
-	}
-	if len(m.panel.acct.rows) != 2 {
-		t.Fatalf("rows = %d, want 2", len(m.panel.acct.rows))
-	}
-}
-
-// TestAccountsPanelShowsTheCachedTierAndQuota is the panel's promise:
-// every account carries its tier and its quota, so the user does not
-// have to open /usage for the numbers.
-func TestAccountsPanelShowsTheCachedTierAndQuota(t *testing.T) {
-	accountsIsolate(t)
-	m := mkAccountsPanel(t, "a@example.com", "b@example.com")
-	if err := accounts.SetPlanTier("a@example.com", "Google AI Pro"); err != nil {
-		t.Fatalf("SetPlanTier: %v", err)
-	}
-	snap := &auth.QuotaSnapshot{
-		FetchedAt: time.Now(),
-		Groups: []auth.QuotaGroupSnapshot{{
-			Name: "GEMINI MODELS",
-			Buckets: []auth.QuotaBucketSnapshot{
-				{DisplayName: "Weekly Limit Remaining", RemainingFraction: 0.256},
-				{DisplayName: "Five Hour Limit Remaining", RemainingFraction: 0.9595},
-			},
-		}},
-	}
-	if err := accounts.SetQuota("a@example.com", snap); err != nil {
-		t.Fatalf("SetQuota: %v", err)
-	}
-	m.reloadAccountsRows()
-	lines := plainLines(m)
-	row := lines[3]
-	if !strings.Contains(row, "Google AI Pro") {
-		t.Errorf("the row does not carry the tier: %q", row)
-	}
-	// The percentages are right-aligned in a fixed-width column, so the
-	// numbers line up down the list.
-	if !strings.Contains(row, "wk  25.6%") {
-		t.Errorf("the row does not carry the weekly remaining: %q", row)
-	}
-	if !strings.Contains(row, "5h  96.0%") {
-		t.Errorf("the row does not carry the five-hour remaining: %q", row)
-	}
-	// The account that was never queried shows dashes, not zeroes: a
-	// zero would read as an exhausted quota.
-	if !strings.Contains(lines[4], "wk      -") {
-		t.Errorf("the account without a snapshot does not show a dash: %q", lines[4])
-	}
-	if strings.Contains(lines[4], "0.0%") {
-		t.Errorf("the account without a snapshot shows a percentage: %q", lines[4])
-	}
-}
-
-// TestAccountsPanelQueuesEveryAccountForAQuotaFetch: the panel
-// queries every account, one at a time, and the active account goes
-// first — its snapshot is the one the /usage panel reuses.
-func TestAccountsPanelQueuesEveryAccountForAQuotaFetch(t *testing.T) {
-	accountsIsolate(t)
-	m := mkAccountsPanel(t, "a@example.com", "b@example.com")
-	cmd := m.queueAccountsQuota()
-	if cmd == nil {
-		t.Fatal("queueAccountsQuota() = nil")
-	}
-	if len(m.panel.acct.quotaQueue) != 2 {
-		t.Fatalf("queue = %v, want both accounts", m.panel.acct.quotaQueue)
-	}
-	if m.panel.acct.quotaQueue[0] != "a@example.com" {
-		t.Errorf("the active account is not first: %v", m.panel.acct.quotaQueue)
-	}
-}
-
-// TestAccountsPanelRefreshKeyRequeuesTheQuota: the r key asks for a
-// fresh quota for every account.
-func TestAccountsPanelRefreshKeyRequeuesTheQuota(t *testing.T) {
-	accountsIsolate(t)
-	m := mkAccountsPanel(t, "a@example.com", "b@example.com")
-	m.panel.acct.quotaQueue = nil
-	_, cmd := m.handleAccountsPanelKey(tea.Key{Code: 'r', Text: "r"})
-	if cmd == nil {
-		t.Fatal("the r key returned no command")
-	}
-	if len(m.panel.acct.quotaQueue) != 2 {
-		t.Fatalf("queue = %v, want both accounts", m.panel.acct.quotaQueue)
-	}
-}
-
 // TestAccountsPanelDoesNotRenderThePlaceholderTier: a tier that was
 // never read from the server is not an account's tier. The session
 // used to start with a placeholder ("Antigravity Starter Quota") and
 // replace it with the real one, which made the row change under the
 // user's eyes; an account without a fetched tier shows a dash.
+//
+// The placeholder lives in the session's state, so this is the host's
+// test: the session's tier is the seam's answer.
 func TestAccountsPanelDoesNotRenderThePlaceholderTier(t *testing.T) {
 	accountsIsolate(t)
 	m := mkAccountsPanel(t, "a@example.com", "b@example.com")
@@ -504,11 +323,19 @@ func TestAccountsPanelShowsNoTierAfterASignIn(t *testing.T) {
 // TestUsageReusesTheCachedQuotaSnapshot is the "no second query"
 // promise: the /usage panel shows the snapshot the /accounts panel
 // already fetched.
+//
+// The snapshot lives in the registry — the fetch writes it there — so
+// the /usage panel reads it back from there.
 func TestUsageReusesTheCachedQuotaSnapshot(t *testing.T) {
 	accountsIsolate(t)
+	if _, _, err := accounts.Register(accountsFakeToken(t, "a@example.com", "at-a@example.com")); err != nil {
+		t.Fatalf("Register: %v", err)
+	}
 	m := &runMode{email: "a@example.com"}
 	summary := &auth.QuotaSummary{Description: "cached"}
-	m.cacheQuota("a@example.com", summary)
+	if err := accounts.SetQuota("a@example.com", summary.Snapshot()); err != nil {
+		t.Fatalf("SetQuota: %v", err)
+	}
 	cmd := m.fetchQuotaSummaryCmd()
 	if cmd == nil {
 		t.Fatal("fetchQuotaSummaryCmd() = nil")
@@ -520,7 +347,10 @@ func TestUsageReusesTheCachedQuotaSnapshot(t *testing.T) {
 	if msg.err != nil {
 		t.Fatalf("err = %v", msg.err)
 	}
-	if msg.summary != summary {
+	if msg.summary == nil {
+		t.Fatal("the cached snapshot was not reused")
+	}
+	if msg.summary.Description != summary.Description {
 		t.Errorf("the cached snapshot was not reused: %+v", msg.summary)
 	}
 }
@@ -529,11 +359,40 @@ func TestUsageReusesTheCachedQuotaSnapshot(t *testing.T) {
 // to render must not be reused.
 func TestUsageRefetchesAStaleQuotaSnapshot(t *testing.T) {
 	accountsIsolate(t)
+	if _, _, err := accounts.Register(accountsFakeToken(t, "a@example.com", "at-a@example.com")); err != nil {
+		t.Fatalf("Register: %v", err)
+	}
 	m := &runMode{email: "a@example.com"}
-	m.quotaCache = map[string]quotaCacheEntry{
-		"a@example.com": {summary: &auth.QuotaSummary{}, fetchedAt: time.Now().Add(-10 * time.Minute)},
+	stale := &auth.QuotaSnapshot{
+		FetchedAt: time.Now().Add(-10 * time.Minute),
+		Groups:    []auth.QuotaGroupSnapshot{{Name: "gpt"}},
+	}
+	if err := accounts.SetQuota("a@example.com", stale); err != nil {
+		t.Fatalf("SetQuota: %v", err)
 	}
 	if got := m.cachedQuota("a@example.com"); got != nil {
 		t.Errorf("a stale snapshot was reused: %+v", got)
+	}
+}
+
+// TestAccountsPanelQuotaAnswerLandsInTheRegistry is the seam test for
+// the quota: the answer is cached in the registry, which is where the
+// /usage panel reads it from.
+func TestAccountsPanelQuotaAnswerLandsInTheRegistry(t *testing.T) {
+	accountsIsolate(t)
+	m := mkAccountsPanel(t, "a@example.com")
+	summary := &auth.QuotaSummary{Description: "fetched"}
+	// The fetch writes the snapshot into the registry before the
+	// answer reaches the panel.
+	if err := accounts.SetQuota("a@example.com", summary.Snapshot()); err != nil {
+		t.Fatalf("SetQuota: %v", err)
+	}
+	m.accountsPanel().QuotaDone("a@example.com", true, nil)
+	got := m.cachedQuota("a@example.com")
+	if got == nil {
+		t.Fatal("the quota answer was not cached in the registry")
+	}
+	if got.Description != summary.Description {
+		t.Errorf("the registry holds %q, want %q", got.Description, summary.Description)
 	}
 }

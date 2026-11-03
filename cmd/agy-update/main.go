@@ -58,6 +58,17 @@ func run(args []string, stdout, stderr io.Writer) int {
 	opts := agyupdate.Options{
 		TargetBinary: targetBin,
 	}
+
+	// The advisory lock goes here: the flags above answer without
+	// touching the updater's own state, and the update below is the one
+	// thing two updaters must not do at the same time.
+	release, locked := acquireUpdaterLock(updaterLockPath())
+	if !locked {
+		fmt.Fprintln(stderr, updaterLockWarning)
+		return 0
+	}
+	defer release()
+
 	return agyupdate.Run(context.Background(), stdout, stderr, opts)
 }
 

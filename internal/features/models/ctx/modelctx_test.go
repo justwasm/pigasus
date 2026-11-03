@@ -19,7 +19,7 @@ package ctx
 import (
 	"testing"
 
-	"github.com/justwasm/pigasus/internal/configtest"
+	"github.com/justwasm/pigasus/internal/features/models/configtest"
 )
 
 // TestCatalogueLimits pins the effective window and the reserve for every

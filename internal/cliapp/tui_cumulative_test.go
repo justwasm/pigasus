@@ -13,8 +13,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/justwasm/pigasus/internal/convstore"
-	"github.com/justwasm/pigasus/internal/implicit"
+	"github.com/justwasm/pigasus/internal/app/prompt/implicit"
+	"github.com/justwasm/pigasus/internal/app/session/convstore"
 )
 
 // recordImplicitCommand writes one `!` command into the reference's
@@ -87,7 +87,8 @@ func TestTheImplicitCommandStaysOutOfTheConversation(t *testing.T) {
 	if len(m.session) != 0 {
 		t.Errorf("the session holds %d messages, want 0", len(m.session))
 	}
-	if steps := m.trajectorySteps(); len(steps) != 0 {
+	steps := convstore.BuildSteps(m.trajectoryFacts())
+	if len(steps) != 0 {
 		t.Errorf("the trajectory holds %d steps, want 0", len(steps))
 	}
 }

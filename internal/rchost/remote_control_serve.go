@@ -7,6 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -15,15 +16,17 @@ import (
 	"time"
 
 	"github.com/justwasm/pigasus/agentbrowser"
-	"github.com/justwasm/pigasus/internal/accounts"
-	"github.com/justwasm/pigasus/internal/auth"
+	"github.com/justwasm/pigasus/endpoints"
 	"github.com/justwasm/pigasus/internal/cli"
-	"github.com/justwasm/pigasus/internal/persistentrc"
+	accounts "github.com/justwasm/pigasus/internal/features/accounts/core"
+	"github.com/justwasm/pigasus/internal/features/auth"
+	rclink "github.com/justwasm/pigasus/internal/infra/remote/link"
+	persistentrc "github.com/justwasm/pigasus/internal/infra/remote/persistent"
 	"github.com/justwasm/pigasus/internal/rcfrontend"
-	"github.com/justwasm/pigasus/internal/rclink"
 	"github.com/justwasm/pigasus/internal/rctunnel"
 	"github.com/justwasm/pigasus/internal/remotecontrol"
 	"github.com/justwasm/pigasus/originpolicy"
+	"github.com/justwasm/pigasus/rcmesh"
 	"github.com/justwasm/pigasus/remotetransport"
 )
 
@@ -98,6 +101,11 @@ func RunServe(j *cli.JetskiCLI, args cli.ServeArgs) error {
 	}, j.ErrOut, label)
 	defer stopTunnel()
 
+	// Launch WebRTC mesh signaling manager alongside the tunnel if an
+	// answerer is registered (e.g. native Pion or browser WebRTC).
+	_, stopMesh := startServeMesh(instanceID, activeAccount, srv.Handler(), j.ErrOut, label)
+	defer stopMesh()
+
 	// The name watcher: a rename written into the configuration file
 	// travels to the cloud over the API, so the dashboard picks it up
 	// without the tunnel session dropping. See instance_name.go.
@@ -150,6 +158,63 @@ func startServeTunnel(opts rctunnel.ClientOptions, errOut io.Writer, label strin
 	return client, cancel
 }
 
+// startServeMesh starts the WebRTC mesh signaling manager in the background
+// if an answerer is registered (e.g. native Pion driver). Zero overhead if none.
+func startServeMesh(instanceID, account string, handler http.Handler, errOut io.Writer, label string) (*rcmesh.Manager, func()) {
+	answerer := rcmesh.DefaultAnswerer()
+	if answerer == nil {
+		return nil, func() {}
+	}
+	tokenFunc := func(ctx context.Context) (string, error) {
+		if account != "" {
+			if st, err := accounts.Load(); err == nil {
+				if acc, ok := st.Find(account); ok {
+					if tok, err := accounts.AccessToken(ctx, account, acc); err == nil && tok != nil && tok.Token.AccessToken != "" {
+						return tok.Token.AccessToken, nil
+					}
+				}
+			}
+		}
+		tok, err := auth.LoadTokenUnified()
+		if err != nil {
+			return "", err
+		}
+		if fresh, _, err := tok.RefreshIfNeeded(ctx); err == nil && fresh != nil && fresh.Token.AccessToken != "" {
+			return fresh.Token.AccessToken, nil
+		}
+		if tok.Token.AccessToken != "" {
+			return tok.Token.AccessToken, nil
+		}
+		return "", fmt.Errorf("empty access token")
+	}
+
+	ep := endpoints.Current()
+	signaler := rcmesh.SignalingClient{
+		PollURL:   ep.PollSignalingURL(),
+		SendURL:   ep.SendSignalingURL(),
+		TokenFunc: tokenFunc,
+	}
+
+	manager := &rcmesh.Manager{
+		InstanceID: instanceID,
+		Signaler:   signaler,
+		Answer:     answerer,
+		PeerConfig: rcmesh.PeerConfig{
+			Handler: handler,
+		},
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	go func() {
+		if err := manager.Run(ctx); err != nil && ctx.Err() == nil {
+			if os.Getenv("PIGASUS_DEBUG_FORWARD") != "" {
+				fmt.Fprintf(errOut, "%s: WebRTC mesh manager stopped: %v\n", label, err)
+			}
+		}
+	}()
+	return manager, cancel
+}
+
 func validateServeArgs(args cli.ServeArgs) (string, error) {
 	addr := strings.TrimSpace(args.Addr)
 	if addr == "" {
@@ -185,7 +250,7 @@ func activeAccountEmail() string {
 
 func buildServeDispatcher(cwd, addr string, sess *remotecontrol.SessionState, instanceID string, mendelUserAgent string) (*remotecontrol.Dispatcher, error) {
 	fsProvider := buildHostFSProvider(nil, cwd)
-	projects := buildHostProjectStore(fsProvider)
+	projectStore := buildHostProjectStore(fsProvider)
 	// One broker for the whole daemon: the dispatcher's three
 	// LanguageServerService RPCs and the turn's `webview_browser` tool
 	// have to meet in the same instance.
@@ -196,8 +261,8 @@ func buildServeDispatcher(cwd, addr string, sess *remotecontrol.SessionState, in
 		Reader:                  remotecontrol.ConvstoreOutputReader{},
 		ListBackend:             buildHostListBackend(),
 		FS:                      fsProvider,
-		Projects:                projects,
-		Conversations:           buildHostConversationStore(projects),
+		Projects:                projectStore,
+		Conversations:           buildHostConversationStore(projectStore),
 		AuthState:               authStateForCaller(),
 		DaemonMeta:              daemonMetaForCaller("tcp+ws", addr, "ephemeral-foreground"),
 		MessageBackend:          buildHostMessageBackend(cwd, "", broker),
@@ -206,10 +271,10 @@ func buildServeDispatcher(cwd, addr string, sess *remotecontrol.SessionState, in
 		PluginsStore:            buildHostPluginStore(),
 		TriggersStore:           buildHostTriggerStore(),
 		FastpushStore:           buildHostFastpushStore(),
-		ResourceStore:           buildHostResourceStore(projects),
+		ResourceStore:           buildHostResourceStore(projectStore),
 		ConversationConfigStore: buildHostConversationConfigStore(),
 		TerminalsRegistry:       buildHostTerminalsRegistry(),
-		WebTerminals:            buildHostWebTerminalsRegistry(),
+		WebTerminals:            buildHostWebTerminalsRegistry(cwd),
 		WebAudio:                buildHostWebAudioRegistry(),
 		OriginPolicyStore:       buildHostOriginPolicyStore(),
 		AccountEmail:            activeAccountEmail(),
@@ -269,7 +334,7 @@ func runServeEventLoop(srv *remotetransport.TCPServer, tunnelClient *rctunnel.Cl
 	}
 	// The link that reaches *this* instance from another device — the
 	// account chooser wrapping the deep link, so the browser picks the
-	// account the tunnel registered with. See internal/rclink.
+	// account the tunnel registered with. See internal/infra/remote/link.
 	fmt.Fprintf(errOut, "%s: open %s on another device to take over.\n",
 		label, rclink.BrowserURL(instanceID, ""))
 	// Cycle rc-auth-bearer-required: the secret a client from another

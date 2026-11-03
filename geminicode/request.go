@@ -116,6 +116,19 @@ func BuildRequest(t Turn) GenerateContentRequest {
 	if level == "" && GeminiGeneration(t.Model) >= 3 {
 		level = "high"
 	}
+	switch strings.ToLower(level) {
+	case "low", "medium", "high":
+		level = strings.ToLower(level)
+	case "none":
+		level = ""
+		tc.IncludeThoughts = false
+	default:
+		if GeminiGeneration(t.Model) >= 3 {
+			level = "high"
+		} else {
+			level = ""
+		}
+	}
 	if level != "" {
 		tc.ThinkingLevel = level
 	} else {
@@ -243,6 +256,16 @@ func ToolsJSON(tools []TurnTool) []byte {
 func buildContents(messages []TurnMessage, initialSystem string, signatures map[string]string) ([]Content, string) {
 	system := strings.TrimSpace(initialSystem)
 	paired := pairedToolCallIDs(messages)
+	callNames := make(map[string]string)
+	for _, m := range messages {
+		if strings.ToLower(m.Role) == "assistant" {
+			for _, tc := range m.ToolCalls {
+				if tc.ID != "" && tc.Name != "" {
+					callNames[tc.ID] = tc.Name
+				}
+			}
+		}
+	}
 	var contents []Content
 	for _, m := range messages {
 		switch strings.ToLower(m.Role) {
@@ -255,7 +278,11 @@ func buildContents(messages []TurnMessage, initialSystem string, signatures map[
 			}
 		case "user":
 			if parts := buildUserParts(m); len(parts) > 0 {
-				contents = append(contents, Content{Role: "user", Parts: parts})
+				if len(contents) > 0 && contents[len(contents)-1].Role == "user" {
+					contents[len(contents)-1].Parts = append(contents[len(contents)-1].Parts, parts...)
+				} else {
+					contents = append(contents, Content{Role: "user", Parts: parts})
+				}
 			}
 		case "assistant":
 			if part := buildAssistantContent(m, signatures, paired); len(part.Parts) > 0 {
@@ -265,12 +292,22 @@ func buildContents(messages []TurnMessage, initialSystem string, signatures map[
 			if !paired[m.ToolCallID] {
 				continue
 			}
+			name := m.Name
+			if name == "" {
+				name = callNames[m.ToolCallID]
+			}
+			if name == "" {
+				name = m.ToolCallID
+			}
+			if name == "" {
+				name = "tool"
+			}
 			contents = append(contents, Content{
 				Role: "model",
 				Parts: []Part{{
 					FunctionResponse: &FunctionResponse{
 						ID:       m.ToolCallID,
-						Name:     m.Name,
+						Name:     name,
 						Response: toolResponse(m),
 					},
 				}},
@@ -354,7 +391,7 @@ func toolResponse(m TurnMessage) map[string]any {
 // only thing it holds is a tool call.
 func buildUserParts(m TurnMessage) []Part {
 	parts := make([]Part, 0, len(m.Images)+1)
-	if m.Content != "" || len(m.ToolCalls) == 0 {
+	if m.Content != "" || len(m.Images) == 0 {
 		parts = append(parts, Part{Text: m.Content})
 	}
 	for _, img := range m.Images {
@@ -399,21 +436,74 @@ func buildAssistantContent(m TurnMessage, signatures map[string]string, paired m
 // this validator bypass is provided (learned from magpie).
 const SkipThoughtSignature = "skip_thought_signature_validator"
 
-// InjectSkipThoughtSignatures scans conversation contents and injects
-// SkipThoughtSignature ("skip_thought_signature_validator") on any historical
-// FunctionCall parts that lack a ThoughtSignature. Returns true if any part was modified.
-func InjectSkipThoughtSignatures(contents []Content) bool {
+// ReconcileThoughtSignatures reconciles thought signatures across conversation contents:
+//
+// 1. In Claude models, agy often places the returned thought signature on the subsequent
+//    FunctionCall part instead of the preceding thought part (thought: true). When Google CloudCode
+//    converts this to Anthropic Messages API, the thinking block has no signature and Anthropic
+//    rejects it with 400 "messages.1.content.0: Invalid signature in thinking block".
+//    This function finds any genuine signature in the turn and ensures it is present on any
+//    thought part (thought: true).
+// 2. For non-Claude models (Gemini), historical FunctionCall parts that lack a signature are
+//    assigned the turn's genuine signature, or SkipThoughtSignature if none exists.
+// 3. For Claude models, SkipThoughtSignature is NEVER injected because Anthropic requires
+//    authentic cryptographic signatures.
+func ReconcileThoughtSignatures(model string, contents []Content) bool {
 	modified := false
+	isClaude := IsClaudeModel(model)
+
 	for i := range contents {
-		for j := range contents[i].Parts {
-			p := &contents[i].Parts[j]
-			if p.FunctionCall != nil && p.ThoughtSignature == "" {
-				p.ThoughtSignature = SkipThoughtSignature
+		turn := &contents[i]
+		if turn.Role != "model" {
+			continue
+		}
+
+		// Find any authentic signature in this turn (not SkipThoughtSignature).
+		var genuineSig string
+		for j := range turn.Parts {
+			sig := strings.TrimSpace(turn.Parts[j].ThoughtSignature)
+			if sig != "" && sig != SkipThoughtSignature {
+				genuineSig = sig
+				break
+			}
+		}
+
+		for j := range turn.Parts {
+			p := &turn.Parts[j]
+
+			// Reconcile signature to thought parts.
+			if p.Thought && p.ThoughtSignature == "" && genuineSig != "" {
+				p.ThoughtSignature = genuineSig
 				modified = true
+			}
+
+			// Handle FunctionCall parts.
+			if p.FunctionCall != nil {
+				if isClaude {
+					// Clean up accidental sentinel strings on Claude requests.
+					if p.ThoughtSignature == SkipThoughtSignature {
+						p.ThoughtSignature = ""
+						modified = true
+					}
+				} else {
+					// Gemini: ensure FunctionCall has a signature bypass if missing.
+					if p.ThoughtSignature == "" {
+						p.ThoughtSignature = SkipThoughtSignature
+						modified = true
+					}
+				}
 			}
 		}
 	}
 	return modified
+}
+
+// InjectSkipThoughtSignatures scans conversation contents and injects
+// SkipThoughtSignature ("skip_thought_signature_validator") on any historical
+// FunctionCall parts that lack a ThoughtSignature. Returns true if any part was modified.
+// It is preserved for backwards compatibility and delegates to ReconcileThoughtSignatures.
+func InjectSkipThoughtSignatures(contents []Content) bool {
+	return ReconcileThoughtSignatures("", contents)
 }
 
 // ResolveThinkingConfig resolves any conflict between thinkingLevel and thinkingBudget.
@@ -442,8 +532,27 @@ func ResolveThinkingConfig(model string, gc *GenerationConfig) bool {
 		level = "high"
 		tc.ThinkingLevel = level
 		modified = true
+	} else if level != "" {
+		switch strings.ToLower(level) {
+		case "low", "medium", "high":
+			if tc.ThinkingLevel != strings.ToLower(level) {
+				tc.ThinkingLevel = strings.ToLower(level)
+				modified = true
+			}
+		case "none":
+			tc.ThinkingLevel = ""
+			tc.IncludeThoughts = false
+			modified = true
+		default:
+			if gen >= 3 {
+				tc.ThinkingLevel = "high"
+			} else {
+				tc.ThinkingLevel = ""
+			}
+			modified = true
+		}
 	}
-	if level != "" && tc.ThinkingBudget != 0 {
+	if tc.ThinkingLevel != "" && tc.ThinkingBudget != 0 {
 		tc.ThinkingBudget = 0
 		modified = true
 	}

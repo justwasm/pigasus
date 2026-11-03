@@ -6,8 +6,8 @@ import (
 	"os"
 
 	"github.com/justwasm/pigasus/browsercdp"
+	_ "github.com/justwasm/pigasus/dns"
 	"github.com/justwasm/pigasus/internal/cliapp"
-	_ "github.com/justwasm/pigasus/internal/dns"
 )
 
 func main() {

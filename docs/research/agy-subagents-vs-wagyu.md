@@ -24,7 +24,7 @@ AGY has a **first-class subagent system** with:
 
 Wagyu has the **shell of a subagent system but no actual delegation**:
 
-- `internal/subagent/` is a **child-process spawn manager** (`exec.Cmd`
+- `internal/app/subagent/core/` is a **child-process spawn manager** (`exec.Cmd`
   wrapper, 5 hard-coded bash convenience constructors: `ExploreSubagent`,
   `CodeReviewSubagent`, `TestSubagent`, `BuildSubagent`, `DeploySubagent`).
   None of them start an LLM-driven agent — they all run `bash -c "..."`.
@@ -128,7 +128,7 @@ or recently introduced, not a fully-featured orchestrator.)
 | 253 | `Fixed conversations with active turns or running daemon background tasks failing to auto-resume after a restart.` |
 | 301 | `Improved headless (-p) runs to exit promptly once the final answer is delivered: the CLI waits for running background tasks and scheduled timers to finish.` |
 
-## Where wagyu's `internal/subagent` actually comes from
+## Where wagyu's `internal/app/subagent/core` actually comes from
 
 The package was added in **cycle 22** (early cycles, before cycles were
 numbered meaningfully). It's a thin `exec.Cmd` wrapper with five

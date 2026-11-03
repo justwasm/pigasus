@@ -4,18 +4,32 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/justwasm/pigasus/internal/configtest"
+	"github.com/justwasm/pigasus/internal/features/models/configtest"
 )
 
-// availableAll is the "Available models:" block the clone appends — the six
-// the reference prints.
+// availableAll is the "Available models:" block the clone appends — the
+// fourteen the reference prints.
 //
 // The provider configuration is isolated in these tests, so the block is the
 // reference's own catalogue and nothing else: a test that depended on what
 // the machine happened to have configured would pass here and fail
 // everywhere else. A gated model is not in the block: the plan gate is not
 // an advertisement.
-const availableAll = "Available models:\n  Gemini 3.8 Flash (High)\n  Gemini 3.8 Flash (Medium)\n  Gemini 3.8 Flash (Low)\n  Claude Sonnet 4.6 (Thinking)\n  Claude Opus 4.6 (Thinking)\n  GPT-OSS 120B (Medium)"
+const availableAll = "Available models:\n" +
+	"  Gemini 3.8 Flash (High)\n" +
+	"  Gemini 3.8 Flash (Medium)\n" +
+	"  Gemini 3.8 Flash (Low)\n" +
+	"  Gemini 3.7 Flash (High)\n" +
+	"  Gemini 3.7 Flash (Medium)\n" +
+	"  Gemini 3.7 Flash (Low)\n" +
+	"  Gemini 3.6 Flash (High)\n" +
+	"  Gemini 3.6 Flash (Medium)\n" +
+	"  Gemini 3.6 Flash (Low)\n" +
+	"  Gemini 3.1 Pro (High)\n" +
+	"  Gemini 3.1 Pro (Low)\n" +
+	"  Claude Sonnet 4.6 (Thinking)\n" +
+	"  Claude Opus 4.6 (Thinking)\n" +
+	"  GPT-OSS 120B (Medium)"
 
 // TestResolveModelSelection pins the 1.3.6 --model/--effort validation. Every
 // "wantErr" string below was captured verbatim from the reference binary.
@@ -144,5 +158,24 @@ func TestCatalogueHelpers(t *testing.T) {
 	}
 	if !strings.Contains(ValidEfforts[0], "low") {
 		t.Errorf("ValidEfforts[0] = %q", ValidEfforts[0])
+	}
+}
+
+// TestReferenceEffortTiers pins the tiers the reference's own three-tier
+// model publishes — the set the /effort slider draws.
+//
+// The catalogue's closed vocabulary is five words wide (models.EffortLevels)
+// and a model the user configured may declare any of them, but the
+// reference publishes exactly three for Gemini 3.8 Flash.
+func TestReferenceEffortTiers(t *testing.T) {
+	got := ReferenceEffortTiers()
+	want := []string{"low", "medium", "high"}
+	if len(got) != len(want) {
+		t.Fatalf("ReferenceEffortTiers() = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("ReferenceEffortTiers()[%d] = %q, want %q", i, got[i], want[i])
+		}
 	}
 }

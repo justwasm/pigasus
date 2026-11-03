@@ -81,8 +81,8 @@ package ctx
 import (
 	"strings"
 
-	"github.com/justwasm/pigasus/internal/cli"
-	"github.com/justwasm/pigasus/internal/models"
+	"github.com/justwasm/pigasus/internal/features/models/catalog"
+	"github.com/justwasm/pigasus/internal/features/models"
 )
 
 const (
@@ -290,7 +290,7 @@ func catalogueID(name string) (string, bool) {
 	if name == "" {
 		return "", false
 	}
-	for _, m := range cli.ModelCatalogue() {
+	for _, m := range catalog.ModelCatalogue() {
 		if m.Label == name || m.ID == name {
 			return m.ID, true
 		}

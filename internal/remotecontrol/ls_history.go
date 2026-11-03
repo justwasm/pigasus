@@ -31,19 +31,15 @@ import (
 	"strings"
 	"time"
 
-	"github.com/justwasm/pigasus/internal/convstore"
+	"github.com/justwasm/pigasus/internal/app/session/convstore"
+	projectflags "github.com/justwasm/pigasus/internal/core/cliflags/projects"
+	"github.com/justwasm/pigasus/internal/remotecontrol/projects"
+	"github.com/justwasm/pigasus/internal/remotecontrol/rpc"
 	"github.com/justwasm/pigasus/lsproto"
 )
 
 // lsSummaryMessageName is the reference's own summary message.
 const lsSummaryMessageName = "exa.jetski_cortex_pb.CascadeTrajectorySummary"
-
-// lsDefaultProjectID is the id of the reference's default project —
-// the one a run without a workspace belongs to.
-//
-// 【strings】 the reference binary carries the literal
-// "default-cli-project" next to its project plumbing.
-const lsDefaultProjectID = "default-cli-project"
 
 // lsSummaryUpdates returns the `updates` map the Web UI's summary
 // stream carries: the conversation id → the summary message.
@@ -159,7 +155,7 @@ func lsSummaryFromColumns(row convstore.Summary) json.RawMessage {
 // The response's `updates` map is keyed by the conversation id and
 // carries the reference's own CascadeTrajectorySummary messages; the
 // `deletes` list is empty because the clone never removes a summary.
-func (d *Dispatcher) handleJetboxSubscribeToSummaries() (any, *rpcErrorBody, bool) {
+func (d *Dispatcher) handleJetboxSubscribeToSummaries() (any, *rpc.ErrorBody, bool) {
 	return map[string]any{
 		"updates": lsSummaryUpdates(),
 		"deletes": []any{},
@@ -210,16 +206,16 @@ type lsSummaryMessage struct {
 // conversation_summaries.db and mirrors its title into the `preview`
 // column. The clone writes the columns and leaves the blob alone: the
 // history stream falls back to the columns for a row without a blob.
-func (d *Dispatcher) handleLSJetboxWriteSummary(params json.RawMessage) (any, *rpcErrorBody, bool) {
+func (d *Dispatcher) handleLSJetboxWriteSummary(params json.RawMessage) (any, *rpc.ErrorBody, bool) {
 	var req lsWriteSummaryParams
 	if len(params) > 0 {
 		if err := json.Unmarshal(params, &req); err != nil {
-			return nil, &rpcErrorBody{Code: -32602, Message: "Invalid params", Data: err.Error()}, true
+			return nil, &rpc.ErrorBody{Code: -32602, Message: "Invalid params", Data: err.Error()}, true
 		}
 	}
 	id := strings.TrimSpace(req.CascadeID)
 	if id == "" {
-		return nil, &rpcErrorBody{Code: -32602, Message: "Invalid params", Data: "cascadeId is required"}, true
+		return nil, &rpc.ErrorBody{Code: -32602, Message: "Invalid params", Data: "cascadeId is required"}, true
 	}
 	if err := convstore.WriteSummaryRow(lsSummaryRow(id, req.Summary)); err != nil {
 		log.Printf("remotecontrol: write summary %s: %v", id, err)
@@ -331,8 +327,8 @@ func lsConfigProjectsDir() string {
 func (d *Dispatcher) lsProjectIDs() []string {
 	files := lsProjectFiles()
 	sort.SliceStable(files, func(i, j int) bool {
-		if (files[i].ID == lsDefaultProjectID) != (files[j].ID == lsDefaultProjectID) {
-			return files[i].ID == lsDefaultProjectID
+		if (files[i].ID == projectflags.DefaultProjectID) != (files[j].ID == projectflags.DefaultProjectID) {
+			return files[i].ID == projectflags.DefaultProjectID
 		}
 		return files[i].ID < files[j].ID
 	})
@@ -402,9 +398,9 @@ func (d *Dispatcher) lsProjectObjects(ctx context.Context, ids []string) ([]any,
 }
 
 // lsOwnProject reads one project from the clone's own store.
-func (d *Dispatcher) lsOwnProject(ctx context.Context, id string) (Project, error) {
+func (d *Dispatcher) lsOwnProject(ctx context.Context, id string) (projects.Project, error) {
 	if d == nil || d.cfg.Projects == nil {
-		return Project{}, errors.New("no project store")
+		return projects.Project{}, errors.New("no project store")
 	}
 	return d.cfg.Projects.Get(ctx, id)
 }

@@ -25,6 +25,59 @@ pigasus remote-control serve          the instance: tunnel + LanguageServerServi
 | The state | the trajectory (`internal/remotecontrol/ls_trajectory.go`) — the one structure the TUI, `--print` and the web view all render from |
 | The store | `~/.gemini/antigravity-cli/conversations/<id>.db` — the reference's own files, appended to, never rewritten |
 
+The standard HTTP RPC transport uses **Connect-Go** (`remotetransport/connect_handler.go`):
+Connect and gRPC-Web framing, trailers and compression come from the upstream library.
+A codec bridges the recovered `lsproto` schema to the JSON dispatcher, while the
+reference's bare-body requests, error masking and WebSocket envelopes keep their
+compatibility adapters. See [the migration report](../cycles/dependency-connect-go/deliverable.md).
+
+## The package layout
+
+`internal/remotecontrol` used to be one flat directory of 202 files. It is
+now a **dispatcher** and **fourteen domain packages** beside it.
+
+| package | owns |
+|---|---|
+| `internal/remotecontrol` | the dispatcher — the fan-out, the language-server table, the trajectory, the interaction host, the PiG-backed session, the Web UI's terminal and voice surfaces |
+| `internal/remotecontrol/rpc` | the JSON-RPC 2.0 envelope — `ErrorBody`, `CodedError`, `Result`, `Error` |
+| `internal/remotecontrol/cascades` | the cascade domain — the `Cascade`, the `Registry`, the `Backend` seam, the streaming vocabulary, the pending interactions |
+| `internal/remotecontrol/permissions` | the permission preset, the review mode, the grants, the reference's permission vocabulary, **and the language server's own permission read and write** (`permissions.LSRoute`) |
+| `internal/remotecontrol/terminals` | the dashboard's terminal registry and its store |
+| `internal/remotecontrol/triggers` | the trigger specs, the options, the store |
+| `internal/remotecontrol/resources` | the resource providers and the project's resource list |
+| `internal/remotecontrol/projects` | the project list and the four CRUD methods |
+| `internal/remotecontrol/convconfig` | the conversation's configuration |
+| `internal/remotecontrol/fastpush` | the fastpush toggle |
+| `internal/remotecontrol/origins` | the browser-origin patterns |
+| `internal/remotecontrol/plugins` | the installed plugins, the skills, the remote plugins |
+| `internal/remotecontrol/files` | the file and directory reader |
+| `internal/remotecontrol/mendel` | the Mendel flag answer and the per-identity cache |
+| `internal/remotecontrol/effort` | the reasoning-effort vocabulary |
+
+Three rules hold across all of them:
+
+- **The dispatcher keeps the fan-out; the domain keeps the table.** Each
+  domain answers `Route(seams, method, params) (result, error, handled)`
+  — `handled` is false when the method is not the domain's, and the
+  dispatcher tries the next one. The order of the sixteen routers is the
+  reference's order, and it did not change.
+- **A domain never sees the dispatcher.** Its dependencies arrive through
+  a `Seams` struct the host assembles: the store, a `Broadcast`
+  callback, a registry, a session directory.
+- **No facade.** The moved symbols were **renamed** at their new home,
+  not re-exported: `CascadeRegistry` is `cascades.Registry`,
+  `MessageBackend` is `cascades.Backend`, `NewCascade` is `cascades.New`.
+  The old names are gone.
+
+The root's *field* names did not change — `Config.Cascades` is still
+`Config.Cascades`, `Config.MessageBackend` is still
+`Config.MessageBackend` — because a configuration member's name is a
+contract with the operator. Only the types moved.
+
+`internal/remotecontrol` is an **entry surface**, not a tier package, so
+its sub-packages are exempt from the tier ordering. The report is
+[`docs/cycles/cycle-380-remotecontrol-split/`](../cycles/cycle-380-remotecontrol-split/deliverable.md).
+
 ## The three things that decide whether the page works
 
 **The version string decides the bundle.** The cloud serves
@@ -60,15 +113,19 @@ before, 5.29 s after.
 
 ## The tunnel's own contract
 
-Three things the clone learned the hard way, all of them from the cloud's
+Six things the clone learned the hard way, all of them from the cloud's
 live traffic (`internal/rctunnel/client.go`):
 
 | | |
 |---|---|
 | **The `close` frame ends the session.** | The cloud sends the string `close` on the backchannel when it is done with the session. It is not an event to read past: the cloud has already disowned the session, and the only way back is a new handshake and a new registration. The clone used to keep reading the dead SID and keep re-opening the poll on it (HTTP 200) — a zombie session. |
 | **A 4xx on the forward channel ends the session too.** | The cloud answers `400 Bad Request — "Unknown SID That's all we know."` when the session it is asked to forward into is not the one it holds. The session is gone then: the poll is cancelled, the connection is closed, and the run loop hands the instance a fresh handshake and registration. The reference does the same — its log reads "Connection ended. Retrying immediately..." and then "Starting V2 remote control connection". Kept alive instead, the clone kept posting into a disowned session, every answer was dropped, the cloud cancelled the browser's request ten seconds later ("proxyRequest reqID=13 was canceled by server") and the dashboard's liveness probe never completed — "Instance disconnected" while the instance sat right there, registered and healthy. |
-| **The instance id is `<uuid>-v2`.** | The `remote-control-` in the reference's log lines is the tag of its remote-control *session*, not part of the id. `persistentrc.InstanceIDPrefix` is empty; the uuid is persisted in `~/.config/openagy/remote-control-instance-id`. |
+| **The instance id is `<uuid>-v2`.** | The `remote-control-` in the reference's log lines is the tag of its remote-control *session*, not part of the id. `persistentrc.InstanceIDPrefix` is empty; the uuid is persisted in `~/.openagy/remote-control-instance-id`. |
 | **The registration's answer is the cloud's own chunk.** | It is logged (`registration answer: "8\n[1,1,7]\n"`). A refusal shows up nowhere else, so it is the one line to read when a registration does not take. |
+| **An empty unary Connect RPC must emit an empty data chunk before `isFinal: true`.** | Connect-Go returns `[]byte{}` for empty protobuf messages (`ListTerminalsResponse{}`, `GetAllWorkflowsResponse{}`, etc.). The Web UI's `MessagePortTransport.unary` in `main.js` asserts `if (v.kind === "done") t(), q(Error("Upstream proxy returned an empty response"))`: if `done` arrives without any preceding `data` chunk, the call throws. A unary RPC must emit `emptyPayload := []byte{}` (or `"{}"` for JSON) with `isFinal: false` before emitting `isFinal: true`. |
+| **`ProxyResponseV2.Payload` must never be omitted by `omitempty` when non-nil.** | Go's standard `encoding/json` drops 0-byte slices under `json:"payload,omitempty"`. A custom `MarshalJSON` on `*ProxyResponseV2` ensures that a non-nil 0-byte payload serializes explicitly as `"payload": ""` (base64 of 0 bytes) instead of disappearing. Missing payloads cause the browser's CloudTunnel unpacker to drop the chunk, wedging state machines like `<div data-testid="bottom-terminal-panel-starting">Starting terminal…</div>`. |
+| **`x-cancel-request` cancellation & context propagation.** | When the cloud or browser drops/cancels a request, it sends an envelope with `headers["x-cancel-request"] == "true"`. The tunnel client tracks in-flight request contexts; receiving `x-cancel-request` invokes `cancel()`, terminating streaming RPCs (like `StreamTerminalOutput`) via `select { case <-ctx.Done(): ... }` rather than blocking forever on idle pty buffers, and drops redundant final frames for already-cancelled requests. |
+| **Client `workspaceUri` preservation over symlink evaluation.** | `CreateTerminalRequest.workspaceUri` must NOT be resolved through `filepath.EvalSymlinks`. The Web UI frontend JavaScript store (`workspaceTerminalProviders`) is keyed strictly by the workspace URI known to the browser (`file:///Users/gear/GitHub/openagy`). Evaluating symlinks into `file:///Users/gear/Documents/GitHub/openagy` causes `workspaceTerminalProviders.get(...)` in `main.js` to return `undefined`, silently dropping the new terminal from React state. `CreateTerminal` cleans the URI lexically, while `ListTerminals` canonicalizes both sides during filter evaluation so symlinked and resolved paths match transparently. |
 
 ## The Mendel flags answer
 
@@ -81,7 +138,7 @@ MHe = (body) => body.webrtcMeshReady === false ? false
         e => e.keyString === "remote-control-webrtc-mesh" && !e.disabled)
 ```
 
-The clone answers it in the reference's shape (`internal/remotecontrol/mendel_flags.go`):
+The clone answers it in the reference's shape (`internal/remotecontrol/mendel/mendel.go`):
 `{"experimentConfig":{"experiments":[…]}}`, the field order the proto's own
 field order gives, and the remote-control experiments with the reference's
 own values — `remote-control-version` = `v2`,
@@ -90,7 +147,7 @@ own values — `remote-control-version` = `v2`,
 `remote-control-companion-url` = `https://antigravity.google.com`,
 `remote-control-setting-enabled`.
 
-The clone reads the **live** set as well — `internal/auth/mendel.go` calls
+The clone reads the **live** set as well — `internal/features/auth/mendel.go` calls
 CloudCode's `ListExperiments` with the account's own token, caches it for
 ten minutes, and appends it after the local six.
 
@@ -99,13 +156,73 @@ Two things differ on purpose:
 | | reference | clone |
 |---|---|---|
 | the experiment set | all 508 of the Mendel service's, live | all 508 of the Mendel service's, live — but read with the **CLI's** identity, so thirty app features come back `disabled` (see below) |
-| the mesh | enabled, and `webrtcMeshReady: true` | **disabled**, and `webrtcMeshReady` left out (protojson omits a false boolean) — the clone has no WebRTC mesh: no data channel, no signalling |
+| the mesh | enabled, and `webrtcMeshReady: true` | **disabled**, and `webrtcMeshReady` left out (protojson omits a false boolean) — the clone has no WebRTC mesh **session**: the signalling layer exists (`rcmesh/`) but it stays behind an experimental flag |
 
 The mesh experiment's key is read by the host page, and with the mesh on
 the page prefers the mesh's data channel for the app's calls — the clone has
 no mesh to prefer, so it reports the experiment as disabled and the page
 takes the WebChannel path. The reference, which does implement the mesh,
 reports it as enabled.
+
+## The mesh signalling wire
+
+The clone's signalling layer (`rcmesh/`) is the mesh's **transport**, not the
+mesh itself: it speaks the cloud's signalling API and answers a browser's
+offer with a peer. It was checked against the `agy` 1.4.11 binary
+function by function — 33 functions decompiled, one cross-checked in arm64
+assembly — in
+[`docs/cycles/cycle-372-rcmesh-signaling-verification/deliverable.md`](../cycles/cycle-372-rcmesh-signaling-verification/deliverable.md)
+(evidence: `out/rcmesh-1.4.11-signaling/`).
+
+| | reference | clone |
+|---|---|---|
+| poll target | `instance_id` (the `session_id` argument is nil) | same |
+| request / response bodies | protojson `PollSignalingMessagesRequest` / `SignalingMessageDetails` | hand-rolled `encoding/json`, wire-compatible — protojson writes a `Timestamp` as an RFC 3339 string |
+| payload types | `offer`, `sdp_offer`, `candidate`, `ice_candidate`, `ice_config`, `authorized_key` | same |
+| TURN entries | **strings**: a bare URL, or a JSON object encoded as a string | same |
+| ICE fallback | `stun:stun.l.google.com:19302` | same |
+| success | HTTP **200** only | same |
+| a failed poll | logged, then retried with a doubling backoff capped at 30 s | same |
+
+The three functional gaps identified in Cycle 372 were closed in Cycle 373
+([`docs/cycles/cycle-373-rcmesh-reassembly-and-pinning/deliverable.md`](../cycles/cycle-373-rcmesh-reassembly-and-pinning/deliverable.md)):
+**outbound trickle ICE** (`OnLocalCandidate` streams `cand-%d` messages),
+**per-session key pinning** (`SetSessionPin`, bounded `pendingPins`, dynamic revocation),
+and **chunk reassembly** on the data channel (`rcmesh.ChunkReassembler`).
+Full positive E2E tests pass locally with Pion. The production default `webrtcMeshReady`
+remains `false` until live cloud handshake testing, and can be opted into for testing
+via `OPENAGY_EXPERIMENTAL_WEBRTC_MESH=1`.
+
+### The data channel's rejection frame is the reference's own
+
+A rejected chunk is **answered**, not dropped: the reference's
+`errorResponseV2` (0x1025ac8f0) builds a `ProxyResponseV2` — the request id,
+the status code, `is_final` true and the message as `payload_text` — wraps it in
+a `ConnectInstanceRequestV2`, and `sendErrorResponse` (0x1025b22a0) marshals it
+with protojson. It is the same envelope a normal response uses:
+
+```json
+{"proxyResponse":{"requestId":"42","statusCode":400,"isFinal":true,"payloadText":"…"}}
+```
+
+The clone's `rcmesh.ErrorResponse(requestID, status, message)` builds it, and
+`modules/rcmesh-pion` answers every `*rcmesh.ChunkError` with it. The status
+codes are the reference's:
+
+| the reference rejects | status | the reference's own words |
+|---|---|---|
+| a non-positive `request_id` | 400 | `request_id must be a positive integer` |
+| an orphan chunk (no buffer, no `rpcPath`) | 400 | `orphaned request chunk without active reassembly buffer` |
+| a `rpcPath` that differs from the buffer's | 400 | `mismatched rpcPath on %s chunk` |
+| a mixed body arm | 400 | `payload arm mismatch in chunk stream` |
+| a request body over 4 MiB | 413 | `cumulative size %d exceeds limit %d` |
+| more than 32 chunked requests in a session | 429 | `too many concurrent chunked requests for session` |
+| the instance's 64 MiB buffer budget | **507** | `instance reassembly buffer capacity exceeded` |
+
+An ingress frame the reference **cannot parse** is the one case it does not
+answer: it is dropped and the session survives it ("%s Dropping an
+unparseable %d-byte ingress message on mesh session %s: %v"). The evidence is
+`out/rcmesh-1.4.11-reassembly/`.
 
 ## The identity decides the flag set
 
@@ -126,7 +243,7 @@ versions from `0.0.1` to `3.0.0` answer identically, three runs each.
 The reference's own `language_server` reads with the **hub** identity
 (`antigravity/hub/2.26.0 (aidev_client; os_type=darwin; arch=arm64;
 cl=1005016104)`, captured off the wire). The clone's own read sends the
-**CLI's** identity (`internal/auth/mendel.go`), so it gets the CLI's set —
+**CLI's** identity (`internal/features/auth/mendel.go`), so it gets the CLI's set —
 and thirty of its flags come back `disabled`, among them the three that
 gate the desktop UI.
 
@@ -157,9 +274,9 @@ pigasus remote-control start --desktop    # the persistent daemon
 
 | | |
 |---|---|
-| the switch | `internal/cli/subcommand_web.go` → `internal/rchost/web_reference.go`'s `desktopMendelUserAgent(desktop)` → `remotecontrol.Config.MendelUserAgent` → the identity the `GetMendelFlags` read carries (`internal/auth/mendel.go`'s `MendelHubUserAgent`) |
+| the switch | `internal/cli/subcommand_web.go` → `internal/rchost/web_reference.go`'s `desktopMendelUserAgent(desktop)` → `remotecontrol.Config.MendelUserAgent` → the identity the `GetMendelFlags` read carries (`internal/features/auth/mendel.go`'s `MendelHubUserAgent`) |
 | the bundle | **unchanged, byte for byte** — the page, the bundle and the RPC surface are the same either way |
-| the cache | **per identity** (`internal/remotecontrol/mendel_flags.go`) — the default page and the desktop page read the same backend with different identities, and the backend answers each one its own set |
+| the cache | **per identity** (`internal/remotecontrol/mendel/mendel.go`) — the default page and the desktop page read the same backend with different identities, and the backend answers each one its own set |
 | reference mode | the switch has **no effect** there: the reference answers `GetMendelFlags` itself, and it is the hub identity already — the reference's own page is the desktop one |
 
 With the flag on, the clone's page carries the same feature surface as the
@@ -203,8 +320,9 @@ are separate methods with their own handlers and their own registries.
 |---|---|
 | the methods | `CreateTerminal`, `ListTerminals`, `SendTerminalInput`, `StreamTerminalOutput`, `CloseTerminal` |
 | the handlers | `internal/remotecontrol/ls_terminals.go`, `ls_terminals_stream.go` |
-| the registry | `internal/rcterminal` — a live shell per terminal, on a pty (`github.com/creack/pty`) |
+| the registry | `rcterminal/` — a live shell per terminal, on a pty (`github.com/creack/pty`) |
 | the routing | the **LS table is consulted before the alias table** (`dispatch.go`), so `CreateTerminal` reaches the Web UI's handler and not the dashboard's `CreateRemoteAgentTerminal` |
+| the domain's own table | a domain may keep a table of its own inside the LS table's dispatch — the **permissions** domain does (`permissions.LSRoute`), and it answers `GetPermissionSettings` / `UpdatePermissionSettings` with the language server's **flat** shape, not the remote-agent proxy's nested one |
 | the wire | canonical proto-JSON (the member name at the top level), not protobuf-es's `{case,value}` envelope — the bundle's protobuf-es reads the flattened form |
 
 The clone spawns `$SHELL -l` in the terminal's directory, and the create
@@ -227,8 +345,15 @@ directory `/` as well, so the clone's terminal used to start in `/`.
 
 Two rules the reference has that are easy to lose:
 
-- the **workspace URI is canonicalised** (`file:///tmp/web-ws` comes back
-  as `file:///private/tmp/web-ws`);
+- the **client's workspace URI is preserved**: `CreateTerminal` cleans the
+  URI lexically (`cleanWorkspaceURI`), removing trailing slashes and `./`
+  dots without calling `filepath.EvalSymlinks`. The Web UI store
+  (`workspaceTerminalProviders` in `main.js`) is keyed strictly by the
+  caller's URI (`file:///Users/gear/GitHub/openagy`); evaluating symlinks to
+  `~/Documents/GitHub/openagy` causes store lookup to return `undefined` and
+  drops the new terminal tab. In `ListTerminals`, URI filtering compares
+  both sides through `canonicalWorkspaceURI` so symlink and resolved paths
+  match seamlessly;
 - a **split** joins its source's group, and the group is named after the
   terminal that heads it (`split-<root id>`) — and the head terminal only
   learns its own group once a split is created *from* it.
@@ -366,7 +491,7 @@ left on one line was a URL whose tail the user could not see, could not
 select and could not click.
 
 So the TUI shows it the way the **add-account screen** shows a URL
-(`internal/loginui`): the URL is cut into chunks, one chunk per row, and
+(`internal/ui/views/loginui`): the URL is cut into chunks, one chunk per row, and
 **every chunk carries the complete URL as its OSC 8 hyperlink target**. A
 cmd+click (or a tap) on any part of the displayed URL opens the whole
 link.
@@ -381,13 +506,13 @@ link.
      e1e5b64300-v2
 ```
 
-The chunking and the hyperlink frame live in **`internal/urlchunk`**,
+The chunking and the hyperlink frame live in **`urlchunk/`**,
 which the add-account screen shares — the two surfaces show a URL the
 same way, so they cut it the same way. The transcript's chunk budget is
 the terminal width less the five-column indent and one column of slack.
 
 **Copying the chunks yields the URL.** The transcript's own mouse
-selection (`internal/tuiviewport.SelectionText`) treats two rows that
+selection (`internal/ui/foundations/viewport.SelectionText`) treats two rows that
 carry the *same* hyperlink target as one logical string: they are joined
 without a newline, and the continuation row's indent — the layout's, not
 the link's — is dropped. Two rows that link to *different* URLs keep
@@ -403,8 +528,8 @@ chooser link. The *deep link* it points at is the reference's own
 (`{companionOrigin}/r/{instanceID}`); the chooser around it is not.
 
 The chooser is a **named endpoint** (`account_chooser` in
-`~/.config/openagy/config.json`), so a local service can stand in for it.
-The builder lives in `internal/rclink`; the resolver in
+`~/.openagy/config.json`), so a local service can stand in for it.
+The builder lives in `internal/infra/remote/link`; the resolver in
 `endpoints.Set.AccountChooserURL`.
 
 A chooser that names **no** account chooses nothing, so with nothing
@@ -483,7 +608,7 @@ the id the tunnel **registered**. So the printed link reuses the id the
 daemon resolved, rather than deriving a second one.
 
 Deriving it twice is not safe: the installation's uuid is persisted in
-`~/.config/openagy/remote-control-instance-id`, and a configuration
+`~/.openagy/remote-control-instance-id`, and a configuration
 directory that cannot be written (a read-only home, a container's
 read-only mount) would mint a **fresh** uuid on every call. The daemon
 would then register one id and print a link naming another — and the
@@ -501,6 +626,33 @@ rejects anything that is not a uuid, and the id adds the `-v2` suffix.
 
 If the id cannot be persisted, `remote-control start` says so on stderr
 rather than printing a link that may not resolve.
+
+## A launchd label is global, so a temporary home is refused
+
+`remote-control start` registers a **launchd** agent, and the launchd label
+is global to the login session (`gui/<uid>/<label>`). Registering it is
+therefore not "adding a daemon" — it is *replacing* the one already
+registered under that label, and `launchctl bootstrap` on a live label
+stops the running job first.
+
+That makes a registration from a **temporary home** destructive rather than
+harmless. `go test` points `$HOME` at a temporary directory, and the
+`/remote-control` handler starts the official daemon: a test would stop the
+user's daemon and replace it with one whose stdout and stderr point into a
+directory that is deleted with the test. The user's own log goes silent, and
+`launchctl print` names a plist that does not exist.
+
+Two rules keep that from happening:
+
+- the **production path** refuses it — `persistentrc.StartOfficialDaemon`
+  checks the resolved plist path and returns a `*TemporaryHomeError` when it
+  lies inside the operating system's temporary directory (the symlinks are
+  resolved on both sides: on macOS `/var` is a symlink to `/private/var`,
+  and the test's home carries the resolved prefix);
+- the **cliapp test package** stubs the call — `internal/cliapp`'s
+  `TestMain` replaces `persistentrc.StartOfficialDaemon` with a no-op, so
+  the suite never asks launchd for anything. The two tests that *do* care
+  about the call replace the variable themselves.
 
 ## The rename does not drop the connection
 
@@ -620,7 +772,7 @@ so the instance has to name the conversation when it creates it.
 
 | | |
 |---|---|
-| **Where the name is written** | `internal/convstore` — the summaries row's `title` and `preview` columns, and the metadata cache's `Title`; the same two writes the TUI path makes |
+| **Where the name is written** | `internal/app/session/convstore` — the summaries row's `title` and `preview` columns, and the metadata cache's `Title`; the same two writes the TUI path makes |
 | **When** | when the clone creates the conversation (`convstore.AppendConversationSteps`, the remote path's only entry into the store) — a conversation the reference created keeps the reference's own name |
 | **How** | `convstore.GenerateConversationTitle` — a heuristic over the first user message; the reference asks the model instead (`GenerateConversationTitle` is in the reference's RPC list) |
 | **What protects it** | an empty title never erases a stored one: the app's title-less summary write leaves the row's title alone |
@@ -638,7 +790,7 @@ Conversation" every time the reference restarts.
 The summaries table is the **reference's** table — 21 columns, with
 `last_modified_time` and `last_user_input_time` `NOT NULL` and no default, so
 every write names them. The clone creates the same table
-(`internal/convstore/summary_schema.go`) and migrates an older clone's
+(`internal/app/session/convstore/summary_schema.go`) and migrates an older clone's
 six-column table in place.
 
 ## The steps are the reference's own blobs
@@ -671,8 +823,8 @@ The clone does the same, over one seam:
 
 | | |
 |---|---|
-| **`internal/interaction`** | the seam: a tool asks through the `Host` its context carries, and the transport that put the `Host` there answers. `internal/tools` and `internal/remotecontrol` both import it — they cannot import each other |
-| **the host's home** | `internal/remotecontrol` — it installs the host on the turn's context (`(*CascadeRegistry).SendStream`), so the tool that asks is the one running in that turn |
+| **`internal/core/seam`** | the seam: a tool asks through the `Host` its context carries, and the transport that put the `Host` there answers. `internal/app/tools/tasks` and `internal/remotecontrol` both import it — they cannot import each other |
+| **the host's home** | `internal/remotecontrol` — it installs the host on the turn's context (`(*cascades.Registry).SendStream`), so the tool that asks is the one running in that turn |
 | **the waiting step** | the question becomes a trajectory step of type `CORTEX_STEP_TYPE_ASK_QUESTION` (138) in status `CORTEX_STEP_STATUS_WAITING` (9), carrying the questions twice: as the step's own `askQuestion`, and as `requestedInteraction.askQuestion` |
 | **the answer** | `HandleCascadeUserInteraction`, in the **IDE dialect** — the cloud dialect's alias is routed after it, so the IDE's method name wins |
 | **the answer's shape** | `{cascadeId, interaction:{trajectoryId, stepIndex, askQuestion:{responses:[…]}}}` — the oneof member at the top level, as proto-JSON spells it |
@@ -683,7 +835,7 @@ the trajectory id and the step index the step's own metadata carries
 
 **Only `ask_question` is model-reachable**, and that matches the reference: the
 twelve declarations the model receives
-(`internal/tools/model_tools_1.4.6.json`) carry `ask_question` and neither of
+(`internal/app/tools/surface/model_tools_1.4.6.json`) carry `ask_question` and neither of
 the two permission tools. The other two are in the sixty-name catalogue — the
 surface the headless client is told about — so they are reachable, but not by
 the model.
@@ -731,7 +883,7 @@ reasoning tier cannot travel as a field.
 
 It travels as a **row**, the way the reference's own catalogue does it: a
 model that declares tiers (`reasoning_efforts` in
-`~/.config/openagy/providers.json`) is listed once per tier — *MiniMax M3.1
+`~/.openagy/providers.json`) is listed once per tier — *MiniMax M3.1
 Flash (High)*, *… (Xhigh)* — and each row gets its own number, so the
 selection comes back as that row's id (`minimax-m3.1-flash-xhigh`). The
 registry answers that id with the base model **at that tier**, and the tier
@@ -752,7 +904,7 @@ missing or misrouted once — the operator's log carried both errors
 next to the quota one (`internal/remotecontrol/dispatch_codeassist.go`). Its
 answer's only member is the **cloud's own** `v1internal:loadCodeAssist`
 answer, so the clone reads that endpoint and passes the body through
-(`internal/auth/code_assist_state.go`) instead of inventing a tier. The app
+(`internal/features/auth/code_assist_state.go`) instead of inventing a tier. The app
 throws on a missing `response` member — *"loadCodeAssist returned no
 response"* — so the answer always carries one: the cloud's state when the
 read succeeds, the account's cached tier when it does not. The state is
@@ -896,8 +1048,8 @@ the reference's RPCs to it.
 
 | | |
 |---|---|
-| The assets | `internal/refbackend/assets.go` — GET/HEAD only, the reference's own headers, `If-None-Match` → 304, and the reference's SPA fallback (an unknown path answers the reference's index document) |
-| The token | `internal/refbackend/csrf.go` — the CSRF token is read out of the reference's own index document; a 401 re-learns it and retries once |
+| The assets | `internal/infra/refbackend/assets.go` — GET/HEAD only, the reference's own headers, `If-None-Match` → 304, and the reference's SPA fallback (an unknown path answers the reference's index document) |
+| The token | `internal/infra/refbackend/csrf.go` — the CSRF token is read out of the reference's own index document; a 401 re-learns it and retries once |
 | The seam | `internal/rchost/web_reference_assets.go` — `/__agy/*` is the clone's own, everything else is the reference's |
 
 The reference's RPCs need that token, and the reference's own page carries
@@ -956,7 +1108,7 @@ the bundle (`websocket-transport-default`, applied in `serveMainJS`) and
 defaults to the WebSocket transport. Reference mode serves the reference's
 **own bytes**, so the URL is the only lever: the asset proxy answers the
 document with a **302** to the same path and query plus
-`useWebSocket=true` (`internal/refbackend/transport.go`). The bytes stay
+`useWebSocket=true` (`internal/infra/refbackend/transport.go`). The bytes stay
 the reference's — same md5, same ETag, same SPA fallback — and
 `?useWebSocket=false` is the operator's way back to the fetch transport.
 
@@ -981,7 +1133,7 @@ Evidence: [`out/web-ui-working-stuck/`](../../out/web-ui-working-stuck/) and
 ### And when the clone starts the reference itself
 
 `--reference-backend=<path to language_server>` makes the clone **start** the
-reference (`internal/refbackend/spawn.go`). Three of the arguments decide
+reference (`internal/infra/refbackend/spawn.go`). Three of the arguments decide
 whether its web app opens at all, and three more decide whether it opens on
 real data — measured on the reference binary, one flag at a time, in
 [`out/refbackend-spawn/`](../../out/refbackend-spawn/):
@@ -998,7 +1150,7 @@ real data — measured on the reference binary, one flag at a time, in
 The secret is minted for the run (24 random bytes, base64url) and the
 reference then *demands* it on every call (`unauthenticated: missing CSRF
 token`); the proxy learns it from the reference's own page
-(`internal/refbackend/csrf.go`) and presents it.
+(`internal/infra/refbackend/csrf.go`) and presents it.
 
 #### And the operator's own models, offered to the reference
 
@@ -1006,8 +1158,8 @@ The reference takes its model catalogue from the CloudCode endpoint
 (`fetchAvailableModels`) and answers `GetAvailableModels` with exactly
 that catalogue. So the clone starts the reference with
 `-cloud_code_endpoint` pointing at **its own** CloudCode proxy — the one
-`pigasus agy` uses (`internal/agyproxy`) — and the operator's models
-from `~/.config/openagy/providers.json` appear in the reference's own
+`pigasus agy` uses (`internal/infra/agyproxy`) — and the operator's models
+from `~/.openagy/providers.json` appear in the reference's own
 model picker, and a turn that picks one is translated to the operator's
 provider.
 
@@ -1066,16 +1218,16 @@ last frame reports the answer step as `INTERRUPTED` (12) and the executor
 back to `IDLE` (1). Measured at four landings — 0.2 s, 3 s, 5 s and 60 s
 into the turn — the turn ended 0.04 s, 0.02 s, 0.04 s and 0.37 s after the
 cancel respectively. `killBackgroundTasks` kills the background tasks through
-`internal/tools/tasks_kill.go`.
+`internal/app/tools/shell/tasks_kill.go`.
 
 ## Where to look
 
 | | |
 |---|---|
-| `internal/rclink/rclink.go` | the browser link: the deep link, and the account chooser around it |
-| `internal/urlchunk/urlchunk.go` | the URL block: the chunking and the OSC 8 frame — shared with the add-account screen |
+| `internal/infra/remote/link/rclink.go` | the browser link: the deep link, and the account chooser around it |
+| `urlchunk/urlchunk.go` | the URL block: the chunking and the OSC 8 frame — shared with the add-account screen |
 | `internal/cliapp/slash_rc_url.go` | the TUI's `/remote-control` link rows |
-| `internal/persistentrc/instance_id.go` | the installation uuid — memoised, so the daemon and the printed link agree |
+| `internal/infra/remote/persistent/instance_id.go` | the installation uuid — memoised, so the daemon and the printed link agree |
 | `internal/cli/subcommand_rc.go` | `remote-control start`: the launchd branch, and the foreground branch |
 | `internal/cli/subcommand_rc_foreground.go` | the one foreground implementation: `serve`, `run` and the non-darwin `start` share it |
 | `internal/cli/subcommand_rc_run.go` | `remote-control run` — the platform-independent foreground command |
@@ -1087,6 +1239,22 @@ cancel respectively. `killBackgroundTasks` kills the background tasks through
 | `internal/cli/subcommand_rc_rename.go` | `remote-control rename` — hidden, like `serve` and `run` |
 | `internal/remotecontrol/plugins_ls.go` | the plugin panels: the installed plugins, the skills, the remote plugins |
 | `internal/remotecontrol/plugins_marketplace.go` | the catalogue half, the cascade templates, the cloud-only surfaces |
+| `internal/remotecontrol/rpc/` | the JSON-RPC envelope every answer is built through |
+| `internal/remotecontrol/cascades/` | the cascade domain: the `Cascade`, the `Registry`, the `Backend` seam, the streaming vocabulary, the pending interactions |
+| `internal/remotecontrol/permissions/` | the permission preset, the review mode, the grants, the reference's permission vocabulary, and the language server's own permission read and write |
+| `internal/remotecontrol/permissions/route.go` | the domain's two routing tables: the four JSON-RPC methods and the two language-server ones |
+| `internal/remotecontrol/permissions/ls.go` | the language server's flat `PermissionSettings` read and write |
+| `internal/remotecontrol/terminals/` | the dashboard's terminal registry — *not* the Web UI's `ls_terminals.go` |
+| `internal/remotecontrol/triggers/` | the trigger specs, the options, the store |
+| `internal/remotecontrol/resources/` | the resource providers and the project's resource list |
+| `internal/remotecontrol/projects/` | the project list and the four CRUD methods |
+| `internal/remotecontrol/convconfig/` | the conversation's configuration |
+| `internal/remotecontrol/fastpush/` | the fastpush toggle |
+| `internal/remotecontrol/origins/` | the browser-origin patterns |
+| `internal/remotecontrol/plugins/` | the dashboard's plugin domain — *not* the Web UI's `plugins_ls.go` |
+| `internal/remotecontrol/files/` | the file and directory reader |
+| `internal/remotecontrol/mendel/` | the Mendel flag answer and the per-identity cache |
+| `internal/remotecontrol/effort/` | the reasoning-effort vocabulary |
 | `internal/remotecontrol/dispatch_ls_cloud.go` | the language server's cloud surfaces: the licence, the environments, the resource registries |
 | `internal/remotecontrol/ls_schema_audit_test.go` | the audit: every answer of the whole service against the reference's descriptor |
 | `internal/features/plugins/core/catalog.go` | the plugin and marketplace documents the plugin panels read |
@@ -1104,7 +1272,7 @@ cancel respectively. `killBackgroundTasks` kills the background tasks through
 | `internal/remotecontrol/ls_terminals_stream.go` | the terminal output stream: the output and title frames |
 | `internal/remotecontrol/ls_audio.go` | the Web UI's voice methods, and the transcription frames |
 | `internal/remotecontrol/ls_unmarshal.go` | the reference's answer for a malformed request |
-| `internal/rcterminal/` | the terminal registry, the pty session, the OSC scanner |
+| `rcterminal/` | the terminal registry, the pty session, the OSC scanner |
 | `internal/rcaudio/` | the audio sessions, and the Gemini-backed transcriber |
 | `remotetransport/connect_errors.go` | the Connect code a failure answers with |
 | `internal/remotecontrol/ls_cancel.go` | the three cancel RPCs, and the turn they kill |
@@ -1112,23 +1280,23 @@ cancel respectively. `killBackgroundTasks` kills the background tasks through
 | `internal/remotecontrol/dispatch_codeassist.go` | the credits panel's route: the cloud's code-assist state, cached |
 | `internal/remotecontrol/ls_queue_rpc.go` | the queue's RPCs: send all, drop by index, drop by id |
 | `internal/remotecontrol/model_config_fields.go` | the model config's fields the Web UI's picker reads — the eleven, and proto-JSON's rule for each |
-| `internal/auth/mendel.go` | the Mendel read, and the identity that decides the flag set |
-| `internal/remotecontrol/mendel_flags.go` | the answer the page reads, and the per-identity cache |
+| `internal/features/auth/mendel.go` | the Mendel read, and the identity that decides the flag set |
+| `internal/remotecontrol/mendel/mendel.go` | the answer the page reads, and the per-identity cache |
 | `internal/rchost/remote_control_backends.go` | the picker's rows: the configured models, expanded one row per reasoning tier |
-| `internal/refbackend/assets.go` | the reference's own page and assets, forwarded |
-| `internal/refbackend/transport.go` | the transport switch: the document is redirected to the WebSocket transport |
-| `internal/refbackend/csrf.go` | the reference's CSRF token: learned from its index document, refreshed on a 401 |
-| `internal/refbackend/custommodels.go` | the operator's own models, offered to the reference through the CloudCode proxy |
+| `internal/infra/refbackend/assets.go` | the reference's own page and assets, forwarded |
+| `internal/infra/refbackend/transport.go` | the transport switch: the document is redirected to the WebSocket transport |
+| `internal/infra/refbackend/csrf.go` | the reference's CSRF token: learned from its index document, refreshed on a 401 |
+| `internal/infra/refbackend/custommodels.go` | the operator's own models, offered to the reference through the CloudCode proxy |
 | `internal/rchost/web_reference_assets.go` | the seam: `/__agy/*` is the clone's, the rest is the reference's |
 | `remotetransport/grpcweb_codec.go` | the gRPC-Web framing — the reference's own page's dialect |
-| `internal/tools/tasks_kill.go` | the background tasks a cancel kills |
-| `internal/interaction/interaction.go` | the seam: the host, the request, the answer |
+| `internal/app/tools/shell/tasks_kill.go` | the background tasks a cancel kills |
+| `internal/core/seam/seam.go` | the seam: the host, the request, the answer |
 | `internal/remotecontrol/ls_interaction.go` | the waiting step, and the host that parks on the answer |
 | `internal/remotecontrol/ls_interaction_answer.go` | the answer's three shapes (canonical, wrapped, bare string) |
 | `internal/remotecontrol/ls_interaction_rpc.go` | `HandleCascadeUserInteraction` in the IDE dialect |
-| `internal/tools/tools_interaction.go` | the three tools that need the user |
-| `internal/convstore/append.go` | appending a turn to a conversation that already exists, and naming it |
-| `internal/convstore/summary_schema.go` | the summaries table's shape — the reference's own |
+| `internal/app/tools/tasks/tools_interaction.go` | the three tools that need the user |
+| `internal/app/session/convstore/append.go` | appending a turn to a conversation that already exists, and naming it |
+| `internal/app/session/convstore/summary_schema.go` | the summaries table's shape — the reference's own |
 | `out/web-ui-interaction/` | the reference's own waiting step and answer payload, and the clone's, side by side |
 | `out/web-reference-mode/` | the reference's own page and assets through the clone, the gRPC-Web framing, and the cancel round trip |
 | `out/model-config-alignment/` | the picker's mapper, verbatim, and the live `GetUserStatus` with the per-model attributes stated |
@@ -1151,7 +1319,7 @@ cancel respectively. `killBackgroundTasks` kills the background tasks through
 - The clone writes the summary's columns, not the reference's `raw_summary`
   blob; a row the reference wrote keeps its blob.
 - The **permission card** is wired for a tool that asks, but the clone's own
-  permission store (`internal/permissions`) does not raise a
+  permission store (`internal/core/policy/permissions`) does not raise a
   `requestedInteraction` of its own: the reference's card is raised by the
   agent's permission subsystem on a generic step, not by a tool call. A
   `run_command` the clone's policy does not allow is refused by the store, not
@@ -1163,12 +1331,14 @@ cancel respectively. `killBackgroundTasks` kills the background tasks through
   [`docs/cycles/cycle-327-web-ui-interaction-round-trip/deliverable.md`](../cycles/cycle-327-web-ui-interaction-round-trip/deliverable.md).
 - The title the clone gives a conversation is a heuristic; the reference asks
   the model. The two differ in wording, not in kind.
-- The clone has no WebRTC mesh session — only the WebChannel backchannel
-  (`rc-webrtc-mesh-defer`). The mesh is the reference's browser↔instance
-  direct data channel, not the gate: the clone's `GetMendelFlags` answer
-  reports the mesh experiment as disabled, and the host page takes the
-  WebChannel path. The two views then render the same — the app iframe is
-  mounted and the host page shows "Connecting to instance…", which is where
+- The WebRTC mesh **session** is implemented in `rcmesh/` and `modules/rcmesh-pion/`
+  (Cycles 371–373, covering signaling, Pion WebRTC v4, ECDSA challenge authentication,
+  outbound trickle ICE, session key pinning, dynamic revocation, and chunk reassembly).
+  In production defaults, `GetMendelFlags` reports the mesh experiment as disabled
+  until live cloud validation is completed, and the host page falls back to the
+  WebChannel path; the mesh can be enabled for local/staged testing via
+  `OPENAGY_EXPERIMENTAL_WEBRTC_MESH=1`. The two views render the same — the app iframe
+  is mounted and the host page shows "Connecting to instance…", which is where
   the **reference's** own view sits in this environment too, because neither
   app iframe reports its UI as ready.
 - The registry row is scoped to the account the daemon authenticates as,

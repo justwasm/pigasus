@@ -23,7 +23,7 @@
 // own provider dispatch, because the client's configuration is the
 // authoritative one for a harness session. Without this the SDK's key
 // would never reach a model and the session would silently fall back to
-// whatever `~/.config/openagy/providers.json` happens to name.
+// whatever `~/.openagy/providers.json` happens to name.
 //
 // # Selection
 //
@@ -41,7 +41,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/justwasm/pigasus/internal/backend"
+	"github.com/justwasm/pigasus/internal/core/backend"
+	"github.com/justwasm/pigasus/internal/infra/backend/cloudcode"
+	"github.com/justwasm/pigasus/internal/infra/backend/gateway"
+	"github.com/justwasm/pigasus/internal/infra/backend/gemini"
 	pb "github.com/justwasm/pigasus/localharness/pb/localharness"
 )
 
@@ -76,7 +79,7 @@ func configModelFor(cfg *pb.HarnessConfig, client *pb.ClientInfo) (*configModel,
 	case model.GetGeminiApiEndpoint() != nil:
 		endpoint := model.GetGeminiApiEndpoint()
 		options := endpoint.GetOptions()
-		client := backend.NewGeminiWithConfig(backend.GeminiConfig{
+		client := gemini.NewGeminiWithConfig(gemini.GeminiConfig{
 			BaseURL:         endpoint.GetBaseUrl(),
 			APIKey:          endpoint.GetApiKey(),
 			Model:           name,
@@ -94,7 +97,7 @@ func configModelFor(cfg *pb.HarnessConfig, client *pb.ClientInfo) (*configModel,
 	case model.GetVertexEndpoint() != nil:
 		endpoint := model.GetVertexEndpoint()
 		options := endpoint.GetOptions()
-		client := backend.NewGeminiWithConfig(backend.GeminiConfig{
+		client := gemini.NewGeminiWithConfig(gemini.GeminiConfig{
 			BaseURL:         endpoint.GetBaseUrl(),
 			APIKey:          endpoint.GetApiKey(),
 			Model:           name,
@@ -110,7 +113,7 @@ func configModelFor(cfg *pb.HarnessConfig, client *pb.ClientInfo) (*configModel,
 
 	case model.GetGemmaEndpoint() != nil:
 		endpoint := model.GetGemmaEndpoint()
-		client := backend.NewGeminiWithConfig(backend.GeminiConfig{
+		client := gemini.NewGeminiWithConfig(gemini.GeminiConfig{
 			BaseURL:         endpoint.GetBaseUrl(),
 			Model:           name,
 			UserAgent:       userAgent,
@@ -198,7 +201,7 @@ func customEndpointModel(endpoint *pb.CustomEndpoint, model string) (*configMode
 				return nil, fmt.Errorf("harness: custom endpoint %q: %w", kind, err)
 			}
 		}
-		client := backend.NewGeminiWithConfig(backend.GeminiConfig{
+		client := gemini.NewGeminiWithConfig(gemini.GeminiConfig{
 			BaseURL:         cfg.BaseURL,
 			APIKey:          cfg.APIKey,
 			Model:           model,
@@ -231,7 +234,7 @@ func customEndpointModel(endpoint *pb.CustomEndpoint, model string) (*configMode
 		if wire == "" {
 			wire = model
 		}
-		client := backend.NewGatewayWithConfig(backend.GatewayConfig{
+		client := gateway.NewGatewayWithConfig(gateway.GatewayConfig{
 			URL:              url,
 			APIKey:           cfg.APIKey,
 			ExternalModel:    wire,
@@ -255,7 +258,7 @@ func customEndpointModel(endpoint *pb.CustomEndpoint, model string) (*configMode
 				return nil, fmt.Errorf("harness: custom endpoint %q: %w", kind, err)
 			}
 		}
-		client := backend.NewCloudCodeWithConfig(backend.CloudCodeConfig{
+		client := cloudcode.NewCloudCodeWithConfig(cloudcode.CloudCodeConfig{
 			Endpoint:        cfg.Endpoint,
 			Project:         cfg.Project,
 			Model:           model,

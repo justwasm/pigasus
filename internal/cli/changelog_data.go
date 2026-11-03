@@ -23,8 +23,3 @@ import _ "embed"
 //
 //go:embed testdata/changelog_reference.txt
 var referenceChangelog string
-
-// ReferenceChangelog returns the changelog blob the reference binary ships.
-// cmd/wagyu's print-mode `/changelog` handler uses it so the command
-// prints the same bytes as `agy changelog`.
-func ReferenceChangelog() string { return referenceChangelog }

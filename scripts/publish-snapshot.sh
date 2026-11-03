@@ -91,13 +91,13 @@ if ! gh auth status >/dev/null 2>&1; then
 fi
 
 # Detect version
-VERSION_FILE="${ROOT_DIR}/internal/cli/version.go"
+VERSION_FILE="${ROOT_DIR}/internal/core/version/version.go"
 if [[ ! -f "$VERSION_FILE" ]]; then
   log_err "Version file not found: $VERSION_FILE"
   exit 1
 fi
 
-DETECTED_VERSION=$(grep -E 'ReferenceVersion\s*=' "$VERSION_FILE" | sed -E 's/.*"([^"]+)".*/\1/')
+DETECTED_VERSION=$(grep -E 'Reference\s*=' "$VERSION_FILE" | sed -E 's/.*"([^"]+)".*/\1/')
 TAG="${CUSTOM_TAG:-v${DETECTED_VERSION}}"
 
 log_info "Source: ${ROOT_DIR}"
@@ -143,37 +143,45 @@ trap cleanup EXIT
 # importable surface (`cmd/` and `internal/` import them), so a snapshot
 # without them does not build.
 ALLOWLIST=(
-  cmd
-  internal
-  devutils
-  rea-go-seeds
-  scripts
-  npm
   .github
   accountpool
   agentbrowser
+  agentlink
   atomicfile
   browserbridge
   browsercdp
   budget
+  celpolicy
+  cmd
+  configdir
+  devutils
   diffsyntax
+  dns
   endpoints
   envref
   geminicode
   grpc
   harnessprompt
   imagery
+  internal
   lifecyclehooks
   localharness
   lsproto
   mcp
+  npm
   originpolicy
   palette
+  procgroup
+  rcmesh
+  rcterminal
   rctoken
+  rea-go-seeds
   remotetransport
   render
   retry
   retrybudget
+  scripts
+  urlchunk
   vim
   docs/guide
   docs/cycles
@@ -182,6 +190,7 @@ ALLOWLIST=(
   go.sum
   AGENTS.md
   README.md
+  REVIEW.md
   LICENSE
   .gitignore
 )

@@ -24,7 +24,7 @@ import (
 	"encoding/json"
 	"strings"
 
-	"github.com/justwasm/pigasus/internal/rcterminal"
+	"github.com/justwasm/pigasus/rcterminal"
 )
 
 // lsTerminalOutputRequest is the reference's StreamTerminalOutputRequest.
@@ -50,16 +50,19 @@ func (d *Dispatcher) lsStreamTerminalOutput(ctx context.Context, payload string,
 		}
 	}
 	if strings.TrimSpace(req.TerminalID) == "" {
-		<-ctx.Done()
-		return true, nil
+		return true, lsStreamErr(5, "terminal  not found")
 	}
 	registry := d.cfg.WebTerminals
 	if registry == nil {
-		return false, nil
+		return true, lsStreamErr(5, "terminal "+req.TerminalID+" not found")
 	}
-	return true, registry.Stream(req.TerminalID, func(frame rcterminal.Frame) error {
+	err := registry.StreamContext(ctx, req.TerminalID, func(frame rcterminal.Frame) error {
 		return emit(lsTerminalFrame(frame))
 	})
+	if err != nil {
+		return true, lsStreamErr(5, "terminal "+req.TerminalID+" not found")
+	}
+	return true, nil
 }
 
 // lsTerminalFrame renders one frame the way the reference's

@@ -25,13 +25,13 @@ import (
 	pi "github.com/MichaelKinsy/PiG/ai"
 
 	"github.com/justwasm/pigasus/agentbrowser"
-	"github.com/justwasm/pigasus/internal/tools"
+	"github.com/justwasm/pigasus/internal/app/tools/surface"
 )
 
 // browserTool advertises the reference's `webview_browser` tool and
 // runs it through the agent↔browser broker.
 type browserTool struct {
-	decl tools.ModelToolDecl
+	decl surface.ModelToolDecl
 	tool *agentbrowser.Tool
 }
 
@@ -44,7 +44,7 @@ type browserTool struct {
 func BrowserTool(broker *agentbrowser.Broker, opts agentbrowser.Options) piagent.AgentTool {
 	decl := agentbrowser.ToolDeclaration()
 	return &browserTool{
-		decl: tools.ModelToolDecl{
+		decl: surface.ModelToolDecl{
 			Name:        decl.Name,
 			Description: decl.Description,
 			Parameters:  decl.Parameters,
@@ -56,9 +56,9 @@ func BrowserTool(broker *agentbrowser.Broker, opts agentbrowser.Options) piagent
 // BrowserDeclaration returns the reference's `webview_browser`
 // declaration, so a caller can advertise it next to the reference's
 // twelve captured ones.
-func BrowserDeclaration() tools.ModelToolDecl {
+func BrowserDeclaration() surface.ModelToolDecl {
 	decl := agentbrowser.ToolDeclaration()
-	return tools.ModelToolDecl{
+	return surface.ModelToolDecl{
 		Name:        decl.Name,
 		Description: decl.Description,
 		Parameters:  decl.Parameters,
@@ -74,7 +74,7 @@ func (t *browserTool) Label() string { return t.decl.Name }
 // reference's wire form carries the schema types in upper case.
 func (t *browserTool) Schema() pi.ToolSchema {
 	schema := pi.ToolSchema{Name: t.decl.Name, Description: t.decl.Description}
-	if params := tools.SchemaParams(t.decl.Parameters); params != nil {
+	if params := surface.SchemaParams(t.decl.Parameters); params != nil {
 		schema.Parameters = params
 	}
 	return schema

@@ -32,7 +32,8 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/justwasm/pigasus/internal/interaction"
+	interaction "github.com/justwasm/pigasus/internal/core/seam"
+	"github.com/justwasm/pigasus/internal/remotecontrol/cascades"
 )
 
 // lsInteractionHost is the Web UI's transport for the interactive
@@ -41,9 +42,9 @@ import (
 // One host serves one turn: the trajectory belongs to a conversation
 // and the pending-interaction registry belongs to a cascade.
 type lsInteractionHost struct {
-	cascade *Cascade
+	cascade *cascades.Cascade
 	traj    *lsTrajectory
-	sink    EventSink
+	sink    cascades.EventSink
 }
 
 // Ask publishes the waiting step and blocks until the user answered.
@@ -73,7 +74,7 @@ func (h *lsInteractionHost) Ask(ctx context.Context, req interaction.Request) (i
 //
 // The registry is the cascade's: the answer names the trajectory and
 // the step, and the step index is what the pending entry carries.
-func (h *lsInteractionHost) register(req interaction.Request, index int) (*PendingInteraction, error) {
+func (h *lsInteractionHost) register(req interaction.Request, index int) (*cascades.PendingInteraction, error) {
 	kind, title, prompt, opts := lsInteractionPrompt(req)
 	intr, err := h.cascade.AddInteraction(kind, title, prompt, opts, false, time.Time{}, time.Now().UTC())
 	if err != nil {
@@ -97,7 +98,7 @@ func (h *lsInteractionHost) register(req interaction.Request, index int) (*Pendi
 //
 // An expired interaction is a cancelled one: the channel is closed
 // rather than written to, and the user never answered.
-func (h *lsInteractionHost) wait(ctx context.Context, intr *PendingInteraction, req interaction.Request) (interaction.Answer, lsCascadeUserInteraction, error) {
+func (h *lsInteractionHost) wait(ctx context.Context, intr *cascades.PendingInteraction, req interaction.Request) (interaction.Answer, lsCascadeUserInteraction, error) {
 	select {
 	case res, ok := <-intr.ResultCh:
 		if !ok {
@@ -359,24 +360,24 @@ func lsResponseEntries(responses []lsAskQuestionResponse) []any {
 //
 // The notification is the legacy dashboard's surface; the Web UI reads
 // the step. Both are served from the same request.
-func lsInteractionPrompt(req interaction.Request) (kind, title, prompt string, opts []InteractionOption) {
+func lsInteractionPrompt(req interaction.Request) (kind, title, prompt string, opts []cascades.InteractionOption) {
 	if req.Kind == interaction.KindPermission {
 		title = req.ToolName
 		prompt = req.Action
 		if req.Target != "" {
 			prompt = req.Action + " on " + req.Target
 		}
-		return InteractionKindPermission, title, prompt, nil
+		return cascades.InteractionKindPermission, title, prompt, nil
 	}
 	title = req.ToolName
 	var texts []string
 	for _, q := range req.Questions {
 		texts = append(texts, q.Prompt)
 		for _, opt := range q.Options {
-			opts = append(opts, InteractionOption{Label: opt, Value: opt})
+			opts = append(opts, cascades.InteractionOption{Label: opt, Value: opt})
 		}
 	}
-	return InteractionKindQuestion, title, joinInteractionTexts(texts), opts
+	return cascades.InteractionKindQuestion, title, joinInteractionTexts(texts), opts
 }
 
 // joinInteractionTexts joins the question texts with a newline.
@@ -399,7 +400,7 @@ type lsTrajectoryCarrier interface {
 
 // lsTrajectoryOf returns the trajectory the sink publishes onto, or
 // nil when the sink does not carry one.
-func lsTrajectoryOf(sink EventSink) *lsTrajectory {
+func lsTrajectoryOf(sink cascades.EventSink) *lsTrajectory {
 	carrier, ok := sink.(lsTrajectoryCarrier)
 	if !ok {
 		return nil
@@ -415,6 +416,31 @@ func (s *lsThoughtSink) Trajectory() *lsTrajectory {
 	return lsTrajectoryOf(s.inner)
 }
 
+// InstallInteractionHost puts the conversation's interaction host on
+// the turn's context.
+//
+// The host is what the interactive tools ask: it publishes the waiting
+// step the Web UI's card reads and blocks until the user answered.
+//
+// A turn with no trajectory — the legacy JSON-RPC surface, whose sink
+// is not the trajectory sink — gets no host, and the tools keep their
+// headless behaviour.
+//
+// The cascade domain asks the sink whether it can install a host
+// (cascades.InteractionHostInstaller), so the dependency runs from the
+// domain to this surface and never the other way round: the domain
+// package must not import the Web UI's.
+func (s *lsTrajectorySink) InstallInteractionHost(ctx context.Context, c *cascades.Cascade, sink cascades.EventSink) context.Context {
+	return lsInstallInteractionHost(ctx, c, sink)
+}
+
+// InstallInteractionHost puts the conversation's interaction host on
+// the turn's context. The thought sink wraps the trajectory sink, so
+// the host is installed from the trajectory the wrapped sink carries.
+func (s *lsThoughtSink) InstallInteractionHost(ctx context.Context, c *cascades.Cascade, sink cascades.EventSink) context.Context {
+	return lsInstallInteractionHost(ctx, c, sink)
+}
+
 // lsInstallInteractionHost puts the conversation's interaction host on
 // the turn's context.
 //
@@ -424,7 +450,7 @@ func (s *lsThoughtSink) Trajectory() *lsTrajectory {
 // A turn with no trajectory — the legacy JSON-RPC surface, whose sink
 // is not the trajectory sink — gets no host, and the tools keep their
 // headless behaviour.
-func lsInstallInteractionHost(ctx context.Context, c *Cascade, sink EventSink) context.Context {
+func lsInstallInteractionHost(ctx context.Context, c *cascades.Cascade, sink cascades.EventSink) context.Context {
 	traj := lsTrajectoryOf(sink)
 	if traj == nil {
 		return ctx

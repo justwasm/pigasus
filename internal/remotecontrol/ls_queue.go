@@ -27,6 +27,8 @@ import (
 	"context"
 	"fmt"
 	"time"
+
+	"github.com/justwasm/pigasus/internal/remotecontrol/cascades"
 )
 
 // lsQueuedMessage is one message the conversation has accepted but has
@@ -39,7 +41,7 @@ type lsQueuedMessage struct {
 	// Images are the pictures the user attached to the message. They
 	// ride with it: a message that waits in the queue waits with its
 	// pictures.
-	Images []MessageImage
+	Images []cascades.Image
 	// Strategy is the delivery strategy the request carried.
 	Strategy lsDeliveryStrategy
 	// Step is the serialised gemini_coder.Step the Web UI decodes off

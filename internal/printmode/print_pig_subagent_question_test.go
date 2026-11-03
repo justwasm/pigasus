@@ -23,8 +23,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/justwasm/pigasus/internal/subagentquestions"
-	"github.com/justwasm/pigasus/internal/tools"
+	subagentquestions "github.com/justwasm/pigasus/internal/app/subagent/questions"
+	"github.com/justwasm/pigasus/internal/app/tools/surface"
+	"github.com/justwasm/pigasus/internal/app/tools/tasks"
 )
 
 // TestPrintPathAskQuestionHeadlessAutoSkips drives the tool through
@@ -32,8 +33,8 @@ import (
 // without anyone calling Answer — the AGY changelog line "Headless
 // -p runs skip these questions so the subagent can continue."
 func TestPrintPathAskQuestionHeadlessAutoSkips(t *testing.T) {
-	reg := tools.Catalog(t.TempDir())
-	reg.Register(&tools.AskQuestion{
+	reg := surface.Catalog(t.TempDir())
+	reg.Register(&tasks.AskQuestion{
 		SubAgentQuestions: subagentquestions.NewManager(true),
 	})
 
@@ -58,7 +59,7 @@ func TestPrintPathAskQuestionHeadlessAutoSkips(t *testing.T) {
 // left waiting forever" bug is exactly what the headless path now
 // replaces).
 func TestPrintPathAskQuestionKeepsLegacyNoManager(t *testing.T) {
-	reg := tools.Catalog(t.TempDir())
+	reg := surface.Catalog(t.TempDir())
 	// No AskQuestion re-register — the catalog's default
 	// AskQuestion is the legacy noManager path.
 

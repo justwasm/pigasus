@@ -1,0 +1,304 @@
+sel single line, the whole value
+  value="hello" view="> hello"
+  range=0,5
+  highlight="> \x1b[0m\x1b[7mhello\x1b[0m"
+  offsetAt(2,10)=0
+  offsetAt(4,10)=2
+  offsetAt(9,10)=5
+  offsetAt(40,10)=5
+  offsetAt(2,9)=0
+  offsetAt(2,11)=5
+  cursor(0)=0,0 value="hello"
+  cursor(1)=0,1 value="hello"
+  cursor(3)=0,3 value="hello"
+  cursor(5)=0,5 value="hello"
+  cursor(6)=0,5 value="hello"
+  cursor(9)=0,5 value="hello"
+  cursor(-1)=0,0 value="hello"
+  cursor(-5)=0,0 value="hello"
+  delete="" line=0 col=0 sel=false
+  replace="X" line=0 col=1 sel=false
+sel single line, the middle
+  value="hello" view="> hello"
+  range=1,3
+  highlight="> h\x1b[0m\x1b[7mel\x1b[0mlo"
+  offsetAt(3,10)=1
+  offsetAt(5,10)=3
+  cursor(0)=0,0 value="hello"
+  cursor(1)=0,1 value="hello"
+  cursor(2)=0,2 value="hello"
+  cursor(3)=0,3 value="hello"
+  cursor(4)=0,4 value="hello"
+  cursor(5)=0,5 value="hello"
+  delete="hlo" line=0 col=1 sel=false
+  replace="hXYlo" line=0 col=3 sel=false
+sel single line, an empty selection
+  value="hello" view="> hello"
+  range=2,2
+  highlight="> hello"
+  offsetAt(4,10)=2
+  cursor(0)=0,0 value="hello"
+  cursor(2)=0,2 value="hello"
+  cursor(5)=0,5 value="hello"
+  delete="hello" line=0 col=5 sel=false
+  replace="hello" line=0 col=5 sel=false
+sel single line, past the end of the value
+  value="hello" view="> hello"
+  range=0,99
+  highlight="> \x1b[0m\x1b[7mhello\x1b[0m"
+  offsetAt(4,10)=2
+  cursor(0)=0,0 value="hello"
+  cursor(5)=0,5 value="hello"
+  delete="hello" line=0 col=5 sel=false
+  replace="hello" line=0 col=5 sel=false
+sel single line, a reversed selection
+  value="hello" view="> hello"
+  range=1,3
+  highlight="> h\x1b[0m\x1b[7mel\x1b[0mlo"
+  offsetAt(5,10)=3
+  cursor(0)=0,0 value="hello"
+  cursor(3)=0,3 value="hello"
+  delete="hlo" line=0 col=1 sel=false
+  replace="hRlo" line=0 col=2 sel=false
+sel single line, a selection beyond the value
+  value="hello" view="> hello"
+  range=9,12
+  highlight="> hello"
+  offsetAt(4,10)=2
+  cursor(0)=0,0 value="hello"
+  cursor(5)=0,5 value="hello"
+  delete="hello" line=0 col=5 sel=false
+  replace="hello" line=0 col=5 sel=false
+sel three lines, the whole value
+  value="a\nb\nc" view="> a\n  b\n  c"
+  range=0,5
+  highlight="> \x1b[0m\x1b[7ma\x1b[0m\n  \x1b[0m\x1b[7mb\x1b[0m\n  \x1b[0m\x1b[7mc\x1b[0m"
+  offsetAt(2,10)=0
+  offsetAt(4,11)=3
+  offsetAt(4,12)=5
+  offsetAt(4,13)=5
+  cursor(0)=0,0 value="a\nb\nc"
+  cursor(1)=0,1 value="a\nb\nc"
+  cursor(2)=1,0 value="a\nb\nc"
+  cursor(3)=1,1 value="a\nb\nc"
+  cursor(4)=2,0 value="a\nb\nc"
+  cursor(5)=2,1 value="a\nb\nc"
+  cursor(6)=2,1 value="a\nb\nc"
+  cursor(7)=2,1 value="a\nb\nc"
+  delete="" line=0 col=0 sel=false
+  replace="Q" line=0 col=1 sel=false
+sel three lines, the first row
+  value="a\nb\nc" view="> a\n  b\n  c"
+  range=0,1
+  highlight="> \x1b[0m\x1b[7ma\x1b[0m\n  b\n  c"
+  offsetAt(3,10)=1
+  cursor(0)=0,0 value="a\nb\nc"
+  cursor(1)=0,1 value="a\nb\nc"
+  cursor(2)=1,0 value="a\nb\nc"
+  delete="\nb\nc" line=0 col=0 sel=false
+  replace="F\nb\nc" line=0 col=1 sel=false
+sel three lines, the second row only
+  value="a\nb\nc" view="> a\n  b\n  c"
+  range=2,3
+  highlight="> a\n  \x1b[0m\x1b[7mb\x1b[0m\n  c"
+  offsetAt(4,11)=3
+  cursor(2)=1,0 value="a\nb\nc"
+  cursor(3)=1,1 value="a\nb\nc"
+  delete="a\n\nc" line=1 col=0 sel=false
+  replace="a\nS\nc" line=1 col=1 sel=false
+sel an empty value
+  value="" view="> "
+  range=0,0
+  highlight="> "
+  offsetAt(2,10)=0
+  offsetAt(4,10)=0
+  cursor(0)=0,0 value=""
+  cursor(1)=0,0 value=""
+  cursor(-1)=0,0 value=""
+  delete="" line=0 col=0 sel=false
+  replace="" line=0 col=0 sel=false
+sel wide runes
+  value="日本語" view="> 日本語"
+  range=0,9
+  highlight="> \x1b[0m\x1b[7m日本語\x1b[0m"
+  offsetAt(2,10)=0
+  offsetAt(4,10)=3
+  offsetAt(8,10)=9
+  cursor(0)=0,0 value="日本語"
+  cursor(3)=0,1 value="日本語"
+  cursor(6)=0,2 value="日本語"
+  cursor(9)=0,3 value="日本語"
+  cursor(12)=0,3 value="日本語"
+  delete="" line=0 col=0 sel=false
+  replace="漢" line=0 col=1 sel=false
+sel a trailing newline
+  value="aaa\nbbb\n" view="> aaa\n  bbb\n  "
+  range=1,5
+  highlight="> a\x1b[0m\x1b[7maa\x1b[0m\n  \x1b[0m\x1b[7mb\x1b[0mbb\n  "
+  offsetAt(4,10)=2
+  offsetAt(4,11)=6
+  offsetAt(4,12)=8
+  cursor(0)=0,0 value="aaa\nbbb\n"
+  cursor(3)=0,3 value="aaa\nbbb\n"
+  cursor(4)=1,0 value="aaa\nbbb\n"
+  cursor(7)=1,3 value="aaa\nbbb\n"
+  cursor(8)=2,0 value="aaa\nbbb\n"
+  delete="abb\n" line=0 col=1 sel=false
+  replace="aTbb\n" line=0 col=2 sel=false
+sel the prompt on every row
+  value="aaa\nbbb" view="> aaa\n  bbb"
+  range=1,5
+  highlight="> a\x1b[0m\x1b[7maa\x1b[0m\n  \x1b[0m\x1b[7mb\x1b[0mbb"
+  offsetAt(4,10)=2
+  offsetAt(4,11)=6
+  cursor(0)=0,0 value="aaa\nbbb"
+  cursor(3)=0,3 value="aaa\nbbb"
+  cursor(4)=1,0 value="aaa\nbbb"
+  cursor(7)=1,3 value="aaa\nbbb"
+  delete="abb" line=0 col=1 sel=false
+  replace="aPbb" line=0 col=2 sel=false
+sel a value with surrounding spaces
+  value="  spaced  " view=">   spaced  "
+  range=2,8
+  highlight=">   \x1b[0m\x1b[7mspaced\x1b[0m  "
+  offsetAt(4,10)=2
+  offsetAt(10,10)=8
+  cursor(0)=0,0 value="  spaced  "
+  cursor(2)=0,2 value="  spaced  "
+  cursor(8)=0,8 value="  spaced  "
+  cursor(10)=0,10 value="  spaced  "
+  delete="    " line=0 col=2 sel=false
+  replace="  S  " line=0 col=3 sel=false
+hist push ""
+hist push " "
+hist push "  hello  "
+hist push "hello"
+hist push "world"
+hist push "multi\nline"
+hist push "!echo hi"
+hist push "  \t\n "
+hist up1="echo hi"
+hist up2="multi\nline"
+hist up3="world"
+hist up4="hello"
+hist up5="hello"
+hist up-past-the-end="hello"
+hist down1="world"
+hist down2="multi\nline"
+hist down3="echo hi"
+hist down4="DRAFT"
+hist down5="DRAFT"
+hist reset-then-up="echo hi"
+hist slash-before=true
+hist slash-after=false value="slash entry"
+hist mention-before=true
+hist mention-after=false value="mention entry"
+hist load-up1="/help"
+hist load-up2="second command"
+hist load-up3="first command"
+hist load-up4="first command"
+hist load-down1="second command"
+hist load-down2="/help"
+hist load-down3=""
+hist load-down4=""
+hist cap-up1="prompt-104"
+hist cap-up2="prompt-103"
+hist cap-up3="prompt-102"
+hist cap-up4="prompt-101"
+hist cap-up5="prompt-100"
+hist cap-up6="prompt-99"
+hist cap-up7="prompt-98"
+hist cap-up8="prompt-97"
+hist cap-up9="prompt-96"
+hist cap-up10="prompt-95"
+hist cap-up11="prompt-94"
+hist cap-up12="prompt-93"
+hist cap-up13="prompt-92"
+hist cap-up14="prompt-91"
+hist cap-up15="prompt-90"
+hist cap-up16="prompt-89"
+hist cap-up17="prompt-88"
+hist cap-up18="prompt-87"
+hist cap-up19="prompt-86"
+hist cap-up20="prompt-85"
+hist cap-up21="prompt-84"
+hist cap-up22="prompt-83"
+hist cap-up23="prompt-82"
+hist cap-up24="prompt-81"
+hist cap-up25="prompt-80"
+hist cap-up26="prompt-79"
+hist cap-up27="prompt-78"
+hist cap-up28="prompt-77"
+hist cap-up29="prompt-76"
+hist cap-up30="prompt-75"
+hist cap-up31="prompt-74"
+hist cap-up32="prompt-73"
+hist cap-up33="prompt-72"
+hist cap-up34="prompt-71"
+hist cap-up35="prompt-70"
+hist cap-up36="prompt-69"
+hist cap-up37="prompt-68"
+hist cap-up38="prompt-67"
+hist cap-up39="prompt-66"
+hist cap-up40="prompt-65"
+hist cap-up41="prompt-64"
+hist cap-up42="prompt-63"
+hist cap-up43="prompt-62"
+hist cap-up44="prompt-61"
+hist cap-up45="prompt-60"
+hist cap-up46="prompt-59"
+hist cap-up47="prompt-58"
+hist cap-up48="prompt-57"
+hist cap-up49="prompt-56"
+hist cap-up50="prompt-55"
+hist cap-up51="prompt-54"
+hist cap-up52="prompt-53"
+hist cap-up53="prompt-52"
+hist cap-up54="prompt-51"
+hist cap-up55="prompt-50"
+hist cap-up56="prompt-49"
+hist cap-up57="prompt-48"
+hist cap-up58="prompt-47"
+hist cap-up59="prompt-46"
+hist cap-up60="prompt-45"
+hist cap-up61="prompt-44"
+hist cap-up62="prompt-43"
+hist cap-up63="prompt-42"
+hist cap-up64="prompt-41"
+hist cap-up65="prompt-40"
+hist cap-up66="prompt-39"
+hist cap-up67="prompt-38"
+hist cap-up68="prompt-37"
+hist cap-up69="prompt-36"
+hist cap-up70="prompt-35"
+hist cap-up71="prompt-34"
+hist cap-up72="prompt-33"
+hist cap-up73="prompt-32"
+hist cap-up74="prompt-31"
+hist cap-up75="prompt-30"
+hist cap-up76="prompt-29"
+hist cap-up77="prompt-28"
+hist cap-up78="prompt-27"
+hist cap-up79="prompt-26"
+hist cap-up80="prompt-25"
+hist cap-up81="prompt-24"
+hist cap-up82="prompt-23"
+hist cap-up83="prompt-22"
+hist cap-up84="prompt-21"
+hist cap-up85="prompt-20"
+hist cap-up86="prompt-19"
+hist cap-up87="prompt-18"
+hist cap-up88="prompt-17"
+hist cap-up89="prompt-16"
+hist cap-up90="prompt-15"
+hist cap-up91="prompt-14"
+hist cap-up92="prompt-13"
+hist cap-up93="prompt-12"
+hist cap-up94="prompt-11"
+hist cap-up95="prompt-10"
+hist cap-up96="prompt-9"
+hist cap-up97="prompt-8"
+hist cap-up98="prompt-7"
+hist cap-up99="prompt-6"
+hist cap-up100="prompt-5"
+hist cap-up101="prompt-5"

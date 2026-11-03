@@ -39,10 +39,12 @@ clone's changelog still prints exactly what the reference prints.
 The 1.4.11 binary **is** on this machine (`~/.local/bin/agy`, sha256
 `09cefed6a1d217e14ba1751dce4442b97c2797e88c297c77fda3690f92ceddcd`,
 captured 2026-10-30). Its string table is in
-[`out/local-macos-1.4.11/strings.txt`](../../../out/local-macos-1.4.11/strings.txt),
+[`out/local-macos-1.4.11/strings-index.txt`](../../../out/local-macos-1.4.11/strings-index.txt)
+(the pruned index of the retired `strings.txt` dump — see `out/RETIRED.md`),
 and the reference's 1.4.11 `hooks.md` — the document the clone ships — was
 captured to
-[`out/local-macos-1.4.11/hooks-doc.txt`](../../../out/local-macos-1.4.11/hooks-doc.txt).
+[`docs/guide/hooks.md`](../../../docs/guide/hooks.md)
+(the retired `out/local-macos-1.4.11/hooks-doc.txt` dump — see `out/RETIRED.md`).
 
 The version pin and the drift lock move with the binary — that is the RE
 refresh's own work, in `internal/cli/version.go` and
@@ -91,7 +93,9 @@ missing.
 `hooks.md` inside its builtin skill bundle
 (`internal/features/tools/skills/skills/agy-customizations/docs/hooks.md`).
 That file was replaced with the 1.4.11 text — byte for byte, captured from
-the binary into `out/local-macos-1.4.11/hooks-doc.txt`. The new sections
+the binary into `out/local-macos-1.4.11/hooks-doc.txt` (that snapshot was
+retired on 2026-11-02; the live document is `docs/guide/hooks.md` — see
+`out/RETIRED.md`). The new sections
 are there: `terminationBehavior` (`"terminate"` stops the turn before the
 model is called; `"force_continue"` continues it), the injected
 `errorMessage` with its `userMessage`, and the rule that the message is
@@ -494,6 +498,8 @@ re-import under `--force`.
 Reports: the upstream notes are in
 [`internal/cli/testdata/changelog_upstream_1.4.11.md`](../../../internal/cli/testdata/changelog_upstream_1.4.11.md);
 the 1.4.11 string table is in
-[`out/local-macos-1.4.11/strings.txt`](../../../out/local-macos-1.4.11/strings.txt),
+[`out/local-macos-1.4.11/strings-index.txt`](../../../out/local-macos-1.4.11/strings-index.txt)
+(the pruned index of the retired `strings.txt` dump — see `out/RETIRED.md`),
 and the reference's 1.4.11 `hooks.md` in
-[`out/local-macos-1.4.11/hooks-doc.txt`](../../../out/local-macos-1.4.11/hooks-doc.txt).
+[`docs/guide/hooks.md`](../../../docs/guide/hooks.md)
+(the retired `out/local-macos-1.4.11/hooks-doc.txt` dump — see `out/RETIRED.md`).

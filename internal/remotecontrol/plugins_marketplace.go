@@ -54,6 +54,8 @@ import (
 	"strings"
 
 	"github.com/justwasm/pigasus/internal/features/plugins/core"
+	"github.com/justwasm/pigasus/internal/remotecontrol/plugins"
+	"github.com/justwasm/pigasus/internal/remotecontrol/rpc"
 )
 
 // marketplacePageSize is how many entries one page of the
@@ -75,7 +77,7 @@ const marketplacePageSize = 200
 // The groups are the marketplaces themselves: one ResultGroup per
 // catalogue, with the catalogue's description and the ids of the
 // entries it holds.
-func (d *Dispatcher) handleLSSearchMarketplace(params json.RawMessage) (any, *rpcErrorBody, bool) {
+func (d *Dispatcher) handleLSSearchMarketplace(params json.RawMessage) (any, *rpc.ErrorBody, bool) {
 	var req struct {
 		Query     string `json:"query"`
 		GroupID   string `json:"groupId"`
@@ -83,7 +85,7 @@ func (d *Dispatcher) handleLSSearchMarketplace(params json.RawMessage) (any, *rp
 	}
 	if len(params) > 0 {
 		if err := json.Unmarshal(params, &req); err != nil {
-			return nil, &rpcErrorBody{Code: -32602, Message: "Invalid params", Data: err.Error()}, true
+			return nil, &rpc.ErrorBody{Code: -32602, Message: "Invalid params", Data: err.Error()}, true
 		}
 	}
 	docs := core.MarketplaceDocs()
@@ -155,7 +157,7 @@ func lsMarketplaceGroupsJSON(docs []core.MarketplaceDoc) []any {
 // plugins contribute. That is the customization set this machine
 // actually has; the marketplace's own skill listings live in the
 // cloud.
-func (d *Dispatcher) handleLSSearchMarketplaceCustomizations(params json.RawMessage) (any, *rpcErrorBody, bool) {
+func (d *Dispatcher) handleLSSearchMarketplaceCustomizations(params json.RawMessage) (any, *rpc.ErrorBody, bool) {
 	var req struct {
 		Query         string   `json:"query"`
 		PageSize      int      `json:"pageSize"`
@@ -163,7 +165,7 @@ func (d *Dispatcher) handleLSSearchMarketplaceCustomizations(params json.RawMess
 	}
 	if len(params) > 0 {
 		if err := json.Unmarshal(params, &req); err != nil {
-			return nil, &rpcErrorBody{Code: -32602, Message: "Invalid params", Data: err.Error()}, true
+			return nil, &rpc.ErrorBody{Code: -32602, Message: "Invalid params", Data: err.Error()}, true
 		}
 	}
 	query := strings.ToLower(strings.TrimSpace(req.Query))
@@ -196,14 +198,14 @@ func (d *Dispatcher) handleLSSearchMarketplaceCustomizations(params json.RawMess
 // 【反编译】 exa.language_server_pb.
 // GetMarketplaceCustomizationResponse carries customization (1),
 // plugin (2) and skill (3).
-func (d *Dispatcher) handleLSGetMarketplaceCustomization(params json.RawMessage) (any, *rpcErrorBody, bool) {
+func (d *Dispatcher) handleLSGetMarketplaceCustomization(params json.RawMessage) (any, *rpc.ErrorBody, bool) {
 	var req struct {
 		ID             string `json:"id"`
 		IncludePreview bool   `json:"includePreview"`
 	}
 	if len(params) > 0 {
 		if err := json.Unmarshal(params, &req); err != nil {
-			return nil, &rpcErrorBody{Code: -32602, Message: "Invalid params", Data: err.Error()}, true
+			return nil, &rpc.ErrorBody{Code: -32602, Message: "Invalid params", Data: err.Error()}, true
 		}
 	}
 	docs := core.MarketplaceDocs()
@@ -282,13 +284,13 @@ func lsMarketplaceCustomizationJSON(docs []core.MarketplaceDoc, entry core.Marke
 // marketplace groups together. The local catalogue carries no
 // bundles, so the answer's bundles are empty; the customizations are
 // the requested ids, resolved against the catalogue.
-func (d *Dispatcher) handleLSGetMarketplaceBundles(params json.RawMessage) (any, *rpcErrorBody, bool) {
+func (d *Dispatcher) handleLSGetMarketplaceBundles(params json.RawMessage) (any, *rpc.ErrorBody, bool) {
 	var req struct {
 		IDs []string `json:"ids"`
 	}
 	if len(params) > 0 {
 		if err := json.Unmarshal(params, &req); err != nil {
-			return nil, &rpcErrorBody{Code: -32602, Message: "Invalid params", Data: err.Error()}, true
+			return nil, &rpc.ErrorBody{Code: -32602, Message: "Invalid params", Data: err.Error()}, true
 		}
 	}
 	docs := core.MarketplaceDocs()
@@ -317,7 +319,7 @@ func (d *Dispatcher) handleLSGetMarketplaceBundles(params json.RawMessage) (any,
 // catalogue has no featured list. The answer is therefore empty on
 // both members — the panel renders "nothing featured" rather than an
 // error.
-func (d *Dispatcher) handleLSGetMarketplaceFeatured(params json.RawMessage) (any, *rpcErrorBody, bool) {
+func (d *Dispatcher) handleLSGetMarketplaceFeatured(params json.RawMessage) (any, *rpc.ErrorBody, bool) {
 	_ = params
 	return map[string]any{
 		"featured":       []any{},
@@ -336,13 +338,13 @@ func (d *Dispatcher) handleLSGetMarketplaceFeatured(params json.RawMessage) (any
 // to. The skill's path names the plugin's own directory, so the
 // plugin is the path's grandparent, and the marketplace is the
 // catalogue that holds it.
-func (d *Dispatcher) handleLSGetSkillMarketplaceLink(params json.RawMessage) (any, *rpcErrorBody, bool) {
+func (d *Dispatcher) handleLSGetSkillMarketplaceLink(params json.RawMessage) (any, *rpc.ErrorBody, bool) {
 	var req struct {
 		SkillPath string `json:"skillPath"`
 	}
 	if len(params) > 0 {
 		if err := json.Unmarshal(params, &req); err != nil {
-			return nil, &rpcErrorBody{Code: -32602, Message: "Invalid params", Data: err.Error()}, true
+			return nil, &rpc.ErrorBody{Code: -32602, Message: "Invalid params", Data: err.Error()}, true
 		}
 	}
 	plugin := lsPluginNameFromSkillPath(req.SkillPath)
@@ -398,14 +400,14 @@ func lsPluginNameFromSkillPath(path string) string {
 // The templates are the installed plugins, rendered in the cascade's
 // own shape: the plugin's id and title, and its skills as the
 // commands it contributes.
-func (d *Dispatcher) handleLSGetAvailableCascadePlugins(params json.RawMessage) (any, *rpcErrorBody, bool) {
+func (d *Dispatcher) handleLSGetAvailableCascadePlugins(params json.RawMessage) (any, *rpc.ErrorBody, bool) {
 	var req struct {
 		OS          string `json:"os"`
 		SearchQuery string `json:"searchQuery"`
 	}
 	if len(params) > 0 {
 		if err := json.Unmarshal(params, &req); err != nil {
-			return nil, &rpcErrorBody{Code: -32602, Message: "Invalid params", Data: err.Error()}, true
+			return nil, &rpc.ErrorBody{Code: -32602, Message: "Invalid params", Data: err.Error()}, true
 		}
 	}
 	query := strings.ToLower(strings.TrimSpace(req.SearchQuery))
@@ -458,17 +460,17 @@ func lsCascadePluginTemplateJSON(p core.InstalledPlugin) map[string]any {
 // carries a backend and a return_to_app.
 //
 // A "remote plugin" is a plugin that is *connected* to this host —
-// not a customization plugin on disk. The clone's own PluginStore
+// not a customization plugin on disk. The clone's own plugins.Store
 // holds exactly that: the connected plugins, with their ids, names
 // and versions.
-func (d *Dispatcher) handleLSListRemotePlugins(params json.RawMessage) (any, *rpcErrorBody, bool) {
+func (d *Dispatcher) handleLSListRemotePlugins(params json.RawMessage) (any, *rpc.ErrorBody, bool) {
 	_ = params
 	if d == nil || d.cfg.PluginsStore == nil {
 		return map[string]any{"plugins": []any{}}, nil, true
 	}
 	state, err := d.cfg.PluginsStore.Snapshot(nil)
 	if err != nil {
-		return nil, internalError("list plugins"), true
+		return nil, rpc.InternalError("list plugins"), true
 	}
 	plugins := make([]any, 0, len(state.Plugins))
 	for _, p := range state.Plugins {
@@ -492,28 +494,28 @@ func (d *Dispatcher) handleLSListRemotePlugins(params json.RawMessage) (any, *rp
 // 【反编译】 the response carries no field at all; the request carries
 // a backend, a plugin_id and an account.
 //
-// The disconnect is the clone's own PluginStore's disconnect — the
+// The disconnect is the clone's own plugins.Store's disconnect — the
 // same seam the legacy JSON-RPC method uses, under the language
 // server's own name.
-func (d *Dispatcher) handleLSDisconnectRemotePlugin(params json.RawMessage) (any, *rpcErrorBody, bool) {
+func (d *Dispatcher) handleLSDisconnectRemotePlugin(params json.RawMessage) (any, *rpc.ErrorBody, bool) {
 	var req struct {
 		PluginID string `json:"pluginId"`
 		Account  string `json:"account"`
 	}
 	if len(params) > 0 {
 		if err := json.Unmarshal(params, &req); err != nil {
-			return nil, &rpcErrorBody{Code: -32602, Message: "Invalid params", Data: err.Error()}, true
+			return nil, &rpc.ErrorBody{Code: -32602, Message: "Invalid params", Data: err.Error()}, true
 		}
 	}
 	id := strings.TrimSpace(req.PluginID)
 	if id == "" {
-		return nil, &rpcErrorBody{Code: -32602, Message: "Invalid params", Data: "plugin_id is required"}, true
+		return nil, &rpc.ErrorBody{Code: -32602, Message: "Invalid params", Data: "plugin_id is required"}, true
 	}
 	if d == nil || d.cfg.PluginsStore == nil {
 		return map[string]any{}, nil, true
 	}
 	if _, err := d.cfg.PluginsStore.Disconnect(context.Background(), id); err != nil {
-		return nil, mapPluginsError(err, "disconnect plugin"), true
+		return nil, plugins.MapError(err, "disconnect plugin"), true
 	}
 	return map[string]any{}, nil, true
 }
@@ -525,13 +527,13 @@ func (d *Dispatcher) handleLSDisconnectRemotePlugin(params json.RawMessage) (any
 //
 // The download needs the cloud's own build artefact. The clone has
 // no cloud catalogue, so the answer is a refusal that says so.
-func (d *Dispatcher) handleLSDownloadBuildWithGooglePlugin(params json.RawMessage) (any, *rpcErrorBody, bool) {
+func (d *Dispatcher) handleLSDownloadBuildWithGooglePlugin(params json.RawMessage) (any, *rpc.ErrorBody, bool) {
 	var req struct {
 		PluginID string `json:"pluginId"`
 	}
 	if len(params) > 0 {
 		if err := json.Unmarshal(params, &req); err != nil {
-			return nil, &rpcErrorBody{Code: -32602, Message: "Invalid params", Data: err.Error()}, true
+			return nil, &rpc.ErrorBody{Code: -32602, Message: "Invalid params", Data: err.Error()}, true
 		}
 	}
 	return map[string]any{
@@ -548,7 +550,7 @@ func (d *Dispatcher) handleLSDownloadBuildWithGooglePlugin(params json.RawMessag
 // provider. The clone has no plugin auth providers, so there is no
 // URL to hand out — and an empty one is what the panel needs to know
 // that there is nothing to sign in to.
-func (d *Dispatcher) handleLSStartPluginAuthSignIn(params json.RawMessage) (any, *rpcErrorBody, bool) {
+func (d *Dispatcher) handleLSStartPluginAuthSignIn(params json.RawMessage) (any, *rpc.ErrorBody, bool) {
 	_ = params
 	return map[string]any{"authUrl": "", "accountId": ""}, nil, true
 }
@@ -556,7 +558,7 @@ func (d *Dispatcher) handleLSStartPluginAuthSignIn(params json.RawMessage) (any,
 // handleLSSignInPluginAuthProvider answers SignInPluginAuthProvider.
 //
 // 【反编译】 the response carries connected (1) and account_id (2).
-func (d *Dispatcher) handleLSSignInPluginAuthProvider(params json.RawMessage) (any, *rpcErrorBody, bool) {
+func (d *Dispatcher) handleLSSignInPluginAuthProvider(params json.RawMessage) (any, *rpc.ErrorBody, bool) {
 	_ = params
 	return map[string]any{"connected": false, "accountId": ""}, nil, true
 }
@@ -564,7 +566,7 @@ func (d *Dispatcher) handleLSSignInPluginAuthProvider(params json.RawMessage) (a
 // handleLSSignOutPluginAuthProvider answers SignOutPluginAuthProvider.
 //
 // 【反编译】 the response carries no field.
-func (d *Dispatcher) handleLSSignOutPluginAuthProvider(params json.RawMessage) (any, *rpcErrorBody, bool) {
+func (d *Dispatcher) handleLSSignOutPluginAuthProvider(params json.RawMessage) (any, *rpc.ErrorBody, bool) {
 	_ = params
 	return map[string]any{}, nil, true
 }
@@ -573,7 +575,7 @@ func (d *Dispatcher) handleLSSignOutPluginAuthProvider(params json.RawMessage) (
 // SetDefaultPluginAuthAccount.
 //
 // 【反编译】 the response carries no field.
-func (d *Dispatcher) handleLSSetDefaultPluginAuthAccount(params json.RawMessage) (any, *rpcErrorBody, bool) {
+func (d *Dispatcher) handleLSSetDefaultPluginAuthAccount(params json.RawMessage) (any, *rpc.ErrorBody, bool) {
 	_ = params
 	return map[string]any{}, nil, true
 }
@@ -581,7 +583,7 @@ func (d *Dispatcher) handleLSSetDefaultPluginAuthAccount(params json.RawMessage)
 // handleLSSetPluginAuthAccountLabel answers SetPluginAuthAccountLabel.
 //
 // 【反编译】 the response carries no field.
-func (d *Dispatcher) handleLSSetPluginAuthAccountLabel(params json.RawMessage) (any, *rpcErrorBody, bool) {
+func (d *Dispatcher) handleLSSetPluginAuthAccountLabel(params json.RawMessage) (any, *rpc.ErrorBody, bool) {
 	_ = params
 	return map[string]any{}, nil, true
 }
@@ -597,7 +599,7 @@ func (d *Dispatcher) handleLSSetPluginAuthAccountLabel(params json.RawMessage) (
 // from its own cloud. The clone has no cloud catalogue, so the answer
 // is empty: the panel renders "no Google-built plugins", which is
 // true, rather than a list of plugins that cannot be installed.
-func (d *Dispatcher) handleLSGetBuildWithGooglePlugins(params json.RawMessage) (any, *rpcErrorBody, bool) {
+func (d *Dispatcher) handleLSGetBuildWithGooglePlugins(params json.RawMessage) (any, *rpc.ErrorBody, bool) {
 	_ = params
 	return map[string]any{"plugins": []any{}}, nil, true
 }
@@ -611,7 +613,7 @@ func (d *Dispatcher) handleLSGetBuildWithGooglePlugins(params json.RawMessage) (
 // clone's plugins have no such provider configured — the plugin.json
 // files on this machine carry no auth section — so the answer is
 // empty.
-func (d *Dispatcher) handleLSListPluginAuthProviders(params json.RawMessage) (any, *rpcErrorBody, bool) {
+func (d *Dispatcher) handleLSListPluginAuthProviders(params json.RawMessage) (any, *rpc.ErrorBody, bool) {
 	_ = params
 	return map[string]any{"providers": []any{}}, nil, true
 }
@@ -622,19 +624,19 @@ func (d *Dispatcher) handleLSListPluginAuthProviders(params json.RawMessage) (an
 // reference's own unpacker and the reference's own registration. The
 // clone has the catalogue but not the other two, so the answer is a
 // refusal that says so — never a success that did not happen.
-func (d *Dispatcher) handleLSInstallCustomization(params json.RawMessage) (any, *rpcErrorBody, bool) {
+func (d *Dispatcher) handleLSInstallCustomization(params json.RawMessage) (any, *rpc.ErrorBody, bool) {
 	var req struct {
 		ID       string `json:"id"`
 		BundleID string `json:"bundleId"`
 	}
 	if len(params) > 0 {
 		if err := json.Unmarshal(params, &req); err != nil {
-			return nil, &rpcErrorBody{Code: -32602, Message: "Invalid params", Data: err.Error()}, true
+			return nil, &rpc.ErrorBody{Code: -32602, Message: "Invalid params", Data: err.Error()}, true
 		}
 	}
 	id := strings.TrimSpace(req.ID)
 	if id == "" {
-		return nil, &rpcErrorBody{Code: -32602, Message: "Invalid params", Data: "id is required"}, true
+		return nil, &rpc.ErrorBody{Code: -32602, Message: "Invalid params", Data: "id is required"}, true
 	}
 	return map[string]any{
 		"success":    false,

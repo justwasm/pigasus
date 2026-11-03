@@ -4,7 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/justwasm/pigasus/internal/backend"
+	"github.com/justwasm/pigasus/internal/core/backend"
+	gatewayapi "github.com/justwasm/pigasus/internal/infra/backend/gateway"
 )
 
 // TestLoop_ChunkFingerprintSurvivesPiG covers the third item. backend/gateway.go
@@ -48,7 +49,7 @@ func TestLoop_ChunkFingerprintSurvivesPiG(t *testing.T) {
 
 // TestLoop_NativeProviderStampsTheGatewayFingerprint is the other half: with no
 // usage record to read, the native gateway provider supplies the same value
-// backend.GatewayClient would have.
+// gatewayapi.GatewayClient would have.
 func TestLoop_NativeProviderStampsTheGatewayFingerprint(t *testing.T) {
 	gateway := newScriptedGateway(t, []string{
 		gatewayText("hi"),
@@ -82,7 +83,7 @@ func TestLoop_NativeProviderStampsTheGatewayFingerprint(t *testing.T) {
 	if meta == nil {
 		t.Fatal("done chunk carried no metadata")
 	}
-	want := backend.GatewaySystemFingerprint(gateway.server.URL, "MiniMax-M3")
+	want := gatewayapi.GatewaySystemFingerprint(gateway.server.URL, "MiniMax-M3")
 	if got := meta.SystemFingerprint; got != want {
 		t.Errorf("SystemFingerprint = %q, want %q", got, want)
 	}
@@ -91,7 +92,7 @@ func TestLoop_NativeProviderStampsTheGatewayFingerprint(t *testing.T) {
 	}
 }
 
-// TestLoop_NoUsageMeansNoMetadata pins the guard backend.GatewayClient has: its
+// TestLoop_NoUsageMeansNoMetadata pins the guard gatewayapi.GatewayClient has: its
 // ChunkMeta is built inside the usage branch, so a transport that reports no
 // metadata at all yields no metadata — not an empty one carrying a fingerprint.
 func TestLoop_NoUsageMeansNoMetadata(t *testing.T) {

@@ -23,7 +23,7 @@ $ grep -r -E 'powershell|pwsh|windowsShell|PowerShell' cmd/ internal/
 internal/cli/testdata/changelog_reference.txt:   # reference data only
 cmd/wagyu/testdata/print_changelog.md:           # reference data only
 internal/tools/command.go:                       # mvdan.cc/sh/v3 import (POSIX shell)
-docs/seeds-v1.3.4/seeds.txt:                     # pclntab strings (binary)
+docs/legacy-re/extracts/seeds-v1.3.4.md:          # stub for the retired seeds-v1.3.4/seeds.txt
 out/local-macos/seeds/seeds.txt:                 # pclntab strings (binary)
 ```
 
@@ -150,9 +150,11 @@ to this cycle.
   invocation has been observed against a Windows shell.
 - **`-NoProfile -NonInteractive` flags.** These match the v1.3.3
   reference behaviour inferred from string-table hits
-  (`out/decompiled-v1.3.4/strings-new-in-v1.3.4.txt` has both `powershell`
-  and `pwsh` literals, and the 1.3.3 changelog says the fix targets
-  `powershell`-absent hosts). The exact flag set cannot be confirmed
+  (the retired `docs/decompiled-v1.3.4/strings-new-in-v1.3.4.txt` carried both
+  the `powershell` and the `pwsh` literal; that dump is gone and the surviving
+  copy is the cited window `docs/legacy-re/extracts/strings-new-in-v1.3.4-cited.txt`,
+  which does not hold those two literals — see `docs/legacy-re/README.md` — and the
+  1.3.3 changelog says the fix targets `powershell`-absent hosts). The exact flag set cannot be confirmed
   from the binary alone; if the reference uses `-Command` with a
   different flag prefix (e.g. `-EncodedCommand` for `-c`), the
   dispatchTool path will diverge. The behaviour matches the public

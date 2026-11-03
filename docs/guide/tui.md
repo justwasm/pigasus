@@ -4,8 +4,8 @@
 
 ## The `/model` picker (cycle `model-picker-search`)
 
-`internal/cliapp/slash_panel_model.go` draws the picker; `internal/cliapp/slash_panel_keymap.go`
-routes its keys. The reference's picker is a **search field first** — every
+`internal/ui/views/modelpicker` draws the picker and owns its keys; `internal/cliapp/slash_panel_keymap.go`
+routes them to it, and `internal/cliapp/model_host.go` holds its seams. The reference's picker is a **search field first** — every
 printable character lands in `Search:` and the rows filter live (captured
 live against agy 1.4.5, `docs/cycles/model-picker-search/captures.md`):
 
@@ -96,7 +96,7 @@ marker i sits at column pad + i*w                        (inside the field)
 
 For the reference's three tiers: `w = 15`, `pad = 7` — the markers sit at
 columns 7, 22 and 37 of the field, and the reference's own bar and label
-row are reproduced byte for byte (`internal/modelpicker/slider_test.go`).
+row are reproduced byte for byte (`internal/ui/views/effortpanel/slider_test.go`).
 For five tiers: `w = 9`, `pad = 4`.
 
 The label row centres each tier word inside its own group, so the labels
@@ -116,20 +116,21 @@ reference's own palette; with more tiers the middle colour repeats.
 
 ### The cursor is row-relative
 
-`m.panel.effortCursor` is an index **into the cursor row's own tier
+The slider's position is an index **into the cursor row's own tier
 list** — a five-tier row and a three-tier row never share a number. The
-helpers that keep that true:
+helpers that keep that true live in `internal/ui/views/modelpicker`, and
+the panel owns them:
 
 | helper | what it does |
 |---|---|
-| `m.currentModelRow()` | the row the cursor is on |
-| `m.modelEffortCursor(row)` | the slider index a row shows: the running model's own tier when the running model *is* that row, the row's default otherwise |
-| `m.setModelCursor(idx)` | moves the cursor and re-seeds the slider for the row it lands on |
+| `p.currentRow()` | the row the cursor is on |
+| `p.effortCursorFor(row)` | the slider index a row shows: the running model's own tier when the running model *is* that row, the row's default otherwise |
+| `p.setCursor(idx)` | moves the cursor and re-seeds the slider for the row it lands on |
 
-Every cursor move in `tui_keymap_model.go` goes through `setModelCursor`.
-A row **without** a slider leaves the position alone — the slider is not
-on screen there, and the reference keeps the position so that coming back
-to the row restores it.
+Every cursor move in the `/model` panel goes through `setCursor`. A row
+**without** a slider leaves the position alone — the slider is not on
+screen there, and the reference keeps the position so that coming back to
+the row restores it.
 
 ### Clone-side text
 
@@ -156,10 +157,11 @@ two (captured live against agy 1.4.6,
 
 | file | what it is |
 |---|---|
-| `internal/tuilib/picker.go` | `PickerKindModel`, `ModelRow`, `SetModelCatalogueSource`, `modelQuery`, `filterModels` |
-| `internal/cliapp/picker_model.go` | the catalogue source, `resolveModelArgument`, `invalidModelMessage`, `applyModelArgument`, `submitModelCompletion` |
+| `internal/ui/tuilib/picker.go` | `PickerKindModel`, `ModelRow`, `SetModelCatalogueSource`, `modelQuery`, `filterModels` |
+| `internal/ui/views/modelargpopup/` | the catalogue source, the argument's resolution and the invalid-model message (cycle 381) |
+| `internal/cliapp/picker_model.go` | `applyModelArgument` and `submitModelCompletion` — the writes, which stay in the host |
 | `internal/cliapp/picker_view.go` | `renderModelCompletionRow`, the model branch in the row loop, `commitPickerSelectionToBuffer` |
-| `internal/tuilib/composer_token.go` | `styleComposerCommandToken`, `composerArgumentHint`, `appendComposerHint` |
+| `internal/ui/tuilib/composer_token.go` | `styleComposerCommandToken`, `composerArgumentHint`, `appendComposerHint` |
 
 Six things that are easy to get wrong:
 
@@ -192,6 +194,16 @@ first, then the configured ones), re-read on every keystroke. So the
 `↓ N more` tail and the `available:` list follow the clone's catalogue, not
 the reference's.
 
+**Two surfaces, two owners (cycle 381).** The *popup* filters the live
+catalogue by substring over the label or the id, and resolves a typed
+argument by a full, case-insensitive match. The *panel*
+(`internal/ui/views/modelpicker`) is a static row list over the
+reasoning-tier and effort models, matched by subsequence over the
+reference's display labels. Different row source, different match rule,
+different owner — so the popup's resolution lives in
+`internal/ui/views/modelargpopup` and the rendering stays in
+`slashpicker`.
+
 Report: `docs/cycles/model-argument-completion/`.
 
 ---
@@ -202,7 +214,7 @@ Report: `docs/cycles/model-argument-completion/`.
 `↑` / `↓` page the prompt history, and the reference's history **contains
 slash commands** — `~/.gemini/antigravity-cli/history.jsonl` stores them with
 `"type":"slash_command"` (the clone writes the same shape,
-`internal/convstore/write.go`). Paging up therefore lands on a buffer that
+`internal/app/session/convstore/write.go`). Paging up therefore lands on a buffer that
 starts with `/`.
 
 The rule that keeps that from breaking the paging: **the composer overlays are
@@ -222,9 +234,22 @@ typed one.
 
 | file | what it does |
 |---|---|
+| `internal/ui/foundations/history/history.go` | the history *list* — the remembered prompts, the navigation's index, the draft the navigation stashed on its way in, and `IsBlank` (the blank-prompt rule the submit path asks too) |
 | `internal/cliapp/history.go` | `historyUp` / `historyDown` → `closeComposerOverlays()`: a recall **closes** the command popup and the `@` dropdown, it never re-derives them |
 | `internal/cliapp/tui_update_keys_edit.go` | `handleKeyUp` / `handleKeyDown` consult the overlays **first** — an open popup owns the arrow keys, even when it is empty (`No matches`) |
-| `internal/cliapp/tui_update_keys_edit.go` | `updateTextareaAndDropdown` re-derives both overlays on every *keystroke* — this is what arms them again after a recall |
+| `internal/ui/editor/composer/` | `UpdateTextarea` re-derives both overlays on every *keystroke* — this is what arms them again after a recall (cycle 381) |
+
+**The composer's editing is a ui-tier package (cycle 381).** The
+selection *geometry* lives in `internal/ui/foundations/inputselection`;
+the *decisions* — which key does what to the selection, the
+backslash-newline fallback, how the textarea and the two dropdowns stay
+in step — live in `internal/ui/editor/composer`. Three things cross
+that seam, each in its own shape: the selection's **range** crosses as a
+value (`composer.Range`), the **widget** crosses as an interface
+(`composer.Editor`, whose `TextArea` adapter writes *through* to the
+host's textarea — the host keeps ownership of it), and the **clipboard
+write** stays host-side: the composer decides *that* a selection is
+copied, the host performs `clipboard.Write`.
 
 Two traps:
 
@@ -324,7 +349,7 @@ The **`--print`** path carries no picture: the headless mode builds its turn
 with `pigrt.Runtime.RunWith` (a plain prompt string), not `RunWithContent`.
 An attachment is an interactive-path feature.
 
-The read half is `internal/clipboard`'s platform readers, and every
+The read half is `internal/features/tools/clipboard`'s platform readers, and every
 sentence they can show is the reference's own:
 
 | when | the composer says |
@@ -369,7 +394,7 @@ Report: `docs/cycles/cycle-362-agy-1.4.9-alignment/`.
 
 ## The transcript display (cycle 285)
 
-`internal/cliapp/tui_tools.go` renders what the model *did*, and 1.4.3's display differs
+`internal/ui/toolsteps` renders what the model *did*, and 1.4.3's display differs
 from the tool result in three ways that cost a cycle to measure. Evidence is
 byte-level pty captures (`docs/cycles/cycle-285-tool-display/`), not the
 `tmux capture-pane` string table:
@@ -406,6 +431,44 @@ byte-level pty captures (`docs/cycles/cycle-285-tool-display/`), not the
   non-command call reddens the bullet but prints no ` failed` — that word is
   command-only.
 
+### The transcript's own packages (cycle 381)
+
+The transcript's *rendering* was always in `internal/ui/toolsteps`; its
+*vocabulary* was not. Five tranches gave it one:
+
+| package | owns |
+|---|---|
+| `internal/ui/transcript/` | the four record types (`Block`, `UserBlock`, `AssistantBlock`, `LiveStepRun`), the block's two-slot render cache, the user's prompt row and the turn separator — and the *document mechanics*: the range replacement, the blank line, the block deduplication, the live-step batching and the two finalisations |
+| `internal/ui/foundations/viewport/` | the transcript's pure geometry: the separator test, the prompt-turn start, the visible-row test and the mouse-to-cell mapping |
+| `internal/ui/foundations/inputselection/` | the composer's selection geometry: the line span, the column offset, the row highlight and the value highlight |
+| `internal/app/agentturn/` | the turn's empty-turn classifier and the turn error's message (the app tier; the *row* is `toolsteps.ErrorRow`) |
+
+Four things to know:
+
+- **The buffer stays the host's; the mechanics moved.** `m.response` is
+  read from twenty-odd files the transcript package does not own, so a
+  type that *owned* the buffer would have put the whole host behind a
+  constructor. `transcript.Document` is a **value**: the host builds it
+  from its slices, hands it over and takes it back.
+- **The turn's emptiness rule travels in as a value.** It stays in the
+  host (`agentturn.IsEmptyAssistantTurn`) and arrives as
+  `Options.EmptyTurn`, so the ui tier never imports the app tier's turn
+  seam and through it never imports the engine host.
+
+- **A move renames; it never re-exports.** The host's `turnBlock` is
+  `transcript.Block` now — there is no `type turnBlock = transcript.Block`
+  in the host.
+- **A render cache has one owner.** The host cannot seed the block's
+  collapsed/expanded cache any more; `transcript.NewBlock` picks the
+  slot from the block's own `Expanded`.
+- **The host's `m.expanded` and `m.effectiveExpanded(verb)` disagree, and
+  the asymmetry is load-bearing.** The live-step streaming path paints
+  with the raw `m.expanded`; the block repaint path paints with
+  `m.effectiveExpanded(verb)`. They disagree when the verbosity is high
+  and the user has not pressed ctrl+o: the live rows are painted
+  collapsed and the final block is painted expanded. **Do not unify
+  them.**
+
 
 ## Syntax highlighting (cycles 233, 271, 300)
 
@@ -414,7 +477,7 @@ pinned to the reference's.
 
 | Surface | Where | What it does |
 |---|---|---|
-| fenced code blocks in the transcript | `internal/mdrender/chroma_inline.go` | `quick.Highlight(…, "terminal256", "solarized-light")` |
+| fenced code blocks in the transcript | `internal/ui/mdrender/chroma_inline.go` | `quick.Highlight(…, "terminal256", "solarized-light")` |
 | syntax-coloured diff hunks | `diffsyntax/syntax.go` | chroma token types → the TUI's diff token classes |
 
 The **style** and the **formatter** are not taste: cycle 271 recovered them
@@ -430,7 +493,7 @@ chroma's own assets — 279 XML lexers under the embed FS root `embedded/` and
 74 XML styles at its root — and all 353 files are **byte-identical to
 upstream chroma v2.27.0**. The clone must stay on v2.27.0; v2.24.1 (what it
 pinned before) cannot highlight Arturo, Gemfile.lock, LilyPond or Templ.
-`internal/mdrender/chroma_reference_test.go` is the fence: every one of the
+`internal/ui/mdrender/chroma_reference_test.go` is the fence: every one of the
 reference's 279 lexers must resolve, and the list must still have 279
 entries. The bump changes no rendered byte — 30 common languages hash
 identically under both versions — so a rendering golden cannot catch a
@@ -452,8 +515,8 @@ draws three columns — a gutter, a marker column and the text:
    3    delta
 ```
 
-`internal/diffrow` owns the model; `internal/tuitools` renders the
-transcript's inline diff preview with it and `internal/diffaction` renders the
+`internal/ui/views/diff/row` owns the model; `internal/ui/tuitools` renders the
+transcript's inline diff preview with it and `internal/ui/views/diff/action` renders the
 `/diff` file view with it.
 
 - The **gutter** is `fmt.Sprintf("%*d", numWidth, num)` — the number,
@@ -483,7 +546,10 @@ follow the selected colour scheme.
 ## Bash mode (cycle `bash-mode`)
 
 `!` at the start of an **empty** composer runs the buffer through the shell instead
-of sending it to the model. `internal/cliapp/tui_bash_mode.go`; the composer prompt becomes
+of sending it to the model. The **block** lives in
+`internal/features/tools/bashmode` (the tier-2 package that owns the rows);
+`internal/cliapp/tui_bash_mode.go` keeps the **process** — the shell, the
+`procgroup` kill and the trajectory write. The composer prompt becomes
 a bold-blue `!`, the hint row becomes ` activated bash mode · esc to cancel`
 (leading space, `#657B83`), and Enter prints a local block:
 
@@ -550,8 +616,8 @@ So only the word `"never"` means inline. Three places have to agree:
 | file | what it does |
 |---|---|
 | `internal/cliapp/tui_entry.go` | `resolveAltScreen` — the clone's own `--alt-screen` / `--no-alt-screen` flags win, then the setting, then the default |
-| `internal/cliapp/slash_config_preview.go` | `applyConfigValue` → `applyAltScreenLive` — the `/config` row switches the **running** session in the same keystroke |
-| `internal/configpanel/configpanel.go` | the row's catalogue: the alternate screen first, then inline (`"never"`) |
+| `internal/cliapp/config_host.go` | `applyConfigValue` → `applyAltScreenLive` — the `/config` row switches the **running** session in the same keystroke |
+| `internal/ui/views/configpanel/configpanel.go` | the row's catalogue: the alternate screen first, then inline (`"never"`) |
 
 Four things that are easy to get wrong:
 
@@ -593,13 +659,16 @@ they read members the clone's old four-field payload never wrote.
 
 | file | what it is |
 |---|---|
-| `internal/statusline/payload.go` | the document — the reference's `types.StatusLineData`, member for member |
-| `internal/statusline/config.go` | the `statusLine` / `title` blocks in `settings.json` |
-| `internal/statusline/script.go` | `sh -c "<command>"`, the payload on stdin, the 5 s timeout, the title's sanitising |
-| `internal/statusline/state.go` | the render cache, the tick counter, the 30-failure budget |
-| `internal/statusline/vcs.go` | the repository probe behind the payload's `vcs` member |
-| `internal/cliapp/statusline_payload.go` | the payload builder, the cached block |
-| `internal/cliapp/statusline_render.go` | the status area's layout, the error card |
+| `internal/ui/views/statusline/payload.go` | the document — the reference's `types.StatusLineData`, member for member |
+| `internal/ui/views/statusline/config.go` | the `statusLine` / `title` blocks in `settings.json` |
+| `internal/ui/views/statusline/script.go` | `sh -c "<command>"`, the payload on stdin, the 5 s timeout, the title's sanitising |
+| `internal/ui/views/statusline/state.go` | the render cache, the tick counter, the 30-failure budget |
+| `internal/ui/views/statusline/vcs.go` | the repository probe behind the payload's `vcs` member |
+| `internal/ui/views/statusline/area.go` | the status area's rows: the layout rules, the padding and the error card (cycle 381) |
+| `internal/ui/views/statusline/quota.go` | the payload's quota map, keyed by the bucket's wire id (cycle 381) |
+| `internal/core/confhome/confhome.go` | `CLILogPath` — the CLI's log file's path (cycle 381) |
+| `internal/cliapp/statusline_payload.go` | the payload builder — the host's facts gathered into a `PayloadState` |
+| `internal/cliapp/statusline_render.go` | the host's collector: `statusAreaState()` |
 | `internal/cliapp/slash_statusline_external.go` | the tick, the script runs |
 | `internal/cliapp/windowtitle.go` | the synchronised window title |
 
@@ -639,6 +708,69 @@ And one trap that is not about the reference at all:
   quota cache is an unguarded map and a concurrent read during a write is
   a fatal error.
 
+**The package owns the rows (cycle 381).** The status area's layout
+rules, its padding, the disabled message and the **error card** are the
+package's facts now — `statusline.AreaRows(AreaState)` and
+`statusline.ErrorRows(err, logPath)`. The host keeps one *collector*,
+`statusAreaState()`, which gathers the built-in row, the active flag,
+the block, the state and the log path into a value. The three one-line
+forwards that used to sit between them are gone, and two of their
+guards moved with the expressions: `modelctx.ContextWindowFor("")`
+returns the *default* window, not zero, and the task count's nil
+`taskReg` check is load-bearing.
+
+The CLI's log file's path was assembled in **three** places; it is
+`confhome.CLILogPath(ts)` now.
+
+### The payload's four empty members, and the row's status cells (cycle 383)
+
+The slice-B ledger left five findings on the status line open; branch
+`fix/b15` closed them (two partly). The tranche report is
+`docs/cycles/cycle-383-docs-alignment/fix-b-statusline-surfaces.md`.
+
+| member | now |
+|---|---|
+| `vim` | filled — the mode names are the payload package's own (`statusline.VimModeName`: `NORMAL`, `INSERT`, `VISUAL`, `VISUAL LINE`), **not** the engine's badge spelling. The member is present **only when vim editor mode is on**, and the engine is never built when it is off (invariant 155). |
+| `pending_input_count` | the queued user messages — the queue mode's own prompt counts as one, the bash queue does not |
+| `subagents` | the registry's own list, mapped into the payload's entry |
+| `artifact_count` | **empty** — the clone has no artifact counter (存疑) |
+| `tool_confirmation_pending` | **empty** — the host's `pendingPermission` is a test-only seam (存疑) |
+
+`agent_state` reaches **four** of the seven documented states: `idle`,
+`working`, `tool_use`, `error`. `reviewing`, `authenticating` and
+`initializing` are unreachable and are 存疑. The `error` state needed one
+fact the host did not have — the turn's outcome is now recorded as
+`tea.ProgramStateError` for a failed turn
+(`internal/cliapp/tui_update_stream.go`), which also changes the
+terminal's OSC 7501 report from `Done` to `Error` after a failed turn.
+
+The **built-in row** carries three status cells at the end of its right
+segment: the agent state (omitted while idle), the context window's
+usage (`%.1f%%`) and the remaining AI credits. Every cell is omitted
+when its fact is absent.
+
+> The documentation's rich status line describes the downloadable
+> **example script**, not the built-in row — 【一手】 agy 1.4.7's own
+> built-in row carries the mode, the model and the effort tier and
+> nothing else. So the cells are the clone's own reading of the
+> documentation, and the **payload** carries everything a script needs.
+
+The AI-credits cell is **rendered but never appears yet**: the format
+string is the reference's own (【strings】 `"AI Credits: %d"` in agy
+1.4.12's string table) but the host has no G1 balance to show — the
+only reader is the print mode's on-demand `/credits`. The
+documentation's **low-quota highlight** is not implemented: the warning
+threshold is not recovered (存疑).
+
+**The row's bytes are now pinned in the tree.** The pin used to be an
+**out-of-tree** two-tree dump (cycle 381, tranche 46), so nothing in the
+suite failed when the row changed; it is now
+`internal/ui/views/statusrow/testdata/statusrow.golden`, rendered from
+the fixture set in `internal/ui/views/statusrow/golden_test.go`. The
+reference's two asymmetries — the queue mode's suffix excluded from the
+built-in padding count and included in the `--agent` one, and the static
+non-tty row's literal grey — are preserved.
+
 Report: `docs/cycles/cycle-301-statusline-title-scripts/`.
 
 ---
@@ -652,10 +784,11 @@ task's (`model.TaskDetailModel`) and the agent (subagent) task's
 
 | file | what it is |
 |---|---|
-| `internal/cliapp/slash_tasks_panel.go` | the list panel and its keys |
-| `internal/cliapp/slash_tasks_detail.go` | the two detail views, their scroll and their keys |
-| `internal/taskregistry/detail.go` | the two renderers and the reference's labels |
-| `internal/taskregistry/format.go` | the reference's state vocabulary |
+| `internal/ui/views/taskspanel/` | the panel itself: the list, the cursor, the two detail views, their scroll window and the keys (cycle 381) |
+| `internal/cliapp/tasks_host.go` | the host's seams: the registry, the kill, the terminal's size and the way out |
+| `internal/cliapp/slash_tasks_panel.go` | the session's side: the status row's `· N tasks` segment, the registry subscription and the kill |
+| `internal/app/task/detail.go` | the two renderers and the reference's labels |
+| `internal/app/task/format.go` | the reference's state vocabulary |
 
 Five things that are easy to get wrong:
 
@@ -667,7 +800,13 @@ Five things that are easy to get wrong:
   and returns to the list *without* the `Exited /tasks command` line; a
   second Esc leaves `/tasks` and prints it. The detail view is also modal —
   it owns every key, so `ctrl+g` and `ctrl+o` do not reach the editor while
-  it is open.
+  it is open. Since cycle 381 the sub-view is the *panel's* own state
+  (`internal/ui/views/taskspanel`), not a second panel kind: the host's
+  `panelTaskDetail` / `panelSubagentDetail` kinds are gone.
+- **The arrows move the cursor.** The reference's `/tasks` scope binds
+  `(KeyUp, KeyDown)` and `(KeyLeft, KeyRight)`, so ↑/↓ move the cursor over
+  the rows and ←/→ page it. Before cycle 381 the host's generic list
+  navigation never reached the panel, so the cursor stood still.
 - **The state word is the reference's.** `model.taskStatus()` returns
   `running` / `completed` / `failed` / `cancelled` — four words, no fifth
   (cycle 318) — and appends ` (exit N)` to the completed and failed forms
@@ -681,7 +820,7 @@ Five things that are easy to get wrong:
   would be constant.
 - **The subagent detail is built from data the registry has to carry.**
   `Task.Prompt`, `Task.Output` and `Task.Tools` are filled by
-  `internal/subagenttools` when the subagent runs — the prompt up front,
+  `internal/app/subagenttools` when the subagent runs — the prompt up front,
   the answer and the tool names afterwards.
 
 Report: `docs/cycles/cycle-315-tui-subagent-task-panels/`.
@@ -751,7 +890,7 @@ Four things that are easy to get wrong:
   walked counter)` in the reference, so the clone reads both from
   `Task.Steps`.
 - **The steps come from the subagent's own messages.**
-  `internal/subagenttools` fills `Task.Steps` when the run ends — one
+  `internal/app/subagenttools` fills `Task.Steps` when the run ends — one
   step per assistant content block: a tool call by its name, a text
   block by its first line.
 - **The clone fills the list when the run ends.** The reference's
@@ -829,6 +968,609 @@ Five things that are easy to get wrong:
   bullet (borrowed from the transcript's tool steps) is gone.
 
 Report: `docs/cycles/cycle-319-tui-tasks-row-layout/`.
+
+## The `/codesearch` panel (cycle 228, cycle 381)
+
+`/codesearch` is the only panel that *runs* something: it searches the
+workspace and streams the matches in while the user watches.
+
+| file | what it is |
+|---|---|
+| `internal/ui/views/codesearchpanel/` | the panel itself: the argument tail, the query, the hits, the file set, the spinner, the cursor and the scroll window, the keys and the rows (cycle 381) |
+| `internal/cliapp/codesearch_host.go` | the host's seams: the search root, the terminal's size, the progressive flag, the runner factory and the way out |
+| `internal/cliapp/slash_panel_args.go` | opening a panel that takes an argument tail |
+| `internal/features/tools/codesearch/` | the search itself: the argument parser, the runner, the ripgrep child, the fallback walk and the row layout |
+
+Seven things that are easy to get wrong:
+
+- **A bare `/codesearch` does not open the panel.** It echoes
+  `⎿  /codesearch needs a query.` — the argument tail *is* the query.
+- **The usage line is the reference's own, byte for byte:**
+  `Usage: /codesearch [-F|--literal] <query>`. The clone also accepts
+  `f:<glob>` and `file:<glob>` (the include/exclude filters), but it does
+  not advertise them: the 1.4.8 string table carries no such literal.
+- **`f:`, `file:` and `path:` are *includes*, and `-` excludes.** The
+  clone used to read them the other way round. A bare `-<glob>` (with no
+  `f:`) is the exclude form; `path:` is the third spelling of the
+  include (cycle 383, A-17).
+- **A result opens a file viewer.** Enter on a hit opens the file in a
+  viewer subview, and `Ctrl+G` opens the file in `$EDITOR` (cycle 383,
+  A-18). The viewer's own key set is the subject of finding A-19.
+- **The viewer leaves line comments.** `c` adds a comment on the
+  current line, `d` edits one, and the comment is marked with 💬 in the
+  gutter. When the viewer is left, the **Unsent Comments** screen asks
+  whether the pending notes travel to the agent: `Y` sends and closes,
+  `N` discards and closes, `Esc` returns. **The two keys are
+  capital-only** — the small `y`/`n` do not answer the screen (cycle 383,
+  A-19).
+
+  The notes travel in the reference's own wire format:
+
+  ```
+  <file>PATH:LINE:BODY\n
+  ```
+
+  one per line. 【strings】 the format constant `<file>%s:%d:%s\n`
+  occurs **exactly once** in agy 1.4.11 (file offset `0x359ebb2`), and
+  its one reference (`0x102bed52c`) calls the fmt helper with three
+  arguments — the function is `(*DiffModel).formatDiffComments`. The
+  documentation's schematic is `<file>:<line>: <comment>`; **the binary
+  wins** — this is a wire format, not a rendering.
+
+  The model lives in `internal/ui/views/linecomments` (with the 💬
+  marker and the Unsent screen) and the shared buffer in
+  `internal/ui/foundations/textbuffer`. **The panel decides, the host
+  closes**: `internal/cliapp/codesearch_host.go` has one seam,
+  `SendComments`.
+- **The panel owns the cursor.** ↑/↓ move it over the matches and ←/→
+  jump to the previous/next file's first match. The host's generic list
+  navigation must not see those keys — the panel is reached before it.
+- **Esc does two different things.** During a live search it cancels the
+  child and closes the panel; after the search has settled it falls
+  through to the host's generic close, which closes the panel silently
+  (`/codesearch` is one of the panels that do not echo `Exited /codesearch
+  command`).
+- **The matches channel is made by the panel, not by the runner.** The
+  panel's first tick can arrive before the runner's goroutine has been
+  scheduled; a nil channel would read as "the search is over" and the
+  panel would sit on `Searching…` forever.
+- **A search that is still running is stopped when the panel closes.**
+  Both `closePanel` and `closePanelSilent` cancel it — otherwise the
+  runner's goroutine and the ripgrep child it spawned outlive the panel.
+- **The result list is capped at 1000 matches** (`codesearch.MaxHits`),
+  and the panel shows the `[first-last of N items]` counter only when the
+  list overflows the row budget.
+
+Report: `docs/cycles/codesearch-panel/`.
+
+## The `/rename` and `/add-dir` panels (cycle 381)
+
+Both are **single-line input panels**, and both used to live in one
+`internal/cliapp` file — one file for two panels, one of which had nothing
+to do with the other.
+
+| file | what it is |
+|---|---|
+| `internal/ui/views/renamepanel/` | the `/rename` panel: the bubbles textinput, the prompt, the placeholder, the rows and the keys |
+| `internal/ui/views/adddirpanel/` | the `/add-dir` panel: the path buffer, the trusted-workspace list, the rows and the keys |
+| `internal/cliapp/rename_host.go` | the `/rename` seams: the current name, the commit, the way out |
+| `internal/cliapp/adddir_host.go` | the `/add-dir` seams: the trust store's list, the commit, the way out |
+| `internal/cliapp/transcript_rows.go` | the transcript's own rows (`userPromptRow`, `renderLineHighlighted`) |
+
+Five things that are easy to get wrong:
+
+- **The bare `/rename` opens the panel through `openSlashPanel`,** not
+  through the F2 handler. The panel therefore has to be built in
+  `initOpenedSlashPanelData` — it was not, and the bare command opened
+  a panel with an **empty, unfocused input and no prompt**: the typed
+  name went nowhere.
+- **The panel owns its input, so it owns its paste.** A bracketed paste
+  or a Ctrl+V into the `/rename` field goes through the panel
+  (`HandlePaste`), never into the composer below it.
+- **The `/rename` input is a bubbles `textinput`,** not a hand-rolled
+  rune buffer: arrow keys, Home/End, Ctrl+W and the 200-rune limit are
+  the widget's own. The placeholder's colour is applied through the
+  widget's *style*, because the widget slices the placeholder by its
+  lipgloss visible width — an inline SGR ate 20 runes and truncated the
+  text to "type a na".
+- **The prompt's colour follows the scheme.** The "Rename:" prompt is
+  built when the panel is built, not in a package-level `var`, so a
+  scheme change is picked up on the next open.
+- **`/add-dir` is not a panel in the reference.** It answers the
+  command inline ("error: no directory specified"), and it never
+  carries an "Exited /add-dir command" notice — so the clone's panel
+  closes silently. The wording of the clone's own rows is the clone's
+  own; the reference has no panel to compare against.
+
+Report: `docs/cycles/cycle-381-cliapp-split/`.
+
+## The `/effort` panel (cycle 381)
+
+`/effort` opens a **horizontal slider** with three places — `low`,
+`medium`, `high` — a `◉` marker on the tier the session runs at, and the
+blurb of that tier below the labels. The slider's geometry is the
+reference's own and is shared with the `/model` picker, which embeds it
+under its row list.
+
+| file | what it is |
+|---|---|
+| `internal/ui/views/effortpanel/slider.go` | the geometry: the bar, the two arrows, the tier labels, the marker, the blurb and the three tier colours |
+| `internal/ui/views/effortpanel/effort.go` | the tier names — the three words the reference prints in `⎿  Effort set to <word>` |
+| `internal/ui/views/effortpanel/panel.go` | the panel's state: the marker's position |
+| `internal/ui/views/effortpanel/panel_render.go` | the frame: the title, the bar, the labels, the blurb and the legend |
+| `internal/ui/views/effortpanel/panel_keys.go` | the keys: `←`/`→` move the marker, Enter applies, Esc leaves |
+| `internal/cliapp/effort_host.go` | the seams: the tier the session runs at, the way a tier is applied, the way out |
+
+Five things that are easy to get wrong:
+
+- **The panel is the slider, and the slider is one package.** The `/model`
+  picker borrows `effortpanel`'s geometry rather than holding a second
+  copy of the rules, so the two never disagree about where the marker
+  sits.
+- **The marker starts on the tier the session runs at,** the way the
+  reference opens the panel. The tier itself is the *host's*: it lives on
+  the flag set (the `--effort` value at start-up, the value a
+  `/effort <level>` shortcut writes at runtime, and the model's own label
+  as the fallback). The panel only ever asks for it.
+- **The slider is horizontal.** `↑`/`↓` are the panel's keys and do
+  nothing — the marker stays where it is.
+- **A page key moves the marker by ten,** and the bar only has three
+  places, so a page always lands on one of the ends.
+- **The colours are read when the panel is drawn,** so a scheme change is
+  picked up on the next open. The tier colours themselves are the
+  reference's hard-coded ones (`133;153;0`, `38;5;172`, `38;5;166`); the
+  dim grey the arrows and labels are painted in comes from the palette.
+
+Report: `docs/cycles/cycle-381-cliapp-split/`.
+
+## The `/diff` panel (cycle 381)
+
+`/diff` opens a **tabbed working-copy viewer**: `All Changes`, `Per Turn`
+and `Commit Tree`. Enter on a file row opens the inline diff subview —
+the file's `git diff` body, styled line by line — and `f` on a hunk
+header folds the hunk.
+
+| file | what it is |
+|---|---|
+| `internal/ui/views/diffpanel/panel.go` | the panel: the three tabs, the cursor, the visible window, the inline subview, its row cursor, the per-hunk fold state |
+| `internal/ui/views/diffpanel/panel_render.go` | the rows: the tab row, the count row, the file list, the per-turn list, the commit tree, the inline body and the legend |
+| `internal/ui/views/diffpanel/panel_keys.go` | the keys: `←`/`→` switch the tab, `↑`/`↓` move the cursor, Enter opens the inline subview, `f` folds a hunk, Esc leaves |
+| `internal/ui/views/diffpanel/panel_fold.go` | the hunk folding: the toggle, the inline cursor's re-mapping, the view kinds |
+| `internal/ui/views/diff/action/` | the git rules: the change list, the diff body, the tab row, the row renderers, the git runner, the VCS detection |
+| `internal/ui/views/diff/fold/` | the pure folding primitives: the hunk split, the layout, the row lookup |
+| `internal/cliapp/diff_host.go` | the seams: the workspace, the terminal's size, the conversation's turn count, the way out |
+
+Six things that are easy to get wrong:
+
+- **The panel owns its cursor and its window.** The host's shared
+  `m.panel.cursor` / `m.panel.window` belong to the panels that do not
+  own one (`/codesearch`, the `/tasks` detail views, `/usage`,
+  `/changelog`, `/feature-diff`); `/diff` keeps its own, because the
+  inline subview has a *second* cursor and one shared offset cannot
+  describe both.
+- **The panel is rebuilt on every open.** A panel that survives a close
+  carries a stale cursor, a stale tab or a stale fold state into the
+  next open.
+- **Ctrl+O reaches the panel's fold, not the transcript's expansion.**
+  The host's global handler runs before the panel's own key handler, so
+  the panel exposes `ToggleFoldAtCursor()` for it. The host-level fact
+  (Ctrl+O never mutates `m.expanded` while the `/diff` panel is open)
+  is pinned by `internal/cliapp/diff_host_test.go`.
+- **The git rules live in `internal/ui/views/diff`, not in the panel.**
+  The change list, the diff body, the tab row and the row renderers are
+  shared with the one-shot `/diff` feedback path; the panel drives them
+  and does not reimplement them.
+- **A test panel is 0×0.** A non-zero width changes the row styler's
+  layout, and the rendered bytes with it.
+- **The panel answers `handled=false` for the keys it does not own,** so
+  Ctrl+C still reaches the host's global handlers.
+
+Report: `docs/cycles/cycle-381-cliapp-split/`.
+
+## The three viewer panels — `/usage`, `/changelog`, `/feature-diff` (cycle 381)
+
+Three panels show a **document with a window over it**: the quota
+document, the release notes and the feature-diff table. They share the
+machinery and differ in their document.
+
+| file | what it is |
+|---|---|
+| `internal/ui/views/viewerpanel/` | the shared machinery: the viewport, the pager keys, the scroll arithmetic |
+| `internal/ui/foundations/viewer/` | the primitives the machinery is built from: the document spec, the window arithmetic, the counter row |
+| `internal/ui/views/usagepanel/` | the `/usage` document, its chrome, its geometry, its legend — and the quota tick and the refresh countdown |
+| `internal/ui/views/changelog/` | the `/changelog` document: the embedded markdown, the loaded reference file, the excerpt, the wrap rules |
+| `internal/ui/views/diff/feat/` | the `/feature-diff` table |
+| `internal/cliapp/viewer_host.go` | the host's seams: the document, the terminal's width, the page size, the way out |
+
+Each of the three documents now owns its own build:
+
+| package | API |
+|---|---|
+| `internal/ui/views/changelog/` | `Document(width, height)`, `VisibleRows(height)`, `PanelLines(rows, start, end, total)` |
+| `internal/ui/views/diff/feat/` | `PanelLines()`, `Spec(height)` |
+| `internal/ui/views/usagepanel/` | `StaticSpec()`, `StaticLines(rows, start, end, total)` |
+
+The **window is an argument**, not something the panel computes: the host's
+`m.panel.window` is shared with `/codesearch` and the `/tasks` detail views, so
+the host clamps it and the panel renders the rows inside it. The
+`/changelog` document is also parsed **once** now — it is built from 180 KB of
+embedded markdown and the build ran on every TUI draw (511 760 ns/op), so the
+parse is memoised with a `sync.Once` inside the package. The bytes are
+unchanged.
+
+Five things that are easy to get wrong:
+
+- **A viewer panel does not own the offset.** The host's shared
+  `m.panel.window` is scrolled by `/codesearch` and the `/tasks` detail
+  views too, so the panel takes the offset as an argument and hands the
+  clamped one back.
+- **The document has three shapes for `/changelog`**: the reference's own
+  release-notes file, the embedded markdown and the excerpt. All three
+  live in `internal/ui/views/changelog`; the excerpt is the fallback for
+  "neither a file nor a terminal size".
+- **The `/usage` document has two shapes**: the height-aware one the TUI
+  renders and the cycle-193 static one the unit tests render. The static
+  path is a fallback for "the terminal size is unknown", which in the
+  real TUI never happens.
+- **The quota tick's message type is the panel's**, and the host names
+  it in its update switch (`usageQuotaTickMsg = usagepanel.QuotaTickMsg`).
+- **A fact belongs to the panel that owns it.** The three panels' facts
+  used to sit in `internal/ui/foundations/viewer` — a "generic" package
+  that held one panel's excerpt, another panel's countdown and a third
+  panel's tick. That package is now only the machinery all three share.
+
+Report: `docs/cycles/cycle-381-cliapp-split/`.
+
+## The auto-compaction spinner (cycle 381)
+
+While a turn compacts its context on its own, the status row shows a
+Braille spinner and the token counts around it.
+
+- **The spinner's tick is one fact: the message the command produces and
+  the message the host's update switch handles have to be the same
+  type.** They were not, for two years: commit `64e71d67` moved the tick
+  commands into a shared viewer package and aliased the `/usage` panel's
+  message type, but left the compaction spinner's message behind as a
+  second, distinct type in the host. The command produced the shared
+  package's type, the host's switch named the host's own — so nothing
+  matched, the frame never advanced, and the status row sat on its first
+  glyph for the whole compaction.
+- **The message and the command that arms it live in one file**
+  (`internal/cliapp/tui_compact_spinner.go`), so a second type cannot be
+  introduced beside them.
+- **The host owns the tick**, because the host owns the compaction
+  events themselves and draws the row that carries the spinner. The ui
+  tier has no owner for it, and the tiers below it do not import the
+  terminal framework at all.
+- **The pin is end to end**: `internal/cliapp/tui_compact_spinner_test.go`
+  runs the command, feeds its message to `Update` and asserts that the
+  frame advanced.
+
+Report: `docs/cycles/cycle-381-cliapp-split/`.
+
+## The status row — the line under the input box (cycle 381)
+
+The one line the TUI draws under the composer carries the session's
+identity and the hint the user needs right now:
+
+```
+? for shortcuts                    Gemini 3.8 Flash · high · 2 tasks
+esc to cancel                      auto · MiniMax M3
+press ctrl+c again to exit         MiniMax M3
+⠿  Compacting context… (12s)        MiniMax M3
+```
+
+| file | what it is |
+|---|---|
+| `internal/ui/views/statusrow/` | the row itself: the left segment, the right segment, the padding arithmetic and the compaction label (cycle 381) |
+| `internal/cliapp/statusrow_host.go` | the host's facts: the model, the mode, the effort tier, the running tasks, the compaction state, the composer and the pickers |
+| `internal/core/tokenfmt/` | the token formatter ("184 K" / "1.2 M"), below every tier (cycle 381) |
+
+Five things that are easy to get wrong:
+
+- **The row is a view, not a panel.** It has no keys and no writes of its
+  own — the host asks it for a line — so it takes a `State` of values
+  rather than a `Seams` of callbacks. The host's facts reach it through
+  `statusRowState()`.
+- **The left half is five rules and four overrides.** The rules decide the
+  hint: the slash popup says "esc to cancel" (except in the `/model
+  <query>` mode, which leaves the segment empty), a streaming turn says
+  the same, queued messages ask for "up", a non-empty composer clears the
+  hint, and the bash mode replaces it with its own. The overrides then
+  replace the segment: the vim badge in front of it, the `/help` overlay
+  and the modal panels' clearing of it, the two-step Ctrl+C confirmation,
+  and the compaction label.
+- **The right-padding count is not the right segment's length.** The mode
+  label is painted in the mode's colour and counted on its own; the
+  `" · Queue mode"` marker is **excluded** from the count in the
+  built-in case and **included** in the `--agent` case. Both look like
+  mistakes and neither is one — the two-tree dump pins them.
+- **The static (non-tty) row is a second form of the row.**
+  `statusrow.Static` paints the hint, the model and a literal `" · high"`
+  in the reference's own grey (`38;2;154;160;166`), which is not the
+  palette's grey. The path that draws it has no session to read the mode,
+  the effort tier or the tasks from.
+- **The token formatter is below every tier.** It used to be
+  `printmode.TokenK`, and `internal/printmode` is an entry surface above
+  tier 5 — a ui-tier package may not import it. It lives in
+  `internal/core/tokenfmt` now, and the old name is gone rather than left
+  behind as an alias.
+- **The vim badge's bytes and the "is vim on" fact have two owners.**
+  The three badge strings belong to the engine (`vim.Mode.Badge()`);
+  whether vim is on is the host's fact, so
+  `internal/ui/editor/vimkeys.Badge(enabled, mode)` takes it as a
+  parameter. The host's collector must **not** build the engine to ask it
+  a question — the engine must not exist when vim is off.
+
+Report: `docs/cycles/cycle-381-cliapp-split/`.
+
+## The vim mode (cycle 383)
+
+The engine is the public `vim/` package — a pure state machine: the host
+owns the terminal widget and hands the engine one normalised key at a
+time, then reads the text, the cursor and the mode back out. The
+**host's** half is `internal/ui/editor/vimkeys` (the bubbletea key →
+engine key mapping and the badge).
+
+Cycle 383 closed four divergences between the engine and the
+documentation:
+
+| key | before | now |
+|---|---|---|
+| `ctrl+r` | redid | is **consumed** and does **not** redo — it opens artifact review |
+| `U` | nothing | **redoes** (NORMAL mode only) |
+| `r{char}` (VISUAL) | nothing | replaces every selected character |
+| `/`, `!` (NORMAL) | inert | insert the character and enter INSERT |
+
+**VISUAL claims `U` first.** `parseVisual` takes `U` for uppercase
+before the action command is reached, so `U` redoes **only** in NORMAL
+mode. The same guard applies to `/` and `!`: a VISUAL selection is not
+dropped — the engine bells instead.
+
+The host's call sites moved with the engine:
+
+- with vim on, `!` is no longer swallowed into the bash-mode marker —
+  the engine owns it now;
+- a submitted vim prompt that begins with `!` runs as a **shell
+  command** with the `!` stripped, and never reaches the model.
+
+Outside vim mode nothing changes.
+
+Two pins were **updated, not deleted**: `vim/vim_test.go:TestUndoRedo`
+and `vim/spec_test.go:TestInsertRunUndoAcrossLines` asserted that
+`ctrl+r` redoes. They now use `U`, with the reason written next to the
+assertion. The `/help` overlay's VIM golden follows `vim/help.go` — a
+new `/ !` row, `u, ctrl+r` → `u, U`, the `r{char}` description, and the
+item count 20 → 21.
+
+### The engine takes no count prefix
+
+The documentation says "Commands take no count prefix, so `3dd` deletes
+one line" (`official-docs/cli/vim-editor-mode.md:132`). The clone used
+to read a leading count and thread it into every command, so `3dd`
+deleted three lines.
+
+The count plumbing is **removed, not zeroed**: the `count`/`opCount`
+fields of the parsed command, `readCount`, and the count parameter of
+every motion, find, word, object and action helper are gone. A leading
+digit is now an **invalid key** — it rings the bell and is dropped. `0`
+still works, because it is a motion, not a count.
+
+The `/help` VIM tab no longer advertises a count prefix; it reads
+`no count prefix` / `3dd deletes one line`.
+
+**The `vim` package is a public compatibility surface** (a third party's
+API). No exported name was added, removed or changed — only the
+behaviour and the unexported internals moved.
+
+> **存疑**: the reference's own documentation contradicts itself on
+> the counts. `official-docs/cli/vim-editor-mode.md` says there is no
+> count prefix, while the 1.2.9 changelog entry announced numeric count
+> multipliers (`3dw`, `2d3w`, `3dd`, `3x`, `3rX`, `3p`, `3u`,
+> `[count]G`/`gg`/`$`, `2di(`) — and the 1.4.11 binary still carries
+> `vim.extendWordRangeForCount` and
+> `vim.extendAroundWordRangeForCount`
+> (`out/local-macos/seeds/seeds.txt`). The **documentation** wins here,
+> because it is the newer statement about the current behaviour; the
+> conflict is recorded in `vim/nocount_test.go` and in the `vim`
+> package's own doc.
+
+### The redo is a stack of its own
+
+The documentation says only "`u` `U` | Undo, redo" — it names the two
+keys and not the arithmetic behind them. The clone's redo is a
+**separate stack** (`vim/operator.go`): `u` pushes the step it undid
+onto it, `U` pops it, and a new edit empties it. The steps come back in
+the order they were undone, most recent first, so one `U` repeats
+exactly one step and never a run of them. A `U` with an empty stack is
+consumed and rings no bell.
+
+The **insert run** is one step. The `/` and the `!` reuse the insert
+mode's rune path, so the character and the text typed after it undo as a
+single step — `/settings` is one undo, not eight keystrokes.
+
+The `vim` package's pins live in `vim/official_docs_test.go`: the two
+documented keys, the redo stack's arithmetic, the insert entries the
+new bindings did not change, and the bell an unbound key still rings.
+
+> **存疑**: the documentation does not say whether the reference's redo
+> is a separate stack or an undo-of-undo, and it does not say what a
+> redo does after a new edit. The clone's answer — a separate stack,
+> emptied by a new edit — is the ordinary editor behaviour, but it is
+> 【推测】, not 【一手】.
+>
+> **存疑**: the slash command's **completion popup** does not open in
+> vim's NORMAL mode. The `/` reaches the composer and the command
+> dispatches when the prompt is submitted, so `/settings` opens the
+> settings panel — but the popup the non-vim composer shows while the
+> command is being typed is not opened. The documentation describes only
+> the insertion and the mode switch, so the popup is outside the
+> documented surface.
+
+Report: `docs/cycles/cycle-383-docs-alignment/deliverable.md`.
+
+## The composer's own keys (cycle 383)
+
+Three keys of the composer were out of step with the documentation.
+
+| key | before | now |
+|---|---|---|
+| `Esc` | cleared a non-empty prompt on the **first** press | the first press **arms** the clear, the second empties the composer |
+| `Ctrl+G` | the `/keybindings` panel named `Ctrl+T` | the panel, the `/help` catalogue and the code all name `Ctrl+G` |
+| `?` | opened the help overlay only when the prompt was empty | opens it **whether or not** the composer holds text |
+
+**"Type `esc esc` to clear your prompt box (when no streaming is
+active)"** — `official-docs/cli/using.md:22`.
+
+The arming lives in `runMode.escArmedFor`, and it carries the **composer
+content it was armed on**: a composer that changed in the meantime (a
+submit, a history recall) is not the one the user armed.
+
+**An `Esc` that ends up elsewhere is never the second half of a pair.**
+Closing an overlay, cancelling a turn and dismissing a card all keep
+their old meaning; the arming is dropped at the top of the handler.
+
+**`?` keeps the draft.** The overlay is a view over the session, not an
+owner of the composer's text. The one exception is the vim engine's
+INSERT mode, where `?` is a character of the buffer — the reference's
+own guide scopes the key to NORMAL mode
+(`official-docs/cli/vim-editor-mode.md:73`).
+
+> **存疑**: `?` with text in the composer contradicts cycle 181's own
+> 【推测】 ("with-text `?` is a literal rune", verified against REF
+> 1.4.0). The ledger is newer and `using.md:24` is explicit, so the
+> documentation wins — but the consequence is that `?` is unreachable as
+> a literal character in the default editor mode. Worth a live check
+> against the reference binary.
+
+Report: `docs/cycles/cycle-383-docs-alignment/deliverable.md`.
+
+## The voice dictation's state machine (cycle 381)
+
+The dictation overlay is a four-phase state machine — **idle, connecting,
+recording, finishing** — and every view it draws (the banner, the running
+timer, the failure notice) follows from the phase. The views lived in
+`internal/ui/views/voice`; the machine that chose between them lived in the
+host's `tui_help.go`.
+
+| file | what it does |
+|---|---|
+| `internal/ui/views/voice/surface.go` | `voice.Surface` — the phase, the trigger, the recorder and the cancel flag |
+| `internal/cliapp/voice_host.go` | the wiring: how a transcription session is established, where a confirmed draft is written, how a failure is echoed |
+
+The surface answers "which phase are we in?" and "what does the banner say?".
+It cannot answer "how is a transcription session established?" or "where does
+a confirmed draft go?" — those are the **seams**, and every one of them is
+optional, so the package is usable from a test without a running TUI. The
+surface is safe on a nil receiver: a host that never built one has no
+dictation and asks it nothing.
+
+The bytes are pinned by `internal/ui/views/voice/testdata/surface.golden` —
+the host's rendering before the move, after it and the surface's own
+rendering were all **1 231 bytes**, byte for byte identical.
+
+## The panel registry's key routing (cycle 381)
+
+The host used to answer "which panel owns this key?" with two hand-written
+`if` chains, and "how many rows does this panel have?" with a fourteen-case
+`switch` on the panel's kind. Both belong to the registry — the package that
+already knows which panel a command opens.
+
+| file | what it does |
+|---|---|
+| `internal/ui/panelregistry/route.go` | the route table: `RouteNone` / `RoutePanel` / `RouteSearch` / `RouteList` / `RouteViewer` |
+| `internal/ui/panelregistry/registry.go` | `Registry.HandleKey` — the two early-route chains — and `Registry.RowCount(kind)` |
+| `internal/ui/panelregistry/command.go` | `CommandPanel(cmd)` — the command → panel table |
+| `internal/ui/foundations/viewport/panelcursor.go` | `PanelCursor(cursor, action, total)` — the ↑/↓/PgUp/PgDn/Home/End arithmetic, built on `ListNav` with `PanelPageRows = 10` |
+| `internal/cliapp/slash_panel_wiring.go` | the host's facts the registry cannot answer: the row counts per kind, the `/codesearch` "did the panel claim this key?" handler and the two seams |
+
+The registry keeps the fan-out; the host keeps the facts. The golden is
+`internal/cliapp/testdata/panel_keymap_golden.txt` — the command table and
+every kind's key decisions. The viewer's scroll window is deliberately not
+pinned: the document viewers own their offset.
+
+## The `/agents` panel's own keys (cycle 383)
+
+The `/agents` panel's legend advertised `k Kill Active Subagent`, and the
+panel **swallowed the key**: a panel kind owns every key it receives
+(`internal/ui/panelregistry/route.go`), so `k` did nothing at all. The
+same was true of the inline approvals.
+
+| key | before | now |
+|---|---|---|
+| `K` | swallowed | kills the highlighted **running** subagent |
+| `A` | swallowed | approves the highlighted row's pending tool call |
+| `D` | swallowed | denies it |
+
+**The panel names; the manager mutates.** The panel owns its keys, its
+rows and its cursor; it names the subagent to kill and the approval to
+answer. The **manager** owns the state both mutate
+(`internal/app/subagent/core/kill.go`, `approvals.go`) — a panel that
+mutates a slice it does not own cannot write the result back, and that
+is the bug, not an implementation detail.
+
+The kill is the subagent's own: `Subagent.Kill` terminates the process
+and moves it to the killed state, so the row **keeps its place** in the
+panel and shows its final status. The reference's status list has
+"killed: Terminated manually by you or the parent process"
+(`official-docs/cli/commands/agents.md:88`).
+
+> **存疑**: the reference's "and all its child threads" (the same
+> document, line 99) is a descendant kill. The reference's own recovered
+> message is "Successfully killed %d subagent(s) and their descendants.\nKilled
+> roles: %s", so the clone kills the named subagent and records the
+> reference's own wording.
+
+The lifecycle package's integration test moved to the subagent package:
+the manager now depends on the lifecycle's queue, and the test follows
+the dependency — the two formed a **test-only** import cycle, which the
+architecture guard rejects (R5).
+
+## The session flags' policies (cycle 381)
+
+`--project`, `--browser` and `--log-file` say what a value *means*, so their
+policies are tier-1 facts. Their **registration** — the flag table, the
+defaults, the aliases and the help texts — is the parser's own vocabulary
+(`cli.FlagSpec`) and stayed in `internal/cli/parser_flags.go`.
+
+| package | owns |
+|---|---|
+| `internal/core/cliflags/projects` | the default, the explicit id, the explicit name, the new-project path and the projects cache |
+| `internal/core/cliflags/browser` | the CDP port, the headless flag, the user-data dir and the local-Chrome flag |
+| `internal/core/cliflags/logfile` | the log file's path |
+
+The wiring is `internal/cliapp/session_flags.go`. A new project's id *is* a
+conversation id, and the generator lives in tier 4 — so it arrives at the
+tier-1 policy as a seam.
+
+## The themed startup banner (cycle 381)
+
+The reference's themed banner is one of the seasonal event's own five
+scenes, the session's four information rows in the column that follows the art,
+and a seasonal sentence addressed to the account's local part.
+
+| file | what it is |
+|---|---|
+| `internal/ui/views/seasonal/banner.go` | the themed banner: `RenderBanner(w, ev, st State)` and the two process-wide picks (the scene and the sentence) |
+| `internal/cliapp/tui_help.go` | the **plain** banner: `renderBanner`, `logoLines`, the logo art |
+| `internal/cliapp/seasonal.go` | the theme lookup (`seasonalTheme`) and the themed spinner |
+
+Three things that are easy to get wrong:
+
+- **The state carries the facts the package cannot reach.** `internal/ui/tuilib`
+  imports `internal/ui/views/seasonal`, so the seasonal package may not import
+  tuilib — the **host** shortens the working directory and passes the result in
+  as `State.Cwd`. The CLI's name and the version travel in the state as well.
+- **The picks are chosen once per process** and kept for the whole session:
+  the reference draws one of five scenes and one of four sentences per launch.
+  `seasonal.SetBannerPicks(art, greeting)` lets a test pin them without an
+  alias back into the host.
+- **The tagline's style is a literal** — `\x1b[1m\x1b[38;2;255;117;24m`, bold
+  24-bit orange, closed by a full reset — not a palette slot.
+
+The rendered bytes are pinned by `internal/ui/views/seasonal/testdata/banner.golden`
+(five branches, 32 717 bytes); the golden's version is a fixture literal, so a
+version bump does not break it.
 
 ## The ActiveItems row — the block under the input box (cycle 320)
 
@@ -995,7 +1737,7 @@ whole interface follows it.
 
 | | the reference |
 |---|---|
-| **the card** | `internal/themepreview.Render` — the border, the user's line, the heading, the diff, the thought, the tool/task/error/warning rows, the link, the accent and the dim hint |
+| **the card** | `internal/ui/views/themepreview.Render` — the border, the user's line, the heading, the diff, the thought, the tool/task/error/warning rows, the link, the accent and the dim hint |
 | **the code roles** | 24-bit escapes under the seven true-colour schemes; under `terminal` the basic sixteen-colour codes — `94` the keyword, `33` the string, `34` the function, `35` the type — and the keyword is bold |
 | **the escape form** | the colour **and** the attribute in **one** escape: `38;2;25;103;210;1` for the user's line, `38;2;26;115;232;4` for the link |
 | **the body after a bold run** | the body colour and `;22` in one escape, or a full reset when the body colour is unset |
@@ -1004,7 +1746,7 @@ whole interface follows it.
 The card's palette is read off the reference's own output bytes, in a
 true-colour pty, one run per scheme: `palette.SyntaxColorsFor` holds the
 eight schemes' code palettes. `palette.Syntax` — the 256 indices — stays
-for `internal/onboarding`, the pre-TUI wizard.
+for `internal/ui/views/onboarding`, the pre-TUI wizard.
 
 Two things that are easy to get wrong:
 
@@ -1124,18 +1866,18 @@ Report: `docs/cycles/cycle-325-tui-task-record-producer/`.
 
 ## The `/resume` picker — the workspace tree (cycle 336)
 
-`internal/cliapp/picker_resume.go` draws the flat list and the picker's
-palette; `internal/cliapp/picker_resume_tree.go` draws the **tree**, which
+`internal/ui/resumepicker/render.go` draws the flat list and the picker's
+palette; `internal/ui/resumepicker/tree.go` draws the **tree**, which
 is agy 1.4.7's default view of the picker. The model lives in its own
-package, `internal/resumetree`: the label rule, the grouping, the
+package, `internal/app/session/tree`: the label rule, the grouping, the
 comparator and the pin (captured live against agy 1.4.7,
 `docs/cycles/cycle-336-resume-workspace-tree/deliverable.md`).
 
 | file | what it is |
 |---|---|
-| `internal/resumetree/resumetree.go` | `Build`, `WorkspaceLabels`, `BaseWorkspaceLabel`, `ItemWorkspaceURI`, the comparator |
-| `internal/resumetree/store.go` | the readers of the reference's `conversation_summaries.db` and its metadata cache |
-| `internal/cliapp/picker_resume_tree.go` | the rows, the marker, the five-children cap, the hint, the keys, the cursor's target |
+| `internal/app/session/tree/resumetree.go` | `Build`, `WorkspaceLabels`, `BaseWorkspaceLabel`, `ItemWorkspaceURI`, the comparator |
+| `internal/app/session/tree/store.go` | the readers of the reference's `conversation_summaries.db` and its metadata cache |
+| `internal/ui/resumepicker/tree.go` | the rows, the marker, the five-children cap, the hint, the keys, the cursor's target |
 
 Five things that are easy to get wrong:
 
@@ -1176,6 +1918,41 @@ Report: `docs/cycles/cycle-336-resume-workspace-tree/`.
 
 ---
 
+## The `/resume` picker's **Other** tab — the Antigravity app's threads
+
+The picker's tab bar carries two tabs: **CLI** (the clone's own store) and
+**Other** (the Antigravity desktop app's store). `tab` cycles between them.
+
+The **Other** tab is not a placeholder: it lists the conversations the
+desktop app wrote, and `enter` **imports** the one under the cursor.
+
+| | |
+|---|---|
+| the desktop app's store | `~/.gemini/antigravity` — the **sibling** of the CLI's own `~/.gemini/antigravity-cli` |
+| the reader | `internal/app/session/convstore/desktop.go` — `DesktopStoreRoot`, `ListDesktopConversations`, `ImportConversation` |
+| the import | a byte-for-byte copy of the conversation's database (its write-ahead log folded in), a copy of `annotations/<id>.pbtxt`, and a row upserted into the CLI's own `conversation_summaries.db` |
+| the confirmation | `[Import this conversation? (y/n)]`, drawn next to the row's title, exactly where `[Delete? (y/n)]` goes |
+| the answers | `enter` / `y` import and resume, `esc` / `n` cancel |
+
+Three things that are easy to get wrong:
+
+- **The Other tab is a flat list, never the tree.** The workspace tree is
+  the CLI tab's own view (`treeActive()` requires `tab == 0`), and the
+  desktop app's conversations carry no workspace cell.
+- **The Other tab's hint is the reference's own** — `↑/↓ Navigate  enter
+  Select  tab Switch Tab  esc Go back / Clear search`. No page keys, no
+  `ctrl+f` view switch, no `f2` rename, no `f4` delete: the desktop app's
+  conversations are imported, and the CLI's own store holds nothing of the
+  user's to rename or to delete.
+- **The import never overwrites.** A conversation the CLI's own store
+  already holds is not offered on the Other tab at all, and the import
+  refuses it if it is asked for by hand; a file outside the desktop
+  store is refused too.
+
+Report: `docs/cycles/resume-other-tab/`.
+
+---
+
 ## The slash-command surface (cycle 351)
 
 The reference's slash surface is three surfaces that share one command
@@ -1199,7 +1976,7 @@ reports the same count ("[1-33 of 105 items]"). The clone's catalogue holds
 
 The plugin rows are environment state: the reference enumerates the installed
 plugins at runtime, and the clone keeps a snapshot of them
-(`internal/tuilib/commands.go`).
+(`internal/ui/tuilib/commands.go`).
 
 ### Which panels echo "Exited /<cmd> command"
 
@@ -1230,7 +2007,7 @@ A **bare** `/statusline` toggles the status line:
 
 The explicit `off` answers with the **short** form; only the bare toggle
 answers with the long one, which also tells the user how to switch it back
-on (`internal/tuilib/feedback.go`).
+on (`internal/ui/tuilib/feedback.go`).
 
 ### The `/skills` panel renders the icon next to the name
 
@@ -1255,6 +2032,61 @@ The built-in group is sorted by the **bare** name — `agy-customizations`,
 `antigravity-guide`, `automation`, `migrate-workflows`, `run-workflow` —
 which is why "automation" sits between "antigravity-guide" and
 "migrate-workflows" even though its row reads "schedule automation".
+
+### `/skills reload` (cycle 383)
+
+`/skills` with **no argument** is unchanged: in the TUI it opens the
+`/skills` panel, and the headless `agy -p /skills` prints the listing.
+
+`/skills reload` **re-scans the skill roots from disk** and answers the
+reference's own line:
+
+```
+Reload skills from disk
+demo  A demo skill.
+```
+
+The first line is the reference's literal 【strings】; the listing rows
+follow it, and the **prompt token** recorded is the listing, not the
+line.
+
+**The reload is best-effort.** The discovery's roots are *units*, and a
+root that cannot be read (missing, `EACCES`, `ENOTDIR`) **keeps the
+entries the previous scan found for it**. A read error never drops a
+loaded skill, and the reload never panics.
+
+The verb's spelling rule (case-insensitive, trimmed) lives **with the
+reload it selects** — `skills.IsReload` in the skills package — and not
+in the slash-command vocabulary: the vocabulary owns the *commands* and
+has no notion of a command's arguments, and the reference's picker
+advertises no argument completion.
+
+> **存疑**: the wording *after* `Reload skills from disk` is
+> unrecovered. The clone keeps the listing the bare command prints.
+
+### The slash grammar has one owner (`internal/core/slashparse`, cycle 381)
+
+The tree holds **two** slash grammars, and they are not the same rule.
+
+| | the host's rule | the print mode's rule |
+|---|---|---|
+| a leading `/` | required | optional |
+| the separators | space, tab, newline | `strings.Fields`' set (every Unicode space) |
+| the tail's trim | space + tab | `strings.TrimSpace` (every Unicode space) |
+| API | `slashparse.Split`, `SplitVerb`, `Trim` | `slashparse.SplitFields`, `TrimUnicode` |
+
+The difference is **reachable from a real dispatcher**: `agy -p $'/help\vfoo'`
+dispatches `/help` under the print mode's rule and is an unknown command
+under the host's. So the two rules are **named neighbours in one package**,
+not one rule — unifying them would be a behaviour change, not a refactor.
+
+`/help` and `/effort` are the two commands the difference is visible on:
+under the print rule a vertical tab still separates the command from its
+argument; under the host's rule it is part of the command name.
+
+The package's golden (`internal/core/slashparse/testdata/golden.txt`) is
+byte-identical to the **pre-move** dump, so the pin is the old behaviour and
+not the new one.
 
 ### The print-mode surfaces: `/config`, `/usage`, `/changelog`
 
@@ -1287,6 +2119,60 @@ which is why "automation" sits between "antigravity-guide" and
 
 Report: `docs/cycles/cycle-351-slash-command-alignment/deliverable.md`.
 
+### The settings file is normalised at start-up (C-26)
+
+【一手】 `official-docs/settings.md:123` — "**The file is normalized at
+startup.** When the CLI starts with a valid file, it rewrites the file in
+its own format, which also removes keys that are set to their default
+values." The same page: "**Only non-default values are saved.**" and
+"**Unknown keys are kept.**"
+
+`internal/core/settings/normalize.go` is the implementation;
+`internal/cliapp/run.go` and `internal/cliapp/tui_entry.go` call it — the
+two start-up paths. The error is advisory: a settings file that cannot be
+normalised must not keep the CLI from starting.
+
+The rules, and the reasons:
+
+- **A missing file stays missing.** The start-up path must not create one.
+- **A file that is not a JSON object is reported and left byte for byte.**
+  The reference opens a "Settings Error" screen for it; the clone has no
+  such screen, and a settings file that cannot be parsed must never be
+  truncated.
+- **An unknown key is kept**, whatever it holds.
+- **A key whose value equals the compiled default is dropped** — the
+  reference persists only the values that differ from the defaults, and
+  "setting an option back to its default removes its key".
+- **A file whose normalised bytes equal the bytes on disk is not written
+  at all**: no churn, no mtime change.
+- **The file is written 0600**, like every other write of the store.
+
+**Two keys are kept even when they hold their default value.** A key may
+only be dropped when the clone's *absent* case and its default mean the
+same thing, and two of the 36 do not agree:
+
+- `toolPermission` — the reference's default is `request-review`, but the
+  clone's absent case is allow-by-default (the clone's own absent case,
+  recorded in AGENTS.md). Dropping the key would turn a review request
+  into a silent approval.
+- `colorScheme` — the reference's default is `terminal`, but the clone's
+  absent case resolves to the palette's own default scheme
+  (`solarized light`). Dropping the key would repaint the session.
+
+Every other key of the 36 was audited; the absent case and the default
+agree (`altScreenMode` → the alternate screen, `editorMode` → "not vim",
+`verbosity` → medium, `editor` → the same branch as `auto`, `statusLine`
+and `title` → "no block", `permissions` and `trustedWorkspaces` → "no
+rule", `showTips` → "on", `enableTerminalSandbox` / `hideActiveItems` /
+`vimInsertFirst` → "off").
+
+**The defaults table has one owner.** It used to live in
+`internal/printmode` (the `/config` dump's own copy); it moved down to
+`internal/core/settings/defaults.go`, because the normalisation needs it
+and `internal/printmode` is an entry surface above every tier. The print
+mode asks the tier-1 package now (`settings.Default(key)` and
+`settings.DefaultString(key)`) — there is no second copy and no alias.
+
 ### A tabbed panel: `/accounts` (cycle 361)
 
 The reference's panels are single-view. The clone's `/accounts` panel has
@@ -1313,7 +2199,7 @@ The rules that make it work:
 
 Report: `docs/cycles/cycle-361-account-pool-panel/deliverable.md`.
 
-## The start-up memory trim (`internal/memtrim`, cycle 363, agy 1.4.10)
+## The start-up memory trim (`internal/infra/memtrim`, cycle 363, agy 1.4.10)
 
 【一手】 agy 1.4.10: "Improved memory use shortly after startup: the CLI
 now returns about 100 MB of memory left over from startup to the operating
@@ -1389,3 +2275,34 @@ which means replacing or wrapping bubbletea's renderer rather than
 configuring it. That is a separate cycle.
 
 Report: `docs/cycles/cycle-363-agy-1.4.10-alignment/deliverable.md` §1.
+
+---
+
+## Model Contract, Panel Registry, and State Ownership (Cycle 382)
+
+In agy 1.4.12, the TUI is composed of 49 distinct models, a shared store manager,
+and a `baseModel` struct that provides 7 inherited default methods across the 10-method
+Model interface (`Init`, `Update`, `View`, `Store`, `Layout`, `UIPhase`, `Keybindings`,
+`ActionFromMsg`, `HasArtifacts`, `SetLayout`).
+
+### The three-tier split
+
+1. **`internal/ui/tuimodel/` (Tier 5)**:
+   - `Model`: the 10-method interface matching the reference model contract.
+   - `Base`: struct supplying default implementations of the 7 inherited methods, matching `baseModel`.
+   - `Layout`: exact 7-metric vertical frame metrics (`PromptHeight`, `InputAreaHeight`, `PendingLineHeight`, `HintHeight`, `BtwHeight`, `SubagentAlertHeight`, `StatusLineHeight`).
+   - `UIPhase`: the canonical 26-phase enum recovered from agy 1.4.12's binary.
+
+2. **`internal/ui/panelregistry/` (Tier 5)**:
+   - Eliminates hardcoded `switch m.panel.kind` dispatches across the host (`slash_panel_keymap.go`, `slash_panel_routing.go`, `slash_viewer_spec.go`).
+   - Replaces them with a dynamic `Registry` where handlers implement `Lines`, `HandleKey`, and `Spec`.
+   - Populated at host startup, ensuring zero host imports inside Tier 5.
+
+3. **`internal/app/tuistore/` (Tier 4)**:
+   - Extracts session state that outlives individual frames from `runMode`:
+     - `Selection` & `InputSelection`: mouse and keyboard selection ranges.
+     - `Bash`: in-flight shell command execution, preemption, generation, and output buffer.
+     - `Compaction`: auto-compaction spinner frames and token telemetry.
+     - `Queue`: prompt queue mode and stream queue buffers.
+     - `Tokens`: session and last-turn token totals.
+

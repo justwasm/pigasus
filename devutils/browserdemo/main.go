@@ -22,13 +22,14 @@ import (
 	"github.com/MichaelKinsy/PiG/coding"
 
 	"github.com/justwasm/pigasus/browsercdp"
-	"github.com/justwasm/pigasus/internal/auth"
-	"github.com/justwasm/pigasus/internal/backendselect"
-	"github.com/justwasm/pigasus/internal/browsersubagent"
-	"github.com/justwasm/pigasus/internal/modelpicker"
+	browsersubagent "github.com/justwasm/pigasus/internal/app/subagent/browser"
+	confhome "github.com/justwasm/pigasus/internal/core/confhome"
+	backendselect "github.com/justwasm/pigasus/internal/infra/backend/select"
+	"github.com/justwasm/pigasus/internal/ui/views/modelpicker"
 	"github.com/justwasm/pigasus/internal/printmode"
-	"github.com/justwasm/pigasus/internal/subagenttools"
-	"github.com/justwasm/pigasus/internal/tools"
+	"github.com/justwasm/pigasus/internal/app/subagenttools"
+	"github.com/justwasm/pigasus/internal/app/tools"
+	"github.com/justwasm/pigasus/internal/app/tools/surface"
 )
 
 func main() {
@@ -49,7 +50,7 @@ func main() {
 		os.Exit(1)
 	}
 	ws, _ := os.Getwd()
-	agentDir := auth.AntigravityConfigHome()
+	agentDir := confhome.Antigravity()
 
 	// The live surface is the reference's --use_local_chrome: the browser
 	// the user already runs, not one the clone starts.
@@ -80,7 +81,7 @@ func main() {
 	}
 	defer services.Close()
 
-	catalog := tools.RuntimeCatalog(ws)
+	catalog := surface.RuntimeCatalog(ws)
 	runner := browsersubagent.New(subagenttools.Deps{
 		Services: services,
 		Model:    piModel,

@@ -15,8 +15,8 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/justwasm/pigasus/internal/backend"
-	"github.com/justwasm/pigasus/internal/configtest"
+	"github.com/justwasm/pigasus/internal/core/backend"
+	"github.com/justwasm/pigasus/internal/features/models/configtest"
 )
 
 // tierEchoHandler answers with one SSE frame and records the request body.

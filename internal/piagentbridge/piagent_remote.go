@@ -65,11 +65,12 @@ import (
 	"github.com/MichaelKinsy/PiG/coding"
 
 	"github.com/justwasm/pigasus/agentbrowser"
-	"github.com/justwasm/pigasus/internal/backend"
+	"github.com/justwasm/pigasus/internal/app/subagenttools"
+	"github.com/justwasm/pigasus/internal/app/tools/surface"
+	"github.com/justwasm/pigasus/internal/core/backend"
 	"github.com/justwasm/pigasus/internal/pigrt"
 	"github.com/justwasm/pigasus/internal/remotecontrol"
-	"github.com/justwasm/pigasus/internal/subagenttools"
-	"github.com/justwasm/pigasus/internal/tools"
+	"github.com/justwasm/pigasus/internal/remotecontrol/cascades"
 )
 
 // RemoteCascadeOptions captures the production wiring the
@@ -159,7 +160,7 @@ type RemoteCascadeOptions struct {
 // `agent.NativeProvider` derivation); non-empty
 // overrides.
 func NewRemoteCascadeSession(opts RemoteCascadeOptions) remotecontrol.SessionFactory {
-	return func(ctx context.Context, prompt remotecontrol.MessagePrompt, _ remotecontrol.MessageSendOptions) (remotecontrol.Session, error) {
+	return func(ctx context.Context, prompt cascades.Prompt, _ cascades.SendOptions) (remotecontrol.Session, error) {
 		client := resolveTurnBackend(opts, prompt)
 		modelName := resolveRemoteModel(client, prompt.Model)
 		effort := resolveRemoteEffort(prompt.Effort, opts.Effort)
@@ -173,7 +174,7 @@ func NewRemoteCascadeSession(opts RemoteCascadeOptions) remotecontrol.SessionFac
 // for a turn. Otherwise the turn's model decides, through the
 // factory, and the fixed backend answers only when the turn names no
 // model.
-func resolveTurnBackend(opts RemoteCascadeOptions, prompt remotecontrol.MessagePrompt) backend.Client {
+func resolveTurnBackend(opts RemoteCascadeOptions, prompt cascades.Prompt) backend.Client {
 	if prompt.BackendLabel == "shim" {
 		return backend.NewMock()
 	}
@@ -234,7 +235,7 @@ func resolveRemoteEffort(prompt string, fallback string) string {
 // The replay is best-effort, the way the print path's implicit
 // trajectory is: a history that cannot be read leaves the session as
 // it was, and the turn runs.
-func buildRemoteCascadeSession(ctx context.Context, opts RemoteCascadeOptions, client backend.Client, modelName, effort, conversationID string, history []remotecontrol.MessageHistoryTurn, images []remotecontrol.MessageImage) (remotecontrol.Session, error) {
+func buildRemoteCascadeSession(ctx context.Context, opts RemoteCascadeOptions, client backend.Client, modelName, effort, conversationID string, history []cascades.HistoryTurn, images []cascades.Image) (remotecontrol.Session, error) {
 	model := buildRemoteCascadeModel(client, modelName)
 	rtOpts, closeTools, err := buildRemoteCascadeRtOpts(opts, model, effort, conversationID)
 	if err != nil {
@@ -256,7 +257,7 @@ func buildRemoteCascadeSession(ctx context.Context, opts RemoteCascadeOptions, c
 //
 // PiG's block holds the base64 payload (ai.ImageContent.Data) and the
 // media type beside it; the clone's neutral shape holds the bytes.
-func remoteImageContent(images []remotecontrol.MessageImage) []pi.ImageContent {
+func remoteImageContent(images []cascades.Image) []pi.ImageContent {
 	if len(images) == 0 {
 		return nil
 	}
@@ -278,7 +279,7 @@ func remoteImageContent(images []remotecontrol.MessageImage) []pi.ImageContent {
 
 // remoteHistoryTurns converts the prompt's history into the session
 // seed's shape.
-func remoteHistoryTurns(history []remotecontrol.MessageHistoryTurn) []pigrt.HistoryTurn {
+func remoteHistoryTurns(history []cascades.HistoryTurn) []pigrt.HistoryTurn {
 	if len(history) == 0 {
 		return nil
 	}
@@ -339,7 +340,7 @@ func buildRemoteCascadeRtOpts(opts RemoteCascadeOptions, model *pi.Model, effort
 // `piagentbridge.SurfaceTools(cfg.Catalog, subTools)`), rebuilt from
 // the same two pieces:
 //
-//   - the clone's catalogue — `tools.RuntimeCatalog` is the catalogue
+//   - the clone's catalogue — `surface.RuntimeCatalog` is the catalogue
 //     plus the 1.4.4-only executors (read_file, write_file,
 //     edit_file), so every declaration but the three subagent ones has
 //     an executor;
@@ -351,7 +352,7 @@ func buildRemoteCascadeRtOpts(opts RemoteCascadeOptions, model *pi.Model, effort
 // catalogue entry does. A turn without any tools at all is worse than
 // a turn without subagents.
 func remoteCascadeTools(opts RemoteCascadeOptions, model *pi.Model, conversationID string) ([]piagent.AgentTool, func(), error) {
-	reg := tools.RuntimeCatalog(opts.Workspace)
+	reg := surface.RuntimeCatalog(opts.Workspace)
 	subServices, err := coding.CreateAgentSessionServices(coding.CreateAgentSessionServicesOptions{
 		CWD:      opts.Workspace,
 		AgentDir: opts.AgentDir,
@@ -377,8 +378,8 @@ func remoteCascadeTools(opts RemoteCascadeOptions, model *pi.Model, conversation
 // tool next to its other declarations; the agent half of the bridge
 // and the IDE half meet in one broker, so the declaration and its
 // executor have to be the same pair the dispatcher's RPCs serve.
-func remoteCascadeBrowserSurface(opts RemoteCascadeOptions, conversationID string, subTools []piagent.AgentTool) ([]tools.ModelToolDecl, []piagent.AgentTool) {
-	decls := tools.ModelDeclarations()
+func remoteCascadeBrowserSurface(opts RemoteCascadeOptions, conversationID string, subTools []piagent.AgentTool) ([]surface.ModelToolDecl, []piagent.AgentTool) {
+	decls := surface.ModelDeclarations()
 	if opts.Browser == nil {
 		return decls, subTools
 	}

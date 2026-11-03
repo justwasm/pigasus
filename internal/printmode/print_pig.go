@@ -36,8 +36,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strconv"
-	"strings"
 	"time"
 
 	piagent "github.com/MichaelKinsy/PiG/agent"
@@ -45,28 +43,31 @@ import (
 	"github.com/MichaelKinsy/PiG/coding"
 
 	"github.com/justwasm/pigasus/internal/agent"
-	"github.com/justwasm/pigasus/internal/agentmessage"
-	"github.com/justwasm/pigasus/internal/agenttools"
-	"github.com/justwasm/pigasus/internal/agyprompt"
-	"github.com/justwasm/pigasus/internal/backend"
-	"github.com/justwasm/pigasus/internal/browsersubagent"
-	"github.com/justwasm/pigasus/internal/builtinsubagent"
-	"github.com/justwasm/pigasus/internal/convstore"
-	"github.com/justwasm/pigasus/internal/cumulativeprompt"
-	"github.com/justwasm/pigasus/internal/implicit"
-	"github.com/justwasm/pigasus/internal/permissions"
+	"github.com/justwasm/pigasus/internal/app/agenttools"
+	"github.com/justwasm/pigasus/internal/app/prompt/agyprompt"
+	cumulativeprompt "github.com/justwasm/pigasus/internal/app/prompt/cumulative"
+	"github.com/justwasm/pigasus/internal/app/prompt/implicit"
+	browsersubagent "github.com/justwasm/pigasus/internal/app/subagent/browser"
+	builtinsubagent "github.com/justwasm/pigasus/internal/app/subagent/builtin"
+	subagentquestions "github.com/justwasm/pigasus/internal/app/subagent/questions"
+	"github.com/justwasm/pigasus/internal/app/session/convstore"
+	"github.com/justwasm/pigasus/internal/core/backend"
+	agentmessage "github.com/justwasm/pigasus/internal/core/msg"
+	"github.com/justwasm/pigasus/internal/core/policy/permissions"
+	"github.com/justwasm/pigasus/internal/core/policy/sandbox"
+	"github.com/justwasm/pigasus/internal/core/tokenfmt"
+	"github.com/justwasm/pigasus/internal/app/toolrunner"
 	"github.com/justwasm/pigasus/internal/piagentbridge"
 	"github.com/justwasm/pigasus/internal/pigrt"
-	"github.com/justwasm/pigasus/internal/sandbox"
-	"github.com/justwasm/pigasus/internal/subagentquestions"
-	"github.com/justwasm/pigasus/internal/subagenttools"
-	"github.com/justwasm/pigasus/internal/toolrunner"
-	"github.com/justwasm/pigasus/internal/tools"
+	"github.com/justwasm/pigasus/internal/app/subagenttools"
+	"github.com/justwasm/pigasus/internal/app/tools"
+	"github.com/justwasm/pigasus/internal/app/tools/browser"
+	"github.com/justwasm/pigasus/internal/app/tools/tasks"
 )
 
 // pigPrintModel builds the PiG model the session calls, keeping the clone's
 // transport in the loop. An gateway backend yields the native provider (the
-// gateway, the fingerprint and the *backend.HTTPError classification are
+// gateway, the fingerprint and the *apierror.HTTPError classification are
 // unchanged); anything else is adapted from the backend.Client itself.
 func pigPrintModel(be backend.Client, modelName string) *pi.Model {
 	if provider := agent.NativeProvider(be); provider != nil {
@@ -111,6 +112,8 @@ type pigPrintConfig struct {
 	// Effort is the reasoning-effort level forwarded to PiG's
 	// SetThinkingLevel. Empty leaves the model default.
 	Effort string
+	// JSONSchema is the JSON schema bytes enforced via --json-schema.
+	JSONSchema json.RawMessage
 	// AgentBody is the Markdown body of a --agent custom agent. Non-empty
 	// selects that agent's system prompt and its restricted seven-tool
 	// surface instead of the default prompt and full catalogue.
@@ -356,15 +359,15 @@ func buildPigPrintTools(cfg pigPrintConfig, model *pi.Model, opts pigrt.Options)
 // installBrowserSubagent gives the browser_subagent tool a runner.
 //
 // The runner is a browser agent: a subagent whose tool set is the
-// browser-control surface (internal/browsersubagent). The provider is
-// process-wide because the catalogue is built without it (tools.Catalog
+// browser-control surface (internal/app/subagent/browser). The provider is
+// process-wide because the catalogue is built without it (surface.Catalog
 // takes no provider argument) and the browser tools are reachable through
 // the same registry the caller already holds.
 func installBrowserSubagent(cfg pigPrintConfig, model *pi.Model, services *coding.AgentSessionServices) {
 	if model == nil || services == nil || cfg.Catalog == nil {
 		return
 	}
-	tools.SetBrowserSubagentProvider(browsersubagent.New(subagenttools.Deps{
+	browser.SetBrowserSubagentProvider(browsersubagent.New(subagenttools.Deps{
 		Services: services,
 		Model:    model,
 		CWD:      cfg.Workspace,
@@ -374,7 +377,7 @@ func installBrowserSubagent(cfg pigPrintConfig, model *pi.Model, services *codin
 
 func setupPrintAskQuestion(catalog *tools.Registry) {
 	if catalog != nil {
-		catalog.Register(&tools.AskQuestion{
+		catalog.Register(&tasks.AskQuestion{
 			SubAgentQuestions: subagentquestions.NewManager(true),
 		})
 	}
@@ -494,6 +497,9 @@ func pigPrintOptions(cfg pigPrintConfig, model *pi.Model, hook piagent.BeforeToo
 // reference's own envelope.
 func executePigPrintRunWith(ctx context.Context, rt *pigrt.Runtime, cfg pigPrintConfig, deliveries <-chan subagentDelivery) error {
 	prompt := cfg.Prompt
+	if len(cfg.JSONSchema) > 0 {
+		prompt = fmt.Sprintf("%s\n\n[System constraint: You must output ONLY valid JSON matching this schema exactly, with no markdown code fences and no extra text:\n%s]", prompt, string(cfg.JSONSchema))
+	}
 	var msgs []piagent.AgentMessage
 	for {
 		var runErr error
@@ -594,7 +600,7 @@ func printCompactionObserver() pigrt.EventFunc {
 			if e.TokensBefore > 0 && e.EstimatedTokensAfter > 0 {
 				fmt.Fprintf(os.Stdout, "%s  \u23bf  %sCompacted context %s K → %s K tokens%s\n",
 					cDimGrayOpen, cDimGrayClose,
-					TokenK(e.TokensBefore), TokenK(e.EstimatedTokensAfter),
+					tokenfmt.K(e.TokensBefore), tokenfmt.K(e.EstimatedTokensAfter),
 					"",
 				)
 			}
@@ -602,22 +608,3 @@ func printCompactionObserver() pigrt.EventFunc {
 	}
 }
 
-// TokenK renders a count of tokens as "184 K" / "1.2 M" — the dim gray
-// formatting matches cycle-225's quota countdowns and agy's own
-// post-compact stdout line. 0 yields "-" so the print path never prints
-// "0 K → 0 K tokens" on an event that lacked the upstream figure.
-func TokenK(tokens int) string {
-	if tokens <= 0 {
-		return "-"
-	}
-	if tokens < 1000 {
-		return strconv.Itoa(tokens)
-	}
-	if tokens < 1_000_000 {
-		// Round to 1 decimal, drop trailing ".0" for whole kilo figures.
-		kilo := float64(tokens) / 1000.0
-		return strings.TrimSuffix(strconv.FormatFloat(kilo, 'f', 1, 64), ".0") + " K"
-	}
-	mega := float64(tokens) / 1_000_000.0
-	return strings.TrimSuffix(strconv.FormatFloat(mega, 'f', 1, 64), ".0") + " M"
-}

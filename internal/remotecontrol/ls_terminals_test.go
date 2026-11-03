@@ -15,7 +15,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/justwasm/pigasus/internal/rcterminal"
+	"github.com/justwasm/pigasus/internal/remotecontrol/rpc"
+	"github.com/justwasm/pigasus/rcterminal"
 )
 
 // newTerminalDispatcher builds a dispatcher whose Web UI's terminal
@@ -150,7 +151,7 @@ func TestAMissingTerminalAnswersNotFound(t *testing.T) {
 	if err == nil {
 		t.Fatal("the call answered, want a not-found")
 	}
-	var coded *rpcCodedError
+	var coded *rpc.CodedError
 	if !errors.As(err, &coded) {
 		t.Fatalf("the error is %T, want a coded error", err)
 	}
@@ -171,7 +172,7 @@ func TestAMalformedRequestAnswersInvalidArgument(t *testing.T) {
 	if err == nil {
 		t.Fatal("the call answered, want an invalid-argument")
 	}
-	var coded *rpcCodedError
+	var coded *rpc.CodedError
 	if !errors.As(err, &coded) {
 		t.Fatalf("the error is %T, want a coded error", err)
 	}

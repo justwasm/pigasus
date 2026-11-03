@@ -59,7 +59,7 @@ extends pluralization to the new file-creation title surface by:
 ### Off-by-one fix
 
 The reference ships `Wrote %d lines` and `Wrote 1 line` as separate
-literals in the 1.3.6 string table (`docs/decompiled-v1.3.4/strings-v1.3.4.txt:23812`),
+literals in the 1.3.4 string table (`docs/legacy-re/extracts/strings-v1.3.4-cited.txt:23812`; the cited window of the retired `docs/decompiled-v1.3.4/strings-v1.3.4.txt` — see `docs/legacy-re/README.md`),
 so the count must match `wc -l`. The naive
 `len(strings.Split(content, "\n"))` returns N+1 for any content ending
 in `"\n"` (the trailing empty element), which is exactly the off-by-one

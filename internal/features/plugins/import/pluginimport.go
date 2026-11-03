@@ -20,12 +20,37 @@
 // "Staged to <config home>". The per-plugin lines are
 //
 //	[ok]    <name>
-//	        ✔ <component>  : <n> installed (<names>)
+//	          ✔ <component>  : <n> installed (<names>)
+//
 //	[skip]  <name> (already imported, use --force to re-import)
 //	[error] <name>: <error>
 //
+// A component that staged nothing gets no line at all — the reference
+// does not name the components it skipped.
+//
 // The [error] line is the only line the reference writes to stderr; every
 // other line goes to stdout.
+//
+// 【一手】 agy 1.4.12 (sha256 34423fc9b0af3841e7646aa72a2d40ffeab8218b22d1cb99eac7355f9eba31e3)
+// was measured on this machine with a synthetic $HOME, and the report's
+// bytes are unchanged from the 1.4.11 transcript: the Gemini importer, the
+// Claude importer and `agy plugin install` all print the block above.
+//
+// 【strings】 the binary's string table carries the component line's own
+// format string — "          %s %-12s: %d %s (%s)" — beside the literal
+// "installed (converted to skills)", and the skip line's own literal
+// "  [skip]  %s (already imported, use --force to re-import)".
+//
+// The official documentation (official-docs/cli/gcli-migration.md:33-44)
+// shows a different "Expected import output" block — "[ok]   <name>", a "-"
+// marker and the details "skipped (none detected)", "N legacy commands
+// converted to skills", "N skills processed" and "N server definition
+// migrated to mcp_config.json". That block is a documentation defect, not
+// the reference's output: none of its phrases exists in the binary ("none
+// detected", "legacy command", "server definition" and "skills processed"
+// are absent from the whole file), and the measured output is the block
+// above. Finding B-25 of the cycle-383 docs-alignment ledger is closed on
+// that measurement — the report's bytes are the reference's.
 package pluginimport
 
 import (
@@ -38,7 +63,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/justwasm/pigasus/internal/auth"
+	confhome "github.com/justwasm/pigasus/internal/core/confhome"
 )
 
 // Source names one importer. The reference's two importers are the Gemini
@@ -81,7 +106,7 @@ func DefaultRoots() Roots {
 	geminiHome := filepath.Join(home, ".gemini")
 	return Roots{
 		GeminiHome:    geminiHome,
-		ConfigHome:    auth.GeminiConfigHome(),
+		ConfigHome:    confhome.Gemini(),
 		ExtensionsDir: filepath.Join(geminiHome, "extensions"),
 		ClaudeHome:    filepath.Join(home, ".claude"),
 		ClaudePlugins: filepath.Join(home, ".claude", "plugins"),
@@ -160,6 +185,11 @@ type result struct {
 
 // writeReport prints one plugin's lines. The [error] line goes to stderr;
 // every other line goes to stdout.
+//
+// 【一手】 agy 1.4.12: the component line's own format string is
+// "          %s %-12s: %d %s (%s)" — ten spaces, the marker, the label
+// padded to twelve columns, the count, the phrase and the names. A
+// component that staged nothing gets no line at all.
 func writeReport(opts Options, res result) {
 	switch res.status {
 	case statusSkip:

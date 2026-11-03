@@ -2,14 +2,61 @@
 
 > Twelve wire declarations versus sixty advertised names, the result texts, and the output budget.
 
-## The tool surface (`internal/tools`, cycle 275)
+## The package layout (cycle 379)
+
+`internal/app/tools` used to be one directory holding the contract, six
+executors and the catalogue. It is now seven packages, and the split follows
+the rule the rest of the tree uses: **a fact belongs to the package that owns
+it**.
+
+| package | what it owns |
+|---|---|
+| `internal/app/tools` | the **contract**: `Tool`, `Registry`, `ArgsOf`, the result stamp, the failure text, the citation strip, the reference description and variant fixtures |
+| `internal/app/tools/shell` | `run_command` and its siblings, the background-task table, the schedule state, the notification |
+| `internal/app/tools/filesystem` | `read_file` / `write_file` / `edit_file` / `list_dir` / the searches, the notebook, the workspace walker, the image and WebM probes |
+| `internal/app/tools/browser` | the browser tools, the browser subagent, the in-Chrome bridge |
+| `internal/app/tools/web` | `search_web`, `read_url_content`, `generate_image`, the three MCP tools |
+| `internal/app/tools/tasks` | `manage_task`, `command_status`, `send_command_input`, `schedule`, the interactive tools, the notice inbox |
+| `internal/app/tools/surface` | the **catalogue**: `Catalog`, `RuntimeCatalog`, the model declarations, the harness declarations |
+
+`internal/app/tools/native` and `internal/app/tools/wasm` are the two tool
+*providers* and were already their own packages.
+
+The dependency graph is acyclic. An arrow means *imports*:
+
+```
+shell      ──► tools          (the contract)
+filesystem ──► tools
+browser    ──► tools
+web        ──► tools
+tasks      ──► tools, shell   (the background-task table)
+surface    ──► every capability (the catalogue *is* the set of executors)
+```
+
+**`internal/app/tools` re-exports nothing.** The split *distributed* the
+public API: every importer names the package that owns the fact it uses
+(`surface.Catalog`, `shell.RunCommandDescription`, `filesystem.ViewFileSchema`,
+`web.SetMCPProvider`, `tools.ArgsOf`). A facade would be a shell, and
+cycle 377 retired the shells.
+
+Two consequences worth knowing:
+
+- **The catalogue is `surface`, not `tools`.** Anything that *dispatches* a
+  tool by name belongs to `surface`; anything that *constructs* a tool
+  belongs to the capability that owns it.
+- **A test follows its subject.** A test that dispatches through the
+  catalogue lives in `surface`; a test that builds a tool directly lives with
+  the capability. A capability's test may not import `surface` — `surface`
+  imports every capability, and the reverse edge would be a cycle.
+
+## The tool surface (`internal/app/tools/surface`, cycle 275)
 
 There are **two** tool lists, and they are not the same list (cycle 293):
 
 | Surface | Built from | Contents |
 |---|---|---|
-| Model declarations | `internal/tools/model_tools_1.4.6.json` via `ModelDeclarations()` | **12** function declarations, capture order |
-| `init.tools` / available | `internal/tools/catalog.go` (`referenceSpecs`, `Catalog`) | **60** names |
+| Model declarations | `internal/app/tools/surface/model_tools_1.4.6.json` via `ModelDeclarations()` | **12** function declarations, capture order |
+| `init.tools` / available | `internal/app/tools/surface/catalog.go` (`referenceSpecs`, `Catalog`) | **60** names |
 
 The reference's `-p --output-format stream-json` init event lists 60 names, but
 the CloudCode request body carries twelve declarations:
@@ -24,7 +71,7 @@ the 60-name list for `init.tools` and is unchanged; `RuntimeCatalog` adds
 **1.4.6 added `run_command`'s `BypassSandbox` BOOLEAN** — the only declaration
 that changed (the wire grew 13,530 → 13,701 bytes; the other eleven are
 byte-identical). `tools.BypassSandboxRequested` reads it and both command
-gates (`internal/toolrunner/runner.go`, `internal/printmode/main_print_tools.go`)
+gates (`internal/app/toolrunner/runner.go`, `internal/printmode/main_print_tools.go`)
 pass it to `sandbox.CheckCommandWithBypass`, so a call that asks to run
 outside the sandbox is not blocked by the clone's path sandbox. The prompt
 half of the same feature is the new `<terminal_sandbox>` section. Report:
@@ -34,7 +81,7 @@ half of the same feature is the new `<terminal_sandbox>` section. Report:
 byte-identical to the 1.4.6 capture (【一手】, live 1.4.8 request). Without
 `--sandbox` the reference omits `run_command.BypassSandbox`; with it, the
 whole surface matches the capture byte for byte. The *custom-agent* surface
-(`internal/agenttools`) is the one that moved — see
+(`internal/app/agenttools`) is the one that moved — see
 [`prompt.md`](prompt.md#custom-agents---agent-cycle-custom-agents). Report:
 `docs/cycles/reference-drift-147/`.
 
@@ -47,7 +94,7 @@ declaration must win on the wire while the extra still executes
 (`declOverrideTool` in `internal/agent`, `SurfaceTools` in
 `internal/piagentbridge`). Report: `docs/cycles/cycle-293-model-tool-surface/`.
 
-`internal/tools/catalog.go` is the available-surface catalogue
+`internal/app/tools/surface/catalog.go` is the available-surface catalogue
 (`referenceSpecs`); each executor beside it lives in `command.go` /
 `filesystem.go` / `filesystem_edit.go` / `filesystem_manage.go` /
 `tools_search.go`. Two executors used to fail calls the
@@ -132,7 +179,7 @@ Only `run_command` and `view_file` have a captured schema; the rest are still
 cycle-98 reconstructions. Reports: `docs/cycles/cycle-275/deliverable.md`
 (the surface), `docs/cycles/cycle-277/deliverable.md` (pty + CRLF/ANSI).
 
-## The descriptions (`internal/tools/descriptions.go`, cycle 305)
+## The descriptions (`internal/app/tools/descriptions.go`, cycle 305)
 
 The reference has **three** tool surfaces, and only the third one describes
 anything:
@@ -146,7 +193,7 @@ anything:
 The catalogue's descriptions used to be the clone's own paraphrase for every
 advertised tool: of the sixty names, exactly **one** (`view_file`) matched the
 reference's text. They are now the reference's own bytes, committed at
-`internal/tools/testdata/tool_descriptions_1.4.7.json` and fetched with
+`internal/app/tools/testdata/tool_descriptions_1.4.7.json` and fetched with
 `refDesc(name)` — **thirty-six** names carry text (the browser surface and
 `delete_knowledge` carry none anywhere in the 1.4.8 binary, and
 `run_workflow` only fragments), and the catalogue keeps its own prose for the
@@ -173,10 +220,10 @@ except for one stray `\n`; that is gone.
 **The descriptions are still dead text on the default path** — `tools.Describe`
 has one caller and `piagentbridge.Tools()` has no non-test caller; the twelve
 declarations the clone actually sends come from
-`internal/tools/model_tools_1.4.6.json`. Report:
+`internal/app/tools/surface/model_tools_1.4.6.json`. Report:
 `docs/cycles/cycle-305-tool-descriptions/deliverable.md`.
 
-## The declaration variants (`internal/tools/variants.go`, cycle 306)
+## The declaration variants (`internal/app/tools/variants.go`, cycle 306)
 
 agy 1.4.8 holds **two** variants of four model-facing descriptions
 (`run_command`, `send_message`, `manage_subagents`, `edit_file`), and a
@@ -187,7 +234,7 @@ The live request bodies captured on 2026-10-22 (`/tmp/agy-cap-147`,
 variant of all four — `run_command` 397 B with no
 `NotificationTimeoutSeconds` parameter, `send_message` 89 B,
 `manage_subagents` 261 B, `edit_file` 393 B. That is byte-for-byte what
-`internal/tools/model_tools_1.4.6.json` holds, so **the wire does not
+`internal/app/tools/surface/model_tools_1.4.6.json` holds, so **the wire does not
 change**. The capture itself could not be re-taken at 1.4.8 (no live
 session on this machine), but every address in the variants fixture was
 re-derived against the 1.4.8 binary and the texts are byte-identical —
@@ -195,21 +242,23 @@ only the addresses moved
 (`docs/cycles/cycle-359-agy-1.4.8-reanchor/deliverable.md`).
 
 The newer variants are recorded in
-`internal/tools/testdata/tool_variants_1.4.7.json` with the vmaddr and
+`internal/app/tools/testdata/tool_variants_1.4.7.json` with the vmaddr and
 length of every literal they are built from. Read them with
 `tools.ReferenceVariants()`. The descriptions fixture now carries the
 **default** text for the three tools where cycle 305 had recorded the newer
 one — the catalogue must not advertise text the reference never sends.
 Report: `docs/cycles/cycle-306-declaration-variants/deliverable.md`.
 
-**Result texts are replayed, not remembered.** `internal/resultparity` parses
-`internal/tools/testdata/result_texts_1.4.7.txt` (32 captured call/result pairs)
-and replays each one against the real executors — 26 compared, 6 skipped with a
+**Result texts are replayed, not remembered.** The fixture
+(`internal/core/resultparity`) parses
+`internal/app/tools/testdata/result_texts_1.4.7.txt` (32 captured call/result pairs)
+and the replay (`internal/app/resultparity`) replays each one against the real
+executors — 26 compared, 6 skipped with a
 recorded reason, and a bijection test that fails if a section is neither. Run
-`go test ./internal/resultparity/` after touching any tool result text. The
+`go test ./internal/app/resultparity/` after touching any tool result text. The
 fixture has **no `run_command` section** — the most-used tool's text lives in
 `docs/cycles/command-output-truncation/captures.md` and is pinned by
-`internal/tools/command_output_truncation_test.go` instead. It calls
+`internal/app/tools/shell/command_output_truncation_test.go` instead. It calls
 `Tool.Run`, not `Dispatch`, because `Dispatch`/`piagentbridge` add
 `ApplyOutputBudget` on top (see below).
 
@@ -252,7 +301,7 @@ model-visible text near 32 KB and wraps it in `_truncated: true` / `_preview: |`
 The 1.4.4 capture shows the reference handing the model a 46080-byte `read_file`
 body whole, with no wrapper. Report: `docs/cycles/result-text-replay/deliverable.md`.
 
-## A command's result has two shapes (`internal/agystep`, cycle 298)
+## A command's result has two shapes (`internal/app/prompt/step`, cycle 298)
 
 The reference prints a command's outcome in **two** different texts, and both
 are live — one per era. A consumer that only knows one of them silently
@@ -263,15 +312,15 @@ mis-reads the other.
 | **current** | `Command exited with code N.` + `Command output:` (or `No output from the command.`) | the CLI's own formatter — the live 1.4.4 capture (`docs/cycles/command-output-truncation/captures.md`) and 1,023 records in the reference's own conversation store |
 | **step string** | `The command exited with code N.` + `Output:` (or `No output`) | the reference's step-string template `step_strings/run_command.tmpl` — what the reference produced at 1.4.2/1.4.3, and what eleven of its own `transcript.jsonl` records from 2026-10-19/20 still carry |
 
-`internal/agystep` owns both:
+`internal/app/prompt/step` owns both:
 
 - `RunCommandString` / `SendCommandInputString` **render** the reference's own
-  recovered templates (`internal/agytemplates/templates/step_strings/*.tmpl`).
+  recovered templates (`internal/app/prompt/agytemplates/templates/step_strings/*.tmpl`).
   `RunCommandString` + a result stamp reproduces the reference's 2026-10-20
-  record byte for byte — `internal/agystep/step_test.go` pins it.
+  record byte for byte — `internal/app/prompt/step/step_test.go` pins it.
 - `ParseRunCommandResult` **reads** either shape and hands back the exit
-  code and the output. `internal/tuitools` (the TUI's step detail and the
-  failed-command badge) and `internal/convstore` (the resumed-conversation
+  code and the output. `internal/ui/tuitools` (the TUI's step detail and the
+  failed-command badge) and `internal/app/session/convstore` (the resumed-conversation
   reader) both go through it.
 
 **Before cycle 298 both consumers only knew the step string**, so the clone's
@@ -281,14 +330,14 @@ cycle 285, which measured that the timestamps never get there.
 
 The **plain** `run_command` result stays on the CLI's own formatter — the
 model-facing bytes are pinned by
-`internal/tools/command_output_truncation_test.go` and by the live capture.
+`internal/app/tools/shell/command_output_truncation_test.go` and by the live capture.
 The template's rendering is used where the reference has no other source for
 the wording: `send_command_input` ("Input sent successfully." / "The command
 is still running." / "The command exited with code N." — each string appears
 exactly once in the reference's binary, inside the template). Report:
 `docs/cycles/cycle-298-step-strings/deliverable.md`.
 
-## A failed tool call is an error, not a result (`internal/tools/failure.go`, cycle 350)
+## A failed tool call is an error, not a result (`internal/app/tools/failure.go`, cycle 350)
 
 **agy 1.4.8 changed one thing on the wire**, and it is the one thing the
 model reads. The reference's own release notes:
@@ -302,7 +351,7 @@ The 1.4.7 capture says the same thing from the other side — its header reads
 never an error, even for the refusal."*
 
 【一手】 The new shape, captured live on 2026-10-27 against the 1.4.8 binary
-(`internal/tools/testdata/tool_errors_1.4.8.txt`):
+(`internal/app/tools/surface/testdata/tool_errors_1.4.8.txt`):
 
 | the call | the envelope | the body |
 |---|---|---|
@@ -316,7 +365,7 @@ instead of `output` — and that is what tells the model it may recover.
 
 The clone reads the signal in one place and carries it in one field:
 
-- `internal/tools/failure.go` — `IsFailureText` asks whether a result's body
+- `internal/app/tools/failure.go` — `IsFailureText` asks whether a result's body
   is the reference's failure text. The check is deliberately narrow: the
   marker has to be the first thing in the body, after the two stamp lines, so
   a file that merely *mentions* the sentence is an ordinary result.
@@ -325,7 +374,7 @@ The clone reads the signal in one place and carries it in one field:
   the text is the failure text. The clone's own tools fail by writing the
   reference's wording into an ordinary result, so the text is the only signal
   there is.
-- `internal/backend` — the two dialects that are the reference's own
+- `internal/infra/backend` — the two dialects that are the reference's own
   (CloudCode and the Gemini API-key path) pick the envelope:
   `{"error": …}` for a failure, `{"output": …}` otherwise.
 
@@ -335,7 +384,7 @@ carry their own conventions. The Anthropic `tool_result` block has an
 `is_error` member the clone does not set; the OpenAI dialect has no error
 channel at all.
 
-## An image the model cannot see (`internal/tools/image_probe.go`, cycle 362)
+## An image the model cannot see (`internal/app/tools/filesystem/image_probe.go`, cycle 362)
 
 **agy 1.4.9** changed what a corrupt image does to a conversation:
 
@@ -354,8 +403,8 @@ act on.
 | where | what the clone does |
 |---|---|
 | `imagery/header.go` | `HeaderOffset` finds the real header of a payload whose first bytes are not the header; `HeaderOffsetError` carries the reference's own wording — `invalid %s: header found at byte offset %d after leading non-image bytes` |
-| `internal/tools/image_probe.go` | `read_file` and `view_file` reject such an image, the same shape as the WebM probe |
-| `internal/clipboard/paste.go` | a pasted payload with leading non-image bytes is rejected with the same error |
+| `internal/app/tools/filesystem/image_probe.go` | `read_file` and `view_file` reject such an image, the same shape as the WebM probe |
+| `internal/features/tools/clipboard/paste.go` | a pasted payload with leading non-image bytes is rejected with the same error |
 
 The rule is deliberately narrow: a payload whose header is **not** at byte 0
 is rejected; a payload with **no** header at all keeps the old answer — the
@@ -388,7 +437,7 @@ caller, and the text it would send is now the reference's
 (`agent.TaskNotificationText`). Report:
 `docs/cycles/cycle-302-background-task-subsystem/deliverable.md`.
 
-## The implicit trajectory (`internal/implicit`, cycle 304)
+## The implicit trajectory (`internal/app/prompt/implicit`, cycle 304)
 
 A `!` command never reaches the conversation. The reference records it in a
 **separate, per-workspace store** — `<gemini-dir>/implicit/<uuid>.pb`, one
@@ -398,13 +447,13 @@ chat messages for the next prompt.
 
 | | the reference | the clone |
 |---|---|---|
-| **store** | `<gemini-dir>/implicit/<uuid>.pb`, AES-256-GCM, key `safeCodeiumworldKeYsecretBalloon`, `nonce(12) ‖ ciphertext ‖ tag`, 100 files | `internal/implicit` — the same format, byte for byte |
+| **store** | `<gemini-dir>/implicit/<uuid>.pb`, AES-256-GCM, key `safeCodeiumworldKeYsecretBalloon`, `nonce(12) ‖ ciphertext ‖ tag`, 100 files | `internal/app/prompt/implicit` — the same format, byte for byte |
 | **scope** | per workspace (`file://<workspace>`) | per workspace (`implicit.WorkspaceURI(m.cwd)`) |
 | **record** | one step per command: type 21, status 3 (or 6 when canceled), source 4, the command written twice, the exit code written even when it is zero | the same |
 | **written by** | the language server's shell-command tracker, when the command finishes | `internal/cliapp/tui_bash_mode.go`: `finishBashCommand`, and `preemptBashCommand` for the command it interrupted (as canceled) |
 
 The clone's encoder reproduces the reference's own bytes: the committed
-`internal/implicit/testdata/reference_step_1.4.7.pb` (155 B, cut out of the
+`internal/app/prompt/implicit/testdata/reference_step_1.4.7.pb` (155 B, cut out of the
 reference's own file on this machine) re-encodes to the identical bytes, so
 the field numbers, the enum values and the field order are all pinned.
 
@@ -428,7 +477,7 @@ enums). `devutils/gen_cortex_enums.py` regenerates the package from it, and
 
 The numbers the trajectory writes — type 21, status 3 (6 when canceled),
 source 4, trajectory type 1 — are the reference's own, read out of a real
-record; `internal/implicit` now borrows them from `internal/cortex_pb`
+record; `internal/app/prompt/implicit` now borrows them from `internal/cortex_pb`
 instead of repeating them.
 
 `GoalState` is the one enum the clone owns: the .proto has no such enum, so
@@ -436,7 +485,7 @@ its members are the reconstruction's and it stays out of the package's
 machine-readable `EnumMembers` table. Report:
 `docs/cycles/cycle-307-cortex-enums/deliverable.md`.
 
-## The notification timeout (`internal/tools`, cycle 308)
+## The notification timeout (`internal/app/tools/shell`, cycle 308)
 
 `run_command` takes a `NotificationTimeoutSeconds` parameter: if the command
 is still running that many seconds after the wait window
@@ -482,14 +531,14 @@ Log: file://<the task log>
 
 The envelope's three literals are the reference's own (read out of the
 1.4.8 binary), and the whole text is pinned against the reference's own
-capture — `internal/tools/testdata/reference_background_task_1.4.7.txt`,
+capture — `internal/app/tools/shell/testdata/reference_background_task_1.4.7.txt`,
 the `completion notification (the SYSTEM_MESSAGE)` section.
 
 The delivery has three pieces:
 
 | piece | where | what it does |
 |---|---|---|
-| the fire | `internal/tools` | the notification is built when the command is gone; the result is the CLI's own formatter body, without the `Created At:` / `Completed At:` stamp |
+| the fire | `internal/app/tools/shell` | the notification is built when the command is gone; the result is the CLI's own formatter body, without the `Created At:` / `Completed At:` stamp |
 | the queue | `internal/agent` (`TaskInbox`) | the session-level queue — the TUI builds a fresh `agent.Loop` per turn, so a per-turn queue would drop every notification that arrives between turns |
 | the delivery | `internal/cliapp` | the notification joins the session as a **system** message and reaches the model in the user-content position, without the `<USER_REQUEST>` envelope |
 
@@ -509,7 +558,7 @@ notification waits for the next one.
 
 Report: `docs/cycles/cycle-309-task-notification-delivery/deliverable.md`.
 
-## The three MCP tools (`internal/tools`, `mcp`, cycle 310)
+## The three MCP tools (`internal/app/tools/web`, `mcp`, cycle 310)
 
 The reference exposes three MCP tools to the model. All three are
 advertised, and all three have real executors:
@@ -547,15 +596,16 @@ instead of going through `argsOf`.
 
 The client underneath is `mcp.Pool`: one connection per configured
 server, opened lazily (a call is the first thing that spawns a server
-process) and reused afterwards. It reads the reference's
-`~/.gemini/antigravity-cli/mcp.json` — the file `mcp/agyconfig.go`
-parses, and `internal/pigrt/mcpconfig.go` aliases — and speaks the MCP
-wire protocol through PiG's `mcp` package.
+process) and reused afterwards. It reads the **three** configuration
+files listed below — `mcp/configpaths.go` owns their resolution,
+`mcp/agyconfig.go` parses them, and `internal/pigrt/mcpconfig.go` aliases
+the resolver — and speaks the MCP wire protocol through PiG's `mcp`
+package.
 
-`internal/tools` depends on the pool only through the `MCPProvider`
-interface, so the tools package carries no MCP dependency; the pool is
-installed process-wide by `internal/printmode.InstallMCPProvider`, which
-both the print path and the TUI call.
+`internal/app/tools/web` depends on the pool only through the `MCPProvider`
+interface, so the web capability carries no MCP dependency; the pool is
+installed process-wide by `internal/app/session/setup.InstallMCPProvider`,
+which the print path, the TUI and the agent server all call.
 
 Known limitation: in the print path the clone's pool and PiG's MCP
 extension each open a connection to the same server (the first serves the
@@ -564,7 +614,40 @@ surface). The TUI still has no always-loaded MCP tool surface at all.
 
 Report: `docs/cycles/cycle-310-mcp-tool-executors/deliverable.md`.
 
-## The browser subagent (`internal/browsersubagent`, cycle 311)
+## The MCP configuration surfaces (cycle 383)
+
+The reference has **three** MCP configuration files, with different roots
+and different shapes. `mcp/configpaths.go` owns all three resolvers:
+
+| resolver | file | root member |
+|---|---|---|
+| `mcp.GlobalConfigPath()` | `~/.gemini/config/mcp_config.json` | `mcpServers` |
+| `mcp.ReferenceConfigPath(agentDir)` | `~/.gemini/antigravity-cli/mcp.json` | `servers` |
+| `mcp.WorkspaceConfigPath(workspace)` | `<workspace>/.agents/mcp_config.json` | `mcpServers` |
+
+`mcp.ConfigFile.MCPServers` reads one file; `mcp.ConfigFile.AllServers()`
+reads across them. `setup.InstallMCPProvider(agentDir, workspace)` is the
+one place that installs a provider from a configuration file, so the
+print path, the TUI and the agent server all see the same servers.
+
+A server entry carries the members the documentation lists:
+
+| member | meaning |
+|---|---|
+| `command`, `args`, `env` | the process to spawn; `env` is a `map[string]string` |
+| `url`, `headers` | the HTTP transport; `headers` is a `map[string]string` |
+| `cwd` | the working directory |
+| `authProviderType`, `oauth` | the authentication |
+| `enabledTools`, `disabledTools` | the tool filter |
+| `timeoutSeconds` | the per-call timeout |
+| `serverUrl`, `disabled` | the remote server and the off switch |
+
+The timeouts are the reference's: **300 s** to connect, **180 s** per
+call.
+
+Report: `docs/cycles/cycle-383-docs-alignment/deliverable.md`.
+
+## The browser subagent (`internal/app/subagent/browser`, cycle 311)
 
 `browser_subagent` is one of the sixty-three names the 1.4.8 binary knows.
 The reference's production variants carry it next to the other subagent
@@ -587,11 +670,11 @@ binary. Four variants live in `cortex/customizations/builtin/agents`:
 The clone ships the first: it drives Chrome over the DevTools Protocol
 (`browsercdp`) and records nothing, so the recording sentence
 would be a lie. The fixture
-(`internal/tools/testdata/tool_descriptions_1.4.7.json`) holds it under the
+(`internal/app/tools/testdata/tool_descriptions_1.4.7.json`) holds it under the
 layer `agent catalogue (builtin/agents)` — the fourth surface the
 reference's tool text lives in.
 
-The browser agent itself is `internal/browsersubagent`:
+The browser agent itself is `internal/app/subagent/browser`:
 
 - the prompt opens with the reference's own sentence, `You are a browser
   agent.` (the literal at `0x1035588eb`); the rest is the clone's own
@@ -599,7 +682,7 @@ The browser agent itself is `internal/browsersubagent`:
 - the tool set is the clone's twenty-three browser tools, and nothing else
   — or, on the **live** surface, the bridge's seventeen (see *The live
   browser* below);
-- the delegation reuses `internal/subagenttools.Invoke`, the same machinery
+- the delegation reuses `internal/app/subagenttools.Invoke`, the same machinery
   `invoke_subagent` uses.
 
 To let a subagent carry a tool set of its own, `subagenttools.Invocation`
@@ -608,9 +691,9 @@ gained a `Tools []piagent.AgentTool` field, which
 A subagent with no tools of its own still has none — the seam is a
 parameter, not a default.
 
-The executor lives in `internal/tools/browser_subagent.go` and calls through
+The executor lives in `internal/app/tools/browser/browser_subagent.go` and calls through
 a `BrowserSubagentProvider` seam, like the three MCP tools' seam, so
-`internal/tools` carries no dependency on the delegation machinery. The
+`internal/app/tools/browser` carries no dependency on the delegation machinery. The
 provider is installed process-wide where the session's model is known: the
 print path (`internal/printmode/print_pig.go`) and the TUI
 (`internal/cliapp/tui_runmode_agent.go`).
@@ -628,7 +711,7 @@ Report: `docs/cycles/cycle-311-browser-subagent/deliverable.md`.
 ### The `/browser` command
 
 The reference's own slash menu describes the command as *"Invoke a browser
-agent for web tasks."* 【一手 — `internal/tuilib/commands.go`, the
+agent for web tasks."* 【一手 — `internal/ui/tuilib/commands.go`, the
 catalogue recovered from the v1.3.5 binary】. The clone's `/browser` does
 that: it runs the browser agent and answers with the agent's final text
 (`internal/cliapp/slash_browser.go`).
@@ -878,7 +961,7 @@ when the extension is there; when it is not, the clone falls back to the
 DevTools road it already had, which is the reference's own mechanism for
 the same flag.
 
-The live surface has **its own tools** (`internal/tools/browserbridge.go`),
+The live surface has **its own tools** (`internal/app/tools/browser/browserbridge.go`),
 seventeen of them, named as the project names them — `tabs_context_mcp`,
 `navigate`, `computer`, `find`, `form_input`, `get_page_text`,
 `read_page`, `javascript_tool`, `read_console_messages`,
@@ -886,7 +969,7 @@ seventeen of them, named as the project names them — `tabs_context_mcp`,
 `set_tab_focus`, `switch_browser`. They are **not** in the advertised
 catalogue: that catalogue is the reference's own list of sixty names, and
 the bridge tools belong to the browser agent alone
-(`internal/browsersubagent/surface.go`).
+(`internal/app/subagent/browser/surface.go`).
 
 The browser agent's prompt follows the surface: the managed surface
 speaks of the Chrome DevTools Protocol, the live surface of the user's
@@ -922,7 +1005,7 @@ Report: `docs/cycles/cycle-348-browser-bridge-protocol/deliverable.md`.
 ## How the model opens a browser (`invoke_subagent` → `chrome_devtools`)
 
 The model's twelve wire declarations
-(`internal/tools/model_tools_1.4.6.json`) carry `invoke_subagent` and
+(`internal/app/tools/surface/model_tools_1.4.6.json`) carry `invoke_subagent` and
 **no browser tool at all** — not `browser_subagent`, not one of the
 twenty-three `browser_*` names. So a model that only sees the
 reference's own declarations cannot reach a browser by calling a
@@ -934,7 +1017,7 @@ The type's name is the reference's own: **`chrome_devtools`** — the MCP
 server the reference's browser agent drives 【一手 — the browser agent's
 own description: *"The chrome_devtools MCP server is started
 automatically when this agent is invoked"*
-(`internal/tools/testdata/tool_descriptions_1.4.7.json`)]. The
+(`internal/app/tools/testdata/tool_descriptions_1.4.7.json`)]. The
 reference's second browser agent is `webview_browser`, the IDE's built-in
 webview browser 【strings — the 1.4.8 string blob at `0x1034b3b17`,
 where `research-google`, `chrome_devtools`, `webview_browser` and
@@ -946,8 +1029,8 @@ that row the agents' name vocabulary]. The clone ships the Chrome one.
 
 | | |
 |---|---|
-| `internal/builtinsubagent/browser.go` | the name — `KindBrowser` |
-| `internal/browsersubagent/builtin.go` | the catalogue line, the prompt entry, and the installer |
+| `internal/app/subagent/builtin/browser.go` | the name — `KindBrowser` |
+| `internal/app/subagent/browser/builtin.go` | the catalogue line, the prompt entry, and the installer |
 | the session | installs it, per turn, and lists it in the prompt |
 
 `InstallBuiltin` registers a handler in the session's built-in
@@ -995,11 +1078,11 @@ assignment), and the regression test is
 
 Report: `docs/cycles/cycle-345-browser-subagent-type/deliverable.md`.
 
-## The subagent authorization model (`internal/subagenttools`, cycle 349)
+## The subagent authorization model (`internal/app/subagenttools`, cycle 349)
 
 The reference's `define_subagent` carries **three switches** and one
 sentence that fixes the base set 【一手 — the captured 1.4.6
-declaration, `internal/tools/model_tools_1.4.6.json`:
+declaration, `internal/app/tools/surface/model_tools_1.4.6.json`:
 
 ```json
 "EnableMCPTools":    { "description": "Grant access to MCP tools." },
@@ -1010,7 +1093,7 @@ declaration, `internal/tools/model_tools_1.4.6.json`:
 **The declaration did not move at 1.4.8.** The twelve model-facing
 declarations are byte-for-byte identical to this capture (【一手】, live
 1.4.8 request — cycle-350), so the three switches' spelling is still the
-reference's. `internal/subagenttools/reference_declaration_test.go` pins
+reference's. `internal/app/subagenttools/reference_declaration_test.go` pins
 that: it reads the capture and drives the clone's parser with the
 capture's *own* property names, in both directions — a property the
 capture carries that the clone does not read fails the test, and so does
@@ -1027,7 +1110,7 @@ base set**, and the base set is named in that sentence: the research
 tools and the messaging tool are always there.
 
 The clone implements it as `subagenttools.Grant`
-(`internal/subagenttools/grant.go`):
+(`internal/app/subagenttools/grant.go`):
 
 | | tools | names |
 |---|---|---|
@@ -1036,7 +1119,7 @@ The clone implements it as `subagenttools.Grant`
 | **`EnableMCPTools`** | the MCP tools | `call_mcp_tool` `list_resources` `read_resource` |
 | **`EnableSubagentTools`** | define and invoke its own subagents | `define_subagent` `invoke_subagent` |
 
-The names are the **catalogue** names (`internal/tools`), not the
+The names are the **catalogue** names (`internal/app/tools/surface`), not the
 twelve model-facing declarations: a subagent's tools are drawn from the
 parent's catalogue, the same way the parent's own executors are.
 
@@ -1106,10 +1189,10 @@ a resumed conversation gets its definitions back from the trajectory
 | `Catalogue []piagent.AgentTool` | the parent's tool catalogue, adapted to PiG's tool interface — the pool every grant draws from |
 | `SystemPrompt func() string` | the parent's own system prompt, resolved on demand (building it walks the skills directories, so a turn that spawns no subagent should not pay for it) |
 
-The catalogue is injected rather than imported: `internal/tools`
-depends on `internal/browsersubagent`, which depends on
-`internal/subagenttools` — so `internal/subagenttools` **cannot**
-import `internal/tools` without closing an import cycle. The caller
+The catalogue is injected rather than imported: `internal/app/tools/browser`
+depends on `internal/app/subagent/browser`, which depends on
+`internal/app/subagenttools` — so `internal/app/subagenttools` **cannot**
+import the browser capability without closing an import cycle. The caller
 adapts instead: `piagentbridge.Tools(registry)`.
 
 The print mode hands over the prompt through
@@ -1124,7 +1207,7 @@ subagent* below.
 
 Report: `docs/cycles/cycle-349-subagent-grants/deliverable.md`.
 
-## The asynchronous delegation (`internal/subagenttools`, cycle 352)
+## The asynchronous delegation (`internal/app/subagenttools`, cycle 352)
 
 The reference does **not** wait for a delegated subagent. `invoke_subagent`
 creates the subagent's conversation, hands it the task and returns an
@@ -1155,7 +1238,7 @@ bytes), and the acknowledgement ends the parent's turn
 
 ### The registry
 
-`internal/subagenttools/registry.go` holds the conversation's live
+`internal/app/subagenttools/registry.go` holds the conversation's live
 children: each `Child` carries its conversation id, its type, its role,
 its worktree, its state and the mailbox the parent's messages arrive
 in. A child stays alive after it reports — the parent can message it
@@ -1181,7 +1264,7 @@ The following is a <SYSTEM_MESSAGE> not actually sent by the user. It is provide
 </SYSTEM_MESSAGE>
 ```
 
-The rendering lives in a **neutral package**, `internal/agentmessage`,
+The rendering lives in a **neutral package**, `internal/core/msg`,
 because two callers need the same bytes: `internal/agent`'s task
 notification (the background-task subsystem) and the subagent delivery.
 The timestamp is **UTC** — every other time in the reference's request
@@ -1219,7 +1302,7 @@ decides, not a string comparison.
 `Successfully killed %d subagent(s) and their descendants.` with the
 killed roles.
 
-## The peers, the broadcast and the failure notice (`internal/subagenttools`, cycle 353)
+## The peers, the broadcast and the failure notice (`internal/app/subagenttools`, cycle 353)
 
 Three more of the reference's answers, all read off the 1.4.8 binary
 (【反编译】; the addresses are in
@@ -1277,11 +1360,11 @@ The 1.4.8 binary carries **two** `manage_subagents` parameter schemas, and
 they disagree: the **CLI's** (`cortex/tools`) has a three-value `Action`
 enum, the **harness's** (`oneharness/internal/tools`) has the four-value
 one with the long description. The clone is a clone of the CLI, so the
-advertised declaration stays as captured (`internal/tools/model_tools_1.4.6.json`),
+advertised declaration stays as captured (`internal/app/tools/surface/model_tools_1.4.6.json`),
 while the tool's *runtime* schema carries the four values — the CLI's own
 handler knows the fourth action.
 
-## The permission gate reaches the subagent (`internal/permissions`, `internal/toolrunner`, `internal/sandbox`, cycle 352)
+## The permission gate reaches the subagent (`internal/core/policy/permissions`, `internal/app/toolrunner`, `internal/core/policy/sandbox`, cycle 352)
 
 The reference's model is one policy per conversation — *"allowing an
 action for the conversation, in the main agent or in a subagent, applies
@@ -1296,13 +1379,13 @@ user's rules are written against the declaration. So the call is judged
 under both:
 
 ```go
-internal/tools.PermissionNames("write_to_file") // ["write_to_file", "write_file"]
+internal/app/tools.PermissionNames("write_to_file") // ["write_to_file", "write_file"]
 ```
 
-`internal/permissions.Policy.DecideNames(target, names...)` is the
+`internal/core/policy/permissions.Policy.DecideNames(target, names...)` is the
 decision: a deny under **any** of the names denies, an allow under any
 of them allows, and only then do the mode's rules decide — the same
-order `Policy.Decide` uses for a single name. `internal/toolrunner.Decide`
+order `Policy.Decide` uses for a single name. `internal/app/toolrunner.Decide`
 is the same decision as a pure function, and `PermissionRunner.Run` is
 now a thin wrapper around it.
 
@@ -1347,8 +1430,8 @@ Three rules, and one entry point:
 | the media type follows the **bytes**, never the file name | `imagery.Prepare` returns the format it produced |
 
 `imagery.Prepare(data)` is the single entry point of the three attachment
-paths — `internal/clipboard/media.go` (a pasted picture),
-`internal/clipboard/paste.go` (the drag-and-drop route) and
+paths — `internal/features/tools/clipboard/media.go` (a pasted picture),
+`internal/features/tools/clipboard/paste.go` (the drag-and-drop route) and
 `internal/remotecontrol/message_image.go` (the Web UI's attachment) — and
 each of them sends the format `Prepare` reports. That is what makes "a
 JPEG saved as a PNG" work: the bytes say JPEG, so the request says

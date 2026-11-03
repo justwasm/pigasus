@@ -65,7 +65,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/justwasm/pigasus/internal/rcterminal"
+	"github.com/justwasm/pigasus/internal/remotecontrol/rpc"
+	"github.com/justwasm/pigasus/rcterminal"
 )
 
 // lsTerminalRequest is the reference's CreateTerminalRequest.
@@ -112,19 +113,23 @@ type lsTerminalInputRequest struct {
 //
 // The answer is the reference's: {"terminal":{…}} with the terminal's
 // own fields.
-func (d *Dispatcher) lsCreateTerminal(params json.RawMessage) (any, *rpcErrorBody) {
+func (d *Dispatcher) lsCreateTerminal(params json.RawMessage) (any, *rpc.ErrorBody) {
 	var req lsTerminalRequest
 	if len(params) > 0 {
 		if err := json.Unmarshal(params, &req); err != nil {
-			return nil, invalidParams(lsUnmarshalError("CreateTerminalRequest", err, params))
+			return nil, rpc.InvalidParams(lsUnmarshalError("CreateTerminalRequest", err, params))
 		}
 	}
 	registry := d.cfg.WebTerminals
 	if registry == nil {
-		return nil, &rpcErrorBody{Code: -32603, Message: "Internal error", Data: "terminals are not wired"}
+		return nil, &rpc.ErrorBody{Code: -32603, Message: "Internal error", Data: "terminals are not wired"}
+	}
+	wsURI := req.WorkspaceURI
+	if wsURI == "" && d.cfg.Session != nil && d.cfg.Session.Workspace != "" {
+		wsURI = "file://" + d.cfg.Session.Workspace
 	}
 	info, err := registry.Create(rcterminal.CreateRequest{
-		WorkspaceURI:        req.WorkspaceURI,
+		WorkspaceURI:        wsURI,
 		ConversationID:      req.ConversationID,
 		ProjectID:           req.ProjectID,
 		SplitFromTerminalID: req.SplitFromTerminalID,
@@ -136,16 +141,16 @@ func (d *Dispatcher) lsCreateTerminal(params json.RawMessage) (any, *rpcErrorBod
 }
 
 // lsListTerminals answers the Web UI's ListTerminals.
-func (d *Dispatcher) lsListTerminals(params json.RawMessage) (any, *rpcErrorBody) {
+func (d *Dispatcher) lsListTerminals(params json.RawMessage) (any, *rpc.ErrorBody) {
 	var req lsTerminalListRequest
 	if len(params) > 0 {
 		if err := json.Unmarshal(params, &req); err != nil {
-			return nil, invalidParams(lsUnmarshalError("ListTerminalsRequest", err, params))
+			return nil, rpc.InvalidParams(lsUnmarshalError("ListTerminalsRequest", err, params))
 		}
 	}
 	registry := d.cfg.WebTerminals
 	if registry == nil {
-		return nil, &rpcErrorBody{Code: -32603, Message: "Internal error", Data: "terminals are not wired"}
+		return nil, &rpc.ErrorBody{Code: -32603, Message: "Internal error", Data: "terminals are not wired"}
 	}
 	terminals := registry.List(req.ConversationID, req.ProjectID, req.WorkspaceURI)
 	if len(terminals) == 0 {
@@ -157,16 +162,16 @@ func (d *Dispatcher) lsListTerminals(params json.RawMessage) (any, *rpcErrorBody
 }
 
 // lsCloseTerminal answers the Web UI's CloseTerminal.
-func (d *Dispatcher) lsCloseTerminal(params json.RawMessage) (any, *rpcErrorBody) {
+func (d *Dispatcher) lsCloseTerminal(params json.RawMessage) (any, *rpc.ErrorBody) {
 	var req lsTerminalCloseRequest
 	if len(params) > 0 {
 		if err := json.Unmarshal(params, &req); err != nil {
-			return nil, invalidParams(lsUnmarshalError("CloseTerminalRequest", err, params))
+			return nil, rpc.InvalidParams(lsUnmarshalError("CloseTerminalRequest", err, params))
 		}
 	}
 	registry := d.cfg.WebTerminals
 	if registry == nil {
-		return nil, &rpcErrorBody{Code: -32603, Message: "Internal error", Data: "terminals are not wired"}
+		return nil, &rpc.ErrorBody{Code: -32603, Message: "Internal error", Data: "terminals are not wired"}
 	}
 	if err := registry.Close(req.TerminalID, req.Force); err != nil {
 		return nil, lsTerminalError(err)
@@ -179,16 +184,16 @@ func (d *Dispatcher) lsCloseTerminal(params json.RawMessage) (any, *rpcErrorBody
 // The answer carries the offset the input stream has reached. The
 // field is omitted when it is zero — the reference's proto-JSON
 // omits zero-valued fields, so a pure resize answers `{}`.
-func (d *Dispatcher) lsSendTerminalInput(params json.RawMessage) (any, *rpcErrorBody) {
+func (d *Dispatcher) lsSendTerminalInput(params json.RawMessage) (any, *rpc.ErrorBody) {
 	var req lsTerminalInputRequest
 	if len(params) > 0 {
 		if err := json.Unmarshal(params, &req); err != nil {
-			return nil, invalidParams(lsUnmarshalError("SendTerminalInputRequest", err, params))
+			return nil, rpc.InvalidParams(lsUnmarshalError("SendTerminalInputRequest", err, params))
 		}
 	}
 	registry := d.cfg.WebTerminals
 	if registry == nil {
-		return nil, &rpcErrorBody{Code: -32603, Message: "Internal error", Data: "terminals are not wired"}
+		return nil, &rpc.ErrorBody{Code: -32603, Message: "Internal error", Data: "terminals are not wired"}
 	}
 	if req.Resize != nil {
 		if err := registry.Resize(req.TerminalID, req.Resize.Cols, req.Resize.Rows); err != nil {
@@ -200,7 +205,7 @@ func (d *Dispatcher) lsSendTerminalInput(params json.RawMessage) (any, *rpcError
 	if req.Input != "" {
 		decoded, err := base64.StdEncoding.DecodeString(req.Input)
 		if err != nil {
-			return nil, invalidParams(lsInvalidBytesField("SendTerminalInputRequest", "input", req.Input))
+			return nil, rpc.InvalidParams(lsInvalidBytesField("SendTerminalInputRequest", "input", req.Input))
 		}
 		data = decoded
 	}
@@ -223,18 +228,18 @@ func (d *Dispatcher) lsSendTerminalInput(params json.RawMessage) (any, *rpcError
 // JSON-RPC surface has no such code, so the sentinel the dashboard's
 // terminal surface already uses (-32018) carries the reference's own
 // message.
-func lsTerminalError(err error) *rpcErrorBody {
+func lsTerminalError(err error) *rpc.ErrorBody {
 	var notFound *rcterminal.NotFoundError
 	if errors.As(err, &notFound) {
-		return &rpcErrorBody{
+		return &rpc.ErrorBody{
 			Code:    -32018,
 			Message: "not_found: terminal " + notFound.TerminalID + " not found",
 		}
 	}
 	if errors.Is(err, rcterminal.ErrClosed) {
-		return &rpcErrorBody{Code: -32019, Message: "terminal closed"}
+		return &rpc.ErrorBody{Code: -32019, Message: "terminal closed"}
 	}
-	return &rpcErrorBody{Code: -32603, Message: "Internal error", Data: err.Error()}
+	return &rpc.ErrorBody{Code: -32603, Message: "Internal error", Data: err.Error()}
 }
 
 // lsInt64 reads an int64 the way proto-JSON writes one: as a

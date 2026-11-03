@@ -46,13 +46,10 @@ func trimBlank(line string) bool {
 
 // objectRange resolves a text object to an inclusive (start,end) range.
 // around selects the a-prefixed form (which swallows surrounding
-// whitespace / the delimiters themselves). count picks the nesting level
-// for bracket and quote pairs (2di( reaches one level out), matching the
-// reference changelog's counted text objects.
-func (s *State) objectRange(spec objectSpec, around bool, count int) (start, end pos, linewise, ok bool) {
-	if count < 1 {
-		count = 1
-	}
+// whitespace / the delimiters themselves). Bracket and quote pairs
+// resolve to the innermost enclosing pair: the reference's commands
+// take no count prefix, so there is no way to reach a level out.
+func (s *State) objectRange(spec objectSpec, around bool) (start, end pos, linewise, ok bool) {
 	switch spec.kind {
 	case objWord:
 		return s.wordObject(around, false)
@@ -61,7 +58,7 @@ func (s *State) objectRange(spec objectSpec, around bool, count int) (start, end
 	case objParagraph:
 		return s.paragraphObject(around)
 	case objPair:
-		return s.pairObject(spec, around, count)
+		return s.pairObject(spec, around)
 	}
 	return pos{}, pos{}, false, false
 }
@@ -131,13 +128,12 @@ func (s *State) paragraphObject(around bool) (pos, pos, bool, bool) {
 // pairObject implements i(/a(/i"/a" and friends. It first looks for the
 // innermost pair enclosing the cursor on the current line; if there is
 // none it takes the next pair opening after the cursor, matching Vim.
-// count walks outward through the enclosing pairs.
-func (s *State) pairObject(spec objectSpec, around bool, count int) (pos, pos, bool, bool) {
+func (s *State) pairObject(spec objectSpec, around bool) (pos, pos, bool, bool) {
 	rl := s.lineRunes(s.Row)
 	if len(rl) == 0 {
 		return pos{}, pos{}, false, false
 	}
-	inner, ok := pairBounds(rl, s.Col, spec, count)
+	inner, ok := pairBounds(rl, s.Col, spec)
 	if !ok {
 		return pos{}, pos{}, false, false
 	}
@@ -166,13 +162,9 @@ func (s *State) pairObject(spec objectSpec, around bool, count int) (pos, pos, b
 }
 
 // pairBounds finds the delimiter pair enclosing col, or the first pair
-// starting after col. count selects the nesting level (1 = innermost,
-// clamped to the outermost enclosing pair). It returns the inclusive
-// bounds of the *contents* (delimiters excluded).
-func pairBounds(rl []rune, col int, spec objectSpec, count int) ([2]int, bool) {
-	if count < 1 {
-		count = 1
-	}
+// starting after col. It returns the inclusive bounds of the *contents*
+// (delimiters excluded).
+func pairBounds(rl []rune, col int, spec objectSpec) ([2]int, bool) {
 	if spec.quote {
 		var pairs [][2]int
 		i := 0
@@ -190,7 +182,7 @@ func pairBounds(rl []rune, col int, spec objectSpec, count int) ([2]int, bool) {
 			}
 			i++
 		}
-		return pickPair(pairs, col, count)
+		return pickPair(pairs, col)
 	}
 	// Bracket pairs with nesting. Nested pairs are appended
 	// inner-closes-first, so the enclosing list is naturally ordered
@@ -209,28 +201,17 @@ func pairBounds(rl []rune, col int, spec objectSpec, count int) ([2]int, bool) {
 			}
 		}
 	}
-	return pickPair(pairs, col, count)
+	return pickPair(pairs, col)
 }
 
-// pickPair chooses the enclosing pair at nesting level count (inner-first,
-// clamped to the outermost), else the first pair that opens after col.
-func pickPair(pairs [][2]int, col, count int) ([2]int, bool) {
-	var enc [][2]int
+// pickPair chooses the innermost enclosing pair, else the first pair
+// that opens after col.
+func pickPair(pairs [][2]int, col int) ([2]int, bool) {
 	for _, p := range pairs {
 		// p[0]-1 is the opening delimiter position.
 		if p[0]-1 <= col && col <= p[1]+1 {
-			enc = append(enc, p)
+			return p, true
 		}
-	}
-	if len(enc) > 0 {
-		idx := count - 1
-		if idx < 0 {
-			idx = 0
-		}
-		if idx >= len(enc) {
-			idx = len(enc) - 1
-		}
-		return enc[idx], true
 	}
 	for _, p := range pairs {
 		if p[0]-1 > col {

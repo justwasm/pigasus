@@ -12,10 +12,12 @@ Issue #3: 5 panel 业务逻辑从 cycle 33 推断 (chat transcript + input box
 ## 1. v1.3.5 binary decompile 抽 (一手证据)
 
 ```bash
-$ ls docs/decompiled-v1.3.5/c/google3_third_party_jetski_cli_onboarding_onboarding/
+# The 1.3.5 decompile tree was retired on 2026-11-02; the cited files
+# survive under docs/legacy-re/extracts/decompiled-v1.3.5/c/ — see docs/legacy-re/README.md
+$ ls docs/legacy-re/extracts/decompiled-v1.3.5/c/google3_third_party_jetski_cli_onboarding_onboarding/
 8b66f00_Init.c   # OnboardingModel.Init (11-态 FSM, iVar14=0..10)
 8b6ae60_Init.c   # (*OnboardingModel).Init (80-byte channel state)
-$ ls docs/decompiled-v1.3.5/c/google3_third_party_jetski_cli_model_model/8c1ce60_Init.c
+$ ls docs/legacy-re/extracts/decompiled-v1.3.5/c/google3_third_party_jetski_cli_model_model/8c1ce60_Init.c
 # 8c1ce60_Init.c: HooksModel.Init (72-byte LAYOUT HELPER, 不是 state machine)
 ```
 

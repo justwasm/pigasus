@@ -1,7 +1,7 @@
 package cli
 
 import (
-	"github.com/justwasm/pigasus/internal/branding"
+	"github.com/justwasm/pigasus/internal/core/branding"
 )
 
 func init() {

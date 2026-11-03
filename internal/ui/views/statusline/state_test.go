@@ -9,7 +9,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/justwasm/pigasus/internal/statusline"
+	"github.com/justwasm/pigasus/internal/ui/views/statusline"
 )
 
 // TestState_FailureCounting walks the consecutive-failure counter up to

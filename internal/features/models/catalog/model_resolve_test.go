@@ -16,8 +16,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/justwasm/pigasus/internal/cli"
-	"github.com/justwasm/pigasus/internal/configtest"
+	"github.com/justwasm/pigasus/internal/features/models/configtest"
 )
 
 // withSettingsModel points HOME at a scratch tree whose settings.json carries
@@ -134,7 +133,7 @@ func TestModelCatalogueIncludesConfiguredModels(t *testing.T) {
 		"models": [{"id": "custom-model", "name": "Custom Model"},
 		           {"id": "gemini-3.8-flash-low", "name": "Collides"}]}}}`)
 	found := false
-	for _, m := range cli.ModelCatalogue() {
+	for _, m := range ModelCatalogue() {
 		if m.ID == "custom-model" {
 			found = true
 			if m.Label != "Custom Model" {
@@ -206,7 +205,13 @@ func TestResolveEffectiveModel_DefaultsWithNoSettings(t *testing.T) {
 }
 
 // TestModelAvailable pins the catalogue lookup by both label and slug.
+//
+// The catalogue merges the reference's own rows with the models the user
+// configured, so the provider configuration is isolated first: a machine
+// that happens to have "MiniMax-M3" configured would otherwise make the
+// negative case below fail.
 func TestModelAvailable(t *testing.T) {
+	configtest.Isolate(t)
 	for _, name := range []string{"Gemini 3.8 Flash (High)", "gemini-3.8-flash-high", "GPT-OSS 120B (Medium)"} {
 		if !ModelAvailable(name) {
 			t.Errorf("ModelAvailable(%q) = false, want true", name)

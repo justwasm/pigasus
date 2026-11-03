@@ -30,13 +30,17 @@ func ScreenRowCounts(rows []string) []int {
 // ClipToScreenRows trims visible from the right until its total rendered
 // row count fits inside maxRows. Cycle 124.
 func ClipToScreenRows(visible []string, screenCounts []int, scrollOff, maxRows int) []string {
-	if len(visible) == 0 {
+	if len(visible) == 0 || maxRows <= 0 {
 		return visible
 	}
 	for {
 		total := 0
 		for i := range visible {
-			total += screenCounts[scrollOff+i]
+			idx := scrollOff + i
+			if idx >= len(screenCounts) {
+				break
+			}
+			total += screenCounts[idx]
 		}
 		if total <= maxRows {
 			return visible
@@ -51,15 +55,25 @@ func ClipToScreenRows(visible []string, screenCounts []int, scrollOff, maxRows i
 // ClipToScreenRowsPrefix is ClipToScreenRows with the counts replaced by
 // their prefix sum, so the trim is a binary search instead of a rescan.
 func ClipToScreenRowsPrefix(visible []string, prefix []int, scrollOff, maxRows int) []string {
-	if len(visible) == 0 {
+	if len(visible) == 0 || maxRows <= 0 {
+		return visible
+	}
+	if scrollOff < 0 || scrollOff >= len(prefix) {
 		return visible
 	}
 	limit := prefix[scrollOff] + maxRows
 	k := sort.Search(len(visible)+1, func(i int) bool {
-		return prefix[scrollOff+i] > limit
+		idx := scrollOff + i
+		if idx >= len(prefix) {
+			return true
+		}
+		return prefix[idx] > limit
 	}) - 1
 	if k < 0 {
 		k = 0
+	}
+	if k > len(visible) {
+		k = len(visible)
 	}
 	return visible[:k]
 }

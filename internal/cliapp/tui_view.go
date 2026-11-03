@@ -5,9 +5,14 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/justwasm/pigasus/internal/permissions"
-	"github.com/justwasm/pigasus/internal/programstatus"
-	"github.com/justwasm/pigasus/internal/tuilib"
+	"github.com/justwasm/pigasus/internal/core/policy/permissions"
+	"github.com/justwasm/pigasus/internal/features/tools/bashmode"
+	"github.com/justwasm/pigasus/internal/ui/panelregistry"
+	uirows "github.com/justwasm/pigasus/internal/ui/rows"
+	"github.com/justwasm/pigasus/internal/ui/tuilib"
+	"github.com/justwasm/pigasus/internal/ui/views/announce"
+	"github.com/justwasm/pigasus/internal/ui/views/programstatus"
+	"github.com/justwasm/pigasus/internal/ui/views/statusline"
 	"github.com/justwasm/pigasus/palette"
 )
 
@@ -15,45 +20,35 @@ func (m *runMode) clipViewBody(body string, cursorY int) (string, int) {
 	if m.height <= 0 {
 		return body, cursorY
 	}
-	if maxRows := m.height + viewOverflowRows; viewRows(body) > maxRows {
-		lines := strings.Split(body, "\n")
-		keep := maxRows
-		if keep < 1 {
-			keep = 1
-		}
-		if keep < len(lines) {
-			body = strings.Join(lines[:keep], "\n")
-		}
-	}
-	drop := viewRows(body) - m.height
+	rows := tuilib.ViewRows(body)
+	maxRows := m.height + viewOverflowRows
+	drop := rows - m.height
 	if drop < 0 {
 		drop = 0
 	}
-	if drop > 0 {
+	if rows > maxRows || drop > 0 {
 		lines := strings.Split(body, "\n")
 		if n := len(lines); n > 0 && lines[n-1] == "" {
 			lines = lines[:n-1]
 		}
-		if drop < len(lines) {
-			body = strings.Join(lines[drop:], "\n")
-			cursorY -= drop
-			if cursorY < 0 {
-				cursorY = 0
-			}
+		keep := len(lines)
+		if keep > maxRows {
+			keep = maxRows
+		}
+		if drop > keep {
+			drop = keep
+		}
+		if drop < keep {
+			body = strings.Join(lines[drop:keep], "\n")
+		} else {
+			body = ""
+		}
+		cursorY -= drop
+		if cursorY < 0 {
+			cursorY = 0
 		}
 	}
-	if m.pickerLayoutLocal.Rows > 0 && m.picker.Visible() {
-		start := m.pickerBodyStart - drop
-		m.pickerGeom = pickerGeom{
-			Valid:       true,
-			HasList:     m.pickerLayoutLocal.HasList,
-			TopY:        start,
-			BottomY:     start + m.pickerLayoutLocal.Rows - 1,
-			ListTopY:    start + m.pickerLayoutLocal.ListTop,
-			ListBottomY: start + m.pickerLayoutLocal.ListBottom,
-			HintY:       start + m.pickerLayoutLocal.HintRow,
-		}
-	}
+	m.picker.ClipBody(drop)
 	if m.promptBodyStart >= drop {
 		m.promptScreenY = m.promptBodyStart - drop
 	}
@@ -84,7 +79,7 @@ func (m *runMode) buildTeaView(body string, cursorX, cursorY int) tea.View {
 		v.WindowTitle = title
 	}
 	v.ProgramStatus = m.programStatus()
-	if m.helpMode {
+	if m.helpPanel.Active() {
 		cursorY = 0
 		cursorX = 0
 	}
@@ -96,11 +91,39 @@ func (m *runMode) buildTeaView(body string, cursorX, cursorY int) tea.View {
 	return v
 }
 
+func (m *runMode) isViewCacheValid() bool {
+	if !m.viewCacheValid || m.rowsCacheDirty || m.cachedView.Content == "" {
+		return false
+	}
+	if m.cachedPickerVis != m.picker.Visible() || m.cachedPanelKind != m.panel.kind {
+		return false
+	}
+	if m.picker.Visible() || m.panel.kind != panelregistry.None || m.helpPanel.Active() || m.resumePicker.Active() || m.hasSelection() || m.hasInputSelection() {
+		return false
+	}
+	if m.cachedScroll != m.scroll || m.cachedAutoScroll != m.autoScroll {
+		return false
+	}
+	if m.cachedW != m.width || m.cachedH != m.height {
+		return false
+	}
+	if m.cachedRespLen != len(m.response) || m.cachedRowsGen != m.rowsGen {
+		return false
+	}
+	if m.cachedHeaderKey != m.currentHeaderKey(m.width) {
+		return false
+	}
+	return true
+}
+
 func (m *runMode) View() tea.View {
 	// The frame is painted with the selected scheme's colours: the
 	// palette resolves them from the scheme the session wears.
 	restore := palette.PushScheme(m.colorScheme)
 	defer restore()
+	if !m.picker.Visible() {
+		m.picker.ResetGeom()
+	}
 	if m.login != nil {
 		// The login screen owns its own layout, but it still runs in
 		// this program's terminal: keep the session's alternate-screen
@@ -115,38 +138,51 @@ func (m *runMode) View() tea.View {
 		v.AltScreen = m.altScreen
 		return v
 	}
+	if m.isViewCacheValid() {
+		return m.cachedView
+	}
 	var transcript []string
 	if m.height > 0 {
 		transcript = m.transcriptWindow()
 	} else {
-		transcript = m.transcriptRows(0)
+		transcript = m.transcriptRows(m.width)
 	}
 	transcript = m.selectionPass(transcript)
 	body, cursorY := m.viewBody(transcript)
-	if m.width > 0 && m.panel.kind != panelChangelog {
-		body = fitLines(body, m.width)
+	if m.width > 0 && m.panel.kind != panelregistry.Changelog {
+		body = tuilib.FitLines(body, m.width)
 	}
 	body, cursorY = m.clipViewBody(body, cursorY)
 	cursorX := m.inputCursorX()
-	return m.buildTeaView(body, cursorX, cursorY)
+	v := m.buildTeaView(body, cursorX, cursorY)
+	m.cachedView = v
+	m.cachedScroll = m.scroll
+	m.cachedAutoScroll = m.autoScroll
+	m.cachedW = m.width
+	m.cachedH = m.height
+	m.cachedRespLen = len(m.response)
+	m.cachedRowsGen = m.rowsGen
+	m.cachedPickerVis = m.picker.Visible()
+	m.cachedPanelKind = m.panel.kind
+	m.viewCacheValid = true
+	return v
 }
 
 func (m *runMode) renderBodyQueuesAndCard(b *strings.Builder) {
-	if !m.picker.Visible() && !m.resumeMode && !m.helpMode {
-		if row := m.announcementRow(); row != "" {
+	if !m.picker.Visible() && !m.resumePicker.Active() && !m.helpPanel.Active() {
+		if row := m.announceQueue.Row(); row != "" {
 			b.WriteString(row)
 		}
-		if row := m.eligibilityNoticeRow(); row != "" {
+		if row := announce.RenderNoticeRow(m.eligibilityNotice.Reason, m.eligibilityNotice.VerificationURL, m.hyperlinkCaps); row != "" {
 			b.WriteString(row)
 		}
 	}
-	if len(m.streamQueue) > 0 || len(m.bashQueue) > 0 {
-		for _, queued := range m.streamQueue {
-			b.WriteString(cDimGrayOpen + "\u25b8 " + queued +
-				" (alt+m to send immediately)" + cDimGrayClose + "\n")
+	if len(m.store.StreamQueue) > 0 || len(m.store.BashQueue) > 0 {
+		for _, queued := range m.store.StreamQueue {
+			b.WriteString(uirows.QueuedPromptRow(queued) + "\n")
 		}
-		for _, queued := range m.bashQueue {
-			b.WriteString(cDimGrayOpen + "\u25b8 " + queued + cDimGrayClose + "\n")
+		for _, queued := range m.store.BashQueue {
+			b.WriteString(uirows.QueuedCommandRow(queued) + "\n")
 		}
 		b.WriteString(m.separator() + "\n")
 	}
@@ -157,7 +193,7 @@ func (m *runMode) renderBodyQueuesAndCard(b *strings.Builder) {
 
 func (m *runMode) syncInputPlaceholder() {
 	switch {
-	case m.picker.Visible() || m.panel.kind != panelNone || m.helpMode || m.resumeMode || m.voiceMode:
+	case m.picker.Visible() || m.panel.kind != panelregistry.None || m.helpPanel.Active() || m.resumePicker.Active() || m.voiceSurface.Active():
 		m.input.Placeholder = ""
 	case m.inputNotice != "":
 		m.input.Placeholder = m.inputNotice
@@ -178,13 +214,13 @@ func (m *runMode) formatInputView() string {
 	// The reference colours the command token in the composer and shows
 	// the argument hint of an empty "/model " argument
 	// (【一手】 agy 1.4.6, live — internal/tuilib/composer_token.go).
-	composerValue := firstLine(m.input.Value())
+	composerValue := tuilib.FirstLine(m.input.Value())
 	inputView = tuilib.StyleComposerCommandToken(inputView, composerValue)
 	if hint, ok := tuilib.ComposerArgumentHint(composerValue); ok {
 		inputView = tuilib.AppendComposerHint(inputView, cDimGrayOpen+hint+cDimGrayClose, composerValue)
 	}
-	if m.bashMode {
-		inputView = bashPromptGlyph(inputView)
+	if m.store.BashMode {
+		inputView = bashmode.PromptGlyph(inputView, cBlueOpen)
 	}
 	if !strings.HasSuffix(inputView, "\n") {
 		inputView += "\n"
@@ -199,12 +235,12 @@ func (m *runMode) renderBodyPrompt(b *strings.Builder) int {
 	b.WriteString(m.promptRule(true) + "\n")
 	m.renderBodyQueuesAndCard(b)
 
-	rowsAbovePrompt := viewRows(b.String())
+	rowsAbovePrompt := tuilib.ViewRows(b.String())
 	m.promptBodyStart = rowsAbovePrompt
 
 	// The attachments of the next turn (agy 1.4.9's image pasting) sit
 	// above the composer, so the user can see what will be sent.
-	for _, row := range m.mediaRows() {
+	for _, row := range uirows.AttachmentRows(m.pendingMedia, m.mediaExpanded) {
 		b.WriteString(row + "\n")
 		rowsAbovePrompt++
 	}
@@ -222,43 +258,44 @@ func (m *runMode) renderBodyPrompt(b *strings.Builder) int {
 	if c := m.input.Cursor(); c != nil {
 		cursorY += c.Y
 	}
-	if activeView := m.activeItemsView(); activeView != "" {
-		b.WriteString(activeView + "\n")
-	}
 	b.WriteString(m.promptRule(false) + "\n")
+	if activeView := m.activeItems.Rows(); activeView != "" {
+		b.WriteString(activeView + "\n")
+		b.WriteString(m.separator() + "\n")
+	}
 	return cursorY
 }
 
 func (m *runMode) renderBodyOverlays(b *strings.Builder) {
-	m.pickerBodyStart = viewRows(b.String())
-	if pickerRows := m.pickerView(); pickerRows != "" {
+	m.picker.SetBodyStart(tuilib.ViewRows(b.String()))
+	if pickerRows := m.picker.Rows(); pickerRows != "" {
 		b.WriteString(pickerRows)
 	}
-	if atFileRows := m.atFileView(); atFileRows != "" {
+	if atFileRows := m.atFilePicker.Rows(); atFileRows != "" {
 		b.WriteString(atFileRows)
 	}
-	if resumeRows := m.resumeView(); resumeRows != "" {
+	if resumeRows := m.resumePicker.View(m.width, m.height); resumeRows != "" {
 		b.WriteString(resumeRows)
 	}
 	if panelRows := m.panelView(); panelRows != "" {
 		b.WriteString(panelRows)
 	}
-	if voiceRows := m.voiceView(); voiceRows != "" {
+	if voiceRows := m.voiceSurface.View(); voiceRows != "" {
 		b.WriteString(voiceRows)
 	}
-	if m.helpMode {
-		b.WriteString(renderHelp(m.helpTab, m.model, m.tier, m.cwd, m.email, m.conversationID, m))
+	if m.helpPanel.Active() {
+		b.WriteString(m.helpPanel.Rows())
 	}
 }
 
 func (m *runMode) renderBodyStatusLine(b *strings.Builder) {
-	if m.statusLine != "off" && !(m.panel.kind == panelChangelog && m.height > 0) {
-		if rows := m.subAgentQuestionAlertRows(); len(rows) > 0 {
+	if m.statusLine != "off" && !(m.panel.kind == panelregistry.Changelog && m.height > 0) {
+		if rows := m.subAgentQuestionPanel.AlertRows(); len(rows) > 0 {
 			for _, row := range rows {
 				b.WriteString(row + "\n")
 			}
 		}
-		if rows := m.subAgentQuestionPickerRows(); len(rows) > 0 {
+		if rows := m.subAgentQuestionPanel.PickerRows(); len(rows) > 0 {
 			for _, row := range rows {
 				b.WriteString(row + "\n")
 			}
@@ -270,7 +307,7 @@ func (m *runMode) renderBodyStatusLine(b *strings.Builder) {
 // writeStatusArea writes the status area's rows. The last row carries no
 // trailing newline: it is the last thing on the screen.
 func (m *runMode) writeStatusArea(b *strings.Builder) {
-	rows := m.statusAreaRows()
+	rows := statusline.AreaRows(m.statusAreaState())
 	for i, row := range rows {
 		if i < len(rows)-1 {
 			b.WriteString(row + "\n")
@@ -282,10 +319,10 @@ func (m *runMode) writeStatusArea(b *strings.Builder) {
 
 func (m *runMode) viewBody(transcript []string) (string, int) {
 	var b strings.Builder
-	m.pickerGeom = pickerGeom{}
+	m.picker.ResetGeom()
 	m.promptScreenY = -1
 
-	if (m.panel.kind == panelChangelog || m.panel.kind == panelDiff) && m.height > 0 {
+	if (m.panel.kind == panelregistry.Changelog || m.panel.kind == panelregistry.Diff) && m.height > 0 {
 		b.WriteString(m.panelView())
 		if m.statusLine != "off" {
 			m.writeStatusArea(&b)
@@ -311,37 +348,16 @@ func (m *runMode) inputCursorX() int {
 	return 0
 }
 
-// programStatusApp is the stable program name reported to the terminal.
-const programStatusApp = programstatus.App
-
-// Cycle 239 — env-var names lifted verbatim from the AGY 1.4.0 changelog.
-const (
-	envOSC7501         = programstatus.EnvOSC7501
-	envOSC7501Messages = programstatus.EnvOSC7501Messages
-)
-
 // programStatus reports Wagyu's current state to terminals that support the
 // Program Status Protocol.
 func (m *runMode) programStatus() *tea.ProgramStatus {
 	return programstatus.Resolve(programstatus.Inputs{
 		PendingPermission:  m.pendingPermission,
-		HasPendingQuestion: m.hasPendingQuestion(),
+		HasPendingQuestion: m.subAgentQuestionPanel.HasPendingQuestion(),
 		PendingAuth:        m.pendingAuth,
 		IsAgentBusy:        m.isAgentBusy(),
 		LastTurnOutcome:    m.lastTurnOutcome,
 	})
-}
-
-// hasPendingQuestion is true while the sub-agent question picker is on
-// screen OR the answer textarea is focused on a queued question.
-func (m *runMode) hasPendingQuestion() bool {
-	if m.subAgentQuestionPickerOpen {
-		return true
-	}
-	if m.subAgentQuestionAnswerTarget != "" {
-		return true
-	}
-	return false
 }
 
 // isAgentBusy is true while a model turn is in flight.

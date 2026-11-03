@@ -2,6 +2,7 @@ package geminicode
 
 import (
 	"encoding/json"
+	"fmt"
 	"strconv"
 	"strings"
 )
@@ -66,9 +67,21 @@ func convertGeminiSchema(v any, isRoot bool) any {
 	case map[string]any:
 		out := make(map[string]any, len(node))
 
-		// Handle const -> enum (JSON Schema const is not supported by Gemini OpenAPI)
+		// Handle const -> enum (JSON Schema const is not supported by Gemini OpenAPI).
+		// In Gemini OpenAPI, Schema.enum is repeated string enum and only valid for STRING.
+		// If const is a string, emit it as an enum. If const is not a string (e.g. bool or number),
+		// infer type and do not set enum.
 		if c, ok := node["const"]; ok {
-			out["enum"] = []any{c}
+			if s, isStr := c.(string); isStr {
+				out["enum"] = []any{s}
+			} else {
+				switch c.(type) {
+				case bool:
+					out["type"] = "BOOLEAN"
+				case float64, float32, int, int32, int64, json.Number:
+					out["type"] = "NUMBER"
+				}
+			}
 		}
 
 		// Handle anyOf / oneOf unions: fold them into the schema.
@@ -86,12 +99,39 @@ func convertGeminiSchema(v any, isRoot bool) any {
 								if k == "type" || k == "properties" || k == "items" || k == "enum" || k == "format" {
 									if _, exists := node[k]; !exists {
 										if _, inOut := out[k]; !inOut {
-											if k == "type" {
+											switch k {
+											case "type":
 												if s, ok := val.(string); ok {
 													out["type"] = strings.ToUpper(s)
 												}
-											} else if cp := convertGeminiSchema(val, false); cp != nil {
-												out[k] = cp
+											case "properties":
+												if props, ok := val.(map[string]any); ok {
+													converted := make(map[string]any, len(props))
+													for pname, pval := range props {
+														if cp := convertGeminiSchema(pval, false); cp != nil {
+															if cm, ok := cp.(map[string]any); ok {
+																converted[pname] = cm
+															} else if cs, ok := cp.(string); ok {
+																converted[pname] = map[string]any{"type": strings.ToUpper(cs)}
+															} else {
+																converted[pname] = map[string]any{"type": "STRING"}
+															}
+														}
+													}
+													out["properties"] = converted
+												}
+											case "items":
+												if ci := convertGeminiSchema(val, false); ci != nil {
+													if cm, ok := ci.(map[string]any); ok {
+														out["items"] = cm
+													} else if cs, ok := ci.(string); ok {
+														out["items"] = map[string]any{"type": strings.ToUpper(cs)}
+													} else {
+														out["items"] = map[string]any{"type": "STRING"}
+													}
+												}
+											default:
+												out[k] = val
 											}
 										}
 									}
@@ -142,16 +182,49 @@ func convertGeminiSchema(v any, isRoot bool) any {
 				converted := make(map[string]any, len(props))
 				for name, prop := range props {
 					if cp := convertGeminiSchema(prop, false); cp != nil {
-						converted[name] = cp
+						if m, ok := cp.(map[string]any); ok {
+							converted[name] = m
+						} else if s, ok := cp.(string); ok {
+							converted[name] = map[string]any{"type": strings.ToUpper(s)}
+						} else {
+							converted[name] = map[string]any{"type": "STRING"}
+						}
 					}
 				}
 				out[k] = converted
 			case "items":
 				if ci := convertGeminiSchema(value, false); ci != nil {
-					out[k] = ci
+					if m, ok := ci.(map[string]any); ok {
+						out[k] = m
+					} else if s, ok := ci.(string); ok {
+						out[k] = map[string]any{"type": strings.ToUpper(s)}
+					} else {
+						out[k] = map[string]any{"type": "STRING"}
+					}
 				}
 			case "minLength", "maxLength", "minItems", "maxItems":
 				out[k] = protoIntString(value)
+			case "enum":
+				switch ev := value.(type) {
+				case []string:
+					items := make([]any, len(ev))
+					for i, s := range ev {
+						items[i] = s
+					}
+					out[k] = items
+				case []any:
+					strs := make([]any, 0, len(ev))
+					for _, item := range ev {
+						if item != nil {
+							if s, isStr := item.(string); isStr {
+								strs = append(strs, s)
+							} else {
+								strs = append(strs, fmt.Sprint(item))
+							}
+						}
+					}
+					out[k] = strs
+				}
 			default:
 				out[k] = value
 			}
@@ -165,6 +238,8 @@ func convertGeminiSchema(v any, isRoot bool) any {
 				out["type"] = "OBJECT"
 			} else if _, hasItems := out["items"]; hasItems {
 				out["type"] = "ARRAY"
+			} else if enumStrs, ok := out["enum"].([]string); ok && len(enumStrs) > 0 {
+				out["type"] = "STRING"
 			} else if enumVals, ok := out["enum"].([]any); ok && len(enumVals) > 0 {
 				out["type"] = inferEnumType(enumVals)
 			} else {
@@ -190,6 +265,28 @@ func convertGeminiSchema(v any, isRoot bool) any {
 			if t != "OBJECT" {
 				delete(out, "properties")
 				delete(out, "required")
+			}
+			if t != "STRING" {
+				delete(out, "enum")
+			} else if rawEnum, exists := out["enum"]; exists {
+				switch ev := rawEnum.(type) {
+				case []string:
+					if len(ev) == 0 {
+						delete(out, "enum")
+					}
+				case []any:
+					if len(ev) == 0 {
+						delete(out, "enum")
+					} else {
+						for i, item := range ev {
+							if _, isStr := item.(string); !isStr {
+								ev[i] = fmt.Sprint(item)
+							}
+						}
+					}
+				default:
+					delete(out, "enum")
+				}
 			}
 		}
 
@@ -302,7 +399,16 @@ func NormalizeToolSchema(v any, isRoot bool) any {
 
 		// Handle const -> enum (JSON Schema const is not supported by OpenAI/many providers)
 		if c, ok := node["const"]; ok {
-			out["enum"] = []any{c}
+			if s, isStr := c.(string); isStr {
+				out["enum"] = []any{s}
+			} else {
+				switch c.(type) {
+				case bool:
+					out["type"] = "boolean"
+				case float64, float32, int, int32, int64, json.Number:
+					out["type"] = "number"
+				}
+			}
 		}
 
 		// Handle anyOf / oneOf unions: fold first non-null branch into the schema
@@ -317,12 +423,27 @@ func NormalizeToolSchema(v any, isRoot bool) any {
 								if k == "type" || k == "properties" || k == "items" || k == "enum" || k == "format" {
 									if _, exists := node[k]; !exists {
 										if _, inOut := out[k]; !inOut {
-											if k == "type" {
+											switch k {
+											case "type":
 												if s, ok := val.(string); ok {
 													out["type"] = strings.ToLower(s)
 												}
-											} else if norm := NormalizeToolSchema(val, false); norm != nil {
-												out[k] = norm
+											case "properties":
+												if props, ok := val.(map[string]any); ok {
+													converted := make(map[string]any, len(props))
+													for pname, pval := range props {
+														if norm := NormalizeToolSchema(pval, false); norm != nil {
+															converted[pname] = norm
+														}
+													}
+													out["properties"] = converted
+												}
+											case "items":
+												if norm := NormalizeToolSchema(val, false); norm != nil {
+													out["items"] = norm
+												}
+											default:
+												out[k] = val
 											}
 										}
 									}
@@ -409,6 +530,11 @@ func NormalizeToolSchema(v any, isRoot bool) any {
 					} else {
 						out[k] = map[string]any{"type": "string"}
 					}
+				}
+			case "enum":
+				switch ev := val.(type) {
+				case []string, []any:
+					out[k] = ev
 				}
 			default:
 				out[k] = NormalizeToolSchema(val, false)

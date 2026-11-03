@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/justwasm/pigasus/internal/refbackend"
+	"github.com/justwasm/pigasus/internal/infra/refbackend"
 )
 
 // fakeReferenceFrontend is a stand-in for the reference's own frontend:

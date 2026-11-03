@@ -10,8 +10,8 @@ import (
 	piagent "github.com/MichaelKinsy/PiG/agent"
 	pi "github.com/MichaelKinsy/PiG/ai"
 
-	"github.com/justwasm/pigasus/internal/backend"
-	"github.com/justwasm/pigasus/internal/tools"
+	"github.com/justwasm/pigasus/internal/core/backend"
+	"github.com/justwasm/pigasus/internal/app/tools"
 )
 
 // BackendStreamFn adapts a backend.Client into an agent.StreamFn.
@@ -22,7 +22,7 @@ import (
 // is itself concurrency-safe, and each call gets its own pump goroutine.
 //
 // A pre-stream failure (client.Stream returning an error) is returned as-is,
-// which is what keeps a *backend.HTTPError concrete on the way out of PiG: see
+// which is what keeps a *apierror.HTTPError concrete on the way out of PiG: see
 // the note on Provider.stream. Everything after the stream opened is folded
 // into the event stream.
 func BackendStreamFn(client backend.Client, modelID string) piagent.StreamFn {
@@ -50,6 +50,37 @@ func BackendStreamFnWithObserver(client backend.Client, modelID string, observe 
 	}
 }
 
+// maxHistoricalToolResultChars is the ceiling for tool outputs from earlier turns
+// in the conversation transcript (before the latest user prompt).
+//
+// In multi-turn interactive sessions, retaining tens of thousands of characters
+// of past file dumps or search outputs creates severe Few-Shot inertia, heavily
+// biasing the model to emit tool calls on trivial prompts. Historical tool
+// outputs are capped to keep context clean while preserving task context.
+// Derived from cortex/handlers (countResultsAndTruncate, truncateStep) and
+// ConversationHistoryConfig.GetMaxConversationLogsChars.
+const maxHistoricalToolResultChars = 2000
+
+func truncateHistoricalToolResult(text string) string {
+	if len(text) <= maxHistoricalToolResultChars {
+		return text
+	}
+	cut := text[:maxHistoricalToolResultChars]
+	if idx := strings.LastIndexByte(cut, '\n'); idx > maxHistoricalToolResultChars/2 {
+		cut = cut[:idx]
+	}
+	return cut + "\n\n... [output truncated for conversation history]"
+}
+
+func lastUserMessageIndex(messages []pi.Message) int {
+	for i := len(messages) - 1; i >= 0; i-- {
+		if _, ok := messages[i].(pi.UserMessage); ok {
+			return i
+		}
+	}
+	return -1
+}
+
 // ToStreamRequest converts a normalized PiG transcript into the clone's
 // provider-neutral request body.
 //
@@ -70,8 +101,11 @@ func ToStreamRequest(transcript pi.TranscriptContext, modelID string, opts pi.St
 		MaxTokens:   opts.MaxTokens,
 		Temperature: opts.Temperature,
 	}
-	for _, message := range transcript.Messages() {
-		appendStreamRequestMessage(&req, message)
+	messages := transcript.Messages()
+	lastUserIdx := lastUserMessageIndex(messages)
+	for i, message := range messages {
+		isHistorical := lastUserIdx >= 0 && i < lastUserIdx
+		appendStreamRequestMessage(&req, message, isHistorical)
 	}
 	return req
 }
@@ -80,7 +114,7 @@ func ToStreamRequest(transcript pi.TranscriptContext, modelID string, opts pi.St
 // (SystemPrompt/Tools for SystemMessage; Messages otherwise). Split out of
 // ToStreamRequest so the orchestrator stays small and the per-message
 // branches read independently.
-func appendStreamRequestMessage(req *backend.StreamRequest, message pi.Message) {
+func appendStreamRequestMessage(req *backend.StreamRequest, message pi.Message, isHistorical bool) {
 	switch m := message.(type) {
 	case pi.SystemMessage:
 		if text := systemText(m); text != "" {
@@ -97,6 +131,9 @@ func appendStreamRequestMessage(req *backend.StreamRequest, message pi.Message) 
 		req.Messages = append(req.Messages, buildStreamRequestAssistant(m))
 	case pi.ToolResultMessage:
 		text := toolResultText(m)
+		if isHistorical && len(text) > maxHistoricalToolResultChars {
+			text = truncateHistoricalToolResult(text)
+		}
 		req.Messages = append(req.Messages, backend.Message{
 			Role:       "tool",
 			Content:    text,

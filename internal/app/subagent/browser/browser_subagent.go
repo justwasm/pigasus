@@ -64,12 +64,10 @@ import (
 	piagent "github.com/MichaelKinsy/PiG/agent"
 
 	"github.com/justwasm/pigasus/internal/piagentbridge"
-	"github.com/justwasm/pigasus/internal/subagenttools"
-	"github.com/justwasm/pigasus/internal/tools"
+	"github.com/justwasm/pigasus/internal/app/subagenttools"
+	"github.com/justwasm/pigasus/internal/app/tools"
 )
 
-// ToolName is the advertised name of the tool.
-const ToolName = "browser_subagent"
 
 // PromptLead is the reference's own opening sentence for the browser agent
 // (【strings】 the literal at 0x1035588eb).

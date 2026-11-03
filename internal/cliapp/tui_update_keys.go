@@ -5,12 +5,64 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/justwasm/pigasus/internal/convstore"
-	"github.com/justwasm/pigasus/internal/keybind"
-	"github.com/justwasm/pigasus/internal/tuilib"
+	"github.com/justwasm/pigasus/internal/core/compaction"
+	"github.com/justwasm/pigasus/internal/ui/panelregistry"
+	"github.com/justwasm/pigasus/internal/ui/tuilib"
+	"github.com/justwasm/pigasus/internal/ui/editor/keybind"
+	"github.com/justwasm/pigasus/vim"
 )
 
+func (m *runMode) dispatchKeyAction(action string) (tea.Model, tea.Cmd, bool) {
+	switch action {
+	case "cli.clear_screen":
+		if !m.resumePicker.Active() {
+			m.scroll = 0
+			return m, tea.ClearScreen, true
+		}
+	case "cli.exit":
+		return m, tea.Quit, true
+	case "edit.open_editor":
+		if !m.resumePicker.Active() && m.panel.kind == panelregistry.None {
+			return m, m.editPromptCmd(), true
+		}
+	case "view.review_artifact":
+		if !m.resumePicker.Active() && m.panel.kind == panelregistry.None {
+			if m.openSlashPanel("artifact") {
+				return m, nil, true
+			}
+		}
+	case "view.toggle_trajectory":
+		if !m.resumePicker.Active() {
+			if len(m.pendingMedia) > 0 {
+				m.mediaExpanded = !m.mediaExpanded
+				return m, nil, true
+			}
+			m.toggleTrajectoryExpanded()
+			return m, tea.ClearScreen, true
+		}
+	case "subagent.jump_to_waiting":
+		if !m.resumePicker.Active() {
+			m.subAgentQuestionPanel.Toggle()
+			return m, nil, true
+		}
+	case "voice.start_dictation":
+		if !m.resumePicker.Active() && !m.voiceSurface.Active() && m.panel.kind == panelregistry.None {
+			return m, m.voiceSurface.Start("keybind"), true
+		}
+	case "cli.cycle_mode":
+		return m, m.toggleQueueMode(), true
+	}
+	return m, nil, false
+}
+
 func (m *runMode) handleGlobalOrModalKeys(key tea.Key) (tea.Model, tea.Cmd, bool) {
+	if m.keybindings != nil {
+		if act := m.keybindings.ActionForKey(key); act != "" {
+			if model, cmd, handled := m.dispatchKeyAction(act); handled {
+				return model, cmd, true
+			}
+		}
+	}
 	if r, ok := keybind.IsAltLetter(key); ok {
 		if m.keybindings != nil {
 			if action, ok := m.keybindings.LookupAltLetter(r); ok {
@@ -22,249 +74,228 @@ func (m *runMode) handleGlobalOrModalKeys(key tea.Key) (tea.Model, tea.Cmd, bool
 			return m, m.toggleQueueMode(), true
 		}
 		if r == 'j' {
-			if len(m.getActiveItems()) > 0 {
+			if m.activeItems.Count() > 0 {
 				m.activeItems.SetFocus(!m.activeItems.Focused())
 				return m, nil, true
 			}
 		}
 	}
-	if m.voiceMode {
-		if handled, cmd := m.handleVoiceKey(key); handled {
+	if m.voiceSurface.Active() {
+		if handled, cmd := m.voiceSurface.HandleKey(key); handled {
 			return m, cmd, true
 		}
 	}
-	if listPanelKind(m.panel.kind) || detailPanelKind(m.panel.kind) {
+	if listPanelKind(m.panel.kind) {
 		if handled, cmd := m.handlePanelKey(key); handled {
 			return m, cmd, true
 		}
 	}
-	if key.Code == 'l' && key.Mod.Contains(tea.ModCtrl) && !m.resumeMode {
+	if key.Code == 'l' && key.Mod.Contains(tea.ModCtrl) && !m.resumePicker.Active() {
 		m.scroll = 0
 		return m, tea.ClearScreen, true
 	}
-	if key.Code == 'o' && key.Mod.Contains(tea.ModCtrl) && !m.resumeMode {
-		m.expanded = !m.expanded
-		m.rerenderBlocks()
-		m.rerenderLiveSteps()
-		return m, nil, true
+	if key.Code == 'o' && key.Mod.Contains(tea.ModCtrl) && !m.resumePicker.Active() {
+		if m.panel.kind == panelregistry.Diff {
+			// Cycle 381: the /diff panel owns the fold state, so the
+			// toggle is the panel's.
+			if m.diffPanel().View() != 0 {
+				m.diffPanel().ToggleFoldAtCursor()
+			}
+			return m, nil, true
+		}
+		if m.panel.kind != panelregistry.None {
+			return m, nil, false
+		}
+		if len(m.pendingMedia) > 0 {
+			m.mediaExpanded = !m.mediaExpanded
+			return m, nil, true
+		}
+		m.toggleTrajectoryExpanded()
+		return m, tea.ClearScreen, true
 	}
-	if key.Code == 'g' && key.Mod.Contains(tea.ModCtrl) && !m.resumeMode {
+	if key.Code == 'r' && key.Mod.Contains(tea.ModCtrl) && !m.resumePicker.Active() {
+		// Cycle 383 (A-22): the reference binds Ctrl+R to
+		// `view.review_artifact` — it opens the Artifact Review panel
+		// (official-docs/cli/reference.md:81). The clone's own /help
+		// advertised the binding without implementing it.
+		//
+		// The binding belongs to the prompt, so an open panel keeps
+		// the key: the reference's table lists Ctrl+R under the
+		// prompt-focus keys.
+		if m.panel.kind != panelregistry.None {
+			return m, nil, false
+		}
+		if m.openSlashPanel("artifact") {
+			return m, nil, true
+		}
+		return m, nil, false
+	}
+	if key.Code == 'g' && key.Mod.Contains(tea.ModCtrl) && !m.resumePicker.Active() {
+		if m.panel.kind == panelregistry.Permissions {
+			// Cycle 383 (A-30): the /permissions panel owns Ctrl+G —
+			// it is the edit alias of `e`
+			// (official-docs/cli/commands/permissions.md:41). The
+			// host's Ctrl+G (open the prompt in $EDITOR) must not
+			// swallow it first.
+			if handled, cmd := m.permissionsPanel().HandleKey(key); handled {
+				return m, cmd, true
+			}
+			// The panel is up but did not take the key (the scope
+			// picker and the form do not edit a rule): the key is
+			// swallowed rather than opening the editor over the
+			// panel.
+			return m, nil, true
+		}
 		return m, m.editPromptCmd(), true
 	}
-	if key.Code == 'k' && key.Mod.Contains(tea.ModCtrl) && !m.resumeMode {
-		return m, m.openSubAgentQuestionPicker(), true
+	if key.Code == 'k' && key.Mod.Contains(tea.ModCtrl) && !m.resumePicker.Active() {
+		m.subAgentQuestionPanel.Toggle()
+		return m, nil, true
 	}
 	return m, nil, false
 }
 
+// composerInVimInsert reports whether the composer is in the vim
+// engine's INSERT mode.
+//
+// The engine owns the mode (cycle 216), so the host asks it: in INSERT
+// mode a `?` is a character of the buffer, and in NORMAL mode it is the
+// shortcuts-overlay key (official-docs/cli/vim-editor-mode.md:73).
+//
+// Nothing is built when vim is off — the engine must not exist then
+// (cycle 381, tranche 58) — and when vim is on the engine is seeded on
+// demand exactly as the key path seeds it, so a fresh engine already
+// answers the question ("Insert First" decides the first mode).
+func (m *runMode) composerInVimInsert() bool {
+	return m.vimEnabled() && m.vimMode() == vim.Insert
+}
+
 func (m *runMode) handleFunctionAndModeKeys(key tea.Key) (tea.Model, tea.Cmd, bool) {
-	if key.Code == '?' && key.Mod == 0 && m.input.Value() == "" &&
-		!m.helpMode && !m.picker.Visible() && !m.resumeMode {
-		m.helpMode = true
-		m.helpTab = 2 // shortcuts
-		m.helpWindow = 0
-		m.helpCursor = 0
-		m.input.Reset()
-		m.clearInputSelection()
-		m.historyIdx = 0
-		m.historyEdit = ""
+	// Cycle 383 (B-22): `?` opens the shortcuts overlay whether the
+	// composer holds text or not. The reference's own quick-tips table
+	// says "Type `?` to get help and list all slash commands"
+	// (official-docs/cli/using.md:24), and the editor-mode guide says
+	// the same for the vim surface: "Press `?` in NORMAL mode to open the
+	// shortcuts overlay" (official-docs/cli/vim-editor-mode.md:73).
+	//
+	// The one exception is the vim engine's INSERT mode, where `?` is a
+	// character of the buffer. The engine owns that mode, so the host
+	// asks it (composerInVimInsert) instead of guessing from the text.
+	//
+	// The composer keeps its text: the overlay is a view over the
+	// session, and the draft the user typed is theirs.
+	if key.Code == '?' && key.Mod == 0 && !m.composerInVimInsert() &&
+		!m.helpPanel.Active() && !m.picker.Visible() && !m.resumePicker.Active() {
+		m.helpPanel.Open(2) // shortcuts
+		m.store.ResetInputSelection()
+		m.promptHistory.Reset()
 		return m, nil, true
 	}
-	if key.Code == '!' && key.Mod == 0 && m.input.Value() == "" && !m.bashMode &&
-		!m.helpMode && !m.picker.Visible() && !m.resumeMode && m.panel.kind == panelNone {
-		m.bashMode = true
+	// In vim mode the "!" belongs to the engine: the reference's
+	// NORMAL-mode "!" inserts the character and switches to INSERT mode
+	// (official-docs/cli/vim-editor-mode.md), so the shell command is
+	// typed into the buffer and the submit path runs it. Arming the
+	// bash mode here would swallow the character before the engine ever
+	// saw it.
+	if key.Code == '!' && key.Mod == 0 && m.input.Value() == "" && !m.store.BashMode &&
+		!m.helpPanel.Active() && !m.picker.Visible() && !m.resumePicker.Active() && m.panel.kind == panelregistry.None &&
+		!m.vimEnabled() {
+		m.store.BashMode = true
 		return m, nil, true
 	}
-	if key.Code == tea.KeyBackspace && m.bashMode && m.input.Value() == "" {
-		m.bashMode = false
+	if key.Code == tea.KeyBackspace && m.store.BashMode && m.input.Value() == "" {
+		m.store.BashMode = false
 		return m, nil, true
 	}
-	if key.Code == tea.KeyF2 && !m.resumeMode && !m.helpMode && m.panel.kind == panelNone && !m.picker.Visible() {
+	if key.Code == tea.KeyBackspace && m.input.Value() == "" && len(m.pendingMedia) > 0 {
+		m.pendingMedia = m.pendingMedia[:len(m.pendingMedia)-1]
+		if len(m.pendingMedia) == 0 {
+			m.mediaExpanded = false
+		}
+		return m, nil, true
+	}
+	if key.Code == tea.KeyF2 && !m.resumePicker.Active() && !m.helpPanel.Active() && m.panel.kind == panelregistry.None && !m.picker.Visible() {
 		m.openRenamePanel()
 		return m, nil, true
 	}
-	if key.Code == tea.KeyF5 && !m.resumeMode && !m.helpMode && m.panel.kind == panelNone && !m.picker.Visible() && !m.voiceMode {
-		return m, m.startVoiceDictation("f5"), true
+	if key.Code == tea.KeyF5 && !m.resumePicker.Active() && !m.helpPanel.Active() && m.panel.kind == panelregistry.None && !m.picker.Visible() && !m.voiceSurface.Active() {
+		return m, m.voiceSurface.Start("f5"), true
 	}
-	if m.panel.kind != panelNone {
+	if m.panel.kind != panelregistry.None {
 		if handled, cmd := m.handlePanelKey(key); handled {
 			return m, cmd, true
 		}
 	}
-	if !m.helpMode && !m.picker.Visible() && !m.resumeMode && m.handleScrollKey(key) {
+	if !m.helpPanel.Active() && !m.picker.Visible() && !m.resumePicker.Active() && m.handleScrollKey(key) {
 		return m, nil, true
 	}
 	return m, nil, false
 }
 
-func (m *runMode) handleResumeDeleteOrRename(key tea.Key, rows []convstore.ConversationMeta, total int) (tea.Model, tea.Cmd, bool) {
-	if key.Code == tea.KeyF4 {
-		if m.resumeTab == 0 && total > 0 && m.resumeCursor >= 0 && m.resumeCursor < total {
-			picked := rows[m.resumeCursor]
-			if picked.ID != "" {
-				_ = convstore.DeleteConversation(picked.ID)
-				m.reloadResumeList()
-				rows = m.resumeFiltered()
-				total = len(rows)
-				if m.resumeCursor >= total && total > 0 {
-					m.resumeCursor = total - 1
-				}
-				if m.resumeWindow > m.resumeCursor {
-					m.resumeWindow = m.resumeCursor
-				}
-			}
-			return m, nil, true
-		}
-	}
-	if key.Code == tea.KeyF2 {
-		if m.resumeTab == 0 && total > 0 && m.resumeCursor >= 0 && m.resumeCursor < total {
-			picked := rows[m.resumeCursor]
-			m.resumeMode = false
-			m.resumeList = nil
-			m.conversationName = picked.Title
-			m.openRenamePanel()
-			return m, nil, true
-		}
-	}
-	return m, nil, false
-}
-
-func (m *runMode) handleResumeNav(key tea.Key, total int) bool {
-	switch key.Code {
-	case tea.KeyUp:
-		m.resumeListUp(total)
-		return true
-	case tea.KeyDown:
-		m.resumeListDown(total)
-		return true
-	case tea.KeyRight:
-		m.resumeListPage(total, 1)
-		return true
-	case tea.KeyLeft:
-		m.resumeListPage(total, -1)
-		return true
-	case tea.KeyTab:
-		m.resumeTab = (m.resumeTab + 1) % 2
-		m.resumeWindow, m.resumeCursor = 0, 0
-		return true
-	}
-	return false
-}
-
-func (m *runMode) handleResumeActionKeys(key tea.Key, rows []convstore.ConversationMeta, total int) (tea.Model, tea.Cmd, bool) {
-	switch key.Code {
-	case tea.KeyEsc:
-		if m.resumeQuery != "" {
-			m.resumeQuery = ""
-			m.resumeWindow, m.resumeCursor = 0, 0
-			return m, nil, true
-		}
-		m.closeResumePicker()
-		return m, nil, true
-	case tea.KeyEnter:
-		if total == 0 || m.resumeTab != 0 || m.resumeCursor < 0 || m.resumeCursor >= total {
-			m.closeResumePicker()
-			return m, nil, true
-		}
-		picked := rows[m.resumeCursor]
-		m.closeResumePicker()
-		return m, m.resumeConversation(picked), true
-	case tea.KeyBackspace:
-		if m.resumeQuery != "" {
-			r := []rune(m.resumeQuery)
-			m.resumeQuery = string(r[:len(r)-1])
-			m.resumeWindow, m.resumeCursor = 0, 0
-			m.resumeCursorOn = true
-			return m, resumeBlink(), true
-		}
-		return m, nil, true
-	}
-	return m, nil, false
-}
-
-func (m *runMode) closeResumePicker() {
-	m.resumeMode = false
-	m.resumeList = nil
-	m.resumeCursor, m.resumeWindow, m.resumeTab = 0, 0, 0
-}
-
+// handleResumeModeKeys hands a key to the /resume picker.
+//
+// The picker owns its own state — the list, the cursor, the search query
+// and the tree — so the host only routes the key and carries the picker's
+// command back.
 func (m *runMode) handleResumeModeKeys(key tea.Key) (tea.Model, tea.Cmd, bool) {
-	if !m.resumeMode {
+	if !m.resumePicker.Active() {
 		return m, nil, false
 	}
-	if m.resumeTreeActive() {
-		return m.handleResumeTreeKeys(key)
-	}
-	rows := m.resumeFiltered()
-	total := len(rows)
-	if key.Code == 'f' && key.Mod.Contains(tea.ModCtrl) {
-		m.toggleResumeGrouped()
-		return m, nil, true
-	}
-	if m.handleResumeNav(key, total) {
-		return m, nil, true
-	}
-	if mod, cmd, handled := m.handleResumeActionKeys(key, rows, total); handled {
-		return mod, cmd, true
-	}
-	if mod, cmd, handled := m.handleResumeDeleteOrRename(key, rows, total); handled {
-		return mod, cmd, true
-	}
-	if key.Code == 'u' && key.Mod.Contains(tea.ModCtrl) {
-		m.resumeQuery = ""
-		m.resumeWindow, m.resumeCursor = 0, 0
-		return m, nil, true
-	}
-	if keybind.IsTypedText(key) {
-		m.resumeQuery += key.Text
-		m.resumeWindow, m.resumeCursor = 0, 0
-		m.resumeCursorOn = true
-		return m, resumeBlink(), true
-	}
-	return m, nil, true
-}
-
-func (m *runMode) handleEscInputAndAnnouncements() bool {
-	if m.hasInputSelection() {
-		m.clearInputSelection()
-		return true
-	}
-	if m.input.Value() != "" {
-		m.input.Reset()
-		m.clearInputSelection()
-		m.bashMode = false
-		return true
-	}
-	if m.bashMode {
-		m.bashMode = false
-		return true
-	}
-	if m.activeAnnouncement() != nil {
-		m.dismissCurrentAnnouncement()
-		if msg := m.announcementSaveErrorMessage(); msg != "" {
-			m.response = append(m.response, msg)
-		}
-		return true
-	}
-	if m.isBtwCardVisible() {
-		m.DismissBtwResponse()
-		return true
-	}
-	return false
+	return m, m.resumePicker.HandleKey(key, m.height), true
 }
 
 func (m *runMode) handleEscKeyMsg() (tea.Model, tea.Cmd) {
-	if m.helpMode {
-		m.helpMode = false
-		m.response = append(m.response, slashEchoLines("/help", "Exited /help command")...)
+	if m.exitConfirm {
+		m.exitConfirm = false
+	}
+
+	// Cycle 383 (B-21): the reference clears the prompt box on `esc esc`
+	// — "Type `esc esc` to clear your prompt box (when no streaming is
+	// active)" (official-docs/cli/using.md:22). The first Esc arms the
+	// clear and the second one performs it.
+	//
+	// An Esc that ends up somewhere else — closing an overlay, cancelling
+	// a turn, dismissing a card — is never the second half of the pair,
+	// so the arming is dropped here and only the composer branch
+	// re-arms it. The armed value is the composer content the pair was
+	// armed on, so a composer that changed in the meantime (a submit, a
+	// history recall) is not the one the user armed.
+	armed := m.escArmedFor
+	m.escArmedFor = ""
+
+	// Priority 1: Modals, overlays, pickers, and side-question cards
+	if m.helpPanel.Active() {
+		m.helpPanel.Cancel()
 		return m, nil
 	}
-	if m.picker.Visible() {
-		m.picker.Reset()
+	if m.picker.Cancel() {
 		return m, nil
 	}
-	if m.atFileDropdown.Visible() {
-		m.atFileDropdown.Reset()
+	if m.atFilePicker.Visible() {
+		m.atFilePicker.Reset()
+		return m, nil
+	}
+	if m.panel.kind != panelregistry.None {
+		if handled, cmd := m.handlePanelKey(tea.Key{Code: tea.KeyEsc}); handled {
+			return m, cmd
+		}
+		return m, m.closePanel()
+	}
+	if m.resumePicker.Active() {
+		return m, m.resumePicker.HandleKey(tea.Key{Code: tea.KeyEsc}, m.height)
+	}
+	if m.mediaExpanded {
+		m.mediaExpanded = false
+		return m, nil
+	}
+	if m.isBtwCardVisible() {
+		m.DismissBtwResponse()
+		return m, nil
+	}
+
+	// Priority 2: Execution cancellation (in-flight bash command or streaming turn)
+	if m.store.BashCancel != nil {
+		m.cancelBashCommand()
 		return m, nil
 	}
 	if m.streaming && m.turnCancel != nil {
@@ -276,12 +307,41 @@ func (m *runMode) handleEscKeyMsg() (tea.Model, tea.Cmd) {
 		m.turnInterrupted = true
 		return m, nil
 	}
-	if m.bashCancel != nil {
-		m.cancelBashCommand()
+
+	// Priority 3: Composer input editing state (selection, draft text)
+	compaction.TriggerCancel()
+	if m.hasInputSelection() {
+		m.store.ResetInputSelection()
 		return m, nil
 	}
-	TriggerCompactCancel()
-	m.handleEscInputAndAnnouncements()
+	if m.store.BashMode {
+		m.store.BashMode = false
+		if m.input.Value() == "" {
+			return m, nil
+		}
+	}
+	if m.input.Value() != "" {
+		// Cycle 383 (B-21): the first Esc of the pair only arms the
+		// clear; the second one empties the composer.
+		if armed != m.input.Value() {
+			m.escArmedFor = m.input.Value()
+			return m, nil
+		}
+		m.input.Reset()
+		m.store.ResetInputSelection()
+		m.store.BashMode = false
+		return m, nil
+	}
+
+	// Priority 4: Background announcement cards (dismissed on empty prompt when not streaming)
+	if m.announceQueue.Active() != nil {
+		m.announceQueue.Dismiss()
+		if msg := m.announceQueue.SaveErrorMessage(); msg != "" {
+			m.response = append(m.response, msg)
+		}
+		return m, nil
+	}
+
 	return m, nil
 }
 
@@ -289,23 +349,17 @@ func (m *runMode) handleTabCompletion(key tea.Key) bool {
 	if key.Code != tea.KeyTab || key.Mod.Contains(tea.ModShift) {
 		return false
 	}
-	if m.picker.Selected() != nil {
-		// commitPickerSelectionToBuffer knows the two popup modes: the
-		// command rows replace the buffer with the command name, the
-		// "/model <query>" rows complete the argument (the command stays,
-		// the display label is appended) and close the popup.
-		if m.commitPickerSelectionToBuffer() {
-			m.historyIdx = 0
-			m.historyEdit = ""
-			return true
-		}
+	// The popup owns Tab: the command rows replace the buffer with the
+	// command name, the "/model <query>" rows complete the argument
+	// (the command stays, the display label is appended) and close the
+	// popup.
+	if m.picker.HandleKey(key) {
+		m.promptHistory.Reset()
+		return true
 	}
-	if m.atFileDropdown.Visible() && m.atFileDropdown.Selected() != "" {
-		if m.tabSpliceAtFile(true) {
-			m.historyIdx = 0
-			m.historyEdit = ""
-			return true
-		}
+	if m.atFilePicker.HandleKey(key) {
+		m.promptHistory.Reset()
+		return true
 	}
 	return false
 }
@@ -316,7 +370,7 @@ func (m *runMode) handleCtrlAndTabKeys(key tea.Key) (tea.Model, tea.Cmd, bool) {
 		// exit confirmation with the same press (【一手】: the block
 		// finalises with no body while "press ctrl+c again to exit"
 		// appears). The clone used to only arm the confirmation.
-		if m.bashCancel != nil {
+		if m.store.BashCancel != nil {
 			m.cancelBashCommand()
 		}
 		if m.exitConfirm {
@@ -331,9 +385,9 @@ func (m *runMode) handleCtrlAndTabKeys(key tea.Key) (tea.Model, tea.Cmd, bool) {
 		if m.hasInputSelection() {
 			m.deleteInputSelection()
 			m.modeHintDismissed = true
-			m.picker.Update([]rune(firstLine(m.input.Value())))
+			m.picker.Update([]rune(tuilib.FirstLine(m.input.Value())))
 			m.clearEligibilityNotice()
-			m.atFileDropdown.Update(m.input.Value(), m.cwd)
+			m.atFilePicker.Update()
 			return m, nil, true
 		}
 		if m.input.Value() == "" {
@@ -342,11 +396,11 @@ func (m *runMode) handleCtrlAndTabKeys(key tea.Key) (tea.Model, tea.Cmd, bool) {
 		}
 	}
 	if key.Code == 'a' && key.Mod == 0 && m.input.Value() == "" &&
-		!m.helpMode && !m.picker.Visible() && !m.resumeMode &&
-		m.panel.kind == panelNone &&
-		m.subAgentQuestions != nil &&
-		m.subAgentQuestions.PendingCount(m.subAgentQuestionsActive) > 0 {
-		return m, m.openSubAgentQuestionPicker(), true
+		!m.helpPanel.Active() && !m.picker.Visible() && !m.resumePicker.Active() &&
+		m.panel.kind == panelregistry.None &&
+		m.subAgentQuestionPanel.PendingCount() > 0 {
+		m.subAgentQuestionPanel.Toggle()
+		return m, nil, true
 	}
 	if m.exitConfirm {
 		m.exitConfirm = false
@@ -357,41 +411,13 @@ func (m *runMode) handleCtrlAndTabKeys(key tea.Key) (tea.Model, tea.Cmd, bool) {
 	return m, nil, false
 }
 
+// handleHelpModeNavigation hands a key to the /help overlay.
+//
+// The overlay owns its own state — the tab, the cursor and the window
+// — so the host only routes the key and carries the panel's answer.
 func (m *runMode) handleHelpModeNavigation(key tea.Key) (tea.Model, tea.Cmd, bool) {
-	if !m.helpMode {
+	if !m.helpPanel.HandleKey(key) {
 		return m, nil, false
-	}
-	switch tuilib.ClassifyListNavKey(key) {
-	case tuilib.NavRight:
-		m.helpTab = (m.helpTab + 1) % len(helpTabs(m))
-		m.helpWindow, m.helpCursor = 0, 0
-		return m, nil, true
-	case tuilib.NavLeft:
-		n := len(helpTabs(m))
-		m.helpTab = (m.helpTab + n - 1) % n
-		m.helpWindow, m.helpCursor = 0, 0
-		return m, nil, true
-	case tuilib.NavUp:
-		m.helpListUp(helpListLen(m.helpTab))
-		return m, nil, true
-	case tuilib.NavDown:
-		m.helpListDown(helpListLen(m.helpTab))
-		return m, nil, true
-	case tuilib.NavTop:
-		m.helpListHome()
-		return m, nil, true
-	case tuilib.NavBottom:
-		m.helpListEnd(helpListLen(m.helpTab))
-		return m, nil, true
-	case tuilib.NavCancel:
-		m.helpMode = false
-		m.response = append(m.response, slashEchoLines("/help", "Exited /help command")...)
-		return m, nil, true
-	}
-	if key.Code == tea.KeyTab {
-		m.helpTab = (m.helpTab + 1) % len(helpTabs(m))
-		m.helpWindow, m.helpCursor = 0, 0
-		return m, nil, true
 	}
 	return m, nil, true
 }
@@ -404,6 +430,13 @@ func (m *runMode) updateKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	msg = newMsg
 	key := msg.Key()
 
+	// Cycle 383 (B-21): the `esc esc` pair is broken by any other key —
+	// the first Esc arms the clear, and only a second Esc that follows
+	// it empties the composer.
+	if key.Code != tea.KeyEsc {
+		m.escArmedFor = ""
+	}
+
 	if mod, cmd, handled := m.handleGlobalOrModalKeys(key); handled {
 		return mod, cmd
 	}
@@ -413,15 +446,17 @@ func (m *runMode) updateKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if mod, cmd, handled := m.handleResumeModeKeys(key); handled {
 		return mod, cmd
 	}
-	if m.activeItems.Focused() {
-		if handled, cmd := m.handleActiveItemsKey(key); handled {
-			return m, cmd
-		}
+	if handled, cmd := m.activeItems.HandleKey(key); handled {
+		return m, cmd
 	}
-	if m.subAgentQuestionPickerOpen {
-		return m, m.handleSubAgentQuestionPickerKey(key)
+	// The question picker is modal: it claims every key while it is
+	// open, so nothing reaches the vim, Esc or Ctrl handlers.
+	if m.subAgentQuestionPanel.HandleKey(key) {
+		return m, nil
 	}
-	if m.vimEnabled() && !m.helpMode && !m.picker.Visible() && !m.resumeMode && m.panel.kind == panelNone {
+	if m.vimEnabled() && !m.helpPanel.Active() && !m.picker.Visible() && !m.resumePicker.Active() &&
+		!m.isBtwCardVisible() && m.announceQueue.Active() == nil && !m.mediaExpanded &&
+		m.panel.kind == panelregistry.None {
 		if cmd, handled := m.handleVimKey(key); handled {
 			m.exitConfirm = false
 			return m, cmd
@@ -440,7 +475,7 @@ func (m *runMode) updateKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.cycleMode()
 		return m, nil
 	}
-	if key.Code == tea.KeyTab && !key.Mod.Contains(tea.ModShift) && m.isBtwCardVisible() && !m.picker.Visible() && !m.atFileDropdown.Visible() {
+	if key.Code == tea.KeyTab && !key.Mod.Contains(tea.ModShift) && m.isBtwCardVisible() && !m.picker.Visible() && !m.atFilePicker.Visible() {
 		m.ToggleBtwExpanded()
 		return m, nil
 	}

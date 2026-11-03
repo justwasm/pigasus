@@ -17,7 +17,7 @@ import (
 
 	"github.com/MichaelKinsy/PiG/coding"
 
-	"github.com/justwasm/pigasus/internal/subagenttools"
+	"github.com/justwasm/pigasus/internal/app/subagenttools"
 )
 
 func main() {

@@ -636,5 +636,76 @@ func TestResolveThinkingConfig(t *testing.T) {
 	}
 }
 
+func TestReconcileThoughtSignatures_Claude(t *testing.T) {
+	// In Claude responses, agy places the thinking signature onto a subsequent
+	// functionCall part. ReconcileThoughtSignatures must copy it back to thought: true,
+	// and MUST NOT inject SkipThoughtSignature on other function calls.
+	contents := []Content{
+		{
+			Role: "model",
+			Parts: []Part{
+				{
+					Text:    "Thinking trace here...",
+					Thought: true,
+				},
+				{
+					ThoughtSignature: "genuine_anthropic_sig_xyz",
+					FunctionCall:     &FunctionCall{ID: "call_1", Name: "run_command"},
+				},
+				{
+					FunctionCall: &FunctionCall{ID: "call_2", Name: "run_command"},
+				},
+			},
+		},
+	}
+
+	mod := ReconcileThoughtSignatures("claude-sonnet-4-6", contents)
+	if !mod {
+		t.Fatalf("expected modified = true")
+	}
+	if contents[0].Parts[0].ThoughtSignature != "genuine_anthropic_sig_xyz" {
+		t.Errorf("thought part signature = %q, want 'genuine_anthropic_sig_xyz'", contents[0].Parts[0].ThoughtSignature)
+	}
+	if contents[0].Parts[1].ThoughtSignature != "genuine_anthropic_sig_xyz" {
+		t.Errorf("call_1 signature = %q, want 'genuine_anthropic_sig_xyz'", contents[0].Parts[1].ThoughtSignature)
+	}
+	if contents[0].Parts[2].ThoughtSignature != "" {
+		t.Errorf("call_2 signature = %q, want empty (SkipThoughtSignature must not be injected for Claude)", contents[0].Parts[2].ThoughtSignature)
+	}
+}
+
+func TestReconcileThoughtSignatures_Gemini(t *testing.T) {
+	// For Gemini, missing signatures on FunctionCall are filled with genuineSig or SkipThoughtSignature.
+	contents := []Content{
+		{
+			Role: "model",
+			Parts: []Part{
+				{
+					Text:    "Gemini thinking...",
+					Thought: true,
+				},
+				{
+					ThoughtSignature: "gemini_real_sig",
+					FunctionCall:     &FunctionCall{ID: "call_1", Name: "run_command"},
+				},
+				{
+					FunctionCall: &FunctionCall{ID: "call_2", Name: "view_file"},
+				},
+			},
+		},
+	}
+
+	mod := ReconcileThoughtSignatures("gemini-3.8-flash", contents)
+	if !mod {
+		t.Fatalf("expected modified = true")
+	}
+	if contents[0].Parts[0].ThoughtSignature != "gemini_real_sig" {
+		t.Errorf("thought signature = %q, want 'gemini_real_sig'", contents[0].Parts[0].ThoughtSignature)
+	}
+	if contents[0].Parts[2].ThoughtSignature != SkipThoughtSignature {
+		t.Errorf("call_2 signature = %q, want %q", contents[0].Parts[2].ThoughtSignature, SkipThoughtSignature)
+	}
+}
+
 
 

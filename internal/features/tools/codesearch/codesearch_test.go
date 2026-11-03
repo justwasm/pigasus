@@ -42,14 +42,36 @@ var parseArgsTestCases = []parseArgsTestCase{
 		wantInc:   []string{"*.go"},
 	},
 	{
-		name:      "exclude-glob",
+		// The reference's three spellings are the same filter:
+		// `f:` (aliases `file:` and `path:`)
+		// (official-docs/cli/commands/codesearch.md:54).
+		name:      "file-alias-is-an-include",
 		args:      "TODO file:*_test.go",
+		wantQuery: "TODO",
+		wantInc:   []string{"*_test.go"},
+	},
+	{
+		name:      "path-alias-is-an-include",
+		args:      "TODO path:*_test.go",
+		wantQuery: "TODO",
+		wantInc:   []string{"*_test.go"},
+	},
+	{
+		// A leading "-" on the filter excludes instead.
+		name:      "exclude-glob",
+		args:      "TODO -f:*_test.go",
+		wantQuery: "TODO",
+		wantExc:   []string{"*_test.go"},
+	},
+	{
+		name:      "exclude-glob-on-the-file-alias",
+		args:      "TODO -file:*_test.go",
 		wantQuery: "TODO",
 		wantExc:   []string{"*_test.go"},
 	},
 	{
 		name:      "include-and-exclude",
-		args:      "TODO f:*.go file:*_test.go file:*.pb.go",
+		args:      "TODO f:*.go -file:*_test.go -file:*.pb.go",
 		wantQuery: "TODO",
 		wantInc:   []string{"*.go"},
 		wantExc:   []string{"*_test.go", "*.pb.go"},
@@ -102,8 +124,9 @@ func checkParseArgsCase(t *testing.T, tc parseArgsTestCase) {
 }
 
 // TestParseArgs locks the cycle-228 argument contract: -F and --literal
-// are recognised flags, -- terminates the flag list, f:<glob> and
-// file:<glob> are repeatable include / exclude flags, and an empty
+// are recognised flags, -- terminates the flag list, f:<glob> (with the
+// aliases file:<glob> and path:<glob>) is a repeatable include flag, a
+// leading "-" on the filter makes it an exclude flag, and an empty
 // pattern tail yields ErrEmptyQuery.
 func TestParseArgs(t *testing.T) {
 	for _, tc := range parseArgsTestCases {

@@ -73,9 +73,9 @@ func TestVisualCaseUndo(t *testing.T) {
 
 func TestNormalCaseToggle(t *testing.T) {
 	s := newWith(t, "hello")
-	feed(t, s, "3~")
-	checkText(t, s, "HELlo")
-	checkCursor(t, s, 0, 3)
+	feed(t, s, "~")
+	checkText(t, s, "Hello")
+	checkCursor(t, s, 0, 1)
 }
 
 func TestNormalCaseToggleMultiLine(t *testing.T) {
@@ -99,10 +99,10 @@ func TestVisualCharwiseAcrossLines(t *testing.T) {
 
 func TestLinewiseRangeText(t *testing.T) {
 	s := newWith(t, "aa\nbb\ncc")
-	feed(t, s, "2dd")
-	checkText(t, s, "cc")
-	if s.register != "aa\nbb\n" {
-		t.Fatalf("register = %q, want %q", s.register, "aa\nbb\n")
+	feed(t, s, "dd")
+	checkText(t, s, "bb\ncc")
+	if s.register != "aa\n" {
+		t.Fatalf("register = %q, want %q", s.register, "aa\n")
 	}
 }
 

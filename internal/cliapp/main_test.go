@@ -1,10 +1,13 @@
 package cliapp
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
+
+	persistentrc "github.com/justwasm/pigasus/internal/infra/remote/persistent"
 )
 
 // TestMain points $ANTIGRAVITY_HOME at a scratch tree for the whole
@@ -58,6 +61,21 @@ func TestMain(m *testing.M) {
 	// seasonal tests pin it inside.
 	seasonalNow = func() time.Time {
 		return time.Date(2026, time.January, 15, 12, 0, 0, 0, time.UTC)
+	}
+	// The /remote-control handler starts the background daemon
+	// through persistentrc.StartOfficialDaemon, and on macOS that
+	// call **registers a launchd agent**. The launchd label is
+	// global to the login session, so registering it from a test
+	// (whose $HOME is a temporary directory — see
+	// slashRemoteControlRunMode) does not add a second daemon: it
+	// replaces the one the user already runs, and the replacement
+	// writes its log into a directory that is deleted with the test.
+	//
+	// The user's daemon is not the subject of any test here, so the
+	// package's default is a no-op. The two tests that do care about
+	// the call replace this variable themselves.
+	persistentrc.StartOfficialDaemon = func(ctx context.Context, name string, session, desktop bool) error {
+		return nil
 	}
 	code := m.Run()
 	_ = os.RemoveAll(root)

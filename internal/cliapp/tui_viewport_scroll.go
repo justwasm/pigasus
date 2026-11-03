@@ -2,44 +2,21 @@ package cliapp
 
 import (
 	"strings"
-	"time"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/charmbracelet/x/ansi"
-	"github.com/justwasm/pigasus/internal/tuilib"
-	"github.com/justwasm/pigasus/internal/tuitools"
-	"github.com/justwasm/pigasus/internal/tuiviewport"
+	tuiviewport "github.com/justwasm/pigasus/internal/ui/foundations/viewport"
+	"github.com/justwasm/pigasus/internal/ui/tuilib"
+	"github.com/justwasm/pigasus/internal/ui/tuitools"
+	"github.com/justwasm/pigasus/palette"
 )
 
-const (
-	pinnedPromptJumpHint = tuiviewport.PinnedPromptJumpHint
-	selHighlightOpen     = tuiviewport.SelHighlightOpen
-	selHighlightClose    = tuiviewport.SelHighlightClose
-)
-
-func (m *runMode) transcriptCellAt(x, y int) (row, col int, ok bool) {
-	if y < 0 || x < 0 {
-		return 0, 0, false
-	}
-	avail := m.viewportHeight()
-	if avail <= 0 {
-		return y, x, true
-	}
-	if y >= avail || x >= m.width {
-		return 0, 0, false
-	}
-	return y, x, true
-}
-
-func (m *runMode) selectionRange() (sr, sc, er, ec int, active bool) {
-	return tuiviewport.SelectionRange(m.selStartRow, m.selStartCol, m.selEndRow, m.selEndCol, m.selDragging)
-}
+const selHighlightOpen = tuiviewport.SelHighlightOpen
 
 func (m *runMode) selectionText() string {
 	if !m.altScreen {
 		return ""
 	}
-	sr, sc, er, ec, ok := m.selectionRange()
+	sr, sc, er, ec, ok := tuiviewport.SelectionRange(m.store.SelStartRow, m.store.SelStartCol, m.store.SelEndRow, m.store.SelEndCol, m.store.SelDragging)
 	if !ok {
 		return ""
 	}
@@ -53,70 +30,49 @@ func (m *runMode) copySelectionCmd(text string) tea.Cmd {
 	return tea.SetClipboard(text)
 }
 
-func applySelectionHighlight(row string, sr, sc, er, ec, rowIdx int) string {
-	return tuiviewport.ApplySelectionHighlight(row, sr, sc, er, ec, rowIdx)
+func (m *runMode) selectionPass(rows []string) []string {
+	sr, sc, er, ec, ok := tuiviewport.SelectionRange(m.store.SelStartRow, m.store.SelStartCol, m.store.SelEndRow, m.store.SelEndCol, m.store.SelDragging)
+	return tuiviewport.SelectionPass(rows, sr, sc, er, ec, ok)
 }
 
-func (m *runMode) selectionPass(rows []string) []string {
-	sr, sc, er, ec, ok := m.selectionRange()
-	return tuiviewport.SelectionPass(rows, sr, sc, er, ec, ok)
+func (m *runMode) hasSelection() bool {
+	_, _, _, _, ok := tuiviewport.SelectionRange(m.store.SelStartRow, m.store.SelStartCol, m.store.SelEndRow, m.store.SelEndCol, m.store.SelDragging)
+	return ok || m.store.SelDragging
 }
 
 func (m *runMode) scrollBy(delta int) {
 	if delta == 0 {
 		return
 	}
-	m.autoScroll = false
+	if delta > 0 && m.autoScroll {
+		// Already parked at the bottom; continuing to scroll downwards cannot
+		// scroll past the end of the transcript. Keep autoScroll active so
+		// sticky headers never flash during downward inertia scroll.
+		return
+	}
+	oldScroll := m.scroll
+	oldAutoScroll := m.autoScroll
 	m.scroll += delta
 	if m.scroll < 0 {
 		m.scroll = 0
-	}
-}
-
-// isUserPromptRow reports whether row is a row that begins a user prompt.
-func isUserPromptRow(row string) bool {
-	return tuiviewport.IsUserPromptRow(row)
-}
-
-// stickyUserPromptRow returns the index (in the full rows array) of the
-// user-prompt row that should anchor the sticky header, or -1 if none.
-func (m *runMode) stickyUserPromptRow() int {
-	return tuiviewport.StickyUserPromptRow(m.userPromptRows, m.autoScroll, m.scroll)
-}
-
-func isPromptTurnSeparator(row string) bool {
-	stripped := strings.TrimSpace(ansi.Strip(row))
-	return len(stripped) > 0 && strings.Trim(stripped, "─") == ""
-}
-
-func (m *runMode) promptTurnStart(rows []string, promptIdx int) int {
-	if promptIdx <= 0 || promptIdx >= len(rows) {
-		return 0
-	}
-	start := promptIdx
-	for start > 0 && isPromptTurnSeparator(rows[start-1]) {
-		start--
-	}
-	if start > 0 && strings.TrimSpace(rows[start-1]) == "" {
-		start--
-	}
-	return start
-}
-
-func (m *runMode) isPromptTurnVisible(rows []string, idx int) bool {
-	if m.scroll <= idx {
-		return true
-	}
-	for _, p := range m.userPromptRows {
-		if p > idx {
-			start := m.promptTurnStart(rows, p)
-			if m.scroll >= start && m.scroll <= p {
-				return true
-			}
-			break
+		m.autoScroll = false
+	} else if m.vpRows > 0 && len(m.rowsView.Rows) > 0 {
+		maxScroll := len(m.rowsView.Rows) - m.vpRows
+		if maxScroll < 0 {
+			maxScroll = 0
 		}
+		if m.scroll >= maxScroll {
+			m.scroll = maxScroll
+			m.autoScroll = true
+		} else {
+			m.autoScroll = false
+		}
+	} else {
+		m.autoScroll = false
 	}
-	return false
+	if m.scroll != oldScroll || m.autoScroll != oldAutoScroll {
+		m.viewCacheValid = false
+	}
 }
 
 // jumpToPinnedPrompt scrolls the viewport so the producing user-prompt row lands at top.
@@ -126,57 +82,50 @@ func (m *runMode) jumpToPinnedPrompt() bool {
 	}
 	m.autoScroll = false
 	rows, _, _ := m.syncRowsView()
-	m.scroll = m.promptTurnStart(rows, m.pinnedPromptRowIdx)
+	m.scroll = tuiviewport.PromptTurnStart(rows, m.pinnedPromptRowIdx)
+	m.viewCacheValid = false
 	return true
-}
-
-// renderPinnedPrompt wraps the producing user-prompt row in the pinned-prompt header style.
-func renderPinnedPrompt(promptRow string, width int) string {
-	return tuiviewport.RenderPinnedPrompt(promptRow, width)
 }
 
 // gotoTop / gotoBottom are the recovered ctrl+home / ctrl+end bindings.
 func (m *runMode) gotoTop() {
+	if m.scroll == 0 && !m.autoScroll {
+		return
+	}
 	m.autoScroll = false
 	m.scroll = 0
+	m.viewCacheValid = false
 }
 
 func (m *runMode) gotoBottom() {
+	if m.autoScroll {
+		return
+	}
 	m.autoScroll = true
 	m.scroll = 1 << 30
-}
-
-// pageRows is the recovered page-scroll distance.
-func (m *runMode) pageRows() int {
-	return clampInt(m.vpRows-1, 1, 1<<20)
-}
-
-func (m *runMode) halfPageRows() int {
-	return clampInt(m.vpRows/2, 1, 1<<20)
-}
-
-// isScrollMsg reports whether msg can only move the viewport and never mutates the transcript.
-func isScrollMsg(msg tea.Msg) bool {
-	return tuiviewport.IsScrollMsg(msg)
+	m.viewCacheValid = false
 }
 
 // handleScrollKey consumes the recovered transcript scroll bindings.
+//
+// The page-scroll distances are the recovered ones: a page is the
+// viewport's height less one row, and a half page is half of it.
 func (m *runMode) handleScrollKey(key tea.Key) bool {
 	if !m.altScreen {
 		return false
 	}
 	switch {
 	case key.Code == tea.KeyPgUp:
-		m.scrollBy(-m.pageRows())
+		m.scrollBy(-tuilib.ClampInt(m.vpRows-1, 1, 1<<20))
 		return true
 	case key.Code == tea.KeyPgDown:
-		m.scrollBy(m.pageRows())
+		m.scrollBy(tuilib.ClampInt(m.vpRows-1, 1, 1<<20))
 		return true
 	case key.Code == tea.KeyUp && key.Mod.Contains(tea.ModShift):
-		m.scrollBy(-m.halfPageRows())
+		m.scrollBy(-tuilib.ClampInt(m.vpRows/2, 1, 1<<20))
 		return true
 	case key.Code == tea.KeyDown && key.Mod.Contains(tea.ModShift):
-		m.scrollBy(m.halfPageRows())
+		m.scrollBy(tuilib.ClampInt(m.vpRows/2, 1, 1<<20))
 		return true
 	case key.Code == tea.KeyHome && key.Mod.Contains(tea.ModCtrl):
 		m.gotoTop()
@@ -193,7 +142,7 @@ func (m *runMode) handleMouseWheel(msg tea.MouseMsg) bool {
 	if !m.altScreen {
 		return false
 	}
-	if m.handlePickerWheel(msg.Mouse()) {
+	if m.picker.HandleWheel(msg.Mouse()) {
 		return true
 	}
 	switch msg.Mouse().Button {
@@ -207,7 +156,6 @@ func (m *runMode) handleMouseWheel(msg tea.MouseMsg) bool {
 	return false
 }
 
-type wrapSpan = tuiviewport.WrapSpan
 type wrapSlot = tuiviewport.WrapSlot
 type composedRows = tuiviewport.ComposedRows
 
@@ -216,51 +164,46 @@ const (
 	viewOverflowRows = tuiviewport.ViewOverflowRows
 )
 
-func viewRows(s string) int                    { return tuilib.ViewRows(s) }
-func fitWidth(s string, w int) string          { return tuilib.FitWidth(s, w) }
-func fitLines(s string, w int) string          { return tuilib.FitLines(s, w) }
-func wrapRows(line string, width int) []string { return tuilib.WrapRows(line, width) }
-func cellByteIndex(s string) []int             { return tuilib.CellByteIndex(s) }
-func skipEscape(s string, i int) int           { return tuilib.SkipEscape(s, i) }
-func padTo(s string, w int) string             { return tuilib.PadTo(s, w) }
-func clampInt(v, lo, hi int) int               { return tuilib.ClampInt(v, lo, hi) }
-
-func screenRows(entry string) int {
-	return tuiviewport.ScreenRows(entry)
-}
-
-func screenRowCounts(rows []string) []int {
-	return tuiviewport.ScreenRowCounts(rows)
-}
-
-func clipToScreenRows(visible []string, screenCounts []int, scrollOff, maxRows int) []string {
-	return tuiviewport.ClipToScreenRows(visible, screenCounts, scrollOff, maxRows)
-}
-
-func clipToScreenRowsPrefix(visible []string, prefix []int, scrollOff, maxRows int) []string {
-	return tuiviewport.ClipToScreenRowsPrefix(visible, prefix, scrollOff, maxRows)
+func (m *runMode) currentHeaderKey(width int) headerCacheKey {
+	return headerCacheKey{
+		width:        width,
+		seasonal:     m.seasonal,
+		email:        m.email,
+		model:        m.model,
+		tier:         m.tier,
+		cwd:          m.cwd,
+		agentWarning: m.agentWarning,
+		fallbackFrom: m.fallbackFrom,
+		fallbackTo:   m.fallbackTo,
+	}
 }
 
 func (m *runMode) scrollHeaderRows(width int) []string {
+	key := m.currentHeaderKey(width)
+	if m.cachedHeaderKey == key && len(m.cachedHeaderRows) > 0 && !m.rowsCacheDirty {
+		return m.cachedHeaderRows
+	}
 	var b strings.Builder
 	b.WriteString("\n")
 	renderBannerWithTheme(&b, m.seasonal, m.email, m.model, m.tier, m.cwd)
 	if m.agentWarning != "" {
 		b.WriteString("\n")
-		b.WriteString(renderAgentWarning(m.agentWarning))
+		b.WriteString(tuilib.RenderAgentWarning(m.agentWarning))
 	}
 	if m.fallbackFrom != "" && m.fallbackTo != "" {
 		b.WriteString("\n")
-		b.WriteString(renderWarning(m.fallbackFrom, m.fallbackTo))
+		b.WriteString(tuilib.RenderWarning(m.fallbackFrom, m.fallbackTo))
 	}
 	var rows []string
 	for _, line := range strings.Split(b.String(), "\n") {
 		if width > 0 {
-			rows = append(rows, wrapRows(line, width)...)
+			rows = append(rows, tuilib.WrapRows(line, width)...)
 		} else {
 			rows = append(rows, line)
 		}
 	}
+	m.cachedHeaderRows = rows
+	m.cachedHeaderKey = key
 	return rows
 }
 
@@ -295,40 +238,78 @@ func (m *runMode) liveRows(width int) []string {
 		return nil
 	}
 	var rows []string
-	if m.thinking && m.activeTool == "" {
-		rows = append(rows, thinkingLiveLine(time.Since(m.thinkingSince)))
-	}
 	line := m.spinner.View()
 	phrase := "Generating"
 	if m.anyToolRun {
 		phrase = "Working"
 	}
-	if m.activeTool != "" {
-		phrase = m.activeTool
+	if m.thinking && m.activeTool == "" {
+		if m.liveThinkingSnippet != "" {
+			line += " " + palette.SpinnerBaseOpen + m.liveThinkingSnippet + "\x1b[m"
+		} else {
+			line += " " + tuitools.SpinnerText("Thinking", m.spinFrame)
+		}
+	} else if m.activeTool != "" {
+		line += " " + m.activeTool
+	} else {
+		line += " " + tuitools.SpinnerText(phrase, m.spinFrame)
 	}
-	line += " " + tuitools.SpinnerText(phrase, m.spinFrame)
-	return append(rows, wrapRows(line, width)...)
+	if width > 0 {
+		line = tuilib.Truncate(line, width, "...")
+	}
+	rows = append(rows, line)
+	if m.activeTip != "" {
+		tipLine := tuitools.FormatTip(m.activeTip)
+		if tipLine != "" {
+			if width > 0 {
+				tipLine = tuilib.Truncate(tipLine, width, "...")
+			}
+			rows = append(rows, tipLine)
+		}
+	}
+	return rows
 }
 
 func (m *runMode) transcriptRows(width int) []string {
 	if m.picker.Visible() {
 		return nil
 	}
-	rows := m.scrollHeaderRows(width)
+	header := m.scrollHeaderRows(width)
+	rows := make([]string, 0, len(header)+len(m.response))
+	rows = append(rows, header...)
 	for _, line := range m.response {
-		rows = append(rows, wrapRows(line, width)...)
-	}
-	if m.streaming && m.thinking && m.activeTool == "" {
-		rows = append(rows, thinkingLiveLine(time.Since(m.thinkingSince)))
+		rows = append(rows, tuilib.WrapRows(line, width)...)
 	}
 	if m.streaming {
 		line := m.spinner.View()
-		if m.activeTool != "" {
+		phrase := "Generating"
+		if m.anyToolRun {
+			phrase = "Working"
+		}
+		if m.thinking && m.activeTool == "" {
+			if m.liveThinkingSnippet != "" {
+				line += " " + m.liveThinkingSnippet
+			} else {
+				line += " Thinking..."
+			}
+		} else if m.activeTool != "" {
 			line += " " + m.activeTool
 		} else {
-			line += " Generating..."
+			line += " " + phrase + "..."
 		}
-		rows = append(rows, wrapRows(line, width)...)
+		if width > 0 {
+			line = tuilib.Truncate(line, width, "...")
+		}
+		rows = append(rows, line)
+		if m.activeTip != "" {
+			tipLine := tuitools.FormatTip(m.activeTip)
+			if tipLine != "" {
+				if width > 0 {
+					tipLine = tuilib.Truncate(tipLine, width, "...")
+				}
+				rows = append(rows, tipLine)
+			}
+		}
 	}
 	return rows
 }
@@ -349,21 +330,24 @@ func (m *runMode) updateStickyPrompt(rows, header, resp []string, avail int) int
 	m.stickyBarRow = ""
 	m.pinnedPromptRowIdx = -1
 	m.pinnedPromptText = ""
-	if !m.altScreen {
+	if !m.altScreen || m.autoScroll || avail <= 2 {
 		return avail
 	}
-	if idx := m.stickyUserPromptRow(); idx >= 0 {
-		if !m.isPromptTurnVisible(rows, idx) {
+	if idx := tuiviewport.StickyUserPromptRow(m.userPromptRows, m.autoScroll, m.scroll); idx >= 0 {
+		if !tuiviewport.PromptTurnVisible(rows, idx, m.scroll, m.userPromptRows) {
 			respIdx := idx - len(header)
 			if respIdx >= 0 && respIdx < len(resp) {
 				m.pinnedPromptRowIdx = idx
-				m.pinnedPromptText = renderPinnedPrompt(resp[respIdx], m.width)
+				m.pinnedPromptText = tuiviewport.RenderPinnedPrompt(resp[respIdx], m.width)
 			}
 		}
 	}
 	availScroll := avail
 	if m.pinnedPromptText != "" {
 		availScroll -= 2
+	}
+	if availScroll < 1 {
+		availScroll = 1
 	}
 	return availScroll
 }
@@ -375,19 +359,26 @@ func (m *runMode) computeVisibleWindow(rows []string, availScroll int) []string 
 	return visible
 }
 
-func (m *runMode) formatVisibleRows(visible []string, effective int) []string {
-	return tuiviewport.FormatVisibleRows(visible, effective, m.pinnedPromptText, m.stickyBarRow, m.altScreen)
-}
-
 func (m *runMode) viewportHeight() int {
 	if m.height <= 0 {
 		return 0
 	}
-	body, _ := m.viewBody(nil)
-	extra := viewRows(body)
+	var extra int
+	if m.extraRowsValid && m.cachedExtraW == m.width && m.cachedExtraH == m.height {
+		extra = m.cachedExtraRows
+	} else {
+		body, _ := m.viewBody(nil)
+		extra = tuilib.ViewRows(body)
+		if m.helpPanel.Active() {
+			extra -= tuilib.ViewRows(m.helpPanel.Rows())
+		}
+		m.cachedExtraRows = extra
+		m.cachedExtraW = m.width
+		m.cachedExtraH = m.height
+		m.extraRowsValid = true
+	}
 	budget := m.height
-	if m.helpMode {
-		extra -= viewRows(renderHelp(m.helpTab, m.model, m.tier, m.cwd, m.email, m.conversationID, m))
+	if m.helpPanel.Active() {
 		budget += viewOverflowRows
 	}
 	avail := budget - extra
@@ -399,19 +390,45 @@ func (m *runMode) viewportHeight() int {
 
 func (m *runMode) transcriptWindow() []string {
 	avail := m.viewportHeight()
+	m.ensureVisibleBlocksExpanded(avail)
 	if avail <= 0 {
 		m.vpRows = 0
-		return m.transcriptRows(0)
+		return m.transcriptRows(m.width)
 	}
 	rows, header, resp := m.syncRowsView()
-	availScroll := m.updateStickyPrompt(rows, header, resp, avail)
-	if len(rows) <= availScroll {
+	if len(rows) <= avail {
 		m.scroll = 0
 		m.autoScroll = true
+		m.pinnedPromptText = ""
+		m.pinnedPromptRowIdx = -1
+		m.stickyBarRow = ""
+		m.vpRows = avail
 		return rows
 	}
+	maxScroll := len(rows) - avail
+	if maxScroll < 0 {
+		maxScroll = 0
+	}
+	if m.autoScroll || m.scroll >= maxScroll {
+		m.scroll = maxScroll
+		m.autoScroll = true
+		m.pinnedPromptText = ""
+		m.pinnedPromptRowIdx = -1
+		m.stickyBarRow = ""
+		m.vpRows = avail
+		if maxScroll > len(rows) {
+			maxScroll = len(rows)
+		}
+		visible := rows[maxScroll:]
+		return tuiviewport.FormatVisibleRows(visible, m.width, m.pinnedPromptText, m.stickyBarRow, m.altScreen)
+	}
+	availScroll := m.updateStickyPrompt(rows, header, resp, avail)
+	if availScroll <= 0 {
+		m.vpRows = avail
+		return nil
+	}
 	visible := m.computeVisibleWindow(rows, availScroll)
-	out := m.formatVisibleRows(visible, m.width)
+	out := tuiviewport.FormatVisibleRows(visible, m.width, m.pinnedPromptText, m.stickyBarRow, m.altScreen)
 	m.vpRows = avail
 	return out
 }

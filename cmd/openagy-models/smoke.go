@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/justwasm/pigasus/internal/models"
+	"github.com/justwasm/pigasus/internal/features/models"
 )
 
 // smokeTest runs a single Chat call against the named model.

@@ -20,7 +20,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/justwasm/pigasus/internal/auth"
+	"github.com/justwasm/pigasus/internal/features/auth"
 )
 
 // Current returns the credential the clone and the reference share: the

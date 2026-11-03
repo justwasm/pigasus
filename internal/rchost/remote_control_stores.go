@@ -7,33 +7,38 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/justwasm/pigasus/internal/auth"
+	"github.com/justwasm/pigasus/internal/features/auth"
 	"github.com/justwasm/pigasus/internal/rcaudio"
-	"github.com/justwasm/pigasus/internal/rcterminal"
 	"github.com/justwasm/pigasus/internal/remotecontrol"
+	"github.com/justwasm/pigasus/internal/remotecontrol/convconfig"
+	"github.com/justwasm/pigasus/internal/remotecontrol/origins"
+	"github.com/justwasm/pigasus/internal/remotecontrol/projects"
+	"github.com/justwasm/pigasus/internal/remotecontrol/resources"
+	"github.com/justwasm/pigasus/internal/remotecontrol/terminals"
+	"github.com/justwasm/pigasus/rcterminal"
 )
 
-// buildHostOriginPolicyStore returns the production OriginPolicyStore the
+// buildHostOriginPolicyStore returns the production origins.Store the
 // single SetRemoteControlOriginPatterns method (cycle rc-auth-tokens) calls
 // into. Wired here, in cmd/wagyu/, because the constructor needs to read
 // auth.AntigravityHome() and stdlib path/filepath — a dispatcher package
 // can't import cmd/wagyu/ (an import-direction reversal), and pulling
 // internal/auth into internal/remotecontrol/ for one helper would be heavier
 // than the helper itself.
-func buildHostOriginPolicyStore() remotecontrol.OriginPolicyStore {
+func buildHostOriginPolicyStore() origins.Store {
 	root := filepath.Join(auth.AntigravityHome(), "origin_policy.json")
-	return remotecontrol.NewFSOriginPolicyStore(root, nil)
+	return origins.NewFSStore(root, nil)
 }
 
-// buildHostResourceStore returns the production ResourceStore the three
+// buildHostResourceStore returns the production resources.Store the three
 // JSON-RPC methods (ListRemoteAgentResourceProviders /
 // ListRemoteAgentAvailableResources / UpdateRemoteAgentProjectResources,
 // cycle rc-resources) call into. Wired here, in cmd/wagyu/, because the
 // constructor needs to read auth.AntigravityHome() (for the resources.json
 // path), build a `$ANTIGRAVITY_HOME/secrets/` discovery closure (the
-// `configured` flag), and reach into the bound ProjectStore (so the Bind path
+// `configured` flag), and reach into the bound projects.Store (so the Bind path
 // can write the project's `Resources` field back).
-func buildHostResourceStore(projects remotecontrol.ProjectStore) remotecontrol.ResourceStore {
+func buildHostResourceStore(projectStore projects.Store) resources.Store {
 	root := filepath.Join(auth.AntigravityHome(), "resources.json")
 	secrets := filepath.Join(auth.AntigravityHome(), "secrets")
 	check := func(providerID string) bool {
@@ -48,20 +53,20 @@ func buildHostResourceStore(projects remotecontrol.ProjectStore) remotecontrol.R
 		}
 		return !st.IsDir() && st.Size() > 0
 	}
-	return remotecontrol.NewFSResourceStore(root, projects, check, nil)
+	return resources.NewFSStore(root, projectStore, check, nil)
 }
 
 // buildHostConversationStore returns the production ConversationStore the
 // three destructive methods (cycle rc-conversation-deletions) call into.
 // Wired here, in cmd/wagyu/, because the constructor's ProjectLookup closure
-// needs to reach into the ProjectStore to map workspaces back to project ids
+// needs to reach into the projects.Store to map workspaces back to project ids
 // (a dispatcher package shouldn't depend on the project-store shape).
-func buildHostConversationStore(projects remotecontrol.ProjectStore) remotecontrol.ConversationStore {
+func buildHostConversationStore(projectStore projects.Store) remotecontrol.ConversationStore {
 	lookup := func(workspace string) string {
-		if workspace == "" || projects == nil {
+		if workspace == "" || projectStore == nil {
 			return ""
 		}
-		rows, err := projects.List(nil, "", 0)
+		rows, err := projectStore.List(nil, "", 0)
 		if err != nil {
 			return ""
 		}
@@ -77,29 +82,29 @@ func buildHostConversationStore(projects remotecontrol.ProjectStore) remotecontr
 }
 
 // buildHostConversationConfigStore returns the production
-// ConversationConfigStore the single UpsertRemoteAgentConversationConfig
+// convconfig.Store the single UpsertRemoteAgentConversationConfig
 // method (cycle rc-conversation-config) calls into. Wired here, in cmd/wagyu/,
 // because the constructor needs to read auth.AntigravityHome() and stdlib
 // path/filepath — a dispatcher package can't import cmd/wagyu/ (an
 // import-direction reversal), and pulling internal/auth into
 // internal/remotecontrol/ for one helper would be heavier than the helper itself.
-func buildHostConversationConfigStore() remotecontrol.ConversationConfigStore {
+func buildHostConversationConfigStore() convconfig.Store {
 	root := filepath.Join(auth.AntigravityHome(), "conversation_config.json")
-	return remotecontrol.NewFSConversationConfigStore(root, nil)
+	return convconfig.NewFSStore(root, nil)
 }
 
-// buildHostTerminalsRegistry returns the in-memory TerminalsRegistry the
+// buildHostTerminalsRegistry returns the in-memory registry the
 // rc-terminals five RemoteAgentTerminal* methods route through. Cycle rc-terminals.
-func buildHostTerminalsRegistry() *remotecontrol.TerminalsRegistry {
+func buildHostTerminalsRegistry() *terminals.Registry {
 	terminalsRegistryOnce.Do(func() {
-		terminalsRegistrySingleton = remotecontrol.NewTerminalsRegistry()
+		terminalsRegistrySingleton = terminals.NewRegistry()
 	})
 	return terminalsRegistrySingleton
 }
 
 var (
 	terminalsRegistryOnce      sync.Once
-	terminalsRegistrySingleton *remotecontrol.TerminalsRegistry
+	terminalsRegistrySingleton *terminals.Registry
 )
 
 // buildHostWebTerminalsRegistry returns the registry the Web UI's
@@ -121,10 +126,13 @@ var (
 // "/" while the shell it spawns for a terminal runs in "/Users/gear".
 //
 // Cycle rc-web-terminals.
-func buildHostWebTerminalsRegistry() *rcterminal.Registry {
+func buildHostWebTerminalsRegistry(cwd ...string) *rcterminal.Registry {
 	webTerminalsRegistryOnce.Do(func() {
 		webTerminalsRegistrySingleton = rcterminal.NewRegistry()
 	})
+	if len(cwd) > 0 && cwd[0] != "" {
+		webTerminalsRegistrySingleton.SetWorkspace(cwd[0])
+	}
 	return webTerminalsRegistrySingleton
 }
 

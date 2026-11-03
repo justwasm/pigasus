@@ -87,7 +87,7 @@ func TestFindEntries(t *testing.T) {
 		"main_test.go",
 		"cmd/wagyu/main.go",
 		"cmd/wagyu/main_test.go",
-		"internal/atfiles/atfiles.go",
+		"internal/pkg/sub/file.go",
 		"README.md",
 		"LICENSE",
 	}
@@ -118,8 +118,9 @@ func TestFindEntries(t *testing.T) {
 			"cmd/wagyu/main.go",
 			"cmd/wagyu/main_test.go",
 			"internal/",
-			"internal/atfiles/",
-			"internal/atfiles/atfiles.go",
+			"internal/pkg/",
+			"internal/pkg/sub/",
+			"internal/pkg/sub/file.go",
 			"main.go",
 			"main_test.go",
 		}

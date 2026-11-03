@@ -22,9 +22,8 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/justwasm/pigasus/internal/persistentrc"
-	"github.com/justwasm/pigasus/internal/rclink"
-	"github.com/justwasm/pigasus/internal/urlchunk"
+	rclink "github.com/justwasm/pigasus/internal/infra/remote/link"
+	persistentrc "github.com/justwasm/pigasus/internal/infra/remote/persistent"
 )
 
 // rcURLIndent is the indent the /remote-control transcript rows carry.
@@ -55,11 +54,6 @@ func (m *runMode) rcURLChunkWidth() int {
 		w = 1
 	}
 	return w
-}
-
-// rcURLRows renders the browser link as the rows the transcript shows.
-func (m *runMode) rcURLRows(url string) []string {
-	return urlchunk.Rows(url, rcURLIndent, m.rcURLChunkWidth(), m.hyperlinkCaps)
 }
 
 // buildRemoteControlCard constructs the status message and extra transcript lines

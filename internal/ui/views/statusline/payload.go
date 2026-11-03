@@ -1,6 +1,10 @@
 package statusline
 
-import "time"
+import (
+	"time"
+
+	"github.com/justwasm/pigasus/vim"
+)
 
 // Payload is the JSON object the CLI pipes to a custom status-line script's
 // stdin (and to a custom window-title script's stdin — the reference sends
@@ -201,6 +205,29 @@ type AgentInfo struct {
 type VimInfo struct {
 	// Mode is "NORMAL", "INSERT", "VISUAL" or "VISUAL LINE".
 	Mode string `json:"mode"`
+}
+
+// VimModeName is the payload's `vim.mode` value for a vim engine mode.
+//
+// The four names are the reference's own
+// (official-docs/cli/statusline.md:79): the payload names the mode the
+// way the reference's status line does, not the way the engine's badge
+// spells it ("-- INSERT --").
+//
+// The member is present only when vim editor mode is enabled, so the
+// caller answers "" when the editor mode is not vim.
+func VimModeName(mode vim.Mode) string {
+	switch mode {
+	case vim.Normal:
+		return "NORMAL"
+	case vim.Insert:
+		return "INSERT"
+	case vim.Visual:
+		return "VISUAL"
+	case vim.VisualLine:
+		return "VISUAL LINE"
+	}
+	return ""
 }
 
 // CostInfo is the estimated spend of the session.

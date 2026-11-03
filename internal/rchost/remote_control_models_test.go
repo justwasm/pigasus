@@ -10,7 +10,7 @@ package rchost
 import (
 	"testing"
 
-	"github.com/justwasm/pigasus/internal/configtest"
+	"github.com/justwasm/pigasus/internal/features/models/configtest"
 )
 
 // TestHostListModelsCarriesTheSupportsImagesMarker pins the marker on
@@ -133,3 +133,27 @@ func TestHostListModelsCarriesTheModelAttributes(t *testing.T) {
 		t.Errorf("a model that says nothing keeps the default: %+v", silent)
 	}
 }
+
+func TestHostListModelsDefaultsToGeminiFlashHigh(t *testing.T) {
+	configtest.WriteProviders(t, `{"providers": {"agw": {
+	  "type": "openai",
+	  "api_url": "https://gw.example/v1/chat/completions",
+	  "models": [
+	    {"id": "minimax-m3", "name": "MiniMax M3", "model": "MiniMax-M3"}
+	  ]}}}`)
+	rows, err := hostListModels("", "", "")
+	if err != nil {
+		t.Fatalf("hostListModels: %v", err)
+	}
+	var defModel string
+	for _, r := range rows {
+		if r.Default {
+			defModel = r.ID
+			break
+		}
+	}
+	if defModel != "gemini-3.8-flash-high" {
+		t.Errorf("default model = %q, want gemini-3.8-flash-high", defModel)
+	}
+}
+

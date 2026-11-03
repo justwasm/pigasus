@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/justwasm/pigasus/internal/tuilib"
+	"github.com/justwasm/pigasus/internal/core/plural"
 	"github.com/justwasm/pigasus/palette"
 )
 
@@ -69,14 +69,14 @@ func StatusRow(state string, hits, files, spinner int) (string, bool) {
 		return "  " + glyph + "  " + palette.DimGrayOpen + "Searching\u2026  [Esc to cancel]" + palette.DimGrayClose, true
 	case state == StateRunning:
 		return palette.DimGrayOpen + fmt.Sprintf("Found %s in %s.  [Esc to cancel]",
-			tuilib.CountLabel(hits, wordMatch),
-			tuilib.CountLabel(files, wordFile)) + palette.DimGrayClose, false
+			plural.CountLabel(hits, wordMatch),
+			plural.CountLabel(files, wordFile)) + palette.DimGrayClose, false
 	case hits == 0:
 		return palette.DimGrayOpen + "No results" + palette.DimGrayClose, true
 	default:
 		lbl := fmt.Sprintf("%s in %s.",
-			tuilib.CountLabel(hits, wordMatch),
-			tuilib.CountLabel(files, wordFile))
+			plural.CountLabel(hits, wordMatch),
+			plural.CountLabel(files, wordFile))
 		var verb string
 		switch state {
 		case StateCancelled:

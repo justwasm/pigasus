@@ -31,6 +31,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/justwasm/pigasus/internal/remotecontrol/cascades"
+	"github.com/justwasm/pigasus/internal/remotecontrol/rpc"
 )
 
 // richShapeReq marshals a minimal JSON-RPC request for
@@ -134,7 +137,7 @@ func asAnySlice(t *testing.T, raw any) []any {
 	switch v := raw.(type) {
 	case []any:
 		return v
-	case []CascadeError:
+	case []cascades.ErrorEntry:
 		out := make([]any, 0, len(v))
 		for _, e := range v {
 			out = append(out, map[string]any{
@@ -333,7 +336,7 @@ func TestRemoteAgentErrorStatus_AfterError(t *testing.T) {
 	d := newStatusDispatcher(t)
 
 	cid, c := startDispatcherCascade(t, d)
-	c.recordError("SendRemoteAgentCascadeMessage", errors.New("backend tripped"), -32603, time.Now().UTC())
+	c.RecordError("SendRemoteAgentCascadeMessage", errors.New("backend tripped"), -32603, time.Now().UTC())
 
 	req := []byte(`{"jsonrpc":"2.0","id":1,"method":"RemoteAgentErrorStatus","params":{"cascade_id":"` + cid + `"}}`)
 	resp := d.Dispatch(context.Background(), req)
@@ -394,7 +397,7 @@ func TestRemoteAgentErrorStatus_AfterError(t *testing.T) {
 // TestRemoteAgentErrorStatus_UnknownCascade pins the brief's
 // -32004 envelope path: an unknown cascade_id must not panic
 // or yield 0-entries; the JSON-RPC error.code is the
-// ErrCodeCascadeNotFound constant the dashboards filter on.
+// rpc.ErrCodeCascadeNotFound constant the dashboards filter on.
 func TestRemoteAgentErrorStatus_UnknownCascade(t *testing.T) {
 	d := newStatusDispatcher(t)
 
@@ -404,8 +407,8 @@ func TestRemoteAgentErrorStatus_UnknownCascade(t *testing.T) {
 	if !ok {
 		t.Fatalf("unknown cascade: no error envelope, got %#v", resp)
 	}
-	if got := errorCode(errObj); got != ErrCodeCascadeNotFound {
-		t.Errorf("error.code = %d, want %d", got, ErrCodeCascadeNotFound)
+	if got := errorCode(errObj); got != rpc.ErrCodeCascadeNotFound {
+		t.Errorf("error.code = %d, want %d", got, rpc.ErrCodeCascadeNotFound)
 	}
 }
 
@@ -625,7 +628,7 @@ func TestRemoteControlVersion_Unknown(t *testing.T) {
 // Returns (cascade_id, *Cascade) so callers can poke the
 // per-cascade state (e.g. recordError) directly without going
 // through a backend.
-func startDispatcherCascade(t *testing.T, d *Dispatcher) (string, *Cascade) {
+func startDispatcherCascade(t *testing.T, d *Dispatcher) (string, *cascades.Cascade) {
 	t.Helper()
 	req := []byte(`{"jsonrpc":"2.0","id":1,"method":"StartRemoteAgentCascade","params":{"clientInfo":{"name":"status-test","version":"0"}}}`)
 	resp := d.Dispatch(context.Background(), req)

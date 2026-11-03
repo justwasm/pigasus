@@ -328,6 +328,12 @@ func TestJetskiPluginDispatch_UnknownSubStillErrors(t *testing.T) {
 // every sub-sub. When there are no MCP servers the handler
 // prints nothing on stdout and exits 0.
 func TestJetskiPluginDispatch_McpAlsoCaseInsensitive(t *testing.T) {
+	// The `mcp list` handler reads the documented configuration file,
+	// and it refuses a file it cannot parse — so the test points the
+	// home directory at a scratch one rather than reading the user's
+	// own file.
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("GEMINI_CONFIG_HOME", "")
 	cases := []string{"list", "List", "LIST"}
 	for _, sub := range cases {
 		t.Run(sub, func(t *testing.T) {

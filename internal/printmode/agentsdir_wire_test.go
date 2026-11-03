@@ -1,4 +1,4 @@
-// agentsdir_wire_test.go — wire the internal/agentsdir walker into the
+// agentsdir_wire_test.go — wire the internal/app/prompt/agentsdir walker into the
 // print path so the AGY 1.2.16 changelog line is observable from
 // `agy -p /agents-dirs`. The test pins the diagnostic shape (the empty
 // case + the CWD-closest-wins order) without depending on the user's
@@ -132,7 +132,7 @@ func TestPrintAgentsDirsFor_DotAgentsVariants(t *testing.T) {
 
 // TestPrintAgentsDirsFor_HomeIsStop pins that the diagnostic stops at
 // HOME even when there is an agents directory one level higher — the
-// same rule internal/agentsdir.Walk enforces.
+// same rule internal/app/prompt/agentsdir.Walk enforces.
 func TestPrintAgentsDirsFor_HomeIsStop(t *testing.T) {
 	home := t.TempDir()
 	above := filepath.Join(filepath.Dir(home), "above-home")

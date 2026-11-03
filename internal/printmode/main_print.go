@@ -2,25 +2,32 @@ package printmode
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/justwasm/pigasus/internal/agent"
-	"github.com/justwasm/pigasus/internal/apierror"
-	"github.com/justwasm/pigasus/internal/auth"
-	"github.com/justwasm/pigasus/internal/backend"
+	"github.com/justwasm/pigasus/internal/app/session/setup"
+	"github.com/justwasm/pigasus/internal/app/toolrunner"
+	"github.com/justwasm/pigasus/internal/app/tools"
+	"github.com/justwasm/pigasus/internal/app/tools/surface"
 	"github.com/justwasm/pigasus/internal/cli"
-	"github.com/justwasm/pigasus/internal/permissions"
+	"github.com/justwasm/pigasus/internal/core/apierror"
+	"github.com/justwasm/pigasus/internal/core/backend"
+	"github.com/justwasm/pigasus/internal/core/cliflags"
+	"github.com/justwasm/pigasus/internal/core/policy/permissions"
+	settings "github.com/justwasm/pigasus/internal/core/settings"
+	"github.com/justwasm/pigasus/internal/features/agents"
+	"github.com/justwasm/pigasus/internal/features/auth"
 	"github.com/justwasm/pigasus/internal/rchost"
 	"github.com/justwasm/pigasus/internal/remotecontrol"
-	"github.com/justwasm/pigasus/internal/toolrunner"
-	"github.com/justwasm/pigasus/internal/tools"
 )
 
 type printRunConfig struct {
@@ -56,7 +63,7 @@ func Run(w io.Writer, prompt string, fs *flag.FlagSet) error {
 func initPrintRunConfig(fs *flag.FlagSet, prompt string) (*printRunConfig, error) {
 	modelName := flagStringValue(fs, "model")
 	if modelName == "" {
-		modelName = auth.ResolveSettingsModel("Gemini 3.8 Flash (High)")
+		modelName = settings.ResolveModel("Gemini 3.8 Flash (High)")
 	}
 	rcSess := remotecontrol.NewSessionState(Version)
 	rcSess.Model = modelName
@@ -128,13 +135,28 @@ func emitPrintSlashEnvelope(w io.Writer, res printSlashResult, format string) er
 }
 
 type printTurnState struct {
-	responseBuf strings.Builder
-	turnUsage   jsonUsage
-	turnStarted bool
-	turnBegan   bool
-	deadline    time.Time
-	textRouter  *printTextRouter
-	sanitizer   *agent.Sanitizer
+	responseBuf   strings.Builder
+	turnUsage     jsonUsage
+	turnStarted   bool
+	turnBegan     bool
+	turnStartedAt time.Time
+	deadline      time.Time
+	textRouter    *printTextRouter
+	sanitizer     *agent.Sanitizer
+}
+
+// DurationSeconds returns how long the turn ran, in seconds — the value the
+// `agent_response` step reports as its `duration_seconds`.
+//
+// The seconds are rounded to two decimals: the doc's three captured
+// durations (6.28, 0.53 and 6.88) all carry exactly two, which a raw
+// float64 would not (`official-docs/cli/headless.md:144-146`). A turn that
+// never began has no duration.
+func (st *printTurnState) DurationSeconds() float64 {
+	if st.turnStartedAt.IsZero() {
+		return 0
+	}
+	return math.Round(time.Since(st.turnStartedAt).Seconds()*100) / 100
 }
 
 func executePrintModelTurn(w io.Writer, fs *flag.FlagSet, cfg *printRunConfig) error {
@@ -146,7 +168,7 @@ func executePrintModelTurn(w io.Writer, fs *flag.FlagSet, cfg *printRunConfig) e
 		state.deadline = cfg.started.Add(cfg.timeout)
 	}
 
-	workspace, catalog, err := initPrintCatalogAndStream(w, cfg)
+	workspace, catalog, err := initPrintCatalogAndStream(w, fs, cfg)
 	if err != nil {
 		return err
 	}
@@ -186,7 +208,8 @@ func executePrintModelTurn(w io.Writer, fs *flag.FlagSet, cfg *printRunConfig) e
 		AgentDir:       auth.AntigravityHome(),
 		ConversationID: cfg.conversationID,
 		Effort:         flagStringValue(fs, "effort"),
-		AgentBody:      AgentBody(CustomAgentFromFlags(fs)),
+		JSONSchema:     printInitJSONSchema(fs),
+		AgentBody:      agents.AgentBody(agents.CustomAgentFromFlags(fs)),
 		Definitions:    rehydratePrintConversation(cfg.sel, cfg.conversationID),
 	})
 	gate.Denials = append(gate.Denials, denials...)
@@ -209,22 +232,22 @@ func executePrintModelTurn(w io.Writer, fs *flag.FlagSet, cfg *printRunConfig) e
 	return exit
 }
 
-func initPrintCatalogAndStream(w io.Writer, cfg *printRunConfig) (string, *tools.Registry, error) {
+func initPrintCatalogAndStream(w io.Writer, fs *flag.FlagSet, cfg *printRunConfig) (string, *tools.Registry, error) {
 	workspace, _ := os.Getwd()
 	// The three MCP tools (call_mcp_tool, list_resources, read_resource)
 	// need a live MCP connection; the pool is lazy, so this costs nothing
 	// when no server is configured.
-	InstallMCPProvider(auth.AntigravityHome())
-	catalog := tools.Catalog(workspace)
+	setup.InstallMCPProvider(auth.AntigravityHome(), workspace)
+	catalog := surface.Catalog(workspace)
 	initTools := toolrunner.ToolDeclsFromRegistry(catalog)
-	tools.AddReferenceTools(catalog, workspace)
-	if err := maybeEmitStreamInit(w, cfg, workspace, initTools); err != nil {
+	surface.AddReferenceTools(catalog, workspace)
+	if err := maybeEmitStreamInit(w, fs, cfg, workspace, initTools); err != nil {
 		return "", nil, err
 	}
 	return workspace, catalog, nil
 }
 
-func maybeEmitStreamInit(w io.Writer, cfg *printRunConfig, workspace string, initTools []backend.ToolDecl) error {
+func maybeEmitStreamInit(w io.Writer, fs *flag.FlagSet, cfg *printRunConfig, workspace string, initTools []backend.ToolDecl) error {
 	if cfg.format != printFormatStreamJSON {
 		return nil
 	}
@@ -238,9 +261,58 @@ func maybeEmitStreamInit(w io.Writer, cfg *printRunConfig, workspace string, ini
 		Init: &jsonInitPayload{
 			CWD:            workspace,
 			Tools:          names,
-			PermissionMode: printPermissionMode(),
+			PermissionMode: printPermissionMode(fs),
+			Model:          printInitModel(fs, cfg),
+			Agent:          printInitAgent(fs),
+			JSONSchema:     printInitJSONSchema(fs),
 		},
 	})
+}
+
+// printInitModel returns the model the init payload reports, or "".
+//
+// The doc: "`model` and `agent` appear only when set with `--model` or
+// `--agent`" (`official-docs/cli/headless.md:159`). The member is present
+// only when the flag was given — the resolved default (the model's own
+// settings answer) is not an override and stays out of the wire.
+func printInitModel(fs *flag.FlagSet, cfg *printRunConfig) string {
+	if !cliflags.WasSet(fs, "model") {
+		return ""
+	}
+	return cfg.modelName
+}
+
+// printInitAgent returns the agent the init payload reports, or "".
+//
+// Only a custom agent is an override: the empty value and "default" name
+// the built-in agent, and `agents.CustomAgentFromFlags` owns that rule — so
+// the question is asked of its owner rather than restated here.
+func printInitAgent(fs *flag.FlagSet) string {
+	if !cliflags.WasSet(fs, "agent") {
+		return ""
+	}
+	if a := agents.CustomAgentFromFlags(fs); a != nil {
+		return a.Name
+	}
+	return ""
+}
+
+// printInitJSONSchema returns the enforced schema the init payload reports,
+// or nil when no schema was requested.
+//
+// The doc: "`json_schema` — Enforced schema, when set with `--json-schema`"
+// (`official-docs/cli/headless.md:168`). The flag's value is a path or inline
+// JSON; the payload carries the schema itself, not the flag's spelling of it.
+func printInitJSONSchema(fs *flag.FlagSet) json.RawMessage {
+	value := flagStringValue(fs, "json-schema")
+	if strings.TrimSpace(value) == "" {
+		return nil
+	}
+	raw, err := ResolveJSONSchema(value)
+	if err != nil {
+		return nil
+	}
+	return json.RawMessage(raw)
 }
 
 func setupPrintBackendAndGate(fs *flag.FlagSet, cfg *printRunConfig, workspace string, catalog *tools.Registry) (backend.Client, *toolrunner.PermissionRunner, *permissions.Policy) {
@@ -286,9 +358,11 @@ func buildPrintChunkHandler(w io.Writer, cfg *printRunConfig, st *printTurnState
 	return func(chunk backend.StreamChunk) error {
 		if !st.turnStarted {
 			st.turnStarted = true
-			st.turnBegan = st.deadline.IsZero() || time.Now().Before(st.deadline)
+			now := time.Now()
+			st.turnStartedAt = now
+			st.turnBegan = st.deadline.IsZero() || now.Before(st.deadline)
 			if st.turnBegan && cfg.format == printFormatStreamJSON {
-				if err := emitStep(w, cfg.conversationID, 0, "user_input"); err != nil {
+				if err := emitStep(w, newStepUpdate(cfg.conversationID, 0, "user_input")); err != nil {
 					return err
 				}
 			}
@@ -388,6 +462,24 @@ func classifyHeadlessExit(runErr error) error {
 	return runErr
 }
 
+func populateEnvelopeStructuredOutput(env *jsonEnvelope, fs *flag.FlagSet, response string) {
+	if fs == nil {
+		return
+	}
+	schemaRaw := printInitJSONSchema(fs)
+	if len(schemaRaw) == 0 {
+		return
+	}
+	env.JSONSchema = schemaRaw
+	trimmed := strings.TrimSpace(response)
+	if trimmed != "" {
+		var parsed any
+		if err := json.Unmarshal([]byte(trimmed), &parsed); err == nil {
+			env.StructuredOutput = parsed
+		}
+	}
+}
+
 func emitFinalPrintEnvelope(w io.Writer, fs *flag.FlagSet, cfg *printRunConfig, st *printTurnState, runErr error, timedOut, interrupted bool) error {
 	env := jsonEnvelope{
 		ConversationID:  cfg.conversationID,
@@ -396,6 +488,7 @@ func emitFinalPrintEnvelope(w io.Writer, fs *flag.FlagSet, cfg *printRunConfig, 
 		DurationSeconds: int(time.Since(cfg.started).Seconds()),
 		Usage:           st.turnUsage,
 	}
+	populateEnvelopeStructuredOutput(&env, fs, env.Response)
 	if st.turnBegan {
 		env.NumTurns = 1 + cfg.sel.PriorUserTurns
 	}
@@ -415,18 +508,27 @@ func emitFinalPrintEnvelope(w io.Writer, fs *flag.FlagSet, cfg *printRunConfig, 
 		env.FinishedReason = finishedReasonError
 	}
 	if cfg.format == printFormatStreamJSON {
-		return emitFinalStreamJSON(w, fs, cfg, &env, runErr, st.turnBegan, timedOut)
+		return emitFinalStreamJSON(w, fs, cfg, st, &env, runErr, st.turnBegan, timedOut)
 	}
 	return writeJSONLine(w, env)
 }
 
-func emitFinalStreamJSON(w io.Writer, fs *flag.FlagSet, cfg *printRunConfig, env *jsonEnvelope, runErr error, turnBegan, timedOut bool) error {
+func emitFinalStreamJSON(w io.Writer, fs *flag.FlagSet, cfg *printRunConfig, st *printTurnState, env *jsonEnvelope, runErr error, turnBegan, timedOut bool) error {
 	if turnBegan && !timedOut {
 		stepType := "agent_response"
 		if runErr != nil {
 			stepType = "error_message"
 		}
-		if err := emitStep(w, cfg.conversationID, 1, stepType); err != nil {
+		// The step's own facts: the text it produced, how long it took and
+		// the tokens it spent. The doc's example carries the three on the
+		// `agent_response` step (`official-docs/cli/headless.md:144`).
+		update := newStepUpdate(cfg.conversationID, 1, stepType)
+		update.TextDelta = st.responseBuf.String()
+		update.DurationSeconds = st.DurationSeconds()
+		if st.turnUsage.known() {
+			update.Usage = &st.turnUsage
+		}
+		if err := emitStep(w, update); err != nil {
 			return err
 		}
 	}

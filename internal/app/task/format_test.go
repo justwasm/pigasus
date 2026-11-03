@@ -320,6 +320,19 @@ func TestActiveSubagentRowLine(t *testing.T) {
 	if plain != "  ● Agent(sleep 10)  Processing... · 1m30s" {
 		t.Errorf("row = %q, want the reference's cell order", plain)
 	}
+
+	// While inside a tool call, the tool info cell renders `<tool> › <name>`
+	subWithTool := &Task{
+		Name:        "sleep 10",
+		Kind:        KindSubagent,
+		State:       StateRunning,
+		CurrentTool: "read_file",
+		StartedAt:   time.Now().Add(-90 * time.Second),
+	}
+	toolRow := stripANSI(ActiveSubagentRowLine(subWithTool, false, 80))
+	if !strings.Contains(toolRow, "read_file › sleep 10") {
+		t.Errorf("expected tool info 'read_file › sleep 10', got %q", toolRow)
+	}
 	// The cursor's row carries the "> " prefix.
 	cursor := stripANSI(ActiveSubagentRowLine(sub, true, 80))
 	if !strings.HasPrefix(cursor, "> ● Agent(sleep 10)") {

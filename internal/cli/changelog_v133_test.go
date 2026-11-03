@@ -32,7 +32,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/justwasm/pigasus/internal/referencedrift"
+	"github.com/justwasm/pigasus/internal/infra/referencedrift"
 )
 
 // changelogReferencePath walks up from dir looking for go.mod and
@@ -147,7 +147,7 @@ func TestChangelogReference_NewestBulletIsUpstream(t *testing.T) {
 		t.Fatalf("read %s: %v", path, err)
 	}
 	text := string(data)
-	const want = "1.4.10:\n\u00b7 Improved streaming of agent replies: lines that scroll off the top of the screen"
+	const want = "1.4.11:\n\u00b7 Added a billing model choice after you sign in with Google Cloud, so you can pick either a Gemini subscription or Pay As You Go."
 	if !strings.HasPrefix(text, want) {
 		t.Errorf("newest section is not the upstream capture:\n  want prefix: %q\n  file head: %.200q\u2026", want, text)
 	}

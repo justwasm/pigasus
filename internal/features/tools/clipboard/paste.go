@@ -23,7 +23,7 @@
 // ReadImage, and so unit tests don't need to mock the OS clipboard.
 //
 // Hard constraints from the gap brief:
-//   - new Go files gofmt-clean (gofmt -l internal/clipboard/ empty)
+//   - new Go files gofmt-clean (gofmt -l internal/features/tools/clipboard/ empty)
 //   - pre-existing not-clean files MUST NOT be reformatted wholesale
 //   - internal/convstore/sqlite.go untouched
 //   - at minimum 5 unit tests covering the brief's named cases:

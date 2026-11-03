@@ -20,6 +20,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/justwasm/pigasus/internal/remotecontrol/cascades"
 )
 
 // lsCancelBackend is a streaming backend whose turn writes the first
@@ -40,13 +42,13 @@ func newLSCancelBackend() *lsCancelBackend {
 }
 
 // Send is the non-streaming path; the cancel's tests always stream.
-func (b *lsCancelBackend) Send(ctx context.Context, prompt MessagePrompt) (MessageResult, error) {
-	return MessageResult{}, errors.New("lsCancelBackend streams")
+func (b *lsCancelBackend) Send(ctx context.Context, prompt cascades.Prompt) (cascades.Result, error) {
+	return cascades.Result{}, errors.New("lsCancelBackend streams")
 }
 
 // SendStream writes one word of the answer and parks until the turn's
 // context dies.
-func (b *lsCancelBackend) SendStream(ctx context.Context, prompt MessagePrompt, sink EventSink, opts MessageSendOptions) (MessageResult, error) {
+func (b *lsCancelBackend) SendStream(ctx context.Context, prompt cascades.Prompt, sink cascades.EventSink, opts cascades.SendOptions) (cascades.Result, error) {
 	b.once.Do(func() { close(b.entered) })
 	if sink != nil {
 		sink.OnTextDelta(nil, "hello")
@@ -55,7 +57,7 @@ func (b *lsCancelBackend) SendStream(ctx context.Context, prompt MessagePrompt, 
 	b.mu.Lock()
 	b.canceled++
 	b.mu.Unlock()
-	return MessageResult{}, ctx.Err()
+	return cascades.Result{}, ctx.Err()
 }
 
 // cancelCount returns how many turns ended because their context was
@@ -231,7 +233,7 @@ func TestLSCancel_ForceStopCascadeTree(t *testing.T) {
 // leaves behind: a turn that fails after an earlier turn was cancelled
 // reports its own failure, not the cancellation.
 func TestLSCancel_NextTurnIsNotCancelled(t *testing.T) {
-	c, err := NewCascade(CascadeOpts{ID: "conv-flag", Model: "test-model"})
+	c, err := cascades.New(cascades.Opts{ID: "conv-flag", Model: "test-model"})
 	if err != nil {
 		t.Fatalf("NewCascade: %v", err)
 	}

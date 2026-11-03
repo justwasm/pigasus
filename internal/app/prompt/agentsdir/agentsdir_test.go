@@ -19,7 +19,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/justwasm/pigasus/internal/agentsdir"
+	"github.com/justwasm/pigasus/internal/app/prompt/agentsdir"
 )
 
 // fixture creates a sandbox HOME at t.TempDir() and a sandbox CWD

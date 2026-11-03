@@ -3,15 +3,17 @@ package routing
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/justwasm/pigasus/internal/accounts"
-	"github.com/justwasm/pigasus/internal/auth"
-	"github.com/justwasm/pigasus/internal/backend"
+	"github.com/justwasm/pigasus/internal/core/apierror"
+	"github.com/justwasm/pigasus/internal/core/backend"
+	accounts "github.com/justwasm/pigasus/internal/features/accounts/core"
+	"github.com/justwasm/pigasus/internal/features/auth"
 )
 
 // The router reads two files: the account registry and the configuration
@@ -94,12 +96,8 @@ func setup(t *testing.T, section map[string]any, accs ...accounts.Account) *Rout
 	t.Setenv("OPENAGY_ACCOUNTS_CONFIG", registry)
 	t.Setenv("OPENAGY_CONFIG", config)
 	// A fresh router per test: the shared one keeps the pool's state.
-	r := &Router{
-		remaining:  map[string]quota{},
-		excluded:   map[string]time.Time{},
-		lastUsed:   map[string]time.Time{},
-		refreshing: map[string]bool{},
-	}
+	r := NewRouter()
+	t.Cleanup(r.Close)
 	// The shared credential is the active account's own token in the
 	// registry: a test must not reach for the machine's keychain.
 	r.loadShared = func() (*auth.AntigravityToken, string, error) {
@@ -365,7 +363,7 @@ func (c *quotaClient) Stream(ctx context.Context, req backend.StreamRequest) (<-
 		}
 	}
 	if c.calls <= c.failures {
-		return nil, backend.NewHTTPError(429, []byte(`{"error":{"message":"Individual quota reached."}}`), "https://cloudcode-pa.googleapis.com/v1internal:streamGenerateContent")
+		return nil, apierror.NewHTTPError(429, []byte(`{"error":{"message":"Individual quota reached."}}`), "https://cloudcode-pa.googleapis.com/v1internal:streamGenerateContent")
 	}
 	out := make(chan backend.StreamChunk, 1)
 	out <- backend.StreamChunk{Text: "ok", Done: true}
@@ -468,5 +466,259 @@ func TestUnwrapHandsBackTheInnerTransport(t *testing.T) {
 	}
 	if Unwrap(inner) != backend.Client(inner) {
 		t.Error("Unwrap changed a transport that was never wrapped")
+	}
+}
+
+func quotaSnapshotMulti(geminiRem, claudeRem float64) *auth.QuotaSnapshot {
+	return &auth.QuotaSnapshot{
+		FetchedAt: time.Now(),
+		Groups: []auth.QuotaGroupSnapshot{
+			{
+				Name: "Gemini Models",
+				Buckets: []auth.QuotaBucketSnapshot{{
+					DisplayName:       "Weekly Limit Remaining",
+					Window:            "weekly",
+					RemainingFraction: geminiRem,
+				}},
+			},
+			{
+				Name: "Claude and GPT Models",
+				Buckets: []auth.QuotaBucketSnapshot{{
+					DisplayName:       "Weekly Limit Remaining",
+					Window:            "weekly",
+					RemainingFraction: claudeRem,
+				}},
+			},
+		},
+	}
+}
+
+func TestRouteTurn_AtomicResult(t *testing.T) {
+	r := setup(t, map[string]any{
+		"enabled":  true,
+		"strategy": "round_robin",
+	},
+		accounts.Account{Email: "a@example.com", Quota: quotaSnapshot(0.9), Token: token("a")},
+		accounts.Account{Email: "b@example.com", Quota: quotaSnapshot(0.9), Token: token("b")},
+	)
+
+	ctx := context.Background()
+	res, err := r.RouteTurn(ctx)
+	if err != nil {
+		t.Fatalf("RouteTurn failed: %v", err)
+	}
+	if res.Email != "a@example.com" {
+		t.Errorf("got Email %q, want a@example.com", res.Email)
+	}
+	if res.AccessToken != "a" {
+		t.Errorf("got AccessToken %q, want a", res.AccessToken)
+	}
+	if r.LastRouted() != res.Email {
+		t.Errorf("LastRouted %q != res.Email %q", r.LastRouted(), res.Email)
+	}
+}
+
+func TestModelFamily_Routing_ClaudeAndGemini(t *testing.T) {
+	// Account A: 0% Gemini, 90% Claude
+	// Account B: 90% Gemini, 0% Claude
+	r := setup(t, map[string]any{
+		"enabled":  true,
+		"strategy": "quota_aware",
+	},
+		accounts.Account{Email: "a@example.com", Quota: quotaSnapshotMulti(0.0, 0.9), Token: token("a")},
+		accounts.Account{Email: "b@example.com", Quota: quotaSnapshotMulti(0.9, 0.0), Token: token("b")},
+	)
+
+	ctx := context.Background()
+
+	// Turn for Claude: should pick a@example.com (Claude quota 90% vs 0%)
+	claudeRes, err := r.RouteTurn(ctx, "claude")
+	if err != nil {
+		t.Fatalf("RouteTurn for claude: %v", err)
+	}
+	if claudeRes.Email != "a@example.com" {
+		t.Errorf("RouteTurn for claude got %q, want a@example.com", claudeRes.Email)
+	}
+
+	// Turn for Gemini: should pick b@example.com (Gemini quota 90% vs 0%)
+	geminiRes, err := r.RouteTurn(ctx, "gemini")
+	if err != nil {
+		t.Fatalf("RouteTurn for gemini: %v", err)
+	}
+	if geminiRes.Email != "b@example.com" {
+		t.Errorf("RouteTurn for gemini got %q, want b@example.com", geminiRes.Email)
+	}
+
+	// Also verify with aggregate strategy
+	rAgg := setup(t, map[string]any{
+		"enabled":   true,
+		"strategy":  "aggregate",
+		"aggregate": true,
+	},
+		accounts.Account{Email: "a@example.com", Quota: quotaSnapshotMulti(0.0, 0.9), Token: token("a")},
+		accounts.Account{Email: "b@example.com", Quota: quotaSnapshotMulti(0.9, 0.0), Token: token("b")},
+	)
+	claudeAggRes, err := rAgg.RouteTurn(ctx, "claude")
+	if err != nil || claudeAggRes.Email != "a@example.com" {
+		t.Errorf("rAgg RouteTurn for claude got %q, err: %v, want a@example.com", claudeAggRes.Email, err)
+	}
+	geminiAggRes, err := rAgg.RouteTurn(ctx, "gemini")
+	if err != nil || geminiAggRes.Email != "b@example.com" {
+		t.Errorf("rAgg RouteTurn for gemini got %q, err: %v, want b@example.com", geminiAggRes.Email, err)
+	}
+
+	// Also verify ModelFamily classifier
+	if f := ModelFamily("claude-3-7-sonnet-thought"); f != "claude" {
+		t.Errorf("ModelFamily(claude) = %q, want claude", f)
+	}
+	if f := ModelFamily("gemini-2.5-pro"); f != "gemini" {
+		t.Errorf("ModelFamily(gemini) = %q, want gemini", f)
+	}
+	if f := ModelFamily("chatgpt-4o-latest"); f != "claude" {
+		t.Errorf("ModelFamily(chatgpt) = %q, want claude", f)
+	}
+}
+
+func TestSingleFlight_ConcurrentTokenRefreshes(t *testing.T) {
+	r := setup(t, map[string]any{
+		"enabled":  true,
+		"strategy": "round_robin",
+	},
+		accounts.Account{Email: "a@example.com", Quota: quotaSnapshot(0.8), Token: token("a")},
+	)
+
+	const concurrency = 20
+	errCh := make(chan error, concurrency)
+	for i := 0; i < concurrency; i++ {
+		go func() {
+			res, err := r.RouteTurn(context.Background())
+			if err != nil {
+				errCh <- err
+				return
+			}
+			if res.AccessToken != "a" {
+				errCh <- fmt.Errorf("unexpected access token %q, want a", res.AccessToken)
+				return
+			}
+			errCh <- nil
+		}()
+	}
+
+	for i := 0; i < concurrency; i++ {
+		if err := <-errCh; err != nil {
+			t.Fatalf("concurrent RouteTurn failed: %v", err)
+		}
+	}
+}
+
+func TestModelFamily_ExclusionIsolation(t *testing.T) {
+	// Account A: 90% Gemini, 90% Claude
+	// Account B: 80% Gemini, 80% Claude
+	r := setup(t, map[string]any{
+		"enabled":  true,
+		"strategy": "quota_aware",
+	},
+		accounts.Account{Email: "a@example.com", Quota: quotaSnapshotMulti(0.9, 0.9), Token: token("a")},
+		accounts.Account{Email: "b@example.com", Quota: quotaSnapshotMulti(0.8, 0.8), Token: token("b")},
+	)
+
+	ctx := context.Background()
+
+	// Exclude Account A only for Gemini
+	r.ExcludeForModel("a@example.com", "gemini")
+
+	if !r.IsExcluded("a@example.com", "gemini") {
+		t.Error("a@example.com should be excluded for gemini")
+	}
+	if r.IsExcluded("a@example.com", "claude") {
+		t.Error("a@example.com should NOT be excluded for claude")
+	}
+	if r.IsExcluded("a@example.com") {
+		t.Error("a@example.com should NOT be excluded globally")
+	}
+
+	// Turn for Gemini: A is excluded on Gemini, so B should be picked
+	geminiRes, err := r.RouteTurn(ctx, "gemini")
+	if err != nil {
+		t.Fatalf("RouteTurn gemini: %v", err)
+	}
+	if geminiRes.Email != "b@example.com" {
+		t.Errorf("RouteTurn for gemini got %q, want b@example.com", geminiRes.Email)
+	}
+
+	// Turn for Claude: A is NOT excluded on Claude, and A (90%) > B (80%), so A should be picked
+	claudeRes, err := r.RouteTurn(ctx, "claude")
+	if err != nil {
+		t.Fatalf("RouteTurn claude: %v", err)
+	}
+	if claudeRes.Email != "a@example.com" {
+		t.Errorf("RouteTurn for claude got %q, want a@example.com", claudeRes.Email)
+	}
+
+	// Now exclude Account A globally
+	r.Exclude("a@example.com")
+
+	if !r.IsExcluded("a@example.com") {
+		t.Error("a@example.com should be excluded globally")
+	}
+	if !r.IsExcluded("a@example.com", "claude") {
+		t.Error("a@example.com should be excluded for claude when globally excluded")
+	}
+
+	// Turn for Claude: now A is globally excluded, so B should be picked
+	claudeRes2, err := r.RouteTurn(ctx, "claude")
+	if err != nil {
+		t.Fatalf("RouteTurn claude after global exclusion: %v", err)
+	}
+	if claudeRes2.Email != "b@example.com" {
+		t.Errorf("RouteTurn for claude after global exclusion got %q, want b@example.com", claudeRes2.Email)
+	}
+}
+
+func TestPrewarmCandidates(t *testing.T) {
+	r := setup(t, map[string]any{
+		"enabled":  true,
+		"strategy": "round_robin",
+	},
+		accounts.Account{Email: "a@example.com", Quota: quotaSnapshot(0.9), Token: token("a")},
+		accounts.Account{Email: "b@example.com", Quota: quotaSnapshot(0.8), Token: token("b")},
+	)
+
+	// Prewarm candidates
+	r.PrewarmCandidates(context.Background())
+
+	// Wait briefly for prewarm channel processing
+	time.Sleep(50 * time.Millisecond)
+
+	// Verify RouteTurn executes cleanly
+	res, err := r.RouteTurn(context.Background())
+	if err != nil {
+		t.Fatalf("RouteTurn: %v", err)
+	}
+	if res.Email != "a@example.com" {
+		t.Errorf("RouteTurn got %q, want a@example.com", res.Email)
+	}
+}
+
+func TestCooldown_AutoQuotaRefresh(t *testing.T) {
+	r := setup(t, map[string]any{
+		"enabled":  true,
+		"strategy": "round_robin",
+		"cooldown": "50ms",
+	},
+		accounts.Account{Email: "a@example.com", Quota: quotaSnapshot(0.9), Token: token("a")},
+	)
+
+	r.ExcludeForModel("a@example.com", "gemini")
+	if !r.IsExcluded("a@example.com", "gemini") {
+		t.Fatal("expected a@example.com to be excluded")
+	}
+
+	// Wait for cooldown to expire
+	time.Sleep(70 * time.Millisecond)
+
+	// IsExcluded should detect expiration, delete exclusion, and return false
+	if r.IsExcluded("a@example.com", "gemini") {
+		t.Errorf("expected exclusion to expire after 50ms cooldown")
 	}
 }

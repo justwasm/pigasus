@@ -9,9 +9,9 @@ import (
 
 	piagent "github.com/MichaelKinsy/PiG/agent"
 
-	"github.com/justwasm/pigasus/internal/backend"
-	"github.com/justwasm/pigasus/internal/remotecontrol"
-	"github.com/justwasm/pigasus/internal/tools"
+	"github.com/justwasm/pigasus/internal/app/tools/surface"
+	"github.com/justwasm/pigasus/internal/core/backend"
+	"github.com/justwasm/pigasus/internal/remotecontrol/cascades"
 )
 
 // TestTheRemoteTurnAdvertisesTheReferenceToolSurface checks that a
@@ -37,10 +37,10 @@ func TestTheRemoteTurnAdvertisesTheReferenceToolSurface(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	sess, err := factory(ctx, remotecontrol.MessagePrompt{
+	sess, err := factory(ctx, cascades.Prompt{
 		Text:  "what is the weather in Beijing?",
 		Model: "claude-sonnet-4-6",
-	}, remotecontrol.MessageSendOptions{})
+	}, cascades.SendOptions{})
 	if err != nil {
 		t.Fatalf("the session factory: %v", err)
 	}
@@ -59,14 +59,14 @@ func TestTheRemoteTurnAdvertisesTheReferenceToolSurface(t *testing.T) {
 	for _, decl := range requests[0].Tools {
 		advertised[decl.Name] = true
 	}
-	for _, want := range tools.ModelDeclarations() {
+	for _, want := range surface.ModelDeclarations() {
 		if !advertised[want.Name] {
 			t.Errorf("the turn does not advertise %q", want.Name)
 		}
 	}
-	if len(requests[0].Tools) != len(tools.ModelDeclarations()) {
+	if len(requests[0].Tools) != len(surface.ModelDeclarations()) {
 		t.Errorf("the turn advertises %d tools, the reference sends %d: %+v",
-			len(requests[0].Tools), len(tools.ModelDeclarations()), requests[0].Tools)
+			len(requests[0].Tools), len(surface.ModelDeclarations()), requests[0].Tools)
 	}
 }
 
@@ -88,14 +88,14 @@ func TestTheRemoteSessionReplaysTheConversation(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	sess, err := factory(ctx, remotecontrol.MessagePrompt{
+	sess, err := factory(ctx, cascades.Prompt{
 		Text:  "the second question",
 		Model: "claude-sonnet-4-6",
-		History: []remotecontrol.MessageHistoryTurn{
+		History: []cascades.HistoryTurn{
 			{Role: "user", Text: "the first question"},
 			{Role: "assistant", Text: "the first answer"},
 		},
-	}, remotecontrol.MessageSendOptions{})
+	}, cascades.SendOptions{})
 	if err != nil {
 		t.Fatalf("the session factory: %v", err)
 	}
@@ -145,10 +145,10 @@ func TestTheRemoteSessionWithoutAHistory(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	sess, err := factory(ctx, remotecontrol.MessagePrompt{
+	sess, err := factory(ctx, cascades.Prompt{
 		Text:  "the only question",
 		Model: "claude-sonnet-4-6",
-	}, remotecontrol.MessageSendOptions{})
+	}, cascades.SendOptions{})
 	if err != nil {
 		t.Fatalf("the session factory: %v", err)
 	}
@@ -197,13 +197,13 @@ func TestTheRemoteSessionCarriesTheAttachedPicture(t *testing.T) {
 	if err != nil {
 		t.Fatalf("decode the picture: %v", err)
 	}
-	sess, err := factory(ctx, remotecontrol.MessagePrompt{
+	sess, err := factory(ctx, cascades.Prompt{
 		Text:  "what is this?",
 		Model: "claude-sonnet-4-6",
-		Images: []remotecontrol.MessageImage{
+		Images: []cascades.Image{
 			{MIMEType: "image/png", Data: picture},
 		},
-	}, remotecontrol.MessageSendOptions{})
+	}, cascades.SendOptions{})
 	if err != nil {
 		t.Fatalf("the session factory: %v", err)
 	}

@@ -10,23 +10,20 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/MichaelKinsy/PiG/ai"
 
 	"github.com/justwasm/pigasus/internal/agent"
-	"github.com/justwasm/pigasus/internal/backend"
-	"github.com/justwasm/pigasus/internal/hooks"
+	"github.com/justwasm/pigasus/internal/core/backend"
+	"github.com/justwasm/pigasus/internal/features/plugins/hooks"
 	"github.com/justwasm/pigasus/internal/piagentbridge"
 	"github.com/justwasm/pigasus/internal/pigrt"
-	"github.com/justwasm/pigasus/internal/sidequestion"
+	"github.com/justwasm/pigasus/internal/ui/mdrender"
+	"github.com/justwasm/pigasus/internal/ui/views/sidequestion"
 )
-
-// btwHeaderLabel is the prefix the side-question card renders in the
-// transcript area. The reference uses the `⎿` glyph (the same one the
-// slash command echo uses).
-const btwHeaderLabel = "btw · "
 
 // newBtwManager is the hook the slash command uses to build a side-
 // question Manager. Production callers go through btwManagerFor which
@@ -61,7 +58,7 @@ func (m *runMode) btwManagerFor() *sidequestion.Manager {
 // Mirrors the print path's pigPrintModel (print_pig.go:54): the gateway
 // backend yields the native provider; every other backend is wrapped
 // by piagentbridge.NewBackendProvider so the gateway, fingerprint and
-// *backend.HTTPError classification stay identical.
+// *apierror.HTTPError classification stay identical.
 func (m *runMode) btwModel() *ai.Model {
 	if m.backend == nil {
 		return nil
@@ -70,6 +67,21 @@ func (m *runMode) btwModel() *ai.Model {
 		return provider.Model(m.model)
 	}
 	return piagentbridge.NewBackendProvider(m.backend, m.model).Model(m.model)
+}
+
+// btwDoneMsg delivers the settled side-question Card or failure.
+type btwDoneMsg struct {
+	id   string
+	card *sidequestion.Card
+	err  error
+}
+
+// btwTickMsg drives the spinner frame and answer delta re-renders while
+// an asynchronous /btw query is in flight.
+type btwTickMsg struct{}
+
+func btwTick() tea.Cmd {
+	return tea.Tick(80*time.Millisecond, func(time.Time) tea.Msg { return btwTickMsg{} })
 }
 
 // runBtwSideQuestion is the /btw slash-command body.
@@ -108,8 +120,36 @@ func (m *runMode) runBtwSideQuestion(args string) tea.Cmd {
 	trimmed = question
 	m.appendBtwToSession(trimmed)
 
-	card, err := mgr.Ask(context.Background(), trimmed)
+	ctx, cancel := context.WithCancel(context.Background())
+	m.activeBtwCancel = cancel
+
+	// When running without an active Bubble Tea program (e.g. unit tests that
+	// call handleSlashCommand directly without driving an event loop), run
+	// synchronously so assertions see the settled Card immediately.
+	if m.prog == nil && !m.asyncBtw {
+		card, err := mgr.Ask(ctx, trimmed)
+		m.activeBtwCancel = nil
+		cancel()
+		if err != nil {
+			m.response = append(m.response,
+				panelGray238+"btw failed: "+err.Error()+panelGray238C,
+				"",
+			)
+			m.firePostSideQuestionHook(preCtx, trimmed, nil, err)
+			return nil
+		}
+		m.btwCards = append(m.btwCards, card)
+		m.activeBtwIndex = len(m.btwCards) - 1
+		m.activeBtwID = card.ID
+		m.btwScroll = 0
+		m.firePostSideQuestionHook(preCtx, trimmed, card, nil)
+		return nil
+	}
+
+	card, run, err := mgr.StartAsk(ctx, trimmed)
 	if err != nil {
+		m.activeBtwCancel = nil
+		cancel()
 		m.response = append(m.response,
 			panelGray238+"btw failed: "+err.Error()+panelGray238C,
 			"",
@@ -123,8 +163,23 @@ func (m *runMode) runBtwSideQuestion(args string) tea.Cmd {
 	m.activeBtwID = card.ID
 	m.btwScroll = 0
 
-	m.firePostSideQuestionHook(preCtx, trimmed, card, nil)
-	return nil
+	askCmd := func() tea.Msg {
+		runErr := run()
+		return btwDoneMsg{id: card.ID, card: card, err: runErr}
+	}
+	return tea.Batch(askCmd, btwTick())
+}
+
+func (m *runMode) updateBtwDoneMsg(msg btwDoneMsg) (tea.Model, tea.Cmd) {
+	if m.activeBtwCancel != nil {
+		m.activeBtwCancel = nil
+	}
+	if msg.err != nil {
+		m.firePostSideQuestionHook(context.Background(), msg.card.Question, nil, msg.err)
+	} else {
+		m.firePostSideQuestionHook(context.Background(), msg.card.Question, msg.card, nil)
+	}
+	return m, nil
 }
 
 func (m *runMode) firePreSideQuestionHook(preCtx context.Context, trimmed string) (string, bool) {
@@ -266,9 +321,9 @@ func (m *runMode) NavigateBtw(delta int) {
 	m.btwScroll = 0
 }
 
-// BtwScrollBy scrolls the active BTW card answer by delta (-1 or +1)
+// btwScrollBy scrolls the active BTW card answer by delta (-1 or +1)
 // when expanded. Returns true if the event was consumed.
-func (m *runMode) BtwScrollBy(delta int) bool {
+func (m *runMode) btwScrollBy(delta int) bool {
 	card := m.currentBtwResponse()
 	if card == nil {
 		return false
@@ -280,7 +335,7 @@ func (m *runMode) BtwScrollBy(delta int) bool {
 	if answer == "" {
 		return false
 	}
-	maxLines := m.maxBtwAnswerLines(true)
+	maxLines := sidequestion.MaxBtwAnswerLines(m.height, true)
 	lines := strings.Split(answer, "\n")
 	if len(lines) <= maxLines {
 		return false
@@ -311,87 +366,6 @@ func (m *runMode) isBtwCardVisible() bool {
 	return m.activeBtwIndex >= 0 && m.activeBtwIndex < len(m.btwCards)
 }
 
-func (m *runMode) findBtwCard(id string) *sidequestion.Card {
-	if m.activeBtwID == id && m.currentBtwResponse() != nil {
-		return m.currentBtwResponse()
-	}
-	for _, c := range m.btwCards {
-		if c.ID == id {
-			return c
-		}
-	}
-	return nil
-}
-
-// activeBtwCard returns the card /copy btw addresses.
-func (m *runMode) activeBtwCard() *sidequestion.Card {
-	if cur := m.currentBtwResponse(); cur != nil {
-		return cur
-	}
-	if m.activeBtwID != "" {
-		return m.findBtwCard(m.activeBtwID)
-	}
-	if len(m.btwCards) > 0 {
-		return m.btwCards[len(m.btwCards)-1]
-	}
-	return nil
-}
-
-// BtwCardExpanded reports whether the card with the given ID is expanded.
-func (m *runMode) BtwCardExpanded(id string) bool {
-	if card := m.findBtwCard(id); card != nil {
-		return card.IsExpanded()
-	}
-	if m.btwExpanded != nil {
-		return m.btwExpanded[id]
-	}
-	return false
-}
-
-// ToggleBtwCardExpansion flips the per-card expansion flag.
-func (m *runMode) ToggleBtwCardExpansion(id string) bool {
-	if card := m.findBtwCard(id); card != nil {
-		return card.ToggleExpanded()
-	}
-	if m.btwExpanded == nil {
-		m.btwExpanded = make(map[string]bool)
-	}
-	next := !m.btwExpanded[id]
-	m.btwExpanded[id] = next
-	return next
-}
-
-// CollapseBtwCard forces the card to render collapsed.
-func (m *runMode) CollapseBtwCard(id string) {
-	if card := m.findBtwCard(id); card != nil {
-		card.SetExpanded(false)
-	}
-	if m.btwExpanded != nil {
-		m.btwExpanded[id] = false
-	}
-}
-
-// maxBtwAnswerLines computes maximum visible answer lines:
-//   - Collapsed: 30% of windowHeight (min 5)
-//   - Expanded: windowHeight - 8 (min 5)
-func (m *runMode) maxBtwAnswerLines(expanded bool) int {
-	return sidequestion.MaxBtwAnswerLines(m.height, expanded)
-}
-
-// btwHintText generates the card hint bar joined with " · ":
-func (m *runMode) btwHintText(card *sidequestion.Card) string {
-	return sidequestion.HintText(card.IsExpanded(), len(m.btwCards))
-}
-
-func (m *runMode) btwSpinner() string {
-	return sidequestion.Spinner()
-}
-
-// renderInputCard wraps content in a box with a thick left border (┃).
-func (m *runMode) renderInputCard(width int, content string) string {
-	return sidequestion.RenderInputCard(width, content)
-}
-
 // renderBtwCard renders the active side-question card.
 func (m *runMode) renderBtwCard() string {
 	card := m.currentBtwResponse()
@@ -403,16 +377,8 @@ func (m *runMode) renderBtwCard() string {
 		Height:    m.height,
 		CardCount: len(m.btwCards),
 		Scroll:    m.btwScroll,
-		RenderMd:  renderMarkdown,
+		RenderMd:  mdrender.RenderMarkdown,
 	})
-}
-
-func (m *runMode) renderBtwBodyLines(state string, answer string, err error, cardWidth int, expanded bool) []string {
-	return sidequestion.RenderBtwBodyLines(state, answer, err, cardWidth, expanded, m.height, m.btwScroll, renderMarkdown)
-}
-
-func (m *runMode) formatBtwAnswerLines(answer string, cardWidth int, expanded bool) []string {
-	return sidequestion.FormatBtwAnswerLines(answer, cardWidth, expanded, m.height, m.btwScroll, renderMarkdown)
 }
 
 // aboveInputCard renders the card directly above the input prompt.

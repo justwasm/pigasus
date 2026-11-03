@@ -10,7 +10,7 @@ import (
 	"strings"
 
 	"github.com/justwasm/pigasus/internal/cli"
-	"github.com/justwasm/pigasus/internal/cliflags"
+	"github.com/justwasm/pigasus/internal/core/cliflags"
 )
 
 // AppOptions configures the modular CLI entry point.

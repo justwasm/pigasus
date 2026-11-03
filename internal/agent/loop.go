@@ -34,7 +34,7 @@ import (
 
 	piagent "github.com/MichaelKinsy/PiG/agent"
 
-	"github.com/justwasm/pigasus/internal/backend"
+	"github.com/justwasm/pigasus/internal/core/backend"
 	"github.com/justwasm/pigasus/internal/piagentbridge"
 )
 
@@ -76,11 +76,11 @@ type Options struct {
 	// Provider, when set, is used instead of the Provider that would
 	// otherwise be derived from Backend. It is an override, not the only
 	// way to reach the native path: when Backend is a client that can
-	// describe itself (internal/backend.GatewayClient.GatewayConfig), the Loop
+	// describe itself (internal/gateway.GatewayClient.GatewayConfig), the Loop
 	// derives the matching piagentbridge.Provider and serves the turn from
 	// it, so cmd/wagyu needs no change and keeps the exact wire behaviour
 	// — the ExternalModel remap, the SystemFingerprint, the User-Agent, and
-	// the *backend.HTTPError that cmd/wagyu/api_error.go classifies. See
+	// the *apierror.HTTPError that cmd/wagyu/api_error.go classifies. See
 	// docs/cycles/cycle-183.
 	Provider *piagentbridge.Provider
 	// Handler is invoked once per upstream chunk. Required; must not be nil.
@@ -107,7 +107,7 @@ type Options struct {
 	// ToolRunner executes model-requested tool calls. When nil, the loop
 	// is single-turn: tool calls are still surfaced to the handler but
 	// never executed, preserving the pre-cycle-97 behaviour.
-	ToolRunner ToolRunner
+	ToolRunner backend.ToolRunner
 
 	// ExtraAgentTools are appended to the PiG agent's tool surface after
 	// Tools are wrapped via ToolRunner. Use this for tools that drive
@@ -206,13 +206,6 @@ type compactRecord struct {
 // the 5-minute SSE idle watcher. A caller that really wants a budget can still
 // set Options.MaxToolIterations.
 const defaultMaxToolIterations = 0
-
-// ToolRunner executes one model-requested tool call and returns the textual
-// result fed back to the model as a `tool` role message. A returned error is
-// reported to the model as text (the loop never aborts on a tool failure).
-type ToolRunner interface {
-	Run(ctx context.Context, call backend.ToolCall) (string, error)
-}
 
 // Handler receives StreamChunks from the upstream call. The same chunk is
 // delivered to every registered sink; the simplest impl is a closure that

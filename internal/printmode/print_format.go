@@ -51,7 +51,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/justwasm/pigasus/internal/apierror"
+	"github.com/justwasm/pigasus/internal/core/apierror"
+	"github.com/justwasm/pigasus/internal/core/cliflags"
+	"github.com/justwasm/pigasus/internal/core/policy/permissions"
+	"github.com/justwasm/pigasus/internal/core/settings"
 )
 
 // Output-format names, and the two `status` values the envelope carries.
@@ -68,15 +71,33 @@ const (
 	printStatusError   = "ERROR"
 )
 
-// PrintOutputFormat resolves --output-format.
+// PrintOutputFormat resolves --output-format or its first-class alias --format.
+// When both are provided, --output-format takes precedence. Anything unrecognised
+// (including the empty default) resolves to PrintFormatText ("text").
 func PrintOutputFormat(fs *flag.FlagSet) string {
 	return printOutputFormat(fs)
 }
 
-// printOutputFormat resolves --output-format. Anything unrecognised (including
-// the empty default) means `text`.
+// printOutputFormat resolves --output-format or its first-class alias --format.
+// Anything unrecognised (including the empty default) means `text`.
+// If both --output-format and --format are provided, --output-format wins.
 func printOutputFormat(fs *flag.FlagSet) string {
-	switch flagStringValue(fs, "output-format") {
+	raw := ""
+	if cliflags.WasSet(fs, "output-format") {
+		raw = flagStringValue(fs, "output-format")
+		if raw == "" && cliflags.WasSet(fs, "format") {
+			raw = flagStringValue(fs, "format")
+		}
+	} else if cliflags.WasSet(fs, "format") {
+		raw = flagStringValue(fs, "format")
+	} else {
+		raw = flagStringValue(fs, "output-format")
+		if raw == "" {
+			raw = flagStringValue(fs, "format")
+		}
+	}
+
+	switch strings.TrimSpace(raw) {
 	case printFormatJSON:
 		return printFormatJSON
 	case printFormatStreamJSON:
@@ -95,6 +116,17 @@ type jsonUsage struct {
 	ThinkingTokens  int `json:"thinking_tokens"`
 	CacheReadTokens int `json:"cache_read_tokens"`
 	TotalTokens     int `json:"total_tokens"`
+}
+
+// known reports whether the usage carries any token count at all.
+//
+// The envelope always carries the `usage` object, zeros included. A step's
+// `usage` is "per-step token usage, **when known**"
+// (`official-docs/cli/headless.md:181`), and a turn that reported no usage
+// leaves every counter at zero — so the step omits the member rather than
+// report a usage of nothing.
+func (u jsonUsage) known() bool {
+	return u != jsonUsage{}
 }
 
 // jsonCommandPayload is the `command` member: the structured form of a
@@ -131,16 +163,21 @@ type jsonCommandPayload struct {
 // result is answered locally and finishes normally — so their relative
 // order is unobservable; `finished_reason` is last in the struct because
 // the reference *added* it to the 1.3.6 field order.
+//
+// StructuredOutput and JSONSchema are present only when `--json-schema` was set
+// (`official-docs/cli/headless.md:87-88`).
 type jsonEnvelope struct {
-	ConversationID  string              `json:"conversation_id"`
-	Status          string              `json:"status"`
-	Response        string              `json:"response"`
-	Error           string              `json:"error,omitempty"`
-	DurationSeconds int                 `json:"duration_seconds"`
-	NumTurns        int                 `json:"num_turns"`
-	Usage           jsonUsage           `json:"usage"`
-	Command         *jsonCommandPayload `json:"command,omitempty"`
-	FinishedReason  string              `json:"finished_reason,omitempty"`
+	ConversationID   string              `json:"conversation_id"`
+	Status           string              `json:"status"`
+	Response         string              `json:"response"`
+	Error            string              `json:"error,omitempty"`
+	DurationSeconds  int                 `json:"duration_seconds"`
+	NumTurns         int                 `json:"num_turns"`
+	StructuredOutput any                 `json:"structured_output,omitempty"`
+	JSONSchema       json.RawMessage     `json:"json_schema,omitempty"`
+	Usage            jsonUsage           `json:"usage"`
+	Command          *jsonCommandPayload `json:"command,omitempty"`
+	FinishedReason   string              `json:"finished_reason,omitempty"`
 }
 
 // The three `finished_reason` values the reference reports.
@@ -205,21 +242,95 @@ const (
 
 // jsonInitPayload is the `init` member: the session's starting state, emitted
 // before the model is called.
+//
+// The last three members are the reference's own 【strings】 tags —
+// `json:"model,omitempty"` (out/local-macos-1.4.11/strings-index.txt's
+// surviving copy of the dump, line 648166), `json:"agent,omitempty"`
+// (648196) and `json:"json_schema,omitempty"` (663855) — and the doc's rule
+// for them: "`model` and `agent` appear only when set with `--model` or
+// `--agent`", "`json_schema` — Enforced schema, when set with
+// `--json-schema`" (`official-docs/cli/headless.md:159-168`).
+//
+// They are `omitempty`, so a run that overrode nothing carries the three
+// members the clone always carried.
 type jsonInitPayload struct {
-	CWD            string   `json:"cwd"`
-	Tools          []string `json:"tools"`
-	PermissionMode string   `json:"permission_mode"`
+	CWD            string          `json:"cwd"`
+	Tools          []string        `json:"tools"`
+	PermissionMode string          `json:"permission_mode"`
+	Model          string          `json:"model,omitempty"`
+	Agent          string          `json:"agent,omitempty"`
+	JSONSchema     json.RawMessage `json:"json_schema,omitempty"`
 }
 
-// jsonStepUpdate is the `step_update` member. `state` is DONE for every step the
-// clone emits (the reference also has RUNNING/PENDING states, which are
-// unrecovered because a successful turn cannot be captured while the account is
-// exhausted).
+// jsonStepUpdate is the `step_update` member.
+//
+// The member set is the reference's own 【strings】 — `conversation_id`
+// (661205), `step_index` (646532), `state`, `step_type` (658577),
+// `tool_name` (658579), `text_delta` (661237), `duration_seconds` (663829),
+// `usage` (648103), `tool_info` (658581) and `subagent_info` (668711) — and
+// the doc's table lists the same ten
+// (`official-docs/cli/headless.md:172-183`).
+//
+// `state` is DONE for every step the clone emits (the reference also has
+// RUNNING/PENDING states, which are unrecovered because a successful turn
+// cannot be captured while the account is exhausted).
+//
+// The last six members are `omitempty`: they are the step's own facts, and
+// a step that has none of them carries none of them. The clone fills
+// `text_delta`, `duration_seconds` and `usage` on its `agent_response`
+// step; it emits no tool step and no subagent step, so `tool_name`,
+// `tool_info` and `subagent_info` stay absent.
 type jsonStepUpdate struct {
-	ConversationID string `json:"conversation_id"`
-	StepIndex      int    `json:"step_index"`
-	State          string `json:"state"`
-	StepType       string `json:"step_type"`
+	ConversationID  string            `json:"conversation_id"`
+	StepIndex       int               `json:"step_index"`
+	State           string            `json:"state"`
+	StepType        string            `json:"step_type"`
+	ToolName        string            `json:"tool_name,omitempty"`
+	TextDelta       string            `json:"text_delta,omitempty"`
+	DurationSeconds float64           `json:"duration_seconds,omitempty"`
+	Usage           *jsonUsage        `json:"usage,omitempty"`
+	ToolInfo        *jsonToolInfo     `json:"tool_info,omitempty"`
+	SubagentInfo    *jsonSubagentInfo `json:"subagent_info,omitempty"`
+}
+
+// jsonToolInfo is the `tool_info` object of a tool step: the call and its
+// result. The doc's example carries `name`, `parameters` and `output`, and
+// — when the tool fails — an `error` object with `type` and `message`
+// (`official-docs/cli/headless.md:187-193`).
+//
+// The clone emits no tool step, so nothing fills this struct yet. The shape
+// is here so the wire carries the reference's member set the moment a tool
+// step is emitted.
+type jsonToolInfo struct {
+	Name       string          `json:"name"`
+	Parameters json.RawMessage `json:"parameters,omitempty"`
+	Output     string          `json:"output,omitempty"`
+	Error      *jsonToolError  `json:"error,omitempty"`
+}
+
+// jsonToolError is the `error` object of a failed tool call.
+type jsonToolError struct {
+	Type    string `json:"type,omitempty"`
+	Message string `json:"message,omitempty"`
+}
+
+// jsonSubagentInfo is the `subagent_info` object of a step that delegated
+// to subagents: the doc says it "lists each subagent under `subagents`
+// (with `type_name`, `role`, `conversation_id`, `log_uri`, and
+// `workspace_uris`)" (`official-docs/cli/headless.md:193`).
+//
+// The clone emits no subagent step, so nothing fills this struct yet.
+type jsonSubagentInfo struct {
+	Subagents []jsonSubagent `json:"subagents,omitempty"`
+}
+
+// jsonSubagent is one delegated subagent inside a `subagent_info`.
+type jsonSubagent struct {
+	TypeName       string   `json:"type_name,omitempty"`
+	Role           string   `json:"role,omitempty"`
+	ConversationID string   `json:"conversation_id,omitempty"`
+	LogURI         string   `json:"log_uri,omitempty"`
+	WorkspaceURIs  []string `json:"workspace_uris,omitempty"`
 }
 
 // jsonAssistantMessage is the `assistant_message` member of the
@@ -270,18 +381,32 @@ type jsonPartialResponse struct {
 	Response string `json:"response"`
 }
 
+// printStepStateDone is the state every step the clone emits carries. The
+// reference also has RUNNING/PENDING states (the doc calls them ACTIVE and
+// DONE), which are unrecovered because a successful turn cannot be captured
+// while the account is exhausted.
+const printStepStateDone = "DONE"
+
+// newStepUpdate builds the payload of one step: the conversation it belongs
+// to, its index, its type and the state the clone reports for every step it
+// emits. The step's own facts — the text it produced, how long it took, the
+// tokens it spent — are the caller's to fill in.
+func newStepUpdate(conversationID string, index int, stepType string) *jsonStepUpdate {
+	return &jsonStepUpdate{
+		ConversationID: conversationID,
+		StepIndex:      index,
+		State:          printStepStateDone,
+		StepType:       stepType,
+	}
+}
+
 // emitStep writes one `step_update` event. The clone reports every step as
-// DONE; the reference's RUNNING/PENDING transitions are unrecovered, because a
-// successful turn cannot be captured while the account is exhausted.
-func emitStep(w io.Writer, conversationID string, index int, stepType string) error {
+// DONE; the reference's RUNNING/PENDING transitions are unrecovered, because
+// a successful turn cannot be captured while the account is exhausted.
+func emitStep(w io.Writer, update *jsonStepUpdate) error {
 	return writeJSONLine(w, jsonStreamEvent{
-		Event: streamEventStepUpdate,
-		StepUpdate: &jsonStepUpdate{
-			ConversationID: conversationID,
-			StepIndex:      index,
-			State:          "DONE",
-			StepType:       stepType,
-		},
+		Event:      streamEventStepUpdate,
+		StepUpdate: update,
 	})
 }
 
@@ -381,7 +506,22 @@ func printTimeoutWarning(d time.Duration) string {
 // (default) mode as the default execution behavior") agrees. The
 // "always-proceed" the cycle-113 capture carries came from a capture machine
 // whose settings.json set `toolPermission` explicitly — the file value wins.
-func printPermissionMode() string {
+//
+// `--dangerously-skip-permissions` is the run's own override: the policy it
+// builds skips every prompt (`setup.PolicyFrom`'s SkipPermissions), so the
+// mode the run is actually in is "always-proceed" — which is what the
+// reference's doc says the event reports under that flag
+// (`official-docs/cli/headless.md:159`). The flag wins over the settings
+// file, because the settings file's `toolPermission` is what the *policy*
+// falls back to, and the flag replaces the policy's answer.
+//
+// 【存疑】 the reference's own value under that flag is not confirmed
+// first-hand; the doc is the only source (see the cycle-383 ledger's
+// "Flags, ambiguities and confusions", item 2).
+func printPermissionMode(fs *flag.FlagSet) string {
+	if flagBoolValue(fs, "dangerously-skip-permissions") {
+		return permissions.ToolPermissionAlwaysProceed
+	}
 	raw := map[string]json.RawMessage{}
 	if b, err := readSettingsFile(); err == nil {
 		_ = json.Unmarshal(b, &raw)
@@ -391,7 +531,8 @@ func printPermissionMode() string {
 		_ = json.Unmarshal(raw["toolPermission"], &v)
 	}
 	if v == "" {
-		v = printSlashConfigDefaultString("toolPermission")
+		// The default is the reference's own "request-review".
+		v = settings.DefaultString("toolPermission")
 	}
 	return v
 }

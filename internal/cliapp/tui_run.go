@@ -26,28 +26,43 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/justwasm/pigasus/internal/agent"
-	"github.com/justwasm/pigasus/internal/announce"
-	"github.com/justwasm/pigasus/internal/backend"
-	"github.com/justwasm/pigasus/internal/clipboard"
-	"github.com/justwasm/pigasus/internal/convstore"
-	"github.com/justwasm/pigasus/internal/hooks"
-	"github.com/justwasm/pigasus/internal/keybind"
-	"github.com/justwasm/pigasus/internal/loginui"
-	"github.com/justwasm/pigasus/internal/permissions"
-	"github.com/justwasm/pigasus/internal/pluginwatch"
-	"github.com/justwasm/pigasus/internal/resumetree"
-	"github.com/justwasm/pigasus/internal/sandbox"
-	"github.com/justwasm/pigasus/internal/seasonal"
-	"github.com/justwasm/pigasus/internal/sidequestion"
-	"github.com/justwasm/pigasus/internal/statusline"
-	"github.com/justwasm/pigasus/internal/subagent"
-	"github.com/justwasm/pigasus/internal/subagentquestions"
-	"github.com/justwasm/pigasus/internal/subagentrouter"
-	"github.com/justwasm/pigasus/internal/subagenttools"
-	"github.com/justwasm/pigasus/internal/taskregistry"
-	"github.com/justwasm/pigasus/internal/tools"
-	"github.com/justwasm/pigasus/internal/tuilib"
-	"github.com/justwasm/pigasus/internal/voice"
+	"github.com/justwasm/pigasus/internal/ui/foundations/history"
+	tuiviewport "github.com/justwasm/pigasus/internal/ui/foundations/viewport"
+	"github.com/justwasm/pigasus/internal/ui/views/activeitemspanel"
+	"github.com/justwasm/pigasus/internal/ui/views/announce"
+	"github.com/justwasm/pigasus/internal/app/agentturn"
+	"github.com/justwasm/pigasus/internal/app/tuistore"
+	subagent "github.com/justwasm/pigasus/internal/app/subagent/core"
+	subagentquestions "github.com/justwasm/pigasus/internal/app/subagent/questions"
+	subagentrouter "github.com/justwasm/pigasus/internal/app/subagent/router"
+	"github.com/justwasm/pigasus/internal/ui/views/subagentquestionpanel"
+	taskregistry "github.com/justwasm/pigasus/internal/app/task"
+	"github.com/justwasm/pigasus/internal/app/session/convstore"
+	"github.com/justwasm/pigasus/internal/core/backend"
+	"github.com/justwasm/pigasus/internal/core/settings"
+	"github.com/justwasm/pigasus/internal/core/policy/permissions"
+	corehooks "github.com/justwasm/pigasus/internal/core/policy/hooks"
+	"github.com/justwasm/pigasus/internal/core/policy/sandbox"
+	"github.com/justwasm/pigasus/internal/features/plugins/hooks"
+	pluginwatch "github.com/justwasm/pigasus/internal/features/plugins/watch"
+	"github.com/justwasm/pigasus/internal/features/tools/clipboard"
+	"github.com/justwasm/pigasus/internal/ui/views/helppanel"
+	"github.com/justwasm/pigasus/internal/ui/views/loginui"
+	"github.com/justwasm/pigasus/internal/ui/views/modelpicker"
+	"github.com/justwasm/pigasus/internal/ui/views/sidequestion"
+	"github.com/justwasm/pigasus/internal/app/subagenttools"
+	"github.com/justwasm/pigasus/internal/app/tools"
+	"github.com/justwasm/pigasus/internal/ui/resumepicker"
+	"github.com/justwasm/pigasus/internal/ui/views/mentionpicker"
+	"github.com/justwasm/pigasus/internal/ui/views/slashpicker"
+	"github.com/justwasm/pigasus/internal/ui/toolsteps"
+	"github.com/justwasm/pigasus/internal/ui/transcript"
+	"github.com/justwasm/pigasus/internal/ui/editor/keybind"
+	"github.com/justwasm/pigasus/internal/ui/panelregistry"
+	"github.com/justwasm/pigasus/internal/ui/tuimodel"
+	"github.com/justwasm/pigasus/internal/ui/views/seasonal"
+	"github.com/justwasm/pigasus/internal/ui/views/statusline"
+	"github.com/justwasm/pigasus/internal/ui/views/voice"
 	"github.com/justwasm/pigasus/palette"
 	"github.com/justwasm/pigasus/render"
 	"github.com/justwasm/pigasus/vim"
@@ -98,8 +113,9 @@ const separatorWidth = 220
 const helpCommandsPageSize = 18
 
 // runMode is the v1.3.5 binary 1:1 single-prompt TUI.
-// runMode is the v1.3.5 binary 1:1 single-prompt TUI.
 type runMode struct {
+	tuimodel.Base
+
 	email string
 	model string
 	// Cycle 80: status row model label is the base name only (no
@@ -134,6 +150,12 @@ type runMode struct {
 	backend  backend.Client
 	// backendFor rebuilds the transport after a model change, so the
 	backendFor func(model string) backend.Client
+	// engine runs the session's turns.
+	//
+	// The local engine runs them in this process; the remote one runs
+	// them on a pigasus server. Both answer with the same frames, so the
+	// transcript renders a turn the same way whichever one it is.
+	engine agentturn.Engine
 	// Cycle 86: per-session conversation UUID shown in the /help
 	conversationID string
 	// initialConversationID is the UUID generated at runMode creation.
@@ -149,7 +171,7 @@ type runMode struct {
 	// belongs to the conversation, not to the turn: the TUI builds the
 	// subagent tool set once per turn, and the definitions have to
 	// survive that. A resumed conversation gets its definitions back
-	// from the trajectory (see internal/rehydration).
+	// from the trajectory (see internal/app/session/rehydration).
 	subagentDefs *subagenttools.Store
 	// subagentRegistry is the conversation's live-subagent registry.
 	//
@@ -195,16 +217,8 @@ type runMode struct {
 	fallbackFrom string
 	fallbackTo   string
 	altScreen    bool
-	// Cycle 174: in-app text selection state. MouseModeCellMotion
-	selDragging bool
-	selStartRow int
-	selStartCol int
-	selEndRow   int
-	selEndCol   int
-	// In-app input field text selection state.
-	inputSelDragging bool
-	inputSelStart    int // byte offset in m.input.Value()
-	inputSelEnd      int // byte offset in m.input.Value()
+	// Cycle 382: extracted session state (selection, bash mode)
+	store tuistore.Store
 	session          []backend.Message
 	// implicitMsgs are the chat messages the cumulative prompt carries
 	// from the implicit trajectory — the `!` commands the user ran outside
@@ -255,44 +269,42 @@ type runMode struct {
 	// transcript; this flag drives both. It is cleared when the next turn
 	// starts.
 	turnInterrupted bool
-	// bashMode arms the reference's "!" mode: the composer prompt becomes a
-	bashMode bool
-	// bashRowIdx is the m.response index of the in-flight bash head row, so
-	bashRowIdx int
-	// bashCancel cancels the running shell command (Esc). Distinct from
-	bashCancel context.CancelFunc
-	// bashRun is the running command's output sink; a preemption snapshots
-	bashRun *bashOutput
-	// bashCmd is the running command's text, needed to rebuild its head row
-	bashCmd string
-	// bashGen tags every bashDoneMsg; stale generations are ignored.
-	bashGen int
-	// bashQueue holds commands submitted while a turn streamed. They run
-	bashQueue []string
-	quitting  bool
+	// engineModelRowsCache caches the model rows discovered from an attached dynamic engine
+	// (Codex, Claude, etc.) so rendering /model doesn't perform blocking IPC on every frame.
+	engineModelRowsCache []modelpicker.Row
+	quitting        bool
 	// Cycle 144: two-step Ctrl+C exit confirmation. exitConfirm=true
 	exitConfirm   bool
 	exitConfirmAt time.Time
+	// Cycle 383 (B-21): the two-step Esc that clears the composer.
+	// escArmedFor holds the composer content the pair was armed on; the
+	// empty string means "not armed". The reference clears the prompt box
+	// on `esc esc` (official-docs/cli/using.md:22), so the first Esc only
+	// arms the clear and the second one performs it.
+	escArmedFor string
 	// Cycle 76: streaming spinner. The v1.3.5 binary renders a Braille
-	spinner     sp.Model
-	history     []string
-	historyIdx  int
-	historyEdit string
-	picker      tuilib.PickerState
-	// Cycle 129: picker scroll offset. The picker renders a fixed
-	pickerOffset int
-	// feature/at-file-dropdown-newline: the @ file-mention
-	atFileDropdown atFileDropdown
-	// Cycle 232: picker mouse-click support. pickerLayoutLocal is
-	pickerLayoutLocal pickerLayout
-	pickerBodyStart   int
-	pickerGeom        pickerGeom
+	spinner sp.Model
+	// Cycle 381: the prompt history is a list
+	// (internal/ui/foundations/history). It owns the remembered prompts,
+	// the navigation's index and the draft the navigation stashed; the
+	// host owns the composer and the persistence to history.jsonl.
+	promptHistory history.List
+	// Cycle 381: the slash-command completion popup is a panel
+	// (internal/ui/views/slashpicker). It owns the filtered rows, the
+	// highlight, the scroll window, the on-screen rectangle, the rows
+	// it writes and the keys it handles; the host routes the rest.
+	picker *slashpicker.Panel
+	// Cycle 381: the "@" file-mention dropdown is a panel
+	// (internal/ui/views/mentionpicker). It owns the candidate list,
+	// the highlight, the mention token's span, the rows it writes and
+	// the keys it handles; the host routes the rest.
+	atFilePicker *mentionpicker.Panel
 	// promptBodyStart is the line index in the pre-trim body
 	promptBodyStart int
 	promptScreenY   int
 	// Cycle 99: interactive tool calling. tools is the recovered advertised
 	tools      []backend.ToolDecl
-	toolRunner agent.ToolRunner
+	toolRunner backend.ToolRunner
 	// agentBody is the --agent custom agent's Markdown body. Non-empty swaps
 	agentBody string
 	// agentName is the active markdown agent's name, or "" for the built-in
@@ -313,16 +325,18 @@ type runMode struct {
 	// races with every read the UI does.
 	compactDone chan genericCompactDoneMsg
 	// liveSteps accumulates the steps of the turn currently in flight;
-	liveSteps  []toolStep
+	liveSteps  []toolsteps.Step
 	liveStart  int
 	activeTool string
 	// liveStepRuns mirrors liveSteps with transcript coordinates, so
-	liveStepRuns []liveStepRun
+	liveStepRuns []transcript.LiveStepRun
 	// Cycle 229: replyStart marks the index in m.response where the model
 	replyStart int
 	// Cycle 285: liveTextLines is the row count of the current streaming
 	liveTextLines int
 	liveReplyBuf  string
+	// lastStreamSave throttles synchronous session persistence during streaming.
+	lastStreamSave time.Time
 	// streamedText records whether this turn rendered any text live. When
 	streamedText bool
 	// liveBatch is the batch id of the calls emitted by the current
@@ -335,53 +349,49 @@ type runMode struct {
 	// Cycle 229: liveReplyIdx is the index in m.session where the
 	liveReplyIdx int
 	// Cycle 272 removed glamourThroughIndex (cycle 232) and fnvCache
-	thinking      bool
-	thinkingSince time.Time
+	thinking            bool
+	thinkingSince       time.Time
+	liveThinking        string
+	liveThinkingSnippet string
+	liveThoughtRunIdx   int
+	activeTip           string
 	// expanded is the ctrl+o toggle for tool-step groups (recovered hints
-	expanded bool
+	expanded            bool
+	expandedUserToggled bool
+	verbosity           string
 	// blocks records where each turn's step block lives in m.response so
-	blocks []turnBlock
+	blocks []transcript.Block
+	// userBlocks records where each user prompt lives in m.response so reflow
+	// and live colour scheme changes can re-render it.
+	userBlocks []transcript.UserBlock
 	// assistants records where each completed assistant markdown reply lives
 	// in m.response so a live colour scheme change can re-render it.
-	assistants []assistantBlock
-	// Cycle 83: 3-tab /help TUI menu overlay. When helpMode is true,
-	helpMode bool
-	helpTab  int // 0/1/2
-	// Voice dictation state (matching AGY AudioModel and KeyToggleDictation).
-	voiceMode      bool
-	voicePhase     int
-	voiceTrigger   string
-	voiceRecorder  *voice.Recorder
-	voiceCancel    bool
+	assistants []transcript.AssistantBlock
+	// Cycle 83: the 3-tab /help TUI menu overlay. Cycle 381: the
+	// overlay's tab, cursor and window live in the panel; the host
+	// keeps the facts the panel asks for.
+	helpPanel *helppanel.Panel
+	// Cycle 381: the voice dictation state machine (matching AGY
+	// AudioModel and KeyToggleDictation) moved to
+	// internal/ui/views/voice — the phase, the trigger, the recorder
+	// and the cancel flag live in the surface. The host keeps the
+	// transport seam.
+	voiceSurface   *voice.Surface
 	voiceConnectFn func() error
 	// Cycle 185: modal slash-command panel. The reference renders
-	panel slashPanel
-	// Cycle 182: /help list navigation state. The reference renders an
-	helpWindow int
-	helpCursor int
-	// Cycle 167: /resume picker state. When resumeMode is true,
-	resumeMode   bool
-	resumeList   []convstore.ConversationMeta
-	resumeCursor int
-	// Cycle 184: the v1.4.0 picker's tab / search / window state.
-	resumeTab    int
-	resumeQuery  string
-	resumeWindow int
-	// resumeCursorOn is the blink phase of the search cursor. REF blinks
-	resumeCursorOn bool
-	// Cycle 336: the /resume picker's workspace tree. agy 1.4.7 groups
-	// the conversations by workspace and shows the groups as a tree;
-	// ctrl+f switches back to the flat list.
-	resumeGrouped bool
-	// resumeExpanded holds the expanded workspace groups, by their key.
-	resumeExpanded map[string]bool
-	// resumeGroups is the computed tree.
-	resumeGroups []resumetree.Group
+	panel    slashPanel
+	panelReg *panelregistry.Registry
+	// Cycle 167: the /resume picker. The picker owns its own state — the
+	// list, the cursor, the search query and the workspace tree — and the
+	// session reaches it through the seams it was built with.
+	resumePicker *resumepicker.Picker
 	// flags is the parsed top-level flag set. Cycle 102: the TUI reuses the
 	flags *flag.FlagSet
 	// mode is the agent execution mode for this session ("", "accept-edits",
 	mode   string
 	policy *permissions.Policy
+	// activeGoal tracks an active /goal command and its verification loop.
+	activeGoal *convstore.GoalState
 	// Cycle 105: /statusline and /title toggles. statusLine hides the bottom
 	statusLine string
 	title      string
@@ -399,18 +409,7 @@ type runMode struct {
 	// titleStore holds the window title the title script produced. The
 	// script runs on the tick goroutine and the renderer reads the title
 	// on the model's goroutine, so the value needs its own lock.
-	titleStore *windowTitleStore
-	// statusLineTickArmed records whether the status-line tick is
-	// running, so /statusline can start it after the fact.
-	statusLineTickArmed bool
-	// Cycle status-line-script: per-session token totals accumulated from
-	sessionPromptTokens     int64
-	sessionCompletionTokens int64
-	// Cycle 292: the completion count the *last* streamed step reported.
-	lastTurnCompletionTokens int64
-	// lastTurnPromptTokens is the prompt count the *last* streamed step
-	// reported. The status-line payload reports it as `current_usage`.
-	lastTurnPromptTokens int64
+	titleStore *statusline.TitleStore
 	// Cycle 292: true on the first user turn of a conversation and again
 	wireSettingsPending bool
 	// Cycle 292: set when a mid-stream local command (/clear, /new, /fork,
@@ -421,9 +420,10 @@ type runMode struct {
 	// turn. A paste of an image — from the clipboard or from a dropped
 	// image file — lands here and rides along with the next user
 	// message as an image part.
-	pendingMedia []clipboard.Media
+	pendingMedia  []clipboard.Media
+	mediaExpanded bool
 	// statusLineExternalState is the cached rendered output / tick counter
-	statusLineExternalState *statusLineExternalState
+	statusLineExternalState *statusline.State
 	// Cycle 106: /rename name (used by conversationTitle) and the
 	conversationName     string
 	remoteControl        bool
@@ -442,9 +442,20 @@ type runMode struct {
 	activeBtwIndex  int
 	activeBtwCancel context.CancelFunc
 	btwScroll       int
-	btwExpanded     map[string]bool
+	asyncBtw        bool
 	// Cycle btw-runs-hooks: lifecycle-hook bus for the TUI session.
 	hooks *hooks.Manager
+	// hookRT is the session's documented hooks.json runtime
+	// (internal/core/policy/hooks). It is built when the first
+	// documented event fires, and it holds the documents the session
+	// read: the global one and the workspace one.
+	hookRT *corehooks.Runtime
+	// hookSessionStarted is true once the SessionStart event has
+	// fired. The event fires once per session.
+	hookSessionStarted bool
+	// hookInvocationNum is the number of the invocation the documented
+	// events last saw. The first invocation of a session is 0.
+	hookInvocationNum int
 	// Cycle 231: atRouter is the named-subagent registry the
 	atRouter *subagentrouter.Manager
 	// Cycle 119: terminal geometry and the alt-screen transcript viewport.
@@ -468,56 +479,42 @@ type runMode struct {
 	rowsGen        int
 	// Cycle 281: the per-frame layout cache. Composing the scrollable rows
 	rowsView composedRows
-	// Cycle 225: /usage quota spinner frame. usageSpinnerFrame picks
+	// View and scroll caching for sub-microsecond scroll hotpath
+	cachedView       tea.View
+	viewCacheValid   bool
+	cachedScroll     int
+	cachedAutoScroll bool
+	cachedW          int
+	cachedH          int
+	cachedRespLen    int
+	cachedRowsGen    int
+	cachedPickerVis  bool
+	cachedPanelKind  panelregistry.Kind
+	cachedExtraRows  int
+	cachedExtraW     int
+	cachedExtraH     int
+	extraRowsValid   bool
+	cachedHeaderRows []string
+	cachedHeaderKey  headerCacheKey
+	// Cycle 225: /usage quota spinner frame. usagepanel.SpinnerFrame picks
 	quotaFrame int
-	// Cycle accounts-tier-usage: the session's quota cache. The
-	// /accounts panel fetches every account's quota and the /usage
-	// panel reuses the active account's entry, so opening one after
-	// the other does not query the same account twice.
-	quotaCache map[string]quotaCacheEntry
-	// Cycle 227: auto-compact spinner frame. compactSpinnerFrame
-	compactSpinnerFrame int
-	compactStart        time.Time
-	compactEnd          time.Time
-	// compactStartTokens / compactEndTokens are the upstream-reported
-	compactTokensBefore int
-	compactTokensAfter  int
-	// compactReason is the upstream "manual" | "threshold" | "overflow"
-	compactReason string
-	// Cycle 228 (codesearch-panel): csCancel is the cancel function
-	csCancel context.CancelFunc
 	// streamingSearch gates the cycle-228 streaming path on or off.
 	streamingSearch bool
-	// feature/announcement-cards: in-TUI announcement card queue.
-	announceVisible         []announce.Card
-	announceSessionHiddenID string
-	announceSaveError       error
+	// feature/announcement-cards: in-TUI announcement card queue. Cycle
+	// 381: the queue's state lives in the announce package; the host
+	// drives it (load, dismiss, hide-for-session) and paints the head
+	// card between the separator and the prompt.
+	announceQueue announce.Queue
 	// Cycle 262: eligibility-error inline notice. The value is set
-	eligibilityNotice eligibilityNotice
+	// by the chunk handler and cleared when the user types.
+	eligibilityNotice announce.Notice
 	// Cycle subagent-question-picker: per-subagent pending question
 	subAgentQuestions *subagentquestions.Manager
-	// Cycle 244: AGY 1.4.0 "Queued Messages" semantics. The user's
-	queueMode bool
-	// Cycle 244: the prompt the user submitted while in queue
-	queuedPrompt string
-	// streamQueue holds prompts submitted with Enter while a turn is
-	streamQueue []string
 	// modeHintDismissed records that the user has edited the input since
 	modeHintDismissed bool
-	// subAgentQuestionsActive is the ID the picker is currently
-	subAgentQuestionsActive string
-	// subAgentQuestionPickerOpen is true while the question
-	subAgentQuestionPickerOpen bool
-	// subAgentQuestionPickerCursor is the highlighted row index
-	subAgentQuestionPickerCursor int
-	// subAgentQuestionPickerOptionCursor is the highlighted option
-	subAgentQuestionPickerOptionCursor int
-	// subAgentQuestionAlert is the most recent alert message
-	subAgentQuestionAlert string
-	// subAgentQuestionAnswerBuffer is the in-flight freeform
-	subAgentQuestionAnswerBuffer string
-	// subAgentQuestionAnswerTarget is the question ID the
-	subAgentQuestionAnswerTarget string
+	// Cycle 381: the picker's scope, cursors, staged answer and rows
+	// live in the panel; the host keeps the Manager above.
+	subAgentQuestionPanel *subagentquestionpanel.Panel
 	// Cycle osc-7501: OSC 7501 (Program Status Protocol) state the TUI
 	lastTurnOutcome tea.ProgramState
 	// pendingPermission is a test-only seam for the Blocked / Permission
@@ -530,8 +527,9 @@ type runMode struct {
 	hyperlinkCaps render.HyperlinkCaps
 	// Cycle plugin-fsnotify: pluginWatcher is the optional
 	pluginWatcher *pluginwatch.Watcher
-	// activeItems manages inline active subagents/tasks preview below input.
-	activeItems activeItemsModel
+	// activeItems is the inline active subagents/tasks preview below the
+	// input box. The panel owns the block; the host keeps the seams.
+	activeItems *activeitemspanel.Panel
 	// colorScheme is the name of the colour scheme the session wears.
 	//
 	// 【一手】 agy 1.4.8 resolves the interface's colours from the
@@ -542,7 +540,23 @@ type runMode struct {
 	colorScheme string
 }
 
-// NewRunMode constructs the v1.3.5 binary 1:1 run mode.
+type headerCacheKey struct {
+	width        int
+	seasonal     *seasonal.Event
+	email        string
+	model        string
+	tier         string
+	cwd          string
+	agentWarning string
+	fallbackFrom string
+	fallbackTo   string
+}
+
+func (m *runMode) invalidateViewCache() {
+	m.viewCacheValid = false
+	m.extraRowsValid = false
+}
+
 func (m *runMode) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// The palette's colours follow the selected scheme while the
 	// update runs: the rows this update paints (the streamed text, the
@@ -552,8 +566,9 @@ func (m *runMode) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if mod, cmd, handled := m.updateLogin(msg); handled {
 		return mod, cmd
 	}
-	if !isScrollMsg(msg) {
+	if !tuiviewport.IsScrollMsg(msg) {
 		m.rowsCacheDirty = true
+		m.invalidateViewCache()
 	}
 	if mod, cmd, handled := m.updateMouseAndMiscMsg(msg); handled {
 		return mod, cmd
@@ -571,3 +586,33 @@ func (m *runMode) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 	return m, nil
 }
+
+// currentVerbosity returns the active verbosity level.
+func (m *runMode) currentVerbosity() toolsteps.Verbosity {
+	if m == nil || m.verbosity == "" {
+		v := settings.String("verbosity")
+		if v == "" {
+			return toolsteps.VerbosityMedium
+		}
+		return toolsteps.ParseVerbosity(v)
+	}
+	return toolsteps.ParseVerbosity(m.verbosity)
+}
+
+// effectiveExpanded returns whether tool-step blocks should be drawn expanded
+// under the current verbosity setting and user ctrl+o toggle.
+func (m *runMode) effectiveExpanded(verb toolsteps.Verbosity) bool {
+	if m == nil {
+		return false
+	}
+	if m.expandedUserToggled {
+		return m.expanded
+	}
+	return verb == toolsteps.VerbosityHigh
+}
+
+func (m *runMode) isExpanded() bool {
+	return m.effectiveExpanded(m.currentVerbosity())
+}
+
+var _ tuimodel.Model = (*runMode)(nil)

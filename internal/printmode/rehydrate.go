@@ -16,9 +16,10 @@
 package printmode
 
 import (
-	"github.com/justwasm/pigasus/internal/rehydration"
-	"github.com/justwasm/pigasus/internal/subagenttools"
-	"github.com/justwasm/pigasus/internal/tools"
+	"github.com/justwasm/pigasus/internal/app/session/rehydration"
+	"github.com/justwasm/pigasus/internal/app/subagenttools"
+	"github.com/justwasm/pigasus/internal/app/tools"
+	"github.com/justwasm/pigasus/internal/app/tools/shell"
 )
 
 // rehydratePrintConversation rebuilds the live state of a continued
@@ -39,7 +40,7 @@ func rehydratePrintConversation(sel ConversationSelection, conversationID string
 	state := &rehydration.State{
 		ConversationID: convID,
 		Definitions:    defs,
-		Schedules:      tools.ScheduleTableFor(convID),
+		Schedules:      shell.ScheduleTableFor(convID),
 		Tasks:          tools.SharedTaskRegistry(),
 	}
 	rehydration.Restore(sel.Store.RehydrationSteps(), state)

@@ -32,7 +32,8 @@
 package remotecontrol
 
 import (
-	"github.com/justwasm/pigasus/internal/convstore"
+	"github.com/justwasm/pigasus/internal/app/session/convstore"
+	"github.com/justwasm/pigasus/internal/remotecontrol/cascades"
 )
 
 // lsConversationHistory returns the conversation's earlier turns, in
@@ -41,7 +42,7 @@ import (
 // A conversation that does not exist — the first turn of a new one —
 // has no history. A store that cannot be read is not an error either:
 // the turn runs without the earlier turns rather than not at all.
-func lsConversationHistory(id string) []MessageHistoryTurn {
+func lsConversationHistory(id string) []cascades.HistoryTurn {
 	if id == "" {
 		return nil
 	}
@@ -57,9 +58,9 @@ func lsConversationHistory(id string) []MessageHistoryTurn {
 	if len(turns) == 0 {
 		return nil
 	}
-	out := make([]MessageHistoryTurn, 0, len(turns))
+	out := make([]cascades.HistoryTurn, 0, len(turns))
 	for _, turn := range turns {
-		out = append(out, MessageHistoryTurn{Role: turn.Role, Text: turn.Text})
+		out = append(out, cascades.HistoryTurn{Role: turn.Role, Text: turn.Text})
 	}
 	return out
 }

@@ -15,10 +15,10 @@ import (
 	"golang.org/x/sys/unix"
 
 	"github.com/justwasm/pigasus/agentbrowser"
-	"github.com/justwasm/pigasus/internal/auth"
+	"github.com/justwasm/pigasus/internal/app/session/convstore"
 	"github.com/justwasm/pigasus/internal/cli"
-	"github.com/justwasm/pigasus/internal/convstore"
-	"github.com/justwasm/pigasus/internal/persistentrc"
+	"github.com/justwasm/pigasus/internal/features/auth"
+	persistentrc "github.com/justwasm/pigasus/internal/infra/remote/persistent"
 	"github.com/justwasm/pigasus/internal/remotecontrol"
 	"github.com/justwasm/pigasus/originpolicy"
 	"github.com/justwasm/pigasus/remotetransport"
@@ -111,7 +111,7 @@ func validateForegroundArgs(name, addr string) error {
 // Desktop field) or from the command line.
 func buildForegroundDispatcher(cwd, model, addr string, sess *remotecontrol.SessionState, desktop bool) (*remotecontrol.Dispatcher, error) {
 	fsProvider := buildHostFSProvider(nil, cwd)
-	projects := buildHostProjectStore(fsProvider)
+	projectStore := buildHostProjectStore(fsProvider)
 	// One broker for the whole daemon: the dispatcher's three
 	// LanguageServerService RPCs and the turn's `webview_browser` tool
 	// have to meet in the same instance.
@@ -122,16 +122,16 @@ func buildForegroundDispatcher(cwd, model, addr string, sess *remotecontrol.Sess
 		Reader:                  remotecontrol.ConvstoreOutputReader{},
 		ListBackend:             buildHostListBackend(),
 		FS:                      fsProvider,
-		Projects:                projects,
-		Conversations:           buildHostConversationStore(projects),
+		Projects:                projectStore,
+		Conversations:           buildHostConversationStore(projectStore),
 		AuthState:               authStateForCaller(),
 		DaemonMeta:              daemonMetaForCaller("tcp+ws", addr, "persistent"),
 		MessageBackend:          buildHostMessageBackend(cwd, model, broker),
 		Browser:                 broker,
-		ResourceStore:           buildHostResourceStore(projects),
+		ResourceStore:           buildHostResourceStore(projectStore),
 		ConversationConfigStore: buildHostConversationConfigStore(),
 		TerminalsRegistry:       buildHostTerminalsRegistry(),
-		WebTerminals:            buildHostWebTerminalsRegistry(),
+		WebTerminals:            buildHostWebTerminalsRegistry(cwd),
 		WebAudio:                buildHostWebAudioRegistry(),
 		OriginPolicyStore:       buildHostOriginPolicyStore(),
 		MendelUserAgent:         desktopMendelUserAgent(desktop),

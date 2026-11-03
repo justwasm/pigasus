@@ -13,7 +13,7 @@
 //
 //   - the transport. Model is a *ai.Model whose Provider is the clone's
 //     piagentbridge.Provider (the gateway OpenAI-SSE client), so the gateway, the
-//     fingerprint and the *backend.HTTPError classification are unchanged;
+//     fingerprint and the *apierror.HTTPError classification are unchanged;
 //   - the config. AgentDir is the agy config home
 //     (~/.gemini/antigravity-cli), and the MCP extension is pointed at the
 //     agy mcp.json through LoadAgyMCP, not PiG's own file;
@@ -37,7 +37,7 @@ import (
 	"github.com/MichaelKinsy/PiG/coding"
 	"github.com/MichaelKinsy/PiG/coding/extension"
 
-	"github.com/justwasm/pigasus/internal/agyprompt"
+	"github.com/justwasm/pigasus/internal/app/prompt/agyprompt"
 	"github.com/justwasm/pigasus/retrybudget"
 )
 

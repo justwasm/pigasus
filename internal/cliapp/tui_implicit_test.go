@@ -5,7 +5,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/justwasm/pigasus/internal/implicit"
+	"github.com/justwasm/pigasus/internal/app/prompt/implicit"
 )
 
 // implicitRunMode builds a run mode whose implicit-trajectory store lives in
@@ -13,7 +13,7 @@ import (
 func implicitRunMode(t *testing.T, home, workspace string) *runMode {
 	t.Helper()
 	t.Setenv("ANTIGRAVITY_HOME", home)
-	m := NewRunMode(&fakeClient{}, "u@t", "Gemni 3.8 Flash (Medium)", "", workspace, false)
+	m := newRunMode(&fakeClient{}, "u@t", "Gemni 3.8 Flash (Medium)", "", workspace, false)
 	m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
 	return m
 }

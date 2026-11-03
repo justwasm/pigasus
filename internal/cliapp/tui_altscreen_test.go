@@ -5,6 +5,8 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+
+	"github.com/justwasm/pigasus/internal/ui/panelregistry"
 )
 
 // cycle294AltScreenFlags builds the two clone-only rendering flags the
@@ -65,13 +67,15 @@ func TestCycle294_ResolveAltScreenReadsSetting(t *testing.T) {
 // alternate buffer (?1049l) right after the row is switched.
 func TestCycle294_ConfigRenderingModeSwitchesSession(t *testing.T) {
 	dir := cycle196TestHome(t, map[string]any{"altScreenMode": "always"})
-	idx := configRowIndexForTest(t, "Rendering Mode")
 	m := &runMode{altScreen: true}
-	m.panel = slashPanel{kind: panelConfig, cmd: "/config", cursor: idx}
-	if got := m.configRowValueAt(idx); got != "no flickering (altscreen)" {
+	m.panel = slashPanel{kind: panelregistry.Config, cmd: "/config"}
+	m.panel.cfg = m.newConfigPanel()
+	idx := configRowIndexForTest(t, m, "Rendering Mode")
+	m.panel.cfg.SetCursor(idx)
+	if got := m.panel.cfg.SettingValue(idx); got != "no flickering (altscreen)" {
 		t.Fatalf("initial display = %q, want no flickering (altscreen)", got)
 	}
-	m.cycleConfigValue(+1)
+	m.handlePanelKey(tea.Key{Code: tea.KeyRight})
 	if m.altScreen {
 		t.Error("after switching to inline: altScreen = true, want false")
 	}
@@ -82,7 +86,7 @@ func TestCycle294_ConfigRenderingModeSwitchesSession(t *testing.T) {
 		t.Error("view still carries AltScreen after the inline switch")
 	}
 	// And back to the alternate screen.
-	m.cycleConfigValue(+1)
+	m.handlePanelKey(tea.Key{Code: tea.KeyRight})
 	if !m.altScreen {
 		t.Error("after switching back: altScreen = false, want true")
 	}
@@ -104,13 +108,15 @@ func TestCycle294_ConfigRenderingModeSwitchesSession(t *testing.T) {
 // to express the inline view.
 func TestCycle294_ConfigRenderingModeDefaultIsReachable(t *testing.T) {
 	dir := cycle196TestHome(t, map[string]any{})
-	idx := configRowIndexForTest(t, "Rendering Mode")
 	m := &runMode{altScreen: true}
-	m.panel = slashPanel{kind: panelConfig, cmd: "/config", cursor: idx}
-	if got := m.configRowValueAt(idx); got != "no flickering (altscreen)" {
+	m.panel = slashPanel{kind: panelregistry.Config, cmd: "/config"}
+	m.panel.cfg = m.newConfigPanel()
+	idx := configRowIndexForTest(t, m, "Rendering Mode")
+	m.panel.cfg.SetCursor(idx)
+	if got := m.panel.cfg.SettingValue(idx); got != "no flickering (altscreen)" {
 		t.Fatalf("initial display = %q, want no flickering (altscreen)", got)
 	}
-	m.cycleConfigValue(-1)
+	m.handlePanelKey(tea.Key{Code: tea.KeyLeft})
 	if m.altScreen {
 		t.Error("after switching to inline: altScreen = true, want false")
 	}

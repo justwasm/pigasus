@@ -19,16 +19,24 @@ import (
 
 	piagent "github.com/MichaelKinsy/PiG/agent"
 	"github.com/justwasm/pigasus/endpoints"
-	"github.com/justwasm/pigasus/internal/auth"
-	"github.com/justwasm/pigasus/internal/backend"
-	"github.com/justwasm/pigasus/internal/branding"
 	"github.com/justwasm/pigasus/internal/cli"
-	"github.com/justwasm/pigasus/internal/compaction"
-	"github.com/justwasm/pigasus/internal/editorkit"
-	"github.com/justwasm/pigasus/internal/persistentrc"
+	"github.com/justwasm/pigasus/internal/core/backend"
+	"github.com/justwasm/pigasus/internal/core/branding"
+	"github.com/justwasm/pigasus/internal/core/compaction"
+	trust "github.com/justwasm/pigasus/internal/core/policy/trust"
+	settings "github.com/justwasm/pigasus/internal/core/settings"
+	"github.com/justwasm/pigasus/internal/core/slashparse"
+	"github.com/justwasm/pigasus/internal/features/auth"
+	rclink "github.com/justwasm/pigasus/internal/infra/remote/link"
+	persistentrc "github.com/justwasm/pigasus/internal/infra/remote/persistent"
 	"github.com/justwasm/pigasus/internal/rchost"
-	"github.com/justwasm/pigasus/internal/rclink"
-	"github.com/justwasm/pigasus/internal/tuilib"
+	"github.com/justwasm/pigasus/internal/ui/editor/editorkit"
+	"github.com/justwasm/pigasus/internal/ui/panelregistry"
+	termcolor "github.com/justwasm/pigasus/internal/ui/render/color"
+	"github.com/justwasm/pigasus/internal/ui/slashcommands"
+	"github.com/justwasm/pigasus/internal/ui/tuilib"
+	diffaction "github.com/justwasm/pigasus/internal/ui/views/diff/action"
+	"github.com/justwasm/pigasus/internal/ui/views/slashpicker"
 
 	tea "charm.land/bubbletea/v2"
 )
@@ -56,7 +64,7 @@ func TestAddDirFeedback_Validation(t *testing.T) {
 		{"quoted", `"` + sub + `"`, "Added " + sub + " to workspace"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := addDirFeedback(tc.arg); got != tc.want {
+			if got := tuilib.AddDirFeedback(tc.arg); got != tc.want {
 				t.Errorf("addDirFeedback(%q) = %q, want %q", tc.arg, got, tc.want)
 			}
 		})
@@ -75,7 +83,7 @@ func TestAddDirFeedback_Persists(t *testing.T) {
 	if err := os.Mkdir(sub, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if got := addDirFeedback(sub); got != "Added "+sub+" to workspace" {
+	if got := tuilib.AddDirFeedback(sub); got != "Added "+sub+" to workspace" {
 		t.Fatalf("addDirFeedback = %q", got)
 	}
 	body := readSettings(t, home)
@@ -85,7 +93,7 @@ func TestAddDirFeedback_Persists(t *testing.T) {
 		}
 	}
 	// Idempotent.
-	if err := auth.AddTrustedWorkspace(sub); err != nil {
+	if err := trust.AddTrustedWorkspace(sub); err != nil {
 		t.Fatal(err)
 	}
 	if n := strings.Count(readSettings(t, home), sub); n != 1 {
@@ -437,13 +445,13 @@ func TestSettingsString(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("ANTIGRAVITY_HOME", home)
 	writeSettings(t, home, `{"title":"on","statusLine":"off","model":"gemini-3.8-flash-high"}`)
-	if got := auth.SettingsString("title"); got != "on" {
+	if got := settings.String("title"); got != "on" {
 		t.Errorf("SettingsString(title) = %q", got)
 	}
-	if got := auth.SettingsString("statusLine"); got != "off" {
+	if got := settings.String("statusLine"); got != "off" {
 		t.Errorf("SettingsString(statusLine) = %q", got)
 	}
-	if got := auth.SettingsString("missing"); got != "" {
+	if got := settings.String("missing"); got != "" {
 		t.Errorf("SettingsString(missing) = %q", got)
 	}
 }
@@ -654,7 +662,7 @@ func TestDiffFeedback_Git(t *testing.T) {
 	if err := os.Mkdir(sub, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if got := detectVCS(sub); got != "git" {
+	if got := diffaction.DetectVCS(sub); got != "git" {
 		t.Errorf("detectVCS(nested) = %q", got)
 	}
 }
@@ -670,17 +678,17 @@ func TestDiffFeedback_Edges(t *testing.T) {
 	if got := diffFeedback(t.TempDir(), 0); got != "Not in a git repository" {
 		t.Errorf("diffFeedback(no repo) = %q, want %q", got, "Not in a git repository")
 	}
-	if got := detectVCS(t.TempDir()); got != "" {
+	if got := diffaction.DetectVCS(t.TempDir()); got != "" {
 		t.Errorf("detectVCS(no repo) = %q", got)
 	}
 }
 
 // TestTasksFeedback pins the recovered empty and non-empty forms.
 func TestTasksFeedback(t *testing.T) {
-	if got := tasksFeedback(0, 0); got != "No background tasks." {
+	if got := tuilib.TasksFeedback(0, 0); got != "No background tasks." {
 		t.Errorf("tasksFeedback(0,0) = %q", got)
 	}
-	if got := tasksFeedback(2, 5); got != "2 running, 5 done" {
+	if got := tuilib.TasksFeedback(2, 5); got != "2 running, 5 done" {
 		t.Errorf("tasksFeedback(2,5) = %q", got)
 	}
 }
@@ -700,7 +708,7 @@ func TestRemoteControlFeedback(t *testing.T) {
 		{"off", true, false, "Remote control off. This machine is no longer reachable from other devices."},
 		{"maybe", true, true, "Usage: /remote-control [on|off]"},
 	} {
-		on, msg := remoteControlFeedback(tc.arg, tc.current)
+		on, msg := tuilib.RemoteControlFeedback(tc.arg, tc.current)
 		if on != tc.wantOn || msg != tc.wantMsg {
 			t.Errorf("remoteControlFeedback(%q,%v) = (%v,%q), want (%v,%q)",
 				tc.arg, tc.current, on, msg, tc.wantOn, tc.wantMsg)
@@ -709,15 +717,15 @@ func TestRemoteControlFeedback(t *testing.T) {
 }
 
 func TestRenameFeedback(t *testing.T) {
-	if next, msg := renameFeedback("", "old"); next != "old" ||
+	if next, msg := tuilib.RenameFeedback("", "old"); next != "old" ||
 		msg != "Error: Please provide a new name for the conversation." {
 		t.Errorf("renameFeedback(\"\") = (%q,%q)", next, msg)
 	}
-	if next, msg := renameFeedback("   ", "old"); next != "old" ||
+	if next, msg := tuilib.RenameFeedback("   ", "old"); next != "old" ||
 		msg != "Error: Please provide a new name for the conversation." {
 		t.Errorf("renameFeedback(spaces) = (%q,%q)", next, msg)
 	}
-	if next, msg := renameFeedback("Refactor auth", "old"); next != "Refactor auth" ||
+	if next, msg := tuilib.RenameFeedback("Refactor auth", "old"); next != "Refactor auth" ||
 		msg != "Conversation renamed to: Refactor auth" {
 		t.Errorf("renameFeedback(name) = (%q,%q)", next, msg)
 	}
@@ -815,7 +823,7 @@ func TestSlashLogout_RemovesToken(t *testing.T) {
 }
 
 func TestAuthServerName(t *testing.T) {
-	if got := authServerName(); got != endpoints.Current().CloudCodeHost() {
+	if got := tuilib.AuthServerName(); got != endpoints.Current().CloudCodeHost() {
 		t.Errorf("authServerName() = %q", got)
 	}
 }
@@ -845,7 +853,7 @@ func readSettings(t *testing.T, home string) string {
 func TestSkillsPanel_HeightsSurfaceContract(t *testing.T) {
 	const wantShared = "Shared skills"
 	found := false
-	for _, c := range tuilib.DefaultSlashCommands {
+	for _, c := range slashcommands.Default {
 		if c.Name == "/skills" {
 			if strings.Contains(c.Description, wantShared) {
 				found = true
@@ -866,7 +874,7 @@ func TestAddDirFeedback_AddedToWorkspace(t *testing.T) {
 	t.Setenv("ANTIGRAVITY_HOME", dir)
 	writeSettings(t, dir, `{"trustedWorkspaces":[]}`)
 
-	got := addDirFeedback(dir)
+	got := tuilib.AddDirFeedback(dir)
 	want := "Added " + dir + " to workspace"
 	if got != want {
 		t.Errorf("addDirFeedback = %q, want %q", got, want)
@@ -876,8 +884,8 @@ func TestAddDirFeedback_AddedToWorkspace(t *testing.T) {
 // TestOpenFeedback_BareBytesMatchREF pins the byte-exact match between
 // REF and OUR on bare `/open`.
 func TestOpenFeedback_BareBytesMatchREF(t *testing.T) {
-	if msg, _ := openFeedback("", "", t.TempDir()); msg != "Usage: /open <file_path>" {
-		t.Errorf("openFeedback(\"\") = %q, want %q", msg, "Usage: /open <file_path>")
+	if msg, _ := editorkit.OpenFeedback("", "", t.TempDir(), diffaction.PathExists); msg != "Usage: /open <file_path>" {
+		t.Errorf("OpenFeedback(\"\") = %q, want %q", msg, "Usage: /open <file_path>")
 	}
 }
 
@@ -885,13 +893,13 @@ func TestOpenFeedback_BareBytesMatchREF(t *testing.T) {
 // path, matching REF's `/open /tmp/missing` capture.
 func TestOpenFeedback_FileNotFound(t *testing.T) {
 	dir := t.TempDir()
-	msg, cmd := openFeedback("/tmp/nonexistent-217", "", dir)
+	msg, cmd := editorkit.OpenFeedback("/tmp/nonexistent-217", "", dir, diffaction.PathExists)
 	if cmd != nil {
-		t.Error("openFeedback(missing) returned a non-nil editor cmd")
+		t.Error("OpenFeedback(missing) returned a non-nil editor cmd")
 	}
 	want := "File not found: /tmp/nonexistent-217"
 	if msg != want {
-		t.Errorf("openFeedback(missing) = %q, want %q", msg, want)
+		t.Errorf("OpenFeedback(missing) = %q, want %q", msg, want)
 	}
 }
 
@@ -906,7 +914,7 @@ func TestSkillCatalog_ProteinAtlasDescLength(t *testing.T) {
 	if len(want) != 132 {
 		t.Fatalf("REF's verbatim text should be 132 chars, got %d", len(want))
 	}
-	for _, c := range tuilib.DefaultSlashCommands {
+	for _, c := range slashcommands.Default {
 		if c.Name == "/science:human-protein-atlas-database" {
 			if c.Description != want {
 				t.Errorf("/science:human-protein-atlas-database description = %q (%d chars), want %q (%d chars)",
@@ -915,7 +923,7 @@ func TestSkillCatalog_ProteinAtlasDescLength(t *testing.T) {
 			return
 		}
 	}
-	t.Errorf("/science:human-protein-atlas-database not in DefaultSlashCommands")
+	t.Errorf("/science:human-protein-atlas-database not in the slash-command catalogue")
 }
 
 // ---- changelog 1.3.4 line 33: diffFeedback ANSI colour stripping tests -----
@@ -1102,368 +1110,9 @@ type errBoom string
 
 func (e errBoom) Error() string { return string(e) }
 
-// TestCycle205PermissionsScopeWrap: /permissions stage 1 wraps ↑/↓
-// (probe_verify2.py: Up at Project lands on Global).
-func TestCycle205PermissionsScopeWrap(t *testing.T) {
-	m := mkPanel(panelPermissions, "/permissions", 0)
-	if handled, _ := m.handlePanelKey(tea.Key{Code: tea.KeyUp}); !handled {
-		t.Fatal("Up not handled")
-	}
-	if m.panel.cursor != 2 {
-		t.Fatalf("Up at row 0: cursor = %d, want 2 (Global)", m.panel.cursor)
-	}
-	m.handlePanelKey(tea.Key{Code: tea.KeyDown})
-	if m.panel.cursor != 0 {
-		t.Fatalf("Down at last row: cursor = %d, want 0 (Project)", m.panel.cursor)
-	}
-	m.handlePanelKey(tea.Key{Code: tea.KeyEnter})
-	if m.panel.act.permStage != 1 {
-		t.Fatalf("Enter on a scope: stage = %d, want 1", m.panel.act.permStage)
-	}
-}
-
-// TestCycle205PermissionsTabView asserts the stage-2 frame for a populated
-// scope, transcribed from perm-after-enter.raw.txt / permissions-global-stage2.
-func TestCycle205PermissionsTabView(t *testing.T) {
-	m := mkPanel(panelPermissions, "/permissions", 1)
-	m.panel.act.permStage = 1
-	m.panel.act.permScope = permScopeShared
-	m.panel.act.permTab = 0
-	m.panel.act.shared[0] = []string{"command(grep)", "command(ls)"}
-	m.panel.cursor = 1
-	assertLines(t, plainLines(m), []string{
-		"Permissions — Shared with Pigasus",
-		" allowlist (2)    denylist (0)    asklist (0)   (←/→ to switch)",
-		"",
-		"  command(grep)",
-		"> command(ls)",
-		"",
-		"Keyboard: ↑/↓ Navigate  ←/→ Switch View  a Add rule  e Edit rule  d/⌫ Delete rule  esc Close",
-	})
-}
-
-// TestCycle205PermissionsEmptyState: the reference prints `No <list> rules.`
-// with no leading space (perm-after-enter.raw.txt line 3).
-func TestCycle205PermissionsEmptyState(t *testing.T) {
-	m := mkPanel(panelPermissions, "/permissions", 0)
-	m.panel.act.permStage = 1
-	m.panel.act.permScope = permScopeProject
-	m.panel.act.permTab = 2
-	assertLines(t, plainLines(m), []string{
-		"Permissions — Project",
-		" allowlist (0)    denylist (0)    asklist (0)   (←/→ to switch)",
-		"",
-		"No asklist rules.",
-		"",
-		"Keyboard: ↑/↓ Navigate  ←/→ Switch View  a Add rule  e Edit rule  d/⌫ Delete rule  esc Close",
-	})
-}
-
-// TestCycle205PermissionsTabSwitchWraps: ←/→ wrap (0 → 2 → 1 → 0).
-func TestCycle205PermissionsTabSwitchWraps(t *testing.T) {
-	m := mkPanel(panelPermissions, "/permissions", 0)
-	m.panel.act.permStage = 1
-	m.handlePanelKey(tea.Key{Code: tea.KeyLeft})
-	if m.panel.act.permTab != 2 {
-		t.Fatalf("Left from allowlist: tab = %d, want 2", m.panel.act.permTab)
-	}
-	m.handlePanelKey(tea.Key{Code: tea.KeyRight})
-	if m.panel.act.permTab != 0 {
-		t.Fatalf("Right from asklist: tab = %d, want 0", m.panel.act.permTab)
-	}
-}
-
-// TestCycle205PermissionsFormRender: the add form's frame. The reference's
-// form legend separates the first two legend pairs with a TAB
-// (probe_perm_add.py, 3/3 runs); the clone uses two spaces there because its
-// cell renderer drops raw control characters — see 存疑 in the cycle report.
-func TestCycle205PermissionsFormRender(t *testing.T) {
-	m := mkPanel(panelPermissions, "/permissions", 0)
-	m.panel.act.permStage = 2
-	m.panel.act.permForm = 1
-	m.panel.act.permScope = permScopeGlobal
-	m.panel.act.permTab = 0
-	got := plainLines(m)
-	assertLines(t, got, []string{
-		"Add Rule — Global — allowlist",
-		"",
-		"Enter a permission rule:",
-		"",
-		" ",
-		"",
-		"Format: action(target)",
-		"",
-		"Keyboard: ↑/↓ Navigate  enter Select  esc Close",
-	})
-	// The input row must carry the reverse-video cursor.
-	raw := m.permissionsFormLines()[4]
-	if !strings.Contains(raw, "\x1b[7m\x1b[37m \x1b[0m") {
-		t.Errorf("input row missing reverse-video cursor: %q", raw)
-	}
-}
-
-// TestCycle205PermissionsFormError: a rejected rule keeps the form open and
-// inserts the error row between the input and the Format hint
-// (perm-edit-after.raw.txt).
-func TestCycle205PermissionsFormError(t *testing.T) {
-	m := mkPanel(panelPermissions, "/permissions", 0)
-	m.panel.act.permStage = 2
-	m.panel.act.permForm = 2
-	m.panel.act.permScope = permScopeGlobal
-	m.panel.act.permText = "command(grep)ZZ"
-	m.handlePanelKey(tea.Key{Code: tea.KeyEnter})
-	if m.panel.act.permStage != 2 {
-		t.Fatalf("invalid rule closed the form: stage = %d", m.panel.act.permStage)
-	}
-	assertLines(t, plainLines(m), []string{
-		"Edit Rule — Global — allowlist",
-		"",
-		"Enter a permission rule:",
-		"",
-		"command(grep)ZZ ",
-		"",
-		`✗ invalid grant string: "command(grep)ZZ"`,
-		"",
-		"Format: action(target)",
-		"",
-		"Keyboard: ↑/↓ Navigate  enter Select  esc Close",
-	})
-}
-
-// TestCycle205ValidateGrant pins the two rejection messages and the
-// accepted forms (probe_read.py + probe_actions.py).
-func TestCycle205ValidateGrant(t *testing.T) {
-	accept := []string{"command(grep)", "command(a|b)", "command()"}
-	for _, s := range accept {
-		if msg := validateGrant(s); msg != "" {
-			t.Errorf("validateGrant(%q) = %q, want accepted", s, msg)
-		}
-	}
-	cases := map[string]string{
-		`command(grep)ZZ`: `invalid grant string: "command(grep)ZZ"`,
-		`foo(bar)`:        `unknown action "foo" in grant string: "foo(bar)"`,
-		`read(*)`:         `unknown action "read" in grant string: "read(*)"`,
-		``:                `invalid grant string: ""`,
-		`command(`:        `invalid grant string: "command("`,
-	}
-	for in, want := range cases {
-		if got := validateGrant(in); got != want {
-			t.Errorf("validateGrant(%q) = %q, want %q", in, got, want)
-		}
-	}
-}
-
-// TestCycle205PermissionsAddDelete exercises the add/delete actions on the
-// session-local Shared scope so the test never touches settings.json.
-func TestCycle205PermissionsAddDelete(t *testing.T) {
-	m := mkPanel(panelPermissions, "/permissions", 0)
-	m.panel.act.permScope = permScopeShared
-	m.panel.act.permStage = 2
-	m.panel.act.permForm = 1
-	for _, r := range "command(grep)" {
-		m.handlePanelKey(tea.Key{Text: string(r)})
-	}
-	m.handlePanelKey(tea.Key{Code: tea.KeyEnter})
-	if got := m.panel.act.shared[0]; len(got) != 1 || got[0] != "command(grep)" {
-		t.Fatalf("after add: shared[allow] = %q", got)
-	}
-	if m.panel.act.permStage != 1 {
-		t.Fatalf("after add: stage = %d, want 1", m.panel.act.permStage)
-	}
-	m.panel.cursor = 0
-	m.handlePanelKey(tea.Key{Text: "d"})
-	if got := m.panel.act.shared[0]; len(got) != 0 {
-		t.Fatalf("after delete: shared[allow] = %q, want empty", got)
-	}
-	// Backspace is the second advertised delete key.
-	m.panel.act.shared[0] = []string{"command(ls)"}
-	m.handlePanelKey(tea.Key{Code: tea.KeyBackspace})
-	if got := m.panel.act.shared[0]; len(got) != 0 {
-		t.Fatalf("after backspace delete: shared[allow] = %q, want empty", got)
-	}
-}
-
-// TestCycle205PermissionsEditDeletesThenAppends: Edit removes the old rule
-// and appends the new one at the end.
-func TestCycle205PermissionsEditDeletesThenAppends(t *testing.T) {
-	m := mkPanel(panelPermissions, "/permissions", 0)
-	m.panel.act.permScope = permScopeShared
-	m.panel.act.permStage = 1
-	m.panel.act.shared[0] = []string{"command(a)", "command(b)"}
-	m.panel.cursor = 0
-	m.handlePanelKey(tea.Key{Text: "e"})
-	if m.panel.act.permStage != 2 || m.panel.act.permForm != 2 {
-		t.Fatalf("e on a row: stage=%d form=%d, want 2/2", m.panel.act.permStage, m.panel.act.permForm)
-	}
-	if m.panel.act.permText != "command(a)" {
-		t.Fatalf("edit prefill = %q, want %q", m.panel.act.permText, "command(a)")
-	}
-	m.panel.act.permText = "command(c)"
-	m.handlePanelKey(tea.Key{Code: tea.KeyEnter})
-	got := m.panel.act.shared[0]
-	want := []string{"command(b)", "command(c)"}
-	if len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
-		t.Fatalf("after edit: %q, want %q", got, want)
-	}
-	// `e` with no rows selected opens the Add form.
-	m.panel.act.shared[0] = nil
-	m.panel.cursor = 0
-	m.handlePanelKey(tea.Key{Text: "e"})
-	if m.panel.act.permForm != 1 {
-		t.Fatalf("e with no rows: form = %d, want 1 (add)", m.panel.act.permForm)
-	}
-}
-
-// TestCycle205HooksMatchersTool: the PreToolUse matcher list
-// (hooks-enter.raw.txt).
-func TestCycle205HooksMatchersTool(t *testing.T) {
-	m := mkPanel(panelHooks, "/hooks", 0)
-	m.panel.act.hookStage = 1
-	m.panel.act.hookIdx = 0
-	assertLines(t, plainLines(m), []string{
-		" PreToolUse — Matchers",
-		"   Before tool execution",
-		"",
-		" > + Add new matcher...",
-		"   + Match all (no filter)",
-		"   No hooks configured",
-		"",
-		"   ↑/↓ Navigate · enter Select · e Toggle · backspace Delete · esc Back",
-	})
-}
-
-// TestCycle205HooksMatchersLifecycle: a non-tool hook offers
-// "+ Add new hook..." and no "Match all" row (probe_hooks.py).
-func TestCycle205HooksMatchersLifecycle(t *testing.T) {
-	m := mkPanel(panelHooks, "/hooks", 0)
-	m.panel.act.hookStage = 1
-	m.panel.act.hookIdx = 2 // PreInvocation
-	assertLines(t, plainLines(m), []string{
-		" PreInvocation — Matchers",
-		"   Before each LLM invocation",
-		"",
-		" > + Add new hook...",
-		"   No hooks configured",
-		"",
-		"   ↑/↓ Navigate · enter Select · e Toggle · backspace Delete · esc Back",
-	})
-}
-
-// TestCycle205HooksMatcherForm: the add-matcher form
-// (hooks-add-enter.raw.txt).
-func TestCycle205HooksMatcherForm(t *testing.T) {
-	m := mkPanel(panelHooks, "/hooks", 0)
-	m.panel.act.hookStage = 2
-	m.panel.act.hookIdx = 0
-	assertLines(t, plainLines(m), []string{
-		" Add new matcher for PreToolUse",
-		"",
-		"   Before tool execution",
-		"",
-		"   Matcher:",
-		" >  ",
-		"",
-		"   Examples:",
-		"   • Write (single tool)",
-		"   • Write|Edit (multiple tools)",
-		"   • Web.* (regex pattern)",
-		"",
-		"   enter Confirm · esc Cancel",
-	})
-}
-
-// TestCycle205HooksHookForm: the add-hook form for a lifecycle hook
-// (probe_hooks.py, PreInvocation).
-func TestCycle205HooksHookForm(t *testing.T) {
-	m := mkPanel(panelHooks, "/hooks", 0)
-	m.panel.act.hookStage = 2
-	m.panel.act.hookIdx = 2
-	assertLines(t, plainLines(m), []string{
-		" Add new hook",
-		"",
-		"   Event: PreInvocation — Before each LLM invocation",
-		"",
-		"   Name:",
-		" >  ",
-		"",
-		"   Command:",
-		"      ",
-		"",
-		"   Timeout (seconds):",
-		"     default: 30",
-		"",
-		"   ⚠ Hooks run shell commands with your full permissions.",
-		"",
-		"   tab Switch field · enter Confirm · esc Cancel",
-	})
-}
-
-// TestCycle205HooksNavigation: list → matchers → form → back.
-func TestCycle205HooksNavigation(t *testing.T) {
-	m := mkPanel(panelHooks, "/hooks", 1)
-	m.handlePanelKey(tea.Key{Code: tea.KeyEnter})
-	if m.panel.act.hookStage != 1 || m.panel.act.hookIdx != 1 {
-		t.Fatalf("Enter on PostToolUse: stage=%d idx=%d, want 1/1", m.panel.act.hookStage, m.panel.act.hookIdx)
-	}
-	m.handlePanelKey(tea.Key{Code: tea.KeyEnter})
-	if m.panel.act.hookStage != 2 {
-		t.Fatalf("Enter on the add row: stage=%d, want 2", m.panel.act.hookStage)
-	}
-	m.handlePanelKey(tea.Key{Code: tea.KeyEsc})
-	if m.panel.act.hookStage != 1 {
-		t.Fatalf("Esc from the form: stage=%d, want 1", m.panel.act.hookStage)
-	}
-	m.handlePanelKey(tea.Key{Code: tea.KeyEsc})
-	if m.panel.act.hookStage != 0 || m.panel.kind != panelHooks {
-		t.Fatalf("Esc from the matcher list: stage=%d kind=%v", m.panel.act.hookStage, m.panel.kind)
-	}
-}
-
-// TestCycle205AgentsEnterEcho: Enter on the default agent echoes
-// "Already using default agent." and keeps the panel open
-// (probe_agents.py).
-func TestCycle205AgentsEnterEcho(t *testing.T) {
-	m := mkPanel(panelAgents, "/agents", 0)
-	m.response = nil
-	if handled, _ := m.handlePanelKey(tea.Key{Code: tea.KeyEnter}); !handled {
-		t.Fatal("Enter not handled")
-	}
-	if m.panel.kind != panelAgents {
-		t.Fatalf("Enter closed the panel: kind = %v", m.panel.kind)
-	}
-	joined := ""
-	for _, l := range m.response {
-		joined += stripSGR(l) + "\n"
-	}
-	if !strings.Contains(joined, "> /agents") {
-		t.Errorf("echo missing `> /agents`:\n%s", joined)
-	}
-	if !strings.Contains(joined, "Already using default agent.") {
-		t.Errorf("echo missing the default-agent message:\n%s", joined)
-	}
-	// Other keys stay inert.
-	before := len(m.response)
-	m.handlePanelKey(tea.Key{Text: "k"})
-	if len(m.response) != before {
-		t.Errorf("`k` wrote a response: %q", m.response[before:])
-	}
-}
-
-// TestCycle205MCPEmptyFrameUnchanged guards the /mcp empty frame against
-// regression (cycle 205 deliberately left it as-is).
-func TestCycle205MCPEmptyFrameUnchanged(t *testing.T) {
-	m := mkPanel(panelMCP, "/mcp", 0)
-	assertLines(t, plainLines(m), []string{
-		"MCP Servers",
-		"",
-		"  No MCP servers configured.",
-		"",
-		"Keyboard: ↑/↓ Navigate  enter Actions  esc Exit",
-	})
-	if m.panel.kind.exitNotice() {
-		t.Error("/mcp must close silently")
-	}
-}
+// The /mcp empty frame is guarded in internal/ui/views/mcppanel (cycle
+// 205 deliberately left it as-is); the exit notice is the host's fact
+// and is pinned by the silent-close test in slash_panels_test.go.
 
 // ---- 1. flag gate: --remote-control under ADC --------------------------------
 
@@ -1524,7 +1173,7 @@ func TestRemoteControl_FailsUnderADC(t *testing.T) {
 // resets m.input as part of the dispatch prelude (see
 // cmd/wagyu/slash_commands.go:117), which delegates to the bubbles
 // textarea's Reset, which in turn touches the viewport. A bare
-// `&runMode{}` panics — we go through NewRunMode with a no-op backend
+// `&runMode{}` panics — we go through newRunMode with a no-op backend
 // (the test never sends a turn) and a fresh tmpdir for ANTIGRAVITY_HOME
 // so the constructor's keyring/auth probing doesn't wander off into
 // the host's real config tree.
@@ -1532,7 +1181,7 @@ func slashRemoteControlRunMode(t *testing.T) *runMode {
 	t.Helper()
 	t.Setenv("ANTIGRAVITY_HOME", t.TempDir())
 	t.Setenv("HOME", t.TempDir())
-	m := NewRunMode(&fakeClient{}, "u@t", "m", "t", t.TempDir(), true)
+	m := newRunMode(&fakeClient{}, "u@t", "m", "t", t.TempDir(), true)
 	return m
 }
 
@@ -1586,7 +1235,7 @@ func TestRemoteControl_FailsUnderADCSlashCommand(t *testing.T) {
 	// The cycle 106 contract is that m.remoteControl becomes true on
 	// a successful "/remote-control" (bare or "/remote-control on").
 	// Under ADC we must reject without flipping the flag, otherwise a
-	// subsequent NewRunMode boot could read a stale true and report a
+	// subsequent newRunMode boot could read a stale true and report a
 	// ghost session.
 	if m.remoteControl {
 		t.Errorf("m.remoteControl became true under ADC rejection; want false (no state change)")
@@ -1638,7 +1287,7 @@ func TestRemoteControl_OutputFormatting(t *testing.T) {
 		}
 		var clean []string
 		for _, r := range m.response {
-			clean = append(clean, stripSGR(r))
+			clean = append(clean, termcolor.StripSGR(r))
 		}
 		joined := strings.Join(clean, "\n")
 		if !strings.Contains(joined, "> /remote-control") {
@@ -1657,7 +1306,7 @@ func TestRemoteControl_OutputFormatting(t *testing.T) {
 		//   device to take over.
 		//
 		// The clone prints the account chooser wrapping that deep link
-		// (see internal/rclink): the cloud's instance rows are per
+		// (see internal/infra/remote/link): the cloud's instance rows are per
 		// Google account, so the bare link resolves against the
 		// browser's default account and the dashboard answers "No
 		// instance found." The chooser names the account and continues
@@ -1706,7 +1355,7 @@ func TestRemoteControl_OutputFormatting(t *testing.T) {
 		}
 		var clean []string
 		for _, r := range m.response {
-			clean = append(clean, stripSGR(r))
+			clean = append(clean, termcolor.StripSGR(r))
 		}
 		joined := strings.Join(clean, "\n")
 		instanceID := persistentrc.InstanceIDPrefix + m.remoteControlUUID + persistentrc.InstanceIDSuffix
@@ -1733,7 +1382,7 @@ func TestRemoteControl_OutputFormatting(t *testing.T) {
 		}
 		var clean []string
 		for _, r := range m.response {
-			clean = append(clean, stripSGR(r))
+			clean = append(clean, termcolor.StripSGR(r))
 		}
 		joined := strings.Join(clean, "\n")
 		if !strings.Contains(joined, "Remote control off. This machine is no longer reachable from other devices.") {
@@ -1753,7 +1402,7 @@ func TestRemoteControl_OutputFormatting(t *testing.T) {
 		m1.handleSlashCommand("/remote-control")
 		var clean1 []string
 		for _, r := range m1.response {
-			clean1 = append(clean1, stripSGR(r))
+			clean1 = append(clean1, termcolor.StripSGR(r))
 		}
 		joined1 := strings.Join(clean1, "\n")
 		if !strings.Contains(joined1, "Hostname: pigasus-test-device-noble-bolt") {
@@ -1766,7 +1415,7 @@ func TestRemoteControl_OutputFormatting(t *testing.T) {
 		m2.handleSlashCommand("/remote-control")
 		var clean2 []string
 		for _, r := range m2.response {
-			clean2 = append(clean2, stripSGR(r))
+			clean2 = append(clean2, termcolor.StripSGR(r))
 		}
 		joined2 := strings.Join(clean2, "\n")
 		if !strings.Contains(joined2, "Hostname: test-device-noble-bolt") || strings.Contains(joined2, "pigasus-") {
@@ -1779,7 +1428,7 @@ func TestRemoteControl_OutputFormatting(t *testing.T) {
 
 // TestRemoteControl_HiddenUnderADCInSlashMenu drives the
 // tuilib.PickerState with the same SetHiddenCommands call
-// cmd/wagyu.tui_run.go's NewRunMode uses when ADC is in effect. The
+// cmd/wagyu.tui_run.go's newRunMode uses when ADC is in effect. The
 // picker starts on a bare "/" buffer; no row whose Name equals
 // "/remote-control" may appear in the result. The substring filter
 // still runs, so typing "/remote" under ADC must produce the picker-
@@ -1788,14 +1437,14 @@ func TestRemoteControl_OutputFormatting(t *testing.T) {
 func TestRemoteControl_HiddenUnderADCInSlashMenu(t *testing.T) {
 	t.Setenv("AGY_ADC_AUTH", "1")
 
-	// Hide RC just like NewRunMode does.
+	// Hide RC just like newRunMode does.
 	hidden := pickerHiddenCommands()
 	if len(hidden) == 0 {
 		t.Fatal("pickerHiddenCommands returned nil under ADC; want at least /remote-control")
 	}
 
 	t.Run("bare_slash_excludes_remote_control", func(t *testing.T) {
-		p := tuilib.PickerState{}
+		p := slashpicker.New(slashpicker.Seams{})
 		p.SetHiddenCommands(hidden...)
 		p.Update([]rune{'/'})
 
@@ -1817,7 +1466,7 @@ func TestRemoteControl_HiddenUnderADCInSlashMenu(t *testing.T) {
 	})
 
 	t.Run("slash_remote_substring_filter_has_no_match", func(t *testing.T) {
-		p := tuilib.PickerState{}
+		p := slashpicker.New(slashpicker.Seams{})
 		p.SetHiddenCommands(hidden...)
 		p.Update([]rune{'/', 'r', 'e', 'm', 'o', 't', 'e'})
 
@@ -1845,7 +1494,7 @@ func TestRemoteControl_VisibleUnderOAuthInSlashMenu(t *testing.T) {
 		t.Fatalf("pickerHiddenCommands returned %v under OAuth; want nil", hidden)
 	}
 
-	p := tuilib.PickerState{}
+	p := slashpicker.New(slashpicker.Seams{})
 	// Explicitly clear the hidden set so a future refactor that
 	// leaves stale entries around does not change the result.
 	p.SetHiddenCommands()
@@ -1865,7 +1514,7 @@ func TestRemoteControl_VisibleUnderOAuthInSlashMenu(t *testing.T) {
 	// /remote substring filter — by the v1.4.0 catalog only
 	// "/remote-control" contains the substring (no /remote-backup or
 	// /remote-help siblings exist today).
-	p2 := tuilib.PickerState{}
+	p2 := slashpicker.New(slashpicker.Seams{})
 	p2.Update([]rune{'/', 'r', 'e', 'm', 'o', 't', 'e'})
 	if p2.Empty() {
 		t.Fatal("picker empty on '/remote' under OAuth; want exactly one row")
@@ -1893,7 +1542,7 @@ func TestRemoteControl_VisibleUnderOAuthInSlashMenu(t *testing.T) {
 func TestRemoteControl_ADCDetectionViaEnv(t *testing.T) {
 	// OAuth baseline.
 	t.Setenv("AGY_ADC_AUTH", "")
-	if IsBusinessAccount() {
+	if auth.IsBusinessAccount() {
 		t.Errorf("IsBusinessAccount() = true with AGY_ADC_AUTH=\"\"; want false")
 	}
 
@@ -1904,7 +1553,7 @@ func TestRemoteControl_ADCDetectionViaEnv(t *testing.T) {
 	for _, val := range []string{"1", "true", "TRUE", "yes", " adc-from-gcloud-cli "} {
 		t.Run("set="+val, func(t *testing.T) {
 			t.Setenv("AGY_ADC_AUTH", val)
-			if !IsBusinessAccount() {
+			if !auth.IsBusinessAccount() {
 				t.Errorf("IsBusinessAccount() = false with AGY_ADC_AUTH=%q; want true", val)
 			}
 		})
@@ -1913,7 +1562,7 @@ func TestRemoteControl_ADCDetectionViaEnv(t *testing.T) {
 	// Whitespace-only env is treated as unset (matching the helper).
 	t.Run("whitespace_only", func(t *testing.T) {
 		t.Setenv("AGY_ADC_AUTH", "   ")
-		if IsBusinessAccount() {
+		if auth.IsBusinessAccount() {
 			t.Error("IsBusinessAccount() = true with whitespace-only AGY_ADC_AUTH; want false")
 		}
 	})
@@ -2020,14 +1669,14 @@ func mkCompactNoProgModel(t *testing.T, be *fakeStreamClient) *runMode {
 	t.Helper()
 	t.Setenv("ANTIGRAVITY_HOME", t.TempDir())
 	t.Setenv("HOME", t.TempDir())
-	m := NewRunMode(be, "u@t", "Gemini 3.8 Flash (High)", "t", "/", true)
+	m := newRunMode(be, "u@t", "Gemini 3.8 Flash (High)", "t", "/", true)
 	m.flags = newStandardFlagSetForTest(t, nil)
 	return m
 }
 
 // TestSlashCompact_ParsesTrailingMessage pins the slash-command
 // argument split. The cycle-237 implementation reuses the
-// splitSlash helper that other commands use; this test guards
+// slashparse.Split helper that other commands use; this test guards
 // against a future cycle stripping / re-quoting the args string
 // in a way that drops the trailing message.
 //
@@ -2045,16 +1694,16 @@ func TestSlashCompact_ParsesTrailingMessage(t *testing.T) {
 		{"/compact   multi   space   args", "multi   space   args"},
 	}
 	for _, tc := range cases {
-		cmd, args := splitSlash(tc.buf)
+		cmd, args := slashparse.Split(tc.buf)
 		if cmd != "compact" {
-			t.Errorf("splitSlash(%q) cmd = %q, want %q", tc.buf, cmd, "compact")
+			t.Errorf("slashparse.Split(%q) cmd = %q, want %q", tc.buf, cmd, "compact")
 		}
-		// splitSlash returns the trimmed-and-joined args; mirror
+		// slashparse.Split returns the trimmed-and-joined args; mirror
 		// the same trim semantics the slash command applies
 		// before forwarding to startManualCompact.
 		got := strings.TrimSpace(args)
 		if got != tc.want {
-			t.Errorf("splitSlash(%q) args = %q, want %q", tc.buf, got, tc.want)
+			t.Errorf("slashparse.Split(%q) args = %q, want %q", tc.buf, got, tc.want)
 		}
 	}
 }
@@ -2178,7 +1827,7 @@ func TestSlashCompact_CancelRestoresSession(t *testing.T) {
 	// Give the goroutine a moment to install its cancel; the
 	// TriggerCompactCancel call is a no-op if the slot is empty.
 	time.Sleep(20 * time.Millisecond)
-	TriggerCompactCancel()
+	compaction.TriggerCancel()
 
 	// The goroutine posts to m.response via applyGenericCompactResult
 	// because m.prog is nil. Wait for the goroutine to settle.
@@ -2193,9 +1842,9 @@ func TestSlashCompact_CancelRestoresSession(t *testing.T) {
 			t.Errorf("m.session[%d] = %+v, want %+v", i, m.session[i], want)
 		}
 	}
-	// Transcript echoes the cancellation.
-	if !responseContains(m, "[compact cancelled]") {
-		t.Errorf("transcript missing '[compact cancelled]' after cancel:\n%q", m.response)
+	// Transcript echoes the cancellation with the reference literal.
+	if !responseContains(m, compaction.CompactionCancelledLiteral) {
+		t.Errorf("transcript missing %q after cancel:\n%q", compaction.CompactionCancelledLiteral, m.response)
 	}
 }
 
@@ -2347,8 +1996,8 @@ func responseContains(m *runMode, needle string) bool {
 // keeps that cycle small.
 func TestSlashCompact_TriggerCancelNoOp(t *testing.T) {
 	// Should not panic, should not deadlock.
-	TriggerCompactCancel()
-	TriggerCompactCancel()
+	compaction.TriggerCancel()
+	compaction.TriggerCancel()
 }
 
 // TestSlashCompact_ErrCancelledSentinel pins the contract that
@@ -2549,7 +2198,7 @@ func mkCompactModel(t *testing.T, comp manualCompactor) *runMode {
 	}
 	t.Setenv("ANTIGRAVITY_HOME", t.TempDir())
 	t.Setenv("HOME", t.TempDir())
-	m := NewRunMode(&fakeClient{}, "u@t", "Gemini 3.8 Flash (High)", "t", "/", true)
+	m := newRunMode(&fakeClient{}, "u@t", "Gemini 3.8 Flash (High)", "t", "/", true)
 	m.flags = newStandardFlagSetForTest(t, nil)
 	m.compactor = comp
 	return m
@@ -2718,7 +2367,7 @@ func TestSlashCompactFullEventFlow(t *testing.T) {
 func TestSlashCompactCycle167StubPath(t *testing.T) {
 	t.Setenv("ANTIGRAVITY_HOME", t.TempDir())
 	t.Setenv("HOME", t.TempDir())
-	m := NewRunMode(&fakeClient{}, "u@t", "Gemini 3.8 Flash (High)", "t", "/", true)
+	m := newRunMode(&fakeClient{}, "u@t", "Gemini 3.8 Flash (High)", "t", "/", true)
 	m.flags = newStandardFlagSetForTest(t, nil)
 	if _, _ = m.handleSlashCommand("/compact"); false {
 	}
@@ -2731,7 +2380,7 @@ var _ manualCompactor = (*fakeCompactor)(nil)
 
 func TestStatusRowCompactingSpinner(t *testing.T) {
 	m := &runMode{}
-	m.panel = slashPanel{kind: panelNone}
+	m.panel = slashPanel{kind: panelregistry.None}
 	m.width, m.height = 220, 50
 
 	idleRow := m.statusRow()
@@ -2787,7 +2436,7 @@ func TestStatusRowCompactingSpinner(t *testing.T) {
 
 func TestStatusRowCompactTickClearedByEnd(t *testing.T) {
 	m := &runMode{}
-	m.panel = slashPanel{kind: panelNone}
+	m.panel = slashPanel{kind: panelregistry.None}
 	m.width, m.height = 220, 50
 
 	m.Update(compactStartMsg{Reason: "threshold", StartedAt: time.Now().UTC()})
@@ -2806,7 +2455,7 @@ func TestStatusRowCompactTickClearedByEnd(t *testing.T) {
 
 func TestStatusRowCompactNoStart(t *testing.T) {
 	m := &runMode{}
-	m.panel = slashPanel{kind: panelNone}
+	m.panel = slashPanel{kind: panelregistry.None}
 	m.width, m.height = 220, 50
 
 	m.Update(compactEndMsg{
@@ -2839,7 +2488,7 @@ func TestSlashBoostPromptFormatting(t *testing.T) {
 
 	t.Setenv("ANTIGRAVITY_HOME", t.TempDir())
 	t.Setenv("HOME", t.TempDir())
-	m := NewRunMode(&fakeClient{}, "u@t", "m", "t", t.TempDir(), true)
+	m := newRunMode(&fakeClient{}, "u@t", "m", "t", t.TempDir(), true)
 	ok, cmd := m.slashBoost("Fix memory leak in network buffer")
 	if !ok || cmd == nil {
 		t.Fatalf("slashBoost returned ok=%v, cmd=%v", ok, cmd)

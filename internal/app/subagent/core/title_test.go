@@ -2,7 +2,7 @@
 //
 // Cycle 346: this test lived in internal/tools/stubs_bg_name_test.go,
 // next to the create_task tests that drove the deleted v4 stub. The
-// behaviour it pins belongs to internal/subagent, so the test moved
+// behaviour it pins belongs to internal/app/subagent/core, so the test moved
 // here with it.
 package core
 

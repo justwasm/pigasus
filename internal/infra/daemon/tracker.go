@@ -15,7 +15,7 @@
 // that:
 //
 //   - Records `*exec.Cmd` instances (the Subagent wrappers in
-//     internal/subagent and any future caller). Each Track also asks
+//     internal/app/subagent/core and any future caller). Each Track also asks
 //     the kernel for a fresh process group via `Setpgid: true` so the
 //     tracker's signal goes to the whole tree, not just the parent
 //     process the tracker happens to hold. Without that a `ddgr` or

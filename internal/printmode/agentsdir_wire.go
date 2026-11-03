@@ -1,4 +1,4 @@
-// agentsdir_wire.go — wire internal/agentsdir into the print path so the
+// agentsdir_wire.go — wire internal/app/prompt/agentsdir into the print path so the
 // CLI exposes the AGY 1.2.16 parent-walk behavior with a slash command a
 // user can invoke. The /agents-dirs diagnostic prints every agents
 // directory the walker surfaces from CWD up to HOME, in CWD-closest
@@ -21,7 +21,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/justwasm/pigasus/internal/agentsdir"
+	"github.com/justwasm/pigasus/internal/app/prompt/agentsdir"
 )
 
 // printSlashAgentsDirs renders the AGY 1.2.16 parent-walk output as a
@@ -33,7 +33,7 @@ import (
 // The depth is the number of `..` hops the walker had to take from CWD
 // to surface that directory; a depth of -1 means the entry came from a
 // HOME-level fallback (currently exercised for ~/.agents only when no
-// ancestor of CWD has one — see internal/agentsdir.Discover for the
+// ancestor of CWD has one — see internal/app/prompt/agentsdir.Discover for the
 // rule).
 //
 // CWD and HOME are read from os.Getwd / os.UserHomeDir. Tests that

@@ -33,17 +33,3 @@ func stringsTrimSpace(s string) string {
 func timeParse(layout, value string) (time.Time, error) {
 	return time.Parse(layout, value)
 }
-
-// invalidParams returns a JSON-RPC -32602 envelope. The "data"
-// field carries the human-readable reason and is what a dashboard
-// renders to its user.
-func invalidParams(msg string) *rpcErrorBody {
-	return &rpcErrorBody{Code: -32602, Message: "Invalid params", Data: msg}
-}
-
-// internalError returns a JSON-RPC -32603 envelope. The "data"
-// field carries the underlying error message so a dashboard can
-// log it.
-func internalError(msg string) *rpcErrorBody {
-	return &rpcErrorBody{Code: -32603, Message: "Internal error", Data: msg}
-}

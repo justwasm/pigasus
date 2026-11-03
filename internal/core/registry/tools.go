@@ -3,7 +3,7 @@ package registry
 import (
 	"context"
 
-	"github.com/justwasm/pigasus/internal/backend"
+	"github.com/justwasm/pigasus/internal/core/backend"
 )
 
 // ToolProvider supplies a group of tool declarations and an executor.

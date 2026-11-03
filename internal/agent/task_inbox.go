@@ -17,7 +17,7 @@
 //	Log: file:///Users/gear/.gemini/antigravity-cli/brain/45fde9e1-76d5-4b87-bd23-1b2c626bbf26/.system_generated/tasks/task-56.log
 //	</SYSTEM_MESSAGE>
 //
-// The capture lives in internal/tools/testdata/reference_background_task_1.4.7.txt
+// The capture lives in internal/app/tools/shell/testdata/reference_background_task_1.4.7.txt
 // (the "completion notification (the SYSTEM_MESSAGE)" section) and is what
 // the renderer below is pinned against.
 //
@@ -47,9 +47,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/justwasm/pigasus/internal/agentmessage"
-	"github.com/justwasm/pigasus/internal/backend"
-	"github.com/justwasm/pigasus/internal/tools"
+	"github.com/justwasm/pigasus/internal/core/backend"
+	agentmessage "github.com/justwasm/pigasus/internal/core/msg"
+	"github.com/justwasm/pigasus/internal/app/tools/shell"
 )
 
 const (
@@ -70,14 +70,14 @@ const (
 //
 // The result is the text the model reads: the reference's lead-in, the
 // SYSTEM_MESSAGE tags, and the rendered message between them.
-func RenderTaskNotification(n tools.TaskNotification) string {
+func RenderTaskNotification(n shell.TaskNotification) string {
 	at := n.At
 	if at.IsZero() {
 		at = time.Now()
 	}
 	priority := n.Priority
 	if priority == "" {
-		priority = tools.TaskPriorityHigh
+		priority = shell.TaskPriorityHigh
 	}
 	content := n.Body
 	if n.Title != "" {
@@ -100,7 +100,7 @@ func RenderTaskNotification(n tools.TaskNotification) string {
 // turns it into a user-content message on the way to the model — the
 // reference's own lead-in says the message travels where a user message
 // would.
-func TaskNotificationMessage(n tools.TaskNotification) backend.Message {
+func TaskNotificationMessage(n shell.TaskNotification) backend.Message {
 	return backend.Message{Role: "system", Content: RenderTaskNotification(n)}
 }
 
@@ -116,7 +116,7 @@ func TaskNotificationMessage(n tools.TaskNotification) backend.Message {
 // the task's own goroutine, the drain happens on the UI goroutine.
 type TaskInbox struct {
 	mu    sync.Mutex
-	items []tools.TaskNotification
+	items []shell.TaskNotification
 }
 
 // NewTaskInbox returns an empty inbox.
@@ -126,7 +126,7 @@ func NewTaskInbox() *TaskInbox {
 
 // Add queues one notification. A notification with neither a task id nor a
 // body is dropped: it would render as an empty message.
-func (i *TaskInbox) Add(n tools.TaskNotification) {
+func (i *TaskInbox) Add(n shell.TaskNotification) {
 	if i == nil {
 		return
 	}
@@ -150,7 +150,7 @@ func (i *TaskInbox) Len() int {
 
 // Drain removes the queued notifications and returns them in the order they
 // arrived. The slice is fresh: the caller may keep it.
-func (i *TaskInbox) Drain() []tools.TaskNotification {
+func (i *TaskInbox) Drain() []shell.TaskNotification {
 	if i == nil {
 		return nil
 	}

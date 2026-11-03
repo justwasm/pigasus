@@ -32,26 +32,28 @@ import (
 	"strings"
 	"sync"
 	"testing"
+
+	"github.com/justwasm/pigasus/internal/remotecontrol/cascades"
 )
 
-// lsMediaBackend is a MessageBackend that records the prompts it was
+// lsMediaBackend is a cascades.Backend that records the prompts it was
 // given, so a test can assert what a turn carried.
 type lsMediaBackend struct {
 	mu      sync.Mutex
-	prompts []MessagePrompt
+	prompts []cascades.Prompt
 }
 
-func (b *lsMediaBackend) Send(ctx context.Context, prompt MessagePrompt) (MessageResult, error) {
+func (b *lsMediaBackend) Send(ctx context.Context, prompt cascades.Prompt) (cascades.Result, error) {
 	b.mu.Lock()
 	b.prompts = append(b.prompts, prompt)
 	b.mu.Unlock()
-	return MessageResult{Reply: "ok"}, nil
+	return cascades.Result{Reply: "ok"}, nil
 }
 
-func (b *lsMediaBackend) seen() []MessagePrompt {
+func (b *lsMediaBackend) seen() []cascades.Prompt {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	return append([]MessagePrompt(nil), b.prompts...)
+	return append([]cascades.Prompt(nil), b.prompts...)
 }
 
 // pngBytes is a one-pixel PNG — the smallest thing that is really a

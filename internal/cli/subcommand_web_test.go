@@ -125,3 +125,48 @@ func TestWebSubcommand_InvalidPort(t *testing.T) {
 		t.Errorf("expected 'invalid port' error, got:\n%s", errOut.String())
 	}
 }
+
+func TestWebSubcommand_ApiAndUiOnlyFlags(t *testing.T) {
+	var captured WebArgs
+	RegisterWebHandler(func(j *JetskiCLI, args WebArgs) error {
+		captured = args
+		return nil
+	})
+	defer RegisterWebHandler(nil)
+
+	out := &bytes.Buffer{}
+	errOut := &bytes.Buffer{}
+	j := &JetskiCLI{
+		Name:   "pigasus",
+		Out:    out,
+		ErrOut: errOut,
+	}
+
+	// 1. --api-only
+	err := runWeb(j, []string{"--api-only"})
+	if err != nil {
+		t.Fatalf("runWeb --api-only failed: %v", err)
+	}
+	if !captured.ApiOnly || captured.UiOnly {
+		t.Errorf("expected ApiOnly=true, UiOnly=false, got %+v", captured)
+	}
+
+	// 2. --ui-only
+	err = runWeb(j, []string{"--ui-only"})
+	if err != nil {
+		t.Fatalf("runWeb --ui-only failed: %v", err)
+	}
+	if !captured.UiOnly || captured.ApiOnly {
+		t.Errorf("expected UiOnly=true, ApiOnly=false, got %+v", captured)
+	}
+
+	// 3. Mutual exclusivity
+	errOut.Reset()
+	err = runWeb(j, []string{"--api-only", "--ui-only"})
+	if err == nil {
+		t.Fatalf("expected error when both --api-only and --ui-only are provided")
+	}
+	if !strings.Contains(errOut.String(), "cannot be used together") {
+		t.Errorf("expected 'cannot be used together' in error, got: %s", errOut.String())
+	}
+}

@@ -24,7 +24,7 @@ the 12 function-name mappings are all in place for cycle 42 to run cleanly with
 | `/tmp/ghidra-scripts/DecompilePriority12.java` | Working copy | Lives under `/tmp` (Ghidra's JavaScriptProvider can resolve `.java` files there cleanly) |
 | `/tmp/ghidra-scripts/ReaGhidraApplySeeds.java` | Working copy | Same — bundled in the working script dir |
 | `/tmp/priority-12-err.txt` | 12 lines, 8-digit hex | Input priority file with 12 backend funcs |
-| `/workspace/agy-recovered/docs/decompiled-v1.3.5/c/google3_third_party_jetski_cli_backend_backend/retry/` | Created empty | Target output dir (intentionally empty — see Notes) |
+| `/workspace/agy-recovered/docs/decompiled-v1.3.5/c/google3_third_party_jetski_cli_backend_backend/retry/` | Created empty | Target output dir (intentionally empty — see Notes). The tree was retired on 2026-11-02 and no fragment of `retry/` survives — see `docs/legacy-re/README.md` |
 | `/workspace/agy-recovered/docs/cycles/cycle-41-ghidra-12-err-deliverable.md` | **this file** | Final report |
 
 ## 12 backend funcs that timed out at 60s (cycle 40)

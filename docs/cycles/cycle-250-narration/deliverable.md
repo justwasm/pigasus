@@ -34,7 +34,8 @@ The AGY 1.4.2 changelog pinned in the row above records:
 
 The clone has no `StartNarration` gRPC client today — the
 recovered string "narration is not available in external
-builds" (docs/decompiled-v1.3.4/strings-v1.3.4.txt) confirms
+builds" (docs/legacy-re/extracts/strings-v1.3.4-cited.txt — the cited window of the
+retired docs/decompiled-v1.3.4/strings-v1.3.4.txt) confirms
 the method is gated behind a Google-internal build. Cycle 250
 closes the visible behaviour gap with a TUI-only cosmetic
 slash helper: `/narration` writes a short intro paragraph to

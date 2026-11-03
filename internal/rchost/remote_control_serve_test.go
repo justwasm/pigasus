@@ -31,6 +31,7 @@ import (
 	"context"
 	"errors"
 	"net"
+	"net/http"
 	"os"
 	"strings"
 	"sync"
@@ -39,6 +40,7 @@ import (
 	"time"
 
 	"github.com/justwasm/pigasus/internal/cli"
+	"github.com/justwasm/pigasus/rcmesh"
 )
 
 // TestServeHandler_ADCRejection pins the cycle's brief:
@@ -468,3 +470,42 @@ func (b *syncBuffer) String() string {
 // Ensure syscall is referenced; the test rig imports it
 // only for the test-side signal.Notify stub path.
 var _ = syscall.SIGTERM
+
+func TestStartServeMesh(t *testing.T) {
+	// Baseline: without answerer registered, startServeMesh returns nil manager.
+	rcmesh.RegisterDefaultAnswerer(nil)
+	t.Cleanup(func() { rcmesh.RegisterDefaultAnswerer(nil) })
+
+	mgr, stop := startServeMesh("inst-1", "user@example.com", http.NotFoundHandler(), &bytes.Buffer{}, "serve")
+	if mgr != nil {
+		t.Errorf("startServeMesh returned non-nil manager without answerer: %+v", mgr)
+	}
+	stop()
+
+	// Registered answerer: startServeMesh constructs Manager and returns cancel func.
+	calledAnswer := false
+	rcmesh.RegisterDefaultAnswerer(func(ctx context.Context, sdp string, cfg rcmesh.PeerConfig) (rcmesh.Session, error) {
+		calledAnswer = true
+		return nil, errors.New("stub answerer")
+	})
+
+	mgr, stop = startServeMesh("inst-2", "user@example.com", http.NotFoundHandler(), &bytes.Buffer{}, "serve")
+	if mgr == nil {
+		t.Fatal("startServeMesh returned nil manager with registered answerer")
+	}
+	if mgr.InstanceID != "inst-2" {
+		t.Errorf("InstanceID = %q, want inst-2", mgr.InstanceID)
+	}
+	sig, ok := mgr.Signaler.(rcmesh.SignalingClient)
+	if !ok {
+		t.Fatalf("Signaler type = %T, want rcmesh.SignalingClient", mgr.Signaler)
+	}
+	if !strings.HasSuffix(sig.PollURL, "/v1internal:pollSignalingMessages") {
+		t.Errorf("PollURL = %q, want suffix /v1internal:pollSignalingMessages", sig.PollURL)
+	}
+	if !strings.HasSuffix(sig.SendURL, "/v1internal:sendSignalingMessage") {
+		t.Errorf("SendURL = %q, want suffix /v1internal:sendSignalingMessage", sig.SendURL)
+	}
+	stop()
+	_ = calledAnswer
+}

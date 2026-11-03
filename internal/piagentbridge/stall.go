@@ -206,30 +206,6 @@ func BackoffStep(attempt int, initial, cap time.Duration) time.Duration {
 	return retry.Step(attempt, initial, cap)
 }
 
-// RetryWithBackoff runs fn at most maxAttempts times. After a non-nil
-// error it waits BackoffStep before the next attempt, capped at
-// StallRecoveryBackoffCap (30s). The supplied context can cut the wait
-// short — a Ctrl-C during a retry leaves without delivering the recovery.
-//
-// fn is responsible for distinguishing "stalled" from any other failure;
-// RetryWithBackoff retries on every non-nil return. Callers that need to
-// bail on specific errors (a 401 that retries cannot fix, say) compose
-// their own check inside fn.
-func RetryWithBackoff(ctx context.Context, maxAttempts int, fn func() error) error {
-	return RetryWithBackoffConfig(ctx, DefaultBackoffConfig(), maxAttempts, fn)
-}
-
-// DefaultBackoffConfig returns the AGY 1.3.4 production values:
-// initial 2s, cap 30s. Exported so callers building their own
-// recovery wrapper can use the same numbers without restating the
-// constants.
-func DefaultBackoffConfig() BackoffConfig {
-	return BackoffConfig{
-		Initial: StallRecoveryInitialBackoff,
-		Cap:     StallRecoveryBackoffCap,
-	}
-}
-
 // BackoffConfig is the knob set for the retry helper. Zero values fall
 // back to the AGY production defaults (2s initial, 30s cap) so a
 // literal `BackoffConfig{}` is usable in callers that want the
@@ -239,10 +215,10 @@ type BackoffConfig struct {
 	Cap     time.Duration
 }
 
-// RetryWithBackoffConfig is RetryWithBackoff with an explicit backoff
+// RetryWithBackoffConfig runs the retry loop with an explicit backoff
 // configuration. Tests use it to drive the cap value down so they run
 // in milliseconds rather than seconds; production callers go through
-// RetryWithBackoff.
+// RetryWithBackoffConfig with DefaultBackoffConfig.
 func RetryWithBackoffConfig(ctx context.Context, cfg BackoffConfig, maxAttempts int, fn func() error) error {
 	if cfg.Initial <= 0 {
 		cfg.Initial = StallRecoveryInitialBackoff

@@ -1,7 +1,7 @@
 // Package cortex — approval.go: the recovered 1.3.5 approval flow
 // for the cortex side, plus the adapter that keeps the cortex-side
 // gate (this package) and the store-side gate (cycle 41's
-// internal/cascade/real_lifecycle.go) in sync.
+// internal/core/lifecycle/real_lifecycle.go) in sync.
 //
 // Background. The v1.3.5 binary has TWO approval surfaces:
 //
@@ -10,7 +10,7 @@
 //     `HandleSubagentUserInput` +
 //     `commitSubagentStates` +
 //     `RespondToSubagentToolConfirmation`. Implemented in
-//     internal/cascade/real_lifecycle.go (cycle 41).
+//     internal/core/lifecycle/real_lifecycle.go (cycle 41).
 //  2. Cortex-side: `(*CascadeManager).SubagentHub` +
 //     `gatedSubagentHub` + `KillAgent` + `MaybeReviveAgent`.
 //     Implemented in subagent.go (cycle 42) and exposed via the
@@ -139,7 +139,7 @@ func (d *ApprovalDriver) Revive(id string) (SubagentState, error) {
 // ---- Adapter to cycle 41 cascade.RealLifecycle -----------------------------
 
 // CascadeAdapter keeps the cortex-side gate (this package) and the
-// store-side gate (cycle 41 internal/cascade/real_lifecycle.go) in
+// store-side gate (cycle 41 internal/core/lifecycle/real_lifecycle.go) in
 // sync.
 //
 // The v1.3.5 binary has both — the cortex-side

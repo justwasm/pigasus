@@ -25,7 +25,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/justwasm/pigasus/internal/persistentrc"
+	persistentrc "github.com/justwasm/pigasus/internal/infra/remote/persistent"
 	"github.com/justwasm/pigasus/internal/rctunnel"
 )
 

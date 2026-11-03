@@ -21,6 +21,8 @@ func usageWeb(prog string) string {
 		"  -w, --workspace   Root workspace folder to serve (default: current directory)\n" +
 		"  --dir             Alias for --workspace\n" +
 		"  --open            Automatically open the web UI in default browser upon startup\n" +
+		"  --api-only        Serve only backend Connect-RPC and WebSocket APIs (no web UI assets)\n" +
+		"  --ui-only         Serve only frontend static UI assets (no local agent RPC backend)\n" +
 		"  --reference-backend  Proxy the RPCs to a reference language_server instead of\n" +
 		"                     answering them, and serve the reference's own frontend\n" +
 		"                     assets: an endpoint (host:port) of a running reference, or\n" +
@@ -49,6 +51,8 @@ type webOpts struct {
 	open             bool
 	referenceBackend string
 	desktop          bool
+	apiOnly          bool
+	uiOnly           bool
 	showHelp         bool
 }
 
@@ -98,6 +102,10 @@ func parseWebFlags(j *JetskiCLI, args []string, usage string) (webOpts, error) {
 			}
 		case "--open":
 			opts.open = true
+		case "--api-only":
+			opts.apiOnly = true
+		case "--ui-only":
+			opts.uiOnly = true
 		case "--reference-backend":
 			if err := consume(&opts.referenceBackend, a); err != nil {
 				return opts, err
@@ -107,6 +115,9 @@ func parseWebFlags(j *JetskiCLI, args []string, usage string) (webOpts, error) {
 		default:
 			return opts, usageFail(j, usage, "Error: flags provided but not defined: "+flagName(a))
 		}
+	}
+	if opts.apiOnly && opts.uiOnly {
+		return opts, usageFail(j, usage, "Error: --api-only and --ui-only cannot be used together")
 	}
 	return opts, nil
 }
@@ -133,5 +144,7 @@ func runWeb(j *JetskiCLI, args []string) error {
 		Open:             opts.open,
 		ReferenceBackend: opts.referenceBackend,
 		Desktop:          opts.desktop,
+		ApiOnly:          opts.apiOnly,
+		UiOnly:           opts.uiOnly,
 	})
 }

@@ -19,7 +19,7 @@ import (
 // every convention — it is the escape hatch a test or a wrapper needs.
 func TestPathPrefersTheEnvOverride(t *testing.T) {
 	t.Setenv(ConfigPathEnvVar, "/tmp/explicit.json")
-	t.Setenv("XDG_CONFIG_HOME", "/tmp/xdg")
+	t.Setenv("OPENAGY_CONFIG_HOME", "/tmp/home")
 	t.Setenv("HOME", "/tmp/home")
 
 	if got := Path(); got != "/tmp/explicit.json" {
@@ -27,19 +27,21 @@ func TestPathPrefersTheEnvOverride(t *testing.T) {
 	}
 }
 
-// TestPathFollowsXDGThenHome pins the two conventions, in order.
-func TestPathFollowsXDGThenHome(t *testing.T) {
+// TestPathFollowsTheConfigurationHome pins the one convention: the
+// configuration home, which $OPENAGY_CONFIG_HOME overrides. There is no
+// second home — the retired $HOME/.config/openagy is migrated away.
+func TestPathFollowsTheConfigurationHome(t *testing.T) {
 	t.Setenv(ConfigPathEnvVar, "")
-	t.Setenv("XDG_CONFIG_HOME", "/tmp/xdg")
-	t.Setenv("HOME", "/tmp/home")
+	t.Setenv("OPENAGY_CONFIG_HOME", "/tmp/home")
+	t.Setenv("HOME", "/tmp/other")
 
-	want := filepath.Join("/tmp/xdg", "openagy", "config.json")
+	want := filepath.Join("/tmp/home", "config.json")
 	if got := Path(); got != want {
-		t.Errorf("Path() with XDG = %q, want %q", got, want)
+		t.Errorf("Path() with OPENAGY_CONFIG_HOME = %q, want %q", got, want)
 	}
 
-	t.Setenv("XDG_CONFIG_HOME", "")
-	want = filepath.Join("/tmp/home", ".config", "openagy", "config.json")
+	t.Setenv("OPENAGY_CONFIG_HOME", "")
+	want = filepath.Join("/tmp/other", ".openagy", "config.json")
 	if got := Path(); got != want {
 		t.Errorf("Path() with HOME = %q, want %q", got, want)
 	}
@@ -49,7 +51,7 @@ func TestPathFollowsXDGThenHome(t *testing.T) {
 // configuration file — rather than a path under "/.config".
 func TestPathIsEmptyWithoutAHome(t *testing.T) {
 	t.Setenv(ConfigPathEnvVar, "")
-	t.Setenv("XDG_CONFIG_HOME", "")
+	t.Setenv("OPENAGY_CONFIG_HOME", "")
 	t.Setenv("HOME", "")
 
 	if got := Path(); got != "" {
@@ -321,5 +323,80 @@ func TestSaveAccountPoolRefusesAMalformedDocument(t *testing.T) {
 	}
 	if !bytes.Equal(raw, original) {
 		t.Errorf("the malformed document was rewritten: %s", raw)
+	}
+}
+
+// TestSaveWrapperWritesTheSection pins that the proxy's own state is
+// carried verbatim in the document's "wrapper" section — the section's
+// shape belongs to internal/agyproxy, not to this package.
+func TestSaveWrapperWritesTheSection(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.json")
+	t.Setenv(ConfigPathEnvVar, path)
+
+	if err := SaveWrapper([]byte(`{"balance":true}`)); err != nil {
+		t.Fatalf("SaveWrapper: %v", err)
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := gjson.GetBytes(raw, "wrapper.balance").Bool(); !got {
+		t.Errorf("the wrapper section was not written: %s", raw)
+	}
+	if got := CurrentWrapper(); !gjson.ValidBytes(got) || !gjson.GetBytes(got, "balance").Bool() {
+		t.Errorf("CurrentWrapper() = %q, want the section verbatim", got)
+	}
+}
+
+// TestSaveWrapperLeavesTheRestOfTheDocument pins the one-writer rule for
+// the new section: the endpoint overrides and the account-routing policy
+// survive a wrapper write byte for byte.
+func TestSaveWrapperLeavesTheRestOfTheDocument(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.json")
+	original := []byte(`{"endpoints":{"a":"b"}}`)
+	if err := os.WriteFile(path, original, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(ConfigPathEnvVar, path)
+
+	if err := SaveWrapper([]byte(`{"capture":true}`)); err != nil {
+		t.Fatalf("SaveWrapper: %v", err)
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := gjson.GetBytes(raw, "endpoints.a").String(); got != "b" {
+		t.Errorf("the endpoint override = %q, want it kept", got)
+	}
+	if got := gjson.GetBytes(raw, "wrapper.capture").Bool(); !got {
+		t.Errorf("the wrapper section was not written: %s", raw)
+	}
+}
+
+// TestSaveWrapperRemovesTheSection pins that an empty value takes the
+// section out of the document.
+func TestSaveWrapperRemovesTheSection(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.json")
+	if err := os.WriteFile(path, []byte(`{"wrapper":{"balance":true}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(ConfigPathEnvVar, path)
+
+	if err := SaveWrapper(nil); err != nil {
+		t.Fatalf("SaveWrapper: %v", err)
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if gjson.GetBytes(raw, "wrapper").Exists() {
+		t.Errorf("the section was not removed: %s", raw)
+	}
+	if got := CurrentWrapper(); len(got) != 0 {
+		t.Errorf("CurrentWrapper() = %q, want nothing", got)
 	}
 }

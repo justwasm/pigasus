@@ -15,7 +15,7 @@ const (
 	cmdPaste         // p
 	cmdPasteBefore   // P
 	cmdUndo          // u
-	cmdRedo          // ctrl+r
+	cmdRedo          // U (ctrl+r is the artifact review, not a redo)
 	cmdSubmit        // ZZ
 	cmdReplaceChar   // r
 	cmdVisualChar    // v
@@ -27,13 +27,16 @@ const (
 	cmdVisYank       // visual y
 	cmdVisPaste      // visual p
 	cmdVisCase       // visual ~ / u / U
+	cmdVisReplace    // visual r{char}
 )
 
 // command is one parsed Normal/Visual sequence.
+//
+// There is no count field: the reference's commands take no count prefix
+// (official-docs/cli/vim-editor-mode.md — "Commands take no count
+// prefix, so `3dd` deletes one line"), so every command acts once.
 type command struct {
 	kind     cmdKind
-	count    int // leading count (before the operator/action)
-	opCount  int // count between an operator and its motion/object
 	op       rune
 	motion   motion
 	arg      rune
@@ -52,33 +55,39 @@ const (
 	statusComplete
 )
 
-func parseActionCommand(rest string, count int) (command, parseStatus) {
+func parseActionCommand(rest string) (command, parseStatus) {
 	switch rest[0] {
 	case 'i', 'a', 'I', 'A', 'o', 'O':
 		if len(rest) != 1 {
 			return command{}, statusInvalid
 		}
-		return command{kind: cmdInsertEntry, insert: rune(rest[0]), count: count}, statusComplete
+		return command{kind: cmdInsertEntry, insert: rune(rest[0])}, statusComplete
 	case 'x':
-		return one(rest, cmdDeleteChar, count)
+		return one(rest, cmdDeleteChar)
 	case 'X':
-		return one(rest, cmdDeleteCharBwd, count)
+		return one(rest, cmdDeleteCharBwd)
 	case 'D':
-		return one(rest, cmdDeleteToEnd, count)
+		return one(rest, cmdDeleteToEnd)
 	case 'C':
-		return one(rest, cmdChangeToEnd, count)
+		return one(rest, cmdChangeToEnd)
 	case 'p':
-		return one(rest, cmdPaste, count)
+		return one(rest, cmdPaste)
 	case 'P':
-		return one(rest, cmdPasteBefore, count)
+		return one(rest, cmdPasteBefore)
 	case 'u':
-		return one(rest, cmdUndo, count)
+		return one(rest, cmdUndo)
+	case 'U':
+		// In NORMAL mode "U" is the redo (the reference's own note:
+		// "In NORMAL mode, `u` and `U` are undo and redo"). In VISUAL
+		// mode "U" uppercases the selection — parseVisual claims it
+		// before this switch is reached.
+		return one(rest, cmdRedo)
 	case '~':
-		return one(rest, cmdCaseToggle, count)
+		return one(rest, cmdCaseToggle)
 	case 'v':
-		return one(rest, cmdVisualChar, count)
+		return one(rest, cmdVisualChar)
 	case 'V':
-		return one(rest, cmdVisualLine, count)
+		return one(rest, cmdVisualLine)
 	case 'Z':
 		if len(rest) == 1 {
 			return command{}, statusIncomplete
@@ -94,7 +103,15 @@ func parseActionCommand(rest string, count int) (command, parseStatus) {
 		if len(rest) != 2 {
 			return command{}, statusInvalid
 		}
-		return command{kind: cmdReplaceChar, arg: rune(rest[1]), count: count}, statusComplete
+		return command{kind: cmdReplaceChar, arg: rune(rest[1])}, statusComplete
+	case '/', '!':
+		// The reference's NORMAL-mode "/" and "!": the character is
+		// inserted and the editor switches to INSERT mode, so a slash
+		// command or a shell command works without pressing "i" first.
+		if len(rest) != 1 {
+			return command{}, statusInvalid
+		}
+		return command{kind: cmdInsertEntry, insert: rune(rest[0])}, statusComplete
 	}
 	return command{}, statusInvalid
 }
@@ -103,106 +120,114 @@ func parseActionCommand(rest string, count int) (command, parseStatus) {
 // switches on the disambiguation rules that only exist in Visual mode
 // (d/c/y/x are complete operations rather than operator prefixes, and
 // i/a start text objects instead of insert entries).
+//
+// There is no count prefix: the reference's commands take none
+// (official-docs/cli/vim-editor-mode.md — "Commands take no count prefix,
+// so `3dd` deletes one line"), so a leading digit is an invalid key and
+// rings the bell. "0" is still the line-start motion.
 func parse(seq string, visual bool) (command, parseStatus) {
-	i := 0
-	count := readCount(seq, &i)
-	rest := seq[i:]
+	rest := seq
 	if rest == "" {
-		if count > 0 {
-			return command{}, statusIncomplete
-		}
 		return command{}, statusInvalid
 	}
 
 	if visual {
-		if c, st := parseVisual(rest, count); st != statusInvalid {
+		if c, st := parseVisual(rest); st != statusInvalid {
 			return c, st
+		}
+		// The "/" and "!" insert entries belong to NORMAL mode: in
+		// VISUAL mode they would drop the selection.
+		if rest[0] == '/' || rest[0] == '!' {
+			return command{}, statusInvalid
 		}
 	}
 
 	if rest[0] == 'd' || rest[0] == 'c' || rest[0] == 'y' {
-		return parseOperator(rest, count)
+		return parseOperator(rest)
 	}
 
-	if c, st := parseMotionSeq(rest, count); st != statusInvalid {
+	if c, st := parseMotionSeq(rest); st != statusInvalid {
 		return c, st
 	}
 
-	return parseActionCommand(rest, count)
+	return parseActionCommand(rest)
 }
 
 // one builds a complete single-key command, rejecting stray trailing
 // characters.
-func one(rest string, kind cmdKind, count int) (command, parseStatus) {
+func one(rest string, kind cmdKind) (command, parseStatus) {
 	if len(rest) != 1 {
 		return command{}, statusInvalid
 	}
-	return command{kind: kind, count: count}, statusComplete
+	return command{kind: kind}, statusComplete
 }
 
 // parseVisual handles the Visual-only keys.
-func parseVisual(rest string, count int) (command, parseStatus) {
+func parseVisual(rest string) (command, parseStatus) {
 	switch rest[0] {
 	case 'd', 'x':
-		return one(rest, cmdVisDelete, count)
+		return one(rest, cmdVisDelete)
 	case 'c':
-		return one(rest, cmdVisChange, count)
+		return one(rest, cmdVisChange)
 	case 'y':
-		return one(rest, cmdVisYank, count)
+		return one(rest, cmdVisYank)
 	case 'p':
-		return one(rest, cmdVisPaste, count)
+		return one(rest, cmdVisPaste)
 	case '~', 'u', 'U':
 		if len(rest) != 1 {
 			return command{}, statusInvalid
 		}
-		return command{kind: cmdVisCase, caseOp: rune(rest[0]), count: count}, statusComplete
+		return command{kind: cmdVisCase, caseOp: rune(rest[0])}, statusComplete
+	case 'r':
+		// r{char}: every selected character is replaced with {char}.
+		if len(rest) == 1 {
+			return command{}, statusIncomplete
+		}
+		if len(rest) != 2 {
+			return command{}, statusInvalid
+		}
+		return command{kind: cmdVisReplace, arg: rune(rest[1])}, statusComplete
 	}
 	if spec, st := objectFromKey(rest); st != statusInvalid {
 		if st == statusIncomplete {
 			return command{}, statusIncomplete
 		}
-		return command{kind: cmdObject, obj: spec, count: count}, statusComplete
+		return command{kind: cmdObject, obj: spec}, statusComplete
 	}
 	return command{}, statusInvalid
 }
 
-// parseOperator resolves an operator sequence (d/c/y plus optional count
-// and motion or text object).
-func parseOperator(rest string, count int) (command, parseStatus) {
+// parseOperator resolves an operator sequence (d/c/y plus a motion or a
+// text object).
+func parseOperator(rest string) (command, parseStatus) {
 	op := rune(rest[0])
 	r := rest[1:]
 	if r == "" {
-		return command{kind: cmdOperator, op: op, count: count}, statusIncomplete
+		return command{kind: cmdOperator, op: op}, statusIncomplete
 	}
 	if r[0] == rest[0] { // dd cc yy
 		if len(r) != 1 {
 			return command{}, statusInvalid
 		}
-		return command{kind: cmdOperator, op: op, count: count, linewise: true}, statusComplete
+		return command{kind: cmdOperator, op: op, linewise: true}, statusComplete
 	}
-	j := 0
-	opCount := readCount(r, &j)
-	r2 := r[j:]
-	if r2 == "" {
-		return command{kind: cmdOperator, op: op, count: count, opCount: opCount}, statusIncomplete
-	}
-	if spec, st := objectFromKey(r2); st != statusInvalid {
+	if spec, st := objectFromKey(r); st != statusInvalid {
 		if st == statusIncomplete {
-			return command{kind: cmdOperator, op: op, count: count, opCount: opCount}, statusIncomplete
+			return command{kind: cmdOperator, op: op}, statusIncomplete
 		}
-		return command{kind: cmdOperator, op: op, count: count, opCount: opCount, obj: spec}, statusComplete
+		return command{kind: cmdOperator, op: op, obj: spec}, statusComplete
 	}
-	if m, arg, st := motionFromKey(r2); st != statusInvalid {
+	if m, arg, st := motionFromKey(r); st != statusInvalid {
 		if st == statusIncomplete {
-			return command{kind: cmdOperator, op: op, count: count, opCount: opCount}, statusIncomplete
+			return command{kind: cmdOperator, op: op}, statusIncomplete
 		}
-		return command{kind: cmdOperator, op: op, count: count, opCount: opCount, motion: m, arg: arg}, statusComplete
+		return command{kind: cmdOperator, op: op, motion: m, arg: arg}, statusComplete
 	}
 	return command{}, statusInvalid
 }
 
 // parseMotionSeq resolves a bare motion sequence.
-func parseMotionSeq(rest string, count int) (command, parseStatus) {
+func parseMotionSeq(rest string) (command, parseStatus) {
 	m, arg, st := motionFromKey(rest)
 	if st == statusInvalid {
 		return command{}, statusInvalid
@@ -210,25 +235,7 @@ func parseMotionSeq(rest string, count int) (command, parseStatus) {
 	if st == statusIncomplete {
 		return command{}, statusIncomplete
 	}
-	return command{kind: cmdMotion, motion: m, arg: arg, count: count}, statusComplete
-}
-
-// readCount reads a leading count, which must start with 1-9 so that a
-// leading 0 stays available as the line-start motion.
-func readCount(seq string, i *int) int {
-	if *i >= len(seq) {
-		return 0
-	}
-	c := seq[*i]
-	if c < '1' || c > '9' {
-		return 0
-	}
-	n := 0
-	for *i < len(seq) && seq[*i] >= '0' && seq[*i] <= '9' {
-		n = n*10 + int(seq[*i]-'0')
-		*i++
-	}
-	return n
+	return command{kind: cmdMotion, motion: m, arg: arg}, statusComplete
 }
 
 var basicMotions = map[byte]motion{

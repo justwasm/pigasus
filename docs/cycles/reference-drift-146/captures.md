@@ -276,7 +276,7 @@ INFO  ReaGhidraApplySeeds.java> REA seeds applied: {"entries":161286,"function_c
 INFO  DecompilePriority.java> DecompilePriority DONE: 2290 processed, 2290 ok, 0 err, 0 skip in 31 sec
 ```
 
-`out/local-macos/build_reports.py` then produced:
+`scripts/re/build_reports.py` then produced:
 
 ```
 summary + 102 per-package reports -> /Users/gear/Documents/GitHub/openagy/out/local-macos

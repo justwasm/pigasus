@@ -3,7 +3,7 @@
 // PiG copies only err.Error() out of a failing provider: the agent loop turns
 // the transport error into an assistant message and the caller sees a fresh
 // error whose concrete type is gone (agent_loop.go:494). The clone cares about
-// the type: *backend.HTTPError is what api_error.go recovers with errors.As to
+// the type: *apierror.HTTPError is what api_error.go recovers with errors.As to
 // pick the structured `AGY_ERROR: {...}` envelope and exit code 3.
 //
 // internal/agent solves this with an out-of-band errorSlot while it owns the

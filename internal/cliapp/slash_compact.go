@@ -20,20 +20,22 @@
 // instead of the cycle-167 half-trim stub.
 //
 // The seam is `manualCompactor` — a three-method interface so the
-// production wiring (a thin adapter over *pigrt.Runtime) and the
-// test wiring (a fakeCompactor that records calls and replays
-// synthetic events) compose in the same handleSlashCommand path.
-// runMode holds one compactor; cycle 227 populates it when the
-// pigrt.Runtime TUI integration lands, and cycle 229 leaves it nil
-// for callers that have not wired PiG yet (print mode, offline
-// tests). Cycle 237 falls back to internal/compaction.ComputeSummary
-// when the compactor is nil — the cycle-167 half-trim helper is
-// retired.
+// production wiring and the test wiring (a fakeCompactor that
+// records calls and replays synthetic events) compose in the same
+// handleSlashCommand path. runMode holds one compactor; cycle 227
+// populates it when the pigrt.Runtime TUI integration lands, and
+// cycle 229 leaves it nil for callers that have not wired PiG yet
+// (print mode, offline tests). Cycle 237 falls back to
+// internal/compaction.ComputeSummary when the compactor is nil — the
+// cycle-167 half-trim helper is retired.
 //
-// The pigrtCompactor adapter lives next to the interface so adding
-// later cycles (e.g. per-cycle TUI plumbing) does not have to read
-// this file twice; the adapter is small and the test for it is in
-// slash_cycle229_test.go.
+// Cycle 381 (tranche 27) removed the *pigrt.Runtime adapter this
+// file used to carry. It had no caller and no test: the TUI's turn
+// engine is PiG's agent.Agent, not pigrt.Runtime, so the host had no
+// runtime for it to wrap, and the manual /compact path takes the
+// generic summarizer branch in production (m.compactor is nil; only
+// the tests set it). The interface and the branch stay — they are
+// the seam — but the unreachable implementation is gone.
 //
 // Cycle 237 deliberately does NOT touch internal/pigrt/runtime.go,
 // internal/agent/pig.go, or cmd/wagyu/tui_run.go (cycle 232's
@@ -52,66 +54,14 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	piagent "github.com/MichaelKinsy/PiG/agent"
-	"github.com/MichaelKinsy/PiG/coding"
-
-	"github.com/justwasm/pigasus/internal/backend"
-	"github.com/justwasm/pigasus/internal/compaction"
-	"github.com/justwasm/pigasus/internal/pigrt"
-	"github.com/justwasm/pigasus/internal/tools"
+	"github.com/justwasm/pigasus/internal/core/compaction"
+	"github.com/justwasm/pigasus/internal/core/backend"
+	"github.com/justwasm/pigasus/internal/app/tools/surface"
+	uirows "github.com/justwasm/pigasus/internal/ui/rows"
 )
 
 // manualCompactor is aliased to compaction.ManualCompactor.
 type manualCompactor = compaction.ManualCompactor
-
-// pigrtCompactor is the production implementation: it forwards the
-// three calls straight to the underlying PiG session. cycle 229 ships
-// this adapter so the print / TUI plumbing in a later cycle (the
-// cycle-227 worktree already populates m.compactor for the print path)
-// can wire it without revisiting slash_compact.go.
-type pigrtCompactor struct {
-	rt *pigrt.Runtime
-}
-
-// newPigrtCompactor wraps a *pigrt.Runtime into a manualCompactor. The
-// runtime must already have a live session; newPigrtCompactor panics
-// if rt is nil because every call would dereference nil — the seam
-// only exists so callers who have a runtime can wire one up.
-func newPigrtCompactor(rt *pigrt.Runtime) *pigrtCompactor {
-	if rt == nil {
-		panic("newPigrtCompactor: nil runtime")
-	}
-	return &pigrtCompactor{rt: rt}
-}
-
-func (p *pigrtCompactor) Compact(ctx context.Context, customInstructions string) error {
-	// PiG 0.5.1 returns (*coding.CompactionResult, error); the manual
-	// compactor's contract only surfaces the error.
-	_, err := p.rt.Session().Compact(ctx, customInstructions)
-	return err
-}
-
-func (p *pigrtCompactor) IsCompacting() bool {
-	return p.rt.Session().IsCompacting()
-}
-
-func (p *pigrtCompactor) SubscribeManual(listener func(piagent.AgentEvent)) func() {
-	return p.rt.Session().Subscribe(listener)
-}
-
-// sessionForTest exposes the underlying coding.Session for tests that
-// need to drive a real PiG session through the pigrt runtime instead
-// of the fakeCompactor. The pigrt_compactor_test.go in cycle 227 uses
-// this pattern (rt.Session().Subscribe + rt.InjectForTest); cycle 229
-// adopts the same surface so the two cycles share test scaffolding.
-//
-// `sessionForTest` is unexported to keep the production seam narrow —
-// nothing outside cmd/wagyu should reach into the session directly.
-// Tests in this package (which is `package main`, so they have full
-// access) call it via the unexported helper.
-func (p *pigrtCompactor) sessionForTest() *coding.Session {
-	return p.rt.Session()
-}
 
 // startManualCompact is the /compact slash-command body. It is on
 // runMode (not a free function) because the transcript rows live on
@@ -184,7 +134,7 @@ func (m *runMode) startManualCompact(customInstructions string) {
 	// sees a clear "I heard you, but I am already busy" line.
 	if m.compactor.IsCompacting() {
 		m.response = append(m.response,
-			cWarningBlueOpen+"\u23bf  "+cWarningBlueClose+panelGray238+"Already compacting."+panelGray238C,
+			uirows.NoticeCompact("Already compacting."),
 			"",
 		)
 		return
@@ -201,16 +151,12 @@ func (m *runMode) startManualCompact(customInstructions string) {
 	// use — cycle 229's manual path just collapses the start/end
 	// pair into a single two-row transcript block.
 	m.response = append(m.response,
-		cWarningBlueOpen+"\u23bf  "+cWarningBlueClose+panelGray238+"Compacting context\u2026"+panelGray238C,
+		uirows.NoticeCompact("Compacting context\u2026"),
 		"",
 	)
 	compactor := m.compactor
 	prog := m.prog
 	go runManualCompactionTask(compactor, customInstructions, prog)
-}
-
-func handleCompactorResult(err error, customInstructions string, doneCh chan compactDoneMsg) {
-	compaction.HandleManualResult(err, customInstructions, doneCh)
 }
 
 func runManualCompactionTask(compactor manualCompactor, customInstructions string, prog *tea.Program) {
@@ -224,19 +170,6 @@ func runManualCompactionTask(compactor manualCompactor, customInstructions strin
 	})
 }
 
-// installCompactCancel delegates to compaction.InstallCancel.
-func installCompactCancel(cancel context.CancelFunc) func() {
-	return compaction.InstallCancel(cancel)
-}
-
-// TriggerCompactCancel fires the cycle-237 cancel signal. The
-// cycle-237 TUI wires this into the Esc handler in a future cycle
-// (see 硬約束 in docs/cycles/cycle-237-compact/deliverable.md).
-// Calling it when no compact is in flight is a no-op.
-func TriggerCompactCancel() {
-	compaction.TriggerCancel()
-}
-
 // startGenericCompact is the cycle-237 path: no PiG compactor, so
 // the slash command drives internal/compaction.ComputeSummary
 // directly. The transcript gets:
@@ -244,7 +177,7 @@ func TriggerCompactCancel() {
 //	⎿  Compacting conversation…                       (running row, cycle-237)
 //	⎿  Compacted 12 messages (-87%). [follow-up row]  (success)
 //	or
-//	⎿  [compact cancelled]                            (Esc / timeout)
+//	⎿  Compaction cancelled. Conversation was not compacted. (Esc / timeout)
 //
 // The session is replaced with one user-role message carrying the
 // summary, so the next model turn sees only the summary in its
@@ -279,7 +212,7 @@ func (m *runMode) startGenericCompact(customInstructions string) {
 	copy(sessSnap, m.session)
 
 	m.response = append(m.response,
-		cWarningBlueOpen+"\u23bf  "+cWarningBlueClose+panelGray238+"Compacting conversation\u2026"+panelGray238C,
+		uirows.NoticeCompact("Compacting conversation\u2026"),
 		"",
 	)
 
@@ -311,16 +244,12 @@ func (m *runMode) startGenericCompact(customInstructions string) {
 }
 
 func modelDeclarationsJSON() []byte {
-	decls := tools.ModelDeclarations()
+	decls := surface.ModelDeclarations()
 	b, err := json.Marshal(decls)
 	if err != nil {
 		return nil
 	}
 	return b
-}
-
-func computeCompactTokens(msg genericCompactDoneMsg, carriedTokens int) (int, int, int) {
-	return compaction.ComputeCompactTokens(msg.StatsBefore.Tokens, msg.InputTokens, msg.StatsAfter.Tokens, msg.OutputTokens, msg.Overhead, msg.Summary, carriedTokens)
 }
 
 func (m *runMode) applyGenericCompactSuccess(msg genericCompactDoneMsg, customInstructions string) tea.Cmd {
@@ -338,7 +267,7 @@ func (m *runMode) applyGenericCompactSuccess(msg genericCompactDoneMsg, customIn
 			Content: compaction.ResumingBlock(requests, msg.Summary),
 		}}
 	}
-	beforeTokens, afterTokens, summaryTokens := computeCompactTokens(msg, carriedTokens)
+	beforeTokens, afterTokens, summaryTokens := compaction.ComputeCompactTokens(msg.StatsBefore.Tokens, msg.InputTokens, msg.StatsAfter.Tokens, msg.OutputTokens, msg.Overhead, msg.Summary, carriedTokens)
 	m.response = append(m.response,
 		compaction.DividerRow(m.width),
 		compaction.StatsRow(m.width,
@@ -360,13 +289,13 @@ func (m *runMode) applyGenericCompactResult(msg genericCompactDoneMsg, customIns
 	switch {
 	case msg.Cancelled:
 		m.response = append(m.response,
-			cWarningBlueOpen+"\u23bf  "+cWarningBlueClose+panelGray238+"[compact cancelled]"+panelGray238C,
+			uirows.NoticeCompact(compaction.CompactionCancelledLiteral),
 			"",
 		)
 		return nil
 	case msg.Err != nil:
 		m.response = append(m.response,
-			cWarningBlueOpen+"\u23bf  "+cWarningBlueClose+panelGray238+"Compact failed: "+msg.Err.Error()+panelGray238C,
+			uirows.NoticeCompact("Compact failed: "+msg.Err.Error()),
 			"",
 		)
 		return nil

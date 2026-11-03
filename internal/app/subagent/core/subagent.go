@@ -16,7 +16,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/justwasm/pigasus/internal/daemon"
+	"github.com/justwasm/pigasus/internal/core/lifecycle"
+	"github.com/justwasm/pigasus/internal/infra/daemon"
 )
 
 // AGY 1.3.1 changelog line:
@@ -50,7 +51,7 @@ const (
 )
 
 // StateChangeFunc is invoked on every state transition. It is the
-// hook the tasks-panel cycle wires to internal/taskregistry so that
+// hook the tasks-panel cycle wires to internal/app/task so that
 // /tasks and the status-line "· N tasks" segment both reflect the
 // shell wrapper's progress in real time. The hook runs synchronously
 // inside Start/Wait/Kill, so it must not block or call back into the
@@ -122,7 +123,7 @@ func (s *Subagent) SetOnStateChange(fn StateChangeFunc) {
 }
 
 // SetTitle records the human-given name the caller passed for the
-// task. The bridge (internal/taskregistry) reads Title at attach
+// task. The bridge (internal/app/task) reads Title at attach
 // time to prefer it over the auto-derived "<Name> <args…>" form, so a
 // background task that was created with `create_task({title: …})`
 // keeps that friendly label in /tasks and completion notifications
@@ -439,7 +440,7 @@ func (s *Subagent) setState(state string) {
 		// The hook runs outside the mutex so a slow listener
 		// cannot block other readers of s. The hook MUST NOT
 		// call back into s; doing so can deadlock the
-		// registry's own mutex (see internal/taskregistry).
+		// registry's own mutex (see internal/app/task).
 		fn(s, state)
 	}
 }
@@ -477,31 +478,10 @@ func NewSubagent(name string, args ...string) *Subagent {
 // NewSubagent. They keep the original cycle-22 ergonomics for callers
 // that want a one-shot bash sub-process for a known task.
 
-// ExploreSubagent lists the contents of path (capped at 50 entries).
-func ExploreSubagent(path string) *Subagent {
-	return NewSubagent("bash", "-c", "ls -la "+path+" | head -50")
-}
 
-// CodeReviewSubagent dumps the first 100 lines of file.
-func CodeReviewSubagent(file string) *Subagent {
-	return NewSubagent("bash", "-c", "cat "+file+" | head -100")
-}
 
-// TestSubagent runs `go test ./...` in pkg (capped at 50 lines).
-func TestSubagent(pkg string) *Subagent {
-	return NewSubagent("bash", "-c", "cd "+pkg+" && go test ./... 2>&1 | head -50")
-}
 
-// BuildSubagent runs `go build ./...` in pkg (capped at 20 lines).
-func BuildSubagent(pkg string) *Subagent {
-	return NewSubagent("bash", "-c", "cd "+pkg+" && go build ./... 2>&1 | head -20")
-}
 
-// DeploySubagent prints a deploy notification (placeholder behaviour
-// preserved from cycle-22; no actual deployment is performed).
-func DeploySubagent(src, dst string) *Subagent {
-	return NewSubagent("bash", "-c", "echo 'deploy "+src+" to "+dst+"'")
-}
 
 // Manager tracks many Subagents by ID.
 type Manager struct {
@@ -512,6 +492,10 @@ type Manager struct {
 	// SetOnStop and the callers in Stop / Remove see a consistent
 	// value at every invocation.
 	onStop OnStopFunc
+	// approvals is the pending-authorization queue of the tracked
+	// subagents (see approvals.go). nil until the first use — the
+	// queue is created on demand, so a zero Manager still answers.
+	approvals *lifecycle.State
 }
 
 // NewManager returns an empty Manager.

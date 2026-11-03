@@ -1,0 +1,179 @@
+## flag table
+cdp_port	int	9222	Port for Chrome DevTools Protocol	true	
+local_chrome_headless	bool	true	Whether Chrome runs in headless mode.	true	
+local_chrome_user_data_dir	string		Chrome user data directory.	true	
+log-file	string		Override CLI log file path	false	
+new-project	bool		Create a new project for this session	false	
+project	string		Project ID or project name for the current CLI session	false	
+use_local_chrome	bool	false	Whether to use local chrome	true	
+## project: default
+cache before <absent>
+cache after <absent>
+store <absent>
+## project: explicit id
+cache before <absent>
+cache after {
+  "<ROOT>/cwd": "p1"
+}
+store p1.json {
+  "id": "p1",
+  "name": "My Project",
+  "projectResources": {
+    "resources": []
+  }
+}
+## project: explicit name
+cache before <absent>
+cache after {
+  "<ROOT>/cwd": "p1"
+}
+store p1.json {
+  "id": "p1",
+  "name": "My Project",
+  "projectResources": {
+    "resources": []
+  }
+}
+## project: explicit name lower case
+cache before <absent>
+cache after {
+  "<ROOT>/cwd": "p1"
+}
+store p1.json {
+  "id": "p1",
+  "name": "My Project",
+  "projectResources": {
+    "resources": []
+  }
+}
+## project: explicit file name
+cache before <absent>
+cache after <absent>
+store p1.json {
+  "id": "p1",
+  "name": "My Project",
+  "projectResources": {
+    "resources": []
+  }
+}
+## project: invalid
+cache before <absent>
+cache after <absent>
+store <absent>
+## project: new project
+cache before <absent>
+cache after {
+  "<ROOT>/cwd": "<UUID>"
+}
+store <UUID>.json {
+  "id": "<UUID>",
+  "name": "cwd",
+  "projectResources": {
+    "resources": [
+      {
+        "folderUri": "file://<ROOT>/cwd"
+      }
+    ]
+  }
+}
+## project: new project named
+cache before <absent>
+cache after {
+  "<ROOT>/cwd": "<UUID>"
+}
+store <UUID>.json {
+  "id": "<UUID>",
+  "name": "Named",
+  "projectResources": {
+    "resources": [
+      {
+        "folderUri": "file://<ROOT>/cwd"
+      }
+    ]
+  }
+}
+## project: cache hit
+cache before {
+  "<ROOT>/cwd": "old-id",
+  "/other/workspace": "other-id"
+}
+cache after {
+  "/other/workspace": "other-id",
+  "<ROOT>/cwd": "p1"
+}
+store p1.json {
+  "id": "p1",
+  "name": "My Project",
+  "projectResources": {
+    "resources": []
+  }
+}
+## project: cache miss
+cache before {
+  "/other/workspace": "other-id"
+}
+cache after {
+  "/other/workspace": "other-id",
+  "<ROOT>/cwd": "p1"
+}
+store p1.json {
+  "id": "p1",
+  "name": "My Project",
+  "projectResources": {
+    "resources": []
+  }
+}
+## project: cache without a project
+cache before {
+  "<ROOT>/cwd": "old-id",
+  "/other/workspace": "other-id"
+}
+cache after {
+  "<ROOT>/cwd": "old-id",
+  "/other/workspace": "other-id"
+}
+store p1.json {
+  "id": "p1",
+  "name": "My Project",
+  "projectResources": {
+    "resources": []
+  }
+}
+## browser: default
+use_local_chrome=false
+headless=false
+user_data_dir=""
+port=9222
+## browser: explicit
+use_local_chrome=true
+headless=false
+user_data_dir="/tmp/pigasus-chrome-profile"
+port=9333
+## browser: explicit headless
+use_local_chrome=false
+headless=true
+user_data_dir=""
+port=9222
+## browser: invalid port
+use_local_chrome=false
+headless=false
+user_data_dir=""
+port=9222
+## browser: negative port
+use_local_chrome=false
+headless=false
+user_data_dir=""
+port=9222
+## browser: no flag set
+use_local_chrome=false
+headless=false
+user_data_dir=""
+port=9222
+## log file: default
+redirected=false
+## log file: explicit
+created=true
+redirected=true
+content="<TS> zz log line\n"
+## log file: invalid
+redirected=false

@@ -13,21 +13,21 @@ import (
 	"testing"
 
 	"github.com/justwasm/pigasus/internal/agent"
-	"github.com/justwasm/pigasus/internal/convstore"
-	"github.com/justwasm/pigasus/internal/tools"
+	"github.com/justwasm/pigasus/internal/app/session/convstore"
+	"github.com/justwasm/pigasus/internal/app/tools/shell"
 )
 
 // TestTheNotifierPutsTheNotificationInTheInbox pins the seam between the
 // tools layer and the session: the runtime fires the notification, the
 // session's inbox holds it until the next turn.
 func TestTheNotifierPutsTheNotificationInTheInbox(t *testing.T) {
-	prev := tools.SetTaskNotifier(nil)
-	defer tools.SetTaskNotifier(prev)
+	prev := shell.SetTaskNotifier(nil)
+	defer shell.SetTaskNotifier(prev)
 
 	m := &runMode{taskInbox: agent.NewTaskInbox()}
 	m.installTaskNotifier()
 
-	tools.NotifyTask(tools.TaskNotification{
+	shell.NotifyTask(shell.TaskNotification{
 		TaskID: "conv-1/task-1",
 		Body:   "Task id \"conv-1/task-1\" finished with result:",
 	})
@@ -45,7 +45,7 @@ func TestTheNotifierPutsTheNotificationInTheInbox(t *testing.T) {
 // the user" — which is why it travels where a user message travels.
 func TestTheNotificationReachesTheModelAsAUserTurn(t *testing.T) {
 	m := &runMode{taskInbox: agent.NewTaskInbox()}
-	m.taskInbox.Add(tools.TaskNotification{
+	m.taskInbox.Add(shell.TaskNotification{
 		TaskID: "conv-1/task-1",
 		Body:   "Task id \"conv-1/task-1\" finished with result:",
 	})
@@ -75,13 +75,13 @@ func TestTheNotificationReachesTheModelAsAUserTurn(t *testing.T) {
 // CORTEX_STEP_TYPE_SYSTEM_MESSAGE = 101.
 func TestTheNotificationIsStoredAsASystemNotice(t *testing.T) {
 	m := &runMode{taskInbox: agent.NewTaskInbox()}
-	m.taskInbox.Add(tools.TaskNotification{
+	m.taskInbox.Add(shell.TaskNotification{
 		TaskID: "conv-1/task-1",
 		Body:   "Task id \"conv-1/task-1\" finished with result:",
 	})
 	m.drainTaskNotifications()
 
-	steps := m.trajectorySteps()
+	steps := convstore.BuildSteps(m.trajectoryFacts())
 	if len(steps) != 1 {
 		t.Fatalf("the trajectory holds %d steps, want 1", len(steps))
 	}
@@ -98,7 +98,7 @@ func TestTheNotificationIsStoredAsASystemNotice(t *testing.T) {
 // turn of its own rather than waiting for the user to type something.
 func TestANotificationStartsATurnWhenTheAgentIsIdle(t *testing.T) {
 	m := &runMode{taskInbox: agent.NewTaskInbox()}
-	m.taskInbox.Add(tools.TaskNotification{
+	m.taskInbox.Add(shell.TaskNotification{
 		TaskID: "conv-1/task-1",
 		Body:   "Task id \"conv-1/task-1\" finished with result:",
 	})
@@ -119,7 +119,7 @@ func TestANotificationStartsATurnWhenTheAgentIsIdle(t *testing.T) {
 // flight is not interrupted; the notification is delivered by the next one.
 func TestANotificationWaitsWhileATurnIsRunning(t *testing.T) {
 	m := &runMode{taskInbox: agent.NewTaskInbox(), streaming: true}
-	m.taskInbox.Add(tools.TaskNotification{
+	m.taskInbox.Add(shell.TaskNotification{
 		TaskID: "conv-1/task-1",
 		Body:   "Task id \"conv-1/task-1\" finished with result:",
 	})

@@ -2,7 +2,11 @@ package remotecontrol
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
+	"time"
+
+	"github.com/justwasm/pigasus/internal/app/session/convstore"
 )
 
 // newLSConversationDispatcher returns a dispatcher whose store holds one
@@ -16,7 +20,7 @@ func newLSConversationDispatcher(t *testing.T, conversationID string) *Dispatche
 	d.cfg.Session.Workspace = "/tmp/ls-ws"
 	traj := d.trajectories.Get(conversationID)
 	traj.Append(map[string]any{
-		"type":     14,
+		"type":      14,
 		"userInput": map[string]any{"items": []any{map[string]any{"text": "first question"}}},
 	})
 	traj.Append(map[string]any{
@@ -24,7 +28,7 @@ func newLSConversationDispatcher(t *testing.T, conversationID string) *Dispatche
 		"plannerResponse": map[string]any{"response": "first answer"},
 	})
 	traj.Append(map[string]any{
-		"type":     14,
+		"type":      14,
 		"userInput": map[string]any{"items": []any{map[string]any{"text": "second question"}}},
 	})
 	traj.Append(map[string]any{
@@ -51,7 +55,7 @@ func TestLSGetConversationMetadata(t *testing.T) {
 			WorkspaceURIs []string `json:"workspaceUris"`
 			CreatedAt     string   `json:"createdAt"`
 		} `json:"metadata"`
-		NumSteps    int    `json:"numSteps"`
+		NumSteps     int    `json:"numSteps"`
 		TrajectoryID string `json:"trajectoryId"`
 	}
 	if err := json.Unmarshal(raw, &body); err != nil {
@@ -258,5 +262,138 @@ func TestLSTrajectoryStoreDelete(t *testing.T) {
 	}
 	if store.Delete("") {
 		t.Error("an empty id deleted a trajectory")
+	}
+}
+
+// TestLSConversationNewMethods covers ForkConversation, GetRevertPreview,
+// RevertToCascadeStep, ConvertTrajectoryToMarkdown and GetTrajectoryFileDiffs.
+func TestLSConversationNewMethods(t *testing.T) {
+	d := newLSConversationDispatcher(t, "conv-test-new")
+
+	// 1. GetRevertPreview
+	prevAns, prevErr, ok := d.handleLSGetRevertPreview(json.RawMessage(`{"cascadeId":"conv-test-new","stepIndex":1}`))
+	if !ok || prevErr != nil {
+		t.Fatalf("handleLSGetRevertPreview failed: %v", prevErr)
+	}
+	prevMap, _ := prevAns.(map[string]any)
+	if _, exists := prevMap["codeEditPreviews"]; !exists {
+		t.Errorf("expected codeEditPreviews key in %v", prevMap)
+	}
+
+	// 2. RevertToCascadeStep on in-memory trajectory
+	traj := d.trajectories.Lookup("conv-test-new")
+	if traj == nil || len(traj.Snapshot().Steps) != 4 {
+		t.Fatalf("expected 4 steps in trajectory, got %v", traj)
+	}
+	revAns, revErr, ok := d.handleLSRevertToCascadeStep(json.RawMessage(`{"cascadeId":"conv-test-new","stepIndex":1}`))
+	if !ok || revErr != nil {
+		t.Fatalf("handleLSRevertToCascadeStep failed: %v", revErr)
+	}
+	if len(traj.Snapshot().Steps) != 2 {
+		t.Errorf("expected 2 steps after revert, got %d", len(traj.Snapshot().Steps))
+	}
+	_ = revAns
+
+	// 3. GetTrajectoryFileDiffs
+	diffAns, diffErr, ok := d.handleLSGetTrajectoryFileDiffs(json.RawMessage(`{"conversationId":"conv-test-new"}`))
+	if !ok || diffErr != nil {
+		t.Fatalf("handleLSGetTrajectoryFileDiffs failed: %v", diffErr)
+	}
+	diffMap, _ := diffAns.(map[string]any)
+	if _, exists := diffMap["diffs"]; !exists {
+		t.Errorf("expected diffs key in %v", diffMap)
+	}
+
+	// 4. OpenUrl
+	openCalled := make(chan string, 1)
+	origOpen := openBrowserFn
+	openBrowserFn = func(u string) { openCalled <- u }
+	defer func() { openBrowserFn = origOpen }()
+
+	openAns, openErr, ok := d.handleLSOpenUrl(json.RawMessage(`{"url":"https://example.com"}`))
+	if !ok || openErr != nil {
+		t.Fatalf("handleLSOpenUrl failed: %v", openErr)
+	}
+	_ = openAns
+	select {
+	case got := <-openCalled:
+		if got != "https://example.com" {
+			t.Errorf("opened URL = %q, want https://example.com", got)
+		}
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("openBrowserFn was not called")
+	}
+
+	// 5. ForkConversation and ConvertTrajectoryToMarkdown with real on-disk convstore
+	testID := "test-conv-fork-new"
+	testSteps := []convstore.Step{
+		{Idx: 0, Type: convstore.StepUserInput, Text: "Hello Fork"},
+		{Idx: 1, Type: convstore.StepModelResponse, Text: "Hi there!"},
+	}
+	if err := convstore.SaveConversation(testID, "/tmp/ws", testSteps); err != nil {
+		t.Fatalf("SaveConversation: %v", err)
+	}
+	defer convstore.DeleteConversation(testID)
+
+	// Test ForkConversation
+	forkAns, forkErr, ok := d.handleLSForkConversation(json.RawMessage(`{"sourceCascadeId":"` + testID + `","forkAtStepIndex":1}`))
+	if !ok || forkErr != nil {
+		t.Fatalf("handleLSForkConversation failed: %v", forkErr)
+	}
+	forkMap, _ := forkAns.(map[string]any)
+	newID, _ := forkMap["newCascadeId"].(string)
+	if newID == "" {
+		t.Fatalf("expected newCascadeId, got %v", forkMap)
+	}
+	defer convstore.DeleteConversation(newID)
+
+	// Test ConvertTrajectoryToMarkdown
+	mdAns, mdErr, ok := d.handleLSConvertTrajectoryToMarkdown(json.RawMessage(`{"conversationId":"` + testID + `"}`))
+	if !ok || mdErr != nil {
+		t.Fatalf("handleLSConvertTrajectoryToMarkdown failed: %v", mdErr)
+	}
+	mdMap, _ := mdAns.(map[string]any)
+	mdText, _ := mdMap["markdown"].(string)
+	if !strings.Contains(mdText, "Hello Fork") || !strings.Contains(mdText, "Hi there!") {
+		t.Errorf("expected markdown to contain user and model messages, got %q", mdText)
+	}
+}
+
+// TestLSDispatcherAdditionalRoutes covers GetAvailableModels, OpenUrl and McpServerStates via route.
+func TestLSDispatcherAdditionalRoutes(t *testing.T) {
+	d := newLSConversationDispatcher(t, "conv-test-routes")
+
+	// GetAvailableModels
+	ans, rpcErr, ok := d.routeLanguageServerMethods(nil, "GetAvailableModels", nil)
+	if !ok || rpcErr != nil {
+		t.Fatalf("GetAvailableModels route failed: %v", rpcErr)
+	}
+	m, _ := ans.(map[string]any)
+	if _, exists := m["response"]; !exists {
+		t.Errorf("expected response key in %v", m)
+	}
+
+	// GetMcpServerStates
+	ans, rpcErr, ok = d.routeLanguageServerCascadeMethods(nil, "GetMcpServerStates", nil)
+	if !ok || rpcErr != nil {
+		t.Fatalf("GetMcpServerStates route failed: %v", rpcErr)
+	}
+	mcpMap, _ := ans.(map[string]any)
+	if _, exists := mcpMap["states"]; !exists {
+		t.Errorf("expected states key in %v", mcpMap)
+	}
+
+	// RefreshMcpServers & ToggleMcpServer
+	_, _, ok1 := d.routeLanguageServerCascadeMethods(nil, "RefreshMcpServers", nil)
+	_, _, ok2 := d.routeLanguageServerCascadeMethods(nil, "ToggleMcpServer", nil)
+	if !ok1 || !ok2 {
+		t.Errorf("expected RefreshMcpServers and ToggleMcpServer to be handled")
+	}
+
+	// CompleteMcpOAuth, ResetOnboarding, SendActionToChatPanel, GetChapterTitles, ResolveWorkspaceUrlPreview
+	for _, m := range []string{"CompleteMcpOAuth", "DisconnectMcpOAuth", "ResetOnboarding", "SendActionToChatPanel", "GetChapterTitles", "ResolveWorkspaceUrlPreview", "ValidateTerminalSetupScript"} {
+		if _, _, ok := d.routeLanguageServerCascadeMethods(nil, m, nil); !ok {
+			t.Errorf("expected %s to be handled", m)
+		}
 	}
 }

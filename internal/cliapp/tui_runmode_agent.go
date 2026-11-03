@@ -1,12 +1,16 @@
 package cliapp
 
 import (
+	"github.com/justwasm/pigasus/internal/printmode"
+	"github.com/justwasm/pigasus/internal/ui/tuilib"
+
 	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"io"
 	"log"
 	"os"
+	"path/filepath"
 	"time"
 
 	sp "charm.land/bubbles/v2/spinner"
@@ -15,48 +19,48 @@ import (
 	"charm.land/lipgloss/v2"
 	piagent "github.com/MichaelKinsy/PiG/agent"
 	"github.com/MichaelKinsy/PiG/coding"
-	"github.com/justwasm/pigasus/internal/accounts"
 	"github.com/justwasm/pigasus/internal/agent"
-	"github.com/justwasm/pigasus/internal/agenttools"
-	"github.com/justwasm/pigasus/internal/auth"
-	"github.com/justwasm/pigasus/internal/backend"
-	"github.com/justwasm/pigasus/internal/browsersubagent"
-	"github.com/justwasm/pigasus/internal/builtinsubagent"
-	"github.com/justwasm/pigasus/internal/hooks"
-	"github.com/justwasm/pigasus/internal/keybind"
-	"github.com/justwasm/pigasus/internal/modelcatalog"
-	"github.com/justwasm/pigasus/internal/permissions"
+	"github.com/justwasm/pigasus/internal/app/agenttools"
+	"github.com/justwasm/pigasus/internal/app/tuistore"
+	browsersubagent "github.com/justwasm/pigasus/internal/app/subagent/browser"
+	builtinsubagent "github.com/justwasm/pigasus/internal/app/subagent/builtin"
+	subagentquestions "github.com/justwasm/pigasus/internal/app/subagent/questions"
+	"github.com/justwasm/pigasus/internal/core/backend"
+	backendselect "github.com/justwasm/pigasus/internal/infra/backend/select"
+	confhome "github.com/justwasm/pigasus/internal/core/confhome"
+	"github.com/justwasm/pigasus/internal/core/policy/permissions"
+	settings "github.com/justwasm/pigasus/internal/core/settings"
+	accounts "github.com/justwasm/pigasus/internal/features/accounts/core"
+	"github.com/justwasm/pigasus/internal/features/auth"
+	modelcatalog "github.com/justwasm/pigasus/internal/features/models/catalog"
+	"github.com/justwasm/pigasus/internal/features/plugins/hooks"
+	"github.com/justwasm/pigasus/internal/app/toolrunner"
 	"github.com/justwasm/pigasus/internal/piagentbridge"
-	"github.com/justwasm/pigasus/internal/subagentquestions"
-	"github.com/justwasm/pigasus/internal/subagenttools"
-	"github.com/justwasm/pigasus/internal/themepreview"
-	"github.com/justwasm/pigasus/internal/toolrunner"
-	"github.com/justwasm/pigasus/internal/tools"
-	"github.com/justwasm/pigasus/internal/wordmove"
+	"github.com/justwasm/pigasus/internal/app/subagenttools"
+	"github.com/justwasm/pigasus/internal/ui/views/modelargpopup"
+	"github.com/justwasm/pigasus/internal/ui/views/modelpicker"
+	"github.com/justwasm/pigasus/internal/ui/views/statusline"
+	"github.com/justwasm/pigasus/internal/ui/views/themepreview"
+	"github.com/justwasm/pigasus/internal/app/tools"
+	"github.com/justwasm/pigasus/internal/ui/editor/keybind"
+	"github.com/justwasm/pigasus/internal/ui/editor/wordmove"
+	"github.com/justwasm/pigasus/internal/ui/resumepicker"
+	"github.com/justwasm/pigasus/internal/app/tools/browser"
+	"github.com/justwasm/pigasus/internal/app/tools/surface"
+	"github.com/justwasm/pigasus/internal/app/tools/tasks"
 )
 
 func pickerHiddenCommands() []string {
-	if !IsBusinessAccount() {
+	if !auth.IsBusinessAccount() {
 		return nil
 	}
 	return []string{"/remote-control"}
 }
 
-func compactDuration(start, end time.Time) string {
-	if start.IsZero() || end.IsZero() {
-		return "0s"
-	}
-	d := end.Sub(start)
-	if d < 0 {
-		d = 0
-	}
-	return d.Truncate(time.Second).String()
-}
-
 func (m *runMode) Init() tea.Cmd {
 	cmds := []tea.Cmd{tas.Blink, armTasksTick(), m.fetchPlanTierCmd()}
-	if m.statusLineScriptActive() || m.titleScriptActive() {
-		m.statusLineTickArmed = true
+	if m.statusLineScriptActive() || m.titleCfg.Active() {
+		m.store.StatusLineTickArmed = true
 		cmds = append(cmds, armExternalStatusLineTick())
 	}
 	return tea.Batch(cmds...)
@@ -72,17 +76,9 @@ func (m *runMode) cycleMode() {
 	m.modeHintDismissed = false
 }
 
-func (m *runMode) EnableTools(decls []backend.ToolDecl, runner agent.ToolRunner) {
+func (m *runMode) enableTools(decls []backend.ToolDecl, runner backend.ToolRunner) {
 	m.tools = decls
 	m.toolRunner = runner
-}
-
-func (m *runMode) moveWordLeft() bool {
-	return m.moveWord(true)
-}
-
-func (m *runMode) moveWordRight() bool {
-	return m.moveWord(false)
 }
 
 func (m *runMode) moveWord(back bool) bool {
@@ -112,7 +108,7 @@ func (m *runMode) moveWord(back bool) bool {
 }
 
 func agentToolRegistry(workspace, agentBody string) *tools.Registry {
-	catalog := tools.RuntimeCatalog(workspace)
+	catalog := surface.RuntimeCatalog(workspace)
 	if agentBody != "" {
 		return agenttools.Registry(catalog)
 	}
@@ -123,7 +119,7 @@ func (m *runMode) registerSubagentQuestionTool(catalog *tools.Registry) {
 	if m.agentBody != "" {
 		return
 	}
-	catalog.Register(&tools.AskQuestion{
+	catalog.Register(&tasks.AskQuestion{
 		SubAgentQuestions: m.subAgentQuestions,
 		SubAgentID:        subagentquestions.ParentKey,
 	})
@@ -140,10 +136,12 @@ func (m *runMode) applyAgentSwitch(name, body string) {
 	if m.policy != nil {
 		catalog := agentToolRegistry(workspace, body)
 		m.registerSubagentQuestionTool(catalog)
-		m.EnableTools(advertisedToolDecls(body, catalog), &permissionRunner{
+		m.enableTools(toolrunner.AdvertisedToolDecls(body, catalog), &permissionRunner{
 			inner:   &toolrunner.RegistryRunner{Reg: catalog},
 			policy:  m.policy,
 			sandbox: m.toolSandbox,
+			hook:    m.hookToolGate,
+			post:    m.hookPostToolUse,
 		})
 	}
 	m.response = nil
@@ -153,6 +151,9 @@ func (m *runMode) applyAgentSwitch(name, body string) {
 	m.activeTool = ""
 	m.autoTitle = ""
 	m.conversationID = newConversationID()
+	// The conversation changed, so the session did too: the documented
+	// SessionStart event fires for the new one.
+	m.hookSessionStarted = false
 	// The definitions belong to the conversation that just ended.
 	m.subagentDefs = subagenttools.NewStore()
 	m.resetTrajectory()
@@ -165,7 +166,7 @@ func (m *runMode) subAgentExtras(_ context.Context, be backend.Client, modelLabe
 	if be == nil || m.agentBody != "" {
 		return nil, func() {}
 	}
-	piModel := pigPrintModel(be, modelLabel)
+	piModel := printmode.PigPrintModel(be, modelLabel)
 	if piModel == nil {
 		return nil, func() {}
 	}
@@ -173,7 +174,7 @@ func (m *runMode) subAgentExtras(_ context.Context, be backend.Client, modelLabe
 	if workspace == "" {
 		workspace = defaultWorkspaceForRunMode()
 	}
-	agentDir := auth.AntigravityConfigHome()
+	agentDir := confhome.Antigravity()
 	services, err := coding.CreateAgentSessionServices(coding.CreateAgentSessionServicesOptions{
 		CWD:      workspace,
 		AgentDir: agentDir,
@@ -217,11 +218,13 @@ func (m *runMode) subAgentExtras(_ context.Context, be backend.Client, modelLabe
 		Catalogue: piagentbridge.Tools(m.catalog),
 	}
 	subTools := subagenttools.Tools(subDeps)
+	subDir := filepath.Join(agentDir, "subagents")
+	_, _ = subagenttools.RehydrateSubagents(subDir, subDeps.Registry, m.taskReg, subDeps)
 	// The browser_subagent tool needs the session's model and the
 	// browser tools; the runner is installed process-wide, like the MCP
 	// pool.
 	if m.catalog != nil {
-		tools.SetBrowserSubagentProvider(browsersubagent.New(subagenttools.Deps{
+		browser.SetBrowserSubagentProvider(browsersubagent.New(subagenttools.Deps{
 			Services: services,
 			Model:    piModel,
 			CWD:      workspace,
@@ -281,7 +284,7 @@ func resolveRunModeDefaults(b backend.Client, email, model, tier, cwd string) (s
 			}
 		}
 	}
-	if model != "" && !isReferenceModel(model) {
+	if model != "" && !backendselect.IsReferenceModel(model, modelpicker.ResolveCatalogueID) {
 		// A configured model keeps its own label: the label has to name
 		// the one the endpoint is serving, not collapse to another.
 		model = modelcatalog.FormatModelLabel(model)
@@ -304,20 +307,19 @@ func resolveRunModeDefaults(b backend.Client, email, model, tier, cwd string) (s
 
 func newRunModeBase(b backend.Client, email, model, tier, cwd string, altScreen bool) *runMode {
 	initConvID := newConversationID()
-	return &runMode{
+	m := &runMode{
 		email:                   email,
 		model:                   model,
-		statusModel:             stripTier(model),
+		statusModel:             tuilib.StripTier(model),
 		tier:                    tier,
 		cwd:                     cwd,
 		backend:                 b,
 		altScreen:               altScreen,
-		bashRowIdx:              -1,
+		store:                   *tuistore.New(),
 		taskReg:                 tools.SharedTaskRegistry(),
 		subagentDefs:            subagenttools.NewStore(),
 		taskSubagentManager:     tools.SharedSubagentManager(),
 		subAgentQuestions:       subagentquestions.NewManager(false),
-		subAgentQuestionsActive: subagentquestions.ParentKey,
 		conversationID:          initConvID,
 		initialConversationID:   initConvID,
 		autoScroll:              true,
@@ -326,15 +328,29 @@ func newRunModeBase(b backend.Client, email, model, tier, cwd string, altScreen 
 		streamingSearch:         true,
 		replyStart:              -1,
 		liveReplyIdx:            -1,
+		liveThoughtRunIdx:        -1,
 		activeBtwIndex:          -1,
-		atRouter:                DefaultRouter,
+		atRouter:                defaultRouter,
 		hooks:                   hooks.NewManager(),
 		narrationStart:          time.Now(),
 		wireSettingsPending:     true,
-		activeItems:             newActiveItemsModel(),
-		titleStore:              &windowTitleStore{},
+		titleStore:              &statusline.TitleStore{},
 		taskInbox:               agent.NewTaskInbox(),
+		verbosity:               settings.String("verbosity"),
 	}
+	m.picker = m.newSlashPicker()
+	m.activeItems = m.newActiveItemsPanel()
+	m.atFilePicker = m.newMentionPicker()
+	m.resumePicker = resumepicker.New(resumepicker.Seams{
+		CurrentConversationID: func() string { return m.conversationID },
+		ListConversations:      m.listResumeConversations,
+		ResumeConversation:      m.resumeConversation,
+		RenameConversation:      m.renameResumeConversation,
+	})
+	m.subAgentQuestionPanel = m.newSubAgentQuestionPanel()
+	m.helpPanel = m.newHelpPanel()
+	m.voiceSurface = m.newVoiceSurface()
+	return m
 }
 
 func initRunModeInput(m *runMode) {
@@ -343,7 +359,7 @@ func initRunModeInput(m *runMode) {
 	m.input.Prompt = inputPrompt
 	m.input.SetPromptFunc(2, func(info tas.PromptInfo) string {
 		if info.LineNumber == 0 {
-			if m.bashMode {
+			if m.store.BashMode {
 				return "! "
 			}
 			return "> "
@@ -363,7 +379,7 @@ func initRunModeInput(m *runMode) {
 	// The prompt wears the selected scheme's accent and the placeholder
 	// its dim foreground; the colours follow the scheme, so they are
 	// resolved from it rather than hard-coded.
-	initScheme := auth.SettingsString("colorScheme")
+	initScheme := settings.String("colorScheme")
 	// The session wears the configured scheme from the first frame, so
 	// the whole interface is painted in it — the reference resolves
 	// every colour from the selected scheme.
@@ -390,7 +406,8 @@ func initRunModeInput(m *runMode) {
 	}
 }
 
-func NewRunMode(b backend.Client, email, model, tier, cwd string, altScreen bool) *runMode {
+// newRunMode constructs the v1.3.5 binary 1:1 run mode.
+func newRunMode(b backend.Client, email, model, tier, cwd string, altScreen bool) *runMode {
 	pickerHidden := pickerHiddenCommands()
 	email, model, tier, cwd = resolveRunModeDefaults(b, email, model, tier, cwd)
 	m := newRunModeBase(b, email, model, tier, cwd, altScreen)
@@ -412,6 +429,6 @@ func NewRunMode(b backend.Client, email, model, tier, cwd string, altScreen bool
 	// The "/model <query>" popup filters the catalogue the CLI can
 	// select: the reference's own models plus the ones the user
 	// configured.
-	m.picker.SetModelCatalogueSource(completionModelRows)
+	m.picker.SetModelCatalogueSource(modelargpopup.Rows)
 	return m
 }

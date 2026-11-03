@@ -16,7 +16,7 @@ package cli
 import (
 	"fmt"
 
-	"github.com/justwasm/pigasus/internal/mdrender"
+	"github.com/justwasm/pigasus/internal/ui/mdrender"
 )
 
 // loginPromptMarkdown is the Markdown source fed to the renderer. Kept

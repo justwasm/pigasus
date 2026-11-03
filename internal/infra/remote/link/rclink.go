@@ -43,8 +43,8 @@ import (
 	"strings"
 
 	"github.com/justwasm/pigasus/endpoints"
-	"github.com/justwasm/pigasus/internal/accounts"
-	"github.com/justwasm/pigasus/internal/auth"
+	accounts "github.com/justwasm/pigasus/internal/features/accounts/core"
+	"github.com/justwasm/pigasus/internal/features/auth"
 )
 
 // DeepLink returns the bare link to an instance's remote view:

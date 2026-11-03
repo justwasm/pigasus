@@ -6,5 +6,5 @@ import (
 	_ "github.com/justwasm/pigasus/internal/infra/subsystems/daemon"
 	_ "github.com/justwasm/pigasus/internal/infra/subsystems/localharness"
 	_ "github.com/justwasm/pigasus/internal/infra/subsystems/terminal"
-	_ "github.com/justwasm/pigasus/internal/features/tools/wasm"
+	_ "github.com/justwasm/pigasus/internal/app/tools/wasm"
 )

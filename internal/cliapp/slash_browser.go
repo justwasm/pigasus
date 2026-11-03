@@ -11,10 +11,11 @@ import (
 
 	"github.com/MichaelKinsy/PiG/coding"
 
-	"github.com/justwasm/pigasus/internal/auth"
-	"github.com/justwasm/pigasus/internal/browsersubagent"
-	"github.com/justwasm/pigasus/internal/subagenttools"
-	"github.com/justwasm/pigasus/internal/tools"
+	browsersubagent "github.com/justwasm/pigasus/internal/app/subagent/browser"
+	confhome "github.com/justwasm/pigasus/internal/core/confhome"
+	"github.com/justwasm/pigasus/internal/app/subagenttools"
+	"github.com/justwasm/pigasus/internal/app/tools/browser"
+	"github.com/justwasm/pigasus/internal/printmode"
 )
 
 // slash_browser.go — the /browser slash command.
@@ -22,7 +23,7 @@ import (
 // The reference describes the command as "Invoke a browser agent for web
 // tasks." — that is the description in the reference's own slash menu
 // (internal/tuilib/commands.go, the catalogue recovered from the binary
-// 【一手】). The clone has that agent: internal/browsersubagent, wired
+// 【一手】). The clone has that agent: internal/app/subagent/browser, wired
 // into the browser_subagent tool (cycle 311).
 //
 // What cycle 194 left behind
@@ -65,7 +66,7 @@ type browserAgentDoneMsg struct {
 //
 // It is a var so a test can substitute a fake runner: the real one
 // needs a model, a session and a browser.
-var browserAgentFactory = func(m *runMode) (tools.BrowserSubagentProvider, func(), error) {
+var browserAgentFactory = func(m *runMode) (browser.BrowserSubagentProvider, func(), error) {
 	return m.newBrowserAgent()
 }
 
@@ -123,7 +124,7 @@ func (m *runMode) runBrowserCommand(args string) (bool, tea.Cmd) {
 //
 // The run happens off the UI goroutine: a browsing task can take
 // minutes, and the TUI has to stay responsive while it does.
-func (m *runMode) runBrowserTask(runner tools.BrowserSubagentProvider, closeRunner func(), task string) tea.Cmd {
+func (m *runMode) runBrowserTask(runner browser.BrowserSubagentProvider, closeRunner func(), task string) tea.Cmd {
 	return func() tea.Msg {
 		if closeRunner != nil {
 			defer closeRunner()
@@ -173,7 +174,7 @@ func (m *runMode) updateBrowserAgentDoneMsg(msg browserAgentDoneMsg) {
 // services are closed when the turn ends — so the slash command cannot
 // borrow it. It builds its own, on the session's own model and the
 // session's own browser tools, and closes it when the task is done.
-func (m *runMode) newBrowserAgent() (tools.BrowserSubagentProvider, func(), error) {
+func (m *runMode) newBrowserAgent() (browser.BrowserSubagentProvider, func(), error) {
 	if m.catalog == nil {
 		return nil, nil, errors.New("the browser tools are not available in this session")
 	}
@@ -183,7 +184,7 @@ func (m *runMode) newBrowserAgent() (tools.BrowserSubagentProvider, func(), erro
 	if m.backend == nil {
 		return nil, nil, errors.New("no model is selected")
 	}
-	model := pigPrintModel(m.backend, m.model)
+	model := printmode.PigPrintModel(m.backend, m.model)
 	if model == nil {
 		return nil, nil, errors.New("no model is selected")
 	}
@@ -199,7 +200,7 @@ func (m *runMode) newBrowserAgent() (tools.BrowserSubagentProvider, func(), erro
 	if workspace == "" {
 		workspace = defaultWorkspaceForRunMode()
 	}
-	agentDir := auth.AntigravityConfigHome()
+	agentDir := confhome.Antigravity()
 	services, err := coding.CreateAgentSessionServices(coding.CreateAgentSessionServicesOptions{
 		CWD:      workspace,
 		AgentDir: agentDir,

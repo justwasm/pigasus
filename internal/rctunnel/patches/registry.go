@@ -741,19 +741,6 @@ func All() []Patch {
 			Enabled: mobile,
 			Replace: signInBanner,
 		},
-		{
-			ID:     "cache-bust",
-			Desc:   "Invalidate cached bundles when the applied patch set changes",
-			Target: HTML,
-			Kind:   Literal,
-			Find:   `src="/main.js"`,
-			ReplaceFn: func(o Options) string {
-				if o.CacheKey == "" {
-					return `src="/main.js"`
-				}
-				return `src="/main.js?agy=` + o.CacheKey + `"`
-			},
-		},
 	}
 }
 

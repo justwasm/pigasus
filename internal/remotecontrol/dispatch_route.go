@@ -17,12 +17,25 @@ package remotecontrol
 import (
 	"context"
 	"encoding/json"
+
+	"github.com/justwasm/pigasus/internal/remotecontrol/convconfig"
+	"github.com/justwasm/pigasus/internal/remotecontrol/fastpush"
+	"github.com/justwasm/pigasus/internal/remotecontrol/files"
+	"github.com/justwasm/pigasus/internal/remotecontrol/origins"
+	"github.com/justwasm/pigasus/internal/remotecontrol/permissions"
+	"github.com/justwasm/pigasus/internal/remotecontrol/plugins"
+	"github.com/justwasm/pigasus/internal/remotecontrol/projects"
+	"github.com/justwasm/pigasus/internal/remotecontrol/resources"
+	"github.com/justwasm/pigasus/internal/remotecontrol/rpc"
+	"github.com/justwasm/pigasus/internal/remotecontrol/terminals"
+	"github.com/justwasm/pigasus/internal/remotecontrol/triggers"
+	"github.com/justwasm/pigasus/originpolicy"
 )
 
 // routeMCPTools handles the MCP handshake + tool catalogue
 // methods: initialize / tools/list / tools/call / ping /
 // notifications/initialized.
-func (d *Dispatcher) routeMCPTools(ctx context.Context, method string, params json.RawMessage) (any, *rpcErrorBody, bool) {
+func (d *Dispatcher) routeMCPTools(ctx context.Context, method string, params json.RawMessage) (any, *rpc.ErrorBody, bool) {
 	switch method {
 	case "initialize":
 		r, e := d.handleInitialize(params)
@@ -48,25 +61,25 @@ func (d *Dispatcher) routeMCPTools(ctx context.Context, method string, params js
 
 // routeCascadeLifecycle handles the four cascade lifecycle
 // methods (Start / Send / Cancel / HandleUserInteraction).
-func (d *Dispatcher) routeCascadeLifecycle(ctx context.Context, method string, params json.RawMessage) (any, *rpcErrorBody, bool) {
+func (d *Dispatcher) routeCascadeLifecycle(ctx context.Context, method string, params json.RawMessage) (any, *rpc.ErrorBody, bool) {
 	switch method {
-	case "StartRemoteAgentCascade":
+	case "StartCascade", "StartRemoteAgentCascade":
 		// Cycle rc-cascade-start: allocates a *Cascade
 		// and registers it with the dispatcher's
 		// registry.
 		r, e := d.handleStartRemoteAgentCascade(params)
 		return r, e, true
-	case "SendRemoteAgentCascadeMessage":
+	case "SendUserCascadeMessage", "SendRemoteAgentCascadeMessage":
 		// Cycle rc-cascade-message: synchronous
 		// end-to-end turn.
 		r, e := d.handleSendRemoteAgentCascadeMessage(ctx, params)
 		return r, e, true
-	case "CancelRemoteAgentCascade":
+	case "CancelCascade", "CancelRemoteAgentCascade":
 		// Cycle rc-cancel-cascade: cancels an
 		// in-flight cascade turn.
 		r, e := d.handleCancelRemoteAgentCascade(ctx, params)
 		return r, e, true
-	case "HandleRemoteAgentCascadeUserInteraction":
+	case "HandleCascadeUserInteraction", "HandleRemoteAgentCascadeUserInteraction":
 		// Cycle rc-handle-user-interaction:
 		// bi-directional RPC.
 		r, e := d.handleRemoteAgentCascadeUserInteraction(ctx, params)
@@ -76,12 +89,12 @@ func (d *Dispatcher) routeCascadeLifecycle(ctx context.Context, method string, p
 }
 
 // routeReadOnlyLists handles the four read-only "List…" methods.
-func (d *Dispatcher) routeReadOnlyLists(ctx context.Context, method string, params json.RawMessage) (any, *rpcErrorBody, bool) {
+func (d *Dispatcher) routeReadOnlyLists(ctx context.Context, method string, params json.RawMessage) (any, *rpc.ErrorBody, bool) {
 	switch method {
-	case "ListRemoteAgentModels",
-		"ListRemoteAgentSlashCommands",
-		"ListRemoteAgentConversations",
-		"ListRemoteAgentEnvironments":
+	case "ListAvailableModels", "ListRemoteAgentModels",
+		"ListSlashCommands", "ListRemoteAgentSlashCommands",
+		"ListConversations", "ListRemoteAgentConversations",
+		"ListEnvironments", "ListRemoteAgentEnvironments":
 		// Cycle rc-list-readonly: the four read-only
 		// "List…" methods share one dispatch entry point
 		// that fans out to the per-method handlers in
@@ -93,68 +106,74 @@ func (d *Dispatcher) routeReadOnlyLists(ctx context.Context, method string, para
 }
 
 // routeFileMethods handles the two read-only filesystem probes.
-func (d *Dispatcher) routeFileMethods(ctx context.Context, method string, params json.RawMessage) (any, *rpcErrorBody, bool) {
-	switch method {
-	case "ReadRemoteAgentFile":
-		r, e := d.handleReadRemoteAgentFile(params)
-		return r, e, true
-	case "ReadRemoteAgentDir":
-		r, e := d.handleReadRemoteAgentDir(params)
-		return r, e, true
+//
+// The table itself lives in the files domain package; this is the
+// seam that hands it the host's dependencies.
+func (d *Dispatcher) routeFileMethods(ctx context.Context, method string, params json.RawMessage) (any, *rpc.ErrorBody, bool) {
+	return files.Route(d.filesSeams(), method, params)
+}
+
+// filesSeams assembles the files domain's dependencies from the
+// dispatcher: the filesystem provider the host installed.
+func (d *Dispatcher) filesSeams() files.Seams {
+	return files.Seams{
+		Provider: d.cfg.FS,
 	}
-	return nil, nil, false
 }
 
 // routeProjectMethods handles the project-CRUD methods
-// (List/Create/Update + Delete which lives next door in
-// project_dispatcher.go).
-func (d *Dispatcher) routeProjectMethods(ctx context.Context, method string, params json.RawMessage) (any, *rpcErrorBody, bool) {
-	switch method {
-	case "ListRemoteAgentProjects":
-		r, e := d.handleListRemoteAgentProjects(params)
-		return r, e, true
-	case "CreateRemoteAgentProject":
-		r, e := d.handleCreateRemoteAgentProject(params)
-		return r, e, true
-	case "UpdateRemoteAgentProject":
-		r, e := d.handleUpdateRemoteAgentProject(params)
-		return r, e, true
+// (List/Create/Update + Delete).
+//
+// The table itself lives in the projects domain package; this is
+// the seam that hands it the host's dependencies.
+func (d *Dispatcher) routeProjectMethods(ctx context.Context, method string, params json.RawMessage) (any, *rpc.ErrorBody, bool) {
+	return projects.Route(d.projectsSeams(), method, params)
+}
+
+// projectsSeams assembles the projects domain's dependencies
+// from the dispatcher: the project store the host installed.
+//
+// A nil store is not a no-op: the domain answers -32603 ("no
+// project store installed"), because there is nothing to read
+// through.
+func (d *Dispatcher) projectsSeams() projects.Seams {
+	return projects.Seams{
+		Store: d.cfg.Projects,
 	}
-	return nil, nil, false
 }
 
 // routePermissionMethods handles the four permission-mutation
 // methods. Cycle rc-permissions-grants.
-func (d *Dispatcher) routePermissionMethods(ctx context.Context, method string, params json.RawMessage) (any, *rpcErrorBody, bool) {
-	switch method {
-	case "SetRemoteAgentPermissionPreset":
-		r, e := d.handleSetRemoteAgentPermissionPreset(params)
-		return r, e, true
-	case "SetRemoteAgentArtifactReviewMode":
-		r, e := d.handleSetRemoteAgentArtifactReviewMode(params)
-		return r, e, true
-	case "AddRemoteAgentPermissionGrants":
-		r, e := d.handleAddRemoteAgentPermissionGrants(params)
-		return r, e, true
-	case "RemoveRemoteAgentPermissionGrants":
-		r, e := d.handleRemoveRemoteAgentPermissionGrants(params)
-		return r, e, true
-	}
-	return nil, nil, false
+//
+// The table itself lives in the permissions domain package; this
+// is the seam that hands it the host's dependencies.
+func (d *Dispatcher) routePermissionMethods(ctx context.Context, method string, params json.RawMessage) (any, *rpc.ErrorBody, bool) {
+	return permissions.Route(d.permissionsSeams(), method, params)
 }
 
-// routeDeleteMethods handles the three destructive methods
-// (DeleteRemoteAgentMessage / Conversation / Project).
-func (d *Dispatcher) routeDeleteMethods(ctx context.Context, method string, params json.RawMessage) (any, *rpcErrorBody, bool) {
+// permissionsSeams assembles the permissions domain's
+// dependencies from the dispatcher: the store the host installed
+// and the broadcaster the notification goes out through.
+func (d *Dispatcher) permissionsSeams() permissions.Seams {
+	return permissions.Seams{
+		Store:     d.cfg.PermissionsStore,
+		Broadcast: d.BroadcastNotify,
+	}
+}
+
+// routeDeleteMethods handles the two destructive conversation
+// methods (DeleteRemoteAgentMessage / Conversation).
+//
+// DeleteRemoteAgentProject is the projects domain's method, not
+// this table's: it lives in the projects package and is reached
+// through routeProjectMethods.
+func (d *Dispatcher) routeDeleteMethods(ctx context.Context, method string, params json.RawMessage) (any, *rpc.ErrorBody, bool) {
 	switch method {
-	case "DeleteRemoteAgentMessage":
+	case "DeleteAgentMessage", "DeleteRemoteAgentMessage":
 		r, e := d.handleDeleteRemoteAgentMessage(params)
 		return r, e, true
-	case "DeleteRemoteAgentConversation":
+	case "DeleteConversation", "DeleteRemoteAgentConversation":
 		r, e := d.handleDeleteRemoteAgentConversation(params)
-		return r, e, true
-	case "DeleteRemoteAgentProject":
-		r, e := d.handleDeleteRemoteAgentProject(params)
 		return r, e, true
 	}
 	return nil, nil, false
@@ -163,7 +182,7 @@ func (d *Dispatcher) routeDeleteMethods(ctx context.Context, method string, para
 // routeStatusMethods handles the four rc-status-tool methods
 // (RemoteAgentErrorStatus / SetRemoteControlSession /
 // remoteControlVersion / remoteControlDeepLink).
-func (d *Dispatcher) routeStatusMethods(ctx context.Context, method string, params json.RawMessage) (any, *rpcErrorBody, bool) {
+func (d *Dispatcher) routeStatusMethods(ctx context.Context, method string, params json.RawMessage) (any, *rpc.ErrorBody, bool) {
 	switch method {
 	case "RemoteAgentErrorStatus":
 		r, e := d.handleRemoteAgentErrorStatus(params)
@@ -183,110 +202,164 @@ func (d *Dispatcher) routeStatusMethods(ctx context.Context, method string, para
 
 // routePluginMethods handles the two plugin methods
 // (List / Disconnect). Cycle rc-plugins.
-func (d *Dispatcher) routePluginMethods(ctx context.Context, method string, params json.RawMessage) (any, *rpcErrorBody, bool) {
-	switch method {
-	case "ListRemoteAgentPlugins":
-		r, e := d.handleListRemoteAgentPlugins(params)
-		return r, e, true
-	case "DisconnectRemoteAgentPlugin":
-		r, e := d.handleDisconnectRemoteAgentPlugin(params)
-		return r, e, true
+//
+// The table itself lives in the plugins domain package; this is
+// the seam that hands it the host's dependencies.
+func (d *Dispatcher) routePluginMethods(ctx context.Context, method string, params json.RawMessage) (any, *rpc.ErrorBody, bool) {
+	return plugins.Route(d.pluginsSeams(), method, params)
+}
+
+// pluginsSeams assembles the plugins domain's dependencies from
+// the dispatcher: the store the host installed and the broadcaster
+// the notification goes out through.
+func (d *Dispatcher) pluginsSeams() plugins.Seams {
+	return plugins.Seams{
+		Store:     d.cfg.PluginsStore,
+		Broadcast: d.BroadcastNotify,
 	}
-	return nil, nil, false
 }
 
 // routeTriggerMethods handles the five trigger methods
 // (List / ListOptions / Create / Update / Delete). Cycle
 // rc-triggers.
-func (d *Dispatcher) routeTriggerMethods(ctx context.Context, method string, params json.RawMessage) (any, *rpcErrorBody, bool) {
-	switch method {
-	case "ListRemoteAgentTriggers":
-		r, e := d.handleListRemoteAgentTriggers(params)
-		return r, e, true
-	case "ListRemoteAgentTriggerOptions":
-		r, e := d.handleListRemoteAgentTriggerOptions(params)
-		return r, e, true
-	case "CreateRemoteAgentTrigger":
-		r, e := d.handleCreateRemoteAgentTrigger(params)
-		return r, e, true
-	case "UpdateRemoteAgentTrigger":
-		r, e := d.handleUpdateRemoteAgentTrigger(params)
-		return r, e, true
-	case "DeleteRemoteAgentTrigger":
-		r, e := d.handleDeleteRemoteAgentTrigger(params)
-		return r, e, true
+//
+// The table itself lives in the triggers domain package; this is
+// the seam that hands it the host's dependencies.
+func (d *Dispatcher) routeTriggerMethods(ctx context.Context, method string, params json.RawMessage) (any, *rpc.ErrorBody, bool) {
+	return triggers.Route(d.triggersSeams(), method, params)
+}
+
+// triggersSeams assembles the triggers domain's dependencies
+// from the dispatcher: the store the host installed and the
+// broadcaster the notification goes out through.
+func (d *Dispatcher) triggersSeams() triggers.Seams {
+	return triggers.Seams{
+		Store:     d.cfg.TriggersStore,
+		Broadcast: d.BroadcastNotify,
 	}
-	return nil, nil, false
 }
 
 // routeFastpushMethods handles the single fastpush toggle
 // method. Cycle rc-fastpush-toggle.
-func (d *Dispatcher) routeFastpushMethods(ctx context.Context, method string, params json.RawMessage) (any, *rpcErrorBody, bool) {
-	if method != "SetRemoteAgentFastpushEnabled" {
-		return nil, nil, false
+//
+// The table itself lives in the fastpush domain package; this
+// is the seam that hands it the host's dependencies.
+func (d *Dispatcher) routeFastpushMethods(ctx context.Context, method string, params json.RawMessage) (any, *rpc.ErrorBody, bool) {
+	return fastpush.Route(d.fastpushSeams(), method, params)
+}
+
+// fastpushSeams assembles the fastpush domain's dependencies
+// from the dispatcher: the store the host installed, the
+// narrow cascade view the toggle flips, and the broadcaster
+// the notification goes out through.
+func (d *Dispatcher) fastpushSeams() fastpush.Seams {
+	return fastpush.Seams{
+		Store:     d.cfg.FastpushStore,
+		Cascades:  d.lookupFastpushCascade,
+		Broadcast: d.BroadcastNotify,
 	}
-	// Cycle rc-fastpush-toggle: one fast-push toggle
-	// method. Push delivery is "deferred" today; the
-	// future `rc-fastpush-channel` cycle replaces
-	// the sentinel with a real transport.
-	r, e := d.handleSetRemoteAgentFastpushEnabled(params)
-	return r, e, true
+}
+
+// lookupFastpushCascade resolves a cascade id to the narrow
+// view the fastpush domain needs — the toggle it flips.
+//
+// The adapter is nil-safe in both directions: an unknown id
+// answers (nil, false), and a registry entry that carries no
+// cascade answers (nil, false) too, so the domain never sees a
+// typed-nil interface.
+func (d *Dispatcher) lookupFastpushCascade(id string) (fastpush.Cascade, bool) {
+	if d == nil || d.cascades == nil {
+		return nil, false
+	}
+	c, ok := d.cascades.Get(id)
+	if !ok || c == nil {
+		return nil, false
+	}
+	return c, true
 }
 
 // routeResourceMethods handles the three resource-management
 // methods. Cycle rc-resources.
-func (d *Dispatcher) routeResourceMethods(ctx context.Context, method string, params json.RawMessage) (any, *rpcErrorBody, bool) {
-	switch method {
-	case "ListRemoteAgentResourceProviders":
-		r, e := d.handleListRemoteAgentResourceProviders(params)
-		return r, e, true
-	case "ListRemoteAgentAvailableResources":
-		r, e := d.handleListRemoteAgentAvailableResources(params)
-		return r, e, true
-	case "UpdateRemoteAgentProjectResources":
-		r, e := d.handleUpdateRemoteAgentProjectResources(ctx, params)
-		return r, e, true
+//
+// The table itself lives in the resources domain package; this is
+// the seam that hands it the host's dependencies.
+func (d *Dispatcher) routeResourceMethods(ctx context.Context, method string, params json.RawMessage) (any, *rpc.ErrorBody, bool) {
+	return resources.Route(d.resourcesSeams(), ctx, method, params)
+}
+
+// resourcesSeams assembles the resources domain's dependencies
+// from the dispatcher: the store the host installed and the
+// broadcaster the notification goes out through.
+func (d *Dispatcher) resourcesSeams() resources.Seams {
+	return resources.Seams{
+		Store:     d.cfg.ResourceStore,
+		Broadcast: d.BroadcastNotify,
 	}
-	return nil, nil, false
 }
 
 // routeConversationConfigMethods handles the single per-conv-config
 // write method. Cycle rc-conversation-config.
-func (d *Dispatcher) routeConversationConfigMethods(ctx context.Context, method string, params json.RawMessage) (any, *rpcErrorBody, bool) {
-	if method != "UpsertRemoteAgentConversationConfig" {
-		return nil, nil, false
+//
+// The table itself lives in the convconfig domain package; this
+// is the seam that hands it the host's dependencies.
+func (d *Dispatcher) routeConversationConfigMethods(ctx context.Context, method string, params json.RawMessage) (any, *rpc.ErrorBody, bool) {
+	return convconfig.Route(d.convconfigSeams(), method, params)
+}
+
+// convconfigSeams assembles the conversation-config domain's
+// dependencies from the dispatcher: the store the host
+// installed and the broadcaster the notification goes out
+// through.
+func (d *Dispatcher) convconfigSeams() convconfig.Seams {
+	return convconfig.Seams{
+		Store:     d.cfg.ConversationConfigStore,
+		Broadcast: d.BroadcastNotify,
 	}
-	r, e := d.handleUpsertRemoteAgentConversationConfig(params)
-	return r, e, true
 }
 
 // routeTerminalMethods handles the five RemoteAgentTerminal*
 // methods. Cycle rc-terminals.
-func (d *Dispatcher) routeTerminalMethods(ctx context.Context, method string, params json.RawMessage) (any, *rpcErrorBody, bool) {
-	switch method {
-	case "CreateRemoteAgentTerminal":
-		r, e := d.handleCreateRemoteAgentTerminal(params)
-		return r, e, true
-	case "ListRemoteAgentTerminals":
-		r, e := d.handleListRemoteAgentTerminals(params)
-		return r, e, true
-	case "SendRemoteAgentTerminalInput":
-		r, e := d.handleSendRemoteAgentTerminalInput(params)
-		return r, e, true
-	case "ResizeRemoteAgentTerminal":
-		r, e := d.handleResizeRemoteAgentTerminal(params)
-		return r, e, true
-	case "CloseRemoteAgentTerminal":
-		r, e := d.handleCloseRemoteAgentTerminal(params)
-		return r, e, true
+//
+// The table itself lives in the terminals domain package; this is
+// the seam that hands it the host's dependencies.
+func (d *Dispatcher) routeTerminalMethods(ctx context.Context, method string, params json.RawMessage) (any, *rpc.ErrorBody, bool) {
+	return terminals.Route(d.terminalsSeams(), method, params)
+}
+
+// terminalsSeams assembles the terminals domain's dependencies
+// from the dispatcher: the registry the host installed, the
+// narrow cascade view the Create path checks and attaches to, and
+// the broadcaster the notifications go out through.
+func (d *Dispatcher) terminalsSeams() terminals.Seams {
+	return terminals.Seams{
+		Store:     d.cfg.TerminalsRegistry,
+		Cascades:  d.lookupTerminalsCascade,
+		Broadcast: d.BroadcastNotify,
 	}
-	return nil, nil, false
+}
+
+// lookupTerminalsCascade resolves a cascade id to the narrow
+// view the terminals domain needs — the cascade's output chan.
+//
+// The adapter is nil-safe in both directions: an unknown id
+// answers (nil, false), and a registry entry that carries no
+// cascade answers (nil, false) too, so the domain never sees a
+// typed-nil interface.
+func (d *Dispatcher) lookupTerminalsCascade(id string) (terminals.Cascade, bool) {
+	if d == nil || d.cascades == nil {
+		return nil, false
+	}
+	c, ok := d.cascades.Get(id)
+	if !ok || c == nil {
+		return nil, false
+	}
+	return c, true
 }
 
 // routeTopLevelMethods handles the three rc-top-level-rpc methods
 // (RemoteControlStatus / RemoteControlOnOutput /
 // remoteControlOnMessage).
-func (d *Dispatcher) routeTopLevelMethods(ctx context.Context, method string, params json.RawMessage) (any, *rpcErrorBody, bool) {
+func (d *Dispatcher) routeTopLevelMethods(ctx context.Context, method string, params json.RawMessage) (any, *rpc.ErrorBody, bool) {
 	switch method {
 	case "RemoteControlStatus":
 		r, e := d.handleRemoteControlStatus()
@@ -303,10 +376,42 @@ func (d *Dispatcher) routeTopLevelMethods(ctx context.Context, method string, pa
 
 // routeOriginPolicyMethods handles the single origin-policy
 // mutation method. Cycle rc-auth-tokens.
-func (d *Dispatcher) routeOriginPolicyMethods(ctx context.Context, method string, params json.RawMessage) (any, *rpcErrorBody, bool) {
-	if method != "SetRemoteControlOriginPatterns" {
-		return nil, nil, false
+//
+// The table itself lives in the origins domain package; this is
+// the seam that hands it the host's dependencies.
+func (d *Dispatcher) routeOriginPolicyMethods(ctx context.Context, method string, params json.RawMessage) (any, *rpc.ErrorBody, bool) {
+	return origins.Route(d.originsSeams(), method, params)
+}
+
+// originsSeams assembles the origin-policy domain's
+// dependencies from the dispatcher: the store the host
+// installed, the broadcaster the notification goes out through,
+// and the setter that mirrors the accepted patterns into the
+// transport's live snapshot.
+func (d *Dispatcher) originsSeams() origins.Seams {
+	return origins.Seams{
+		Store:     d.cfg.OriginPolicyStore,
+		Broadcast: d.BroadcastNotify,
+		SetPolicy: d.originPolicySetterCallback(),
 	}
-	r, e := d.handleSetRemoteControlOriginPatterns(params)
-	return r, e, true
+}
+
+// originPolicySetterCallback returns a callback that invokes
+// the setter the host registered, or nil when it registered
+// none.
+//
+// The dispatcher's mutex guards the swap, not the call: the
+// callback is read under the lock and then invoked without it,
+// so a slow transport never blocks SetOriginPolicySetter.
+func (d *Dispatcher) originPolicySetterCallback() func(originpolicy.OriginPolicy) {
+	if d == nil {
+		return nil
+	}
+	d.originPolicySetterMu.RLock()
+	setter := d.originPolicySetter
+	d.originPolicySetterMu.RUnlock()
+	if setter == nil {
+		return nil
+	}
+	return setter
 }

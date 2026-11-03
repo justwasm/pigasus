@@ -1,6 +1,6 @@
 package hooks_test
 
-// hooks_test.go — cycle btw-runs-hooks: internal/hooks unit tests.
+// hooks_test.go — cycle btw-runs-hooks: internal/features/plugins/hooks unit tests.
 //
 // The tests live in package hooks_test so the dispatch path is
 // exercised exactly the way cmd/wagyu will call it. Higher-level
@@ -14,7 +14,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/justwasm/pigasus/internal/hooks"
+	"github.com/justwasm/pigasus/internal/features/plugins/hooks"
 )
 
 // TestRegisterAndFire is the happy path. A single Allow handler

@@ -3,15 +3,17 @@ package cliapp
 import (
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/justwasm/pigasus/internal/auth"
-	"github.com/justwasm/pigasus/internal/loginui"
+	accounts "github.com/justwasm/pigasus/internal/features/accounts/core"
+	"github.com/justwasm/pigasus/internal/features/auth"
+	tuiviewport "github.com/justwasm/pigasus/internal/ui/foundations/viewport"
+	"github.com/justwasm/pigasus/internal/ui/views/loginui"
 )
 
 func (m *runMode) updateLogin(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
 	if m.login == nil {
 		return m, nil, false
 	}
-	if !isScrollMsg(msg) {
+	if !tuiviewport.IsScrollMsg(msg) {
 		m.rowsCacheDirty = true
 	}
 	switch msg := msg.(type) {
@@ -66,11 +68,14 @@ func (m *runMode) finishLogin(token *auth.AntigravityToken) tea.Cmd {
 	// Cycle multi-account-switch: the sign-in becomes a known
 	// account, so it can be switched back to later.
 	if token != nil {
-		if email, err := registerAccount(token); err == nil && email != "" {
-			m.email = email
+		acc, _, err := accounts.Register(token)
+		if err == nil && acc.Email != "" {
+			m.email = acc.Email
 		}
 	}
-	m.reloadAccountsRows()
+	// The sign-in completed, so the shared credential changed: the
+	// panel's rows have to be refreshed even when no panel is open.
+	m.accountsPanel().Reload()
 	m.slashRespond("/login", "Authentication successful!")
 	return m.fetchPlanTierCmd()
 }

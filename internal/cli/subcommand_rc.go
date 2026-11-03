@@ -10,10 +10,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/justwasm/pigasus/internal/accounts"
-	"github.com/justwasm/pigasus/internal/auth"
-	"github.com/justwasm/pigasus/internal/persistentrc"
-	"github.com/justwasm/pigasus/internal/rclink"
+	accounts "github.com/justwasm/pigasus/internal/features/accounts/core"
+	"github.com/justwasm/pigasus/internal/features/auth"
+	rclink "github.com/justwasm/pigasus/internal/infra/remote/link"
+	persistentrc "github.com/justwasm/pigasus/internal/infra/remote/persistent"
 )
 
 // ---- usage blocks ---------------------------------------------------------
@@ -211,7 +211,7 @@ func startOfficialDaemon(j *JetskiCLI, ctx context.Context, opts rcStartOpts) er
 //
 // This is a clone-side shape — the reference prints the bare companion
 // origin and asks the user to look for the instance by name. See
-// internal/rclink.
+// internal/infra/remote/link.
 func printRCLink(j *JetskiCLI, name, instanceID string) {
 	if name == "" {
 		name = persistentrc.ResolveInstanceName("")

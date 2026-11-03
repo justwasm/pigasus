@@ -24,9 +24,9 @@
 //     a hint to use the bearer
 //     token env var instead)
 //  5. runModels  -> models.ListAvailable (real: loads
-//     ~/.config/openagy/providers.json
+//     ~/.openagy/providers.json
 //     and prints sorted list)
-//  6. runMcp     -> mcp.Connect         (real: JSON-RPC ping + tool
+//  6. runMCPParent  -> subcommand_mcp.go   (real: MCP server management)
 //     list; placeholder for the
 //     recovered MCP client)
 //  7. runChat    -> cmd/wagyu.runLiveTUI
@@ -70,7 +70,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/justwasm/pigasus/internal/store"
+	"github.com/justwasm/pigasus/internal/core/store"
 )
 
 // errExitCode is a sentinel error whose .Error() string encodes a
@@ -135,6 +135,8 @@ func ExitCodeOf(err error) (int, bool) {
 // inline fmt.Println stubs in parser_specs.go with closures that
 // call these runXxx functions with the dispatchContext.
 type dispatchContext struct {
+	// In is the reader for standard input. Defaults to os.Stdin.
+	In io.Reader
 	// Out is the writer the subcommand should print to. Defaults
 	// to os.Stdout. Set by jetski when --print-style is in effect.
 	Out io.Writer
@@ -164,7 +166,7 @@ func newDispatchContext(out, err io.Writer, ctx context.Context, fs *flag.FlagSe
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	return &dispatchContext{Out: out, Err: err, Ctx: ctx, FS: fs, Args: args}
+	return &dispatchContext{In: os.Stdin, Out: out, Err: err, Ctx: ctx, FS: fs, Args: args}
 }
 
 // printOK is the canonical "ok: <name>" line every runXxx emits so
@@ -220,7 +222,7 @@ func runVersion(d *dispatchContext) error {
 // not overwritten (we log "skipped (exists)" instead).
 //
 // Real implementation: invokes store.Migrate which is the
-// cycle-41 helper added to internal/store/manager.go.
+// cycle-41 helper added to internal/app/session/store/manager.go.
 func runMigrate(d *dispatchContext) error {
 	d.printOK("migrate")
 	if err := store.Migrate(); err != nil {
@@ -280,7 +282,7 @@ var runXxxTable = []runXxxEntry{
 	{Name: "logout", Handler: runLogout},
 	{Name: "auth", Handler: runAuth},
 	{Name: "models", Handler: runModels},
-	{Name: "mcp", Handler: runMcp},
+	{Name: "mcp", Handler: runMCPDispatch},
 	{Name: "chat", Handler: runChat},
 	{Name: "acp", Handler: runAcp},
 	{Name: "http", Handler: runHttp},
@@ -289,6 +291,23 @@ var runXxxTable = []runXxxEntry{
 	{Name: "stats", Handler: runStats},
 	{Name: "install", Handler: runInstall},
 	{Name: "agents", Handler: runAgentsList},
+	{Name: "server", Handler: runServerDispatch},
+	{Name: "tui", Handler: runTUIDispatch},
+}
+
+func runServerDispatch(d *dispatchContext) error {
+	j := &JetskiCLI{Name: "pigasus", Out: d.Out, ErrOut: d.Err}
+	return runServer(j, d.Args)
+}
+
+func runTUIDispatch(d *dispatchContext) error {
+	j := &JetskiCLI{Name: "pigasus", Out: d.Out, ErrOut: d.Err}
+	return runTUI(j, d.Args)
+}
+
+func runMCPDispatch(d *dispatchContext) error {
+	j := &JetskiCLI{Name: "pigasus", Out: d.Out, ErrOut: d.Err}
+	return runMCPParent(j, d.Args)
 }
 
 // runXxxByName returns the handler for the named subcommand, or

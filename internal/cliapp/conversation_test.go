@@ -11,8 +11,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/justwasm/pigasus/internal/backend"
-	"github.com/justwasm/pigasus/internal/convstore"
+	atconversation "github.com/justwasm/pigasus/internal/app/prompt/mentions/conversation"
+	"github.com/justwasm/pigasus/internal/app/session/convstore"
+	"github.com/justwasm/pigasus/internal/core/backend"
+	tuiviewport "github.com/justwasm/pigasus/internal/ui/foundations/viewport"
+	"github.com/justwasm/pigasus/internal/ui/mdrender"
+	"github.com/justwasm/pigasus/internal/ui/transcript"
+	"github.com/justwasm/pigasus/palette"
 )
 
 // conversationFlagSet builds the flags resolveConversationSelection reads.
@@ -38,7 +43,7 @@ func storeFixture(t *testing.T, ids ...string) string {
 	if err := os.MkdirAll(filepath.Join(dir, "conversations"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	fixture, err := os.ReadFile(filepath.Join("..", "..", "internal", "convstore", "testdata", "transcript.db"))
+	fixture, err := os.ReadFile(filepath.Join("..", "..", "internal", "app", "session", "convstore", "testdata", "transcript.db"))
 	if err != nil {
 		t.Fatalf("read fixture: %v", err)
 	}
@@ -249,12 +254,12 @@ func TestSeedConversationRendersTranscript(t *testing.T) {
 	if sel.Store == nil {
 		t.Fatal("no store loaded")
 	}
-	m := NewRunMode(nil, "", "Gemini 3.8 Flash (High)", "", "/tmp", true)
+	m := newRunMode(nil, "", "Gemini 3.8 Flash (High)", "", "/tmp", true)
 	m.seedConversation(sel.Store)
 
 	joined := strings.Join(m.response, "\n")
 	// Resumed transcript echoes user prompts as "> " rows matching agy.
-	if !strings.Contains(joined, userPromptRow("summarise the repository layout")) {
+	if !strings.Contains(joined, transcript.UserPromptRow("summarise the repository layout")) {
 		t.Errorf("resumed transcript must echo user prompts:\n%s", joined)
 	}
 	if !strings.Contains(joined, "I will start by listing the top level.") {
@@ -279,7 +284,7 @@ func TestSeedConversationRendersTranscript(t *testing.T) {
 }
 
 func TestSeedConversationNilIsSafe(t *testing.T) {
-	m := NewRunMode(nil, "", "Gemini 3.8 Flash (High)", "", "/tmp", true)
+	m := newRunMode(nil, "", "Gemini 3.8 Flash (High)", "", "/tmp", true)
 	m.seedConversation(nil)
 	if len(m.response) != 0 {
 		t.Errorf("nil store produced %d rows", len(m.response))
@@ -289,7 +294,7 @@ func TestSeedConversationNilIsSafe(t *testing.T) {
 func TestResumeConversation_RendersUserPromptsAndStickyHeader(t *testing.T) {
 	dir := storeFixture(t, fixtureID)
 	dbPath := filepath.Join(dir, "conversations", fixtureID+".db")
-	m := NewRunMode(nil, "", "Gemini 3.8 Flash (High)", "", "/tmp", true)
+	m := newRunMode(nil, "", "Gemini 3.8 Flash (High)", "", "/tmp", true)
 	m.width, m.height = 100, 12
 	m.altScreen = true
 
@@ -301,7 +306,7 @@ func TestResumeConversation_RendersUserPromptsAndStickyHeader(t *testing.T) {
 	m.resumeConversation(convstore.ConversationMeta{ID: fixtureID, Path: dbPath})
 
 	// User prompt must be present in response
-	promptStr := userPromptRow("summarise the repository layout")
+	promptStr := transcript.UserPromptRow("summarise the repository layout")
 	joined := strings.Join(m.response, "\n")
 	if !strings.Contains(joined, promptStr) {
 		t.Fatalf("resumed response missing user prompt; response:\n%s", joined)
@@ -314,17 +319,17 @@ func TestResumeConversation_RendersUserPromptsAndStickyHeader(t *testing.T) {
 	}
 
 	// When parked at bottom with autoScroll=true, no sticky header
-	if m.stickyUserPromptRow() >= 0 {
-		t.Errorf("at bottom autoScroll: stickyUserPromptRow = %d, want -1", m.stickyUserPromptRow())
+	if tuiviewport.StickyUserPromptRow(m.userPromptRows, m.autoScroll, m.scroll) >= 0 {
+		t.Errorf("at bottom autoScroll: stickyUserPromptRow = %d, want -1", tuiviewport.StickyUserPromptRow(m.userPromptRows, m.autoScroll, m.scroll))
 	}
 
 	// Scroll up past the bottom but remaining >= first prompt row
 	m.scrollBy(-3)
 	m.View()
 
-	if m.stickyUserPromptRow() < 0 {
+	if tuiviewport.StickyUserPromptRow(m.userPromptRows, m.autoScroll, m.scroll) < 0 {
 		t.Fatalf("stickyUserPromptRow = %d, want >= 0 when scrolled up; promptRows=%v, scroll=%d",
-			m.stickyUserPromptRow(), m.userPromptRows, m.scroll)
+			tuiviewport.StickyUserPromptRow(m.userPromptRows, m.autoScroll, m.scroll), m.userPromptRows, m.scroll)
 	}
 	if m.pinnedPromptText == "" {
 		t.Errorf("pinnedPromptText should be populated when scrolled up past user prompt")
@@ -332,35 +337,35 @@ func TestResumeConversation_RendersUserPromptsAndStickyHeader(t *testing.T) {
 }
 
 func TestUserPromptRow_MultiLineIndentation(t *testing.T) {
-	single := userPromptRow("single line")
-	if !strings.HasPrefix(single, cUserFgBoldOpen+"> ") {
+	single := transcript.UserPromptRow("single line")
+	if !strings.HasPrefix(single, palette.UserFgBoldOpen+"> ") {
 		t.Fatalf("single line prompt missing prefix: %q", single)
 	}
-	if !strings.HasSuffix(single, cBlueBoldClose) {
+	if !strings.HasSuffix(single, palette.BlueBoldClose) {
 		t.Fatalf("single line prompt missing close: %q", single)
 	}
-	if !isUserPromptRow(single) {
+	if !tuiviewport.IsUserPromptRow(single) {
 		t.Fatal("isUserPromptRow should match single line prompt")
 	}
 
-	multi := userPromptRow("line 1\nline 2\nline 3")
+	multi := transcript.UserPromptRow("line 1\nline 2\nline 3")
 	lines := strings.Split(multi, "\n")
 	if len(lines) != 3 {
 		t.Fatalf("expected 3 lines, got %d: %q", len(lines), multi)
 	}
-	if !isUserPromptRow(lines[0]) {
+	if !tuiviewport.IsUserPromptRow(lines[0]) {
 		t.Fatalf("line 0 should match isUserPromptRow: %q", lines[0])
 	}
 	if !strings.HasPrefix(lines[1], "  line 2") {
 		t.Fatalf("line 1 should be indented with 2 spaces: %q", lines[1])
 	}
-	if isUserPromptRow(lines[1]) {
+	if tuiviewport.IsUserPromptRow(lines[1]) {
 		t.Fatalf("line 1 should not match isUserPromptRow: %q", lines[1])
 	}
 	if !strings.HasPrefix(lines[2], "  line 3") {
 		t.Fatalf("line 2 should be indented with 2 spaces: %q", lines[2])
 	}
-	if isUserPromptRow(lines[2]) {
+	if tuiviewport.IsUserPromptRow(lines[2]) {
 		t.Fatalf("line 2 should not match isUserPromptRow: %q", lines[2])
 	}
 }
@@ -371,14 +376,14 @@ func TestUserPromptRow_MultiLineIndentation(t *testing.T) {
 // backticks pass through unchanged so tool output (which often has
 // stray ` characters) is untouched.
 func TestStyleInlineBackticks_BasicAndMulti(t *testing.T) {
-	got := styleInlineBackticks("use `go test ./...` to verify")
+	got := mdrender.StyleInlineBackticks("use `go test ./...` to verify")
 	if !strings.Contains(got, cInlineCodeOpen+"go test ./..."+cInlineCodeClose) {
 		t.Errorf("single inline span missing chip style: %q", got)
 	}
 	if strings.HasPrefix(got, cInlineCodeOpen) || strings.HasSuffix(got, cInlineCodeClose) {
 		t.Errorf("non-code text should be plain: %q", got)
 	}
-	got2 := styleInlineBackticks("`a` and `b` and `c`")
+	got2 := mdrender.StyleInlineBackticks("`a` and `b` and `c`")
 	if strings.Count(got2, cInlineCodeOpen) != 3 || strings.Count(got2, cInlineCodeClose) != 3 {
 		t.Errorf("three pairs: opens/closes each 3, got %q", got2)
 	}
@@ -387,27 +392,27 @@ func TestStyleInlineBackticks_BasicAndMulti(t *testing.T) {
 // Cycle 128: unbalanced / oversized lines pass through unchanged.
 func TestStyleInlineBackticks_UnbalancedPassthrough(t *testing.T) {
 	unbal := "use `go test ./..."
-	if got := styleInlineBackticks(unbal); got != unbal {
+	if got := mdrender.StyleInlineBackticks(unbal); got != unbal {
 		t.Errorf("unbalanced line should pass through: %q", got)
 	}
 	lot := "`a` `b` `c` `d` `e` `f` `g` `h` `i` rest"
-	if got := styleInlineBackticks(lot); got != lot {
+	if got := mdrender.StyleInlineBackticks(lot); got != lot {
 		t.Errorf("> 8 pairs should pass through: %q", got)
 	}
 	tool := "  $ ls /tmp/foo`bar`/`"
-	got := styleInlineBackticks(tool)
+	got := mdrender.StyleInlineBackticks(tool)
 	if got != tool {
 		t.Errorf("stray backticks in tool output should pass through: %q", tool)
 	}
-	if got := styleInlineBackticks("hello world"); got != "hello world" {
+	if got := mdrender.StyleInlineBackticks("hello world"); got != "hello world" {
 		t.Errorf("plain text should pass through: %q", got)
 	}
 }
 
 // Cycle 128: model-reply paths apply styleInlineBackticks.
 func TestConversation_ModelReplyAppliesInlineStyle(t *testing.T) {
-	m := NewRunMode(nil, "u@t", "m", "t", "/tmp", true)
-	m.response = append(m.response, styleInlineBackticks("use `fmt.Println` here"))
+	m := newRunMode(nil, "u@t", "m", "t", "/tmp", true)
+	m.response = append(m.response, mdrender.StyleInlineBackticks("use `fmt.Println` here"))
 	if !strings.Contains(m.response[0], cInlineCodeOpen+"fmt.Println"+cInlineCodeClose) {
 		t.Errorf("expected inline chip in model reply, got %q", m.response[0])
 	}
@@ -419,7 +424,7 @@ func TestConversation_ModelReplyAppliesInlineStyle(t *testing.T) {
 // the rest of this file exercises end-to-end paths through
 // seedConversation that already pin the rendered output shape.
 func TestRenderMarkdown_EmptyPassthrough(t *testing.T) {
-	if got := renderMarkdown("", 0); got != "" {
+	if got := mdrender.RenderMarkdown("", 0); got != "" {
 		t.Errorf("renderMarkdown(\"\", 0) = %q, want \"\"", got)
 	}
 }
@@ -428,7 +433,7 @@ func TestRenderMarkdown_EmptyPassthrough(t *testing.T) {
 // reference behaviour) — confirming mdrender's ListItem walker
 // emits `\u2421 ` instead of `- `.
 func TestRenderMarkdown_BulletConversion(t *testing.T) {
-	got := renderMarkdown("- one\n- two\n- three", 0)
+	got := mdrender.RenderMarkdown("- one\n- two\n- three", 0)
 	if !strings.Contains(got, "\u2022 one") {
 		t.Errorf("bullet marker lost: %q", got)
 	}
@@ -449,7 +454,7 @@ func TestRenderMarkdown_BulletConversion(t *testing.T) {
 // property — bold-on around the emphasised word, no `**`
 // surviving — is preserved.
 func TestRenderMarkdown_BoldSpans(t *testing.T) {
-	got := renderMarkdown("this is **important** to remember", 0)
+	got := mdrender.RenderMarkdown("this is **important** to remember", 0)
 	// Pin the bold-open escape and the emphasised word; the
 	// exact closing escape differs between the cycle-175
 	// walker and glamour (both turn bold off; glamour also
@@ -471,7 +476,7 @@ func TestRenderMarkdown_BoldSpans(t *testing.T) {
 // reset) rather than \x1b[23m; structural property — italic-on
 // around emphasised word — preserved.
 func TestRenderMarkdown_ItalicSpans(t *testing.T) {
-	got := renderMarkdown("this is *important* to remember", 0)
+	got := mdrender.RenderMarkdown("this is *important* to remember", 0)
 	if !strings.Contains(got, "\x1b[38;2;7;54;66;3mimportant") {
 		t.Errorf("italic span opening missing: %q", got)
 	}
@@ -492,7 +497,7 @@ func TestRenderMarkdown_ItalicSpans(t *testing.T) {
 // ANSI codes break the contiguous sequence. Strip ANSI before
 // checking.
 func TestRenderMarkdown_FencedCodeBlock(t *testing.T) {
-	got := renderMarkdown("before\n```go\nfunc main() { println(\"hi\") }\n```\nafter", 0)
+	got := mdrender.RenderMarkdown("before\n```go\nfunc main() { println(\"hi\") }\n```\nafter", 0)
 	plain := stripAnsiConv(got)
 	if !strings.Contains(plain, "    func main()") {
 		t.Errorf("code block not indented: %q", got)
@@ -545,7 +550,7 @@ func stripAnsiConv(s string) string {
 // bytes to wrap, so the chip colour does not apply. Pin
 // glamour's gold-coloured code span and the content.
 func TestRenderMarkdown_InlineBackticks(t *testing.T) {
-	got := renderMarkdown("use `go test ./...` to verify", 0)
+	got := mdrender.RenderMarkdown("use `go test ./...` to verify", 0)
 	// Either the cycle-158 chip colour OR glamour's gold code
 	// colour around the same content must be present.
 	want := []string{
@@ -575,7 +580,7 @@ func TestRenderMarkdown_InlineBackticks(t *testing.T) {
 // but pin it loosely (any "\n\n\n" sequence anywhere in the
 // output is the failure indicator).
 func TestRenderMarkdown_BlankLineCollapse(t *testing.T) {
-	got := renderMarkdown("first\n\n\n\nsecond", 0)
+	got := mdrender.RenderMarkdown("first\n\n\n\nsecond", 0)
 	if strings.Contains(got, "\n\n\n") {
 		t.Errorf("blank lines did not collapse: %q", got)
 	}
@@ -600,7 +605,7 @@ func TestRenderMarkdown_BlankLineCollapse(t *testing.T) {
 // legacy byte-exact span shape.
 func TestRenderMarkdown_RealisticReply(t *testing.T) {
 	src := "Here is **what changed**:\n\n- the *parser* now handles `fenced` blocks\n- bullet markers get the round-dot glyph\n- **bold** spans are styled\n\n```\n$ go test ./...\nok\n```\n"
-	got := renderMarkdown(src, 0)
+	got := mdrender.RenderMarkdown(src, 0)
 	if !strings.Contains(got, "\u2022 the") {
 		t.Errorf("realistic reply lost bullets: %q", got)
 	}
@@ -640,43 +645,17 @@ func TestRenderMarkdown_RealisticReply(t *testing.T) {
 	}
 }
 
-// Cycle 148: a loaded conversation's tool step maps a stored
-// Step.Status to the renderer's `err` flag. status=4 (errored) and
-// status=6/7 (rare defensive fallback) render with the
-// "(Failed)" suffix; status=3 (success) and status=5 (alternate
-// success) do not. Captured against the v1.3.6 reference using
-// resumed conversation 4638a7b0-e5f4-4961-80c2-d61499f06050.db
-// (390 rows with status=4, 4 with status=6, 21 with status=7).
-func TestLoadedStepErr_StatusMapping(t *testing.T) {
-	cases := []struct {
-		status  int64
-		wantErr bool
-	}{
-		{3, false}, // success
-		{4, true},  // failed (errored)
-		{5, false}, // completed-skipped / alternate success
-		{6, true},  // rare
-		{7, true},  // rare
-		{0, false}, // unknown
-	}
-	for _, c := range cases {
-		if got := loadedStepErr(c.status); got != c.wantErr {
-			t.Errorf("loadedStepErr(status=%d) = %v, want %v", c.status, got, c.wantErr)
-		}
-	}
-}
-
 // Cycle 148: a loaded Step renders the "(Failed)" suffix when its
 // status maps to err=true. The renderer normalises the stored
 // ToolArgs JSON (cycle 133 argsOf CamelCase aliases) and produces
 // the same shape as a live stream'd step.
 func TestLoadedToolStep_RendersFailedSuffix(t *testing.T) {
 	step := loadedToolStep(convstoreStep("run_command", `{"CommandLine":"ls"}`, 4))
-	if !step.err {
+	if !step.Err {
 		t.Errorf("expected err=true for status=4, got %+v", step)
 	}
 	step = loadedToolStep(convstoreStep("run_command", `{"CommandLine":"ls"}`, 3))
-	if step.err {
+	if step.Err {
 		t.Errorf("expected err=false for status=3, got %+v", step)
 	}
 	if convstoreStep("a", "b", 4).Status != 4 {
@@ -698,7 +677,7 @@ func TestEmptyAssistantNotSaved(t *testing.T) {
 		{Role: "user", Content: "hello"},
 		{Role: "assistant", Content: ""},
 	}
-	steps := sessionToSteps(sess)
+	steps := convstore.SessionToSteps(sess)
 	if len(steps) != 1 {
 		t.Fatalf("sessionToSteps dropped %d steps, want 1 user step only:\n%+v", len(sess)-len(steps), steps)
 	}
@@ -717,7 +696,7 @@ func TestWhitespaceAssistantNotSaved(t *testing.T) {
 		{Role: "assistant", Content: "\n\n\n"},
 		{Role: "assistant", Content: " "},
 	}
-	steps := sessionToSteps(sess)
+	steps := convstore.SessionToSteps(sess)
 	if len(steps) != 1 {
 		t.Fatalf("got %d steps, want 1 (the user step):\n%+v", len(steps), steps)
 	}
@@ -736,7 +715,7 @@ func TestNormalAssistantSaved(t *testing.T) {
 		{Role: "user", Content: "ping again"},
 		{Role: "assistant", Content: "pong again"},
 	}
-	steps := sessionToSteps(sess)
+	steps := convstore.SessionToSteps(sess)
 	if len(steps) != 4 {
 		t.Fatalf("got %d steps, want 4:\n%+v", len(steps), steps)
 	}
@@ -805,7 +784,7 @@ func TestToolCallAssistantSaved(t *testing.T) {
 		{Role: "user", Content: "thanks"},
 		{Role: "assistant", Content: "you are welcome"},
 	}
-	persisted := sessionToSteps(sess)
+	persisted := convstore.SessionToSteps(sess)
 
 	// Expected: only 3 rows survive — user/tool-result/user. The empty
 	// assistant bubble is dropped, but the surrounding user messages
@@ -892,7 +871,7 @@ func TestContinueNoBlankTurns(t *testing.T) {
 		t.Fatalf("LoadConversation: %v", err)
 	}
 
-	m := NewRunMode(&fakeClient{}, "u@t", "Gemini 3.8 Flash (High)", "t", "/", true)
+	m := newRunMode(&fakeClient{}, "u@t", "Gemini 3.8 Flash (High)", "t", "/", true)
 	m.conversationID = id
 	m.seedConversation(c)
 
@@ -939,7 +918,7 @@ func TestSessionToStepsIdxUnchanged(t *testing.T) {
 		{Role: "user", Content: "u5"},
 		{Role: "assistant", Content: "a6"}, // kept, Idx must be 6
 	}
-	steps := sessionToSteps(sess)
+	steps := convstore.SessionToSteps(sess)
 	wantIdxs := []int64{0, 2, 3, 5, 6}
 	if len(steps) != len(wantIdxs) {
 		t.Fatalf("got %d steps, want %d: %+v", len(steps), len(wantIdxs), steps)
@@ -959,7 +938,7 @@ func TestParseAtConversationMention_HappyPath(t *testing.T) {
 		query string
 		ok    bool
 	}{
-		{atConversationMentionPrefix, "", true},            // bare trigger
+		{atconversation.MentionPrefix, "", true},           // bare trigger
 		{"@conversation:hello", "hello", true},             // simple query
 		{"@conversation:hello world", "hello world", true}, // query with space
 		{"@conversation:  hello  ", "hello", true},         // trim
@@ -967,7 +946,7 @@ func TestParseAtConversationMention_HappyPath(t *testing.T) {
 		{"@conversation:auth flow", "auth flow", true},     // multi-word
 	}
 	for _, tc := range tests {
-		gotQ, gotOK := parseAtConversationMention(tc.raw)
+		gotQ, gotOK := atconversation.ParseMention(tc.raw)
 		if gotOK != tc.ok || gotQ != tc.query {
 			t.Errorf("parseAtConversationMention(%q) = (%q,%v), want (%q,%v)",
 				tc.raw, gotQ, gotOK, tc.query, tc.ok)
@@ -990,7 +969,7 @@ func TestParseAtConversationMention_RejectsNonMatch(t *testing.T) {
 		{"please look at @conversation:hi", "mid-buffer mention"},
 	}
 	for _, tc := range tests {
-		gotQ, gotOK := parseAtConversationMention(tc.raw)
+		gotQ, gotOK := atconversation.ParseMention(tc.raw)
 		if gotOK {
 			t.Errorf("%s: parseAtConversationMention(%q) unexpectedly matched: (%q,)",
 				tc.why, tc.raw, gotQ)
@@ -1014,7 +993,7 @@ func TestSearchAtConversation_TwoSecondTimeoutFires(t *testing.T) {
 	t.Setenv("ANTIGRAVITY_HOME", t.TempDir())
 	t.Setenv("HOME", t.TempDir())
 
-	searcher := func(ctx context.Context, _ string) ([]atConversationMatch, error) {
+	searcher := func(ctx context.Context, _ string) ([]atconversation.Match, error) {
 		// Sleep long enough that the 2 s cap definitely fires.
 		// 2.5 s gives a 0.5 s margin so the test still passes on
 		// a machine with a slow scheduler.
@@ -1027,7 +1006,7 @@ func TestSearchAtConversation_TwoSecondTimeoutFires(t *testing.T) {
 	}
 
 	start := time.Now()
-	matches, source := searchAtConversationMatches(searcher, nil, "anything")
+	matches, source := atconversation.SearchMatches(searcher, nil, "anything")
 	elapsed := time.Since(start)
 
 	// (5) timeout is exactly 2 s, not 5 s. We allow up to 2.5 s
@@ -1040,9 +1019,9 @@ func TestSearchAtConversation_TwoSecondTimeoutFires(t *testing.T) {
 		t.Errorf("remote search returned too fast: elapsed=%v (searcher should have waited)", elapsed)
 	}
 	// Local list is empty (we set ANTIGRAVITY_HOME to a fresh
-	// tempdir), so the source collapses to atSourceEmpty.
-	if source != atSourceEmpty {
-		t.Errorf("source = %q, want %q (empty local + timed-out remote)", source, atSourceEmpty)
+	// tempdir), so the source collapses to atconversation.SourceEmpty.
+	if source != atconversation.SourceEmpty {
+		t.Errorf("source = %q, want %q (empty local + timed-out remote)", source, atconversation.SourceEmpty)
 	}
 	if len(matches) != 0 {
 		t.Errorf("expected empty matches, got %d: %v", len(matches), matches)
@@ -1051,29 +1030,29 @@ func TestSearchAtConversation_TwoSecondTimeoutFires(t *testing.T) {
 
 // TestSearchAtConversation_FastRemoteReturnsRemote asserts the
 // happy path: a searcher that returns within the 2 s budget must
-// produce the remote list with atSourceRemote. No spinner, no
+// produce the remote list with atconversation.SourceRemote. No spinner, no
 // fallback.
 func TestSearchAtConversation_FastRemoteReturnsRemote(t *testing.T) {
 	t.Setenv("ANTIGRAVITY_HOME", t.TempDir())
 	t.Setenv("HOME", t.TempDir())
 
-	want := []atConversationMatch{
+	want := []atconversation.Match{
 		{ID: "abc12345", Label: "Auth flow investigation"},
 		{ID: "def67890", Label: "Bug report — picker search"},
 	}
-	searcher := func(_ context.Context, _ string) ([]atConversationMatch, error) {
+	searcher := func(_ context.Context, _ string) ([]atconversation.Match, error) {
 		return want, nil
 	}
 
 	start := time.Now()
-	matches, source := searchAtConversationMatches(searcher, nil, "auth")
+	matches, source := atconversation.SearchMatches(searcher, nil, "auth")
 	elapsed := time.Since(start)
 
 	if elapsed > 1*time.Second {
 		t.Errorf("fast remote returned in %v, expected sub-second", elapsed)
 	}
-	if source != atSourceRemote {
-		t.Errorf("source = %q, want %q", source, atSourceRemote)
+	if source != atconversation.SourceRemote {
+		t.Errorf("source = %q, want %q", source, atconversation.SourceRemote)
 	}
 	if len(matches) != len(want) {
 		t.Fatalf("matches len = %d, want %d", len(matches), len(want))
@@ -1087,7 +1066,7 @@ func TestSearchAtConversation_FastRemoteReturnsRemote(t *testing.T) {
 
 // TestSearchAtConversation_FallbackToLocalAfterTimeout exercises
 // the fallback path explicitly: a slow remote plus a non-empty
-// local store produces atSourceLocalFallback with the local list.
+// local store produces atconversation.SourceLocalFallback with the local list.
 //
 // The local lister is injected so the test does not have to
 // fabricate a valid SQLite conversation file under
@@ -1095,11 +1074,11 @@ func TestSearchAtConversation_FastRemoteReturnsRemote(t *testing.T) {
 // internal/convstore can parse, and the changelog explicitly
 // carves internal/convstore/sqlite.go out of the cycle's scope.
 func TestSearchAtConversation_FallbackToLocalAfterTimeout(t *testing.T) {
-	local := func(_ string) []atConversationMatch {
-		return []atConversationMatch{{ID: "auth-flow-abc", Label: "Auth flow"}}
+	local := func(_ string) []atconversation.Match {
+		return []atconversation.Match{{ID: "auth-flow-abc", Label: "Auth flow"}}
 	}
 	// Slow remote: sleeps past the cap.
-	searcher := func(ctx context.Context, _ string) ([]atConversationMatch, error) {
+	searcher := func(ctx context.Context, _ string) ([]atconversation.Match, error) {
 		select {
 		case <-time.After(2500 * time.Millisecond):
 			return nil, errors.New("remote should have timed out")
@@ -1109,14 +1088,14 @@ func TestSearchAtConversation_FallbackToLocalAfterTimeout(t *testing.T) {
 	}
 
 	start := time.Now()
-	matches, source := searchAtConversationMatches(searcher, local, "")
+	matches, source := atconversation.SearchMatches(searcher, local, "")
 	elapsed := time.Since(start)
 
 	if elapsed > 3*time.Second {
 		t.Errorf("fallback path blocked past 2 s cap: elapsed=%v", elapsed)
 	}
-	if source != atSourceLocalFallback {
-		t.Errorf("source = %q, want %q", source, atSourceLocalFallback)
+	if source != atconversation.SourceLocalFallback {
+		t.Errorf("source = %q, want %q", source, atconversation.SourceLocalFallback)
 	}
 	if len(matches) == 0 {
 		t.Fatalf("expected at least one local match, got 0")
@@ -1147,7 +1126,7 @@ func TestSearchAtConversation_NoSpinnerStuck(t *testing.T) {
 	t.Setenv("ANTIGRAVITY_HOME", t.TempDir())
 	t.Setenv("HOME", t.TempDir())
 
-	searcher := func(ctx context.Context, _ string) ([]atConversationMatch, error) {
+	searcher := func(ctx context.Context, _ string) ([]atconversation.Match, error) {
 		select {
 		case <-time.After(2500 * time.Millisecond):
 			return nil, errors.New("slow")
@@ -1157,13 +1136,13 @@ func TestSearchAtConversation_NoSpinnerStuck(t *testing.T) {
 	}
 
 	start := time.Now()
-	matches, source := searchAtConversationMatches(searcher, nil, "")
+	matches, source := atconversation.SearchMatches(searcher, nil, "")
 	elapsed := time.Since(start)
 	if elapsed > 3*time.Second {
 		t.Errorf("search path blocked past 2 s cap: elapsed=%v", elapsed)
 	}
-	if source != atSourceEmpty {
-		t.Errorf("source = %q, want %q (no local store, slow remote)", source, atSourceEmpty)
+	if source != atconversation.SourceEmpty {
+		t.Errorf("source = %q, want %q (no local store, slow remote)", source, atconversation.SourceEmpty)
 	}
 	_ = matches
 
@@ -1192,17 +1171,17 @@ func TestSearchAtConversation_TimeoutExactlyTwoSeconds(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 
 	t.Run("1.9s succeeds", func(t *testing.T) {
-		searcher := func(ctx context.Context, _ string) ([]atConversationMatch, error) {
+		searcher := func(ctx context.Context, _ string) ([]atconversation.Match, error) {
 			select {
 			case <-time.After(1900 * time.Millisecond):
-				return []atConversationMatch{{ID: "ok", Label: "OK"}}, nil
+				return []atconversation.Match{{ID: "ok", Label: "OK"}}, nil
 			case <-ctx.Done():
 				return nil, ctx.Err()
 			}
 		}
-		matches, source := searchAtConversationMatches(searcher, nil, "")
-		if source != atSourceRemote {
-			t.Errorf("source = %q, want %q (1.9 s should be inside budget)", source, atSourceRemote)
+		matches, source := atconversation.SearchMatches(searcher, nil, "")
+		if source != atconversation.SourceRemote {
+			t.Errorf("source = %q, want %q (1.9 s should be inside budget)", source, atconversation.SourceRemote)
 		}
 		if len(matches) != 1 || matches[0].ID != "ok" {
 			t.Errorf("matches = %+v, want one ok row", matches)
@@ -1210,16 +1189,16 @@ func TestSearchAtConversation_TimeoutExactlyTwoSeconds(t *testing.T) {
 	})
 
 	t.Run("2.1s times out", func(t *testing.T) {
-		searcher := func(ctx context.Context, _ string) ([]atConversationMatch, error) {
+		searcher := func(ctx context.Context, _ string) ([]atconversation.Match, error) {
 			select {
 			case <-time.After(2100 * time.Millisecond):
-				return []atConversationMatch{{ID: "late", Label: "Late"}}, nil
+				return []atconversation.Match{{ID: "late", Label: "Late"}}, nil
 			case <-ctx.Done():
 				return nil, ctx.Err()
 			}
 		}
 		start := time.Now()
-		_, source := searchAtConversationMatches(searcher, nil, "")
+		_, source := atconversation.SearchMatches(searcher, nil, "")
 		elapsed := time.Since(start)
 		// 2.1 s remote + 0 local list — the source collapses to
 		// empty regardless of which path was taken. The signal we
@@ -1230,8 +1209,8 @@ func TestSearchAtConversation_TimeoutExactlyTwoSeconds(t *testing.T) {
 		}
 		// Local list is empty (tempdir has no conversations), so
 		// source is empty.
-		if source != atSourceEmpty {
-			t.Errorf("source = %q, want %q", source, atSourceEmpty)
+		if source != atconversation.SourceEmpty {
+			t.Errorf("source = %q, want %q", source, atconversation.SourceEmpty)
 		}
 	})
 }
@@ -1241,16 +1220,16 @@ func TestSearchAtConversation_TimeoutExactlyTwoSeconds(t *testing.T) {
 // the local list. The two are observationally identical for the
 // user; the source label distinguishes them for diagnostics.
 func TestSearchAtConversation_RemoteErrorFallsBackToLocal(t *testing.T) {
-	local := func(_ string) []atConversationMatch {
-		return []atConversationMatch{{ID: "err-conv", Label: "err-conv"}}
+	local := func(_ string) []atconversation.Match {
+		return []atconversation.Match{{ID: "err-conv", Label: "err-conv"}}
 	}
-	searcher := func(_ context.Context, _ string) ([]atConversationMatch, error) {
+	searcher := func(_ context.Context, _ string) ([]atconversation.Match, error) {
 		return nil, errors.New("remote: 503 service unavailable")
 	}
 
-	matches, source := searchAtConversationMatches(searcher, local, "")
-	if source != atSourceLocalFallback {
-		t.Errorf("source = %q, want %q (remote error must fall back)", source, atSourceLocalFallback)
+	matches, source := atconversation.SearchMatches(searcher, local, "")
+	if source != atconversation.SourceLocalFallback {
+		t.Errorf("source = %q, want %q (remote error must fall back)", source, atconversation.SourceLocalFallback)
 	}
 	if len(matches) == 0 {
 		t.Fatalf("expected at least one local match after remote error, got 0")
@@ -1264,13 +1243,13 @@ func TestSearchAtConversation_EmptyLocalAfterRemoteError(t *testing.T) {
 	t.Setenv("ANTIGRAVITY_HOME", t.TempDir())
 	t.Setenv("HOME", t.TempDir())
 
-	searcher := func(_ context.Context, _ string) ([]atConversationMatch, error) {
+	searcher := func(_ context.Context, _ string) ([]atconversation.Match, error) {
 		return nil, errors.New("remote: empty")
 	}
 
-	matches, source := searchAtConversationMatches(searcher, nil, "")
-	if source != atSourceEmpty {
-		t.Errorf("source = %q, want %q", source, atSourceEmpty)
+	matches, source := atconversation.SearchMatches(searcher, nil, "")
+	if source != atconversation.SourceEmpty {
+		t.Errorf("source = %q, want %q", source, atconversation.SourceEmpty)
 	}
 	if len(matches) != 0 {
 		t.Errorf("matches = %+v, want empty", matches)
@@ -1285,16 +1264,16 @@ func TestSearchAtConversation_EmptyLocalAfterRemoteError(t *testing.T) {
 // dropdown shows "from remote" with 5 rows when 4 of them came
 // from the local store.
 func TestSearchAtConversation_RemoteReturnsEmptyFallsBackToLocal(t *testing.T) {
-	local := func(_ string) []atConversationMatch {
-		return []atConversationMatch{{ID: "only-local", Label: "only-local"}}
+	local := func(_ string) []atconversation.Match {
+		return []atconversation.Match{{ID: "only-local", Label: "only-local"}}
 	}
-	searcher := func(_ context.Context, _ string) ([]atConversationMatch, error) {
+	searcher := func(_ context.Context, _ string) ([]atconversation.Match, error) {
 		return nil, nil // empty remote, no error
 	}
 
-	matches, source := searchAtConversationMatches(searcher, local, "")
-	if source != atSourceLocalFallback {
-		t.Errorf("source = %q, want %q (empty remote must fall back to local)", source, atSourceLocalFallback)
+	matches, source := atconversation.SearchMatches(searcher, local, "")
+	if source != atconversation.SourceLocalFallback {
+		t.Errorf("source = %q, want %q (empty remote must fall back to local)", source, atconversation.SourceLocalFallback)
 	}
 	if len(matches) != 1 || matches[0].ID != "only-local" {
 		t.Errorf("matches = %+v, want one local row", matches)
@@ -1306,8 +1285,8 @@ func TestSearchAtConversation_RemoteReturnsEmptyFallsBackToLocal(t *testing.T) {
 // constant must equal 2 s exactly. A future change to 5 s or 10 s
 // must update both the changelog and this test.
 func TestAtConversationTimeoutConstantIsTwoSeconds(t *testing.T) {
-	if atConversationTimeout != 2*time.Second {
-		t.Errorf("atConversationTimeout = %v, want 2s (changelog literal)", atConversationTimeout)
+	if atconversation.Timeout != 2*time.Second {
+		t.Errorf("atconversation.Timeout = %v, want 2s (changelog literal)", atconversation.Timeout)
 	}
 }
 
@@ -1315,7 +1294,7 @@ func TestAtConversationTimeoutConstantIsTwoSeconds(t *testing.T) {
 // format the TUI swaps into the input buffer. Mirrors the
 // reference's `@conversation:"<id>"` shape exactly.
 func TestAtConversationMentionInsert(t *testing.T) {
-	got := atConversationMentionInsert("abc-123")
+	got := atconversation.MentionInsert("abc-123")
 	want := `@conversation:"abc-123"`
 	if got != want {
 		t.Errorf("atConversationMentionInsert = %q, want %q", got, want)
@@ -1367,14 +1346,14 @@ func TestListLocalAtConversationMatches_NoStoreReturnsEmpty(t *testing.T) {
 	t.Setenv("HOME", home)
 
 	t.Run("empty conversations dir returns empty", func(t *testing.T) {
-		matches := listLocalAtConversationMatches("")
+		matches := atconversation.ListLocalMatches("")
 		if len(matches) != 0 {
 			t.Errorf("len = %d, want 0 (empty store); got %+v", len(matches), matches)
 		}
 	})
 	t.Run("missing conversations dir returns empty", func(t *testing.T) {
 		// No conversations subdir at all.
-		matches := listLocalAtConversationMatches("anything")
+		matches := atconversation.ListLocalMatches("anything")
 		if len(matches) != 0 {
 			t.Errorf("len = %d, want 0 (missing store); got %+v", len(matches), matches)
 		}

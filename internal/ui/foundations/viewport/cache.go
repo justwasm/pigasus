@@ -5,7 +5,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/charmbracelet/x/ansi"
-	"github.com/justwasm/pigasus/internal/tuilib"
+	"github.com/justwasm/pigasus/internal/ui/tuilib"
 	"github.com/justwasm/pigasus/palette"
 )
 

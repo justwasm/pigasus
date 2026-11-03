@@ -281,7 +281,9 @@ $ nm /tmp/wagyu-cycle234 | grep -cE 'gin-gonic|cobra'
    `StripMermaidAndMath` / `RestoreMermaidAndMath`, so the literal
    mermaid source is what hits `stdout`. AGY's `--print` is reported
    to apply mermaid ASCII too when a TTY is connected (changelog
-   lines 1-2 in `out/blackbox/changelog.txt`), but the cycle leaves
+   lines 1-2 in `internal/cli/testdata/changelog_reference.txt` — the
+   surviving copy of the retired `out/blackbox/changelog.txt`, see
+   `out/RETIRED.md`), but the cycle leaves
    the print path untouched per the cycle spec — users who pipe
    `-p` output to a tool like `kitten icat` or `mdcat` may want
    the source preserved; users on a bare terminal may want ASCII.

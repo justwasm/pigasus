@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/justwasm/pigasus/internal/auth"
+	"github.com/justwasm/pigasus/internal/features/auth"
 )
 
 // jsonUsageBucket is one quota bucket of the `/usage` payload. Field order is

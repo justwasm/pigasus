@@ -2,22 +2,20 @@ package vim
 
 // findCharForward searches forward on the current line for arg.
 // If till is true, it stops one character before the target.
-func (s *State) findCharForward(arg rune, count int, till bool) (pos, bool) {
+func (s *State) findCharForward(arg rune, till bool) (pos, bool) {
 	rl := s.lineRunes(s.Row)
 	at := s.Col
-	for n := 0; n < count; n++ {
-		found := -1
-		for i := at + 1; i < len(rl); i++ {
-			if rl[i] == arg {
-				found = i
-				break
-			}
+	found := -1
+	for i := at + 1; i < len(rl); i++ {
+		if rl[i] == arg {
+			found = i
+			break
 		}
-		if found < 0 {
-			return pos{}, false
-		}
-		at = found
 	}
+	if found < 0 {
+		return pos{}, false
+	}
+	at = found
 	if till {
 		at = prevClusterCol(s.Lines[s.Row], at)
 		if at <= s.Col {
@@ -29,22 +27,20 @@ func (s *State) findCharForward(arg rune, count int, till bool) (pos, bool) {
 
 // findCharBackward searches backward on the current line for arg.
 // If till is true, it stops one character after the target.
-func (s *State) findCharBackward(arg rune, count int, till bool) (pos, bool) {
+func (s *State) findCharBackward(arg rune, till bool) (pos, bool) {
 	rl := s.lineRunes(s.Row)
 	at := s.Col
-	for n := 0; n < count; n++ {
-		found := -1
-		for i := at - 1; i >= 0; i-- {
-			if rl[i] == arg {
-				found = i
-				break
-			}
+	found := -1
+	for i := at - 1; i >= 0; i-- {
+		if rl[i] == arg {
+			found = i
+			break
 		}
-		if found < 0 {
-			return pos{}, false
-		}
-		at = found
 	}
+	if found < 0 {
+		return pos{}, false
+	}
+	at = found
 	if till {
 		at = nextClusterCol(s.Lines[s.Row], at)
 		if at >= s.Col {
@@ -56,20 +52,20 @@ func (s *State) findCharBackward(arg rune, count int, till bool) (pos, bool) {
 
 // findChar implements f/F/t/T. It searches only the current line, as
 // Vim does. t/T stop one character before the target.
-func (s *State) findChar(m motion, arg rune, count int) (pos, bool) {
+func (s *State) findChar(m motion, arg rune) (pos, bool) {
 	rl := s.lineRunes(s.Row)
 	if arg == 0 || len(rl) == 0 {
 		return pos{}, false
 	}
 	switch m {
 	case motionFind:
-		return s.findCharForward(arg, count, false)
+		return s.findCharForward(arg, false)
 	case motionTill:
-		return s.findCharForward(arg, count, true)
+		return s.findCharForward(arg, true)
 	case motionFindBack:
-		return s.findCharBackward(arg, count, false)
+		return s.findCharBackward(arg, false)
 	case motionTillBack:
-		return s.findCharBackward(arg, count, true)
+		return s.findCharBackward(arg, true)
 	}
 	return pos{}, false
 }
@@ -91,7 +87,7 @@ func reverseFindMotion(m motion) motion {
 }
 
 // applyRepeatFind implements ';' and ',' repeat search motions.
-func (s *State) applyRepeatFind(m motion, count int) bool {
+func (s *State) applyRepeatFind(m motion) bool {
 	if !s.lastFindOK {
 		return false
 	}
@@ -100,7 +96,7 @@ func (s *State) applyRepeatFind(m motion, count int) bool {
 		m2 = reverseFindMotion(m2)
 	}
 	arg2 := s.lastFindArg
-	if p, ok := s.findChar(m2, arg2, count); ok {
+	if p, ok := s.findChar(m2, arg2); ok {
 		s.Row, s.Col = p.row, p.col
 		s.desiredCol = s.Col
 		s.lastFindMotion = m2
@@ -110,25 +106,25 @@ func (s *State) applyRepeatFind(m motion, count int) bool {
 }
 
 // applyFindMotion moves the cursor for character search motions (f, F, t, T, ;, ,).
-func (s *State) applyFindMotion(m motion, count int, arg rune) bool {
+func (s *State) applyFindMotion(m motion, arg rune) bool {
 	switch m {
 	case motionFind, motionTill, motionFindBack, motionTillBack:
-		if p, ok := s.findChar(m, arg, count); ok {
+		if p, ok := s.findChar(m, arg); ok {
 			s.Row, s.Col = p.row, p.col
 			s.desiredCol = s.Col
 			return true
 		}
 		return false
 	case motionRepeatFind, motionRepeatFindRev:
-		return s.applyRepeatFind(m, count)
+		return s.applyRepeatFind(m)
 	default:
 		return false
 	}
 }
 
 // targetFindMotion computes operator targets for character search motions.
-func (s *State) targetFindMotion(m motion, count int, arg rune) motionTarget {
-	to, ok := s.findChar(m, arg, count)
+func (s *State) targetFindMotion(m motion, arg rune) motionTarget {
+	to, ok := s.findChar(m, arg)
 	if !ok {
 		return motionTarget{}
 	}

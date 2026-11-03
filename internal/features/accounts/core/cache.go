@@ -29,7 +29,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/justwasm/pigasus/internal/auth"
+	"github.com/justwasm/pigasus/internal/features/auth"
 )
 
 // Get returns one registered account.

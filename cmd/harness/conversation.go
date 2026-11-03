@@ -56,19 +56,19 @@ import (
 	pi "github.com/MichaelKinsy/PiG/ai"
 
 	"github.com/justwasm/pigasus/budget"
-	"github.com/justwasm/pigasus/internal/backend"
-	"github.com/justwasm/pigasus/internal/backendselect"
-	"github.com/justwasm/pigasus/internal/harnesstools"
-	"github.com/justwasm/pigasus/internal/modelcatalog"
-	"github.com/justwasm/pigasus/internal/permissions"
+	"github.com/justwasm/pigasus/internal/core/backend"
+	"github.com/justwasm/pigasus/internal/core/policy/permissions"
+	modelcatalog "github.com/justwasm/pigasus/internal/features/models/catalog"
+	"github.com/justwasm/pigasus/internal/app/toolrunner"
+	"github.com/justwasm/pigasus/internal/app/harnesstools"
+	backendselect "github.com/justwasm/pigasus/internal/infra/backend/select"
 	"github.com/justwasm/pigasus/internal/piagentbridge"
 	"github.com/justwasm/pigasus/internal/pigrt"
 	"github.com/justwasm/pigasus/internal/printmode"
-	"github.com/justwasm/pigasus/internal/toolrunner"
-	"github.com/justwasm/pigasus/internal/tools"
 	"github.com/justwasm/pigasus/lifecyclehooks"
 	"github.com/justwasm/pigasus/localharness"
 	pb "github.com/justwasm/pigasus/localharness/pb/localharness"
+	"github.com/justwasm/pigasus/internal/app/tools/surface"
 )
 
 // maxContinuations bounds how many times a STOP hook may force the loop to
@@ -325,6 +325,13 @@ func (c *conversation) initialize(ctx context.Context, cfg *pb.HarnessConfig) er
 		c.logger.Error("harness: failed to create agent", "error", err)
 		return err
 	}
+	for _, r := range c.cascadeID {
+		if !((r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '-') {
+			err := fmt.Errorf("cascade_id must consist only of alphanumeric characters and hyphens, got %q", c.cascadeID)
+			c.logger.Error("harness: failed to create agent", "error", err)
+			return err
+		}
+	}
 	// The reference's root trajectory is the cascade itself: every frame
 	// it writes carries the cascade id in both fields.
 	c.trajectoryID = c.cascadeID
@@ -385,7 +392,7 @@ func (c *conversation) startRuntime(ctx context.Context) error {
 	model.Provider = pigrt.RecordProvider(model.Provider, slot)
 
 	workspace := c.settings.CWD
-	catalog := tools.RuntimeCatalog(workspace)
+	catalog := surface.RuntimeCatalog(workspace)
 	enabled := c.sideToolSubset()
 	extra := piagentbridge.LenientSurfaceToolsFor(catalog, nil, harnessDeclarations(enabled, c.settings.FinishSchema))
 	extra = harnessTools(extra, c.outcomes, c.settings.ToolOutputTokens)
@@ -403,7 +410,7 @@ func (c *conversation) startRuntime(ctx context.Context) error {
 		BeforeToolCall:   []piagent.BeforeToolCallHook{c.beforeToolCall},
 		ErrorSlot:        slot,
 		NoSession:        true,
-		MCPConfigPath:    mcpConfigPath(agentHome),
+		MCPConfigPath:    mcpConfigPath(agentHome, c.settings.MCPServers),
 		CompactThreshold: compactFraction(c.settings.CompactionThreshold, model.Capabilities.ContextWindow),
 	})
 	if err != nil {
@@ -1045,6 +1052,11 @@ func stopReasonFor(reason budget.StopReason) pb.TrajectoryStateUpdate_StopReason
 //
 // It is the clone's own policy, loaded from the agy settings.json, so a
 // harness session obeys the same rules the CLI does.
+//
+// All three of the reference's lists are loaded: `allow`, `ask` and
+// `deny`. The precedence is the reference's own — Deny > Ask > Allow
+// (see internal/core/policy/permissions) — so an `ask` rule is not an
+// allow and a `deny` rule beats both.
 func harnessPolicy(agentDir string) permissions.Policy {
 	policy := permissions.Policy{
 		Strict: permissions.StrictFromEnv(os.Getenv("OPENAGY_PERMISSION_POLICY")),
@@ -1054,18 +1066,74 @@ func harnessPolicy(agentDir string) permissions.Policy {
 	}
 	if settings, err := permissions.LoadRules(filepath.Join(agentDir, "settings.json")); err == nil {
 		policy.Allow = settings.Allow
+		policy.Ask = settings.Ask
 		policy.Deny = settings.Deny
 	}
 	return policy
 }
 
-// mcpConfigPath is the agy mcp.json inside the config home. An empty
-// agent dir disables MCP registration entirely.
-func mcpConfigPath(agentDir string) string {
-	if agentDir == "" {
+// mcpConfigPath returns the path to the mcp.json configuration file.
+// If programmatic MCPServers were supplied on HarnessConfig, an ephemeral
+// mcp.json file is written (or merged) into agentDir.
+func mcpConfigPath(agentDir string, programmaticServers []*pb.McpServerConfig) string {
+	if agentDir == "" && len(programmaticServers) == 0 {
 		return ""
 	}
-	return filepath.Join(agentDir, "mcp.json")
+	if len(programmaticServers) == 0 {
+		return filepath.Join(agentDir, "mcp.json")
+	}
+
+	_ = os.MkdirAll(agentDir, 0o755)
+	dest := filepath.Join(agentDir, "mcp.json")
+
+	type mcpServerJSON struct {
+		Type    string            `json:"type"`
+		Command string            `json:"command,omitempty"`
+		Args    []string          `json:"args,omitempty"`
+		Env     map[string]string `json:"env,omitempty"`
+		URL     string            `json:"url,omitempty"`
+		Headers map[string]string `json:"headers,omitempty"`
+		Enabled bool              `json:"enabled"`
+	}
+	type mcpConfigJSON struct {
+		Servers map[string]mcpServerJSON `json:"servers"`
+	}
+
+	doc := mcpConfigJSON{Servers: make(map[string]mcpServerJSON)}
+	if existing, err := os.ReadFile(dest); err == nil {
+		_ = json.Unmarshal(existing, &doc)
+		if doc.Servers == nil {
+			doc.Servers = make(map[string]mcpServerJSON)
+		}
+	}
+
+	for _, s := range programmaticServers {
+		name := strings.TrimSpace(s.GetName())
+		if name == "" {
+			continue
+		}
+		item := mcpServerJSON{
+			Enabled: true,
+		}
+		if s.HasStdio() {
+			item.Type = "stdio"
+			stdio := s.GetStdio()
+			item.Command = stdio.GetCommand()
+			item.Args = stdio.GetArgs()
+			item.Env = stdio.GetEnv()
+		} else if s.HasHttp() {
+			item.Type = "http"
+			http := s.GetHttp()
+			item.URL = http.GetUrl()
+			item.Headers = http.GetHeaders()
+		}
+		doc.Servers[name] = item
+	}
+
+	if b, err := json.MarshalIndent(doc, "", "  "); err == nil {
+		_ = os.WriteFile(dest, b, 0o644)
+	}
+	return dest
 }
 
 // randomID returns a short random identifier.

@@ -71,7 +71,7 @@ func installedPluginVersion(name string) string {
 
 // antigravityHomeFromLegacy returns the antigravity home the rest of
 // the package resolves from $ANTIGRAVITY_HOME / $HOME. Mirrors
-// auth.AntigravityConfigHome but is local so this package does not
+// confhome.Antigravity but is local so this package does not
 // have to import internal/auth (the auth package would otherwise
 // drag in keyring/sqlite code that has no business in a CLI helper).
 // Falls back to the legacyPluginsDir parent when the env vars are

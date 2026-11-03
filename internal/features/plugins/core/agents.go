@@ -20,7 +20,10 @@
 // recovered constraint is `name` per entry and a `path` that resolves inside
 // the plugin root. See `docs/research/agy-subagents-vs-wagyu.md` row 1
 // (`agents.json`) and the 1.3.6 string table `{"path": "<rel>", ...}` shapes
-// in `docs/decompiled-v1.3.4/strings-v1.3.4.txt`.)
+// — the `{"path": "shared_skills", "include_only": [...]}` changelog example
+// and the `"path": "…"` manifest entries — which survive in the 1.3.4
+// string table's cited window,
+// `docs/legacy-re/extracts/strings-v1.3.4-cited.txt`.)
 //
 // The two sources are merged: the union is what every surface below shows,
 // deduped by name (later definition wins on tie), and sorted.
@@ -30,7 +33,7 @@
 // reads installed plugins; the CLI subcommand reads an arbitrary path.
 //
 // Cycle plugin-source-symlink-resolve (AGY 1.2.5): the directory walks
-// here go through internal/pluginscan, which follows symlinks.
+// here go through internal/features/plugins/scan, which follows symlinks.
 // Symlinked plugin trees (the AGY 1.2.5 case — e.g. `ln -s
 // ~/work/my-plugin ~/.gemini/config/plugins/my-plugin`) now surface
 // their agents/*.md and agents.json the same way a non-symlinked
@@ -46,8 +49,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/justwasm/pigasus/internal/auth"
-	"github.com/justwasm/pigasus/internal/pluginscan"
+	confhome "github.com/justwasm/pigasus/internal/core/confhome"
+	pluginscan "github.com/justwasm/pigasus/internal/features/plugins/scan"
 )
 
 // AgentEntry is one entry from a plugin's agents.json. We accept either
@@ -132,10 +135,17 @@ func NormalizeAgentsJSON(in []AgentEntry) []AgentEntry {
 // shipped fixture set).
 //
 // A non-existent or empty directory yields nil. We deliberately do NOT
-// recurse: the 1.3.6 changelog line 169 (in
-// `docs/decompiled-v1.3.4/strings-v1.3.3.txt` around line 97435) made
+// recurse: the 1.3.6 changelog line 169 made
 // directory entries shallow by default and named `include_only` as the
-// recursion opt-in. The clone reads only the top level here for parity.
+// recursion opt-in — "Changed how directory entries in `skills.json`,
+// `rules.json`, `agents.json`, and `plugins.json` are scanned: an entry
+// now loads only the items directly inside the directory, the same as a
+// `.agents/skills/` folder, instead of recursively loading everything
+// beneath it; to load a nested item, name it in `include_only`, for example
+// `{"path": "shared_skills", "include_only": ["category/my-skill"]}`".
+// That sentence survives in the 1.3.3 string table's cited window,
+// `docs/legacy-re/extracts/strings-v1.3.3-cited.txt`. The clone reads only
+// the top level here for parity.
 //
 // Cycle plugin-source-symlink-resolve: the walk goes through
 // pluginscan.ReadEntries so a symlinked <plugin>/agents/<x>.md is
@@ -283,7 +293,7 @@ func UnpackedAgents(name string, mkts []Marketplace) string {
 	if mkt == "" || ver == "" {
 		return "-"
 	}
-	dir := filepath.Join(auth.AntigravityConfigHome(), "cache", "marketplaces",
+	dir := filepath.Join(confhome.Antigravity(), "cache", "marketplaces",
 		mkt, "plugins", name, ver)
 	names, _, _ := AgentsAtPath(dir)
 	if len(names) == 0 {

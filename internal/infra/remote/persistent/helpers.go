@@ -45,7 +45,7 @@ func DefaultLaunchAgentDir() string {
 
 // PlistPathFor returns the LaunchAgent plist path for the given
 // name using the default directory.  Empty string when $HOME is
-// unset.  Tests override the active dir via SetPlistDirOverride.
+// unset.  Tests override the active dir through plistDirOverride.
 func PlistPathFor(name string) string {
 	dir := activePlistDir()
 	if dir == "" {
@@ -55,9 +55,9 @@ func PlistPathFor(name string) string {
 }
 
 // activePlistDir is the resolver behind PlistPathFor and the
-// darwin-side writePlist path.  Tests override the var via
-// SetPlistDirOverride so the production Path (~/Library/LaunchAgents)
-// is bypassed in favour of t.TempDir().
+// darwin-side writePlist path.  Tests override the var directly so
+// the production path (~/Library/LaunchAgents) is bypassed in favour
+// of t.TempDir().
 func activePlistDir() string {
 	if plistDirOverride != "" {
 		return plistDirOverride
@@ -66,15 +66,9 @@ func activePlistDir() string {
 }
 
 // plistDirOverride is the test-only redirect for activePlistDir.
-// SetPlistDirOverride flips it; production never touches it.
+// The package's own tests flip it; production never touches it.
 var plistDirOverride string
 
-// SetPlistDirOverride is the test-only entry point that redirects
-// the plist / pidfile path to a temp directory.  Production
-// callers never invoke it.
-func SetPlistDirOverride(dir string) {
-	plistDirOverride = dir
-}
 
 // LogFilePath returns the default log file path for the given
 // name.  $TMPDIR is preferred (matches the rest of the

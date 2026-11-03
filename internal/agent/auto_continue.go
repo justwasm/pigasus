@@ -44,8 +44,9 @@ import (
 	piagent "github.com/MichaelKinsy/PiG/agent"
 	pi "github.com/MichaelKinsy/PiG/ai"
 
-	"github.com/justwasm/pigasus/internal/autocont"
-	"github.com/justwasm/pigasus/internal/backend"
+	"github.com/justwasm/pigasus/internal/app/session/autocont"
+	"github.com/justwasm/pigasus/internal/core/apierror"
+	"github.com/justwasm/pigasus/internal/core/backend"
 )
 
 // The recovery vocabulary is the reference's own bytes, and it is
@@ -93,7 +94,7 @@ func (e *ErrAutoContMaxDepth) Error() string {
 }
 
 // Unwrap preserves the original error chain so cmd/wagyu/api_error.go's
-// errors.As classification still recovers *backend.HTTPError when the loop's
+// errors.As classification still recovers *apierror.HTTPError when the loop's
 // last attempt was a gateway-level failure.
 func (e *ErrAutoContMaxDepth) Unwrap() error { return e.Last }
 
@@ -104,7 +105,7 @@ func (e *ErrAutoContMaxDepth) Unwrap() error { return e.Last }
 // banner", ErrAutoContNetworkFailed signals "the network is the
 // problem, the user wants to know they should check their
 // connection". The Unwrap chain still feeds errors.As recoveries of
-// *backend.HTTPError so the TUI's classification path is unchanged.
+// *apierror.HTTPError so the TUI's classification path is unchanged.
 //
 // AGY 1.4.x changelog_reference.txt:10: "reporting a network error if
 // retries fail". The canonical user-visible copy from cmd/wagyu/tui
@@ -229,7 +230,7 @@ func recoveryForError(err error) string {
 // ErrAutoContNetworkFailed for the network path. Both errors expose
 // the underlying cause via errors.As / errors.Is, so the TUI's
 // classification in cmd/wagyu/api_error.go continues to recover
-// *backend.HTTPError and friends.
+// *apierror.HTTPError and friends.
 //
 // Cycle auto-continue-interrupt: doc'd in the package head; see the
 // classify / ErrMaxTurnsReached lineage in pig.go and api_error.go.
@@ -244,7 +245,7 @@ func (l *Loop) sendPigAuto(ctx context.Context, input TurnInput) error {
 	if ctxErr := ctx.Err(); ctxErr != nil {
 		return ctxErr
 	}
-	if backend.IsQuotaReachedErr(err) {
+	if apierror.IsQuotaReachedErr(err) {
 		return err
 	}
 	recovery := recoveryForError(err)
@@ -285,7 +286,7 @@ func (l *Loop) runAutoContLoop(ctx context.Context, input TurnInput, recovery st
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return ctxErr
 		}
-		if backend.IsQuotaReachedErr(err) {
+		if apierror.IsQuotaReachedErr(err) {
 			return err
 		}
 		if newRecovery := recoveryForError(err); newRecovery != "" {

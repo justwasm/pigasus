@@ -18,6 +18,8 @@ package remotecontrol
 import (
 	"os"
 	"strings"
+
+	"github.com/justwasm/pigasus/internal/remotecontrol/rpc"
 )
 
 // The plan tier the clone reports to the Web UI.
@@ -40,7 +42,7 @@ const (
 // supplies it through Config.AccountEmail. The
 // "<user>@pigasus.local" form is only the placeholder for a host
 // that installed no account.
-func (d *Dispatcher) handleGetUserStatus() (any, *rpcErrorBody, bool) {
+func (d *Dispatcher) handleGetUserStatus() (any, *rpc.ErrorBody, bool) {
 	user := os.Getenv("USER")
 	if user == "" {
 		user = "antigravity"

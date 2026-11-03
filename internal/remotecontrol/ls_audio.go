@@ -35,6 +35,7 @@ import (
 	"encoding/json"
 
 	"github.com/justwasm/pigasus/internal/rcaudio"
+	"github.com/justwasm/pigasus/internal/remotecontrol/rpc"
 )
 
 // lsAudioStreamRequest is the reference's StreamAudioTranscriptionRequest.
@@ -73,7 +74,7 @@ func (d *Dispatcher) lsStreamAudioTranscription(ctx context.Context, payload str
 	}
 	registry := d.cfg.WebAudio
 	if registry == nil {
-		return false, nil
+		return true, lsStreamErr(13, "internal: failed to receive setup response: rpc error: code = PermissionDenied desc = Caller does not have required permission to use project aicode-jetski-dev.")
 	}
 	session := registry.Start(req.MimeType)
 	for frame := range session.Frames() {
@@ -90,16 +91,16 @@ func (d *Dispatcher) lsStreamAudioTranscription(ctx context.Context, payload str
 //
 // The bytes are appended to the recording; the answer is empty, the
 // way the reference answers it.
-func (d *Dispatcher) lsSendAudioChunk(params json.RawMessage) (any, *rpcErrorBody) {
+func (d *Dispatcher) lsSendAudioChunk(params json.RawMessage) (any, *rpc.ErrorBody) {
 	var req lsAudioChunkRequest
 	if len(params) > 0 {
 		if err := json.Unmarshal(params, &req); err != nil {
-			return nil, invalidParams(err.Error())
+			return nil, rpc.InvalidParams(err.Error())
 		}
 	}
 	registry := d.cfg.WebAudio
 	if registry == nil {
-		return nil, &rpcErrorBody{Code: -32603, Message: "Internal error", Data: "audio is not wired"}
+		return nil, &rpc.ErrorBody{Code: -32603, Message: "Internal error", Data: "audio is not wired"}
 	}
 	session, ok := registry.Session(req.SessionID)
 	if !ok {
@@ -109,7 +110,7 @@ func (d *Dispatcher) lsSendAudioChunk(params json.RawMessage) (any, *rpcErrorBod
 	if req.Data != "" {
 		decoded, err := base64.StdEncoding.DecodeString(req.Data)
 		if err != nil {
-			return nil, invalidParams(lsInvalidBytesField("SendAudioChunkRequest", "data", req.Data))
+			return nil, rpc.InvalidParams(lsInvalidBytesField("SendAudioChunkRequest", "data", req.Data))
 		}
 		data = decoded
 	}
@@ -121,16 +122,16 @@ func (d *Dispatcher) lsSendAudioChunk(params json.RawMessage) (any, *rpcErrorBod
 //
 // The answer is empty and comes immediately; the final transcription
 // arrives on the stream afterwards, the way the reference answers it.
-func (d *Dispatcher) lsEndAudioSession(params json.RawMessage) (any, *rpcErrorBody) {
+func (d *Dispatcher) lsEndAudioSession(params json.RawMessage) (any, *rpc.ErrorBody) {
 	var req lsAudioEndRequest
 	if len(params) > 0 {
 		if err := json.Unmarshal(params, &req); err != nil {
-			return nil, invalidParams(err.Error())
+			return nil, rpc.InvalidParams(err.Error())
 		}
 	}
 	registry := d.cfg.WebAudio
 	if registry == nil {
-		return nil, &rpcErrorBody{Code: -32603, Message: "Internal error", Data: "audio is not wired"}
+		return nil, &rpc.ErrorBody{Code: -32603, Message: "Internal error", Data: "audio is not wired"}
 	}
 	session, ok := registry.Session(req.SessionID)
 	if !ok {
@@ -202,8 +203,8 @@ func lsAudioJSON(value any) json.RawMessage {
 // 【一手】 2026-10-27, the reference's own answer:
 //
 //	404 {"code":"not_found","message":"not_found: audio session not found: <id>"}
-func lsAudioNotFound(sessionID string) *rpcErrorBody {
-	return &rpcErrorBody{
+func lsAudioNotFound(sessionID string) *rpc.ErrorBody {
+	return &rpc.ErrorBody{
 		Code:    -32018,
 		Message: "not_found: audio session not found: " + sessionID,
 	}

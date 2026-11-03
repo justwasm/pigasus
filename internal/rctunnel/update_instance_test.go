@@ -15,6 +15,7 @@ import (
 func withTestToken(t *testing.T, token string) {
 	t.Helper()
 	t.Setenv("JETSKI_OAUTH_TOKEN", token)
+	t.Setenv("HOME", t.TempDir())
 }
 
 // TestUpdateInstanceName_Body pins the wire body of the rename call.

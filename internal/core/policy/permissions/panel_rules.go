@@ -6,10 +6,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 
-	"github.com/justwasm/pigasus/internal/auth"
+	projectflags "github.com/justwasm/pigasus/internal/core/cliflags/projects"
+	settings "github.com/justwasm/pigasus/internal/core/settings"
 	"github.com/justwasm/pigasus/palette"
 )
 
@@ -28,7 +28,7 @@ var PermListKeys = [3]string{"allow", "deny", "ask"}
 
 // ReadSettingsPermList reads permissions.<key> from settings.json.
 func ReadSettingsPermList(tab int) []string {
-	v, err := auth.SettingsField("permissions." + PermListKeys[tab])
+	v, err := settings.Field("permissions." + PermListKeys[tab])
 	if err != nil || v == nil {
 		return nil
 	}
@@ -51,12 +51,16 @@ func AnyStringSlice(v any) []string {
 }
 
 // ProjectConfigPath is the reference's default CLI project file.
+//
+// It is the file of the project a session runs in when no project flag
+// names one — the default project — and the id and the path shape belong
+// to the package that owns them.
 func ProjectConfigPath() string {
 	home, err := os.UserHomeDir()
 	if err != nil || home == "" {
 		return ""
 	}
-	return filepath.Join(home, ".gemini", "config", "projects", "default-cli-project.json")
+	return projectflags.ConfigPath(home, projectflags.DefaultProjectID)
 }
 
 // ReadProjectPermList reads rules from the default CLI project config file.
@@ -120,19 +124,26 @@ func WriteProjectPermList(tab int, list []string) {
 	_ = os.WriteFile(p, out, 0o644)
 }
 
-// ValidateGrant reproduces the reference's two rejection messages. Only
-// `command` is a verified accepted action; `read` and `foo` were both
-// probed and rejected (probe_read.py).
+// ValidateGrant reproduces the reference's rejection messages.
+//
+// The reference's own grammar is `action(target)` — the binary's format
+// regex names the six live actions plus the retired `unsandboxed`, and the
+// panels' hint reads "Format: action(target)". `unsandboxed` is rejected
+// with the reference's own message; every other unknown action with the
+// "unknown action" one.
 func ValidateGrant(rule string) string {
 	open := strings.IndexByte(rule, '(')
 	if open <= 0 || !strings.HasSuffix(rule, ")") {
 		return fmt.Sprintf("invalid grant string: %q", rule)
 	}
-	action := rule[:open]
+	action := strings.TrimSpace(rule[:open])
 	for _, r := range action {
 		if !(r >= 'a' && r <= 'z') && r != '_' {
 			return fmt.Sprintf("invalid grant string: %q", rule)
 		}
+	}
+	if action == ActionUnsandboxed {
+		return UnsandboxedRejectedMessage
 	}
 	if !ValidGrantAction(action) {
 		return fmt.Sprintf("unknown action %q in grant string: %q", action, rule)
@@ -140,8 +151,17 @@ func ValidateGrant(rule string) string {
 	return ""
 }
 
-// ValidGrantAction reports whether an action verb in a grant string is recognized.
-func ValidGrantAction(a string) bool { return a == "command" }
+// ValidGrantAction reports whether an action verb in a grant string is
+// recognized.
+//
+// The six live actions are the reference's own; the answer comes from the
+// grant-action mapping, so the vocabulary has one owner. `unsandboxed` is
+// *not* one of them any more — the reference rejects every rule that uses
+// it (see UnsandboxedRejectedMessage).
+func ValidGrantAction(a string) bool {
+	_, ok := grantActionTools[a]
+	return ok
+}
 
 // PermTabRow renders the allowlist / denylist / asklist tab strip.
 func PermTabRow(active int, counts [3]int) string {

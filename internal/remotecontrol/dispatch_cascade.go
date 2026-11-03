@@ -20,6 +20,10 @@ import (
 	"errors"
 	"strings"
 	"time"
+
+	"github.com/justwasm/pigasus/internal/remotecontrol/cascades"
+	"github.com/justwasm/pigasus/internal/remotecontrol/effort"
+	"github.com/justwasm/pigasus/internal/remotecontrol/rpc"
 )
 
 // startRemoteAgentCascadeParams is the JSON shape the dashboard
@@ -87,7 +91,7 @@ type toolCall struct {
 
 // handleStartRemoteAgentCascade is the rpc-handler for
 // "StartRemoteAgentCascade". It parses the params (every field
-// is optional), constructs a *Cascade via NewCascade, and
+// is optional), constructs a *cascades.Cascade via cascades.New, and
 // registers it with the dispatcher's cascade registry.
 //
 // Errors:
@@ -103,21 +107,21 @@ type toolCall struct {
 // Per-cascade model resolution: when params omits "model" (or
 // sends ""), the handler falls back to the dispatcher's
 // SessionState.Model — the resolved model the host is running.
-func (d *Dispatcher) handleStartRemoteAgentCascade(params json.RawMessage) (any, *rpcErrorBody) {
+func (d *Dispatcher) handleStartRemoteAgentCascade(params json.RawMessage) (any, *rpc.ErrorBody) {
 	if d == nil || d.cascades == nil {
-		return nil, &rpcErrorBody{Code: -32603, Message: "Internal error", Data: "registry not initialised"}
+		return nil, &rpc.ErrorBody{Code: -32603, Message: "Internal error", Data: "registry not initialised"}
 	}
 	p, perr := decodeStartRemoteAgentCascadeParams(params)
 	if perr != nil {
 		return nil, perr
 	}
 	opts, resolvedModel, resolvedBackend := d.buildCascadeOptsFromStart(p)
-	c, err := NewCascade(opts)
+	c, err := cascades.New(opts)
 	if err != nil {
-		return nil, &rpcErrorBody{Code: -32603, Message: "Internal error", Data: "failed to mint cascade id: " + err.Error()}
+		return nil, &rpc.ErrorBody{Code: -32603, Message: "Internal error", Data: "failed to mint cascade id: " + err.Error()}
 	}
 	if err := d.cascades.Register(c); err != nil {
-		return nil, &rpcErrorBody{Code: -32603, Message: "Internal error", Data: err.Error()}
+		return nil, &rpc.ErrorBody{Code: -32603, Message: "Internal error", Data: err.Error()}
 	}
 	return map[string]any{
 		"cascade_id":     c.ID,
@@ -145,7 +149,7 @@ func (d *Dispatcher) handleStartRemoteAgentCascade(params json.RawMessage) (any,
 //
 //   - cascade_id: required, non-empty.
 //   - text: required, non-empty.
-//   - effort: optional, must be one of DefaultEffortValues when
+//   - effort: optional, must be one of effort.Values when
 //     present. Empty means "use cascade's pinned effort".
 //   - agent / model / sessionMode: optional; empty means "use
 //     cascade's pinned value". Type-checked via
@@ -156,7 +160,7 @@ func (d *Dispatcher) handleStartRemoteAgentCascade(params json.RawMessage) (any,
 //   - look up via dispatcher.cascades.Get; missing → -32004
 //     "Cascade not found";
 //   - closed sentinel → -32005 "Cascade closed";
-//   - per-turn overrides applied to MessagePrompt;
+//   - per-turn overrides applied to cascades.Prompt;
 //   - opts carries Timeout = TimeoutMs * ms (when > 0).
 //
 // On success the result carries the final assistant text, the
@@ -164,26 +168,26 @@ func (d *Dispatcher) handleStartRemoteAgentCascade(params json.RawMessage) (any,
 // and the stop reason. On failure the dispatcher maps the
 // registry's error sentinel to the JSON-RPC envelope: -32004 /
 // -32005 / -32010 / -32603.
-func (d *Dispatcher) handleSendRemoteAgentCascadeMessage(ctx context.Context, params json.RawMessage) (any, *rpcErrorBody) {
+func (d *Dispatcher) handleSendRemoteAgentCascadeMessage(ctx context.Context, params json.RawMessage) (any, *rpc.ErrorBody) {
 	if d == nil || d.cascades == nil {
-		return nil, &rpcErrorBody{Code: -32603, Message: "Internal error", Data: "registry not initialised"}
+		return nil, &rpc.ErrorBody{Code: -32603, Message: "Internal error", Data: "registry not initialised"}
 	}
 	p, perr := decodeSendRemoteAgentCascadeMessageParams(params)
 	if perr != nil {
 		return nil, perr
 	}
-	if p.Effort != "" && !IsValidEffort(p.Effort) {
-		return nil, &rpcErrorBody{Code: -32602, Message: "Invalid params", Data: "effort must be one of low|medium|high|xhigh|max"}
+	if p.Effort != "" && !effort.IsValid(p.Effort) {
+		return nil, &rpc.ErrorBody{Code: -32602, Message: "Invalid params", Data: "effort must be one of low|medium|high|xhigh|max"}
 	}
 	if p.TimeoutMs < 0 {
-		return nil, &rpcErrorBody{Code: -32602, Message: "Invalid params", Data: "timeoutMs must be >= 0"}
+		return nil, &rpc.ErrorBody{Code: -32602, Message: "Invalid params", Data: "timeoutMs must be >= 0"}
 	}
 	c, ok := d.cascades.Get(p.CascadeID)
 	if !ok {
-		return nil, &rpcErrorBody{Code: ErrCodeCascadeNotFound, Message: "Cascade not found", Data: p.CascadeID}
+		return nil, &rpc.ErrorBody{Code: rpc.ErrCodeCascadeNotFound, Message: "Cascade not found", Data: p.CascadeID}
 	}
 	if c.IsClosed() {
-		return nil, &rpcErrorBody{Code: ErrCodeCascadeClosed, Message: "Cascade closed", Data: p.CascadeID}
+		return nil, &rpc.ErrorBody{Code: rpc.ErrCodeCascadeClosed, Message: "Cascade closed", Data: p.CascadeID}
 	}
 	prompt := buildSendPrompt(c, p)
 	opts := buildSendOptions(p)
@@ -211,38 +215,38 @@ func (d *Dispatcher) handleSendRemoteAgentCascadeMessage(ctx context.Context, pa
 // cascade/state{phase:"cancelled"} notification on the originating
 // ws connection. Idempotent: a second Cancel returns ok:true with
 // already_cancelled:true and emits NO notification.
-func (d *Dispatcher) handleCancelRemoteAgentCascade(ctx context.Context, params json.RawMessage) (any, *rpcErrorBody) {
+func (d *Dispatcher) handleCancelRemoteAgentCascade(ctx context.Context, params json.RawMessage) (any, *rpc.ErrorBody) {
 	if d == nil || d.cascades == nil {
-		return nil, &rpcErrorBody{Code: -32603, Message: "Internal error", Data: "registry not initialised"}
+		return nil, &rpc.ErrorBody{Code: -32603, Message: "Internal error", Data: "registry not initialised"}
 	}
 	var p struct {
 		CascadeID string `json:"cascade_id"`
 	}
 	if len(params) > 0 {
 		if err := json.Unmarshal(params, &p); err != nil {
-			return nil, &rpcErrorBody{Code: -32602, Message: "Invalid params", Data: err.Error()}
+			return nil, &rpc.ErrorBody{Code: -32602, Message: "Invalid params", Data: err.Error()}
 		}
 	}
-	if nonStringFieldInJSON(params, "cascade_id", p.CascadeID) {
-		return nil, &rpcErrorBody{Code: -32602, Message: "Invalid params", Data: "string fields must be strings"}
+	if rpc.NonStringFieldInJSON(params, "cascade_id", p.CascadeID) {
+		return nil, &rpc.ErrorBody{Code: -32602, Message: "Invalid params", Data: "string fields must be strings"}
 	}
 	cascadeID := strings.TrimSpace(p.CascadeID)
 	if cascadeID == "" {
-		return nil, &rpcErrorBody{Code: -32602, Message: "Invalid params", Data: "cascade_id is required"}
+		return nil, &rpc.ErrorBody{Code: -32602, Message: "Invalid params", Data: "cascade_id is required"}
 	}
 	c, ok := d.cascades.Get(cascadeID)
 	if !ok {
-		return nil, &rpcErrorBody{Code: ErrCodeCascadeNotFound, Message: "Cascade not found", Data: cascadeID}
+		return nil, &rpc.ErrorBody{Code: rpc.ErrCodeCascadeNotFound, Message: "Cascade not found", Data: cascadeID}
 	}
 	now := time.Now().UTC()
 	fired := c.Cancel("user requested")
 	if fired {
-		c.recordCancel("user requested", now)
+		c.RecordCancel("user requested", now)
 		connID := connIDFromContext(ctx)
 		if connID != "" {
-			_ = d.Notify(context.Background(), connID, NotifCascadeState, map[string]any{
+			_ = d.Notify(context.Background(), connID, cascades.NotifCascadeState, map[string]any{
 				"cascade_id":   cascadeID,
-				"phase":        StatePhaseCancelled,
+				"phase":        cascades.StatePhaseCancelled,
 				"cancelled_at": now.Format(time.RFC3339Nano),
 				"reason":       "user requested",
 				"ts":           now.Format(time.RFC3339Nano),
@@ -282,9 +286,9 @@ func (d *Dispatcher) handleCancelRemoteAgentCascade(ctx context.Context, params 
 //	  "decided_at": "<RFC3339-nano>",
 //	  "applied_to": ["tool:<name>", ...]    // placeholder; empty today
 //	}
-func (d *Dispatcher) handleRemoteAgentCascadeUserInteraction(ctx context.Context, params json.RawMessage) (any, *rpcErrorBody) {
+func (d *Dispatcher) handleRemoteAgentCascadeUserInteraction(ctx context.Context, params json.RawMessage) (any, *rpc.ErrorBody) {
 	if d == nil || d.cascades == nil {
-		return nil, &rpcErrorBody{Code: -32603, Message: "Internal error", Data: "registry not initialised"}
+		return nil, &rpc.ErrorBody{Code: -32603, Message: "Internal error", Data: "registry not initialised"}
 	}
 	p, perr := decodeInteractionParams(params)
 	if perr != nil {
@@ -292,18 +296,18 @@ func (d *Dispatcher) handleRemoteAgentCascadeUserInteraction(ctx context.Context
 	}
 	c, ok := d.cascades.Get(p.CascadeID)
 	if !ok {
-		return nil, &rpcErrorBody{Code: ErrCodeCascadeNotFound, Message: "Cascade not found", Data: p.CascadeID}
+		return nil, &rpc.ErrorBody{Code: rpc.ErrCodeCascadeNotFound, Message: "Cascade not found", Data: p.CascadeID}
 	}
 	pending := c.Pending()
 	if _, ok := pending.Get(p.InteractionID); !ok {
-		return nil, &rpcErrorBody{Code: ErrCodeInteractionNotFound, Message: "Interaction not found", Data: p.InteractionID}
+		return nil, &rpc.ErrorBody{Code: rpc.ErrCodeInteractionNotFound, Message: "Interaction not found", Data: p.InteractionID}
 	}
 	now := time.Now().UTC()
-	if err := pending.Resolve(p.InteractionID, InteractionResult{Response: p.Response, DecidedAt: now}); err != nil {
-		if errors.Is(err, ErrInteractionNotFound) {
-			return nil, &rpcErrorBody{Code: ErrCodeInteractionNotFound, Message: "Interaction not found", Data: p.InteractionID}
+	if err := pending.Resolve(p.InteractionID, cascades.InteractionResult{Response: p.Response, DecidedAt: now}); err != nil {
+		if errors.Is(err, cascades.ErrInteractionNotFound) {
+			return nil, &rpc.ErrorBody{Code: rpc.ErrCodeInteractionNotFound, Message: "Interaction not found", Data: p.InteractionID}
 		}
-		return nil, &rpcErrorBody{Code: -32603, Message: "Internal error", Data: err.Error()}
+		return nil, &rpc.ErrorBody{Code: -32603, Message: "Internal error", Data: err.Error()}
 	}
 	return map[string]any{
 		"ok":         true,

@@ -4,9 +4,34 @@ import (
 	"encoding/json"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 )
+
+// TestMain points the configuration home at a scratch directory.
+//
+// Every test in this file runs the CLI as a subprocess, and the CLI
+// writes into its configuration home on start-up: it writes the compat
+// defaults and it normalises settings.json. A test that let those writes
+// land in the developer's own home would rewrite the developer's
+// settings.json — so the home is redirected for the whole package.
+func TestMain(m *testing.M) {
+	root, err := os.MkdirTemp("", "pigasus-pigga-home-")
+	if err != nil {
+		panic(err)
+	}
+	defer os.RemoveAll(root)
+
+	agy := filepath.Join(root, ".gemini", "antigravity-cli")
+	if err := os.MkdirAll(agy, 0o700); err != nil {
+		panic(err)
+	}
+	os.Setenv("ANTIGRAVITY_HOME", agy)
+	os.Setenv("GEMINI_CONFIG_HOME", filepath.Join(root, ".gemini", "config"))
+
+	os.Exit(m.Run())
+}
 
 func TestPiggaNativeHelp(t *testing.T) {
 	cmd := exec.Command("go", "run", ".", "--help")
@@ -46,8 +71,8 @@ func TestPiggaNativeVersion(t *testing.T) {
 		t.Fatalf("go run . --version failed: %v, output: %s", err, string(out))
 	}
 	s := string(out)
-	if !strings.Contains(s, "1.4.11-wasm") {
-		t.Fatalf("expected 1.4.11-wasm, got: %s", s)
+	if !strings.Contains(s, "1.4.12-wasm") {
+		t.Fatalf("expected 1.4.12-wasm, got: %s", s)
 	}
 }
 

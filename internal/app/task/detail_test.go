@@ -269,3 +269,81 @@ func TestSubagentDetailTrajectoryEmpty(t *testing.T) {
 		t.Errorf("the empty trajectory is missing its form:\n%s", joined)
 	}
 }
+
+// TestSubagentDetailBodyLineWrapAndReflow verifies that long paragraphs in Prompt
+// and Answer wrap to fit width while keeping indentation and paragraph breaks,
+// and reflow cleanly when resized.
+func TestSubagentDetailBodyLineWrapAndReflow(t *testing.T) {
+	longPrompt := "This is a long prompt paragraph that definitely exceeds thirty columns.\n\nSecond paragraph in prompt with 中文测试."
+	longAnswer := "First answer paragraph that is also quite long and should be wrapped into multiple lines.\n\n第二段回答包含较长的中文内容，确保在小窗口时能够折叠成多行，并且在窗口放大时重新回流排版。"
+	task := &Task{
+		ID:     "sub-wrap-1",
+		Name:   "wrapper",
+		Kind:   KindSubagent,
+		State:  StateDone,
+		Prompt: longPrompt,
+		Output: longAnswer,
+		Tools:  []string{"very_long_tool_name_that_should_also_wrap_if_width_is_small"},
+		Steps:  []string{"Long step description explaining what was investigated in this turn"},
+	}
+
+	// 1. When width is 40 columns:
+	lines40 := SubagentDetailBody(task, 40)
+	for i, l := range lines40 {
+		// No line should exceed 40 columns
+		if len([]rune(l)) > 40 {
+			t.Errorf("line %d at width 40 exceeds 40 runes (%d runes): %q", i, len([]rune(l)), l)
+		}
+		// Non-empty lines under Prompt/Answer must maintain 2-space indent
+		if l != "" && !strings.HasPrefix(l, "  ") {
+			t.Errorf("line %d does not have at least 2-space indent: %q", i, l)
+		}
+	}
+
+	// 2. When width is 80 columns:
+	lines80 := SubagentDetailBody(task, 80)
+	for i, l := range lines80 {
+		if len([]rune(l)) > 80 {
+			t.Errorf("line %d at width 80 exceeds 80 runes: %q", i, l)
+		}
+	}
+
+	// 3. Resizing reflow: narrower width must yield more lines than wider width
+	if len(lines40) <= len(lines80) {
+		t.Errorf("expected lines at width 40 (%d) to be greater than lines at width 80 (%d) due to reflow", len(lines40), len(lines80))
+	}
+
+	// 4. Paragraph breaks (empty lines) preserved
+	joined40 := strings.Join(lines40, "\n")
+	if !strings.Contains(joined40, "  Prompt\n  This is a long") {
+		t.Errorf("missing prompt header followed by wrapped prompt:\n%s", joined40)
+	}
+	if !strings.Contains(joined40, "  Answer\n  First answer") {
+		t.Errorf("missing answer header followed by wrapped answer:\n%s", joined40)
+	}
+}
+
+// TestTaskDetailBodyLineWrapAndReflow verifies that long Command and Output
+// wrap to fit width and reflow on resize.
+func TestTaskDetailBodyLineWrapAndReflow(t *testing.T) {
+	task := &Task{
+		ID:      "task-wrap-1",
+		Name:    "bash",
+		Kind:    KindShell,
+		State:   StateDone,
+		Command: "bash -c 'echo very long command line that exceeds thirty columns and should wrap'",
+		Output:  "Line 1 of output that is very long and should be wrapped into multiple rows\n\nLine 2 after empty line",
+	}
+
+	lines35 := TaskDetailBody(task, 35)
+	for i, l := range lines35 {
+		if len([]rune(l)) > 35 {
+			t.Errorf("task detail line %d exceeds 35 runes: %q", i, l)
+		}
+	}
+
+	lines70 := TaskDetailBody(task, 70)
+	if len(lines35) <= len(lines70) {
+		t.Errorf("expected lines at width 35 (%d) to be greater than at width 70 (%d)", len(lines35), len(lines70))
+	}
+}

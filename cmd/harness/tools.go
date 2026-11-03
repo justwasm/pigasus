@@ -38,7 +38,7 @@ import (
 	piagent "github.com/MichaelKinsy/PiG/agent"
 	pi "github.com/MichaelKinsy/PiG/ai"
 
-	"github.com/justwasm/pigasus/internal/harnesstools"
+	"github.com/justwasm/pigasus/internal/app/harnesstools"
 )
 
 // harnessTools wraps the harness-side tools so their results come back in

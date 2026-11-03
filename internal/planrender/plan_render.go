@@ -262,8 +262,13 @@ func padCells(s string, width int) string {
 //
 // The wrap itself is charmbracelet/x/ansi's hard wrap. That is the
 // library the reference's own binary embeds: its seeds carry
-// charmbracelet/x/ansi's Hardwrap, Wordwrap and DecodeSequence
-// (out/seeds/funcs.txt), so the plan rows are wrapped the way the
+// charmbracelet/x/ansi's Hardwrap, Wordwrap and DecodeSequence, spelled
+// there `…/charmbracelet/x/ansi/v/v0/ansi.Method.Hardwrap`,
+// `…ansi.Method.Wordwrap` and `…ansi.Method.DecodeSequence` — the three
+// symbol names are the fact, and they are in the reference's
+// seed set: the live 1.4.11 Mach-O one, out/local-macos/seeds/funcs.txt
+// (the ELF-sandbox seed set that stood here before is retired). So the
+// plan rows are wrapped the way the
 // reference wraps them.
 //
 // The third argument keeps the spaces at the beginning of a line —

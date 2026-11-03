@@ -3,21 +3,26 @@ package agent
 import (
 	"errors"
 	"strconv"
-	"strings"
 
-	"github.com/justwasm/pigasus/internal/apierror"
+	"github.com/justwasm/pigasus/internal/core/apierror"
 )
 
-// TurnErrorRow renders the transcript row for a failed turn.
+// TurnErrorMessage classifies a failed turn into the message the
+// transcript row carries.
 //
 // The text comes from classifyAPIError when the failure is a model-API error,
 // so the TUI and the headless `error:` line agree on the reference's copy
 // (including the auth-expired / OAuth-scope replacements). Everything else —
 // a stream interrupt, a tool-budget exhaustion, a stall — keeps the loop's own
 // message, which is the only description of what happened.
-func TurnErrorRow(err error) string {
+//
+// The second value is false when there is no message at all — a nil
+// error. The caller then renders no row: the row itself is the ui
+// tier's business (toolsteps.ErrorRow), and this host only knows what
+// the turn failed with.
+func TurnErrorMessage(err error) (string, bool) {
 	if err == nil {
-		return ""
+		return "", false
 	}
 	message := ""
 	if api, ok := apierror.ClassifyAPIError(err); ok {
@@ -36,11 +41,11 @@ func TurnErrorRow(err error) string {
 	case errors.As(err, &maxDepth) && maxDepth.Last != nil:
 		message = "The turn stopped before it finished: " + causeText(maxDepth.Last)
 	}
-	return "Error: " + strings.TrimSpace(message)
+	return message, true
 }
 
-// causeText is TurnErrorRow's helper for a wrapped cause: it prefers the
-// reference's API copy over the raw transport string.
+// causeText is TurnErrorMessage's helper for a wrapped cause: it prefers
+// the reference's API copy over the raw transport string.
 func causeText(err error) string {
 	if api, ok := apierror.ClassifyAPIError(err); ok {
 		return api.Message

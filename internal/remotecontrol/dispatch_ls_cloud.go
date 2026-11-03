@@ -44,6 +44,8 @@ package remotecontrol
 import (
 	"encoding/json"
 	"strings"
+
+	"github.com/justwasm/pigasus/internal/remotecontrol/rpc"
 )
 
 // routeLSCloudMethods fans the language server's cloud surfaces out to
@@ -53,7 +55,7 @@ import (
 // dispatch_languageserver.go stays a table: that file's function is
 // already over the 50-line budget the rc-filesize-internal-remotecontrol
 // cycle enforces.
-func (d *Dispatcher) routeLSCloudMethods(method string, params json.RawMessage) (any, *rpcErrorBody, bool) {
+func (d *Dispatcher) routeLSCloudMethods(method string, params json.RawMessage) (any, *rpc.ErrorBody, bool) {
 	switch method {
 	case "ListEnvironments", "listEnvironments":
 		return d.handleLSListEnvironments(params)
@@ -81,14 +83,14 @@ func (d *Dispatcher) routeLSCloudMethods(method string, params json.RawMessage) 
 // The licence the clone reports is the account's own tier under the
 // project the caller named: there is no cloud project to assign a
 // licence to, and the tier is the one the account chip already shows.
-func (d *Dispatcher) handleLSSelfAssignLicense(params json.RawMessage) (any, *rpcErrorBody, bool) {
+func (d *Dispatcher) handleLSSelfAssignLicense(params json.RawMessage) (any, *rpc.ErrorBody, bool) {
 	var req struct {
 		ProjectID string `json:"projectId"`
 		Location  string `json:"location"`
 	}
 	if len(params) > 0 {
 		if err := json.Unmarshal(params, &req); err != nil {
-			return nil, &rpcErrorBody{Code: -32602, Message: "Invalid params", Data: err.Error()}, true
+			return nil, &rpc.ErrorBody{Code: -32602, Message: "Invalid params", Data: err.Error()}, true
 		}
 	}
 	projectID := strings.TrimSpace(req.ProjectID)
@@ -125,7 +127,7 @@ func (d *Dispatcher) handleLSSelfAssignLicense(params json.RawMessage) (any, *rp
 // wanted (BACKEND_TYPE_LOCAL, BACKEND_TYPE_REMOTE_AICODE,
 // BACKEND_TYPE_REMOTE_ENTERPRISE); the clone has one backend and no
 // environment of its own, so the answer does not depend on it.
-func (d *Dispatcher) handleLSListEnvironments(params json.RawMessage) (any, *rpcErrorBody, bool) {
+func (d *Dispatcher) handleLSListEnvironments(params json.RawMessage) (any, *rpc.ErrorBody, bool) {
 	_ = params
 	return map[string]any{"environments": []any{}}, nil, true
 }
@@ -145,7 +147,7 @@ func (d *Dispatcher) handleLSListEnvironments(params json.RawMessage) (any, *rpc
 // binds resources against — stays on the dashboard's own surface
 // (ListRemoteAgentResourceProviders): it is a different contract, with
 // different members, and the two are not the same thing.
-func (d *Dispatcher) handleLSListResourceProviders(params json.RawMessage) (any, *rpcErrorBody, bool) {
+func (d *Dispatcher) handleLSListResourceProviders(params json.RawMessage) (any, *rpc.ErrorBody, bool) {
 	_ = params
 	return map[string]any{"providers": []any{}}, nil, true
 }
@@ -159,7 +161,7 @@ func (d *Dispatcher) handleLSListResourceProviders(params json.RawMessage) (any,
 //
 // The clone holds no cloud resource and no cloud OAuth token, so the
 // lists and the two token members are empty.
-func (d *Dispatcher) handleLSListAvailableResources(params json.RawMessage) (any, *rpcErrorBody, bool) {
+func (d *Dispatcher) handleLSListAvailableResources(params json.RawMessage) (any, *rpc.ErrorBody, bool) {
 	_ = params
 	return map[string]any{
 		"resources":        []any{},

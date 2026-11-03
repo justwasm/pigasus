@@ -42,6 +42,8 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"strings"
+
+	"github.com/justwasm/pigasus/internal/remotecontrol/rpc"
 )
 
 // lsMediaItem is the proto-JSON shape of exa.codeium_common_pb.Media —
@@ -83,18 +85,18 @@ func (m lsMediaItem) mediaBytes() ([]byte, bool) {
 //
 // The answer is the artifact's uri: the handle the frontend keeps
 // beside the picture it already holds.
-func (d *Dispatcher) handleSaveMediaAsArtifact(params json.RawMessage) (any, *rpcErrorBody, bool) {
+func (d *Dispatcher) handleSaveMediaAsArtifact(params json.RawMessage) (any, *rpc.ErrorBody, bool) {
 	var req struct {
 		Media lsMediaItem `json:"media"`
 	}
 	if len(params) > 0 {
 		if err := json.Unmarshal(params, &req); err != nil {
-			return nil, &rpcErrorBody{Code: -32602, Message: "Invalid params", Data: err.Error()}, true
+			return nil, &rpc.ErrorBody{Code: -32602, Message: "Invalid params", Data: err.Error()}, true
 		}
 	}
 	data, ok := req.Media.mediaBytes()
 	if !ok {
-		return nil, &rpcErrorBody{
+		return nil, &rpc.ErrorBody{
 			Code:    -32602,
 			Message: "Invalid params",
 			Data:    "media.inlineData is required",
@@ -110,18 +112,18 @@ func (d *Dispatcher) handleSaveMediaAsArtifact(params json.RawMessage) (any, *rp
 // message; the clone answers the flag and leaves the message out when
 // there was nothing to report — proto-JSON omits a field that holds
 // its default.
-func (d *Dispatcher) handleDeleteMediaArtifact(params json.RawMessage) (any, *rpcErrorBody, bool) {
+func (d *Dispatcher) handleDeleteMediaArtifact(params json.RawMessage) (any, *rpc.ErrorBody, bool) {
 	var req struct {
 		URI string `json:"uri"`
 	}
 	if len(params) > 0 {
 		if err := json.Unmarshal(params, &req); err != nil {
-			return nil, &rpcErrorBody{Code: -32602, Message: "Invalid params", Data: err.Error()}, true
+			return nil, &rpc.ErrorBody{Code: -32602, Message: "Invalid params", Data: err.Error()}, true
 		}
 	}
 	uri := strings.TrimSpace(req.URI)
 	if uri == "" {
-		return nil, &rpcErrorBody{Code: -32602, Message: "Invalid params", Data: "uri is required"}, true
+		return nil, &rpc.ErrorBody{Code: -32602, Message: "Invalid params", Data: "uri is required"}, true
 	}
 	if !mediaArtifacts.delete(uri) {
 		return map[string]any{

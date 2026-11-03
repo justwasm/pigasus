@@ -18,13 +18,11 @@ package cliapp
 
 import (
 	"context"
-	"strings"
-	"time"
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/justwasm/pigasus/internal/accounts"
-	"github.com/justwasm/pigasus/internal/auth"
+	accounts "github.com/justwasm/pigasus/internal/features/accounts/core"
+	"github.com/justwasm/pigasus/internal/features/auth"
 )
 
 // syncAccountIdentity re-reads the shared credential and updates the
@@ -52,17 +50,6 @@ func (m *runMode) syncAccountIdentity() tea.Cmd {
 	return m.fetchPlanTierCmd()
 }
 
-// registerCurrentAccount adds the credential the session starts on to the
-// registry.
-//
-// The email comes from the caller: the userinfo probe resolves it when the
-// token's id_token carries no email claim any more — a token the
-// reference refreshed loses its id_token. A missing credential is not an
-// error; the session simply starts signed out.
-func registerCurrentAccount(email string) {
-	accounts.RegisterCurrent(email)
-}
-
 // ---- merged from account_quota.go ----
 // account_quota.go — cycle accounts-tier-usage: the per-account quota
 // and tier lookups the /accounts panel shows.
@@ -84,8 +71,8 @@ func registerCurrentAccount(email string) {
 // The quota is queried for every account, because that is what the
 // panel shows. It is fetched one account at a time — a registry with
 // five accounts must not fire five refresh-token exchanges at once —
-// and the answer is cached, so opening the panel twice in a row costs
-// one fetch.
+// and the answer is cached in the registry, so opening the panel twice
+// in a row costs one fetch and the /usage panel reuses it.
 //
 // # The credential each query uses
 //
@@ -104,112 +91,56 @@ type accountsQuotaMsg struct {
 }
 
 // fetchAccountQuotaCmd fetches one account's quota summary with that
-// account's own credential and caches the result in the registry.
+// account's own credential.
 //
-// The cache write happens here, in the goroutine, so the UI thread
-// never blocks on the registry file.
+// The fetch writes the snapshot into the registry, so the /usage panel
+// and the status line read the same numbers back instead of querying
+// the same account a second time.
 //
-// The budget is 45 seconds because the call can be two round trips: a
-// token refresh (the OAuth endpoint measured 9 s from this machine)
-// and the quota call itself (6.9 s). A shorter budget turned a slow
-// but successful fetch into a timeout.
+// The budget is the registry's (accounts.QuotaTimeout): the call can be
+// two round trips — a token refresh (the OAuth endpoint measured 9 s
+// from this machine) and the quota call itself (6.9 s). A shorter
+// budget turned a slow but successful fetch into a timeout.
 func fetchAccountQuotaCmd(email string) tea.Cmd {
 	return func() tea.Msg {
-		ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), accounts.QuotaTimeout)
 		defer cancel()
-		summary, err := fetchAccountQuota(ctx, email)
+		summary, err := accounts.FetchQuota(ctx, email)
 		return accountsQuotaMsg{email: email, summary: summary, err: err}
 	}
 }
 
-// fetchAccountQuota queries one account's quota and caches it.
-func fetchAccountQuota(ctx context.Context, email string) (*auth.QuotaSummary, error) {
-	return accounts.FetchQuota(ctx, email)
-}
+// ---- the quota cache -------------------------------------------------
 
-// updateAccountsQuotaMsg handles one account's quota fetch result.
+// cachedQuota returns the account's cached quota summary when the
+// registry's snapshot is still fresh enough to render.
 //
-// The panel may have been closed while the request was in flight, so
-// the panel's own state is only touched while it is the open panel.
-// The next account in the queue is started either way — the queue is
-// the panel's, but a fetch that is already running must not be
-// orphaned.
-func (m *runMode) updateAccountsQuotaMsg(msg accountsQuotaMsg) tea.Cmd {
-	// The finished account leaves the queue, whether the panel is still
-	// open or not: a queue that keeps a finished entry would stall.
-	if len(m.panel.acct.quotaQueue) > 0 &&
-		strings.EqualFold(m.panel.acct.quotaQueue[0], msg.email) {
-		m.panel.acct.quotaQueue = m.panel.acct.quotaQueue[1:]
-	}
-	if m.panel.kind == panelAccounts {
-		if msg.err != nil {
-			m.panel.acct.quotaErr = msg.err.Error()
-		} else if msg.summary != nil {
-			m.cacheQuota(msg.email, msg.summary)
-			m.panel.acct.quotaErr = ""
-		}
-		// Pick up the snapshot the fetch cached in the registry.
-		m.reloadAccountsRows()
-	}
-	return m.nextAccountsQuotaCmd()
-}
-
-// accountAccessToken returns the credential to query an account's quota
-// with.
+// The registry owns the snapshot: the /accounts panel's fetch writes it
+// and the /usage panel and the status line read it back, so the same
+// account is never queried twice. The freshness rule is the registry's
+// (accounts.QuotaFreshness), not the host's.
 //
-// The active account is queried with the shared credential: that is the
-// credential the session talks with, and a refresh of it belongs in the
-// shared credential. An inactive account is queried with its own stored
-// token, refreshed quietly.
-//
-// The shared credential is read *once*: the token that answers the
-// request and the decision "is this the active account?" have to come
-// from the same read, or a switch in between would query one account
-// and file the answer under another.
-func accountAccessToken(ctx context.Context, email string, acc accounts.Account) (*auth.AntigravityToken, error) {
-	return accounts.AccessToken(ctx, email, acc)
-}
-
-// ---- the session's quota cache -----------------------------------------
-
-// quotaCacheEntry is one account's cached quota summary.
-type quotaCacheEntry struct {
-	summary   *auth.QuotaSummary
-	fetchedAt time.Time
-}
-
-// quotaCacheFresh is how long a cached summary is reused instead of
-// being queried again.
-//
-// The quota moves in hours, not in seconds: the five-hour window
-// creeps and the weekly window creeps. Two minutes is short enough
-// that the numbers are current and long enough that opening /usage
-// right after /accounts does not query the same account twice.
-const quotaCacheFresh = 2 * time.Minute
-
-// cachedQuota returns the cached summary for an account when it is
-// still fresh enough to render.
+// The method is the session's seam to the registry. Its callers live in
+// files this tranche does not own, so the seam stays here until they
+// name accounts.FreshQuota themselves.
 func (m *runMode) cachedQuota(email string) *auth.QuotaSummary {
-	if m == nil || email == "" || m.quotaCache == nil {
+	if m == nil || email == "" {
 		return nil
 	}
-	entry, ok := m.quotaCache[email]
-	if !ok || entry.summary == nil {
-		return nil
-	}
-	if time.Since(entry.fetchedAt) > quotaCacheFresh {
-		return nil
-	}
-	return entry.summary
+	return accounts.FreshQuota(email)
 }
 
-// cacheQuota remembers an account's summary for the session.
+// cacheQuota stores an account's quota summary in the registry.
+//
+// The registry owns the snapshot: the /usage panel's answer is written
+// there, so the status line reads the same numbers back and the /usage
+// panel does not query the same account a second time.
+//
+// The registry keeps the snapshot, so the write is the registry's and
+// not the session's: a second session reads the same numbers.
 func (m *runMode) cacheQuota(email string, summary *auth.QuotaSummary) {
 	if m == nil || email == "" || summary == nil {
 		return
 	}
-	if m.quotaCache == nil {
-		m.quotaCache = map[string]quotaCacheEntry{}
-	}
-	m.quotaCache[email] = quotaCacheEntry{summary: summary, fetchedAt: time.Now()}
+	_ = accounts.SetQuota(email, summary.Snapshot())
 }

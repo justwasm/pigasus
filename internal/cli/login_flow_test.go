@@ -23,7 +23,7 @@ import (
 
 	"golang.org/x/oauth2"
 
-	"github.com/justwasm/pigasus/internal/auth"
+	"github.com/justwasm/pigasus/internal/features/auth"
 )
 
 // fakeDeviceServer imitates oauth2.googleapis.com's /device/code +

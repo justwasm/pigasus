@@ -15,7 +15,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/justwasm/pigasus/internal/convstore"
+	"github.com/justwasm/pigasus/internal/app/session/convstore"
 )
 
 // MentionPrefix is the trigger the user types at the prompt.

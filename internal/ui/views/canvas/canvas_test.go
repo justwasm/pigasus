@@ -1,4 +1,4 @@
-// Tests for internal/canvas. The package adds vito/midterm-backed
+// Tests for internal/ui/views/canvas. The package adds vito/midterm-backed
 // highlight ranges to chat-transcript lines; the tests pin the
 // observable behaviour:
 //

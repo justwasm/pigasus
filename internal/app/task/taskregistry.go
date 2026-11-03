@@ -36,11 +36,10 @@ import (
 type Kind string
 
 const (
-	KindShell     Kind = "shell"     // internal/subagent.NewSubagent("bash", …)
-	KindSubagent  Kind = "subagent"  // invoke_subagent tool (cycle 228+ in flight)
-	KindTimer     Kind = "timer"     // one-shot delayed tool (no cycle yet)
-	KindRecurring Kind = "recurring" // cron / interval tool (no cycle yet)
-	KindOther     Kind = "other"     // catch-all
+	KindShell    Kind = "shell"    // internal/app/subagent/core.NewSubagent("bash", …)
+	KindSubagent Kind = "subagent" // invoke_subagent tool (cycle 228+ in flight)
+	KindTimer    Kind = "timer"    // one-shot delayed tool (no cycle yet)
+	KindOther    Kind = "other"    // catch-all
 )
 
 // State is the lifecycle stage of a registered task. /tasks colours
@@ -102,6 +101,12 @@ type Task struct {
 	// is "No steps yet" (0x10346f0a3); see
 	// docs/cycles/cycle-317-tui-subagent-trajectory/deliverable.md.
 	Steps []string
+	// CurrentTool is the name of the tool currently executing, or empty
+	// if the task/subagent is not in a tool call.
+	CurrentTool string
+	// LastActivityAt records the last time any event, token, or tool
+	// execution was observed for this task.
+	LastActivityAt time.Time
 	// hidden is true once a user removes a task via the x key. Hidden
 	// tasks are still in the map (so late subscribers see the full
 	// history) but List() filters them out and the panel renders the
@@ -122,6 +127,10 @@ type Registry struct {
 	// inserted; Update mutates the existing entry in place so
 	// subscribers can hold a stable pointer.
 	tasks map[string]*Task
+	// handles maps ID → *TaskHandle for active control (cancel, abort, resume, activity).
+	handles map[string]*TaskHandle
+	// recording guards against recursive RecordActivity calls.
+	recording map[string]bool
 	// subs is the fan-out list. Every successful Register/Update
 	// copies the (id, *Task) pair into a freshly-allocated slice
 	// and sends it on every open subscriber channel. The non-blocking
@@ -154,7 +163,10 @@ type TaskEvent struct {
 
 // New returns an empty Registry.
 func New() *Registry {
-	return &Registry{tasks: make(map[string]*Task)}
+	return &Registry{
+		tasks:   make(map[string]*Task),
+		handles: make(map[string]*TaskHandle),
+	}
 }
 
 // Register inserts t into the registry and emits a "registered"
@@ -178,6 +190,9 @@ func (r *Registry) Register(t *Task) string {
 	}
 	if t.StartedAt.IsZero() {
 		t.StartedAt = time.Now()
+	}
+	if t.LastActivityAt.IsZero() {
+		t.LastActivityAt = t.StartedAt
 	}
 	if t.State == "" {
 		t.State = StatePending
@@ -246,6 +261,35 @@ func (r *Registry) List() []*Task {
 	out := make([]*Task, 0, len(r.tasks))
 	for _, t := range r.tasks {
 		if t.hidden {
+			continue
+		}
+		out = append(out, t)
+	}
+	sort.Slice(out, func(i, j int) bool {
+		return out[i].StartedAt.Before(out[j].StartedAt)
+	})
+	return out
+}
+
+// Active returns the tasks that are running or pending, sorted by
+// StartedAt ascending.
+//
+// The active-items block under the prompt shows exactly these: the
+// work the session has in flight. A finished, failed, killed or
+// removed task is not in the block — it stays in the /tasks panel,
+// which keeps the whole history.
+//
+// The order is the registry's own: the rows read in the order the work
+// started, so the block is stable while the session runs.
+func (r *Registry) Active() []*Task {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	out := make([]*Task, 0, len(r.tasks))
+	for _, t := range r.tasks {
+		if t.hidden {
+			continue
+		}
+		if t.State != StateRunning && t.State != StatePending {
 			continue
 		}
 		out = append(out, t)
@@ -386,7 +430,7 @@ func (r *Registry) fanout(ev TaskEvent) {
 // fmtMintID builds the synthetic ID for callers that did not supply
 // one. The format matches the subagent ID style ("task-<nanos>-<n>")
 // so a glance at a log line is enough to tell whether the task came
-// from internal/subagent or the registry. We do NOT depend on
+// from internal/app/subagent/core or the registry. We do NOT depend on
 // time.Now() so two calls in the same nanosecond still get distinct
 // IDs.
 func fmtMintID(n uint64) string {
@@ -400,21 +444,7 @@ func fmtMintID(n uint64) string {
 // racing the bool.
 var ErrClosed = errors.New("taskregistry: registry is closed")
 
-// nowFn returns the current time. Tests can override it via
-// SetClock to make assertions deterministic; production callers
+// nowFn returns the current time. It is the seam the package's own
+// tests override to make assertions deterministic; production callers
 // never touch it.
 var nowFn = time.Now
-
-// SetClock swaps the clock used by Register (StartedAt default)
-// and the subagent bridge (StartedAt / EndedAt). Pass nil to
-// restore the default. Tests must call the returned restore func
-// so the package-level nowFn does not leak across test files.
-func SetClock(fn func() time.Time) (restore func()) {
-	prev := nowFn
-	if fn != nil {
-		nowFn = fn
-	} else {
-		nowFn = time.Now
-	}
-	return func() { nowFn = prev }
-}

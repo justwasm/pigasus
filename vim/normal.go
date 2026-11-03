@@ -10,14 +10,18 @@ func (s *State) handleNormalCtrl(k Key) (Result, bool) {
 	case k.Name == "enter" || k.Rune == 's':
 		return Result{Consumed: true, Submit: true}, true
 	case k.Rune == 'r':
+		// Ctrl+R does not redo. The reference opens the artifact review
+		// with it — its own /help catalogue says "ctrl+r  Review
+		// artifact" — so the engine must leave the undo and the redo
+		// stack alone and only drop the half-typed sequence. The redo
+		// key is "U" (see parseActionCommand).
 		s.clearPending()
-		s.redoOp()
 		return Result{Consumed: true}, true
 	case k.Rune == 'j':
 		// Vim's <C-j> is a plain down-motion. Consume it here so the
 		// host's insert-newline fallback never fires in Normal mode.
 		s.clearPending()
-		s.applyMotion(motionDown, 1, 0)
+		s.applyMotion(motionDown, 0)
 		return Result{Consumed: true}, true
 	}
 	return Result{}, true // other chords (ctrl+o/g/c/d/l…) belong to the host
@@ -42,7 +46,7 @@ func (s *State) handleNormalNav(name string) bool {
 		return false
 	}
 	s.clearPending()
-	s.applyMotion(m, 1, 0)
+	s.applyMotion(m, 0)
 	return true
 }
 

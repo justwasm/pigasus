@@ -7,12 +7,13 @@ import (
 	"testing"
 
 	"github.com/justwasm/pigasus/internal/cli"
+	"github.com/justwasm/pigasus/internal/features/tools/skills"
 )
 
-func withSyntheticCatalog(t *testing.T, skills []jsonSkillInfo) {
+func withSyntheticCatalog(t *testing.T, catalog []skills.SkillInfo) {
 	t.Helper()
 	orig := slashSkillCatalogHook
-	slashSkillCatalogHook = func() []jsonSkillInfo { return skills }
+	slashSkillCatalogHook = func() []skills.SkillInfo { return catalog }
 	t.Cleanup(func() { slashSkillCatalogHook = orig })
 }
 
@@ -29,7 +30,9 @@ func writeSkillMD(t *testing.T, body string) string {
 func newStandardFlagSetForTest(t *testing.T, args []string) *flag.FlagSet {
 	t.Helper()
 	p := cli.NewParser(cli.StandardFlags(), cli.StandardSubcommands(),
-		"antigravity", "recovered", "recovered")
+		"antigravity", "recovered", "recovered",
+		cli.FlagSpec{Name: "format", Type: "string", Usage: "Alias for --output-format (text, json, stream-json)"},
+	)
 	if code := p.Root().Parse(args); code != 0 {
 		t.Fatalf("Parse(%v) = %d", args, code)
 	}

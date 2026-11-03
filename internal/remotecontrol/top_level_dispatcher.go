@@ -37,6 +37,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/justwasm/pigasus/internal/remotecontrol/rpc"
 )
 
 // ----- AllSinks set (dispatcher-level) -----
@@ -154,9 +156,9 @@ func (d *Dispatcher) AllSinkConnIDs() []string {
 // Nil-safe: a dispatcher with bare-bones Config
 // (no Session, no cascades) returns a populated
 // envelope with zero values rather than panicking.
-func (d *Dispatcher) handleRemoteControlStatus() (any, *rpcErrorBody) {
+func (d *Dispatcher) handleRemoteControlStatus() (any, *rpc.ErrorBody) {
 	if d == nil {
-		return nil, internalError("dispatcher is nil")
+		return nil, rpc.InternalError("dispatcher is nil")
 	}
 	snap := d.topLevelStatus()
 	return snap, nil
@@ -195,20 +197,20 @@ func (d *Dispatcher) handleRemoteControlStatus() (any, *rpcErrorBody) {
 // Error envelopes:
 //
 //   - non-string sink_id → -32602
-func (d *Dispatcher) handleRemoteControlOnOutput(ctx context.Context, params json.RawMessage) (any, *rpcErrorBody) {
+func (d *Dispatcher) handleRemoteControlOnOutput(ctx context.Context, params json.RawMessage) (any, *rpc.ErrorBody) {
 	if d == nil {
-		return nil, internalError("dispatcher is nil")
+		return nil, rpc.InternalError("dispatcher is nil")
 	}
 	var p struct {
 		SinkID string `json:"sink_id"`
 	}
 	if len(params) > 0 && string(params) != "null" {
 		if err := jsonUnmarshal(params, &p); err != nil {
-			return nil, invalidParams(err.Error())
+			return nil, rpc.InvalidParams(err.Error())
 		}
 	}
-	if nonStringFieldInJSON(params, "sink_id", p.SinkID) {
-		return nil, invalidParams("sink_id must be a string")
+	if rpc.NonStringFieldInJSON(params, "sink_id", p.SinkID) {
+		return nil, rpc.InvalidParams("sink_id must be a string")
 	}
 	sinkID := strings.TrimSpace(p.SinkID)
 	if sinkID == "" {
@@ -281,9 +283,9 @@ func (d *Dispatcher) handleRemoteControlOnOutput(ctx context.Context, params jso
 //   - marshal failure on the inner frame → -32603
 //     (defensive; encoding/json can't fail on the
 //     shapes this handler accepts in practice).
-func (d *Dispatcher) handleRemoteControlOnMessage(ctx context.Context, params json.RawMessage) (any, *rpcErrorBody) {
+func (d *Dispatcher) handleRemoteControlOnMessage(ctx context.Context, params json.RawMessage) (any, *rpc.ErrorBody) {
 	if d == nil {
-		return nil, internalError("dispatcher is nil")
+		return nil, rpc.InternalError("dispatcher is nil")
 	}
 	method, innerParams, perr := decodeRemoteControlOnMessage(params)
 	if perr != nil {
@@ -295,7 +297,7 @@ func (d *Dispatcher) handleRemoteControlOnMessage(ctx context.Context, params js
 	// dashboards tried to use the surface for what.
 	if !isRemoteControlOnMessageAllowed(method) {
 		log.Printf("rc-top-level-rpc: remoteControlOnMessage rejected method=%q conn=%q", method, connIDFromContext(ctx))
-		return nil, &rpcErrorBody{
+		return nil, &rpc.ErrorBody{
 			Code:    -32603,
 			Message: "Internal error",
 			Data:    "rejected by gatekeeper: " + method,
@@ -310,7 +312,7 @@ func (d *Dispatcher) handleRemoteControlOnMessage(ctx context.Context, params js
 	innerRaw, err := buildRemoteControlInnerFrame(method, innerParams)
 	if err != nil {
 		log.Printf("rc-top-level-rpc: remoteControlOnMessage marshal failure method=%q: %v", method, err)
-		return nil, internalError("inner marshal failure: " + err.Error())
+		return nil, rpc.InternalError("inner marshal failure: " + err.Error())
 	}
 	// The inner Dispatch writes its response frame
 	// to whatever transport the outer caller came

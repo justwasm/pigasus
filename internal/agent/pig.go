@@ -33,7 +33,8 @@ import (
 	piagent "github.com/MichaelKinsy/PiG/agent"
 	pi "github.com/MichaelKinsy/PiG/ai"
 
-	"github.com/justwasm/pigasus/internal/backend"
+	"github.com/justwasm/pigasus/internal/core/backend"
+	"github.com/justwasm/pigasus/internal/infra/backend/gateway"
 	"github.com/justwasm/pigasus/internal/piagentbridge"
 )
 
@@ -120,7 +121,7 @@ func (l *Loop) buildAgentOptions(
 		agentOptions.Model = bound
 		agentOptions.StreamFn = piagentbridge.ProviderStreamFn()
 		sink.noteTransport(backend.ChunkMeta{
-			SystemFingerprint: backend.GatewaySystemFingerprint(provider.Endpoint(), provider.WireModel()),
+			SystemFingerprint: gateway.GatewaySystemFingerprint(provider.Endpoint(), provider.WireModel()),
 		})
 		return agentOptions
 	}

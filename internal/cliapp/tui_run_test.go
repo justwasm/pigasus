@@ -35,17 +35,37 @@ import (
 	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/charmbracelet/x/ansi"
 
-	"github.com/justwasm/pigasus/internal/announce"
-	"github.com/justwasm/pigasus/internal/backend"
-	"github.com/justwasm/pigasus/internal/branding"
+	"github.com/justwasm/pigasus/internal/agent"
+	"github.com/justwasm/pigasus/internal/app/session/convstore"
+	"github.com/justwasm/pigasus/internal/app/subagent/questions"
+	"github.com/justwasm/pigasus/internal/app/tools"
+	"github.com/justwasm/pigasus/internal/app/tuistore"
 	"github.com/justwasm/pigasus/internal/cli"
-	"github.com/justwasm/pigasus/internal/configtest"
-	"github.com/justwasm/pigasus/internal/convstore"
-	"github.com/justwasm/pigasus/internal/keybind"
-	"github.com/justwasm/pigasus/internal/loginui"
-	"github.com/justwasm/pigasus/internal/permissions"
-	tuilib "github.com/justwasm/pigasus/internal/tuilib"
-	"github.com/justwasm/pigasus/internal/wordmove"
+	"github.com/justwasm/pigasus/internal/core/apierror"
+	"github.com/justwasm/pigasus/internal/core/backend"
+	"github.com/justwasm/pigasus/internal/core/branding"
+	"github.com/justwasm/pigasus/internal/core/policy/permissions"
+	"github.com/justwasm/pigasus/internal/features/models/configtest"
+	"github.com/justwasm/pigasus/internal/features/tools/bashmode"
+	"github.com/justwasm/pigasus/internal/infra/backend/gateway"
+	backendselect "github.com/justwasm/pigasus/internal/infra/backend/select"
+	"github.com/justwasm/pigasus/internal/ui/editor/keybind"
+	"github.com/justwasm/pigasus/internal/ui/editor/wordmove"
+	tuiviewport "github.com/justwasm/pigasus/internal/ui/foundations/viewport"
+	"github.com/justwasm/pigasus/internal/ui/mdrender"
+	"github.com/justwasm/pigasus/internal/ui/panelregistry"
+	termcolor "github.com/justwasm/pigasus/internal/ui/render/color"
+	"github.com/justwasm/pigasus/internal/ui/slashcommands"
+	"github.com/justwasm/pigasus/internal/ui/toolsteps"
+	"github.com/justwasm/pigasus/internal/ui/transcript"
+	tuilib "github.com/justwasm/pigasus/internal/ui/tuilib"
+	"github.com/justwasm/pigasus/internal/ui/views/announce"
+	"github.com/justwasm/pigasus/internal/ui/views/contextpanel"
+	"github.com/justwasm/pigasus/internal/ui/views/loginui"
+	"github.com/justwasm/pigasus/internal/ui/views/modelpicker"
+	"github.com/justwasm/pigasus/internal/ui/views/programstatus"
+	"github.com/justwasm/pigasus/internal/ui/views/statusline"
+	"github.com/justwasm/pigasus/palette"
 	"github.com/justwasm/pigasus/vim"
 )
 
@@ -82,7 +102,7 @@ func (f *fakeClient) Stream(ctx context.Context, req backend.StreamRequest) (<-c
 
 // Test_EnterSendsPrompt verifies that Enter submits the prompt.
 func Test_EnterSendsPrompt(t *testing.T) {
-	m := NewRunMode(&fakeClient{}, "user@test", "claude-4.5-sonnet", "starter", "/tmp", true)
+	m := newRunMode(&fakeClient{}, "user@test", "claude-4.5-sonnet", "starter", "/tmp", true)
 	m.Update(runeKey('h'))
 	m.Update(runeKey('i'))
 	if got := m.input.Value(); got != "hi" {
@@ -100,7 +120,7 @@ func Test_EnterSendsPrompt(t *testing.T) {
 
 // Test_CtrlJNewline verifies that Ctrl+J inserts a newline.
 func Test_CtrlJNewline(t *testing.T) {
-	m := NewRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
 	m.Update(runeKey('a'))
 	m.Update(ctrlKey('j'))
 	m.Update(runeKey('b'))
@@ -115,7 +135,7 @@ func Test_CtrlJNewline(t *testing.T) {
 
 // Test_ShiftEnterNewline verifies Shift+Enter inserts newline.
 func Test_ShiftEnterNewline(t *testing.T) {
-	m := NewRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
 	m.Update(runeKey('a'))
 	m.Update(shiftEnterKey())
 	m.Update(runeKey('b'))
@@ -127,7 +147,7 @@ func Test_ShiftEnterNewline(t *testing.T) {
 
 // Test_BufferInsertSingleKey verifies ordinary rune insertion.
 func Test_BufferInsertSingleKey(t *testing.T) {
-	m := NewRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
 	for _, r := range "hello" {
 		m.Update(runeKey(r))
 	}
@@ -139,7 +159,7 @@ func Test_BufferInsertSingleKey(t *testing.T) {
 // Test_ViewAltScreen verifies View() returns AltScreen=true with
 // a Cursor pointing into the textarea.
 func Test_ViewAltScreen(t *testing.T) {
-	m := NewRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
 	for _, r := range "hi" {
 		m.Update(runeKey(r))
 	}
@@ -160,7 +180,7 @@ func Test_ViewAltScreen(t *testing.T) {
 // MouseMode is kept at None so that terminal-native text selection and
 // Cmd+click on hyperlinks are preserved while on the login modal.
 func Test_LoginViewKeepsAltScreen(t *testing.T) {
-	m := NewRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
 	m.login = loginui.New()
 	v := m.View()
 	if !v.AltScreen {
@@ -175,7 +195,7 @@ func Test_LoginViewKeepsAltScreen(t *testing.T) {
 // must not force the alternate screen on when the session was started
 // without it.
 func Test_LoginViewRespectsNoAltScreen(t *testing.T) {
-	m := NewRunMode(&fakeClient{}, "u@t", "m", "t", "/", false)
+	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", false)
 	m.login = loginui.New()
 	if v := m.View(); v.AltScreen {
 		t.Error("the login view must not turn the alternate screen on")
@@ -184,7 +204,7 @@ func Test_LoginViewRespectsNoAltScreen(t *testing.T) {
 
 // Test_CtrlLClearsScreen verifies that Ctrl+L clears the screen and resets scroll.
 func Test_CtrlLClearsScreen(t *testing.T) {
-	m := NewRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
 	m.scroll = 42
 	_, cmd := m.Update(ctrlKey('l'))
 	if m.scroll != 0 {
@@ -204,7 +224,7 @@ func Test_CtrlLClearsScreen(t *testing.T) {
 // selection overlay replaces the cycle-166 "use the host terminal's
 // selection at the cost of wheel scroll" trade-off.
 func Test_MouseModeConstant(t *testing.T) {
-	m := NewRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
 	v := m.View()
 	if v.MouseMode != tea.MouseModeCellMotion {
 		t.Errorf("default altScreen: got %v, want CellMotion", v.MouseMode)
@@ -223,7 +243,7 @@ func Test_MouseModeConstant(t *testing.T) {
 
 // Test_SessionAccumulatesTurns verifies cycle 70b multi-turn.
 func Test_SessionAccumulatesTurns(t *testing.T) {
-	m := NewRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
 	for _, r := range "hi" {
 		m.Update(runeKey(r))
 	}
@@ -251,7 +271,7 @@ func Test_SessionAccumulatesTurns(t *testing.T) {
 // Test_InputBetweenSeps verifies cycle 71: View() wraps the
 // textarea between two horizontal rules.
 func Test_InputBetweenSeps(t *testing.T) {
-	m := NewRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
 	v := m.View()
 	view := v.Content
 	// At least two separator runs should appear (one above, one
@@ -265,7 +285,7 @@ func Test_InputBetweenSeps(t *testing.T) {
 // Test_DynamicHeightGrows verifies cycle 71: multi-line content
 // makes m.input.Height() > 1.
 func Test_DynamicHeightGrows(t *testing.T) {
-	m := NewRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
 	m.input.SetValue("line1\nline2\nline3")
 	h := m.input.Height()
 	if h < 2 {
@@ -276,7 +296,7 @@ func Test_DynamicHeightGrows(t *testing.T) {
 // Test_TextareaCursorTracksText verifies the cursor position
 // tracks the textarea content (cycle 71 fix).
 func Test_TextareaCursorTracksText(t *testing.T) {
-	m := NewRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
 	m.input.SetValue("hello world")
 	// Move to end via the textarea's CharacterForward binding (ctrl+f).
 	for i := 0; i < 50; i++ {
@@ -298,7 +318,7 @@ var _ = tas.New
 // Test_PromptPrefixMatchesRef verifies cycle 74: prompt prefix is "> "
 // not " " (matches v1.3.5 binary byte-for-byte).
 func Test_PromptPrefixMatchesRef(t *testing.T) {
-	m := NewRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
 	if m.input.Prompt != "> " {
 		t.Fatalf("expected input.Prompt='> ', got %q (cycle 74)", m.input.Prompt)
 	}
@@ -314,7 +334,7 @@ func Test_PromptPrefixMatchesRef(t *testing.T) {
 // \x1b[39m (foreground reset) or \x1b[m (full SGR reset) as the
 // close — both render identically, so the test accepts either.
 func Test_IdlePromptHasMarker(t *testing.T) {
-	m := NewRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
 	v := m.View()
 	view := v.Content
 	hasBlueOpen := strings.Contains(view, "\x1b[38;2;38;139;210m>")
@@ -331,7 +351,7 @@ func Test_IdlePromptHasMarker(t *testing.T) {
 // 256-colour fallback 38;2;101;123;131 which is the same shade in tmux
 // but distinguishable in a real terminal).
 func Test_PickerVisibleStatusLabel(t *testing.T) {
-	m := NewRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
 	m.Update(runeKey('/'))
 	if !m.picker.Visible() {
 		t.Fatal("picker should be visible after typing '/'")
@@ -351,7 +371,7 @@ func Test_PickerVisibleStatusLabel(t *testing.T) {
 // Test_PickerHiddenStatusLabel verifies that when picker is hidden
 // the status row shows "? for shortcuts" (idle behavior).
 func Test_PickerHiddenStatusLabel(t *testing.T) {
-	m := NewRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
 	if m.picker.Visible() {
 		t.Fatal("picker should be hidden in idle state")
 	}
@@ -370,9 +390,9 @@ func Test_PickerHiddenStatusLabel(t *testing.T) {
 // which is the same shade in tmux but distinguishable in a real
 // terminal; cycle 126 normalises to 24-bit RGB.
 func Test_PickerHighlightColorIs69(t *testing.T) {
-	m := NewRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
 	m.Update(runeKey('/'))
-	rows := m.pickerView()
+	rows := m.picker.Rows()
 	if !strings.Contains(rows, "\033[38;2;38;139;210m") {
 		t.Fatalf("picker highlight should contain \\033[38;2;38;139;210m (true-colour blue), got %q (cycle 74/126)", rows)
 	}
@@ -382,9 +402,9 @@ func Test_PickerHighlightColorIs69(t *testing.T) {
 // are rendered in dim gray (matches ref binary). Cycle 126 normalised
 // the colour from 256-colour 38;5;238 to true-colour 38;2;101;123;131.
 func Test_PickerDescriptionDim(t *testing.T) {
-	m := NewRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
 	m.Update(runeKey('/'))
-	rows := m.pickerView()
+	rows := m.picker.Rows()
 	if !strings.Contains(rows, "\033[38;2;101;123;131m") {
 		t.Fatalf("picker rows should contain true-colour dim gray 38;2;101;123;131, got %q (cycle 74/126)", rows)
 	}
@@ -393,7 +413,7 @@ func Test_PickerDescriptionDim(t *testing.T) {
 // Test_CursorOnPromptLine verifies cycle 74f: cursor lands on the
 // prompt line (not on the second separator or picker row).
 func Test_CursorOnPromptLine(t *testing.T) {
-	m := NewRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
 	v := m.View()
 	// Layout: top blank + 5 banner + blank + top sep + prompt line.
 	// 0-indexed prompt line Y = 8.
@@ -405,7 +425,7 @@ func Test_CursorOnPromptLine(t *testing.T) {
 // Test_CursorTracksTypedText verifies cycle 74f: cursor X moves
 // with each rune insertion (matches v1.3.5 binary).
 func Test_CursorTracksTypedText(t *testing.T) {
-	m := NewRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
 	v := m.View()
 	idleX := v.Cursor.X
 	for _, r := range "hello" {
@@ -439,11 +459,11 @@ func Test_CursorTracksTypedText(t *testing.T) {
 // Cycle 361 adds /pool: the /accounts panel's Pool tab on its own — the
 // account-routing policy that decides which account serves a turn.
 func Test_PickerCatalogMatchesRef(t *testing.T) {
-	got := len(tuilib.DefaultSlashCommands)
+	got := len(slashcommands.Default)
 	if got != 109 {
 		t.Fatalf("expected 109 slash commands in catalog (105 ref + /feature-diff + /accounts + /provider + /pool), got %d", got)
 	}
-	filtered := len(tuilib.FilterSlashCommands("/"))
+	filtered := len(slashcommands.Filter("/"))
 	if filtered != 109 {
 		t.Fatalf("expected 109 slash commands in picker (no chrome-devtools-plugin filter since 1.4.8), got %d", filtered)
 	}
@@ -453,18 +473,18 @@ func Test_PickerCatalogMatchesRef(t *testing.T) {
 // of the catalog (and first visible row when "/" is typed) is /add-dir,
 // matching the v1.3.5 binary's first-page order exactly.
 func Test_PickerFirstRowIsAddDir(t *testing.T) {
-	if len(tuilib.DefaultSlashCommands) == 0 {
+	if len(slashcommands.Default) == 0 {
 		t.Fatal("catalog is empty")
 	}
-	if tuilib.DefaultSlashCommands[0].Name != "/add-dir" {
-		t.Fatalf("first command should be /add-dir, got %q (cycle 75)", tuilib.DefaultSlashCommands[0].Name)
+	if slashcommands.Default[0].Name != "/add-dir" {
+		t.Fatalf("first command should be /add-dir, got %q (cycle 75)", slashcommands.Default[0].Name)
 	}
 }
 
 // Test_PickerLastRowIsWrangler verifies cycle 75: the very last row
 // is /wrangler, matching the cursor-walk capture at scan_98.bin.
 func Test_PickerLastRowIsWrangler(t *testing.T) {
-	last := tuilib.DefaultSlashCommands[len(tuilib.DefaultSlashCommands)-1]
+	last := slashcommands.Default[len(slashcommands.Default)-1]
 	if last.Name != "/wrangler" {
 		t.Fatalf("last command should be /wrangler, got %q (cycle 75)", last.Name)
 	}
@@ -502,7 +522,7 @@ func (s *slowFakeClient) Stream(ctx context.Context, req backend.StreamRequest) 
 // /tmp/ref_streaming_t*.bin captured from the v1.3.5 binary.
 func Test_SpinnerAppearsDuringStream(t *testing.T) {
 	be := &slowFakeClient{delay: 500 * time.Millisecond}
-	m := NewRunMode(be, "u@t", "m", "t", "/", true)
+	m := newRunMode(be, "u@t", "m", "t", "/", true)
 	for _, r := range "hi" {
 		m.Update(runeKey(r))
 	}
@@ -543,7 +563,7 @@ func Test_SpinnerAppearsDuringStream(t *testing.T) {
 // first tick from the bubble loop. The spinner model is initialized
 // with frame=0; after the first tick it should be on frame 1.
 func Test_SpinnerAnimatesAcrossTicks(t *testing.T) {
-	m := NewRunMode(&slowFakeClient{delay: time.Second}, "u@t", "m", "t", "/", true)
+	m := newRunMode(&slowFakeClient{delay: time.Second}, "u@t", "m", "t", "/", true)
 	for _, r := range "hi" {
 		m.Update(runeKey(r))
 	}
@@ -582,7 +602,7 @@ func Test_SpinnerAnimatesAcrossTicks(t *testing.T) {
 // TickMsg are ignored (frame freezes).
 func Test_SpinnerStopsWhenStreamDone(t *testing.T) {
 	be := &slowFakeClient{delay: 30 * time.Millisecond}
-	m := NewRunMode(be, "u@t", "m", "t", "/", true)
+	m := newRunMode(be, "u@t", "m", "t", "/", true)
 	for _, r := range "hi" {
 		m.Update(runeKey(r))
 	}
@@ -607,7 +627,7 @@ func Test_SpinnerStopsWhenStreamDone(t *testing.T) {
 // handleSlashCommand method intercepts and returns true so the LLM
 // path is skipped. Previously only /clear was intercepted.
 func Test_SlashCommandsAreNotSentToLLM(t *testing.T) {
-	m := NewRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
 	for _, r := range "/help" {
 		m.Update(runeKey(r))
 	}
@@ -630,7 +650,7 @@ func Test_SlashCommandsAreNotSentToLLM(t *testing.T) {
 // Test_SlashExitReturnsQuitCmd verifies cycle 77: /exit and
 // /quit both schedule tea.Quit so the program actually terminates.
 func Test_SlashExitReturnsQuitCmd(t *testing.T) {
-	m := NewRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
 	handled, cmd := m.handleSlashCommand("/exit")
 	if !handled {
 		t.Fatal("/exit should be handled")
@@ -648,21 +668,21 @@ func Test_SlashExitReturnsQuitCmd(t *testing.T) {
 }
 
 // Test_SlashHelpFeedbackIncludesCatalog verifies cycle 83: /help
-// opens a 3-tab TUI overlay (helpMode=true) instead of dumping the
+// opens a 3-tab TUI overlay (the /help panel) instead of dumping the
 // catalog into m.response. The TUI panels are rendered by View() via
-// renderHelp; here we only confirm the overlay is armed and the
+// the panel's rows; here we only confirm the overlay is armed and the
 // response area only has the user echo line.
 func Test_SlashHelpFeedbackIncludesCatalog(t *testing.T) {
-	m := NewRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
 	handled, _ := m.handleSlashCommand("/help")
 	if !handled {
 		t.Fatal("/help should be handled")
 	}
-	if !m.helpMode {
-		t.Error("expected helpMode=true after /help (cycle 83 overlay)")
+	if !m.helpPanel.Active() {
+		t.Error("expected the /help overlay after /help (cycle 83 overlay)")
 	}
-	if m.helpTab != 0 {
-		t.Errorf("expected helpTab=0 on entry, got %d", m.helpTab)
+	if m.helpPanel.Tab() != 0 {
+		t.Errorf("expected helpTab=0 on entry, got %d", m.helpPanel.Tab())
 	}
 	// Response should be empty after /help — the reference binary
 	// does not echo slash commands into the transcript (the picker
@@ -686,7 +706,7 @@ func Test_SlashHelpFeedbackIncludesCatalog(t *testing.T) {
 func Test_HelpTabBarStyling(t *testing.T) {
 	// All three states share the brand prefix and hint suffix.
 	for tab := 0; tab <= 2; tab++ {
-		got := renderTabBar(tab)
+		got := tuilib.RenderTabBar(tab)
 		// Brand prefix: \x1b[38;2;38;139;210mPigasus CLI\x1b[39m
 		if !strings.HasPrefix(got, "\x1b[38;2;38;139;210mPigasus CLI\x1b[39m") {
 			t.Errorf("tab %d: missing brand prefix, got %q", tab, got[:60])
@@ -723,7 +743,7 @@ func Test_HelpTabBarStyling(t *testing.T) {
 // \x1b[1;4m\x1b[38;2;38;139;210m...\x1b[0m in the v1.3.6 binary).
 func Test_HelpTabBarActiveTabHighlight(t *testing.T) {
 	for tab := 0; tab <= 2; tab++ {
-		got := renderTabBar(tab)
+		got := tuilib.RenderTabBar(tab)
 		if !strings.Contains(got, "\x1b[1;4m") {
 			t.Errorf("tab %d: missing bold+underline SGR \\x1b[1;4m", tab)
 		}
@@ -742,7 +762,7 @@ func Test_HelpTabBarActiveTabHighlight(t *testing.T) {
 // starting with "/" fall through to the LLM path (handleSlashCommand
 // returns false, nil).
 func Test_SlashNonSlashFallsThrough(t *testing.T) {
-	m := NewRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
 	handled, cmd := m.handleSlashCommand("hello world")
 	if handled {
 		t.Error("plain text should not be handled as slash command (cycle 77)")
@@ -811,19 +831,20 @@ func Test_HelpGeneralPanelStyling(t *testing.T) {
 
 // Test_QuestionMarkOpensHelpOverlay verifies cycle 181: pressing `?`
 // on an empty prompt opens the help overlay on the SHORTCUTS tab
-// (helpTab=2) — matches v1.4.0 REF, where the active word
+// (the SHORTCUTS tab) — matches v1.4.0 REF, where the active word
 // "shortcuts" in the tab bar is wrapped in bold+underline. The /help
-// slash command still lands on the GENERAL tab (helpTab=0). With text
-// already in the input, `?` falls through to the textarea and is
-// typed as a literal rune (verified against REF: typing "hello
-// world" then `?` produces "> hello world?" rather than opening the
-// overlay).
+// slash command still lands on the GENERAL tab (tab 0).
+//
+// Cycle 383 (B-22): the overlay opens whether the composer holds text
+// or not — the reference's own quick-tips table says "Type `?` to get
+// help and list all slash commands" (official-docs/cli/using.md:24) —
+// and the composer keeps the draft the user typed.
 func Test_QuestionMarkOpensHelpOverlay(t *testing.T) {
-	m := NewRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
 
-	// Precondition: idle prompt, helpMode off, input empty.
-	if m.helpMode {
-		t.Fatal("helpMode should start off")
+	// Precondition: idle prompt, the overlay closed, input empty.
+	if m.helpPanel.Active() {
+		t.Fatal("the /help overlay should start closed")
 	}
 	if v := m.input.Value(); v != "" {
 		t.Fatalf("input should start empty, got %q", v)
@@ -831,11 +852,11 @@ func Test_QuestionMarkOpensHelpOverlay(t *testing.T) {
 
 	// Case 1: `?` on an empty input opens the overlay on SHORTCUTS.
 	_, _ = m.Update(runeKey('?'))
-	if !m.helpMode {
-		t.Error("expected helpMode=true after ? on empty input (cycle 181)")
+	if !m.helpPanel.Active() {
+		t.Error("expected the overlay after ? on empty input (cycle 181)")
 	}
-	if m.helpTab != 2 {
-		t.Errorf("expected helpTab=2 (shortcuts) on ?-entry, got %d", m.helpTab)
+	if m.helpPanel.Tab() != 2 {
+		t.Errorf("expected helpTab=2 (shortcuts) on ?-entry, got %d", m.helpPanel.Tab())
 	}
 	if v := m.input.Value(); v != "" {
 		t.Errorf("expected input cleared on entry to overlay, got %q", v)
@@ -843,11 +864,12 @@ func Test_QuestionMarkOpensHelpOverlay(t *testing.T) {
 
 	// Esc dismisses (cycle 83 path).
 	_, _ = m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEsc}))
-	if m.helpMode {
-		t.Error("expected helpMode=false after Esc")
+	if m.helpPanel.Active() {
+		t.Error("expected the overlay to close after Esc")
 	}
 
-	// Case 2: typing text first, then `?`, appends the literal `?`.
+	// Case 2: typing text first, then `?`, opens the overlay too — and
+	// the draft survives it.
 	for _, r := range "hello" {
 		_, _ = m.Update(runeKey(r))
 	}
@@ -855,39 +877,48 @@ func Test_QuestionMarkOpensHelpOverlay(t *testing.T) {
 		t.Fatalf("precondition: expected 'hello' in input, got %q", v)
 	}
 	_, _ = m.Update(runeKey('?'))
-	if m.helpMode {
-		t.Error("`?` with text in input must NOT open overlay (cycle 181)")
+	if !m.helpPanel.Active() {
+		t.Error("`?` with text in input must open the overlay (cycle 383, B-22)")
 	}
-	if v := m.input.Value(); v != "hello?" {
-		t.Errorf("expected input %q after literal ? insertion, got %q", "hello?", v)
+	if v := m.input.Value(); v != "hello" {
+		t.Errorf("the overlay must not eat the draft, got %q", v)
+	}
+
+	// Esc closes the overlay; the draft is still there.
+	_, _ = m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEsc}))
+	if m.helpPanel.Active() {
+		t.Error("expected the overlay to close after Esc")
+	}
+	if v := m.input.Value(); v != "hello" {
+		t.Errorf("the draft must survive the overlay, got %q", v)
 	}
 
 	// Case 3: clear and press ? again — overlay reopens on shortcuts.
-	for i := 0; i < 6; i++ {
+	for i := 0; i < 5; i++ {
 		_, _ = m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyBackspace}))
 	}
 	if v := m.input.Value(); v != "" {
 		t.Fatalf("precondition: input should be empty after backspaces, got %q", v)
 	}
 	_, _ = m.Update(runeKey('?'))
-	if !m.helpMode {
+	if !m.helpPanel.Active() {
 		t.Error("expected overlay to re-open after clearing input and pressing ?")
 	}
-	if m.helpTab != 2 {
-		t.Errorf("expected helpTab=2 on second ?-entry, got %d", m.helpTab)
+	if m.helpPanel.Tab() != 2 {
+		t.Errorf("expected helpTab=2 on second ?-entry, got %d", m.helpPanel.Tab())
 	}
 
 	// Case 4: /help still lands on GENERAL (tab 0).
 	_, _ = m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEsc}))
-	if m.helpMode {
-		t.Fatal("expected helpMode=false after Esc")
+	if m.helpPanel.Active() {
+		t.Fatal("expected the overlay to close after Esc")
 	}
 	handled, _ := m.handleSlashCommand("/help")
 	if !handled {
 		t.Fatal("/help should be handled")
 	}
-	if m.helpTab != 0 {
-		t.Errorf("expected helpTab=0 on /help entry, got %d", m.helpTab)
+	if m.helpPanel.Tab() != 0 {
+		t.Errorf("expected helpTab=0 on /help entry, got %d", m.helpPanel.Tab())
 	}
 }
 
@@ -930,7 +961,7 @@ func Test_NewConversationID(t *testing.T) {
 // visible column — counting CJK characters as 2 columns wide per
 // terminal convention.
 func Test_CursorXWithMultibyteRune(t *testing.T) {
-	m := NewRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
 	v := m.View()
 	idleX := v.Cursor.X
 	// Type a single Chinese character. Bubbles' Cursor().X counts
@@ -949,7 +980,7 @@ func Test_CursorXWithMultibyteRune(t *testing.T) {
 // prefix). The lipgloss Prompt style wraps the prompt in ANSI
 // bytes that bubbles correctly excludes from Cursor().X count.
 func Test_CursorXWithPromptANSIOffset(t *testing.T) {
-	m := NewRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
 	v := m.View()
 	if v.Cursor.X != 2 {
 		t.Errorf("idle cursor X should be 2 (after '> ' prompt prefix), got %d (cycle 90)", v.Cursor.X)
@@ -962,7 +993,7 @@ func Test_CursorXWithPromptANSIOffset(t *testing.T) {
 // (38;2;38;139;210) and labels in true-colour dim gray
 // (38;2;101;123;131), matching the v1.3.6 binary.
 func Test_PickerHintRowStyling(t *testing.T) {
-	m := NewRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
 	m.Update(runeKey('/'))
 	if !m.picker.Visible() {
 		t.Fatal("picker should be visible after typing '/'")
@@ -997,15 +1028,15 @@ func Test_PickerHintRowStyling(t *testing.T) {
 // (38;2;25;103;210) for the ⎿ bullet and true-colour dim gray
 // (38;2;101;123;131 — for the body label).
 func Test_HelpExitFeedback(t *testing.T) {
-	m := NewRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
 	handled, _ := m.handleSlashCommand("/help")
-	if !handled || !m.helpMode {
+	if !handled || !m.helpPanel.Active() {
 		t.Fatal("/help should open overlay")
 	}
 	// Dismiss via Esc
 	m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEsc}))
-	if m.helpMode {
-		t.Fatal("helpMode should be false after Esc")
+	if m.helpPanel.Active() {
+		t.Fatal("the /help overlay should be closed after Esc")
 	}
 	wantBlock := []string{
 		"\x1b[38;2;38;139;210;1m> /help\x1b[0m",
@@ -1102,7 +1133,7 @@ func escKey() tea.KeyPressMsg {
 //   - the cancel function was NOT invoked
 //   - m.streaming stays true (turn is still in flight)
 func TestEscPickerOpenClosesDropdownOnly(t *testing.T) {
-	m := NewRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
 	m.Update(runeKey('/'))
 	if !m.picker.Visible() {
 		t.Fatalf("precondition: picker should be visible after '/'")
@@ -1130,7 +1161,7 @@ func TestEscPickerOpenClosesDropdownOnly(t *testing.T) {
 // turnCancel. After the cancel fires the handler clears turnCancel
 // so a third Esc press (no-op in normal use) cannot re-cancel.
 func TestEscNoPickerInterruptsStreamingTurn(t *testing.T) {
-	m := NewRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
 	m.streaming = true
 	cancelCount := 0
 	m.turnCancel = func() { cancelCount++ }
@@ -1157,7 +1188,7 @@ func TestEscNoPickerInterruptsStreamingTurn(t *testing.T) {
 // check both states (picker visibility and cancel invocation)
 // after each press.
 func TestEscTwoPressesCloseThenInterrupt(t *testing.T) {
-	m := NewRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
 	m.Update(runeKey('/'))
 	if !m.picker.Visible() {
 		t.Fatalf("precondition: picker should be visible after '/'")
@@ -1194,7 +1225,7 @@ func TestEscTwoPressesCloseThenInterrupt(t *testing.T) {
 // and an empty input must do nothing — including NOT setting any
 // new state and NOT invoking any cancel.
 func TestEscNoDropdownNoStreamAbsorbsSilently(t *testing.T) {
-	m := NewRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
 	if m.picker.Visible() {
 		t.Fatalf("precondition: picker must start hidden")
 	}
@@ -1230,7 +1261,7 @@ func TestEscNoDropdownNoStreamAbsorbsSilently(t *testing.T) {
 // session in). Esc must NOT panic and must NOT block; it should
 // fall through to the silent-absorb branch.
 func TestEscStreamingWithoutCancelDoesNotCrash(t *testing.T) {
-	m := NewRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
 	m.streaming = true
 	if m.turnCancel != nil {
 		t.Fatalf("precondition: turnCancel should start nil")
@@ -1264,7 +1295,7 @@ func TestEscStreamingWithoutCancelDoesNotCrash(t *testing.T) {
 // turn (input is left alone). This matches the reference binary's
 // behaviour captured in /tmp/agycmp/tui/esc_interrupts.esc.txt.
 func TestEscInputClearOrInterruptPriority(t *testing.T) {
-	m := NewRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
 	m.Update(runeKey('h'))
 	m.Update(runeKey('i'))
 	if got := m.input.Value(); got != "hi" {
@@ -1287,7 +1318,7 @@ func TestEscInputClearOrInterruptPriority(t *testing.T) {
 }
 
 type mockGatewayBackend struct {
-	cfg backend.GatewayConfig
+	cfg gateway.GatewayConfig
 }
 
 func (m *mockGatewayBackend) Stream(_ context.Context, _ backend.StreamRequest) (<-chan backend.StreamChunk, error) {
@@ -1297,7 +1328,7 @@ func (m *mockGatewayBackend) Stream(_ context.Context, _ backend.StreamRequest) 
 	return ch, nil
 }
 
-func (m *mockGatewayBackend) GatewayConfig() backend.GatewayConfig {
+func (m *mockGatewayBackend) GatewayConfig() gateway.GatewayConfig {
 	return m.cfg
 }
 
@@ -1306,11 +1337,11 @@ func TestMiniMaxHeaderAndFooter(t *testing.T) {
 		"type": "openai", "base_url": "https://gateway.example/v1",
 		"models": [{"id": "minimax-m3", "name": "MiniMax M3", "model": "MiniMax-M3"}]}}}`)
 	be := &mockGatewayBackend{
-		cfg: backend.GatewayConfig{
+		cfg: gateway.GatewayConfig{
 			ExternalModel: "MiniMax-M3",
 		},
 	}
-	m := NewRunMode(be, "user@test.com", "", "", "/test/workspace", false)
+	m := newRunMode(be, "user@test.com", "", "", "/test/workspace", false)
 	if m.model != "MiniMax M3" {
 		t.Fatalf("m.model = %q, want 'MiniMax M3'", m.model)
 	}
@@ -1329,7 +1360,7 @@ func TestMiniMaxHeaderAndFooter(t *testing.T) {
 		t.Errorf("View() should NOT have effort suffix for MiniMax M3, got:\n%s", view)
 	}
 
-	m2 := NewRunMode(nil, "user@test.com", "MiniMax M3", "", "/test/workspace", false)
+	m2 := newRunMode(nil, "user@test.com", "MiniMax M3", "", "/test/workspace", false)
 	if m2.model != "MiniMax M3" || m2.statusModel != "MiniMax M3" {
 		t.Fatalf("m2.model = %q, m2.statusModel = %q", m2.model, m2.statusModel)
 	}
@@ -1341,7 +1372,7 @@ func TestMiniMaxHeaderAndFooter(t *testing.T) {
 		t.Errorf("View() should NOT contain hardcoded 'Gemini 3.8 Flash'")
 	}
 
-	m3 := NewRunMode(nil, "user@test.com", "minimax-m3", "", "/test/workspace", false)
+	m3 := newRunMode(nil, "user@test.com", "minimax-m3", "", "/test/workspace", false)
 	if m3.model != "MiniMax M3" || m3.statusModel != "MiniMax M3" {
 		t.Fatalf("m3.model = %q, m3.statusModel = %q", m3.model, m3.statusModel)
 	}
@@ -1369,7 +1400,7 @@ func shiftTabKey() tea.KeyPressMsg {
 // Build without burning two presses.
 func TestShiftTabCyclesBuildToDefault(t *testing.T) {
 	policy := permissions.Policy{Mode: permissions.ModeAcceptEdits}
-	m := NewRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
 	m.policy = &policy
 	m.mode = policy.Mode
 
@@ -1394,7 +1425,7 @@ func TestShiftTabCyclesBuildToDefault(t *testing.T) {
 // session's mode (was accept-edits in cycle 104). Documented in 硬約束.
 func TestShiftTabCyclesDefaultToAuto(t *testing.T) {
 	policy := permissions.Policy{Mode: ""}
-	m := NewRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
 	m.policy = &policy
 	m.mode = policy.Mode
 
@@ -1416,7 +1447,7 @@ func TestShiftTabCyclesDefaultToAuto(t *testing.T) {
 // TestShiftTabCyclesAutoToPlan: starting at "auto", Shift+Tab → "plan".
 func TestShiftTabCyclesAutoToPlan(t *testing.T) {
 	policy := permissions.Policy{Mode: permissions.ModeAuto}
-	m := NewRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
 	m.policy = &policy
 	m.mode = policy.Mode
 
@@ -1441,7 +1472,7 @@ func TestShiftTabCyclesAutoToPlan(t *testing.T) {
 // second lap.
 func TestShiftTabCyclesPlanToBuild(t *testing.T) {
 	policy := permissions.Policy{Mode: permissions.ModePlan}
-	m := NewRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
 	m.policy = &policy
 	m.mode = policy.Mode
 
@@ -1463,7 +1494,7 @@ func TestShiftTabCyclesPlanToBuild(t *testing.T) {
 // TestShiftTab_NotInConfigMenu: when the /config Agent Mode menu is
 // open, Shift+Tab does NOT cycle the global agent mode. The /config
 // panel swallows Tab (and its Shift+Tab variant) as the catch-all
-// in handlePanelKey's panelConfig switch — the reference uses Tab
+// in handlePanelKey's panelregistry.Config switch — the reference uses Tab
 // for value cycling when the row is value-bearing and our clone
 // uses ←/→. Either way the key is consumed before it can reach the
 // global Shift+Tab handler in tui_run.go's key router. Pinning this
@@ -1472,11 +1503,11 @@ func TestShiftTabCyclesPlanToBuild(t *testing.T) {
 // the Agent Mode setting.
 func TestShiftTab_NotInConfigMenu(t *testing.T) {
 	policy := permissions.Policy{Mode: ""}
-	m := NewRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
 	m.policy = &policy
 	m.mode = policy.Mode
 	// Open /config on Agent Mode (cursor 0 — first row).
-	m.panel = slashPanel{kind: panelConfig, cmd: "/config", cursor: 0}
+	m.panel = slashPanel{kind: panelregistry.Config, cmd: "/config", cursor: 0}
 	startMode := m.mode
 	startRespLen := len(m.response)
 
@@ -1500,7 +1531,7 @@ func TestShiftTab_NotInConfigMenu(t *testing.T) {
 // pre-283 clone did, which stacked stale banners in the conversation.
 func TestShiftTab_StatusLineReflects(t *testing.T) {
 	policy := permissions.Policy{Mode: permissions.ModeAcceptEdits}
-	m := NewRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
 	m.policy = &policy
 	m.mode = policy.Mode
 	m.statusModel = "MiniMax M3"
@@ -1540,7 +1571,7 @@ func TestShiftTab_StatusLineReflects(t *testing.T) {
 // buffer does not bring it back, and neither does submitting.
 func TestModeHintHidesAfterEdit(t *testing.T) {
 	policy := permissions.Policy{Mode: permissions.ModeAuto}
-	m := NewRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
 	m.policy = &policy
 	m.mode = policy.Mode
 	m.input.Placeholder = permissions.ModeBanner(m.mode)
@@ -1563,7 +1594,7 @@ func TestModeHintHidesAfterEdit(t *testing.T) {
 
 func TestShiftTabCyclesMode(t *testing.T) {
 	policy := permissions.Policy{Mode: permissions.ModeAcceptEdits}
-	m := NewRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
 	m.policy = &policy
 	m.mode = policy.Mode
 
@@ -1591,7 +1622,7 @@ func TestShiftTabCyclesMode(t *testing.T) {
 
 func TestShiftTabStartsFromFlagMode(t *testing.T) {
 	policy := permissions.Policy{Mode: permissions.ModeAuto}
-	m := NewRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
 	m.policy = &policy
 	m.mode = policy.Mode
 
@@ -1603,7 +1634,7 @@ func TestShiftTabStartsFromFlagMode(t *testing.T) {
 
 func TestShiftTabDoesNotCompletePickerRow(t *testing.T) {
 	policy := permissions.Policy{}
-	m := NewRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
 	m.policy = &policy
 	m.input.SetValue("/a")
 	m.picker.Update([]rune("/a"))
@@ -1627,7 +1658,7 @@ func TestShiftTabDoesNotCompletePickerRow(t *testing.T) {
 // was appended before submitPrompt (the prompt echo) stays the only
 // entry.
 func TestTurnDoneMsg_EmptyAssistantNotRecorded(t *testing.T) {
-	m := NewRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
 	// Simulate the prompt echo + user-step append the real
 	// submitPrompt path produces. The cycle keeps this step; the
 	// gate is only about the assistant step.
@@ -1635,10 +1666,10 @@ func TestTurnDoneMsg_EmptyAssistantNotRecorded(t *testing.T) {
 	m.liveStart = len(m.response)
 	m.session = append(m.session, backend.Message{Role: "user", Content: "hi"})
 
-	_, _ = m.Update(turnDoneMsg{
-		reply:     "",
-		steps:     nil,
-		reasoning: "",
+	_, _ = m.Update(toolsteps.TurnDoneMsg{
+		Reply:     "",
+		Steps:     nil,
+		Reasoning: "",
 	})
 
 	if len(m.session) != 1 {
@@ -1658,20 +1689,20 @@ func TestTurnDoneMsg_EmptyAssistantNotRecorded(t *testing.T) {
 // recorded this case (msg.reply is "" so the gate would actually
 // skip; the new gate fixes that bug by also considering reasoning).
 func TestTurnDoneMsg_ReasoningOnlyRecordedAsStep(t *testing.T) {
-	m := NewRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
 	m.response = append(m.response, "> think about it")
 	m.liveStart = len(m.response)
 	m.session = append(m.session, backend.Message{Role: "user", Content: "think about it"})
 
-	thoughtStep := toolStep{
-		kind:   stepKindThought,
-		name:   "thinking",
-		detail: "spent 3s on the problem",
+	thoughtStep := toolsteps.Step{
+		Kind:   toolsteps.KindThought,
+		Name:   "thinking",
+		Detail: "spent 3s on the problem",
 	}
-	_, _ = m.Update(turnDoneMsg{
-		reply:     "",
-		steps:     []toolStep{thoughtStep},
-		reasoning: "spent 3s on the problem",
+	_, _ = m.Update(toolsteps.TurnDoneMsg{
+		Reply:     "",
+		Steps:     []toolsteps.Step{thoughtStep},
+		Reasoning: "spent 3s on the problem",
 	})
 
 	// Reasoning IS content per the AGY 1.3.6 classifier, so the
@@ -1698,15 +1729,15 @@ func TestTurnDoneMsg_ReasoningOnlyRecordedAsStep(t *testing.T) {
 // This is the case the previous gate `if msg.reply != ""` already
 // covered; the new gate must keep working.
 func TestTurnDoneMsg_ReplyRecorded(t *testing.T) {
-	m := NewRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
 	m.response = append(m.response, "> greet")
 	m.liveStart = len(m.response)
 	m.session = append(m.session, backend.Message{Role: "user", Content: "greet"})
 
-	_, _ = m.Update(turnDoneMsg{
-		reply:     "Hello there.",
-		steps:     nil,
-		reasoning: "",
+	_, _ = m.Update(toolsteps.TurnDoneMsg{
+		Reply:     "Hello there.",
+		Steps:     nil,
+		Reasoning: "",
 	})
 
 	if len(m.session) != 2 {
@@ -1722,16 +1753,16 @@ func TestTurnDoneMsg_ReplyRecorded(t *testing.T) {
 // keeps the partial text as the assistant step. The classifier
 // reports non-empty (content is non-empty), so the gate fires.
 func TestTurnDoneMsg_PartialReplyRecorded(t *testing.T) {
-	m := NewRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
 	m.response = append(m.response, "> long question")
 	m.liveStart = len(m.response)
 	m.session = append(m.session, backend.Message{Role: "user", Content: "long question"})
 
 	partial := "I was about to say that"
-	_, _ = m.Update(turnDoneMsg{
-		reply:     partial,
-		steps:     nil,
-		reasoning: "",
+	_, _ = m.Update(toolsteps.TurnDoneMsg{
+		Reply:     partial,
+		Steps:     nil,
+		Reasoning: "",
 	})
 
 	if len(m.session) != 2 {
@@ -1752,20 +1783,20 @@ func TestTurnDoneMsg_PartialReplyRecorded(t *testing.T) {
 // StepModelResponse. The on-screen step block is the user-visible
 // artefact.
 func TestTurnDoneMsg_ToolCallOnlyDoesNotAppendSessionStep(t *testing.T) {
-	m := NewRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
 	m.response = append(m.response, "> read the file")
 	m.liveStart = len(m.response)
 	m.session = append(m.session, backend.Message{Role: "user", Content: "read the file"})
 
-	toolStepEntry := toolStep{
-		name:   "read_file",
-		title:  "Read /tmp/x",
-		detail: "Tool call: read_file",
+	toolStepEntry := toolsteps.Step{
+		Name:   "read_file",
+		Title:  "Read /tmp/x",
+		Detail: "Tool call: read_file",
 	}
-	_, _ = m.Update(turnDoneMsg{
-		reply:     "",
-		steps:     []toolStep{toolStepEntry},
-		reasoning: "",
+	_, _ = m.Update(toolsteps.TurnDoneMsg{
+		Reply:     "",
+		Steps:     []toolsteps.Step{toolStepEntry},
+		Reasoning: "",
 	})
 
 	// The classifier agrees the turn is non-empty (tool calls ARE
@@ -1794,15 +1825,15 @@ func TestTurnDoneMsg_ToolCallOnlyDoesNotAppendSessionStep(t *testing.T) {
 // This is the regression test for an earlier prototype that used
 // `content == ""` instead of `strings.TrimSpace(content) == ""`.
 func TestTurnDoneMsg_WhitespaceOnlyReplyClassifiedEmpty(t *testing.T) {
-	m := NewRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
 	m.response = append(m.response, "> ping")
 	m.liveStart = len(m.response)
 	m.session = append(m.session, backend.Message{Role: "user", Content: "ping"})
 
-	_, _ = m.Update(turnDoneMsg{
-		reply:     "\n",
-		steps:     nil,
-		reasoning: "",
+	_, _ = m.Update(toolsteps.TurnDoneMsg{
+		Reply:     "\n",
+		Steps:     nil,
+		Reasoning: "",
 	})
 
 	if len(m.session) != 1 {
@@ -1813,20 +1844,20 @@ func TestTurnDoneMsg_WhitespaceOnlyReplyClassifiedEmpty(t *testing.T) {
 // TestTurnDoneMsg_ErrorRowSurvivesTurnBlock pins the shape the user sees: the
 // tool block is still collapsed, and the failure is spelled out underneath it.
 func TestTurnDoneMsg_ErrorRowSurvivesTurnBlock(t *testing.T) {
-	m := NewRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
 	m.response = append(m.response, "> do a long thing")
 	m.liveStart = len(m.response)
 	m.session = append(m.session, backend.Message{Role: "user", Content: "do a long thing"})
 
-	_, _ = m.Update(turnDoneMsg{
-		reply: "",
-		steps: []toolStep{{
-			kind:   stepKindTool,
-			name:   "Bash",
-			title:  "Bash",
-			detail: "sh chain.sh start",
+	_, _ = m.Update(toolsteps.TurnDoneMsg{
+		Reply: "",
+		Steps: []toolsteps.Step{{
+			Kind:   toolsteps.KindTool,
+			Name:   "Bash",
+			Title:  "Bash",
+			Detail: "sh chain.sh start",
 		}},
-		err: errors.New("context deadline exceeded"),
+		Err: errors.New("context deadline exceeded"),
 	})
 
 	joined := strings.Join(m.response, "\n")
@@ -1839,10 +1870,14 @@ func TestTurnDoneMsg_ErrorRowSurvivesTurnBlock(t *testing.T) {
 }
 
 // TestTurnDoneMsg_ErrorRowUsesReferenceCopy pins the API-error path: when the
-// failure carries a *backend.HTTPError, the row uses the reference copy.
+// failure carries a *apierror.HTTPError, the row uses the reference copy.
 func TestTurnDoneMsg_ErrorRowUsesReferenceCopy(t *testing.T) {
-	api := &backend.HTTPError{StatusCode: 429, Body: []byte(`{"error":{"message":"Individual quota reached."}}`)}
-	row := turnErrorRow(api)
+	api := &apierror.HTTPError{StatusCode: 429, Body: []byte(`{"error":{"message":"Individual quota reached."}}`)}
+	message, ok := agent.TurnErrorMessage(api)
+	if !ok {
+		t.Fatal("TurnErrorMessage reported no message")
+	}
+	row := toolsteps.ErrorRow(message)
 	if !strings.HasPrefix(row, "Error: ") {
 		t.Errorf("row = %q, want an Error: prefix", row)
 	}
@@ -1852,8 +1887,8 @@ func TestTurnDoneMsg_ErrorRowUsesReferenceCopy(t *testing.T) {
 	if strings.Contains(row, "429") && !strings.Contains(row, "quota") {
 		t.Errorf("row leaked the transport shape: %q", row)
 	}
-	if got := turnErrorRow(nil); got != "" {
-		t.Errorf("turnErrorRow(nil) = %q, want empty", got)
+	if _, ok := agent.TurnErrorMessage(nil); ok {
+		t.Error("TurnErrorMessage(nil) reported a message, want none")
 	}
 }
 
@@ -1866,14 +1901,14 @@ func TestPickBackend_InteractiveHasNoTotalRequestDeadline(t *testing.T) {
 		"type": "openai", "base_url": "https://gateway.example/v1",
 		"models": [{"id": "m", "name": "M", "model": "Upstream-1"}]}}}`)
 
-	be := pickBackend(nil, "m")
-	gw, ok := be.(interface{ GatewayConfig() backend.GatewayConfig })
+	be := backendselect.Pick(nil, "m", modelpicker.ResolveCatalogueID)
+	gw, ok := be.(interface{ GatewayConfig() gateway.GatewayConfig })
 	if !ok {
 		t.Fatalf("pickBackend returned %T, want a configured-endpoint client", be)
 	}
-	if got := gw.GatewayConfig().TimeoutSeconds; got != backend.GatewayTimeoutUnlimited {
+	if got := gw.GatewayConfig().TimeoutSeconds; got != gateway.GatewayTimeoutUnlimited {
 		t.Errorf("interactive TimeoutSeconds = %d, want %d (no total deadline)",
-			got, backend.GatewayTimeoutUnlimited)
+			got, gateway.GatewayTimeoutUnlimited)
 	}
 }
 
@@ -1888,18 +1923,18 @@ func TestPickBackend_HonoursExplicitBackendFlag(t *testing.T) {
 	if err := fs.Parse([]string{"--backend", "gateway"}); err != nil {
 		t.Fatalf("parse: %v", err)
 	}
-	if _, ok := pickBackendWithLog(fs, "m", io.Discard, backend.GatewayTimeoutUnlimited).(interface{ GatewayConfig() backend.GatewayConfig }); !ok {
+	if _, ok := backendselect.PickWithLog(fs, "m", io.Discard, gateway.GatewayTimeoutUnlimited, modelpicker.ResolveCatalogueID).(interface{ GatewayConfig() gateway.GatewayConfig }); !ok {
 		t.Fatal("--backend gateway did not yield a configured-endpoint client")
 	}
 }
 
 // vimTestMode builds a runMode in an isolated config home seeded with
-// the given settings. NewRunMode itself is inert (vim off); the settings
+// the given settings. newRunMode itself is inert (vim off); the settings
 // are applied the same way the production entry point does it.
 func vimTestMode(t *testing.T, settings map[string]any) *runMode {
 	t.Helper()
 	cycle196TestHome(t, settings)
-	m := NewRunMode(&fakeClient{}, "u@t", "m", "t", "/tmp", true)
+	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/tmp", true)
 	m.reloadVimSettings()
 	return m
 }
@@ -1923,34 +1958,6 @@ func vimEscKey() tea.KeyPressMsg {
 	return tea.KeyPressMsg(tea.Key{Code: tea.KeyEsc})
 }
 
-// --- key mapping -------------------------------------------------------
-
-func TestVimKeyMapping(t *testing.T) {
-	if k := vimNamedKey(tea.Key{Code: tea.KeyEsc}); k.Name != "esc" {
-		t.Errorf("esc → %+v", k)
-	}
-	if k := vimNamedKey(tea.Key{Code: tea.KeyEnter, Mod: tea.ModCtrl}); k.Name != "enter" || k.Mod != vim.Ctrl {
-		t.Errorf("ctrl+enter → %+v", k)
-	}
-	if k := vimNamedKey(tea.Key{Code: 'a'}); k != (vim.Key{}) {
-		t.Errorf("a should not be a named key, got %+v", k)
-	}
-	if k, ok := vimRuneKey(tea.Key{Code: 'a'}); !ok || k.Rune != 'a' {
-		t.Errorf("a → %+v/%v", k, ok)
-	}
-	if _, ok := vimRuneKey(tea.Key{}); ok {
-		t.Error("a bare modifier (no code) must not map to a key")
-	}
-	// Enter arrives with Text populated in some drivers; the named mapping
-	// must still win so it cannot be typed as a literal newline.
-	if _, ok := vimRuneKey(tea.Key{Code: tea.KeyEnter, Text: "\n"}); !ok {
-		t.Error("enter should still have a rune mapping available")
-	}
-	if k := vimNamedKey(tea.Key{Code: tea.KeyEnter, Text: "\n"}); k.Name != "enter" {
-		t.Errorf("enter with text → %+v, want name enter", k)
-	}
-}
-
 // --- mode gating -------------------------------------------------------
 
 func TestVimDisabledLeavesInputAlone(t *testing.T) {
@@ -1965,7 +1972,7 @@ func TestVimDisabledLeavesInputAlone(t *testing.T) {
 	if m.vimEng != nil {
 		t.Fatal("the engine must not be built when vim is off")
 	}
-	if got := m.vimBadge(); got != "" {
+	if got := m.statusRowState().VimBadge; got != "" {
 		t.Fatalf("badge = %q, want empty", got)
 	}
 }
@@ -2040,7 +2047,7 @@ func TestVimOpenLineEntersInsert(t *testing.T) {
 	vimType(t, m, "iabc")
 	vimPress(t, m, vimEscKey())
 	vimPress(t, m, runeKey('o'))
-	if got := m.vimBadge(); got != "-- INSERT --" {
+	if got := m.statusRowState().VimBadge; got != "-- INSERT --" {
 		t.Fatalf("badge after o = %q, want -- INSERT --", got)
 	}
 	if got := m.input.Value(); got != "abc\n" {
@@ -2060,7 +2067,7 @@ func TestVimOpenLineEntersInsert(t *testing.T) {
 
 func TestVimInsertFirstOpensInInsert(t *testing.T) {
 	m := vimTestMode(t, map[string]any{"editorMode": "vim", "vimInsertFirst": true})
-	if got := m.vimBadge(); got != "-- INSERT --" {
+	if got := m.statusRowState().VimBadge; got != "-- INSERT --" {
 		t.Fatalf("badge = %q, want -- INSERT --", got)
 	}
 	// The first rune is text, not a command.
@@ -2127,11 +2134,11 @@ func TestVimEngineReseedsAfterHostRewrite(t *testing.T) {
 
 func TestVimStatusBadges(t *testing.T) {
 	m := vimTestMode(t, map[string]any{"editorMode": "vim"})
-	if got := m.vimBadge(); got != "" {
+	if got := m.statusRowState().VimBadge; got != "" {
 		t.Fatalf("Normal mode badge = %q, want none", got)
 	}
 	vimType(t, m, "i")
-	if got := m.vimBadge(); got != "-- INSERT --" {
+	if got := m.statusRowState().VimBadge; got != "-- INSERT --" {
 		t.Fatalf("Insert badge = %q", got)
 	}
 	// With an empty prompt the hint survives and the badge is prepended
@@ -2141,47 +2148,16 @@ func TestVimStatusBadges(t *testing.T) {
 	}
 	vimPress(t, m, vimEscKey())
 	vimType(t, m, "v")
-	if got := m.vimBadge(); got != "-- VISUAL --" {
+	if got := m.statusRowState().VimBadge; got != "-- VISUAL --" {
 		t.Fatalf("Visual badge = %q", got)
 	}
 	vimType(t, m, "V")
-	if got := m.vimBadge(); got != "-- V-LINE --" {
+	if got := m.statusRowState().VimBadge; got != "-- V-LINE --" {
 		t.Fatalf("Visual line badge = %q", got)
 	}
 	// The badge lands on the status row.
 	if row := m.statusRow(); !strings.Contains(row, "-- V-LINE --") {
 		t.Fatalf("status row missing badge: %q", row)
-	}
-}
-
-func TestHelpTabsGainVimOnlyWhenEnabled(t *testing.T) {
-	off := vimTestMode(t, map[string]any{})
-	if got := helpTabs(off); len(got) != 3 {
-		t.Fatalf("tabs with vim off = %v, want 3", got)
-	}
-	if got := renderTabBar(0); strings.Contains(got, helpVimTitle) {
-		t.Fatal("the default tab bar must not mention vim")
-	}
-
-	on := vimTestMode(t, map[string]any{"editorMode": "vim"})
-	tabs := helpTabs(on)
-	if len(tabs) != 4 || tabs[3] != helpVimTitle {
-		t.Fatalf("tabs with vim on = %v", tabs)
-	}
-	bar := renderTabBarTabs(3, tabs)
-	if !strings.Contains(bar, helpVimTitle) {
-		t.Fatalf("4-tab bar missing vim: %q", bar)
-	}
-	if got := helpListLen(3); got != len(helpVim) {
-		t.Fatalf("helpListLen(3) = %d, want %d", got, len(helpVim))
-	}
-	out := renderHelp(3, "Gemini 3.8 Flash", "", "/tmp", "u@t", "id", on)
-	if !strings.Contains(out, "Vim Modal Shortcuts") {
-		t.Fatalf("vim help tab output = %q", out)
-	}
-	// helpListLen for the original tabs is unchanged.
-	if got := helpListLen(2); got != len(helpShortcuts) {
-		t.Fatalf("helpListLen(2) = %d, want %d", got, len(helpShortcuts))
 	}
 }
 
@@ -2228,7 +2204,7 @@ func TestCursorLine_SingleLine_NoNewlines(t *testing.T) {
 		{"hello", 5, 0}, // end-of-input on the only line
 	}
 	for _, c := range cases {
-		if got := cursorLine(c.value, c.cursor); got != c.want {
+		if got := tuilib.CursorLine(c.value, c.cursor); got != c.want {
 			t.Errorf("cursorLine(%q, %d) = %d, want %d", c.value, c.cursor, got, c.want)
 		}
 	}
@@ -2251,7 +2227,7 @@ func TestCursorLine_MultiLine(t *testing.T) {
 		{5, 2}, // end of "c"
 	}
 	for _, c := range cases {
-		if got := cursorLine("a\nb\nc", c.cursor); got != c.want {
+		if got := tuilib.CursorLine("a\nb\nc", c.cursor); got != c.want {
 			t.Errorf("cursorLine(\"a\\nb\\nc\", %d) = %d, want %d", c.cursor, got, c.want)
 		}
 	}
@@ -2259,77 +2235,77 @@ func TestCursorLine_MultiLine(t *testing.T) {
 
 func TestCursorLine_ClampOutOfRange(t *testing.T) {
 	// Negative cursor clamps to 0; cursor past end clamps to len.
-	if got := cursorLine("a\nb", -5); got != 0 {
+	if got := tuilib.CursorLine("a\nb", -5); got != 0 {
 		t.Errorf("cursorLine(_, -5) = %d, want 0", got)
 	}
-	if got := cursorLine("a\nb", 100); got != 1 {
+	if got := tuilib.CursorLine("a\nb", 100); got != 1 {
 		t.Errorf("cursorLine(_, 100) = %d, want 1 (last line)", got)
 	}
 	// Cursor == len(value) sits on the last line (one byte past
 	// the last rune is still inside the value).
-	if got := cursorLine("a\nb", 3); got != 1 {
+	if got := tuilib.CursorLine("a\nb", 3); got != 1 {
 		t.Errorf("cursorLine(\"a\\nb\", 3) = %d, want 1 (end-of-input is on the last line)", got)
 	}
 }
 
 func TestIsOnFirstLine_TrueCases(t *testing.T) {
 	// Empty value: trivially on the first (and only) line.
-	if !isOnFirstLine("", 0) {
+	if !tuilib.IsOnFirstLine("", 0) {
 		t.Error(`isOnFirstLine("", 0) = false, want true`)
 	}
 	// Single-line value: every cursor is on the first line.
 	for i := 0; i <= 5; i++ {
-		if !isOnFirstLine("hello", i) {
+		if !tuilib.IsOnFirstLine("hello", i) {
 			t.Errorf(`isOnFirstLine("hello", %d) = false, want true`, i)
 		}
 	}
 	// Multi-line: cursor before the first \n is on the first line.
-	if !isOnFirstLine("a\nb\nc", 0) {
+	if !tuilib.IsOnFirstLine("a\nb\nc", 0) {
 		t.Error(`isOnFirstLine("a\nb\nc", 0) = false, want true`)
 	}
-	if !isOnFirstLine("a\nb\nc", 1) {
+	if !tuilib.IsOnFirstLine("a\nb\nc", 1) {
 		t.Error(`isOnFirstLine("a\nb\nc", 1) = false, want true (just before first \n)`)
 	}
 }
 
 func TestIsOnFirstLine_FalseCases(t *testing.T) {
 	// Cursor at the start of "b" is on the second line.
-	if isOnFirstLine("a\nb\nc", 2) {
+	if tuilib.IsOnFirstLine("a\nb\nc", 2) {
 		t.Error(`isOnFirstLine("a\nb\nc", 2) = true, want false`)
 	}
 	// Cursor at the start of "c" is on the third (last) line.
-	if isOnFirstLine("a\nb\nc", 5) {
+	if tuilib.IsOnFirstLine("a\nb\nc", 5) {
 		t.Error(`isOnFirstLine("a\nb\nc", 5) = true, want false`)
 	}
 }
 
 func TestIsOnLastLine_TrueCases(t *testing.T) {
 	// Empty value: trivially on the last (and only) line.
-	if !isOnLastLine("", 0) {
+	if !tuilib.IsOnLastLine("", 0) {
 		t.Error(`isOnLastLine("", 0) = false, want true`)
 	}
 	// Single-line value: every cursor is on the last line.
 	for i := 0; i <= 5; i++ {
-		if !isOnLastLine("hello", i) {
+		if !tuilib.IsOnLastLine("hello", i) {
 			t.Errorf(`isOnLastLine("hello", %d) = false, want true`, i)
 		}
 	}
 	// Multi-line: cursor on the last line is on the last line.
-	if !isOnLastLine("a\nb\nc", 5) {
+	if !tuilib.IsOnLastLine("a\nb\nc", 5) {
 		t.Error(`isOnLastLine("a\nb\nc", 5) = false, want true`)
 	}
-	if !isOnLastLine("a\nb\nc", 6) {
+	if !tuilib.IsOnLastLine("a\nb\nc", 6) {
 		t.Error(`isOnLastLine("a\nb\nc", 6) = false, want true (end-of-input on last line)`)
 	}
 }
 
 func TestIsOnLastLine_FalseCases(t *testing.T) {
 	// Cursor on the first line has more content after it.
-	if isOnLastLine("a\nb\nc", 0) {
+	if tuilib.IsOnLastLine("a\nb\nc", 0) {
 		t.Error(`isOnLastLine("a\nb\nc", 0) = true, want false`)
 	}
 	// Cursor on the middle line has more content after it.
-	if isOnLastLine("a\nb\nc", 2) {
+	if tuilib.IsOnLastLine("a\nb\nc", 2) {
 		t.Error(`isOnLastLine("a\nb\nc", 2) = true, want false`)
 	}
 }
@@ -2348,31 +2324,31 @@ func TestInputCursorByteOffset_MultiLine(t *testing.T) {
 	// anchors it back at the start so the byte offset tests start
 	// from a known position.
 	m.MoveToBegin()
-	if got := inputCursorByteOffset(m); got != 0 {
+	if got := tuilib.InputCursorByteOffset(m); got != 0 {
 		t.Errorf("cursor at start after MoveToBegin = %d, want 0", got)
 	}
 	// Move to row 1, col 0 via CursorDown. CursorDown preserves
 	// the column when the row below is at least as long as the
 	// cursor's current column — col 0 stays col 0 here.
 	m.CursorDown()
-	if got := inputCursorByteOffset(m); got != 2 {
+	if got := tuilib.InputCursorByteOffset(m); got != 2 {
 		t.Errorf("cursor on row 1, col 0 = %d, want 2 (a + \\n)", got)
 	}
 	// Move to row 1, col 1 (inside "b"). Byte offset 3.
 	m.SetCursorColumn(1)
-	if got := inputCursorByteOffset(m); got != 3 {
+	if got := tuilib.InputCursorByteOffset(m); got != 3 {
 		t.Errorf("cursor on row 1, col 1 = %d, want 3", got)
 	}
 	// Move to row 2. CursorDown preserves the column when the
 	// row below has the column in range; "c" is 1 char so the
 	// cursor lands at (2, 1) — end-of-row. Byte offset 5.
 	m.CursorDown()
-	if got := inputCursorByteOffset(m); got != 5 {
+	if got := tuilib.InputCursorByteOffset(m); got != 5 {
 		t.Errorf("cursor on row 2 (col preserved as 1) = %d, want 5", got)
 	}
 	// Back up to (2, 0) via SetCursorColumn(0). Byte offset 4.
 	m.SetCursorColumn(0)
-	if got := inputCursorByteOffset(m); got != 4 {
+	if got := tuilib.InputCursorByteOffset(m); got != 4 {
 		t.Errorf("cursor on row 2, col 0 = %d, want 4 (start of c)", got)
 	}
 }
@@ -2387,18 +2363,18 @@ func TestInputCursorByteOffset_UTF8(t *testing.T) {
 	// it back at row 0 col 0.
 	m.MoveToBegin()
 	// Row 0 col 0 → byte offset 0.
-	if got := inputCursorByteOffset(m); got != 0 {
+	if got := tuilib.InputCursorByteOffset(m); got != 0 {
 		t.Errorf("UTF8 cursor on row 0, col 0 = %d, want 0", got)
 	}
 	// Row 1 col 0 → byte offset 3 (α is 2 bytes + the \n).
 	m.CursorDown()
-	if got := inputCursorByteOffset(m); got != 3 {
+	if got := tuilib.InputCursorByteOffset(m); got != 3 {
 		t.Errorf("UTF8 cursor on row 1, col 0 = %d, want 3 (α is 2 bytes + \\n)", got)
 	}
 	// Row 1 col 1 → byte offset 5 (β starts at byte 3 and is
 	// 2 bytes long).
 	m.SetCursorColumn(1)
-	if got := inputCursorByteOffset(m); got != 5 {
+	if got := tuilib.InputCursorByteOffset(m); got != 5 {
 		t.Errorf("UTF8 cursor on row 1, col 1 = %d, want 5", got)
 	}
 }
@@ -2410,7 +2386,7 @@ func TestInputCursorByteOffset_UTF8(t *testing.T) {
 // from a unit test without leaking state across cases. Reuses
 // fakeClient declared in tui_run_test.go (same package).
 func runModeForTest() *runMode {
-	return NewRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+	return newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
 }
 
 func TestUpOnFirstLineSingleLine_TriggersHistory(t *testing.T) {
@@ -2427,8 +2403,8 @@ func TestUpOnFirstLineSingleLine_TriggersHistory(t *testing.T) {
 		t.Errorf("Up on empty input should recall history; got input = %q, want %q",
 			got, "first prompt")
 	}
-	if m.historyIdx != 1 {
-		t.Errorf("historyIdx = %d, want 1 after one historyUp", m.historyIdx)
+	if m.promptHistory.Index() != 1 {
+		t.Errorf("historyIdx = %d, want 1 after one historyUp", m.promptHistory.Index())
 	}
 }
 
@@ -2446,8 +2422,8 @@ func TestUpOnFirstLineMultiLine_PreservesUnsubmittedInput(t *testing.T) {
 	if got := m.input.Value(); got != valueBefore {
 		t.Errorf("Up on first line of unsubmitted multi-line input must preserve input; got %q, want %q", got, valueBefore)
 	}
-	if m.historyIdx != 0 {
-		t.Errorf("historyIdx = %d, want 0 (no history recall for unsubmitted text)", m.historyIdx)
+	if m.promptHistory.Index() != 0 {
+		t.Errorf("historyIdx = %d, want 0 (no history recall for unsubmitted text)", m.promptHistory.Index())
 	}
 }
 
@@ -2461,8 +2437,8 @@ func TestHistory_MultiLineEntry_PagingDirectlyWithoutIntraLineNavigation(t *test
 	if got := m.input.Value(); got != "multi\n[Pasted text #1 +16 lines]\nthird line" {
 		t.Fatalf("Up #1: got %q", got)
 	}
-	if m.historyIdx != 1 {
-		t.Fatalf("Up #1: historyIdx = %d, want 1", m.historyIdx)
+	if m.promptHistory.Index() != 1 {
+		t.Fatalf("Up #1: historyIdx = %d, want 1", m.promptHistory.Index())
 	}
 
 	// Up #2 directly jumps to next older entry without moving within the multi-line entry
@@ -2470,8 +2446,8 @@ func TestHistory_MultiLineEntry_PagingDirectlyWithoutIntraLineNavigation(t *test
 	if got := m.input.Value(); got != "older prompt" {
 		t.Fatalf("Up #2: got %q, want %q", got, "older prompt")
 	}
-	if m.historyIdx != 2 {
-		t.Fatalf("Up #2: historyIdx = %d, want 2", m.historyIdx)
+	if m.promptHistory.Index() != 2 {
+		t.Fatalf("Up #2: historyIdx = %d, want 2", m.promptHistory.Index())
 	}
 
 	// Down #1 directly jumps back to the multi-line entry
@@ -2479,8 +2455,8 @@ func TestHistory_MultiLineEntry_PagingDirectlyWithoutIntraLineNavigation(t *test
 	if got := m.input.Value(); got != "multi\n[Pasted text #1 +16 lines]\nthird line" {
 		t.Fatalf("Down #1: got %q", got)
 	}
-	if m.historyIdx != 1 {
-		t.Fatalf("Down #1: historyIdx = %d, want 1", m.historyIdx)
+	if m.promptHistory.Index() != 1 {
+		t.Fatalf("Down #1: historyIdx = %d, want 1", m.promptHistory.Index())
 	}
 
 	// Down #2 returns to initial empty prompt
@@ -2488,8 +2464,8 @@ func TestHistory_MultiLineEntry_PagingDirectlyWithoutIntraLineNavigation(t *test
 	if got := m.input.Value(); got != "" {
 		t.Fatalf("Down #2: got %q, want empty", got)
 	}
-	if m.historyIdx != 0 {
-		t.Fatalf("Down #2: historyIdx = %d, want 0", m.historyIdx)
+	if m.promptHistory.Index() != 0 {
+		t.Fatalf("Down #2: historyIdx = %d, want 0", m.promptHistory.Index())
 	}
 }
 
@@ -2500,14 +2476,14 @@ func TestHistory_MultiLineEntry_HorizontalCursorMoveExitsHistoryNavigation(t *te
 
 	// Up #1 recalls newest entry
 	m.Update(upKey())
-	if m.historyIdx != 1 {
-		t.Fatalf("Up #1: historyIdx = %d, want 1", m.historyIdx)
+	if m.promptHistory.Index() != 1 {
+		t.Fatalf("Up #1: historyIdx = %d, want 1", m.promptHistory.Index())
 	}
 
 	// Left arrow moves cursor and exits history browsing mode
 	m.Update(leftKey())
-	if m.historyIdx != 0 {
-		t.Fatalf("Left arrow should exit history mode; got historyIdx = %d, want 0", m.historyIdx)
+	if m.promptHistory.Index() != 0 {
+		t.Fatalf("Left arrow should exit history mode; got historyIdx = %d, want 0", m.promptHistory.Index())
 	}
 
 	// Subsequent Up arrow navigates lines inside the entry instead of jumping history
@@ -2515,8 +2491,8 @@ func TestHistory_MultiLineEntry_HorizontalCursorMoveExitsHistoryNavigation(t *te
 	if got := m.input.Value(); got != "multi\nline2\nline3" {
 		t.Fatalf("Up after cursor move should navigate within text; got %q", got)
 	}
-	if m.historyIdx != 0 {
-		t.Fatalf("historyIdx should remain 0; got %d", m.historyIdx)
+	if m.promptHistory.Index() != 0 {
+		t.Fatalf("historyIdx should remain 0; got %d", m.promptHistory.Index())
 	}
 }
 
@@ -2528,8 +2504,8 @@ func TestHistory_SlashCommandMultiLineEntry_NavigatesLinesAfterLeftArrow(t *test
 
 	// Up #1 recalls newest entry
 	m.Update(upKey())
-	if m.historyIdx != 1 {
-		t.Fatalf("Up #1: historyIdx = %d, want 1", m.historyIdx)
+	if m.promptHistory.Index() != 1 {
+		t.Fatalf("Up #1: historyIdx = %d, want 1", m.promptHistory.Index())
 	}
 	if got := m.input.Value(); got != entry {
 		t.Fatalf("Up #1: input value = %q, want %q", got, entry)
@@ -2540,8 +2516,8 @@ func TestHistory_SlashCommandMultiLineEntry_NavigatesLinesAfterLeftArrow(t *test
 
 	// Left arrow moves cursor and exits history browsing mode
 	m.Update(leftKey())
-	if m.historyIdx != 0 {
-		t.Fatalf("Left arrow should exit history mode; got historyIdx = %d, want 0", m.historyIdx)
+	if m.promptHistory.Index() != 0 {
+		t.Fatalf("Left arrow should exit history mode; got historyIdx = %d, want 0", m.promptHistory.Index())
 	}
 	if m.picker.Visible() {
 		t.Fatal("Left arrow navigation in /btw multi-line prompt should not open picker")
@@ -2557,8 +2533,8 @@ func TestHistory_SlashCommandMultiLineEntry_NavigatesLinesAfterLeftArrow(t *test
 	if got := m.input.Value(); got != entry {
 		t.Fatalf("Up after cursor move should navigate within text; got %q", got)
 	}
-	if m.historyIdx != 0 {
-		t.Fatalf("historyIdx should remain 0; got %d", m.historyIdx)
+	if m.promptHistory.Index() != 0 {
+		t.Fatalf("historyIdx should remain 0; got %d", m.promptHistory.Index())
 	}
 	if m.input.Line() >= lastLine {
 		t.Fatalf("Up arrow should have moved cursor up a line, but line is %d (was %d)", m.input.Line(), lastLine)
@@ -2607,7 +2583,6 @@ func TestPastePlaceholder_AtomicDeletion(t *testing.T) {
 	}
 }
 
-
 func TestUpOnMiddleLine_DoesNotTriggerHistory(t *testing.T) {
 	m := runModeForTest()
 	m.pushHistory("should not be recalled")
@@ -2627,8 +2602,8 @@ func TestUpOnMiddleLine_DoesNotTriggerHistory(t *testing.T) {
 			valueBefore, got)
 	}
 	// historyIdx stays at 0 (no history navigation occurred).
-	if m.historyIdx != 0 {
-		t.Errorf("historyIdx = %d, want 0 (no history recall)", m.historyIdx)
+	if m.promptHistory.Index() != 0 {
+		t.Errorf("historyIdx = %d, want 0 (no history recall)", m.promptHistory.Index())
 	}
 	// Cursor should have moved up one logical line via the
 	// textarea's LinePrevious binding.
@@ -2654,8 +2629,8 @@ func TestDownOnLastLine_PreservesUnsubmittedInput(t *testing.T) {
 	if got := m.input.Value(); got != valueBefore {
 		t.Errorf("Down on last line should preserve unsubmitted text; got %q, want %q", got, valueBefore)
 	}
-	if m.historyIdx != 0 {
-		t.Errorf("historyIdx = %d, want 0", m.historyIdx)
+	if m.promptHistory.Index() != 0 {
+		t.Errorf("historyIdx = %d, want 0", m.promptHistory.Index())
 	}
 }
 
@@ -2671,15 +2646,15 @@ func TestDownOnMiddleLine_DoesNotTriggerHistory(t *testing.T) {
 		t.Fatalf("pre-condition: cursor should be on line 1, got line %d", m.input.Line())
 	}
 	valueBefore := m.input.Value()
-	idxBefore := m.historyIdx
+	idxBefore := m.promptHistory.Index()
 	m.Update(downKey())
 	// Input value must NOT change (no historyDown).
 	if got := m.input.Value(); got != valueBefore {
 		t.Errorf("Down on middle line should NOT call historyDown; input changed from %q to %q",
 			valueBefore, got)
 	}
-	if m.historyIdx != idxBefore {
-		t.Errorf("historyIdx = %d, want %d (no history navigation)", m.historyIdx, idxBefore)
+	if m.promptHistory.Index() != idxBefore {
+		t.Errorf("historyIdx = %d, want %d (no history navigation)", m.promptHistory.Index(), idxBefore)
 	}
 	// Cursor should have moved down one logical line via the
 	// textarea's LineNext binding.
@@ -2704,15 +2679,15 @@ func TestPickerVisible_OverridesUpHistory(t *testing.T) {
 		t.Fatalf("setup: picker.Idx() = %d, want 1", m.picker.Idx())
 	}
 	valueBefore := m.input.Value()
-	idxBefore := m.historyIdx
+	idxBefore := m.promptHistory.Index()
 	m.Update(upKey()) // picker.MoveUp → idx=0; historyUp MUST NOT fire
 	if m.picker.Idx() != 0 {
 		t.Errorf("Up with picker visible should call picker.MoveUp; idx = %d, want 0",
 			m.picker.Idx())
 	}
-	if m.historyIdx != idxBefore {
+	if m.promptHistory.Index() != idxBefore {
 		t.Errorf("historyIdx = %d, want %d (picker should override historyUp)",
-			m.historyIdx, idxBefore)
+			m.promptHistory.Index(), idxBefore)
 	}
 	if got := m.input.Value(); got != valueBefore {
 		t.Errorf("input changed from %q to %q — picker path should not touch history",
@@ -2723,7 +2698,7 @@ func TestPickerVisible_OverridesUpHistory(t *testing.T) {
 // ---------------------------------------------------------------- streaming clear (consolidated from streaming_clear_test.go)
 
 func TestTurnDoneMsg_StreamingClearReturnsClearScreenCmd(t *testing.T) {
-	m := NewRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
 	m.response = append(m.response, "> analyze pwd")
 	m.liveStart = len(m.response)
 	m.session = append(m.session, backend.Message{Role: "user", Content: "analyze pwd"})
@@ -2735,10 +2710,10 @@ func TestTurnDoneMsg_StreamingClearReturnsClearScreenCmd(t *testing.T) {
 		t.Fatalf("replyStart not anchored after 5 chunks; m.replyStart=%d", m.replyStart)
 	}
 
-	_, cmd := m.Update(turnDoneMsg{
-		reply:     "mock reply from model=Gemini 3.8 Flash (Medium): analyze pwd",
-		steps:     nil,
-		reasoning: "",
+	_, cmd := m.Update(toolsteps.TurnDoneMsg{
+		Reply:     "mock reply from model=Gemini 3.8 Flash (Medium): analyze pwd",
+		Steps:     nil,
+		Reasoning: "",
 	})
 	if cmd == nil {
 		t.Fatalf("turnDoneMsg returned nil Cmd; want a tea.Batch(... ClearScreen) so the next render does a full repaint")
@@ -2751,7 +2726,7 @@ func TestTurnDoneMsg_StreamingClearReturnsClearScreenCmd(t *testing.T) {
 }
 
 func TestBackendDoneMsg_StreamingClearReturnsClearScreenCmd(t *testing.T) {
-	m := NewRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
 	m.response = append(m.response, "> hi")
 	m.liveStart = len(m.response)
 	m.streaming = true
@@ -2769,17 +2744,17 @@ func TestBackendDoneMsg_StreamingClearReturnsClearScreenCmd(t *testing.T) {
 }
 
 func TestTurnDoneMsg_QueueFlushKeepsClearScreen(t *testing.T) {
-	m := NewRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
 	m.response = append(m.response, "> first")
 	m.liveStart = len(m.response)
 	m.session = append(m.session, backend.Message{Role: "user", Content: "first"})
 
-	m.queuedPrompt = "second"
+	m.store.QueuedPrompt = "second"
 
-	_, cmd := m.Update(turnDoneMsg{
-		reply:     "first reply",
-		steps:     nil,
-		reasoning: "",
+	_, cmd := m.Update(toolsteps.TurnDoneMsg{
+		Reply:     "first reply",
+		Steps:     nil,
+		Reasoning: "",
 	})
 	if cmd == nil {
 		t.Fatalf("turnDoneMsg with queuedPrompt returned nil Cmd; want a Batch that includes both queueCmd and tea.ClearScreen")
@@ -2820,13 +2795,13 @@ func TestTurnDoneMsg_StreamingClearContractIsStableAcrossResponseShapes(t *testi
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			m := NewRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+			m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
 			m.response = append(m.response, "> probe")
 			m.liveStart = len(m.response)
 			m.session = append(m.session, backend.Message{Role: "user", Content: "probe"})
 			m.Update(backendChunkMsg(tc.reply))
 
-			_, cmd := m.Update(turnDoneMsg{reply: tc.reply})
+			_, cmd := m.Update(toolsteps.TurnDoneMsg{Reply: tc.reply})
 			if cmd == nil {
 				t.Fatalf("%s: turnDoneMsg returned nil Cmd; want a Cmd that yields clearScreenMsg", tc.name)
 			}
@@ -2904,7 +2879,7 @@ const streamAccountingSample = "# Go 语言入门笔记\n" +
 	"> 这是一个引用块。\n"
 
 func TestStreamRowCountDoesNotExplode(t *testing.T) {
-	m := NewRunMode(nil, "u@t", "m", "t", "/tmp", true)
+	m := newRunMode(nil, "u@t", "m", "t", "/tmp", true)
 	m.width = 100
 	m.response = append(m.response, "> seed")
 	m.liveStart = len(m.response)
@@ -2919,7 +2894,7 @@ func TestStreamRowCountDoesNotExplode(t *testing.T) {
 		accum += chunk
 		_, _ = m.Update(backendChunkMsg([]byte(chunk)))
 		rows := len(m.response) - m.replyStart
-		want := len(strings.Split(renderMarkdown(accum, m.width), "\n"))
+		want := len(strings.Split(mdrender.RenderMarkdown(accum, m.width), "\n"))
 		if rows != want {
 			t.Fatalf("after chunk %q the live range has %d rows; "+
 				"renderMarkdown(accumulated) has %d (re-rendering styled "+
@@ -2931,7 +2906,7 @@ func TestStreamRowCountDoesNotExplode(t *testing.T) {
 				rows, ln, len(sourceLines))
 		}
 	}
-	want := strings.Split(renderMarkdown(streamAccountingSample, m.width), "\n")
+	want := strings.Split(mdrender.RenderMarkdown(streamAccountingSample, m.width), "\n")
 	got := m.response[m.replyStart:]
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("final live range != renderMarkdown(accumulated):\ngot %d rows, want %d\n%s",
@@ -2945,6 +2920,38 @@ func newPSModel() *runMode {
 	return &runMode{}
 }
 
+// psModelWithOpenPicker returns a runMode whose subagent-question
+// picker is open, so the status protocol reports the blocked/question
+// state.
+func psModelWithOpenPicker(t *testing.T) *runMode {
+	t.Helper()
+	m := newPSModel()
+	mgr := questions.NewManager(false)
+	m.subAgentQuestions = mgr
+	m.subAgentQuestionPanel = m.newSubAgentQuestionPanel()
+	mgr.Enqueue(questions.ParentKey, "Q?", nil)
+	m.subAgentQuestionPanel.Toggle()
+	return m
+}
+
+// psModelWithStagedAnswer returns a runMode with an answer staged on a
+// queued question — the picker is closed, the answer is not sent yet.
+func psModelWithStagedAnswer(t *testing.T) *runMode {
+	t.Helper()
+	m := psModelWithOpenPicker(t)
+	m.subAgentQuestionPanel.HandleKey(tea.Key{Code: tea.KeyEnter})
+	return m
+}
+
+// psModelWithOpenPickerAndStagedAnswer returns a runMode with both the
+// picker open and an answer staged.
+func psModelWithOpenPickerAndStagedAnswer(t *testing.T) *runMode {
+	t.Helper()
+	m := psModelWithStagedAnswer(t)
+	m.subAgentQuestionPanel.Toggle()
+	return m
+}
+
 func TestProgramStatus(t *testing.T) {
 	cases := []struct {
 		name  string
@@ -2953,37 +2960,37 @@ func TestProgramStatus(t *testing.T) {
 	}{
 		{
 			name: "idle",
-			want: tea.ProgramStatus{State: tea.ProgramStateIdle, App: programStatusApp},
+			want: tea.ProgramStatus{State: tea.ProgramStateIdle, App: programstatus.App},
 		},
 		{
 			name: "working from streaming",
 			setup: func(m *runMode) {
 				m.streaming = true
 			},
-			want: tea.ProgramStatus{State: tea.ProgramStateWorking, App: programStatusApp},
+			want: tea.ProgramStatus{State: tea.ProgramStateWorking, App: programstatus.App},
 		},
 		{
 			name: "working from thinking",
 			setup: func(m *runMode) {
 				m.thinking = true
 			},
-			want: tea.ProgramStatus{State: tea.ProgramStateWorking, App: programStatusApp},
+			want: tea.ProgramStatus{State: tea.ProgramStateWorking, App: programstatus.App},
 		},
 		{
 			name: "working from in-flight cancel",
 			setup: func(m *runMode) {
 				m.turnCancel = func() {}
 			},
-			want: tea.ProgramStatus{State: tea.ProgramStateWorking, App: programStatusApp},
+			want: tea.ProgramStatus{State: tea.ProgramStateWorking, App: programstatus.App},
 		},
 		{
 			name: "blocked question when picker open",
 			setup: func(m *runMode) {
-				m.subAgentQuestionPickerOpen = true
+				*m = *psModelWithOpenPicker(t)
 			},
 			want: tea.ProgramStatus{
 				State:   tea.ProgramStateBlocked,
-				App:     programStatusApp,
+				App:     programstatus.App,
 				Kind:    tea.ProgramStatusKindQuestion,
 				Message: "Questions need your input",
 			},
@@ -2991,11 +2998,11 @@ func TestProgramStatus(t *testing.T) {
 		{
 			name: "blocked question when answer target set",
 			setup: func(m *runMode) {
-				m.subAgentQuestionAnswerTarget = "q-1"
+				*m = *psModelWithStagedAnswer(t)
 			},
 			want: tea.ProgramStatus{
 				State:   tea.ProgramStateBlocked,
-				App:     programStatusApp,
+				App:     programstatus.App,
 				Kind:    tea.ProgramStatusKindQuestion,
 				Message: "Questions need your input",
 			},
@@ -3003,12 +3010,12 @@ func TestProgramStatus(t *testing.T) {
 		{
 			name: "blocked permission wins over question",
 			setup: func(m *runMode) {
-				m.subAgentQuestionPickerOpen = true
+				*m = *psModelWithOpenPicker(t)
 				m.pendingPermission = true
 			},
 			want: tea.ProgramStatus{
 				State:   tea.ProgramStateBlocked,
-				App:     programStatusApp,
+				App:     programstatus.App,
 				Kind:    tea.ProgramStatusKindPermission,
 				Message: "Permission required",
 			},
@@ -3020,7 +3027,7 @@ func TestProgramStatus(t *testing.T) {
 			},
 			want: tea.ProgramStatus{
 				State:   tea.ProgramStateBlocked,
-				App:     programStatusApp,
+				App:     programstatus.App,
 				Kind:    tea.ProgramStatusKindAuth,
 				Message: "Sign-in required",
 			},
@@ -3028,12 +3035,12 @@ func TestProgramStatus(t *testing.T) {
 		{
 			name: "blocked question wins over auth too",
 			setup: func(m *runMode) {
+				*m = *psModelWithOpenPicker(t)
 				m.pendingAuth = true
-				m.subAgentQuestionPickerOpen = true
 			},
 			want: tea.ProgramStatus{
 				State:   tea.ProgramStateBlocked,
-				App:     programStatusApp,
+				App:     programstatus.App,
 				Kind:    tea.ProgramStatusKindQuestion,
 				Message: "Questions need your input",
 			},
@@ -3044,21 +3051,21 @@ func TestProgramStatus(t *testing.T) {
 				m.lastTurnOutcome = tea.ProgramStateDone
 				m.streaming = true
 			},
-			want: tea.ProgramStatus{State: tea.ProgramStateWorking, App: programStatusApp},
+			want: tea.ProgramStatus{State: tea.ProgramStateWorking, App: programstatus.App},
 		},
 		{
 			name: "outcome once idle: done",
 			setup: func(m *runMode) {
 				m.lastTurnOutcome = tea.ProgramStateDone
 			},
-			want: tea.ProgramStatus{State: tea.ProgramStateDone, App: programStatusApp},
+			want: tea.ProgramStatus{State: tea.ProgramStateDone, App: programstatus.App},
 		},
 		{
 			name: "outcome once idle: error",
 			setup: func(m *runMode) {
 				m.lastTurnOutcome = tea.ProgramStateError
 			},
-			want: tea.ProgramStatus{State: tea.ProgramStateError, App: programStatusApp},
+			want: tea.ProgramStatus{State: tea.ProgramStateError, App: programstatus.App},
 		},
 		{
 			name: "idle when last outcome cleared",
@@ -3066,7 +3073,7 @@ func TestProgramStatus(t *testing.T) {
 				m.lastTurnOutcome = tea.ProgramStateDone
 				m.clearLastTurnOutcome()
 			},
-			want: tea.ProgramStatus{State: tea.ProgramStateIdle, App: programStatusApp},
+			want: tea.ProgramStatus{State: tea.ProgramStateIdle, App: programstatus.App},
 		},
 	}
 
@@ -3104,7 +3111,7 @@ func TestProgramStatusReportIncludesApp(t *testing.T) {
 		tea.ProgramStateIdle, tea.ProgramStateWorking, tea.ProgramStateDone,
 		tea.ProgramStateError,
 	} {
-		ps := &tea.ProgramStatus{State: s, App: programStatusApp}
+		ps := &tea.ProgramStatus{State: s, App: programstatus.App}
 		if ps.App != "wagyu" {
 			t.Errorf("App for state %q = %q, want %q", s, ps.App, "wagyu")
 		}
@@ -3113,7 +3120,7 @@ func TestProgramStatusReportIncludesApp(t *testing.T) {
 		tea.ProgramStatusKindPermission, tea.ProgramStatusKindQuestion,
 		tea.ProgramStatusKindAuth,
 	} {
-		ps := &tea.ProgramStatus{State: tea.ProgramStateBlocked, Kind: k, App: programStatusApp}
+		ps := &tea.ProgramStatus{State: tea.ProgramStateBlocked, Kind: k, App: programstatus.App}
 		if ps.App != "wagyu" {
 			t.Errorf("Blocked App for kind %q = %q, want %q", k, ps.App, "wagyu")
 		}
@@ -3127,18 +3134,17 @@ func TestHasPendingQuestion(t *testing.T) {
 		want bool
 	}{
 		{"off", func(m *runMode) {}, false},
-		{"picker open", func(m *runMode) { m.subAgentQuestionPickerOpen = true }, true},
-		{"answer target set", func(m *runMode) { m.subAgentQuestionAnswerTarget = "q-1" }, true},
+		{"picker open", func(m *runMode) { *m = *psModelWithOpenPicker(t) }, true},
+		{"answer target set", func(m *runMode) { *m = *psModelWithStagedAnswer(t) }, true},
 		{"both", func(m *runMode) {
-			m.subAgentQuestionPickerOpen = true
-			m.subAgentQuestionAnswerTarget = "q-2"
+			*m = *psModelWithOpenPickerAndStagedAnswer(t)
 		}, true},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			m := newPSModel()
 			c.set(m)
-			if got := m.hasPendingQuestion(); got != c.want {
+			if got := m.subAgentQuestionPanel.HasPendingQuestion(); got != c.want {
 				t.Errorf("hasPendingQuestion() = %v, want %v", got, c.want)
 			}
 		})
@@ -3201,7 +3207,7 @@ func TestProgramStatusEmitsOSC7501Sequence(t *testing.T) {
 		},
 		{
 			name: "blocked question",
-			set:  func(m *runMode) { m.subAgentQuestionPickerOpen = true },
+			set:  func(m *runMode) { *m = *psModelWithOpenPicker(t) },
 			want: "\x1b]7501;state=blocked:kind=question:app=wagyu:msg=UXVlc3Rpb25zIG5lZWQgeW91ciBpbnB1dA==\x07",
 		},
 		{
@@ -3284,10 +3290,10 @@ func TestRenderer_OptimizationsEnabledByDefault(t *testing.T) {
 		t.Fatalf("env var leaked into default test: got %q want %q", got, want)
 	}
 
-	if !escapeSequenceOptimizationsEnabled() {
+	if !tuilib.EscapeSequenceOptimizationsEnabled() {
 		t.Fatal("optimizations should be enabled by default; got disabled")
 	}
-	if escapeSequenceOptimizationsBypassed() {
+	if tuilib.EscapeSequenceOptimizationsBypassed() {
 		t.Fatal("env reader should report false on unset; got true")
 	}
 }
@@ -3298,10 +3304,10 @@ func TestRenderer_OptimizationsEnabledByDefault(t *testing.T) {
 func TestRenderer_OptimizationsDisabledOn1(t *testing.T) {
 	t.Setenv(envDisableEscapeSequenceOptimizations, "1")
 
-	if escapeSequenceOptimizationsEnabled() {
+	if tuilib.EscapeSequenceOptimizationsEnabled() {
 		t.Fatal("optimizations should be disabled when env = \"1\"; got enabled")
 	}
-	if !escapeSequenceOptimizationsBypassed() {
+	if !tuilib.EscapeSequenceOptimizationsBypassed() {
 		t.Fatal("env reader should report true on \"1\"; got false")
 	}
 }
@@ -3312,7 +3318,7 @@ func TestRenderer_OptimizationsDisabledOn1(t *testing.T) {
 func TestRenderer_OptimizationsDisabledOnTrue(t *testing.T) {
 	t.Setenv(envDisableEscapeSequenceOptimizations, "true")
 
-	if escapeSequenceOptimizationsEnabled() {
+	if tuilib.EscapeSequenceOptimizationsEnabled() {
 		t.Fatal("optimizations should be disabled when env = \"true\"; got enabled")
 	}
 }
@@ -3323,7 +3329,7 @@ func TestRenderer_OptimizationsDisabledOnTrue(t *testing.T) {
 func TestRenderer_OptimizationsDisabledOnYes(t *testing.T) {
 	t.Setenv(envDisableEscapeSequenceOptimizations, "yes")
 
-	if escapeSequenceOptimizationsEnabled() {
+	if tuilib.EscapeSequenceOptimizationsEnabled() {
 		t.Fatal("optimizations should be disabled when env = \"yes\"; got enabled")
 	}
 }
@@ -3349,11 +3355,11 @@ func TestRenderer_OptimizationsCaseInsensitive(t *testing.T) {
 		tc := tc
 		t.Run("env="+tc.in, func(t *testing.T) {
 			t.Setenv(envDisableEscapeSequenceOptimizations, tc.in)
-			got := escapeSequenceOptimizationsBypassed()
+			got := tuilib.EscapeSequenceOptimizationsBypassed()
 			if got != tc.want {
 				t.Fatalf("escapeSequenceOptimizationsBypassed() = %v, want %v (input %q)", got, tc.want, tc.in)
 			}
-			if got == escapeSequenceOptimizationsEnabled() {
+			if got == tuilib.EscapeSequenceOptimizationsEnabled() {
 				t.Fatalf("escapeSequenceOptimizationsEnabled() must be the inverse of env reader for %q", tc.in)
 			}
 		})
@@ -3382,10 +3388,10 @@ func TestRenderer_OptimizationsEnabledOnGarbage(t *testing.T) {
 		in := in
 		t.Run("env="+in, func(t *testing.T) {
 			t.Setenv(envDisableEscapeSequenceOptimizations, in)
-			if escapeSequenceOptimizationsBypassed() {
+			if tuilib.EscapeSequenceOptimizationsBypassed() {
 				t.Fatalf("env reader must return false on %q; got true", in)
 			}
-			if !escapeSequenceOptimizationsEnabled() {
+			if !tuilib.EscapeSequenceOptimizationsEnabled() {
 				t.Fatalf("escapeSequenceOptimizationsEnabled() must remain true on %q; got false", in)
 			}
 		})
@@ -3424,7 +3430,7 @@ func TestRenderer_PrintModeUnaffected(t *testing.T) {
 			// Optimisations are off globally, but print mode
 			// doesn't consult the renderer at all. applyRenderer
 			// is never called on the print path.
-			if !escapeSequenceOptimizationsEnabled() {
+			if !tuilib.EscapeSequenceOptimizationsEnabled() {
 				// sanity - the env reader reports the bypass is
 				// armed. The point of this test is that shouldConsultRenderer
 				// short-circuits BEFORE applyRenderer is reached.
@@ -3605,11 +3611,15 @@ func TestLoadStatusLineConfig_DisabledAndMissing(t *testing.T) {
 			home := t.TempDir()
 			t.Setenv("ANTIGRAVITY_HOME", home)
 			writeSettings(t, home, tc.body)
-			cmd, ok := loadStatusLineConfig()
+			// The live path is the statusline package's own reader: the
+			// host's reloadStatusLineConfig keeps exactly this pair
+			// (cfg, found) and the block's Active() verdict.
+			cfg, found := statusline.LoadConfig()
+			ok := found && cfg.Active()
 			if ok != tc.ok {
 				t.Errorf("ok = %v, want %v", ok, tc.ok)
 			}
-			if ok && cmd == "" {
+			if ok && cfg.Command == "" {
 				t.Error("command empty despite ok = true")
 			}
 		})
@@ -3636,11 +3646,15 @@ func TestStatusLinePayload_Fields(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("ANTIGRAVITY_HOME", home)
 	m := &runMode{
-		statusModel:             "MiniMax M3",
-		model:                   "MiniMax M3",
-		cwd:                     "/Users/foo/project",
-		sessionPromptTokens:     1000,
-		sessionCompletionTokens: 500,
+		statusModel: "MiniMax M3",
+		model:       "MiniMax M3",
+		cwd:         "/Users/foo/project",
+		store: tuistore.Store{
+			Tokens: tuistore.Tokens{
+				SessionPromptTokens:     1000,
+				SessionCompletionTokens: 500,
+			},
+		},
 	}
 	m.conversationName = "My Session"
 	got := m.buildStatusLinePayload()
@@ -3709,25 +3723,25 @@ func TestStatusLinePayload_Fields(t *testing.T) {
 //     consistent.
 func TestPricingForModel(t *testing.T) {
 	// 1M prompt tokens, 0 completion tokens → exact row hit.
-	if got := pricingForModel("claude-opus-4.7", 1_000_000, 0); got != 15.0 {
+	if got := statusline.PricingForModel("claude-opus-4.7", 1_000_000, 0); got != 15.0 {
 		t.Errorf("claude-opus input rate = %v, want 15.0", got)
 	}
 	// Substring match: claude-sonnet should NOT route to claude-opus.
-	if got := pricingForModel("claude-sonnet-4.5", 1_000_000, 0); got != 3.0 {
+	if got := statusline.PricingForModel("claude-sonnet-4.5", 1_000_000, 0); got != 3.0 {
 		t.Errorf("claude-sonnet input rate = %v, want 3.0", got)
 	}
 	// MiniMax M3 is free.
-	if got := pricingForModel("MiniMax M3", 1_000_000, 1_000_000); got != 0 {
+	if got := statusline.PricingForModel("MiniMax M3", 1_000_000, 1_000_000); got != 0 {
 		t.Errorf("MiniMax M3 rate = %v, want 0", got)
 	}
 	// Unknown model falls back to 0 (well-formed JSON, but $0 is a
 	// better default than NaN/Infinity).
-	if got := pricingForModel("totally-unknown-model", 1000, 1000); got != 0 {
+	if got := statusline.PricingForModel("totally-unknown-model", 1000, 1000); got != 0 {
 		t.Errorf("unknown model rate = %v, want 0", got)
 	}
 	// Output rate vs input rate — claude-sonnet output is 5x its
 	// input rate (3 → 15).
-	if got := pricingForModel("claude-sonnet", 0, 1_000_000); got != 15.0 {
+	if got := statusline.PricingForModel("claude-sonnet", 0, 1_000_000); got != 15.0 {
 		t.Errorf("claude-sonnet output rate = %v, want 15.0", got)
 	}
 }
@@ -3781,7 +3795,7 @@ func TestRunStatusLineScript_SpawnEcho(t *testing.T) {
 		t.Fatal(err)
 	}
 	payload := []byte(`{"model":"MiniMax M3","cost":0,"conversation_title":"","current_dir":"/"}`)
-	res := runStatusLineScript(script, payload)
+	res := statusline.RunScript(script, payload)
 	if res.Err != nil {
 		t.Fatalf("spawn err = %v", res.Err)
 	}
@@ -3803,7 +3817,7 @@ func TestRunStatusLineScript_NonZeroExit(t *testing.T) {
 	if err := os.WriteFile(script, []byte(body), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	res := runStatusLineScript(script, []byte(`{}`))
+	res := statusline.RunScript(script, []byte(`{}`))
 	if res.Err == nil {
 		t.Fatal("expected non-nil error on exit 7")
 	}
@@ -3826,7 +3840,7 @@ func TestRunStatusLineScript_EmptyOutput(t *testing.T) {
 	if err := os.WriteFile(script, []byte(body), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	res := runStatusLineScript(script, []byte(`{}`))
+	res := statusline.RunScript(script, []byte(`{}`))
 	if res.Err == nil {
 		t.Fatal("expected non-nil error on empty stdout")
 	}
@@ -3851,7 +3865,7 @@ func TestSplitStatusLineCommand(t *testing.T) {
 		{"", "", nil},
 	}
 	for _, tc := range cases {
-		gotName, gotArgs := splitStatusLineCommand(tc.in)
+		gotName, gotArgs := statusline.SplitCommand(tc.in)
 		if gotName != tc.name {
 			t.Errorf("%q name = %q, want %q", tc.in, gotName, tc.name)
 		}
@@ -4021,17 +4035,6 @@ type stringErr string
 
 func (s stringErr) Error() string { return string(s) }
 
-// extractStatusRowOnly returns the last line of View() (the status
-// row, since the row sits at the bottom of the rendered string).
-// Used to keep the fallback test free of full-screen noise.
-func (m *runMode) extractStatusRowOnly() string {
-	lines := strings.Split(m.View().Content, "\n")
-	if len(lines) == 0 {
-		return ""
-	}
-	return lines[len(lines)-1]
-}
-
 // TestStatusLinePayload_IncludesConversationTitle pins the field's
 // presence in the JSON wire form. The contract from the AGY 1.1.27
 // changelog is that the field is `conversation_title` (not
@@ -4085,7 +4088,7 @@ func TestStatusLinePayload_UpdatesOnRename(t *testing.T) {
 	// the slash dispatcher writing it back into m.conversationName
 	// (cmd/wagyu/slash_commands.go:528-529). The cycle pins that
 	// payload follows rename without any other wiring.
-	next, msg := renameFeedback("New Title", m.conversationName)
+	next, msg := tuilib.RenameFeedback("New Title", m.conversationName)
 	if msg == "" || !strings.HasPrefix(msg, "Conversation renamed") {
 		t.Fatalf("renameFeedback msg = %q", msg)
 	}
@@ -4167,12 +4170,16 @@ func TestStatusLinePayload_EmptyTitleWhenUntitled(t *testing.T) {
 // Evidence 【一手】: agy 1.4.7's captured payloads.
 func TestStatusLinePayload_ReferenceShape(t *testing.T) {
 	m := &runMode{
-		statusModel:             "MiniMax M3",
-		model:                   "MiniMax M3",
-		cwd:                     "/Users/foo/project",
-		sessionPromptTokens:     1000,
-		sessionCompletionTokens: 500,
-		width:                   120,
+		statusModel: "MiniMax M3",
+		model:       "MiniMax M3",
+		cwd:         "/Users/foo/project",
+		store: tuistore.Store{
+			Tokens: tuistore.Tokens{
+				SessionPromptTokens:     1000,
+				SessionCompletionTokens: 500,
+			},
+		},
+		width: 120,
 	}
 	m.conversationName = "Refactor auth"
 	payload := m.buildStatusLinePayload()
@@ -4328,7 +4335,7 @@ func altTestMode(t *testing.T, keybindingsJSON string) *runMode {
 			t.Fatalf("write keybindings: %v", err)
 		}
 	}
-	return NewRunMode(&fakeClient{}, "u@t", "m", "t", "/tmp", true)
+	return newRunMode(&fakeClient{}, "u@t", "m", "t", "/tmp", true)
 }
 
 // altFires returns the letter/action pairs the dispatcher fired
@@ -4424,8 +4431,13 @@ func TestAlt_TerminalApp_ArbitraryLetter(t *testing.T) {
 
 // TestAlt_NoAltsConfigured_FallsThrough is the regression guard:
 // when the user has no keybindings.json (or it has no alt+letter
-// entries), Esc+s must NOT swallow the Esc — the input gets
-// cleared as before, and 's' inserts as text.
+// entries), Esc+s must NOT swallow the Esc — the Esc reaches the
+// host's Esc handler, and 's' inserts as text.
+//
+// Cycle 383 (B-21): the reference clears the prompt box on `esc esc`
+// (official-docs/cli/using.md:22), so one Esc only arms the clear and
+// the second one empties the composer. The pair is the observable proof
+// that the Esc was processed rather than swallowed.
 func TestAlt_NoAltsConfigured_FallsThrough(t *testing.T) {
 	withTerminal(t, "Apple_Terminal")
 	m := altTestMode(t, "" /* no keybindings.json */)
@@ -4437,16 +4449,24 @@ func TestAlt_NoAltsConfigured_FallsThrough(t *testing.T) {
 	}
 
 	// Esc arrives: with no alts configured, the buffer gate
-	// short-circuits and the Esc clears the input as before.
+	// short-circuits and the Esc reaches the host's Esc handler. It
+	// arms the `esc esc` clear, so the text is still there.
+	m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEsc}))
+	if v := m.input.Value(); v != "hi" {
+		t.Errorf("one Esc must not clear the input (esc esc), got %q", v)
+	}
+
+	// The second Esc completes the pair: the first one was processed,
+	// not swallowed as an alt prefix.
 	m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEsc}))
 	if v := m.input.Value(); v != "" {
-		t.Errorf("Esc should clear input, got %q", v)
+		t.Errorf("the second Esc should clear the input, got %q", v)
 	}
 
 	// 's' arrives: insert as text.
 	m.Update(tea.KeyPressMsg(tea.Key{Code: 's', Text: "s"}))
 	if v := m.input.Value(); v != "s" {
-		t.Errorf("'s' should insert into cleared input, got %q", v)
+		t.Errorf("'s' should insert into the cleared input, got %q", v)
 	}
 	if len(m.altFires()) != 0 {
 		t.Errorf("no bindings configured → no fires, got %d", len(m.altFires()))
@@ -4462,7 +4482,7 @@ func TestAlt_NoAltsConfigured_FallsThrough(t *testing.T) {
 func TestAlt_VimMode_NotDoubleHandled(t *testing.T) {
 	withTerminal(t, "Apple_Terminal")
 	cycle196TestHome(t, map[string]any{"editorMode": "vim"})
-	m := NewRunMode(&fakeClient{}, "u@t", "m", "t", "/tmp", true)
+	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/tmp", true)
 	m.reloadVimSettings()
 	if !m.vimEnabled() {
 		t.Fatal("vim mode should be on")
@@ -4533,6 +4553,10 @@ func TestAlt_PlainLetter_NotMistranslated(t *testing.T) {
 // EscTimeoutMsg. We simulate the timeout by clearing the buffer
 // state directly (the tick fires asynchronously, but the
 // production handler is exactly what we test below).
+//
+// Cycle 383 (B-21): the released Esc arms the `esc esc` clear, so the
+// text survives the release; the second Esc — released the same way —
+// completes the pair and empties the composer.
 func TestAlt_EscTimeout_ReleasesStaleBuffer(t *testing.T) {
 	withTerminal(t, "Apple_Terminal")
 	m := altTestMode(t, `{"alt+s": "submit"}`)
@@ -4550,15 +4574,27 @@ func TestAlt_EscTimeout_ReleasesStaleBuffer(t *testing.T) {
 	m.altEscBuf.At = time.Now().Add(-100 * time.Millisecond)
 	m.Update(keybind.EscTimeoutMsg{})
 
-	// The Esc branch fired — input cleared.
+	// The Esc branch fired — it armed the clear, so the text is still
+	// there.
+	if v := m.input.Value(); v != "hi" {
+		t.Errorf("EscTimeoutMsg must not clear the input on its own, got %q", v)
+	}
+
+	// The second Esc, released the same way, completes the pair.
+	m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEsc}))
+	m.altEscBuf.At = time.Now().Add(-100 * time.Millisecond)
+	m.Update(keybind.EscTimeoutMsg{})
 	if v := m.input.Value(); v != "" {
-		t.Errorf("EscTimeoutMsg should clear the input via handleEscKey, got %q", v)
+		t.Errorf("the second Esc should clear the input via handleEscKey, got %q", v)
 	}
 }
 
 // TestAlt_StaleBufferFallsThrough confirms that an Esc+s where the
 // window has elapsed (synthetic test: clear At before the 's'
 // arrives) drops the buffer and processes both keys normally.
+//
+// Cycle 383 (B-21): the released Esc arms the `esc esc` clear, and the
+// 's' that follows breaks the pair — so the text keeps both characters.
 func TestAlt_StaleBufferFallsThrough(t *testing.T) {
 	withTerminal(t, "Apple_Terminal")
 	m := altTestMode(t, `{"alt+s": "submit"}`)
@@ -4569,11 +4605,11 @@ func TestAlt_StaleBufferFallsThrough(t *testing.T) {
 	m.altEscBuf.At = time.Now().Add(-100 * time.Millisecond)
 
 	// 's' arrives; the buffer sees the window elapsed, releases
-	// the Esc (clearing input), and the 's' inserts.
+	// the Esc (which arms the clear), and the 's' inserts.
 	m.Update(tea.KeyPressMsg(tea.Key{Code: 's', Text: "s"}))
 
-	if v := m.input.Value(); v != "s" {
-		t.Errorf("after stale Esc + 's', input should be 's', got %q", v)
+	if v := m.input.Value(); v != "his" {
+		t.Errorf("after stale Esc + 's', input should be 'his', got %q", v)
 	}
 	if got := len(m.altFires()); got != 0 {
 		t.Errorf("stale buffer must not synthesise, got %d fires", got)
@@ -4608,8 +4644,10 @@ func TestAlt_NonLetterFollowUpReleases(t *testing.T) {
 	// digit follows — not a letter candidate, release the Esc.
 	m.Update(tea.KeyPressMsg(tea.Key{Code: '1', Text: "1"}))
 
-	if v := m.input.Value(); v != "1" {
-		t.Errorf("Esc should clear 'hi', then '1' inserts, got %q", v)
+	// Cycle 383 (B-21): the released Esc arms the `esc esc` clear and
+	// the digit breaks the pair, so the text keeps both characters.
+	if v := m.input.Value(); v != "hi1" {
+		t.Errorf("Esc+1 should leave 'hi1', got %q", v)
 	}
 	if got := len(m.altFires()); got != 0 {
 		t.Errorf("Esc+1 must not synthesise alt+letter, got %d fires", got)
@@ -4620,7 +4658,7 @@ func TestAlt_NonLetterFollowUpReleases(t *testing.T) {
 // runMode.Update handler dispatches against. The bubbles textarea
 // needs a focused model and a non-virtual cursor for Cursor() to
 // return a non-nil offset (cycle 71 fix); the test setup below
-// mirrors what NewRunMode produces for production.
+// mirrors what newRunMode produces for production.
 func altLeftKey() tea.KeyPressMsg {
 	return tea.KeyPressMsg(tea.Key{Code: tea.KeyLeft, Mod: tea.ModAlt})
 }
@@ -4649,7 +4687,7 @@ func cursorRowCol(m *runMode) (row, col int) {
 // TestAltRightNextWordBoundary verifies Alt+Right moves the cursor to
 // the end of the next word, matching macOS NSText semantics.
 func TestAltRightNextWordBoundary(t *testing.T) {
-	m := NewRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
 	typeString(m, "hello world foo bar")
 	// Cursor is at the end (line=0, col=19). Alt+Right at end is a
 	// no-op (cycle-225 spec: stays put at end-of-buffer).
@@ -4695,7 +4733,7 @@ func TestAltRightNextWordBoundary(t *testing.T) {
 // backwards word-by-word, from end-of-buffer to start, landing on
 // the first rune of each word.
 func TestAltLeftPreviousWordBoundary(t *testing.T) {
-	m := NewRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
 	typeString(m, "hello world foo bar")
 	// Cursor at end (col=19). Walk back via Alt+Left until col=0.
 	//   19 → 16 (start of "bar")
@@ -4715,7 +4753,7 @@ func TestAltLeftPreviousWordBoundary(t *testing.T) {
 // is a no-op — the cursor does not move. macOS NSText and bubbles'
 // wordRight agree on this.
 func TestAltRightAtEndStays(t *testing.T) {
-	m := NewRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
 	typeString(m, "hello world")
 	startRow, startCol := cursorRowCol(m)
 	m.Update(altRightKey())
@@ -4730,7 +4768,7 @@ func TestAltRightAtEndStays(t *testing.T) {
 // TestAltLeftAtStartStays verifies Alt+Left at the start of the buffer
 // is a no-op. macOS NSText and bubbles' wordLeft agree.
 func TestAltLeftAtStartStays(t *testing.T) {
-	m := NewRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
 	typeString(m, "hello world")
 	// Move cursor to start with the textarea's Home binding
 	// (ctrl+a → LineStart).
@@ -4750,7 +4788,7 @@ func TestAltLeftAtStartStays(t *testing.T) {
 // single-word buffer both stay put — there are no word boundaries to
 // cross.
 func TestSingleWordNoMovement(t *testing.T) {
-	m := NewRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
 	typeString(m, "hello")
 	// Cursor at end (col=5). Alt+Right stays.
 	m.Update(altRightKey())
@@ -4780,7 +4818,7 @@ func TestSingleWordNoMovement(t *testing.T) {
 // Verified against bubbles textarea v2.1.1 (the prompt editor
 // upstream — cycle 71) via a probe before this fix.
 func TestAltWordCrossesLines(t *testing.T) {
-	m := NewRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
 	typeString(m, "hello")
 	// ctrl+j inserts a newline (cycle 71 path).
 	m.Update(tea.KeyPressMsg(tea.Key{Code: 'j', Mod: tea.ModCtrl}))
@@ -4813,7 +4851,7 @@ func TestAltWordCrossesLines(t *testing.T) {
 // still lands at the end of the NEXT word, not the end of the current
 // one (macOS convention).
 func TestAltRightFromMiddleOfWord(t *testing.T) {
-	m := NewRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
 	typeString(m, "hello world")
 	// Cursor at end (col=11). Move to middle of "hello" with
 	// repeated ctrl+b (bubble's WordBackward — verified to land at
@@ -4935,7 +4973,7 @@ func TestAltWordHelperDirect(t *testing.T) {
 // without that, the picker's "matches" cache would lag the cursor and
 // a subsequent Tab would complete against the old substring).
 func TestAltWordPickerOverlayStillUpdates(t *testing.T) {
-	m := NewRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
 	typeString(m, "hello world foo bar")
 	// Move cursor with Alt+Left to mid-word.
 	for i := 0; i < 2; i++ {
@@ -4980,7 +5018,7 @@ func queueTestMode(t *testing.T) *runMode {
 	dir := t.TempDir()
 	t.Setenv("ANTIGRAVITY_HOME", dir)
 	t.Setenv("HOME", t.TempDir())
-	return NewRunMode(&fakeClient{}, "u@t", "Gemini 3.8 Flash (High)", "", "/tmp", true)
+	return newRunMode(&fakeClient{}, "u@t", "Gemini 3.8 Flash (High)", "", "/tmp", true)
 }
 
 // TestAltMToggleQueueMode drives the alt+m keystroke through the
@@ -4990,12 +5028,12 @@ func queueTestMode(t *testing.T) *runMode {
 // the round-trip without bouncing through every keystroke.
 func TestAltMToggleQueueMode(t *testing.T) {
 	m := queueTestMode(t)
-	if m.queueMode {
+	if m.store.QueueMode {
 		t.Fatalf("initial queueMode = true, want false (AGY 1.4.0 default)")
 	}
 
 	m.Update(altMKey())
-	if !m.queueMode {
+	if !m.store.QueueMode {
 		t.Errorf("after first alt+m, queueMode = false; want true")
 	}
 	if got := m.response[len(m.response)-1]; !strings.Contains(got, "Queued Messages: Queue") {
@@ -5003,7 +5041,7 @@ func TestAltMToggleQueueMode(t *testing.T) {
 	}
 
 	m.Update(altMKey())
-	if m.queueMode {
+	if m.store.QueueMode {
 		t.Errorf("after second alt+m, queueMode = true; want false")
 	}
 	if got := m.response[len(m.response)-1]; !strings.Contains(got, "Queued Messages: Send Immediately") {
@@ -5038,7 +5076,7 @@ func TestQueueModeEnterInsertsNewline(t *testing.T) {
 
 	// Toggle queueMode on.
 	m.Update(altMKey())
-	if !m.queueMode {
+	if !m.store.QueueMode {
 		t.Fatalf("queueMode should be true after alt+m")
 	}
 
@@ -5079,7 +5117,7 @@ func TestQueueModeCmdEnterSubmits(t *testing.T) {
 
 	// queueMode==false → Cmd+Enter submits through the existing path.
 	_ = false // suppress lint
-	if m.queueMode {
+	if m.store.QueueMode {
 		t.Fatalf("queueMode should default to false")
 	}
 	m.Update(ctrlEnterKey())
@@ -5092,14 +5130,14 @@ func TestQueueModeCmdEnterSubmits(t *testing.T) {
 	// Reset and toggle queueMode on.
 	m.input.SetValue("queued-prompt-body")
 	m.streaming = false
-	m.queuedPrompt = ""
+	m.store.QueuedPrompt = ""
 	m.Update(altMKey())
-	if !m.queueMode {
+	if !m.store.QueueMode {
 		t.Fatalf("queueMode should be true after alt+m")
 	}
 
 	m.Update(ctrlEnterKey())
-	if got := m.queuedPrompt; got != "queued-prompt-body" {
+	if got := m.store.QueuedPrompt; got != "queued-prompt-body" {
 		t.Errorf("queueMode on + Cmd+Enter: m.queuedPrompt = %q, want %q",
 			got, "queued-prompt-body")
 	}
@@ -5121,22 +5159,22 @@ func TestQueueModeCmdEnterSubmits(t *testing.T) {
 // model turn.
 func TestQueuedPromptDispatchesAfterTurnDone(t *testing.T) {
 	m := queueTestMode(t)
-	m.queueMode = true
-	m.queuedPrompt = "hello"
+	m.store.QueueMode = true
+	m.store.QueuedPrompt = "hello"
 
 	// A turnDoneMsg with no assistant reply: fakeClient has no model
 	// session, so the streaming-rendering branch is skipped; the
 	// queue-flush branch is the only thing we exercise here.
 	prevSessionLen := len(m.session)
-	_, cmd := m.Update(turnDoneMsg{reply: "", steps: nil, reasoning: ""})
+	_, cmd := m.Update(toolsteps.TurnDoneMsg{Reply: "", Steps: nil, Reasoning: ""})
 	if cmd == nil {
 		t.Fatalf("after turnDoneMsg with queued prompt, expected non-nil cmd (the streamPrompt batch); got nil")
 	}
 
 	// m.queuedPrompt must be cleared; m.session must have grown by one
 	// user-role message containing the queued text.
-	if m.queuedPrompt != "" {
-		t.Errorf("m.queuedPrompt should be cleared after flush; got %q", m.queuedPrompt)
+	if m.store.QueuedPrompt != "" {
+		t.Errorf("m.queuedPrompt should be cleared after flush; got %q", m.store.QueuedPrompt)
 	}
 	if got := len(m.session); got != prevSessionLen+1 {
 		t.Fatalf("m.session length = %d, want %d", got, prevSessionLen+1)
@@ -5166,7 +5204,7 @@ func TestQueueModeFooterRendersIndicator(t *testing.T) {
 	}
 
 	m.Update(altMKey())
-	if !m.queueMode {
+	if !m.store.QueueMode {
 		t.Fatal("queueMode should be true after alt+m")
 	}
 	if got := m.statusRow(); !strings.Contains(got, "Queue mode") {
@@ -5185,7 +5223,7 @@ func TestQueueModePersistsAcrossTurns(t *testing.T) {
 	m := queueTestMode(t)
 
 	m.Update(altMKey())
-	if !m.queueMode {
+	if !m.store.QueueMode {
 		t.Fatal("queueMode should be true after alt+m")
 	}
 
@@ -5198,15 +5236,15 @@ func TestQueueModePersistsAcrossTurns(t *testing.T) {
 	// submitPrompt path runs without queued prompts in flight.
 	m.input.Reset()
 	m.input.SetValue("first prompt")
-	m.queueMode = false // reset to send-mode briefly so submitPrompt runs
+	m.store.QueueMode = false // reset to send-mode briefly so submitPrompt runs
 	_, _ = m.Update(enterKey())
-	m.queueMode = true // restore queueMode to simulate the user pressing alt+m
+	m.store.QueueMode = true // restore queueMode to simulate the user pressing alt+m
 	// The above dance exercises the persistence independently of
 	// the queue-flush interaction (the test below checks
 	// flushAndPersist separately). What matters here is that
 	// m.queueMode is still true after the turn-end marker.
-	_, _ = m.Update(turnDoneMsg{reply: "ok", steps: nil, reasoning: ""})
-	if !m.queueMode {
+	_, _ = m.Update(toolsteps.TurnDoneMsg{Reply: "ok", Steps: nil, Reasoning: ""})
+	if !m.store.QueueMode {
 		t.Errorf("after turn, queueMode should still be true (per-session persistence); got false")
 	}
 }
@@ -5237,8 +5275,8 @@ func TestSubmitWhileStreamingQueues(t *testing.T) {
 	if cmd := m.submitPrompt(); cmd != nil {
 		t.Fatalf("submitPrompt mid-stream returned a cmd, want nil")
 	}
-	if len(m.streamQueue) != 1 || m.streamQueue[0] != "SECOND message while running" {
-		t.Fatalf("streamQueue = %q, want the submitted prompt", m.streamQueue)
+	if len(m.store.StreamQueue) != 1 || m.store.StreamQueue[0] != "SECOND message while running" {
+		t.Fatalf("streamQueue = %q, want the submitted prompt", m.store.StreamQueue)
 	}
 	if m.input.Value() != "" {
 		t.Errorf("input not cleared after queueing: %q", m.input.Value())
@@ -5252,13 +5290,13 @@ func TestSubmitWhileStreamingQueues(t *testing.T) {
 // separator and the status label.
 func TestQueuedPromptRendersAboveInput(t *testing.T) {
 	m := streamQueueMode(t)
-	m.streamQueue = []string{"SECOND message while running"}
+	m.store.StreamQueue = []string{"SECOND message while running"}
 
 	view := m.View().Content
 	if !strings.Contains(view, cDimGrayOpen+"\u25b8 SECOND message while running (alt+m to send immediately)") {
 		t.Errorf("pending queue row missing or mis-styled:\n%q", view)
 	}
-	plain := stripSGR(m.statusRow())
+	plain := termcolor.StripSGR(m.statusRow())
 	if !strings.Contains(plain, "  Press up to edit queued messages") {
 		t.Errorf("status left label = %q, want the up-to-edit hint", plain)
 	}
@@ -5271,18 +5309,18 @@ func TestQueuedPromptRendersAboveInput(t *testing.T) {
 // finalised first, then the queued prompt is echoed and dispatched.
 func TestTurnDoneFlushesQueuedPrompt(t *testing.T) {
 	m := streamQueueMode(t)
-	m.streamQueue = []string{"SECOND message while running"}
+	m.store.StreamQueue = []string{"SECOND message while running"}
 
-	_, cmd := m.Update(turnDoneMsg{reply: "DONE"})
-	if len(m.streamQueue) != 0 {
-		t.Fatalf("streamQueue not drained: %q", m.streamQueue)
+	_, cmd := m.Update(toolsteps.TurnDoneMsg{Reply: "DONE"})
+	if len(m.store.StreamQueue) != 0 {
+		t.Fatalf("streamQueue not drained: %q", m.store.StreamQueue)
 	}
 	if cmd == nil {
 		t.Fatalf("turnDoneMsg returned nil cmd, want the queued streamPrompt batch")
 	}
 	last := m.response[len(m.response)-1]
-	if last != userPromptRow("SECOND message while running") {
-		t.Errorf("flushed user row = %q, want %q", last, userPromptRow("SECOND message while running"))
+	if last != transcript.UserPromptRow("SECOND message while running") {
+		t.Errorf("flushed user row = %q, want %q", last, transcript.UserPromptRow("SECOND message while running"))
 	}
 	if len(m.session) == 0 || m.session[len(m.session)-1].Content != "SECOND message while running" {
 		t.Errorf("queued prompt not appended to the session: %#v", m.session)
@@ -5293,7 +5331,7 @@ func TestTurnDoneFlushesQueuedPrompt(t *testing.T) {
 // pending prompt back into the input and drops it from the queue.
 func TestUpRecallsQueuedPrompt(t *testing.T) {
 	m := streamQueueMode(t)
-	m.streamQueue = []string{"first", "second"}
+	m.store.StreamQueue = []string{"first", "second"}
 
 	key := tea.KeyPressMsg(tea.Key{Code: tea.KeyUp})
 	m.Update(key)
@@ -5301,12 +5339,12 @@ func TestUpRecallsQueuedPrompt(t *testing.T) {
 	if got := m.input.Value(); got != "second" {
 		t.Errorf("input after Up = %q, want %q", got, "second")
 	}
-	if len(m.streamQueue) != 1 || m.streamQueue[0] != "first" {
-		t.Errorf("streamQueue after Up = %q, want [first]", m.streamQueue)
+	if len(m.store.StreamQueue) != 1 || m.store.StreamQueue[0] != "first" {
+		t.Errorf("streamQueue after Up = %q, want [first]", m.store.StreamQueue)
 	}
 	m.Update(key)
-	if len(m.streamQueue) != 1 {
-		t.Errorf("second Up popped another queued prompt: %q", m.streamQueue)
+	if len(m.store.StreamQueue) != 1 {
+		t.Errorf("second Up popped another queued prompt: %q", m.store.StreamQueue)
 	}
 }
 
@@ -5317,11 +5355,11 @@ func TestSubmitPrompt_RunsContextPanelWhileStreaming(t *testing.T) {
 	if cmd := m.submitPrompt(); cmd != nil {
 		t.Fatalf("submitPrompt(/context) mid-stream returned a cmd, want nil")
 	}
-	if len(m.streamQueue) != 0 {
-		t.Fatalf("streamQueue = %q, want slash command not queued", m.streamQueue)
+	if len(m.store.StreamQueue) != 0 {
+		t.Fatalf("streamQueue = %q, want slash command not queued", m.store.StreamQueue)
 	}
-	if m.panel.kind != panelContext {
-		t.Fatalf("panel.kind = %v, want panelContext", m.panel.kind)
+	if m.panel.kind != panelregistry.Context {
+		t.Fatalf("panel.kind = %v, want panelregistry.Context", m.panel.kind)
 	}
 	if !m.streaming {
 		t.Error("panel dispatch cleared streaming; the in-flight turn must survive")
@@ -5335,11 +5373,11 @@ func TestSubmitPrompt_QueuesModelTurnSlashWhileStreaming(t *testing.T) {
 	if cmd := m.submitPrompt(); cmd != nil {
 		t.Fatalf("submitPrompt(/plan) mid-stream returned a cmd, want nil")
 	}
-	if len(m.streamQueue) != 1 || m.streamQueue[0] != "/plan next steps" {
-		t.Fatalf("streamQueue = %q, want /plan queued", m.streamQueue)
+	if len(m.store.StreamQueue) != 1 || m.store.StreamQueue[0] != "/plan next steps" {
+		t.Fatalf("streamQueue = %q, want /plan queued", m.store.StreamQueue)
 	}
-	if m.panel.kind != panelNone {
-		t.Errorf("panel.kind = %v, want panelNone for a queued /plan", m.panel.kind)
+	if m.panel.kind != panelregistry.None {
+		t.Errorf("panel.kind = %v, want panelregistry.None for a queued /plan", m.panel.kind)
 	}
 }
 
@@ -5351,8 +5389,8 @@ func TestSubmitPrompt_RunsTranscriptMutatingSlashWhileStreaming(t *testing.T) {
 		m.input.SetValue(buf)
 		m.submitPrompt()
 
-		if len(m.streamQueue) != 0 {
-			t.Errorf("%s: streamQueue = %q, want immediate dispatch", buf, m.streamQueue)
+		if len(m.store.StreamQueue) != 0 {
+			t.Errorf("%s: streamQueue = %q, want immediate dispatch", buf, m.store.StreamQueue)
 		}
 		if m.streaming {
 			t.Errorf("%s: streaming = true, want the turn aborted", buf)
@@ -5387,8 +5425,8 @@ func TestSubmitPrompt_RunsTranscriptMutatingSlashWhileStreaming(t *testing.T) {
 	m = streamQueueMode(t)
 	m.input.SetValue("/rewind")
 	m.submitPrompt()
-	if m.panel.kind != panelRewind {
-		t.Errorf("/rewind mid-stream panel = %v, want panelRewind", m.panel.kind)
+	if m.panel.kind != panelregistry.Rewind {
+		t.Errorf("/rewind mid-stream panel = %v, want panelregistry.Rewind", m.panel.kind)
 	}
 	if !m.streaming {
 		t.Error("/rewind mid-stream stopped the turn; the reference leaves it running")
@@ -5397,13 +5435,13 @@ func TestSubmitPrompt_RunsTranscriptMutatingSlashWhileStreaming(t *testing.T) {
 
 func TestQueuedSlashDispatchesOnTurnDone(t *testing.T) {
 	m := streamQueueMode(t)
-	m.streamQueue = []string{"/context"}
+	m.store.StreamQueue = []string{"/context"}
 	prevSession := len(m.session)
 
-	if _, cmd := m.Update(turnDoneMsg{reply: "", steps: nil, reasoning: ""}); cmd == nil {
+	if _, cmd := m.Update(toolsteps.TurnDoneMsg{Reply: "", Steps: nil, Reasoning: ""}); cmd == nil {
 		t.Fatal("turnDoneMsg with a queued slash returned a nil cmd (ClearScreen should remain)")
 	}
-	if m.panel.kind != panelContext {
+	if m.panel.kind != panelregistry.Context {
 		t.Fatalf("queued /context did not open the panel on flush; panel.kind = %v", m.panel.kind)
 	}
 	if len(m.session) != prevSession {
@@ -5420,8 +5458,8 @@ func TestDispatchSlashLine(t *testing.T) {
 	if handled, _ := m.dispatchSlashLine("plain text"); handled {
 		t.Error("dispatchSlashLine(plain text) = handled, want false")
 	}
-	if handled, _ := m.dispatchSlashLine("/context"); !handled || m.panel.kind != panelContext {
-		t.Errorf("/context: handled=%v panel=%v, want handled=true panelContext", handled, m.panel.kind)
+	if handled, _ := m.dispatchSlashLine("/context"); !handled || m.panel.kind != panelregistry.Context {
+		t.Errorf("/context: handled=%v panel=%v, want handled=true panelregistry.Context", handled, m.panel.kind)
 	}
 }
 
@@ -5430,7 +5468,7 @@ func TestContextPanel_StreamingLayout(t *testing.T) {
 	m.width = 120
 	m.session = append(m.session, backend.Message{Role: "user", Content: "slow sea story please"})
 
-	lines := m.panelContextLines()
+	lines := contextpanel.Lines(m.contextState())
 	joined := strings.Join(lines, "\n")
 	if !strings.Contains(joined, "Estimated usage (awaiting generation)") {
 		t.Errorf("streaming /context missing the awaiting-generation row:\n%s", joined)
@@ -5438,13 +5476,13 @@ func TestContextPanel_StreamingLayout(t *testing.T) {
 	if strings.Contains(joined, "Token usage by category") {
 		t.Errorf("streaming /context rendered the completed-session layout:\n%s", joined)
 	}
-	wantUser := contextTokenLabel(len("slow sea story please") / 4)
+	wantUser := contextpanel.TokenLabel(len("slow sea story please") / 4)
 	if !strings.Contains(joined, "User messages: "+wantUser+" tokens") {
 		t.Errorf("streaming /context user tokens = want %s:\n%s", wantUser, joined)
 	}
 	m.liveReplyBuf = "The lighthouse stood at the edge of the harbor, its white tower weathered by salt and wind.  The lighthouse stood"
-	joined = strings.Join(m.panelContextLines(), "\n")
-	wantAgent := contextTokenLabel(len(m.liveReplyBuf) / 4)
+	joined = strings.Join(contextpanel.Lines(m.contextState()), "\n")
+	wantAgent := contextpanel.TokenLabel(len(m.liveReplyBuf) / 4)
 	if !strings.Contains(joined, "Agent responses: "+wantAgent+" tokens") {
 		t.Errorf("streaming /context agent tokens = want %s:\n%s", wantAgent, joined)
 	}
@@ -5458,19 +5496,19 @@ func TestModelPicker_KeepsConfiguredModels(t *testing.T) {
 		"type": "openai", "base_url": "https://gateway.example/v1",
 		"models": [{"id": "minimax-m3", "name": "MiniMax M3", "model": "Upstream-1"}]}}}`)
 	var found bool
-	for _, r := range modelRowsView() {
+	for _, r := range modelpicker.RowsView() {
 		if r.Slug == "minimax-m3" {
 			found = true
 			if r.Display != "MiniMax M3" {
 				t.Errorf("display = %q, want MiniMax M3", r.Display)
 			}
-			if r.Note != "configured model" {
+			if r.Note != "configured model" && r.Note != "via gateway" {
 				t.Errorf("note = %q, want the configured-model description", r.Note)
 			}
 		}
 	}
 	if !found {
-		t.Fatal("minimax-m3 missing from modelRowsView(); the /model picker must keep it")
+		t.Fatal("minimax-m3 missing from the picker's rows; the /model picker must keep it")
 	}
 }
 
@@ -5491,19 +5529,19 @@ func mouseRelease(x, y int, btn tea.MouseButton) tea.MouseReleaseMsg {
 // returns an OSC52 copy cmd, and the highlight vanishes after the
 // release so subsequent frames don't paint a phantom rectangle.
 func Test_SelectionMouseDownMotionRelease(t *testing.T) {
-	m := NewRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
 	m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 
 	// Press at (col=3, row=2). State: drag=true, start=end=(2,3).
 	m.Update(mouseClick(3, 2, tea.MouseLeft))
-	if !m.selDragging || m.selStartRow != 2 || m.selStartCol != 3 ||
-		m.selEndRow != 2 || m.selEndCol != 3 {
+	if !m.store.SelDragging || m.store.SelStartRow != 2 || m.store.SelStartCol != 3 ||
+		m.store.SelEndRow != 2 || m.store.SelEndCol != 3 {
 		t.Fatalf("after click: %+v", m)
 	}
 
 	// Move to (col=10, row=2). State: drag=true, end=(2,10).
 	m.Update(mouseMotion(10, 2))
-	if !m.selDragging || m.selEndRow != 2 || m.selEndCol != 10 {
+	if !m.store.SelDragging || m.store.SelEndRow != 2 || m.store.SelEndCol != 10 {
 		t.Fatalf("after motion: %+v", m)
 	}
 
@@ -5514,8 +5552,8 @@ func Test_SelectionMouseDownMotionRelease(t *testing.T) {
 	if cmd == nil {
 		t.Fatalf("release should produce a SetClipboard cmd, got nil")
 	}
-	if m.selDragging || m.selStartRow != 0 || m.selStartCol != 0 ||
-		m.selEndRow != 0 || m.selEndCol != 0 {
+	if m.store.SelDragging || m.store.SelStartRow != 0 || m.store.SelStartCol != 0 ||
+		m.store.SelEndRow != 0 || m.store.SelEndCol != 0 {
 		t.Fatalf("release did not clear state: %+v", m)
 	}
 
@@ -5532,7 +5570,7 @@ func Test_SelectionMouseDownMotionRelease(t *testing.T) {
 // would write: a single-row drag yields that row's plain-text
 // slice; a multi-row drag joins rows with \n.
 func Test_SelectionCopyText(t *testing.T) {
-	m := NewRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
 	m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 
 	// Single row.
@@ -5563,13 +5601,13 @@ func Test_SelectionCopyText(t *testing.T) {
 // drag from right-to-left still produces start <= end so the
 // highlight paints the right cells.
 func Test_SelectionReverseDrag(t *testing.T) {
-	m := NewRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
 	m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 
 	m.Update(mouseClick(20, 3, tea.MouseLeft))
 	m.Update(mouseMotion(5, 1)) // reversed direction
 
-	sr, sc, er, ec, ok := m.selectionRange()
+	sr, sc, er, ec, ok := tuiviewport.SelectionRange(m.store.SelStartRow, m.store.SelStartCol, m.store.SelEndRow, m.store.SelEndCol, m.store.SelDragging)
 	if !ok {
 		t.Fatalf("range inactive")
 	}
@@ -5589,7 +5627,7 @@ func Test_SelectionReverseDrag(t *testing.T) {
 // We construct the state directly (no mouse events) so the test is
 // independent of the transcript content.
 func Test_SelectionHighlightInView(t *testing.T) {
-	m := NewRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
 	m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 
 	// No drag → no highlight.
@@ -5598,9 +5636,9 @@ func Test_SelectionHighlightInView(t *testing.T) {
 	}
 
 	// Drag active on rows 2..4, cols 5..15.
-	m.selDragging = true
-	m.selStartRow, m.selStartCol = 2, 5
-	m.selEndRow, m.selEndCol = 4, 15
+	m.store.SelDragging = true
+	m.store.SelStartRow, m.store.SelStartCol = 2, 5
+	m.store.SelEndRow, m.store.SelEndCol = 4, 15
 
 	view := m.View().Content
 	if !strings.Contains(view, selHighlightOpen) {
@@ -5616,7 +5654,7 @@ func Test_SelectionHighlightInView(t *testing.T) {
 // Test_SelectionClickWithoutDrag verifies a click without any drag
 // is a no-op for copy: no OSC52 cmd, no highlight.
 func Test_SelectionClickWithoutDrag(t *testing.T) {
-	m := NewRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
 	m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 
 	m.Update(mouseClick(3, 3, tea.MouseLeft))
@@ -5637,7 +5675,7 @@ func Test_SelectionClickWithoutDrag(t *testing.T) {
 // command: appends "Unknown command: /mouse" to the response and
 // leaves the model fields alone.
 func Test_MouseSlashCommandRemoved(t *testing.T) {
-	m := NewRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
 	m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 
 	// Snapshot the response before, so we can detect the
@@ -5736,7 +5774,7 @@ func TestApplySelectionHighlight_Table(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := applySelectionHighlight(tc.row, 0, tc.from, 0, tc.to-1, 0)
+			got := tuiviewport.ApplySelectionHighlight(tc.row, 0, tc.from, 0, tc.to-1, 0)
 
 			if w, want := ansi.StringWidth(got), ansi.StringWidth(tc.row); w != want {
 				t.Fatalf("width changed: %d -> %d (%q)", want, w, got)
@@ -5770,7 +5808,7 @@ func TestApplySelectionHighlight_Table(t *testing.T) {
 func TestApplySelectionHighlight_OutOfRangeRowsAreUntouched(t *testing.T) {
 	row := "  \x1b[38;2;7;54;66;1mstyled\x1b[m row"
 	for _, idx := range []int{0, 5, -1} {
-		if got := applySelectionHighlight(row, 2, 0, 4, 3, idx); got != row {
+		if got := tuiviewport.ApplySelectionHighlight(row, 2, 0, 4, 3, idx); got != row {
 			t.Fatalf("row %d was modified: %q", idx, got)
 		}
 	}
@@ -5778,7 +5816,7 @@ func TestApplySelectionHighlight_OutOfRangeRowsAreUntouched(t *testing.T) {
 
 // setupInputMode creates a runMode in altScreen mode with an initialized terminal size.
 func setupInputMode(val string) *runMode {
-	m := NewRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
 	m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 	m.input.SetValue(val)
 	// Render once to populate promptScreenY
@@ -5794,7 +5832,7 @@ func TestInputSelection_MouseClickWithoutDrag(t *testing.T) {
 
 	// Click at 'w' (col = 2 (prompt "> ") + 6 ("hello ") = 8)
 	m.Update(mouseClick(8, m.promptScreenY, tea.MouseLeft))
-	if !m.inputSelDragging {
+	if !m.store.InputSelDragging {
 		t.Errorf("expected inputSelDragging to be true during click")
 	}
 
@@ -5822,7 +5860,7 @@ func TestInputSelection_MouseDragForwardAutoCopy(t *testing.T) {
 	if !m.hasInputSelection() {
 		t.Fatalf("expected active input selection during drag")
 	}
-	start, end := m.inputSelectionRange()
+	start, end := m.store.InputSelectionRange()
 	if start != 0 || end != 5 {
 		t.Fatalf("expected range [0, 5], got [%d, %d]", start, end)
 	}
@@ -5853,7 +5891,7 @@ func TestInputSelection_MouseDragBackwardAutoCopy(t *testing.T) {
 	// Drag backward to start of "hello" (x=2)
 	m.Update(mouseMotion(2, m.promptScreenY))
 
-	start, end := m.inputSelectionRange()
+	start, end := m.store.InputSelectionRange()
 	if start != 0 || end != 5 {
 		t.Fatalf("expected normalized range [0, 5], got [%d, %d]", start, end)
 	}
@@ -5873,14 +5911,14 @@ func TestInputSelection_DragOutsideClamps(t *testing.T) {
 
 	// Drag way beyond right wall and below screen
 	m.Update(mouseMotion(150, 40))
-	start, end := m.inputSelectionRange()
+	start, end := m.store.InputSelectionRange()
 	if start != 0 || end != len("hello") {
 		t.Errorf("expected clamped [0, 5], got [%d, %d]", start, end)
 	}
 
 	// Drag way above and to the left
 	m.Update(mouseMotion(-10, -5))
-	start, end = m.inputSelectionRange()
+	start, end = m.store.InputSelectionRange()
 	if start != 0 || end != 0 {
 		t.Errorf("expected clamped [0, 0], got [%d, %d]", start, end)
 	}
@@ -5897,7 +5935,7 @@ func TestInputSelection_CmdA_SelectAllAndAutoCopy(t *testing.T) {
 	if !m.hasInputSelection() {
 		t.Fatalf("expected active input selection on Cmd+A")
 	}
-	start, end := m.inputSelectionRange()
+	start, end := m.store.InputSelectionRange()
 	if start != 0 || end != len("echo 123") {
 		t.Errorf("expected [0, 8], got [%d, %d]", start, end)
 	}
@@ -5921,7 +5959,7 @@ func TestInputSelection_CtrlShiftA_SelectAll(t *testing.T) {
 	if !m.hasInputSelection() {
 		t.Fatalf("expected active input selection on Ctrl+Shift+A")
 	}
-	start, end := m.inputSelectionRange()
+	start, end := m.store.InputSelectionRange()
 	if start != 0 || end != len("cat file.txt") {
 		t.Errorf("expected [0, 12], got [%d, %d]", start, end)
 	}
@@ -5931,8 +5969,8 @@ func TestInputSelection_BackspaceDeletesSelection(t *testing.T) {
 	m := setupInputMode("hello world")
 
 	// Select "world" [6, 11]
-	m.inputSelStart = 6
-	m.inputSelEnd = 11
+	m.store.InputSelStart = 6
+	m.store.InputSelEnd = 11
 
 	// Press Backspace
 	m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyBackspace}))
@@ -5948,8 +5986,8 @@ func TestInputSelection_DeleteDeletesSelection(t *testing.T) {
 	m := setupInputMode("hello world")
 
 	// Select "hello " [0, 6]
-	m.inputSelStart = 0
-	m.inputSelEnd = 6
+	m.store.InputSelStart = 0
+	m.store.InputSelEnd = 6
 
 	// Press Delete
 	m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyDelete}))
@@ -5965,8 +6003,8 @@ func TestInputSelection_TypeReplacesSelection(t *testing.T) {
 	m := setupInputMode("hello world")
 
 	// Select "world" [6, 11]
-	m.inputSelStart = 6
-	m.inputSelEnd = 11
+	m.store.InputSelStart = 6
+	m.store.InputSelEnd = 11
 
 	// Type '!'
 	m.Update(tea.KeyPressMsg(tea.Key{Code: '!', Text: "!"}))
@@ -5982,8 +6020,8 @@ func TestInputSelection_PasteReplacesSelection(t *testing.T) {
 	m := setupInputMode("hello world")
 
 	// Select "world" [6, 11]
-	m.inputSelStart = 6
-	m.inputSelEnd = 11
+	m.store.InputSelStart = 6
+	m.store.InputSelEnd = 11
 
 	// Paste "there"
 	m.insertPastedText("there")
@@ -6018,8 +6056,8 @@ func TestInputSelection_EscapeClearsSelection(t *testing.T) {
 func TestInputSelection_ArrowKeysClearSelection(t *testing.T) {
 	m := setupInputMode("hello world")
 
-	m.inputSelStart = 0
-	m.inputSelEnd = 5
+	m.store.InputSelStart = 0
+	m.store.InputSelEnd = 5
 
 	// Press Left arrow
 	m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyLeft}))
@@ -6057,7 +6095,7 @@ func TestInputSelection_UTF8Accuracy(t *testing.T) {
 	// Drag to end of "世界": cell 6 + 4 = 10
 	m.Update(mouseMotion(10, m.promptScreenY))
 
-	start, end := m.inputSelectionRange()
+	start, end := m.store.InputSelectionRange()
 	val := m.input.Value()
 	if val[start:end] != "世界" {
 		t.Errorf("expected '世界' selected, got %q (range %d..%d)", val[start:end], start, end)
@@ -6079,7 +6117,7 @@ func withClipboard(t *testing.T, fn func() string) {
 }
 
 func TestPasteMsgInsertsAtCursor(t *testing.T) {
-	m := NewRunMode(&fakeClient{}, "u@t", "m", "t", "/tmp", true)
+	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/tmp", true)
 	m.input.SetValue("ab")
 	m.input.CursorStart()
 
@@ -6092,7 +6130,7 @@ func TestPasteMsgInsertsAtCursor(t *testing.T) {
 }
 
 func TestPasteMsgPreservesNewlines(t *testing.T) {
-	m := NewRunMode(&fakeClient{}, "u@t", "m", "t", "/tmp", true)
+	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/tmp", true)
 	m.input.SetValue("")
 
 	m.Update(tea.PasteMsg{Content: "a\nb\nc"})
@@ -6105,7 +6143,7 @@ func TestPasteMsgPreservesNewlines(t *testing.T) {
 }
 
 func TestPasteMsgNormalizesCRLF(t *testing.T) {
-	m := NewRunMode(&fakeClient{}, "u@t", "m", "t", "/tmp", true)
+	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/tmp", true)
 	m.input.SetValue("")
 
 	m.Update(tea.PasteMsg{Content: "a\r\nb\r"})
@@ -6115,7 +6153,7 @@ func TestPasteMsgNormalizesCRLF(t *testing.T) {
 }
 
 func TestPasteMsgDoesNotSubmit(t *testing.T) {
-	m := NewRunMode(&fakeClient{}, "u@t", "m", "t", "/tmp", true)
+	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/tmp", true)
 	m.input.SetValue("")
 	before := len(m.response)
 
@@ -6134,7 +6172,7 @@ func TestPasteMsgDoesNotSubmit(t *testing.T) {
 // copied" case, so the composer asks the platform clipboard for an
 // image. The buffer itself is left alone.
 func TestPasteMsgEmptyProbesTheClipboard(t *testing.T) {
-	m := NewRunMode(&fakeClient{}, "u@t", "m", "t", "/tmp", true)
+	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/tmp", true)
 	m.input.SetValue("keep")
 
 	if _, cmd := m.Update(tea.PasteMsg{Content: ""}); cmd == nil {
@@ -6146,9 +6184,9 @@ func TestPasteMsgEmptyProbesTheClipboard(t *testing.T) {
 }
 
 func TestPasteMsgIgnoredWhileHelpOpen(t *testing.T) {
-	m := NewRunMode(&fakeClient{}, "u@t", "m", "t", "/tmp", true)
+	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/tmp", true)
 	m.input.SetValue("keep")
-	m.helpMode = true
+	m.helpPanel.Open(0)
 
 	m.Update(tea.PasteMsg{Content: "junk"})
 	if got := m.input.Value(); got != "keep" {
@@ -6157,14 +6195,15 @@ func TestPasteMsgIgnoredWhileHelpOpen(t *testing.T) {
 }
 
 func TestPasteMsgRoutesToResumeSearch(t *testing.T) {
-	m := NewRunMode(&fakeClient{}, "u@t", "m", "t", "/tmp", true)
-	m.resumeMode = true
-	m.resumeQuery = ""
+	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/tmp", true)
+	if err := m.resumePicker.Open(); err != nil {
+		t.Fatalf("open the picker: %v", err)
+	}
 	m.input.SetValue("")
 
 	m.Update(tea.PasteMsg{Content: "abc"})
-	if m.resumeQuery != "abc" {
-		t.Fatalf("resumeQuery = %q, want \"abc\"", m.resumeQuery)
+	if got := m.resumePicker.Query(); got != "abc" {
+		t.Fatalf("query = %q, want \"abc\"", got)
 	}
 	if got := m.input.Value(); got != "" {
 		t.Fatalf("paste leaked into the prompt while /resume was open: %q", got)
@@ -6174,7 +6213,7 @@ func TestPasteMsgRoutesToResumeSearch(t *testing.T) {
 func TestCtrlVPastesClipboardText(t *testing.T) {
 	withClipboard(t, func() string { return "from-clipboard" })
 
-	m := NewRunMode(&fakeClient{}, "u@t", "m", "t", "/tmp", true)
+	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/tmp", true)
 	m.input.SetValue("")
 
 	m.Update(ctrlKey('v'))
@@ -6186,7 +6225,7 @@ func TestCtrlVPastesClipboardText(t *testing.T) {
 func TestCtrlVEmptyClipboardIsSilent(t *testing.T) {
 	withClipboard(t, func() string { return "" })
 
-	m := NewRunMode(&fakeClient{}, "u@t", "m", "t", "/tmp", true)
+	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/tmp", true)
 	m.input.SetValue("keep")
 	before := len(m.response)
 
@@ -6202,7 +6241,7 @@ func TestCtrlVEmptyClipboardIsSilent(t *testing.T) {
 func TestCtrlVDoesNotInsertLiteralV(t *testing.T) {
 	withClipboard(t, func() string { return "" })
 
-	m := NewRunMode(&fakeClient{}, "u@t", "m", "t", "/tmp", true)
+	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/tmp", true)
 	m.input.SetValue("")
 
 	m.Update(ctrlKey('v'))
@@ -6212,7 +6251,7 @@ func TestCtrlVDoesNotInsertLiteralV(t *testing.T) {
 }
 
 func TestCtrlD_ForwardDeleteWhenTextPresent(t *testing.T) {
-	m := NewRunMode(&fakeClient{}, "u@t", "m", "t", "/", false)
+	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", false)
 	m.input.SetValue("hello")
 	m.input.CursorStart()
 
@@ -6225,8 +6264,8 @@ func TestCtrlD_ForwardDeleteWhenTextPresent(t *testing.T) {
 	}
 
 	m.input.SetValue("abcdef")
-	m.inputSelStart = 1
-	m.inputSelEnd = 4
+	m.store.InputSelStart = 1
+	m.store.InputSelEnd = 4
 	m.Update(ctrlKey('d'))
 	if m.quitting {
 		t.Fatal("ctrl+d on active selection must not quit")
@@ -6236,7 +6275,7 @@ func TestCtrlD_ForwardDeleteWhenTextPresent(t *testing.T) {
 	}
 
 	m.input.Reset()
-	m.clearInputSelection()
+	m.store.ResetInputSelection()
 	m.Update(ctrlKey('d'))
 	if !m.quitting {
 		t.Fatal("ctrl+d on empty prompt must trigger quit")
@@ -6244,7 +6283,7 @@ func TestCtrlD_ForwardDeleteWhenTextPresent(t *testing.T) {
 }
 
 func TestNewlineShortcuts(t *testing.T) {
-	m := NewRunMode(&fakeClient{}, "u@t", "m", "t", "/", false)
+	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", false)
 
 	m.input.SetValue("echo foo \\")
 	m.input.CursorEnd()
@@ -6270,7 +6309,7 @@ func TestNewlineShortcuts(t *testing.T) {
 
 // sizedMode returns a model with a known terminal size and n response rows.
 func sizedMode(w, h, n int) *runMode {
-	m := NewRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
 	m.Update(tea.WindowSizeMsg{Width: w, Height: h})
 	for i := 0; i < n; i++ {
 		m.response = append(m.response, fmt.Sprintf("row-%02d", i))
@@ -6476,7 +6515,7 @@ func Test_ViewportWidthIsRespected(t *testing.T) {
 
 // Test_IsUserPromptRow pins the row-classifier heuristic used by the
 // cycle-179 snap-to-user-prompt behaviour. The user-prompt row is
-// produced by userPromptRow() and starts with the cWarningBlueOpen
+// produced by transcript.UserPromptRow() and starts with the cWarningBlueOpen
 // escape followed by the literal "> " marker; continuation rows of a
 // wrapped user prompt don't carry the prefix and must NOT be
 // classified as user-prompt starts.
@@ -6496,7 +6535,7 @@ func Test_IsUserPromptRow(t *testing.T) {
 		{"warning header (same blue prefix, no >)", cWarningBlueOpen + "⚠ Warning" + cWarningBlueClose, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := isUserPromptRow(tc.row); got != tc.want {
+			if got := tuiviewport.IsUserPromptRow(tc.row); got != tc.want {
 				t.Errorf("isUserPromptRow(%q) = %v, want %v", tc.row, got, tc.want)
 			}
 		})
@@ -6530,12 +6569,12 @@ func Test_StickyUserPromptRow(t *testing.T) {
 		{"past last prompt", []int{5, 15, 25}, 100, false, 25},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			m := NewRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+			m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
 			m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 			m.userPromptRows = tc.promptRows
 			m.scroll = tc.scroll
 			m.autoScroll = tc.autoScroll
-			got := m.stickyUserPromptRow()
+			got := tuiviewport.StickyUserPromptRow(m.userPromptRows, m.autoScroll, m.scroll)
 			if tc.want == -1 {
 				if got != -1 {
 					t.Errorf("stickyUserPromptRow = %d, want -1 (no sticky)", got)
@@ -6552,7 +6591,7 @@ func Test_StickyUserPromptRow(t *testing.T) {
 // Test_ViewportLongLinesWrap verifies long response rows are soft-wrapped
 // rather than clipped, so no content is lost on a narrow terminal.
 func Test_ViewportLongLinesWrap(t *testing.T) {
-	m := NewRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
 	m.Update(tea.WindowSizeMsg{Width: 40, Height: 20})
 	m.response = append(m.response, strings.Repeat("abcdefghij", 12)) // 120 cells
 	m.response = append(m.response, "tail-marker")
@@ -6571,7 +6610,7 @@ func Test_ViewportLongLinesWrap(t *testing.T) {
 // guard: before the first WindowSizeMsg the view is exactly the pre-119
 // layout, which is what the byte-exact snapshots assert.
 func Test_ViewportUnknownSizeKeepsOldLayout(t *testing.T) {
-	m := NewRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
 	for i := 0; i < 40; i++ {
 		m.response = append(m.response, fmt.Sprintf("row-%02d", i))
 	}
@@ -6628,7 +6667,7 @@ func TestScrollCacheHit(t *testing.T) {
 	if testing.Short() {
 		t.Skip("timing test")
 	}
-	m := NewRunMode(nil, "", "Gemini 3.8 Flash (High)", "", "/tmp", true)
+	m := newRunMode(nil, "", "Gemini 3.8 Flash (High)", "", "/tmp", true)
 	m.width = 100
 	m.height = 30
 	long := strings.Repeat("the quick brown fox jumps over the lazy dog ", 800) // ~35 KB
@@ -6662,7 +6701,7 @@ func synthLargeTranscript(m *runMode, n int) {
 	for i := 0; i < n; i++ {
 		switch i % 5 {
 		case 0:
-			m.response = append(m.response, userPromptRow(fmt.Sprintf("prompt %d", i)))
+			m.response = append(m.response, transcript.UserPromptRow(fmt.Sprintf("prompt %d", i)))
 		case 1, 2:
 			m.response = append(m.response, long)
 		case 3:
@@ -6683,13 +6722,13 @@ func TestWrapRowsQuadratic(t *testing.T) {
 		line := strings.Repeat("x", n)
 		// Warm up
 		for i := 0; i < 3; i++ {
-			_ = wrapRows(line, 100)
+			_ = tuilib.WrapRows(line, 100)
 		}
 		var best time.Duration
 		for run := 0; run < 3; run++ {
 			start := time.Now()
 			for i := 0; i < 20; i++ {
-				_ = wrapRows(line, 100)
+				_ = tuilib.WrapRows(line, 100)
 			}
 			d := time.Since(start)
 			if best == 0 || d < best {
@@ -6746,7 +6785,7 @@ func TestSeedThenScroll(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	m := NewRunMode(nil, "", "Gemini 3.8 Flash (High)", "", "/tmp", true)
+	m := newRunMode(nil, "", "Gemini 3.8 Flash (High)", "", "/tmp", true)
 	m.seedConversation(c)
 	m.width = 100
 	m.height = 30
@@ -6759,7 +6798,7 @@ func TestSeedThenScroll(t *testing.T) {
 
 // newBenchModel builds a runMode with the fields View() needs.
 func newBenchModel() *runMode {
-	return NewRunMode(nil, "", "Gemini 3.8 Flash (High)", "", "/tmp", true)
+	return newRunMode(nil, "", "Gemini 3.8 Flash (High)", "", "/tmp", true)
 }
 
 func TestCycle124_ClipToScreenRows(t *testing.T) {
@@ -6811,14 +6850,14 @@ func TestCycle124_ClipToScreenRows(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			counts := screenRowCounts(tc.allRows)
-			got := clipToScreenRows(tc.visible, counts, tc.scrollOff, tc.maxRows)
+			counts := tuiviewport.ScreenRowCounts(tc.allRows)
+			got := tuiviewport.ClipToScreenRows(tc.visible, counts, tc.scrollOff, tc.maxRows)
 			if len(got) != tc.wantOut {
 				t.Errorf("len = %d, want %d", len(got), tc.wantOut)
 			}
 			rows := 0
 			for _, r := range got {
-				rows += screenRows(r)
+				rows += tuiviewport.ScreenRows(r)
 			}
 			if rows != tc.wantRows {
 				t.Errorf("totalRows = %d, want %d", rows, tc.wantRows)
@@ -6828,7 +6867,7 @@ func TestCycle124_ClipToScreenRows(t *testing.T) {
 }
 
 func TestCycle124_BannerPreservedAtTop(t *testing.T) {
-	m := NewRunMode(&fakeClient{}, "u@t", "Gemini 3.8 Flash (High)", "Antigravity Starter Quota", "/Users/gear/Documents/GitHub/openagy", true)
+	m := newRunMode(&fakeClient{}, "u@t", "Gemini 3.8 Flash (High)", "Antigravity Starter Quota", "/Users/gear/Documents/GitHub/openagy", true)
 	m.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
 	m.fallbackFrom = "MiniMax-M3"
 	m.fallbackTo = "Gemini 3.8 Flash (High)"
@@ -6845,7 +6884,7 @@ func TestCycle124_BannerPreservedAtTop(t *testing.T) {
 }
 
 func TestCycle124_BannerHidesAfterScroll(t *testing.T) {
-	m := NewRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
 	m.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
 	for i := 0; i < 600; i++ {
 		m.response = append(m.response, "transcript line")
@@ -6855,7 +6894,7 @@ func TestCycle124_BannerHidesAfterScroll(t *testing.T) {
 	if !containsBannerLine(v.Content, "Pigasus CLI") {
 		t.Fatalf("precondition: banner must be at the top when scroll==0; first lines:\n%s scroll=%d autoScroll=%v", debugFirstLines(v.Content), m.scroll, m.autoScroll)
 	}
-	m.scrollBy(m.pageRows() * 2)
+	m.scrollBy(tuilib.ClampInt(m.vpRows-1, 1, 1<<20) * 2)
 	v = m.View()
 	if containsBannerLine(v.Content, "Pigasus CLI") {
 		t.Errorf("banner must not be visible after scrolling away; first lines:\n%s", debugFirstLines(v.Content))
@@ -6877,7 +6916,7 @@ func containsBannerLine(content, marker string) bool {
 }
 
 func TestCycle152_ChromeAnchoredAtBottom(t *testing.T) {
-	m := NewRunMode(&fakeClient{}, "u@t", "Gemini 3.8 Flash (High)", "Antigravity Starter Quota", "/Users/gear/Documents/GitHub/openagy", true)
+	m := newRunMode(&fakeClient{}, "u@t", "Gemini 3.8 Flash (High)", "Antigravity Starter Quota", "/Users/gear/Documents/GitHub/openagy", true)
 	m.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
 	m.fallbackFrom = ""
 	m.fallbackTo = ""
@@ -6917,7 +6956,7 @@ func TestCycle152_ChromeAnchoredAtBottom(t *testing.T) {
 }
 
 func TestCycle152_ChromeAnchoredEmptyTranscript(t *testing.T) {
-	m := NewRunMode(&fakeClient{}, "u@t", "Gemini 3.8 Flash (High)", "Antigravity Starter Quota", "/Users/gear/Documents/GitHub/openagy", true)
+	m := newRunMode(&fakeClient{}, "u@t", "Gemini 3.8 Flash (High)", "Antigravity Starter Quota", "/Users/gear/Documents/GitHub/openagy", true)
 	m.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
 	m.fallbackFrom = ""
 	m.fallbackTo = ""
@@ -6959,16 +6998,16 @@ func TestCycle152_ChromeAnchoredEmptyTranscript(t *testing.T) {
 // terminal for the scroll conditions to fire.
 func pinnedPromptMode(t *testing.T, altscreen bool) *runMode {
 	t.Helper()
-	m := NewRunMode(&fakeClient{}, "u@t", "m", "t", "/", altscreen)
+	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", altscreen)
 	m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
-	// userPromptRow() emits cWarningBlueOpen + "> <text>" + cWarningBlueClose
+	// transcript.UserPromptRow() emits cWarningBlueOpen + "> <text>" + cWarningBlueClose
 	// which the cycle-179 isUserPromptRow classifier recognises. Each
 	// turn is "<user prompt> / <blank> / <assistant reply> / <blank>"
 	// — the layout a real conversation produces (submitPrompt
 	// appends ""> " + buf" then the streamed reply rows).
 	for i := 0; i < 30; i++ {
 		m.response = append(m.response,
-			userPromptRow("prompt-"+string(rune('a'+i%26))),
+			transcript.UserPromptRow("prompt-"+string(rune('a'+i%26))),
 			"",
 			"reply-line-1",
 			"reply-line-2",
@@ -7158,7 +7197,7 @@ func TestPinnedPrompt_EnterJumpsToPrompt(t *testing.T) {
 // TestPinnedPrompt_NoClickInPrintMode: the cycle-253 pinned
 // prompt is a TUI-only feature. Print mode (`-p`) goes through
 // runPrintMode (cmd/wagyu/main.go) which never instantiates
-// runMode / NewRunMode. We verify this at the import-graph level
+// runMode / newRunMode. We verify this at the import-graph level
 // so a future refactor that accidentally wires the pinned prompt
 // into runPrintMode (e.g. by sharing a helper file) is caught:
 //
@@ -7186,7 +7225,7 @@ func TestPinnedPrompt_NoClickInPrintMode(t *testing.T) {
 	preLen := len(m.session)
 	target := m.pinnedPromptRowIdx
 	rows, _, _ := m.syncRowsView()
-	wantScroll := m.promptTurnStart(rows, target)
+	wantScroll := tuiviewport.PromptTurnStart(rows, target)
 	// Click row 0 (the pinned-prompt header).
 	m.Update(mouseClick(0, 0, tea.MouseLeft))
 	// Jump should have fired: m.scroll should equal prompt turn start.
@@ -7194,7 +7233,7 @@ func TestPinnedPrompt_NoClickInPrintMode(t *testing.T) {
 		t.Errorf("click on row 0 did not jump: scroll stayed at 50")
 	}
 	if m.scroll != wantScroll {
-		t.Errorf("click jump: scroll=%d, want %d (promptTurnStart)",
+		t.Errorf("click jump: scroll=%d, want %d (PromptTurnStart)",
 			m.scroll, wantScroll)
 	}
 	// The pinned-prompt feature must NOT touch m.session.
@@ -7304,7 +7343,7 @@ func TestParseBoolish(t *testing.T) {
 		{"Yes", true},
 		// whitespace tolerance (changelog says "case-insensitive";
 		// the cycle's parser trims first, so "  yes  " works too —
-		// matches envOSC7501* helpers' behaviour in
+		// matches programstatus.EnvOSC7501* helpers' behaviour in
 		// cmd/wagyu/program_status.go:107-128)
 		{"  yes  ", true},
 		{"\t1\n", true},
@@ -7473,8 +7512,8 @@ func announcementModel(t *testing.T) *runMode {
 	t.Helper()
 	t.Setenv("ANTIGRAVITY_HOME", t.TempDir())
 	t.Setenv("HOME", t.TempDir())
-	m := NewRunMode(&fakeClient{}, "u@t", "Gemini 3.8 Flash (High)", "t", "/", true)
-	m.loadAnnouncements()
+	m := newRunMode(&fakeClient{}, "u@t", "Gemini 3.8 Flash (High)", "t", "/", true)
+	m.announceQueue.Load()
 	return m
 }
 
@@ -7491,8 +7530,8 @@ func announcementModelWithDismissals(t *testing.T) *runMode {
 			t.Fatalf("SaveDismissed(%q): %v", c.ID, err)
 		}
 	}
-	m := NewRunMode(&fakeClient{}, "u@t", "Gemini 3.8 Flash (High)", "t", "/", true)
-	m.loadAnnouncements()
+	m := newRunMode(&fakeClient{}, "u@t", "Gemini 3.8 Flash (High)", "t", "/", true)
+	m.announceQueue.Load()
 	return m
 }
 
@@ -7502,12 +7541,12 @@ func announcementModelWithDismissals(t *testing.T) *runMode {
 // the one shown first.
 func TestAnnouncementQueue_NewestFirst(t *testing.T) {
 	m := announcementModel(t)
-	if len(m.announceVisible) == 0 {
-		t.Fatal("queue empty after loadAnnouncements; expected 3 cards")
+	if len(m.announceQueue.Cards) == 0 {
+		t.Fatal("queue empty after Load; expected 3 cards")
 	}
-	card := m.activeAnnouncement()
+	card := m.announceQueue.Active()
 	if card == nil {
-		t.Fatal("activeAnnouncement returned nil for non-empty queue")
+		t.Fatal("Active returned nil for non-empty queue")
 	}
 	wantHead := "model-claude-opus-5-5"
 	if card.ID != wantHead {
@@ -7519,12 +7558,12 @@ func TestAnnouncementQueue_NewestFirst(t *testing.T) {
 		"deprecate-gemini-2-0-flash",
 		"service-quota-rollover",
 	}
-	if len(m.announceVisible) != len(want) {
-		t.Fatalf("queue length = %d, want %d", len(m.announceVisible), len(want))
+	if len(m.announceQueue.Cards) != len(want) {
+		t.Fatalf("queue length = %d, want %d", len(m.announceQueue.Cards), len(want))
 	}
 	for i, id := range want {
-		if m.announceVisible[i].ID != id {
-			t.Errorf("announceVisible[%d].ID = %q, want %q", i, m.announceVisible[i].ID, id)
+		if m.announceQueue.Cards[i].ID != id {
+			t.Errorf("queue card %d ID = %q, want %q", i, m.announceQueue.Cards[i].ID, id)
 		}
 	}
 }
@@ -7541,10 +7580,10 @@ func TestAnnouncementRender_AppearsAbovePrompt(t *testing.T) {
 	titleIdx := -1
 	promptIdx := -1
 	for i, line := range lines {
-		if strings.Contains(stripSGR(line), "Claude Opus 5.5 available") {
+		if strings.Contains(termcolor.StripSGR(line), "Claude Opus 5.5 available") {
 			titleIdx = i
 		}
-		if strings.HasPrefix(stripSGR(line), ">") && promptIdx == -1 && strings.Contains(stripSGR(line), " ") {
+		if strings.HasPrefix(termcolor.StripSGR(line), ">") && promptIdx == -1 && strings.Contains(termcolor.StripSGR(line), " ") {
 			promptIdx = i
 		}
 	}
@@ -7585,19 +7624,19 @@ func TestAnnouncementRender_EmptyQueueHidden(t *testing.T) {
 // ID is persisted.
 func TestAnnouncementEsc_DismissesCard(t *testing.T) {
 	m := announcementModel(t)
-	if got := m.activeAnnouncement().ID; got != "model-claude-opus-5-5" {
+	if got := m.announceQueue.Active().ID; got != "model-claude-opus-5-5" {
 		t.Fatalf("pre-Esc head = %q", got)
 	}
 	// Esc on empty prompt — fire the keypress through Update so the
 	// branch in the real Update path runs.
 	m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEsc}))
-	if got := m.activeAnnouncement(); got == nil {
+	if got := m.announceQueue.Active(); got == nil {
 		t.Fatal("post-Esc head is nil; expected next card")
 	} else if got.ID != "deprecate-gemini-2-0-flash" {
 		t.Errorf("post-Esc head = %q, want deprecate-gemini-2-0-flash", got.ID)
 	}
 	// And the dismissed ID is persisted to settings.json. We don't
-	// need to round-trip through NewRunMode — LoadDismissed is
+	// need to round-trip through newRunMode — LoadDismissed is
 	// already covered by internal/announce — but a sanity check on
 	// the file content pins the integration.
 	body, err := os.ReadFile(os.Getenv("ANTIGRAVITY_HOME") + "/settings.json")
@@ -7618,7 +7657,7 @@ func TestAnnouncementEsc_NonEmptyPrompt(t *testing.T) {
 		m.Update(runeKey(r))
 	}
 	m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEsc}))
-	if got := m.activeAnnouncement(); got == nil {
+	if got := m.announceQueue.Active(); got == nil {
 		t.Fatal("Esc on non-empty prompt should NOT dismiss")
 	} else if got.ID != "model-claude-opus-5-5" {
 		t.Errorf("head after Esc-on-text = %q, want unchanged model-claude-opus-5-5", got.ID)
@@ -7633,13 +7672,13 @@ func TestAnnouncementEsc_DismissesAllThenEmpty(t *testing.T) {
 	for i := 0; i < 3; i++ {
 		m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEsc}))
 	}
-	if m.activeAnnouncement() != nil {
-		t.Errorf("queue not empty after 3 Escs; head = %q", m.activeAnnouncement().ID)
+	if m.announceQueue.Active() != nil {
+		t.Errorf("queue not empty after 3 Escs; head = %q", m.announceQueue.Active().ID)
 	}
 	// A fourth Esc on an empty queue must not panic and must not
 	// change state.
 	m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEsc}))
-	if m.activeAnnouncement() != nil {
+	if m.announceQueue.Active() != nil {
 		t.Errorf("extra Esc surfaced a card")
 	}
 }
@@ -7650,7 +7689,7 @@ func TestAnnouncementEsc_DismissesAllThenEmpty(t *testing.T) {
 // NOT persist.
 func TestAnnouncementSubmit_HidesForSession(t *testing.T) {
 	m := announcementModel(t)
-	if got := m.activeAnnouncement(); got == nil || got.ID != "model-claude-opus-5-5" {
+	if got := m.announceQueue.Active(); got == nil || got.ID != "model-claude-opus-5-5" {
 		t.Fatalf("pre-submit head = %v, want model-claude-opus-5-5", got)
 	}
 	for _, r := range "hi" {
@@ -7658,10 +7697,10 @@ func TestAnnouncementSubmit_HidesForSession(t *testing.T) {
 	}
 	m.streaming = false
 	m.Update(enterKey())
-	if got := m.activeAnnouncement(); got == nil {
+	if got := m.announceQueue.Active(); got == nil {
 		t.Fatal("submit should hide for session; got nil card with more in queue")
 	}
-	if got := m.activeAnnouncement().ID; got != "deprecate-gemini-2-0-flash" {
+	if got := m.announceQueue.Active().ID; got != "deprecate-gemini-2-0-flash" {
 		t.Errorf("post-submit head = %q, want deprecate-gemini-2-0-flash", got)
 	}
 	if !m.announceSessionHiddenAfterSubmit("model-claude-opus-5-5") {
@@ -7685,17 +7724,17 @@ func TestAnnouncementSubmit_NoCardNoop(t *testing.T) {
 	}
 	m.streaming = false
 	m.Update(enterKey())
-	if m.activeAnnouncement() != nil {
+	if m.announceQueue.Active() != nil {
 		t.Errorf("submit on empty queue surfaced a card")
 	}
-	if m.announceSessionHiddenID != "" {
-		t.Errorf("submit on empty queue recorded a hidden ID: %q", m.announceSessionHiddenID)
+	if m.announceQueue.SessionHiddenID != "" {
+		t.Errorf("submit on empty queue recorded a hidden ID: %q", m.announceQueue.SessionHiddenID)
 	}
 }
 
 // TestAnnouncementRestart_RespectsPersistedDismiss is the
 // integration test: a card dismissed in one session is NOT shown in
-// the next. We persist via dismissCurrentAnnouncement (which calls
+// the next. We persist via the queue's Dismiss (which calls
 // announce.SaveDismissed under the hood), then construct a fresh
 // runMode against the same ANTIGRAVITY_HOME so it picks up the
 // persisted list.
@@ -7704,24 +7743,24 @@ func TestAnnouncementRestart_RespectsPersistedDismiss(t *testing.T) {
 	t.Setenv("ANTIGRAVITY_HOME", home)
 	t.Setenv("HOME", t.TempDir())
 
-	m := NewRunMode(&fakeClient{}, "u@t", "Gemini 3.8 Flash (High)", "t", "/", true)
-	m.loadAnnouncements()
-	m.dismissCurrentAnnouncement()
-	if got := m.activeAnnouncement(); got == nil || got.ID != "deprecate-gemini-2-0-flash" {
+	m := newRunMode(&fakeClient{}, "u@t", "Gemini 3.8 Flash (High)", "t", "/", true)
+	m.announceQueue.Load()
+	m.announceQueue.Dismiss()
+	if got := m.announceQueue.Active(); got == nil || got.ID != "deprecate-gemini-2-0-flash" {
 		t.Fatalf("first dismiss did not advance; head = %v", got)
 	}
 	// New session, same ANTIGRAVITY_HOME — the persisted dismissal
 	// must be honoured.
-	m2 := NewRunMode(&fakeClient{}, "u@t", "Gemini 3.8 Flash (High)", "t", "/", true)
-	m2.loadAnnouncements()
-	if m2.activeAnnouncement() == nil {
+	m2 := newRunMode(&fakeClient{}, "u@t", "Gemini 3.8 Flash (High)", "t", "/", true)
+	m2.announceQueue.Load()
+	if m2.announceQueue.Active() == nil {
 		t.Fatal("new session has no active announcement after one dismiss; expected two left")
 	}
-	if m2.activeAnnouncement().ID != "deprecate-gemini-2-0-flash" {
+	if m2.announceQueue.Active().ID != "deprecate-gemini-2-0-flash" {
 		t.Errorf("new session head = %q, want deprecate-gemini-2-0-flash (model-claude-opus-5-5 was dismissed)",
-			m2.activeAnnouncement().ID)
+			m2.announceQueue.Active().ID)
 	}
-	for _, c := range m2.announceVisible {
+	for _, c := range m2.announceQueue.Cards {
 		if c.ID == "model-claude-opus-5-5" {
 			t.Errorf("persisted dismiss not honoured; model-claude-opus-5-5 still in queue")
 		}
@@ -7735,7 +7774,7 @@ func (m *runMode) announceSessionHiddenAfterSubmit(id string) bool {
 	if m == nil {
 		return false
 	}
-	return m.announceSessionHiddenID == id
+	return m.announceQueue.SessionHiddenID == id
 }
 
 // TestAnnouncementRender_HintRow covers the card's footer hint row.
@@ -7745,10 +7784,10 @@ func (m *runMode) announceSessionHiddenAfterSubmit(id string) bool {
 func TestAnnouncementRender_HintRow(t *testing.T) {
 	m := announcementModel(t)
 	view := m.View()
-	if !strings.Contains(stripSGR(view.Content), "Esc to dismiss") {
+	if !strings.Contains(termcolor.StripSGR(view.Content), "Esc to dismiss") {
 		t.Errorf("hint row missing from view:\n%s", view.Content)
 	}
-	if !strings.Contains(stripSGR(view.Content), "Send a message to hide") {
+	if !strings.Contains(termcolor.StripSGR(view.Content), "Send a message to hide") {
 		t.Errorf("hint row missing from view:\n%s", view.Content)
 	}
 }
@@ -7765,10 +7804,10 @@ func TestAnnouncementRender_CardRowNotInTranscript(t *testing.T) {
 	transcriptIdx := -1
 	titleIdx := -1
 	for i, line := range strings.Split(view.Content, "\n") {
-		if strings.Contains(stripSGR(line), transcriptRow) && transcriptIdx == -1 {
+		if strings.Contains(termcolor.StripSGR(line), transcriptRow) && transcriptIdx == -1 {
 			transcriptIdx = i
 		}
-		if strings.Contains(stripSGR(line), "Claude Opus 5.5 available") && titleIdx == -1 {
+		if strings.Contains(termcolor.StripSGR(line), "Claude Opus 5.5 available") && titleIdx == -1 {
 			titleIdx = i
 		}
 	}
@@ -7784,7 +7823,7 @@ func TestAnnouncementRender_CardRowNotInTranscript(t *testing.T) {
 func bashModeRunMode(t *testing.T) *runMode {
 	t.Helper()
 	t.Setenv("ANTIGRAVITY_HOME", t.TempDir())
-	m := NewRunMode(&fakeClient{}, "u@t", "Gemini 3.8 Flash (Medium)", "", "/tmp", false)
+	m := newRunMode(&fakeClient{}, "u@t", "Gemini 3.8 Flash (Medium)", "", "/tmp", false)
 	m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
 	return m
 }
@@ -7813,7 +7852,7 @@ func TestBashHeadRow(t *testing.T) {
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := bashHeadRow("echo hello", tc.failed, tc.running); got != tc.want {
+			if got := bashmode.HeadRow("echo hello", tc.failed, tc.running); got != tc.want {
 				t.Fatalf("bashHeadRow =\n%q\nwant\n%q", got, tc.want)
 			}
 		})
@@ -7856,7 +7895,7 @@ func TestBashOutputRows(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := bashOutputRows(tc.out, tc.failed)
+			got := bashmode.OutputRows(tc.out, tc.failed)
 			if len(got) != len(tc.want) {
 				t.Fatalf("rows = %d, want %d: %#v", len(got), len(tc.want), got)
 			}
@@ -7879,7 +7918,7 @@ func TestExecBashCommand(t *testing.T) {
 	}
 	run := func(ctx context.Context, command string) bashDoneMsg {
 		t.Helper()
-		return execBashCommand(ctx, dir, command, &bashOutput{}, 1)
+		return execBashCommand(ctx, dir, command, &tools.SafeBuffer{}, 1)
 	}
 
 	t.Run("success", func(t *testing.T) {
@@ -7925,7 +7964,7 @@ func TestExecBashCommand(t *testing.T) {
 	// `sh -c`/`sleep` inherited the stdout pipe, and exec.Cmd.Wait waited on
 	// the copy goroutine until EOF.
 	t.Run("cancel kills grandchildren instead of waiting", func(t *testing.T) {
-		out := &bashOutput{}
+		out := &tools.SafeBuffer{}
 		ctx, cancel := context.WithCancel(context.Background())
 		go func() {
 			for out.String() == "" {
@@ -7941,7 +7980,7 @@ func TestExecBashCommand(t *testing.T) {
 		if !msg.cancelled {
 			t.Fatalf("cancelled = false, want true")
 		}
-		if got := trimBashOutput(out.String()); got != "first" {
+		if got := bashmode.TrimOutput(out.String()); got != "first" {
 			t.Fatalf("partial output = %q, want %q (a preemption snapshots this)", got, "first")
 		}
 	})
@@ -7952,7 +7991,7 @@ func TestExecBashCommand(t *testing.T) {
 func TestBashModeKeyArming(t *testing.T) {
 	m := bashModeRunMode(t)
 	m.Update(tea.KeyPressMsg{Code: '!', Text: "!"})
-	if !m.bashMode {
+	if !m.store.BashMode {
 		t.Fatal("! on empty composer did not arm bash mode")
 	}
 	if m.input.Value() != "" {
@@ -7961,7 +8000,7 @@ func TestBashModeKeyArming(t *testing.T) {
 
 	// Esc leaves the mode.
 	m.Update(tea.KeyPressMsg{Code: tea.KeyEsc})
-	if m.bashMode {
+	if m.store.BashMode {
 		t.Fatal("Esc did not leave bash mode")
 	}
 
@@ -7969,7 +8008,7 @@ func TestBashModeKeyArming(t *testing.T) {
 	// buffer (【一手】 ` !echo lead` went to the model).
 	m.Update(tea.KeyPressMsg{Code: ' ', Text: " "})
 	m.Update(tea.KeyPressMsg{Code: '!', Text: "!"})
-	if m.bashMode {
+	if m.store.BashMode {
 		t.Fatal("! after a space armed bash mode")
 	}
 	if got := m.input.Value(); got != " !" {
@@ -7981,7 +8020,7 @@ func TestBashModeKeyArming(t *testing.T) {
 // model. The transcript gets the running head row and the mode clears.
 func TestBashModeSubmitRunsLocally(t *testing.T) {
 	m := bashModeRunMode(t)
-	m.bashMode = true
+	m.store.BashMode = true
 	m.input.SetValue("echo hello")
 
 	cmd := m.submitPrompt()
@@ -7991,17 +8030,17 @@ func TestBashModeSubmitRunsLocally(t *testing.T) {
 	if !m.streaming {
 		t.Fatal("streaming not set while the command runs")
 	}
-	if m.bashMode {
+	if m.store.BashMode {
 		t.Fatal("bash mode survived submit")
 	}
 	if len(m.session) != 0 {
 		t.Fatalf("shell command reached the model session: %#v", m.session)
 	}
 	head := m.response[len(m.response)-1]
-	if want := bashHeadRow("echo hello", false, true); head != want {
+	if want := bashmode.HeadRow("echo hello", false, true); head != want {
 		t.Fatalf("head row =\n%q\nwant\n%q", head, want)
 	}
-	if got := m.history[len(m.history)-1]; got != "!echo hello" {
+	if got := m.promptHistory.Entries()[m.promptHistory.Len()-1]; got != "!echo hello" {
 		t.Fatalf("history entry = %q, want %q", got, "!echo hello")
 	}
 
@@ -8010,10 +8049,10 @@ func TestBashModeSubmitRunsLocally(t *testing.T) {
 	if m.streaming {
 		t.Fatal("streaming survived completion")
 	}
-	if m.bashRowIdx != -1 {
-		t.Fatalf("bashRowIdx = %d, want -1", m.bashRowIdx)
+	if m.store.BashRowIdx != -1 {
+		t.Fatalf("bashRowIdx = %d, want -1", m.store.BashRowIdx)
 	}
-	if want := bashHeadRow("echo hello", false, false); m.response[len(m.response)-3] != want {
+	if want := bashmode.HeadRow("echo hello", false, false); m.response[len(m.response)-3] != want {
 		t.Fatalf("final head row = %q", m.response[len(m.response)-3])
 	}
 	if m.response[len(m.response)-1] != "" {
@@ -8024,11 +8063,11 @@ func TestBashModeSubmitRunsLocally(t *testing.T) {
 // TestBashModeEmptyCommandJustLeaves: `!` + Enter prints nothing.
 func TestBashModeEmptyCommandJustLeaves(t *testing.T) {
 	m := bashModeRunMode(t)
-	m.bashMode = true
+	m.store.BashMode = true
 	if cmd := m.submitPrompt(); cmd != nil {
 		t.Fatal("empty bash command returned a cmd")
 	}
-	if m.bashMode {
+	if m.store.BashMode {
 		t.Fatal("bash mode survived the empty submit")
 	}
 	if len(m.response) != 0 {
@@ -8041,12 +8080,12 @@ func TestBashModeEmptyCommandJustLeaves(t *testing.T) {
 func TestBashModeCancel(t *testing.T) {
 	m := bashModeRunMode(t)
 	cancelled := false
-	m.bashCancel = func() { cancelled = true }
+	m.store.BashCancel = func() { cancelled = true }
 	m.Update(tea.KeyPressMsg{Code: tea.KeyEsc})
 	if !cancelled {
 		t.Fatal("Esc did not cancel the running command")
 	}
-	if m.bashCancel != nil {
+	if m.store.BashCancel != nil {
 		t.Fatal("bashCancel still installed")
 	}
 }
@@ -8054,16 +8093,17 @@ func TestBashModeCancel(t *testing.T) {
 // TestBashHistoryRecall re-arms the mode when the entry was a command.
 func TestBashHistoryRecall(t *testing.T) {
 	m := bashModeRunMode(t)
-	m.history = []string{"hello", "!echo hi"}
+	m.promptHistory.Push("hello")
+	m.promptHistory.Push("!echo hi")
 	m.input.Reset()
 
 	m.historyUp()
-	if !m.bashMode || m.input.Value() != "echo hi" {
-		t.Fatalf("recall = (%v, %q), want (true, %q)", m.bashMode, m.input.Value(), "echo hi")
+	if !m.store.BashMode || m.input.Value() != "echo hi" {
+		t.Fatalf("recall = (%v, %q), want (true, %q)", m.store.BashMode, m.input.Value(), "echo hi")
 	}
 	m.historyUp()
-	if m.bashMode || m.input.Value() != "hello" {
-		t.Fatalf("recall = (%v, %q), want (false, %q)", m.bashMode, m.input.Value(), "hello")
+	if m.store.BashMode || m.input.Value() != "hello" {
+		t.Fatalf("recall = (%v, %q), want (false, %q)", m.store.BashMode, m.input.Value(), "hello")
 	}
 }
 
@@ -8077,20 +8117,20 @@ func TestBashHistoryRecall(t *testing.T) {
 func TestBashPreemptsRunningCommand(t *testing.T) {
 	m := bashModeRunMode(t)
 	m.streaming = true
-	m.bashGen = 4
-	m.bashRowIdx = len(m.response)
-	m.response = append(m.response, bashHeadRow("top", false, true))
-	headIdx := m.bashRowIdx
-	out := &bashOutput{}
+	m.store.BashGen = 4
+	m.store.BashRowIdx = len(m.response)
+	m.response = append(m.response, bashmode.HeadRow("top", false, true))
+	headIdx := m.store.BashRowIdx
+	out := &tools.SafeBuffer{}
 	if _, err := out.Write([]byte("first\nsecond\n")); err != nil {
 		t.Fatal(err)
 	}
-	m.bashRun = out
-	m.bashCmd = "top"
+	m.store.BashRun = out
+	m.store.BashCmd = "top"
 	cancelled := false
-	m.bashCancel = func() { cancelled = true }
+	m.store.BashCancel = func() { cancelled = true }
 
-	m.bashMode = true
+	m.store.BashMode = true
 	m.input.SetValue("echo next")
 	cmd := m.submitPrompt()
 	if cmd == nil {
@@ -8099,26 +8139,26 @@ func TestBashPreemptsRunningCommand(t *testing.T) {
 	if !cancelled {
 		t.Fatal("the running command was not cancelled")
 	}
-	if len(m.bashQueue) != 0 {
-		t.Fatalf("preemption queued instead of running: %#v", m.bashQueue)
+	if len(m.store.BashQueue) != 0 {
+		t.Fatalf("preemption queued instead of running: %#v", m.store.BashQueue)
 	}
 	if !m.streaming {
 		t.Fatal("streaming cleared during preemption")
 	}
-	if got := m.response[headIdx]; got != bashHeadRow("top", false, true) {
+	if got := m.response[headIdx]; got != bashmode.HeadRow("top", false, true) {
 		t.Fatalf("interrupted head was repainted:\n%q", got)
 	}
-	wantBody := bashOutputRows("first\nsecond", false)
+	wantBody := bashmode.OutputRows("first\nsecond", false)
 	for i, want := range wantBody {
 		if got := m.response[headIdx+1+i]; got != want {
 			t.Fatalf("body row %d =\n%q\nwant\n%q", i, got, want)
 		}
 	}
-	if got := m.response[len(m.response)-1]; got != bashHeadRow("echo next", false, true) {
+	if got := m.response[len(m.response)-1]; got != bashmode.HeadRow("echo next", false, true) {
 		t.Fatalf("new running head =\n%q", got)
 	}
-	if m.bashGen != 5 {
-		t.Fatalf("bashGen = %d, want 5", m.bashGen)
+	if m.store.BashGen != 5 {
+		t.Fatalf("bashGen = %d, want 5", m.store.BashGen)
 	}
 
 	// The preempted command's late completion carries the stale generation
@@ -8135,7 +8175,7 @@ func TestBashPreemptsRunningCommand(t *testing.T) {
 func TestBashCtrlCCancelsCommand(t *testing.T) {
 	m := bashModeRunMode(t)
 	cancelled := false
-	m.bashCancel = func() { cancelled = true }
+	m.store.BashCancel = func() { cancelled = true }
 	m.Update(tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl})
 	if !cancelled {
 		t.Fatal("Ctrl+C did not cancel the running command")
@@ -8152,13 +8192,13 @@ func TestBashCtrlCCancelsCommand(t *testing.T) {
 // head only, even when the command had already printed something.
 func TestBashCancelDropsPartialOutput(t *testing.T) {
 	m := bashModeRunMode(t)
-	m.bashRowIdx = 0
-	m.response = []string{bashHeadRow("x", false, true)}
+	m.store.BashRowIdx = 0
+	m.response = []string{bashmode.HeadRow("x", false, true)}
 	m.finishBashCommand(bashDoneMsg{gen: 1, cmd: "x", output: "first", cancelled: true})
 	if len(m.response) != 2 {
 		t.Fatalf("cancelled block rows = %#v, want head + blank", m.response)
 	}
-	if want := bashHeadRow("x", false, false); m.response[0] != want {
+	if want := bashmode.HeadRow("x", false, false); m.response[0] != want {
 		t.Fatalf("head = %q, want %q", m.response[0], want)
 	}
 	if m.response[1] != "" {
@@ -8178,16 +8218,16 @@ func TestBashBlockTruncates(t *testing.T) {
 	for i := range lines {
 		lines[i] = fmt.Sprintf("%d", i+1)
 	}
-	rows := bashBlockLines(&bashBlock{cmd: "seq 1 21", body: strings.Join(lines, "\n")}, false, 40)
+	rows := (&bashmode.Block{Cmd: "seq 1 21", Body: strings.Join(lines, "\n")}).Lines(false, 40)
 
 	// head + marker + 20 body rows + blank
 	if len(rows) != 23 {
 		t.Fatalf("rows = %d, want 23: %#v", len(rows), rows)
 	}
-	if want := bashHeadRow("seq 1 21", false, false); rows[0] != want {
+	if want := bashmode.HeadRow("seq 1 21", false, false); rows[0] != want {
 		t.Fatalf("head = %q, want %q", rows[0], want)
 	}
-	wantMarker := cWarningBlueOpen + "  \u23bf  " + bashBodyOKOpen + "<output +1 lines>\x1b[m"
+	wantMarker := cWarningBlueOpen + "  \u23bf  " + palette.WarningBodyOpen + "<output +1 lines>\x1b[m"
 	if rows[1] != wantMarker {
 		t.Fatalf("marker = %q, want %q", rows[1], wantMarker)
 	}
@@ -8203,7 +8243,7 @@ func TestBashBlockTruncates(t *testing.T) {
 	}
 
 	// 20 rows never truncate and never show a hint (【一手】 `!seq 1 20`).
-	rows = bashBlockLines(&bashBlock{cmd: "seq 1 20", body: strings.Join(lines[:20], "\n")}, false, 40)
+	rows = (&bashmode.Block{Cmd: "seq 1 20", Body: strings.Join(lines[:20], "\n")}).Lines(false, 40)
 	if len(rows) != 22 {
 		t.Fatalf("20-line rows = %d, want 22", len(rows))
 	}
@@ -8219,7 +8259,7 @@ func TestBashBlockTruncates(t *testing.T) {
 	for i := 1; i <= 40; i++ {
 		forty = append(forty, fmt.Sprintf("%d", i))
 	}
-	rows = bashBlockLines(&bashBlock{cmd: "seq 1 40", body: strings.Join(forty, "\n")}, false, 60)
+	rows = (&bashmode.Block{Cmd: "seq 1 40", Body: strings.Join(forty, "\n")}).Lines(false, 60)
 	if !strings.Contains(rows[1], "<output +10 lines>") {
 		t.Fatalf("60-row terminal marker = %q, want <output +10 lines>", rows[1])
 	}
@@ -8235,10 +8275,10 @@ func TestBashBlockExpanded(t *testing.T) {
 	for i := 1; i <= 200; i++ {
 		lines = append(lines, fmt.Sprintf("%d", i))
 	}
-	b := &bashBlock{cmd: "seq 1 200", body: strings.Join(lines, "\n")}
+	b := &bashmode.Block{Cmd: "seq 1 200", Body: strings.Join(lines, "\n")}
 
-	collapsed := bashBlockLines(b, false, 40)
-	expanded := bashBlockLines(b, true, 40)
+	collapsed := b.Lines(false, 40)
+	expanded := b.Lines(true, 40)
 	if len(expanded) <= len(collapsed) {
 		t.Fatalf("expanded rows = %d, collapsed = %d", len(expanded), len(collapsed))
 	}
@@ -8257,8 +8297,8 @@ func TestBashBlockExpanded(t *testing.T) {
 // place, so the transcript row count follows the hint.
 func TestBashCtrlOTogglesBlock(t *testing.T) {
 	m := bashModeRunMode(t)
-	m.bashRowIdx = len(m.response)
-	m.response = append(m.response, bashHeadRow("seq 1 21", false, true))
+	m.store.BashRowIdx = len(m.response)
+	m.response = append(m.response, bashmode.HeadRow("seq 1 21", false, true))
 	var lines []string
 	for i := 1; i <= 200; i++ {
 		lines = append(lines, fmt.Sprintf("%d", i))
@@ -8289,18 +8329,21 @@ func TestBashCtrlOTogglesBlock(t *testing.T) {
 func TestBashQueueWhileStreaming(t *testing.T) {
 	m := bashModeRunMode(t)
 	m.streaming = true
-	m.bashMode = true
+	m.store.BashMode = true
 	m.input.SetValue("echo queued")
 	if cmd := m.submitPrompt(); cmd != nil {
 		t.Fatal("a queued bash command returned a cmd")
 	}
-	if len(m.bashQueue) != 1 || m.bashQueue[0] != "echo queued" {
-		t.Fatalf("bashQueue = %#v", m.bashQueue)
+	if len(m.store.BashQueue) != 1 || m.store.BashQueue[0] != "echo queued" {
+		t.Fatalf("bashQueue = %#v", m.store.BashQueue)
 	}
 	if m.streaming != true {
 		t.Fatal("queueing cleared the streaming flag")
 	}
-	if view := m.View().Content; !strings.Contains(view, "\u25b8 echo queued") {
+	// The queued row is the reference's own bytes: a dim grey "▸ <cmd>" and
+	// no "(alt+m …)" suffix (unlike a queued prompt).
+	wantRow := cDimGrayOpen + "\u25b8 echo queued" + cDimGrayClose
+	if view := m.View().Content; !strings.Contains(view, wantRow) {
 		t.Fatalf("queue row missing from view:\n%s", view)
 	}
 }

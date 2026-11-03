@@ -333,6 +333,20 @@ func TestShortCascadeIDIsRejected(t *testing.T) {
 	}
 }
 
+func TestInvalidCascadeIDCharsetIsRejected(t *testing.T) {
+	conv := &conversation{logger: newLogger(false)}
+	cfg := &pb.HarnessConfig{}
+	// 32 chars but contains underscores and exclamation mark
+	cfg.SetCascadeId("valid_length_but_has_invalid_chars!")
+	err := conv.initialize(context.Background(), cfg)
+	if err == nil {
+		t.Fatal("the conversation opened with an invalid charset cascade id")
+	}
+	if !strings.Contains(err.Error(), "must consist only of alphanumeric characters and hyphens") {
+		t.Errorf("error = %v, want it to name alphanumeric and hyphens requirement", err)
+	}
+}
+
 // TestClientToolRoundTrip pins the client-side tool delegation: the
 // harness asks the client to run a tool, and the client's answer reaches
 // the model as the tool's result.

@@ -12,11 +12,11 @@ the accounts the user signed in to and lets the user pick the active one
 
 | File | What it is |
 |---|---|
-| `internal/accounts/store.go` | the registry: `~/.config/openagy/accounts.json` (0600, atomic; `OPENAGY_ACCOUNTS_CONFIG` overrides) |
-| `internal/accounts/activate.go` | `Current`, `Register`, `RegisterWithEmail`, `Activate`, `Remove` |
-| `internal/cliapp/slash_panel_accounts.go` | the `/accounts` panel (clone-only; **listed** in the catalogue, with the Pool tab beside the account list — see *The pool's own panel* below) |
+| `internal/features/accounts/core/store.go` | the registry: `~/.openagy/accounts.json` (0600, atomic; `OPENAGY_ACCOUNTS_CONFIG` overrides). The directory is the clone's one configuration home — `~/.openagy`, or `$OPENAGY_CONFIG_HOME`. |
+| `internal/features/accounts/core/activate.go` | `Current`, `Register`, `RegisterWithEmail`, `Activate`, `Remove` |
+| `internal/ui/views/accountspanel/` | the `/accounts` panel (clone-only; **listed** in the catalogue, with the Pool tab beside the account list — see *The pool's own panel* below) |
 | `internal/cliapp/account_identity.go` | `syncAccountIdentity` (the session follows an account switched outside the TUI), `registerCurrentAccount` |
-| `internal/cli/accounts_cmds.go` | the hidden `agy accounts {list,switch,remove}` |
+| `internal/cli/accounts_cmds.go` | the `pigasus accounts {list,switch,remove}` subcommands (visible since commit `78f4a3b9`) |
 | `internal/printmode/print_slash.go` | print mode's `/accounts` |
 
 Five things that are easy to get wrong:
@@ -51,11 +51,11 @@ The registry carries two more per-account answers, so the panel can say
 
 | File | What it is |
 |---|---|
-| `internal/accounts/cache.go` | `Get`, `Update`, `SetPlanTier`, `SetQuota`, `SetToken` — the atomic read-modify-write cycles (the package mutex serializes them) |
-| `internal/auth/quota_snapshot.go` | `QuotaSnapshot` (the serializable form of a summary), `QuotaWindow`, `WeeklyRemaining`, `FiveHourRemaining` |
-| `internal/auth/quota.go` | `FetchQuotaSummaryWithToken` — the quota of *one* account |
-| `internal/auth/plan_tier.go` | `FetchPlanTierWithToken` |
-| `internal/auth/unified_config.go` | `RefreshQuiet` — refreshes **without** writing or clearing the shared credential |
+| `internal/features/accounts/core/cache.go` | `Get`, `Update`, `SetPlanTier`, `SetQuota`, `SetToken` — the atomic read-modify-write cycles (the package mutex serializes them) |
+| `internal/features/auth/quota_snapshot.go` | `QuotaSnapshot` (the serializable form of a summary), `QuotaWindow`, `WeeklyRemaining`, `FiveHourRemaining` |
+| `internal/features/auth/quota.go` | `FetchQuotaSummaryWithToken` — the quota of *one* account |
+| `internal/features/auth/plan_tier.go` | `FetchPlanTierWithToken` |
+| `internal/features/auth/unified_config.go` | `RefreshQuiet` — refreshes **without** writing or clearing the shared credential |
 | `internal/cliapp/account_identity.go` | `fetchAccountQuotaCmd`, `accountAccessToken`, the session's `quotaCache` |
 
 Five things that are easy to get wrong:
@@ -86,10 +86,10 @@ The registry answers "which account did the user pick?". The **policy** answers
 "which account serves *this* turn?" — automatically, driven by the accounts'
 remaining quota.
 
-The policy is a section of `~/.config/openagy/config.json`, beside the
+The policy is a section of `~/.openagy/config.json`, beside the
 endpoint overrides. It is **not** in `providers.json`: that file answers
 "which model talks to which provider", and its only writer is
-`internal/models.Editor`.
+`internal/features/models.Editor`.
 
 ```json
 {
@@ -109,10 +109,10 @@ endpoint overrides. It is **not** in `providers.json`: that file answers
 
 | File | What it is |
 |---|---|
-| `accountpool/accountpool.go` | the policy: the `Config` shape, the four strategies, the threshold, `Choose` — **pure**, no I/O, no `internal/` dependency, so it is importable on its own |
-| `internal/accountrouting/accountrouting.go` | the runtime: the router, the quota cache, the credential lookup, the failover wrapper |
+| `accountpool/accountpool.go` | the policy: the `Config` shape, the five strategies, the threshold, `Choose` — **pure**, no I/O, no `internal/` dependency, so it is importable on its own |
+| `internal/features/accounts/routing/routing.go` | the runtime: the router, the quota cache, the credential lookup, the failover wrapper |
 | `endpoints/config.go` | `Config.AccountPool`, `CurrentAccountPool()` and `SaveAccountPool()` — the file's only reader **and** writer |
-| `internal/backendselect/backendselect.go` | installs the token function and the wrapper — **always**, so the policy can be turned on live |
+| `internal/infra/backend/select/backendselect.go` | installs the token function and the wrapper — **always**, so the policy can be turned on live |
 
 | strategy | what it does |
 |---|---|
@@ -120,6 +120,7 @@ endpoint overrides. It is **not** in `providers.json`: that file answers
 | `round_robin` | the next account of the pool, in turn |
 | `quota_aware` | the account with the most quota left |
 | `failover` | the account the session is signed in with, until a quota error comes back |
+| `aggregate` | the account with the most quota left, **and** the pool's quota is answered as one virtual account's — see *The virtual unified pool account* below |
 
 Six things that are easy to get wrong:
 
@@ -170,11 +171,11 @@ own.
 
 | File | What it is |
 |---|---|
-| `internal/cliapp/slash_panel_pool.go` | the Pool tab: the rows, the keys, the writes |
-| `internal/cliapp/slash_panel_accounts.go` | the tab bar, the tab switch, the account list's own half |
+| `internal/ui/views/accountspanel/pool.go` | the Pool tab: the rows, the keys, the writes |
+| `internal/ui/views/accountspanel/accounts.go` | the tab bar, the tab switch, the account list's own half |
 | `internal/cliapp/slash_panels.go` | `initOpenedSlashPanelData` — `/pool` opens the panel on the Pool tab |
 | `internal/cliapp/slash_panel_routing.go` | `commandPanels["pool"]`, the Pool tab's row count |
-| `internal/tuilib/commands.go` | the `/pool` row in the catalogue (the clone's **fourth** superset command) |
+| `internal/ui/tuilib/commands.go` | the `/pool` row in the catalogue (the clone's **fourth** superset command) |
 | `endpoints/config.go` | `SaveAccountPool` — the file's writer |
 
 The tab bar is the `/resume` picker's: the active tab is bold, underlined and
@@ -185,7 +186,7 @@ one credential and no switcher — so the whole panel is clone-only.
 | Row | What it does |
 |---|---|
 | Enabled | turns the routing on or off |
-| Strategy | walks the four strategies |
+| Strategy | walks the five strategies |
 | Threshold | the quota floor, in percent (`25%` and `0.25` both read) |
 | Refresh interval | how often a quota figure is read again |
 | Cooldown | how long a spent account stays out |
@@ -215,6 +216,103 @@ Five things that are easy to get wrong:
   back.
 
 Report: `docs/cycles/cycle-361-account-pool-panel/`.
+
+## The virtual unified pool account (cycle `cycle-368-unified-pool-aggregate`)
+
+`quota_aware` picks **one** account per turn, and the vendor `agy` shows *that*
+account's quota. The **aggregate** strategy adds a second layer: the proxy
+answers the quota and the tier calls with **one virtual account** whose
+numbers are the pool's merged, so the vendor CLI's quota panel reads like a
+single account with a large allowance instead of the allowance of whichever
+account happened to serve the last turn.
+
+The *routing* half is the same as `quota_aware` — the account with the most
+quota left. The difference is the *presentation*: the pool's quota is
+answered as one account's.
+
+| File | What it is |
+|---|---|
+| `internal/infra/agyproxy/aggregate.go` | the three interceptions: the quota merge, the tier merge, the synthesized fallback |
+| `internal/infra/agyproxy/server.go` | `aggregateActive()` — the switch; the dispatch that routes the two quota methods and `loadCodeAssist` into the interception |
+| `internal/infra/agyproxy/admin.go` | `pigasus proxy aggregate [on\|off]` — the toggle and the status |
+| `internal/infra/agyproxy/fileconfig.go` | the persisted `aggregate` flag in the `"wrapper"` section of `~/.openagy/config.json`, and the two environment variables |
+| `internal/infra/agyproxy/passthrough.go` | the `maxAttempts` scaling — one turn may try every candidate account |
+| `accountpool/accountpool.go` | `StrategyAggregate` and its aliases (`agg`, `unified`, `super`, `pool_aggregate`) |
+
+### Turning it on
+
+Four ways; the proxy treats them as the same switch.
+
+```bash
+pigasus proxy aggregate on      # persisted in the config document
+pigasus proxy aggregate         # the status: "aggregate: off"
+pigasus proxy doctor            # the "aggregate   on|off" line
+```
+
+```json
+// ~/.openagy/config.json
+{ "account_pool": { "enabled": true, "strategy": "aggregate" } }
+```
+
+```bash
+OPENAGY_PROXY_AGGREGATE=1 pigasus agy     # the environment variable
+pigasus agy --aggregate                   # the launcher's own flag
+```
+
+The environment variables are `OPENAGY_PROXY_AGGREGATE` and
+`OPENAGY_ACCOUNT_POOL_AGGREGATE`; `--aggregate` / `--no-aggregate` on the
+`pigasus agy` command line are the same switch for one run.
+
+**Aggregate implies balance.** The pool has to be able to move a turn between
+accounts before the merged numbers mean anything, so turning aggregate on
+turns balance on too: `pigasus proxy aggregate on` writes *both* flags into the
+`"wrapper"` section of `~/.openagy/config.json`, and a policy whose strategy is `aggregate` turns
+the balancer on through the proxy's own `resolveSettings` / `balanceEnabled`.
+
+### What the proxy answers
+
+| call | what the proxy answers |
+|---|---|
+| `retrieveUserQuotaSummary` / `retrieveUserQuota` | one merged quota view over the whole pool, with the headers `X-Openagy-Aggregate-Mode: true` and `X-Openagy-Pool-Size: N` |
+| `loadCodeAssist` | the pool's **highest** tier (`Google AI Ultra` > `Google AI Pro` > `Antigravity Starter Quota`), with `currentTier.description` = `"OpenAGY Unified Pool (N accounts)"` |
+| every other RPC | the ordinary balanced passthrough, with `maxAttempts` raised to the number of candidate accounts |
+
+The quota merge, exactly:
+
+- A **bucket** is identified by `(group, bucketId, window)`; the first account
+  that has a bucket names it, and the other accounts are folded into it.
+- `remainingFraction` is the **average** over the pool — the sum of the
+  accounts' fractions divided by the pool size, not the sum. Six accounts with
+  60 % each read as 60 %, not 360 %: the figure is "how much of the pool is
+  left", not "how much allowance exists".
+- An account **in cooldown** contributes 0 and does not count as active.
+- An account whose quota could not be read is in the denominator but not in the
+  numerator: a pool of six with one unreachable account reads five sixths.
+- The average is floored at `0.01` when any account has quota, so a nearly
+  spent pool does not read as exactly zero.
+- A bucket is `disabled` when no account is active or the average is zero; the
+  `resetTime` is the **earliest** reset in the pool, and the description reads
+  `Unified Pool: N/M accounts ready (X% capacity)`.
+- The top-level description is
+  `OpenAGY Unified Pool (N accounts). Automatic load balancing and failover active.`
+
+The tier merge reads the **cached** plan tier of each account in the registry
+(`Google AI Pro`, …), not a live call. When the upstream `loadCodeAssist`
+fails, the proxy synthesizes the whole answer — `currentTier`, `allowedTiers`
+and `paidTier` — so the vendor CLI still opens.
+
+### Two things it does not do
+
+- **It does not touch the clone's own quota surfaces.** The interception lives
+  in the proxy process, so it is the vendor `agy` behind `pigasus agy` that
+  sees the merged view. The clone's TUI, print mode and Web UI read the
+  *active* account's real quota (`internal/features/auth`,
+  `internal/remotecontrol/dispatch_quota.go`) and are unaffected.
+- **The `retrieveUserQuota` branch is unverified.** The vendor CLI calls
+  `retrieveUserQuotaSummary`; no upstream capture shows a call to the shorter
+  `retrieveUserQuota`, and the interception answers it with the same body.
+
+Report: `docs/cycles/cycle-368-unified-pool-aggregate/`.
 
 ## The web UI's account switcher
 
@@ -352,7 +450,7 @@ The widget's list shows every registered account, not only the active one, so
 each row carries that account's quota. The panel has a **fixed width**
 (`min(380px, 80vw)`), so it does not move when the list becomes the sign-in
 session and back. The row is drawn at the density of the TUI's `/usage` panel
-(`internal/usagepanel`):
+(`internal/ui/views/usagepanel`):
 
 ```
 user04@example.com
@@ -377,7 +475,7 @@ Refreshes in 71h 57m        Refreshes in 1h 57m
   own gauge thresholds: red under 10 %, yellow under 25 %, green above
   (`$Mb` in the bundle). The **percentage** sits under the window's name and the
   **countdown** under the bar — the countdown is the TUI's own wording
-  (`tuiviewer.QuotaCountdown`: "71h 57m", "Refreshes in").
+  (`usagepanel.QuotaCountdown`: "71h 57m", "Refreshes in").
 - The **first group is open** and the other model groups (Claude and GPT
   models) are behind a **disclosure**: a group with many accounts would
   otherwise make the list twice as long. The closed line carries **no
@@ -446,13 +544,13 @@ a 320 px viewport, and the wheel moves it.
 
 On Termux `/etc/resolv.conf` points at a loopback nameserver that nothing
 answers on, so **every** outbound hostname lookup fails — including the
-OAuth device flow the login runs on. `internal/dns` replaces
+OAuth device flow the login runs on. `dns/` replaces
 `net.DefaultResolver` so the lookups go to a working resolver instead.
 
 | File | What it is |
 |---|---|
-| `internal/dns/android.go` | the fallback: `install`, `dialWithFallback`, the detection rule |
-| `internal/dns/android_test.go` | the proof that the plain HTTP path picks the resolver up |
+| `dns/android.go` | the fallback: `install`, `dialWithFallback`, the detection rule |
+| `dns/android_test.go` | the proof that the plain HTTP path picks the resolver up |
 | `cmd/*/main.go` | the four binaries blank-import it (`pigasus`, the two shims, `openagy-models`) |
 
 Five things that are easy to get wrong:

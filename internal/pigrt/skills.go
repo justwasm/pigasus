@@ -19,9 +19,8 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
-	"strings"
 
-	"github.com/justwasm/pigasus/internal/plugins"
+	plugins "github.com/justwasm/pigasus/internal/features/plugins/core"
 )
 
 // AgySkillPaths returns the skill directories whose entries appear in the
@@ -48,9 +47,15 @@ func AgySkillPaths(agentHome, workspace string) []string {
 		// (agents-sdk, cloudflare, …) with their ~/.gemini/skills paths
 		// (【一手】, docs/cycles/reference-drift-146/).
 		filepath.Join(gemini, "skills"),
+		// Official documentation migration table mentions ~/.gemini/antigravity-cli/skills/ (B-26);
+		// support both paths so skills discovered under either root are available.
+		filepath.Join(agentHome, "skills"),
 	}
 	if workspace != "" {
-		candidates = append(candidates, filepath.Join(workspace, ".agents", "skills"))
+		candidates = append(candidates,
+			filepath.Join(workspace, ".agents", "skills"),
+			filepath.Join(workspace, ".agent", "skills"),
+		)
 	}
 	candidates = append(candidates, pluginSkillDirs(
 		filepath.Join(gemini, "config", "plugins"),
@@ -72,7 +77,9 @@ func AgySkillPaths(agentHome, workspace string) []string {
 
 // pluginSkillDirs lists the skill directories of every loadable plugin.
 // configPath, when non-empty, is a config.json whose plugins.<name>.enabled
-// can disable one.
+// can disable one; the flags are read by the owner of that rule
+// (plugins.Enabled: a missing file, a missing entry and an absent
+// `enabled` all mean enabled).
 //
 // The directories come from the plugin's plugin.json "skills" field when it
 // has one — an array of paths or a single path string — and fall back to
@@ -82,7 +89,7 @@ func pluginSkillDirs(pluginsDir, configPath string) []string {
 	if err != nil {
 		return nil
 	}
-	enabled := readPluginEnabled(configPath)
+	enabled := plugins.Enabled(configPath)
 	var out []string
 	for _, e := range entries {
 		if !e.IsDir() {
@@ -101,32 +108,6 @@ func pluginSkillDirs(pluginsDir, configPath string) []string {
 			continue
 		}
 		out = append(out, plugins.SkillDirs(dir)...)
-	}
-	return out
-}
-
-// readPluginEnabled mirrors internal/agent's config.json reading: a missing
-// file, missing entry, or absent `enabled` all mean enabled.
-func readPluginEnabled(path string) map[string]bool {
-	if path == "" {
-		return nil
-	}
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		return nil
-	}
-	raw = []byte(strings.TrimPrefix(string(raw), "\ufeff"))
-	var cfg struct {
-		Plugins map[string]struct {
-			Enabled *bool `json:"enabled"`
-		} `json:"plugins"`
-	}
-	if err := json.Unmarshal(raw, &cfg); err != nil {
-		return nil
-	}
-	out := make(map[string]bool, len(cfg.Plugins))
-	for name, p := range cfg.Plugins {
-		out[name] = p.Enabled == nil || *p.Enabled
 	}
 	return out
 }

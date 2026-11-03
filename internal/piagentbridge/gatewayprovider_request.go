@@ -126,7 +126,10 @@ func newChatRequest(model, effort string, opts pi.StreamOptions) chatRequest {
 // dropped; image blocks are not — they ride along in the user message's
 // content array, the way the OpenAI dialect spells a picture.
 func appendTranscriptToChat(request *chatRequest, transcript pi.TranscriptContext) {
-	for _, message := range transcript.Messages() {
+	messages := transcript.Messages()
+	lastUserIdx := lastUserMessageIndex(messages)
+	for i, message := range messages {
+		isHistorical := lastUserIdx >= 0 && i < lastUserIdx
 		switch m := message.(type) {
 		case pi.SystemMessage:
 			if text := systemText(m); text != "" {
@@ -138,9 +141,13 @@ func appendTranscriptToChat(request *chatRequest, transcript pi.TranscriptContex
 		case pi.AssistantMessage:
 			request.Messages = append(request.Messages, buildChatAssistantMessage(m))
 		case pi.ToolResultMessage:
+			text := toolResultText(m)
+			if isHistorical && len(text) > maxHistoricalToolResultChars {
+				text = truncateHistoricalToolResult(text)
+			}
 			request.Messages = append(request.Messages, chatMessage{
 				Role:       "tool",
-				Content:    toolResultText(m),
+				Content:    text,
 				ToolCallID: m.ToolCallID,
 				Name:       m.ToolName,
 			})

@@ -19,11 +19,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/justwasm/pigasus/internal/backend"
-	"github.com/justwasm/pigasus/internal/convstore"
-	"github.com/justwasm/pigasus/internal/implicit"
+	"github.com/justwasm/pigasus/internal/app/prompt/implicit"
+	"github.com/justwasm/pigasus/internal/app/session/convstore"
+	"github.com/justwasm/pigasus/internal/core/backend"
+	"github.com/justwasm/pigasus/internal/infra/backend/gateway"
 	"github.com/justwasm/pigasus/internal/pigrt"
-	"github.com/justwasm/pigasus/internal/tools"
+	"github.com/justwasm/pigasus/internal/app/tools/surface"
 )
 
 // TestRunPigPrintTurnCarriesTheImplicitTrajectory pins the delivery: a `!`
@@ -52,7 +53,7 @@ func TestRunPigPrintTurnCarriesTheImplicitTrajectory(t *testing.T) {
 	defer srv.Close()
 
 	dir := t.TempDir()
-	client := backend.NewGatewayWithConfig(backend.GatewayConfig{URL: srv.URL, ExternalModel: "MiniMax-M3", HTTPClient: srv.Client()})
+	client := gateway.NewGatewayWithConfig(gateway.GatewayConfig{URL: srv.URL, ExternalModel: "MiniMax-M3", HTTPClient: srv.Client()})
 
 	step := implicit.Step{
 		Status: implicit.StepStatusDone,
@@ -78,7 +79,7 @@ func TestRunPigPrintTurnCarriesTheImplicitTrajectory(t *testing.T) {
 		Backend:   client,
 		Model:     "MiniMax-M3",
 		Prompt:    "and then?",
-		Catalog:   tools.Catalog(dir),
+		Catalog:   surface.Catalog(dir),
 		Handler:   func(backend.StreamChunk) error { return nil },
 		Workspace: dir,
 		AgentDir:  filepath.Join(dir, "agent"),

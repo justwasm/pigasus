@@ -4,7 +4,7 @@
 // fixture these tests are pinned against. It lives in the tools package,
 // next to the code that reads the task's output:
 //
-//	internal/tools/testdata/reference_background_task_1.4.7.txt
+//	internal/app/tools/shell/testdata/reference_background_task_1.4.7.txt
 //
 // The capture is the reference's own text: the lead-in, the SYSTEM_MESSAGE
 // tags and the rendered message between them.
@@ -17,14 +17,14 @@ import (
 	"testing"
 	"time"
 
-	"github.com/justwasm/pigasus/internal/tools"
+	"github.com/justwasm/pigasus/internal/app/tools/shell"
 )
 
 // referenceNotification returns the reference's captured SYSTEM_MESSAGE —
 // the completion notification it wrote into its own transcript.
 func referenceNotification(t *testing.T) string {
 	t.Helper()
-	raw, err := os.ReadFile("../tools/testdata/reference_background_task_1.4.7.txt")
+	raw, err := os.ReadFile("../app/tools/shell/testdata/reference_background_task_1.4.7.txt")
 	if err != nil {
 		t.Fatalf("read fixture: %v", err)
 	}
@@ -84,7 +84,7 @@ func TestTheEnvelopeReproducesTheReferencesNotification(t *testing.T) {
 		content += "\n" + rest
 	}
 
-	got := RenderTaskNotification(tools.TaskNotification{
+	got := RenderTaskNotification(shell.TaskNotification{
 		TaskID:   fields[2],
 		Priority: fields[3],
 		Body:     content,
@@ -99,7 +99,7 @@ func TestTheEnvelopeReproducesTheReferencesNotification(t *testing.T) {
 // reference's wrapper: the lead-in that tells the model the message was
 // not sent by the user, and the tags around the message.
 func TestTheEnvelopeCarriesTheReferencesLeadIn(t *testing.T) {
-	got := RenderTaskNotification(tools.TaskNotification{
+	got := RenderTaskNotification(shell.TaskNotification{
 		TaskID: "conv-1/task-1",
 		Body:   "Task id \"conv-1/task-1\" finished with result:",
 	})
@@ -114,7 +114,7 @@ func TestTheEnvelopeCarriesTheReferencesLeadIn(t *testing.T) {
 	if !strings.Contains(got, "sender=conv-1/task-1") {
 		t.Errorf("the envelope does not name the sender:\n%s", got)
 	}
-	if !strings.Contains(got, "priority="+tools.TaskPriorityHigh) {
+	if !strings.Contains(got, "priority="+shell.TaskPriorityHigh) {
 		t.Errorf("the envelope does not carry the priority:\n%s", got)
 	}
 }
@@ -124,7 +124,7 @@ func TestTheEnvelopeCarriesTheReferencesLeadIn(t *testing.T) {
 // reference stores it as its own step type (CORTEX_STEP_TYPE_SYSTEM_MESSAGE
 // = 101).
 func TestTheNotificationIsASystemMessage(t *testing.T) {
-	msg := TaskNotificationMessage(tools.TaskNotification{
+	msg := TaskNotificationMessage(shell.TaskNotification{
 		TaskID: "conv-1/task-1",
 		Body:   "Task id \"conv-1/task-1\" finished with result:",
 	})
@@ -144,8 +144,8 @@ func TestTheInboxHoldsTheNotificationsUntilTheTurnAsksForThem(t *testing.T) {
 	if inbox.Len() != 0 {
 		t.Fatalf("a new inbox holds %d notifications", inbox.Len())
 	}
-	inbox.Add(tools.TaskNotification{TaskID: "conv-1/task-1", Body: "one"})
-	inbox.Add(tools.TaskNotification{TaskID: "conv-1/task-2", Body: "two"})
+	inbox.Add(shell.TaskNotification{TaskID: "conv-1/task-1", Body: "one"})
+	inbox.Add(shell.TaskNotification{TaskID: "conv-1/task-2", Body: "two"})
 	if inbox.Len() != 2 {
 		t.Fatalf("the inbox holds %d notifications, want 2", inbox.Len())
 	}
@@ -172,7 +172,7 @@ func TestTheInboxHoldsTheNotificationsUntilTheTurnAsksForThem(t *testing.T) {
 // id nor a body would render as an empty message.
 func TestTheInboxDropsAnEmptyNotification(t *testing.T) {
 	inbox := NewTaskInbox()
-	inbox.Add(tools.TaskNotification{})
+	inbox.Add(shell.TaskNotification{})
 	if inbox.Len() != 0 {
 		t.Errorf("the inbox holds %d empty notifications", inbox.Len())
 	}

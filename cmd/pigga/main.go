@@ -5,16 +5,16 @@ import (
 
 	"github.com/justwasm/pigasus/internal/modular"
 	_ "github.com/justwasm/pigasus/internal/app/engine/stream"
-	_ "github.com/justwasm/pigasus/internal/ui/cli/subcommands/accounts"
-	_ "github.com/justwasm/pigasus/internal/ui/cli/subcommands/agent"
-	_ "github.com/justwasm/pigasus/internal/ui/cli/subcommands/changelog"
-	_ "github.com/justwasm/pigasus/internal/ui/cli/subcommands/halloween"
-	_ "github.com/justwasm/pigasus/internal/ui/cli/subcommands/models"
-	_ "github.com/justwasm/pigasus/internal/ui/cli/subcommands/provider"
+	_ "github.com/justwasm/pigasus/internal/app/subcommands/accounts"
+	_ "github.com/justwasm/pigasus/internal/app/subcommands/agent"
+	_ "github.com/justwasm/pigasus/internal/app/subcommands/changelog"
+	_ "github.com/justwasm/pigasus/internal/app/subcommands/halloween"
+	_ "github.com/justwasm/pigasus/internal/app/subcommands/models"
+	_ "github.com/justwasm/pigasus/internal/app/subcommands/provider"
 )
 
 
-var version = "1.4.11-wasm"
+var version = "1.4.12-wasm"
 
 func main() {
 	app := modular.NewApp(modular.AppOptions{

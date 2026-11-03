@@ -7,7 +7,7 @@ import (
 	"io"
 	"strings"
 
-	"github.com/justwasm/pigasus/internal/models"
+	"github.com/justwasm/pigasus/internal/features/models"
 )
 
 // runProviderList lists the configured providers and their models.
@@ -127,6 +127,18 @@ func runProviderAdd(j *JetskiCLI, args []string) error {
 	}
 	p := providers[id]
 	p.ID = id
+	if p.Endpoint() == "" {
+		if preset, ok := models.PresetProviderConfig(id); ok {
+			if p.Name == "" {
+				p.Name = preset.Name
+			}
+			if p.Type == "" || p.Type == models.ProviderTypeOpenAI {
+				p.Type = preset.Type
+			}
+			p.BaseURL = preset.BaseURL
+			p.APIURL = preset.APIURL
+		}
+	}
 	if err := applyProviderFlags(&p, &f, flagSetFlags(fs)); err != nil {
 		return errExitCodeMsg(1, err.Error())
 	}
@@ -142,6 +154,36 @@ func runProviderAdd(j *JetskiCLI, args []string) error {
 			return errExitCodeMsg(1, err.Error())
 		}
 		fmt.Fprintf(j.Out, "added model %s under %s (→ %s)\n", spec.ID, id, wireModelID(spec))
+	}
+	if len(f.specs) == 0 && len(providers[id].Models) == 0 {
+		if preset, ok := models.PresetProviderConfig(id); ok && len(preset.Models) > 0 {
+			for _, m := range preset.Models {
+				_ = ed.PutModel(id, m)
+			}
+			fmt.Fprintf(j.Out, "  preloaded %d models from Catwalk catalog\n", len(preset.Models))
+		}
+	}
+	if p.APIKey == "" {
+		method := models.CatwalkAuthMethod(id)
+		switch method {
+		case "browser":
+			fmt.Fprintf(j.Out, "  Note: this provider typically authenticates via browser login / OAuth.\n")
+		case "both":
+			fmt.Fprintf(j.Out, "  Note: no API key set; you can supply --api-key or authenticate via browser.\n")
+		default:
+			fmt.Fprintf(j.Out, "  Note: no API key set; set one with --api-key.\n")
+		}
+	}
+	return nil
+}
+
+// runProviderPresets lists preset providers from the embedded Catwalk catalog.
+func runProviderPresets(j *JetskiCLI, args []string) error {
+	all := models.CatwalkProviders()
+	fmt.Fprintf(j.Out, "available preset providers (%d):\n", len(all))
+	for _, p := range all {
+		auth := models.CatwalkAuthMethod(string(p.ID))
+		fmt.Fprintf(j.Out, "  %-16s %-24s (auth: %s, models: %d)\n", p.ID, p.Name, auth, len(p.Models))
 	}
 	return nil
 }

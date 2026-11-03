@@ -16,7 +16,7 @@ package core
 //     so the only way to retire a Subagent was for its `defer`d
 //     `Kill()` to land and for callers to forget about it.
 //  2. Pending approvals tied to that subagent id (in
-//     `internal/cascade.PendingApprovals()`) stayed in the queue and
+//     `internal/core/lifecycle.PendingApprovals()`) stayed in the queue and
 //     kept the cascader parked in `CascaderAwaitApproval`, so the
 //     active-agents picker kept showing it as "blocked on approval"
 //     forever.
@@ -92,7 +92,7 @@ func (m *Manager) currentOnStop() OnStopFunc {
 //
 //  1. Lock the Manager's mu; look up the Subagent. If absent,
 //     return (false, false) — no kill, no remove, no hook. This
-//     matches the existing KillByID semantics in internal/taskregistry:
+//     matches the existing KillByID semantics in internal/app/task:
 //     a Stop on an unknown id is a no-op, never an error, so the
 //     picker can re-issue a stop on the same id without crashing.
 //  2. Delete the entry from the agents map and release the lock.

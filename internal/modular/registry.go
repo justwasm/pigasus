@@ -5,8 +5,9 @@ import (
 	"flag"
 	"io"
 
-	"github.com/justwasm/pigasus/internal/backend"
+	"github.com/justwasm/pigasus/internal/app/subcommands"
 	"github.com/justwasm/pigasus/internal/cli"
+	"github.com/justwasm/pigasus/internal/core/backend"
 	"github.com/justwasm/pigasus/internal/core/registry"
 )
 
@@ -96,18 +97,22 @@ func HasSubsystem(name string) bool {
 }
 
 // RegisterSubcommand registers a subcommand spec.
+//
+// The subcommand table lives in the app tier (`internal/app/subcommands`),
+// not in the core registry: a subcommand handler needs the CLI engine
+// itself, so the spec type cannot live below the host that owns it.
 func RegisterSubcommand(spec cli.SubcommandSpec) {
-	registry.RegisterSubcommand(spec)
+	subcommands.RegisterSubcommand(spec)
 }
 
 // RegisterSubcommands registers multiple subcommand specs.
 func RegisterSubcommands(specs ...cli.SubcommandSpec) {
-	registry.RegisterSubcommands(specs...)
+	subcommands.RegisterSubcommands(specs...)
 }
 
 // GetSubcommands returns all registered subcommand specs, sorted by Name.
 func GetSubcommands() []cli.SubcommandSpec {
-	return registry.GetSubcommands()
+	return subcommands.GetSubcommands()
 }
 
 // SetTUIRunner registers the interactive TUI runner.

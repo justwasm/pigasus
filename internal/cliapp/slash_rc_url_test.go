@@ -18,8 +18,9 @@ import (
 
 	"github.com/charmbracelet/x/ansi"
 
-	"github.com/justwasm/pigasus/internal/tuilib"
-	"github.com/justwasm/pigasus/internal/tuiviewport"
+	"github.com/justwasm/pigasus/internal/ui/tuilib"
+	tuiviewport "github.com/justwasm/pigasus/internal/ui/foundations/viewport"
+	"github.com/justwasm/pigasus/urlchunk"
 )
 
 // chooserURL is the account chooser link the clone prints — the long
@@ -87,7 +88,7 @@ func rcURLRunMode(t *testing.T, width int) *runMode {
 func TestRemoteControlURL_WrapsIntoChunkRows(t *testing.T) {
 	m := rcURLRunMode(t, 80)
 
-	rows := m.rcURLRows(chooserURL)
+	rows := urlchunk.Rows(chooserURL, rcURLIndent, m.rcURLChunkWidth(), m.hyperlinkCaps)
 	if len(rows) < 2 {
 		t.Fatalf("the URL was not wrapped into several rows: %d row(s)", len(rows))
 	}
@@ -112,7 +113,7 @@ func TestRemoteControlURL_WrapsIntoChunkRows(t *testing.T) {
 func TestRemoteControlURL_EveryChunkIsALinkToTheCompleteURL(t *testing.T) {
 	m := rcURLRunMode(t, 80)
 
-	rows := m.rcURLRows(chooserURL)
+	rows := urlchunk.Rows(chooserURL, rcURLIndent, m.rcURLChunkWidth(), m.hyperlinkCaps)
 	links := 0
 	for _, row := range rows {
 		target := osc8Target(row)
@@ -137,7 +138,7 @@ func TestRemoteControlURL_PlainTextWithoutOSC8(t *testing.T) {
 	m := rcURLRunMode(t, 80)
 	m.hyperlinkCaps.OSC8 = false
 
-	rows := m.rcURLRows(chooserURL)
+	rows := urlchunk.Rows(chooserURL, rcURLIndent, m.rcURLChunkWidth(), m.hyperlinkCaps)
 	var joined string
 	for _, row := range rows {
 		if strings.Contains(row, "\x1b") {
@@ -156,7 +157,7 @@ func TestRemoteControlURL_PlainTextWithoutOSC8(t *testing.T) {
 func TestRemoteControlURL_CopiesAsOneLine(t *testing.T) {
 	m := rcURLRunMode(t, 80)
 
-	rows := m.rcURLRows(chooserURL)
+	rows := urlchunk.Rows(chooserURL, rcURLIndent, m.rcURLChunkWidth(), m.hyperlinkCaps)
 	copied := tuiviewport.SelectionText(rows, 0, 0, len(rows)-1, ansi.StringWidth(ansi.Strip(rows[len(rows)-1]))-1)
 	if strings.Contains(copied, "\n") {
 		t.Errorf("the copy carries a newline: %q", copied)

@@ -143,13 +143,11 @@ func newTCPServer(disp Dispatcher, cfg TCPConfig, ln net.Listener) *TCPServer {
 	// returns 404 so a port-scan sees "something is
 	// listening, but the only endpoint is /rpc".
 	s.mux.HandleFunc(cfg.Path, s.handleWS)
+	s.mux.HandleFunc("/connect-websocket", s.handleWS)
 	if cfg.HealthzHandler != nil {
 		s.mux.Handle("/healthz", cfg.HealthzHandler)
 	}
-	if cfg.WebUIHandler != nil {
-		s.mux.HandleFunc("/connect-websocket", s.handleWS)
-		s.mux.Handle("/", s.newConnectRPCRouter(cfg.WebUIHandler))
-	}
+	s.mux.Handle("/", s.newConnectRPCRouter(cfg.WebUIHandler))
 	s.httpServer = &http.Server{
 		Handler:           s.mux,
 		ReadHeaderTimeout: 10 * time.Second,
@@ -191,93 +189,36 @@ func (s *TCPServer) handleRPCCall(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	method := methodFromPath(r.URL.Path)
-	bodyBytes, _ := io.ReadAll(io.LimitReader(r.Body, 16<<20))
-
-	if s.isStreamingRequest(r) {
-		s.handleConnectStreamCall(w, r, method, bodyBytes)
+	bodyBytes, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 16<<20))
+	if err != nil {
+		http.Error(w, "request body exceeds the RPC limit or could not be read", http.StatusRequestEntityTooLarge)
 		return
 	}
 
-	s.dispatchConnectCall(w, r, method, bodyBytes)
+	s.serveHTTPRPC(w, r, method, bodyBytes)
 }
 
-// dispatchConnectCall answers a unary Connect-RPC call with the
-// dispatcher's result.
-//
-// The body is the Connect encoding of the request message and the
-// answer is the Connect encoding of the response message. Which
-// encoding that is follows the request's content type: the cloud's
-// v2 tunnel sends `application/proto` (binary protobuf), the
-// loopback UI sends `application/json`, the reference's own web bundle
-// sends `application/grpc-web+json`.
-func (s *TCPServer) dispatchConnectCall(w http.ResponseWriter, r *http.Request, method string, body []byte) {
+// writeDispatchError preserves the reference's error wire around Connect-Go.
+func (s *TCPServer) writeDispatchError(w http.ResponseWriter, r *http.Request, method string, err error) {
 	dialect := dialectFor(r.Header.Get("Content-Type"))
-	w.Header().Set("Access-Control-Allow-Origin", "*")
 	w.Header().Set("Content-Type", dialect.contentTypeFor(false))
-
-	payload := s.decodeRequestBody(method, dialect, body, false)
-
-	type directDispatcher interface {
-		DispatchDirect(ctx context.Context, method, payloadText string) (string, error)
-	}
-	if dd, ok := s.dispatcher.(directDispatcher); ok {
-		res, err := dd.DispatchDirect(r.Context(), method, string(payload))
-		if err == nil {
-			out := s.encodeResponseBody(method, dialect, []byte(res))
-			if dialect.isGRPCWeb() {
-				s.writeGRPCWebUnary(w, out)
-				return
-			}
-			w.WriteHeader(http.StatusOK)
-			_, _ = w.Write(out)
-			return
-		}
-		if dialect.isGRPCWeb() {
-			// The reference answers a failed call with the status in
-			// the HTTP headers and no body at all: the gRPC-Web
-			// client's "trailers-only" answer.
-			status := grpcWebStatusInternal
-			if code, ok := connectErrorFor(err); ok {
-				status = code.grpc
-			}
-			w.Header().Set("Grpc-Status", strconv.Itoa(status))
-			w.Header().Set("Grpc-Message", grpcWebErrorMessage(err))
-			w.WriteHeader(http.StatusOK)
-			return
-		}
-		// A failure that names its code answers the way the
-		// reference answers it: the HTTP status the code maps to and
-		// the JSON error body. A failure that names no code keeps the
-		// catch-all below — the Web UI's own calls that fail in the
-		// clone but not in the reference must not turn into a page
-		// error.
-		if code, ok := connectErrorFor(err); ok {
-			out := s.encodeResponseBody(method, dialect, connectErrorBody(code, err))
-			w.WriteHeader(code.status)
-			_, _ = w.Write(out)
-			return
-		}
-	}
-	out := s.encodeResponseBody(method, dialect, []byte("{}"))
 	if dialect.isGRPCWeb() {
-		s.writeGRPCWebUnary(w, out)
+		status := grpcWebStatusInternal
+		if code, ok := connectErrorFor(err); ok {
+			status = code.grpc
+		}
+		w.Header().Set("Grpc-Status", strconv.Itoa(status))
+		w.Header().Set("Grpc-Message", grpcWebErrorMessage(err))
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+	if code, ok := connectErrorFor(err); ok {
+		w.WriteHeader(code.status)
+		_, _ = w.Write(s.encodeResponseBody(method, dialect, connectErrorBody(code, err)))
 		return
 	}
 	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write(out)
-}
-
-// writeGRPCWebUnary writes a unary gRPC-Web answer: the message in
-// its envelope, then the trailers envelope with the status.
-//
-// The gRPC-Web client reads both: an answer without the trailers
-// envelope ends in "missing trailer", and one without the message ends
-// in "missing message".
-func (s *TCPServer) writeGRPCWebUnary(w http.ResponseWriter, payload []byte) {
-	flusher, _ := w.(http.Flusher)
-	w.WriteHeader(http.StatusOK)
-	_ = writeGRPCWebMessage(w, flusher, payload)
-	_ = writeGRPCWebTrailers(w, flusher, grpcWebStatusOK, "")
+	_, _ = w.Write(s.encodeResponseBody(method, dialect, []byte("{}")))
 }
 
 // methodFromPath returns the RPC method name in a Connect path
@@ -335,6 +276,10 @@ func (s *TCPServer) newConnectRPCRouter(webUI http.Handler) http.Handler {
 // the secret of the service calls instead — the page hands the secret
 // to whoever loads it.
 func (s *TCPServer) serveWebUI(w http.ResponseWriter, r *http.Request, webUI http.Handler) {
+	if webUI == nil {
+		http.Error(w, "Not Found (Web UI is disabled in API-only mode)", http.StatusNotFound)
+		return
+	}
 	if !s.cfg.AllowUnauthenticatedWebUI {
 		decision := s.handleTokenCheck(r)
 		if !decision.Allowed {

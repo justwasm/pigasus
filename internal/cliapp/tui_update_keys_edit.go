@@ -1,77 +1,64 @@
 package cliapp
 
 import (
-	"regexp"
-
-	tas "charm.land/bubbles/v2/textarea"
 	tea "charm.land/bubbletea/v2"
-	"github.com/justwasm/pigasus/internal/tuilib"
+	"github.com/justwasm/pigasus/internal/features/tools/clipboard"
+	"github.com/justwasm/pigasus/internal/ui/editor/composer"
+	"github.com/justwasm/pigasus/internal/ui/foundations/history"
+	"github.com/justwasm/pigasus/internal/ui/tuilib"
 )
 
-var pastePlaceholderPattern = regexp.MustCompile(`\[Pasted text #\d+(?:\s+\+\d+\s+lines|\s+\d+\s+chars)?\]`)
-
-
-func (m *runMode) handleKeyUp() (tea.Model, tea.Cmd, bool) {
-	if m.picker.Visible() {
-		m.picker.MoveUp()
+func (m *runMode) handleKeyUp(key tea.Key) (tea.Model, tea.Cmd, bool) {
+	if m.picker.HandleKey(key) {
 		return m, nil, true
 	}
-	if m.atFileDropdown.Visible() {
-		m.atFileDropdown.MoveUp()
+	if m.atFilePicker.HandleKey(key) {
 		return m, nil, true
 	}
 	if m.isBtwCardVisible() && m.input.Value() == "" {
-		if m.BtwScrollBy(-1) {
+		if m.btwScrollBy(-1) {
 			return m, nil, true
 		}
 	}
-	if len(m.streamQueue) > 0 && m.input.Value() == "" {
-		last := len(m.streamQueue) - 1
-		m.input.SetValue(m.streamQueue[last])
-		m.streamQueue = m.streamQueue[:last]
+	if len(m.store.StreamQueue) > 0 && m.input.Value() == "" {
+		last := len(m.store.StreamQueue) - 1
+		m.input.SetValue(m.store.StreamQueue[last])
+		m.store.StreamQueue = m.store.StreamQueue[:last]
 		m.modeHintDismissed = true
 		return m, nil, true
 	}
-	if m.historyIdx > 0 || isBlank(m.input.Value()) {
+	if m.promptHistory.Index() > 0 || history.IsBlank(m.input.Value()) {
 		m.historyUp()
 		return m, nil, true
 	}
 	return m, nil, false
 }
 
-func (m *runMode) handleKeyDown() (tea.Model, tea.Cmd, bool) {
-	if m.picker.Visible() {
-		m.picker.MoveDown()
+func (m *runMode) handleKeyDown(key tea.Key) (tea.Model, tea.Cmd, bool) {
+	if m.picker.HandleKey(key) {
 		return m, nil, true
 	}
-	if m.atFileDropdown.Visible() {
-		m.atFileDropdown.MoveDown()
+	if m.atFilePicker.HandleKey(key) {
 		return m, nil, true
 	}
 	if m.isBtwCardVisible() && m.input.Value() == "" {
-		if m.BtwScrollBy(1) {
+		if m.btwScrollBy(1) {
 			return m, nil, true
 		}
 	}
-	if m.historyIdx > 0 {
+	if m.promptHistory.Index() > 0 {
 		m.historyDown()
 		return m, nil, true
 	}
-	return m, nil, false
-}
-
-func (m *runMode) handleBackslashNewlineFallback() bool {
-	offset := inputCursorByteOffset(m.input)
-	val := m.input.Value()
-	if offset > 0 && offset <= len(val) && val[offset-1] == '\\' {
-		m.input, _ = m.input.Update(tea.KeyPressMsg{Code: tea.KeyBackspace})
-		m.input.InsertRune('\n')
-		m.modeHintDismissed = true
-		m.picker.Update([]rune(firstLine(m.input.Value())))
-		m.atFileDropdown.Update(m.input.Value(), m.cwd)
-		return true
+	if !m.activeItems.Hidden() && m.activeItems.Count() > 0 {
+		offset := tuilib.InputCursorByteOffset(m.input)
+		if tuilib.IsOnLastLine(m.input.Value(), offset) {
+			m.activeItems.SetFocus(true)
+			m.activeItems.SelectFirst()
+			return m, nil, true
+		}
 	}
-	return false
+	return m, nil, false
 }
 
 func (m *runMode) handleEnterKey(key tea.Key) (tea.Model, tea.Cmd, bool) {
@@ -81,9 +68,9 @@ func (m *runMode) handleEnterKey(key tea.Key) (tea.Model, tea.Cmd, bool) {
 	if (key.Mod.Contains(tea.ModAlt) || key.Mod.Contains(tea.ModShift)) && key.Mod&(tea.ModCtrl) == 0 {
 		m.input.InsertRune('\n')
 		m.modeHintDismissed = true
-		m.picker.Update([]rune(firstLine(m.input.Value())))
-		m.atFileDropdown.Update(m.input.Value(), m.cwd)
-		m.historyReset()
+		m.picker.Update([]rune(tuilib.FirstLine(m.input.Value())))
+		m.atFilePicker.Update()
+		m.promptHistory.Reset()
 		return m, nil, true
 	}
 	if key.Mod.Contains(tea.ModCtrl) {
@@ -101,113 +88,37 @@ func (m *runMode) handleEnterKey(key tea.Key) (tea.Model, tea.Cmd, bool) {
 		m.DismissBtwResponse()
 		return m, nil, true
 	}
-	if m.handleBackslashNewlineFallback() {
+	if composer.BackslashNewline(m.composerSeams()) {
 		return m, nil, true
 	}
-	if m.atFileDropdown.Visible() {
-		if m.tabSpliceAtFile(false) {
-			m.historyIdx = 0
-			m.historyEdit = ""
+	if m.atFilePicker.Visible() {
+		if m.atFilePicker.Complete(false) {
+			m.promptHistory.Reset()
 		}
 		return m, nil, true
 	}
-	if m.queueMode {
+	if m.store.QueueMode {
 		m.input.InsertRune('\n')
-		m.picker.Update([]rune(firstLine(m.input.Value())))
-		m.atFileDropdown.Update(m.input.Value(), m.cwd)
+		m.picker.Update([]rune(tuilib.FirstLine(m.input.Value())))
+		m.atFilePicker.Update()
 		return m, nil, true
 	}
 	return m, m.submitPrompt(), true
 }
 
-func (m *runMode) handleInputSelectionKeys(key tea.Key) (tea.Model, tea.Cmd, bool) {
-	if (key.Code == 'a' || key.Code == 'A') && (key.Mod.Contains(tea.ModSuper) || key.Mod.Contains(tea.ModMeta) || (key.Mod.Contains(tea.ModCtrl) && key.Mod.Contains(tea.ModShift))) {
-		if cmd, ok := m.selectAllInput(); ok {
-			return m, cmd, true
-		}
-		return m, nil, true
-	}
-	if (key.Code == 'c' || key.Code == 'C') && key.Mod.Contains(tea.ModSuper) {
-		if m.hasInputSelection() {
-			start, end := m.inputSelectionRange()
-			val := m.input.Value()
-			if start < len(val) && end <= len(val) {
-				text := val[start:end]
-				_ = copyToClipboard(text)
-				return m, m.copySelectionCmd(text), true
-			}
-		}
-		return m, nil, true
-	}
-	if (key.Code == tea.KeyBackspace || key.Code == tea.KeyDelete) && m.hasInputSelection() {
-		m.deleteInputSelection()
-		m.modeHintDismissed = true
-		m.picker.Update([]rune(firstLine(m.input.Value())))
-		m.clearEligibilityNotice()
-		m.atFileDropdown.Update(m.input.Value(), m.cwd)
-		m.historyReset()
-		return m, nil, true
-	}
-	if (key.Code == tea.KeyBackspace || key.Code == tea.KeyDelete) && !m.hasInputSelection() {
-		val := m.input.Value()
-		offset := tuilib.InputCursorByteOffset(m.input)
-		for _, loc := range pastePlaceholderPattern.FindAllStringIndex(val, -1) {
-			start, end := loc[0], loc[1]
-			matched := false
-			if key.Code == tea.KeyBackspace && offset > start && offset <= end {
-				matched = true
-			} else if key.Code == tea.KeyDelete && offset >= start && offset < end {
-				matched = true
-			}
-			if matched {
-				newVal := val[:start] + val[end:]
-				m.input.SetValue(newVal)
-				m.setInputCursorOffset(start)
-				m.modeHintDismissed = true
-				m.picker.Update([]rune(firstLine(m.input.Value())))
-				m.clearEligibilityNotice()
-				m.atFileDropdown.Update(m.input.Value(), m.cwd)
-				m.historyReset()
-				return m, nil, true
-			}
-		}
-	}
-	if (key.Code == tea.KeyLeft || key.Code == tea.KeyRight) && m.hasInputSelection() && !key.Mod.Contains(tea.ModShift) {
-		start, end := m.inputSelectionRange()
-		m.clearInputSelection()
-		if key.Code == tea.KeyLeft {
-			m.setInputCursorOffset(start)
-		} else {
-			m.setInputCursorOffset(end)
-		}
-		m.historyReset()
-		return m, nil, true
-	}
-	if m.hasInputSelection() && key.Text != "" && !key.Mod.Contains(tea.ModCtrl) && !key.Mod.Contains(tea.ModAlt) && !key.Mod.Contains(tea.ModSuper) {
-		m.replaceInputSelection(key.Text)
-		m.modeHintDismissed = true
-		m.picker.Update([]rune(firstLine(m.input.Value())))
-		m.clearEligibilityNotice()
-		m.atFileDropdown.Update(m.input.Value(), m.cwd)
-		m.historyReset()
-		return m, nil, true
-	}
-	return m, nil, false
-}
-
 func (m *runMode) handleWordMoveAndChords(key tea.Key) (tea.Model, tea.Cmd, bool) {
 	if key.Code == 'j' && key.Mod.Contains(tea.ModCtrl) {
 		m.input.InsertRune('\n')
-		m.picker.Update([]rune(firstLine(m.input.Value())))
-		m.atFileDropdown.Update(m.input.Value(), m.cwd)
-		m.historyReset()
+		m.picker.Update([]rune(tuilib.FirstLine(m.input.Value())))
+		m.atFilePicker.Update()
+		m.promptHistory.Reset()
 		return m, nil, true
 	}
 	if key.Code == tea.KeyLeft {
 		if key.Mod.Contains(tea.ModAlt) && key.Mod&(tea.ModCtrl|tea.ModShift) == 0 {
-			m.moveWordLeft()
-			m.picker.Update([]rune(firstLine(m.input.Value())))
-			m.historyReset()
+			m.moveWord(true)
+			m.picker.Update([]rune(tuilib.FirstLine(m.input.Value())))
+			m.promptHistory.Reset()
 			return m, nil, true
 		}
 		if m.isBtwCardVisible() && m.input.Value() == "" && len(m.btwCards) > 1 {
@@ -217,9 +128,9 @@ func (m *runMode) handleWordMoveAndChords(key tea.Key) (tea.Model, tea.Cmd, bool
 	}
 	if key.Code == tea.KeyRight {
 		if key.Mod.Contains(tea.ModAlt) && key.Mod&(tea.ModCtrl|tea.ModShift) == 0 {
-			m.moveWordRight()
-			m.picker.Update([]rune(firstLine(m.input.Value())))
-			m.historyReset()
+			m.moveWord(false)
+			m.picker.Update([]rune(tuilib.FirstLine(m.input.Value())))
+			m.promptHistory.Reset()
 			return m, nil, true
 		}
 		if m.isBtwCardVisible() && m.input.Value() == "" && len(m.btwCards) > 1 {
@@ -231,43 +142,21 @@ func (m *runMode) handleWordMoveAndChords(key tea.Key) (tea.Model, tea.Cmd, bool
 		// The paste key's image half (agy 1.4.9): an image on the
 		// clipboard is attached, a dropped image file is attached, and
 		// only a clipboard with neither stays text.
-		m.historyReset()
+		m.promptHistory.Reset()
 		return m, m.handlePasteContent(clipboardReadText()), true
 	}
 	return m, nil, false
-}
-
-func (m *runMode) updateTextareaAndDropdown(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	oldVal := m.input.Value()
-	oldLine := m.input.Line()
-	oldCol := m.input.Column()
-	var cmd tea.Cmd
-	m.input, cmd = m.input.Update(msg)
-	m.modeHintDismissed = true
-	m.picker.Update([]rune(firstLine(m.input.Value())))
-	m.clearEligibilityNotice()
-	m.atFileDropdown.Update(m.input.Value(), m.cwd)
-
-	if m.historyIdx > 0 {
-		newVal := m.input.Value()
-		newLine := m.input.Line()
-		newCol := m.input.Column()
-		if newVal != oldVal || newLine != oldLine || newCol != oldCol {
-			m.historyReset()
-		}
-	}
-	return m, cmd
 }
 
 func (m *runMode) updateEditorKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	key := msg.Key()
 	switch key.Code {
 	case tea.KeyUp:
-		if mod, cmd, handled := m.handleKeyUp(); handled {
+		if mod, cmd, handled := m.handleKeyUp(key); handled {
 			return mod, cmd
 		}
 	case tea.KeyDown:
-		if mod, cmd, handled := m.handleKeyDown(); handled {
+		if mod, cmd, handled := m.handleKeyDown(key); handled {
 			return mod, cmd
 		}
 	}
@@ -277,25 +166,38 @@ func (m *runMode) updateEditorKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if mod, cmd, handled := m.handleWordMoveAndChords(key); handled {
 		return mod, cmd
 	}
-	if mod, cmd, handled := m.handleInputSelectionKeys(key); handled {
-		return mod, cmd
+	seams := m.composerSeams()
+	if cmd, handled := composer.HandleKey(seams, key); handled {
+		return m, cmd
 	}
-	return m.updateTextareaAndDropdown(msg)
+	return m, composer.UpdateTextarea(seams, msg)
 }
 
-func cursorLine(value string, cursor int) int {
-	return tuilib.CursorLine(value, cursor)
+// composerSeams assembles the facts the composer package needs.
+//
+// The host owns the widget, the selection's store, the two dropdown
+// panels and the session's own notices; the composer asks for them
+// here and does the editing.
+func (m *runMode) composerSeams() composer.Seams {
+	start, end := m.store.InputSelectionRange()
+	return composer.Seams{
+		Editor:           composer.NewTextArea(&m.input),
+		Picker:           m.picker,
+		Files:            m.atFilePicker,
+		History:          &m.promptHistory,
+		Selection:        composer.Range{Start: start, End: end},
+		SelectAll:        m.selectAllInput,
+		ClearSelection:   m.store.ResetInputSelection,
+		DeleteSelection:  m.deleteInputSelection,
+		ReplaceSelection: m.replaceInputSelection,
+		Copy: func(text string) tea.Cmd {
+			// The clipboard write is OS I/O and stays on the host's
+			// side of the seam: the composer decides that the
+			// selection is copied, the host performs the write.
+			_ = clipboard.Write(text)
+			return m.copySelectionCmd(text)
+		},
+		ClearEligibilityNotice: m.clearEligibilityNotice,
+		DismissModeHint:        func() { m.modeHintDismissed = true },
+	}
 }
-
-func isOnFirstLine(value string, cursor int) bool {
-	return tuilib.IsOnFirstLine(value, cursor)
-}
-
-func isOnLastLine(value string, cursor int) bool {
-	return tuilib.IsOnLastLine(value, cursor)
-}
-
-func inputCursorByteOffset(m tas.Model) int {
-	return tuilib.InputCursorByteOffset(m)
-}
-

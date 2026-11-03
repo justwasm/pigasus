@@ -15,8 +15,10 @@ import (
 	piagent "github.com/MichaelKinsy/PiG/agent"
 	pi "github.com/MichaelKinsy/PiG/ai"
 
-	"github.com/justwasm/pigasus/internal/backend"
-	"github.com/justwasm/pigasus/internal/tools"
+	"github.com/justwasm/pigasus/internal/core/apierror"
+	"github.com/justwasm/pigasus/internal/core/backend"
+	gatewayapi "github.com/justwasm/pigasus/internal/infra/backend/gateway"
+	"github.com/justwasm/pigasus/internal/app/tools"
 )
 
 // ─── fake gateway ────────────────────────────────────────────────────────
@@ -226,9 +228,9 @@ func TestProvider_HTTPErrorIsReturnedConcrete(t *testing.T) {
 	}
 	// The concrete type is the whole point: cmd/wagyu/api_error.go classifies
 	// the turn with errors.As(err, &he).
-	var httpErr *backend.HTTPError
+	var httpErr *apierror.HTTPError
 	if !errors.As(err, &httpErr) {
-		t.Fatalf("error %v (%T) is not a *backend.HTTPError", err, err)
+		t.Fatalf("error %v (%T) is not a *apierror.HTTPError", err, err)
 	}
 	if httpErr.StatusCode != http.StatusBadGateway {
 		t.Errorf("StatusCode = %d", httpErr.StatusCode)
@@ -596,8 +598,8 @@ func TestProvider_SendsOpenAIRequestBody(t *testing.T) {
 	}
 	// The upstream must not be able to tell the provider from the clone's own
 	// gateway client, so the identity header is shared rather than duplicated.
-	if got := headers.Get("User-Agent"); got != backend.GatewayUserAgent {
-		t.Errorf("User-Agent = %q, want %q", got, backend.GatewayUserAgent)
+	if got := headers.Get("User-Agent"); got != gatewayapi.GatewayUserAgent {
+		t.Errorf("User-Agent = %q, want %q", got, gatewayapi.GatewayUserAgent)
 	}
 }
 

@@ -47,7 +47,9 @@ import (
 
 	piagent "github.com/MichaelKinsy/PiG/agent"
 
-	"github.com/justwasm/pigasus/internal/tools"
+	"github.com/justwasm/pigasus/internal/app/harnesstools"
+	"github.com/justwasm/pigasus/internal/app/tools"
+	"github.com/justwasm/pigasus/internal/app/tools/surface"
 	pb "github.com/justwasm/pigasus/localharness/pb/localharness"
 )
 
@@ -69,7 +71,7 @@ func sideToolNames(side *pb.HarnessSideTools) map[string]bool {
 		out["run_command"] = true
 	}
 	if side.GetSubagents().GetEnabled() {
-		out["invoke_subagent"] = true
+		out[harnesstools.ToolInvokeSubagen] = true
 		out["define_subagent"] = true
 		out["manage_subagents"] = true
 	}
@@ -120,8 +122,8 @@ func sideToolNames(side *pb.HarnessSideTools) map[string]bool {
 // schema, but the tool itself is always there.
 func alwaysOnTools() map[string]bool {
 	return map[string]bool{
-		"send_message": true,
-		"finish":       true,
+		harnesstools.ToolSendMessage: true,
+		"finish":                     true,
 	}
 }
 
@@ -143,9 +145,9 @@ func (c *conversation) sideToolSubset() map[string]bool {
 // The `finish` declaration is the one the client owns: the reference
 // advertises it only when the client named a schema for it, and it sorts
 // into the list by name — between `find_by_name` and `generate_image`.
-func harnessDeclarations(enabled map[string]bool, finishSchema json.RawMessage) []tools.ModelToolDecl {
-	decls := tools.HarnessDeclarations()
-	out := make([]tools.ModelToolDecl, 0, len(decls)+1)
+func harnessDeclarations(enabled map[string]bool, finishSchema json.RawMessage) []surface.ModelToolDecl {
+	decls := surface.HarnessDeclarations()
+	out := make([]surface.ModelToolDecl, 0, len(decls)+1)
 	for _, decl := range decls {
 		if enabled[decl.Name] {
 			out = append(out, decl)
@@ -159,15 +161,15 @@ func harnessDeclarations(enabled map[string]bool, finishSchema json.RawMessage) 
 
 // insertFinishDeclaration puts the client's `finish` declaration into the
 // list at the position its name sorts into.
-func insertFinishDeclaration(decls []tools.ModelToolDecl, schema json.RawMessage) []tools.ModelToolDecl {
-	decl := tools.ModelToolDecl{
+func insertFinishDeclaration(decls []surface.ModelToolDecl, schema json.RawMessage) []surface.ModelToolDecl {
+	decl := surface.ModelToolDecl{
 		Name:        "finish",
 		Description: finishDescription(),
 		Parameters:  schema,
 	}
 	for i, existing := range decls {
 		if existing.Name > decl.Name {
-			out := make([]tools.ModelToolDecl, 0, len(decls)+1)
+			out := make([]surface.ModelToolDecl, 0, len(decls)+1)
 			out = append(out, decls[:i]...)
 			out = append(out, decl)
 			out = append(out, decls[i:]...)

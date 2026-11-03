@@ -50,7 +50,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/justwasm/pigasus/internal/pluginscan"
+	pluginscan "github.com/justwasm/pigasus/internal/features/plugins/scan"
 )
 
 // Author is a plugin's author.
@@ -346,36 +346,67 @@ func MarketplaceDocs() []MarketplaceDoc {
 		if !e.IsDir() {
 			continue
 		}
-		data, err := os.ReadFile(filepath.Join(MarketplaceRoot(), e.Name, "marketplace.json"))
-		if err != nil {
+		doc, ok := readMarketplaceDoc(e.Name)
+		if !ok {
 			continue
 		}
-		var doc struct {
-			Name        string             `json:"name"`
-			Description string             `json:"description"`
-			Plugins     []MarketplaceEntry `json:"plugins"`
-		}
-		if json.Unmarshal(StripBOM(data), &doc) != nil {
-			continue
-		}
-		name := doc.Name
-		if name == "" {
-			name = e.Name
-		}
-		kept := doc.Plugins[:0]
-		for _, p := range doc.Plugins {
-			if strings.TrimSpace(p.Name) == "" {
-				continue
-			}
-			kept = append(kept, p)
-		}
-		out = append(out, MarketplaceDoc{
-			Name:        name,
-			Description: doc.Description,
-			Plugins:     kept,
-		})
+		out = append(out, doc)
 	}
 	return out
+}
+
+// MarketplaceDocByDir reads one marketplace's document — the
+// marketplace.json under the cache root's directory of that name.
+//
+// The catalogue is addressed by *directory*, not by the document's own
+// "name" member: the directory is what the user types after the "@" of
+// `plugin install <name>@<marketplace>`, and a document's name is a
+// display name that need not match the directory it lives in.
+//
+// The second value is false when the marketplace is not cached, when its
+// file cannot be read, or when the file is not a marketplace document.
+func MarketplaceDocByDir(dir string) (MarketplaceDoc, bool) {
+	dir = strings.TrimSpace(dir)
+	if dir == "" {
+		return MarketplaceDoc{}, false
+	}
+	return readMarketplaceDoc(dir)
+}
+
+// readMarketplaceDoc reads one marketplace.json out of the cache root.
+//
+// The document's own name wins over the directory's, so a marketplace
+// whose file names itself is reported under that name; a file without a
+// name is reported under the directory it lives in.
+func readMarketplaceDoc(dir string) (MarketplaceDoc, bool) {
+	data, err := os.ReadFile(filepath.Join(MarketplaceRoot(), dir, "marketplace.json"))
+	if err != nil {
+		return MarketplaceDoc{}, false
+	}
+	var doc struct {
+		Name        string             `json:"name"`
+		Description string             `json:"description"`
+		Plugins     []MarketplaceEntry `json:"plugins"`
+	}
+	if json.Unmarshal(StripBOM(data), &doc) != nil {
+		return MarketplaceDoc{}, false
+	}
+	name := doc.Name
+	if name == "" {
+		name = dir
+	}
+	kept := doc.Plugins[:0]
+	for _, p := range doc.Plugins {
+		if strings.TrimSpace(p.Name) == "" {
+			continue
+		}
+		kept = append(kept, p)
+	}
+	return MarketplaceDoc{
+		Name:        name,
+		Description: doc.Description,
+		Plugins:     kept,
+	}, true
 }
 
 // MarketplaceEntryByID finds one marketplace entry by its id, and the

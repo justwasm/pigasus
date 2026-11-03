@@ -3,7 +3,7 @@
 // cascade seam.
 //
 // Cycle rc-piagent-bind ships the production `PiagentBackend`
-// that turns a `MessagePrompt` into a real PiG `coding.Session`
+// that turns a `cascades.Prompt` into a real PiG `coding.Session`
 // turn and re-emits the agent events as `EventSink` callbacks.
 // The dispatcher routes both `Send` (cycle-3a fallback) and
 // `SendStream` (cycle-5 streaming path) through this single
@@ -14,7 +14,7 @@
 //
 //   - The previous cycles wired the cascade surface as a seam
 //     (cycle 4: `MessageBackend`, cycle 5: `EventSink` +
-//     `StreamingMessageBackend`); they explicitly parked a
+//     `cascades.StreamingBackend`); they explicitly parked a
 //     real backend for a future cycle. This file is that
 //     future cycle.
 //
@@ -56,7 +56,7 @@
 //	  Done                 → OnState(Phase=done, StopReason=…)
 //	  Error                → OnError(err)
 //
-//	The end-of-turn MessageResult carries the joined
+//	The end-of-turn cascades.Result carries the joined
 //	`Reply` text, the `ToolCalls` slice, the
 //	`StopReason`, and any `NewConversationID` the backend
 //	returned. The registry's success path then stamps
@@ -76,6 +76,7 @@ import (
 	"errors"
 
 	"github.com/MichaelKinsy/PiG/agent"
+	"github.com/justwasm/pigasus/internal/remotecontrol/cascades"
 )
 
 // Session is the abstract seam `PiagentBackend.SessionFactory`
@@ -105,7 +106,7 @@ type Session interface {
 	// Send drives one turn. The returned Messages are
 	// PiG's assistant messages (cycle-209/210 vocabulary);
 	// the backend walks them once to assemble the final
-	// MessageResult and discards them on return.
+	// cascades.Result and discards them on return.
 	//
 	// `events` is the channel the session emits its
 	// agent.AgentEvent frames on; the backend drains it
@@ -138,13 +139,13 @@ type Session interface {
 //     setting up the runtime, supplying the EventCh.
 //     `PiagentBackend.SendStream` itself only consumes.
 //
-// Signature mirrors `MessageSendOptions` so a future
+// Signature mirrors `cascades.SendOptions` so a future
 // per-call knob (timeout, retry budget, …) lands without
 // another signature change.
-type SessionFactory func(ctx context.Context, prompt MessagePrompt, opts MessageSendOptions) (Session, error)
+type SessionFactory func(ctx context.Context, prompt cascades.Prompt, opts cascades.SendOptions) (Session, error)
 
 // PiagentBackend is the production `MessageBackend` +
-// `StreamingMessageBackend`. It satisfies both interfaces
+// `cascades.StreamingBackend`. It satisfies both interfaces
 // (Send delegates to SendStream with a nil sink).
 //
 // The struct holds a single field — the SessionFactory seam
@@ -174,31 +175,31 @@ type PiagentBackend struct {
 // future cycle changes that drift the interface trip the
 // build instead of a wire test.
 var (
-	_ MessageBackend          = (*PiagentBackend)(nil)
-	_ StreamingMessageBackend = (*PiagentBackend)(nil)
+	_ cascades.Backend          = (*PiagentBackend)(nil)
+	_ cascades.StreamingBackend = (*PiagentBackend)(nil)
 )
 
 // Send implements MessageBackend. It is a thin shim around
 // SendStream with a nil sink — the dispatcher calls
-// `(*CascadeRegistry).SendStream` and the type assertion
+// `(*cascades.Registry).SendStream` and the type assertion
 // inside the registry routes through SendStream when the
 // backend implements `StreamingMessageBackend` (which
 // PiagentBackend does), so a non-streaming caller is rare in
 // practice. We still implement Send because the cycle-3a
 // type-assertion fallback path expects it; `nil sink` means
 // "no EventSink is in scope; turn the events into
-// MessageResult fields directly".
+// cascades.Result fields directly".
 //
 // Behaviour matches `StubBackend.Send`: ctx deadline → ctx.Err();
 // SessionFactory returns an error → that error verbatim;
-// turn completes → MessageResult with the joined reply /
+// turn completes → cascades.Result with the joined reply /
 // tool calls / stop reason / new conversation id.
 //
 // PiagentBackend's Send does NOT emit OnState/OnTextDelta
 // notifications — the sink is nil. A streaming dashboard
 // subscribes through SendStream instead.
-func (b *PiagentBackend) Send(ctx context.Context, prompt MessagePrompt) (MessageResult, error) {
-	return b.SendStream(ctx, prompt, nil, MessageSendOptions{})
+func (b *PiagentBackend) Send(ctx context.Context, prompt cascades.Prompt) (cascades.Result, error) {
+	return b.SendStream(ctx, prompt, nil, cascades.SendOptions{})
 }
 
 // ErrNilSessionFactory is returned by PiagentBackend when

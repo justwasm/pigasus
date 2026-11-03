@@ -20,6 +20,7 @@ import (
 
 	"github.com/MichaelKinsy/PiG/agent"
 	"github.com/MichaelKinsy/PiG/ai"
+	"github.com/justwasm/pigasus/internal/remotecontrol/cascades"
 )
 
 // piagentToolCall converts PiG's `ai.ToolCall` (the block
@@ -46,12 +47,12 @@ import (
 //     a separate `ToolResultMessage` that we don't
 //     capture here today. A future cycle that wants
 //     OK=false propagation should extend the bridge.
-func piagentToolCall(call ai.ToolCall) ToolCall {
+func piagentToolCall(call ai.ToolCall) cascades.ToolCall {
 	raw, err := json.Marshal(call.Arguments)
 	if err != nil || len(raw) == 0 {
 		raw = []byte("{}")
 	}
-	return ToolCall{
+	return cascades.ToolCall{
 		Name:   call.Name,
 		Args:   raw,
 		Result: "",   // see doc; populated by future cycle
@@ -80,15 +81,15 @@ func piagentToolCall(call ai.ToolCall) ToolCall {
 func stopReasonFromPiG(r ai.StopReason) string {
 	switch r {
 	case ai.StopReasonStop:
-		return StopReasonEndTurn
+		return cascades.StopReasonEndTurn
 	case ai.StopReasonToolUse:
-		return StopReasonToolUse
+		return cascades.StopReasonToolUse
 	case ai.StopReasonLength:
-		return StopReasonMaxTokens
+		return cascades.StopReasonMaxTokens
 	case ai.StopReasonError, ai.StopReasonAborted:
-		return StopReasonError
+		return cascades.StopReasonError
 	}
-	return StopReasonEndTurn
+	return cascades.StopReasonEndTurn
 }
 
 // piagentTurnFailure mirrors pigrt.turnFailure: when PiG

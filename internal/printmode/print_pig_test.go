@@ -14,10 +14,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/justwasm/pigasus/internal/apierror"
-	"github.com/justwasm/pigasus/internal/backend"
+	"github.com/justwasm/pigasus/internal/core/apierror"
+	"github.com/justwasm/pigasus/internal/core/backend"
+	gatewayapi "github.com/justwasm/pigasus/internal/infra/backend/gateway"
 	"github.com/justwasm/pigasus/internal/pigrt"
-	"github.com/justwasm/pigasus/internal/tools"
+	"github.com/justwasm/pigasus/internal/app/tools/surface"
 )
 
 // scriptedGateway serves the gateway SSE shape (chunks + a usage-only terminal frame,
@@ -60,7 +61,7 @@ func TestRunPigPrintTurnStreamsText(t *testing.T) {
 
 	dir := t.TempDir()
 	agentDir := filepath.Join(dir, "agent")
-	client := backend.NewGatewayWithConfig(backend.GatewayConfig{
+	client := gatewayapi.NewGatewayWithConfig(gatewayapi.GatewayConfig{
 		URL:           srv.URL,
 		ExternalModel: "MiniMax-M3",
 		HTTPClient:    srv.Client(),
@@ -87,7 +88,7 @@ func TestRunPigPrintTurnStreamsText(t *testing.T) {
 		Backend:   client,
 		Model:     "MiniMax-M3",
 		Prompt:    "say hi",
-		Catalog:   tools.Catalog(dir),
+		Catalog:   surface.Catalog(dir),
 		Policy:    nil,
 		Handler:   handler,
 		Workspace: dir,
@@ -116,7 +117,7 @@ func TestRunPigPrintTurnStreamsText(t *testing.T) {
 // the turn reports the failure. PiG folds a provider error into an assistant
 // message with a nil Go error beside it, so without the recovery in
 // pigrt.Runtime.RunWith this run looks like an empty success — and api_error.go
-// never gets the *backend.HTTPError it needs for the AGY_ERROR envelope and
+// never gets the *apierror.HTTPError it needs for the AGY_ERROR envelope and
 // exit code 3.
 func TestRunPigPrintTurnSurfacesProviderError(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -136,7 +137,7 @@ func TestRunPigPrintTurnSurfacesProviderError(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	client := backend.NewGatewayWithConfig(backend.GatewayConfig{
+	client := gatewayapi.NewGatewayWithConfig(gatewayapi.GatewayConfig{
 		URL:           srv.URL,
 		ExternalModel: "MiniMax-M3",
 		HTTPClient:    srv.Client(),
@@ -159,7 +160,7 @@ func TestRunPigPrintTurnSurfacesProviderError(t *testing.T) {
 		Backend:   client,
 		Model:     "MiniMax-M3",
 		Prompt:    "hi",
-		Catalog:   tools.Catalog(dir),
+		Catalog:   surface.Catalog(dir),
 		Handler:   handler,
 		Workspace: dir,
 		AgentDir:  agentDir,
@@ -192,7 +193,7 @@ func TestRunPigPrintTurnSurfacesProviderError(t *testing.T) {
 // session can call — the gateway client through the native provider, the offline
 // mock through the generic adapter.
 func TestPigPrintModelForBackend(t *testing.T) {
-	gateway := backend.NewGatewayWithConfig(backend.GatewayConfig{URL: "http://127.0.0.1:1", ExternalModel: "MiniMax-M3"})
+	gateway := gatewayapi.NewGatewayWithConfig(gatewayapi.GatewayConfig{URL: "http://127.0.0.1:1", ExternalModel: "MiniMax-M3"})
 	if model := pigPrintModel(gateway, "claude-sonnet-4-6"); model == nil || model.Provider == nil {
 		t.Fatal("gateway backend must yield a model")
 	} else if model.ID != "claude-sonnet-4-6" {
@@ -228,7 +229,7 @@ func TestRunPigPrintTurnMockBackend(t *testing.T) {
 		Backend:   backend.NewMock(),
 		Model:     "MiniMax-M3",
 		Prompt:    "hi",
-		Catalog:   tools.Catalog(dir),
+		Catalog:   surface.Catalog(dir),
 		Handler:   handler,
 		Workspace: dir,
 		AgentDir:  filepath.Join(dir, "agent"),
@@ -274,7 +275,7 @@ func TestRunPigPrintTurnReplaysHistory(t *testing.T) {
 	defer srv.Close()
 
 	dir := t.TempDir()
-	client := backend.NewGatewayWithConfig(backend.GatewayConfig{URL: srv.URL, ExternalModel: "MiniMax-M3", HTTPClient: srv.Client()})
+	client := gatewayapi.NewGatewayWithConfig(gatewayapi.GatewayConfig{URL: srv.URL, ExternalModel: "MiniMax-M3", HTTPClient: srv.Client()})
 
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
@@ -286,7 +287,7 @@ func TestRunPigPrintTurnReplaysHistory(t *testing.T) {
 			{Role: "user", Text: "what is the capital of France?"},
 			{Role: "assistant", Text: "Paris."},
 		},
-		Catalog:   tools.Catalog(dir),
+		Catalog:   surface.Catalog(dir),
 		Handler:   func(backend.StreamChunk) error { return nil },
 		Workspace: dir,
 		AgentDir:  filepath.Join(dir, "agent"),

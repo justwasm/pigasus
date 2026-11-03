@@ -98,7 +98,7 @@ and `build_reports.py` now prunes unproduced reports on every run.
 ```
 out/local-macos/gosrc/      : 379 packages, 39,314 declarations, 43,363 symbols in scope
 out/local-macos/xref/       : 583,250 ADRP+ADD pairs, 794 string refs, 427 funcs
-out/local-macos/plan-local.jsonl : 25 lines, 0 unresolved targets
+scripts/re/plan-local.jsonl   : 25 lines, 0 unresolved targets
 ```
 
 ### 2.5 The addresses the documentation quotes
@@ -195,7 +195,7 @@ Two details the clone had wrong:
   ```
 
   and the old text is still visible in the 1.3.4 string dump
-  (`docs/decompiled-v1.3.4/strings-v1.3.3.txt:278444`). (【一手】 + 【strings】)
+  (`docs/legacy-re/extracts/strings-v1.3.3-cited.txt:278444`; the cited window of the retired `docs/decompiled-v1.3.4/strings-v1.3.3.txt`). (【一手】 + 【strings】)
 
 * the rule body is **verbatim**, trailing newline included, so a rule that ends
   in a newline renders with a **blank line** before `</RULE[...]>`. The clone

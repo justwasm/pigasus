@@ -33,9 +33,9 @@ import (
 	pi "github.com/MichaelKinsy/PiG/ai"
 
 	"github.com/justwasm/pigasus/internal/agent"
-	"github.com/justwasm/pigasus/internal/backend"
+	"github.com/justwasm/pigasus/internal/core/backend"
 	"github.com/justwasm/pigasus/internal/piagentbridge"
-	"github.com/justwasm/pigasus/internal/tools"
+	"github.com/justwasm/pigasus/internal/app/tools"
 )
 
 // gatewayDefaultModel is the wire model the configured gateway serves; the Antigravity model

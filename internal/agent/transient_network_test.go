@@ -162,7 +162,7 @@ func TestErrAutoContNetworkFailed_Unwrap(t *testing.T) {
 
 func TestErrAutoContNetworkFailed_NestedUnwrap(t *testing.T) {
 	// cycle 266 regression: errors.As / errors.Is must still
-	// recover the innermost typed error (a *backend.HTTPError, an
+	// recover the innermost typed error (a *apierror.HTTPError, an
 	// ErrMaxTurnsReached, a custom quota error, etc.) so callers
 	// that classify via the chain keep working.
 	innermost := errors.New("connection reset by peer")

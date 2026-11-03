@@ -1,132 +1,162 @@
-// statusline_payload.go — the JSON document the CLI pipes to a custom
-// status-line script's stdin (and to a custom window-title script's stdin:
-// the reference sends the very same document to both).
+// statusline_payload.go — the host's side of the status line's payload.
 //
-// The shape is the reference's `types.StatusLineData`. Every member, its
-// JSON name and its omit rule are part of the wire contract — the official
-// example scripts published at
-// github.com/google-antigravity/antigravity-cli/examples read the members
-// by name with jq.
+// The document itself is internal/ui/views/statusline's: it is the
+// reference's `types.StatusLineData`, and every member name, its order and
+// its omit rules are a wire contract (the official example scripts
+// published at github.com/google-antigravity/antigravity-cli/examples read
+// the members by name with jq). The host keeps the facts the document
+// cannot know — the workspace, the conversation, the model, the account, the
+// token counters, the quota — and hands them over as a State.
 //
 // Evidence:
 //   - 【一手】 agy 1.4.7 was run with a capture script bound to
 //     `statusLine.command`; the payloads it produced are the fixture in
-//     internal/statusline/payload_test.go.
+//     internal/ui/views/statusline/payload_test.go.
 //   - 【反编译】 the JSON tags were read out of the binary's string table
 //     (`types.StatusLineData` and its member structs).
 package cliapp
 
 import (
-	"path/filepath"
 	"sync/atomic"
 	"time"
 
-	"github.com/justwasm/pigasus/internal/auth"
-	"github.com/justwasm/pigasus/internal/cli"
-	"github.com/justwasm/pigasus/internal/modelctx"
-	"github.com/justwasm/pigasus/internal/statusline"
+	tea "charm.land/bubbletea/v2"
+
+	modelctx "github.com/justwasm/pigasus/internal/features/models/ctx"
+	"github.com/justwasm/pigasus/internal/ui/views/statusline"
 )
 
-// statusLineProduct is the `product` member of the payload. The reference
-// writes the application name.
-const statusLineProduct = "antigravity"
-
-// exceeds200kTokens is the context size above which the reference reports
-// `exceeds_200k_tokens`.
-const exceeds200kTokens = 200000
-
 // buildStatusLinePayload renders the document the scripts read.
-func (m *runMode) buildStatusLinePayload() statusLinePayload {
-	payload := statusLinePayload{
-		Cwd:            m.cwd,
-		SessionID:      m.conversationID,
-		ConversationID: m.conversationID,
-		TranscriptPath: m.statusLineTranscriptPath(),
-		Version:        cli.ReferenceVersion,
-		Product:        statusLineProduct,
-		Workspace: statusline.Workspace{
-			CurrentDir: m.cwd,
-			ProjectDir: m.cwd,
-		},
-		ContextWindow: m.statusLineContextWindow(),
-		AgentState:    m.statusLineAgentState(),
-		CycleMode:     m.mode,
-		PlanTier:      m.tier,
-		Email:         m.email,
-		TerminalWidth: m.width,
-	}
-	if title := m.conversationTitle(); title != "" {
-		payload.ConversationTitle = title
-	}
-	if m.model != "" {
-		payload.Model = &statusline.ModelInfo{
-			ID:          m.model,
-			DisplayName: m.model,
-			Effort:      m.currentEffortName(),
-		}
-	}
-	if m.agentName != "" {
-		payload.Agent = &statusline.AgentInfo{Name: m.agentName}
-	}
-	if vcs := statusline.DetectVCS(m.cwd); vcs != nil {
-		payload.VCS = vcs
-	}
-	payload.Sandbox = &statusline.SandboxInfo{Enabled: m.toolSandbox.Enabled}
-	if quota := m.statusLineQuota(); len(quota) > 0 {
-		payload.Quota = quota
-	}
-	if n := m.statusLineTaskCount(); n > 0 {
-		payload.TaskCount = n
-	}
-	if cost := m.statusLineCost(); cost > 0 {
-		payload.Cost = &statusline.CostInfo{TotalUSD: cost, Estimated: true}
-	}
-	payload.Exceeds200kTokens = m.statusLineExceeds200k()
-	return payload
-}
-
-// statusLineTranscriptPath is where the reference keeps the conversation's
-// transcript. It is the brain directory's `.system_generated/logs`
-// subdirectory.
 //
-// Evidence 【一手】: agy 1.4.7's payload carried
-// `<appDataDir>/brain/<conversation-id>/.system_generated/logs/transcript.jsonl`,
-// and the id-less form `<appDataDir>/brain/.system_generated/logs/transcript.jsonl`
-// before the conversation started.
-func (m *runMode) statusLineTranscriptPath() string {
-	return filepath.Join(auth.AntigravityConfigHome(), "brain", m.conversationID,
-		".system_generated", "logs", "transcript.jsonl")
-}
-
-// statusLineContextWindow renders the token accounting.
-//
-// The reference's `used_percentage` is the share of the context window the
-// *prompt* tokens take: 19136 prompt tokens in a 1048576-token window is
-// 1.824951171875%, which is what the live payload carried.
-func (m *runMode) statusLineContextWindow() statusline.ContextWindow {
+// The document is the package's; this is where the host's facts are
+// collected. The state is filled in one place, so a fact the payload
+// carries has exactly one reader on this side.
+func (m *runMode) buildStatusLinePayload() statusline.Payload {
+	// The status row's model label is the base name of the selected model;
+	// it is the model the context window and the pricing are read from.
+	model := m.statusModel
+	if model == "" {
+		model = m.model
+	}
+	// An unknown model has no context window.
+	contextWindow := 0
+	if model != "" {
+		contextWindow = modelctx.ContextWindowFor(model)
+	}
+	// The number of running background tasks.
+	taskCount := 0
+	if m.taskReg != nil {
+		taskCount = m.taskReg.CountRunning()
+	}
 	prompt, completion := m.sessionTokenTotals()
-	size := m.statusLineContextSize()
-	used := 0.0
-	remaining := 0.0
-	if size > 0 {
-		used = float64(prompt) / float64(size) * 100
-		remaining = 100 - used
-	}
-	cw := statusline.ContextWindow{
-		TotalInputTokens:    prompt,
-		TotalOutputTokens:   completion,
-		ContextWindowSize:   size,
-		UsedPercentage:      used,
-		RemainingPercentage: remaining,
-	}
-	if last, ok := m.statusLineLastUsage(); ok {
-		cw.CurrentUsage = &last
-	}
-	return cw
+	return statusline.PayloadFrom(statusline.PayloadState{
+		Cwd:                      m.cwd,
+		ConversationID:           m.conversationID,
+		ConversationTitle:        m.conversationTitle(),
+		Model:                    m.model,
+		Effort:                   m.currentEffortName(),
+		AgentName:                m.agentName,
+		CycleMode:                m.mode,
+		PlanTier:                 m.tier,
+		Email:                    m.email,
+		TerminalWidth:            m.width,
+		Streaming:                m.streaming,
+		ToolInFlight:             m.toolInFlight(),
+		TurnFailed:               m.turnFailed(),
+		SandboxEnabled:           m.toolSandbox.Enabled,
+		Quota:                    statusline.QuotaBuckets(m.cachedQuota(m.email), time.Now()),
+		TaskCount:                taskCount,
+		PendingInputCount:        m.pendingInputCount(),
+		Subagents:                m.subagentInfos(),
+		VimMode:                  m.vimModeName(),
+		SessionPromptTokens:      prompt,
+		SessionCompletionTokens:  completion,
+		LastTurnPromptTokens:     int(atomic.LoadInt64(&m.store.LastTurnPromptTokens)),
+		LastTurnCompletionTokens: int(atomic.LoadInt64(&m.store.LastTurnCompletionTokens)),
+		ContextWindowSize:        contextWindow,
+		PricingModel:             model,
+	})
 }
 
-// statusLineContextSize is the model's context window.
-func (m *runMode) statusLineContextSize() int {
+// agentState is the session's agent state — the payload's `agent_state`
+// member and the status row's state cell.
+//
+// The vocabulary is the statusline package's (the reference's own names)
+// and the facts are the host's: a streaming turn, a tool call inside it
+// and the last turn's failure. The payload and the row read this one
+// function, so the two never disagree.
+func (m *runMode) agentState() string {
+	state := statusline.AgentState(m.streaming, m.toolInFlight(), m.turnFailed())
+	if state == statusline.StateIdle {
+		// The idle state is the row's default; it needs no cell.
+		return ""
+	}
+	return state
+}
+
+// toolInFlight reports whether a tool call is running inside the
+// streaming turn.
+//
+// The active tool is the host's own: it is set when a tool call starts
+// and cleared when the call ends.
+func (m *runMode) toolInFlight() bool {
+	return m.activeTool != ""
+}
+
+// turnFailed reports whether the last turn ended in an error.
+//
+// The recorded outcome is the host's: the turn records how it ended
+// (tea.ProgramStateDone, tea.ProgramStateError) and the report to the
+// terminal reads the same fact.
+func (m *runMode) turnFailed() bool {
+	return m.lastTurnOutcome == tea.ProgramStateError
+}
+
+// pendingInputCount is the number of queued user messages.
+//
+// The queue mode's own prompt counts as one: it is the next prompt the
+// session runs. The bash queue does not — those are shell commands, not
+// messages.
+func (m *runMode) pendingInputCount() int {
+	n := len(m.store.StreamQueue)
+	if m.store.QueuedPrompt != "" {
+		n++
+	}
+	return n
+}
+
+// subagentInfos is the conversation's subagent list in the payload's
+// shape.
+//
+// The registry is the host's; the wire vocabulary is the statusline
+// package's.
+func (m *runMode) subagentInfos() []statusline.SubagentInfo {
+	if m.subagentRegistry == nil {
+		return nil
+	}
+	return statusline.Subagents(m.subagentRegistry.States())
+}
+
+// vimModeName is the vim editing mode's name for the payload's `vim`
+// member.
+//
+// The member is present only when vim editor mode is enabled, so the
+// name is empty when the editor mode is not vim. The engine is not built
+// in that case: the host keeps its "no engine without vim" invariant.
+func (m *runMode) vimModeName() string {
+	if !m.vimEnabled() {
+		return ""
+	}
+	return statusline.VimModeName(m.vimMode())
+}
+
+// contextUsedPercent is the share of the context window the prompt
+// tokens take.
+//
+// The arithmetic is the statusline package's (the payload's
+// `used_percentage` member is the same number) and the status row's
+// context cell shows the same value, so the formula has one owner.
+func (m *runMode) contextUsedPercent() float64 {
 	model := m.statusModel
 	if model == "" {
 		model = m.model
@@ -134,107 +164,41 @@ func (m *runMode) statusLineContextSize() int {
 	if model == "" {
 		return 0
 	}
-	return modelctx.ContextWindowFor(model)
+	prompt, _ := m.sessionTokenTotals()
+	return statusline.ContextUsedPercent(prompt, modelctx.ContextWindowFor(model))
 }
 
-// statusLineLastUsage returns the last turn's token usage. The reference
-// reports `current_usage` as null until the first model response.
-func (m *runMode) statusLineLastUsage() (statusline.CurrentUsage, bool) {
-	prompt := int(atomic.LoadInt64(&m.lastTurnPromptTokens))
-	completion := int(atomic.LoadInt64(&m.lastTurnCompletionTokens))
-	if prompt == 0 && completion == 0 {
-		return statusline.CurrentUsage{}, false
-	}
-	return statusline.CurrentUsage{
-		InputTokens:  prompt,
-		OutputTokens: completion,
-		// The clone's transports do not surface the provider's cache
-		// counters, so the two cache members stay zero.
-	}, true
-}
-
-// statusLineExceeds200k reports whether the conversation crossed the 200k
-// context threshold. The reference reports null until the first response.
-func (m *runMode) statusLineExceeds200k() *bool {
-	if m.lastTurnPromptTokens == 0 && m.lastTurnCompletionTokens == 0 {
-		return nil
-	}
-	exceeds := m.sessionPromptTokens > exceeds200kTokens
-	return &exceeds
-}
-
-// statusLineAgentState is the reference's `agent_state` member.
-//
-// The reference reports "initializing" while it starts up, "authenticating"
-// while it signs in, "idle" between turns and "working" while the agent
-// runs. The clone has no separate authentication phase, so it reports the
-// two it can tell apart.
-func (m *runMode) statusLineAgentState() string {
-	if m.streaming {
-		return "working"
-	}
-	return "idle"
-}
-
-// statusLineQuota renders the account's quota buckets.
-//
-// The reference keys the map by the bucket id ("gemini-5h", "3p-weekly",
-// …) and reports the remaining fraction, the reset time and the seconds
-// until the reset.
-func (m *runMode) statusLineQuota() map[string]statusline.QuotaBucket {
-	summary := m.cachedQuota(m.email)
-	if summary == nil {
-		return nil
-	}
-	out := map[string]statusline.QuotaBucket{}
-	now := time.Now()
-	for _, group := range summary.Groups {
-		for _, bucket := range group.Buckets {
-			entry := statusline.QuotaBucket{RemainingFraction: bucket.RemainingFraction}
-			if !bucket.ResetTime.IsZero() {
-				reset := bucket.ResetTime
-				entry.ResetTime = &reset
-				entry.ResetInSeconds = int(reset.Sub(now).Seconds())
-			}
-			out[bucket.ID] = entry
-		}
-	}
-	if len(out) == 0 {
-		return nil
-	}
-	return out
-}
-
-// statusLineTaskCount is the number of running background tasks.
-func (m *runMode) statusLineTaskCount() int {
-	if m.taskReg == nil {
+// contextUsage returns the context window token usage percentage.
+func (m *runMode) contextUsage() float64 {
+	if m == nil {
 		return 0
 	}
-	return m.taskReg.CountRunning()
+	return m.contextUsedPercent()
 }
 
-// statusLineCost is the session's estimated spend.
-func (m *runMode) statusLineCost() float64 {
-	model := m.statusModel
-	if model == "" {
-		model = m.model
+// StatusLinePayloadWithPlan wraps statusline.Payload to include execution plan progress if present.
+type StatusLinePayloadWithPlan struct {
+	statusline.Payload
+	Plan string `json:"plan,omitempty"`
+}
+
+// buildStatusLinePayloadDoc returns the status line payload document,
+// including execution plan progress when available from the active engine.
+func (m *runMode) buildStatusLinePayloadDoc() any {
+	base := m.buildStatusLinePayload()
+	plan := m.enginePlan()
+	if plan == "" {
+		return base
 	}
-	prompt, completion := m.sessionTokenTotals()
-	return pricingForModel(model, prompt, completion)
+	return StatusLinePayloadWithPlan{
+		Payload: base,
+		Plan:    plan,
+	}
 }
 
-// statusLineConfig returns the cached `statusLine` block.
-//
-// The TUI reads settings.json once at startup and refreshes the cache
-// whenever /statusline changes it: the status area is re-rendered on every
-// frame, so it must not hit the disk.
-func (m *runMode) statusLineConfig() statusline.Config {
-	return m.statusLineCfg
-}
-
-// titleConfig returns the cached `title` block.
-func (m *runMode) titleConfig() statusline.Config {
-	return m.titleCfg
+// statusLinePlanProgress returns the active engine's plan progress for status line consumers.
+func (m *runMode) statusLinePlanProgress() string {
+	return m.enginePlan()
 }
 
 // reloadStatusLineConfig re-reads the `statusLine` and `title` blocks from
@@ -268,10 +232,4 @@ func (m *runMode) statusLineScriptActive() bool {
 		return true
 	}
 	return m.statusLineExternal
-}
-
-// titleScriptActive reports whether a custom window-title script is
-// configured and enabled.
-func (m *runMode) titleScriptActive() bool {
-	return m.titleCfg.Active()
 }

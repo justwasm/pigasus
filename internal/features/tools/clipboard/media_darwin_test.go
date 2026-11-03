@@ -135,3 +135,43 @@ func TestReadMediaDarwin_EmptyClipboard(t *testing.T) {
 		t.Errorf("error = %q, want the reference's sentence", err.Error())
 	}
 }
+
+// TestReadMediaDarwin_OverSSHNamesThePasteboardSentence pins the
+// reference's own sentence for a paste over SSH: a terminal does not
+// forward its clipboard over a plain SSH stream, so the paste reaches
+// nothing.
+//
+// 【文档】 official-docs/cli/troubleshooting.md:126 —
+//
+//	Error: local pasteboard is empty or unreachable over SSH connection
+func TestReadMediaDarwin_OverSSHNamesThePasteboardSentence(t *testing.T) {
+	t.Setenv("SSH_CONNECTION", "10.0.0.1 5000 10.0.0.2 22")
+	fakeOsascript(t, "", nil)
+	_, err := ReadMedia(DefaultOptions())
+	if err == nil {
+		t.Fatalf("ReadMedia over SSH = nil error")
+	}
+	const want = "Error: local pasteboard is empty or unreachable over SSH connection"
+	if err.Error() != want {
+		t.Errorf("error = %q, want %q", err.Error(), want)
+	}
+}
+
+// TestReadMediaDarwin_UnreachablePasteboardOverSSH covers the other
+// half of the same sentence: the pasteboard cannot be read at all.
+func TestReadMediaDarwin_UnreachablePasteboardOverSSH(t *testing.T) {
+	t.Setenv("SSH_CONNECTION", "10.0.0.1 5000 10.0.0.2 22")
+	origExec := execRunner
+	t.Cleanup(func() { execRunner = origExec })
+	execRunner = func(name string, args ...string) ([]byte, error) {
+		return nil, errors.New("exit status 1: osascript: execution error")
+	}
+	_, err := ReadMedia(DefaultOptions())
+	if err == nil {
+		t.Fatalf("ReadMedia with an unreachable pasteboard = nil error")
+	}
+	const want = "Error: local pasteboard is empty or unreachable over SSH connection"
+	if err.Error() != want {
+		t.Errorf("error = %q, want %q", err.Error(), want)
+	}
+}

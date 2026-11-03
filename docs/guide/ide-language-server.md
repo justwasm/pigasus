@@ -121,11 +121,11 @@ because of what it says about the design:
 - `MigrateLegacyPayload` / `__original_cortex_step` pack the original step
   inside the new payload so **old records still replay**.
 
-The clone now **does the replay**. `internal/rehydration` is the hub: a
+The clone now **does the replay**. `internal/app/session/rehydration` is the hub: a
 `Dispatcher` routes a stored tool call to the rehydrator registered under
 that tool's name and skips the steps that did not run to completion; the
 per-tool rehydrators live in the package that owns the tool
-(`internal/subagenttools/rehydrate.go`, `internal/tools/rehydrate.go`) and
+(`internal/app/subagenttools/rehydrate.go`, `internal/app/tools/tasks/rehydrate.go`) and
 parse the stored arguments with **the live handler's parser**, so a
 rehydrated state and a live state agree by construction. The clone's
 kill switch is the environment variable `OPENAGY_DISABLE_REHYDRATION`.
@@ -158,8 +158,8 @@ The Go binary holds **two kinds of static payload**, and both are now in the rep
 
 | | what | where |
 |---|---|---|
-| `//go:embed` file systems | the **prompt templates** (`system_prompts/*.tmpl` etc., 17 files), the **built-in skills** (9 `SKILL.md`), the JSON-Schema metaschemas (35) | `out/ide-language-server/embed-fs/` |
-| an embedded **ZIP** | the IDE's own **"Jetski Web" frontend** — `index.html`, a 10 MB Closure-compiled `main.js`, the Tailwind and JetBox stylesheets, ~250 file-type icons, the sounds | `out/ide-language-server/frontend/` |
+| `//go:embed` file systems | the **prompt templates** (`system_prompts/*.tmpl` etc., 17 files), the **built-in skills** (9 `SKILL.md`), the JSON-Schema metaschemas (35) | `internal/app/prompt/agytemplates/templates/`, `internal/features/tools/skills/`, `out/ide-language-server/embed-fs/` |
+| an embedded **ZIP** | the IDE's own **"Jetski Web" frontend** — `index.html`, a 10 MB Closure-compiled `main.js`, the Tailwind and JetBox stylesheets, ~250 file-type icons, the sounds | `internal/rcfrontend/assets/` |
 
 `devutils/embedextract` (in the repo, standard library only) takes both apart:
 it scans the image for `embed.file` records — 48 bytes each, name + content +
@@ -169,9 +169,9 @@ opens each candidate with `archive/zip`.
 
 Two things this settles that strings alone could not:
 
-- The prompt is a **template file**, not a string blob. `internal/agyprompt`
+- The prompt is a **template file**, not a string blob. `internal/app/prompt/agyprompt`
   now renders the prompt from the reference's own `.tmpl` files — the CLI's
-  copies are in `internal/agyprompt/templates/` — so the prompt can be diffed
+  copies are in `internal/app/prompt/agytemplates/templates/` — so the prompt can be diffed
   against `system_prompts/*.tmpl` itself rather than against one long
   capture. Note that the CLI's and the IDE's copies are **not** the same
   bytes: the CLI's `guidelines.tmpl` carries one bullet the IDE's does not,
@@ -188,7 +188,7 @@ Two things this settles that strings alone could not:
 - The **builtin skill bundle** the CLI unpacks into
   `<AppDataDir>/builtin/skills` is nine skills — two `assets/external/skills/`
   and seven `assets/shared/skills/`. The clone ships the same bundle
-  (`internal/builtinskills/`).
+  (`internal/features/tools/skills/`).
 
 Full write-up: `out/ide-language-server/embedded-assets.md`.
 
@@ -261,7 +261,7 @@ Full write-up: `docs/cycles/cycle-366-antigravity-app-2.28.2/deliverable.md`.
 | The agent core is **shared product code**: `jetski/cortex`, `language_server_pb`, `codeium_common_pb`, `api_server_pb`, `seat_management_pb` are near-identical in both binaries | `name-diff/by-package.tsv`, `cross-check.tsv` |
 | The hand-written divergence rate is **8%**, and it is concentrated in the vetting gate, the permission model, the sandbox proxy, the enterprise features and the code-assist client | `cross-check.md` §C |
 | **The CLI's tool surface is a half-finished migration**: 11 tool types live in `jetski/cortex/core/tools/tools` and 6 more (the file / task / message tools) are still in the old `oneharness/internal/tools/tools`. The IDE consolidated all 15 into the new path and **dropped** `AskQuestionTool` and `FinishTool` | `name-diff/`, `seeds/` |
-| **The CLI has an "execute URL" grant policy the IDE deleted** — `GetExecuteURLPolicy`, `ExecuteURLPolicyFromGrants`, `RegistrableDomain`, `normalizeExecuteURLTarget`, `mergeScopedGrants` exist only in the CLI; `ExecuteURL` occurs **0** times in the language server. The clone's `internal/permissions` has no counterpart for it | `name-diff/`, `out/local-macos/seeds/seeds.txt` |
+| **The CLI has an "execute URL" grant policy the IDE deleted** — `GetExecuteURLPolicy`, `ExecuteURLPolicyFromGrants`, `RegistrableDomain`, `normalizeExecuteURLTarget`, `mergeScopedGrants` exist only in the CLI; `ExecuteURL` occurs **0** times in the language server. The clone's `internal/core/policy/permissions` has no counterpart for it | `name-diff/`, `out/local-macos/seeds/seeds.txt` |
 | The IDE's **tool arguments are rewritten before execution** (`policyguardian.RewriteToolCall`: `Resolved $%s → %s from env_state`, `Resolved symlink %s → %s from env_state`) — the reference resolves env vars and symlinks *in the safety layer*, not in the tool | `dec/101c1b240_RewriteToolCall.c` |
 | The **system prompt is the same template**: 83 of the capture's long lines appear in both binaries, 2 are CLI-only, 0 are IDE-only | `prompt/` |
 | The **tool surface is identical**: all 60 advertised names appear in both | `tools/matrix.tsv` |
@@ -269,7 +269,7 @@ Full write-up: `docs/cycles/cycle-366-antigravity-app-2.28.2/deliverable.md`.
 | The reference's **client identity vocabulary**: `--subclient_type` is `sdk` / `cli` / `hub` — the IDE passes `hub`, the CLI `cli` | `help.txt` |
 | The CloudCode client is **internally called `ccpa`**: `--model_api_client_type=ccpa`, and the MCP manager logs *"mcp disabled by CCPA admin controls"* | `help.txt`, `strings-resolved.txt` |
 | The reference's **config roots**: `--gemini_dir=.gemini`, `--config_dir=config`, `--app_data_dir=antigravity-ide` | `help.txt` |
-| **Real skill samples**: 7 `SKILL.md` files shipped by the IDE, in exactly the format `internal/agyprompt/skills.go` parses | `skills/` |
+| **Real skill samples**: 7 `SKILL.md` files shipped by the IDE, in exactly the format `internal/app/prompt/agyprompt/skills.go` parses | `skills/` |
 
 ## It runs standalone — and answers
 
@@ -612,7 +612,7 @@ in the conversation.
 **defaults to the deterministic stand-in**. The CLI overrides it
 (`internal/cliapp`), so the standalone language server overrides it too
 (`cmd/langserver/backend.go`), with the clone's own rule
-(`internal/backendselect`): a model the user configured goes to its own
+(`internal/infra/backend/select`): a model the user configured goes to its own
 endpoint, a model of the reference's catalogue goes to CloudCode, and a
 model nobody configured gets the stand-in **with a warning** — an answer
 that silently came from the stand-in would look like a working model.
@@ -656,7 +656,7 @@ with
 
 and `OPENAGY_REFERENCE_BACKEND_ARGS` adds or overrides arguments.
 
-Two wire details the proxy has to get right (`internal/refbackend`):
+Two wire details the proxy has to get right (`internal/infra/refbackend`):
 
 - a **unary** call is `POST <base>/exa.language_server_pb.LanguageServerService/<Method>`
   with `Content-Type: application/json`; the answer is the proto-JSON
@@ -669,10 +669,56 @@ Two wire details the proxy has to get right (`internal/refbackend`):
 
 The reference's 24 server-streaming methods were recovered from the
 IDE's own service descriptor (`out/ide-language-server/extract_ls_descriptor.py`)
-and are hard-coded in `internal/refbackend/connect.go`. A method outside
+and are hard-coded in `internal/infra/refbackend/connect.go`. A method outside
 that set is a unary call.
 
 Cycle: [`rc-web-parity`](../cycles/rc-web-parity/deliverable.md).
+
+## Zero-binary-patch custom model injection into the IDE
+
+The official Antigravity IDE (`Antigravity.app`) can be pointed at custom
+models (OpenAI, Anthropic, DeepSeek, local Ollama/vLLM) without modifying a
+single byte of its Mach-O binary.
+
+### The evidence
+
+Decompilation of `/Applications/Antigravity.app/Contents/Resources/bin/language_server`
+(and string recovery in `out/ide-language-server/strings-resolved.txt`) reveals
+that the IDE's authentication provider explicitly checks for the `CLOUD_CODE_URL`
+environment variable:
+
+```text
+0x101ac8b40  codeassistclient.(*AntigravityHubAuthProvider).UpdateEndpointURL
+             "[AuthProvider] UpdateEndpointURL called with CLOUD_CODE_URL: %q"
+```
+
+In addition, the CLI flags accept `-cloud_code_endpoint` (`CCPA API URL`, which
+the Electron app sets by default to `https://daily-cloudcode-pa.googleapis.com`).
+
+### The injection mechanism
+
+Electron spawns `language_server` by absolute path. To inject custom models via
+`pigasus proxy` without touching the code signature or modifying the Mach-O
+binary, a wrapper script shim can be placed in front of the original binary:
+
+1. **Helper script in `devutils/`**:
+   ```bash
+   # Check status
+   ./devutils/ide_proxy_shim.sh status
+
+   # Install the shim (routes to 127.0.0.1:8080 or specified port)
+   ./devutils/ide_proxy_shim.sh install 8080
+
+   # Revert back to original binary at any time
+   ./devutils/ide_proxy_shim.sh uninstall
+   ```
+
+2. **The local proxy**:
+   Run `pigasus proxy` with models configured in `~/.openagy/providers.json`.
+   The proxy intercepts:
+   * `fetchAvailableModels`: Injects custom models into the IDE model picker.
+   * `streamGenerateContent`: Translates CloudCode inference requests into
+     OpenAI/Anthropic/DeepSeek API formats and streams back the responses.
 
 ## The `LanguageServerService`'s wire form
 
@@ -736,7 +782,7 @@ Two rules the wire makes load-bearing:
 
 The clone's thinking comes from the `<think>…</think>` markers the
 CloudCode transport wraps around a model's reasoning
-(`internal/backend/cloudcode_stream.go`). `internal/remotecontrol/ls_thought.go`
+(`internal/infra/backend/cloudcode/cloudcode_stream.go`). `internal/remotecontrol/ls_thought.go`
 splits them out of the answer, keeps the reasoning and times the block;
 `internal/remotecontrol/ls_trajectory.go` puts the result on the step.
 
@@ -818,8 +864,9 @@ parameters. A batch's steps take the same enum minus `batch` itself
 
 **Where the clone stands — the LS half is now there.** The IDE half
 was *already* there: the clone serves the reference's own frontend
-byte-for-byte (`internal/rcfrontend/assets/main.js` ==
-`out/ide-language-server/frontend/main.js`), so the
+byte-for-byte (`internal/rcfrontend/assets/main.js`, the
+copy that used to sit at `out/ide-language-server/frontend/main.js`
+before that extraction was retired), so the
 `AgentBrowserListener`, the webview pool and the aux pane's
 `"browser"` custom view all ship — the clone's own `app_storage.json`
 already holds a `browser__…` tab with `initialUrl
@@ -829,7 +876,7 @@ Path A landed on 2026-10-27 and filled the LS half:
 
 | piece | where |
 |---|---|
-| the broker, the wire shapes, the tool's declaration, the parameter builder | `agentbrowser` — no PiG, no `internal/tools`, nothing of the clone's |
+| the broker, the wire shapes, the tool's declaration, the parameter builder | `agentbrowser` — no PiG, no `internal/app/tools`, nothing of the clone's |
 | the three RPCs | `internal/remotecontrol/dispatch_agentbrowser.go` |
 | the tool on PiG's wire | `internal/piagentbridge/browser_tool.go` |
 
@@ -905,6 +952,9 @@ The 161 MB binary itself (like the CLI's, it stays on disk), the Ghidra
 project (680 MB), the decompiled `.c` files (93 MB + 65 MB — regenerable in
 about six minutes), the Electron framework, and the vendored `node_modules` —
 only the IDE's **own** 35 JS files, the bundled skills, and the assets
-**embedded in the Go binary** (`frontend/`, `embed-fs/`) were copied.
+**embedded in the Go binary** (the frontend bundle, the prompt templates,
+the skills and the metaschemas) were copied — the clone's own
+`internal/rcfrontend/assets/` and `internal/app/prompt/agytemplates/templates/`
+hold the extracted bytes.
 `ide-js/` is minified product code, so treat it as string-level evidence, not
 specification.

@@ -16,7 +16,7 @@
 //     `SubagentHub` / `gatedSubagentHub` / `KillAgent` /
 //     `MaybeReviveAgent` surface.
 //
-// Cycle 41's internal/cascade/real_lifecycle.go implemented the
+// Cycle 41's internal/core/lifecycle/real_lifecycle.go implemented the
 // store-level gate. This file implements the **cortex-level** gate
 // in Go — i.e. the SubagentAwaitsApproval state machine, the
 // SubagentHub registry, the presenceTracker, and the

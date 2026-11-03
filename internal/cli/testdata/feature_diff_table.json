@@ -302,8 +302,8 @@
       "agy": true,
       "clone": true,
       "cycle": 262,
-      "evidence": "cmd/wagyu/elig_inline.go,cmd/wagyu/tui_run.go",
-      "notes": "AGY 1.1.3: eligibility errors with a verification URL render in the input loop above the prompt instead of stacking above the transcript. The inline row is owned by eligibilityNotice on runMode (cmd/wagyu/tui_run.go:2049) and rendered by eligibilityNoticeRow between the top separator and the prompt; the verification URL goes through render.Hyperlink so cycle 240's OSC 8 ';' encoding applies. User keystrokes clear it; submitPrompt also clears. The chat transcript (m.response / m.session) is never appended. Print mode (-p) emits the AGY_ERROR envelope with status ELIGIBILITY_DENIED on stderr and never adds an inline notice (no input loop). cmd/wagyu/elig_inline_test.go pins the contract across 7 tests (5 required + 2 layout/hyperlink)."
+      "evidence": "internal/ui/views/announce/notice.go,internal/ui/views/announce/queue.go",
+      "notes": "AGY 1.1.3: eligibility errors with a verification URL render in the input loop above the prompt instead of stacking above the transcript. The inline row is owned by announce.Notice and the announcement queue by announce.Queue (internal/ui/views/announce/notice.go and queue.go), and it is rendered between the top separator and the prompt; the verification URL goes through render.Hyperlink so cycle 240's OSC 8 ';' encoding applies. User keystrokes clear it; submitPrompt also clears. The chat transcript (m.response / m.session) is never appended. Print mode (-p) emits the AGY_ERROR envelope with status ELIGIBILITY_DENIED on stderr and never adds an inline notice (no input loop). internal/ui/views/announce/notice_queue_bytes_test.go pins the rendered bytes and queue_test.go pins the contract across 7 tests (5 required + 2 layout/hyperlink)."
     },
     {
       "name": "Drag-to-copy with OSC 52 clipboard",

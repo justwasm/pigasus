@@ -26,16 +26,21 @@
 //     clipboard" — or the missing-tool sentence the platform reader
 //     produced.
 //
-// The read half (the platform clipboard) lives in internal/clipboard.
+// The read half (the platform clipboard) lives in internal/features/tools/clipboard.
+// The indicator above the composer is the ui tier's own attachment rows
+// (internal/ui/rows.AttachmentRows); this file owns the attachment, not
+// the shape of the row that shows it.
 package cliapp
 
 import (
+	"runtime"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/justwasm/pigasus/internal/backend"
-	"github.com/justwasm/pigasus/internal/clipboard"
+	"github.com/justwasm/pigasus/internal/core/backend"
+	"github.com/justwasm/pigasus/internal/features/tools/clipboard"
+	"github.com/justwasm/pigasus/internal/ui/panelregistry"
 )
 
 // clipboardReadMedia is the seam the tests replace: it reads the
@@ -59,10 +64,18 @@ type pasteMediaMsg struct {
 // pasted as text. Only a paste that delivered nothing asks the platform
 // for an image, which is the "Cmd+V with only an image copied" case.
 func (m *runMode) handlePasteContent(text string) tea.Cmd {
-	if m.helpMode || m.panel.kind != panelNone {
+	if m.helpPanel.Active() || m.panel.kind != panelregistry.None {
 		// A panel owns the keyboard (the /rename field pastes its own
 		// text); the composer's paste does not reach it.
 		return m.insertPastedText(text)
+	}
+	if paths := clipboard.PastedMediaPaths(text, runtime.GOOS); len(paths) > 0 {
+		for _, p := range paths {
+			if media, ok := clipboard.MediaFromFile(p); ok {
+				m.attachMedia(media)
+			}
+		}
+		return nil
 	}
 	if media, ok := clipboard.MediaFromPath(text); ok {
 		m.attachMedia(media)
@@ -116,18 +129,6 @@ func (m *runMode) attachMedia(media clipboard.Media) {
 	}
 	m.pendingMedia = append(m.pendingMedia, media)
 	m.inputNotice = ""
-}
-
-// mediaRows renders the attachment indicator above the composer.
-func (m *runMode) mediaRows() []string {
-	if len(m.pendingMedia) == 0 {
-		return nil
-	}
-	rows := make([]string, 0, len(m.pendingMedia))
-	for _, media := range m.pendingMedia {
-		rows = append(rows, cDimGrayOpen+"  [Attached: "+media.Filename+"]"+cDimGrayClose)
-	}
-	return rows
 }
 
 // mediaImageParts turns the attachments into the transport's image

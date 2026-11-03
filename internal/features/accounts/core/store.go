@@ -27,7 +27,7 @@
 //
 // # The file
 //
-// ~/.config/openagy/accounts.json (0600, atomic write). The tokens live
+// ~/.openagy/accounts.json (0600, atomic write). The tokens live
 // in it in plaintext, the same way the reference keeps its own token
 // file in plaintext. The env override is OPENAGY_ACCOUNTS_CONFIG.
 package core
@@ -43,7 +43,8 @@ import (
 	"time"
 
 	"github.com/justwasm/pigasus/atomicfile"
-	"github.com/justwasm/pigasus/internal/auth"
+	"github.com/justwasm/pigasus/configdir"
+	"github.com/justwasm/pigasus/internal/features/auth"
 )
 
 // Version is the store's schema version.
@@ -87,21 +88,15 @@ type Store struct {
 
 // Path returns the conventional path of the account registry:
 //
-//	$XDG_CONFIG_HOME/openagy/accounts.json, or
-//	$HOME/.config/openagy/accounts.json if HOME is set.
+//	<the configuration home>/accounts.json — $HOME/.openagy/accounts.json
+//	unless $OPENAGY_CONFIG_HOME says otherwise.
 //
 // The env override is OPENAGY_ACCOUNTS_CONFIG.
 func Path() string {
 	if p := strings.TrimSpace(os.Getenv("OPENAGY_ACCOUNTS_CONFIG")); p != "" {
 		return p
 	}
-	if xdg := strings.TrimSpace(os.Getenv("XDG_CONFIG_HOME")); xdg != "" {
-		return filepath.Join(xdg, "openagy", "accounts.json")
-	}
-	if home := strings.TrimSpace(os.Getenv("HOME")); home != "" {
-		return filepath.Join(home, ".config", "openagy", "accounts.json")
-	}
-	return ""
+	return configdir.Path("accounts.json")
 }
 
 // Load reads the account registry.

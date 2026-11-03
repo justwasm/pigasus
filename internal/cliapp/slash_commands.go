@@ -3,14 +3,19 @@ package cliapp
 import (
 	"fmt"
 	"strings"
-	"unicode/utf8"
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/justwasm/pigasus/internal/app/session/convstore"
+	"github.com/justwasm/pigasus/internal/app/session/slashactions"
 	"github.com/justwasm/pigasus/internal/app/subagent/builtin"
-	"github.com/justwasm/pigasus/internal/backend"
+	"github.com/justwasm/pigasus/internal/core/policy/permissions"
+	"github.com/justwasm/pigasus/internal/core/slashparse"
 	"github.com/justwasm/pigasus/internal/printmode"
-	"github.com/justwasm/pigasus/internal/slashquote"
+	"github.com/justwasm/pigasus/internal/ui/rows"
+	"github.com/justwasm/pigasus/internal/ui/slashcommands"
+	"github.com/justwasm/pigasus/internal/ui/tuilib"
+	"github.com/justwasm/pigasus/internal/ui/views/slashquote"
 )
 
 // slash_commands.go — cycle 77 slash command router; cycle 102 content pass.
@@ -52,6 +57,11 @@ import (
 // m.input/m.picker, and never call the model — except the five prompt-
 // sending commands above, which delegate to sendAsPrompt.
 //
+// Cycle 381, tranche 81: the slash *grammar* — the "/cmd args" parse,
+// the "/plugin verb rest" parse and the trims — belongs to
+// internal/core/slashparse. This file used to carry its own copies of
+// all three.
+//
 // Cycle 195: every slash command that produces a transcript message now
 // emits the REF v1.4.0 echo wrapper:
 //
@@ -68,21 +78,20 @@ import (
 
 // slashRespond appends the REF-style slash command echo block to m.response.
 //
-//	> /<cmd>          (bold blue, cWarningBlueOpen)
-//	  ⎿  <msg>        (bold blue prefix + panelGray238 body)
+//	> /<cmd>          (bold blue)
+//	  ⎿  <msg>        (bold blue prefix + muted body)
 //	<optional extra lines, rendered as-is>
 //	<blank>
+//
+// The block's bytes belong to the ui tier (tuilib.SlashEchoLines); this
+// method owns only what the host owns: the rows land in m.response and
+// the transcript's row cache is marked stale.
 //
 // Use this for every response-producing case. Multi-line responses pass
 // the additional lines as extra; they appear after the `⎿` wrapper and
 // before the trailing blank (matches /voice and /remote-control in REF).
 func (m *runMode) slashRespond(cmd, msg string, extra ...string) {
-	m.response = append(m.response,
-		cWarningBlueOpen+"> "+cmd+cWarningBlueClose,
-		cWarningBlueOpen+"  \u23bf  "+cWarningBlueClose+panelGray238+msg+panelGray238C,
-	)
-	m.response = append(m.response, extra...)
-	m.response = append(m.response, "")
+	m.response = append(m.response, tuilib.SlashEchoLines(cmd, msg, extra...)...)
 	m.rowsCacheDirty = true
 }
 
@@ -98,63 +107,76 @@ func (m *runMode) slashRespondPlain(msg string) {
 
 type slashHandler func(m *runMode, args string) (bool, tea.Cmd)
 
-var slashHandlers = map[string]slashHandler{
-	"clear":          (*runMode).slashClear,
-	"new":            (*runMode).slashNew,
-	"exit":           (*runMode).slashExit,
-	"quit":           (*runMode).slashExit,
-	"help":           (*runMode).slashHelp,
-	"model":          (*runMode).slashModel,
-	"config":         (*runMode).slashConfig,
-	"context":        (*runMode).slashContext,
-	"continue":       (*runMode).slashContinue,
-	"copy":           (*runMode).slashCopy,
-	"credits":        (*runMode).slashCredits,
-	"diff":           (*runMode).slashDiff,
-	"effort":         (*runMode).slashEffort,
-	"feedback":       (*runMode).slashFeedback,
-	"feature-diff":   (*runMode).slashFeatureDiff,
-	"featdiff":       (*runMode).slashFeatureDiff,
-	"diff-agy":       (*runMode).slashFeatureDiff,
-	"fork":           (*runMode).slashFork,
-	"hooks":          (*runMode).slashHooks,
-	"keybindings":    (*runMode).slashKeybindings,
-	"logout":         (*runMode).slashLogout,
-	"login":          (*runMode).slashLogin,
-	"mcp":            (*runMode).slashMCP,
-	"open":           (*runMode).slashOpen,
-	"permissions":    (*runMode).slashPermissions,
-	"plugin":         (*runMode).slashPlugin,
-	"remote-control": (*runMode).slashRemoteControl,
-	"rename":         (*runMode).slashRename,
-	"resume":         (*runMode).slashResume,
-	"rewind":         (*runMode).slashRewind,
-	"skills":         (*runMode).slashSkills,
-	"statusline":     (*runMode).slashStatusline,
-	"tasks":          (*runMode).slashTasks,
-	"title":          (*runMode).slashTitle,
-	"usage":          (*runMode).slashUsage,
-	"voice":          (*runMode).slashVoice,
-	"record":         (*runMode).slashRecord,
-	"add-dir":        (*runMode).slashAddDir,
-	"agents":         (*runMode).slashAgents,
-	"artifact":       (*runMode).slashArtifact,
-	"btw":            (*runMode).slashBtw,
-	"changelog":      (*runMode).slashChangelog,
-	"codesearch":     (*runMode).slashCodesearch,
-	"quote":          (*runMode).slashQuote,
-	"compact":        (*runMode).slashCompact,
-	"browser":        (*runMode).slashBrowser,
-	"plan":           (*runMode).slashPlan,
-	"goal":           (*runMode).slashGoal,
-	"learn":          (*runMode).slashLearn,
-	"teamwork":       (*runMode).slashTeamwork,
-	"boost":          (*runMode).slashBoost,
-	"grill-me":       (*runMode).slashGrillMe,
-	"schedule":       (*runMode).slashSchedule,
-	"branch":         (*runMode).slashBranch,
-	"narration":      (*runMode).slashNarration,
-	"share":          (*runMode).slashShare,
+// slashHandlers is the host's command table: the canonical name of
+// every command the host answers with a handler of its own.
+//
+// Cycle 381, tranche 88: the table is keyed by the *canonical* name
+// only. The aliases ("/new" for "/clear", "/quit" for "/exit",
+// "/featdiff" and "/diff-agy" for "/feature-diff", "/record" for
+// "/voice", "/plugins" for "/plugin", "/teamwork" for
+// "/teamwork-preview") are resolved through internal/ui/slashcommands,
+// which owns the vocabulary, before the lookup happens.
+//
+// The one exception is "/branch": the catalogue lists the word as an
+// alias of "/fork", but the host answers "/branch" with a command of
+// its own, so the word is a command name here and the vocabulary
+// resolves it to itself.
+var slashHandlers map[string]slashHandler
+
+func init() {
+	slashHandlers = map[string]slashHandler{
+		"clear":            (*runMode).slashClear,
+		"exit":             (*runMode).slashExit,
+		"help":             (*runMode).slashHelp,
+		"model":            (*runMode).slashModel,
+		"config":           (*runMode).slashConfig,
+		"context":          (*runMode).slashContext,
+		"continue":         (*runMode).slashContinue,
+		"copy":             (*runMode).slashCopy,
+		"credits":          (*runMode).slashCredits,
+		"diff":             (*runMode).slashDiff,
+		"effort":           (*runMode).slashEffort,
+		"feedback":         (*runMode).slashFeedback,
+		"feature-diff":     (*runMode).slashFeatureDiff,
+		"fork":             (*runMode).slashFork,
+		"hooks":            (*runMode).slashHooks,
+		"keybindings":      (*runMode).slashKeybindings,
+		"logout":           (*runMode).slashLogout,
+		"login":            (*runMode).slashLogin,
+		"mcp":              (*runMode).slashMCP,
+		"open":             (*runMode).slashOpen,
+		"permissions":      (*runMode).slashPermissions,
+		"plugin":           (*runMode).slashPlugin,
+		"remote-control":   (*runMode).slashRemoteControl,
+		"rename":           (*runMode).slashRename,
+		"resume":           (*runMode).slashResume,
+		"rewind":           (*runMode).slashRewind,
+		"skills":           (*runMode).slashSkills,
+		"statusline":       (*runMode).slashStatusline,
+		"tasks":            (*runMode).slashTasks,
+		"title":            (*runMode).slashTitle,
+		"usage":            (*runMode).slashUsage,
+		"voice":            (*runMode).slashVoice,
+		"add-dir":          (*runMode).slashAddDir,
+		"agents":           (*runMode).slashAgents,
+		"artifact":         (*runMode).slashArtifact,
+		"btw":              (*runMode).slashBtw,
+		"changelog":        (*runMode).slashChangelog,
+		"codesearch":       (*runMode).slashCodesearch,
+		"quote":            (*runMode).slashQuote,
+		"compact":          (*runMode).slashCompact,
+		"browser":          (*runMode).slashBrowser,
+		"plan":             (*runMode).slashPlan,
+		"goal":             (*runMode).slashGoal,
+		"learn":            (*runMode).slashLearn,
+		"teamwork-preview": (*runMode).slashTeamwork,
+		"boost":            (*runMode).slashBoost,
+		"grill-me":         (*runMode).slashGrillMe,
+		"schedule":         (*runMode).slashSchedule,
+		"branch":           (*runMode).slashBranch,
+		"narration":        (*runMode).slashNarration,
+		"share":            (*runMode).slashShare,
+	}
 }
 
 // handleSlashCommand inspects the buffer; if it's a slash command it
@@ -168,7 +190,7 @@ func (m *runMode) handleSlashCommand(buf string) (bool, tea.Cmd) {
 		return false, nil
 	}
 	// Strip the leading "/" and split off the command name.
-	cmd, args := splitSlash(buf)
+	cmd, args := slashparse.Split(buf)
 	// Cycle 99: a bare "/" (or "/ ") is still a slash command, not chat. The
 	// reference answers it with "Unknown command: /" and never forwards it to
 	// the model; previously we fell through and sent it as a chat message.
@@ -179,11 +201,32 @@ func (m *runMode) handleSlashCommand(buf string) (bool, tea.Cmd) {
 	// handler output.
 	m.input.Reset()
 	m.picker.Reset()
-	m.historyIdx = 0
-	m.historyEdit = ""
+	m.promptHistory.Reset()
 
-	if h, ok := slashHandlers[cmd]; ok {
+	// Cycle 381, tranche 88: the alias rule belongs to the
+	// vocabulary, so the command name is resolved there before the
+	// host's table is consulted. A name the vocabulary does not know
+	// keeps its own spelling.
+	name := cmd
+	if canonical, ok := slashcommands.Canonical(cmd); ok {
+		name = canonical
+	}
+
+	// Check scope availability for any known command before dispatching or opening panels
+	if cmdInfo, found := slashcommands.Find(name); found {
+		sctx := m.slashScopeContext()
+		if !slashcommands.IsAvailable(cmdInfo, sctx) {
+			m.slashRespond("/"+name, fmt.Sprintf("%s is not supported by the %s backend", "/"+name, sctx.EngineName))
+			return true, nil
+		}
+	}
+
+	if h, ok := slashHandlers[name]; ok {
 		return h(m, args)
+	}
+
+	if cmd == "agent" {
+		return m.slashAgentCmd(args)
 	}
 
 	// Cycle 199: every skill the reference lists via /skills is also an
@@ -196,6 +239,11 @@ func (m *runMode) handleSlashCommand(buf string) (bool, tea.Cmd) {
 	// two surfaces stay in lock-step. See slash_skills.go for the
 	// captured alias rules and the 【推测】 prompt choice.
 	if skill, ok := slashSkillLookup(cmd); ok {
+		sctx := m.slashScopeContext()
+		if sctx.EngineName != "pigasus" && sctx.EngineName != "agy" {
+			m.slashRespond("/"+cmd, fmt.Sprintf("/%s is a Pigasus skill, not supported by the %s backend", cmd, sctx.EngineName))
+			return true, nil
+		}
 		token := "/" + cmd
 		if args != "" {
 			token += " " + args
@@ -203,13 +251,54 @@ func (m *runMode) handleSlashCommand(buf string) (bool, tea.Cmd) {
 		return true, m.sendAsPrompt(token, printmode.SlashSkillPrompt(skill, args))
 	}
 
-	// Unknown command: visible feedback rather than silently
+	// Dynamic agent slash commands: if the active engine offers this command,
+	// send it through as a prompt/command to the agent backend.
+	for _, dyn := range m.engineSlashCommands() {
+		cleanDyn := strings.TrimPrefix(dyn.Name, "/")
+		if strings.EqualFold(cleanDyn, cmd) {
+			token := "/" + cmd
+			if args != "" {
+				token += " " + args
+			}
+			return true, m.sendAsPrompt(token, token)
+		}
+	}
+
+	// Non-blocking pass-through for active agent backends (micro-acp pattern):
+	// If an active agent engine is running, do not block unrecognized commands locally
+	// with "Unknown command" — pass them through to the agent so backend-specific
+	// slash commands or workflows are never shadowed.
+	if m.engine != nil {
+		token := "/" + cmd
+		if args != "" {
+			token += " " + args
+		}
+		return true, m.sendAsPrompt(token, token)
+	}
+
+	// Unknown command in standalone mode: visible feedback rather than silently
 	// forwarding to the LLM. Cycle 99: the wording is the recovered
 	// reference string (a live 1.3.6 TUI capture of "/zzznotacommand"
 	// renders "Unknown command: /zzznotacommand" and sends nothing to
 	// the model).
 	m.slashRespond("/"+cmd, "Unknown command: /"+cmd)
 	return true, nil
+}
+
+func (m *runMode) slashAgentCmd(args string) (bool, tea.Cmd) {
+	trimmed := strings.TrimSpace(args)
+	if trimmed == "" {
+		m.slashRespond("/agent", "Usage: /agent <command> [args] - dispatch a command directly to the active agent")
+		return true, nil
+	}
+	parts := strings.Fields(trimmed)
+	cmdName := parts[0]
+	rest := strings.TrimSpace(strings.TrimPrefix(trimmed, cmdName))
+	token := "/" + cmdName
+	if rest != "" {
+		token += " " + rest
+	}
+	return true, m.sendAsPrompt(token, token)
 }
 
 // slashContent appends a recovered content block to the transcript. Cycle 102:
@@ -219,100 +308,22 @@ func (m *runMode) handleSlashCommand(buf string) (bool, tea.Cmd) {
 // 【一手】, layout 【推测】).
 //
 // The print handlers emit tab-separated rows; a raw tab collapses in the TUI
-// renderer, so we lay the columns out ourselves.
+// renderer, so the columns are laid out by the ui tier's own row layout
+// (rows.TabAlignedRows). This method owns only what the host owns: the rows
+// land in m.response.
 func (m *runMode) slashContent(text string) {
-	text = strings.TrimRight(text, "\n")
-	if text == "" {
-		return
-	}
-	rows := strings.Split(text, "\n")
-	cells := make([][]string, len(rows))
-	var widths []int
-	for i, r := range rows {
-		cells[i] = strings.Split(r, "\t")
-		for j, c := range cells[i] {
-			if j >= len(widths) {
-				widths = append(widths, 0)
-			}
-			if w := utf8.RuneCountInString(c); w > widths[j] {
-				widths[j] = w
-			}
-		}
-	}
-	for _, row := range cells {
-		var b strings.Builder
-		for j, c := range row {
-			b.WriteString(c)
-			if j < len(row)-1 {
-				b.WriteString(strings.Repeat(" ", widths[j]-utf8.RuneCountInString(c)+2))
-			}
-		}
-		m.response = append(m.response, strings.TrimRight(b.String(), " "))
-	}
-}
-
-// splitPluginArgs splits the post-`/plugin` argument tail into
-// (verb, rest). The verb is the first whitespace-delimited token;
-// `rest` is what follows with surrounding whitespace trimmed, or
-// empty when the verb stands alone. Cycle plugin-case-insensitive:
-// callers compare the verb with strings.EqualFold so `List`,
-// `LIST`, and `list` all dispatch the same handler (AGY 1.3.6
-// changelog line 21).
-func splitPluginArgs(args string) (string, string) {
-	for i := 0; i < len(args); i++ {
-		if args[i] == ' ' || args[i] == '\t' || args[i] == '\n' {
-			return args[:i], trimSpace(args[i+1:])
-		}
-	}
-	return args, ""
-}
-
-// splitSlash parses "/cmd args" into ("cmd", "args"). Returns cmd
-// without the leading "/" and args with surrounding whitespace
-// trimmed. If buf is just "/cmd" args is empty.
-func splitSlash(buf string) (string, string) {
-	if buf == "" || buf[0] != '/' {
-		return "", ""
-	}
-	rest := buf[1:]
-	for i := 0; i < len(rest); i++ {
-		if rest[i] == ' ' || rest[i] == '\t' || rest[i] == '\n' {
-			return rest[:i], trimSpace(rest[i+1:])
-		}
-	}
-	return rest, ""
-}
-
-func trimSpace(s string) string {
-	start := 0
-	end := len(s)
-	for start < end && (s[start] == ' ' || s[start] == '\t') {
-		start++
-	}
-	for end > start && (s[end-1] == ' ' || s[end-1] == '\t') {
-		end--
-	}
-	return s[start:end]
-}
-
-func quoteInsertText(content string) string {
-	return slashquote.InsertText(content)
-}
-
-func resolveQuote(arg string, sess []backend.Message) (string, string) {
-	return slashquote.ResolveQuote(arg, sess)
+	m.response = append(m.response, rows.TabAlignedRows(text)...)
 }
 
 func (m *runMode) applyQuoteInsert(content string) tea.Cmd {
 	m.input.SetValue(content)
-	m.historyIdx = 0
-	m.historyEdit = ""
-	m.picker.Update([]rune(firstLine(content)))
+	m.promptHistory.Reset()
+	m.picker.Update([]rune(tuilib.FirstLine(content)))
 	return nil
 }
 
 func (m *runMode) handleQuote(args string) (bool, tea.Cmd) {
-	content, errMsg := resolveQuote(args, m.session)
+	content, errMsg := slashquote.ResolveQuote(args, m.session)
 	if errMsg != "" {
 		m.slashRespond("/quote", errMsg)
 		return true, nil
@@ -325,8 +336,7 @@ func (m *runMode) sendAsPrompt(token, prompt string) tea.Cmd {
 	m.pushHistory(token)
 	m.input.Reset()
 	m.streaming = true
-	m.historyIdx = 0
-	m.historyEdit = ""
+	m.promptHistory.Reset()
 	m.response = append(m.response, "> "+token)
 	m.liveStart = len(m.response)
 	m.liveSteps = nil
@@ -338,61 +348,63 @@ func (m *runMode) sendAsPrompt(token, prompt string) tea.Cmd {
 	return tea.Batch(m.streamPrompt(prompt), tickCmd)
 }
 
-func planPrompt() string {
-	return "Help me create a plan for the work I just described. Outline the next concrete steps, call out anything that needs clarification before we start, and end with the single question I should answer first."
-}
-
-func goalPrompt() string {
-	return "Help me set a clear goal for this session. Restate the goal in one sentence, list the success criteria, and flag anything that could pull us off-track."
-}
-
-func learnPrompt() string {
-	return "Capture a learning from what I just discussed. Write it as a short note I can refer back to, with the takeaway up front and any open questions below."
-}
-
-func teamworkPrompt() string {
-	return "Coordinate a team of autonomous agents to tackle this project. Decompose the goal into clear milestones, assign specialized roles, track progress systematically, and verify outcomes before synthesizing the final result."
-}
-
 func boostPrompt() string {
 	return fmt.Sprintf("<ORCHESTRATOR>\n%s\n</ORCHESTRATOR>", builtin.OrchestratorPrompt())
 }
 
-func grillMePrompt() string {
-	return "Interrogate my reasoning on the topic I just raised. Ask probing questions that expose weak assumptions, missing evidence, or unstated tradeoffs. Keep going until I've either tightened the argument or admitted it's not yet defensible."
-}
-
-// schedulePrompt is the prompt /schedule sends to the model.
-//
-// The reference's /schedule is a shortcut for a normal model call — the
-// reference's capture shows model output under the command (cycle 194) —
-// and the model then registers the schedule through the `schedule` tool,
-// which the clone carries (internal/tools/schedule_state.go).
-//
-// The wording is the clone's own, like the other prompt-sending
-// commands' (the reference's own prompt text is not recoverable).
-func schedulePrompt() string {
-	return "Register this instruction to run later, as a one-time timer or on a recurring schedule. Tell me when it is registered, when it will first run, and what it will do."
-}
-
 func (m *runMode) slashPlan(args string) (bool, tea.Cmd) {
-	return true, m.sendAsPrompt("/plan", planPrompt())
+	trimmed := strings.TrimSpace(args)
+	m.mode = permissions.ModePlan
+	if m.policy != nil {
+		m.policy.Mode = permissions.ModePlan
+	}
+	m.input.Placeholder = permissions.ModeBanner(permissions.ModePlan)
+	m.modeHintDismissed = false
+
+	if strings.HasPrefix(trimmed, "/") {
+		return m.dispatchSlashLine(trimmed)
+	}
+
+	prompt := slashactions.PlanPrompt()
+	if trimmed != "" {
+		prompt = trimmed + "\n\n" + prompt
+	}
+	return true, m.sendAsPrompt("/plan", prompt)
 }
 
 func (m *runMode) slashGoal(args string) (bool, tea.Cmd) {
-	return true, m.sendAsPrompt("/goal", goalPrompt())
+	trimmed := strings.TrimSpace(args)
+	if m.activeGoal != nil && m.activeGoal.IsActive() {
+		m.activeGoal.State = convstore.GoalStateCancelled
+	}
+	goalText := trimmed
+	prompt := slashactions.GoalPrompt()
+	if trimmed != "" {
+		prompt = trimmed + "\n\n" + prompt
+	} else {
+		goalText = "Help me set a clear goal for this session"
+	}
+	m.activeGoal = convstore.NewGoalState(goalText, len(m.session))
+	return true, m.sendAsPrompt("/goal", prompt)
 }
 
 func (m *runMode) slashLearn(args string) (bool, tea.Cmd) {
-	return true, m.sendAsPrompt("/learn", learnPrompt())
+	return true, m.sendAsPrompt("/learn", slashactions.LearnPrompt())
 }
 
+// slashTeamwork answers /teamwork-preview (and its /teamwork alias).
+//
+// The echo carries the command's canonical name: the reference's own
+// command is "/teamwork-preview" (the reference CLI's changelog names
+// it), and "/teamwork" is the alias the documentation advertises for
+// it. Every other prompt-sending command echoes its canonical name
+// too, so the alias and the command produce the same bytes.
 func (m *runMode) slashTeamwork(args string) (bool, tea.Cmd) {
-	prompt := teamworkPrompt()
+	prompt := slashactions.TeamworkPrompt()
 	if args != "" {
 		prompt = args + "\n\n" + prompt
 	}
-	return true, m.sendAsPrompt("/teamwork", prompt)
+	return true, m.sendAsPrompt("/teamwork-preview", prompt)
 }
 
 func (m *runMode) slashBoost(args string) (bool, tea.Cmd) {
@@ -405,5 +417,10 @@ func (m *runMode) slashBoost(args string) (bool, tea.Cmd) {
 }
 
 func (m *runMode) slashGrillMe(args string) (bool, tea.Cmd) {
-	return true, m.sendAsPrompt("/grill-me", grillMePrompt())
+	prompt := slashactions.GrillMePrompt()
+	clean := strings.TrimSpace(args)
+	if clean != "" {
+		prompt = clean + "\n\n" + prompt
+	}
+	return true, m.sendAsPrompt("/grill-me", prompt)
 }

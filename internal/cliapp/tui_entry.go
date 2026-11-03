@@ -15,27 +15,35 @@ import (
 	"golang.org/x/term"
 
 	"github.com/justwasm/pigasus/browsercdp"
-	"github.com/justwasm/pigasus/internal/accounts"
-	"github.com/justwasm/pigasus/internal/agent"
-	"github.com/justwasm/pigasus/internal/auth"
-	"github.com/justwasm/pigasus/internal/backend"
-	"github.com/justwasm/pigasus/internal/branding"
-	"github.com/justwasm/pigasus/internal/builtinskills"
+	"github.com/justwasm/pigasus/internal/app/session/setup"
 	"github.com/justwasm/pigasus/internal/cli"
-	"github.com/justwasm/pigasus/internal/cliflags"
-	"github.com/justwasm/pigasus/internal/convstore"
-	"github.com/justwasm/pigasus/internal/daemon"
-	"github.com/justwasm/pigasus/internal/loginui"
-	"github.com/justwasm/pigasus/internal/memtrim"
-	"github.com/justwasm/pigasus/internal/modelcatalog"
-	"github.com/justwasm/pigasus/internal/permissions"
-	"github.com/justwasm/pigasus/internal/pluginwatch"
+	"github.com/justwasm/pigasus/internal/app/session/convstore"
+	"github.com/justwasm/pigasus/internal/core/backend"
+	"github.com/justwasm/pigasus/internal/core/branding"
+	"github.com/justwasm/pigasus/internal/core/cliflags"
+	confhome "github.com/justwasm/pigasus/internal/core/confhome"
+	"github.com/justwasm/pigasus/internal/core/policy/permissions"
+	workspacetrust "github.com/justwasm/pigasus/internal/core/policy/trust"
+	settings "github.com/justwasm/pigasus/internal/core/settings"
+	accounts "github.com/justwasm/pigasus/internal/features/accounts/core"
+	"github.com/justwasm/pigasus/internal/features/agents"
+	"github.com/justwasm/pigasus/internal/features/auth"
+	backendselect "github.com/justwasm/pigasus/internal/infra/backend/select"
+	"github.com/justwasm/pigasus/internal/ui/foundations/history"
+	"github.com/justwasm/pigasus/internal/ui/mdrender"
+	modelcatalog "github.com/justwasm/pigasus/internal/features/models/catalog"
+	pluginwatch "github.com/justwasm/pigasus/internal/features/plugins/watch"
+	builtinskills "github.com/justwasm/pigasus/internal/features/tools/skills"
+	"github.com/justwasm/pigasus/internal/app/toolrunner"
+	"github.com/justwasm/pigasus/internal/infra/daemon"
+	"github.com/justwasm/pigasus/internal/ui/views/modelpicker"
+	"github.com/justwasm/pigasus/internal/ui/views/loginui"
+	"github.com/justwasm/pigasus/internal/infra/memtrim"
 	"github.com/justwasm/pigasus/internal/printmode"
-	"github.com/justwasm/pigasus/internal/termcolor"
-	"github.com/justwasm/pigasus/internal/toolrunner"
-	"github.com/justwasm/pigasus/internal/tools"
-	"github.com/justwasm/pigasus/internal/tuilib"
-	"github.com/justwasm/pigasus/internal/workspacetrust"
+	"github.com/justwasm/pigasus/internal/app/tools"
+	"github.com/justwasm/pigasus/internal/ui/tuilib"
+	"github.com/justwasm/pigasus/internal/ui/termguard"
+	termcolor "github.com/justwasm/pigasus/internal/ui/render/color"
 	"github.com/justwasm/pigasus/palette"
 	"github.com/justwasm/pigasus/render"
 )
@@ -67,7 +75,7 @@ func checkWorkspaceTrustGate(w io.Writer, fs *flag.FlagSet) (string, bool, error
 // in the terminal's alternate buffer — so the gate asks for the same
 // alternate-screen setting the session itself uses.
 func checkStartupAuthGate(fs *flag.FlagSet) error {
-	if !hasOAuthToken() && os.Getenv("GEMINI_API_KEY") == "" && os.Getenv("AGY_ADC_AUTH") == "" {
+	if !backendselect.HasOAuthToken() && os.Getenv("GEMINI_API_KEY") == "" && os.Getenv("AGY_ADC_AUTH") == "" {
 		lm := loginui.New()
 		lm.AltScreen = resolveAltScreen(fs)
 		loginProg := tea.NewProgram(lm)
@@ -104,7 +112,7 @@ func resolveAltScreen(fs *flag.FlagSet) bool {
 	if cliflags.BoolValue(fs, "no-alt-screen") {
 		return false
 	}
-	if flagWasSet(fs, "alt-screen") {
+	if cliflags.WasSet(fs, "alt-screen") {
 		return cliflags.BoolValue(fs, "alt-screen")
 	}
 	return altScreenModeFromSettings()
@@ -122,7 +130,7 @@ func altScreenModeValue(stored any) bool {
 // altScreenModeFromSettings reads `altScreenMode` out of settings.json.
 // A missing or unreadable file leaves the default in place.
 func altScreenModeFromSettings() bool {
-	stored, err := auth.SettingsField("altScreenMode")
+	stored, err := settings.Field("altScreenMode")
 	if err != nil {
 		return true
 	}
@@ -136,7 +144,7 @@ func resolveTUIModelAndBackend(fs *flag.FlagSet) (string, string, bool, backend.
 		modelName = defaultModel
 	}
 	altScreen := resolveAltScreen(fs)
-	be := pickBackend(fs, modelName)
+	be := backendselect.Pick(fs, modelName, modelpicker.ResolveCatalogueID)
 	if gb, ok := be.(gatewayBackend); ok {
 		extModel := strings.TrimSpace(gb.GatewayConfig().ExternalModel)
 		// The transport is the authority on which model will run, so the
@@ -155,37 +163,42 @@ func resolveTUIModelAndBackend(fs *flag.FlagSet) (string, string, bool, backend.
 
 func initTUIRunMode(fs *flag.FlagSet, be backend.Client, modelName, unavailableFrom string, altScreen bool) (*runMode, context.CancelFunc) {
 	userEmail := auth.EffectiveUserEmail()
-	m := NewRunMode(be, userEmail, modelName, "", "", altScreen)
+	m := newRunMode(be, userEmail, modelName, "", "", altScreen)
 	// Cycle 309: the background task's completion notification reaches
 	// the model through the session's inbox.
 	m.installTaskNotifier()
 	// Cycle multi-account-switch: the account the session starts on
 	// becomes a known account, so /accounts lists it and the user can
 	// add a second one and switch back to this one later.
-	registerCurrentAccount(userEmail)
-	m.backendFor = func(label string) backend.Client { return pickBackend(fs, label) }
+	accounts.RegisterCurrent(userEmail)
+	m.backendFor = func(label string) backend.Client { return backendselect.Pick(fs, label, modelpicker.ResolveCatalogueID) }
 	if name := cliflags.StringValue(fs, "agent"); name != "" {
-		if err := agent.ValidateAgent(name); err != nil {
-			var nf *agent.AgentNotFoundError
+		if err := agents.ValidateAgent(name); err != nil {
+			var nf *agents.AgentNotFoundError
 			if errors.As(err, &nf) {
 				m.agentWarning = strings.TrimPrefix(nf.Error(), "error: ") + ". Using the default agent instead."
 			}
 		}
 	}
-	m.agentBody = printmode.AgentBody(printmode.CustomAgentFromFlags(fs))
+	m.agentBody = agents.AgentBody(agents.CustomAgentFromFlags(fs))
 	if m.agentBody != "" {
 		m.agentName = strings.TrimSpace(cliflags.StringValue(fs, "agent"))
 	}
 	m.reloadVimSettings()
-	m.loadAnnouncements()
-	m.loadHistory()
+	m.announceQueue.Load()
+	// Cycle 286: agy shares prompt history across all sessions
+	// globally. When a fresh CLI session starts, pressing Up
+	// immediately recalls the most recent prompt from earlier
+	// sessions. If the history list is already populated (e.g. by a
+	// test), the load preserves the existing entries.
+	m.promptHistory.Load(convstore.LoadHistory("", history.Cap))
 	m.flags = fs
 	if unavailableFrom != "" {
 		m.fallbackFrom = unavailableFrom
 		m.fallbackTo = modelName
 	}
 	watchCtx, watchCancel := context.WithCancel(context.Background())
-	if w, werr := pluginwatch.New(auth.AntigravityConfigHome()); werr == nil && w != nil {
+	if w, werr := pluginwatch.New(confhome.Antigravity()); werr == nil && w != nil {
 		m.pluginWatcher = w
 		pluginWatcherPtr.Store(w)
 		go w.Run(watchCtx)
@@ -209,23 +222,25 @@ func setupTUIToolsAndPolicy(m *runMode, fs *flag.FlagSet) {
 	// The three MCP tools (call_mcp_tool, list_resources, read_resource)
 	// need a live MCP connection; the pool is lazy, so this costs nothing
 	// when no server is configured.
-	printmode.InstallMCPProvider(auth.AntigravityHome())
+	setup.InstallMCPProvider(auth.AntigravityHome(), workspace)
 	catalog := agentToolRegistry(workspace, m.agentBody)
 	m.catalog = catalog
 	m.registerSubagentQuestionTool(catalog)
-	sessionPolicy := printModePolicy(fs)
-	sessionSandbox := printModeSandbox(fs, workspace, m.conversationID)
+	sessionPolicy := printmode.PrintModePolicy(fs)
+	sessionSandbox := printmode.PrintModeSandbox(fs, workspace, m.conversationID)
 	m.toolSandbox = sessionSandbox
-	m.EnableTools(advertisedToolDecls(m.agentBody, catalog), &permissionRunner{
+	m.enableTools(toolrunner.AdvertisedToolDecls(m.agentBody, catalog), &permissionRunner{
 		inner:   &toolrunner.RegistryRunner{Reg: catalog},
 		policy:  &sessionPolicy,
 		sandbox: sessionSandbox,
+		hook:    m.hookToolGate,
+		post:    m.hookPostToolUse,
 	})
 	m.mode = sessionPolicy.Mode
 	m.policy = &sessionPolicy
 	m.input.Placeholder = permissions.ModeBanner(m.mode)
 	m.statusLine = "on"
-	if v, ok := auth.SettingsBool("statusLine"); ok && !v {
+	if v, ok := settings.Bool("statusLine"); ok && !v {
 		// The legacy boolean form. The reference reads it as an object
 		// without a command, so no script runs and the built-in row
 		// stays; the clone additionally hides the row, which is its
@@ -233,7 +248,7 @@ func setupTUIToolsAndPolicy(m *runMode, fs *flag.FlagSet) {
 		m.statusLine = "off"
 	}
 	m.title = "off"
-	if v, ok := auth.SettingsBool("title"); ok && v {
+	if v, ok := settings.Bool("title"); ok && v {
 		m.title = "on"
 	}
 	m.reloadStatusLineConfig()
@@ -266,8 +281,13 @@ func RunLiveTUI(w io.Writer, fs *flag.FlagSet) error {
 
 	registerParserBridges()
 	_, _ = auth.WriteCompatDefaults()
-	_ = cli.RunPluginCleanupOnStartup(auth.AntigravityConfigHome())
-	_, _ = builtinskills.Install(auth.AntigravityConfigHome())
+	// The reference normalises settings.json on every start-up: it
+	// rewrites the file in its own format and drops the keys that hold
+	// their default value. The error is advisory — a settings file that
+	// cannot be normalised must not keep the CLI from starting.
+	_ = settings.NormalizeOnStartup()
+	_ = cli.RunPluginCleanupOnStartup(confhome.Antigravity())
+	_, _ = builtinskills.Install(confhome.Antigravity())
 	return runLiveTUI(w, fs)
 }
 
@@ -275,30 +295,34 @@ func runLiveTUI(w io.Writer, fs *flag.FlagSet) error {
 	// The chat bridge and the remote-control daemon reach the TUI
 	// without going through runRoot, so the browser's policy is read
 	// from the flag set here too.
-	applyBrowserFlags(fs)
-	applyProjectFlags(fs)
-	applyLogFileFlag(fs)
+	applySessionFlags(fs)
 	if !isTerminalInteractive(os.Stdin) {
 		return renderTUIWithFlags(w, fs)
 	}
-	canonicalCwd, shouldExit, err := checkWorkspaceTrustGate(w, fs)
-	if err != nil || shouldExit {
-		return err
-	}
-	if err := checkStartupAuthGate(fs); err != nil {
-		return err
-	}
-	modelName, unavail, altScreen, be := resolveTUIModelAndBackend(fs)
-	m, watchCancel := initTUIRunMode(fs, be, modelName, unavail, altScreen)
-	defer watchCancel()
-	if m.pluginWatcher != nil {
-		defer pluginWatcherPtr.Store(nil)
-		defer m.pluginWatcher.Close()
-	}
-	setupTUIToolsAndPolicy(m, fs)
-	setupTUIConversation(m, fs, canonicalCwd)
+	return termguard.Run(func() error {
+		canonicalCwd, shouldExit, err := checkWorkspaceTrustGate(w, fs)
+		if err != nil || shouldExit {
+			return err
+		}
+		if err := checkStartupAuthGate(fs); err != nil {
+			return err
+		}
+		modelName, unavail, altScreen, be := resolveTUIModelAndBackend(fs)
+		m, watchCancel := initTUIRunMode(fs, be, modelName, unavail, altScreen)
+		defer watchCancel()
+		if m.pluginWatcher != nil {
+			defer pluginWatcherPtr.Store(nil)
+			defer m.pluginWatcher.Close()
+		}
+		setupTUIToolsAndPolicy(m, fs)
+		if cols, rows, err := term.GetSize(int(os.Stdout.Fd())); err == nil && cols > 0 {
+			m.width, m.height = cols, rows
+			mdrender.SetCurrentWidth(cols)
+		}
+		setupTUIConversation(m, fs, canonicalCwd)
 
-	return runTUIProgram(m, fs, altScreen, canonicalCwd)
+		return runTUIProgram(m, fs, altScreen, canonicalCwd)
+	})
 }
 
 func setupTUIRemoteControl(m *runMode, fs *flag.FlagSet) {
@@ -366,7 +390,7 @@ func printTUIExitBanner(m *runMode, cwd string) {
 		AppName:        branding.Current().CLIName,
 		Version:        cliVersion,
 		Email:          email,
-		Cwd:            shortenCwd(cwd),
+		Cwd:            tuilib.ShortenCwd(cwd),
 	})
 	// The banner is painted after the session ended, so it wears the
 	// scheme the session wore.
@@ -420,40 +444,4 @@ func isTerminalInteractive(f *os.File) bool {
 		return false
 	}
 	return term.IsTerminal(int(f.Fd()))
-}
-
-func (m *runMode) reloadResumeList() {
-	list, err := convstore.ListConversations()
-	if err != nil {
-		m.resumeList = nil
-		return
-	}
-	if m.conversationID != "" {
-		filtered := list[:0]
-		for _, c := range list {
-			if c.ID != m.conversationID {
-				filtered = append(filtered, c)
-			}
-		}
-		list = filtered
-	}
-	m.resumeList = list
-	m.buildResumeGroups()
-}
-
-// expandFirstResumeGroup expands the group the reference opens the tree
-// with and puts the cursor on its first conversation.
-//
-// 【一手】 agy 1.4.7: the tree opens with the group of the current
-// conversation expanded and the cursor on that conversation.
-func (m *runMode) expandFirstResumeGroup() {
-	if len(m.resumeGroups) == 0 {
-		return
-	}
-	first := m.resumeGroups[0]
-	m.expandResumeGroup(first.Key, true)
-	if len(first.Items) > 0 {
-		m.resumeCursor = 1
-		m.resumeWindow = 0
-	}
 }

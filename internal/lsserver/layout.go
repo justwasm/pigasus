@@ -35,7 +35,7 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/justwasm/pigasus/internal/builtinskills"
+	builtinskills "github.com/justwasm/pigasus/internal/features/tools/skills"
 )
 
 // Layout is the reference's resolved on-disk layout.

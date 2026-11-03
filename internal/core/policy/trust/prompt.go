@@ -10,8 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/justwasm/pigasus/internal/auth"
-	"github.com/justwasm/pigasus/internal/cliflags"
+	"github.com/justwasm/pigasus/internal/core/cliflags"
 )
 
 // Result is the decision returned by RunTrustPrompt.
@@ -63,12 +62,6 @@ func RunTrustPrompt(cwd string, in io.Reader, out io.Writer) (Result, error) {
 		return Deny, nil
 	}
 }
-
-// IsWorkspaceTrusted is the lookup hook for trusted workspaces.
-var IsWorkspaceTrusted = auth.IsWorkspaceTrusted
-
-// AddTrustedWorkspace is the persistence hook for trusted workspaces.
-var AddTrustedWorkspace = auth.AddTrustedWorkspace
 
 // Gate decides whether the on-startup trust dialog should be shown.
 // Returns (canonicalCwd, skipPrompt, error).

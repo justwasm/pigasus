@@ -2,10 +2,10 @@
 
 > The gate that notices when the reference binary moves, and how to re-evidence an artefact.
 
-## Reference drift (`internal/referencedrift`, cycle `reference-drift`)
+## Reference drift (`internal/infra/referencedrift`, cycle `reference-drift`)
 
 The parity claim in the README — "byte-level parity with `agy X.Y.Z`" — expires, and
-Google's auto-updates expire it without asking. `internal/referencedrift` is what notices.
+Google's auto-updates expire it without asking. `internal/infra/referencedrift` is what notices.
 
 `reference.lock.json` records three things:
 
@@ -47,13 +47,13 @@ go test ./internal/referencedrift/ -run TestReferenceLock -update   # reseal the
 artifact onto a newer reference is the decision the gate is meant to make loud.
 
 Reports: `docs/cycles/reference-drift/deliverable.md`. Known still-unverified against 1.4.3:
-`internal/agyprompt/testdata/capture_1.4.4.{txt,json}` (re-evidenced at 1.4.4) and
-`internal/tools/testdata/advertised_tools_1.4.3.txt` (re-verified at 1.4.4).
+`internal/app/prompt/agyprompt/testdata/capture_1.4.4.{txt,json}` (re-evidenced at 1.4.4) and
+`internal/app/tools/surface/testdata/advertised_tools_1.4.3.txt` (re-verified at 1.4.4).
 
 **Re-evidenced at 1.4.5** (`docs/cycles/reference-drift-145/`): eight of the
 gate's ten SUSPECT artifacts were re-captured live and compared byte for byte.
 Only `capture_1.4.4.json` (its inputs are environment-specific) and
-`internal/tools/testdata/result_texts_1.4.4.txt` (the 32 result texts need a
+`internal/app/tools/testdata/result_texts_1.4.4.txt` (the 32 result texts need a
 tool-using turn under a pty harness) are still unverified. The re-verification
 found four real drifts, all fixed in that cycle: the `<user_rules>` semantics,
 a new `ExactTiming` parameter on `schedule`, a 72nd RPC
@@ -98,7 +98,7 @@ v2.27.0. What did move: the **language server's** proto grew 351 → 358 RPCs
 placeholder, the marketplace-search flag), the seed set moved 165,692 →
 166,181 names, and the one **behavioural** change on the wire: a failed tool
 call now comes back under `response.error` instead of `response.output`
-(【一手】, captured live — `internal/tools/testdata/tool_errors_1.4.8.txt`).
+(【一手】, captured live — `internal/app/tools/surface/testdata/tool_errors_1.4.8.txt`).
 
 **Re-evidenced at 1.4.9** (`docs/cycles/cycle-362-agy-1.4.9-alignment/`): the
 clone is pinned to 1.4.9 (sha256 `a66421b7…`). The **served changelog feed
@@ -134,9 +134,9 @@ public repository only, and they are recorded verbatim in
 were. `--help` is byte-identical to the 1.4.6 capture once the clone's own
 four commands are removed. What did move is **behaviour**, and the clone
 implements four of the six 1.4.10 bullets: startup memory trim after 15 seconds
-via `runtime/debug.FreeOSMemory` (`internal/memtrim`), post-compaction size
-counts carried content (`internal/compaction`), subagent compaction keeps
-parent's task, ID, and 10 most recent parent messages (`internal/subagenttools`),
+via `runtime/debug.FreeOSMemory` (`internal/infra/memtrim`), post-compaction size
+counts carried content (`internal/core/compaction`), subagent compaction keeps
+parent's task, ID, and 10 most recent parent messages (`internal/app/subagenttools`),
 and image limits are capped at 2000px per side with large PNG converted to JPEG
 and MIME type following bytes (`imagery`). The pclntab seed set is regenerated
 from the 1.4.10 binary (167,678 names recovered, 3,751 added and 2,255 removed
@@ -158,12 +158,21 @@ the vendor's public repository only, and they are recorded verbatim in
 notes were. Because the pin now equals the live binary's version, the lock's
 `lag_acknowledged_through` was **removed** (a lag acknowledgement must be
 strictly newer than the pin) and the gate reports the twenty-odd artefacts
-that were captured from an older binary as SUSPECT. The **RE pipeline was not
-regenerated** at 1.4.11 — the seed set, the Ghidra project and the
-decompiled output still describe the 1.4.10 binary, and the lock says so.
+that were captured from an older binary as SUSPECT.
 
-The **seed set is now regenerated at 1.4.6** (`out/local-macos/seeds/`, 161,286
-functions), and so is everything derived from it — the Ghidra project
+**The RE pipeline was regenerated at 1.4.11** (commit `cc4690f8`, "regenerate
+priority function decompiles for agy 1.4.11"). The seed set
+(`out/local-macos/seeds/`) holds **168,548** functions and the lock records it
+as captured at 1.4.11; the Ghidra project, the decompiled output, the priority
+list and the **112** per-package `out/local-macos/decompile-*.md` reports were
+rebuilt from it — **2,397/2,397** priority addresses resolved, 0 unresolved,
+350,577 LOC across 111 Go packages. `out/local-macos/decompile-summary.md` is
+the headline table; `out/local-macos/FINDINGS.md` still carries the older
+1.4.6 numbers in its "current tree" section, and the summary is the newer
+record.
+
+The seed set was last regenerated at 1.4.6 (`out/local-macos/seeds/`, 161,286
+functions), and so was everything derived from it — the Ghidra project
 (`out/local-macos/proj`), the decompiled output (`out/local-macos/dec/`), the
 priority list, the MCP query plan and the 102 per-package
 `out/local-macos/decompile-*.md` reports (2,290/2,290 addresses resolved, 0
@@ -196,7 +205,7 @@ binary's bytes. Report:
 Two things this cycle could **not** do, and therefore did not do:
 
 - the **IDE language server** is a *different binary* with its own address
-  space. Its 164,772-name seed set is byte-identical to the committed one, so
+  space. Its 170,786-name seed set is byte-identical to the committed one, so
   every `LS 0x…` citation in the tree is still correct and was left alone.
   The `localharness` binary is a third address space and was left alone for
   the same reason.

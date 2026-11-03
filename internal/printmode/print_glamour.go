@@ -52,7 +52,7 @@ import (
 	"io"
 	"strings"
 
-	"github.com/justwasm/pigasus/internal/mdrender"
+	"github.com/justwasm/pigasus/internal/ui/mdrender"
 )
 
 // printTextRouter is the cycle-231 print-mode text-format chunk router.

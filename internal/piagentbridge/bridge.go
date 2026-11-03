@@ -37,9 +37,9 @@ import (
 	piagent "github.com/MichaelKinsy/PiG/agent"
 	pi "github.com/MichaelKinsy/PiG/ai"
 
-	"github.com/justwasm/pigasus/internal/backend"
-	"github.com/justwasm/pigasus/internal/modelctx"
-	"github.com/justwasm/pigasus/internal/tools"
+	"github.com/justwasm/pigasus/internal/core/backend"
+	modelctx "github.com/justwasm/pigasus/internal/features/models/ctx"
+	"github.com/justwasm/pigasus/internal/app/tools"
 )
 
 // ProviderID is the provider name stamped on every assistant message the

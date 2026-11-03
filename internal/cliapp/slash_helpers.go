@@ -6,6 +6,8 @@
 package cliapp
 
 import (
+	"github.com/justwasm/pigasus/internal/features/tools/skills"
+	"github.com/justwasm/pigasus/internal/ui/editor/editorkit"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -13,85 +15,29 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/justwasm/pigasus/internal/auth"
-	"github.com/justwasm/pigasus/internal/backend"
-	"github.com/justwasm/pigasus/internal/convstore"
-	"github.com/justwasm/pigasus/internal/isolation"
+	confhome "github.com/justwasm/pigasus/internal/core/confhome"
+	settings "github.com/justwasm/pigasus/internal/core/settings"
+	"github.com/justwasm/pigasus/internal/core/slashparse"
+	"github.com/justwasm/pigasus/internal/features/tools/isolation"
 	"github.com/justwasm/pigasus/internal/printmode"
-	"github.com/justwasm/pigasus/internal/rewindpanel"
-	"github.com/justwasm/pigasus/internal/skillsui"
+	"github.com/justwasm/pigasus/internal/ui/keybindings"
+	"github.com/justwasm/pigasus/internal/ui/views/skillsui"
 )
-
-// rewindSession pops the trailing user/assistant pair from sess and
-// returns the number of messages removed. Delegated to rewindpanel.RewindSession.
-func rewindSession(sess []backend.Message) int {
-	return rewindpanel.RewindSession(sess)
-}
-
-// forkConversation duplicates the live session into a fresh
-// convstore database under a new UUID. Delegated to convstore.ForkConversation.
-func forkConversation(sess []backend.Message, currentID string) (string, string) {
-	return convstore.ForkConversation(sess, currentID)
-}
-
-// forkTrajectory duplicates the conversation's trajectory — the user
-// inputs, the model responses and the tool calls — into a fresh
-// convstore database under a new UUID.
-//
-// The tool calls come along because they are what the rehydration pass
-// reads back: a fork that dropped them would start blind (see
-// internal/rehydration).
-func forkTrajectory(steps []convstore.Step, currentID string) (string, string) {
-	return convstore.ForkConversationSteps(steps, currentID)
-}
-
-// sessionToSteps converts an in-memory session into the convstore
-// step shape that WriteConversation emits. Delegated to convstore.SessionToSteps.
-func sessionToSteps(sess []backend.Message) []convstore.Step {
-	return convstore.SessionToSteps(sess)
-}
-
-// printSlashKeybindings is the /keybindings panel content. The
-// reference's /keybindings tab on the /help overlay lists the same
-// shortcuts in a slightly different visual layout; we render the
-// same content via a multi-line text block to keep parity without
-// re-implementing the panel.
-func printSlashKeybindings() string {
-	var b strings.Builder
-	b.WriteString("Keyboard shortcuts:\n")
-	for _, line := range []string{
-		"  Enter            Submit prompt",
-		"  Shift+Enter      Newline (multiline prompt)",
-		"  Ctrl+C × 2        Exit",
-		"  Ctrl+L            Clear CLI screen",
-		"  Ctrl+O            Expand / collapse tool calls",
-		"  Ctrl+T            Edit prompt in $EDITOR",
-		"  Up / Down         History navigation",
-		"  PageUp / PageDown Transcript scroll",
-		"  /                 Open command picker",
-		"  Esc               Close picker / overlay",
-		"  Tab               Complete command",
-	} {
-		b.WriteString(line)
-		b.WriteString("\n")
-	}
-	return strings.TrimRight(b.String(), "\n")
-}
 
 const keybindingsFileName = "keybindings.json"
 
 func resolveKeybindingsEditor(configuredEditor string) (name string, args []string, source string, ok bool) {
-	configuredEditor = trimSpace(configuredEditor)
+	configuredEditor = slashparse.Trim(configuredEditor)
 	if configuredEditor != "" && !strings.EqualFold(configuredEditor, "auto") {
-		name, args = splitCommand(configuredEditor)
+		name, args = editorkit.SplitCommand(configuredEditor)
 		return name, args, "settings.editor", true
 	}
-	if e := trimSpace(os.Getenv("EDITOR")); e != "" {
-		name, args = splitCommand(e)
+	if e := slashparse.Trim(os.Getenv("EDITOR")); e != "" {
+		name, args = editorkit.SplitCommand(e)
 		return name, args, "$EDITOR", true
 	}
-	if v := trimSpace(os.Getenv("VISUAL")); v != "" {
-		name, args = splitCommand(v)
+	if v := slashparse.Trim(os.Getenv("VISUAL")); v != "" {
+		name, args = editorkit.SplitCommand(v)
 		return name, args, "$VISUAL", true
 	}
 	return "", nil, "", false
@@ -100,7 +46,7 @@ func resolveKeybindingsEditor(configuredEditor string) (name string, args []stri
 const noEditorConfiguredMessage = "No editor configured: set $EDITOR or $VISUAL"
 
 func openKeybindingsFile(configuredEditor string) (notice string, cmd *exec.Cmd, errMsg string) {
-	home := auth.AntigravityConfigHome()
+	home := confhome.Antigravity()
 	if err := os.MkdirAll(home, 0o755); err != nil {
 		return "", nil, "Failed to create " + home + ": " + err.Error()
 	}
@@ -123,11 +69,45 @@ func openKeybindingsFile(configuredEditor string) (notice string, cmd *exec.Cmd,
 	return notice, exec.Command(name, append(args, path)...), ""
 }
 
+// slashKeybindings reports the configured keybindings.
+//
+// The report is read-only: the file is read and never written, so the
+// command can never re-bind the exit action.
+//
+// The editor path is a separate, explicit verb ("/keybindings edit"):
+// the reference opens the file in $EDITOR (official-docs/settings.md:
+// "/keybindings opens the file in your editor"), but the command's own
+// answer is the report — the two are different surfaces, and a command
+// that silently opens an editor cannot also answer a question.
 func (m *runMode) slashKeybindings(args string) (bool, tea.Cmd) {
-	notice, editorCmd, errMsg := openKeybindingsFile(auth.SettingsString("editor"))
+	if strings.EqualFold(slashparse.Trim(args), "edit") {
+		return m.slashKeybindingsEdit()
+	}
+	path := filepath.Join(confhome.Antigravity(), keybindingsFileName)
+	data, err := os.ReadFile(path)
+	if err != nil && !os.IsNotExist(err) {
+		m.slashRespond("/keybindings", "Failed to read "+path+": "+err.Error())
+		return true, nil
+	}
+	report, err := keybindings.Report(path, data)
+	if err != nil {
+		m.slashRespond("/keybindings", err.Error())
+		return true, nil
+	}
+	m.slashContent(report)
+	return true, nil
+}
+
+// slashKeybindingsEdit opens the keybindings file in the configured
+// editor.
+//
+// The file is created with an empty object when it does not exist — the
+// reference creates it only when the user asks for the customization
+// command 【strings】.
+func (m *runMode) slashKeybindingsEdit() (bool, tea.Cmd) {
+	notice, editorCmd, errMsg := openKeybindingsFile(settings.String("editor"))
 	if errMsg != "" {
 		m.slashRespond("/keybindings", errMsg)
-		m.slashContent(printSlashKeybindings())
 		return true, nil
 	}
 	if notice != "" {
@@ -163,9 +143,9 @@ func runIsolatedSlash(m *runMode, cmd, args string, feedback isolation.FeedbackF
 	}
 }
 
-type jsonSkillInfo = printmode.SkillInfo
+type jsonSkillInfo = skillsui.SkillInfo
 
-var printSlashSkillInfos = printmode.PrintSlashSkillInfos
+var printSlashSkillInfos = skills.Discover
 
 // slashSkillCatalog is the source of the invocable-skill list. It is a var
 // rather than a direct call so tests can substitute a synthetic catalog
@@ -195,7 +175,7 @@ func slashSkillLookup(name string) (jsonSkillInfo, bool) {
 // cycle 203 — the /skills picker
 // ════════════════════════════════════════════════════════════════════════
 //
-// panelSkillsLines (slash_panels.go) used to hardcode "63 skills", one
+// The /skills panel (slash_panel_routing.go) used to hardcode "63 skills", one
 // group header, eleven invented rows and a fabricated description for
 // every entry ("Skill installed under ~/.gemini/skills/<name>"). Cycle 203
 // rebuilds the panel on the real catalogue — slashSkillCatalog, i.e.
@@ -229,57 +209,7 @@ func slashSkillLookup(name string) (jsonSkillInfo, bool) {
 //	window start   max(0, cursorItem-(n-1)); the counter follows it
 //	truncation     whole rendered line ≤ width-1 columns, mid-word cut
 
-// The picker's model now lives in internal/skillsui (panel_model.go).
-// The aliases below keep the clone's own vocabulary — and its tests —
-// reading the same fields the panel renderer writes.
-
-// skillsPanelDefaultWidth / Height stand in for m.width / m.height before
-// the first tea.WindowSizeMsg reaches the model (mkPanel leaves both 0).
-// They reproduce the 220×30 class-A capture (ppref.skills.raw.txt:
-// 11 items, "[1-11 of 63 items]"), mirroring configVisibleRowsFor's 10 and
-// helpListWindowFor's 18 fallbacks.
-const (
-	skillsPanelDefaultWidth  = skillsui.PanelDefaultWidth
-	skillsPanelDefaultHeight = skillsui.PanelDefaultHeight
-)
-
-// skillsPanelGroup is one /skills catalogue section: a header row followed
-// by the group's skills, in display-name order.
-type skillsPanelGroup = skillsui.PanelGroup
-
-// skillsPanelItem is one row in the flat item list the counter counts. A
-// header and a skill each occupy exactly one item; the blank row before a
-// header is not an item.
-type skillsPanelItem = skillsui.PanelItem
-
-// skillsPanelModel is the whole picker state: the groups, the flat skill
-// list the cursor indexes, the flat item list the counter counts, and the
-// item index of each skill (for the window-follows-cursor rule).
-type skillsPanelModel = skillsui.PanelModel
-
-// newSkillsPanelModel builds the model from the live catalogue.
-func newSkillsPanelModel() skillsPanelModel {
-	return skillsui.NewPanelModel(slashSkillCatalog())
-}
-
-// skillsPanelGroups splits the catalogue (already sorted by display name)
-// into the reference's groups: Shared, Built-in, then the plugin groups in
-// plugin-name order. The rule itself lives in internal/skillsui.
-func skillsPanelGroups() []skillsPanelGroup {
-	return skillsui.PanelGroups(slashSkillCatalog())
-}
-
-// skillsPanelCatalog flattens the groups back into the cursor's index
-// space: skill 0 is the first Shared skill, the last skill is the last
-// plugin entry. Mirrors slashSkillCatalog's order, minus the headers.
-func skillsPanelCatalog() []jsonSkillInfo {
-	return skillsui.PanelCatalog(slashSkillCatalog())
-}
-
-// skillsPanelRow renders one skill row. The name is brand blue; the cursor
-// row moves the "  " prefix inside the blue span as "› ". The description
-// is dim gray 238 and is cut mid-word to keep the rendered line within
-// width-1 columns, an ASCII "..." marking the cut. A built-in entry
-// reserves a trailing " · built-in" (italic gray 241) before truncating.
-// skillsPanelRow, skillsPanelMarketplaceLink, skillsPanelLines, moveSkillsCursor,
-// and skillsPanelDetailLines are in slash_skills_panel_view.go
+// The picker's model, the rows, the cursor, the detail view and the keys
+// all live in internal/ui/views/skillsui (cycle 381). The host keeps only
+// the catalogue the panel reads — slashSkillCatalog — and the seam file
+// skills_host.go.

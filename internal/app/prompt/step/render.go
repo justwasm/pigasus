@@ -33,7 +33,7 @@ import (
 	"fmt"
 	"text/template"
 
-	"github.com/justwasm/pigasus/internal/agytemplates"
+	"github.com/justwasm/pigasus/internal/app/prompt/agytemplates"
 )
 
 // stepStringData is the payload the reference's step strings take: a struct

@@ -3,7 +3,7 @@ package clipboard_test
 import (
 	"testing"
 
-	"github.com/justwasm/pigasus/internal/clipboard"
+	"github.com/justwasm/pigasus/internal/features/tools/clipboard"
 )
 
 // TestWriteReadRoundTrip pins the wiring of the clipboard's system

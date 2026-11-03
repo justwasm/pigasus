@@ -50,7 +50,7 @@ operator's registered model list).
 
 The clone has no real ADC auth pipeline (the recovered auth flow stops
 at `keyringAuth.TryAuth`, cf.
-`out/decompile/decompile-google3_third_party_jetski_cli_backend_auth_auth..md`,
+`re-docs/decompile-google3_third_party_jetski_cli_backend_auth_auth..md`,
 and `adcAuth.TryAuth` is left as a stub). The signal the reference
 uses to select the adcAuth path is the `AGY_ADC_AUTH` env var; any
 non-empty (post-trim) value puts the binary on the ADC branch on the
@@ -209,7 +209,8 @@ exit=0
 - **Clone has no real ADC pipeline.** `isADCEnabled` only consults
   `AGY_ADC_AUTH`. When the recovered shell grows a real
   `adcAuth.TryAuth` (per
-  `out/decompile/dec/86a5aa0_TryAuth.c`) the gate may want to also
+  `re-decompiled-1.3.3/c/google3_third_party_jetski_cli_backend_auth_auth./google3_third_party_jetski_cli_backend_auth_auth._86a5aa0_TryAuth.c`)
+  the gate may want to also
   recognise `~/.gemini/google_accounts.json` having `auth_method: adc`
   — flagged for the cycle that lands the real pipeline.
 - **Exit code 1 is the recovered-shell choice.** The 1.3.3 changelog

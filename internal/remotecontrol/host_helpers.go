@@ -137,14 +137,14 @@ func ConfigFromHost(hc HostConfig, sock string) Config {
 		// nil broker and the bridge answered nothing.
 		Browser: hc.Browser,
 		// Cycle rc-auth-tokens: production
-		// wires an FSOriginPolicyStore rooted
+		// wires an origins.FSStore rooted
 		// at $ANTIGRAVITY_HOME/origin_policy.json
 		// via cmd/wagyu's
 		// buildHostOriginPolicyStore;
 		// tests leave this nil so
 		// NewDispatcher's nil-fabrication
 		// installs a fresh empty
-		// MemOriginPolicyStore.
+		// origins.MemStore.
 		OriginPolicyStore: hc.OriginPolicyStore,
 		OriginPolicyPath:  hc.OriginPolicyPath,
 		// Cycle rc-webrtc-mesh-defer: nil

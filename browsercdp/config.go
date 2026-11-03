@@ -73,7 +73,7 @@ type Config struct {
 //
 // The reference's flag table is untouched: --local_chrome_headless
 // still defaults to "true" there, and the clone honours the flag when
-// it is given (internal/cliapp/browser_flags.go).
+// it is given (internal/core/cliflags/browser).
 func DefaultConfig() Config {
 	return Config{
 		UseLocalChrome: false,

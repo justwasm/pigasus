@@ -10,10 +10,10 @@ import (
 	pi "github.com/MichaelKinsy/PiG/ai"
 	"github.com/MichaelKinsy/PiG/coding"
 
-	"github.com/justwasm/pigasus/internal/agyprompt"
-	"github.com/justwasm/pigasus/internal/builtinsubagent"
-	"github.com/justwasm/pigasus/internal/subagenttools"
-	"github.com/justwasm/pigasus/internal/tools"
+	"github.com/justwasm/pigasus/internal/app/prompt/agyprompt"
+	builtinsubagent "github.com/justwasm/pigasus/internal/app/subagent/builtin"
+	"github.com/justwasm/pigasus/internal/app/subagenttools"
+	"github.com/justwasm/pigasus/internal/app/tools/surface"
 )
 
 // TestInstallBuiltinRegistersTheBrowserType pins the wiring the model
@@ -21,7 +21,7 @@ import (
 // name, so `invoke_subagent` can route to it.
 func TestInstallBuiltinRegistersTheBrowserType(t *testing.T) {
 	reg := builtinsubagent.Default()
-	if err := InstallBuiltin(reg, subagenttools.Deps{}, tools.Catalog(t.TempDir())); err != nil {
+	if err := InstallBuiltin(reg, subagenttools.Deps{}, surface.Catalog(t.TempDir())); err != nil {
 		t.Fatalf("InstallBuiltin: %v", err)
 	}
 	spec, ok := reg.Spec(string(builtinsubagent.KindBrowser))
@@ -39,7 +39,7 @@ func TestInstallBuiltinRegistersTheBrowserType(t *testing.T) {
 // TestInstallBuiltinRejectsAnEmptyRegistry pins the two guards: a
 // session that hands over nothing gets an error, not a panic.
 func TestInstallBuiltinRejectsAnEmptyRegistry(t *testing.T) {
-	if err := InstallBuiltin(nil, subagenttools.Deps{}, tools.Catalog(t.TempDir())); err == nil {
+	if err := InstallBuiltin(nil, subagenttools.Deps{}, surface.Catalog(t.TempDir())); err == nil {
 		t.Error("InstallBuiltin(nil registry) must fail")
 	}
 	if err := InstallBuiltin(builtinsubagent.Default(), subagenttools.Deps{}, nil); err == nil {
@@ -53,7 +53,7 @@ func TestInstallBuiltinRejectsAnEmptyRegistry(t *testing.T) {
 // cannot route to.
 func TestSubagentAndRegistryAgree(t *testing.T) {
 	reg := builtinsubagent.Default()
-	if err := InstallBuiltin(reg, subagenttools.Deps{}, tools.Catalog(t.TempDir())); err != nil {
+	if err := InstallBuiltin(reg, subagenttools.Deps{}, surface.Catalog(t.TempDir())); err != nil {
 		t.Fatalf("InstallBuiltin: %v", err)
 	}
 	entry := Subagent()
@@ -73,7 +73,7 @@ func TestSubagentAndRegistryAgree(t *testing.T) {
 // invoke_subagent's description.
 func TestCatalogueNamesTheBrowserAgent(t *testing.T) {
 	reg := builtinsubagent.Default()
-	if err := InstallBuiltin(reg, subagenttools.Deps{}, tools.Catalog(t.TempDir())); err != nil {
+	if err := InstallBuiltin(reg, subagenttools.Deps{}, surface.Catalog(t.TempDir())); err != nil {
 		t.Fatalf("InstallBuiltin: %v", err)
 	}
 	catalog := reg.Catalog()
@@ -95,7 +95,7 @@ func TestCatalogueNamesTheBrowserAgent(t *testing.T) {
 // name, or the model calls a type the registry cannot route to.
 func TestTheModelCanSeeTheName(t *testing.T) {
 	reg := builtinsubagent.Default()
-	if err := InstallBuiltin(reg, subagenttools.Deps{}, tools.Catalog(t.TempDir())); err != nil {
+	if err := InstallBuiltin(reg, subagenttools.Deps{}, surface.Catalog(t.TempDir())); err != nil {
 		t.Fatalf("InstallBuiltin: %v", err)
 	}
 	subagenttools.SetBuiltinSubagentRegistry(reg)
@@ -130,7 +130,7 @@ func TestInstallBuiltinHandlerRunsTheBrowserAgent(t *testing.T) {
 	t.Setenv("PIG_TEST_FAUX", "1")
 
 	reg := builtinsubagent.Default()
-	if err := InstallBuiltin(reg, fauxDeps(t), tools.Catalog(t.TempDir())); err != nil {
+	if err := InstallBuiltin(reg, fauxDeps(t), surface.Catalog(t.TempDir())); err != nil {
 		t.Fatalf("InstallBuiltin: %v", err)
 	}
 

@@ -30,6 +30,8 @@ import (
 	"encoding/json"
 	"strings"
 	"time"
+
+	"github.com/justwasm/pigasus/internal/remotecontrol/rpc"
 )
 
 // routeLanguageServerTrajectoryMethods handles the trajectory batch —
@@ -37,7 +39,7 @@ import (
 //
 // The batch has its own router because it is a *read* side: the
 // cascade methods write the trajectory, these answer it.
-func (d *Dispatcher) routeLanguageServerTrajectoryMethods(method string, params json.RawMessage) (any, *rpcErrorBody, bool) {
+func (d *Dispatcher) routeLanguageServerTrajectoryMethods(method string, params json.RawMessage) (any, *rpc.ErrorBody, bool) {
 	switch method {
 	case "GetCascadeTrajectory":
 		return d.handleLSGetCascadeTrajectory(params)
@@ -126,22 +128,22 @@ func lsRunStatusName(running bool) string {
 // cascade id, the step list and the run status. The clone answers its
 // own trajectory; a conversation it has never seen is "not found" —
 // the reference's own failure for the same case.
-func (d *Dispatcher) handleLSGetCascadeTrajectory(params json.RawMessage) (any, *rpcErrorBody, bool) {
+func (d *Dispatcher) handleLSGetCascadeTrajectory(params json.RawMessage) (any, *rpc.ErrorBody, bool) {
 	var req struct {
 		CascadeID string `json:"cascadeId"`
 	}
 	if len(params) > 0 {
 		if err := json.Unmarshal(params, &req); err != nil {
-			return nil, &rpcErrorBody{Code: -32602, Message: "Invalid params", Data: err.Error()}, true
+			return nil, &rpc.ErrorBody{Code: -32602, Message: "Invalid params", Data: err.Error()}, true
 		}
 	}
 	cascadeID := strings.TrimSpace(req.CascadeID)
 	if cascadeID == "" {
-		return nil, &rpcErrorBody{Code: -32602, Message: "Invalid params", Data: "cascadeId is required"}, true
+		return nil, &rpc.ErrorBody{Code: -32602, Message: "Invalid params", Data: "cascadeId is required"}, true
 	}
 	snap, ok := d.lsSnapshot(cascadeID)
 	if !ok {
-		return nil, &rpcErrorBody{Code: -32019, Message: "not_found", Data: "trajectory not found"}, true
+		return nil, &rpc.ErrorBody{Code: -32019, Message: "not_found", Data: "trajectory not found"}, true
 	}
 	answer := map[string]any{
 		"trajectory": lsTrajectoryJSON(snap),
@@ -159,23 +161,23 @@ func (d *Dispatcher) handleLSGetCascadeTrajectory(params json.RawMessage) (any, 
 // 【反编译】 exa.language_server_pb.GetCascadeTrajectoryStepsRequest:
 // cascade_id=1, step_offset=2 — the offset is the number of steps the
 // caller already has.
-func (d *Dispatcher) handleLSGetCascadeTrajectorySteps(params json.RawMessage) (any, *rpcErrorBody, bool) {
+func (d *Dispatcher) handleLSGetCascadeTrajectorySteps(params json.RawMessage) (any, *rpc.ErrorBody, bool) {
 	var req struct {
 		CascadeID  string `json:"cascadeId"`
 		StepOffset int    `json:"stepOffset"`
 	}
 	if len(params) > 0 {
 		if err := json.Unmarshal(params, &req); err != nil {
-			return nil, &rpcErrorBody{Code: -32602, Message: "Invalid params", Data: err.Error()}, true
+			return nil, &rpc.ErrorBody{Code: -32602, Message: "Invalid params", Data: err.Error()}, true
 		}
 	}
 	cascadeID := strings.TrimSpace(req.CascadeID)
 	if cascadeID == "" {
-		return nil, &rpcErrorBody{Code: -32602, Message: "Invalid params", Data: "cascadeId is required"}, true
+		return nil, &rpc.ErrorBody{Code: -32602, Message: "Invalid params", Data: "cascadeId is required"}, true
 	}
 	snap, ok := d.lsSnapshot(cascadeID)
 	if !ok {
-		return nil, &rpcErrorBody{Code: -32019, Message: "not_found", Data: "trajectory not found"}, true
+		return nil, &rpc.ErrorBody{Code: -32019, Message: "not_found", Data: "trajectory not found"}, true
 	}
 	steps := snap.Steps
 	if req.StepOffset > 0 {
@@ -198,19 +200,19 @@ func (d *Dispatcher) handleLSGetCascadeTrajectorySteps(params json.RawMessage) (
 // "not_found: failed to get trajectory: trajectory not found for id <id>"
 // for a trajectory it does not have. The clone answers the trajectory
 // it has, and the same failure for the one it has not.
-func (d *Dispatcher) handleLSGetUserTrajectory(params json.RawMessage) (any, *rpcErrorBody, bool) {
+func (d *Dispatcher) handleLSGetUserTrajectory(params json.RawMessage) (any, *rpc.ErrorBody, bool) {
 	var req struct {
 		TrajectoryID string `json:"trajectoryId"`
 	}
 	if len(params) > 0 {
 		if err := json.Unmarshal(params, &req); err != nil {
-			return nil, &rpcErrorBody{Code: -32602, Message: "Invalid params", Data: err.Error()}, true
+			return nil, &rpc.ErrorBody{Code: -32602, Message: "Invalid params", Data: err.Error()}, true
 		}
 	}
 	id := strings.TrimSpace(req.TrajectoryID)
 	snap, ok := d.lsSnapshotByTrajectory(id)
 	if !ok {
-		return nil, &rpcErrorBody{
+		return nil, &rpc.ErrorBody{
 			Code:    -32019,
 			Message: "not_found",
 			Data:    "failed to get trajectory: trajectory not found for id " + id,
@@ -226,13 +228,13 @@ func (d *Dispatcher) handleLSGetUserTrajectory(params json.RawMessage) (any, *rp
 // mainline entries, each with the trajectory and the scope it ran in:
 //
 //	{"mainline":[{"trajectory":{…},"trajectoryScope":{}}]}
-func (d *Dispatcher) handleLSGetUserTrajectoryDebug(params json.RawMessage) (any, *rpcErrorBody, bool) {
+func (d *Dispatcher) handleLSGetUserTrajectoryDebug(params json.RawMessage) (any, *rpc.ErrorBody, bool) {
 	var req struct {
 		IncludeAllTrajectories bool `json:"includeAllTrajectories"`
 	}
 	if len(params) > 0 {
 		if err := json.Unmarshal(params, &req); err != nil {
-			return nil, &rpcErrorBody{Code: -32602, Message: "Invalid params", Data: err.Error()}, true
+			return nil, &rpc.ErrorBody{Code: -32602, Message: "Invalid params", Data: err.Error()}, true
 		}
 	}
 	snap, ok := d.lsMostRecentSnapshot()
@@ -254,7 +256,7 @@ func (d *Dispatcher) handleLSGetUserTrajectoryDebug(params json.RawMessage) (any
 //
 // 【反编译】 exa.cortex_pb.ImplicitTrajectoryDescription:
 // trajectory_id=1, trajectory_scope=2, current=3.
-func (d *Dispatcher) handleLSGetUserTrajectoryDescriptions(params json.RawMessage) (any, *rpcErrorBody, bool) {
+func (d *Dispatcher) handleLSGetUserTrajectoryDescriptions(params json.RawMessage) (any, *rpc.ErrorBody, bool) {
 	snap, ok := d.lsMostRecentSnapshot()
 	if !ok {
 		return map[string]any{}, nil, true
@@ -292,13 +294,22 @@ func (d *Dispatcher) lsWorkspace() string {
 }
 
 // lsSnapshot is the trajectory of one conversation.
+//
+// A conversation not yet in memory is rehydrated from convstore on disk,
+// so historical conversations answer GetCascadeTrajectory, GetTrajectoryTurns,
+// and GetConversationMetadata without failing.
 func (d *Dispatcher) lsSnapshot(conversationID string) (lsSnapshot, bool) {
 	if d == nil || d.trajectories == nil {
 		return lsSnapshot{}, false
 	}
 	traj := d.trajectories.Lookup(conversationID)
 	if traj == nil {
-		return lsSnapshot{}, false
+		stored := lsStoredSteps(conversationID)
+		if len(stored) == 0 {
+			return lsSnapshot{}, false
+		}
+		traj = d.trajectories.Get(conversationID)
+		traj.Seed(stored)
 	}
 	return traj.Snapshot(), true
 }
@@ -313,6 +324,12 @@ func (d *Dispatcher) lsSnapshotByTrajectory(trajectoryID string) (lsSnapshot, bo
 	}
 	traj := d.trajectories.LookupByTrajectory(trajectoryID)
 	if traj == nil {
+		convID := strings.TrimPrefix(trajectoryID, "traj-")
+		if convID != trajectoryID {
+			if snap, ok := d.lsSnapshot(convID); ok {
+				return snap, true
+			}
+		}
 		return lsSnapshot{}, false
 	}
 	return traj.Snapshot(), true

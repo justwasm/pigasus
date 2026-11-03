@@ -10,9 +10,11 @@
 | the installed plugin's tree | `~/.gemini/config/plugins/<name>/` |
 | the installed plugin's manifest | `~/.gemini/config/plugins/<name>/plugin.json` |
 | the marketplace feed | `~/.gemini/antigravity-cli/cache/marketplaces/<mkt>/marketplace.json` |
-| the panel's state | `internal/cliapp` (`slash_panel_plugin.go`, `slash_plugin_shelf.go`) |
-| the panel's rendering | `internal/pluginsui` (`sections.go`, `render.go`) |
+| the panel's state, its rows and its keys | `internal/ui/views/pluginsui` (`panel.go`, `panel_rows.go`, `panel_keys.go`, `panel_actions.go`) |
+| the panel's rendering | `internal/ui/views/pluginsui` (`panel_render.go`, `sections.go`, `render.go`) |
+| the host's seam | `internal/cliapp/plugin_host.go` — the way out of the panel, and nothing else |
 | the import command | `internal/cli/subcommand_plugin.go` → `internal/features/plugins/import` |
+| the install command | `internal/cli/subcommand_plugin.go` → `internal/features/plugins/marketinstall` |
 | the Web UI's plugin panels | `internal/remotecontrol/plugins_ls.go`, `internal/remotecontrol/plugins_marketplace.go` |
 | the documents both read | `internal/features/plugins/core/catalog.go` |
 
@@ -89,8 +91,8 @@ for the new keys: `Expand Shelf`, `Collapse Shelf` and `Prev/Next Shelf`.
 | the "more" row's text | `pluginsui.ShelfMoreText(n)` — `⋯ N more — enter to show` |
 | the "more" row's rendering | `pluginsui.ShelfMoreLine` |
 | the footer's legend | `pluginsui.DiscoverLegend(onLocal, search, shelfExpanded)` |
-| the layout, the toggle, the jump | `internal/cliapp/slash_plugin_shelf.go` |
-| the keys | `internal/cliapp/tui_keymap_plugin.go` |
+| the layout, the toggle, the jump | `internal/ui/views/pluginsui` (`panel_rows.go`, `panel_actions.go`) |
+| the keys | `internal/ui/views/pluginsui/panel_keys.go` |
 
 **What the clone's "shelf" is.** The reference's shelf is a *marketplace*
 shelf — a curated group of plugins the marketplace feed itself carries. The
@@ -108,6 +110,60 @@ reference's other list jump, `[`/`]` in the `/diff` Per Turn tab, does).
 `Enter` on the "more" row shows the shelf.
 
 Report: `docs/cycles/cycle-364-agy-1.4.11-alignment/deliverable.md` §5.
+
+---
+
+## `agy plugin install` (C-21)
+
+【一手】 `official-docs/marketplace.md:149-153` — "**Install from the
+official marketplace**: Specify `<plugin-name>@antigravity-plugins-official`
+… or pass a bare `<plugin-name>`, which defaults to
+`<plugin-name>@antigravity-plugins-official`".
+
+The command has two targets: a **local directory** (the original one) and
+a **plugin in a marketplace**. `runPluginInstall` stats the target; a
+directory goes the local way, anything else goes the marketplace way.
+
+| invocation | the clone |
+|---|---|
+| `agy plugin install <dir>` | installs the plugin in the local directory |
+| `agy plugin install <name>` | installs `<name>` from `antigravity-plugins-official` |
+| `agy plugin install <name>@<marketplace>` | installs `<name>` from that marketplace |
+| `agy plugin install <name>@<unknown marketplace>` | `Error: marketplace "<m>" is not available`, exit 1 |
+| `agy plugin install <name>@<marketplace>` (no such plugin) | `Error: plugin "<name>" is not in marketplace "<m>"`, exit 1 |
+| `agy plugin install <name>` (no such plugin) | `Error: install target must be a directory: <name>`, exit 1 |
+| `agy plugin install https://github.com/<owner>/<repo>` | `Error: install from a repository URL is not supported: <url>`, exit 1 |
+
+**The feed is the cached one.** `internal/features/plugins/marketinstall`
+reads
+`~/.gemini/antigravity-cli/cache/marketplaces/<marketplace>/marketplace.json`
+— the feed the Discover tab already reads
+(`internal/features/plugins/core/catalog.go`, which grew a
+`MarketplaceDocByDir` for the directory-addressed read). The clone has no
+feed *downloader*: a marketplace that was never fetched is not available.
+
+**The archive is verified.** The entry names the archive's URL and its
+sha256, and the installer refuses an archive whose digest does not match —
+the digest is the only integrity check the feed offers, so it is not
+optional. The archive is a zip whose root carries the plugin's own files.
+
+**The plugin lands where the local install puts it** —
+`~/.gemini/config/plugins/<name>/` — and the same
+`plugins.<name>.enabled` flag is written.
+
+**The bare name's refusal is the reference's own sentence.** The reference's
+wording for "the feed does not hold that plugin" is not recoverable, so a
+bare target that names no plugin is refused with the sentence the 1.4.6
+capture of `agy plugin install --help` carries — `Error: install target
+must be a directory: %s`
+(`internal/cli/testdata/help_1.4.6.txt:278`). A target that named its
+marketplace explicitly gets the reason instead, because the target itself
+says what was being looked for.
+
+**The last row is a known gap.** The reference clones a GitHub URL and
+stages the repository; the clone does not implement that half, and the
+reference's own wording for the refusal is not recoverable. The TUI's
+`/plugin install` is still a stub.
 
 ---
 

@@ -18,8 +18,8 @@ import (
 	"github.com/MichaelKinsy/PiG/coding/extension/factoryload"
 	"github.com/MichaelKinsy/PiG/coding/mcpext"
 
-	"github.com/justwasm/pigasus/internal/agyprompt"
-	"github.com/justwasm/pigasus/internal/modelctx"
+	"github.com/justwasm/pigasus/internal/app/prompt/agyprompt"
+	modelctx "github.com/justwasm/pigasus/internal/features/models/ctx"
 	"github.com/justwasm/pigasus/retry"
 )
 
@@ -182,7 +182,7 @@ type Options struct {
 
 // DefaultAgentHome is the reference's config directory:
 // $ANTIGRAVITY_HOME, else $HOME/.gemini/antigravity-cli. It mirrors
-// auth.AntigravityConfigHome without importing internal/auth.
+// confhome.Antigravity without importing internal/auth.
 func DefaultAgentHome() string {
 	if h := os.Getenv("ANTIGRAVITY_HOME"); h != "" {
 		return h

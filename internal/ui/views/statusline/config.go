@@ -6,7 +6,7 @@ package statusline
 import (
 	"strings"
 
-	"github.com/justwasm/pigasus/internal/auth"
+	settings "github.com/justwasm/pigasus/internal/core/settings"
 )
 
 // Config is the effective configuration of a `statusLine` (or `title`)
@@ -95,7 +95,7 @@ func LoadTitleConfig() (Config, bool) {
 // loadBlock reads one settings block that holds a status-line style
 // configuration.
 func loadBlock(key string) (Config, bool) {
-	raw, err := auth.SettingsField(key)
+	raw, err := settings.Field(key)
 	if err != nil || raw == nil {
 		return Config{}, false
 	}
@@ -157,7 +157,7 @@ func PersistCommand(command string) error {
 // Evidence 【一手】: agy 1.4.7's settings.json after `/statusline delete`
 // held no `statusLine` key at all.
 func ClearCommand() error {
-	return auth.DeleteSettingsField("statusLine")
+	return settings.DeleteField("statusLine")
 }
 
 // PersistTitleEnabled writes the window-title block's `enabled` member.
@@ -192,5 +192,5 @@ func writeBlock(key string, cfg Config, enabled *bool) error {
 		Enabled:          enabled,
 		StackWithDefault: cfg.StackWithDefault,
 	}
-	return auth.SetSettingsField(key, wire)
+	return settings.SetField(key, wire)
 }

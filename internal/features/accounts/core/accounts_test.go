@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/justwasm/pigasus/internal/auth"
+	"github.com/justwasm/pigasus/internal/features/auth"
 )
 
 // fakeToken builds a token whose id_token carries an email claim, the
@@ -54,9 +54,9 @@ func TestPathHonoursTheEnvOverride(t *testing.T) {
 		t.Fatalf("Path() = %q, want the override", got)
 	}
 	t.Setenv("OPENAGY_ACCOUNTS_CONFIG", "")
-	t.Setenv("XDG_CONFIG_HOME", "/tmp/xdg")
-	if got := Path(); got != filepath.Join("/tmp/xdg", "openagy", "accounts.json") {
-		t.Fatalf("Path() = %q, want the XDG path", got)
+	t.Setenv("OPENAGY_CONFIG_HOME", "/tmp/home")
+	if got := Path(); got != filepath.Join("/tmp/home", "accounts.json") {
+		t.Fatalf("Path() = %q, want the configuration home path", got)
 	}
 }
 

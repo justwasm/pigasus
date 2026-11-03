@@ -12,8 +12,10 @@ import (
 
 	pi "github.com/MichaelKinsy/PiG/ai"
 
-	"github.com/justwasm/pigasus/internal/backend"
-	"github.com/justwasm/pigasus/internal/modelctx"
+	"github.com/justwasm/pigasus/internal/core/apierror"
+	modelctx "github.com/justwasm/pigasus/internal/features/models/ctx"
+	"github.com/justwasm/pigasus/internal/infra/backend/gateway"
+	"github.com/justwasm/pigasus/internal/infra/backend/retry"
 )
 
 // Provider is a native PiG provider (ai.Provider) that speaks the OpenAI
@@ -71,7 +73,7 @@ type ProviderConfig struct {
 	ReasoningEffort string
 	// Timeout bounds one request. Zero means 60s; a negative value disables
 	// the client timeout so the caller's context is the only bound (this is
-	// what the headless path wants — see backend.GatewayTimeoutUnlimited).
+	// what the headless path wants — see gateway.GatewayTimeoutUnlimited).
 	Timeout time.Duration
 	// HTTPClient is an optional pre-built client. When set, Timeout is
 	// ignored and the caller owns the transport.
@@ -88,7 +90,7 @@ const (
 // model-scoped; use Model() to get a *ai.Model bound to one wire model id.
 func NewProvider(cfg ProviderConfig) *Provider {
 	if cfg.URL == "" {
-		// Mirrors backend.GatewayConfig.withDefaults: a local proxy or dev
+		// Mirrors gateway.GatewayConfig.withDefaults: a local proxy or dev
 		// mirror can be selected without recompiling.
 		cfg.URL = strings.TrimSpace(os.Getenv("OPENAGY_GATEWAY_URL"))
 	}
@@ -115,7 +117,7 @@ func NewProvider(cfg ProviderConfig) *Provider {
 		for name, value := range cfg.Headers {
 			headers[name] = value
 		}
-		headers["User-Agent"] = backend.GatewayUserAgent
+		headers["User-Agent"] = gateway.GatewayUserAgent
 		cfg.Headers = headers
 	}
 	return &Provider{cfg: cfg, client: client}
@@ -138,7 +140,7 @@ func (p *Provider) Endpoint() string { return p.cfg.URL }
 //
 // The label is what PiG records as the model id and what a UI displays. It is
 // NOT what goes on the wire: the wire model is always ProviderConfig.Model.
-// That mirrors backend.GatewayConfig.ExternalModel, which overrides whatever
+// That mirrors gateway.GatewayConfig.ExternalModel, which overrides whatever
 // model the caller asked for — cmd/wagyu passes Antigravity names like
 // "claude-sonnet-4-6" and gateway serves its own ids. An empty label uses the
 // configured model.
@@ -197,8 +199,8 @@ func (p *pinnedProvider) Stream(ctx context.Context, transcript pi.TranscriptCon
 //
 // A failure that happens *before* the response body starts — a bad request
 // body, a non-2xx status — is returned as an error, not encoded in the stream.
-// That is deliberate and load-bearing: backend.GatewayClient.Stream does the
-// same, returning a *backend.HTTPError, and cmd/wagyu/api_error.go classifies
+// That is deliberate and load-bearing: gateway.GatewayClient.Stream does the
+// same, returning a *apierror.HTTPError, and cmd/wagyu/api_error.go classifies
 // the turn's failure with errors.As. A `nil, err` return is fully supported by
 // PiG (agent_loop.go:494 synthesizes the error assistant message), and it is
 // the only shape that keeps the concrete error type alive — PiG copies only
@@ -231,7 +233,7 @@ func (p *Provider) stream(ctx context.Context, transcript pi.TranscriptContext, 
 		if readErr != nil {
 			return nil, fmt.Errorf("gateway: read error body: %w", readErr)
 		}
-		return nil, backend.NewHTTPError(status, detail, p.cfg.URL)
+		return nil, apierror.NewHTTPError(status, detail, p.cfg.URL)
 	}
 
 	out := pi.NewAssistantMessageEventStream()
@@ -252,13 +254,13 @@ func (p *Provider) open(ctx context.Context, body []byte) (io.ReadCloser, int, e
 	}
 	// AGY 1.3.1: a connection drop at the HTTP-request layer (dial
 	// failure, TLS handshake, broken pipe before the first byte) is
-	// retried up to backend.MaxConnectionRetries with the schedule in
+	// retried up to retry.MaxConnectionRetries with the schedule in
 	// backend/gemini_api_key_retry.go. A non-retryable failure
 	// (4xx/5xx, caller-side cancel) returns the error directly.
 	var response *http.Response
-	for attempt := 0; attempt <= backend.MaxConnectionRetries; attempt++ {
+	for attempt := 0; attempt <= retry.MaxConnectionRetries; attempt++ {
 		if attempt > 0 {
-			delay := backend.NextConnectionRetryDelay(attempt - 1)
+			delay := retry.NextConnectionRetryDelay(attempt - 1)
 			select {
 			case <-ctx.Done():
 				return nil, 0, ctx.Err()
@@ -269,11 +271,11 @@ func (p *Provider) open(ctx context.Context, body []byte) (io.ReadCloser, int, e
 		if err == nil {
 			break
 		}
-		dropErr := backend.ClassifyTransportError(err, p.cfg.URL)
-		if !backend.IsConnectionDropped(dropErr) {
+		dropErr := retry.ClassifyTransportError(err, p.cfg.URL)
+		if !retry.IsConnectionDropped(dropErr) {
 			return nil, 0, err
 		}
-		if attempt == backend.MaxConnectionRetries {
+		if attempt == retry.MaxConnectionRetries {
 			return nil, 0, dropErr
 		}
 	}

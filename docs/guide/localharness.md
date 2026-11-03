@@ -16,7 +16,7 @@ credentials.
 The binary is not a third-party dependency: it is a Google-internal Go
 build, and it embeds `google3/third_party/jetski/cortex` — the *same*
 agent engine the `agy` CLI uses. That is why this repository's
-`internal/tools`, `internal/compaction` and friends line up with the
+`internal/app/tools`, `internal/core/compaction` and friends line up with the
 reference at all.
 
 The evidence for everything below lives in
@@ -82,11 +82,11 @@ needs comes from the packages the CLI already uses:
 | what | comes from |
 |---|---|
 | turn engine | `internal/pigrt` (PiG's `coding.Session`) |
-| provider / transport | `internal/backend` (the Gemini transport) + `internal/piagentbridge` |
-| tool catalogue | `internal/tools` (`RuntimeCatalog` — the reference's own tool names) |
-| tool surface to the model | `internal/tools.HarnessDeclarations` (the harness's **eighteen** wire declarations) |
+| provider / transport | `internal/infra/backend` (the Gemini transport) + `internal/piagentbridge` |
+| tool catalogue | `internal/app/tools/surface` (`RuntimeCatalog` — the reference's own tool names) |
+| tool surface to the model | `internal/app/tools/surface.HarnessDeclarations` (the harness's **eighteen** wire declarations) |
 | system instruction | `harnessprompt` (the reference's own prompt, byte for byte) |
-| permission policy | `internal/permissions` + the client's own `PolicyConfig` |
+| permission policy | `internal/core/policy/permissions` + the client's own `PolicyConfig` |
 | budget manager | `budget` |
 | hook model | `lifecyclehooks` |
 | wire protocol | `localharness` |
@@ -154,7 +154,7 @@ text**, and the clone matches:
 | `find_by_name` | `findFile` | `{"output": …}` |
 | `view_file` | `viewFile` | `{"output": …}` |
 
-`internal/harnesstools` owns that rendering; `cmd/harness/tools.go`
+`internal/app/harnesstools` owns that rendering; `cmd/harness/tools.go`
 wraps each PiG `AgentTool` and re-renders the result through it. The
 structured payload travels out of band in `AgentToolResult.Details` →
 `ai.ToolResultMessage.Details` → `backend.Message.Result`, so the Gemini
@@ -326,7 +326,7 @@ The runtime schema is **not** the advertised one — a `run_command` with no
 `CommandLine` runs, a `list_dir` with no `DirectoryPath` runs, a
 `find_by_name` with no `Pattern` runs — so only the rules the captures pin
 are implemented, and a call the reference runs is never refused here. The
-rules live in `internal/harnesstools/invalid.go`; the wording, the order
+rules live in `internal/app/harnesstools/invalid.go`; the wording, the order
 and the two tools without a path check are in
 `out/localharness/PARITY.md` §3.15.
 
@@ -425,7 +425,7 @@ Nine types, in wire-enum order: `ON_SESSION_START`, `ON_SESSION_END`,
 `PRE_TURN`, `POST_TURN`, `PRE_TOOL`, `POST_TOOL`, `ON_TOOL_ERROR`,
 `ON_COMPACTION`, `STOP`.
 
-> **Do not confuse this with `internal/hooks`.** That package is a
+> **Do not confuse this with `internal/features/plugins/hooks`.** That package is a
 > same-process, fire-and-forget bus for the TUI's `/btw` side-question: two
 > events, one `Decision` type, no request/response correlation. This is the
 > *protocol* half.
@@ -565,8 +565,8 @@ byte-parity gap report is in
 open items, in rough order of how much they matter:
 
 - **The tool implementations are the CLI's, not cortex's.** The clone runs
-  `internal/tools`; the reference runs its own. The clone re-renders every
-  result through `internal/harnesstools` so the *text* matches, but the
+  `internal/app/tools`; the reference runs its own. The clone re-renders every
+  result through `internal/app/harnesstools` so the *text* matches, but the
   code underneath is the CLI's. The `view_file` output is byte-identical
   to the reference's; the difference is in the **diff block**, where the
   clone computes one change region and the reference computes a real

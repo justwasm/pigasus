@@ -66,7 +66,7 @@ import (
 	piagent "github.com/MichaelKinsy/PiG/agent"
 	pi "github.com/MichaelKinsy/PiG/ai"
 
-	"github.com/justwasm/pigasus/internal/harnesstools"
+	"github.com/justwasm/pigasus/internal/app/harnesstools"
 	pb "github.com/justwasm/pigasus/localharness/pb/localharness"
 )
 
@@ -920,7 +920,7 @@ func applyToolAction(update *pb.StepUpdate, name string, args json.RawMessage, e
 		action.SetToolName(argString(args, "tool_name", "toolName"))
 		action.SetArgumentsJson(argString(args, "arguments", "arguments_json"))
 		update.SetMcpTool(action)
-	case "invoke_subagent":
+	case harnesstools.ToolInvokeSubagen:
 		update.SetInvokeSubagent(&pb.ActionInvokeSubagent{})
 	case "finish":
 		// The reference reports the `finish` call as its own action, and

@@ -3,39 +3,30 @@ package vim
 import "strings"
 
 func (s *State) executeEdit(c command) (Result, bool) {
-	cnt := max(c.count, 1)
 	if actsAtCursor(c.kind) {
 		s.actOnLineAbove()
 	}
 	switch c.kind {
 	case cmdDeleteChar:
-		s.deleteChars(c.count, false)
+		s.deleteChars(false)
 	case cmdDeleteCharBwd:
-		s.deleteChars(c.count, true)
+		s.deleteChars(true)
 	case cmdDeleteToEnd:
 		s.deleteToEnd(false)
 	case cmdChangeToEnd:
 		s.deleteToEnd(true)
 	case cmdPaste:
-		s.doPaste(true, cnt)
+		s.doPaste(true)
 	case cmdPasteBefore:
-		s.doPaste(false, cnt)
+		s.doPaste(false)
 	case cmdUndo:
-		for i := 0; i < cnt; i++ {
-			if !s.undoOp() {
-				break
-			}
-		}
+		s.undoOp()
 	case cmdRedo:
-		for i := 0; i < cnt; i++ {
-			if !s.redoOp() {
-				break
-			}
-		}
+		s.redoOp()
 	case cmdReplaceChar:
-		return Result{Consumed: true, Bell: !s.replaceChar(c.arg, cnt)}, true
+		return Result{Consumed: true, Bell: !s.replaceChar(c.arg)}, true
 	case cmdCaseToggle:
-		s.toggleCaseAtCursor(cnt)
+		s.toggleCaseAtCursor()
 	default:
 		return Result{}, false
 	}
@@ -65,6 +56,9 @@ func (s *State) executeVisual(c command) Result {
 		st, en, lw := s.visualRange()
 		s.applyCase(st, en, lw, c.caseOp)
 		s.Mode = Normal
+	case cmdVisReplace:
+		s.visReplace(c.arg)
+		s.Mode = Normal
 	}
 	return Result{Consumed: true}
 }
@@ -77,7 +71,7 @@ func (s *State) execute(c command) Result {
 	switch c.kind {
 	case cmdMotion:
 		s.recordFind(c.motion, c.arg)
-		ok := s.applyMotion(c.motion, max(c.count, 1), c.arg)
+		ok := s.applyMotion(c.motion, c.arg)
 		return Result{Consumed: true, Bell: !ok}
 	case cmdInsertEntry:
 		s.insertEntry(c.insert)
@@ -91,12 +85,12 @@ func (s *State) execute(c command) Result {
 	case cmdVisualLine:
 		s.enterVisual(true)
 	case cmdObject:
-		if st, en, _, ok := s.objectRange(c.obj, c.obj.around, max(c.count, 1)); ok {
+		if st, en, _, ok := s.objectRange(c.obj, c.obj.around); ok {
 			s.anchorRow, s.anchorCol = st.row, st.col
 			s.Row, s.Col = en.row, en.col
 			s.clampCursor()
 		}
-	case cmdVisDelete, cmdVisChange, cmdVisYank, cmdVisPaste, cmdVisCase:
+	case cmdVisDelete, cmdVisChange, cmdVisYank, cmdVisPaste, cmdVisCase, cmdVisReplace:
 		return s.executeVisual(c)
 	}
 	return Result{Consumed: true}
@@ -128,18 +122,17 @@ func (s *State) resolveOpMotion(op rune, m motion) motion {
 	return m
 }
 
-func (s *State) resolveOperatorRange(c command, mc int) (pos, pos, bool, bool) {
+func (s *State) resolveOperatorRange(c command) (pos, pos, bool, bool) {
 	switch {
 	case c.obj.kind != objNone:
-		return s.objectRange(c.obj, c.obj.around, mc)
+		return s.objectRange(c.obj, c.obj.around)
 	case c.linewise || c.motion == 0:
-		n := max(c.count, 1)
 		a := s.Row
-		b := min(s.Row+n-1, len(s.Lines)-1)
+		b := min(a, len(s.Lines)-1)
 		return pos{a, 0}, pos{b, max(s.lineLen(b)-1, 0)}, true, true
 	default:
 		m := s.resolveOpMotion(c.op, c.motion)
-		mt := s.motionTarget(m, mc, c.arg)
+		mt := s.motionTarget(m, c.arg)
 		return s.operatorRange(mt)
 	}
 }
@@ -150,8 +143,7 @@ func (s *State) runOperator(c command) {
 	// The operator acts at the cursor, so an empty last line hands the
 	// command to the line above (agy 1.4.9).
 	s.actOnLineAbove()
-	mc := max(c.count, 1) * max(c.opCount, 1)
-	start, end, linewise, ok := s.resolveOperatorRange(c, mc)
+	start, end, linewise, ok := s.resolveOperatorRange(c)
 	if !ok {
 		return
 	}
@@ -188,6 +180,11 @@ func (s *State) insertEntry(r rune) {
 		s.openLine(true)
 	case 'O':
 		s.openLine(false)
+	case '/', '!':
+		// The reference's NORMAL-mode "/" and "!" insert the character
+		// and enter INSERT mode, so a slash command or a shell command
+		// works without pressing "i" first.
+		s.insertRune(r)
 	}
 	s.Mode = Insert
 	s.desiredCol = s.Col
@@ -213,19 +210,17 @@ func (s *State) openLine(below bool) {
 	s.desiredCol = 0
 }
 
-func (s *State) deleteCharsBwd(count int) {
+func (s *State) deleteCharsBwd() {
 	if s.Col == 0 {
 		return
 	}
 	s.pushUndo(false)
 	var del strings.Builder
-	for i := 0; i < count && s.Col > 0; i++ {
-		rl := s.lineRunes(s.Row)
-		start := prevClusterCol(s.Lines[s.Row], s.Col)
-		del.WriteString(string(rl[start:s.Col]))
-		s.Lines[s.Row] = string(rl[:start]) + string(rl[s.Col:])
-		s.Col = start
-	}
+	rl := s.lineRunes(s.Row)
+	start := prevClusterCol(s.Lines[s.Row], s.Col)
+	del.WriteString(string(rl[start:s.Col]))
+	s.Lines[s.Row] = string(rl[:start]) + string(rl[s.Col:])
+	s.Col = start
 	if del.Len() > 0 {
 		s.register = reverseString(del.String())
 		s.registerLinewise = false
@@ -237,17 +232,14 @@ func (s *State) deleteCharsBwd(count int) {
 	s.desiredCol = s.Col
 }
 
-func (s *State) deleteCharsFwd(count int) {
+func (s *State) deleteCharsFwd() {
 	if s.lineLen(s.Row) == 0 {
 		return
 	}
 	s.pushUndo(false)
 	var del strings.Builder
-	for i := 0; i < count; i++ {
-		rl := s.lineRunes(s.Row)
-		if s.Col >= len(rl) {
-			break
-		}
+	rl := s.lineRunes(s.Row)
+	if s.Col < len(rl) {
 		end := clusterEndCol(s.Lines[s.Row], s.Col)
 		del.WriteString(string(rl[s.Col:end]))
 		s.Lines[s.Row] = string(rl[:s.Col]) + string(rl[end:])
@@ -265,13 +257,12 @@ func (s *State) deleteCharsFwd(count int) {
 
 // deleteChars implements x (forward) and X (backward). Both fill the
 // unnamed register with the deleted text.
-func (s *State) deleteChars(count int, backward bool) {
-	count = max(count, 1)
+func (s *State) deleteChars(backward bool) {
 	if backward {
-		s.deleteCharsBwd(count)
+		s.deleteCharsBwd()
 		return
 	}
-	s.deleteCharsFwd(count)
+	s.deleteCharsFwd()
 }
 
 // deleteToEnd implements D (change=false) and C (change=true).
@@ -300,15 +291,13 @@ func (s *State) deleteToEnd(change bool) {
 	s.desiredCol = s.Col
 }
 
-// doPaste implements p/P, repeated count times.
-func (s *State) doPaste(after bool, count int) {
+// doPaste implements p/P.
+func (s *State) doPaste(after bool) {
 	if s.register == "" {
 		return
 	}
 	s.pushUndo(false)
-	for i := 0; i < count; i++ {
-		s.paste(after)
-	}
+	s.paste(after)
 	s.dropNoopUndo()
 }
 
@@ -334,15 +323,65 @@ func (s *State) visualPaste() {
 	s.dropNoopUndo()
 }
 
-// toggleCaseAtCursor implements Normal-mode ~: flip the case of count
-// characters and leave the cursor after the last one.
-func (s *State) toggleCaseAtCursor(count int) {
-	s.pushUndo(false)
-	for i := 0; i < count; i++ {
-		rl := s.lineRunes(s.Row)
-		if s.Col >= len(rl) {
-			break
+// visReplace implements Visual-mode r{char}: every character the
+// selection covers is replaced with arg. A line-wise selection covers
+// every character of every selected line, so the lines keep their
+// length — the same convention the clone's other line-wise visual
+// commands (~, u, U) use.
+func (s *State) visReplace(arg rune) bool {
+	if arg == 0 {
+		return false
+	}
+	st, en, lw := s.visualRange()
+	pr, pc := s.Row, s.Col
+	before := copyLines(s.Lines)
+	changed := false
+
+	for r := st.row; r <= en.row && r < len(s.Lines); r++ {
+		rl := []rune(s.Lines[r])
+		lo, hi := 0, len(rl)-1
+		if !lw {
+			if r == st.row {
+				lo = st.col
+			}
+			if r == en.row {
+				hi = en.col
+			}
 		}
+		if hi < lo {
+			continue
+		}
+		rowChanged := false
+		for i := lo; i <= hi && i < len(rl); i++ {
+			if rl[i] == arg {
+				continue
+			}
+			rl[i] = arg
+			rowChanged = true
+		}
+		// A replacement that changes nothing leaves no undo step (the
+		// reference's own rule for the empty undo step).
+		if rowChanged {
+			s.Lines[r] = string(rl)
+			changed = true
+		}
+	}
+
+	if changed {
+		s.recordUndo(snapshot{before, pr, pc})
+	}
+	s.Row, s.Col = st.row, st.col
+	s.clampCursor()
+	s.desiredCol = s.Col
+	return changed
+}
+
+// toggleCaseAtCursor implements Normal-mode ~: flip the case of the
+// character under the cursor and leave the cursor after it.
+func (s *State) toggleCaseAtCursor() {
+	s.pushUndo(false)
+	rl := s.lineRunes(s.Row)
+	if s.Col < len(rl) {
 		rl[s.Col] = toggleCase(rl[s.Col])
 		s.Lines[s.Row] = string(rl)
 		if s.Col < s.lineLen(s.Row)-1 {

@@ -9,13 +9,15 @@ import (
 	"time"
 
 	"github.com/justwasm/pigasus/agentbrowser"
-	"github.com/justwasm/pigasus/internal/auth"
-	"github.com/justwasm/pigasus/internal/backend"
+	"github.com/justwasm/pigasus/internal/app/session/convstore"
 	"github.com/justwasm/pigasus/internal/cli"
-	"github.com/justwasm/pigasus/internal/convstore"
-	"github.com/justwasm/pigasus/internal/models"
+	"github.com/justwasm/pigasus/internal/core/backend"
+	"github.com/justwasm/pigasus/internal/features/auth"
+	"github.com/justwasm/pigasus/internal/features/models"
+	"github.com/justwasm/pigasus/internal/features/models/catalog"
 	"github.com/justwasm/pigasus/internal/piagentbridge"
 	"github.com/justwasm/pigasus/internal/remotecontrol"
+	"github.com/justwasm/pigasus/internal/remotecontrol/cascades"
 )
 
 // BackendPicker is injected by the host process to build the backend.Client
@@ -37,7 +39,7 @@ var BackendPicker = func(modelName string) backend.Client {
 // dispatcher's three LanguageServerService RPCs serve, so the IDE half
 // (the Web UI's window) and the agent half (the turn's
 // `webview_browser` tool) meet in one place.
-func buildHostMessageBackend(workspace, modelName string, broker *agentbrowser.Broker) remotecontrol.MessageBackend {
+func buildHostMessageBackend(workspace, modelName string, broker *agentbrowser.Broker) cascades.Backend {
 	be := BackendPicker(resolveModelName(modelName))
 	return &remotecontrol.PiagentBackend{
 		SessionFactory: piagentbridge.NewRemoteCascadeSession(
@@ -55,14 +57,17 @@ func buildHostMessageBackend(workspace, modelName string, broker *agentbrowser.B
 }
 
 // resolveModelName returns the model a turn runs on: the model's own id
-// when the request carries one, the user's configured default
+// when the request carries one, the user's configured default or reference default
 // otherwise.
 func resolveModelName(modelName string) string {
 	name := strings.TrimSpace(modelName)
 	if name != "" {
 		return name
 	}
-	return defaultConfiguredModel()
+	if env := strings.TrimSpace(os.Getenv("OPENAGY_MODEL")); env != "" {
+		return env
+	}
+	return "gemini-3.8-flash-high"
 }
 
 // defaultConfiguredModel returns the first model the user's provider
@@ -78,9 +83,9 @@ func defaultConfiguredModel() string {
 
 // hostListModels returns models supported by reference, filtered by backend.
 //
-// The user's configured models come first: they are the ones the clone
-// can actually reach. The reference's own catalogue follows — those
-// models need the CloudCode endpoint and an OAuth token.
+// The reference's own catalogue comes first: Gemini 3.8 Flash (High)
+// is the reference default model and the top recommendation in the Web UI picker.
+// The user's configured models follow.
 //
 // A configured model that declares reasoning tiers is listed once per
 // tier — the reference's own shape ("Gemini 3.8 Flash (High)"). The
@@ -92,18 +97,56 @@ func hostListModels(backend, filter, defaultModel string) ([]remotecontrol.Model
 		chosen = defaultModel
 	}
 	chosen = strings.ToLower(chosen)
-	out := make([]remotecontrol.ModelInfo, 0, 8)
+
+	targetDefault := strings.TrimSpace(os.Getenv("OPENAGY_MODEL"))
+	if targetDefault == "" {
+		targetDefault = "gemini-3.8-flash-high"
+	}
+
+	out := make([]remotecontrol.ModelInfo, 0, 16)
+	defaultSet := false
+
+	// Reference models come first so the default reference model (Gemini 3.8 Flash High)
+	// is the top choice in the model picker.
+	entries := catalog.ReferenceModels()
+	for _, e := range entries {
+		// The reference's own catalogue states nothing about pictures:
+		// the family table decides (remotecontrol.modelTakesImages).
+		isDef := false
+		if !defaultSet {
+			isDef = strings.EqualFold(e.ID, targetDefault) || (targetDefault == "gemini-3.8-flash-high" && e.ID == "gemini-3.8-flash-high")
+			if isDef {
+				defaultSet = true
+			}
+		}
+		out = append(out, remotecontrol.ModelInfo{
+			ID:              e.ID,
+			Label:           e.Label,
+			Backend:         chosen,
+			EffortSupported: true,
+			Default:         isDef,
+		})
+	}
+
+	// Configured models follow.
 	for _, m := range models.TierRows(models.CachedRegistry().List()) {
 		label := strings.TrimSpace(m.DisplayName)
 		if label == "" {
 			label = m.Name
+		}
+		isDef := false
+		if !defaultSet {
+			isDef = strings.EqualFold(m.Name, targetDefault) || strings.EqualFold(label, targetDefault)
+			if isDef {
+				defaultSet = true
+			}
 		}
 		out = append(out, remotecontrol.ModelInfo{
 			ID:              m.Name,
 			Label:           label,
 			Backend:         "gateway",
 			EffortSupported: effortSupportedOrDefault(m.EffortSupported),
-			Default:         len(out) == 0,
+			Default:         isDef,
 			SupportsImages:  m.SupportsImages,
 			// The model's own attributes, as the configuration states
 			// them. A model that says nothing carries nothing, and the
@@ -118,20 +161,11 @@ func hostListModels(backend, filter, defaultModel string) ([]remotecontrol.Model
 			TagDescription:             m.TagDescription,
 		})
 	}
-	entries := cli.ReferenceModels()
-	for _, e := range entries {
-		// The reference's own catalogue states nothing about pictures:
-		// the family table decides (remotecontrol.modelTakesImages).
-		out = append(out, remotecontrol.ModelInfo{
-			ID:              e.ID,
-			Label:           e.Label,
-			Backend:         chosen,
-			EffortSupported: true,
-			Default:         len(out) == 0,
-		})
-	}
 	if len(out) == 0 {
 		return remotecontrol.DefaultModelInfo, nil
+	}
+	if !defaultSet && len(out) > 0 {
+		out[0].Default = true
 	}
 	return out, nil
 }

@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/justwasm/pigasus/internal/agent"
-	"github.com/justwasm/pigasus/internal/backend"
+	"github.com/justwasm/pigasus/internal/core/backend"
 )
 
 func (s *server) routeRoot(w http.ResponseWriter, r *http.Request) {

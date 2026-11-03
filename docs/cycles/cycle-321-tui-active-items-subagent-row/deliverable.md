@@ -350,7 +350,7 @@ cd /tmp && GHIDRA_INSTALL_DIR=~/tools/ghidra_12.1.4_PUBLIC \
   JAVA_HOME=/opt/homebrew/opt/openjdk@21 MAXMEM=8G \
   ~/tools/ghidra_12.1.4_PUBLIC/support/analyzeHeadless \
   out/local-macos/proj agy -process -noanalysis -max-cpu 4 \
-  -scriptPath out/local-macos/ghidra-scripts \
+  -scriptPath scripts/re/ghidra-scripts \
   -postScript DecompileAt.java 0x1028cb820 0x1028c8c40
 ```
 

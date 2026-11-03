@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	"github.com/justwasm/pigasus/diffsyntax"
-	"github.com/justwasm/pigasus/internal/tuilib"
+	"github.com/justwasm/pigasus/internal/ui/tuilib"
 	"github.com/justwasm/pigasus/palette"
 )
 

@@ -21,7 +21,8 @@ import (
 	piagent "github.com/MichaelKinsy/PiG/agent"
 	pi "github.com/MichaelKinsy/PiG/ai"
 
-	"github.com/justwasm/pigasus/internal/backend"
+	"github.com/justwasm/pigasus/internal/core/apierror"
+	"github.com/justwasm/pigasus/internal/core/backend"
 	"github.com/justwasm/pigasus/internal/piagentbridge"
 )
 
@@ -103,7 +104,7 @@ func TestRecoveryMessageFromMessagesPicksLastSynthetic(t *testing.T) {
 }
 
 // TestErrAutoContMaxDepthUnwraps pins the contract cmd/wagyu/api_error.go
-// relies on: the give-up error preserves the typed *backend.HTTPError
+// relies on: the give-up error preserves the typed *apierror.HTTPError
 // (or whichever pre-stream failure) underneath it, so the AGY_ERROR
 // envelope and exit code 3 still fire when the original was a gateway
 // failure.
@@ -122,7 +123,7 @@ func TestErrAutoContMaxDepthUnwraps(t *testing.T) {
 // your individual quota is reported right away instead of being retried" for
 // the TUI path. A quota-classified error must short-circuit sendPigAuto on
 // the first iteration: no recovery copy is appended, the typed
-// *backend.HTTPError is preserved through errors.As so cmd/wagyu/api_error.go
+// *apierror.HTTPError is preserved through errors.As so cmd/wagyu/api_error.go
 // still classifies it as RESOURCE_EXHAUSTED, and the banner callback never
 // fires (the user is not "auto-continuing", the session is at its quota).
 //
@@ -173,9 +174,9 @@ func TestQuotaErrorShortCircuitsTUI(t *testing.T) {
 	}
 	// The typed HTTPError must survive the wrapper so the TUI's
 	// errors.As chain still classifies it.
-	var he *backend.HTTPError
+	var he *apierror.HTTPError
 	if !errors.As(got, &he) {
-		t.Fatalf("quota error did not preserve *backend.HTTPError chain: %v", got)
+		t.Fatalf("quota error did not preserve *apierror.HTTPError chain: %v", got)
 	}
 	if he.StatusCode != 429 {
 		t.Errorf("HTTPError.StatusCode = %d, want 429", he.StatusCode)

@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/justwasm/pigasus/internal/convstore"
+	"github.com/justwasm/pigasus/internal/app/session/convstore"
 )
 
 // newLSTrajectoryDispatcher returns a dispatcher whose store holds one
@@ -18,7 +18,7 @@ func newLSTrajectoryDispatcher(t *testing.T, conversationID string) *Dispatcher 
 	}
 	traj := d.trajectories.Get(conversationID)
 	traj.Append(map[string]any{
-		"type":     14,
+		"type":      14,
 		"userInput": map[string]any{"items": []any{map[string]any{"text": "hello there"}}},
 	})
 	traj.Append(map[string]any{

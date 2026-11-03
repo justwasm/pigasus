@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/justwasm/pigasus/internal/featdiff"
+	featdiff "github.com/justwasm/pigasus/internal/ui/views/diff/feat"
 )
 
 func mustGetwd(t *testing.T) string {

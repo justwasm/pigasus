@@ -8,7 +8,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/justwasm/pigasus/internal/models"
+	"github.com/justwasm/pigasus/internal/features/models"
 )
 
 type addFlagValues struct {

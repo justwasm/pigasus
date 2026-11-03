@@ -7,6 +7,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 	tuiviewport "github.com/justwasm/pigasus/internal/ui/foundations/viewport"
+	"github.com/justwasm/pigasus/internal/ui/tuilib"
 	"github.com/justwasm/pigasus/palette"
 )
 
@@ -211,3 +212,277 @@ func TestFormatVisibleRows_AltScreenAlignment(t *testing.T) {
 		t.Errorf("altscreen mode: expected separator rule at row 1, got %q", outAlt[1])
 	}
 }
+
+func TestCapAtHeldLines(t *testing.T) {
+	// If no lines held, splitPoint is untouched
+	if got := tuiviewport.CapAtHeldLines(10, 20, 0); got != 10 {
+		t.Errorf("expected 10, got %d", got)
+	}
+
+	// 5 lines held at the end of 20 lines -> max split is 15.
+	// A splitPoint of 12 (< 15) should remain 12.
+	if got := tuiviewport.CapAtHeldLines(12, 20, 5); got != 12 {
+		t.Errorf("expected 12, got %d", got)
+	}
+
+	// A splitPoint of 18 (> 15) should be capped at 15 so the 5 held lines stay in view.
+	if got := tuiviewport.CapAtHeldLines(18, 20, 5); got != 15 {
+		t.Errorf("expected 15, got %d", got)
+	}
+
+	// If heldLines >= totalLines, splitPoint is capped at 0.
+	if got := tuiviewport.CapAtHeldLines(5, 10, 12); got != 0 {
+		t.Errorf("expected 0, got %d", got)
+	}
+}
+
+func TestIncompleteTableLines(t *testing.T) {
+	// No table lines
+	rows1 := []string{"hello", "world"}
+	if got := tuiviewport.IncompleteTableLines(rows1); got != 0 {
+		t.Errorf("expected 0, got %d", got)
+	}
+
+	// Trailing table lines without blank line
+	rows2 := []string{
+		"Some intro text",
+		"",
+		"| Col 1 | Col 2 |",
+		"|-------|-------|",
+		"| Val 1 | Val 2 |",
+	}
+	if got := tuiviewport.IncompleteTableLines(rows2); got != 3 {
+		t.Errorf("expected 3, got %d", got)
+	}
+
+	// Table followed by blank line (closed table) -> 0 held lines
+	rows3 := []string{
+		"| Col 1 | Col 2 |",
+		"|-------|-------|",
+		"| Val 1 | Val 2 |",
+		"",
+	}
+	if got := tuiviewport.IncompleteTableLines(rows3); got != 0 {
+		t.Errorf("expected 0, got %d", got)
+	}
+}
+
+func TestComputeVisibleWindow_EdgeCases(t *testing.T) {
+	rows := make([]string, 2021)
+	for i := range rows {
+		rows[i] = "row"
+	}
+	prefix := make([]int, len(rows)+1)
+	for i := range rows {
+		prefix[i+1] = prefix[i] + 1
+	}
+
+	// 1. Exact condition of the panic: availScroll = -1 (due to pinned prompt subtracting 2 from avail=1)
+	vis, scroll, auto := tuiviewport.ComputeVisibleWindow(rows, prefix, 2022, -1, true)
+	if vis != nil || scroll != 0 {
+		t.Errorf("expected nil visible and 0 scroll for negative avail, got %v, %d", vis, scroll)
+	}
+
+	// 2. availScroll = 0
+	vis, scroll, _ = tuiviewport.ComputeVisibleWindow(rows, prefix, 100, 0, false)
+	if vis != nil || scroll != 0 {
+		t.Errorf("expected nil visible for availScroll=0")
+	}
+
+	// 3. len(rows) < availScroll (rows=5, availScroll=20)
+	shortRows := []string{"a", "b", "c"}
+	shortPrefix := []int{0, 1, 2, 3}
+	vis, scroll, auto = tuiviewport.ComputeVisibleWindow(shortRows, shortPrefix, 10, 5, false)
+	if len(vis) != 5 {
+		t.Errorf("expected 5 visible rows padded, got %d", len(vis))
+	}
+	if scroll != 0 {
+		t.Errorf("expected scroll=0, got %d", scroll)
+	}
+	if !auto {
+		t.Errorf("expected autoScroll=true when visible window covers all rows")
+	}
+
+	// 4. Empty rows
+	vis, scroll, _ = tuiviewport.ComputeVisibleWindow(nil, nil, 0, 10, true)
+	if vis != nil || scroll != 0 {
+		t.Errorf("expected nil for empty rows")
+	}
+}
+
+func TestWindow_InvariantsAndSafeSlice(t *testing.T) {
+	// Negative offset and negative count
+	w1 := tuiviewport.NewWindow(100, -10, -5)
+	if w1.Start() != 0 || w1.End() != 0 || !w1.IsEmpty() || w1.Len() != 0 {
+		t.Errorf("expected empty window for negative count, got start=%d end=%d", w1.Start(), w1.End())
+	}
+
+	// Count exceeding total
+	w2 := tuiviewport.NewWindow(10, 5, 20)
+	if w2.Start() != 5 || w2.End() != 10 || w2.Len() != 5 {
+		t.Errorf("expected start=5, end=10, got start=%d end=%d", w2.Start(), w2.End())
+	}
+
+	// Offset exceeding total
+	w3 := tuiviewport.NewWindow(10, 20, 5)
+	if w3.Start() != 10 || w3.End() != 10 || !w3.IsEmpty() {
+		t.Errorf("expected empty window clamped to total, got start=%d end=%d", w3.Start(), w3.End())
+	}
+
+	// Zero total
+	w4 := tuiviewport.NewWindow(0, 5, 5)
+	if w4.Start() != 0 || w4.End() != 0 {
+		t.Errorf("expected 0, 0 for zero total")
+	}
+
+	// Safe generic slice extraction
+	items := []int{10, 20, 30, 40, 50}
+	win := tuiviewport.NewWindow(len(items), 1, 3)
+	sliced := tuiviewport.Slice(items, win)
+	if len(sliced) != 3 || sliced[0] != 20 || sliced[2] != 40 {
+		t.Errorf("unexpected sliced result: %v", sliced)
+	}
+
+	// Window exceeding actual slice
+	winExceed := tuiviewport.NewWindow(100, 10, 20)
+	slicedShort := tuiviewport.Slice(items, winExceed)
+	if slicedShort != nil {
+		t.Errorf("expected nil when window start exceeds slice len, got %v", slicedShort)
+	}
+}
+
+func TestScrollPosition_LayoutAndScrollBy(t *testing.T) {
+	sp := tuiviewport.ScrollPosition{Offset: 0, AutoScroll: true}
+
+	// Total fits in avail
+	w := sp.Layout(10, 20)
+	if w.Start() != 0 || w.End() != 10 || !sp.AutoScroll {
+		t.Errorf("expected [0, 10] with autoscroll, got start=%d end=%d auto=%v", w.Start(), w.End(), sp.AutoScroll)
+	}
+
+	// Content overflows, autoScroll snaps to end
+	sp.AutoScroll = true
+	w = sp.Layout(100, 20)
+	if sp.Offset != 80 || w.Start() != 80 || w.End() != 100 {
+		t.Errorf("expected offset=80, got %d, window=[%d, %d]", sp.Offset, w.Start(), w.End())
+	}
+
+	// Scroll up disables autoScroll
+	sp.ScrollBy(-10, 100, 20)
+	if sp.Offset != 70 || sp.AutoScroll {
+		t.Errorf("expected offset=70 and autoScroll=false, got offset=%d auto=%v", sp.Offset, sp.AutoScroll)
+	}
+
+	// Scroll past max re-enables autoScroll
+	sp.ScrollBy(50, 100, 20)
+	if sp.Offset != 80 || !sp.AutoScroll {
+		t.Errorf("expected offset=80 and autoScroll=true, got offset=%d auto=%v", sp.Offset, sp.AutoScroll)
+	}
+}
+
+func TestScrollWindow(t *testing.T) {
+	// Normal scroll within bounds
+	w1 := tuiviewport.ScrollWindow(100, 10, 20)
+	if w1.Start() != 10 || w1.End() != 30 || w1.Len() != 20 {
+		t.Errorf("expected [10, 30], got [%d, %d]", w1.Start(), w1.End())
+	}
+
+	// Overscroll clamped to total - visible
+	w2 := tuiviewport.ScrollWindow(100, 95, 20)
+	if w2.Start() != 80 || w2.End() != 100 || w2.Len() != 20 {
+		t.Errorf("expected [80, 100], got [%d, %d]", w2.Start(), w2.End())
+	}
+
+	// Underscroll clamped to 0
+	w3 := tuiviewport.ScrollWindow(100, -10, 20)
+	if w3.Start() != 0 || w3.End() != 20 {
+		t.Errorf("expected [0, 20], got [%d, %d]", w3.Start(), w3.End())
+	}
+
+	// Total smaller than visible
+	w4 := tuiviewport.ScrollWindow(5, 10, 20)
+	if w4.Start() != 0 || w4.End() != 5 || w4.Len() != 5 {
+		t.Errorf("expected [0, 5], got [%d, %d]", w4.Start(), w4.End())
+	}
+
+	// Zero or negative visible
+	w5 := tuiviewport.ScrollWindow(50, 10, 0)
+	if !w5.IsEmpty() {
+		t.Errorf("expected empty window for visible=0")
+	}
+	w6 := tuiviewport.ScrollWindow(50, 10, -5)
+	if !w6.IsEmpty() {
+		t.Errorf("expected empty window for visible=-5")
+	}
+}
+
+func TestListNav(t *testing.T) {
+	var nav tuiviewport.ListNav
+
+	// Empty list
+	w := nav.Sync(0, 10)
+	if nav.Cursor != 0 || nav.Window != 0 || !w.IsEmpty() {
+		t.Fatalf("empty list should yield 0, 0, got cursor=%d window=%d", nav.Cursor, nav.Window)
+	}
+
+	// Move down in 20 items, visible 5
+	nav.MoveDown(1, 20, 5)
+	if nav.Cursor != 1 || nav.Window != 0 {
+		t.Errorf("cursor=%d window=%d, want 1, 0", nav.Cursor, nav.Window)
+	}
+
+	// Move down past window bottom (cursor reaches 5, window should become 1)
+	for i := 0; i < 4; i++ {
+		nav.MoveDown(1, 20, 5)
+	}
+	if nav.Cursor != 5 || nav.Window != 1 {
+		t.Errorf("cursor=%d window=%d, want 5, 1", nav.Cursor, nav.Window)
+	}
+
+	// Page down by 5
+	nav.PageDown(20, 5)
+	if nav.Cursor != 10 || nav.Window != 6 {
+		t.Errorf("cursor=%d window=%d, want 10, 6", nav.Cursor, nav.Window)
+	}
+
+	// End jumps to last item and aligns window to bottom
+	nav.End(20, 5)
+	if nav.Cursor != 19 || nav.Window != 15 {
+		t.Errorf("cursor=%d window=%d, want 19, 15", nav.Cursor, nav.Window)
+	}
+	if !nav.IsSelected(19) {
+		t.Errorf("expected 19 to be selected")
+	}
+
+	// Home jumps to top
+	nav.Home(20, 5)
+	if nav.Cursor != 0 || nav.Window != 0 {
+		t.Errorf("cursor=%d window=%d, want 0, 0", nav.Cursor, nav.Window)
+	}
+
+	// Move up at top does not go below 0
+	nav.MoveUp(1, 20, 5)
+	if nav.Cursor != 0 || nav.Window != 0 {
+		t.Errorf("cursor=%d window=%d, want 0, 0", nav.Cursor, nav.Window)
+	}
+
+	// List shrinks (e.g. search filter: 20 -> 3 items)
+	nav.SetCursor(18, 20, 5)
+	nav.Sync(3, 5)
+	if nav.Cursor != 2 || nav.Window != 0 {
+		t.Errorf("shrunk list: cursor=%d window=%d, want 2, 0", nav.Cursor, nav.Window)
+	}
+
+	// HandleNav dispatch
+	if !nav.HandleNav(tuilib.NavDown, 10, 5) || nav.Cursor != 3 {
+		t.Errorf("HandleNav NavDown failed: cursor=%d", nav.Cursor)
+	}
+	if !nav.HandleNav(tuilib.NavTop, 10, 5) || nav.Cursor != 0 {
+		t.Errorf("HandleNav NavTop failed: cursor=%d", nav.Cursor)
+	}
+	if nav.HandleNav(tuilib.NavSelect, 10, 5) {
+		t.Errorf("HandleNav NavSelect should not be handled by list nav")
+	}
+}
+
+

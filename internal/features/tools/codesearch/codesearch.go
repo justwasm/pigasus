@@ -13,16 +13,17 @@
 // All four behaviours the spec calls out:
 //
 //   - regex by default, -F / --literal for fixed-string matches;
-//   - f:<glob> / file:<glob> repeatable include/exclude globs (the
-//     ripgrep path forwards these as -g / --iglob; the fallback walks
-//     the tree and applies the same globs);
+//   - f:<glob> / file:<glob> / path:<glob> repeatable include globs, and
+//     a leading "-" on the filter for an exclude glob (the ripgrep path
+//     forwards these as -g / --iglob; the fallback walks the tree and
+//     applies the same globs);
 //   - progressive streaming: every match reaches Search.Matches as a
 //     separate value, then the channel is closed when the run ends;
 //   - cancellation: ctx cancel kills the child (or stops the walk).
 //
 // One match is one *line*. The reference collapses multi-match lines to
 // a single result and only highlights the first match — see
-// cmd/wagyu/slash_codesearch.go for the equivalent csHit shaping.
+// internal/ui/views/codesearchpanel for the equivalent Hit shaping.
 //
 // The runner is concurrency-safe: a single Search owns one child process
 // (or one goroutine) and Cancel can be called from any goroutine. The
@@ -162,7 +163,11 @@ func send(ctx context.Context, s *Search, m Match) error {
 type Args struct {
 	Query   string
 	Literal bool
+	// Include are the include globs: every `f:` / `file:` / `path:`
+	// filter that carried no "-".
 	Include []string
+	// Exclude are the exclude globs: every filter that carried a
+	// leading "-".
 	Exclude []string
 }
 
@@ -176,8 +181,14 @@ var ErrEmptyQuery = errors.New("codesearch: empty query")
 //   - -F / --literal as a fixed-string match (ripgrep's flag);
 //   - -- as the end-of-flags marker, so positional `-F` becomes the
 //     pattern after `--`;
-//   - f:<glob> as an include glob (repeatable);
-//   - file:<glob> as an exclude glob (repeatable).
+//   - f:<glob>, file:<glob> and path:<glob> as an include glob
+//     (repeatable).
+//
+// A leading "-" turns a file filter into an exclusion: `-f:*_test.go`
+// excludes the test files, where `f:*_test.go` includes them. The
+// three prefixes are the reference's own spellings of the same filter
+// (official-docs/cli/commands/codesearch.md:54), so they mean the same
+// thing.
 //
 // Globs are extracted from anywhere in the token stream — both before
 // and after the pattern — because rg's `-g` order is independent. The
@@ -198,12 +209,12 @@ func ParseArgs(raw string) (Args, error) {
 			pattern = append(pattern, tokens[i+1:]...)
 			break
 		}
-		if strings.HasPrefix(tok, "f:") {
-			a.Include = append(a.Include, strings.TrimPrefix(tok, "f:"))
-			continue
-		}
-		if strings.HasPrefix(tok, "file:") {
-			a.Exclude = append(a.Exclude, strings.TrimPrefix(tok, "file:"))
+		if glob, exclude, ok := parseFileFilter(tok); ok {
+			if exclude {
+				a.Exclude = append(a.Exclude, glob)
+			} else {
+				a.Include = append(a.Include, glob)
+			}
 			continue
 		}
 		if strings.HasPrefix(tok, "-") {
@@ -225,6 +236,44 @@ func ParseArgs(raw string) (Args, error) {
 		return a, ErrEmptyQuery
 	}
 	return a, nil
+}
+
+// filterPrefixes are the three spellings of a file filter.
+//
+// The reference's documentation names them as the aliases of one
+// filter: `f:` (aliases `file:` and `path:`)
+// (official-docs/cli/commands/codesearch.md:54). All three are include
+// filters; the "-" is what turns one into an exclusion.
+var filterPrefixes = []string{"file:", "path:", "f:"}
+
+// parseFileFilter recognises one file filter token.
+//
+// It answers the glob, whether the glob excludes, and whether the token
+// was a filter at all. The exclusion is the leading "-" — on the token
+// (`-f:*_test.go`) or on the glob itself (`f:-*_test.go`): both spell
+// the same filter.
+func parseFileFilter(tok string) (glob string, exclude bool, ok bool) {
+	body := tok
+	if strings.HasPrefix(body, "-") {
+		exclude = true
+		body = strings.TrimPrefix(body, "-")
+	}
+	for _, prefix := range filterPrefixes {
+		if !strings.HasPrefix(body, prefix) {
+			continue
+		}
+		glob = strings.TrimPrefix(body, prefix)
+		if strings.HasPrefix(glob, "-") {
+			exclude = true
+			glob = strings.TrimPrefix(glob, "-")
+		}
+		if glob == "" {
+			// An empty glob is not a filter: the token is text.
+			return "", false, false
+		}
+		return glob, exclude, true
+	}
+	return "", false, false
 }
 
 // Truncate returns s clipped to at most width *cells* (rune-aware via

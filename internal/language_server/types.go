@@ -5,13 +5,17 @@
 // (RegisterServer / Serve / Stream) and the ~5-10 RPC method handler
 // stubs that the antigravity TUI / IDE / CLI dispatch to.
 //
-// Source-of-truth artifacts:
-//   - docs/decompiled-v1.3.5/c/google3_third_party_jetski_language_server_code_assist_client_codeassistclient/  (4 .c files)
-//   - docs/decompiled-v1.3.5/c/google3_third_party_jetski_language_server_pb_language_server_go_proto/      (7 .c files)
-//   - docs/decompiled-v1.3.5/c/google3_third_party_jetski_language_server_jetbox_summaries_store_jetbox_summaries_store/ (1 .c file)
-//   - docs/analysis-v1.3.5-official/funcs-v1.3.5-pclntab.txt
-//     (192 top-level funcs + 636 (*Server).* method receivers in the
-//     language_server package alone, plus 320+ in codeassistclient).
+// Source-of-truth artifacts (the 1.3.5 ELF decompile tree is retired;
+// the cited subset survives under docs/legacy-re/extracts/):
+//   - docs/legacy-re/extracts/decompiled-v1.3.5/c/google3_third_party_jetski_language_server_code_assist_client_codeassistclient/  (4 .c files)
+//   - docs/legacy-re/extracts/decompiled-v1.3.5/c/google3_third_party_jetski_language_server_pb_language_server_go_proto/      (7 .c files)
+//   - docs/legacy-re/extracts/decompiled-v1.3.5/c/google3_third_party_jetski_language_server_jetbox_summaries_store_jetbox_summaries_store/ (1 .c file)
+//   - docs/legacy-re/extracts/analysis-v1.3.5-official/seeds-v1.3.5.md
+//     (the stub that records the retired 1.3.5 whole-binary pclntab dumps —
+//     their digests, sizes and line counts. The per-package counts below —
+//     192 top-level funcs + 636 (*Server).* method receivers in the
+//     language_server package alone, plus 320+ in codeassistclient — were
+//     read off that retired dump; the stub does not reproduce them).
 //
 // The recovered build:
 //

@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/justwasm/pigasus/internal/auth"
 	"github.com/justwasm/pigasus/internal/cli"
+	"github.com/justwasm/pigasus/internal/features/auth"
 )
 
 // TestDesktopMendelUserAgent pins the identity the web server's Mendel
@@ -125,5 +125,122 @@ func TestRunWeb_Lifecycle(t *testing.T) {
 	errStr := errOut.String()
 	if !strings.Contains(errStr, "caught signal terminated, shutting down") {
 		t.Errorf("expected shutdown message in errOut, got:\n%s", errStr)
+	}
+}
+
+func TestRunWeb_ApiOnly(t *testing.T) {
+	oldSignalProvider := webSignalChProvider
+	defer func() { webSignalChProvider = oldSignalProvider }()
+
+	sigCh := make(chan os.Signal, 1)
+	webSignalChProvider = func(c chan<- os.Signal) {
+		go func() {
+			s := <-sigCh
+			c <- s
+		}()
+	}
+
+	out := &bytes.Buffer{}
+	errOut := &bytes.Buffer{}
+	j := &cli.JetskiCLI{
+		Name:   "pigasus",
+		Out:    out,
+		ErrOut: errOut,
+	}
+
+	go func() {
+		time.Sleep(100 * time.Millisecond)
+		sigCh <- syscall.SIGTERM
+	}()
+
+	err := RunWeb(j, cli.WebArgs{
+		Addr:    "127.0.0.1:0",
+		ApiOnly: true,
+		Open:    true, // should be ignored with warning
+	})
+	if err != nil {
+		t.Fatalf("RunWeb --api-only failed: %v", err)
+	}
+
+	outStr := out.String()
+	if !strings.Contains(outStr, "API-only mode") {
+		t.Errorf("expected '(API-only mode)' in banner, got:\n%s", outStr)
+	}
+	if !strings.Contains(outStr, "Connect-RPC:") || !strings.Contains(outStr, "WebSocket:") {
+		t.Errorf("expected RPC endpoints in banner, got:\n%s", outStr)
+	}
+	if !strings.Contains(outStr, "Web UI:      disabled (--api-only)") {
+		t.Errorf("expected Web UI disabled in banner, got:\n%s", outStr)
+	}
+
+	errStr := errOut.String()
+	if !strings.Contains(errStr, "--open ignored in --api-only mode") {
+		t.Errorf("expected --open ignored warning in errOut, got:\n%s", errStr)
+	}
+}
+
+func TestRunWeb_UiOnly(t *testing.T) {
+	oldSignalProvider := webSignalChProvider
+	defer func() { webSignalChProvider = oldSignalProvider }()
+
+	sigCh := make(chan os.Signal, 1)
+	webSignalChProvider = func(c chan<- os.Signal) {
+		go func() {
+			s := <-sigCh
+			c <- s
+		}()
+	}
+
+	out := &bytes.Buffer{}
+	errOut := &bytes.Buffer{}
+	j := &cli.JetskiCLI{
+		Name:   "pigasus",
+		Out:    out,
+		ErrOut: errOut,
+	}
+
+	go func() {
+		time.Sleep(100 * time.Millisecond)
+		sigCh <- syscall.SIGTERM
+	}()
+
+	err := RunWeb(j, cli.WebArgs{
+		Addr:   "127.0.0.1:0",
+		UiOnly: true,
+	})
+	if err != nil {
+		t.Fatalf("RunWeb --ui-only failed: %v", err)
+	}
+
+	outStr := out.String()
+	if !strings.Contains(outStr, "UI-only mode") {
+		t.Errorf("expected '(UI-only mode)' in banner, got:\n%s", outStr)
+	}
+	if !strings.Contains(outStr, "Local URL:") {
+		t.Errorf("expected Local URL in banner, got:\n%s", outStr)
+	}
+	if !strings.Contains(outStr, "Backend RPC: disabled (--ui-only)") {
+		t.Errorf("expected Backend RPC disabled in banner, got:\n%s", outStr)
+	}
+}
+
+func TestRunWeb_MutualExclusion(t *testing.T) {
+	out := &bytes.Buffer{}
+	errOut := &bytes.Buffer{}
+	j := &cli.JetskiCLI{
+		Name:   "pigasus",
+		Out:    out,
+		ErrOut: errOut,
+	}
+
+	err := RunWeb(j, cli.WebArgs{
+		ApiOnly: true,
+		UiOnly:  true,
+	})
+	if err == nil {
+		t.Fatalf("expected error when both ApiOnly and UiOnly are true")
+	}
+	if !strings.Contains(err.Error(), "cannot be used together") {
+		t.Errorf("expected mutual exclusion error message, got: %v", err)
 	}
 }

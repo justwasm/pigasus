@@ -6,8 +6,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/justwasm/pigasus/internal/backend"
-	"github.com/justwasm/pigasus/internal/convstore"
+	"github.com/justwasm/pigasus/internal/app/session/convstore"
+	"github.com/justwasm/pigasus/internal/core/backend"
+	"github.com/justwasm/pigasus/internal/ui/toolsteps"
 )
 
 // writeTrajectoryFixture writes a conversation whose trajectory holds a
@@ -34,9 +35,9 @@ func writeTrajectoryFixture(t *testing.T, steps []convstore.Step) string {
 // {"Name":…,"SystemPrompt":…}.
 func defineSubagentStep(idx int64) convstore.Step {
 	return convstore.Step{
-		Idx:    idx,
-		Type:   convstore.StepToolCall,
-		Status: 3,
+		Idx:      idx,
+		Type:     convstore.StepToolCall,
+		Status:   3,
 		ToolName: "define_subagent",
 		ToolArgs: `{"Name":"viewer","Description":"Viewport work",` +
 			`"SystemPrompt":"You are a Go developer."}`,
@@ -93,7 +94,7 @@ func TestResumeRehydratesTheDefinitions(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load fixture: %v", err)
 	}
-	m := NewRunMode(nil, "", "Gemini 3.8 Flash (High)", "", "/tmp", true)
+	m := newRunMode(nil, "", "Gemini 3.8 Flash (High)", "", "/tmp", true)
 	m.seedConversation(c)
 	def, ok := m.subagentDefs.Get("viewer")
 	if !ok {
@@ -121,21 +122,21 @@ func TestTrajectoryKeepsTheAdoptedSteps(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load fixture: %v", err)
 	}
-	m := NewRunMode(nil, "", "Gemini 3.8 Flash (High)", "", "/tmp", true)
+	m := newRunMode(nil, "", "Gemini 3.8 Flash (High)", "", "/tmp", true)
 	m.seedConversation(c)
 
 	// A new turn: the user asks something, the model calls a tool and
 	// answers.
 	m.session = append(m.session, backend.Message{Role: "user", Content: "now run ls"})
-	m.recordTrajectoryCalls([]toolStep{{
-		kind:   stepKindTool,
-		name:   "run_command",
-		args:   `{"CommandLine":"ls"}`,
-		result: "a b c",
+	m.recordTrajectoryCalls([]toolsteps.Step{{
+		Kind:   toolsteps.KindTool,
+		Name:   "run_command",
+		Args:   `{"CommandLine":"ls"}`,
+		Result: "a b c",
 	}})
 	m.session = append(m.session, backend.Message{Role: "assistant", Content: "Listed."})
 
-	steps := m.trajectorySteps()
+	steps := convstore.BuildSteps(m.trajectoryFacts())
 	if len(steps) != 6 {
 		t.Fatalf("trajectory = %d steps, want 6: %+v", len(steps), steps)
 	}

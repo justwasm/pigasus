@@ -7,6 +7,8 @@ import (
 	"sync"
 
 	"github.com/google/uuid"
+
+	"github.com/justwasm/pigasus/configdir"
 )
 
 // InstanceIDPrefix is the prefix the reference puts in front of the
@@ -68,7 +70,7 @@ const InstanceIDSuffix = "-v2"
 //     would invalidate the "Connect" link the user copied.
 //
 // The clone keeps its own uuid in its own configuration directory
-// (~/.config/openagy/remote-control-instance-id) rather than in the
+// (~/.openagy/remote-control-instance-id) rather than in the
 // shared Antigravity home: the reference reads its uuid from the
 // shared state file, and the clone must not end up registering the
 // same instance id as the reference running on the same machine.
@@ -189,13 +191,7 @@ func InstanceIDPath() string {
 
 // configDir returns the clone's own configuration directory.
 func configDir() string {
-	if xdg := strings.TrimSpace(os.Getenv("XDG_CONFIG_HOME")); xdg != "" {
-		return filepath.Join(xdg, "openagy")
-	}
-	if home := strings.TrimSpace(os.Getenv("HOME")); home != "" {
-		return filepath.Join(home, ".config", "openagy")
-	}
-	return ""
+	return configdir.Dir()
 }
 
 // mintUUID returns a random RFC 4122 version 4 uuid.

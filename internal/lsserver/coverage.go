@@ -31,7 +31,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/justwasm/pigasus/internal/agyprompt"
+	"github.com/justwasm/pigasus/internal/app/prompt/agyprompt"
 	"github.com/justwasm/pigasus/lsproto"
 )
 
@@ -77,7 +77,7 @@ func fallbackAnswer(method string) (string, bool) {
 // The reference answers the workbench's skills panel with the skills
 // it discovered: the builtin bundle it unpacked into the app data
 // dir, the user's own skills, and the plugins' skills. The clone has
-// the same two roots — the builtin bundle (internal/builtinskills)
+// the same two roots — the builtin bundle (internal/features/tools/skills)
 // and the config home — and it lists them the way the prompt does
 // (internal/agyprompt).
 //

@@ -14,15 +14,19 @@
 // h/j/k/l, w/b/e and W/B/E motions, the 0/^/$/gg/G boundaries, the
 // f/F/t/T character searches with ;/, repeats, the i/a/I/A and o/O
 // insert entries, the d/c/y operators alongside x, D and C filling the
-// unnamed register for p, and the iw/aw/iW/aW/ip/ap text objects, with
-// numeric count multipliers applying to operators, motions and
-// actions. ZZ submits from Normal mode, like the reference's own /help
-// documents.
+// unnamed register for p, and the iw/aw/iW/aW/ip/ap text objects. ZZ
+// submits from Normal mode, like the reference's own /help documents.
 //
-// Two deliberate deviations from the binary, both recorded in the cycle
+// Three deliberate deviations from the binary, all recorded in the cycle
 // report: `ip`/`ap` are kept because the 1.1.11 changelog promises them
-// even though the shipped binary no-ops `dip`, and space is left
-// unbound because the binary does not treat it as a right-motion.
+// even though the shipped binary no-ops `dip`, space is left unbound
+// because the binary does not treat it as a right-motion, and the
+// commands take **no count prefix** — the reference's own documentation
+// says so (official-docs/cli/vim-editor-mode.md: "Commands take no count
+// prefix, so `3dd` deletes one line"), so a leading digit is an
+// invalid key here too. That last one contradicts the 1.2.9 changelog
+// entry that announced the numeric count multipliers, and it is
+// recorded as 存疑 in the cycle report and in nocount_test.go.
 package vim
 
 import (

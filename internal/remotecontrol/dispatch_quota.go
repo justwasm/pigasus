@@ -52,15 +52,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/justwasm/pigasus/internal/accounts"
-	"github.com/justwasm/pigasus/internal/auth"
+	accounts "github.com/justwasm/pigasus/internal/features/accounts/core"
+	"github.com/justwasm/pigasus/internal/features/auth"
+	"github.com/justwasm/pigasus/internal/remotecontrol/rpc"
 )
-
-// quotaFreshness is how long a cached summary is served before the
-// route asks the server again. The Web UI's own cache is five
-// seconds; the clone's is longer, because a quota summary changes
-// slowly and every read costs a round trip to the server.
-const quotaFreshness = 2 * time.Minute
 
 // quotaFetchTimeout bounds the live read. The Web UI shows its own
 // "Refreshing…" row while the answer is on its way, so a slow answer
@@ -79,7 +74,7 @@ var quotaSummaryFetcher = fetchActiveQuotaSummary
 
 // routeQuotaMethods serves the quota RPCs the Web UI's usage panel
 // needs. Returns ok=true when the method was handled.
-func (d *Dispatcher) routeQuotaMethods(ctx context.Context, method string, params json.RawMessage) (any, *rpcErrorBody, bool) {
+func (d *Dispatcher) routeQuotaMethods(ctx context.Context, method string, params json.RawMessage) (any, *rpc.ErrorBody, bool) {
 	switch method {
 	case "RetrieveUserQuotaSummary":
 		return d.handleLSRetrieveUserQuotaSummary(ctx, params)
@@ -95,7 +90,7 @@ func (d *Dispatcher) routeQuotaMethods(ctx context.Context, method string, param
 // refresh (the Web UI's panel always does) reads the server; a failed
 // read falls back to the cached summary rather than to an error, so
 // the panel still shows the last known numbers.
-func (d *Dispatcher) handleLSRetrieveUserQuotaSummary(ctx context.Context, params json.RawMessage) (any, *rpcErrorBody, bool) {
+func (d *Dispatcher) handleLSRetrieveUserQuotaSummary(ctx context.Context, params json.RawMessage) (any, *rpc.ErrorBody, bool) {
 	var req struct {
 		ForceRefresh bool `json:"forceRefresh"`
 	}
@@ -118,11 +113,16 @@ func (d *Dispatcher) handleLSRetrieveUserQuotaSummary(ctx context.Context, param
 
 // quotaExpired reports whether a cached summary is older than the
 // freshness window.
+//
+// The window is the registry's (accounts.QuotaFreshness), next to the
+// snapshot it owns: the Web UI's own cache is five seconds; the
+// clone's is longer, because a quota summary changes slowly and every
+// read costs a round trip to the server.
 func quotaExpired(snap *auth.QuotaSnapshot) bool {
 	if snap == nil || snap.FetchedAt.IsZero() {
 		return true
 	}
-	return time.Since(snap.FetchedAt) > quotaFreshness
+	return time.Since(snap.FetchedAt) > accounts.QuotaFreshness
 }
 
 // activeQuotaSnapshot returns the active account's email and its

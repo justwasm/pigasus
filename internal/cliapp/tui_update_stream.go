@@ -9,8 +9,12 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/justwasm/pigasus/internal/agent"
-	"github.com/justwasm/pigasus/internal/backend"
-	"github.com/justwasm/pigasus/internal/tuitools"
+	"github.com/justwasm/pigasus/internal/app/agentturn"
+	"github.com/justwasm/pigasus/internal/core/backend"
+	"github.com/justwasm/pigasus/internal/ui/mdrender"
+	"github.com/justwasm/pigasus/internal/ui/toolsteps"
+	"github.com/justwasm/pigasus/internal/ui/transcript"
+	"github.com/justwasm/pigasus/internal/ui/tuitools"
 )
 
 func (m *runMode) resetDiscardedTurn() {
@@ -20,10 +24,15 @@ func (m *runMode) resetDiscardedTurn() {
 	m.activeTool = ""
 	m.streaming = false
 	m.thinking = false
+	m.liveThinking = ""
+	m.liveThinkingSnippet = ""
+	m.liveThoughtRunIdx = -1
+	m.activeTip = ""
 	m.replyStart = -1
 	m.liveReplyIdx = -1
 	m.liveTextLines = 0
 	m.liveReplyBuf = ""
+	m.lastStreamSave = time.Time{}
 	m.streamedText = false
 	m.liveBatch = 0
 	m.batchBreak = false
@@ -31,106 +40,63 @@ func (m *runMode) resetDiscardedTurn() {
 
 func (m *runMode) dequeueNextPrompt() string {
 	nextQueued := ""
-	if m.queuedPrompt != "" {
-		nextQueued = m.queuedPrompt
-		m.queuedPrompt = ""
-	} else if len(m.streamQueue) > 0 {
-		nextQueued = m.streamQueue[0]
-		m.streamQueue = m.streamQueue[1:]
+	if m.store.QueuedPrompt != "" {
+		nextQueued = m.store.QueuedPrompt
+		m.store.QueuedPrompt = ""
+	} else if len(m.store.StreamQueue) > 0 {
+		nextQueued = m.store.StreamQueue[0]
+		m.store.StreamQueue = m.store.StreamQueue[1:]
 	}
 	return nextQueued
 }
 
-func (m *runMode) finaliseTurnReply(msg turnDoneMsg) {
-	if finalised := m.finaliseLiveTurn(msg); !finalised {
-		var replyLines []string
-		if !agent.IsEmptyAssistantTurn(msg.reply, nil, msg.reasoning) {
-			styled := renderMarkdown(msg.reply, m.width)
-			replyLines = strings.Split(styled, "\n")
-		}
-		block := toolBlockLines(msg.steps, m.expanded, m.width)
-		final := make([]string, 0, len(block)+len(replyLines)+1)
-		pad := m.liveStart > 0 && strings.TrimSpace(stripANSI(m.response[m.liveStart-1])) != ""
-		if pad {
-			final = append(final, "")
-		}
-		final = append(final, block...)
-		replyStart := m.liveStart + len(final)
-		final = append(final, replyLines...)
-		m.replaceRange(m.liveStart, len(m.response), final)
-		if len(msg.steps) > 0 {
-			start := m.liveStart
-			if pad {
-				start++
-			}
-			m.blocks = append(m.blocks, turnBlock{
-				start: start,
-				lines: len(block),
-				steps: msg.steps,
-			})
-		}
-		if len(replyLines) > 0 {
-			m.assistants = append(m.assistants, assistantBlock{
-				start: replyStart,
-				lines: len(replyLines),
-				raw:   msg.reply,
-			})
-		}
-	} else if !m.streamedText && !agent.IsEmptyAssistantTurn(msg.reply, nil, msg.reasoning) {
-		styled := renderMarkdown(msg.reply, m.width)
-		lines := strings.Split(styled, "\n")
-		start := len(m.response)
-		m.response = append(m.response, lines...)
-		m.assistants = append(m.assistants, assistantBlock{
-			start: start,
-			lines: len(lines),
-			raw:   msg.reply,
-		})
-	} else if m.streamedText && !agent.IsEmptyAssistantTurn(msg.reply, nil, msg.reasoning) {
-		if m.replyStart >= 0 && m.liveTextLines > 0 {
-			raw := msg.reply
-			if raw == "" {
-				raw = m.liveReplyBuf
-			}
-			m.assistants = append(m.assistants, assistantBlock{
-				start: m.replyStart,
-				lines: m.liveTextLines,
-				raw:   raw,
-			})
-		}
-	}
-}
-
-func (m *runMode) recordTurnCompletion(msg turnDoneMsg) {
+func (m *runMode) recordTurnCompletion(msg toolsteps.TurnDoneMsg) {
 	m.liveSteps = nil
 	m.liveStepRuns = nil
 	m.activeTool = ""
 	m.streaming = false
 	m.thinking = false
+	m.liveThinking = ""
+	m.liveThinkingSnippet = ""
+	m.liveThoughtRunIdx = -1
+	m.activeTip = ""
 	m.replyStart = -1
 	m.liveTextLines = 0
 	m.liveReplyBuf = ""
+	m.lastStreamSave = time.Time{}
 	m.streamedText = false
 	m.liveBatch = 0
 	m.batchBreak = false
-	m.recordTurnOutcome(tea.ProgramStateDone)
+	// The turn's outcome is a fact the session rests in: the status
+	// line's `agent_state` member reports it ("error" after a failed
+	// turn) and the terminal's own program status reads the same fact.
+	//
+	// A turn the user cancelled with Esc is not a failure: the
+	// cancellation is the turn's own outcome.
+	if msg.Err != nil && !m.turnInterrupted {
+		m.recordTurnOutcome(tea.ProgramStateError)
+	} else {
+		m.recordTurnOutcome(tea.ProgramStateDone)
+	}
 
-	if !agent.IsEmptyAssistantTurn(msg.reply, nil, msg.reasoning) {
+	if !agentturn.IsEmptyAssistantTurn(msg.Reply, nil, msg.Reasoning) {
 		if m.liveReplyIdx >= 0 && m.liveReplyIdx < len(m.session) {
-			m.session[m.liveReplyIdx].Content = msg.reply
+			m.session[m.liveReplyIdx].Content = msg.Reply
 		} else {
-			m.session = append(m.session, backend.Message{Role: "assistant", Content: msg.reply})
+			m.session = append(m.session, backend.Message{Role: "assistant", Content: msg.Reply})
 		}
 	}
 	// The turn's tool calls join the trajectory before the save: the
 	// calls are what the rehydration pass reads back.
-	m.recordTrajectoryCalls(msg.steps)
+	m.recordTrajectoryCalls(msg.Steps)
 	// A turn the user cancelled with Esc leaves no error row behind. The
 	// reference answers a cancelled turn with the composer's interrupted
 	// hint instead (【反编译】 agy 1.4.8's `(*PromptModel).interruptedLine`),
 	// and the turn's own failure is the cancellation itself.
-	if msg.err != nil && !m.turnInterrupted {
-		m.response = append(m.response, turnErrorRow(msg.err))
+	if msg.Err != nil && !m.turnInterrupted {
+		if message, ok := agent.TurnErrorMessage(msg.Err); ok {
+			m.response = append(m.response, toolsteps.ErrorRow(message))
+		}
 	}
 	m.replyStart = -1
 	m.liveReplyIdx = -1
@@ -142,9 +108,9 @@ func (m *runMode) recordTurnCompletion(msg turnDoneMsg) {
 
 func (m *runMode) flushNextQueued(nextQueued string) tea.Cmd {
 	if nextQueued == "" {
-		if len(m.bashQueue) > 0 {
-			next := m.bashQueue[0]
-			m.bashQueue = m.bashQueue[1:]
+		if len(m.store.BashQueue) > 0 {
+			next := m.store.BashQueue[0]
+			m.store.BashQueue = m.store.BashQueue[1:]
 			return m.startBashCommand(next)
 		}
 		// A background task that finished while the turn was running has
@@ -161,11 +127,20 @@ func (m *runMode) flushNextQueued(nextQueued string) tea.Cmd {
 	for len(m.response) > 0 && strings.TrimSpace(m.response[len(m.response)-1]) == "" {
 		m.response = m.response[:len(m.response)-1]
 	}
+	sep := transcript.TurnSeparator(m.width)
 	if len(m.response) == 0 {
-		m.response = append(m.response, turnSeparator(m.width), userPromptRow(nextQueued))
+		m.response = append(m.response, sep)
 	} else {
-		m.response = append(m.response, "", turnSeparator(m.width), userPromptRow(nextQueued))
+		m.response = append(m.response, "", sep)
 	}
+	start := len(m.response)
+	promptLines := transcript.RenderUserPrompt(nextQueued, m.width)
+	m.response = append(m.response, promptLines...)
+	m.userBlocks = append(m.userBlocks, transcript.UserBlock{
+		Start: start,
+		Lines: len(promptLines),
+		Raw:   nextQueued,
+	})
 	m.liveStart = len(m.response)
 	m.replyStart = -1
 	m.liveReplyIdx = -1
@@ -175,6 +150,7 @@ func (m *runMode) flushNextQueued(nextQueued string) tea.Cmd {
 	m.thinking = false
 	m.liveTextLines = 0
 	m.liveReplyBuf = ""
+	m.lastStreamSave = time.Time{}
 	m.streamedText = false
 	m.liveBatch = 0
 	m.batchBreak = false
@@ -189,82 +165,89 @@ func (m *runMode) flushNextQueued(nextQueued string) tea.Cmd {
 	return tea.Batch(m.streamPrompt(nextQueued), tickCmd)
 }
 
-func (m *runMode) updateTurnDoneMsg(msg turnDoneMsg) (tea.Model, tea.Cmd) {
+func (m *runMode) updateTurnDoneMsg(msg toolsteps.TurnDoneMsg) (tea.Model, tea.Cmd) {
 	m.inputNotice = ""
 	if m.discardTurn {
 		m.resetDiscardedTurn()
 		return m, tea.ClearScreen
 	}
 	nextQueued := m.dequeueNextPrompt()
-	m.finaliseTurnReply(msg)
+	doc := m.transcriptDocument()
+	if doc.FinaliseTurnReply(msg, m.transcriptOptions(msg)) {
+		m.rowsCacheDirty = true
+	}
+	m.applyTranscriptDocument(doc)
 	m.recordTurnCompletion(msg)
+
+	// If /goal mode is active, check the outcome of this turn.
+	if m.activeGoal != nil {
+		completed, cancelled := m.activeGoal.CheckOutcome(msg.Reply)
+		if completed || cancelled {
+			m.activeGoal = nil
+		} else {
+			// If the user manually queued a prompt, that takes priority and pauses the goal loop.
+			if nextQueued == "" {
+				m.activeGoal.ContinuationCount++
+				reminderPrompt := m.activeGoal.BuildReminderMessage()
+				return m, tea.Batch(m.startModelTurn(reminderPrompt), tea.ClearScreen)
+			}
+		}
+	}
+
 	queueCmd := m.flushNextQueued(nextQueued)
 	return m, tea.Batch(queueCmd, tea.ClearScreen)
 }
 
-func (m *runMode) updateToolRunningMsg(msg toolRunningMsg) {
-	m.activeTool = tuitools.RunningSpinnerText(msg.step.name)
+func (m *runMode) updateToolRunningMsg(msg toolsteps.ToolRunningMsg) {
+	if m.thinking {
+		m.finishLiveThinking()
+	}
+	m.activeTool = tuitools.RunningSpinnerText(msg.Step.Name)
 	m.anyToolRun = true
 	m.streaming = true
-	if m.batchBreak {
-		m.liveBatch++
-		m.batchBreak = false
-	}
-	m.blankBefore()
-	step := msg.step
-	step.batch = m.liveBatch
-	lines := toolStepLines(step, m.expanded, m.width)
-	m.liveStepRuns = append(m.liveStepRuns, liveStepRun{
-		start: len(m.response),
-		lines: len(lines),
-		step:  step,
-	})
-	m.response = append(m.response, lines...)
+
+	// The transcript owns the batch arithmetic: the running call either
+	// joins the current batch or starts a new one, and the rows of the
+	// batch are repainted. The host keeps the batch bookkeeping.
+	step := msg.Step
+	doc := m.transcriptDocument()
+	batch, batchBreak := doc.AppendRunningStep(&step, m.liveBatch, m.batchBreak, m.repaintOptions())
+	m.applyTranscriptDocument(doc)
+	m.liveBatch = batch
+	m.batchBreak = batchBreak
+	m.rowsCacheDirty = true
 }
 
-func (m *runMode) updateToolStepMsg(msg toolStepMsg) {
-	m.liveSteps = append(m.liveSteps, msg.step)
+func (m *runMode) updateToolStepMsg(msg toolsteps.ToolStepMsg) {
+	if m.thinking {
+		m.finishLiveThinking()
+	}
 	m.activeTool = ""
 	m.replyStart = -1
 	m.liveTextLines = 0
 	m.liveReplyBuf = ""
-	step := msg.step
-	lines := toolStepLines(step, m.expanded, m.width)
-	replaced := false
-	if n := len(m.liveStepRuns); n > 0 && m.liveStepRuns[n-1].step.running {
-		r := &m.liveStepRuns[n-1]
-		oldEnd := r.start + r.lines
-		if r.start >= 0 && oldEnd <= len(m.response) {
-			step.batch = r.step.batch
-			lines = toolStepLines(step, m.expanded, m.width)
-			delta := len(lines) - r.lines
-			m.replaceRange(r.start, oldEnd, lines)
-			r.lines = len(lines)
-			r.step = step
-			if delta != 0 && m.replyStart >= oldEnd {
-				m.replyStart += delta
-			}
-			replaced = true
-		}
+
+	// The finished call takes the running call's place in the batch,
+	// and the batch's rows are repainted with the block the batch now
+	// holds. A call that had no running predecessor is appended as a
+	// run of its own.
+	step := msg.Step
+	doc := m.transcriptDocument()
+	opts := m.repaintOptions()
+	if !doc.FinishLiveStep(&step, opts) {
+		batch, batchBreak := doc.AppendLiveStep(&step, m.liveBatch, m.batchBreak, opts)
+		m.liveBatch = batch
+		m.batchBreak = batchBreak
 	}
-	if !replaced {
-		if m.batchBreak {
-			m.liveBatch++
-			m.batchBreak = false
-		}
-		step.batch = m.liveBatch
-		lines = toolStepLines(step, m.expanded, m.width)
-		m.liveStepRuns = append(m.liveStepRuns, liveStepRun{
-			start: len(m.response),
-			lines: len(lines),
-			step:  step,
-		})
-		m.response = append(m.response, lines...)
-	}
-	m.liveSteps[len(m.liveSteps)-1] = step
+	m.applyTranscriptDocument(doc)
+	m.liveSteps = append(m.liveSteps, step)
+	m.rowsCacheDirty = true
 }
 
 func (m *runMode) updateBackendChunkMsg(msg backendChunkMsg) {
+	if m.thinking {
+		m.finishLiveThinking()
+	}
 	chunk := string(msg)
 	if chunk == "" || m.discardTurn {
 		return
@@ -277,7 +260,7 @@ func (m *runMode) updateBackendChunkMsg(msg backendChunkMsg) {
 		return
 	}
 	if m.replyStart < 0 {
-		m.blankBefore()
+		m.response = transcript.BlankBefore(m.response)
 		m.replyStart = len(m.response)
 		m.liveTextLines = 0
 		m.liveReplyBuf = ""
@@ -291,28 +274,53 @@ func (m *runMode) updateBackendChunkMsg(msg backendChunkMsg) {
 	} else {
 		m.session[m.liveReplyIdx].Content += chunk
 	}
-	styled := renderMarkdown(m.liveReplyBuf, m.width)
+	styled := mdrender.RenderMarkdown(m.liveReplyBuf, m.width)
 	lines := strings.Split(styled, "\n")
-	m.replaceRange(m.replyStart, m.replyStart+m.liveTextLines, lines)
+	m.response = transcript.ReplaceRange(m.response, m.replyStart, m.replyStart+m.liveTextLines, lines)
 	m.liveTextLines = len(lines)
 	m.streaming = true
-	m.saveSession()
+	m.saveSessionStreamDebounced()
+}
+
+func (m *runMode) saveSessionStreamDebounced() {
+	now := time.Now()
+	// Persist the first chunk immediately so initial step is written to disk,
+	// then throttle subsequent disk writes to at most once every 1.5 seconds.
+	if m.lastStreamSave.IsZero() || now.Sub(m.lastStreamSave) >= 1500*time.Millisecond {
+		m.saveSession()
+		m.lastStreamSave = now
+	}
 }
 
 func (m *runMode) updateStreamingMsg(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
 	switch msg := msg.(type) {
-	case turnDoneMsg:
+	case toolsteps.TurnDoneMsg:
 		mod, cmd := m.updateTurnDoneMsg(msg)
 		return mod, cmd, true
-	case toolRunningMsg:
+	case toolsteps.ToolRunningMsg:
 		m.updateToolRunningMsg(msg)
 		return m, nil, true
-	case thoughtStartMsg:
+	case toolsteps.ThoughtStartMsg:
+		if !m.thinking {
+			m.thinking = true
+			m.thinkingSince = time.Now()
+			m.liveThinking = ""
+			m.liveThinkingSnippet = ""
+			m.liveThoughtRunIdx = -1
+		}
+		m.streaming = true
+		return m, nil, true
+	case toolsteps.ThoughtChunkMsg:
 		if !m.thinking {
 			m.thinking = true
 			m.thinkingSince = time.Now()
 		}
 		m.streaming = true
+		m.liveThinking += msg.Delta
+		m.liveThinkingSnippet = toolsteps.ThinkingLiveSnippet(m.liveThinking)
+		if m.isExpanded() {
+			m.syncLiveThoughtStep()
+		}
 		return m, nil, true
 	case autoContBannerMsg:
 		banner := "↻  auto-continuing… (retry " + fmt.Sprintf("%d", msg.depth) + " of " + fmt.Sprintf("%d", msg.maxDepth) + ")"
@@ -324,7 +332,7 @@ func (m *runMode) updateStreamingMsg(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
 	case eligibilityNoticeMsg:
 		m.setEligibilityNotice(msg.Reason, msg.VerificationURL)
 		return m, nil, true
-	case toolStepMsg:
+	case toolsteps.ToolStepMsg:
 		m.updateToolStepMsg(msg)
 		return m, nil, true
 	case taskNotificationMsg:
@@ -347,6 +355,10 @@ func (m *runMode) updateStreamingMsg(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
 		m.saveSession()
 		if len(m.response) > 0 {
 			m.response = append(m.response, "")
+		}
+		nextQueued := m.dequeueNextPrompt()
+		if queueCmd := m.flushNextQueued(nextQueued); queueCmd != nil {
+			return m, tea.Batch(tea.ClearScreen, queueCmd), true
 		}
 		return m, tea.ClearScreen, true
 	}

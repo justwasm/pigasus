@@ -13,89 +13,29 @@
 // clone writes to the same store the reference uses, it also replaced
 // the reference's stored trajectory with that thinner record.
 //
-// This file keeps the trajectory whole. The steps the conversation was
-// adopted with are preserved as they were, and the turns that ran
-// since are appended: the user input, the tool calls of the turn and
-// the model's reply, in the order they happened.
+// The store owns the trajectory — `convstore.BuildSteps` assembles it,
+// because the store is what the steps are written to. This file keeps
+// the host's half: the tool calls a turn made, and the reset when a
+// conversation ends.
 package cliapp
 
 import (
-	"strings"
-
-	"github.com/justwasm/pigasus/internal/backend"
-	"github.com/justwasm/pigasus/internal/convstore"
+	"github.com/justwasm/pigasus/internal/app/session/convstore"
+	"github.com/justwasm/pigasus/internal/ui/toolsteps"
 )
 
-// trajectorySteps returns the conversation's trajectory: the steps it
-// was adopted with, plus the steps of the turns that ran since.
+// trajectoryFacts collects the four facts the store needs to assemble
+// the conversation's trajectory.
 //
-// The adopted steps come first and keep their indices, so the new
-// steps continue the trajectory's numbering — the reference stores one
-// row per step, indexed in order (【一手】 the reference's own
-// conversation stores).
-func (m *runMode) trajectorySteps() []convstore.Step {
-	steps := make([]convstore.Step, 0, len(m.trajLoaded)+len(m.trajCalls)+len(m.session))
-	steps = append(steps, m.trajLoaded...)
-	idx := nextTrajectoryIndex(m.trajLoaded)
-	calls := 0
-	for _, msg := range m.session[m.trajSeededLen:] {
-		switch msg.Role {
-		case "user":
-			steps = append(steps, convstore.Step{
-				Idx:    idx,
-				Type:   convstore.StepUserInput,
-				Status: 3,
-				Text:   msg.Content,
-			})
-			idx++
-		case "system":
-			// A background task's notification is the reference's own
-			// system message: CORTEX_STEP_TYPE_SYSTEM_MESSAGE = 101
-			// (the recovered .proto,
-			// out/local-macos/protos/cortex_1.4.6.proto), with the
-			// step status DONE = 3.
-			if strings.TrimSpace(msg.Content) == "" {
-				continue
-			}
-			steps = append(steps, convstore.Step{
-				Idx:    idx,
-				Type:   convstore.StepSystemNotice,
-				Status: 3,
-				Text:   msg.Content,
-			})
-			idx++
-		case "assistant":
-			if strings.TrimSpace(msg.Content) == "" {
-				continue
-			}
-			// The tool calls of the turn come before the reply: the
-			// model calls its tools, then answers.
-			for ; calls < len(m.trajCalls); calls++ {
-				call := m.trajCalls[calls]
-				call.Idx = idx
-				steps = append(steps, call)
-				idx++
-			}
-			steps = append(steps, convstore.Step{
-				Idx:    idx,
-				Type:   convstore.StepModelResponse,
-				Status: 3,
-				Text:   msg.Content,
-			})
-			idx++
-		}
+// The host owns the facts — they are the live state of the running
+// session — and the store owns the assembly (convstore.BuildSteps).
+func (m *runMode) trajectoryFacts() convstore.Trajectory {
+	return convstore.Trajectory{
+		Loaded:    m.trajLoaded,
+		Calls:     m.trajCalls,
+		Session:   m.session,
+		SeededLen: m.trajSeededLen,
 	}
-	// The calls of a turn that has not replied yet.
-	for ; calls < len(m.trajCalls); calls++ {
-		call := m.trajCalls[calls]
-		call.Idx = idx
-		steps = append(steps, call)
-		idx++
-	}
-	if n := len(steps); n > 0 && steps[n-1].Type == convstore.StepModelResponse {
-		steps[n-1].Text = backend.TrimTrailingBlankLines(steps[n-1].Text)
-	}
-	return steps
 }
 
 // recordTrajectoryCalls adds a turn's tool calls to the trajectory.
@@ -103,22 +43,22 @@ func (m *runMode) trajectorySteps() []convstore.Step {
 // The steps come from the turn's own tool steps, so the raw arguments
 // the model produced are stored verbatim — the rehydration pass reads
 // them back to rebuild the state the calls produced (see
-// internal/rehydration).
-func (m *runMode) recordTrajectoryCalls(steps []toolStep) {
+// internal/app/session/rehydration).
+func (m *runMode) recordTrajectoryCalls(steps []toolsteps.Step) {
 	for _, s := range steps {
-		if s.kind != stepKindTool || s.name == "" {
+		if s.Kind != toolsteps.KindTool || s.Name == "" {
 			continue
 		}
 		status := int64(3)
-		if s.err {
+		if s.Err {
 			status = 4
 		}
 		m.trajCalls = append(m.trajCalls, convstore.Step{
 			Type:       convstore.StepToolCall,
 			Status:     status,
-			ToolName:   s.name,
-			ToolArgs:   s.args,
-			ToolResult: s.result,
+			ToolName:   s.Name,
+			ToolArgs:   s.Args,
+			ToolResult: s.Result,
 		})
 	}
 }
@@ -128,16 +68,4 @@ func (m *runMode) resetTrajectory() {
 	m.trajLoaded = nil
 	m.trajCalls = nil
 	m.trajSeededLen = 0
-}
-
-// nextTrajectoryIndex returns the index the next step of the trajectory
-// takes: one past the last stored step.
-func nextTrajectoryIndex(steps []convstore.Step) int64 {
-	var next int64
-	for _, s := range steps {
-		if s.Idx >= next {
-			next = s.Idx + 1
-		}
-	}
-	return next
 }

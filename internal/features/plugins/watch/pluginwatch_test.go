@@ -9,7 +9,7 @@
 //
 // Run:
 //
-//	go test -vet=off -count=1 ./internal/pluginwatch/
+//	go test -vet=off -count=1 ./internal/features/plugins/watch/
 package watch
 
 import (

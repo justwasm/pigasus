@@ -33,7 +33,7 @@ import (
 	"strings"
 
 	"github.com/justwasm/pigasus/internal/agent"
-	"github.com/justwasm/pigasus/internal/backend"
+	"github.com/justwasm/pigasus/internal/core/backend"
 )
 
 // scriptedBackend replays a canned sequence of chunk sets, one per Stream

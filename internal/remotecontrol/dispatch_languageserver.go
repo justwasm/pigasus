@@ -15,17 +15,25 @@ package remotecontrol
 import (
 	"context"
 	"encoding/json"
-	"github.com/justwasm/pigasus/endpoints"
+	"flag"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
+
+	"github.com/justwasm/pigasus/endpoints"
+	"github.com/justwasm/pigasus/internal/remotecontrol/mendel"
+	"github.com/justwasm/pigasus/internal/remotecontrol/permissions"
+	"github.com/justwasm/pigasus/internal/remotecontrol/rpc"
+	"github.com/justwasm/pigasus/internal/remotecontrol/triggers"
 )
 
 // routeLanguageServerMethods handles LanguageServerService methods
 // from the Web UI. Returns ok=true if method was handled.
-func (d *Dispatcher) routeLanguageServerMethods(ctx context.Context, method string, params json.RawMessage) (any, *rpcErrorBody, bool) {
+func (d *Dispatcher) routeLanguageServerMethods(ctx context.Context, method string, params json.RawMessage) (any, *rpc.ErrorBody, bool) {
 	// The Web UI's conversation loop has its own table (dispatch_ls.go).
 	if r, e, ok := d.routeLanguageServerCascadeMethods(ctx, method, params); ok {
 		return r, e, true
@@ -33,6 +41,28 @@ func (d *Dispatcher) routeLanguageServerMethods(ctx context.Context, method stri
 	// The Web UI's agent↔browser bridge has its own table
 	// (dispatch_agentbrowser.go).
 	if r, e, ok := d.routeAgentBrowserMethods(method, params); ok {
+		return r, e, true
+	}
+	// The permissions domain owns its own language-server table
+	// (permissions.LSRoute) — the dispatcher keeps the fan-out,
+	// the domain keeps the table.
+	//
+	// New at agy 1.4.8: the language server's own permission read
+	// and write. The remote-agent proxy has a method of the same
+	// name whose response carries two `PermissionSettings`
+	// messages (global and project); the language server's carries
+	// the three flat fields the domain answers. The
+	// language-server table is consulted first (dispatch.go), so
+	// the flat shape wins — the clone serves the language server,
+	// not the cloud's proxy.
+	//
+	// 【一手】 2026-10-27, the 1.4.8 descriptor; see
+	// internal/remotecontrol/permissions/ls.go.
+	if r, e, ok := permissions.LSRoute(d.permissionsSeams(), ctx, method, params); ok {
+		return r, e, true
+	}
+	// The additional LanguageServerService table (VCS, Search, MCP Apps, Sidecars, Browser, Telemetry).
+	if r, e, ok := d.routeLanguageServerAdditionalMethods(ctx, method, params); ok {
 		return r, e, true
 	}
 	switch method {
@@ -55,12 +85,17 @@ func (d *Dispatcher) routeLanguageServerMethods(ctx context.Context, method stri
 		return d.handleGetRemoteControlInfo()
 	case "GetCapabilities", "getCapabilities":
 		return map[string]any{"supportsHookResultProtoBytes": false}, nil, true
+	case "GetAvailableModels", "getAvailableModels":
+		// The reference answers an empty response when no custom catalog is pinned.
+		return map[string]any{"response": map[string]any{}}, nil, true
+	case "OpenUrl", "openUrl":
+		return d.handleLSOpenUrl(params)
 	case "GetMendelFlags", "getMendelFlags":
 		// The reference answers with the remote-control experiments
 		// and a `webrtcMeshReady` boolean; the dashboard's host page
 		// reads the answer with JSON.parse and decides from it
-		// whether the WebRTC mesh is on. See mendel_flags.go.
-		return mendelFlagsAnswer(ctx, d.cfg.MendelUserAgent), nil, true
+		// whether the WebRTC mesh is on. See the mendel package.
+		return mendel.Answer(ctx, d.cfg.MendelUserAgent), nil, true
 	case "SetMendelFlagOverrides", "setMendelFlagOverrides":
 		return map[string]any{}, nil, true
 	case "GetDefaultProjectDir", "getDefaultProjectDir":
@@ -144,9 +179,22 @@ func (d *Dispatcher) routeLanguageServerMethods(ctx context.Context, method stri
 		return d.handleJetboxSubscribeToSummaries()
 	case "GetDebugDiagnostics", "getDebugDiagnostics":
 		return map[string]any{}, nil, true
-	case "GetAllCascadeTrajectories", "getAllCascadeTrajectories":
-		// The response is a map field, `trajectory_summaries`.
-		return map[string]any{"trajectorySummaries": map[string]any{}}, nil, true
+	case "CreateDebugBundle", "createDebugBundle":
+		return d.handleLSCreateDebugBundle(params)
+	case "CreateWorktree", "createWorktree":
+		return d.handleLSCreateWorktree(params)
+	case "DeleteWorktree", "deleteWorktree":
+		return d.handleLSDeleteWorktree(params)
+	case "CheckoutWorktree", "checkoutWorktree":
+		return d.handleLSCheckoutWorktree(params)
+	case "GetWorktreeDiff", "getWorktreeDiff":
+		return d.handleLSGetWorktreeDiff(params)
+	case "GetBattleWorktreeDiff", "getBattleWorktreeDiff":
+		return d.handleLSGetBattleWorktreeDiff(params)
+	case "GetJJWorktrees", "getJJWorktrees":
+		return d.handleLSGetJJWorktrees(params)
+	case "UpdatePRForWorktree", "updatePRForWorktree":
+		return d.handleLSUpdatePRForWorktree(params)
 	case "GetSidecarEvents", "getSidecarEvents":
 		// GetSidecarEventsResponse.events — `sidecars` is the field of
 		// SubscribeToSidecarsResponse, and a key the decoder does not
@@ -159,6 +207,22 @@ func (d *Dispatcher) routeLanguageServerMethods(ctx context.Context, method stri
 	case "ListTriggerOptions", "listTriggerOptions":
 		// ListTriggerOptionsResponse.options — not `triggers`.
 		return map[string]any{"options": []any{}}, nil, true
+	case "RunTrigger", "runTrigger":
+		if d.cfg.TriggersStore != nil {
+			r, err := triggers.HandleRun(d.triggersSeams(), params)
+			return r, err, true
+		}
+		return map[string]any{}, nil, true
+	case "DeleteAllUserData", "deleteAllUserData":
+		return d.handleDeleteAllUserData(params)
+	case "GetUserDataDeletionStatus", "getUserDataDeletionStatus":
+		return d.handleGetUserDataDeletionStatus(params)
+	case "GetGitHubPullRequests", "getGitHubPullRequests":
+		return map[string]any{"statuses": []any{}}, nil, true
+	case "GetWorkspaceGitHubPullRequests", "getWorkspaceGitHubPullRequests":
+		return map[string]any{"workspaces": []any{}}, nil, true
+	case "GetGoogleChatLinkInfo", "getGoogleChatLinkInfo":
+		return map[string]any{"infos": []any{}}, nil, true
 	case "GetRepoInfos", "getRepoInfos":
 		// GetRepoInfosResponse.repos — not `repoInfos`.
 		return map[string]any{"repos": []any{}}, nil, true
@@ -218,29 +282,6 @@ func (d *Dispatcher) routeLanguageServerMethods(ctx context.Context, method stri
 	case "EndAudioSession", "endAudioSession":
 		r, e := d.lsEndAudioSession(params)
 		return r, e, true
-	case "GetPermissionSettings", "getPermissionSettings":
-		// New at agy 1.4.8: the language server's own
-		// permission read. The remote-agent proxy has a method
-		// of the same name whose response carries two
-		// `PermissionSettings` messages (global and project);
-		// the language server's carries the three flat fields
-		// this handler answers. The language-server table is
-		// consulted first (dispatch.go), so the flat shape wins
-		// — the clone serves the language server, not the cloud's
-		// proxy.
-		//
-		// 【一手】 2026-10-27, the 1.4.8 descriptor; see
-		// permissions_ls.go.
-		r, e, ok := d.lsHandleGetPermissionSettings(ctx)
-		return r, e, ok
-	case "UpdatePermissionSettings", "updatePermissionSettings":
-		// New at agy 1.4.8, and new to the clone: the language
-		// server's own permission write.
-		//
-		// 【一手】 2026-10-27, the 1.4.8 descriptor; see
-		// permissions_ls.go.
-		r, e, ok := d.lsHandleUpdatePermissionSettings(ctx, params)
-		return r, e, ok
 	}
 	return nil, nil, false
 }
@@ -275,7 +316,7 @@ const defaultCompanionOrigin = endpoints.DefaultCompanionOrigin
 // The shape matters: `status` is a *message* in the proto, so a
 // plain string there breaks a proto-JSON client (the reference's
 // own Connect client parses the response against the descriptor).
-func (d *Dispatcher) handleGetStatus() (any, *rpcErrorBody, bool) {
+func (d *Dispatcher) handleGetStatus() (any, *rpc.ErrorBody, bool) {
 	return map[string]any{
 		"status": map[string]any{
 			"level":   "STATUS_LEVEL_INFO",
@@ -294,7 +335,7 @@ func (d *Dispatcher) handleGetStatus() (any, *rpcErrorBody, bool) {
 //	{"lastExtensionHeartbeat":"2026-10-25T19:31:11.993337Z"}
 //
 // so the clone answers the same message rather than the GetStatus one.
-func (d *Dispatcher) handleHeartbeat() (any, *rpcErrorBody, bool) {
+func (d *Dispatcher) handleHeartbeat() (any, *rpc.ErrorBody, bool) {
 	return map[string]any{
 		"lastExtensionHeartbeat": time.Now().UTC().Format("2006-01-02T15:04:05.000000Z"),
 	}, nil, true
@@ -311,7 +352,7 @@ func (d *Dispatcher) handleHeartbeat() (any, *rpcErrorBody, bool) {
 // makes the frontend's decoder throw ("cannot decode message
 // exa.host_bridge_pb.UpdateStatus from JSON: string"), and the check
 // never settles.
-func (d *Dispatcher) handleGetUpdateStatus() (any, *rpcErrorBody, bool) {
+func (d *Dispatcher) handleGetUpdateStatus() (any, *rpc.ErrorBody, bool) {
 	// The clone's app version is the version the host advertised —
 	// the same string the reference reports for its own build.
 	version := ""
@@ -343,7 +384,7 @@ func (d *Dispatcher) handleGetUpdateStatus() (any, *rpcErrorBody, bool) {
 // field names, "update" is not one of them, and the oneof stays unset.
 // The frontend then sees an unset case and the project list never
 // arrives.
-func (d *Dispatcher) handleProjectUpdatesStream() (any, *rpcErrorBody, bool) {
+func (d *Dispatcher) handleProjectUpdatesStream() (any, *rpc.ErrorBody, bool) {
 	return map[string]any{
 		"projectList": map[string]any{"projectIds": d.lsProjectIDs()},
 	}, nil, true
@@ -356,7 +397,7 @@ func (d *Dispatcher) handleProjectUpdatesStream() (any, *rpcErrorBody, bool) {
 // all three — it builds the browser URL
 // "{companionOrigin}/r/{instanceId}" and opens nothing at all when
 // one of them is missing.
-func (d *Dispatcher) handleGetRemoteControlInfo() (any, *rpcErrorBody, bool) {
+func (d *Dispatcher) handleGetRemoteControlInfo() (any, *rpc.ErrorBody, bool) {
 	instanceID := d.cfg.RemoteControlInstanceID
 	if instanceID == "" {
 		instanceID = "pigasus-local"
@@ -372,7 +413,7 @@ func (d *Dispatcher) handleGetRemoteControlInfo() (any, *rpcErrorBody, bool) {
 	}, nil, true
 }
 
-func (d *Dispatcher) handleGetLocalUserInfo() (any, *rpcErrorBody, bool) {
+func (d *Dispatcher) handleGetLocalUserInfo() (any, *rpc.ErrorBody, bool) {
 	user := os.Getenv("USER")
 	if user == "" {
 		user = "antigravity"
@@ -388,7 +429,7 @@ func (d *Dispatcher) handleGetLocalUserInfo() (any, *rpcErrorBody, bool) {
 	}, nil, true
 }
 
-func (d *Dispatcher) handleGetServerConfiguration() (any, *rpcErrorBody, bool) {
+func (d *Dispatcher) handleGetServerConfiguration() (any, *rpc.ErrorBody, bool) {
 	appDataDir := "antigravity-cli"
 	configDir := "antigravity-cli"
 	return map[string]any{
@@ -401,14 +442,14 @@ func (d *Dispatcher) handleGetServerConfiguration() (any, *rpcErrorBody, bool) {
 	}, nil, true
 }
 
-func (d *Dispatcher) handleLanguageServerListProjects(ctx context.Context) (any, *rpcErrorBody, bool) {
+func (d *Dispatcher) handleLanguageServerListProjects(ctx context.Context) (any, *rpc.ErrorBody, bool) {
 	ids := d.lsProjectIDs()
 	return map[string]any{
 		"projectIds": ids,
 	}, nil, true
 }
 
-func (d *Dispatcher) handleLanguageServerReadProjects(ctx context.Context, params json.RawMessage) (any, *rpcErrorBody, bool) {
+func (d *Dispatcher) handleLanguageServerReadProjects(ctx context.Context, params json.RawMessage) (any, *rpc.ErrorBody, bool) {
 	var req struct {
 		IDs []string `json:"ids"`
 	}
@@ -431,17 +472,17 @@ func parseURIPath(rawURI string) string {
 	return rawURI
 }
 
-func (d *Dispatcher) handleLanguageServerStatUri(params json.RawMessage) (any, *rpcErrorBody, bool) {
+func (d *Dispatcher) handleLanguageServerStatUri(params json.RawMessage) (any, *rpc.ErrorBody, bool) {
 	var req struct {
 		URI string `json:"uri"`
 	}
 	if err := json.Unmarshal(params, &req); err != nil || req.URI == "" {
-		return nil, &rpcErrorBody{Code: -32602, Message: "uri is required"}, true
+		return nil, &rpc.ErrorBody{Code: -32602, Message: "uri is required"}, true
 	}
 	p := parseURIPath(req.URI)
 	fi, err := os.Stat(p)
 	if err != nil {
-		return nil, &rpcErrorBody{Code: -32004, Message: "Not found", Data: err.Error()}, true
+		return nil, &rpc.ErrorBody{Code: -32004, Message: "Not found", Data: err.Error()}, true
 	}
 	// The reference's own answer is
 	// {"fileType":"FILE_TYPE_FILE","modTime":"2026-10-26T13:47:00.907136440Z",
@@ -456,17 +497,17 @@ func (d *Dispatcher) handleLanguageServerStatUri(params json.RawMessage) (any, *
 	}, nil, true
 }
 
-func (d *Dispatcher) handleLanguageServerReadDir(params json.RawMessage) (any, *rpcErrorBody, bool) {
+func (d *Dispatcher) handleLanguageServerReadDir(params json.RawMessage) (any, *rpc.ErrorBody, bool) {
 	var req struct {
 		URI string `json:"uri"`
 	}
 	if err := json.Unmarshal(params, &req); err != nil || req.URI == "" {
-		return nil, &rpcErrorBody{Code: -32602, Message: "uri is required"}, true
+		return nil, &rpc.ErrorBody{Code: -32602, Message: "uri is required"}, true
 	}
 	p := parseURIPath(req.URI)
 	entries, err := os.ReadDir(p)
 	if err != nil {
-		return nil, &rpcErrorBody{Code: -32004, Message: "Not found", Data: err.Error()}, true
+		return nil, &rpc.ErrorBody{Code: -32004, Message: "Not found", Data: err.Error()}, true
 	}
 	resEntries := make([]map[string]any, 0, len(entries))
 	for _, e := range entries {
@@ -490,17 +531,17 @@ func (d *Dispatcher) handleLanguageServerReadDir(params json.RawMessage) (any, *
 	}, nil, true
 }
 
-func (d *Dispatcher) handleLanguageServerReadFile(params json.RawMessage) (any, *rpcErrorBody, bool) {
+func (d *Dispatcher) handleLanguageServerReadFile(params json.RawMessage) (any, *rpc.ErrorBody, bool) {
 	var req struct {
 		URI string `json:"uri"`
 	}
 	if err := json.Unmarshal(params, &req); err != nil || req.URI == "" {
-		return nil, &rpcErrorBody{Code: -32602, Message: "uri is required"}, true
+		return nil, &rpc.ErrorBody{Code: -32602, Message: "uri is required"}, true
 	}
 	p := parseURIPath(req.URI)
 	data, err := os.ReadFile(p)
 	if err != nil {
-		return nil, &rpcErrorBody{Code: -32004, Message: "Not found", Data: err.Error()}, true
+		return nil, &rpc.ErrorBody{Code: -32004, Message: "Not found", Data: err.Error()}, true
 	}
 	// `content` is a `bytes` field, and proto-JSON spells a bytes
 	// field as base64. The raw text is not a legal answer: the Web
@@ -519,13 +560,13 @@ func (d *Dispatcher) handleLanguageServerReadFile(params json.RawMessage) (any, 
 	return answer, nil, true
 }
 
-func (d *Dispatcher) handleLanguageServerWriteFile(params json.RawMessage) (any, *rpcErrorBody, bool) {
+func (d *Dispatcher) handleLanguageServerWriteFile(params json.RawMessage) (any, *rpc.ErrorBody, bool) {
 	var req struct {
 		URI     string `json:"uri"`
 		Content string `json:"content"`
 	}
 	if err := json.Unmarshal(params, &req); err != nil || req.URI == "" {
-		return nil, &rpcErrorBody{Code: -32602, Message: "uri is required"}, true
+		return nil, &rpc.ErrorBody{Code: -32602, Message: "uri is required"}, true
 	}
 	p := parseURIPath(req.URI)
 	// `content` is a `bytes` field on the request side too: the Web UI
@@ -533,31 +574,73 @@ func (d *Dispatcher) handleLanguageServerWriteFile(params json.RawMessage) (any,
 	// ("invalid value for bytes field content"). See ls_files.go.
 	content, err := lsDecodeBytes(req.Content)
 	if err != nil {
-		return nil, &rpcErrorBody{
+		return nil, &rpc.ErrorBody{
 			Code:    -32602,
 			Message: "content is not base64",
 			Data:    err.Error(),
 		}, true
 	}
 	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
-		return nil, &rpcErrorBody{Code: -32603, Message: "MkdirAll failed", Data: err.Error()}, true
+		return nil, &rpc.ErrorBody{Code: -32603, Message: "MkdirAll failed", Data: err.Error()}, true
 	}
 	if err := os.WriteFile(p, content, 0o644); err != nil {
-		return nil, &rpcErrorBody{Code: -32603, Message: "WriteFile failed", Data: err.Error()}, true
+		return nil, &rpc.ErrorBody{Code: -32603, Message: "WriteFile failed", Data: err.Error()}, true
 	}
 	return map[string]any{}, nil, true
 }
 
-func (d *Dispatcher) handleLanguageServerCreateDirectory(params json.RawMessage) (any, *rpcErrorBody, bool) {
+func (d *Dispatcher) handleLanguageServerCreateDirectory(params json.RawMessage) (any, *rpc.ErrorBody, bool) {
 	var req struct {
 		URI string `json:"uri"`
 	}
 	if err := json.Unmarshal(params, &req); err != nil || req.URI == "" {
-		return nil, &rpcErrorBody{Code: -32602, Message: "uri is required"}, true
+		return nil, &rpc.ErrorBody{Code: -32602, Message: "uri is required"}, true
 	}
 	p := parseURIPath(req.URI)
 	if err := os.MkdirAll(p, 0o755); err != nil {
-		return nil, &rpcErrorBody{Code: -32603, Message: "MkdirAll failed", Data: err.Error()}, true
+		return nil, &rpc.ErrorBody{Code: -32603, Message: "MkdirAll failed", Data: err.Error()}, true
 	}
 	return map[string]any{}, nil, true
+}
+
+func (d *Dispatcher) handleLSOpenUrl(params json.RawMessage) (any, *rpc.ErrorBody, bool) {
+	var req struct {
+		URL string `json:"url"`
+	}
+	if len(params) > 0 {
+		_ = json.Unmarshal(params, &req)
+	}
+	target := strings.TrimSpace(req.URL)
+	if target != "" {
+		go openBrowserFn(target)
+	}
+	return map[string]any{}, nil, true
+}
+
+var openBrowserFn = openSystemBrowser
+
+func openSystemBrowser(rawURL string) {
+	if flag.Lookup("test.v") != nil {
+		return
+	}
+	if v := os.Getenv("OPENAGY_NO_BROWSER"); v != "" {
+		switch v {
+		case "1", "true", "TRUE", "True", "yes", "YES":
+			return
+		}
+	}
+	parsed, err := url.Parse(rawURL)
+	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") {
+		return
+	}
+	var cmd *exec.Cmd
+	switch runtime.GOOS {
+	case "darwin":
+		cmd = exec.Command("open", rawURL)
+	case "windows":
+		cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", rawURL)
+	default:
+		cmd = exec.Command("xdg-open", rawURL)
+	}
+	_ = cmd.Start()
 }

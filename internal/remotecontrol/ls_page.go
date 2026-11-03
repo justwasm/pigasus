@@ -21,7 +21,8 @@ import (
 	"log"
 	"strings"
 
-	"github.com/justwasm/pigasus/internal/convstore"
+	"github.com/justwasm/pigasus/internal/app/session/convstore"
+	"github.com/justwasm/pigasus/internal/remotecontrol/rpc"
 	"github.com/justwasm/pigasus/lsproto"
 )
 
@@ -74,18 +75,18 @@ func lsStoredSteps(id string) []map[string]any {
 // request for a conversation.
 //
 // The response is empty — the steps travel through the state stream.
-func (d *Dispatcher) handleLSRequestAgentStatePageUpdate(params json.RawMessage) (any, *rpcErrorBody, bool) {
+func (d *Dispatcher) handleLSRequestAgentStatePageUpdate(params json.RawMessage) (any, *rpc.ErrorBody, bool) {
 	var req struct {
 		ConversationID string `json:"conversationId"`
 	}
 	if len(params) > 0 {
 		if err := json.Unmarshal(params, &req); err != nil {
-			return nil, &rpcErrorBody{Code: -32602, Message: "Invalid params", Data: err.Error()}, true
+			return nil, &rpc.ErrorBody{Code: -32602, Message: "Invalid params", Data: err.Error()}, true
 		}
 	}
 	id := strings.TrimSpace(req.ConversationID)
 	if id == "" {
-		return nil, &rpcErrorBody{Code: -32602, Message: "Invalid params", Data: "conversationId is required"}, true
+		return nil, &rpc.ErrorBody{Code: -32602, Message: "Invalid params", Data: "conversationId is required"}, true
 	}
 	if steps := lsStoredSteps(id); len(steps) > 0 {
 		d.trajectories.Get(id).Seed(steps)

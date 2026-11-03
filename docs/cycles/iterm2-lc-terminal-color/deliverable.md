@@ -154,7 +154,8 @@ ok  	github.com/chadgpt/openagy/cmd/wagyu	0.896s
 - 【反编译】N/A — this is a CLI behaviour change, not a Go binary
   decompilation.
 - 【strings】`LC_TERMINAL` is present in
-  `docs/decompiled-v1.3.4/strings-v1.3.4.txt:307068` (alongside
+  `docs/legacy-re/extracts/strings-v1.3.4-cited.txt:307068` (the cited window
+  of the retired `docs/decompiled-v1.3.4/strings-v1.3.4.txt`; alongside
   `RXVT_SOCKET`, `TERMINOLOGY`, `WSL_INTEROP`, `ZED_TERM`,
   `waveterm`, etc., the standard "we recognise this terminal"
   enum the reference's bundled `colorprofile.v0` recognises).

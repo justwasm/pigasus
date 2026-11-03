@@ -6,6 +6,10 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	tuiviewport "github.com/justwasm/pigasus/internal/ui/foundations/viewport"
+	"github.com/justwasm/pigasus/internal/ui/toolsteps"
+	"github.com/justwasm/pigasus/internal/ui/transcript"
 )
 
 // Cycle 281: benchmarks + a guard for the render hot path.
@@ -33,7 +37,7 @@ func synthTranscript(m *runMode, steps, replyBytes int) {
 	reply = reply[:replyBytes]
 	for i := 0; i < steps; i++ {
 		m.response = append(m.response,
-			userPromptRow(fmt.Sprintf("prompt %d", i)),
+			transcript.UserPromptRow(fmt.Sprintf("prompt %d", i)),
 			"",
 			reply,
 			"",
@@ -50,7 +54,8 @@ func warmModel(steps, replyBytes int) *runMode {
 	m.width = 200
 	m.height = 40
 	_ = m.View()
-	m.scrollBy(1)
+	m.autoScroll = false
+	m.scroll = 0
 	_ = m.View()
 	return m
 }
@@ -96,6 +101,39 @@ func BenchmarkViewKeystrokeRewrap5000LongSteps(b *testing.B) {
 	}
 }
 
+// BenchmarkToggleTrajectoryExpanded1600Blocks benchmarks Ctrl+O toggle
+// across 1600 blocks (the user's reported heavy lag condition).
+func BenchmarkToggleTrajectoryExpanded1600Blocks(b *testing.B) {
+	m := newBenchModel()
+	m.width = 120
+	m.height = 40
+	for i := 0; i < 1600; i++ {
+		start := len(m.response)
+		step := toolsteps.Step{
+			Kind:   toolsteps.KindTool,
+			Name:   "run_command",
+			Title:  "Bash(echo hello)",
+			Detail: "hello",
+		}
+		lines := toolsteps.RenderBlock([]toolsteps.Step{step}, toolsteps.RenderOptions{
+			Expanded:  false,
+			Width:     m.width,
+			Verbosity: toolsteps.VerbosityLow,
+		})
+		m.response = append(m.response, lines...)
+		m.blocks = append(m.blocks, transcript.Block{
+			Start: start,
+			Lines: len(lines),
+			Steps: []toolsteps.Step{step},
+		})
+	}
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		m.toggleTrajectoryExpanded()
+	}
+}
+
 // TestClipToScreenRowsPrefixMatches pins the O(log n) prefix-sum trim
 // introduced in cycle 281 to the O(window²) reference implementation it
 // replaced. Both must return the same slice for every window.
@@ -113,8 +151,8 @@ func TestClipToScreenRowsPrefixMatches(t *testing.T) {
 	for off := 0; off < len(rows); off++ {
 		for n := 0; off+n <= len(rows); n++ {
 			for maxRows := 0; maxRows <= 12; maxRows++ {
-				want := clipToScreenRows(rows[off:off+n], all, off, maxRows)
-				got := clipToScreenRowsPrefix(rows[off:off+n], prefix, off, maxRows)
+				want := tuiviewport.ClipToScreenRows(rows[off:off+n], all, off, maxRows)
+				got := tuiviewport.ClipToScreenRowsPrefix(rows[off:off+n], prefix, off, maxRows)
 				if len(want) != len(got) {
 					t.Fatalf("off=%d n=%d maxRows=%d: length %d != %d", off, n, maxRows, len(got), len(want))
 				}

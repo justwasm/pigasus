@@ -4,35 +4,36 @@ import (
 	"context"
 	"testing"
 
-	"github.com/justwasm/pigasus/internal/convstore"
+	"github.com/justwasm/pigasus/internal/app/session/convstore"
+	"github.com/justwasm/pigasus/internal/remotecontrol/cascades"
 )
 
 // promptRecorder is a backend that keeps every prompt it was asked to
 // run, so a test can look at what the model was given.
 type promptRecorder struct {
-	prompts []MessagePrompt
+	prompts []cascades.Prompt
 	reply   string
 }
 
 // Send records the prompt and answers with the canned reply.
-func (p *promptRecorder) Send(_ context.Context, prompt MessagePrompt) (MessageResult, error) {
+func (p *promptRecorder) Send(_ context.Context, prompt cascades.Prompt) (cascades.Result, error) {
 	p.prompts = append(p.prompts, prompt)
-	return MessageResult{Reply: p.reply, StopReason: StopReasonEndTurn}, nil
+	return cascades.Result{Reply: p.reply, StopReason: cascades.StopReasonEndTurn}, nil
 }
 
 // SendStream records the prompt and streams the canned reply, so the
 // turn's steps land in the conversation store the way they do in
 // production.
-func (p *promptRecorder) SendStream(_ context.Context, prompt MessagePrompt, sink EventSink, _ MessageSendOptions) (MessageResult, error) {
+func (p *promptRecorder) SendStream(_ context.Context, prompt cascades.Prompt, sink cascades.EventSink, _ cascades.SendOptions) (cascades.Result, error) {
 	p.prompts = append(p.prompts, prompt)
 	if sink != nil {
-		sink.OnState(nil, StateFrame{Phase: StatePhaseStarting})
+		sink.OnState(nil, cascades.StateFrame{Phase: cascades.StatePhaseStarting})
 		if p.reply != "" {
 			sink.OnTextDelta(nil, p.reply)
 		}
-		sink.OnState(nil, StateFrame{Phase: StatePhaseDone, StopReason: StopReasonEndTurn})
+		sink.OnState(nil, cascades.StateFrame{Phase: cascades.StatePhaseDone, StopReason: cascades.StopReasonEndTurn})
 	}
-	return MessageResult{Reply: p.reply, StopReason: StopReasonEndTurn}, nil
+	return cascades.Result{Reply: p.reply, StopReason: cascades.StopReasonEndTurn}, nil
 }
 
 // TestTheWebChatIsOneConversation checks that the second message of a
@@ -72,7 +73,7 @@ func TestTheWebChatIsOneConversation(t *testing.T) {
 	if len(rec.prompts[0].History) != 0 {
 		t.Errorf("the first turn carries a history: %v", rec.prompts[0].History)
 	}
-	want := []MessageHistoryTurn{
+	want := []cascades.HistoryTurn{
 		{Role: "user", Text: "hi"},
 		{Role: "assistant", Text: "the first answer"},
 	}
@@ -125,7 +126,7 @@ func TestAResumedConversationCarriesItsHistory(t *testing.T) {
 	if len(rec.prompts) != 1 {
 		t.Fatalf("the backend ran %d turns, want 1", len(rec.prompts))
 	}
-	want := []MessageHistoryTurn{
+	want := []cascades.HistoryTurn{
 		{Role: "user", Text: "the first question"},
 		{Role: "assistant", Text: "the first answer"},
 	}
@@ -148,5 +149,30 @@ func TestTheFirstMessageHasNoHistory(t *testing.T) {
 
 	if got := lsConversationHistory("c-unknown"); got != nil {
 		t.Errorf("the history of an unknown conversation = %v, want none", got)
+	}
+}
+
+func TestSendUserCascadeMessageUpdatesModel(t *testing.T) {
+	rec := &promptRecorder{}
+	disp, err := NewDispatcher(Config{
+		Session:        NewSessionState("1.4.7"),
+		MessageBackend: rec,
+	})
+	if err != nil {
+		t.Fatalf("NewDispatcher: %v", err)
+	}
+	ctx := context.Background()
+	if _, err := disp.DispatchDirect(ctx, "StartCascade", `{"cascadeId":"c-model"}`); err != nil {
+		t.Fatalf("StartCascade: %v", err)
+	}
+	if _, err := disp.DispatchDirect(ctx, "SendUserCascadeMessage",
+		`{"cascadeId":"c-model","items":[{"text":"turn 1"}],"cascadeConfig":{"plannerConfig":{"modelName":"gemini-3.8-pro"}}}`); err != nil {
+		t.Fatalf("turn 1: %v", err)
+	}
+	if len(rec.prompts) != 1 {
+		t.Fatalf("prompts len = %d, want 1", len(rec.prompts))
+	}
+	if rec.prompts[0].Model != "gemini-3.8-pro" {
+		t.Errorf("prompt Model = %q, want gemini-3.8-pro", rec.prompts[0].Model)
 	}
 }

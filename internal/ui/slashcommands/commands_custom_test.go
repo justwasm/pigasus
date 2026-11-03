@@ -1,0 +1,216 @@
+// commands_custom_test.go — cycle custom-slash-commands-no-plugin-injection.
+//
+// The picker integration test pins the contract that
+// FilterWithCustom merges the hardcoded built-in
+// catalog with customcmd-loaded plugin / project / global commands
+// under the AGY 1.2.16 precedence (built-in > plugin > project >
+// global). The merge is the user-visible surface of the cycle:
+//
+//   - /foo typed in the prompt must resolve to the same command
+//     every run, regardless of which on-disk root declared it.
+//   - A plugin command "foo" must not be silently shadowed by a
+//     project command "foo".
+//   - A built-in command "foo" must not be silently shadowed by any
+//     custom command.
+//
+// The Filter surface stays unchanged so the existing
+// cycle-83 / cycle-146 / cycle-184 picker tests keep pinning their
+// invariants; the new helper is an additive path the picker calls
+// once custom commands are loaded.
+package slashcommands
+
+import (
+	"strings"
+	"testing"
+
+	"github.com/justwasm/pigasus/internal/app/prompt/customcmd"
+)
+
+// findCommand returns the first SlashCommand with the given name or
+// nil if no such entry exists.
+func findCommand(rows []Command, name string) *Command {
+	for i := range rows {
+		if rows[i].Name == name {
+			return &rows[i]
+		}
+	}
+	return nil
+}
+
+// TestFilterWithCustom_NilFallsBackToBuiltins pins the
+// backward-compat contract: when the loader returns no custom
+// commands, the picker behaves exactly like the existing
+// Filter. This keeps the cycle-83 / cycle-146 / cycle-184
+// invariants unchanged on a machine with no plugins, no project
+// .claude/, and no global commands/.
+func TestFilterWithCustom_NilFallsBackToBuiltins(t *testing.T) {
+	withNil := FilterWithCustom("", nil)
+	base := Filter("")
+	if len(withNil) != len(base) {
+		t.Fatalf("len with nil = %d, len base = %d", len(withNil), len(base))
+	}
+	for i := range withNil {
+		if withNil[i].Name != base[i].Name || withNil[i].Description != base[i].Description {
+			t.Errorf("row %d differs: %q vs %q", i, withNil[i].Name, base[i].Name)
+		}
+	}
+}
+
+// TestFilterWithCustom_BuiltinShadowsProject pins the
+// top-of-the-stack precedence: a built-in /foo must beat a project
+// /foo. The picker surfaces the built-in's description; the
+// project's command is dropped.
+func TestFilterWithCustom_BuiltinShadowsProject(t *testing.T) {
+	project := []customcmd.Command{{
+		Name:        "help", // built-in: /help; project: "help"
+		Description: "PROJECT help shadow",
+		Source:      customcmd.SourceProject,
+	}}
+	rows := FilterWithCustom("", project)
+	got := findCommand(rows, "/help")
+	if got == nil {
+		t.Fatalf("/help not in catalog; got %d rows", len(rows))
+	}
+	if got.Description == "PROJECT help shadow" {
+		t.Errorf("project's /help shadowed the built-in; want the built-in description")
+	}
+}
+
+// TestFilterWithCustom_PluginShadowsProject is the
+// cycle's load-bearing test. A plugin's /foo must surface in the
+// picker; the project's /foo (same name, lower precedence) must be
+// dropped.
+func TestFilterWithCustom_PluginShadowsProject(t *testing.T) {
+	custom := []customcmd.Command{
+		{Name: "deploy", Description: "plugin deploy", Source: customcmd.SourcePlugin},
+		{Name: "deploy", Description: "project deploy", Source: customcmd.SourceProject},
+		{Name: "deploy", Description: "global deploy", Source: customcmd.SourceGlobal},
+	}
+	rows := FilterWithCustom("", custom)
+	got := findCommand(rows, "/deploy")
+	if got == nil {
+		t.Fatalf("/deploy not in catalog; got %d rows", len(rows))
+	}
+	if got.Description != "plugin deploy" {
+		t.Errorf("Description = %q, want %q (plugin wins over project + global)", got.Description, "plugin deploy")
+	}
+	// No duplicate "/deploy" row should appear — the merge drops the
+	// project + global losers, not just shadows them.
+	count := 0
+	for _, r := range rows {
+		if r.Name == "/deploy" {
+			count++
+		}
+	}
+	if count != 1 {
+		t.Errorf("/deploy appears %d times in catalog, want 1", count)
+	}
+}
+
+// TestFilterWithCustom_ProjectShadowsGlobal pins the
+// third precedence rule: a project /foo beats a global /foo when no
+// plugin declares /foo.
+func TestFilterWithCustom_ProjectShadowsGlobal(t *testing.T) {
+	custom := []customcmd.Command{
+		{Name: "lint", Description: "global lint", Source: customcmd.SourceGlobal},
+		{Name: "lint", Description: "project lint", Source: customcmd.SourceProject},
+	}
+	rows := FilterWithCustom("", custom)
+	got := findCommand(rows, "/lint")
+	if got == nil {
+		t.Fatalf("/lint not in catalog; got %d rows", len(rows))
+	}
+	if got.Description != "project lint" {
+		t.Errorf("Description = %q, want %q (project wins over global)", got.Description, "project lint")
+	}
+}
+
+// TestFilterWithCustom_Deterministic verifies the AGY
+// 1.2.16 contract that two picker calls return rows in a stable
+// order. Built-in + custom rows interleave by sorted Name; no
+// shuffling across runs.
+func TestFilterWithCustom_Deterministic(t *testing.T) {
+	custom := []customcmd.Command{
+		{Name: "alpha", Description: "alpha plugin", Source: customcmd.SourcePlugin},
+		{Name: "zeta", Description: "zeta project", Source: customcmd.SourceProject},
+		{Name: "mid", Description: "mid global", Source: customcmd.SourceGlobal},
+	}
+	first := FilterWithCustom("", custom)
+	second := FilterWithCustom("", custom)
+	if len(first) != len(second) {
+		t.Fatalf("len first=%d, len second=%d", len(first), len(second))
+	}
+	for i := range first {
+		if first[i].Name != second[i].Name || first[i].Description != second[i].Description {
+			t.Errorf("row %d differs across calls: %q vs %q", i, first[i].Name, second[i].Name)
+		}
+	}
+	// Spot-check the contract: alpha, mid and zeta each appear
+	// exactly once in the merged catalog. The picker overlay can
+	// therefore render them in a stable place, and the picker tests
+	// asserting "no duplicate /foo rows" still pass.
+	for _, want := range []string{"/alpha", "/mid", "/zeta"} {
+		count := 0
+		for _, r := range first {
+			if r.Name == want {
+				count++
+			}
+		}
+		if count != 1 {
+			t.Errorf("%s appears %d times, want 1", want, count)
+		}
+	}
+}
+
+// TestFilterWithCustom_FilterAppliesAfterMerge pins
+// the picker's substring filter: typing "/dep" matches "/deploy"
+// (the plugin-shadowed command) but does NOT match built-in entries
+// that happen to contain "dep" as a substring (none in this
+// catalog). The merged catalog and the substring filter cooperate
+// so custom commands show up in the picker overlay just like
+// built-ins.
+func TestFilterWithCustom_FilterAppliesAfterMerge(t *testing.T) {
+	custom := []customcmd.Command{
+		{Name: "deploy", Description: "plugin deploy", Source: customcmd.SourcePlugin},
+	}
+	rows := FilterWithCustom("/dep", custom)
+	if findCommand(rows, "/deploy") == nil {
+		t.Errorf("filter %q did not surface /deploy; rows: %v", "/dep", commandNames(rows))
+	}
+	rowsEmpty := FilterWithCustom("/nothing-matches-this", custom)
+	if len(rowsEmpty) != 0 {
+		t.Errorf("filter %q returned %d rows, want 0", "/nothing-matches-this", len(rowsEmpty))
+	}
+}
+
+// TestFilterWithCustom_ChromeDevtoolsPluginPrefixKept
+// pins the cycle-351 invariant: the chrome-devtools-plugin:* built-in
+// rows are *kept* in the picker overlay after the merge. The 1.3.6
+// filter that hid them is gone — agy 1.4.8's picker lists every
+// catalogue row (105 items, the same count the /help COMMANDS tab
+// reports).
+func TestFilterWithCustom_ChromeDevtoolsPluginPrefixKept(t *testing.T) {
+	rows := FilterWithCustom("", nil)
+	seen := 0
+	for _, r := range rows {
+		if strings.Contains(r.Name, "chrome-devtools-plugin:") {
+			seen++
+		}
+	}
+	if seen != 6 {
+		t.Errorf("picker holds %d chrome-devtools-plugin:* rows, want 6", seen)
+	}
+	if len(rows) != len(Default) {
+		t.Errorf("picker holds %d rows, want the whole catalogue (%d)", len(rows), len(Default))
+	}
+}
+
+// commandNames is a small helper for test failure messages; not a
+// production helper.
+func commandNames(rows []Command) []string {
+	out := make([]string, len(rows))
+	for i, r := range rows {
+		out[i] = r.Name
+	}
+	return out
+}

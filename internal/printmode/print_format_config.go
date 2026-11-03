@@ -6,6 +6,8 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+
+	"github.com/justwasm/pigasus/internal/core/settings"
 )
 
 // jsonHelpCommand is one row of the `commands` list in the `/help` JSON payload.
@@ -103,13 +105,17 @@ func configValues() map[string]any {
 //   - present and null → the zero value of the key's type
 //   - present → the file's value
 //
+// The compiled defaults belong to the settings store
+// (`internal/core/settings`) — the tier-1 owner of the file's shape. They
+// used to be a second copy in this package.
+//
 // 【一手】 agy 1.4.8: with `{"editor":null}` in settings.json the text dump
 // prints an empty cell for `editor` and the JSON payload carries the empty
 // string; a key the reference does not know keeps its null.
 func configValue(key string, raw json.RawMessage) any {
 	trimmed := bytes.TrimSpace(raw)
 	if len(trimmed) == 0 {
-		return printSlashConfigDefaults[key]
+		return settings.Default(key)
 	}
 	if bytes.Equal(trimmed, []byte("null")) {
 		return configZeroValue(key)

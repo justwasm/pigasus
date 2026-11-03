@@ -27,7 +27,7 @@ the actual mid-typing dropdown over the same primitives
 
 ### What the reference does
 
-The 1.3.4 strings dump (`docs/decompiled-v1.3.4/strings-v1.3.4.txt:49243`)
+The 1.3.4 strings dump (`docs/legacy-re/extracts/strings-v1.3.4-cited.txt:49243`; the cited window of the retired `docs/decompiled-v1.3.4/strings-v1.3.4.txt` — see `docs/legacy-re/README.md`)
 contains the literal placeholder:
 
 ```

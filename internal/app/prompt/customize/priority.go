@@ -68,19 +68,3 @@ func PriorityFor(name string) Priority {
 		return PriorityCommands
 	}
 }
-
-// CommandNames is the canonical order the trimmer uses to walk the
-// registered tokens. The slice is what tests rely on for the
-// "/customize trimmed first" and "/agents trimmed after /customize"
-// assertions: the comment in NewToken already says lower-priority
-// tokens are trimmed first; this slice makes the order literal.
-var CommandNames = []string{
-	"customize", // 0 — trimmed first
-	"config",    // 10
-	"agents",    // 20 — trimmed after /customize
-	"hooks",     // 30
-	"mcp",       // 40
-	"plugin",    // 50
-	"skills",    // 60
-	"commands",  // 70 — trimmed last
-}

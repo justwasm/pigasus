@@ -30,8 +30,8 @@ import (
 // plistPath returns the absolute LaunchAgent plist path the Start
 // path will use, honouring Spec.PlistPath / Spec.PlistDir / the
 // active plist-dir override / Spec.Name in that order.  Tests
-// inject a temp dir via SetPlistDirOverride so they don't touch
-// ~/Library/LaunchAgents.
+// inject a temp dir through the package's own plistDirOverride var
+// so they don't touch ~/Library/LaunchAgents.
 func plistPath(spec Spec) string {
 	if spec.PlistPath != "" {
 		return spec.PlistPath

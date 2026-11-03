@@ -1,13 +1,13 @@
 // Tests for the openagy rc-piagent-bind cycle's
 // PiagentBackend. The cycle ships a production
-// `MessageBackend` + `StreamingMessageBackend` that turns a
-// `MessagePrompt` into a PiG turn; the tests above pin the
+// `cascades.Backend` + `cascades.StreamingBackend` that turns a
+// `cascades.Prompt` into a PiG turn; the tests above pin the
 // five contracts the dispatcher relies on:
 //
 //  1. Happy path: a fake `SessionFactory` emits canned
 //     events; `PiagentBackend.SendStream` drains them,
 //     translates each into EventSink calls, and assembles
-//     the end-of-turn MessageResult from the joined deltas.
+//     the end-of-turn cascades.Result from the joined deltas.
 //
 //  2. Error propagation: a session that returns a non-nil
 //     Go error after the assistant message landed is
@@ -18,15 +18,15 @@
 //  3. PiG fallback: a session that returns a nil Go error
 //     but encodes the failure into the assistant message
 //     (the cycle-209/210 path that flattens
-//     `*backend.HTTPError`) still has its typed error
+//     `*apierror.HTTPError`) still has its typed error
 //     recovered via the messages walk — the dispatcher's
 //     `errors.As` continues to match.
 //
 //  4. Sync fallback: `Send` (the cycle-3a fallback path
 //     used when a backend does NOT implement
-//     `StreamingMessageBackend`) routes through SendStream
+//     `cascades.StreamingBackend`) routes through SendStream
 //     with a nil sink and still produces the
-//     `MessageResult` from the event stream. Production
+//     `cascades.Result` from the event stream. Production
 //     PiagentBackend implements both — this just pins that
 //     the routing does not lose state.
 //
@@ -50,6 +50,7 @@ import (
 
 	"github.com/MichaelKinsy/PiG/agent"
 	"github.com/MichaelKinsy/PiG/ai"
+	"github.com/justwasm/pigasus/internal/remotecontrol/cascades"
 )
 
 // FakePigSession is a `Session` test double that
@@ -119,7 +120,7 @@ func (s *FakePigSession) Close() error {
 // pass &FakePigSession{} as sess; the factory pins the
 // behaviour for every Send call.
 func pigCannedFactory(sess Session) SessionFactory {
-	return func(_ context.Context, _ MessagePrompt, _ MessageSendOptions) (Session, error) {
+	return func(_ context.Context, _ cascades.Prompt, _ cascades.SendOptions) (Session, error) {
 		return sess, nil
 	}
 }
@@ -130,7 +131,7 @@ func pigCannedFactory(sess Session) SessionFactory {
 // "factory returned an error before any turn ran"
 // branch of SendStream.
 func errPigFactory(err error) SessionFactory {
-	return func(_ context.Context, _ MessagePrompt, _ MessageSendOptions) (Session, error) {
+	return func(_ context.Context, _ cascades.Prompt, _ cascades.SendOptions) (Session, error) {
 		return nil, err
 	}
 }
@@ -205,7 +206,7 @@ func pigRecoveryMsg(text string) agent.AgentMessage {
 // pins the headline contract: a session that emits a
 // Start + 3 TextDeltas + 1 ToolEnd + Done(stop) drives
 // the same EventSink callback sequence a real PiG turn
-// would, and the resulting MessageResult carries the
+// would, and the resulting cascades.Result carries the
 // joined reply, the tool call, and the cycle-mapped
 // stop reason.
 func TestPiagentBackend_HappyPath_DrainsEventsAndAssemblesResult(t *testing.T) {
@@ -225,14 +226,14 @@ func TestPiagentBackend_HappyPath_DrainsEventsAndAssemblesResult(t *testing.T) {
 	be := &PiagentBackend{SessionFactory: pigCannedFactory(sess)}
 	sink := &captureSink{}
 
-	res, err := be.SendStream(context.Background(), MessagePrompt{Text: "ping"}, sink, MessageSendOptions{})
+	res, err := be.SendStream(context.Background(), cascades.Prompt{Text: "ping"}, sink, cascades.SendOptions{})
 	if err != nil {
 		t.Fatalf("SendStream returned error: %v", err)
 	}
 	if got, want := res.Reply, "hello from pi"; got != want {
 		t.Errorf("Reply = %q, want %q", got, want)
 	}
-	if got, want := res.StopReason, StopReasonEndTurn; got != want {
+	if got, want := res.StopReason, cascades.StopReasonEndTurn; got != want {
 		t.Errorf("StopReason = %q, want %q", got, want)
 	}
 	if len(res.ToolCalls) != 1 {
@@ -249,15 +250,15 @@ func TestPiagentBackend_HappyPath_DrainsEventsAndAssemblesResult(t *testing.T) {
 	if len(sink.states) < 2 {
 		t.Fatalf("sink.states = %d entries, want >= 2", len(sink.states))
 	}
-	if sink.states[0].Phase != StatePhaseStarting {
-		t.Errorf("states[0].Phase = %q, want %q", sink.states[0].Phase, StatePhaseStarting)
+	if sink.states[0].Phase != cascades.StatePhaseStarting {
+		t.Errorf("states[0].Phase = %q, want %q", sink.states[0].Phase, cascades.StatePhaseStarting)
 	}
-	if sink.states[len(sink.states)-1].Phase != StatePhaseDone {
-		t.Errorf("states[last].Phase = %q, want %q", sink.states[len(sink.states)-1].Phase, StatePhaseDone)
+	if sink.states[len(sink.states)-1].Phase != cascades.StatePhaseDone {
+		t.Errorf("states[last].Phase = %q, want %q", sink.states[len(sink.states)-1].Phase, cascades.StatePhaseDone)
 	}
-	if sink.states[len(sink.states)-1].StopReason != StopReasonEndTurn {
+	if sink.states[len(sink.states)-1].StopReason != cascades.StopReasonEndTurn {
 		t.Errorf("states[last].StopReason = %q, want %q",
-			sink.states[len(sink.states)-1].StopReason, StopReasonEndTurn)
+			sink.states[len(sink.states)-1].StopReason, cascades.StopReasonEndTurn)
 	}
 	wantDeltas := []string{"hello ", "from ", "pi"}
 	if len(sink.deltas) != len(wantDeltas) {
@@ -289,7 +290,7 @@ func TestPiagentBackend_FactoryError_PropagatesBeforeTurn(t *testing.T) {
 	be := &PiagentBackend{SessionFactory: errPigFactory(factoryErr)}
 	sink := &captureSink{}
 
-	res, err := be.SendStream(context.Background(), MessagePrompt{Text: "ping"}, sink, MessageSendOptions{})
+	res, err := be.SendStream(context.Background(), cascades.Prompt{Text: "ping"}, sink, cascades.SendOptions{})
 	if err == nil {
 		t.Fatalf("SendStream returned nil error; want %v", factoryErr)
 	}
@@ -313,13 +314,13 @@ func TestPiagentBackend_FactoryError_PropagatesBeforeTurn(t *testing.T) {
 func TestPiagentBackend_NilFactory_ReturnsErrNilSessionFactory(t *testing.T) {
 	var be *PiagentBackend // nil receiver
 
-	_, err := be.SendStream(context.Background(), MessagePrompt{Text: "x"}, nil, MessageSendOptions{})
+	_, err := be.SendStream(context.Background(), cascades.Prompt{Text: "x"}, nil, cascades.SendOptions{})
 	if !errors.Is(err, ErrNilSessionFactory) {
 		t.Errorf("nil-receiver SendStream err = %v, want errors.Is(_, ErrNilSessionFactory)", err)
 	}
 
 	zero := &PiagentBackend{} // nil SessionFactory
-	_, err = zero.SendStream(context.Background(), MessagePrompt{Text: "x"}, nil, MessageSendOptions{})
+	_, err = zero.SendStream(context.Background(), cascades.Prompt{Text: "x"}, nil, cascades.SendOptions{})
 	if !errors.Is(err, ErrNilSessionFactory) {
 		t.Errorf("zero-SessionFactory SendStream err = %v, want errors.Is(_, ErrNilSessionFactory)", err)
 	}
@@ -346,7 +347,7 @@ func TestPiagentBackend_PropagatesSessionError(t *testing.T) {
 	be := &PiagentBackend{SessionFactory: pigCannedFactory(sess)}
 	sink := &captureSink{}
 
-	_, err := be.SendStream(context.Background(), MessagePrompt{Text: "x"}, sink, MessageSendOptions{})
+	_, err := be.SendStream(context.Background(), cascades.Prompt{Text: "x"}, sink, cascades.SendOptions{})
 	if !errors.Is(err, sessionErr) {
 		t.Errorf("SendStream err = %v, want errors.Is(_, sessionErr)", err)
 	}
@@ -379,7 +380,7 @@ func TestPiagentBackend_RecoverPiGFlattenedFailure(t *testing.T) {
 	be := &PiagentBackend{SessionFactory: pigCannedFactory(sess)}
 	sink := &captureSink{}
 
-	_, err := be.SendStream(context.Background(), MessagePrompt{Text: "x"}, sink, MessageSendOptions{})
+	_, err := be.SendStream(context.Background(), cascades.Prompt{Text: "x"}, sink, cascades.SendOptions{})
 	if err == nil {
 		t.Fatalf("SendStream returned nil; want recovered ErrorMessage %q", flatText)
 	}
@@ -410,23 +411,23 @@ func TestPiagentBackend_StopReasonLengthMapsToMaxTokens(t *testing.T) {
 	be := &PiagentBackend{SessionFactory: pigCannedFactory(sess)}
 	sink := &captureSink{}
 
-	res, err := be.SendStream(context.Background(), MessagePrompt{Text: "x"}, sink, MessageSendOptions{})
+	res, err := be.SendStream(context.Background(), cascades.Prompt{Text: "x"}, sink, cascades.SendOptions{})
 	if err != nil {
 		t.Fatalf("SendStream err = %v", err)
 	}
-	if got := res.StopReason; got != StopReasonMaxTokens {
-		t.Errorf("StopReason = %q, want %q", got, StopReasonMaxTokens)
+	if got := res.StopReason; got != cascades.StopReasonMaxTokens {
+		t.Errorf("StopReason = %q, want %q", got, cascades.StopReasonMaxTokens)
 	}
 	last := sink.states[len(sink.states)-1]
-	if last.StopReason != StopReasonMaxTokens {
-		t.Errorf("sink.states[last].StopReason = %q, want %q", last.StopReason, StopReasonMaxTokens)
+	if last.StopReason != cascades.StopReasonMaxTokens {
+		t.Errorf("sink.states[last].StopReason = %q, want %q", last.StopReason, cascades.StopReasonMaxTokens)
 	}
 }
 
 // TestPiagentBackend_SendDelegatesToSendStreamWithNilSink
 // pins the cycle-3a fallback: a real backend that
 // implements both MessageBackend (Send) and
-// StreamingMessageBackend (SendStream) routes Send through
+// cascades.StreamingBackend (SendStream) routes Send through
 // SendStream with a nil sink. Production PiagentBackend
 // satisfies both — this is the dispatcher type-assertion
 // path: backend.Send gets called when a backend doesn't
@@ -446,15 +447,15 @@ func TestPiagentBackend_SendDelegatesToSendStreamWithNilSink(t *testing.T) {
 	// Use Send with a nil sink — the production code path
 	// doesn't pass one; the dispatcher passes the same
 	// value the streaming call would have.
-	res, err := be.Send(context.Background(), MessagePrompt{Text: "x"})
+	res, err := be.Send(context.Background(), cascades.Prompt{Text: "x"})
 	if err != nil {
 		t.Fatalf("Send err = %v", err)
 	}
 	if res.Reply != "sync reply" {
 		t.Errorf("Result.Reply = %q, want sync reply", res.Reply)
 	}
-	if res.StopReason != StopReasonEndTurn {
-		t.Errorf("Result.StopReason = %q, want %q", res.StopReason, StopReasonEndTurn)
+	if res.StopReason != cascades.StopReasonEndTurn {
+		t.Errorf("Result.StopReason = %q, want %q", res.StopReason, cascades.StopReasonEndTurn)
 	}
 }
 
@@ -462,7 +463,7 @@ func TestPiagentBackend_SendDelegatesToSendStreamWithNilSink(t *testing.T) {
 // nil-sink-tolerance rule: a SendStream call with a nil
 // sink still drains the session's event channel (so the
 // session is not blocked on its emit) and returns the
-// MessageResult assembled from the joined deltas. The
+// cascades.Result assembled from the joined deltas. The
 // call returns no error in this scenario.
 func TestPiagentBackend_DrainsEventsWhenSinkNil(t *testing.T) {
 	sess := &FakePigSession{
@@ -476,7 +477,7 @@ func TestPiagentBackend_DrainsEventsWhenSinkNil(t *testing.T) {
 	}
 	be := &PiagentBackend{SessionFactory: pigCannedFactory(sess)}
 
-	res, err := be.SendStream(context.Background(), MessagePrompt{Text: "x"}, nil, MessageSendOptions{})
+	res, err := be.SendStream(context.Background(), cascades.Prompt{Text: "x"}, nil, cascades.SendOptions{})
 	if err != nil {
 		t.Fatalf("SendStream err = %v", err)
 	}
@@ -497,28 +498,28 @@ func TestPiagentBackend_DrainsEventsWhenSinkNil(t *testing.T) {
 // cascade's contract.
 func TestPiagentBackend_ImplementsBothInterfaces(t *testing.T) {
 	var (
-		_ MessageBackend          = (*PiagentBackend)(nil)
-		_ StreamingMessageBackend = (*PiagentBackend)(nil)
+		_ cascades.Backend          = (*PiagentBackend)(nil)
+		_ cascades.StreamingBackend = (*PiagentBackend)(nil)
 	)
 
 	var be any = &PiagentBackend{}
-	if _, ok := be.(MessageBackend); !ok {
+	if _, ok := be.(cascades.Backend); !ok {
 		t.Errorf("*PiagentBackend does NOT implement MessageBackend")
 	}
-	if _, ok := be.(StreamingMessageBackend); !ok {
-		t.Errorf("*PiagentBackend does NOT implement StreamingMessageBackend")
+	if _, ok := be.(cascades.StreamingBackend); !ok {
+		t.Errorf("*PiagentBackend does NOT implement cascades.StreamingBackend")
 	}
 }
 
 // TestCascade_Backend_LazyInitFromDispatchDefault pins
 // the dispatcher's lazy-init path: a cascade built with
-// a non-nil CascadeOpts.DispatchDefault swaps the
+// a non-nil cascades.Opts.DispatchDefault swaps the
 // seeded *StubBackend for the supplied default on first
 // Backend() call. After SetBackend runs, Backend() keeps
 // returning the user's backend (no further swap).
 func TestCascade_Backend_LazyInitFromDispatchDefault(t *testing.T) {
 	productionBackend := &PiagentBackend{SessionFactory: errPigFactory(errors.New("unused"))}
-	c, err := NewCascade(CascadeOpts{
+	c, err := cascades.New(cascades.Opts{
 		Model:           "Gemini 3.8 Flash (Medium)",
 		DispatchDefault: productionBackend,
 	})
@@ -538,7 +539,7 @@ func TestCascade_Backend_LazyInitFromDispatchDefault(t *testing.T) {
 
 	// SetBackend installs a different backend; Backend()
 	// returns it, not the dispatcher default.
-	userBackend := &StubBackend{Reply: "user"}
+	userBackend := &cascades.StubBackend{Reply: "user"}
 	c.SetBackend(userBackend)
 	if got := c.Backend(); got != userBackend {
 		t.Errorf("c.Backend() after SetBackend = %T, want *StubBackend (user)", got)
@@ -553,13 +554,13 @@ func TestCascade_Backend_LazyInitFromDispatchDefault(t *testing.T) {
 // that breaks the lazy init can't silently land on
 // "no backend installed" instead of *StubBackend.
 func TestCascade_Backend_NilDispatchDefaultKeepsStub(t *testing.T) {
-	c, err := NewCascade(CascadeOpts{Model: "Gemini 3.8 Flash (Medium)"})
+	c, err := cascades.New(cascades.Opts{Model: "Gemini 3.8 Flash (Medium)"})
 	if err != nil {
 		t.Fatalf("NewCascade: %v", err)
 	}
 
 	got := c.Backend()
-	if _, ok := got.(*StubBackend); !ok {
+	if _, ok := got.(*cascades.StubBackend); !ok {
 		t.Errorf("c.Backend() = %T, want *StubBackend (seeded default)", got)
 	}
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
@@ -11,21 +12,35 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/justwasm/pigasus/internal/accounts"
-	"github.com/justwasm/pigasus/internal/auth"
-	"github.com/justwasm/pigasus/internal/cliflags"
-	"github.com/justwasm/pigasus/internal/codesearchaction"
-	"github.com/justwasm/pigasus/internal/convstore"
-	"github.com/justwasm/pigasus/internal/customize"
-	"github.com/justwasm/pigasus/internal/isolation"
-	"github.com/justwasm/pigasus/internal/loginui"
-	"github.com/justwasm/pigasus/internal/modelcatalog"
-	"github.com/justwasm/pigasus/internal/persistentrc"
+	"github.com/justwasm/pigasus/internal/app/prompt/customize"
+	backendselect "github.com/justwasm/pigasus/internal/infra/backend/select"
+	"github.com/justwasm/pigasus/internal/ui/editor/editorkit"
+	"github.com/justwasm/pigasus/internal/ui/views/changelog"
+	"github.com/justwasm/pigasus/internal/ui/views/codesearchaction"
+	diffaction "github.com/justwasm/pigasus/internal/ui/views/diff/action"
+	"github.com/justwasm/pigasus/internal/ui/views/effortpanel"
+	"github.com/justwasm/pigasus/internal/app/session/convstore"
+	"github.com/justwasm/pigasus/internal/app/session/rewind"
+	"github.com/justwasm/pigasus/internal/core/backend"
+	"github.com/justwasm/pigasus/internal/core/cliflags"
+	confhome "github.com/justwasm/pigasus/internal/core/confhome"
+	settings "github.com/justwasm/pigasus/internal/core/settings"
+	"github.com/justwasm/pigasus/internal/core/slashparse"
+	accounts "github.com/justwasm/pigasus/internal/features/accounts/core"
+	"github.com/justwasm/pigasus/internal/features/auth"
+	"github.com/justwasm/pigasus/internal/features/models"
+	modelcatalog "github.com/justwasm/pigasus/internal/features/models/catalog"
+	"github.com/justwasm/pigasus/internal/features/tools/isolation"
+	"github.com/justwasm/pigasus/internal/features/tools/skills"
+	persistentrc "github.com/justwasm/pigasus/internal/infra/remote/persistent"
+	"github.com/justwasm/pigasus/internal/ui/views/loginui"
 	"github.com/justwasm/pigasus/internal/printmode"
 	"github.com/justwasm/pigasus/internal/rchost"
-	"github.com/justwasm/pigasus/internal/statusline"
-	"github.com/justwasm/pigasus/internal/subagenttools"
-	"github.com/justwasm/pigasus/internal/tuilib"
+	"github.com/justwasm/pigasus/internal/app/subagenttools"
+	"github.com/justwasm/pigasus/internal/app/session/slashactions"
+	"github.com/justwasm/pigasus/internal/ui/tuilib"
+	"github.com/justwasm/pigasus/internal/ui/views/statusline"
+	"github.com/justwasm/pigasus/urlchunk"
 )
 
 // slash_commands_handlers.go — individual slash command action handlers.
@@ -38,23 +53,18 @@ func (m *runMode) slashClear(args string) (bool, tea.Cmd) {
 	m.liveSteps = nil
 	m.liveStepRuns = nil
 	m.activeTool = ""
-	m.streamQueue = nil
-	m.queuedPrompt = ""
+	m.store.ClearStreamQueue()
 	m.replyStart = -1
 	m.liveReplyIdx = -1
 	m.liveReplyBuf = ""
 	m.streamedText = false
 	m.wireSettingsPending = true
-	m.resetSessionTokenCounters()
+	m.store.ResetSessionTokens()
 	// A cleared conversation starts without the previous one's
 	// subagent definitions: the definitions are conversation-scoped.
 	m.subagentDefs = subagenttools.NewStore()
 	m.resetTrajectory()
 	return true, nil
-}
-
-func (m *runMode) slashNew(args string) (bool, tea.Cmd) {
-	return m.slashClear(args)
 }
 
 func (m *runMode) slashExit(args string) (bool, tea.Cmd) {
@@ -63,11 +73,9 @@ func (m *runMode) slashExit(args string) (bool, tea.Cmd) {
 }
 
 func (m *runMode) slashHelp(args string) (bool, tea.Cmd) {
-	m.helpMode = true
-	m.helpTab = 0
+	m.helpPanel.Open(0)
 	m.input.Reset()
-	m.historyIdx = 0
-	m.historyEdit = ""
+	m.promptHistory.Reset()
 	return true, nil
 }
 
@@ -75,7 +83,7 @@ func (m *runMode) slashModel(args string) (bool, tea.Cmd) {
 	// "/model <name>" is a direct setter — the reference changes the
 	// model and echoes "Model set to <label>". Only a bare "/model" opens
 	// the Switch Model panel. 【一手】 agy 1.4.6, live.
-	if trimmed := trimSpace(args); trimmed != "" {
+	if trimmed := slashparse.Trim(args); trimmed != "" {
 		return true, m.applyModelArgument(trimmed)
 	}
 	if m.flags != nil {
@@ -108,7 +116,7 @@ func (m *runMode) slashContinue(args string) (bool, tea.Cmd) {
 		m.slashRespond("/continue", "No previous conversation to continue.")
 		return true, nil
 	}
-	sel := loadConversationSelection(id, "continue", convstore.ConversationPath(id))
+	sel := convstore.LoadSelection(id, "continue", convstore.ConversationPath(id))
 	if sel.Store == nil {
 		m.slashRespond("/continue", "Failed to load conversation "+id)
 		return true, nil
@@ -126,7 +134,7 @@ func (m *runMode) slashContinue(args string) (bool, tea.Cmd) {
 }
 
 func (m *runMode) slashCopy(args string) (bool, tea.Cmd) {
-	if strings.EqualFold(trimSpace(args), "btw") {
+	if strings.EqualFold(slashparse.Trim(args), "btw") {
 		payload, msg := m.copyBtwCard()
 		if payload != "" {
 			if err := clipboardWrite(payload); err != nil {
@@ -172,13 +180,13 @@ func (m *runMode) slashDiff(args string) (bool, tea.Cmd) {
 }
 
 func (m *runMode) slashEffort(args string) (bool, tea.Cmd) {
-	if trimmed := trimSpace(args); trimmed != "" {
+	if trimmed := slashparse.Trim(args); trimmed != "" {
 		level, ok := printmode.ParseEffortWord(trimmed)
 		if !ok {
-			m.slashRespond("/effort", "Invalid level: "+trimmed+". Use low|medium|high.")
+			m.slashRespond("/effort", models.InvalidEffortMessage(trimmed))
 			return true, nil
 		}
-		return true, m.applyEffortLevel(level, effortIndexForName(level))
+		return true, m.applyEffortLevel(level, effortpanel.EffortIndexForName(level))
 	}
 	if m.flags != nil {
 		m.slashContent(printmode.PrintSlashEffort(m.flags))
@@ -199,7 +207,30 @@ func (m *runMode) slashFeatureDiff(args string) (bool, tea.Cmd) {
 
 func (m *runMode) slashFork(args string) (bool, tea.Cmd) {
 	m.abortTurnForLocalCommand()
-	forkID, forkMsg := forkTrajectory(m.trajectorySteps(), m.conversationID)
+	// Goal is cancelled on fork point
+	m.activeGoal = nil
+
+	projectID := strings.TrimSpace(args)
+	agentDir := confhome.Antigravity()
+	var oldArtifactDir string
+	if m.conversationID != "" {
+		oldArtifactDir = filepath.Join(agentDir, "brain", m.conversationID)
+	}
+
+	forkID, forkNotice, forkMsg, err := convstore.ForkConversationFull(
+		convstore.BuildSteps(m.trajectoryFacts()),
+		m.conversationID,
+		oldArtifactDir,
+		"", // automatically derived as <agentDir>/brain/<forkID>
+		projectID,
+		true, // droppedSubagents
+		true, // canceledTasks
+	)
+	if err != nil {
+		m.slashRespond("/fork", "  Failed to fork: "+err.Error())
+		return true, nil
+	}
+
 	lines := strings.Split(forkMsg, "\n")
 	var extra []string
 	for _, l := range lines[1:] {
@@ -208,6 +239,13 @@ func (m *runMode) slashFork(args string) (bool, tea.Cmd) {
 	m.slashRespond("/fork", lines[0], extra...)
 	if forkID != "" {
 		m.conversationID = forkID
+		if forkNotice != "" {
+			m.session = append(m.session, backend.Message{
+				Role:    "user",
+				Content: forkNotice,
+			})
+			m.saveSession()
+		}
 	}
 	return true, nil
 }
@@ -222,7 +260,7 @@ func (m *runMode) slashLogout(args string) (bool, tea.Cmd) {
 	// back to a credential the user threw away. The reply line is the
 	// reference's, byte for byte.
 	_, email := accounts.Current()
-	m.slashRespond("/logout", logoutFeedback())
+	m.slashRespond("/logout", tuilib.LogoutFeedback())
 	if email != "" {
 		_, _, _ = accounts.Remove(email)
 	}
@@ -230,7 +268,7 @@ func (m *runMode) slashLogout(args string) (bool, tea.Cmd) {
 }
 
 func (m *runMode) slashLogin(args string) (bool, tea.Cmd) {
-	if hasOAuthToken() {
+	if backendselect.HasOAuthToken() {
 		m.slashRespond("/login", "Already signed in. Use /logout to sign out.")
 		return true, nil
 	}
@@ -254,7 +292,7 @@ func (m *runMode) slashMCP(args string) (bool, tea.Cmd) {
 }
 
 func (m *runMode) slashOpen(args string) (bool, tea.Cmd) {
-	notice, editorCmd := openFeedback(args, auth.SettingsString("editor"), m.cwd)
+	notice, editorCmd := editorkit.OpenFeedback(args, settings.String("editor"), m.cwd, diffaction.PathExists)
 	if notice != "" {
 		m.slashRespond("/open", notice)
 	}
@@ -271,13 +309,21 @@ func (m *runMode) slashPermissions(args string) (bool, tea.Cmd) {
 	return true, nil
 }
 
+// slashPlugin implements /plugin <verb>.
+//
+// Cycle plugin-case-insensitive: the verb is compared with
+// strings.EqualFold, so `List`, `LIST` and `list` all dispatch the
+// same handler (AGY 1.3.6 changelog line 21).
+//
+// The verb and the rest of the line are parsed by the slash grammar's
+// owner, internal/core/slashparse.
 func (m *runMode) slashPlugin(args string) (bool, tea.Cmd) {
-	trimmed := trimSpace(args)
+	trimmed := slashparse.Trim(args)
 	if trimmed == "" {
 		m.slashRespond("/plugin", "Plugins: 0 installed")
 		return true, nil
 	}
-	verb, _ := splitPluginArgs(trimmed)
+	verb, _ := slashparse.SplitVerb(trimmed)
 	switch {
 	case strings.EqualFold(verb, "list"):
 		m.slashRespond("/plugin list", "No plugins installed.")
@@ -290,7 +336,11 @@ func (m *runMode) slashPlugin(args string) (bool, tea.Cmd) {
 	case strings.EqualFold(verb, "uninstall"):
 		m.slashRespond("/plugin uninstall", "Usage: /plugin uninstall <name>")
 	default:
-		m.slashRespond("/plugin", "Unknown subcommand: "+verb)
+		// Cycle 383 (A-28): the reference's own format string is
+		// "Unknown subcommand %q." — the verb is quoted and the
+		// sentence ends with a period. Evidence 【strings】: the agy
+		// 1.4.11 string table carries the literal.
+		m.slashRespond("/plugin", fmt.Sprintf("Unknown subcommand %q.", verb))
 	}
 	return true, nil
 }
@@ -311,11 +361,11 @@ func (m *runMode) activeRemoteConversationID() string {
 }
 
 func (m *runMode) handleRemoteControl(args, conversationID string) (bool, tea.Cmd) {
-	if IsBusinessAccount() {
+	if auth.IsBusinessAccount() {
 		m.slashRespond("/remote-control", rchost.SlashADCErrorMessage())
 		return true, nil
 	}
-	next, msg := remoteControlFeedback(args, m.remoteControl)
+	next, msg := tuilib.RemoteControlFeedback(args, m.remoteControl)
 	m.remoteControl = next
 	if msg == "Remote control on for this session." {
 		if curTok, curEmail := accounts.Current(); curTok != nil && curEmail != "" {
@@ -362,7 +412,9 @@ func (m *runMode) handleRemoteControl(args, conversationID string) (bool, tea.Cm
 			defer cancel()
 			_ = persistentrc.StartOfficialDaemon(ctx, hostname, false, desktop)
 		}()
-		_, extra := buildRemoteControlCard(conversationID, m.remoteControlUUID, hostname, m.rcURLRows)
+		_, extra := buildRemoteControlCard(conversationID, m.remoteControlUUID, hostname, func(u string) []string {
+			return urlchunk.Rows(u, rcURLIndent, m.rcURLChunkWidth(), m.hyperlinkCaps)
+		})
 		if runtime.GOOS != "darwin" {
 			extra = append(extra,
 				"Note: this platform has no launchd to auto-start the background daemon.",
@@ -380,50 +432,53 @@ func (m *runMode) slashRename(args string) (bool, tea.Cmd) {
 		m.openRenamePanel()
 		return true, nil
 	}
-	next, msg := renameFeedback(args, m.conversationName)
+	next, msg := tuilib.RenameFeedback(args, m.conversationName)
 	m.conversationName = next
 	m.slashRespond("/rename", msg)
 	return true, nil
 }
 
 func (m *runMode) slashResume(args string) (bool, tea.Cmd) {
-	list, err := convstore.ListConversations()
-	if err != nil {
+	if err := m.resumePicker.Open(); err != nil {
 		m.slashRespond("/resume", "Failed to list conversations: "+err.Error())
 		return true, nil
 	}
-	if m.conversationID != "" {
-		filtered := list[:0]
-		for _, c := range list {
-			if c.ID != m.conversationID {
-				filtered = append(filtered, c)
-			}
-		}
-		list = filtered
-	}
-	m.resumeList = list
-	m.resumeCursor = 0
-	m.resumeWindow = 0
-	m.resumeQuery = ""
-	m.resumeTab = 0
-	m.resumeCursorOn = false
-	m.resumeMode = true
-	m.resetResumeTreeState()
-	m.buildResumeGroups()
-	m.expandFirstResumeGroup()
 	return true, nil
 }
 
 func (m *runMode) slashRewind(args string) (bool, tea.Cmd) {
-	if n := rewindSession(m.session); n > 0 {
-		m.slashRespond("/rewind", fmt.Sprintf("Rewound %d message(s) from the session tail", n))
-	} else {
-		m.slashRespond("/rewind", "Nothing to rewind.")
-	}
+	// Cycle 381, tranche 75: the rewind policy is the session layer's
+	// (internal/app/session/rewind). The tail pop used to run on a
+	// copy of the slice, so the session it reported a rewind for was
+	// never actually truncated; the policy now hands the truncated
+	// session back and the caller keeps it.
+	r := rewind.PopTail(m.session)
+	m.session = r.Session
+	m.slashRespond("/rewind", rewind.TailEcho(r))
 	return true, nil
 }
 
+// slashSkills handles /skills and its `reload` verb.
+//
+// The bare command is answered by the /skills panel (the panel owns the
+// listing); this handler answers the command's argument forms.
+//
+// `/skills reload` re-scans the skill roots from disk and answers the
+// reference's own line — "Reload skills from disk" — above the reloaded
+// listing. The reload is best-effort: a root that cannot be read keeps
+// the skills that were loaded from it.
+//
+// 【strings】 agy 1.4.x: the binary's string table carries the literal
+// "Reload skills from disk" next to "/skills reload"; the wording after
+// that line is unrecovered (【推测】 the listing is kept).
 func (m *runMode) slashSkills(args string) (bool, tea.Cmd) {
+	if skills.IsReload(args) {
+		listing := skills.RenderList(skills.Reload())
+		m.slashContent(skills.ReloadMessage)
+		m.slashContent(listing)
+		customize.RecordToken("skills", listing)
+		return true, nil
+	}
 	body := printmode.PrintSlashSkills()
 	m.slashContent(body)
 	customize.RecordToken("skills", body)
@@ -511,7 +566,7 @@ func (m *runMode) slashStatusline(args string) (bool, tea.Cmd) {
 // reference's "Statusline on." message (" (<command>)" when a custom
 // command is configured).
 func (m *runMode) applyStatuslineOn() {
-	cfg := m.statusLineConfig()
+	cfg := m.statusLineCfg
 	statusline.PersistVisibility(true)
 	m.statusLine = "on"
 	m.statusLineExternal = strings.TrimSpace(cfg.Command) != ""
@@ -542,18 +597,14 @@ func indentStatuslineUsage(rows []string) []string {
 
 // slashTasks handles /tasks.
 func (m *runMode) slashTasks(args string) (bool, tea.Cmd) {
-	running, done := 0, 0
+	var states []string
 	if m.taskReg != nil {
 		for _, t := range m.taskReg.List() {
-			switch t.State {
-			case "running", "pending":
-				running++
-			case "done", "failed", "killed":
-				done++
-			}
+			states = append(states, string(t.State))
 		}
 	}
-	m.slashRespond("/tasks", tasksFeedback(running, done))
+	running, done := slashactions.TasksCount(states)
+	m.slashRespond("/tasks", slashactions.TasksFeedback(running, done))
 	return true, nil
 }
 
@@ -576,27 +627,18 @@ func (m *runMode) slashTitle(args string) (bool, tea.Cmd) {
 	// The block may have been changed outside the TUI, so it is re-read
 	// before it is answered.
 	m.reloadStatusLineConfig()
-	verb := strings.ToLower(strings.TrimSpace(args))
-	switch verb {
-	case "on", "enable", "off", "disable", "":
-	default:
+	verb := slashactions.ParseTitleVerb(args)
+	if verb == slashactions.TitleVerbInvalid {
 		m.slashRespond("/title", tuilib.TitleUsage)
 		return true, nil
 	}
-	cfg := m.titleConfig()
+	cfg := m.titleCfg
 	if strings.TrimSpace(cfg.Command) == "" {
 		m.slashRespond("/title", tuilib.TitleNoCommandMessage)
 		return true, nil
 	}
-	switch verb {
-	case "on", "enable":
-		return true, m.setTitleEnabled(true, cfg.Command)
-	case "off", "disable":
-		return true, m.setTitleEnabled(false, cfg.Command)
-	default:
-		// A bare /title toggles the feature.
-		return true, m.setTitleEnabled(!cfg.Enabled, cfg.Command)
-	}
+	targetState := slashactions.ResolveTitleToggle(verb, cfg.Enabled)
+	return true, m.setTitleEnabled(targetState, cfg.Command)
 }
 
 // setTitleEnabled persists the title block's visibility and answers the
@@ -623,15 +665,11 @@ func (m *runMode) slashUsage(args string) (bool, tea.Cmd) {
 }
 
 func (m *runMode) slashVoice(args string) (bool, tea.Cmd) {
-	return true, m.startVoiceDictation("/voice")
-}
-
-func (m *runMode) slashRecord(args string) (bool, tea.Cmd) {
-	return true, m.startVoiceDictation("/record")
+	return true, m.voiceSurface.Start("/voice")
 }
 
 func (m *runMode) slashAddDir(args string) (bool, tea.Cmd) {
-	m.slashRespond("/add-dir", addDirFeedback(args))
+	m.slashRespond("/add-dir", tuilib.AddDirFeedback(args))
 	return true, nil
 }
 
@@ -649,7 +687,7 @@ func (m *runMode) slashBtw(args string) (bool, tea.Cmd) {
 }
 
 func (m *runMode) slashChangelog(args string) (bool, tea.Cmd) {
-	m.slashContent(printmode.PrintSlashChangelog)
+	m.slashContent(changelog.Markdown)
 	return true, nil
 }
 
@@ -671,7 +709,7 @@ func (m *runMode) slashCompact(args string) (bool, tea.Cmd) {
 		m.inputNotice = "Nothing to compact yet."
 		return true, nil
 	}
-	instructions := trimSpace(args)
+	instructions := slashparse.Trim(args)
 	m.startManualCompact(instructions)
 	return true, nil
 }
@@ -701,7 +739,7 @@ func (m *runMode) slashSchedule(args string) (bool, tea.Cmd) {
 		m.slashRespond("/schedule", "Usage: /schedule <instruction>")
 		return true, nil
 	}
-	return true, m.sendAsPrompt("/schedule", instruction+"\n\n"+schedulePrompt())
+	return true, m.sendAsPrompt("/schedule", instruction+"\n\n"+slashactions.SchedulePrompt())
 }
 
 func (m *runMode) slashBranch(args string) (bool, tea.Cmd) {

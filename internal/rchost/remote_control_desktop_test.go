@@ -16,8 +16,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/justwasm/pigasus/internal/auth"
 	"github.com/justwasm/pigasus/internal/cli"
+	"github.com/justwasm/pigasus/internal/features/auth"
 	"github.com/justwasm/pigasus/internal/remotecontrol"
 )
 

@@ -20,7 +20,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/justwasm/pigasus/internal/convstore"
+	"github.com/justwasm/pigasus/internal/app/session/convstore"
+	"github.com/justwasm/pigasus/internal/remotecontrol/cascades"
 )
 
 // lsStepStatusGenerating is exa.cortex_pb.CortexStepStatus.GENERATING —
@@ -34,7 +35,7 @@ const lsStepStatusGenerating = 8
 // That is the order the reference's own trajectory has — the answer,
 // then the tool call it triggered, then the next answer.
 type lsTrajectorySink struct {
-	inner EventSink
+	inner cascades.EventSink
 	traj  *lsTrajectory
 
 	mu        sync.Mutex
@@ -55,19 +56,19 @@ type lsTrajectorySink struct {
 
 // newLSTrajectorySink returns a sink that writes onto traj and
 // forwards every event to inner.
-func newLSTrajectorySink(traj *lsTrajectory, inner EventSink) *lsTrajectorySink {
+func newLSTrajectorySink(traj *lsTrajectory, inner cascades.EventSink) *lsTrajectorySink {
 	return &lsTrajectorySink{traj: traj, inner: inner, replyStep: -1}
 }
 
 // OnState forwards the state frame.
-func (s *lsTrajectorySink) OnState(cascade *Cascade, frame StateFrame) {
+func (s *lsTrajectorySink) OnState(cascade *cascades.Cascade, frame cascades.StateFrame) {
 	if s.inner != nil {
 		s.inner.OnState(cascade, frame)
 	}
 }
 
 // OnTextDelta publishes the answer as it grows.
-func (s *lsTrajectorySink) OnTextDelta(cascade *Cascade, delta string) {
+func (s *lsTrajectorySink) OnTextDelta(cascade *cascades.Cascade, delta string) {
 	if s.inner != nil {
 		s.inner.OnTextDelta(cascade, delta)
 	}
@@ -85,7 +86,7 @@ func (s *lsTrajectorySink) OnTextDelta(cascade *Cascade, delta string) {
 // The thinking is published before the first word of the answer, so
 // the Web UI's collapsible panel opens on the model's reasoning and
 // not on the answer.
-func (s *lsTrajectorySink) OnThought(cascade *Cascade, text string) {
+func (s *lsTrajectorySink) OnThought(cascade *cascades.Cascade, text string) {
 	if text == "" {
 		return
 	}
@@ -104,7 +105,7 @@ func (s *lsTrajectorySink) OnThought(cascade *Cascade, text string) {
 //
 // The tool call ends the message that asked for it, so the reply step
 // is closed before the tool-call step is appended.
-func (s *lsTrajectorySink) OnToolCall(cascade *Cascade, call ToolCall) {
+func (s *lsTrajectorySink) OnToolCall(cascade *cascades.Cascade, call cascades.ToolCall) {
 	if s.inner != nil {
 		s.inner.OnToolCall(cascade, call)
 	}
@@ -126,14 +127,14 @@ func (s *lsTrajectorySink) OnToolCall(cascade *Cascade, call ToolCall) {
 }
 
 // OnError forwards the error.
-func (s *lsTrajectorySink) OnError(cascade *Cascade, err error) {
+func (s *lsTrajectorySink) OnError(cascade *cascades.Cascade, err error) {
 	if s.inner != nil {
 		s.inner.OnError(cascade, err)
 	}
 }
 
 // OnUserInteraction forwards the interaction request.
-func (s *lsTrajectorySink) OnUserInteraction(cascade *Cascade, intr *PendingInteraction) {
+func (s *lsTrajectorySink) OnUserInteraction(cascade *cascades.Cascade, intr *cascades.PendingInteraction) {
 	if s.inner != nil {
 		s.inner.OnUserInteraction(cascade, intr)
 	}
@@ -145,7 +146,7 @@ func (s *lsTrajectorySink) OnUserInteraction(cascade *Cascade, intr *PendingInte
 // The result carries the tool calls the turn made. The ones the sink
 // already published are not repeated; the ones it never saw — a
 // backend that does not stream — are appended now.
-func (s *lsTrajectorySink) Finish(res MessageResult, duration time.Duration) {
+func (s *lsTrajectorySink) Finish(res cascades.Result, duration time.Duration) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.reply.Len() == 0 && res.Reply != "" {
@@ -184,7 +185,7 @@ func (s *lsTrajectorySink) finishStatus() int {
 
 // lsUnseenToolCalls returns the tool calls the sink did not publish
 // yet.
-func lsUnseenToolCalls(calls []ToolCall, seen int) []ToolCall {
+func lsUnseenToolCalls(calls []cascades.ToolCall, seen int) []cascades.ToolCall {
 	if seen < 0 || seen >= len(calls) {
 		return nil
 	}

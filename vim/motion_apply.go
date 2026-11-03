@@ -28,32 +28,28 @@ func firstNonBlank(line string) int {
 }
 
 // applyDirectionalMotion handles h/j/k/l cursor motions.
-func (s *State) applyDirectionalMotion(m motion, count int) {
+func (s *State) applyDirectionalMotion(m motion) {
 	switch m {
 	case motionLeft:
-		for i := 0; i < count; i++ {
-			if s.Col > 0 {
-				s.Col = prevClusterCol(s.Lines[s.Row], s.Col)
-			}
+		if s.Col > 0 {
+			s.Col = prevClusterCol(s.Lines[s.Row], s.Col)
 		}
 		s.desiredCol = s.Col
 	case motionRight:
-		for i := 0; i < count; i++ {
-			if s.Col < s.lineLen(s.Row)-1 {
-				s.Col = nextClusterCol(s.Lines[s.Row], s.Col)
-				if s.Col >= s.lineLen(s.Row) {
-					s.Col = s.lineLen(s.Row) - 1
-				}
+		if s.Col < s.lineLen(s.Row)-1 {
+			s.Col = nextClusterCol(s.Lines[s.Row], s.Col)
+			if s.Col >= s.lineLen(s.Row) {
+				s.Col = s.lineLen(s.Row) - 1
 			}
 		}
 		s.desiredCol = s.Col
 	case motionDown:
-		for i := 0; i < count && s.Row < len(s.Lines)-1; i++ {
+		if s.Row < len(s.Lines)-1 {
 			s.Row++
 		}
 		s.Col = clampDesired(s, s.Row, s.desiredCol)
 	case motionUp:
-		for i := 0; i < count && s.Row > 0; i++ {
+		if s.Row > 0 {
 			s.Row--
 		}
 		s.Col = clampDesired(s, s.Row, s.desiredCol)
@@ -61,7 +57,7 @@ func (s *State) applyDirectionalMotion(m motion, count int) {
 }
 
 // applyLineOrDocMotion handles 0, ^, $, gg, and G motions.
-func (s *State) applyLineOrDocMotion(m motion, count int) {
+func (s *State) applyLineOrDocMotion(m motion) {
 	switch m {
 	case motionLineStart:
 		s.Col = 0
@@ -70,9 +66,6 @@ func (s *State) applyLineOrDocMotion(m motion, count int) {
 		s.Col = firstNonBlank(s.Lines[s.Row])
 		s.desiredCol = s.Col
 	case motionLineEnd:
-		if count > 1 {
-			s.Row = min(s.Row+count-1, len(s.Lines)-1)
-		}
 		n := s.lineLen(s.Row)
 		if n > 0 {
 			s.Col = n - 1
@@ -81,39 +74,28 @@ func (s *State) applyLineOrDocMotion(m motion, count int) {
 		}
 		s.desiredCol = s.Col
 	case motionDocStart:
-		if count > 1 {
-			s.Row = min(count-1, len(s.Lines)-1)
-		} else {
-			s.Row = 0
-		}
+		s.Row = 0
 		s.Col = clampDesired(s, s.Row, s.desiredCol)
 		s.desiredCol = s.Col
 	case motionDocEnd:
-		if count > 1 {
-			s.Row = min(count-1, len(s.Lines)-1)
-		} else {
-			s.Row = len(s.Lines) - 1
-		}
+		s.Row = len(s.Lines) - 1
 		s.Col = clampDesired(s, s.Row, s.desiredCol)
 		s.desiredCol = s.Col
 	}
 }
 
-// applyMotion moves the cursor by a bare motion. count multiplies the
-// motion, arg carries the target character for f/F/t/T.
-func (s *State) applyMotion(m motion, count int, arg rune) bool {
-	if count < 1 {
-		count = 1
-	}
+// applyMotion moves the cursor by a bare motion. arg carries the target
+// character for f/F/t/T.
+func (s *State) applyMotion(m motion, arg rune) bool {
 	switch m {
 	case motionLeft, motionRight, motionDown, motionUp:
-		s.applyDirectionalMotion(m, count)
+		s.applyDirectionalMotion(m)
 	case motionLineStart, motionFirstNonBlank, motionLineEnd, motionDocStart, motionDocEnd:
-		s.applyLineOrDocMotion(m, count)
+		s.applyLineOrDocMotion(m)
 	case motionWordNext, motionWordBack, motionWordEnd, motionWORDNext, motionWORDBack, motionWORDEnd:
-		s.applyWordMotion(m, count)
+		s.applyWordMotion(m)
 	case motionFind, motionTill, motionFindBack, motionTillBack, motionRepeatFind, motionRepeatFindRev:
-		if !s.applyFindMotion(m, count, arg) {
+		if !s.applyFindMotion(m, arg) {
 			return false
 		}
 	}
@@ -122,35 +104,28 @@ func (s *State) applyMotion(m motion, count int, arg rune) bool {
 }
 
 // targetDirectionalMotion computes targets for h/j/k/l motions.
-func (s *State) targetDirectionalMotion(m motion, count int, from pos) motionTarget {
+func (s *State) targetDirectionalMotion(m motion, from pos) motionTarget {
 	switch m {
 	case motionLeft:
 		if s.Col == 0 {
 			return motionTarget{} // h at col 0 is invalid for an operator
 		}
 		to := from
-		for i := 0; i < count; i++ {
-			to.col = prevClusterCol(s.Lines[to.row], to.col)
-			if to.col == 0 {
-				break
-			}
-		}
+		to.col = prevClusterCol(s.Lines[to.row], to.col)
 		return motionTarget{to: to, inclusive: true, backward: true, valid: true}
 	case motionRight:
 		to := from
-		for i := 0; i < count; i++ {
-			if to.col < s.lineLen(to.row)-1 {
-				to.col = nextClusterCol(s.Lines[to.row], to.col)
-			}
+		if to.col < s.lineLen(to.row)-1 {
+			to.col = nextClusterCol(s.Lines[to.row], to.col)
 		}
 		return motionTarget{to: to, inclusive: true, valid: true}
 	case motionDown:
 		to := from
-		to.row = min(s.Row+count, len(s.Lines)-1)
+		to.row = min(s.Row+1, len(s.Lines)-1)
 		return motionTarget{to: to, linewise: true, inclusive: true, valid: true}
 	case motionUp:
 		to := from
-		to.row = max(s.Row-count, 0)
+		to.row = max(s.Row-1, 0)
 		return motionTarget{to: to, linewise: true, inclusive: true, backward: true, valid: true}
 	default:
 		return motionTarget{}
@@ -158,7 +133,7 @@ func (s *State) targetDirectionalMotion(m motion, count int, from pos) motionTar
 }
 
 // targetLineOrDocMotion computes targets for line/document motions (0, ^, $, gg, G).
-func (s *State) targetLineOrDocMotion(m motion, count int, from pos) motionTarget {
+func (s *State) targetLineOrDocMotion(m motion, from pos) motionTarget {
 	switch m {
 	case motionLineStart:
 		if s.Col == 0 {
@@ -170,9 +145,6 @@ func (s *State) targetLineOrDocMotion(m motion, count int, from pos) motionTarge
 		return motionTarget{to: pos{from.row, fnb}, inclusive: false, backward: fnb <= s.Col, valid: true}
 	case motionLineEnd:
 		row := from.row
-		if count > 1 {
-			row = min(from.row+count-1, len(s.Lines)-1)
-		}
 		n := s.lineLen(row)
 		end := 0
 		if n > 0 {
@@ -180,19 +152,8 @@ func (s *State) targetLineOrDocMotion(m motion, count int, from pos) motionTarge
 		}
 		return motionTarget{to: pos{row, end}, inclusive: true, valid: true}
 	case motionDocStart:
-		to := pos{0, 0}
-		if count > 1 {
-			to.row = min(count-1, len(s.Lines)-1)
-			to.col = clampDesired(s, to.row, s.Col)
-			return motionTarget{to: to, linewise: count > 1, inclusive: true, backward: true, valid: true}
-		}
-		return motionTarget{to: to, linewise: true, inclusive: true, backward: true, valid: true}
+		return motionTarget{to: pos{0, 0}, linewise: true, inclusive: true, backward: true, valid: true}
 	case motionDocEnd:
-		if count > 1 {
-			to := pos{min(count-1, len(s.Lines)-1), 0}
-			to.col = clampDesired(s, to.row, s.Col)
-			return motionTarget{to: to, linewise: count > 1, inclusive: true, valid: true}
-		}
 		h := len(s.Lines) - 1
 		return motionTarget{to: pos{h, 0}, linewise: true, inclusive: true, valid: true}
 	default:
@@ -202,20 +163,17 @@ func (s *State) targetLineOrDocMotion(m motion, count int, from pos) motionTarge
 
 // motionTarget computes where a motion lands from the current cursor
 // and how an operator should consume it, without moving the cursor.
-func (s *State) motionTarget(m motion, count int, arg rune) motionTarget {
-	if count < 1 {
-		count = 1
-	}
+func (s *State) motionTarget(m motion, arg rune) motionTarget {
 	from := pos{s.Row, s.Col}
 	switch m {
 	case motionLeft, motionRight, motionDown, motionUp:
-		return s.targetDirectionalMotion(m, count, from)
+		return s.targetDirectionalMotion(m, from)
 	case motionLineStart, motionFirstNonBlank, motionLineEnd, motionDocStart, motionDocEnd:
-		return s.targetLineOrDocMotion(m, count, from)
+		return s.targetLineOrDocMotion(m, from)
 	case motionWordNext, motionWORDNext, motionWordBack, motionWORDBack, motionWordEnd, motionWORDEnd:
-		return s.targetWordMotion(m, count, from)
+		return s.targetWordMotion(m, from)
 	case motionFind, motionTill, motionFindBack, motionTillBack:
-		return s.targetFindMotion(m, count, arg)
+		return s.targetFindMotion(m, arg)
 	default:
 		return motionTarget{}
 	}

@@ -3,9 +3,10 @@ package rehydration
 import (
 	"encoding/json"
 
-	"github.com/justwasm/pigasus/internal/subagenttools"
-	"github.com/justwasm/pigasus/internal/taskregistry"
-	"github.com/justwasm/pigasus/internal/tools"
+	taskregistry "github.com/justwasm/pigasus/internal/app/task"
+	"github.com/justwasm/pigasus/internal/app/subagenttools"
+	"github.com/justwasm/pigasus/internal/app/tools/shell"
+	"github.com/justwasm/pigasus/internal/app/tools/tasks"
 )
 
 // State is the live state a rehydration pass reads and writes.
@@ -26,7 +27,7 @@ type State struct {
 	// where a resumed conversation gets its definitions back.
 	Definitions *subagenttools.Store
 	// Schedules is the conversation's schedule table.
-	Schedules *tools.ScheduleTable
+	Schedules *shell.ScheduleTable
 	// Tasks is the task registry the /tasks panel reads.
 	Tasks *taskregistry.Registry
 }
@@ -59,12 +60,12 @@ func NewDispatcher(state *State) *Dispatcher {
 	})
 	d.Register(Tool{
 		Name:      "manage_task",
-		Rehydrate: tools.RehydrateManageTask,
+		Rehydrate: tasks.RehydrateManageTask,
 		Apply:     applyManageTask(state),
 	})
 	d.Register(Tool{
 		Name:      "schedule",
-		Rehydrate: tools.RehydrateSchedule,
+		Rehydrate: tasks.RehydrateSchedule,
 		Apply:     applySchedule(state),
 	})
 	return d
@@ -107,7 +108,7 @@ func applyManageTask(state *State) Applier {
 		return nil
 	}
 	return func(meta map[string]string) bool {
-		return tools.RestoreManageTask(state.Tasks, meta)
+		return tasks.RestoreManageTask(state.Tasks, meta)
 	}
 }
 
@@ -118,7 +119,7 @@ func applySchedule(state *State) Applier {
 		return nil
 	}
 	return func(meta map[string]string) bool {
-		return tools.RestoreSchedule(table, meta)
+		return tasks.RestoreSchedule(table, meta)
 	}
 }
 
@@ -149,7 +150,7 @@ var (
 	_ Rehydrator = subagenttools.RehydrateDefineSubagent
 	_ Rehydrator = subagenttools.RehydrateManageSubagents
 	_ Rehydrator = subagenttools.RehydrateSendMessage
-	_ Rehydrator = tools.RehydrateManageTask
-	_ Rehydrator = tools.RehydrateSchedule
+	_ Rehydrator = tasks.RehydrateManageTask
+	_ Rehydrator = tasks.RehydrateSchedule
 	_            = json.RawMessage{}
 )

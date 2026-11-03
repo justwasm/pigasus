@@ -192,3 +192,93 @@ func TestErrorsIsUnwrappable(t *testing.T) {
 		t.Errorf("errors.As failed")
 	}
 }
+
+func TestFormatBytes(t *testing.T) {
+	if got := FormatBytes(500); got != "500 B" {
+		t.Errorf("FormatBytes(500) = %q, want %q", got, "500 B")
+	}
+	if got := FormatBytes(24000); got != "23 KB" {
+		t.Errorf("FormatBytes(24000) = %q, want %q", got, "23 KB")
+	}
+	if got := FormatBytes(2500000); got != "2.4 MB" {
+		t.Errorf("FormatBytes(2500000) = %q, want %q", got, "2.4 MB")
+	}
+}
+
+func TestSplitPastedPaths(t *testing.T) {
+	paths, ok := SplitPastedPaths(`"/tmp/a.png" '/tmp/b.jpg'`, "darwin")
+	if !ok || len(paths) != 2 || paths[0] != "/tmp/a.png" || paths[1] != "/tmp/b.jpg" {
+		t.Errorf("SplitPastedPaths quoted = %v, %v", paths, ok)
+	}
+
+	paths, ok = SplitPastedPaths(`/Users/gear/My\ Documents/shot.png`, "darwin")
+	if !ok || len(paths) != 1 || paths[0] != "/Users/gear/My Documents/shot.png" {
+		t.Errorf("SplitPastedPaths escaped space = %v, %v", paths, ok)
+	}
+
+	paths, ok = SplitPastedPaths(`"unclosed quote`, "darwin")
+	if ok || len(paths) != 0 {
+		t.Errorf("SplitPastedPaths unclosed = %v, %v, want false", paths, ok)
+	}
+}
+
+func TestResolvePastedPath(t *testing.T) {
+	if got := ResolvePastedPath("file:///tmp/image%20file.png"); got != "/tmp/image file.png" {
+		t.Errorf("ResolvePastedPath file URL = %q, want /tmp/image file.png", got)
+	}
+	if got := ResolvePastedPath("/tmp/image.png"); got != "/tmp/image.png" {
+		t.Errorf("ResolvePastedPath abs = %q, want /tmp/image.png", got)
+	}
+	if got := ResolvePastedPath("relative/path.png"); got != "" {
+		t.Errorf("ResolvePastedPath relative = %q, want empty", got)
+	}
+}
+
+func TestIsMediaExtension(t *testing.T) {
+	valid := []string{"foo.png", "bar.JPG", "a.jpeg", "b.gif", "c.webp", "d.bmp", "e.svg", "f.tiff", "g.pdf", "h.mp4", "i.mov", "j.webm"}
+	for _, v := range valid {
+		if !IsMediaExtension(v) {
+			t.Errorf("IsMediaExtension(%q) = false, want true", v)
+		}
+	}
+	invalid := []string{"foo.txt", "bar.go", "a.json", "b.py", "c"}
+	for _, inv := range invalid {
+		if IsMediaExtension(inv) {
+			t.Errorf("IsMediaExtension(%q) = true, want false", inv)
+		}
+	}
+}
+
+func TestPastedMediaPaths(t *testing.T) {
+	dir := t.TempDir()
+	f1 := filepath.Join(dir, "one.png")
+	f2 := filepath.Join(dir, "two.jpg")
+	f3 := filepath.Join(dir, "notes.txt")
+	if err := os.WriteFile(f1, tinyPNG(t), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(f2, tinyPNG(t), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(f3, []byte("text"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	// Multiple valid media
+	input := `"` + f1 + `" "` + f2 + `"`
+	got := PastedMediaPaths(input, "darwin")
+	if len(got) != 2 || got[0] != f1 || got[1] != f2 {
+		t.Errorf("PastedMediaPaths multiple = %v", got)
+	}
+
+	// Mixed media + non-media: should reject entire paste
+	mixed := `"` + f1 + `" "` + f3 + `"`
+	if got := PastedMediaPaths(mixed, "darwin"); len(got) != 0 {
+		t.Errorf("PastedMediaPaths mixed = %v, want nil", got)
+	}
+
+	// Non-existent file: should reject
+	if got := PastedMediaPaths(filepath.Join(dir, "missing.png"), "darwin"); len(got) != 0 {
+		t.Errorf("PastedMediaPaths missing = %v, want nil", got)
+	}
+}

@@ -34,6 +34,8 @@ import (
 	"encoding/json"
 	"log"
 	"strings"
+
+	"github.com/justwasm/pigasus/internal/remotecontrol/rpc"
 )
 
 // lsSendAllQueuedMessagesParams is the SendAllQueuedMessages request
@@ -112,24 +114,24 @@ func (p lsDeleteAgentMessageParams) legacyShape() bool {
 // honour a send-now request: "Send-now ignored: the active turn
 // cannot take the %d queued input(s) now". The clone has no such
 // refusal: the turn in flight is cancelled and the queue runs.
-func (d *Dispatcher) handleLSSendAllQueuedMessages(params json.RawMessage) (any, *rpcErrorBody, bool) {
+func (d *Dispatcher) handleLSSendAllQueuedMessages(params json.RawMessage) (any, *rpc.ErrorBody, bool) {
 	var req lsSendAllQueuedMessagesParams
 	if len(params) > 0 {
 		if err := json.Unmarshal(params, &req); err != nil {
-			return nil, &rpcErrorBody{Code: -32602, Message: "Invalid params", Data: err.Error()}, true
+			return nil, &rpc.ErrorBody{Code: -32602, Message: "Invalid params", Data: err.Error()}, true
 		}
 	}
 	cascadeID := strings.TrimSpace(req.CascadeID)
 	if cascadeID == "" {
-		return nil, &rpcErrorBody{Code: -32602, Message: "Invalid params", Data: "cascadeId is required"}, true
+		return nil, &rpc.ErrorBody{Code: -32602, Message: "Invalid params", Data: "cascadeId is required"}, true
 	}
 	c, ok := d.cascades.Get(cascadeID)
 	if !ok {
-		return nil, &rpcErrorBody{Code: ErrCodeCascadeNotFound, Message: "Cascade not found", Data: cascadeID}, true
+		return nil, &rpc.ErrorBody{Code: rpc.ErrCodeCascadeNotFound, Message: "Cascade not found", Data: cascadeID}, true
 	}
 	traj := d.trajectories.Get(c.ID)
 	if traj == nil {
-		return nil, &rpcErrorBody{Code: -32603, Message: "Internal error", Data: "no trajectory store"}, true
+		return nil, &rpc.ErrorBody{Code: -32603, Message: "Internal error", Data: "no trajectory store"}, true
 	}
 	if n := len(traj.Pending()); n > 0 {
 		log.Printf("remotecontrol: conversation %s: sending %d queued message(s) now", c.ID, n)
@@ -144,24 +146,24 @@ func (d *Dispatcher) handleLSSendAllQueuedMessages(params json.RawMessage) (any,
 // The index is the position in the queue — the same position the
 // pendingAgentMessages update's indices carry, so the card the Web UI
 // renders and the step the user deleted are the same message.
-func (d *Dispatcher) handleLSDeleteQueuedUserInputStep(params json.RawMessage) (any, *rpcErrorBody, bool) {
+func (d *Dispatcher) handleLSDeleteQueuedUserInputStep(params json.RawMessage) (any, *rpc.ErrorBody, bool) {
 	var req lsDeleteQueuedUserInputStepParams
 	if len(params) > 0 {
 		if err := json.Unmarshal(params, &req); err != nil {
-			return nil, &rpcErrorBody{Code: -32602, Message: "Invalid params", Data: err.Error()}, true
+			return nil, &rpc.ErrorBody{Code: -32602, Message: "Invalid params", Data: err.Error()}, true
 		}
 	}
 	cascadeID := strings.TrimSpace(req.CascadeID)
 	if cascadeID == "" {
-		return nil, &rpcErrorBody{Code: -32602, Message: "Invalid params", Data: "cascadeId is required"}, true
+		return nil, &rpc.ErrorBody{Code: -32602, Message: "Invalid params", Data: "cascadeId is required"}, true
 	}
 	c, ok := d.cascades.Get(cascadeID)
 	if !ok {
-		return nil, &rpcErrorBody{Code: ErrCodeCascadeNotFound, Message: "Cascade not found", Data: cascadeID}, true
+		return nil, &rpc.ErrorBody{Code: rpc.ErrCodeCascadeNotFound, Message: "Cascade not found", Data: cascadeID}, true
 	}
 	traj := d.trajectories.Get(c.ID)
 	if traj == nil {
-		return nil, &rpcErrorBody{Code: -32603, Message: "Internal error", Data: "no trajectory store"}, true
+		return nil, &rpc.ErrorBody{Code: -32603, Message: "Internal error", Data: "no trajectory store"}, true
 	}
 	if !traj.DropPending(req.StepIndex) {
 		log.Printf("remotecontrol: conversation %s: no queued message at index %d", c.ID, req.StepIndex)
@@ -185,11 +187,11 @@ func (d *Dispatcher) handleLSDeleteQueuedUserInputStep(params json.RawMessage) (
 // instead of a recipient. That dialect belongs to the clone's legacy
 // DeleteRemoteAgentMessage, so the request is handed back to the
 // router (ok=false) and the alias table takes it there.
-func (d *Dispatcher) handleLSDeleteAgentMessage(params json.RawMessage) (any, *rpcErrorBody, bool) {
+func (d *Dispatcher) handleLSDeleteAgentMessage(params json.RawMessage) (any, *rpc.ErrorBody, bool) {
 	var req lsDeleteAgentMessageParams
 	if len(params) > 0 {
 		if err := json.Unmarshal(params, &req); err != nil {
-			return nil, &rpcErrorBody{Code: -32602, Message: "Invalid params", Data: err.Error()}, true
+			return nil, &rpc.ErrorBody{Code: -32602, Message: "Invalid params", Data: err.Error()}, true
 		}
 	}
 	recipient := strings.TrimSpace(req.Recipient)
@@ -197,19 +199,19 @@ func (d *Dispatcher) handleLSDeleteAgentMessage(params json.RawMessage) (any, *r
 		if req.legacyShape() {
 			return nil, nil, false
 		}
-		return nil, &rpcErrorBody{Code: -32602, Message: "Invalid params", Data: "recipient is required"}, true
+		return nil, &rpc.ErrorBody{Code: -32602, Message: "Invalid params", Data: "recipient is required"}, true
 	}
 	messageID := strings.TrimSpace(req.MessageID)
 	if messageID == "" {
-		return nil, &rpcErrorBody{Code: -32602, Message: "Invalid params", Data: "messageId is required"}, true
+		return nil, &rpc.ErrorBody{Code: -32602, Message: "Invalid params", Data: "messageId is required"}, true
 	}
 	c, ok := d.cascades.Get(recipient)
 	if !ok {
-		return nil, &rpcErrorBody{Code: ErrCodeCascadeNotFound, Message: "Cascade not found", Data: recipient}, true
+		return nil, &rpc.ErrorBody{Code: rpc.ErrCodeCascadeNotFound, Message: "Cascade not found", Data: recipient}, true
 	}
 	traj := d.trajectories.Get(c.ID)
 	if traj == nil {
-		return nil, &rpcErrorBody{Code: -32603, Message: "Internal error", Data: "no trajectory store"}, true
+		return nil, &rpc.ErrorBody{Code: -32603, Message: "Internal error", Data: "no trajectory store"}, true
 	}
 	if !traj.DropPendingByID(messageID) {
 		log.Printf("remotecontrol: conversation %s: no queued message with the id %q", c.ID, messageID)

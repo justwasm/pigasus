@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/justwasm/pigasus/internal/ui/views/changelog"
 	"os"
 	"path/filepath"
 	"slices"
@@ -50,7 +51,7 @@ func TestDispatchPrintSlash_LocalCommands(t *testing.T) {
 	// Isolate ANTIGRAVITY_HOME so the test pins the *built-in* default model
 	// rather than whatever the developer's real
 	// ~/.gemini/antigravity-cli/settings.json happens to have configured.
-	// (auth.ResolveSettingsModel wins over the const defaultModel in
+	// (settings.ResolveModel wins over the const defaultModel in
 	// model_resolve.go when settings.json has a "model" key.)
 	t.Setenv("ANTIGRAVITY_HOME", t.TempDir())
 	fs := newStandardFlagSetForTest(t, nil)
@@ -411,129 +412,6 @@ func TestParseG1Credits(t *testing.T) {
 // `name: automation` plus `metadata.icon: schedule`; `agy -p /skills` prints
 // the bare name "automation", while the /skills panel lists
 // "schedule automation".
-func TestSkillFrontmatterReadsIcon(t *testing.T) {
-	dir := t.TempDir()
-	write := func(name, body string) string {
-		p := filepath.Join(dir, name+".md")
-		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
-			t.Fatal(err)
-		}
-		return p
-	}
-
-	withIcon := write("withicon", "---\nname: automation\ndescription: A guide.\nmetadata:\n  icon: schedule\n---\n\nbody\n")
-	f := skillFrontmatterFields(withIcon)
-	if f.Name != "automation" || f.Description != "A guide." || f.Icon != "schedule" {
-		t.Errorf("withicon: name=%q desc=%q icon=%q", f.Name, f.Description, f.Icon)
-	}
-
-	noIcon := write("noicon", "---\nname: plain\ndescription: One line only.\n---\n\nbody\n")
-	f = skillFrontmatterFields(noIcon)
-	if f.Name != "plain" || f.Icon != "" {
-		t.Errorf("noicon: name=%q icon=%q", f.Name, f.Icon)
-	}
-
-	// A `metadata` that is not a mapping must not cost the document its
-	// name — the icon is decoded leniently on purpose.
-	scalarMeta := write("scalarmeta", "---\nname: scalar\ndescription: One line only.\nmetadata: none\n---\n\nbody\n")
-	f = skillFrontmatterFields(scalarMeta)
-	if f.Name != "scalar" {
-		t.Errorf("scalarmeta: name=%q", f.Name)
-	}
-}
-
-// TestSkillFrontmatter calls the two-value wrapper on a SKILL.md with an
-// icon, to pin that the wrapper keeps its old contract.
-func TestSkillFrontmatter(t *testing.T) {
-	dir := t.TempDir()
-	write := func(name, body string) string {
-		p := dir + "/" + name + ".md"
-		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
-			t.Fatal(err)
-		}
-		return p
-	}
-
-	plain := write("plain", "---\nname: plain\ndescription: One line only.\n---\n\nbody\n")
-	n, d := skillFrontmatter(plain)
-	if n != "plain" || d != "One line only." {
-		t.Errorf("plain: name=%q desc=%q", n, d)
-	}
-
-	folded := write("folded", "---\nname: folded\ndescription: >-\n  Line one\n  line two.\n\n  Paragraph two.\n---\n")
-	n, d = skillFrontmatter(folded)
-	if n != "folded" {
-		t.Errorf("folded: name=%q", n)
-	}
-	// YAML spec for a folded block: a blank line folds to a single `\n`,
-	// not `\n\n`. The previous hand-rolled reader inserted an extra newline
-	// at every paragraph break; the bug is fixed by moving to yaml.v3.
-	if d != "Line one line two.\nParagraph two." {
-		t.Errorf("folded: desc=%q", d)
-	}
-
-	literal := write("literal", "---\nname: literal\ndescription: |\n  Alpha\n  Beta\n---\n")
-	n, d = skillFrontmatter(literal)
-	if n != "literal" || d != "Alpha\nBeta" {
-		t.Errorf("literal: name=%q desc=%q", n, d)
-	}
-
-	none := write("none", "no frontmatter here\n")
-	if n, d := skillFrontmatter(none); n != "" || d != "" {
-		t.Errorf("no-frontmatter: name=%q desc=%q", n, d)
-	}
-}
-
-// TestSkillFrontmatterYAMLv3Only documents features yaml.v3 handles that the
-// old hand-rolled reader could not: YAML 1.2 comments, escape sequences
-// inside double-quoted scalars, anchors/aliases, and flow-style mappings.
-// The clone does not rely on these today, but the migration makes them
-// portable so a SKILL.md using them reads the way the reference would.
-func TestSkillFrontmatterYAMLv3Only(t *testing.T) {
-	dir := t.TempDir()
-	write := func(name, body string) string {
-		p := dir + "/" + name + ".md"
-		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
-			t.Fatal(err)
-		}
-		return p
-	}
-
-	// 1) A comment line and a double-quoted scalar with escape sequences.
-	//    The previous reader kept `# trailing comment` and left the literal
-	//    `\n` in the string.
-	escapes := write("escapes",
-		"---\n"+
-			"name: escapes\n"+
-			"description: \"two\\nlines\" # a comment\n"+
-			"---\n")
-	n, d := skillFrontmatter(escapes)
-	if n != "escapes" {
-		t.Errorf("escapes: name=%q", n)
-	}
-	if d != "two\nlines" {
-		t.Errorf("escapes: desc=%q want %q", d, "two\nlines")
-	}
-
-	// 2) An anchor + alias pair — a single root name referenced twice.
-	anchor := write("anchor",
-		"---\n"+
-			"base: &b \"shared\"\n"+
-			"name: anchor\n"+
-			"description: *b\n"+
-			"---\n")
-	n, d = skillFrontmatter(anchor)
-	if n != "anchor" || d != "shared" {
-		t.Errorf("anchor: name=%q desc=%q", n, d)
-	}
-}
-
-// TestDispatchPrintSlash_Usage pins the /usage answer's shape. REF v1.4.0
-// resolves it from a live weekly-quota service, so the clone emits the
-// recovered payload with frozen placeholder figures (see
-// printSlashUsagePayload): the format is byte-exact but the percentage and the
-// reset timestamps are the values captured at one instant and cannot track the
-// reference, which recomputes them on every run.
 func TestDispatchPrintSlash_Usage(t *testing.T) {
 	fs := newStandardFlagSetForTest(t, nil)
 	res := dispatchPrintSlash("/usage", fs)
@@ -614,27 +492,13 @@ func TestUsageCreditsFailureText(t *testing.T) {
 	}
 }
 
-// TestPrintSlashChangelogIs149 pins that the embedded /changelog blob is the
-// REF v1.4.9 capture: 180,070 bytes (the 1.4.8 capture was 176,788, the
-// 1.4.0 capture 153,612 and the 1.3.6 capture 150,390) and prefixed by the
-// 1.4.8 section — the binary ships its own release notes one release
-// behind. A stale embed is the one /changelog failure the sweep can catch
-// silently, because the command still exits 0.
-//
-// The reference's blob is embedded in its own binary (file offset 63,893,369
-// in ~/.local/bin/agy 1.4.9, 180,070 bytes including the trailing newline)
-// and the command prints those bytes verbatim. 【一手】 agy 1.4.9, three runs
-// on 2026-10-28 all returned sha256
-// 0b911c6fb5187c9286ac2a318a432c8ae1bfdd3f9820edc720a4f13c5ed38d56.
+// TestPrintSlashChangelogIs149 pins that the print path shows the
+// reference's own document. The byte-level pin lives with the document
+// now (internal/changelog); this one pins that the print path prints
+// *that* document and not a second copy of it.
 func TestPrintSlashChangelogIs149(t *testing.T) {
-	if len(printSlashChangelog) != 180070 {
-		t.Errorf("embedded changelog is %d bytes, want 180070 (REF v1.4.9)", len(printSlashChangelog))
-	}
-	if !strings.Contains(printSlashChangelog, "\n## 1.4.8\n") {
-		t.Error("embedded changelog has no 1.4.8 section; it is stale")
-	}
-	if !strings.HasSuffix(printSlashChangelog, "- Initial release of the Antigravity CLI.\n") {
-		t.Error("embedded changelog does not end with the 1.0.0 section's last line")
+	if printSlashChangelog != changelog.Markdown {
+		t.Error("the print path's /changelog is not the changelog package's document")
 	}
 }
 
@@ -692,5 +556,86 @@ func TestPrintSlashConfigDataOrderedObjects(t *testing.T) {
 	}
 	if strings.Contains(got, `"statusLine":{"command"`) {
 		t.Errorf("/config json serialized statusLine in alphabetical order:\n%s", got)
+	}
+}
+
+// TestDispatchPrintSlash_EffortTakesNoArguments pins the reference's
+// print-mode rule: /effort is read-only there and takes no arguments.
+//
+// 【一手】 agy 1.4.12, live:
+//
+//	$ agy -p "/effort high"
+//	error: /effort takes no arguments, got "high"
+//	$ echo $?
+//	2
+//
+// The reference's binary carries the generic `/%s takes no arguments, got
+// %q`, and every locally-handled print-mode command answers it the same
+// way (`/help x`, `/model <id>`).
+func TestDispatchPrintSlash_EffortTakesNoArguments(t *testing.T) {
+	fs := newStandardFlagSetForTest(t, nil)
+	for _, arg := range []string{"high", "low", "turbo"} {
+		res := dispatchPrintSlash("/effort "+arg, fs)
+		if !res.Handled {
+			t.Errorf("/effort %s not handled; want rejected", arg)
+			continue
+		}
+		want := `/effort takes no arguments, got "` + arg + `"`
+		if res.ErrorText != want {
+			t.Errorf("/effort %s error = %q, want %q", arg, res.ErrorText, want)
+		}
+		if res.Err == nil || res.Err.Error() != "error: "+want {
+			t.Errorf("/effort %s stderr = %v, want %q", arg, res.Err, "error: "+want)
+		}
+		if code, ok := cli.ExitCodeOf(res.Err); !ok || code != 2 {
+			t.Errorf("/effort %s exit code = %d (ok=%v), want 2", arg, code, ok)
+		}
+		if res.Output != "" {
+			t.Errorf("/effort %s printed %q; want nothing", arg, res.Output)
+		}
+	}
+}
+
+// TestDispatchPrintSlash_EffortBareIsReadOnly pins that the bare /effort
+// keeps answering the current level: the reference's print mode still
+// reports it.
+//
+// 【一手】 agy 1.4.12, live: `agy -p "/effort"` prints "high" and exits 0.
+func TestDispatchPrintSlash_EffortBareIsReadOnly(t *testing.T) {
+	fs := newStandardFlagSetForTest(t, nil)
+	res := dispatchPrintSlash("/effort", fs)
+	if !res.Handled {
+		t.Fatal("/effort not handled; want local")
+	}
+	if res.Err != nil {
+		t.Fatalf("/effort error %v; want success", res.Err)
+	}
+	if res.Output != "high\n" {
+		t.Errorf("/effort output = %q, want %q", res.Output, "high\n")
+	}
+	if res.Name != "effort" {
+		t.Errorf("/effort command name = %q, want %q", res.Name, "effort")
+	}
+}
+
+// TestParseEffortWordAcceptsTheVocabulary pins the five levels the
+// reference recognises (official-docs/cli/commands/effort.md:17-21) and
+// the reference's own --effort usage string
+// ("Reasoning effort for the current CLI session (low|medium|high|xhigh|max)").
+func TestParseEffortWordAcceptsTheVocabulary(t *testing.T) {
+	for _, word := range []string{"low", "medium", "high", "xhigh", "max"} {
+		got, ok := ParseEffortWord(word)
+		if !ok || got != word {
+			t.Errorf("ParseEffortWord(%q) = %q, %v; want %q, true", word, got, ok, word)
+		}
+	}
+	// The word is canonicalised: trimmed and lower-cased.
+	if got, ok := ParseEffortWord("  HIGH  "); !ok || got != "high" {
+		t.Errorf("ParseEffortWord(%q) = %q, %v; want %q, true", "  HIGH  ", got, ok, "high")
+	}
+	for _, word := range []string{"", "turbo", "extreme", "ultra"} {
+		if got, ok := ParseEffortWord(word); ok {
+			t.Errorf("ParseEffortWord(%q) = %q, true; want refused", word, got)
+		}
 	}
 }

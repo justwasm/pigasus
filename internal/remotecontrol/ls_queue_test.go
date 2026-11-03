@@ -12,10 +12,11 @@ import (
 	"google.golang.org/protobuf/reflect/protoreflect"
 	"google.golang.org/protobuf/types/dynamicpb"
 
+	"github.com/justwasm/pigasus/internal/remotecontrol/cascades"
 	"github.com/justwasm/pigasus/lsproto"
 )
 
-// lsGateBackend is a MessageBackend whose turn parks until the test
+// lsGateBackend is a cascades.Backend whose turn parks until the test
 // releases it. It is how the queue's tests hold a turn in flight
 // while a second message arrives.
 //
@@ -37,7 +38,7 @@ func newLSGateBackend() *lsGateBackend {
 }
 
 // Send parks until the gate opens or the turn's context dies.
-func (b *lsGateBackend) Send(ctx context.Context, prompt MessagePrompt) (MessageResult, error) {
+func (b *lsGateBackend) Send(ctx context.Context, prompt cascades.Prompt) (cascades.Result, error) {
 	b.mu.Lock()
 	b.prompts = append(b.prompts, prompt.Text)
 	b.mu.Unlock()
@@ -47,12 +48,12 @@ func (b *lsGateBackend) Send(ctx context.Context, prompt MessagePrompt) (Message
 	}
 	select {
 	case <-b.gate:
-		return MessageResult{Reply: "ok: " + prompt.Text}, nil
+		return cascades.Result{Reply: "ok: " + prompt.Text}, nil
 	case <-ctx.Done():
 		b.mu.Lock()
 		b.canceled++
 		b.mu.Unlock()
-		return MessageResult{}, ctx.Err()
+		return cascades.Result{}, ctx.Err()
 	}
 }
 
@@ -84,7 +85,7 @@ func (b *lsGateBackend) cancelCount() int {
 
 // newLSQueueDispatcher builds a dispatcher whose cascades run on the
 // given backend.
-func newLSQueueDispatcher(t *testing.T, backend MessageBackend) *Dispatcher {
+func newLSQueueDispatcher(t *testing.T, backend cascades.Backend) *Dispatcher {
 	t.Helper()
 	t.Setenv("ANTIGRAVITY_HOME", t.TempDir())
 	sess := NewSessionState("test")

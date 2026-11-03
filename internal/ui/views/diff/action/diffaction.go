@@ -3,9 +3,11 @@
 // "Files:" preamble builder.
 //
 // The /diff *panel* (the interactive tabbed viewer) is a different
-// subsystem — it lives in cmd/wagyu/slash_viewer_diff*.go and its state
-// is bound to runMode. This package holds only the one-shot feedback
-// path's helpers, which touch no panel state at all.
+// subsystem — it lives in internal/ui/views/diffpanel and its state is
+// the panel's own. This package holds only the one-shot feedback
+// path's helpers, which touch no panel state at all — the panel drives
+// the git rules in this package (the change list, the diff body, the
+// tab row, the row renderers), it does not reimplement them.
 //
 // The split mirrors the reference: the reference detects the workspace's
 // VCS, runs the working-copy diff with colour and pagers disabled, and

@@ -11,7 +11,6 @@ import (
 	"sort"
 	"strings"
 	"syscall"
-	"time"
 
 	"github.com/justwasm/pigasus/atomicfile"
 )
@@ -160,20 +159,6 @@ func canonicalInstallDir(p string) string {
 		return real
 	}
 	return filepath.Clean(p)
-}
-
-// PluginProcessRecordNow is a small helper for tests and callers that
-// want to record a freshly-started process: it stamps StartedAt with
-// the current Unix time so the registry has a stable sort order and
-// operators can age out stale rows later.
-func PluginProcessRecordNow(pid int, plugin, server, installDir string) PluginProcessRecord {
-	return PluginProcessRecord{
-		PID:        pid,
-		PluginName: plugin,
-		ServerName: server,
-		InstallDir: installDir,
-		StartedAt:  time.Now().Unix(),
-	}
 }
 
 // SortedPluginProcessRecords returns records sorted by (PluginName,

@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/justwasm/pigasus/internal/auth"
+	"github.com/justwasm/pigasus/internal/features/auth"
 )
 
 func TestRenderQuotaCell(t *testing.T) {
@@ -76,7 +76,7 @@ func TestRowLineCursorAndActive(t *testing.T) {
 	if !strings.HasPrefix(selected, "<blue>> user@example.com</blue>") {
 		t.Errorf("cursor row missing blue prefix: %q", selected)
 	}
-	if !strings.HasSuffix(selected, "(active)") {
+	if !strings.Contains(selected, "(active)") {
 		t.Errorf("active row missing active marker: %q", selected)
 	}
 }

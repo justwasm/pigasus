@@ -25,6 +25,8 @@ package remotecontrol
 import (
 	"encoding/json"
 	"sync"
+
+	"github.com/justwasm/pigasus/internal/remotecontrol/rpc"
 )
 
 // stateStore holds the app state and the user config.
@@ -202,13 +204,13 @@ func copyState(in map[string]any) map[string]any {
 // handleJetboxWriteState stores the app state and the user config
 // the Web UI wrote. The reference's JetboxWriteStateResponse has no
 // fields, so the answer stays empty.
-func (d *Dispatcher) handleJetboxWriteState(params json.RawMessage) (any, *rpcErrorBody, bool) {
+func (d *Dispatcher) handleJetboxWriteState(params json.RawMessage) (any, *rpc.ErrorBody, bool) {
 	d.state.write(params)
 	return map[string]any{}, nil, true
 }
 
 // handleJetboxReadState answers the three read paths the Web UI uses
 // for the app state and the user config.
-func (d *Dispatcher) handleJetboxReadState() (any, *rpcErrorBody, bool) {
+func (d *Dispatcher) handleJetboxReadState() (any, *rpc.ErrorBody, bool) {
 	return d.state.snapshot(), nil, true
 }

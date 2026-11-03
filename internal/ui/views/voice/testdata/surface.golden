@@ -1,0 +1,18 @@
+=== idle ===
+=== connecting ===
+  Connecting...                                                                        [38;5;238mesc to cancel[0m
+=== recording ===
+  [38;5;196m●[0m Recording 00:00                                           enter or f5 to insert [38;5;238m· esc to discard[0m
+=== recording-tick ===
+  [38;5;196m○[0m Recording 00:01                                           enter or f5 to insert [38;5;238m· esc to discard[0m
+=== finishing ===
+  Finishing up...                               enter or f5 to insert what you have [38;5;238m· esc to discard[0m
+=== confirm ===
+draft=hello from voice dictation
+=== error-mic ===
+response=Could not start transcription: cannot reach the mic server at 127.0.0.1:54321 (tcp): dial tcp 127.0.0.1:54321: connect: connection refused
+=== error-permission ===
+response=Could not start transcription: transcription failed: failed to receive setup response: rpc error: code = PermissionDenied desc = Request had insufficient authentication scopes.
+response=     Voice dictation needs a permission your current sign-in does not carry. Use /logout, sign in again, and retry. (Dictation is not available for business or enterprise accounts.)
+=== cancel ===
+draft=

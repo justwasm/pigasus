@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/justwasm/pigasus/internal/backend"
+	"github.com/justwasm/pigasus/internal/core/backend"
 )
 
 type dummyEngine struct {

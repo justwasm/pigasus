@@ -38,24 +38,24 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/justwasm/pigasus/internal/referencedrift"
+	"github.com/justwasm/pigasus/internal/infra/referencedrift"
 )
 
 const (
 	// referenceChangelogByteLen is the size of the embedded blob, a
-	// verbatim `agy changelog` capture from the v1.4.11 binary (the
+	// verbatim `agy changelog` capture from the v1.4.12 binary (the
 	// cycle-235 hand-written 1.4.2 stub is gone; upstream ships its own
 	// release notes, so the blob is capture-only).
-	referenceChangelogByteLen = 186601
+	referenceChangelogByteLen = 188429
 	// referenceChangelogLines is the embedded blob's line count.
-	referenceChangelogLines = 1062
+	referenceChangelogLines = 1069
 	// referenceChangelogSections is the number of `X.Y.Z:` version headers
-	// (1.4.10 down to 1.0.0; 1.3.7/1.3.8/1.3.9 are absent upstream too).
-	referenceChangelogSections = 81
+	// (1.4.11 down to 1.0.0; 1.3.7/1.3.8/1.3.9 are absent upstream too).
+	referenceChangelogSections = 82
 	// referenceChangelogBullets is the number of `· ` top-level bullets.
-	referenceChangelogBullets = 901
+	referenceChangelogBullets = 906
 	// referenceChangelogSHA256 is the SHA-256 of the embedded bytes.
-	referenceChangelogSHA256 = "209a0518b09896b97bb053ab3e352442f7a050bf08373105f67a23455ba411f1"
+	referenceChangelogSHA256 = "47d411f035301b9e1b2ae35f6c51e49b06915ca0b01d441ca7765f88f6b8b70e"
 )
 
 // TestReferenceVersion_MatchesDriftLock pins cli.ReferenceVersion -- the
@@ -104,14 +104,14 @@ func TestChangelog_SHA256(t *testing.T) {
 }
 
 // TestChangelog_Shape asserts the release-notes structure: it starts at
-// 1.4.10 (the 1.4.11 binary ships the 1.4.11 release notes nowhere — its
-// changelog feed's newest section is still 1.4.10), carries 81 version
-// headers and 901 top-level bullets, contains the 1.4.2, 1.4.1 and
+// 1.4.11 (the 1.4.12 binary ships the 1.4.12 release notes nowhere — its
+// changelog feed's newest section is still 1.4.11), carries 82 version
+// headers and 906 top-level bullets, contains the 1.4.2, 1.4.1 and
 // 1.4.0 sections from the binary capture, and ends at the 1.0.0
 // initial-release section.
 func TestChangelog_Shape(t *testing.T) {
-	if !strings.HasPrefix(referenceChangelog, "1.4.10:\n") {
-		t.Errorf("referenceChangelog must start with %q", "1.4.10:\n")
+	if !strings.HasPrefix(referenceChangelog, "1.4.11:\n") {
+		t.Errorf("referenceChangelog must start with %q", "1.4.11:\n")
 	}
 	if !strings.Contains(referenceChangelog, "\n1.4.1:\n") {
 		t.Errorf("referenceChangelog must contain a 1.4.1 section")

@@ -1,14 +1,18 @@
-// Package eligibility models eligibility verification errors and inline notice formatting.
+// Package eligibility models eligibility verification errors.
+//
+// The package owns the eligibility *facts* — the typed error, the
+// Reason, the VerificationURL, the upstream HTTP status and the
+// print-mode envelope. The inline notice the TUI paints above the
+// prompt is a UI row, and a UI row does not belong in a features
+// package: it lives in internal/ui/views/announce (cycle 381,
+// tranche 53), which renders it from the notice's own data.
 package eligibility
 
 import (
 	"errors"
 	"fmt"
-	"strings"
 
-	"github.com/justwasm/pigasus/internal/apierror"
-	"github.com/justwasm/pigasus/palette"
-	"github.com/justwasm/pigasus/render"
+	"github.com/justwasm/pigasus/internal/core/apierror"
 )
 
 // HTTPStatus is the recovered HTTP status code the upstream returns for the
@@ -57,7 +61,27 @@ func AsError(err error) *Error {
 }
 
 // ClassifyError produces the AGY_ERROR JSON envelope the print path emits on
-// stderr when a turn terminates on an *Error.
+// stderr when a turn terminates on an *Error. Returns nil, false when err is
+// not an eligibility error so the caller can fall through to the ordinary
+// classifyAPIError path.
+//
+// The envelope shape is identical to the existing apiError
+// (short_error / status / error_code / code_kind / retryable /
+// error_id) — cycle 262's spec "prints the error to stderr in
+// the same AGY_ERROR JSON shape" is the print-mode contract.
+// Status is "ELIGIBILITY_DENIED" so an automation script
+// branching on AGY_ERROR.status can route eligibility failures
+// to a "show user the verification URL" handler instead of a
+// generic "retry the API call" path. error_code stays at 0
+// (no canonical HTTP status code) so the field does not lie
+// about the cause — the cycle's design uses status as the
+// distinguishing field.
+//
+// retryable stays false: a "verify your account" failure does
+// not get better with a retry. The reference's quota case
+// (the only other cycle-262-adjacent structured error)
+// returns retryable=true; cycle 262 deliberately diverges
+// here.
 func ClassifyError(err error) (*apierror.APIError, bool) {
 	ee := AsError(err)
 	if ee == nil {
@@ -76,25 +100,4 @@ func ClassifyError(err error) (*apierror.APIError, bool) {
 		Retryable:  false,
 		ErrorID:    apierror.NewErrorID(),
 	}, true
-}
-
-// RenderNoticeRow renders the single styled line placed between the top separator
-// and the prompt input:
-//
-//	ⓘ <Reason> <render.Hyperlink("Verify here", URL)>
-func RenderNoticeRow(reason, verificationURL string, caps render.HyperlinkCaps) string {
-	if reason == "" {
-		return ""
-	}
-	var b strings.Builder
-	b.WriteString(palette.DimGrayOpen)
-	b.WriteString("  ⓘ ")
-	b.WriteString(palette.WarningBodyOpen)
-	b.WriteString(reason)
-	if verificationURL != "" {
-		b.WriteString(" ")
-		b.WriteString(render.Hyperlink(verificationURL, "Verify here", 0, caps))
-	}
-	b.WriteString("\x1b[0m\n")
-	return b.String()
 }

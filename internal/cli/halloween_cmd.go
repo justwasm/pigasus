@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/justwasm/pigasus/internal/seasonal"
+	"github.com/justwasm/pigasus/internal/ui/views/seasonal"
 )
 
 // usageHalloween returns the usage block for the halloween subcommand.

@@ -28,6 +28,8 @@ import (
 	"encoding/json"
 	"log"
 	"strings"
+
+	"github.com/justwasm/pigasus/internal/remotecontrol/rpc"
 )
 
 // decodeRemoteControlOnMessage unmarshals the outer
@@ -35,11 +37,11 @@ import (
 // "2.0", "method": "<name>", "params": {…}}}, validates
 // the required message-object + non-empty string-method
 // fields, and returns the trimmed inner method / params
-// pair + nil (or "" / nil + *rpcErrorBody on failure).
+// pair + nil (or "" / nil + *rpc.ErrorBody on failure).
 // Extracted from handleRemoteControlOnMessage to keep
 // the handler body under the 50-fn ceiling that cycle
 // rc-filesize-internal-remotecontrol enforces.
-func decodeRemoteControlOnMessage(params json.RawMessage) (string, json.RawMessage, *rpcErrorBody) {
+func decodeRemoteControlOnMessage(params json.RawMessage) (string, json.RawMessage, *rpc.ErrorBody) {
 	var pWrap struct {
 		Message struct {
 			JSONRPC string          `json:"jsonrpc"`
@@ -50,25 +52,25 @@ func decodeRemoteControlOnMessage(params json.RawMessage) (string, json.RawMessa
 	if len(params) > 0 && string(params) != "null" {
 		if err := jsonUnmarshal(params, &pWrap); err != nil {
 			log.Printf("rc-top-level-rpc: remoteControlOnMessage bad params: %v", err)
-			return "", nil, invalidParams(err.Error())
+			return "", nil, rpc.InvalidParams(err.Error())
 		}
 	}
 	// -32602 envelope: the "message" object must be
 	// present and non-null. A dashboard that posts
 	// `{}` (no message key) or `{"message": null}`
 	// hits this branch.
-	if !nonNullObjectInJSON(params, "message") {
+	if !rpc.NonNullObjectInJSON(params, "message") {
 		log.Printf("rc-top-level-rpc: remoteControlOnMessage missing message object")
-		return "", nil, invalidParams("message is required and must be a non-null object")
+		return "", nil, rpc.InvalidParams("message is required and must be a non-null object")
 	}
-	if nonStringFieldInJSON(params, "message.method", pWrap.Message.Method) {
+	if rpc.NonStringFieldInJSON(params, "message.method", pWrap.Message.Method) {
 		log.Printf("rc-top-level-rpc: remoteControlOnMessage method not string")
-		return "", nil, invalidParams("message.method must be a string")
+		return "", nil, rpc.InvalidParams("message.method must be a string")
 	}
 	method := strings.TrimSpace(pWrap.Message.Method)
 	if method == "" {
 		log.Printf("rc-top-level-rpc: remoteControlOnMessage empty method")
-		return "", nil, invalidParams("message.method is required and must be non-empty")
+		return "", nil, rpc.InvalidParams("message.method is required and must be non-empty")
 	}
 	return method, pWrap.Message.Params, nil
 }

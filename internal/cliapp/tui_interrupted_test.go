@@ -9,6 +9,7 @@ import (
 	tas "charm.land/bubbles/v2/textarea"
 
 	"github.com/justwasm/pigasus/internal/agent"
+	"github.com/justwasm/pigasus/internal/ui/toolsteps"
 )
 
 func TestInterruptedHintLineMatchesTheReference(t *testing.T) {
@@ -40,7 +41,7 @@ func TestEscCancelAnswersWithTheComposerHint(t *testing.T) {
 func TestCancelledTurnLeavesNoErrorRow(t *testing.T) {
 	m := &runMode{streaming: true, turnCancel: func() {}}
 	_, _ = m.handleEscKeyMsg()
-	m.recordTurnCompletion(turnDoneMsg{err: context.Canceled})
+	m.recordTurnCompletion(toolsteps.TurnDoneMsg{Err: context.Canceled})
 	for _, line := range m.response {
 		if strings.Contains(line, "Error:") {
 			t.Fatalf("a cancelled turn left an error row behind: %q", line)
@@ -50,7 +51,7 @@ func TestCancelledTurnLeavesNoErrorRow(t *testing.T) {
 
 func TestFailedTurnStillReportsTheError(t *testing.T) {
 	m := &runMode{}
-	m.recordTurnCompletion(turnDoneMsg{err: errors.New("the model hung up")})
+	m.recordTurnCompletion(toolsteps.TurnDoneMsg{Err: errors.New("the model hung up")})
 	found := false
 	for _, line := range m.response {
 		if strings.Contains(line, "Error: the model hung up") {

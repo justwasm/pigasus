@@ -6,10 +6,18 @@ These files are the Antigravity CLI's own, recovered verbatim from the binary.
 
 | | |
 |---|---|
-| Binary | `~/.local/bin/agy` — the Antigravity CLI, agy **1.4.7** |
-| Size | 192,171,376 B |
-| SHA-256 | `b7a13e53c9f49921692676ef8edc2e60ceb67064c00bc732d9a364ec3ad75b32` |
+| Binary | `~/.local/bin/agy` — the Antigravity CLI, agy **1.4.12** |
+| Size | 197,589,952 B |
+| SHA-256 | `34423fc9b0af3841e7646aa72a2d40ffeab8218b22d1cb99eac7355f9eba31e3` |
 | Container | `assets/external/skills/` and `assets/shared/skills/` inside the binary's `//go:embed` file system |
+
+Re-verified at 1.4.12 (2026-11-01). Two files had drifted and were
+re-synced from the 1.4.12 binary:
+
+| File | Drift |
+|---|---|
+| `plugin/SKILL.md` | the `GetAllPlugins` jq example read `.agents[]?.name`; 1.4.12 reads `.agents[]?.agent.name` |
+| `agy-customizations/docs/plugins.md` | the 1.4.12 binary documents the plugin `auth.json` provider block and its `"optional": true` flag — the clone's copy had the text hand-added ahead of the binary (commit `8f6b7d36`) and has now been replaced with the binary's own bytes |
 
 ## How they were recovered
 

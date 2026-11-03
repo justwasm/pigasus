@@ -1,12 +1,11 @@
 package cli
 
 import (
-	"encoding/json"
 	"fmt"
-	"os"
-	"path/filepath"
 	"sort"
 	"strings"
+
+	"github.com/justwasm/pigasus/mcp"
 )
 
 // ---- usage blocks ---------------------------------------------------------
@@ -79,53 +78,44 @@ func runMCPParent(j *JetskiCLI, args []string) error {
 	return nil
 }
 
-// legacyMCPConfigPath returns the v1.3.5 binary's MCP config path.
-func legacyMCPConfigPath() string {
-	if h := strings.TrimSpace(os.Getenv("GEMINI_CONFIG_HOME")); h != "" {
-		return filepath.Join(h, "mcp_config.json")
-	}
-	home := strings.TrimSpace(os.Getenv("HOME"))
-	if home == "" {
-		return ""
-	}
-	return filepath.Join(home, ".gemini", "config", "mcp_config.json")
-}
+// The configuration file's path belongs to the `mcp` package — it is the
+// one owner of the path set, so the writer and the runtime that reads the
+// file back cannot drift apart (the runtime also reads the reference
+// binary's own file and the workspace file; see mcp/configpaths.go).
+//
+// The file's shape belongs to the `mcp` package too: it owns the
+// documented schema and its omit rules (see mcp/documented.go), and it
+// owns the file itself (see mcp/document.go). The entries are kept as raw
+// maps: the file is the user's own, and the writer must not drop a member
+// it does not know (the documented schema carries `cwd`,
+// `authProviderType`, `oauth`, `enabledTools`, `disabledTools` and
+// `timeoutSeconds` beside the transport members).
+//
+// The *new* members a writer sets are not raw either: they come from the
+// `mcp` package, which owns the documented member names. The map only
+// carries what is already in the file and what the package produced.
 
-type legacyMCPDoc struct {
-	Servers map[string]map[string]any `json:"mcpServers"`
-}
-
-func legacyLoadMCPDoc() *legacyMCPDoc {
-	doc := &legacyMCPDoc{Servers: map[string]map[string]any{}}
-	path := legacyMCPConfigPath()
-	if path == "" {
-		return doc
-	}
-	raw, err := os.ReadFile(path)
+// loadMCPConfigDoc reads the documented MCP configuration file.
+//
+// A file that does not exist is the "no servers configured" state, not an
+// error. A file that exists but cannot be parsed is an error: the
+// reference refuses to work with a file it could not read, and it names
+// the file in the message.
+func loadMCPConfigDoc(j *JetskiCLI) (*mcp.Document, error) {
+	path := mcp.GlobalConfigPath()
+	doc, err := mcp.LoadDocument(path)
 	if err != nil {
-		return doc
+		return nil, fail(j, 1, "Error: failed to parse "+path+": "+err.Error())
 	}
-	_ = json.Unmarshal(raw, doc)
-	if doc.Servers == nil {
-		doc.Servers = map[string]map[string]any{}
-	}
-	return doc
+	return doc, nil
 }
 
-func legacySaveMCPDoc(doc *legacyMCPDoc) error {
-	path := legacyMCPConfigPath()
+func saveMCPConfigDoc(doc *mcp.Document) error {
+	path := mcp.GlobalConfigPath()
 	if path == "" {
 		return fmt.Errorf("mcp: no config path")
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return err
-	}
-	buf, err := json.MarshalIndent(doc, "", "  ")
-	if err != nil {
-		return err
-	}
-	buf = append(buf, '\n')
-	return os.WriteFile(path, buf, 0o644)
+	return doc.Save(path)
 }
 
 func runMCPList(j *JetskiCLI, args []string) error {
@@ -135,7 +125,10 @@ func runMCPList(j *JetskiCLI, args []string) error {
 				"Error: flags provided but not defined: "+flagName(a))
 		}
 	}
-	doc := legacyLoadMCPDoc()
+	doc, err := loadMCPConfigDoc(j)
+	if err != nil {
+		return err
+	}
 	if len(doc.Servers) == 0 {
 		fmt.Fprintln(j.Out, "No MCP servers configured.")
 		return nil
@@ -147,11 +140,11 @@ func runMCPList(j *JetskiCLI, args []string) error {
 		if len(n) > maxName {
 			maxName = len(n)
 		}
-		t := legacyMCPType(s)
+		t := mcpServerType(s)
 		if len(t) > maxType {
 			maxType = len(t)
 		}
-		st := legacyMCPStatus(s)
+		st := mcpServerStatus(s)
 		if len(st) > maxStatus {
 			maxStatus = len(st)
 		}
@@ -161,26 +154,26 @@ func runMCPList(j *JetskiCLI, args []string) error {
 	fmt.Fprintf(j.Out, "%-*s%-*s%-*s%s\n", nw, "NAME", tw, "TYPE", sw, "STATUS", "COMMAND/URL")
 	for _, n := range names {
 		s := doc.Servers[n]
-		fmt.Fprintf(j.Out, "%-*s%-*s%-*s%s\n", nw, n, tw, legacyMCPType(s), sw, legacyMCPStatus(s), legacyMCPTarget(s))
+		fmt.Fprintf(j.Out, "%-*s%-*s%-*s%s\n", nw, n, tw, mcpServerType(s), sw, mcpServerStatus(s), mcpServerTarget(s))
 	}
 	return nil
 }
 
-func legacyMCPType(s map[string]any) string {
+func mcpServerType(s map[string]any) string {
 	if _, ok := s["serverUrl"]; ok {
 		return "http"
 	}
 	return "stdio"
 }
 
-func legacyMCPStatus(s map[string]any) string {
+func mcpServerStatus(s map[string]any) string {
 	if d, _ := s["disabled"].(bool); d {
 		return "disabled"
 	}
 	return "enabled"
 }
 
-func legacyMCPTarget(s map[string]any) string {
+func mcpServerTarget(s map[string]any) string {
 	if u, ok := s["serverUrl"].(string); ok {
 		return u
 	}
@@ -197,11 +190,44 @@ func legacyMCPTarget(s map[string]any) string {
 }
 
 type mcpAddOpts struct {
-	typ        string
-	env        []string
-	headers    []string
+	typ string
+	// typSet records that the `--type` flag was given at all: the
+	// reference refuses an empty value, so an absent flag and an empty
+	// one are not the same thing.
+	typSet bool
+	// env and headers are the documented key-value maps: the file
+	// stores them as JSON objects, not as arrays.
+	env        map[string]string
+	headers    map[string]string
 	positional []string
 	showHelp   bool
+}
+
+// splitEnvPair splits an `--env KEY=value` argument on its first "=".
+//
+// A value with no "=" at all is a key with an empty value: the split is
+// on the first "=", so there is nothing to split.
+func splitEnvPair(arg string) (string, string) {
+	key, value, _ := strings.Cut(arg, "=")
+	return key, value
+}
+
+// splitHeaderPair splits an `--header` argument into its name and its
+// value.
+//
+// The flag's own usage block spells the pair "Key: Value", and the
+// reference's own example writes `--header "Authorization: Bearer TOKEN"`,
+// so a "=" is tried first (the documented object form) and the colon of
+// the usage block's own form is the fallback.
+func splitHeaderPair(arg string) (string, string) {
+	if key, value, ok := strings.Cut(arg, "="); ok {
+		return key, value
+	}
+	key, value, ok := strings.Cut(arg, ":")
+	if !ok {
+		return arg, ""
+	}
+	return strings.TrimSpace(key), strings.TrimSpace(value)
 }
 
 func parseMCPAddFlagValue(j *JetskiCLI, flag, val string, hasVal bool, i *int, args []string, usage string) (string, error) {
@@ -216,7 +242,7 @@ func parseMCPAddFlagValue(j *JetskiCLI, flag, val string, hasVal bool, i *int, a
 }
 
 func parseMCPAddFlags(j *JetskiCLI, args []string, usage string) (mcpAddOpts, error) {
-	var opts mcpAddOpts
+	opts := mcpAddOpts{env: map[string]string{}, headers: map[string]string{}}
 	for i := 0; i < len(args); i++ {
 		a := args[i]
 		if a == "--" {
@@ -241,18 +267,21 @@ func parseMCPAddFlags(j *JetskiCLI, args []string, usage string) (mcpAddOpts, er
 				return opts, err
 			}
 			opts.typ = v
+			opts.typSet = true
 		case "-e", "--env":
 			v, err := parseMCPAddFlagValue(j, flagName(a), val, hasVal, &i, args, usage)
 			if err != nil {
 				return opts, err
 			}
-			opts.env = append(opts.env, v)
+			key, value := splitEnvPair(v)
+			opts.env[key] = value
 		case "-H", "--header":
 			v, err := parseMCPAddFlagValue(j, flagName(a), val, hasVal, &i, args, usage)
 			if err != nil {
 				return opts, err
 			}
-			opts.headers = append(opts.headers, v)
+			key, value := splitHeaderPair(v)
+			opts.headers[key] = value
 		default:
 			return opts, usageFail(j, usage, "Error: flags provided but not defined: "+flagName(a))
 		}
@@ -260,26 +289,46 @@ func parseMCPAddFlags(j *JetskiCLI, args []string, usage string) (mcpAddOpts, er
 	return opts, nil
 }
 
-func buildMCPEntry(opts mcpAddOpts, target string, rest []string) (map[string]any, string) {
-	isHTTP := opts.typ == "http" || opts.typ == "http+sse" || strings.HasPrefix(target, "http://") || strings.HasPrefix(target, "https://")
-	entry := map[string]any{"disabled": false}
-	if len(opts.env) > 0 {
-		entry["env"] = opts.env
+// buildMCPEntry builds the documented entry for the server a command line
+// describes.
+//
+// The transport is the reference's own: the `--type` flag names it, an
+// `http://` or `https://` endpoint is an http server whatever the flag
+// says, and the flag that belongs to the other transport is refused.
+//
+// The entry's shape belongs to the `mcp` package — it owns the
+// documented member names — so this function spells none of them.
+func buildMCPEntry(opts mcpAddOpts, target string, rest []string) (map[string]any, string, error) {
+	kind := mcp.ServerTypeStdio
+	if opts.typSet {
+		resolved, err := mcp.ParseServerType(opts.typ)
+		if err != nil {
+			return nil, "", err
+		}
+		kind = resolved
 	}
-	if len(opts.headers) > 0 {
-		entry["headers"] = opts.headers
+	if mcp.IsHTTPEndpoint(target) {
+		kind = mcp.ServerTypeHTTP
 	}
-	kind := "stdio"
-	if isHTTP {
-		kind = "http"
-		entry["serverUrl"] = target
+	if err := mcp.ValidateTransportFlags(kind, len(opts.env) > 0, len(opts.headers) > 0); err != nil {
+		return nil, "", err
+	}
+	entry := mcp.ServerFile{}
+	if kind == mcp.ServerTypeHTTP {
+		entry.ServerURL = target
+		if len(opts.headers) > 0 {
+			entry.Headers = opts.headers
+		}
 	} else {
-		entry["command"] = target
+		entry.Command = target
 		if len(rest) > 0 {
-			entry["args"] = rest
+			entry.Args = rest
+		}
+		if len(opts.env) > 0 {
+			entry.Env = opts.env
 		}
 	}
-	return entry, kind
+	return entry.DocumentedMembers(), kind, nil
 }
 
 func runMCPAdd(j *JetskiCLI, args []string) error {
@@ -296,10 +345,33 @@ func runMCPAdd(j *JetskiCLI, args []string) error {
 		return fail(j, 1, "Error: usage: mcp add [flags] <name> <commandOrUrl> [args...]")
 	}
 	name, target := opts.positional[0], opts.positional[1]
-	entry, kind := buildMCPEntry(opts, target, opts.positional[2:])
-	doc := legacyLoadMCPDoc()
+	entry, kind, err := buildMCPEntry(opts, target, opts.positional[2:])
+	if err != nil {
+		return fail(j, 1, "Error: "+err.Error())
+	}
+	doc, err := loadMCPConfigDoc(j)
+	if err != nil {
+		return err
+	}
+	// The reference *replaces* the entry the command names: a re-add
+	// drops the members the `agy mcp add` flags cannot express — `cwd`,
+	// `authProviderType`, `oauth`, `enabledTools`, `disabledTools` and
+	// `timeoutSeconds` — and any member beside them that the file
+	// carried.
+	//
+	// 【一手】 the reference binary (1.4.12), under a temporary HOME: a
+	// file whose `gh` entry carried all six documented members and a
+	// member the schema does not list was rewritten by `agy mcp add gh
+	// node server.js` with an entry carrying only `args`, `command` and
+	// `disabled`. The sibling entries and the unknown root members of
+	// the same file survived.
+	//
+	// 【反编译】 the reference's own `cli/mcp/mcp` package carries a
+	// `mergeServerEntry` (out/local-macos/seeds/seeds.txt), but that
+	// package serves the reference binary's own `mcp.json` — the root
+	// member `servers` — which the `agy mcp add` writer does not touch.
 	doc.Servers[name] = entry
-	if err := legacySaveMCPDoc(doc); err != nil {
+	if err := saveMCPConfigDoc(doc); err != nil {
 		return fmt.Errorf("mcp: %w", err)
 	}
 	fmt.Fprintf(j.Out, "Added MCP server %q (%s)\n", name, kind)
@@ -311,12 +383,15 @@ func runMCPRemove(j *JetskiCLI, args []string) error {
 		return fail(j, 1, "Error: usage: mcp remove <name>")
 	}
 	name := args[0]
-	doc := legacyLoadMCPDoc()
+	doc, err := loadMCPConfigDoc(j)
+	if err != nil {
+		return err
+	}
 	if _, ok := doc.Servers[name]; !ok {
 		return fail(j, 1, fmt.Sprintf("Error: MCP server %q not found", name))
 	}
 	delete(doc.Servers, name)
-	if err := legacySaveMCPDoc(doc); err != nil {
+	if err := saveMCPConfigDoc(doc); err != nil {
 		return fmt.Errorf("mcp: %w", err)
 	}
 	fmt.Fprintf(j.Out, "Removed MCP server %q\n", name)
@@ -333,18 +408,22 @@ func runMCPSetEnabled(enabled bool) func(j *JetskiCLI, args []string) error {
 			return fail(j, 1, fmt.Sprintf("Error: usage: mcp %s <name>", verb))
 		}
 		name := args[0]
-		doc := legacyLoadMCPDoc()
-		entry, ok := doc.Servers[name]
-		if !ok {
-			return fail(j, 1, fmt.Sprintf("Error: MCP server %q not found", name))
+		doc, err := loadMCPConfigDoc(j)
+		if err != nil {
+			return err
 		}
-		if enabled {
-			delete(entry, "disabled")
-		} else {
-			entry["disabled"] = true
-		}
-		doc.Servers[name] = entry
-		if err := legacySaveMCPDoc(doc); err != nil {
+		// The documented `disabled` flag is the package's member; the
+		// writer asks for it rather than spelling it here.
+		//
+		// The reference does not refuse a server the file does not know:
+		// suspending one creates the entry, and resuming one that is not
+		// there is a no-op.
+		//
+		// 【一手】 the reference binary (1.4.12): `agy mcp disable zzz` on
+		// a file that did not know `zzz` wrote the entry
+		// `{"disabled": true}` and exited 0.
+		doc.SetServerDisabled(name, !enabled)
+		if err := saveMCPConfigDoc(doc); err != nil {
 			return fmt.Errorf("mcp: %w", err)
 		}
 		if enabled {

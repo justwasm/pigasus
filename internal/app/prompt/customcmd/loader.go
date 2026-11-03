@@ -10,7 +10,8 @@
 //
 //	Built-in > Plugin > Project > Global
 //
-// Built-in commands are the system surface (DefaultSlashCommands) and
+// Built-in commands are the system surface (the slash-command
+// catalogue) and
 // cannot be silently overridden; plugin commands win over project and
 // global commands so a plugin author can rely on their /foo staying
 // theirs even when a project also ships /foo; project commands win
@@ -67,7 +68,8 @@ const (
 	// SourceGlobal is a user-global custom command under
 	// <AntigravityConfigHome>/commands/<name>.md.
 	SourceGlobal
-	// SourceBuiltin is the hardcoded DefaultSlashCommands catalog.
+	// SourceBuiltin is the hardcoded built-in catalogue
+	// (internal/ui/slashcommands).
 	// SourceBuiltin only appears in merge inputs; the on-disk
 	// loader never produces it.
 	SourceBuiltin
@@ -219,7 +221,7 @@ func Load(roots LoadRoots) (catalog []Command, conflicts []Conflict) {
 
 // MergeWithBuiltins is the cycle custom-slash-commands-no-plugin-injection
 // helper for the picker path. It applies the same precedence rules
-// as Load but takes a built-in catalogue (e.g. tuilib.DefaultSlashCommands)
+// as Load but takes a built-in catalogue (e.g. slashcommands.Default)
 // as a fourth source. Built-in entries have SourceBuiltin and no
 // Path; their Name is the slash form ("/foo") without the plugin
 // prefix.
@@ -272,9 +274,9 @@ func MergeWithBuiltins(builtIns []BuiltIn, custom []Command) (catalog []Command,
 }
 
 // BuiltIn is the cycle 224 wire shape for built-in catalog rows.
-// tuilib.SlashCommand satisfies this interface (Name, Description);
-// the merge helper accepts it without importing internal/tuilib so
-// the cycle stays self-contained.
+// slashcommands.Command satisfies this interface (Name, Description);
+// the merge helper accepts it without importing internal/ui/slashcommands
+// so the cycle stays self-contained.
 type BuiltIn struct {
 	Name        string
 	Description string

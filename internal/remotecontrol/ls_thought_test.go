@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"testing"
 	"time"
+
+	"github.com/justwasm/pigasus/internal/remotecontrol/cascades"
 )
 
 // TestLSThinkScannerSplitsTheBlock checks that the reasoning is kept out
@@ -157,11 +159,11 @@ type recordingSink struct {
 	text string
 }
 
-func (r *recordingSink) OnState(cascade *Cascade, frame StateFrame)          {}
-func (r *recordingSink) OnTextDelta(cascade *Cascade, delta string)          { r.text += delta }
-func (r *recordingSink) OnToolCall(cascade *Cascade, call ToolCall)          {}
-func (r *recordingSink) OnError(cascade *Cascade, err error)                 {}
-func (r *recordingSink) OnUserInteraction(c *Cascade, i *PendingInteraction) {}
+func (r *recordingSink) OnState(cascade *cascades.Cascade, frame cascades.StateFrame)          {}
+func (r *recordingSink) OnTextDelta(cascade *cascades.Cascade, delta string)                   { r.text += delta }
+func (r *recordingSink) OnToolCall(cascade *cascades.Cascade, call cascades.ToolCall)          {}
+func (r *recordingSink) OnError(cascade *cascades.Cascade, err error)                          {}
+func (r *recordingSink) OnUserInteraction(c *cascades.Cascade, i *cascades.PendingInteraction) {}
 
 // TestLSTurnCarriesTheThinking drives one Web UI turn with a backend
 // that answers with a think block and checks that the trajectory step
@@ -170,7 +172,7 @@ func TestLSTurnCarriesTheThinking(t *testing.T) {
 	sess := NewSessionState("1.4.7")
 	disp, err := NewDispatcher(Config{
 		Session:        sess,
-		MessageBackend: &StubBackend{Reply: "<think>reasoning</think>answer"},
+		MessageBackend: &cascades.StubBackend{Reply: "<think>reasoning</think>answer"},
 	})
 	if err != nil {
 		t.Fatalf("NewDispatcher: %v", err)

@@ -1,7 +1,6 @@
 package printmode
 
 import (
-	"flag"
 	"io"
 	"os"
 	"path/filepath"
@@ -9,8 +8,10 @@ import (
 
 	"golang.org/x/term"
 
-	"github.com/justwasm/pigasus/internal/agent"
-	"github.com/justwasm/pigasus/internal/agyprompt"
+	"github.com/justwasm/pigasus/internal/app/prompt/agyprompt"
+	"github.com/justwasm/pigasus/internal/app/session/setup"
+	"github.com/justwasm/pigasus/internal/features/models"
+	"github.com/justwasm/pigasus/internal/features/tools/skills"
 )
 
 const (
@@ -44,19 +45,10 @@ var glamourRenderWidth = func(out io.Writer) int {
 	return 0
 }
 
-func splitSlash(buf string) (string, string) {
-	buf = strings.TrimPrefix(buf, "/")
-	parts := strings.Fields(buf)
-	if len(parts) == 0 {
-		return "", ""
-	}
-	return parts[0], strings.TrimSpace(strings.TrimPrefix(buf, parts[0]))
-}
-
 // SkillInvocationNames returns every name the reference accepts for a
 // skill, in priority order: display name, display name with the plugin
 // prefix removed, then the SKILL.md parent-directory name.
-func SkillInvocationNames(s jsonSkillInfo) []string {
+func SkillInvocationNames(s skills.SkillInfo) []string {
 	var names []string
 	seen := map[string]bool{}
 	add := func(n string) {
@@ -76,11 +68,11 @@ func SkillInvocationNames(s jsonSkillInfo) []string {
 	return names
 }
 
-var slashSkillCatalogHook func() []jsonSkillInfo
+var slashSkillCatalogHook func() []skills.SkillInfo
 
-func slashSkillLookup(name string) (jsonSkillInfo, bool) {
+func slashSkillLookup(name string) (skills.SkillInfo, bool) {
 	if name == "" {
-		return jsonSkillInfo{}, false
+		return skills.SkillInfo{}, false
 	}
 	catalog := printSlashSkillInfos()
 	if slashSkillCatalogHook != nil {
@@ -93,7 +85,7 @@ func slashSkillLookup(name string) (jsonSkillInfo, bool) {
 			}
 		}
 	}
-	return jsonSkillInfo{}, false
+	return skills.SkillInfo{}, false
 }
 
 // SkillBody returns the markdown body of a SKILL.md — the bytes after the
@@ -124,7 +116,7 @@ func SkillBody(path string) string {
 // SlashSkillPrompt builds the model prompt sent for one skill invocation.
 // When args is non-empty it is appended as a separate block so the user's
 // trailing text still reaches the model.
-func SlashSkillPrompt(info jsonSkillInfo, args string) string {
+func SlashSkillPrompt(info skills.SkillInfo, args string) string {
 	instr := SkillBody(info.Path)
 	if instr == "" {
 		instr = strings.TrimSpace(info.Description)
@@ -138,56 +130,29 @@ func SlashSkillPrompt(info jsonSkillInfo, args string) string {
 	return instr
 }
 
-// CustomAgentFromFlags instantiates a custom agent configured from --agent.
-func CustomAgentFromFlags(fs *flag.FlagSet) *agent.Agent {
-	name := flagStringValue(fs, "agent")
-	if name == "" || name == "default" {
-		return nil
-	}
-	if a, ok := agent.Lookup(name); ok {
-		return &a
-	}
-	return nil
-}
-
 // customSubagents lists the markdown agents added to the default agent's <subagents> section.
 func customSubagents() []agyprompt.Subagent {
-	agents := agent.Discover()
-	out := make([]agyprompt.Subagent, 0, len(agents))
-	for _, a := range agents {
-		out = append(out, agyprompt.Subagent{
-			Name:        a.Name,
-			Description: a.Description,
-		})
-	}
-	return out
-}
-
-// AgentBody returns a custom agent's Markdown body, or "" when there is none.
-func AgentBody(a *agent.Agent) string {
-	if a == nil {
-		return ""
-	}
-	return a.Body
+	return setup.CustomSubagents()
 }
 
 func maybeConsumeStaleness() {}
 
-func trimSpace(s string) string {
-	return strings.TrimSpace(s)
-}
-
 // ParseEffortWord parses the user's typed level into a canonical word.
+//
+// The vocabulary is the catalogue's: the five levels a model may run at
+// (internal/features/models) — low, medium, high, xhigh and max. The
+// reference recognises all five (official-docs/cli/commands/effort.md),
+// and the catalogue already holds them, so the gate here asks the
+// catalogue instead of carrying a second copy of the list.
+//
+// The canonical word is the trimmed, lower-cased input; a word outside
+// the vocabulary is refused.
 func ParseEffortWord(input string) (string, bool) {
-	switch strings.ToLower(strings.TrimSpace(input)) {
-	case "low":
-		return "low", true
-	case "medium":
-		return "medium", true
-	case "high":
-		return "high", true
+	word := strings.ToLower(strings.TrimSpace(input))
+	if !models.IsEffortLevel(word) {
+		return "", false
 	}
-	return "", false
+	return word, true
 }
 
 // FeatDiffRunner executes the feature-diff report if configured.

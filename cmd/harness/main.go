@@ -29,7 +29,7 @@
 //	provider / transport        internal/backend + internal/piagentbridge
 //	tool catalogue              internal/tools (the reference's own names)
 //	tool surface to the model   internal/tools.ModelDeclarations
-//	permission policy           internal/permissions
+//	permission policy           internal/core/policy/permissions
 //	budget manager              budget
 //	lifecycle-hook model        lifecyclehooks
 //	wire protocol               localharness

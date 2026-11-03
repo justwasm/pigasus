@@ -40,9 +40,9 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/justwasm/pigasus/internal/accounts"
-	"github.com/justwasm/pigasus/internal/auth"
 	"github.com/justwasm/pigasus/internal/cli"
+	accounts "github.com/justwasm/pigasus/internal/features/accounts/core"
+	"github.com/justwasm/pigasus/internal/features/auth"
 	"github.com/justwasm/pigasus/internal/rcfrontend"
 	"github.com/justwasm/pigasus/internal/rchost"
 	"github.com/justwasm/pigasus/remotetransport"

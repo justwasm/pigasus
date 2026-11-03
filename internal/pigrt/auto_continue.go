@@ -35,7 +35,7 @@
 //     at coding/session.go:715);
 //   - the transport (the gateway provider, the ErrorSlot out-of-band record;
 //     pigrt.opts.ErrorSlot is still the path for the original
-//     *backend.HTTPError);
+//     *apierror.HTTPError);
 //   - the event drain (runtime.drain still routes text deltas to onText —
 //     this means an auto-continue turn's text streams through the same
 //     delivery pipeline as a normal turn, so print-stdout stays byte-stable
@@ -59,8 +59,8 @@ import (
 	"github.com/MichaelKinsy/PiG/agent"
 	"github.com/MichaelKinsy/PiG/ai"
 
-	"github.com/justwasm/pigasus/internal/autocont"
-	"github.com/justwasm/pigasus/internal/backend"
+	"github.com/justwasm/pigasus/internal/app/session/autocont"
+	"github.com/justwasm/pigasus/internal/core/apierror"
 )
 
 // The recovery vocabulary is the reference's own bytes, and it is
@@ -109,7 +109,7 @@ func (e *ErrAutoContMaxDepth) Error() string {
 }
 
 // Unwrap exposes the original error to errors.Is / errors.As — the cycle
-// 183 *backend.HTTPError classification in cmd/wagyu/api_error.go has to see
+// 183 *apierror.HTTPError classification in cmd/wagyu/api_error.go has to see
 // the typed error so the AGY_ERROR envelope and exit code 3 still fire when
 // the original was a gateway failure.
 func (e *ErrAutoContMaxDepth) Unwrap() error { return e.Last }
@@ -221,7 +221,7 @@ func (r *Runtime) runAutoContCycle(ctx context.Context, msgs []agent.AgentMessag
 //
 // At give-up (depth == AutoContMaxDepth), the Last error preserved through
 // the recursion is the original Session.Send return — but PiG sometimes
-// flattens the typed *backend.HTTPError to its message and returns it nil,
+// flattens the typed *apierror.HTTPError to its message and returns it nil,
 // so the chain walks a nil runErr path. cmd/wagyu/api_error.go classifies
 func slotErr(err error, slot *ErrorSlot) error {
 	if err == nil && slot != nil {
@@ -241,9 +241,9 @@ func (r *Runtime) maybeAutoContinue(ctx context.Context, msgs []agent.AgentMessa
 		return msgs, ctxErr
 	}
 	// Changelog 1.3.3: "reaching your individual quota is reported right
-	// away instead of being retried". A *backend.HTTPError flagged as
+	// away instead of being retried". A *apierror.HTTPError flagged as
 	// "individual quota reached" must surface immediately.
-	if backend.IsQuotaReachedErr(runErr) {
+	if apierror.IsQuotaReachedErr(runErr) {
 		return msgs, runErr
 	}
 	if depth >= AutoContMaxDepth {

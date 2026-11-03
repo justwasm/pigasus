@@ -9,10 +9,10 @@
 //
 // The reference's four lines are:
 //
-//	Build on: 2026-10-29 14:08:59 +0800 CST
-//	Build at CL: 1009437749
+//	Built on: 2026-11-02 19:07:42 +0800 CST
+//	Built at CL: 1012028536
 //	Build label:
-//	Build info: changelist 1009437749 with baseline 1006933201 in a mint client based on //depot/branches/antigravity_web_release_branch/1006933201.1/google3
+//	Built info: changelist 1012028536 in a mint client based on //depot/google3
 //
 // The clone reports the same identity, the way `cli.ReferenceVersion`
 // reports the reference CLI's version: the replica stands in for the
@@ -32,16 +32,16 @@ import (
 // override each of them.
 var (
 	// StampBuiltOn is the reference binary's build time.
-	StampBuiltOn = "2026-10-29 14:08:59 +0800 CST"
+	StampBuiltOn = "2026-11-02 19:07:42 +0800 CST"
 	// StampCL is the reference binary's changelist number.
-	StampCL = "1009437749"
+	StampCL = "1012028536"
 	// StampBaseline is the reference binary's baseline changelist.
-	StampBaseline = "1006933201"
+	StampBaseline = ""
 	// StampLabel is the reference binary's build label. The
 	// reference prints an empty one.
 	StampLabel = ""
 	// StampBranch is the branch the reference binary was cut from.
-	StampBranch = "//depot/branches/antigravity_web_release_branch/1006933201.1/google3"
+	StampBranch = "//depot/google3"
 )
 
 // WriteStamp writes the reference's stamp to w.
@@ -59,7 +59,12 @@ func WriteStamp(w io.Writer) error {
 	if _, err = fmt.Fprintf(w, "Build label: %s\n", StampLabel); err != nil {
 		return err
 	}
-	_, err = fmt.Fprintf(w, "Built info: changelist %s with baseline %s in a mint client based on %s\n",
-		StampCL, StampBaseline, StampBranch)
+	if StampBaseline != "" {
+		_, err = fmt.Fprintf(w, "Built info: changelist %s with baseline %s in a mint client based on %s\n",
+			StampCL, StampBaseline, StampBranch)
+	} else {
+		_, err = fmt.Fprintf(w, "Built info: changelist %s in a mint client based on %s\n",
+			StampCL, StampBranch)
+	}
 	return err
 }

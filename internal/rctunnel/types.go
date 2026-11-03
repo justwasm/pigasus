@@ -1,17 +1,9 @@
 package rctunnel
 
 import (
-	"crypto/rand"
-	"fmt"
-	"io"
+	"encoding/base64"
+	"encoding/json"
 )
-
-// Instance represents a running language server on loopback.
-type Instance struct {
-	PID       int
-	Port      int
-	CSRFToken string
-}
 
 // InstanceMetadata represents metadata about this instance sent during registration.
 type InstanceMetadata struct {
@@ -47,37 +39,32 @@ type ProxyRequestV2 struct {
 // ProxyResponseV2 represents an outbound RPC response returned to Google Cloud Tunnel.
 type ProxyResponseV2 struct {
 	RequestID   string            `json:"requestId,omitempty"`
-	Payload     []byte            `json:"payload,omitempty"`
+	Payload     []byte            `json:"-"`
 	StatusCode  int               `json:"statusCode,omitempty"`
 	Headers     map[string]string `json:"headers,omitempty"`
 	IsFinal     bool              `json:"isFinal,omitempty"`
-	PayloadText string            `json:"payloadText,omitempty"`
+	PayloadText string            `json:"-"`
 }
 
-// BaseURL returns the local HTTPS origin the instance serves.
-func (i *Instance) BaseURL() string {
-	return fmt.Sprintf("https://127.0.0.1:%d", i.Port)
-}
-
-// Config specifies the runtime tunnel and supervisor options.
-type Config struct {
-	BinaryPath   string
-	GeminiDir    string
-	Addr         string
-	Name         string
-	Account      string
-	CSRFToken    string
-	NoLogin      bool
-	LogWriter    io.Writer
-}
-
-// NewCSRFToken generates a UUID for the language server --csrf_token flag.
-func NewCSRFToken() string {
-	b := make([]byte, 16)
-	if _, err := rand.Read(b); err != nil {
-		return "pigasus-rc-csrf-token"
+// MarshalJSON ensures that when Payload is non-nil (even if 0-length bytes),
+// it is serialized as "payload": "<base64>" (or "payload": "") rather than
+// omitted by omitempty. The reference's protojson descriptor treats payload and
+// payloadText as a oneof where even an empty 0-byte payload preserves oneof presence.
+func (r *ProxyResponseV2) MarshalJSON() ([]byte, error) {
+	type raw ProxyResponseV2
+	aux := struct {
+		*raw
+		Payload     *string `json:"payload,omitempty"`
+		PayloadText *string `json:"payloadText,omitempty"`
+	}{
+		raw: (*raw)(r),
 	}
-	b[6] = (b[6] & 0x0f) | 0x40
-	b[8] = (b[8] & 0x3f) | 0x80
-	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:16])
+	if r.Payload != nil {
+		b64 := base64.StdEncoding.EncodeToString(r.Payload)
+		aux.Payload = &b64
+	}
+	if r.PayloadText != "" {
+		aux.PayloadText = &r.PayloadText
+	}
+	return json.Marshal(aux)
 }

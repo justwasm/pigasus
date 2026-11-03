@@ -8,7 +8,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/justwasm/pigasus/internal/narration"
+	"github.com/justwasm/pigasus/internal/ui/views/narration"
 )
 
 func narrationSessionStart(m *runMode) time.Time {
@@ -18,31 +18,12 @@ func narrationSessionStart(m *runMode) time.Time {
 	return time.Time{}
 }
 
-func narrationSelectText(args string, sessionStart time.Time) string {
-	return narration.SelectText(args, sessionStart)
-}
-
 func narrationFeedback(m *runMode, args string) (text, echo string, mutedNow, already bool) {
 	text, echo, mutedNow, already = narration.Feedback(args, narrationSessionStart(m), m.narrationOff)
 	if mutedNow {
 		m.narrationOff = true
 	}
 	return text, echo, mutedNow, already
-}
-
-const narrationDisabledMsg = narration.DisabledMsg
-const narrationAlreadyDisabledMsg = narration.AlreadyDisabledMsg
-
-var narrationSampleSeeds = narration.SampleSeeds
-
-var _ = narrationSampleSeeds
-
-func narrationEchoToResponse(m *runMode, echo string) {
-	if echo == "" {
-		return
-	}
-	m.response = append(m.response, panelGray238+echo+panelGray238C)
-	m.response = append(m.response, "")
 }
 
 func (m *runMode) handleNarrationSlash(args string) (bool, tea.Cmd) {

@@ -316,6 +316,15 @@ func (r *recordedResponse) WriteHeader(code int) {
 	}
 }
 
+// Flush implements http.Flusher so streaming handlers (e.g. Connect-Go)
+// can stream chunks through recordedResponse.
+func (r *recordedResponse) Flush() {}
+
+var (
+	_ http.ResponseWriter = (*recordedResponse)(nil)
+	_ http.Flusher        = (*recordedResponse)(nil)
+)
+
 // proxyResponseChunk renders one chunk of a recorded response as a
 // tunnel frame.
 //
@@ -402,6 +411,7 @@ func (c *Client) handleInboundProxyRequest(ctx context.Context, token string, re
 	}
 	if req.Headers != nil && strings.EqualFold(req.Headers["x-cancel-request"], "true") {
 		c.log("proxyRequest reqID=%s was canceled by server", req.RequestID)
+		c.cancelActiveRequest(req.RequestID)
 		return
 	}
 
@@ -426,16 +436,39 @@ func (c *Client) handleInboundProxyRequest(ctx context.Context, token string, re
 // handler flushes one Connect envelope per update, and every envelope
 // becomes its own frame on the way to the cloud.
 func (c *Client) serveProxiedRequest(ctx context.Context, token string, req *ProxyRequestV2) {
-	httpReq, err := buildProxiedRequest(ctx, req)
+	reqCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	c.registerActiveRequest(req.RequestID, cancel)
+	defer c.unregisterActiveRequest(req.RequestID)
+
+	httpReq, err := buildProxiedRequest(reqCtx, req)
 	if err != nil {
 		c.log("build proxied request for %s failed: %v", req.RPCPath, err)
 		return
 	}
+	isStreaming := isStreamingRPC(req.Headers, req.RPCPath)
 	var rec *recordedResponse
+	chunkCount := 0
 	rec = newRecordedResponse(func(chunk []byte) {
+		if reqCtx.Err() != nil {
+			return
+		}
+		chunkCount++
 		c.sendProxyResponse(ctx, token, proxyResponseChunk(req.RequestID, rec, chunk))
 	})
 	c.opts.Handler.ServeHTTP(rec, httpReq)
+	if reqCtx.Err() != nil {
+		return
+	}
+	if !isStreaming && chunkCount == 0 {
+		var emptyBody []byte
+		if isBinaryResponse(rec, nil) {
+			emptyBody = []byte{}
+		} else {
+			emptyBody = []byte("{}")
+		}
+		c.sendProxyResponse(ctx, token, proxyResponseChunk(req.RequestID, rec, emptyBody))
+	}
 	c.sendProxyResponse(ctx, token, proxyResponseFinal(req.RequestID, rec))
 }
 
@@ -443,6 +476,11 @@ func (c *Client) serveProxiedRequest(ctx context.Context, token string, req *Pro
 // handler: the last path segment is dispatched as an RPC method name
 // and the result is returned as JSON.
 func (c *Client) serveDispatchedRequest(ctx context.Context, token string, req *ProxyRequestV2) {
+	reqCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	c.registerActiveRequest(req.RequestID, cancel)
+	defer c.unregisterActiveRequest(req.RequestID)
+
 	rpcPath := req.RPCPath
 	payloadText := "{}"
 
@@ -455,7 +493,7 @@ func (c *Client) serveDispatchedRequest(ctx context.Context, token string, req *
 		if idx := strings.LastIndex(rpcPath, "/"); idx != -1 {
 			method = rpcPath[idx+1:]
 		}
-		res, err := c.opts.Dispatcher.DispatchDirect(ctx, method, req.PayloadText)
+		res, err := c.opts.Dispatcher.DispatchDirect(reqCtx, method, req.PayloadText)
 		if err != nil {
 			c.log("dispatch RPC %s error: %v (returning empty response)", method, err)
 			payloadText = "{}"

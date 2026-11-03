@@ -1,12 +1,11 @@
 package cliapp
 
 import (
-	"strings"
-
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/justwasm/pigasus/internal/agent"
-	"github.com/justwasm/pigasus/internal/tools"
+	"github.com/justwasm/pigasus/internal/app/tools/shell"
+	uirows "github.com/justwasm/pigasus/internal/ui/rows"
 )
 
 // tui_task_notify.go — cycle 309: the delivery of a background task's
@@ -26,6 +25,10 @@ import (
 // fresh Loop for every turn, so a per-loop queue would drop every
 // notification that arrives between turns — which is when a background task
 // finishes.
+//
+// The transcript's own rows for a notification are the ui tier's
+// (internal/ui/rows.NotificationRows); this file owns the delivery, not
+// the shape of the rows that show it.
 
 // taskNotificationMsg carries the fact that a task notification is waiting.
 //
@@ -37,14 +40,14 @@ type taskNotificationMsg struct{}
 // installTaskNotifier wires the tools layer's notification hook to the
 // session's inbox.
 //
-// The hook is process-wide (internal/tools.SetTaskNotifier), so the last
+// The hook is process-wide (internal/shell.SetTaskNotifier), so the last
 // run mode to install it owns the notifications. That is the TUI's case:
 // there is one run mode per process.
 func (m *runMode) installTaskNotifier() {
 	if m.taskInbox == nil {
 		m.taskInbox = agent.NewTaskInbox()
 	}
-	tools.SetTaskNotifier(func(n tools.TaskNotification) {
+	shell.SetTaskNotifier(func(n shell.TaskNotification) {
 		m.taskInbox.Add(n)
 		if m.prog != nil {
 			m.prog.Send(taskNotificationMsg{})
@@ -95,7 +98,7 @@ func (m *runMode) startNotificationTurn() tea.Cmd {
 
 // takeTaskNotifications removes the pending notifications from the inbox and
 // returns them, oldest first.
-func (m *runMode) takeTaskNotifications() []tools.TaskNotification {
+func (m *runMode) takeTaskNotifications() []shell.TaskNotification {
 	if m.taskInbox == nil {
 		return nil
 	}
@@ -116,7 +119,7 @@ func (m *runMode) drainTaskNotifications() {
 	rows := 0
 	for _, item := range items {
 		m.session = append(m.session, agent.TaskNotificationMessage(item))
-		lines := taskNotificationRows(item)
+		lines := uirows.NotificationRows(item)
 		m.response = append(m.response, lines...)
 		rows += len(lines)
 	}
@@ -124,32 +127,4 @@ func (m *runMode) drainTaskNotifications() {
 	if m.liveStart >= 0 && m.liveStart+rows <= len(m.response) {
 		m.liveStart += rows
 	}
-}
-
-// taskNotificationRows renders a task notification for the transcript.
-//
-// The row is the reference's own first line of the notification — the task
-// id and what became of it. The rest of the notification (the command's
-// output) is what the model reads; the transcript keeps the summary, the
-// way the reference's own step blocks keep a summary and hide the detail
-// behind ctrl+o.
-func taskNotificationRows(n tools.TaskNotification) []string {
-	text := n.Body
-	if n.Title != "" {
-		if text == "" {
-			text = n.Title
-		} else {
-			text = n.Title + "\n\n" + text
-		}
-	}
-	text = strings.TrimRight(text, "\n")
-	if text == "" {
-		return nil
-	}
-	lines := strings.Split(text, "\n")
-	out := make([]string, 0, len(lines))
-	for _, line := range lines {
-		out = append(out, cDimGrayOpen+line+cDimGrayClose)
-	}
-	return out
 }

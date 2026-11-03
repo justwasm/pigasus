@@ -13,8 +13,9 @@ import (
 	piagent "github.com/MichaelKinsy/PiG/agent"
 	pi "github.com/MichaelKinsy/PiG/ai"
 
-	"github.com/justwasm/pigasus/internal/backend"
-	"github.com/justwasm/pigasus/internal/tools"
+	"github.com/justwasm/pigasus/internal/core/backend"
+	"github.com/justwasm/pigasus/internal/app/tools"
+	"github.com/justwasm/pigasus/internal/app/tools/surface"
 )
 
 // ─── fixtures ────────────────────────────────────────────────────────────────
@@ -179,6 +180,63 @@ func TestToStreamRequest_MapsEveryMessageKind(t *testing.T) {
 	}
 	if got.Messages[2].Content != "module x" {
 		t.Errorf("messages[2].Content = %q", got.Messages[2].Content)
+	}
+}
+
+func TestToStreamRequest_HistoricalToolResultTruncation(t *testing.T) {
+	// A multi-turn transcript: Turn 1 had a massive tool result (5000 chars).
+	// Turn 2 is a new user prompt.
+	longOutput := strings.Repeat("line of output\n", 400) // ~6000 chars
+	transcript := pi.NormalizeContext(pi.Context{
+		Messages: []pi.Message{
+			pi.UserMessage{Content: pi.UserText("turn 1 request")},
+			pi.AssistantMessage{Content: []pi.AssistantContentBlock{
+				pi.ToolCall{ID: "call_1", Name: "run_command", Arguments: pi.JsonObject{"cmd": "ls"}},
+			}},
+			pi.ToolResultMessage{
+				ToolCallID: "call_1",
+				ToolName:   "run_command",
+				Content:    []pi.ToolResultMessageContent{pi.TextContent{Text: longOutput}},
+			},
+			pi.AssistantMessage{Content: []pi.AssistantContentBlock{pi.TextContent{Text: "turn 1 done"}}},
+			// Turn 2:
+			pi.UserMessage{Content: pi.UserText("turn 2 simple question")},
+		},
+	})
+
+	got := ToStreamRequest(transcript, "model", pi.StreamOptions{})
+	if len(got.Messages) != 5 {
+		t.Fatalf("expected 5 messages, got %d", len(got.Messages))
+	}
+	toolMsg := got.Messages[2]
+	if toolMsg.Role != "tool" {
+		t.Fatalf("messages[2] role = %q, want tool", toolMsg.Role)
+	}
+	if len(toolMsg.Content) >= len(longOutput) {
+		t.Errorf("historical tool output was not truncated: len %d", len(toolMsg.Content))
+	}
+	if !strings.Contains(toolMsg.Content, "... [output truncated for conversation history]") {
+		t.Errorf("historical tool output missing truncation notice:\n%s", toolMsg.Content)
+	}
+
+	// Active turn tool output must NOT be truncated even if long.
+	activeTranscript := pi.NormalizeContext(pi.Context{
+		Messages: []pi.Message{
+			pi.UserMessage{Content: pi.UserText("turn 1 request")},
+			pi.AssistantMessage{Content: []pi.AssistantContentBlock{
+				pi.ToolCall{ID: "call_active", Name: "run_command", Arguments: pi.JsonObject{"cmd": "cat big"}},
+			}},
+			pi.ToolResultMessage{
+				ToolCallID: "call_active",
+				ToolName:   "run_command",
+				Content:    []pi.ToolResultMessageContent{pi.TextContent{Text: longOutput}},
+			},
+		},
+	})
+	activeGot := ToStreamRequest(activeTranscript, "model", pi.StreamOptions{})
+	activeToolMsg := activeGot.Messages[2]
+	if activeToolMsg.Content != longOutput {
+		t.Errorf("active turn tool output should NOT be truncated, got len %d, want %d", len(activeToolMsg.Content), len(longOutput))
 	}
 }
 
@@ -506,7 +564,7 @@ func TestTools_IsSortedAndSkipsNilRegistry(t *testing.T) {
 }
 
 func TestTools_CarriesTheReferenceDescriptions(t *testing.T) {
-	adapted := Tools(tools.Catalog(t.TempDir()))
+	adapted := Tools(surface.Catalog(t.TempDir()))
 
 	// Cycle 275 replaced the reconstructed run_command prose with the
 	// reference's captured 1.4.x declaration (一手). The OS / shell sentence

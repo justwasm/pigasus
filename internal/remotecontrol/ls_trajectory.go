@@ -48,7 +48,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/justwasm/pigasus/internal/convstore"
+	"github.com/justwasm/pigasus/internal/app/session/convstore"
 )
 
 // Cortex step-type values (exa.cortex_pb.CortexStepType) the Web UI's
@@ -312,6 +312,29 @@ func (t *lsTrajectory) Restart(trajectoryID string) {
 	t.mutateLocked()
 }
 
+// Truncate retains steps up to and including index. It is used when reverting
+// a cascade to a prior step.
+func (t *lsTrajectory) Truncate(index int) {
+	if t == nil {
+		return
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if index < 0 {
+		t.steps = nil
+	} else if index < len(t.steps) {
+		t.steps = t.steps[:index+1]
+	}
+	if len(t.steps) > 0 {
+		if v, ok := t.steps[len(t.steps)-1]["type"].(int); ok {
+			t.lastStepType = v
+		}
+	} else {
+		t.lastStepType = 0
+	}
+	t.mutateLocked()
+}
+
 // mutateLocked bumps the version and replaces the change channel.
 // The caller must hold t.mu.
 func (t *lsTrajectory) mutateLocked() {
@@ -412,12 +435,12 @@ func lsAgentStateFrame(snap lsSnapshot) map[string]any {
 	}
 	return map[string]any{
 		"update": map[string]any{
-			"conversationId":      snap.ConversationID,
-			"trajectoryId":        snap.TrajectoryID,
-			"status":              status,
-			"executableStatus":    status,
-			"executorLoopStatus":  executor,
-			"fullyIdle":           !snap.Running && len(snap.Pending) == 0,
+			"conversationId":             snap.ConversationID,
+			"trajectoryId":               snap.TrajectoryID,
+			"status":                     status,
+			"executableStatus":           status,
+			"executorLoopStatus":         executor,
+			"fullyIdle":                  !snap.Running && len(snap.Pending) == 0,
 			"pendingAgentMessagesUpdate": lsPendingMessagesUpdate(snap.Pending),
 			"mainTrajectoryUpdate": map[string]any{
 				"stepsUpdate": map[string]any{

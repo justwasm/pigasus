@@ -4,6 +4,7 @@ package vim
 // HelpRows is the binding catalogue shown on the /help VIM tab.
 var HelpRows = []string{
 	"> i, a, I, A, o, O                Enter Insert mode",
+	"  / !                            Insert the character, enter Insert mode",
 	"  esc                            Insert/Visual → Normal",
 	"  h j k l                        Left / down / up / right",
 	"  w b e, W B E                   Word / WORD motions",
@@ -15,10 +16,10 @@ var HelpRows = []string{
 	"  i( a( i\" a\" ...                Bracket and quote pairs",
 	"  v V                            Visual / Visual line",
 	"  p P                            Paste after / before",
-	"  u, ctrl+r                      Undo / redo",
-	"  r{char}                        Replace one character",
+	"  u, U                           Undo / redo",
+	"  r{char}                        Replace one character or the selection",
 	"  ~                              Toggle case",
-	"  [count]{motion}                e.g. 3w, 2d3w, 3dd, 2di(",
+	"  no count prefix                3dd deletes one line",
 	"  ctrl+s, ctrl+enter             Submit (Normal and Insert)",
 	"  enter                          Submit in Normal; newline in Insert",
 	"  shift+enter, ctrl+j            Insert a newline",

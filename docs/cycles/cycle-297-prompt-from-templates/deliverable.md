@@ -228,9 +228,11 @@ committed templates are the **CLI's**.
    the reference on the wire.
 3. **The builtin bundle never overwrites.** The clone and the reference share
    `<AppDataDir>/builtin/skills`, and the reference's copy is authoritative.
-4. **The CLI's templates, not the IDE's.** The IDE's copy is in
-   `out/ide-language-server/embed-fs/` as evidence; it is not what the clone
-   renders.
+4. **The CLI's templates, not the IDE's.** The IDE's copy was in
+   `out/ide-language-server/embed-fs/` as evidence; that tree was retired on
+   2026-11-02 and the templates it carried survive under
+   `internal/app/prompt/agytemplates/templates/` — see `docs/legacy-re/README.md`.
+   Either way it is not what the clone renders.
 
 ## 9. Open questions / next
 

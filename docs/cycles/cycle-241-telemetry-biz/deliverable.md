@@ -275,7 +275,7 @@ not include a stronger signal in the strings/seed corpora — there is
 no separate "tier" string, no OAuth-scope fragment, and no corporate-
 tenancy metadata flag the clone could inspect at runtime. The
 underlying auth flow itself stops at `keyringAuth.TryAuth` in the
-recovered shell (cf. `out/decompile/
+recovered shell (cf. `re-docs/
 decompile-google3_third_party_jetski_cli_backend_auth_auth..md`) and
 the ADC path is left as a stub.
 

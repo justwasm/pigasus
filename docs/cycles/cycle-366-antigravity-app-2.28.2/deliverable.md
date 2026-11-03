@@ -69,6 +69,12 @@ go build -o /tmp/embedextract ./devutils/embedextract
     -zip-out  out/ide-language-server/frontend -zip-index 1
 ```
 
+> The `out/ide-language-server/embed-fs/` and `out/ide-language-server/frontend/`
+> trees were retired on 2026-11-02. The CLI templates the `embed-fs` tree carried
+> survive under `internal/app/prompt/agytemplates/templates/`, and the frontend
+> assets the `frontend/` tree carried survive under
+> `internal/rcfrontend/assets/` — see `out/RETIRED.md`.
+
 | | 2.28.0 | 2.28.2 |
 |---|---|---|
 | frontend ZIP | 4,065,418 B, 304 entries, 13,586,004 B raw | **4,145,909 B**, 304 entries, **13,790,814 B** raw |

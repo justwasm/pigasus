@@ -33,8 +33,9 @@
 //     endpoint) replaces the closure without touching the
 //     dispatcher.
 //
-// The default ListBackend (DefaultListBackend below) is the one
-// the production wiring installs in cmd/wagyu/remote_control.go.
+// The production ListBackend is built by the host, not by this
+// package: internal/rchost/remote_control_backends.go's
+// buildHostListBackend() installs it into Config.ListBackend.
 // Tests may construct their own and inject via Config.ListBackend.
 //
 // Read-only contract:
@@ -57,7 +58,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/justwasm/pigasus/internal/models"
+	"github.com/justwasm/pigasus/internal/features/models"
 )
 
 // ModelInfo is the JSON shape ListRemoteAgentModels emits for one
@@ -330,19 +331,13 @@ type ListBackend struct {
 	Environments  func() (EnvironmentInfo, error)
 }
 
-// DefaultListBackend is the production wiring's ListBackend.
-// It is wired by cmd/wagyu/remote_control.go's StartHostSession
-// helper and by the TCP path's maybeStartRemoteControlTCPDaemon;
-// the package leaves both wrapping sites untouched in this
-// cycle (the cycle's diff to cmd/wagyu/ is *only* the new
-// `cfg.ListBackend = …` line in the Start path).
-//
-// This var is a sentinel-zero value (every closure is nil).
-// Wire-start code MUST install a real ListBackend before
+// A zero ListBackend (every closure nil) is a sentinel, not a
+// default: wire-start code MUST install a real ListBackend before
 // accepting RPCs — the dispatcher's handler falls back to the
 // per-method DefaultX slice when a closure is nil, so missing
 // wiring returns *something* usable rather than a hard error.
-var DefaultListBackend = ListBackend{}
+// The production wiring is the host's buildHostListBackend()
+// (internal/rchost/remote_control_backends.go).
 
 // envKeysPresent returns a sorted, deduped list of names from
 // the env probe set that are currently set in the process

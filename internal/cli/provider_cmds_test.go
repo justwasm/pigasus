@@ -23,8 +23,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/justwasm/pigasus/internal/configtest"
-	"github.com/justwasm/pigasus/internal/models"
+	"github.com/justwasm/pigasus/internal/features/models/configtest"
+	"github.com/justwasm/pigasus/internal/features/models"
 )
 
 // runProviderCmd runs a provider/model handler and returns stdout, stderr
@@ -564,3 +564,120 @@ func TestProviderTest_NeverPrintsTheCredential(t *testing.T) {
 		t.Fatalf("the credential was printed: out=%q err=%q", out, errb)
 	}
 }
+
+func TestProviderAdd_CatwalkPresetAutoFills(t *testing.T) {
+	configtest.Isolate(t)
+	out, _, err := runProviderCmd(t, runProviderAdd, "deepseek", "--api-key", "sk-secret")
+	if err != nil {
+		t.Fatalf("provider add deepseek: %v", err)
+	}
+	if !strings.Contains(out, "added provider deepseek") {
+		t.Fatalf("out = %q", out)
+	}
+	if !strings.Contains(out, "preloaded") {
+		t.Fatalf("expected preloaded models message, got out = %q", out)
+	}
+	body := readProviders(t)
+	if !strings.Contains(body, "deepseek.com") {
+		t.Fatalf("expected deepseek.com endpoint in config, got:\n%s", body)
+	}
+	if !strings.Contains(body, "deepseek-v4-flash") {
+		t.Fatalf("expected preset models in config, got:\n%s", body)
+	}
+}
+
+func TestProviderPresets_ListsCatwalkCatalog(t *testing.T) {
+	out, _, err := runProviderCmd(t, runProviderPresets)
+	if err != nil {
+		t.Fatalf("provider presets: %v", err)
+	}
+	if !strings.Contains(out, "available preset providers") {
+		t.Fatalf("out = %q", out)
+	}
+	if !strings.Contains(out, "deepseek") || !strings.Contains(out, "anthropic") {
+		t.Fatalf("expected deepseek and anthropic in presets output, got:\n%s", out)
+	}
+}
+
+func TestModelAdd_ProviderSlashSyntax(t *testing.T) {
+	configtest.Isolate(t)
+	_, _, err := runProviderCmd(t, runProviderAdd, "deepseek", "--api-key", "sk-secret")
+	if err != nil {
+		t.Fatalf("provider add deepseek: %v", err)
+	}
+	out, _, err := runProviderCmd(t, runModelAdd, "deepseek/deepseek-v4-pro")
+	if err != nil {
+		t.Fatalf("model add with slash: %v", err)
+	}
+	if !strings.Contains(out, "added deepseek-v4-pro under deepseek") {
+		t.Fatalf("out = %q", out)
+	}
+}
+
+func TestModelShow_AmbiguousModelDisambiguation(t *testing.T) {
+	configtest.Isolate(t)
+	// Add two providers serving a model with the same ID
+	_, _, err := runProviderCmd(t, runProviderAdd, "p1", "--base-url", "https://p1.example/v1", "--model", "shared-m")
+	if err != nil {
+		t.Fatalf("add p1: %v", err)
+	}
+	_, _, err = runProviderCmd(t, runProviderAdd, "p2", "--base-url", "https://p2.example/v1", "--model", "shared-m")
+	if err != nil {
+		t.Fatalf("add p2: %v", err)
+	}
+
+	// Bare model lookup should fail with AmbiguousModelError mentioning both providers
+	_, _, err = runProviderCmd(t, runModelShow, "shared-m")
+	if err == nil {
+		t.Fatal("expected error for ambiguous model, got nil")
+	}
+	if !strings.Contains(err.Error(), "found in multiple providers") || !strings.Contains(err.Error(), "provider/model") {
+		t.Fatalf("expected disambiguation error, got: %v", err)
+	}
+
+	// Qualified model lookup should succeed
+	out, _, err := runProviderCmd(t, runModelShow, "p1/shared-m")
+	if err != nil {
+		t.Fatalf("model show p1/shared-m failed: %v", err)
+	}
+	if !strings.Contains(out, "shared-m") {
+		t.Fatalf("out = %q", out)
+	}
+}
+
+func TestModelRemove_ProviderSlashSyntax(t *testing.T) {
+	configtest.Isolate(t)
+	_, _, err := runProviderCmd(t, runProviderAdd, "p1", "--base-url", "https://p1.example/v1", "--model", "shared-m")
+	if err != nil {
+		t.Fatalf("add p1: %v", err)
+	}
+	_, _, err = runProviderCmd(t, runProviderAdd, "p2", "--base-url", "https://p2.example/v1", "--model", "shared-m")
+	if err != nil {
+		t.Fatalf("add p2: %v", err)
+	}
+
+	// Bare remove should fail due to ambiguity
+	_, _, err = runProviderCmd(t, runModelRemove, "shared-m")
+	if err == nil {
+		t.Fatal("expected ambiguity error on bare remove, got nil")
+	}
+
+	// Qualified remove succeeds
+	out, _, err := runProviderCmd(t, runModelRemove, "p1/shared-m")
+	if err != nil {
+		t.Fatalf("qualified model remove failed: %v", err)
+	}
+	if !strings.Contains(out, "removed shared-m") {
+		t.Fatalf("out = %q", out)
+	}
+
+	// p2/shared-m still exists
+	showOut, _, err := runProviderCmd(t, runModelShow, "p2/shared-m")
+	if err != nil {
+		t.Fatalf("p2/shared-m should still exist: %v", err)
+	}
+	if !strings.Contains(showOut, "shared-m") {
+		t.Fatalf("showOut = %q", showOut)
+	}
+}
+

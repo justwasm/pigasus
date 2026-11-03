@@ -13,6 +13,7 @@ import (
 
 	"github.com/MichaelKinsy/PiG/agent"
 	"github.com/MichaelKinsy/PiG/ai"
+	"github.com/justwasm/pigasus/internal/remotecontrol/cascades"
 )
 
 // turnResult is the inner struct the Send goroutine
@@ -29,17 +30,17 @@ type turnResult struct {
 // tight and lets the apply* helper mutate the loop-local
 // state without an awkward out-parameter ceremony.
 type drainState struct {
-	result    MessageResult
+	result    cascades.Result
 	doneEv    *ai.DoneEvent
 	errEv     *ai.ErrorEvent
 	cancelled bool
 }
 
-// SendStream implements StreamingMessageBackend. It is the
+// SendStream implements cascades.StreamingBackend. It is the
 // cycle's headline surface: drive one turn on a fresh
 // `Session`, drain its event channel, translate each
 // `agent.AgentEvent` into the matching `EventSink` call,
-// and assemble the end-of-turn MessageResult.
+// and assemble the end-of-turn cascades.Result.
 //
 // Lifecycle:
 //
@@ -57,7 +58,7 @@ type drainState struct {
 //     full channel, so a single drain is the canonical
 //     shape).
 //   - On `Done` / `Error`, the driver returns the
-//     accumulated MessageResult. Close runs whether the
+//     accumulated cascades.Result. Close runs whether the
 //     turn succeeded or failed; the defer is the
 //     symmetric teardown.
 //
@@ -86,24 +87,24 @@ type drainState struct {
 // goroutine, channel and accumulated state. Multiple
 // SendStream calls run concurrently (the dispatcher does
 // not serialise them; the per-cascade mu in
-// `(*CascadeRegistry).SendStream` does, but that's a
+// `(*cascades.Registry).SendStream` does, but that's a
 // separate concern).
 //
 // Nil-safety:
 //
 //   - nil receiver: every method returns a zero
-//     MessageResult and a typed error (the dispatcher
+//     cascades.Result and a typed error (the dispatcher
 //     handles the wrap). No panics.
 //   - nil SessionFactory: SendStream returns
 //     ErrNilSessionFactory verbatim. The dispatcher
 //     surfaces as -32603 with a clear message.
 //   - nil sink: the sink calls are skipped (the events
 //     are still drained so the session doesn't stall);
-//     the returned MessageResult still carries the reply
+//     the returned cascades.Result still carries the reply
 //     / tools / stop reason.
-func (b *PiagentBackend) SendStream(ctx context.Context, prompt MessagePrompt, sink EventSink, opts MessageSendOptions) (MessageResult, error) {
+func (b *PiagentBackend) SendStream(ctx context.Context, prompt cascades.Prompt, sink cascades.EventSink, opts cascades.SendOptions) (cascades.Result, error) {
 	if b == nil || b.SessionFactory == nil {
-		return MessageResult{}, ErrNilSessionFactory
+		return cascades.Result{}, ErrNilSessionFactory
 	}
 
 	turnCtx, cancel := deriveTurnCtx(ctx, opts)
@@ -113,7 +114,7 @@ func (b *PiagentBackend) SendStream(ctx context.Context, prompt MessagePrompt, s
 
 	sess, err := b.SessionFactory(turnCtx, prompt, opts)
 	if err != nil {
-		return MessageResult{}, fmt.Errorf("piagent: session factory: %w", err)
+		return cascades.Result{}, fmt.Errorf("piagent: session factory: %w", err)
 	}
 	defer func() {
 		// Best-effort close. A Close error is silently
@@ -139,11 +140,11 @@ func (b *PiagentBackend) SendStream(ctx context.Context, prompt MessagePrompt, s
 // deriveTurnCtx returns a derived context honouring
 // opts.Timeout. Returns (ctx, nil) when opts.Timeout <= 0
 // — the caller skips the cancel-defer path. Mirrors
-// (*CascadeRegistry).SendStream's wrapping so the
+// (*cascades.Registry).SendStream's wrapping so the
 // PiagentBackend is usable outside the registry's path
 // — a future caller that bypasses the cascade surface
 // still sees the contract honoured.
-func deriveTurnCtx(ctx context.Context, opts MessageSendOptions) (context.Context, context.CancelFunc) {
+func deriveTurnCtx(ctx context.Context, opts cascades.SendOptions) (context.Context, context.CancelFunc) {
 	if opts.Timeout <= 0 {
 		return ctx, nil
 	}
@@ -227,7 +228,7 @@ func (b *PiagentBackend) startSession(turnCtx context.Context, promptText string
 // of truth for the cancelled notification so the
 // dashboard sees exactly one cascade/state{phase:cancelled}
 // frame.
-func (b *PiagentBackend) drainEvents(events chan agent.AgentEvent, finished <-chan struct{}, turnCtx context.Context, sink EventSink) drainState {
+func (b *PiagentBackend) drainEvents(events chan agent.AgentEvent, finished <-chan struct{}, turnCtx context.Context, sink cascades.EventSink) drainState {
 	state := drainState{}
 	for {
 		select {
@@ -271,7 +272,7 @@ func (b *PiagentBackend) drainEvents(events chan agent.AgentEvent, finished <-ch
 // is the only end condition. A late event that arrives after this
 // returns is dropped — the turn's result is already assembled, and
 // the turn is over.
-func drainRemaining(events chan agent.AgentEvent, state *drainState, sink EventSink) {
+func drainRemaining(events chan agent.AgentEvent, state *drainState, sink cascades.EventSink) {
 	for {
 		select {
 		case ev, ok := <-events:
@@ -289,7 +290,7 @@ func drainRemaining(events chan agent.AgentEvent, state *drainState, sink EventS
 // drainEvents. Pulled out so the loop body stays compact
 // and the per-kind code paths are individually readable.
 // Mutates state in place via the *drainState pointer.
-func applyMessageUpdateEvent(ev agent.AgentEvent, state *drainState, sink EventSink) {
+func applyMessageUpdateEvent(ev agent.AgentEvent, state *drainState, sink cascades.EventSink) {
 	if state.cancelled {
 		return
 	}
@@ -298,7 +299,7 @@ func applyMessageUpdateEvent(ev agent.AgentEvent, state *drainState, sink EventS
 		switch inner := event.AssistantMessageEvent.(type) {
 		case ai.StartEvent:
 			if sink != nil {
-				sink.OnState(nil, StateFrame{Phase: StatePhaseStarting})
+				sink.OnState(nil, cascades.StateFrame{Phase: cascades.StatePhaseStarting})
 			}
 		case ai.TextDeltaEvent:
 			if inner.Delta != "" {
@@ -349,7 +350,7 @@ func applyMessageUpdateEvent(ev agent.AgentEvent, state *drainState, sink EventS
 // stop reason alongside text + tool calls — even when
 // sink is nil (Send's cycle-3a fallback path relies on
 // the message-reply shape carrying the stop reason).
-func emitResultToSink(state *drainState, turn turnResult, sink EventSink) {
+func emitResultToSink(state *drainState, turn turnResult, sink cascades.EventSink) {
 	if state.cancelled && state.doneEv == nil && state.errEv == nil {
 		// Cancel branch: no OnError fires here; the
 		// dispatcher's Cancel handler already
@@ -367,7 +368,7 @@ func emitResultToSink(state *drainState, turn turnResult, sink EventSink) {
 		stopReason := stopReasonFromPiG(state.doneEv.Reason)
 		state.result.StopReason = stopReason
 		if sink != nil {
-			sink.OnState(nil, StateFrame{Phase: StatePhaseDone, StopReason: stopReason})
+			sink.OnState(nil, cascades.StateFrame{Phase: cascades.StatePhaseDone, StopReason: stopReason})
 			if turn.err != nil {
 				sink.OnError(nil, turn.err)
 			} else if failure := piagentTurnFailure(turn.msgs); failure != nil {

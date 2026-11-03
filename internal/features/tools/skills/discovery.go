@@ -1,0 +1,570 @@
+package skills
+
+import (
+	"bytes"
+	"fmt"
+	"os"
+	"path/filepath"
+	"sort"
+	"strings"
+
+	"github.com/justwasm/pigasus/internal/core/confhome"
+	"gopkg.in/yaml.v3"
+)
+
+// jsonSkillInfo is one `/skills` row, in the reference's field order:
+//
+//	{"name":"agents-sdk","description":"…","path":"/Users/…/SKILL.md","builtin":false,"model_invocable":true}
+//	{"name":"chrome-devtools-plugin:…","…","plugin":"chrome-devtools-plugin","builtin":false,"model_invocable":true}
+//
+// `plugin` is present only for entries discovered under a plugin's skills/
+// directory, and sits between `path` and `builtin`.
+//
+// `model_invocable` is true for all 57 skills on the capture machine; the
+// frontmatter marker that would clear it is unrecovered, so the clone always
+// reports true.
+//
+// `Icon` carries the frontmatter `metadata.icon` value out of band: it is
+// deliberately NOT part of the JSON payload, because the reference's payload
+// has exactly the six keys above — no icon. The reference *does* render the
+// icon in its TUI panel, as "<icon> <name>" (see skillsui.DisplayName), so
+// the value has to travel next to the name rather than inside it.
+//
+// 【一手】 agy 1.4.8: a probe skill whose frontmatter declares
+// `metadata.icon: zzznotanicon` lists as `zzznotanicon zziconprobe` in the
+// /skills panel and in the skill's detail header, and prints as
+// `zziconprobe` in `agy -p /skills`.
+type SkillInfo struct {
+	Name           string `json:"name"`
+	Description    string `json:"description"`
+	Path           string `json:"path"`
+	Plugin         string `json:"plugin,omitempty"`
+	Builtin        bool   `json:"builtin"`
+	ModelInvocable bool   `json:"model_invocable"`
+	Icon           string `json:"-"`
+}
+
+type jsonSkillInfo = SkillInfo
+
+// scanUnit is one source of skills the discovery reads.
+//
+// The unit is the granularity of the reload: a unit that cannot be read
+// keeps the entries the previous scan found for it, so a read error never
+// drops a loaded skill (see reload.go).
+type scanUnit struct {
+	// path is the directory the unit reads. It is the unit's identity:
+	// the loader keys the entries it keeps by it.
+	path string
+	// prefix is the path prefix the unit's fallback covers, on top of
+	// its own path. Only the plugin tree sets it: its unit stands for
+	// every plugin's skills/ directory, so a plugin tree that cannot be
+	// read keeps all of them.
+	prefix string
+	// read returns the unit's entries and whether the source could be
+	// read at all.
+	read func() ([]jsonSkillInfo, bool)
+}
+
+// covers reports whether a loaded root's key is covered by this unit —
+// the unit's own path, or (for the plugin tree) every path under it.
+func (u scanUnit) covers(key string) bool {
+	if key == u.path {
+		return true
+	}
+	return u.prefix != "" && strings.HasPrefix(key, u.prefix)
+}
+
+// readSkillsFromDir reads the skills under dir and reports whether the
+// directory could be read.
+//
+// A directory that cannot be read yields no entries and ok=false; the
+// caller decides what an unreadable root means — the bare listing skips
+// it, the reload keeps what it had loaded from it.
+func readSkillsFromDir(dir, prefix string, listed map[string]bool, builtin bool) ([]jsonSkillInfo, bool) {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, false
+	}
+	var found []jsonSkillInfo
+	for _, e := range entries {
+		path := filepath.Join(dir, e.Name())
+		if !isDirFollowingLinks(path) {
+			continue
+		}
+		if listed != nil && !listed[e.Name()] {
+			continue
+		}
+		skillMD := filepath.Join(path, "SKILL.md")
+		fm := skillFrontmatterFields(skillMD)
+		name := fm.Name
+		if name == "" {
+			name = e.Name()
+		}
+		if prefix != "" {
+			name = prefix + ":" + name
+		}
+		found = append(found, jsonSkillInfo{
+			Name:           name,
+			Description:    fm.Description,
+			Path:           skillMD,
+			Plugin:         prefix,
+			Builtin:        builtin,
+			ModelInvocable: true,
+			Icon:           fm.Icon,
+		})
+	}
+	return found, true
+}
+
+// scanUnits returns the units the discovery reads, in the reference's
+// discovery order: the bundled skill library, the shared ~/.gemini/skills
+// library, then every plugin's skills/ directory.
+//
+// The plugin tree is one unit for the whole tree when it cannot be read
+// (its fallback covers every plugin's directory), and one unit per plugin
+// when it can.
+func scanUnits(home string) []scanUnit {
+	gemini := filepath.Dir(home) // ~/.gemini
+	units := []scanUnit{
+		{
+			// The builtin bundle ships nine skills on disk but `/skills`
+			// lists only two of them (agy-customizations,
+			// antigravity-guide); the other seven (automation,
+			// generative_ui, migrate-workflows, permissioned-github,
+			// plugin, run-workflow, ui-plugin-navigation) are internal and
+			// have no frontmatter marker that distinguishes them. The set
+			// in builtinListed is therefore empirical: it reproduces the
+			// reference's output on this machine, but the reference's
+			// selection rule is unknown.
+			path: filepath.Join(home, "builtin", "skills"),
+			read: func() ([]jsonSkillInfo, bool) {
+				return readSkillsFromDir(filepath.Join(home, "builtin", "skills"), "", builtinListed, true)
+			},
+		},
+		{
+			// Note: ~/.claude/skills is deliberately NOT a root. The 1.3.6
+			// reference lists `agents-sdk` (which lives in ~/.gemini/skills)
+			// but none of the Claude-only skills (algo/alpha/assets/…), so
+			// it does not read the Claude directory. The dedup pass below
+			// is what would collapse any duplicates if a second root was
+			// added in a later release.
+			path: filepath.Join(gemini, "skills"),
+			read: func() ([]jsonSkillInfo, bool) {
+				return readSkillsFromDir(filepath.Join(gemini, "skills"), "", nil, false)
+			},
+		},
+		{
+			// official-docs/skills.md:132 lists ~/.gemini/antigravity-cli/skills/
+			// Support both global paths so skills discovered under either root are available.
+			path: filepath.Join(home, "skills"),
+			read: func() ([]jsonSkillInfo, bool) {
+				return readSkillsFromDir(filepath.Join(home, "skills"), "", nil, false)
+			},
+		},
+	}
+	pluginsDir := filepath.Join(gemini, "config", "plugins")
+	plugins, err := os.ReadDir(pluginsDir)
+	if err != nil {
+		// The plugin tree cannot be read: the unit keeps every plugin
+		// the previous scan found.
+		units = append(units, scanUnit{
+			path:   pluginsDir,
+			prefix: pluginsDir + string(filepath.Separator),
+			read:   func() ([]jsonSkillInfo, bool) { return nil, false },
+		})
+		return units
+	}
+	for _, p := range plugins {
+		pluginDir := filepath.Join(pluginsDir, p.Name())
+		if !isDirFollowingLinks(pluginDir) {
+			continue
+		}
+		name := p.Name()
+		skillsDir := filepath.Join(pluginDir, "skills")
+		units = append(units, scanUnit{
+			path: skillsDir,
+			read: func() ([]jsonSkillInfo, bool) {
+				return readSkillsFromDir(skillsDir, name, nil, false)
+			},
+		})
+	}
+	return units
+}
+
+// discoverInternal enumerates the installed skills.
+//
+// The reference merges skills from the builtin bundle, the user's
+// ~/.gemini/skills, and every plugin's skills/ directory (whose entries are
+// prefixed "<plugin>:<name>"). The display name comes from the SKILL.md
+// frontmatter, not the directory — e.g. builtin/skills/antigravity_guide
+// declares `name: antigravity-guide`. Entries may be symlinks (this machine's
+// ~/.gemini/skills/terminal-browser is), so the directory test follows the
+// link.
+//
+// After the merge, the result is folded by content hash (slash_skills_dedup.go)
+// so a SKILL.md discovered through both a plugin's skills/ directory and a
+// project-level `.claude/skills/` folder appears once, with its declared
+// (frontmatter `name:`) name. The reference's AGY 1.2.7 changelog records
+// this as the gap fix; see the file comment of slash_skills_dedup.go for
+// the rule and its evidence grade.
+// Discover enumerates the skills installed on this machine: the builtin
+// bundle, the shared ~/.gemini/skills library and every plugin's skills/
+// directory.
+func Discover() []SkillInfo {
+	return discoverInternal()
+}
+
+func discoverInternal() []jsonSkillInfo {
+	var found []jsonSkillInfo
+	for _, unit := range scanUnits(confhome.Antigravity()) {
+		entries, _ := unit.read()
+		found = append(found, entries...)
+	}
+
+	sort.Slice(found, func(i, j int) bool { return found[i].Name < found[j].Name })
+	return dedupeByHash(found)
+}
+
+// Render lists the installed skills as "<name>\t<description>", which is
+// the shape `agy -p /skills` emits (57 entries on the capture machine).
+func Render() string {
+	return RenderList(Discover())
+}
+
+// RenderList renders a catalogue as the `/skills` listing: one
+// "<name>\t<description>" row per skill.
+//
+// The listing's shape has one owner, so the bare command and the reload
+// render the same rows.
+func RenderList(list []SkillInfo) string {
+	var b strings.Builder
+	for _, s := range list {
+		fmt.Fprintf(&b, "%s\t%s\n", s.Name, s.Description)
+	}
+	return b.String()
+}
+
+// isDirFollowingLinks reports whether path is a directory, following symlinks
+// (DirEntry.IsDir is false for a symlink to a directory).
+func isDirFollowingLinks(path string) bool {
+	st, err := os.Stat(path)
+	return err == nil && st.IsDir()
+}
+
+// builtinListed is the subset of the builtin skill bundle the
+// reference's `/skills` panel lists. It is deliberately NOT the prompt
+// allowlist (agyprompt.BuiltinSkillDirs): agy 1.4.3 lists five builtin
+// skills, while its system prompt advertises only agy-customizations and
+// antigravity-guide. The remaining four directories (generative_ui,
+// permissioned-github, plugin, ui-plugin-navigation) are internal and stay
+// out of both surfaces. Verified live at 120x40 on agy 1.4.3.
+var builtinListed = map[string]bool{
+	"agy-customizations": true,
+	"antigravity_guide":  true,
+	"automation":         true,
+	"migrate-workflows":  true,
+	"run-workflow":       true,
+}
+
+func extractFrontmatterBytes(b []byte) ([]byte, bool) {
+	lines := bytes.Split(b, []byte{'\n'})
+	if len(lines) == 0 || !bytes.Equal(bytes.TrimSpace(lines[0]), []byte("---")) {
+		return nil, false
+	}
+	for i := 1; i < len(lines); i++ {
+		if bytes.Equal(bytes.TrimSpace(lines[i]), []byte("---")) {
+			return bytes.Join(lines[1:i], []byte{'\n'}), true
+		}
+	}
+	return nil, false
+}
+
+// skillFrontmatter returns the `name:` and `description:` values from a
+// SKILL.md YAML frontmatter block. Frontmatter must open with `---` on the
+// first line and close with `---` on a later line; only the bytes between
+// those fences are fed to the YAML parser, so trailing markdown body lines
+// after the close fence never see a YAML decoder.
+//
+// Cycle 175 replaces the previous from-scratch block-scalar walker with
+// gopkg.in/yaml.v3, the same library the reference compiles into its binary
+// (verified via `strings`: the `yaml:"…"` tag interface and `encoding/yaml`-ish
+// error strings appear in `~/.local/bin/agy`). What this gains over the
+// hand-rolled walker:
+//   - comments (`#`), anchors (`&`) and aliases (`*`)
+//   - flow-style mappings (`{a: b}`) and sequences (`[…]`)
+//   - escape sequences inside double-quoted scalars (`\n`, `\t`, Unicode)
+//   - every block-scalar flavour (`>`, `>-`, `>+`, `|`, `|-`, `|+`) parsed
+//     the same way the rest of the YAML world reads them
+//
+// `description` is right-trimmed of `\n` to match the prior contract — the
+// callers append it to a `\t` separator in `/skills` output, where a trailing
+// newline would emit a stray blank line.
+func skillFrontmatter(path string) (name, description string) {
+	f := skillFrontmatterFields(path)
+	return f.Name, f.Description
+}
+
+// skillFrontmatterValues holds the frontmatter fields the clone reads from a
+// SKILL.md: the declared name, the description and the `metadata.icon`
+// glyph name.
+type skillFrontmatterValues struct {
+	Name        string
+	Description string
+	Icon        string
+}
+
+// skillFrontmatterFields parses the frontmatter of a SKILL.md and returns
+// the name, the description and the `metadata.icon` value.
+//
+// The icon is read from the nested `metadata` mapping:
+//
+//	metadata:
+//	  icon: schedule
+//
+// It is decoded into an `any` rather than a typed struct so that a SKILL.md
+// whose `metadata` is a scalar or a sequence still parses — a typed struct
+// would make the whole document fail to unmarshal and lose the name with it.
+//
+// 【一手】 agy 1.4.8 renders the icon verbatim in the /skills panel, next to
+// the bare name ("schedule automation" for the bundled automation skill), and
+// ignores any unknown icon name (a probe skill with `metadata.icon:
+// zzznotanicon` renders "zzznotanicon zziconprobe").
+func skillFrontmatterFields(path string) skillFrontmatterValues {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return skillFrontmatterValues{}
+	}
+	fm, ok := extractFrontmatterBytes(b)
+	if !ok {
+		return skillFrontmatterValues{}
+	}
+
+	var doc struct {
+		Name        string `yaml:"name"`
+		Description string `yaml:"description"`
+		Metadata    any    `yaml:"metadata"`
+	}
+
+	// Cycle `yaml-colon-description`: every plain-scalar value in the
+	// frontmatter that is unquoted AND contains a ": " sequence gets
+	// wrapped in double quotes before the YAML decoder sees it. YAML 1.2
+	// reserves ": " (colon-space) for the key/value separator, so a plain
+	// scalar like "Agent: helper" raises "mapping values are not allowed
+	// in this context". Auto-quoting preserves the bytes verbatim while
+	// making the scanner accept them. Block scalars (">", "|", and their
+	// "-"/"+" chomping modifiers) and pre-quoted scalars are passed
+	// through untouched; continuation lines are folded into the parent
+	// value before that decision is made. A description that the
+	// SKILL.md author wrote as a mapping or sequence (rare; the
+	// reference never does this) still fails to unmarshal, and we
+	// surface that as empty, matching the prior "best effort" contract.
+	if err := yaml.Unmarshal(normalizeFrontmatter(fm), &doc); err != nil {
+		return skillFrontmatterValues{}
+	}
+	out := skillFrontmatterValues{
+		Name:        strings.TrimSpace(doc.Name),
+		Description: strings.TrimRight(doc.Description, "\n"),
+	}
+	if meta, ok := doc.Metadata.(map[string]any); ok {
+		if icon, ok := meta["icon"].(string); ok {
+			out.Icon = strings.TrimSpace(icon)
+		}
+	}
+	return out
+}
+
+// needsDoubleQuoting reports whether v is a plain-scalar YAML value whose
+// "key: v" line would be rejected by yaml.v3 because v contains a ": "
+// (colon-space) sequence. Block scalars and pre-quoted scalars are never
+// double-quoted; empty or whitespace-only values are not.
+//
+// The same predicate is also exported so tests can pin the boundary the
+// preprocessor observes.
+func needsDoubleQuoting(v []byte) bool {
+	if len(v) == 0 {
+		return false
+	}
+	switch v[0] {
+	case '"', '\'', '|', '>', '[', '{', '&', '*', '!', '%', '@', '`':
+		return false
+	}
+	// '-' is a sequence-indicator at column 0; here we already trimmed to
+	// the value side, but a YAML sequence value (`- foo`) still starts with
+	// '-' and is not a plain scalar.
+	if v[0] == '-' {
+		return false
+	}
+	return bytes.Contains(v, []byte(": "))
+}
+
+// escapeDoubleQuoted returns b with the byte sequences that YAML double-
+// quoted strings reserve escaped: `\` → `\\`, `"` → `\"`, newline → `\n`,
+// carriage return → `\r`, tab → `\t`, backspace → `\b`, form-feed → `\f`,
+// and the eight other ASCII control bytes (`\x00`–`\x17` except those
+// covered) → `\xNN`. The intent is round-trip — the resulting bytes are a
+// valid YAML double-quoted scalar and yaml.v3 unescapes them back to the
+// original b.
+func escapeDoubleQuoted(b []byte) []byte {
+	out := make([]byte, 0, len(b)+8)
+	for _, c := range b {
+		switch c {
+		case '\\':
+			out = append(out, '\\', '\\')
+		case '"':
+			out = append(out, '\\', '"')
+		case '\n':
+			out = append(out, '\\', 'n')
+		case '\r':
+			out = append(out, '\\', 'r')
+		case '\t':
+			out = append(out, '\\', 't')
+		case '\b':
+			out = append(out, '\\', 'b')
+		case '\f':
+			out = append(out, '\\', 'f')
+		case 0:
+			out = append(out, '\\', '0')
+		default:
+			if c < 0x20 {
+				out = append(out, '\\', 'x', "0123456789abcdef"[c>>4], "0123456789abcdef"[c&0x0f])
+			} else {
+				out = append(out, c)
+			}
+		}
+	}
+	return out
+}
+
+// foldPlainScalar merges a `key: value` line and its indented plain-scalar
+// continuation lines into a single logical value, the way YAML 1.2 folds a
+// multi-line plain scalar: non-empty continuation lines collapse to a
+// single separating space, blank continuation lines become a single `\n`.
+// Block-scalar headers (lines whose value starts with `|` or `>`) are not
+// continuations and `foldPlainScalar` never sees them — the caller skips
+// block scalars before invoking it.
+func foldPlainScalar(first []byte, rest [][]byte) []byte {
+	out := append([]byte(nil), first...)
+	for _, line := range rest {
+		if len(bytes.TrimSpace(line)) == 0 {
+			out = append(out, '\n')
+			continue
+		}
+		if len(out) > 0 && out[len(out)-1] != '\n' {
+			out = append(out, ' ')
+		}
+		out = append(out, bytes.TrimSpace(line)...)
+	}
+	return out
+}
+
+func collectContinuationLines(lines [][]byte, start int) ([][]byte, int) {
+	var continuation [][]byte
+	j := start
+	for j < len(lines) {
+		next := lines[j]
+		if len(next) == 0 || (next[0] != ' ' && next[0] != '\t') {
+			break
+		}
+		continuation = append(continuation, next)
+		j++
+	}
+	return continuation, j
+}
+
+func quotePlainScalar(key, folded []byte) []byte {
+	var emitted []byte
+	emitted = append(emitted, key...)
+	emitted = append(emitted, ':', ' ')
+	emitted = append(emitted, '"')
+	emitted = append(emitted, escapeDoubleQuoted(folded)...)
+	emitted = append(emitted, '"')
+	return emitted
+}
+
+func normalizeKeyValue(lines [][]byte, i int, key, rest []byte) ([][]byte, int) {
+	continuation, nextIdx := collectContinuationLines(lines, i+1)
+	folded := foldPlainScalar(rest, continuation)
+	if !needsDoubleQuoting(folded) {
+		result := make([][]byte, 0, 1+len(continuation))
+		result = append(result, lines[i])
+		result = append(result, continuation...)
+		return result, nextIdx - 1
+	}
+	return [][]byte{quotePlainScalar(key, folded)}, nextIdx - 1
+}
+
+// normalizeFrontmatter walks fm one line at a time and auto-quotes any
+// plain-scalar value that contains a ": " sequence. Block scalars (>|, |,
+// etc.) and pre-quoted scalars pass through untouched.
+//
+// Lines that consist only of whitespace, of `# …` comments, or that start a
+// new top-level key are emitted as-is. Indented continuation lines of a
+// plain-scalar value are folded into the parent value via foldPlainScalar
+// before the `: ` check is applied, so multi-line plain scalars like
+//
+//	description: First line
+//	  continues here: with colon
+//
+// round-trip into a single double-quoted scalar instead of failing.
+//
+// This is the precondition step for yaml.Unmarshal in skillFrontmatter; it
+// keeps cycle 175's move to yaml.v3 working for SKILL.md files where the
+// description is an unquoted plain scalar that happens to mention
+// "Agent: helper" or "Step 1: foo. Step 2: bar.".
+func normalizeFrontmatter(fm []byte) []byte {
+	lines := bytes.Split(fm, []byte{'\n'})
+	var out [][]byte
+	inBlock := false
+
+	for i := 0; i < len(lines); i++ {
+		line := lines[i]
+
+		if inBlock {
+			out = append(out, line)
+			// A non-blank line that is no longer indented terminates the
+			// block scalar's body. YAML allows many chomping styles; the
+			// close-with-an-unindented-line heuristic is sufficient for
+			// the shapes skill authors actually use.
+			if len(line) > 0 && line[0] != ' ' && line[0] != '\t' && len(bytes.TrimRight(line, " \t")) > 0 {
+				inBlock = false
+			}
+			continue
+		}
+
+		trimmed := bytes.TrimSpace(line)
+		if len(trimmed) == 0 || trimmed[0] == '#' || line[0] == ' ' || line[0] == '\t' {
+			out = append(out, line)
+			continue
+		}
+
+		idx := bytes.IndexByte(line, ':')
+		if idx < 0 {
+			out = append(out, line)
+			continue
+		}
+
+		key := line[:idx]
+		rest := bytes.TrimSpace(line[idx+1:])
+
+		// Block-scalar header (`key: |` or `key: >`, optionally with a
+		// chomping indicator like `-` or `+` and/or an explicit
+		// indentation indicator).
+		if len(rest) > 0 && (rest[0] == '|' || rest[0] == '>') {
+			out = append(out, line)
+			inBlock = true
+			continue
+		}
+
+		// Empty / comment-only value.
+		if len(rest) == 0 || rest[0] == '#' {
+			out = append(out, line)
+			continue
+		}
+
+		var emitted [][]byte
+		emitted, i = normalizeKeyValue(lines, i, key, rest)
+		out = append(out, emitted...)
+	}
+
+	return bytes.Join(out, []byte{'\n'})
+}

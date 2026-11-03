@@ -12,7 +12,7 @@ package remotecontrol
 import (
 	"context"
 
-	"github.com/justwasm/pigasus/internal/convstore"
+	"github.com/justwasm/pigasus/internal/app/session/convstore"
 )
 
 // ConvstoreOutputReader is the production OutputReader. It reads

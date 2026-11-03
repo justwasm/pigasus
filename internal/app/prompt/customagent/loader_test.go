@@ -48,7 +48,7 @@ import (
 	"strings"
 	"testing"
 
-	customagent "github.com/justwasm/pigasus/internal/customagent"
+	"github.com/justwasm/pigasus/internal/app/prompt/customagent"
 )
 
 // writeFile is a t.Helper that writes content to a path inside

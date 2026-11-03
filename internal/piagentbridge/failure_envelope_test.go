@@ -5,7 +5,7 @@ import (
 
 	pi "github.com/MichaelKinsy/PiG/ai"
 
-	"github.com/justwasm/pigasus/internal/backend"
+	"github.com/justwasm/pigasus/internal/core/backend"
 )
 
 // The bodies below are the reference's own, copied from the 1.4.8 capture

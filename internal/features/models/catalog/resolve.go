@@ -3,8 +3,7 @@ package catalog
 import (
 	"strings"
 
-	"github.com/justwasm/pigasus/internal/auth"
-	"github.com/justwasm/pigasus/internal/cli"
+	settings "github.com/justwasm/pigasus/internal/core/settings"
 )
 
 // DefaultModel is the reference's fallback when nothing usable is configured.
@@ -32,7 +31,7 @@ func FormatModelLabel(name string) string {
 func ResolveEffectiveModel(flagModel string) (effective, unavailableFrom string) {
 	requested := strings.TrimSpace(flagModel)
 	if requested == "" {
-		requested = strings.TrimSpace(auth.ResolveSettingsModel(""))
+		requested = strings.TrimSpace(settings.ResolveModel(""))
 	}
 	if requested == "" {
 		return DefaultModel, ""
@@ -55,7 +54,7 @@ func ResolveEffectiveModel(flagModel string) (effective, unavailableFrom string)
 // CanonicalModelLabel maps a catalogue slug or display label to display label.
 func CanonicalModelLabel(name string) string {
 	name = strings.TrimSpace(name)
-	for _, m := range cli.ModelCatalogue() {
+	for _, m := range ModelCatalogue() {
 		if m.ID == name || m.Label == name {
 			return m.Label
 		}
@@ -70,7 +69,7 @@ func CanonicalModelLabel(name string) string {
 	// configured must not fall through to the reference's default: that
 	// sends the request to the CloudCode account instead of the
 	// configured endpoint.
-	if label := cli.ConfiguredModelDefaultLabel(name); label != "" {
+	if label := ConfiguredModelDefaultLabel(name); label != "" {
 		return label
 	}
 	return ""
@@ -79,7 +78,7 @@ func CanonicalModelLabel(name string) string {
 // ModelAvailable reports whether name appears in the catalogue.
 func ModelAvailable(name string) bool {
 	name = strings.TrimSpace(name)
-	for _, m := range cli.ModelCatalogue() {
+	for _, m := range ModelCatalogue() {
 		if m.Label == name || m.ID == name {
 			return true
 		}

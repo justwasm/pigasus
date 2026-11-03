@@ -13,7 +13,8 @@ import (
 
 	pi "github.com/MichaelKinsy/PiG/ai"
 
-	"github.com/justwasm/pigasus/internal/backend"
+	"github.com/justwasm/pigasus/internal/core/backend"
+	"github.com/justwasm/pigasus/internal/infra/backend/gemini"
 	pb "github.com/justwasm/pigasus/localharness/pb/localharness"
 )
 
@@ -166,7 +167,7 @@ func TestAFailedRunEndsTheSession(t *testing.T) {
 // model answers with text instead of another call.
 func TestFunctionCallingTurnsOffOnTheLastRetry(t *testing.T) {
 	c := &conversation{}
-	client := &backend.GeminiClient{}
+	client := &gemini.GeminiClient{}
 	inner := &countingProvider{}
 	provider := c.withFunctionCallingMode(inner, client)
 	wrapped, ok := provider.(*functionCallingProvider)

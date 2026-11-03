@@ -11,7 +11,8 @@ There are **two real transports**, and the selected model decides which one runs
 | in the reference's catalogue (Gemini / Claude / GPT-OSS) | `backend.CloudCodeClient` | `https://daily-cloudcode-pa.googleapis.com/v1internal:streamGenerateContent?alt=sse` |
 | configured by the user | `backend.GatewayClient` | the configured endpoint: `<base>/chat/completions` (OpenAI) or `<base>/v1/messages` (Anthropic) |
 
-`pickBackendWithLog` (`internal/cliapp/run.go`) does the split at startup; the TUI
+`internal/infra/backend/select`'s `PickWithLog` (called from
+`internal/cliapp/run.go`) does the split at startup; the TUI
 does it again on every `/model` change through `runMode.backendFor`
 (`syncBackendForModel`). An explicit `--backend gateway` /
 `OPENAGY_BACKEND=gateway` still forces the configured endpoint. `--backend cloudcode`
@@ -19,11 +20,12 @@ does it again on every `/model` change through `runMode.backendFor`
 lands on the shim **with a warning that names `providers.json`** — answering
 from the shim without saying so would look like a working model.
 
-**The catalogue is configuration.** `~/.config/openagy/providers.json` holds one
+**The catalogue is configuration.** `~/.openagy/providers.json` (the
+configuration home — `~/.openagy`, or `$OPENAGY_CONFIG_HOME`) holds one
 entry per provider: the endpoint, the credential (`$NAME` is expanded from the
 environment), the wire protocol (`openai` | `anthropic`) and the models that
 provider serves. That file is the **only** *provider* configuration shape — the
-legacy flat `~/.config/openagy/models.json` has been retired (read path, write
+legacy flat `~/.openagy/models.json` has been retired (read path, write
 path and the `agw` provider-type alias with it; report:
 `docs/cycles/legacy-config-retirement/`). `cli.ReferenceModels()` is
 the *pure* reference catalogue; `cli.ModelCatalogue()` merges the configured
@@ -32,7 +34,7 @@ has **no** built-in endpoint, credential or model — an unset endpoint is an
 error, not a fallback. Report: `docs/cycles/provider-config-gateway/`.
 
 **The services the clone itself talks to are a *different* file.**
-`~/.config/openagy/config.json` carries the named service endpoints — the
+`~/.openagy/config.json` carries the named service endpoints — the
 CloudCode host, the OAuth2 token endpoint, the companion origin, the browser
 Origin allowlist and the rest. `providers.json` answers *"which model talks to
 which provider"*; `config.json` answers *"which service does the clone itself
@@ -63,25 +65,36 @@ The CloudCode wire was transcribed from live 1.4.3 traffic (report:
   consumes for MiniMax — the TUI renders `▸ Thought for …` and ctrl+o expands
   the body, while print mode strips it.
 
-The catalogue is the reference's own selectable set — the six ids
-`agy models` prints (`gemini-3.8-flash-{high,medium,low}`, `claude-sonnet-4-6`,
-`claude-opus-4-6-thinking`, `gpt-oss-120b-medium`). Configured models (MiniMax
-M3 and friends) are **not** in it: they come from the user's configuration.
-The server advertises **24** ids in
-`fetchAvailableModels`; everything outside the selectable six is rejected by
+The catalogue is the reference's own set — the fourteen ids `agy models` prints
+(`gemini-3.8-flash-{high,medium,low}`, `gemini-3.7-flash-{high,medium,low}`,
+`gemini-3.6-flash-{high,medium,low}`, `gemini-3.1-pro-{high,low}`,
+`claude-sonnet-4-6`, `claude-opus-4-6-thinking`, `gpt-oss-120b-medium`).
+Configured models (MiniMax M3 and friends) are **not** in it: they come from
+the user's configuration. The server advertises **24** ids in
+`fetchAvailableModels`; everything outside the selectable set is rejected by
 the reference's own validator (`model X is not recognized…`), so accepting it
 would diverge. The one exception is **`gemini-4-argon-disabled`** ("Gemini 4
 Argon"): it is *known* and refused with a plan reason — `"Gemini 4 Argon" is
 unavailable: Gemini 4 Argon is currently available to Ultra and paid Pro plan
-subscribers` — which `internal/cli.ReferenceGatedModels` reproduces. Report:
+subscribers` — which `internal/features/models/catalog.ReferenceGatedModels` reproduces. Report:
 `docs/cycles/model-catalogue-argon-gate/`.
+
+The three Gemini families the documentation names (`official-docs/models.md:23-25`)
+are **Enterprise-only**, and the server's catalogue for a free account does not
+carry them (`out/refbackend-custom-models/available_models.json`). The
+reference's own catalogue is server-driven — it prints them when the account's
+server advertises them — while the clone's is static and carries no plan
+dimension, so a turn pinned to one of them fails **at the server**, not in the
+clone. Their ids are recovered, not guessed: 【一手】 agy 1.4.2's own `agy
+models` output and 【strings】 agy 1.4.12's tier table. Report:
+`out/model-catalogue-3x/`.
 
 ---
 
-## The per-model budget (`internal/modelctx`, cycle `303-cascade-model-profiles`)
+## The per-model budget (`internal/features/models/ctx`, cycle `303-cascade-model-profiles`)
 
 Every model the clone builds a handle for carries a **window** and a
-**reserve**. `internal/modelctx.For(modelID)` returns both, and it reads
+**reserve**. `internal/features/models/ctx.For(modelID)` returns both, and it reads
 **two** sources, in this order:
 
 1. **The reference's own catalogue.** agy 1.4.8 embeds a
@@ -89,8 +102,8 @@ Every model the clone builds a handle for carries a **window** and a
    Mach-O) that carries one `CASCADE_USE_EXPERIMENT_CHECKPOINTER` payload
    per model family, the alias map folding the model ids onto those
    families, and the per-profile variant payloads. It is committed at
-   `internal/modelctx/testdata/model_profiles_1.4.8.json` and mirrored by
-   `internal/modelctx/profiles_1.4.8.go`.
+   `internal/features/models/ctx/testdata/model_profiles_1.4.8.json` and mirrored by
+   `internal/features/models/ctx/profiles_1.4.8.go`.
 2. **The server's catalogue**, as captured at 1.4.4
    (`docs/cycles/model-catalogue-argon-gate/fetchAvailableModels_1.4.4.json`)
    — the fallback for the models the embedded catalogue does not carry.
@@ -111,7 +124,7 @@ from the user's own `context_window` / `default_max_tokens`.
 The checkpoint configuration itself is mirrored too — the profile table, the
 alias map, the `claude-1m_840k` variant (an 840 000-token window for
 `MODEL_PLACEHOLDER_M400`), the validator (the reference's four messages,
-byte for byte) and the clamps — `internal/modelctx/validate.go`. The
+byte for byte) and the clamps — `internal/features/models/ctx/validate.go`. The
 **cascade runtime** (the planner/executor split, the steps, the trajectory)
 is still not implemented; see
 [`docs/guide/compaction.md`](compaction.md) and
@@ -126,7 +139,7 @@ variant is unreachable through `For()`.
 ---
 
 
-## The per-model marker: `supports_images` (`internal/models`, cycle `model-image-marker`)
+## The per-model marker: `supports_images` (`internal/features/models`, cycle `model-image-marker`)
 
 A model entry may say it takes pictures:
 
@@ -149,7 +162,7 @@ Three front-ends write it:
 
 | Front-end | How |
 |---|---|
-| `~/.config/openagy/providers.json` | the `supports_images` key — hand-edited |
+| `~/.openagy/providers.json` | the `supports_images` key — hand-edited |
 | `agy model add <id> --provider <p> --supports-images` | the flag; `--supports-images=false` states the opposite, and **not passing the flag keeps the file's value** |
 | the `/provider` TUI panel | the generic JSON editor writes the key like any other |
 
@@ -176,7 +189,7 @@ Report: `docs/cycles/cycle-331-model-image-marker/deliverable.md`.
 
 ---
 
-## The per-model attributes (`internal/models`, `internal/remotecontrol`, cycle `model-config-alignment`)
+## The per-model attributes (`internal/features/models`, `internal/remotecontrol`, cycle `model-config-alignment`)
 
 The image marker grew into a **set of per-model attributes**. The names are
 the reference's own — the `ClientModelConfig` proto (21 fields, field
@@ -266,7 +279,7 @@ The front-ends:
 
 | Front-end | How |
 |---|---|
-| `~/.config/openagy/providers.json` | the keys above — hand-edited |
+| `~/.openagy/providers.json` | the keys above — hand-edited |
 | `agy model add <id> --provider <p> --supported-mime-types … ` | the flags; **not passing a flag keeps the file's value**, and `--flag=false` states the opposite |
 | the `/provider` TUI panel | the generic JSON editor writes the keys like any other |
 
@@ -282,7 +295,7 @@ Report: `docs/cycles/cycle-333-model-config-alignment/deliverable.md`.
 
 ---
 
-## The per-model reasoning tiers (`internal/models`, cycle `model-reasoning-tiers`)
+## The per-model reasoning tiers (`internal/features/models`, cycle `model-reasoning-tiers`)
 
 A **tier** is the reasoning level a model runs at. The reference has one
 vocabulary for it — `low` `medium` `high` `xhigh` `max` — and it spells the
@@ -307,9 +320,9 @@ A model the operator configured has no such id, so it declares its tiers:
 | `reasoning_efforts` | the tiers the model **offers** — the closed set `low, medium, high, xhigh, max` |
 | `reasoning_effort` | the tier it runs at when nothing else says — also the OpenAI `reasoning_effort` hint on the wire |
 
-The canonical vocabulary lives in the leaf package `internal/models`
+The canonical vocabulary lives in the leaf package `internal/features/models`
 (`EffortLevels`, `IsEffortLevel`, `NormalizeEfforts`, `ValidateEfforts`);
-`internal/modelcatalog.ValidEfforts` is that same list.
+`internal/features/models/catalog.ValidEfforts` is that same list.
 
 ### The rows
 
@@ -365,9 +378,9 @@ Three transports carry it:
 
 | Transport | Where |
 |---|---|
-| the configured transport (`internal/backend/gateway_request.go`) | `backend.GatewayConfig.ReasoningEffort` → the body |
+| the configured transport (`internal/infra/backend/gateway/gateway_request.go`) | `backend.GatewayConfig.ReasoningEffort` → the body |
 | the PiG-native provider (`internal/piagentbridge/gatewayprovider_request.go`) | `ProviderConfig.ReasoningEffort` → the body |
-| the models package's provider (`internal/models/openai.go`) | the model's own `ReasoningEffort` |
+| the models package's provider (`internal/features/models/openai.go`) | the model's own `ReasoningEffort` |
 
 The **Anthropic** dialect has no such field, so the hint is dropped there:
 the Messages API spells its thinking budget differently.
@@ -405,19 +418,20 @@ Report: `docs/cycles/cycle-335-model-reasoning-tiers/deliverable.md`.
 
 ---
 
-## Editing the configuration (`internal/models/edit.go`, cycle `provider-model-editor`)
+## Editing the configuration (`internal/features/models/edit.go`, cycle `provider-model-editor`)
 
-`~/.config/openagy/providers.json` has **one writer** and **three front-ends**.
+`~/.openagy/providers.json` has **one writer** and **three front-ends**.
 
 | File | What it is |
 |---|---|
-| `internal/models/edit.go` | `Editor` — `List` / `PutProvider` / `DeleteProvider` / `PutModel` / `DeleteModel`, the lock (`<path>.lock`, `O_CREATE|O_EXCL`, 5 s wait, 30 s stale) and the atomic `0600` write |
-| `internal/models/jsonedit.go` | the ordered JSON object: a write replaces the one field that changed, so the key order and the unknown fields survive |
-| `internal/models/render.go` | the shared renderers (`SortedProviderIDs`, `MaskAPIKey`, `RenderProviderTable`, `RenderModelTable`, `RenderProviderDetail`, `RenderModelDetail`) |
-| `internal/models/verify.go` | the verification probe: one request against the endpoint, classified by the HTTP status |
-| `internal/models/errors.go` | `UpstreamError` / `UpstreamStatus` — the typed upstream failure (the message is unchanged: `upstream 401: …`) |
-| `internal/cli/provider_cmds.go` | the hidden `agy provider` / `agy model` subcommands — **the only** registry CLI since cycle `wrapper-merge` (`providers` is its plural alias) |
-| `internal/cliapp/slash_panel_provider.go` | the `/provider` TUI panel |
+| `internal/features/models/edit.go` | `Editor` — `List` / `PutProvider` / `DeleteProvider` / `PutModel` / `DeleteModel`, the lock (`<path>.lock`, `O_CREATE|O_EXCL`, 5 s wait, 30 s stale) and the atomic `0600` write |
+| `internal/features/models/jsonedit.go` | the ordered JSON object: a write replaces the one field that changed, so the key order and the unknown fields survive |
+| `internal/features/models/render.go` | the shared renderers (`SortedProviderIDs`, `MaskAPIKey`, `RenderProviderTable`, `RenderModelTable`, `RenderProviderDetail`, `RenderModelDetail`) |
+| `internal/features/models/verify.go` | the verification probe: one request against the endpoint, classified by the HTTP status |
+| `internal/features/models/errors.go` | `UpstreamError` / `UpstreamStatus` — the typed upstream failure (the message is unchanged: `upstream 401: …`) |
+| `internal/cli/provider_cmds.go` | the `pigasus provider` / `pigasus model` subcommands — **the only** registry CLI since cycle `wrapper-merge` (`providers` is its plural alias) |
+| `internal/ui/views/providerpanel/` | the `/provider` TUI panel: its state, its rows, its keys and its writes |
+| `internal/cliapp/provider_host.go` | the `/provider` panel's seams: the way out, the verification probe and the writes |
 | `cmd/openagy-models/main.go` | the legacy tool, repointed at the provider-centric file |
 
 Six things to know:
@@ -431,13 +445,14 @@ Six things to know:
 - **The mutated child must be re-attached to its parent** (`providers.Set(id, obj)`
   *then* `doc.Set("providers", providers)`). A `DeleteModel` that forgets
   the second call reports success and changes nothing — the bug class that
-  `internal/models/edit_test.go` exists to catch.
-- **`provider` and `model` are hidden subcommands.** `agy --help` lists the
-  reference's twelve visible subcommands and nothing else, and `agy models`'
-  output is byte-pinned — so the commands that *change* the configuration
-  live under their own names. The identifier may come before or after the
-  flags (`splitPositionalID` knows which flags take a value).
-- **`/provider` is invocable but *not* listed.** `internal/tuilib.DefaultSlashCommands`
+  `internal/features/models/edit_test.go` exists to catch.
+- **`provider` and `model` are the clone's own visible subcommands.** The
+  reference's `agy --help` lists twelve subcommands and neither of them; the
+  clone's lists eighteen, and the two that *change* the configuration are
+  among them (they became visible in commit `78f4a3b9`). The identifier may
+  come before or after the flags (`splitPositionalID` knows which flags take
+  a value).
+- **`/provider` is invocable but *not* listed.** `internal/app/prompt/agyprompt.DefaultSlashCommands`
   holds the built-in slash-command catalogue (**102** at the time of writing —
   the v1.3.5 capture pinned 99, the 1.4.x catalogue grew), and the reference's
   own "↓ 94 more" hint is byte-pinned, so the panel is routed through

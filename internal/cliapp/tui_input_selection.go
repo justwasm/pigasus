@@ -16,13 +16,12 @@
 package cliapp
 
 import (
-	"strings"
-	"unicode/utf8"
+	"github.com/justwasm/pigasus/internal/ui/tuilib"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/charmbracelet/x/ansi"
-	"github.com/justwasm/pigasus/internal/clipboard"
-	"github.com/justwasm/pigasus/internal/tuiviewport"
+	"github.com/justwasm/pigasus/internal/features/tools/clipboard"
+	"github.com/justwasm/pigasus/internal/ui/foundations/inputselection"
+	"github.com/justwasm/pigasus/internal/ui/panelregistry"
 )
 
 // isInputY reports whether the screen row y falls within the input field.
@@ -43,113 +42,28 @@ func (m *runMode) inputLineCount() int {
 
 // hasInputSelection reports whether a non-empty selection is active in the input field.
 func (m *runMode) hasInputSelection() bool {
-	return m.inputSelStart != m.inputSelEnd
-}
-
-// inputSelectionRange returns normalized [start, end] byte offsets in m.input.Value()
-// such that start <= end.
-func (m *runMode) inputSelectionRange() (start, end int) {
-	if m.inputSelStart <= m.inputSelEnd {
-		return m.inputSelStart, m.inputSelEnd
-	}
-	return m.inputSelEnd, m.inputSelStart
-}
-
-// clearInputSelection resets the input field selection state.
-func (m *runMode) clearInputSelection() {
-	m.inputSelDragging = false
-	m.inputSelStart = 0
-	m.inputSelEnd = 0
-}
-
-func findInputLineSpan(val string, targetLine int) (int, int) {
-	lineStart := 0
-	curLine := 0
-	for i := 0; i < len(val); i++ {
-		if curLine == targetLine {
-			lineStart = i
-			break
-		}
-		if val[i] == '\n' {
-			curLine++
-			lineStart = i + 1
-		}
-	}
-	lineEnd := len(val)
-	if nl := strings.IndexByte(val[lineStart:], '\n'); nl >= 0 {
-		lineEnd = lineStart + nl
-	}
-	return lineStart, lineEnd
-}
-
-func byteOffsetInLine(lineText string, targetCol int) int {
-	if targetCol <= 0 {
-		return 0
-	}
-	curCol := 0
-	byteOff := 0
-	for byteOff < len(lineText) {
-		r, size := utf8.DecodeRuneInString(lineText[byteOff:])
-		w := ansi.StringWidth(string(r))
-		if curCol+w > targetCol {
-			// If click lands in the second half of a wide rune, advance past it.
-			if targetCol >= curCol+w/2+1 {
-				byteOff += size
-			}
-			break
-		}
-		curCol += w
-		byteOff += size
-	}
-	return byteOff
+	return m.store.InputSelStart != m.store.InputSelEnd
 }
 
 // inputOffsetAt maps screen coordinate (x, y) to a byte offset within m.input.Value().
+//
+// The arithmetic is the inputselection package's; the host supplies the
+// values it cannot know.
 func (m *runMode) inputOffsetAt(x, y int) int {
-	val := m.input.Value()
-	if len(val) == 0 {
-		return 0
-	}
-	lineCount := m.inputLineCount()
-	lineIdx := y - m.promptScreenY
-	if lineIdx < 0 {
-		return 0
-	}
-	if lineIdx >= lineCount {
-		return len(val)
-	}
-
-	lineStart, lineEnd := findInputLineSpan(val, lineIdx)
-	lineText := val[lineStart:lineEnd]
-	// The prompt occupies 2 display cells ("> " on line 0, "  " on continuation lines).
-	targetCol := x - 2
-	return lineStart + byteOffsetInLine(lineText, targetCol)
+	return inputselection.OffsetAt(m.input.Value(), m.inputLineCount(), m.promptScreenY, x, y)
 }
 
 // setInputCursorOffset moves the textarea cursor to the given byte offset in m.input.Value().
+//
+// The arithmetic is the inputselection package's; the host supplies the
+// value it cannot know.
 func (m *runMode) setInputCursorOffset(offset int) {
-	val := m.input.Value()
-	if offset < 0 {
-		offset = 0
-	}
-	if offset > len(val) {
-		offset = len(val)
-	}
-	targetLine := 0
-	lineStart := 0
-	for i := 0; i < offset; i++ {
-		if val[i] == '\n' {
-			targetLine++
-			lineStart = i + 1
-		}
-	}
-	targetCol := utf8.RuneCountInString(val[lineStart:offset])
-
+	line, col := inputselection.CursorPosition(m.input.Value(), offset)
 	m.input.MoveToBegin()
-	for l := 0; l < targetLine; l++ {
+	for l := 0; l < line; l++ {
 		m.input.CursorDown()
 	}
-	m.input.SetCursorColumn(targetCol)
+	m.input.SetCursorColumn(col)
 }
 
 // selectAllInput selects all text in the input field, moves cursor to the end,
@@ -159,153 +73,87 @@ func (m *runMode) selectAllInput() (tea.Cmd, bool) {
 	if len(val) == 0 {
 		return nil, false
 	}
-	m.inputSelStart = 0
-	m.inputSelEnd = len(val)
+	m.store.InputSelStart = 0
+	m.store.InputSelEnd = len(val)
 	m.setInputCursorOffset(len(val))
-	_ = copyToClipboard(val)
+	_ = clipboard.Write(val)
 	return m.copySelectionCmd(val), true
 }
 
 // deleteInputSelection deletes the selected substring from m.input and clears selection.
+//
+// The value arithmetic is the inputselection package's; the host supplies
+// the value and the range, and owns the textarea's write.
 func (m *runMode) deleteInputSelection() {
 	if !m.hasInputSelection() {
 		return
 	}
-	start, end := m.inputSelectionRange()
+	start, end := m.store.InputSelectionRange()
 	val := m.input.Value()
-	if start <= len(val) && end <= len(val) {
-		newVal := val[:start] + val[end:]
+	if newVal, ok := inputselection.DeleteRange(val, start, end); ok {
 		m.input.SetValue(newVal)
 		m.setInputCursorOffset(start)
 	}
-	m.clearInputSelection()
+	m.store.ResetInputSelection()
 }
 
 // replaceInputSelection replaces the selected substring with replacement and clears selection.
+//
+// The value arithmetic is the inputselection package's; the host supplies
+// the value and the range, and owns the textarea's write.
 func (m *runMode) replaceInputSelection(replacement string) {
 	if !m.hasInputSelection() {
 		return
 	}
-	start, end := m.inputSelectionRange()
+	start, end := m.store.InputSelectionRange()
 	val := m.input.Value()
-	if start <= len(val) && end <= len(val) {
-		newVal := val[:start] + replacement + val[end:]
+	if newVal, ok := inputselection.ReplaceRange(val, start, end, replacement); ok {
 		m.input.SetValue(newVal)
 		m.setInputCursorOffset(start + len(replacement))
 	}
-	m.clearInputSelection()
-}
-
-func highlightSingleInputLine(line, val string, lineStart, lineEnd, start, end int) string {
-	selStartInLine := start
-	if selStartInLine < lineStart {
-		selStartInLine = lineStart
-	}
-	selEndInLine := end
-	if selEndInLine > lineEnd {
-		selEndInLine = lineEnd
-	}
-
-	if selStartInLine < selEndInLine {
-		lineText := val[lineStart:lineEnd]
-		offsetFromLine := selStartInLine - lineStart
-		offsetToLine := selEndInLine - lineStart
-
-		prefixText := lineText[:offsetFromLine]
-		selText := lineText[offsetFromLine:offsetToLine]
-
-		fromCell := 2 + ansi.StringWidth(prefixText)
-		toCell := fromCell + ansi.StringWidth(selText)
-
-		return applySelectionHighlightToRow(line, fromCell, toCell)
-	}
-	return line
+	m.store.ResetInputSelection()
 }
 
 // applyInputSelectionHighlight applies reverse-video styling to the selected
 // range within the rendered inputView string.
+//
+// The arithmetic is the inputselection package's; the host supplies the
+// selection's range and the value it is a range in.
 func (m *runMode) applyInputSelectionHighlight(inputView string) string {
-	start, end := m.inputSelectionRange()
-	if start >= end {
-		return inputView
-	}
-	val := m.input.Value()
-	if start >= len(val) {
-		return inputView
-	}
-	if end > len(val) {
-		end = len(val)
-	}
-
-	lines := strings.Split(inputView, "\n")
-	hasTrailingNewline := strings.HasSuffix(inputView, "\n")
-	if hasTrailingNewline && len(lines) > 0 && lines[len(lines)-1] == "" {
-		lines = lines[:len(lines)-1]
-	}
-
-	lineStart := 0
-	for lineIdx := 0; lineIdx < len(lines); lineIdx++ {
-		lineEnd := len(val)
-		if nl := strings.IndexByte(val[lineStart:], '\n'); nl >= 0 {
-			lineEnd = lineStart + nl
-		}
-
-		lines[lineIdx] = highlightSingleInputLine(lines[lineIdx], val, lineStart, lineEnd, start, end)
-
-		if lineEnd < len(val) {
-			lineStart = lineEnd + 1
-		} else {
-			lineStart = len(val)
-		}
-	}
-
-	res := strings.Join(lines, "\n")
-	if hasTrailingNewline {
-		res += "\n"
-	}
-	return res
-}
-
-// applySelectionHighlightToRow highlights the cell range [fromCell, toCell] in reverse video.
-func applySelectionHighlightToRow(row string, fromCell, toCell int) string {
-	return tuiviewport.ApplySelectionHighlightToRow(row, fromCell, toCell)
+	start, end := m.store.InputSelectionRange()
+	return inputselection.ApplyHighlight(inputView, m.input.Value(), start, end)
 }
 
 var clipboardReadText = clipboard.Read
 
-// normalizePaste strips the CR that a Windows-style clipboard or a
-// terminal may include.
-func normalizePaste(s string) string {
-	return clipboard.NormalizeText(s)
-}
-
 // insertPastedText is the single insertion point for both the terminal's
 // bracketed paste and ctrl+v. It never submits.
 func (m *runMode) insertPastedText(s string) tea.Cmd {
-	s = normalizePaste(s)
+	s = clipboard.NormalizeText(s)
 	if s == "" {
 		return nil
 	}
-	if m.panel.kind == panelRename {
-		updated, cmd := m.panel.textInput.Update(tea.PasteMsg{Content: s})
-		m.panel.textInput = updated
-		return cmd
+	if m.panel.kind == panelregistry.Rename {
+		// Cycle 381: the /rename panel owns its input, so the paste
+		// goes through the panel.
+		return m.renamePanel().HandlePaste(s)
 	}
-	if m.helpMode || m.panel.kind != panelNone {
+	if m.panel.kind == panelregistry.Provider {
+		return m.providerPanel().HandlePaste(s)
+	}
+	if m.helpPanel.Active() || m.panel.kind != panelregistry.None {
 		return nil
 	}
-	if m.resumeMode {
-		m.resumeQuery += s
-		m.resumeWindow, m.resumeCursor = 0, 0
+	if m.resumePicker.Active() {
+		m.resumePicker.TypeText(s)
 		return nil
 	}
 	if m.hasInputSelection() {
 		m.deleteInputSelection()
 	}
 	m.input.InsertString(s)
-	m.picker.Update([]rune(firstLine(m.input.Value())))
-	m.atFileDropdown.Update(m.input.Value(), m.cwd)
+	m.picker.Update([]rune(tuilib.FirstLine(m.input.Value())))
+	m.atFilePicker.Update()
 	m.clearEligibilityNotice()
 	return nil
 }
-

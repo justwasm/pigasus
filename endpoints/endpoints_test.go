@@ -82,6 +82,12 @@ func TestCurrentReturnsTheCompiledInDefaults(t *testing.T) {
 	if got.AutoUpdater != DefaultAutoUpdater {
 		t.Errorf("AutoUpdater = %q, want %q", got.AutoUpdater, DefaultAutoUpdater)
 	}
+	if got.PollSignalingURL() != DefaultPollSignaling {
+		t.Errorf("PollSignalingURL = %q, want %q", got.PollSignalingURL(), DefaultPollSignaling)
+	}
+	if got.SendSignalingURL() != DefaultSendSignaling {
+		t.Errorf("SendSignalingURL = %q, want %q", got.SendSignalingURL(), DefaultSendSignaling)
+	}
 	if len(got.OriginPatterns) != len(DefaultOriginPatterns) {
 		t.Errorf("OriginPatterns = %v, want %v", got.OriginPatterns, DefaultOriginPatterns)
 	}
@@ -355,9 +361,59 @@ func TestNamesCoversEveryEndpoint(t *testing.T) {
 		CloudCode, CloudCodeProd, OAuth2Token, OAuth2Auth, OAuth2Device,
 		OAuthRedirect, UserInfo, WebChannel, GenerativeLanguage,
 		CompanionOrigin, OriginPatterns, Terms, Privacy, Marketplace,
+		AutoUpdater, PollSignaling, SendSignaling,
 	} {
 		if !seen[key] {
 			t.Errorf("the name %q is not in the table", key)
 		}
+	}
+}
+
+// TestSignalingURLsDeriveFromWebChannel pins that poll and send signaling URLs
+// derive from the tunnel's own host and can be overridden explicitly.
+func TestSignalingURLsDeriveFromWebChannel(t *testing.T) {
+	cases := []struct {
+		webChannel    string
+		wantPoll      string
+		wantSend      string
+	}{
+		{DefaultWebChannel, DefaultPollSignaling, DefaultSendSignaling},
+		{
+			"http://127.0.0.1:9000/v1internal:connectInstanceV2",
+			"http://127.0.0.1:9000/v1internal:pollSignalingMessages",
+			"http://127.0.0.1:9000/v1internal:sendSignalingMessage",
+		},
+		{
+			"https://mesh-gateway.example.com/tunnel",
+			"https://mesh-gateway.example.com/v1internal:pollSignalingMessages",
+			"https://mesh-gateway.example.com/v1internal:sendSignalingMessage",
+		},
+		{"not-a-url", DefaultPollSignaling, DefaultSendSignaling},
+		{"", DefaultPollSignaling, DefaultSendSignaling},
+	}
+	for _, tc := range cases {
+		s := Set{WebChannel: tc.webChannel}
+		if got := s.PollSignalingURL(); got != tc.wantPoll {
+			t.Errorf("Set{WebChannel: %q}.PollSignalingURL() = %q, want %q", tc.webChannel, got, tc.wantPoll)
+		}
+		if got := s.SendSignalingURL(); got != tc.wantSend {
+			t.Errorf("Set{WebChannel: %q}.SendSignalingURL() = %q, want %q", tc.webChannel, got, tc.wantSend)
+		}
+	}
+
+	// Explicit override in config takes precedence over WebChannel derivation.
+	writeConfig(t, `{
+		"endpoints": {
+			"webchannel": "http://127.0.0.1:8080/v1internal:connectInstanceV2",
+			"poll_signaling": "http://127.0.0.1:9999/customPoll",
+			"send_signaling": "http://127.0.0.1:9999/customSend"
+		}
+	}`)
+	overridden := Current()
+	if overridden.PollSignalingURL() != "http://127.0.0.1:9999/customPoll" {
+		t.Errorf("PollSignalingURL = %q, want customPoll", overridden.PollSignalingURL())
+	}
+	if overridden.SendSignalingURL() != "http://127.0.0.1:9999/customSend" {
+		t.Errorf("SendSignalingURL = %q, want customSend", overridden.SendSignalingURL())
 	}
 }

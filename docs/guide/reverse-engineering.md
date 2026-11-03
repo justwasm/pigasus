@@ -41,7 +41,7 @@ gofmt -l .        # clean
 npm install -g rea-agents@6.4.0        # bare install gets stale 4.0.1
 export JAVA_HOME=<jdk21>
 export GHIDRA_INSTALL_DIR=<ghidra_12.1.4_PUBLIC>
-export REA_GHIDRA_SEED_FILE=$PWD/out/seeds.txt
+export REA_GHIDRA_SEED_FILE=$PWD/out/local-macos/seeds/seeds.txt
 rea doctor --provider ghidra --json     # must be all-green
 rea analyze <binary> --provider ghidra --json
 ```
@@ -60,7 +60,7 @@ machine, and none of them produced an answer:
 | `8G` (`rea analyze`) | ran until externally cancelled — never returned a result |
 | `10G` (`rea --mcp`) | survived **621 s** (the seeds alone need ~10 min) then the MCP server exited `rc=0` without answering |
 
-The real constraint is the wrapper's time budget versus the ~11 min that 161,286 seeds
+The real constraint is the wrapper's time budget versus the ~11 min that 168,548 seeds
 take to apply, at any heap size. The orphan is the nastiest part: after the wrapper gives
 up it leaves a JVM burning CPU and ~1.3 GB in
 `/var/folders/*/T/rea-ghidra-*`. Check `pgrep -f AnalyzeHeadless` and clear it with
@@ -75,12 +75,12 @@ export JAVA_HOME=/opt/homebrew/opt/openjdk@21
 export GHIDRA_INSTALL_DIR=~/tools/ghidra_12.1.4_PUBLIC
 REPO=/Users/gear/Documents/GitHub/openagy
 SEEDS=$REPO/out/local-macos/seeds/seeds.txt
-SCRIPTS=$REPO/out/local-macos/ghidra-scripts
+SCRIPTS=$REPO/scripts/re/ghidra-scripts
 PROJ=$REPO/out/local-macos/proj
 mkdir -p "$PROJ"
 
 # ⓪ the priority list — MUST be built from the same seeds.txt as step ①
-python3 "$REPO/out/local-macos/build_priority.py" "$SEEDS" \
+python3 "$REPO/scripts/re/build_priority.py" "$SEEDS" \
   > "$REPO/out/local-macos/priority-funcs.txt"
 
 # ① import + seed  (1.5 min at agy 1.4.7, ~11 min at 1.4.6)
@@ -99,8 +99,14 @@ MAXMEM=8G VMARGS="-XX:ParallelGCThreads=4 -XX:CICompilerCount=4" \
   -scriptPath "$SCRIPTS" -postScript DecompilePriority.java
 
 # ③ the committed reports
-python3 "$REPO/out/local-macos/build_reports.py"   # prints "N/N decompiled"
+python3 "$REPO/scripts/re/build_reports.py"   # prints "N/N decompiled"
 ```
+
+**The pipeline's scripts live in `scripts/re/`.** `build_priority.py`,
+`build_reports.py`, `build_plan.py`, `plan-local.jsonl` and `ghidra-scripts/`
+moved out of `out/local-macos/` — `out/` holds *results*, and a script is a
+program. Their outputs still go to `out/local-macos/` (`priority-funcs.txt`,
+`dec/`, `proj/`, the reports), so the split is by kind, not by run.
 
 **Step ⓪ is not optional, and the three files it feeds are coupled by address.**
 `DecompilePriority.java` names each output `dec/<HEX>_<stem>.c` from the address in
@@ -139,9 +145,12 @@ go build -o /tmp/embedextract ./devutils/embedextract
 
 # write it out: -embed-out for the //go:embed file systems,
 #               -zip-out for one embedded ZIP archive (-zip-index, 0-based)
+# the extraction target is a scratch directory: the clone already carries
+# both payloads (internal/rcfrontend/assets/, internal/app/prompt/agytemplates/),
+# so the committed copies under out/ are gone.
 /tmp/embedextract -bin ~/.local/bin/agy \
-  -embed-out out/ide-language-server/embed-fs \
-  -zip-out  out/ide-language-server/frontend -zip-index 1
+  -embed-out /tmp/embed-fs \
+  -zip-out  /tmp/frontend -zip-index 1
 ```
 
 Two mechanisms, both **self-verifying**:
@@ -172,12 +181,12 @@ Output and findings: `out/ide-language-server/embedded-assets.md`.
 
 **The addresses in the shipped `plan-agy.jsonl` are stale.** They belong to the build the
 tutorial was written against; `agy` 1.3.4 shifts all of them (e.g. `waitForEligibility`
-moved `0x10260fc60` → `0x10262f660`). Use `out/local-macos/build_plan.py`, which resolves
+moved `0x10260fc60` → `0x10262f660`). Use `scripts/re/build_plan.py`, which resolves
 names → addresses from a fresh `seeds.txt` instead of hardcoding them:
 
 ```bash
-python3 out/local-macos/build_plan.py out/local-macos/seeds/seeds.txt ~/.local/bin/agy \
-  > out/local-macos/plan-local.jsonl
+python3 scripts/re/build_plan.py out/local-macos/seeds/seeds.txt ~/.local/bin/agy \
+  > scripts/re/plan-local.jsonl
 ```
 
 It prints any unresolved targets to stderr — that list must be empty.
@@ -259,8 +268,8 @@ prefix — it does not trust `_summary.txt`.
 
 | File | Format |
 |---|---|
-| `out/seeds/seeds.txt`, `out/decompile/priority-funcs.txt` | `0xADDR<TAB>function<TAB>NAME`. REA seed format: ≤ 1,000,000 entries, ≤ 32 MiB, names must contain no whitespace. Also accepts `label` / `code` kinds; this project only emits `function`. |
-| `out/seeds/funcs.txt` | `ADDR NAME` — no `0x` prefix, single space. |
+| `out/local-macos/seeds/seeds.txt`, `out/decompile/priority-funcs.txt` | `0xADDR<TAB>function<TAB>NAME`. REA seed format: ≤ 1,000,000 entries, ≤ 32 MiB, names must contain no whitespace. Also accepts `label` / `code` kinds; this project only emits `function`. |
+| `out/local-macos/seeds/funcs.txt` | `ADDR NAME` — no `0x` prefix, single space. |
 | `out/decompile/xrefs.txt` | `from_addr<TAB>from_name<TAB>to_addr<TAB>to_name<TAB>count`, `#` comment lines allowed. |
 | `out/decompile/call-graph.json` | `{metadata{...}, nodes[{addr,name,package,in_priority}], edges[]}`. Renderable with Graphviz via `call-graph.dot`. |
 | Decompiled `.c` header | `// Source: 0x<hex>  <name>` / `// Decompiled at: <date>` / `// Signature: <sig>` |
@@ -269,6 +278,14 @@ prefix — it does not trust `_summary.txt`.
 **Sanity check on any seed work:** the canonical output is 155,184 lines / 18,013,123 B
 with SHA-256 `e1504128b7661974855e2f4009a4c6c26ee53e2f64ba587bb7b8cf7b8ba8aa3a`, recorded in
 `out/seeds/SHA256`. If your run differs, something about the pclntab location changed.
+
+That digest belongs to the **Linux/ELF 1.3.3** seed set, the one `out/seeds/seeds.txt`
+used to hold. The file itself is retired — 18 MB of bulk for a binary this machine no
+longer has, and the set is regenerable — but the digest stays, because it is the
+*reproducibility* claim: `rea-go-seeds` emits byte-identical output across Go 1.22.10 /
+1.26.2 / 1.27.2. The **tracked** seed set is `out/local-macos/seeds/seeds.txt` (the
+macOS/1.4.11 one, 168,548 names, a registered drift-lock artefact); its own digest is
+in `internal/infra/referencedrift/reference.lock.json`.
 
 ---
 

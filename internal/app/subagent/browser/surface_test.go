@@ -8,18 +8,19 @@ import (
 	"testing"
 
 	"github.com/justwasm/pigasus/browsercdp"
-	"github.com/justwasm/pigasus/internal/tools"
+	"github.com/justwasm/pigasus/internal/app/tools/browser"
+	"github.com/justwasm/pigasus/internal/app/tools/surface"
 )
 
 // TestSurfaceOfTellsTheTwoSurfacesApart pins how a tool set is
 // recognised: the bridge's tab listing is the marker, and the managed
 // surface has no such tool.
 func TestSurfaceOfTellsTheTwoSurfacesApart(t *testing.T) {
-	managed := BrowserTools(tools.Catalog(t.TempDir()))
+	managed := BrowserTools(surface.Catalog(t.TempDir()))
 	if got := SurfaceOf(managed); got != SurfaceManaged {
 		t.Errorf("SurfaceOf(managed) = %v, want the managed surface", got)
 	}
-	live := BridgeTools(tools.BridgeCatalog())
+	live := BridgeTools(browser.BridgeCatalog())
 	if got := SurfaceOf(live); got != SurfaceLive {
 		t.Errorf("SurfaceOf(live) = %v, want the live surface", got)
 	}
@@ -28,9 +29,9 @@ func TestSurfaceOfTellsTheTwoSurfacesApart(t *testing.T) {
 // TestBridgeToolsAreTheProjectsTools pins the live surface's tool set:
 // the bridge's own tools, and nothing of the managed surface.
 func TestBridgeToolsAreTheProjectsTools(t *testing.T) {
-	got := BridgeTools(tools.BridgeCatalog())
-	if len(got) != len(tools.BridgeToolNames) {
-		t.Fatalf("BridgeTools returned %d tools, want %d", len(got), len(tools.BridgeToolNames))
+	got := BridgeTools(browser.BridgeCatalog())
+	if len(got) != len(browser.BridgeToolNames) {
+		t.Fatalf("BridgeTools returned %d tools, want %d", len(got), len(browser.BridgeToolNames))
 	}
 	for _, tool := range got {
 		if tool.Name() == "browser_click_element" {
@@ -85,12 +86,12 @@ func TestLiveSurface(t *testing.T) {
 		t.Fatalf("CurrentSurface() = %v, want the live surface", got)
 	}
 	got := Tools(nil)
-	if len(got) != len(tools.BridgeToolNames) {
-		t.Fatalf("the live tool set holds %d tools, want %d", len(got), len(tools.BridgeToolNames))
+	if len(got) != len(browser.BridgeToolNames) {
+		t.Fatalf("the live tool set holds %d tools, want %d", len(got), len(browser.BridgeToolNames))
 	}
 
 	// One real call: the tabs of the user's own browser.
-	tool, ok := tools.BridgeCatalog().Get("tabs_context_mcp")
+	tool, ok := browser.BridgeCatalog().Get("tabs_context_mcp")
 	if !ok {
 		t.Fatal("the bridge catalogue does not carry tabs_context_mcp")
 	}

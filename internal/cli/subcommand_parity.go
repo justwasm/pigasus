@@ -22,6 +22,7 @@ package cli
 
 import (
 	"fmt"
+	"github.com/justwasm/pigasus/internal/features/models/catalog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -55,26 +56,6 @@ func flagName(a string) string {
 	return a
 }
 
-// UsageLogo returns the usage block for the logo subcommand.
-//
-// The `logo` subcommand is the clone's own — the reference has no such
-// command — so the block grows with it: `--seasonal` and `--scene`
-// print the seasonal banner art, the five scenes the reference's
-// Halloween banner draws at startup.
-func UsageLogo(n string) string {
-	return "Usage: " + n + " logo [flags]\n" +
-		"\n" +
-		"Print the startup banner logo\n" +
-		"\n" +
-		"Flags:\n" +
-		"  --flip      Transform to apply: none|both|ref|vert|row-rev|horiz|invert (default \"none\")\n" +
-		"  -h          Show help\n" +
-		"  --help      Show help\n" +
-		"  --scene     Seasonal scene to print: pumpkin|moon|ghost|witch-hat|bat|all|random\n" +
-		"  --seasonal  Print a seasonal banner scene, the way the reference draws it at startup\n" +
-		"  --style     Style of logo: default|simple (or half|block)\n"
-}
-
 // ---- models ---------------------------------------------------------------
 
 func usageModels(n string) string {
@@ -85,45 +66,6 @@ func usageModels(n string) string {
 		"Flags:\n" +
 		"  -h      Show help\n" +
 		"  --help  Show help\n"
-}
-
-// ModelEntry is one row of the reference's model catalogue.
-type ModelEntry struct{ ID, Label string }
-
-// ReferenceModels is the catalogue `agy models` prints. The reference also
-// uses it to decide whether a configured model is still available: a model
-// that is not in the catalogue triggers the "is no longer available" warning
-// and a fallback to Gemini 3.8 Flash (High).
-//
-// It is the reference's own catalogue and nothing else — the six models the
-// CloudCode server advertises, plus the two Claude 5.5 entries when the
-// account's project can reach them. Models the user added are not here:
-// they come from the user's provider configuration, and ModelCatalogue
-// merges the two.
-//
-// AGY 1.3.6 changelog line 1: "Added Claude Opus 5.5 and Claude Sonnet
-// 5.5 for Application Default Credentials (AGY_ADC_AUTH) sign-in. Claude
-// models now appear in /model only if your Google Cloud project can use
-// them." The two 5.5 entries are kept in the static table for downstream
-// lookups (so `agy --model claude-opus-5-5` still resolves when the gate
-// is open) and conditionally dropped from the returned slice via
-// claude55Available() — see claude55.go for the gate's predicate.
-func ReferenceModels() []ModelEntry {
-	out := []ModelEntry{
-		{"gemini-3.8-flash-high", "Gemini 3.8 Flash (High)"},
-		{"gemini-3.8-flash-medium", "Gemini 3.8 Flash (Medium)"},
-		{"gemini-3.8-flash-low", "Gemini 3.8 Flash (Low)"},
-		{"claude-sonnet-4-6", "Claude Sonnet 4.6 (Thinking)"},
-		{"claude-opus-4-6-thinking", "Claude Opus 4.6 (Thinking)"},
-		{"gpt-oss-120b-medium", "GPT-OSS 120B (Medium)"},
-	}
-	if Claude55Available() {
-		out = append(out,
-			ModelEntry{"claude-opus-5-5", "Claude Opus 5.5"},
-			ModelEntry{"claude-sonnet-5-5", "Claude Sonnet 5.5"},
-		)
-	}
-	return out
 }
 
 func runModelsParity(j *JetskiCLI, args []string) error {
@@ -150,7 +92,7 @@ func runModelsParity(j *JetskiCLI, args []string) error {
 	// a plain redirect of agy 1.4.5 both put "Fetching available models..."
 	// on stderr, and leave stdout carrying nothing but the catalogue rows.
 	fmt.Fprintln(j.ErrOut, "Fetching available models...")
-	return writeModelTable(j.Out, ModelCatalogue())
+	return writeModelTable(j.Out, catalog.ModelCatalogue())
 }
 
 // legacySignedIn reports whether the v1.3.5 binary would consider the user

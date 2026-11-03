@@ -4,7 +4,7 @@ import (
 	"flag"
 	"strings"
 
-	"github.com/justwasm/pigasus/internal/modelcatalog"
+	modelcatalog "github.com/justwasm/pigasus/internal/features/models/catalog"
 )
 
 // PrintSlashModels prints the effective model as "<slug>\t<label>".

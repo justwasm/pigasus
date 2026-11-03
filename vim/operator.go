@@ -265,35 +265,23 @@ func (s *State) paste(after bool) bool {
 	return true
 }
 
-// replaceChar implements r<x>: overwrite up to count clusters starting
-// at the cursor with arg. A short line consumes only what is there.
-func (s *State) replaceChar(arg rune, count int) bool {
-	if arg == 0 || count < 1 {
+// replaceChar implements r<x>: overwrite the character under the cursor
+// with arg.
+func (s *State) replaceChar(arg rune) bool {
+	if arg == 0 {
 		return false
 	}
 	rl := s.lineRunes(s.Row)
 	if s.Col >= len(rl) {
 		return false
 	}
-	end := s.Col
-	replaced := 0
-	for replaced < count && end < len(rl) {
-		ne := clusterEndCol(s.Lines[s.Row], end)
-		if ne <= end {
-			break
-		}
-		end = ne
-		replaced++
-	}
-	if replaced == 0 {
+	end := clusterEndCol(s.Lines[s.Row], s.Col)
+	if end <= s.Col {
 		return false
 	}
 	s.pushUndo(false)
 	head := append([]rune{}, rl[:s.Col]...)
-	mid := make([]rune, replaced)
-	for i := range mid {
-		mid[i] = arg
-	}
+	mid := []rune{arg}
 	s.Lines[s.Row] = string(append(append(head, mid...), rl[end:]...))
 	s.clampCursor()
 	s.desiredCol = s.Col

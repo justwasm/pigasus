@@ -12,11 +12,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/justwasm/pigasus/internal/backend"
-	// Termux/Android: /etc/resolv.conf points at a dead loopback
-	// nameserver, so the default upstream would never resolve.
+	_ "github.com/justwasm/pigasus/dns"
 	"github.com/justwasm/pigasus/endpoints"
-	_ "github.com/justwasm/pigasus/internal/dns"
+	"github.com/justwasm/pigasus/internal/core/backend"
 )
 
 var knownModels = []modelInfo{

@@ -6,7 +6,9 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/justwasm/pigasus/internal/keybind"
+	"github.com/justwasm/pigasus/internal/ui/editor/keybind"
+	"github.com/justwasm/pigasus/internal/ui/panelregistry"
+	uirows "github.com/justwasm/pigasus/internal/ui/rows"
 )
 
 // altKeyFire records one synthesised alt+letter dispatch.
@@ -19,37 +21,14 @@ type altKeyFire struct {
 func (m *runMode) altDispatchAction(letter rune, action string) {
 	m.altKeyFires = append(m.altKeyFires, altKeyFire{Letter: letter, Action: action})
 	m.response = append(m.response,
-		cWarningBlueOpen+"  ⎿  "+cWarningBlueClose+
-			cDimGrayOpen+"alt+"+string(letter)+" → "+action+cDimGrayClose)
+		uirows.NoticeDim("alt+"+string(letter)+" → "+action))
 }
 
-// handleEscKey runs the bare-Esc branch: dismiss help, dismiss
-// picker, clear input, dismiss the head announcement, or absorb
-// silently. Returns (cmd, true) when the Esc was consumed.
+// handleEscKey runs the bare-Esc branch: delegates to handleEscKeyMsg
+// to ensure unified priority across direct Esc and EscReleaseWindow tick.
 func (m *runMode) handleEscKey() (tea.Cmd, bool) {
-	if m.helpMode {
-		m.helpMode = false
-		m.response = append(m.response, slashEchoLines("/help", "Exited /help command")...)
-		return nil, true
-	}
-	if m.picker.Visible() {
-		m.picker.Reset()
-		return nil, true
-	}
-	if m.input.Value() != "" {
-		m.input.Reset()
-		return nil, true
-	}
-	if m.activeAnnouncement() != nil {
-		m.dismissCurrentAnnouncement()
-		if msg := m.announcementSaveErrorMessage(); msg != "" {
-			m.response = append(m.response, msg)
-		}
-		return nil, true
-	}
-	// Absorb Esc silently — ref binary does not quit on Esc,
-	// only on Ctrl+C and Ctrl+D.
-	return nil, true
+	_, cmd := m.handleEscKeyMsg()
+	return cmd, true
 }
 
 // armEscReleaseTick returns a tea.Cmd that fires after keybind.EscReleaseWindow.
@@ -57,6 +36,18 @@ func (m *runMode) armEscReleaseTick() tea.Cmd {
 	return tea.Tick(keybind.EscReleaseWindow, func(time.Time) tea.Msg {
 		return keybind.EscTimeoutMsg{}
 	})
+}
+
+func (m *runMode) canConsumeAltEsc() bool {
+	if m.panel.kind != panelregistry.None || m.helpPanel.Active() ||
+		m.picker.Visible() || m.atFilePicker.Visible() ||
+		m.resumePicker.Active() || m.voiceSurface.Active() ||
+		m.mediaExpanded || m.isBtwCardVisible() ||
+		m.streaming || m.store.BashCancel != nil ||
+		m.hasInputSelection() {
+		return false
+	}
+	return true
 }
 
 // consumeAltEsc is the alt-keytranslation entry point.
@@ -67,6 +58,10 @@ func (m *runMode) consumeAltEsc(msg tea.KeyMsg) (newMsg tea.KeyMsg, consumed boo
 	}
 
 	if m.keybindings == nil || len(m.keybindings.RawBindings()) == 0 {
+		return msg, false, nil
+	}
+
+	if !m.canConsumeAltEsc() {
 		return msg, false, nil
 	}
 

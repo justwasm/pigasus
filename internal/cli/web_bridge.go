@@ -40,6 +40,14 @@ type WebArgs struct {
 	// `antigravity/hub/…` answers enable-audio-transcription: true,
 	// `antigravity/cli/…` answers it false. See internal/auth.
 	Desktop bool
+
+	// ApiOnly serves only the backend Connect-RPC and WebSocket APIs
+	// without serving the frontend static web UI assets.
+	ApiOnly bool
+
+	// UiOnly serves only the frontend static web UI assets without binding
+	// the local agent backend RPC services.
+	UiOnly bool
 }
 
 // webHandler is the handler implementation wired by rchost/cliapp.
@@ -48,9 +56,4 @@ var webHandler func(j *JetskiCLI, args WebArgs) error
 // RegisterWebHandler registers the implementation for `pigasus web`.
 func RegisterWebHandler(fn func(j *JetskiCLI, args WebArgs) error) {
 	webHandler = fn
-}
-
-// EnsureWebHandlerRegistered reports whether a web handler is registered.
-func EnsureWebHandlerRegistered() bool {
-	return webHandler != nil
 }

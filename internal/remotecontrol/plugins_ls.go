@@ -54,6 +54,7 @@ import (
 	"strings"
 
 	"github.com/justwasm/pigasus/internal/features/plugins/core"
+	"github.com/justwasm/pigasus/internal/remotecontrol/rpc"
 )
 
 // lsPluginCatalog is the plugin state the Web UI's plugin surfaces
@@ -87,7 +88,7 @@ func readLSPluginCatalog() lsPluginCatalog {
 // and would answer "Method not found" for them.
 //
 // The methods are the ones the Web UI's plugin panel calls.
-func (d *Dispatcher) routeLanguageServerPluginMethods(method string, params json.RawMessage) (any, *rpcErrorBody, bool) {
+func (d *Dispatcher) routeLanguageServerPluginMethods(method string, params json.RawMessage) (any, *rpc.ErrorBody, bool) {
 	switch method {
 	case "GetAllPlugins":
 		return d.handleLSGetAllPlugins(params)
@@ -160,7 +161,7 @@ func (d *Dispatcher) routeLanguageServerPluginMethods(method string, params json
 //
 // 【反编译】 exa.language_server_pb.GetAllPluginsResponse carries one
 // repeated member, `plugins`.
-func (d *Dispatcher) handleLSGetAllPlugins(params json.RawMessage) (any, *rpcErrorBody, bool) {
+func (d *Dispatcher) handleLSGetAllPlugins(params json.RawMessage) (any, *rpc.ErrorBody, bool) {
 	_ = params
 	catalog := readLSPluginCatalog()
 	plugins := make([]any, 0, len(catalog.Plugins))
@@ -174,18 +175,18 @@ func (d *Dispatcher) handleLSGetAllPlugins(params json.RawMessage) (any, *rpcErr
 //
 // An unknown plugin id is not an error: the reference answers with an
 // empty plugin, and the Web UI renders "not installed".
-func (d *Dispatcher) handleLSGetPlugin(params json.RawMessage) (any, *rpcErrorBody, bool) {
+func (d *Dispatcher) handleLSGetPlugin(params json.RawMessage) (any, *rpc.ErrorBody, bool) {
 	var req struct {
 		PluginID string `json:"pluginId"`
 	}
 	if len(params) > 0 {
 		if err := json.Unmarshal(params, &req); err != nil {
-			return nil, &rpcErrorBody{Code: -32602, Message: "Invalid params", Data: err.Error()}, true
+			return nil, &rpc.ErrorBody{Code: -32602, Message: "Invalid params", Data: err.Error()}, true
 		}
 	}
 	id := strings.TrimSpace(req.PluginID)
 	if id == "" {
-		return nil, &rpcErrorBody{Code: -32602, Message: "Invalid params", Data: "plugin_id is required"}, true
+		return nil, &rpc.ErrorBody{Code: -32602, Message: "Invalid params", Data: "plugin_id is required"}, true
 	}
 	catalog := readLSPluginCatalog()
 	for _, p := range catalog.Plugins {
@@ -204,18 +205,18 @@ func (d *Dispatcher) handleLSGetPlugin(params json.RawMessage) (any, *rpcErrorBo
 // The name is checked against the plugins tree before anything is
 // removed: a name that escapes it is refused, so a crafted id cannot
 // delete something else on the machine.
-func (d *Dispatcher) handleLSDeletePlugin(params json.RawMessage) (any, *rpcErrorBody, bool) {
+func (d *Dispatcher) handleLSDeletePlugin(params json.RawMessage) (any, *rpc.ErrorBody, bool) {
 	var req struct {
 		PluginID string `json:"pluginId"`
 	}
 	if len(params) > 0 {
 		if err := json.Unmarshal(params, &req); err != nil {
-			return nil, &rpcErrorBody{Code: -32602, Message: "Invalid params", Data: err.Error()}, true
+			return nil, &rpc.ErrorBody{Code: -32602, Message: "Invalid params", Data: err.Error()}, true
 		}
 	}
 	id := strings.TrimSpace(req.PluginID)
 	if id == "" {
-		return nil, &rpcErrorBody{Code: -32602, Message: "Invalid params", Data: "plugin_id is required"}, true
+		return nil, &rpc.ErrorBody{Code: -32602, Message: "Invalid params", Data: "plugin_id is required"}, true
 	}
 	dir, ok := lsPluginDir(id)
 	if !ok {
@@ -251,7 +252,7 @@ func lsPluginDir(name string) (string, bool) {
 //
 // A plugin's skills are its slash commands: the reference registers
 // every skill of every loaded plugin under the skill's own name.
-func (d *Dispatcher) handleLSResolveCommandPlugin(params json.RawMessage) (any, *rpcErrorBody, bool) {
+func (d *Dispatcher) handleLSResolveCommandPlugin(params json.RawMessage) (any, *rpc.ErrorBody, bool) {
 	var req struct {
 		CascadeID   string `json:"cascadeId"`
 		CommandLine string `json:"commandLine"`
@@ -259,7 +260,7 @@ func (d *Dispatcher) handleLSResolveCommandPlugin(params json.RawMessage) (any, 
 	}
 	if len(params) > 0 {
 		if err := json.Unmarshal(params, &req); err != nil {
-			return nil, &rpcErrorBody{Code: -32602, Message: "Invalid params", Data: err.Error()}, true
+			return nil, &rpc.ErrorBody{Code: -32602, Message: "Invalid params", Data: err.Error()}, true
 		}
 	}
 	command := lsCommandName(req.CommandLine)
@@ -296,7 +297,7 @@ func lsCommandName(commandLine string) string {
 // A state is one loaded customization: a plugin, a skill, a rule, an
 // agent. The reference's own state carries the type, the name, the
 // path, the scope and the status.
-func (d *Dispatcher) handleLSGetCustomizationStates(params json.RawMessage) (any, *rpcErrorBody, bool) {
+func (d *Dispatcher) handleLSGetCustomizationStates(params json.RawMessage) (any, *rpc.ErrorBody, bool) {
 	_ = params
 	catalog := readLSPluginCatalog()
 	states := make([]any, 0, len(catalog.Plugins))
@@ -327,7 +328,7 @@ func (d *Dispatcher) handleLSGetCustomizationStates(params json.RawMessage) (any
 // do not narrow the answer: the clone's plugins are the user's own
 // tree, and the reference's own workspace skills live in the
 // workspace, which the clone does not scan here.
-func (d *Dispatcher) handleLSGetAllSkills(params json.RawMessage) (any, *rpcErrorBody, bool) {
+func (d *Dispatcher) handleLSGetAllSkills(params json.RawMessage) (any, *rpc.ErrorBody, bool) {
 	_ = params
 	skills := make([]any, 0)
 	for _, p := range readLSPluginCatalog().Plugins {
@@ -354,7 +355,7 @@ func (d *Dispatcher) handleLSGetAllSkills(params json.RawMessage) (any, *rpcErro
 // the Web UI's own rules list filters the plugin rules out
 // (`metadata?.tags.includes("plugin_rule")`), so a plugin's rule is
 // shown in the plugin panel and not twice.
-func (d *Dispatcher) handleLSGetAllRules(params json.RawMessage) (any, *rpcErrorBody, bool) {
+func (d *Dispatcher) handleLSGetAllRules(params json.RawMessage) (any, *rpc.ErrorBody, bool) {
 	_ = params
 	memories := make([]any, 0)
 	for _, p := range readLSPluginCatalog().Plugins {
@@ -377,7 +378,7 @@ func (d *Dispatcher) handleLSGetAllRules(params json.RawMessage) (any, *rpcError
 // The Web UI's agent picker reads the customizations (path, the
 // agent's name and description, is_global) and keeps the scripts for
 // the agent's own configuration.
-func (d *Dispatcher) handleLSGetAgentScripts(params json.RawMessage) (any, *rpcErrorBody, bool) {
+func (d *Dispatcher) handleLSGetAgentScripts(params json.RawMessage) (any, *rpc.ErrorBody, bool) {
 	_ = params
 	scripts := make([]any, 0)
 	customizations := make([]any, 0)
@@ -409,18 +410,18 @@ func (d *Dispatcher) handleLSGetAgentScripts(params json.RawMessage) (any, *rpcE
 // directory inside the plugins tree: a path that escapes it is
 // refused, so a crafted id cannot delete something else on the
 // machine.
-func (d *Dispatcher) handleLSDeleteSkill(params json.RawMessage) (any, *rpcErrorBody, bool) {
+func (d *Dispatcher) handleLSDeleteSkill(params json.RawMessage) (any, *rpc.ErrorBody, bool) {
 	var req struct {
 		SkillID string `json:"skillId"`
 	}
 	if len(params) > 0 {
 		if err := json.Unmarshal(params, &req); err != nil {
-			return nil, &rpcErrorBody{Code: -32602, Message: "Invalid params", Data: err.Error()}, true
+			return nil, &rpc.ErrorBody{Code: -32602, Message: "Invalid params", Data: err.Error()}, true
 		}
 	}
 	id := strings.TrimSpace(req.SkillID)
 	if id == "" {
-		return nil, &rpcErrorBody{Code: -32602, Message: "Invalid params", Data: "skill_id is required"}, true
+		return nil, &rpc.ErrorBody{Code: -32602, Message: "Invalid params", Data: "skill_id is required"}, true
 	}
 	dir, ok := lsSkillDir(id)
 	if !ok {

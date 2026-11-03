@@ -13,9 +13,10 @@
 // AGY's `at_file.go` uses internally (the recovered upstream calls
 // into filepath.Glob with the prefix).
 //
-// The package deliberately contains no UI / runtime dependencies.
-// The TUI dropdown lives in cmd/pigasus and re-derives its candidate
-// list on every keystroke by calling Find + Glob below.
+// The package deliberately contains no UI / runtime dependencies. The
+// dropdown that drives it is a panel — internal/ui/views/mentionpicker
+// — and it re-derives its candidate list on every keystroke by calling
+// List and FilterEntries below.
 package files
 
 import (

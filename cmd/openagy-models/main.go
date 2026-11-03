@@ -8,10 +8,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/justwasm/pigasus/internal/models"
-	// Termux/Android: /etc/resolv.conf points at a dead loopback
-	// nameserver, so `model test` would never resolve the provider.
-	_ "github.com/justwasm/pigasus/internal/dns"
+	_ "github.com/justwasm/pigasus/dns"
+	"github.com/justwasm/pigasus/internal/features/models"
 )
 
 const (
@@ -21,7 +19,7 @@ const (
 	cmdTest          = "test"
 	cmdInstallCtx    = "install-context"
 	cmdHelp          = "help"
-	cmdDefaultConfig = "~/.config/openagy/providers.json"
+	cmdDefaultConfig = "~/.openagy/providers.json"
 )
 
 func main() {

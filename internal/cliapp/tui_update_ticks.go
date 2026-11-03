@@ -5,6 +5,12 @@ import (
 
 	sp "charm.land/bubbles/v2/spinner"
 	tea "charm.land/bubbletea/v2"
+
+	"github.com/justwasm/pigasus/internal/ui/panelregistry"
+	"github.com/justwasm/pigasus/internal/ui/views/codesearchpanel"
+	"github.com/justwasm/pigasus/internal/ui/views/pluginsui"
+	"github.com/justwasm/pigasus/internal/ui/views/providerpanel"
+	"github.com/justwasm/pigasus/internal/ui/views/usagepanel"
 )
 
 func (m *runMode) updateCompactDoneMsg(msg compactDoneMsg) (tea.Model, tea.Cmd) {
@@ -18,13 +24,13 @@ func (m *runMode) updateCompactDoneMsg(msg compactDoneMsg) (tea.Model, tea.Cmd) 
 func (m *runMode) updateBashDoneMsg(msg bashDoneMsg) (tea.Model, tea.Cmd) {
 	// A preempted command's completion arrives after its successor started;
 	// its generation is stale, so it must not touch the live block.
-	if msg.gen != m.bashGen {
+	if msg.gen != m.store.BashGen {
 		return m, nil
 	}
 	m.finishBashCommand(msg)
-	if len(m.bashQueue) > 0 {
-		next := m.bashQueue[0]
-		m.bashQueue = m.bashQueue[1:]
+	if len(m.store.BashQueue) > 0 {
+		next := m.store.BashQueue[0]
+		m.store.BashQueue = m.store.BashQueue[1:]
 		return m, tea.Batch(m.startBashCommand(next), tea.ClearScreen)
 	}
 	return m, tea.ClearScreen
@@ -41,66 +47,80 @@ func (m *runMode) updateSpinnerTickMsg(msg sp.TickMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m *runMode) updateUsageQuotaTickMsg() (tea.Model, tea.Cmd) {
-	if m.panel.kind != panelUsage {
+	if m.panel.kind != panelregistry.Usage {
 		return m, nil
 	}
 	m.quotaFrame++
 	if m.panel.quota.state == quotaLoading && m.quotaFrame >= usageQuotaLoadingTicks {
 		quotaStubRefills(m)
 	}
-	return m, usageQuotaTick()
+	return m, usagepanel.QuotaTick()
 }
 
 func (m *runMode) updateCompactStartMsg(msg compactStartMsg) (tea.Model, tea.Cmd) {
-	m.compactStart = msg.StartedAt
-	m.compactEnd = time.Time{}
-	m.compactSpinnerFrame = 0
-	m.compactReason = msg.Reason
-	m.compactTokensBefore = 0
-	m.compactTokensAfter = 0
+	m.store.CompactStart = msg.StartedAt
+	m.store.CompactEnd = time.Time{}
+	m.store.CompactSpinnerFrame = 0
+	m.store.CompactReason = msg.Reason
+	m.store.CompactTokensBefore = 0
+	m.store.CompactTokensAfter = 0
 	return m, compactSpinnerTick()
 }
 
 func (m *runMode) updateCompactEndMsg(msg compactEndMsg) (tea.Model, tea.Cmd) {
-	m.compactEnd = msg.EndedAt
-	m.compactReason = msg.Reason
-	m.compactTokensBefore = msg.TokensBefore
-	m.compactTokensAfter = msg.EstimatedTokensAfter
+	m.store.CompactEnd = msg.EndedAt
+	m.store.CompactReason = msg.Reason
+	m.store.CompactTokensBefore = msg.TokensBefore
+	m.store.CompactTokensAfter = msg.EstimatedTokensAfter
 	return m, nil
 }
 
 func (m *runMode) updateCompactSpinnerTickMsg() (tea.Model, tea.Cmd) {
-	if m.compactStart.IsZero() || !m.compactEnd.IsZero() {
+	if m.store.CompactStart.IsZero() || !m.store.CompactEnd.IsZero() {
 		return m, nil
 	}
-	m.compactSpinnerFrame++
-	if m.compactSpinnerFrame >= 8 {
-		m.compactSpinnerFrame = 0
+	m.store.CompactSpinnerFrame++
+	if m.store.CompactSpinnerFrame >= 8 {
+		m.store.CompactSpinnerFrame = 0
 	}
 	return m, compactSpinnerTick()
 }
 
 func (m *runMode) updatePluginBlinkMsg() (tea.Model, tea.Cmd) {
-	if m.panel.kind == panelPlugin && (m.panel.pluginSearch || m.pluginLocalInstallActive()) {
-		m.panel.pluginBlinkOn = !m.panel.pluginBlinkOn
-		return m, pluginBlink()
+	// Cycle 381: the blink phase is the panel's own state — the panel
+	// lives in internal/ui/views/pluginsui — so the host only flips it
+	// and re-arms the tick while a blinking cursor is on screen.
+	p := m.panel.plg
+	if p == nil {
+		return m, nil
 	}
-	m.panel.pluginBlinkOn = false
+	if m.panel.kind == panelregistry.Plugin && p.Blinking() {
+		p.ToggleBlink()
+		return m, pluginsui.Blink()
+	}
+	p.SetBlink(false)
 	return m, nil
 }
 
+// updateCSTickMsg drains the matches the runner has produced and arms
+// the next tick.
+//
+// Cycle 381: the drain, the spinner and the tick belong to the
+// /codesearch panel (internal/ui/views/codesearchpanel); the host only
+// carries the tick message.
 func (m *runMode) updateCSTickMsg() (tea.Model, tea.Cmd) {
-	if m.panel.kind != panelCodeSearch || m.panel.cs.search == nil {
+	if m.panel.kind != panelregistry.CodeSearch {
 		return m, nil
 	}
-	drained, closed := m.drainCodesearchMatches()
+	p := m.codesearchPanel()
+	if p == nil || p.Search() == nil {
+		return m, nil
+	}
+	_, closed := p.Drain()
 	if closed {
 		return m, nil
 	}
-	if drained {
-		return m, csTick(m)
-	}
-	return m, csTick(m)
+	return m, p.Tick()
 }
 
 func (m *runMode) updateCompactEvents(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
@@ -152,8 +172,8 @@ func (m *runMode) updateTickMsg(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
 				// The tier was cached in the registry, and the /accounts
 				// panel shows the cached tier, so its rows have to be
 				// re-read.
-				if m.panel.kind == panelAccounts {
-					m.reloadAccountsRows()
+				if m.panel.kind == panelregistry.Accounts {
+					m.accountsPanel().Reload()
 				}
 			} else {
 				// The server named no tier for this account (a free
@@ -166,6 +186,14 @@ func (m *runMode) updateTickMsg(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
 		return m, nil, true
 	case bashDoneMsg:
 		mod, cmd := m.updateBashDoneMsg(msg)
+		return mod, cmd, true
+	case btwTickMsg:
+		if m.IsBtwActive() {
+			return m, btwTick(), true
+		}
+		return m, nil, true
+	case btwDoneMsg:
+		mod, cmd := m.updateBtwDoneMsg(msg)
 		return mod, cmd, true
 	case sp.TickMsg:
 		mod, cmd := m.updateSpinnerTickMsg(msg)
@@ -193,7 +221,7 @@ func (m *runMode) updateTickMsg(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
 func (m *runMode) updatePanelTickMsg(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
 	switch msg := msg.(type) {
 	case quotaSummaryMsg:
-		if m.panel.kind == panelUsage {
+		if m.panel.kind == panelregistry.Usage {
 			if msg.summary != nil {
 				m.panel.quota.summary = msg.summary
 				m.panel.quota.loadedAt = time.Now()
@@ -208,23 +236,33 @@ func (m *runMode) updatePanelTickMsg(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
 		}
 		return m, nil, true
 	case accountsQuotaMsg:
-		return m, m.updateAccountsQuotaMsg(msg), true
-	case providerVerifyMsg:
+		// The queue, the error line and the refreshed rows are the
+		// panel's.
+		return m, m.accountsPanel().QuotaDone(msg.email, msg.summary != nil, msg.err), true
+	case providerpanel.VerifyMsg:
 		// The /provider panel's verification probe came back. The panel
 		// may have been closed while the request was in flight.
-		if m.panel.kind == panelProvider {
-			result := msg.result
-			m.panel.prov.verifying = false
-			m.panel.prov.verify = &result
+		if m.panel.kind == panelregistry.Provider {
+			m.providerPanel().ApplyVerifyMsg(msg)
+		}
+		return m, nil, true
+	case providerpanel.OAuthResultMsg:
+		if m.panel.kind == panelregistry.Provider {
+			m.providerPanel().ApplyOAuthResultMsg(msg)
+		}
+		return m, nil, true
+	case providerpanel.OAuthTickMsg:
+		if m.panel.kind == panelregistry.Provider && m.panel.prov != nil {
+			return m, m.panel.prov.ApplyOAuthTick(), true
 		}
 		return m, nil, true
 	case usageQuotaTickMsg:
 		mod, cmd := m.updateUsageQuotaTickMsg()
 		return mod, cmd, true
-	case pluginBlinkMsg:
+	case pluginsui.BlinkMsg:
 		mod, cmd := m.updatePluginBlinkMsg()
 		return mod, cmd, true
-	case csTickMsg:
+	case codesearchpanel.TickMsg:
 		mod, cmd := m.updateCSTickMsg()
 		return mod, cmd, true
 	}

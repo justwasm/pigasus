@@ -37,6 +37,11 @@ func ParseFrameError(payload string) *StreamError {
 	if payload == "" || payload == "[DONE]" {
 		return nil
 	}
+	// Fast path: error frames always carry an "error", "status", or "code" key.
+	// Normal candidate stream frames do not, so skip JSON unmarshaling entirely.
+	if !strings.Contains(payload, "\"error\"") && !strings.Contains(payload, "\"status\"") && !strings.Contains(payload, "\"code\"") {
+		return nil
+	}
 	var f struct {
 		Code     int          `json:"code"`
 		Message  string       `json:"message"`
@@ -89,10 +94,14 @@ func extractStreamError(raw any) *StreamError {
 	return nil
 }
 
-// frame is the wrapper every CloudCode SSE frame carries: the response
-// under `response`, the trace id beside it.
-type frame struct {
-	Response json.RawMessage `json:"response"`
+// dualFrame decodes either a CloudCode-wrapped frame (response member)
+// or a bare Gemini GenerateContentResponse in a single JSON unmarshal pass.
+type dualFrame struct {
+	Response      *GenerateContentResponse `json:"response"`
+	Candidates    []Candidate              `json:"candidates"`
+	UsageMetadata *UsageMetadata           `json:"usageMetadata,omitempty"`
+	ModelVersion  string                   `json:"modelVersion,omitempty"`
+	ResponseID    string                   `json:"responseId,omitempty"`
 }
 
 // ParseFrame decodes one SSE payload.
@@ -108,20 +117,18 @@ type frame struct {
 // The second return reports whether the payload was a frame at all — a
 // keep-alive, an error envelope or a stray line is not one.
 func ParseFrame(payload string) (GenerateContentResponse, bool) {
-	var wrapped frame
-	if err := json.Unmarshal([]byte(payload), &wrapped); err == nil && len(wrapped.Response) > 0 {
-		var out GenerateContentResponse
-		if err := json.Unmarshal(wrapped.Response, &out); err == nil {
-			return out, true
+	var d dualFrame
+	if err := json.Unmarshal([]byte(payload), &d); err == nil {
+		if d.Response != nil {
+			return *d.Response, true
 		}
-	}
-	var out GenerateContentResponse
-	if err := json.Unmarshal([]byte(payload), &out); err == nil {
-		if len(out.Candidates) > 0 {
-			return out, true
-		}
-		if out.UsageMetadata != nil && out.UsageMetadata.TotalTokenCount > 0 {
-			return out, true
+		if len(d.Candidates) > 0 || (d.UsageMetadata != nil && d.UsageMetadata.TotalTokenCount > 0) {
+			return GenerateContentResponse{
+				Candidates:    d.Candidates,
+				UsageMetadata: d.UsageMetadata,
+				ModelVersion:  d.ModelVersion,
+				ResponseID:    d.ResponseID,
+			}, true
 		}
 	}
 	return GenerateContentResponse{}, false

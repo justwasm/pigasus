@@ -15,7 +15,7 @@
 //     patterns synchronously.
 //
 //   - Sentinel-error mapping:
-//     mapOriginPolicyError → -32603 internal
+//     origins.MapError → -32603 internal
 //     error envelope; per-pattern validator →
 //     -32602 invalid params (rejected list
 //     echoed in the result).
@@ -33,6 +33,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/justwasm/pigasus/internal/remotecontrol/origins"
 	"github.com/justwasm/pigasus/originpolicy"
 )
 
@@ -79,7 +80,7 @@ func (s *SetterSpy) snapshot() []originpolicy.OriginPolicy {
 // stamped, and the dispatcher's setter is invoked
 // with the post-mutation policy.
 func TestSetRemoteControlOriginPatterns_OK(t *testing.T) {
-	store := NewMemOriginPolicyStore(nil)
+	store := origins.NewMemStore(nil)
 	d := newOriginPolicyDispatcher(t, store)
 	spy := &SetterSpy{}
 	d.SetOriginPolicySetter(spy.setter)
@@ -143,7 +144,7 @@ func TestSetRemoteControlOriginPatterns_OK(t *testing.T) {
 // A successful Set lands in BOTH the store's
 // Snapshot view AND the persistent file on disk.
 func TestSetRemoteControlOriginPatterns_PersistenceAndMutation(t *testing.T) {
-	store := NewMemOriginPolicyStore(nil)
+	store := origins.NewMemStore(nil)
 	d := newOriginPolicyDispatcher(t, store)
 
 	if _, errObj := dispatchOriginPolicy(t, d, "SetRemoteControlOriginPatterns", []byte(`{"patterns":["https://antigravity.google"]}`)); errObj != nil {
@@ -164,7 +165,7 @@ func TestSetRemoteControlOriginPatterns_PersistenceAndMutation(t *testing.T) {
 // land in the store, invalid patterns are
 // echoed verbatim in `rejected`.
 func TestSetRemoteControlOriginPatterns_Mixed(t *testing.T) {
-	store := NewMemOriginPolicyStore(nil)
+	store := origins.NewMemStore(nil)
 	d := newOriginPolicyDispatcher(t, store)
 	spy := &SetterSpy{}
 	d.SetOriginPolicySetter(spy.setter)
@@ -207,7 +208,7 @@ func TestSetRemoteControlOriginPatterns_Mixed(t *testing.T) {
 // and the response envelope carries
 // applied_count=0.
 func TestSetRemoteControlOriginPatterns_EmptyExplicit(t *testing.T) {
-	store := NewMemOriginPolicyStoreWith([]string{
+	store := origins.NewMemStoreWith([]string{
 		"https://antigravity.google",
 	}, nil)
 	d := newOriginPolicyDispatcher(t, store)
@@ -244,7 +245,7 @@ func TestSetRemoteControlOriginPatterns_EmptyExplicit(t *testing.T) {
 // rule. `patterns:null` (or absent) is
 // -32602 "Invalid params".
 func TestSetRemoteControlOriginPatterns_NullPatterns(t *testing.T) {
-	store := NewMemOriginPolicyStore(nil)
+	store := origins.NewMemStore(nil)
 	d := newOriginPolicyDispatcher(t, store)
 
 	_, errObj := dispatchOriginPolicy(t, d, "SetRemoteControlOriginPatterns", []byte(`{"patterns":null}`))
@@ -261,7 +262,7 @@ func TestSetRemoteControlOriginPatterns_NullPatterns(t *testing.T) {
 // a single string or object fails parsing and
 // surfaces -32602.
 func TestSetRemoteControlOriginPatterns_NonArrayPatterns(t *testing.T) {
-	store := NewMemOriginPolicyStore(nil)
+	store := origins.NewMemStore(nil)
 	d := newOriginPolicyDispatcher(t, store)
 
 	_, errObj := dispatchOriginPolicy(t, d, "SetRemoteControlOriginPatterns", []byte(`{"patterns":"https://antigravity.google"}`))
@@ -280,7 +281,7 @@ func TestSetRemoteControlOriginPatterns_NonArrayPatterns(t *testing.T) {
 // p.Patterns nil and the handler returns the
 // explicit "patterns is required" message.
 func TestSetRemoteControlOriginPatterns_MissingPatterns(t *testing.T) {
-	store := NewMemOriginPolicyStore(nil)
+	store := origins.NewMemStore(nil)
 	d := newOriginPolicyDispatcher(t, store)
 
 	_, errObj := dispatchOriginPolicy(t, d, "SetRemoteControlOriginPatterns", []byte(`{}`))
@@ -298,7 +299,7 @@ func TestSetRemoteControlOriginPatterns_MissingPatterns(t *testing.T) {
 // accepted by the unmarshaller, leaving
 // p.Patterns nil, and surfaces -32602.
 func TestSetRemoteControlOriginPatterns_NullParams(t *testing.T) {
-	store := NewMemOriginPolicyStore(nil)
+	store := origins.NewMemStore(nil)
 	d := newOriginPolicyDispatcher(t, store)
 
 	req := jsonRPCFor(1, "SetRemoteControlOriginPatterns", []byte(`null`))
@@ -320,7 +321,7 @@ func TestSetRemoteControlOriginPatterns_NullParams(t *testing.T) {
 // the response echoes the rejected entries
 // verbatim with applied_count=0.
 func TestSetRemoteControlOriginPatterns_AllRejected_NoStateChange(t *testing.T) {
-	store := NewMemOriginPolicyStoreWith([]string{
+	store := origins.NewMemStoreWith([]string{
 		"https://antigravity.google",
 	}, nil)
 	d := newOriginPolicyDispatcher(t, store)
@@ -403,26 +404,6 @@ func TestSetRemoteControlOriginPatterns_NoStore(t *testing.T) {
 	}
 }
 
-// TestSetRemoteControlOriginPatterns_PersistenceFailed
-// pins the -32603 envelope when the FS store's
-// write fails. We can't easily cause a real
-// write failure in an in-process test, so this
-// pins the mapping via mapOriginPolicyError
-// directly with a synthetic sentinel error.
-func TestSetRemoteControlOriginPatterns_PersistenceFailed(t *testing.T) {
-	got := mapOriginPolicyError(errOriginPolicyPersistenceFailed, "set origin patterns")
-	if got == nil {
-		t.Fatalf("mapOriginPolicyError returned nil")
-	}
-	if got.Code != -32603 {
-		t.Errorf("Code = %d, want -32603", got.Code)
-	}
-	dataStr, _ := got.Data.(string)
-	if !strContains(dataStr, "persistence failed") {
-		t.Errorf("Data = %q, want substring persistence failed", dataStr)
-	}
-}
-
 // ---- notification broadcast ----------------------------
 
 // TestSetRemoteControlOriginPatterns_BroadcastFanOut
@@ -442,7 +423,7 @@ func TestSetRemoteControlOriginPatterns_PersistenceFailed(t *testing.T) {
 //     broadcast and dashboards polling the
 //     response see the same envelope).
 func TestSetRemoteControlOriginPatterns_BroadcastFanOut(t *testing.T) {
-	store := NewMemOriginPolicyStore(nil)
+	store := origins.NewMemStore(nil)
 	d := newOriginPolicyDispatcher(t, store)
 	// Spy broadcaster: captures every
 	// BroadcastNotify call.
@@ -471,8 +452,8 @@ func TestSetRemoteControlOriginPatterns_BroadcastFanOut(t *testing.T) {
 	if len(notifs) != 1 {
 		t.Fatalf("broadcaster called %d times, want 1", len(notifs))
 	}
-	if notifs[0].method != NotifOriginPolicyChangedMethod {
-		t.Errorf("method = %q, want %q", notifs[0].method, NotifOriginPolicyChangedMethod)
+	if notifs[0].method != origins.NotifChangedMethod {
+		t.Errorf("method = %q, want %q", notifs[0].method, origins.NotifChangedMethod)
 	}
 	// Same envelope as the response.
 	if v, _ := notifs[0].params["ok"].(bool); !v {
@@ -496,7 +477,7 @@ func TestSetRemoteControlOriginPatterns_BroadcastFanOut(t *testing.T) {
 // (because no mutation occurred). The
 // broadcaster is invoked zero times.
 func TestSetRemoteControlOriginPatterns_NotificationRejected_NoBroadcast(t *testing.T) {
-	store := NewMemOriginPolicyStoreWith([]string{
+	store := origins.NewMemStoreWith([]string{
 		"https://antigravity.google",
 	}, nil)
 	d := newOriginPolicyDispatcher(t, store)
@@ -528,7 +509,7 @@ func TestSetRemoteControlOriginPatterns_NotificationRejected_NoBroadcast(t *test
 // in the store; the response envelope echoes
 // the post-state.
 func TestSetRemoteControlOriginPatterns_NoBroadcaster(t *testing.T) {
-	store := NewMemOriginPolicyStore(nil)
+	store := origins.NewMemStore(nil)
 	d := newOriginPolicyDispatcher(t, store)
 	// No SetBroadcaster: d.broadcaster is nil.
 
@@ -553,7 +534,7 @@ func TestSetRemoteControlOriginPatterns_NoBroadcaster(t *testing.T) {
 // still fires, but no in-process mirror
 // happens.
 func TestSetOriginPolicySetter_NilSetter(t *testing.T) {
-	store := NewMemOriginPolicyStore(nil)
+	store := origins.NewMemStore(nil)
 	d := newOriginPolicyDispatcher(t, store)
 	// Register nil setter.
 	d.SetOriginPolicySetter(nil)

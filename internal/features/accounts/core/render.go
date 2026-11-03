@@ -6,7 +6,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/justwasm/pigasus/internal/auth"
+	"github.com/justwasm/pigasus/internal/features/auth"
+	"github.com/justwasm/pigasus/palette"
 )
 
 // RowLine renders one account row for the /accounts panel.
@@ -24,7 +25,7 @@ func RowLine(acc Account, cursor bool, activeEmail string, emailPad int, blueOpe
 	active := acc.Email != "" && strings.EqualFold(acc.Email, activeEmail)
 	marker := ""
 	if active {
-		marker = "(active)"
+		marker = palette.AgentFgOpen + "(active)" + palette.ToolBulletClose
 	}
 	tier := acc.PlanTier
 	if strings.TrimSpace(tier) == "" {

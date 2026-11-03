@@ -92,6 +92,18 @@ func TestPrintModeArgs_1to1(t *testing.T) {
 			wantRC:  2,
 		},
 		{
+			name:    "input_format_stream_json_rejects_command_line_prompt",
+			args:    []string{"--input-format", "stream-json", "--output-format", "stream-json", "-p", "hi"},
+			wantErr: "Error: --input-format stream-json reads prompts from stdin, so a prompt given on the command line would be ignored\n",
+			wantRC:  2,
+		},
+		{
+			name:    "input_format_stream_json_rejects_unexpected_arg",
+			args:    []string{"--input-format", "stream-json", "--output-format", "stream-json", "unexpected"},
+			wantErr: "Error: --input-format stream-json reads prompts from stdin, so a prompt given on the command line would be ignored\n",
+			wantRC:  2,
+		},
+		{
 			name:    "settings_unknown_key",
 			args:    []string{"--settings", "{\"bogus\": 1}"},
 			wantErr: "Error: --settings: unknown setting \"bogus\"\n",

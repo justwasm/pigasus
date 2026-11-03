@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/justwasm/pigasus/internal/backend"
 	"github.com/justwasm/pigasus/internal/cli"
+	"github.com/justwasm/pigasus/internal/core/backend"
 	"github.com/justwasm/pigasus/internal/modular"
 )
 

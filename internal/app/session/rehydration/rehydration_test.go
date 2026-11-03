@@ -68,6 +68,34 @@ func TestRehydrateSkipsFailedSteps(t *testing.T) {
 	}
 }
 
+// TestSucceededStatusMapping pins the status table: a step that ran to
+// completion succeeded, and a step that errored, failed or was
+// cancelled did not.
+//
+// Cycle 148 captured this against the v1.3.6 reference using the
+// resumed conversation 4638a7b0-e5f4-4961-80c2-d61499f06050.db (390
+// rows with status=4, 4 with status=6, 21 with status=7). The host
+// reads the same table to render the "(Failed)" suffix of a loaded
+// tool step.
+func TestSucceededStatusMapping(t *testing.T) {
+	cases := []struct {
+		status int64
+		want   bool
+	}{
+		{StatusCompleted, true},  // success
+		{StatusError, false},     // failed (errored)
+		{5, true},                // completed-skipped / alternate success
+		{StatusFailed, false},    // rare
+		{StatusCancelled, false}, // rare
+		{0, true},                // unknown
+	}
+	for _, c := range cases {
+		if got := Succeeded(c.status); got != c.want {
+			t.Errorf("Succeeded(status=%d) = %v, want %v", c.status, got, c.want)
+		}
+	}
+}
+
 // TestRehydrateSkipsNonToolCallSteps pins the type filter.
 func TestRehydrateSkipsNonToolCallSteps(t *testing.T) {
 	d := New(Tool{
@@ -105,38 +133,6 @@ func TestApplyCountsChangedDeltas(t *testing.T) {
 	})
 	if got := d.Apply(deltas); got != 1 {
 		t.Fatalf("Apply = %d, want 1", got)
-	}
-}
-
-// TestMigrateLegacyPayload pins the legacy migration: an arguments blob
-// that still carries the reference's legacy wrapper is unwrapped, and the
-// original arguments win over the derived ones.
-//
-// 【反编译】 the reference's `MigrateLegacyPayload` (LS 0x100f41770)
-// resolves the same conflict in favour of the original step.
-func TestMigrateLegacyPayload(t *testing.T) {
-	// A wrapper carrying the original arguments.
-	wrapped := []byte(`{"__original_cortex_step":{"Name":"orig","SystemPrompt":"p"},"Name":"derived"}`)
-	out := MigrateLegacyPayload(wrapped)
-	var got map[string]any
-	if err := json.Unmarshal(out, &got); err != nil {
-		t.Fatalf("unmarshal: %v", err)
-	}
-	if got["Name"] != "orig" {
-		t.Fatalf("Name = %v, want the original step's value", got["Name"])
-	}
-	if _, ok := got["__original_cortex_step"]; ok {
-		t.Fatalf("the legacy wrapper survived: %v", got)
-	}
-	// Arguments without the wrapper are returned unchanged.
-	plain := []byte(`{"Name":"plain"}`)
-	if got := string(MigrateLegacyPayload(plain)); got != string(plain) {
-		t.Fatalf("MigrateLegacyPayload(plain) = %s, want it unchanged", got)
-	}
-	// Malformed arguments are returned unchanged.
-	bad := []byte(`{not json`)
-	if got := string(MigrateLegacyPayload(bad)); got != string(bad) {
-		t.Fatalf("MigrateLegacyPayload(bad) = %s, want it unchanged", got)
 	}
 }
 

@@ -35,6 +35,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/x/ansi"
 	"github.com/justwasm/pigasus/palette"
 )
 
@@ -200,23 +201,49 @@ const detailMissing = "—"
 // registers comes from a tool call, so the origin would be constant;
 // the clone renders the task's *kind* there instead, which is the
 // axis its rows actually distinguish.
-func TaskDetailBody(t *Task) []string {
+func TaskDetailBody(t *Task, widthOpt ...int) []string {
 	if t == nil {
 		return []string{detailNoOutput}
 	}
-	lines := []string{
-		detailLabelCommand + detailValue(t.Command),
-		detailLabelStatus + TaskStatus(t),
-		detailLabelType + detailValue(string(t.Kind)),
-		strings.Repeat(detailRuleCell, detailRuleCells),
-		detailSectionOutput,
+	width := 0
+	if len(widthOpt) > 0 {
+		width = widthOpt[0]
 	}
-	lines = append(lines, detailOutputLines(t.Output)...)
+	ruleLength := detailRuleCells
+	if width > 0 && width < ruleLength {
+		ruleLength = width
+	}
+	lines := []string{}
+	cmdVal := detailValue(t.Command)
+	if width > 0 && ansi.StringWidth(detailLabelCommand+cmdVal) > width {
+		budget := width - len(detailLabelCommand)
+		if budget < 10 {
+			budget = 10
+		}
+		cmdWrapped := strings.Split(ansi.Wrap(cmdVal, budget, ""), "\n")
+		cmdContIndent := strings.Repeat(" ", len(detailLabelCommand))
+		for i, w := range cmdWrapped {
+			if i == 0 {
+				lines = append(lines, detailLabelCommand+w)
+			} else {
+				lines = append(lines, cmdContIndent+w)
+			}
+		}
+	} else {
+		lines = append(lines, detailLabelCommand+cmdVal)
+	}
+	lines = append(lines,
+		detailLabelStatus+TaskStatus(t),
+		detailLabelType+detailValue(string(t.Kind)),
+		strings.Repeat(detailRuleCell, ruleLength),
+		detailSectionOutput,
+	)
+	lines = append(lines, formatTaskOutput(t.Output, width)...)
 	if !t.StartedAt.IsZero() {
 		lines = append(lines, detailLabelStarted+t.StartedAt.Format(detailTimeLayout))
 	}
 	if t.Err != nil {
-		lines = append(lines, fmt.Sprintf(detailErrorFormat, t.Err.Error()))
+		lines = append(lines, formatTaskError(t.Err.Error(), width)...)
 	}
 	return lines
 }
@@ -330,15 +357,19 @@ func SubagentStateColor(s State) string {
 //
 // The reference also renders a "User Backgrounded" badge; the clone
 // has no such badge.
-func SubagentDetailBody(t *Task) []string {
+func SubagentDetailBody(t *Task, widthOpt ...int) []string {
 	if t == nil {
 		return []string{detailNoSubagentData}
+	}
+	width := 0
+	if len(widthOpt) > 0 {
+		width = widthOpt[0]
 	}
 	lines := []string{
 		detailIndent + detailSectionPrompt,
 	}
 	if prompt := strings.TrimSpace(t.Prompt); prompt != "" {
-		lines = append(lines, indentLines(splitDetailLines(prompt))...)
+		lines = append(lines, formatDetailBlock(prompt, detailIndent, width)...)
 	} else {
 		lines = append(lines, detailIndent+detailNoPrompt)
 	}
@@ -347,12 +378,12 @@ func SubagentDetailBody(t *Task) []string {
 		lines = append(lines, detailIndent+detailNoTools)
 	} else {
 		for _, name := range t.Tools {
-			lines = append(lines, detailItemIndent+name)
+			lines = append(lines, formatDetailItem(name, detailItemIndent, width)...)
 		}
 	}
 	lines = append(lines, "", detailIndent+detailSectionAnswer)
 	if out := strings.TrimSpace(t.Output); out != "" {
-		lines = append(lines, indentLines(splitDetailLines(out))...)
+		lines = append(lines, formatDetailBlock(out, detailIndent, width)...)
 	} else {
 		lines = append(lines, detailIndent+detailNoOutput)
 	}
@@ -361,13 +392,102 @@ func SubagentDetailBody(t *Task) []string {
 		lines = append(lines, detailIndent+detailNoSteps)
 	} else {
 		for i, step := range t.Steps {
-			lines = append(lines, detailItemIndent+fmt.Sprintf(detailStepFormat, i+1, step))
+			lines = append(lines, formatDetailItem(fmt.Sprintf(detailStepFormat, i+1, step), detailItemIndent, width)...)
 		}
 	}
 	if t.Err != nil {
-		lines = append(lines, detailIndent+fmt.Sprintf(detailErrorFormat, t.Err.Error()))
+		lines = append(lines, formatDetailBlock(fmt.Sprintf(detailErrorFormat, t.Err.Error()), detailIndent, width)...)
 	}
 	return lines
+}
+
+// formatDetailBlock splits text into lines, soft-wrapping paragraphs to fit
+// width (minus indent width) when width > 0, and prefixing every line with indent.
+// Empty lines between paragraphs are preserved cleanly.
+func formatDetailBlock(text, indent string, width int) []string {
+	if width <= 0 {
+		return indentLines(splitDetailLines(text))
+	}
+	indentWidth := ansi.StringWidth(indent)
+	budget := width - indentWidth
+	if budget < 10 {
+		budget = 10
+	}
+	rawLines := strings.Split(strings.TrimRight(text, "\n"), "\n")
+	var out []string
+	for _, rawLine := range rawLines {
+		if strings.TrimSpace(rawLine) == "" {
+			out = append(out, "")
+			continue
+		}
+		if ansi.StringWidth(rawLine) <= budget {
+			out = append(out, indent+rawLine)
+			continue
+		}
+		wrapped := strings.Split(ansi.Wrap(rawLine, budget, ""), "\n")
+		for _, wLine := range wrapped {
+			out = append(out, indent+wLine)
+		}
+	}
+	return out
+}
+
+// formatDetailItem formats a single item with indent, soft-wrapping if it exceeds width.
+func formatDetailItem(text, indent string, width int) []string {
+	if width <= 0 {
+		return []string{indent + text}
+	}
+	indentWidth := ansi.StringWidth(indent)
+	budget := width - indentWidth
+	if budget < 10 {
+		budget = 10
+	}
+	if ansi.StringWidth(text) <= budget {
+		return []string{indent + text}
+	}
+	wrapped := strings.Split(ansi.Wrap(text, budget, ""), "\n")
+	var out []string
+	for _, wLine := range wrapped {
+		out = append(out, indent+wLine)
+	}
+	return out
+}
+
+func formatTaskOutput(out string, width int) []string {
+	trimmed := strings.TrimRight(out, "\n")
+	if strings.TrimSpace(trimmed) == "" {
+		return []string{detailNoOutput}
+	}
+	rows := strings.Split(trimmed, "\n")
+	if width <= 0 {
+		for i, r := range rows {
+			rows[i] = strings.TrimSpace(r)
+		}
+		return rows
+	}
+	var res []string
+	for _, r := range rows {
+		trimmedRow := strings.TrimRight(r, " \t\r")
+		if trimmedRow == "" {
+			res = append(res, "")
+			continue
+		}
+		if ansi.StringWidth(trimmedRow) <= width {
+			res = append(res, trimmedRow)
+			continue
+		}
+		wrapped := strings.Split(ansi.Wrap(trimmedRow, width, ""), "\n")
+		res = append(res, wrapped...)
+	}
+	return res
+}
+
+func formatTaskError(errStr string, width int) []string {
+	formatted := fmt.Sprintf(detailErrorFormat, errStr)
+	if width <= 0 || ansi.StringWidth(formatted) <= width {
+		return []string{formatted}
+	}
+	return strings.Split(ansi.Wrap(formatted, width, ""), "\n")
 }
 
 // detailTrajectoryHeading renders the reference's trajectory heading —

@@ -17,7 +17,12 @@ func TestParseArgsFlat_Basic(t *testing.T) {
 	}{
 		{name: "simple", args: "hello world", wantQuery: "hello world"},
 		{name: "include", args: "f:*.go findme", wantQuery: "findme", wantInc: []string{"*.go"}},
-		{name: "exclude", args: "file:*.tmp findme", wantQuery: "findme", wantExc: []string{"*.tmp"}},
+		{name: "file alias is an include", args: "file:*.tmp findme", wantQuery: "findme", wantInc: []string{"*.tmp"}},
+		{name: "path alias is an include", args: "path:*.tmp findme", wantQuery: "findme", wantInc: []string{"*.tmp"}},
+		{name: "minus excludes", args: "-f:*_test.go findme", wantQuery: "findme", wantExc: []string{"*_test.go"}},
+		{name: "minus on the file alias excludes", args: "-file:*_test.go findme", wantQuery: "findme", wantExc: []string{"*_test.go"}},
+		{name: "minus on the path alias excludes", args: "-path:*_test.go findme", wantQuery: "findme", wantExc: []string{"*_test.go"}},
+		{name: "minus on the glob excludes", args: "f:-*_test.go findme", wantQuery: "findme", wantExc: []string{"*_test.go"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			query, literal, inc, exc, err := ParseArgsFlat(tc.args)
@@ -38,7 +43,19 @@ func TestParseArgsFlat_Flags(t *testing.T) {
 	}{
 		{name: "short flag", args: "-F hello world", wantQuery: "hello world"},
 		{name: "long flag", args: "--literal target", wantQuery: "target"},
-		{name: "combined", args: "-F f:*.go file:*_test.go needle", wantQuery: "needle", wantInc: []string{"*.go"}, wantExc: []string{"*_test.go"}},
+		{
+			name:      "combined",
+			args:      "-F f:*.go file:*_test.go needle",
+			wantQuery: "needle",
+			wantInc:   []string{"*.go", "*_test.go"},
+		},
+		{
+			name:      "combined with an exclusion",
+			args:      "-F f:*.go -file:*_test.go needle",
+			wantQuery: "needle",
+			wantInc:   []string{"*.go"},
+			wantExc:   []string{"*_test.go"},
+		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			query, literal, inc, exc, err := ParseArgsFlat(tc.args)

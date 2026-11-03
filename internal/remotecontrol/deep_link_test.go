@@ -17,6 +17,9 @@ import (
 	"fmt"
 	"testing"
 	"time"
+
+	"github.com/justwasm/pigasus/internal/remotecontrol/cascades"
+	"github.com/justwasm/pigasus/internal/remotecontrol/rpc"
 )
 
 // TestParseDeepLink_Open pins the headline
@@ -243,7 +246,7 @@ func TestDeepLinkState_RecordOpen(t *testing.T) {
 // atomic to true; IsFocused() reflects it; both
 // are nil-safe.
 func TestCascade_Focus(t *testing.T) {
-	c, err := NewCascade(CascadeOpts{})
+	c, err := cascades.New(cascades.Opts{})
 	if err != nil {
 		t.Fatalf("NewCascade: %v", err)
 	}
@@ -262,7 +265,7 @@ func TestCascade_Focus(t *testing.T) {
 	}
 
 	// Nil-safe.
-	var nilC *Cascade
+	var nilC *cascades.Cascade
 	if nilC.IsFocused() {
 		t.Errorf("nil cascade IsFocused = true, want false")
 	}
@@ -353,8 +356,8 @@ func TestDispatcher_RemoteControlDeepLink_FocusCascade_NotFound(t *testing.T) {
 	if !ok {
 		t.Fatalf("no error envelope, got %#v", resp)
 	}
-	if got := errorCode(errObj); got != ErrCodeCascadeNotFound {
-		t.Errorf("error.code = %d, want %d", got, ErrCodeCascadeNotFound)
+	if got := errorCode(errObj); got != rpc.ErrCodeCascadeNotFound {
+		t.Errorf("error.code = %d, want %d", got, rpc.ErrCodeCascadeNotFound)
 	}
 }
 
@@ -373,7 +376,7 @@ func TestDispatcher_RemoteControlDeepLink_FocusCascade_Ok(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewDispatcher: %v", err)
 	}
-	c, err := NewCascade(CascadeOpts{})
+	c, err := cascades.New(cascades.Opts{})
 	if err != nil {
 		t.Fatalf("NewCascade: %v", err)
 	}
@@ -414,8 +417,8 @@ func TestDispatcher_RemoteControlDeepLink_FocusCascade_TopLevel(t *testing.T) {
 	}
 	// Two cascades; the URL says cas_a, the
 	// top-level says cas_b — the top-level wins.
-	a, _ := NewCascade(CascadeOpts{})
-	b, _ := NewCascade(CascadeOpts{})
+	a, _ := cascades.New(cascades.Opts{})
+	b, _ := cascades.New(cascades.Opts{})
 	if err := d.cascades.Register(a); err != nil {
 		t.Fatalf("Register a: %v", err)
 	}

@@ -10,8 +10,8 @@ import (
 	"golang.org/x/oauth2"
 
 	"github.com/justwasm/pigasus/endpoints"
-	"github.com/justwasm/pigasus/internal/accounts"
-	"github.com/justwasm/pigasus/internal/auth"
+	accounts "github.com/justwasm/pigasus/internal/features/accounts/core"
+	"github.com/justwasm/pigasus/internal/features/auth"
 )
 
 // ---- 2. runLogin ----------------------------------------------------------

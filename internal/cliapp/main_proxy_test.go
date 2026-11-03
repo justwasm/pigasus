@@ -60,7 +60,8 @@ func TestProxySubcommandIsVisible(t *testing.T) {
 // stream, not on os.Stdout.
 func TestProxyCaptureRoundTrip(t *testing.T) {
 	dir := t.TempDir()
-	t.Setenv("OPENAGY_WRAPPER_CONFIG", filepath.Join(dir, "wrapper.json"))
+	t.Setenv("OPENAGY_CONFIG", filepath.Join(dir, "config.json"))
+	t.Setenv("OPENAGY_CONFIG_HOME", dir)
 	t.Setenv("OPENAGY_CAPTURE_DIR", "")
 	t.Setenv("HOME", dir) // keep the default capture dir inside the sandbox
 
@@ -110,7 +111,7 @@ func TestProxyUnknownSubCommand(t *testing.T) {
 // providers` (the alias) and `pigasus provider list` are the same handler.
 func TestRegistryStaysWithTheClone(t *testing.T) {
 	dir := t.TempDir()
-	t.Setenv("XDG_CONFIG_HOME", dir) // providers.json lands in the sandbox
+	t.Setenv("OPENAGY_CONFIG_HOME", dir) // providers.json lands in the sandbox
 	t.Setenv("HOME", dir)
 
 	aliasOut, _, code := runProxyCLI(t, "providers", "list")

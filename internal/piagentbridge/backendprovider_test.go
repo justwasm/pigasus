@@ -6,7 +6,7 @@ import (
 
 	pi "github.com/MichaelKinsy/PiG/ai"
 
-	"github.com/justwasm/pigasus/internal/backend"
+	"github.com/justwasm/pigasus/internal/core/backend"
 )
 
 // TestBackendProviderModel pins the ai.Provider surface BackendProvider

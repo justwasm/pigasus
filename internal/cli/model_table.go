@@ -2,6 +2,7 @@ package cli
 
 import (
 	"fmt"
+	"github.com/justwasm/pigasus/internal/features/models/catalog"
 	"io"
 	"text/tabwriter"
 )
@@ -30,7 +31,7 @@ import (
 // id and label joined by a single tab, no padding. It is what the reference
 // writes when stdout is not a terminal, so a caller that pipes `agy models`
 // into cut/awk sees the same bytes the reference produces.
-func modelTable(w io.Writer, entries []ModelEntry, aligned bool) error {
+func modelTable(w io.Writer, entries []catalog.ModelEntry, aligned bool) error {
 	if !aligned {
 		for _, m := range entries {
 			if _, err := fmt.Fprintf(w, "%s\t%s\n", m.ID, m.Label); err != nil {
@@ -54,6 +55,6 @@ func modelTable(w io.Writer, entries []ModelEntry, aligned bool) error {
 // The terminal check is on the writer, not on os.Stdout: the clone's
 // subcommands can be pointed at a buffer or a pipe, and the reference's own
 // rule is about the stream the catalogue is written to.
-func writeModelTable(w io.Writer, entries []ModelEntry) error {
+func writeModelTable(w io.Writer, entries []catalog.ModelEntry) error {
 	return modelTable(w, entries, isTerminalWriter(w))
 }

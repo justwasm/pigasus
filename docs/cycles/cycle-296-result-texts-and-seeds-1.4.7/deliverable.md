@@ -7,7 +7,7 @@ artefacts were still pinned to older releases
 (`~/.local/bin/agy`, SHA-256
 `b7a13e53c9f49921692676ef8edc2e60ceb67064c00bc732d9a364ec3ad75b32`) on
 2026-10-25, on this machine, and is reproducible with
-`devutils/refcapture` + `out/local-macos/build_priority.py`
+`devutils/refcapture` + `scripts/re/build_priority.py`
 
 ---
 
@@ -235,7 +235,7 @@ have to be regenerated together.
 
 ```bash
 cd rea-go-seeds && mkdir -p <outdir> && go run . ~/.local/bin/agy <outdir>
-python3 out/local-macos/build_priority.py out/local-macos/seeds/seeds.txt \
+python3 scripts/re/build_priority.py out/local-macos/seeds/seeds.txt \
   > out/local-macos/priority-funcs.txt
 # Ghidra: import + seed, then DecompilePriority.java, then build_reports.py
 ```
@@ -311,7 +311,7 @@ go build ./cmd/... ./internal/...     # clean
 go test ./cmd/... ./internal/...      # clean
 go test ./internal/resultparity/      # ok  (26 compared, 6 skipped)
 go test ./internal/referencedrift/    # ok
-python3 out/local-macos/build_reports.py
+python3 scripts/re/build_reports.py
 #   summary + 104 per-package reports -> …/out/local-macos
 #   2313/2313 decompiled, 336,278 LOC
 ```

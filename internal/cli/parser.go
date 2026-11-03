@@ -11,9 +11,10 @@
 // unchanged so callers in cmd/wagyu and tests do not need to
 // change.
 //
-// The goal is still parse-parity with the v1.3.4 binary's --help output:
+// The goal is still parse-parity with the reference binary's --help output:
 //   - 31 top-level flags (long form, short form, and aliases)
-//   - 10 visible subcommands (8 spec + agents alias + changelog)
+//   - the reference's 12 visible subcommands (the clone adds six of its
+//     own: accounts, halloween, model, provider, proxy, web)
 //   - sub-subcommands under plugin (9), mcp (5), remote-control (3), agent (1)
 package cli
 

@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/justwasm/pigasus/internal/implicit"
+	"github.com/justwasm/pigasus/internal/app/prompt/implicit"
 )
 
 // doneStep is a `!` command that ran and printed something.

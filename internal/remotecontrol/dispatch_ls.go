@@ -36,7 +36,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/justwasm/pigasus/internal/convstore"
+	"github.com/justwasm/pigasus/internal/app/session/convstore"
+	"github.com/justwasm/pigasus/internal/remotecontrol/cascades"
+	"github.com/justwasm/pigasus/internal/remotecontrol/rpc"
 )
 
 // lsStartCascadeParams is the LanguageServerService.StartCascade
@@ -114,7 +116,7 @@ type lsSendUserCascadeMessageParams struct {
 // routeLanguageServerCascadeMethods handles the LanguageServerService
 // methods the Web UI's conversation loop needs. Returns ok=true when
 // the method was handled.
-func (d *Dispatcher) routeLanguageServerCascadeMethods(ctx context.Context, method string, params json.RawMessage) (any, *rpcErrorBody, bool) {
+func (d *Dispatcher) routeLanguageServerCascadeMethods(ctx context.Context, method string, params json.RawMessage) (any, *rpc.ErrorBody, bool) {
 	switch method {
 	case "StartCascade":
 		return d.handleLSStartCascade(params)
@@ -141,8 +143,30 @@ func (d *Dispatcher) routeLanguageServerCascadeMethods(ctx context.Context, meth
 		return d.routeLanguageServerTrajectoryMethods(method, params)
 	case "SearchConversations", "GetConversationMetadata",
 		"GetTrajectoryTurns", "GetAllCascadeTrajectories",
-		"DeleteCascadeTrajectory":
+		"DeleteCascadeTrajectory",
+		"ForkConversation", "forkConversation",
+		"RevertToCascadeStep", "revertToCascadeStep",
+		"GetRevertPreview", "getRevertPreview",
+		"ConvertTrajectoryToMarkdown", "convertTrajectoryToMarkdown",
+		"GetTrajectoryFileDiffs", "getTrajectoryFileDiffs":
 		return d.routeLanguageServerConversationMethods(method, params)
+	case "GetMcpServerStates", "getMcpServerStates":
+		return map[string]any{"states": []any{}, "isLoading": false}, nil, true
+	case "RefreshMcpServers", "refreshMcpServers",
+		"ToggleMcpServer", "toggleMcpServer",
+		"CompleteMcpOAuth", "completeMcpOAuth",
+		"DisconnectMcpOAuth", "disconnectMcpOAuth":
+		return map[string]any{}, nil, true
+	case "ResetOnboarding", "resetOnboarding",
+		"SendActionToChatPanel", "sendActionToChatPanel",
+		"Restart", "restart":
+		return map[string]any{}, nil, true
+	case "GetChapterTitles", "getChapterTitles":
+		return map[string]any{"chapters": []any{}}, nil, true
+	case "ResolveWorkspaceUrlPreview", "resolveWorkspaceUrlPreview":
+		return map[string]any{"title": "", "resourceType": "WORKSPACE_RESOURCE_TYPE_UNSPECIFIED"}, nil, true
+	case "ValidateTerminalSetupScript", "validateTerminalSetupScript":
+		return map[string]any{"exitCode": 0, "output": ""}, nil, true
 	case "FetchUserInfo", "SetUserInfo":
 		return d.handleLSUserInfo()
 	case "JetboxWriteSummary":
@@ -192,7 +216,7 @@ func (d *Dispatcher) routeLanguageServerCascadeMethods(ctx context.Context, meth
 // page's own "Connecting to instance…" spinner — the UI's bootstrap
 // arrived, three errors were reported, and the page never became
 // ready.
-func (d *Dispatcher) handleLSRecordError(params json.RawMessage) (any, *rpcErrorBody, bool) {
+func (d *Dispatcher) handleLSRecordError(params json.RawMessage) (any, *rpc.ErrorBody, bool) {
 	if len(params) > 0 {
 		log.Printf("remotecontrol: web UI error report: %s", string(params))
 	}
@@ -204,28 +228,28 @@ func (d *Dispatcher) handleLSRecordError(params json.RawMessage) (any, *rpcError
 // `cascadeId`, then uses the same uuid as the conversation id — so the
 // clone must keep the client's id rather than minting its own, or the
 // follow-up SendUserCascadeMessage cannot find the cascade.
-func (d *Dispatcher) handleLSStartCascade(params json.RawMessage) (any, *rpcErrorBody, bool) {
+func (d *Dispatcher) handleLSStartCascade(params json.RawMessage) (any, *rpc.ErrorBody, bool) {
 	if d == nil || d.cascades == nil {
-		return nil, &rpcErrorBody{Code: -32603, Message: "Internal error", Data: "registry not initialised"}, true
+		return nil, &rpc.ErrorBody{Code: -32603, Message: "Internal error", Data: "registry not initialised"}, true
 	}
 	var req lsStartCascadeParams
 	if len(params) > 0 {
 		if err := json.Unmarshal(params, &req); err != nil {
-			return nil, &rpcErrorBody{Code: -32602, Message: "Invalid params", Data: err.Error()}, true
+			return nil, &rpc.ErrorBody{Code: -32602, Message: "Invalid params", Data: err.Error()}, true
 		}
 	}
 	cascadeID := strings.TrimSpace(req.CascadeID)
 	if cascadeID == "" {
-		return nil, &rpcErrorBody{Code: -32602, Message: "Invalid params", Data: "cascadeId is required"}, true
+		return nil, &rpc.ErrorBody{Code: -32602, Message: "Invalid params", Data: "cascadeId is required"}, true
 	}
 	opts := d.buildLSCascadeOpts(&req)
 	opts.ID = cascadeID
-	c, err := NewCascade(opts)
+	c, err := cascades.New(opts)
 	if err != nil {
-		return nil, &rpcErrorBody{Code: -32603, Message: "Internal error", Data: err.Error()}, true
+		return nil, &rpc.ErrorBody{Code: -32603, Message: "Internal error", Data: err.Error()}, true
 	}
 	if err := d.cascades.Register(c); err != nil {
-		return nil, &rpcErrorBody{Code: -32603, Message: "Internal error", Data: err.Error()}, true
+		return nil, &rpc.ErrorBody{Code: -32603, Message: "Internal error", Data: err.Error()}, true
 	}
 	// Seed the trajectory so the StreamAgentStateUpdates stream can
 	// find it even when the client subscribes before it sends.
@@ -247,8 +271,8 @@ func (d *Dispatcher) handleLSStartCascade(params json.RawMessage) (any, *rpcErro
 // `requestedModel`; the catalogue turns it back into the model's id.
 // Without that the cascade would always run on the host's default
 // model and the picker's choice would be silently dropped.
-func (d *Dispatcher) buildLSCascadeOpts(req *lsStartCascadeParams) CascadeOpts {
-	opts := CascadeOpts{DispatchDefault: d.cfg.MessageBackend}
+func (d *Dispatcher) buildLSCascadeOpts(req *lsStartCascadeParams) cascades.Opts {
+	opts := cascades.Opts{DispatchDefault: d.cfg.MessageBackend}
 	if d.cfg.Session != nil {
 		opts.Model = d.cfg.Session.Model
 		opts.BackendLabel = d.cfg.Session.Backend
@@ -256,6 +280,9 @@ func (d *Dispatcher) buildLSCascadeOpts(req *lsStartCascadeParams) CascadeOpts {
 	}
 	if id := d.modelIDForRequestedModel(int(req.RequestedModel)); id != "" {
 		opts.Model = id
+	}
+	if opts.Model == "" {
+		opts.Model = "gemini-3.8-flash-high"
 	}
 	opts.ProjectID = req.ProjectEnvConfig.ProjectID
 	return opts
@@ -274,24 +301,24 @@ func (d *Dispatcher) modelIDForRequestedModel(value int) string {
 // turn text rides in `items[].text`; the reply comes back through the
 // StreamAgentStateUpdates trajectory, so this response stays empty
 // (the IDE's SendUserCascadeMessageResponse has no fields).
-func (d *Dispatcher) handleLSSendUserCascadeMessage(ctx context.Context, params json.RawMessage) (any, *rpcErrorBody, bool) {
+func (d *Dispatcher) handleLSSendUserCascadeMessage(ctx context.Context, params json.RawMessage) (any, *rpc.ErrorBody, bool) {
 	if d == nil || d.cascades == nil {
-		return nil, &rpcErrorBody{Code: -32603, Message: "Internal error", Data: "registry not initialised"}, true
+		return nil, &rpc.ErrorBody{Code: -32603, Message: "Internal error", Data: "registry not initialised"}, true
 	}
 	var req lsSendUserCascadeMessageParams
 	if len(params) > 0 {
 		if err := json.Unmarshal(params, &req); err != nil {
-			return nil, &rpcErrorBody{Code: -32602, Message: "Invalid params", Data: err.Error()}, true
+			return nil, &rpc.ErrorBody{Code: -32602, Message: "Invalid params", Data: err.Error()}, true
 		}
 	}
 	cascadeID := strings.TrimSpace(req.CascadeID)
 	if cascadeID == "" {
-		return nil, &rpcErrorBody{Code: -32602, Message: "Invalid params", Data: "cascadeId is required"}, true
+		return nil, &rpc.ErrorBody{Code: -32602, Message: "Invalid params", Data: "cascadeId is required"}, true
 	}
 	text := lsJoinItemText(req.Items)
 	images := messageImagesFromMedia(req.Media)
 	if text == "" && len(images) == 0 {
-		return nil, &rpcErrorBody{Code: -32602, Message: "Invalid params", Data: "items[].text is required"}, true
+		return nil, &rpc.ErrorBody{Code: -32602, Message: "Invalid params", Data: "items[].text is required"}, true
 	}
 	c, ok := d.cascades.Get(cascadeID)
 	if !ok {
@@ -300,9 +327,11 @@ func (d *Dispatcher) handleLSSendUserCascadeMessage(ctx context.Context, params 
 		// *new* conversation. The reference's own server resolves the
 		// conversation from its store; so does the clone.
 		c, ok = d.lsResumeCascade(cascadeID, d.lsCascadeConfigModel(req.CascadeConfig))
+	} else if model := d.lsCascadeConfigModel(req.CascadeConfig); model != "" {
+		c.Model = model
 	}
 	if !ok {
-		return nil, &rpcErrorBody{Code: ErrCodeCascadeNotFound, Message: "Cascade not found", Data: cascadeID}, true
+		return nil, &rpc.ErrorBody{Code: rpc.ErrCodeCascadeNotFound, Message: "Cascade not found", Data: cascadeID}, true
 	}
 	return d.admitLSCascadeMessage(ctx, c, text, images, req.DeliveryStrategy)
 }
@@ -329,10 +358,10 @@ func (d *Dispatcher) handleLSSendUserCascadeMessage(ctx context.Context, params 
 // The message that finds the conversation idle runs right away, and the
 // request waits for the turn — and for every message the queue hands
 // it afterwards.
-func (d *Dispatcher) admitLSCascadeMessage(ctx context.Context, c *Cascade, text string, images []MessageImage, strategy lsDeliveryStrategy) (any, *rpcErrorBody, bool) {
+func (d *Dispatcher) admitLSCascadeMessage(ctx context.Context, c *cascades.Cascade, text string, images []cascades.Image, strategy lsDeliveryStrategy) (any, *rpc.ErrorBody, bool) {
 	traj := d.trajectories.Get(c.ID)
 	if traj == nil {
-		return nil, &rpcErrorBody{Code: -32603, Message: "Internal error", Data: "no trajectory store"}, true
+		return nil, &rpc.ErrorBody{Code: -32603, Message: "Internal error", Data: "no trajectory store"}, true
 	}
 	msg := lsQueuedMessage{
 		ID:       traj.nextPendingID(),
@@ -359,7 +388,7 @@ func (d *Dispatcher) admitLSCascadeMessage(ctx context.Context, c *Cascade, text
 // queued message outlives the request that queued it, and the values
 // the request carried — the websocket connection the notifications go
 // to — are kept.
-func (d *Dispatcher) runLSTurnQueue(ctx context.Context, c *Cascade, msg lsQueuedMessage) (any, *rpcErrorBody, bool) {
+func (d *Dispatcher) runLSTurnQueue(ctx context.Context, c *cascades.Cascade, msg lsQueuedMessage) (any, *rpc.ErrorBody, bool) {
 	traj := d.trajectories.Get(c.ID)
 	turnCtx := context.WithoutCancel(ctx)
 	var firstErr error
@@ -391,7 +420,7 @@ func (d *Dispatcher) runLSTurnQueue(ctx context.Context, c *Cascade, msg lsQueue
 		msg = next
 	}
 	if firstErr != nil {
-		return nil, &rpcErrorBody{Code: -32603, Message: "Internal error", Data: firstErr.Error()}, true
+		return nil, &rpc.ErrorBody{Code: -32603, Message: "Internal error", Data: firstErr.Error()}, true
 	}
 	return map[string]any{}, nil, true
 }
@@ -408,7 +437,7 @@ func (d *Dispatcher) runLSTurnQueue(ctx context.Context, c *Cascade, msg lsQueue
 // It returns the steps to store and the turn's error. The error is
 // nil-safe to swallow: the caller decides, because only the caller
 // knows whether the turn was interrupted on purpose.
-func (d *Dispatcher) runLSTurn(ctx context.Context, c *Cascade, msg lsQueuedMessage) ([]convstore.Step, error) {
+func (d *Dispatcher) runLSTurn(ctx context.Context, c *cascades.Cascade, msg lsQueuedMessage) ([]convstore.Step, error) {
 	traj := d.trajectories.Get(c.ID)
 	if traj != nil {
 		traj.Append(lsUserInputStep(msg.Text))
@@ -477,7 +506,7 @@ func lsJoinItemText(items []struct {
 // The clone appends too, so the conversation the Web UI continues is
 // the conversation the next turn continues, and so the history the
 // sidebar shows is the history that exists.
-func (d *Dispatcher) lsStoreTurn(c *Cascade, text string, steps []convstore.Step, turnErr error) {
+func (d *Dispatcher) lsStoreTurn(c *cascades.Cascade, text string, steps []convstore.Step, turnErr error) {
 	if d == nil || c == nil {
 		return
 	}
@@ -517,7 +546,7 @@ func (d *Dispatcher) lsStoreTurn(c *Cascade, text string, steps []convstore.Step
 // info in an `info` field and repeats the name as `title`; the
 // clone's own catalogue carries a different field set, so each entry
 // is mapped explicitly.
-func (d *Dispatcher) handleLSGetSlashCommands() (any, *rpcErrorBody, bool) {
+func (d *Dispatcher) handleLSGetSlashCommands() (any, *rpc.ErrorBody, bool) {
 	commands := []any{}
 	if d != nil && d.cfg.ListBackend.SlashCommands != nil {
 		if list, err := d.cfg.ListBackend.SlashCommands(); err == nil {
@@ -543,7 +572,7 @@ func (d *Dispatcher) handleLSGetSlashCommands() (any, *rpcErrorBody, bool) {
 // reports telemetry as on and the rest off. The Web UI treats a
 // missing `userSettings` as a hard failure ("fetchUserInfo
 // returned no userSettings"), so the block is always present.
-func (d *Dispatcher) handleLSUserInfo() (any, *rpcErrorBody, bool) {
+func (d *Dispatcher) handleLSUserInfo() (any, *rpc.ErrorBody, bool) {
 	return map[string]any{
 		"userSettings": map[string]any{
 			"telemetryEnabled":                true,
@@ -561,7 +590,7 @@ func (d *Dispatcher) handleLSUserInfo() (any, *rpcErrorBody, bool) {
 // frame cadence. DispatchStream returns when ctx is done.
 func (d *Dispatcher) DispatchStream(ctx context.Context, method string, payload string, emit func(json.RawMessage) error) (bool, error) {
 	switch method {
-	case "StreamAgentStateUpdates":
+	case "StreamAgentStateUpdates", "streamAgentStateUpdates":
 		return d.streamAgentStateUpdates(ctx, payload, emit)
 	case "JetboxSubscribeToState", "jetboxSubscribeToState":
 		return d.streamJetboxSubscribeToState(ctx, payload, emit)
@@ -573,6 +602,16 @@ func (d *Dispatcher) DispatchStream(ctx context.Context, method string, payload 
 		return d.streamSubscribeToMcpServerStates(ctx, payload, emit)
 	case "SubscribeToPlugins", "subscribeToPlugins":
 		return d.streamSubscribeToPlugins(ctx, payload, emit)
+	case "SubscribeToSidecars", "subscribeToSidecars":
+		return d.streamSubscribeToSidecars(ctx, emit)
+	case "GetSidecarLogs", "getSidecarLogs":
+		return d.streamGetSidecarLogs(ctx, emit)
+	case "WatchDirectory", "watchDirectory":
+		return d.streamWatchDirectory(ctx)
+	case "WatchVersionControlState", "watchVersionControlState":
+		return d.streamWatchVersionControlState(ctx, emit)
+	case "JetboxSubscribeToGcertState", "jetboxSubscribeToGcertState":
+		return d.streamJetboxSubscribeToGcertState(ctx, emit)
 	case "StreamTerminalOutput", "streamTerminalOutput":
 		// The Web UI's terminal output stream — the reference's
 		// own StreamTerminalOutputResponse frames.
@@ -591,6 +630,25 @@ func (d *Dispatcher) DispatchStream(ctx context.Context, method string, payload 
 		//
 		// 【一手】 2026-10-27; see dispatch_agentbrowser.go.
 		return d.lsSubscribeToAgentBrowserRequests(ctx, payload, emit)
+	case "StreamSearchCode", "streamSearchCode":
+		// Completes normally with 0 frames and status OK.
+		return true, nil
+	case "HandleStreamingCommand", "handleStreamingCommand":
+		return true, lsStreamErr(2, "unexpected request source")
+	case "StreamCascadeReactiveUpdates", "streamCascadeReactiveUpdates":
+		return true, lsStreamErr(2, "reactive state is deprecated")
+	case "StreamCascadeSummariesReactiveUpdates", "streamCascadeSummariesReactiveUpdates":
+		return true, lsStreamErr(2, "Summaries reactive state is deprecated")
+	case "JetboxSubscribeToOAuthState", "jetboxSubscribeToOAuthState":
+		return true, lsStreamErr(2, "JetboxSubscribeToOAuthState not supported in external builds")
+	case "StreamUserTrajectoryReactiveUpdates", "streamUserTrajectoryReactiveUpdates":
+		return true, lsStreamErr(12, "unimplemented: user trajectory reactive updates are deprecated")
+	case "StreamCascadePanelReactiveUpdates", "streamCascadePanelReactiveUpdates":
+		return true, lsStreamErr(12, "unimplemented: unimplemented")
+	case "StartNarration", "startNarration":
+		return true, lsStreamErr(12, "unimplemented: narration is not available in external builds")
+	case "SetupJetskiChat", "setupJetskiChat":
+		return true, lsStreamErr(12, "unimplemented: Unimplemented")
 	}
 	return false, nil
 }

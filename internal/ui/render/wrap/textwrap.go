@@ -2,7 +2,11 @@
 //
 // The wrap is charmbracelet/x/ansi's word wrap — the library the
 // reference's own binary embeds: its seeds carry
-// charmbracelet/x/ansi's Wordwrap (out/seeds/funcs.txt).
+// charmbracelet/x/ansi's Wordwrap, spelled there
+// `…/charmbracelet/x/ansi/v/v0/ansi.Method.Wordwrap` (the symbol name is
+// the fact; the seed set that carries it is the live 1.4.11 Mach-O one,
+// out/local-macos/seeds/funcs.txt — the ELF-sandbox seed set that stood
+// here before is retired).
 //
 // The reference's own rule is the one the helper keeps: a word that is
 // wider than the budget is emitted whole. It does not hyphenate and it

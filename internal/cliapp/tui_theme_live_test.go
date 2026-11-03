@@ -1,11 +1,15 @@
 package cliapp
 
 import (
+	"github.com/justwasm/pigasus/internal/ui/tuilib"
+
 	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/justwasm/pigasus/internal/mdrender"
+	"github.com/justwasm/pigasus/internal/ui/mdrender"
+	"github.com/justwasm/pigasus/internal/ui/panelregistry"
+	"github.com/justwasm/pigasus/internal/ui/transcript"
 	"github.com/justwasm/pigasus/palette"
 )
 
@@ -16,7 +20,7 @@ func Test_LiveThemeSwitch_RepaintsUserPromptAndAssistantText(t *testing.T) {
 		mdrender.SetColorScheme(origScheme)
 	}()
 
-	m := NewRunMode(nil, "test@example.com", "gemini-test", "Pro", "/tmp", true)
+	m := newRunMode(nil, "test@example.com", "gemini-test", "Pro", "/tmp", true)
 	m.width = 80
 	m.height = 24
 
@@ -25,18 +29,18 @@ func Test_LiveThemeSwitch_RepaintsUserPromptAndAssistantText(t *testing.T) {
 
 	// Add a user prompt
 	prompt := "How does the color scheme look?"
-	m.response = append(m.response, userPromptRow(prompt))
+	m.response = append(m.response, transcript.UserPromptRow(prompt))
 
 	// Add an assistant response (simulating streamed turn completion)
 	replyRaw := "The text should be crisp and visible on dark terminals."
-	styled := renderMarkdown(replyRaw, m.width)
+	styled := mdrender.RenderMarkdown(replyRaw, m.width)
 	replyLines := strings.Split(styled, "\n")
 	start := len(m.response)
 	m.response = append(m.response, replyLines...)
-	m.assistants = append(m.assistants, assistantBlock{
-		start: start,
-		lines: len(replyLines),
-		raw:   replyRaw,
+	m.assistants = append(m.assistants, transcript.AssistantBlock{
+		Start: start,
+		Lines: len(replyLines),
+		Raw:   replyRaw,
 	})
 
 	// Under solarized light:
@@ -133,7 +137,12 @@ func Test_LiveThemeSwitch_ConfigSubmenuPreviewAndCancel(t *testing.T) {
 		mdrender.SetColorScheme(origScheme)
 	}()
 
-	m := NewRunMode(nil, "test@example.com", "gemini-test", "Pro", "/tmp", true)
+	// The settings file is isolated: the panel reads the Color Scheme
+	// row's current value from it, and the submenu's Esc puts that value
+	// back.
+	cycle196TestHome(t, map[string]any{"colorScheme": "solarized light"})
+
+	m := newRunMode(nil, "test@example.com", "gemini-test", "Pro", "/tmp", true)
 	m.width = 80
 	m.height = 24
 
@@ -141,56 +150,32 @@ func Test_LiveThemeSwitch_ConfigSubmenuPreviewAndCancel(t *testing.T) {
 	m.applyThemeLive("solarized light")
 
 	// Add a user prompt and assistant response
-	m.response = append(m.response, userPromptRow("hello"))
-	styled := renderMarkdown("response body", m.width)
+	m.response = append(m.response, transcript.UserPromptRow("hello"))
+	styled := mdrender.RenderMarkdown("response body", m.width)
 	lines := strings.Split(styled, "\n")
 	start := len(m.response)
 	m.response = append(m.response, lines...)
-	m.assistants = append(m.assistants, assistantBlock{
-		start: start,
-		lines: len(lines),
-		raw:   "response body",
+	m.assistants = append(m.assistants, transcript.AssistantBlock{
+		Start: start,
+		Lines: len(lines),
+		Raw:   "response body",
 	})
 
-	rows := configRows()
-	colorSchemeIdx := -1
-	for i, r := range rows {
-		if r.Name == "Color Scheme" {
-			colorSchemeIdx = i
-			break
-		}
-	}
-	if colorSchemeIdx < 0 {
-		t.Fatal("Color Scheme row not found in configRows")
+	m.panel = slashPanel{kind: panelregistry.Config, cmd: "/config"}
+	m.panel.cfg = m.newConfigPanel()
+	m.panel.cfg.SetCursor(configRowIndexForTest(t, m, "Color Scheme"))
+
+	// Enter opens the inline option submenu on the Color Scheme row.
+	m.handlePanelKey(tea.Key{Code: tea.KeyEnter})
+	if !m.panel.cfg.SubmenuOpen() {
+		t.Fatal("expected the option submenu to be open")
 	}
 
-	m.panel = slashPanel{
-		cursor:        colorSchemeIdx,
-		configSubmenu: false,
+	// Walk the values down to "dark": the submenu opens on the row's
+	// current value ("solarized light"), so two steps down reach "dark".
+	for i := 0; i < 2; i++ {
+		m.handlePanelKey(tea.Key{Code: tea.KeyDown})
 	}
-	m.openConfigSubmenu(rows)
-	m.panel.configSubmenuOrigVal = "solarized light"
-
-	if !m.panel.configSubmenu {
-		t.Fatal("expected configSubmenu to be open")
-	}
-
-	// Find the index of "dark" in the Color Scheme values
-	csRow := rows[colorSchemeIdx]
-	darkIdx := -1
-	for i, v := range csRow.Values {
-		if v.Display == "dark" {
-			darkIdx = i
-			break
-		}
-	}
-	if darkIdx < 0 {
-		t.Fatal("'dark' option not found in Color Scheme values")
-	}
-
-	// Move cursor to "dark" and preview
-	m.panel.configSubmenuCursor = darkIdx
-	m.previewThemeForRow(csRow, len(csRow.Values))
 
 	// Verify transcript was updated to "dark"
 	darkPromptFg := "\x1b[38;2;138;180;248;1m"
@@ -204,7 +189,7 @@ func Test_LiveThemeSwitch_ConfigSubmenuPreviewAndCancel(t *testing.T) {
 	}
 
 	// Now simulate Esc key -> should cancel and restore original value
-	m.handleConfigSubmenuKey(tea.Key{Code: tea.KeyEsc})
+	m.handlePanelKey(tea.Key{Code: tea.KeyEsc})
 
 	// Verify transcript restored to solarized light
 	solarizedPromptFg := "\x1b[38;2;38;139;210;1m"
@@ -225,7 +210,7 @@ func Test_LiveThemeSwitch_SlashEchoBlockRepainted(t *testing.T) {
 		mdrender.SetColorScheme(origScheme)
 	}()
 
-	m := NewRunMode(nil, "test@example.com", "gemini-test", "Pro", "/tmp", true)
+	m := newRunMode(nil, "test@example.com", "gemini-test", "Pro", "/tmp", true)
 	m.width = 80
 	m.height = 24
 
@@ -235,7 +220,7 @@ func Test_LiveThemeSwitch_SlashEchoBlockRepainted(t *testing.T) {
 	// Append a slash command exit block:
 	// > /config
 	//   ⎿  Exited /config command
-	m.response = append(m.response, slashEchoLines("/config", "Exited /config command")...)
+	m.response = append(m.response, tuilib.SlashEchoLines("/config", "Exited /config command")...)
 
 	// 1. Under Solarized Light:
 	// - header: WarningBlueOpen \x1b[38;2;38;139;210;1m
@@ -288,7 +273,7 @@ func Test_LiveThemeSwitch_SlashEchoBlockRepainted(t *testing.T) {
 
 	// 5. Test closePanel / slashRespond in active Dark theme emits dark colors directly
 	m.applyThemeLive("dark")
-	m.panel = slashPanel{kind: panelConfig, cmd: "/config"}
+	m.panel = slashPanel{kind: panelregistry.Config, cmd: "/config"}
 	m.closePanel()
 
 	lastHeader := m.response[len(m.response)-3]

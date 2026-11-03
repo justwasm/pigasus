@@ -1,13 +1,12 @@
 package rchost
 
-import "github.com/justwasm/pigasus/internal/auth"
-
 import (
 	"flag"
 	"strings"
 	"testing"
 
 	"github.com/justwasm/pigasus/internal/cli"
+	"github.com/justwasm/pigasus/internal/features/auth"
 )
 
 // ---- helpers --------------------------------------------------------------

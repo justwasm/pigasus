@@ -1,7 +1,8 @@
 // alwaysload.go — the AGY 1.3.3 "always loaded MCP tool" hint parser.
 //
 // AGY 1.3.3 changelog line 42 (also recovered verbatim from the v1.3.4
-// binary and listed at docs/decompiled-v1.3.4/strings-new-in-v1.3.4.txt:8745;
+// binary — the sentence survives in the "new in 1.3.4" string table's cited
+// window, docs/legacy-re/extracts/strings-new-in-v1.3.4-cited.txt;
 // the same sentence sits at file offset 0x3b39e39 of the agy 1.4.5 binary):
 //
 //	Added support for MCP servers to mark a tool as always loaded by
@@ -51,15 +52,6 @@ import (
 	"sort"
 )
 
-// AntigravityAlwaysLoadMetaKey is the AGY-defined key inside a
-// `tools/list` entry's `_meta` object that opts a tool into being
-// advertised to the model directly, instead of remaining reachable
-// only through the discoverable call_mcp_tool surface.
-//
-// MCP's `_meta` field is intentionally open-ended; this constant is
-// the AGY project's single declaration of the spelling it reads. A
-// misspelling here would silently make the flag unobservable.
-const AntigravityAlwaysLoadMetaKey = "antigravity/alwaysLoad"
 
 // MCPToolSpec is one tool an MCP server returned in a `tools/list`
 // response, after parsing. The AlwaysLoad field is computed from the
@@ -274,26 +266,6 @@ func AlwaysLoadHintsFromConfig(servers map[string]AgyMCPServer) []AlwaysLoadHint
 	return hints
 }
 
-// AlwaysLoadHintsFromToolsList parses the dynamic per-server
-// always-load hints from a `tools/list` JSON response. The hints
-// carry an empty server name — the caller fills it in (typically
-// from the surrounding `tools/list` request context, which the AGY
-// runtime binds to its own per-server transport).
-func AlwaysLoadHintsFromToolsList(server string, payload []byte) ([]AlwaysLoadHint, error) {
-	split, err := ParseToolsList(payload)
-	if err != nil {
-		return nil, err
-	}
-	hints := make([]AlwaysLoadHint, 0, len(split.AlwaysLoad))
-	for _, tool := range split.AlwaysLoad {
-		hints = append(hints, AlwaysLoadHint{
-			Server: server,
-			Tool:   tool.Name,
-			Source: "dynamic",
-		})
-	}
-	return hints, nil
-}
 
 // MergeAlwaysLoadHints merges static and dynamic hints by
 // (server, tool), with dynamic winning on a tie (the server's

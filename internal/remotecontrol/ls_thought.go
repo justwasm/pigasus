@@ -22,6 +22,8 @@ package remotecontrol
 import (
 	"strings"
 	"time"
+
+	"github.com/justwasm/pigasus/internal/remotecontrol/cascades"
 )
 
 // The marker literals the CloudCode transport wraps reasoning in.
@@ -185,19 +187,19 @@ func lsStripThink(text string) string {
 // collapsible panel while the model is still thinking, so the text
 // cannot wait for the end of the turn.
 type lsThoughtSink struct {
-	inner   EventSink
+	inner   cascades.EventSink
 	sc      lsThinkScanner
-	cascade *Cascade
+	cascade *cascades.Cascade
 }
 
 // lsThoughtReceiver is the optional sink capability that receives the
 // model's thinking as it arrives.
 type lsThoughtReceiver interface {
-	OnThought(cascade *Cascade, text string)
+	OnThought(cascade *cascades.Cascade, text string)
 }
 
 // newLSThoughtSink wraps inner.
-func newLSThoughtSink(inner EventSink) *lsThoughtSink {
+func newLSThoughtSink(inner cascades.EventSink) *lsThoughtSink {
 	s := &lsThoughtSink{inner: inner}
 	s.sc.onThought = s.forwardThought
 	return s
@@ -214,14 +216,14 @@ func (s *lsThoughtSink) forwardThought(text string) {
 }
 
 // OnState forwards the state frame.
-func (s *lsThoughtSink) OnState(cascade *Cascade, frame StateFrame) {
+func (s *lsThoughtSink) OnState(cascade *cascades.Cascade, frame cascades.StateFrame) {
 	if s.inner != nil {
 		s.inner.OnState(cascade, frame)
 	}
 }
 
 // OnTextDelta splits the delta and forwards only its visible part.
-func (s *lsThoughtSink) OnTextDelta(cascade *Cascade, delta string) {
+func (s *lsThoughtSink) OnTextDelta(cascade *cascades.Cascade, delta string) {
 	if s.inner == nil {
 		return
 	}
@@ -232,28 +234,28 @@ func (s *lsThoughtSink) OnTextDelta(cascade *Cascade, delta string) {
 }
 
 // OnToolCall forwards the tool call.
-func (s *lsThoughtSink) OnToolCall(cascade *Cascade, call ToolCall) {
+func (s *lsThoughtSink) OnToolCall(cascade *cascades.Cascade, call cascades.ToolCall) {
 	if s.inner != nil {
 		s.inner.OnToolCall(cascade, call)
 	}
 }
 
 // OnError forwards the error.
-func (s *lsThoughtSink) OnError(cascade *Cascade, err error) {
+func (s *lsThoughtSink) OnError(cascade *cascades.Cascade, err error) {
 	if s.inner != nil {
 		s.inner.OnError(cascade, err)
 	}
 }
 
 // OnUserInteraction forwards the interaction request.
-func (s *lsThoughtSink) OnUserInteraction(cascade *Cascade, intr *PendingInteraction) {
+func (s *lsThoughtSink) OnUserInteraction(cascade *cascades.Cascade, intr *cascades.PendingInteraction) {
 	if s.inner != nil {
 		s.inner.OnUserInteraction(cascade, intr)
 	}
 }
 
 // Flush forwards the text the scanner held back at the end of the stream.
-func (s *lsThoughtSink) Flush(cascade *Cascade) {
+func (s *lsThoughtSink) Flush(cascade *cascades.Cascade) {
 	if s.inner == nil {
 		return
 	}

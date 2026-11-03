@@ -139,7 +139,7 @@ func TestRuntimeCompactThresholdOverride(t *testing.T) {
 // gpt-oss-120b-medium, 16384 for the rest), and the CompactThreshold
 // derivation uses the model's own window rather than a flat 200 K.
 //
-// 【一手】 internal/modelctx holds the captured catalogue numbers; the
+// 【一手】 internal/features/models/ctx holds the captured catalogue numbers; the
 // reference's effective limit is min(catalogue maxTokens, the model's
 // checkpoint max_token_limit).
 func TestRuntimeCompactUsesPerModelBudget(t *testing.T) {

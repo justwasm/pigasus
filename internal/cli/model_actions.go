@@ -1,13 +1,14 @@
 package cli
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"strings"
 	"time"
 
-	"github.com/justwasm/pigasus/internal/models"
+	"github.com/justwasm/pigasus/internal/features/models"
 )
 
 // runModelList lists the configured models.
@@ -47,8 +48,12 @@ func runModelShow(j *JetskiCLI, args []string) error {
 	if err != nil {
 		return errExitCodeMsg(1, err.Error())
 	}
-	m, ok := reg.GetByName(strings.TrimSpace(args[0]))
-	if !ok {
+	m, err := reg.ResolveModel(strings.TrimSpace(args[0]))
+	if err != nil {
+		var ambErr *models.AmbiguousModelError
+		if errors.As(err, &ambErr) {
+			return errExitCodeMsg(1, fmt.Sprintf("Error: %s", ambErr.Error()))
+		}
 		return errExitCodeMsg(1, fmt.Sprintf("Error: no model named %q", args[0]))
 	}
 	// The flattened model carries the *resolved* credential, which is empty
@@ -254,8 +259,13 @@ func runModelAdd(j *JetskiCLI, args []string) error {
 		return usageFail(j, usageModelAdd(j.Name), "Error: usage: model add <id> --provider <provider>")
 	}
 	provider := strings.TrimSpace(f.provider)
+	if provider == "" && strings.Contains(id, "/") {
+		parts := strings.SplitN(id, "/", 2)
+		provider = parts[0]
+		id = parts[1]
+	}
 	if provider == "" {
-		return errExitCodeMsg(1, "Error: model add: --provider is required")
+		return errExitCodeMsg(1, "Error: model add: --provider is required (or use <provider>/<model-id>)")
 	}
 
 	ed := models.ProviderEditor()
@@ -274,6 +284,26 @@ func runModelAdd(j *JetskiCLI, args []string) error {
 		if m.ID == id {
 			entry = m
 			break
+		}
+	}
+	if catModel, ok := models.FindCatwalkModel(provider, id); ok {
+		if entry.Name == "" {
+			entry.Name = catModel.Name
+		}
+		if entry.ContextWindow == 0 {
+			entry.ContextWindow = catModel.ContextWindow
+		}
+		if entry.DefaultMaxTokens == 0 {
+			entry.DefaultMaxTokens = catModel.DefaultMaxTokens
+		}
+		if entry.ReasoningEffort == "" {
+			entry.ReasoningEffort = catModel.ReasoningEffort
+		}
+		if len(entry.ReasoningEfforts) == 0 {
+			entry.ReasoningEfforts = catModel.ReasoningEfforts
+		}
+		if entry.SupportsImages == nil {
+			entry.SupportsImages = catModel.SupportsImages
 		}
 	}
 	applyModelFlags(&entry, &f, flagSetFlags(fs))
@@ -325,6 +355,11 @@ func runModelRemove(j *JetskiCLI, args []string) error {
 		return usageFail(j, usageModelRemove(j.Name), "Error: usage: model remove <id> [--provider <provider>]")
 	}
 	want := strings.TrimSpace(*provider)
+	if want == "" && strings.Contains(id, "/") {
+		parts := strings.SplitN(id, "/", 2)
+		want = parts[0]
+		id = parts[1]
+	}
 
 	ed := models.ProviderEditor()
 	removed, err := deleteModelTarget(ed, id, want)
@@ -340,27 +375,19 @@ func runModelRemove(j *JetskiCLI, args []string) error {
 
 func deleteModelTarget(ed *models.Editor, id, wantProvider string) (bool, error) {
 	if wantProvider == "" {
+		reg, err := models.LoadAll()
+		if err == nil {
+			if _, err := reg.ResolveModel(id); err != nil {
+				var ambErr *models.AmbiguousModelError
+				if errors.As(err, &ambErr) {
+					return false, fmt.Errorf("Error: %s", ambErr.Error())
+				}
+			}
+		}
 		_, found, err := ed.DeleteModel(id)
 		return found, err
 	}
-	providers, err := ed.List()
-	if err != nil {
-		return false, err
-	}
-	p, ok := providers[wantProvider]
-	if !ok {
-		return false, fmt.Errorf("Error: no provider named %q", wantProvider)
-	}
-	for _, m := range p.Models {
-		if m.ID != id {
-			continue
-		}
-		if _, _, err := ed.DeleteModel(id); err != nil {
-			return false, err
-		}
-		return true, nil
-	}
-	return false, fmt.Errorf("Error: no model named %q under %q", id, wantProvider)
+	return ed.DeleteModelFromProvider(wantProvider, id)
 }
 
 var modelAddValueFlags = map[string]bool{

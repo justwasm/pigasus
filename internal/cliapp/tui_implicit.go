@@ -15,8 +15,8 @@ package cliapp
 import (
 	"time"
 
-	"github.com/justwasm/pigasus/internal/convstore"
-	"github.com/justwasm/pigasus/internal/implicit"
+	"github.com/justwasm/pigasus/internal/app/prompt/implicit"
+	"github.com/justwasm/pigasus/internal/app/session/convstore"
 )
 
 // recordImplicitStep writes a finished shell command into the reference's

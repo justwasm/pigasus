@@ -11,27 +11,30 @@ import (
 	"fmt"
 	"net"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
-	"syscall"
 	"testing"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/MichaelKinsy/PiG/ai"
-	"github.com/justwasm/pigasus/internal/auth"
-	"github.com/justwasm/pigasus/internal/backend"
+	"github.com/justwasm/pigasus/internal/app/session/convstore"
 	"github.com/justwasm/pigasus/internal/cli"
-	"github.com/justwasm/pigasus/internal/codesearch"
-	"github.com/justwasm/pigasus/internal/hooks"
-	"github.com/justwasm/pigasus/internal/isolation"
-	"github.com/justwasm/pigasus/internal/mdrender"
+	"github.com/justwasm/pigasus/internal/core/backend"
+	confhome "github.com/justwasm/pigasus/internal/core/confhome"
+	"github.com/justwasm/pigasus/internal/features/plugins/hooks"
+	"github.com/justwasm/pigasus/internal/features/tools/isolation"
 	"github.com/justwasm/pigasus/internal/printmode"
-	"github.com/justwasm/pigasus/internal/sidequestion"
-	"github.com/justwasm/pigasus/internal/voice"
+	"github.com/justwasm/pigasus/internal/ui/mdrender"
+	"github.com/justwasm/pigasus/internal/ui/panelregistry"
+	termcolor "github.com/justwasm/pigasus/internal/ui/render/color"
+	"github.com/justwasm/pigasus/internal/ui/toolsteps"
+	"github.com/justwasm/pigasus/internal/ui/transcript"
+	"github.com/justwasm/pigasus/internal/ui/views/sidequestion"
+	"github.com/justwasm/pigasus/internal/ui/views/slashquote"
+	"github.com/justwasm/pigasus/internal/ui/views/voice"
 	"github.com/justwasm/pigasus/palette"
 )
 
@@ -52,7 +55,7 @@ func newSlashModel(t *testing.T) *runMode {
 		t.Setenv("ANTIGRAVITY_HOME", t.TempDir())
 	}
 	t.Setenv("HOME", t.TempDir())
-	m := NewRunMode(&fakeClient{}, "u@t", "Gemini 3.8 Flash (High)", "t", "/", true)
+	m := newRunMode(&fakeClient{}, "u@t", "Gemini 3.8 Flash (High)", "t", "/", true)
 	m.flags = newStandardFlagSetForTest(t, nil)
 	return m
 }
@@ -90,7 +93,7 @@ func afterEcho(m *runMode) []string {
 	if !strings.HasPrefix(m.response[0], cWarningBlueOpen+"> ") {
 		out := make([]string, len(m.response))
 		for i, r := range m.response {
-			out[i] = stripSGR(r)
+			out[i] = termcolor.StripSGR(r)
 		}
 		return out
 	}
@@ -98,7 +101,7 @@ func afterEcho(m *runMode) []string {
 		return nil
 	}
 	// Strip SGR + "  ⎿  " prefix from the message line.
-	msgLine := stripSGR(m.response[1])
+	msgLine := termcolor.StripSGR(m.response[1])
 	msgLine = strings.TrimPrefix(msgLine, "  \u23bf  ")
 	out := []string{msgLine}
 	// Append any extra rows between the `⎿` line and the trailing blank.
@@ -108,7 +111,7 @@ func afterEcho(m *runMode) []string {
 		if r == "" {
 			break
 		}
-		out = append(out, stripSGR(r))
+		out = append(out, termcolor.StripSGR(r))
 	}
 	return out
 }
@@ -213,8 +216,8 @@ func TestSlashCreditsOpensPanel(t *testing.T) {
 	if !handled {
 		t.Fatal("/credits was not handled")
 	}
-	if m.panel.kind != panelCredits {
-		t.Fatalf("/credits opened panel %v, want panelCredits", m.panel.kind)
+	if m.panel.kind != panelregistry.Credits {
+		t.Fatalf("/credits opened panel %v, want panelregistry.Credits", m.panel.kind)
 	}
 }
 
@@ -223,8 +226,8 @@ func TestSlashCreditsOpensPanel(t *testing.T) {
 func TestSlashNewStartsFreshConversation(t *testing.T) {
 	m := newSlashModel(t)
 	m.session = append(m.session, backend.Message{Role: "user", Content: "hi"})
-	m.blocks = []turnBlock{{start: 0, lines: 1}}
-	m.liveSteps = []toolStep{{kind: stepKindTool}}
+	m.blocks = []transcript.Block{{Start: 0, Lines: 1}}
+	m.liveSteps = []toolsteps.Step{{Kind: toolsteps.KindTool}}
 	m.activeTool = "read_file"
 
 	handled, cmd := m.handleSlashCommand("/new")
@@ -246,14 +249,14 @@ func TestSlashNewStartsFreshConversation(t *testing.T) {
 }
 
 func TestForkConversationEmptySession(t *testing.T) {
-	id, msg := forkConversation(nil, "")
+	id, msg := convstore.ForkConversation(nil, "")
 	if id != "" {
 		t.Errorf("forkConversation empty session: id=%q, want \"\"", id)
 	}
 	if msg != "Error: no active conversation to fork" {
 		t.Errorf("forkConversation empty session: msg=%q, want REF text", msg)
 	}
-	id, msg = forkConversation([]backend.Message{}, "")
+	id, msg = convstore.ForkConversation([]backend.Message{}, "")
 	if id != "" {
 		t.Errorf("forkConversation empty slice: id=%q, want \"\"", id)
 	}
@@ -268,7 +271,7 @@ func TestForkConversationActiveSession(t *testing.T) {
 		{Role: "assistant", Content: "world"},
 	}
 	parentID := "11111111-2222-3333-4444-555555555555"
-	id, msg := forkConversation(sess, parentID)
+	id, msg := convstore.ForkConversation(sess, parentID)
 	if id == "" {
 		t.Fatalf("forkConversation active session: expected non-empty ID")
 	}
@@ -277,7 +280,7 @@ func TestForkConversationActiveSession(t *testing.T) {
 		t.Errorf("forkConversation active session with parent: got %q, want %q", msg, want)
 	}
 
-	id2, msg2 := forkConversation(sess, "")
+	id2, msg2 := convstore.ForkConversation(sess, "")
 	if id2 == "" {
 		t.Fatalf("forkConversation active session (no parent): expected non-empty ID")
 	}
@@ -288,7 +291,7 @@ func TestForkConversationActiveSession(t *testing.T) {
 }
 
 func TestForkSlashCommandResponse(t *testing.T) {
-	m := NewRunMode(&fakeClient{}, "u@t", "m", "t", t.TempDir(), true)
+	m := newRunMode(&fakeClient{}, "u@t", "m", "t", t.TempDir(), true)
 	m.conversationID = "parent-conv-1234"
 	m.session = []backend.Message{
 		{Role: "user", Content: "hello"},
@@ -344,7 +347,7 @@ func TestCycle235_NoEditorConfiguredError(t *testing.T) {
 	t.Setenv("VISUAL", "")
 
 	m := newSlashModel(t)
-	_, cmd := m.handleSlashCommand("/keybindings")
+	_, cmd := m.handleSlashCommand("/keybindings edit")
 	if cmd != nil {
 		t.Errorf("/keybindings with no editor: cmd = %v, want nil", cmd)
 	}
@@ -374,7 +377,7 @@ func TestCycle235_EditorSetUsesEditor(t *testing.T) {
 	t.Setenv("EDITOR", editorName+" -w")
 
 	m := newSlashModel(t)
-	_, cmd := m.handleSlashCommand("/keybindings")
+	_, cmd := m.handleSlashCommand("/keybindings edit")
 	_ = cmd
 
 	got := strings.Join(m.response, "\n")
@@ -392,7 +395,7 @@ func TestCycle235_VisualSetUsesVisual(t *testing.T) {
 	t.Setenv("VISUAL", "/usr/bin/vi -e")
 
 	m := newSlashModel(t)
-	_, _ = m.handleSlashCommand("/keybindings")
+	_, _ = m.handleSlashCommand("/keybindings edit")
 
 	got := strings.Join(m.response, "\n")
 	if strings.Contains(got, "No editor configured") {
@@ -409,7 +412,7 @@ func TestCycle235_BothSetEditorWins(t *testing.T) {
 	t.Setenv("VISUAL", "/usr/bin/vi -e")
 
 	m := newSlashModel(t)
-	_, _ = m.handleSlashCommand("/keybindings")
+	_, _ = m.handleSlashCommand("/keybindings edit")
 
 	got := strings.Join(m.response, "\n")
 	if strings.Contains(got, "No editor configured") {
@@ -425,16 +428,23 @@ func TestCycle235_ErrorMessageMentionsBothEnvVars(t *testing.T) {
 	t.Setenv("VISUAL", "")
 
 	m := newSlashModel(t)
-	_, _ = m.handleSlashCommand("/keybindings")
+	_, _ = m.handleSlashCommand("/keybindings edit")
 
-	got := stripSGR(strings.Join(m.response, "\n"))
+	got := termcolor.StripSGR(strings.Join(m.response, "\n"))
 	want := "No editor configured: set $EDITOR or $VISUAL"
 	if !strings.Contains(got, want) {
 		t.Errorf("/keybindings error = %q, want substring %q", got, want)
 	}
 }
 
-// TestCycle235_BindingsTableRendersOnError pins the user-visible fallback.
+// TestCycle235_BindingsTableRendersOnError pins the user-visible
+// fallback: the editor verb's error path answers with the error alone.
+//
+// Cycle 384 (A-26): the error path used to render the shortcut table
+// next to the error. The table was the clone's own block
+// (tuilib.KeybindingsText) and it is gone with the report: the plain
+// command reports the configured bindings, and the editor verb opens the
+// file.
 func TestCycle235_BindingsTableRendersOnError(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("ANTIGRAVITY_HOME", dir)
@@ -442,14 +452,14 @@ func TestCycle235_BindingsTableRendersOnError(t *testing.T) {
 	t.Setenv("VISUAL", "")
 
 	m := newSlashModel(t)
-	_, _ = m.handleSlashCommand("/keybindings")
+	_, _ = m.handleSlashCommand("/keybindings edit")
 
-	got := stripSGR(strings.Join(m.response, "\n"))
-	if !strings.Contains(got, "Submit prompt") {
-		t.Errorf("/keybindings error path did not render bindings table: %q", got)
+	got := termcolor.StripSGR(strings.Join(m.response, "\n"))
+	if !strings.Contains(got, "No editor configured") {
+		t.Errorf("/keybindings edit error path did not render the error: %q", got)
 	}
-	if !strings.Contains(got, "Keyboard shortcuts") {
-		t.Errorf("/keybindings error path missing bindings header: %q", got)
+	if strings.Contains(got, "Keyboard shortcuts") {
+		t.Errorf("/keybindings edit error path still renders the shortcut table: %q", got)
 	}
 }
 
@@ -763,7 +773,7 @@ func TestResolveQuotePure(t *testing.T) {
 		{"explicit-3", "3", "first"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			got, msg := resolveQuote(tc.args, sess)
+			got, msg := slashquote.ResolveQuote(tc.args, sess)
 			if msg != "" {
 				t.Errorf("resolveQuote(%q) returned error %q on a happy path", tc.args, msg)
 			}
@@ -793,7 +803,7 @@ func TestQuoteInsertTextTrimsTrailingNewlines(t *testing.T) {
 		{"a\n\nb\n\n", "a\n\nb"}, // trailing pair stripped, internal pair preserved
 	}
 	for _, tc := range cases {
-		got := quoteInsertText(tc.in)
+		got := slashquote.InsertText(tc.in)
 		if got != tc.want {
 			t.Errorf("quoteInsertText(%q) = %q, want %q", tc.in, got, tc.want)
 		}
@@ -899,24 +909,31 @@ func TestRunGrillMe_SendsPrompt(t *testing.T) {
 	}
 }
 
-// TestRunTeamwork_SendsPrompt exercises the /teamwork handler.
-// Confirms /teamwork echoes the token, sets streaming, and appends
-// a teamwork orchestration prompt to the session.
+// TestRunTeamwork_SendsPrompt exercises the /teamwork-preview handler
+// through its /teamwork alias. Confirms the alias reaches the command,
+// that the echo carries the *canonical* name, that streaming starts and
+// that a teamwork orchestration prompt is appended to the session.
+//
+// Cycle 383 (A-8): the reference's own command is "/teamwork-preview"
+// (its changelog names the command) and "/teamwork" is the alias the
+// documentation advertises for it.
 func TestRunTeamwork_SendsPrompt(t *testing.T) {
-	m := newSlashModel(t)
-	_, cmd := m.handleSlashCommand("/teamwork build multi-agent system")
-	if cmd == nil {
-		t.Fatal("/teamwork should return a non-nil tea.Cmd")
-	}
-	if !m.streaming {
-		t.Error("/teamwork should set m.streaming=true")
-	}
-	if m.response[0] != "> /teamwork" {
-		t.Errorf("/teamwork echo = %q, want %q", m.response[0], "> /teamwork")
-	}
-	if got := lastUserMessage(m); !strings.Contains(got, "team") &&
-		!strings.Contains(got, "autonomous agents") {
-		t.Errorf("/teamwork session message lost the teamwork intent: %q", got)
+	for _, typed := range []string{"/teamwork", "/teamwork-preview"} {
+		m := newSlashModel(t)
+		_, cmd := m.handleSlashCommand(typed + " build multi-agent system")
+		if cmd == nil {
+			t.Fatalf("%s should return a non-nil tea.Cmd", typed)
+		}
+		if !m.streaming {
+			t.Errorf("%s should set m.streaming=true", typed)
+		}
+		if m.response[0] != "> /teamwork-preview" {
+			t.Errorf("%s echo = %q, want %q", typed, m.response[0], "> /teamwork-preview")
+		}
+		if got := lastUserMessage(m); !strings.Contains(got, "team") &&
+			!strings.Contains(got, "autonomous agents") {
+			t.Errorf("%s session message lost the teamwork intent: %q", typed, got)
+		}
 	}
 }
 
@@ -941,10 +958,14 @@ func TestRunBoost_SendsPrompt(t *testing.T) {
 	}
 }
 
-// TestRunKeybindings_CreatesFile verifies /keybindings creates
+// TestRunKeybindings_CreatesFile verifies /keybindings edit creates
 // ~/.gemini/antigravity-cli/keybindings.json with a JSON skeleton if
 // the file does not exist. We redirect $ANTIGRAVITY_HOME so the test
 // does not touch the real config dir.
+//
+// Cycle 384 (A-26): the editor path is the explicit "/keybindings edit"
+// verb; the plain command reports the configured bindings and writes
+// nothing.
 func TestRunKeybindings_CreatesFile(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("ANTIGRAVITY_HOME", dir)
@@ -957,7 +978,7 @@ func TestRunKeybindings_CreatesFile(t *testing.T) {
 	t.Setenv("VISUAL", "")
 
 	m := newSlashModel(t)
-	_, cmd := m.handleSlashCommand("/keybindings")
+	_, cmd := m.handleSlashCommand("/keybindings edit")
 
 	path := filepath.Join(dir, "keybindings.json")
 	if _, err := os.Stat(path); err != nil {
@@ -984,9 +1005,9 @@ func TestRunKeybindings_CreatesFile(t *testing.T) {
 	}
 }
 
-// TestRunKeybindings_NoCreateIfExists confirms /keybindings does not
+// TestRunKeybindings_NoCreateIfExists confirms /keybindings edit does not
 // overwrite an existing keybindings.json. The test creates the file
-// with a sentinel payload, runs /keybindings, and asserts the bytes
+// with a sentinel payload, runs /keybindings edit, and asserts the bytes
 // are unchanged.
 func TestRunKeybindings_NoCreateIfExists(t *testing.T) {
 	dir := t.TempDir()
@@ -1002,7 +1023,7 @@ func TestRunKeybindings_NoCreateIfExists(t *testing.T) {
 	}
 
 	m := newSlashModel(t)
-	m.handleSlashCommand("/keybindings")
+	m.handleSlashCommand("/keybindings edit")
 
 	got, err := os.ReadFile(path)
 	if err != nil {
@@ -1039,7 +1060,7 @@ func firstNLines(rows []string, n int) string {
 // after a future refactor, `go build` will fail loudly; this guard
 // documents the contract instead.
 var (
-	_ = auth.AntigravityConfigHome
+	_ = confhome.Antigravity
 	_ = backend.Message{Role: "user"}
 )
 
@@ -1076,19 +1097,19 @@ func TestVoice_PrintModeRejection(t *testing.T) {
 
 func TestVoice_StartConnectingBanner(t *testing.T) {
 	m := newVoiceTestMode(t)
-	cmd := m.startVoiceDictation("/voice")
+	cmd := m.voiceSurface.Start("/voice")
 	if cmd == nil {
-		t.Fatal("startVoiceDictation returned nil cmd")
+		t.Fatal("Start returned nil cmd")
 	}
-	if !m.voiceMode {
-		t.Fatal("expected voiceMode == true")
+	if !m.voiceSurface.Active() {
+		t.Fatal("expected the voice surface to be active")
 	}
-	if m.voicePhase != voicePhaseConnecting {
-		t.Fatalf("expected voicePhase == %d (Connecting), got %d", voicePhaseConnecting, m.voicePhase)
+	if m.voiceSurface.Phase() != voice.PhaseConnecting {
+		t.Fatalf("expected phase == %d (Connecting), got %d", voice.PhaseConnecting, m.voiceSurface.Phase())
 	}
 
-	banner := m.voiceView()
-	plain := stripSGR(banner)
+	banner := m.voiceSurface.View()
+	plain := termcolor.StripSGR(banner)
 	if !strings.Contains(plain, "Connecting...") {
 		t.Errorf("banner should contain 'Connecting...', got %q", plain)
 	}
@@ -1099,21 +1120,21 @@ func TestVoice_StartConnectingBanner(t *testing.T) {
 
 func TestVoice_EscCancelsConnecting(t *testing.T) {
 	m := newVoiceTestMode(t)
-	_ = m.startVoiceDictation("/voice")
+	_ = m.voiceSurface.Start("/voice")
 
-	handled, _ := m.handleVoiceKey(tea.Key{Code: tea.KeyEsc})
+	handled, _ := m.voiceSurface.HandleKey(tea.Key{Code: tea.KeyEsc})
 	if !handled {
 		t.Fatal("expected Esc to be handled by voice mode")
 	}
-	if m.voiceMode {
-		t.Fatal("expected voiceMode == false after Esc")
+	if m.voiceSurface.Active() {
+		t.Fatal("expected the voice surface to be inactive after Esc")
 	}
-	if !m.voiceCancel {
-		t.Fatal("expected voiceCancel == true")
+	if !m.voiceSurface.Cancelled() {
+		t.Fatal("expected the session to be marked cancelled")
 	}
 
 	respLen := len(m.response)
-	m.handleVoiceConnectDone(voiceConnectDoneMsg{err: errors.New("network failure")})
+	m.voiceSurface.HandleConnectDone(voice.ConnectDoneMsg{Err: errors.New("network failure")})
 	if len(m.response) != respLen {
 		t.Errorf("response should not be appended after cancellation; got %v", m.response)
 	}
@@ -1121,14 +1142,14 @@ func TestVoice_EscCancelsConnecting(t *testing.T) {
 
 func TestVoice_FailedConnectionSurfacesPermissionDenied(t *testing.T) {
 	m := newVoiceTestMode(t)
-	_ = m.startVoiceDictation("/voice")
+	_ = m.voiceSurface.Start("/voice")
 
-	m.handleVoiceConnectDone(voiceConnectDoneMsg{
-		err: errors.New("transcription failed: failed to receive setup response: rpc error: code = PermissionDenied desc = Request had insufficient authentication scopes."),
+	m.voiceSurface.HandleConnectDone(voice.ConnectDoneMsg{
+		Err: errors.New("transcription failed: failed to receive setup response: rpc error: code = PermissionDenied desc = Request had insufficient authentication scopes."),
 	})
 
-	if m.voiceMode {
-		t.Fatal("voiceMode should be false after connection failure")
+	if m.voiceSurface.Active() {
+		t.Fatal("the voice surface should be inactive after connection failure")
 	}
 	if len(m.response) < 2 {
 		t.Fatalf("expected response rows for /voice failure, got %v", m.response)
@@ -1145,16 +1166,16 @@ func TestVoice_FailedConnectionSurfacesPermissionDenied(t *testing.T) {
 func TestVoice_RecordingBannerAndTimer(t *testing.T) {
 	m := newVoiceTestMode(t)
 	m.voiceConnectFn = func() error { return nil }
-	_ = m.startVoiceDictation("/voice")
+	_ = m.voiceSurface.Start("/voice")
 
-	m.handleVoiceConnectDone(voiceConnectDoneMsg{err: nil})
+	m.voiceSurface.HandleConnectDone(voice.ConnectDoneMsg{Err: nil})
 
-	if !m.voiceMode || m.voicePhase != voicePhaseRecording {
-		t.Fatalf("expected voicePhase == %d (Recording), got %d", voicePhaseRecording, m.voicePhase)
+	if !m.voiceSurface.Active() || m.voiceSurface.Phase() != voice.PhaseRecording {
+		t.Fatalf("expected phase == %d (Recording), got %d", voice.PhaseRecording, m.voiceSurface.Phase())
 	}
 
-	banner := m.voiceView()
-	plain := stripSGR(banner)
+	banner := m.voiceSurface.View()
+	plain := termcolor.StripSGR(banner)
 	if !strings.Contains(plain, "Recording 00:00") {
 		t.Errorf("banner missing 'Recording 00:00': %q", plain)
 	}
@@ -1166,9 +1187,9 @@ func TestVoice_RecordingBannerAndTimer(t *testing.T) {
 	}
 
 	for i := 0; i < 5; i++ {
-		m.handleVoiceTick()
+		m.voiceSurface.HandleTick()
 	}
-	banner5s := stripSGR(m.voiceView())
+	banner5s := termcolor.StripSGR(m.voiceSurface.View())
 	if !strings.Contains(banner5s, "Recording 00:05") {
 		t.Errorf("banner missing 'Recording 00:05' after 5 ticks: %q", banner5s)
 	}
@@ -1177,17 +1198,17 @@ func TestVoice_RecordingBannerAndTimer(t *testing.T) {
 func TestVoice_FinishingAfterMaxDuration(t *testing.T) {
 	m := newVoiceTestMode(t)
 	m.voiceConnectFn = func() error { return nil }
-	_ = m.startVoiceDictation("/voice")
-	m.handleVoiceConnectDone(voiceConnectDoneMsg{err: nil})
+	_ = m.voiceSurface.Start("/voice")
+	m.voiceSurface.HandleConnectDone(voice.ConnectDoneMsg{Err: nil})
 
-	m.voiceRecorder.Tick(voice.MaxRecordingDuration)
-	m.handleVoiceTick()
+	m.voiceSurface.Recorder().Tick(voice.MaxRecordingDuration)
+	m.voiceSurface.HandleTick()
 
-	if m.voicePhase != voicePhaseFinishing {
-		t.Fatalf("expected voicePhase == %d (Finishing), got %d", voicePhaseFinishing, m.voicePhase)
+	if m.voiceSurface.Phase() != voice.PhaseFinishing {
+		t.Fatalf("expected phase == %d (Finishing), got %d", voice.PhaseFinishing, m.voiceSurface.Phase())
 	}
 
-	banner := stripSGR(m.voiceView())
+	banner := termcolor.StripSGR(m.voiceSurface.View())
 	if !strings.Contains(banner, "Finishing up...") {
 		t.Errorf("banner missing 'Finishing up...': %q", banner)
 	}
@@ -1199,17 +1220,17 @@ func TestVoice_FinishingAfterMaxDuration(t *testing.T) {
 func TestVoice_EnterOrF5InsertsDraft(t *testing.T) {
 	m := newVoiceTestMode(t)
 	m.voiceConnectFn = func() error { return nil }
-	_ = m.startVoiceDictation("f5")
-	m.handleVoiceConnectDone(voiceConnectDoneMsg{err: nil})
+	_ = m.voiceSurface.Start("f5")
+	m.voiceSurface.HandleConnectDone(voice.ConnectDoneMsg{Err: nil})
 
-	_ = m.voiceRecorder.AppendDraft("hello from voice dictation")
+	_ = m.voiceSurface.Recorder().AppendDraft("hello from voice dictation")
 
-	handled, _ := m.handleVoiceKey(tea.Key{Code: tea.KeyF5})
+	handled, _ := m.voiceSurface.HandleKey(tea.Key{Code: tea.KeyF5})
 	if !handled {
 		t.Fatal("expected F5 to be handled")
 	}
-	if m.voiceMode {
-		t.Fatal("expected voiceMode == false after confirmation")
+	if m.voiceSurface.Active() {
+		t.Fatal("expected the voice surface to be inactive after confirmation")
 	}
 
 	got := m.input.Value()
@@ -1220,14 +1241,14 @@ func TestVoice_EnterOrF5InsertsDraft(t *testing.T) {
 
 func TestVoice_F5KeyDispatchesVoiceDictation(t *testing.T) {
 	m := newVoiceTestMode(t)
-	if m.voiceMode {
-		t.Fatal("voiceMode should be false initially")
+	if m.voiceSurface.Active() {
+		t.Fatal("the voice surface should be inactive initially")
 	}
 
 	model, cmd := m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyF5}))
 	updated := model.(*runMode)
-	if !updated.voiceMode {
-		t.Fatal("pressing F5 should activate voiceMode")
+	if !updated.voiceSurface.Active() {
+		t.Fatal("pressing F5 should activate the voice surface")
 	}
 	if cmd == nil {
 		t.Fatal("expected connect cmd returned by F5 press")
@@ -1237,10 +1258,9 @@ func TestVoice_F5KeyDispatchesVoiceDictation(t *testing.T) {
 func TestVoice_AntigravityMicSSHRemote(t *testing.T) {
 	t.Setenv("ANTIGRAVITY_MIC", "127.0.0.1:54321")
 	m := &runMode{}
-	cmd := m.connectVoiceCmd()
-	msg := cmd().(voiceConnectDoneMsg)
-	if msg.err == nil || !strings.Contains(msg.err.Error(), "cannot reach the mic server at 127.0.0.1:54321 (tcp)") {
-		t.Fatalf("expected cannot reach mic server error, got: %v", msg.err)
+	err := m.connectVoice()
+	if err == nil || !strings.Contains(err.Error(), "cannot reach the mic server at 127.0.0.1:54321 (tcp)") {
+		t.Fatalf("expected cannot reach mic server error, got: %v", err)
 	}
 
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
@@ -1250,10 +1270,8 @@ func TestVoice_AntigravityMicSSHRemote(t *testing.T) {
 	defer ln.Close()
 
 	t.Setenv("ANTIGRAVITY_MIC", ln.Addr().String())
-	cmd2 := m.connectVoiceCmd()
-	msg2 := cmd2().(voiceConnectDoneMsg)
-	if msg2.err != nil {
-		t.Fatalf("expected nil error after reaching mic server, got: %v", msg2.err)
+	if err := m.connectVoice(); err != nil {
+		t.Fatalf("expected nil error after reaching mic server, got: %v", err)
 	}
 }
 
@@ -1261,24 +1279,24 @@ func TestVoice_LiveRecordingFlow(t *testing.T) {
 	m := newVoiceTestMode(t)
 	t.Setenv("ANTIGRAVITY_MIC", "")
 
-	cmd := m.startVoiceDictation("/voice")
-	if !m.voiceMode || m.voicePhase != voicePhaseConnecting {
-		t.Fatalf("expected voicePhaseConnecting, got phase=%d", m.voicePhase)
+	cmd := m.voiceSurface.Start("/voice")
+	if !m.voiceSurface.Active() || m.voiceSurface.Phase() != voice.PhaseConnecting {
+		t.Fatalf("expected voicePhaseConnecting, got phase=%d", m.voiceSurface.Phase())
 	}
 
-	msg := cmd().(voiceConnectDoneMsg)
-	if msg.err != nil {
-		t.Fatalf("expected nil connect error, got: %v", msg.err)
+	msg := cmd().(voice.ConnectDoneMsg)
+	if msg.Err != nil {
+		t.Fatalf("expected nil connect error, got: %v", msg.Err)
 	}
-	_, tickCmd := m.handleVoiceConnectDone(msg)
-	if !m.voiceMode || m.voicePhase != voicePhaseRecording {
-		t.Fatalf("expected voicePhaseRecording, got phase=%d", m.voicePhase)
+	tickCmd := m.voiceSurface.HandleConnectDone(msg)
+	if !m.voiceSurface.Active() || m.voiceSurface.Phase() != voice.PhaseRecording {
+		t.Fatalf("expected voicePhaseRecording, got phase=%d", m.voiceSurface.Phase())
 	}
 	if tickCmd == nil {
 		t.Fatal("expected non-nil tickCmd after entering recording")
 	}
 
-	banner := m.voiceView()
+	banner := m.voiceSurface.View()
 	if !strings.Contains(banner, "Recording 00:00") {
 		t.Errorf("banner missing initial timer: %q", banner)
 	}
@@ -1286,15 +1304,15 @@ func TestVoice_LiveRecordingFlow(t *testing.T) {
 		t.Errorf("banner missing instructions: %q", banner)
 	}
 
-	m.handleVoiceTick()
-	bannerTick := m.voiceView()
+	m.voiceSurface.HandleTick()
+	bannerTick := m.voiceSurface.View()
 	if !strings.Contains(bannerTick, "Recording 00:01") {
 		t.Errorf("banner missing updated timer: %q", bannerTick)
 	}
 
-	handled, _ := m.handleVoiceKey(tea.Key{Code: tea.KeyEnter})
-	if !handled || m.voiceMode {
-		t.Fatal("expected Enter to confirm and leave voiceMode")
+	handled, _ := m.voiceSurface.HandleKey(tea.Key{Code: tea.KeyEnter})
+	if !handled || m.voiceSurface.Active() {
+		t.Fatal("expected Enter to confirm and leave the voice surface")
 	}
 }
 
@@ -1486,7 +1504,7 @@ func TestBranch_DoesNotModifyParentSkills(t *testing.T) {
 
 // TestShare_DoesNotModifyParentAgents mirrors
 // TestBranch_DoesNotModifyParentSkills for /share. The parent
-// session's subagent catalogue (DefaultRouter in at_subagent.go) is
+// session's subagent catalogue (defaultRouter in at_subagent.go) is
 // unchanged after /share runs.
 func TestShare_DoesNotModifyParentAgents(t *testing.T) {
 	m := newSlashModel(t)
@@ -1659,283 +1677,11 @@ func csTmpTree(t *testing.T) string {
 	return root
 }
 
-// TestCycle213ParseArgs locks the cycle-213 argument contract: -F and
-// --literal are recognised flags, -- terminates the flag list, and an
-// unrecognised flag becomes part of the pattern (matching ripgrep).
-func TestCycle213ParseArgs(t *testing.T) {
-	cases := []struct {
-		args    string
-		query   string
-		literal bool
-	}{
-		{"", "", false},
-		{"needle", "needle", false},
-		{"-F needle", "needle", true},
-		{"--literal needle", "needle", true},
-		{"-- -F", "-F", false},
-		{"--needle -F foo", "--needle -F foo", false}, // unknown flag → pattern
-		// After `--` every token is positional, including `-F` — the
-		// pattern itself is captured literally.
-		{"-F --literal -- -F alpha beta", "-F alpha beta", true},
-		{"  needle   ", "needle", false}, // trims surrounding whitespace
-	}
-	for _, tc := range cases {
-		// Cycle 228: csParseArgs now also returns include/exclude
-		// slices and an error. The cycle-213 cases don't exercise
-		// either, so we drop them here and assert just the
-		// (query, literal) part of the contract.
-		query, literal, _, _, perr := csParseArgs(tc.args)
-		if perr != nil && perr != codesearch.ErrEmptyQuery {
-			t.Errorf("csParseArgs(%q) err = %v", tc.args, perr)
-		}
-		if query != tc.query || literal != tc.literal {
-			t.Errorf("csParseArgs(%q) = (%q, %v), want (%q, %v)",
-				tc.args, query, literal, tc.query, tc.literal)
-		}
-	}
-}
-
-// TestCycle213SmartCase verifies the reference's smart-case rule: an
-// all-lowercase pattern is case-insensitive, an uppercase rune flips it
-// back to sensitive.
-func TestCycle213SmartCase(t *testing.T) {
-	if codesearch.HasUpper("needle") {
-		t.Error("codesearch.HasUpper(\"needle\") = true, want false")
-	}
-	if !codesearch.HasUpper("needleZ") {
-		t.Error("codesearch.HasUpper(\"needleZ\") = false, want true")
-	}
-	if codesearch.HasUpper("αβγ") {
-		t.Error("codesearch.HasUpper(\"αβγ\") = true, want false")
-	}
-
-	// Lowercase → (?i) prefix, so /codesearch needle finds NEEDLE upper.
-	re, err := csMatcher("needle", false)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if re.FindStringIndex("upper NEEDLE here") == nil {
-		t.Error("smart-case: needle should match NEEDLE with lowercase pattern")
-
-	}
-
-	// Uppercase → no (?i) prefix; case sensitive.
-	re, err = csMatcher("NEEDLE", false)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if re.FindStringIndex("upper needle here") != nil {
-		t.Error("uppercase pattern must NOT match lower case")
-	}
-
-	// -F ⇒ QuoteMeta, no smart case so the case-sensitivity rule still applies.
-	re, err = csMatcher("nee.le", true)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if re.FindStringIndex("needle") != nil {
-		t.Error("-F: literal pattern must NOT match regex metacharacters")
-
-	}
-
-	re, err = csMatcher("(unclosed", false)
-	if err == nil {
-		t.Error("csMatcher should reject a malformed regex")
-	}
-}
-
-// TestCycle213Scan exercises csScan against the temp workspace: file
-// policy (skip-dirs, size cap, hidden entries), per-line counting, the
-// first-match span, and the 1000-result hard cap.
-func TestCycle213Scan(t *testing.T) {
-	root := csTmpTree(t)
-	re, err := csMatcher("needle", false)
-	if err != nil {
-		t.Fatal(err)
-	}
-	hits := csScan(root, re)
-	if len(hits) != 5 {
-		t.Fatalf("csScan needle hits: got %d, want 5: %+v", len(hits), hits)
-	}
-
-	// findHit returns the first hit whose file path matches rel, or nil.
-	findHit := func(rel string) *csHit {
-		for i := range hits {
-			if hits[i].File == rel {
-				return &hits[i]
-			}
-		}
-		return nil
-	}
-
-	// a.txt's three matches are on lines 2, 5, and a separate "needle" on
-	// line 5 (per csTmpTree) — the first one captures the context window.
-	a := findHit("a.txt")
-	if a == nil || a.Line != 2 {
-		t.Fatalf("a.txt first hit = %+v, want line=2", a)
-	}
-	if !a.HasPrev || a.Prev != "line1" {
-		t.Errorf("a.txt prev = %+v, want line1", a)
-	}
-	if !a.HasNext || !strings.Contains(a.Next, "line4") {
-		t.Errorf("a.txt next = %+v, want line4", a)
-	}
-
-	// d.txt holds UPPERCASE — the smart-case rule still resolves needle
-	// → lowercase match since the *pattern* is all lowercase.
-	d := findHit("d.txt")
-	if d == nil {
-		t.Fatal("d.txt (uppercase) should be found under the smart-case rule")
-	}
-
-	// dbl.txt: a single "needle needle here" line must count once, with
-	// the first match highlighted (ms = 0, me = 6).
-	dbl := findHit("dbl.txt")
-	if dbl == nil {
-		t.Fatal("dbl.txt should be found")
-	}
-	if dbl.MS != 0 || dbl.ME != 6 {
-		t.Errorf("dbl.txt first-match span = (%d,%d), want (0,6)", dbl.MS, dbl.ME)
-	}
-
-	// sub/c.txt descends into nested directories.
-	sc := findHit("sub/c.txt")
-	if sc == nil {
-		t.Fatal("sub/c.txt should be reached")
-	}
-
-	// Run a fixed-string search against an empty workspace.
-	if got := csScan("", re); got != nil {
-		t.Errorf("csScan(\"\") = %+v, want nil", got)
-	}
-
-	// The 1000-result cap is asserted via an inline scan with a tiny cap:
-	// we re-run with csResultCap overridden by a focused fixture. Build a
-	// workspace that holds 12 matches on one long file and confirm the cap
-	// keeps the list at 1000 (set via var) — the cap is a constant in this
-	// build, so this just verifies the sentinel of csScan(big matches) ≥
-	// cap ⇒ returns exactly cap entries.
-	huge := filepath.Join(t.TempDir(), "huge.txt")
-	body := strings.Repeat("needle\n", csResultCap+10)
-	if err := os.WriteFile(huge, []byte(body), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	re2, _ := csMatcher("needle", false)
-	hugeHits := csScan(filepath.Dir(huge), re2)
-	if len(hugeHits) != csResultCap {
-		t.Errorf("huge file: csScan returned %d hits, want cap %d",
-			len(hugeHits), csResultCap)
-	}
-}
-
-// TestCycle213CsRowAndFit locks the per-row rendering, including the
-// `> L<n>: ` cursor marker and the ellipsis-on-long-line behaviour.
-func TestCycle213CsRowAndFit(t *testing.T) {
-	plain := func(s string) string { return stripSGR(s) }
-
-	got := plain(codesearch.Row(7, "abc needle xyz", 4, 10, 1, 0, 60))
-	// non-cursor match row: 2-space prefix + dim gutter + dim pre + blue match + dim post.
-	if !strings.Contains(got, "L7:") {
-		t.Errorf("non-cursor match row missing gutter: %q", got)
-	}
-	if !strings.HasPrefix(got, "  L7:") {
-		t.Errorf("non-cursor match row marker must be 2 spaces: %q", got)
-	}
-	if !strings.Contains(got, "needle") {
-		t.Errorf("non-cursor match row lost the match text: %q", got)
-	}
-
-	got = plain(codesearch.Row(7, "abc needle xyz", 4, 10, 1, 1, 60))
-	if !strings.HasPrefix(got, "> L7:") {
-		t.Errorf("cursor marker must be '> L7:', got %q", got)
-	}
-
-	// Context row (line prior to the match): only the gutter is dim.
-	got = plain(codesearch.Row(6, "context line", 0, 0, 0, 0, 60))
-	if !strings.HasPrefix(got, "  L6:") || !strings.Contains(got, "context line") {
-		t.Errorf("context row lost gutter or text: %q", got)
-	}
-
-	// Long line truncation. A 605-rune line at width 220 with a "zwk"
-	// at rune 300 should report an "abcdef..." prefix and "...suffix"
-	// suffix.
-	longText := strings.Repeat("P", 300) + " zwk " + strings.Repeat("Q", 300)
-	body, s, e := codesearch.Fit(longText, 301, 304, 200) // typical 200-cell content width
-	rs := []rune(body)
-	if rs[0] != '…' || rs[len(rs)-1] != '…' {
-		t.Errorf("csFit must wrap the match with ellipses: %q", body)
-	}
-	if s <= 0 || e >= len(rs) {
-		t.Errorf("csFit match span %d-%d out of range 0-%d", s, e, len(rs))
-	}
-}
-
-// TestCycle213ListBudget captures the per-height row budget for the live
-// list — used by codesearchRows to bound the rendered window.
-func TestCycle213ListBudget(t *testing.T) {
-	cases := []struct{ height, want int }{
-		{0, 0},   // unknown → no windowing
-		{24, 10}, // floor(24*11/15) - 7 = 17 - 7
-		{50, 29}, // floor(50*11/15) - 7 = 36 - 7
-		{120, 81},
-	}
-	for _, tc := range cases {
-		got := codesearch.ListBudget(tc.height)
-		if got != tc.want {
-			t.Errorf("codesearch.ListBudget(%d) = %d, want %d", tc.height, got, tc.want)
-		}
-	}
-}
-
-// TestCycle213CsFill verifies csFill's layout: file header on the first
-// item of a new file, separator rule between blocks of the same file, a
-// blank row before the header of a new file when it follows a block.
-func TestCycle213CsFill(t *testing.T) {
-	hits := []csHit{
-		{File: "a.txt", Line: 2, Text: "match a1"},
-		{File: "a.txt", Line: 4, Text: "match a2"},
-		{File: "b.txt", Line: 1, Text: "match b1"},
-	}
-	// Render with cursor on hits[2] (the b.txt match) and a large budget.
-	end, rows := codesearch.Fill(hits, 0, 2, 99, 220)
-	if end != 3 {
-		t.Errorf("csFill returned end=%d, want 3", end)
-	}
-	stripped := make([]string, len(rows))
-	for i, r := range rows {
-		stripped[i] = stripSGR(r)
-	}
-	hasHeader := func(name string) bool {
-		for _, r := range stripped {
-			if r == name {
-				return true
-			}
-		}
-		return false
-	}
-	if !hasHeader("a.txt") {
-		t.Error("first file header missing")
-	}
-	if !hasHeader("b.txt") {
-		t.Error("second file header missing")
-	}
-	hasRule := false
-	for _, r := range stripped {
-		if r != "" && strings.Count(r, "─") == len([]rune(r)) {
-			hasRule = true
-			break
-		}
-	}
-	if !hasRule {
-		t.Error("between-blocks separator rule missing")
-	}
-}
-
 // TestCycle213PanelLinesUsage verifies that the panel still renders the
 // usage form when openSlashPanelArgs is called with an empty argument
 // tail — this is the cycle-206-equivalent contract for bare /codesearch.
 func TestCycle213PanelLinesUsage(t *testing.T) {
-	m := mkPanel(panelCodeSearch, "/codesearch", 0)
+	m := mkPanel(panelregistry.CodeSearch, "/codesearch", 0)
 	plain := plainLines(m)
 	// Usage row must contain "/codesearch [-F|--literal] <query>".
 	found := false
@@ -1957,16 +1703,16 @@ func TestCycle213PanelLinesUsage(t *testing.T) {
 // recovered from the AGY 1.4.0 changelog).
 func TestCycle213PanelLinesResultList(t *testing.T) {
 	root := csTmpTree(t)
-	m := NewRunMode(nil, "u@t", "Gemini 3.8 Flash (High)", "t", root, false)
+	m := newRunMode(nil, "u@t", "Gemini 3.8 Flash (High)", "t", root, false)
 	if !m.openSlashPanelArgs("codesearch", "needle") {
 		t.Fatal("openSlashPanelArgs(codesearch, needle) = false")
 	}
-	if m.panel.cs.query != "needle" {
-		t.Errorf("query = %q, want needle", m.panel.cs.query)
+	if m.codesearchPanel().Query() != "needle" {
+		t.Errorf("query = %q, want needle", m.codesearchPanel().Query())
 	}
-	if len(m.panel.cs.hits) != 5 {
+	if hits := m.codesearchPanel().Hits(); len(hits) != 5 {
 		// csTmpTree: a.txt × 2, d.txt (smart-case), dbl.txt, sub/c.txt
-		t.Errorf("hits = %d, want 5; raw=%+v", len(m.panel.cs.hits), m.panel.cs.hits)
+		t.Errorf("hits = %d, want 5; raw=%+v", len(hits), hits)
 	}
 	plain := plainLines(m)
 
@@ -1997,10 +1743,10 @@ func TestCycle213PanelLinesResultList(t *testing.T) {
 // TestCycle213PanelLinesNoResults and PatternError lock the empty-list
 // fallback forms.
 func TestCycle213PanelLinesNoResults(t *testing.T) {
-	m := NewRunMode(nil, "u@t", "m", "t", t.TempDir(), false)
+	m := newRunMode(nil, "u@t", "m", "t", t.TempDir(), false)
 	m.openSlashPanelArgs("codesearch", "nevergonnamatch")
-	if len(m.panel.cs.hits) != 0 {
-		t.Fatalf("hits = %d, want 0", len(m.panel.cs.hits))
+	if hits := m.codesearchPanel().Hits(); len(hits) != 0 {
+		t.Fatalf("hits = %d, want 0", len(hits))
 	}
 	plain := plainLines(m)
 	found := false
@@ -2015,10 +1761,10 @@ func TestCycle213PanelLinesNoResults(t *testing.T) {
 	}
 
 	// Pattern error: unbalanced bracket yields a user-facing message.
-	m2 := NewRunMode(nil, "u@t", "m", "t", t.TempDir(), false)
+	m2 := newRunMode(nil, "u@t", "m", "t", t.TempDir(), false)
 	m2.openSlashPanelArgs("codesearch", "(unclosed")
-	if m2.panel.cs.err == "" {
-		t.Error("expected cs.err to be set on an unparseable pattern")
+	if m2.codesearchPanel().Err() == "" {
+		t.Error("expected the panel to carry a pattern error")
 	}
 	plain = plainLines(m2)
 	found = false
@@ -2030,96 +1776,6 @@ func TestCycle213PanelLinesNoResults(t *testing.T) {
 	}
 	if !found {
 		t.Errorf("expected `Error:` row in %q", plain)
-	}
-}
-
-// TestCycle213PanelKeyNavigation drives ↓ / ↑ on a populated list and
-// asserts the cursor moves within bounds, the window re-anchors, and
-// ← / → jumps between files.
-func TestCycle213PanelKeyNavigation(t *testing.T) {
-	root := csTmpTree(t)
-	m := NewRunMode(nil, "u@t", "m", "t", root, false)
-	m.openSlashPanelArgs("codesearch", "needle")
-	if len(m.panel.cs.hits) < 2 {
-		t.Fatalf("need ≥2 hits, got %d", len(m.panel.cs.hits))
-	}
-	// Mark the cursor on item 0 (a.txt's first hit) and tick Down a few
-	// times to ensure navigation does not escape the result set.
-	startCursor := m.panel.cursor
-	m.codesearchStart("needle")
-	if m.panel.cursor != 0 {
-		t.Errorf("codesearchStart must reset cursor to 0, got %d", m.panel.cursor)
-	}
-	// Hit Down 3 times.
-	m.csMoveCursor(1)
-	m.csMoveCursor(1)
-	m.csMoveCursor(1)
-	if m.panel.cursor != 3 {
-		t.Errorf("after Down ×3 cursor = %d, want 3", m.panel.cursor)
-	}
-	// Clamp at the bottom.
-	m.csMoveCursor(999)
-	if m.panel.cursor != len(m.panel.cs.hits)-1 {
-		t.Errorf("Down-clamp at %d, want %d", m.panel.cursor, len(m.panel.cs.hits)-1)
-	}
-	// Clamp at the top.
-	m.csMoveCursor(-999)
-	if m.panel.cursor != 0 {
-		t.Errorf("Up-clamp at %d, want 0", m.panel.cursor)
-	}
-	_ = startCursor
-
-	// ← / → file jumps: stand on a.txt (file index 0), press Right, then
-	// verify the cursor now sits in another file.
-	m.codesearchStart("needle")
-	m.csMoveFile(1)
-	f2 := m.panel.cs.hits[m.panel.cursor].File
-	if f2 == "a.txt" {
-		t.Errorf("Right should leave a.txt, cursor file = %s", f2)
-	}
-	m.csMoveFile(-1)
-	if m.panel.cs.hits[m.panel.cursor].File != "a.txt" {
-		t.Errorf("Left must return cursor to a.txt, got %s",
-			m.panel.cs.hits[m.panel.cursor].File)
-	}
-}
-
-// TestCycle213PanelKeyInertOnEmpty checks that the "no hits" / usage /
-// pattern-error forms keep cycle 206's "panel owns every key" semantics
-// (handled=true, but the panel doesn't change state).
-//
-// Cycle 228: openSlashPanelArgs now falls through to the slash-echo
-// path when args is empty (the bare `/codesearch` case emits
-// "⎿  /codesearch needs a query." rather than opening the panel).
-// The panel's own inert behaviour is exercised by directly setting
-// panel.kind = panelCodeSearch and verifying the handler returns
-// handled=true.
-func TestCycle213PanelKeyInertOnEmpty(t *testing.T) {
-	m := NewRunMode(nil, "u@t", "m", "t", t.TempDir(), false)
-	m.panel = slashPanel{kind: panelCodeSearch, cmd: "/codesearch"}
-	if len(m.panel.cs.hits) != 0 {
-		t.Fatalf("expected 0 hits for empty panel state")
-	}
-	handled, cmd := m.handlePanelKey(tea.Key{Code: tea.KeyDown})
-	if !handled || cmd != nil {
-		t.Errorf("Down on usage form: handled=%v cmd=%v, want handled=true cmd=nil", handled, cmd)
-	}
-	// Cursor and window must not have moved.
-	if m.panel.cursor != 0 || m.panel.window != 0 {
-		t.Errorf("cursor/window must stay at 0 on inert forms; got %d/%d",
-			m.panel.cursor, m.panel.window)
-	}
-}
-
-// TestCycle213PanelKeyEscCloses asserts the only key that dismisses a
-// live /codesearch result list is Esc.
-func TestCycle213PanelKeyEscCloses(t *testing.T) {
-	root := csTmpTree(t)
-	m := NewRunMode(nil, "u@t", "m", "t", root, false)
-	m.openSlashPanelArgs("codesearch", "needle")
-	handled, _ := m.handlePanelKey(tea.Key{Code: tea.KeyEsc})
-	if !handled || m.panel.kind != panelNone {
-		t.Errorf("Esc must close codesearch; handled=%v kind=%v", handled, m.panel.kind)
 	}
 }
 
@@ -2144,44 +1800,6 @@ func TestCycle213NonCodesearchArgsPanelsKeepsExisting(t *testing.T) {
 	}
 }
 
-// TestCycle213CsFillCounterDrivesFormatting exercises the counter format
-// `[first-last of N items]`: when the result list overflows the budget,
-// counter shows. Otherwise it stays hidden (the "list fits" case the
-// reference collapses the counter under).
-func TestCycle213CsFillCounterDrivesFormatting(t *testing.T) {
-	root := t.TempDir()
-	// 12 matches (12 lines × "needle") > small budget, expect a counter.
-	body := "needle\n"
-	for i := 0; i < 11; i++ {
-		body += fmt.Sprintf("line %d\n", i)
-		if i%2 == 0 {
-			body += "needle\n"
-		}
-	}
-	if err := os.WriteFile(filepath.Join(root, "x.txt"), []byte(body), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	m := NewRunMode(nil, "u@t", "m", "t", root, false)
-	m.height = 24
-	// Cycle 228: opt out of the streaming path so the synchronous
-	// csScan populates hits before the test reads plainLines. The
-	// panel layout under test is the cycle-213 one; cycle 228 only
-	// affects the streaming behaviour.
-	m.streamingSearch = false
-	m.openSlashPanelArgs("codesearch", "needle")
-	plain := plainLines(m)
-	hasCounter := false
-	for _, l := range plain {
-		if strings.Contains(l, "of") && strings.Contains(l, "items]") {
-			hasCounter = true
-			break
-		}
-	}
-	if !hasCounter {
-		t.Errorf("expected counter row for overflowing list; got %q", plain)
-	}
-}
-
 // TestSlashCodesearchNoArgs: typing `> /codesearch` echoes
 // `⎿  /codesearch needs a query.` — the panel does NOT open.
 func TestSlashCodesearchNoArgs(t *testing.T) {
@@ -2190,7 +1808,7 @@ func TestSlashCodesearchNoArgs(t *testing.T) {
 		t.Errorf("handleSlashCommand(/codesearch) = (handled=%v cmd=%v), want handled=true cmd=nil",
 			handled, cmd)
 	}
-	if m.panel.kind == panelCodeSearch {
+	if m.panel.kind == panelregistry.CodeSearch {
 		t.Errorf("bare /codesearch should not open the panel; panel.kind = %v", m.panel.kind)
 	}
 	joined := strings.Join(afterEcho(m), "\n")
@@ -2199,177 +1817,9 @@ func TestSlashCodesearchNoArgs(t *testing.T) {
 	}
 }
 
-// TestSlashCodesearchStreaming: typing `/codesearch TODO` opens the
-// panel, the header shows the streaming "Found N matches in K files"
-// row once the runner settles. The mock rg emits three matches in
-// three files; the panel must show all three.
-func TestSlashCodesearchStreaming(t *testing.T) {
-	root := t.TempDir()
-	for i := 0; i < 3; i++ {
-		path := filepath.Join(root, "a"+string(rune('0'+i))+".go")
-		if err := os.WriteFile(path,
-			[]byte("// TODO line\npackage x\n"), 0o644); err != nil {
-			t.Fatal(err)
-		}
-	}
-
-	m := newSlashModel(t)
-	m.cwd = root
-	m.height = 30
-	m.width = 80
-
-	// Stub the ripgrep binary with a mock that emits three matches.
-	script := mockRgScript(t, "rg-stream", `{"type":"match","data":{"path":{"text":"a0.go"},"lines":{"text":"// TODO line\n"},"line_number":1,"submatches":[{"match":{"text":"TODO"},"start":3,"end":7}]}}
-{"type":"match","data":{"path":{"text":"a1.go"},"lines":{"text":"// TODO line\n"},"line_number":1,"submatches":[{"match":{"text":"TODO"},"start":3,"end":7}]}}
-{"type":"match","data":{"path":{"text":"a2.go"},"lines":{"text":"// TODO line\n"},"line_number":1,"submatches":[{"match":{"text":"TODO"},"start":3,"end":7}]}}
-`)
-
-	// Manually drive the streaming path so we don't depend on a real
-	// tick timer (which would race the goroutine).
-	search := &codesearch.Search{
-		Query: "TODO",
-		Root:  root,
-	}
-	runner := &codesearch.Runner{
-		RgPath:  script,
-		Workdir: root,
-		RgBin:   mockRgCmd(script),
-	}
-	m.panel.kind = panelCodeSearch
-	m.panel.cmd = "/codesearch"
-	m.panel.cs.search = search
-	m.panel.cs.runner = runner
-	m.panel.cs.query = "TODO"
-	m.panel.cs.args = "TODO"
-	m.panel.cs.files = map[string]struct{}{}
-
-	go runner.Run(context.Background(), search)
-
-	// Wait for the search to settle. The goroutine sets state to
-	// StateRunning immediately, then to StateDone once the channel
-	// is closed. If we read state before the goroutine is scheduled
-	// it would still be "" (the zero value), which is != StateRunning
-	// and would short-circuit the wait — so we require the runner
-	// to have started before we check for terminal state.
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
-		if search.CurrentState() != "" {
-			break
-		}
-		time.Sleep(5 * time.Millisecond)
-	}
-	for time.Now().Before(deadline) {
-		if search.CurrentState() != codesearch.StateRunning {
-			break
-		}
-		time.Sleep(5 * time.Millisecond)
-	}
-	if search.CurrentState() == codesearch.StateRunning {
-		t.Fatal("search did not settle in 2s")
-	}
-
-	// Drain all matches into the panel's hits slice.
-	m.drainCodesearchMatches()
-
-	plain := plainLines(m)
-	joined := strings.Join(plain, "\n")
-
-	if !strings.Contains(joined, "Code Search: TODO") {
-		t.Errorf("panel missing title; got %q", joined)
-	}
-	if !strings.Contains(joined, "Found 3 matches in 3 files.") {
-		t.Errorf("panel missing streaming count row; got %q", joined)
-	}
-	for _, w := range []string{"a0.go", "a1.go", "a2.go"} {
-		if !strings.Contains(joined, w) {
-			t.Errorf("file header %s missing from %q", w, joined)
-		}
-	}
-}
-
-// TestSlashCodesearchCancel: Esc mid-search cancels the rg child and
-// closes the panel without leaving an orphan process.
-func TestSlashCodesearchCancel(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("cancel test requires POSIX shell")
-	}
-
-	root := t.TempDir()
-	if err := os.WriteFile(filepath.Join(root, "a.go"),
-		[]byte("// TODO\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	// Build a blocking mock rg: emits one match, then waits on stdin
-	// so the test can cancel before EOF.
-	script := filepath.Join(t.TempDir(), "rg-cancel")
-	body := "#!/bin/sh\n" +
-		"cat <<'EOF'\n" +
-		`{"type":"match","data":{"path":{"text":"a.go"},"lines":{"text":"// TODO\n"},"line_number":1,"submatches":[{"match":{"text":"TODO"},"start":3,"end":7}]}}
-` +
-		"EOF\n" +
-		// Block until stdin closes; this lets us hold the child
-		// alive long enough to cancel.
-		"read x\n"
-	if err := os.WriteFile(script, []byte(body), 0o755); err != nil {
-		t.Fatal(err)
-	}
-
-	m := newSlashModel(t)
-	m.cwd = root
-	m.height = 30
-	m.width = 80
-	search := &codesearch.Search{Query: "TODO", Root: root}
-	runner := &codesearch.Runner{
-		RgPath:  script,
-		Workdir: root,
-		RgBin:   mockRgCmd(script),
-	}
-	m.panel.cs.search = search
-	m.panel.cs.runner = runner
-	m.panel.cs.query = "TODO"
-	m.panel.cs.args = "TODO"
-	m.panel.cs.files = map[string]struct{}{}
-	m.panel.kind = panelCodeSearch
-	m.panel.cmd = "/codesearch"
-
-	go runner.Run(context.Background(), search)
-
-	// Wait for the runner goroutine to attach the child cmd.
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
-		if runner.Cancel() != nil {
-			break
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-	// Cancel returns nil only if no child is attached yet; we use it
-	// here as a presence probe (the production path's Cancel() also
-	// kills, but in the test we manually call it below). Use the
-	// process pid from a successful Wait / inspect differently.
-	if runner == nil {
-		t.Fatal("runner not constructed")
-	}
-	// Drive the Esc key — the panel will call runner.Cancel().
-	_, _ = m.handlePanelKey(tea.Key{Code: tea.KeyEsc})
-
-	// Allow the goroutine to observe the kill.
-	time.Sleep(100 * time.Millisecond)
-
-	if m.panel.kind == panelCodeSearch {
-		t.Errorf("panel did not close after Esc; kind=%v", m.panel.kind)
-	}
-	// We don't have direct access to the cmd from outside the runner
-	// package, but the goroutine having exited cleanly is observable
-	// via Search.State flipping off StateRunning.
-	if search.CurrentState() == codesearch.StateRunning {
-		t.Errorf("search still running after Esc; state=%q", search.CurrentState())
-	}
-}
-
 // TestSlashCodesearchAliases: /cs and /search route through the same
-// handler as /codesearch (the cycle-206 alias mapping in
-// canonicalPanelCommand + openSlashPanelArgs).
+// handler as /codesearch (the cycle-206 alias mapping, now owned by
+// internal/ui/slashcommands).
 func TestSlashCodesearchAliases(t *testing.T) {
 	root := t.TempDir()
 	if err := os.WriteFile(filepath.Join(root, "a.go"),
@@ -2387,59 +1837,15 @@ func TestSlashCodesearchAliases(t *testing.T) {
 			if !m.openSlashPanelArgs(alias, "TODO") {
 				t.Fatalf("openSlashPanelArgs(%q, TODO) = false", alias)
 			}
-			if m.panel.kind != panelCodeSearch {
-				t.Errorf("panel.kind = %v, want panelCodeSearch", m.panel.kind)
+			if m.panel.kind != panelregistry.CodeSearch {
+				t.Errorf("panel.kind = %v, want panelregistry.CodeSearch", m.panel.kind)
 			}
-			if m.panel.cs.query != "TODO" {
-				t.Errorf("query = %q, want TODO", m.panel.cs.query)
+			if q := m.codesearchPanel().Query(); q != "TODO" {
+				t.Errorf("query = %q, want TODO", q)
 			}
 		})
 	}
 }
-
-// mockRgScript writes a one-shot shell script that emits the rg --json
-// protocol verbatim. name is the basename (so multiple mocks can run
-// concurrently); emit is one JSON object per line.
-func mockRgScript(t *testing.T, name, emit string) string {
-	t.Helper()
-	if runtime.GOOS == "windows" {
-		t.Skip("mock rg script requires a POSIX shell")
-	}
-	dir := t.TempDir()
-	path := filepath.Join(dir, name)
-	body := "#!/bin/sh\n" +
-		"cat <<'EOF'\n" + emit + "\nEOF\n"
-	if err := os.WriteFile(path, []byte(body), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	return path
-}
-
-// mockRgCmd is the closure the tests pass as Runner.RgBin. It
-// substitutes the script path for the rg binary so the runner's
-// exec.Cmd spawns the mock, not the real rg.
-func mockRgCmd(scriptPath string) func(ctx context.Context, root string, a codesearch.Args) *exec.Cmd {
-	return func(ctx context.Context, root string, a codesearch.Args) *exec.Cmd {
-		args := []string{"--json", "--no-heading", "--no-messages"}
-		if a.Literal {
-			args = append(args, "--fixed-strings")
-		}
-		for _, g := range a.Include {
-			args = append(args, "-g", g)
-		}
-		for _, g := range a.Exclude {
-			args = append(args, "-g", "!"+g)
-		}
-		args = append(args, "-e", a.Query)
-		cmd := exec.CommandContext(ctx, scriptPath, args...)
-		cmd.Dir = root
-		return cmd
-	}
-}
-
-// _ keeps the syscall import live in builds that strip it via
-// unused-import pruning.
-var _ = syscall.Signal(0)
 
 // withBtwManager injects a side-question Manager backed by PiG's
 // faux provider. Returns a cleanup func that restores the previous
@@ -2586,47 +1992,6 @@ func TestBtwParentTranscriptUntouched(t *testing.T) {
 	}
 	if !strings.HasPrefix(last.Content, "> /btw ") {
 		t.Errorf("appended content = %q, want it to start with \"> /btw \"", last.Content)
-	}
-}
-
-// TestBtwCollapseExpand: the card renders collapsed by default;
-// ToggleBtwCardExpansion flips it; CollapseBtwCard forces collapsed.
-// Future cycles wire Enter/Esc to these (the cycle-230 contract
-// captures the visual rendering).
-func TestBtwCollapseExpand(t *testing.T) {
-	cleanup := withBtwManager(t)
-	defer cleanup()
-
-	m := newSlashModel(t)
-	if handled, _ := m.handleSlashCommand("/btw What is 20+22?"); !handled {
-		t.Fatal("/btw not handled")
-	}
-	card := m.btwCards[0]
-
-	if m.BtwCardExpanded(card.ID) {
-		t.Error("new card expanded by default; reference renders collapsed")
-	}
-	if !m.ToggleBtwCardExpansion(card.ID) {
-		t.Error("ToggleBtwCardExpansion returned false on the first toggle")
-	}
-	if !m.BtwCardExpanded(card.ID) {
-		t.Error("card not expanded after ToggleBtwCardExpansion")
-	}
-	if m.ToggleBtwCardExpansion(card.ID) {
-		t.Error("ToggleBtwCardExpansion returned true on the second toggle")
-	}
-	if m.BtwCardExpanded(card.ID) {
-		t.Error("card not collapsed after second ToggleBtwCardExpansion")
-	}
-
-	// Esc collapses an expanded card.
-	m.ToggleBtwCardExpansion(card.ID)
-	if !m.BtwCardExpanded(card.ID) {
-		t.Fatal("setup: card not expanded")
-	}
-	m.CollapseBtwCard(card.ID)
-	if m.BtwCardExpanded(card.ID) {
-		t.Error("CollapseBtwCard did not collapse")
 	}
 }
 
@@ -2777,7 +2142,7 @@ func TestBtwIndependentServices(t *testing.T) {
 //
 // The next six tests are the cycle btw-runs-hooks deliverable for
 // AGY 1.3.3 line 49: /btw now fires the registered hooks. The
-// production Manager is constructed by NewRunMode (see tui_run.go);
+// production Manager is constructed by newRunMode (see tui_run.go);
 // the tests overwrite m.hooks after construction so each case has
 // a private registry without leaking handlers between tests.
 
@@ -3221,5 +2586,250 @@ func TestBtwRenderCardFormatting(t *testing.T) {
 	expandedRendered := m.renderBtwCard()
 	if !strings.Contains(expandedRendered, "Tab to collapse") {
 		t.Errorf("expanded card missing 'Tab to collapse':\n%s", expandedRendered)
+	}
+}
+
+// TestBtwEscDismissesCardBeforeInterruptingTurn verifies that when a /btw
+// card is visible during an active streaming turn:
+// 1. First Esc closes the /btw card while the turn keeps streaming.
+// 2. Second Esc interrupts the streaming turn.
+func TestBtwEscDismissesCardBeforeInterruptingTurn(t *testing.T) {
+	cleanup := withBtwManager(t)
+	defer cleanup()
+
+	m := newSlashModel(t)
+	c := &sidequestion.Card{
+		ID:       "card-esc",
+		Question: "What is 2+2?",
+		Answer:   "4",
+		State:    sidequestion.StateDone,
+	}
+	m.btwCards = []*sidequestion.Card{c}
+	m.activeBtwIndex = 0
+	m.activeBtwID = c.ID
+
+	if !m.isBtwCardVisible() {
+		t.Fatal("precondition: /btw card must be visible")
+	}
+
+	cancelled := false
+	m.streaming = true
+	m.turnCancel = func() { cancelled = true }
+
+	// First Esc: dismisses /btw card, turn is NOT cancelled.
+	m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEsc}))
+	if m.isBtwCardVisible() {
+		t.Fatal("first Esc should dismiss the /btw card")
+	}
+	if cancelled {
+		t.Fatal("first Esc should NOT cancel the in-flight streaming turn")
+	}
+	if m.turnInterrupted {
+		t.Fatal("first Esc should NOT mark turnInterrupted")
+	}
+
+	// Second Esc: now that /btw card is gone, interrupts the streaming turn.
+	m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEsc}))
+	if !cancelled {
+		t.Fatal("second Esc should cancel the in-flight streaming turn")
+	}
+	if !m.turnInterrupted {
+		t.Fatal("second Esc should mark turnInterrupted")
+	}
+}
+
+// TestMediaExpandedEscCollapsesBeforeInterruptingTurn verifies that an expanded
+// media preview is collapsed before interrupting a streaming turn.
+func TestMediaExpandedEscCollapsesBeforeInterruptingTurn(t *testing.T) {
+	m := newSlashModel(t)
+	m.mediaExpanded = true
+
+	cancelled := false
+	m.streaming = true
+	m.turnCancel = func() { cancelled = true }
+
+	m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEsc}))
+	if m.mediaExpanded {
+		t.Fatal("first Esc should collapse mediaExpanded")
+	}
+	if cancelled {
+		t.Fatal("first Esc should NOT cancel the in-flight streaming turn")
+	}
+
+	m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEsc}))
+	if !cancelled {
+		t.Fatal("second Esc should cancel the in-flight streaming turn")
+	}
+}
+
+// TestBtwEscPreservesDraftInputText verifies that Esc dismisses /btw card
+// without clearing draft text in the composer.
+func TestBtwEscPreservesDraftInputText(t *testing.T) {
+	cleanup := withBtwManager(t)
+	defer cleanup()
+
+	m := newSlashModel(t)
+	c := &sidequestion.Card{
+		ID:       "card-preserve-input",
+		Question: "What is caching?",
+		Answer:   "Fast storage.",
+		State:    sidequestion.StateDone,
+	}
+	m.btwCards = []*sidequestion.Card{c}
+	m.activeBtwIndex = 0
+	m.activeBtwID = c.ID
+	m.input.SetValue("my pending question")
+
+	// First Esc: dismisses /btw card, leaves input intact.
+	m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEsc}))
+	if m.isBtwCardVisible() {
+		t.Fatal("first Esc should dismiss the /btw card")
+	}
+	if got := m.input.Value(); got != "my pending question" {
+		t.Fatalf("first Esc should preserve input, got %q", got)
+	}
+
+	// Second Esc: arms the `esc esc` clear (cycle 383, B-21 — the
+	// reference clears the prompt box on two Escs,
+	// official-docs/cli/using.md:22), so the text is still there.
+	m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEsc}))
+	if got := m.input.Value(); got != "my pending question" {
+		t.Fatalf("second Esc should only arm the clear, got %q", got)
+	}
+
+	// Third Esc: completes the pair and clears the input.
+	m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEsc}))
+	if got := m.input.Value(); got != "" {
+		t.Fatalf("third Esc should clear input, got %q", got)
+	}
+}
+
+// TestBtw_AsyncNonBlocking verifies that in interactive mode (/btw with asyncBtw=true
+// or m.prog != nil), /btw immediately creates and attaches the Card in StatePending,
+// returns a non-nil tea.Cmd, keeps the TUI non-blocking, and streams the answer to StateDone.
+func TestBtw_AsyncNonBlocking(t *testing.T) {
+	cleanup := withBtwManager(t)
+	defer cleanup()
+
+	m := newSlashModel(t)
+	m.asyncBtw = true
+
+	handled, cmd := m.handleSlashCommand("/btw What is 20+22?")
+	if !handled {
+		t.Fatal("/btw not handled")
+	}
+	if cmd == nil {
+		t.Fatal("async /btw must return a non-nil tea.Cmd")
+	}
+
+	// The card must be registered immediately in StatePending so the UI can render
+	// the thinking card without waiting for the network round-trip.
+	if len(m.btwCards) != 1 {
+		t.Fatalf("expected 1 card registered immediately, got %d", len(m.btwCards))
+	}
+	card := m.btwCards[0]
+	_, answer, _, state, err := card.LockedSnapshot()
+	if err != nil {
+		t.Fatalf("unexpected card error: %v", err)
+	}
+	if state != sidequestion.StatePending {
+		t.Errorf("immediate card state = %q, want %q", state, sidequestion.StatePending)
+	}
+	if answer != "" {
+		t.Errorf("immediate card answer = %q, want empty", answer)
+	}
+	if !m.IsBtwActive() {
+		t.Error("m.IsBtwActive() should be true while query is running")
+	}
+	if !m.isBtwCardVisible() {
+		t.Error("card should be visible immediately above the prompt")
+	}
+
+	// Executing the returned batch command
+	batchMsg := cmd()
+	batch, ok := batchMsg.(tea.BatchMsg)
+	if !ok {
+		t.Fatalf("cmd() returned %T, want tea.BatchMsg", batchMsg)
+	}
+	if len(batch) != 2 {
+		t.Fatalf("expected 2 batch commands (askCmd and btwTick), got %d", len(batch))
+	}
+
+	// 1. Verify tick message processing while active
+	tickCmd := batch[1]
+	tickMsg := tickCmd()
+	if _, ok := tickMsg.(btwTickMsg); !ok {
+		t.Errorf("tick command produced %T, want btwTickMsg", tickMsg)
+	}
+	_, rearmCmd := m.Update(tickMsg)
+	if rearmCmd == nil {
+		t.Error("btwTickMsg should rearm next tick while card is active")
+	}
+
+	// 2. Run the askCmd to completion
+	askCmd := batch[0]
+	doneMsg := askCmd()
+	done, ok := doneMsg.(btwDoneMsg)
+	if !ok {
+		t.Fatalf("askCmd produced %T, want btwDoneMsg", doneMsg)
+	}
+	if done.err != nil {
+		t.Fatalf("askCmd returned error: %v", done.err)
+	}
+
+	// 3. Deliver btwDoneMsg to Update
+	m.Update(done)
+
+	// Card should now be done with answer "42"
+	_, finalAnswer, _, finalState, finalErr := card.LockedSnapshot()
+	if finalErr != nil {
+		t.Fatalf("card settled with error: %v", finalErr)
+	}
+	if finalState != sidequestion.StateDone {
+		t.Errorf("card settled state = %q, want %q", finalState, sidequestion.StateDone)
+	}
+	if finalAnswer != "42" {
+		t.Errorf("card settled answer = %q, want %q", finalAnswer, "42")
+	}
+	if m.IsBtwActive() {
+		t.Error("m.IsBtwActive() should be false after query settles")
+	}
+}
+
+// TestBtw_AsyncCancellationOnEsc verifies that pressing Esc while an async
+// /btw question is in-flight immediately marks it cancelled and clears active state.
+func TestBtw_AsyncCancellationOnEsc(t *testing.T) {
+	cleanup := withBtwManager(t)
+	defer cleanup()
+
+	m := newSlashModel(t)
+	m.asyncBtw = true
+
+	handled, cmd := m.handleSlashCommand("/btw What is 20+22?")
+	if !handled || cmd == nil {
+		t.Fatal("/btw not handled or nil cmd")
+	}
+	if !m.IsBtwActive() {
+		t.Fatal("precondition: /btw should be active")
+	}
+	if m.activeBtwCancel == nil {
+		t.Fatal("activeBtwCancel should be armed")
+	}
+
+	// User presses Esc to cancel in-flight /btw
+	m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEsc}))
+
+	if m.isBtwCardVisible() {
+		t.Error("card should be dismissed after Esc")
+	}
+	if m.activeBtwCancel != nil {
+		t.Error("activeBtwCancel should be cleared after Esc")
+	}
+	card := m.btwCards[0]
+	if card.State != sidequestion.StateFailed {
+		t.Errorf("card state = %q, want failed", card.State)
+	}
+	if card.Err == nil || !strings.Contains(card.Err.Error(), "cancelled") {
+		t.Errorf("card.Err = %v, want cancelled", card.Err)
 	}
 }

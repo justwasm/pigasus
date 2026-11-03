@@ -1,3 +1,14 @@
+// Package viewer holds the generic scrollable-viewer primitives: the
+// document spec, the window arithmetic over it and the counter row.
+//
+// The package is deliberately small. It used to hold three different
+// panels' facts — the changelog panel's excerpt, the /usage panel's
+// quota countdown and tick, and the diff panel's inline row — under a
+// "generic" name, which is a package with no owner: every symbol had
+// exactly one panel's user. Each of them now lives with the panel it
+// belongs to (internal/ui/views/changelog, internal/ui/views/usagepanel
+// and internal/ui/views/diffpanel), and what is left here is the
+// machinery all of them share.
 package viewer
 
 import (

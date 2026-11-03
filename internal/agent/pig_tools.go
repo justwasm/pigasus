@@ -7,8 +7,8 @@ import (
 	piagent "github.com/MichaelKinsy/PiG/agent"
 	pi "github.com/MichaelKinsy/PiG/ai"
 
-	"github.com/justwasm/pigasus/internal/backend"
-	"github.com/justwasm/pigasus/internal/tools"
+	"github.com/justwasm/pigasus/internal/core/backend"
+	"github.com/justwasm/pigasus/internal/app/tools/surface"
 )
 
 // pigTools adapts the advertised tool declarations into PiG tools, each backed
@@ -80,7 +80,7 @@ func (t *declOverrideTool) Label() string { return t.exec.Label() }
 
 func (t *declOverrideTool) Schema() pi.ToolSchema {
 	schema := pi.ToolSchema{Name: t.decl.Name, Description: t.decl.Description}
-	if params := tools.SchemaParams(t.decl.Parameters); params != nil {
+	if params := surface.SchemaParams(t.decl.Parameters); params != nil {
 		schema.Parameters = params
 	}
 	return schema
@@ -99,7 +99,7 @@ func (t *declOverrideTool) Execute(ctx context.Context, toolCallID string, args 
 // reported to the model as the text "tool error: …" and never aborts the turn.
 type runnerTool struct {
 	decl   backend.ToolDecl
-	runner ToolRunner
+	runner backend.ToolRunner
 }
 
 func (t *runnerTool) Name() string  { return t.decl.Name }
@@ -107,7 +107,7 @@ func (t *runnerTool) Label() string { return t.decl.Name }
 
 func (t *runnerTool) Schema() pi.ToolSchema {
 	schema := pi.ToolSchema{Name: t.decl.Name, Description: t.decl.Description}
-	if params := tools.SchemaParams(t.decl.Parameters); params != nil {
+	if params := surface.SchemaParams(t.decl.Parameters); params != nil {
 		schema.Parameters = params
 	}
 	return schema

@@ -13,7 +13,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/justwasm/pigasus/internal/agentsdir"
+	"github.com/justwasm/pigasus/internal/app/prompt/agentsdir"
 )
 
 func mustWrite(t *testing.T, path string, body string) {

@@ -7,7 +7,7 @@
 // without dragging the loop package into its dependency
 // graph. The behaviour is identical: a backend that knows how
 // to describe itself as a gateway endpoint (today only
-// *backend.GatewayClient) yields a native provider; anything
+// *gateway.GatewayClient) yields a native provider; anything
 // else falls through to the StreamFn path of
 // NewBackendProvider.
 //
@@ -31,15 +31,16 @@ package piagentbridge
 import (
 	"time"
 
-	"github.com/justwasm/pigasus/internal/backend"
+	"github.com/justwasm/pigasus/internal/core/backend"
+	"github.com/justwasm/pigasus/internal/infra/backend/gateway"
 )
 
 // gatewayBackend is implemented by backend clients that can describe
 // how they reach their endpoint. The interface is private — the only
-// implementor today is *backend.GatewayClient, and the goal is to
+// implementor today is *gateway.GatewayClient, and the goal is to
 // keep the seam invisible to the rest of the codebase.
 type gatewayBackend interface {
-	GatewayConfig() backend.GatewayConfig
+	GatewayConfig() gateway.GatewayConfig
 }
 
 // NativeProvider derives a PiG-native gateway Provider from the
@@ -80,7 +81,7 @@ func NativeProvider(client backend.Client) *Provider {
 		return nil
 	}
 	cfg := described.GatewayConfig()
-	if cfg.Type != "" && cfg.Type != backend.GatewayProtocolOpenAI {
+	if cfg.Type != "" && cfg.Type != gateway.GatewayProtocolOpenAI {
 		return nil
 	}
 	if cfg.URL == "" || cfg.ExternalModel == "" {

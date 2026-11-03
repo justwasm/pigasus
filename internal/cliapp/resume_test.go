@@ -21,26 +21,35 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/justwasm/pigasus/internal/agent"
-	"github.com/justwasm/pigasus/internal/backend"
+	"github.com/justwasm/pigasus/internal/app/toolrunner"
 	"github.com/justwasm/pigasus/internal/cli"
-	"github.com/justwasm/pigasus/internal/convstore"
-	"github.com/justwasm/pigasus/internal/permissions"
-	"github.com/justwasm/pigasus/internal/sandbox"
-	"github.com/justwasm/pigasus/internal/tools"
+	"github.com/justwasm/pigasus/internal/app/session/convstore"
+	"github.com/justwasm/pigasus/internal/core/backend"
+	"github.com/justwasm/pigasus/internal/core/policy/permissions"
+	"github.com/justwasm/pigasus/internal/core/policy/sandbox"
+	"github.com/justwasm/pigasus/internal/printmode"
+	tuiviewport "github.com/justwasm/pigasus/internal/ui/foundations/viewport"
+	"github.com/justwasm/pigasus/internal/ui/panelregistry"
 	_ "github.com/ncruces/go-sqlite3/driver"
+	"github.com/justwasm/pigasus/internal/app/tools/surface"
 )
 
-// TestResumeSearchAcceptsShiftChars pins the search-field input rule.
+// TestResumeTypedKeysReachThePicker pins the host's routing: while the
+// picker is open, a typed character goes into the picker's search field and
+// never into the prompt.
 //
-// Terminals deliver an uppercase letter (and shifted symbols such as "_")
-// with ModShift set. The old guard required `key.Mod == 0`, so typing
-// "Fixing" into the reference's own search box produced "ixing" in the clone
-// while agy 1.4.2 kept every character (verified side by side at 200x40:
-// "Fixing", "A_B", "Hi").
-func TestResumeSearchAcceptsShiftChars(t *testing.T) {
-	m := NewRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+// The picker's own input rule — a shifted character is text, a
+// ctrl-modified key is a command — is pinned in internal/ui/resumepicker.
+func TestResumeTypedKeysReachThePicker(t *testing.T) {
+	t.Setenv("ANTIGRAVITY_HOME", t.TempDir())
+	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
 	m.width, m.height = 200, 40
-	m.resumeMode = true
+	if handled, _ := m.handleSlashCommand("/resume"); !handled {
+		t.Fatal("/resume should be handled")
+	}
+	if !m.resumePicker.Active() {
+		t.Fatal("/resume should open the picker")
+	}
 
 	for _, k := range []tea.Key{
 		{Code: 'F', Text: "F", Mod: tea.ModShift},
@@ -52,16 +61,23 @@ func TestResumeSearchAcceptsShiftChars(t *testing.T) {
 	} {
 		m.Update(tea.KeyPressMsg(k))
 	}
-	if m.resumeQuery != "Fixing" {
-		t.Fatalf("resumeQuery = %q, want %q (shifted characters must be inserted)", m.resumeQuery, "Fixing")
+	if got := m.resumePicker.Query(); got != "Fixing" {
+		t.Fatalf("query = %q, want %q (shifted characters must be inserted)", got, "Fixing")
+	}
+	if got := m.input.Value(); got != "" {
+		t.Fatalf("the typed characters leaked into the prompt: %q", got)
 	}
 
 	// Ctrl-modified keys are commands, not text, and must stay out of the
-	// query even though some terminals attach Text to them.
-	m.resumeQuery = ""
+	// query even though some terminals attach Text to them. Ctrl+U clears
+	// the search field.
+	m.Update(tea.KeyPressMsg(tea.Key{Code: 'u', Mod: tea.ModCtrl}))
+	if got := m.resumePicker.Query(); got != "" {
+		t.Fatalf("query = %q after ctrl+u, want empty", got)
+	}
 	m.Update(tea.KeyPressMsg(tea.Key{Code: 'v', Text: "v", Mod: tea.ModCtrl}))
-	if m.resumeQuery != "" {
-		t.Fatalf("resumeQuery = %q after ctrl+v, want empty", m.resumeQuery)
+	if got := m.resumePicker.Query(); got != "" {
+		t.Fatalf("query = %q after ctrl+v, want empty", got)
 	}
 }
 
@@ -82,15 +98,15 @@ func TestResumeEmptyStoreOpensPicker(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("ANTIGRAVITY_HOME", dir)
 
-	m := NewRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
 	m.width, m.height = 200, 40
 	if handled, _ := m.handleSlashCommand("/resume"); !handled {
 		t.Fatal("/resume should be handled")
 	}
-	if !m.resumeMode {
+	if !m.resumePicker.Active() {
 		t.Fatal("/resume on an empty store must still open the picker")
 	}
-	body := ansi.Strip(m.resumeView())
+	body := ansi.Strip(m.resumePicker.View(m.width, m.height))
 	if !strings.Contains(body, "No conversations available.") {
 		t.Errorf("missing empty-state line: %q", body)
 	}
@@ -106,89 +122,11 @@ func TestResumeEmptyStoreOpensPicker(t *testing.T) {
 
 	// Enter returns to the prompt without echoing anything.
 	m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
-	if m.resumeMode {
+	if m.resumePicker.Active() {
 		t.Fatal("Enter on the empty screen should close the picker")
 	}
 	if len(m.response) != 0 {
 		t.Fatalf("Enter on the empty screen echoed %q, want nothing", m.response)
-	}
-}
-
-// TestResumeRowDropsBlankAgeCell pins the row geometry when the age is blank.
-//
-// Cache entries whose summary.UpdatedAt is 0001-01-01 have no age in the
-// reference. agy 1.4.2 then omits the 12-cell age field entirely and lets the
-// title grow by the 14 columns it frees, so the steps cell sits flush against
-// the last column. The clone kept a blank 12-cell field and lost those
-// columns (rows measured 186 cells wide against the reference's 200).
-func TestResumeRowDropsBlankAgeCell(t *testing.T) {
-	m := NewRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
-	m.width, m.height = 200, 40
-	m.resumeMode = true
-	m.resumeList = []convstore.ConversationMeta{{
-		ID:        "0495d3b3-fb08-b3c0-9290-41ec9c5f0251",
-		Title:     "0495d3b3-fb08-b3c0-9290-41ec9c5f0251",
-		StepCount: 2,
-		// ModTime zero: no age column.
-	}}
-
-	var row string
-	for _, l := range strings.Split(m.resumeView(), "\n") {
-		if strings.Contains(l, "steps") {
-			row = l
-		}
-	}
-	if row == "" {
-		t.Fatal("no row rendered")
-	}
-	if got := ansi.StringWidth(row); got != 200 {
-		t.Errorf("row width = %d cells, want 200 (the blank age field must be dropped)", got)
-	}
-	if !strings.HasSuffix(ansi.Strip(row), "     2 steps") {
-		t.Errorf("steps cell is not flush against the right edge: %q", ansi.Strip(row))
-	}
-}
-
-// TestResumeHintHidesGroupedView pins the contextual keyboard hint.
-//
-// agy 1.4.2 shows "ctrl+f Grouped View" over a store whose rows carry project
-// names and omits it when no visible row has one (both observed at 200x40).
-func TestResumeHintHidesGroupedView(t *testing.T) {
-	without := ansi.Strip(resumeKeyboardHint(true, false))
-	if strings.Contains(without, "Grouped View") {
-		t.Errorf("hint with no project groups advertises grouped view: %q", without)
-	}
-	for _, want := range []string{"Navigate", "Page", "enter", "Select", "f2", "f4", "tab", "esc"} {
-		if !strings.Contains(without, want) {
-			t.Errorf("hint missing %q: %q", want, without)
-		}
-	}
-	with := ansi.Strip(resumeKeyboardHint(true, true))
-	if !strings.Contains(with, "ctrl+f") || !strings.Contains(with, "Grouped View") {
-		t.Errorf("hint with project groups must advertise grouped view: %q", with)
-	}
-	// The empty/other-tab hint keeps its reduced form.
-	empty := ansi.Strip(resumeKeyboardHint(false, false))
-	for _, bad := range []string{"Navigate", "Page", "f2", "f4", "Grouped View"} {
-		if strings.Contains(empty, bad) {
-			t.Errorf("reduced hint contains %q: %q", bad, empty)
-		}
-	}
-}
-
-// TestResumeProjectGroups pins the count the hint decision reads.
-func TestResumeProjectGroups(t *testing.T) {
-	rows := []convstore.ConversationMeta{
-		{ID: "a", Project: "openagy"},
-		{ID: "b", Project: "openagy"},
-		{ID: "c", Project: ""},
-	}
-	if got := resumeProjectGroups(rows); got != 1 {
-		t.Errorf("resumeProjectGroups = %d, want 1", got)
-	}
-	rows = append(rows, convstore.ConversationMeta{ID: "d", Project: "opencode"})
-	if got := resumeProjectGroups(rows); got != 2 {
-		t.Errorf("resumeProjectGroups = %d, want 2", got)
 	}
 }
 
@@ -240,18 +178,19 @@ func TestResume_PopulatesFromStoreDir(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	m := NewRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m.width, m.height = 200, 40
 	handled, _ := m.handleSlashCommand("/resume")
 	if !handled {
 		t.Fatal("/resume should be handled")
 	}
-	if !m.resumeMode {
+	if !m.resumePicker.Active() {
 		t.Fatal("/resume should open the picker")
 	}
-	if len(m.resumeList) != 2 {
-		t.Fatalf("expected 2 conversations, got %d", len(m.resumeList))
+	if got := len(m.resumePicker.List()); got != 2 {
+		t.Fatalf("expected 2 conversations, got %d", got)
 	}
-	body := m.resumeView()
+	body := m.resumePicker.View(m.width, m.height)
 	if !strings.Contains(body, "fix the bug please") {
 		t.Errorf("picker missing first conversation title: %q", body)
 	}
@@ -275,36 +214,36 @@ func TestResume_UpDownMovesCursor(t *testing.T) {
 			})
 	}
 
-	m := NewRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
 	_, _ = m.handleSlashCommand("/resume")
-	if !m.resumeMode {
+	if !m.resumePicker.Active() {
 		t.Fatal("/resume should open")
 	}
 	// Cycle 336: the picker opens on the workspace tree (agy 1.4.7). The
 	// three conversations above share one workspace — no workspace at all —
 	// so the tree is one group row followed by its three conversations,
 	// and the cursor opens on the first conversation (row 1).
-	if m.resumeCursor != 1 {
-		t.Fatalf("initial cursor = %d, want 1 (the first conversation of the expanded group)", m.resumeCursor)
+	if got := m.resumePicker.Cursor(); got != 1 {
+		t.Fatalf("initial cursor = %d, want 1 (the first conversation of the expanded group)", got)
 	}
 	m.Update(key(tea.KeyDown, 0))
-	if m.resumeCursor != 2 {
-		t.Fatalf("after down, cursor = %d, want 2", m.resumeCursor)
+	if got := m.resumePicker.Cursor(); got != 2 {
+		t.Fatalf("after down, cursor = %d, want 2", got)
 	}
 	m.Update(key(tea.KeyDown, 0))
-	if m.resumeCursor != 3 {
-		t.Fatalf("after 2nd down, cursor = %d, want 3", m.resumeCursor)
+	if got := m.resumePicker.Cursor(); got != 3 {
+		t.Fatalf("after 2nd down, cursor = %d, want 3", got)
 	}
 	m.Update(key(tea.KeyDown, 0))
-	if m.resumeCursor != 3 {
-		t.Fatalf("down should clamp at last (3), got %d", m.resumeCursor)
+	if got := m.resumePicker.Cursor(); got != 3 {
+		t.Fatalf("down should clamp at last (3), got %d", got)
 	}
 	m.Update(key(tea.KeyUp, 0))
-	if m.resumeCursor != 2 {
-		t.Fatalf("after up, cursor = %d, want 2", m.resumeCursor)
+	if got := m.resumePicker.Cursor(); got != 2 {
+		t.Fatalf("after up, cursor = %d, want 2", got)
 	}
 	m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEsc}))
-	if m.resumeMode {
+	if m.resumePicker.Active() {
 		t.Fatal("Esc should close the picker")
 	}
 }
@@ -325,7 +264,7 @@ func TestFork_WritesConvStoreAndAppearsInPicker(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	m := NewRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
 	m.session = []backend.Message{
 		{Role: "user", Content: "do thing 1"},
 		{Role: "assistant", Content: "ok"},
@@ -345,25 +284,33 @@ func TestFork_WritesConvStoreAndAppearsInPicker(t *testing.T) {
 		t.Fatalf("expected 2 dbs (past + fork), got %d", len(entries))
 	}
 
-	m.resumeMode = false
-	m.resumeList = nil
+	m.resumePicker.Close()
 	_, _ = m.handleSlashCommand("/resume")
-	if !m.resumeMode {
+	if !m.resumePicker.Active() {
 		t.Fatalf("/resume should open with the past conversation present (resp=%v)", m.response)
 	}
-	if len(m.resumeList) != 1 {
-		t.Fatalf("expected 1 conversation (the fork is current and hidden), got %d", len(m.resumeList))
+	list := m.resumePicker.List()
+	if len(list) != 1 {
+		t.Fatalf("expected 1 conversation (the fork is current and hidden), got %d", len(list))
 	}
-	if m.resumeList[0].Title == "" || !strings.Contains(m.resumeList[0].Title, "older prompt") {
-		t.Errorf("picker should show the past conversation, got %q", m.resumeList[0].Title)
+	if list[0].Title == "" || !strings.Contains(list[0].Title, "older prompt") {
+		t.Errorf("picker should show the past conversation, got %q", list[0].Title)
 	}
 }
 
-// TestResume_F4DeletesConversation verifies that pressing F4 in /resume
-// mode deletes the selected conversation from disk and updates the list.
+// TestResume_F4DeletesConversation verifies that pressing F4 in the picker
+// asks before it deletes, and that the confirmation deletes the selected
+// conversation from disk and updates the list.
+//
+// The picker opens on the workspace tree (agy 1.4.7), so the cursor lands
+// on the conversation under the expanded group — F4 acts on it.
+//
+// 【一手】 official-docs/cli/commands/resume.md:55-57 — "Press F4. A
+// `[Delete? (y/n)]` confirmation prompt appears next to the title. Press
+// Enter (or Y) to confirm deletion, or Esc (or N) to cancel."
 func TestResume_F4DeletesConversation(t *testing.T) {
-	tmpDir := t.TempDir()
-	t.Setenv("HOME", tmpDir)
+	dir := t.TempDir()
+	t.Setenv("ANTIGRAVITY_HOME", dir)
 
 	convID := "test-conv-f4"
 	steps := []convstore.Step{
@@ -373,36 +320,54 @@ func TestResume_F4DeletesConversation(t *testing.T) {
 		t.Fatalf("SaveConversation: %v", err)
 	}
 
-	m := NewRunMode(&fakeClient{}, "u@t", "m", "t", "/", false)
-	m.resumeMode = true
-	m.reloadResumeList()
-	if len(m.resumeList) == 0 {
-		t.Fatalf("expected saved conversation in resumeList")
+	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", false)
+	if _, _ = m.handleSlashCommand("/resume"); !m.resumePicker.Active() {
+		t.Fatal("/resume should open the picker")
+	}
+	if got := len(m.resumePicker.List()); got != 1 {
+		t.Fatalf("expected 1 conversation in the picker, got %d", got)
 	}
 
 	m.Update(tea.KeyPressMsg{Code: tea.KeyF4})
 
-	convPath := filepath.Join(tmpDir, ".gemini", "antigravity-cli", "conversations", convID+".db")
+	// F4 asks first: the conversation is still on disk.
+	convPath := filepath.Join(dir, "conversations", convID+".db")
+	if _, err := os.Stat(convPath); err != nil {
+		t.Fatalf("the conversation file is gone at %s before the confirmation: %v", convPath, err)
+	}
+
+	m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
+
 	if _, err := os.Stat(convPath); !os.IsNotExist(err) {
 		t.Fatalf("conversation file still exists at %s after F4 delete", convPath)
 	}
 }
 
-// TestResume_F2RenamesConversation verifies that pressing F2 in /resume
-// mode closes resume mode and opens the rename panel for that conversation.
+// TestResume_F2RenamesConversation verifies that pressing F2 in the picker
+// closes the picker and opens the rename panel for that conversation.
 func TestResume_F2RenamesConversation(t *testing.T) {
-	m := NewRunMode(&fakeClient{}, "u@t", "m", "t", "/", false)
-	m.resumeMode = true
-	m.resumeList = []convstore.ConversationMeta{
-		{ID: "c1", Title: "Original Title", StepCount: 3},
+	dir := t.TempDir()
+	t.Setenv("ANTIGRAVITY_HOME", dir)
+
+	convID := "test-conv-f2"
+	steps := []convstore.Step{
+		{Idx: 0, Type: convstore.StepUserInput, Status: 1, Text: "Original Title"},
+	}
+	if err := convstore.SaveConversation(convID, "/workspace", steps); err != nil {
+		t.Fatalf("SaveConversation: %v", err)
+	}
+
+	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", false)
+	if _, _ = m.handleSlashCommand("/resume"); !m.resumePicker.Active() {
+		t.Fatal("/resume should open the picker")
 	}
 
 	m.Update(tea.KeyPressMsg{Code: tea.KeyF2})
-	if m.resumeMode {
-		t.Fatal("resumeMode should be closed after F2 rename")
+	if m.resumePicker.Active() {
+		t.Fatal("the picker should be closed after F2 rename")
 	}
-	if m.panel.kind != panelRename {
-		t.Fatalf("F2 in resume should open panelRename; got %v", m.panel.kind)
+	if m.panel.kind != panelregistry.Rename {
+		t.Fatalf("F2 in resume should open panelregistry.Rename; got %v", m.panel.kind)
 	}
 	if got := m.conversationName; got != "Original Title" {
 		t.Errorf("conversationName = %q, want 'Original Title'", got)
@@ -450,7 +415,7 @@ func TestContinueFlag(t *testing.T) {
 	if sel.Store == nil || len(sel.Store.Steps) == 0 {
 		t.Fatalf("sel.Store not loaded: %+v", sel.Store)
 	}
-	m := NewRunMode(nil, "", "Gemini 3.8 Flash (High)", "", "/tmp", true)
+	m := newRunMode(nil, "", "Gemini 3.8 Flash (High)", "", "/tmp", true)
 	m.conversationID = sel.ID
 	m.seedConversation(sel.Store)
 	joined := strings.Join(m.response, "\n")
@@ -527,19 +492,19 @@ func TestGoroutineLeakResumePicker(t *testing.T) {
 	runtime.GC()
 	baseline := runtime.NumGoroutine()
 	for i := 0; i < 10; i++ {
-		m := NewRunMode(nil, "", "Gemini 3.8 Flash (High)", "", dir, true)
+		m := newRunMode(nil, "", "Gemini 3.8 Flash (High)", "", dir, true)
 		handled, _ := m.handleSlashCommand("/resume")
-		if !handled || !m.resumeMode {
-			t.Fatalf("iter %d: /resume failed: handled=%v mode=%v", i, handled, m.resumeMode)
+		if !handled || !m.resumePicker.Active() {
+			t.Fatalf("iter %d: /resume failed: handled=%v active=%v", i, handled, m.resumePicker.Active())
 		}
 		// Drive the picker through the happy path so any spawned
 		// goroutines see their natural close.
 		m.Update(key(tea.KeyDown, 0))
 		m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEsc}))
-		if m.resumeMode {
+		if m.resumePicker.Active() {
 			t.Fatalf("iter %d: picker should close on Esc", i)
 		}
-		// Cycle tasks-panel: NewRunMode arms a subscriber goroutine
+		// Cycle tasks-panel: newRunMode arms a subscriber goroutine
 		// on the shared task registry; close it here so the next
 		// iteration's m doesn't accumulate (delta=10). The cancel
 		// callback closes the registry's channel, the goroutine's
@@ -585,7 +550,7 @@ func TestSlashContinueResumeLast(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	m := NewRunMode(nil, "", "Gemini 3.8 Flash (High)", "", ws, true)
+	m := newRunMode(nil, "", "Gemini 3.8 Flash (High)", "", ws, true)
 	m.conversationID = "pre-existing-id-from-new-run" // would otherwise short-circuit
 	if handled, _ := m.handleSlashCommand("/continue"); !handled {
 		t.Fatal("/continue should be handled")
@@ -620,7 +585,7 @@ func TestSlashContinueNoConversation(t *testing.T) {
 	t.Setenv("ANTIGRAVITY_HOME", dir)
 	t.Chdir(t.TempDir())
 
-	m := NewRunMode(nil, "", "Gemini 3.8 Flash (High)", "", t.TempDir(), true)
+	m := newRunMode(nil, "", "Gemini 3.8 Flash (High)", "", t.TempDir(), true)
 	const origID = "orig-conv-id-unchanged"
 	m.conversationID = origID
 	if handled, _ := m.handleSlashCommand("/continue"); !handled {
@@ -670,7 +635,7 @@ func TestSlashContinueParentFallback(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	m := NewRunMode(nil, "", "Gemini 3.8 Flash (High)", "", sub, true)
+	m := newRunMode(nil, "", "Gemini 3.8 Flash (High)", "", sub, true)
 	if handled, _ := m.handleSlashCommand("/continue"); !handled {
 		t.Fatal("/continue should be handled")
 	}
@@ -764,13 +729,10 @@ func TestGenerateConversationTitle(t *testing.T) {
 	}
 }
 
-// convstoreStoreDir delegates to the package's StoreDir.
-func convstoreStoreDir() string { return convstore.StoreDir() }
-
 // writeConversationSummaryRow is a helper to write synthetic conversation rows for testing.
 func writeConversationSummaryRow(dbPath, id, uri, now string) error {
 	if dbPath == "" {
-		dbPath = filepath.Join(convstoreStoreDir(), "conversation_summaries.db")
+		dbPath = filepath.Join(convstore.StoreDir(), "conversation_summaries.db")
 	}
 	sdb, err := sql.Open("sqlite3", "file:"+dbPath+"?mode=rwc")
 	if err != nil {
@@ -797,10 +759,6 @@ func writeConversationSummaryRow(dbPath, id, uri, now string) error {
 		id, "synthetic", "synthetic", 1, uri, now)
 	return err
 }
-
-// nowUTC returns a stable RFC3339Nano timestamp for tests that don't
-// care about the exact value.
-func nowUTC() string { return time.Now().UTC().Format(time.RFC3339Nano) }
 
 // recordingRunner stands in for the real registry and records what ran.
 type recordingRunner struct {
@@ -930,7 +888,7 @@ func TestToolTarget(t *testing.T) {
 		{"broken", `not json`, ""},
 	}
 	for _, c := range cases {
-		if got := toolTarget(backend.ToolCall{Name: c.name, Arguments: json.RawMessage(c.args)}); got != c.want {
+		if got := toolrunner.ToolTarget(backend.ToolCall{Name: c.name, Arguments: json.RawMessage(c.args)}); got != c.want {
 			t.Errorf("toolTarget(%s, %s) = %q, want %q", c.name, c.args, got, c.want)
 		}
 	}
@@ -959,7 +917,7 @@ func TestPrintModePolicy_FlagsAndEnv(t *testing.T) {
 	fs := newStandardFlagSetForTest(t, []string{"--mode", "auto", "--dangerously-skip-permissions"})
 	t.Setenv("OPENAGY_PERMISSION_POLICY", "strict")
 	t.Setenv("ANTIGRAVITY_HOME", t.TempDir())
-	p := printModePolicy(fs)
+	p := printmode.PrintModePolicy(fs)
 	if p.Mode != permissions.ModeAuto {
 		t.Errorf("Mode = %q, want auto", p.Mode)
 	}
@@ -980,7 +938,7 @@ func TestPrintModePolicy_LoadsSettingsRules(t *testing.T) {
 	if err := writeSettingsJSON(t, home, `{"permissions":{"allow":["view_file:src/"]}}`); err != nil {
 		t.Fatal(err)
 	}
-	p := printModePolicy(newStandardFlagSetForTest(t, nil))
+	p := printmode.PrintModePolicy(newStandardFlagSetForTest(t, nil))
 	if len(p.Allow) != 1 || p.Allow[0] != (permissions.Rule{Tool: "view_file", Pattern: "src/"}) {
 		t.Errorf("Allow = %+v", p.Allow)
 	}
@@ -988,7 +946,7 @@ func TestPrintModePolicy_LoadsSettingsRules(t *testing.T) {
 
 // TestCatalogToolNamesUnchangedInPrintMode keeps the advertised surface stable.
 func TestCatalogToolNamesUnchangedInPrintMode(t *testing.T) {
-	reg := tools.Catalog(t.TempDir())
+	reg := surface.Catalog(t.TempDir())
 	for _, want := range []string{"run_command", "view_file", "grep_search", "finish", "notebook_edit"} {
 		if _, ok := reg.Get(want); !ok {
 			t.Errorf("catalog lost %q", want)
@@ -1093,7 +1051,7 @@ func sandboxGate(t *testing.T, sb sandbox.Sandbox) (*permissionRunner, *sandboxR
 	t.Helper()
 	rec := &sandboxRecordingRunner{}
 	gate := &permissionRunner{
-		inner:   agent.ToolRunner(rec),
+		inner:   backend.ToolRunner(rec),
 		policy:  &permissions.Policy{},
 		sandbox: sb,
 	}
@@ -1260,7 +1218,7 @@ func TestResumeConversation_BoostStepTextRestored(t *testing.T) {
 			{Idx: 1, Type: convstore.StepModelResponse, Text: longReply},
 		},
 	}
-	m := NewRunMode(nil, "", "m", "", "/tmp", true)
+	m := newRunMode(nil, "", "m", "", "/tmp", true)
 	m.width, m.height = 120, 24
 	m.altScreen = true
 	m.seedConversation(c)
@@ -1286,8 +1244,8 @@ func TestResumeConversation_BoostStepTextRestored(t *testing.T) {
 	m.autoScroll = false
 	_ = m.View()
 
-	if m.stickyUserPromptRow() < 0 {
-		t.Fatalf("stickyUserPromptRow = %d, want >= 0", m.stickyUserPromptRow())
+	if tuiviewport.StickyUserPromptRow(m.userPromptRows, m.autoScroll, m.scroll) < 0 {
+		t.Fatalf("stickyUserPromptRow = %d, want >= 0", tuiviewport.StickyUserPromptRow(m.userPromptRows, m.autoScroll, m.scroll))
 	}
 	if !strings.Contains(m.pinnedPromptText, "1.4.10") {
 		t.Errorf("pinnedPromptText = %q, want to contain '1.4.10'", m.pinnedPromptText)
@@ -1296,6 +1254,3 @@ func TestResumeConversation_BoostStepTextRestored(t *testing.T) {
 		t.Errorf("pinnedPromptText = %q, expected no 'jump to prompt' hint matching agy 1.4.10", m.pinnedPromptText)
 	}
 }
-
-
-

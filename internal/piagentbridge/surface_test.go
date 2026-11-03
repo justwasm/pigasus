@@ -12,18 +12,18 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/justwasm/pigasus/internal/tools"
+	"github.com/justwasm/pigasus/internal/app/tools/surface"
 )
 
 // harnessDeclaration is one declaration of the reference's harness
 // surface.
-func harnessDeclaration(name string) tools.ModelToolDecl {
-	for _, decl := range tools.HarnessDeclarations() {
+func harnessDeclaration(name string) surface.ModelToolDecl {
+	for _, decl := range surface.HarnessDeclarations() {
 		if decl.Name == name {
 			return decl
 		}
 	}
-	return tools.ModelToolDecl{}
+	return surface.ModelToolDecl{}
 }
 
 // The strict surface validates against the schema it advertises.
@@ -32,7 +32,7 @@ func TestSurfaceToolsForKeepsTheStrictSchema(t *testing.T) {
 	if decl.Name == "" {
 		t.Fatal("no view_file declaration")
 	}
-	surface := SurfaceToolsFor(nil, nil, []tools.ModelToolDecl{decl})
+	surface := SurfaceToolsFor(nil, nil, []surface.ModelToolDecl{decl})
 	if len(surface) != 1 {
 		t.Fatalf("surface = %d tools, want 1", len(surface))
 	}
@@ -61,7 +61,7 @@ func TestLenientSurfaceToolsForDropsTheRequiredList(t *testing.T) {
 	if decl.Name == "" {
 		t.Fatal("no view_file declaration")
 	}
-	surface := LenientSurfaceToolsFor(nil, nil, []tools.ModelToolDecl{decl})
+	surface := LenientSurfaceToolsFor(nil, nil, []surface.ModelToolDecl{decl})
 	if len(surface) != 1 {
 		t.Fatalf("surface = %d tools, want 1", len(surface))
 	}
@@ -91,8 +91,8 @@ func TestLenientSurfaceToolsForDropsTheRequiredList(t *testing.T) {
 // sees the same declaration the reference sent.
 func TestBothSurfacesAdvertiseTheCapturedDeclaration(t *testing.T) {
 	decl := harnessDeclaration("view_file")
-	strict := SurfaceToolsFor(nil, nil, []tools.ModelToolDecl{decl})
-	lenient := LenientSurfaceToolsFor(nil, nil, []tools.ModelToolDecl{decl})
+	strict := SurfaceToolsFor(nil, nil, []surface.ModelToolDecl{decl})
+	lenient := LenientSurfaceToolsFor(nil, nil, []surface.ModelToolDecl{decl})
 	if len(strict) != 1 || len(lenient) != 1 {
 		t.Fatalf("the surfaces are %d and %d tools, want 1 each", len(strict), len(lenient))
 	}

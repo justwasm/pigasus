@@ -28,12 +28,15 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/justwasm/pigasus/internal/accountrouting"
-	"github.com/justwasm/pigasus/internal/auth"
-	"github.com/justwasm/pigasus/internal/backend"
-	"github.com/justwasm/pigasus/internal/cli"
-	"github.com/justwasm/pigasus/internal/cliflags"
-	"github.com/justwasm/pigasus/internal/models"
+	"github.com/justwasm/pigasus/internal/features/models/catalog"
+	"github.com/justwasm/pigasus/internal/core/backend"
+	"github.com/justwasm/pigasus/internal/core/cliflags"
+	accountrouting "github.com/justwasm/pigasus/internal/features/accounts/routing"
+	"github.com/justwasm/pigasus/internal/features/auth"
+	"github.com/justwasm/pigasus/internal/features/auth/credential"
+	"github.com/justwasm/pigasus/internal/features/models"
+	"github.com/justwasm/pigasus/internal/infra/backend/cloudcode"
+	"github.com/justwasm/pigasus/internal/infra/backend/gateway"
 )
 
 // CatalogueIDFunc resolves a display label or catalogue id to the
@@ -43,7 +46,7 @@ type CatalogueIDFunc func(val string) string
 
 // Pick implements the backend dispatch.
 func Pick(fs *flag.FlagSet, modelName string, catalogueID CatalogueIDFunc) backend.Client {
-	return PickWithLog(fs, modelName, io.Discard, backend.GatewayTimeoutUnlimited, catalogueID)
+	return PickWithLog(fs, modelName, io.Discard, gateway.GatewayTimeoutUnlimited, catalogueID)
 }
 
 // PickWithLog is the underlying dispatch with a caller-supplied log writer.
@@ -80,7 +83,7 @@ func IsReferenceModel(name string, catalogueID CatalogueIDFunc) bool {
 	if slug == "" {
 		return false
 	}
-	for _, m := range cli.ReferenceModels() {
+	for _, m := range catalog.ReferenceModels() {
 		if m.ID == slug {
 			return true
 		}
@@ -112,7 +115,7 @@ func newConfiguredBackend(modelName string, timeoutSeconds int, logWriter io.Wri
 	if m.TimeoutSeconds > 0 {
 		timeout = m.TimeoutSeconds
 	}
-	return backend.NewGatewayWithConfig(backend.GatewayConfig{
+	return gateway.NewGatewayWithConfig(gateway.GatewayConfig{
 		URL:              strings.TrimSpace(m.APIURL),
 		APIKey:           strings.TrimSpace(m.APIKey),
 		ExternalModel:    strings.TrimSpace(m.ExternalModelName),
@@ -159,10 +162,10 @@ func newOfficialBackend(modelName string, logWriter io.Writer, catalogueID Catal
 	// policy is off. It is installed here, at build time, so the answer
 	// is the one this transport would have given by itself — and a
 	// rebuilt transport installs a fresh one.
-	router.SetFallback(backend.DefaultTokenSource())
-	client := backend.NewCloudCodeWithConfig(backend.CloudCodeConfig{
+	router.SetFallback(credential.DefaultTokenSource())
+	client := cloudcode.NewCloudCodeWithConfig(cloudcode.CloudCodeConfig{
 		Model:     slug,
-		TokenFunc: router.TokenFunc,
+		TokenFunc: router.TokenFuncForModel(slug),
 	})
 	return accountrouting.Wrap(client, logWriter)
 }

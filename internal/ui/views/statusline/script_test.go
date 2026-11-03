@@ -19,7 +19,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/justwasm/pigasus/internal/statusline"
+	"github.com/justwasm/pigasus/internal/ui/views/statusline"
 )
 
 // writeScript drops an executable script into a fresh directory.

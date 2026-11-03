@@ -27,7 +27,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/justwasm/pigasus/internal/interaction"
+	interaction "github.com/justwasm/pigasus/internal/core/seam"
 )
 
 // lsAskQuestionResponse is one answered question: the proto-JSON form
@@ -54,6 +54,36 @@ type lsPermissionAnswer struct {
 	Scope int  `json:"scope"`
 }
 
+// lsFilePermissionAnswer is the file permission verdict: the proto-JSON form of
+// exa.cortex_pb.FilePermissionInteraction.
+type lsFilePermissionAnswer struct {
+	Allow           bool   `json:"allow"`
+	Scope           int    `json:"scope"`
+	AbsolutePathURI string `json:"absolutePathUri"`
+}
+
+// lsApprovalAnswer is the approval confirmation: the proto-JSON form of
+// exa.cortex_pb.ApprovalInteraction.
+type lsApprovalAnswer struct {
+	Confirm bool `json:"confirm"`
+}
+
+// lsRunCommandAnswer is the run command answer: the proto-JSON form of
+// exa.cortex_pb.CascadeRunCommandInteraction.
+type lsRunCommandAnswer struct {
+	Confirm              bool   `json:"confirm"`
+	ProposedCommandLine  string `json:"proposedCommandLine"`
+	SubmittedCommandLine string `json:"submittedCommandLine"`
+	SandboxOverride      bool   `json:"sandboxOverride"`
+}
+
+// lsElicitationAnswer is the tool elicitation response: the proto-JSON form of
+// exa.cortex_pb.ElicitationInteraction.
+type lsElicitationAnswer struct {
+	Action      string `json:"action"`
+	ContentJSON string `json:"contentJson"`
+}
+
 // lsCascadeUserInteraction is the IDE's answer message: the proto-JSON
 // form of exa.cortex_pb.CascadeUserInteraction.
 //
@@ -61,13 +91,21 @@ type lsPermissionAnswer struct {
 // Interaction field is the shape the bundle builds in memory (the
 // oneof wrapped under its own name), and it is accepted as well.
 type lsCascadeUserInteraction struct {
-	TrajectoryID string              `json:"trajectoryId"`
-	StepIndex    int                 `json:"stepIndex"`
-	AskQuestion  *lsAskQuestionBlock `json:"askQuestion"`
-	Permission   *lsPermissionAnswer `json:"permission"`
-	Interaction  *struct {
-		AskQuestion *lsAskQuestionBlock `json:"askQuestion"`
-		Permission  *lsPermissionAnswer `json:"permission"`
+	TrajectoryID        string                  `json:"trajectoryId"`
+	StepIndex           int                     `json:"stepIndex"`
+	AskQuestion         *lsAskQuestionBlock     `json:"askQuestion"`
+	Permission          *lsPermissionAnswer     `json:"permission"`
+	FilePermission      *lsFilePermissionAnswer `json:"filePermission"`
+	ApprovalInteraction *lsApprovalAnswer       `json:"approvalInteraction"`
+	RunCommand          *lsRunCommandAnswer     `json:"runCommand"`
+	Elicitation         *lsElicitationAnswer    `json:"elicitation"`
+	Interaction         *struct {
+		AskQuestion         *lsAskQuestionBlock     `json:"askQuestion"`
+		Permission          *lsPermissionAnswer     `json:"permission"`
+		FilePermission      *lsFilePermissionAnswer `json:"filePermission"`
+		ApprovalInteraction *lsApprovalAnswer       `json:"approvalInteraction"`
+		RunCommand          *lsRunCommandAnswer     `json:"runCommand"`
+		Elicitation         *lsElicitationAnswer    `json:"elicitation"`
 	} `json:"interaction"`
 }
 
@@ -122,19 +160,45 @@ func lsDecodeCascadeUserInteraction(payload []byte) (lsCascadeUserInteraction, e
 	if !cue.hasInteraction() && cue.Interaction != nil {
 		cue.AskQuestion = cue.Interaction.AskQuestion
 		cue.Permission = cue.Interaction.Permission
+		cue.FilePermission = cue.Interaction.FilePermission
+		cue.ApprovalInteraction = cue.Interaction.ApprovalInteraction
+		cue.RunCommand = cue.Interaction.RunCommand
+		cue.Elicitation = cue.Interaction.Elicitation
 	}
 	return cue, nil
 }
 
 // hasInteraction reports whether the message carries an answer at all.
 func (c lsCascadeUserInteraction) hasInteraction() bool {
-	return c.AskQuestion != nil || c.Permission != nil
+	return c.AskQuestion != nil ||
+		c.Permission != nil ||
+		c.FilePermission != nil ||
+		c.ApprovalInteraction != nil ||
+		c.RunCommand != nil ||
+		c.Elicitation != nil
 }
 
 // answer turns the decoded message into the tool-facing answer.
 func (c lsCascadeUserInteraction) answer(req interaction.Request) interaction.Answer {
 	if c.Permission != nil {
 		return interaction.Answer{Allowed: c.Permission.Allow}
+	}
+	if c.FilePermission != nil {
+		return interaction.Answer{Allowed: c.FilePermission.Allow}
+	}
+	if c.ApprovalInteraction != nil {
+		return interaction.Answer{Allowed: c.ApprovalInteraction.Confirm}
+	}
+	if c.RunCommand != nil {
+		return interaction.Answer{
+			Allowed: c.RunCommand.Confirm,
+			Text:    c.RunCommand.SubmittedCommandLine,
+		}
+	}
+	if c.Elicitation != nil {
+		return interaction.Answer{
+			Text: c.Elicitation.ContentJSON,
+		}
 	}
 	if c.AskQuestion == nil {
 		return interaction.Answer{}

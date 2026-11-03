@@ -1,0 +1,60 @@
+=== idle ===
+[38;2;101;123;131m? for shortcuts[39m                                                                                                                                                                                             [38;2;101;123;131mGemini 3.8 Flash[39m
+=== narrow-terminal ===
+[38;2;101;123;131m? for shortcuts[39m                                                 [38;2;101;123;131mGemini 3.8 Flash[39m
+=== unknown-width ===
+[38;2;101;123;131m? for shortcuts[39m                                                                                                                                                                                             [38;2;101;123;131mGemini 3.8 Flash[39m
+=== streaming ===
+[38;2;101;123;131mesc to cancel[39m                                                                                                                                                                                               [38;2;101;123;131mGemini 3.8 Flash[39m
+=== bash-mode ===
+[38;2;101;123;131m activated bash mode · esc to cancel[39m                                                                                                                                                                        [38;2;101;123;131mGemini 3.8 Flash[39m
+=== queued-prompt ===
+[38;2;101;123;131m  Press up to edit queued messages[39m                                                                                                                                                                          [38;2;101;123;131mGemini 3.8 Flash[39m
+=== composer-not-empty ===
+                                                                                                                                                                                                            [38;2;101;123;131mGemini 3.8 Flash[39m
+=== exit-confirm ===
+[38;2;101;123;131mpress ctrl+c again to exit[39m                                                                                                                                                                                  [38;2;101;123;131mGemini 3.8 Flash[39m
+=== mode-auto ===
+[38;2;101;123;131m? for shortcuts[39m                                                                                                                                                                                      [38;2;203;75;22mauto[38;2;101;123;131m · [38;2;101;123;131mGemini 3.8 Flash[39m
+=== mode-plan ===
+[38;2;101;123;131m? for shortcuts[39m                                                                                                                                                                                      [38;2;38;139;210mplan[38;2;101;123;131m · [38;2;101;123;131mGemini 3.8 Flash[39m
+=== mode-accept-edits ===
+[38;2;101;123;131m? for shortcuts[39m                                                                                                                                                                              [38;2;133;153;0maccept-edits[38;2;101;123;131m · [38;2;101;123;131mGemini 3.8 Flash[39m
+=== mode-default ===
+[38;2;101;123;131m? for shortcuts[39m                                                                                                                                                                                             [38;2;101;123;131mGemini 3.8 Flash[39m
+=== agent ===
+[38;2;101;123;131m? for shortcuts[39m                                                                                                                                                                  [38;2;101;123;131mreviewer (Gemini 3.8 Flash · high)  /agents[39m
+=== agent-queue-mode ===
+[38;2;101;123;131m? for shortcuts[39m                                                                                                                                                     [38;2;101;123;131mreviewer (Gemini 3.8 Flash · high)  /agents · Queue mode[39m
+=== queue-mode ===
+[38;2;101;123;131m? for shortcuts[39m                                                                                                                                                                                             [38;2;101;123;131mGemini 3.8 Flash · Queue mode[39m
+=== running-task ===
+[38;2;101;123;131m? for shortcuts[39m                                                                                                                                                                                   [38;2;101;123;131mGemini 3.8 Flash · 2 tasks[39m
+=== panel-open ===
+                                                                                                                                                                                                            [38;2;101;123;131mGemini 3.8 Flash[39m
+=== panel-keeps-hint ===
+[38;2;101;123;131m? for shortcuts[39m                                                                                                                                                                                             [38;2;101;123;131mGemini 3.8 Flash[39m
+=== help-overlay ===
+                                                                                                                                                                                                            [38;2;101;123;131mGemini 3.8 Flash[39m
+=== picker ===
+[38;2;101;123;131mesc to cancel[39m                                                                                                                                                                                               [38;2;101;123;131mGemini 3.8 Flash[39m
+=== picker-model-mode ===
+                                                                                                                                                                                                            [38;2;101;123;131mGemini 3.8 Flash[39m
+=== compaction-running ===
+[38;2;101;123;131m⣾  Compacting context… (elapsed)[39m                                                                                                                                                                                [38;2;101;123;131mGemini 3.8 Flash[39m
+=== compaction-tokens ===
+[38;2;101;123;131m⣾  Compacting context…  184 K → 1.2 M (elapsed)[39m                                                                                                                                                                 [38;2;101;123;131mGemini 3.8 Flash[39m
+=== compaction-done ===
+[38;2;101;123;131mCompacted 184 K → 1.2 K (3s)[39m                                                                                                                                                                                [38;2;101;123;131mGemini 3.8 Flash[39m
+=== vim-badge ===
+[38;2;101;123;131m-- INSERT --[39m [38;2;101;123;131m? for shortcuts[39m                                                                                                                                                                                [38;2;101;123;131mGemini 3.8 Flash[39m
+=== vim-badge-buffer ===
+[38;2;101;123;131m-- INSERT --[39m                                                                                                                                                                                                [38;2;101;123;131mGemini 3.8 Flash[39m
+=== agent-state ===
+[38;2;101;123;131m? for shortcuts[39m                                                                                                                                                                                   [38;2;101;123;131mGemini 3.8 Flash · working[39m
+=== context-percent ===
+[38;2;101;123;131m? for shortcuts[39m                                                                                                                                                                                     [38;2;101;123;131mGemini 3.8 Flash · 12.3%[39m
+=== credits ===
+[38;2;101;123;131m? for shortcuts[39m                                                                                                                                                                            [38;2;101;123;131mGemini 3.8 Flash · AI Credits: 42[39m
+=== static ===
+[38;2;154;160;166m? for shortcuts[39m                                                                                                                                                                                      [38;2;154;160;166mGemini 3.8 Flash · high[39m

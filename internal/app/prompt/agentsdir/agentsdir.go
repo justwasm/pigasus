@@ -22,7 +22,6 @@
 package agentsdir
 
 import (
-	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -163,10 +162,6 @@ func FirstProjectLocal(cwd, homeDir string) (Entry, bool) {
 	}
 	return entries[0], true
 }
-
-// ErrEmptyCWD is returned by callers that validate the start directory;
-// it is exported so tests can pin the error message.
-var ErrEmptyCWD = errors.New("agentsdir: empty start directory")
 
 // defaultHome returns the user's home directory or an empty string when
 // it cannot be resolved.

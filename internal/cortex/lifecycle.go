@@ -3,7 +3,7 @@
 // `cascader.Run` from cascade_run_state / cascade_run_state),
 // reimplemented in Go terms.
 //
-// Background. The cycle 41 `internal/cascade/real_lifecycle.go`
+// Background. The cycle 41 `internal/core/lifecycle/real_lifecycle.go`
 // implements the 6-state cascader FSM (init -> ready -> execute ->
 // stream -> await_approval -> save -> done | error) and the
 // `SubagentAwaitsApproval` subagent gate. That is the **cascader
@@ -16,7 +16,7 @@
 //   - CortexLifecycleState — the 6-state machine that drives a
 //     CascadeManager from "constructed" to "saved & closed". It
 //     mirrors the 1.3.5 `cascader.Run` FSM (the same one
-//     `internal/cascade/real_lifecycle.go` exposes) and the v1.3.5
+//     `internal/core/lifecycle/real_lifecycle.go` exposes) and the v1.3.5
 //     `(*CascadeManager).Run` 0x7fd9ce0 + `Shutdown` 0x7fec1a0
 //     sequence. Names and ordering are 1:1 with v1.3.5 binary.
 //   - CortexLifecycle — the controller that drives a CascadeManager
@@ -32,7 +32,7 @@
 // cascader FSM (init -> ready -> execute -> stream -> save -> done)
 // plus the cortex-specific `await_approval` (when a subagent is
 // blocked). Any change here must also be made in
-// internal/cascade/real_lifecycle.go and vice versa.
+// internal/core/lifecycle/real_lifecycle.go and vice versa.
 package cortex
 
 import (
@@ -42,7 +42,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/justwasm/pigasus/internal/cascade"
+	cascade "github.com/justwasm/pigasus/internal/core/lifecycle"
 )
 
 // CortexLifecycleState is the recovered cortex FSM state. Names are
@@ -297,9 +297,8 @@ func (cl *CortexLifecycle) Close(ctx context.Context) error {
 // cycle 41 callers (e.g. cmd/wagyu) can drive the cortex via
 // the same interface they use for the cascader.
 //
-// Returns a function that the caller can pass to
-// `cascade.NewRealLifecycle(...).WithState(...)` indirectly by
-// using `cascade.RealLifecycle.State`.
+// Returns the caller's own `cascade.RealLifecycle`, whose `State` field
+// the caller sets directly.
 //
 // Implementation: cycle 41's cascade.RealLifecycle owns its own
 // State (FSM + approval queue). cortex.CortexLifecycle owns its
@@ -313,10 +312,10 @@ func (cl *CortexLifecycle) Close(ctx context.Context) error {
 // drives cascade.RealLifecycle; the cycle 42 TUI path will drive
 // cortex.CortexLifecycle.
 func WithCascade(cl *CortexLifecycle, rl *cascade.RealLifecycle) *cascade.RealLifecycle {
-	// Cycle 41 callers (e.g. internal/cascade/real_lifecycle_test.go)
+	// Cycle 41 callers (e.g. internal/core/lifecycle/real_lifecycle_test.go)
 	// expect the cascade.RealLifecycle to be the primary driver.
-	// We attach cl to rl's State via the existing WithState helper
-	// (cycle 41) but ALSO keep cl around so the caller can poll it.
+	// The caller attaches cl to rl's State (cycle 41) but ALSO keeps cl
+	// around so the caller can poll it.
 	//
 	// For cycle 42, we just return the same rl — the cortex FSM is
 	// a *parallel* observer, not a replacement. Callers that want

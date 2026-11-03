@@ -224,9 +224,15 @@ func (s *TCPServer) serveConnectServerStream(wc *wsConn, reqCtx context.Context,
 		return false
 	}
 	if err != nil {
-		s.sendConnectEnd(wc, reqCtx, cf.StreamID, 13, map[string]any{
-			"code":    "internal",
-			"message": err.Error(),
+		status := grpcStatusInternal
+		code := connectInternal
+		if mapped, ok := connectErrorFor(err); ok {
+			status = mapped.grpc
+			code = mapped.name
+		}
+		s.sendConnectEnd(wc, reqCtx, cf.StreamID, status, map[string]any{
+			"code":    code,
+			"message": grpcWebErrorMessage(err),
 		})
 		return true
 	}

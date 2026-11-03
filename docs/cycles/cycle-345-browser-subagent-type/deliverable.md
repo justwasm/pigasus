@@ -64,7 +64,7 @@ The reference's built-in agents package carries a browser agent:
 `agents.ImageGeneratorAgent`, `agents.SelfAgent`,
 `agents.defaultBuiltinSubagentNames` and
 `agents.CalculateAllowedSubagents`
-(out/seeds/funcs.txt — 【反编译】, the symbol table).
+(out/local-macos/seeds/funcs.txt — 【反编译】, the symbol table).
 
 The names themselves sit in one string blob of the 1.4.7 binary
 (out/local-macos/xref/strings-addrs.tsv, the blob at `0x10336a5b1`):

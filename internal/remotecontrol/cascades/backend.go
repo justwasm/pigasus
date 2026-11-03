@@ -1,0 +1,338 @@
+// Package cascades — backend.go: the seam between the
+// dispatcher's cascade surface and the model backend that
+// actually runs a turn.
+package cascades
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"time"
+)
+
+// Backend is the seam the cascade sends a turn through.
+//
+// The cycle-rc-cascade-start cascade value is metadata only;
+// this interface is the one a real PiG session (or any other
+// turn runner) satisfies. The cycle ships StubBackend as the
+// default so tests and the print-mode daemon can register a
+// cascade, call registry.Send, and exercise the dispatcher's
+// error mapping without any model client on the wire.
+//
+// The Send contract:
+//
+//   - ctx may carry a deadline. The implementation MUST honour
+//     it (cancel any goroutine it owns and return promptly).
+//   - The returned Result.NewConversationID, when
+//     non-empty, becomes the cascade's new ConversationID
+//     (the "first turn ran" anchor; rc-list-conversations
+//     reads this).
+//   - The returned error falls into one of three buckets:
+//   - a context.DeadlineExceeded (or a wrapped one) so the
+//     registry can map it to -32010 Turn timeout;
+//   - any other error, which the registry wraps in
+//     ErrTurnFailed and surfaces as -32603;
+//   - nil, which the registry treats as success.
+type Backend interface {
+	Send(ctx context.Context, prompt Prompt) (Result, error)
+}
+
+// HistoryTurn is one earlier turn of the conversation, in the
+// neutral shape the backends replay.
+//
+// The shape is deliberately the clone's own: the backends do not
+// import the conversation store, and the store's ChatTurn is the same
+// two fields.
+type HistoryTurn struct {
+	// Role is "user" or "assistant" (case-insensitive). Anything
+	// else is replayed as a user turn.
+	Role string
+	// Text is the turn's plain text.
+	Text string
+}
+
+// Prompt is one user message turned into a backend turn.
+// Fields are the resolved set (per-turn overrides applied
+// already), so a backend implementing this interface does not
+// need to know about a Cascade — it just sees the prompt it
+// should run. BackendLabel is the resolved backend identifier
+// ("gateway" | "cloudcode" | "shim") so a future multi-backend router can pick
+// without rereading the cascade value.
+type Prompt struct {
+	// ConversationID is the cascade's current conversation id.
+	// May be empty on the first turn (the registry will fill it
+	// in from the result).
+	ConversationID string
+	// Text is the dashboard-supplied user message.
+	Text string
+	// Images are the pictures the user attached to this turn's
+	// message. They are the message's own content: a backend that
+	// can carry them sends them with the text, and one that cannot
+	// answers a text-only turn.
+	Images []Image
+	// History is the conversation's earlier turns, oldest first.
+	//
+	// A turn that runs on a fresh session has to be told what came
+	// before it: the Web UI's composer sends one message at a time,
+	// and the message before it is not in the prompt. A backend that
+	// owns a session log replays these ahead of the new prompt; one
+	// that does not ignore them.
+	//
+	// Empty on the first turn of a conversation: there is nothing
+	// before it.
+	History []HistoryTurn
+	// Model is the resolved model label.
+	Model string
+	// Agent is the resolved agent name.
+	Agent string
+	// Effort is "low|medium|high|xhigh|max" or empty.
+	Effort string
+	// Scaffold mirrors --scaffold.
+	Scaffold bool
+	// SessionMode is opaque passthrough.
+	SessionMode string
+	// BackendLabel is "gateway" / "cloudcode" / "shim" / "" — see
+	// Cascade.BackendLabel.
+	BackendLabel string
+}
+
+// Result is one turn's outcome. NewConversationID may
+// equal Prompt.ConversationID when the backend reuses
+// the existing conversation (the common case for follow-up
+// turns). It is set on the cascade verbatim when non-empty.
+type Result struct {
+	// Reply is the assistant's final text. Empty if the
+	// backend returned no textual response (e.g. the model
+	// hit a tool_use loop and surfaced a structured result).
+	Reply string
+	// ToolCalls is the list of tool invocations the
+	// assistant produced during the turn. May be empty.
+	// The Cycle rc-cascade-stream (next) will stream these
+	// via Dispatcher.Notify as the model emits them; the
+	// rc-cascade-message cycle serialises them in the
+	// result envelope as a faithful snapshot at end-of-turn.
+	ToolCalls []ToolCall
+	// StopReason is "end_turn" | "tool_use" | "max_tokens"
+	// | "error" — see the StopReason* constants.
+	StopReason string
+	// NewConversationID becomes the cascade's ConversationID
+	// after a successful turn (when non-empty). May equal
+	// Prompt.ConversationID (the backend reused the
+	// existing conversation) or be a fresh id (first turn).
+	NewConversationID string
+}
+
+// ToolCall is one tool invocation the model produced. Args is
+// left as json.RawMessage so the dispatcher can round-trip the
+// raw JSON object the model emitted (OpenAI-shape arguments
+// arrive as a JSON object, not a Go struct). OK=false flags a
+// tool that returned an error so the dispatcher can render it
+// differently in the dashboard UI.
+type ToolCall struct {
+	Name   string
+	Args   []byte // JSON-encoded argument object (or null)
+	Result string
+	OK     bool
+}
+
+// SendOptions is the per-call knob. Timeout, when > 0,
+// is applied as a context.WithTimeout around the backend Send.
+// A zero Timeout means the call inherits the caller's ctx as
+// is.
+type SendOptions struct {
+	// Timeout bounds the backend Send call. Zero means no
+	// extra timeout (the dispatcher's ctx is the only
+	// budget).
+	Timeout time.Duration
+}
+
+// StopReason constants — the assistant's high-level stop reason
+// the dispatcher's ResultEnvelope surfaces as `stopReason`.
+// Cycle rc-cascade-stream will reuse these when emitting
+// mid-turn notifications; the canonical mapping lives here so
+// the dispatcher and the backend agree on the same vocabulary.
+const (
+	StopReasonEndTurn   = "end_turn"
+	StopReasonToolUse   = "tool_use"
+	StopReasonMaxTokens = "max_tokens"
+	StopReasonError     = "error"
+)
+
+// ErrClosed is returned by registry.Send when the
+// cascade has been closed out-of-band (future
+// rc-cancel-cascade cycle wires an RPC for this; for now the
+// cascade's MarkClosed is the only path to it). The
+// dispatcher surfaces it as JSON-RPC -32005 "Cascade closed".
+var ErrClosed = errors.New("remotecontrol: cascade closed")
+
+// ErrTurnTimeout is returned by registry.Send when the
+// configured timeout (passed via SendOptions) elapses
+// before the backend Send returns. The dispatcher surfaces it
+// as JSON-RPC -32010 "Turn timeout".
+var ErrTurnTimeout = errors.New("remotecontrol: turn timeout")
+
+// ErrTurnFailed is the generic catch-all registry.Send wraps
+// any non-timeout backend error in. The dispatcher surfaces
+// it as JSON-RPC -32603 "Internal error" (with the wrapped
+// message preserved in `data`).
+var ErrTurnFailed = errors.New("remotecontrol: turn failed")
+
+// ErrInteractionTimeout is returned by StubBackend
+// (and any future real backend) when the
+// HandleRemoteAgentCascadeUserInteraction RPC never arrives
+// for an emitted user-interaction prompt. The cycle
+// brief: "the stub backend pauses for up to 200 ms waiting
+// for the intr.ResultCh; if no response arrives, the stub
+// errors with ErrInteractionTimeout". A real PiG-
+// backed backend in rc-piagent-bind would also use this
+// sentinel so the dispatcher's switch can map it to a
+// distinct error envelope (rather than the generic
+// ErrTurnFailed → -32603).
+//
+// Today no dispatcher handler maps this sentinel to a
+// distinct JSON-RPC code; the stub returns it as a
+// turn-failed error which the dispatcher surfaces as
+// -32603 with the inner message preserved. The cycle
+// reserves the sentinel so future cycles can add a custom
+// code without renaming.
+var ErrInteractionTimeout = errors.New("remotecontrol: cascade interaction timeout")
+
+// ErrTurnCancelled is returned by
+// (*Registry).SendStream when the cascade's
+// per-turn context was cancelled (c.Cascade.Cancel fired).
+// The dispatcher surfaces it as JSON-RPC -32603 with the
+// inner message preserved (the cancel handler already
+// emitted a cascade/state{phase:cancelled} notification
+// before this error arrives, so the dashboard's UI sees
+// the cancel signal twice — once as a notification, once
+// as the SendMessage error — which is the contract the
+// rc-cancel-cascade brief pins).
+//
+// ErrTurnCancelled is only returned when the cascade was
+// cancelled via (*Cascade).Cancel — a plain
+// context.Canceled that landed via the dispatcher's ctx
+// (e.g. the ws connection closed) still surfaces as the
+// generic ErrTurnFailed → -32603 so dashboards can
+// distinguish "user wanted to stop" from "connection
+// died".
+//
+// Cycle rc-cancel-cascade adds this sentinel. Reserved
+// here (in backend.go alongside the other sentinels)
+// rather than in cascade.go so the dispatcher's switch
+// keeps a single import for the error vocabulary.
+var ErrTurnCancelled = errors.New("remotecontrol: turn cancelled")
+
+// The custom JSON-RPC error codes (-32004 "Cascade not
+// found", -32005 "Cascade closed", -32006 "Interaction not
+// found", -32010 "Turn timeout") live in the sibling package
+// rpc: the code table is the envelope's fact, and a domain
+// that reported "Cascade not found" under a private number
+// would break every dashboard's error filter.
+
+// StubBackend is the default backend installed on a fresh
+// Cascade. It returns a fixed Result (Reply +
+// ToolCalls + StopReason + NewConversationID) when Err is nil
+// and Sleep is zero. Tests configure it to mimic the surface
+// they need:
+//
+//   - happy path: set Reply/StopReason/NewConversationID
+//     and leave Err/Sleep at zero;
+//   - error path: set Err and the test asserts the
+//     dispatcher's -32603 envelope;
+//   - timeout path: set Sleep > configured timeout; the stub
+//     blocks on the context and Send returns ctx.Err(); the
+//     registry maps it to -32010.
+//   - user-interaction path: set Interactions + (optionally)
+//     Answers; SendStream walks each configured interaction
+//     in order, calling sink.OnUserInteraction with a fresh
+//     PendingInteraction, then parks on the interaction's
+//     ResultCh for up to InteractionWait (200ms default).
+//     If no answer arrives, SendStream returns
+//     ErrInteractionTimeout (TestUserInteraction_TimeoutInBackend
+//     pins this). If Answers[id] is pre-populated, the stub
+//     consumes that answer verbatim (TestHandle…UserInteraction_Ok
+//     pins this).
+//
+// A nil *StubBackend is a usable backend (Send returns the
+// zero Result with no error); the cycle's tests use
+// the explicit form for readability.
+type StubBackend struct {
+	// Reply is the assistant's final text.
+	Reply string
+	// ConversationID is the conversation id the
+	// Result carries back. Empty means
+	// "leave the cascade's ConversationID untouched"
+	// (the registry's contract: only update when
+	// non-empty).
+	ConversationID string
+	// ToolCalls is the slice of tool invocations the
+	// Result carries back.
+	ToolCalls []ToolCall
+	// StopReason is the StopReason* constant the
+	// Result carries back. Defaults to
+	// StopReasonEndTurn when empty AND Err is nil.
+	StopReason string
+	// Err, when non-nil, is what Send returns verbatim.
+	// Takes precedence over the reply-shaped fields.
+	Err error
+	// Sleep, when > 0, makes Send wait that long before
+	// returning. Honours ctx — used by the timeout test.
+	Sleep time.Duration
+
+	// Interactions is the cycle-6 user-interaction prompt
+	// sequence the stub drives. Each entry yields one
+	// sink.OnUserInteraction call followed by a ResultCh
+	// receive. Order is preserved (the stub walks the slice
+	// left-to-right so a test can drive a multi-prompt
+	// scenario in a deterministic order).
+	//
+	// An interaction's ID is minted by the stub from
+	// "int_<6 bytes hex>" — matching mintInteractionID's
+	// output — so the cascade's Pending().Get(intr.ID) call
+	// in the dispatcher's handler resolves the same entry.
+	//
+	// The cycle brief says the stub pauses "for up to
+	// InteractionWait" (default 200 ms) per interaction. A
+	// test that pre-populates Answers[id] makes the
+	// receive fire immediately; a test that leaves
+	// Answers empty drives the timeout path.
+	Interactions []InteractionConfig
+
+	// Answers is the test-side input: the stub's ResultCh
+	// receive completes against Answers[interactionID]
+	// (raw JSON), or against the zero InteractionResult
+	// (an empty Response) when the id is absent. Tests that
+	// pre-populate this map and call SendStream on a
+	// goroutine get the cycle-6 happy-path behaviour
+	// without needing the dispatcher's RPC handler to be
+	// involved at all (TestHandle…UserInteraction_Ok uses
+	// this shape).
+	Answers map[string]json.RawMessage
+
+	// InteractionWait bounds the per-interaction park on
+	// ResultCh. Zero falls back to 200ms per the cycle brief.
+	// The dispatcher's handler is not affected (its send on
+	// the channel is what actually unblocks the stub; this
+	// timeout is the "the dashboard never answered" path).
+	InteractionWait time.Duration
+}
+
+// InteractionConfig is one configured user-interaction
+// prompt in the StubBackend.Interactions slice. The stub
+// mints a fresh PendingInteraction at SendStream time
+// (filling ID via mintInteractionID + CreatedAt via
+// time.Now()) and emits it through the sink.
+//
+// Options, ExpiresAt, and Dangerous are optional — zero
+// values produce a notification with no options /
+// expires_at / dangerous fields. Kind / Title / Prompt are
+// required (a test that wants an empty prompt just sets
+// Prompt = ""; the brief doesn't require any field).
+type InteractionConfig struct {
+	Kind      string
+	Title     string
+	Prompt    string
+	Options   []InteractionOption
+	Dangerous bool
+	ExpiresAt time.Time
+}

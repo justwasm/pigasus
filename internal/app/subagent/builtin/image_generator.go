@@ -120,7 +120,7 @@ type Result struct {
 //
 // The same Registry can be shared across a TUI session and a print
 // path (cycle 228's "the same Manager instance is shared by the TUI
-// run mode and the print path" pattern from internal/subagentrouter);
+// run mode and the print path" pattern from internal/app/subagent/router);
 // Register/Invoke are safe for concurrent use.
 type Registry struct {
 	mu      sync.RWMutex

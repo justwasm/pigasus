@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/justwasm/pigasus/internal/auth"
+	"github.com/justwasm/pigasus/internal/features/auth"
 )
 
 // quotaTestSnapshot is the shape the registry holds: one group, the

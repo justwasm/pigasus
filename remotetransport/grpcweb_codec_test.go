@@ -4,7 +4,6 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"net/http"
-	"net/http/httptest"
 	"testing"
 )
 
@@ -115,27 +114,25 @@ func TestTCPServer_GRPCWebUnaryFailureCarriesTheStatusInTheHeaders(t *testing.T)
 // bundle's gRPC-Web reader ends with "missing trailer" when the
 // trailers envelope is absent.
 func TestEndStreamWritesTheProtocolsOwnClosingFrame(t *testing.T) {
-	rec := httptest.NewRecorder()
-	endStream(rec, rec, dialectGRPCWebJSON, grpcWebStatusOK, "")
-	envelopes := parseConnectEnvelopes(t, rec.Body.Bytes())
-	if len(envelopes) != 1 {
-		t.Fatalf("got %d envelopes, want 1", len(envelopes))
-	}
-	if envelopes[0].flags != grpcWebFlagTrailers {
-		t.Errorf("the gRPC-Web closing frame's flags = %#x, want %#x", envelopes[0].flags, grpcWebFlagTrailers)
-	}
-	if string(envelopes[0].payload) != "grpc-status: 0\r\n" {
-		t.Errorf("the gRPC-Web trailers = %q, want the reference's header block", envelopes[0].payload)
-	}
-
-	rec = httptest.NewRecorder()
-	endStream(rec, rec, dialectJSON, grpcWebStatusOK, "")
-	envelopes = parseConnectEnvelopes(t, rec.Body.Bytes())
-	if len(envelopes) != 1 {
-		t.Fatalf("got %d envelopes, want 1", len(envelopes))
-	}
-	if envelopes[0].flags != ConnectFlagEndStream {
-		t.Errorf("the Connect closing frame's flags = %#x, want %#x", envelopes[0].flags, ConnectFlagEndStream)
+	srv, cleanup := newTestRPCServer(t)
+	defer cleanup()
+	for _, ct := range []string{contentTypeGRPCWebJSON, contentTypeConnectJSON} {
+		t.Run(ct, func(t *testing.T) {
+			resp := postRPC(t, srv, "/exa.language_server_pb.LanguageServerService/GetStatus", ct, grpcWebEnvelope([]byte(`{}`)))
+			defer resp.Body.Close()
+			frames := parseConnectEnvelopes(t, readAll(t, resp))
+			if len(frames) != 2 {
+				t.Fatalf("got %d frames, want message and end", len(frames))
+			}
+			end := frames[1]
+			if ct == contentTypeGRPCWebJSON {
+				if end.flags != grpcWebFlagTrailers || string(end.payload) != "grpc-status: 0\r\n" {
+					t.Fatalf("trailers: %#v", end)
+				}
+			} else if end.flags != ConnectFlagEndStream {
+				t.Fatalf("closing flags: %x", end.flags)
+			}
+		})
 	}
 }
 

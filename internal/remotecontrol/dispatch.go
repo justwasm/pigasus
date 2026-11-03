@@ -62,6 +62,16 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/justwasm/pigasus/internal/remotecontrol/cascades"
+	"github.com/justwasm/pigasus/internal/remotecontrol/convconfig"
+	"github.com/justwasm/pigasus/internal/remotecontrol/fastpush"
+	"github.com/justwasm/pigasus/internal/remotecontrol/origins"
+	"github.com/justwasm/pigasus/internal/remotecontrol/permissions"
+	"github.com/justwasm/pigasus/internal/remotecontrol/plugins"
+	"github.com/justwasm/pigasus/internal/remotecontrol/resources"
+	"github.com/justwasm/pigasus/internal/remotecontrol/rpc"
+	"github.com/justwasm/pigasus/internal/remotecontrol/terminals"
+	"github.com/justwasm/pigasus/internal/remotecontrol/triggers"
 	"github.com/justwasm/pigasus/originpolicy"
 )
 
@@ -99,7 +109,7 @@ type Dispatcher struct {
 	// holds needs the same dispatcher's tool / status / reader
 	// surface; the brief's "registry lives per-Daemon" rule means
 	// cycles reset cascades across restarts.
-	cascades *CascadeRegistry
+	cascades *cascades.Registry
 
 	// trajectories holds one trajectory per conversation the
 	// Antigravity Web UI has open. The Web UI renders a
@@ -177,16 +187,16 @@ type Dispatcher struct {
 // nil checks) so callers don't have to repeat them per transport.
 //
 // Cycle rc-cascade-start adds the Cascades default: a fresh
-// CascadeRegistry with CascadeRegistryDefaultMax capacity. Host
+// cascades.Registry with cascades.RegistryDefaultMax capacity. Host
 // wiring that wants a different cap can pass a pre-built
 // registry via Config.Cascades — useful for tests that need to
 // exercise the over-cap path without spinning 256 cascades.
 //
 // Cycle rc-permissions-grants adds the Permissions default
-// pointer: a fresh MemPermissionStore seeded with
-// DefaultPermissionPreset + DefaultArtifactReviewMode + empty
+// pointer: a fresh permissions.MemStore seeded with
+// permissions.DefaultPreset + permissions.DefaultReviewMode + empty
 // grants. Production wiring always replaces this with an
-// FSPermissionStore rooted at $ANTIGRAVITY_HOME/permissions.json
+// permissions.FSStore rooted at $ANTIGRAVITY_HOME/permissions.json
 // via cmd/wagyu/remote_control.go's buildHostPermissionStore.
 func NewDispatcher(cfg Config) (*Dispatcher, error) {
 	if cfg.Session == nil {
@@ -223,7 +233,7 @@ func fabricateCoreDispatchFields(cfg *Config) {
 		cfg.Reader = DefaultOutputReader{}
 	}
 	if cfg.Cascades == nil {
-		cfg.Cascades = NewCascadeRegistry(CascadeRegistryDefaultMax)
+		cfg.Cascades = cascades.NewRegistry(cascades.RegistryDefaultMax)
 	}
 	// Cycle rc-deep-link: fresh deep-link state holder
 	// when the host didn't install one.
@@ -238,28 +248,28 @@ func fabricateCoreDispatchFields(cfg *Config) {
 // can call them all in one place.
 func fabricateStoreSeams(cfg *Config) {
 	if cfg.PermissionsStore == nil {
-		cfg.PermissionsStore = NewMemPermissionStore(nil)
+		cfg.PermissionsStore = permissions.NewMemStore(nil)
 	}
 	if cfg.PluginsStore == nil {
-		cfg.PluginsStore = NewMemPluginStore(nil)
+		cfg.PluginsStore = plugins.NewMemStore(nil)
 	}
 	if cfg.TriggersStore == nil {
-		cfg.TriggersStore = NewMemTriggerStore(nil)
+		cfg.TriggersStore = triggers.NewMemStore(nil)
 	}
 	if cfg.FastpushStore == nil {
-		cfg.FastpushStore = NewMemFastpushStore(nil, nil)
+		cfg.FastpushStore = fastpush.NewMemStore(nil, nil)
 	}
 	if cfg.ResourceStore == nil {
-		cfg.ResourceStore = NewMemResourceStore(nil, nil)
+		cfg.ResourceStore = resources.NewMemStore(nil, nil)
 	}
 	if cfg.ConversationConfigStore == nil {
-		cfg.ConversationConfigStore = NewMemConversationConfigStore(nil)
+		cfg.ConversationConfigStore = convconfig.NewMemStore(nil)
 	}
 	if cfg.TerminalsRegistry == nil {
-		cfg.TerminalsRegistry = NewTerminalsRegistry()
+		cfg.TerminalsRegistry = terminals.NewRegistry()
 	}
 	if cfg.OriginPolicyStore == nil {
-		cfg.OriginPolicyStore = NewMemOriginPolicyStore(nil)
+		cfg.OriginPolicyStore = origins.NewMemStore(nil)
 	}
 }
 
@@ -293,7 +303,7 @@ func (d *Dispatcher) SetOriginPolicySetter(setter func(originpolicy.OriginPolicy
 // the cascade (without spinning a model turn). Future cycle
 // rc-status-tool will surface the registry's Len() through the
 // status tool's "live cascades" counter.
-func (d *Dispatcher) Cascades() *CascadeRegistry {
+func (d *Dispatcher) Cascades() *cascades.Registry {
 	if d == nil {
 		return nil
 	}
@@ -379,13 +389,13 @@ func (d *Dispatcher) Dispatch(ctx context.Context, raw []byte) map[string]any {
 		Params  json.RawMessage `json:"params,omitempty"`
 	}
 	if err := json.Unmarshal(raw, &req); err != nil {
-		return rpcError(nil, -32700, "Parse error", err.Error())
+		return rpc.Error(nil, -32700, "Parse error", err.Error())
 	}
 	if req.JSONRPC != "" && req.JSONRPC != "2.0" {
-		return rpcError(req.ID, -32600, "Invalid Request", "jsonrpc must be \"2.0\"")
+		return rpc.Error(req.ID, -32600, "Invalid Request", "jsonrpc must be \"2.0\"")
 	}
 	if req.Method == "" {
-		return rpcError(req.ID, -32600, "Invalid Request", "method is required")
+		return rpc.Error(req.ID, -32600, "Invalid Request", "method is required")
 	}
 	isNotification := len(req.ID) == 0
 	result, rpcErr := d.routeMethod(ctx, req.Method, req.Params)
@@ -397,16 +407,16 @@ func (d *Dispatcher) Dispatch(ctx context.Context, raw []byte) map[string]any {
 		return nil
 	}
 	if rpcErr != nil {
-		return rpcError(req.ID, rpcErr.Code, rpcErr.Message, rpcErr.Data)
+		return rpc.Error(req.ID, rpcErr.Code, rpcErr.Message, rpcErr.Data)
 	}
-	return rpcResult(req.ID, result)
+	return rpc.Result(req.ID, result)
 }
 
 // routeMethod dispatches one JSON-RPC method name to its
 // handler. The per-family routing tables live in
 // dispatch_route.go; this function is a thin fan-out so the
 // hot-path stays small.
-func (d *Dispatcher) routeMethod(ctx context.Context, method string, params json.RawMessage) (any, *rpcErrorBody) {
+func (d *Dispatcher) routeMethod(ctx context.Context, method string, params json.RawMessage) (any, *rpc.ErrorBody) {
 	// The quota route is checked before the LanguageServerService
 	// table: RetrieveUserQuotaSummary is a LanguageServerService
 	// method, but it has its own file (dispatch_quota.go) because its
@@ -437,7 +447,7 @@ func (d *Dispatcher) routeMethod(ctx context.Context, method string, params json
 	// accepted as aliases for the clone's legacy JSON-RPC names; see
 	// reference_surface.go.
 	method = canonicalMethod(method)
-	routers := []func(context.Context, string, json.RawMessage) (any, *rpcErrorBody, bool){
+	routers := []func(context.Context, string, json.RawMessage) (any, *rpc.ErrorBody, bool){
 		d.routeMCPTools,
 		d.routeCascadeLifecycle,
 		d.routeReadOnlyLists,
@@ -460,7 +470,7 @@ func (d *Dispatcher) routeMethod(ctx context.Context, method string, params json
 			return result, rpcErr
 		}
 	}
-	return nil, &rpcErrorBody{Code: -32601, Message: "Method not found", Data: method}
+	return nil, &rpc.ErrorBody{Code: -32601, Message: "Method not found", Data: method}
 }
 
 // DispatchDirect dispatches an RPC method directly with a JSON payload string
@@ -471,7 +481,7 @@ func (d *Dispatcher) DispatchDirect(ctx context.Context, method string, payloadT
 	}
 	result, rpcErr := d.routeMethod(ctx, method, json.RawMessage(payloadText))
 	if rpcErr != nil {
-		return "", &rpcCodedError{Code: rpcErr.Code, Message: rpcErr.Message, Data: rpcErr.Data}
+		return "", &rpc.CodedError{Code: rpcErr.Code, Message: rpcErr.Message, Data: rpcErr.Data, Status: rpcErr.Status}
 	}
 	if result == nil {
 		return "{}", nil

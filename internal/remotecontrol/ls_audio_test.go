@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/justwasm/pigasus/internal/rcaudio"
+	"github.com/justwasm/pigasus/internal/remotecontrol/rpc"
 )
 
 // newAudioDispatcher builds a dispatcher whose Web UI's voice surface
@@ -128,7 +129,7 @@ func TestAnUnknownSessionAnswersNotFound(t *testing.T) {
 		if err == nil {
 			t.Fatalf("%s answered, want a not-found", method)
 		}
-		var coded *rpcCodedError
+		var coded *rpc.CodedError
 		if !errors.As(err, &coded) {
 			t.Fatalf("the error is %T, want a coded error", err)
 		}

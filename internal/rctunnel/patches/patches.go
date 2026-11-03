@@ -10,8 +10,6 @@ package patches
 
 import (
 	"bytes"
-	"crypto/sha256"
-	"encoding/hex"
 	"regexp"
 	"strings"
 )
@@ -51,8 +49,6 @@ type Options struct {
 	MobileUX bool
 	// WorkspaceRoot, when set, becomes the folder picker's starting directory.
 	WorkspaceRoot string
-	// CacheKey busts cached bundles when the applied patch set changes.
-	CacheKey string
 	// Disabled turns off individual patches by ID, for narrowing down which one is
 	// responsible when the UI misbehaves.
 	Disabled map[string]bool
@@ -154,28 +150,6 @@ type Result struct {
 // Report is the set of results from one Apply call.
 type Report []Result
 
-// MissingRequired returns the essential patches whose anchors were not found.
-func (r Report) MissingRequired() []Result {
-	var out []Result
-	for _, res := range r {
-		if res.Status == StatusMissing && res.Required {
-			out = append(out, res)
-		}
-	}
-	return out
-}
-
-// Missing returns every patch whose anchor was not found.
-func (r Report) Missing() []Result {
-	var out []Result
-	for _, res := range r {
-		if res.Status == StatusMissing {
-			out = append(out, res)
-		}
-	}
-	return out
-}
-
 // Apply rewrites body with every enabled patch for target and reports the
 // outcome of each. A patch whose anchor is missing is skipped rather than fatal,
 // so one stale anchor never takes the whole proxy down.
@@ -253,34 +227,6 @@ func submatches(body []byte, loc []int) [][]byte {
 		}
 	}
 	return out
-}
-
-// CacheKey derives a short, stable fingerprint of the applied patch set. It is
-// appended to the /main.js URL so the bundle URL changes the moment the patches
-// or version change. It does not cover language server updates; the proxy's
-// ETag revalidation is what keeps browsers from running a stale bundle.
-func CacheKey(version string, opts Options) string {
-	h := sha256.New()
-	if version != "" {
-		h.Write([]byte(version))
-	} else {
-		h.Write([]byte("v0.2.1-fix"))
-	}
-	h.Write([]byte{0})
-	h.Write([]byte(opts.WorkspaceRoot))
-	h.Write([]byte{0})
-
-	for _, p := range All() {
-		if !p.enabled(opts) {
-			continue
-		}
-		h.Write([]byte(p.ID))
-		h.Write([]byte{0})
-		h.Write([]byte(p.replacement(opts)))
-		h.Write([]byte{0})
-	}
-
-	return hex.EncodeToString(h.Sum(nil))[:12]
 }
 
 func injectHead(body []byte, payload string) []byte {

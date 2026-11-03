@@ -12,7 +12,7 @@
 //
 // # The configuration file
 //
-// ~/.config/openagy/config.json may override any endpoint by name:
+// ~/.openagy/config.json may override any endpoint by name:
 //
 //	{
 //	  "endpoints": {
@@ -118,6 +118,14 @@ const (
 
 	// AutoUpdater is the Cloud Run auto-updater service host.
 	AutoUpdater = "auto_updater"
+
+	// PollSignaling is the cloud RPC that polls for WebRTC mesh signaling messages.
+	// It lives on the tunnel's own host unless the configuration file overrides it.
+	PollSignaling = "poll_signaling"
+
+	// SendSignaling is the cloud RPC that posts a WebRTC mesh signaling message.
+	// It lives on the tunnel's own host unless the configuration file overrides it.
+	SendSignaling = "send_signaling"
 )
 
 // The compiled-in defaults. They are what the clone used before the
@@ -140,6 +148,8 @@ const (
 	DefaultPrivacy            = "https://policies.google.com/privacy"
 	DefaultMarketplace        = "https://marketplace.antigravity.com/skills?q="
 	DefaultAutoUpdater        = "https://antigravity-cli-auto-updater-974169037036.us-central1.run.app"
+	DefaultPollSignaling      = "https://jetski-webchannel.googleapis.com/v1internal:pollSignalingMessages"
+	DefaultSendSignaling      = "https://jetski-webchannel.googleapis.com/v1internal:sendSignalingMessage"
 )
 
 // DefaultOriginPatterns is the browser Origin allowlist the remote-control
@@ -186,6 +196,8 @@ func Names() []Name {
 		{Privacy, DefaultPrivacy},
 		{Marketplace, DefaultMarketplace},
 		{AutoUpdater, DefaultAutoUpdater},
+		{PollSignaling, DefaultPollSignaling},
+		{SendSignaling, DefaultSendSignaling},
 	}
 }
 
@@ -232,6 +244,14 @@ type Set struct {
 	Marketplace string
 	// AutoUpdater is the auto-updater service host.
 	AutoUpdater string
+	// PollSignaling is the endpoint mesh signaling messages are polled from.
+	// It is derived from the WebChannel endpoint unless the configuration
+	// file names one; see PollSignalingURL.
+	PollSignaling string
+	// SendSignaling is the endpoint mesh signaling messages are sent to.
+	// It is derived from the WebChannel endpoint unless the configuration
+	// file names one; see SendSignalingURL.
+	SendSignaling string
 }
 
 // Current returns the resolved endpoint set.
@@ -258,6 +278,8 @@ func Current() Set {
 		Privacy:            pick(o, Privacy, DefaultPrivacy),
 		Marketplace:        pick(o, Marketplace, DefaultMarketplace),
 		AutoUpdater:        pick(o, AutoUpdater, DefaultAutoUpdater),
+		PollSignaling:      pick(o, PollSignaling, ""),
+		SendSignaling:      pick(o, SendSignaling, ""),
 	}
 }
 
@@ -329,6 +351,76 @@ func UpdateInstanceURLFor(webChannel string) string {
 		scheme = "https"
 	}
 	return scheme + "://" + u.Host + "/v1internal:updateInstance"
+}
+
+// PollSignalingURL returns the URL mesh signaling messages are polled from.
+//
+// The configuration file wins when it names the endpoint. Otherwise the
+// URL is derived from the WebChannel endpoint: the reference posts to
+// "{proxyURL}/v1internal:pollSignalingMessages", where proxyURL is the
+// tunnel's own host, so signaling polling lives on the same host as the
+// tunnel and only the RPC path differs.
+func (s Set) PollSignalingURL() string {
+	if v := strings.TrimSpace(s.PollSignaling); v != "" {
+		return v
+	}
+	return PollSignalingURLFor(s.WebChannel)
+}
+
+// PollSignalingURLFor derives the signaling poll URL for a tunnel
+// endpoint.
+//
+// An endpoint that carries no host — an empty value, or one that does
+// not parse — yields the compiled-in default.
+func PollSignalingURLFor(webChannel string) string {
+	raw := strings.TrimSpace(webChannel)
+	if raw == "" {
+		return DefaultPollSignaling
+	}
+	u, err := url.Parse(raw)
+	if err != nil || u.Host == "" {
+		return DefaultPollSignaling
+	}
+	scheme := u.Scheme
+	if scheme == "" {
+		scheme = "https"
+	}
+	return scheme + "://" + u.Host + "/v1internal:pollSignalingMessages"
+}
+
+// SendSignalingURL returns the URL mesh signaling messages are sent to.
+//
+// The configuration file wins when it names the endpoint. Otherwise the
+// URL is derived from the WebChannel endpoint: the reference posts to
+// "{proxyURL}/v1internal:sendSignalingMessage", where proxyURL is the
+// tunnel's own host, so sending signaling messages lives on the same
+// host as the tunnel and only the RPC path differs.
+func (s Set) SendSignalingURL() string {
+	if v := strings.TrimSpace(s.SendSignaling); v != "" {
+		return v
+	}
+	return SendSignalingURLFor(s.WebChannel)
+}
+
+// SendSignalingURLFor derives the signaling send URL for a tunnel
+// endpoint.
+//
+// An endpoint that carries no host — an empty value, or one that does
+// not parse — yields the compiled-in default.
+func SendSignalingURLFor(webChannel string) string {
+	raw := strings.TrimSpace(webChannel)
+	if raw == "" {
+		return DefaultSendSignaling
+	}
+	u, err := url.Parse(raw)
+	if err != nil || u.Host == "" {
+		return DefaultSendSignaling
+	}
+	scheme := u.Scheme
+	if scheme == "" {
+		scheme = "https"
+	}
+	return scheme + "://" + u.Host + "/v1internal:sendSignalingMessage"
 }
 
 // WebChannelHostPort returns the tunnel endpoint's host:port — the form

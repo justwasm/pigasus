@@ -352,3 +352,81 @@ func TestNormalizeToolSchema_StringSliceTypes(t *testing.T) {
 	}
 }
 
+func TestSchema_BooleanConstAndEnum(t *testing.T) {
+	raw := json.RawMessage(`{
+		"type": "object",
+		"properties": {
+			"enabled": {
+				"const": true
+			},
+			"disabled": {
+				"type": "boolean",
+				"enum": [false]
+			},
+			"count": {
+				"type": "integer",
+				"enum": [1, 2, 3]
+			},
+			"status": {
+				"type": "string",
+				"enum": [1, "active", true]
+			},
+			"metaschema": {
+				"enum": {
+					"type": "array"
+				}
+			}
+		}
+	}`)
+	out := Schema(raw)
+	props := out["properties"].(map[string]any)
+
+	// const: true must produce BOOLEAN without enum
+	enabled := props["enabled"].(map[string]any)
+	if enabled["type"] != "BOOLEAN" {
+		t.Errorf("enabled type = %v, want BOOLEAN", enabled["type"])
+	}
+	if _, hasEnum := enabled["enum"]; hasEnum {
+		t.Errorf("enabled should not have enum in Gemini, got %v", enabled["enum"])
+	}
+
+	// boolean enum must be removed
+	disabled := props["disabled"].(map[string]any)
+	if disabled["type"] != "BOOLEAN" {
+		t.Errorf("disabled type = %v, want BOOLEAN", disabled["type"])
+	}
+	if _, hasEnum := disabled["enum"]; hasEnum {
+		t.Errorf("disabled should not have enum in Gemini, got %v", disabled["enum"])
+	}
+
+	// integer enum must be removed
+	count := props["count"].(map[string]any)
+	if count["type"] != "INTEGER" {
+		t.Errorf("count type = %v, want INTEGER", count["type"])
+	}
+	if _, hasEnum := count["enum"]; hasEnum {
+		t.Errorf("count should not have enum in Gemini, got %v", count["enum"])
+	}
+
+	// string enum elements must all be strings
+	status := props["status"].(map[string]any)
+	if status["type"] != "STRING" {
+		t.Errorf("status type = %v, want STRING", status["type"])
+	}
+	enumList, ok := status["enum"].([]any)
+	if !ok {
+		t.Fatalf("status enum is not []any: %T", status["enum"])
+	}
+	for i, item := range enumList {
+		if _, isStr := item.(string); !isStr {
+			t.Errorf("enum[%d] = %v (%T), want string", i, item, item)
+		}
+	}
+
+	// map enum (metaschema) must be dropped
+	meta := props["metaschema"].(map[string]any)
+	if _, hasEnum := meta["enum"]; hasEnum {
+		t.Errorf("metaschema should not have enum in Gemini, got %v", meta["enum"])
+	}
+}
+

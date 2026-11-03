@@ -15,7 +15,7 @@
 ## 3 个 task 综合结论
 
 1. **v4 source 真的丢了** (task 2 确认) — v4 binary 7.2 MB `not stripped` + 118 symbols + DWARF 完整保留, 是重建唯一 golden 起点
-2. **workspace 大部分保留** (task 1 确认) — cycle 25 go-recovered (34 .go / 4733 LOC) + 2149 .c + 1289 .c-1.3.4 + 5 memory topic + 10 cycle 20-24 .go + 4 binary (16 MB) 全部完整
+2. **workspace 大部分保留** (task 1 确认) — cycle 25 go-recovered (34 .go / 4733 LOC) + 2149 .c + 1289 .c-1.3.4 (that copy was retired on 2026-11-02 — see `docs/legacy-re/README.md`) + 5 memory topic + 10 cycle 20-24 .go + 4 binary (16 MB) 全部完整
 3. **mavis 无 LLM 日志** (task 3 确认) — 沙箱无 archon-server / sqlite, tool-results 截断 (16 MB), LLM turns 无磁盘持久化
 
 ## 公开仓库 chadgpt/openagy 当前态

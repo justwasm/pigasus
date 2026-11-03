@@ -19,6 +19,9 @@ import (
 	"encoding/json"
 	"strings"
 	"time"
+
+	"github.com/justwasm/pigasus/internal/remotecontrol/cascades"
+	"github.com/justwasm/pigasus/internal/remotecontrol/rpc"
 )
 
 // handleRemoteControlDeepLink dispatches one deep-link RPC.
@@ -55,9 +58,9 @@ import (
 //	  "received_at": "<RFC3339Nano>",  // open + focus-cascade
 //	  "accepted_at": "<RFC3339Nano>"   // paste-and-send
 //	}
-func (d *Dispatcher) handleRemoteControlDeepLink(ctx context.Context, params json.RawMessage) (any, *rpcErrorBody) {
+func (d *Dispatcher) handleRemoteControlDeepLink(ctx context.Context, params json.RawMessage) (any, *rpc.ErrorBody) {
 	if d == nil {
-		return nil, &rpcErrorBody{Code: -32603, Message: "Internal error", Data: "dispatcher not initialised"}
+		return nil, &rpc.ErrorBody{Code: -32603, Message: "Internal error", Data: "dispatcher not initialised"}
 	}
 	p, perr := decodeDeepLinkParams(params)
 	if perr != nil {
@@ -65,7 +68,7 @@ func (d *Dispatcher) handleRemoteControlDeepLink(ctx context.Context, params jso
 	}
 	dl, err := ParseDeepLink(p.URL)
 	if err != nil {
-		return nil, &rpcErrorBody{Code: -32602, Message: "Invalid params", Data: err.Error()}
+		return nil, &rpc.ErrorBody{Code: -32602, Message: "Invalid params", Data: err.Error()}
 	}
 	now := time.Now().UTC()
 	ts := now.Format(time.RFC3339Nano)
@@ -83,35 +86,35 @@ func (d *Dispatcher) handleRemoteControlDeepLink(ctx context.Context, params jso
 	// shouldn't land here, but if a future cycle adds a new
 	// DeepLinkAction without updating this handler, return a
 	// defensive -32602 instead of panicking.
-	return nil, &rpcErrorBody{Code: -32602, Message: "Invalid params", Data: "unsupported deep-link action"}
+	return nil, &rpc.ErrorBody{Code: -32602, Message: "Invalid params", Data: "unsupported deep-link action"}
 }
 
 // decodeDeepLinkParams unmarshals remoteControlDeepLink params
 // and validates the URL field is a non-empty string. Returns
 // the populated struct and nil error on success; returns nil +
-// an *rpcErrorBody on validation failure.
+// an *rpc.ErrorBody on validation failure.
 type deepLinkParams struct {
 	URL       string
 	CascadeID string
 }
 
-func decodeDeepLinkParams(params json.RawMessage) (*deepLinkParams, *rpcErrorBody) {
+func decodeDeepLinkParams(params json.RawMessage) (*deepLinkParams, *rpc.ErrorBody) {
 	var p struct {
 		URL       string `json:"url"`
 		CascadeID string `json:"cascade_id"`
 	}
 	if len(params) > 0 {
 		if err := json.Unmarshal(params, &p); err != nil {
-			return nil, &rpcErrorBody{Code: -32602, Message: "Invalid params", Data: err.Error()}
+			return nil, &rpc.ErrorBody{Code: -32602, Message: "Invalid params", Data: err.Error()}
 		}
 	}
-	if nonStringFieldInJSON(params, "url", p.URL) ||
-		nonStringFieldInJSON(params, "cascade_id", p.CascadeID) {
-		return nil, &rpcErrorBody{Code: -32602, Message: "Invalid params", Data: "string fields must be strings"}
+	if rpc.NonStringFieldInJSON(params, "url", p.URL) ||
+		rpc.NonStringFieldInJSON(params, "cascade_id", p.CascadeID) {
+		return nil, &rpc.ErrorBody{Code: -32602, Message: "Invalid params", Data: "string fields must be strings"}
 	}
 	raw := strings.TrimSpace(p.URL)
 	if raw == "" {
-		return nil, &rpcErrorBody{Code: -32602, Message: "Invalid params", Data: "url is required"}
+		return nil, &rpc.ErrorBody{Code: -32602, Message: "Invalid params", Data: "url is required"}
 	}
 	return &deepLinkParams{URL: raw, CascadeID: p.CascadeID}, nil
 }
@@ -137,19 +140,19 @@ func (d *Dispatcher) handleDeepLinkOpen(now time.Time, ts string, echo map[strin
 // The top-level `cascade_id` wins over the URL-embedded one —
 // the top-level field is the dashboard's explicit choice; the
 // URL-embedded one is the canonical-agy fallback.
-func (d *Dispatcher) handleDeepLinkFocusCascade(ctx context.Context, topCascadeID string, dl DeepLink, ts string, echo map[string]any) (any, *rpcErrorBody) {
+func (d *Dispatcher) handleDeepLinkFocusCascade(ctx context.Context, topCascadeID string, dl DeepLink, ts string, echo map[string]any) (any, *rpc.ErrorBody) {
 	cascadeID := firstNonEmpty(strings.TrimSpace(topCascadeID), dl.CascadeID)
 	if cascadeID == "" {
-		return nil, &rpcErrorBody{Code: -32602, Message: "Invalid params", Data: "cascade_id is required"}
+		return nil, &rpc.ErrorBody{Code: -32602, Message: "Invalid params", Data: "cascade_id is required"}
 	}
 	c, ok := d.cascades.Get(cascadeID)
 	if !ok {
-		return nil, &rpcErrorBody{Code: ErrCodeCascadeNotFound, Message: "Cascade not found", Data: cascadeID}
+		return nil, &rpc.ErrorBody{Code: rpc.ErrCodeCascadeNotFound, Message: "Cascade not found", Data: cascadeID}
 	}
 	c.Focus()
 	connID := connIDFromContext(ctx)
 	if connID != "" {
-		_ = d.Notify(context.Background(), connID, NotifCascadeState, map[string]any{
+		_ = d.Notify(context.Background(), connID, cascades.NotifCascadeState, map[string]any{
 			"cascade_id": cascadeID,
 			"phase":      "focused",
 			"focused_at": ts,
@@ -166,7 +169,7 @@ func (d *Dispatcher) handleDeepLinkFocusCascade(ctx context.Context, topCascadeI
 }
 
 // handleDeepLinkPasteAndSend spawns a goroutine that drives the
-// cascade's backend through (*CascadeRegistry).SendStream with
+// cascade's backend through (*cascades.Registry).SendStream with
 // the parsed text. The reply is synchronous (with
 // `accepted_at`); the turn's output lands on the same ws via
 // the normal cascade/state + cascade/text_delta notifications.
@@ -178,7 +181,7 @@ func (d *Dispatcher) handleDeepLinkFocusCascade(ctx context.Context, topCascadeI
 //   - cascade closed → -32005 "Cascade closed" (the rare path
 //     when the cascade was closed between Start and the
 //     deep-link's arrival).
-func (d *Dispatcher) handleDeepLinkPasteAndSend(ctx context.Context, topCascadeID string, dl DeepLink, ts string, echo map[string]any) (any, *rpcErrorBody) {
+func (d *Dispatcher) handleDeepLinkPasteAndSend(ctx context.Context, topCascadeID string, dl DeepLink, ts string, echo map[string]any) (any, *rpc.ErrorBody) {
 	cascadeID, text, perr := validateDeepLinkTargets(topCascadeID, dl)
 	if perr != nil {
 		return nil, perr
@@ -190,7 +193,7 @@ func (d *Dispatcher) handleDeepLinkPasteAndSend(ctx context.Context, topCascadeI
 	// Capture the connID before spawning the goroutine so the
 	// goroutine's notifications land on the originating ws.
 	connID := connIDFromContext(ctx)
-	prompt := MessagePrompt{
+	prompt := cascades.Prompt{
 		ConversationID: c.ConversationID,
 		Text:           text,
 		Model:          c.Model,
@@ -218,14 +221,14 @@ func (d *Dispatcher) handleDeepLinkPasteAndSend(ctx context.Context, topCascadeI
 // handleDeepLinkPasteAndSend to keep that handler
 // under the 50-fn ceiling that cycle
 // rc-filesize-internal-remotecontrol enforces.
-func validateDeepLinkTargets(topCascadeID string, dl DeepLink) (string, string, *rpcErrorBody) {
+func validateDeepLinkTargets(topCascadeID string, dl DeepLink) (string, string, *rpc.ErrorBody) {
 	cascadeID := firstNonEmpty(strings.TrimSpace(topCascadeID), dl.CascadeID)
 	if cascadeID == "" {
-		return "", "", &rpcErrorBody{Code: -32602, Message: "Invalid params", Data: "cascade_id is required"}
+		return "", "", &rpc.ErrorBody{Code: -32602, Message: "Invalid params", Data: "cascade_id is required"}
 	}
 	text := strings.TrimSpace(dl.Text)
 	if text == "" {
-		return "", "", &rpcErrorBody{Code: -32602, Message: "Invalid params", Data: "text is required"}
+		return "", "", &rpc.ErrorBody{Code: -32602, Message: "Invalid params", Data: "text is required"}
 	}
 	return cascadeID, text, nil
 }
@@ -242,13 +245,13 @@ func validateDeepLinkTargets(topCascadeID string, dl DeepLink) (string, string, 
 // Extracted from handleDeepLinkPasteAndSend to keep
 // the handler under the 50-fn ceiling that cycle
 // rc-filesize-internal-remotecontrol enforces.
-func (d *Dispatcher) lookupOpenCascadeForDeepLink(cascadeID string) (*Cascade, *rpcErrorBody) {
+func (d *Dispatcher) lookupOpenCascadeForDeepLink(cascadeID string) (*cascades.Cascade, *rpc.ErrorBody) {
 	c, ok := d.cascades.Get(cascadeID)
 	if !ok {
-		return nil, &rpcErrorBody{Code: ErrCodeCascadeNotFound, Message: "Cascade not found", Data: cascadeID}
+		return nil, &rpc.ErrorBody{Code: rpc.ErrCodeCascadeNotFound, Message: "Cascade not found", Data: cascadeID}
 	}
 	if c.IsClosed() {
-		return nil, &rpcErrorBody{Code: ErrCodeCascadeClosed, Message: "Cascade closed", Data: cascadeID}
+		return nil, &rpc.ErrorBody{Code: rpc.ErrCodeCascadeClosed, Message: "Cascade closed", Data: cascadeID}
 	}
 	return c, nil
 }
@@ -260,8 +263,8 @@ func (d *Dispatcher) lookupOpenCascadeForDeepLink(cascadeID string) (*Cascade, *
 // already landed with accepted:true, so this helper
 // does not surface goroutine errors as a second
 // JSON-RPC envelope.
-func (d *Dispatcher) runDeepLinkAsync(cascadeID string, prompt MessagePrompt, c *Cascade, connID string) {
+func (d *Dispatcher) runDeepLinkAsync(cascadeID string, prompt cascades.Prompt, c *cascades.Cascade, connID string) {
 	sink := NewConnNotifierSink(d, connID, c)
 	sendCtx := context.Background()
-	_, _ = d.cascades.SendStream(sendCtx, cascadeID, prompt, sink, MessageSendOptions{})
+	_, _ = d.cascades.SendStream(sendCtx, cascadeID, prompt, sink, cascades.SendOptions{})
 }

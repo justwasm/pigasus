@@ -10,7 +10,7 @@
 // 【一手】 The reference's window is per model: the server's catalogue
 // carries `maxTokens` per model and a per-model checkpoint experiment
 // naming `max_token_limit`, and the effective limit is the smaller of the
-// two (internal/modelctx). The three model builders are the only places
+// two (internal/features/models/ctx). The three model builders are the only places
 // the clone produces a PiG model handle, so the per-model window is pinned
 // on all three.
 
@@ -19,7 +19,7 @@ package piagentbridge
 import (
 	"testing"
 
-	"github.com/justwasm/pigasus/internal/modelctx"
+	modelctx "github.com/justwasm/pigasus/internal/features/models/ctx"
 	"github.com/justwasm/pigasus/internal/pigrt"
 )
 

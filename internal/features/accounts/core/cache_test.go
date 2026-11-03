@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/justwasm/pigasus/internal/auth"
+	"github.com/justwasm/pigasus/internal/features/auth"
 )
 
 // cacheIsolate points the registry at a temp file, so the test never

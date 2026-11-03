@@ -22,12 +22,12 @@ Two audiences read this file:
 
 The executable form of Part A is the **`geminicode` package** at the top of
 the tree. It has no dependency on any other package in this repository, so it
-can be imported on its own; `internal/backend` adapts between it and the
+can be imported on its own; `internal/infra/backend` adapts between it and the
 application's neutral types.
 
 ```
 geminicode/     the dialect: wire types, envelope, schema, SSE, client
-internal/backend/  the adapter + the transport policy (retry, timeout, token)
+internal/infra/backend/  the adapter + the transport policy (retry, timeout, token)
 ```
 
 ## Part A — the contract
@@ -58,7 +58,7 @@ part of the RPC name.
 
 To point the clone at a local service, either set the environment variable
 `CLOUD_CODE_URL=http://127.0.0.1:8080` or put it in the endpoints file
-(`~/.config/openagy/config.json` → `{"endpoints": {"cloudcode": "…"}}`).
+(`~/.openagy/config.json` → `{"endpoints": {"cloudcode": "…"}}`).
 
 ### A.2 The headers
 
@@ -325,10 +325,10 @@ The turn is not the only call the clone makes to this host:
 | grade | what | where |
 |---|---|---|
 | 【一手】 | live traffic from the reference, captured 2026-10-20 by a verbatim local passthrough (`CLOUD_CODE_URL=http://127.0.0.1:51999`) that forwards to `daily-cloudcode-pa.googleapis.com` and writes the raw request/response bytes | the cycle report [`cloudcode-model-switching`](../cycles/cloudcode-model-switching/deliverable.md) |
-| 【一手】 | the 1.4.8 tool-error envelope, captured live against the 1.4.8 binary (`devutils/refcapture`, three runs) | `internal/tools/testdata/tool_errors_1.4.8.txt`; commit `5fedb817` |
+| 【一手】 | the 1.4.8 tool-error envelope, captured live against the 1.4.8 binary (`devutils/refcapture`, three runs) | `internal/app/tools/surface/testdata/tool_errors_1.4.8.txt`; commit `5fedb817` |
 | 【一手】 | `loadCodeAssist`'s live answer — `cloudaicompanionProject: "aicode-consumers"`, the tier list | `out/web-ui-log-fixes/load_code_assist_live.json` |
 | 【一手】 | the reference's whole CloudCode traffic going to a loopback endpoint — the five RPC names, and that the reference does not check the host or refuse `http://` | `out/refbackend-custom-models/ccpa_traffic.txt` |
-| 【反编译】 | the reference's own function name for this call path — `codeassistclient.(*CodeAssistClient).streamGenerateContentFromCCPA` | `out/decompile/call-graph.json`, `out/seeds/funcs.txt` |
+| 【反编译】 | the reference's own function name for this call path — `codeassistclient.(*CodeAssistClient).streamGenerateContentFromCCPA` | `out/decompile/call-graph.json`, `out/local-macos/seeds/funcs.txt` |
 | 【strings】 | the `cl=1002753436` build number and the `antigravity/cli/1.4.3` header shape | the reference's string table |
 | 【推测】 | the `cascade_id` / `model_enum` labels the capture shows on a Gemini request — **the clone does not send them**, because their semantics are unknown | the capture in the cycle report |
 
@@ -346,8 +346,8 @@ The turn is not the only call the clone makes to this host:
 | `geminicode/doc.go` | the package contract |
 
 **One type family.** The transport and the proxy used to keep two near
-identical sets of wire types (`internal/geminiwire` and the `cc*` types in
-`internal/backend`). They are now one: `geminicode.Part`, `.FunctionCall`,
+identical sets of wire types (`geminicode/` and the `cc*` types in
+`internal/infra/backend`). They are now one: `geminicode.Part`, `.FunctionCall`,
 `.Content`, … The two conflicts were resolved in favour of the wire:
 
 - `FunctionCall.Args` is a `json.RawMessage` — the model's own bytes survive
@@ -365,14 +365,14 @@ dialect library that depends on its host cannot be reused.
 ### B.3 What the dialect does *not* own
 
 The transport **policy** is the application's, and it stayed in
-`internal/backend`:
+`internal/infra/backend`:
 
 | policy | where |
 |---|---|
-| retry a dropped connection, on the reference's exponential schedule | `internal/backend/cloudcode_stream.go` → `openWithRetry`, `runCloudCodeStreamBodyWithRetry` |
-| bound a stalled stream | `internal/backend/cloudcode_stream.go` → `NewIdleTimeoutReader` |
-| classify a failure (quota exhausted vs expired sign-in vs HTML proxy page) | `internal/backend/http_error.go`, `gemini_api_key_retry.go` |
-| refresh an expired token | `internal/backend/cloudcode.go` → the token source |
+| retry a dropped connection, on the reference's exponential schedule | `internal/infra/backend/cloudcode/cloudcode_stream.go` → `openWithRetry`, `runCloudCodeStreamBodyWithRetry` |
+| bound a stalled stream | `internal/infra/backend/cloudcode/cloudcode_stream.go` → `NewIdleTimeoutReader` |
+| classify a failure (quota exhausted vs expired sign-in vs HTML proxy page) | `internal/core/apierror/http_error.go`, `gemini_api_key_retry.go` |
+| refresh an expired token | `internal/infra/backend/cloudcode/cloudcode.go` → the token source |
 
 `geminicode.Client` performs **one** request and reports what happened. Its
 `HTTPError` carries the status, the body and the URL; the adapter maps it to
@@ -413,7 +413,7 @@ the TUI keep their classification.
 | `TestClient_ModelFromRequest` | the model travels, and a Claude model gets its labels |
 | `TestSchemaProtoIntStrings` | the protojson int-as-string spellings |
 
-`internal/backend/cloudcode_test.go` pins the **adapter** (the neutral turn
+`internal/infra/backend/cloudcode/cloudcode_test.go` pins the **adapter** (the neutral turn
 reaches the wire; the dialect's chunks come back as the application's chunks;
 the HTTP error keeps the application's type).
 

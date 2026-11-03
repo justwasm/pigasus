@@ -4,12 +4,12 @@ package main
 
 import (
 	"github.com/justwasm/pigasus/internal/cliapp"
-	"github.com/justwasm/pigasus/internal/modular"
-	_ "github.com/justwasm/pigasus/internal/features/tools/native"
+	_ "github.com/justwasm/pigasus/internal/app/tools/native"
 	_ "github.com/justwasm/pigasus/internal/infra/subsystems/daemon"
 	_ "github.com/justwasm/pigasus/internal/infra/subsystems/localharness"
 	_ "github.com/justwasm/pigasus/internal/infra/subsystems/terminal"
-	_ "github.com/justwasm/pigasus/internal/ui/cli/subcommands/update"
+	"github.com/justwasm/pigasus/internal/modular"
+	_ "github.com/justwasm/pigasus/internal/app/subcommands/update"
 )
 
 func init() {

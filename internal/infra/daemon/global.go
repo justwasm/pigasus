@@ -29,23 +29,6 @@ func Global() *Tracker {
 	return global
 }
 
-// SetGlobal replaces the process-wide tracker. Returns the previous
-// tracker so tests can restore it on cleanup. nil restores a fresh
-// tracker on the next Global() call.
-func SetGlobal(t *Tracker) *Tracker {
-	prev := Global()
-	if t == nil {
-		// Don't reset globalOnce so concurrent Global() callers
-		// keep getting the same one; instead expose a Swap on the
-		// existing struct so test cleanup is symmetric.
-		prev = global
-		global = New()
-	} else {
-		global = t
-	}
-	return prev
-}
-
 // InstallSignalHandlers installs SIGINT/SIGTERM/SIGHUP handlers that
 // trigger the global tracker's Shutdown. The handlers do not call
 // os.Exit on their own — they hand the cleanup to a deferred

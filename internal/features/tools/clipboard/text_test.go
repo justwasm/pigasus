@@ -3,7 +3,7 @@ package clipboard_test
 import (
 	"testing"
 
-	"github.com/justwasm/pigasus/internal/clipboard"
+	"github.com/justwasm/pigasus/internal/features/tools/clipboard"
 )
 
 func TestNormalizeText(t *testing.T) {

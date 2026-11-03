@@ -154,7 +154,7 @@ func TestLanguageServer_StatUriAndReadFile(t *testing.T) {
 	// `content` is a `bytes` field: proto-JSON spells it as base64, and
 	// the Web UI's decoder refuses raw text.
 	var readRes struct {
-		Content string `json:"content"`
+		Content  string `json:"content"`
 		Language string `json:"language"`
 	}
 	_ = json.Unmarshal([]byte(readResText), &readRes)

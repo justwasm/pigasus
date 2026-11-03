@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 
+	tuiviewport "github.com/justwasm/pigasus/internal/ui/foundations/viewport"
 	"github.com/justwasm/pigasus/palette"
 )
 
@@ -109,31 +110,21 @@ func AllChangesLinesWindowed(tracked, untracked []Change, cursor, window, visibl
 	if cursor < 0 || cursor >= total {
 		cursor = 0
 	}
-	start := window
-	if start < 0 {
-		start = 0
-	}
-	if start > total-visible {
-		start = total - visible
-	}
-	end := start + visible
-	if end > total {
-		end = total
-	}
+	win := tuiviewport.ScrollWindow(total, window, visible)
 
 	all := make([]Change, 0, total)
 	all = append(all, tracked...)
 	all = append(all, untracked...)
 
-	indicator := fmt.Sprintf("  [%d-%d of %d files]", start+1, end, total)
+	indicator := fmt.Sprintf("  [%d-%d of %d files]", win.Start()+1, win.End(), total)
 	lines := []string{
 		TabRow("git", 0, false, Views),
 		palette.SubtleOpen + "  " + strconv.Itoa(total) + " file(s) changed" +
 			palette.DimGrayOpen + indicator + palette.DimGrayClose + "\x1b[39m",
 		"",
 	}
-	for i := start; i < end; i++ {
-		lines = append(lines, AllChangesRow(all[i], cursor == i))
+	for i, c := range tuiviewport.Slice(all, win) {
+		lines = append(lines, AllChangesRow(c, cursor == win.Start()+i))
 	}
 	lines = append(lines, "", "  "+navHint)
 	return lines

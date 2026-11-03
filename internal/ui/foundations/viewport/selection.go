@@ -4,7 +4,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/x/ansi"
-	"github.com/justwasm/pigasus/internal/tuilib"
+	"github.com/justwasm/pigasus/internal/ui/tuilib"
 )
 
 // SelHighlightOpen and SelHighlightClose wrap the selected cells in reverse video.

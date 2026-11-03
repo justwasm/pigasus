@@ -26,15 +26,16 @@
 // "d", `index` with "i", `---`/`+++` with "-"/"+", and hunk ranges with
 // "@@"). Pre-header lines never participate in folding.
 //
-// The cursor (m.panel.diffInlineRow) indexes the rendered body rows
-// emitted by RenderBody — rows[0] is the first body line (a
-// pre-header file header for files with no hunks, or "diff --git...")
-// and rows[len-1] is the last. Folding one hunk compresses its body
-// from 1+len(body) rows to a single row, so the cursor must be
-// re-mapped after a toggle so it stays "on the same header".
+// The cursor indexes the rendered body rows emitted by RenderBody —
+// rows[0] is the first body line (a pre-header file header for files
+// with no hunks, or "diff --git...") and rows[len-1] is the last.
+// Folding one hunk compresses its body from 1+len(body) rows to a
+// single row, so the cursor must be re-mapped after a toggle so it
+// stays "on the same header".
 //
 // Everything here is pure: the split, the layout, the row lookup. The
-// fold *state* lives with the panel, in cmd/wagyu.
+// fold *state* lives with the panel that owns it — the /diff panel,
+// internal/ui/views/diffpanel.
 package fold
 
 import (

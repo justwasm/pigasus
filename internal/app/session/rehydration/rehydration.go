@@ -109,7 +109,8 @@ type Step struct {
 
 // The reference's step status values. The clone writes 3 for a step
 // that ran to completion (`convstore.SessionToSteps`) and reads 4, 6
-// and 7 back as failures (`cliapp.loadedStepErr`).
+// and 7 back as failures (`Succeeded`, which the rehydration pass and
+// the TUI's loaded-tool step both ask — `cliapp.loadedToolStep`).
 //
 // 【一手】 every step in the 505 reference conversations sampled on this
 // machine carries status 3 — the reference writes the status of a

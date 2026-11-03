@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/justwasm/pigasus/internal/statusline"
+	"github.com/justwasm/pigasus/internal/ui/views/statusline"
 )
 
 // referencePayload is one payload agy 1.4.7 produced, verbatim.

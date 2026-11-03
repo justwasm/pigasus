@@ -24,8 +24,9 @@ import (
 
 	pi "github.com/MichaelKinsy/PiG/ai"
 
-	"github.com/justwasm/pigasus/internal/backend"
-	"github.com/justwasm/pigasus/internal/harnesstools"
+	"github.com/justwasm/pigasus/internal/core/backend"
+	"github.com/justwasm/pigasus/internal/app/harnesstools"
+	"github.com/justwasm/pigasus/internal/infra/backend/gemini"
 )
 
 // knownToolNames returns the tool names the session advertises.
@@ -122,7 +123,7 @@ func (c *conversation) invalidRetriesLeft() int {
 // only the mode changes.
 type functionCallingProvider struct {
 	inner  pi.Provider
-	client *backend.GeminiClient
+	client *gemini.GeminiClient
 	// retriesLeft reports how many retries the model has left.
 	retriesLeft func() int
 }
@@ -148,7 +149,7 @@ func (p *functionCallingProvider) Stream(ctx context.Context, transcript pi.Tran
 // The transport is only the Gemini one: the mode is a field of the Gemini
 // request, and the other dialects have no such field.
 func (c *conversation) withFunctionCallingMode(inner pi.Provider, be backend.Client) pi.Provider {
-	client, ok := be.(*backend.GeminiClient)
+	client, ok := be.(*gemini.GeminiClient)
 	if !ok {
 		return inner
 	}

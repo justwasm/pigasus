@@ -11,8 +11,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/justwasm/pigasus/internal/configtest"
-	"github.com/justwasm/pigasus/internal/models"
+	"github.com/justwasm/pigasus/internal/features/models/catalog"
+	"github.com/justwasm/pigasus/internal/features/models/configtest"
+	"github.com/justwasm/pigasus/internal/features/models"
 )
 
 // TestModelAdd_CarriesTheReasoningTiers pins the write: the tiers land in
@@ -126,7 +127,7 @@ func TestModelCatalogueExpandsTheTiers(t *testing.T) {
 		"minimax-m3":                "MiniMax M3",
 	}
 	got := map[string]string{}
-	for _, e := range ModelCatalogue() {
+	for _, e := range catalog.ModelCatalogue() {
 		got[e.ID] = e.Label
 	}
 	for id, label := range want {
@@ -155,7 +156,7 @@ func TestModelCatalogueKeepsTheDeclaredTierOrder(t *testing.T) {
      "reasoning_efforts": ["max", "low", "xhigh"]}
   ]}}}`)
 	var ids []string
-	for _, e := range ModelCatalogue() {
+	for _, e := range catalog.ModelCatalogue() {
 		if strings.HasPrefix(e.ID, "tiered-") {
 			ids = append(ids, e.ID)
 		}

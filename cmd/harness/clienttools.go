@@ -44,9 +44,9 @@ import (
 	piagent "github.com/MichaelKinsy/PiG/agent"
 	pi "github.com/MichaelKinsy/PiG/ai"
 
-	"github.com/justwasm/pigasus/internal/tools"
 	"github.com/justwasm/pigasus/lifecyclehooks"
 	pb "github.com/justwasm/pigasus/localharness/pb/localharness"
+	"github.com/justwasm/pigasus/internal/app/tools/surface"
 )
 
 // clientTools returns the tools the client declared, as PiG tools.
@@ -90,7 +90,7 @@ func (t *clientTool) Schema() pi.ToolSchema {
 	return pi.ToolSchema{
 		Name:        t.decl.GetName(),
 		Description: t.decl.GetDescription(),
-		Parameters:  tools.SchemaParams(json.RawMessage(t.decl.GetParametersJsonSchema())),
+		Parameters:  surface.SchemaParams(json.RawMessage(t.decl.GetParametersJsonSchema())),
 	}
 }
 

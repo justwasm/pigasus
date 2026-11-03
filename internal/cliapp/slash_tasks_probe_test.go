@@ -39,8 +39,11 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/justwasm/pigasus/internal/subagent"
-	"github.com/justwasm/pigasus/internal/taskregistry"
+	subagent "github.com/justwasm/pigasus/internal/app/subagent/core"
+	taskregistry "github.com/justwasm/pigasus/internal/app/task"
+	"github.com/justwasm/pigasus/internal/ui/panelregistry"
+	termcolor "github.com/justwasm/pigasus/internal/ui/render/color"
+	"github.com/justwasm/pigasus/internal/ui/views/skillsui"
 )
 
 const probeOutDir = "/private/var/folders/j1/q183lx7n5qz1p1kct589g6040000gn/T/opencode/agy-tasks/our"
@@ -68,9 +71,11 @@ func TestCycleTasksPanelProbe(t *testing.T) {
 	{
 		m := seedProbeRunMode()
 		seedProbeShell(m, "bash -c sleep 30 # task 1")
-		// Press Enter on the cursor row.
-		m.panel = slashPanel{kind: panelTasks, cmd: "/tasks", cursor: 0}
-		_, _ = m.tasksPanelKey(tea.Key{Code: tea.KeyEnter})
+		// Press "k" on the cursor row — the reference's KeyTaskKill
+		// binding. (Enter opens the row's detail view; the clone used
+		// to kill on Enter, which was the cycle-315 bug.)
+		m.panel = slashPanel{kind: panelregistry.Tasks, cmd: "/tasks"}
+		_, _ = m.tasksPanel().HandleKey(tea.Key{Code: 'k'})
 		// Wait up to 1s for the killed transition to land.
 		deadline := time.Now().Add(1 * time.Second)
 		for time.Now().Before(deadline) {
@@ -122,7 +127,7 @@ func seedProbeShell(m *runMode, name string) {
 }
 
 func renderProbePanel(m *runMode) string {
-	// Mirrors cmd/wagyu/slash_tasks_panel.go's panelTasksLines
+	// Mirrors internal/ui/views/taskspanel's row renderer
 	// minus the ANSI escapes so the probe bytes are stable
 	// across terminal widths.
 	var b strings.Builder
@@ -246,21 +251,18 @@ func TestProbe218_DumpAll(t *testing.T) {
 				}
 			}
 			p := writeSkillMD(t, body)
-			m := detailRunner(t, 50, 220, p, tgt.slug, "d")
-			doc := m.skillsDetailDocument(jsonSkillInfo{
-				Name: tgt.slug, Description: "d", Path: p,
-			})
+			doc := skillsui.SkillsDetailDocument(tgt.slug, "d", p, 220)
 			var b strings.Builder
 			b.WriteString("# catalogue header\n")
 			for _, l := range doc[:4] {
-				for _, r := range l.rows {
-					b.WriteString(stripSGR(r) + "\n")
+				for _, r := range l.Rows {
+					b.WriteString(termcolor.StripSGR(r) + "\n")
 				}
 			}
 			b.WriteString("# body (" + tgt.slug + ")\n")
 			for _, l := range doc[4:] {
-				for _, r := range l.rows {
-					b.WriteString(stripSGR(r) + "\n")
+				for _, r := range l.Rows {
+					b.WriteString(termcolor.StripSGR(r) + "\n")
 				}
 			}
 			fp := filepath.Join(out, "probe218-"+tgt.slug+".txt")
@@ -271,4 +273,3 @@ func TestProbe218_DumpAll(t *testing.T) {
 		})
 	}
 }
-

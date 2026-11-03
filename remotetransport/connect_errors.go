@@ -40,6 +40,12 @@ type connectErrorCoder interface {
 	ConnectMessage() string
 }
 
+// grpcStatusCoder is an error that carries its canonical gRPC status
+// code directly.
+type grpcStatusCoder interface {
+	GRPCStatus() int
+}
+
 // connectErrorCode is the Connect code a failure carries: the name
 // the error body spells, the HTTP status the status line carries, and
 // the gRPC status the gRPC-Web dialect carries in its header.
@@ -57,20 +63,67 @@ const (
 	// connectNotFound is the code of a request for something that
 	// is not there (gRPC 5).
 	connectNotFound = "not_found"
+	// connectUnimplemented is the code of a method the reference does
+	// not implement in an external build (gRPC 12).
+	connectUnimplemented = "unimplemented"
+	// connectUnknown is the code of a failure the reference answers
+	// without naming a more specific one (gRPC 2).
+	connectUnknown = "unknown"
+	// connectInternal is the code of an internal failure (gRPC 13).
+	connectInternal = "internal"
 )
 
-// The gRPC status numbers of the two codes above.
+// The gRPC status numbers of the codes above.
 const (
+	grpcStatusOK              = 0
+	grpcStatusUnknown         = 2
 	grpcStatusInvalidArgument = 3
 	grpcStatusNotFound        = 5
+	grpcStatusUnimplemented   = 12
+	grpcStatusInternal        = 13
 )
 
-// connectErrorFor maps a JSON-RPC code onto the Connect code the
-// reference answers with.
+// connectErrorFor maps a JSON-RPC code or gRPC status onto the
+// Connect code the reference answers with.
 //
 // ok is false for a code the transport does not translate: those
 // failures keep the catch-all answer.
 func connectErrorFor(err error) (connectErrorCode, bool) {
+	var gsc grpcStatusCoder
+	if errors.As(err, &gsc) {
+		switch gsc.GRPCStatus() {
+		case grpcStatusUnknown:
+			return connectErrorCode{
+				name:   connectUnknown,
+				status: http.StatusInternalServerError,
+				grpc:   grpcStatusUnknown,
+			}, true
+		case grpcStatusInvalidArgument:
+			return connectErrorCode{
+				name:   connectInvalidArgument,
+				status: http.StatusBadRequest,
+				grpc:   grpcStatusInvalidArgument,
+			}, true
+		case grpcStatusNotFound:
+			return connectErrorCode{
+				name:   connectNotFound,
+				status: http.StatusNotFound,
+				grpc:   grpcStatusNotFound,
+			}, true
+		case grpcStatusUnimplemented:
+			return connectErrorCode{
+				name:   connectUnimplemented,
+				status: http.StatusNotImplemented,
+				grpc:   grpcStatusUnimplemented,
+			}, true
+		case grpcStatusInternal:
+			return connectErrorCode{
+				name:   connectInternal,
+				status: http.StatusInternalServerError,
+				grpc:   grpcStatusInternal,
+			}, true
+		}
+	}
 	var coded connectErrorCoder
 	if !errors.As(err, &coded) {
 		return connectErrorCode{}, false

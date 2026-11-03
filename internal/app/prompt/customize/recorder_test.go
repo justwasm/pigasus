@@ -6,7 +6,7 @@ import (
 )
 
 // TestRecorderTrimTriggersCustomize verifies the end-to-end
-// bridge between the recorder and the internal/customize trimmer:
+// bridge between the recorder and the internal/app/prompt/customize trimmer:
 // a recorded /customize body is the first to be trimmed when the
 // budget is tight. The bridge must not swallow or re-prioritise any
 // token — the package's priority table is the source of truth.

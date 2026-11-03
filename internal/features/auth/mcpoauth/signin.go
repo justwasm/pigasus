@@ -101,16 +101,6 @@ type Store struct {
 	records map[string]*Signin
 }
 
-// NewStore opens or creates the saved-sign-in store at the canonical
-// path (AntigravityConfigHome + "/mcp-oauth-signins.json"). A missing
-// file is not an error — the store starts empty. I/O errors at load
-// time are returned so the caller can log / surface them; once the
-// store is constructed, every read / write is best-effort and returns
-// errors so a transient disk failure does not crash the CLI.
-func NewStore() (*Store, error) {
-	return NewStoreAt(StorePath())
-}
-
 // NewStoreAt opens or creates the store at an explicit path. Passing
 // an empty path makes the store in-memory only; tests use this.
 func NewStoreAt(path string) (*Store, error) {

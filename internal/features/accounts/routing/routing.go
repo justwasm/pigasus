@@ -3,9 +3,9 @@
 // # What it is
 //
 // The clone keeps a registry of the Google accounts the user signed in to
-// (`internal/accounts`). A turn is served by one of them. The *policy* —
+// (`internal/features/accounts/core`). A turn is served by one of them. The *policy* —
 // which account a turn runs on, and how the pool rotates — lives in the
-// `accountpool` package and is read from `~/.config/openagy/config.json`.
+// `accountpool` package and is read from `~/.openagy/config.json`.
 //
 // This package is the machinery around that policy:
 //
@@ -50,11 +50,15 @@ import (
 	"sync"
 	"time"
 
+	"golang.org/x/sync/singleflight"
+
 	"github.com/justwasm/pigasus/accountpool"
 	"github.com/justwasm/pigasus/endpoints"
-	"github.com/justwasm/pigasus/internal/accounts"
-	"github.com/justwasm/pigasus/internal/auth"
-	"github.com/justwasm/pigasus/internal/backend"
+	"github.com/justwasm/pigasus/internal/core/apierror"
+	"github.com/justwasm/pigasus/internal/core/backend"
+	accounts "github.com/justwasm/pigasus/internal/features/accounts/core"
+	"github.com/justwasm/pigasus/internal/features/auth"
+	"github.com/justwasm/pigasus/internal/features/auth/credential"
 )
 
 // DebugEnvVar turns the routing's log lines on. The lines go to the
@@ -114,6 +118,27 @@ type Router struct {
 
 	// log is where the routing's lines go.
 	log io.Writer
+
+	// tokenFlight deduplicates concurrent token refreshes per account.
+	tokenFlight singleflight.Group
+
+	// quotaFlight deduplicates concurrent quota fetches per account.
+	quotaFlight singleflight.Group
+
+	// prewarmCh receives account emails whose tokens need background refresh.
+	prewarmCh chan string
+
+	// prewarmOnce starts the prewarm background pipeline worker.
+	prewarmOnce sync.Once
+
+	// lastPrewarm is the last time candidate accounts were prewarmed.
+	lastPrewarm time.Time
+
+	// ctx controls the lifecycle of background workers (quota refresh, candidate prewarming).
+	ctx context.Context
+
+	// cancel terminates background workers when Close is called.
+	cancel context.CancelFunc
 }
 
 // quota is one account's last known quota figure.
@@ -130,16 +155,7 @@ type quota struct {
 
 // shared is the process-wide router.
 var shared = sync.OnceValue(func() *Router {
-	r := &Router{
-		remaining:  map[string]quota{},
-		excluded:   map[string]time.Time{},
-		lastUsed:   map[string]time.Time{},
-		refreshing: map[string]bool{},
-		log:        defaultLogWriter(),
-	}
-	r.loadShared = readShared
-	r.fallback = backend.DefaultTokenSource()
-	return r
+	return NewRouter()
 })
 
 // Shared returns the process-wide router.
@@ -147,16 +163,38 @@ func Shared() *Router { return shared() }
 
 // NewRouter returns a fresh Router instance.
 func NewRouter() *Router {
+	ctx, cancel := context.WithCancel(context.Background())
 	r := &Router{
 		remaining:  map[string]quota{},
 		excluded:   map[string]time.Time{},
 		lastUsed:   map[string]time.Time{},
 		refreshing: map[string]bool{},
 		log:        defaultLogWriter(),
+		ctx:        ctx,
+		cancel:     cancel,
 	}
 	r.loadShared = readShared
-	r.fallback = backend.DefaultTokenSource()
+	r.fallback = credential.DefaultTokenSource()
 	return r
+}
+
+func (r *Router) context() context.Context {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.ctx == nil {
+		r.ctx, r.cancel = context.WithCancel(context.Background())
+	}
+	return r.ctx
+}
+
+// Close cancels background quota refresh and prewarming workers.
+func (r *Router) Close() {
+	r.mu.Lock()
+	cancel := r.cancel
+	r.mu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
 }
 
 // Policy returns the account-routing policy the configuration file
@@ -210,39 +248,112 @@ func defaultLogWriter() io.Writer {
 	return os.Stderr
 }
 
+// RouteResult represents an atomic routing decision and its ready-to-use access token.
+type RouteResult struct {
+	Email       string
+	AccessToken string
+	Decision    accountpool.Decision
+}
+
+// RouteTurn selects an account, ensures its credential is valid, and returns
+// both the account identity and token atomically. This eliminates race conditions
+// between selecting an account and querying LastRouted().
+func (r *Router) RouteTurn(ctx context.Context, modelFamily ...string) (RouteResult, error) {
+	policy := r.currentPolicy()
+	if policy == nil || !policy.Enabled {
+		tok, err := r.defaultToken(ctx)
+		if err != nil {
+			return RouteResult{}, err
+		}
+		return RouteResult{AccessToken: tok}, nil
+	}
+
+	family := ""
+	if len(modelFamily) > 0 && modelFamily[0] != "" {
+		family = modelFamily[0]
+	} else {
+		family = ModelFamilyFromContext(ctx)
+	}
+
+	decision, err := r.DecideForModel(ctx, family)
+	if err != nil {
+		return RouteResult{}, err
+	}
+	if decision.Email == "" {
+		tok, err := r.defaultToken(ctx)
+		if err != nil {
+			return RouteResult{}, err
+		}
+		return RouteResult{Decision: decision, AccessToken: tok}, nil
+	}
+
+	tok, err := r.tokenFor(ctx, decision.Email)
+	if err != nil {
+		return RouteResult{}, err
+	}
+	r.logf("[account-pool] %s — %s", decision.Email, decision.Reason)
+
+	r.mu.Lock()
+	r.lastRouted = decision.Email
+	r.mu.Unlock()
+
+	if slot, ok := ctx.Value(routeSlotKey{}).(*routeSlot); ok && slot != nil {
+		slot.email = decision.Email
+	}
+
+	r.mu.Lock()
+	shouldPrewarm := time.Since(r.lastPrewarm) > 3*time.Minute
+	if shouldPrewarm {
+		r.lastPrewarm = time.Now()
+	}
+	r.mu.Unlock()
+	if shouldPrewarm {
+		go r.PrewarmCandidates(context.Background())
+	}
+
+	return RouteResult{
+		Email:       decision.Email,
+		AccessToken: tok.Token.AccessToken,
+		Decision:    decision,
+	}, nil
+}
+
 // TokenFunc returns the token source the CloudCode transport runs on.
 //
 // It is called once per turn, so the pool rotates per turn. When the
 // routing is off it answers with the credential the transport's own token
 // source would answer with — the same cascade, not a copy of it.
 func (r *Router) TokenFunc(ctx context.Context) (string, error) {
-	policy := r.currentPolicy()
-	if policy == nil || !policy.Enabled {
-		return r.defaultToken(ctx)
-	}
-	decision, err := r.Decide(ctx)
+	res, err := r.RouteTurn(ctx)
 	if err != nil {
 		return "", err
 	}
-	if decision.Email == "" {
-		// The pool holds no account: the transport's own credential
-		// is the only one there is.
-		return r.defaultToken(ctx)
+	return res.AccessToken, nil
+}
+
+// TokenFuncForModel returns a token function tailored for a specific model family.
+func (r *Router) TokenFuncForModel(model string) func(context.Context) (string, error) {
+	family := ModelFamily(model)
+	return func(ctx context.Context) (string, error) {
+		res, err := r.RouteTurn(ctx, family)
+		if err != nil {
+			return "", err
+		}
+		return res.AccessToken, nil
 	}
-	tok, err := r.tokenFor(ctx, decision.Email)
-	if err != nil {
-		return "", err
-	}
-	r.logf("[account-pool] %s — %s", decision.Email, decision.Reason)
-	return tok.Token.AccessToken, nil
 }
 
 // SetPolicy installs a policy resolver that overrides the global Policy() read.
 // A proxy or test uses this to supply a custom or enabled policy.
 func (r *Router) SetPolicy(fn func() *accountpool.Config) {
 	r.mu.Lock()
-	defer r.mu.Unlock()
 	r.policyOverride = fn
+	r.mu.Unlock()
+	if fn != nil {
+		if cfg := fn(); cfg != nil && cfg.Enabled {
+			go r.PrewarmCandidates(context.Background())
+		}
+	}
 }
 
 // currentPolicy returns the effective policy for this router.
@@ -290,7 +401,7 @@ func (r *Router) defaultToken(ctx context.Context) (string, error) {
 	fallback := r.fallback
 	r.mu.Unlock()
 	if fallback == nil {
-		fallback = backend.DefaultTokenSource()
+		fallback = credential.DefaultTokenSource()
 		r.mu.Lock()
 		r.fallback = fallback
 		r.mu.Unlock()
@@ -303,13 +414,18 @@ func (r *Router) defaultToken(ctx context.Context) (string, error) {
 // It is the decision the token function makes, without the credential:
 // what is left is the account's own business.
 func (r *Router) Decide(ctx context.Context) (accountpool.Decision, error) {
+	return r.DecideForModel(ctx, "")
+}
+
+// DecideForModel asks the policy which account the next turn should use for a specific model family.
+func (r *Router) DecideForModel(ctx context.Context, modelFamily string) (accountpool.Decision, error) {
 	policy := r.currentPolicy()
 	if policy == nil || !policy.Enabled {
 		return accountpool.Decision{}, errors.New("accountpool: the routing is off")
 	}
 	cfg := policy.Normalised()
 
-	states, err := r.states(ctx, cfg)
+	states, err := r.statesForModel(ctx, cfg, modelFamily)
 	if err != nil {
 		return accountpool.Decision{}, err
 	}
@@ -337,33 +453,46 @@ func (r *Router) LastRouted() string {
 	return r.lastRouted
 }
 
-// Exclude puts an account out of the pool for the policy's cooldown.
+// Exclude puts an account out of the pool globally for the policy's cooldown.
 //
 // The runtime calls it when the server says the account's quota is spent:
 // the next turn goes to another account, and this one comes back when its
 // cooldown passes.
 func (r *Router) Exclude(email string) {
+	r.ExcludeForModel(email, "")
+}
+
+// ExcludeForModel puts an account out of the pool for a specific model family for the policy's cooldown.
+// If modelFamily is empty, the account is excluded globally across all model families.
+func (r *Router) ExcludeForModel(email string, modelFamily string) {
 	email = strings.TrimSpace(email)
 	if email == "" {
 		return
 	}
+	family := strings.ToLower(strings.TrimSpace(modelFamily))
+	key := exclusionKey(email, family)
+	now := time.Now()
 	r.mu.Lock()
-	r.excluded[email] = time.Now()
+	r.excluded[key] = now
+	r.remaining[quotaKey(email, family)] = quota{remaining: 0, known: true, fetchedAt: now}
 	r.mu.Unlock()
-	r.logf("[account-pool] %s is out of quota; cooling down", email)
+	if family != "" {
+		r.logf("[account-pool] %s is out of %s quota; cooling down", email, family)
+	} else {
+		r.logf("[account-pool] %s is out of quota; cooling down", email)
+	}
 }
 
 // IsExcluded reports whether an account is currently in cooldown.
-func (r *Router) IsExcluded(email string) bool {
+// If modelFamily is supplied, it checks both global cooldown and model-family cooldown.
+func (r *Router) IsExcluded(email string, modelFamily ...string) bool {
 	email = strings.TrimSpace(email)
 	if email == "" {
 		return false
 	}
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	until, ok := r.excluded[email]
-	if !ok {
-		return false
+	family := ""
+	if len(modelFamily) > 0 {
+		family = strings.ToLower(strings.TrimSpace(modelFamily[0]))
 	}
 	cooldown := accountpool.DefaultCooldown
 	if r.policyOverride != nil {
@@ -373,11 +502,57 @@ func (r *Router) IsExcluded(email string) bool {
 	} else if cfg := Policy(); cfg != nil {
 		cooldown = cfg.CooldownDuration()
 	}
-	if time.Since(until) < cooldown {
-		return true
+
+	r.mu.Lock()
+	isExc, expired := r.isExcludedLocked(email, family, cooldown, time.Now())
+	r.mu.Unlock()
+
+	for _, exp := range expired {
+		r.refreshQuota(exp)
 	}
-	delete(r.excluded, email)
-	return false
+	return isExc
+}
+
+func (r *Router) isExcludedLocked(email, family string, cooldown time.Duration, now time.Time) (bool, []string) {
+	normEmail := strings.ToLower(strings.TrimSpace(email))
+	fam := strings.ToLower(strings.TrimSpace(family))
+	var expired []string
+	isExc := false
+
+	// Check global exclusion
+	globalKey := normEmail
+	if until, ok := r.excluded[globalKey]; ok {
+		if now.Before(until.Add(cooldown)) {
+			isExc = true
+		} else {
+			delete(r.excluded, globalKey)
+			expired = append(expired, normEmail)
+		}
+	}
+
+	// Check family-specific exclusion if family is specified
+	if fam != "" {
+		famKey := normEmail + "#" + fam
+		if until, ok := r.excluded[famKey]; ok {
+			if now.Before(until.Add(cooldown)) {
+				isExc = true
+			} else {
+				delete(r.excluded, famKey)
+				expired = append(expired, normEmail)
+			}
+		}
+	}
+
+	return isExc, expired
+}
+
+func exclusionKey(email, family string) string {
+	normEmail := strings.ToLower(strings.TrimSpace(email))
+	fam := strings.ToLower(strings.TrimSpace(family))
+	if fam == "" {
+		return normEmail
+	}
+	return normEmail + "#" + fam
 }
 
 // SetCandidateAccounts overrides CandidateAccounts retrieval for testing.
@@ -413,8 +588,33 @@ func (r *Router) CandidateAccounts(ctx context.Context) ([]accounts.Account, err
 	return out, nil
 }
 
+// PrewarmCandidates proactively refreshes credentials for all accounts eligible under the current policy,
+// warming OAuth tokens in the background so turn transitions avoid refresh latency.
+func (r *Router) PrewarmCandidates(ctx context.Context) {
+	policy := r.currentPolicy()
+	if policy == nil || !policy.Enabled {
+		return
+	}
+	candidates, err := r.CandidateAccounts(ctx)
+	if err != nil || len(candidates) == 0 {
+		return
+	}
+	for _, acc := range candidates {
+		email := strings.TrimSpace(acc.Email)
+		if email == "" {
+			continue
+		}
+		r.enqueuePrewarm(email)
+	}
+}
+
 // states gathers the pool's state for the policy to choose from.
 func (r *Router) states(ctx context.Context, cfg accountpool.Config) ([]accountpool.State, error) {
+	return r.statesForModel(ctx, cfg, "")
+}
+
+// statesForModel gathers the pool's state tailored for a specific model family.
+func (r *Router) statesForModel(ctx context.Context, cfg accountpool.Config, modelFamily string) ([]accountpool.State, error) {
 	st, err := accounts.Load()
 	if err != nil {
 		return nil, err
@@ -429,24 +629,21 @@ func (r *Router) states(ctx context.Context, cfg accountpool.Config) ([]accountp
 		}
 	}
 	now := time.Now()
+	var toRefresh []string
 	out := make([]accountpool.State, 0, len(st.Accounts))
 	for _, acc := range st.Accounts {
 		email := strings.TrimSpace(acc.Email)
 		if email == "" {
 			continue
 		}
-		remaining, known := r.quotaFor(ctx, cfg, acc)
+		remaining, known := r.quotaForModel(ctx, cfg, acc, modelFamily)
 		r.mu.Lock()
-		excluded := false
-		if until, ok := r.excluded[email]; ok {
-			if now.Before(until.Add(cfg.CooldownDuration())) {
-				excluded = true
-			} else {
-				delete(r.excluded, email)
-			}
-		}
+		excluded, expired := r.isExcludedLocked(email, modelFamily, cfg.CooldownDuration(), now)
 		lastUsed := r.lastUsed[email]
 		r.mu.Unlock()
+		if len(expired) > 0 {
+			toRefresh = append(toRefresh, expired...)
+		}
 		out = append(out, accountpool.State{
 			Email:     email,
 			Remaining: remaining,
@@ -456,20 +653,28 @@ func (r *Router) states(ctx context.Context, cfg accountpool.Config) ([]accountp
 			LastUsed:  lastUsed,
 		})
 	}
+	for _, exp := range toRefresh {
+		r.refreshQuota(exp)
+	}
 	return out, nil
 }
 
-// quotaFor returns an account's remaining quota.
-//
-// The figure comes from the router's own cache, seeded from the
-// registry's snapshot (the `/accounts` panel keeps that fresh). A figure
-// that is missing or stale schedules a background read; the turn goes on
-// with what is known.
+func quotaKey(email, family string) string {
+	return strings.ToLower(strings.TrimSpace(email)) + "#" + strings.ToLower(strings.TrimSpace(family))
+}
+
+// quotaFor returns an account's remaining quota across all models.
 func (r *Router) quotaFor(ctx context.Context, cfg accountpool.Config, acc accounts.Account) (float64, bool) {
+	return r.quotaForModel(ctx, cfg, acc, "")
+}
+
+// quotaForModel returns an account's remaining quota for a given model family.
+func (r *Router) quotaForModel(ctx context.Context, cfg accountpool.Config, acc accounts.Account, modelFamily string) (float64, bool) {
 	email := acc.Email
+	key := quotaKey(email, modelFamily)
 
 	r.mu.Lock()
-	cached, haveCached := r.remaining[email]
+	cached, haveCached := r.remaining[key]
 	r.mu.Unlock()
 
 	if haveCached && time.Since(cached.fetchedAt) < cfg.RefreshDuration() {
@@ -479,11 +684,11 @@ func (r *Router) quotaFor(ctx context.Context, cfg accountpool.Config, acc accou
 	// The registry's own snapshot is the seed: it costs nothing to read
 	// and the panel keeps it fresh.
 	if acc.Quota != nil {
-		if rem, known := remainingOf(acc.Quota); known {
+		if rem, known := remainingForModelFamily(acc.Quota, modelFamily); known {
 			r.mu.Lock()
 			if !haveCached || acc.Quota.FetchedAt.After(cached.fetchedAt) {
-				r.remaining[email] = quota{remaining: rem, known: true, fetchedAt: acc.Quota.FetchedAt}
-				cached = r.remaining[email]
+				r.remaining[key] = quota{remaining: rem, known: true, fetchedAt: acc.Quota.FetchedAt}
+				cached = r.remaining[key]
 				haveCached = true
 			}
 			r.mu.Unlock()
@@ -502,11 +707,11 @@ func (r *Router) quotaFor(ctx context.Context, cfg accountpool.Config, acc accou
 	return 0, false
 }
 
-// refreshQuota reads one account's quota in the background.
-//
-// One read per account at a time: a second turn does not start a second
-// read.
+// refreshQuota reads one account's quota in the background, deduplicated with quotaFlight.
 func (r *Router) refreshQuota(email string) {
+	if r.context().Err() != nil {
+		return
+	}
 	r.mu.Lock()
 	if r.refreshing[email] {
 		r.mu.Unlock()
@@ -516,36 +721,97 @@ func (r *Router) refreshQuota(email string) {
 	r.mu.Unlock()
 
 	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-		defer cancel()
-		summary, err := accounts.FetchQuota(ctx, email)
-		r.mu.Lock()
-		delete(r.refreshing, email)
-		r.mu.Unlock()
-		if err != nil {
-			r.logf("[account-pool] the quota of %s could not be read: %v", email, err)
-			return
-		}
-		snap := summary.Snapshot()
-		rem, known := remainingOf(snap)
-		r.mu.Lock()
-		r.remaining[email] = quota{remaining: rem, known: known, fetchedAt: time.Now()}
-		r.mu.Unlock()
-		if known {
-			r.logf("[account-pool] %s has %.1f%% left", email, rem*100)
-		}
+		_, _, _ = r.quotaFlight.Do(email, func() (any, error) {
+			defer func() {
+				r.mu.Lock()
+				delete(r.refreshing, email)
+				r.mu.Unlock()
+			}()
+
+			ctx, cancel := context.WithTimeout(r.context(), 20*time.Second)
+			defer cancel()
+			summary, err := accounts.FetchQuota(ctx, email)
+			if err != nil {
+				r.logf("[account-pool] the quota of %s could not be read: %v", email, err)
+				return nil, err
+			}
+			snap := summary.Snapshot()
+			remAll, knownAll := remainingForModelFamily(snap, "")
+			remGemini, knownGemini := remainingForModelFamily(snap, "gemini")
+			remClaude, knownClaude := remainingForModelFamily(snap, "claude")
+			now := time.Now()
+			r.mu.Lock()
+			r.remaining[quotaKey(email, "")] = quota{remaining: remAll, known: knownAll, fetchedAt: now}
+			r.remaining[quotaKey(email, "gemini")] = quota{remaining: remGemini, known: knownGemini, fetchedAt: now}
+			r.remaining[quotaKey(email, "claude")] = quota{remaining: remClaude, known: knownClaude, fetchedAt: now}
+			r.mu.Unlock()
+			if knownAll {
+				r.logf("[account-pool] %s has %.1f%% left", email, remAll*100)
+			}
+			return remAll, nil
+		})
 	}()
 }
 
+func (r *Router) startPrewarmPipeline() {
+	r.prewarmOnce.Do(func() {
+		r.prewarmCh = make(chan string, 32)
+		go func() {
+			for {
+				select {
+				case <-r.context().Done():
+					return
+				case email, ok := <-r.prewarmCh:
+					if !ok {
+						return
+					}
+					ctx, cancel := context.WithTimeout(r.context(), 25*time.Second)
+					_, _ = r.tokenForDirect(ctx, email)
+					cancel()
+				}
+			}
+		}()
+	})
+}
+
+func (r *Router) enqueuePrewarm(email string) {
+	if email == "" || r.context().Err() != nil {
+		return
+	}
+	r.startPrewarmPipeline()
+	select {
+	case r.prewarmCh <- email:
+	default:
+	}
+}
+
 // tokenFor returns the credential of the named account, refreshed when it
-// is about to expire.
-//
-// The active account's credential is the shared one — the keychain entry
-// and the three on-disk copies. Every other account has its own stored
-// credential, and it is refreshed *quietly*: a refresh that wrote the
-// shared credential would sign the user in as that account behind the
-// user's back.
+// is about to expire, deduplicated with singleflight.
 func (r *Router) tokenFor(ctx context.Context, email string) (*auth.AntigravityToken, error) {
+	val, err, _ := r.tokenFlight.Do(email, func() (any, error) {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		opCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		return r.tokenForDirect(opCtx, email)
+	})
+	if err != nil {
+		return nil, err
+	}
+	tok := val.(*auth.AntigravityToken)
+	if exp := tok.ExpiryTime(); !exp.IsZero() {
+		rem := time.Until(exp)
+		// If expiring soon (between 1 and 10 minutes left), enqueue background prewarm
+		if rem < 10*time.Minute && rem > 1*time.Minute {
+			r.enqueuePrewarm(email)
+		}
+	}
+	return tok, nil
+}
+
+// tokenForDirect executes token acquisition and quiet refresh.
+func (r *Router) tokenForDirect(ctx context.Context, email string) (*auth.AntigravityToken, error) {
 	// The active account's credential is the shared one. It is only
 	// looked up for that account: an account the user did not pick has
 	// its own stored credential, and the keychain has nothing to say
@@ -679,18 +945,39 @@ func emailOf(tok *auth.AntigravityToken) string {
 	return ""
 }
 
-// remainingOf returns the lowest remaining fraction across a snapshot's
-// buckets.
-//
-// The lowest figure is the one that decides whether the account can serve
-// a turn: the five-hour window runs out long before the weekly one.
-func remainingOf(snap *auth.QuotaSnapshot) (float64, bool) {
+// ModelFamily classifies a model name into its quota family ("claude" vs "gemini").
+// If the model is empty or unrecognized, it returns an empty string (meaning global quota).
+func ModelFamily(model string) string {
+	m := strings.ToLower(strings.TrimSpace(model))
+	switch {
+	case strings.Contains(m, "claude") || strings.Contains(m, "gpt"):
+		return "claude"
+	case strings.Contains(m, "gemini"):
+		return "gemini"
+	default:
+		return ""
+	}
+}
+
+// remainingForModelFamily returns the lowest remaining fraction for a specific model family.
+// If family is empty or no buckets match the family filter, it falls back to the lowest fraction across all groups.
+func remainingForModelFamily(snap *auth.QuotaSnapshot, family string) (float64, bool) {
 	if snap == nil {
 		return 0, false
 	}
+	target := strings.ToLower(strings.TrimSpace(family))
 	found := false
 	lowest := 0.0
 	for _, g := range snap.Groups {
+		gName := strings.ToLower(g.Name)
+		if target != "" {
+			if target == "claude" && !strings.Contains(gName, "claude") && !strings.Contains(gName, "gpt") {
+				continue
+			}
+			if target == "gemini" && !strings.Contains(gName, "gemini") {
+				continue
+			}
+		}
 		for _, b := range g.Buckets {
 			if !found || b.RemainingFraction < lowest {
 				lowest = b.RemainingFraction
@@ -698,7 +985,43 @@ func remainingOf(snap *auth.QuotaSnapshot) (float64, bool) {
 			}
 		}
 	}
+	if !found && target != "" {
+		return remainingOf(snap)
+	}
 	return lowest, found
+}
+
+// remainingOf returns the lowest remaining fraction across a snapshot's
+// buckets.
+//
+// The lowest figure is the one that decides whether the account can serve
+// a turn: the five-hour window runs out long before the weekly one.
+func remainingOf(snap *auth.QuotaSnapshot) (float64, bool) {
+	return remainingForModelFamily(snap, "")
+}
+
+type modelFamilyKey struct{}
+type routeSlotKey struct{}
+
+type routeSlot struct {
+	email string
+}
+
+// WithModel returns a context carrying the target model family for routing.
+func WithModel(ctx context.Context, model string) context.Context {
+	return context.WithValue(ctx, modelFamilyKey{}, ModelFamily(model))
+}
+
+// ModelFamilyFromContext extracts the model family if attached to ctx.
+func ModelFamilyFromContext(ctx context.Context) string {
+	if v, ok := ctx.Value(modelFamilyKey{}).(string); ok {
+		return v
+	}
+	return ""
+}
+
+func withRouteSlot(ctx context.Context, slot *routeSlot) context.Context {
+	return context.WithValue(ctx, routeSlotKey{}, slot)
 }
 
 // Wrap returns a transport that runs its turns through the pool.
@@ -754,22 +1077,32 @@ func (c *routedClient) Stream(ctx context.Context, req backend.StreamRequest) (<
 	}
 	cfg := policy.Normalised()
 
+	family := ModelFamily(req.Model)
 	var lastErr error
 	for attempt := 0; attempt < cfg.MaxAttempts; attempt++ {
-		out, err := c.inner.Stream(ctx, req)
+		var slot routeSlot
+		callCtx := withRouteSlot(WithModel(ctx, req.Model), &slot)
+		out, err := c.inner.Stream(callCtx, req)
 		if err == nil {
-			return c.watch(ctx, out), nil
+			return c.watch(ctx, out, slot.email, family), nil
 		}
 		lastErr = err
-		if !backend.IsQuotaReachedErr(err) {
+		if !apierror.IsQuotaReachedErr(err) {
 			return nil, err
 		}
 		if !cfg.SwitchOnQuotaErrorEnabled() {
 			return nil, err
 		}
-		email := c.router.LastRouted()
-		c.router.Exclude(email)
-		c.router.logf("[account-pool] %s is out of quota; trying another account", email)
+		email := slot.email
+		if email == "" {
+			email = c.router.LastRouted()
+		}
+		c.router.ExcludeForModel(email, family)
+		if family != "" {
+			c.router.logf("[account-pool] %s is out of %s quota; trying another account", email, family)
+		} else {
+			c.router.logf("[account-pool] %s is out of quota; trying another account", email)
+		}
 	}
 	return nil, lastErr
 }
@@ -779,13 +1112,17 @@ func (c *routedClient) Stream(ctx context.Context, req backend.StreamRequest) (<
 // A quota error that arrives mid-turn cannot be retried — the turn has
 // already produced output — but it does put the account out of the pool,
 // so the *next* turn goes to another account.
-func (c *routedClient) watch(ctx context.Context, in <-chan backend.StreamChunk) <-chan backend.StreamChunk {
+func (c *routedClient) watch(ctx context.Context, in <-chan backend.StreamChunk, email, family string) <-chan backend.StreamChunk {
 	out := make(chan backend.StreamChunk)
 	go func() {
 		defer close(out)
 		for chunk := range in {
-			if chunk.Error != nil && backend.IsQuotaReachedErr(chunk.Error) {
-				c.router.Exclude(c.router.LastRouted())
+			if chunk.Error != nil && apierror.IsQuotaReachedErr(chunk.Error) {
+				acc := email
+				if acc == "" {
+					acc = c.router.LastRouted()
+				}
+				c.router.ExcludeForModel(acc, family)
 			}
 			select {
 			case out <- chunk:

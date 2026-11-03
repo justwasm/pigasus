@@ -5,8 +5,8 @@ import (
 	"strings"
 
 	"github.com/justwasm/pigasus/diffsyntax"
-	"github.com/justwasm/pigasus/internal/difffold"
-	"github.com/justwasm/pigasus/internal/diffrow"
+	difffold "github.com/justwasm/pigasus/internal/ui/views/diff/fold"
+	diffrow "github.com/justwasm/pigasus/internal/ui/views/diff/row"
 	"github.com/justwasm/pigasus/palette"
 )
 

@@ -10,7 +10,18 @@ import (
 
 	"github.com/justwasm/pigasus/agentbrowser"
 	"github.com/justwasm/pigasus/internal/rcaudio"
-	"github.com/justwasm/pigasus/internal/rcterminal"
+	"github.com/justwasm/pigasus/internal/remotecontrol/cascades"
+	"github.com/justwasm/pigasus/internal/remotecontrol/convconfig"
+	"github.com/justwasm/pigasus/internal/remotecontrol/fastpush"
+	"github.com/justwasm/pigasus/internal/remotecontrol/files"
+	"github.com/justwasm/pigasus/internal/remotecontrol/origins"
+	"github.com/justwasm/pigasus/internal/remotecontrol/permissions"
+	"github.com/justwasm/pigasus/internal/remotecontrol/plugins"
+	"github.com/justwasm/pigasus/internal/remotecontrol/projects"
+	"github.com/justwasm/pigasus/internal/remotecontrol/resources"
+	"github.com/justwasm/pigasus/internal/remotecontrol/terminals"
+	"github.com/justwasm/pigasus/internal/remotecontrol/triggers"
+	"github.com/justwasm/pigasus/rcterminal"
 )
 
 // DefaultPermissions is the file mode used when Config.Permissions is zero.
@@ -28,7 +39,7 @@ const DefaultPermissions os.FileMode = 0o600
 //
 // Cycle rc-cascade-start: the Cascades field is the per-process
 // cascade registry. nil → NewDispatcher builds a fresh one with
-// CascadeRegistryDefaultMax capacity. Every ws connection a
+// cascades.RegistryDefaultMax capacity. Every ws connection a
 // dashboard opens on a given dispatcher shares this registry
 // (matches the brief's "the dispatcher is the cascade home").
 type Config struct {
@@ -52,11 +63,11 @@ type Config struct {
 	// dashboard smoke test; production wiring swaps it in).
 	Reader OutputReader
 	// Cascades is the cascade registry. nil → NewDispatcher
-	// builds a fresh one with CascadeRegistryDefaultMax capacity.
+	// builds a fresh one with cascades.RegistryDefaultMax capacity.
 	// Cycles that need a different cap (the rc-cascade-start
 	// test that asserts overflow behavior, for instance) inject
 	// a custom-built registry here.
-	Cascades *CascadeRegistry
+	Cascades *cascades.Registry
 
 	// ListBackend is the seam the four read-only List… methods
 	// (rc-list-readonly) call into. nil closures fall back to
@@ -70,17 +81,18 @@ type Config struct {
 	// rc-file-ops) call into. nil → the dispatcher rejects
 	// every read with a -32603 "Internal error" (no FS
 	// provider installed); production wiring installs a
-	// WorkdirScope built from the host's cwd + --add-dir +
-	// sandbox flag. Tests inject a MemFS (files.go).
-	FS FSProvider
+	// files.WorkdirScope built from the host's cwd + --add-dir +
+	// sandbox flag. Tests inject a files.MemProvider
+	// (internal/remotecontrol/files/files.go).
+	FS files.Provider
 
 	// Projects is the seam the three project-CRUD methods
 	// (ListRemoteAgentProjects / CreateRemoteAgentProject /
 	// UpdateRemoteAgentProject, cycle rc-projects) call into.
 	// nil → the dispatcher rejects every project call with
 	// a -32603 "Internal error"; production wiring installs
-	// an FSProjectStore rooted at $ANTIGRAVITY_HOME/projects/.
-	Projects ProjectStore
+	// a projects.FSStore rooted at $ANTIGRAVITY_HOME/projects/.
+	Projects projects.Store
 
 	// Conversations is the seam the three destructive
 	// methods introduced in cycle
@@ -127,13 +139,13 @@ type Config struct {
 
 	// MessageBackend is the cascade's runtime seam.
 	// nil → every cascade routes its turns through the
-	// `StubBackend` seeded by `NewCascade`. A non-nil
+	// `StubBackend` seeded by `cascades.New`. A non-nil
 	// value is what the cascade's lazy `Backend()`
 	// accessor picks on first Send call so the cascade
 	// doesn't pin a transport at construction time.
 	//
 	// Cycle rc-piagent-bind adds this.
-	MessageBackend MessageBackend
+	MessageBackend cascades.Backend
 
 	// Browser is the seam the three agent↔browser RPCs
 	// (SubscribeToAgentBrowserRequests /
@@ -165,20 +177,20 @@ type Config struct {
 	// cycle rc-permissions-grants) call into.
 	// nil → the dispatcher rejects every
 	// permission call with -32603; production
-	// wiring installs an FSPermissionStore
+	// wiring installs a permissions.FSStore
 	// rooted at $ANTIGRAVITY_HOME/permissions.json.
-	// Tests inject a MemPermissionStore
-	// (permissions_store.go).
+	// Tests inject a permissions.MemStore
+	// (internal/remotecontrol/permissions/store_mem.go).
 	//
 	// The field is named PermissionsStore (rather
 	// than Permissions) because Config already
 	// carries a `Permissions os.FileMode` field
 	// for the Unix-socket file mode. The two
 	// fields are unrelated.
-	PermissionsStore PermissionStore
+	PermissionsStore permissions.Store
 
 	// PermissionsPath is the absolute path the
-	// production FSPermissionStore loads from /
+	// production permissions.FSStore loads from /
 	// saves to. "" — the default — means
 	// "use auth.AntigravityHome() +
 	// "permissions.json"".
@@ -190,18 +202,18 @@ type Config struct {
 	// methods (ListRemoteAgentPlugins /
 	// DisconnectRemoteAgentPlugin, cycle
 	// rc-plugins) call into. nil → the dispatcher
-	// fabricates a fresh MemPluginStore seeded
-	// with DefaultPluginFixtures; production
-	// wiring installs an FSPluginStore rooted at
+	// fabricates a fresh plugins.MemStore seeded
+	// with plugins.DefaultFixtures; production
+	// wiring installs a plugins.FSStore rooted at
 	// $ANTIGRAVITY_HOME/plugins.json
 	// (cmd/wagyu/remote_control.go owns the
 	// constructor — buildHostPluginStore).
 	//
 	// Cycle rc-plugins adds this.
-	PluginsStore PluginStore
+	PluginsStore plugins.Store
 
 	// PluginsPath is the absolute path the
-	// production FSPluginStore loads from /
+	// production plugins.FSStore loads from /
 	// saves to. "" — the default — means "use
 	// auth.AntigravityHome() + "plugins.json"".
 	//
@@ -215,9 +227,9 @@ type Config struct {
 	// UpdateRemoteAgentTrigger /
 	// DeleteRemoteAgentTrigger, cycle rc-triggers)
 	// call into. nil → the dispatcher fabricates a
-	// fresh empty MemTriggerStore (no entries,
+	// fresh empty triggers.MemStore (no entries,
 	// version=1); production wiring installs an
-	// FSTriggerStore rooted at
+	// triggers.FSStore rooted at
 	// $ANTIGRAVITY_HOME/triggers.json.
 	//
 	// This cycle is **persistence only** — no
@@ -227,10 +239,10 @@ type Config struct {
 	// runner that consumes the on-disk state.
 	//
 	// Cycle rc-triggers adds this.
-	TriggersStore TriggerStore
+	TriggersStore triggers.Store
 
 	// TriggersPath is the absolute path the
-	// production FSTriggerStore loads from /
+	// production triggers.FSStore loads from /
 	// saves to. "" — the default — means "use
 	// auth.AntigravityHome() + "triggers.json"".
 	//
@@ -241,8 +253,8 @@ type Config struct {
 	// SetRemoteAgentFastpushEnabled method
 	// (cycle rc-fastpush-toggle) calls into.
 	// nil → the dispatcher fabricates a fresh
-	// empty MemFastpushStore; production wiring
-	// installs an FSFastpushStore rooted at
+	// empty fastpush.MemStore; production wiring
+	// installs a fastpush.FSStore rooted at
 	// $ANTIGRAVITY_HOME/fastpush.json.
 	//
 	// The fastpush surface is persistence-only
@@ -251,10 +263,10 @@ type Config struct {
 	// explicit sentinel.
 	//
 	// Cycle rc-fastpush-toggle adds this.
-	FastpushStore FastpushStore
+	FastpushStore fastpush.Store
 
 	// FastpushPath is the absolute path the
-	// production FSFastpushStore loads from /
+	// production fastpush.FSStore loads from /
 	// saves to. "" — the default — means "use
 	// auth.AntigravityHome() + "fastpush.json"".
 	//
@@ -268,27 +280,27 @@ type Config struct {
 	// UpdateRemoteAgentProjectResources,
 	// cycle rc-resources) call into. nil →
 	// the dispatcher fabricates a fresh empty
-	// MemResourceStore seeded with the brief's
+	// resources.MemStore seeded with the brief's
 	// fixture set (4 well-known providers + 12
 	// well-known resources); production wiring
-	// installs an FSResourceStore rooted at
+	// installs a resources.FSStore rooted at
 	// $ANTIGRAVITY_HOME/resources.json.
 	//
 	// The Bind path the store exposes writes
 	// back to the project's `Resources` field
-	// via the ProjectStore seam (Config.Projects).
-	// A ResourceStore that has no Projects
+	// via the projects.Store seam (Config.Projects).
+	// A resources.Store that has no Projects
 	// installed returns
-	// ErrResourceProjectNotFound for every Bind
+	// resources.ErrProjectNotFound for every Bind
 	// call — the dispatcher's -32004 envelope
 	// matches the cycle-9/-22 project-not-found
 	// envelope.
 	//
 	// Cycle rc-resources adds this.
-	ResourceStore ResourceStore
+	ResourceStore resources.Store
 
 	// ResourcePath is the absolute path the
-	// production FSResourceStore loads from /
+	// production resources.FSStore loads from /
 	// saves to. "" — the default — means "use
 	// auth.AntigravityHome() + "resources.json"".
 	//
@@ -299,9 +311,9 @@ type Config struct {
 	// single UpsertRemoteAgentConversationConfig
 	// method (cycle rc-conversation-config) calls
 	// into. nil → the dispatcher fabricates a
-	// fresh empty MemConversationConfigStore;
+	// fresh empty convconfig.MemStore;
 	// production wiring installs an
-	// FSConversationConfigStore rooted at
+	// convconfig.FSStore rooted at
 	// $ANTIGRAVITY_HOME/conversation_config.json.
 	//
 	// The cycle is **write-only**: the single
@@ -312,10 +324,10 @@ type Config struct {
 	// ListRemoteAgentConversationConfigs.
 	//
 	// Cycle rc-conversation-config adds this.
-	ConversationConfigStore ConversationConfigStore
+	ConversationConfigStore convconfig.Store
 
 	// ConversationConfigPath is the absolute path
-	// the production FSConversationConfigStore
+	// the production convconfig.FSStore
 	// loads from / saves to. "" — the default —
 	// means "use auth.AntigravityHome() +
 	// "conversation_config.json"".
@@ -327,15 +339,15 @@ type Config struct {
 	// RemoteAgentTerminal* methods (cycle
 	// rc-terminals) call into. nil → the
 	// dispatcher fabricates a fresh empty
-	// TerminalsRegistry; production wires an
-	// in-memory registry.
+	// registry; production wires an in-memory
+	// registry.
 	//
 	// CreateRemoteAgentTerminal wires the
 	// terminal to a cascade (when the dashboard
-	// supplies a cascade_id) by calling
-	// (*TerminalsRegistry).AttachCascade on the
-	// cascade's TerminalOutput() chan.
-	TerminalsRegistry *TerminalsRegistry
+	// supplies a cascade_id) by calling the
+	// registry's AttachCascade on the cascade's
+	// output chan.
+	TerminalsRegistry terminals.Store
 
 	// WebTerminals is the seam the Web UI's terminal methods
 	// (CreateTerminal, ListTerminals, SendTerminalInput,
@@ -364,17 +376,17 @@ type Config struct {
 	// single SetRemoteControlOriginPatterns
 	// method (cycle rc-auth-tokens) calls
 	// into. nil → the dispatcher fabricates
-	// a fresh empty MemOriginPolicyStore;
+	// a fresh empty origins.MemStore;
 	// production wiring installs an
-	// FSOriginPolicyStore rooted at
+	// origins.FSStore rooted at
 	// $ANTIGRAVITY_HOME/origin_policy.json.
 	//
 	// Cycle rc-auth-tokens adds this.
-	OriginPolicyStore OriginPolicyStore
+	OriginPolicyStore origins.Store
 
 	// OriginPolicyPath is the absolute
 	// path the production
-	// FSOriginPolicyStore loads from /
+	// origins.FSStore loads from /
 	// saves to. "" — the default —
 	// means "use auth.AntigravityHome() +
 	// "origin_policy.json"".

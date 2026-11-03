@@ -2,6 +2,7 @@ package cliapp
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"path/filepath"
 	"strings"
@@ -9,25 +10,21 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	piagent "github.com/MichaelKinsy/PiG/agent"
-
-	"github.com/justwasm/pigasus/internal/accounts"
-	"github.com/justwasm/pigasus/internal/agent"
-	"github.com/justwasm/pigasus/internal/agyprompt"
-	"github.com/justwasm/pigasus/internal/auth"
-	"github.com/justwasm/pigasus/internal/backend"
-	"github.com/justwasm/pigasus/internal/browsersubagent"
-	"github.com/justwasm/pigasus/internal/cliflags"
-	"github.com/justwasm/pigasus/internal/compaction"
+	"github.com/justwasm/pigasus/agentlink"
+	"github.com/justwasm/pigasus/internal/app/agentturn"
+	"github.com/justwasm/pigasus/internal/app/prompt/agyprompt"
+	"github.com/justwasm/pigasus/internal/app/session/setup"
+	browsersubagent "github.com/justwasm/pigasus/internal/app/subagent/browser"
+	"github.com/justwasm/pigasus/internal/core/backend"
+	"github.com/justwasm/pigasus/internal/core/cliflags"
+	"github.com/justwasm/pigasus/internal/core/compaction"
+	confhome "github.com/justwasm/pigasus/internal/core/confhome"
+	"github.com/justwasm/pigasus/internal/core/policy/permissions"
+	accounts "github.com/justwasm/pigasus/internal/features/accounts/core"
+	"github.com/justwasm/pigasus/internal/features/auth"
 	"github.com/justwasm/pigasus/internal/pigrt"
-	"github.com/justwasm/pigasus/internal/tuilib"
+	"github.com/justwasm/pigasus/internal/ui/toolsteps"
 )
-
-// firstLine returns the first line of s — the text up to the first newline.
-// The rule itself now lives in internal/tuilib.
-func firstLine(s string) string {
-	return tuilib.FirstLine(s)
-}
 
 // prepareStreamTurnMessages turns the session into the messages the turn
 // hands to the model.
@@ -66,212 +63,315 @@ func (m *runMode) prepareStreamTurnMessages() []backend.Message {
 	return msgs
 }
 
-func (m *runMode) wrapToolRunner(runner agent.ToolRunner, prog *tea.Program, steps *[]toolStep) agent.ToolRunner {
-	if runner == nil {
-		return nil
+// turnEngine is the engine the session's turns run on.
+//
+// A session that is not attached to a server runs its turns in this
+// process; a session that is attached runs them on the server. Both
+// answer with the same frames, so the transcript does not know which one
+// it is rendering.
+//
+// A run mode built by hand — a test, a snapshot — has no engine yet, and
+// gets the local one.
+func (m *runMode) turnEngine() agentturn.Engine {
+	if m.engine != nil {
+		return m.engine
 	}
-	return &tuiToolRunner{
-		inner: runner,
-		onStart: func(call backend.ToolCall) {
-			if prog != nil {
-				prog.Send(toolRunningMsg{step: newRunningStep(call.Name, call.Arguments)})
-			}
-		},
-		onEnd: func(call backend.ToolCall, res string, err error) {
-			st := newToolStep(call.Name, call.Arguments, res, err != nil)
-			*steps = append(*steps, st)
-			if prog != nil {
-				prog.Send(toolStepMsg{step: st})
-			}
-		},
+	return agentturn.NewLocal(m.localTurnEnv)
+}
+
+// localTurnEnv builds the environment one local turn runs in.
+//
+// The environment is built per turn: the transport, the prompt and the
+// tool set belong to the session, and the session changes them between
+// two turns — the user switches the model, a plugin installs a tool, the
+// workspace moves.
+func (m *runMode) localTurnEnv(ctx context.Context, model string) (agentturn.Env, func()) {
+	be := m.backend
+	extras, closeSub := m.subAgentExtras(ctx, be, model)
+	return agentturn.Env{
+		Backend:      be,
+		Model:        model,
+		SystemPrompt: m.systemPrompt(),
+		Tools:        m.tools,
+		ToolRunner:   m.toolRunner,
+		ExtraTools:   extras,
+		Effort:       m.currentEffortName(),
+	}, closeSub
+}
+
+// turnCollector turns a turn's frames into the rows the transcript draws.
+//
+// The frames are the protocol's, not the transcript's: a turn that ran
+// here and a turn that ran on a server produce the same frames, and this
+// collector is the one place that knows how a frame becomes a row. One
+// collector serves both, so the two paths cannot render differently.
+type turnCollector struct {
+	// prog is the running program the rows are posted to. It is nil
+	// when there is no program — the collector still counts the turn.
+	prog *tea.Program
+
+	// reply is the answer as it arrived, and reasoning the thinking.
+	reply     strings.Builder
+	reasoning strings.Builder
+
+	// steps are the tool calls the turn made, in order.
+	steps []toolsteps.Step
+
+	// thoughtStart is when the first thinking delta arrived, and
+	// compactStart when the compaction began.
+	thoughtStart time.Time
+	compactStart time.Time
+
+	// thoughtSent records that the thought row was already opened.
+	thoughtSent bool
+
+	// meta is the turn's token accounting.
+	meta *backend.ChunkMeta
+
+	// err is the turn's terminal failure.
+	err error
+}
+
+// text renders a text delta.
+func (c *turnCollector) text(s string) {
+	if s == "" {
+		return
+	}
+	c.reply.WriteString(s)
+	if c.prog != nil {
+		c.prog.Send(backendChunkMsg(s))
 	}
 }
 
-type streamCollector struct {
-	full      *strings.Builder
-	sanitizer *agent.Sanitizer
-	done      bool
-	meta      **backend.ChunkMeta
-	prog      *tea.Program
-	runMode   *runMode
+// thought renders a reasoning delta.
+//
+// The reference shows one thought row per turn, not one per delta: the
+// first delta opens the row, the rest fill it.
+func (c *turnCollector) thoughtDelta(s string) {
+	if s == "" {
+		return
+	}
+	c.reasoning.WriteString(s)
+	if c.thoughtStart.IsZero() {
+		c.thoughtStart = time.Now()
+	}
+	if !c.thoughtSent {
+		c.thoughtSent = true
+		if c.prog != nil {
+			c.prog.Send(toolsteps.ThoughtStartMsg{})
+		}
+	}
+	if c.prog != nil {
+		c.prog.Send(toolsteps.ThoughtChunkMsg{Delta: s})
+	}
 }
 
-func (sc *streamCollector) handleChunkError(err error) {
-	if ee := AsEligibilityError(err); ee != nil {
-		if sc.prog != nil {
-			sc.prog.Send(eligibilityNoticeMsg{
-				Reason:          ee.Reason,
-				VerificationURL: ee.VerificationURL,
+// tool renders a tool call's start, or its outcome.
+//
+// The call is reported twice: once when it starts, so the transcript can
+// paint the row while the tool runs, and once when it ends, with the
+// tool's own output.
+func (c *turnCollector) tool(t *agentlink.Tool) {
+	if t == nil {
+		return
+	}
+	args := json.RawMessage(t.Args)
+	switch t.Phase {
+	case agentlink.ToolStart:
+		if c.prog != nil {
+			c.prog.Send(toolsteps.ToolRunningMsg{Step: toolsteps.NewRunningStep(t.Name, args)})
+		}
+	case agentlink.ToolEnd:
+		step := toolsteps.NewToolStep(t.Name, args, t.Result, t.Err)
+		c.steps = append(c.steps, step)
+		if c.prog != nil {
+			c.prog.Send(toolsteps.ToolStepMsg{Step: step})
+		}
+	}
+}
+
+// compact renders a compaction's start, or its outcome.
+//
+// The duration is the server's own: the client cannot measure how long a
+// compaction took on the other side of the wire.
+func (c *turnCollector) compact(cm *agentlink.Compact) {
+	if cm == nil {
+		return
+	}
+	switch cm.Phase {
+	case agentlink.CompactStart:
+		c.compactStart = time.Now()
+		if c.prog != nil {
+			c.prog.Send(compactStartMsg{Reason: cm.Reason, StartedAt: c.compactStart})
+		}
+	case agentlink.CompactEnd:
+		ended := time.Now()
+		if !c.compactStart.IsZero() && cm.ElapsedMS > 0 {
+			ended = c.compactStart.Add(time.Duration(cm.ElapsedMS) * time.Millisecond)
+		}
+		if c.prog != nil {
+			c.prog.Send(compactEndMsg{
+				Reason:               cm.Reason,
+				EndedAt:              ended,
+				Summary:              cm.Summary,
+				TokensBefore:         cm.TokensBefore,
+				EstimatedTokensAfter: cm.TokensAfter,
+				Aborted:              cm.Aborted,
 			})
 		}
+	}
+}
+
+// notice renders an out-of-band notice.
+func (c *turnCollector) notice(n *agentlink.Notice) {
+	if n == nil {
 		return
 	}
-	errmsg := err.Error()
-	var he *backend.HTTPError
-	if errors.As(err, &he) && he.IsScopeMismatch() {
-		errmsg = errmsg + " " + backend.OAuthScopeHintMessage
-	}
-	if sc.prog != nil {
-		sc.prog.Send(backendChunkMsg(errmsg))
+	switch n.Kind {
+	case agentlink.NoticeAutoCont:
+		if c.prog != nil {
+			c.prog.Send(autoContBannerMsg{depth: n.Depth, maxDepth: n.MaxDepth})
+		}
+	case agentlink.NoticeEligibility:
+		if c.prog != nil {
+			c.prog.Send(eligibilityNoticeMsg{Reason: n.Text, VerificationURL: n.URL})
+		}
+	case agentlink.NoticeError:
+		if c.prog != nil {
+			c.prog.Send(backendChunkMsg(n.Text))
+		}
 	}
 }
 
-func (sc *streamCollector) handleChunk(chunk backend.StreamChunk) error {
-	if chunk.Error != nil {
-		sc.handleChunkError(chunk.Error)
-		return nil
-	}
-	if chunk.Meta != nil {
-		*sc.meta = chunk.Meta
-		sc.runMode.recordTurnUsage(chunk.Meta)
-	}
-	if chunk.Text != "" {
-		sanitized := sc.sanitizer.Push(chunk.Text)
-		sc.full.WriteString(sanitized)
-		if sc.prog != nil {
-			sc.prog.Send(backendChunkMsg(sanitized))
-		}
-	}
-	if chunk.Done && !sc.done {
-		sc.done = true
-		sc.full.WriteString(sc.sanitizer.Finish())
-	}
-	return nil
-}
-
-func (m *runMode) buildLoopOptions(be backend.Client, model string, decls []backend.ToolDecl, wrapped agent.ToolRunner, extras []piagent.AgentTool, sc *streamCollector) agent.Options {
-	return agent.Options{
-		Backend:         be,
-		SystemPrompt:    m.systemPrompt(),
-		Handler:         sc.handleChunk,
-		DefaultModel:    model,
-		MaxTurns:        1,
-		Tools:           decls,
-		ToolRunner:      wrapped,
-		ExtraAgentTools: extras,
-		Effort:          m.currentEffortName(),
-		AutoCont:        true,
-		OnCompactionStart: func(reason string, startedAt time.Time) {
-			if sc.prog != nil {
-				sc.prog.Send(compactStartMsg{Reason: reason, StartedAt: startedAt})
-			}
-		},
-		OnCompactionEnd: func(reason string, endedAt time.Time, summary string, tokensBefore, tokensAfter int, aborted bool) {
-			if sc.prog != nil {
-				sc.prog.Send(compactEndMsg{
-					Reason:               reason,
-					EndedAt:              endedAt,
-					Summary:              summary,
-					TokensBefore:         tokensBefore,
-					EstimatedTokensAfter: tokensAfter,
-					Aborted:              aborted,
-				})
-			}
-		},
-		AutoContBanner: func(depth, maxDepth int) {
-			if sc.prog != nil {
-				sc.prog.Send(autoContBannerMsg{depth: depth, maxDepth: maxDepth})
-			}
-		},
-	}
-}
-
-func initThoughtSanitizer(thought *strings.Builder, thoughtStart *time.Time, prog *tea.Program) *agent.Sanitizer {
-	sanitizer := agent.NewSanitizer()
-	thoughtSent := false
-	sanitizer.OnThought = func(t string) {
-		if t == "" {
-			return
-		}
-		if thoughtStart.IsZero() {
-			*thoughtStart = time.Now()
-		}
-		thought.WriteString(t)
-		if !thoughtSent {
-			thoughtSent = true
-			if prog != nil {
-				prog.Send(thoughtStartMsg{})
-			}
-		}
-	}
-	return sanitizer
-}
-
-func appendThoughtStep(steps *[]toolStep, thought *strings.Builder, thoughtStart time.Time, meta *backend.ChunkMeta) {
-	if thought.Len() == 0 {
+// usage records token accounting from an incoming agentlink frame or turn result.
+func (c *turnCollector) usage(u *agentlink.Usage) {
+	if u == nil {
 		return
 	}
-	tokens := 0
-	if meta != nil {
-		tokens = meta.ReasoningTokens
+	c.meta = &backend.ChunkMeta{
+		PromptTokens:     u.PromptTokens,
+		CompletionTokens: u.CompletionTokens,
+		TotalTokens:      u.TotalTokens,
+		ReasoningTokens:  u.ReasoningTokens,
 	}
-	*steps = append([]toolStep{{
-		kind:   stepKindThought,
-		name:   "thinking",
-		detail: strings.TrimSpace(thought.String()),
-		dur:    time.Since(thoughtStart),
-		tokens: tokens,
-	}}, *steps...)
 }
 
-func (m *runMode) runStreamTurnLoop(ctx context.Context, be backend.Client, model string, msgs []backend.Message) tea.Msg {
-	var steps []toolStep
-	wrapped := m.wrapToolRunner(m.toolRunner, m.prog, &steps)
-
-	var full, thought strings.Builder
-	var thoughtStart time.Time
-	sanitizer := initThoughtSanitizer(&thought, &thoughtStart, m.prog)
-	var meta *backend.ChunkMeta
-
-	extras, closeSub := m.subAgentExtras(ctx, be, model)
-	defer closeSub()
-
-	sc := &streamCollector{
-		full:      &full,
-		sanitizer: sanitizer,
-		meta:      &meta,
-		prog:      m.prog,
-		runMode:   m,
+// result ends the turn.
+//
+// The result carries the whole answer, including the tail the stream
+// held back, so it replaces what the text deltas accumulated. The token
+// accounting rides on it too.
+func (c *turnCollector) result(f agentlink.Frame) {
+	if f.Usage != nil {
+		c.usage(f.Usage)
 	}
+	if f.Error != "" {
+		c.err = errors.New(f.Error)
+	}
+	if f.Result == nil {
+		return
+	}
+	if f.Result.Reply != "" {
+		c.reply.Reset()
+		c.reply.WriteString(f.Result.Reply)
+	}
+	if f.Result.Reasoning != "" {
+		c.reasoning.Reset()
+		c.reasoning.WriteString(f.Result.Reasoning)
+	}
+}
 
-	opts := m.buildLoopOptions(be, model, m.tools, wrapped, extras, sc)
-	loop, err := agent.New(opts)
+// runTurn drives one turn and renders it.
+//
+// The engine is the turn's host: the local one runs the turn here, the
+// remote one runs it on a server. Both answer with the same frames, so
+// this function does not know which one it is talking to.
+func (m *runMode) runTurn(ctx context.Context, msgs []backend.Message) tea.Msg {
+	// The documented hooks bracket the turn: SessionStart fires once
+	// per session, before the first model invocation, and Stop fires
+	// when the execution loop terminates.
+	m.hookSessionStart(ctx)
+	m.hookPreInvocation(ctx)
+	defer m.hookStop(ctx)
+	defer m.hookPostInvocation(ctx)
+	frames, err := m.turnEngine().Turn(ctx, agentturn.Turn{
+		Model:   m.turnModel(),
+		History: agentturn.ToWireMessages(msgs),
+	})
 	if err != nil {
 		return backendDoneMsg{}
 	}
-	defer loop.Close()
-
-	sendErr := loop.Send(ctx, agent.TurnInput{Messages: msgs})
-	if ctx.Err() != nil {
-		sendErr = nil
+	c := &turnCollector{prog: m.prog}
+	for f := range frames {
+		if f.Usage != nil {
+			c.usage(f.Usage)
+		}
+		switch f.Kind {
+		case agentlink.KindText:
+			c.text(f.Text)
+		case agentlink.KindThought:
+			c.thoughtDelta(f.Text)
+		case agentlink.KindTool:
+			c.tool(f.Tool)
+		case agentlink.KindCompact:
+			c.compact(f.Compact)
+		case agentlink.KindNotice:
+			c.notice(f.Notice)
+		case agentlink.KindResult:
+			c.result(f)
+		}
 	}
-	appendThoughtStep(&steps, &thought, thoughtStart, meta)
+	if c.meta != nil {
+		m.recordTurnUsage(c.meta)
+	}
+	var reasoningTokens int
+	if c.meta != nil {
+		reasoningTokens = c.meta.ReasoningTokens
+	}
+	c.steps = toolsteps.AppendThoughtStep(c.steps, c.reasoning.String(), time.Since(c.thoughtStart), reasoningTokens)
 
-	out := full.String()
-	if out == "" && len(steps) == 0 && sendErr == nil {
+	out := c.reply.String()
+	if out == "" && len(c.steps) == 0 && c.err == nil {
 		return backendDoneMsg{}
 	}
-	return turnDoneMsg{reply: out, steps: steps, reasoning: thought.String(), err: sendErr}
+	var tm toolsteps.TokenMetrics
+	if c.meta != nil {
+		tm = toolsteps.TokenMetrics{
+			Input:     c.meta.PromptTokens,
+			Output:    c.meta.CompletionTokens,
+			Reasoning: c.meta.ReasoningTokens,
+		}
+	}
+	return toolsteps.TurnDoneMsg{
+		Reply:        out,
+		Steps:        c.steps,
+		Reasoning:    c.reasoning.String(),
+		Err:          c.err,
+		TokenMetrics: tm,
+	}
+}
+
+// turnModel is the model the session's turns run under.
+func (m *runMode) turnModel() string {
+	if m.model != "" {
+		return m.model
+	}
+	return "claude-4.5-sonnet"
 }
 
 func (m *runMode) streamPrompt(prompt string) tea.Cmd {
-	be := m.backend
-	model := m.model
-	if model == "" {
-		model = "claude-4.5-sonnet"
-	}
+	// The messages are prepared on the Update goroutine: the preparation
+	// drains the task inbox and the implicit trajectory, and both belong
+	// to the session.
 	msgs := m.prepareStreamTurnMessages()
 
 	return func() tea.Msg {
-		if be == nil {
-			return backendDoneMsg{}
-		}
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 		m.turnCancel = cancel
 		defer func() { m.turnCancel = nil }()
 
-		return m.runStreamTurnLoop(ctx, be, model, msgs)
+		return m.runTurn(ctx, msgs)
 	}
 }
 
@@ -386,7 +486,7 @@ func (m *runMode) promptOptions() agyprompt.Options {
 	if conversationID == "" {
 		conversationID = newConversationID()
 	}
-	agentDir := auth.AntigravityConfigHome()
+	agentDir := confhome.Antigravity()
 	opts := agyprompt.DefaultOptions(workspace, agentDir, conversationID)
 	if m.flags != nil {
 		for _, dir := range cliflags.GetterStringValues(m.flags, "add-dir") {
@@ -397,13 +497,14 @@ func (m *runMode) promptOptions() agyprompt.Options {
 	}
 	opts.UserRules = agyprompt.DiscoverUserRules(workspace, agentDir)
 	opts.Skills = agyprompt.DiscoverSkills(pigrt.AgySkillPaths(agentDir, m.cwd))
+	opts.PlanningMode = (m.mode == permissions.ModePlan)
 	if m.agentBody == "" {
 		// The browser agent is one of the built-in subagent types, and it
 		// comes before the user's own agents: the reference's list puts
 		// its built-ins first (the 1.4.6 capture lists self, research and
 		// image-generator ahead of the user's alpha and zeta).
 		opts.Subagents = append(opts.Subagents, browsersubagent.Subagent())
-		opts.Subagents = append(opts.Subagents, customSubagents()...)
+		opts.Subagents = append(opts.Subagents, setup.CustomSubagents()...)
 	}
 	return opts
 }
@@ -417,19 +518,11 @@ func (m *runMode) promptSectionTokens() (base, skills, subagents int) {
 		return len(full) / 3, 0, 0
 	}
 	full := agyprompt.Build(opts)
-	skills = promptSectionTokenCount("skills", agyprompt.SectionBody(opts, "skills"))
-	subagents = promptSectionTokenCount("subagents", agyprompt.SectionBody(opts, "subagents"))
+	skills = agyprompt.SectionTokenCount("skills", agyprompt.SectionBody(opts, "skills"))
+	subagents = agyprompt.SectionTokenCount("subagents", agyprompt.SectionBody(opts, "subagents"))
 	base = (len(full) - skills*3 - subagents*3) / 3
 	if base < 0 {
 		base = 0
 	}
 	return base, skills, subagents
-}
-
-// promptSectionTokenCount measures one complete XML section.
-func promptSectionTokenCount(name, body string) int {
-	if body == "" {
-		return 0
-	}
-	return (len(body) + 2*len(name) + 2 + 1) / 3
 }

@@ -6,14 +6,15 @@ import (
 	"os"
 	"strings"
 
-	"github.com/justwasm/pigasus/internal/agyprompt"
-	"github.com/justwasm/pigasus/internal/auth"
-	"github.com/justwasm/pigasus/internal/backend"
-	"github.com/justwasm/pigasus/internal/backendselect"
-	"github.com/justwasm/pigasus/internal/cascade"
-	"github.com/justwasm/pigasus/internal/modelcatalog"
+	"github.com/justwasm/pigasus/internal/app/prompt/agyprompt"
+	"github.com/justwasm/pigasus/internal/core/backend"
+	confhome "github.com/justwasm/pigasus/internal/core/confhome"
+	cascade "github.com/justwasm/pigasus/internal/core/lifecycle"
+	settings "github.com/justwasm/pigasus/internal/core/settings"
+	modelcatalog "github.com/justwasm/pigasus/internal/features/models/catalog"
+	backendselect "github.com/justwasm/pigasus/internal/infra/backend/select"
 	"github.com/justwasm/pigasus/internal/modular"
-	"github.com/justwasm/pigasus/internal/tools"
+	"github.com/justwasm/pigasus/internal/app/tools"
 )
 
 
@@ -59,7 +60,7 @@ func (e *Engine) Send(ctx context.Context, input modular.TurnInput) (*modular.Tu
 	// 1. Resolve Model
 	modelName := input.Model
 	if modelName == "" {
-		modelName = auth.ResolveSettingsModel("Gemini 3.8 Flash (High)")
+		modelName = settings.ResolveModel("Gemini 3.8 Flash (High)")
 	}
 	resolvedModel, err := modelcatalog.ResolveModelSelection(modelName, input.Effort)
 	if err == nil && resolvedModel != "" {
@@ -84,7 +85,7 @@ func (e *Engine) Send(ctx context.Context, input modular.TurnInput) (*modular.Tu
 	sysPrompt := input.SystemPrompt
 	if sysPrompt == "" {
 		cwd, _ := os.Getwd()
-		appData := auth.AntigravityConfigHome()
+		appData := confhome.Antigravity()
 		convID := agyprompt.NewConversationID()
 		opts := agyprompt.DefaultOptions(cwd, appData, convID)
 		sysPrompt = agyprompt.Build(opts)
@@ -138,6 +139,7 @@ func (e *Engine) Send(ctx context.Context, input modular.TurnInput) (*modular.Tu
 
 		var assistantText strings.Builder
 		var accumulatedToolCalls []backend.ToolCall
+		var thinkingBlocks []backend.ThinkingBlock
 
 		for chunk := range streamCh {
 			if chunk.Error != nil {
@@ -160,6 +162,9 @@ func (e *Engine) Send(ctx context.Context, input modular.TurnInput) (*modular.Tu
 				res.InputTokens += chunk.Meta.PromptTokens
 				res.OutputTokens += chunk.Meta.CompletionTokens
 			}
+			if len(chunk.ThinkingBlocks) > 0 {
+				thinkingBlocks = append(thinkingBlocks, chunk.ThinkingBlocks...)
+			}
 		}
 
 		// If no tool calls were requested, we are done
@@ -167,11 +172,14 @@ func (e *Engine) Send(ctx context.Context, input modular.TurnInput) (*modular.Tu
 			break
 		}
 
-		// Append the assistant's request-to-act turn
+		// Append the assistant's request-to-act turn, preserving thinking
+		// blocks so the Anthropic API can verify the signature on the next
+		// turn. Non-Anthropic backends leave ThinkingBlocks nil.
 		messages = append(messages, backend.Message{
-			Role:      "assistant",
-			Content:   assistantText.String(),
-			ToolCalls: accumulatedToolCalls,
+			Role:           "assistant",
+			Content:        assistantText.String(),
+			ToolCalls:      accumulatedToolCalls,
+			ThinkingBlocks: thinkingBlocks,
 		})
 
 		// Execute all requested tool calls

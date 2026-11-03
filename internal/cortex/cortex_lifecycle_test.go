@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/justwasm/pigasus/internal/cascade"
+	cascade "github.com/justwasm/pigasus/internal/core/lifecycle"
 )
 
 // TestCortexLifecycle_FSM walks the 6-state FSM (init -> ready ->

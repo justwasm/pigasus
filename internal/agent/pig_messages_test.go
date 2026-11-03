@@ -8,7 +8,8 @@ import (
 	piagent "github.com/MichaelKinsy/PiG/agent"
 	pi "github.com/MichaelKinsy/PiG/ai"
 
-	"github.com/justwasm/pigasus/internal/backend"
+	"github.com/justwasm/pigasus/internal/core/backend"
+	gatewayapi "github.com/justwasm/pigasus/internal/infra/backend/gateway"
 	"github.com/justwasm/pigasus/internal/piagentbridge"
 )
 
@@ -150,7 +151,7 @@ func TestAttachedPictureReachesTheTransport(t *testing.T) {
 func TestAttachedPictureReachesTheGatewayRequest(t *testing.T) {
 	payload := []byte{0x89, 'P', 'N', 'G', 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x01}
 	gateway := newScriptedGateway(t, []string{gatewayText("a picture"), gatewayFinish("stop"), "[DONE]"})
-	client := &countingGatewayBackend{cfg: backend.GatewayConfig{
+	client := &countingGatewayBackend{cfg: gatewayapi.GatewayConfig{
 		URL:            gateway.server.URL,
 		APIKey:         "test",
 		ExternalModel:  "MiniMax-M3",

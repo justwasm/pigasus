@@ -40,7 +40,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/justwasm/pigasus/internal/tools"
+	"github.com/justwasm/pigasus/internal/app/tools/shell"
+	"github.com/justwasm/pigasus/internal/remotecontrol/cascades"
+	"github.com/justwasm/pigasus/internal/remotecontrol/rpc"
 )
 
 // The statuses the cancel puts on a step.
@@ -65,7 +67,7 @@ const (
 // IDE's own names win over the clone's legacy ones — the legacy
 // `CancelRemoteAgentCascade` answers with its own envelope and stays
 // where it is.
-func (d *Dispatcher) routeLSCancelMethods(ctx context.Context, method string, params json.RawMessage) (any, *rpcErrorBody, bool) {
+func (d *Dispatcher) routeLSCancelMethods(ctx context.Context, method string, params json.RawMessage) (any, *rpc.ErrorBody, bool) {
 	switch method {
 	case "CancelCascadeInvocation":
 		return d.handleLSCancelCascadeInvocation(ctx, params)
@@ -85,26 +87,26 @@ func (d *Dispatcher) routeLSCancelMethods(ctx context.Context, method string, pa
 //
 // The answer is the empty message the proto declares
 // (CancelCascadeInvocationResponse has no fields).
-func (d *Dispatcher) handleLSCancelCascadeInvocation(ctx context.Context, params json.RawMessage) (any, *rpcErrorBody, bool) {
+func (d *Dispatcher) handleLSCancelCascadeInvocation(ctx context.Context, params json.RawMessage) (any, *rpc.ErrorBody, bool) {
 	if d == nil || d.cascades == nil {
-		return nil, &rpcErrorBody{Code: -32603, Message: "Internal error", Data: "registry not initialised"}, true
+		return nil, &rpc.ErrorBody{Code: -32603, Message: "Internal error", Data: "registry not initialised"}, true
 	}
 	fields, err := lsParams(params)
 	if err != nil {
-		return nil, &rpcErrorBody{Code: -32602, Message: "Invalid params", Data: err.Error()}, true
+		return nil, &rpc.ErrorBody{Code: -32602, Message: "Invalid params", Data: err.Error()}, true
 	}
 	cascadeID := lsStringField(fields, "cascadeId", "cascade_id")
 	if cascadeID == "" {
-		return nil, &rpcErrorBody{Code: -32602, Message: "Invalid params", Data: "cascadeId is required"}, true
+		return nil, &rpc.ErrorBody{Code: -32602, Message: "Invalid params", Data: "cascadeId is required"}, true
 	}
 	c, ok := d.lsCascadeFor(cascadeID)
 	if !ok {
-		return nil, &rpcErrorBody{Code: ErrCodeCascadeNotFound, Message: "Cascade not found", Data: cascadeID}, true
+		return nil, &rpc.ErrorBody{Code: rpc.ErrCodeCascadeNotFound, Message: "Cascade not found", Data: cascadeID}, true
 	}
 	d.lsCancelCascade(c, "user requested")
 	// The button asks for the background tasks to die with the turn.
 	if lsBoolField(fields, "killBackgroundTasks", "kill_background_tasks") {
-		tools.KillConversationTasks(cascadeID)
+		shell.KillConversationTasks(cascadeID)
 	}
 	// notify_parent tells a parent cascade that its child was
 	// cancelled. The clone has no cascade tree — no subagent runs under
@@ -116,21 +118,21 @@ func (d *Dispatcher) handleLSCancelCascadeInvocation(ctx context.Context, params
 //
 // The request names the conversation, the answer lists the conversations
 // that were stopped.
-func (d *Dispatcher) handleLSForceStopCascadeTree(params json.RawMessage) (any, *rpcErrorBody, bool) {
+func (d *Dispatcher) handleLSForceStopCascadeTree(params json.RawMessage) (any, *rpc.ErrorBody, bool) {
 	if d == nil || d.cascades == nil {
-		return nil, &rpcErrorBody{Code: -32603, Message: "Internal error", Data: "registry not initialised"}, true
+		return nil, &rpc.ErrorBody{Code: -32603, Message: "Internal error", Data: "registry not initialised"}, true
 	}
 	fields, err := lsParams(params)
 	if err != nil {
-		return nil, &rpcErrorBody{Code: -32602, Message: "Invalid params", Data: err.Error()}, true
+		return nil, &rpc.ErrorBody{Code: -32602, Message: "Invalid params", Data: err.Error()}, true
 	}
 	conversationID := lsStringField(fields, "conversationId", "conversation_id")
 	if conversationID == "" {
-		return nil, &rpcErrorBody{Code: -32602, Message: "Invalid params", Data: "conversationId is required"}, true
+		return nil, &rpc.ErrorBody{Code: -32602, Message: "Invalid params", Data: "conversationId is required"}, true
 	}
 	c, ok := d.lsCascadeFor(conversationID)
 	if !ok {
-		return nil, &rpcErrorBody{Code: ErrCodeCascadeNotFound, Message: "Cascade not found", Data: conversationID}, true
+		return nil, &rpc.ErrorBody{Code: rpc.ErrCodeCascadeNotFound, Message: "Cascade not found", Data: conversationID}, true
 	}
 	d.lsCancelCascade(c, "user requested")
 	return map[string]any{
@@ -148,21 +150,21 @@ func (d *Dispatcher) handleLSForceStopCascadeTree(params json.RawMessage) (any, 
 // A step that names a background task is killed; every step that was
 // named is marked cancelled, because that is what the button asked for
 // and the Web UI renders a cancelled step as "Canceled".
-func (d *Dispatcher) handleLSCancelCascadeSteps(params json.RawMessage) (any, *rpcErrorBody, bool) {
+func (d *Dispatcher) handleLSCancelCascadeSteps(params json.RawMessage) (any, *rpc.ErrorBody, bool) {
 	if d == nil || d.cascades == nil {
-		return nil, &rpcErrorBody{Code: -32603, Message: "Internal error", Data: "registry not initialised"}, true
+		return nil, &rpc.ErrorBody{Code: -32603, Message: "Internal error", Data: "registry not initialised"}, true
 	}
 	fields, err := lsParams(params)
 	if err != nil {
-		return nil, &rpcErrorBody{Code: -32602, Message: "Invalid params", Data: err.Error()}, true
+		return nil, &rpc.ErrorBody{Code: -32602, Message: "Invalid params", Data: err.Error()}, true
 	}
 	cascadeID := lsStringField(fields, "cascadeId", "cascade_id")
 	if cascadeID == "" {
-		return nil, &rpcErrorBody{Code: -32602, Message: "Invalid params", Data: "cascadeId is required"}, true
+		return nil, &rpc.ErrorBody{Code: -32602, Message: "Invalid params", Data: "cascadeId is required"}, true
 	}
 	c, ok := d.lsCascadeFor(cascadeID)
 	if !ok {
-		return nil, &rpcErrorBody{Code: ErrCodeCascadeNotFound, Message: "Cascade not found", Data: cascadeID}, true
+		return nil, &rpc.ErrorBody{Code: rpc.ErrCodeCascadeNotFound, Message: "Cascade not found", Data: cascadeID}, true
 	}
 	d.lsCancelSteps(d.trajectories.Get(c.ID), lsUint32Fields(fields, "stepIndices", "step_indices"))
 	return map[string]any{}, nil, true
@@ -181,7 +183,7 @@ func (d *Dispatcher) handleLSCancelCascadeSteps(params json.RawMessage) (any, *r
 //
 // The first one stops the turn; the second one is the cascade's own
 // bookkeeping.
-func (d *Dispatcher) lsCancelCascade(c *Cascade, reason string) bool {
+func (d *Dispatcher) lsCancelCascade(c *cascades.Cascade, reason string) bool {
 	if c == nil {
 		return false
 	}
@@ -195,7 +197,7 @@ func (d *Dispatcher) lsCancelCascade(c *Cascade, reason string) bool {
 	}
 	fired := c.Cancel(reason)
 	if fired {
-		c.recordCancel(reason, time.Now().UTC())
+		c.RecordCancel(reason, time.Now().UTC())
 	}
 	return interrupted || fired
 }
@@ -217,7 +219,7 @@ func (d *Dispatcher) lsCancelSteps(traj *lsTrajectory, indices []uint32) []strin
 		step["status"] = lsStepStatusCanceled
 		traj.Update(int(index), step)
 		if id := lsBackgroundTaskID(step); id != "" {
-			if err := tools.KillBackgroundTask(id); err == nil {
+			if err := shell.KillBackgroundTask(id); err == nil {
 				killed = append(killed, id)
 			}
 		}
@@ -284,7 +286,7 @@ func lsStepStatusOf(step map[string]any) int {
 // carries. A conversation id is looked up too: the cascade's own
 // conversation id is what its first turn produced, and a caller that
 // knows only the conversation has to find the cascade as well.
-func (d *Dispatcher) lsCascadeFor(id string) (*Cascade, bool) {
+func (d *Dispatcher) lsCascadeFor(id string) (*cascades.Cascade, bool) {
 	if d == nil || d.cascades == nil || id == "" {
 		return nil, false
 	}
@@ -301,19 +303,6 @@ func (d *Dispatcher) lsCascadeFor(id string) (*Cascade, bool) {
 		}
 	}
 	return nil, false
-}
-
-// ConvID returns the cascade's conversation id.
-//
-// The field is written under the cascade's lock when a turn produces
-// one, so the reader takes the lock too.
-func (c *Cascade) ConvID() string {
-	if c == nil {
-		return ""
-	}
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return c.ConversationID
 }
 
 // Interrupted reports whether the turn in flight was interrupted.

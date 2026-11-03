@@ -111,7 +111,7 @@ resolve_toolchain
 
 # Common paths
 PROJ="$REPO_ROOT/out/local-macos/proj"
-SCRIPTS="$REPO_ROOT/out/local-macos/ghidra-scripts"
+SCRIPTS="$REPO_ROOT/scripts/re/ghidra-scripts"
 SEEDS_DIR="$REPO_ROOT/out/local-macos/seeds"
 TOKENS_DIR="$REPO_ROOT/out/local-macos/tokens"
 PCLNSEEDS_BIN="/tmp/pclnseeds"

@@ -154,43 +154,30 @@ func (s *State) wordEndForward(row, col int, big bool) pos {
 }
 
 // applyWordMotion moves the cursor for word and WORD motions.
-func (s *State) applyWordMotion(m motion, count int) {
+func (s *State) applyWordMotion(m motion) {
 	switch m {
 	case motionWordNext, motionWORDNext:
 		big := m == motionWORDNext
-		for i := 0; i < count; i++ {
-			p, _ := s.wordStartForward(s.Row, s.Col, big)
-			s.Row, s.Col = p.row, p.col
-		}
+		p, _ := s.wordStartForward(s.Row, s.Col, big)
+		s.Row, s.Col = p.row, p.col
 	case motionWordBack, motionWORDBack:
 		big := m == motionWORDBack
-		for i := 0; i < count; i++ {
-			p := s.wordStartBackward(s.Row, s.Col, big)
-			s.Row, s.Col = p.row, p.col
-		}
+		p := s.wordStartBackward(s.Row, s.Col, big)
+		s.Row, s.Col = p.row, p.col
 	case motionWordEnd, motionWORDEnd:
 		big := m == motionWORDEnd
-		for i := 0; i < count; i++ {
-			p := s.wordEndForward(s.Row, s.Col, big)
-			s.Row, s.Col = p.row, p.col
-		}
+		p := s.wordEndForward(s.Row, s.Col, big)
+		s.Row, s.Col = p.row, p.col
 	}
 	s.desiredCol = s.Col
 }
 
 // targetWordMotion resolves operator targets for word and WORD motions.
-func (s *State) targetWordMotion(m motion, count int, from pos) motionTarget {
+func (s *State) targetWordMotion(m motion, from pos) motionTarget {
 	switch m {
 	case motionWordNext, motionWORDNext:
 		big := m == motionWORDNext
-		to := from
-		found := true
-		for i := 0; i < count; i++ {
-			to, found = s.wordStartForward(to.row, to.col, big)
-			if !found {
-				break
-			}
-		}
+		to, found := s.wordStartForward(from.row, from.col, big)
 		if !found || to.row != from.row {
 			// Vim clamps dw/W across a line break (and on the last
 			// word of the buffer) to end-of-line, so the newline is
@@ -200,17 +187,11 @@ func (s *State) targetWordMotion(m motion, count int, from pos) motionTarget {
 		return motionTarget{to: to, inclusive: false, valid: true}
 	case motionWordBack, motionWORDBack:
 		big := m == motionWORDBack
-		to := from
-		for i := 0; i < count; i++ {
-			to = s.wordStartBackward(to.row, to.col, big)
-		}
+		to := s.wordStartBackward(from.row, from.col, big)
 		return motionTarget{to: to, inclusive: true, backward: true, valid: true}
 	case motionWordEnd, motionWORDEnd:
 		big := m == motionWORDEnd
-		to := from
-		for i := 0; i < count; i++ {
-			to = s.wordEndForward(to.row, to.col, big)
-		}
+		to := s.wordEndForward(from.row, from.col, big)
 		return motionTarget{to: to, inclusive: true, valid: true}
 	default:
 		return motionTarget{}

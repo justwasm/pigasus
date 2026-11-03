@@ -3,10 +3,7 @@ package eligibility
 import (
 	"errors"
 	"fmt"
-	"strings"
 	"testing"
-
-	"github.com/justwasm/pigasus/render"
 )
 
 func TestError_Formatting(t *testing.T) {
@@ -57,22 +54,5 @@ func TestClassifyError(t *testing.T) {
 	}
 	if apiErr.Retryable {
 		t.Errorf("expected Retryable = false")
-	}
-}
-
-func TestRenderNoticeRow(t *testing.T) {
-	if got := RenderNoticeRow("", "", render.HyperlinkCaps{}); got != "" {
-		t.Errorf("empty reason should yield empty string, got %q", got)
-	}
-
-	row := RenderNoticeRow("phone verification required", "https://example.com/verify", render.HyperlinkCaps{OSC8: true})
-	if !strings.Contains(row, "phone verification required") {
-		t.Errorf("row missing reason: %q", row)
-	}
-	if !strings.Contains(row, "Verify here") {
-		t.Errorf("row missing hyperlink label: %q", row)
-	}
-	if !strings.HasSuffix(row, "\n") {
-		t.Errorf("row should end with newline: %q", row)
 	}
 }

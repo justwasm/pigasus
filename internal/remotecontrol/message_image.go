@@ -14,22 +14,17 @@
 // 【一手】 the frontend's own send path passes the media on: the
 // composer builds `media` from the attachments and the send call
 // carries it (`vZ` in internal/rcfrontend/assets/main.js).
+//
+// The picture itself — the cascade domain's `Image` — lives in
+// internal/remotecontrol/cascade/image.go. This file owns the
+// read side: turning the Web UI's request media into the
+// pictures the turn sends.
 package remotecontrol
 
 import (
 	"github.com/justwasm/pigasus/imagery"
+	"github.com/justwasm/pigasus/internal/remotecontrol/cascades"
 )
-
-// MessageImage is one picture a user attached to a message.
-//
-// The mime type is the one the frontend read off the file, and the
-// bytes are the file's own.
-type MessageImage struct {
-	// MIMEType is the picture's media type — "image/png", "image/jpeg".
-	MIMEType string
-	// Data is the picture's bytes.
-	Data []byte
-}
 
 // messageImagesFromMedia reads the pictures out of a request's media
 // list.
@@ -48,8 +43,8 @@ type MessageImage struct {
 // read off the file: a JPEG the browser labelled "image/png" goes out
 // as "image/jpeg", and a picture over the pixel cap (or a large PNG)
 // goes out through the imagery pipeline.
-func messageImagesFromMedia(media []lsMediaItem) []MessageImage {
-	var images []MessageImage
+func messageImagesFromMedia(media []lsMediaItem) []cascades.Image {
+	var images []cascades.Image
 	for _, item := range media {
 		data, ok := item.mediaBytes()
 		if !ok {
@@ -60,7 +55,7 @@ func messageImagesFromMedia(media []lsMediaItem) []MessageImage {
 			data = out
 			mimeType = format.MIMEType()
 		}
-		images = append(images, MessageImage{MIMEType: mimeType, Data: data})
+		images = append(images, cascades.Image{MIMEType: mimeType, Data: data})
 	}
 	return images
 }

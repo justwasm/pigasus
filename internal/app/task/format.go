@@ -511,11 +511,13 @@ func activeSubagentMarker(t *Task) string {
 // 【反编译】 render.GetSubagentRenderInfo (0x1028c83f0) builds it as
 // "Agent(<name>)" while the subagent calls no tool, and as
 // "<tool> › <name>" — the " › " separator (5 B, vm 0x1033d1150) — while
-// it is inside one. The clone
-// keeps no "current tool step" — the registry only remembers the tools
-// a subagent called — so it always takes the first form.
+// it is inside one.
 func activeSubagentToolInfo(t *Task) string {
-	return fmt.Sprintf(activeSubagentLabel, activeSubagentName(t))
+	name := activeSubagentName(t)
+	if t != nil && t.CurrentTool != "" {
+		return fmt.Sprintf("%s › %s", t.CurrentTool, name)
+	}
+	return fmt.Sprintf(activeSubagentLabel, name)
 }
 
 // activeSubagentName returns the name the row carries.

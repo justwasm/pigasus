@@ -13,8 +13,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/justwasm/pigasus/internal/backend"
-	"github.com/justwasm/pigasus/internal/tools"
+	"github.com/justwasm/pigasus/internal/core/backend"
+	"github.com/justwasm/pigasus/internal/infra/backend/gateway"
+	"github.com/justwasm/pigasus/internal/app/tools/surface"
 )
 
 // recordingGateway serves the gateway SSE shape and keeps the request body, so a test
@@ -64,7 +65,7 @@ func TestRunPigPrintTurnSendsAgySystemPrompt(t *testing.T) {
 	srv, body := recordingGateway(t)
 	dir := t.TempDir()
 	agentDir := filepath.Join(dir, "agent")
-	client := backend.NewGatewayWithConfig(backend.GatewayConfig{
+	client := gateway.NewGatewayWithConfig(gateway.GatewayConfig{
 		URL:           srv.URL,
 		ExternalModel: "MiniMax-M3",
 		HTTPClient:    srv.Client(),
@@ -76,7 +77,7 @@ func TestRunPigPrintTurnSendsAgySystemPrompt(t *testing.T) {
 		Backend:        client,
 		Model:          "MiniMax-M3",
 		Prompt:         "say hi",
-		Catalog:        tools.Catalog(dir),
+		Catalog:        surface.Catalog(dir),
 		Handler:        func(backend.StreamChunk) error { return nil },
 		Workspace:      dir,
 		AgentDir:       agentDir,

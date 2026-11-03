@@ -1,13 +1,13 @@
 // Tests for the cycle rc-persistent-daemon start|status|stop +
 // hidden foreground bridge.  Each handler has its own help-only
 // test; the binding+launchd wiring is covered inside
-// internal/persistentrc/persistentrc_test.go via Spec.SkipLaunchd
+// internal/infra/remote/persistent/persistentrc_test.go via Spec.SkipLaunchd
 // so the broader cli test package doesn't depend on launchd.
 //
 // References:
 //   - close_gap_test.go / TestRemoteControlStatus_1to1 — pins the
 //     JSON shape the brief requires.
-//   - internal/persistentrc/ TestStartStop_DryRun — pins the
+//   - internal/infra/remote/persistent/ TestStartStop_DryRun — pins the
 //     handler-Spec start/stop pair without launchd.
 package cli
 
@@ -56,7 +56,7 @@ func TestRemoteControlStart_HelpOnly(t *testing.T) {
 // accepts the desktop switch on `remote-control start`.
 //
 // The full flow (the LaunchAgent plist carrying `--desktop`) is
-// pinned in internal/persistentrc; here the parser surface is what
+// pinned in internal/infra/remote/persistent; here the parser surface is what
 // is under test. The flag is *not* advertised in the usage block —
 // the reference's `start` block is byte for byte, and the clone
 // follows the same rule it follows for `--addr` and `--log-file`.

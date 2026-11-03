@@ -98,6 +98,12 @@ func (e *Event) Art(pick int) Art {
 
 // Current returns the seasonal event in season at now, or nil when no
 // event is running.
+//
+// 【一手】 agy 1.4.7 draws the "Seasonal Themes" row in /config only
+// while the theme is in season (the 1.4.7 changelog says the same:
+// "a row shown only while the theme is in season"). This gate is the
+// answer to that question: the row is drawn when the event is in
+// season, and the caller owns the clock it is read against.
 func Current(now time.Time) *Event {
 	ev := halloween(now.Year())
 	if now.Before(ev.Start) || !now.Before(ev.End) {

@@ -23,7 +23,7 @@ import (
 
 	"github.com/justwasm/pigasus/agentbrowser"
 	"github.com/justwasm/pigasus/internal/rcaudio"
-	"github.com/justwasm/pigasus/internal/rcterminal"
+	"github.com/justwasm/pigasus/rcterminal"
 )
 
 func TestConfigFromHost_CarriesTheDroppedFields(t *testing.T) {

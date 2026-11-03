@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/justwasm/pigasus/internal/configtest"
+	"github.com/justwasm/pigasus/internal/features/models/configtest"
 )
 
 // TestHostListModelsExpandsTheTiers pins the picker's rows.

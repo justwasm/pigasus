@@ -15,7 +15,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/justwasm/pigasus/internal/statusline"
+	"github.com/justwasm/pigasus/internal/ui/views/statusline"
 )
 
 // writeSettings drops a settings.json into a fresh home directory.

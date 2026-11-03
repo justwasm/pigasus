@@ -1,8 +1,8 @@
 // Package taskregistry — bridge.go.
 //
 // This file is the only place that knows how to translate a
-// internal/subagent.Subagent state machine into a taskregistry.Task.
-// The translation lives here (not in internal/subagent) so the
+// internal/app/subagent/core.Subagent state machine into a taskregistry.Task.
+// The translation lives here (not in internal/app/subagent/core) so the
 // subagent package stays zero-dep — the upstream library is imported
 // by internal/tools and other low-level callers that may not want
 // taskregistry in their import graph.
@@ -26,7 +26,7 @@ package task
 import (
 	"strings"
 
-	"github.com/justwasm/pigasus/internal/subagent"
+	subagent "github.com/justwasm/pigasus/internal/app/subagent/core"
 )
 
 // subagentKind is the taskregistry.Kind a Subagent gets registered as.

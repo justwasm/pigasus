@@ -4,9 +4,11 @@ package rchost
 
 import (
 	"context"
+	"flag"
 	"fmt"
 	"io"
 	"net"
+	"net/http"
 	"os"
 	"os/exec"
 	"os/signal"
@@ -17,10 +19,10 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/justwasm/pigasus/internal/accounts"
 	"github.com/justwasm/pigasus/internal/cli"
+	accounts "github.com/justwasm/pigasus/internal/features/accounts/core"
+	"github.com/justwasm/pigasus/internal/infra/refbackend"
 	"github.com/justwasm/pigasus/internal/rcfrontend"
-	"github.com/justwasm/pigasus/internal/refbackend"
 	"github.com/justwasm/pigasus/internal/remotecontrol"
 	"github.com/justwasm/pigasus/originpolicy"
 	"github.com/justwasm/pigasus/remotetransport"
@@ -30,6 +32,10 @@ const defaultWebAddr = "0.0.0.0:8787"
 
 // RunWeb is the user-facing `pigasus web` subcommand runner.
 func RunWeb(j *cli.JetskiCLI, args cli.WebArgs) error {
+	if args.ApiOnly && args.UiOnly {
+		return cli.ExitCodeError(1, "Error: --api-only and --ui-only cannot be used together")
+	}
+
 	addr := resolveWebAddr(args)
 
 	cwd := args.Workspace
@@ -41,14 +47,27 @@ func RunWeb(j *cli.JetskiCLI, args cli.WebArgs) error {
 	sess := remotecontrol.NewSessionState(cli.ReferenceVersion)
 	sess.Workspace = cwd
 
-	// The web command registers no cloud instance, so the remote
-	// control info answers with the local placeholder id.
-	disp, refProc, refBase, err := buildWebDispatcher(cwd, addr, sess, args.ReferenceBackend, args.Desktop)
-	if err != nil {
-		return err
-	}
-	if refProc != nil {
-		defer refProc.Stop()
+	var (
+		disp    remotetransport.Dispatcher
+		refProc *refbackend.Process
+		refBase string
+		err     error
+	)
+
+	if args.UiOnly {
+		disp = &remotetransport.DisabledDispatcher{
+			Reason: "pigasus web is running in --ui-only mode (backend RPC is disabled)",
+		}
+	} else {
+		// The web command registers no cloud instance, so the remote
+		// control info answers with the local placeholder id.
+		disp, refProc, refBase, err = buildWebDispatcher(cwd, addr, sess, args.ReferenceBackend, args.Desktop)
+		if err != nil {
+			return err
+		}
+		if refProc != nil {
+			defer refProc.Stop()
+		}
 	}
 
 	_, activeAccount := accounts.Current()
@@ -63,28 +82,32 @@ func RunWeb(j *cli.JetskiCLI, args cli.WebArgs) error {
 	if warn != "" {
 		fmt.Fprintf(j.ErrOut, "pigasus web: %s\n", warn)
 	}
-	webUI := rcfrontend.Handler(rcfrontend.Options{
-		EnableTouchPatches: true,
-		WorkspaceRoot:      cwd,
-		AccountEmail:       activeAccount,
-		CSRFToken:          token,
-	})
 
-	// With a reference backend the page comes from the reference too:
-	// its own index document, its own bundle. The clone's own endpoints
-	// stay — they belong to the process the browser talks to.
-	if refBase != "" {
-		assets, err := refbackend.NewAssets(refBase)
-		if err != nil {
-			return cli.ExitCodeError(1, fmt.Sprintf("Error: reference backend: %v", err))
-		}
-		webUI = newReferenceAssetsHandler(webUI, assets)
-		// The reference's page carries the reference's own secret, and
-		// the browser presents it with every call. The transport has
-		// to accept the same one, or the browser's own requests are
-		// the ones that get denied.
-		if refToken := assets.CSRFToken(); refToken != "" {
-			token = refToken
+	var webUI http.Handler
+	if !args.ApiOnly {
+		webUI = rcfrontend.Handler(rcfrontend.Options{
+			EnableTouchPatches: true,
+			WorkspaceRoot:      cwd,
+			AccountEmail:       activeAccount,
+			CSRFToken:          token,
+		})
+
+		// With a reference backend the page comes from the reference too:
+		// its own index document, its own bundle. The clone's own endpoints
+		// stay — they belong to the process the browser talks to.
+		if refBase != "" {
+			assets, err := refbackend.NewAssets(refBase)
+			if err != nil {
+				return cli.ExitCodeError(1, fmt.Sprintf("Error: reference backend: %v", err))
+			}
+			webUI = newReferenceAssetsHandler(webUI, assets)
+			// The reference's page carries the reference's own secret, and
+			// the browser presents it with every call. The transport has
+			// to accept the same one, or the browser's own requests are
+			// the ones that get denied.
+			if refToken := assets.CSRFToken(); refToken != "" {
+				token = refToken
+			}
 		}
 	}
 
@@ -118,23 +141,42 @@ func RunWeb(j *cli.JetskiCLI, args cli.WebArgs) error {
 	localURL := fmt.Sprintf("http://127.0.0.1:%s", portStr)
 	lanIPs := findLocalLANIPs()
 
-	fmt.Fprintf(j.Out, "pigasus web: server listening on %s\n", srv.Addr().String())
-	fmt.Fprintf(j.Out, "  - Workspace:   %s\n", cwd)
-	fmt.Fprintf(j.Out, "  - Local URL:   %s\n", localURL)
-	if ref := strings.TrimSpace(args.ReferenceBackend); ref != "" {
-		fmt.Fprintf(j.Out, "  - Backend:     reference language_server (%s)\n", ref)
-		fmt.Fprintf(j.Out, "  - Frontend:    the reference's own assets\n")
+	modeTag := ""
+	if args.ApiOnly {
+		modeTag = " (API-only mode)"
+	} else if args.UiOnly {
+		modeTag = " (UI-only mode)"
 	}
-	if len(lanIPs) > 0 {
-		for _, ip := range lanIPs {
-			fmt.Fprintf(j.Out, "  - Network URL: http://%s:%s/?token=%s (share with local LAN users)\n", ip, portStr, token)
+	fmt.Fprintf(j.Out, "pigasus web: server listening on %s%s\n", srv.Addr().String(), modeTag)
+	fmt.Fprintf(j.Out, "  - Workspace:   %s\n", cwd)
+
+	if args.ApiOnly {
+		fmt.Fprintf(j.Out, "  - Connect-RPC: http://127.0.0.1:%s/exa.language_server_pb.LanguageServerService/\n", portStr)
+		fmt.Fprintf(j.Out, "  - WebSocket:   ws://127.0.0.1:%s/rpc\n", portStr)
+		fmt.Fprintf(j.Out, "  - Web UI:      disabled (--api-only)\n")
+	} else {
+		fmt.Fprintf(j.Out, "  - Local URL:   %s\n", localURL)
+		if args.UiOnly {
+			fmt.Fprintf(j.Out, "  - Backend RPC: disabled (--ui-only)\n")
+		} else if ref := strings.TrimSpace(args.ReferenceBackend); ref != "" {
+			fmt.Fprintf(j.Out, "  - Backend:     reference language_server (%s)\n", ref)
+			fmt.Fprintf(j.Out, "  - Frontend:    the reference's own assets\n")
+		}
+		if len(lanIPs) > 0 {
+			for _, ip := range lanIPs {
+				fmt.Fprintf(j.Out, "  - Network URL: http://%s:%s/?token=%s (share with local LAN users)\n", ip, portStr, token)
+			}
 		}
 	}
 	fmt.Fprintf(j.Out, "  - Secret:      %s (a LAN client has to present it)\n", token)
 	fmt.Fprintln(j.Out, "Press Ctrl+C to stop.")
 
 	if args.Open {
-		_ = openBrowser(localURL)
+		if args.ApiOnly {
+			fmt.Fprintln(j.ErrOut, "pigasus web: --open ignored in --api-only mode (Web UI is disabled)")
+		} else {
+			_ = openBrowser(localURL)
+		}
 	}
 
 	return runWebEventLoop(srv, j.ErrOut)
@@ -198,6 +240,15 @@ func findLocalLANIPs() []string {
 }
 
 func openBrowser(urlStr string) error {
+	if flag.Lookup("test.v") != nil {
+		return nil
+	}
+	if v := os.Getenv("OPENAGY_NO_BROWSER"); v != "" {
+		switch v {
+		case "1", "true", "TRUE", "True", "yes", "YES":
+			return nil
+		}
+	}
 	switch runtime.GOOS {
 	case "darwin":
 		return exec.Command("open", urlStr).Start()

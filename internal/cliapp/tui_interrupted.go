@@ -5,7 +5,7 @@ import (
 	"strings"
 
 	"github.com/justwasm/pigasus/internal/agent"
-	"github.com/justwasm/pigasus/internal/branding"
+	"github.com/justwasm/pigasus/internal/core/branding"
 )
 
 // interruptedHintRow renders the reference's hint for a turn the user

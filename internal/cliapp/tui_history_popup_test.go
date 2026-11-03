@@ -37,7 +37,7 @@ func historyPopupMode(t *testing.T) *runMode {
 	t.Helper()
 	dir := t.TempDir()
 	t.Setenv("ANTIGRAVITY_HOME", dir)
-	m := NewRunMode(&fakeClient{}, "u@t", "m", "t", dir, true)
+	m := newRunMode(&fakeClient{}, "u@t", "m", "t", dir, true)
 	m.Update(tea.WindowSizeMsg{Width: 80, Height: 30})
 	return m
 }
@@ -101,7 +101,7 @@ func TestHistoryUp_AtMentionEntryKeepsTheFileDropdownClosed(t *testing.T) {
 	if got := m.input.Value(); got != "look at @notes.md please" {
 		t.Fatalf("Up #1: input = %q, want %q", got, "look at @notes.md please")
 	}
-	if m.atFileDropdown.Visible() {
+	if m.atFilePicker.Visible() {
 		t.Errorf("the recalled @ mention armed the file dropdown; it must stay closed")
 	}
 
@@ -110,7 +110,7 @@ func TestHistoryUp_AtMentionEntryKeepsTheFileDropdownClosed(t *testing.T) {
 		t.Errorf("Up #2: input = %q, want %q — the history must page past the @ mention",
 			got, "older prompt")
 	}
-	if m.atFileDropdown.Visible() {
+	if m.atFilePicker.Visible() {
 		t.Errorf("the file dropdown is visible after paging past the @ mention")
 	}
 }

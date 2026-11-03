@@ -140,3 +140,24 @@ func TestPairedToolCallIDs(t *testing.T) {
 		t.Errorf("a and c are orphans, so they are not paired: %v", paired)
 	}
 }
+
+func TestBuildContents_InfersToolNameWhenEmpty(t *testing.T) {
+	contents := contentsOf(
+		TurnMessage{Role: "user", Content: "read it"},
+		TurnMessage{Role: "assistant", ToolCalls: []TurnToolCall{
+			{ID: "call_1", Name: "read_file", Arguments: []byte(`{"path":"a"}`)},
+		}},
+		TurnMessage{Role: "tool", ToolCallID: "call_1", Name: "", Content: "hello"},
+	)
+	var respName string
+	for _, c := range contents {
+		for _, p := range c.Parts {
+			if p.FunctionResponse != nil {
+				respName = p.FunctionResponse.Name
+			}
+		}
+	}
+	if respName != "read_file" {
+		t.Errorf("functionResponse.name = %q, want read_file (inferred from assistant tool call)", respName)
+	}
+}

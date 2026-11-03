@@ -5,7 +5,7 @@ import (
 	"flag"
 	"io"
 
-	"github.com/justwasm/pigasus/internal/backend"
+	"github.com/justwasm/pigasus/internal/core/backend"
 	"github.com/justwasm/pigasus/internal/core/lifecycle"
 )
 

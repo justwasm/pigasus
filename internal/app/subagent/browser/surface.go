@@ -8,7 +8,8 @@ import (
 	"github.com/justwasm/pigasus/browserbridge"
 	"github.com/justwasm/pigasus/browsercdp"
 	"github.com/justwasm/pigasus/internal/piagentbridge"
-	"github.com/justwasm/pigasus/internal/tools"
+	"github.com/justwasm/pigasus/internal/app/tools"
+	"github.com/justwasm/pigasus/internal/app/tools/browser"
 )
 
 // The browser the agent drives.
@@ -119,7 +120,7 @@ func SurfaceOf(agentTools []piagent.AgentTool) Surface {
 // built here.
 func Tools(reg *tools.Registry) []piagent.AgentTool {
 	if CurrentSurface() == SurfaceLive {
-		return BridgeTools(tools.BridgeCatalog())
+		return BridgeTools(browser.BridgeCatalog())
 	}
 	return BrowserTools(reg)
 }
@@ -134,7 +135,7 @@ func BridgeTools(reg *tools.Registry) []piagent.AgentTool {
 		return nil
 	}
 	var out []piagent.AgentTool
-	for _, name := range tools.BridgeToolNames {
+	for _, name := range browser.BridgeToolNames {
 		tool, ok := reg.Get(name)
 		if !ok || tool == nil {
 			continue

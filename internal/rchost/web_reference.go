@@ -16,9 +16,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/justwasm/pigasus/internal/auth"
 	"github.com/justwasm/pigasus/internal/cli"
-	"github.com/justwasm/pigasus/internal/refbackend"
+	"github.com/justwasm/pigasus/internal/features/auth"
+	"github.com/justwasm/pigasus/internal/infra/refbackend"
 	"github.com/justwasm/pigasus/internal/remotecontrol"
 	"github.com/justwasm/pigasus/originpolicy"
 	"github.com/justwasm/pigasus/remotetransport"

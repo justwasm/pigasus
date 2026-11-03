@@ -5,7 +5,7 @@
 // syntax to send a message directly to a subagent conversation, with
 // autocomplete listing running and completed subagents".
 //
-// The clone's `internal/subagent` package holds the bash-process
+// The clone's `internal/app/subagent/core` package holds the bash-process
 // Subagents that `internal/tools` (`create_task`, ddgr search) spawn;
 // the `internal/subagenttools` package drives LLM-side delegation via
 // PiG `coding.Session`. Neither is a long-lived, name-keyed registry
@@ -51,7 +51,6 @@ type State string
 const (
 	StateRunning   State = "running"
 	StateCompleted State = "completed"
-	StateFailed    State = "failed"
 )
 
 // Sender is the dispatch target. A real wiring adapts a PiG

@@ -14,14 +14,15 @@
 package cli
 
 import (
+	"github.com/justwasm/pigasus/internal/ui/tuilib"
 	"bytes"
 	"encoding/json"
 	"io"
 	"strings"
 	"testing"
 
-	"github.com/justwasm/pigasus/internal/persistentrc"
-	"github.com/justwasm/pigasus/internal/rclink"
+	rclink "github.com/justwasm/pigasus/internal/infra/remote/link"
+	persistentrc "github.com/justwasm/pigasus/internal/infra/remote/persistent"
 )
 
 // runJetski executes one invocation through the standard v1.3.5 parser and
@@ -159,7 +160,7 @@ func TestLogoSubcommand_Help(t *testing.T) {
 	if code != 0 {
 		t.Errorf("exit code got %d, want 0", code)
 	}
-	want := UsageLogo("antigravity")
+	want := tuilib.UsageLogo("antigravity")
 	if errb != want {
 		t.Errorf("stderr mismatch:\n got: %q\nwant: %q", errb, want)
 	}

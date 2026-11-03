@@ -1,6 +1,7 @@
 package printmode
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -9,6 +10,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/justwasm/pigasus/internal/core/settings"
 )
 
 // TestJSONEnvelopeFieldOrder pins the member order of the `--output-format
@@ -193,6 +196,125 @@ func TestPrintOutputFormat(t *testing.T) {
 	}
 }
 
+// TestPrintOutputFormat_FormatAlias pins that --format is an exact alias for --output-format.
+func TestPrintOutputFormat_FormatAlias(t *testing.T) {
+	cases := []struct {
+		value string
+		want  string
+	}{
+		{"", printFormatText},
+		{"text", printFormatText},
+		{"json", printFormatJSON},
+		{"stream-json", printFormatStreamJSON},
+		{"yaml", printFormatText},
+	}
+	for _, c := range cases {
+		fs := flag.NewFlagSet("t", flag.ContinueOnError)
+		RegisterPrintFlags(fs)
+		if c.value != "" {
+			if err := fs.Parse([]string{"--format=" + c.value}); err != nil {
+				t.Fatalf("Parse(--format=%q): %v", c.value, err)
+			}
+		}
+		if got := PrintOutputFormat(fs); got != c.want {
+			t.Errorf("PrintOutputFormat(--format=%q) = %q, want %q", c.value, got, c.want)
+		}
+	}
+}
+
+// TestPrintOutputFormat_Precedence verifies that when both --output-format and --format
+// are provided on the command line, --output-format wins.
+func TestPrintOutputFormat_Precedence(t *testing.T) {
+	cases := []struct {
+		name         string
+		outputFormat string
+		format       string
+		want         string
+	}{
+		{
+			name:         "output-format json beats format stream-json",
+			outputFormat: "json",
+			format:       "stream-json",
+			want:         printFormatJSON,
+		},
+		{
+			name:         "output-format stream-json beats format json",
+			outputFormat: "stream-json",
+			format:       "json",
+			want:         printFormatStreamJSON,
+		},
+		{
+			name:         "output-format text beats format json",
+			outputFormat: "text",
+			format:       "json",
+			want:         printFormatText,
+		},
+		{
+			name:         "output-format json beats format text",
+			outputFormat: "json",
+			format:       "text",
+			want:         printFormatJSON,
+		},
+		{
+			name:         "output-format empty falls back to format stream-json",
+			outputFormat: "",
+			format:       "stream-json",
+			want:         printFormatStreamJSON,
+		},
+		{
+			name:         "output-format empty falls back to format json",
+			outputFormat: "",
+			format:       "json",
+			want:         printFormatJSON,
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			fs := flag.NewFlagSet("t", flag.ContinueOnError)
+			RegisterPrintFlags(fs)
+			var args []string
+			if c.outputFormat != "" {
+				args = append(args, "--output-format="+c.outputFormat)
+			}
+			if c.format != "" {
+				args = append(args, "--format="+c.format)
+			}
+			if err := fs.Parse(args); err != nil {
+				t.Fatalf("Parse(%v): %v", args, err)
+			}
+			if got := PrintOutputFormat(fs); got != c.want {
+				t.Errorf("PrintOutputFormat(%v) = %q, want %q", args, got, c.want)
+			}
+		})
+	}
+}
+
+// TestRegisterPrintFlags verifies flag registration and idempotency.
+func TestRegisterPrintFlags(t *testing.T) {
+	RegisterPrintFlags(nil)
+
+	fs := flag.NewFlagSet("test", flag.ContinueOnError)
+	RegisterPrintFlags(fs)
+
+	if fs.Lookup("output-format") == nil {
+		t.Fatal("expected --output-format to be registered")
+	}
+	if fs.Lookup("format") == nil {
+		t.Fatal("expected --format to be registered")
+	}
+
+	// Calling again should not panic or duplicate flags.
+	RegisterPrintFlags(fs)
+
+	if err := fs.Parse([]string{"--format=json"}); err != nil {
+		t.Fatalf("failed to parse registered --format: %v", err)
+	}
+	if got := PrintOutputFormat(fs); got != printFormatJSON {
+		t.Errorf("PrintOutputFormat = %q, want %q", got, printFormatJSON)
+	}
+}
+
 // TestPrintErrorMessage pins the `error` member: the same text as the stderr
 // line, minus the `error: ` prefix. For an API failure it is the underlying
 // message, not the short_error.
@@ -271,12 +393,52 @@ func TestJSONStreamEventFieldOrder(t *testing.T) {
 			want: `{"event":"init","conversation_id":"c","init":{"cwd":"/tmp","tools":["a","b"],"permission_mode":"always-proceed"}}`,
 		},
 		{
+			// The three override members travel after the three the clone
+			// always carried, and only when the run overrode something
+			// (`official-docs/cli/headless.md:159-168`).
+			name: "init with overrides",
+			event: jsonStreamEvent{
+				Event:          streamEventInit,
+				ConversationID: "c",
+				Init: &jsonInitPayload{
+					CWD:            "/tmp",
+					Tools:          []string{"a"},
+					PermissionMode: "request-review",
+					Model:          "gemini-3-pro",
+					Agent:          "reviewer",
+					JSONSchema:     json.RawMessage(`{"type":"object"}`),
+				},
+			},
+			want: `{"event":"init","conversation_id":"c","init":{"cwd":"/tmp","tools":["a"],"permission_mode":"request-review","model":"gemini-3-pro","agent":"reviewer","json_schema":{"type":"object"}}}`,
+		},
+		{
 			name: "step_update",
 			event: jsonStreamEvent{
 				Event:      streamEventStepUpdate,
 				StepUpdate: &jsonStepUpdate{ConversationID: "c", StepIndex: 0, State: "DONE", StepType: "user_input"},
 			},
 			want: `{"event":"step_update","step_update":{"conversation_id":"c","step_index":0,"state":"DONE","step_type":"user_input"}}`,
+		},
+		{
+			// The reference's own member set: the ten the doc's table
+			// lists (`official-docs/cli/headless.md:172-183`).
+			name: "step_update with facts",
+			event: jsonStreamEvent{
+				Event: streamEventStepUpdate,
+				StepUpdate: &jsonStepUpdate{
+					ConversationID:  "c",
+					StepIndex:       3,
+					State:           "DONE",
+					StepType:        "agent_response",
+					ToolName:        "run_command",
+					TextDelta:       "hi\n",
+					DurationSeconds: 6.28,
+					Usage:           &jsonUsage{InputTokens: 10302, OutputTokens: 582, ThinkingTokens: 551, CacheReadTokens: 8113, TotalTokens: 10884},
+					ToolInfo:        &jsonToolInfo{Name: "run_command", Parameters: json.RawMessage(`{"command_line":"echo hi"}`), Output: "hi\n"},
+					SubagentInfo:    &jsonSubagentInfo{Subagents: []jsonSubagent{{TypeName: "worker", Role: "user", ConversationID: "sub-1", LogURI: "file:///tmp/log", WorkspaceURIs: []string{"file:///tmp/ws"}}}},
+				},
+			},
+			want: `{"event":"step_update","step_update":{"conversation_id":"c","step_index":3,"state":"DONE","step_type":"agent_response","tool_name":"run_command","text_delta":"hi\n","duration_seconds":6.28,"usage":{"input_tokens":10302,"output_tokens":582,"thinking_tokens":551,"cache_read_tokens":8113,"total_tokens":10884},"tool_info":{"name":"run_command","parameters":{"command_line":"echo hi"},"output":"hi\n"},"subagent_info":{"subagents":[{"type_name":"worker","role":"user","conversation_id":"sub-1","log_uri":"file:///tmp/log","workspace_uris":["file:///tmp/ws"]}]}}}`,
 		},
 		{
 			name: "command_result",
@@ -309,13 +471,42 @@ func TestJSONStreamEventFieldOrder(t *testing.T) {
 // TestEmitStep checks the step_update helper renders the captured event.
 func TestEmitStep(t *testing.T) {
 	var b strings.Builder
-	if err := emitStep(&b, "cid", 1, "error_message"); err != nil {
+	if err := emitStep(&b, newStepUpdate("cid", 1, "error_message")); err != nil {
 		t.Fatal(err)
 	}
 	want := `{"event":"step_update","step_update":{"conversation_id":"cid","step_index":1,"state":"DONE","step_type":"error_message"}}` + "\n"
 	if b.String() != want {
 		t.Errorf("emitStep =\n %q\nwant\n %q", b.String(), want)
 	}
+}
+
+// TestEmitStepOmitsUnknownFacts pins the omit rule of the six members the
+// step gained: a step that knows no text, no duration, no usage and no tool
+// carries none of them — the reference's member set is a *possible* set, not
+// a mandatory one (`official-docs/cli/headless.md:172-183`).
+func TestEmitStepOmitsUnknownFacts(t *testing.T) {
+	var b strings.Builder
+	if err := emitStep(&b, newStepUpdate("cid", 0, "user_input")); err != nil {
+		t.Fatal(err)
+	}
+	for _, member := range []string{"tool_name", "text_delta", "duration_seconds", "usage", "tool_info", "subagent_info"} {
+		if strings.Contains(b.String(), `"`+member+`"`) {
+			t.Errorf("step carries %q although the step knows no such fact: %s", member, b.String())
+		}
+	}
+}
+
+// permissionModeFlagSet builds the flag set the init event's
+// `permission_mode` is read from.
+func permissionModeFlagSet(t *testing.T, args ...string) *flag.FlagSet {
+	t.Helper()
+	fs := flag.NewFlagSet("t", flag.ContinueOnError)
+	fs.SetOutput(new(strings.Builder))
+	fs.Bool("dangerously-skip-permissions", false, "")
+	if err := fs.Parse(args); err != nil {
+		t.Fatal(err)
+	}
+	return fs
 }
 
 // TestPrintPermissionModeDefault pins the init event's `permission_mode`
@@ -327,11 +518,12 @@ func TestEmitStep(t *testing.T) {
 // behavior"). The "always-proceed" the cycle-113 capture carries came from a
 // capture machine whose settings.json set `toolPermission` explicitly.
 func TestPrintPermissionModeDefault(t *testing.T) {
-	if got := printSlashConfigDefaultString("toolPermission"); got != "request-review" {
+	if got := settings.DefaultString("toolPermission"); got != "request-review" {
 		t.Fatalf("toolPermission default = %q, want request-review", got)
 	}
-	if got := printPermissionMode(); got == "" {
-		t.Error("printPermissionMode returned an empty mode")
+	t.Setenv("ANTIGRAVITY_HOME", t.TempDir())
+	if got := printPermissionMode(permissionModeFlagSet(t)); got != "request-review" {
+		t.Errorf("printPermissionMode = %q, want request-review", got)
 	}
 }
 
@@ -343,8 +535,173 @@ func TestPrintPermissionModeReadsSettings(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("ANTIGRAVITY_HOME", dir)
-	if got := printPermissionMode(); got != "always-proceed" {
+	if got := printPermissionMode(permissionModeFlagSet(t)); got != "always-proceed" {
 		t.Fatalf("printPermissionMode = %q, want always-proceed", got)
+	}
+}
+
+// TestPrintPermissionModeSkipPermissions pins that the init event reports
+// the mode the run is actually in under `--dangerously-skip-permissions`.
+//
+// The policy that flag builds skips every prompt (`setup.PolicyFrom`'s
+// SkipPermissions), so the mode is "always-proceed" — which is what the
+// reference's doc says the event reports under that flag
+// (`official-docs/cli/headless.md:159`).
+//
+// 【存疑】 the reference's own value under the flag is not confirmed
+// first-hand; the doc is the only source.
+func TestPrintPermissionModeSkipPermissions(t *testing.T) {
+	t.Setenv("ANTIGRAVITY_HOME", t.TempDir())
+	fs := permissionModeFlagSet(t, "--dangerously-skip-permissions")
+	if got := printPermissionMode(fs); got != "always-proceed" {
+		t.Fatalf("printPermissionMode = %q, want always-proceed", got)
+	}
+}
+
+// TestPrintPermissionModeSkipPermissionsBeatsSettings pins that the flag
+// wins over the settings file: the settings' `toolPermission` is what the
+// *policy* falls back to, and the flag replaces the policy's answer.
+func TestPrintPermissionModeSkipPermissionsBeatsSettings(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "settings.json"), []byte(`{"toolPermission":"request-review"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("ANTIGRAVITY_HOME", dir)
+	fs := permissionModeFlagSet(t, "--dangerously-skip-permissions")
+	if got := printPermissionMode(fs); got != "always-proceed" {
+		t.Fatalf("printPermissionMode = %q, want always-proceed", got)
+	}
+}
+
+// initFlagSet builds the flag set the init payload's override members are
+// read from.
+func initFlagSet(t *testing.T, args ...string) *flag.FlagSet {
+	t.Helper()
+	fs := flag.NewFlagSet("t", flag.ContinueOnError)
+	fs.SetOutput(new(strings.Builder))
+	fs.String("model", "", "")
+	fs.String("agent", "", "")
+	fs.String("json-schema", "", "")
+	if err := fs.Parse(args); err != nil {
+		t.Fatal(err)
+	}
+	return fs
+}
+
+// writeAgentDefinition writes a markdown agent definition into the user
+// customisations tree the agents catalogue reads: the sibling `config`
+// directory of the app data home.
+func writeAgentDefinition(t *testing.T, home, name string) {
+	t.Helper()
+	dir := filepath.Join(filepath.Dir(home), "config", "agents")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	body := "---\nname: " + name + "\ndescription: a test agent\n---\n\nthe body\n"
+	if err := os.WriteFile(filepath.Join(dir, name+".md"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestInitPayloadOverrides pins the init payload's three override members:
+// they travel only when the run overrode the corresponding thing — the
+// doc's "`model` and `agent` appear only when set with `--model` or
+// `--agent`", "`json_schema` … when set with `--json-schema`"
+// (`official-docs/cli/headless.md:159-168`).
+func TestInitPayloadOverrides(t *testing.T) {
+	home := filepath.Join(t.TempDir(), "appdata")
+	if err := os.MkdirAll(home, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeAgentDefinition(t, home, "reviewer")
+	t.Setenv("ANTIGRAVITY_HOME", home)
+
+	// A run that overrode nothing carries none of the three.
+	fs := initFlagSet(t)
+	cfg := &printRunConfig{modelName: "the default model"}
+	if got := printInitModel(fs, cfg); got != "" {
+		t.Errorf("printInitModel = %q, want the empty default", got)
+	}
+	if got := printInitAgent(fs); got != "" {
+		t.Errorf("printInitAgent = %q, want the empty default", got)
+	}
+	if got := printInitJSONSchema(fs); got != nil {
+		t.Errorf("printInitJSONSchema = %s, want nil", got)
+	}
+
+	// A run that overrode all three carries all three.
+	fs = initFlagSet(t, "--model=gemini-3-pro", "--agent=reviewer", `--json-schema={"type":"object"}`)
+	cfg = &printRunConfig{modelName: flagStringValue(fs, "model")}
+	if got := printInitModel(fs, cfg); got != "gemini-3-pro" {
+		t.Errorf("printInitModel = %q, want gemini-3-pro", got)
+	}
+	if got := printInitAgent(fs); got != "reviewer" {
+		t.Errorf("printInitAgent = %q, want reviewer", got)
+	}
+	got := printInitJSONSchema(fs)
+	if got == nil {
+		t.Fatal("printInitJSONSchema = nil, want the schema")
+	}
+	if string(got) != `{"type":"object"}` {
+		t.Errorf("printInitJSONSchema = %s, want the schema itself", got)
+	}
+}
+
+// TestInitPayloadDefaultAgentIsNoOverride pins that `--agent=default` is
+// not an override: it names the built-in agent, so the member stays absent.
+// The rule is the agents catalogue's own, and the payload asks it.
+func TestInitPayloadDefaultAgentIsNoOverride(t *testing.T) {
+	t.Setenv("ANTIGRAVITY_HOME", t.TempDir())
+	fs := initFlagSet(t, "--agent=default")
+	if got := printInitAgent(fs); got != "" {
+		t.Errorf("printInitAgent = %q, want the empty default", got)
+	}
+}
+
+// TestAgentResponseStepCarriesFacts pins the facts the `agent_response`
+// step reports: the text the turn produced, how long it took and the tokens
+// it spent — the three the doc's example carries
+// (`official-docs/cli/headless.md:144`).
+func TestAgentResponseStepCarriesFacts(t *testing.T) {
+	var buf bytes.Buffer
+	cfg := &printRunConfig{format: printFormatStreamJSON, conversationID: "c"}
+	st := &printTurnState{turnStarted: true, turnBegan: true, turnStartedAt: time.Now().Add(-2 * time.Second)}
+	st.responseBuf.WriteString("hello\n")
+	st.turnUsage = jsonUsage{InputTokens: 3, OutputTokens: 4, TotalTokens: 7}
+	env := &jsonEnvelope{ConversationID: "c", Status: printStatusSuccess, Response: "hello\n"}
+	if err := emitFinalStreamJSON(&buf, nil, cfg, st, env, nil, true, false); err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(strings.TrimSuffix(buf.String(), "\n"), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("got %d lines, want 2:\n%s", len(lines), buf.String())
+	}
+	var event struct {
+		Event      string `json:"event"`
+		StepUpdate struct {
+			StepType        string     `json:"step_type"`
+			TextDelta       string     `json:"text_delta"`
+			DurationSeconds float64    `json:"duration_seconds"`
+			Usage           *jsonUsage `json:"usage"`
+		} `json:"step_update"`
+	}
+	if err := json.Unmarshal([]byte(lines[0]), &event); err != nil {
+		t.Fatalf("decode: %v (%s)", err, lines[0])
+	}
+	if event.Event != streamEventStepUpdate {
+		t.Fatalf("event = %q, want %q", event.Event, streamEventStepUpdate)
+	}
+	if event.StepUpdate.StepType != "agent_response" {
+		t.Errorf("step_type = %q, want agent_response", event.StepUpdate.StepType)
+	}
+	if event.StepUpdate.TextDelta != "hello\n" {
+		t.Errorf("text_delta = %q, want %q", event.StepUpdate.TextDelta, "hello\n")
+	}
+	if event.StepUpdate.DurationSeconds < 1.9 {
+		t.Errorf("duration_seconds = %v, want the turn's elapsed seconds", event.StepUpdate.DurationSeconds)
+	}
+	if event.StepUpdate.Usage == nil || event.StepUpdate.Usage.TotalTokens != 7 {
+		t.Errorf("usage = %+v, want the turn's usage", event.StepUpdate.Usage)
 	}
 }
 
@@ -661,6 +1018,27 @@ func TestJSONEnvelopeValidAfterAssistantMessage(t *testing.T) {
 	}
 	if !strings.HasSuffix(buf.String(), "\n") {
 		t.Errorf("json envelope line has no trailing '\\n': %q", buf.String())
+	}
+}
+
+func TestJSONEnvelopeStructuredOutputFields(t *testing.T) {
+	env := jsonEnvelope{
+		ConversationID:   "cid",
+		Status:           printStatusSuccess,
+		Response:         `{"major":2,"minor":14,"patch":3}` + "\n",
+		DurationSeconds:  4,
+		NumTurns:         1,
+		StructuredOutput: map[string]any{"major": float64(2), "minor": float64(14), "patch": float64(3)},
+		JSONSchema:       json.RawMessage(`{"type":"object"}`),
+		Usage:            jsonUsage{InputTokens: 10, OutputTokens: 20, TotalTokens: 30},
+	}
+	b, err := json.Marshal(env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := `{"conversation_id":"cid","status":"SUCCESS","response":"{\"major\":2,\"minor\":14,\"patch\":3}\n","duration_seconds":4,"num_turns":1,"structured_output":{"major":2,"minor":14,"patch":3},"json_schema":{"type":"object"},"usage":{"input_tokens":10,"output_tokens":20,"thinking_tokens":0,"cache_read_tokens":0,"total_tokens":30}}`
+	if string(b) != want {
+		t.Errorf("got =\n %s\nwant\n %s", b, want)
 	}
 }
 

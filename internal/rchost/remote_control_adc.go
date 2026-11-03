@@ -1,11 +1,10 @@
 package rchost
 
-import "github.com/justwasm/pigasus/internal/auth"
-
 import (
 	"flag"
 
 	"github.com/justwasm/pigasus/internal/cli"
+	"github.com/justwasm/pigasus/internal/features/auth"
 )
 
 // AGY changelog coverage for the --remote-control × ADC interaction:

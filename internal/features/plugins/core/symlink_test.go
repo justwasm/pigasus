@@ -10,7 +10,7 @@ import (
 	"testing"
 )
 
-// withPluginHome points auth.GeminiConfigHome / AntigravityConfigHome
+// withPluginHome points confhome.Gemini / AntigravityConfigHome
 // at a temp directory for the duration of the test. Every plugin
 // loader reads from those two roots; redirecting
 // them is the only way to inject a fixture without touching the

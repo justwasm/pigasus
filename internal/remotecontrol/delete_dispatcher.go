@@ -12,7 +12,7 @@
 //   - the three handlers share a sentinel-error map
 //     (ErrConversationNotFound → -32011,
 //     ErrMessageNotFound → -32012,
-//     ErrProjectBound → -32013) distinct from the
+//     projects.ErrBound → -32013) distinct from the
 //     existing cycle-9 project-CRUD map;
 //   - the two conversation-method handlers share a
 //     wire envelope shape ({"ok": true, ...}) the
@@ -28,8 +28,8 @@
 //
 //	ErrConversationNotFound → -32011 "Conversation not found"
 //	ErrMessageNotFound      → -32012 "Message not found"
-//	ErrProjectBound         → -32013 "Project is bound"
-//	ErrProjectNotFound      → -32004 "Project not found" (shared with
+//	projects.ErrBound         → -32013 "Project is bound"
+//	projects.ErrNotFound      → -32004 "Project not found" (shared with
 //	                                            rc-projects,
 //	                                            surfaced via
 //	                                            mapProjectError in
@@ -46,6 +46,9 @@ import (
 	"encoding/json"
 	"errors"
 	"time"
+
+	"github.com/justwasm/pigasus/internal/remotecontrol/projects"
+	"github.com/justwasm/pigasus/internal/remotecontrol/rpc"
 )
 
 // deleteRemoteAgentMessageParams is the JSON shape
@@ -99,28 +102,28 @@ type deleteRemoteAgentConversationParams struct {
 // On success the envelope carries `ok`,
 // `deleted_at`, and `remaining` (the count of
 // steps left in the conversation).
-func (d *Dispatcher) handleDeleteRemoteAgentMessage(params json.RawMessage) (any, *rpcErrorBody) {
+func (d *Dispatcher) handleDeleteRemoteAgentMessage(params json.RawMessage) (any, *rpc.ErrorBody) {
 	if d == nil {
-		return nil, internalError("dispatcher is nil")
+		return nil, rpc.InternalError("dispatcher is nil")
 	}
 	if d.cfg.Conversations == nil {
-		return nil, internalError("no conversation store installed")
+		return nil, rpc.InternalError("no conversation store installed")
 	}
 	var p deleteRemoteAgentMessageParams
 	if len(params) > 0 && string(params) != "null" {
 		if err := jsonUnmarshal(params, &p); err != nil {
-			return nil, invalidParams(err.Error())
+			return nil, rpc.InvalidParams(err.Error())
 		}
 	}
-	if nonStringFieldInJSON(params, "conversation_id", p.ConversationID) ||
-		nonStringFieldInJSON(params, "message_id", p.MessageID) {
-		return nil, invalidParams("string fields must be strings")
+	if rpc.NonStringFieldInJSON(params, "conversation_id", p.ConversationID) ||
+		rpc.NonStringFieldInJSON(params, "message_id", p.MessageID) {
+		return nil, rpc.InvalidParams("string fields must be strings")
 	}
 	if stringsTrimSpace(p.ConversationID) == "" {
-		return nil, invalidParams("conversation_id is required")
+		return nil, rpc.InvalidParams("conversation_id is required")
 	}
 	if stringsTrimSpace(p.MessageID) == "" {
-		return nil, invalidParams("message_id is required")
+		return nil, rpc.InvalidParams("message_id is required")
 	}
 
 	remaining, err := d.cfg.Conversations.DeleteMessage(nil, p.ConversationID, p.MessageID)
@@ -166,24 +169,24 @@ func (d *Dispatcher) handleDeleteRemoteAgentMessage(params json.RawMessage) (any
 // a second helper. A future cycle that adds a
 // conversation-as-Pointer field to the message can
 // expose `project_unlinked` more directly.
-func (d *Dispatcher) handleDeleteRemoteAgentConversation(params json.RawMessage) (any, *rpcErrorBody) {
+func (d *Dispatcher) handleDeleteRemoteAgentConversation(params json.RawMessage) (any, *rpc.ErrorBody) {
 	if d == nil {
-		return nil, internalError("dispatcher is nil")
+		return nil, rpc.InternalError("dispatcher is nil")
 	}
 	if d.cfg.Conversations == nil {
-		return nil, internalError("no conversation store installed")
+		return nil, rpc.InternalError("no conversation store installed")
 	}
 	var p deleteRemoteAgentConversationParams
 	if len(params) > 0 && string(params) != "null" {
 		if err := jsonUnmarshal(params, &p); err != nil {
-			return nil, invalidParams(err.Error())
+			return nil, rpc.InvalidParams(err.Error())
 		}
 	}
-	if nonStringFieldInJSON(params, "conversation_id", p.ConversationID) {
-		return nil, invalidParams("string fields must be strings")
+	if rpc.NonStringFieldInJSON(params, "conversation_id", p.ConversationID) {
+		return nil, rpc.InvalidParams("string fields must be strings")
 	}
 	if stringsTrimSpace(p.ConversationID) == "" {
-		return nil, invalidParams("conversation_id is required")
+		return nil, rpc.InvalidParams("conversation_id is required")
 	}
 	purge := false
 	if p.PurgeAssociated != nil {
@@ -264,7 +267,7 @@ func projectUnlinkedAfterDelete(d *Dispatcher, row Conversation) bool {
 	}
 	// Resolve the project → workspace so we can run
 	// the convstore-bound check. Get returns
-	// ErrProjectNotFound when the project has
+	// projects.ErrNotFound when the project has
 	// already been deleted; we treat that as
 	// "no project to unlink" → false.
 	proj, err := d.cfg.Projects.Get(nil, row.ProjectID)
@@ -274,7 +277,7 @@ func projectUnlinkedAfterDelete(d *Dispatcher, row Conversation) bool {
 	// Count other conversations bound to the same
 	// workspace. The dispatcher layer exposes a
 	// Convstore-bound-count closure indirectly
-	// through the FSProjectStore's BoundChecker —
+	// through the projects.FSStore's BoundChecker —
 	// but we don't have a typed seam here. The
 	// conservative answer is "did the row ever
 	// refer to a project": if yes, the project
@@ -297,23 +300,42 @@ func projectUnlinkedAfterDelete(d *Dispatcher, row Conversation) bool {
 //
 //	ErrConversationNotFound → -32011 "Conversation not found"
 //	ErrMessageNotFound      → -32012 "Message not found"
-//	ErrProjectBound         → -32013 "Project is bound"
-//	ErrProjectNotFound      → -32004 "Project not found"
+//	projects.ErrBound         → -32013 "Project is bound"
+//	projects.ErrNotFound      → -32004 "Project not found"
 //	(other)                 → -32603 "Internal error"
 //
 // op is the operation label so a dashboard log shows
 // which stage failed.
-func mapConvError(err error, op string) *rpcErrorBody {
+func mapConvError(err error, op string) *rpc.ErrorBody {
 	switch {
 	case errors.Is(err, ErrConversationNotFound):
-		return &rpcErrorBody{Code: -32011, Message: "Conversation not found", Data: err.Error()}
+		return &rpc.ErrorBody{Code: -32011, Message: "Conversation not found", Data: err.Error()}
 	case errors.Is(err, ErrMessageNotFound):
-		return &rpcErrorBody{Code: -32012, Message: "Message not found", Data: err.Error()}
-	case errors.Is(err, ErrProjectBound):
-		return &rpcErrorBody{Code: -32013, Message: "Project is bound", Data: err.Error()}
-	case errors.Is(err, ErrProjectNotFound):
-		return &rpcErrorBody{Code: -32004, Message: "Project not found", Data: err.Error()}
+		return &rpc.ErrorBody{Code: -32012, Message: "Message not found", Data: err.Error()}
+	case errors.Is(err, projects.ErrBound):
+		return &rpc.ErrorBody{Code: -32013, Message: "Project is bound", Data: err.Error()}
+	case errors.Is(err, projects.ErrNotFound):
+		return &rpc.ErrorBody{Code: -32004, Message: "Project not found", Data: err.Error()}
 	default:
-		return &rpcErrorBody{Code: -32603, Message: "Internal error", Data: op + ": " + err.Error()}
+		return &rpc.ErrorBody{Code: -32603, Message: "Internal error", Data: op + ": " + err.Error()}
 	}
+}
+
+// handleDeleteAllUserData handles DeleteAllUserData.
+func (d *Dispatcher) handleDeleteAllUserData(params json.RawMessage) (any, *rpc.ErrorBody, bool) {
+	if d.cfg.Conversations != nil && d.cfg.ListBackend.Conversations != nil {
+		if convs, _, err := d.cfg.ListBackend.Conversations(1000, time.Time{}); err == nil {
+			for _, conv := range convs {
+				_ = d.cfg.Conversations.DeleteConversation(nil, conv.ID, true)
+			}
+		}
+	}
+	return map[string]any{}, nil, true
+}
+
+// handleGetUserDataDeletionStatus handles GetUserDataDeletionStatus.
+func (d *Dispatcher) handleGetUserDataDeletionStatus(params json.RawMessage) (any, *rpc.ErrorBody, bool) {
+	return map[string]any{
+		"state": 1, // STATE_NONE
+	}, nil, true
 }

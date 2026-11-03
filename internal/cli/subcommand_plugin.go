@@ -2,6 +2,7 @@ package cli
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -9,6 +10,7 @@ import (
 	"strings"
 
 	pluginimport "github.com/justwasm/pigasus/internal/features/plugins/import"
+	"github.com/justwasm/pigasus/internal/features/plugins/marketinstall"
 )
 
 // ---- usage blocks ---------------------------------------------------------
@@ -268,13 +270,6 @@ func runPluginValidate(j *JetskiCLI, args []string) error {
 	return runPluginValidateReference(j, args)
 }
 
-// RunPluginValidate is the exported entry point used by callers that
-// cannot reach the unexported dispatcher. It mirrors the binary's
-// `plugin validate` surface; see plugin_validate_json.go.
-func RunPluginValidate(j *JetskiCLI, args []string) error {
-	return runPluginValidate(j, args)
-}
-
 // runPluginArgErr is the shared `Error: <verb> requires ...` path for
 // install/uninstall/enable/disable/link when their required operand is
 // missing.
@@ -333,7 +328,9 @@ func runPluginInstall(j *JetskiCLI, args []string) error {
 	target := args[0]
 	fi, err := os.Stat(target)
 	if err != nil || !fi.IsDir() {
-		return fail(j, 1, fmt.Sprintf("Error: install target must be a directory: %s", target))
+		// Not a local directory: the target names a plugin in a
+		// marketplace.
+		return runPluginInstallMarketplace(j, target)
 	}
 	name, err := loadInstallManifest(j, target)
 	if err != nil {
@@ -365,6 +362,108 @@ func runPluginInstall(j *JetskiCLI, args []string) error {
 		fmt.Fprintln(j.Out, "  - agents      : skipped (not found)")
 	}
 	return nil
+}
+
+// runPluginInstallMarketplace installs a plugin from a cached marketplace
+// feed.
+//
+// 【一手】 official-docs/marketplace.md:149-153 — "**Install from the
+// official marketplace**: Specify `<plugin-name>@antigravity-plugins-official`
+// … or pass a bare `<plugin-name>`, which defaults to
+// `<plugin-name>@antigravity-plugins-official`".
+//
+// The feed is the `marketplace.json` the CLI caches under
+// `<antigravity home>/cache/marketplaces/<marketplace>/`; the entry names
+// the archive and the archive's digest, and the installer refuses an
+// archive it cannot verify.
+//
+// The plugin lands in the same tree the local-directory install uses —
+// `~/.gemini/config/plugins/<name>/` — and the same `plugins.<name>.enabled`
+// flag is written.
+//
+// A target that names no plugin is refused with the reference's own
+// sentence — "Error: install target must be a directory: %s" (the 1.4.6
+// capture of `agy plugin install --help`,
+// `internal/cli/testdata/help_1.4.6.txt:278`). A target that names a
+// marketplace explicitly gets the reason instead, because the reference's
+// own wording for that case is not recoverable.
+func runPluginInstallMarketplace(j *JetskiCLI, target string) error {
+	tgt, err := marketinstall.SplitTarget(target)
+	if err != nil {
+		if errors.Is(err, marketinstall.ErrRepositoryURL) {
+			return fail(j, 1, fmt.Sprintf("Error: install from a repository URL is not supported: %s", target))
+		}
+		return fail(j, 1, fmt.Sprintf("Error: install target must be a directory: %s", target))
+	}
+	// A target that looks like a filesystem path is a path, even when it
+	// carries an "@": the marketplace form is a bare plugin name.
+	if looksLikePath(target) {
+		return fail(j, 1, fmt.Sprintf("Error: install target must be a directory: %s", target))
+	}
+	entry, err := marketinstall.Lookup(tgt.Marketplace, tgt.Name)
+	if err != nil {
+		// A target that named its marketplace explicitly gets the reason;
+		// a bare name that resolves to no plugin gets the reference's own
+		// sentence.
+		if tgt.Explicit {
+			return fail(j, 1, fmt.Sprintf("Error: %s", err))
+		}
+		return fail(j, 1, fmt.Sprintf("Error: install target must be a directory: %s", target))
+	}
+	src, cleanup, err := marketinstall.Fetch(entry)
+	if err != nil {
+		return fail(j, 1, fmt.Sprintf("Error: install failed: %s", err))
+	}
+	defer cleanup()
+	skills := legacyListSkills(src)
+	agents, agentsErr, _ := legacyListAgents(src)
+	if agentsErr != nil {
+		return errExitCodeMsg(1, fmt.Sprintf("Error: invalid agents.json: %s", agentsErr))
+	}
+	dir := legacyPluginsDir()
+	if dir == "" {
+		return fail(j, 1, "Error: install failed: the plugin directory is unknown")
+	}
+	dst := filepath.Join(dir, entry.Name)
+	if err := upgradeExistingPlugin(j, entry.Name, dst); err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(dst), 0700); err != nil {
+		return fail(j, 1, fmt.Sprintf("Error: install failed: %s", err))
+	}
+	if err := copyTree(src, dst); err != nil {
+		return fail(j, 1, fmt.Sprintf("Error: install failed: %s", err))
+	}
+	if err := legacyMarkEnabled(entry.Name, true); err != nil {
+		return fail(j, 1, fmt.Sprintf("Error: install failed: %s", err))
+	}
+	fmt.Fprintf(j.Out, "Successfully installed plugin %q from %q.\n", entry.Name, tgt.Marketplace)
+	fmt.Fprintf(j.Out, "  - skills      : %d processed\n", len(skills))
+	if len(agents) > 0 {
+		fmt.Fprintf(j.Out, "  - agents      : %d processed\n", len(agents))
+	} else {
+		fmt.Fprintln(j.Out, "  - agents      : skipped (not found)")
+	}
+	return nil
+}
+
+// looksLikePath reports whether an install target is a filesystem path
+// rather than a marketplace reference.
+//
+// The marketplace form is a bare plugin name, optionally followed by an
+// "@" and a marketplace name. A target that carries a path separator, or
+// that starts with a dot, is a path the user meant to install from — and
+// a path that does not exist is the reference's own "install target must
+// be a directory" case.
+func looksLikePath(target string) bool {
+	t := strings.TrimSpace(target)
+	if t == "" {
+		return false
+	}
+	if strings.ContainsAny(t, `/\`) {
+		return true
+	}
+	return strings.HasPrefix(t, ".")
 }
 
 func runPluginUninstall(j *JetskiCLI, args []string) error {

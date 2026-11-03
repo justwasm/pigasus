@@ -25,6 +25,7 @@ import (
 	"time"
 
 	"github.com/MichaelKinsy/PiG/agent"
+	"github.com/justwasm/pigasus/internal/remotecontrol/cascades"
 )
 
 // lateEventSession is a Session double that emits an event *after*
@@ -65,7 +66,7 @@ func TestPiagentBackend_LateEventDoesNotPanic(t *testing.T) {
 	}
 	be := &PiagentBackend{SessionFactory: pigCannedFactory(sess)}
 
-	if _, err := be.SendStream(context.Background(), MessagePrompt{Text: "ping"}, &captureSink{}, MessageSendOptions{}); err != nil {
+	if _, err := be.SendStream(context.Background(), cascades.Prompt{Text: "ping"}, &captureSink{}, cascades.SendOptions{}); err != nil {
 		t.Fatalf("SendStream returned error: %v", err)
 	}
 

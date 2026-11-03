@@ -2,14 +2,13 @@
 package cli
 
 import (
-	"encoding/json"
 	"flag"
 	"fmt"
+	corehooks "github.com/justwasm/pigasus/internal/core/policy/hooks"
+	"github.com/justwasm/pigasus/internal/features/models/catalog"
 	"io"
-	"net"
 	"net/http"
 	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -18,7 +17,7 @@ import (
 // ---- 5. runModels ---------------------------------------------------------
 
 // runModels lists every configured model in
-// ~/.config/openagy/providers.json (or $OPENAGY_PROVIDERS_CONFIG).
+// ~/.openagy/providers.json (or $OPENAGY_PROVIDERS_CONFIG).
 // If the config is empty / missing, falls back to a static
 // "built-in" catalog so the user always sees *something*.
 //
@@ -47,7 +46,7 @@ func runModels(d *dispatchContext) error {
 	// and aligns the rows only when stdout is a terminal. Both rules are
 	// shared with the live path (runModelsParity) through writeModelTable.
 	fmt.Fprintln(d.Err, "Fetching available models...")
-	return writeModelTable(d.Out, ModelCatalogue())
+	return writeModelTable(d.Out, catalog.ModelCatalogue())
 }
 
 // ---- 7. runChat -----------------------------------------------------------
@@ -97,40 +96,28 @@ func runChat(d *dispatchContext) error {
 // is enough for clients to discover the port and verify the
 // endpoint; the full protocol lives in a follow-up cycle.
 func runAcp(d *dispatchContext) error {
-	d.printOK("acp")
-	addr := "127.0.0.1:0"
-	if d.FS != nil {
-		if f := d.FS.Lookup("acp-addr"); f != nil {
-			if v := strings.TrimSpace(f.Value.String()); v != "" {
-				addr = v
+	if acpHandler != nil {
+		j := &JetskiCLI{Name: "pigasus", Out: d.Out, ErrOut: d.Err}
+		args := ACPArgs{
+			In:      d.In,
+			Out:     d.Out,
+			Err:     d.Err,
+			Ctx:     d.Ctx,
+			RawArgs: d.Args,
+		}
+		if d.FS != nil {
+			if f := d.FS.Lookup("acp-addr"); f != nil {
+				args.Addr = strings.TrimSpace(f.Value.String())
+			}
+			if f := d.FS.Lookup("model"); f != nil {
+				args.Model = strings.TrimSpace(f.Value.String())
 			}
 		}
+		return acpHandler(j, args)
 	}
-	ln, err := net.Listen("tcp", addr)
-	if err != nil {
-		return fmt.Errorf("acp: listen %s: %w", addr, err)
-	}
-	defer ln.Close()
 
-	fmt.Fprintf(d.Out, "acp listening:   %s\n", ln.Addr().String())
-
-	// Accept a single client, send the JSON hello, close. The
-	// full multi-connection dispatch is in a follow-up cycle.
-	conn, err := ln.Accept()
-	if err != nil {
-		return fmt.Errorf("acp: accept: %w", err)
-	}
-	defer conn.Close()
-	resp := map[string]any{
-		"protocol": "acp/0",
-		"version":  "0.1.0",
-		"agent":    "antigravity-recovered",
-		"hello":    "ready",
-	}
-	enc := json.NewEncoder(conn)
-	if err := enc.Encode(resp); err != nil {
-		return fmt.Errorf("acp: write hello: %w", err)
-	}
+	d.printOK("acp")
+	fmt.Fprintln(d.Out, "acp: handler not bridged (build with cmd/pigasus to enable)")
 	return nil
 }
 
@@ -183,14 +170,14 @@ func runHttp(d *dispatchContext) error {
 
 // ---- 10. runHooks ---------------------------------------------------------
 
-// runHooks lists the registered lifecycle hooks. The v4 binary reads
-// ~/.config/antigravity/hooks.json (a JSON document with one entry
-// per hook event). The recovered implementation parses the file
-// and prints each entry; the actual hook firing is wired in a
-// follow-up cycle.
+// runHooks lists the registered lifecycle hooks. The reference reads
+// ~/.gemini/config/hooks.json (a JSON document with one entry per hook
+// event). The recovered implementation parses the file and prints each
+// entry; the firing of the hooks is the runtime in
+// internal/core/policy/hooks, which the interactive session arms.
 func runHooks(d *dispatchContext) error {
 	d.printOK("hooks")
-	cfgPath := defaultHooksConfigPath()
+	cfgPath := corehooks.GlobalPath()
 	raw, err := os.ReadFile(cfgPath)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -199,34 +186,18 @@ func runHooks(d *dispatchContext) error {
 		}
 		return fmt.Errorf("hooks: read %s: %w", cfgPath, err)
 	}
-	var cfg struct {
-		Hooks []struct {
-			Event   string `json:"event"`
-			Command string `json:"command"`
-		} `json:"hooks"`
+	entries, problems := corehooks.Parse(raw)
+	if len(problems) > 0 && len(entries) == 0 {
+		return fmt.Errorf("hooks: parse %s: %s", cfgPath, strings.Join(problems, "; "))
 	}
-	if err := json.Unmarshal(raw, &cfg); err != nil {
-		return fmt.Errorf("hooks: parse %s: %w", cfgPath, err)
-	}
-	if len(cfg.Hooks) == 0 {
+	if len(entries) == 0 {
 		fmt.Fprintf(d.Out, "no hooks configured in %s\n", cfgPath)
 		return nil
 	}
-	sort.Slice(cfg.Hooks, func(i, j int) bool { return cfg.Hooks[i].Event < cfg.Hooks[j].Event })
-	fmt.Fprintf(d.Out, "registered hooks (%d):\n", len(cfg.Hooks))
-	for i, h := range cfg.Hooks {
-		fmt.Fprintf(d.Out, "  %2d. %-20s  %s\n", i+1, h.Event, h.Command)
+	sort.Slice(entries, func(i, j int) bool { return string(entries[i].Event) < string(entries[j].Event) })
+	fmt.Fprintf(d.Out, "registered hooks (%d):\n", len(entries))
+	for i, h := range entries {
+		fmt.Fprintf(d.Out, "  %2d. %-20s  %s\n", i+1, string(h.Event), h.Handler.Command)
 	}
 	return nil
-}
-
-// defaultHooksConfigPath returns the v4 binary's hooks config path.
-func defaultHooksConfigPath() string {
-	if xdg := strings.TrimSpace(os.Getenv("XDG_CONFIG_HOME")); xdg != "" {
-		return filepath.Join(xdg, "antigravity", "hooks.json")
-	}
-	if home := strings.TrimSpace(os.Getenv("HOME")); home != "" {
-		return filepath.Join(home, ".config", "antigravity", "hooks.json")
-	}
-	return ""
 }

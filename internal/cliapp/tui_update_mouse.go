@@ -6,16 +6,33 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/justwasm/pigasus/internal/keybind"
-	"github.com/justwasm/pigasus/internal/mdrender"
+	"github.com/justwasm/pigasus/internal/features/tools/clipboard"
+	"github.com/justwasm/pigasus/internal/ui/mdrender"
+	"github.com/justwasm/pigasus/internal/ui/editor/keybind"
+	tuiviewport "github.com/justwasm/pigasus/internal/ui/foundations/viewport"
+	"github.com/justwasm/pigasus/internal/ui/resumepicker"
+	"github.com/justwasm/pigasus/internal/ui/views/voice"
 )
 
 func (m *runMode) updateWindowSize(msg tea.WindowSizeMsg) (tea.Model, tea.Cmd) {
+	oldW := m.width
+	oldH := m.height
 	m.width, m.height = msg.Width, msg.Height
 	mdrender.SetCurrentWidth(msg.Width)
 	if w := msg.Width - len(inputPrompt); w > 10 {
 		m.input.SetWidth(w)
 	}
+	if (oldW != msg.Width || oldW == 0) && len(m.response) > 0 {
+		m.reflowTranscript(msg.Width)
+	} else if oldH != msg.Height || oldW != msg.Width {
+		m.rowsCacheDirty = true
+		m.viewCacheValid = false
+		m.extraRowsValid = false
+		m.rowsCache = wrapSlot{}
+		m.rowsCacheN1 = wrapSlot{}
+		m.rowsView = composedRows{}
+	}
+	m.activeItems.Clamp()
 	return m, nil
 }
 
@@ -23,7 +40,7 @@ func (m *runMode) updateMouseClick(ev tea.Mouse) (tea.Model, tea.Cmd) {
 	if !m.altScreen || ev.Button != tea.MouseLeft {
 		return m, nil
 	}
-	if m.handlePickerClick(ev) {
+	if m.picker.HandleClick(ev) {
 		return m, nil
 	}
 	if m.picker.Visible() && !m.isInputY(ev.Y) {
@@ -35,90 +52,87 @@ func (m *runMode) updateMouseClick(ev tea.Mouse) (tea.Model, tea.Cmd) {
 		}
 	}
 	if m.isInputY(ev.Y) {
-		m.selStartRow, m.selStartCol, m.selEndRow, m.selEndCol = 0, 0, 0, 0
-		m.selDragging = false
+		m.store.ResetSelection()
 		offset := m.inputOffsetAt(ev.X, ev.Y)
 		m.setInputCursorOffset(offset)
-		m.inputSelDragging = true
-		m.inputSelStart = offset
-		m.inputSelEnd = offset
+		m.store.InputSelDragging = true
+		m.store.InputSelStart = offset
+		m.store.InputSelEnd = offset
 		return m, nil
 	}
-	m.clearInputSelection()
-	row, col, ok := m.transcriptCellAt(ev.X, ev.Y)
+	m.store.ResetInputSelection()
+	row, col, ok := tuiviewport.TranscriptCellAt(ev.X, ev.Y, m.viewportHeight(), m.width)
 	if !ok {
 		return m, nil
 	}
-	m.selDragging = true
-	m.selStartRow, m.selStartCol = row, col
-	m.selEndRow, m.selEndCol = row, col
+	m.store.SelDragging = true
+	m.store.SelStartRow, m.store.SelStartCol = row, col
+	m.store.SelEndRow, m.store.SelEndCol = row, col
 	return m, nil
 }
 
 func (m *runMode) updateMouseMotion(ev tea.Mouse) (tea.Model, tea.Cmd) {
-	if m.altScreen {
-		m.handlePickerHover(ev)
-	}
-	if m.inputSelDragging && m.altScreen {
+	m.picker.HandleHover(ev)
+	if m.store.InputSelDragging && m.altScreen {
 		offset := m.inputOffsetAt(ev.X, ev.Y)
-		if offset != m.inputSelEnd {
-			m.inputSelEnd = offset
+		if offset != m.store.InputSelEnd {
+			m.store.InputSelEnd = offset
 			m.setInputCursorOffset(offset)
 		}
 		return m, nil
 	}
-	if !m.selDragging || !m.altScreen {
+	if !m.store.SelDragging || !m.altScreen {
 		return m, nil
 	}
-	row, col, ok := m.transcriptCellAt(ev.X, ev.Y)
+	row, col, ok := tuiviewport.TranscriptCellAt(ev.X, ev.Y, m.viewportHeight(), m.width)
 	if !ok {
 		return m, nil
 	}
-	if row != m.selEndRow || col != m.selEndCol {
-		m.selEndRow, m.selEndCol = row, col
+	if row != m.store.SelEndRow || col != m.store.SelEndCol {
+		m.store.SelEndRow, m.store.SelEndCol = row, col
 	}
 	return m, nil
 }
 
 func (m *runMode) updateMouseReleaseInputSel(ev tea.Mouse) (tea.Model, tea.Cmd) {
-	m.inputSelDragging = false
+	m.store.InputSelDragging = false
 	if ev.Button == tea.MouseLeft {
-		m.inputSelEnd = m.inputOffsetAt(ev.X, ev.Y)
+		m.store.InputSelEnd = m.inputOffsetAt(ev.X, ev.Y)
 	}
-	start, end := m.inputSelectionRange()
+	start, end := m.store.InputSelectionRange()
 	if start < end {
 		val := m.input.Value()
 		if start < len(val) && end <= len(val) {
 			text := val[start:end]
-			_ = copyToClipboard(text)
+			_ = clipboard.Write(text)
 			return m, m.copySelectionCmd(text)
 		}
 	} else {
-		m.clearInputSelection()
+		m.store.ResetInputSelection()
 	}
 	return m, nil
 }
 
 func (m *runMode) updateMouseRelease(ev tea.Mouse) (tea.Model, tea.Cmd) {
-	if m.inputSelDragging {
+	if m.store.InputSelDragging {
 		return m.updateMouseReleaseInputSel(ev)
 	}
-	if !m.selDragging {
+	if !m.store.SelDragging {
 		return m, nil
 	}
-	m.selDragging = false
+	m.store.SelDragging = false
 	if ev.Button != tea.MouseLeft {
-		m.selStartRow, m.selStartCol, m.selEndRow, m.selEndCol = 0, 0, 0, 0
+		m.store.ResetSelection()
 		return m, nil
 	}
-	row, col, ok := m.transcriptCellAt(ev.X, ev.Y)
+	row, col, ok := tuiviewport.TranscriptCellAt(ev.X, ev.Y, m.viewportHeight(), m.width)
 	if ok {
-		m.selEndRow, m.selEndCol = row, col
+		m.store.SelEndRow, m.store.SelEndCol = row, col
 	}
 	text := m.selectionText()
-	m.selStartRow, m.selStartCol, m.selEndRow, m.selEndCol = 0, 0, 0, 0
+	m.store.ResetSelection()
 	if text != "" {
-		_ = copyToClipboard(text)
+		_ = clipboard.Write(text)
 		return m, m.copySelectionCmd(text)
 	}
 	return m, nil
@@ -161,12 +175,12 @@ func (m *runMode) updateMouseAndMiscMsg(msg tea.Msg) (tea.Model, tea.Cmd, bool) 
 	case editorFinishedMsg:
 		mod, cmd := m.updateEditorFinished(msg)
 		return mod, cmd, true
-	case resumeBlinkMsg:
-		if m.resumeMode && m.resumeQuery != "" {
-			m.resumeCursorOn = !m.resumeCursorOn
-			return m, resumeBlink(), true
+	case resumepicker.BlinkMsg:
+		if m.resumePicker.Active() && m.resumePicker.Query() != "" {
+			m.resumePicker.SetCursorOn(!m.resumePicker.CursorOn())
+			return m, resumepicker.BlinkCmd(), true
 		}
-		m.resumeCursorOn = false
+		m.resumePicker.SetCursorOn(false)
 		return m, nil, true
 	case keybind.EscTimeoutMsg:
 		if m.altEscBuf.Pending {
@@ -174,12 +188,10 @@ func (m *runMode) updateMouseAndMiscMsg(msg tea.Msg) (tea.Model, tea.Cmd, bool) 
 			_, _ = m.handleEscKey()
 		}
 		return m, nil, true
-	case voiceConnectDoneMsg:
-		mod, cmd := m.handleVoiceConnectDone(msg)
-		return mod, cmd, true
-	case voiceTickMsg:
-		mod, cmd := m.handleVoiceTick()
-		return mod, cmd, true
+	case voice.ConnectDoneMsg:
+		return m, m.voiceSurface.HandleConnectDone(msg), true
+	case voice.TickMsg:
+		return m, m.voiceSurface.HandleTick(), true
 	case tea.PasteMsg:
 		cmd := m.handlePasteContent(msg.Content)
 		return m, cmd, true

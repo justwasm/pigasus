@@ -1,13 +1,8 @@
-// Tests for the rc-file-ops cycle. Covers:
+// Package remotecontrol — files_test.go: the dispatcher's
+// round-trip against the files domain.
 //
-//   - the FSProvider seam at the in-process level:
-//     MemFS happy paths and rejection paths (sentinel
-//     errors map correctly);
-//   - the WorkdirScope production seam: workspace /
-//     --add-dir / sandbox resolution;
-//   - the dispatcher-level entry points for
-//     ReadRemoteAgentFile and ReadRemoteAgentDir;
-//   - the JSON-RPC envelope shape the dashboard sees.
+// The domain's own tests live in internal/remotecontrol/files; this
+// file exercises the wire the dispatcher produces.
 //
 // Wire-level round-trips (ws adapter + JSON marshalling)
 // live in remotetransport/tcp_test.go, mirroring
@@ -18,12 +13,44 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
-	"errors"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/justwasm/pigasus/internal/remotecontrol/files"
 )
+
+// fsMemFS is a small in-memory FSProvider fixture the
+// tests below drive. It exposes an "allowed" directory
+// with a few files (text, binary, a 100-KiB text file
+// for the truncation test) plus an isolated "secret"
+// directory the dispatcher must reject via the production
+// policy. The fixture deliberately has no policy of its
+// own — the rejection tests pair MemFS with a WorkdirScope
+// whose Workspace is the allowed dir.
+func fsMemFS(t *testing.T) *files.MemProvider {
+	t.Helper()
+	bin := []byte{0x00, 0x01, 0x02, 0x03, 0x00, 0x05}
+	big := make([]byte, 100*1024)
+	for i := range big {
+		big[i] = byte('A' + (i % 26))
+	}
+	return files.NewMemProvider(map[string][]files.MemEntry{
+		"/allowed": {
+			{Name: "main.go", IsDir: false, Data: []byte("package main\n\nfunc main() {}\n")},
+			{Name: "binary.bin", IsDir: false, Data: bin},
+			{Name: "big.txt", IsDir: false, Data: big},
+			{Name: "sub", IsDir: true, Data: nil},
+		},
+		"/secret": {
+			{Name: "secret.txt", IsDir: false, Data: []byte("top secret\n")},
+		},
+	})
+}
+
+// dispatchFile sends a ReadRemoteAgentFile or
+// ReadRemoteAgentDir request through the dispatcher and
+// returns the (result, error) pair. The helper centralises
+// the boilerplate every test would otherwise repeat.
 
 // newFSDispatcher returns a Dispatcher with the supplied
 // FSProvider pre-installed and a SessionState that satisfies
@@ -31,7 +58,7 @@ import (
 // helper is intentionally small (no fixture cascades, no
 // list backend) because the two file methods are pure reads
 // over the FSProvider seam.
-func newFSDispatcher(t *testing.T, fs FSProvider) *Dispatcher {
+func newFSDispatcher(t *testing.T, fs files.Provider) *Dispatcher {
 	t.Helper()
 	sess := NewSessionState("1.4.0")
 	d, err := NewDispatcher(Config{
@@ -52,25 +79,6 @@ func newFSDispatcher(t *testing.T, fs FSProvider) *Dispatcher {
 // policy. The fixture deliberately has no policy of its
 // own — the rejection tests pair MemFS with a WorkdirScope
 // whose Workspace is the allowed dir.
-func fsMemFS(t *testing.T) *MemFS {
-	t.Helper()
-	bin := []byte{0x00, 0x01, 0x02, 0x03, 0x00, 0x05}
-	big := make([]byte, 100*1024)
-	for i := range big {
-		big[i] = byte('A' + (i % 26))
-	}
-	return NewMemFS(map[string][]MemFSEntry{
-		"/allowed": {
-			{Name: "main.go", IsDir: false, Data: []byte("package main\n\nfunc main() {}\n")},
-			{Name: "binary.bin", IsDir: false, Data: bin},
-			{Name: "big.txt", IsDir: false, Data: big},
-			{Name: "sub", IsDir: true, Data: nil},
-		},
-		"/secret": {
-			{Name: "secret.txt", IsDir: false, Data: []byte("top secret\n")},
-		},
-	})
-}
 
 // dispatchFile sends a ReadRemoteAgentFile or
 // ReadRemoteAgentDir request through the dispatcher and
@@ -104,6 +112,13 @@ func dispatchFile(t *testing.T, d *Dispatcher, method string, params any) (map[s
 // coerces it to a float64. Tests should use this helper
 // rather than asserting a concrete numeric type so they
 // pass in both shapes.
+
+// codeAsInt coerces an error code from the dispatcher
+// envelope to an int. In-process, the dispatcher stores
+// the code as a Go int; over the wire, json.Unmarshal
+// coerces it to a float64. Tests should use this helper
+// rather than asserting a concrete numeric type so they
+// pass in both shapes.
 func codeAsInt(t *testing.T, v any) int {
 	t.Helper()
 	switch x := v.(type) {
@@ -116,6 +131,10 @@ func codeAsInt(t *testing.T, v any) int {
 		return 0
 	}
 }
+
+// sizeAsInt coerces a numeric field (size / total_entries)
+// from the dispatcher envelope to an int. Same shape as
+// codeAsInt: in-process is int, over the wire is float64.
 
 // sizeAsInt coerces a numeric field (size / total_entries)
 // from the dispatcher envelope to an int. Same shape as
@@ -134,6 +153,12 @@ func sizeAsInt(t *testing.T, v any) int {
 		return 0
 	}
 }
+
+// TestFSProvider_MemFS_AllowsAllowed covers the
+// happy-path ResolvePolicy. MemFS has no policy of its
+// own (it returns the path verbatim); the test pins
+// that the dispatcher accepts the canonical path the
+// MemFS surfaces without modification.
 
 // TestFSProvider_MemFS_AllowsAllowed covers the
 // happy-path ResolvePolicy. MemFS has no policy of its
@@ -171,9 +196,16 @@ func TestFSProvider_MemFS_AllowsAllowed(t *testing.T) {
 // WorkdirScope's Workspace is /allowed, so the policy
 // returns ErrPathNotAllowed and the dispatcher maps
 // it to -32007.
+
+// TestFSProvider_MemFS_RejectsSecret covers the
+// "production WorkdirScope rejects an out-of-workspace
+// path" path. The MemFS has a /secret directory; the
+// WorkdirScope's Workspace is /allowed, so the policy
+// returns ErrPathNotAllowed and the dispatcher maps
+// it to -32007.
 func TestFSProvider_MemFS_RejectsSecret(t *testing.T) {
 	m := fsMemFS(t)
-	scope := &WorkdirScope{Workspace: "/allowed"}
+	scope := &files.WorkdirScope{Workspace: "/allowed"}
 	d := newFSDispatcher(t, newPolicyOverFS(m, scope))
 
 	res, errObj := dispatchFile(t, d, "ReadRemoteAgentFile", map[string]any{
@@ -198,11 +230,11 @@ func TestFSProvider_MemFS_RejectsSecret(t *testing.T) {
 // test pairing is "policy + MemFS" so the rejection
 // path can be exercised without a real filesystem.
 type policyOverFS struct {
-	policy FSProvider
-	fs     FSProvider
+	policy files.Provider
+	fs     files.Provider
 }
 
-func newPolicyOverFS(fs, policy FSProvider) *policyOverFS {
+func newPolicyOverFS(fs, policy files.Provider) *policyOverFS {
 	return &policyOverFS{policy: policy, fs: fs}
 }
 
@@ -214,9 +246,13 @@ func (p *policyOverFS) ReadFile(canonical string, maxBytes int64, offset int64) 
 	return p.fs.ReadFile(canonical, maxBytes, offset)
 }
 
-func (p *policyOverFS) ReadDir(canonical string, maxEntries int) (entries []DirEntry, total int, truncated bool, err error) {
+func (p *policyOverFS) ReadDir(canonical string, maxEntries int) (entries []files.Entry, total int, truncated bool, err error) {
 	return p.fs.ReadDir(canonical, maxEntries)
 }
+
+// TestReadRemoteAgentFile_Ok_UTF8 covers the happy
+// path through the dispatcher: a small text file comes
+// back with encoding=utf-8 and the original bytes.
 
 // TestReadRemoteAgentFile_Ok_UTF8 covers the happy
 // path through the dispatcher: a small text file comes
@@ -238,6 +274,12 @@ func TestReadRemoteAgentFile_Ok_UTF8(t *testing.T) {
 		t.Errorf("content mismatch: %v", res["content"])
 	}
 }
+
+// TestReadRemoteAgentFile_Binary covers the binary
+// path: synthetic binary content (NUL bytes in the
+// first 8 KiB) comes back with encoding=binary and
+// the base64-decoded content equals the original
+// bytes.
 
 // TestReadRemoteAgentFile_Binary covers the binary
 // path: synthetic binary content (NUL bytes in the
@@ -273,6 +315,10 @@ func TestReadRemoteAgentFile_Binary(t *testing.T) {
 // TestReadRemoteAgentFile_Truncated covers the cap path:
 // file is 100 KiB; client requests maxBytes=4096; result
 // has truncated=true and content length 4096.
+
+// TestReadRemoteAgentFile_Truncated covers the cap path:
+// file is 100 KiB; client requests maxBytes=4096; result
+// has truncated=true and content length 4096.
 func TestReadRemoteAgentFile_Truncated(t *testing.T) {
 	m := fsMemFS(t)
 	d := newFSDispatcher(t, m)
@@ -294,6 +340,10 @@ func TestReadRemoteAgentFile_Truncated(t *testing.T) {
 		t.Errorf("content length = %d, want 4096", len(content))
 	}
 }
+
+// TestReadRemoteAgentFile_OffsetBeyondSize covers the
+// "offset > size" path: the dispatcher returns -32603
+// with an explanatory message.
 
 // TestReadRemoteAgentFile_OffsetBeyondSize covers the
 // "offset > size" path: the dispatcher returns -32603
@@ -320,9 +370,13 @@ func TestReadRemoteAgentFile_OffsetBeyondSize(t *testing.T) {
 // TestReadRemoteAgentFile_PathNotAllowed covers the
 // policy rejection path: a path outside the
 // WorkdirScope's workspace returns -32007.
+
+// TestReadRemoteAgentFile_PathNotAllowed covers the
+// policy rejection path: a path outside the
+// WorkdirScope's workspace returns -32007.
 func TestReadRemoteAgentFile_PathNotAllowed(t *testing.T) {
 	m := fsMemFS(t)
-	scope := &WorkdirScope{Workspace: "/allowed"}
+	scope := &files.WorkdirScope{Workspace: "/allowed"}
 	d := newFSDispatcher(t, newPolicyOverFS(m, scope))
 
 	_, errObj := dispatchFile(t, d, "ReadRemoteAgentFile", map[string]any{
@@ -335,6 +389,10 @@ func TestReadRemoteAgentFile_PathNotAllowed(t *testing.T) {
 		t.Errorf("code = %v, want -32007 (Path not allowed)", errObj["code"])
 	}
 }
+
+// TestReadRemoteAgentFile_NotRegularFile covers the
+// directory-rejection path: requesting a directory
+// returns -32008 "Not a regular file".
 
 // TestReadRemoteAgentFile_NotRegularFile covers the
 // directory-rejection path: requesting a directory
@@ -357,13 +415,17 @@ func TestReadRemoteAgentFile_NotRegularFile(t *testing.T) {
 // TestReadRemoteAgentFile_MaxBytesTooLarge covers the
 // "maxBytes > 16 MiB" rejection at the param-validation
 // step (no FS call happens).
+
+// TestReadRemoteAgentFile_MaxBytesTooLarge covers the
+// "maxBytes > 16 MiB" rejection at the param-validation
+// step (no FS call happens).
 func TestReadRemoteAgentFile_MaxBytesTooLarge(t *testing.T) {
 	m := fsMemFS(t)
 	d := newFSDispatcher(t, m)
 
 	_, errObj := dispatchFile(t, d, "ReadRemoteAgentFile", map[string]any{
 		"path":     "/allowed/main.go",
-		"maxBytes": MaxReadMaxBytes + 1,
+		"maxBytes": files.MaxReadMaxBytes + 1,
 	})
 	if errObj == nil {
 		t.Fatalf("maxBytes too large: got result, want error")
@@ -372,6 +434,9 @@ func TestReadRemoteAgentFile_MaxBytesTooLarge(t *testing.T) {
 		t.Errorf("code = %v, want -32602 (Invalid params)", errObj["code"])
 	}
 }
+
+// TestReadRemoteAgentFile_NegativeOffset covers the
+// "offset < 0" rejection.
 
 // TestReadRemoteAgentFile_NegativeOffset covers the
 // "offset < 0" rejection.
@@ -395,6 +460,11 @@ func TestReadRemoteAgentFile_NegativeOffset(t *testing.T) {
 // "FS not installed" path: cfg.FS == nil surfaces as
 // -32603 (the dispatcher can't reach a filesystem
 // without a provider).
+
+// TestReadRemoteAgentFile_NoFSProvider covers the
+// "FS not installed" path: cfg.FS == nil surfaces as
+// -32603 (the dispatcher can't reach a filesystem
+// without a provider).
 func TestReadRemoteAgentFile_NoFSProvider(t *testing.T) {
 	d := newFSDispatcher(t, nil)
 	_, errObj := dispatchFile(t, d, "ReadRemoteAgentFile", map[string]any{
@@ -407,6 +477,10 @@ func TestReadRemoteAgentFile_NoFSProvider(t *testing.T) {
 		t.Errorf("code = %v, want -32603 (Internal error)", errObj["code"])
 	}
 }
+
+// TestReadRemoteAgentDir_Ok covers the happy path:
+// the dispatcher returns the entry list for the
+// /allowed directory.
 
 // TestReadRemoteAgentDir_Ok covers the happy path:
 // the dispatcher returns the entry list for the
@@ -430,9 +504,9 @@ func TestReadRemoteAgentDir_Ok(t *testing.T) {
 	if res["truncated"] != false {
 		t.Errorf("truncated = %v, want false", res["truncated"])
 	}
-	entries, ok := res["entries"].([]DirEntry)
+	entries, ok := res["entries"].([]files.Entry)
 	if !ok {
-		t.Fatalf("entries type = %T, want []DirEntry", res["entries"])
+		t.Fatalf("entries type = %T, want []files.Entry", res["entries"])
 	}
 	if len(entries) != 4 {
 		t.Fatalf("entries length = %d, want 4", len(entries))
@@ -466,6 +540,11 @@ func TestReadRemoteAgentDir_Ok(t *testing.T) {
 // the cap-by-maxEntries path: maxEntries=2 on a
 // 4-entry directory produces truncated=true and
 // only the first 2 (alphabetical) entries.
+
+// TestReadRemoteAgentDir_TruncatedByMaxEntries covers
+// the cap-by-maxEntries path: maxEntries=2 on a
+// 4-entry directory produces truncated=true and
+// only the first 2 (alphabetical) entries.
 func TestReadRemoteAgentDir_TruncatedByMaxEntries(t *testing.T) {
 	m := fsMemFS(t)
 	d := newFSDispatcher(t, m)
@@ -483,9 +562,9 @@ func TestReadRemoteAgentDir_TruncatedByMaxEntries(t *testing.T) {
 	if total := sizeAsInt(t, res["total_entries"]); total != 4 {
 		t.Errorf("total_entries = %v, want 4", total)
 	}
-	entries, ok := res["entries"].([]DirEntry)
+	entries, ok := res["entries"].([]files.Entry)
 	if !ok {
-		t.Fatalf("entries type = %T, want []DirEntry", res["entries"])
+		t.Fatalf("entries type = %T, want []files.Entry", res["entries"])
 	}
 	if len(entries) != 2 {
 		t.Errorf("entries length = %d, want 2", len(entries))
@@ -496,9 +575,14 @@ func TestReadRemoteAgentDir_TruncatedByMaxEntries(t *testing.T) {
 // policy rejection path for the directory method:
 // a path outside the WorkdirScope's workspace
 // returns -32007.
+
+// TestReadRemoteAgentDir_PathNotAllowed covers the
+// policy rejection path for the directory method:
+// a path outside the WorkdirScope's workspace
+// returns -32007.
 func TestReadRemoteAgentDir_PathNotAllowed(t *testing.T) {
 	m := fsMemFS(t)
-	scope := &WorkdirScope{Workspace: "/allowed"}
+	scope := &files.WorkdirScope{Workspace: "/allowed"}
 	d := newFSDispatcher(t, newPolicyOverFS(m, scope))
 
 	_, errObj := dispatchFile(t, d, "ReadRemoteAgentDir", map[string]any{
@@ -514,13 +598,16 @@ func TestReadRemoteAgentDir_PathNotAllowed(t *testing.T) {
 
 // TestReadRemoteAgentDir_MaxEntriesTooLarge covers
 // the "maxEntries > 10000" rejection.
+
+// TestReadRemoteAgentDir_MaxEntriesTooLarge covers
+// the "maxEntries > 10000" rejection.
 func TestReadRemoteAgentDir_MaxEntriesTooLarge(t *testing.T) {
 	m := fsMemFS(t)
 	d := newFSDispatcher(t, m)
 
 	_, errObj := dispatchFile(t, d, "ReadRemoteAgentDir", map[string]any{
 		"path":       "/allowed",
-		"maxEntries": MaxReadDirMaxEntries + 1,
+		"maxEntries": files.MaxReadDirMaxEntries + 1,
 	})
 	if errObj == nil {
 		t.Fatalf("maxEntries too large: got result, want error")
@@ -529,6 +616,9 @@ func TestReadRemoteAgentDir_MaxEntriesTooLarge(t *testing.T) {
 		t.Errorf("code = %v, want -32602 (Invalid params)", errObj["code"])
 	}
 }
+
+// TestReadRemoteAgentFile_EmptyPath covers the
+// "missing path" param-validation path.
 
 // TestReadRemoteAgentFile_EmptyPath covers the
 // "missing path" param-validation path.
@@ -550,234 +640,3 @@ func TestReadRemoteAgentFile_EmptyPath(t *testing.T) {
 // TestWorkdirScope_AllowList covers the --add-dir
 // path: a path inside an allowed dir is permitted
 // even when outside the workspace.
-func TestWorkdirScope_AllowList(t *testing.T) {
-	s := &WorkdirScope{
-		Workspace: "/workspace",
-		Allow:     []string{"/extra"},
-	}
-	canon, err := s.ResolvePolicy("/extra/data.txt")
-	if err != nil {
-		t.Fatalf("allow-list path: error = %v", err)
-	}
-	if canon != "/extra/data.txt" {
-		t.Errorf("canonical = %q, want /extra/data.txt", canon)
-	}
-	// /elsewhere still rejected.
-	if _, err := s.ResolvePolicy("/elsewhere/x"); !errors.Is(err, ErrPathNotAllowed) {
-		t.Errorf("elsewhere: err = %v, want ErrPathNotAllowed", err)
-	}
-	// workspace subdir still allowed.
-	canon, err = s.ResolvePolicy("/workspace/src/main.go")
-	if err != nil {
-		t.Fatalf("workspace subdir: error = %v", err)
-	}
-	if canon != "/workspace/src/main.go" {
-		t.Errorf("canonical = %q, want /workspace/src/main.go", canon)
-	}
-}
-
-// TestWorkdirScope_RelativePath covers the
-// "relative path" path: "src/main.go" resolves
-// against the workspace.
-func TestWorkdirScope_RelativePath(t *testing.T) {
-	s := &WorkdirScope{Workspace: "/workspace"}
-	canon, err := s.ResolvePolicy("src/main.go")
-	if err != nil {
-		t.Fatalf("relative path: error = %v", err)
-	}
-	if canon != "/workspace/src/main.go" {
-		t.Errorf("canonical = %q, want /workspace/src/main.go", canon)
-	}
-}
-
-// TestWorkdirScope_EmptyPath covers the "empty path"
-// path: returns ErrPathNotAllowed.
-func TestWorkdirScope_EmptyPath(t *testing.T) {
-	s := &WorkdirScope{Workspace: "/workspace"}
-	if _, err := s.ResolvePolicy(""); !errors.Is(err, ErrPathNotAllowed) {
-		t.Errorf("empty path: err = %v, want ErrPathNotAllowed", err)
-	}
-}
-
-// TestMemFS_ReadFile_Binary covers the MemFS-level
-// binary-detection path: bytes with NULs are
-// classified as binary.
-func TestMemFS_ReadFile_Binary(t *testing.T) {
-	m := NewMemFS(map[string][]MemFSEntry{
-		"/x": {
-			{Name: "b", IsDir: false, Data: []byte{0x00, 0x01, 0x02}},
-		},
-	})
-	data, total, truncated, isBinary, err := m.ReadFile("/x/b", 1024, 0)
-	if err != nil {
-		t.Fatalf("MemFS.ReadFile: %v", err)
-	}
-	if !isBinary {
-		t.Errorf("isBinary = false, want true")
-	}
-	if total != 3 {
-		t.Errorf("total = %d, want 3", total)
-	}
-	if truncated {
-		t.Errorf("truncated = true, want false")
-	}
-	if len(data) != 3 {
-		t.Errorf("data length = %d, want 3", len(data))
-	}
-}
-
-// TestMemFS_ReadFile_Directory covers the
-// MemFS-level "not a regular file" path: reading a
-// directory returns ErrNotRegularFile.
-func TestMemFS_ReadFile_Directory(t *testing.T) {
-	m := NewMemFS(map[string][]MemFSEntry{
-		"/x": {
-			{Name: "sub", IsDir: true, Data: nil},
-		},
-	})
-	_, _, _, _, err := m.ReadFile("/x/sub", 1024, 0)
-	if !errors.Is(err, ErrNotRegularFile) {
-		t.Errorf("MemFS.ReadFile on directory: err = %v, want ErrNotRegularFile", err)
-	}
-}
-
-// TestMemFS_ReadFile_OffsetBeyondSize covers the
-// MemFS-level offset > size path.
-func TestMemFS_ReadFile_OffsetBeyondSize(t *testing.T) {
-	m := NewMemFS(map[string][]MemFSEntry{
-		"/x": {
-			{Name: "f", IsDir: false, Data: []byte("hi")},
-		},
-	})
-	_, total, _, _, err := m.ReadFile("/x/f", 1024, 100)
-	if err == nil {
-		t.Fatalf("offset beyond size: got nil error")
-	}
-	if total != 2 {
-		t.Errorf("total = %d, want 2", total)
-	}
-}
-
-// TestWorkdirScope_ReadFile covers the production
-// ReadFile path against a real temporary file. The
-// test creates a tmp file, configures a WorkdirScope
-// whose workspace is the tmp dir's parent, and
-// exercises the read / truncation / binary paths.
-func TestWorkdirScope_ReadFile(t *testing.T) {
-	dir := t.TempDir()
-	// text file
-	textPath := filepath.Join(dir, "hello.txt")
-	if err := os.WriteFile(textPath, []byte("hello world\n"), 0o644); err != nil {
-		t.Fatalf("WriteFile: %v", err)
-	}
-	// binary file
-	binPath := filepath.Join(dir, "bin.bin")
-	if err := os.WriteFile(binPath, []byte{0x00, 0x01, 0x02}, 0o644); err != nil {
-		t.Fatalf("WriteFile: %v", err)
-	}
-	// big file
-	big := make([]byte, 8*1024)
-	for i := range big {
-		big[i] = byte('A' + (i % 26))
-	}
-	bigPath := filepath.Join(dir, "big.txt")
-	if err := os.WriteFile(bigPath, big, 0o644); err != nil {
-		t.Fatalf("WriteFile: %v", err)
-	}
-
-	s := &WorkdirScope{Workspace: dir}
-
-	// text → utf-8
-	data, total, truncated, isBinary, err := s.ReadFile(textPath, 1024, 0)
-	if err != nil {
-		t.Fatalf("text ReadFile: %v", err)
-	}
-	if isBinary || truncated {
-		t.Errorf("text: isBinary=%v truncated=%v, want false false", isBinary, truncated)
-	}
-	if total != 12 {
-		t.Errorf("text total = %d, want 12", total)
-	}
-	if string(data) != "hello world\n" {
-		t.Errorf("text data = %q, want hello world\\n", data)
-	}
-
-	// binary → binary
-	_, _, _, isBinary, err = s.ReadFile(binPath, 1024, 0)
-	if err != nil {
-		t.Fatalf("bin ReadFile: %v", err)
-	}
-	if !isBinary {
-		t.Errorf("bin: isBinary=false, want true")
-	}
-
-	// big → truncated
-	_, total, truncated, _, err = s.ReadFile(bigPath, 1024, 0)
-	if err != nil {
-		t.Fatalf("big ReadFile: %v", err)
-	}
-	if total != 8*1024 {
-		t.Errorf("big total = %d, want %d", total, 8*1024)
-	}
-	if !truncated {
-		t.Errorf("big: truncated=false, want true")
-	}
-}
-
-// TestWorkdirScope_ReadFile_Directory covers the
-// production ReadFile path's directory rejection:
-// ErrNotRegularFile.
-func TestWorkdirScope_ReadFile_Directory(t *testing.T) {
-	dir := t.TempDir()
-	s := &WorkdirScope{Workspace: dir}
-	_, _, _, _, err := s.ReadFile(dir, 1024, 0)
-	if !errors.Is(err, ErrNotRegularFile) {
-		t.Errorf("ReadFile on dir: err = %v, want ErrNotRegularFile", err)
-	}
-}
-
-// TestWorkdirScope_ReadDir covers the production
-// ReadDir path against a real temporary directory.
-func TestWorkdirScope_ReadDir(t *testing.T) {
-	dir := t.TempDir()
-	// Two files + a subdirectory
-	if err := os.WriteFile(filepath.Join(dir, "a.txt"), []byte("a"), 0o644); err != nil {
-		t.Fatalf("WriteFile: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(dir, "b.txt"), []byte("b"), 0o644); err != nil {
-		t.Fatalf("WriteFile: %v", err)
-	}
-	if err := os.Mkdir(filepath.Join(dir, "sub"), 0o755); err != nil {
-		t.Fatalf("Mkdir: %v", err)
-	}
-	s := &WorkdirScope{Workspace: dir}
-	entries, total, truncated, err := s.ReadDir(dir, 0)
-	if err != nil {
-		t.Fatalf("ReadDir: %v", err)
-	}
-	if total != 3 {
-		t.Errorf("total = %d, want 3", total)
-	}
-	if truncated {
-		t.Errorf("truncated = true, want false")
-	}
-	if len(entries) != 3 {
-		t.Fatalf("entries length = %d, want 3", len(entries))
-	}
-	// Sorted: a.txt, b.txt, sub.
-	want := []string{"a.txt", "b.txt", "sub"}
-	for i, w := range want {
-		if entries[i].Name != w {
-			t.Errorf("entries[%d].Name = %q, want %q", i, entries[i].Name, w)
-		}
-	}
-	if entries[2].Type != "dir" {
-		t.Errorf("sub.Type = %v, want dir", entries[2].Type)
-	}
-	if entries[0].Type != "file" {
-		t.Errorf("a.txt.Type = %v, want file", entries[0].Type)
-	}
-	if entries[0].MTime == "" {
-		t.Errorf("a.txt.MTime empty, want non-empty RFC3339")
-	}
-}

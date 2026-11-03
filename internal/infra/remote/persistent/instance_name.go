@@ -10,10 +10,10 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/justwasm/pigasus/internal/accounts"
-	"github.com/justwasm/pigasus/internal/auth"
-	"github.com/justwasm/pigasus/internal/branding"
-	"github.com/justwasm/pigasus/internal/rclink"
+	"github.com/justwasm/pigasus/internal/core/branding"
+	accounts "github.com/justwasm/pigasus/internal/features/accounts/core"
+	"github.com/justwasm/pigasus/internal/features/auth"
+	rclink "github.com/justwasm/pigasus/internal/infra/remote/link"
 )
 
 // DefaultOfficialDaemonLabel is the launchd service label used by the official agy binary.
@@ -200,7 +200,7 @@ func PlaintextDaemonStatus(ctx context.Context, name string) []string {
 	if instName != "" {
 		// The link reaches this instance: the account chooser wrapping
 		// the deep link, so the browser picks the account the daemon
-		// registered with. See internal/rclink.
+		// registered with. See internal/infra/remote/link.
 		lines = append(lines, fmt.Sprintf("Instance name: %s (find it at %s)", instName, rclink.BrowserURL(InstanceID(), "")))
 	} else {
 		lines = append(lines, "Instance name: not assigned yet; the daemon generates one on its first start.")
@@ -314,7 +314,16 @@ func BuildOfficialPlist(binary string, session bool, desktop bool) string {
 }
 
 // StartOfficialDaemon writes and bootstraps the official LaunchAgent daemon.
-func StartOfficialDaemon(ctx context.Context, name string, session bool, desktop bool) error {
+//
+// It refuses to register the job when the resolved home is a
+// temporary tree — see refusesTemporaryHome. The label is a **global**
+// one (`gui/<uid>/<label>`), so a registration from a temporary home
+// does not add a second daemon: it *replaces* the one the user
+// already runs, and the replacement writes its log into a directory
+// that is deleted with the test.
+var StartOfficialDaemon = defaultStartOfficialDaemon
+
+func defaultStartOfficialDaemon(ctx context.Context, name string, session bool, desktop bool) error {
 	if runtime.GOOS != "darwin" {
 		return fmt.Errorf("%w (running on %s/%s); run `pigasus remote-control run` to start the daemon in the foreground",
 			ErrUnsupported, runtime.GOOS, runtime.GOARCH)
@@ -323,6 +332,9 @@ func StartOfficialDaemon(ctx context.Context, name string, session bool, desktop
 		_ = SetInstanceName(name)
 	}
 	plistPath := OfficialPlistPath()
+	if err := refusesTemporaryHome(plistPath); err != nil {
+		return err
+	}
 	bin := OfficialBinaryPath()
 	content := BuildOfficialPlist(bin, session, desktop)
 	if err := os.MkdirAll(filepath.Dir(plistPath), 0755); err != nil {

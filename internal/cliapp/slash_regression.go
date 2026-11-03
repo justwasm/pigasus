@@ -30,38 +30,22 @@
 package cliapp
 
 import (
+	"github.com/justwasm/pigasus/internal/ui/tuilib"
+
 	"os/exec"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/justwasm/pigasus/internal/auth"
-	"github.com/justwasm/pigasus/internal/cli"
-	"github.com/justwasm/pigasus/internal/configpanel"
-	"github.com/justwasm/pigasus/internal/diffaction"
-	"github.com/justwasm/pigasus/internal/editorkit"
-	"github.com/justwasm/pigasus/internal/modelcatalog"
-	"github.com/justwasm/pigasus/internal/modelpicker"
+	settings "github.com/justwasm/pigasus/internal/core/settings"
+	"github.com/justwasm/pigasus/internal/features/models"
+	modelcatalog "github.com/justwasm/pigasus/internal/features/models/catalog"
+	"github.com/justwasm/pigasus/internal/ui/editor/editorkit"
+	"github.com/justwasm/pigasus/internal/ui/panelregistry"
+	diffaction "github.com/justwasm/pigasus/internal/ui/views/diff/action"
+	"github.com/justwasm/pigasus/internal/ui/views/effortpanel"
+	"github.com/justwasm/pigasus/internal/ui/views/modelpicker"
 )
-
-// panelGray241 is the dim grey the reference uses for the secondary half
-// of the /feedback stage-2 legend (`esc Back`) and the title's parenthetical.
-const (
-	panelGray241  = "\x1b[38;2;101;123;131m"
-	panelGray241C = "\x1b[39m"
-)
-
-// effortLevelName returns the word for a slider index, clamped to the
-// three known levels.
-func effortLevelName(level int) string {
-	return modelpicker.EffortLevelName(level)
-}
-
-// effortIndexForName returns the slider index for a canonical level
-// word.
-func effortIndexForName(name string) int {
-	return modelpicker.EffortIndexForName(name)
-}
 
 // statusEffortSuffix is the right-hand status row's " · <effort>". The
 // reference derives it from the *live* effort (verified: after Enter on
@@ -75,79 +59,10 @@ func (m *runMode) statusEffortSuffix() string {
 	// A model the reference publishes no effort tiers for carries no
 	// suffix: the reference never prints " · high" / " · medium" for it,
 	// and the tiers belong to the reference's own catalogue.
-	if !hasEffortTiers(m.statusModel) {
+	if !modelpicker.HasEffortTiers(m.statusModel) {
 		return ""
 	}
 	return " \u00b7 " + m.currentEffortName()
-}
-
-// hasEffortTiers reports whether a model carries the reference's effort
-// tiers (low / medium / high).
-func hasEffortTiers(name string) bool {
-	return modelpicker.HasEffortTiers(name)
-}
-
-// effortBarSegments builds the two coloured runs of the /effort slider
-// for `level`.
-func effortBarSegments(level int) (on, off string) {
-	return modelpicker.EffortBarSegments(level)
-}
-
-// modelRowHasEffortSlider reports whether the /model cursor is on a row
-// that has more than one effort. The reference's own picker has exactly
-// one such row — the three-tier Gemini — and hides the whole slider
-// block (and the `←/→ Effort` legend entry) on Claude/GPT-OSS/Argon
-// (fin_model_down.raw.txt rows 10–11). A model the user configured that
-// declares reasoning tiers gets the same slider, widened to fit.
-func (m *runMode) modelRowHasEffortSlider() bool {
-	row, ok := m.currentModelRow()
-	if !ok {
-		return false
-	}
-	return row.HasEffortSlider()
-}
-
-// configNamePad is the padding between a /config row's name and its value.
-// The reference aligns the value column at 29 characters counted in
-// *runes*; the nested row `Editor Mode › Insert First` is 26 runes but 28
-// bytes, so a byte count leaves it two cells short (fin config capture,
-// row 13).
-func configNamePad(name string, col int) int {
-	return configpanel.NamePad(name, col)
-}
-
-// configCursorFieldCols is the name-field width at which the /config
-// cursor row switches from "blue name span + uncoloured pad + blue value
-// span" to one blue span covering the whole row. Measured across all 21
-// rows in two independent runs (harness/cfg_cursor.py): every name of 16
-// or more runes renders as a single span, every name of 15 or fewer keeps
-// the pad uncoloured. The mechanism behind the 16-cell boundary was not
-// recovered — see the cycle-208 report's 存疑 section.
-const configCursorFieldCols = configpanel.CursorFieldCols
-
-// configCursorRowIsSingleSpan reports which of the two measured cursor-row
-// forms the reference uses for this row.
-func configCursorRowIsSingleSpan(name string) bool {
-	return configpanel.CursorRowIsSingleSpan(name)
-}
-
-// modelLabelForEffort returns the catalogue display label of the model the
-// current session would run at `level`, or "" when the current model has
-// no tiered catalogue entry (a custom name, or a model whose id takes no
-// effort suffix).
-func (m *runMode) modelLabelForEffort(level int) string {
-	label := m.panelCurrentModelLabel()
-	base := panelModelBaseSlug(label)
-	if base == "" || base == label {
-		return "" // not in the catalogue — no tier to name
-	}
-	want := base + "-" + effortLevelName(level)
-	for _, e := range cli.ReferenceModels() {
-		if e.ID == want {
-			return e.Label
-		}
-	}
-	return ""
 }
 
 // applyEffortSelection is the /effort panel's Enter action. Measured
@@ -165,8 +80,16 @@ func (m *runMode) modelLabelForEffort(level int) string {
 // The "unchanged ⇒ silent" branch is why the reference leaves an
 // unavailable settings model (e.g. "MiniMax-M3") in place when you apply
 // the fallback's own tier.
+//
+// The slider's index is an index into the *model's own* list of tiers, so
+// the word comes from that list and not from the vocabulary: a model that
+// publishes "max" but not "xhigh" has its own order, and the tier the
+// marker sits on has to be the one the model publishes.
 func (m *runMode) applyEffortSelection(level int) tea.Cmd {
-	name := effortLevelName(level)
+	name := models.TierNameAt(m.effortTiers(), level)
+	if name == "" {
+		name = effortpanel.EffortLevelName(level)
+	}
 	return m.applyEffortLevel(name, level)
 }
 
@@ -176,50 +99,37 @@ func (m *runMode) applyEffortSelection(level int) tea.Cmd {
 //   - `name` is the canonical lowercase word ("low" | "medium" | "high");
 //     callers should run printmode.ParseEffortWord first when the word came from
 //     user input.
-//   - `level` is the slider index (0..2) for change-detection; pass the
+//   - `level` is the slider index for change-detection; pass the
 //     same value the name came from so the persistence path is one
 //     branch.
 //   - The function never returns an error: invalid input has already been
 //     rejected by the caller; persistence errors are swallowed because the
 //     user-typed echo must survive a read-only settings file.
-func resolveEffortBeforeModel() string {
-	before, _ := modelcatalog.ResolveEffectiveModel("")
-	if !hasEffortTiers(before) {
-		// The model resolved to a label the reference publishes no tier
-		// for — a model the user configured. The reference cannot run
-		// one, so the (running) fallback comes through instead, and
-		// applying a tier is then a real change.
-		//
-		// In practice: when settings.json pins a configured model, the
-		// reference is already running Gemini 3.8 Flash (High), and we
-		// want `before` to be that label.
-		return modelcatalog.DefaultModel
-	}
-	return before
-}
-
-func (m *runMode) resolveTargetEffortLabel(name string, level int, before string) string {
-	label := m.modelLabelForEffort(level)
-	if label != "" {
-		return label
-	}
-	// Catalogue miss — derive from the fallback slug so the
-	// (current) model's effort tier still resolves.
-	base := panelModelBaseSlug(before)
-	if base != "" {
-		want := base + "-" + name
-		for _, e := range cli.ReferenceModels() {
-			if e.ID == want {
-				return e.Label
-			}
-		}
-	}
-	return ""
-}
-
+//
+// The reference refuses the change *before* it looks at the word: a model
+// with a fixed reasoning budget has no adjustable effort, and the
+// reference answers
+//
+//	Effort isn't adjustable for <model>.
+//
+// (【反编译】 agy 1.4.12, commands.(*effortCommand).Execute.func1 at
+// 0x102b091c0: the adjustable flag is read at 0x102b09248 and the
+// command branches to the message before it parses its argument). The
+// clone's own word validation happens in the /effort handler, which
+// checks the word first — a divergence that is recorded in the cycle
+// report rather than silently changed here.
 func (m *runMode) applyEffortLevel(name string, level int) tea.Cmd {
-	before := resolveEffortBeforeModel()
-	label := m.resolveTargetEffortLabel(name, level, before)
+	name = strings.ToLower(strings.TrimSpace(name))
+	if name == "" {
+		name = effortpanel.EffortLevelName(level)
+	}
+	model := m.effortModel()
+	if !modelcatalog.EffortAdjustableFor(model) {
+		m.slashRespond("/effort", models.NotAdjustableMessage(models.BaseLabel(model)))
+		return nil
+	}
+	before := model
+	label := modelcatalog.EffortLabelFor(model, name)
 	changed := label != "" && label != before
 
 	// The session's effort lives on the flag set (currentEffort reads it).
@@ -230,7 +140,7 @@ func (m *runMode) applyEffortLevel(name string, level int) tea.Cmd {
 	// The picker path closes the panel; the /effort <level> path has
 	// nothing open to close. The early-return-after-mutation pattern
 	// keeps both callers' semantics identical.
-	if m.panel.kind == panelEffort {
+	if m.panel.kind == panelregistry.Effort {
 		m.panel = slashPanel{}
 	}
 	if !changed {
@@ -238,111 +148,27 @@ func (m *runMode) applyEffortLevel(name string, level int) tea.Cmd {
 	}
 	if strings.TrimSpace(m.model) == "" {
 		m.model = before
-		m.statusModel = stripTier(before)
+		m.statusModel = tuilib.StripTier(before)
 	}
 	m.model = label
-	m.statusModel = stripTier(label)
+	m.statusModel = tuilib.StripTier(label)
 	m.syncBackendForModel()
-	_ = auth.SetSettingsField("model", label)
-	m.response = append(m.response, slashEchoLines("/effort", "Effort set to "+name)...)
+	_ = settings.SetField("model", label)
+	m.response = append(m.response, tuilib.SlashEchoLines("/effort", "Effort set to "+name)...)
 	return nil
-}
-
-// feedbackCategoryLabel drops the `N. ` picker index from a category row:
-// the reference's stage-2 `Feedback:` line echoes the label alone
-// (fin_fb_stage2.raw.txt has "Feedback: Code doesn't work (e.g., syntax
-// errors, bad logic)") while stage 1 lists it as "1. Code doesn't work…".
-func feedbackCategoryLabel(cat string) string {
-	i := strings.Index(cat, ". ")
-	if i <= 0 || i > 3 {
-		return cat
-	}
-	for _, r := range cat[:i] {
-		if r < '0' || r > '9' {
-			return cat
-		}
-	}
-	return cat[i+2:]
-}
-
-// feedbackStage2Lines renders the /feedback free-text form. Until cycle
-// 208 this was marked 【推测】: the earlier probes could not reach REF's
-// second stage. It has now been captured (fin_fb_stage2.raw.txt):
-//
-//	\x1b[1m\x1b[39mReview Submission Data\x1b[0m  \x1b[38;2;101;123;131m(You can always provide manual feedback via /feedback)\x1b[39m
-//
-//	Your feedback helps improve Antigravity CLI. The following sanitized data will be sent:
-//
-//	Feedback: <category in brand blue>
-//
-//	Additional Details (optional):
-//	<buffer><cursor block>
-//	(3 blank rows)
-//	\x1b[7m\x1b[38;2;133;153;0m ctrl+s Submit Feedback \x1b[0m  \x1b[38;2;101;123;131mesc Back\x1b[39m
-func (m *runMode) feedbackStage2Lines() []string {
-	cursor := m.panel.cursor
-	if cursor < 0 || cursor >= len(feedbackCategories) {
-		cursor = 0
-	}
-	return []string{
-		panelTitleOpen + "Review Submission Data" + panelTitleClose + "  " +
-			panelGray241 + "(You can always provide manual feedback via /feedback)" + panelGray241C,
-		"",
-		"Your feedback helps improve Pigasus CLI. The following sanitized data will be sent:",
-		"",
-		"Feedback: " + cBlueOpen + feedbackCategoryLabel(feedbackCategories[cursor]) + cBlueClose,
-		"",
-		"Additional Details (optional):",
-		m.panel.text + searchCursorBlock,
-		"",
-		"",
-		"",
-		"\x1b[7m\x1b[38;2;133;153;0m ctrl+s Submit Feedback \x1b[0m  " +
-			panelGray241 + "esc Back" + panelGray241C,
-	}
-}
-
-// detectVCS returns the version-control system that owns dir, or "" when there
-// is none. Recovered: the reference supports Git, Mercurial and Jujutsu for
-// /diff (the 1.3.4 changelog names all three, and the enum carries
-// VCS_TYPE_GIT / VCS_TYPE_JJ).
-func detectVCS(dir string) string {
-	return diffaction.DetectVCS(dir)
-}
-
-func pathExists(p string) bool {
-	return diffaction.PathExists(p)
-}
-
-// vcsDiff runs the working-copy diff. Pagers and colour are disabled the way
-// the reference does it: the 1.3.4 changelog records that "agent commands now
-// set JJ_PAGER=cat alongside PAGER and GIT_PAGER", and that /diff must not be
-// fooled by repositories configured to always colour their output. The 1.3.6
-// changelog line 7 adds the editor-disabling trio (GIT_EDITOR / HGEDITOR /
-// JJ_EDITOR = false) so a future /commit-style slash that fails through to a
-// real `git commit` cannot hang on a hidden vim session.
-func vcsDiff(vcs, dir string) (string, error) {
-	return diffaction.VCSDiff(vcs, dir)
-}
-
-// stripANSI removes ANSI CSI escape sequences from s. The returned string
-// preserves all other bytes, including embedded newlines and surrounding
-// whitespace, so a caller's TrimSpace / Split pipeline keeps working.
-func stripANSI(s string) string {
-	return diffaction.StripANSI(s)
 }
 
 // vcsDiffFunc is the test seam for diffFeedback. Production code reads it
 // directly; tests override it with a function that returns canned output so
 // the color.ui = always regression can be exercised without configuring a
 // real repository.
-var vcsDiffFunc = vcsDiff
+var vcsDiffFunc = diffaction.VCSDiff
 
 // gitHeadFunc is the test seam for the AGY 1.3.3 line 52 fallback: it runs
 // `git -C <workspace> diff HEAD`. Production code reads runGit through it;
 // tests override it with a function that returns canned output.
 var gitHeadFunc = func(dir string) (string, error) {
-	return runGit(dir, "diff", "HEAD")
+	return diffaction.RunGit(dir, "diff", "HEAD")
 }
 
 // diffFeedback renders /diff: the workspace's uncommitted changes.
@@ -362,12 +188,6 @@ type editorFinishedMsg struct {
 	tempPath string
 }
 
-// splitCommand splits an editor setting such as "code --wait" into a name and
-// arguments.
-func splitCommand(s string) (string, []string) {
-	return editorkit.SplitCommand(s)
-}
-
 // editPromptCmd implements ctrl+g: open the configured editor on the current
 // prompt and read the result back.
 //
@@ -377,7 +197,7 @@ func splitCommand(s string) (string, []string) {
 // stdout", and "Added `ctrl+g` on the artifact view to open $EDITOR". The prompt
 // is written to a scratch file, edited, and read back on exit.
 func (m *runMode) editPromptCmd() tea.Cmd {
-	name, args, notice, err := editorkit.ResolveEditor(auth.SettingsString("editor"))
+	name, args, notice, err := editorkit.ResolveEditor(settings.String("editor"))
 	if err != nil {
 		m.response = append(m.response, "Failed to resolve editor: "+err.Error())
 		return nil
@@ -398,16 +218,4 @@ func (m *runMode) editPromptCmd() tea.Cmd {
 	return tea.ExecProcess(c, func(err error) tea.Msg {
 		return editorFinishedMsg{err: err, tempPath: path}
 	})
-}
-
-// openFeedback resolves /open into a command to run. It returns the line(s) to
-// show before the editor starts and the command itself (nil when the file
-// cannot be opened).
-//
-// Recovered: `Usage: /open <file_path>`, `File not found: %s`,
-// `Opening file: %s`, `No editor configured; using %s` and
-// `Failed to resolve editor: %v`. The caller emits
-// `Editor exited with error: %v` when the process returns non-zero.
-func openFeedback(arg, configuredEditor, workspace string) (string, *exec.Cmd) {
-	return editorkit.OpenFeedback(arg, configuredEditor, workspace, pathExists)
 }

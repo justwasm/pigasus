@@ -42,7 +42,7 @@ func TestInstallationUUIDIsStableWithinAProcess(t *testing.T) {
 		t.Fatalf("chmod: %v", err)
 	}
 	t.Cleanup(func() { _ = os.Chmod(dir, 0700) })
-	t.Setenv("XDG_CONFIG_HOME", dir)
+	t.Setenv("OPENAGY_CONFIG_HOME", dir)
 	freshInstallationUUID(t)
 
 	first := InstallationUUID()
@@ -61,7 +61,7 @@ func TestInstallationUUIDIsStableWithinAProcess(t *testing.T) {
 // per process.
 func TestInstallationUUIDIsPersisted(t *testing.T) {
 	dir := t.TempDir()
-	t.Setenv("XDG_CONFIG_HOME", dir)
+	t.Setenv("OPENAGY_CONFIG_HOME", dir)
 
 	first := loadOrMintInstallationUUID()
 	path := InstanceIDPath()
@@ -75,10 +75,9 @@ func TestInstallationUUIDIsPersisted(t *testing.T) {
 	if first != second {
 		t.Errorf("the persisted uuid changed: %q then %q", first, second)
 	}
-	// The file lives in the configuration directory, one level under
-	// the XDG root the package names.
-	if filepath.Dir(path) != filepath.Join(dir, "openagy") {
-		t.Errorf("the uuid was persisted at %s, want it under %s", path, filepath.Join(dir, "openagy"))
+	// The file lives in the configuration home.
+	if filepath.Dir(path) != dir {
+		t.Errorf("the uuid was persisted at %s, want it under %s", path, dir)
 	}
 }
 
@@ -91,7 +90,7 @@ func TestInstallationUUIDIsPersisted(t *testing.T) {
 // the id without persisting it would leave the two to each mint one.
 func TestEnsureInstanceIDPersistsTheID(t *testing.T) {
 	dir := t.TempDir()
-	t.Setenv("XDG_CONFIG_HOME", dir)
+	t.Setenv("OPENAGY_CONFIG_HOME", dir)
 	freshInstallationUUID(t)
 
 	id, persisted := EnsureInstanceID()
@@ -136,7 +135,7 @@ func TestEnsureInstanceIDReportsAnUnwritableDirectory(t *testing.T) {
 		t.Fatalf("chmod: %v", err)
 	}
 	t.Cleanup(func() { _ = os.Chmod(dir, 0700) })
-	t.Setenv("XDG_CONFIG_HOME", dir)
+	t.Setenv("OPENAGY_CONFIG_HOME", dir)
 	freshInstallationUUID(t)
 
 	if _, persisted := EnsureInstanceID(); persisted {
@@ -154,7 +153,7 @@ func TestEnsureInstanceIDReportsAnUnwritableDirectory(t *testing.T) {
 // and the link naming another.
 func TestEnsureInstanceIDTakesTheFileBack(t *testing.T) {
 	dir := t.TempDir()
-	t.Setenv("XDG_CONFIG_HOME", dir)
+	t.Setenv("OPENAGY_CONFIG_HOME", dir)
 	freshInstallationUUID(t)
 
 	// The process resolves its uuid — and writes it to the file.

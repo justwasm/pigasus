@@ -3,12 +3,14 @@
 //
 // Source: `/workspace/agy/install/antigravity-v1.3.5`
 // strings dump: 10,577 hits under `google3/third_party/jetski/cortex/`.
-// pclntab entries: ~397 entries under `cortex/cortex.*` (see
-// docs/analysis-v1.3.5-official/funcs-v1.3.5-pclntab.txt).
+// pclntab entries: ~397 entries under `cortex/cortex.*` (both counts were
+// read off the retired 1.3.5 whole-binary dumps; the stub that records
+// those dumps — their digests, sizes and line counts — is
+// docs/legacy-re/extracts/analysis-v1.3.5-official/seeds-v1.3.5.md).
 //
 // Type inventory (1:1 with v1.3.5 binary pclntab, recovered
 // receiver-prefixed methods; from decompiled
-// docs/decompiled-v1.3.5/c/google3_third_party_jetski_cortex_cortex/ 33 .c
+// docs/legacy-re/extracts/decompiled-v1.3.5/c/google3_third_party_jetski_cortex_cortex/ 33 .c
 // files + the pclntab grep `grep -oE 'cortex/cortex\.\(\*[A-Za-z0-9_]+\)'`):
 //
 //   - CascadeManager          — the central orchestrator (v1.3.5

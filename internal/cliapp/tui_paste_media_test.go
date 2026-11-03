@@ -12,7 +12,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/justwasm/pigasus/internal/clipboard"
+	"github.com/justwasm/pigasus/internal/features/tools/clipboard"
 )
 
 // pastePNG returns the bytes of a one-pixel PNG.
@@ -30,7 +30,7 @@ func pastePNG(t *testing.T) []byte {
 // pasteRunMode builds a run mode for the paste tests.
 func pasteRunMode(t *testing.T) *runMode {
 	t.Helper()
-	m := NewRunMode(&fakeClient{}, "u@t", "Gemni 3.8 Flash (Medium)", "", t.TempDir(), false)
+	m := newRunMode(&fakeClient{}, "u@t", "Gemni 3.8 Flash (Medium)", "", t.TempDir(), false)
 	m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
 	return m
 }
@@ -153,22 +153,6 @@ func TestAttachedImageRidesWithTheUserTurn(t *testing.T) {
 	}
 }
 
-// TestMediaRowsNameTheAttachment pins the composer indicator.
-func TestMediaRowsNameTheAttachment(t *testing.T) {
-	m := pasteRunMode(t)
-	if rows := m.mediaRows(); len(rows) != 0 {
-		t.Fatalf("mediaRows = %v, want none", rows)
-	}
-	m.attachMedia(clipboard.Media{Data: pastePNG(t), Format: 1, Filename: "pasted-image-1.png"})
-	rows := m.mediaRows()
-	if len(rows) != 1 {
-		t.Fatalf("mediaRows = %d rows, want 1", len(rows))
-	}
-	if !bytes.Contains([]byte(rows[0]), []byte("pasted-image-1.png")) {
-		t.Errorf("row %q does not name the attachment", rows[0])
-	}
-}
-
 // TestClipboardReadMediaSeamIsReplaceable keeps the probe testable: the
 // seam is what the TUI calls, so a test can answer with a fixture.
 func TestClipboardReadMediaSeamIsReplaceable(t *testing.T) {
@@ -191,5 +175,78 @@ func TestClipboardReadMediaSeamIsReplaceable(t *testing.T) {
 	}
 	if !called {
 		t.Errorf("the seam was not called")
+	}
+}
+
+// TestPasteMultipleImagesViaDragAndDrop covers dragging multiple files simultaneously.
+func TestPasteMultipleImagesViaDragAndDrop(t *testing.T) {
+	m := pasteRunMode(t)
+	dir := t.TempDir()
+	p1 := filepath.Join(dir, "one.png")
+	p2 := filepath.Join(dir, "two.png")
+	if err := os.WriteFile(p1, pastePNG(t), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(p2, pastePNG(t), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := m.handlePasteContent(`"` + p1 + `" "` + p2 + `"`)
+	if cmd != nil {
+		t.Errorf("handlePasteContent returned cmd %v, want nil", cmd)
+	}
+	if len(m.pendingMedia) != 2 {
+		t.Fatalf("pendingMedia = %d entries, want 2", len(m.pendingMedia))
+	}
+	if m.pendingMedia[0].Filename != "one.png" || m.pendingMedia[1].Filename != "two.png" {
+		t.Errorf("attached filenames = %q, %q", m.pendingMedia[0].Filename, m.pendingMedia[1].Filename)
+	}
+	if m.input.Value() != "" {
+		t.Errorf("composer input = %q, want empty", m.input.Value())
+	}
+}
+
+// TestCtrlOTogglesMediaExpanded verifies ctrl+o key toggling.
+func TestCtrlOTogglesMediaExpanded(t *testing.T) {
+	m := pasteRunMode(t)
+	m.attachMedia(clipboard.Media{Filename: "shot.png", Format: 1, Data: pastePNG(t)})
+
+	if m.mediaExpanded {
+		t.Fatalf("initially expanded = true, want false")
+	}
+
+	// Send ctrl+o
+	m.Update(tea.KeyPressMsg{Code: 'o', Mod: tea.ModCtrl})
+	if !m.mediaExpanded {
+		t.Errorf("after ctrl+o: mediaExpanded = false, want true")
+	}
+
+	// Send ctrl+o again
+	m.Update(tea.KeyPressMsg{Code: 'o', Mod: tea.ModCtrl})
+	if m.mediaExpanded {
+		t.Errorf("after second ctrl+o: mediaExpanded = true, want false")
+	}
+}
+
+// TestBackspaceRemovesLastPendingMediaWhenInputEmpty covers backspace deleting attachments.
+func TestBackspaceRemovesLastPendingMediaWhenInputEmpty(t *testing.T) {
+	m := pasteRunMode(t)
+	m.attachMedia(clipboard.Media{Filename: "1.png", Format: 1, Data: pastePNG(t)})
+	m.attachMedia(clipboard.Media{Filename: "2.png", Format: 1, Data: pastePNG(t)})
+
+	if len(m.pendingMedia) != 2 {
+		t.Fatalf("pendingMedia = %d, want 2", len(m.pendingMedia))
+	}
+
+	// Backspace when input is empty
+	m.Update(tea.KeyPressMsg{Code: tea.KeyBackspace})
+	if len(m.pendingMedia) != 1 || m.pendingMedia[0].Filename != "1.png" {
+		t.Errorf("after backspace: pendingMedia = %v, want [1.png]", m.pendingMedia)
+	}
+
+	// Backspace again -> removes remaining
+	m.Update(tea.KeyPressMsg{Code: tea.KeyBackspace})
+	if len(m.pendingMedia) != 0 {
+		t.Errorf("after second backspace: pendingMedia = %v, want empty", m.pendingMedia)
 	}
 }

@@ -4,29 +4,16 @@ import "testing"
 
 // This file pins the behaviour the reference changelog enumerates
 // explicitly, including the pieces the first test file did not reach:
-// counted text objects, the a/W variants, paragraphs, Visual objects,
-// linewise paste and the count multipliers listed under 1.2.9.
+// the a/W variants, paragraphs, Visual objects and linewise paste.
 
-// --- Counted text objects (1.2.9: "2di(") ----------------------------
+// --- Text objects ------------------------------------------------------
 
-func TestCountedTextObjects(t *testing.T) {
+func TestPairObjectIsInnermost(t *testing.T) {
 	// Cursor on the 'c' inside the inner parens.
 	s := newWith(t, "x(a(bc)d)y")
 	feed(t, s, "lllll")
 	feed(t, s, "di(")
 	checkText(t, s, "x(a()d)y") // innermost pair
-
-	s = newWith(t, "x(a(bc)d)y")
-	feed(t, s, "lllll")
-	feed(t, s, "2di(")
-	checkText(t, s, "x()y") // one level out
-
-	// The count may also lead the operator, and clamps at the outermost
-	// pair rather than failing.
-	s = newWith(t, "x(a(bc)d)y")
-	feed(t, s, "lllll")
-	feed(t, s, "d3i(")
-	checkText(t, s, "x()y")
 }
 
 // --- a / W objects ----------------------------------------------------
@@ -109,46 +96,6 @@ func TestFindQuestionMark(t *testing.T) {
 	checkText(t, s, "b?c")
 }
 
-// --- Count multipliers (1.2.9) ---------------------------------------
-
-func TestCountMultipliers(t *testing.T) {
-	// 3x fills the register with the deleted text.
-	s := newWith(t, "abcdef")
-	feed(t, s, "3x")
-	checkText(t, s, "def")
-	if s.register != "abc" {
-		t.Fatalf("register = %q, want abc", s.register)
-	}
-
-	// [count]$ moves count-1 lines down and to the end of line.
-	s = newWith(t, "ab\ncd")
-	feed(t, s, "2$")
-	checkCursor(t, s, 1, 1)
-
-	// [count]G and [count]gg are absolute line numbers.
-	s = newWith(t, "a\nb\nc\nd")
-	feed(t, s, "3G")
-	checkCursor(t, s, 2, 0)
-	feed(t, s, "1gg")
-	checkCursor(t, s, 0, 0)
-
-	// 2d3w multiplies: the op count and the motion count combine to 6,
-	// deleting six of the eight words.
-	s = newWith(t, "a b c d e f g h")
-	feed(t, s, "2d3w")
-	checkText(t, s, "g h")
-
-	// d5w leaves the sixth word.
-	s = newWith(t, "a b c d e f")
-	feed(t, s, "5dw")
-	checkText(t, s, "f")
-
-	// A counted object with a leading operator count too.
-	s = newWith(t, "abcdef")
-	feed(t, s, "2rZ")
-	checkText(t, s, "ZZcdef")
-}
-
 // --- Space is not a motion; big-word ends -----------------------------
 
 func TestSpaceAndBigWordEnds(t *testing.T) {
@@ -226,7 +173,9 @@ func TestInsertRunUndoAcrossLines(t *testing.T) {
 	checkText(t, s, "ab\ncd")
 	feed(t, s, "u")
 	checkText(t, s, "")
-	feed(t, s, "<c-r>")
+	// "U" is the redo key — Ctrl+R opens the artifact review instead
+	// (official-docs/cli/vim-editor-mode.md).
+	feed(t, s, "U")
 	checkText(t, s, "ab\ncd")
 }
 

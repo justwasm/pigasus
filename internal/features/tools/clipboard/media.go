@@ -39,6 +39,7 @@ package clipboard
 import (
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -60,6 +61,171 @@ type Media struct {
 	// Path is the file the image came from, when it came from a file.
 	// It is empty for a clipboard payload.
 	Path string
+	// Size is the raw byte length of the file or payload before scaling.
+	Size int64
+}
+
+// ByteSize returns the raw size if known, or the data byte length.
+func (m Media) ByteSize() int64 {
+	if m.Size > 0 {
+		return m.Size
+	}
+	return int64(len(m.Data))
+}
+
+// FormatName returns the uppercase display name of the media format (e.g. "PNG", "JPEG").
+func (m Media) FormatName() string {
+	if m.Format != imagery.FormatUnknown {
+		return strings.ToUpper(m.Format.String())
+	}
+	if ext := filepath.Ext(m.Filename); ext != "" {
+		return strings.ToUpper(strings.TrimPrefix(ext, "."))
+	}
+	return "UNKNOWN"
+}
+
+// FormatBytes formats byte sizes matching the reference agy 1.4.12 formatBytes helper.
+func FormatBytes(b int64) string {
+	if b < 1024 {
+		return fmt.Sprintf("%d B", b)
+	}
+	if b < 1024*1024 {
+		return fmt.Sprintf("%d KB", b/1024)
+	}
+	return fmt.Sprintf("%.1f MB", float64(b)/(1024*1024))
+}
+
+var mediaExtensions = map[string]bool{
+	".png":  true,
+	".jpg":  true,
+	".jpeg": true,
+	".gif":  true,
+	".webp": true,
+	".bmp":  true,
+	".svg":  true,
+	".tiff": true,
+	".pdf":  true,
+	".mp4":  true,
+	".mov":  true,
+	".webm": true,
+	".avi":  true,
+	".mkv":  true,
+	".ico":  true,
+}
+
+// IsMediaExtension reports whether the given path has a supported media file extension.
+func IsMediaExtension(path string) bool {
+	ext := strings.ToLower(filepath.Ext(path))
+	return mediaExtensions[ext]
+}
+
+// SplitPastedPaths splits a pasted string (such as dragged files) into individual path tokens,
+// handling double/single quotes and backslash escaping.
+// Matches agy 1.4.12 model.splitPastedPaths.
+func SplitPastedPaths(s string, goos string) ([]string, bool) {
+	var paths []string
+	var token strings.Builder
+	var inQuote rune
+	escaped := false
+	isWindows := goos == "windows"
+
+	for _, r := range s {
+		if escaped {
+			token.WriteRune(r)
+			escaped = false
+			continue
+		}
+		if inQuote != 0 {
+			if r == inQuote {
+				inQuote = 0
+			} else {
+				token.WriteRune(r)
+			}
+			continue
+		}
+		if r == '\\' && !isWindows {
+			escaped = true
+			continue
+		}
+		if r == '\'' || r == '"' {
+			inQuote = r
+			continue
+		}
+		if r == ' ' || r == '\t' || r == '\r' || r == '\n' {
+			if token.Len() > 0 {
+				paths = append(paths, token.String())
+				token.Reset()
+			}
+			continue
+		}
+		token.WriteRune(r)
+	}
+
+	if inQuote != 0 || escaped {
+		return nil, false
+	}
+	if token.Len() > 0 {
+		paths = append(paths, token.String())
+	}
+	return paths, true
+}
+
+// ResolvePastedPath converts a pasted path candidate (including file:// URLs and ~/)
+// to an absolute local filesystem path.
+// Matches agy 1.4.12 model.resolvePastedPath.
+func ResolvePastedPath(p string) string {
+	if strings.HasPrefix(p, "file://") {
+		unescaped, err := url.PathUnescape(strings.TrimPrefix(p, "file://"))
+		if err != nil {
+			unescaped = strings.TrimPrefix(p, "file://")
+		}
+		if len(unescaped) >= 3 && unescaped[0] == '/' && unescaped[2] == ':' {
+			unescaped = unescaped[1:]
+		}
+		return filepath.Clean(unescaped)
+	}
+	if strings.HasPrefix(p, "~/") {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return ""
+		}
+		return filepath.Clean(filepath.Join(home, p[2:]))
+	}
+	if filepath.IsAbs(p) || strings.HasPrefix(p, "/") {
+		return filepath.Clean(p)
+	}
+	return ""
+}
+
+// PastedMediaPaths checks if the pasted text represents one or more dragged media files (up to 20).
+// If all extracted paths point to existing regular media files, it returns their resolved paths.
+// If any path is not a media file or does not exist, it returns nil.
+// Matches agy 1.4.12 model.pastedMediaPaths.
+func PastedMediaPaths(text string, goos string) []string {
+	if len(text) > 8192 {
+		return nil
+	}
+	raw := strings.TrimSpace(text)
+	if raw == "" {
+		return nil
+	}
+	paths, ok := SplitPastedPaths(raw, goos)
+	if !ok || len(paths) == 0 || len(paths) > 20 {
+		return nil
+	}
+	resolvedList := make([]string, 0, len(paths))
+	for _, p := range paths {
+		res := ResolvePastedPath(p)
+		if res == "" || !IsMediaExtension(res) {
+			return nil
+		}
+		info, err := os.Stat(res)
+		if err != nil || info.IsDir() {
+			return nil
+		}
+		resolvedList = append(resolvedList, res)
+	}
+	return resolvedList
 }
 
 // ErrNoMedia is the reference's own wording for a clipboard that holds
@@ -71,6 +237,31 @@ var ErrNoMedia = errors.New("No image or video found in the clipboard")
 // xclip nor wl-paste has anything to talk to.
 var ErrSSHClipboard = errors.New("Can't read your clipboard over SSH: " +
 	"connect with ssh -X (and install xclip on this host) to paste images")
+
+// ErrPasteboardUnreachable is the reference's own wording for a paste
+// over SSH that cannot reach the local pasteboard.
+//
+// 【文档】 official-docs/cli/troubleshooting.md:126 —
+//
+//	Error: local pasteboard is empty or unreachable over SSH connection
+//
+// The sentence carries its own "Error: ": the composer shows a failed
+// paste as the notice itself (`internal/cliapp/tui_paste_media.go`)
+// and adds nothing to it, so the prefix belongs here.
+var ErrPasteboardUnreachable = errors.New("Error: local pasteboard is empty or unreachable over SSH connection")
+
+// pasteboardUnavailableError classifies a paste that found no image.
+//
+// macOS is the platform whose clipboard is the "pasteboard", and the
+// reference's sentence is about a paste over SSH: a terminal does not
+// forward its clipboard over a plain SSH stream, so the paste reaches
+// nothing. Locally the sentence for an empty clipboard is ErrNoMedia.
+func pasteboardUnavailableError() error {
+	if onSSH() {
+		return ErrPasteboardUnreachable
+	}
+	return ErrNoMedia
+}
 
 // ToolMissingError reports a clipboard helper that is not installed.
 //
@@ -177,7 +368,13 @@ func mediaFromFile(path string) (Media, bool) {
 		return Media{}, false
 	}
 	media.Path = path
+	media.Size = info.Size()
 	return media, true
+}
+
+// MediaFromFile reads an image file and returns it as a Media attachment.
+func MediaFromFile(path string) (Media, bool) {
+	return mediaFromFile(path)
 }
 
 // mediaFromBytes turns raw bytes into a Media, scaling them through the
@@ -208,7 +405,7 @@ func mediaFromBytes(data []byte, name string) (Media, bool) {
 	if name == "" {
 		name = "pasted-image." + outFormat.String()
 	}
-	return Media{Data: scaled, Format: outFormat, Filename: name}, true
+	return Media{Data: scaled, Format: outFormat, Filename: name, Size: int64(len(data))}, true
 }
 
 // pastedName is the name a pasted image carries: "pasted-image-1.png".

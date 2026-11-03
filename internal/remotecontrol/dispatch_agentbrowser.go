@@ -39,6 +39,7 @@ import (
 	"encoding/json"
 
 	"github.com/justwasm/pigasus/agentbrowser"
+	"github.com/justwasm/pigasus/internal/remotecontrol/rpc"
 )
 
 // lsSubscribeToAgentBrowserRequests serves the Web UI's
@@ -54,7 +55,7 @@ import (
 func (d *Dispatcher) lsSubscribeToAgentBrowserRequests(ctx context.Context, payload string, emit func(json.RawMessage) error) (bool, error) {
 	broker := d.cfg.Browser
 	if broker == nil {
-		return false, nil
+		return true, lsHoldStream(ctx)
 	}
 	var req agentbrowser.SubscribeRequest
 	if len(payload) > 0 {
@@ -88,7 +89,7 @@ func (d *Dispatcher) lsSubscribeToAgentBrowserRequests(ctx context.Context, payl
 //
 // The stream method (SubscribeToAgentBrowserRequests) lives in the
 // dispatcher's stream table instead.
-func (d *Dispatcher) routeAgentBrowserMethods(method string, params json.RawMessage) (any, *rpcErrorBody, bool) {
+func (d *Dispatcher) routeAgentBrowserMethods(method string, params json.RawMessage) (any, *rpc.ErrorBody, bool) {
 	switch method {
 	case "UpdateAgentBrowserSubscription", "updateAgentBrowserSubscription":
 		// The Web UI's half of the bridge: the window tells the
@@ -110,19 +111,19 @@ func (d *Dispatcher) routeAgentBrowserMethods(method string, params json.RawMess
 //
 // 【反编译】 2026-10-27, the reference refuses a request without a
 // window id with "UpdateAgentBrowserSubscription requires window_id".
-func (d *Dispatcher) lsUpdateAgentBrowserSubscription(params json.RawMessage) (any, *rpcErrorBody, bool) {
+func (d *Dispatcher) lsUpdateAgentBrowserSubscription(params json.RawMessage) (any, *rpc.ErrorBody, bool) {
 	broker := d.cfg.Browser
 	if broker == nil {
-		return nil, &rpcErrorBody{Code: -32603, Message: "agent browser bridge is not available"}, true
+		return nil, &rpc.ErrorBody{Code: -32603, Message: "agent browser bridge is not available"}, true
 	}
 	var req agentbrowser.UpdateSubscriptionRequest
 	if len(params) > 0 {
 		if err := json.Unmarshal(params, &req); err != nil {
-			return nil, &rpcErrorBody{Code: -32602, Message: err.Error()}, true
+			return nil, &rpc.ErrorBody{Code: -32602, Message: err.Error()}, true
 		}
 	}
 	if err := broker.UpdateWindow(req); err != nil {
-		return nil, &rpcErrorBody{Code: -32602, Message: err.Error()}, true
+		return nil, &rpc.ErrorBody{Code: -32602, Message: err.Error()}, true
 	}
 	return map[string]any{}, nil, true
 }
@@ -137,31 +138,31 @@ func (d *Dispatcher) lsUpdateAgentBrowserSubscription(params json.RawMessage) (a
 // response with "FulfillAgentBrowserRequest requires a non-nil
 // response payload" and a response without a request id with
 // "FulfillAgentBrowserRequest requires response.request_id".
-func (d *Dispatcher) lsFulfillAgentBrowserRequest(params json.RawMessage) (any, *rpcErrorBody, bool) {
+func (d *Dispatcher) lsFulfillAgentBrowserRequest(params json.RawMessage) (any, *rpc.ErrorBody, bool) {
 	broker := d.cfg.Browser
 	if broker == nil {
-		return nil, &rpcErrorBody{Code: -32603, Message: "agent browser bridge is not available"}, true
+		return nil, &rpc.ErrorBody{Code: -32603, Message: "agent browser bridge is not available"}, true
 	}
 	var req agentbrowser.FulfillRequest
 	if len(params) > 0 {
 		if err := json.Unmarshal(params, &req); err != nil {
-			return nil, &rpcErrorBody{Code: -32602, Message: err.Error()}, true
+			return nil, &rpc.ErrorBody{Code: -32602, Message: err.Error()}, true
 		}
 	}
 	if req.Response == nil {
-		return nil, &rpcErrorBody{
+		return nil, &rpc.ErrorBody{
 			Code:    -32602,
 			Message: "FulfillAgentBrowserRequest requires a non-nil response payload",
 		}, true
 	}
 	if req.Response.RequestID == "" {
-		return nil, &rpcErrorBody{
+		return nil, &rpc.ErrorBody{
 			Code:    -32602,
 			Message: "FulfillAgentBrowserRequest requires response.request_id",
 		}, true
 	}
 	if err := broker.Fulfill(req.Response); err != nil {
-		return nil, &rpcErrorBody{Code: -32018, Message: "not_found", Data: err.Error()}, true
+		return nil, &rpc.ErrorBody{Code: -32018, Message: "not_found", Data: err.Error()}, true
 	}
 	return map[string]any{}, nil, true
 }

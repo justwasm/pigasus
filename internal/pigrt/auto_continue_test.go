@@ -20,7 +20,7 @@ import (
 	"github.com/MichaelKinsy/PiG/agent"
 	"github.com/MichaelKinsy/PiG/ai"
 
-	"github.com/justwasm/pigasus/internal/backend"
+	"github.com/justwasm/pigasus/internal/core/apierror"
 )
 
 type interruptionCase struct {
@@ -130,7 +130,7 @@ func TestAppendRecoveryMessageKeepsTailUser(t *testing.T) {
 
 // TestErrAutoContMaxDepthUnwrap pins the api_error.go contract: the
 // give-up error keeps the underlying pre-stream failure so the
-// AGY_ERROR envelope still classifies the typed *backend.HTTPError.
+// AGY_ERROR envelope still classifies the typed *apierror.HTTPError.
 func TestErrAutoContMaxDepthUnwrap(t *testing.T) {
 	base := errors.New("upstream is down")
 	wrapped := &ErrAutoContMaxDepth{Depth: AutoContMaxDepth, Last: base}
@@ -190,7 +190,7 @@ func TestMsgSliceDoesNotAliasInput(t *testing.T) {
 // "reaching your individual quota is reported right away instead of being
 // retried" for the print path. A quota-classified error must short-circuit
 // maybeAutoContinue on the first iteration: no recovery copy is appended
-// (no runAutoContCycle is invoked), the typed *backend.HTTPError is preserved
+// (no runAutoContCycle is invoked), the typed *apierror.HTTPError is preserved
 // so cmd/wagyu/api_error.go still classifies it as RESOURCE_EXHAUSTED, and
 // the function returns at depth=0 — never reaching the depth==AutoContMaxDepth
 // give-up branch.
@@ -201,7 +201,7 @@ func TestMsgSliceDoesNotAliasInput(t *testing.T) {
 // error, not the original quota one. The "we returned the quota error
 // unchanged" assertion catches that.
 func TestQuotaErrorShortCircuitsPrint(t *testing.T) {
-	quotaErr := &backend.HTTPError{
+	quotaErr := &apierror.HTTPError{
 		StatusCode: 429,
 		Body:       []byte(`{"error":{"message":"Individual quota reached."}}`),
 	}
@@ -215,9 +215,9 @@ func TestQuotaErrorShortCircuitsPrint(t *testing.T) {
 	}
 	// Typed HTTPError must survive so api_error.go's errors.As path
 	// keeps classifying it as RESOURCE_EXHAUSTED.
-	var he *backend.HTTPError
+	var he *apierror.HTTPError
 	if !errors.As(gotErr, &he) {
-		t.Fatalf("quota error did not preserve *backend.HTTPError chain: %v", gotErr)
+		t.Fatalf("quota error did not preserve *apierror.HTTPError chain: %v", gotErr)
 	}
 	if he.StatusCode != 429 {
 		t.Errorf("HTTPError.StatusCode = %d, want 429", he.StatusCode)
@@ -242,7 +242,7 @@ func TestQuotaErrorShortCircuitsPrint(t *testing.T) {
 // it. Without this test a buggy quota predicate (e.g. one that matches on
 // status only) would hide the real stream-recovery flow.
 func TestMaybeAutoContinueNonQuotaStreams(t *testing.T) {
-	nonQuota := &backend.HTTPError{
+	nonQuota := &apierror.HTTPError{
 		StatusCode: 502,
 		Body:       []byte("bad gateway"),
 	}
@@ -268,7 +268,7 @@ func TestMaybeAutoContinueNonQuotaStreams(t *testing.T) {
 	// Whatever the recovery path did, the typed 502 should NOT be in
 	// the result: it was either consumed by runAutoContCycle or
 	// replaced by the no-session sentinel.
-	var he *backend.HTTPError
+	var he *apierror.HTTPError
 	if errors.As(gotErr, &he) && he.StatusCode == 502 {
 		t.Errorf("non-quota 502 should have been consumed by the recovery path")
 	}

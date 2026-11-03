@@ -35,8 +35,8 @@
 //
 // The exchange writes the new credential to the shared locations and
 // registers the account, which makes it the active one — the same
-// order the TUI's login modal uses (internal/cliapp/slash_panel_accounts.go:
-// registerAccount after the sign-in).
+// order the TUI's login modal uses (internal/cliapp/tui_update_login.go:
+// finishLogin registers the account after the sign-in).
 package rcfrontend
 
 import (
@@ -49,8 +49,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/justwasm/pigasus/internal/accounts"
-	"github.com/justwasm/pigasus/internal/auth"
+	accounts "github.com/justwasm/pigasus/internal/features/accounts/core"
+	"github.com/justwasm/pigasus/internal/features/auth"
 )
 
 // The states a sign-in can be in.

@@ -1,0 +1,25 @@
+{"label": "open", "tool": "open_binary", "args": {"path": "/Users/gear/.local/bin/agy", "provider_id": "ghidra"}}
+{"label": "overview", "tool": "binary_overview", "args": {}}
+{"label": "search-waitForEligibility", "tool": "search_procedures", "args": {"pattern": "waitForEligibility"}}
+{"label": "search-ineligibleTiers", "tool": "search_strings", "args": {"pattern": "ineligibleTiers"}}
+{"label": "search-CLOUD_CODE_URL", "tool": "search_strings", "args": {"pattern": "CLOUD_CODE_URL"}}
+{"label": "search-CLOUD_CODE_ENV", "tool": "search_strings", "args": {"pattern": "CLOUD_CODE"}}
+{"label": "decomp-hideFlagsForExternal", "tool": "procedure_pseudo_code", "args": {"procedure": "0x102b39f90"}}
+{"label": "decomp-shouldBypassKeyring", "tool": "procedure_pseudo_code", "args": {"procedure": "0x1019d22b0"}}
+{"label": "decomp-memoizeKeyringTimeout", "tool": "procedure_pseudo_code", "args": {"procedure": "0x1019c19d0"}}
+{"label": "decomp-LoadToken", "tool": "procedure_pseudo_code", "args": {"procedure": "0x1019c22b0"}}
+{"label": "decomp-keyringRecentlyUnavail", "tool": "procedure_pseudo_code", "args": {"procedure": "0x1019c1770"}}
+{"label": "decomp-constructEndpoint", "tool": "procedure_pseudo_code", "args": {"procedure": "0x1019cd680"}}
+{"label": "decomp-RunLogin", "tool": "procedure_pseudo_code", "args": {"procedure": "0x1025a6e80"}}
+{"label": "decomp-getOauthParams", "tool": "procedure_pseudo_code", "args": {"procedure": "0x1025a5640"}}
+{"label": "decomp-defaultTokenStorage", "tool": "procedure_pseudo_code", "args": {"procedure": "0x1025a6a40"}}
+{"label": "decomp-EligibilityError", "tool": "procedure_pseudo_code", "args": {"procedure": "0x1025b05a0"}}
+{"label": "decomp-IneligibilityFromRes", "tool": "procedure_pseudo_code", "args": {"procedure": "0x1025b0790"}}
+{"label": "decomp-storeWaitForElig", "tool": "procedure_pseudo_code", "args": {"procedure": "0x10284df30"}}
+{"label": "decomp-storeTrySilentAuth", "tool": "procedure_pseudo_code", "args": {"procedure": "0x10284ed00"}}
+{"label": "decomp-storeStartOAuth", "tool": "procedure_pseudo_code", "args": {"procedure": "0x10284e110"}}
+{"label": "decomp-storeInitAuth", "tool": "procedure_pseudo_code", "args": {"procedure": "0x10284dcb0"}}
+{"label": "decomp-storeCommitAuth", "tool": "procedure_pseudo_code", "args": {"procedure": "0x10284dda0"}}
+{"label": "decomp-printmodeWaitForElig", "tool": "procedure_pseudo_code", "args": {"procedure": "0x102b0d580"}}
+{"label": "decomp-updaterManifestURL", "tool": "procedure_pseudo_code", "args": {"procedure": "0x102b1f360"}}
+{"label": "close", "tool": "close_binary", "args": {"snapshot_path": "./ghidra-snapshot.json", "overwrite": true}}

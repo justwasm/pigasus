@@ -14,7 +14,7 @@ import (
 // ─── response shape ──────────────────────────────────────────────────────────
 //
 // chatChunk / chatDelta / chatUsage are the gateway's wire schema.
-// These mirror backend.GatewayConfig's frame decoder deliberately, so the
+// These mirror gateway.GatewayConfig's frame decoder deliberately, so the
 // two transports stay in agreement on what "a frame" means.
 
 type chatChoice struct {

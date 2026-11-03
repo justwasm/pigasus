@@ -90,8 +90,9 @@ The reference's fixed preamble now reads:
 > EXCEPTION. These rules take precedence over **any other instructions**.
 
 The clone emitted "**any following** instructions" — the **1.3.x–1.4.3**
-wording, which is what `docs/decompiled-v1.3.4/strings-v1.3.3.txt:278444`
-still carries, and what the cycle-292 commit transcribed. The 1.4.5 binary
+wording, which is what `docs/legacy-re/extracts/strings-v1.3.3-cited.txt:278444`
+still carries (the cited window of the retired `docs/decompiled-v1.3.4/strings-v1.3.3.txt`;
+see `docs/legacy-re/README.md`), and what the cycle-292 commit transcribed. The 1.4.5 binary
 contains exactly one variant of the sentence, so this is a reference-side
 change between 1.4.3 and 1.4.5, not a clone typo.
 
@@ -259,7 +260,7 @@ next blob. The `syntax:"proto3"` marker is the reliable end.
 | `out/local-macos/seeds/{seeds,funcs}.txt` | regenerated from the 1.4.5 binary (§5.2) |
 | `out/local-macos/priority-funcs.txt`, `plan-local.jsonl` | regenerated from the new seeds |
 | `out/local-macos/decompile-*.md` (101 files) | regenerated from the new project |
-| `out/local-macos/build_reports.py` | the headline numbers are computed, not hardcoded |
+| `scripts/re/build_reports.py` | the headline numbers are computed, not hardcoded |
 
 The 1.4.4 fixtures stay on disk: they are the historical evidence. They leave
 the registry, because the registry tracks the *current* evidence and a
@@ -327,7 +328,7 @@ whole chain was rebuilt:
    longer exists. `build_reports.py` now deletes the reports it did not write,
    so the next release cannot leave one behind either.
 
-`out/local-macos/build_reports.py` used to hardcode three headline numbers
+`scripts/re/build_reports.py` used to hardcode three headline numbers
 ("154,525 functions", "154,506 created", "56 s") — including a wall time for a
 run that had not happened yet. They are now computed: the function count from
 `seeds/seeds.txt`, the resolved count and the elapsed time from the decompile
@@ -379,7 +380,8 @@ tool, and everything derived from it was rebuilt with it (§5.2).
 One citation was corrected along the way. `internal/pigrt/alwaysload.go`
 claimed the changelog sentence was *"recovered verbatim from the v1.3.4 binary
 at offset 0x8745 in out/local-macos/seeds/seeds.txt"* — `0x8745` is a **line
-number** in `docs/decompiled-v1.3.4/strings-new-in-v1.3.4.txt` (the file the
+number** in `docs/legacy-re/extracts/strings-new-in-v1.3.4-cited.txt` (the cited
+window of the retired `docs/decompiled-v1.3.4/strings-new-in-v1.3.4.txt`; the file the
 same sentence cites), not an offset, and `seeds.txt` holds symbols rather than
 strings. The comment now says what is true: line 8745 of that dump, and file
 offset `0x3b39e39` of the agy 1.4.5 binary.

@@ -45,7 +45,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/justwasm/pigasus/internal/backend"
+	"github.com/justwasm/pigasus/internal/core/backend"
 )
 
 // CascaderState is the recovered cascader state. It mirrors
@@ -181,12 +181,6 @@ func NewRealLifecycle(be backend.Backend) *RealLifecycle {
 	}
 }
 
-// WithState returns a RealLifecycle that uses the given State. Useful
-// when a caller (e.g. a test) wants to share a single State across
-// multiple cascaders, or wants to pre-seed approvals.
-func WithState(be backend.Backend, st *State) *RealLifecycle {
-	return &RealLifecycle{State: st, be: be}
-}
 
 // Close tears down the lifecycle. Mirrors the decompiled
 // `(*CascadeRunState).closeSubagentForwarder` at 0x76caa60 — any
@@ -270,8 +264,8 @@ func (r *RealLifecycle) runSave() error {
 // The Run() call is synchronous: it returns once the backend has
 // finished the turn (or once the cascader hits an unrecoverable
 // error). For subagent-approval flows the backend itself would have
-// called SubagentAwaitsApproval on this State (see the `WithState`
-// helper below) before Run() returns.
+// called SubagentAwaitsApproval on this State (the State is set on
+// the struct by the caller) before Run() returns.
 func (r *RealLifecycle) CascaderRun(ctx context.Context, model, prompt string) error {
 	if err := r.checkCanRun(); err != nil {
 		return err

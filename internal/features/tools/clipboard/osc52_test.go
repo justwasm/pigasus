@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/justwasm/pigasus/internal/clipboard"
+	"github.com/justwasm/pigasus/internal/features/tools/clipboard"
 )
 
 func clearEnv(t *testing.T, keys ...string) {

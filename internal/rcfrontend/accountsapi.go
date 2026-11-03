@@ -19,7 +19,7 @@
 // # The credential is shared
 //
 // A switch writes the account's token into the shared credential
-// locations (internal/accounts.Activate → auth.SaveTokenUnified), so
+// locations (internal/features/accounts/core.Activate → auth.SaveTokenUnified), so
 // the running session talks as the new account from its next turn: the
 // backend is built per turn (internal/rchost/remote_control_backends.go)
 // and reads the credential then. The installed `agy` reads the same
@@ -54,8 +54,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/justwasm/pigasus/internal/accounts"
-	"github.com/justwasm/pigasus/internal/auth"
+	accounts "github.com/justwasm/pigasus/internal/features/accounts/core"
+	"github.com/justwasm/pigasus/internal/features/auth"
 	"github.com/justwasm/pigasus/rctoken"
 )
 
@@ -72,11 +72,6 @@ const (
 	accountsAddPath = "/__agy/api/accounts/add"
 	// accountsTokenHeader carries the per-process token.
 	accountsTokenHeader = "X-Agy-Accounts-Token"
-
-	// accountsQuotaFreshness is how long a cached quota counts as
-	// current. The endpoint refreshes it when it is older than this, so
-	// opening the quota section twice in a row costs one query.
-	accountsQuotaFreshness = 2 * time.Minute
 
 	// accountsBodyLimit is the largest request body the API reads.
 	accountsBodyLimit = 1 << 20
@@ -159,9 +154,10 @@ func (s *Server) serveAccountsList(w http.ResponseWriter, r *http.Request) {
 //
 // The quota belongs to the account behind the token, so it is queried
 // with that account's own credential (accounts.FetchQuota). A cached
-// snapshot younger than accountsQuotaFreshness is served as it is —
-// the switch warms the cache in the background, so the panel opens
-// with the new account's numbers instead of a spinner.
+// snapshot younger than the registry's freshness window
+// (accounts.QuotaFreshness) is served as it is — the switch warms the
+// cache in the background, so the panel opens with the new account's
+// numbers instead of a spinner.
 func (s *Server) serveAccountsQuota(w http.ResponseWriter, r *http.Request) {
 	body, err := readAccountsBody(r)
 	if err != nil {
@@ -222,7 +218,7 @@ func accountsQuotaIsFresh(email string) bool {
 	if err != nil || !ok || acc.Quota == nil {
 		return false
 	}
-	return time.Since(acc.Quota.FetchedAt) < accountsQuotaFreshness
+	return time.Since(acc.Quota.FetchedAt) < accounts.QuotaFreshness
 }
 
 // serveAccountsSwitch activates another account.

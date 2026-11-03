@@ -13,7 +13,7 @@
 // value %q (valid: %s)`, `warning: --mode %s is not available for this
 // account; continuing in the default mode.` and `Set the agent execution
 // mode for this session (%s)` — so the value list lives once, in
-// internal/permissions, and is substituted into all three.
+// internal/core/policy/permissions, and is substituted into all three.
 //
 // Emission surface (verified by probing the reference over a scratch HOME):
 //
@@ -36,10 +36,10 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/justwasm/pigasus/internal/permissions"
+	"github.com/justwasm/pigasus/internal/core/policy/permissions"
 )
 
-// Accepted --mode values, re-exported from internal/permissions so callers
+// Accepted --mode values, re-exported from internal/core/policy/permissions so callers
 // can reach them through the CLI package too.
 const (
 	// ModeAcceptEdits auto-approves file edits.
@@ -50,11 +50,7 @@ const (
 	ModePlan = permissions.ModePlan
 )
 
-// ModeValues lists the accepted --mode values, in the order the reference
-// prints them. It is internal/permissions' list.
-var ModeValues = permissions.Modes
-
-// ModeList is ModeValues rendered the way the reference prints it.
+// ModeList renders the accepted --mode values the way the reference prints them.
 func ModeList() string { return permissions.ModeList() }
 
 // ModeWarning returns the reference's stderr line for an unrecognized

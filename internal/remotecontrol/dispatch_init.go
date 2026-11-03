@@ -7,13 +7,15 @@ package remotecontrol
 import (
 	"context"
 	"encoding/json"
+
+	"github.com/justwasm/pigasus/internal/remotecontrol/rpc"
 )
 
 // handleInitialize responds to MCP's handshake. We accept any
 // protocolVersion and echo it back so dashboards that pin a newer
 // version than ours still see "negotiation succeeded". The
 // serverInfo.name / .version are the constants declared in daemon.go.
-func (d *Dispatcher) handleInitialize(params json.RawMessage) (any, *rpcErrorBody) {
+func (d *Dispatcher) handleInitialize(params json.RawMessage) (any, *rpc.ErrorBody) {
 	var p struct {
 		ProtocolVersion string `json:"protocolVersion"`
 		ClientInfo      struct {
@@ -42,7 +44,7 @@ func (d *Dispatcher) handleInitialize(params json.RawMessage) (any, *rpcErrorBod
 // tool's inputSchema is intentionally minimal — the dispatcher
 // does not validate inputs strictly, but a strict dashboard
 // wants to know what shape to send.
-func (d *Dispatcher) handleToolsList() (any, *rpcErrorBody) {
+func (d *Dispatcher) handleToolsList() (any, *rpc.ErrorBody) {
 	return map[string]any{
 		"tools": []map[string]any{
 			{
@@ -88,16 +90,16 @@ func (d *Dispatcher) handleToolsList() (any, *rpcErrorBody) {
 // explains why; we never propagate a JSON-RPC -32603 error from
 // a tool because the dashboard protocol expects tools/call to
 // always return a 200-equivalent.
-func (d *Dispatcher) handleToolsCall(ctx context.Context, params json.RawMessage) (any, *rpcErrorBody) {
+func (d *Dispatcher) handleToolsCall(ctx context.Context, params json.RawMessage) (any, *rpc.ErrorBody) {
 	var p struct {
 		Name      string          `json:"name"`
 		Arguments json.RawMessage `json:"arguments"`
 	}
 	if err := json.Unmarshal(params, &p); err != nil {
-		return nil, &rpcErrorBody{Code: -32602, Message: "Invalid params", Data: err.Error()}
+		return nil, &rpc.ErrorBody{Code: -32602, Message: "Invalid params", Data: err.Error()}
 	}
 	if p.Name == "" {
-		return nil, &rpcErrorBody{Code: -32602, Message: "Invalid params", Data: "name is required"}
+		return nil, &rpc.ErrorBody{Code: -32602, Message: "Invalid params", Data: "name is required"}
 	}
 	var text string
 	var isErr bool
@@ -109,7 +111,7 @@ func (d *Dispatcher) handleToolsCall(ctx context.Context, params json.RawMessage
 	case "get_output":
 		text, isErr = d.callGetOutput(ctx, p.Arguments)
 	default:
-		return nil, &rpcErrorBody{Code: -32602, Message: "Unknown tool", Data: p.Name}
+		return nil, &rpc.ErrorBody{Code: -32602, Message: "Unknown tool", Data: p.Name}
 	}
 	env := map[string]any{
 		"content": []map[string]any{{"type": "text", "text": text}},

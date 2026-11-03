@@ -56,12 +56,12 @@ Six things this machine gotcha-checks, each of which cost real time:
 4. **`~/GitHub` is a symlink to `~/Documents/GitHub`.** Ghidra canonicalises paths, which
    shows up in error messages; harmless once you know.
 5. **The seeds, the Ghidra project and `dec/` are version-scoped, and they are
-   currently at agy 1.4.6.** `out/local-macos/seeds/` holds **161,286**
+   currently at agy 1.4.11.** `out/local-macos/seeds/` holds **168,548**
    functions — regenerated from the installed binary
    (`cd rea-go-seeds && mkdir -p /tmp/seeds && go run . ~/.local/bin/agy /tmp/seeds`
    — ~2 seconds, no network), with `out/local-macos/proj` (the seeded Ghidra
-   project) and `out/local-macos/dec/` rebuilt from it: **2,290/2,290**
-   priority addresses resolved, **0 skipped**, 335,020 LOC. **Every address
+   project) and `out/local-macos/dec/` rebuilt from it: **2,397/2,397**
+   priority addresses resolved, **0 skipped**, 350,577 LOC. **Every address
    moves on every release**, so the moment `agy` updates, every address in
    `seeds.txt`, in the project, in `dec/` and in the committed
    `out/local-macos/decompile-*.md` reports is stale, and citing one for a

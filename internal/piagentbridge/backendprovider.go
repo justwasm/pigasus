@@ -6,8 +6,8 @@ import (
 
 	pi "github.com/MichaelKinsy/PiG/ai"
 
-	"github.com/justwasm/pigasus/internal/backend"
-	"github.com/justwasm/pigasus/internal/modelctx"
+	"github.com/justwasm/pigasus/internal/core/backend"
+	modelctx "github.com/justwasm/pigasus/internal/features/models/ctx"
 )
 
 // BackendProvider adapts *any* backend.Client into an ai.Provider, so PiG's

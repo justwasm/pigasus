@@ -18,7 +18,7 @@ import (
 	"testing"
 
 	"github.com/creativeprojects/go-selfupdate"
-	"github.com/justwasm/pigasus/internal/branding"
+	"github.com/justwasm/pigasus/internal/core/branding"
 )
 
 type mockRelease struct {

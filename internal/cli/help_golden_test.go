@@ -1,7 +1,7 @@
 // help_golden_test.go — the clone's `--help` surface against the
 // reference's, byte for byte.
 //
-// The golden file `testdata/help_1.4.6.txt` is the reference binary's
+// The golden file `testdata/help_1.4.6.txt` was the reference binary's
 // own output, captured on this machine:
 //
 //	$ agy --help
@@ -14,6 +14,14 @@
 // (【一手】, re-captured at 1.4.7 — 30 commands, stdout and stderr
 // separately, same throwaway HOME), so the golden keeps its name and its
 // bytes.
+//
+// **The golden is no longer the reference's untouched output.** The
+// clone's own visible subcommands were added to it as they became
+// visible — `accounts`, `model` and `provider` in commit `78f4a3b9`,
+// `halloween` in `6bd0850c`. The reference's own twelve rows are still a
+// subset of the table, but the file as a whole now pins the *clone's*
+// sixteen parser-level rows; the binary adds `proxy` and `web` on top of
+// that, outside the parser.
 //
 // The clone renders its help through a different program name
 // ("antigravity" in the test rig, "pigasus" in the binary), so the

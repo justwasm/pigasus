@@ -1,189 +1,61 @@
 package cliapp
 
 import (
-	"strings"
-
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/justwasm/pigasus/internal/tuilib"
-	"github.com/justwasm/pigasus/internal/tuiviewer"
-	"github.com/justwasm/pigasus/palette"
+	tuiviewport "github.com/justwasm/pigasus/internal/ui/foundations/viewport"
+	"github.com/justwasm/pigasus/internal/ui/panelregistry"
+	"github.com/justwasm/pigasus/internal/ui/tuilib"
 )
 
-// searchCursorBlock is the `Search:` input cursor REF draws as one
-// reverse-video cell (`\x1b[7m\x1b[37m \x1b[0m`). Both /model and
-// /config reuse it.
-const searchCursorBlock = "\x1b[7m\x1b[37m \x1b[0m"
-
-// searchUnderline is the 20-cell `─` row REF draws under the Search:
-// input, in the selected scheme's separator colour.
-var searchUnderline = palette.SeparatorOpen + "────────────────────\x1b[39m"
-
-func (m *runMode) handlePanelEarlyMiscRoutes(key tea.Key) (bool, tea.Cmd, bool) {
-	switch {
-	case m.panel.kind == panelAddDir:
-		h, c := m.handleAddDirKey(key)
-		return h, c, true
-	case m.panel.kind == panelRename:
-		h, c := m.handleRenamePanelKey(key)
-		return h, c, true
-	case m.panel.kind.isViewer():
-		h, c := m.handleViewerPanelKey(key)
-		return h, c, true
-	case m.panel.kind == panelSkills && m.panel.detail:
-		h, c := m.handleSkillsDetailKey(key)
-		return h, c, true
-	case m.panel.kind == panelFeedback && m.panel.stage > 0:
-		h, c := m.handleFeedbackTextKey(key)
-		return h, c, true
-	case m.panel.kind == panelDiff:
-		h, c := m.handleDiffPanelKey(key)
-		return h, c, true
-	default:
-		return false, nil, false
-	}
-}
-
-func (m *runMode) handlePanelEarlyRoutes(key tea.Key) (bool, tea.Cmd, bool) {
-	// Cycle 315: the /tasks detail sub-views own every key while they are
-	// open. They are routed before the /tasks list handling because the
-	// panel kind is no longer panelTasks — the list handler must not see
-	// the keys.
-	if detailPanelKind(m.panel.kind) {
-		h, c := m.handleTaskDetailKey(key)
-		return h, c, true
-	}
-	if m.panel.kind == panelCodeSearch && len(m.panel.cs.hits) > 0 {
-		if handled, _, ok := m.codesearchPanelKey(key); ok {
-			return handled, nil, true
-		}
-	}
-	if m.panel.kind == panelTasks {
-		if handled, cmd := m.tasksPanelKey(key); handled {
-			return true, cmd, true
-		}
-		h, c := m.listPanelOwningKey(key)
-		return h, c, true
-	}
-	if listPanelKind(m.panel.kind) {
-		h, c := m.listPanelOwningKey(key)
-		return h, c, true
-	}
-	switch m.panel.kind {
-	case panelPermissions:
-		h, c := m.handlePermissionsKey(key)
-		return h, c, true
-	case panelHooks:
-		h, c := m.handleHooksKey(key)
-		return h, c, true
-	case panelAgents:
-		h, c := m.handleAgentsKey(key)
-		return h, c, true
-	case panelProvider:
-		// Cycle provider-model-editor: the /provider panel owns every
-		// key. Its form turns the arrow keys into field navigation, so
-		// the generic list navigation must not see them.
-		h, c := m.handleProviderPanelKey(key)
-		return h, c, true
-	case panelAccounts:
-		// Cycle multi-account-switch: the /accounts panel owns every
-		// key. Its own keys (a/d) would otherwise be read as text.
-		h, c := m.handleAccountsPanelKey(key)
-		return h, c, true
-	}
-	return m.handlePanelEarlyMiscRoutes(key)
-}
 
 func (m *runMode) handleNavAndEnterKey(key tea.Key, n int) (bool, tea.Cmd, bool) {
-	if m.panel.kind == panelConfig {
-		if handled, cmd := m.handleConfigKey(key, n); handled {
+	if m.panel.kind == panelregistry.Config {
+		// Cycle 381: the /config panel owns every key it receives — the
+		// search box takes the letters and the arrow keys change the
+		// setting's value — so the generic list navigation must not see
+		// them. A key the panel does not own falls through, so the
+		// global handlers (Ctrl+C) still see it.
+		if handled, cmd := m.configPanel().HandleKey(key); handled {
 			return true, cmd, true
 		}
 	}
-	switch tuilib.ClassifyListNavKey(key) {
-	case tuilib.NavUp:
-		if m.panel.kind == panelSkills {
-			m.moveSkillsCursor(false)
-			return true, nil, true
-		}
-		if m.panel.cursor > 0 {
-			m.panel.cursor--
-		} else if m.panel.kind.wraps() {
-			m.panel.cursor = n - 1
-		}
-		return true, nil, true
-	case tuilib.NavDown:
-		if m.panel.kind == panelSkills {
-			m.moveSkillsCursor(true)
-			return true, nil, true
-		}
-		if m.panel.cursor < n-1 {
-			m.panel.cursor++
-		} else if m.panel.kind.wraps() {
-			m.panel.cursor = 0
-		}
-		return true, nil, true
-	case tuilib.NavPageUp:
-		m.panelPageCursor(-10, n)
-		return true, nil, true
-	case tuilib.NavPageDown:
-		m.panelPageCursor(+10, n)
-		return true, nil, true
-	case tuilib.NavTop:
-		m.panel.cursor = 0
-		return true, nil, true
-	case tuilib.NavBottom:
-		if n > 0 {
-			m.panel.cursor = n - 1
-		}
+	switch action := tuilib.ClassifyListNavKey(key); action {
+	case tuilib.NavUp, tuilib.NavDown, tuilib.NavPageUp, tuilib.NavPageDown,
+		tuilib.NavTop, tuilib.NavBottom:
+		// Cycle 381: the cursor arithmetic is the viewport's — the same
+		// ListNav the other list panels use — so a panel cursor moves by
+		// the reference's rules and is clamped into the panel's rows.
+		m.panel.cursor = tuiviewport.PanelCursor(m.panel.cursor, action, n)
 		return true, nil, true
 	case tuilib.NavCancel:
-		return true, m.closePanel(), true
-	}
-	return m.handleSpecialPanelEnterKey(key)
-}
-
-func (m *runMode) handleSpecialPanelEnterKey(key tea.Key) (bool, tea.Cmd, bool) {
-	if m.panel.kind == panelSkills {
-		if key.Code == tea.KeyEnter {
-			m.openSkillDetail()
-			return true, nil, true
-		}
-	}
-	if m.panel.kind == panelFeedback {
-		if key.Code == tea.KeyEnter {
-			m.panel.stage = 1
-			return true, nil, true
-		}
-		if key.Mod == 0 && len(key.Text) == 1 && key.Text[0] >= '1' && key.Text[0] <= '6' {
-			m.panel.cursor = int(key.Text[0] - '1')
-			m.panel.stage = 1
-			return true, nil, true
-		}
-	}
-	if m.panel.kind == panelRewind && key.Code == tea.KeyEnter {
-		m.panelRewindPickStep()
 		return true, m.closePanel(), true
 	}
 	return false, nil, false
 }
 
 func (m *runMode) handlePanelKey(key tea.Key) (bool, tea.Cmd) {
-	if m.panel.kind == panelNone {
+	if m.panel.kind == panelregistry.None {
 		return false, nil
 	}
-	if handled, cmd, ok := m.handlePanelEarlyRoutes(key); ok {
+	// Cycle 381: the registry owns the fan-out over the panels. It knows
+	// which route claims a key for the open panel — the panel's own
+	// handler, the search route of /codesearch, the list rule, or the
+	// document viewer — and it answers whether the key was claimed. A key
+	// no route claims reaches the host's own handlers below.
+	if handled, cmd, claimed := m.panelRegistry().HandleKey(m.panel.kind, key); claimed {
 		return handled, cmd
 	}
-	n := m.panelRowCount(m.panel.kind)
-	if handled, cmd, ok := m.handleEffortKey(key); ok {
-		return handled, cmd
-	}
-	if handled, cmd, ok := m.handleModelKey(key, n); ok {
-		return handled, cmd
-	}
-	if handled, cmd, ok := m.handlePluginKey(key); ok {
-		return handled, cmd
+	n := m.panelRegistry().RowCount(m.panel.kind)
+	if m.panel.kind == panelregistry.Model {
+		// Cycle 381: the /model panel owns every key it receives — the
+		// search box takes the letters and the arrow keys move the
+		// effort slider — so the generic list navigation must not see
+		// them. A key the panel does not own falls through, so the
+		// global handlers (Ctrl+C) still see it.
+		if handled, cmd := m.modelPanel().HandleKey(key); handled {
+			return true, cmd
+		}
 	}
 	if handled, cmd, ok := m.handleNavAndEnterKey(key, n); ok {
 		return handled, cmd
@@ -200,80 +72,18 @@ func (m *runMode) handlePanelKey(key tea.Key) (bool, tea.Cmd) {
 	return false, nil
 }
 
-func (m *runMode) panelPageCursor(n, count int) {
-	if count <= 0 {
-		return
-	}
-	c := m.panel.cursor + n
-	if c < 0 {
-		c = 0
-	} else if c >= count {
-		c = count - 1
-	}
-	m.panel.cursor = c
-}
-
-func viewerMaxOffset(spec viewerSpec) int {
-	return tuiviewer.MaxOffset(toViewerSpec(spec))
-}
-
-func (m *runMode) viewerScrollBy(spec viewerSpec, delta int) {
-	m.panel.window += delta
-	if m.panel.window < 0 {
-		m.panel.window = 0
-	}
-	if max := viewerMaxOffset(spec); m.panel.window > max {
-		m.panel.window = max
-	}
-}
-
-func (m *runMode) handleViewerPanelKey(key tea.Key) (bool, tea.Cmd) {
-	return m.handleViewerPanelKeyVP(key)
-}
-
 // listPanelKind reports whether k is one of the four key-owning list
 // panels: /tasks, /artifact, /codesearch, /context.
-func listPanelKind(k panelKind) bool {
-	switch k {
-	case panelTasks, panelArtifact, panelCodeSearch, panelContext:
-		return true
-	}
-	return false
-}
-
-// detailPanelKind reports whether k is one of the two /tasks detail
-// sub-views (cycle 315): the task detail and the subagent detail.
 //
-// They are not list panels — they have no rows to pick from — but they
-// own every key while they are open, so the global key handlers must
-// not see them.
-func detailPanelKind(k panelKind) bool {
-	return k == panelTaskDetail || k == panelSubagentDetail
-}
-
-// canonicalPanelCommand resolves a slash-command alias to the name the
-// panel table is keyed by.
-func canonicalPanelCommand(cmd string) string {
-	if _, ok := panelForCommand(cmd); ok {
-		return cmd
-	}
-	for _, c := range tuilib.DefaultSlashCommands {
-		for _, a := range c.Aliases {
-			if a == cmd {
-				return strings.TrimPrefix(c.Name, "/")
-			}
-		}
-	}
-	return cmd
-}
-
-// listPanelOwningKey is the key handler for the four list panels.
-func (m *runMode) listPanelOwningKey(key tea.Key) (bool, tea.Cmd) {
-	if key.Code == tea.KeyEsc {
-		return true, m.closePanel()
-	}
-	if key.Code == 'c' && key.Mod.Contains(tea.ModCtrl) {
-		return false, nil
-	}
-	return true, nil
+// /tasks routes to its own panel first (the panel owns the cursor, the
+// detail view and the kill), but it stays on the list: the gate in
+// tui_update_keys.go hands a list panel's keys to the panel *before*
+// the global handlers see them.
+//
+// Cycle 381: the set itself is the registry's (Kind.IsList) — it is the
+// registry's table, next to the routes it drives. This forwarder stays
+// because the host's own key pipeline asks the question by name; a
+// follow-up should ask the registry at the call site and drop it.
+func listPanelKind(k panelregistry.Kind) bool {
+	return k.IsList()
 }

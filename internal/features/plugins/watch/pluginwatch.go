@@ -31,7 +31,7 @@
 //   - It does not own cache state. The loaders continue to read the
 //     disk on every call; the watcher only flags "maybe re-read".
 //   - It does not recurse into symlinks. AGY's loader walks
-//     (internal/pluginscan follows symlinks), but the watcher stays
+//     (internal/features/plugins/scan follows symlinks), but the watcher stays
 //     non-recursive — a symlinked subtree is itself a directory entry
 //     under one of the roots and that entry's events reach us
 //     through the parent root's watch.
@@ -83,7 +83,7 @@ import (
 const debounceWindow = 200 * time.Millisecond
 
 // roots are the three directories the watcher monitors. They are
-// derived from homeDir (the value auth.GeminiConfigHome /
+// derived from homeDir (the value confhome.Gemini /
 // AntigravityConfigHome resolves to at startup) so a $ANTIGRAVITY_HOME
 // override redirects all three at once.
 //

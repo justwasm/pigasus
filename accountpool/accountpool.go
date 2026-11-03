@@ -4,7 +4,7 @@
 // # What it is
 //
 // The clone keeps a *registry* of the Google accounts the user signed in
-// to (`internal/accounts`, `~/.config/openagy/accounts.json`). A turn is
+// to (`internal/accounts`, `~/.openagy/accounts.json`). A turn is
 // served by one of them. This package answers the question "which one?" —
 // it holds the *policy* (the configuration file's section) and the *rules*
 // (which account a turn picks, given the state of the pool).
@@ -12,7 +12,7 @@
 // It is a pure package: it reads no file, calls no service and knows
 // nothing about the registry. The runtime that gathers the state and
 // applies the decision lives in `internal/accountrouting`; the file the
-// policy is read from is `~/.config/openagy/config.json`, whose only
+// policy is read from is `~/.openagy/config.json`, whose only
 // reader is the `endpoints` package.
 //
 // # The configuration section

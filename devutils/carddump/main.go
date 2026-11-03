@@ -16,8 +16,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/justwasm/pigasus/internal/onboarding"
-	"github.com/justwasm/pigasus/internal/themepreview"
+	"github.com/justwasm/pigasus/internal/ui/views/onboarding"
+	"github.com/justwasm/pigasus/internal/ui/views/themepreview"
 )
 
 func main() {

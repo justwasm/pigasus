@@ -10,8 +10,8 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/justwasm/pigasus/internal/tools"
 	pb "github.com/justwasm/pigasus/localharness/pb/localharness"
+	"github.com/justwasm/pigasus/internal/app/tools/surface"
 )
 
 // sideToolConfig builds a side-tool configuration from the enabled tools.
@@ -87,7 +87,7 @@ func TestSideToolNamesWithNoConfigurationAdvertiseNothing(t *testing.T) {
 }
 
 func TestTheHarnessDeclarationsAreTheCapturedEighteen(t *testing.T) {
-	decls := tools.HarnessDeclarations()
+	decls := surface.HarnessDeclarations()
 	if len(decls) != 18 {
 		t.Fatalf("declarations = %d, want 18", len(decls))
 	}
@@ -162,7 +162,7 @@ func TestFinishDeclarationIsTheClientsOwnSchema(t *testing.T) {
 
 	enabled := map[string]bool{"finish": true, "view_file": true}
 	decls := harnessDeclarations(enabled, schema)
-	var finish *tools.ModelToolDecl
+	var finish *surface.ModelToolDecl
 	for i := range decls {
 		if decls[i].Name == "finish" {
 			finish = &decls[i]
@@ -201,12 +201,12 @@ func TestFinishSchemaDropsWhatIsNotJSON(t *testing.T) {
 // between `find_by_name` and `generate_image`.
 func TestFinishDeclarationSortsIntoTheList(t *testing.T) {
 	enabled := map[string]bool{"finish": true}
-	for _, decl := range tools.HarnessDeclarations() {
+	for _, decl := range surface.HarnessDeclarations() {
 		enabled[decl.Name] = true
 	}
 	decls := harnessDeclarations(enabled, json.RawMessage(`{"type":"object"}`))
-	if len(decls) != len(tools.HarnessDeclarations())+1 {
-		t.Fatalf("declarations = %d, want %d", len(decls), len(tools.HarnessDeclarations())+1)
+	if len(decls) != len(surface.HarnessDeclarations())+1 {
+		t.Fatalf("declarations = %d, want %d", len(decls), len(surface.HarnessDeclarations())+1)
 	}
 	for i, decl := range decls {
 		if decl.Name != "finish" {
@@ -232,12 +232,12 @@ func TestFinishDeclarationSortsIntoTheList(t *testing.T) {
 // schema for `finish`, and the eighteen are the reference's own.
 func TestFinishDeclarationIsAbsentWithoutASchema(t *testing.T) {
 	enabled := map[string]bool{"finish": true}
-	for _, decl := range tools.HarnessDeclarations() {
+	for _, decl := range surface.HarnessDeclarations() {
 		enabled[decl.Name] = true
 	}
 	decls := harnessDeclarations(enabled, nil)
-	if len(decls) != len(tools.HarnessDeclarations()) {
-		t.Fatalf("declarations = %d, want %d", len(decls), len(tools.HarnessDeclarations()))
+	if len(decls) != len(surface.HarnessDeclarations()) {
+		t.Fatalf("declarations = %d, want %d", len(decls), len(surface.HarnessDeclarations()))
 	}
 	for _, decl := range decls {
 		if decl.Name == "finish" {

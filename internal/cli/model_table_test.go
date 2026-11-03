@@ -11,6 +11,7 @@
 package cli
 
 import (
+	"github.com/justwasm/pigasus/internal/features/models/catalog"
 	"bytes"
 	"os"
 	"strings"
@@ -19,9 +20,9 @@ import (
 
 func TestModelTable_TabSeparatedWhenNotATerminal(t *testing.T) {
 	var buf bytes.Buffer
-	entries := []ModelEntry{
-		{"gemini-3.8-flash-medium", "Gemini 3.8 Flash (Medium)"},
-		{"claude-opus-4-6-thinking", "Claude Opus 4.6 (Thinking)"},
+	entries := []catalog.ModelEntry{
+		{ID: "gemini-3.8-flash-medium", Label: "Gemini 3.8 Flash (Medium)"},
+		{ID: "claude-opus-4-6-thinking", Label: "Claude Opus 4.6 (Thinking)"},
 	}
 	if err := modelTable(&buf, entries, false); err != nil {
 		t.Fatalf("modelTable: %v", err)
@@ -35,9 +36,9 @@ func TestModelTable_TabSeparatedWhenNotATerminal(t *testing.T) {
 
 func TestModelTable_AlignedWhenTerminal(t *testing.T) {
 	var buf bytes.Buffer
-	entries := []ModelEntry{
-		{"gemini-3.8-flash-medium", "Gemini 3.8 Flash (Medium)"},
-		{"claude-opus-4-6-thinking", "Claude Opus 4.6 (Thinking)"},
+	entries := []catalog.ModelEntry{
+		{ID: "gemini-3.8-flash-medium", Label: "Gemini 3.8 Flash (Medium)"},
+		{ID: "claude-opus-4-6-thinking", Label: "Claude Opus 4.6 (Thinking)"},
 	}
 	if err := modelTable(&buf, entries, true); err != nil {
 		t.Fatalf("modelTable: %v", err)
@@ -59,7 +60,7 @@ func TestModelTable_AlignedWhenTerminal(t *testing.T) {
 func TestModelTable_ReferenceColumnWidth(t *testing.T) {
 	// The reference's own catalogue: the label column starts at 26.
 	var buf bytes.Buffer
-	if err := modelTable(&buf, ReferenceModels(), true); err != nil {
+	if err := modelTable(&buf, catalog.ReferenceModels(), true); err != nil {
 		t.Fatalf("modelTable: %v", err)
 	}
 	for _, line := range strings.Split(strings.TrimRight(buf.String(), "\n"), "\n") {

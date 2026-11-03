@@ -3,7 +3,7 @@ package catalog
 import (
 	"strings"
 
-	"github.com/justwasm/pigasus/internal/models"
+	"github.com/justwasm/pigasus/internal/features/models"
 )
 
 // # The catalogue id and the wire id are two different namespaces
@@ -25,34 +25,10 @@ import (
 //
 // A model with no upstream id listed is asked for under its catalogue id.
 
-// WireModel returns the upstream model id for a catalogue id or display
-// label, as the user configured it.
-//
-// The second result is false when the name is not a configured model, which
-// is the caller's cue that there is no upstream id to send.
-func WireModel(name string) (string, bool) {
-	id, ok := CatalogueID(name)
-	if !ok {
-		return "", false
-	}
-	reg := models.CachedRegistry()
-	if reg == nil {
-		return "", false
-	}
-	m, ok := reg.GetByName(id)
-	if !ok {
-		return "", false
-	}
-	wire := strings.TrimSpace(m.ExternalModelName)
-	if wire == "" {
-		return "", false
-	}
-	return wire, true
-}
-
 // WireLabel returns the catalogue label for an upstream model id — the
-// inverse of WireModel. It is what the TUI shows after it has read the
-// model back off the transport, so the label on screen always names the
+// inverse of the catalogue-to-wire translation. It is what the TUI shows
+// after it has read the model back off the transport, so the label on
+// screen always names the
 // model that is actually running.
 //
 // A reference model is its own upstream id, so the catalogue answers for

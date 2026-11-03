@@ -47,7 +47,7 @@ Five further traps, all load-bearing:
 - PiG copies only `err.Error()` across the stream boundary
   (`agent_loop.go:494`, `return errorAssistant, nil, nil`). Any error whose
   concrete type matters — `*backend.HTTPError`, which
-  `internal/apierror/api_error.go:102` recovers with `errors.As` — has to be recorded
+  `internal/core/apierror/api_error.go:102` recovers with `errors.As` — has to be recorded
   out-of-band. Hence `errorSlot` in `pig.go` (TUI) and `pigrt.ErrorSlot`
   (print), and the rule that both transports return a **pre-stream** failure as
   `(nil, err)` rather than an in-stream event.
@@ -76,7 +76,7 @@ print path wraps them in `piagentbridge.BackendProvider` (the same `StreamFn`).
 **The native provider is OpenAI-shaped only.** `NativeProvider` returns nil for
 the Anthropic dialect, so an Anthropic-configured provider goes through the
 generic `BackendProvider`/`StreamFn` path. That is deliberate: one
-implementation of the Messages dialect (`internal/backend/gateway_anthropic.go`),
+implementation of the Messages dialect (`internal/infra/backend/gateway/gateway_anthropic.go`),
 not two.
 
 Cost, and the reason to be careful: `cmd/pigasus` was **+12.1 MB (+50.8 %)** since
@@ -87,7 +87,9 @@ the print path unconditionally, so the binary is now **~69 MB**
 **+11 MB** (→ 102 MB) because 0.5 links `go/types`, `go/doc`, `go/format`,
 `runtime/pprof` and `internal/zstd`. The binary is **109.8 MB** at PiG
 **v0.5.2** (111.2 MB at v0.5.1 — the 0.5.2 upgrade is **−1.3 MB**; the rest of
-the growth since the 102 MB figure is the clone's own code). Three things
+the growth since the 102 MB figure is the clone's own code). At PiG
+**v0.5.3** (commit `450f19a8`) it is **138.7 MB / 132.2 MiB** — the clone's
+own code is now the larger half of the growth. Three things
 about that upgrade are worth remembering:
 
 - **The checksum database is unreachable from this machine, not empty.**
@@ -116,7 +118,7 @@ Reports: `docs/cycles/cycle-183/`, `docs/cycles/cycle-209/`,
 `docs/cycles/pig-bump-052/`.
 
 
-## The subagent's parent context (`internal/subagenttools`, cycle 363, agy 1.4.10)
+## The subagent's parent context (`internal/app/subagenttools`, cycle 363, agy 1.4.10)
 
 【一手】 agy 1.4.10: "Fixed subagents losing the task their parent agent
 gave them, and the parent's ID, after their context was compacted,
@@ -135,16 +137,16 @@ The clone keeps the parent's half itself:
 
 | piece | where | what it is |
 |---|---|---|
-| the record | `internal/subagenttools/parentcontext.go` — `ParentContext` | the parent's id, the task, and the parent's messages (oldest first, at most `MaxParentMessages` = 10) |
+| the record | `internal/app/subagenttools/parentcontext.go` — `ParentContext` | the parent's id, the task, and the parent's messages (oldest first, at most `MaxParentMessages` = 10) |
 | the rendering | `ParentContext.Summary()` | the task in the reference's own message envelope, the parent's id, and the ten most recent messages one line each |
-| the summary | `internal/subagenttools/compaction.go` — `SubagentSummary` | the parent's half followed by a digest of the subagent's own work (at most `MaxDigestLines` = 40 lines) |
+| the summary | `internal/app/subagenttools/compaction.go` — `SubagentSummary` | the parent's half followed by a digest of the subagent's own work (at most `MaxDigestLines` = 40 lines) |
 | the hook | `parentContextExtension` | answers PiG's `session_before_compact` with `extension.CompactionResult` |
 
 Two rules make the hook work:
 
 - **The extension is loaded into the subagent's own session**, not into the
   parent's — so the parent's half travels with the session and not with the
-  process (`createSubagentSession` in `internal/subagenttools/session.go`).
+  process (`createSubagentSession` in `internal/app/subagenttools/session.go`).
   The extension is loaded from a factory through
   `factoryload.LoadExtensionFromFactory`, under the name
   `subagent-parent-context`.
@@ -155,7 +157,7 @@ Two rules make the hook work:
   therefore takes the runtime the built-in extensions were loaded into.
 
 The parent's messages are recorded while the delegation is **waited on**
-(`internal/subagenttools/launch.go`): the parent context is built *before*
+(`internal/app/subagenttools/launch.go`): the parent context is built *before*
 the session is created, and every message the parent sends to the subagent
 is recorded as it arrives.
 
@@ -223,3 +225,29 @@ applies (a run that was interrupted *and* timed out) is the clone's own
 choice; the note does not rank them.
 
 Report: `docs/cycles/cycle-364-agy-1.4.11-alignment/deliverable.md` §4.
+
+---
+
+## The TUI's turn seam (cycle 374)
+
+The TUI's turn no longer drives `internal/agent.Loop` directly. It goes
+through **`internal/app/agentturn`**, the seam between *what a turn is* and
+*where it runs*:
+
+| engine | what it does |
+|---|---|
+| `agentturn.Local` | runs the turn **here**, over `internal/agent.Loop` |
+| `agentturn.Remote` | sends the transcript to a `pigasus server` and reports its frames |
+
+Both answer with the same `agentlink.Frame`s, so the transcript does not know
+which one it is rendering — the local path and the remote path cannot render
+differently. The TUI's collector (`internal/cliapp/tui_stream_prompt.go`'s
+`turnCollector`) is the one place that knows how a frame becomes a row.
+
+The turn loop itself did not change: `internal/agent.Loop` is still the
+TUI's engine, and the print path still runs PiG's `coding.Session`. What
+changed is that the TUI's turn is now *portable* — the same frames travel
+over a websocket.
+
+Guide: [`agent-server.md`](agent-server.md). Report:
+`docs/cycles/cycle-374-agent-server-client-split/deliverable.md`.

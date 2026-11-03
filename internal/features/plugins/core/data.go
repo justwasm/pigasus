@@ -22,7 +22,7 @@
 // instead of an empty list.
 //
 // Cycle plugin-source-symlink-resolve (AGY 1.2.5): every directory walk
-// here now goes through internal/pluginscan, which follows symlinks.
+// here now goes through internal/features/plugins/scan, which follows symlinks.
 // The prior os.ReadDir + e.IsDir() pattern reported the link's own
 // mode and dropped symlinked plugin/skill directories silently —
 // e.g. ~/.gemini/config/plugins/<name> being a symlink to
@@ -38,9 +38,9 @@ import (
 	"strings"
 	"sync/atomic"
 
-	"github.com/justwasm/pigasus/internal/auth"
-	"github.com/justwasm/pigasus/internal/pluginscan"
-	"github.com/justwasm/pigasus/internal/pluginwatch"
+	confhome "github.com/justwasm/pigasus/internal/core/confhome"
+	pluginscan "github.com/justwasm/pigasus/internal/features/plugins/scan"
+	pluginwatch "github.com/justwasm/pigasus/internal/features/plugins/watch"
 )
 
 // WatcherPtr is the active ~/.gemini plugin/skill/marketplace
@@ -103,7 +103,7 @@ var InstalledFallback = []Row{
 
 // StateDir is ~/.gemini/config/plugins.
 func StateDir() string {
-	return filepath.Join(auth.GeminiConfigHome(), "plugins")
+	return filepath.Join(confhome.Gemini(), "plugins")
 }
 
 // Dir is one installed plugin's directory.
@@ -244,7 +244,7 @@ type Marketplace struct {
 
 // MarketplaceRoot is ~/.gemini/antigravity-cli/cache/marketplaces.
 func MarketplaceRoot() string {
-	return filepath.Join(auth.AntigravityConfigHome(), "cache", "marketplaces")
+	return filepath.Join(confhome.Antigravity(), "cache", "marketplaces")
 }
 
 // Marketplaces reads every <root>/<mkt>/marketplace.json. Entries
@@ -300,17 +300,6 @@ func Marketplaces() []Marketplace {
 		if len(items) > 0 {
 			out = append(out, Marketplace{Name: e.Name, Items: items})
 		}
-	}
-	return out
-}
-
-// MarketplaceItems flattens every marketplace's entries — the Discover list is
-// one list across sources (only one marketplace exists on the reference
-// machine this was probed on, so a merge order across several is unverified).
-func MarketplaceItems(mkts []Marketplace) []Row {
-	var out []Row
-	for _, mk := range mkts {
-		out = append(out, mk.Items...)
 	}
 	return out
 }

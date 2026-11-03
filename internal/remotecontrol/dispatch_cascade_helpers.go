@@ -33,6 +33,9 @@ import (
 	"errors"
 	"strings"
 	"time"
+
+	"github.com/justwasm/pigasus/internal/remotecontrol/cascades"
+	"github.com/justwasm/pigasus/internal/remotecontrol/rpc"
 )
 
 // decodeStartRemoteAgentCascadeParams unmarshals StartRemoteAgentCascade
@@ -41,11 +44,11 @@ import (
 // JSON unmarshaller would silently coerce a number to "", so a
 // buggy dashboard passing `{model: 42}` would otherwise get a
 // cascade with the default model. We turn that into a clear -32602.
-func decodeStartRemoteAgentCascadeParams(params json.RawMessage) (*startRemoteAgentCascadeParams, *rpcErrorBody) {
+func decodeStartRemoteAgentCascadeParams(params json.RawMessage) (*startRemoteAgentCascadeParams, *rpc.ErrorBody) {
 	var p startRemoteAgentCascadeParams
 	if len(params) > 0 {
 		if err := json.Unmarshal(params, &p); err != nil {
-			return nil, &rpcErrorBody{Code: -32602, Message: "Invalid params", Data: err.Error()}
+			return nil, &rpc.ErrorBody{Code: -32602, Message: "Invalid params", Data: err.Error()}
 		}
 		// StartCascadeRequest spells the project `project_id`; accept
 		// the reference spelling as an alias for `projectId`.
@@ -56,13 +59,13 @@ func decodeStartRemoteAgentCascadeParams(params json.RawMessage) (*startRemoteAg
 			p.ProjectID = protoShim.ProjectID
 		}
 	}
-	if nonStringFieldInJSON(params, "projectId", p.ProjectID) ||
-		nonStringFieldInJSON(params, "model", p.Model) ||
-		nonStringFieldInJSON(params, "backend", p.Backend) ||
-		nonStringFieldInJSON(params, "effort", p.Effort) ||
-		nonStringFieldInJSON(params, "agent", p.Agent) ||
-		nonStringFieldInJSON(params, "sessionMode", p.SessionMode) {
-		return nil, &rpcErrorBody{Code: -32602, Message: "Invalid params", Data: "string fields must be strings"}
+	if rpc.NonStringFieldInJSON(params, "projectId", p.ProjectID) ||
+		rpc.NonStringFieldInJSON(params, "model", p.Model) ||
+		rpc.NonStringFieldInJSON(params, "backend", p.Backend) ||
+		rpc.NonStringFieldInJSON(params, "effort", p.Effort) ||
+		rpc.NonStringFieldInJSON(params, "agent", p.Agent) ||
+		rpc.NonStringFieldInJSON(params, "sessionMode", p.SessionMode) {
+		return nil, &rpc.ErrorBody{Code: -32602, Message: "Invalid params", Data: "string fields must be strings"}
 	}
 	return &p, nil
 }
@@ -86,12 +89,12 @@ func (d *Dispatcher) resolveStartBackendModel(p *startRemoteAgentCascadeParams) 
 // decodeSendRemoteAgentCascadeMessageParams unmarshals
 // SendRemoteAgentCascadeMessage params, validates string-typed
 // fields, and trims whitespace. Returns the populated params and
-// nil error on success; returns nil + *rpcErrorBody on failure.
-func decodeSendRemoteAgentCascadeMessageParams(params json.RawMessage) (*sendRemoteAgentCascadeMessageParams, *rpcErrorBody) {
+// nil error on success; returns nil + *rpc.ErrorBody on failure.
+func decodeSendRemoteAgentCascadeMessageParams(params json.RawMessage) (*sendRemoteAgentCascadeMessageParams, *rpc.ErrorBody) {
 	var p sendRemoteAgentCascadeMessageParams
 	if len(params) > 0 {
 		if err := json.Unmarshal(params, &p); err != nil {
-			return nil, &rpcErrorBody{Code: -32602, Message: "Invalid params", Data: err.Error()}
+			return nil, &rpc.ErrorBody{Code: -32602, Message: "Invalid params", Data: err.Error()}
 		}
 		// The reference's SendUserCascadeMessageRequest carries the
 		// turn text as `message_text`; accept it as an alias for the
@@ -103,28 +106,28 @@ func decodeSendRemoteAgentCascadeMessageParams(params json.RawMessage) (*sendRem
 			p.Text = protoShim.MessageText
 		}
 	}
-	if nonStringFieldInJSON(params, "cascade_id", p.CascadeID) ||
-		nonStringFieldInJSON(params, "text", p.Text) ||
-		nonStringFieldInJSON(params, "agent", p.Agent) ||
-		nonStringFieldInJSON(params, "model", p.Model) ||
-		nonStringFieldInJSON(params, "effort", p.Effort) ||
-		nonStringFieldInJSON(params, "sessionMode", p.SessionMode) {
-		return nil, &rpcErrorBody{Code: -32602, Message: "Invalid params", Data: "string fields must be strings"}
+	if rpc.NonStringFieldInJSON(params, "cascade_id", p.CascadeID) ||
+		rpc.NonStringFieldInJSON(params, "text", p.Text) ||
+		rpc.NonStringFieldInJSON(params, "agent", p.Agent) ||
+		rpc.NonStringFieldInJSON(params, "model", p.Model) ||
+		rpc.NonStringFieldInJSON(params, "effort", p.Effort) ||
+		rpc.NonStringFieldInJSON(params, "sessionMode", p.SessionMode) {
+		return nil, &rpc.ErrorBody{Code: -32602, Message: "Invalid params", Data: "string fields must be strings"}
 	}
 	cascadeID := strings.TrimSpace(p.CascadeID)
 	text := strings.TrimSpace(p.Text)
 	if cascadeID == "" {
-		return nil, &rpcErrorBody{Code: -32602, Message: "Invalid params", Data: "cascade_id is required"}
+		return nil, &rpc.ErrorBody{Code: -32602, Message: "Invalid params", Data: "cascade_id is required"}
 	}
 	if text == "" {
-		return nil, &rpcErrorBody{Code: -32602, Message: "Invalid params", Data: "text is required"}
+		return nil, &rpc.ErrorBody{Code: -32602, Message: "Invalid params", Data: "text is required"}
 	}
 	p.CascadeID = cascadeID
 	p.Text = text
 	return &p, nil
 }
 
-// buildSendPrompt constructs the per-turn MessagePrompt. Per-turn
+// buildSendPrompt constructs the per-turn cascades.Prompt. Per-turn
 // overrides fall back to the cascade's pinned values. The cascade's
 // pinned values may themselves be empty (the dashboard left them
 // empty at Start time, or those are the host defaults); we
@@ -132,11 +135,15 @@ func decodeSendRemoteAgentCascadeMessageParams(params json.RawMessage) (*sendRem
 // against the host SessionState here, because the brief's
 // "resolve once" rule means the Start-time resolution already
 // happened.
-func buildSendPrompt(c *Cascade, p *sendRemoteAgentCascadeMessageParams) MessagePrompt {
-	return MessagePrompt{
+func buildSendPrompt(c *cascades.Cascade, p *sendRemoteAgentCascadeMessageParams) cascades.Prompt {
+	model := firstNonEmpty(p.Model, c.Model)
+	if model == "" {
+		model = "gemini-3.8-flash-high"
+	}
+	return cascades.Prompt{
 		ConversationID: c.ConversationID,
 		Text:           p.Text,
-		Model:          firstNonEmpty(p.Model, c.Model),
+		Model:          model,
 		Agent:          firstNonEmpty(p.Agent, c.Agent),
 		Effort:         firstNonEmpty(p.Effort, c.Effort),
 		Scaffold:       p.Scaffold || c.Scaffold,
@@ -146,9 +153,9 @@ func buildSendPrompt(c *Cascade, p *sendRemoteAgentCascadeMessageParams) Message
 }
 
 // buildSendOptions maps the per-turn TimeoutMs onto
-// MessageSendOptions. TimeoutMs<=0 means "no override".
-func buildSendOptions(p *sendRemoteAgentCascadeMessageParams) MessageSendOptions {
-	opts := MessageSendOptions{}
+// cascades.SendOptions. TimeoutMs<=0 means "no override".
+func buildSendOptions(p *sendRemoteAgentCascadeMessageParams) cascades.SendOptions {
+	opts := cascades.SendOptions{}
 	if p.TimeoutMs > 0 {
 		opts.Timeout = time.Duration(p.TimeoutMs) * time.Millisecond
 	}
@@ -172,7 +179,7 @@ type interactionParams struct {
 // fields. Extracted from the handler to keep the handler
 // body under the 50-fn ceiling that cycle
 // rc-filesize-internal-remotecontrol enforces.
-func decodeInteractionParams(params json.RawMessage) (interactionParams, *rpcErrorBody) {
+func decodeInteractionParams(params json.RawMessage) (interactionParams, *rpc.ErrorBody) {
 	var raw struct {
 		CascadeID     string          `json:"cascade_id"`
 		InteractionID string          `json:"interaction_id"`
@@ -180,23 +187,23 @@ func decodeInteractionParams(params json.RawMessage) (interactionParams, *rpcErr
 	}
 	if len(params) > 0 {
 		if err := json.Unmarshal(params, &raw); err != nil {
-			return interactionParams{}, &rpcErrorBody{Code: -32602, Message: "Invalid params", Data: err.Error()}
+			return interactionParams{}, &rpc.ErrorBody{Code: -32602, Message: "Invalid params", Data: err.Error()}
 		}
 	}
-	if nonStringFieldInJSON(params, "cascade_id", raw.CascadeID) ||
-		nonStringFieldInJSON(params, "interaction_id", raw.InteractionID) {
-		return interactionParams{}, &rpcErrorBody{Code: -32602, Message: "Invalid params", Data: "string fields must be strings"}
+	if rpc.NonStringFieldInJSON(params, "cascade_id", raw.CascadeID) ||
+		rpc.NonStringFieldInJSON(params, "interaction_id", raw.InteractionID) {
+		return interactionParams{}, &rpc.ErrorBody{Code: -32602, Message: "Invalid params", Data: "string fields must be strings"}
 	}
 	cascadeID := strings.TrimSpace(raw.CascadeID)
 	interactionID := strings.TrimSpace(raw.InteractionID)
 	if cascadeID == "" {
-		return interactionParams{}, &rpcErrorBody{Code: -32602, Message: "Invalid params", Data: "cascade_id is required"}
+		return interactionParams{}, &rpc.ErrorBody{Code: -32602, Message: "Invalid params", Data: "cascade_id is required"}
 	}
 	if interactionID == "" {
-		return interactionParams{}, &rpcErrorBody{Code: -32602, Message: "Invalid params", Data: "interaction_id is required"}
+		return interactionParams{}, &rpc.ErrorBody{Code: -32602, Message: "Invalid params", Data: "interaction_id is required"}
 	}
 	if len(raw.Response) == 0 || string(raw.Response) == "null" {
-		return interactionParams{}, &rpcErrorBody{Code: -32602, Message: "Invalid params", Data: "response is required"}
+		return interactionParams{}, &rpc.ErrorBody{Code: -32602, Message: "Invalid params", Data: "response is required"}
 	}
 	return interactionParams{
 		CascadeID:     cascadeID,
@@ -209,7 +216,7 @@ func decodeInteractionParams(params json.RawMessage) (interactionParams, *rpcErr
 // SendStream, normalises error envelopes, and assembles the
 // success envelope. Pure file split extracted from the prior
 // handleSendRemoteAgentCascadeMessage body.
-func (d *Dispatcher) runSendTurn(ctx context.Context, c *Cascade, cascadeID string, prompt MessagePrompt, sink EventSink, opts MessageSendOptions) (any, *rpcErrorBody) {
+func (d *Dispatcher) runSendTurn(ctx context.Context, c *cascades.Cascade, cascadeID string, prompt cascades.Prompt, sink cascades.EventSink, opts cascades.SendOptions) (any, *rpc.ErrorBody) {
 	start := time.Now()
 	res, err := d.cascades.SendStream(ctx, cascadeID, prompt, sink, opts)
 	if err != nil {
@@ -223,35 +230,35 @@ func (d *Dispatcher) runSendTurn(ctx context.Context, c *Cascade, cascadeID stri
 // through the sink so streaming dashboards see it before the
 // synchronous -32603 envelope arrives, and appends the error to
 // the cascade's bounded error ring.
-func (d *Dispatcher) renderSendTurnError(c *Cascade, cascadeID string, err error, sink EventSink) (any, *rpcErrorBody) {
+func (d *Dispatcher) renderSendTurnError(c *cascades.Cascade, cascadeID string, err error, sink cascades.EventSink) (any, *rpc.ErrorBody) {
 	sink.OnError(c, err)
-	var envelope *rpcErrorBody
+	var envelope *rpc.ErrorBody
 	switch {
-	case errors.Is(err, ErrCascadeNotFound):
-		envelope = &rpcErrorBody{Code: ErrCodeCascadeNotFound, Message: "Cascade not found", Data: cascadeID}
-	case errors.Is(err, ErrCascadeClosed):
-		envelope = &rpcErrorBody{Code: ErrCodeCascadeClosed, Message: "Cascade closed", Data: cascadeID}
-	case errors.Is(err, ErrTurnTimeout):
-		envelope = &rpcErrorBody{Code: ErrCodeTurnTimeout, Message: "Turn timeout", Data: err.Error()}
+	case errors.Is(err, cascades.ErrNotFound):
+		envelope = &rpc.ErrorBody{Code: rpc.ErrCodeCascadeNotFound, Message: "Cascade not found", Data: cascadeID}
+	case errors.Is(err, cascades.ErrClosed):
+		envelope = &rpc.ErrorBody{Code: rpc.ErrCodeCascadeClosed, Message: "Cascade closed", Data: cascadeID}
+	case errors.Is(err, cascades.ErrTurnTimeout):
+		envelope = &rpc.ErrorBody{Code: rpc.ErrCodeTurnTimeout, Message: "Turn timeout", Data: err.Error()}
 	default:
 		// ErrTurnFailed and any unmapped backend error.
-		envelope = &rpcErrorBody{Code: -32603, Message: "Internal error", Data: err.Error()}
+		envelope = &rpc.ErrorBody{Code: -32603, Message: "Internal error", Data: err.Error()}
 	}
 	if c != nil {
-		c.recordError("SendRemoteAgentCascadeMessage", err, envelope.Code, time.Now().UTC())
+		c.RecordError("SendRemoteAgentCascadeMessage", err, envelope.Code, time.Now().UTC())
 	}
 	return nil, envelope
 }
 
 // buildCascadeOptsFromStart translates the decoded Start params
-// into a fully-populated CascadeOpts bundle ready for NewCascade,
+// into a fully-populated cascades.Opts bundle ready for cascades.New,
 // honouring the per-cascade model / backend resolution (host
 // SessionState fallback) and the *bool → bool coercion for
 // sandbox / scaffold. Pure helper — extracted from
 // handleStartRemoteAgentCascade to keep that handler under the
 // 50-fn ceiling that cycle rc-filesize-internal-remotecontrol
 // enforces.
-func (d *Dispatcher) buildCascadeOptsFromStart(p *startRemoteAgentCascadeParams) (CascadeOpts, string, string) {
+func (d *Dispatcher) buildCascadeOptsFromStart(p *startRemoteAgentCascadeParams) (cascades.Opts, string, string) {
 	sandbox := false
 	if p.Sandbox != nil {
 		sandbox = *p.Sandbox
@@ -265,8 +272,8 @@ func (d *Dispatcher) buildCascadeOptsFromStart(p *startRemoteAgentCascadeParams)
 		workspace = d.cfg.Session.Workspace
 	}
 	resolvedModel, resolvedBackend := d.resolveStartBackendModel(p)
-	return CascadeOpts{
-		ClientInfo: CascadeClientInfo{
+	return cascades.Opts{
+		ClientInfo: cascades.ClientInfo{
 			Name:    p.ClientInfo.Name,
 			Version: p.ClientInfo.Version,
 		},
@@ -287,7 +294,7 @@ func (d *Dispatcher) buildCascadeOptsFromStart(p *startRemoteAgentCascadeParams)
 // (Args as json.RawMessage) into the wire's toolCall shape,
 // dropping nil/empty entries defensively, and assembles the
 // final synchronous response envelope.
-func (d *Dispatcher) renderSendTurnResult(res MessageResult, start time.Time) map[string]any {
+func (d *Dispatcher) renderSendTurnResult(res cascades.Result, start time.Time) map[string]any {
 	toolCalls := make([]toolCall, 0, len(res.ToolCalls))
 	for _, tc := range res.ToolCalls {
 		if tc.Name == "" {
@@ -315,7 +322,7 @@ func (d *Dispatcher) renderSendTurnResult(res MessageResult, start time.Time) ma
 		// Backend didn't supply a reason; default to
 		// end_turn so the dashboard sees a well-known
 		// value rather than an empty string.
-		stopReason = StopReasonEndTurn
+		stopReason = cascades.StopReasonEndTurn
 	}
 	return map[string]any{
 		"conversationId": res.NewConversationID,

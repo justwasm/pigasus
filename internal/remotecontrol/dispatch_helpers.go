@@ -4,8 +4,9 @@
 //
 // The helpers fall into four buckets:
 //
-//   - JSON-RPC envelope builders (rpcError, rpcResult) + the
-//     rpcErrorBody struct they wrap.
+//   - The JSON-RPC envelope itself now lives in the sibling
+//     package rpc; this file keeps the dispatcher-level helpers
+//     that build on it.
 //   - Param-shape guards. nonStringFieldInJSON re-reads the raw
 //     params object so a numeric "model" can't silently
 //     default-walk to the cascade's pinned value. firstNonEmpty
@@ -26,121 +27,21 @@ import (
 	"time"
 )
 
-// rpcErrorBody is the structured form we return from handlers; the
-// wire envelope is built by rpcError().
-type rpcErrorBody struct {
-	Code    int
-	Message string
-	Data    any
+// lsStreamError is an error returned by server-streaming methods.
+// It implements grpcStatusCoder and connectErrorCoder so remotetransport
+// can answer with the reference's exact gRPC status and Connect error body.
+type lsStreamError struct {
+	code    int
+	message string
 }
 
-// rpcCodedError is the error a failed dispatch returns.
-//
-// It carries the JSON-RPC code and the message apart from the
-// formatted string, so a transport that speaks Connect can answer
-// with the code the reference answers with: the reference answers a
-// terminal that is gone with HTTP 404 and
-// {"code":"not_found","message":"not_found: terminal … not found"},
-// where the clone used to answer HTTP 200 with `{}`.
-//
-// The transport learns the code through a duck-typed interface (the
-// import direction is the other way round: the dispatcher must not
-// import the transport).
-type rpcCodedError struct {
-	// Code is the JSON-RPC code of the failure.
-	Code int
-	// Message is the message a client sees.
-	Message string
-	// Data is the failure's detail, if it has one.
-	Data any
-}
+func (e *lsStreamError) Error() string          { return e.message }
+func (e *lsStreamError) GRPCStatus() int        { return e.code }
+func (e *lsStreamError) JSONRPCCode() int       { return -32603 }
+func (e *lsStreamError) ConnectMessage() string { return e.message }
 
-// Error implements error.
-func (e *rpcCodedError) Error() string {
-	if e.Data != nil {
-		return fmt.Sprintf("rpc error %d: %s (%v)", e.Code, e.Message, e.Data)
-	}
-	return fmt.Sprintf("rpc error %d: %s", e.Code, e.Message)
-}
-
-// JSONRPCCode is the JSON-RPC code the failure carries.
-func (e *rpcCodedError) JSONRPCCode() int { return e.Code }
-
-// ConnectMessage is the message a Connect client sees.
-//
-// The detail (the failure's data) is the message when it has one: the
-// clone's JSON-RPC envelope carries the detail in the error's "data"
-// member, while the reference's Connect answer carries it in the
-// "message" member.
-func (e *rpcCodedError) ConnectMessage() string {
-	if detail, ok := e.Data.(string); ok && detail != "" {
-		return detail
-	}
-	return e.Message
-}
-
-// rpcError wraps an error body into a JSON-RPC 2.0 envelope. id
-// may be nil (for parse errors) or any JSON value (for everything
-// else).
-func rpcError(id json.RawMessage, code int, msg string, data any) map[string]any {
-	body := map[string]any{
-		"code":    code,
-		"message": msg,
-	}
-	if data != nil {
-		body["data"] = data
-	}
-	return map[string]any{
-		"jsonrpc": "2.0",
-		"id":      id,
-		"error":   body,
-	}
-}
-
-// rpcResult wraps a result value into a JSON-RPC 2.0 envelope.
-func rpcResult(id json.RawMessage, result any) map[string]any {
-	return map[string]any{
-		"jsonrpc": "2.0",
-		"id":      id,
-		"result":  result,
-	}
-}
-
-// nonStringFieldInJSON re-reads the raw params object to check
-// that a field the parser coerced to "" was either absent or a
-// string. The cycle brief's "model must be string" rule is the
-// concrete reason this exists: json.Unmarshal silently converts
-// a number to "" for a string-typed field, so a dashboard that
-// sent `{model: 42}` would otherwise look like "empty model" —
-// silent default-walk, not a hard error.
-//
-// The implementation is a tiny Unmarshal into a map[string]any;
-// if the key is present and not a string, we return true (the
-// handler will report -32602). Allocations are bounded by the
-// size of the params object, which the dispatcher enforces via
-// the bufio.Scanner 16 MiB cap at the transport layer.
-func nonStringFieldInJSON(raw json.RawMessage, field, coerced string) bool {
-	if len(raw) == 0 {
-		return false
-	}
-	var m map[string]json.RawMessage
-	if err := json.Unmarshal(raw, &m); err != nil {
-		return false
-	}
-	v, ok := m[field]
-	if !ok {
-		return false
-	}
-	// "absent" means the dashboard didn't include the field at
-	// all — that path is fine.
-	if string(v) == "null" {
-		return coerced != ""
-	}
-	var s string
-	if err := json.Unmarshal(v, &s); err != nil {
-		return true
-	}
-	return false
+func lsStreamErr(code int, msg string) error {
+	return &lsStreamError{code: code, message: msg}
 }
 
 // firstNonEmpty returns the first of a, b that is non-empty.
@@ -169,7 +70,7 @@ func timeFormat(t time.Time) string {
 // a dashboard's status pill doesn't need a verbose breakdown.
 //
 // Mirrors the formatUptime helper in
-// internal/persistentrc/helpers.go (cycle 11). The two helpers
+// internal/infra/remote/persistent/helpers.go (cycle 11). The two helpers
 // differ slightly because the persistent helper is bound to
 // time.Duration in seconds (the persistentrc layer works with
 // int64 second counts from time.Time); richStatusSnapshot's

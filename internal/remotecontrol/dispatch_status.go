@@ -25,6 +25,9 @@ import (
 	"encoding/json"
 	"strings"
 	"time"
+
+	"github.com/justwasm/pigasus/internal/remotecontrol/cascades"
+	"github.com/justwasm/pigasus/internal/remotecontrol/rpc"
 )
 
 // richStatusSnapshot is the JSON-able view the rich
@@ -90,20 +93,11 @@ func (d *Dispatcher) richStatusSnapshot() map[string]any {
 func (d *Dispatcher) richStatusCascades(out map[string]any) {
 	cascadesTotal := 0
 	cascadesActive := 0
-	cascadesMax := CascadeRegistryDefaultMax
+	cascadesMax := cascades.RegistryDefaultMax
 	if d.cascades != nil {
 		cascadesTotal = d.cascades.Len()
 		cascadesMax = d.cascades.Max()
-		d.cascades.mu.RLock()
-		for _, c := range d.cascades.cascades {
-			if c == nil {
-				continue
-			}
-			if !c.IsClosed() {
-				cascadesActive++
-			}
-		}
-		d.cascades.mu.RUnlock()
+		cascadesActive = d.cascades.Active()
 	}
 	out["cascades"] = map[string]any{
 		"total":  cascadesTotal,
@@ -164,7 +158,7 @@ func (d *Dispatcher) richStatusDaemon(out map[string]any) {
 // "RemoteAgentErrorStatus". Param validation:
 //
 //   - cascade_id: required, non-empty. Absent → -32602.
-//   - limit: optional int 1..MaxCascadeErrors. Out-of-range
+//   - limit: optional int 1..cascades.MaxErrors. Out-of-range
 //     values are clamped.
 //
 // Error envelopes:
@@ -172,9 +166,9 @@ func (d *Dispatcher) richStatusDaemon(out map[string]any) {
 //   - missing cascade_id → -32602 "Invalid params".
 //   - unknown cascade_id → -32004 "Cascade not found"
 //     (matches SendRemoteAgentCascadeMessage's envelope).
-func (d *Dispatcher) handleRemoteAgentErrorStatus(params json.RawMessage) (any, *rpcErrorBody) {
+func (d *Dispatcher) handleRemoteAgentErrorStatus(params json.RawMessage) (any, *rpc.ErrorBody) {
 	if d == nil || d.cascades == nil {
-		return nil, &rpcErrorBody{Code: -32603, Message: "Internal error", Data: "registry not initialised"}
+		return nil, &rpc.ErrorBody{Code: -32603, Message: "Internal error", Data: "registry not initialised"}
 	}
 	var p struct {
 		CascadeID string `json:"cascade_id"`
@@ -182,33 +176,33 @@ func (d *Dispatcher) handleRemoteAgentErrorStatus(params json.RawMessage) (any, 
 	}
 	if len(params) > 0 {
 		if err := json.Unmarshal(params, &p); err != nil {
-			return nil, &rpcErrorBody{Code: -32602, Message: "Invalid params", Data: err.Error()}
+			return nil, &rpc.ErrorBody{Code: -32602, Message: "Invalid params", Data: err.Error()}
 		}
 	}
-	if nonStringFieldInJSON(params, "cascade_id", p.CascadeID) {
-		return nil, &rpcErrorBody{Code: -32602, Message: "Invalid params", Data: "string fields must be strings"}
+	if rpc.NonStringFieldInJSON(params, "cascade_id", p.CascadeID) {
+		return nil, &rpc.ErrorBody{Code: -32602, Message: "Invalid params", Data: "string fields must be strings"}
 	}
 	cascadeID := strings.TrimSpace(p.CascadeID)
 	if cascadeID == "" {
-		return nil, &rpcErrorBody{Code: -32602, Message: "Invalid params", Data: "cascade_id is required"}
+		return nil, &rpc.ErrorBody{Code: -32602, Message: "Invalid params", Data: "cascade_id is required"}
 	}
 	c, ok := d.cascades.Get(cascadeID)
 	if !ok {
-		return nil, &rpcErrorBody{Code: ErrCodeCascadeNotFound, Message: "Cascade not found", Data: cascadeID}
+		return nil, &rpc.ErrorBody{Code: rpc.ErrCodeCascadeNotFound, Message: "Cascade not found", Data: cascadeID}
 	}
 	snap := c.ErrorsSnapshot()
 	if snap == nil {
 		// Normalise to an empty slice so the wire emits `[]`
 		// rather than `null` — matches the brief's
 		// "errors: []" framing.
-		snap = []CascadeError{}
+		snap = []cascades.ErrorEntry{}
 	}
 	if p.Limit > 0 && p.Limit < len(snap) {
 		snap = snap[len(snap)-p.Limit:]
-	} else if p.Limit > MaxCascadeErrors {
+	} else if p.Limit > cascades.MaxErrors {
 		// Hard cap at the ring's natural size; a dashboard
 		// that asks for more gets the full ring.
-		p.Limit = MaxCascadeErrors
+		p.Limit = cascades.MaxErrors
 	}
 	return map[string]any{
 		"cascade_id": cascadeID,
@@ -231,7 +225,7 @@ func (d *Dispatcher) handleRemoteAgentErrorStatus(params json.RawMessage) (any, 
 // Config.AuthState is nil. Error envelopes:
 //
 //   - missing session_id → -32602 "Invalid params".
-func (d *Dispatcher) handleSetRemoteControlSession(params json.RawMessage) (any, *rpcErrorBody) {
+func (d *Dispatcher) handleSetRemoteControlSession(params json.RawMessage) (any, *rpc.ErrorBody) {
 	p, perr := d.decodeSetSessionParams(params)
 	if perr != nil {
 		return nil, perr
@@ -246,7 +240,7 @@ func (d *Dispatcher) handleSetRemoteControlSession(params json.RawMessage) (any,
 
 // decodeSetSessionParams unmarshals SetRemoteControlSession params
 // and validates them. Returns a populated setSessionParams and nil
-// error on success; returns nil + an *rpcErrorBody on validation
+// error on success; returns nil + an *rpc.ErrorBody on validation
 // failure.
 type setSessionParams struct {
 	SessionID string
@@ -255,7 +249,7 @@ type setSessionParams struct {
 	ExpiresAt time.Time
 }
 
-func (d *Dispatcher) decodeSetSessionParams(params json.RawMessage) (*setSessionParams, *rpcErrorBody) {
+func (d *Dispatcher) decodeSetSessionParams(params json.RawMessage) (*setSessionParams, *rpc.ErrorBody) {
 	var p struct {
 		SessionID string   `json:"session_id"`
 		UserID    string   `json:"user_id"`
@@ -265,23 +259,23 @@ func (d *Dispatcher) decodeSetSessionParams(params json.RawMessage) (*setSession
 	}
 	if len(params) > 0 {
 		if err := json.Unmarshal(params, &p); err != nil {
-			return nil, &rpcErrorBody{Code: -32602, Message: "Invalid params", Data: err.Error()}
+			return nil, &rpc.ErrorBody{Code: -32602, Message: "Invalid params", Data: err.Error()}
 		}
 	}
-	if nonStringFieldInJSON(params, "session_id", p.SessionID) ||
-		nonStringFieldInJSON(params, "user_id", p.UserID) ||
-		nonStringFieldInJSON(params, "expires_at", p.ExpiresAt) {
-		return nil, &rpcErrorBody{Code: -32602, Message: "Invalid params", Data: "string fields must be strings"}
+	if rpc.NonStringFieldInJSON(params, "session_id", p.SessionID) ||
+		rpc.NonStringFieldInJSON(params, "user_id", p.UserID) ||
+		rpc.NonStringFieldInJSON(params, "expires_at", p.ExpiresAt) {
+		return nil, &rpc.ErrorBody{Code: -32602, Message: "Invalid params", Data: "string fields must be strings"}
 	}
 	sessionID := strings.TrimSpace(p.SessionID)
 	if sessionID == "" {
-		return nil, &rpcErrorBody{Code: -32602, Message: "Invalid params", Data: "session_id is required"}
+		return nil, &rpc.ErrorBody{Code: -32602, Message: "Invalid params", Data: "session_id is required"}
 	}
 	var expiresAt time.Time
 	if p.ExpiresAt != "" {
 		t, err := time.Parse(time.RFC3339, p.ExpiresAt)
 		if err != nil {
-			return nil, &rpcErrorBody{Code: -32602, Message: "Invalid params", Data: "expires_at must be RFC3339: " + err.Error()}
+			return nil, &rpc.ErrorBody{Code: -32602, Message: "Invalid params", Data: "expires_at must be RFC3339: " + err.Error()}
 		}
 		expiresAt = t
 	}
@@ -332,7 +326,7 @@ func sessionSnapshotToWire(snap AuthSnapshot) map[string]any {
 //   - version: cli.ReferenceVersion (cycle 1 constant).
 //   - build_label: Config.BuildLabel (cycle 12). Empty → "unknown".
 //   - daemon_sha: Config.Commit (cycle 12). Empty → "unknown".
-func (d *Dispatcher) handleRemoteControlVersion() (any, *rpcErrorBody) {
+func (d *Dispatcher) handleRemoteControlVersion() (any, *rpc.ErrorBody) {
 	version := ServerVersion
 	if d.cfg.Session != nil {
 		d.cfg.Session.mu.RLock()

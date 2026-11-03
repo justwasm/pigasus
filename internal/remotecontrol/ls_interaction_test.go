@@ -16,27 +16,30 @@ import (
 	"testing"
 	"time"
 
-	"github.com/justwasm/pigasus/internal/interaction"
+	"github.com/justwasm/pigasus/internal/app/session/convstore"
+	interaction "github.com/justwasm/pigasus/internal/core/seam"
+	"github.com/justwasm/pigasus/internal/remotecontrol/cascades"
+	"github.com/justwasm/pigasus/internal/remotecontrol/rpc"
 )
 
 // lsInteractionFixture is one conversation with its dispatcher, its
 // cascade and its trajectory.
 type lsInteractionFixture struct {
 	dispatcher *Dispatcher
-	cascade    *Cascade
+	cascade    *cascades.Cascade
 	traj       *lsTrajectory
 }
 
 // newLSInteractionFixture wires one conversation into a dispatcher.
 func newLSInteractionFixture(t *testing.T) *lsInteractionFixture {
 	t.Helper()
-	registry := NewCascadeRegistry(4)
+	registry := cascades.NewRegistry(4)
 	sess := NewSessionState("test")
 	d, err := NewDispatcher(Config{Session: sess, Cascades: registry})
 	if err != nil {
 		t.Fatalf("NewDispatcher: %v", err)
 	}
-	c, err := NewCascade(CascadeOpts{ID: "cas-interaction", Model: "test-model"})
+	c, err := cascades.New(cascades.Opts{ID: "cas-interaction", Model: "test-model"})
 	if err != nil {
 		t.Fatalf("NewCascade: %v", err)
 	}
@@ -288,8 +291,8 @@ func TestLSInteraction_UnknownStepIsRejected(t *testing.T) {
 	if rpcErr == nil {
 		t.Fatal("the answer for an unknown step was accepted")
 	}
-	if rpcErr.Code != ErrCodeInteractionNotFound {
-		t.Errorf("error code = %d, want %d", rpcErr.Code, ErrCodeInteractionNotFound)
+	if rpcErr.Code != rpc.ErrCodeInteractionNotFound {
+		t.Errorf("error code = %d, want %d", rpcErr.Code, rpc.ErrCodeInteractionNotFound)
 	}
 }
 
@@ -380,4 +383,297 @@ func lsStepInfo(t *testing.T, step map[string]any) map[string]any {
 		t.Fatalf("the step has no sourceTrajectoryStepInfo: %v", meta)
 	}
 	return info
+}
+
+// TestLSInteraction_FilePermissionRoundTrip covers the file permission card dialect.
+func TestLSInteraction_FilePermissionRoundTrip(t *testing.T) {
+	for _, allow := range []bool{true, false} {
+		f := newLSInteractionFixture(t)
+		host := &lsInteractionHost{cascade: f.cascade, traj: f.traj}
+		req := interaction.Request{
+			Kind:     interaction.KindPermission,
+			ToolName: "ask_permission",
+			Action:   "write",
+			Target:   "/tmp/test-file.txt",
+		}
+
+		done := make(chan interaction.Answer, 1)
+		go func() {
+			ans, _ := host.Ask(context.Background(), req)
+			done <- ans
+		}()
+
+		step := lsWaitForStep(t, f.traj)
+		if got := step["status"]; got != lsStepStatusWaiting {
+			t.Errorf("step status = %v, want WAITING", got)
+		}
+
+		params := map[string]any{
+			"cascadeId": f.cascade.ID,
+			"interaction": map[string]any{
+				"trajectoryId": f.traj.Snapshot().TrajectoryID,
+				"stepIndex":    0,
+				"filePermission": map[string]any{
+					"allow":           allow,
+					"scope":           1,
+					"absolutePathUri": "file:///tmp/test-file.txt",
+				},
+			},
+		}
+		raw, err := json.Marshal(params)
+		if err != nil {
+			t.Fatalf("Marshal: %v", err)
+		}
+		if _, rpcErr := f.dispatcher.routeMethod(context.Background(), "HandleCascadeUserInteraction", raw); rpcErr != nil {
+			t.Fatalf("HandleCascadeUserInteraction: %v", rpcErr)
+		}
+
+		select {
+		case ans := <-done:
+			if ans.Allowed != allow {
+				t.Fatalf("allowed = %v, want %v", ans.Allowed, allow)
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatal("tool did not resume")
+		}
+	}
+}
+
+// TestLSInteraction_ApprovalRoundTrip covers the generic approvalInteraction dialect.
+func TestLSInteraction_ApprovalRoundTrip(t *testing.T) {
+	for _, confirm := range []bool{true, false} {
+		f := newLSInteractionFixture(t)
+		host := &lsInteractionHost{cascade: f.cascade, traj: f.traj}
+		req := interaction.Request{
+			Kind:     interaction.KindPermission,
+			ToolName: "ask_permission",
+			Action:   "confirm_action",
+		}
+
+		done := make(chan interaction.Answer, 1)
+		go func() {
+			ans, _ := host.Ask(context.Background(), req)
+			done <- ans
+		}()
+
+		_ = lsWaitForStep(t, f.traj)
+		params := map[string]any{
+			"cascadeId": f.cascade.ID,
+			"interaction": map[string]any{
+				"trajectoryId": f.traj.Snapshot().TrajectoryID,
+				"stepIndex":    0,
+				"approvalInteraction": map[string]any{
+					"confirm": confirm,
+				},
+			},
+		}
+		raw, _ := json.Marshal(params)
+		if _, rpcErr := f.dispatcher.routeMethod(context.Background(), "HandleCascadeUserInteraction", raw); rpcErr != nil {
+			t.Fatalf("HandleCascadeUserInteraction: %v", rpcErr)
+		}
+
+		select {
+		case ans := <-done:
+			if ans.Allowed != confirm {
+				t.Fatalf("allowed = %v, want %v", ans.Allowed, confirm)
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatal("tool did not resume")
+		}
+	}
+}
+
+// TestLSInteraction_RunCommandRoundTrip covers the runCommand dialect.
+func TestLSInteraction_RunCommandRoundTrip(t *testing.T) {
+	f := newLSInteractionFixture(t)
+	host := &lsInteractionHost{cascade: f.cascade, traj: f.traj}
+	req := interaction.Request{
+		Kind:     interaction.KindPermission,
+		ToolName: "run_command",
+		Action:   "execute",
+		Target:   "go build",
+	}
+
+	done := make(chan interaction.Answer, 1)
+	go func() {
+		ans, _ := host.Ask(context.Background(), req)
+		done <- ans
+	}()
+
+	_ = lsWaitForStep(t, f.traj)
+	params := map[string]any{
+		"cascadeId": f.cascade.ID,
+		"interaction": map[string]any{
+			"trajectoryId": f.traj.Snapshot().TrajectoryID,
+			"stepIndex":    0,
+			"runCommand": map[string]any{
+				"confirm":              true,
+				"proposedCommandLine":  "go build",
+				"submittedCommandLine": "go test ./...",
+			},
+		},
+	}
+	raw, _ := json.Marshal(params)
+	if _, rpcErr := f.dispatcher.routeMethod(context.Background(), "HandleCascadeUserInteraction", raw); rpcErr != nil {
+		t.Fatalf("HandleCascadeUserInteraction: %v", rpcErr)
+	}
+
+	select {
+	case ans := <-done:
+		if !ans.Allowed {
+			t.Fatalf("allowed = false, want true")
+		}
+		if ans.Text != "go test ./..." {
+			t.Fatalf("text = %q, want %q", ans.Text, "go test ./...")
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("tool did not resume")
+	}
+}
+
+// TestLSInteraction_ElicitationRoundTrip covers the elicitation card dialect.
+func TestLSInteraction_ElicitationRoundTrip(t *testing.T) {
+	f := newLSInteractionFixture(t)
+	host := &lsInteractionHost{cascade: f.cascade, traj: f.traj}
+	req := interaction.Request{
+		Kind:     interaction.KindQuestion,
+		ToolName: "elicitation",
+	}
+
+	done := make(chan interaction.Answer, 1)
+	go func() {
+		ans, _ := host.Ask(context.Background(), req)
+		done <- ans
+	}()
+
+	_ = lsWaitForStep(t, f.traj)
+	params := map[string]any{
+		"cascadeId": f.cascade.ID,
+		"interaction": map[string]any{
+			"trajectoryId": f.traj.Snapshot().TrajectoryID,
+			"stepIndex":    0,
+			"elicitation": map[string]any{
+				"action":      "submit",
+				"contentJson": `{"api_key":"secret"}`,
+			},
+		},
+	}
+	raw, _ := json.Marshal(params)
+	if _, rpcErr := f.dispatcher.routeMethod(context.Background(), "HandleCascadeUserInteraction", raw); rpcErr != nil {
+		t.Fatalf("HandleCascadeUserInteraction: %v", rpcErr)
+	}
+
+	select {
+	case ans := <-done:
+		if ans.Text != `{"api_key":"secret"}` {
+			t.Fatalf("text = %q, want %q", ans.Text, `{"api_key":"secret"}`)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("tool did not resume")
+	}
+}
+
+// TestLSInteraction_EmptyCascadeID verifies that an empty cascadeId succeeds with {}.
+func TestLSInteraction_EmptyCascadeID(t *testing.T) {
+	f := newLSInteractionFixture(t)
+	raw := []byte(`{"cascadeId":""}`)
+	ans, rpcErr := f.dispatcher.routeMethod(context.Background(), "HandleCascadeUserInteraction", raw)
+	if rpcErr != nil {
+		t.Fatalf("HandleCascadeUserInteraction empty cascadeId: %v", rpcErr)
+	}
+	m, _ := ans.(map[string]any)
+	if m == nil || len(m) != 0 {
+		t.Fatalf("answer = %v, want {}", ans)
+	}
+}
+
+// TestLSTrajectory_RehydrateFromConvstore verifies that historical conversations on disk
+// are dynamically rehydrated by lsSnapshot and returned by GetCascadeTrajectory / GetAllCascadeTrajectories.
+func TestLSTrajectory_RehydrateFromConvstore(t *testing.T) {
+	t.Setenv("ANTIGRAVITY_HOME", t.TempDir())
+
+	convID := "conv-rehydrated-test"
+	stored := []convstore.Step{
+		{Idx: 0, Type: convstore.StepUserInput, Text: "historical user request"},
+		{Idx: 1, Type: convstore.StepModelResponse, Text: "historical model response"},
+	}
+	if err := convstore.AppendConversationSteps(convID, "/tmp/workspace", stored); err != nil {
+		t.Fatalf("AppendConversationSteps: %v", err)
+	}
+
+	registry := cascades.NewRegistry(4)
+	sess := NewSessionState("test")
+	d, err := NewDispatcher(Config{Session: sess, Cascades: registry})
+	if err != nil {
+		t.Fatalf("NewDispatcher: %v", err)
+	}
+
+	// 1. GetCascadeTrajectory should rehydrate and succeed
+	req, _ := json.Marshal(map[string]any{"cascadeId": convID})
+	ans, rpcErr := d.routeMethod(context.Background(), "GetCascadeTrajectory", req)
+	if rpcErr != nil {
+		t.Fatalf("GetCascadeTrajectory rpcErr: %v", rpcErr)
+	}
+	ansMap, ok := ans.(map[string]any)
+	if !ok {
+		t.Fatalf("GetCascadeTrajectory answer is not a map: %v", ans)
+	}
+	traj, _ := ansMap["trajectory"].(map[string]any)
+	if traj == nil {
+		t.Fatalf("GetCascadeTrajectory missing trajectory: %v", ansMap)
+	}
+	steps, _ := traj["steps"].([]map[string]any)
+	if len(steps) != 2 {
+		t.Fatalf("GetCascadeTrajectory steps = %d, want 2", len(steps))
+	}
+
+	// 2. GetAllCascadeTrajectories should discover the conversation on disk and include it
+	allAns, rpcErr := d.routeMethod(context.Background(), "GetAllCascadeTrajectories", []byte(`{}`))
+	if rpcErr != nil {
+		t.Fatalf("GetAllCascadeTrajectories rpcErr: %v", rpcErr)
+	}
+	allMap, _ := allAns.(map[string]any)
+	summaries, _ := allMap["trajectorySummaries"].(map[string]any)
+	if summaries == nil || summaries[convID] == nil {
+		t.Fatalf("GetAllCascadeTrajectories missing summary for %s: %v", convID, allMap)
+	}
+}
+
+// TestLSInteraction_TheSinkInstallsTheHost pins the seam the cascade
+// domain uses to put the Web UI's interaction host on a turn's context.
+//
+// The domain owns the turn; the sink owns the Web UI's surface. So the
+// domain asks the sink (cascades.InteractionHostInstaller) whether it
+// can install a host — the dependency runs from the domain to the
+// host, never the other way round.
+//
+// A sink that answers "no" leaves the turn headless: the interactive
+// tools keep their headless behaviour and the Web UI's permission card
+// never appears. Both of the sinks the Web UI's turn path installs must
+// therefore answer "yes", and the context they hand back must carry
+// the host.
+func TestLSInteraction_TheSinkInstallsTheHost(t *testing.T) {
+	f := newLSInteractionFixture(t)
+	connSink := NewConnNotifierSink(f.dispatcher, "", f.cascade)
+	trajSink := newLSTrajectorySink(f.traj, connSink)
+	thoughtSink := newLSThoughtSink(trajSink)
+
+	sinks := []struct {
+		name string
+		sink cascades.EventSink
+	}{
+		{"trajectory", trajSink},
+		{"thought", thoughtSink},
+	}
+	for _, s := range sinks {
+		installer, ok := s.sink.(cascades.InteractionHostInstaller)
+		if !ok {
+			t.Errorf("%s sink does not implement cascades.InteractionHostInstaller", s.name)
+			continue
+		}
+		ctx := installer.InstallInteractionHost(context.Background(), f.cascade, s.sink)
+		if interaction.HostFrom(ctx) == nil {
+			t.Errorf("%s sink installed no interaction host", s.name)
+		}
+	}
 }

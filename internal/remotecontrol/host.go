@@ -14,7 +14,18 @@ import (
 
 	"github.com/justwasm/pigasus/agentbrowser"
 	"github.com/justwasm/pigasus/internal/rcaudio"
-	"github.com/justwasm/pigasus/internal/rcterminal"
+	"github.com/justwasm/pigasus/internal/remotecontrol/cascades"
+	"github.com/justwasm/pigasus/internal/remotecontrol/convconfig"
+	"github.com/justwasm/pigasus/internal/remotecontrol/fastpush"
+	"github.com/justwasm/pigasus/internal/remotecontrol/files"
+	"github.com/justwasm/pigasus/internal/remotecontrol/origins"
+	"github.com/justwasm/pigasus/internal/remotecontrol/permissions"
+	"github.com/justwasm/pigasus/internal/remotecontrol/plugins"
+	"github.com/justwasm/pigasus/internal/remotecontrol/projects"
+	"github.com/justwasm/pigasus/internal/remotecontrol/resources"
+	"github.com/justwasm/pigasus/internal/remotecontrol/terminals"
+	"github.com/justwasm/pigasus/internal/remotecontrol/triggers"
+	"github.com/justwasm/pigasus/rcterminal"
 )
 
 // EnvSocketPath is the env var the host honours to override the
@@ -64,7 +75,7 @@ type HostConfig struct {
 	// read with -32603. Production passes a *WorkdirScope
 	// built from cwd + --add-dir + sandbox (cmd/wagyu/
 	// owns the WorkdirScope constructor).
-	FS FSProvider
+	FS files.Provider
 
 	// Projects is the seam the three project-CRUD
 	// methods (ListRemoteAgentProjects /
@@ -72,9 +83,9 @@ type HostConfig struct {
 	// cycle rc-projects) call into. nil → Start wires
 	// nothing into Config.Projects, and the dispatcher
 	// rejects every project call with -32603.
-	// Production passes an FSProjectStore rooted at
+	// Production passes a projects.FSStore rooted at
 	// $ANTIGRAVITY_HOME/projects/.
-	Projects ProjectStore
+	Projects projects.Store
 
 	// Conversations is the seam the three destructive
 	// methods introduced in cycle
@@ -129,7 +140,7 @@ type HostConfig struct {
 	// dispatcher mints ships with the production
 	// backend on first Send. nil keeps the cascade
 	// on the seeded *StubBackend.
-	MessageBackend MessageBackend
+	MessageBackend cascades.Backend
 
 	// Browser is the agent↔browser bridge the three
 	// LanguageServerService RPCs serve and the IDE turn's
@@ -148,16 +159,16 @@ type HostConfig struct {
 	// rc-permissions-grants) call into. nil →
 	// Start wires nothing into Config.PermissionsStore,
 	// and the dispatcher fabricates a fresh
-	// MemPermissionStore seeded with the default
+	// permissions.MemStore seeded with the default
 	// preset + mode + empty grants. Production
-	// passes an FSPermissionStore rooted at
+	// passes a permissions.FSStore rooted at
 	// $ANTIGRAVITY_HOME/permissions.json
 	// (cmd/wagyu/remote_control.go owns the
 	// constructor — buildHostPermissionStore).
-	PermissionsStore PermissionStore
+	PermissionsStore permissions.Store
 
 	// PermissionsPath is the absolute path the
-	// production FSPermissionStore loads from /
+	// production permissions.FSStore loads from /
 	// saves to. Empty → the helper at
 	// buildHostPermissionStore defaults to
 	// auth.AntigravityHome()/permissions.json.
@@ -170,16 +181,16 @@ type HostConfig struct {
 	// rc-plugins) call into. nil → Start wires
 	// nothing into Config.PluginsStore, and the
 	// dispatcher fabricates a fresh
-	// MemPluginStore seeded with
-	// DefaultPluginFixtures. Production passes an
-	// FSPluginStore rooted at
+	// plugins.MemStore seeded with
+	// plugins.DefaultFixtures. Production passes a
+	// plugins.FSStore rooted at
 	// $ANTIGRAVITY_HOME/plugins.json
 	// (cmd/wagyu/remote_control.go owns the
 	// constructor — buildHostPluginStore).
-	PluginsStore PluginStore
+	PluginsStore plugins.Store
 
 	// PluginsPath is the absolute path the
-	// production FSPluginStore loads from /
+	// production plugins.FSStore loads from /
 	// saves to. Empty → the helper at
 	// buildHostPluginStore defaults to
 	// auth.AntigravityHome()/plugins.json.
@@ -194,15 +205,15 @@ type HostConfig struct {
 	// DeleteRemoteAgentTrigger, cycle rc-triggers)
 	// call into. nil → Start wires nothing into
 	// Config.TriggersStore, and the dispatcher
-	// fabricates a fresh empty MemTriggerStore.
-	// Production passes an FSTriggerStore rooted
+	// fabricates a fresh empty triggers.MemStore.
+	// Production passes a triggers.FSStore rooted
 	// at $ANTIGRAVITY_HOME/triggers.json
 	// (cmd/wagyu/remote_control.go owns the
 	// constructor — buildHostTriggerStore).
-	TriggersStore TriggerStore
+	TriggersStore triggers.Store
 
 	// TriggersPath is the absolute path the
-	// production FSTriggerStore loads from /
+	// production triggers.FSStore loads from /
 	// saves to. Empty → the helper at
 	// buildHostTriggerStore defaults to
 	// auth.AntigravityHome()/triggers.json.
@@ -214,18 +225,18 @@ type HostConfig struct {
 	// (cycle rc-fastpush-toggle) calls into.
 	// nil → Start wires nothing into
 	// Config.FastpushStore, and the dispatcher
-	// fabricates a fresh empty MemFastpushStore.
-	// Production passes an FSFastpushStore
+	// fabricates a fresh empty fastpush.MemStore.
+	// Production passes a fastpush.FSStore
 	// rooted at
 	// $ANTIGRAVITY_HOME/fastpush.json
 	// (cmd/wagyu/remote_control.go owns the
 	// constructor — buildHostFastpushStore).
 	//
 	// Cycle rc-fastpush-toggle adds this.
-	FastpushStore FastpushStore
+	FastpushStore fastpush.Store
 
 	// FastpushPath is the absolute path the
-	// production FSFastpushStore loads from /
+	// production fastpush.FSStore loads from /
 	// saves to. Empty → the helper at
 	// buildHostFastpushStore defaults to
 	// auth.AntigravityHome()/fastpush.json.
@@ -240,21 +251,21 @@ type HostConfig struct {
 	// cycle rc-resources) call into. nil →
 	// Start wires nothing into
 	// Config.ResourceStore, and the dispatcher
-	// fabricates a fresh empty MemResourceStore
+	// fabricates a fresh empty resources.MemStore
 	// seeded with the brief's fixture set (4
 	// well-known providers + 12 well-known
-	// resources). Production passes an
-	// FSResourceStore rooted at
+	// resources). Production passes a
+	// resources.FSStore rooted at
 	// $ANTIGRAVITY_HOME/resources.json
 	// (cmd/wagyu/remote_control.go owns the
 	// constructor — buildHostResourceStore).
 	//
 	// The Bind path the store exposes writes
 	// back to the project's `Resources` field
-	// via the ProjectStore seam (HostConfig.Projects).
-	// A ResourceStore that has no Projects
+	// via the projects.Store seam (HostConfig.Projects).
+	// A resources.Store that has no Projects
 	// installed returns
-	// ErrResourceProjectNotFound for every Bind
+	// resources.ErrProjectNotFound for every Bind
 	// call — the dispatcher's -32004 envelope
 	// matches the cycle-9/-22 project-not-found
 	// envelope so dashboards see a uniform
@@ -262,10 +273,10 @@ type HostConfig struct {
 	// unknown-id they hit.
 	//
 	// Cycle rc-resources adds this.
-	ResourceStore ResourceStore
+	ResourceStore resources.Store
 
 	// ResourcePath is the absolute path the
-	// production FSResourceStore loads from /
+	// production resources.FSStore loads from /
 	// saves to. Empty → the helper at
 	// buildHostResourceStore defaults to
 	// auth.AntigravityHome()/resources.json.
@@ -279,8 +290,8 @@ type HostConfig struct {
 	// into. nil → Start wires nothing into
 	// Config.ConversationConfigStore, and the
 	// dispatcher fabricates a fresh empty
-	// MemConversationConfigStore. Production
-	// passes an FSConversationConfigStore rooted
+	// convconfig.MemStore. Production
+	// passes a convconfig.FSStore rooted
 	// at
 	// $ANTIGRAVITY_HOME/conversation_config.json
 	// (cmd/wagyu/remote_control.go owns the
@@ -297,10 +308,10 @@ type HostConfig struct {
 	// state without their own copy.
 	//
 	// Cycle rc-conversation-config adds this.
-	ConversationConfigStore ConversationConfigStore
+	ConversationConfigStore convconfig.Store
 
 	// ConversationConfigPath is the absolute path
-	// the production FSConversationConfigStore
+	// the production convconfig.FSStore
 	// loads from / saves to. Empty → the helper
 	// at buildHostConversationConfigStore
 	// defaults to
@@ -314,19 +325,18 @@ type HostConfig struct {
 	// rc-terminals) call into. nil → Start
 	// wires nothing into Config.TerminalsRegistry
 	// and the dispatcher fabricates a fresh
-	// empty TerminalsRegistry. Production passes
-	// an in-memory registry (the cycle is
+	// empty registry. Production passes an
+	// in-memory registry (the cycle is
 	// persistence-only in spirit; the brief pins
 	// the data model without an on-disk file).
 	//
 	// The host-side helper at
 	// buildHostTerminalsRegistry (cycle
 	// rc-terminals) constructs the standard
-	// in-memory registry; cmd/wagyu/remote_control.go
-	// owns the constructor.
+	// in-memory registry.
 	//
 	// Cycle rc-terminals adds this.
-	TerminalsRegistry *TerminalsRegistry
+	TerminalsRegistry terminals.Store
 
 	// WebTerminals is the seam the Web UI's terminal methods
 	// (CreateTerminal, ListTerminals, SendTerminalInput,
@@ -359,27 +369,27 @@ type HostConfig struct {
 	// calls into. nil → Start wires
 	// nothing into Config.OriginPolicyStore
 	// and the dispatcher fabricates a
-	// fresh empty MemOriginPolicyStore.
+	// fresh empty origins.MemStore.
 	// Production passes an
-	// FSOriginPolicyStore rooted at
+	// origins.FSStore rooted at
 	// $ANTIGRAVITY_HOME/origin_policy.json
 	// (cmd/wagyu/remote_control.go owns
 	// the constructor —
 	// buildHostOriginPolicyStore).
 	//
 	// Cycle rc-auth-tokens adds this.
-	OriginPolicyStore OriginPolicyStore
+	OriginPolicyStore origins.Store
 
 	// OriginPolicyPath is the absolute
 	// path the production
-	// FSOriginPolicyStore loads from /
+	// origins.FSStore loads from /
 	// saves to. Surfaced on HostConfig so
 	// a startup check can read it without
 	// fabricating a store. "" — the
 	// default — means "use
 	// auth.AntigravityHome() +
 	// "origin_policy.json"" at
-	// NewFSOriginPolicyStore time.
+	// origins.NewFSStore time.
 	//
 	// Cycle rc-auth-tokens adds this.
 	OriginPolicyPath string

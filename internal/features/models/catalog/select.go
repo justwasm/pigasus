@@ -5,8 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/justwasm/pigasus/internal/cli"
-	"github.com/justwasm/pigasus/internal/models"
+	"github.com/justwasm/pigasus/internal/features/models"
 )
 
 // BaseModelSpec is a base model slug's thinking-level table: the levels it
@@ -20,6 +19,19 @@ type BaseModelSpec struct {
 var BaseModelEfforts = map[string]BaseModelSpec{
 	"gemini-3.8-flash": {Levels: []string{"low", "medium", "high"}, Def: "high"},
 	"gpt-oss-120b":     {Levels: []string{"medium"}, Def: "medium"},
+}
+
+// ReferenceEffortTiers are the reasoning tiers the reference's own
+// three-tier model publishes.
+//
+// The /effort slider draws the tiers the catalogue publishes, so the list
+// is the catalogue's and not the slider's: the slider asks, and the answer
+// cannot drift away from the table above. A model the user configured may
+// declare more — the closed vocabulary is five words wide
+// (models.EffortLevels) — and the slider's geometry is written for any
+// number of tiers.
+func ReferenceEffortTiers() []string {
+	return BaseModelEfforts["gemini-3.8-flash"].Levels
 }
 
 // ResolveDefaultEffort returns the effort the CLI should pick when
@@ -55,7 +67,7 @@ func invalidModelSelection(model, effort, reason string) error {
 
 // CatalogueIDBySlug resolves a full model slug to its catalogue ID.
 func CatalogueIDBySlug(name string) (string, bool) {
-	for _, m := range cli.ModelCatalogue() {
+	for _, m := range ModelCatalogue() {
 		if m.ID == name {
 			return m.ID, true
 		}
@@ -65,7 +77,7 @@ func CatalogueIDBySlug(name string) (string, bool) {
 
 // CatalogueID resolves a model name to the catalogue ID.
 func CatalogueID(name string) (string, bool) {
-	for _, m := range cli.ModelCatalogue() {
+	for _, m := range ModelCatalogue() {
 		if m.ID == name || m.Label == name {
 			return m.ID, true
 		}
@@ -75,7 +87,7 @@ func CatalogueID(name string) (string, bool) {
 
 // CatalogueLabel returns the display label for a catalogue ID.
 func CatalogueLabel(id string) string {
-	for _, m := range cli.ModelCatalogue() {
+	for _, m := range ModelCatalogue() {
 		if m.ID == id {
 			return m.Label
 		}
@@ -83,13 +95,13 @@ func CatalogueLabel(id string) string {
 	return id
 }
 
-func gatedModel(name string) (cli.GatedModel, bool) {
-	for _, g := range cli.ReferenceGatedModels() {
+func gatedModel(name string) (GatedModel, bool) {
+	for _, g := range ReferenceGatedModels() {
 		if g.ID == name || g.Label == name {
 			return g, true
 		}
 	}
-	return cli.GatedModel{}, false
+	return GatedModel{}, false
 }
 
 // AvailableModelsBlock returns the reference's available models list.
@@ -100,7 +112,7 @@ func AvailableModelsBlock() string {
 func availableModelsBlock() string {
 	var b strings.Builder
 	b.WriteString("Available models:")
-	for _, m := range cli.ModelCatalogue() {
+	for _, m := range ModelCatalogue() {
 		b.WriteString("\n  ")
 		b.WriteString(m.Label)
 	}
@@ -114,7 +126,7 @@ func ResolveModelSelection(model, effort string) (string, error) {
 
 	if effort != "" && !containsStr(ValidEfforts, effort) {
 		return "", invalidModelSelection(model, effort,
-			fmt.Sprintf("invalid --effort %q (valid: low, medium, high, xhigh, max)", effort))
+			fmt.Sprintf("invalid --effort %q (valid: %s)", effort, strings.Join(ValidEfforts, ", ")))
 	}
 	if g, ok := gatedModel(model); ok {
 		return "", invalidModelSelection(model, effort,
@@ -218,17 +230,6 @@ func configuredTiers(name string) ([]string, bool) {
 	return tiers, true
 }
 
-// ParseEffortWord normalises a user-typed effort string to canonical effort.
-func ParseEffortWord(w string) string {
-	w = strings.ToLower(strings.TrimSpace(w))
-	for _, v := range ValidEfforts {
-		if w == v {
-			return v
-		}
-	}
-	return ""
-}
-
 func containsStr(xs []string, s string) bool {
 	for _, x := range xs {
 		if x == s {
@@ -236,18 +237,6 @@ func containsStr(xs []string, s string) bool {
 		}
 	}
 	return false
-}
-
-// ModelBaseSlug strips a trailing effort suffix from a catalogue id:
-// "gemini-3.8-flash-high" -> "gemini-3.8-flash". Ids that carry no effort
-// suffix (claude-sonnet-4-6, claude-opus-4-6-thinking) are returned unchanged.
-func ModelBaseSlug(id string) string {
-	return models.BaseModelID(id)
-}
-
-// ModelEffortFromID returns the effort a catalogue id encodes, or "".
-func ModelEffortFromID(id string) string {
-	return models.TierFromID(id)
 }
 
 // ModelSlug turns a display model name into the reference's slug form:

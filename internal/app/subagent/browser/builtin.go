@@ -4,10 +4,10 @@ import (
 	"context"
 	"errors"
 
-	"github.com/justwasm/pigasus/internal/agyprompt"
-	"github.com/justwasm/pigasus/internal/builtinsubagent"
-	"github.com/justwasm/pigasus/internal/subagenttools"
-	"github.com/justwasm/pigasus/internal/tools"
+	"github.com/justwasm/pigasus/internal/app/prompt/agyprompt"
+	builtinsubagent "github.com/justwasm/pigasus/internal/app/subagent/builtin"
+	"github.com/justwasm/pigasus/internal/app/subagenttools"
+	"github.com/justwasm/pigasus/internal/app/tools"
 )
 
 // The browser agent as a built-in subagent type.
@@ -59,7 +59,7 @@ func Subagent() agyprompt.Subagent {
 // The handler builds its runner per call, so the surface it drives is
 // the one in force at that moment: the live surface when the Open Claude
 // in Chrome extension answers, the managed one otherwise (see
-// internal/browsersubagent/surface.go).
+// internal/app/subagent/browser/surface.go).
 //
 // The registry is the caller's. The session owns one and installs into
 // it, so the catalogue the model reads and the handler it reaches are

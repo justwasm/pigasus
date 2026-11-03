@@ -299,6 +299,12 @@ agy-recovered/
 | priority-chunks/ | priority-chunks-v1.3.4/ |
 | cycle-20-24-source/ | cycle-20-to-23-source/ |
 
+> **Retirement note (2026-11-02).** Every path in this table was retired
+> after this cycle by the legacy-RE sweep. The redirect table in
+> `docs/legacy-re/README.md` maps each one to its surviving copy (or says
+> that it is gone and how to rebuild it). The table above is kept as the
+> historical record of what this cycle renamed.
+
 #### docs/analysis-v1.3.5-official/
 | 旧 | 新 |
 |---|---|
@@ -309,6 +315,13 @@ agy-recovered/
 | priority-funcs-1.3.5.txt | priority-funcs-v1.3.5.txt (2000 funcs) |
 | diff-1.3.4-vs-1.3.5.md | diff-v1.3.4-vs-v1.3.5.md |
 
+> **Retirement note (2026-11-02).** This directory was retired after this
+> cycle. The small files survive verbatim under
+> `docs/legacy-re/extracts/analysis-v1.3.5-official/`; the two whole-binary
+> pclntab dumps survive as the stub
+> `docs/legacy-re/extracts/analysis-v1.3.5-official/seeds-v1.3.5.md`. See
+> `docs/legacy-re/README.md`.
+
 #### docs/decompiled-v1.3.4/
 | 旧 | 新 |
 |---|---|
@@ -316,6 +329,13 @@ agy-recovered/
 | strings-1.3.3.txt | strings-v1.3.3.txt |
 | strings-1.3.4.txt | strings-v1.3.4.txt |
 | strings-new-in-1.3.4.txt | strings-new-in-v1.3.4.txt |
+
+> **Retirement note (2026-11-02).** This directory was retired after this
+> cycle. The three string tables survive as the cited windows
+> `docs/legacy-re/extracts/strings-v1.3.4-cited.txt`,
+> `docs/legacy-re/extracts/strings-v1.3.3-cited.txt` and
+> `docs/legacy-re/extracts/strings-new-in-v1.3.4-cited.txt`; the 1,289 `.c`
+> files of the 1.3.4 decompile are gone. See `docs/legacy-re/README.md`.
 
 ## Repo tidy v1.3.X 后续 deploy (Cycle 39 final-tidy-2)
 
@@ -347,6 +367,11 @@ agy-recovered/
 - `go-recovered/decompiled/` → `/re-decompiled-1.3.3/` (1.3.3 c2go 860 .go)
 - `go-recovered/docs/` → `/re-docs/` (cycle 17-22 docs)
 
+> **Retirement note (2026-11-02).** `re-decompiled-1.3.3/` still holds the
+> 1.3.3 `.c` files, but its `c-1.3.4/` copy — the one this move created —
+> was retired after this cycle as a byte-identical duplicate. See
+> `docs/legacy-re/README.md`.
+
 #### 留在 `go-recovered/` (RE artifacts)
 - `go-recovered/antigravity` (15 MB recovered build output)
 - `go-recovered/c2go-1.3.3/` (860 c2go .go, 是 decompiled/c/ 的副本)
@@ -372,5 +397,9 @@ agy-recovered/                       ← repo root (最终交付项目)
 ├── re-decompiled-1.3.3/  re-docs/  ← RE 中间产物
 └── go-recovered/                    ← RE 中间产物 (antigravity build + 860 c2go .go)
 ```
+
+> **Retirement note (2026-11-02).** The 1.3.x-era trees above were retired
+> after this cycle. The redirect table in `docs/legacy-re/README.md` maps
+> each retired path to its surviving copy or to the recipe that rebuilds it.
 
 ### README 目录结构段已更新

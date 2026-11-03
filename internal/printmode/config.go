@@ -5,9 +5,9 @@ import (
 	"io"
 	"log"
 
-	"github.com/justwasm/pigasus/internal/backend"
 	"github.com/justwasm/pigasus/internal/cli"
-	"github.com/justwasm/pigasus/internal/convstore"
+	"github.com/justwasm/pigasus/internal/app/session/convstore"
+	"github.com/justwasm/pigasus/internal/core/backend"
 )
 
 // Version is the CLI version reported by printmode.

@@ -72,6 +72,8 @@ type sessionSettings struct {
 	RetryConfig *pb.RetryConfig
 	// Instructions is the client's system instruction.
 	Instructions *pb.SystemInstructions
+	// MCPServers is the programmatic list of MCP servers sent on HarnessConfig.
+	MCPServers []*pb.McpServerConfig
 }
 
 // resolveSettings turns the client's configuration into the values the
@@ -94,6 +96,7 @@ func resolveSettings(cfg *pb.HarnessConfig, input *pb.InputConfig, opts options)
 		Policy:         cfg.GetPolicyConfig(),
 		RetryConfig:    cfg.GetRetryConfig(),
 		Instructions:   cfg.GetSystemInstructions(),
+		MCPServers:     cfg.GetMcpServers(),
 	}
 	settings.CompactionThreshold = cfg.GetCompactionThreshold()
 	settings.ToolOutputTokens = configToolOutputTokens(cfg)

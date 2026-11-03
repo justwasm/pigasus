@@ -18,8 +18,9 @@ import (
 	pi "github.com/MichaelKinsy/PiG/ai"
 	"github.com/MichaelKinsy/PiG/coding"
 
-	"github.com/justwasm/pigasus/internal/subagenttools"
-	"github.com/justwasm/pigasus/internal/tools"
+	"github.com/justwasm/pigasus/internal/app/subagenttools"
+	"github.com/justwasm/pigasus/internal/app/tools"
+	"github.com/justwasm/pigasus/internal/app/tools/surface"
 )
 
 // fauxModel mirrors subagenttools' own test model: the inline Provider
@@ -78,7 +79,7 @@ func TestPromptListsTheTools(t *testing.T) {
 // TestBrowserToolsAreTheCatalogueBrowserTools pins the tool set: the browser
 // tools out of the catalogue, and nothing else.
 func TestBrowserToolsAreTheCatalogueBrowserTools(t *testing.T) {
-	reg := tools.Catalog(t.TempDir())
+	reg := surface.Catalog(t.TempDir())
 	got := BrowserTools(reg)
 	if len(got) != len(BrowserToolNames) {
 		t.Fatalf("BrowserTools returned %d tools, want %d", len(got), len(BrowserToolNames))

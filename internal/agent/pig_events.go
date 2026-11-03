@@ -9,7 +9,7 @@ import (
 	piagent "github.com/MichaelKinsy/PiG/agent"
 	pi "github.com/MichaelKinsy/PiG/ai"
 
-	"github.com/justwasm/pigasus/internal/backend"
+	"github.com/justwasm/pigasus/internal/core/backend"
 )
 
 // ─── PiG events -> the clone's StreamChunk ───────────────────────────────────
@@ -160,7 +160,7 @@ func toolCallFromPig(call pi.ToolCall) backend.ToolCall {
 // received. The token counts come from PiG's usage; the fingerprint cannot,
 // because ai.Usage has no field for it, so the transport passes it in.
 //
-// present distinguishes the two cases backend.GatewayClient distinguishes: it
+// present distinguishes the two cases gateway.GatewayClient distinguishes: it
 // builds its ChunkMeta inside the `if chunk.Usage != nil` branch, so a gateway
 // that reports no usage produces no metadata and no fingerprint either. PiG
 // zeroes Usage instead of nil-ing it, which is why the flag cannot be derived

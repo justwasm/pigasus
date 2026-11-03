@@ -63,14 +63,20 @@ on the browser's side of the wire, not in the agent.
 ### 2.1 The bundle decides from the URL
 
 【一手】 the reference's own frontend, byte for byte
-(`out/ide-language-server/frontend/main.js`, md5
-`9f96dc058705b85c1191c6c5ce7bf1a9` — the same file as
-`internal/rcfrontend/assets/main.js`):
+(the `out/ide-language-server/frontend/main.js` copy, md5
+`9f96dc058705b85c1191c6c5ce7bf1a9`, was retired on 2026-11-02 — see
+`out/RETIRED.md`. The surviving copy is `internal/rcfrontend/assets/main.js`,
+which is the **2.28.2** extraction (md5
+`2b69b05b6d5dbfd471511ad98a905e0f`): the same function under a different
+minified name, `BKc` instead of `AHc`):
 
 ```js
 function AHc(){var a=new URLSearchParams(window.location.search),b=a.get("useWebSocket");
 return b!==null?b==="true"?"explicit":"off":a.get("wsTransport")==="3"?"hub":"off"}
 ```
+
+(the retired 2.28.0 bundle's bytes; the surviving bundle spells it
+`function BKc(){...}` — the body is identical)
 
 | query | transport |
 |---|---|
@@ -286,7 +292,9 @@ found while measuring, they are correct, and they are kept:
    host and the turn's own calls never leave the queue.
 2. **The reference's bytes are not touched.** The proxy redirects the
    document; it does not rewrite it. The bundle stays the reference's own
-   (md5 `9f96dc058705b85c1191c6c5ce7bf1a9`).
+   (md5 `9f96dc058705b85c1191c6c5ce7bf1a9` — the 2.28.0 bundle's digest;
+   the surviving `internal/rcfrontend/assets/main.js` is the 2.28.2
+   extraction, md5 `2b69b05b6d5dbfd471511ad98a905e0f`).
 3. **The operator's explicit choice wins.** A request that names
    `useWebSocket` or `wsTransport` is served as it is.
 4. **The path and the query survive the redirect.** The secret travels in

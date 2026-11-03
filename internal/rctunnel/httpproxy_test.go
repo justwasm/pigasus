@@ -2,6 +2,7 @@ package rctunnel
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"net/http"
 	"strings"
@@ -229,6 +230,15 @@ func TestProxyResponseFinalMarksTheEnd(t *testing.T) {
 	}
 }
 
+func TestRecordedResponseImplementsFlusher(t *testing.T) {
+	rec := newRecordedResponse(nil)
+	flusher, ok := any(rec).(http.Flusher)
+	if !ok {
+		t.Fatal("recordedResponse must implement http.Flusher for Connect-Go server streams")
+	}
+	flusher.Flush()
+}
+
 // TestRecordedResponseStreamsChunks checks that every write becomes its
 // own chunk, in order — the property the tunnel's live streaming
 // depends on.
@@ -309,5 +319,47 @@ func TestIsStreamingRPCIdentifiesKnownStreamingMethods(t *testing.T) {
 	}
 	if isStreamingRPC(nil, "/exa.language_server_pb.LanguageServerService/CreateTerminal") {
 		t.Error("CreateTerminal want streaming = false")
+	}
+}
+
+func TestEmptyUnaryConnectResponseEmitsChunk(t *testing.T) {
+	var sent []*ProxyResponseV2
+	rec := newRecordedResponse(func(chunk []byte) {
+		resp := proxyResponseChunk("req-1", nil, chunk)
+		sent = append(sent, resp)
+	})
+	rec.Header().Set("Content-Type", "application/proto")
+
+	// Handler produces 0 bytes (e.g. empty protobuf response).
+	chunkCount := len(sent)
+	if chunkCount == 0 {
+		var emptyBody []byte
+		if isBinaryResponse(rec, nil) {
+			emptyBody = []byte{}
+		} else {
+			emptyBody = []byte("{}")
+		}
+		sent = append(sent, proxyResponseChunk("req-1", rec, emptyBody))
+	}
+	sent = append(sent, proxyResponseFinal("req-1", rec))
+
+	if len(sent) != 2 {
+		t.Fatalf("len(sent) = %d, want 2", len(sent))
+	}
+	if sent[0].IsFinal {
+		t.Errorf("sent[0].IsFinal want false")
+	}
+	if sent[0].Payload == nil {
+		t.Errorf("sent[0].Payload want non-nil empty slice for binary proto")
+	}
+	b, err := json.Marshal(sent[0])
+	if err != nil {
+		t.Fatalf("json.Marshal: %v", err)
+	}
+	if !strings.Contains(string(b), `"payload":""`) {
+		t.Errorf("marshaled json = %s, want payload:\"\"", string(b))
+	}
+	if !sent[1].IsFinal {
+		t.Errorf("sent[1].IsFinal want true")
 	}
 }

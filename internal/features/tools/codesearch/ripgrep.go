@@ -96,7 +96,7 @@ func scanRgOutput(ctx context.Context, cmd *exec.Cmd, stdout io.Reader, s *Searc
 // object per line; we only care about type=="match" records.
 //
 // rg's JSON carries byte offsets into the line (submatches[*].start/end);
-// we convert those to rune column numbers so the panel's csFit math keeps
+// we convert those to rune column numbers so the panel's Fit math keeps
 // working (its ellipsis-truncation operates on runes, not bytes).
 func (r *Runner) runRipgrep(ctx context.Context, s *Search) error {
 	cmd := r.RgBin(ctx, r.Workdir, argsOf(s))

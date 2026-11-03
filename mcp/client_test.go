@@ -14,8 +14,7 @@ import (
 	"testing"
 	"time"
 
-	pigmcp "github.com/MichaelKinsy/PiG/mcp"
-	"github.com/MichaelKinsy/PiG/mcp/mcptest"
+	sdk "github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 // ---- the configuration file ------------------------------------------------
@@ -106,50 +105,61 @@ func TestConfigFileDisableAllMCP(t *testing.T) {
 // fakeServer is an MCP server that answers the handshake and one tool call,
 // one resource list and one resource read.
 type fakeServer struct {
-	transport *mcptest.InMemoryTransport
-	mu        sync.Mutex
-	calls     []string
+	session *sdk.ServerSession
+	mu      sync.Mutex
+	calls   []string
 }
 
-func newFakeServer(t *testing.T) (*fakeServer, *mcptest.InMemoryTransport) {
+func newFakeServer(t *testing.T) (*fakeServer, *sdk.InMemoryTransport) {
 	t.Helper()
-	client, server := mcptest.NewInMemoryTransportPair()
-	fs := &fakeServer{transport: server}
-	// The server end must be started before the client sends: the
-	// in-memory transport refuses a send to a peer that is not started.
-	if err := server.Start(); err != nil {
-		t.Fatalf("start the fake server: %v", err)
-	}
-	server.OnMessage(func(msg pigmcp.JSONRPCMessage) {
-		if msg.Method == "" || msg.ID == nil {
-			return // a notification
-		}
-		result := fs.answer(msg.Method)
-		_ = server.Send(context.Background(), pigmcp.JSONRPCMessage{
-			JSONRPC: "2.0",
-			ID:      msg.ID,
-			Result:  result,
-		})
-	})
-	return fs, client
-}
+	clientTransport, serverTransport := sdk.NewInMemoryTransports()
+	server := sdk.NewServer(&sdk.Implementation{Name: "fake", Version: "1"}, nil)
+	fs := &fakeServer{}
 
-func (f *fakeServer) answer(method string) json.RawMessage {
-	f.mu.Lock()
-	f.calls = append(f.calls, method)
-	f.mu.Unlock()
-	switch method {
-	case "initialize":
-		return json.RawMessage(`{"protocolVersion":"2025-11-25","capabilities":{},"serverInfo":{"name":"fake","version":"1"}}`)
-	case "tools/call":
-		return json.RawMessage(`{"content":[{"type":"text","text":"hello from the tool"}]}`)
-	case "resources/list":
-		return json.RawMessage(`{"resources":[{"uri":"file:///a.txt","name":"a.txt","mimeType":"text/plain"}]}`)
-	case "resources/read":
-		return json.RawMessage(`{"contents":[{"uri":"file:///a.txt","mimeType":"text/plain","text":"contents of a.txt"}]}`)
-	default:
-		return json.RawMessage(`{}`)
+	server.AddReceivingMiddleware(func(next sdk.MethodHandler) sdk.MethodHandler {
+		return func(ctx context.Context, method string, req sdk.Request) (sdk.Result, error) {
+			fs.mu.Lock()
+			fs.calls = append(fs.calls, method)
+			fs.mu.Unlock()
+			return next(ctx, method, req)
+		}
+	})
+
+	server.AddTool(&sdk.Tool{
+		Name:        "search",
+		Description: "search tool",
+		InputSchema: map[string]any{"type": "object"},
+	}, func(ctx context.Context, req *sdk.CallToolRequest) (*sdk.CallToolResult, error) {
+		return &sdk.CallToolResult{
+			Content: []sdk.Content{
+				&sdk.TextContent{Text: "hello from the tool"},
+			},
+		}, nil
+	})
+
+	server.AddResource(&sdk.Resource{
+		URI:      "file:///a.txt",
+		Name:     "a.txt",
+		MIMEType: "text/plain",
+	}, func(ctx context.Context, req *sdk.ReadResourceRequest) (*sdk.ReadResourceResult, error) {
+		return &sdk.ReadResourceResult{
+			Contents: []*sdk.ResourceContents{
+				{
+					URI:      "file:///a.txt",
+					MIMEType: "text/plain",
+					Text:     "contents of a.txt",
+				},
+			},
+		}, nil
+	})
+
+	session, err := server.Connect(context.Background(), serverTransport, nil)
+	if err != nil {
+		t.Fatalf("connect the fake server: %v", err)
 	}
+	fs.session = session
+	t.Cleanup(func() { _ = session.Close() })
+	return fs, clientTransport
 }
 
 // newTestPool returns a pool whose only server is driven by the fake server.
@@ -157,7 +167,7 @@ func newTestPool(t *testing.T) (*Pool, *fakeServer) {
 	t.Helper()
 	fake, transport := newFakeServer(t)
 	pool := NewPool([]ServerSpec{{Name: "srv", Type: "stdio", Enabled: true}})
-	pool.SetTransportFactory(func(ServerSpec) (pigmcp.Transport, error) {
+	pool.SetTransportFactory(func(ServerSpec) (sdk.Transport, error) {
 		return transport, nil
 	})
 	t.Cleanup(func() { _ = pool.Close() })
@@ -234,37 +244,36 @@ func TestPoolServers(t *testing.T) {
 // ---- the rendering ---------------------------------------------------------
 
 func TestRenderCallTool(t *testing.T) {
-	isErr := true
 	cases := []struct {
 		name string
-		res  *pigmcp.CallToolResult
+		res  *sdk.CallToolResult
 		want string
 	}{
 		{
 			name: "text blocks are joined",
-			res: &pigmcp.CallToolResult{Content: []pigmcp.ContentBlock{
-				{Type: pigmcp.ContentText, Text: "one"},
-				{Type: pigmcp.ContentText, Text: "two"},
+			res: &sdk.CallToolResult{Content: []sdk.Content{
+				&sdk.TextContent{Text: "one"},
+				&sdk.TextContent{Text: "two"},
 			}},
 			want: "one\ntwo",
 		},
 		{
 			name: "structured content is the fallback",
-			res:  &pigmcp.CallToolResult{StructuredContent: json.RawMessage(`{"a":1}`)},
+			res:  &sdk.CallToolResult{StructuredContent: json.RawMessage(`{"a":1}`)},
 			want: `{"a":1}`,
 		},
 		{
 			name: "an error is announced",
-			res: &pigmcp.CallToolResult{
-				Content: []pigmcp.ContentBlock{{Type: pigmcp.ContentText, Text: "boom"}},
-				IsError: &isErr,
+			res: &sdk.CallToolResult{
+				Content: []sdk.Content{&sdk.TextContent{Text: "boom"}},
+				IsError: true,
 			},
 			want: "MCP tool srv/tool returned an error: boom",
 		},
 		{
 			name: "an image is named, not inlined",
-			res: &pigmcp.CallToolResult{Content: []pigmcp.ContentBlock{
-				{Type: pigmcp.ContentImage, MimeType: "image/png"},
+			res: &sdk.CallToolResult{Content: []sdk.Content{
+				&sdk.ImageContent{MIMEType: "image/png"},
 			}},
 			want: "[image content: image/png]",
 		},
@@ -279,11 +288,11 @@ func TestRenderCallTool(t *testing.T) {
 }
 
 func TestRenderReadResourceSkipsBinary(t *testing.T) {
-	blob := "AAA"
-	res := &pigmcp.ReadResourceResult{Contents: []pigmcp.ResourceContents{
-		{URI: "file:///a", MimeType: "text/plain", Text: ptr("the text")},
-		{URI: "file:///b", MimeType: "application/octet-stream", Blob: &blob},
-		{URI: "file:///c", MimeType: "image/png", Blob: &blob},
+	blob := []byte("AAA")
+	res := &sdk.ReadResourceResult{Contents: []*sdk.ResourceContents{
+		{URI: "file:///a", MIMEType: "text/plain", Text: "the text"},
+		{URI: "file:///b", MIMEType: "application/octet-stream", Blob: blob},
+		{URI: "file:///c", MIMEType: "image/png", Blob: blob},
 	}}
 	got := renderReadResource(res)
 	if !strings.Contains(got, "the text") {
@@ -296,5 +305,3 @@ func TestRenderReadResourceSkipsBinary(t *testing.T) {
 		t.Errorf("renderReadResource = %q, want the image named", got)
 	}
 }
-
-func ptr(s string) *string { return &s }

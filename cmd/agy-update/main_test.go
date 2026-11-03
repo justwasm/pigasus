@@ -92,6 +92,7 @@ func TestAgyUpdateWithConfigEndpoint(t *testing.T) {
 	cmd := exec.Command("go", "run", ".")
 	cmd.Env = append(os.Environ(),
 		endpoints.ConfigPathEnvVar+"="+configPath,
+		"ANTIGRAVITY_HOME="+dir,
 		"AGY_CURRENT_VERSION=1.4.10",
 	)
 	out, err := cmd.CombinedOutput()
@@ -159,6 +160,7 @@ func TestAgyUpdateDownloadAndReplace(t *testing.T) {
 	cmd := exec.Command("go", "run", ".")
 	cmd.Env = append(os.Environ(),
 		endpoints.ConfigPathEnvVar+"="+configPath,
+		"ANTIGRAVITY_HOME="+targetDir,
 		"AGY_CURRENT_VERSION=1.4.10",
 		"AGY_TARGET_BINARY="+targetBinary,
 	)

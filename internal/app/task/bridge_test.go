@@ -24,7 +24,7 @@ import (
 	"os/exec"
 	"testing"
 
-	"github.com/justwasm/pigasus/internal/subagent"
+	subagent "github.com/justwasm/pigasus/internal/app/subagent/core"
 )
 
 // TestSubagentDisplayNameHonoursTitle — given name preserved in the

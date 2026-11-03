@@ -41,7 +41,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/justwasm/pigasus/internal/auth"
+	"github.com/justwasm/pigasus/internal/features/auth"
 )
 
 // jsonCreditsPayload is the `/credits` command payload: the reference's two

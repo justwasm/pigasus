@@ -26,6 +26,9 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/justwasm/pigasus/internal/remotecontrol/cascades"
+	"github.com/justwasm/pigasus/internal/remotecontrol/rpc"
 )
 
 // lsHandleCascadeUserInteraction answers the Web UI's answer RPC.
@@ -33,9 +36,9 @@ import (
 // The answer names the trajectory and the step, not the interaction
 // id: the frontend reads both off the step's metadata
 // (`metadata.sourceTrajectoryStepInfo`).
-func (d *Dispatcher) lsHandleCascadeUserInteraction(params json.RawMessage) (any, *rpcErrorBody, bool) {
+func (d *Dispatcher) lsHandleCascadeUserInteraction(params json.RawMessage) (any, *rpc.ErrorBody, bool) {
 	if d == nil || d.cascades == nil {
-		return nil, &rpcErrorBody{Code: -32603, Message: "Internal error", Data: "registry not initialised"}, true
+		return nil, &rpc.ErrorBody{Code: -32603, Message: "Internal error", Data: "registry not initialised"}, true
 	}
 	var req struct {
 		CascadeID   string          `json:"cascadeId"`
@@ -43,35 +46,35 @@ func (d *Dispatcher) lsHandleCascadeUserInteraction(params json.RawMessage) (any
 	}
 	if len(params) > 0 {
 		if err := json.Unmarshal(params, &req); err != nil {
-			return nil, &rpcErrorBody{Code: -32602, Message: "Invalid params", Data: err.Error()}, true
+			return nil, &rpc.ErrorBody{Code: -32602, Message: "Invalid params", Data: err.Error()}, true
 		}
 	}
 	cascadeID := strings.TrimSpace(req.CascadeID)
 	if cascadeID == "" {
-		return nil, &rpcErrorBody{Code: -32602, Message: "Invalid params", Data: "cascadeId is required"}, true
+		return map[string]any{}, nil, true
 	}
 	c, ok := d.cascades.Get(cascadeID)
 	if !ok {
-		return nil, &rpcErrorBody{Code: ErrCodeCascadeNotFound, Message: "Cascade not found", Data: cascadeID}, true
+		return nil, &rpc.ErrorBody{Code: rpc.ErrCodeCascadeNotFound, Message: "Cascade not found", Data: cascadeID}, true
 	}
 	cue, err := lsDecodeCascadeUserInteraction(req.Interaction)
 	if err != nil {
-		return nil, &rpcErrorBody{Code: -32602, Message: "Invalid params", Data: err.Error()}, true
+		return nil, &rpc.ErrorBody{Code: -32602, Message: "Invalid params", Data: err.Error()}, true
 	}
 	intr, ok := c.Pending().GetByStep(cue.TrajectoryID, cue.StepIndex)
 	if !ok {
-		return nil, &rpcErrorBody{
-			Code:    ErrCodeInteractionNotFound,
+		return nil, &rpc.ErrorBody{
+			Code:    rpc.ErrCodeInteractionNotFound,
 			Message: "Interaction not found",
 			Data:    cue.TrajectoryID + ":" + strconv.Itoa(cue.StepIndex),
 		}, true
 	}
 	now := time.Now().UTC()
-	if err := c.Pending().Resolve(intr.ID, InteractionResult{Response: req.Interaction, DecidedAt: now}); err != nil {
-		if errors.Is(err, ErrInteractionNotFound) {
-			return nil, &rpcErrorBody{Code: ErrCodeInteractionNotFound, Message: "Interaction not found", Data: intr.ID}, true
+	if err := c.Pending().Resolve(intr.ID, cascades.InteractionResult{Response: req.Interaction, DecidedAt: now}); err != nil {
+		if errors.Is(err, cascades.ErrInteractionNotFound) {
+			return nil, &rpc.ErrorBody{Code: rpc.ErrCodeInteractionNotFound, Message: "Interaction not found", Data: intr.ID}, true
 		}
-		return nil, &rpcErrorBody{Code: -32603, Message: "Internal error", Data: err.Error()}, true
+		return nil, &rpc.ErrorBody{Code: -32603, Message: "Internal error", Data: err.Error()}, true
 	}
 	return map[string]any{}, nil, true
 }

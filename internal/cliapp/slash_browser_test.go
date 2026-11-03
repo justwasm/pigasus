@@ -7,7 +7,9 @@ import (
 	"testing"
 
 	"github.com/justwasm/pigasus/browsercdp"
-	"github.com/justwasm/pigasus/internal/tools"
+	"github.com/justwasm/pigasus/internal/app/tools/browser"
+	"github.com/justwasm/pigasus/internal/app/tools/surface"
+	termcolor "github.com/justwasm/pigasus/internal/ui/render/color"
 )
 
 // slash_browser_test.go — the /browser and /schedule slash commands.
@@ -37,7 +39,7 @@ func (f *fakeBrowserAgent) RunBrowserTask(_ context.Context, task string) (strin
 func withFakeBrowserAgent(t *testing.T, agent *fakeBrowserAgent) {
 	t.Helper()
 	prev := browserAgentFactory
-	browserAgentFactory = func(*runMode) (tools.BrowserSubagentProvider, func(), error) {
+	browserAgentFactory = func(*runMode) (browser.BrowserSubagentProvider, func(), error) {
 		return agent, nil, nil
 	}
 	t.Cleanup(func() { browserAgentFactory = prev })
@@ -47,7 +49,7 @@ func withFakeBrowserAgent(t *testing.T, agent *fakeBrowserAgent) {
 func strippedRows(m *runMode) []string {
 	out := make([]string, len(m.response))
 	for i, row := range m.response {
-		out[i] = stripSGR(row)
+		out[i] = termcolor.StripSGR(row)
 	}
 	return out
 }
@@ -68,7 +70,7 @@ func withFakeBrowserProbe(t *testing.T, err error) {
 // to the turn that installed it, and that turn is over).
 func TestNewBrowserAgent_BuildsARunner(t *testing.T) {
 	m := newSlashModel(t)
-	m.catalog = tools.RuntimeCatalog(t.TempDir())
+	m.catalog = surface.RuntimeCatalog(t.TempDir())
 	withFakeBrowserProbe(t, nil)
 	runner, closeRunner, err := m.newBrowserAgent()
 	if err != nil {
@@ -91,7 +93,7 @@ func TestNewBrowserAgent_BuildsARunner(t *testing.T) {
 // quota on a dozen calls that cannot work.
 func TestNewBrowserAgent_NoBrowser_SaysWhy(t *testing.T) {
 	m := newSlashModel(t)
-	m.catalog = tools.RuntimeCatalog(t.TempDir())
+	m.catalog = surface.RuntimeCatalog(t.TempDir())
 	withFakeBrowserProbe(t, browsercdp.ErrBrowserUnavailable)
 
 	runner, closeRunner, err := m.newBrowserAgent()
@@ -166,7 +168,7 @@ func TestSlashBrowser_RunsTheBrowserAgent(t *testing.T) {
 func TestSlashBrowser_AgentUnavailable(t *testing.T) {
 	m := newSlashModel(t)
 	prev := browserAgentFactory
-	browserAgentFactory = func(*runMode) (tools.BrowserSubagentProvider, func(), error) {
+	browserAgentFactory = func(*runMode) (browser.BrowserSubagentProvider, func(), error) {
 		return nil, nil, errors.New("the browser tools are not available in this session")
 	}
 	t.Cleanup(func() { browserAgentFactory = prev })

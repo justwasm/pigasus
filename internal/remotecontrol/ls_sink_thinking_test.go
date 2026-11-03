@@ -4,7 +4,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/justwasm/pigasus/internal/convstore"
+	"github.com/justwasm/pigasus/internal/app/session/convstore"
+	"github.com/justwasm/pigasus/internal/remotecontrol/cascades"
 )
 
 // TestTheThinkingSurvivesAReload checks that a turn's thinking reaches
@@ -24,7 +25,7 @@ func TestTheThinkingSurvivesAReload(t *testing.T) {
 
 	sink.OnThought(nil, "The user asks why the sky is blue.")
 	sink.OnTextDelta(nil, "Because of Rayleigh scattering.")
-	sink.Finish(MessageResult{Reply: "Because of Rayleigh scattering."}, 3*time.Second)
+	sink.Finish(cascades.Result{Reply: "Because of Rayleigh scattering."}, 3*time.Second)
 
 	// The live step carries the thinking and the duration: the panel
 	// opens while the turn runs.

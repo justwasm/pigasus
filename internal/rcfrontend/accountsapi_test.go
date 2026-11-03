@@ -12,8 +12,8 @@ import (
 	"time"
 
 	"github.com/justwasm/pigasus/endpoints"
-	"github.com/justwasm/pigasus/internal/accounts"
-	"github.com/justwasm/pigasus/internal/auth"
+	accounts "github.com/justwasm/pigasus/internal/features/accounts/core"
+	"github.com/justwasm/pigasus/internal/features/auth"
 )
 
 // isolateAccounts points the account registry and the shared credential

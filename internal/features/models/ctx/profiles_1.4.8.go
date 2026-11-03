@@ -136,7 +136,7 @@ type Profile struct {
 // profiles is the document's model_profiles map.
 var profiles = map[string]Profile{
 	"MODEL_GOOGLE_GEMINI_2_5_FLASH": {
-		Strategy:                   "CHECKPOINT_STRATEGY_SINGLE_PROMPT",
+		Strategy:                   StrategySinglePrompt,
 		MaxTokenLimit:              128000,
 		MaxOutputTokens:            16384,
 		TokenThreshold:             50000,
@@ -156,7 +156,7 @@ var profiles = map[string]Profile{
 		SessionSummaryPrompt:       false,
 	},
 	"MODEL_GOOGLE_GEMINI_2_5_PRO": {
-		Strategy:                   "CHECKPOINT_STRATEGY_SINGLE_PROMPT",
+		Strategy:                   StrategySinglePrompt,
 		MaxTokenLimit:              128000,
 		MaxOutputTokens:            16384,
 		TokenThreshold:             50000,
@@ -176,7 +176,7 @@ var profiles = map[string]Profile{
 		SessionSummaryPrompt:       false,
 	},
 	"MODEL_OPENAI_GPT_OSS_120B_MEDIUM": {
-		Strategy:                   "CHECKPOINT_STRATEGY_UNSPECIFIED",
+		Strategy:                   StrategyUnspecified,
 		MaxTokenLimit:              80000,
 		MaxOutputTokens:            8192,
 		TokenThreshold:             50000,
@@ -196,7 +196,7 @@ var profiles = map[string]Profile{
 		SessionSummaryPrompt:       false,
 	},
 	"MODEL_PLACEHOLDER_M124": {
-		Strategy:                   "CHECKPOINT_STRATEGY_SAME_MODEL",
+		Strategy:                   StrategySameModel,
 		MaxTokenLimit:              256000,
 		MaxOutputTokens:            16384,
 		TokenThreshold:             50000,
@@ -216,7 +216,7 @@ var profiles = map[string]Profile{
 		SessionSummaryPrompt:       true,
 	},
 	"MODEL_PLACEHOLDER_M26": {
-		Strategy:                   "CHECKPOINT_STRATEGY_UNSPECIFIED",
+		Strategy:                   StrategyUnspecified,
 		MaxTokenLimit:              160000,
 		MaxOutputTokens:            16384,
 		TokenThreshold:             50000,
@@ -236,7 +236,7 @@ var profiles = map[string]Profile{
 		SessionSummaryPrompt:       false,
 	},
 	"MODEL_PLACEHOLDER_M400": {
-		Strategy:                   "CHECKPOINT_STRATEGY_SAME_MODEL",
+		Strategy:                   StrategySameModel,
 		MaxTokenLimit:              256000,
 		MaxOutputTokens:            16384,
 		TokenThreshold:             50000,
@@ -256,7 +256,7 @@ var profiles = map[string]Profile{
 		SessionSummaryPrompt:       false,
 	},
 	"MODEL_PLACEHOLDER_M408": {
-		Strategy:                   "CHECKPOINT_STRATEGY_SAME_MODEL",
+		Strategy:                   StrategySameModel,
 		MaxTokenLimit:              256000,
 		MaxOutputTokens:            16384,
 		TokenThreshold:             50000,
@@ -280,7 +280,7 @@ var profiles = map[string]Profile{
 // profileVariants is the document's per-profile variant payloads.
 var profileVariants = map[string]Profile{
 	"MODEL_PLACEHOLDER_M400/claude-1m_840k": {
-		Strategy:                   "CHECKPOINT_STRATEGY_SAME_MODEL",
+		Strategy:                   StrategySameModel,
 		MaxTokenLimit:              840000,
 		MaxOutputTokens:            16384,
 		TokenThreshold:             50000,

@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/justwasm/pigasus/internal/difffold"
+	difffold "github.com/justwasm/pigasus/internal/ui/views/diff/fold"
 )
 
 func TestRowStylerNumbersTheRows(t *testing.T) {

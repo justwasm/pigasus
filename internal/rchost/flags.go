@@ -3,7 +3,7 @@ package rchost
 import (
 	"flag"
 
-	"github.com/justwasm/pigasus/internal/cliflags"
+	"github.com/justwasm/pigasus/internal/core/cliflags"
 )
 
 func flagBoolValue(fs *flag.FlagSet, name string) bool {

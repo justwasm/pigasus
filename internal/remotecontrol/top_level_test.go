@@ -41,6 +41,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/justwasm/pigasus/internal/remotecontrol/cascades"
 )
 
 // resultAsMap normalises the dispatcher result
@@ -397,7 +399,7 @@ func TestTopLevelStatus_OpenCascadesIncrements(t *testing.T) {
 	if got := d.topLevelStatus().OpenCascades; got != 0 {
 		t.Fatalf("baseline OpenCascades = %d, want 0", got)
 	}
-	c, err := NewCascade(CascadeOpts{})
+	c, err := cascades.New(cascades.Opts{})
 	if err != nil {
 		t.Fatalf("NewCascade: %v", err)
 	}

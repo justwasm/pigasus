@@ -17,7 +17,7 @@
 // credential locations — the macOS keychain entry the reference reads
 // (service "gemini", account "antigravity") and the three on-disk
 // paths — so the installed `agy` runs as that account from its next
-// start-up. See internal/accounts.
+// start-up. See internal/features/accounts/core.
 package cli
 
 import (
@@ -25,7 +25,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/justwasm/pigasus/internal/accounts"
+	accounts "github.com/justwasm/pigasus/internal/features/accounts/core"
 )
 
 // ---- usage ---------------------------------------------------------------

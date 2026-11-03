@@ -12,7 +12,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/justwasm/pigasus/internal/backend"
+	"github.com/justwasm/pigasus/internal/core/apierror"
+	"github.com/justwasm/pigasus/internal/core/backend"
 	"github.com/justwasm/pigasus/internal/piagentbridge"
 )
 
@@ -177,11 +178,11 @@ func TestLoop_AutoContGiveUpAfterMaxDepth(t *testing.T) {
 	if maxDepthErr.Depth != AutoContMaxDepth {
 		t.Errorf("ErrAutoContMaxDepth.Depth = %d, want %d", maxDepthErr.Depth, AutoContMaxDepth)
 	}
-	// The original failure (a *backend.HTTPError for a 502) must still be
+	// The original failure (a *apierror.HTTPError for a 502) must still be
 	// reachable through errors.Is, so api_error.go keeps classifying it.
-	var httpErr *backend.HTTPError
+	var httpErr *apierror.HTTPError
 	if !errors.As(sendErr, &httpErr) {
-		t.Errorf("Send err = %v (%T) does not preserve the *backend.HTTPError underneath ErrAutoContMaxDepth", sendErr, sendErr)
+		t.Errorf("Send err = %v (%T) does not preserve the *apierror.HTTPError underneath ErrAutoContMaxDepth", sendErr, sendErr)
 	} else if httpErr.StatusCode != http.StatusBadGateway {
 		t.Errorf("HTTPError.StatusCode = %d, want 502", httpErr.StatusCode)
 	}

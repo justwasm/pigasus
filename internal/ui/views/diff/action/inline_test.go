@@ -8,7 +8,7 @@ import (
 	"testing"
 
 	"github.com/justwasm/pigasus/palette"
-	"github.com/justwasm/pigasus/internal/tuilib"
+	"github.com/justwasm/pigasus/internal/ui/tuilib"
 )
 
 func TestFirstChangedPath(t *testing.T) {

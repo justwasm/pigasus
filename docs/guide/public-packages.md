@@ -52,7 +52,8 @@ package nobody uses is dead weight with a promise attached.
 | [`rctoken`](remote-control.md) | 477 | the remote-control token format | the same |
 | [`originpolicy`](remote-control.md) | 733 | the browser-origin policy | the same |
 | [`endpoints`](endpoints.md) | 835 | the named service endpoints and the `config.json` resolver | anyone pointing a Google service at a local one |
-| `accountpool` | 463 | the account-routing policy — the config shape, the four strategies, the quota threshold, the decision | anyone routing a turn over a pool of credentials |
+| `configdir` | 69 | the clone's configuration home — the one directory every configuration file lives in | anyone standing up a local service beside the clone |
+| `accountpool` | 463 | the account-routing policy — the config shape, the five strategies, the quota threshold, the decision | anyone routing a turn over a pool of credentials |
 | `render` | 3,004 | the markdown renderer — fences, tables, hyperlinks, terminal capability detection | any Go program that prints markdown |
 | `diffsyntax` | 798 | per-token diff highlighting and truncation | any Go program that shows a diff |
 | `palette` | 1,160 | the recovered true-colour ANSI palette | any Go program that paints a terminal |
@@ -67,16 +68,25 @@ package nobody uses is dead weight with a promise attached.
 | `grpc` | 2,980 | the recovered v4 gRPC service registry — the six services and the Code Assist client stub | a clone of the Antigravity gRPC side |
 | `vim` | 3,816 | the modal editing engine — a pure state machine, no terminal in it | any Go program with a text editor |
 | `imagery` | 621 | the image downscaler — format detection, the per-side ceiling | any Go program that feeds images to a model |
+| [`rcterminal`](remote-control.md) | 1,008 | the Web UI's live pty terminal — the registry, session lifecycle and OSC scanner | any service answering LanguageServer terminal RPCs |
+| `urlchunk` | 99 | the terminal OSC 8 hyperlink chunker — multiline budget wrapping with whole-URL targets | any Go TUI displaying long URLs |
+| `procgroup` | 48 | the cross-platform process group manager — group kill and tree teardown | any Go program spawning shells |
+| `celpolicy` | 128 | the CEL policy evaluation engine — compiled rule caching with standard tool declarations | any Go program validating agent tool execution |
+| `dns` | 222 | the pure-Go DNS resolver fallback — Termux/Android getprop and non-loopback resolv.conf extraction | any Go program running in Termux or proot |
+| [`rcmesh`](remote-control.md) | 1,780 | the WebRTC mesh signaling wire, channel binding, ICE config, chunk reassembly and peer manager | any service answering WebRTC mesh remote control |
+| [`agentlink`](agent-server.md) | 651 | the client/server wire — the frames, the client, the server, the bearer token | anyone attaching a client to a `pigasus server` |
 
 None of them touches `internal/`:
 
 ```bash
 go list -deps ./geminicode ./localharness/... ./lifecyclehooks ./budget ./harnessprompt \
-             ./lsproto/... ./rctoken ./originpolicy ./endpoints ./accountpool \
+             ./lsproto/... ./rctoken ./originpolicy ./endpoints ./configdir ./accountpool \
              ./remotetransport \
              ./render ./diffsyntax ./palette ./retry ./retrybudget ./atomicfile \
              ./browsercdp ./browserbridge ./agentbrowser ./mcp ./envref ./grpc \
              ./vim ./imagery \
+             ./rcterminal ./urlchunk ./procgroup ./celpolicy ./dns ./rcmesh \
+             ./agentlink \
   | grep pigasus/internal     # nothing
 ```
 
@@ -115,6 +125,8 @@ value in the tree and the highest ROI per line moved.
 | 10 | `grpc` | 2,980 | 1 | 1 | 3 | 0 | **3.0** | **done** (T4) |
 | 11 | `rctoken` | 477 | 7 | 2 | 3 | 1 | **3.0** | **done** (T2) |
 | 12 | `browsercdp` | 2,405 | 9 | 3 | 2 | 1 | **3.0** | **done** (T4) |
+| 13 | `rcmesh` | 1,780 | 2 | 3 | 3 | 0 | **9.0** | **done** (born public) |
+| 14 | `agentlink` | 651 | 3 | 3 | 3 | 0 | **9.0** | **done** (born public, cycle 374) |
 
 `browsercdp` is the odd one out in Tier 1: it is not a Google contract at
 all, it is a Chrome DevTools Protocol client — general-purpose, but so
@@ -127,14 +139,14 @@ demand, no protocol lock-in.
 
 | rank | package | LOC | importers | V | B | E | ROI | note |
 |---|---|---|---|---|---|---|---|---|
-| 13 | `render` | 3,004 | 8 | 3 | 2 | 1 | **3.0** | the markdown renderer — **done** (T3) |
-| 14 | `vim` | 3,816 | 3 | 2 | 2 | 0 | **4.0** | a modal editing layer; niche but self-contained — **done** (T5) |
-| 15 | `retry` + `retrybudget` | 1,494 | 7 | 2 | 2 | 1 | **2.0** | **done** (T3) |
-| 16 | `diffsyntax` | 798 | 5 | 2 | 2 | 1 | **2.0** | **done** (T3) |
-| 17 | `palette` | 1,160 | 36 | 2 | 2 | 1 | **2.0** | the reference's true-colour palette — **done** (T3) |
-| 18 | `endpoints` | 835 | 40 | 2 | 2 | 1 | **2.0** | the named-endpoint resolver — **done** (T2) |
-| 19 | `atomicfile` | 123 | 16 | 2 | 2 | 1 | **2.0** | 123 lines, universally useful — **done** (T3) |
-| 20 | `imagery` | 621 | 2 | 2 | 2 | 0 | **4.0** | **done** (T5) |
+| 15 | `render` | 3,004 | 8 | 3 | 2 | 1 | **3.0** | the markdown renderer — **done** (T3) |
+| 16 | `vim` | 3,816 | 3 | 2 | 2 | 0 | **4.0** | a modal editing layer; niche but self-contained — **done** (T5) |
+| 17 | `retry` + `retrybudget` | 1,494 | 7 | 2 | 2 | 1 | **2.0** | **done** (T3) |
+| 18 | `diffsyntax` | 798 | 5 | 2 | 2 | 1 | **2.0** | **done** (T3) |
+| 19 | `palette` | 1,160 | 36 | 2 | 2 | 1 | **2.0** | the reference's true-colour palette — **done** (T3) |
+| 20 | `endpoints` | 835 | 40 | 2 | 2 | 1 | **2.0** | the named-endpoint resolver — **done** (T2) |
+| 21 | `atomicfile` | 123 | 16 | 2 | 2 | 1 | **2.0** | 123 lines, universally useful — **done** (T3) |
+| 22 | `imagery` | 621 | 2 | 2 | 2 | 0 | **4.0** | **done** (T5) |
 
 ### Tier 3 — reference asset (V=1, B=3)
 
@@ -188,31 +200,49 @@ blocks** that this work's own path changes had left unsorted two and
 three tranches earlier. Both are fixed, and the import-order sweep is
 now empty across the whole tree.
 
-**What is left.** The queue is empty: every package the ranking scored
-is published. Two findings remain open — `internal/mcpoauth` is dead
-code (a deletion candidate, not a publication candidate) and the three
-`*_pb` descriptor packages are evidence, not code.
+**T6 — the terminal, policy and utilities tranche (done).** `rcterminal`
+(1,008 LOC, the LanguageServer PTY terminal server), `urlchunk` (99 LOC, the
+terminal OSC 8 hyperlink chunker), `procgroup` (48 LOC, the cross-platform
+process group manager), `celpolicy` (128 LOC, the CEL policy evaluation
+engine), and `dns` (222 LOC, the pure-Go Android/Termux DNS resolver fallback).
+All five were verified with zero `internal/` dependencies. `rcterminal`
+completes the public Web UI / Language Server wire beside `lsproto` and
+`remotetransport`; `urlchunk`, `procgroup`, `celpolicy`, and `dns` are general-purpose
+capabilities.
 
-**A package that is born public.** `accountpool` did not move: it was
-written at the top of the tree. The account-routing policy is a
-*contract* — the shape of a configuration section and the rules that
-decide which credential a turn runs on — and it is pure (no I/O, no
+**What is left.** The queue is empty: every package the ranking scored
+is published. One finding remains open — `internal/features/auth/mcpoauth`
+is dead code (a deletion candidate, not a publication candidate) — and the
+three `*_pb` descriptor packages are evidence, not code.
+
+**A package that is born public.** `accountpool`, `rcmesh` and `agentlink`
+did not move: they were written at the top of the tree. The account-routing
+policy is a *contract* — the shape of a configuration section and the rules
+that decide which credential a turn runs on — and it is pure (no I/O, no
 `internal/` dependency), so it can be imported by a program that is not
-this clone. Its runtime (`internal/accountrouting`) stays internal: it
+this clone. Its runtime (`internal/features/accounts/routing`) stays internal: it
 reads the registry, the keychain and the server's quota, all of which
-belong to the clone's interior. The split is the rule: the *policy* is
-public, the *plumbing* is not.
+belong to the clone's interior. `rcmesh` is the WebRTC mesh signaling wire,
+ECDSA P-256 channel binding, ICE configuration parser, chunk reassembler,
+and peer manager; native Pion transport lives in `modules/rcmesh-pion/`.
+`agentlink` is the client/server wire — the frames, the client, the server
+and the bearer token — so a third party can attach its own client to a
+`pigasus server`; its runtime (`internal/app/agentturn`, `internal/app/agentserver`)
+stays internal, because running the turn is the clone's interior.
+All three have zero `internal/` dependencies. The split is the rule: the
+*policy* is public, the *plumbing* is not.
 
 ## Two findings that change the ranking
 
-**`internal/mcpoauth` is dead.** 1,477 LOC plus 829 LOC of tests, and
-**zero references** anywhere in the tree — not one import, not one mention
-outside its own directory. It was built for the AGY 1.3.4 changelog line
-*"Fixed remote MCP servers that use OAuth signing you out after a temporary
-…"* and never wired in. It is not a public-package candidate; it is a
-**deletion** candidate, and deleting it is worth more ROI than moving it.
-(Not done in this cycle: the changelog line it answers may describe
-behaviour the clone still owes.)
+**`internal/features/auth/mcpoauth` is dead.** 1,477 LOC plus 829 LOC of
+tests, and **zero references** anywhere in the tree — not one import, not one
+mention outside its own directory. It was built for the AGY 1.3.4 changelog
+line *"Fixed remote MCP servers that use OAuth signing you out after a
+temporary …"* and never wired in. It is not a public-package candidate; it
+is a **deletion** candidate, and deleting it is worth more ROI than moving
+it. (The re-export shell that used to sit at `internal/mcpoauth` was
+removed in cycle 371 — it had no importers either. The implementation
+itself stays until the changelog line it answers is settled.)
 
 **The `*_pb` descriptor packages are evidence, not code.**
 `internal/codeium_common_pb` (4,205 LOC), `internal/extension_server_pb`
@@ -233,7 +263,7 @@ misrepresent it as a supported API.
 - **硬约束**: the live wire did not change in any move. The T1 and T2
   moves were a path change plus a doc change; the bytes, the framing, the
   error masking and the policy are the same.
-- **硬约束**: a path change can break a **relative** path. `internal/clipboard`
+- **硬约束**: a path change can break a **relative** path. `internal/features/tools/clipboard`
   read its image fixtures as `../imagery/testdata/…`, which stops being true
   once `imagery` moves up a level. A tree-wide scan for relative escapes
   into a moved package is part of the move, not an afterthought.
@@ -248,9 +278,10 @@ misrepresent it as a supported API.
 - **存疑**: the ROI index is a **judgement**, not a measurement. The axes
   are stated so the ranking can be argued with; a different weighting would
   reorder the tiers but not the top of each.
-- **存疑**: `internal/mcpoauth` may be dormant rather than dead — the
-  1.3.4 changelog line it answers suggests a behaviour the clone might
-  still owe a user. Deleting it needs that answered first.
+- **存疑**: `internal/features/auth/mcpoauth` may be dormant rather than
+  dead — the 1.3.4 changelog line it answers suggests a behaviour the clone
+  might still owe a user. Deleting the implementation needs that answered
+  first; only its re-export shell was removed (cycle 371).
 - **limitations**: the ranking covers the packages that exist **today**.
   A package that has not been written yet cannot be ranked.
 - **limitations**: no package outside this module is known to import any

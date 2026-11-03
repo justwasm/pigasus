@@ -17,7 +17,8 @@ package remotecontrol
 import (
 	"strings"
 
-	"github.com/justwasm/pigasus/internal/convstore"
+	"github.com/justwasm/pigasus/internal/app/session/convstore"
+	"github.com/justwasm/pigasus/internal/remotecontrol/cascades"
 )
 
 // lsResumeCascade materialises the cascade for a conversation the Web
@@ -37,14 +38,14 @@ import (
 // The visible trajectory starts empty, exactly as it does in the
 // reference: the Web UI shows the new turn only, although the file
 // keeps the earlier turns.
-func (d *Dispatcher) lsResumeCascade(id string, model string) (*Cascade, bool) {
+func (d *Dispatcher) lsResumeCascade(id string, model string) (*cascades.Cascade, bool) {
 	if d == nil || d.cascades == nil || id == "" {
 		return nil, false
 	}
 	if !convstore.HasConversation(id) {
 		return nil, false
 	}
-	opts := CascadeOpts{DispatchDefault: d.cfg.MessageBackend}
+	opts := cascades.Opts{DispatchDefault: d.cfg.MessageBackend}
 	if d.cfg.Session != nil {
 		opts.Model = d.cfg.Session.Model
 		opts.BackendLabel = d.cfg.Session.Backend
@@ -54,7 +55,7 @@ func (d *Dispatcher) lsResumeCascade(id string, model string) (*Cascade, bool) {
 		opts.Model = model
 	}
 	opts.ID = id
-	c, err := NewCascade(opts)
+	c, err := cascades.New(opts)
 	if err != nil {
 		return nil, false
 	}

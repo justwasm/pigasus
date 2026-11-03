@@ -42,10 +42,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/justwasm/pigasus/internal/agystep"
-	"github.com/justwasm/pigasus/internal/compaction"
+	"github.com/justwasm/pigasus/internal/app/prompt/implicit"
+	agystep "github.com/justwasm/pigasus/internal/app/prompt/step"
+	"github.com/justwasm/pigasus/internal/core/compaction"
 	"github.com/justwasm/pigasus/internal/cortex_pb"
-	"github.com/justwasm/pigasus/internal/implicit"
 )
 
 // RoleUser is the role the reference carries the trajectory's messages in.
@@ -85,10 +85,16 @@ const (
 
 	// actionRequestedPrefix introduces the message that says what was asked
 	// for, for a step the user did not perform.
+	//
+	// 【反编译】 the reference's own bytes, kept as a record: the clone's
+	// implicit store holds only the steps the user performed — a `!` command
+	// — so the conversion never emits this pair.
 	actionRequestedPrefix = "The following action was requested:\n"
 
 	// actionResultPrefix introduces the message that says what an action
 	// produced, for a step the user did not perform.
+	//
+	// 【反编译】 kept for the same reason as actionRequestedPrefix.
 	actionResultPrefix = "The action produced the following result:\n"
 
 	// stepIDFormat is the header the handler writes on every message it
@@ -353,7 +359,7 @@ func inputString(step implicit.Step) string {
 //
 // 【一手】 the template is the reference's: `step_strings/run_command.tmpl`
 // names itself "Template for RunCommandStringConverter.ToOutputString", and
-// the clone renders it from internal/agystep.
+// the clone renders it from internal/app/prompt/step.
 func outputString(step implicit.Step) string {
 	rc := step.RunCommand
 	payload := agystep.NewRunCommand(agystep.RunCommandOptions{
@@ -428,18 +434,3 @@ func stepStatus(status int) agystep.Status {
 		return agystep.StatusUnspecified
 	}
 }
-
-// ActionRequestedPrefix and ActionResultPrefix are the lead-ins the
-// reference uses for a step the user did not perform.
-//
-// The clone's store holds only steps the user performed — a `!` command —
-// so the conversion never emits them. They are exported because the pair is
-// the reference's shape and a reader of the report needs to see it.
-var (
-	// ActionRequestedPrefix introduces the message that says what was asked
-	// for.
-	ActionRequestedPrefix = actionRequestedPrefix
-	// ActionResultPrefix introduces the message that says what an action
-	// produced.
-	ActionResultPrefix = actionResultPrefix
-)

@@ -9,11 +9,11 @@
 // On non-darwin the build tag below excludes every test that
 // exercises the launchd-specific paths; the platform-neutral
 // tests (TestValidateName, TestValidateAddr, TestResolveSpec_*
-// etc.) live in this file so a single `go test ./internal/persistentrc/`
+// etc.) live in this file so a single `go test ./internal/infra/remote/persistent/`
 // covers every platform.
 //
 // The cycle's per-cycle preview (`go test -race -count=1
-// -run TestStatus_RunningDryRun ./internal/persistentrc/`) is
+// -run TestStatus_RunningDryRun ./internal/infra/remote/persistent/`) is
 // the canonical smoke test.
 package persistent
 
@@ -434,7 +434,7 @@ func TestStatus_NotRunning(t *testing.T) {
 
 // TestStatus_RunningDryRun confirms Status returns running=true
 // after a dry-run Start.  This is the per-cycle preview test:
-// `go test -race -run TestStatus_RunningDryRun ./internal/persistentrc/`
+// `go test -race -run TestStatus_RunningDryRun ./internal/infra/remote/persistent/`
 // must pass on every platform.
 func TestStatus_RunningDryRun(t *testing.T) {
 	if runtime.GOOS != "darwin" {

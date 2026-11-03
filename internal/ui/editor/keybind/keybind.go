@@ -81,19 +81,113 @@ func TermNeedsOptionMeta() bool {
 // Tests override via Load.
 func DefaultPath() string {
 	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".gemini", "config", "keybindings.json")
+	return filepath.Join(home, ".gemini", "antigravity-cli", "keybindings.json")
 }
 
 // Keybindings is a parsed keybindings.json. The file is a JSON
 // object: keys are binding names ("alt+s", "ctrl+x"), values are
-// action names the host dispatches ("submit", "cancel").
+// action names the host dispatches ("submit", "cancel"), OR keys are action names
+// mapping to a list of key combinations (official-docs/cli/using.md:68 schema).
 //
 // Bindings with empty values or unknown key names are skipped at
 // load time so the lookup path can be a straight map read. The
 // raw map survives unmodified for the host so it can iterate.
 type Keybindings struct {
-	path string
-	raw  map[string]string
+	path       string
+	raw        map[string]string
+	actionKeys map[string][]string
+}
+
+// ActionKeys returns the mapping of action names to their bound key sequences.
+func (k *Keybindings) ActionKeys() map[string][]string {
+	if k == nil {
+		return nil
+	}
+	return k.actionKeys
+}
+
+// KeysForAction returns the key strings bound to the given action.
+func (k *Keybindings) KeysForAction(action string) []string {
+	if k == nil {
+		return nil
+	}
+	return k.actionKeys[action]
+}
+
+// KeyString formats a tea.Key into a canonical binding key string like "ctrl+l", "ctrl+g", "alt+m", "shift+up", "enter".
+func KeyString(key tea.Key) string {
+	var parts []string
+	if key.Mod.Contains(tea.ModCtrl) {
+		parts = append(parts, "ctrl")
+	}
+	if key.Mod.Contains(tea.ModAlt) {
+		parts = append(parts, "alt")
+	}
+	if key.Mod.Contains(tea.ModShift) {
+		parts = append(parts, "shift")
+	}
+
+	var codeStr string
+	switch key.Code {
+	case tea.KeyEnter:
+		codeStr = "enter"
+	case tea.KeyEsc:
+		codeStr = "esc"
+	case tea.KeyBackspace:
+		codeStr = "backspace"
+	case tea.KeyTab:
+		codeStr = "tab"
+	case tea.KeyUp:
+		codeStr = "up"
+	case tea.KeyDown:
+		codeStr = "down"
+	case tea.KeyLeft:
+		codeStr = "left"
+	case tea.KeyRight:
+		codeStr = "right"
+	default:
+		if key.Code >= 'a' && key.Code <= 'z' {
+			codeStr = string(key.Code)
+		} else if key.Code >= 'A' && key.Code <= 'Z' {
+			codeStr = strings.ToLower(string(key.Code))
+		} else if key.Text != "" {
+			codeStr = strings.ToLower(key.Text)
+		}
+	}
+
+	if codeStr == "" {
+		return ""
+	}
+	parts = append(parts, codeStr)
+	return strings.Join(parts, "+")
+}
+
+// ActionForKey resolves the action mapped to the tea.Key event.
+func (k *Keybindings) ActionForKey(key tea.Key) string {
+	if k == nil {
+		return ""
+	}
+	ks := KeyString(key)
+	if ks == "" {
+		return ""
+	}
+	return k.ActionForExactKey(ks)
+}
+
+// ActionForExactKey returns the action name mapped to the given key combination (e.g. "ctrl+d").
+func (k *Keybindings) ActionForExactKey(key string) string {
+	if k == nil {
+		return ""
+	}
+	key = strings.ToLower(strings.TrimSpace(key))
+	for act, keys := range k.actionKeys {
+		for _, candidate := range keys {
+			if strings.ToLower(strings.TrimSpace(candidate)) == key {
+				return act
+			}
+		}
+	}
+	return k.raw[key]
 }
 
 // Path returns the file these bindings were loaded from.
@@ -131,7 +225,11 @@ func (k *Keybindings) RawBindings() map[string]string {
 // in the reference binary; we keep this loader permissive so a
 // half-edited file does not brick the TUI.
 func Load(path string) (*Keybindings, error) {
-	out := &Keybindings{path: path, raw: map[string]string{}}
+	out := &Keybindings{
+		path:       path,
+		raw:        map[string]string{},
+		actionKeys: map[string][]string{},
+	}
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -147,17 +245,26 @@ func Load(path string) (*Keybindings, error) {
 		return out, fmt.Errorf("parse keybindings: %w", err)
 	}
 	for k, v := range raw {
-		s, ok := v.(string)
-		if !ok {
+		// Schema 1: "alt+s": "action_name"
+		if s, ok := v.(string); ok {
+			if strings.TrimSpace(s) == "" {
+				continue
+			}
+			out.raw[k] = s
+			out.actionKeys[s] = append(out.actionKeys[s], k)
 			continue
 		}
-		if strings.TrimSpace(s) == "" {
-			continue
+		// Schema 2: "action_name": ["alt+s", "ctrl+x"]
+		if list, ok := v.([]any); ok {
+			var keys []string
+			for _, item := range list {
+				if str, ok := item.(string); ok && strings.TrimSpace(str) != "" {
+					keys = append(keys, str)
+					out.raw[str] = k
+				}
+			}
+			out.actionKeys[k] = keys
 		}
-		if _, _, ok := ParseBinding(k); !ok {
-			continue
-		}
-		out.raw[k] = s
 	}
 	return out, nil
 }

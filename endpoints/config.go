@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"sync/atomic"
 
 	"github.com/tidwall/gjson"
@@ -19,6 +20,7 @@ import (
 
 	"github.com/justwasm/pigasus/accountpool"
 	"github.com/justwasm/pigasus/atomicfile"
+	"github.com/justwasm/pigasus/configdir"
 )
 
 // ConfigPathEnvVar is the environment variable that overrides the
@@ -30,12 +32,16 @@ const ConfigPathEnvVar = "OPENAGY_CONFIG"
 //
 // The document is a map of sections rather than a bare map of endpoints so
 // that the file can grow a second section without a format change. There
-// are two today:
+// are three today:
 //
 //   - "endpoints" — the endpoint overrides.
 //   - "account_pool" — the account-routing policy, the shape of which
 //     belongs to the accountpool package. This package only carries it,
 //     so the configuration file keeps a single reader.
+//   - "wrapper" — the proxy's own persisted state. Its shape belongs to
+//     internal/agyproxy, so this package carries it as an opaque section:
+//     the file has one reader, and the section's owner still owns the
+//     shape.
 type Config struct {
 	// Endpoints maps an endpoint name (see the name constants in
 	// endpoints.go) to the URL to use instead of the compiled-in
@@ -47,25 +53,25 @@ type Config struct {
 	// no such section, which means "no routing" — the behaviour without
 	// the policy.
 	AccountPool *accountpool.Config `json:"account_pool,omitempty"`
+
+	// Wrapper is the proxy's persisted state, carried verbatim. It is
+	// nil when the file carries no such section.
+	Wrapper json.RawMessage `json:"wrapper,omitempty"`
 }
 
 // Path returns the configuration file's path:
 //
-//	$XDG_CONFIG_HOME/openagy/config.json, or
-//	$HOME/.config/openagy/config.json if HOME is set.
+//	$OPENAGY_CONFIG, or
+//	<the configuration home>/config.json — $HOME/.openagy/config.json
+//	unless $OPENAGY_CONFIG_HOME says otherwise.
 //
-// The env override is $OPENAGY_CONFIG.
+// The configuration home is the clone's single home (the `configdir`
+// package); the retired $HOME/.config/openagy is migrated into it.
 func Path() string {
 	if p := strings.TrimSpace(os.Getenv(ConfigPathEnvVar)); p != "" {
 		return p
 	}
-	if xdg := strings.TrimSpace(os.Getenv("XDG_CONFIG_HOME")); xdg != "" {
-		return filepath.Join(xdg, "openagy", "config.json")
-	}
-	if home := strings.TrimSpace(os.Getenv("HOME")); home != "" {
-		return filepath.Join(home, ".config", "openagy", "config.json")
-	}
-	return ""
+	return configdir.Path("config.json")
 }
 
 // Load reads the configuration document at path.
@@ -180,6 +186,86 @@ func CurrentAccountPool() *accountpool.Config {
 // the routing reads is the one that was just written — the turn after the
 // write runs on it.
 func SaveAccountPool(policy *accountpool.Config) error {
+	if policy == nil {
+		return updateDocument(accountPoolKey, nil, true)
+	}
+	encoded, err := json.Marshal(policy)
+	if err != nil {
+		return fmt.Errorf("endpoints: encode the account pool: %w", err)
+	}
+	return updateDocument(accountPoolKey, encoded, false)
+}
+
+// accountPoolKey is the section name the account-routing policy lives
+// under in the configuration document.
+const accountPoolKey = "account_pool"
+
+// wrapperKey is the section name the proxy's persisted state lives under in
+// the configuration document.
+const wrapperKey = "wrapper"
+
+// wrapperSnapshot is one resolved snapshot of the document's "wrapper"
+// section.
+type wrapperSnapshot struct {
+	stamp string
+	value json.RawMessage
+}
+
+// wrapperCache holds the last snapshot, with the stamp of the file it was
+// built from.
+var wrapperCache atomic.Pointer[wrapperSnapshot]
+
+// CurrentWrapper returns the document's "wrapper" section, or nil when the
+// document carries none.
+//
+// The section is carried verbatim: its shape belongs to the proxy, not to
+// this package. The file is re-read only when it changed on disk — the
+// same stamp the other sections use.
+func CurrentWrapper() json.RawMessage {
+	path := Path()
+	stamp := fileStamp(path)
+
+	if cached := wrapperCache.Load(); cached != nil && cached.stamp == stamp {
+		return cached.value
+	}
+
+	var value json.RawMessage
+	if cfg, err := Load(path); err == nil && len(cfg.Wrapper) > 0 {
+		value = cfg.Wrapper
+	}
+	wrapperCache.Store(&wrapperSnapshot{stamp: stamp, value: value})
+	return value
+}
+
+// SaveWrapper writes raw into the document's "wrapper" section.
+//
+// It leaves the rest of the document — the endpoint overrides, the
+// account-routing policy, and any section a newer version wrote — as it
+// was: the edit is made on the raw document, so the key order survives.
+// An empty value removes the section.
+//
+// The write is atomic, and the cached snapshots are dropped, so the state
+// the proxy reads is the one that was just written.
+func SaveWrapper(raw []byte) error {
+	if len(bytes.TrimSpace(raw)) == 0 {
+		return updateDocument(wrapperKey, nil, true)
+	}
+	return updateDocument(wrapperKey, raw, false)
+}
+
+// documentMu serialises the read-modify-write cycles on the configuration
+// document: two sections written at the same time must not lose each other.
+var documentMu sync.Mutex
+
+// updateDocument rewrites one section of the configuration document.
+//
+// Everything else in the document survives — including its key order — and
+// the write is atomic. The cached snapshots are dropped, so the next read
+// picks the new document up.
+func updateDocument(key string, value []byte, remove bool) error {
+	documentMu.Lock()
+	defer documentMu.Unlock()
+
 	path := Path()
 	if strings.TrimSpace(path) == "" {
 		return errors.New("endpoints: no configuration file path")
@@ -200,19 +286,15 @@ func SaveAccountPool(policy *accountpool.Config) error {
 	}
 
 	var updated []byte
-	if policy == nil {
-		updated, err = sjson.DeleteBytes(document, accountPoolKey)
+	if remove {
+		updated, err = sjson.DeleteBytes(document, key)
 		if err != nil {
-			return fmt.Errorf("endpoints: remove %s: %w", accountPoolKey, err)
+			return fmt.Errorf("endpoints: remove %s: %w", key, err)
 		}
 	} else {
-		encoded, err := json.Marshal(policy)
+		updated, err = sjson.SetRawBytes(document, key, value)
 		if err != nil {
-			return fmt.Errorf("endpoints: encode the account pool: %w", err)
-		}
-		updated, err = sjson.SetRawBytes(document, accountPoolKey, encoded)
-		if err != nil {
-			return fmt.Errorf("endpoints: write %s: %w", accountPoolKey, err)
+			return fmt.Errorf("endpoints: write %s: %w", key, err)
 		}
 	}
 
@@ -225,15 +307,12 @@ func SaveAccountPool(policy *accountpool.Config) error {
 	if err := atomicfile.WriteFile(path, formatted, 0o600); err != nil {
 		return fmt.Errorf("endpoints: write %s: %w", path, err)
 	}
-	// The cached snapshot describes the file before the write: drop it,
+	// The cached snapshots describe the file before the write: drop them,
 	// so the next read picks the new one up.
 	accountPoolCache.Store(nil)
+	wrapperCache.Store(nil)
 	return nil
 }
-
-// accountPoolKey is the section name the account-routing policy lives
-// under in the configuration document.
-const accountPoolKey = "account_pool"
 
 // fileStamp renders the identity of a configuration file: its path, and
 // its size and modification time when it exists.

@@ -2,23 +2,23 @@
 
 > The 70 KB instruction block, where it is assembled, and how `--agent` replaces it.
 
-## The system prompt (`internal/agyprompt`, cycle agy-system-prompt)
+## The system prompt (`internal/app/prompt/agyprompt`, cycle agy-system-prompt)
 
 The reference sends a **70,853-byte** instruction block on every request (at
 agy 1.4.6; it was 34,350 bytes at 1.4.4); before this cycle the clone sent
-none. `internal/agyprompt` reproduces it byte for byte. Read in this order:
+none. `internal/app/prompt/agyprompt` reproduces it byte for byte. Read in this order:
 
 | File | What it is |
 |---|---|
-| `internal/agyprompt/agyprompt.go` | `Options` + `Build`: twelve XML sections, fixed order, no trailing newline |
-| `internal/agyprompt/template.go` | the renderer: the recovered templates, the data model they read, the section framing |
-| `internal/agytemplates/` | **the reference's own `.tmpl` files** (17, embedded once) — `templates/PROVENANCE.md` has the digests and the extraction recipe; `internal/agyprompt` and `internal/agystep` are the two consumers |
-| `internal/agyprompt/sections/*.txt` | the five bodies that have no template (see below) |
-| `internal/agyprompt/testdata/capture_1.4.6.txt` | the ground truth — a real agy 1.4.6 request recorded through the proxy |
-| `internal/agyprompt/skills.go` | `DiscoverSkills`: the agy skill roots → the `<skills>` list |
-| `internal/agyprompt/rules.go` | `DiscoverUserRules`: the rule files → the `<user_rules>` section |
-| `internal/builtinskills/` | the reference's **builtin skill bundle** (9 skills), unpacked into `<AppDataDir>/builtin/skills` |
-| `internal/plugins/plugins.go` | which user plugins are loaded (parseable `plugin.json`, `plugins.<name>.enabled`), and which skill directories they contribute |
+| `internal/app/prompt/agyprompt/agyprompt.go` | `Options` + `Build`: twelve XML sections, fixed order, no trailing newline |
+| `internal/app/prompt/agyprompt/template.go` | the renderer: the recovered templates, the data model they read, the section framing |
+| `internal/app/prompt/agytemplates/` | **the reference's own `.tmpl` files** (17, embedded once) — `templates/PROVENANCE.md` has the digests and the extraction recipe; `internal/app/prompt/agyprompt` and `internal/app/prompt/step` are the two consumers |
+| `internal/app/prompt/agyprompt/sections/*.txt` | the five bodies that have no template (see below) |
+| `internal/app/prompt/agyprompt/testdata/capture_1.4.6.txt` | the ground truth — a real agy 1.4.6 request recorded through the proxy |
+| `internal/app/prompt/agyprompt/skills.go` | `DiscoverSkills`: the agy skill roots → the `<skills>` list |
+| `internal/app/prompt/agyprompt/rules.go` | `DiscoverUserRules`: the rule files → the `<user_rules>` section |
+| `internal/features/tools/skills/` | the reference's **builtin skill bundle** (9 skills), unpacked into `<AppDataDir>/builtin/skills` |
+| `internal/features/plugins/core/plugins.go` | which user plugins are loaded (parseable `plugin.json`, `plugins.<name>.enabled`), and which skill directories they contribute |
 | `internal/pigrt/runtime.go` | an empty `Options.SystemPrompt` now means **the reference prompt**, not PiG's; `PigPrompt: true` restores PiG's |
 | `internal/cliapp/tui_stream_prompt.go` | the TUI's builder, passed as `agent.Options.SystemPrompt` |
 
@@ -28,7 +28,7 @@ none. `internal/agyprompt` reproduces it byte for byte. Read in this order:
 assembles the block from Go `text/template` sources it embeds under
 `google3/third_party/jetski/prompt/template_provider/templates/`; those 17
 files are now in the repo, byte for byte, under
-`internal/agytemplates/templates/`, and `internal/agyprompt/template.go`
+`internal/app/prompt/agytemplates/templates/`, and `internal/app/prompt/agyprompt/template.go`
 renders them with `text/template`:
 
 | Section | Template |
@@ -73,7 +73,7 @@ byte for byte.
 
 ### The builtin skills are the reference's
 
-`internal/builtinskills/` carries the nine skills the CLI embeds — the two
+`internal/features/tools/skills/` carries the nine skills the CLI embeds — the two
 `assets/external/skills/` ones the prompt advertises (`agy-customizations`,
 `antigravity_guide`) and the seven `assets/shared/skills/` ones behind
 feature flags — and `internal/cliapp/run.go` unpacks them into
@@ -87,15 +87,18 @@ Five things to know:
 
 - **The prompt is a `.tmpl` file, and the templates are now in the repo.** The
   reference assembles the block from templates the binary embeds. The CLI's
-  copies were extracted verbatim into `internal/agytemplates/templates/` (17
+  copies were extracted verbatim into `internal/app/prompt/agytemplates/templates/` (17
   files: `system_prompts/`, `step_strings/`, `helpers/`) and the prompt is
-  rendered from them. The IDE's copies are in
+  rendered from them. The IDE's copies were extracted into
   `out/ide-language-server/embed-fs/google3/third_party/jetski/prompt/template_provider/templates/`
-  and are **not** the same bytes — the CLI's `guidelines.tmpl` has one bullet
-  the IDE's does not, and the captured CLI request contains that bullet, so
-  the CLI's copy is the one that has to be rendered. The built-in skills the
+  as well: they differed from the CLI's at extraction time (the CLI's
+  `guidelines.tmpl` carried one bullet the IDE's did not, and the captured CLI
+  request contains that bullet), and they were **synced to the CLI's bytes**
+  afterwards — all 17 files are byte-identical today. That extracted copy is
+  retired; `internal/app/prompt/agytemplates/templates/` is the only copy now,
+  and the old one is in git history. The built-in skills the
   prompt advertises came out of the same binary and are now in
-  `internal/builtinskills/`. See
+  `internal/features/tools/skills/`. See
   `out/ide-language-server/embedded-assets.md`.
 - **The system prompt had never reached the wire.** `piagentbridge.systemText`
   read only `SystemMessage.Content`, but a `coding.Session` puts the text in
@@ -116,7 +119,10 @@ Five things to know:
   preamble says "these rules take precedence over any **other** instructions"
   — the 1.3.x–1.4.3 wording was "any **following** instructions". A custom
   agent's prompt carries the same section, between `<user_information>` and
-  `<skills>`. Report: `docs/cycles/reference-drift-145/`.
+  `<skills>`. Rules exceeding the token budget are demoted to a path listing
+  (`formatDemotedMemoriesAsPrompt`) and dynamically attached to file tool
+  results via `GetTriggeredMemories`. Report:
+  `docs/cycles/triggered-memories-and-history-smoothing/`.
 - **1.4.6 added `<terminal_sandbox>`** (3,371 B, second position, right after
   `<identity>`) and one `<guidelines>` bullet. The section is the prompt half
   of the `run_command` `BypassSandbox` parameter (see *The tool surface*).
@@ -126,15 +132,15 @@ Five things to know:
   is the **IDE** prompt, not the CLI's; it corroborates the identity line and
   the `<user_information>` fields and nothing more. Both external references are
   listed in `docs/research/REFERENCES.md`.
-- **Releasing a new `agy` invalidates this fixture.** `internal/referencedrift` now
+- **Releasing a new `agy` invalidates this fixture.** `internal/infra/referencedrift` now
   detects that (see *Reference drift* below): it names this file as suspect and
   prints the re-capture procedure. Note that `TestBuildMatchesCapture` will **not**
   be what fails first — it only compares our `Build()` against this committed
   capture, so both can be stale together and stay green. Re-capture via
   `OPENAGY_CAPTURE_DIR` (see the wrapper section below), then re-extract the
-  templates from the new binary into `internal/agytemplates/templates/` (the
+  templates from the new binary into `internal/app/prompt/agytemplates/templates/` (the
   digests in `templates/PROVENANCE.md` and in
-  `internal/agytemplates/agytemplates_test.go` have to be updated with them),
+  `internal/app/prompt/agytemplates/agytemplates_test.go` have to be updated with them),
   then reseal the lock.
 
 Report: `docs/cycles/agy-system-prompt/deliverable.md`,
@@ -142,7 +148,45 @@ Report: `docs/cycles/agy-system-prompt/deliverable.md`,
 
 ---
 
-## The cumulative prompt (`internal/cumulativeprompt`, cycle `cycle-312-cumulative-prompt`, aligned in `cycle-313-cumulative-prompt-alignment`, config pinned in `cycle-314-cumulative-prompt-config`)
+## The modular rules directory (cycle 383)
+
+A rule file is a markdown file with **frontmatter**, and the
+frontmatter's **trigger** decides whether the rule is loaded at all.
+`internal/app/prompt/agyprompt` owns the whole vocabulary in three
+files:
+
+| file | owns |
+|---|---|
+| `rules_frontmatter.go` | the trigger vocabulary and the frontmatter's parsing |
+| `rules_include.go` | the `@[label](path)` expansion — a rule file may include another |
+| `rules_manifest.go` | the `.agents/rules.json` manifest |
+
+There are **four** triggers:
+
+| trigger | loaded? |
+|---|---|
+| `always_on` | always |
+| `model_decision` | when the model asks for it |
+| `glob` | when a path matches the glob |
+| `manual` | **never** — a manual rule is the user's to invoke by hand |
+
+`manual` is never loaded because that is the **documentation's** rule,
+not the clone's choice.
+
+The **manifest** (`<workspace>/.agents/rules.json`) carries four
+members: `inherits` (another manifest to inherit from), `entries` (the
+rules to load), `include_only` and `exclude` (the filters).
+
+The **token budget** for the user's rules is **20 000 tokens**, counted
+as `len/4`. It was 30 000 before cycle 383; the documentation's figure
+is the smaller one. Rules that do not fit are demoted to a path listing
+and attached to the file tool's results, exactly as the reference does.
+
+Report: `docs/cycles/cycle-383-docs-alignment/deliverable.md`.
+
+---
+
+## The cumulative prompt (`internal/app/prompt/cumulative`, cycle `cycle-312-cumulative-prompt`, aligned in `cycle-313-cumulative-prompt-alignment`, config pinned in `cycle-314-cumulative-prompt-config`)
 
 The system prompt is one half of what reaches the model. The other half is
 the **cumulative prompt**: the reference's handler builds every prompt out of
@@ -151,8 +195,8 @@ messages. One piece of that context is the **implicit trajectory**: the `!`
 commands the user ran outside the conversation.
 
 The reference records a `!` command in that trajectory *only*; it never enters
-the conversation. `internal/implicit` writes the store byte for byte
-(cycle 304), and `internal/cumulativeprompt` is what makes it model-visible.
+the conversation. `internal/app/prompt/implicit` writes the store byte for byte
+(cycle 304), and `internal/app/prompt/cumulative` is what makes it model-visible.
 
 ### What a `!` command contributes
 
@@ -184,7 +228,7 @@ line (the command line when the proposed one is empty), labelled `Command: `,
 and the working directory on a second line when the record carries one. The
 second message is the **step string** — `step_strings/run_command.tmpl`'s
 rendering — and *not* the CLI's own `Command exited with code N.` formatter.
-Both shapes live in the clone (`internal/agystep` reads both); the cumulative
+Both shapes live in the clone (`internal/app/prompt/step` reads both); the cumulative
 prompt uses the step-string one.
 
 ### The step id, the gate and the limit
@@ -249,8 +293,15 @@ Report: `docs/cycles/cycle-312-cumulative-prompt/deliverable.md`,
 ## Custom agents (`--agent`, cycle `custom-agents`)
 
 `--agent <name>` selects a Markdown agent, not a built-in catalogue entry.
-`internal/agent/list.go` discovers them from four sources and `ValidateAgent`
+`internal/features/agents` discovers them from four sources and `ValidateAgent`
 produces the reference's exact errors. Read it before touching the flag.
+
+**The catalogue is a feature, not an engine concern (cycle 381).** It used to
+live in `internal/agent` — the PiG-backed turn-loop host — which forced the
+`/agents` panel to carry a second copy of the `Agent` type, because the ui
+tier may not import a host. It lives in `internal/features/agents` (tier 2)
+now, the panel names that type directly, and the host's field-by-field
+mapping is gone.
 
 | Source | Root |
 |---|---|
@@ -268,21 +319,21 @@ listed in `(available: …)`.
 
 A custom agent replaces both prompt and tool surface:
 
-- `internal/agyprompt.BuildAgent` emits the body **split at level-1 Markdown
+- `internal/app/prompt/agyprompt.BuildAgent` emits the body **split at level-1 Markdown
   headings** — each part wrapped in a tag named after its heading, the part
   before the first heading keeping the literal `<System Prompt>` tag — then
   `user_information, user_rules, skills, messaging, artifacts, guidelines,
   communication_style`. No `identity`, `terminal_sandbox`, `subagents`,
   `slash_commands`, or `conversation_transcript`; `sections/agent_messaging.txt`
   is the reduced messaging body; builtin skills are filtered out. The five
-  captured shapes are pinned by `internal/agyprompt/agent_blocks_test.go`.
+  captured shapes are pinned by `internal/app/prompt/agyprompt/agent_blocks_test.go`.
 - Skills in both prompts are the builtin allowlist, `<cwd>/.agents/skills`,
   the shared `~/.gemini/skills` library, and plugin `skills/` (a parseable
   `plugin.json` is required; user plugins also honor `config.json`). The
   shared library **is** in the prompt — the earlier "`/skills`-only" claim
   came from 1.4.2/1.4.3 captures taken on a machine whose library was empty
   (【一手】, live 1.4.6 request, `docs/cycles/reference-drift-146/`).
-- `internal/agenttools` holds the captured 1.4.7 declarations for exactly
+- `internal/app/agenttools` holds the captured 1.4.7 declarations for exactly
   `send_message, view_file, read_url_content, search_web, schedule,
   generate_image, manage_task`. `Tools` adapts them to PiG; `Registry` is the
   filtered TUI catalogue. Print mode sets `AgentBody`, `ExtraTools`, skips the

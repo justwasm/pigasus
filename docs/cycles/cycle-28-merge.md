@@ -54,7 +54,7 @@
 
 | 冲突 | 解决 |
 |---|---|
-| `git reset --hard` 后 `go-recovered/decompiled/c-1.3.4/64ec*.c` 残留 (NAS IO 慢) | `git stash --include-untracked` 暂存, cherry-pick 后 drop |
+| `git reset --hard` 后 `go-recovered/decompiled/c-1.3.4/64ec*.c` 残留 (NAS IO 慢) — that copy was retired on 2026-11-02 (see `docs/legacy-re/README.md`) | `git stash --include-untracked` 暂存, cherry-pick 后 drop |
 | `.git/index.lock` 卡住 | 手动 `rm -f .git/index.lock` |
 | 之前 merge commit `2742832` 包含两边历史 | `git reset --hard 018a8c6` 删, 用 4 个 cherry-pick 重建线性 |
 

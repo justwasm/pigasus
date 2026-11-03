@@ -19,10 +19,10 @@
 package cliapp
 
 import (
-	"github.com/justwasm/pigasus/internal/backend"
-	"github.com/justwasm/pigasus/internal/convstore"
-	"github.com/justwasm/pigasus/internal/cumulativeprompt"
-	"github.com/justwasm/pigasus/internal/implicit"
+	cumulativeprompt "github.com/justwasm/pigasus/internal/app/prompt/cumulative"
+	"github.com/justwasm/pigasus/internal/app/prompt/implicit"
+	"github.com/justwasm/pigasus/internal/app/session/convstore"
+	"github.com/justwasm/pigasus/internal/core/backend"
 )
 
 // collectImplicitMessages converts the implicit trajectory's steps that no

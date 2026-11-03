@@ -1,68 +1,117 @@
 package cliapp
 
 import (
-	"fmt"
-	"sort"
-	"strings"
-	"time"
-	"unicode/utf8"
-
-	"github.com/justwasm/pigasus/internal/agent"
-	"github.com/justwasm/pigasus/internal/compaction"
-	"github.com/justwasm/pigasus/internal/printmode"
-	"github.com/justwasm/pigasus/internal/tuilib"
+	"github.com/justwasm/pigasus/internal/app/agentturn"
+	"github.com/justwasm/pigasus/internal/core/compaction"
+	"github.com/justwasm/pigasus/internal/ui/mdrender"
+	uirows "github.com/justwasm/pigasus/internal/ui/rows"
+	"github.com/justwasm/pigasus/internal/ui/toolsteps"
+	"github.com/justwasm/pigasus/internal/ui/transcript"
+	"github.com/justwasm/pigasus/internal/ui/views/statusrow"
 	"github.com/justwasm/pigasus/palette"
 )
 
-type compactSpinnerTickMsg struct{}
-
-func (m *runMode) replaceRange(start, end int, lines []string) {
-	if start < 0 || start > len(m.response) {
-		return
+// transcriptDocument hands the host's transcript state to the ui tier.
+//
+// The host owns the rows: the document is the shape the transcript's
+// mechanics work on, and the host takes the result back through
+// applyTranscriptDocument.
+func (m *runMode) transcriptDocument() transcript.Document {
+	return transcript.Document{
+		Lines:             m.response,
+		Blocks:            m.blocks,
+		Assistants:        m.assistants,
+		UserBlocks:        m.userBlocks,
+		Runs:              m.liveStepRuns,
+		LiveStart:         m.liveStart,
+		ReplyStart:        m.replyStart,
+		LiveThoughtRunIdx: m.liveThoughtRunIdx,
+		LiveTextLines:     m.liveTextLines,
+		LiveReplyBuf:      m.liveReplyBuf,
+		StreamedText:      m.streamedText,
 	}
-	if end < start || end > len(m.response) {
-		end = len(m.response)
-	}
-	tail := append([]string(nil), m.response[end:]...)
-	m.response = append(m.response[:start], lines...)
-	m.response = append(m.response, tail...)
 }
 
+// applyTranscriptDocument takes the transcript's state back.
+func (m *runMode) applyTranscriptDocument(doc transcript.Document) {
+	m.response = doc.Lines
+	m.blocks = doc.Blocks
+	m.assistants = doc.Assistants
+	m.userBlocks = doc.UserBlocks
+	m.liveStepRuns = doc.Runs
+	m.liveStart = doc.LiveStart
+	m.replyStart = doc.ReplyStart
+	m.liveThoughtRunIdx = doc.LiveThoughtRunIdx
+	m.liveTextLines = doc.LiveTextLines
+	m.liveReplyBuf = doc.LiveReplyBuf
+	m.streamedText = doc.StreamedText
+}
+
+// transcriptOptions are the host's own render facts, as the transcript's
+// mechanics see them.
+func (m *runMode) transcriptOptions(msg toolsteps.TurnDoneMsg) transcript.Options {
+	opts := m.repaintOptions()
+	opts.EmptyTurn = agentturn.IsEmptyAssistantTurn(msg.Reply, nil, msg.Reasoning)
+	return opts
+}
+
+// repaintOptions are the host's own render facts, as the transcript's
+// repaint engine sees them.
+//
+// The viewport's height is handed over as a lookup rather than as a
+// number: the engine asks for it only when it has to decide how many of
+// the blocks it repaints, and the host's answer is a cached
+// measurement.
+func (m *runMode) repaintOptions() transcript.Options {
+	verb := m.currentVerbosity()
+	return transcript.Options{
+		Width:          m.width,
+		Height:         m.height,
+		Verbosity:      verb,
+		Expanded:       m.effectiveExpanded(verb),
+		ViewportHeight: m.viewportHeight,
+		Streaming:      m.streaming,
+		Thought: transcript.LiveThought{
+			Active: m.thinking,
+			Text:   m.liveThinking,
+			Since:  m.thinkingSince,
+		},
+	}
+}
+
+// toggleTrajectoryExpanded flips the trajectory-wide expanded flag,
+// clears the scrollback by snapping the viewport to the active turn,
+// and repaints the tool-step blocks under the active verbosity.
+func (m *runMode) toggleTrajectoryExpanded() {
+	m.expandedUserToggled = true
+	m.expanded = !m.isExpanded()
+	m.scroll = 0
+	m.autoScroll = true
+	m.rowsCacheDirty = true
+	m.viewCacheValid = false
+	m.rerenderBlocks()
+	m.rerenderLiveSteps()
+}
+
+// rerenderBlocks repaints the transcript's tool-step blocks under the
+// active verbosity and expansion.
 func (m *runMode) rerenderBlocks() {
 	m.rowsCacheDirty = true
-	for i := range m.blocks {
-		b := &m.blocks[i]
-		var lines []string
-		if b.bash != nil {
-			lines = bashBlockLines(b.bash, m.expanded, m.height)
-		} else {
-			lines = toolBlockLines(b.steps, m.expanded, m.width)
-		}
-		delta := len(lines) - b.lines
-		oldEnd := b.start + b.lines
-		if delta == 0 {
-			m.replaceRange(b.start, oldEnd, lines)
-			continue
-		}
-		m.replaceRange(b.start, oldEnd, lines)
-		b.lines = len(lines)
-		for j := range m.blocks {
-			if m.blocks[j].start > b.start {
-				m.blocks[j].start += delta
-			}
-		}
-		for j := range m.assistants {
-			if m.assistants[j].start >= oldEnd {
-				m.assistants[j].start += delta
-			}
-		}
-		if m.liveStart >= oldEnd {
-			m.liveStart += delta
-		}
-		if m.replyStart >= oldEnd {
-			m.replyStart += delta
-		}
+	doc := m.transcriptDocument()
+	doc.RerenderBlocks(m.repaintOptions())
+	m.applyTranscriptDocument(doc)
+}
+
+// ensureVisibleBlocksExpanded repaints the blocks inside the visible
+// window, so a block that scrolls into view is drawn under the current
+// verbosity and expansion.
+func (m *runMode) ensureVisibleBlocksExpanded(avail int) {
+	doc := m.transcriptDocument()
+	if doc.EnsureVisibleBlocksExpanded(m.repaintOptions(), avail, m.scroll, m.autoScroll) {
+		m.rowsCacheDirty = true
+		m.viewCacheValid = false
 	}
+	m.applyTranscriptDocument(doc)
 }
 
 // rerenderTranscriptForTheme repaints all user prompts, assistant replies,
@@ -77,205 +126,82 @@ func (m *runMode) rerenderTranscriptForTheme() {
 	}
 	m.rowsCacheDirty = true
 
-	// 1. Re-render all user prompt rows and slash echo blocks in m.response in-place
-	for i, line := range m.response {
-		inBlock := false
-		for _, b := range m.blocks {
-			if i >= b.start && i < b.start+b.lines {
-				inBlock = true
-				break
-			}
-		}
-		if !inBlock {
-			for _, a := range m.assistants {
-				if i >= a.start && i < a.start+a.lines {
-					inBlock = true
-					break
-				}
-			}
-		}
-		if inBlock {
-			continue
-		}
+	doc := m.transcriptDocument()
+	doc.RerenderForTheme(m.repaintOptions())
+	m.applyTranscriptDocument(doc)
 
-		if isUserPromptRow(line) {
-			plain := stripANSI(line)
-			if idx := strings.Index(plain, "> "); idx >= 0 {
-				prompt := plain[idx+2:]
-				if strings.HasPrefix(prompt, "/") {
-					m.response[i] = palette.WarningBlueOpen + "> " + prompt + palette.WarningBlueClose
-				} else {
-					m.response[i] = userPromptRow(prompt)
-				}
-			}
-		} else if strings.Contains(line, "\u23bf") || strings.Contains(line, "⎿") {
-			plain := stripANSI(line)
-			var hookGlyph string
-			var msg string
-			if idx := strings.Index(plain, "\u23bf"); idx >= 0 {
-				hookGlyph = "\u23bf"
-				msg = strings.TrimSpace(plain[idx+len("\u23bf"):])
-			} else if idx := strings.Index(plain, "⎿"); idx >= 0 {
-				hookGlyph = "⎿"
-				msg = strings.TrimSpace(plain[idx+len("⎿"):])
-			}
-			if hookGlyph != "" {
-				m.response[i] = palette.WarningBlueOpen + "  " + hookGlyph + "  " + palette.WarningBlueClose + palette.SubtleOpen + msg + "\x1b[39m"
-			}
-		}
-	}
-
-	// 2. Re-render all assistant markdown replies
-	for k := range m.assistants {
-		a := &m.assistants[k]
-		if a.start < 0 || a.start > len(m.response) {
-			continue
-		}
-		oldEnd := a.start + a.lines
-		if oldEnd > len(m.response) {
-			oldEnd = len(m.response)
-		}
-		styled := renderMarkdown(a.raw, m.width)
-		lines := strings.Split(styled, "\n")
-		delta := len(lines) - a.lines
-		m.replaceRange(a.start, oldEnd, lines)
-		a.lines = len(lines)
-		if delta != 0 {
-			for j := k + 1; j < len(m.assistants); j++ {
-				if m.assistants[j].start >= oldEnd {
-					m.assistants[j].start += delta
-				}
-			}
-			for j := range m.blocks {
-				if m.blocks[j].start >= oldEnd {
-					m.blocks[j].start += delta
-				}
-			}
-			if m.liveStart >= oldEnd {
-				m.liveStart += delta
-			}
-			if m.replyStart >= oldEnd {
-				m.replyStart += delta
-			}
-		}
-	}
-
-	// 3. Re-render all tool step blocks (using new palette colours)
-	m.rerenderBlocks()
-
-	// 4. Invalidate view caches so viewport redraws completely
+	// Invalidate view caches so viewport redraws completely
 	m.rowsCacheDirty = true
 	m.rowsCache = wrapSlot{}
 	m.rowsView = composedRows{}
 }
 
-func (m *runMode) blankBefore() {
-	if len(m.response) == 0 {
+// reflowTranscript re-renders and re-wraps the entire transcript (markdown replies,
+// tool step blocks, turn separators, in-flight streaming replies) when the terminal width changes.
+//
+// 【反编译】 agy 1.4.12 ConversationModel.handleResizeRedraw (0x102bcbb70)
+// calls buildRenderedItems (0x102bbc2d0) on terminal resize, recalculating and
+// re-rendering all message items to reflow properly for the new column width.
+func (m *runMode) reflowTranscript(width int) {
+	if m == nil || width <= 0 {
 		return
 	}
-	if strings.TrimSpace(stripANSI(m.response[len(m.response)-1])) != "" {
-		m.response = append(m.response, "")
-	}
-}
-
-type liveStepBatch struct {
-	last  int
-	start int
-	steps []toolStep
-}
-
-func (m *runMode) finaliseLeadingThought(msg turnDoneMsg) {
-	extra := len(msg.steps) - len(m.liveStepRuns)
-	if extra > 0 && msg.steps[0].kind == stepKindThought {
-		thought := msg.steps[:extra]
-		lines := toolBlockLines(thought, m.expanded, m.width)
-		at := m.liveStart
-		m.replaceRange(at, at, lines)
-		for j := range m.liveStepRuns {
-			m.liveStepRuns[j].start += len(lines)
-		}
-		if m.replyStart >= at {
-			m.replyStart += len(lines)
-		}
-		m.blocks = append(m.blocks, turnBlock{start: at, lines: len(lines), steps: thought})
-	}
-}
-
-func (m *runMode) collectLiveStepBatches() []liveStepBatch {
-	var batches []liveStepBatch
-	for i, r := range m.liveStepRuns {
-		if n := len(batches); n > 0 && batches[n-1].steps[0].batch == r.step.batch {
-			batches[n-1].last = i
-			batches[n-1].steps = append(batches[n-1].steps, r.step)
-			continue
-		}
-		batches = append(batches, liveStepBatch{last: i, start: r.start, steps: []toolStep{r.step}})
-	}
-	return batches
-}
-
-func (m *runMode) replaceLiveStepBatches(batches []liveStepBatch) {
-	for bi := len(batches) - 1; bi >= 0; bi-- {
-		b := batches[bi]
-		end := m.liveStepRuns[b.last].start + m.liveStepRuns[b.last].lines
-		if b.start < 0 || end > len(m.response) {
-			continue
-		}
-		lines := toolBlockLines(b.steps, m.expanded, m.width)
-		delta := len(lines) - (end - b.start)
-		m.replaceRange(b.start, end, lines)
-		m.blocks = append(m.blocks, turnBlock{start: b.start, lines: len(lines), steps: b.steps})
-		if delta != 0 {
-			for j := range m.liveStepRuns {
-				if m.liveStepRuns[j].start >= end {
-					m.liveStepRuns[j].start += delta
-				}
-			}
-			if m.replyStart >= end {
-				m.replyStart += delta
-			}
-		}
-	}
-}
-
-func (m *runMode) finaliseLiveTurn(msg turnDoneMsg) bool {
-	if len(m.liveStepRuns) == 0 {
-		return false
-	}
+	m.width = width
+	mdrender.SetCurrentWidth(width)
 	m.rowsCacheDirty = true
-	m.finaliseLeadingThought(msg)
-	batches := m.collectLiveStepBatches()
-	m.replaceLiveStepBatches(batches)
-	sort.SliceStable(m.blocks, func(i, j int) bool { return m.blocks[i].start < m.blocks[j].start })
-	return true
+	m.viewCacheValid = false
+	m.extraRowsValid = false
+
+	doc := m.transcriptDocument()
+	doc.Reflow(m.repaintOptions())
+	m.applyTranscriptDocument(doc)
+
+	// Invalidate viewport caches and rebuild wraps for the new width.
+	m.rowsCacheDirty = true
+	m.rowsCache = wrapSlot{}
+	m.rowsCacheN1 = wrapSlot{}
+	m.rowsView = composedRows{}
+	m.viewCacheValid = false
+	m.cachedHeaderKey = headerCacheKey{}
 }
 
+// syncLiveThoughtStep paints the turn's live thought row.
+func (m *runMode) syncLiveThoughtStep() {
+	doc := m.transcriptDocument()
+	if doc.SyncLiveThoughtStep(m.repaintOptions()) {
+		m.rowsCacheDirty = true
+	}
+	m.applyTranscriptDocument(doc)
+}
+
+// finishLiveThinking closes the turn's live thought: the running row
+// becomes the finished thought.
+func (m *runMode) finishLiveThinking() {
+	if !m.thinking {
+		return
+	}
+	// The options are taken while the thought is still live: the
+	// finished thought is painted from the thought that was running.
+	opts := m.repaintOptions()
+	m.thinking = false
+	m.liveThinking = ""
+	m.liveThinkingSnippet = ""
+
+	doc := m.transcriptDocument()
+	if doc.FinishLiveThinking(opts) {
+		m.rowsCacheDirty = true
+	}
+	m.applyTranscriptDocument(doc)
+}
+
+// rerenderLiveSteps repaints the in-flight step rows: the live thought
+// and the tool batches the model is still running.
 func (m *runMode) rerenderLiveSteps() {
-	if len(m.liveStepRuns) == 0 {
-		return
+	doc := m.transcriptDocument()
+	if doc.RerenderLiveSteps(m.repaintOptions()) {
+		m.rowsCacheDirty = true
 	}
-	m.rowsCacheDirty = true
-	for i := len(m.liveStepRuns) - 1; i >= 0; i-- {
-		r := &m.liveStepRuns[i]
-		oldEnd := r.start + r.lines
-		if r.start < 0 || oldEnd > len(m.response) {
-			m.liveStepRuns = append(m.liveStepRuns[:i], m.liveStepRuns[i+1:]...)
-			continue
-		}
-		lines := toolStepLines(r.step, m.expanded, m.width)
-		delta := len(lines) - r.lines
-		m.replaceRange(r.start, oldEnd, lines)
-		if delta == 0 {
-			continue
-		}
-		r.lines = len(lines)
-		for j := i + 1; j < len(m.liveStepRuns); j++ {
-			m.liveStepRuns[j].start += delta
-		}
-		if m.replyStart >= oldEnd {
-			m.replyStart += delta
-		}
-	}
+	m.applyTranscriptDocument(doc)
 }
 
 // appendCompactResult renders the completion of a PiG-driven
@@ -290,7 +216,7 @@ func (m *runMode) rerenderLiveSteps() {
 func (m *runMode) appendCompactResult(msg compactDoneMsg) {
 	if msg.Err != nil {
 		m.response = append(m.response,
-			cWarningBlueOpen+"\u23bf  "+cWarningBlueClose+panelGray238+"Compact failed: "+msg.Err.Error()+panelGray238C,
+			uirows.NoticeCompact("Compact failed: "+msg.Err.Error()),
 			"",
 		)
 		return
@@ -306,19 +232,14 @@ func (m *runMode) appendCompactResult(msg compactDoneMsg) {
 	)
 }
 
-// turnErrorRow renders the transcript row for a failed turn. Delegated to agent.TurnErrorRow.
-func turnErrorRow(err error) string {
-	return agent.TurnErrorRow(err)
-}
-
-var separator = cRule(separatorWidth)
+var separator = palette.Rule(separatorWidth)
 
 // separator returns the horizontal rule drawn between the banner and the
 // prompt. Cycle 119: when the terminal width is known the rule is drawn at
 // that width rather than the fixed 220 columns, so it never wraps.
 func (m *runMode) separator() string {
 	if m.width > 0 {
-		return cRule(m.width)
+		return palette.Rule(m.width)
 	}
 	return separator
 }
@@ -341,194 +262,11 @@ const inputPrompt = "> "
 // inputWidth is the textarea render width.
 const inputWidth = 219
 
-// statusWidth is the canonical screen width used by the status row pad math.
-const statusWidth = separatorWidth
-
-// statusRightPrefix is the literal right-side label of the status row.
-const statusRightPrefix = " \u00b7 high" // " · high" (7 runes; 8 bytes UTF-8)
-
-// staticStatusRow is the static variant of statusRow used by the non-tty render path.
-func staticStatusRow(model string) string {
-	leftPlain := "? for shortcuts"
-	left := "\033[38;2;154;160;166m" + leftPlain + "\033[39m"
-	right := "\033[38;2;154;160;166m" + model + statusRightPrefix + "\033[39m"
-	pad := strings.Repeat(" ", statusWidth-utf8.RuneCountInString(leftPlain)-utf8.RuneCountInString(model)-utf8.RuneCountInString(statusRightPrefix))
-	return left + pad + right
-}
-
-// staticStatusRowWithTasks is the cycle-tasks-panel variant of staticStatusRow.
-func staticStatusRowWithTasks(model string, n int) string {
-	taskSuffix := ""
-	if n == 1 {
-		taskSuffix = " \u00b7 1 task"
-	} else if n > 1 {
-		taskSuffix = fmt.Sprintf(" \u00b7 %d tasks", n)
-	}
-	leftPlain := "? for shortcuts"
-	left := "\033[38;2;154;160;166m" + leftPlain + "\033[39m"
-	right := "\033[38;2;154;160;166m" + model + statusRightPrefix + taskSuffix + "\033[39m"
-	pad := strings.Repeat(" ", statusWidth-utf8.RuneCountInString(leftPlain)-utf8.RuneCountInString(model)-utf8.RuneCountInString(statusRightPrefix)-utf8.RuneCountInString(taskSuffix))
-	return left + pad + right
-}
-
-func (m *runMode) statusCompactLabel() string {
-	frame := usageSpinnerFrame(m.compactSpinnerFrame)
-	if m.compactEnd.IsZero() {
-		if m.compactTokensAfter > 0 {
-			return frame + "  Compacting context…  " +
-				printmode.TokenK(m.compactTokensBefore) + " → " +
-				printmode.TokenK(m.compactTokensAfter) + " (" +
-				compactDuration(m.compactStart, time.Now()) + ")"
-		}
-		return frame + "  Compacting context… (" +
-			compactDuration(m.compactStart, time.Now()) + ")"
-	}
-	return "Compacted " +
-		printmode.TokenK(m.compactTokensBefore) + " → " +
-		printmode.TokenK(m.compactTokensAfter) + " (" +
-		compactDuration(m.compactStart, m.compactEnd) + ")"
-}
-
-func (m *runMode) statusLeftSegment() (string, string) {
-	leftPlain := m.statusLeftHint()
-	left := ""
-	if leftPlain != "" {
-		left = cDimGrayOpen + leftPlain + cDimGrayClose
-	}
-
-	if badge := m.vimBadge(); badge != "" {
-		badgeStyled := cDimGrayOpen + badge + cDimGrayClose
-		if leftPlain != "" {
-			leftPlain = badge + " " + leftPlain
-			left = badgeStyled + " " + left
-		} else {
-			leftPlain = badge
-			left = badgeStyled
-		}
-	}
-	if m.helpMode || (m.panel.kind != panelNone && !m.panel.kind.keepStatusHint()) {
-		leftPlain, left = "", ""
-	}
-	if m.exitConfirm {
-		leftPlain = "press ctrl+c again to exit"
-		left = cDimGrayOpen + leftPlain + cDimGrayClose
-	}
-	if !m.compactStart.IsZero() {
-		label := m.statusCompactLabel()
-		leftPlain = label
-		left = cDimGrayOpen + label + cDimGrayClose
-	}
-	return left, leftPlain
-}
-
-// statusLeftHint is the plain text of the status row's left segment.
-//
-// The rules, in order: a visible picker says "esc to cancel" (except the
-// /model popup, which drops the hint); a streaming turn says the same;
-// queued messages ask for "up"; a non-empty buffer clears the hint
-// entirely; bash mode replaces it with its own.
-func (m *runMode) statusLeftHint() string {
-	leftPlain := "? for shortcuts"
-	bufferEmpty := strings.TrimSpace(m.input.Value()) == ""
-
-	if m.picker.Visible() {
-		leftPlain = "esc to cancel"
-		// The reference's "/model <query>" popup drops the cancel hint:
-		// its status row keeps the left segment empty.
-		// 【一手】 agy 1.4.6, live.
-		if m.picker.Kind() == tuilib.PickerKindModel {
-			leftPlain = ""
-		}
-	}
-	if m.streaming && !m.picker.Visible() && leftPlain != "" {
-		leftPlain = "esc to cancel"
-	}
-	if (len(m.streamQueue) > 0 || len(m.bashQueue) > 0) && !m.picker.Visible() {
-		leftPlain = "  Press up to edit queued messages"
-	}
-	if (!bufferEmpty || m.resumeMode) && !m.picker.Visible() {
-		leftPlain = ""
-	}
-	if m.bashMode && !m.picker.Visible() && !m.helpMode {
-		leftPlain = " activated bash mode · esc to cancel"
-	}
-	return leftPlain
-}
-
-type statusRightInfo struct {
-	styled        string
-	modePlain     string
-	rightPlainLen int
-}
-
-func (m *runMode) buildRightStyled(statusModel, suffix, taskSuffix string) (string, string) {
-	agentPartPlain := ""
-	right := ""
-	if m.agentName != "" {
-		agentPartPlain = m.agentName + " (" + statusModel + suffix + taskSuffix + ")  /agents"
-		if m.queueMode {
-			agentPartPlain += " · Queue mode"
-		}
-		right = cDimGrayOpen + agentPartPlain + cDimGrayClose
-	} else {
-		right = cDimGrayOpen + statusModel + suffix + taskSuffix
-		if m.queueMode {
-			right += " · Queue mode"
-		}
-		right += cDimGrayClose
-	}
-	return right, agentPartPlain
-}
-
-func (m *runMode) statusRightSegment() statusRightInfo {
-	statusModel := m.statusModel
-	if statusModel == "" {
-		statusModel = m.model
-	}
-	modePlain, modeStyled := "", ""
-	if m.mode != "" {
-		modePlain = m.mode + " · "
-		modeStyled = statusModeColor(m.mode) + m.mode + cDimGrayOpen + " · "
-	}
-	suffix := m.statusEffortSuffix()
-	taskSuffix := m.tasksStatusSuffix()
-
-	right, agentPartPlain := m.buildRightStyled(statusModel, suffix, taskSuffix)
-
-	rightPlainLen := utf8.RuneCountInString(statusModel) + utf8.RuneCountInString(suffix) + utf8.RuneCountInString(taskSuffix)
-	if m.agentName != "" {
-		rightPlainLen = utf8.RuneCountInString(agentPartPlain)
-	}
-
-	return statusRightInfo{
-		styled:        modeStyled + right,
-		modePlain:     modePlain,
-		rightPlainLen: rightPlainLen,
-	}
-}
-
 // statusRow is the status area's single row: the custom script's output
 // when one is active, the built-in template otherwise.
 func (m *runMode) statusRow() string {
 	if out, _ := m.externalRenderedForRow(); out != "" {
 		return out
 	}
-	return m.builtinStatusRow()
-}
-
-// builtinStatusRow is the reference's built-in status line.
-func (m *runMode) builtinStatusRow() string {
-	left, leftPlain := m.statusLeftSegment()
-	rightInfo := m.statusRightSegment()
-
-	width := statusWidth
-	if m.width > 0 {
-		width = m.width
-	}
-	padLen := width - utf8.RuneCountInString(leftPlain) - utf8.RuneCountInString(rightInfo.modePlain) - rightInfo.rightPlainLen
-	if padLen < 1 {
-		padLen = 1
-	}
-	pad := strings.Repeat(" ", padLen)
-	return left + pad + rightInfo.styled
+	return statusrow.Render(m.statusRowState())
 }

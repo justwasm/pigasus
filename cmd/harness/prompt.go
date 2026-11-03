@@ -31,6 +31,7 @@ import (
 	"strings"
 
 	"github.com/justwasm/pigasus/harnessprompt"
+	"github.com/justwasm/pigasus/internal/app/harnesstools"
 	pb "github.com/justwasm/pigasus/localharness/pb/localharness"
 )
 
@@ -73,7 +74,7 @@ func (c *conversation) promptOptions() harnessprompt.Options {
 		// The subagent tool decides two things in the prompt: whether
 		// the `<subagents>` section is there, and whether the
 		// messaging section counts agents among the message sources.
-		SubagentTool: c.sideToolSubset()["invoke_subagent"],
+		SubagentTool: c.sideToolSubset()[harnesstools.ToolInvokeSubagen],
 		// The user-queued message feature is part of every session the
 		// reference opens; nothing in the config turns it off.
 		MessageTool: true,

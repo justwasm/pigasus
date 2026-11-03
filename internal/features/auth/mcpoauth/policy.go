@@ -52,7 +52,7 @@ type HTTPStatusError interface {
 
 // HTTPError is the structured form of a non-2xx HTTP response from a
 // remote MCP server or its authorization server. It mirrors the shape
-// of internal/backend.HTTPError but lives in this package so the
+// of internal/apierror.HTTPError but lives in this package so the
 // policy does not depend on the backend transport.
 type HTTPError struct {
 	StatusCode int

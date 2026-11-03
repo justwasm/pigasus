@@ -167,7 +167,7 @@ func TestBasicMotions(t *testing.T) {
 	feed(t, s, "h")
 	checkCursor(t, s, 0, 2)
 	// l stops on the last character.
-	feed(t, s, "999l")
+	feed(t, s, "lllll")
 	checkCursor(t, s, 0, 4)
 
 	s = newWith(t, "aaa\nbbb\nccc")
@@ -193,10 +193,6 @@ func TestBoundaries(t *testing.T) {
 	checkCursor(t, s, 2, 0)
 	feed(t, s, "gg")
 	checkCursor(t, s, 0, 0)
-	feed(t, s, "2G")
-	checkCursor(t, s, 1, 0)
-	feed(t, s, "3gg")
-	checkCursor(t, s, 2, 0)
 }
 
 func TestWordMotions(t *testing.T) {
@@ -382,31 +378,30 @@ func TestVisualCase(t *testing.T) {
 }
 
 // --- Counts -----------------------------------------------------------
+//
+// The reference's commands take no count prefix, so the counts live in
+// nocount_test.go — this file keeps the plain single-action commands.
 
-func TestCounts(t *testing.T) {
+func TestSingleActions(t *testing.T) {
 	s := newWith(t, "aaaaaa")
-	feed(t, s, "3x")
-	checkText(t, s, "aaa")
+	feed(t, s, "x")
+	checkText(t, s, "aaaaa")
 
 	s = newWith(t, "a b c d")
-	feed(t, s, "2dw")
-	checkText(t, s, "c d")
+	feed(t, s, "dw")
+	checkText(t, s, "b c d")
 
 	s = newWith(t, "a\nb\nc\nd")
-	feed(t, s, "3dd")
-	checkText(t, s, "d")
+	feed(t, s, "dd")
+	checkText(t, s, "b\nc\nd")
 
 	s = newWith(t, "abcdef")
-	feed(t, s, "3rX")
-	checkText(t, s, "XXXdef")
+	feed(t, s, "rX")
+	checkText(t, s, "Xbcdef")
 
 	s = newWith(t, "abc")
-	feed(t, s, "yy3p")
-	checkText(t, s, "abc\nabc\nabc\nabc")
-
-	s = newWith(t, "abcdef")
-	feed(t, s, "xx3u")
-	checkText(t, s, "abcdef")
+	feed(t, s, "yy2p")
+	checkText(t, s, "abc\nabc")
 }
 
 // --- Undo/redo coalescing --------------------------------------------
@@ -417,7 +412,11 @@ func TestUndoRedo(t *testing.T) {
 	checkText(t, s, "hello")
 	feed(t, s, "u")
 	checkText(t, s, "") // the whole insert run undoes as one step
-	feed(t, s, "<c-r>")
+	// "U" is the redo key. Ctrl+R is not: the reference opens the
+	// artifact review with it (official-docs/cli/vim-editor-mode.md,
+	// "u U | Undo, redo. Ctrl+R does not redo; it opens artifact
+	// review").
+	feed(t, s, "U")
 	checkText(t, s, "hello")
 }
 

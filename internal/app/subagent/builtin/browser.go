@@ -18,7 +18,12 @@ package builtin
 //
 // 【反编译】 the reference's built-in agents package carries
 // `BrowserAgent`, `defaultBuiltinSubagentNames` and
-// `CalculateAllowedSubagents` (out/seeds/funcs.txt), so the browser
+// `CalculateAllowedSubagents` — the three symbol names are the fact, and
+// they are in the reference's own seed set (spelled there
+// `…/jetski/cortex/customizations/builtin/agents/agents.BrowserAgent` and
+// so on): the live 1.4.11 Mach-O one,
+// out/local-macos/seeds/funcs.txt (the ELF-sandbox seed set that stood
+// here before is retired). So the browser
 // agent is one of the built-in *types*, and which of them are allowed
 // is a configuration question — which is why the 1.4.6 capture, taken
 // with the browser off, lists only self, research and image-generator.
@@ -30,5 +35,5 @@ package builtin
 //
 // The kind is not in Default(): the browser agent needs the session's
 // model and services, so the session registers it — see
-// internal/browsersubagent.InstallBuiltin.
+// internal/app/subagent/browser.InstallBuiltin.
 const KindBrowser Kind = "chrome_devtools"

@@ -32,7 +32,7 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/justwasm/pigasus/internal/convstore"
+	"github.com/justwasm/pigasus/internal/app/session/convstore"
 )
 
 // lsStreamPoll is how often a stream looks for a change.
@@ -155,6 +155,60 @@ func (d *Dispatcher) streamSubscribeToPlugins(ctx context.Context, payload strin
 		plugins = append(plugins, lsPluginJSON(p, catalog.Marketplaces))
 	}
 	if err := emitLSJSON(emit, "SubscribeToPlugins", map[string]any{"plugins": plugins}); err != nil {
+		return true, err
+	}
+	return true, lsHoldStream(ctx)
+}
+
+// streamWatchDirectory serves WatchDirectory. The reference sends no
+// initial frame and holds the connection open until closed.
+func (d *Dispatcher) streamWatchDirectory(ctx context.Context) (bool, error) {
+	return true, lsHoldStream(ctx)
+}
+
+// streamSubscribeToSidecars serves SubscribeToSidecars. The reference
+// emits a default SubscribeToSidecarsResponse ({}) and holds open.
+func (d *Dispatcher) streamSubscribeToSidecars(ctx context.Context, emit func(json.RawMessage) error) (bool, error) {
+	if err := emitLSJSON(emit, "SubscribeToSidecars", map[string]any{"sidecars": []any{}}); err != nil {
+		return true, err
+	}
+	return true, lsHoldStream(ctx)
+}
+
+// streamGetSidecarLogs serves GetSidecarLogs. The reference emits
+// the current log payload and holds open.
+func (d *Dispatcher) streamGetSidecarLogs(ctx context.Context, emit func(json.RawMessage) error) (bool, error) {
+	if err := emitLSJSON(emit, "GetSidecarLogs", map[string]any{"logs": ""}); err != nil {
+		return true, err
+	}
+	return true, lsHoldStream(ctx)
+}
+
+// streamWatchVersionControlState serves WatchVersionControlState.
+// The reference emits the active VCS status and holds open.
+func (d *Dispatcher) streamWatchVersionControlState(ctx context.Context, emit func(json.RawMessage) error) (bool, error) {
+	state := map[string]any{
+		"state": map[string]any{
+			"vcsType":        "VCS_TYPE_GIT",
+			"activeCommitId": "0000000000000000000000000000000000000000",
+		},
+	}
+	if err := emitLSJSON(emit, "WatchVersionControlState", state); err != nil {
+		return true, err
+	}
+	return true, lsHoldStream(ctx)
+}
+
+// streamJetboxSubscribeToGcertState serves JetboxSubscribeToGcertState.
+// The reference emits valid gcert status and holds open.
+func (d *Dispatcher) streamJetboxSubscribeToGcertState(ctx context.Context, emit func(json.RawMessage) error) (bool, error) {
+	gcert := map[string]any{
+		"gcertStatus": map[string]any{
+			"valid":     true,
+			"expiresAt": time.Now().Add(7 * 24 * time.Hour).UTC().Format("2006-01-02T15:04:05.999999Z"),
+		},
+	}
+	if err := emitLSJSON(emit, "JetboxSubscribeToGcertState", gcert); err != nil {
 		return true, err
 	}
 	return true, lsHoldStream(ctx)

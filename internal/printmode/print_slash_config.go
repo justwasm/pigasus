@@ -8,7 +8,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/justwasm/pigasus/internal/auth"
+	"github.com/justwasm/pigasus/internal/features/auth"
 )
 
 // printSlashConfigKeys is the reference's settings key set in the order
@@ -50,66 +50,6 @@ var printSlashConfigKeys = []string{
 	"useTerminalCursor",
 	"verbosity",
 	"vimInsertFirst",
-}
-
-// printSlashConfigDefaults are the reference's built-in settings defaults —
-// the value it reports for a key the user has never set.
-//
-// 【一手】 agy 1.4.8: `agy -p /config` with an empty settings.json prints
-// exactly these values, and the `--output-format json` payload carries the
-// same values with their JSON types (a string default is a string, a bool
-// default is a bool, historySize is a number, and the seven nullable keys —
-// customModelsConfig, gcp, permissions, sandboxProxy, statusLine, title,
-// trustedWorkspaces — are null).
-//
-// The 1.4.8 defaults differ from the 1.3.6 capture the clone used to carry:
-// artifactReviewPolicy is "asks-for-review" (was "always-proceed"),
-// toolPermission is "request-review" (was "always-proceed") and colorScheme
-// is "terminal" (was "light").
-var printSlashConfigDefaults = map[string]any{
-	"agentMode":               "",
-	"allowNonWorkspaceAccess": false,
-	"altScreenMode":           "default",
-	"artifactReviewPolicy":    "asks-for-review",
-	"clearScrollbackOnResize": true,
-	"colorScheme":             "terminal",
-	"contextWindow":           "",
-	"copyOnSelect":            true,
-	"customModelsConfig":      nil,
-	"disableSlashCommands":    false,
-	"editor":                  "auto",
-	"editorMode":              "default",
-	"enableTerminalSandbox":   false,
-	"gcp":                     nil,
-	"hideActiveItems":         false,
-	"historySize":             2000,
-	"model":                   "",
-	"modelProvider":           "",
-	"notifications":           false,
-	"permissions":             nil,
-	"pickerGrouping":          "none",
-	"queuedMessages":          "queue",
-	"runningLightSpeed":       "medium",
-	"sandboxProxy":            nil,
-	"seasonalThemesOff":       "",
-	"seasonalThemesOptIn":     "",
-	"showFeedbackSurvey":      true,
-	"showTips":                true,
-	"statusLine":              nil,
-	"title":                   nil,
-	"toolPermission":          "request-review",
-	"trustedWorkspaces":       nil,
-	"useG1Credits":            false,
-	"useTerminalCursor":       false,
-	"verbosity":               "medium",
-	"vimInsertFirst":          false,
-}
-
-// printSlashConfigDefaultString returns a default as a string. Keys whose
-// default is not a string yield "".
-func printSlashConfigDefaultString(key string) string {
-	s, _ := printSlashConfigDefaults[key].(string)
-	return s
 }
 
 // printSlashConfigKeySet returns the union of the reference's known settings
@@ -158,6 +98,12 @@ func printSlashConfig() string {
 // printSlashPermissions prints the settings.json permission rules as
 // "<scope>\t<action>\t<rule>", which is the shape `agy -p /permissions`
 // emits (e.g. "global\tallow\tcommand(grep)").
+//
+// The three lists are printed in the reference's own order — allow, deny,
+// ask — because the reference has three lists (PermissionGrantsConfig
+// carries GetAllow, GetDeny and GetAsk) and the ask list now steers the
+// agent's behaviour: a rule the dump does not show is a rule the user
+// cannot account for.
 func printSlashPermissions() string {
 	settings, err := readPrintSlashSettings()
 	if err != nil {
@@ -170,6 +116,9 @@ func printSlashPermissions() string {
 	for _, r := range settings.Deny {
 		fmt.Fprintf(&b, "global\tdeny\t%s\n", r)
 	}
+	for _, r := range settings.Ask {
+		fmt.Fprintf(&b, "global\task\t%s\n", r)
+	}
 	return b.String()
 }
 
@@ -177,6 +126,7 @@ func printSlashPermissions() string {
 // read.
 type printSlashSettings struct {
 	Allow []string `json:"allow"`
+	Ask   []string `json:"ask"`
 	Deny  []string `json:"deny"`
 }
 
@@ -220,13 +170,14 @@ func stripUTF8BOM(b []byte) []byte {
 }
 
 // jsonPermissionScope is one entry of the `/permissions` payload. `scope` comes
-// first and the two rule lists are omitempty, matching the reference:
+// first and the three rule lists are omitempty, matching the reference:
 //
 //	{"scope":"global","allow":["command(grep)",…]}
 type jsonPermissionScope struct {
 	Scope string   `json:"scope"`
 	Allow []string `json:"allow,omitempty"`
 	Deny  []string `json:"deny,omitempty"`
+	Ask   []string `json:"ask,omitempty"`
 }
 
 // printSlashPermissionsData renders the `/permissions` command payload.
@@ -240,7 +191,12 @@ func printSlashPermissionsData() any {
 	if err != nil {
 		settings = printSlashSettings{}
 	}
-	global := jsonPermissionScope{Scope: "global", Allow: settings.Allow, Deny: settings.Deny}
+	global := jsonPermissionScope{
+		Scope: "global",
+		Allow: settings.Allow,
+		Deny:  settings.Deny,
+		Ask:   settings.Ask,
+	}
 	return map[string]any{"permissions": []jsonPermissionScope{
 		{Scope: "project"},
 		{Scope: "shared"},

@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/justwasm/pigasus/internal/persistentrc"
+	persistentrc "github.com/justwasm/pigasus/internal/infra/remote/persistent"
 )
 
 // errNoServeHandler reports that the binary was built without the

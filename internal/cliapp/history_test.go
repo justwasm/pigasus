@@ -21,7 +21,7 @@ package cliapp
 //     historyDown must still reach a non-blank row.
 //  5. historyUp / historyDown land on the most recent non-blank
 //     entry even when an upstream caller somehow injected blanks
-//     directly into m.history.
+//     directly into the history list.
 
 import (
 	"bytes"
@@ -35,8 +35,11 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	"github.com/justwasm/pigasus/internal/backend"
-	"github.com/justwasm/pigasus/internal/convstore"
+	"github.com/justwasm/pigasus/internal/app/session/convstore"
+	"github.com/justwasm/pigasus/internal/core/apierror"
+	"github.com/justwasm/pigasus/internal/features/auth/eligibility"
+	"github.com/justwasm/pigasus/internal/ui/foundations/history"
+	tuiviewport "github.com/justwasm/pigasus/internal/ui/foundations/viewport"
 )
 
 // trimEmptyHistoryMode returns a runMode with a known terminal size
@@ -45,7 +48,7 @@ import (
 func trimEmptyHistoryMode(t *testing.T) *runMode {
 	t.Helper()
 	t.Setenv("ANTIGRAVITY_HOME", t.TempDir())
-	m := NewRunMode(&fakeClient{}, "u@t", "MiniMax M3", "", "/tmp", false)
+	m := newRunMode(&fakeClient{}, "u@t", "MiniMax M3", "", "/tmp", false)
 	m.Update(tea.WindowSizeMsg{Width: 80, Height: 30})
 	return m
 }
@@ -54,7 +57,7 @@ func trimEmptyHistoryMode(t *testing.T) *runMode {
 //
 // Covers the AGY 1.2.7 changelog fix. pushHistory used to skip only
 // empty strings — " " and "\n\t" went through and produced empty
-// entries in m.history, m.response, m.session, and history.jsonl.
+// entries in the history list, m.response, m.session, and history.jsonl.
 func TestPushHistory_SkipsWhitespaceOnly(t *testing.T) {
 	m := trimEmptyHistoryMode(t)
 
@@ -72,8 +75,8 @@ func TestPushHistory_SkipsWhitespaceOnly(t *testing.T) {
 	for _, b := range blanks {
 		m.pushHistory(b)
 	}
-	if len(m.history) != 0 {
-		t.Fatalf("pushHistory stored blank entries: %q", m.history)
+	if m.promptHistory.Len() != 0 {
+		t.Fatalf("pushHistory stored blank entries: %q", m.promptHistory.Entries())
 	}
 }
 
@@ -88,20 +91,20 @@ func TestPushHistory_TrimsSurroundingWhitespace(t *testing.T) {
 	m := trimEmptyHistoryMode(t)
 
 	m.pushHistory("  hello  ")
-	if len(m.history) != 1 || m.history[0] != "hello" {
-		t.Fatalf("expected trimmed history entry, got %q", m.history)
+	if m.promptHistory.Len() != 1 || m.promptHistory.Entries()[0] != "hello" {
+		t.Fatalf("expected trimmed history entry, got %q", m.promptHistory.Entries())
 	}
 
 	// Trim happens BEFORE the dedupe check.
 	m.pushHistory("\n\thello\t\n")
-	if len(m.history) != 1 {
-		t.Fatalf("expected dedupe to collapse whitespace-padded duplicate, got %q", m.history)
+	if m.promptHistory.Len() != 1 {
+		t.Fatalf("expected dedupe to collapse whitespace-padded duplicate, got %q", m.promptHistory.Entries())
 	}
 
 	// Internal whitespace is preserved — only the outer run is trimmed.
 	m.pushHistory("  multi word prompt ")
-	if len(m.history) != 2 || m.history[1] != "multi word prompt" {
-		t.Fatalf("expected internal whitespace preserved, got %q", m.history)
+	if m.promptHistory.Len() != 2 || m.promptHistory.Entries()[1] != "multi word prompt" {
+		t.Fatalf("expected internal whitespace preserved, got %q", m.promptHistory.Entries())
 	}
 }
 
@@ -118,7 +121,7 @@ func TestSubmitPrompt_RejectsWhitespaceOnly(t *testing.T) {
 
 	beforeResp := len(m.response)
 	beforeSess := len(m.session)
-	beforeHist := len(m.history)
+	beforeHist := m.promptHistory.Len()
 
 	if cmd := m.submitPrompt(); cmd != nil {
 		t.Errorf("submitPrompt for blank input returned cmd %v, want nil", cmd)
@@ -130,8 +133,8 @@ func TestSubmitPrompt_RejectsWhitespaceOnly(t *testing.T) {
 	if len(m.session) != beforeSess {
 		t.Errorf("submitPrompt appended %d session messages for a blank prompt", len(m.session)-beforeSess)
 	}
-	if len(m.history) != beforeHist {
-		t.Errorf("submitPrompt pushed %d history entries for a blank prompt", len(m.history)-beforeHist)
+	if m.promptHistory.Len() != beforeHist {
+		t.Errorf("submitPrompt pushed %d history entries for a blank prompt", m.promptHistory.Len()-beforeHist)
 	}
 	if m.streaming {
 		t.Error("submitPrompt left streaming=true for a blank prompt")
@@ -205,7 +208,7 @@ func TestScroll_CalculationsHandleBlankRows(t *testing.T) {
 		// screenRows("") must return 1 (cycle-124 invariant). A blank
 		// row counts as one screen row, never zero — otherwise the
 		// clip math would loop indefinitely.
-		if got := screenRows(""); got != 1 {
+		if got := tuiviewport.ScreenRows(""); got != 1 {
 			t.Errorf("screenRows(\"\") = %d, want 1", got)
 		}
 	}
@@ -213,7 +216,7 @@ func TestScroll_CalculationsHandleBlankRows(t *testing.T) {
 
 // 5. The history list skips empty entries and navigation still works.
 //
-// Even if a blank entry were to slip into m.history (e.g. a future
+// Even if a blank entry were to slip into the history list (e.g. a future
 // caller that bypasses pushHistory, or a state reconstructed at
 // resume time), historyUp / historyDown must not land on it. The
 // simplest behaviour is to reject them at the push boundary (which
@@ -236,24 +239,24 @@ func TestHistory_NavigationSkipsBlankEntries(t *testing.T) {
 	m.pushHistory("   ") // attempted blank — must be a no-op
 	m.pushHistory("delta")
 
-	if len(m.history) != 4 {
-		t.Fatalf("history len = %d, want 4 (blank was rejected): %q", len(m.history), m.history)
+	if m.promptHistory.Len() != 4 {
+		t.Fatalf("history len = %d, want 4 (blank was rejected): %q", m.promptHistory.Len(), m.promptHistory.Entries())
 	}
 	want := []string{"alpha", "beta", "gamma", "delta"}
 	for i, w := range want {
-		if m.history[i] != w {
-			t.Errorf("history[%d] = %q, want %q", i, m.history[i], w)
+		if m.promptHistory.Entries()[i] != w {
+			t.Errorf("history[%d] = %q, want %q", i, m.promptHistory.Entries()[i], w)
 		}
 	}
 
-	// Seed the input with a sentinel so historyEdit is non-empty
-	// during navigation.
+	// Seed the input with a sentinel so the navigation's draft is
+	// non-empty during navigation.
 	m.input.SetValue("DRAFT")
-	m.historyIdx = 0
-	m.historyEdit = ""
+	m.promptHistory.Reset()
 
-	// Walk back through every entry. historyUp increments historyIdx
-	// each time; the rendered value at slot k is m.history[len-k].
+	// Walk back through every entry. historyUp advances the navigation's
+	// index each time; the rendered value at slot k is the list's entry
+	// at len-k.
 	m.historyUp()
 	if got := m.input.Value(); got != "delta" {
 		t.Errorf("Up #1: got %q, want %q", got, "delta")
@@ -272,10 +275,10 @@ func TestHistory_NavigationSkipsBlankEntries(t *testing.T) {
 	}
 
 	// One more Up is a no-op — there's no fifth entry.
-	idxBefore := m.historyIdx
+	idxBefore := m.promptHistory.Index()
 	m.historyUp()
-	if m.historyIdx != idxBefore {
-		t.Errorf("Up past the start advanced historyIdx: was %d, now %d", idxBefore, m.historyIdx)
+	if m.promptHistory.Index() != idxBefore {
+		t.Errorf("Up past the start advanced the history index: was %d, now %d", idxBefore, m.promptHistory.Index())
 	}
 
 	// Walk forward; we expect to return to the draft.
@@ -317,8 +320,8 @@ func TestSubmitPrompt_RealPromptAfterBlankWorks(t *testing.T) {
 	// happen before the tea.Cmd is returned.
 	_ = m.submitPrompt()
 
-	if got := len(m.history); got != 1 || m.history[0] != "real prompt" {
-		t.Errorf("after real submit: history = %q, want [\"real prompt\"]", m.history)
+	if got := m.promptHistory.Len(); got != 1 || m.promptHistory.Entries()[0] != "real prompt" {
+		t.Errorf("after real submit: history = %q, want [\"real prompt\"]", m.promptHistory.Entries())
 	}
 	if len(m.response) <= beforeResp {
 		t.Errorf("real submit did not append a transcript row (was %d, now %d)", beforeResp, len(m.response))
@@ -330,7 +333,7 @@ func TestSubmitPrompt_RealPromptAfterBlankWorks(t *testing.T) {
 	}
 }
 
-// 7. (bonus) HistoryCap is preserved when blanks are interleaved.
+// 7. (bonus) history.Cap is preserved when blanks are interleaved.
 //
 // Pre-fix, every whitespace-only submit still consumed a slot (the
 // pushHistory check was prompt == "", not strings.TrimSpace(prompt)
@@ -339,22 +342,22 @@ func TestSubmitPrompt_RealPromptAfterBlankWorks(t *testing.T) {
 func TestPushHistory_HistoryCapRespectedWithBlanks(t *testing.T) {
 	m := trimEmptyHistoryMode(t)
 	// Fill exactly to the cap with real entries.
-	for i := 0; i < HistoryCap; i++ {
+	for i := 0; i < history.Cap; i++ {
 		m.pushHistory(fmt.Sprintf("prompt-%d", i))
 	}
-	if len(m.history) != HistoryCap {
-		t.Fatalf("history len = %d, want %d", len(m.history), HistoryCap)
+	if m.promptHistory.Len() != history.Cap {
+		t.Fatalf("history len = %d, want %d", m.promptHistory.Len(), history.Cap)
 	}
 	// Interleave a flurry of blanks. They must be no-ops.
 	for i := 0; i < 50; i++ {
 		m.pushHistory(" \t\n  ")
 	}
-	if len(m.history) != HistoryCap {
-		t.Errorf("blanks changed history length: %d, want %d", len(m.history), HistoryCap)
+	if m.promptHistory.Len() != history.Cap {
+		t.Errorf("blanks changed history length: %d, want %d", m.promptHistory.Len(), history.Cap)
 	}
 	// First entry should still be the first real prompt.
-	if m.history[0] != "prompt-0" {
-		t.Errorf("first entry = %q, want %q", m.history[0], "prompt-0")
+	if m.promptHistory.Entries()[0] != "prompt-0" {
+		t.Errorf("first entry = %q, want %q", m.promptHistory.Entries()[0], "prompt-0")
 	}
 }
 
@@ -373,14 +376,14 @@ func TestLoadHistory_PopulatesHistoryFromDisk(t *testing.T) {
 		}
 	}
 
-	m := NewRunMode(&fakeClient{}, "u@t", "m", "t", "/workspace", true)
-	if len(m.history) != 0 {
-		t.Fatalf("expected empty m.history before loadHistory(), got %d", len(m.history))
+	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/workspace", true)
+	if m.promptHistory.Len() != 0 {
+		t.Fatalf("expected empty m.history before loadHistory(), got %d", m.promptHistory.Len())
 	}
 
-	m.loadHistory()
-	if len(m.history) != 3 {
-		t.Fatalf("expected 3 entries in m.history after loadHistory(), got %d: %v", len(m.history), m.history)
+	m.promptHistory.Load(convstore.LoadHistory("", history.Cap))
+	if m.promptHistory.Len() != 3 {
+		t.Fatalf("expected 3 entries in m.history after loadHistory(), got %d: %v", m.promptHistory.Len(), m.promptHistory.Entries())
 	}
 
 	m.historyUp()
@@ -418,12 +421,12 @@ func TestSubmitPrompt_CapturesSlashCommandInHistory(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("ANTIGRAVITY_HOME", home)
 
-	m := NewRunMode(&fakeClient{}, "u@t", "m", "t", "/workspace", true)
+	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/workspace", true)
 	m.input.SetValue("/clear")
 	_ = m.submitPrompt()
 
-	if len(m.history) != 1 || m.history[0] != "/clear" {
-		t.Fatalf("m.history after /clear submit = %v, want [/clear]", m.history)
+	if m.promptHistory.Len() != 1 || m.promptHistory.Entries()[0] != "/clear" {
+		t.Fatalf("m.history after /clear submit = %v, want [/clear]", m.promptHistory.Entries())
 	}
 
 	m.historyUp()
@@ -448,17 +451,17 @@ func TestSubmitPrompt_CapturesStreamingQueueInHistory(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("ANTIGRAVITY_HOME", home)
 
-	m := NewRunMode(&fakeClient{}, "u@t", "m", "t", "/workspace", true)
+	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/workspace", true)
 	m.streaming = true
 	m.input.SetValue("queued while streaming")
 	_ = m.submitPrompt()
 
-	if len(m.streamQueue) != 1 || m.streamQueue[0] != "queued while streaming" {
-		t.Fatalf("streamQueue = %v, want [queued while streaming]", m.streamQueue)
+	if len(m.store.StreamQueue) != 1 || m.store.StreamQueue[0] != "queued while streaming" {
+		t.Fatalf("streamQueue = %v, want [queued while streaming]", m.store.StreamQueue)
 	}
 
-	if len(m.history) != 1 || m.history[0] != "queued while streaming" {
-		t.Fatalf("m.history = %v, want [queued while streaming]", m.history)
+	if m.promptHistory.Len() != 1 || m.promptHistory.Entries()[0] != "queued while streaming" {
+		t.Fatalf("m.history = %v, want [queued while streaming]", m.promptHistory.Entries())
 	}
 }
 
@@ -466,16 +469,16 @@ func TestSubmitOrQueuePrompt_CapturesQueueModePrompt(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("ANTIGRAVITY_HOME", home)
 
-	m := NewRunMode(&fakeClient{}, "u@t", "m", "t", "/workspace", true)
-	m.queueMode = true
+	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/workspace", true)
+	m.store.QueueMode = true
 	m.input.SetValue("queue mode prompt")
 	_ = m.submitOrQueuePrompt()
 
-	if m.queuedPrompt != "queue mode prompt" {
-		t.Fatalf("queuedPrompt = %q, want %q", m.queuedPrompt, "queue mode prompt")
+	if m.store.QueuedPrompt != "queue mode prompt" {
+		t.Fatalf("queuedPrompt = %q, want %q", m.store.QueuedPrompt, "queue mode prompt")
 	}
-	if len(m.history) != 1 || m.history[0] != "queue mode prompt" {
-		t.Fatalf("m.history = %v, want [queue mode prompt]", m.history)
+	if m.promptHistory.Len() != 1 || m.promptHistory.Entries()[0] != "queue mode prompt" {
+		t.Fatalf("m.history = %v, want [queue mode prompt]", m.promptHistory.Entries())
 	}
 }
 
@@ -484,7 +487,7 @@ func TestTUISessionPersistence(t *testing.T) {
 	t.Setenv("ANTIGRAVITY_HOME", tempHome)
 
 	ws := "/workspace/openagy-demo"
-	m := NewRunMode(nil, "user@test.com", "MiniMax M3", "", ws, false)
+	m := newRunMode(nil, "user@test.com", "MiniMax M3", "", ws, false)
 
 	prompt := "hello from wagyu"
 	m.input.SetValue(prompt)
@@ -578,7 +581,7 @@ func TestTUISessionPersistence(t *testing.T) {
 // queue empty (so the inline-notice slot is the only transient row
 // above the prompt). The model's hyperlinkCaps is force-enabled
 // so the OSC 8 framed hyperlink is the canonical test target —
-// NewRunMode's hyperlinkCapsFromEnv consults os.Environ() which
+// newRunMode's hyperlinkCapsFromEnv consults os.Environ() which
 // may not advertise OSC 8 support in a `go test` runner (an empty
 // env returns caps.OSC8 == false per DetectHyperlinkCaps), and
 // the test cares about the OSC 8 framed shape rather than the
@@ -588,16 +591,16 @@ func eligibilityModel(t *testing.T) *runMode {
 	t.Helper()
 	t.Setenv("ANTIGRAVITY_HOME", t.TempDir())
 	t.Setenv("HOME", t.TempDir())
-	m := NewRunMode(&fakeClient{}, "u@t", "Gemini 3.8 Flash (High)", "t", "/", true)
-	m.loadAnnouncements()
+	m := newRunMode(&fakeClient{}, "u@t", "Gemini 3.8 Flash (High)", "t", "/", true)
+	m.announceQueue.Load()
 	// Cycle 262 test scaffolding: the empty catalog keeps the
 	// announcement row out so the inline-notice slot is the only
-	// transient row in the layout. announceSaveError is left at
-	// its zero value so announcementRow() returns "" cleanly.
-	m.announceVisible = nil
+	// transient row in the layout. The queue's SaveError is left at
+	// its zero value so the announcement row returns "" cleanly.
+	m.announceQueue.Cards = nil
 	// Force OSC 8 on for the OSC 8 ON test target. The test
 	// scaffolding sets TERM to xterm-256color via t.Setenv (a
-	// sibling line above) — NewRunMode runs DetectHyperlinkCaps
+	// sibling line above) — newRunMode runs DetectHyperlinkCaps
 	// during construction, so the post-construction override is
 	// the only way to guarantee OSC 8 is on regardless of the
 	// test runner's environment.
@@ -938,7 +941,7 @@ func TestEligibilityError_WithoutURL(t *testing.T) {
 //   - the Lines() output is parseable JSON and contains the
 //     Reason in short_error;
 //   - classifyEligibilityError does NOT claim the error when the
-//     underlying type is a plain *backend.HTTPError without an
+//     underlying type is a plain *apierror.HTTPError without an
 //     eligibility wrapper (so a 403 with no IneligibleTier
 //     payload keeps the existing PERMISSION_DENIED path);
 //   - the no-TUI shape: there is no runMode-level inline notice
@@ -951,7 +954,7 @@ func TestEligibilityError_PreservesPrintMode(t *testing.T) {
 	const url = "https://example.com/verify?token=xyz"
 
 	// (1) classifyEligibilityError produces a non-nil envelope.
-	api, ok := classifyEligibilityError(&EligibilityError{
+	api, ok := eligibility.ClassifyError(&eligibility.Error{
 		Reason:          reason,
 		VerificationURL: url,
 	})
@@ -997,21 +1000,21 @@ func TestEligibilityError_PreservesPrintMode(t *testing.T) {
 	}
 
 	// (4) classifyEligibilityError does NOT claim a plain
-	// *backend.HTTPError (the upstream 403 path without an
+	// *apierror.HTTPError (the upstream 403 path without an
 	// eligibility wrapper — keep the existing PERMISSION_DENIED
 	// classification).
-	if _, ok := classifyEligibilityError(&backend.HTTPError{
+	if _, ok := eligibility.ClassifyError(&apierror.HTTPError{
 		StatusCode: 403,
 		Body:       []byte(`{"error":{"message":"forbidden"}}`),
 	}); ok {
-		t.Errorf("classifyEligibilityError claimed a plain *backend.HTTPError; only *EligibilityError should match")
+		t.Errorf("classifyEligibilityError claimed a plain *apierror.HTTPError; only *EligibilityError should match")
 	}
 
 	// (5) classifyEligibilityError returns (nil, false) on a
 	// nil error so the print path's `if api, ok := ...; ok`
 	// branch can fall through to classifyAPIError without a
 	// nil-pointer panic.
-	if api, ok := classifyEligibilityError(nil); ok || api != nil {
+	if api, ok := eligibility.ClassifyError(nil); ok || api != nil {
 		t.Errorf("classifyEligibilityError(nil) = (%v, %v), want (nil, false)", api, ok)
 	}
 
@@ -1020,8 +1023,8 @@ func TestEligibilityError_PreservesPrintMode(t *testing.T) {
 	// "agent: …" prefix before the chunk handler sees it. The
 	// cycle's design relies on errors.As to find the eligibility
 	// type through any number of wrap layers.
-	wrapped := wrapErr("agent: stream: %w", &EligibilityError{Reason: reason, VerificationURL: url})
-	if ee := AsEligibilityError(wrapped); ee == nil {
+	wrapped := wrapErr("agent: stream: %w", &eligibility.Error{Reason: reason, VerificationURL: url})
+	if ee := eligibility.AsError(wrapped); ee == nil {
 		t.Errorf("AsEligibilityError returned nil for a wrapped *EligibilityError")
 	} else if ee.Reason != reason {
 		t.Errorf("AsEligibilityError walked to %q, want %q", ee.Reason, reason)
@@ -1029,7 +1032,7 @@ func TestEligibilityError_PreservesPrintMode(t *testing.T) {
 
 	// (7) Print mode has no input loop — the runMode's
 	// eligibilityNotice stays at its zero value when the chunk
-	// handler never runs (i.e. when -p bypasses NewRunMode).
+	// handler never runs (i.e. when -p bypasses newRunMode).
 	// The test pins the contract that the print path does not
 	// touch m.eligibilityNotice at all. We instantiate a fresh
 	// runMode and verify the zero value is the no-notice state;
@@ -1114,13 +1117,13 @@ func TestEligibilityError_StillLogged(t *testing.T) {
 		// Build a wrapped chain where the inner *EligibilityError
 		// has a Cause set so Unwrap() has a non-nil target. The
 		// production upstream typically wraps an
-		// *EligibilityError around a *backend.HTTPError, and the
+		// *EligibilityError around a *apierror.HTTPError, and the
 		// cause is what the agent log ships to the operator when
 		// the inline row fails to clear. The test pins that
 		// errors.As + Unwrap compose so a future cycle that
 		// changes the wrapping signature has to update this test.
 		causeErr := fmt.Errorf("upstream transport error")
-		inner := &EligibilityError{
+		inner := &eligibility.Error{
 			Reason:          reason,
 			VerificationURL: url,
 			Cause:           causeErr,
@@ -1131,7 +1134,7 @@ func TestEligibilityError_StillLogged(t *testing.T) {
 		// AsEligibilityError walks the wrapped chain and the
 		// notice message carries Reason / VerificationURL verbatim.
 		m := eligibilityModel(t)
-		ee := AsEligibilityError(wrapped)
+		ee := eligibility.AsError(wrapped)
 		if ee == nil {
 			t.Fatal("AsEligibilityError returned nil for a wrapped *EligibilityError")
 		}

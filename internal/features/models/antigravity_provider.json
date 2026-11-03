@@ -1,0 +1,74 @@
+{
+  "name": "Google Antigravity",
+  "id": "google-antigravity",
+  "api_endpoint": "https://cloudcode-pa.googleapis.com",
+  "type": "cloudcode",
+  "default_large_model_id": "gemini-3.8-flash-high",
+  "default_small_model_id": "gemini-3.8-flash-low",
+  "models": [
+    {
+      "id": "gemini-3.8-flash-high",
+      "name": "Gemini 3.8 Flash (High)",
+      "context_window": 1048576,
+      "default_max_tokens": 65536,
+      "can_reason": true,
+      "supports_attachments": true
+    },
+    {
+      "id": "gemini-3.8-flash-medium",
+      "name": "Gemini 3.8 Flash (Medium)",
+      "context_window": 1048576,
+      "default_max_tokens": 65536,
+      "can_reason": true,
+      "supports_attachments": true
+    },
+    {
+      "id": "gemini-3.8-flash-low",
+      "name": "Gemini 3.8 Flash (Low)",
+      "context_window": 1048576,
+      "default_max_tokens": 65536,
+      "can_reason": true,
+      "supports_attachments": true
+    },
+    {
+      "id": "claude-sonnet-4-6",
+      "name": "Claude Sonnet 4.6 (Thinking)",
+      "context_window": 200000,
+      "default_max_tokens": 64000,
+      "can_reason": true,
+      "supports_attachments": true
+    },
+    {
+      "id": "claude-opus-4-6-thinking",
+      "name": "Claude Opus 4.6 (Thinking)",
+      "context_window": 200000,
+      "default_max_tokens": 64000,
+      "can_reason": true,
+      "supports_attachments": true
+    },
+    {
+      "id": "gpt-oss-120b-medium",
+      "name": "GPT-OSS 120B (Medium)",
+      "context_window": 131072,
+      "default_max_tokens": 16384,
+      "can_reason": true,
+      "supports_attachments": true
+    },
+    {
+      "id": "claude-opus-5-5",
+      "name": "Claude Opus 5.5",
+      "context_window": 200000,
+      "default_max_tokens": 64000,
+      "can_reason": true,
+      "supports_attachments": true
+    },
+    {
+      "id": "claude-sonnet-5-5",
+      "name": "Claude Sonnet 5.5",
+      "context_window": 200000,
+      "default_max_tokens": 64000,
+      "can_reason": true,
+      "supports_attachments": true
+    }
+  ]
+}

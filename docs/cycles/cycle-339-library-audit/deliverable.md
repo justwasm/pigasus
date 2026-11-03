@@ -320,7 +320,7 @@ the way, and what was deliberately not done.
    So the two strippers have different semantics on purpose: the tool path
    keeps the reference's byte filter, the diff path uses the library. The
    reference's binary does link `ansi.Strip`
-   (`out/seeds/funcs.txt:144061` 【一手】), which is why the diff path
+   (`out/local-macos/seeds/funcs.txt:144061` 【一手】), which is why the diff path
    moved — but the tool path's evidence points the other way.
 2. **The backoff was written three times, not four.** `internal/retrybudget`
    tracks the *cumulative* wait of a turn; it does not schedule one. The
@@ -329,7 +329,7 @@ the way, and what was deliberately not done.
 3. **`muesli/reflow` is not in the local module cache** (v0.3.0's zip is
    missing), so the A2/A3 work went onto `charmbracelet/x/ansi` — which
    turns out to be the *better* answer anyway: the reference embeds **both**
-   libraries (【一手】 `out/seeds/funcs.txt:143970-144094`:
+   libraries (【一手】 `out/local-macos/seeds/funcs.txt:143970-144094`:
    `ansi.Hardwrap`, `ansi.Wordwrap`, `ansi.Wrap`, `ansi.DecodeSequence`,
    `ansi.StringWidth`, `ansi.Truncate`, `ansi.Strip`), and x/ansi's
    `Wordwrap` is what the three surfaces' own primitives were approximating.

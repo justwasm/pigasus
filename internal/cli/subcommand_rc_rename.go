@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/justwasm/pigasus/internal/persistentrc"
+	persistentrc "github.com/justwasm/pigasus/internal/infra/remote/persistent"
 )
 
 // usageRCRename documents the `remote-control rename` subcommand — the

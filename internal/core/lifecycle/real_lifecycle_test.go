@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/justwasm/pigasus/internal/backend"
+	"github.com/justwasm/pigasus/internal/core/backend"
 )
 
 // TestState_SubagentAwaitsApproval verifies the recovered

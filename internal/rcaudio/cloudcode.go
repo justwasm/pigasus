@@ -19,7 +19,8 @@ import (
 	"os"
 	"strings"
 
-	"github.com/justwasm/pigasus/internal/backend"
+	"github.com/justwasm/pigasus/internal/core/backend"
+	"github.com/justwasm/pigasus/internal/infra/backend/cloudcode"
 )
 
 // DefaultTranscriptionModel is the model the transcriber asks when
@@ -43,7 +44,7 @@ type CloudCodeTranscriber struct {
 	// DefaultTranscriptionModel.
 	Model string
 	// Client is the transport. nil → one is built on demand.
-	Client *backend.CloudCodeClient
+	Client *cloudcode.CloudCodeClient
 }
 
 // NewCloudCodeTranscriber returns a transcriber for the configured
@@ -73,7 +74,7 @@ func (t *CloudCodeTranscriber) Transcribe(ctx context.Context, audio []byte, mim
 	}
 	client := t.Client
 	if client == nil {
-		client = backend.NewCloudCodeWithConfig(backend.CloudCodeConfig{Model: model})
+		client = cloudcode.NewCloudCodeWithConfig(cloudcode.CloudCodeConfig{Model: model})
 	}
 	chunks, err := client.Stream(ctx, backend.StreamRequest{
 		Model: model,

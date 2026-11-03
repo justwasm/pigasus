@@ -15,7 +15,7 @@
 //   - internal/remotecontrol/  —  the wire protocol + method
 //     catalogue.  Pure library; no I/O outside its own sockets.
 //     Reused unchanged by the foreground daemon process.
-//   - internal/persistentrc/    —  this package.  Owns the OS
+//   - internal/infra/remote/persistent/    —  this package.  Owns the OS
 //     service manager (launchd on macOS, setsid on Linux/macOS
 //     for `--session`).  No wire-format or method semantics
 //     here; the foreground process reads this configuration

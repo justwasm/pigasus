@@ -66,8 +66,8 @@ type Conversation struct {
 	// project's workspace directory. The
 	// DeleteRemoteAgentProject's fail_if_bound check
 	// uses this field transitively through the
-	// ProjectStore's BoundChecker seam (see
-	// projects_store.go:FSProjectStore.BoundChecker).
+	// projects.Store's BoundChecker seam (see
+	// projects/store.go:FSStore.BoundChecker).
 	ProjectID string
 	// Workspace is the absolute canonical workspace
 	// directory the conversation was recorded
@@ -172,7 +172,7 @@ var (
 // MemConversationStore is the test seam for
 // ConversationStore. It does not import
 // internal/convstore — it stores plain Conversation
-// rows in a map, mirroring MemProjectStore's
+// rows in a map, mirroring projects.MemStore's
 // "stdlib-only" stance for the dispatcher package's
 // test fixtures.
 //
@@ -182,7 +182,7 @@ var (
 // an env-managed convstore / sqlite layer.
 //
 // A nil *MemConversationStore is a usable empty
-// store (matches MemProjectStore's zero-value
+// store (matches projects.MemStore's zero-value
 // semantics) so tests that don't need any setup
 // can omit construction.
 type MemConversationStore struct {

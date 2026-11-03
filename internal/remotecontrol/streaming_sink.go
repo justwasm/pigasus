@@ -9,10 +9,12 @@ import (
 	"context"
 	"encoding/json"
 	"time"
+
+	"github.com/justwasm/pigasus/internal/remotecontrol/cascades"
 )
 
 // OnState emits a cascade/state notification and, when phase
-// is "done", stamps the cascade's LastReplyAt via recordReply.
+// is "done", stamps the cascade's LastReplyAt via RecordReply.
 // The cascade parameter is accepted for interface symmetry
 // (the brief's signature); the captured cascade is what the
 // sink actually mutates.
@@ -40,23 +42,23 @@ import (
 // RPC-driven, not sink-driven). LastReplyAt is left
 // untouched (a cancelled turn is not a successful reply,
 // matching the OnError rule).
-func (s *ConnNotifierSink) OnState(cascade *Cascade, frame StateFrame) {
+func (s *ConnNotifierSink) OnState(cascade *cascades.Cascade, frame cascades.StateFrame) {
 	if s == nil || s.cascade == nil || s.disp == nil {
 		return
 	}
 	params := buildStateFrameParams(s.cascade.ID, frame, s.startedAt)
-	_ = s.disp.Notify(context.Background(), s.connID, NotifCascadeState, params)
+	_ = s.disp.Notify(context.Background(), s.connID, cascades.NotifCascadeState, params)
 
 	// Side effect: stamp LastReplyAt when the turn completes
-	// successfully. We pass empty newConvID so recordReply's
+	// successfully. We pass empty newConvID so RecordReply's
 	// "only update ConversationID when non-empty" rule keeps
 	// the existing value (the sink doesn't see the new id —
 	// that's the registry.Send path's job; for streaming,
 	// the backend returns newConvID via the SendStream
 	// return value and the dispatcher's success path stamps
 	// it on the cascade the same way the sync path does).
-	if frame.Phase == StatePhaseDone {
-		s.cascade.recordReply("", time.Now().UTC())
+	if frame.Phase == cascades.StatePhaseDone {
+		s.cascade.RecordReply("", time.Now().UTC())
 	}
 }
 
@@ -64,7 +66,7 @@ func (s *ConnNotifierSink) OnState(cascade *Cascade, frame StateFrame) {
 // notification params map. Pulled out of OnState so the
 // per-field conditional stays visually compact in the
 // hot path.
-func buildStateFrameParams(cascadeID string, frame StateFrame, startedAt time.Time) map[string]any {
+func buildStateFrameParams(cascadeID string, frame cascades.StateFrame, startedAt time.Time) map[string]any {
 	params := map[string]any{
 		"cascade_id": cascadeID,
 		"phase":      frame.Phase,
@@ -73,7 +75,7 @@ func buildStateFrameParams(cascadeID string, frame StateFrame, startedAt time.Ti
 	if frame.StopReason != "" {
 		params["stopReason"] = frame.StopReason
 	}
-	if frame.Phase == StatePhaseDone && !startedAt.IsZero() {
+	if frame.Phase == cascades.StatePhaseDone && !startedAt.IsZero() {
 		if d := time.Since(startedAt).Milliseconds(); d > 0 {
 			params["durationMs"] = d
 		}
@@ -88,7 +90,7 @@ func buildStateFrameParams(cascadeID string, frame StateFrame, startedAt time.Ti
 }
 
 // OnTextDelta emits a cascade/text_delta notification and
-// appends delta to the cascade's LastReply via appendReplyText.
+// appends delta to the cascade's LastReply via AppendReplyText.
 // The cascade parameter is accepted for interface symmetry;
 // the captured cascade is what the sink mutates.
 //
@@ -98,7 +100,7 @@ func buildStateFrameParams(cascadeID string, frame StateFrame, startedAt time.Ti
 //	  "cascade_id": "cas_<hex>",
 //	  "delta":      "<chunk>"
 //	}
-func (s *ConnNotifierSink) OnTextDelta(cascade *Cascade, delta string) {
+func (s *ConnNotifierSink) OnTextDelta(cascade *cascades.Cascade, delta string) {
 	if s == nil || s.cascade == nil || s.disp == nil {
 		return
 	}
@@ -109,13 +111,13 @@ func (s *ConnNotifierSink) OnTextDelta(cascade *Cascade, delta string) {
 		"cascade_id": s.cascade.ID,
 		"delta":      delta,
 	}
-	_ = s.disp.Notify(context.Background(), s.connID, NotifCascadeTextDelta, params)
+	_ = s.disp.Notify(context.Background(), s.connID, cascades.NotifCascadeTextDelta, params)
 
 	// Side effect: accumulate the chunk into LastReply. Tests
 	// inspect this after a streaming turn to verify that the
 	// OnTextDelta path actually mutated the cascade (the
 	// brief's "forward LastReply" rule).
-	s.cascade.appendReplyText(delta)
+	s.cascade.AppendReplyText(delta)
 }
 
 // OnToolCall emits a cascade/tool_call notification. The
@@ -138,19 +140,19 @@ func (s *ConnNotifierSink) OnTextDelta(cascade *Cascade, delta string) {
 // same shape the model produced; an empty/missing args is
 // emitted as JSON null, matching the cycle-3a toolCalls
 // envelope rule.
-func (s *ConnNotifierSink) OnToolCall(cascade *Cascade, call ToolCall) {
+func (s *ConnNotifierSink) OnToolCall(cascade *cascades.Cascade, call cascades.ToolCall) {
 	if s == nil || s.cascade == nil || s.disp == nil {
 		return
 	}
 	params := buildToolCallParams(s.cascade.ID, call)
-	_ = s.disp.Notify(context.Background(), s.connID, NotifCascadeToolCall, params)
+	_ = s.disp.Notify(context.Background(), s.connID, cascades.NotifCascadeToolCall, params)
 }
 
 // buildToolCallParams renders the cascade/tool_call
 // notification params map. Pulled out of OnToolCall so
 // the args-vs-null conditional stays visually compact
 // in the hot path.
-func buildToolCallParams(cascadeID string, call ToolCall) map[string]any {
+func buildToolCallParams(cascadeID string, call cascades.ToolCall) map[string]any {
 	params := map[string]any{
 		"cascade_id": cascadeID,
 		"name":       call.Name,
@@ -184,17 +186,17 @@ func buildToolCallParams(cascadeID string, call ToolCall) map[string]any {
 //	  "error":      "<err.Error()>",
 //	  "ts":         "<rfc3339-nano>"
 //	}
-func (s *ConnNotifierSink) OnError(cascade *Cascade, err error) {
+func (s *ConnNotifierSink) OnError(cascade *cascades.Cascade, err error) {
 	if s == nil || s.cascade == nil || s.disp == nil || err == nil {
 		return
 	}
 	params := map[string]any{
 		"cascade_id": s.cascade.ID,
-		"phase":      StatePhaseError,
+		"phase":      cascades.StatePhaseError,
 		"error":      err.Error(),
 		"ts":         time.Now().UTC().Format(time.RFC3339Nano),
 	}
-	_ = s.disp.Notify(context.Background(), s.connID, NotifCascadeState, params)
+	_ = s.disp.Notify(context.Background(), s.connID, cascades.NotifCascadeState, params)
 }
 
 // OnUserInteraction adds intr to the cascade's pending-
@@ -237,7 +239,7 @@ func (s *ConnNotifierSink) OnError(cascade *Cascade, err error) {
 // pins.
 //
 // Cycle rc-handle-user-interaction adds this method.
-func (s *ConnNotifierSink) OnUserInteraction(cascade *Cascade, intr *PendingInteraction) {
+func (s *ConnNotifierSink) OnUserInteraction(cascade *cascades.Cascade, intr *cascades.PendingInteraction) {
 	if s == nil || s.cascade == nil || s.disp == nil || intr == nil {
 		return
 	}
@@ -255,7 +257,7 @@ func (s *ConnNotifierSink) OnUserInteraction(cascade *Cascade, intr *PendingInte
 	s.cascade.Pending().Add(intr)
 
 	params := buildUserInteractionParams(s.cascade.ID, intr)
-	_ = s.disp.Notify(context.Background(), s.connID, NotifUserInteractionRequired, params)
+	_ = s.disp.Notify(context.Background(), s.connID, cascades.NotifUserInteractionRequired, params)
 }
 
 // buildUserInteractionParams renders the
@@ -264,7 +266,7 @@ func (s *ConnNotifierSink) OnUserInteraction(cascade *Cascade, intr *PendingInte
 // fields (options / dangerous / expires_at) stay visually
 // compact and the per-field conditional can be audited
 // without paging through the registry-add side effect.
-func buildUserInteractionParams(cascadeID string, intr *PendingInteraction) map[string]any {
+func buildUserInteractionParams(cascadeID string, intr *cascades.PendingInteraction) map[string]any {
 	params := map[string]any{
 		"cascade_id":     cascadeID,
 		"interaction_id": intr.ID,

@@ -125,7 +125,7 @@ func buildHostConfig(fs *flag.FlagSet, sess *remotecontrol.SessionState, sockPat
 		ResourceStore:           buildHostResourceStore(projStore),
 		ConversationConfigStore: buildHostConversationConfigStore(),
 		TerminalsRegistry:       buildHostTerminalsRegistry(),
-		WebTerminals:            buildHostWebTerminalsRegistry(),
+		WebTerminals:            buildHostWebTerminalsRegistry(cwd),
 		WebAudio:                buildHostWebAudioRegistry(),
 		OriginPolicyStore:       buildHostOriginPolicyStore(),
 	}

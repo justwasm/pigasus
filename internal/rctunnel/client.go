@@ -16,20 +16,12 @@ import (
 	"time"
 
 	"github.com/justwasm/pigasus/endpoints"
-	"github.com/justwasm/pigasus/internal/accounts"
-	"github.com/justwasm/pigasus/internal/auth"
 	"github.com/justwasm/pigasus/internal/cli"
+	accounts "github.com/justwasm/pigasus/internal/features/accounts/core"
+	"github.com/justwasm/pigasus/internal/features/auth"
 )
 
-const (
-	// DefaultWebChannelEndpoint is the cloud tunnel the remote-control
-	// view connects to.
-	//
-	// It is the compiled-in default. The live endpoint is
-	// endpoints.Current().WebChannel — the configuration file may point
-	// the tunnel at a local service.
-	DefaultWebChannelEndpoint = endpoints.DefaultWebChannel
-)
+const ()
 
 // DefaultClientVersion is the version string the instance
 // advertises to the remote service in its registration metadata.
@@ -115,6 +107,38 @@ type Client struct {
 	// posting into a session the cloud has forgotten.
 	sessionCancel context.CancelFunc
 	deadSession   atomic.Bool
+
+	activeMu   sync.Mutex
+	activeReqs map[string]context.CancelFunc
+}
+
+// registerActiveRequest records an in-flight proxy request's cancellation
+// func so a server-sent x-cancel-request can terminate it.
+func (c *Client) registerActiveRequest(reqID string, cancel context.CancelFunc) {
+	c.activeMu.Lock()
+	defer c.activeMu.Unlock()
+	if c.activeReqs == nil {
+		c.activeReqs = make(map[string]context.CancelFunc)
+	}
+	c.activeReqs[reqID] = cancel
+}
+
+// unregisterActiveRequest forgets a finished in-flight request.
+func (c *Client) unregisterActiveRequest(reqID string) {
+	c.activeMu.Lock()
+	defer c.activeMu.Unlock()
+	delete(c.activeReqs, reqID)
+}
+
+// cancelActiveRequest invokes and removes the cancellation func for reqID.
+func (c *Client) cancelActiveRequest(reqID string) {
+	c.activeMu.Lock()
+	cancel, ok := c.activeReqs[reqID]
+	delete(c.activeReqs, reqID)
+	c.activeMu.Unlock()
+	if ok && cancel != nil {
+		cancel()
+	}
 }
 
 // NewClient constructs a new WebChannel tunnel Client.

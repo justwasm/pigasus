@@ -30,7 +30,7 @@
 //
 //   - Get's `ProjectID` field is a best-effort derivation:
 //     we map Conversation.Workspace to a project id by
-//     walking the host's ProjectStore. The host wires a
+//     walking the host's projects.Store. The host wires a
 //     small closure into the adapter at construction time
 //     so the adapter doesn't import internal/cli.
 //
@@ -46,7 +46,7 @@ import (
 	"errors"
 	"strings"
 
-	"github.com/justwasm/pigasus/internal/convstore"
+	"github.com/justwasm/pigasus/internal/app/session/convstore"
 )
 
 // FSConversationStore is the production
@@ -63,7 +63,7 @@ import (
 // `title` / `project_unlinked` in this cycle's
 // responses; the ProjectID field is exposed for
 // future cycles' convenience). The host wires
-// ProjectLookup to a closure that walks ProjectStore
+// ProjectLookup to a closure that walks the projects.Store
 // (see cmd/wagyu/remote_control.go).
 type FSConversationStore struct {
 	// ProjectLookup is the optional workspace → project

@@ -5,12 +5,12 @@ import (
 	"encoding/json"
 
 	"github.com/justwasm/pigasus/internal/agent"
-	"github.com/justwasm/pigasus/internal/backend"
-	"github.com/justwasm/pigasus/internal/permissions"
-	"github.com/justwasm/pigasus/internal/sandbox"
-	"github.com/justwasm/pigasus/internal/subagenttools"
-	"github.com/justwasm/pigasus/internal/toolrunner"
-	"github.com/justwasm/pigasus/internal/tools"
+	"github.com/justwasm/pigasus/internal/core/backend"
+	"github.com/justwasm/pigasus/internal/core/policy/permissions"
+	"github.com/justwasm/pigasus/internal/core/policy/sandbox"
+	"github.com/justwasm/pigasus/internal/app/toolrunner"
+	"github.com/justwasm/pigasus/internal/app/subagenttools"
+	"github.com/justwasm/pigasus/internal/app/tools/shell"
 )
 
 // tui_subagent_async.go — the TUI's side of the asynchronous subagent.
@@ -55,10 +55,10 @@ func (m *runMode) notifySubagentMessage(sender, content string) {
 	if m.taskInbox == nil {
 		m.taskInbox = agent.NewTaskInbox()
 	}
-	m.taskInbox.Add(tools.TaskNotification{
+	m.taskInbox.Add(shell.TaskNotification{
 		TaskID:   sender,
 		Body:     content,
-		Priority: tools.TaskPriorityHigh,
+		Priority: shell.TaskPriorityHigh,
 	})
 	if m.prog != nil {
 		m.prog.Send(taskNotificationMsg{})
