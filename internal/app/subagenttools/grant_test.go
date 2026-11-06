@@ -13,18 +13,16 @@ package subagenttools
 
 import (
 	"context"
-	"encoding/json"
 	"strings"
 	"testing"
 
-	piagent "github.com/MichaelKinsy/PiG/agent"
-	pi "github.com/MichaelKinsy/PiG/ai"
+	"github.com/justwasm/pigasus/actor"
 )
 
 // grantTestCatalogue is a stand-in for the parent's tool catalogue: one stub
 // per name the grant vocabulary mentions, the four subagent tools the parent
 // owns, and two tools no grant names (schedule, ask_question).
-func grantTestCatalogue() []piagent.AgentTool {
+func grantTestCatalogue() []actor.Tool {
 	names := []string{
 		"view_file", "grep_search", "list_dir", "search_web", "read_url_content",
 		"write_to_file", "replace_file_content", "multi_replace_file_content",
@@ -33,7 +31,7 @@ func grantTestCatalogue() []piagent.AgentTool {
 		"send_message", "define_subagent", "invoke_subagent", "manage_subagents",
 		"schedule", "ask_question",
 	}
-	out := make([]piagent.AgentTool, 0, len(names))
+	out := make([]actor.Tool, 0, len(names))
 	for _, n := range names {
 		out = append(out, &stubTool{name: n})
 	}
@@ -41,7 +39,7 @@ func grantTestCatalogue() []piagent.AgentTool {
 }
 
 // nameSet turns a tool list into a set of names.
-func nameSet(list []piagent.AgentTool) map[string]int {
+func nameSet(list []actor.Tool) map[string]int {
 	out := make(map[string]int, len(list))
 	for _, t := range list {
 		if t != nil {
@@ -79,8 +77,8 @@ func TestDefineSubagentStoresTheGrants(t *testing.T) {
 	defs := NewStore()
 	tool := &defineTool{defs: defs}
 
-	if _, err := tool.Execute(context.Background(), "call-cap",
-		json.RawMessage(`{"Name":"cap","SystemPrompt":"You are a test.","EnableWriteTools":true,"EnableMCPTools":true,"EnableSubagentTools":true}`), nil); err != nil {
+	if _, err := tool.Execute(context.Background(),
+		`{"Name":"cap","SystemPrompt":"You are a test.","EnableWriteTools":true,"EnableMCPTools":true,"EnableSubagentTools":true}`); err != nil {
 		t.Fatalf("define_subagent (capitalised): %v", err)
 	}
 	def, ok := defs.Get("cap")
@@ -91,8 +89,8 @@ func TestDefineSubagentStoresTheGrants(t *testing.T) {
 		t.Errorf("the stored grant = %+v, want every switch on", def.Grant)
 	}
 
-	if _, err := tool.Execute(context.Background(), "call-snake",
-		json.RawMessage(`{"name":"snake","system_prompt":"You are a test.","enable_write_tools":true}`), nil); err != nil {
+	if _, err := tool.Execute(context.Background(),
+		`{"name":"snake","system_prompt":"You are a test.","enable_write_tools":true}`); err != nil {
 		t.Fatalf("define_subagent (snake_case): %v", err)
 	}
 	def, ok = defs.Get("snake")
@@ -109,12 +107,13 @@ func TestDefineSubagentStoresTheGrants(t *testing.T) {
 // nothing to send.
 func TestDefineSubagentSchemaAdvertisesTheGrants(t *testing.T) {
 	tool := &defineTool{defs: NewStore()}
-	props, ok := tool.Schema().Parameters["properties"].(pi.JsonObject)
+	def := tool.Definition()
+	props, ok := def.Parameters["properties"].(map[string]any)
 	if !ok {
-		t.Fatalf("schema properties are %T, want pi.JsonObject", tool.Schema().Parameters["properties"])
+		t.Fatalf("schema properties are %T, want map[string]any", def.Parameters["properties"])
 	}
 	for _, name := range []string{"enable_write_tools", "enable_mcp_tools", "enable_subagent_tools"} {
-		entry, ok := props[name].(pi.JsonObject)
+		entry, ok := props[name].(map[string]any)
 		if !ok {
 			t.Errorf("the schema has no %q property", name)
 			continue
@@ -363,12 +362,8 @@ func TestUnknownTypeIsRefused(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
-	body, ok := res.Content[0].(pi.TextContent)
-	if !ok {
-		t.Fatalf("the result content is %T, want a text body", res.Content[0])
-	}
-	if !strings.Contains(body.Text, `subagent "ghost" not found or not allowed to be invoked`) {
-		t.Errorf("the result = %q, want the reference's refusal", body.Text)
+	if !strings.Contains(res.Output, `subagent "ghost" not found or not allowed to be invoked`) {
+		t.Errorf("the result = %q, want the reference's refusal", res.Output)
 	}
 }
 

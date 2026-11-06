@@ -1,6 +1,7 @@
 package rcmesh
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -69,7 +70,7 @@ func (m *Manager) Run(ctx context.Context) error {
 			_ = p.Close()
 		}
 	}()
-	keys := []string(nil)
+	keys := append([]string(nil), m.PeerConfig.AuthorizedKeys...)
 	seen := map[string]bool{}
 	// Inclusive cursor overlap avoids dropping distinct messages sharing a timestamp.
 	cursor := ""
@@ -91,13 +92,14 @@ func (m *Manager) Run(ctx context.Context) error {
 		}
 		backoff = 0
 		if bundle := response.AuthorizedKeyBundle; bundle != nil && bundle.Delivered {
+			var normalized []string
 			for _, key := range bundle.WebCryptoPubKeys {
-				if _, err := ParsePublicKey(key); err != nil {
-					return err
+				if pk, err := ParsePublicKey(key); err == nil {
+					normalized = append(normalized, publicKeyPEM(pk))
 				}
 			}
-			changed := !sameKeys(keys, bundle.WebCryptoPubKeys)
-			keys = append([]string(nil), bundle.WebCryptoPubKeys...)
+			changed := !sameKeys(keys, normalized)
+			keys = normalized
 			// 【反编译】 a refreshed bundle replaces the instance-wide pin
 			// (ReplaceInstancePin, 0x102596d50) and revokes the sessions whose
 			// authenticated key the bundle no longer contains: "[MeshDaemon]
@@ -131,44 +133,68 @@ func (m *Manager) Run(ctx context.Context) error {
 		for _, detail := range response.Messages {
 			var signal SignalingEnvelope
 			if err := json.Unmarshal([]byte(detail.Payload), &signal); err != nil {
-				return fmt.Errorf("rcmesh: invalid signal: %w", err)
-			}
-			if detail.SessionID == "" || signal.MessageID == "" || signal.SenderID == "" || signal.RecipientID != m.InstanceID {
-				return errors.New("rcmesh: invalid signaling identity")
-			}
-			stamp, err := time.Parse(time.RFC3339Nano, detail.CreatedAt)
-			if err != nil {
-				return errors.New("rcmesh: invalid signal timestamp")
-			}
-			id := detail.SessionID + "\x00" + signal.MessageID
-			if seen[id] {
+				// 【反编译】 processSignalingMessage (0x1025a3430) logs "Failed to unmarshal signaling message: %v"
+				// and returns 1 (marked processed); single malformed envelope does not abort the manager loop.
 				continue
 			}
-			if len(seen) >= 4096 {
-				// Evict oldest half to maintain a rolling window without unbounded growth or stopping
-				pruned := 0
-				for k := range seen {
-					delete(seen, k)
-					pruned++
-					if pruned >= 2048 {
-						break
+			// 【反编译】 Self-echo check: if sender is self, drop message immediately.
+			if signal.SenderID != "" && signal.SenderID == m.InstanceID {
+				continue
+			}
+			// If message is explicitly addressed to another recipient, reject misdirected offer/signal.
+			if signal.RecipientID != "" && signal.RecipientID != m.InstanceID {
+				return errors.New("rcmesh: invalid signaling identity")
+			}
+			// Resolve session ID from envelope or detail
+			sessionID := detail.SessionID
+			if sessionID == "" {
+				sessionID = signal.SessionID
+			}
+
+			// Dedup check: only dedup when MessageID is present.
+			// Server-injected messages (authorized_key, ice_config) have empty MessageID.
+			if signal.MessageID != "" {
+				id := sessionID + "\x00" + signal.MessageID
+				if seen[id] {
+					continue
+				}
+				seen[id] = true
+				if len(seen) >= 4096 {
+					pruned := 0
+					for k := range seen {
+						delete(seen, k)
+						pruned++
+						if pruned >= 2048 {
+							break
+						}
 					}
 				}
 			}
+			stamp, _ := time.Parse(time.RFC3339Nano, detail.CreatedAt)
+
 			switch strings.ToLower(signal.PayloadType) {
 			case "offer", "sdp_offer":
-				if len(keys) == 0 && len(pendingPins[detail.SessionID].keys) == 0 {
+				if sessionID == "" {
+					continue
+				}
+				if len(keys) == 0 && len(pendingPins[sessionID].keys) == 0 {
 					return ErrAuthentication
 				}
-				if peers[detail.SessionID] != nil {
-					return errors.New("rcmesh: duplicate session offer")
+				if peers[sessionID] != nil {
+					continue
 				}
 				if len(peers) >= m.MaxPeers {
-					return errors.New("rcmesh: peer limit exceeded")
+					continue
 				}
 				var offer SessionDescription
-				if err := json.Unmarshal(signal.Payload, &offer); err != nil || offer.Type != "offer" {
-					return errors.New("rcmesh: invalid SDP offer")
+				if err := json.Unmarshal(signal.Payload, &offer); err != nil {
+					continue
+				}
+				if offer.Type == "" && offer.SDP != "" {
+					offer.Type = "offer"
+				}
+				if offer.Type != "offer" {
+					continue
 				}
 				config := m.PeerConfig
 				// 【反编译】 the reference pins the server-vouched keys on the
@@ -176,7 +202,7 @@ func (m *Manager) Run(ctx context.Context) error {
 				// is verified against that pin (ExecuteChallengeResponse,
 				// 0x10259b090). A session that already has a pending pin uses
 				// it; otherwise the instance-wide bundle is the trust set.
-				if pin, ok := pendingPins[detail.SessionID]; ok {
+				if pin, ok := pendingPins[sessionID]; ok {
 					config.AuthorizedKeys = append([]string(nil), pin.keys...)
 				} else {
 					config.AuthorizedKeys = append([]string(nil), keys...)
@@ -187,11 +213,8 @@ func (m *Manager) Run(ctx context.Context) error {
 					// delivered; falling back to public STUN".
 					config.ICEServers = []ICEServer{{URLs: []string{defaultSTUNServer}}}
 				}
-				sessionID := detail.SessionID
-				recipientID := signal.SenderID
-				// 【反编译】 the reference keys its reassembly buffers by the
-				// mesh session, so a peer must know which session it serves.
 				config.SessionID = sessionID
+				recipientID := signal.SenderID
 				var candidateMu sync.Mutex
 				var pendingOutbound []ICECandidate
 				answerSent := false
@@ -228,18 +251,15 @@ func (m *Manager) Run(ctx context.Context) error {
 				}
 
 				peer, err := m.Answer(ctx, offer.SDP, config)
-				if err != nil {
-					return err
+				if err != nil || peer == nil {
+					continue
 				}
-				if peer == nil {
-					return errors.New("rcmesh: answerer returned no peer")
-				}
-				peers[detail.SessionID] = peer
-				if pending := pendingCandidates[detail.SessionID]; len(pending) > 0 {
+				peers[sessionID] = peer
+				if pending := pendingCandidates[sessionID]; len(pending) > 0 {
 					for _, c := range pending {
 						_ = peer.AddICECandidate(c)
 					}
-					delete(pendingCandidates, detail.SessionID)
+					delete(pendingCandidates, sessionID)
 				}
 				// 【反编译】 the reference's answer message id is "ans-%d" with the
 				// current Unix nanosecond clock (0x1034c0719, fmt.Sprintf in
@@ -247,14 +267,16 @@ func (m *Manager) Run(ctx context.Context) error {
 				// pion SessionDescription JSON ({"type":"answer","sdp":"…"}).
 				payload, _ := json.Marshal(SessionDescription{Type: "answer", SDP: peer.AnswerSDP()})
 				if err := m.Signaler.Send(ctx, SendRequest{
-					SessionID:   detail.SessionID,
+					SessionID:   sessionID,
 					Payload:     string(payload),
 					MessageID:   fmt.Sprintf("ans-%d", time.Now().UnixNano()),
 					SenderID:    m.InstanceID,
-					RecipientID: signal.SenderID,
+					RecipientID: recipientID,
 					PayloadType: "answer",
 				}); err != nil {
-					return err
+					_ = peer.Close()
+					delete(peers, sessionID)
+					continue
 				}
 
 				// Flush any outbound trickle candidates gathered before the answer was sent.
@@ -273,14 +295,17 @@ func (m *Manager) Run(ctx context.Context) error {
 				// nine-byte "candidat" compare and the thirteen-byte
 				// "ice_cand" compare share one target in
 				// processSignalingMessage 0x1025a3430.
+				if sessionID == "" {
+					continue
+				}
 				var cand ICECandidate
 				if err := json.Unmarshal(signal.Payload, &cand); err != nil {
-					return errors.New("rcmesh: invalid ICE candidate")
+					continue
 				}
-				if peer := peers[detail.SessionID]; peer != nil {
+				if peer := peers[sessionID]; peer != nil {
 					_ = peer.AddICECandidate(cand)
 				} else {
-					pendingCandidates[detail.SessionID] = append(pendingCandidates[detail.SessionID], cand)
+					pendingCandidates[sessionID] = append(pendingCandidates[sessionID], cand)
 				}
 			case "ice_config":
 				// 【反编译】 the reference parses the payload with
@@ -289,7 +314,7 @@ func (m *Manager) Run(ctx context.Context) error {
 				// encoded as a string.
 				servers, maxSessions, err := parseICEConfig(signal.Payload)
 				if err != nil {
-					return err
+					continue
 				}
 				if len(servers) > 0 {
 					m.PeerConfig.ICEServers = servers
@@ -308,40 +333,48 @@ func (m *Manager) Run(ctx context.Context) error {
 				// staging keeps the pin until the handshake arrives.
 				authorized, err := parseAuthorizedKeyPayload(signal.Payload)
 				if err != nil {
-					return err
+					continue
 				}
+				var validKeys []string
 				for _, key := range authorized {
-					if _, err := ParsePublicKey(key); err != nil {
-						return err
+					if pk, err := ParsePublicKey(key); err == nil {
+						validKeys = append(validKeys, publicKeyPEM(pk))
 					}
 				}
-				if len(authorized) == 0 {
+				if len(validKeys) == 0 {
 					// The reference ignores an empty bundle rather than
 					// failing the session.
 					break
 				}
-				recordPendingPin(pendingPins, detail.SessionID, authorized, time.Now())
-				if p := peers[detail.SessionID]; p != nil {
-					if pinner, ok := p.(SessionPinner); ok {
-						if err := pinner.SetSessionPin(authorized); err != nil {
-							// The pin does not cover the key the session
-							// authenticated with: the session is revoked.
-							_ = p.Close()
-							delete(peers, detail.SessionID)
-							delete(pendingCandidates, detail.SessionID)
-							delete(pendingPins, detail.SessionID)
+				if sessionID != "" {
+					recordPendingPin(pendingPins, sessionID, validKeys, time.Now())
+				}
+				for _, k := range validKeys {
+					if !containsKey(keys, k) {
+						keys = append(keys, k)
+					}
+				}
+				if sessionID != "" {
+					if p := peers[sessionID]; p != nil {
+						if pinner, ok := p.(SessionPinner); ok {
+							if err := pinner.SetSessionPin(validKeys); err != nil {
+								// The pin does not cover the key the session
+								// authenticated with: the session is revoked.
+								_ = p.Close()
+								delete(peers, sessionID)
+								delete(pendingCandidates, sessionID)
+								delete(pendingPins, sessionID)
+							}
 						}
 					}
 				}
 			default:
 				// Unrecognized signaling type: skip and mark processed matching reference behavior
 			}
-			seen[id] = true
-			if cursor == "" {
-				cursor = stamp.Format(time.RFC3339Nano)
-			} else {
-				previous, _ := time.Parse(time.RFC3339Nano, cursor)
-				if stamp.After(previous) {
+			if !stamp.IsZero() {
+				if cursor == "" {
+					cursor = stamp.Format(time.RFC3339Nano)
+				} else if previous, err := time.Parse(time.RFC3339Nano, cursor); err == nil && stamp.After(previous) {
 					cursor = stamp.Format(time.RFC3339Nano)
 				}
 			}
@@ -471,23 +504,39 @@ func expirePendingPins(pins map[string]pendingPin, now time.Time) {
 // parseAuthorizedKeyPayload reads the WebCrypto public keys an
 // "authorized_key" signaling message carries.
 //
-// 【反编译】 the bundle the poll response carries is the proto
-// AuthorizedKeyBundle {web_crypto_pub_keys []string; delivered bool}, so the
-// message payload has the same member. A bare list of keys is accepted too:
-// the reference's own rejection is only "Ignoring authorized_key signaling
-// message with empty WebCryptoPubKey", so an empty payload is not an error.
+// 【反编译】 handleAuthorizedKey (0x1025a42a0) unmarshals struct { WebCryptoPubKey string }
+// (Go type 0x10945d308) and sets the session pin. The payload also accepts plural
+// bundle {webCryptoPubKeys: [...]}, a bare list of string keys, or a bare string key.
 func parseAuthorizedKeyPayload(payload []byte) ([]string, error) {
-	var bundle struct {
-		WebCryptoPubKeys []string `json:"webCryptoPubKeys,omitempty"`
+	trimmed := bytes.TrimSpace(payload)
+	if len(trimmed) == 0 {
+		return nil, nil
 	}
-	if err := json.Unmarshal(payload, &bundle); err == nil {
+	// 1. Singular object: {"webCryptoPubKey": "..."}
+	var singular struct {
+		WebCryptoPubKey string `json:"webCryptoPubKey"`
+	}
+	if err := json.Unmarshal(trimmed, &singular); err == nil && singular.WebCryptoPubKey != "" {
+		return []string{singular.WebCryptoPubKey}, nil
+	}
+	// 2. Plural bundle: {"webCryptoPubKeys": ["..."]}
+	var bundle struct {
+		WebCryptoPubKeys []string `json:"webCryptoPubKeys"`
+	}
+	if err := json.Unmarshal(trimmed, &bundle); err == nil && len(bundle.WebCryptoPubKeys) > 0 {
 		return bundle.WebCryptoPubKeys, nil
 	}
+	// 3. Array of strings: ["..."]
 	var list []string
-	if err := json.Unmarshal(payload, &list); err != nil {
-		return nil, fmt.Errorf("rcmesh: invalid authorized_key payload: %w", err)
+	if err := json.Unmarshal(trimmed, &list); err == nil && len(list) > 0 {
+		return list, nil
 	}
-	return list, nil
+	// 4. Single JSON string: "..."
+	var str string
+	if err := json.Unmarshal(trimmed, &str); err == nil && str != "" {
+		return []string{str}, nil
+	}
+	return nil, fmt.Errorf("rcmesh: invalid authorized_key payload: %s", string(payload))
 }
 func sameKeys(a, b []string) bool {
 	if len(a) != len(b) {

@@ -176,3 +176,66 @@ func TestFileViewStyleCarriesTheTint(t *testing.T) {
 		t.Fatal("the transcript style carries the file view's tint")
 	}
 }
+
+func TestRenderLongLineTruncation(t *testing.T) {
+	l := Layout{NumWidth: 4, ContentWidth: 12}
+	s := Style{}
+	longText := "this is a very long text that exceeds content width"
+
+	// Added row: should be truncated and padded to exactly 4 + 1 + 12 = 17 columns
+	gotAdd := stripANSI(Render(l, s, Row{Kind: Add, Num: 10, Text: longText}))
+	if !strings.Contains(gotAdd, "…") {
+		t.Fatalf("added row should contain ellipsis, got: %q", gotAdd)
+	}
+	if n := len([]rune(gotAdd)); n != 4+1+12 {
+		t.Fatalf("added row length = %d, want %d: %q", n, 4+1+12, gotAdd)
+	}
+
+	// Removed row: should be truncated and padded to exactly 4 + 1 + 12 = 17 columns
+	gotRem := stripANSI(Render(l, s, Row{Kind: Remove, Num: 10, Text: longText}))
+	if !strings.Contains(gotRem, "…") {
+		t.Fatalf("removed row should contain ellipsis, got: %q", gotRem)
+	}
+	if n := len([]rune(gotRem)); n != 4+1+12 {
+		t.Fatalf("removed row length = %d, want %d: %q", n, 4+1+12, gotRem)
+	}
+
+	// Context row: should be truncated to at most 4 + 1 + 12 = 17 columns
+	gotCtx := stripANSI(Render(l, s, Row{Kind: Context, Num: 10, Text: longText}))
+	if !strings.Contains(gotCtx, "…") {
+		t.Fatalf("context row should contain ellipsis, got: %q", gotCtx)
+	}
+	if n := len([]rune(gotCtx)); n > 4+1+12 {
+		t.Fatalf("context row length = %d, want <= %d: %q", n, 4+1+12, gotCtx)
+	}
+}
+
+func TestRenderStyled_TabExpansion(t *testing.T) {
+	l := Layout{NumWidth: 4, ContentWidth: 20}
+	s := Style{}
+	tabText := "\t\tfmt.Println(\"ok\")"
+
+	gotAdd := stripANSI(Render(l, s, Row{Kind: Add, Num: 1, Text: tabText}))
+	if strings.Contains(gotAdd, "\t") {
+		t.Fatalf("rendered diff line should expand tabs: %q", gotAdd)
+	}
+	// Should have 10 spaces between '+' and 'fmt' (2 marker spaces + 8 spaces for 2 tabs)
+	if !strings.Contains(gotAdd, "+          fmt.") {
+		t.Fatalf("expected 10 spaces between '+' and 'fmt', got: %q", gotAdd)
+	}
+	// Padded/truncated to exactly 4 + 1 + 20 = 25
+	if n := len([]rune(gotAdd)); n != 4+1+20 {
+		t.Fatalf("rendered line length = %d, want %d: %q", n, 4+1+20, gotAdd)
+	}
+}
+
+func TestRenderStyled_NarrowWidth(t *testing.T) {
+	l := Layout{NumWidth: 4, ContentWidth: 2} // ContentWidth <= 3
+	s := Style{}
+	longText := "hello world"
+
+	gotAdd := stripANSI(Render(l, s, Row{Kind: Add, Num: 1, Text: longText}))
+	if !strings.Contains(gotAdd, "…") {
+		t.Fatalf("narrow width should truncate with ellipsis: %q", gotAdd)
+	}
+}

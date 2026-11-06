@@ -31,7 +31,9 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
+	"time"
 )
 
 // OAuthScopeHintMessage is the canonical user-facing hint the cycle
@@ -94,6 +96,7 @@ type HTTPError struct {
 	StatusCode int
 	Body       []byte
 	URL        string
+	Header     http.Header
 	Kind       ErrorKind
 }
 
@@ -292,6 +295,100 @@ var scopeKeywords = []string{
 	"missing scope",
 	"requires scope",
 	"scope required",
+}
+
+// IsRetryableStatus reports whether this HTTP error is considered retryable
+// (429 rate limit or 5xx server error, unless personal quota is exhausted).
+// AGY 1.5.0: "Fixed certain models failing a turn on rate-limit (429) and
+// server (5xx) errors instead of retrying them, now honoring the server's
+// Retry-After header".
+func (e *HTTPError) IsRetryableStatus() bool {
+	if e == nil {
+		return false
+	}
+	if e.IsQuotaReached() {
+		return false
+	}
+	return e.StatusCode == http.StatusTooManyRequests || (e.StatusCode >= 500 && e.StatusCode <= 599) || e.StatusCode == http.StatusRequestTimeout
+}
+
+// IsRetryableStatusErr walks err's chain via errors.As looking for an
+// *HTTPError and reports whether it represents a retryable 429 or 5xx status.
+func IsRetryableStatusErr(err error) bool {
+	if err == nil {
+		return false
+	}
+	var he *HTTPError
+	if !errors.As(err, &he) {
+		return false
+	}
+	return he.IsRetryableStatus()
+}
+
+// RetryAfterDuration returns the delay specified by the Retry-After header,
+// or parsed from Google RPC RetryInfo in the response body if present.
+// Returns 0 if none is specified or invalid.
+func (e *HTTPError) RetryAfterDuration() time.Duration {
+	if e == nil {
+		return 0
+	}
+	if e.Header != nil {
+		if raw := strings.TrimSpace(e.Header.Get("Retry-After")); raw != "" {
+			if sec, err := strconv.Atoi(raw); err == nil && sec >= 0 {
+				return time.Duration(sec) * time.Second
+			}
+			if t, err := http.ParseTime(raw); err == nil {
+				if d := time.Until(t); d > 0 {
+					return d
+				}
+			}
+		}
+	}
+	// Fallback to Google RPC RetryInfo in JSON body:
+	// {"error":{"details":[{"@type":"type.googleapis.com/google.rpc.RetryInfo","retryDelay":"1.5s"}]}}
+	if len(e.Body) > 0 && bytes.Contains(e.Body, []byte("retryDelay")) {
+		var payload struct {
+			Error struct {
+				Details []struct {
+					Type       string `json:"@type"`
+					RetryDelay any    `json:"retryDelay"`
+				} `json:"details"`
+			} `json:"error"`
+		}
+		if err := json.Unmarshal(e.Body, &payload); err == nil {
+			for _, d := range payload.Error.Details {
+				if strings.Contains(d.Type, "RetryInfo") {
+					switch v := d.RetryDelay.(type) {
+					case string:
+						if dur, err := time.ParseDuration(v); err == nil && dur > 0 {
+							return dur
+						}
+					case map[string]any:
+						sec, _ := v["seconds"].(float64)
+						nanos, _ := v["nanos"].(float64)
+						total := time.Duration(sec)*time.Second + time.Duration(nanos)*time.Nanosecond
+						if total > 0 {
+							return total
+						}
+					}
+				}
+			}
+		}
+	}
+	return 0
+}
+
+// RetryAfterDurationErr walks err's chain via errors.As looking for an
+// *HTTPError and returns its RetryAfterDuration.
+func RetryAfterDurationErr(err error) time.Duration {
+	if err == nil {
+		return 0
+	}
+	var he *HTTPError
+	if !errors.As(err, &he) {
+		return 0
+	}
+	return he.RetryAfterDuration()
 }
 
 // IsScopeMismatch reports whether this HTTPError is the AGY "OAuth

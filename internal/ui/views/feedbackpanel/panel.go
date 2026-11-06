@@ -132,18 +132,29 @@ func (p *Panel) RowCount() int {
 
 // ---- the panel's seams ----------------------------------------------------
 
-func (p *Panel) submit() {
-	if p == nil || p.seams.Submit == nil {
-		return
+func (p *Panel) submit() tea.Cmd {
+	if p == nil {
+		return nil
 	}
-	p.seams.Submit()
+	if p.seams.Submit != nil {
+		p.seams.Submit()
+		return nil
+	}
+	cat := ""
+	if p.cursor >= 0 && p.cursor < len(Categories) {
+		cat = CategoryLabel(Categories[p.cursor])
+	}
+	return SubmitCmd(cat, p.text)
 }
 
 func (p *Panel) close() tea.Cmd {
-	if p == nil || p.seams.Close == nil {
+	if p == nil {
 		return nil
 	}
-	return p.seams.Close()
+	if p.seams.Close != nil {
+		return p.seams.Close()
+	}
+	return DismissCmd()
 }
 
 // CategoryLabel drops the `N. ` picker index from a category row.

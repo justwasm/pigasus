@@ -1,11 +1,13 @@
 package sidequestion
 
 import (
+	"fmt"
 	"strings"
 
 	"charm.land/lipgloss/v2"
 
 	"github.com/justwasm/pigasus/internal/ui/mdrender"
+	"github.com/justwasm/pigasus/palette"
 )
 
 // MarkdownRenderer transforms raw markdown text to ANSI for terminal rendering.
@@ -76,7 +78,15 @@ func FormatBtwAnswerLines(answer string, cardWidth int, expanded bool, height, s
 
 // RenderBtwBodyLines produces the body lines for a side-question Card.
 func RenderBtwBodyLines(state string, answer string, err error, cardWidth int, expanded bool, height, scroll int, renderMd ...MarkdownRenderer) []string {
+	return RenderBtwCardBodyLines(nil, state, answer, err, cardWidth, expanded, height, scroll, renderMd...)
+}
+
+// RenderBtwCardBodyLines produces the body lines for a side-question Card, including live tool calls and tool call summaries.
+func RenderBtwCardBodyLines(card *Card, state string, answer string, err error, cardWidth int, expanded bool, height, scroll int, renderMd ...MarkdownRenderer) []string {
 	if state == StatePending || (state == StateStreaming && answer == "") {
+		if card != nil && card.GetCurrentTool() != "" {
+			return []string{Spinner() + " Calling " + card.GetCurrentTool() + "..."}
+		}
 		return []string{Spinner() + " Thinking..."}
 	}
 	if err != nil || state == StateFailed {
@@ -87,7 +97,16 @@ func RenderBtwBodyLines(state string, answer string, err error, cardWidth int, e
 		return []string{"Error: " + errMsg, "Press Enter/Esc to dismiss"}
 	}
 	if answer != "" {
-		return FormatBtwAnswerLines(answer, cardWidth, expanded, height, scroll, renderMd...)
+		lines := FormatBtwAnswerLines(answer, cardWidth, expanded, height, scroll, renderMd...)
+		if card != nil && card.ToolCount() > 0 {
+			plural := "tools"
+			if card.ToolCount() == 1 {
+				plural = "tool"
+			}
+			summary := palette.DimGrayOpen + fmt.Sprintf("Called %d %s", card.ToolCount(), plural) + palette.DimGrayClose
+			lines = append([]string{summary, ""}, lines...)
+		}
+		return lines
 	}
 	return []string{"Error: /btw ended unexpectedly without a response"}
 }
@@ -109,7 +128,7 @@ func RenderBtwCard(card *Card, opts CardRenderOptions) string {
 		cardWidth = 10
 	}
 
-	lines := buildCardLines(question, answer, state, err, cardWidth, expanded, opts)
+	lines := buildCardLines(card, question, answer, state, err, cardWidth, expanded, opts)
 	return RenderInputCard(w, strings.Join(lines, "\n"))
 }
 
@@ -118,15 +137,19 @@ func (c *Card) Render(opts CardRenderOptions) string {
 	return RenderBtwCard(c, opts)
 }
 
-func buildCardLines(question, answer, state string, err error, cardWidth int, expanded bool, opts CardRenderOptions) []string {
+func buildCardLines(card *Card, question, answer, state string, err error, cardWidth int, expanded bool, opts CardRenderOptions) []string {
 	var lines []string
 	lines = append(lines, firstLine(question), "")
-	body := RenderBtwBodyLines(state, answer, err, cardWidth, expanded, opts.Height, opts.Scroll, opts.RenderMd)
+	body := RenderBtwCardBodyLines(card, state, answer, err, cardWidth, expanded, opts.Height, opts.Scroll, opts.RenderMd)
 	lines = append(lines, body...)
 	lines = append(lines, "")
 
 	if state == StatePending || state == StateStreaming {
-		lines = append(lines, Spinner()+" Generating... (Enter/Esc to cancel)")
+		if card != nil && card.GetCurrentTool() != "" {
+			lines = append(lines, Spinner()+" Calling "+card.GetCurrentTool()+"... (Enter/Esc to cancel)")
+		} else {
+			lines = append(lines, Spinner()+" Generating... (Enter/Esc to cancel)")
+		}
 	} else if err == nil && state != StateFailed {
 		lines = append(lines, HintText(expanded, opts.CardCount))
 	}

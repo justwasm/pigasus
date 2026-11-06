@@ -5,6 +5,8 @@ package slashpicker
 
 import (
 	"testing"
+
+	tea "charm.land/bubbletea/v2"
 )
 
 func TestPickerUpdate_EmptyBuffer(t *testing.T) {
@@ -321,3 +323,44 @@ func TestPickerUpdate_TrailingWhitespaceClosesCommandPicker(t *testing.T) {
 		t.Fatal("backspacing space back to /btw should reopen the picker")
 	}
 }
+
+func Test_SlashPickerPureMessagePassing(t *testing.T) {
+	// Zero seams configured: pure Elm message passing test
+	p := New(Seams{})
+	p.Update([]rune("/add"))
+	if !p.Visible() {
+		t.Fatal("expected picker to be visible")
+	}
+
+	// Press Tab to commit completion
+	handled, cmd := p.UpdateKey(tea.Key{Code: tea.KeyTab})
+	if !handled {
+		t.Fatal("expected Tab to be handled")
+	}
+	if cmd == nil {
+		t.Fatal("expected non-nil tea.Cmd from Tab completion")
+	}
+
+	msg := cmd()
+	comp, ok := msg.(CompletedMsg)
+	if !ok {
+		t.Fatalf("expected CompletedMsg, got %T", msg)
+	}
+	if comp.Text != "/add-dir" {
+		t.Fatalf("expected /add-dir completion, got %q", comp.Text)
+	}
+
+	// Esc cancels with DismissedMsg
+	p.Update([]rune("/"))
+	handled, cmd = p.CancelCmd()
+	if !handled {
+		t.Fatal("expected CancelCmd to be handled")
+	}
+	if cmd == nil {
+		t.Fatal("expected non-nil tea.Cmd from CancelCmd")
+	}
+	if _, ok := cmd().(DismissedMsg); !ok {
+		t.Fatalf("expected DismissedMsg, got %T", cmd())
+	}
+}
+

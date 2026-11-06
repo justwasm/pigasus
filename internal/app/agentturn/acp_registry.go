@@ -59,17 +59,46 @@ type ACPUVXDistribution struct {
 
 // BuiltinACPRegistry provides definitions for prominent ACP agents.
 var BuiltinACPRegistry = map[string]ACPAgentManifest{
-	"agy-acp-server": {
-		ID:          "agy-acp-server",
+	"agy-acp": {
+		ID:          "agy-acp",
 		Name:        "Google Antigravity ACP Server",
-		Version:     "1.4.12",
-		Description: "Official / clone Agent Client Protocol server for Google Antigravity (Pigasus)",
+		Version:     "1.5.0",
+		Description: "Official Agent Client Protocol server for Google Antigravity (agy acp)",
 		Repository:  "https://github.com/agentclientprotocol/registry/tree/main/antigravity-acp",
 		Distribution: ACPDistribution{
 			Binary: map[string]ACPBinaryDistribution{
 				"all": {
-					Cmd:  "agy-acp-server",
-					Args: []string{"--stdio"},
+					Cmd:  "agy",
+					Args: []string{"acp"},
+				},
+			},
+		},
+	},
+	"agy-acp-server": {
+		ID:          "agy-acp",
+		Name:        "Google Antigravity ACP Server",
+		Version:     "1.5.0",
+		Description: "Official Agent Client Protocol server for Google Antigravity (agy acp)",
+		Repository:  "https://github.com/agentclientprotocol/registry/tree/main/antigravity-acp",
+		Distribution: ACPDistribution{
+			Binary: map[string]ACPBinaryDistribution{
+				"all": {
+					Cmd:  "agy",
+					Args: []string{"acp"},
+				},
+			},
+		},
+	},
+	"pigasus-acp": {
+		ID:          "pigasus-acp",
+		Name:        "Pigasus ACP Server",
+		Version:     "1.5.0",
+		Description: "Native Agent Client Protocol server for Pigasus (pigasus acp)",
+		Distribution: ACPDistribution{
+			Binary: map[string]ACPBinaryDistribution{
+				"all": {
+					Cmd:  "pigasus",
+					Args: []string{"acp"},
 				},
 			},
 		},
@@ -179,8 +208,10 @@ func ResolveACPAgent(agentOrPath string) (cmd string, args []string, env map[str
 	var manifest ACPAgentManifest
 	var ok bool
 	switch norm {
+	case "pigasus", "pigasus-acp", "pig-acp":
+		manifest, ok = BuiltinACPRegistry["pigasus-acp"]
 	case "agy", "agy-acp", "agy-acp-server", "antigravity", "antigravity-acp":
-		manifest, ok = BuiltinACPRegistry["agy-acp-server"]
+		manifest, ok = BuiltinACPRegistry["agy-acp"]
 	case "codex", "codex-acp":
 		manifest, ok = BuiltinACPRegistry["codex-acp"]
 	case "claude", "claude-acp", "claude-code-acp", "claude-agent-acp":
@@ -206,18 +237,23 @@ func resolveManifest(manifest *ACPAgentManifest) (cmd string, args []string, env
 		return "", nil, nil, errors.New("nil manifest")
 	}
 
-	// Special case for agy-acp-server: check agy-acp-server, pigcap, or current executable
-	if manifest.ID == "agy-acp-server" {
-		if p, err := exec.LookPath("agy-acp-server"); err == nil {
-			return p, []string{"--stdio"}, nil, nil
-		}
-		if p, err := exec.LookPath("pigcap"); err == nil {
-			return p, []string{"--stdio"}, nil, nil
-		}
+	// Special case for pigasus-acp: run pigasus acp via current executable or "pigasus"
+	if manifest.ID == "pigasus-acp" {
 		if exe, err := os.Executable(); err == nil {
 			return exe, []string{"acp"}, nil, nil
 		}
 		return "pigasus", []string{"acp"}, nil, nil
+	}
+
+	// Special case for agy-acp / agy-acp-server: check agy (agy acp) or legacy agy-acp-server
+	if manifest.ID == "agy-acp" || manifest.ID == "agy-acp-server" {
+		if p, err := exec.LookPath("agy"); err == nil {
+			return p, []string{"acp"}, nil, nil
+		}
+		if p, err := exec.LookPath("agy-acp-server"); err == nil {
+			return p, []string{"--stdio"}, nil, nil
+		}
+		return "agy", []string{"acp"}, nil, nil
 	}
 
 	// 1. Check binary distribution for current platform
@@ -352,6 +388,13 @@ func SpawnACPAgent(ctx context.Context, agentOrPath string, extraArgs []string, 
 	cmd, args, env, err := ResolveACPAgent(agentOrPath)
 	if err != nil {
 		return nil, err
+	}
+	if cmd == "pigasus" {
+		if _, err := exec.LookPath("pigasus"); err != nil {
+			if exe, errExe := os.Executable(); errExe == nil {
+				cmd = exe
+			}
+		}
 	}
 	allArgs := append(args, extraArgs...)
 

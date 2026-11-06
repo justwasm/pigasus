@@ -209,20 +209,41 @@ func updateConversationSummariesDB(path, id, workspace string, steps []Step) {
 
 	_, _ = sdb.Exec(summariesTableDDL)
 
+	title := ""
 	preview := ""
 	for _, s := range steps {
 		if s.Type == StepUserInput && s.Text != "" {
 			preview = s.Text
+			t := strings.TrimSpace(s.Text)
+			if i := strings.IndexAny(t, "\n\r"); i >= 0 {
+				t = t[:i]
+			}
+			t = strings.Join(strings.Fields(t), " ")
+			if len(t) > 60 {
+				t = t[:57] + "..."
+			}
+			title = t
 			break
 		}
 	}
 	if preview == "" && len(steps) > 0 {
 		preview = steps[0].Text
+		title = preview
+	}
+	if title == "" {
+		title = preview
 	}
 	nowStr := time.Now().UTC().Format(time.RFC3339Nano)
-	uris := ""
+	uris := "[]"
 	if workspace != "" {
-		uris = "file://" + filepath.Clean(workspace)
+		clean := filepath.Clean(workspace)
+		uri := clean
+		if !strings.HasPrefix(uri, "file://") {
+			uri = "file://" + clean
+		}
+		if encoded, err := json.Marshal([]string{uri}); err == nil {
+			uris = string(encoded)
+		}
 	}
 
 	// The reference's table declares last_modified_time and
@@ -240,10 +261,10 @@ func updateConversationSummariesDB(path, id, workspace string, steps []Step) {
 			title=CASE WHEN conversation_summaries.title='' THEN excluded.title ELSE conversation_summaries.title END,
 			preview=CASE WHEN conversation_summaries.preview='' THEN excluded.preview ELSE conversation_summaries.preview END,
 			step_count=excluded.step_count,
-			workspace_uris=excluded.workspace_uris,
+			workspace_uris=CASE WHEN excluded.workspace_uris!='[]' AND excluded.workspace_uris!='' THEN excluded.workspace_uris ELSE conversation_summaries.workspace_uris END,
 			last_modified_time=excluded.last_modified_time,
 			last_user_input_time=excluded.last_user_input_time`,
-		id, preview, preview, len(steps), uris, nowStr, nowStr)
+		id, title, preview, len(steps), uris, nowStr, nowStr)
 }
 
 // WriteConversation creates a fresh SQLite database at path with the

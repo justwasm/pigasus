@@ -42,6 +42,7 @@ package projects
 
 import (
 	"encoding/json"
+	"errors"
 	"flag"
 	"os"
 	"path/filepath"
@@ -282,4 +283,159 @@ func updateCache(home, cwd, projID string) {
 	if data, err := json.MarshalIndent(cache, "", "  "); err == nil {
 		_ = os.WriteFile(path, data, 0644)
 	}
+}
+
+// LocalProject represents a local project with resolved folder paths.
+type LocalProject struct {
+	ID      string   `json:"id"`
+	Name    string   `json:"name"`
+	Folders []string `json:"folders"`
+}
+
+// ResolveFolderPath resolves a raw folder path that may be absolute, home-relative (~), or workspace-relative.
+func ResolveFolderPath(workspace, rawPath string) (string, error) {
+	trimmed := strings.TrimSpace(rawPath)
+	if trimmed == "" {
+		return "", errors.New("empty path")
+	}
+	if strings.HasPrefix(trimmed, "file://") {
+		trimmed = strings.TrimPrefix(trimmed, "file://")
+	}
+	if trimmed == "~" || strings.HasPrefix(trimmed, "~/") {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", err
+		}
+		if trimmed == "~" {
+			trimmed = home
+		} else {
+			trimmed = filepath.Join(home, trimmed[2:])
+		}
+	} else if !filepath.IsAbs(trimmed) {
+		trimmed = filepath.Join(workspace, trimmed)
+	}
+	return filepath.Clean(trimmed), nil
+}
+
+// ListLocalProjects returns all local projects found in ~/.gemini/config/projects/.
+func ListLocalProjects(home string) ([]LocalProject, error) {
+	if home == "" {
+		var err error
+		home, err = os.UserHomeDir()
+		if err != nil {
+			return nil, err
+		}
+	}
+	dir := storeDir(home)
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return []LocalProject{{ID: DefaultProjectID, Name: "CLI Project"}}, nil
+		}
+		return nil, err
+	}
+	var list []LocalProject
+	for _, e := range entries {
+		if filepath.Ext(e.Name()) != ".json" {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(dir, e.Name()))
+		if err != nil {
+			continue
+		}
+		var p definition
+		if err := json.Unmarshal(data, &p); err == nil && p.ID != "" {
+			var folders []string
+			for _, r := range p.ProjectResources.Resources {
+				uri := r.FolderURI
+				path := strings.TrimPrefix(uri, "file://")
+				folders = append(folders, path)
+			}
+			list = append(list, LocalProject{
+				ID:      p.ID,
+				Name:    p.Name,
+				Folders: folders,
+			})
+		}
+	}
+	if len(list) == 0 {
+		list = append(list, LocalProject{ID: DefaultProjectID, Name: "CLI Project"})
+	}
+	return list, nil
+}
+
+// SaveLocalProject saves a project definition to ~/.gemini/config/projects/<id>.json.
+func SaveLocalProject(home string, proj LocalProject) error {
+	if home == "" {
+		var err error
+		home, err = os.UserHomeDir()
+		if err != nil {
+			return err
+		}
+	}
+	var resList []folder
+	for _, f := range proj.Folders {
+		resList = append(resList, folder{FolderURI: "file://" + f})
+	}
+	p := definition{
+		ID:   proj.ID,
+		Name: proj.Name,
+		ProjectResources: resources{
+			Resources: resList,
+		},
+	}
+	data, err := json.MarshalIndent(p, "", "  ")
+	if err != nil {
+		return err
+	}
+	dir := storeDir(home)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return err
+	}
+	return os.WriteFile(ConfigPath(home, proj.ID), data, 0644)
+}
+
+// DeleteLocalProject deletes a project definition file.
+func DeleteLocalProject(home, id string) error {
+	if home == "" {
+		var err error
+		home, err = os.UserHomeDir()
+		if err != nil {
+			return err
+		}
+	}
+	return os.Remove(ConfigPath(home, id))
+}
+
+// CurrentLocalProjectID returns the current project ID for the given workspace.
+func CurrentLocalProjectID(home, cwd string) string {
+	if home == "" {
+		h, err := os.UserHomeDir()
+		if err != nil {
+			return DefaultProjectID
+		}
+		home = h
+	}
+	path := cachePath(home)
+	if data, err := os.ReadFile(path); err == nil {
+		var cache map[string]string
+		if err := json.Unmarshal(data, &cache); err == nil {
+			if id, ok := cache[cwd]; ok && id != "" {
+				return id
+			}
+		}
+	}
+	return DefaultProjectID
+}
+
+// SetCurrentLocalProject associates the cwd with projID in cache.
+func SetCurrentLocalProject(home, cwd, projID string) {
+	if home == "" {
+		h, err := os.UserHomeDir()
+		if err != nil {
+			return
+		}
+		home = h
+	}
+	updateCache(home, cwd, projID)
 }

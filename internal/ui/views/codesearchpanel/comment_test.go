@@ -476,3 +476,55 @@ func TestViewerSearchFindsTheNextLine(t *testing.T) {
 		t.Errorf("the cursor's line = %q, want %q", got, "line4")
 	}
 }
+
+func Test_CodesearchPureMessagePassing(t *testing.T) {
+	root := panelTree(t)
+	// Build panel with zero action seams (no OpenEditor, no SendComments, no Close)
+	p := New(Seams{
+		Root:      func() string { return root },
+		Size:      func() (int, int) { return 80, 24 },
+		Streaming: func() bool { return false },
+		ReadFile: func(path string) ([]string, string, bool) {
+			data, err := os.ReadFile(filepath.Join(root, path))
+			if err != nil {
+				return nil, "File not found: " + path, false
+			}
+			text := strings.TrimSuffix(string(data), "\n")
+			if text == "" {
+				return nil, "", true
+			}
+			return strings.Split(text, "\n"), "", true
+		},
+	})
+	p.Start("needle")
+
+	// Enter opens the file in viewer and returns OpenFileCmd
+	handled, cmd, ok := p.Update(tea.Key{Code: tea.KeyEnter})
+	if !handled || !ok || cmd == nil {
+		t.Fatal("expected Enter to return handled with tea.Cmd")
+	}
+	fileMsg, isFileMsg := cmd().(FileOpenedMsg)
+	if !isFileMsg || fileMsg.Path == "" {
+		t.Fatalf("expected FileOpenedMsg, got %#v", cmd())
+	}
+
+	// Add a comment
+	p.Update(tea.Key{Code: 'c', Text: "c"})
+	typeComment(t, p, "pure message comment")
+	p.Update(tea.Key{Code: tea.KeyEsc}) // leaves comment editor, opens unsent screen
+
+	if p.unsent == nil {
+		t.Fatal("expected unsent comments screen to be active")
+	}
+
+	// In unsent screen, 'Y' sends comments. With zero seams, it emits SendCommentsMsg!
+	handled, cmd, ok = p.Update(tea.Key{Code: 'Y', Text: "Y"})
+	if !handled || !ok || cmd == nil {
+		t.Fatal("expected Enter in unsent screen to return handled with tea.Cmd")
+	}
+	sendMsg, isSendMsg := cmd().(SendCommentsMsg)
+	if !isSendMsg || !strings.Contains(sendMsg.Text, "pure message comment") {
+		t.Fatalf("expected SendCommentsMsg containing comment, got %#v", cmd())
+	}
+}
+

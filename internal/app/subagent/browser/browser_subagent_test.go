@@ -1,11 +1,5 @@
 // browser_subagent_test.go — the cycle-311 tests for the reference's
 // browser_subagent tool.
-//
-// The reference's browser agent is a real agent: the tool hands it a task
-// and the agent drives the browser. The clone's browser agent is a
-// subagent whose tool set is the browser-control surface, so the tests pin
-// three things: the prompt the agent runs under, the tool set it is given,
-// and the delegation itself.
 package browser
 
 import (
@@ -15,40 +9,23 @@ import (
 	"testing"
 	"time"
 
-	pi "github.com/MichaelKinsy/PiG/ai"
-	"github.com/MichaelKinsy/PiG/coding"
-
+	"github.com/justwasm/pigasus/actor"
 	"github.com/justwasm/pigasus/internal/app/subagenttools"
 	"github.com/justwasm/pigasus/internal/app/tools"
 	"github.com/justwasm/pigasus/internal/app/tools/surface"
 )
 
-// fauxModel mirrors subagenttools' own test model: the inline Provider
-// field is the seam the runtime uses, so TestFauxProvider reaches Stream
-// without an auth handshake.
-func fauxModel() *pi.Model {
-	return &pi.Model{
-		Type:         pi.ModelTypeChat,
-		ID:           "faux-1",
-		DisplayName:  "faux-1",
-		Provider:     &pi.TestFauxProvider{},
-		ProviderMeta: pi.ProviderMetadata{ProviderID: "test-faux", API: "test-faux"},
-		Input:        []string{"text"},
-	}
-}
-
-func testServices(t *testing.T) *coding.AgentSessionServices {
+func testDeps(t *testing.T) subagenttools.Deps {
 	t.Helper()
 	dir := t.TempDir()
-	svcs, err := coding.CreateAgentSessionServices(coding.CreateAgentSessionServicesOptions{
+	mock := actor.NewMockProvider()
+	mock.EnqueueResponse("42")
+	return subagenttools.Deps{
+		Provider: mock,
+		Model:    "mock-model",
 		CWD:      dir,
 		AgentDir: filepath.Join(dir, "agent"),
-	})
-	if err != nil {
-		t.Fatalf("coding.CreateAgentSessionServices: %v", err)
 	}
-	t.Cleanup(func() { svcs.Close() })
-	return svcs
 }
 
 // TestPromptLeadIsTheReferences pins the one sentence of the browser agent's
@@ -121,7 +98,7 @@ func TestBrowserToolsSkipsAMissingRegistry(t *testing.T) {
 // TestRunBrowserTaskRequiresATask pins that an empty task is refused before
 // a session is created.
 func TestRunBrowserTaskRequiresATask(t *testing.T) {
-	runner := New(subagenttools.Deps{Services: testServices(t), Model: fauxModel()}, nil)
+	runner := New(testDeps(t), nil)
 	if _, err := runner.RunBrowserTask(context.Background(), "  "); err == nil {
 		t.Fatal("RunBrowserTask(\"\") = nil error, want one")
 	}
@@ -130,16 +107,8 @@ func TestRunBrowserTaskRequiresATask(t *testing.T) {
 // TestRunBrowserTaskDelegatesToTheBrowserAgent runs the whole path: the
 // browser agent gets the task and its answer comes back as the tool's
 // result.
-//
-// The faux provider answers "What is 20+22?" with 42, so the assertion does
-// not depend on model nondeterminism.
 func TestRunBrowserTaskDelegatesToTheBrowserAgent(t *testing.T) {
-	deps := subagenttools.Deps{
-		Services: testServices(t),
-		Model:    fauxModel(),
-		CWD:      t.TempDir(),
-	}
-	runner := New(deps, nil)
+	runner := New(testDeps(t), nil)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()

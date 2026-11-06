@@ -2,9 +2,14 @@ package models
 
 import (
 	"github.com/justwasm/pigasus/internal/app/subcommands"
-	"github.com/justwasm/pigasus/internal/cli"
+	"github.com/justwasm/pigasus/internal/core/cliflags"
 )
 
+// Specs returns the models and model subcommand specs.
+func Specs() []cliflags.SubcommandSpec {
+	return []cliflags.SubcommandSpec{cliflags.ModelsSubcommand(), cliflags.ModelSubcommand()}
+}
+
 func init() {
-	subcommands.RegisterSubcommands(cli.ModelsSubcommand(), cli.ModelSubcommand())
+	subcommands.RegisterMultiProvider(Specs)
 }

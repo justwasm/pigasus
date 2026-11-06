@@ -2,12 +2,9 @@ package subagenttools
 
 import (
 	"context"
-	"encoding/json"
 	"testing"
 	"time"
 
-	piagent "github.com/MichaelKinsy/PiG/agent"
-	pi "github.com/MichaelKinsy/PiG/ai"
 	taskregistry "github.com/justwasm/pigasus/internal/app/task"
 )
 
@@ -54,21 +51,16 @@ func TestTranscriptPersistAndLoad(t *testing.T) {
 	tmpDir := t.TempDir()
 	subID := "sub-persist-1"
 
-	userMsg := piagent.AgentMessage{User: &piagent.UserMessage{
-		Role:      "user",
-		Content:   pi.UserText("Implement feature X"),
-		Timestamp: time.Now().UnixMilli(),
-	}}
-	assistantMsg := piagent.AgentMessage{Assistant: &piagent.AssistantMessage{
-		Role: "assistant",
-		Content: []pi.AssistantContentBlock{
-			pi.TextContent{Text: "I will implement feature X."},
-		},
-		Timestamp:  time.Now().UnixMilli(),
-		StopReason: pi.StopReasonStop,
-	}}
+	userMsg := SubagentMessage{
+		Role:    "user",
+		Content: "Implement feature X",
+	}
+	assistantMsg := SubagentMessage{
+		Role:    "assistant",
+		Content: "I will implement feature X.",
+	}
 
-	msgs := []piagent.AgentMessage{userMsg, assistantMsg}
+	msgs := []SubagentMessage{userMsg, assistantMsg}
 	persistTranscript(tmpDir, subID, msgs, nil)
 
 	loaded, err := loadTranscript(tmpDir, subID)
@@ -78,11 +70,11 @@ func TestTranscriptPersistAndLoad(t *testing.T) {
 	if len(loaded) != 2 {
 		t.Fatalf("loaded %d messages, want 2", len(loaded))
 	}
-	if loaded[0].Role() != "user" {
-		t.Errorf("loaded[0].Role = %q, want user", loaded[0].Role())
+	if loaded[0].Role != "user" {
+		t.Errorf("loaded[0].Role = %q, want user", loaded[0].Role)
 	}
-	if loaded[1].Role() != "assistant" {
-		t.Errorf("loaded[1].Role = %q, want assistant", loaded[1].Role())
+	if loaded[1].Role != "assistant" {
+		t.Errorf("loaded[1].Role = %q, want assistant", loaded[1].Role)
 	}
 }
 
@@ -101,12 +93,12 @@ func TestSendMessageRevivesStoppedSubagent(t *testing.T) {
 	})
 
 	sendTool := &sendMessageTool{registry: reg, owner: "parent-1"}
-	res, err := sendTool.Execute(context.Background(), "call-send",
-		json.RawMessage(`{"Recipient":"sub-stopped-1","Message":"please continue"}`), nil)
+	res, err := sendTool.Execute(context.Background(),
+		`{"Recipient":"sub-stopped-1","Message":"please continue"}`)
 	if err != nil {
 		t.Fatalf("sendTool.Execute error: %v", err)
 	}
-	if res.IsError {
+	if res.Error != "" {
 		t.Fatalf("sendTool reported error result: %v", res)
 	}
 	if !revived {
@@ -128,22 +120,21 @@ func TestManageSubagentsStopAndResume(t *testing.T) {
 	manageTool := &manageSubagentsTool{registry: reg, owner: "parent-1"}
 
 	// 1. Action: stop
-	res, err := manageTool.Execute(context.Background(), "call-stop",
-		json.RawMessage(`{"Action":"stop","ConversationIds":["sub-target-1"]}`), nil)
+	res, err := manageTool.Execute(context.Background(),
+		`{"Action":"stop","ConversationIds":["sub-target-1"]}`)
 	if err != nil {
 		t.Fatalf("manageTool stop error: %v", err)
 	}
 	if child.State() != StateStopped {
 		t.Fatalf("child state = %q, want %q", child.State(), StateStopped)
 	}
-	text := res.Content[0].(pi.TextContent).Text
-	if text == "" {
+	if res.Output == "" {
 		t.Fatalf("empty stop response")
 	}
 
 	// 2. Action: resume
-	res, err = manageTool.Execute(context.Background(), "call-resume",
-		json.RawMessage(`{"Action":"resume","ConversationIds":["sub-target-1"]}`), nil)
+	res, err = manageTool.Execute(context.Background(),
+		`{"Action":"resume","ConversationIds":["sub-target-1"]}`)
 	if err != nil {
 		t.Fatalf("manageTool resume error: %v", err)
 	}

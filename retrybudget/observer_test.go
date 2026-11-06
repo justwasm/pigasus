@@ -1,25 +1,14 @@
-// observer_test.go — cycle retry-30s-cap-stays Observer tests. The
-// Budget's invariants are pinned in retrybudget_test.go; here we
-// verify the contract with the caller: a sequence of
-// agent.AutoRetryStartEvent values lands in the budget and overflow
-// calls Aborter.AbortRetry exactly once.
-//
-// Test name prefixes are constrained to the cycle's regex
-// (TestRetry|TestBackoff|TestCap|Test30) so the targeted-run check the
-// deliverable specifies resolves them.
+// observer_test.go — cycle retry-30s-cap-stays Observer tests.
 package retrybudget
 
 import (
 	"sync"
 	"testing"
 	"time"
-
-	"github.com/MichaelKinsy/PiG/agent"
 )
 
 // stubAborter records every AbortRetry call. It implements Aborter
-// without depending on PiG's *coding.Session, so the observer test
-// stays a pure unit test (no session, no transport, no MCP).
+// without depending on any external runtime.
 type stubAborter struct {
 	mu    sync.Mutex
 	calls int
@@ -37,18 +26,14 @@ func (s *stubAborter) CallCount() int {
 	return s.calls
 }
 
-// retryStart is a small helper that builds an AutoRetryStartEvent with
-// the fields the observer actually consumes (DelayMs). The other
-// fields are kept at zero so a regression that mis-indexes them
-// surfaces in the test, not as a downstream nil-deref.
-func retryStart(delay time.Duration) agent.AutoRetryStartEvent {
-	return agent.AutoRetryStartEvent{DelayMs: int(delay / time.Millisecond)}
+func retryStart(delay time.Duration) AutoRetryStartEvent {
+	return AutoRetryStartEvent{DelayMs: int(delay / time.Millisecond)}
 }
 
-// TestBackoffObserverWithinCap pins the happy path: a sequence of
-// exponentially increasing backoffs that all fit inside the cap must
-// NOT call Aborter. This is the case AGY 1.2.13 leaves alone — the
-// changelog pins the cap, not the routine.
+type dummyCompactionStartEvent struct{ Reason string }
+type dummyCompactionEndEvent struct{ Reason string }
+type dummyMessageUpdateEvent struct{}
+
 func TestBackoffObserverWithinCap(t *testing.T) {
 	b := New(30 * time.Second)
 	aborter := &stubAborter{}
@@ -65,12 +50,6 @@ func TestBackoffObserverWithinCap(t *testing.T) {
 	}
 }
 
-// TestCapOverflowAborts pins the surface-error-after-cap case: a
-// backoff that would overflow the cap must trigger exactly one
-// AbortRetry call, and the failed TryConsume must leave Used unchanged
-// (so the abort is observable to the rest of the system as a clean
-// "we hit the cap, here is the underlying error" rather than a
-// half-consumed delta).
 func TestCapOverflowAborts(t *testing.T) {
 	b := New(30 * time.Second)
 	aborter := &stubAborter{}
@@ -89,23 +68,12 @@ func TestCapOverflowAborts(t *testing.T) {
 		t.Fatalf("Used=%v after overflow, want 25s (rejection leaves state unchanged)", got)
 	}
 
-	// A subsequent overflow event must also call Aborter — the
-	// observer does not latch a "do not call again" flag. PiG's
-	// prepareRetry stops scheduling retries after AbortRetry cancels
-	// the in-flight wait, so this second call is a defence-in-depth
-	// assertion: the observer's contract is "every overflow fires an
-	// AbortRetry", regardless of upstream behaviour.
 	obs(retryStart(8 * time.Second))
 	if got := aborter.CallCount(); got != 2 {
 		t.Fatalf("Aborter called %d times after two overflows; want 2", got)
 	}
 }
 
-// TestCapObserverPerTurnReset pins the per-turn semantics at the
-// Observer level: Reset between turns must restore the budget so
-// the next AutoRetryStartEvent of the new turn fits. This is the
-// property the cycle's spec calls out ("reset per turn, surface
-// errors after cap").
 func TestCapObserverPerTurnReset(t *testing.T) {
 	b := New(30 * time.Second)
 	aborter := &stubAborter{}
@@ -119,9 +87,6 @@ func TestCapObserverPerTurnReset(t *testing.T) {
 		t.Fatalf("turn 1: Aborter called %d times after 3x 15s overflows; want 1", got)
 	}
 
-	// New turn: Reset zeroes the budget. The next 30s attempt must
-	// fit — and crucially must NOT call Aborter (the past turn's
-	// exhausted state does not leak).
 	b.Reset()
 	obs(retryStart(30 * time.Second))
 	if got := aborter.CallCount(); got != 1 {
@@ -132,16 +97,12 @@ func TestCapObserverPerTurnReset(t *testing.T) {
 	}
 }
 
-// TestRetryObserverSingleUnaffected pins the most common case in
-// production: a single retry that fits inside the cap. The observer
-// must consume its delay and leave the rest untouched, with zero
-// Aborter calls. This is what AGY 1.2.13 users see 99% of the time.
 func TestRetryObserverSingleUnaffected(t *testing.T) {
 	b := New(30 * time.Second)
 	aborter := &stubAborter{}
 	obs := Observer(b, aborter)
 
-	obs(retryStart(2 * time.Second)) // PiG default BaseDelayMs
+	obs(retryStart(2 * time.Second))
 	if got := aborter.CallCount(); got != 0 {
 		t.Fatalf("Aborter called %d times on a single fitting retry; want 0", got)
 	}
@@ -153,20 +114,14 @@ func TestRetryObserverSingleUnaffected(t *testing.T) {
 	}
 }
 
-// TestRetryObserverIgnoresNonRetry confirms the observer is a
-// type-filtered EventFunc: it must not call Aborter on
-// CompactionStartEvent, MessageUpdateEvent, or any other event type
-// the session may emit. The drain goroutine forwards every event the
-// session produces; without the type switch, a compaction event with
-// a numeric field could spuriously trip the abort.
 func TestRetryObserverIgnoresNonRetry(t *testing.T) {
 	b := New(time.Second) // tiny cap so any false-trigger overflows
 	aborter := &stubAborter{}
 	obs := Observer(b, aborter)
 
-	obs(agent.CompactionStartEvent{Reason: "threshold"})
-	obs(agent.CompactionEndEvent{Reason: "threshold"})
-	obs(agent.MessageUpdateEvent{}) // zero-value AssistantMessageEvent
+	obs(dummyCompactionStartEvent{Reason: "threshold"})
+	obs(dummyCompactionEndEvent{Reason: "threshold"})
+	obs(dummyMessageUpdateEvent{})
 	if got := aborter.CallCount(); got != 0 {
 		t.Fatalf("Aborter called %d times on non-retry events; want 0", got)
 	}
@@ -175,28 +130,16 @@ func TestRetryObserverIgnoresNonRetry(t *testing.T) {
 	}
 }
 
-// TestCapObserverNilBudgetNoOp confirms the runtime's "cap disabled"
-// wiring (retryBudget == nil when Options.RetryBudgetCap < 0). The
-// observer must not panic, must not call Aborter, and must not
-// consume. Pinning this case is what lets the runtime disable the
-// cap in tests without rebuilding the observer.
 func TestCapObserverNilBudgetNoOp(t *testing.T) {
 	aborter := &stubAborter{}
 	obs := Observer(nil, aborter)
 
-	// Even a 1-hour retry must not be routed anywhere — the observer
-	// is a no-op without a budget to consult.
 	obs(retryStart(time.Hour))
 	if got := aborter.CallCount(); got != 0 {
 		t.Fatalf("nil-budget observer called Aborter %d times; want 0", got)
 	}
 }
 
-// TestRetryObserverNilAborterPanics confirms the loud-failure
-// contract: wiring a nil Aborter alongside a non-nil Budget panics
-// the first time AutoRetryStartEvent fires. A silent no-op here
-// would defeat the cycle's purpose — the cap exists to abort, not to
-// log.
 func TestRetryObserverNilAborterPanics(t *testing.T) {
 	b := New(30 * time.Second)
 	obs := Observer(b, nil)
@@ -209,18 +152,13 @@ func TestRetryObserverNilAborterPanics(t *testing.T) {
 	obs(retryStart(time.Second))
 }
 
-// TestRetryObserverEndIgnored confirms the observer does not act on
-// AutoRetryEndEvent. PiG emits one of these after every retry
-// sequence (success or exhausted). If the observer treated it as a
-// retry start, the "DelayMs=0" event would slip a no-op consume into
-// the budget and skew the cumulative reading.
 func TestRetryObserverEndIgnored(t *testing.T) {
 	b := New(30 * time.Second)
 	aborter := &stubAborter{}
 	obs := Observer(b, aborter)
 
-	obs(agent.AutoRetryEndEvent{Success: false, Attempt: 3, FinalError: "exhausted"})
-	obs(agent.AutoRetryEndEvent{Success: true, Attempt: 1})
+	obs(AutoRetryEndEvent{Success: false, Attempt: 3, FinalError: "exhausted"})
+	obs(AutoRetryEndEvent{Success: true, Attempt: 1})
 	if got := aborter.CallCount(); got != 0 {
 		t.Fatalf("Aborter called %d times on retry-end events; want 0", got)
 	}

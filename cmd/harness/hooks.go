@@ -48,8 +48,6 @@ import (
 	"fmt"
 	"time"
 
-	piagent "github.com/MichaelKinsy/PiG/agent"
-
 	"github.com/justwasm/pigasus/lifecyclehooks"
 	pb "github.com/justwasm/pigasus/localharness/pb/localharness"
 )
@@ -248,18 +246,18 @@ func preToolVerdict(resp *pb.CallHookResponse) hookVerdict {
 }
 
 // postTool fires the POST_TOOL hook.
-func (h *hookDispatcher) postTool(ctx context.Context, e piagent.ToolExecutionEndEvent) {
+func (h *hookDispatcher) postTool(ctx context.Context, toolName, toolCallID, resultText string, isError bool) {
 	if !h.enabledType(lifecyclehooks.TypePostTool) {
 		return
 	}
 	if _, err := h.fire(ctx, lifecyclehooks.TypePostTool, func(req *pb.CallHookRequest) {
 		args := &pb.PostToolArgs{}
-		args.SetToolName(e.ToolName)
-		args.SetResult(toolResultText(e.Result))
-		if e.IsError {
-			args.SetError(toolResultText(e.Result))
+		args.SetToolName(toolName)
+		args.SetResult(resultText)
+		if isError {
+			args.SetError(resultText)
 		}
-		args.SetCallId(e.ToolCallID)
+		args.SetCallId(toolCallID)
 		args.SetTrajectoryId(h.conv.trajectoryID)
 		req.SetPostToolArgs(args)
 	}); err != nil {
@@ -277,15 +275,15 @@ func (h *hookDispatcher) postTool(ctx context.Context, e piagent.ToolExecutionEn
 // 【推测】 The reference applies the custom message to the step it is
 // building; the clone's runtime owns the error result, so the harness can
 // only observe it.
-func (h *hookDispatcher) onToolError(ctx context.Context, e piagent.ToolExecutionEndEvent) {
+func (h *hookDispatcher) onToolError(ctx context.Context, toolName, toolCallID, errorText string) {
 	if !h.enabledType(lifecyclehooks.TypeOnToolError) {
 		return
 	}
 	if _, err := h.fire(ctx, lifecyclehooks.TypeOnToolError, func(req *pb.CallHookRequest) {
 		args := &pb.OnToolErrorArgs{}
-		args.SetToolName(e.ToolName)
-		args.SetErrorMessage(toolResultText(e.Result))
-		args.SetCallId(e.ToolCallID)
+		args.SetToolName(toolName)
+		args.SetErrorMessage(errorText)
+		args.SetCallId(toolCallID)
 		args.SetTrajectoryId(h.conv.trajectoryID)
 		req.SetOnToolErrorArgs(args)
 	}); err != nil {

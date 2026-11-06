@@ -95,6 +95,7 @@ import (
 
 	"github.com/justwasm/pigasus/endpoints"
 	"github.com/justwasm/pigasus/internal/features/auth"
+	"github.com/justwasm/pigasus/rcmesh"
 )
 
 const (
@@ -148,7 +149,10 @@ type Flags struct {
 }
 
 func webRTCMeshEnabled() bool {
-	return os.Getenv("OPENAGY_EXPERIMENTAL_WEBRTC_MESH") != ""
+	if os.Getenv("OPENAGY_DISABLE_WEBRTC_MESH") != "" {
+		return false
+	}
+	return rcmesh.DefaultAnswerer() != nil || os.Getenv("OPENAGY_EXPERIMENTAL_WEBRTC_MESH") != ""
 }
 
 // LocalExperiments are the flags the clone itself defines — the

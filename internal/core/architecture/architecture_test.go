@@ -45,24 +45,19 @@ var tiers = []struct {
 	{"internal/ui", 5, "ui"},
 }
 
-// hosts lists the seven entry hosts: the packages that sit above every
+// hosts lists the entry hosts: the packages that sit above every
 // tier and own the turn engines or run a session.
 var hosts = []string{
-	"internal/agent",
-	"internal/pigrt",
-	"internal/piagentbridge",
 	"internal/modular",
 	"internal/cli",
-	"internal/cliapp",
+	"internal/clirunner",
+	"internal/tui",
 	"internal/printmode",
 }
 
 // engineHosts are the hosts the app tier may reach: AGENTS.md lets the
 // app tier use the turn engines, and only the app tier.
 var engineHosts = []string{
-	"internal/agent",
-	"internal/pigrt",
-	"internal/piagentbridge",
 	"internal/modular",
 	"internal/cli",
 }
@@ -70,7 +65,8 @@ var engineHosts = []string{
 // entryHosts are the hosts that sit above every tier: an entry surface is
 // not a tier, so no tier may import one — the app tier included.
 var entryHosts = []string{
-	"internal/cliapp",
+	"internal/clirunner",
+	"internal/tui",
 	"internal/printmode",
 }
 

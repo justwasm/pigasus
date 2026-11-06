@@ -15,7 +15,6 @@ import (
 	"github.com/justwasm/pigasus/internal/features/auth"
 	"github.com/justwasm/pigasus/internal/features/models"
 	"github.com/justwasm/pigasus/internal/features/models/catalog"
-	"github.com/justwasm/pigasus/internal/piagentbridge"
 	"github.com/justwasm/pigasus/internal/remotecontrol"
 	"github.com/justwasm/pigasus/internal/remotecontrol/cascades"
 )
@@ -41,9 +40,9 @@ var BackendPicker = func(modelName string) backend.Client {
 // `webview_browser` tool) meet in one place.
 func buildHostMessageBackend(workspace, modelName string, broker *agentbrowser.Broker) cascades.Backend {
 	be := BackendPicker(resolveModelName(modelName))
-	return &remotecontrol.PiagentBackend{
-		SessionFactory: piagentbridge.NewRemoteCascadeSession(
-			piagentbridge.RemoteCascadeOptions{
+	return &remotecontrol.ActorBackend{
+		SessionFactory: NewRemoteCascadeSession(
+			RemoteCascadeOptions{
 				Backend: be,
 				BackendFactory: func(m string) backend.Client {
 					return BackendPicker(resolveModelName(m))

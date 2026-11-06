@@ -906,3 +906,43 @@ func TestModelPickerWindowingPagination(t *testing.T) {
 		t.Errorf("height 40 cursor on Gemini row should show effort slider:\n%s", joined40)
 	}
 }
+
+func Test_ModelPickerPureMessagePassing(t *testing.T) {
+	// Zero seams configured: pure Elm message passing
+	p := New(Seams{})
+
+	// Esc on empty query produces DismissCmd
+	handled, cmd := p.Update(tea.Key{Code: tea.KeyEsc})
+	if !handled || cmd == nil {
+		t.Fatal("expected Esc to be handled with tea.Cmd")
+	}
+	if _, ok := cmd().(DismissedMsg); !ok {
+		t.Fatalf("expected DismissedMsg, got %#v", cmd())
+	}
+
+	// Press Enter to select current model row
+	handled, cmd = p.Update(tea.Key{Code: tea.KeyEnter})
+	if !handled || cmd == nil {
+		t.Fatal("expected Enter to be handled with tea.Cmd")
+	}
+	msg := cmd()
+	// Since tea.Batch produces a batch msg, or single msg:
+	foundSelection := false
+	if sel, ok := msg.(ModelSelectedMsg); ok {
+		if sel.Label != "" {
+			foundSelection = true
+		}
+	} else if batch, ok := msg.(tea.BatchMsg); ok {
+		for _, bCmd := range batch {
+			if bCmd != nil {
+				if sel, ok := bCmd().(ModelSelectedMsg); ok && sel.Label != "" {
+					foundSelection = true
+				}
+			}
+		}
+	}
+	if !foundSelection {
+		t.Fatalf("expected ModelSelectedMsg in batch or directly, got %#v", msg)
+	}
+}
+

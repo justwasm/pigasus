@@ -37,7 +37,6 @@ import (
 	"github.com/justwasm/pigasus/internal/core/version"
 	"github.com/justwasm/pigasus/internal/features/auth"
 	"github.com/justwasm/pigasus/internal/app/toolrunner"
-	"github.com/justwasm/pigasus/internal/pigrt"
 	"github.com/justwasm/pigasus/internal/app/tools"
 	"github.com/justwasm/pigasus/internal/app/tools/surface"
 )
@@ -92,6 +91,7 @@ type Server struct {
 
 	mu       sync.Mutex
 	prepared bool
+	ahpHost  *AHPHost
 }
 
 // New returns a server.
@@ -112,6 +112,12 @@ func New(cfg Config) (*Server, error) {
 			"/acp/": func(w http.ResponseWriter, r *http.Request) {
 				_ = srv.ServeACPWebSocket(w, r)
 			},
+			"/ahp": func(w http.ResponseWriter, r *http.Request) {
+				_ = srv.ServeAHPWebSocket(w, r)
+			},
+			"/ahp/": func(w http.ResponseWriter, r *http.Request) {
+				_ = srv.ServeAHPWebSocket(w, r)
+			},
 		},
 	})
 	if err != nil {
@@ -127,6 +133,16 @@ func (s *Server) Token() string { return s.link.Token() }
 // Addr is the address the server listens on. It is empty until the
 // listener is open.
 func (s *Server) Addr() string { return s.link.Addr() }
+
+// AHPHost returns the server's AHP host instance.
+func (s *Server) AHPHost() *AHPHost {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.ahpHost == nil {
+		s.ahpHost = NewAHPHost(s)
+	}
+	return s.ahpHost
+}
 
 // Listen opens the server's listener and returns it.
 //
@@ -347,7 +363,14 @@ func (s *Session) env(ctx context.Context, model string) (agentturn.Env, func())
 // Every connection gets its own conversation: the conversation's
 // identifier rides the prompt, and two clients must not share one.
 func (s *Server) session() (*Session, error) {
-	workspace := strings.TrimSpace(s.cfg.Workspace)
+	return s.sessionFor(s.cfg.Workspace, s.cfg.Model)
+}
+
+func (s *Server) sessionFor(ws, model string) (*Session, error) {
+	workspace := strings.TrimSpace(ws)
+	if workspace == "" {
+		workspace = s.cfg.Workspace
+	}
 	if workspace == "" {
 		wd, err := os.Getwd()
 		if err != nil {
@@ -360,6 +383,10 @@ func (s *Server) session() (*Session, error) {
 		return nil, fmt.Errorf("agentserver: cannot resolve %q: %w", workspace, err)
 	}
 	workspace = abs
+
+	if model == "" {
+		model = s.cfg.Model
+	}
 
 	conversationID := agyprompt.NewConversationID()
 	agentDir := confhome.Antigravity()
@@ -379,7 +406,7 @@ func (s *Server) session() (*Session, error) {
 	return &Session{
 		Workspace:      workspace,
 		ConversationID: conversationID,
-		Model:          s.cfg.Model,
+		Model:          model,
 		Prompt:         s.prompt(workspace, agentDir, conversationID),
 		Tools:          toolrunner.AdvertisedToolDecls(s.cfg.AgentBody, catalog),
 		Runner:         runner,
@@ -401,7 +428,7 @@ func (s *Server) prompt(workspace, agentDir, conversationID string) string {
 		}
 	}
 	opts.UserRules = agyprompt.DiscoverUserRules(workspace, agentDir)
-	opts.Skills = agyprompt.DiscoverSkills(pigrt.AgySkillPaths(agentDir, workspace))
+	opts.Skills = agyprompt.DiscoverSkills(agyprompt.AgySkillPaths(agentDir, workspace))
 	if s.cfg.AgentBody == "" {
 		// The browser agent is one of the built-in subagent types, and
 		// it comes before the user's own agents.

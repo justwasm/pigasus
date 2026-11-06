@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/justwasm/pigasus/internal/cli"
+	"github.com/justwasm/pigasus/internal/core/cliflags"
 	"github.com/justwasm/pigasus/internal/features/tools/skills"
 )
 
@@ -31,7 +32,7 @@ func newStandardFlagSetForTest(t *testing.T, args []string) *flag.FlagSet {
 	t.Helper()
 	p := cli.NewParser(cli.StandardFlags(), cli.StandardSubcommands(),
 		"antigravity", "recovered", "recovered",
-		cli.FlagSpec{Name: "format", Type: "string", Usage: "Alias for --output-format (text, json, stream-json)"},
+		cliflags.FlagSpec{Name: "format", Type: "string", Usage: "Alias for --output-format (text, json, stream-json)"},
 	)
 	if code := p.Root().Parse(args); code != 0 {
 		t.Fatalf("Parse(%v) = %d", args, code)

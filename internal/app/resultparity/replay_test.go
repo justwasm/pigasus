@@ -11,12 +11,10 @@ import (
 	"strings"
 	"testing"
 
-	piagent "github.com/MichaelKinsy/PiG/agent"
-	pi "github.com/MichaelKinsy/PiG/ai"
-
+	"github.com/justwasm/pigasus/actor"
 	fixture "github.com/justwasm/pigasus/internal/core/resultparity"
-	"github.com/justwasm/pigasus/internal/piagentbridge"
 	"github.com/justwasm/pigasus/internal/app/subagenttools"
+	"github.com/justwasm/pigasus/internal/app/tools"
 	"github.com/justwasm/pigasus/internal/app/tools/surface"
 )
 
@@ -333,17 +331,11 @@ func runTool(ctx context.Context, root, name string, args json.RawMessage) (stri
 		if t.Name() != name {
 			continue
 		}
-		res, err := t.Execute(ctx, "captured-call", args, nil)
+		res, err := t.Execute(ctx, string(args))
 		if err != nil {
 			return "", err
 		}
-		var b strings.Builder
-		for _, c := range res.Content {
-			if tc, ok := c.(pi.TextContent); ok {
-				b.WriteString(tc.Text)
-			}
-		}
-		return b.String(), nil
+		return res.Output, nil
 	}
 	tool, ok := surface.RuntimeCatalog(root).Get(name)
 	if !ok {
@@ -353,15 +345,15 @@ func runTool(ctx context.Context, root, name string, args json.RawMessage) (stri
 	if err != nil {
 		return "", err
 	}
-	return piagentbridge.RenderResult(out), nil
+	return tools.RenderResult(out), nil
 }
 
 // subagentTools builds the subagent executors once per process. They hold no
 // session state that a replay cares about: every captured subagent call is a
 // pre-delegation path (unknown recipient, kill_all, undefined type).
-var subagentToolCache []piagent.AgentTool
+var subagentToolCache []actor.Tool
 
-func subagentTools() []piagent.AgentTool {
+func subagentTools() []actor.Tool {
 	if subagentToolCache == nil {
 		subagentToolCache = subagenttools.Tools(subagenttools.Deps{})
 	}

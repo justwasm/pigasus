@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -120,4 +121,41 @@ func blankRowTitle(t *testing.T, id string) {
 	if _, err := sdb.Exec(`UPDATE conversation_summaries SET title='' WHERE conversation_id=?`, id); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func TestSummaries_WorkspacePreservedOnEmptyUpdate(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("ANTIGRAVITY_HOME", root)
+	ws := filepath.Join(root, "ws")
+	if err := os.MkdirAll(ws, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	id := "e3e3e3e3-f4f4-4000-8000-000000000803"
+	// First save with workspace
+	if err := SaveConversation(id, ws, []Step{
+		{Type: StepUserInput, Status: 3, Text: "first message"},
+	}); err != nil {
+		t.Fatalf("SaveConversation: %v", err)
+	}
+	// Second save with empty workspace
+	if err := SaveConversation(id, "", []Step{
+		{Type: StepUserInput, Status: 3, Text: "first message"},
+		{Type: StepModelResponse, Status: 3, Text: "reply"},
+	}); err != nil {
+		t.Fatalf("SaveConversation: %v", err)
+	}
+
+	rows, err := ListSummaries()
+	if err != nil {
+		t.Fatalf("ListSummaries: %v", err)
+	}
+	for _, row := range rows {
+		if row.ConversationID == id {
+			if len(row.WorkspaceURIs) == 0 || !strings.Contains(row.WorkspaceURIs[0], "ws") {
+				t.Fatalf("workspace URIs lost on empty update: %v", row.WorkspaceURIs)
+			}
+			return
+		}
+	}
+	t.Fatalf("conversation %s not found", id)
 }

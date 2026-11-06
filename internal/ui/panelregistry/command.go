@@ -38,6 +38,7 @@ var commandPanels = map[string]Kind{
 	// internal/ui/slashcommands' catalogue.
 	"provider": Provider,
 	"accounts": Accounts,
+	"projects": Projects,
 	// /pool is the /accounts panel's Pool tab on its own: the policy
 	// that decides which account serves a turn.
 	"pool": Accounts,

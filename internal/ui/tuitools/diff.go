@@ -221,8 +221,9 @@ func RenderDiffLines(d *EditDiff, width int) []string {
 			rows = rows[:MaxDetailLines]
 		}
 		for _, r := range rows {
+			text := ExpandTabs(r.Text, 4)
 			out = append(out, diffIndent+diffrow.RenderStyled(layout, style,
-				diffrow.Kind(r.Kind), r.Num, r.Text, highlightDiffText(d.Path, r.Text)))
+				diffrow.Kind(r.Kind), r.Num, text, highlightDiffText(d.Path, text)))
 			if more == 0 {
 				lastKind = r.Kind
 			}

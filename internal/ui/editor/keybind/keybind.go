@@ -81,6 +81,10 @@ func TermNeedsOptionMeta() bool {
 // Tests override via Load.
 func DefaultPath() string {
 	home, _ := os.UserHomeDir()
+	cfg := filepath.Join(home, ".gemini", "config", "keybindings.json")
+	if _, err := os.Stat(cfg); err == nil {
+		return cfg
+	}
 	return filepath.Join(home, ".gemini", "antigravity-cli", "keybindings.json")
 }
 
@@ -145,10 +149,50 @@ func KeyString(key tea.Key) string {
 		codeStr = "left"
 	case tea.KeyRight:
 		codeStr = "right"
+	case tea.KeyPgUp:
+		codeStr = "pgup"
+	case tea.KeyPgDown:
+		codeStr = "pgdown"
+	case tea.KeyHome:
+		codeStr = "home"
+	case tea.KeyEnd:
+		codeStr = "end"
+	case tea.KeyDelete:
+		codeStr = "delete"
+	case tea.KeySpace:
+		codeStr = "space"
+	case tea.KeyF1:
+		codeStr = "f1"
+	case tea.KeyF2:
+		codeStr = "f2"
+	case tea.KeyF3:
+		codeStr = "f3"
+	case tea.KeyF4:
+		codeStr = "f4"
+	case tea.KeyF5:
+		codeStr = "f5"
+	case tea.KeyF6:
+		codeStr = "f6"
+	case tea.KeyF7:
+		codeStr = "f7"
+	case tea.KeyF8:
+		codeStr = "f8"
+	case tea.KeyF9:
+		codeStr = "f9"
+	case tea.KeyF10:
+		codeStr = "f10"
+	case tea.KeyF11:
+		codeStr = "f11"
+	case tea.KeyF12:
+		codeStr = "f12"
 	default:
 		if key.Code >= 'a' && key.Code <= 'z' {
 			codeStr = string(key.Code)
 		} else if key.Code >= 'A' && key.Code <= 'Z' {
+			codeStr = strings.ToLower(string(key.Code))
+		} else if key.Code == ' ' {
+			codeStr = "space"
+		} else if key.Code > 0 && unicode.IsPrint(key.Code) {
 			codeStr = strings.ToLower(string(key.Code))
 		} else if key.Text != "" {
 			codeStr = strings.ToLower(key.Text)
@@ -174,20 +218,87 @@ func (k *Keybindings) ActionForKey(key tea.Key) string {
 	return k.ActionForExactKey(ks)
 }
 
+func normalizeKeyString(k string) string {
+	k = strings.ToLower(strings.TrimSpace(k))
+	parts := strings.Split(k, "+")
+	for i, p := range parts {
+		switch p {
+		case "pageup", "page_up":
+			parts[i] = "pgup"
+		case "pagedown", "page_down":
+			parts[i] = "pgdown"
+		case "escape":
+			parts[i] = "esc"
+		}
+	}
+	return strings.Join(parts, "+")
+}
+
 // ActionForExactKey returns the action name mapped to the given key combination (e.g. "ctrl+d").
+// Non-vim actions take precedence over vim-scoped actions so bindings like "enter" in
+// vim.insert.insert_newline do not shadow cli.enter in global/composer modes.
 func (k *Keybindings) ActionForExactKey(key string) string {
 	if k == nil {
 		return ""
 	}
-	key = strings.ToLower(strings.TrimSpace(key))
+	normKey := normalizeKeyString(key)
+	// 1. Prioritize non-vim actions
 	for act, keys := range k.actionKeys {
+		if strings.HasPrefix(act, "vim.") {
+			continue
+		}
 		for _, candidate := range keys {
-			if strings.ToLower(strings.TrimSpace(candidate)) == key {
+			if normalizeKeyString(candidate) == normKey {
 				return act
 			}
 		}
 	}
+	// 2. Check vim actions
+	for act, keys := range k.actionKeys {
+		if !strings.HasPrefix(act, "vim.") {
+			continue
+		}
+		for _, candidate := range keys {
+			if normalizeKeyString(candidate) == normKey {
+				return act
+			}
+		}
+	}
+	if act, ok := k.raw[normKey]; ok {
+		return act
+	}
 	return k.raw[key]
+}
+
+// ActionForExactKeyInScope returns the action name mapped to the key within a specific scope prefix (e.g. "vim.insert.").
+func (k *Keybindings) ActionForExactKeyInScope(key string, scopePrefix string) string {
+	if k == nil {
+		return ""
+	}
+	normKey := normalizeKeyString(key)
+	for act, keys := range k.actionKeys {
+		if scopePrefix != "" && !strings.HasPrefix(act, scopePrefix) {
+			continue
+		}
+		for _, candidate := range keys {
+			if normalizeKeyString(candidate) == normKey {
+				return act
+			}
+		}
+	}
+	return ""
+}
+
+// ActionForKeyInScope resolves the action mapped to tea.Key within a specific scope prefix.
+func (k *Keybindings) ActionForKeyInScope(key tea.Key, scopePrefix string) string {
+	if k == nil {
+		return ""
+	}
+	ks := KeyString(key)
+	if ks == "" {
+		return ""
+	}
+	return k.ActionForExactKeyInScope(ks, scopePrefix)
 }
 
 // Path returns the file these bindings were loaded from.

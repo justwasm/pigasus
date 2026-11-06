@@ -397,19 +397,33 @@ func cmdVersion(opts AdminOptions, args []string) error {
 // ---- serve ---------------------------------------------------------------
 
 func cmdServe(opts AdminOptions, args []string) error {
+	fileCfg := loadConfig()
+	set := resolveSettings(fileCfg)
+	maxBytes := set.CaptureMaxBytes
+
 	fs := flag.NewFlagSet("serve", flag.ContinueOnError)
 	fs.SetOutput(opts.Err)
-	addrFlag := fs.String("addr", "127.0.0.1:19999", "HTTP listen address")
-	balanceFlag := fs.Bool("balance", true, "enable multi-account load balancing")
-	aggregateFlag := fs.Bool("aggregate", true, "enable virtual unified pool account aggregation")
+	addrFlag := fs.String("addr", firstNonEmpty(set.Addr, "127.0.0.1:19999"), "HTTP listen address")
+	balanceFlag := fs.Bool("balance", set.Balance, "enable multi-account load balancing")
+	aggregateFlag := fs.Bool("aggregate", set.Aggregate, "enable virtual unified pool account aggregation")
+	captureFlag := fs.Bool("capture", set.CaptureOn, "enable request/response capture")
+	captureDirFlag := fs.String("capture-dir", set.CaptureDir, "directory for request/response capture")
 	if err := fs.Parse(args); err != nil {
 		return err
 	}
 
+	capDir := *captureDirFlag
+	if !*captureFlag {
+		capDir = ""
+	}
+
 	cfg := Config{
-		Addr:      *addrFlag,
-		Balance:   *balanceFlag,
-		Aggregate: *aggregateFlag,
+		Addr:            *addrFlag,
+		Upstream:        set.Upstream,
+		CaptureDir:      capDir,
+		CaptureMaxBytes: &maxBytes,
+		Balance:         *balanceFlag,
+		Aggregate:       *aggregateFlag,
 		Logf: func(format string, a ...any) {
 			fmt.Fprintf(opts.Out, "[proxy] "+format+"\n", a...)
 		},

@@ -105,6 +105,8 @@ const (
 	// NoticeError is a failure the turn reported: the transport
 	// failed, the model answered with an error.
 	NoticeError NoticeKind = "error"
+	// NoticeSteerApplied reports that pending steering guidance was applied at step boundary.
+	NoticeSteerApplied NoticeKind = "steer_applied"
 )
 
 // Frame is one message on the wire.

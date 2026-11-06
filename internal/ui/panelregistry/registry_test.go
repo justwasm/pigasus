@@ -268,4 +268,46 @@ func TestRegistryRowCount(t *testing.T) {
 	if !r.Wired() {
 		t.Errorf("expected the registry to report itself wired")
 	}
+
+	// Unwired fallback to handler RowCounter:
+	r2 := New()
+	r2.Register(Tasks, FuncHandler{
+		OnRowCount: func() int { return 42 },
+	})
+	if got := r2.RowCount(Tasks); got != 42 {
+		t.Errorf("unwired handler row count = %d, want 42", got)
+	}
+}
+
+type mockStandardPanel struct {
+	lines []string
+	rows  int
+}
+
+func (m *mockStandardPanel) Lines() []string { return m.lines }
+func (m *mockStandardPanel) HandleKey(tea.Key) (bool, tea.Cmd) {
+	return true, nil
+}
+func (m *mockStandardPanel) RowCount() int { return m.rows }
+
+func TestFromPanel(t *testing.T) {
+	if h := FromPanel(nil); h != nil {
+		t.Errorf("FromPanel(nil) = %v, want nil", h)
+	}
+	p := &mockStandardPanel{
+		lines: []string{"a", "b"},
+		rows:  5,
+	}
+	h := FromPanel(p)
+	if lines := h.Lines(); len(lines) != 2 || lines[0] != "a" {
+		t.Errorf("Lines() = %v, want [a b]", lines)
+	}
+	handled, _ := h.HandleKey(tea.Key{})
+	if !handled {
+		t.Errorf("HandleKey() = false, want true")
+	}
+	rc, ok := h.(RowCounter)
+	if !ok || rc.RowCount() != 5 {
+		t.Errorf("RowCount() = %v (ok=%v), want 5", rc, ok)
+	}
 }

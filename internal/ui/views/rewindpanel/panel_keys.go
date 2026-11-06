@@ -24,7 +24,9 @@ func (p *Panel) HandleKey(key tea.Key) (bool, tea.Cmd) {
 	}
 	switch key.Code {
 	case tea.KeyEnter:
-		p.pick()
+		if cmd := p.pick(); cmd != nil {
+			return true, cmd
+		}
 		return true, p.close()
 	}
 	switch tuilib.ClassifyListNavKey(key) {

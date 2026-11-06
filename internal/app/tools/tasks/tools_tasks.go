@@ -328,6 +328,12 @@ func (s *ScheduleTool) Run(ctx context.Context, args json.RawMessage) (any, erro
 	if err := writeScheduleTaskLog(logPath, p); err != nil {
 		return nil, err
 	}
+	var dur time.Duration
+	if p.DurationSeconds > 0 {
+		dur = time.Duration(p.DurationSeconds) * time.Second
+	}
+	targetTime := start.Add(dur)
+
 	// The conversation now owns the schedule: the table is what the
 	// rehydration pass rebuilds when the conversation is resumed, and
 	// what the task-id counter is restored from.
@@ -340,6 +346,36 @@ func (s *ScheduleTool) Run(ctx context.Context, args json.RawMessage) (any, erro
 		IsDaemon:        p.IsDaemon,
 		MaxIterations:   p.MaxIterations,
 		LogPath:         logPath,
+		CreatedAt:       start,
+		TargetTime:      targetTime,
+	})
+
+	_ = shell.AddActiveSchedule(s.Home, conversationID, shell.PersistedSchedule{
+		TaskID:         taskID,
+		Prompt:         p.Prompt,
+		DurationSec:    p.DurationSeconds,
+		CronExpr:       p.CronExpression,
+		TimerCondition: p.TimerCondition,
+		IsDaemon:       p.IsDaemon,
+		CreatedAt:      start,
+		TargetTime:     targetTime,
+		ExactTiming:    p.ExactTiming,
+	})
+
+	_, _ = shell.StartScheduledTask(shell.ScheduledTaskOptions{
+		Home:           s.Home,
+		ConvID:         conversationID,
+		TaskID:         taskID,
+		LogPath:        logPath,
+		Prompt:         p.Prompt,
+		Duration:       dur,
+		CronExpr:       p.CronExpression,
+		TimerCondition: p.TimerCondition,
+		IsDaemon:       p.IsDaemon,
+		MaxIterations:  p.MaxIterations,
+		ExactTiming:    p.ExactTiming,
+		CreatedAt:      start,
+		TargetTime:     targetTime,
 	})
 
 	// The reference has no Completed At on this result: the command was

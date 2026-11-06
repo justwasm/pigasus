@@ -203,19 +203,26 @@ func (p *Panel) setCursor(idx int) {
 }
 
 // pick rewinds the conversation to the step the cursor sits on.
-func (p *Panel) pick() {
-	if p == nil || p.seams.Pick == nil {
-		return
+func (p *Panel) pick() tea.Cmd {
+	if p == nil {
+		return nil
 	}
-	p.seams.Pick(p.cursor)
+	if p.seams.Pick != nil {
+		p.seams.Pick(p.cursor)
+		return nil
+	}
+	return RewindCmd(p.cursor)
 }
 
 // close leaves the panel.
 func (p *Panel) close() tea.Cmd {
-	if p == nil || p.seams.Close == nil {
+	if p == nil {
 		return nil
 	}
-	return p.seams.Close()
+	if p.seams.Close != nil {
+		return p.seams.Close()
+	}
+	return DismissCmd()
 }
 
 // The panel's own SGR spans.

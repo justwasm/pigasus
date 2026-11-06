@@ -4,16 +4,19 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/justwasm/pigasus/geminicode"
+	accounts "github.com/justwasm/pigasus/internal/features/accounts/core"
 	"github.com/justwasm/pigasus/internal/features/models"
 )
 
@@ -1043,4 +1046,111 @@ func TestToChatRequest_HardenAndNormalizeToolNames(t *testing.T) {
 	}
 }
 
+func TestProxyServeLogAccountInformation(t *testing.T) {
+	acc1 := accounts.Account{Email: "user1@example.com", Token: testToken("token1"), Quota: testQuotaSnapshot(1.0)}
+	acc2 := accounts.Account{Email: "user2@example.com", Token: testToken("token2"), Quota: testQuotaSnapshot(1.0)}
 
+	setupTestEnvironment(t, map[string]any{
+		"enabled":  true,
+		"strategy": "round_robin",
+	}, acc1, acc2)
+
+	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		parts := []geminicode.Part{{Text: "Hello response"}}
+		fakeCloudCodeSSE(w, parts, &geminicode.UsageMetadata{
+			PromptTokenCount:     5,
+			CandidatesTokenCount: 5,
+			TotalTokenCount:      10,
+		})
+	}))
+	defer up.Close()
+
+	var logs []string
+	var mu sync.Mutex
+	logf := func(format string, a ...any) {
+		mu.Lock()
+		defer mu.Unlock()
+		// Simulate admin.go: fmt.Fprintf(opts.Out, "[proxy] "+format+"\n", a...)
+		logs = append(logs, fmt.Sprintf("[proxy] "+format, a...))
+	}
+
+	router := newTestRouter(acc1, acc2)
+	srv, err := New(Config{
+		Addr:     "127.0.0.1:0",
+		Upstream: up.URL,
+		Balance:  true,
+		Router:   router,
+		Logf:     logf,
+	})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	addr, err := srv.Start()
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer srv.Close()
+
+	client := &http.Client{Timeout: 5 * time.Second}
+
+	// 1. Send first chat completion -> routes to user1@example.com
+	payload1 := `{"model":"gemini-2.5-flash","messages":[{"role":"user","content":"hi 1"}]}`
+	resp1, err := client.Post("http://"+addr+"/v1/chat/completions", "application/json", strings.NewReader(payload1))
+	if err != nil {
+		t.Fatalf("POST 1 failed: %v", err)
+	}
+	_ = resp1.Body.Close()
+	if resp1.StatusCode != http.StatusOK {
+		t.Fatalf("POST 1 got status %d, want 200", resp1.StatusCode)
+	}
+
+	// 2. Send second chat completion -> routes to user2@example.com
+	payload2 := `{"model":"gemini-2.5-flash","messages":[{"role":"user","content":"hi 2"}]}`
+	resp2, err := client.Post("http://"+addr+"/v1/chat/completions", "application/json", strings.NewReader(payload2))
+	if err != nil {
+		t.Fatalf("POST 2 failed: %v", err)
+	}
+	_ = resp2.Body.Close()
+	if resp2.StatusCode != http.StatusOK {
+		t.Fatalf("POST 2 got status %d, want 200", resp2.StatusCode)
+	}
+
+	// 3. Send GET /v1/models -> does not use account, should NOT have bracketed account
+	respModels, err := client.Get("http://" + addr + "/v1/models")
+	if err != nil {
+		t.Fatalf("GET /v1/models failed: %v", err)
+	}
+	_ = respModels.Body.Close()
+
+	mu.Lock()
+	defer mu.Unlock()
+
+	var reqLogs []string
+	for _, l := range logs {
+		if strings.Contains(l, " -> ") {
+			reqLogs = append(reqLogs, l)
+		}
+	}
+
+	if len(reqLogs) < 3 {
+		t.Fatalf("expected at least 3 request logs, got %d: %v", len(reqLogs), reqLogs)
+	}
+
+	// First request log must mention user1@example.com
+	if !strings.Contains(reqLogs[0], "POST /v1/chat/completions [user1@example.com] -> 200") {
+		t.Errorf("log 0 = %q, want it to contain 'POST /v1/chat/completions [user1@example.com] -> 200'", reqLogs[0])
+	}
+
+	// Second request log must mention user2@example.com
+	if !strings.Contains(reqLogs[1], "POST /v1/chat/completions [user2@example.com] -> 200") {
+		t.Errorf("log 1 = %q, want it to contain 'POST /v1/chat/completions [user2@example.com] -> 200'", reqLogs[1])
+	}
+
+	// Third request log (GET /v1/models) should NOT have bracketed account
+	if !strings.Contains(reqLogs[2], "GET /v1/models -> 200") {
+		t.Errorf("log 2 = %q, want it to contain 'GET /v1/models -> 200'", reqLogs[2])
+	}
+	if strings.Contains(reqLogs[2], "[") && strings.Contains(reqLogs[2], "@") {
+		t.Errorf("log 2 should not have account tag, got: %q", reqLogs[2])
+	}
+}

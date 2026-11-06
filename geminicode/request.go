@@ -191,6 +191,24 @@ func HardenContents(contents []Content) []Content {
 	if n := len(out); n > 0 && out[n-1].Role == "model" && !hasFunctionResponse(out[n-1]) {
 		out = append(out, Content{Role: "user", Parts: []Part{{Text: "Continue."}}})
 	}
+
+	// Reconcile FunctionResponse.Name with the matching FunctionCall.Name so
+	// that a mismatched or reused tool call ID never causes CloudCode 400 INVALID_ARGUMENT.
+	callNames := make(map[string]string)
+	for i := range out {
+		for j := range out[i].Parts {
+			p := &out[i].Parts[j]
+			if p.FunctionCall != nil && p.FunctionCall.ID != "" && p.FunctionCall.Name != "" {
+				callNames[p.FunctionCall.ID] = p.FunctionCall.Name
+			}
+			if p.FunctionResponse != nil && p.FunctionResponse.ID != "" {
+				if expected, ok := callNames[p.FunctionResponse.ID]; ok && expected != "" {
+					p.FunctionResponse.Name = expected
+				}
+			}
+		}
+	}
+
 	return out
 }
 
@@ -257,15 +275,6 @@ func buildContents(messages []TurnMessage, initialSystem string, signatures map[
 	system := strings.TrimSpace(initialSystem)
 	paired := pairedToolCallIDs(messages)
 	callNames := make(map[string]string)
-	for _, m := range messages {
-		if strings.ToLower(m.Role) == "assistant" {
-			for _, tc := range m.ToolCalls {
-				if tc.ID != "" && tc.Name != "" {
-					callNames[tc.ID] = tc.Name
-				}
-			}
-		}
-	}
 	var contents []Content
 	for _, m := range messages {
 		switch strings.ToLower(m.Role) {
@@ -285,6 +294,11 @@ func buildContents(messages []TurnMessage, initialSystem string, signatures map[
 				}
 			}
 		case "assistant":
+			for _, tc := range m.ToolCalls {
+				if tc.ID != "" && tc.Name != "" {
+					callNames[tc.ID] = tc.Name
+				}
+			}
 			if part := buildAssistantContent(m, signatures, paired); len(part.Parts) > 0 {
 				contents = append(contents, part)
 			}
@@ -293,10 +307,9 @@ func buildContents(messages []TurnMessage, initialSystem string, signatures map[
 				continue
 			}
 			name := m.Name
-			if name == "" {
-				name = callNames[m.ToolCallID]
-			}
-			if name == "" {
+			if expected := callNames[m.ToolCallID]; expected != "" {
+				name = expected
+			} else if name == "" {
 				name = m.ToolCallID
 			}
 			if name == "" {

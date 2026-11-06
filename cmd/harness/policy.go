@@ -51,8 +51,6 @@ import (
 	"sort"
 	"strings"
 
-	piagent "github.com/MichaelKinsy/PiG/agent"
-
 	pb "github.com/justwasm/pigasus/localharness/pb/localharness"
 )
 
@@ -265,9 +263,4 @@ func policyDenialReason(rule policyRule, toolName string) string {
 		name = rule.tool
 	}
 	return "The tool call to " + toolName + " was denied by the policy rule " + name + "."
-}
-
-// blockResult renders a blocked tool call.
-func blockResult(reason string) piagent.ToolCallHookResult {
-	return piagent.ToolCallHookResult{Block: true, Reason: reason}
 }

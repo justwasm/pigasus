@@ -7,9 +7,7 @@ import (
 	"testing"
 	"time"
 
-	pi "github.com/MichaelKinsy/PiG/ai"
-	"github.com/MichaelKinsy/PiG/coding"
-
+	"github.com/justwasm/pigasus/actor"
 	"github.com/justwasm/pigasus/internal/app/prompt/agyprompt"
 	builtinsubagent "github.com/justwasm/pigasus/internal/app/subagent/builtin"
 	"github.com/justwasm/pigasus/internal/app/subagenttools"
@@ -87,12 +85,6 @@ func TestCatalogueNamesTheBrowserAgent(t *testing.T) {
 
 // TestTheModelCanSeeTheName pins the two places the model reads the
 // type's name from.
-//
-// The invoke_subagent description carries the built-in catalogue — that
-// is where a model that only has the tool's schema looks. The system
-// prompt's "Available subagents" list is the other one — that is where
-// a model that reads its instructions looks. Both must carry the same
-// name, or the model calls a type the registry cannot route to.
 func TestTheModelCanSeeTheName(t *testing.T) {
 	reg := builtinsubagent.Default()
 	if err := InstallBuiltin(reg, subagenttools.Deps{}, surface.Catalog(t.TempDir())); err != nil {
@@ -116,19 +108,7 @@ func TestTheModelCanSeeTheName(t *testing.T) {
 // TestInstallBuiltinHandlerRunsTheBrowserAgent is the integration
 // proof: the installed type's handler really runs a browser agent and
 // answers with what that agent said.
-//
-// The model is PiG's faux provider — the deterministic stand-in the
-// clone's own subagent tests use — so the run needs no network and no
-// browser: the agent is asked a question and answers it. The faux
-// provider answers "42" to exactly one prompt, and that prompt is the
-// task the browser agent is given.
-//
-// What this pins is the *path*, not the browser: the call reaches the
-// built-in registry, the registry's handler builds a browser agent,
-// and the agent's final text comes back in the result.
 func TestInstallBuiltinHandlerRunsTheBrowserAgent(t *testing.T) {
-	t.Setenv("PIG_TEST_FAUX", "1")
-
 	reg := builtinsubagent.Default()
 	if err := InstallBuiltin(reg, fauxDeps(t), surface.Catalog(t.TempDir())); err != nil {
 		t.Fatalf("InstallBuiltin: %v", err)
@@ -146,29 +126,14 @@ func TestInstallBuiltinHandlerRunsTheBrowserAgent(t *testing.T) {
 	}
 }
 
-// fauxDeps builds the session handles the browser agent needs: a faux
-// model and a session services container.
 func fauxDeps(t *testing.T) subagenttools.Deps {
 	t.Helper()
 	dir := t.TempDir()
-	svcs, err := coding.CreateAgentSessionServices(coding.CreateAgentSessionServicesOptions{
-		CWD:      dir,
-		AgentDir: filepath.Join(dir, "agent"),
-	})
-	if err != nil {
-		t.Fatalf("coding.CreateAgentSessionServices: %v", err)
-	}
-	t.Cleanup(func() { svcs.Close() })
+	mock := actor.NewMockProvider()
+	mock.EnqueueResponse("42")
 	return subagenttools.Deps{
-		Services: svcs,
-		Model: &pi.Model{
-			Type:         pi.ModelTypeChat,
-			ID:           "faux-1",
-			DisplayName:  "faux-1",
-			Provider:     &pi.TestFauxProvider{},
-			ProviderMeta: pi.ProviderMetadata{ProviderID: "test-faux", API: "test-faux"},
-			Input:        []string{"text"},
-		},
+		Provider: mock,
+		Model:    "mock-model",
 		CWD:      dir,
 		AgentDir: filepath.Join(dir, "agent"),
 	}

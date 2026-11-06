@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/json"
 
+	"github.com/justwasm/pigasus/internal/features/plugins/sidecars"
 	"github.com/justwasm/pigasus/internal/remotecontrol/rpc"
 )
 
@@ -139,7 +140,19 @@ func (d *Dispatcher) routeLSSidecars(method string, params json.RawMessage) (any
 	case "GetSidecarLogs", "getSidecarLogs":
 		return map[string]any{"logs": []any{}}, nil, true
 	case "ResolveSidecarConfig", "resolveSidecarConfig":
-		return map[string]any{"resolvedConfig": map[string]any{}}, nil, true
+		var req struct {
+			SidecarID      string            `json:"sidecarId"`
+			ArgumentValues map[string]string `json:"argumentValues"`
+		}
+		if len(params) > 0 {
+			_ = json.Unmarshal(params, &req)
+		}
+		cfg, _, err := sidecars.FindSidecarConfig(req.SidecarID)
+		if err != nil || cfg == nil {
+			return map[string]any{"resolvedConfig": map[string]any{}}, nil, true
+		}
+		resolved := sidecars.ResolveSidecarTemplates(cfg, req.ArgumentValues)
+		return map[string]any{"resolvedConfig": resolved}, nil, true
 	}
 	return nil, nil, false
 }

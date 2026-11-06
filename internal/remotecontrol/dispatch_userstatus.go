@@ -19,6 +19,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/justwasm/pigasus/internal/features/auth"
 	"github.com/justwasm/pigasus/internal/remotecontrol/rpc"
 )
 
@@ -66,7 +67,8 @@ func (d *Dispatcher) handleGetUserStatus() (any, *rpc.ErrorBody, bool) {
 				"name":        lsPlanTierName,
 				"description": lsPlanTierName,
 			},
-			"disableTelemetry": true,
+			"disableTelemetry":                !d.isTelemetryEnabled(),
+			"userDataCollectionForceDisabled": auth.IsBusinessAccount(),
 			"cascadeModelConfigData": map[string]any{
 				"clientModelConfigs": clientModelConfigs,
 				"clientModelSorts":   userStatusClientModelSorts(modelLabels),

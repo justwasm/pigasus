@@ -176,7 +176,10 @@ func (p *Panel) nav(action tuilib.NavAction) (bool, tea.Cmd, bool) {
 	case tuilib.NavBottom:
 		p.vp.GotoBottom()
 	case tuilib.NavCancel:
-		return true, p.close(), true
+		if p.seams.Close != nil {
+			return true, p.seams.Close(), true
+		}
+		return true, func() tea.Msg { return MsgClose{} }, true
 	case tuilib.NavPageDown:
 		p.pageDown()
 	case tuilib.NavPageUp:

@@ -32,10 +32,16 @@ func (p *Panel) HandleKey(key tea.Key) (bool, tea.Cmd) {
 		// The reference applies a prepared switch when the panel is
 		// left — the switch forks the conversation at that point.
 		if p.prepared {
+			name, body := p.preparedName, p.preparedBody
 			p.applySwitch()
-			return true, nil
+			return true, func() tea.Msg {
+				return MsgSwitchAgent{Name: name, Body: body}
+			}
 		}
-		return true, p.close()
+		if p.seams.Close != nil {
+			return true, p.seams.Close()
+		}
+		return true, func() tea.Msg { return MsgClose{} }
 	case tea.KeyUp:
 		if p.cursor > 0 {
 			p.cursor--
@@ -59,15 +65,33 @@ func (p *Panel) HandleKey(key tea.Key) (bool, tea.Cmd) {
 	// Both spellings are accepted, so the key works whichever the user
 	// presses; the reference's own legend bytes are not changed.
 	if letterKey(key, 'k') {
+		sa := p.highlightedSubagent()
 		p.killHighlighted()
+		if sa != nil {
+			return true, func() tea.Msg { return MsgKillSubagent{Subagent: sa} }
+		}
 		return true, nil
 	}
 	if letterKey(key, 'a') {
+		sa := p.highlightedSubagent()
+		appr, ok := p.pendingAuthorization(sa)
 		p.answerHighlighted(true)
+		if ok {
+			return true, func() tea.Msg {
+				return MsgAuthorizeSubagent{ApprovalID: appr.ID, Approved: true}
+			}
+		}
 		return true, nil
 	}
 	if letterKey(key, 'd') {
+		sa := p.highlightedSubagent()
+		appr, ok := p.pendingAuthorization(sa)
 		p.answerHighlighted(false)
+		if ok {
+			return true, func() tea.Msg {
+				return MsgAuthorizeSubagent{ApprovalID: appr.ID, Approved: false}
+			}
+		}
 		return true, nil
 	}
 	if key.Mod == 0 {

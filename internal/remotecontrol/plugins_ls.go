@@ -145,6 +145,8 @@ func (d *Dispatcher) routeLanguageServerPluginMethods(method string, params json
 		return d.handleLSDownloadBuildWithGooglePlugin(params)
 	case "StartPluginAuthSignIn":
 		return d.handleLSStartPluginAuthSignIn(params)
+	case "StartMcpOAuthSignIn":
+		return d.handleLSStartMcpOAuthSignIn(params)
 	case "SignInPluginAuthProvider":
 		return d.handleLSSignInPluginAuthProvider(params)
 	case "SignOutPluginAuthProvider":
@@ -881,9 +883,16 @@ func lsPluginSidecarsJSON(p core.InstalledPlugin) []any {
 		if !e.IsDir() {
 			continue
 		}
+		var cfg map[string]any
+		if raw, err := os.ReadFile(filepath.Join(p.Path, "sidecars", e.Name(), "sidecar.json")); err == nil {
+			_ = json.Unmarshal(raw, &cfg)
+		}
+		if cfg == nil {
+			cfg = map[string]any{}
+		}
 		out = append(out, map[string]any{
 			"sidecarId": e.Name(),
-			"config":    map[string]any{},
+			"config":    cfg,
 		})
 	}
 	return out

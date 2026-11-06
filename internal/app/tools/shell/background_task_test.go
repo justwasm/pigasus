@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/justwasm/pigasus/internal/app/tools"
 )
 
 // The reference's own captured background-task texts. The fixture holds the
@@ -200,5 +202,63 @@ func TestRunCommandFinishingInsideTheWaitWindowIsForeground(t *testing.T) {
 	}
 	if strings.Contains(text, "Tool is running as a background task") {
 		t.Errorf("a command that finished in the wait window was backgrounded:\n%s", text)
+	}
+}
+
+// TestRunCommandDaemonRegistersInSharedTaskRegistry pins that daemon/background commands
+// register into tools.SharedTaskRegistry with KindShell and can be killed via the registry handle.
+func TestRunCommandDaemonRegistersInSharedTaskRegistry(t *testing.T) {
+	home := t.TempDir()
+	conv := "conv-daemon-reg"
+	cmd := &RunCommand{Workspace: t.TempDir(), ConversationID: conv, Home: home}
+
+	out, err := cmd.Run(context.Background(), json.RawMessage(
+		`{"command":"sleep 30","is_daemon":true}`))
+	if err != nil {
+		t.Fatalf("run_command: %v", err)
+	}
+	text, _ := out.(string)
+	if !strings.Contains(text, "Tool is running as a background task") {
+		t.Fatalf("expected launch result, got %s", text)
+	}
+
+	fullID := conv + "/task-1"
+	reg := tools.SharedTaskRegistry()
+	if reg == nil {
+		t.Fatal("expected SharedTaskRegistry to be non-nil")
+	}
+
+	t.Logf("cmd output: %s", text)
+	for _, item := range reg.List() {
+		t.Logf("reg item: id=%q name=%q", item.ID, item.Name)
+	}
+
+	task := reg.Get(fullID)
+	if task == nil {
+		t.Fatalf("expected task %q to be registered in SharedTaskRegistry", fullID)
+	}
+	if task.Kind != "shell" {
+		t.Errorf("task.Kind = %v, want shell", task.Kind)
+	}
+	if task.State != "running" {
+		t.Errorf("task.State = %v, want running", task.State)
+	}
+	if task.Command != "sleep 30" {
+		t.Errorf("task.Command = %q, want 'sleep 30'", task.Command)
+	}
+	if task.OutputFunc == nil {
+		t.Error("expected OutputFunc to be non-nil")
+	}
+
+	// Kill via task registry handle
+	killed := reg.Kill(fullID)
+	if !killed {
+		t.Errorf("expected reg.Kill(%q) to succeed", fullID)
+	}
+
+	// Verify task is marked killed
+	taskAfter := reg.Get(fullID)
+	if taskAfter.State != "killed" {
+		t.Errorf("expected task to be killed, got state %v", taskAfter.State)
 	}
 }

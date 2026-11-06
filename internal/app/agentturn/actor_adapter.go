@@ -1,0 +1,836 @@
+package agentturn
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"io"
+	"strings"
+	"sync"
+
+	"github.com/justwasm/pigasus/actor"
+	"github.com/justwasm/pigasus/agentlink"
+	"github.com/justwasm/pigasus/internal/app/toolrunner"
+	"github.com/justwasm/pigasus/internal/core/backend"
+	"github.com/justwasm/pigasus/internal/core/policy/permissions"
+)
+
+// backendProviderAdapter adapts a backend.Client into an actor.Provider.
+type backendProviderAdapter struct {
+	client backend.Client
+	model  string
+}
+
+func newBackendProviderAdapter(client backend.Client, model string) *backendProviderAdapter {
+	return &backendProviderAdapter{
+		client: client,
+		model:  model,
+	}
+}
+
+// NewBackendProviderAdapter adapts a backend.Client into an actor.Provider.
+func NewBackendProviderAdapter(client backend.Client, model string) actor.Provider {
+	return newBackendProviderAdapter(client, model)
+}
+
+func (p *backendProviderAdapter) Generate(ctx context.Context, req actor.GenerateRequest) (actor.ResponseStream, error) {
+	if p.client == nil {
+		return nil, ErrNoTransport
+	}
+
+	model := req.Model
+	if model == "" {
+		model = p.model
+	}
+
+	// Convert actor messages to backend messages
+	backendMsgs := make([]backend.Message, 0, len(req.Messages))
+	for _, m := range req.Messages {
+		bm := backend.Message{
+			Role:       string(m.Role),
+			Content:    m.Content,
+			Name:       m.ToolName,
+			ToolCallID: m.ToolCallID,
+		}
+		if len(m.ToolCalls) > 0 {
+			bm.ToolCalls = make([]backend.ToolCall, 0, len(m.ToolCalls))
+			for _, tc := range m.ToolCalls {
+				bm.ToolCalls = append(bm.ToolCalls, backend.ToolCall{
+					ID:        tc.ID,
+					Name:      tc.Name,
+					Arguments: json.RawMessage(tc.Input),
+				})
+			}
+		}
+		backendMsgs = append(backendMsgs, bm)
+	}
+
+	// Convert actor tools to backend tool declarations
+	backendTools := make([]backend.ToolDecl, 0, len(req.Tools))
+	for _, t := range req.Tools {
+		var rawParams json.RawMessage
+		if t.Parameters != nil {
+			if b, err := json.Marshal(t.Parameters); err == nil {
+				rawParams = b
+			}
+		}
+		backendTools = append(backendTools, backend.ToolDecl{
+			Name:        t.Name,
+			Description: t.Description,
+			Parameters:  rawParams,
+		})
+	}
+
+	streamReq := backend.StreamRequest{
+		Model:        model,
+		SystemPrompt: req.SystemPrompt,
+		Messages:     backendMsgs,
+		Tools:        backendTools,
+		MaxTokens:    req.MaxTokens,
+	}
+	if req.Temperature != nil {
+		streamReq.Temperature = float64(*req.Temperature)
+	}
+
+	streamCh, err := p.client.Stream(ctx, streamReq)
+	if err != nil {
+		return nil, err
+	}
+
+	sanitizer := NewSanitizer()
+	return &backendStreamAdapter{
+		ch:        streamCh,
+		ctx:       ctx,
+		sanitizer: sanitizer,
+	}, nil
+}
+
+type backendStreamAdapter struct {
+	ch        <-chan backend.StreamChunk
+	ctx       context.Context
+	sanitizer *Sanitizer
+	done      bool
+}
+
+func (s *backendStreamAdapter) Recv() (actor.StreamChunk, error) {
+	if s.done {
+		return actor.StreamChunk{}, io.EOF
+	}
+
+	select {
+	case <-s.ctx.Done():
+		return actor.StreamChunk{}, s.ctx.Err()
+	case chunk, ok := <-s.ch:
+		if !ok {
+			s.done = true
+			return actor.StreamChunk{}, io.EOF
+		}
+
+		if chunk.Error != nil {
+			return actor.StreamChunk{}, chunk.Error
+		}
+
+		var thoughtBuilder strings.Builder
+		if s.sanitizer != nil {
+			s.sanitizer.OnThought = func(th string) {
+				thoughtBuilder.WriteString(th)
+			}
+		}
+
+		textDelta := chunk.Text
+		if s.sanitizer != nil && textDelta != "" {
+			textDelta = s.sanitizer.Push(textDelta)
+		}
+
+		if chunk.Done {
+			s.done = true
+			if s.sanitizer != nil {
+				textDelta += s.sanitizer.Finish()
+			}
+		}
+
+		var toolCalls []actor.ToolCall
+		if len(chunk.ToolCalls) > 0 {
+			toolCalls = make([]actor.ToolCall, 0, len(chunk.ToolCalls))
+			for _, tc := range chunk.ToolCalls {
+				toolCalls = append(toolCalls, actor.ToolCall{
+					ID:    tc.ID,
+					Name:  tc.Name,
+					Input: string(tc.Arguments),
+				})
+			}
+		}
+
+		var usage *actor.TokenUsage
+		if chunk.Meta != nil {
+			usage = &actor.TokenUsage{
+				PromptTokens:   chunk.Meta.PromptTokens,
+				OutputTokens:   chunk.Meta.CompletionTokens,
+				TotalTokens:    chunk.Meta.TotalTokens,
+				CachedTokens:   chunk.Meta.CachedTokens,
+				ThoughtsTokens: chunk.Meta.ReasoningTokens,
+			}
+		}
+
+		finishReason := ""
+		if chunk.Done {
+			finishReason = "stop"
+		}
+
+		return actor.StreamChunk{
+			Delta:        textDelta,
+			Thought:      thoughtBuilder.String(),
+			ToolCalls:    toolCalls,
+			Usage:        usage,
+			FinishReason: finishReason,
+		}, nil
+	}
+}
+
+func (s *backendStreamAdapter) Close() error {
+	return nil
+}
+
+// ErrorRecordingProvider wraps an actor.Provider and records the last error in an out-of-band slot.
+type ErrorRecordingProvider struct {
+	inner actor.Provider
+	slot  *error
+}
+
+// NewErrorRecordingProvider creates a provider wrapper that captures underlying transport errors.
+func NewErrorRecordingProvider(inner actor.Provider, slot *error) *ErrorRecordingProvider {
+	return &ErrorRecordingProvider{inner: inner, slot: slot}
+}
+
+func (p *ErrorRecordingProvider) Generate(ctx context.Context, req actor.GenerateRequest) (actor.ResponseStream, error) {
+	stream, err := p.inner.Generate(ctx, req)
+	if err != nil {
+		if p.slot != nil {
+			*p.slot = err
+		}
+		return nil, err
+	}
+	return &errorRecordingStream{inner: stream, slot: p.slot}, nil
+}
+
+type errorRecordingStream struct {
+	inner actor.ResponseStream
+	slot  *error
+}
+
+func (s *errorRecordingStream) Recv() (actor.StreamChunk, error) {
+	chunk, err := s.inner.Recv()
+	if err != nil && !errors.Is(err, io.EOF) && s.slot != nil {
+		*s.slot = err
+	}
+	return chunk, err
+}
+
+func (s *errorRecordingStream) Close() error {
+	return s.inner.Close()
+}
+
+// GatedTool gates an actor.Tool through permissions.Policy.
+type GatedTool struct {
+	inner   actor.Tool
+	policy  *permissions.Policy
+	denials *[]string
+}
+
+// NewGatedTool wraps an actor.Tool with permissions.Policy enforcement.
+func NewGatedTool(inner actor.Tool, policy *permissions.Policy, denials *[]string) *GatedTool {
+	return &GatedTool{
+		inner:   inner,
+		policy:  policy,
+		denials: denials,
+	}
+}
+
+func (g *GatedTool) Name() string                     { return g.inner.Name() }
+func (g *GatedTool) Description() string              { return g.inner.Description() }
+func (g *GatedTool) Definition() actor.ToolDefinition { return g.inner.Definition() }
+func (g *GatedTool) RequiresApproval(input string) bool {
+	if g.policy == nil {
+		return g.inner.RequiresApproval(input)
+	}
+	target := toolrunner.ToolTarget(backend.ToolCall{Name: g.inner.Name(), Arguments: json.RawMessage(input)})
+	if g.policy.Decide(permissions.Request{Tool: g.inner.Name(), Target: target}) == permissions.Ask {
+		return true
+	}
+	return g.inner.RequiresApproval(input)
+}
+
+func (g *GatedTool) Execute(ctx context.Context, input string) (actor.ToolResult, error) {
+	if g.policy != nil {
+		target := toolrunner.ToolTarget(backend.ToolCall{Name: g.inner.Name(), Arguments: json.RawMessage(input)})
+		if g.policy.Decide(permissions.Request{Tool: g.inner.Name(), Target: target}) == permissions.Deny {
+			if g.denials != nil {
+				*g.denials = append(*g.denials, g.inner.Name())
+			}
+			return actor.ToolResult{Output: permissions.DeniedToolResult(g.inner.Name(), target)}, nil
+		}
+	}
+	return g.inner.Execute(ctx, input)
+}
+
+// buildActorTools creates actor.Tool implementations bridging backend.ToolDecl and ToolRunner.
+func buildActorTools(tools []backend.ToolDecl, runner backend.ToolRunner, emit func(agentlink.Frame) bool, steps *[]agentlink.Step) []actor.Tool {
+	if len(tools) == 0 {
+		return nil
+	}
+
+	actorTools := make([]actor.Tool, 0, len(tools))
+	for _, decl := range tools {
+		d := decl
+		var params map[string]any
+		if len(d.Parameters) > 0 {
+			_ = json.Unmarshal(d.Parameters, &params)
+		}
+
+		at := actor.NewFuncTool(
+			d.Name,
+			d.Description,
+			func(ctx context.Context, input string) (string, error) {
+				if runner == nil {
+					return "", errors.New("agentturn: the turn has no tool runner")
+				}
+				if emit != nil {
+					fr := &frameRunner{
+						inner: runner,
+						emit:  emit,
+						steps: steps,
+					}
+					return fr.Run(ctx, backend.ToolCall{
+						Name:      d.Name,
+						Arguments: json.RawMessage(input),
+					})
+				}
+				return runner.Run(ctx, backend.ToolCall{
+					Name:      d.Name,
+					Arguments: json.RawMessage(input),
+				})
+			},
+			actor.WithParameters(params),
+		)
+		actorTools = append(actorTools, at)
+	}
+	return actorTools
+}
+
+// BuildActorTools creates actor.Tool implementations bridging backend.ToolDecl and ToolRunner.
+func BuildActorTools(tools []backend.ToolDecl, runner backend.ToolRunner) []actor.Tool {
+	return buildActorTools(tools, runner, nil, nil)
+}
+
+// EventSink consumes streaming events from an actor.Actor turn execution.
+type EventSink interface {
+	OnThought(thought string)
+	OnDelta(delta string)
+	OnToolStart(call actor.ToolCall)
+	OnToolFinished(call actor.ToolCall, res actor.ToolResult)
+	OnApprovalRequired(ctx context.Context, act *actor.Actor, call actor.ToolCall)
+	OnCompacted()
+	OnError(err error)
+	OnTurnCompleted(summary *actor.TurnSummary)
+	OnCancelled()
+	OnSteerApplied(instruction string)
+}
+
+// FrameSink adapts Actor turn events into agentlink.Frames.
+type FrameSink struct {
+	emit        func(agentlink.Frame) bool
+	permHandler PermissionHandler
+
+	mu        sync.Mutex
+	fullReply strings.Builder
+	reasoning strings.Builder
+	steps     []agentlink.Step
+	metaUsage *actor.TokenUsage
+	turnErr   string
+}
+
+// NewFrameSink creates a FrameSink that emits protocol frames.
+func NewFrameSink(emit func(agentlink.Frame) bool, permHandler PermissionHandler) *FrameSink {
+	return &FrameSink{
+		emit:        emit,
+		permHandler: permHandler,
+	}
+}
+
+func (s *FrameSink) safeEmit(f agentlink.Frame) bool {
+	if s == nil || s.emit == nil {
+		return false
+	}
+	defer func() {
+		_ = recover()
+	}()
+	return s.emit(f)
+}
+
+func (s *FrameSink) OnThought(thought string) {
+	if thought == "" {
+		return
+	}
+	s.mu.Lock()
+	s.reasoning.WriteString(thought)
+	s.mu.Unlock()
+	s.safeEmit(agentlink.Frame{Kind: agentlink.KindThought, Text: thought})
+}
+
+func (s *FrameSink) OnDelta(delta string) {
+	if delta == "" {
+		return
+	}
+	s.mu.Lock()
+	s.fullReply.WriteString(delta)
+	s.mu.Unlock()
+	s.safeEmit(agentlink.Frame{Kind: agentlink.KindText, Text: delta})
+}
+
+func (s *FrameSink) OnToolStart(call actor.ToolCall) {
+	s.safeEmit(agentlink.Frame{
+		Kind: agentlink.KindTool,
+		ID:   call.ID,
+		Tool: &agentlink.Tool{
+			Phase: agentlink.ToolStart,
+			Name:  call.Name,
+			Args:  call.Input,
+		},
+	})
+}
+
+func (s *FrameSink) OnToolFinished(call actor.ToolCall, res actor.ToolResult) {
+	result := res.Output
+	if result == "" && res.Error != "" {
+		result = res.Error
+	}
+	s.safeEmit(agentlink.Frame{
+		Kind: agentlink.KindTool,
+		ID:   call.ID,
+		Tool: &agentlink.Tool{
+			Phase:  agentlink.ToolEnd,
+			Name:   call.Name,
+			Args:   call.Input,
+			Result: result,
+			Err:    res.Error != "",
+		},
+	})
+	s.mu.Lock()
+	s.steps = append(s.steps, agentlink.Step{
+		Name:   call.Name,
+		Args:   call.Input,
+		Result: result,
+		Err:    res.Error != "",
+	})
+	s.mu.Unlock()
+}
+
+func (s *FrameSink) OnApprovalRequired(ctx context.Context, act *actor.Actor, call actor.ToolCall) {
+	if s.permHandler != nil {
+		go func() {
+			dec, err := s.permHandler(ctx, PermissionRequest{
+				ToolCallID: call.ID,
+				Title:      call.Name,
+				RawInput:   call.Input,
+			})
+			if err == nil && dec.Approved {
+				_ = act.Approve(call.ID, true, dec.Feedback)
+				return
+			}
+			_ = act.Approve(call.ID, false, dec.Feedback)
+		}()
+		return
+	}
+	_ = act.Approve(call.ID, false, "execution denied: no interactive permission handler")
+}
+
+func (s *FrameSink) OnCompacted() {
+	s.safeEmit(agentlink.Frame{
+		Kind: agentlink.KindCompact,
+		Compact: &agentlink.Compact{
+			Phase: agentlink.CompactEnd,
+		},
+	})
+}
+
+func (s *FrameSink) OnError(err error) {
+	s.mu.Lock()
+	if s.turnErr == "" {
+		s.turnErr = err.Error()
+	}
+	s.mu.Unlock()
+	emitError(err, s.emit)
+}
+
+func (s *FrameSink) OnTurnCompleted(summary *actor.TurnSummary) {
+	s.mu.Lock()
+	if summary != nil && summary.TotalTokens > 0 {
+		s.metaUsage = &actor.TokenUsage{
+			PromptTokens: summary.PromptTokens,
+			OutputTokens: summary.OutputTokens,
+			TotalTokens:  summary.TotalTokens,
+		}
+	}
+	s.mu.Unlock()
+}
+
+func (s *FrameSink) OnCancelled() {
+	s.mu.Lock()
+	if s.turnErr == "" {
+		s.turnErr = "turn cancelled"
+	}
+	s.mu.Unlock()
+}
+
+func (s *FrameSink) OnSteerApplied(instruction string) {
+	s.safeEmit(agentlink.Frame{
+		Kind: agentlink.KindNotice,
+		Notice: &agentlink.Notice{
+			Kind: agentlink.NoticeSteerApplied,
+			Text: instruction,
+		},
+	})
+}
+
+func (s *FrameSink) ResultFrame(act *actor.Actor, ctxErr error) agentlink.Frame {
+	s.mu.Lock()
+	replyStr := s.fullReply.String()
+	reasoningStr := s.reasoning.String()
+	steps := append([]agentlink.Step(nil), s.steps...)
+	usage := s.metaUsage
+	caughtErr := s.turnErr
+	s.mu.Unlock()
+
+	resultFrame := agentlink.Frame{
+		Kind: agentlink.KindResult,
+		Result: &agentlink.Result{
+			Reply:     replyStr,
+			Reasoning: reasoningStr,
+			Steps:     steps,
+		},
+	}
+
+	if act != nil {
+		trajTurns := act.Trajectory().Turns()
+		if len(trajTurns) > 0 {
+			lastTurn := trajTurns[len(trajTurns)-1]
+			if lastTurn.Status == "error" && lastTurn.Error != "" {
+				resultFrame.Error = lastTurn.Error
+			}
+		}
+	}
+	if resultFrame.Error == "" && caughtErr != "" {
+		resultFrame.Error = caughtErr
+	}
+	if ctxErr != nil {
+		resultFrame.Error = ""
+	}
+
+	if usage != nil {
+		resultFrame.Usage = &agentlink.Usage{
+			PromptTokens:     usage.PromptTokens,
+			CompletionTokens: usage.OutputTokens,
+			TotalTokens:      usage.TotalTokens,
+		}
+	}
+	return resultFrame
+}
+
+// ChunkSinkOptions configures a ChunkSink.
+type ChunkSinkOptions struct {
+	Handler   func(backend.StreamChunk) error
+	OnCompact func()
+}
+
+// ChunkSink adapts Actor turn events into backend.StreamChunks.
+type ChunkSink struct {
+	handler   func(backend.StreamChunk) error
+	onCompact func()
+	turnErr   error
+	summary   *actor.TurnSummary
+}
+
+// NewChunkSink creates a ChunkSink for streaming output chunks.
+func NewChunkSink(opts ChunkSinkOptions) *ChunkSink {
+	return &ChunkSink{
+		handler:   opts.Handler,
+		onCompact: opts.OnCompact,
+	}
+}
+
+func (s *ChunkSink) OnThought(_ string) {}
+
+func (s *ChunkSink) OnDelta(delta string) {
+	if s.handler != nil && delta != "" {
+		_ = s.handler(backend.StreamChunk{Text: delta})
+	}
+}
+
+func (s *ChunkSink) OnToolStart(_ actor.ToolCall)                        {}
+func (s *ChunkSink) OnToolFinished(_ actor.ToolCall, _ actor.ToolResult) {}
+func (s *ChunkSink) OnApprovalRequired(_ context.Context, act *actor.Actor, call actor.ToolCall) {
+	_ = act.Approve(call.ID, false, "execution denied in headless mode")
+}
+
+func (s *ChunkSink) OnCompacted() {
+	if s.onCompact != nil {
+		s.onCompact()
+	}
+}
+
+func (s *ChunkSink) OnError(err error) {
+	if s.turnErr == nil {
+		s.turnErr = err
+	}
+}
+
+func (s *ChunkSink) OnTurnCompleted(summary *actor.TurnSummary) {
+	s.summary = summary
+	if summary != nil && summary.Status == "error" && s.turnErr == nil {
+		s.turnErr = errors.New("turn completed with error")
+	}
+	if s.turnErr == nil && s.handler != nil {
+		var meta *backend.ChunkMeta
+		if summary != nil {
+			meta = &backend.ChunkMeta{
+				PromptTokens:     summary.PromptTokens,
+				CompletionTokens: summary.OutputTokens,
+				TotalTokens:      summary.TotalTokens,
+			}
+		}
+		_ = s.handler(backend.StreamChunk{Done: true, Meta: meta})
+	}
+}
+
+func (s *ChunkSink) OnCancelled() {
+	if s.turnErr == nil {
+		s.turnErr = errors.New("turn cancelled")
+	}
+}
+
+func (s *ChunkSink) OnSteerApplied(_ string) {}
+
+// Finish reports any turn error and marks the stream chunk done.
+func (s *ChunkSink) Finish(errSlot *error) error {
+	turnErr := s.turnErr
+	if turnErr != nil {
+		if errSlot != nil && *errSlot != nil {
+			turnErr = *errSlot
+		}
+		if s.handler != nil {
+			_ = s.handler(backend.StreamChunk{Error: turnErr, Done: true})
+		}
+		return turnErr
+	}
+	return nil
+}
+
+// ExecuteActorTurn executes a prompt on an actor instance and routes all lifecycle events to sink.
+func ExecuteActorTurn(ctx context.Context, act *actor.Actor, prompt string, sink EventSink) error {
+	if act == nil {
+		return errors.New("agentturn: actor is nil")
+	}
+
+	events, err := act.Ask(ctx, actor.NewUserMessage(prompt))
+	if err != nil {
+		if sink != nil {
+			sink.OnError(err)
+		}
+		return err
+	}
+
+	var turnErr error
+	for ev := range events {
+		switch ev.Type {
+		case actor.EventThought:
+			if sink != nil {
+				sink.OnThought(ev.Thought)
+			}
+		case actor.EventDelta:
+			if sink != nil {
+				sink.OnDelta(ev.Delta)
+			}
+		case actor.EventToolCallStarted:
+			if sink != nil && ev.ToolCall != nil {
+				sink.OnToolStart(*ev.ToolCall)
+			}
+		case actor.EventToolCallFinished:
+			if sink != nil && ev.ToolResult != nil {
+				call := actor.ToolCall{}
+				if ev.ToolCall != nil {
+					call = *ev.ToolCall
+				}
+				sink.OnToolFinished(call, *ev.ToolResult)
+			}
+		case actor.EventApprovalRequired:
+			if sink != nil && ev.ToolCall != nil {
+				sink.OnApprovalRequired(ctx, act, *ev.ToolCall)
+			}
+		case actor.EventCompacted:
+			if sink != nil {
+				sink.OnCompacted()
+			}
+		case actor.EventSteerApplied:
+			if sink != nil {
+				sink.OnSteerApplied(ev.SteerInstruction)
+			}
+		case actor.EventError:
+			if ev.Error != "" && turnErr == nil {
+				turnErr = errors.New(ev.Error)
+			}
+			if sink != nil && ev.Error != "" {
+				sink.OnError(errors.New(ev.Error))
+			}
+		case actor.EventTurnCompleted:
+			if ev.Error != "" && turnErr == nil {
+				turnErr = errors.New(ev.Error)
+			}
+			if sink != nil {
+				sink.OnTurnCompleted(ev.TurnSummary)
+			}
+		case actor.EventCancelled:
+			if turnErr == nil {
+				turnErr = errors.New("turn cancelled")
+			}
+			if sink != nil {
+				sink.OnCancelled()
+			}
+		}
+	}
+	if ctx.Err() != nil {
+		_ = act.CancelTurn("context cancelled")
+	}
+	return turnErr
+}
+
+// RunActorTurn executes a Turn using the actor.Actor engine and streams agentlink.Frames.
+func RunActorTurn(
+	ctx context.Context,
+	env Env,
+	model string,
+	t Turn,
+	emit func(agentlink.Frame) bool,
+	ch chan<- agentlink.Frame,
+) {
+	RunActorTurnWithBinder(ctx, env, model, t, emit, ch, nil)
+}
+
+// RunActorTurnWithBinder executes a Turn and registers the spawned Actor with onSpawn.
+func RunActorTurnWithBinder(
+	ctx context.Context,
+	env Env,
+	model string,
+	t Turn,
+	emit func(agentlink.Frame) bool,
+	ch chan<- agentlink.Frame,
+	onSpawn func(*actor.Actor),
+) {
+	if model == "" {
+		model = env.Model
+	}
+	if env.Backend == nil {
+		emit(agentlink.Frame{Kind: agentlink.KindResult, Error: ErrNoTransport.Error()})
+		return
+	}
+
+	var initialHistory []actor.ConversationMessage
+	if len(t.History) > 1 {
+		for i := 0; i < len(t.History)-1; i++ {
+			msg := t.History[i]
+			initialHistory = append(initialHistory, actor.ConversationMessage{
+				Role:    actor.Role(msg.Role),
+				Content: msg.Content,
+			})
+		}
+	}
+
+	provider := newBackendProviderAdapter(env.Backend, model)
+	act, err := actor.Spawn(actor.Config{
+		Model:          model,
+		SystemPrompt:   env.SystemPrompt,
+		Provider:       provider,
+		InitialHistory: initialHistory,
+	})
+	if err != nil {
+		emit(agentlink.Frame{Kind: agentlink.KindResult, Error: err.Error()})
+		return
+	}
+	defer act.Close()
+
+	if onSpawn != nil {
+		onSpawn(act)
+		defer onSpawn(nil)
+	}
+
+	RunActorTurnOnActor(ctx, act, env, model, t, emit, ch)
+}
+
+// RunActorTurnOnActor executes a Turn on an existing persistent Actor instance.
+// It dynamically updates the actor's model, system prompt, provider, and tools,
+// and executes the turn to completion without closing the actor runtime.
+func RunActorTurnOnActor(
+	ctx context.Context,
+	act *actor.Actor,
+	env Env,
+	model string,
+	t Turn,
+	emit func(agentlink.Frame) bool,
+	ch chan<- agentlink.Frame,
+) {
+	RunActorTurnOnActorWithPermHandler(ctx, act, env, model, t, emit, ch, nil)
+}
+
+// RunActorTurnOnActorWithPermHandler executes a Turn on an existing persistent Actor instance
+// with an optional interactive permission handler.
+func RunActorTurnOnActorWithPermHandler(
+	ctx context.Context,
+	act *actor.Actor,
+	env Env,
+	model string,
+	t Turn,
+	emit func(agentlink.Frame) bool,
+	ch chan<- agentlink.Frame,
+	permHandler PermissionHandler,
+) {
+	if act == nil {
+		emit(agentlink.Frame{Kind: agentlink.KindResult, Error: "agentturn: actor is nil"})
+		return
+	}
+	if model == "" {
+		model = env.Model
+	}
+	if env.Backend == nil {
+		emit(agentlink.Frame{Kind: agentlink.KindResult, Error: ErrNoTransport.Error()})
+		return
+	}
+
+	// Dynamically configure actor for this turn
+	act.SetModel(model)
+	act.SetSystemPrompt(env.SystemPrompt)
+	provider := newBackendProviderAdapter(env.Backend, model)
+	act.SetProvider(provider)
+
+	actorTools := buildActorTools(env.Tools, env.ToolRunner, nil, nil)
+	if len(env.ExtraTools) > 0 {
+		actorTools = append(actorTools, env.ExtraTools...)
+	}
+	if env.Policy != nil {
+		gated := make([]actor.Tool, 0, len(actorTools))
+		for _, t := range actorTools {
+			gated = append(gated, NewGatedTool(t, env.Policy, nil))
+		}
+		actorTools = gated
+	}
+	act.SetTools(actorTools...)
+
+	var lastPrompt string
+	if len(t.History) > 0 {
+		lastPrompt = t.History[len(t.History)-1].Content
+	}
+
+	sink := NewFrameSink(emit, permHandler)
+	_ = ExecuteActorTurn(ctx, act, lastPrompt, sink)
+
+	resultFrame := sink.ResultFrame(act, ctx.Err())
+	emitResult(ch, resultFrame)
+}

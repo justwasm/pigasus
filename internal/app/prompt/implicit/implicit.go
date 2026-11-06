@@ -37,6 +37,7 @@ import (
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
+	"crypto/sha1"
 	"errors"
 	"fmt"
 	"os"
@@ -44,8 +45,7 @@ import (
 	"sort"
 	"strings"
 	"time"
-
-	"github.com/google/uuid"
+	"uuid"
 )
 
 const (
@@ -271,22 +271,30 @@ var namespaceUUID = uuid.UUID{
 	0xb1, 0x87, 0x64, 0xea, 0x35, 0x0c, 0x92, 0x7f,
 }
 
+// uuidV5 derives an RFC 4122 / RFC 9562 version 5 UUID from a namespace UUID and data.
+func uuidV5(ns uuid.UUID, data []byte) uuid.UUID {
+	h := sha1.New()
+	h.Write(ns[:])
+	h.Write(data)
+	digest := h.Sum(nil)
+
+	var u uuid.UUID
+	copy(u[:], digest[:16])
+	u[6] = (u[6] & 0x0f) | 0x50 // version 5
+	u[8] = (u[8] & 0x3f) | 0x80 // RFC 4122 variant
+	return u
+}
+
 // trajectoryID derives a workspace's trajectory id.
 //
 // The reference mints a random UUID per trajectory and keeps a key→id map in
 // memory; the clone derives the id from the workspace URI instead, so the
 // file name is stable across sessions without a sidecar map.
 func trajectoryID(workspaceURI string) string {
-	return uuid.NewSHA1(namespaceUUID, []byte(workspaceURI)).String()
+	return uuidV5(namespaceUUID, []byte(workspaceURI)).String()
 }
 
 // newUUIDv4 returns a random RFC 4122 version-4 UUID.
 func newUUIDv4() string {
-	u, err := uuid.NewRandom()
-	if err != nil {
-		// A random source failure leaves the id empty rather than
-		// aborting the write; the id is opaque.
-		return ""
-	}
-	return u.String()
+	return uuid.NewV4().String()
 }

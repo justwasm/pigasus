@@ -151,7 +151,7 @@ async function ensureBinary(version) {
   }
 
   const pkg = require('../package.json');
-  const binaryVersion = pkg.pigasusVersion || (version ? version.replace(/[-+].*$/, '') : '1.4.12');
+  const binaryVersion = pkg.pigasusVersion || (version ? version.replace(/[-+].*$/, '') : '1.5.0');
 
   const platformInfo = getPlatformInfo();
   const cacheDir = getCacheDir();

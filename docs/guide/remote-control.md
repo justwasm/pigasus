@@ -1382,3 +1382,10 @@ cancel respectively. `killBackgroundTasks` kills the background tasks through
 - The app's **credits row** reads `userStatus.userTier?.availableCredits`,
   and the clone's own `userTier` block carries no credits. The *fetch* no
   longer fails (`GetLoadCodeAssist` is served), but the row stays empty.
+- **In-Process Attached Remote Control (`attachedEngine`)**: In attached TUI modes
+  (ACP agents like `--codex-acp`, `--claude-acp`, or custom engines like `--ahp`),
+  the turn loop and Remote Control operate entirely in-process via `rchost.StartInProcessServe`
+  with `StatelessMode: true`. No conversations are persisted to disk (`conversations/<id>.db`),
+  preventing foreign agent trajectories from polluting the local Antigravity session store.
+  Frames are fanned out in real time across the terminal and cloud WebChannel (`EngineBridge.OnFrame`),
+  and mutual exclusion is strictly enforced via `SimpleTurnLock`.

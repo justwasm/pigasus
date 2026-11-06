@@ -209,10 +209,13 @@ func (p *Panel) Shared(tab int) []string {
 // ---- the seams ------------------------------------------------------------
 
 func (p *Panel) close() tea.Cmd {
-	if p == nil || p.seams.Close == nil {
+	if p == nil {
 		return nil
 	}
-	return p.seams.Close()
+	if p.seams.Close != nil {
+		return p.seams.Close()
+	}
+	return DismissCmd()
 }
 
 // ---- the rule storage -----------------------------------------------------

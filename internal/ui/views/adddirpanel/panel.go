@@ -86,18 +86,24 @@ func (p *Panel) trusted() []string {
 
 // submit hands the typed path to the host.
 func (p *Panel) submit() tea.Cmd {
-	if p == nil || p.seams.Submit == nil {
+	if p == nil {
 		return nil
 	}
-	return p.seams.Submit(p.text)
+	if p.seams.Submit != nil {
+		return p.seams.Submit(p.text)
+	}
+	return AddCmd(p.text)
 }
 
 // close leaves the panel without committing.
 func (p *Panel) close() tea.Cmd {
-	if p == nil || p.seams.Close == nil {
+	if p == nil {
 		return nil
 	}
-	return p.seams.Close()
+	if p.seams.Close != nil {
+		return p.seams.Close()
+	}
+	return DismissCmd()
 }
 
 // ---- the keys -------------------------------------------------------------

@@ -16,6 +16,8 @@ type fixture struct {
 	panel *Panel
 	// lines collects what the panel echoed into the transcript.
 	lines []string
+	// selected collects commands completed via SelectCommand seam.
+	selected []string
 	// vimOn is the vim seam's answer.
 	vimOn bool
 }
@@ -34,6 +36,7 @@ func newFixture(vimOn bool) *fixture {
 		Height:         func() int { return 30 },
 		VimEnabled:     func() bool { return f.vimOn },
 		Respond:        func(lines []string) { f.lines = append(f.lines, lines...) },
+		SelectCommand:  func(cmd string) { f.selected = append(f.selected, cmd) },
 	})
 	return f
 }
@@ -317,5 +320,153 @@ func Test_HelpOverlayOpenClampsTab(t *testing.T) {
 	}
 	if !p.Active() {
 		t.Error("Open must show the overlay")
+	}
+}
+
+// Test_HelpOverlaySelectCommandOnEnter pins Enter on the COMMANDS tab:
+// the highlighted command is passed to SelectCommand, the overlay
+// closes, and no exit echo is produced.
+func Test_HelpOverlaySelectCommandOnEnter(t *testing.T) {
+	f := newFixture(false)
+	p := f.panel
+	p.Open(1) // COMMANDS tab
+
+	cmds := slashcommands.Sorted()
+	if len(cmds) < 2 {
+		t.Fatalf("expected at least 2 slash commands, got %d", len(cmds))
+	}
+
+	// First command at cursor=0
+	handled := p.HandleKey(tea.Key{Code: tea.KeyEnter})
+	if !handled {
+		t.Fatal("Enter should be handled by open overlay")
+	}
+	if p.Active() {
+		t.Error("Enter on COMMANDS tab must close the overlay")
+	}
+	if len(f.selected) != 1 || f.selected[0] != cmds[0].Name {
+		t.Fatalf("selected = %v, want [%s]", f.selected, cmds[0].Name)
+	}
+	if len(f.lines) != 0 {
+		t.Errorf("Enter must not produce exit echo, got %v", f.lines)
+	}
+
+	// Second command at cursor=1
+	p.Open(1)
+	p.HandleKey(tea.Key{Code: tea.KeyDown})
+	p.HandleKey(tea.Key{Code: tea.KeyEnter})
+	if p.Active() {
+		t.Error("Enter on COMMANDS tab must close the overlay")
+	}
+	if len(f.selected) != 2 || f.selected[1] != cmds[1].Name {
+		t.Fatalf("selected = %v, want second element %s", f.selected, cmds[1].Name)
+	}
+	if len(f.lines) != 0 {
+		t.Errorf("Enter must not produce exit echo, got %v", f.lines)
+	}
+}
+
+// Test_HelpOverlayEnterOnOtherTabsClosesWithoutSelect pins Enter on
+// non-COMMANDS tabs (0: General, 2: Shortcuts, 3: Vim): the overlay
+// closes cleanly without calling SelectCommand or echoing exit line.
+func Test_HelpOverlayEnterOnOtherTabsClosesWithoutSelect(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		tab   int
+		vimOn bool
+	}{
+		{"General tab", 0, false},
+		{"Shortcuts tab", 2, false},
+		{"Vim tab", 3, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newFixture(tc.vimOn)
+			p := f.panel
+			p.Open(tc.tab)
+			if !p.Active() {
+				t.Fatalf("failed to open tab %d", tc.tab)
+			}
+			handled := p.HandleKey(tea.Key{Code: tea.KeyEnter})
+			if !handled {
+				t.Fatal("Enter should be handled")
+			}
+			if p.Active() {
+				t.Errorf("Enter on tab %d must close the overlay", tc.tab)
+			}
+			if len(f.selected) != 0 {
+				t.Errorf("Enter on tab %d must not call SelectCommand, got %v", tc.tab, f.selected)
+			}
+			if len(f.lines) != 0 {
+				t.Errorf("Enter on tab %d must not produce exit echo, got %v", tc.tab, f.lines)
+			}
+		})
+	}
+}
+
+// Test_HelpOverlayPureMessagePassing verifies the modern Elm/Bubbletea contract:
+// without any Seams or fixture closures, the panel handles keys purely by returning
+// state changes and typed tea.Cmd messages (CommandSelectedMsg, DismissedMsg).
+func Test_HelpOverlayPureMessagePassing(t *testing.T) {
+	// Zero seams panel!
+	p := New(Seams{})
+	p.Open(1) // COMMANDS tab
+
+	cmds := slashcommands.Sorted()
+	if len(cmds) < 2 {
+		t.Fatalf("expected at least 2 slash commands, got %d", len(cmds))
+	}
+
+	// 1. Enter on command at cursor=0 yields CommandSelectedMsg
+	handled, cmd := p.Update(tea.Key{Code: tea.KeyEnter})
+	if !handled {
+		t.Fatal("expected handled=true")
+	}
+	if p.Active() {
+		t.Error("panel must be closed after selection")
+	}
+	if cmd == nil {
+		t.Fatal("expected non-nil tea.Cmd producing CommandSelectedMsg")
+	}
+	msg := cmd()
+	sel, ok := msg.(CommandSelectedMsg)
+	if !ok || sel.Command != cmds[0].Name {
+		t.Fatalf("expected CommandSelectedMsg with %q, got %#v", cmds[0].Name, msg)
+	}
+
+	// 2. Down and Enter yields the second command
+	p.Open(1)
+	p.Update(tea.Key{Code: tea.KeyDown})
+	handled, cmd = p.Update(tea.Key{Code: tea.KeyEnter})
+	if !handled || p.Active() || cmd == nil {
+		t.Fatal("expected successful handled & closed second command selection")
+	}
+	msg = cmd()
+	sel, ok = msg.(CommandSelectedMsg)
+	if !ok || sel.Command != cmds[1].Name {
+		t.Fatalf("expected CommandSelectedMsg with %q, got %#v", cmds[1].Name, msg)
+	}
+
+	// 3. Cancel ('q') on GENERAL tab yields DismissedMsg{EchoLine: true}
+	p.Open(0)
+	handled, cmd = p.Update(tea.Key{Code: 'q'})
+	if !handled || p.Active() || cmd == nil {
+		t.Fatal("expected successful handled & closed on 'q'")
+	}
+	msg = cmd()
+	dis, ok := msg.(DismissedMsg)
+	if !ok || !dis.EchoLine {
+		t.Fatalf("expected DismissedMsg{EchoLine: true}, got %#v", msg)
+	}
+
+	// 4. Enter on SHORTCUTS tab yields DismissedMsg{EchoLine: false}
+	p.Open(2)
+	handled, cmd = p.Update(tea.Key{Code: tea.KeyEnter})
+	if !handled || p.Active() || cmd == nil {
+		t.Fatal("expected successful handled & closed on Enter")
+	}
+	msg = cmd()
+	dis, ok = msg.(DismissedMsg)
+	if !ok || dis.EchoLine {
+		t.Fatalf("expected DismissedMsg{EchoLine: false}, got %#v", msg)
 	}
 }

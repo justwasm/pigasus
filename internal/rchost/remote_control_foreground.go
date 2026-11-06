@@ -20,6 +20,7 @@ import (
 	"github.com/justwasm/pigasus/internal/features/auth"
 	persistentrc "github.com/justwasm/pigasus/internal/infra/remote/persistent"
 	"github.com/justwasm/pigasus/internal/remotecontrol"
+	"github.com/justwasm/pigasus/internal/voice"
 	"github.com/justwasm/pigasus/originpolicy"
 	"github.com/justwasm/pigasus/remotetransport"
 )
@@ -69,7 +70,7 @@ func parseForegroundFlags(args []string) (string, string, string, string, bool, 
 	addr := fs.String("addr", "", "Bind address for the JSON-RPC-over-WebSocket transport (host:port)")
 	name := fs.String("name", "", "Machine instance label (matches the launchd label suffix)")
 	logFile := fs.String("log-file", "", "Absolute log file path for stdout / stderr")
-	model := fs.String("model", "", "Default model label forwarded to PiagentBackend; empty uses the host's resolved model")
+	model := fs.String("model", "", "Default model label forwarded to ActorBackend; empty uses the host's resolved model")
 	desktop := fs.Bool("desktop", false, "Serve the desktop UI: the Mendel read carries the hub identity")
 	if err := fs.Parse(args); err != nil {
 		return "", "", "", "", false, cli.ExitCodeError(2, fmt.Sprintf("Error: bad remote-control-foreground flags: %v", err))
@@ -144,10 +145,16 @@ func buildForegroundDispatcher(cwd, model, addr string, sess *remotecontrol.Sess
 
 func startForegroundServer(disp *remotecontrol.Dispatcher, addr, token string) (*remotetransport.TCPServer, error) {
 	seed := originpolicy.LoadOriginPolicyFromEnv()
+	cwd, _ := os.Getwd()
+	voiceSvc := voice.NewService(voice.Config{
+		WorkspaceDir: cwd,
+		CSRFToken:    token,
+	})
 	srv, err := remotetransport.NewTCPServer(context.Background(), disp, remotetransport.TCPConfig{
 		Addr:         addr,
 		Path:         "/rpc",
 		OriginPolicy: &seed,
+		VoiceHandler: voiceSvc,
 		CSRFToken:    token,
 	})
 	if err != nil {

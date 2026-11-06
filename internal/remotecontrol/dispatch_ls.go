@@ -167,8 +167,10 @@ func (d *Dispatcher) routeLanguageServerCascadeMethods(ctx context.Context, meth
 		return map[string]any{"title": "", "resourceType": "WORKSPACE_RESOURCE_TYPE_UNSPECIFIED"}, nil, true
 	case "ValidateTerminalSetupScript", "validateTerminalSetupScript":
 		return map[string]any{"exitCode": 0, "output": ""}, nil, true
-	case "FetchUserInfo", "SetUserInfo":
+	case "FetchUserInfo", "fetchUserInfo":
 		return d.handleLSUserInfo()
+	case "SetUserInfo", "setUserInfo":
+		return d.handleLSSetUserInfo(params)
 	case "JetboxWriteSummary":
 		return d.handleLSJetboxWriteSummary(params)
 	case "RequestAgentStatePageUpdate", "requestAgentStatePageUpdate":
@@ -180,6 +182,12 @@ func (d *Dispatcher) routeLanguageServerCascadeMethods(ctx context.Context, meth
 		return d.handleLSRecordError(params)
 	case "GetCascadeNuxes":
 		return map[string]any{"nuxes": []any{}}, nil, true
+	case "GetDefinition":
+		return map[string]any{"locations": []any{}}, nil, true
+	case "GetReferences":
+		return map[string]any{"locations": []any{}, "truncated": false}, nil, true
+	case "FetchSandboxPort":
+		return map[string]any{"statusCode": 404, "body": "", "truncated": false}, nil, true
 	case "GetAllWorkflows":
 		return map[string]any{"workflows": []any{}}, nil, true
 	case "ListMcpPrompts":
@@ -194,6 +202,7 @@ func (d *Dispatcher) routeLanguageServerCascadeMethods(ctx context.Context, meth
 		"ListPluginAuthProviders", "InstallCustomization",
 		"ListRemotePlugins", "DisconnectRemotePlugin",
 		"DownloadBuildWithGooglePlugin", "StartPluginAuthSignIn",
+		"StartMcpOAuthSignIn",
 		"SignInPluginAuthProvider", "SignOutPluginAuthProvider",
 		"SetDefaultPluginAuthAccount", "SetPluginAuthAccountLabel",
 		"SubscribeToPlugins":
@@ -507,7 +516,7 @@ func lsJoinItemText(items []struct {
 // the conversation the next turn continues, and so the history the
 // sidebar shows is the history that exists.
 func (d *Dispatcher) lsStoreTurn(c *cascades.Cascade, text string, steps []convstore.Step, turnErr error) {
-	if d == nil || c == nil {
+	if d == nil || c == nil || d.cfg.StatelessMode {
 		return
 	}
 	stored := make([]convstore.Step, 0, len(steps)+2)
@@ -541,7 +550,24 @@ func (d *Dispatcher) lsStoreTurn(c *cascades.Cascade, text string, steps []convs
 	}
 }
 
-// handleLSGetSlashCommands answers the Web UI's slash-command
+// RecordExternalTurnFrame records a frame from an external turn into the conversation's active in-memory trajectory.
+func (d *Dispatcher) RecordExternalTurnFrame(conversationID string, kind string, text string, toolName string, toolArgs string, toolResult string, toolErr bool) {
+	if d == nil || d.trajectories == nil {
+		return
+	}
+	traj := d.trajectories.Get(conversationID)
+	if traj == nil {
+		return
+	}
+	switch kind {
+	case "text":
+		if text != "" {
+			traj.Append(lsPlannerResponseStep(text, "", 0))
+		}
+	case "tool":
+		traj.Append(lsToolCallStep(toolName, toolArgs, toolResult))
+	}
+}
 // autocomplete. The IDE's SlashCommandDefinition wraps the command
 // info in an `info` field and repeats the name as `title`; the
 // clone's own catalogue carries a different field set, so each entry
@@ -567,17 +593,39 @@ func (d *Dispatcher) handleLSGetSlashCommands() (any, *rpc.ErrorBody, bool) {
 }
 
 // handleLSUserInfo answers the Web UI's CloudCodeService settings
-// calls. The response's `user_settings` block is
-// google.internal.cloud.code.v1internal.UserSettings; the clone
-// reports telemetry as on and the rest off. The Web UI treats a
+// calls (FetchUserInfo / GetUserSettings). The response's `userSettings` block is
+// google.internal.cloud.code.v1internal.UserSettings. The Web UI treats a
 // missing `userSettings` as a hard failure ("fetchUserInfo
 // returned no userSettings"), so the block is always present.
 func (d *Dispatcher) handleLSUserInfo() (any, *rpc.ErrorBody, bool) {
+	if d.state == nil {
+		d.state = newStateStore()
+	}
+	info := d.state.getUserInfo()
 	return map[string]any{
 		"userSettings": map[string]any{
-			"telemetryEnabled":                true,
-			"userDataCollectionForceDisabled": false,
-			"marketingEmailsEnabled":          false,
+			"telemetryEnabled":                info.TelemetryEnabled,
+			"userDataCollectionForceDisabled": info.UserDataCollectionForceDisabled,
+			"marketingEmailsEnabled":          info.MarketingEmailsEnabled,
+		},
+	}, nil, true
+}
+
+// handleLSSetUserInfo updates user settings from the Web UI's SetUserInfo / SetUserSettings calls,
+// persisting changes back to settings.json.
+func (d *Dispatcher) handleLSSetUserInfo(params json.RawMessage) (any, *rpc.ErrorBody, bool) {
+	if d.state == nil {
+		d.state = newStateStore()
+	}
+	info, err := d.state.updateUserInfo(params)
+	if err != nil {
+		return nil, &rpc.ErrorBody{Code: -32602, Message: "Invalid params", Data: err.Error()}, true
+	}
+	return map[string]any{
+		"userSettings": map[string]any{
+			"telemetryEnabled":                info.TelemetryEnabled,
+			"userDataCollectionForceDisabled": info.UserDataCollectionForceDisabled,
+			"marketingEmailsEnabled":          info.MarketingEmailsEnabled,
 		},
 	}, nil, true
 }

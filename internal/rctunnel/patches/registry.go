@@ -474,7 +474,7 @@ func All() []Patch {
 			Desc:    "Force telemetry setting to be disabled by default in Settings and user settings state",
 			Target:  MainJS,
 			Kind:    Regexp,
-			Enabled: func(Options) bool { return true },
+			Enabled: func(Options) bool { return false },
 			FindRe:  disableTelemetryRe,
 			Replace: `return{telemetryEnabled:!1,marketingEmailsEnabled:`,
 		},

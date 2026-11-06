@@ -210,13 +210,17 @@ func functionResponseText(fr *geminicode.FunctionResponse) string {
 	}
 }
 
-
 // ---- provider → Gemini --------------------------------------------------
 
 // handleCustom serves one generateContent / streamGenerateContent call with a
 // custom model: translate the request, stream through internal/models, and
 // re-emit Gemini wire format.
 func (s *Server) handleCustom(w http.ResponseWriter, r *http.Request, m models.Model, body []byte, stream, wrapped bool) {
+	if m.ProviderID != "" {
+		recordAccount(w, m.ProviderID)
+	} else if m.Provider != "" {
+		recordAccount(w, m.Provider)
+	}
 	var env geminicode.GenerateContentRequest
 	if err := json.Unmarshal(body, &env); err != nil {
 		writeJSONError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())

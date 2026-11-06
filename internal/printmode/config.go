@@ -7,6 +7,7 @@ import (
 
 	"github.com/justwasm/pigasus/internal/cli"
 	"github.com/justwasm/pigasus/internal/app/session/convstore"
+	"github.com/justwasm/pigasus/internal/app/session/supervisor"
 	"github.com/justwasm/pigasus/internal/core/backend"
 )
 
@@ -20,6 +21,7 @@ type ConversationSelection struct {
 	Store          *convstore.Conversation
 	History        []convstore.ChatTurn
 	PriorUserTurns int
+	Supervisor     *supervisor.Supervisor
 }
 
 // ConversationResolver resolves the conversation selection from flags.

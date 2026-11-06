@@ -376,8 +376,11 @@ func (p *Panel) openBrowser(url string) error {
 
 // closePanel closes the panel through the seam.
 func (p *Panel) closePanel() tea.Cmd {
-	if p == nil || p.seams.Close == nil {
+	if p == nil {
 		return nil
 	}
-	return p.seams.Close()
+	if p.seams.Close != nil {
+		return p.seams.Close()
+	}
+	return DismissCmd()
 }

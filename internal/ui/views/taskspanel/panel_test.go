@@ -600,3 +600,56 @@ func TestDetailViewLineWrapAndReflow(t *testing.T) {
 		t.Errorf("expected body45 (%d) > body80 (%d) due to wrapping reflow", body45, body80)
 	}
 }
+
+func Test_TasksPanelPureMessagePassing(t *testing.T) {
+	reg := taskregistry.New()
+	tk := &taskregistry.Task{
+		ID:        "task-msg-1",
+		Kind:      taskregistry.KindShell,
+		Command:   "sleep 10",
+		State:     taskregistry.StateRunning,
+		StartedAt: time.Now(),
+	}
+	reg.Register(tk)
+
+	// Panel without Kill or Close closures
+	p := New(Seams{
+		Registry: func() *taskregistry.Registry { return reg },
+	})
+
+	// Enter opens detail and produces OpenDetailCmd
+	handled, cmd := p.Update(tea.Key{Code: tea.KeyEnter})
+	if !handled || cmd == nil {
+		t.Fatal("expected Enter to return handled with tea.Cmd")
+	}
+	detailMsg, ok := cmd().(DetailOpenedMsg)
+	if !ok || detailMsg.Task.ID != "task-msg-1" {
+		t.Fatalf("expected DetailOpenedMsg with task-msg-1, got %#v", cmd())
+	}
+
+	// Esc leaves detail
+	p.Update(tea.Key{Code: tea.KeyEsc})
+	if p.Detail() {
+		t.Fatal("expected detail to be closed")
+	}
+
+	// 'k' kills task and produces KillTaskCmd
+	handled, cmd = p.Update(tea.Key{Code: 'k'})
+	if !handled || cmd == nil {
+		t.Fatal("expected 'k' to return handled with tea.Cmd")
+	}
+	killMsg, ok := cmd().(TaskKilledMsg)
+	if !ok || killMsg.Task.ID != "task-msg-1" {
+		t.Fatalf("expected TaskKilledMsg with task-msg-1, got %#v", cmd())
+	}
+
+	// Esc in list produces DismissCmd
+	handled, cmd = p.Update(tea.Key{Code: tea.KeyEsc})
+	if !handled || cmd == nil {
+		t.Fatal("expected Esc to return handled with tea.Cmd")
+	}
+	if _, ok := cmd().(DismissedMsg); !ok {
+		t.Fatalf("expected DismissedMsg, got %#v", cmd())
+	}
+}
+

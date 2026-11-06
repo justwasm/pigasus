@@ -319,6 +319,50 @@ const (
 	activeMinBodyWidth = 1
 )
 
+// ActiveTimerRowLine renders a timer task row with targeted auto-followup time.
+func ActiveTimerRowLine(t *Task, selected bool, width int) string {
+	if t == nil {
+		return ""
+	}
+	if width <= 0 {
+		width = rowDefaultWidth
+	}
+	status := TaskStatus(t)
+	_, color := StateStyle(t.State)
+
+	targetStr := ""
+	if !t.TargetTime.IsZero() {
+		targetStr = t.TargetTime.Format("15:04:05")
+	}
+
+	prefix := rowPrefixIdle
+	if selected {
+		prefix = palette.BlueOpen + rowPrefixSelected + palette.BlueClose
+	}
+
+	cell := color + rowMarker + StateClose() + " " + activeTimeCell(t)
+	statusCell := " " + color + status + StateClose()
+
+	var desc string
+	if targetStr != "" {
+		desc = fmt.Sprintf("⏳ 将在 %s 自动探测并恢复跟进 (%s)", targetStr, t.Name)
+	} else {
+		desc = t.Name
+	}
+
+	body := width - activePrefixWidth
+	if body < activeMinBodyWidth {
+		body = activeMinBodyWidth
+	}
+	nameWidth := body - lipgloss.Width(cell) - lipgloss.Width(statusCell)
+	if nameWidth < 0 {
+		nameWidth = 0
+	}
+	name := truncateAnsi(desc, nameWidth)
+
+	return prefix + cell + name + statusCell
+}
+
 // ActiveRowLine renders a single row of the active-items block.
 //
 // width is the width of the whole row, prefix included: the reference
@@ -331,6 +375,9 @@ const (
 func ActiveRowLine(t *Task, selected bool, width int) string {
 	if t == nil {
 		return ""
+	}
+	if t.Kind == KindTimer {
+		return ActiveTimerRowLine(t, selected, width)
 	}
 	if width <= 0 {
 		width = rowDefaultWidth
@@ -559,6 +606,11 @@ func activeSubagentStatus(t *Task) string {
 		return activeSubagentError
 	case StateKilled, StateRemoved:
 		return activeSubagentKilled
+	case StateBlocked:
+		if t.CurrentTool != "" {
+			return "Blocked · " + t.CurrentTool
+		}
+		return "Blocked · Processing..."
 	default:
 		return activeSubagentProcessing
 	}

@@ -80,3 +80,29 @@ func TestRows_NotificationRowsEmpty(t *testing.T) {
 		t.Errorf("NotificationRows = %v, want none", got)
 	}
 }
+
+func TestRows_NotificationRows_StripsCommandOutput(t *testing.T) {
+	body := "Task id \"schedule-37049/task-23\" finished with result:\n" +
+		"Command exited with code 0.\n\n" +
+		"Command output:\n" +
+		"=== RUN   TestSetupCLIParser_SubcommandsRegistered\n" +
+		"--- PASS: TestSetupCLIParser_SubcommandsRegistered (0.00s)\n" +
+		"PASS\n" +
+		"ok      github.com/justwasm/pigasus/internal/clirunner    1.413s\n\n" +
+		"Log: file:///path/to/task-23.log\n"
+
+	got := NotificationRows(shell.TaskNotification{Body: body})
+	want := []string{
+		goldenDimGrayOpen + "Task id \"schedule-37049/task-23\" finished with result:" + goldenClose39,
+		goldenDimGrayOpen + "Command exited with code 0." + goldenClose39,
+		goldenDimGrayOpen + "Log: file:///path/to/task-23.log" + goldenClose39,
+	}
+	if len(got) != len(want) {
+		t.Fatalf("NotificationRows = %d rows, want %d: %v", len(got), len(want), got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("row %d = %q, want %q", i, got[i], want[i])
+		}
+	}
+}

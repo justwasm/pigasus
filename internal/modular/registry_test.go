@@ -4,8 +4,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/justwasm/pigasus/internal/cli"
 	"github.com/justwasm/pigasus/internal/core/backend"
+	"github.com/justwasm/pigasus/internal/core/cliflags"
 	"github.com/justwasm/pigasus/internal/modular"
 )
 
@@ -116,7 +116,7 @@ func TestSubsystemRegistry(t *testing.T) {
 }
 
 func TestSubcommandRegistry(t *testing.T) {
-	modular.RegisterSubcommand(cli.SubcommandSpec{
+	modular.RegisterSubcommand(cliflags.SubcommandSpec{
 		Name:  "custom-cmd",
 		Short: "Custom modular subcommand",
 	})

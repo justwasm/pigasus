@@ -63,89 +63,84 @@ import (
 	"strings"
 	"time"
 
-	piagent "github.com/MichaelKinsy/PiG/agent"
-	pi "github.com/MichaelKinsy/PiG/ai"
-
+	"github.com/justwasm/pigasus/actor"
 	"github.com/justwasm/pigasus/internal/app/harnesstools"
 	pb "github.com/justwasm/pigasus/localharness/pb/localharness"
 )
 
-// onEvent is the PiG event observer the runtime calls.
-//
-// The callback has no context of its own, so the running turn's context is
-// used: only one turn runs at a time, and the turn's lifetime bounds the
-// events it produces.
-func (c *conversation) onEvent(ev piagent.AgentEvent) {
+// toolEndInfo captures the outcome of a finished tool call.
+type toolEndInfo struct {
+	ToolCallID string
+	ToolName   string
+	ResultText string
+	IsError    bool
+}
+
+// onEvent is the actor event observer the runtime calls.
+func (c *conversation) onEvent(ev actor.Event) {
 	ctx := c.currentContext()
-	switch e := ev.(type) {
-	case piagent.TurnStartEvent:
-		// The running state is written by the turn loop, before the
-		// user's message is echoed. The reference orders them that
-		// way: `STATE_RUNNING`, then the user's step.
-	case piagent.MessageUpdateEvent:
-		switch inner := e.AssistantMessageEvent.(type) {
-		case pi.TextDeltaEvent:
-			c.emitTextDelta(inner.Delta)
-		case pi.ThinkingDeltaEvent:
-			c.emitThinkingDelta(inner.Delta)
-		}
-	case piagent.MessageEndEvent:
-		c.emitModelMessage(e.Message)
-		c.recordModelCall()
-		if usage := messageUsage(e.Message); usage != nil {
-			c.recordUsage(uint64(usage.Input), uint64(usage.Output))
-			if len(messageToolCalls(e.Message)) > 0 {
-				// The reference reports the usage of a response that
-				// called a tool *after* the call has been dispatched:
-				// the announcement, the start frame, and only then the
-				// token count. The count waits for the call.
-				c.holdUsage(usage)
+	switch ev.Type {
+	case actor.EventDelta:
+		c.emitTextDelta(ev.Delta)
+	case actor.EventThought:
+		c.emitThinkingDelta(ev.Thought)
+	case actor.EventUsage:
+		if ev.Usage != nil {
+			c.recordUsage(uint64(ev.Usage.PromptTokens), uint64(ev.Usage.OutputTokens))
+			if c.hasPendingToolCalls() {
+				c.holdUsage(ev.Usage)
 			} else {
-				c.emitUsage(usage)
+				c.emitUsage(ev.Usage)
 			}
 		}
-	case piagent.ToolExecutionStartEvent:
-		c.recordToolCall()
-		c.emitToolStart(e)
-		c.flushUsage()
-	case piagent.ToolExecutionEndEvent:
-		c.emitToolEnd(e)
-		c.hooks.postTool(ctx, e)
-		if e.IsError {
-			c.hooks.onToolError(ctx, e)
+	case actor.EventToolCallStarted:
+		if ev.ToolCall != nil {
+			c.setPendingToolCalls(true)
+			if c.modelOpen && c.textBuf.Len() > 0 {
+				c.emitText(c.textBuf.String())
+			}
+			c.rememberCallName(ev.ToolCall.ID, ev.ToolCall.Name)
+			args := json.RawMessage(ev.ToolCall.Input)
+			c.announceToolCall(ev.ToolCall.ID, ev.ToolCall.Name, args)
+			c.emitToolStart(ev.ToolCall.ID, ev.ToolCall.Name, args)
+			c.flushUsage()
 		}
-	case piagent.CompactionStartEvent:
+	case actor.EventToolCallFinished:
+		if ev.ToolResult != nil {
+			callName := c.toolNameByCallID(ev.ToolResult.ToolCallID)
+			c.emitToolEnd(ev.ToolResult.ToolCallID, callName, ev.ToolResult.Output, ev.ToolResult.Error != "")
+			c.hooks.postTool(ctx, callName, ev.ToolResult.ToolCallID, ev.ToolResult.Output, ev.ToolResult.Error != "")
+			if ev.ToolResult.Error != "" {
+				c.hooks.onToolError(ctx, callName, ev.ToolResult.ToolCallID, ev.ToolResult.Output)
+			}
+			c.flushUsage()
+		}
+	case actor.EventCompacted:
 		c.emitCompaction()
 		c.hooks.onCompaction(ctx)
-	case piagent.CompactionEndEvent:
-		c.logger.Debug("harness: compaction finished", "reason", e.Reason, "aborted", e.Aborted)
+	case actor.EventTurnCompleted:
+		c.setPendingToolCalls(false)
+		if c.modelOpen && c.textBuf.Len() > 0 {
+			c.emitText(c.textBuf.String())
+		} else {
+			c.closeModelStep()
+		}
+		c.flushUsage()
 	}
 }
 
 // onText is the text callback the runtime calls.
-//
-// The text is already carried by the message events, so this callback does
-// nothing: emitting it twice would double the client's transcript.
 func (c *conversation) onText(string) {}
 
 // holdUsage keeps a model response's token usage until the call it made
 // has been dispatched.
-//
-// The reference reports the usage of a response that called a tool after
-// the call's own frames: the announcement, the start frame, and only then
-// the token count. A response that called nothing reports its usage right
-// away, with its text.
-func (c *conversation) holdUsage(usage *pi.Usage) {
+func (c *conversation) holdUsage(usage *actor.TokenUsage) {
 	c.pendingUsageMu.Lock()
 	defer c.pendingUsageMu.Unlock()
 	c.pendingUsage = usage
 }
 
 // flushUsage writes a held usage, if there is one.
-//
-// The call it waits for may have been denied before it started — a denied
-// call has no start frame — so the count is written when the call is
-// reported either way.
 func (c *conversation) flushUsage() {
 	if usage := c.takeUsage(); usage != nil {
 		c.emitUsage(usage)
@@ -153,7 +148,7 @@ func (c *conversation) flushUsage() {
 }
 
 // takeUsage hands over the held usage, if there is one.
-func (c *conversation) takeUsage() *pi.Usage {
+func (c *conversation) takeUsage() *actor.TokenUsage {
 	c.pendingUsageMu.Lock()
 	defer c.pendingUsageMu.Unlock()
 	usage := c.pendingUsage
@@ -162,9 +157,6 @@ func (c *conversation) takeUsage() *pi.Usage {
 }
 
 // recordModelCall charges one model call against the budget.
-//
-// The manager exists only after the conversation was initialised; an event
-// that arrives before that is not charged.
 func (c *conversation) recordModelCall() {
 	if c.budget == nil {
 		return
@@ -189,28 +181,16 @@ func (c *conversation) recordUsage(input, output uint64) {
 }
 
 // emitUsage reports a turn's token usage.
-//
-// The protocol's `UsageUpdate` carries the conversation's running total
-// plus a per-trajectory breakdown. The reference's frames report the
-// running total — the captured frames go 18, 36, 54, each one the sum of
-// the responses so far — so the clone accumulates too.
-//
-// The reference sets `thoughts_token_count` even when the model reported
-// no thinking, so the field is always present.
-func (c *conversation) emitUsage(usage *pi.Usage) {
+func (c *conversation) emitUsage(usage *actor.TokenUsage) {
 	if usage == nil {
 		return
 	}
 	meta := &pb.UsageMetadata{}
-	meta.SetPromptTokenCount(c.addUsage(usagePrompt, uint64(usage.Input)))
-	meta.SetCachedContentTokenCount(c.addUsage(usageCached, uint64(usage.CacheRead)))
-	meta.SetCandidatesTokenCount(c.addUsage(usageCandidates, uint64(usage.Output)))
+	meta.SetPromptTokenCount(c.addUsage(usagePrompt, uint64(usage.PromptTokens)))
+	meta.SetCachedContentTokenCount(c.addUsage(usageCached, uint64(usage.CachedTokens)))
+	meta.SetCandidatesTokenCount(c.addUsage(usageCandidates, uint64(usage.OutputTokens)))
 	meta.SetTotalTokenCount(c.addUsage(usageTotal, uint64(usage.TotalTokens)))
-	thoughts := uint64(0)
-	if usage.Reasoning != nil {
-		thoughts = uint64(*usage.Reasoning)
-	}
-	meta.SetThoughtsTokenCount(c.addUsage(usageThoughts, thoughts))
+	meta.SetThoughtsTokenCount(c.addUsage(usageThoughts, uint64(usage.ThoughtsTokens)))
 	entry := &pb.TrajectoryUsageEntry{}
 	entry.SetTrajectoryId(c.trajectoryID)
 	entry.SetUsage(meta)
@@ -219,7 +199,6 @@ func (c *conversation) emitUsage(usage *pi.Usage) {
 	update.SetAgents([]*pb.TrajectoryUsageEntry{entry})
 	ev := &pb.OutputEvent{}
 	ev.SetUsageUpdate(update)
-	c.emit(c.currentContext(), ev)
 }
 
 // The counters the running token total keeps.
@@ -470,24 +449,6 @@ func toolStepText(name string) string {
 // — once as an active step carrying the full text, and once as the step's
 // done.
 //
-// A message with a tool call is not an answer but a *call*, and the
-// reference renders it as the call's announcement: an active step whose
-// text is "Tool execution" and whose action is the call. The
-// announcement opens the step the call's later frames reuse.
-func (c *conversation) emitModelMessage(msg piagent.AgentMessage) {
-	calls := messageToolCalls(msg)
-	if len(calls) == 0 {
-		c.emitText(messageText(msg))
-		return
-	}
-	if text := messageText(msg); text != "" {
-		c.emitText(text)
-	}
-	for _, call := range calls {
-		c.announceToolCall(call)
-	}
-}
-
 // announceToolCall reports a tool call the model asked for.
 //
 // The frame comes *before* the turn's usage: the reference writes the
@@ -497,16 +458,15 @@ func (c *conversation) emitModelMessage(msg piagent.AgentMessage) {
 // The client's policy is asked *before* the call is announced: the
 // reference never announces a call it is going to deny, and reports the
 // denial on the step the announcement would have used.
-func (c *conversation) announceToolCall(call pi.ToolCall) {
-	args, err := json.Marshal(call.Arguments)
-	if err != nil {
+func (c *conversation) announceToolCall(callID, callName string, args json.RawMessage) {
+	if len(args) == 0 {
 		args = json.RawMessage("{}")
 	}
 	index := c.beginStep()
-	c.rememberToolArgs(call.Name, args)
-	c.rememberToolStep(call.Name, index)
+	c.rememberToolArgs(callName, args)
+	c.rememberToolStep(callName, index)
 
-	verdict := c.evaluateToolCallOnce(c.currentContext(), call.ID, call.Name, args)
+	verdict := c.evaluateToolCallOnce(c.currentContext(), callID, callName, args)
 	if verdict.Invalid {
 		// The reference never announces a call it refuses: the model
 		// produced a call the harness cannot run, and the reference
@@ -517,20 +477,20 @@ func (c *conversation) announceToolCall(call pi.ToolCall) {
 		c.emitDeniedCall(index, verdict)
 		return
 	}
-	if call.Name == harnesstools.ToolAskQuestion {
+	if callName == harnesstools.ToolAskQuestion {
 		// The questions API is the GAOS one, and this dialect does not
 		// carry it: the reference does not announce a call it cannot
 		// run, and reports the failure on the step the announcement
 		// would have used.
 		verdict.Cancelled = true
-		c.rememberVerdict(call.ID, verdict)
+		c.rememberVerdict(callID, verdict)
 		return
 	}
 
-	update := newStep(pb.StepUpdate_SOURCE_MODEL, stepTarget(call.Name), pb.StepUpdate_STATE_ACTIVE)
-	update.SetTextDelta(toolStepText(call.Name))
-	update.SetText(toolStepText(call.Name))
-	applyToolAction(update, call.Name, args, nil, nil, false)
+	update := newStep(pb.StepUpdate_SOURCE_MODEL, stepTarget(callName), pb.StepUpdate_STATE_ACTIVE)
+	update.SetTextDelta(toolStepText(callName))
+	update.SetText(toolStepText(callName))
+	applyToolAction(update, callName, args, nil, nil, false)
 	c.emitStep(index, update)
 }
 
@@ -604,28 +564,28 @@ func invalidStep(message, reason string) *pb.StepUpdate {
 //
 // The frame keeps the step index the announcement used: the client folds
 // the announcement, the start, the result and the done into one step.
-func (c *conversation) emitToolStart(e piagent.ToolExecutionStartEvent) {
+func (c *conversation) emitToolStart(callID, toolName string, args json.RawMessage) {
 	c.recordToolCall()
-	if c.callCancelled(e.ToolCallID) {
+	if c.callCancelled(callID) {
 		// A question the harness could not ask is reported when the call
 		// ends: the reference writes one frame for it, and no start.
 		return
 	}
-	if c.callDenied(e.ToolCallID) {
+	if c.callDenied(callID) {
 		// A denied call was reported when the denial was known: it
 		// never started, so it has no frame of its own.
 		return
 	}
-	if c.callInvalid(e.ToolCallID) {
+	if c.callInvalid(callID) {
 		// A call the reference refused was reported when the refusal
 		// was known: it never ran, so it has no frame of its own.
 		return
 	}
-	c.rememberToolArgs(e.ToolName, e.Args)
-	index := c.toolStep(e.ToolName)
-	update := newStep(pb.StepUpdate_SOURCE_MODEL, stepTarget(e.ToolName), pb.StepUpdate_STATE_ACTIVE)
-	update.SetText(toolStepText(e.ToolName))
-	applyToolAction(update, e.ToolName, e.Args, nil, nil, false)
+	c.rememberToolArgs(toolName, args)
+	index := c.toolStep(toolName)
+	update := newStep(pb.StepUpdate_SOURCE_MODEL, stepTarget(toolName), pb.StepUpdate_STATE_ACTIVE)
+	update.SetText(toolStepText(toolName))
+	applyToolAction(update, toolName, args, nil, nil, false)
 	c.emitStep(index, update)
 }
 
@@ -637,26 +597,26 @@ func (c *conversation) emitToolStart(e piagent.ToolExecutionStartEvent) {
 //
 // Two of the reference's tools write one more active frame before the step
 // closes; see extraToolFrame.
-func (c *conversation) emitToolEnd(e piagent.ToolExecutionEndEvent) {
-	if c.callCancelled(e.ToolCallID) {
+func (c *conversation) emitToolEnd(callID, toolName, resultText string, isError bool) {
+	if c.callCancelled(callID) {
 		// The reference reports a question it could not ask as one
 		// failed step: the questions were cancelled, and the frame says
 		// so. The token count of the response that asked for it came
 		// before this frame — the call never started, so there was no
 		// start frame to wait for.
-		c.emitStep(c.toolStep(e.ToolName), cancelledQuestionStep())
-		c.forgetVerdict(e.ToolCallID)
+		c.emitStep(c.toolStep(toolName), cancelledQuestionStep())
+		c.forgetVerdict(callID)
 		return
 	}
-	if c.callInvalid(e.ToolCallID) {
+	if c.callInvalid(callID) {
 		// The reference reports the refusal in one frame, and the token
 		// count of the response that made the call comes *before* it —
 		// the call never started, so there was no start frame to wait
 		// for.
-		verdict, _ := c.verdictFor(e.ToolCallID)
+		verdict, _ := c.verdictFor(callID)
 		c.flushUsage()
-		c.emitStep(c.toolStep(e.ToolName), invalidStep(verdict.InvalidMessage, verdict.Reason))
-		c.forgetVerdict(e.ToolCallID)
+		c.emitStep(c.toolStep(toolName), invalidStep(verdict.InvalidMessage, verdict.Reason))
+		c.forgetVerdict(callID)
 		if c.invalidFailureReason() != "" {
 			// The model used up its retries: the reference gives up,
 			// and the run ends with the reason.
@@ -664,42 +624,49 @@ func (c *conversation) emitToolEnd(e piagent.ToolExecutionEndEvent) {
 		}
 		return
 	}
-	if c.callDenied(e.ToolCallID) {
+	if c.callDenied(callID) {
 		// The denial was reported when it was known. The token count
 		// of the response that asked for the call follows it.
 		c.flushUsage()
-		c.forgetVerdict(e.ToolCallID)
+		c.forgetVerdict(callID)
 		return
 	}
-	index := c.toolStep(e.ToolName)
-	args := c.toolArgsOf(e.ToolName)
-	outcome := c.outcomeOf(e.ToolName)
+	index := c.toolStep(toolName)
+	args := c.toolArgsOf(toolName)
+	outcome := c.outcomeOf(toolName)
 	// A call that ran starts the refusal counter over — it worked or it
 	// failed: the reference counts the refusals in a row, and a call that
 	// was not refused breaks the row.
 	c.resetInvalidRetries()
 
-	result := newStep(pb.StepUpdate_SOURCE_MODEL, stepTarget(e.ToolName), pb.StepUpdate_STATE_ACTIVE)
-	result.SetText(toolStepText(e.ToolName))
-	applyToolAction(result, e.ToolName, args, nil, outcome, false)
+	result := newStep(pb.StepUpdate_SOURCE_MODEL, stepTarget(toolName), pb.StepUpdate_STATE_ACTIVE)
+	result.SetText(toolStepText(toolName))
+	applyToolAction(result, toolName, args, nil, outcome, false)
 	c.emitStep(index, result)
 
-	if extraToolFrame(e.ToolName, outcome) {
-		extra := newStep(pb.StepUpdate_SOURCE_MODEL, stepTarget(e.ToolName), pb.StepUpdate_STATE_ACTIVE)
-		extra.SetText(toolStepText(e.ToolName))
-		applyToolAction(extra, e.ToolName, args, nil, outcome, extraFrameCarriesDiff(e.ToolName))
+	if extraToolFrame(toolName, outcome) {
+		extra := newStep(pb.StepUpdate_SOURCE_MODEL, stepTarget(toolName), pb.StepUpdate_STATE_ACTIVE)
+		extra.SetText(toolStepText(toolName))
+		applyToolAction(extra, toolName, args, nil, outcome, extraFrameCarriesDiff(toolName))
 		c.emitStep(index, extra)
 	}
 
-	done := newStep(pb.StepUpdate_SOURCE_MODEL, stepTarget(e.ToolName), pb.StepUpdate_STATE_DONE)
-	if e.IsError {
-		done.SetState(pb.StepUpdate_STATE_ERROR)
-		done.SetErrorMessage(toolErrorMessage(outcome, e))
+	end := &toolEndInfo{
+		ToolCallID: callID,
+		ToolName:   toolName,
+		ResultText: resultText,
+		IsError:    isError,
 	}
-	done.SetText(toolStepText(e.ToolName))
-	applyToolAction(done, e.ToolName, args, &e, outcome, true)
+
+	done := newStep(pb.StepUpdate_SOURCE_MODEL, stepTarget(toolName), pb.StepUpdate_STATE_DONE)
+	if isError {
+		done.SetState(pb.StepUpdate_STATE_ERROR)
+		done.SetErrorMessage(toolErrorMessage(outcome, end))
+	}
+	done.SetText(toolStepText(toolName))
+	applyToolAction(done, toolName, args, end, outcome, true)
 	c.emitStep(index, done)
-	c.forgetVerdict(e.ToolCallID)
+	c.forgetVerdict(callID)
 
 	// A call that never started — a denied one — is reported here, and
 	// the token count of the response that asked for it follows.
@@ -827,7 +794,7 @@ func extraFrameCarriesDiff(name string) bool {
 // diff says whether the frame carries an edit's diff block. The reference
 // puts the diff on the frame that reports the edit and on the frame that
 // closes the step; a created file gets it only on the closing one.
-func applyToolAction(update *pb.StepUpdate, name string, args json.RawMessage, end *piagent.ToolExecutionEndEvent, outcome *harnesstools.Outcome, diff bool) {
+func applyToolAction(update *pb.StepUpdate, name string, args json.RawMessage, end *toolEndInfo, outcome *harnesstools.Outcome, diff bool) {
 	switch name {
 	case "run_command":
 		action := &pb.ActionRunCommand{}
@@ -852,7 +819,7 @@ func applyToolAction(update *pb.StepUpdate, name string, args json.RawMessage, e
 		if end != nil {
 			// The done frame carries the window the tool actually
 			// showed, not the window the call asked for.
-			if shown, shownLast, ok := shownLines(toolResultText(end.Result)); ok {
+			if shown, shownLast, ok := shownLines(end.ResultText); ok {
 				action.SetStartLine(uint32(shown - 1))
 				action.SetEndLine(uint32(shownLast - 1))
 			}
@@ -940,7 +907,7 @@ func applyToolAction(update *pb.StepUpdate, name string, args json.RawMessage, e
 		if end != nil {
 			response := &pb.ToolResponse{}
 			response.SetId(name)
-			response.SetResponseJson(toolResultText(end.Result))
+			response.SetResponseJson(end.ResultText)
 			action.SetToolResponse(response)
 		}
 		update.SetCustomTool(action)
@@ -1130,73 +1097,18 @@ func argIntOK(args json.RawMessage, keys ...string) (int, bool) {
 	return 0, false
 }
 
-// messageText renders an assistant message's text blocks.
-func messageText(msg piagent.AgentMessage) string {
-	if msg.Assistant == nil {
-		return ""
-	}
-	var b strings.Builder
-	for _, block := range msg.Assistant.Content {
-		if text, ok := block.(pi.TextContent); ok {
-			b.WriteString(text.Text)
-		}
-	}
-	return b.String()
-}
-
-// messageToolCalls returns the tool calls an assistant message carries.
-func messageToolCalls(msg piagent.AgentMessage) []pi.ToolCall {
-	if msg.Assistant == nil {
-		return nil
-	}
-	var out []pi.ToolCall
-	for _, block := range msg.Assistant.Content {
-		if call, ok := block.(pi.ToolCall); ok {
-			out = append(out, call)
-		}
-	}
-	return out
-}
-
-// messageUsage returns an assistant message's token usage.
-func messageUsage(msg piagent.AgentMessage) *pi.Usage {
-	if msg.Assistant == nil {
-		return nil
-	}
-	return msg.Assistant.Usage
-}
-
-// lastAssistantText returns the text of the last assistant message of a
-// turn.
-func lastAssistantText(msgs []piagent.AgentMessage) string {
-	for i := len(msgs) - 1; i >= 0; i-- {
-		if text := messageText(msgs[i]); text != "" {
-			return text
-		}
-	}
-	return ""
-}
-
-// toolResultText renders a tool result as text.
-func toolResultText(result piagent.AgentToolResult) string {
-	var b strings.Builder
-	for _, content := range result.Content {
-		if text, ok := content.(pi.TextContent); ok {
-			b.WriteString(text.Text)
-		}
-	}
-	return b.String()
-}
-
 // toolErrorMessage is the sentence a failed call's frame carries.
 //
 // The reference puts the *tool's own* sentence there — "Cannot view file
 // file://… which does not exist." — and not the whole result text. A
 // failure the reference's wording is not known for keeps the error
 // itself.
-func toolErrorMessage(outcome *harnesstools.Outcome, e piagent.ToolExecutionEndEvent) string {
+func toolErrorMessage(outcome *harnesstools.Outcome, end *toolEndInfo) string {
 	if outcome != nil && outcome.ErrorMessage != "" {
 		return outcome.ErrorMessage
 	}
-	return toolResultText(e.Result)
+	if end != nil {
+		return end.ResultText
+	}
+	return ""
 }

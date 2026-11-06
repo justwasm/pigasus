@@ -43,6 +43,43 @@ import (
 	"strings"
 )
 
+// FoldDivider is the fold divider glyph shown when lines were folded away.
+// AGY 1.5.0: "Fixed /diff drawing an empty ↕ ··· fold divider at the top of new files
+// and of edits starting at line 1, where nothing was folded away".
+const FoldDivider = "↕ ···"
+
+// ParseHunkStarts extracts the 1-based old and new start line numbers from a hunk header.
+func ParseHunkStarts(header string) (oldStart, newStart int) {
+	parts := strings.Split(header, " ")
+	for _, p := range parts {
+		if strings.HasPrefix(p, "-") {
+			s := strings.TrimPrefix(p, "-")
+			if comma := strings.IndexByte(s, ','); comma >= 0 {
+				s = s[:comma]
+			}
+			oldStart, _ = strconv.Atoi(s)
+		} else if strings.HasPrefix(p, "+") {
+			s := strings.TrimPrefix(p, "+")
+			if comma := strings.IndexByte(s, ','); comma >= 0 {
+				s = s[:comma]
+			}
+			newStart, _ = strconv.Atoi(s)
+		}
+	}
+	return oldStart, newStart
+}
+
+// ShouldDrawTopFoldDivider reports whether a fold divider should be drawn at the
+// top of a diff before the first hunk.
+// It returns false for new files (oldStart == 0) and for edits starting at line 1
+// (oldStart <= 1 || newStart <= 1) where nothing was folded away.
+func ShouldDrawTopFoldDivider(oldStart, newStart int) bool {
+	if oldStart <= 1 || newStart <= 1 {
+		return false
+	}
+	return true
+}
+
 // Hunk describes one hunk of a git diff body: the "@@ -a,b +c,d @@"
 // header line and the lines that follow until the next "@@" or EOF.
 type Hunk struct {

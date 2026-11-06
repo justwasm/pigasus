@@ -28,6 +28,7 @@ import (
 	taskregistry "github.com/justwasm/pigasus/internal/app/task"
 	tuiviewer "github.com/justwasm/pigasus/internal/ui/foundations/viewer"
 	tuiviewport "github.com/justwasm/pigasus/internal/ui/foundations/viewport"
+	"github.com/justwasm/pigasus/internal/ui/mdrender"
 	"github.com/justwasm/pigasus/internal/ui/tuilib"
 	"github.com/justwasm/pigasus/palette"
 )
@@ -101,6 +102,12 @@ func (p *Panel) detailLines() []string {
 	t := p.detailTask()
 	var header, body []string
 	width, _ := p.size()
+	if width <= 0 {
+		width = mdrender.CurrentWidth()
+	}
+	if width <= 0 {
+		width = 80
+	}
 	if p.detailSubagent {
 		header = taskregistry.SubagentDetailHeader(t, taskregistry.SubagentHeaderContext{
 			Width: width,

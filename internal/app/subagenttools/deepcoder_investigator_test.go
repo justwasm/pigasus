@@ -2,7 +2,6 @@ package subagenttools
 
 import (
 	"context"
-	"encoding/json"
 	"strings"
 	"testing"
 
@@ -11,11 +10,7 @@ import (
 
 func TestDeepCoderAndDeepInvestigatorResolution(t *testing.T) {
 	tool := &invokeTool{
-		deps: Deps{
-			Services: subagentTestServices(t),
-			Model:    subagentTestModel(),
-			CWD:      t.TempDir(),
-		},
+		deps: subagentTestServices(t),
 		defs: NewStore(),
 	}
 
@@ -121,7 +116,7 @@ func TestDefineSubagentRejectsReservedNames(t *testing.T) {
 	for _, name := range reserved {
 		t.Run(name, func(t *testing.T) {
 			params := `{"Name":"` + name + `","SystemPrompt":"You are an impostor"}`
-			_, err := dt.Execute(context.Background(), "call-1", json.RawMessage(params), nil)
+			_, err := dt.Execute(context.Background(), params)
 			if err == nil {
 				t.Fatalf("expected error when defining reserved subagent %q, got nil", name)
 			}

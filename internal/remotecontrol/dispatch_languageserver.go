@@ -241,8 +241,7 @@ func (d *Dispatcher) routeLanguageServerMethods(ctx context.Context, method stri
 	case "ReadProjects", "readProjects":
 		return d.handleLanguageServerReadProjects(ctx, params)
 	case "ReadProject", "readProject":
-		// `project` is an unset message — proto-JSON omits it.
-		return map[string]any{"notFoundOnDisk": true}, nil, true
+		return d.handleLanguageServerReadProject(ctx, params)
 	case "StatUri", "statUri":
 		return d.handleLanguageServerStatUri(params)
 	case "ReadDir", "readDir":
@@ -446,6 +445,23 @@ func (d *Dispatcher) handleLanguageServerListProjects(ctx context.Context) (any,
 	ids := d.lsProjectIDs()
 	return map[string]any{
 		"projectIds": ids,
+	}, nil, true
+}
+
+func (d *Dispatcher) handleLanguageServerReadProject(ctx context.Context, params json.RawMessage) (any, *rpc.ErrorBody, bool) {
+	var req struct {
+		ID string `json:"id"`
+	}
+	_ = json.Unmarshal(params, &req)
+	if req.ID == "" {
+		return map[string]any{"notFoundOnDisk": true}, nil, true
+	}
+	projects, notFound := d.lsProjectObjects(ctx, []string{req.ID})
+	if len(notFound) > 0 || len(projects) == 0 {
+		return map[string]any{"notFoundOnDisk": true}, nil, true
+	}
+	return map[string]any{
+		"project": projects[0],
 	}, nil, true
 }
 

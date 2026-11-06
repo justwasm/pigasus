@@ -14,7 +14,7 @@ func TestNormalizeText(t *testing.T) {
 	}{
 		{"plain", "hello\nworld", "hello\nworld"},
 		{"crlf", "hello\r\nworld\r\n", "hello\nworld\n"},
-		{"stray-cr", "hello\rworld", "helloworld"},
+		{"stray-cr", "hello\rworld", "hello\nworld"},
 		{"empty", "", ""},
 	}
 

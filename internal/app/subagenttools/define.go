@@ -8,9 +8,7 @@ import (
 	"strings"
 	"time"
 
-	piagent "github.com/MichaelKinsy/PiG/agent"
-	pi "github.com/MichaelKinsy/PiG/ai"
-
+	"github.com/justwasm/pigasus/actor"
 	builtinsubagent "github.com/justwasm/pigasus/internal/app/subagent/builtin"
 )
 
@@ -21,31 +19,29 @@ import (
 //	invoke_subagent.
 type defineTool struct{ defs *Store }
 
-func (t *defineTool) Name() string  { return "define_subagent" }
-func (t *defineTool) Label() string { return "Define Subagent" }
-func (t *defineTool) ExecutionMode() piagent.ToolExecutionMode {
-	return piagent.ToolModeSequential
-}
+func (t *defineTool) Name() string        { return "define_subagent" }
+func (t *defineTool) Description() string { return defineSubagentDescription }
+func (t *defineTool) RequiresApproval(_ string) bool { return false }
 
-func (t *defineTool) Schema() pi.ToolSchema {
-	return pi.ToolSchema{
+func (t *defineTool) Definition() actor.ToolDefinition {
+	return actor.ToolDefinition{
 		Name:        "define_subagent",
 		Description: defineSubagentDescription,
-		Parameters: pi.JsonObject{
+		Parameters: map[string]any{
 			"type": "object",
-			"properties": pi.JsonObject{
-				"name":          pi.JsonObject{"type": "string", "description": "Unique name for the subagent."},
-				"description":   pi.JsonObject{"type": "string", "description": "What the subagent is for."},
-				"system_prompt": pi.JsonObject{"type": "string", "description": "The subagent's system instruction."},
-				"enable_write_tools": pi.JsonObject{
+			"properties": map[string]any{
+				"name":          map[string]any{"type": "string", "description": "Unique name for the subagent."},
+				"description":   map[string]any{"type": "string", "description": "What the subagent is for."},
+				"system_prompt": map[string]any{"type": "string", "description": "The subagent's system instruction."},
+				"enable_write_tools": map[string]any{
 					"type":        "boolean",
 					"description": "Grant tools to create and edit files, and run commands.",
 				},
-				"enable_mcp_tools": pi.JsonObject{
+				"enable_mcp_tools": map[string]any{
 					"type":        "boolean",
 					"description": "Grant access to MCP tools.",
 				},
-				"enable_subagent_tools": pi.JsonObject{
+				"enable_subagent_tools": map[string]any{
 					"type":        "boolean",
 					"description": "Grant tools to define and invoke its own subagents.",
 				},
@@ -120,32 +116,34 @@ func boolOf(values ...*bool) bool {
 	return false
 }
 
-func (t *defineTool) Execute(_ context.Context, _ string, params json.RawMessage, _ piagent.ToolUpdateCallback) (piagent.AgentToolResult, error) {
+func (t *defineTool) Execute(_ context.Context, input string) (actor.ToolResult, error) {
 	var args defineArgs
-	if err := json.Unmarshal(params, &args); err != nil {
-		return piagent.AgentToolResult{}, fmt.Errorf("define_subagent: parse args: %w", err)
+	if err := json.Unmarshal([]byte(input), &args); err != nil {
+		return actor.ToolResult{Error: err.Error()}, fmt.Errorf("define_subagent: parse args: %w", err)
 	}
 	name := firstNonEmpty(args.Name, args.NameCap)
 	prompt := firstNonEmpty(args.SystemPrompt, args.SystemCap)
 	_ = firstNonEmpty(args.Description, args.DescriptionCap)
 	if name == "" || prompt == "" {
-		return piagent.AgentToolResult{}, errors.New("define_subagent: Name and SystemPrompt are required")
+		return actor.ToolResult{Error: "define_subagent: Name and SystemPrompt are required"}, errors.New("define_subagent: Name and SystemPrompt are required")
 	}
 	switch name {
 	case "self", "research",
 		"DeepCoder", "DeepCoderWorkerL0", "DeepCoderImprovementWorker",
 		"DeepInvestigator", "DeepInvestigatorWorkerL0", "DeepInvestigatorImprovementWorker":
-		return piagent.AgentToolResult{}, fmt.Errorf("define_subagent: %q is a reserved built-in subagent name and cannot be redefined", name)
+		err := fmt.Errorf("define_subagent: %q is a reserved built-in subagent name and cannot be redefined", name)
+		return actor.ToolResult{Error: err.Error()}, err
 	}
 	if _, ok := builtinsubagent.LookupTeamworkRole(name); ok {
-		return piagent.AgentToolResult{}, fmt.Errorf("define_subagent: %q is a reserved built-in subagent name and cannot be redefined", name)
+		err := fmt.Errorf("define_subagent: %q is a reserved built-in subagent name and cannot be redefined", name)
+		return actor.ToolResult{Error: err.Error()}, err
 	}
 	if t.defs != nil {
 		t.defs.Put(name, Invocation{Prompt: prompt, SystemPrompt: prompt, Grant: args.grant()})
 	}
 	text := resultStamp(time.Now()) + fmt.Sprintf("Subagent %q defined successfully. It can now be invoked via invoke_subagent.", name)
-	return piagent.AgentToolResult{
-		Content: []pi.ToolResultMessageContent{pi.TextContent{Text: text}},
+	return actor.ToolResult{
+		Output: text,
 	}, nil
 }
 

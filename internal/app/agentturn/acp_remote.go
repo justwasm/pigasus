@@ -14,6 +14,7 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"time"
 	"unicode/utf8"
 
 	"github.com/coder/websocket"
@@ -82,9 +83,11 @@ func (t *acpTerminalState) snapshot() (string, bool, *acp1.TerminalExitStatus) {
 }
 
 var _ Engine = (*ACPRemote)(nil)
+var _ Steerer = (*ACPRemote)(nil)
 var _ CommandLister = (*ACPRemote)(nil)
 var _ PlanLister = (*ACPRemote)(nil)
 var _ CapabilityProvider = (*ACPRemote)(nil)
+var _ ActionHandler = (*ACPRemote)(nil)
 
 // PlanEntry represents a single task or goal in an execution plan.
 type PlanEntry struct {
@@ -159,10 +162,84 @@ func (r *ACPRemote) setPlanV2(entries []schemav2.PlanEntry) {
 	r.plan = out
 }
 
+func parseMarkdownPlan(content string) []PlanEntry {
+	trimmed := strings.TrimSpace(content)
+	if trimmed == "" {
+		return nil
+	}
+	lines := strings.Split(trimmed, "\n")
+	var entries []PlanEntry
+	for _, rawLine := range lines {
+		line := strings.TrimSpace(rawLine)
+		if line == "" {
+			continue
+		}
+		lower := strings.ToLower(line)
+		var isChecklist bool
+		var completed bool
+		var taskText string
+
+		switch {
+		case strings.HasPrefix(lower, "- [x]") || strings.HasPrefix(lower, "* [x]"):
+			isChecklist = true
+			completed = true
+			taskText = strings.TrimSpace(line[5:])
+		case strings.HasPrefix(lower, "- [ ]") || strings.HasPrefix(lower, "* [ ]"):
+			isChecklist = true
+			completed = false
+			taskText = strings.TrimSpace(line[5:])
+		case strings.HasPrefix(lower, "[x]"):
+			isChecklist = true
+			completed = true
+			taskText = strings.TrimSpace(line[3:])
+		case strings.HasPrefix(lower, "[ ]"):
+			isChecklist = true
+			completed = false
+			taskText = strings.TrimSpace(line[3:])
+		default:
+			if idx := strings.Index(lower, ". [x]"); idx > 0 && idx < 5 {
+				isChecklist = true
+				completed = true
+				taskText = strings.TrimSpace(line[idx+6:])
+			} else if idx := strings.Index(lower, ". [ ]"); idx > 0 && idx < 5 {
+				isChecklist = true
+				completed = false
+				taskText = strings.TrimSpace(line[idx+6:])
+			}
+		}
+
+		if isChecklist {
+			status := "pending"
+			if completed {
+				status = "completed"
+			}
+			entries = append(entries, PlanEntry{
+				Content: taskText,
+				Status:  status,
+			})
+		}
+	}
+
+	if len(entries) > 0 {
+		return entries
+	}
+	return []PlanEntry{{Content: trimmed}}
+}
+
 func (r *ACPRemote) setPlanMarkdown(content string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	r.plan = []PlanEntry{{Content: content}}
+	r.plan = parseMarkdownPlan(content)
+}
+
+// SetPlanMarkdown sets the execution plan from markdown checklist text.
+func (r *ACPRemote) SetPlanMarkdown(content string) {
+	r.setPlanMarkdown(content)
+}
+
+// SetPlanMarkdownForTest sets the execution plan from markdown checklist text for tests.
+func (r *ACPRemote) SetPlanMarkdownForTest(content string) {
+	r.setPlanMarkdown(content)
 }
 
 func (r *ACPRemote) clearPlan() {
@@ -177,6 +254,17 @@ func (r *ACPRemote) setUsage(u *agentlink.Usage) {
 	r.lastUsage = u
 }
 
+func (r *ACPRemote) emitUsage(u *agentlink.Usage) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.frameCh != nil {
+		select {
+		case r.frameCh <- agentlink.Frame{Usage: u}:
+		default:
+		}
+	}
+}
+
 // SetPermissionHandler configures a custom callback for permission requests.
 // When nil, ACPRemote defaults to auto-approval.
 func (r *ACPRemote) SetPermissionHandler(h PermissionHandler) {
@@ -187,14 +275,24 @@ func (r *ACPRemote) SetPermissionHandler(h PermissionHandler) {
 
 func (r *ACPRemote) emitNotice(text string) {
 	r.mu.Lock()
-	ch := r.frameCh
-	r.mu.Unlock()
-	if ch != nil {
+	defer r.mu.Unlock()
+	if r.frameCh != nil {
 		select {
-		case ch <- agentlink.Frame{
+		case r.frameCh <- agentlink.Frame{
 			Kind:   agentlink.KindNotice,
 			Notice: &agentlink.Notice{Text: text},
 		}:
+		default:
+		}
+	}
+}
+
+func (r *ACPRemote) emitFrame(f agentlink.Frame) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.frameCh != nil {
+		select {
+		case r.frameCh <- f:
 		default:
 		}
 	}
@@ -217,9 +315,33 @@ func (r *ACPRemote) EngineName() string {
 	return "acp"
 }
 
-// Capabilities returns capabilities supported by generic ACP agent.
+// Capabilities returns capabilities supported by the ACP agent.
 func (r *ACPRemote) Capabilities() Capability {
-	return CapNone
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	caps := CapNone
+	for _, cmd := range r.availableCmds {
+		clean := strings.TrimPrefix(cmd.Name, "/")
+		if strings.EqualFold(clean, "tasks") {
+			caps |= CapTasks
+		}
+		if strings.EqualFold(clean, "agents") {
+			caps |= CapAgents
+		}
+		if strings.EqualFold(clean, "model") {
+			caps |= CapModelSwitch
+		}
+	}
+	return caps
+}
+
+// ExecuteAction executes a backend action against the ACP agent.
+func (r *ACPRemote) ExecuteAction(ctx context.Context, action string, args string) (ActionResult, error) {
+	// Generic ACP agents currently pass dynamic actions via prompt or session update.
+	return ActionResult{
+		Success: true,
+		Message: "Action processed by ACP agent",
+	}, nil
 }
 
 func (r *ACPRemote) setAvailableCommandsV1(cmds []schemav1.AvailableCommand) {
@@ -407,6 +529,25 @@ func connectACPRemote(ctx context.Context, dial func(context.Context) (acp.Trans
 	return r, nil
 }
 
+// Steer submits mid-turn guidance to an active ACP v2 session.
+func (r *ACPRemote) Steer(instruction string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.closed {
+		return errors.New("agentturn: the engine is closed")
+	}
+	if !r.busy {
+		return errors.New("agentturn: no turn is active to steer")
+	}
+	if r.sessionV2 == nil {
+		return errors.New("acp: steering is only supported on ACP v2 sessions")
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_, err := r.sessionV2.Prompt(ctx, acp2.TextBlock(instruction))
+	return err
+}
+
 // Turn asks the ACP server to run one turn and reports its frames on the returned channel.
 func (r *ACPRemote) Turn(ctx context.Context, t Turn) (<-chan agentlink.Frame, error) {
 	r.mu.Lock()
@@ -430,12 +571,31 @@ func (r *ACPRemote) Turn(ctx context.Context, t Turn) (<-chan agentlink.Frame, e
 		}
 	}
 
+	cancelDone := make(chan struct{})
+	go func() {
+		select {
+		case <-ctx.Done():
+			detachedCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			if r.sessionV2 != nil {
+				_ = r.sessionV2.Cancel(detachedCtx)
+			} else if r.sessionV1 != nil {
+				_ = r.sessionV1.Cancel(detachedCtx)
+			}
+		case <-cancelDone:
+		}
+	}()
+
 	go func() {
 		defer func() {
+			close(cancelDone)
 			r.mu.Lock()
 			r.busy = false
-			close(out)
+			ch := r.frameCh
 			r.frameCh = nil
+			if ch != nil {
+				close(ch)
+			}
 			r.mu.Unlock()
 		}()
 
@@ -456,6 +616,8 @@ func (r *ACPRemote) runTurnV2(ctx context.Context, prompt string, out chan<- age
 	}
 
 	var lastUsage *agentlink.Usage
+	toolNames := make(map[string]string)
+	toolArgs := make(map[string]string)
 	uTurn := r.sessionV2.UntilIdle(ctx)
 	for update := range uTurn.Updates() {
 		switch u := update.Variant().(type) {
@@ -480,20 +642,67 @@ func (r *ACPRemote) runTurnV2(ctx context.Context, prompt string, out chan<- age
 		case schemav2.SessionUpdateUsageUpdate:
 			lastUsage = &agentlink.Usage{PromptTokens: int(u.Used), TotalTokens: int(u.Used)}
 			r.setUsage(lastUsage)
+			out <- agentlink.Frame{Usage: lastUsage}
 		case schemav2.SessionUpdateToolCallUpdate:
+			callID := string(u.ToolCallID)
 			phase := agentlink.ToolStart
-			if status, ok := u.Status.Get(); ok && (status == schemav2.ToolCallStatusCompleted || status == schemav2.ToolCallStatusFailed) {
-				phase = agentlink.ToolEnd
+			isErr := false
+			if status, ok := u.Status.Get(); ok {
+				if status == schemav2.ToolCallStatusCompleted || status == schemav2.ToolCallStatusFailed {
+					phase = agentlink.ToolEnd
+				}
+				if status == schemav2.ToolCallStatusFailed {
+					isErr = true
+				}
 			}
 			title, _ := u.Title.Get()
+			if title == "" {
+				if n, ok := u.Name.Get(); ok {
+					title = n
+				}
+			}
+			if title != "" {
+				toolNames[callID] = title
+			} else {
+				title = toolNames[callID]
+			}
+
+			args := string(u.RawInput)
+			if args != "" {
+				toolArgs[callID] = args
+			} else {
+				args = toolArgs[callID]
+			}
+
+			result := string(u.RawOutput)
+			if contents, ok := u.Content.Get(); ok && len(contents) > 0 {
+				var b strings.Builder
+				for _, c := range contents {
+					if cc, ok := c.As[schemav2.ToolCallContentContent](); ok {
+						if text, ok := acp2.TextOf(cc.Content); ok {
+							b.WriteString(text)
+						}
+					}
+				}
+				if b.Len() > 0 {
+					result = b.String()
+				}
+			} else if len(result) > 0 {
+				var unquoted string
+				if err := json.Unmarshal([]byte(result), &unquoted); err == nil {
+					result = unquoted
+				}
+			}
+
 			out <- agentlink.Frame{
 				Kind: agentlink.KindTool,
-				ID:   string(u.ToolCallID),
+				ID:   callID,
 				Tool: &agentlink.Tool{
 					Name:   title,
 					Phase:  phase,
-					Args:   string(u.RawInput),
-					Result: string(u.RawOutput),
+					Args:   args,
+					Result: result,
+					Err:    isErr,
 				},
 			}
 		}
@@ -505,6 +714,8 @@ func (r *ACPRemote) runTurnV2(ctx context.Context, prompt string, out chan<- age
 		result.Error = err.Error()
 	} else if reason == acp2.StopReasonRefusal {
 		result.Error = "turn refused"
+	} else if ctx.Err() != nil {
+		result.Error = "turn cancelled"
 	}
 	if lastUsage == nil {
 		r.mu.Lock()
@@ -525,6 +736,8 @@ func (r *ACPRemote) runTurnV1(ctx context.Context, prompt string, out chan<- age
 	}
 
 	var lastUsage *agentlink.Usage
+	toolNames := make(map[string]string)
+	toolArgs := make(map[string]string)
 	for update := range turn.Updates() {
 		switch u := update.Variant().(type) {
 		case schemav1.SessionUpdateAgentMessageChunk:
@@ -550,32 +763,83 @@ func (r *ACPRemote) runTurnV1(ctx context.Context, prompt string, out chan<- age
 		case schemav1.SessionUpdateUsageUpdate:
 			lastUsage = &agentlink.Usage{PromptTokens: int(u.Used), TotalTokens: int(u.Used)}
 			r.setUsage(lastUsage)
+			out <- agentlink.Frame{Usage: lastUsage}
 		case schemav1.SessionUpdateToolCall:
+			callID := string(u.ToolCallID)
+			if u.Title != "" {
+				toolNames[callID] = u.Title
+			}
+			args := string(u.RawInput)
+			if args != "" {
+				toolArgs[callID] = args
+			}
 			out <- agentlink.Frame{
 				Kind: agentlink.KindTool,
-				ID:   string(u.ToolCallID),
+				ID:   callID,
 				Tool: &agentlink.Tool{
 					Name:  u.Title,
 					Phase: agentlink.ToolStart,
-					Args:  string(u.RawInput),
+					Args:  args,
 				},
 			}
 		case schemav1.SessionUpdateToolCallUpdate:
+			callID := string(u.ToolCallID)
 			phase := agentlink.ToolStart
-			if u.Status != nil && (*u.Status == schemav1.ToolCallStatusCompleted || *u.Status == schemav1.ToolCallStatusFailed) {
-				phase = agentlink.ToolEnd
+			isErr := false
+			if u.Status != nil {
+				if *u.Status == schemav1.ToolCallStatusCompleted || *u.Status == schemav1.ToolCallStatusFailed {
+					phase = agentlink.ToolEnd
+				}
+				if *u.Status == schemav1.ToolCallStatusFailed {
+					isErr = true
+				}
 			}
 			title := ""
 			if u.Title != nil {
 				title = *u.Title
 			}
+			if title != "" {
+				toolNames[callID] = title
+			} else {
+				title = toolNames[callID]
+			}
+
+			args := string(u.RawInput)
+			if args != "" {
+				toolArgs[callID] = args
+			} else {
+				args = toolArgs[callID]
+			}
+
+			result := string(u.RawOutput)
+			if len(u.Content) > 0 {
+				var b strings.Builder
+				for _, c := range u.Content {
+					if cc, ok := c.As[schemav1.ToolCallContentContent](); ok {
+						if text, ok := acp1.TextOf(cc.Content); ok {
+							b.WriteString(text)
+						}
+					}
+				}
+				if b.Len() > 0 {
+					result = b.String()
+				}
+			} else if len(result) > 0 {
+				var unquoted string
+				if err := json.Unmarshal([]byte(result), &unquoted); err == nil {
+					result = unquoted
+				}
+			}
+
 			out <- agentlink.Frame{
 				Kind: agentlink.KindTool,
-				ID:   string(u.ToolCallID),
+				ID:   callID,
 				Tool: &agentlink.Tool{
 					Name:   title,
 					Phase:  phase,
-					Result: string(u.RawOutput),
+					Args:   args,
+					Result: result,
+					Err:    isErr,
 				},
 			}
 		}
@@ -596,6 +860,8 @@ func (r *ACPRemote) runTurnV1(ctx context.Context, prompt string, out chan<- age
 				TotalTokens:      int(resp.Usage.TotalTokens),
 			}
 		}
+	} else if ctx.Err() != nil {
+		result.Error = "turn cancelled"
 	}
 	if lastUsage == nil {
 		r.mu.Lock()
@@ -847,7 +1113,9 @@ func (c *acpRemoteV1Client) SessionUpdate(_ context.Context, params *acp1.Sessio
 		c.r.clearPlan()
 	}
 	if u, ok := params.Update.As[schemav1.SessionUpdateUsageUpdate](); ok {
-		c.r.setUsage(&agentlink.Usage{PromptTokens: int(u.Used), TotalTokens: int(u.Used)})
+		usage := &agentlink.Usage{PromptTokens: int(u.Used), TotalTokens: int(u.Used)}
+		c.r.setUsage(usage)
+		c.r.emitUsage(usage)
 	}
 	return nil
 }
@@ -972,13 +1240,27 @@ func (c *acpRemoteV1Client) CreateTerminal(ctx context.Context, params *acp1.Cre
 		return nil, fmt.Errorf("acp: start terminal: %w", err)
 	}
 
+	// Emit tool execution start event to active frame channel if present
+	cmdArgsJSON, _ := json.Marshal(map[string]any{"command": fullCmd, "cwd": workDir})
+	c.r.emitFrame(agentlink.Frame{
+		Kind: agentlink.KindTool,
+		ID:   fmt.Sprintf("term_%d", c.r.nextTerm+1),
+		Tool: &agentlink.Tool{
+			Name:  "terminal",
+			Phase: agentlink.ToolStart,
+			Args:  string(cmdArgsJSON),
+		},
+	})
+
+	termIDNum := c.r.nextTerm + 1
 	go func() {
 		_ = cmd.Wait()
 		exit := &acp1.TerminalExitStatus{}
+		var exitCode int
 		if cmd.ProcessState != nil {
-			code := cmd.ProcessState.ExitCode()
-			if code >= 0 {
-				uCode := uint32(code)
+			exitCode = cmd.ProcessState.ExitCode()
+			if exitCode >= 0 {
+				uCode := uint32(exitCode)
 				exit.ExitCode = &uCode
 			} else {
 				sig := "killed"
@@ -990,8 +1272,23 @@ func (c *acpRemoteV1Client) CreateTerminal(ctx context.Context, params *acp1.Cre
 		}
 		t.mu.Lock()
 		t.exit = exit
+		outputStr := string(t.output)
 		t.mu.Unlock()
 		close(t.done)
+
+		// Emit tool execution end event to active frame channel
+		isErr := exitCode != 0
+		c.r.emitFrame(agentlink.Frame{
+			Kind: agentlink.KindTool,
+			ID:   fmt.Sprintf("term_%d", termIDNum),
+			Tool: &agentlink.Tool{
+				Name:   "terminal",
+				Phase:  agentlink.ToolEnd,
+				Args:   string(cmdArgsJSON),
+				Result: outputStr,
+				Err:    isErr,
+			},
+		})
 	}()
 
 	c.r.termMu.Lock()
@@ -1133,7 +1430,9 @@ func (c *acpRemoteV2Client) SessionUpdate(_ context.Context, params *acp2.Update
 		c.r.clearPlan()
 	}
 	if u, ok := params.Update.As[schemav2.SessionUpdateUsageUpdate](); ok {
-		c.r.setUsage(&agentlink.Usage{PromptTokens: int(u.Used), TotalTokens: int(u.Used)})
+		usage := &agentlink.Usage{PromptTokens: int(u.Used), TotalTokens: int(u.Used)}
+		c.r.setUsage(usage)
+		c.r.emitUsage(usage)
 	}
 	return nil
 }

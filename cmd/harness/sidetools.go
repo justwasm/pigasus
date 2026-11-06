@@ -42,11 +42,12 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
 	"sort"
 
-	piagent "github.com/MichaelKinsy/PiG/agent"
-
+	"github.com/justwasm/pigasus/actor"
 	"github.com/justwasm/pigasus/internal/app/harnesstools"
 	"github.com/justwasm/pigasus/internal/app/tools"
 	"github.com/justwasm/pigasus/internal/app/tools/surface"
@@ -190,9 +191,75 @@ func finishDescription() string {
 	return ""
 }
 
+// surfaceActorTool adapts one captured surface declaration and executes through a tools.Tool.
+type surfaceActorTool struct {
+	decl  surface.ModelToolDecl
+	inner tools.Tool
+}
+
+func (t *surfaceActorTool) Name() string { return t.decl.Name }
+
+func (t *surfaceActorTool) Description() string { return t.decl.Description }
+
+func (t *surfaceActorTool) RequiresApproval(string) bool { return false }
+
+func (t *surfaceActorTool) Definition() actor.ToolDefinition {
+	var params map[string]any
+	if len(t.decl.Parameters) > 0 {
+		_ = json.Unmarshal(t.decl.Parameters, &params)
+	}
+	return actor.ToolDefinition{
+		Name:        t.decl.Name,
+		Description: t.decl.Description,
+		Parameters:  params,
+	}
+}
+
+func (t *surfaceActorTool) Execute(ctx context.Context, input string) (actor.ToolResult, error) {
+	callID := actor.ToolCallIDFromContext(ctx)
+	if t.inner == nil {
+		return actor.ToolResult{ToolCallID: callID, Error: fmt.Sprintf("unknown tool %q", t.decl.Name)}, fmt.Errorf("unknown tool %q", t.decl.Name)
+	}
+	out, err := t.inner.Run(ctx, json.RawMessage(input))
+	if err != nil {
+		return actor.ToolResult{ToolCallID: callID, Error: err.Error()}, err
+	}
+	return actor.ToolResult{
+		ToolCallID: callID,
+		Output:     renderToolOutput(out),
+	}, nil
+}
+
+func renderToolOutput(out any) string {
+	switch v := out.(type) {
+	case nil:
+		return ""
+	case string:
+		return v
+	case []byte:
+		return string(v)
+	default:
+		b, _ := json.Marshal(v)
+		return string(b)
+	}
+}
+
+// makeHarnessSideTools adapts the declarations to actor tools using the catalog executors.
+func makeHarnessSideTools(catalog *tools.Registry, decls []surface.ModelToolDecl) []actor.Tool {
+	out := make([]actor.Tool, 0, len(decls))
+	for _, d := range decls {
+		var inner tools.Tool
+		if catalog != nil {
+			inner, _ = catalog.Get(d.Name)
+		}
+		out = append(out, &surfaceActorTool{decl: d, inner: inner})
+	}
+	return out
+}
+
 // filterToolsByName keeps the tools whose name is in the set.
-func filterToolsByName(list []piagent.AgentTool, enabled map[string]bool) []piagent.AgentTool {
-	out := make([]piagent.AgentTool, 0, len(list))
+func filterToolsByName(list []actor.Tool, enabled map[string]bool) []actor.Tool {
+	out := make([]actor.Tool, 0, len(list))
 	for _, tool := range list {
 		if tool == nil {
 			continue

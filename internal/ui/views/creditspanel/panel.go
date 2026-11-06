@@ -175,21 +175,26 @@ func (p *Panel) HandleKey(key tea.Key) (bool, tea.Cmd) {
 		p.cursor = n - 1
 		return true, nil
 	case tuilib.NavCancel:
-		return true, p.close()
+		if p.seams.Close != nil {
+			return true, p.seams.Close()
+		}
+		return true, func() tea.Msg { return MsgClose{} }
 	}
 	switch key.Code {
 	case tea.KeyEnter:
-		if p.seams.OpenURL != nil {
-			switch p.cursor {
-			case 0:
-				// "Get More AI Credits" -> pricing and purchase portal
-				_ = p.seams.OpenURL("https://one.google.com/ai-premium")
-			case 1:
-				// "See Activity" -> subscription and activity portal
-				_ = p.seams.OpenURL("https://myaccount.google.com/subscriptions")
-			}
+		var targetURL string
+		switch p.cursor {
+		case 0:
+			// "Get More AI Credits" -> pricing and purchase portal
+			targetURL = "https://one.google.com/ai-premium"
+		case 1:
+			// "See Activity" -> subscription and activity portal
+			targetURL = "https://myaccount.google.com/subscriptions"
 		}
-		return true, nil
+		if p.seams.OpenURL != nil && targetURL != "" {
+			_ = p.seams.OpenURL(targetURL)
+		}
+		return true, func() tea.Msg { return MsgOpenURL{URL: targetURL} }
 	case tea.KeyTab, tea.KeyBackspace:
 		return true, nil
 	}

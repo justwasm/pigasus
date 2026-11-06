@@ -213,7 +213,7 @@ func (c *Client) Open(ctx context.Context, turn Turn) (*http.Response, error) {
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		defer resp.Body.Close()
 		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
-		return nil, &HTTPError{StatusCode: resp.StatusCode, Body: raw, URL: url}
+		return nil, &HTTPError{StatusCode: resp.StatusCode, Body: raw, URL: url, Header: resp.Header}
 	}
 	return resp, nil
 }

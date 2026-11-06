@@ -16,10 +16,10 @@ import (
 	"context"
 	"errors"
 
-	piagent "github.com/MichaelKinsy/PiG/agent"
-
+	"github.com/justwasm/pigasus/actor"
 	"github.com/justwasm/pigasus/agentlink"
 	"github.com/justwasm/pigasus/internal/core/backend"
+	"github.com/justwasm/pigasus/internal/core/policy/permissions"
 )
 
 // Env is what one turn needs from its host.
@@ -42,9 +42,11 @@ type Env struct {
 	ToolRunner backend.ToolRunner
 	// ExtraTools are the tools that drive a model turn of their own
 	// and so do not fit the declaration/runner shape.
-	ExtraTools []piagent.AgentTool
+	ExtraTools []actor.Tool
 	// Effort is the reasoning effort the turn asks for.
 	Effort string
+	// Policy is the optional permissions policy for tool execution.
+	Policy *permissions.Policy
 }
 
 // EnvFunc builds the environment for one turn.
@@ -100,6 +102,24 @@ type ModelLister interface {
 	ListModels(ctx context.Context) ([]ModelInfo, error)
 }
 
+// Steerer is an optional interface an Engine may implement to steer an in-flight turn.
+type Steerer interface {
+	Steer(instruction string) error
+}
+
+// SteerController provides inspection and queue manipulation for in-flight steering instructions.
+type SteerController interface {
+	Steerer
+	PendingSteer() []string
+	PopSteer() (string, bool)
+	ClearSteer() []string
+}
+
+// DefaultModeler is an optional interface an Engine may implement to advertise its default model.
+type DefaultModeler interface {
+	DefaultModel() string
+}
+
 // CommandInfo represents a slash command offered dynamically by an agent backend.
 type CommandInfo struct {
 	Name        string `json:"name"`
@@ -110,6 +130,24 @@ type CommandInfo struct {
 // CommandLister is an optional interface an Engine may implement to provide its dynamic slash commands.
 type CommandLister interface {
 	AvailableCommands() []CommandInfo
+}
+
+// ActionHandler is an optional interface an Engine may implement to execute
+// backend-level actions (e.g. model switching, reasoning effort, compaction).
+type ActionHandler interface {
+	ExecuteAction(ctx context.Context, action string, args string) (ActionResult, error)
+}
+
+// PermissionAware is an optional interface an Engine may implement to handle tool permission prompts.
+type PermissionAware interface {
+	SetPermissionHandler(PermissionHandler)
+}
+
+// ActionResult represents the outcome of an engine action.
+type ActionResult struct {
+	Success bool   `json:"success"`
+	Message string `json:"message,omitempty"`
+	Payload any    `json:"payload,omitempty"`
 }
 
 // Capability flags describing what features an agentturn.Engine supports.
@@ -129,6 +167,9 @@ const (
 
 	// CapTasks indicates the engine supports background task viewing (/tasks).
 	CapTasks
+
+	// CapAgents indicates the engine supports custom agent switching and subagent inspection (/agents).
+	CapAgents
 
 	// CapNativeTools indicates the engine uses native OpenAGY tool runner / permissions (/permissions).
 	CapNativeTools

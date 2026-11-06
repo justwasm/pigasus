@@ -11,8 +11,7 @@ import (
 	"log/slog"
 	"testing"
 
-	pi "github.com/MichaelKinsy/PiG/ai"
-
+	"github.com/justwasm/pigasus/actor"
 	"github.com/justwasm/pigasus/internal/core/backend"
 	"github.com/justwasm/pigasus/internal/infra/backend/gemini"
 	pb "github.com/justwasm/pigasus/localharness/pb/localharness"
@@ -179,8 +178,8 @@ func TestFunctionCallingTurnsOffOnTheLastRetry(t *testing.T) {
 	}
 
 	// A stream with four retries left keeps the function calling on.
-	if _, err := wrapped.Stream(context.Background(), pi.TranscriptContext{}, pi.StreamOptions{}); err != nil {
-		t.Fatalf("stream: %v", err)
+	if _, err := wrapped.Generate(context.Background(), actor.GenerateRequest{}); err != nil {
+		t.Fatalf("generate: %v", err)
 	}
 	if got := client.FunctionCallingMode(); got != "AUTO" {
 		t.Errorf("mode = %q, want AUTO", got)
@@ -190,8 +189,8 @@ func TestFunctionCallingTurnsOffOnTheLastRetry(t *testing.T) {
 	for i := 0; i < 4; i++ {
 		c.nextInvalidRetries("the model produced an invalid tool call")
 	}
-	if _, err := wrapped.Stream(context.Background(), pi.TranscriptContext{}, pi.StreamOptions{}); err != nil {
-		t.Fatalf("stream: %v", err)
+	if _, err := wrapped.Generate(context.Background(), actor.GenerateRequest{}); err != nil {
+		t.Fatalf("generate: %v", err)
 	}
 	if got := client.FunctionCallingMode(); got != "NONE" {
 		t.Errorf("mode = %q, want NONE", got)
@@ -206,22 +205,18 @@ func TestFunctionCallingLeavesTheOtherTransportsAlone(t *testing.T) {
 	c := &conversation{}
 	inner := &countingProvider{}
 
-	if got := c.withFunctionCallingMode(inner, backend.NewMock()); got != pi.Provider(inner) {
+	if got := c.withFunctionCallingMode(inner, backend.NewMock()); got != actor.Provider(inner) {
 		t.Errorf("provider = %T, want the inner one", got)
 	}
 }
 
-// countingProvider is a provider that counts its streams and returns
+// countingProvider is a provider that counts its calls and returns
 // nothing.
 type countingProvider struct {
-	streams int
+	calls int
 }
 
-func (p *countingProvider) ID() string { return "counting" }
-
-func (p *countingProvider) Close() error { return nil }
-
-func (p *countingProvider) Stream(context.Context, pi.TranscriptContext, pi.StreamOptions) (*pi.AssistantMessageEventStream, error) {
-	p.streams++
+func (p *countingProvider) Generate(context.Context, actor.GenerateRequest) (actor.ResponseStream, error) {
+	p.calls++
 	return nil, nil
 }

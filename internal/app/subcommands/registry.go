@@ -17,23 +17,40 @@ import (
 	"sort"
 	"sync"
 
-	"github.com/justwasm/pigasus/internal/cli"
+	"github.com/justwasm/pigasus/internal/core/cliflags"
 )
 
 var (
-	mu    sync.RWMutex
-	table = make(map[string]cli.SubcommandSpec)
+	mu        sync.RWMutex
+	table     = make(map[string]cliflags.SubcommandSpec)
+	providers = make([]func() []cliflags.SubcommandSpec, 0)
 )
 
+// RegisterProvider registers a dynamic provider of subcommand specs.
+func RegisterProvider(fn func() cliflags.SubcommandSpec) {
+	mu.Lock()
+	defer mu.Unlock()
+	providers = append(providers, func() []cliflags.SubcommandSpec {
+		return []cliflags.SubcommandSpec{fn()}
+	})
+}
+
+// RegisterMultiProvider registers a dynamic provider of multiple subcommand specs.
+func RegisterMultiProvider(fn func() []cliflags.SubcommandSpec) {
+	mu.Lock()
+	defer mu.Unlock()
+	providers = append(providers, fn)
+}
+
 // RegisterSubcommand registers a subcommand spec.
-func RegisterSubcommand(spec cli.SubcommandSpec) {
+func RegisterSubcommand(spec cliflags.SubcommandSpec) {
 	mu.Lock()
 	defer mu.Unlock()
 	table[spec.Name] = spec
 }
 
 // RegisterSubcommands registers multiple subcommand specs.
-func RegisterSubcommands(specs ...cli.SubcommandSpec) {
+func RegisterSubcommands(specs ...cliflags.SubcommandSpec) {
 	mu.Lock()
 	defer mu.Unlock()
 	for _, spec := range specs {
@@ -42,11 +59,20 @@ func RegisterSubcommands(specs ...cli.SubcommandSpec) {
 }
 
 // GetSubcommands returns all registered subcommand specs, sorted by Name.
-func GetSubcommands() []cli.SubcommandSpec {
+func GetSubcommands() []cliflags.SubcommandSpec {
 	mu.RLock()
 	defer mu.RUnlock()
-	list := make([]cli.SubcommandSpec, 0, len(table))
-	for _, spec := range table {
+	combined := make(map[string]cliflags.SubcommandSpec, len(table)+len(providers))
+	for name, spec := range table {
+		combined[name] = spec
+	}
+	for _, p := range providers {
+		for _, spec := range p() {
+			combined[spec.Name] = spec
+		}
+	}
+	list := make([]cliflags.SubcommandSpec, 0, len(combined))
+	for _, spec := range combined {
 		list = append(list, spec)
 	}
 	sort.Slice(list, func(i, j int) bool {

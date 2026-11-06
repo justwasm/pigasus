@@ -25,8 +25,7 @@ func TestTierOf(t *testing.T) {
 		{"internal/ui", 5},
 		{"internal/ui/views/helppanel", 5},
 		// A host is not a tier, and neither is a public package.
-		{"internal/agent", 0},
-		{"internal/cliapp", 0},
+		{"internal/tui", 0},
 		{"internal/printmode", 0},
 		{"internal", 0},
 		{"internal/modular/engines", 0},
@@ -41,24 +40,21 @@ func TestTierOf(t *testing.T) {
 	}
 }
 
-// TestIsHost pins the host set: the seven entry hosts, the packages
+// TestIsHost pins the host set: the entry hosts, the packages
 // under them, and the packages that are not hosts.
 func TestIsHost(t *testing.T) {
 	cases := []struct {
 		pkg  string
 		want bool
 	}{
-		{"internal/agent", true},
-		{"internal/pigrt", true},
-		{"internal/piagentbridge", true},
 		{"internal/modular", true},
 		{"internal/modular/engines/stream", true},
 		{"internal/cli", true},
-		{"internal/cliapp", true},
+		{"internal/clirunner", true},
+		{"internal/tui", true},
 		{"internal/printmode", true},
 		{"internal/core", false},
 		{"internal/app/agentturn", false},
-		{"internal/agentlike", false},
 		{"render", false},
 		{"", false},
 	}
@@ -75,9 +71,6 @@ func TestIsEngineHost(t *testing.T) {
 		pkg  string
 		want bool
 	}{
-		{"internal/agent", true},
-		{"internal/pigrt", true},
-		{"internal/piagentbridge", true},
 		{"internal/modular", true},
 		{"internal/cli", true},
 		{"internal/cliapp", false},
@@ -97,9 +90,9 @@ func TestIsEntryHost(t *testing.T) {
 		pkg  string
 		want bool
 	}{
-		{"internal/cliapp", true},
+		{"internal/clirunner", true},
+		{"internal/tui", true},
 		{"internal/printmode", true},
-		{"internal/agent", false},
 		{"internal/cli", false},
 		{"internal/core", false},
 	}
@@ -125,7 +118,7 @@ func TestIsPublic(t *testing.T) {
 		{"cmd", false},
 		{"internal/core", false},
 		{"cmd/pigasus", false},
-		{"devutils/pigloop-demo", false},
+		{"devutils/browserdemo", false},
 		{"docs/cycles/cycle-266/repro", false},
 		{"", false},
 	}

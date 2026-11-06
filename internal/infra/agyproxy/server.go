@@ -18,6 +18,8 @@ import (
 	"bytes"
 	"compress/gzip"
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -35,6 +37,7 @@ import (
 
 	"github.com/justwasm/pigasus/accountpool"
 	"github.com/justwasm/pigasus/endpoints"
+	accounts "github.com/justwasm/pigasus/internal/features/accounts/core"
 	accountrouting "github.com/justwasm/pigasus/internal/features/accounts/routing"
 	"github.com/justwasm/pigasus/internal/features/auth"
 	"github.com/justwasm/pigasus/internal/features/models"
@@ -314,7 +317,73 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	s.dispatch(cw, r, body, info)
 
 	s.captureResponse(started, method, r, info, body, cw)
-	s.logf("%s %s%s -> %d (%s)", r.Method, r.URL.Path, querySuffix(r.URL.RawQuery), cw.statusCode(), time.Since(started).Round(time.Millisecond))
+	accTag := ""
+	if acc := cw.account(); acc != "" {
+		accTag = " [" + acc + "]"
+	}
+	s.logf("%s %s%s%s -> %d (%s)", r.Method, r.URL.Path, querySuffix(r.URL.RawQuery), accTag, cw.statusCode(), time.Since(started).Round(time.Millisecond))
+}
+
+type accountRecorder interface {
+	setAccount(string)
+}
+
+func recordAccount(w http.ResponseWriter, email string) {
+	if email == "" {
+		return
+	}
+	for curr := w; curr != nil; {
+		if rec, ok := curr.(accountRecorder); ok {
+			rec.setAccount(email)
+			return
+		}
+		if u, ok := curr.(interface{ Unwrap() http.ResponseWriter }); ok {
+			curr = u.Unwrap()
+		} else {
+			break
+		}
+	}
+}
+
+func (s *Server) resolveAccount(currentEmail, authHeader string) string {
+	if currentEmail != "" {
+		return currentEmail
+	}
+	if em := emailFromBearer(authHeader); em != "" {
+		return em
+	}
+	if _, em := accounts.Current(); em != "" {
+		return em
+	}
+	if tok, err := auth.LoadTokenUnified(); err == nil && tok != nil {
+		if em := tok.UserEmail(); em != "" {
+			return em
+		}
+	}
+	return ""
+}
+
+func emailFromBearer(authHeader string) string {
+	token := strings.TrimPrefix(strings.TrimSpace(authHeader), "Bearer ")
+	parts := strings.Split(token, ".")
+	if len(parts) >= 2 {
+		data, err := base64.RawURLEncoding.DecodeString(parts[1])
+		if err != nil {
+			data, err = base64.URLEncoding.DecodeString(parts[1])
+			if err != nil {
+				data = nil
+			}
+		}
+		if data != nil {
+			var claims struct {
+				Email string `json:"email"`
+			}
+			if err := json.Unmarshal(data, &claims); err == nil && claims.Email != "" {
+				return claims.Email
+			}
+		}
+	}
+	return ""
 }
 
 func decodeRequestBody(r *http.Request) (io.ReadCloser, error) {

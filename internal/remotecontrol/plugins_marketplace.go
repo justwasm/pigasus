@@ -555,6 +555,14 @@ func (d *Dispatcher) handleLSStartPluginAuthSignIn(params json.RawMessage) (any,
 	return map[string]any{"authUrl": "", "accountId": ""}, nil, true
 }
 
+// handleLSStartMcpOAuthSignIn answers StartMcpOAuthSignIn.
+//
+// 【反编译】 the response carries auth_url (1) and mode (2).
+func (d *Dispatcher) handleLSStartMcpOAuthSignIn(params json.RawMessage) (any, *rpc.ErrorBody, bool) {
+	_ = params
+	return map[string]any{"authUrl": "", "mode": 0}, nil, true
+}
+
 // handleLSSignInPluginAuthProvider answers SignInPluginAuthProvider.
 //
 // 【反编译】 the response carries connected (1) and account_id (2).

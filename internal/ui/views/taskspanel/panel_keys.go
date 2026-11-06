@@ -35,6 +35,12 @@ import (
 // so a "page" is a jump of ten rows — the clone's own page size.
 const pageRows = 10
 
+// Update owns every key the /tasks panel receives in Elm unidirectional style.
+// It returns (handled, cmd).
+func (p *Panel) Update(key tea.Key) (bool, tea.Cmd) {
+	return p.HandleKey(key)
+}
+
 // HandleKey owns every key the /tasks panel receives.
 //
 // It answers (handled, cmd). A key the panel does not own is *not*
@@ -57,7 +63,11 @@ func (p *Panel) handleListKey(key tea.Key) (bool, tea.Cmd) {
 		// 【反编译】 the reference's "tasks" scope binds KeyEnter: it
 		// opens the row's detail view. It does not kill — the clone
 		// used to kill on Enter, which was the cycle-315 bug.
+		t := p.selected()
 		p.openDetail()
+		if t != nil {
+			return true, OpenDetailCmd(t)
+		}
 		return true, nil
 	case tea.KeySpace:
 		// The reference binds only KeyEnter in the /tasks scope. A
@@ -76,15 +86,27 @@ func (p *Panel) handleListKey(key tea.Key) (bool, tea.Cmd) {
 		p.pageCursor(pageRows)
 		return true, nil
 	case tea.KeyEsc:
-		return true, p.close()
+		cmd := p.close()
+		if cmd == nil {
+			cmd = DismissCmd()
+		}
+		return true, cmd
 	}
 	if key.Mod == 0 {
 		switch key.Code {
 		case 'k':
+			t := p.selected()
 			p.killSelected()
+			if t != nil {
+				return true, KillTaskCmd(t)
+			}
 			return true, nil
 		case 'x':
+			t := p.selected()
 			p.removeSelected()
+			if t != nil {
+				return true, RemoveTaskCmd(t)
+			}
 			return true, nil
 		}
 	}

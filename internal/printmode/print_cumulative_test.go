@@ -23,7 +23,6 @@ import (
 	"github.com/justwasm/pigasus/internal/app/session/convstore"
 	"github.com/justwasm/pigasus/internal/core/backend"
 	"github.com/justwasm/pigasus/internal/infra/backend/gateway"
-	"github.com/justwasm/pigasus/internal/pigrt"
 	"github.com/justwasm/pigasus/internal/app/tools/surface"
 )
 
@@ -130,7 +129,7 @@ func TestPigSeedHistoryKeepsTheConversationOrder(t *testing.T) {
 
 	seed := pigSeedHistory(pigPrintConfig{
 		Workspace: dir,
-		History:   []pigrt.HistoryTurn{{Role: "user", Text: "what is the capital of France?"}},
+		History:   []printHistoryTurn{{Role: "user", Text: "what is the capital of France?"}},
 	})
 	if len(seed) != 3 {
 		t.Fatalf("the seed holds %d turns, want 3", len(seed))

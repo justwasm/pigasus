@@ -33,6 +33,7 @@ import (
 	"sync"
 	"time"
 
+	taskregistry "github.com/justwasm/pigasus/internal/app/task"
 	"github.com/justwasm/pigasus/internal/app/tools"
 )
 
@@ -72,6 +73,7 @@ type BackgroundTask struct {
 	// it through manage_task, or the tool's own cancel path). A killed
 	// task reports "was canceled", not a result.
 	killed bool
+	killFn func() error
 }
 
 type bgTable struct {
@@ -237,6 +239,7 @@ func notifyOnCompletion(t *BackgroundTask) {
 	}
 	go func() {
 		<-t.finished
+		updateShellBackgroundTaskCompletion(t, t.err)
 		t.NotifyCompletion()
 	}()
 }
@@ -416,12 +419,31 @@ func (t *BackgroundTask) WriteStdin(s string) error {
 
 func (t *BackgroundTask) Kill() (string, error) {
 	t.mu.Lock()
-	done, cmd := t.done, t.cmd
+	done, cmd, killFn := t.done, t.cmd, t.killFn
 	t.mu.Unlock()
 	if done {
 		return fmt.Sprintf("Task %s has already finished.", t.id), nil
 	}
-	if cmd.Process == nil {
+	if killFn != nil {
+		if err := killFn(); err != nil {
+			return "", err
+		}
+		t.mu.Lock()
+		t.killed = true
+		t.done = true
+		t.completed = true
+		t.mu.Unlock()
+		if t.cancel != nil {
+			t.cancel()
+		}
+		select {
+		case <-t.finished:
+		default:
+			close(t.finished)
+		}
+		return fmt.Sprintf("Task %s killed.", t.id), nil
+	}
+	if cmd == nil || cmd.Process == nil {
 		return "", fmt.Errorf("task %s has no process", t.id)
 	}
 	if err := killProcessGroup(cmd); err != nil {
@@ -452,4 +474,61 @@ func (t *BackgroundTask) Kill() (string, error) {
 	case <-time.After(5 * time.Second):
 	}
 	return fmt.Sprintf("Killed %s.", t.id), nil
+}
+
+// registerShellBackgroundTask registers a running background shell task into
+// the shared task registry so it is surfaced in the active-items block under the prompt and in /tasks.
+func registerShellBackgroundTask(t *BackgroundTask, command string) {
+	if t == nil {
+		return
+	}
+	reg := tools.SharedTaskRegistry()
+	if reg == nil {
+		return
+	}
+	reg.Register(&taskregistry.Task{
+		ID:        t.id,
+		Name:      command,
+		Kind:      taskregistry.KindShell,
+		State:     taskregistry.StateRunning,
+		StartedAt: t.started,
+		Command:   command,
+		OutputFunc: func() string {
+			return t.out.String()
+		},
+	})
+	reg.RegisterHandle(t.id, &taskregistry.TaskHandle{
+		Abort: func() {
+			_, _ = t.Kill()
+		},
+		Cancel: func() {
+			_, _ = t.Kill()
+		},
+	})
+}
+
+// updateShellBackgroundTaskCompletion updates the shared task registry upon command exit.
+func updateShellBackgroundTaskCompletion(t *BackgroundTask, exitErr error) {
+	if t == nil {
+		return
+	}
+	reg := tools.SharedTaskRegistry()
+	if reg == nil {
+		return
+	}
+	reg.Update(t.id, func(tk *taskregistry.Task) {
+		if tk.State == taskregistry.StateKilled {
+			return
+		}
+		if exitErr == nil {
+			tk.State = taskregistry.StateDone
+			tk.ExitCode = 0
+		} else {
+			tk.State = taskregistry.StateFailed
+			tk.ExitCode = 1
+			tk.Err = exitErr
+		}
+		tk.EndedAt = time.Now()
+		tk.Output = t.out.String()
+	})
 }

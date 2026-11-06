@@ -215,3 +215,20 @@ func ListPluginAuthProviders(pluginDir string, pluginName string) ([]PluginAuthP
 	}
 	return result, nil
 }
+
+// PluginNeedsSignIn reports whether an installed plugin has MCP servers or auth providers
+// that require sign-in and are not yet connected.
+// AGY 1.5.0: "a ⚠ needs sign-in marker and a Sign-in: row for the plugin in the Installed tab".
+func PluginNeedsSignIn(name string) bool {
+	dir := Dir(name)
+	doc, err := ReadPluginAuth(dir)
+	if err != nil || doc == nil {
+		return false
+	}
+	for _, p := range doc.Providers {
+		if !p.Optional {
+			return true
+		}
+	}
+	return false
+}

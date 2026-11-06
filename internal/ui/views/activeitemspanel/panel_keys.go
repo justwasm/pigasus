@@ -55,12 +55,16 @@ func (p *Panel) HandleKey(key tea.Key) (bool, tea.Cmd) {
 		return true, nil
 	case key.Code == tea.KeyEsc:
 		p.focused = false
-		return true, nil
+		return true, func() tea.Msg { return MsgDefocused{} }
 	case key.Code == tea.KeyEnter:
 		// Enter on the selected item opens its detail view in /tasks.
 		if p.cursor >= 0 && p.cursor < total {
 			selected := items[p.cursor]
-			p.openDetail(selected.ID, selected.Kind == taskregistry.KindSubagent)
+			isSubagent := selected.Kind == taskregistry.KindSubagent
+			p.openDetail(selected.ID, isSubagent)
+			return true, func() tea.Msg {
+				return MsgOpenDetail{ID: selected.ID, IsSubagent: isSubagent}
+			}
 		}
 		return true, nil
 	default:

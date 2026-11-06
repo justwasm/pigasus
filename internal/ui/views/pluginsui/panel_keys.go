@@ -28,6 +28,15 @@ func (p *Panel) HandleKey(key tea.Key) (bool, tea.Cmd) {
 	if p == nil {
 		return false, nil
 	}
+	if p.ConnectActive() {
+		switch key.Code {
+		case tea.KeyEsc, tea.KeyEnter:
+			p.DismissConnect()
+			return true, nil
+		default:
+			return true, nil
+		}
+	}
 	if p.localActive() {
 		handled := p.handleLocalKey(key)
 		return true, p.cmdForFocus(handled)
@@ -184,7 +193,10 @@ func (p *Panel) handleLeftoverNavKey(key tea.Key) (bool, tea.Cmd) {
 		}
 		return true, nil
 	case tuilib.NavCancel:
-		return true, p.close()
+		if p.seams.Close != nil {
+			return true, p.seams.Close()
+		}
+		return true, func() tea.Msg { return MsgDismissed{} }
 	}
 	return false, nil
 }

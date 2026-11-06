@@ -582,5 +582,3 @@ func (c *customSlugUpdater) DetectLatest(ctx context.Context, repoSlug string) (
 func (c *customSlugUpdater) UpdateTo(ctx context.Context, rel Release, cmdPath string) error {
 	return nil
 }
-
-

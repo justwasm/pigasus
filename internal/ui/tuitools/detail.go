@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/charmbracelet/x/ansi"
 	agystep "github.com/justwasm/pigasus/internal/app/prompt/step"
 	"github.com/justwasm/pigasus/internal/ui/mdrender"
 	"github.com/justwasm/pigasus/palette"
@@ -139,6 +140,86 @@ func RenderMarkdownDetail(detail string, width int) string {
 	return detail
 }
 
+// DetailIndent is the indent continuation lines carry in expanded tool steps.
+// Verified against agy 1.5.1 render.formatCommandOutputDetail at 0x102b0f7a0:
+// 7 spaces ("       ").
+const DetailIndent = "       "
+
+// DetailIndentWidth is the width of DetailIndent in cells.
+const DetailIndentWidth = 7
+
+// DetailMinWrapWidth is the minimum wrap width enforced by the reference.
+const DetailMinWrapWidth = 20
+
+// DetailWrapWidth calculates the content wrap width given the terminal width.
+// Verified against agy 1.5.1 render.formatCommandOutputDetail at 0x102b0f7a0:
+// max(20, width - 7).
+func DetailWrapWidth(width int) int {
+	toolWidth := width
+	if toolWidth <= 0 {
+		toolWidth = mdrender.CurrentWidth()
+	}
+	if toolWidth <= 0 {
+		toolWidth = 80
+	}
+	wrapWidth := toolWidth - DetailIndentWidth
+	if wrapWidth < DetailMinWrapWidth {
+		return DetailMinWrapWidth
+	}
+	return wrapWidth
+}
+
+// ExpandTabs expands tabs to tabWidth spaces using mdrender.ExpandTabs.
+func ExpandTabs(s string, tabWidth int) string {
+	return mdrender.ExpandTabs(s, tabWidth)
+}
+
+// WrapDiffLine wraps a unified diff line to wrapWidth, propagating the diff
+// add/remove styling across all continuation rows if the line is an addition or deletion.
+func WrapDiffLine(line string, wrapWidth int) []string {
+	if wrapWidth <= 0 {
+		return []string{StyleDiffLine(line)}
+	}
+	line = ExpandTabs(line, 4)
+	trimmed := line
+	j := 0
+	for j < len(trimmed) && (trimmed[j] == ' ' || trimmed[j] == '\t') {
+		j++
+	}
+	var marker byte
+	if j < len(trimmed) {
+		m := trimmed[j]
+		if (m == '+' || m == '-') && !(j+1 < len(trimmed) && trimmed[j+1] == m) {
+			marker = m
+		}
+	}
+	wrapped := ansi.Wrap(line, wrapWidth, "")
+	parts := strings.Split(wrapped, "\n")
+	if len(parts) == 0 {
+		return nil
+	}
+	if marker == 0 {
+		return parts
+	}
+	out := make([]string, len(parts))
+	for i, p := range parts {
+		if p == "" {
+			out[i] = ""
+			continue
+		}
+		if i == 0 {
+			out[0] = StyleDiffLine(p)
+		} else {
+			if marker == '+' {
+				out[i] = palette.ToolAddOpen + p + palette.ToolAddClose
+			} else {
+				out[i] = palette.ToolRemoveOpen + p + palette.ToolRemoveClose
+			}
+		}
+	}
+	return out
+}
+
 // DetailBullet returns the prefix the first expanded detail row carries:
 // the muted detail colour, the "⎿" glyph and the reset.
 //
@@ -158,18 +239,19 @@ func FormatDetailLines(lines []string, diffMode bool) []string {
 	}
 	out := make([]string, 0, len(lines)+1)
 	for i, l := range lines {
+		l = mdrender.ExpandTabs(l, 4)
 		styled := l
-		if diffMode {
+		if diffMode && !strings.Contains(l, "\x1b[") {
 			styled = StyleDiffLine(l)
 		}
 		if i == 0 {
 			out = append(out, DetailBullet()+styled)
 		} else {
-			out = append(out, "            "+styled)
+			out = append(out, DetailIndent+styled)
 		}
 	}
 	if extra > 0 {
-		out = append(out, fmt.Sprintf("            <output +%d lines>", extra))
+		out = append(out, fmt.Sprintf("%s<output +%d lines>", DetailIndent, extra))
 	}
 	return out
 }

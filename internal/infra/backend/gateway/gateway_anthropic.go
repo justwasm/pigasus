@@ -8,7 +8,6 @@
 package gateway
 
 import (
-	"bufio"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -18,6 +17,7 @@ import (
 
 	"github.com/justwasm/pigasus/internal/core/backend"
 	"github.com/justwasm/pigasus/internal/infra/backend/retry"
+	"github.com/justwasm/pigasus/internal/infra/backend/streampipe"
 )
 
 // anthropicRequestBody is the Messages request shape.
@@ -331,30 +331,21 @@ func (c *GatewayClient) defaultMaxTokens() int {
 
 // readAnthropicBody reads one Messages response body to completion.
 func (c *GatewayClient) readAnthropicBody(ctx context.Context, resp *http.Response, externalModel string, out chan<- backend.StreamChunk) error {
-	idleR := retry.NewIdleTimeoutReader(resp.Body, retry.StreamIdleTimeout)
-	scanner := bufio.NewScanner(idleR)
-	scanner.Buffer(make([]byte, 0, 64*1024), 1<<20)
-
 	var meta *backend.ChunkMeta
 	tracker := newAnthropicToolTracker()
 	thinkTracker := newAnthropicThinkingTracker()
 
-	for scanner.Scan() {
-		line := scanner.Text()
-		done, err := c.handleAnthropicSSELine(ctx, line, tracker, thinkTracker, &meta, externalModel, out)
-		if err != nil {
-			return err
+	done, scanErr := streampipe.ScanSSELines(ctx, resp.Body, 1<<20, c.baseURL, func(line string) (bool, error) {
+		return c.handleAnthropicSSELine(ctx, line, tracker, thinkTracker, &meta, externalModel, out)
+	})
+	if scanErr != nil {
+		if !retry.IsConnectionDropped(scanErr) {
+			out <- backend.StreamChunk{Error: scanErr, Done: true}
 		}
-		if done {
-			return nil
-		}
+		return scanErr
 	}
-	if err := scanner.Err(); err != nil {
-		classified := retry.ClassifyTransportError(fmt.Errorf("gateway: anthropic sse read: %w", err), c.baseURL)
-		if !retry.IsConnectionDropped(classified) {
-			out <- backend.StreamChunk{Error: classified, Done: true}
-		}
-		return classified
+	if done {
+		return nil
 	}
 	if !tracker.emit(ctx, out) {
 		return nil

@@ -4,6 +4,9 @@ import (
 	"context"
 	"encoding/json/jsontext"
 	"fmt"
+	"slices"
+	"strings"
+	"sync"
 	"time"
 
 	acp "github.com/ironpark/acp-go"
@@ -17,6 +20,8 @@ type acpV1Session struct {
 	cwd     string
 	mode    string
 	session *Session
+	history []agentlink.Message
+	mu      sync.Mutex
 }
 
 func (s *acpV1Session) SessionInfo() acp1.SessionInfo {
@@ -30,6 +35,7 @@ func defaultV1Commands() []acp1.AvailableCommand {
 		{Name: "/plan", Description: "Plan carefully before executing a task"},
 		{Name: "/goal", Description: "Run until the specified goal is completely finished"},
 		{Name: "/tasks", Description: "View background tasks"},
+		{Name: "/agents", Description: "List available custom agents"},
 		{Name: "/context", Description: "Visualize current context usage"},
 	}
 }
@@ -173,8 +179,8 @@ func (a *ACPV1Agent) buildConfigOptions(s *acpV1Session) []acp1.SessionConfigOpt
 
 	modeChoices := []acp1.SessionConfigSelectOption{
 		{Value: "default", Name: "Default"},
-		{Value: "auto_edit", Name: "Auto Edit"},
-		{Value: "yolo", Name: "YOLO"},
+		{Value: "accept-edits", Name: "Accept Edits"},
+		{Value: "plan", Name: "Plan"},
 	}
 
 	effortChoices := []acp1.SessionConfigSelectOption{
@@ -217,15 +223,15 @@ func (a *ACPV1Agent) buildModes(s *acpV1Session) *acp1.SessionModeState {
 		currentMode = "default"
 	}
 	descDefault := "Default permission prompt flow"
-	descAutoEdit := "Auto-approve file edit tools"
-	descYolo := "Auto-approve all tools"
+	descAcceptEdits := "Auto-approve file edits, prompt for commands"
+	descPlan := "Research and plan without making changes"
 
 	return &acp1.SessionModeState{
 		CurrentModeID: acp1.SessionModeID(currentMode),
 		AvailableModes: []acp1.SessionMode{
 			{ID: "default", Name: "Default", Description: &descDefault},
-			{ID: "auto_edit", Name: "Auto Edit", Description: &descAutoEdit},
-			{ID: "yolo", Name: "YOLO", Description: &descYolo},
+			{ID: "accept-edits", Name: "Accept Edits", Description: &descAcceptEdits},
+			{ID: "plan", Name: "Plan", Description: &descPlan},
 		},
 	}
 }
@@ -272,7 +278,11 @@ func (a *ACPV1Agent) SetSessionConfigOption(ctx context.Context, params *acp1.Se
 	case "thinking_level":
 		s.session.Effort = string(change.Value)
 	case "mode":
-		s.mode = string(change.Value)
+		m := string(change.Value)
+		if m == "auto_edit" || m == "yolo" {
+			m = "accept-edits"
+		}
+		s.mode = m
 	}
 	return &acp1.SetSessionConfigOptionResponse{
 		ConfigOptions: a.buildConfigOptions(s),
@@ -285,7 +295,11 @@ func (a *ACPV1Agent) SetSessionMode(ctx context.Context, params *acp1.SetSession
 	if err != nil {
 		return nil, err
 	}
-	s.mode = string(params.ModeID)
+	m := string(params.ModeID)
+	if m == "auto_edit" || m == "yolo" {
+		m = "accept-edits"
+	}
+	s.mode = m
 	return &acp1.SetSessionModeResponse{}, nil
 }
 
@@ -311,14 +325,38 @@ func (a *ACPV1Agent) Prompt(ctx context.Context, params *acp1.PromptRequest) (*a
 }
 
 func (a *ACPV1Agent) runTurn(ctx context.Context, sessID acp1.SessionID, s *acpV1Session, promptText string) (*acp1.PromptResponse, error) {
+	trimmed := strings.TrimSpace(promptText)
+	if trimmed == "/clear" {
+		s.mu.Lock()
+		s.history = nil
+		s.mu.Unlock()
+	}
+	if trimmed == "/tasks" {
+		stream := acp1.NewSessionStream(a.client, sessID)
+		summary := formatTasksSummary()
+		_ = stream.SendText(ctx, summary)
+		return &acp1.PromptResponse{StopReason: acp1.StopReasonEndTurn}, nil
+	}
+	if trimmed == "/agents" {
+		stream := acp1.NewSessionStream(a.client, sessID)
+		summary := formatAgentsSummary(s.cwd)
+		_ = stream.SendText(ctx, summary)
+		return &acp1.PromptResponse{StopReason: acp1.StopReasonEndTurn}, nil
+	}
+
 	engine := agentturn.NewLocal(s.session.env)
 	defer engine.Close()
 
+	s.mu.Lock()
+	turnHistory := append(slices.Clone(s.history), agentlink.Message{
+		Role:    "user",
+		Content: promptText,
+	})
+	s.mu.Unlock()
+
 	turn := agentturn.Turn{
-		Model: s.session.Model,
-		History: []agentlink.Message{
-			{Role: "user", Content: promptText},
-		},
+		Model:   s.session.Model,
+		History: turnHistory,
 	}
 
 	frames, err := engine.Turn(ctx, turn)
@@ -332,28 +370,40 @@ func (a *ACPV1Agent) runTurn(ctx context.Context, sessID acp1.SessionID, s *acpV
 	stopReason := acp1.StopReasonEndTurn
 	var lastUsage *acp1.Usage
 	var usageSent bool
+	var assistantText strings.Builder
 
 	for frame := range frames {
 		switch frame.Kind {
 		case agentlink.KindText:
+			assistantText.WriteString(frame.Text)
 			_ = stream.SendText(ctx, frame.Text)
 		case agentlink.KindThought:
 			_ = stream.SendThought(ctx, frame.Text)
 		case agentlink.KindTool:
 			if frame.Tool != nil {
-				callID := acp1.ToolCallID(fmt.Sprintf("call_%s_%s", frame.ID, frame.Tool.Name))
+				callID := acp1.ToolCallID(frame.ID)
+				if callID == "" {
+					callID = acp1.ToolCallID(fmt.Sprintf("call_%s", frame.Tool.Name))
+				}
 				if frame.Tool.Phase == agentlink.ToolStart {
-					var rawInput jsontext.Value
-					if len(frame.Tool.Args) > 0 {
-						rawInput = jsontext.Value(frame.Tool.Args)
+					var opts []acp1.ToolCallOption
+					if rawInput := rawJSONOrQuoted(frame.Tool.Args); rawInput != nil {
+						opts = append(opts, acp1.WithRawInput(rawInput))
 					}
-					_ = stream.StartToolCall(ctx, callID, frame.Tool.Name, acp1.ToolKindExecute, acp1.WithRawInput(rawInput))
+					_ = stream.StartToolCall(ctx, callID, frame.Tool.Name, acp1.ToolKindExecute, opts...)
 				} else if frame.Tool.Phase == agentlink.ToolEnd {
-					var rawOutput jsontext.Value
-					if len(frame.Tool.Result) > 0 {
-						rawOutput = jsontext.Value(frame.Tool.Result)
+					var opts []acp1.ToolCallOption
+					if rawOutput := rawJSONOrQuoted(frame.Tool.Result); rawOutput != nil {
+						opts = append(opts, acp1.WithRawOutput(rawOutput))
 					}
-					_ = stream.CompleteToolCall(ctx, callID, acp1.WithRawOutput(rawOutput))
+					if frame.Tool.Result != "" {
+						opts = append(opts, acp1.WithToolContent(acp1.ToolText(frame.Tool.Result)))
+					}
+					if frame.Tool.Err {
+						_ = stream.FailToolCall(ctx, callID, opts...)
+					} else {
+						_ = stream.CompleteToolCall(ctx, callID, opts...)
+					}
 				}
 			}
 		case agentlink.KindResult:
@@ -388,6 +438,15 @@ func (a *ACPV1Agent) runTurn(ctx context.Context, sessID acp1.SessionID, s *acpV
 
 	if acp.TurnCancelled(ctx) {
 		stopReason = acp1.StopReasonCancelled
+	}
+
+	if stopReason != acp1.StopReasonRefusal && stopReason != acp1.StopReasonCancelled && strings.TrimSpace(promptText) != "/clear" {
+		s.mu.Lock()
+		s.history = append(s.history,
+			agentlink.Message{Role: "user", Content: promptText},
+			agentlink.Message{Role: "assistant", Content: assistantText.String()},
+		)
+		s.mu.Unlock()
 	}
 
 	return &acp1.PromptResponse{

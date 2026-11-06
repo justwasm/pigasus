@@ -153,7 +153,7 @@ func TestCloneReadsTheCapturedDefineSpelling(t *testing.T) {
 
 	defs := NewStore()
 	tool := &defineTool{defs: defs}
-	if _, err := tool.Execute(context.Background(), "call-cap", body, nil); err != nil {
+	if _, err := tool.Execute(context.Background(), string(body)); err != nil {
 		t.Fatalf("define_subagent (the capture's spelling): %v", err)
 	}
 	def, ok := defs.Get("viewer")
@@ -176,7 +176,7 @@ func TestCloneReadsTheCapturedDefineSpelling(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal the define body: %v", err)
 	}
-	if _, err := tool.Execute(context.Background(), "call-cap-off", body, nil); err != nil {
+	if _, err := tool.Execute(context.Background(), string(body)); err != nil {
 		t.Fatalf("define_subagent (the switches off): %v", err)
 	}
 	def, ok = defs.Get("viewer")

@@ -128,10 +128,19 @@ func (d *Dispatcher) lsCreateTerminal(params json.RawMessage) (any, *rpc.ErrorBo
 	if wsURI == "" && d.cfg.Session != nil && d.cfg.Session.Workspace != "" {
 		wsURI = "file://" + d.cfg.Session.Workspace
 	}
+	if wsURI == "" {
+		if ws := registry.Workspace(); ws != "" {
+			wsURI = "file://" + ws
+		}
+	}
+	projectID := req.ProjectID
+	if projectID == "" {
+		projectID = "default-cli-project"
+	}
 	info, err := registry.Create(rcterminal.CreateRequest{
 		WorkspaceURI:        wsURI,
 		ConversationID:      req.ConversationID,
-		ProjectID:           req.ProjectID,
+		ProjectID:           projectID,
 		SplitFromTerminalID: req.SplitFromTerminalID,
 	})
 	if err != nil {

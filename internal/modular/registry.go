@@ -6,8 +6,8 @@ import (
 	"io"
 
 	"github.com/justwasm/pigasus/internal/app/subcommands"
-	"github.com/justwasm/pigasus/internal/cli"
 	"github.com/justwasm/pigasus/internal/core/backend"
+	"github.com/justwasm/pigasus/internal/core/cliflags"
 	"github.com/justwasm/pigasus/internal/core/registry"
 )
 
@@ -97,21 +97,17 @@ func HasSubsystem(name string) bool {
 }
 
 // RegisterSubcommand registers a subcommand spec.
-//
-// The subcommand table lives in the app tier (`internal/app/subcommands`),
-// not in the core registry: a subcommand handler needs the CLI engine
-// itself, so the spec type cannot live below the host that owns it.
-func RegisterSubcommand(spec cli.SubcommandSpec) {
+func RegisterSubcommand(spec cliflags.SubcommandSpec) {
 	subcommands.RegisterSubcommand(spec)
 }
 
 // RegisterSubcommands registers multiple subcommand specs.
-func RegisterSubcommands(specs ...cli.SubcommandSpec) {
+func RegisterSubcommands(specs ...cliflags.SubcommandSpec) {
 	subcommands.RegisterSubcommands(specs...)
 }
 
 // GetSubcommands returns all registered subcommand specs, sorted by Name.
-func GetSubcommands() []cli.SubcommandSpec {
+func GetSubcommands() []cliflags.SubcommandSpec {
 	return subcommands.GetSubcommands()
 }
 

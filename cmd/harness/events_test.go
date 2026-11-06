@@ -9,8 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	piagent "github.com/MichaelKinsy/PiG/agent"
-	pi "github.com/MichaelKinsy/PiG/ai"
+	"github.com/justwasm/pigasus/actor"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 
@@ -113,9 +112,9 @@ func TestApplyToolActionReportsTheRangeTheToolShowed(t *testing.T) {
 	// The done frame carries the window the tool actually showed; the
 	// announcement, the start and the result frames carry the window the
 	// call asked for.
-	end := &piagent.ToolExecutionEndEvent{ToolName: "view_file"}
-	end.Result = piagent.AgentToolResult{
-		Content: []pi.ToolResultMessageContent{pi.TextContent{Text: "Total Lines: 4\nShowing lines 1 to 4\n"}},
+	end := &toolEndInfo{
+		ToolName:   "view_file",
+		ResultText: "Total Lines: 4\nShowing lines 1 to 4\n",
 	}
 	update := newStep(pb.StepUpdate_SOURCE_MODEL, pb.StepUpdate_TARGET_ENVIRONMENT, pb.StepUpdate_STATE_DONE)
 	applyToolAction(update, "view_file", json.RawMessage(`{"AbsolutePath":"/tmp/a.txt"}`), end, nil, false)
@@ -249,7 +248,7 @@ func TestApplyToolActionCarriesTheOutcomeOnTheDoneFrame(t *testing.T) {
 	}
 	for _, tc := range cases {
 		update := newStep(pb.StepUpdate_SOURCE_MODEL, pb.StepUpdate_TARGET_ENVIRONMENT, pb.StepUpdate_STATE_DONE)
-		applyToolAction(update, tc.name, json.RawMessage(tc.args), &piagent.ToolExecutionEndEvent{}, outcome, true)
+		applyToolAction(update, tc.name, json.RawMessage(tc.args), &toolEndInfo{}, outcome, true)
 		if !tc.want(update) {
 			t.Errorf("%s: outcome not carried as expected: %+v", tc.name, update)
 		}
@@ -310,7 +309,7 @@ func TestApplyToolActionCountsTheMatchesOnTheDoneFrameOnly(t *testing.T) {
 	}
 
 	done := newStep(pb.StepUpdate_SOURCE_MODEL, pb.StepUpdate_TARGET_ENVIRONMENT, pb.StepUpdate_STATE_DONE)
-	applyToolAction(done, "grep_search", json.RawMessage(`{"Query":"x"}`), &piagent.ToolExecutionEndEvent{}, outcome, true)
+	applyToolAction(done, "grep_search", json.RawMessage(`{"Query":"x"}`), &toolEndInfo{}, outcome, true)
 	if got := done.GetSearchDirectory().GetNumResults(); got != 1 {
 		t.Errorf("done numResults = %d, want 1", got)
 	}
@@ -323,7 +322,7 @@ func TestApplyToolActionCountsTheMatchesOnTheDoneFrameOnly(t *testing.T) {
 func TestApplyToolActionReportsAnEmptyOutput(t *testing.T) {
 	outcome := &harnesstools.Outcome{ExitCode: 0}
 	done := newStep(pb.StepUpdate_SOURCE_MODEL, pb.StepUpdate_TARGET_ENVIRONMENT, pb.StepUpdate_STATE_DONE)
-	applyToolAction(done, "run_command", json.RawMessage(`{"CommandLine":"true"}`), &piagent.ToolExecutionEndEvent{}, outcome, true)
+	applyToolAction(done, "run_command", json.RawMessage(`{"CommandLine":"true"}`), &toolEndInfo{}, outcome, true)
 	action := done.GetRunCommand()
 	if action == nil {
 		t.Fatal("run_command: no action")
@@ -411,7 +410,7 @@ func TestCancelledQuestionStepWritesTheReferencesFrame(t *testing.T) {
 // count is held until the call has been dispatched.
 func TestUsageWaitsForTheToolToStart(t *testing.T) {
 	c := &conversation{}
-	usage := &pi.Usage{Input: 11, Output: 7}
+	usage := &actor.TokenUsage{PromptTokens: 11, OutputTokens: 7}
 	c.holdUsage(usage)
 	if c.takeUsage() == nil {
 		t.Fatal("the usage was not held")
@@ -478,22 +477,15 @@ func numberedLines(n int) string {
 	return b.String()
 }
 
-func TestMessageToolCallsReadsTheCalls(t *testing.T) {
-	msg := piagent.AgentMessage{Assistant: &piagent.AssistantMessage{
-		Content: []pi.AssistantContentBlock{
-			pi.TextContent{Text: "hello"},
-			pi.ToolCall{ID: "c1", Name: "view_file", Arguments: pi.JsonObject{"AbsolutePath": "/tmp/a.txt"}},
-		},
-	}}
-	calls := messageToolCalls(msg)
-	if len(calls) != 1 {
-		t.Fatalf("calls = %d, want 1", len(calls))
+func TestRememberToolArgsAndStep(t *testing.T) {
+	c := &conversation{}
+	c.rememberToolArgs("view_file", json.RawMessage(`{"AbsolutePath":"/tmp/a.txt"}`))
+	c.rememberToolStep("view_file", 2)
+	if got := c.toolStep("view_file"); got != 2 {
+		t.Fatalf("toolStep = %d, want 2", got)
 	}
-	if calls[0].Name != "view_file" {
-		t.Errorf("name = %q, want view_file", calls[0].Name)
-	}
-	if got := messageText(msg); got != "hello" {
-		t.Errorf("text = %q, want hello", got)
+	if got := string(c.toolArgsOf("view_file")); got != `{"AbsolutePath":"/tmp/a.txt"}` {
+		t.Fatalf("toolArgsOf = %s, want args", got)
 	}
 }
 
@@ -588,11 +580,10 @@ func TestToolErrorMessagePrefersTheToolsOwnSentence(t *testing.T) {
 		ErrorMessage: "Cannot view file file:///ws/nope.txt which does not exist.",
 		Failed:       true,
 	}
-	end := piagent.ToolExecutionEndEvent{
-		ToolName: "view_file",
-		Result: piagent.AgentToolResult{
-			Content: []pi.ToolResultMessageContent{pi.TextContent{Text: outcome.Text}},
-		},
+	end := &toolEndInfo{
+		ToolName:   "view_file",
+		ResultText: outcome.Text,
+		IsError:    true,
 	}
 	got := toolErrorMessage(outcome, end)
 	if got != outcome.ErrorMessage {
@@ -621,7 +612,7 @@ func TestToolErrorMessagePrefersTheToolsOwnSentence(t *testing.T) {
 // neither an exit code nor an output.
 func TestApplyToolActionOmitsTheOutputOfAFailedCall(t *testing.T) {
 	failed := &harnesstools.Outcome{Failed: true}
-	end := &piagent.ToolExecutionEndEvent{ToolName: "find_by_name"}
+	end := &toolEndInfo{ToolName: "find_by_name"}
 
 	update := &pb.StepUpdate{}
 	applyToolAction(update, "find_by_name", json.RawMessage(`{"SearchDirectory": "/ws", "Pattern": "*.txt"}`), end, failed, false)

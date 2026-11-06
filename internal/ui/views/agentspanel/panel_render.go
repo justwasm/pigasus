@@ -12,8 +12,10 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/charmbracelet/x/ansi"
 	subagent "github.com/justwasm/pigasus/internal/app/subagent/core"
 	lifecycle "github.com/justwasm/pigasus/internal/core/lifecycle"
+	"github.com/justwasm/pigasus/internal/ui/mdrender"
 	"github.com/justwasm/pigasus/internal/ui/tuilib"
 	"github.com/justwasm/pigasus/palette"
 )
@@ -98,35 +100,53 @@ func (p *Panel) detailLines() []string {
 	if sa == nil {
 		return nil
 	}
+	w := p.width()
+	const indent = "  "
+	wrapWidth := w - len(indent)
+	if wrapWidth < 10 {
+		wrapWidth = 10
+	}
+
 	lines := []string{
 		panelTitleOpen + "Subagent Detail: " + sa.Name + panelTitleClose,
 		palette.SubtleOpen + "Status: " + sa.StatusLine() + panelGray238C,
 		"",
 	}
 	if sa.Title != "" {
-		lines = append(lines,
-			panelBoldOpen+"Task Title:"+panelBoldClose,
-			"  "+sa.Title,
-			"",
-		)
+		lines = append(lines, panelBoldOpen+"Task Title:"+panelBoldClose)
+		titleWrapped := strings.Split(ansi.Wrap(mdrender.ExpandTabs(sa.Title, 4), wrapWidth, ""), "\n")
+		for _, wl := range titleWrapped {
+			lines = append(lines, indent+wl)
+		}
+		lines = append(lines, "")
 	}
 	if appr, ok := p.pendingAuthorization(sa); ok {
-		lines = append(lines,
-			panelBoldOpen+palette.WarningOpen+"Pending Approval:"+palette.SeparatorClose+panelBoldClose,
-			"  "+approvalSuffix(appr),
-			"",
-		)
+		lines = append(lines, panelBoldOpen+palette.WarningOpen+"Pending Approval:"+palette.SeparatorClose+panelBoldClose)
+		suffixWrapped := strings.Split(ansi.Wrap(mdrender.ExpandTabs(approvalSuffix(appr), 4), wrapWidth, ""), "\n")
+		for _, wl := range suffixWrapped {
+			lines = append(lines, indent+wl)
+		}
+		lines = append(lines, "")
 	}
 	out := sa.Output()
 	lines = append(lines,
 		panelBoldOpen+"Execution Output / Log:"+panelBoldClose,
 	)
 	if out != "" {
-		for _, line := range strings.Split(out, "\n") {
-			lines = append(lines, "  "+line)
+		rawLines := strings.Split(strings.TrimRight(out, "\n"), "\n")
+		for _, raw := range rawLines {
+			if strings.TrimSpace(raw) == "" {
+				lines = append(lines, "")
+				continue
+			}
+			expanded := mdrender.ExpandTabs(raw, 4)
+			wrapped := strings.Split(ansi.Wrap(expanded, wrapWidth, ""), "\n")
+			for _, wl := range wrapped {
+				lines = append(lines, indent+wl)
+			}
 		}
 	} else {
-		lines = append(lines, "  (no output captured yet)")
+		lines = append(lines, indent+"(no output captured yet)")
 	}
 	lines = append(lines,
 		"",

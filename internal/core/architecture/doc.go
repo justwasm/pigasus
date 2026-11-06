@@ -24,13 +24,12 @@
 //	    across the tiers without shipping the dependency.
 //
 //	R2  no tier package imports a host, with one documented exemption:
-//	    the app tier (4) may reach the turn engines (internal/agent,
-//	    internal/pigrt, internal/piagentbridge, internal/modular and
+//	    the app tier (4) may reach the turn engines (internal/modular and
 //	    internal/cli), because AGENTS.md says only the app tier may use
-//	    them. The two entry surfaces (internal/cliapp and
-//	    internal/printmode) sit above every tier, so no tier imports
-//	    them. The number of exempted edges is printed on every run, so
-//	    the exemption stays visible.
+//	    them. The two entry surfaces (internal/tui and internal/printmode)
+//	    sit above every tier, so no tier imports them. The number of
+//	    exempted edges is printed on every run, so the exemption stays
+//	    visible.
 //
 //	R3  no ui-tier package imports a host. This is R2's ui half, kept
 //	    as its own rule because it is the one the tree cares most about.

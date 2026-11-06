@@ -167,3 +167,69 @@ func TestCanonicalKey(t *testing.T) {
 		}
 	}
 }
+
+// TestReport_FullReferenceKeybindings pins that the full 37 reference keybindings
+// all render with human-readable labels rather than fallback dotted identifiers.
+func TestReport_FullReferenceKeybindings(t *testing.T) {
+	fullJSON := []byte(`{
+  "cli.clear_screen": ["ctrl+l"],
+  "cli.cycle_mode": ["shift+tab"],
+  "cli.enter": ["enter"],
+  "cli.escape": ["ctrl+c", "esc"],
+  "cli.exit": ["ctrl+d"],
+  "cli.suspend": ["ctrl+z"],
+  "cli.test": ["ctrl+t"],
+  "confirm.no": ["n"],
+  "confirm.yes": ["y"],
+  "edit.open_editor": ["ctrl+g"],
+  "edit.paste": ["alt+v", "ctrl+v"],
+  "edit.redo": ["ctrl+shift+z"],
+  "edit.undo": ["ctrl+_", "ctrl+shift+-"],
+  "edit.yank": ["ctrl+y"],
+  "item.delete": ["f4"],
+  "item.rename": ["f2"],
+  "navigation.down": ["down"],
+  "navigation.go_to_bottom": ["ctrl+end"],
+  "navigation.go_to_top": ["ctrl+home"],
+  "navigation.half_page_down": ["shift+down"],
+  "navigation.half_page_up": ["shift+up"],
+  "navigation.left": ["left"],
+  "navigation.page_down": ["pgdown"],
+  "navigation.page_up": ["pgup"],
+  "navigation.right": ["right"],
+  "navigation.tab": ["tab"],
+  "navigation.up": ["up"],
+  "prompt.insert_newline": ["alt+enter", "ctrl+j", "shift+enter"],
+  "prompt.submit_alternate": ["alt+m"],
+  "subagent.approve_fast": ["ctrl+k"],
+  "subagent.jump_to_waiting": ["alt+j"],
+  "view.review_artifact": ["ctrl+r"],
+  "view.toggle_trajectory": ["ctrl+o"],
+  "vim.insert.insert_newline": ["alt+enter", "ctrl+j", "enter", "shift+enter"],
+  "vim.insert.submit": ["ctrl+enter", "ctrl+s"],
+  "vim.normal.submit": ["ctrl+enter", "ctrl+s"],
+  "voice.start_dictation": ["f5"]
+}`)
+	got, err := Report("keybindings.json", fullJSON)
+	if err != nil {
+		t.Fatalf("Report failed: %v", err)
+	}
+
+	lines := strings.Split(got, "\n")
+	if len(lines) != 38 { // 1 header + 37 actions
+		t.Fatalf("expected 38 lines (header + 37 actions), got %d:\n%s", len(lines), got)
+	}
+
+	// Verify no line fell back to a raw action name
+	for _, line := range lines[1:] {
+		parts := strings.Split(line, "\t")
+		if len(parts) != 2 {
+			t.Errorf("line does not contain tab separator: %q", line)
+			continue
+		}
+		label := parts[1]
+		if strings.Contains(label, ".") {
+			t.Errorf("label %q appears to be unmapped dot identifier", label)
+		}
+	}
+}

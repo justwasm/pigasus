@@ -3,6 +3,7 @@ package shell
 import (
 	"fmt"
 	"sync"
+	"time"
 )
 
 // ScheduleEntry is one scheduled task of a conversation.
@@ -38,6 +39,10 @@ type ScheduleEntry struct {
 	MaxIterations int
 	// LogPath is where the tool wrote the task log.
 	LogPath string
+	// CreatedAt is when the schedule was created.
+	CreatedAt time.Time
+	// TargetTime is when the schedule is expected to fire.
+	TargetTime time.Time
 }
 
 // ScheduleTable holds the schedules of one conversation.

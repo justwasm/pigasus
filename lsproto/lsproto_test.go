@@ -21,20 +21,22 @@ func newTestCodec(t *testing.T) *Codec {
 }
 
 // TestServiceMethodCount pins the size of the surface the web UI
-// speaks. The reference's LanguageServerService declares 364 RPCs
-// (added 8 methods in CL 1012028536).
+// speaks. The reference's LanguageServerService declares 368 RPCs
+// (added 4 methods in CL 1012861565 / agy 1.5.0: FetchSandboxPort,
+// StartMcpOAuthSignIn, GetDefinition, GetReferences).
 func TestServiceMethodCount(t *testing.T) {
 	c := newTestCodec(t)
-	if got := c.MethodCount(); got != 364 {
-		t.Fatalf("MethodCount = %d, want 364", got)
+	if got := c.MethodCount(); got != 368 {
+		t.Fatalf("MethodCount = %d, want 368", got)
 	}
-	// Check new methods in 2.28.0 and CL 1012028536:
+	// Check new methods in 2.28.0, CL 1012028536, and 1.5.0 / CL 1012861565:
 	for _, m := range []string{
 		"GetMarketplaceFeatured", "CallMcpAppTool", "WarmUpEnvironment",
 		"SetPluginAuthAccountLabel", "GetVoiceCallDebug", "ListBackgroundTasks",
 		"DeleteAllUserData", "GetGitHubPullRequests", "GetGoogleChatLinkInfo",
 		"GetPermissionSettings", "GetUserDataDeletionStatus", "GetWorkspaceGitHubPullRequests",
 		"RunTrigger", "UpdatePermissionSettings",
+		"FetchSandboxPort", "GetDefinition", "GetReferences", "StartMcpOAuthSignIn",
 	} {
 		if !c.HasMethod(m) {
 			t.Errorf("expected method %s to exist", m)

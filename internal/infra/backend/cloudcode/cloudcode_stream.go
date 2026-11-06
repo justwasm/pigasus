@@ -1,14 +1,13 @@
 package cloudcode
 
 import (
-	"bufio"
 	"context"
 	"net/http"
-	"time"
 
 	"github.com/justwasm/pigasus/geminicode"
 	"github.com/justwasm/pigasus/internal/core/backend"
 	"github.com/justwasm/pigasus/internal/infra/backend/retry"
+	"github.com/justwasm/pigasus/internal/infra/backend/streampipe"
 )
 
 // cloudcode_stream.go — the transport policy around the CloudCode dialect.
@@ -26,24 +25,12 @@ import (
 // The split is deliberate: the dialect is reusable on its own, and the
 // policy is the application's to change.
 
-// openWithRetry performs the request, retrying a dropped connection.
+// openWithRetry performs the request, retrying a dropped connection or
+// retryable 429/5xx status error honoring Retry-After.
 func (c *CloudCodeClient) openWithRetry(ctx context.Context, turn geminicode.Turn) (*http.Response, error) {
-	for attempt := 0; attempt <= retry.MaxConnectionRetries; attempt++ {
-		resp, err := c.open(ctx, turn)
-		if err == nil {
-			return resp, nil
-		}
-		if !retry.IsConnectionDropped(err) || attempt >= retry.MaxConnectionRetries {
-			return nil, err
-		}
-		delay := retry.NextConnectionRetryDelay(attempt)
-		select {
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		case <-time.After(delay):
-		}
-	}
-	return nil, &retry.ConnectionDroppedError{Err: retry.ErrConnectionDropped, URL: c.cfg.Endpoint}
+	return streampipe.ExecuteWithRetry(ctx, c.cfg.Endpoint, func(ctx context.Context) (*http.Response, error) {
+		return c.open(ctx, turn)
+	})
 }
 
 // open performs one request against the CloudCode endpoint.
@@ -62,44 +49,12 @@ func (c *CloudCodeClient) open(ctx context.Context, turn geminicode.Turn) (*http
 // minted once, so the second attempt is the first attempt's request, not a
 // new one.
 func (c *CloudCodeClient) runCloudCodeStreamBodyWithRetry(ctx context.Context, resp *http.Response, turn geminicode.Turn, out chan<- backend.StreamChunk) {
-	defer func() {
-		if resp != nil {
-			_ = resp.Body.Close()
-		}
-	}()
-	for attempt := 0; ; attempt++ {
-		err := c.readBodyOnce(ctx, resp, out)
-		if err == nil || !retry.IsConnectionDropped(err) {
-			return
-		}
-		if attempt >= retry.MaxConnectionRetries {
-			out <- backend.StreamChunk{Error: err, Done: true}
-			return
-		}
-		if resp != nil {
-			_ = resp.Body.Close()
-		}
-		delay := retry.NextConnectionRetryDelay(attempt)
-		select {
-		case <-ctx.Done():
-			out <- backend.StreamChunk{Error: ctx.Err(), Done: true}
-			return
-		case <-time.After(delay):
-		}
-		newResp, openErr := c.open(ctx, turn)
-		if openErr != nil {
-			if !retry.IsConnectionDropped(openErr) {
-				out <- backend.StreamChunk{Error: openErr, Done: true}
-				return
-			}
-			// The re-issue failed the same way the first one did. Keep the
-			// budget and try again; readBodyOnce treats the missing
-			// response as another drop.
-			resp = nil
-			continue
-		}
-		resp = newResp
+	p := streampipe.Pipeline[geminicode.Turn]{
+		EndpointURL: c.cfg.Endpoint,
+		Open:        c.open,
+		ReadBody:    c.readBodyOnce,
 	}
+	p.Run(ctx, resp, turn, out)
 }
 
 // readBodyOnce reads one attempt's SSE body into the caller's channel.
@@ -107,29 +62,24 @@ func (c *CloudCodeClient) readBodyOnce(ctx context.Context, resp *http.Response,
 	if resp == nil {
 		return &retry.ConnectionDroppedError{Err: retry.ErrConnectionDropped, URL: c.cfg.Endpoint}
 	}
-	idleR := retry.NewIdleTimeoutReader(resp.Body, retry.StreamIdleTimeout)
-	scanner := bufio.NewScanner(idleR)
-	scanner.Buffer(make([]byte, 0, 64*1024), 4<<20)
 
 	dec := geminicode.NewDecoder(c.cc)
 	var emittedDone bool
-	for scanner.Scan() {
-		for _, chunk := range dec.Feed(scanner.Text()) {
+	_, scanErr := streampipe.ScanSSELines(ctx, resp.Body, 4<<20, c.cfg.Endpoint, func(line string) (bool, error) {
+		for _, chunk := range dec.Feed(line) {
 			if chunk.Done {
 				emittedDone = true
 			}
 			if !emitChunk(ctx, out, chunk) {
-				return nil
+				return true, nil
 			}
 			if chunk.Done {
 				break
 			}
 		}
-		if emittedDone {
-			break
-		}
-	}
-	return c.finishScan(ctx, dec, scanner.Err(), out, emittedDone)
+		return emittedDone, nil
+	})
+	return c.finishScan(ctx, dec, scanErr, out, emittedDone)
 }
 
 // finishScan closes the stream: it emits the decoder's closing chunks and

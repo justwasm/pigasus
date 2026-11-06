@@ -3,7 +3,8 @@
 package main
 
 import (
-	"github.com/justwasm/pigasus/internal/cliapp"
+	_ "github.com/justwasm/pigasus/internal/cli"
+	"github.com/justwasm/pigasus/internal/tui"
 	_ "github.com/justwasm/pigasus/internal/app/tools/native"
 	_ "github.com/justwasm/pigasus/internal/infra/subsystems/daemon"
 	_ "github.com/justwasm/pigasus/internal/infra/subsystems/localharness"
@@ -13,6 +14,6 @@ import (
 )
 
 func init() {
-	modular.SetTUIRunner(cliapp.RunLiveTUI)
-	modular.SetTUISnapshotRenderer(cliapp.RenderTUI)
+	modular.SetTUIRunner(tui.RunLiveTUI)
+	modular.SetTUISnapshotRenderer(tui.RenderTUI)
 }

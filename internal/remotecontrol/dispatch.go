@@ -62,6 +62,7 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/justwasm/pigasus/internal/features/auth"
 	"github.com/justwasm/pigasus/internal/remotecontrol/cascades"
 	"github.com/justwasm/pigasus/internal/remotecontrol/convconfig"
 	"github.com/justwasm/pigasus/internal/remotecontrol/fastpush"
@@ -374,6 +375,17 @@ func (d *Dispatcher) MendelUserAgent() string {
 		return ""
 	}
 	return d.cfg.MendelUserAgent
+}
+
+// isTelemetryEnabled reports whether telemetry collection is active and permitted.
+func (d *Dispatcher) isTelemetryEnabled() bool {
+	if auth.IsBusinessAccount() {
+		return false
+	}
+	if d != nil && d.state != nil {
+		return d.state.isTelemetryEnabled()
+	}
+	return true
 }
 
 // Dispatch routes one JSON-RPC request to its handler. It

@@ -204,6 +204,7 @@ func HighlightCodeBlock(language, body string) (string, error) {
 	if body == "" {
 		return "", nil
 	}
+	body = ExpandTabs(body, 4)
 	lex := getChromaLexer(language)
 	if lex == nil {
 		return chromaFallbackBlock(language, body, fmt.Errorf("no chroma lexer")), nil

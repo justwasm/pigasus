@@ -244,7 +244,11 @@ func (p *Picker) renderEmpty(b *strings.Builder, storeEmpty bool) string {
 // renderList draws the flat conversation list.
 func (p *Picker) renderList(b *strings.Builder, rows []convstore.ConversationMeta, total, window, width int) {
 	win := tuiviewport.NewWindow(total, p.window, window)
+	curID := p.currentConversationID()
 	for i, c := range tuiviewport.Slice(rows, win) {
+		if c.ID != "" && c.ID == curID {
+			c.Title = "[CURRENT] " + c.Title
+		}
 		renderRow(b, c, (win.Start()+i) == p.cursor, p.rowPrompt(c.ID), width)
 	}
 	if total > window {

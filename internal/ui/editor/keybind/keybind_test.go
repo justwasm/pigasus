@@ -303,3 +303,40 @@ func TestTermNeedsOptionMeta(t *testing.T) {
 		}
 	}
 }
+
+func TestKeyString_SpecialAndSymbolKeys(t *testing.T) {
+	cases := []struct {
+		key  tea.Key
+		want string
+	}{
+		{tea.Key{Code: tea.KeyF1}, "f1"},
+		{tea.Key{Code: tea.KeyF2}, "f2"},
+		{tea.Key{Code: tea.KeyF5}, "f5"},
+		{tea.Key{Code: tea.KeyF12}, "f12"},
+		{tea.Key{Code: tea.KeyPgUp}, "pgup"},
+		{tea.Key{Code: tea.KeyPgDown}, "pgdown"},
+		{tea.Key{Code: tea.KeyHome}, "home"},
+		{tea.Key{Code: tea.KeyEnd}, "end"},
+		{tea.Key{Code: tea.KeyHome, Mod: tea.ModCtrl}, "ctrl+home"},
+		{tea.Key{Code: tea.KeyEnd, Mod: tea.ModCtrl}, "ctrl+end"},
+		{tea.Key{Code: tea.KeyUp, Mod: tea.ModShift}, "shift+up"},
+		{tea.Key{Code: tea.KeyDown, Mod: tea.ModShift}, "shift+down"},
+		{tea.Key{Code: '/', Mod: tea.ModCtrl}, "ctrl+/"},
+		{tea.Key{Code: '?', Mod: tea.ModCtrl}, "ctrl+?"},
+		{tea.Key{Code: '[', Mod: tea.ModCtrl}, "ctrl+["},
+		{tea.Key{Code: ']', Mod: tea.ModCtrl}, "ctrl+]"},
+		{tea.Key{Code: '\\', Mod: tea.ModCtrl}, "ctrl+\\"},
+		{tea.Key{Code: '-', Mod: tea.ModCtrl | tea.ModShift}, "ctrl+shift+-"},
+		{tea.Key{Code: '=', Mod: tea.ModCtrl}, "ctrl+="},
+		{tea.Key{Code: '_', Mod: tea.ModCtrl}, "ctrl+_"},
+		{tea.Key{Code: ' ', Mod: tea.ModCtrl}, "ctrl+space"},
+		{tea.Key{Code: tea.KeySpace}, "space"},
+	}
+
+	for _, c := range cases {
+		got := KeyString(c.key)
+		if got != c.want {
+			t.Errorf("KeyString(%+v) = %q, want %q", c.key, got, c.want)
+		}
+	}
+}

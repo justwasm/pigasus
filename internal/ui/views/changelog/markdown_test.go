@@ -16,17 +16,17 @@ import (
 	"testing"
 )
 
-// TestMarkdownIsTheReferenceCapture pins the document to the REF v1.4.9
-// capture: 180,070 bytes (the 1.4.8 capture was 176,788, the 1.4.0
-// capture 153,612 and the 1.3.6 capture 150,390) and prefixed by the
-// 1.4.8 section — the binary ships its own release notes one release
+// TestMarkdownIsTheReferenceCapture pins the document to the REF v1.5.0
+// capture: 188,570 bytes (the 1.4.9 capture was 180,070, the 1.4.8 capture was 176,788,
+// the 1.4.0 capture 153,612 and the 1.3.6 capture 150,390) and prefixed by the
+// 1.4.11 section — the binary ships its own release notes one release
 // behind.
 func TestMarkdownIsTheReferenceCapture(t *testing.T) {
-	if len(Markdown) != 180070 {
-		t.Errorf("embedded changelog is %d bytes, want 180070 (REF v1.4.9)", len(Markdown))
+	if len(Markdown) != 188570 {
+		t.Errorf("embedded changelog is %d bytes, want 188570 (REF v1.5.0)", len(Markdown))
 	}
-	if !strings.Contains(Markdown, "\n## 1.4.8\n") {
-		t.Error("embedded changelog has no 1.4.8 section; it is stale")
+	if !strings.Contains(Markdown, "\n## 1.4.11\n") {
+		t.Error("embedded changelog has no 1.4.11 section; it is stale")
 	}
 	if !strings.HasSuffix(Markdown, "- Initial release of the Antigravity CLI.\n") {
 		t.Error("embedded changelog does not end with the 1.0.0 section's last line")

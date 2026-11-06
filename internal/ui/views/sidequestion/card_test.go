@@ -179,3 +179,26 @@ func TestFirstLine(t *testing.T) {
 		t.Errorf("firstLine(empty) = %q", got)
 	}
 }
+
+func TestRenderBtwCard_ToolCalls(t *testing.T) {
+	cRunning := &Card{
+		Question:    "Find main function",
+		State:       StateStreaming,
+		CurrentTool: "grep_search",
+	}
+	renderedRunning := RenderBtwCard(cRunning, CardRenderOptions{Width: 80, Height: 24})
+	if !strings.Contains(renderedRunning, "Calling grep_search...") {
+		t.Errorf("expected card to show active tool, got:\n%s", renderedRunning)
+	}
+
+	cDone := &Card{
+		Question:  "Find main function",
+		Answer:    "Found in main.go:10",
+		State:     StateDone,
+		ToolCalls: []string{"grep_search", "read_file"},
+	}
+	renderedDone := RenderBtwCard(cDone, CardRenderOptions{Width: 80, Height: 24})
+	if !strings.Contains(renderedDone, "Called 2 tools") {
+		t.Errorf("expected card to show tool summary 'Called 2 tools', got:\n%s", renderedDone)
+	}
+}

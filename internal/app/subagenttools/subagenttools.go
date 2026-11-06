@@ -67,15 +67,13 @@ import (
 	"sync"
 	"time"
 
-	piagent "github.com/MichaelKinsy/PiG/agent"
-	pi "github.com/MichaelKinsy/PiG/ai"
-	"github.com/MichaelKinsy/PiG/coding"
+	"github.com/justwasm/pigasus/actor"
 	taskregistry "github.com/justwasm/pigasus/internal/app/task"
 )
 
 // Invocation is the LLM-driven delegation request from the parent
 // tool call. All fields except Prompt are optional; empty values fall
-// back to the Deps defaults or to a sane PiG-built-in value.
+// back to the Deps defaults or to a sane built-in value.
 type Invocation struct {
 	// Prompt is the user message sent to the subagent as its first turn.
 	// Required.
@@ -84,148 +82,64 @@ type Invocation struct {
 	// Deps.Model.
 	Model string
 	// SystemPrompt is the subagent's system instruction. Empty uses
-	// Deps.SystemPrompt, then PiG's default coding prompt plus
-	// discovered resources.
+	// Deps.SystemPrompt.
 	SystemPrompt string
 	// Worktree, when non-empty, is the absolute path the subagent's
-	// session is anchored to — a power-user override for tests and
-	// custom orchestrators that already have a directory they want to
-	// reuse. Empty (the typical case) routes Invoke down the
+	// session is anchored to. Empty routes Invoke down the
 	// worktree-isolation path: a fresh per-subagent directory is
-	// created under `<AgentDir>/worktrees/<subagent-id>/` and the
-	// subagent runs there, never in the parent's CWD. Cycle 229 will
-	// upgrade that materialised directory to a real `git worktree add`
-	// (same place, just with .git metadata inside); today's cycle
-	// focuses on WHERE the worktree lives so files written there are
-	// never picked up as artifacts in the user's workspace.
+	// created under `<AgentDir>/worktrees/<subagent-id>/`.
 	Worktree string
-	// Tools are the tools the subagent's own session may call, on top of
-	// the ones its extensions contribute. Nil (the default) gives the
-	// subagent no tools at all — the plain delegation shape this package
-	// shipped with.
-	//
-	// Cycle 311 uses the seam for the reference's browser agent: the
-	// browser subagent's whole point is that it drives the browser, so
-	// its session carries the browser-control tools (see
-	// internal/app/subagent/browser).
-	Tools []piagent.AgentTool
+	// Tools are the tools the subagent's own session may call.
+	Tools []actor.Tool
 	// Grant is the tool authorization the subagent runs under. It is
 	// what define_subagent's three switches recorded, and it is what
 	// the invoke tool turns into the subagent's tool set.
-	//
-	// A zero Grant is the reference's base set: the research tools and
-	// the messaging tool.
 	Grant Grant
 	// TypeName is the subagent type the call named ("self", "research",
-	// or a definition's own name). The reference's list entry reports
-	// it, and it is the type's own name the role falls back to.
+	// or a definition's own name).
 	TypeName string
-	// Role is the role the call asked for ("A 2-5 word description of
-	// the subagent's role"). Empty means the type's own name.
+	// Role is the role the call asked for.
 	Role string
 	// InheritPrompt marks a delegation that inherits the parent's own
-	// system prompt as it is — the reference's `self` type, "inherits
-	// the parent agent's full configuration including tools, system
-	// prompt, and model". The task instruction is not added to such a
-	// prompt: the prompt *is* the parent's.
+	// system prompt as it is.
 	InheritPrompt bool
 }
 
-// Deps is the cross-call state Invoke needs: PiG services (for the
-// shared registry / settings / extension runner), the model + provider
+// Deps is the cross-call state Invoke needs: the model + provider
 // the subagent calls, and the AgentDir / CWD defaults.
-//
-// The provider and model can be left zero; Invoke falls back to
-// `coding.Services`-resolved values for the model id and a no-op
-// provider if none is configured (which only the test fakes do).
 type Deps struct {
-	// Services is the PiG services container from the parent runtime.
-	// Required.
-	Services *coding.AgentSessionServices
 	// Model is the default model the subagent calls. Used when
 	// Invocation.Model is empty.
-	Model *pi.Model
-	// Provider, when set, is recorded for diagnostics only — the
-	// model's own Provider is what the subagent's session uses. Nil is
-	// fine.
-	Provider pi.Provider
+	Model string
+	// Provider is the actor.Provider the subagent calls.
+	Provider actor.Provider
 	// SystemPrompt is the parent's own system prompt, resolved when a
 	// delegation needs it. Used when Invocation.SystemPrompt is empty.
-	//
-	// The parent hands its own prompt in here: the reference's `self`
-	// type "inherits the parent agent's full configuration including
-	// tools, system prompt, and model", so a `self` delegation runs on
-	// the parent's text. A delegation that names its own type runs on
-	// that type's own prompt and never reads this field.
-	//
-	// It is a function because building the prompt is not free (the
-	// reference's prompt walks the skills directories), and a turn that
-	// spawns no subagent should not pay for it.
 	SystemPrompt func() string
-	// Catalogue is the parent's own tool catalogue, adapted to PiG's
-	// tool interface.
-	//
-	// A subagent's tool set is drawn from it: the reference's grants
-	// say *which* of the parent's tools a subagent may call, not that
-	// the subagent gets new ones. Nil gives every subagent no
-	// catalogue tools — only the messaging tool (and, with the subagent
-	// grant, define_subagent and invoke_subagent).
-	Catalogue []piagent.AgentTool
+	// Catalogue is the parent's own tool catalogue.
+	Catalogue []actor.Tool
 	// CWD is a fallback used only when the worktree-isolation
-	// allocation fails (read-only tests, sandboxes that block
-	// mkdir). In normal operation Invoke never reads this field:
-	// subagent sessions are anchored to a fresh directory under
-	// `<AgentDir>/worktrees/<subID>/` so files written by the
-	// subagent never collide with the user's workspace.
+	// allocation fails.
 	CWD string
 	// AgentDir is the parent agent's config directory. Subagent
-	// transcripts are persisted under `<AgentDir>/subagents/`. Empty
-	// defaults to Services.AgentDir().
+	// transcripts are persisted under `<AgentDir>/subagents/`.
 	AgentDir string
 	// PermissionGate, when non-nil, is consulted for every tool call
-	// the subagent issues. A denied call is reported to the subagent's
-	// model as the reference's denial text (matching the parent's
-	// `permissionRunner` semantics).
-	//
-	// It is a factory rather than a gate because the sandbox that guards
-	// a subagent's commands has to allow the subagent's own worktree,
-	// and the worktree is only known once the delegation has been
-	// launched. The factory is called with the directory the subagent
-	// runs in.
-	//
-	// The policy behind it is the conversation's one policy: a rule the
-	// user wrote for the parent governs the subagent too, and the tool
-	// is judged under both of its names (see
-	// internal/tools.PermissionNames).
+	// the subagent issues.
 	PermissionGateFor func(worktree string) BeforeToolCallGate
 	// Registry is the conversation's live-subagent registry.
-	//
-	// It is what makes a delegation asynchronous: the child is reachable
-	// by its conversation id while it runs, it can message the parent,
-	// and the parent can message it. Nil turns every recipient into the
-	// reference's "not found" answer.
 	Registry *Registry
 	// ConversationID is the id of the conversation that owns this tool
-	// set — the parent's own id. A subagent's messaging tool addresses
-	// the parent by it, and the parent's messages carry it as the
-	// sender.
+	// set — the parent's own id.
 	ConversationID string
-	// Definitions is the conversation's subagent definition store. The
-	// reference scopes a definition to the conversation
-	// ("Define a subagent for the duration of this conversation"), so
-	// the store belongs to the conversation, not to the tool set. A
-	// resumed conversation passes the store the rehydration pass
-	// filled in; a fresh one leaves it nil and Tools creates it.
+	// Definitions is the conversation's subagent definition store.
 	Definitions *Store
 	// Tasks is the optional task registry to register running subagents into.
 	Tasks *taskregistry.Registry
 }
 
 // BeforeToolCallGate is the optional policy hook a subagent's tool
-// batch runs through. It mirrors `piagent.BeforeToolCallHook` but is
-// declared here so this package does not have to be threaded through
-// `internal/core/policy/permissions` (which would drag in the full permission
-// stack for a feature that mostly only the TUI wires today).
+// batch runs through.
 type BeforeToolCallGate interface {
 	Decide(ctx context.Context, toolName string, args json.RawMessage) GateDecision
 }
@@ -242,51 +156,28 @@ type GateDecision struct {
 // Result is the public return of Invoke. The shape is stable across
 // the package so a caller can marshal it as the parent tool's result.
 type Result struct {
-	// Text is the subagent's final assistant text — the concatenation
-	// of every assistant text block in the turn that ended with
-	// StopReason == "stop" or "toolUse". Empty when the subagent
-	// failed.
+	// Text is the subagent's final assistant text.
 	Text string
-	// SessionID is the new session's PiG-assigned id (the
-	// `<ts>_<id>.jsonl` filename stem). Empty when persistence is
-	// disabled (NoSession). send_message/manage_subagents will hand
-	// back this id once cycle 229 wires them.
+	// SessionID is the new session's assigned id.
 	SessionID string
-	// SubagentID is a stable handle for this delegation: a short
-	// human-readable tag like "subagent-<unix-nano>-<counter>".
+	// SubagentID is a stable handle for this delegation.
 	SubagentID string
-	// Messages is the raw agent messages the subagent's session
-	// produced. Useful for logs and tests; cycle 229 will surface
-	// them to the parent TUI.
-	Messages []piagent.AgentMessage
+	// Messages is the transcript messages the subagent's session produced.
+	Messages []SubagentMessage
 	// Duration is the wall-clock time the delegation took.
 	Duration time.Duration
-	// WorktreePath is the absolute path the subagent's session was
-	// anchored to. Empty only when Invoke was called with
-	// Invocation.Worktree == "" AND the worktree-isolation allocation
-	// failed (a fatal error in that case — the call never ran). When
-	// Invocation.Worktree was set explicitly, the value echoes back
-	// the override; otherwise it is the freshly-created path under
-	// `<AgentDir>/worktrees/<subagent-id>/`.
+	// WorktreePath is the absolute path the subagent's session was anchored to.
 	WorktreePath string
 }
 
 // Tools returns the four tool declarations: invoke_subagent, define_subagent,
-// send_message and manage_subagents. The parent loop appends them to its
-// advertised tool set; per the project rule "caller-supplied take precedence
-// on name collision", any pre-existing `invoke_subagent` (the
-// `internal/tools/catalog.go` placeholder) is superseded by this one.
-//
-// Deps.Definitions is the conversation's definition store. When it is nil,
-// Tools creates a fresh one — the behaviour of a conversation that has not
-// been resumed. A caller that resumes a conversation passes the store the
-// rehydration pass filled (see internal/app/session/rehydration).
-func Tools(deps Deps) []piagent.AgentTool {
+// send_message and manage_subagents.
+func Tools(deps Deps) []actor.Tool {
 	defs := deps.Definitions
 	if defs == nil {
 		defs = NewStore()
 	}
-	return []piagent.AgentTool{
+	return []actor.Tool{
 		&invokeTool{deps: deps, defs: defs},
 		&defineTool{defs: defs},
 		&sendMessageTool{registry: deps.Registry, owner: deps.ConversationID},
@@ -387,30 +278,6 @@ func (d Deps) parentPrompt() string {
 	return d.SystemPrompt()
 }
 
-// beforeToolCallHooks turns the optional Deps.PermissionGateFor into the
-// PiG-shaped hook PiG's session runs before every tool call.
-//
-// The gate is built for the directory the subagent runs in, so the sandbox
-// behind it can allow the subagent's own worktree.
-func (d Deps) beforeToolCallHooks(worktree string) []piagent.BeforeToolCallHook {
-	if d.PermissionGateFor == nil {
-		return nil
-	}
-	gate := d.PermissionGateFor(worktree)
-	if gate == nil {
-		return nil
-	}
-	return []piagent.BeforeToolCallHook{
-		func(_ context.Context, _ string, toolName string, args json.RawMessage) piagent.ToolCallHookResult {
-			decision := gate.Decide(context.Background(), toolName, args)
-			if decision.Allow {
-				return piagent.ToolCallHookResult{}
-			}
-			return piagent.ToolCallHookResult{Block: true, Reason: decision.Reason}
-		},
-	}
-}
-
 // ─── subagent id generation ───────────────────────────────────────────────
 
 var (
@@ -426,10 +293,10 @@ func newSubagentID() string {
 	return fmt.Sprintf("subagent-%d-%d", time.Now().UnixNano(), n)
 }
 
-// Compile-time assertion: all four tools implement piagent.AgentTool.
+// Compile-time assertion: all four tools implement actor.Tool.
 var (
-	_ piagent.AgentTool = (*invokeTool)(nil)
-	_ piagent.AgentTool = (*defineTool)(nil)
-	_ piagent.AgentTool = (*sendMessageTool)(nil)
-	_ piagent.AgentTool = (*manageSubagentsTool)(nil)
+	_ actor.Tool = (*invokeTool)(nil)
+	_ actor.Tool = (*defineTool)(nil)
+	_ actor.Tool = (*sendMessageTool)(nil)
+	_ actor.Tool = (*manageSubagentsTool)(nil)
 )

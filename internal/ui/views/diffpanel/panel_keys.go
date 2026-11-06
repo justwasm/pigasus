@@ -83,7 +83,10 @@ func (p *Panel) HandleKey(key tea.Key) (bool, tea.Cmd) {
 			p.closeInline()
 			return true, nil
 		}
-		return true, p.close()
+		if p.seams.Close != nil {
+			return true, p.seams.Close()
+		}
+		return true, func() tea.Msg { return MsgDismissed{} }
 	}
 	// `f` folds the hunk under the cursor; Ctrl+O is the host's
 	// shortcut for the same gesture (the host intercepts it before

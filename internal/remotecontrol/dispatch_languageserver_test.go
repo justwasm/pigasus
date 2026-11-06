@@ -306,3 +306,241 @@ func TestLanguageServer_ProjectUpdatesStream(t *testing.T) {
 		t.Fatalf("expected projectList, got %s", resText)
 	}
 }
+
+func TestLanguageServer_FetchUserInfo_Default(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("ANTIGRAVITY_HOME", tmp)
+
+	sess := NewSessionState("test")
+	d, err := NewDispatcher(Config{Session: sess})
+	if err != nil {
+		t.Fatalf("NewDispatcher: %v", err)
+	}
+
+	resText, err := d.DispatchDirect(context.Background(), "FetchUserInfo", "{}")
+	if err != nil {
+		t.Fatalf("DispatchDirect FetchUserInfo: %v", err)
+	}
+
+	var res struct {
+		UserSettings struct {
+			TelemetryEnabled                bool `json:"telemetryEnabled"`
+			UserDataCollectionForceDisabled bool `json:"userDataCollectionForceDisabled"`
+			MarketingEmailsEnabled          bool `json:"marketingEmailsEnabled"`
+		} `json:"userSettings"`
+	}
+	if err := json.Unmarshal([]byte(resText), &res); err != nil {
+		t.Fatalf("Unmarshal result: %v", err)
+	}
+
+	if !res.UserSettings.TelemetryEnabled {
+		t.Errorf("expected telemetryEnabled=true by default, got %v", res.UserSettings.TelemetryEnabled)
+	}
+	if res.UserSettings.UserDataCollectionForceDisabled {
+		t.Errorf("expected userDataCollectionForceDisabled=false, got %v", res.UserSettings.UserDataCollectionForceDisabled)
+	}
+	if res.UserSettings.MarketingEmailsEnabled {
+		t.Errorf("expected marketingEmailsEnabled=false by default, got %v", res.UserSettings.MarketingEmailsEnabled)
+	}
+}
+
+func TestLanguageServer_SetUserInfo_PersistAndFetch(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("ANTIGRAVITY_HOME", tmp)
+
+	sess := NewSessionState("test")
+	d, err := NewDispatcher(Config{Session: sess})
+	if err != nil {
+		t.Fatalf("NewDispatcher: %v", err)
+	}
+
+	// 1. Mutate settings: disable telemetry, enable marketing emails
+	setReq := `{"userSettings":{"telemetryEnabled":false,"marketingEmailsEnabled":true,"userDataCollectionForceDisabled":false}}`
+	setRespText, err := d.DispatchDirect(context.Background(), "SetUserInfo", setReq)
+	if err != nil {
+		t.Fatalf("DispatchDirect SetUserInfo: %v", err)
+	}
+
+	var setResp struct {
+		UserSettings struct {
+			TelemetryEnabled                bool `json:"telemetryEnabled"`
+			UserDataCollectionForceDisabled bool `json:"userDataCollectionForceDisabled"`
+			MarketingEmailsEnabled          bool `json:"marketingEmailsEnabled"`
+		} `json:"userSettings"`
+	}
+	if err := json.Unmarshal([]byte(setRespText), &setResp); err != nil {
+		t.Fatalf("Unmarshal SetUserInfo result: %v", err)
+	}
+
+	if setResp.UserSettings.TelemetryEnabled {
+		t.Errorf("expected telemetryEnabled=false after SetUserInfo, got true")
+	}
+	if !setResp.UserSettings.MarketingEmailsEnabled {
+		t.Errorf("expected marketingEmailsEnabled=true after SetUserInfo, got false")
+	}
+
+	// 2. FetchUserInfo should return the updated settings
+	fetchRespText, err := d.DispatchDirect(context.Background(), "FetchUserInfo", "{}")
+	if err != nil {
+		t.Fatalf("DispatchDirect FetchUserInfo: %v", err)
+	}
+	var fetchResp struct {
+		UserSettings struct {
+			TelemetryEnabled                bool `json:"telemetryEnabled"`
+			UserDataCollectionForceDisabled bool `json:"userDataCollectionForceDisabled"`
+			MarketingEmailsEnabled          bool `json:"marketingEmailsEnabled"`
+		} `json:"userSettings"`
+	}
+	if err := json.Unmarshal([]byte(fetchRespText), &fetchResp); err != nil {
+		t.Fatalf("Unmarshal FetchUserInfo result: %v", err)
+	}
+	if fetchResp.UserSettings.TelemetryEnabled != false || fetchResp.UserSettings.MarketingEmailsEnabled != true {
+		t.Errorf("FetchUserInfo mismatch: %+v", fetchResp.UserSettings)
+	}
+
+	// 3. Verify settings.json on disk contains the persisted choices
+	settingsFile := filepath.Join(tmp, "settings.json")
+	data, err := os.ReadFile(settingsFile)
+	if err != nil {
+		t.Fatalf("ReadFile settings.json: %v", err)
+	}
+	var onDisk map[string]any
+	if err := json.Unmarshal(data, &onDisk); err != nil {
+		t.Fatalf("Unmarshal disk settings.json: %v", err)
+	}
+	if onDisk["telemetryEnabled"] != false {
+		t.Errorf("on disk telemetryEnabled = %v, want false", onDisk["telemetryEnabled"])
+	}
+	if onDisk["marketingEmailsEnabled"] != true {
+		t.Errorf("on disk marketingEmailsEnabled = %v, want true", onDisk["marketingEmailsEnabled"])
+	}
+
+	// 4. Fresh dispatcher (simulating restart) loads persisted settings
+	d2, err := NewDispatcher(Config{Session: sess})
+	if err != nil {
+		t.Fatalf("NewDispatcher 2: %v", err)
+	}
+	fetch2Text, err := d2.DispatchDirect(context.Background(), "fetchUserInfo", "{}")
+	if err != nil {
+		t.Fatalf("DispatchDirect fetchUserInfo: %v", err)
+	}
+	var fetch2Resp struct {
+		UserSettings struct {
+			TelemetryEnabled       bool `json:"telemetryEnabled"`
+			MarketingEmailsEnabled bool `json:"marketingEmailsEnabled"`
+		} `json:"userSettings"`
+	}
+	if err := json.Unmarshal([]byte(fetch2Text), &fetch2Resp); err != nil {
+		t.Fatalf("Unmarshal fetchUserInfo result: %v", err)
+	}
+	if fetch2Resp.UserSettings.TelemetryEnabled != false || fetch2Resp.UserSettings.MarketingEmailsEnabled != true {
+		t.Errorf("Restarted dispatcher mismatch: %+v", fetch2Resp.UserSettings)
+	}
+}
+
+func TestLanguageServer_SetUserInfo_BusinessAccount(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("ANTIGRAVITY_HOME", tmp)
+	t.Setenv("AGY_ADC_AUTH", "1")
+
+	sess := NewSessionState("test")
+	d, err := NewDispatcher(Config{Session: sess})
+	if err != nil {
+		t.Fatalf("NewDispatcher: %v", err)
+	}
+
+	// Business account must have telemetry disabled & forced
+	fetchRespText, err := d.DispatchDirect(context.Background(), "FetchUserInfo", "{}")
+	if err != nil {
+		t.Fatalf("DispatchDirect FetchUserInfo: %v", err)
+	}
+	var fetchResp struct {
+		UserSettings struct {
+			TelemetryEnabled                bool `json:"telemetryEnabled"`
+			UserDataCollectionForceDisabled bool `json:"userDataCollectionForceDisabled"`
+		} `json:"userSettings"`
+	}
+	if err := json.Unmarshal([]byte(fetchRespText), &fetchResp); err != nil {
+		t.Fatalf("Unmarshal FetchUserInfo result: %v", err)
+	}
+	if fetchResp.UserSettings.TelemetryEnabled {
+		t.Errorf("business account: expected telemetryEnabled=false, got true")
+	}
+	if !fetchResp.UserSettings.UserDataCollectionForceDisabled {
+		t.Errorf("business account: expected userDataCollectionForceDisabled=true, got false")
+	}
+
+	// Attempting to enable telemetry should be ignored for business accounts
+	setReq := `{"userSettings":{"telemetryEnabled":true}}`
+	setRespText, err := d.DispatchDirect(context.Background(), "SetUserInfo", setReq)
+	if err != nil {
+		t.Fatalf("DispatchDirect SetUserInfo: %v", err)
+	}
+	var setResp struct {
+		UserSettings struct {
+			TelemetryEnabled                bool `json:"telemetryEnabled"`
+			UserDataCollectionForceDisabled bool `json:"userDataCollectionForceDisabled"`
+		} `json:"userSettings"`
+	}
+	if err := json.Unmarshal([]byte(setRespText), &setResp); err != nil {
+		t.Fatalf("Unmarshal SetUserInfo result: %v", err)
+	}
+	if setResp.UserSettings.TelemetryEnabled {
+		t.Errorf("business account: telemetryEnabled should remain false, got true")
+	}
+	if !setResp.UserSettings.UserDataCollectionForceDisabled {
+		t.Errorf("business account: userDataCollectionForceDisabled should remain true, got false")
+	}
+}
+
+func TestLanguageServer_GetUserStatus_TelemetryAlignment(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("ANTIGRAVITY_HOME", tmp)
+
+	sess := NewSessionState("test")
+	d, err := NewDispatcher(Config{Session: sess})
+	if err != nil {
+		t.Fatalf("NewDispatcher: %v", err)
+	}
+
+	// Default: telemetry enabled -> disableTelemetry = false
+	statusText, err := d.DispatchDirect(context.Background(), "GetUserStatus", "{}")
+	if err != nil {
+		t.Fatalf("DispatchDirect GetUserStatus: %v", err)
+	}
+	var status1 struct {
+		UserStatus struct {
+			DisableTelemetry                bool `json:"disableTelemetry"`
+			UserDataCollectionForceDisabled bool `json:"userDataCollectionForceDisabled"`
+		} `json:"userStatus"`
+	}
+	if err := json.Unmarshal([]byte(statusText), &status1); err != nil {
+		t.Fatalf("Unmarshal GetUserStatus: %v", err)
+	}
+	if status1.UserStatus.DisableTelemetry {
+		t.Errorf("default: expected disableTelemetry=false, got true")
+	}
+
+	// Disable telemetry via SetUserInfo
+	_, err = d.DispatchDirect(context.Background(), "SetUserInfo", `{"userSettings":{"telemetryEnabled":false}}`)
+	if err != nil {
+		t.Fatalf("SetUserInfo: %v", err)
+	}
+
+	// Now GetUserStatus should report disableTelemetry = true
+	statusText2, err := d.DispatchDirect(context.Background(), "GetUserStatus", "{}")
+	if err != nil {
+		t.Fatalf("DispatchDirect GetUserStatus 2: %v", err)
+	}
+	var status2 struct {
+		UserStatus struct {
+			DisableTelemetry bool `json:"disableTelemetry"`
+		} `json:"userStatus"`
+	}
+	if err := json.Unmarshal([]byte(statusText2), &status2); err != nil {
+		t.Fatalf("Unmarshal GetUserStatus 2: %v", err)
+	}
+	if !status2.UserStatus.DisableTelemetry {
+		t.Errorf("after disable: expected disableTelemetry=true, got false")
+	}
+}

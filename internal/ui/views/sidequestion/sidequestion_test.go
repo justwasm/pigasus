@@ -1,47 +1,70 @@
 package sidequestion_test
 
-// sidequestion_test.go — cycle 230: the /btw side-question runtime.
-//
-// Tests exercise the package via the scripted ai.TestFauxProvider
-// PiG ships (no real gateway network call). The pattern mirrors
-// internal/pigrt/runtime_test.go: the provider is pinned on a
-// constructed *ai.Model, the test calls Ask, and asserts on the
-// returned Card. PiG's faux provider streams "42" as a single text
-// delta for "What is 20+22?" — the tests below use a question that
-// triggers that exact branch.
-
 import (
 	"context"
+	"errors"
+	"io"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
-	"github.com/MichaelKinsy/PiG/ai"
-
+	"github.com/justwasm/pigasus/actor"
 	"github.com/justwasm/pigasus/internal/ui/views/sidequestion"
 )
 
-// fauxModel builds a model backed by PiG's deterministic faux
-// provider. ProviderID "test-faux" is the one coding.Session accepts
-// without credentials (see pigrt.runtime_test.go).
-func fauxModel() *ai.Model {
-	return &ai.Model{
-		Type:         ai.ModelTypeChat,
-		ID:           "faux-1",
-		DisplayName:  "faux-1",
-		Provider:     &ai.TestFauxProvider{},
-		ProviderMeta: ai.ProviderMetadata{ProviderID: "test-faux", API: "test-faux"},
-		Input:        []string{"text"},
-	}
+type fauxStream struct {
+	chunks []actor.StreamChunk
+	pos    int
+	closed bool
 }
 
-// newManager builds a Manager against a temp agent dir so the test
-// does not depend on the host's ~/.pig/agent layout.
+func (s *fauxStream) Recv() (actor.StreamChunk, error) {
+	if s.closed || s.pos >= len(s.chunks) {
+		return actor.StreamChunk{}, io.EOF
+	}
+	c := s.chunks[s.pos]
+	s.pos++
+	if c.FinishReason == "error" {
+		return actor.StreamChunk{}, errors.New("upstream stream failed")
+	}
+	return c, nil
+}
+
+func (s *fauxStream) Close() error {
+	s.closed = true
+	return nil
+}
+
+type fauxProvider struct{}
+
+func (p *fauxProvider) Generate(ctx context.Context, req actor.GenerateRequest) (actor.ResponseStream, error) {
+	content := ""
+	if len(req.Messages) > 0 {
+		content = req.Messages[len(req.Messages)-1].Content
+	}
+	if strings.Contains(content, "trigger error branch") {
+		return &fauxStream{
+			chunks: []actor.StreamChunk{
+				{FinishReason: "error"},
+			},
+		}, nil
+	}
+
+	return &fauxStream{
+		chunks: []actor.StreamChunk{
+			{Delta: "42", Usage: &actor.TokenUsage{TotalTokens: 4}},
+			{FinishReason: "stop"},
+		},
+	}, nil
+}
+
 func newManager(t *testing.T) *sidequestion.Manager {
 	t.Helper()
 	dir := t.TempDir()
 	m := sidequestion.NewManager(sidequestion.Options{
-		Model:        fauxModel(),
+		Provider:     &fauxProvider{},
+		Model:        "faux-1",
 		CWD:          dir,
 		AgentDir:     dir + "/.pig/agent",
 		SystemPrompt: "You are a test side-question runtime.",
@@ -52,16 +75,6 @@ func newManager(t *testing.T) *sidequestion.Manager {
 	return m
 }
 
-// TestAsk_StreamsAnswer is the happy path. Ask spawns a fresh
-// coding.Session, sends the question, collects the streamed text into
-// the Card, and returns when the turn settles. The faux provider
-// answers "What is 20+22?" with "42"; the test asserts the Card has
-// that answer and a non-negative token count.
-//
-// (The faux provider does not populate Usage for the basic text
-// branch — only "Trigger: over-window response" does — so this test
-// only checks tokens >= 0. The slash-level TestBtwSlashStreamingCard
-// uses the over-window question to assert Tokens > 0.)
 func TestAsk_StreamsAnswer(t *testing.T) {
 	m := newManager(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -89,11 +102,6 @@ func TestAsk_StreamsAnswer(t *testing.T) {
 	}
 }
 
-// TestAsk_IndependentServices checks the cycle-230 hard requirement:
-// every Ask opens a brand-new coding.Services, and closing the btw
-// session does not affect anything else on the host. The test calls
-// Ask twice; each round-trip must complete successfully and the
-// returned cards must be distinct.
 func TestAsk_IndependentServices(t *testing.T) {
 	m := newManager(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -121,9 +129,6 @@ func TestAsk_IndependentServices(t *testing.T) {
 	}
 }
 
-// TestAsk_StreamsError exercises the failure path. A bogus question
-// that triggers the faux provider's error branch yields a Card with
-// State == "failed" and a non-nil Err.
 func TestAsk_StreamsError(t *testing.T) {
 	m := newManager(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -142,8 +147,6 @@ func TestAsk_StreamsError(t *testing.T) {
 	}
 }
 
-// TestAsk_EmptyQuestion is the boundary: Ask must reject an empty
-// string before opening a Session.
 func TestAsk_EmptyQuestion(t *testing.T) {
 	m := newManager(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -156,9 +159,6 @@ func TestAsk_EmptyQuestion(t *testing.T) {
 	}
 }
 
-// TestManager_ListAndLatestDone pins the lookup helpers. List returns
-// every card in insertion order; LatestDone returns the most recent
-// done-state card, ignoring a pending or failed one.
 func TestManager_ListAndLatestDone(t *testing.T) {
 	m := newManager(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -183,8 +183,6 @@ func TestManager_ListAndLatestDone(t *testing.T) {
 		t.Errorf("List after one Ask = %v, want [%p]", list, first)
 	}
 
-	// LatestDone must not pick up a pending card; we forge one to
-	// prove the filter.
 	forged := &sidequestion.Card{State: sidequestion.StatePending, ID: "forged"}
 	list = append(list, forged)
 	if got := m.LatestDone(); got != first {
@@ -201,9 +199,6 @@ func TestManager_ListAndLatestDone(t *testing.T) {
 	}
 }
 
-// TestAsk_NilModel checks the Manager requires a Model. The test
-// exercises NewManager without a Model and asserts Ask rejects the
-// call before opening a Session.
 func TestAsk_NilModel(t *testing.T) {
 	m := sidequestion.NewManager(sidequestion.Options{
 		CWD:      t.TempDir(),
@@ -220,10 +215,6 @@ func TestAsk_NilModel(t *testing.T) {
 	}
 }
 
-// TestAsk_Concurrent exercises the manager's mutex by firing three
-// Ask calls at once. The faux provider is single-threaded on the
-// session, but the manager's cards slice is shared and the test
-// ensures AddCard / Get / List stay safe under contention.
 func TestAsk_Concurrent(t *testing.T) {
 	m := newManager(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)

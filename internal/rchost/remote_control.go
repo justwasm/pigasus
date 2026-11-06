@@ -18,6 +18,7 @@ import (
 	"github.com/justwasm/pigasus/agentbrowser"
 	"github.com/justwasm/pigasus/internal/cli"
 	"github.com/justwasm/pigasus/internal/remotecontrol"
+	"github.com/justwasm/pigasus/internal/voice"
 	"github.com/justwasm/pigasus/originpolicy"
 	"github.com/justwasm/pigasus/remotetransport"
 )
@@ -77,10 +78,16 @@ func MaybeStartTCPDaemon(ctx context.Context, fs *flag.FlagSet, sess *remotecont
 		fmt.Fprintf(os.Stderr, "[remote-control-tcp] could not mint the remote-control secret: %v\n", err)
 		return nil
 	}
+	cwd, _ := os.Getwd()
+	voiceSvc := voice.NewService(voice.Config{
+		WorkspaceDir: cwd,
+		CSRFToken:    token,
+	})
 	srv, err := remotetransport.NewTCPServer(ctx, disp, remotetransport.TCPConfig{
 		Addr:         addr,
 		Path:         "/rpc",
 		OriginPolicy: &seed,
+		VoiceHandler: voiceSvc,
 		CSRFToken:    token,
 	})
 	if err != nil {

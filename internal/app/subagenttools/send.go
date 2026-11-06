@@ -8,8 +8,7 @@ import (
 	"strings"
 	"time"
 
-	piagent "github.com/MichaelKinsy/PiG/agent"
-	pi "github.com/MichaelKinsy/PiG/ai"
+	"github.com/justwasm/pigasus/actor"
 )
 
 // sendMessageTool answers send_message: "Send a message to another agent,
@@ -38,29 +37,23 @@ type sendMessageTool struct {
 	owner string
 }
 
-func (t *sendMessageTool) Name() string  { return "send_message" }
-func (t *sendMessageTool) Label() string { return "Send Message" }
-func (t *sendMessageTool) ExecutionMode() piagent.ToolExecutionMode {
-	return piagent.ToolModeSequential
-}
+func (t *sendMessageTool) Name() string        { return "send_message" }
+func (t *sendMessageTool) Description() string { return sendMessageDescription }
+func (t *sendMessageTool) RequiresApproval(_ string) bool { return false }
 
-func (t *sendMessageTool) Schema() pi.ToolSchema {
-	// Mirrors the captured 1.4.4 declaration (Recipient/Message, both
-	// minLength 1). The executor also accepts the older snake_case spellings
-	// so direct callers keep working; on the PiG path the captured declaration
-	// is what reaches the model (piagentbridge.SurfaceTools).
-	return pi.ToolSchema{
+func (t *sendMessageTool) Definition() actor.ToolDefinition {
+	return actor.ToolDefinition{
 		Name:        "send_message",
 		Description: sendMessageDescription,
-		Parameters: pi.JsonObject{
+		Parameters: map[string]any{
 			"type": "object",
-			"properties": pi.JsonObject{
-				"Recipient": pi.JsonObject{
+			"properties": map[string]any{
+				"Recipient": map[string]any{
 					"type":        "string",
 					"description": "Conversation ID of the agent to message.",
 					"minLength":   1,
 				},
-				"Message": pi.JsonObject{
+				"Message": map[string]any{
 					"type":        "string",
 					"description": "Content of the message.",
 					"minLength":   1,
@@ -82,31 +75,31 @@ type sendMessageArgs struct {
 	MessageCap   string `json:"Message,omitempty"`
 }
 
-func (t *sendMessageTool) Execute(_ context.Context, _ string, params json.RawMessage, _ piagent.ToolUpdateCallback) (piagent.AgentToolResult, error) {
+func (t *sendMessageTool) Execute(_ context.Context, input string) (actor.ToolResult, error) {
 	var args sendMessageArgs
-	if err := json.Unmarshal(params, &args); err != nil {
-		return piagent.AgentToolResult{}, fmt.Errorf("send_message: parse args: %w", err)
+	if err := json.Unmarshal([]byte(input), &args); err != nil {
+		return actor.ToolResult{Error: err.Error()}, fmt.Errorf("send_message: parse args: %w", err)
 	}
 	subID := firstNonEmpty(args.SubagentID, args.Recipient, args.RecipientCap)
 	msg := firstNonEmpty(args.Message, args.MessageCap)
 	if subID == "" || msg == "" {
-		return piagent.AgentToolResult{}, errors.New("send_message: Recipient and Message are required")
+		return actor.ToolResult{Error: "send_message: Recipient and Message are required"}, errors.New("send_message: Recipient and Message are required")
 	}
 	if subID == childrenRecipient {
 		return t.broadcast(msg), nil
 	}
 	if t.deliver(subID, msg) {
 		text := resultStamp(time.Now()) + fmt.Sprintf("Message sent to %q.", subID)
-		return piagent.AgentToolResult{
-			Content: []pi.ToolResultMessageContent{pi.TextContent{Text: text}},
+		return actor.ToolResult{
+			Output: text,
 		}, nil
 	}
 	// The reference reports an unknown conversation the same way —
 	// 【一手】 1.4.4: `Encountered error in tool execution: recipient
 	// "abc123" not found`, returned as a normal result.
 	text := resultStamp(time.Now()) + fmt.Sprintf("Encountered error in tool execution: recipient %q not found", subID)
-	return piagent.AgentToolResult{
-		Content: []pi.ToolResultMessageContent{pi.TextContent{Text: text}},
+	return actor.ToolResult{
+		Output: text,
 	}, nil
 }
 
@@ -130,7 +123,7 @@ const childrenRecipient = "@children"
 //
 // and appends " Failed to deliver to %q: %v." for every recipient that
 // failed. The ids are joined with ", ".
-func (t *sendMessageTool) broadcast(message string) piagent.AgentToolResult {
+func (t *sendMessageTool) broadcast(message string) actor.ToolResult {
 	delivered := make([]string, 0, 4)
 	failures := make([]string, 0, 2)
 	if t.registry != nil {
@@ -154,8 +147,8 @@ func (t *sendMessageTool) broadcast(message string) piagent.AgentToolResult {
 			len(delivered), len(delivered)+len(failures), strings.Join(delivered, ", "))
 		body += strings.Join(failures, "")
 	}
-	return piagent.AgentToolResult{
-		Content: []pi.ToolResultMessageContent{pi.TextContent{Text: resultStamp(time.Now()) + body}},
+	return actor.ToolResult{
+		Output: resultStamp(time.Now()) + body,
 	}
 }
 

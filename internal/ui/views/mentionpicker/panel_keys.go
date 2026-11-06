@@ -25,30 +25,49 @@ import (
 // It reports whether the key was handled. A hidden dropdown handles
 // none.
 func (p *Panel) HandleKey(key tea.Key) bool {
+	handled, _ := p.HandleKeyMsg(key)
+	return handled
+}
+
+// HandleKeyMsg handles a key while the dropdown is up and returns Elm messages.
+func (p *Panel) HandleKeyMsg(key tea.Key) (bool, tea.Cmd) {
 	if p == nil {
-		return false
+		return false, nil
 	}
 	switch key.Code {
+	case tea.KeyEsc:
+		if !p.Visible() {
+			return false, nil
+		}
+		p.Reset()
+		return true, func() tea.Msg { return MsgDismissed{} }
 	case tea.KeyUp:
 		if !p.Visible() {
-			return false
+			return false, nil
 		}
 		p.MoveUp()
-		return true
+		return true, nil
 	case tea.KeyDown:
 		if !p.Visible() {
-			return false
+			return false, nil
 		}
 		p.MoveDown()
-		return true
+		return true, nil
 	case tea.KeyTab:
 		if key.Mod.Contains(tea.ModShift) {
-			return false
+			return false, nil
 		}
 		if !p.Visible() {
-			return false
+			return false, nil
 		}
-		return p.Complete(true)
+		selected := p.selectedEntry().Rel
+		if p.Complete(true) {
+			buf := p.buffer()
+			return true, func() tea.Msg {
+				return MsgCompleted{NewBuffer: buf, RelPath: selected}
+			}
+		}
+		return true, nil
 	}
-	return false
+	return false, nil
 }

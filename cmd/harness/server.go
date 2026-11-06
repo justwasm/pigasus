@@ -33,7 +33,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/justwasm/pigasus/internal/pigrt"
+	"github.com/justwasm/pigasus/internal/app/prompt/agyprompt"
 	"github.com/justwasm/pigasus/localharness"
 	pb "github.com/justwasm/pigasus/localharness/pb/localharness"
 )
@@ -125,7 +125,7 @@ func parseFlags(args []string, errOut io.Writer) (options, error) {
 	if opts.agentDir == "" {
 		// The same home the CLI uses: it is where mcp.json, the settings
 		// and the skills live.
-		opts.agentDir = pigrt.DefaultAgentHome()
+		opts.agentDir = agyprompt.DefaultAgentHome()
 	}
 	return opts, nil
 }

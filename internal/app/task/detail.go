@@ -34,6 +34,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/charmbracelet/x/ansi"
 	"github.com/justwasm/pigasus/palette"
@@ -238,7 +239,13 @@ func TaskDetailBody(t *Task, widthOpt ...int) []string {
 		strings.Repeat(detailRuleCell, ruleLength),
 		detailSectionOutput,
 	)
-	lines = append(lines, formatTaskOutput(t.Output, width)...)
+	out := t.Output
+	if t.OutputFunc != nil {
+		if live := t.OutputFunc(); live != "" {
+			out = live
+		}
+	}
+	lines = append(lines, formatTaskOutput(out, width)...)
 	if !t.StartedAt.IsZero() {
 		lines = append(lines, detailLabelStarted+t.StartedAt.Format(detailTimeLayout))
 	}
@@ -416,6 +423,7 @@ func formatDetailBlock(text, indent string, width int) []string {
 	rawLines := strings.Split(strings.TrimRight(text, "\n"), "\n")
 	var out []string
 	for _, rawLine := range rawLines {
+		rawLine = expandTabs(rawLine, 4)
 		if strings.TrimSpace(rawLine) == "" {
 			out = append(out, "")
 			continue
@@ -434,6 +442,7 @@ func formatDetailBlock(text, indent string, width int) []string {
 
 // formatDetailItem formats a single item with indent, soft-wrapping if it exceeds width.
 func formatDetailItem(text, indent string, width int) []string {
+	text = expandTabs(text, 4)
 	if width <= 0 {
 		return []string{indent + text}
 	}
@@ -461,13 +470,13 @@ func formatTaskOutput(out string, width int) []string {
 	rows := strings.Split(trimmed, "\n")
 	if width <= 0 {
 		for i, r := range rows {
-			rows[i] = strings.TrimSpace(r)
+			rows[i] = expandTabs(strings.TrimSpace(r), 4)
 		}
 		return rows
 	}
 	var res []string
 	for _, r := range rows {
-		trimmedRow := strings.TrimRight(r, " \t\r")
+		trimmedRow := expandTabs(strings.TrimRight(r, " \t\r"), 4)
 		if trimmedRow == "" {
 			res = append(res, "")
 			continue
@@ -480,6 +489,50 @@ func formatTaskOutput(out string, width int) []string {
 		res = append(res, wrapped...)
 	}
 	return res
+}
+
+func expandTabs(s string, tabWidth int) string {
+	if tabWidth <= 0 {
+		tabWidth = 4
+	}
+	if !strings.Contains(s, "\t") {
+		return s
+	}
+	var b strings.Builder
+	b.Grow(len(s) + 16)
+	col := 0
+	for i := 0; i < len(s); {
+		if s[i] == '\x1b' && i+1 < len(s) && s[i+1] == '[' {
+			j := i + 2
+			for j < len(s) && (s[j] == ';' || (s[j] >= '0' && s[j] <= '9')) {
+				j++
+			}
+			if j < len(s) && s[j] == 'm' {
+				b.WriteString(s[i : j+1])
+				i = j + 1
+				continue
+			}
+		}
+		r, size := utf8.DecodeRuneInString(s[i:])
+		switch r {
+		case '\t':
+			spaces := tabWidth - (col % tabWidth)
+			for k := 0; k < spaces; k++ {
+				b.WriteByte(' ')
+			}
+			col += spaces
+		case '\n':
+			b.WriteRune(r)
+			col = 0
+		case '\r':
+			b.WriteRune(r)
+		default:
+			b.WriteRune(r)
+			col++
+		}
+		i += size
+	}
+	return b.String()
 }
 
 func formatTaskError(errStr string, width int) []string {

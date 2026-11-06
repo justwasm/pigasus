@@ -5,8 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
-
-	"github.com/google/uuid"
+	"uuid"
 
 	"github.com/justwasm/pigasus/configdir"
 )
@@ -196,11 +195,7 @@ func configDir() string {
 
 // mintUUID returns a random RFC 4122 version 4 uuid.
 func mintUUID() string {
-	u, err := uuid.NewRandom()
-	if err != nil {
-		return "00000000-0000-4000-8000-000000000000"
-	}
-	return u.String()
+	return uuid.NewV4().String()
 }
 
 // isUUID reports whether s has the shape of a uuid.
@@ -208,5 +203,6 @@ func isUUID(s string) bool {
 	if len(s) != 36 {
 		return false
 	}
-	return uuid.Validate(s) == nil
+	_, err := uuid.Parse(s)
+	return err == nil
 }

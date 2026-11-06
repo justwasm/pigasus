@@ -3,20 +3,18 @@
 package gateway
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"strings"
-	"time"
 
 	"github.com/justwasm/pigasus/internal/core/apierror"
 	"github.com/justwasm/pigasus/internal/core/backend"
 	"github.com/justwasm/pigasus/internal/infra/backend/retry"
+	"github.com/justwasm/pigasus/internal/infra/backend/streampipe"
 )
 
 // gatewaySSEChunk is the subset of the gateway's chunk shape that we consume.
@@ -109,31 +107,11 @@ func (a *gatewayToolAccumulator) emit(ctx context.Context, out chan<- backend.St
 }
 
 // openGatewayWithRetry performs one synchronous HTTP open and retries on
-// connection drops only.
+// connection drops and retryable 429/5xx errors, honoring Retry-After.
 func (c *GatewayClient) openGatewayWithRetry(ctx context.Context, raw []byte) (*http.Response, error) {
-	var lastErr error
-	for attempt := 0; attempt <= retry.MaxConnectionRetries; attempt++ {
-		if attempt > 0 {
-			delay := retry.NextConnectionRetryDelay(attempt - 1)
-			select {
-			case <-ctx.Done():
-				return nil, ctx.Err()
-			case <-time.After(delay):
-			}
-		}
-		resp, err := c.openGatewayOnce(ctx, raw)
-		if err == nil {
-			return resp, nil
-		}
-		if !retry.IsConnectionDropped(err) {
-			return nil, err
-		}
-		lastErr = err
-	}
-	if lastErr == nil {
-		lastErr = &retry.ConnectionDroppedError{URL: c.baseURL, Err: errors.New("max retries exceeded")}
-	}
-	return nil, lastErr
+	return streampipe.ExecuteWithRetry(ctx, c.baseURL, func(ctx context.Context) (*http.Response, error) {
+		return c.openGatewayOnce(ctx, raw)
+	})
 }
 
 // openGatewayOnce performs one HTTP attempt.
@@ -156,42 +134,21 @@ func (c *GatewayClient) openGatewayOnce(ctx context.Context, raw []byte) (*http.
 	if resp.StatusCode >= 400 {
 		rawBody, _ := io.ReadAll(resp.Body)
 		resp.Body.Close()
-		return nil, &apierror.HTTPError{StatusCode: resp.StatusCode, Body: rawBody, URL: c.baseURL}
+		return nil, &apierror.HTTPError{StatusCode: resp.StatusCode, Body: rawBody, URL: c.baseURL, Header: resp.Header}
 	}
 	return resp, nil
 }
 
 // runGatewayStreamBodyWithRetry owns the async body read and retry loop.
 func (c *GatewayClient) runGatewayStreamBodyWithRetry(ctx context.Context, resp *http.Response, raw []byte, externalModel string, out chan<- backend.StreamChunk) {
-	defer func() {
-		if resp != nil {
-			_ = resp.Body.Close()
-		}
-	}()
-	for attempt := 0; ; attempt++ {
-		err := c.readGatewayBodyOnce(ctx, resp, externalModel, out)
-		if err == nil || !retry.IsConnectionDropped(err) {
-			return
-		}
-		if attempt >= retry.MaxConnectionRetries {
-			out <- backend.StreamChunk{Error: err, Done: true}
-			return
-		}
-		_ = resp.Body.Close()
-		delay := retry.NextConnectionRetryDelay(attempt)
-		select {
-		case <-ctx.Done():
-			out <- backend.StreamChunk{Error: ctx.Err(), Done: true}
-			return
-		case <-time.After(delay):
-		}
-		newResp, openErr := c.openGatewayOnce(ctx, raw)
-		if openErr != nil {
-			out <- backend.StreamChunk{Error: openErr, Done: true}
-			return
-		}
-		resp = newResp
+	p := streampipe.Pipeline[[]byte]{
+		EndpointURL: c.baseURL,
+		Open:        c.openGatewayOnce,
+		ReadBody: func(ctx context.Context, r *http.Response, ch chan<- backend.StreamChunk) error {
+			return c.readGatewayBodyOnce(ctx, r, externalModel, ch)
+		},
 	}
+	p.Run(ctx, resp, raw, out)
 }
 
 // readGatewayBodyOnce reads one response body to completion.
@@ -204,28 +161,20 @@ func (c *GatewayClient) readGatewayBodyOnce(ctx context.Context, resp *http.Resp
 
 // readOpenAIBody reads one Chat Completions response body to completion.
 func (c *GatewayClient) readOpenAIBody(ctx context.Context, resp *http.Response, externalModel string, out chan<- backend.StreamChunk) error {
-	idleR := retry.NewIdleTimeoutReader(resp.Body, retry.StreamIdleTimeout)
-	scanner := bufio.NewScanner(idleR)
-	scanner.Buffer(make([]byte, 0, 64*1024), 1<<20)
 	var meta *backend.ChunkMeta
 	acc := newGatewayToolAccumulator()
 
-	for scanner.Scan() {
-		line := scanner.Text()
-		done, err := c.handleOpenAISSELine(ctx, line, acc, &meta, externalModel, out)
-		if err != nil {
-			return err
+	done, scanErr := streampipe.ScanSSELines(ctx, resp.Body, 1<<20, c.baseURL, func(line string) (bool, error) {
+		return c.handleOpenAISSELine(ctx, line, acc, &meta, externalModel, out)
+	})
+	if scanErr != nil {
+		if !retry.IsConnectionDropped(scanErr) {
+			out <- backend.StreamChunk{Error: scanErr, Done: true}
 		}
-		if done {
-			return nil
-		}
+		return scanErr
 	}
-	if err := scanner.Err(); err != nil {
-		classified := retry.ClassifyTransportError(fmt.Errorf("gateway: sse read: %w", err), c.baseURL)
-		if !retry.IsConnectionDropped(classified) {
-			out <- backend.StreamChunk{Error: classified, Done: true}
-		}
-		return classified
+	if done {
+		return nil
 	}
 	if !acc.emit(ctx, out) {
 		return nil

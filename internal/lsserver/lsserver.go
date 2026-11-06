@@ -37,8 +37,7 @@ import (
 	"os"
 	"runtime"
 	"time"
-
-	"github.com/google/uuid"
+	"uuid"
 
 	"github.com/justwasm/pigasus/internal/cli"
 	accounts "github.com/justwasm/pigasus/internal/features/accounts/core"
@@ -231,7 +230,7 @@ func notFound(w http.ResponseWriter, r *http.Request) {
 // The reference's answer carries the process's instance id and the
 // word "ok".
 func healthzHandler() http.Handler {
-	instanceID := uuid.NewString()
+	instanceID := uuid.New().String()
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = fmt.Fprintf(w, `{"instanceId":%q,"status":"ok"}`, instanceID)

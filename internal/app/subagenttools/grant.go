@@ -1,7 +1,7 @@
 package subagenttools
 
 import (
-	piagent "github.com/MichaelKinsy/PiG/agent"
+	"github.com/justwasm/pigasus/actor"
 )
 
 // Grant is the tool authorization a subagent type carries.
@@ -112,8 +112,8 @@ func (g Grant) All() Grant {
 // invoke_subagent, wired to the same definition store and the same
 // deps: that is what makes a granted subagent able to define and open
 // subagents of its own, recursively.
-func grantedToolSet(deps Deps, defs *Store, grant Grant) []piagent.AgentTool {
-	out := make([]piagent.AgentTool, 0, len(researchToolNames)+4)
+func grantedToolSet(deps Deps, defs *Store, grant Grant) []actor.Tool {
+	out := make([]actor.Tool, 0, len(researchToolNames)+4)
 	out = append(out, selectByName(deps.Catalogue, grant.grantedNames())...)
 	out = append(out, &sendMessageTool{registry: deps.Registry, owner: deps.ConversationID})
 	if grant.Subagent {
@@ -131,8 +131,8 @@ func grantedToolSet(deps Deps, defs *Store, grant Grant) []piagent.AgentTool {
 // answer "not implemented"), and its send_message is the background
 // command's stdin — the parent's own surface replaces all four with
 // this package's real ones, and so does the child's.
-func selfToolSet(deps Deps, defs *Store) []piagent.AgentTool {
-	out := make([]piagent.AgentTool, 0, len(deps.Catalogue)+4)
+func selfToolSet(deps Deps, defs *Store) []actor.Tool {
+	out := make([]actor.Tool, 0, len(deps.Catalogue)+4)
 	for _, t := range deps.Catalogue {
 		if t == nil {
 			continue
@@ -147,8 +147,8 @@ func selfToolSet(deps Deps, defs *Store) []piagent.AgentTool {
 }
 
 // subagentToolSet returns this package's own four tools.
-func subagentToolSet(deps Deps, defs *Store) []piagent.AgentTool {
-	return []piagent.AgentTool{
+func subagentToolSet(deps Deps, defs *Store) []actor.Tool {
+	return []actor.Tool{
 		&sendMessageTool{registry: deps.Registry, owner: deps.ConversationID},
 		&defineTool{defs: defs},
 		&invokeTool{deps: deps, defs: defs},
@@ -161,7 +161,7 @@ func subagentToolSet(deps Deps, defs *Store) []piagent.AgentTool {
 // A name the catalogue does not carry is skipped: the grant says what
 // the subagent *may* call, and a tool the parent does not have is not
 // something the child can have either.
-func selectByName(catalogue []piagent.AgentTool, names []string) []piagent.AgentTool {
+func selectByName(catalogue []actor.Tool, names []string) []actor.Tool {
 	if len(catalogue) == 0 || len(names) == 0 {
 		return nil
 	}
@@ -169,7 +169,7 @@ func selectByName(catalogue []piagent.AgentTool, names []string) []piagent.Agent
 	for _, n := range names {
 		want[n] = true
 	}
-	var out []piagent.AgentTool
+	var out []actor.Tool
 	for _, t := range catalogue {
 		if t == nil || !want[t.Name()] {
 			continue
@@ -181,7 +181,7 @@ func selectByName(catalogue []piagent.AgentTool, names []string) []piagent.Agent
 }
 
 // toolNames lists the names of a tool set, in order.
-func toolNames(list []piagent.AgentTool) []string {
+func toolNames(list []actor.Tool) []string {
 	out := make([]string, 0, len(list))
 	for _, t := range list {
 		if t != nil {

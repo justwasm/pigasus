@@ -6,45 +6,68 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"os"
 	"path/filepath"
-	"runtime/debug"
 	"strings"
 	"time"
 
-	piagent "github.com/MichaelKinsy/PiG/agent"
-	pi "github.com/MichaelKinsy/PiG/ai"
-	"github.com/MichaelKinsy/PiG/coding"
-	"github.com/MichaelKinsy/PiG/coding/extension"
-	"github.com/MichaelKinsy/PiG/coding/extension/builtin"
-	"github.com/MichaelKinsy/PiG/coding/extension/factoryload"
+	"github.com/justwasm/pigasus/actor"
 	taskregistry "github.com/justwasm/pigasus/internal/app/task"
 )
 
-// Invoke runs the subagent synchronously: builds a fresh
-// `coding.Session` from the parent's services, sends the prompt, and
-// returns when the session settles or ctx is cancelled.
-//
-// The function is concurrency-safe across Deps; each call spins up
-// its own session, and PiG's session manager serialises per-cwd
-// persistence. The Deps fields themselves are not mutated.
-func Invoke(ctx context.Context, inv Invocation, deps Deps) (Result, error) {
-	if deps.Services == nil {
-		return Result{}, errors.New("subagenttools: Deps.Services is required")
+// SubagentMessage represents a single message in the subagent transcript.
+type SubagentMessage struct {
+	Role       string `json:"role"`
+	Content    string `json:"content,omitempty"`
+	ToolName   string `json:"tool_name,omitempty"`
+	ToolCallID string `json:"tool_call_id,omitempty"`
+}
+
+// Role reports the message's role.
+func (m SubagentMessage) GetRole() string { return m.Role }
+
+// gatedTool wraps an actor.Tool with a BeforeToolCallGate.
+type gatedTool struct {
+	inner actor.Tool
+	gate  BeforeToolCallGate
+}
+
+func (g *gatedTool) Name() string                       { return g.inner.Name() }
+func (g *gatedTool) Description() string                { return g.inner.Description() }
+func (g *gatedTool) Definition() actor.ToolDefinition   { return g.inner.Definition() }
+func (g *gatedTool) RequiresApproval(input string) bool { return g.inner.RequiresApproval(input) }
+func (g *gatedTool) Execute(ctx context.Context, input string) (actor.ToolResult, error) {
+	if g.gate != nil {
+		decision := g.gate.Decide(ctx, g.inner.Name(), json.RawMessage(input))
+		if !decision.Allow {
+			return actor.ToolResult{
+				Error: decision.Reason,
+			}, nil
+		}
 	}
+	return g.inner.Execute(ctx, input)
+}
+
+// Invoke runs the subagent synchronously: builds a fresh
+// Actor from the parent's deps, sends the prompt, and
+// returns when the turn settles or ctx is cancelled.
+func Invoke(ctx context.Context, inv Invocation, deps Deps) (Result, error) {
 	if strings.TrimSpace(inv.Prompt) == "" {
 		return Result{}, errors.New("subagenttools: Invocation.Prompt is required")
 	}
 
 	model := invModel(inv, deps)
-	if model == nil {
-		return Result{}, errors.New("subagenttools: no model resolved (set Deps.Model or Invocation.Model)")
+	if model == "" {
+		return Result{}, errors.New("subagenttools: Deps.Model is required")
+	}
+	provider := deps.Provider
+	if provider == nil {
+		return Result{}, errors.New("subagenttools: Deps.Provider is required")
 	}
 
 	agentDir := deps.AgentDir
 	if agentDir == "" {
-		agentDir = deps.Services.AgentDir()
+		agentDir = filepath.Join(os.TempDir(), "subagents")
 	}
 
 	systemPrompt := inv.SystemPrompt
@@ -61,7 +84,6 @@ func Invoke(ctx context.Context, inv Invocation, deps Deps) (Result, error) {
 	cwd, worktreePath := resolveSubagentCWD(agentDir, subID, inv.Worktree, deps)
 	startedAt := time.Now()
 
-	// Register in taskregistry if available so /tasks and ActiveItems preview reflect the running subagent.
 	taskReg := deps.Tasks
 	if taskReg != nil {
 		taskName := subagentDisplayName(inv)
@@ -71,16 +93,10 @@ func Invoke(ctx context.Context, inv Invocation, deps Deps) (Result, error) {
 			Kind:      taskregistry.KindSubagent,
 			State:     taskregistry.StateRunning,
 			StartedAt: startedAt,
-			// The prompt and the answer are what the /tasks detail
-			// view shows for a subagent row (the reference's
-			// "Prompt" and "Answer" sections). The prompt is known
-			// up front; the answer is filled in once the run ends.
-			Prompt: inv.Prompt,
+			Prompt:    inv.Prompt,
 		})
 		defer func() {
 			taskReg.Update(subID, func(t *taskregistry.Task) {
-				// A failed run already recorded the failure; do not
-				// overwrite it with "done" on the way out.
 				if t.State != taskregistry.StateFailed {
 					t.State = taskregistry.StateDone
 				}
@@ -90,7 +106,31 @@ func Invoke(ctx context.Context, inv Invocation, deps Deps) (Result, error) {
 		}()
 	}
 
-	rt, session, err := createSubagentSession(ctx, deps, model, systemPrompt, cwd, inv.Tools, parentContextOf(deps, inv))
+	tools := inv.Tools
+	if len(tools) == 0 {
+		tools = grantedToolSet(deps, deps.Definitions, inv.Grant)
+	}
+	var gate BeforeToolCallGate
+	if deps.PermissionGateFor != nil {
+		gate = deps.PermissionGateFor(cwd)
+	}
+	gatedTools := make([]actor.Tool, 0, len(tools))
+	for _, t := range tools {
+		if gate != nil {
+			gatedTools = append(gatedTools, &gatedTool{inner: t, gate: gate})
+		} else {
+			gatedTools = append(gatedTools, t)
+		}
+	}
+
+	act, err := actor.Spawn(actor.Config{
+		ID:           subID,
+		Name:         subagentDisplayName(inv),
+		SystemPrompt: systemPrompt,
+		Model:        model,
+		Provider:     provider,
+		Tools:        gatedTools,
+	})
 	if err != nil {
 		if taskReg != nil {
 			taskReg.Update(subID, func(t *taskregistry.Task) {
@@ -101,8 +141,10 @@ func Invoke(ctx context.Context, inv Invocation, deps Deps) (Result, error) {
 		}
 		return Result{}, err
 	}
+	defer act.Close()
+
 	watchdog := newActivityWatchdog(DefaultWatchdogTimeout, func() {
-		_ = session.Abort(context.Background())
+		_ = act.CancelTurn("watchdog stalled")
 		if taskReg != nil {
 			taskReg.Update(subID, func(t *taskregistry.Task) {
 				t.State = taskregistry.StateFailed
@@ -113,37 +155,92 @@ func Invoke(ctx context.Context, inv Invocation, deps Deps) (Result, error) {
 	})
 	defer watchdog.Stop()
 
-	drainDone := drainSubagentEvents(session, taskReg, nil, subID, watchdog)
-	defer func() {
-		_ = session.Close()
-		<-drainDone
-		_ = rt.Close()
-	}()
+	events, err := act.Prompt(ctx, inv.Prompt)
+	if err != nil {
+		return Result{}, err
+	}
+
+	var textBuilder strings.Builder
+	for ev := range events {
+		switch ev.Type {
+		case actor.EventDelta:
+			if watchdog != nil {
+				watchdog.Ping()
+			}
+			textBuilder.WriteString(ev.Delta)
+			if taskReg != nil {
+				taskReg.RecordActivity(subID)
+				taskReg.Update(subID, func(t *taskregistry.Task) {
+					t.Output = textBuilder.String()
+				})
+			}
+		case actor.EventToolCallStarted:
+			if watchdog != nil {
+				watchdog.Ping()
+			}
+			if taskReg != nil {
+				taskReg.RecordActivity(subID)
+				taskReg.Update(subID, func(t *taskregistry.Task) {
+					if ev.ToolCall != nil {
+						t.CurrentTool = ev.ToolCall.Name
+					}
+				})
+			}
+		case actor.EventToolCallFinished:
+			if watchdog != nil {
+				watchdog.Ping()
+			}
+			if taskReg != nil {
+				taskReg.RecordActivity(subID)
+				taskReg.Update(subID, func(t *taskregistry.Task) {
+					t.CurrentTool = ""
+				})
+			}
+		}
+	}
 
 	defer purgeWorktreeArtifacts(worktreePath, subID)
 
-	msgs, runErr := session.Send(ctx, inv.Prompt)
-	if runErr != nil && watchdog.IsStalled() {
+	var runErr error
+	if watchdog.IsStalled() {
 		runErr = ErrConnectionStalled
 	}
-	if runErr != nil && taskReg != nil {
-		taskReg.Update(subID, func(t *taskregistry.Task) {
-			t.State = taskregistry.StateFailed
-			t.Err = runErr
-			t.CurrentTool = ""
-			t.EndedAt = time.Now()
-		})
+	lastTurn := act.Trajectory().LastTurn()
+	if lastTurn != nil && lastTurn.Error != "" {
+		runErr = errors.New(lastTurn.Error)
 	}
-	result, buildErr := buildInvokeResult(subID, startedAt, worktreePath, msgs, runErr, subDir, session)
+
+	msgs := trajectoryToSubagentMessages(act.Trajectory())
+	if subDir != "" {
+		persistTranscript(subDir, subID, msgs, runErr)
+	}
+
+	outputText := textBuilder.String()
+	if lastTurn != nil && lastTurn.FinalOutput != "" {
+		outputText = lastTurn.FinalOutput
+	}
+
 	if taskReg != nil {
 		taskReg.Update(subID, func(t *taskregistry.Task) {
-			t.Output = result.Text
+			t.Output = outputText
 			t.Tools = usedTools(msgs)
 			t.Steps = usedSteps(msgs)
 			t.CurrentTool = ""
+			if runErr != nil {
+				t.State = taskregistry.StateFailed
+				t.Err = runErr
+			}
 		})
 	}
-	return result, buildErr
+
+	result := Result{
+		SubagentID:   subID,
+		Text:         outputText,
+		Messages:     msgs,
+		Duration:     time.Since(startedAt),
+		WorktreePath: worktreePath,
+	}
+	return result, runErr
 }
 
 // subagentDisplayName derives the label shown in /tasks and ActiveItems.
@@ -166,137 +263,30 @@ func subagentDisplayName(inv Invocation) string {
 	return name
 }
 
-// drainSubagentEvents consumes the session's event channel so PiG's internal
-// broadcaster never blocks (which would deadlock session.Send), while continuously
-// updating the taskregistry and child with streaming output and active tool names.
-func drainSubagentEvents(
-	session *coding.Session,
-	taskReg *taskregistry.Registry,
-	child *Child,
-	taskID string,
-	watchdog *activityWatchdog,
-) <-chan struct{} {
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		defer func() {
-			if r := recover(); r != nil {
-				fmt.Fprintf(os.Stderr, "\n[drainSubagentEvents %s panic]: %v\n%s\n", taskID, r, string(debug.Stack()))
-			}
-		}()
-		if session == nil {
-			return
-		}
-		for ev := range session.Events() {
-			if coding.AcknowledgeEvent(ev) {
-				continue
-			}
-			switch e := ev.(type) {
-			case piagent.MessageUpdateEvent:
-				if delta, ok := e.AssistantMessageEvent.(pi.TextDeltaEvent); ok && delta.Delta != "" {
-					if watchdog != nil {
-						watchdog.Ping()
-					}
-					if taskReg != nil && taskID != "" {
-						taskReg.RecordActivity(taskID)
-						taskReg.Update(taskID, func(t *taskregistry.Task) {
-							t.Output += delta.Delta
-						})
-					}
-				}
-			case piagent.ToolExecutionStartEvent:
-				if watchdog != nil {
-					watchdog.Ping()
-				}
-				if child != nil {
-					child.SetCurrentTool(e.ToolName)
-				}
-				if taskReg != nil && taskID != "" {
-					taskReg.RecordActivity(taskID)
-					taskReg.Update(taskID, func(t *taskregistry.Task) {
-						t.CurrentTool = e.ToolName
-						found := false
-						for _, name := range t.Tools {
-							if name == e.ToolName {
-								found = true
-								break
-							}
-						}
-						if !found && e.ToolName != "" {
-							t.Tools = append(t.Tools, e.ToolName)
-						}
-						if e.ToolName != "" {
-							t.Steps = append(t.Steps, e.ToolName)
-						}
-					})
-				}
-			case piagent.ToolExecutionEndEvent:
-				if watchdog != nil {
-					watchdog.Ping()
-				}
-				if child != nil {
-					child.SetCurrentTool("")
-				}
-				if taskReg != nil && taskID != "" {
-					taskReg.RecordActivity(taskID)
-					taskReg.Update(taskID, func(t *taskregistry.Task) {
-						t.CurrentTool = ""
-					})
-				}
-			}
-		}
-	}()
-	return done
-}
-
-// usedTools lists the tools a subagent called, in call order and
-// without repeats. The /tasks detail view renders them under the
-// reference's "Tools" heading.
-func usedTools(msgs []piagent.AgentMessage) []string {
+// usedTools lists the tools a subagent called, in call order and without repeats.
+func usedTools(msgs []SubagentMessage) []string {
 	var out []string
 	seen := map[string]bool{}
 	for _, m := range msgs {
-		if m.Assistant == nil {
-			continue
-		}
-		for _, block := range m.Assistant.Content {
-			call, ok := block.(pi.ToolCall)
-			if !ok || call.Name == "" || seen[call.Name] {
-				continue
-			}
-			seen[call.Name] = true
-			out = append(out, call.Name)
+		if m.ToolName != "" && !seen[m.ToolName] {
+			seen[m.ToolName] = true
+			out = append(out, m.ToolName)
 		}
 	}
 	return out
 }
 
-// usedSteps lists the subagent's trajectory steps, in order: one per
-// assistant content block — a tool call by its name, a text block by
-// its first line.
-//
-// The /tasks detail view renders them under the reference's
-// "Trajectory — <name> (<N> steps)" heading, one numbered row per
-// step. The reference walks the messages of its own trajectory there;
-// the clone's PiG session hands back the same conversation, and each
-// assistant block of it is one step.
-func usedSteps(msgs []piagent.AgentMessage) []string {
+// usedSteps lists the subagent's trajectory steps in order.
+func usedSteps(msgs []SubagentMessage) []string {
 	var out []string
 	for _, m := range msgs {
-		if m.Assistant == nil {
+		if m.Role != "assistant" {
 			continue
 		}
-		for _, block := range m.Assistant.Content {
-			switch b := block.(type) {
-			case pi.ToolCall:
-				if b.Name != "" {
-					out = append(out, b.Name)
-				}
-			case pi.TextContent:
-				if line := firstLine(b.Text); line != "" {
-					out = append(out, line)
-				}
-			}
+		if m.ToolName != "" {
+			out = append(out, m.ToolName)
+		} else if line := firstLine(m.Content); line != "" {
+			out = append(out, line)
 		}
 	}
 	return out
@@ -312,6 +302,21 @@ func firstLine(s string) string {
 	return ""
 }
 
+func invModel(inv Invocation, deps Deps) string {
+	m := strings.TrimSpace(inv.Model)
+	if m == "" || strings.EqualFold(m, "inherit") {
+		m = strings.TrimSpace(deps.Model)
+	}
+	switch strings.ToLower(m) {
+	case "pro":
+		return "gemini-4-argon"
+	case "flash", "flash_lite":
+		return "gemini-3.8-flash"
+	default:
+		return m
+	}
+}
+
 func resolveSubagentCWD(agentDir, subID, invWorktree string, deps Deps) (string, string) {
 	cwd := strings.TrimSpace(invWorktree)
 	if cwd != "" {
@@ -320,170 +325,64 @@ func resolveSubagentCWD(agentDir, subID, invWorktree string, deps Deps) (string,
 	worktreePath, err := allocateSubagentWorktreeDir(agentDir, subID)
 	if err != nil {
 		fallback := strings.TrimSpace(deps.CWD)
-		if fallback == "" && deps.Services != nil {
-			fallback = deps.Services.CWD()
+		if fallback == "" {
+			fallback, _ = os.Getwd()
 		}
 		worktreePath = fallback
 	}
 	return worktreePath, worktreePath
 }
 
-func createSubagentSession(ctx context.Context, deps Deps, model *pi.Model, systemPrompt, cwd string, extraTools []piagent.AgentTool, pctx *ParentContext) (*coding.Runtime, *coding.Session, error) {
-	exts, extRuntime := minimalBuiltinExtensions()
-	exts = loadParentContextExtension(exts, extRuntime, pctx)
-	rt, err := coding.NewRuntime(coding.RuntimeOptions{
-		Services:         deps.Services,
-		NewExtensions:    exts,
-		ExtensionRuntime: extRuntime,
-		AbortContext:     ctx,
-	})
-	if err != nil {
-		return nil, nil, fmt.Errorf("subagenttools: new runtime: %w", err)
-	}
-
-	session, err := rt.New(coding.SessionStartOptions{
-		Model:            model,
-		SystemPrompt:     systemPrompt,
-		CWDOverride:      stringPtr(cwd),
-		NoSession:        true,
-		SkipBuiltinTools: true,
-		ExtraTools:       extraTools,
-		BeforeToolCall:   deps.beforeToolCallHooks(cwd),
-	})
-	if err != nil {
-		_ = rt.Close()
-		return nil, nil, fmt.Errorf("subagenttools: new session: %w", err)
-	}
-
-	if err := session.BindExtensions(ctx, coding.ExtensionBindings{}); err != nil {
-		_ = session.Close()
-		_ = rt.Close()
-		return nil, nil, fmt.Errorf("subagenttools: bind extensions: %w", err)
-	}
-	return rt, session, nil
-}
-
-func buildInvokeResult(subID string, startedAt time.Time, worktreePath string, msgs []piagent.AgentMessage, runErr error, subDir string, session *coding.Session) (Result, error) {
-	result := Result{
-		SubagentID:   subID,
-		Duration:     time.Since(startedAt),
-		Messages:     msgs,
-		WorktreePath: worktreePath,
-	}
-	if mgr := session.SessionManager(); mgr != nil {
-		result.SessionID = sessionIDOf(mgr)
-	}
-	if runErr != nil {
-		persistTranscript(subDir, subID, msgs, runErr)
-		if subDir != "" {
-			_ = saveCheckpoint(subDir, CheckpointMeta{
-				ConversationID: subID,
-				Worktree:       worktreePath,
-				State:          StateErrored,
-				StartedAt:      startedAt,
-				EndedAt:        time.Now(),
-				LastActivityAt: time.Now(),
-				StepCount:      len(usedSteps(msgs)),
-				ToolsUsed:      usedTools(msgs),
-				Error:          runErr.Error(),
-			})
-		}
-		return result, runErr
-	}
-	result.Text = assistantText(msgs)
-	if subDir != "" {
-		persistTranscript(subDir, subID, msgs, nil)
-		_ = saveCheckpoint(subDir, CheckpointMeta{
-			ConversationID: subID,
-			Worktree:       worktreePath,
-			State:          string(taskregistry.StateDone),
-			StartedAt:      startedAt,
-			EndedAt:        time.Now(),
-			LastActivityAt: time.Now(),
-			StepCount:      len(usedSteps(msgs)),
-			ToolsUsed:      usedTools(msgs),
-		})
-	}
-	return result, nil
-}
-
-func invModel(inv Invocation, deps Deps) *pi.Model {
-	if id := strings.TrimSpace(inv.Model); id != "" && deps.Model != nil {
-		copy := *deps.Model
-		copy.ID = id
-		return &copy
-	}
-	return deps.Model
-}
-
-func stringPtr(s string) *string {
-	if s == "" {
+func trajectoryToSubagentMessages(tr *actor.Trajectory) []SubagentMessage {
+	if tr == nil {
 		return nil
 	}
-	v := s
-	return &v
-}
-
-func assistantText(msgs []piagent.AgentMessage) string {
-	var b strings.Builder
-	for _, m := range msgs {
-		if m.Assistant == nil {
-			continue
+	var out []SubagentMessage
+	for _, turn := range tr.Turns() {
+		if turn.Input != nil {
+			role := string(turn.Input.MessageType())
+			content := ""
+			if usr, ok := turn.Input.(*actor.UserMessage); ok {
+				role = "user"
+				content = usr.Text
+			}
+			out = append(out, SubagentMessage{
+				Role:    role,
+				Content: content,
+			})
 		}
-		if m.Assistant.StopReason == pi.StopReasonError || m.Assistant.StopReason == pi.StopReasonAborted {
-			continue
-		}
-		for _, block := range m.Assistant.Content {
-			if text, ok := block.(pi.TextContent); ok {
-				b.WriteString(text.Text)
+		for _, step := range turn.Steps {
+			if step.Delta != "" {
+				out = append(out, SubagentMessage{
+					Role:    "assistant",
+					Content: step.Delta,
+				})
+			}
+			for _, tc := range step.ToolCalls {
+				out = append(out, SubagentMessage{
+					Role:       "assistant",
+					ToolName:   tc.Name,
+					ToolCallID: tc.ID,
+					Content:    tc.Input,
+				})
+			}
+			for _, tr := range step.ToolResults {
+				content := tr.Output
+				if tr.Error != "" {
+					content = tr.Error
+				}
+				out = append(out, SubagentMessage{
+					Role:       "toolResult",
+					ToolCallID: tr.ToolCallID,
+					Content:    content,
+				})
 			}
 		}
 	}
-	return strings.TrimSpace(b.String())
+	return out
 }
 
-func sessionIDOf(mgr *coding.SessionManager) string {
-	if mgr == nil {
-		return ""
-	}
-	sm, ok := any(mgr).(interface{ SessionDir() string })
-	if !ok {
-		return ""
-	}
-	dir := sm.SessionDir()
-	if dir == "" {
-		return ""
-	}
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return ""
-	}
-	var newest os.DirEntry
-	var newestMod int64
-	for _, e := range entries {
-		if e.IsDir() {
-			continue
-		}
-		info, err := e.Info()
-		if err != nil {
-			continue
-		}
-		if info.ModTime().UnixNano() >= newestMod {
-			newestMod = info.ModTime().UnixNano()
-			newest = e
-		}
-	}
-	if newest == nil {
-		return ""
-	}
-	name := newest.Name()
-	if idx := strings.Index(name, "_"); idx >= 0 {
-		return strings.TrimSuffix(name[idx+1:], ".jsonl")
-	}
-	return strings.TrimSuffix(name, ".jsonl")
-}
-
-func persistTranscript(subDir, subID string, msgs []piagent.AgentMessage, runErr error) {
+func persistTranscript(subDir, subID string, msgs []SubagentMessage, runErr error) {
 	if subDir == "" || subID == "" {
 		return
 	}
@@ -493,7 +392,7 @@ func persistTranscript(subDir, subID string, msgs []piagent.AgentMessage, runErr
 		line := map[string]any{
 			"subagent": subID,
 			"index":    i,
-			"role":     msg.Role(),
+			"role":     msg.Role,
 			"message":  msg,
 		}
 		_ = encoder.Encode(line)
@@ -514,58 +413,44 @@ func persistTranscript(subDir, subID string, msgs []piagent.AgentMessage, runErr
 	}
 }
 
-// loadTranscript reads a persisted subagent JSONL transcript from disk,
-// reconstructing the sequence of AgentMessages so execution can be resumed without losing progress.
-func loadTranscript(subDir, subID string) ([]piagent.AgentMessage, error) {
+// loadTranscript reads a persisted subagent JSONL transcript from disk.
+func loadTranscript(subDir, subID string) ([]SubagentMessage, error) {
 	if subDir == "" || subID == "" {
-		return nil, nil
+		return nil, errors.New("subagenttools: subDir and subID are required")
 	}
 	path := filepath.Join(subDir, subID+".jsonl")
-	data, err := os.ReadFile(path)
+	f, err := os.Open(path)
 	if err != nil {
-		if os.IsNotExist(err) {
+		if errors.Is(err, os.ErrNotExist) {
 			return nil, nil
 		}
 		return nil, err
 	}
+	defer f.Close()
 
-	var msgs []piagent.AgentMessage
-	scanner := bufio.NewScanner(bytes.NewReader(data))
+	var msgs []SubagentMessage
+	scanner := bufio.NewScanner(f)
 	for scanner.Scan() {
-		line := bytes.TrimSpace(scanner.Bytes())
-		if len(line) == 0 {
+		line := scanner.Bytes()
+		if len(bytes.TrimSpace(line)) == 0 {
 			continue
 		}
-		var record struct {
-			Subagent string          `json:"subagent"`
-			Index    int             `json:"index"`
-			Role     string          `json:"role"`
-			Message  json.RawMessage `json:"message"`
-			Error    string          `json:"error"`
-		}
-		if err := json.Unmarshal(line, &record); err != nil {
+		var raw map[string]any
+		if err := json.Unmarshal(line, &raw); err != nil {
 			continue
 		}
-		if record.Role == "error" || len(record.Message) == 0 {
+		role, _ := raw["role"].(string)
+		if role == "error" {
 			continue
 		}
-		var msg piagent.AgentMessage
-		if err := json.Unmarshal(record.Message, &msg); err == nil && msg.Role() != "" {
-			msgs = append(msgs, msg)
+		var msg SubagentMessage
+		if mBytes, err := json.Marshal(raw["message"]); err == nil {
+			_ = json.Unmarshal(mBytes, &msg)
 		}
+		if msg.Role == "" {
+			msg.Role = role
+		}
+		msgs = append(msgs, msg)
 	}
 	return msgs, scanner.Err()
-}
-
-func minimalBuiltinExtensions() ([]extension.Extension, *extension.ExtensionRuntime) {
-	extRuntime := extension.CreateExtensionRuntime()
-	var out []extension.Extension
-	for _, entry := range builtin.All(builtin.Options{}) {
-		ext, err := factoryload.LoadExtensionFromFactory(entry.Factory, "", nil, extRuntime, entry.Path())
-		if err != nil {
-			continue
-		}
-		out = append(out, ext)
-	}
-	return out, extRuntime
 }

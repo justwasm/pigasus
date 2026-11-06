@@ -15,8 +15,7 @@
 //
 // The wrapper is also where the reference's structured answers travel: a
 // search's answer rides on the tool result's details, which the bridge
-// carries into the request body (internal/piagentbridge) and the transport
-// sends as it is (internal/backend).
+// carries into the request body and the transport sends as it is.
 //
 // # The outcome store
 //
@@ -29,15 +28,14 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 	"time"
 
-	piagent "github.com/MichaelKinsy/PiG/agent"
-	pi "github.com/MichaelKinsy/PiG/ai"
-
+	"github.com/justwasm/pigasus/actor"
 	"github.com/justwasm/pigasus/internal/app/harnesstools"
 )
 
@@ -46,16 +44,16 @@ import (
 //
 // The client's own tools are not wrapped: the client prints them, and the
 // harness has nothing to re-render.
-func harnessTools(inner []piagent.AgentTool, store *outcomeStore, truncateTokens int) []piagent.AgentTool {
+func harnessTools(inner []actor.Tool, conv *conversation, store *outcomeStore, truncateTokens int) []actor.Tool {
 	if len(inner) == 0 {
 		return nil
 	}
-	out := make([]piagent.AgentTool, 0, len(inner))
+	out := make([]actor.Tool, 0, len(inner))
 	for _, tool := range inner {
 		if tool == nil {
 			continue
 		}
-		out = append(out, &harnessTool{inner: tool, store: store, truncateTokens: truncateTokens})
+		out = append(out, &harnessTool{inner: tool, conv: conv, store: store, truncateTokens: truncateTokens})
 	}
 	return out
 }
@@ -63,105 +61,77 @@ func harnessTools(inner []piagent.AgentTool, store *outcomeStore, truncateTokens
 // harnessTool re-renders one tool's result the way the reference's harness
 // renders it.
 type harnessTool struct {
-	inner piagent.AgentTool
-	store *outcomeStore
-	// truncateTokens is the client's tool-output truncation budget, in
-	// tokens. Zero leaves the output whole.
+	inner          actor.Tool
+	conv           *conversation
+	store          *outcomeStore
 	truncateTokens int
 }
 
 func (t *harnessTool) Name() string { return t.inner.Name() }
 
-func (t *harnessTool) Label() string { return t.inner.Label() }
+func (t *harnessTool) Description() string { return t.inner.Description() }
 
-func (t *harnessTool) Schema() pi.ToolSchema { return t.inner.Schema() }
+func (t *harnessTool) Definition() actor.ToolDefinition { return t.inner.Definition() }
 
-// ArgumentSchema forwards the inner tool's runtime schema.
-//
-// PiG validates a call against this schema when the tool carries one, and
-// the harness's surface is the lenient one: the reference's harness runs a
-// call that misses a required field, so the runtime check drops the
-// `required` list while the advertised schema stays as it is.
-//
-// A tool that carries no runtime schema keeps the one its own declaration
-// has — that is what PiG would have validated against.
-func (t *harnessTool) ArgumentSchema() json.RawMessage {
-	if provider, ok := t.inner.(interface{ ArgumentSchema() json.RawMessage }); ok {
-		return provider.ArgumentSchema()
-	}
-	params := t.inner.Schema().Parameters
-	if params == nil {
-		return nil
-	}
-	raw, err := json.Marshal(params)
-	if err != nil {
-		return nil
-	}
-	return raw
-}
-
-// PrepareArguments forwards the inner tool's argument normalisation.
-//
-// The reference's edit tool normalises its arguments before the schema
-// check runs; the clone's tools do the same, and the wrapper must not
-// stand between them and the check.
-func (t *harnessTool) PrepareArguments(raw json.RawMessage) (json.RawMessage, error) {
-	if preparer, ok := t.inner.(piagent.ArgumentPreparer); ok {
-		return preparer.PrepareArguments(raw)
-	}
-	return raw, nil
-}
-
-func (t *harnessTool) ExecutionMode() piagent.ToolExecutionMode {
-	return t.inner.ExecutionMode()
-}
+func (t *harnessTool) RequiresApproval(input string) bool { return t.inner.RequiresApproval(input) }
 
 // Execute runs the tool and re-renders its result.
-//
-// The edit tools need the file's contents before and after the call to
-// compute the diff the reference reports, so the wrapper reads the file on
-// both sides of the call.
-func (t *harnessTool) Execute(ctx context.Context, toolCallID string, args json.RawMessage, onUpdate piagent.ToolUpdateCallback) (piagent.AgentToolResult, error) {
+func (t *harnessTool) Execute(ctx context.Context, input string) (actor.ToolResult, error) {
+	callID := actor.ToolCallIDFromContext(ctx)
+	args := json.RawMessage(input)
+
+	if t.conv != nil {
+		verdict := t.conv.evaluateToolCallOnce(ctx, callID, t.inner.Name(), args)
+		if verdict.Blocked {
+			outcome := harnesstools.Failed(harnesstools.Input{
+				Tool:           t.inner.Name(),
+				Args:           args,
+				Result:         verdict.Result,
+				Started:        time.Now(),
+				Finished:       time.Now(),
+				TruncateTokens: t.truncateTokens,
+			}, errors.New(verdict.Reason))
+			if t.store != nil {
+				t.store.put(t.inner.Name(), outcome)
+			}
+			return actor.ToolResult{
+				ToolCallID: callID,
+				Output:     verdict.Result,
+				Error:      verdict.Reason,
+			}, nil
+		}
+		if len(verdict.Args) > 0 {
+			args = verdict.Args
+		}
+	}
+
 	started := time.Now()
 	before := readTargetFile(args)
 	if err := t.checkWorkingDirectory(args); err != nil {
-		return t.failed(args, piagent.AgentToolResult{}, err, started), nil
+		return t.failed(args, actor.ToolResult{ToolCallID: callID}, err, started), nil
 	}
 	args = t.writeArgs(args, before)
-	result, err := t.inner.Execute(ctx, toolCallID, args, onUpdate)
+	result, err := t.inner.Execute(ctx, string(args))
+	result.ToolCallID = callID
 	if err != nil {
 		return t.failed(args, result, err, started), nil
 	}
 	finished := time.Now()
 
 	outcome := t.render(args, result, started, finished, before)
-	t.store.put(t.inner.Name(), outcome)
-	if outcome.Text != "" {
-		result.Content = []pi.ToolResultMessageContent{pi.TextContent{Text: outcome.Text}}
+	if t.store != nil {
+		t.store.put(t.inner.Name(), outcome)
 	}
-	if outcome.Response != nil {
-		result.Details = outcome.Response
+	if outcome.Text != "" {
+		result.Output = outcome.Text
 	}
 	if t.inner.Name() == "finish" {
-		// The `finish` call ends the interaction: the reference does not
-		// ask the model again after it, and no second request reaches the
-		// endpoint. The runtime stops after the batch when every result
-		// asks it to.
 		result.Terminate = true
 	}
 	return result, nil
 }
 
 // checkWorkingDirectory fails a command whose working directory is gone.
-//
-// The reference's harness runs the command in the directory the model named
-// and fails the step when there is none. The CLI's own runner keeps the
-// workspace instead — a stale value must not brick the call — so the
-// harness checks the directory before the call reaches it.
-//
-// Only an absolute directory is checked: the harness's reference takes the
-// working directory as it is, and a relative one is the reference's own
-// business (it refuses such a call, which the clone does not yet).
 func (t *harnessTool) checkWorkingDirectory(args json.RawMessage) error {
 	if t.inner.Name() != harnesstools.ToolRunCommand {
 		return nil
@@ -178,13 +148,7 @@ func (t *harnessTool) checkWorkingDirectory(args json.RawMessage) error {
 }
 
 // failed renders a call that failed.
-//
-// The reference reports a failed call as a failed *step*: the model sees
-// the step's text, and the frame carries the tool's own sentence. The
-// runtime is told the call failed, but it is handed the step's text as
-// the result — a Go error would reach the model as the error's own
-// words.
-func (t *harnessTool) failed(args json.RawMessage, result piagent.AgentToolResult, err error, started time.Time) piagent.AgentToolResult {
+func (t *harnessTool) failed(args json.RawMessage, result actor.ToolResult, err error, started time.Time) actor.ToolResult {
 	outcome := harnesstools.Failed(harnesstools.Input{
 		Tool:           t.inner.Name(),
 		Args:           args,
@@ -193,22 +157,24 @@ func (t *harnessTool) failed(args json.RawMessage, result piagent.AgentToolResul
 		Finished:       time.Now(),
 		TruncateTokens: t.truncateTokens,
 	}, err)
-	t.store.put(t.inner.Name(), outcome)
-	result.Content = []pi.ToolResultMessageContent{pi.TextContent{Text: outcome.Text}}
-	result.IsError = true
+	if t.store != nil {
+		t.store.put(t.inner.Name(), outcome)
+	}
+	result.Output = outcome.Text
+	result.Error = err.Error()
 	return result
 }
 
 // render re-renders the tool's result.
-//
-// The command's outcome is read back out of the clone's own result text,
-// because the reference's step string needs the exit code and the output
-// apart.
-func (t *harnessTool) render(args json.RawMessage, result piagent.AgentToolResult, started, finished time.Time, before string) harnesstools.Outcome {
+func (t *harnessTool) render(args json.RawMessage, result actor.ToolResult, started, finished time.Time, before string) harnesstools.Outcome {
+	resText := result.Output
+	if resText == "" && result.Error != "" {
+		resText = result.Error
+	}
 	in := harnesstools.Input{
 		Tool:           t.inner.Name(),
 		Args:           args,
-		Result:         toolResultText(result),
+		Result:         resText,
 		Before:         before,
 		After:          readTargetFile(args),
 		Started:        started,
@@ -225,9 +191,6 @@ func (t *harnessTool) render(args json.RawMessage, result piagent.AgentToolResul
 }
 
 // readTargetFile reads the file a call is about.
-//
-// The reference spells the argument `TargetFile`; the clone's own catalogue
-// spells it `path`. A path that names nothing readable reads as empty.
 func readTargetFile(args json.RawMessage) string {
 	path := argString(args, "TargetFile", "AbsolutePath", "path", "file_path")
 	if path == "" {
@@ -262,9 +225,6 @@ func (s *outcomeStore) put(name string, outcome harnesstools.Outcome) {
 }
 
 // get returns the last outcome of a tool.
-//
-// The second result is false when the tool never ran — the frame writer
-// then writes the action without the extras.
 func (s *outcomeStore) get(name string) (harnesstools.Outcome, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

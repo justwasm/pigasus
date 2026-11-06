@@ -1051,3 +1051,73 @@ func TestNormalizeModelName(t *testing.T) {
 		}
 	}
 }
+
+func TestBridge_DuplicateToolCallIDDifferentFunctionNames(t *testing.T) {
+	var capturedEnvelope geminicode.GenerateContentRequest
+	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		_ = json.Unmarshal(body, &capturedEnvelope)
+		fakeCloudCodeSSE(w, []geminicode.Part{{Text: "All good"}}, nil)
+	}))
+	defer up.Close()
+
+	srv, err := New(Config{
+		Addr:     "127.0.0.1:0",
+		Upstream: up.URL,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	addr, err := srv.Start()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer srv.Close()
+
+	// OpenAI request where call_1 is used for 'edit', then later call_1 is reused for 'shell'.
+	payload := `{
+		"model": "gpt-4o",
+		"messages": [
+			{"role": "user", "content": "hello"},
+			{"role": "assistant", "tool_calls": [{"id": "call_1", "type": "function", "function": {"name": "edit", "arguments": "{}"}}]},
+			{"role": "tool", "tool_call_id": "call_1", "content": "edited"},
+			{"role": "assistant", "tool_calls": [{"id": "call_1", "type": "function", "function": {"name": "shell", "arguments": "{}"}}]},
+			{"role": "tool", "tool_call_id": "call_1", "content": "output"},
+			{"role": "user", "content": "continue"}
+		]
+	}`
+
+	resp, err := http.Post("http://"+addr+"/v1/chat/completions", "application/json", strings.NewReader(payload))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		out, _ := io.ReadAll(resp.Body)
+		t.Fatalf("status %d: %s", resp.StatusCode, string(out))
+	}
+
+	if capturedEnvelope.Request == nil {
+		t.Fatal("captured request is nil")
+	}
+
+	var frNames []string
+	for _, c := range capturedEnvelope.Request.Contents {
+		for _, p := range c.Parts {
+			if p.FunctionResponse != nil {
+				frNames = append(frNames, p.FunctionResponse.Name)
+			}
+		}
+	}
+
+	if len(frNames) != 2 {
+		t.Fatalf("expected 2 function responses, got %d: %v", len(frNames), frNames)
+	}
+	if frNames[0] != "edit" {
+		t.Errorf("first function response name = %q, want 'edit'", frNames[0])
+	}
+	if frNames[1] != "shell" {
+		t.Errorf("second function response name = %q, want 'shell'", frNames[1])
+	}
+}

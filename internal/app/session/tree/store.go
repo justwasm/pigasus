@@ -167,10 +167,10 @@ func parseURIs(raw string) []string {
 		return nil
 	}
 	var uris []string
-	if err := json.Unmarshal([]byte(raw), &uris); err != nil {
-		return nil
+	if err := json.Unmarshal([]byte(raw), &uris); err == nil {
+		return uris
 	}
-	return uris
+	return []string{raw}
 }
 
 // parseTime reads the timestamps the store writes. The index uses SQLite's

@@ -44,6 +44,7 @@ import (
 	subagent "github.com/justwasm/pigasus/internal/app/subagent/core"
 	lifecycle "github.com/justwasm/pigasus/internal/core/lifecycle"
 	"github.com/justwasm/pigasus/internal/features/agents"
+	"github.com/justwasm/pigasus/internal/ui/mdrender"
 )
 
 // Seams are the host's answers the panel cannot answer itself.
@@ -96,6 +97,23 @@ type Seams struct {
 	Approve func(approvalID string) bool
 	// Deny answers a pending authorization with "no".
 	Deny func(approvalID string) bool
+	// Size returns the terminal's width and height in cells.
+	Size func() (width, height int)
+}
+
+// width returns the panel's active width, falling back to mdrender.CurrentWidth() or 80.
+func (p *Panel) width() int {
+	if p != nil && p.seams.Size != nil {
+		w, _ := p.seams.Size()
+		if w > 0 {
+			return w
+		}
+	}
+	w := mdrender.CurrentWidth()
+	if w <= 0 {
+		w = 80
+	}
+	return w
 }
 
 // DetailMode reports whether the panel is in the subagent detail view.

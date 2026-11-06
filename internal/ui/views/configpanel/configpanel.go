@@ -210,9 +210,9 @@ var SettingsRows = []Row{
 		// first entry is the default state, and the only way the inline
 		// stop is reachable from the default state.
 		Values: []Val{
-			V("no flickering (altscreen)", "always"), V("native terminal (inline)", "never"),
+			V("full screen (altscreen)", "always"), V("native terminal (inline)", "never"),
 		},
-		Description: "no flickering (altscreen) is ideal for long conversations but requires holding Shift/Option for native text selection. Native Terminal experience (inline) preserves native terminal behavior but may truncate long conversations and flicker when toggling views."},
+		Description: "full screen (altscreen) is ideal for long conversations but requires holding Shift/Option for native text selection. Native Terminal experience (inline) preserves native terminal behavior but may truncate long conversations and flicker when toggling views."},
 	{Name: "Sandbox Mode", SettingsKey: "enableTerminalSandbox",
 		Values:      []Val{B("off", nil), B("on", true)},
 		Description: "Enables terminal sandbox restrictions."},

@@ -13,8 +13,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/justwasm/pigasus/internal/agent"
+	"github.com/justwasm/pigasus/internal/app/agentturn"
 	"github.com/justwasm/pigasus/internal/app/session/setup"
+	taskregistry "github.com/justwasm/pigasus/internal/app/task"
 	"github.com/justwasm/pigasus/internal/app/toolrunner"
 	"github.com/justwasm/pigasus/internal/app/tools"
 	"github.com/justwasm/pigasus/internal/app/tools/surface"
@@ -142,7 +143,7 @@ type printTurnState struct {
 	turnStartedAt time.Time
 	deadline      time.Time
 	textRouter    *printTextRouter
-	sanitizer     *agent.Sanitizer
+	sanitizer     *agentturn.Sanitizer
 }
 
 // DurationSeconds returns how long the turn ran, in seconds — the value the
@@ -162,7 +163,7 @@ func (st *printTurnState) DurationSeconds() float64 {
 func executePrintModelTurn(w io.Writer, fs *flag.FlagSet, cfg *printRunConfig) error {
 	state := &printTurnState{
 		textRouter: newPrintTextRouter(cfg.format == printFormatText && glamourTTYCheck()),
-		sanitizer:  agent.NewSanitizer(),
+		sanitizer:  agentturn.NewSanitizer(),
 	}
 	if cfg.timeout > 0 {
 		state.deadline = cfg.started.Add(cfg.timeout)
@@ -195,11 +196,11 @@ func executePrintModelTurn(w io.Writer, fs *flag.FlagSet, cfg *printRunConfig) e
 		tools.SetExtraWorkspaces(workspaces[1:])
 	}
 
-	denials, runErr := runPigPrintTurn(ctx, pigPrintConfig{
+	denials, runErr := runActorPrintTurn(ctx, actorPrintConfig{
 		Backend:        be,
 		Model:          cfg.modelName,
 		Prompt:         cfg.prompt,
-		History:        pigHistory(cfg.sel),
+		History:        printHistory(cfg.sel),
 		Catalog:        catalog,
 		Policy:         policy,
 		Handler:        chunkHandler,
@@ -211,14 +212,24 @@ func executePrintModelTurn(w io.Writer, fs *flag.FlagSet, cfg *printRunConfig) e
 		JSONSchema:     printInitJSONSchema(fs),
 		AgentBody:      agents.AgentBody(agents.CustomAgentFromFlags(fs)),
 		Definitions:    rehydratePrintConversation(cfg.sel, cfg.conversationID),
+		Supervisor:     cfg.sel.Supervisor,
+		Selection:      cfg.sel,
 	})
 	gate.Denials = append(gate.Denials, denials...)
 
-	timedOut, runErr := handlePrintTurnTimeout(ctx, cfg.timeout, runErr)
+	if runErr == nil && !guard.Interrupted() {
+		if err := waitForBackgroundTasks(ctx); err != nil {
+			runErr = err
+		}
+	}
+
+	timedOut, timeoutErr := handlePrintTurnTimeout(ctx, cfg.timeout, runErr)
 	interrupted := guard.Interrupted()
 	reportHeadlessDenials(gate.Denials)
 	exit := classifyHeadlessExit(runErr)
-	if interrupted {
+	if timedOut {
+		exit = timeoutErr
+	} else if interrupted {
 		// A Ctrl+C is not an API failure: it keeps the generic exit
 		// path but with the conventional 128+SIGINT status.
 		exit = cli.ExitCodeError(printInterruptedExitCode, printInterruptedMessage(runErr))
@@ -436,14 +447,91 @@ func handlePrintChunkDone(w, out io.Writer, cfg *printRunConfig, st *printTurnSt
 	return nil
 }
 
-func handlePrintTurnTimeout(ctx context.Context, timeout time.Duration, runErr error) (bool, error) {
-	timedOut := timeout > 0 && runErr != nil &&
-		(errors.Is(runErr, context.DeadlineExceeded) || ctx.Err() == context.DeadlineExceeded)
-	if timedOut {
-		fmt.Fprintln(os.Stderr, printTimeoutWarning(timeout))
-		runErr = nil
+func waitForBackgroundTasks(ctx context.Context) error {
+	reg := tools.SharedTaskRegistry()
+	if reg == nil {
+		return nil
 	}
-	return timedOut, runErr
+	ticker := time.NewTicker(50 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		active := reg.Active()
+		running := 0
+		for _, t := range active {
+			if t.State == taskregistry.StateRunning || t.State == taskregistry.StatePending {
+				running++
+			}
+		}
+		if running == 0 {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+		}
+	}
+}
+
+func terminateRunningTasks() []string {
+	reg := tools.SharedTaskRegistry()
+	if reg == nil {
+		return nil
+	}
+	var terminated []string
+	for _, t := range reg.Active() {
+		if t.State == taskregistry.StateRunning || t.State == taskregistry.StatePending {
+			name := t.Name
+			if name == "" {
+				name = t.ID
+			}
+			terminated = append(terminated, name)
+			reg.Update(t.ID, func(tk *taskregistry.Task) {
+				tk.State = taskregistry.StateKilled
+				tk.EndedAt = time.Now()
+			})
+			if h := reg.GetHandle(t.ID); h != nil {
+				if h.Cancel != nil {
+					h.Cancel()
+				} else if h.Abort != nil {
+					h.Abort()
+				}
+			}
+		}
+	}
+	return terminated
+}
+
+func handlePrintTurnTimeout(ctx context.Context, timeout time.Duration, runErr error) (bool, error) {
+	timedOut := timeout > 0 &&
+		(errors.Is(runErr, context.DeadlineExceeded) || (ctx != nil && ctx.Err() == context.DeadlineExceeded))
+	if !timedOut {
+		return false, runErr
+	}
+
+	terminated := terminateRunningTasks()
+
+	shortErr := fmt.Sprintf("DEADLINE_EXCEEDED: print timeout after %s", timeout)
+	if len(terminated) > 0 {
+		shortErr = fmt.Sprintf("DEADLINE_EXCEEDED: print timeout after %s (terminated background tasks: %s)", timeout, strings.Join(terminated, ", "))
+	}
+
+	payload := map[string]any{
+		"short_error": shortErr,
+		"status":      "DEADLINE_EXCEEDED",
+		"retryable":   false,
+		"reason":      "print_timeout",
+	}
+	if len(terminated) > 0 {
+		payload["terminated_tasks"] = terminated
+	}
+	b, _ := json.Marshal(payload)
+
+	warnLine := printTimeoutWarning(timeout)
+	agyLine := "AGY_ERROR: " + string(b)
+	stderrMsg := warnLine + "\n" + agyLine
+
+	return true, cli.ExitCodeError(apierror.HeadlessAPIExitCode, stderrMsg)
 }
 
 func reportHeadlessDenials(denials []string) {

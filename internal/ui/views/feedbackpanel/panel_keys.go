@@ -103,11 +103,9 @@ func (p *Panel) handleFormKey(key tea.Key) (bool, tea.Cmd) {
 		p.text = ""
 		return true, nil
 	case key.Code == tea.KeyEnter:
-		p.submit()
-		return true, nil
+		return true, p.submit()
 	case key.Code == 's' && key.Mod.Contains(tea.ModCtrl):
-		p.submit()
-		return true, nil
+		return true, p.submit()
 	case key.Code == tea.KeyBackspace:
 		if r := []rune(p.text); len(r) > 0 {
 			p.text = string(r[:len(r)-1])

@@ -3,7 +3,7 @@ package cli
 import (
 	"context"
 	"encoding/json"
-
+	"errors"
 	"fmt"
 	"os"
 	"runtime"
@@ -15,6 +15,8 @@ import (
 	rclink "github.com/justwasm/pigasus/internal/infra/remote/link"
 	persistentrc "github.com/justwasm/pigasus/internal/infra/remote/persistent"
 )
+
+// ---- subcommand_rc.go ----
 
 // ---- usage blocks ---------------------------------------------------------
 
@@ -495,4 +497,401 @@ func runRCStop(j *JetskiCLI, args []string) error {
 	}
 	fmt.Fprintln(j.Out, "Remote-control daemon stopped.")
 	return nil
+}
+
+// ---- subcommand_rc_foreground.go ----
+
+// errNoServeHandler reports that the binary was built without the
+// serve bridge — the parser surface without the handler that brings
+// the daemon up.
+//
+// It is a sentinel so each caller can answer in its own way: the
+// reference's `remote-control serve` prints a notice and exits 0 (its
+// own behaviour, pinned by a test), while `remote-control start` and
+// `remote-control run` — the clone's own surfaces — exit 1.
+var errNoServeHandler = errors.New("no serve handler registered")
+
+// rcForegroundArgs is the resolved set of options the foreground
+// daemon runs with.
+type rcForegroundArgs struct {
+	// Addr is the bind address (host:port). Empty means the
+	// handler's default.
+	Addr string
+	// Name is the machine's instance label.
+	Name string
+	// NoLogin skips the inline OAuth device-code login when no
+	// bearer token is on disk.
+	NoLogin bool
+	// Desktop serves the desktop UI (the voice input, the jetbox
+	// terminal, the aux pane).
+	Desktop bool
+	// Label names the subcommand the user typed. The daemon's own
+	// progress lines are prefixed with it, so the user sees the
+	// command they ran — "remote-control serve", "remote-control
+	// run", "remote-control start".
+	Label string
+}
+
+// runRCForegroundDaemon brings the daemon up in the foreground and
+// blocks until it comes down.
+//
+// It is the **one** implementation behind the three foreground
+// surfaces:
+//
+//   - `remote-control serve` — the reference's own name for it, and
+//     the command the launchd plist runs;
+//   - `remote-control run` — the clone's explicit "run it here" name,
+//     the same on every platform;
+//   - `remote-control start` — on a platform without launchd, where
+//     there is no service manager to register with.
+//
+// The stack is the same in all three: the dispatcher, the TCP and
+// WebSocket server, and the cloud tunnel, in this terminal, until the
+// user interrupts it.
+//
+// It returns errNoServeHandler when the binary was built without the
+// serve bridge; every other error is the daemon's own.
+func runRCForegroundDaemon(j *JetskiCLI, args rcForegroundArgs) error {
+	if serveHandler == nil {
+		return errNoServeHandler
+	}
+	label := args.Label
+	if label == "" {
+		label = "remote-control serve"
+	}
+	if err := serveHandler(j, ServeArgs{
+		Addr:    args.Addr,
+		Name:    args.Name,
+		NoLogin: args.NoLogin,
+		Desktop: args.Desktop,
+		Label:   label,
+	}); err != nil {
+		return err
+	}
+	// The sentinel `remote-control stop` prints too, so a script can
+	// share one grep between the two.
+	fmt.Fprintln(j.Out, "Remote-control daemon stopped.")
+	return nil
+}
+
+// resolveRCForegroundName resolves the instance name the foreground
+// daemon registers under.
+//
+// The rules are the reference's: an explicit --name is sanitised by
+// persistentrc.ResolveInstanceName, and an unset one falls back to the
+// resolved instance name, then to the hostname.
+func resolveRCForegroundName(name string) (string, error) {
+	if name == "" {
+		name = persistentrc.ResolveInstanceName("")
+		if name == "" {
+			hn, herr := os.Hostname()
+			if herr != nil || hn == "" {
+				return "", ExitCodeError(1, fmt.Sprintf("Error: --name is required (could not determine hostname: %v)", herr))
+			}
+			name = hn
+		}
+		return name, nil
+	}
+	return persistentrc.ResolveInstanceName(name), nil
+}
+
+// ---- subcommand_rc_rename.go ----
+
+// usageRCRename documents the `remote-control rename` subcommand — the
+// clone's own way to change the name the dashboard shows for this
+// machine.
+//
+// It is **hidden**: the reference's `remote-control --help` lists
+// start, status and stop only, and that block is the reference's, byte
+// for byte. `rename` is accepted, not advertised — the same way `run`
+// and `serve` are.
+//
+// The reference has no such subcommand: it renames the instance from
+// the Web UI's settings panel, and the language server watches the
+// configuration file for the change. The clone offers the same thing
+// from the shell, because the shell is where the user is when the
+// dashboard is on another machine.
+func usageRCRename(n string) string {
+	return "Usage: " + n + " remote-control rename <name>\n" +
+		"\n" +
+		"Set this machine's instance name shown in Remote Control\n" +
+		"\n" +
+		"The name is written to the configuration file, so a running daemon\n" +
+		"picks it up and renames the instance on the dashboard without\n" +
+		"dropping the connection.\n" +
+		"\n" +
+		"Flags:\n" +
+		"  -h      Show help\n" +
+		"  --help  Show help\n"
+}
+
+// runRCRename is the implementation of `pigasus remote-control rename`.
+//
+// The configuration file is the source of truth — the reference's own
+// model: the CLI writes the name into the config proto
+// (jetski/cli/remotecontrol.(*Daemon).SetInstanceName at 0x102d35320 →
+// config.ApplyProtoUpdate) and the language server reads it back.
+//
+// A running daemon watches that file and renames the instance over the
+// API, so the dashboard follows without the tunnel dropping. A daemon
+// that is not running picks the name up when it next starts.
+func runRCRename(j *JetskiCLI, args []string) error {
+	usage := usageRCRename(j.Name)
+
+	var name string
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		switch {
+		case a == "-h" || a == "--help":
+			fmt.Fprint(j.ErrOut, usage)
+			return nil
+		case strings.HasPrefix(a, "-"):
+			return usageFail(j, usage, "Error: flags provided but not defined: "+flagName(a))
+		case name == "":
+			name = a
+		default:
+			return usageFail(j, usage, "Error: rename takes exactly one name")
+		}
+	}
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return usageFail(j, usage, "Error: rename needs a name")
+	}
+	if err := persistentrc.ValidateName(name); err != nil {
+		// The shared validator's own message names the `--name`
+		// flag; this subcommand takes the name positionally, so it
+		// states the same rule in its own words.
+		return ExitCodeError(2, fmt.Sprintf("Error: invalid instance name %q: %s", name, persistentrc.InvalidNameReason))
+	}
+	if err := persistentrc.SetInstanceName(name); err != nil {
+		return ExitCodeError(1, fmt.Sprintf("Error: %v", err))
+	}
+	fmt.Fprintf(j.Out, "Instance name: %s\n", persistentrc.ResolveInstanceName(""))
+	return nil
+}
+
+// ---- subcommand_rc_run.go ----
+
+// usageRCRun documents the `remote-control run` subcommand — the
+// clone's explicit "run the daemon here, in this terminal" command.
+//
+// It is the same operation on **every** platform: the dispatcher, the
+// TCP and WebSocket server, and the cloud tunnel, in the foreground,
+// blocking until the user interrupts it. `remote-control start` is the
+// platform-dependent one — it registers a launchd agent on macOS, and
+// falls back to this on every other platform.
+//
+// The subcommand is **hidden**: the reference's `remote-control --help`
+// lists start, status and stop only, and that block is the
+// reference's, byte for byte. `run` is accepted, not advertised — the
+// same way `serve` is.
+//
+// It is the clone's own name: the reference calls the same operation
+// `serve`. Both exist, one implementation behind them.
+func usageRCRun(n string) string {
+	return "Usage: " + n + " remote-control run [flags]\n" +
+		"\n" +
+		"Run the remote-control daemon in the foreground (does not register with launchd)\n" +
+		"\n" +
+		"Flags:\n" +
+		"  -h         Show help\n" +
+		"  --help     Show help\n" +
+		"  --addr     Bind address for the foreground daemon (host:port, default 0.0.0.0:8787)\n" +
+		"  --name     Set this machine's instance name shown in Remote Control (default: hostname)\n" +
+		"  --no-login Skip the inline OAuth device-code login when no bearer token is on disk\n" +
+		"  --desktop  Serve the desktop UI: the voice input, the jetbox\n" +
+		"             terminal, the redesigned aux pane. The page and the\n" +
+		"             bundle are the same either way — the switch is the\n" +
+		"             identity the page's Mendel read carries\n"
+}
+
+// runRCRun is the implementation of `pigasus remote-control run`.
+//
+// The behaviour is `remote-control serve`'s, on every platform: the
+// daemon comes up in this terminal and the command blocks until it
+// comes down. The difference is the name — "run" says *here*, and it
+// does not depend on the platform having a service manager.
+//
+// The flags are serve's: --addr, --name, --no-login and --desktop.
+func runRCRun(j *JetskiCLI, args []string) error {
+	usage := usageRCRun(j.Name)
+	opts, err := parseRCServeFlags(j, args, usage)
+	if err != nil {
+		return err
+	}
+	if opts.showHelp {
+		fmt.Fprint(j.ErrOut, usage)
+		return nil
+	}
+	name, err := resolveRCForegroundName(opts.name)
+	if err != nil {
+		return err
+	}
+	err = runRCForegroundDaemon(j, rcForegroundArgs{
+		Addr:    opts.addr,
+		Name:    name,
+		NoLogin: opts.noLogin,
+		Desktop: opts.desktop,
+		Label:   "remote-control run",
+	})
+	if err == errNoServeHandler {
+		return ExitCodeError(1, "Error: remote-control run: no handler registered (binary was built without the serve bridge)")
+	}
+	return err
+}
+
+// ---- subcommand_rc_serve.go ----
+
+// usageRCServe documents the `remote-control serve` subcommand. The
+// flag list mirrors usageRCStart — the cycle rc-serve-subcommand
+// shorthand is "serve is the foreground twin of start", and the
+// foreground path needs the same host / name / log-file overrides
+// the persistent path does so a dashboard operator doesn't have to
+// learn a new vocabulary.
+func usageRCServe(n string) string {
+	return "Usage: " + n + " remote-control serve [flags]\n" +
+		"\n" +
+		"Run the remote-control daemon in the foreground (does not register with launchd)\n" +
+		"\n" +
+		"Flags:\n" +
+		"  -h         Show help\n" +
+		"  --help     Show help\n" +
+		"  --addr     Bind address for the foreground daemon (host:port, default 0.0.0.0:8787)\n" +
+		"  --name     Set this machine's instance name shown in Remote Control (default: hostname)\n" +
+		"  --no-login Skip the inline OAuth device-code login when no bearer token is on disk\n" +
+		"  --desktop  Serve the desktop UI: the voice input, the jetbox\n" +
+		"             terminal, the redesigned aux pane. The page and the\n" +
+		"             bundle are the same either way — the switch is the\n" +
+		"             identity the page's Mendel read carries\n"
+}
+
+type rcServeOpts struct {
+	addr     string
+	name     string
+	noLogin  bool
+	desktop  bool
+	showHelp bool
+}
+
+func parseRCServeFlags(j *JetskiCLI, args []string, usage string) (rcServeOpts, error) {
+	var opts rcServeOpts
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		val, hasVal := "", false
+		if eq := strings.IndexByte(a, '='); eq >= 0 {
+			val, a, hasVal = a[eq+1:], a[:eq], true
+		}
+		consume := func(target *string, flag string) error {
+			if hasVal {
+				*target = val
+			} else if i+1 < len(args) {
+				i++
+				*target = args[i]
+			} else {
+				return usageFail(j, usage, "Error: flag needs an argument: "+flag)
+			}
+			return nil
+		}
+		switch a {
+		case "-h", "--help":
+			opts.showHelp = true
+		case "--addr":
+			if err := consume(&opts.addr, "--addr"); err != nil {
+				return opts, err
+			}
+		case "--name":
+			if err := consume(&opts.name, "--name"); err != nil {
+				return opts, err
+			}
+		case "--no-login":
+			opts.noLogin = true
+		case "--desktop":
+			opts.desktop = true
+		default:
+			return opts, usageFail(j, usage, "Error: flags provided but not defined: "+flagName(a))
+		}
+	}
+	return opts, nil
+}
+
+// runRCServe is the cycle rc-serve-subcommand implementation of
+// `wagyu remote-control serve` — the foreground twin of start.
+//
+// Behaviour:
+//
+//   - validates --addr / --name (the same rules persistentrc.Start
+//     applies to the start path: --addr refuses loopback, --name
+//     matches the conservative [A-Za-z0-9._-]+ character set);
+//   - rejects the call when $AGY_ADC_AUTH is set (the same gate
+//     --remote-control / /remote-control apply today — Remote
+//     Control doesn't support ADC yet);
+//   - delegates to the cmd/wagyu-supplied serveHandler (registered
+//     via cli.RegisterServeHandler at process init), passing the
+//     resolved flags; the handler body lives in cmd/wagyu/ so it
+//     can reach buildHost* helpers and avoid the internal/cli ←
+//     cmd/wagyu import cycle;
+//   - on a successful serve comes back as `Remote-control daemon
+//     stopped.` (matches the wording runRCStop emits, so scripts
+//     can share a sentinel grep between the two).
+//
+// The handler accepts --no-login (a cycle rc-serve-subcommand
+// addition) so an automated test rig can drive `serve` without
+// triggering the OAuth device-code flow on a fresh machine; the
+// production default is "login if no token" so the brief's "when
+// OAuth is required and the user isn't logged in, serve triggers
+// the OAuth browser flow synchronously" semantic holds.
+//
+// The handler also accepts --desktop (the twin of `pigasus web
+// --desktop`): the daemon's Mendel read then carries the hub
+// identity, so the page the daemon serves is the reference's
+// desktop UI — the voice input, the jetbox terminal, the aux pane
+// redesign. The page and the bundle are the same either way; only
+// the identity differs. See internal/auth's package comment for
+// the measurement.
+func runRCServe(j *JetskiCLI, args []string) error {
+	usage := usageRCServe(j.Name)
+	opts, err := parseRCServeFlags(j, args, usage)
+	if err != nil {
+		return err
+	}
+	if opts.showHelp {
+		fmt.Fprint(j.ErrOut, usage)
+		return nil
+	}
+	name, err := resolveRCForegroundName(opts.name)
+	if err != nil {
+		return err
+	}
+	err = runRCForegroundDaemon(j, rcForegroundArgs{
+		Addr:    opts.addr,
+		Name:    name,
+		NoLogin: opts.noLogin,
+		Desktop: opts.desktop,
+		Label:   "remote-control serve",
+	})
+	if err == errNoServeHandler {
+		// The reference's own behaviour: a notice, and a zero exit
+		// code. Pinned by a test.
+		fmt.Fprintln(j.ErrOut, "remote-control serve: no handler registered (binary was built without the serve bridge)")
+		return nil
+	}
+	return err
+}
+
+// serveADCErrorMessage is the single source of truth for the
+// error text the user sees when `remote-control serve` collides
+// with ADC. Mirrors remoteControlADCErrorMessage (the
+// --remote-control flag-path wording) but with the verb
+// substituted for "serve" so the surfaced message is consistent
+// with the surface the user actually invoked.
+//
+//   - "remote-control"          grep-able from CI logs
+//   - "Application Default Credentials"   the human-readable name
+//   - "AGY_ADC_AUTH"            the env var the user can /logout, then unset
+//   - "/logout"                 recovery command
+//   - "serve"                   verb the user invoked
+func serveADCErrorMessage() string {
+	return "error: remote-control serve cannot be used with Application Default Credentials " +
+		"(AGY_ADC_AUTH) sign-in; Remote Control does not support ADC yet — " +
+		"sign out with /logout and unset AGY_ADC_AUTH (or use a different sign-in method) and retry."
 }

@@ -8,6 +8,7 @@ package resumepicker
 
 import (
 	"database/sql"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -187,9 +188,65 @@ func TestTreeKeepsFiveChildrenPerGroup(t *testing.T) {
 		t.Fatalf("Open: %v", err)
 	}
 	rows := p.treeRows()
-	// One group row plus five conversations.
+	// One group row plus four conversations and one more row.
 	if len(rows) != 6 {
-		t.Fatalf("got %d rows, want 6 (the group and five conversations)", len(rows))
+		t.Fatalf("got %d rows, want 6 (the group, four conversations, and more row)", len(rows))
+	}
+	if !rows[5].isMore || rows[5].moreCount != 4 {
+		t.Fatalf("row 5 = %+v, want isMore=true, moreCount=4", rows[5])
+	}
+}
+
+func TestTreeMoreRow_EnterExpandsAll(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("ANTIGRAVITY_HOME", dir)
+	base := time.Date(2026, 10, 26, 15, 0, 0, 0, time.UTC)
+	var convs []treeConv
+	for i := 0; i < 8; i++ {
+		convs = append(convs, treeConv{
+			ID:    "dddd0000-0000-4000-8000-00000000000" + string(rune('a'+i)),
+			Title: fmt.Sprintf("Conv %d", i), Preview: "preview", Steps: 2,
+			Modified: base.Add(-time.Duration(i) * time.Minute),
+		})
+	}
+	writeTreeStore(t, dir, convs)
+	p := newTestPicker(t)
+	if err := p.Open(); err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+
+	// Verify more row text in View
+	view := p.View(80, 20)
+	if !strings.Contains(view, "⋯ 4 more in [No Workspace] — enter to show") {
+		t.Fatalf("view does not contain expected more text:\n%s", view)
+	}
+
+	// Navigate cursor down to row 5 (the more row)
+	for i := 0; i < 4; i++ {
+		p.HandleKey(tea.Key{Code: tea.KeyDown}, 20)
+	}
+	if p.cursor != 5 {
+		t.Fatalf("cursor = %d, want 5 (more row)", p.cursor)
+	}
+
+	// Press Enter on the more row
+	p.HandleKey(tea.Key{Code: tea.KeyEnter}, 20)
+	if !p.Active() {
+		t.Fatal("picker should remain open after expanding more row")
+	}
+
+	// Tree should now have all 8 conversations + 1 group row = 9 rows
+	rows := p.treeRows()
+	if len(rows) != 9 {
+		t.Fatalf("after expansion got %d rows, want 9", len(rows))
+	}
+	for i := 1; i <= 8; i++ {
+		if rows[i].item == nil || rows[i].isMore {
+			t.Errorf("row %d should be conversation item, got %+v", i, rows[i])
+		}
+	}
+	if p.cursor != 5 {
+		t.Errorf("cursor after expansion = %d, want 5", p.cursor)
 	}
 }
 
@@ -345,7 +402,6 @@ func TestTreeExpandsNoWorkspaceGroup(t *testing.T) {
 		t.Fatalf("expected [No Workspace] group to be collapsed after second Enter")
 	}
 }
-
 
 // TestTreeF2F4OnGroupRowDoNothing pins that the rename and delete
 // keys do nothing on a group row.
@@ -515,3 +571,36 @@ func TestTreeSearchSwitchesToFlatList(t *testing.T) {
 		t.Errorf("the search still advertises ctrl+e: %q", body)
 	}
 }
+
+// TestTreeCurrentConversationTag verifies that the active conversation is prefixed with [CURRENT]
+// matching agy 1.5.1 disassembly (renderRowIndented at 0x102d30078).
+func TestTreeCurrentConversationTag(t *testing.T) {
+	treeStore(t)
+	p := New(Seams{
+		CurrentConversationID: func() string { return "aaaa0000-0000-4000-8000-000000000001" },
+		ListConversations: func() ([]convstore.ConversationMeta, error) {
+			return convstore.ListConversations()
+		},
+		ResumeConversation: func(meta convstore.ConversationMeta) tea.Cmd { return nil },
+		RenameConversation: func(meta convstore.ConversationMeta) {},
+	})
+	if err := p.Open(); err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+
+	body := ansi.Strip(p.View(100, 20))
+	if !strings.Contains(body, "[CURRENT] Probe One") {
+		t.Fatalf("tree view should contain '[CURRENT] Probe One', got:\n%s", body)
+	}
+	if strings.Contains(body, "[CURRENT] Probe Two") {
+		t.Fatalf("tree view should not tag non-current conversation 'Probe Two' with [CURRENT], got:\n%s", body)
+	}
+
+	// Switch to flat view (ctrl+f)
+	p.HandleKey(tea.Key{Code: 'f', Mod: tea.ModCtrl}, 20)
+	flatBody := ansi.Strip(p.View(100, 20))
+	if !strings.Contains(flatBody, "[CURRENT] Probe One") {
+		t.Fatalf("flat view should contain '[CURRENT] Probe One', got:\n%s", flatBody)
+	}
+}
+

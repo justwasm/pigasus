@@ -103,7 +103,10 @@ func TestClient_MockWebChannelRoundTrip(t *testing.T) {
 			flusher.Flush()
 
 			// Send an incoming RPC to client via BackChannel stream
+			var streamWg sync.WaitGroup
+			streamWg.Add(1)
 			go func() {
+				defer streamWg.Done()
 				time.Sleep(50 * time.Millisecond)
 				inboundReq := ConnectInstanceResponseV2{
 					ProxyRequest: &ProxyRequestV2{
@@ -120,6 +123,7 @@ func TestClient_MockWebChannelRoundTrip(t *testing.T) {
 			}()
 
 			<-backChanDone
+			streamWg.Wait()
 		}
 	}))
 	defer server.Close()

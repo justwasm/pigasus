@@ -4,8 +4,10 @@ package apierror
 // non-2xx model-API response.
 
 import (
+	"net/http"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestHTTPErrorMessage_JSON(t *testing.T) {
@@ -123,3 +125,32 @@ func TestHTTPError_KindAuthExpired_OverridesMessage(t *testing.T) {
 		t.Errorf("AuthExpiredMessage must NOT collide with the upstream body — got %q", AuthExpiredMessage)
 	}
 }
+
+func TestHTTPError_RetryAfterDuration(t *testing.T) {
+	// 1. Seconds in Retry-After header
+	h := http.Header{}
+	h.Set("Retry-After", "5")
+	e := &HTTPError{StatusCode: 429, Header: h}
+	if got := e.RetryAfterDuration(); got != 5*time.Second {
+		t.Errorf("RetryAfterDuration() = %v, want 5s", got)
+	}
+
+	// 2. Google RPC RetryInfo in JSON body
+	body := []byte(`{"error":{"code":429,"message":"Rate limit exceeded","details":[{"@type":"type.googleapis.com/google.rpc.RetryInfo","retryDelay":"2.5s"}]}}`)
+	e2 := &HTTPError{StatusCode: 429, Body: body}
+	if got := e2.RetryAfterDuration(); got != 2500*time.Millisecond {
+		t.Errorf("RetryAfterDuration() from body = %v, want 2.5s", got)
+	}
+
+	// 3. Retryable statuses
+	if !(&HTTPError{StatusCode: 429}).IsRetryableStatus() {
+		t.Errorf("429 should be retryable")
+	}
+	if !(&HTTPError{StatusCode: 503}).IsRetryableStatus() {
+		t.Errorf("503 should be retryable")
+	}
+	if (&HTTPError{StatusCode: 400}).IsRetryableStatus() {
+		t.Errorf("400 should not be retryable")
+	}
+}
+

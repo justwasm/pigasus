@@ -17,11 +17,11 @@ TIERS = [
 ]
 HOSTS = {
     "internal/agent",
-    "internal/pigrt",
-    "internal/piagentbridge",
     "internal/modular",
     "internal/cli",
+    "internal/clirunner",
     "internal/cliapp",
+    "internal/tui",
     "internal/printmode",
 }
 

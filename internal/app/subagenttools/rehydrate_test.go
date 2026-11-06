@@ -6,16 +6,10 @@ import (
 	"strings"
 	"testing"
 
-	piagent "github.com/MichaelKinsy/PiG/agent"
-	pi "github.com/MichaelKinsy/PiG/ai"
+	"github.com/justwasm/pigasus/actor"
 )
 
 // TestRehydrateDefineSubagent pins the delta of a define_subagent call.
-//
-// 【一手】 the reference stores the call as
-// {"Name","Description","SystemPrompt","EnableWriteTools",…} — the
-// capitalised native-payload names. The model-facing spelling is the
-// lower-case one, and both must produce the same delta.
 func TestRehydrateDefineSubagent(t *testing.T) {
 	cases := []struct {
 		name string
@@ -96,10 +90,6 @@ func TestRestoreDefinition(t *testing.T) {
 }
 
 // TestRehydrateManageSubagents pins the delta of a manage_subagents call.
-//
-// 【一手】 the reference stores it as {"Action":"kill","ConversationIds":[…]}.
-// The killed ids are joined with a comma, and the killed list is
-// JSON-marshalled.
 func TestRehydrateManageSubagents(t *testing.T) {
 	meta, ok := RehydrateManageSubagents(json.RawMessage(
 		`{"Action":"kill","ConversationIds":["aaa","bbb"]}`))
@@ -148,8 +138,6 @@ func TestRestoreManageSubagents(t *testing.T) {
 }
 
 // TestRehydrateSendMessage pins the delta of a send_message call.
-//
-// 【一手】 the reference stores it as {"Recipient":"…","Message":"…"}.
 func TestRehydrateSendMessage(t *testing.T) {
 	meta, ok := RehydrateSendMessage(json.RawMessage(
 		`{"Recipient":"conv-1","Message":"track five"}`))
@@ -167,9 +155,7 @@ func TestRehydrateSendMessage(t *testing.T) {
 	}
 }
 
-// TestRestoreSendMessageHasNothingToRestore pins the honest no-op: the
-// clone's delegations are synchronous, so there is no live recipient and
-// no pending delivery to restore.
+// TestRestoreSendMessageHasNothingToRestore pins the honest no-op.
 func TestRestoreSendMessageHasNothingToRestore(t *testing.T) {
 	store := NewStore()
 	if store.RestoreSendMessage(map[string]string{"recipient": "conv-1"}) {
@@ -178,14 +164,7 @@ func TestRestoreSendMessageHasNothingToRestore(t *testing.T) {
 }
 
 // TestInvokeSubagentFindsARestoredDefinition pins that a rehydrated
-// definition is usable: the tool set looks it up by name, so a resumed
-// conversation can call the subagent it defined.
-//
-// The reference derives the definition from the trajectory when the
-// conversation is loaded (【反编译】 the reference's
-// `cortex/rehydration` package); a definition that came back but was not
-// wired into the tool set would be no better than one that did not come
-// back at all.
+// definition is usable.
 func TestInvokeSubagentFindsARestoredDefinition(t *testing.T) {
 	store := NewStore()
 	meta, ok := RehydrateDefineSubagent(json.RawMessage(
@@ -196,13 +175,15 @@ func TestInvokeSubagentFindsARestoredDefinition(t *testing.T) {
 	if !store.RestoreDefinition(meta) {
 		t.Fatalf("RestoreDefinition reported false")
 	}
+	mock := actor.NewMockProvider()
+	mock.EnqueueResponse("OK")
 	tools := Tools(Deps{
-		Services:    subagentTestServices(t),
-		Model:       subagentTestModel(),
+		Provider:    mock,
+		Model:       "mock-model",
 		CWD:         t.TempDir(),
 		Definitions: store,
 	})
-	var invoke piagent.AgentTool
+	var invoke actor.Tool
 	for _, tool := range tools {
 		if tool.Name() == "invoke_subagent" {
 			invoke = tool
@@ -211,13 +192,11 @@ func TestInvokeSubagentFindsARestoredDefinition(t *testing.T) {
 	if invoke == nil {
 		t.Fatalf("the tool set has no invoke_subagent")
 	}
-	res, err := invoke.Execute(context.Background(), "call-inv",
-		json.RawMessage(`{"TypeName":"viewer","Prompt":"Say OK."}`), nil)
+	res, err := invoke.Execute(context.Background(), `{"TypeName":"viewer","Prompt":"Say OK."}`)
 	if err != nil {
 		t.Fatal(err)
 	}
-	got := res.Content[0].(pi.TextContent).Text
-	if strings.Contains(got, "not found or not allowed to be invoked") {
-		t.Fatalf("the rehydrated definition was not found: %q", got)
+	if strings.Contains(res.Output, "not found or not allowed to be invoked") {
+		t.Fatalf("the rehydrated definition was not found: %q", res.Output)
 	}
 }

@@ -9,8 +9,8 @@
 //
 // The conversation owns:
 //
-//   - the agent runtime (`internal/pigrt`), one per conversation, because
-//     PiG's session owns a single turn queue;
+//   - the agent runtime (`actor.Actor`), one per conversation, because
+//     the actor owns a single turn queue;
 //   - the budget manager (`budget`), seeded from the config's
 //     `budget_config`;
 //   - the hook dispatcher (`lifecyclehooks`'s model, on the
@@ -52,23 +52,20 @@ import (
 	"sync"
 	"time"
 
-	piagent "github.com/MichaelKinsy/PiG/agent"
-	pi "github.com/MichaelKinsy/PiG/ai"
-
+	"github.com/justwasm/pigasus/actor"
 	"github.com/justwasm/pigasus/budget"
+	"github.com/justwasm/pigasus/internal/app/agentturn"
+	"github.com/justwasm/pigasus/internal/app/harnesstools"
+	"github.com/justwasm/pigasus/internal/app/prompt/agyprompt"
+	"github.com/justwasm/pigasus/internal/app/toolrunner"
+	"github.com/justwasm/pigasus/internal/app/tools/surface"
 	"github.com/justwasm/pigasus/internal/core/backend"
 	"github.com/justwasm/pigasus/internal/core/policy/permissions"
 	modelcatalog "github.com/justwasm/pigasus/internal/features/models/catalog"
-	"github.com/justwasm/pigasus/internal/app/toolrunner"
-	"github.com/justwasm/pigasus/internal/app/harnesstools"
 	backendselect "github.com/justwasm/pigasus/internal/infra/backend/select"
-	"github.com/justwasm/pigasus/internal/piagentbridge"
-	"github.com/justwasm/pigasus/internal/pigrt"
-	"github.com/justwasm/pigasus/internal/printmode"
 	"github.com/justwasm/pigasus/lifecyclehooks"
 	"github.com/justwasm/pigasus/localharness"
 	pb "github.com/justwasm/pigasus/localharness/pb/localharness"
-	"github.com/justwasm/pigasus/internal/app/tools/surface"
 )
 
 // maxContinuations bounds how many times a STOP hook may force the loop to
@@ -98,7 +95,7 @@ type conversation struct {
 	cfg          *pb.HarnessConfig
 	settings     sessionSettings
 	configPolicy *configPolicy
-	rt           *pigrt.Runtime
+	act          *actor.Actor
 	budget       *budget.Manager
 	hooks        *hookDispatcher
 	policy       permissions.Policy
@@ -140,6 +137,14 @@ type conversation struct {
 	toolArgsMu sync.Mutex
 	toolArgs   map[string]json.RawMessage
 
+	// callNames remembers the name of each tool call by call ID.
+	callNamesMu sync.Mutex
+	callNames   map[string]string
+
+	// pendingToolCalls tracks whether the current step has tool calls in flight.
+	pendingToolCallsMu sync.Mutex
+	hasPendingCalls    bool
+
 	// outcomes remembers what each tool produced, so the frame that closes
 	// the step can carry it — a command's exit code, an edit's diff, a
 	// listing's entries.
@@ -149,7 +154,7 @@ type conversation struct {
 	// message called a tool. The reference reports that count after the
 	// call has been dispatched.
 	pendingUsageMu sync.Mutex
-	pendingUsage   *pi.Usage
+	pendingUsage   *actor.TokenUsage
 
 	// verdicts remembers the pre-tool verdict of each call, keyed by the
 	// call's id. The reference asks the client before it announces the
@@ -294,17 +299,44 @@ func (c *conversation) close() {
 	c.turnMu.Lock()
 	cancel := c.cancel
 	c.cancel = nil
-	rt := c.rt
-	c.rt = nil
+	act := c.act
+	c.act = nil
 	c.turnMu.Unlock()
 	if cancel != nil {
 		cancel()
 	}
-	if rt != nil {
-		if err := rt.Close(); err != nil {
-			c.logger.Debug("harness: runtime close", "error", err)
+	if act != nil {
+		if err := act.Close(); err != nil {
+			c.logger.Debug("harness: actor close", "error", err)
 		}
 	}
+}
+
+func (c *conversation) rememberCallName(callID, name string) {
+	c.callNamesMu.Lock()
+	defer c.callNamesMu.Unlock()
+	if c.callNames == nil {
+		c.callNames = map[string]string{}
+	}
+	c.callNames[callID] = name
+}
+
+func (c *conversation) toolNameByCallID(callID string) string {
+	c.callNamesMu.Lock()
+	defer c.callNamesMu.Unlock()
+	return c.callNames[callID]
+}
+
+func (c *conversation) setPendingToolCalls(has bool) {
+	c.pendingToolCallsMu.Lock()
+	defer c.pendingToolCallsMu.Unlock()
+	c.hasPendingCalls = has
+}
+
+func (c *conversation) hasPendingToolCalls() bool {
+	c.pendingToolCallsMu.Lock()
+	defer c.pendingToolCallsMu.Unlock()
+	return c.hasPendingCalls
 }
 
 // initialize handles the conversation's first frame.
@@ -383,41 +415,32 @@ func (c *conversation) startRuntime(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	model := printmode.PigPrintModel(be, wire)
-	if model == nil {
-		return fmt.Errorf("backend %T has no provider", be)
-	}
-	slot := &pigrt.ErrorSlot{}
-	model.Provider = c.withFunctionCallingMode(model.Provider, be)
-	model.Provider = pigrt.RecordProvider(model.Provider, slot)
+	provider := agentturn.NewBackendProviderAdapter(be, wire)
+	provider = c.withFunctionCallingMode(provider, be)
 
 	workspace := c.settings.CWD
 	catalog := surface.RuntimeCatalog(workspace)
 	enabled := c.sideToolSubset()
-	extra := piagentbridge.LenientSurfaceToolsFor(catalog, nil, harnessDeclarations(enabled, c.settings.FinishSchema))
-	extra = harnessTools(extra, c.outcomes, c.settings.ToolOutputTokens)
+	decls := harnessDeclarations(enabled, c.settings.FinishSchema)
+	sideTools := makeHarnessSideTools(catalog, decls)
+	extra := harnessTools(sideTools, c, c.outcomes, c.settings.ToolOutputTokens)
 	extra = append(extra, c.clientTools()...)
 
 	agentHome := agentHomeFor(c.opts, c.settings)
-	rt, err := pigrt.New(ctx, pigrt.Options{
-		CWD:              workspace,
-		AgentDir:         agentHome,
-		Model:            model,
-		SystemPrompt:     c.systemPrompt(),
-		SkillPaths:       c.settings.SkillsPaths,
-		ExtraTools:       extra,
-		SkipBuiltinTools: true,
-		BeforeToolCall:   []piagent.BeforeToolCallHook{c.beforeToolCall},
-		ErrorSlot:        slot,
-		NoSession:        true,
-		MCPConfigPath:    mcpConfigPath(agentHome, c.settings.MCPServers),
-		CompactThreshold: compactFraction(c.settings.CompactionThreshold, model.Capabilities.ContextWindow),
+	act, err := actor.Spawn(actor.Config{
+		ID:                    c.cascadeID,
+		Name:                  "harness_agent",
+		SystemPrompt:          c.systemPrompt(),
+		Model:                 wire,
+		Provider:              provider,
+		Tools:                 extra,
+		AutoCompactThreshold: int(c.settings.CompactionThreshold),
 	})
 	if err != nil {
 		return err
 	}
 	c.turnMu.Lock()
-	c.rt = rt
+	c.act = act
 	c.turnMu.Unlock()
 	c.logger.Debug("harness: runtime ready",
 		"model", wire, "workspace", workspace, "agent_home", agentHome,
@@ -557,12 +580,15 @@ func (c *conversation) startTurn(ctx context.Context, in *pb.UserInput) {
 func (c *conversation) halt() {
 	c.turnMu.Lock()
 	cancel := c.cancel
+	act := c.act
 	c.turnMu.Unlock()
-	if cancel == nil {
-		return
+	if cancel != nil {
+		c.logger.Debug("harness: halt requested")
+		cancel()
 	}
-	c.logger.Debug("harness: halt requested")
-	cancel()
+	if act != nil {
+		_ = act.CancelTurn("halt requested")
+	}
 }
 
 // endSession fires the session-end hook and stops the conversation.
@@ -583,9 +609,9 @@ func (c *conversation) runTurn(ctx context.Context, in *pb.UserInput) error {
 	// The runtime is taken once: the teardown may close it under us, and
 	// a local copy keeps the turn's own reference stable.
 	c.turnMu.Lock()
-	rt := c.rt
+	act := c.act
 	c.turnMu.Unlock()
-	if rt == nil {
+	if act == nil {
 		err := errors.New("harness: the agent runtime is not running")
 		c.emitStepError(err.Error())
 		return err
@@ -621,21 +647,18 @@ func (c *conversation) runTurn(ctx context.Context, in *pb.UserInput) error {
 			c.emitUserInput(prompt)
 		}
 		// The model reads the user's turn inside the reference's
-		// envelope, not as the bare text. The captured request body
-		// shows it verbatim:
-		//
-		//	<USER_REQUEST>
-		//	hello
-		//	</USER_REQUEST>
-		//	<ADDITIONAL_METADATA>
-		//	The current local time is: 2026-10-26T01:12:58+08:00.
-		//	</ADDITIONAL_METADATA>
-		//
-		// The echo above keeps the bare text: the client's transcript
-		// shows what the user typed.
+		// envelope, not as the bare text.
 		wire := backend.WrapUserContent(prompt, "", false, time.Now())
-		msgs, runErr := rt.RunWith(ctx, wire, c.onText, c.onEvent)
-		responseText := lastAssistantText(msgs)
+
+		evCh, runErr := act.Prompt(ctx, wire)
+		if runErr != nil {
+			c.hooks.postTurn(ctx, "")
+			return runErr
+		}
+		for ev := range evCh {
+			c.onEvent(ev)
+		}
+		responseText := c.textBuf.String()
 		c.hooks.postTurn(ctx, responseText)
 		if reason := c.invalidFailureReason(); reason != "" {
 			// The reference gives up when the model uses up its retries:
@@ -664,29 +687,6 @@ func (c *conversation) runTurn(ctx context.Context, in *pb.UserInput) error {
 		}
 		continuations++
 		prompt = ""
-	}
-}
-
-// beforeToolCall is the PiG hook that runs before every tool call.
-//
-// It is also where the three guards live: the client's tool-call policy,
-// the clone's own permission policy, and the client's PRE_TOOL lifecycle
-// hook (which may deny the call or rewrite its arguments).
-//
-// The client's policy comes first: it is the session's own rule set, and
-// it is the only one that knows about MCP servers and dynamic rules.
-//
-// The guards run when the call is *announced*, not when it runs: the
-// reference asks the client before it announces the call, so a call the
-// client refuses is never announced. The verdict is remembered, and this
-// hook — which PiG calls when the call is about to run — hands it back
-// instead of asking twice.
-func (c *conversation) beforeToolCall(ctx context.Context, toolCallID, toolName string, args json.RawMessage) piagent.ToolCallHookResult {
-	verdict := c.evaluateToolCallOnce(ctx, toolCallID, toolName, args)
-	return piagent.ToolCallHookResult{
-		Block:  verdict.Blocked,
-		Reason: verdict.Result,
-		Args:   verdict.Args,
 	}
 }
 
@@ -1062,7 +1062,7 @@ func harnessPolicy(agentDir string) permissions.Policy {
 		Strict: permissions.StrictFromEnv(os.Getenv("OPENAGY_PERMISSION_POLICY")),
 	}
 	if agentDir == "" {
-		agentDir = pigrt.DefaultAgentHome()
+		agentDir = agyprompt.DefaultAgentHome()
 	}
 	if settings, err := permissions.LoadRules(filepath.Join(agentDir, "settings.json")); err == nil {
 		policy.Allow = settings.Allow

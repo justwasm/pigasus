@@ -9,6 +9,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/x509"
+	"encoding/base64"
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/pem"
@@ -83,15 +84,23 @@ func appendLengthPrefixed(dst, data []byte) []byte {
 }
 
 // ParsePublicKey accepts the SPKI PEM public key vouched by the signaling
-// service. The reference uses P-256 and a raw 64-byte WebCrypto r||s signature.
+// service, or raw Base64-encoded SPKI DER from WebCrypto.
+// The reference uses P-256 and a raw 64-byte WebCrypto r||s signature.
 func ParsePublicKey(text string) (*ecdsa.PublicKey, error) {
+	var der []byte
 	block, rest := pem.Decode([]byte(text))
-	if block == nil || block.Type != "PUBLIC KEY" || len(bytes.TrimSpace(rest)) != 0 {
-		return nil, fmt.Errorf("%w: invalid public key PEM", ErrAuthentication)
+	if block != nil && block.Type == "PUBLIC KEY" && len(bytes.TrimSpace(rest)) == 0 {
+		der = block.Bytes
+	} else if raw, err := base64.StdEncoding.DecodeString(strings.TrimSpace(text)); err == nil && len(raw) > 0 {
+		der = raw
+	} else if raw, err := base64.RawStdEncoding.DecodeString(strings.TrimSpace(text)); err == nil && len(raw) > 0 {
+		der = raw
+	} else {
+		return nil, fmt.Errorf("%w: invalid public key PEM or base64 DER", ErrAuthentication)
 	}
-	parsed, err := x509.ParsePKIXPublicKey(block.Bytes)
+	parsed, err := x509.ParsePKIXPublicKey(der)
 	if err != nil {
-		return nil, fmt.Errorf("%w: invalid public key", ErrAuthentication)
+		return nil, fmt.Errorf("%w: invalid public key: %w", ErrAuthentication, err)
 	}
 	key, ok := parsed.(*ecdsa.PublicKey)
 	if !ok || key.Curve != elliptic.P256() {

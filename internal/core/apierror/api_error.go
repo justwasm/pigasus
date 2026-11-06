@@ -11,8 +11,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-
-	"github.com/google/uuid"
+	"uuid"
 )
 
 // HeadlessAPIExitCode is the exit status the reference uses for a turn that
@@ -113,11 +112,7 @@ func (e *APIError) Lines() string {
 //
 // The reference's shape is a v4 UUID followed by "-1".
 func NewErrorID() string {
-	u, err := uuid.NewRandom()
-	if err != nil {
-		return "-1"
-	}
-	return u.String() + "-1"
+	return uuid.NewV4().String() + "-1"
 }
 
 func newErrorID() string {

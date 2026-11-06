@@ -29,7 +29,7 @@ type responsesReq struct {
 	Reasoning          *struct {
 		Effort string `json:"effort"`
 	} `json:"reasoning,omitempty"`
-	ReasoningEffort    string          `json:"reasoning_effort,omitempty"`
+	ReasoningEffort string `json:"reasoning_effort,omitempty"`
 }
 
 type responseTool struct {
@@ -400,7 +400,8 @@ func (s *Server) handleResponses(w http.ResponseWriter, r *http.Request, body []
 	}
 
 	ctx := r.Context()
-	resp, _, err := s.executeBridgeRequest(ctx, turn, r.Header.Get("Authorization"))
+	resp, currentEmail, err := s.executeBridgeRequest(ctx, turn, r.Header.Get("Authorization"))
+	recordAccount(w, currentEmail)
 	if err != nil {
 		s.logf("[responses] upstream error: %v", err)
 		writeOpenAIError(w, http.StatusBadGateway, "upstream_error", err.Error())

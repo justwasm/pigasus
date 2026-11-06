@@ -305,10 +305,13 @@ func (p *Panel) newRunner(root string) *codesearch.Runner {
 
 // close leaves the panel.
 func (p *Panel) close() tea.Cmd {
-	if p == nil || p.seams.Close == nil {
+	if p == nil {
 		return nil
 	}
-	return p.seams.Close()
+	if p.seams.Close != nil {
+		return p.seams.Close()
+	}
+	return DismissCmd()
 }
 
 // openEditor opens a file in the external editor, at a line.
@@ -316,10 +319,13 @@ func (p *Panel) close() tea.Cmd {
 // The panel decides that the file is opened and hands the path and the
 // line over; the host starts the editor.
 func (p *Panel) openEditor(path string, line int) tea.Cmd {
-	if p == nil || p.seams.OpenEditor == nil {
+	if p == nil {
 		return nil
 	}
-	return p.seams.OpenEditor(path, line)
+	if p.seams.OpenEditor != nil {
+		return p.seams.OpenEditor(path, line)
+	}
+	return OpenEditorCmd(path, line)
 }
 
 // storeFor returns the comment store of a file, creating it the first
@@ -402,10 +408,11 @@ func (p *Panel) sendComments() tea.Cmd {
 	if st := p.storeFor(s.file); st != nil {
 		st.Reset()
 	}
-	if p.seams.SendComments == nil {
-		return nil
+	formatted := linecomments.FormatAll(s.file, s.comments)
+	if p.seams.SendComments != nil {
+		return p.seams.SendComments(formatted)
 	}
-	return p.seams.SendComments(linecomments.FormatAll(s.file, s.comments))
+	return SendCommentsCmd(formatted)
 }
 
 // discardComments drops the pending comments.

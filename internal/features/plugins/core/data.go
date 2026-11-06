@@ -106,6 +106,25 @@ func StateDir() string {
 	return filepath.Join(confhome.Gemini(), "plugins")
 }
 
+// PartnerPluginDeveloperNotice is the third-party developer tools notice for partner plugins.
+// AGY 1.5.0: "the third-party developer tools notice for partner plugins at the end of the
+// Discover list, in a plugin's details, and after agy plugin install or /plugin install".
+const PartnerPluginDeveloperNotice = "Notice: Third-party developer tools are provided by external partners and subject to their own terms and privacy policies."
+
+// IsPartnerPlugin reports whether the plugin is from an external partner marketplace
+// or declares a non-Google author.
+func IsPartnerPlugin(name string, mkts []Marketplace) bool {
+	mkt := MarketplaceOf(name, mkts)
+	if mkt != "" && !strings.Contains(strings.ToLower(mkt), "official") {
+		return true
+	}
+	man := ReadManifest(name)
+	if man.Author.Name != "" && !strings.Contains(strings.ToLower(man.Author.Name), "google") {
+		return true
+	}
+	return false
+}
+
 // Dir is one installed plugin's directory.
 func Dir(name string) string { return filepath.Join(StateDir(), name) }
 

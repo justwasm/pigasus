@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 
+	tea "charm.land/bubbletea/v2"
+
 	plugins "github.com/justwasm/pigasus/internal/features/plugins/core"
 )
 
@@ -108,5 +110,39 @@ func TestBadgesAndLines(t *testing.T) {
 	line := InstalledLine(true, true, "test-plugin", "a test", 80)
 	if !strings.Contains(line, "test-plugin") || !strings.Contains(line, "> ") {
 		t.Fatalf("expected cursor line with test-plugin, got %q", line)
+	}
+
+	lineSignIn := InstalledLine(false, true, "partner-plugin", "partner test", 80, true)
+	if !strings.Contains(lineSignIn, "⚠ needs sign-in") {
+		t.Fatalf("expected needs sign-in badge in row, got %q", lineSignIn)
+	}
+}
+
+func TestItem4_PartnerPluginSignAndNotice(t *testing.T) {
+	badge := NeedsSignInBadge()
+	if !strings.Contains(badge, "needs sign-in") || !strings.Contains(badge, "⚠") {
+		t.Fatalf("NeedsSignInBadge = %q, want ⚠ needs sign-in", badge)
+	}
+
+	if !strings.Contains(plugins.PartnerPluginDeveloperNotice, "Third-party developer tools are provided by external partners") {
+		t.Fatalf("unexpected notice text: %q", plugins.PartnerPluginDeveloperNotice)
+	}
+
+	p := New(Seams{})
+	p.ShowConnect("slack-mcp", "slack-server", "https://slack.com/oauth")
+	if !p.ConnectActive() {
+		t.Fatal("ConnectActive() = false, want true")
+	}
+
+	lines := p.Lines(80)
+	joined := strings.Join(lines, "\n")
+	if !strings.Contains(joined, "Connect slack-mcp") || !strings.Contains(joined, "slack-server") {
+		t.Fatalf("ConnectScreen rendering mismatch:\n%s", joined)
+	}
+
+	// Esc skips
+	handled, _ := p.HandleKey(tea.Key{Code: tea.KeyEsc})
+	if !handled || p.ConnectActive() {
+		t.Fatalf("Esc did not dismiss connect screen: active=%v", p.ConnectActive())
 	}
 }

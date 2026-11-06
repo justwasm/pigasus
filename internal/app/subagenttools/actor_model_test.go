@@ -8,8 +8,6 @@ import (
 	"testing"
 	"time"
 
-	piagent "github.com/MichaelKinsy/PiG/agent"
-	pi "github.com/MichaelKinsy/PiG/ai"
 	taskregistry "github.com/justwasm/pigasus/internal/app/task"
 )
 
@@ -257,30 +255,22 @@ func TestTranscriptResumePreservesAllPriorSteps(t *testing.T) {
 	subID := "sub-steps-preservation"
 
 	// Simulate step 1 (User), step 2 (Tool Call), step 3 (Tool Result)
-	m1 := piagent.AgentMessage{User: &piagent.UserMessage{
-		Role:      "user",
-		Content:   pi.UserText("Find all markdown files"),
-		Timestamp: 1000,
-	}}
-	m2 := piagent.AgentMessage{Assistant: &piagent.AssistantMessage{
-		Role: "assistant",
-		Content: []pi.AssistantContentBlock{
-			pi.ToolCall{
-				ID:   "call_find_1",
-				Name: "run_command",
-			},
-		},
-		Timestamp: 2000,
-	}}
-	m3 := piagent.AgentMessage{ToolResult: &piagent.ToolResultMessage{
-		Role:       "toolResult",
+	m1 := SubagentMessage{
+		Role:    "user",
+		Content: "Find all markdown files",
+	}
+	m2 := SubagentMessage{
+		Role:       "assistant",
 		ToolCallID: "call_find_1",
 		ToolName:   "run_command",
-		Content:    []pi.ToolResultMessageContent{pi.TextContent{Text: "README.md\nAGENTS.md"}},
-		Timestamp:  3000,
-	}}
+	}
+	m3 := SubagentMessage{
+		Role:       "toolResult",
+		ToolCallID: "call_find_1",
+		Content:    "README.md\nAGENTS.md",
+	}
 
-	initialSteps := []piagent.AgentMessage{m1, m2, m3}
+	initialSteps := []SubagentMessage{m1, m2, m3}
 	persistTranscript(subDir, subID, initialSteps, nil)
 
 	// Now load the transcript (as resume would do)
@@ -291,14 +281,14 @@ func TestTranscriptResumePreservesAllPriorSteps(t *testing.T) {
 	if len(loaded) != 3 {
 		t.Fatalf("loaded messages count = %d, want 3", len(loaded))
 	}
-	if loaded[0].Role() != "user" {
-		t.Errorf("loaded[0].Role = %q, want user", loaded[0].Role())
+	if loaded[0].Role != "user" {
+		t.Errorf("loaded[0].Role = %q, want user", loaded[0].Role)
 	}
-	if loaded[1].Role() != "assistant" {
-		t.Errorf("loaded[1].Role = %q, want assistant", loaded[1].Role())
+	if loaded[1].Role != "assistant" {
+		t.Errorf("loaded[1].Role = %q, want assistant", loaded[1].Role)
 	}
-	if loaded[2].Role() != "toolResult" {
-		t.Errorf("loaded[2].Role = %q, want toolResult", loaded[2].Role())
+	if loaded[2].Role != "toolResult" {
+		t.Errorf("loaded[2].Role = %q, want toolResult", loaded[2].Role)
 	}
 
 	// Verify that the jsonl file exists and matches the agy layout

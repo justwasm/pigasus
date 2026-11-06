@@ -426,6 +426,7 @@ func (r *RunCommand) runWithAsyncWindow(ctx context.Context, p runCommandParams)
 		// now, and the model gets the reference's launch acknowledgement.
 		// The reference arms the notification timer here too — after the
 		// wait window, not before it.
+		registerShellBackgroundTask(t, p.Command)
 		armNotificationTimeout(t, p.NotificationTimeoutSeconds)
 		// The task is a task now, so it owes the model a completion
 		// notification when the command is gone.
@@ -449,6 +450,7 @@ func (r *RunCommand) sendToBackground(p runCommandParams) (any, error) {
 		return nil, err
 	}
 	if t, ok := backgroundTasks.get(fullID); ok {
+		registerShellBackgroundTask(t, p.Command)
 		armNotificationTimeout(t, p.NotificationTimeoutSeconds)
 		notifyOnCompletion(t)
 	}

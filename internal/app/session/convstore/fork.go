@@ -8,8 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-
-	"github.com/google/uuid"
+	"uuid"
 
 	"github.com/justwasm/pigasus/internal/app/prompt/agyprompt"
 	"github.com/justwasm/pigasus/internal/core/backend"
@@ -17,11 +16,7 @@ import (
 
 // NewUUIDv4 makes a v4 UUID (8-4-4-4-12 hex digits).
 func NewUUIDv4() (string, error) {
-	u, err := uuid.NewRandom()
-	if err != nil {
-		return "", fmt.Errorf("rand: %w", err)
-	}
-	return u.String(), nil
+	return uuid.NewV4().String(), nil
 }
 
 // SessionToSteps converts an in-memory session into the convstore Step shape.

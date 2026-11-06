@@ -467,3 +467,35 @@ func TestChromaInline_StreamingFencesIncomplete(t *testing.T) {
 		t.Errorf("chroma ran on incomplete fence (should be no-op):\n%s", combined)
 	}
 }
+
+func TestExpandTabs(t *testing.T) {
+	in := "\ta\t\tb"
+	got := ExpandTabs(in, 4)
+	want := "    a       b"
+	if got != want {
+		t.Errorf("ExpandTabs(%q) = %q, want %q", in, got, want)
+	}
+
+	// With ANSI escape codes present
+	inWithANSI := "\x1b[32m\t\x1b[0mfoo"
+	gotANSI := ExpandTabs(inWithANSI, 4)
+	wantANSI := "\x1b[32m    \x1b[0mfoo"
+	if gotANSI != wantANSI {
+		t.Errorf("ExpandTabs with ANSI = %q, want %q", gotANSI, wantANSI)
+	}
+}
+
+func TestChromaInline_CodeBlockTabExpansion(t *testing.T) {
+	body := "func test() {\n\tr.mu.Lock()\n}"
+	rendered, err := HighlightCodeBlock("go", body)
+	if err != nil {
+		t.Fatalf("HighlightCodeBlock: %v", err)
+	}
+	if strings.Contains(rendered, "\t") {
+		t.Errorf("HighlightCodeBlock did not expand tabs: %q", rendered)
+	}
+	plain := stripANSI(rendered)
+	if !strings.Contains(plain, "    r.mu.Lock()") {
+		t.Errorf("expected 4 spaces indentation for r.mu.Lock(), got:\n%s", plain)
+	}
+}

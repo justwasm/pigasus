@@ -49,6 +49,8 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/charmbracelet/x/ansi"
+	"github.com/justwasm/pigasus/internal/ui/mdrender"
 	"github.com/justwasm/pigasus/palette"
 )
 
@@ -93,9 +95,12 @@ func NewLayout(width, maxLine int) Layout {
 	if d := digits(maxLine); d > numWidth {
 		numWidth = d
 	}
-	content := width - numWidth - 2
-	if content < 1 {
-		content = 1
+	content := 0
+	if width > 0 {
+		content = width - numWidth - 2
+		if content < 1 {
+			content = 1
+		}
 	}
 	return Layout{NumWidth: numWidth, ContentWidth: content}
 }
@@ -243,7 +248,8 @@ func FileViewStyle() Style {
 
 // Render writes one row of a diff body.
 func Render(l Layout, s Style, r Row) string {
-	return RenderStyled(l, s, r.Kind, r.Num, r.Text, r.Text)
+	text := mdrender.ExpandTabs(r.Text, 4)
+	return RenderStyled(l, s, r.Kind, r.Num, text, text)
 }
 
 // RenderStyled writes one row whose body text is already styled.
@@ -259,6 +265,8 @@ func Render(l Layout, s Style, r Row) string {
 // column; an added or a removed row's body is a space, the marker and
 // the text, padded with spaces to the content width.
 func RenderStyled(l Layout, s Style, k Kind, num int, plain, styled string) string {
+	plain = mdrender.ExpandTabs(plain, 4)
+	styled = mdrender.ExpandTabs(styled, 4)
 	switch k {
 	case Add:
 		return s.AddBg + l.Gutter(num) +
@@ -266,6 +274,15 @@ func RenderStyled(l Layout, s Style, k Kind, num int, plain, styled string) stri
 	case Remove:
 		return s.RemoveBg + l.Gutter(num) +
 			s.RemoveOpen + padBody("-  ", styled, plain, l.ContentWidth) + s.RowClose
+	}
+	if l.ContentWidth > 0 {
+		availText := l.ContentWidth - 3
+		if availText < 1 {
+			availText = 1
+		}
+		if ansi.StringWidth(plain) > availText {
+			styled = ansi.Truncate(styled, availText, "…")
+		}
 	}
 	return s.NumOpen + l.Gutter(num) + s.NumClose + Marker(Context) + styled
 }
@@ -278,9 +295,23 @@ func RenderStyled(l Layout, s Style, k Kind, num int, plain, styled string) stri
 // so the padding counts the *visible* characters and not the escape
 // sequences the styled text carries.
 func padBody(marker, styled, plain string, width int) string {
+	markerWidth := utf8.RuneCountInString(marker)
+	if width > 0 {
+		avail := width - markerWidth
+		if avail < 1 {
+			avail = 1
+		}
+		if ansi.StringWidth(plain) > avail {
+			styled = ansi.Truncate(styled, avail, "…")
+			plain = ansi.Truncate(plain, avail, "…")
+		}
+	}
 	body := " " + marker + styled
-	n := utf8.RuneCountInString(marker + plain)
-	if width <= 0 || n >= width {
+	if width <= 0 {
+		return body
+	}
+	n := markerWidth + ansi.StringWidth(plain)
+	if n >= width {
 		return body
 	}
 	return body + strings.Repeat(" ", width-n)

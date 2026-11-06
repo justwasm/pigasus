@@ -32,8 +32,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
-
-	"github.com/google/uuid"
+	"uuid"
 
 	builtinskills "github.com/justwasm/pigasus/internal/features/tools/skills"
 )
@@ -178,7 +177,7 @@ func (l Layout) writeInstallationID() error {
 	if _, err := os.Stat(path); err == nil {
 		return nil
 	}
-	if err := os.WriteFile(path, []byte(uuid.NewString()), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte(uuid.New().String()), 0o644); err != nil {
 		return fmt.Errorf("lsserver: write %s: %w", path, err)
 	}
 	return nil

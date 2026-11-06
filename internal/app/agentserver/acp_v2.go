@@ -2,8 +2,10 @@ package agentserver
 
 import (
 	"context"
-	"encoding/json/jsontext"
 	"fmt"
+	"slices"
+	"strings"
+	"sync"
 	"time"
 
 	acp "github.com/ironpark/acp-go"
@@ -15,6 +17,8 @@ import (
 type acpV2Session struct {
 	cwd     acp2.AbsolutePath
 	session *Session
+	history []agentlink.Message
+	mu      sync.Mutex
 }
 
 func (s *acpV2Session) SessionInfo() acp2.SessionInfo {
@@ -32,6 +36,7 @@ func defaultV2Commands() []acp2.AvailableCommand {
 		{Name: "/plan", Description: "Plan carefully before executing a task"},
 		{Name: "/goal", Description: "Run until the specified goal is completely finished"},
 		{Name: "/tasks", Description: "View background tasks"},
+		{Name: "/agents", Description: "List available custom agents"},
 		{Name: "/context", Description: "Visualize current context usage"},
 	}
 }
@@ -127,14 +132,38 @@ func (a *ACPV2Agent) Prompt(ctx context.Context, params *acp2.PromptRequest) (*a
 }
 
 func (a *ACPV2Agent) runTurn(ctx context.Context, stream *acp2.SessionStream, s *acpV2Session, promptText string) (acp2.StopReason, error) {
+	trimmed := strings.TrimSpace(promptText)
+	if trimmed == "/clear" {
+		s.mu.Lock()
+		s.history = nil
+		s.mu.Unlock()
+	}
+	if trimmed == "/tasks" {
+		summary := formatTasksSummary()
+		agentMsgID := acp2.GenerateMessageID()
+		_ = stream.SendText(ctx, agentMsgID, summary)
+		return acp2.StopReasonEndTurn, nil
+	}
+	if trimmed == "/agents" {
+		summary := formatAgentsSummary(string(s.cwd))
+		agentMsgID := acp2.GenerateMessageID()
+		_ = stream.SendText(ctx, agentMsgID, summary)
+		return acp2.StopReasonEndTurn, nil
+	}
+
 	engine := agentturn.NewLocal(s.session.env)
 	defer engine.Close()
 
+	s.mu.Lock()
+	turnHistory := append(slices.Clone(s.history), agentlink.Message{
+		Role:    "user",
+		Content: promptText,
+	})
+	s.mu.Unlock()
+
 	turn := agentturn.Turn{
-		Model: s.session.Model,
-		History: []agentlink.Message{
-			{Role: "user", Content: promptText},
-		},
+		Model:   s.session.Model,
+		History: turnHistory,
 	}
 
 	frames, err := engine.Turn(ctx, turn)
@@ -148,28 +177,40 @@ func (a *ACPV2Agent) runTurn(ctx context.Context, stream *acp2.SessionStream, s 
 	stopReason := acp2.StopReasonEndTurn
 	var usageSent bool
 	var lastTotal uint64
+	var assistantText strings.Builder
 
 	for frame := range frames {
 		switch frame.Kind {
 		case agentlink.KindText:
+			assistantText.WriteString(frame.Text)
 			_ = stream.SendText(ctx, agentMsgID, frame.Text)
 		case agentlink.KindThought:
 			_ = stream.SendThought(ctx, agentMsgID, frame.Text)
 		case agentlink.KindTool:
 			if frame.Tool != nil {
-				callID := acp2.ToolCallID(fmt.Sprintf("call_%s_%s", frame.ID, frame.Tool.Name))
+				callID := acp2.ToolCallID(frame.ID)
+				if callID == "" {
+					callID = acp2.ToolCallID(fmt.Sprintf("call_%s", frame.Tool.Name))
+				}
 				if frame.Tool.Phase == agentlink.ToolStart {
-					var rawInput jsontext.Value
-					if len(frame.Tool.Args) > 0 {
-						rawInput = jsontext.Value(frame.Tool.Args)
+					var opts []acp2.ToolCallOption
+					if rawInput := rawJSONOrQuoted(frame.Tool.Args); rawInput != nil {
+						opts = append(opts, acp2.WithRawInput(rawInput))
 					}
-					_ = stream.StartToolCall(ctx, callID, frame.Tool.Name, acp2.ToolKindExecute, acp2.WithRawInput(rawInput))
+					_ = stream.StartToolCall(ctx, callID, frame.Tool.Name, acp2.ToolKindExecute, opts...)
 				} else if frame.Tool.Phase == agentlink.ToolEnd {
-					var rawOutput jsontext.Value
-					if len(frame.Tool.Result) > 0 {
-						rawOutput = jsontext.Value(frame.Tool.Result)
+					var opts []acp2.ToolCallOption
+					if rawOutput := rawJSONOrQuoted(frame.Tool.Result); rawOutput != nil {
+						opts = append(opts, acp2.WithRawOutput(rawOutput))
 					}
-					_ = stream.CompleteToolCall(ctx, callID, acp2.WithRawOutput(rawOutput))
+					if frame.Tool.Result != "" {
+						opts = append(opts, acp2.WithToolContent(acp2.ToolText(frame.Tool.Result)))
+					}
+					if frame.Tool.Err {
+						_ = stream.FailToolCall(ctx, callID, opts...)
+					} else {
+						_ = stream.CompleteToolCall(ctx, callID, opts...)
+					}
 				}
 			}
 		case agentlink.KindResult:
@@ -196,6 +237,15 @@ func (a *ACPV2Agent) runTurn(ctx context.Context, stream *acp2.SessionStream, s 
 
 	if acp.TurnCancelled(ctx) {
 		stopReason = acp2.StopReasonCancelled
+	}
+
+	if stopReason != acp2.StopReasonRefusal && stopReason != acp2.StopReasonCancelled && strings.TrimSpace(promptText) != "/clear" {
+		s.mu.Lock()
+		s.history = append(s.history,
+			agentlink.Message{Role: "user", Content: promptText},
+			agentlink.Message{Role: "assistant", Content: assistantText.String()},
+		)
+		s.mu.Unlock()
 	}
 
 	return stopReason, nil

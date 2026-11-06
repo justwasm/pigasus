@@ -7,11 +7,22 @@ import (
 
 	"github.com/justwasm/pigasus/browsercdp"
 	_ "github.com/justwasm/pigasus/dns"
-	"github.com/justwasm/pigasus/internal/cliapp"
+	_ "github.com/justwasm/pigasus/internal/app/subcommands/accounts"
+	_ "github.com/justwasm/pigasus/internal/app/subcommands/agent"
+	_ "github.com/justwasm/pigasus/internal/app/subcommands/changelog"
+	_ "github.com/justwasm/pigasus/internal/app/subcommands/cmdinstall"
+	_ "github.com/justwasm/pigasus/internal/app/subcommands/halloween"
+	_ "github.com/justwasm/pigasus/internal/app/subcommands/mic"
+	_ "github.com/justwasm/pigasus/internal/app/subcommands/models"
+	_ "github.com/justwasm/pigasus/internal/app/subcommands/provider"
+	_ "github.com/justwasm/pigasus/internal/app/subcommands/remotecontrol"
+	_ "github.com/justwasm/pigasus/internal/app/subcommands/update"
+	"github.com/justwasm/pigasus/internal/clirunner"
+	_ "github.com/justwasm/pigasus/internal/tui"
 )
 
 func main() {
-	code := cliapp.Run(os.Args)
+	code := clirunner.Run(os.Args)
 	// The clone starts the browser itself — the reference's browser
 	// surface starts its own — so the browser has to stop with the
 	// clone: a headless Chrome left behind holds its profile and its

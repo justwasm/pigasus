@@ -33,7 +33,11 @@
 
 package rows
 
-import "github.com/justwasm/pigasus/palette"
+import (
+	"strings"
+
+	"github.com/justwasm/pigasus/palette"
+)
 
 // The notice row's own spans.
 const (
@@ -66,11 +70,32 @@ func NoticeDim(text string) string {
 		palette.DimGrayOpen + text + palette.DimGrayClose
 }
 
+// QueuedPromptRow renders a queued prompt: "▸ <prompt>". When withHint is true,
 // QueuedPromptRow renders a queued prompt: "▸ <prompt> (alt+m to send
 // immediately)". The suffix names the gesture that flushes the queue,
 // and it sits inside the dim span.
 func QueuedPromptRow(prompt string) string {
 	return queuedRow(prompt) + " (alt+m to send immediately)" + palette.DimGrayClose
+}
+
+// QueuedPromptRowWithHint renders a queued prompt with or without the gesture hint.
+// When prompt contains newlines, it truncates to the first line with "..."
+// to match the live reference TUI rendering.
+func QueuedPromptRowWithHint(prompt string, withHint bool) string {
+	head := prompt
+	if idx := strings.Index(prompt, "\n"); idx >= 0 {
+		head = prompt[:idx] + "..."
+	}
+	if withHint {
+		return queuedRow(head) + " (alt+m to send immediately)" + palette.DimGrayClose
+	}
+	return queuedRow(head) + palette.DimGrayClose
+}
+
+// SendingMessageRow renders an in-flight steer prompt waiting for the active step to finish:
+// "▸ <prompt> (Sending message...)".
+func SendingMessageRow(prompt string) string {
+	return queuedRow(prompt) + " (Sending message...)" + palette.DimGrayClose
 }
 
 // QueuedCommandRow renders a queued shell command: "▸ <command>". A

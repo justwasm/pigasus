@@ -6,10 +6,13 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/justwasm/pigasus/internal/core/apierror"
 	"github.com/justwasm/pigasus/internal/core/backend"
+	"github.com/justwasm/pigasus/internal/infra/backend/retry"
 )
 
 // geminiServer is a stub Gemini endpoint: it records the request it
@@ -503,3 +506,70 @@ func TestGeminiStreamCachedTokens(t *testing.T) {
 		t.Errorf("CachedTokens = %d, want 120", meta.CachedTokens)
 	}
 }
+
+func TestGeminiSafetyFilterBlocked(t *testing.T) {
+	sse := "data: {\"candidates\":[{\"content\":{\"parts\":[]},\"finishReason\":\"SAFETY\"}]}\n\n"
+	g := newGeminiServer(t, sse)
+
+	client := NewGeminiWithConfig(GeminiConfig{BaseURL: g.server.URL, Model: "m"})
+	chunks, err := client.Stream(context.Background(), backend.StreamRequest{Model: "m"})
+	if err != nil {
+		t.Fatalf("Stream: %v", err)
+	}
+	var text string
+	for chunk := range chunks {
+		if chunk.Error != nil {
+			t.Fatalf("chunk error: %v", chunk.Error)
+		}
+		text += chunk.Text
+	}
+	if text != ContentFilterBlockedMessage {
+		t.Errorf("text = %q, want %q", text, ContentFilterBlockedMessage)
+	}
+}
+
+func TestGeminiRetry429WithRetryAfter(t *testing.T) {
+	savedInitial := retry.InitialConnectionRetryInterval
+	savedMax := retry.MaxConnectionRetryInterval
+	retry.InitialConnectionRetryInterval = 5 * time.Millisecond
+	retry.MaxConnectionRetryInterval = 20 * time.Millisecond
+	defer func() {
+		retry.InitialConnectionRetryInterval = savedInitial
+		retry.MaxConnectionRetryInterval = savedMax
+	}()
+
+	var attempts atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		att := attempts.Add(1)
+		if att == 1 {
+			w.Header().Set("Retry-After", "0")
+			w.WriteHeader(http.StatusTooManyRequests)
+			_, _ = w.Write([]byte(`{"error":{"code":429,"message":"Resource exhausted"}}`))
+			return
+		}
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"success\"}]}}]}\n\n"))
+	}))
+	defer srv.Close()
+
+	client := NewGeminiWithConfig(GeminiConfig{BaseURL: srv.URL, Model: "m"})
+	chunks, err := client.Stream(context.Background(), backend.StreamRequest{Model: "m"})
+	if err != nil {
+		t.Fatalf("Stream: %v", err)
+	}
+	var text string
+	for chunk := range chunks {
+		if chunk.Error != nil {
+			t.Fatalf("unexpected chunk error: %v", chunk.Error)
+		}
+		text += chunk.Text
+	}
+	if text != "success" {
+		t.Errorf("text = %q, want success", text)
+	}
+	if attempts.Load() != 2 {
+		t.Errorf("attempts = %d, want 2", attempts.Load())
+	}
+}
+

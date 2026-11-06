@@ -19,6 +19,7 @@ type HTTPError struct {
 	StatusCode int
 	Body       []byte
 	URL        string
+	Header     http.Header
 }
 
 // Error renders the failure as one line.

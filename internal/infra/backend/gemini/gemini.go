@@ -44,7 +44,6 @@
 package gemini
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"crypto/rand"
@@ -65,6 +64,7 @@ import (
 	"github.com/justwasm/pigasus/internal/core/apierror"
 	"github.com/justwasm/pigasus/internal/core/backend"
 	"github.com/justwasm/pigasus/internal/infra/backend/retry"
+	"github.com/justwasm/pigasus/internal/infra/backend/streampipe"
 )
 
 // GeminiAPIVersion is the API version segment the reference harness used.
@@ -303,17 +303,24 @@ func (c *GeminiClient) run(ctx context.Context, body []byte, out chan<- backend.
 	var lastErr error
 	for attempt := 0; attempt <= retry.MaxConnectionRetries; attempt++ {
 		if attempt > 0 {
+			delay := retry.NextConnectionRetryDelay(attempt - 1)
+			if rDelay := apierror.RetryAfterDurationErr(lastErr); rDelay > 0 {
+				delay = rDelay
+				if delay > retry.MaxConnectionRetryInterval {
+					delay = retry.MaxConnectionRetryInterval
+				}
+			}
 			select {
 			case <-ctx.Done():
 				return ctx.Err()
-			case <-time.After(retry.NextConnectionRetryDelay(attempt - 1)):
+			case <-time.After(delay):
 			}
 		}
 		err := c.runOnce(ctx, body, out)
 		if err == nil {
 			return nil
 		}
-		if !retry.IsConnectionDropped(err) {
+		if !retry.IsConnectionDropped(err) && !apierror.IsRetryableStatusErr(err) {
 			return err
 		}
 		lastErr = err
@@ -348,7 +355,7 @@ func (c *GeminiClient) runOnce(ctx context.Context, body []byte, out chan<- back
 	defer resp.Body.Close()
 	if resp.StatusCode >= 400 {
 		rawBody, _ := io.ReadAll(resp.Body)
-		return &apierror.HTTPError{StatusCode: resp.StatusCode, Body: rawBody, URL: endpoint}
+		return &apierror.HTTPError{StatusCode: resp.StatusCode, Body: rawBody, URL: endpoint, Header: resp.Header}
 	}
 	return c.readBody(ctx, resp, out)
 }
@@ -371,32 +378,27 @@ func (c *GeminiClient) endpointURL() string {
 
 // readBody consumes the SSE stream and pushes the translated chunks.
 func (c *GeminiClient) readBody(ctx context.Context, resp *http.Response, out chan<- backend.StreamChunk) error {
-	idleR := retry.NewIdleTimeoutReader(resp.Body, retry.StreamIdleTimeout)
-	scanner := bufio.NewScanner(idleR)
-	scanner.Buffer(make([]byte, 0, 64*1024), 1<<22)
-
 	var meta *backend.ChunkMeta
 	calls := newGeminiToolAccumulator()
 
-	for scanner.Scan() {
-		line := scanner.Text()
+	_, scanErr := streampipe.ScanSSELines(ctx, resp.Body, 1<<22, c.baseURL, func(line string) (bool, error) {
 		if !strings.HasPrefix(line, "data:") {
-			continue
+			return false, nil
 		}
 		payload := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
 		if payload == "" {
-			continue
+			return false, nil
 		}
 		if sErr := geminicode.ParseFrameError(payload); sErr != nil {
 			code := sErr.Code
 			if code == 0 {
 				code = 500
 			}
-			return &apierror.HTTPError{StatusCode: code, Body: []byte(sErr.Error()), URL: c.endpointURL()}
+			return true, &apierror.HTTPError{StatusCode: code, Body: []byte(sErr.Error()), URL: c.endpointURL()}
 		}
 		var chunk geminiResponse
 		if err := json.Unmarshal([]byte(payload), &chunk); err != nil {
-			return retry.ClassifyTransportError(fmt.Errorf("backend gemini: sse decode: %w", err), c.baseURL)
+			return true, retry.ClassifyTransportError(fmt.Errorf("backend gemini: sse decode: %w", err), c.baseURL)
 		}
 		if usage := chunk.UsageMetadata; usage != nil {
 			meta = &backend.ChunkMeta{
@@ -408,11 +410,12 @@ func (c *GeminiClient) readBody(ctx context.Context, resp *http.Response, out ch
 			}
 		}
 		if err := c.emitChunk(ctx, chunk, calls, out); err != nil {
-			return err
+			return true, err
 		}
-	}
-	if err := scanner.Err(); err != nil {
-		return retry.ClassifyTransportError(fmt.Errorf("backend gemini: sse read: %w", err), c.baseURL)
+		return false, nil
+	})
+	if scanErr != nil {
+		return scanErr
 	}
 	if !calls.emit(ctx, out) {
 		return nil
@@ -421,10 +424,35 @@ func (c *GeminiClient) readBody(ctx context.Context, resp *http.Response, out ch
 	return nil
 }
 
+// ContentFilterBlockedMessage is the canonical text emitted when the Gemini API's
+// safety filter blocks a prompt or candidate response.
+// AGY 1.5.0: "Fixed conversations using a GEMINI_API_KEY re-sending a prompt
+// forever when the API's safety filter blocks it, which now ends the turn with
+// a content-filter message".
+const ContentFilterBlockedMessage = "Response was blocked by content filter."
+
 // emitChunk translates one Gemini response chunk into the neutral chunk
 // channel.
 func (c *GeminiClient) emitChunk(ctx context.Context, chunk geminiResponse, calls *geminiToolAccumulator, out chan<- backend.StreamChunk) error {
+	if chunk.PromptFeedback != nil && geminicode.IsSafetyFinishReason(chunk.PromptFeedback.BlockReason) {
+		select {
+		case <-ctx.Done():
+			out <- backend.StreamChunk{Error: ctx.Err(), Done: true}
+			return ctx.Err()
+		case out <- backend.StreamChunk{Text: ContentFilterBlockedMessage}:
+			return nil
+		}
+	}
 	for _, candidate := range chunk.Candidates {
+		if geminicode.IsSafetyFinishReason(candidate.FinishReason) {
+			select {
+			case <-ctx.Done():
+				out <- backend.StreamChunk{Error: ctx.Err(), Done: true}
+				return ctx.Err()
+			case out <- backend.StreamChunk{Text: ContentFilterBlockedMessage}:
+				return nil
+			}
+		}
 		for _, part := range candidate.Content.Parts {
 			if part.FunctionCall != nil {
 				calls.add(part.FunctionCall)
@@ -644,6 +672,9 @@ type geminiResponse struct {
 		} `json:"content"`
 		FinishReason string `json:"finishReason"`
 	} `json:"candidates"`
+	PromptFeedback *struct {
+		BlockReason string `json:"blockReason"`
+	} `json:"promptFeedback"`
 	UsageMetadata *struct {
 		PromptTokenCount        int `json:"promptTokenCount"`
 		CandidatesTokenCount    int `json:"candidatesTokenCount"`

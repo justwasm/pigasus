@@ -25,8 +25,11 @@ import (
 	"github.com/justwasm/pigasus/internal/rcfrontend"
 	"github.com/justwasm/pigasus/internal/rctunnel"
 	"github.com/justwasm/pigasus/internal/remotecontrol"
+	"github.com/justwasm/pigasus/internal/remotecontrol/cascades"
+	"github.com/justwasm/pigasus/internal/voice"
 	"github.com/justwasm/pigasus/originpolicy"
 	"github.com/justwasm/pigasus/rcmesh"
+	_ "github.com/justwasm/pigasus/rcmesh/pion"
 	"github.com/justwasm/pigasus/remotetransport"
 )
 
@@ -128,12 +131,23 @@ func RunServe(j *cli.JetskiCLI, args cli.ServeArgs) error {
 // Mendel read then carries the hub identity, so the page the daemon
 // serves (and the dashboard's page behind the tunnel) is the
 // desktop one. See desktopMendelUserAgent.
+// ServeOptions customizes buildServeStack.
+type ServeOptions struct {
+	Backend       cascades.Backend
+	Desktop       bool
+	StatelessMode bool
+}
+
 func buildServeStack(addr, instanceID, token string, desktop bool) (*remotecontrol.Dispatcher, *remotetransport.TCPServer, error) {
+	return buildServeStackWithOptions(addr, instanceID, token, ServeOptions{Desktop: desktop})
+}
+
+func buildServeStackWithOptions(addr, instanceID, token string, opts ServeOptions) (*remotecontrol.Dispatcher, *remotetransport.TCPServer, error) {
 	cwd, _ := os.Getwd()
 	sess := remotecontrol.NewSessionState(cli.ReferenceVersion)
 	sess.Workspace = cwd
 
-	disp, err := buildServeDispatcher(cwd, addr, sess, instanceID, desktopMendelUserAgent(desktop))
+	disp, err := buildServeDispatcherWithOptions(cwd, addr, sess, instanceID, desktopMendelUserAgent(opts.Desktop), opts.Backend, opts.StatelessMode)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -145,8 +159,66 @@ func buildServeStack(addr, instanceID, token string, desktop bool) (*remotecontr
 	return disp, srv, nil
 }
 
-// startServeTunnel starts the cloud tunnel client in the background
-// and returns the client plus the function that stops it.
+// StartInProcessServe launches a remote-control server and tunnel in-process.
+// It is designed for TUI and attached ACP agent sessions to allow remote control
+// directly against an existing engine without spawning an external daemon.
+func StartInProcessServe(ctx context.Context, customBackend cascades.Backend, desktop bool, errOut io.Writer) (*remotecontrol.Dispatcher, func(), error) {
+	if auth.IsBusinessAccount() {
+		return nil, func() {}, cli.ExitCodeError(remoteControlADCExitCode, serveADCErrorMessageForCaller())
+	}
+
+	instanceName := persistentrc.ResolveInstanceName("")
+	if instanceName == "" {
+		hn, _ := os.Hostname()
+		if hn != "" {
+			instanceName = hn
+		} else {
+			instanceName = "localhost"
+		}
+	}
+
+	instanceID := persistentrc.InstanceID()
+	_, activeAccount := accounts.Current()
+
+	token, _, err := resolveRCToken()
+	if err != nil {
+		return nil, func() {}, fmt.Errorf("could not mint remote-control secret: %w", err)
+	}
+
+	// In-process server binds to loopback ephemeral port
+	disp, srv, err := buildServeStackWithOptions("127.0.0.1:0", instanceID, token, ServeOptions{
+		Backend:       customBackend,
+		Desktop:       desktop,
+		StatelessMode: true,
+	})
+	if err != nil {
+		return nil, func() {}, fmt.Errorf("failed to build in-process serve stack: %w", err)
+	}
+
+	if errOut == nil {
+		errOut = io.Discard
+	}
+
+	tunnelClient, stopTunnel := startServeTunnel(rctunnel.ClientOptions{
+		InstanceName: instanceName,
+		InstanceID:   instanceID,
+		Account:      activeAccount,
+		Dispatcher:   disp,
+		Handler:      srv.Handler(),
+		LogWriter:    errOut,
+		DebugForward: os.Getenv("PIGASUS_DEBUG_FORWARD") != "",
+	}, errOut, "in-process-remote-control")
+
+	stop := func() {
+		stopTunnel()
+		if srv != nil {
+			_ = srv.Shutdown(context.Background())
+		}
+	}
+
+	_ = tunnelClient
+	return disp, stop, nil
+}
 func startServeTunnel(opts rctunnel.ClientOptions, errOut io.Writer, label string) (*rctunnel.Client, func()) {
 	client := rctunnel.NewClient(opts)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -249,12 +321,20 @@ func activeAccountEmail() string {
 }
 
 func buildServeDispatcher(cwd, addr string, sess *remotecontrol.SessionState, instanceID string, mendelUserAgent string) (*remotecontrol.Dispatcher, error) {
+	return buildServeDispatcherWithOptions(cwd, addr, sess, instanceID, mendelUserAgent, nil, false)
+}
+
+func buildServeDispatcherWithOptions(cwd, addr string, sess *remotecontrol.SessionState, instanceID string, mendelUserAgent string, customBackend cascades.Backend, statelessMode bool) (*remotecontrol.Dispatcher, error) {
 	fsProvider := buildHostFSProvider(nil, cwd)
 	projectStore := buildHostProjectStore(fsProvider)
 	// One broker for the whole daemon: the dispatcher's three
 	// LanguageServerService RPCs and the turn's `webview_browser` tool
 	// have to meet in the same instance.
 	broker := agentbrowser.NewBroker()
+	msgBackend := customBackend
+	if msgBackend == nil {
+		msgBackend = buildHostMessageBackend(cwd, "", broker)
+	}
 	disp, err := remotecontrol.NewDispatcher(remotecontrol.Config{
 		Session:                 sess,
 		Agents:                  remotecontrol.DefaultAgentLister,
@@ -265,7 +345,8 @@ func buildServeDispatcher(cwd, addr string, sess *remotecontrol.SessionState, in
 		Conversations:           buildHostConversationStore(projectStore),
 		AuthState:               authStateForCaller(),
 		DaemonMeta:              daemonMetaForCaller("tcp+ws", addr, "ephemeral-foreground"),
-		MessageBackend:          buildHostMessageBackend(cwd, "", broker),
+		MessageBackend:          msgBackend,
+		StatelessMode:           statelessMode,
 		Browser:                 broker,
 		PermissionsStore:        buildHostPermissionStore(),
 		PluginsStore:            buildHostPluginStore(),
@@ -297,11 +378,16 @@ func startServeServer(disp *remotecontrol.Dispatcher, addr, token string) (*remo
 		AccountEmail:       activeAccount,
 		CSRFToken:          token,
 	})
+	voiceSvc := voice.NewService(voice.Config{
+		WorkspaceDir: cwd,
+		CSRFToken:    token,
+	})
 	srv, err := remotetransport.NewTCPServer(context.Background(), disp, remotetransport.TCPConfig{
 		Addr:         addr,
 		Path:         "/rpc",
 		OriginPolicy: &seed,
 		WebUIHandler: webUI,
+		VoiceHandler: voiceSvc,
 		CSRFToken:    token,
 	})
 	if err != nil {

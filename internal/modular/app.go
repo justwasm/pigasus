@@ -13,14 +13,14 @@ import (
 	"github.com/justwasm/pigasus/internal/core/cliflags"
 )
 
-// AppOptions configures the modular CLI entry point.
+// Package modular app configuration.
 type AppOptions struct {
 	Name                string
 	Description         string
 	LongDesc            string
 	Version             string
 	DefaultEngine       string
-	Subcommands         []cli.SubcommandSpec
+	Subcommands         []cliflags.SubcommandSpec
 	InteractiveRunner   func(w io.Writer, fs *flag.FlagSet) error
 	TUISnapshotRenderer func(w io.Writer) error
 }
@@ -58,7 +58,7 @@ func NewApp(opts AppOptions) *App {
 }
 
 func (a *App) setupParser() {
-	var subs []cli.SubcommandSpec
+	var subs []cliflags.SubcommandSpec
 	if len(a.opts.Subcommands) > 0 {
 		subs = a.opts.Subcommands
 	} else {
@@ -89,6 +89,9 @@ func (a *App) setupParser() {
 		cli.ExtraFlags()...,
 	)
 
+	p.SetOut(os.Stdout)
+	p.SetErr(os.Stderr)
+
 	p.Root().Version = a.opts.Version + "\n"
 	p.Root().RootRun = func(args []string) error {
 		return a.runRoot(args, p)
@@ -99,6 +102,9 @@ func (a *App) setupParser() {
 
 func (a *App) runRoot(args []string, p *cli.Parser) error {
 	out := p.Root().Out
+	if out == nil {
+		out = os.Stdout
+	}
 	fs := p.Root().FlagSet()
 	if fs == nil {
 		return nil

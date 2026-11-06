@@ -23,17 +23,153 @@
 package remotecontrol
 
 import (
+	"bytes"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"sync"
 
+	"github.com/tidwall/gjson"
+	"github.com/tidwall/pretty"
+	"github.com/tidwall/sjson"
+
+	"github.com/justwasm/pigasus/atomicfile"
+	"github.com/justwasm/pigasus/internal/core/confhome"
+	"github.com/justwasm/pigasus/internal/features/auth"
 	"github.com/justwasm/pigasus/internal/remotecontrol/rpc"
 )
+
+// userInfoSettings holds the settings queried and updated by
+// FetchUserInfo / SetUserInfo.
+type userInfoSettings struct {
+	TelemetryEnabled                bool `json:"telemetryEnabled"`
+	UserDataCollectionForceDisabled bool `json:"userDataCollectionForceDisabled"`
+	MarketingEmailsEnabled          bool `json:"marketingEmailsEnabled"`
+}
+
+// lsSetUserInfoRequest is the envelope received by SetUserInfo.
+type lsSetUserInfoRequest struct {
+	UserSettings      *lsUserSettingsPayload `json:"userSettings"`
+	UserSettingsSnake *lsUserSettingsPayload `json:"user_settings"`
+	TelemetryEnabled  *bool                  `json:"telemetryEnabled"`
+	TelemetryEnabled_ *bool                  `json:"telemetry_enabled"`
+	MarketingEmails   *bool                  `json:"marketingEmailsEnabled"`
+	MarketingEmails_  *bool                  `json:"marketing_emails_enabled"`
+}
+
+// lsUserSettingsPayload carries the fields within userSettings.
+type lsUserSettingsPayload struct {
+	TelemetryEnabled                     *bool `json:"telemetryEnabled"`
+	TelemetryEnabledSnake                *bool `json:"telemetry_enabled"`
+	MarketingEmailsEnabled               *bool `json:"marketingEmailsEnabled"`
+	MarketingEmailsEnabledSnake          *bool `json:"marketing_emails_enabled"`
+	UserDataCollectionForceDisabled      *bool `json:"userDataCollectionForceDisabled"`
+	UserDataCollectionForceDisabledSnake *bool `json:"user_data_collection_force_disabled"`
+}
+
+func (r *lsSetUserInfoRequest) extractPayload() lsUserSettingsPayload {
+	var target lsUserSettingsPayload
+	if r.UserSettings != nil {
+		target = *r.UserSettings
+	} else if r.UserSettingsSnake != nil {
+		target = *r.UserSettingsSnake
+	}
+	if target.TelemetryEnabled == nil && target.TelemetryEnabledSnake != nil {
+		target.TelemetryEnabled = target.TelemetryEnabledSnake
+	}
+	if target.TelemetryEnabled == nil {
+		if r.TelemetryEnabled != nil {
+			target.TelemetryEnabled = r.TelemetryEnabled
+		} else if r.TelemetryEnabled_ != nil {
+			target.TelemetryEnabled = r.TelemetryEnabled_
+		}
+	}
+	if target.MarketingEmailsEnabled == nil && target.MarketingEmailsEnabledSnake != nil {
+		target.MarketingEmailsEnabled = target.MarketingEmailsEnabledSnake
+	}
+	if target.MarketingEmailsEnabled == nil {
+		if r.MarketingEmails != nil {
+			target.MarketingEmailsEnabled = r.MarketingEmails
+		} else if r.MarketingEmails_ != nil {
+			target.MarketingEmailsEnabled = r.MarketingEmails_
+		}
+	}
+	return target
+}
+
+// loadUserInfoSettings seeds the user settings from settings.json or defaults.
+func loadUserInfoSettings() userInfoSettings {
+	forceDisabled := auth.IsBusinessAccount()
+	telemetryEnabled := !forceDisabled
+	marketingEmailsEnabled := false
+
+	path := filepath.Join(confhome.Antigravity(), "settings.json")
+	if data, err := os.ReadFile(path); err == nil {
+		data = confhome.StripBOM(data)
+		if gjson.ValidBytes(data) {
+			if res := gjson.GetBytes(data, "telemetryEnabled"); res.Exists() {
+				if !forceDisabled {
+					telemetryEnabled = res.Bool()
+				}
+			} else if res := gjson.GetBytes(data, "telemetry"); res.Exists() {
+				if !forceDisabled {
+					telemetryEnabled = res.Bool()
+				}
+			}
+			if res := gjson.GetBytes(data, "marketingEmailsEnabled"); res.Exists() {
+				marketingEmailsEnabled = res.Bool()
+			}
+		}
+	}
+
+	return userInfoSettings{
+		TelemetryEnabled:                telemetryEnabled,
+		UserDataCollectionForceDisabled: forceDisabled,
+		MarketingEmailsEnabled:          marketingEmailsEnabled,
+	}
+}
+
+// persistUserInfoSettings saves telemetryEnabled and marketingEmailsEnabled back to settings.json,
+// preserving all existing keys.
+func persistUserInfoSettings(telemetryEnabled, marketingEmailsEnabled bool) error {
+	dir := confhome.Antigravity()
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return err
+	}
+	path := filepath.Join(dir, "settings.json")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			data = []byte("{\n}")
+		} else {
+			return err
+		}
+	} else {
+		data = confhome.StripBOM(data)
+		if len(bytes.TrimSpace(data)) == 0 || !gjson.ValidBytes(data) {
+			data = []byte("{\n}")
+		}
+	}
+
+	data, err = sjson.SetBytes(data, "telemetryEnabled", telemetryEnabled)
+	if err != nil {
+		return err
+	}
+	data, err = sjson.SetBytes(data, "marketingEmailsEnabled", marketingEmailsEnabled)
+	if err != nil {
+		return err
+	}
+
+	prettyData := bytes.TrimSpace(pretty.PrettyOptions(data, &pretty.Options{Indent: "  ", SortKeys: true}))
+	return atomicfile.WriteFile(path, prettyData, 0o600)
+}
 
 // stateStore holds the app state and the user config.
 type stateStore struct {
 	mu         sync.Mutex
 	appState   map[string]any
 	userConfig map[string]any
+	userInfo   userInfoSettings
 }
 
 // agentOnboardingStateNames spells the jetbox_state_pb
@@ -66,7 +202,69 @@ func newStateStore() *stateStore {
 				"enableSoundsForSpecialEvents":        false,
 			},
 		},
+		userInfo: loadUserInfoSettings(),
 	}
+}
+
+func (s *stateStore) getUserInfo() userInfoSettings {
+	if s == nil {
+		return loadUserInfoSettings()
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	res := s.userInfo
+	if auth.IsBusinessAccount() {
+		res.TelemetryEnabled = false
+		res.UserDataCollectionForceDisabled = true
+	}
+	return res
+}
+
+func (s *stateStore) isTelemetryEnabled() bool {
+	if s == nil {
+		return !auth.IsBusinessAccount()
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if auth.IsBusinessAccount() {
+		return false
+	}
+	return s.userInfo.TelemetryEnabled && !s.userInfo.UserDataCollectionForceDisabled
+}
+
+func (s *stateStore) updateUserInfo(params json.RawMessage) (userInfoSettings, error) {
+	if s == nil {
+		return loadUserInfoSettings(), nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	var req lsSetUserInfoRequest
+	if len(params) > 0 {
+		if err := json.Unmarshal(params, &req); err != nil {
+			return s.userInfo, err
+		}
+	}
+
+	payload := req.extractPayload()
+	forceDisabled := auth.IsBusinessAccount()
+	if forceDisabled {
+		s.userInfo.TelemetryEnabled = false
+		s.userInfo.UserDataCollectionForceDisabled = true
+	} else {
+		s.userInfo.UserDataCollectionForceDisabled = false
+		if payload.TelemetryEnabled != nil {
+			s.userInfo.TelemetryEnabled = *payload.TelemetryEnabled
+		}
+	}
+
+	if payload.MarketingEmailsEnabled != nil {
+		s.userInfo.MarketingEmailsEnabled = *payload.MarketingEmailsEnabled
+	}
+
+	_ = persistUserInfoSettings(s.userInfo.TelemetryEnabled, s.userInfo.MarketingEmailsEnabled)
+
+	return s.userInfo, nil
 }
 
 // lsWriteStateParams is the JetboxWriteState request shape

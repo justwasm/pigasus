@@ -1,0 +1,92 @@
+package tui
+
+import (
+	"context"
+	"os"
+	"path/filepath"
+	"testing"
+	"time"
+
+	persistentrc "github.com/justwasm/pigasus/internal/infra/remote/persistent"
+)
+
+// TestMain points $ANTIGRAVITY_HOME at a scratch tree for the whole
+// package's test run.
+//
+// Cycle 295: the cliapp fixtures wrote into the user's *real* agy
+// home — ~/.gemini/antigravity-cli/history.jsonl (the prompt history
+// the reference binary pages through) and settings.json. The
+// reference reads the same two files, so a plain `go test` run
+// injected junk into the user's history.
+//
+// 【一手】 measured on this machine, 2026-10-25: one
+// `go test ./cmd/... ./internal/...` appended 15 fixture entries
+// ("first prompt", "older prompt", "would be recalled if picker were
+// hidden", "hi", "yo", "/changelog", …) to the real history.jsonl —
+// 1723 of the 2000 entries in that file were test fixtures.
+//
+// The scratch tree mirrors the shape of the real one —
+// <tmp>/.gemini/antigravity-cli is the AGY home, <tmp>/.gemini is
+// its parent — so the code that walks the parent (the /skills panel
+// reads <parent>/skills) still finds the same catalogue. The
+// read-only parts of the real tree (the built-in skills bundle and
+// ~/.gemini/skills) are linked in; everything the tests *write*
+// lands in the scratch tree.
+//
+// Tests that need their own home still call
+// t.Setenv("ANTIGRAVITY_HOME", …) and are unaffected: t.Setenv
+// restores the value this function installed.
+func TestMain(m *testing.M) {
+	root, err := os.MkdirTemp("", "pigasus-cliapp-home-")
+	if err != nil {
+		panic(err)
+	}
+	gemini := filepath.Join(root, ".gemini")
+	agy := filepath.Join(gemini, "antigravity-cli")
+	if err := os.MkdirAll(agy, 0o755); err != nil {
+		panic(err)
+	}
+	if home, herr := os.UserHomeDir(); herr == nil {
+		realGemini := filepath.Join(home, ".gemini")
+		linkDir(filepath.Join(agy, "builtin"), filepath.Join(realGemini, "antigravity-cli", "builtin"))
+		linkDir(filepath.Join(gemini, "skills"), filepath.Join(realGemini, "skills"))
+	}
+	if err := os.Setenv("ANTIGRAVITY_HOME", agy); err != nil {
+		panic(err)
+	}
+	// The seasonal theme is a *calendar* feature: the reference draws
+	// the "Seasonal Themes" row in /config only while the event is in
+	// season (October), so the panel's row count would follow the
+	// wall clock. The tests pin the clock outside the season; the
+	// seasonal tests pin it inside.
+	seasonalNow = func() time.Time {
+		return time.Date(2026, time.January, 15, 12, 0, 0, 0, time.UTC)
+	}
+	// The /remote-control handler starts the background daemon
+	// through persistentrc.StartOfficialDaemon, and on macOS that
+	// call **registers a launchd agent**. The launchd label is
+	// global to the login session, so registering it from a test
+	// (whose $HOME is a temporary directory — see
+	// slashRemoteControlRunMode) does not add a second daemon: it
+	// replaces the one the user already runs, and the replacement
+	// writes its log into a directory that is deleted with the test.
+	//
+	// The user's daemon is not the subject of any test here, so the
+	// package's default is a no-op. The two tests that do care about
+	// the call replace this variable themselves.
+	persistentrc.StartOfficialDaemon = func(ctx context.Context, name string, session, desktop bool) error {
+		return nil
+	}
+	code := m.Run()
+	_ = os.RemoveAll(root)
+	os.Exit(code)
+}
+
+// linkDir symlinks dst → src when src exists. A missing source is not
+// an error: the catalogue it feeds is simply smaller.
+func linkDir(dst, src string) {
+	if _, err := os.Stat(src); err != nil {
+		return
+	}
+	_ = os.Symlink(src, dst)
+}

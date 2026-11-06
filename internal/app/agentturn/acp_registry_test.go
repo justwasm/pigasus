@@ -9,7 +9,7 @@ import (
 )
 
 func TestACPRegistry_BuiltinAgents(t *testing.T) {
-	for _, id := range []string{"agy-acp-server", "codex-acp", "claude-acp"} {
+	for _, id := range []string{"agy-acp", "pigasus-acp", "codex-acp", "claude-acp"} {
 		m, ok := BuiltinACPRegistry[id]
 		if !ok {
 			t.Fatalf("missing builtin agent %q", id)
@@ -80,6 +80,20 @@ func TestACPRegistry_ResolveACPAgent_BuiltinAliases(t *testing.T) {
 		}
 		if len(args) == 0 {
 			t.Errorf("ResolveACPAgent(%q) args is empty", alias)
+		}
+	}
+
+	// Pigasus alias resolution
+	for _, alias := range []string{"pigasus", "pigasus-acp", "pig-acp"} {
+		cmd, args, _, err := ResolveACPAgent(alias)
+		if err != nil {
+			t.Fatalf("ResolveACPAgent(%q) failed: %v", alias, err)
+		}
+		if cmd == "" {
+			t.Errorf("ResolveACPAgent(%q) cmd is empty", alias)
+		}
+		if len(args) == 0 || args[0] != "acp" {
+			t.Errorf("ResolveACPAgent(%q) args = %v, want ['acp']", alias, args)
 		}
 	}
 

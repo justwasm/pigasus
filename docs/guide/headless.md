@@ -5,16 +5,16 @@
 > slash commands the CLI answers itself, and the exit codes.
 
 The headless path lives in `internal/printmode` (**an entry surface, above
-tier 5** — the ui tier may not import it, invariant 119). It runs PiG's
-`coding.Session`, the same engine the interactive TUI's `--print` path
-uses; the two turn engines are described in
+tier 5** — the ui tier may not import it, invariant 119). It runs `actor.Actor`
+via `print_actor.go`, the same clean-room turn engine used across the agent
+runtime; the turn engines and seams are described in
 [`agent-loop.md`](agent-loop.md).
 
 | concern | where |
 |---|---|
 | the flags | `internal/cli/parser_flags.go` — `standardFlagsCore` / `standardFlagsTail` |
 | the envelope and the stream shapes | `internal/printmode/print_format.go` |
-| the run | `internal/printmode/main_print.go`, `print_pig.go`, `main_print_tools.go` |
+| the run | `internal/printmode/main_print.go`, `print_actor.go`, `main_print_tools.go` |
 | the stdin pipeline | `internal/printmode/stream_json.go` |
 | the slash commands the CLI answers itself | `internal/printmode/print_slash.go` and its siblings |
 | the JSON schema flag | `internal/printmode/json_schema.go` |

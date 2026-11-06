@@ -232,3 +232,43 @@ func TestCommandExitCode(t *testing.T) {
 		t.Fatal("expected ok false for missing exit code")
 	}
 }
+
+func TestRenderDiffLines_LongLineTruncation(t *testing.T) {
+	longLine1 := strings.Repeat("A", 150)
+	longLine2 := strings.Repeat("B", 150)
+	d := BuildEditDiff(longLine1+"\n", longLine2+"\n")
+	if d == nil {
+		t.Fatal("expected a diff")
+	}
+	width := 80
+	lines := RenderDiffLines(d, width)
+	if len(lines) == 0 {
+		t.Fatal("expected rendered lines")
+	}
+	for i, l := range lines {
+		plain := stripANSI(l)
+		if n := len([]rune(plain)); n >= width {
+			t.Errorf("line %d has length %d >= width %d: %q", i, n, width, plain)
+		}
+	}
+}
+
+func TestRenderDiffLines_TabExpansion(t *testing.T) {
+	tabbed1 := "\t\tfmt.Println(\"old\")"
+	tabbed2 := "\t\tfmt.Println(\"new long line that extends far to the right\")"
+	d := BuildEditDiff(tabbed1+"\n", tabbed2+"\n")
+	if d == nil {
+		t.Fatal("expected diff")
+	}
+	width := 50
+	lines := RenderDiffLines(d, width)
+	for i, l := range lines {
+		if strings.Contains(l, "\t") {
+			t.Errorf("line %d contains tab: %q", i, l)
+		}
+		plain := stripANSI(l)
+		if n := len([]rune(plain)); n >= width {
+			t.Errorf("line %d has length %d >= width %d: %q", i, n, width, plain)
+		}
+	}
+}

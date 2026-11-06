@@ -8,11 +8,7 @@ import (
 
 func TestTeamworkSubagentRouting(t *testing.T) {
 	tool := &invokeTool{
-		deps: Deps{
-			Services: subagentTestServices(t),
-			Model:    subagentTestModel(),
-			CWD:      t.TempDir(),
-		},
+		deps: subagentTestServices(t),
 		defs: NewStore(),
 	}
 
@@ -183,7 +179,7 @@ func TestTeamworkRolesCannotBeShadowedOrRedefined(t *testing.T) {
 	for _, name := range reservedTeamwork {
 		t.Run("define_"+name, func(t *testing.T) {
 			params := `{"Name":"` + name + `","SystemPrompt":"You are an impostor"}`
-			_, err := dt.Execute(context.Background(), "call-1", []byte(params), nil)
+			_, err := dt.Execute(context.Background(), params)
 			if err == nil {
 				t.Fatalf("expected error when redefining teamwork role %q, got nil", name)
 			}

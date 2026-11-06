@@ -862,6 +862,13 @@ func (c *Client) processInboundChunk(ctx context.Context, token string, buf []by
 }
 
 func (c *Client) sendForward(ctx context.Context, token, data string) (string, error) {
+	return c.sendForwardBatch(ctx, token, []string{data})
+}
+
+func (c *Client) sendForwardBatch(ctx context.Context, token string, items []string) (string, error) {
+	if len(items) == 0 {
+		return "", nil
+	}
 	c.mu.Lock()
 	sid := c.sid
 	gsession := c.gsession
@@ -869,15 +876,20 @@ func (c *Client) sendForward(ctx context.Context, token, data string) (string, e
 
 	rid := c.reqSeq.Add(1)
 	aid := c.lastAID.Load()
-	ofs := c.ofsSeq.Add(1) - 1
+	n := int64(len(items))
+	ofs := c.ofsSeq.Add(n) - n
 
 	fcURL := fmt.Sprintf("%s?VER=8&SID=%s&RID=%d&AID=%d&gsessionid=%s&t=1",
 		c.opts.Endpoint, sid, rid, aid, gsession)
 
 	form := url.Values{}
-	form.Set("count", "1")
+	form.Set("count", fmt.Sprintf("%d", len(items)))
 	form.Set("ofs", fmt.Sprintf("%d", ofs))
-	form.Set("req0___data__", data)
+	totalLen := 0
+	for i, d := range items {
+		form.Set(fmt.Sprintf("req%d___data__", i), d)
+		totalLen += len(d)
+	}
 
 	req, err := http.NewRequestWithContext(ctx, "POST", fcURL, strings.NewReader(form.Encode()))
 	if err != nil {
@@ -901,26 +913,20 @@ func (c *Client) sendForward(ctx context.Context, token, data string) (string, e
 		// one ("Connection ended. Retrying immediately..."), and the
 		// cloud only takes the instance back into the registry when a
 		// new session registers.
-		//
-		// 【一手】 2026-10-26, live: the clone kept posting into a
-		// disowned session, every answer came back 400 "Unknown SID",
-		// and the cloud cancelled the browser's request ten seconds
-		// later — "proxyRequest reqID=13 was canceled by server" — so
-		// the dashboard's liveness probe never completed.
 		if resp.StatusCode >= 400 && resp.StatusCode < 500 {
 			c.markSessionDead(fmt.Sprintf("forward POST HTTP %d", resp.StatusCode))
 		}
-		return "", fmt.Errorf("forward POST HTTP %d (sid=%s rid=%d aid=%d ofs=%d len=%d): %s",
-			resp.StatusCode, sid, rid, aid, ofs, len(data), string(b))
+		return "", fmt.Errorf("forward POST HTTP %d (sid=%s rid=%d aid=%d ofs=%d count=%d len=%d): %s",
+			resp.StatusCode, sid, rid, aid, ofs, len(items), totalLen, string(b))
 	}
 	b, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
 	if c.opts.DebugForward {
-		sent := data
+		sent := items[0]
 		if len(sent) > 260 {
 			sent = sent[:260] + "..."
 		}
-		c.log("forward POST ok sid=%s rid=%d aid=%d ofs=%d len=%d sent=%s body=%q",
-			sid, rid, aid, ofs, len(data), sent, string(b))
+		c.log("forward POST ok sid=%s rid=%d aid=%d ofs=%d count=%d len=%d sent[0]=%s body=%q",
+			sid, rid, aid, ofs, len(items), totalLen, sent, string(b))
 	}
 	return string(b), nil
 }

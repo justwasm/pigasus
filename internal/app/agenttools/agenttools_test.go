@@ -8,8 +8,6 @@ import (
 	"strings"
 	"testing"
 
-	pi "github.com/MichaelKinsy/PiG/ai"
-
 	"github.com/justwasm/pigasus/internal/app/tools/surface"
 )
 
@@ -45,24 +43,17 @@ func TestTools_RunsRegistryExecutor(t *testing.T) {
 		t.Fatalf("tools[1] = %s", target.Name())
 	}
 	params, _ := json.Marshal(map[string]any{"AbsolutePath": file})
-	res, err := target.Execute(context.Background(), "call", params, nil)
+	res, err := target.Execute(context.Background(), string(params))
 	if err != nil {
 		t.Fatalf("Execute: %v", err)
 	}
-	if len(res.Content) != 1 {
-		t.Fatalf("content = %d", len(res.Content))
-	}
-	text, ok := res.Content[0].(pi.TextContent)
-	if !ok || !strings.Contains(text.Text, "hello") {
-		t.Fatalf("result = %#v", res.Content[0])
+	if !strings.Contains(res.Output, "hello") {
+		t.Fatalf("result = %#v", res.Output)
 	}
 }
 
 // TestDeclarationsMatch147Capture re-evidences the seven custom-agent
-// declarations against agy 1.4.7. The 1.4.3/1.4.4 capture was taken through
-// the cycle-274 wrapper; this test pins a fresh 1.4.7 capture (a real
-// `--agent test` turn, recorded through the clone's own proxy) and asserts
-// the two are identical, which is why tools_1.4.7.json is authoritative.
+// declarations against agy 1.4.7.
 func TestDeclarationsMatch147Capture(t *testing.T) {
 	raw, err := os.ReadFile(filepath.Join("testdata", "agent_decls_1.4.7.json"))
 	if err != nil {
@@ -95,10 +86,7 @@ func TestDeclarationsMatch147Capture(t *testing.T) {
 }
 
 // TestDeclarationsCarryNoToolSummaryOrAction pins the 1.4.7 shape of the
-// custom-agent surface: the reference dropped the `toolSummary` and
-// `toolAction` parameters (they belong to its subagent surface) and the
-// clone's wire must not offer them either — a model that still sent them
-// would be asking for a parameter the reference does not accept.
+// custom-agent surface.
 func TestDeclarationsCarryNoToolSummaryOrAction(t *testing.T) {
 	decls, err := Declarations()
 	if err != nil {

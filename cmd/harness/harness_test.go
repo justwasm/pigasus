@@ -20,6 +20,7 @@ import (
 	"github.com/coder/websocket"
 	"google.golang.org/protobuf/proto"
 
+	"github.com/justwasm/pigasus/actor"
 	"github.com/justwasm/pigasus/localharness"
 	pb "github.com/justwasm/pigasus/localharness/pb/localharness"
 )
@@ -391,12 +392,12 @@ func TestClientToolRoundTrip(t *testing.T) {
 				answered <- "the harness did not build the client tool"
 				return nil
 			}
-			result, err := tools[0].Execute(ctx, "call-1", []byte(`{"x":"1"}`), nil)
+			result, err := tools[0].Execute(actor.ContextWithToolCallID(ctx, "call-1"), `{"x":"1"}`)
 			if err != nil {
 				answered <- "error: " + err.Error()
 				return err
 			}
-			answered <- toolResultText(result)
+			answered <- result.Output
 			return nil
 		})
 	}()

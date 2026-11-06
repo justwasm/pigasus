@@ -26,6 +26,7 @@ type captureRecord struct {
 	HTTPMethod     string              `json:"httpMethod"`
 	Path           string              `json:"path"`
 	Model          string              `json:"model,omitempty"`
+	Account        string              `json:"account,omitempty"`
 	Custom         bool                `json:"custom"`
 	Status         int                 `json:"status,omitempty"`
 	RequestHeaders map[string][]string `json:"requestHeaders,omitempty"`
@@ -275,6 +276,21 @@ type captureResponseWriter struct {
 	status  int
 	limited bool
 	buf     bytes.Buffer
+	acc     string
+}
+
+func (c *captureResponseWriter) setAccount(acc string) {
+	if acc != "" {
+		c.acc = acc
+	}
+}
+
+func (c *captureResponseWriter) account() string {
+	return c.acc
+}
+
+func (c *captureResponseWriter) Unwrap() http.ResponseWriter {
+	return c.ResponseWriter
 }
 
 // captureBodyLimit bounds how much of a response is stored in memory. A turn
@@ -359,6 +375,7 @@ func (s *Server) captureResponse(started time.Time, method string, r *http.Reque
 		HTTPMethod:     r.Method,
 		Path:           r.URL.Path,
 		Model:          info.model,
+		Account:        cw.account(),
 		Custom:         info.custom,
 		Status:         cw.statusCode(),
 		RequestHeaders: r.Header.Clone(),

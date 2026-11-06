@@ -43,19 +43,17 @@ import (
 
 const (
 	// referenceChangelogByteLen is the size of the embedded blob, a
-	// verbatim `agy changelog` capture from the v1.4.12 binary (the
-	// cycle-235 hand-written 1.4.2 stub is gone; upstream ships its own
-	// release notes, so the blob is capture-only).
-	referenceChangelogByteLen = 188429
+	// verbatim `agy changelog` capture from the v1.5.0 binary.
+	referenceChangelogByteLen = 189039
 	// referenceChangelogLines is the embedded blob's line count.
-	referenceChangelogLines = 1069
+	referenceChangelogLines = 1073
 	// referenceChangelogSections is the number of `X.Y.Z:` version headers
-	// (1.4.11 down to 1.0.0; 1.3.7/1.3.8/1.3.9 are absent upstream too).
-	referenceChangelogSections = 82
+	// (1.4.12 down to 1.0.0; 1.3.7/1.3.8/1.3.9 are absent upstream too).
+	referenceChangelogSections = 83
 	// referenceChangelogBullets is the number of `· ` top-level bullets.
-	referenceChangelogBullets = 906
+	referenceChangelogBullets = 908
 	// referenceChangelogSHA256 is the SHA-256 of the embedded bytes.
-	referenceChangelogSHA256 = "47d411f035301b9e1b2ae35f6c51e49b06915ca0b01d441ca7765f88f6b8b70e"
+	referenceChangelogSHA256 = "34d2421bd2bbc414e7b9dc92661647cdcdc6622ee72f9265ef41efa905bf3dc8"
 )
 
 // TestReferenceVersion_MatchesDriftLock pins cli.ReferenceVersion -- the
@@ -110,8 +108,8 @@ func TestChangelog_SHA256(t *testing.T) {
 // 1.4.0 sections from the binary capture, and ends at the 1.0.0
 // initial-release section.
 func TestChangelog_Shape(t *testing.T) {
-	if !strings.HasPrefix(referenceChangelog, "1.4.11:\n") {
-		t.Errorf("referenceChangelog must start with %q", "1.4.11:\n")
+	if !strings.HasPrefix(referenceChangelog, "1.4.12:\n") {
+		t.Errorf("referenceChangelog must start with %q", "1.4.12:\n")
 	}
 	if !strings.Contains(referenceChangelog, "\n1.4.1:\n") {
 		t.Errorf("referenceChangelog must contain a 1.4.1 section")

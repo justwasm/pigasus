@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/charmbracelet/x/ansi"
 )
 
 // TestTaskDetailBodyRule — the reference draws a forty-cell rule
@@ -345,5 +347,55 @@ func TestTaskDetailBodyLineWrapAndReflow(t *testing.T) {
 	lines70 := TaskDetailBody(task, 70)
 	if len(lines35) <= len(lines70) {
 		t.Errorf("expected lines at width 35 (%d) to be greater than at width 70 (%d)", len(lines35), len(lines70))
+	}
+}
+
+// TestTaskDetailBodyOutputFuncLiveStreaming verifies that TaskDetailBody prefers
+// the live output provided by OutputFunc while the task is running.
+func TestTaskDetailBodyOutputFuncLiveStreaming(t *testing.T) {
+	task := &Task{
+		ID:      "task-live-1",
+		Name:    "server",
+		Kind:    KindShell,
+		State:   StateRunning,
+		Command: "server run",
+		Output:  "initial output",
+		OutputFunc: func() string {
+			return "live streaming line 1\nlive streaming line 2"
+		},
+	}
+
+	lines := TaskDetailBody(task, 80)
+	joined := strings.Join(lines, "\n")
+	if !strings.Contains(joined, "live streaming line 1") {
+		t.Errorf("expected live streaming output in TaskDetailBody, got:\n%s", joined)
+	}
+	if strings.Contains(joined, "initial output") {
+		t.Errorf("expected OutputFunc to override static Output while running")
+	}
+}
+
+func TestTaskDetailBody_TabExpansionAndWrap(t *testing.T) {
+	tabbedOutput := "\tfunc main() {\n\t\tr.mu.Lock()\n\t\tdefer r.mu.Unlock()\n\t}"
+	task := &Task{
+		ID:      "task-tab-1",
+		Command: "cat main.go",
+		Kind:    KindShell,
+		State:   StateDone,
+		Output:  tabbedOutput,
+	}
+
+	lines := TaskDetailBody(task, 40)
+	for i, l := range lines {
+		if strings.Contains(l, "\t") {
+			t.Errorf("line %d contains tab: %q", i, l)
+		}
+		if ansi.StringWidth(l) > 40 {
+			t.Errorf("line %d exceeds 40 width: %q", i, l)
+		}
+	}
+	joined := strings.Join(lines, "\n")
+	if !strings.Contains(joined, "    func main() {") {
+		t.Errorf("expected 4-space tab expansion, got:\n%s", joined)
 	}
 }

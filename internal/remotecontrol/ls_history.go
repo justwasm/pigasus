@@ -319,6 +319,39 @@ func lsConfigProjectsDir() string {
 	return filepath.Join(home, ".gemini", "config", "projects")
 }
 
+// lsDiskProjectMap reads all raw project JSON files from the reference's
+// project directory (~/.gemini/config/projects/).
+func lsDiskProjectMap() map[string]map[string]any {
+	dir := lsConfigProjectsDir()
+	if dir == "" {
+		return nil
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil
+	}
+	out := make(map[string]map[string]any)
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".json") {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(dir, e.Name()))
+		if err != nil {
+			continue
+		}
+		var m map[string]any
+		if err := json.Unmarshal(data, &m); err != nil {
+			continue
+		}
+		id, _ := m["id"].(string)
+		if id == "" {
+			continue
+		}
+		out[id] = m
+	}
+	return out
+}
+
 // lsProjectIDs returns the project ids the Web UI's list carries. The
 // default project comes first: it is the one the reference selects.
 //
@@ -332,7 +365,7 @@ func (d *Dispatcher) lsProjectIDs() []string {
 		}
 		return files[i].ID < files[j].ID
 	})
-	ids := make([]string, 0, len(files))
+	ids := make([]string, 0, len(files)+2)
 	seen := map[string]bool{}
 	for _, f := range files {
 		if seen[f.ID] {
@@ -348,7 +381,111 @@ func (d *Dispatcher) lsProjectIDs() []string {
 		seen[id] = true
 		ids = append(ids, id)
 	}
+	if len(ids) == 0 {
+		ids = append(ids, projectflags.DefaultProjectID)
+	}
 	return ids
+}
+
+// effectiveWorkspace returns the active workspace directory for the session.
+func (d *Dispatcher) effectiveWorkspace() string {
+	if d != nil && d.cfg.Session != nil && d.cfg.Session.Workspace != "" {
+		return d.cfg.Session.Workspace
+	}
+	if d != nil && d.cfg.WebTerminals != nil {
+		if ws := d.cfg.WebTerminals.Workspace(); ws != "" {
+			return ws
+		}
+	}
+	if wd, err := os.Getwd(); err == nil && wd != "" {
+		return wd
+	}
+	return ""
+}
+
+// lsProjectObjects returns the project objects for the given ids —
+// the proto-JSON of exa.project_pb.Project — and the ids the store
+// does not know.
+//
+// It preserves all project fields from disk (name, projectResources,
+// permissionGrants, settings), injecting the session's workspace when
+// default-cli-project has no configured resources.
+func (d *Dispatcher) lsProjectObjects(ctx context.Context, ids []string) ([]any, []string) {
+	diskMap := lsDiskProjectMap()
+	projects := []any{}
+	notFound := []string{}
+	ws := d.effectiveWorkspace()
+
+	for _, id := range ids {
+		if diskMap != nil {
+			if raw, ok := diskMap[id]; ok {
+				m := make(map[string]any, len(raw))
+				for k, v := range raw {
+					m[k] = v
+				}
+				if id == projectflags.DefaultProjectID || id == "default-cli-project" {
+					res, _ := m["projectResources"].(map[string]any)
+					var resources []any
+					if res != nil {
+						resources, _ = res["resources"].([]any)
+					}
+					if len(resources) == 0 && ws != "" {
+						if res == nil {
+							res = map[string]any{}
+						}
+						res["resources"] = []any{
+							map[string]any{"folderUri": "file://" + ws},
+						}
+						m["projectResources"] = res
+					}
+				}
+				projects = append(projects, m)
+				continue
+			}
+		}
+		if id == projectflags.DefaultProjectID || id == "default-cli-project" {
+			proj := map[string]any{
+				"id":   id,
+				"name": "CLI Project",
+				"permissionGrants": map[string]any{
+					"permissionGrants": map[string]any{},
+					"v2Migrated":       true,
+				},
+			}
+			if ws != "" {
+				proj["projectResources"] = map[string]any{
+					"resources": []any{
+						map[string]any{"folderUri": "file://" + ws},
+					},
+				}
+			} else {
+				proj["projectResources"] = map[string]any{}
+			}
+			projects = append(projects, proj)
+			continue
+		}
+		if id == "outside-of-project" {
+			projects = append(projects, map[string]any{
+				"id":   "outside-of-project",
+				"name": "Outside of Project",
+			})
+			continue
+		}
+		if p, err := d.lsOwnProject(ctx, id); err == nil && p.ID != "" {
+			proj := map[string]any{"id": p.ID, "name": p.Name}
+			if p.Workspace != "" {
+				proj["projectResources"] = map[string]any{
+					"resources": []any{
+						map[string]any{"folderUri": "file://" + p.Workspace},
+					},
+				}
+			}
+			projects = append(projects, proj)
+			continue
+		}
+		notFound = append(notFound, id)
+	}
+	return projects, notFound
 }
 
 // lsOwnProjectIDs reads the clone's own project store.
@@ -367,34 +504,6 @@ func (d *Dispatcher) lsOwnProjectIDs() []string {
 		}
 	}
 	return ids
-}
-
-// lsProjectObjects returns the project objects for the given ids —
-// the proto-JSON of exa.project_pb.Project — and the ids the store
-// does not know.
-//
-// The proto-JSON spells the fields `id` and `name`; the clone's own
-// Project record spells them `ID` and `Name`, and a decoder that
-// matches field names drops the ones it cannot find.
-func (d *Dispatcher) lsProjectObjects(ctx context.Context, ids []string) ([]any, []string) {
-	byID := map[string]lsProjectFile{}
-	for _, f := range lsProjectFiles() {
-		byID[f.ID] = f
-	}
-	projects := []any{}
-	notFound := []string{}
-	for _, id := range ids {
-		if f, ok := byID[id]; ok {
-			projects = append(projects, map[string]any{"id": f.ID, "name": f.Name})
-			continue
-		}
-		if p, err := d.lsOwnProject(ctx, id); err == nil && p.ID != "" {
-			projects = append(projects, map[string]any{"id": p.ID, "name": p.Name})
-			continue
-		}
-		notFound = append(notFound, id)
-	}
-	return projects, notFound
 }
 
 // lsOwnProject reads one project from the clone's own store.

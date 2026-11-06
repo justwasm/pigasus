@@ -46,8 +46,6 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
-
-	"github.com/alecthomas/chroma/v2/lexers"
 )
 
 // blockKind tags the renderer we use for a stripped block. The
@@ -239,15 +237,12 @@ func createBlockPlaceholder(lang, body string) (BlockPlaceholder, bool) {
 			Body:   "    " + expandLaTeX(strings.TrimSpace(body)),
 		}, true
 	default:
-		if lang != "" && lexers.Get(lang) != nil {
-			return BlockPlaceholder{
-				Kind:     blockCode,
-				Raw:      body,
-				Source:   body,
-				Language: lang,
-			}, true
-		}
-		return BlockPlaceholder{}, false
+		return BlockPlaceholder{
+			Kind:     blockCode,
+			Raw:      body,
+			Source:   body,
+			Language: lang,
+		}, true
 	}
 }
 

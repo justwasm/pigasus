@@ -448,17 +448,8 @@ func (s *Server) handleOpenAIChat(w http.ResponseWriter, r *http.Request, body [
 
 	// Map tool_call_id to function name from assistant messages so tool responses
 	// whose client payload omits "name" (like @ai-sdk/openai-compatible) retain their function name.
+	// Track chronologically in-stream so reused or colliding IDs never overwrite earlier turns.
 	toolCallNames := make(map[string]string)
-	for _, m := range req.Messages {
-		if strings.ToLower(strings.TrimSpace(m.Role)) == "assistant" {
-			for _, tc := range m.ToolCalls {
-				if tc.ID != "" && tc.Function.Name != "" {
-					toolCallNames[tc.ID] = tc.Function.Name
-				}
-			}
-		}
-	}
-
 	var systemPromptParts []string
 	var turnMessages []geminicode.TurnMessage
 	for _, m := range req.Messages {
@@ -470,9 +461,18 @@ func (s *Server) handleOpenAIChat(w http.ResponseWriter, r *http.Request, body [
 			}
 			continue
 		}
+		if role == "assistant" {
+			for _, tc := range m.ToolCalls {
+				if tc.ID != "" && tc.Function.Name != "" {
+					toolCallNames[tc.ID] = tc.Function.Name
+				}
+			}
+		}
 		name := m.Name
-		if role == "tool" && name == "" && m.ToolCallID != "" {
-			name = toolCallNames[m.ToolCallID]
+		if role == "tool" {
+			if expected, ok := toolCallNames[m.ToolCallID]; ok && expected != "" {
+				name = expected
+			}
 		}
 		msg := geminicode.TurnMessage{
 			Role:    role,
@@ -539,7 +539,8 @@ func (s *Server) handleOpenAIChat(w http.ResponseWriter, r *http.Request, body [
 	}
 
 	ctx := r.Context()
-	resp, _, err := s.executeBridgeRequest(ctx, turn, r.Header.Get("Authorization"))
+	resp, currentEmail, err := s.executeBridgeRequest(ctx, turn, r.Header.Get("Authorization"))
+	recordAccount(w, currentEmail)
 	if err != nil {
 		s.logf("[bridge] upstream error: %v", err)
 		writeOpenAIError(w, http.StatusBadGateway, "upstream_error", err.Error())
@@ -837,24 +838,6 @@ func parseAnthropicSystem(raw any) string {
 
 func parseAnthropicMessages(msgs []anthropicMessage) []geminicode.TurnMessage {
 	toolCallNames := make(map[string]string)
-	for _, m := range msgs {
-		if strings.ToLower(strings.TrimSpace(m.Role)) == "assistant" {
-			if v, ok := m.Content.([]any); ok {
-				for _, blk := range v {
-					if block, ok := blk.(map[string]any); ok {
-						if block["type"] == "tool_use" {
-							id, _ := block["id"].(string)
-							name, _ := block["name"].(string)
-							if id != "" && name != "" {
-								toolCallNames[id] = name
-							}
-						}
-					}
-				}
-			}
-		}
-	}
-
 	var out []geminicode.TurnMessage
 	for _, m := range msgs {
 		role := strings.ToLower(strings.TrimSpace(m.Role))
@@ -904,6 +887,9 @@ func parseAnthropicMessages(msgs []anthropicMessage) []geminicode.TurnMessage {
 				case "tool_use":
 					id, _ := block["id"].(string)
 					name, _ := block["name"].(string)
+					if id != "" && name != "" {
+						toolCallNames[id] = name
+					}
 					inputRaw, _ := json.Marshal(block["input"])
 					out = append(out, geminicode.TurnMessage{
 						Role: "assistant",
@@ -998,7 +984,8 @@ func (s *Server) handleAnthropicMessages(w http.ResponseWriter, r *http.Request,
 	}
 
 	ctx := r.Context()
-	resp, _, err := s.executeBridgeRequest(ctx, turn, r.Header.Get("Authorization"))
+	resp, currentEmail, err := s.executeBridgeRequest(ctx, turn, r.Header.Get("Authorization"))
+	recordAccount(w, currentEmail)
 	if err != nil {
 		writeAnthropicError(w, http.StatusBadGateway, "api_error", err.Error())
 		return
@@ -1359,6 +1346,7 @@ func (s *Server) executeBridgeRequest(ctx context.Context, turn geminicode.Turn,
 	}
 
 	var lastErr error
+	var lastAttemptEmail string
 	for attempt := 0; attempt < maxAttempts; attempt++ {
 		var token, currentEmail string
 		if s.balanceActive() {
@@ -1375,6 +1363,10 @@ func (s *Server) executeBridgeRequest(ctx context.Context, turn geminicode.Turn,
 				token = tok.Token.AccessToken
 			}
 		}
+		if currentEmail == "" {
+			currentEmail = s.resolveAccount(currentEmail, clientAuthHeader)
+		}
+		lastAttemptEmail = currentEmail
 
 		reqEnv := geminicode.BuildRequest(turn)
 		bodyBytes, err := json.Marshal(reqEnv)
@@ -1393,6 +1385,19 @@ func (s *Server) executeBridgeRequest(ctx context.Context, turn geminicode.Turn,
 			httpReq.Header.Set("Authorization", "Bearer "+token)
 		}
 
+		if s.cap != nil {
+			s.cap.write(captureRecord{
+				TS:             time.Now(),
+				Kind:           "request",
+				Method:         "bridge_upstream",
+				HTTPMethod:     http.MethodPost,
+				Path:           upstreamURL,
+				Model:          turn.Model,
+				RequestBody:    rawBody(bodyBytes),
+				RequestHeaders: httpReq.Header.Clone(),
+			})
+		}
+
 		resp, err := s.client.Do(httpReq)
 		if err != nil {
 			lastErr = err
@@ -1402,6 +1407,18 @@ func (s *Server) executeBridgeRequest(ctx context.Context, turn geminicode.Turn,
 		if isQuotaStatus(resp.StatusCode) {
 			errBytes, _ := readAll(resp.Body, maxRequestBody)
 			resp.Body.Close()
+			if s.cap != nil {
+				s.cap.write(captureRecord{
+					TS:           time.Now(),
+					Kind:         "response",
+					Method:       "bridge_upstream",
+					HTTPMethod:   http.MethodPost,
+					Path:         upstreamURL,
+					Model:        turn.Model,
+					Status:       resp.StatusCode,
+					ResponseBody: rawBody(errBytes),
+				})
+			}
 			if isQuotaResponseBody(resp.StatusCode, errBytes) {
 				s.logf("[bridge] %s quota exceeded (%d); excluding and retrying (attempt %d/%d)",
 					currentEmail, resp.StatusCode, attempt+1, maxAttempts)
@@ -1419,16 +1436,28 @@ func (s *Server) executeBridgeRequest(ctx context.Context, turn geminicode.Turn,
 		if resp.StatusCode != http.StatusOK {
 			errBytes, _ := readAll(resp.Body, maxRequestBody)
 			resp.Body.Close()
-			return nil, "", fmt.Errorf("upstream error (%d): %s", resp.StatusCode, string(errBytes))
+			if s.cap != nil {
+				s.cap.write(captureRecord{
+					TS:           time.Now(),
+					Kind:         "response",
+					Method:       "bridge_upstream",
+					HTTPMethod:   http.MethodPost,
+					Path:         upstreamURL,
+					Model:        turn.Model,
+					Status:       resp.StatusCode,
+					ResponseBody: rawBody(errBytes),
+				})
+			}
+			return nil, currentEmail, fmt.Errorf("upstream error (%d): %s", resp.StatusCode, string(errBytes))
 		}
 
 		return resp, currentEmail, nil
 	}
 
 	if lastErr != nil {
-		return nil, "", lastErr
+		return nil, lastAttemptEmail, lastErr
 	}
-	return nil, "", fmt.Errorf("no available accounts in pool")
+	return nil, lastAttemptEmail, fmt.Errorf("no available accounts in pool")
 }
 
 // Helpers for JSON errors

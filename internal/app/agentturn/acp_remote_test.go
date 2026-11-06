@@ -446,6 +446,34 @@ func TestACPRemote_V2_PlanTracking(t *testing.T) {
 	}
 }
 
+func TestACPRemote_MarkdownPlanTracking(t *testing.T) {
+	remote := &ACPRemote{}
+	md := `# Execution Plan
+- [x] Inspect project architecture
+- [ ] Implement ACP statusline integration
+* [x] Run test suite
+1. [ ] Final verification and clean cache
+`
+	remote.setPlanMarkdown(md)
+	plan := remote.Plan()
+	if len(plan) != 4 {
+		t.Fatalf("expected 4 plan entries from markdown checklist, got %d: %+v", len(plan), plan)
+	}
+
+	if plan[0].Content != "Inspect project architecture" || plan[0].Status != "completed" {
+		t.Errorf("entry 0 mismatch: %+v", plan[0])
+	}
+	if plan[1].Content != "Implement ACP statusline integration" || plan[1].Status != "pending" {
+		t.Errorf("entry 1 mismatch: %+v", plan[1])
+	}
+	if plan[2].Content != "Run test suite" || plan[2].Status != "completed" {
+		t.Errorf("entry 2 mismatch: %+v", plan[2])
+	}
+	if plan[3].Content != "Final verification and clean cache" || plan[3].Status != "pending" {
+		t.Errorf("entry 3 mismatch: %+v", plan[3])
+	}
+}
+
 func TestACPRemote_V1_RequestPermission_AutoApprove(t *testing.T) {
 	agentR, clientW := io.Pipe()
 	clientR, agentW := io.Pipe()

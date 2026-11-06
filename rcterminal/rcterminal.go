@@ -202,6 +202,16 @@ func (r *Registry) SetWorkspace(dir string) {
 	r.workspace = dir
 }
 
+// Workspace returns the directory a terminal uses when no workspace is named.
+func (r *Registry) Workspace() string {
+	if r == nil {
+		return ""
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.workspace
+}
+
 // Create spawns a terminal and returns its description.
 //
 // 【一手】 2026-10-27, the reference's own answers:
@@ -272,7 +282,9 @@ func (r *Registry) List(conversationID, projectID, workspaceURI string) []Info {
 		if conversationID != "" && s.conversationID != conversationID {
 			continue
 		}
-		if projectID != "" && s.projectID != projectID {
+		if projectID != "" && s.projectID != projectID &&
+			!(s.projectID == "" && (projectID == "default-cli-project" || projectID == "outside-of-project")) &&
+			!((s.projectID == "default-cli-project" || s.projectID == "outside-of-project") && projectID == "") {
 			continue
 		}
 		if wantWorkspace != "" && canonicalWorkspaceURI(s.workspace) != wantWorkspace && cleanWorkspaceURI(s.workspace) != wantClean {

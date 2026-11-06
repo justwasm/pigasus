@@ -12,13 +12,13 @@ import (
 	"strings"
 	"time"
 
-	"github.com/justwasm/pigasus/internal/agent"
+	"github.com/justwasm/pigasus/actor"
+	"github.com/justwasm/pigasus/internal/app/agentturn"
 	"github.com/justwasm/pigasus/internal/app/subagenttools"
 	"github.com/justwasm/pigasus/internal/app/tools"
 	"github.com/justwasm/pigasus/internal/core/slashparse"
 	"github.com/justwasm/pigasus/internal/features/agents"
 	"github.com/justwasm/pigasus/internal/features/auth"
-	"github.com/justwasm/pigasus/internal/pigrt"
 	"github.com/justwasm/pigasus/internal/rchost"
 )
 
@@ -89,10 +89,10 @@ func RunStreamJSON(w io.Writer, r io.Reader, fs *flag.FlagSet) error {
 		tools.SetExtraWorkspaces(workspaces[1:])
 	}
 
-	pcfg := pigPrintConfig{
+	pcfg := actorPrintConfig{
 		Backend:        be,
 		Model:          cfg.modelName,
-		History:        pigHistory(cfg.sel),
+		History:        printHistory(cfg.sel),
 		Catalog:        catalog,
 		Policy:         policy,
 		Workspace:      workspace,
@@ -102,14 +102,14 @@ func RunStreamJSON(w io.Writer, r io.Reader, fs *flag.FlagSet) error {
 		Effort:         flagStringValue(fs, "effort"),
 		AgentBody:      agents.AgentBody(agents.CustomAgentFromFlags(fs)),
 		Definitions:    rehydratePrintConversation(cfg.sel, cfg.conversationID),
+		Supervisor:     cfg.sel.Supervisor,
 	}
 
-	model, slot, err := preparePigPrintModel(pcfg)
+	provider, errSlot, err := preparePrintProvider(pcfg)
 	if err != nil {
 		return err
 	}
 	var denials []string
-	hook := createPigPrintHook(pcfg.Policy, &denials)
 	defer func() {
 		gate.Denials = append(gate.Denials, denials...)
 		reportHeadlessDenials(gate.Denials)
@@ -126,8 +126,8 @@ func RunStreamJSON(w io.Writer, r io.Reader, fs *flag.FlagSet) error {
 	pcfg.Registry = registry
 	defer registry.Close()
 
-	opts := pigPrintOptions(pcfg, model, hook, slot)
-	extraTools, cleanup, err := buildPigPrintTools(pcfg, model, opts)
+	sysPrompt := buildPrintSystemPrompt(pcfg)
+	toolsList, cleanup, err := buildPrintTools(pcfg, provider, func() string { return sysPrompt }, &denials)
 	if err != nil {
 		return err
 	}
@@ -135,7 +135,6 @@ func RunStreamJSON(w io.Writer, r io.Reader, fs *flag.FlagSet) error {
 		defer cleanup()
 	}
 	setupPrintAskQuestion(pcfg.Catalog)
-	opts.ExtraTools = extraTools
 
 	ctx, cancel := printContext(cfg.timeout)
 	defer cancel()
@@ -143,19 +142,30 @@ func RunStreamJSON(w io.Writer, r io.Reader, fs *flag.FlagSet) error {
 	defer guard.Close()
 	guard.cancel(cancel)
 
-	rt, err := pigrt.New(ctx, opts)
+	historyTurns := actorSeedHistory(pcfg)
+	initialHistory := make([]actor.ConversationMessage, 0, len(historyTurns))
+	for _, ht := range historyTurns {
+		initialHistory = append(initialHistory, actor.ConversationMessage{
+			Role:    actor.Role(strings.ToLower(ht.Role)),
+			Content: ht.Text,
+		})
+	}
+
+	act, err := actor.Spawn(actor.Config{
+		ID:             pcfg.ConversationID,
+		Name:           "print_agent",
+		SystemPrompt:   sysPrompt,
+		Model:          pcfg.Model,
+		Provider:       provider,
+		Tools:          toolsList,
+		InitialHistory: initialHistory,
+	})
 	if err != nil {
 		return err
 	}
 	defer func() {
-		if cerr := rt.Close(); cerr != nil {
-			printModeSilenceLogger.Printf("[pigrt] close: %v", cerr)
-		}
+		_ = act.Close()
 	}()
-
-	if err := rt.SeedHistory(pigSeedHistory(pcfg)); err != nil {
-		return err
-	}
 
 	scanner := bufio.NewScanner(r)
 	scanner.Buffer(make([]byte, 64*1024), 16*1024*1024)
@@ -204,7 +214,7 @@ func RunStreamJSON(w io.Writer, r io.Reader, fs *flag.FlagSet) error {
 
 		turnState := &printTurnState{
 			textRouter:    newPrintTextRouter(false),
-			sanitizer:     agent.NewSanitizer(),
+			sanitizer:     agentturn.NewSanitizer(),
 			turnStarted:   true,
 			turnBegan:     true,
 			turnStartedAt: time.Now(),
@@ -228,7 +238,7 @@ func RunStreamJSON(w io.Writer, r io.Reader, fs *flag.FlagSet) error {
 		turnPCfg.Prompt = promptText
 		turnPCfg.Handler = chunkHandler
 
-		runErr := executePigPrintRunWith(ctx, rt, turnPCfg, deliveries)
+		runErr := executeActorPrintRun(ctx, act, turnPCfg, deliveries, errSlot)
 
 		// 3. Emit agent_response step_update
 		stepType := "agent_response"

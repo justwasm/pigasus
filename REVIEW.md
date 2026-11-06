@@ -155,3 +155,20 @@
   - 细节索引表（按领域划分按需检索，避免一次性塞入上下文）
 * **单一事实源文档体系**：
   保持 `docs/guide/` 始终与最新代码严格对齐，历史推演与考古报告沉淀到专门的 `archive/` 目录，杜绝旧周期结论干扰 Agent 决策。
+
+---
+
+## 5. 重构演进落地进展与对齐状态 (Alignment Status)
+
+截至当前版本，`REVIEW.md` 中提出的核心架构痛点与三步走演进路线图均已实现关键落地与闭环对齐：
+
+| 评审痛点 / 演进建议 | 落地状态 | 对应实施成果 / 承载包 |
+|---|:---:|---|
+| **2.2 / 4.2 瓦解 runMode：会话与轨迹下沉** | **已完成** | 建立 `internal/app/session/supervisor` (`SessionSupervisor`)，统一接管会话消息、隐式轨迹收集、多轮回溯及持久化落盘，并在 TUI 与 Print Mode 双端接入。 |
+| **2.2 / 4.2 瓦解 runMode：后台任务状态下沉** | **已完成** | 建立 `internal/app/task` (`TaskRegistryController`)，封装后台任务注册表、订阅生命周期、原子脏标记驱动与任务完成通知收件箱（`TaskInbox`），彻底解耦 UI 渲染与任务状态管理。 |
+| **2.3 双引擎行为漂移消解** | **已完成** | Print Mode 与 TUI Mode 统一通过 `SessionSupervisor` 解析与转换工作区隐式轨迹（`!` shell 历史），消除了各自为政的转换逻辑与历史漂移。 |
+| **3.1 认知过载：AGENTS.md 极度膨胀** | **已完成** | `AGENTS.md` 瘦身至单屏架构宪章（~150 行），提炼 12 条核心承重不变量，详细子系统文档全面链接至 `docs/guide/` 按需读取。 |
+| **3.2 工具链基线防御与反直觉模式** | **已完成** | 引入 `Makefile` 与 `scripts/verify.sh`，提供 `make quick`、`make arch`、`make test`、`make build` 统一入口，安全屏蔽 `scratch/` 实验代码干扰。 |
+| **3.3 历史推导与当前事实源混淆** | **已完成** | 确立 `docs/guide/` 为唯一事实源（Single Source of Truth），在 `AGENTS.md` 与 `docs/cycles/README.md` 明确规约历史报告的归档属性。 |
+| **4.1 物理隔离逆向保真怪癖** | **已隔离** | 原厂特定怪癖、odd-width 终端补偿和特定字节垫片全部收敛至 `internal/features/compat/agy` 隔离包，业务主干保持干净。 |
+

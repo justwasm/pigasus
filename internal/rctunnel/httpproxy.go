@@ -449,15 +449,54 @@ func (c *Client) serveProxiedRequest(ctx context.Context, token string, req *Pro
 	isStreaming := isStreamingRPC(req.Headers, req.RPCPath)
 	var rec *recordedResponse
 	chunkCount := 0
+
+	var respCh chan *ProxyResponseV2
+	var workerDone chan struct{}
+	if isStreaming {
+		respCh = make(chan *ProxyResponseV2, 256)
+		workerDone = make(chan struct{})
+		go func() {
+			defer close(workerDone)
+			for resp := range respCh {
+				batch := []*ProxyResponseV2{resp}
+			drain:
+				for len(batch) < 32 {
+					select {
+					case next, ok := <-respCh:
+						if !ok {
+							break drain
+						}
+						batch = append(batch, next)
+					default:
+						break drain
+					}
+				}
+				c.sendProxyResponsesBatch(ctx, token, batch)
+			}
+		}()
+	}
+
 	rec = newRecordedResponse(func(chunk []byte) {
 		if reqCtx.Err() != nil {
 			return
 		}
 		chunkCount++
-		c.sendProxyResponse(ctx, token, proxyResponseChunk(req.RequestID, rec, chunk))
+		resp := proxyResponseChunk(req.RequestID, rec, chunk)
+		if isStreaming {
+			select {
+			case respCh <- resp:
+			case <-reqCtx.Done():
+			}
+		} else {
+			c.sendProxyResponse(ctx, token, resp)
+		}
 	})
 	c.opts.Handler.ServeHTTP(rec, httpReq)
 	if reqCtx.Err() != nil {
+		if isStreaming {
+			close(respCh)
+			<-workerDone
+		}
 		return
 	}
 	if !isStreaming && chunkCount == 0 {
@@ -469,7 +508,18 @@ func (c *Client) serveProxiedRequest(ctx context.Context, token string, req *Pro
 		}
 		c.sendProxyResponse(ctx, token, proxyResponseChunk(req.RequestID, rec, emptyBody))
 	}
-	c.sendProxyResponse(ctx, token, proxyResponseFinal(req.RequestID, rec))
+	if isStreaming {
+		finalResp := proxyResponseFinal(req.RequestID, rec)
+		select {
+		case respCh <- finalResp:
+		default:
+			c.sendProxyResponse(ctx, token, finalResp)
+		}
+		close(respCh)
+		<-workerDone
+	} else {
+		c.sendProxyResponse(ctx, token, proxyResponseFinal(req.RequestID, rec))
+	}
 }
 
 // serveDispatchedRequest is the fallback for a tunnel without a local
@@ -533,7 +583,9 @@ const responsePostTimeout = 30 * time.Second
 // day, every one of them with "context canceled", and each loss left
 // the web UI waiting for an answer that never came.
 func (c *Client) sendProxyResponse(ctx context.Context, token string, resp *ProxyResponseV2) {
-	c.log("sendProxyResponse reqID=%s status=%d isFinal=%v payloadTextLen=%d payloadLen=%d", resp.RequestID, resp.StatusCode, resp.IsFinal, len(resp.PayloadText), len(resp.Payload))
+	if resp.IsFinal || c.opts.DebugForward {
+		c.log("sendProxyResponse reqID=%s status=%d isFinal=%v payloadTextLen=%d payloadLen=%d", resp.RequestID, resp.StatusCode, resp.IsFinal, len(resp.PayloadText), len(resp.Payload))
+	}
 	wrapReq := ConnectInstanceRequestV2{
 		Metadata: &InstanceMetadata{
 			Name:             c.opts.InstanceName,
@@ -555,5 +607,47 @@ func (c *Client) sendProxyResponse(ctx context.Context, token string, resp *Prox
 	defer cancel()
 	if _, err := c.sendForward(postCtx, token, string(data)); err != nil {
 		c.log("sendForward proxyResponse error: %v", err)
+	}
+}
+
+// sendProxyResponsesBatch ships multiple ProxyResponseV2 frames in a single batched
+// WebChannel forward POST.
+func (c *Client) sendProxyResponsesBatch(ctx context.Context, token string, resps []*ProxyResponseV2) {
+	if len(resps) == 0 {
+		return
+	}
+	if len(resps) == 1 {
+		c.sendProxyResponse(ctx, token, resps[0])
+		return
+	}
+	items := make([]string, 0, len(resps))
+	for _, resp := range resps {
+		if resp.IsFinal || c.opts.DebugForward {
+			c.log("sendProxyResponse reqID=%s status=%d isFinal=%v payloadTextLen=%d payloadLen=%d", resp.RequestID, resp.StatusCode, resp.IsFinal, len(resp.PayloadText), len(resp.Payload))
+		}
+		wrapReq := ConnectInstanceRequestV2{
+			Metadata: &InstanceMetadata{
+				Name:             c.opts.InstanceName,
+				Version:          c.opts.Version,
+				SupportsChunking: true,
+			},
+			InstanceID:          c.opts.InstanceID,
+			ProxyResponse:       resp,
+			SupportsPayloadText: true,
+		}
+		data, err := json.Marshal(wrapReq)
+		if err != nil {
+			c.log("marshal proxyResponse error: %v", err)
+			continue
+		}
+		items = append(items, string(data))
+	}
+	if len(items) == 0 {
+		return
+	}
+	postCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), responsePostTimeout)
+	defer cancel()
+	if _, err := c.sendForwardBatch(postCtx, token, items); err != nil {
+		c.log("sendForwardBatch proxyResponse error: %v", err)
 	}
 }

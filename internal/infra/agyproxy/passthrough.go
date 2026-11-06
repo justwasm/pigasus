@@ -110,6 +110,7 @@ func (s *Server) inspect(path string, body []byte) reqInfo {
 //     Rewrite hook strips them and the clone forwards the request as it
 //     came in.
 func (s *Server) passthrough(w http.ResponseWriter, r *http.Request, body []byte) {
+	recordAccount(w, s.resolveAccount("", r.Header.Get("Authorization")))
 	proxy := &httputil.ReverseProxy{
 		Transport: s.client.Transport,
 		// Flush after every chunk: the upstream streams SSE frames and
@@ -282,6 +283,10 @@ func (s *Server) handleBalancedPassthrough(w http.ResponseWriter, r *http.Reques
 				token = strings.TrimPrefix(auth, "Bearer ")
 			}
 		}
+		if currentEmail == "" {
+			currentEmail = s.resolveAccount(currentEmail, r.Header.Get("Authorization"))
+		}
+		recordAccount(w, currentEmail)
 
 		upstreamReq, err := s.upstreamRequest(r, body)
 		if err != nil {

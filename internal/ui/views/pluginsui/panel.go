@@ -82,6 +82,40 @@ type Panel struct {
 	localError string
 	// blinkOn is the blink phase of the search / install cursor.
 	blinkOn bool
+	// connectScreen holds the active "Connect <plugin>" screen when sign-in is required.
+	connectScreen *ConnectScreen
+}
+
+// ConnectScreen holds state for the "Connect <plugin>" modal screen.
+// AGY 1.5.0: "Added sign-in for a partner plugin's MCP servers when you install it from /plugin,
+// with a Connect <plugin> screen for each server that opens its sign-in page (Esc skips)".
+type ConnectScreen struct {
+	PluginName string
+	ServerName string
+	AuthURL    string
+}
+
+// ShowConnect opens the Connect <plugin> modal screen.
+func (p *Panel) ShowConnect(pluginName, serverName, authURL string) {
+	if p != nil {
+		p.connectScreen = &ConnectScreen{
+			PluginName: pluginName,
+			ServerName: serverName,
+			AuthURL:    authURL,
+		}
+	}
+}
+
+// ConnectActive reports whether a Connect <plugin> screen is currently active.
+func (p *Panel) ConnectActive() bool {
+	return p != nil && p.connectScreen != nil
+}
+
+// DismissConnect skips the current Connect <plugin> screen.
+func (p *Panel) DismissConnect() {
+	if p != nil {
+		p.connectScreen = nil
+	}
 }
 
 // New builds the /plugin panel.

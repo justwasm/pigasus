@@ -54,6 +54,7 @@ func TestHyperlinkCapsFromEnv_LogShape(t *testing.T) {
 func TestHyperlinkCapsFromEnv_NilEnv(t *testing.T) {
 	t.Setenv("TERM", "foo")
 	t.Setenv("TERM_PROGRAM", "WezTerm")
+	t.Setenv("TMUX", "")
 	var buf bytes.Buffer
 	caps := ProbeHyperlinkCaps(&buf, nil, false, false)
 	if !strings.Contains(buf.String(), `TERM="foo"`) {

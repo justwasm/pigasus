@@ -7,8 +7,7 @@ import (
 	"strings"
 	"time"
 
-	piagent "github.com/MichaelKinsy/PiG/agent"
-	pi "github.com/MichaelKinsy/PiG/ai"
+	"github.com/justwasm/pigasus/actor"
 )
 
 // manageSubagentsTool answers manage_subagents: "Manage the direct
@@ -39,41 +38,26 @@ type manageSubagentsTool struct {
 	owner string
 }
 
-func (t *manageSubagentsTool) Name() string  { return "manage_subagents" }
-func (t *manageSubagentsTool) Label() string { return "Manage Subagents" }
-func (t *manageSubagentsTool) ExecutionMode() piagent.ToolExecutionMode {
-	return piagent.ToolModeSequential
-}
+func (t *manageSubagentsTool) Name() string        { return "manage_subagents" }
+func (t *manageSubagentsTool) Description() string { return manageSubagentsDescription }
+func (t *manageSubagentsTool) RequiresApproval(_ string) bool { return false }
 
-func (t *manageSubagentsTool) Schema() pi.ToolSchema {
-	// 【反编译】 agy 1.4.8's declaration: the Action field's jsonschema tag
-	// reads "required,enum=list,enum=kill,enum=kill_all" (the CLI-side tag
-	// lives at file offset 0x9404b5a) and the description is the two kill
-	// clauses only. A live 1.4.8 session sends exactly these three values
-	// (internal/tools/model_tools_1.4.6.json, re-verified byte-identical at
-	// 1.4.8). `status` is not in the reference's enum; the executor still
-	// accepts it as an alias for `list` (clone-only).
-	//
-	// The reference's own handler knows a fourth action - `list_peers` -
-	// although its schema never advertises it (the clone's executor keeps
-	// that parity; see handleManageAction). The four-value schema with the
-	// long description is the *harness* side of the same binary
-	// (oneharness/internal/tools, file offset 0x4f35ddc), not the CLI's.
-	return pi.ToolSchema{
+func (t *manageSubagentsTool) Definition() actor.ToolDefinition {
+	return actor.ToolDefinition{
 		Name:        "manage_subagents",
 		Description: manageSubagentsDescription,
-		Parameters: pi.JsonObject{
+		Parameters: map[string]any{
 			"type": "object",
-			"properties": pi.JsonObject{
-				"Action": pi.JsonObject{
+			"properties": map[string]any{
+				"Action": map[string]any{
 					"type":        "string",
 					"enum":        []string{"list", "kill", "kill_all"},
 					"description": manageSubagentsActionDescription,
 				},
-				"ConversationIds": pi.JsonObject{
+				"ConversationIds": map[string]any{
 					"type":        "array",
 					"description": "Subagents to kill. Required for 'kill'.",
-					"items":       pi.JsonObject{"type": "string"},
+					"items":       map[string]any{"type": "string"},
 				},
 			},
 			"required": []string{"Action"},
@@ -111,10 +95,10 @@ func (a manageSubagentsArgs) effectiveAction() string {
 	return strings.TrimSpace(a.ActionCap)
 }
 
-func (t *manageSubagentsTool) Execute(_ context.Context, _ string, params json.RawMessage, _ piagent.ToolUpdateCallback) (piagent.AgentToolResult, error) {
+func (t *manageSubagentsTool) Execute(_ context.Context, input string) (actor.ToolResult, error) {
 	var args manageSubagentsArgs
-	if err := json.Unmarshal(params, &args); err != nil {
-		return piagent.AgentToolResult{}, fmt.Errorf("manage_subagents: parse args: %w", err)
+	if err := json.Unmarshal([]byte(input), &args); err != nil {
+		return actor.ToolResult{Error: err.Error()}, fmt.Errorf("manage_subagents: parse args: %w", err)
 	}
 	action := strings.ToLower(firstNonEmpty(args.Action, args.ActionCap))
 	ids := args.ConversationIds
@@ -127,11 +111,11 @@ func (t *manageSubagentsTool) Execute(_ context.Context, _ string, params json.R
 
 	body, err := t.handleManageAction(action, ids, args.effectiveAction())
 	if err != nil {
-		return piagent.AgentToolResult{}, err
+		return actor.ToolResult{Error: err.Error()}, err
 	}
 	text := resultStamp(time.Now()) + body
-	return piagent.AgentToolResult{
-		Content: []pi.ToolResultMessageContent{pi.TextContent{Text: text}},
+	return actor.ToolResult{
+		Output: text,
 	}, nil
 }
 

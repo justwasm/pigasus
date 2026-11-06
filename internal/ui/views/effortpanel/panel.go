@@ -175,21 +175,32 @@ func (p *Panel) moveCursor(delta int) {
 // A model whose effort cannot be adjusted has nothing to apply: the
 // panel shows the reference's "not adjustable" answer and stays put.
 func (p *Panel) apply() tea.Cmd {
-	if p == nil || p.seams.Apply == nil {
+	if p == nil {
 		return nil
 	}
 	if !p.adjustable() {
 		return nil
 	}
-	return p.seams.Apply(p.cursor)
+	if p.seams.Apply != nil {
+		return p.seams.Apply(p.cursor)
+	}
+	tiers := p.tiers()
+	var tier string
+	if p.cursor >= 0 && p.cursor < len(tiers) {
+		tier = tiers[p.cursor]
+	}
+	return ApplyCmd(p.cursor, tier)
 }
 
 // close leaves the panel.
 func (p *Panel) close() tea.Cmd {
-	if p == nil || p.seams.Close == nil {
+	if p == nil {
 		return nil
 	}
-	return p.seams.Close()
+	if p.seams.Close != nil {
+		return p.seams.Close()
+	}
+	return DismissCmd()
 }
 
 // clampLevel clamps a slider index into the model's own list of tiers.

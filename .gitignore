@@ -30,6 +30,7 @@ install/
 ghidra/
 *.tar.gz
 *.zip
+package.json
 # Extracts
 go_extract/
 dl2/

@@ -4,14 +4,27 @@ import (
 	"context"
 	"time"
 
-	piagent "github.com/MichaelKinsy/PiG/agent"
 )
+
+// CompactionStartEvent marks the beginning of context compaction.
+type CompactionStartEvent struct {
+	Reason string
+}
+
+// CompactionEndEvent marks the completion or abort of context compaction.
+type CompactionEndEvent struct {
+	TokensBefore         int
+	EstimatedTokensAfter int
+	Reason               string
+	Aborted              bool
+	ErrorMessage         string
+}
 
 // ManualCompactor is the seam for the /compact slash command.
 type ManualCompactor interface {
 	Compact(ctx context.Context, customInstructions string) error
 	IsCompacting() bool
-	SubscribeManual(listener func(piagent.AgentEvent)) func()
+	SubscribeManual(listener func(any)) func()
 }
 
 // GenericDoneMsg reports the result of a generic compaction task.

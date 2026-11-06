@@ -282,7 +282,15 @@ func TestTUISubcommand_DefaultsToACP(t *testing.T) {
 		t.Errorf("backend via --agy = %q, want agy", captured.Backend)
 	}
 
-	// Test ACP agent shortcuts: --codex-acp, --claude-acp, --agy-acp
+	// Test ACP agent shortcuts: --pigasus-acp, --codex-acp, --claude-acp, --agy-acp
+	err = runTUI(j, []string{"--pigasus-acp"})
+	if err != nil {
+		t.Fatalf("runTUI --pigasus-acp failed: %v", err)
+	}
+	if captured.Backend != "pigasus-acp" {
+		t.Errorf("backend via --pigasus-acp = %q, want pigasus-acp", captured.Backend)
+	}
+
 	err = runTUI(j, []string{"--codex-acp"})
 	if err != nil {
 		t.Fatalf("runTUI --codex-acp failed: %v", err)
@@ -303,8 +311,8 @@ func TestTUISubcommand_DefaultsToACP(t *testing.T) {
 	if err != nil {
 		t.Fatalf("runTUI --agy-acp failed: %v", err)
 	}
-	if captured.Backend != "agy-acp-server" {
-		t.Errorf("backend via --agy-acp = %q, want agy-acp-server", captured.Backend)
+	if captured.Backend != "agy-acp" {
+		t.Errorf("backend via --agy-acp = %q, want agy-acp", captured.Backend)
 	}
 
 	// Test --acp-cmd and --acp-manifest
@@ -322,6 +330,23 @@ func TestTUISubcommand_DefaultsToACP(t *testing.T) {
 	}
 	if captured.ACPManifest != "/tmp/agent.json" {
 		t.Errorf("acp-manifest = %q, want /tmp/agent.json", captured.ACPManifest)
+	}
+
+	// Test --protocol ahp and --ahp shortcut
+	err = runTUI(j, []string{"--server", "ws://127.0.0.1:8888", "--protocol", "ahp"})
+	if err != nil {
+		t.Fatalf("runTUI --protocol ahp failed: %v", err)
+	}
+	if captured.Protocol != "ahp" {
+		t.Errorf("protocol via --protocol ahp = %q, want ahp", captured.Protocol)
+	}
+
+	err = runTUI(j, []string{"--server", "ws://127.0.0.1:8888", "--ahp"})
+	if err != nil {
+		t.Fatalf("runTUI --ahp failed: %v", err)
+	}
+	if captured.Protocol != "ahp" {
+		t.Errorf("protocol via --ahp = %q, want ahp", captured.Protocol)
 	}
 }
 
@@ -400,4 +425,3 @@ func TestDispatchRunXxx_ServerAndTUI(t *testing.T) {
 		t.Errorf("capturedTUI = %+v, want server ws://127.0.0.1:9999 and token abc", capturedTUI)
 	}
 }
-

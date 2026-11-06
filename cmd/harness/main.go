@@ -25,8 +25,8 @@
 //
 //	what                        comes from
 //	--------------------------  ------------------------------------------
-//	turn engine                 internal/pigrt (PiG's coding.Session)
-//	provider / transport        internal/backend + internal/piagentbridge
+//	turn engine                 actor.Actor (actor runtime)
+//	provider / transport        actor.Provider + backend.Client adapter
 //	tool catalogue              internal/tools (the reference's own names)
 //	tool surface to the model   internal/tools.ModelDeclarations
 //	permission policy           internal/core/policy/permissions

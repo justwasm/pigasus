@@ -12,6 +12,12 @@ import (
 	tuiviewport "github.com/justwasm/pigasus/internal/ui/foundations/viewport"
 )
 
+// Update owns every key the /model panel receives in Elm unidirectional style.
+// It returns (handled, cmd).
+func (p *Panel) Update(key tea.Key) (bool, tea.Cmd) {
+	return p.HandleKey(key)
+}
+
 // HandleKey owns every key the /model panel receives.
 //
 // The reference's picker is a *search field* first: every printable
@@ -39,10 +45,23 @@ func (p *Panel) HandleKey(key tea.Key) (bool, tea.Cmd) {
 			p.setCursor(0)
 			return true, nil
 		}
-		return true, p.close()
+		cmd := p.close()
+		if cmd == nil {
+			cmd = DismissCmd()
+		}
+		return true, cmd
 	case tea.KeyEnter:
-		p.selectModel()
-		return true, p.close()
+		label := p.selectModel()
+		var cmds []tea.Cmd
+		if label != "" {
+			cmds = append(cmds, SelectModelCmd(label, label))
+		}
+		if closeCmd := p.close(); closeCmd != nil {
+			cmds = append(cmds, closeCmd)
+		} else {
+			cmds = append(cmds, DismissCmd())
+		}
+		return true, tea.Batch(cmds...)
 	case tea.KeyBackspace:
 		if p.query != "" {
 			r := []rune(p.query)

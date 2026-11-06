@@ -9,9 +9,7 @@ import (
 	"sync"
 	"time"
 
-	piagent "github.com/MichaelKinsy/PiG/agent"
-	pi "github.com/MichaelKinsy/PiG/ai"
-
+	"github.com/justwasm/pigasus/actor"
 	builtinsubagent "github.com/justwasm/pigasus/internal/app/subagent/builtin"
 )
 
@@ -21,36 +19,35 @@ type invokeTool struct {
 	defs *Store
 }
 
-func (t *invokeTool) Name() string  { return "invoke_subagent" }
-func (t *invokeTool) Label() string { return "Invoke Subagent" }
-func (t *invokeTool) ExecutionMode() piagent.ToolExecutionMode {
-	return piagent.ToolModeSequential
-}
+func (t *invokeTool) Name() string        { return "invoke_subagent" }
+func (t *invokeTool) Description() string { return invokeSubagentDescription(BuiltinSubagentCatalog()) }
 
-func (t *invokeTool) Schema() pi.ToolSchema {
-	return pi.ToolSchema{
+func (t *invokeTool) RequiresApproval(_ string) bool { return false }
+
+func (t *invokeTool) Definition() actor.ToolDefinition {
+	return actor.ToolDefinition{
 		Name:        "invoke_subagent",
 		Description: invokeSubagentDescription(BuiltinSubagentCatalog()),
-		Parameters: pi.JsonObject{
+		Parameters: map[string]any{
 			"type": "object",
-			"properties": pi.JsonObject{
-				"prompt": pi.JsonObject{
+			"properties": map[string]any{
+				"prompt": map[string]any{
 					"type":        "string",
 					"description": "The self-contained task to delegate to the subagent.",
 				},
-				"agent_name": pi.JsonObject{
+				"agent_name": map[string]any{
 					"type":        "string",
-					"description": "Optional name of a built-in subagent to invoke (e.g. \"image-generator\"). When set, the request is routed to the named built-in handler and the parent's model is NOT contacted; the handler's structured result is returned directly. Leave empty to spawn a fresh PiG coding.Session.",
+					"description": "Optional name of a built-in subagent to invoke (e.g. \"image-generator\"). When set, the request is routed to the named built-in handler and the parent's model is NOT contacted; the handler's structured result is returned directly. Leave empty to spawn a fresh Actor.",
 				},
-				"model": pi.JsonObject{
+				"model": map[string]any{
 					"type":        "string",
 					"description": "Optional model id override; defaults to the parent's model.",
 				},
-				"system_prompt": pi.JsonObject{
+				"system_prompt": map[string]any{
 					"type":        "string",
 					"description": "Optional system prompt override; defaults to the parent's system prompt.",
 				},
-				"worktree": pi.JsonObject{
+				"worktree": map[string]any{
 					"type":        "string",
 					"description": "Optional absolute path the subagent runs in; defaults to the parent's cwd.",
 				},
@@ -103,9 +100,6 @@ func parseInvokeArgs(params json.RawMessage, deps Deps) (invokeArgs, error) {
 	args.Workspace = firstNonEmpty(args.Workspace, args.WorkspaceCap)
 	if strings.TrimSpace(args.Worktree) == "" && args.Workspace == "inherit" {
 		args.Worktree = deps.CWD
-		if args.Worktree == "" && deps.Services != nil {
-			args.Worktree = deps.Services.CWD()
-		}
 	}
 	args.TypeName = firstNonEmpty(args.TypeName, args.TypeNameCap, args.AgentName)
 	args.Role = firstNonEmpty(args.Role, args.RoleCap)
@@ -135,7 +129,7 @@ const researchSystemPrompt = "You are a research subagent. You have read-only to
 //     system prompt and its model;
 //   - `research` runs on the read-only research set;
 //   - an unnamed request runs on the base set every subagent gets.
-func (t *invokeTool) resolve(ctx context.Context, args invokeArgs) (Invocation, bool, piagent.AgentToolResult, error) {
+func (t *invokeTool) resolve(ctx context.Context, args invokeArgs) (Invocation, bool, actor.ToolResult, error) {
 	typeName := strings.TrimSpace(args.TypeName)
 	switch typeName {
 	case "":
@@ -145,7 +139,7 @@ func (t *invokeTool) resolve(ctx context.Context, args invokeArgs) (Invocation, 
 		// tool.
 		inv := t.invocation(args, Grant{}, grantedToolSet(t.deps, t.defs, Grant{}))
 		inv.SystemPrompt = t.resolveSystemPrompt(args, t.deps.parentPrompt())
-		return inv, false, piagent.AgentToolResult{}, nil
+		return inv, false, actor.ToolResult{}, nil
 	case "self":
 		// The reference's self type: "inherits the parent agent's full
 		// configuration including tools, system prompt, and model". The
@@ -154,53 +148,53 @@ func (t *invokeTool) resolve(ctx context.Context, args invokeArgs) (Invocation, 
 		inv := t.invocation(args, Grant{}.All(), selfToolSet(t.deps, t.defs))
 		inv.SystemPrompt = t.deps.parentPrompt()
 		inv.InheritPrompt = true
-		return inv, false, piagent.AgentToolResult{}, nil
+		return inv, false, actor.ToolResult{}, nil
 	case "research":
 		inv := t.invocation(args, Grant{}, grantedToolSet(t.deps, t.defs, Grant{}))
 		inv.SystemPrompt = t.resolveSystemPrompt(args, researchSystemPrompt)
-		return inv, false, piagent.AgentToolResult{}, nil
+		return inv, false, actor.ToolResult{}, nil
 	case string(builtinsubagent.KindDeepCoder):
 		inv := t.invocation(args, Grant{}.All(), selfToolSet(t.deps, t.defs))
 		inv.SystemPrompt = t.resolveSystemPrompt(args, builtinsubagent.DeepCoderCoordinatorPrompt(2))
 		if inv.Role == "" {
 			inv.Role = builtinsubagent.RoleDeepCoder
 		}
-		return inv, false, piagent.AgentToolResult{}, nil
+		return inv, false, actor.ToolResult{}, nil
 	case string(builtinsubagent.KindDeepCoderWorkerL0):
 		inv := t.invocation(args, Grant{Write: true, MCP: true}, grantedToolSet(t.deps, t.defs, Grant{Write: true, MCP: true}))
 		inv.SystemPrompt = t.resolveSystemPrompt(args, builtinsubagent.DeepCoderWorkerL0Prompt)
 		if inv.Role == "" {
 			inv.Role = builtinsubagent.RoleDeepCoderWorkerL0
 		}
-		return inv, false, piagent.AgentToolResult{}, nil
+		return inv, false, actor.ToolResult{}, nil
 	case string(builtinsubagent.KindDeepCoderImprovementWorker):
 		inv := t.invocation(args, Grant{Write: true, MCP: true}, grantedToolSet(t.deps, t.defs, Grant{Write: true, MCP: true}))
 		inv.SystemPrompt = t.resolveSystemPrompt(args, builtinsubagent.DeepCoderImprovementWorkerPrompt)
 		if inv.Role == "" {
 			inv.Role = builtinsubagent.RoleDeepCoderImprovementWorker
 		}
-		return inv, false, piagent.AgentToolResult{}, nil
+		return inv, false, actor.ToolResult{}, nil
 	case string(builtinsubagent.KindDeepInvestigator):
 		inv := t.invocation(args, Grant{MCP: true, Subagent: true}, grantedToolSet(t.deps, t.defs, Grant{MCP: true, Subagent: true}))
 		inv.SystemPrompt = t.resolveSystemPrompt(args, builtinsubagent.DeepInvestigatorCoordinatorPrompt(2))
 		if inv.Role == "" {
 			inv.Role = builtinsubagent.RoleDeepInvestigator
 		}
-		return inv, false, piagent.AgentToolResult{}, nil
+		return inv, false, actor.ToolResult{}, nil
 	case string(builtinsubagent.KindDeepInvestigatorWorkerL0):
 		inv := t.invocation(args, Grant{MCP: true}, grantedToolSet(t.deps, t.defs, Grant{MCP: true}))
 		inv.SystemPrompt = t.resolveSystemPrompt(args, builtinsubagent.DeepInvestigatorWorkerL0Prompt)
 		if inv.Role == "" {
 			inv.Role = builtinsubagent.RoleDeepInvestigatorWorkerL0
 		}
-		return inv, false, piagent.AgentToolResult{}, nil
+		return inv, false, actor.ToolResult{}, nil
 	case string(builtinsubagent.KindDeepInvestigatorImprovementWorker):
 		inv := t.invocation(args, Grant{MCP: true}, grantedToolSet(t.deps, t.defs, Grant{MCP: true}))
 		inv.SystemPrompt = t.resolveSystemPrompt(args, builtinsubagent.DeepInvestigatorImprovementWorkerPrompt)
 		if inv.Role == "" {
 			inv.Role = builtinsubagent.RoleDeepInvestigatorImprovementWorker
 		}
-		return inv, false, piagent.AgentToolResult{}, nil
+		return inv, false, actor.ToolResult{}, nil
 	}
 	if twRole, ok := builtinsubagent.LookupTeamworkRole(typeName); ok {
 		grant := Grant{
@@ -208,7 +202,7 @@ func (t *invokeTool) resolve(ctx context.Context, args invokeArgs) (Invocation, 
 			MCP:      twRole.CanMCP,
 			Subagent: twRole.CanSubagent,
 		}
-		var tools []piagent.AgentTool
+		var tools []actor.Tool
 		if twRole.CanSubagent {
 			tools = selfToolSet(t.deps, t.defs)
 		} else {
@@ -219,26 +213,26 @@ func (t *invokeTool) resolve(ctx context.Context, args invokeArgs) (Invocation, 
 		if inv.Role == "" {
 			inv.Role = twRole.Role
 		}
-		return inv, false, piagent.AgentToolResult{}, nil
+		return inv, false, actor.ToolResult{}, nil
 	}
 	if def, ok := t.definition(typeName); ok {
 		inv := t.invocation(args, def.Grant, grantedToolSet(t.deps, t.defs, def.Grant))
 		inv.SystemPrompt = t.resolveSystemPrompt(args, t.deps.parentPrompt())
-		return inv, false, piagent.AgentToolResult{}, nil
+		return inv, false, actor.ToolResult{}, nil
 	}
 	if _, ok := builtinSubagentRegistry().Spec(typeName); ok {
 		res, err := invokeBuiltinSubagent(ctx, typeName, args.Prompt)
 		return Invocation{}, true, res, err
 	}
 	text := resultStamp(time.Now()) + fmt.Sprintf("Encountered error in tool execution: subagent %q not found or not allowed to be invoked", typeName)
-	return Invocation{}, true, piagent.AgentToolResult{
-		Content: []pi.ToolResultMessageContent{pi.TextContent{Text: text}},
+	return Invocation{}, true, actor.ToolResult{
+		Output: text,
 	}, nil
 }
 
 // invocation assembles the delegation request: the prompt, the model
 // and the tool set the type's grant allows.
-func (t *invokeTool) invocation(args invokeArgs, grant Grant, toolSet []piagent.AgentTool) Invocation {
+func (t *invokeTool) invocation(args invokeArgs, grant Grant, toolSet []actor.Tool) Invocation {
 	return Invocation{
 		Prompt:   args.Prompt,
 		Model:    args.Model,
@@ -305,7 +299,7 @@ func rolePrompt(args invokeArgs, prompt string) string {
 	return "You are a subagent acting as: " + args.Role + "."
 }
 
-func invokeSuccessResult(res Result) (piagent.AgentToolResult, error) {
+func invokeSuccessResult(res Result) (actor.ToolResult, error) {
 	body := map[string]any{
 		"ok":          true,
 		"subagent_id": res.SubagentID,
@@ -316,12 +310,12 @@ func invokeSuccessResult(res Result) (piagent.AgentToolResult, error) {
 		body["session_id"] = res.SessionID
 	}
 	encoded, _ := json.Marshal(body)
-	return piagent.AgentToolResult{
-		Content: []pi.ToolResultMessageContent{pi.TextContent{Text: string(encoded)}},
+	return actor.ToolResult{
+		Output: string(encoded),
 	}, nil
 }
 
-func invokeErrorResult(res Result, err error) (piagent.AgentToolResult, error) {
+func invokeErrorResult(res Result, err error) (actor.ToolResult, error) {
 	body := map[string]any{
 		"ok":          false,
 		"error":       err.Error(),
@@ -332,30 +326,18 @@ func invokeErrorResult(res Result, err error) (piagent.AgentToolResult, error) {
 	}
 	body["duration_ms"] = res.Duration.Milliseconds()
 	encoded, _ := json.Marshal(body)
-	return piagent.AgentToolResult{
-		Content: []pi.ToolResultMessageContent{pi.TextContent{Text: string(encoded)}},
-		IsError: true,
+	return actor.ToolResult{
+		Output: string(encoded),
+		Error:  err.Error(),
 	}, nil
 }
 
 // Execute launches the delegation and returns the reference's
 // acknowledgement.
-//
-// 【一手】 agy 1.4.4's `invoke_subagent` does not wait for the subagent:
-// it returns the launch acknowledgement — the new conversation's id, the
-// transcript's URI and the workspace's URIs — and the subagent reports
-// back later, as a message to the parent.
-//
-// (docs/cycles/subagent-async-framing-capture/deliverable.md)
-//
-// The result carries Terminate: the parent's turn ends here, because the
-// parent has nothing to do until the subagent reports back — the
-// acknowledgement says so itself ("There is no need to poll for its
-// response").
-func (t *invokeTool) Execute(ctx context.Context, _ string, params json.RawMessage, _ piagent.ToolUpdateCallback) (piagent.AgentToolResult, error) {
-	args, err := parseInvokeArgs(params, t.deps)
+func (t *invokeTool) Execute(ctx context.Context, input string) (actor.ToolResult, error) {
+	args, err := parseInvokeArgs([]byte(input), t.deps)
 	if err != nil {
-		return piagent.AgentToolResult{}, err
+		return actor.ToolResult{Error: err.Error()}, err
 	}
 	if name := strings.TrimSpace(args.AgentName); name != "" {
 		return invokeBuiltinSubagent(ctx, name, args.Prompt)
@@ -368,13 +350,12 @@ func (t *invokeTool) Execute(ctx context.Context, _ string, params json.RawMessa
 	if err != nil {
 		return invokeErrorResult(Result{}, err)
 	}
-	return piagent.AgentToolResult{
-		Content:   []pi.ToolResultMessageContent{pi.TextContent{Text: launched.Acknowledgement.Text()}},
-		Terminate: true,
+	return actor.ToolResult{
+		Output: launched.Acknowledgement.Text(),
 	}, nil
 }
 
-func invokeBuiltinSubagent(ctx context.Context, name, prompt string) (piagent.AgentToolResult, error) {
+func invokeBuiltinSubagent(ctx context.Context, name, prompt string) (actor.ToolResult, error) {
 	reg := builtinSubagentRegistry()
 	res, err := reg.Invoke(ctx, name, prompt)
 	if err != nil {
@@ -384,9 +365,9 @@ func invokeBuiltinSubagent(ctx context.Context, name, prompt string) (piagent.Ag
 			"error":      err.Error(),
 		}
 		encoded, _ := json.Marshal(body)
-		return piagent.AgentToolResult{
-			Content: []pi.ToolResultMessageContent{pi.TextContent{Text: string(encoded)}},
-			IsError: true,
+		return actor.ToolResult{
+			Output: string(encoded),
+			Error:  err.Error(),
 		}, nil
 	}
 	body := map[string]any{
@@ -399,8 +380,8 @@ func invokeBuiltinSubagent(ctx context.Context, name, prompt string) (piagent.Ag
 		"deterministic": res.Deterministic,
 	}
 	encoded, _ := json.Marshal(body)
-	return piagent.AgentToolResult{
-		Content: []pi.ToolResultMessageContent{pi.TextContent{Text: string(encoded)}},
+	return actor.ToolResult{
+		Output: string(encoded),
 	}, nil
 }
 

@@ -76,6 +76,9 @@ func (p *Panel) Lines(width int) []string {
 	if p == nil {
 		return nil
 	}
+	if p.ConnectActive() {
+		return p.renderConnectScreen(width)
+	}
 	installed := p.installedRows()
 	mkts := p.marketplaces()
 	discover := p.discoverItems(mkts)
@@ -106,6 +109,20 @@ func (p *Panel) Lines(width int) []string {
 	return lines
 }
 
+func (p *Panel) renderConnectScreen(width int) []string {
+	var lines []string
+	lines = append(lines, "  \x1b[1m"+palette.BlueOpen+"Connect "+p.connectScreen.PluginName+"\x1b[0m", "")
+	lines = append(lines, "  Connecting MCP server: "+p.connectScreen.ServerName)
+	if p.connectScreen.AuthURL != "" {
+		lines = append(lines, "  Opening sign-in page: "+p.connectScreen.AuthURL)
+	} else {
+		lines = append(lines, "  Opening sign-in page in your browser...")
+	}
+	lines = append(lines, "")
+	lines = append(lines, "  "+palette.DimGrayOpen+"Press Enter to continue, Esc to skip"+palette.DimGrayClose)
+	return lines
+}
+
 // installedRowsLines renders the Installed rows, each followed by its
 // detail block when the block is open.
 func (p *Panel) installedRowsLines(visible []plugins.Row, cursor, max int, mkts []plugins.Marketplace) []string {
@@ -113,7 +130,8 @@ func (p *Panel) installedRowsLines(visible []plugins.Row, cursor, max int, mkts 
 	for i, r := range visible {
 		isCursor := i == cursor
 		desc := plugins.DescFor(r.Name, mkts)
-		lines = append(lines, InstalledLine(isCursor, pluginEnabled(r.Name), r.Name, desc, max))
+		needsSignIn := plugins.PluginNeedsSignIn(r.Name)
+		lines = append(lines, InstalledLine(isCursor, pluginEnabled(r.Name), r.Name, desc, max, needsSignIn))
 		if p.expanded[r.Name] {
 			lines = append(lines, InstalledDetails(r.Name, mkts)...)
 		}
@@ -187,6 +205,9 @@ func (p *Panel) discoverLines(mkts []plugins.Marketplace, max int) []string {
 				PanelSubtleOpen+"  No marketplace plugins match your search."+PanelSubtleClose,
 				"")
 		}
+	}
+	if !searching && !prompt {
+		lines = append(lines, "", PanelGray238+"  "+plugins.PartnerPluginDeveloperNotice+PanelGray238C)
 	}
 	if prompt {
 		lines = append(lines, "", LocalInstallLegend())

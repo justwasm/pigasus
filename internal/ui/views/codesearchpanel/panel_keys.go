@@ -26,6 +26,12 @@ import (
 	tea "charm.land/bubbletea/v2"
 )
 
+// Update owns the keys of a live /codesearch result list in Elm unidirectional style.
+// It returns (handled, cmd, ok).
+func (p *Panel) Update(key tea.Key) (bool, tea.Cmd, bool) {
+	return p.HandleKey(key)
+}
+
 // HandleKey owns the keys of a live /codesearch result list.
 //
 // It answers (handled, cmd, ok). A key the panel does not own is *not*
@@ -64,8 +70,9 @@ func (p *Panel) HandleKey(key tea.Key) (handled bool, cmd tea.Cmd, ok bool) {
 	case tea.KeyEnter:
 		// Enter opens the highlighted result in the file viewer, at
 		// the matching line.
-		p.openViewer(p.current())
-		return true, nil, true
+		hit := p.current()
+		p.openViewer(hit)
+		return true, OpenFileCmd(hit.File, hit.Line), true
 	default:
 		if key.Code == 'g' && key.Mod.Contains(tea.ModCtrl) {
 			// Ctrl+G opens the highlighted result in the external

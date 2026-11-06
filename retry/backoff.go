@@ -26,13 +26,9 @@
 //
 // What the package deliberately does NOT own:
 //
-//   - Provider / SDK retry configuration. That is owned by PiG
-//     (github.com/MichaelKinsy/PiG/ai.ConfigureProviderRetry) and the
-//     clone passes MaxInterval into it via pigrt.BuildRetryPolicy. The
-//     cap is the same number — 30 s — because it is the same policy.
-//   - The agent retry budget. That is the user-configurable count
-//     (defaults to 3 in PiG, the upstream AGY uses 5). pigrt.BuildRetryPolicy
-//     honours MaxAttempts here so the clone stays at 5 even when
+//   - Provider / SDK retry configuration.
+//     The cap is the same number — 30 s — because it is the same policy.
+//   - The agent retry budget. That is the user-configurable count (5 in upstream AGY).
 //     settings.json is absent.
 //
 // The shape mirrors PiG's assistant_retry.go (RetryPolicy{MaxRetries,

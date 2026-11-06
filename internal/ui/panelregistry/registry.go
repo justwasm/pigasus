@@ -35,6 +35,7 @@ const (
 	FeatDiff
 	Provider
 	Accounts
+	Projects
 )
 
 // ExitNotice reports whether closing the panel displays an exit notice.
@@ -42,7 +43,7 @@ func (k Kind) ExitNotice() bool {
 	switch k {
 	case MCP, Permissions, CodeSearch, Feedback,
 		Rewind, Context, Plugin, Changelog,
-		Usage, AddDir, Rename, FeatDiff:
+		Usage, AddDir, Rename, FeatDiff, Projects:
 		return false
 	}
 	return true
@@ -68,7 +69,7 @@ func (k Kind) TrailingBlank() bool {
 // before the generic list handlers.
 func (k Kind) OwnsEarlyKeys() bool {
 	switch k {
-	case Permissions, Hooks, Agents, Provider, Accounts, Plugin, Skills, Effort:
+	case Permissions, Hooks, Agents, Provider, Accounts, Plugin, Skills, Effort, Projects:
 		return true
 	default:
 		return false
@@ -82,11 +83,23 @@ type Handler interface {
 	ViewerSpec() (tuiviewer.Spec, bool)
 }
 
+// StandardPanel defines the common interface for standard interactive panels.
+type StandardPanel interface {
+	Lines() []string
+	HandleKey(key tea.Key) (bool, tea.Cmd)
+}
+
+// RowCounter is implemented by panels that report their row count for cursor navigation.
+type RowCounter interface {
+	RowCount() int
+}
+
 // FuncHandler adapts functions to the Handler interface.
 type FuncHandler struct {
 	OnLines      func() []string
 	OnHandleKey  func(key tea.Key) (bool, tea.Cmd)
 	OnViewerSpec func() (tuiviewer.Spec, bool)
+	OnRowCount   func() int
 }
 
 func (h FuncHandler) Lines() []string {
@@ -108,6 +121,28 @@ func (h FuncHandler) ViewerSpec() (tuiviewer.Spec, bool) {
 		return h.OnViewerSpec()
 	}
 	return tuiviewer.Spec{}, false
+}
+
+func (h FuncHandler) RowCount() int {
+	if h.OnRowCount != nil {
+		return h.OnRowCount()
+	}
+	return 0
+}
+
+// FromPanel adapts any StandardPanel to the Handler interface.
+func FromPanel(p StandardPanel) Handler {
+	if p == nil {
+		return nil
+	}
+	fh := FuncHandler{
+		OnLines:     p.Lines,
+		OnHandleKey: p.HandleKey,
+	}
+	if rc, ok := p.(RowCounter); ok {
+		fh.OnRowCount = rc.RowCount
+	}
+	return fh
 }
 
 // Seams are the host's answers the registry cannot give itself.
@@ -228,11 +263,18 @@ func (r *Registry) Lines(k Kind) []string {
 // with the query. A hard-coded count made every row past the sixth
 // unreachable.
 func (r *Registry) RowCount(k Kind) int {
-	if r == nil || r.rows == nil {
+	if r == nil {
 		return 0
 	}
-	if fn, ok := r.rows[k]; ok && fn != nil {
-		return fn()
+	if r.rows != nil {
+		if fn, ok := r.rows[k]; ok && fn != nil {
+			return fn()
+		}
+	}
+	if h, ok := r.handlers[k]; ok && h != nil {
+		if rc, ok := h.(RowCounter); ok {
+			return rc.RowCount()
+		}
 	}
 	return 0
 }

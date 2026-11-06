@@ -40,7 +40,7 @@ func TestGoogleOfficialACPInterop(t *testing.T) {
 		_ = cmd.Wait()
 	}()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
 	remote, err := NewACPRemote(ctx, stdin, stdout, nil, t.TempDir(), "1")

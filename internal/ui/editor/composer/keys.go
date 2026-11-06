@@ -40,6 +40,57 @@ func HandleKey(s Seams, key tea.Key) (tea.Cmd, bool) {
 		return nil, true
 	}
 
+	// Undo / Redo: Cmd+Z, Ctrl+Z, Cmd+Shift+Z, Ctrl+Shift+Z, Cmd+Y, Ctrl+Y
+	if (key.Code == 'z' || key.Code == 'Z') && (key.Mod.Contains(tea.ModCtrl) || key.Mod.Contains(tea.ModSuper)) {
+		if key.Mod.Contains(tea.ModShift) {
+			// Redo
+			if s.UndoMgr != nil {
+				if snap, ok := s.UndoMgr.Redo(s.Editor.Value(), s.Editor.CursorOffset()); ok {
+					if s.ClearSelection != nil {
+						s.ClearSelection()
+					}
+					s.Editor.SetValue(snap.Value)
+					s.MoveCursor(snap.CursorOffset)
+					s.afterEdit()
+					return nil, true
+				}
+				return nil, true
+			}
+		} else {
+			// Undo
+			if s.UndoMgr != nil {
+				if snap, ok := s.UndoMgr.Undo(s.Editor.Value(), s.Editor.CursorOffset()); ok {
+					if s.ClearSelection != nil {
+						s.ClearSelection()
+					}
+					s.Editor.SetValue(snap.Value)
+					s.MoveCursor(snap.CursorOffset)
+					s.afterEdit()
+					return nil, true
+				}
+				if s.Editor.Value() == "" {
+					return nil, false
+				}
+				return nil, true
+			}
+		}
+	}
+	if (key.Code == 'y' || key.Code == 'Y') && (key.Mod.Contains(tea.ModCtrl) || key.Mod.Contains(tea.ModSuper)) {
+		// Redo
+		if s.UndoMgr != nil {
+			if snap, ok := s.UndoMgr.Redo(s.Editor.Value(), s.Editor.CursorOffset()); ok {
+				if s.ClearSelection != nil {
+					s.ClearSelection()
+				}
+				s.Editor.SetValue(snap.Value)
+				s.MoveCursor(snap.CursorOffset)
+				s.afterEdit()
+				return nil, true
+			}
+			return nil, true
+		}
+	}
+
 	// Copy the selection.
 	if (key.Code == 'c' || key.Code == 'C') && key.Mod.Contains(tea.ModSuper) {
 		if hasSelection {
@@ -54,6 +105,9 @@ func HandleKey(s Seams, key tea.Key) (tea.Cmd, bool) {
 
 	// Delete the selection.
 	if (key.Code == tea.KeyBackspace || key.Code == tea.KeyDelete) && hasSelection {
+		if s.UndoMgr != nil {
+			s.UndoMgr.RecordBeforeChange(s.Editor.Value(), s.Editor.CursorOffset(), "delete-selection")
+		}
 		s.DeleteSelection()
 		s.afterEdit()
 		return nil, true
@@ -65,11 +119,38 @@ func HandleKey(s Seams, key tea.Key) (tea.Cmd, bool) {
 		val := s.Editor.Value()
 		start, end, ok := placeholderAt(val, s.Editor.CursorOffset(), key.Code == tea.KeyBackspace)
 		if ok {
+			if s.UndoMgr != nil {
+				s.UndoMgr.RecordBeforeChange(val, s.Editor.CursorOffset(), "delete-placeholder")
+			}
 			s.Editor.SetValue(val[:start] + val[end:])
 			s.MoveCursor(start)
 			s.afterEdit()
 			return nil, true
 		}
+	}
+
+	// Word-boundary navigation: Alt+Left / Ctrl+Left / Alt+B, Alt+Right / Ctrl+Right / Alt+F.
+	if (key.Code == tea.KeyLeft && (key.Mod.Contains(tea.ModAlt) || key.Mod.Contains(tea.ModCtrl))) ||
+		((key.Code == 'b' || key.Code == 'B') && key.Mod.Contains(tea.ModAlt)) {
+		if hasSelection {
+			s.ClearSelection()
+			s.MoveCursor(sel.Start)
+		}
+		if HandleWordLeft(s) {
+			return nil, true
+		}
+		return nil, true
+	}
+	if (key.Code == tea.KeyRight && (key.Mod.Contains(tea.ModAlt) || key.Mod.Contains(tea.ModCtrl))) ||
+		((key.Code == 'f' || key.Code == 'F') && key.Mod.Contains(tea.ModAlt)) {
+		if hasSelection {
+			s.ClearSelection()
+			s.MoveCursor(sel.End)
+		}
+		if HandleWordRight(s) {
+			return nil, true
+		}
+		return nil, true
 	}
 
 	// An arrow key without Shift collapses the selection to the edge
@@ -90,6 +171,9 @@ func HandleKey(s Seams, key tea.Key) (tea.Cmd, bool) {
 	// A printable key replaces the selection with the key's own text.
 	if hasSelection && key.Text != "" &&
 		!key.Mod.Contains(tea.ModCtrl) && !key.Mod.Contains(tea.ModAlt) && !key.Mod.Contains(tea.ModSuper) {
+		if s.UndoMgr != nil {
+			s.UndoMgr.RecordBeforeChange(s.Editor.Value(), s.Editor.CursorOffset(), "replace-selection")
+		}
 		s.ReplaceSelection(key.Text)
 		s.afterEdit()
 		return nil, true
@@ -109,6 +193,9 @@ func BackslashNewline(s Seams) bool {
 	offset := s.Editor.CursorOffset()
 	val := s.Editor.Value()
 	if offset > 0 && offset <= len(val) && val[offset-1] == '\\' {
+		if s.UndoMgr != nil {
+			s.UndoMgr.RecordBeforeChange(val, offset, "backslash-newline")
+		}
 		s.Editor.Backspace()
 		s.Editor.InsertRune('\n')
 		s.DismissModeHint()
@@ -128,6 +215,17 @@ func BackslashNewline(s Seams) bool {
 // under a running navigation: the user has typed something else, and
 // the prompt the cursor is on is no longer the one it recalled.
 func UpdateTextarea(s Seams, msg tea.KeyMsg) tea.Cmd {
+	key := msg.Key()
+	if s.UndoMgr != nil {
+		switch key.Code {
+		case tea.KeyBackspace, tea.KeyDelete:
+			s.UndoMgr.RecordBeforeChange(s.Editor.Value(), s.Editor.CursorOffset(), "delete")
+		default:
+			if key.Text != "" && !key.Mod.Contains(tea.ModCtrl) && !key.Mod.Contains(tea.ModAlt) && !key.Mod.Contains(tea.ModSuper) {
+				s.UndoMgr.RecordType(s.Editor.Value(), s.Editor.CursorOffset(), key.Text)
+			}
+		}
+	}
 	oldVal := s.Editor.Value()
 	oldLine := s.Editor.Line()
 	oldCol := s.Editor.Column()

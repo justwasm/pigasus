@@ -184,6 +184,9 @@ type Seams struct {
 	// DismissModeHint dismisses the mode hint the composer shows
 	// when the user starts typing.
 	DismissModeHint func()
+
+	// UndoMgr is the multi-level undo and redo manager. Optional (nil-safe).
+	UndoMgr *UndoManager
 }
 
 // MoveCursor puts the cursor at the given byte offset in the value.

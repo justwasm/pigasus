@@ -11,9 +11,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/justwasm/pigasus/internal/features/models"
 	"github.com/justwasm/pigasus/internal/features/models/catalog"
 	"github.com/justwasm/pigasus/internal/features/models/configtest"
-	"github.com/justwasm/pigasus/internal/features/models"
 )
 
 // TestModelAdd_CarriesTheReasoningTiers pins the write: the tiers land in

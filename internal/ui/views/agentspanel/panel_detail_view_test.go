@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	subagent "github.com/justwasm/pigasus/internal/app/subagent/core"
 )
@@ -72,5 +73,45 @@ func TestAgentsPanel_SwitchConversationNotice(t *testing.T) {
 	linesWithSession := strings.Join(pWithSession.Lines(), "\n")
 	if !strings.Contains(linesWithSession, "[ Switch will fork the current conversation on exit ]") {
 		t.Errorf("expected fork conversation notice, got:\n%s", linesWithSession)
+	}
+}
+
+func TestAgentsPanel_SubagentDetailView_LineWrapping(t *testing.T) {
+	longOutput := "\tfunc SomeLongMethodWithTabIndent() {\n\t\tfmt.Println(\"a very long line that easily exceeds thirty columns by a lot\")\n\t}"
+	sa := &subagent.Subagent{
+		ID:     "sub-wrap",
+		Name:   "worker-wrap",
+		Title:  "Task with very long title that also exceeds thirty columns",
+		State:  "running",
+		Result: longOutput,
+	}
+
+	width := 35
+	p := New(Seams{
+		Subagents: func() []*subagent.Subagent {
+			return []*subagent.Subagent{sa}
+		},
+		Size: func() (int, int) {
+			return width, 24
+		},
+	}, nil)
+
+	p.SetCursor(1)
+	p.HandleKey(tea.Key{Code: tea.KeyEnter})
+	if !p.DetailMode() {
+		t.Fatal("expected DetailMode")
+	}
+
+	lines := p.Lines()
+	// Exclude the bottom blank row and keyboard footer hint
+	contentLines := lines[:len(lines)-2]
+	for i, l := range contentLines {
+		plain := ansi.Strip(l)
+		if n := len([]rune(plain)); n > width {
+			t.Errorf("line %d exceeds width %d (len %d): %q", i, width, n, plain)
+		}
+		if strings.Contains(l, "\t") {
+			t.Errorf("line %d contains unexpanded tab: %q", i, l)
+		}
 	}
 }

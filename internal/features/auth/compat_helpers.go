@@ -2,16 +2,10 @@
 package auth
 
 import (
-	"fmt"
-
-	"github.com/google/uuid"
+	"uuid"
 )
 
 // newUUIDv4 returns a RFC 4122 v4 UUID string.
 func newUUIDv4() (string, error) {
-	u, err := uuid.NewRandom()
-	if err != nil {
-		return "", fmt.Errorf("rand: %w", err)
-	}
-	return u.String(), nil
+	return uuid.NewV4().String(), nil
 }

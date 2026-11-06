@@ -66,6 +66,8 @@ type Picker struct {
 	grouped bool
 	// expanded holds the expanded workspace groups, by their key.
 	expanded map[string]bool
+	// showAll holds the workspace groups that have been expanded to show all items.
+	showAll map[string]bool
 	// groups is the computed tree.
 	groups []resumetree.Group
 	// deleteConfirm is the conversation id the delete confirmation is
@@ -106,7 +108,19 @@ type Picker struct {
 
 // New returns a picker bound to the session's seams.
 func New(seams Seams) *Picker {
-	return &Picker{seams: seams}
+	return &Picker{
+		seams:    seams,
+		expanded: map[string]bool{},
+		showAll:  map[string]bool{},
+	}
+}
+
+// showAllGroup marks a group to show all of its conversations.
+func (p *Picker) showAllGroup(key string) {
+	if p.showAll == nil {
+		p.showAll = map[string]bool{}
+	}
+	p.showAll[key] = true
 }
 
 // Active reports whether the picker is open.

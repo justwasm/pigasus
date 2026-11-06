@@ -117,3 +117,34 @@ func SplitFields(buf string) (string, string) {
 	}
 	return parts[0], TrimUnicode(strings.TrimPrefix(buf, parts[0]))
 }
+
+// ParseLeadingCommands parses multiple consecutive leading slash commands from buf.
+// It returns the slice of command names (without the leading '/') and
+// the remaining task text with leading and trailing whitespace trimmed.
+// Consecutive slash commands are separated by whitespace.
+// Parsing stops at the first non-slash token, and the remainder is returned as task.
+func ParseLeadingCommands(buf string) (commands []string, task string) {
+	cur := strings.TrimSpace(buf)
+	for strings.HasPrefix(cur, "/") {
+		afterSlash := cur[1:]
+		if afterSlash == "" || afterSlash[0] == '/' {
+			break
+		}
+		end := 0
+		for end < len(afterSlash) {
+			c := afterSlash[end]
+			if c == ' ' || c == '\t' || c == '\n' || c == '\r' {
+				break
+			}
+			end++
+		}
+		cmd := afterSlash[:end]
+		if cmd == "" {
+			break
+		}
+		commands = append(commands, cmd)
+		cur = strings.TrimSpace(afterSlash[end:])
+	}
+	task = cur
+	return commands, task
+}

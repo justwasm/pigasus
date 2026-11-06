@@ -125,8 +125,42 @@ func TestFormatDetailLines(t *testing.T) {
 	if !strings.HasPrefix(out[0], palette.DetailBulletOpen) {
 		t.Errorf("first row %q does not carry the detail bullet", out[0])
 	}
-	if !strings.HasPrefix(out[1], "            ") {
-		t.Errorf("second row %q is not indented", out[1])
+	if !strings.HasPrefix(out[1], DetailIndent) {
+		t.Errorf("second row %q is not indented with DetailIndent", out[1])
+	}
+}
+
+func TestDetailWrapWidth(t *testing.T) {
+	cases := []struct {
+		width int
+		want  int
+	}{
+		{80, 73},
+		{100, 93},
+		{27, 20},
+		{25, 20}, // clamped to DetailMinWrapWidth (20)
+		{10, 20}, // clamped to DetailMinWrapWidth (20)
+	}
+	for _, c := range cases {
+		if got := DetailWrapWidth(c.width); got != c.want {
+			t.Errorf("DetailWrapWidth(%d) = %d, want %d", c.width, got, c.want)
+		}
+	}
+}
+
+func TestFormatDetailLines_ExpandsTabs(t *testing.T) {
+	out := FormatDetailLines([]string{"\tfunc main() {", "\t\tr.mu.Lock()"}, false)
+	if len(out) != 2 {
+		t.Fatalf("got %d rows, want 2", len(out))
+	}
+	if strings.Contains(out[0], "\t") || strings.Contains(out[1], "\t") {
+		t.Errorf("FormatDetailLines did not expand tabs: %q, %q", out[0], out[1])
+	}
+	if !strings.Contains(out[0], "    func main() {") {
+		t.Errorf("expected 4 spaces for first tab in %q", out[0])
+	}
+	if !strings.Contains(out[1], "        r.mu.Lock()") {
+		t.Errorf("expected 8 spaces for two tabs in %q", out[1])
 	}
 }
 
@@ -139,9 +173,44 @@ func TestFormatDetailLinesOverflow(t *testing.T) {
 	if len(out) != MaxDetailLines+1 {
 		t.Fatalf("FormatDetailLines returned %d rows, want %d", len(out), MaxDetailLines+1)
 	}
-	want := "            <output +3 lines>"
+	want := DetailIndent + "<output +3 lines>"
 	if out[len(out)-1] != want {
 		t.Errorf("overflow row = %q, want %q", out[len(out)-1], want)
+	}
+}
+
+func TestWrapDiffLine_AddAndRemove(t *testing.T) {
+	longAdd := "+func VeryLongFunctionNameThatExceedsTheGivenWrapWidthBySubstantialMargin(a string) error {"
+	partsAdd := WrapDiffLine(longAdd, 35)
+	if len(partsAdd) < 3 {
+		t.Fatalf("expected at least 3 wrapped parts, got %d: %v", len(partsAdd), partsAdd)
+	}
+	for i, p := range partsAdd {
+		if !strings.Contains(p, palette.ToolAddOpen) || !strings.Contains(p, palette.ToolAddClose) {
+			t.Errorf("part %d missing ToolAdd styling: %q", i, p)
+		}
+	}
+
+	longRemove := "-func OldFunctionNameThatExceedsTheGivenWrapWidthBySubstantialMargin(a string) error {"
+	partsRemove := WrapDiffLine(longRemove, 35)
+	if len(partsRemove) < 3 {
+		t.Fatalf("expected at least 3 wrapped parts, got %d: %v", len(partsRemove), partsRemove)
+	}
+	for i, p := range partsRemove {
+		if !strings.Contains(p, palette.ToolRemoveOpen) || !strings.Contains(p, palette.ToolRemoveClose) {
+			t.Errorf("part %d missing ToolRemove styling: %q", i, p)
+		}
+	}
+
+	contextLine := "    func ContextLineNotModified(a string, b int, c bool) (string, error) {"
+	partsCtx := WrapDiffLine(contextLine, 35)
+	if len(partsCtx) < 2 {
+		t.Fatalf("expected at least 2 wrapped parts for context, got %d: %v", len(partsCtx), partsCtx)
+	}
+	for i, p := range partsCtx {
+		if strings.Contains(p, palette.ToolAddOpen) || strings.Contains(p, palette.ToolRemoveOpen) {
+			t.Errorf("context part %d should not have diff styling: %q", i, p)
+		}
 	}
 }
 

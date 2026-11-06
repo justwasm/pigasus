@@ -7,8 +7,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/justwasm/pigasus/actor"
 	"github.com/justwasm/pigasus/agentlink"
-	"github.com/justwasm/pigasus/internal/agent"
 	"github.com/justwasm/pigasus/internal/core/apierror"
 	"github.com/justwasm/pigasus/internal/core/backend"
 	"github.com/justwasm/pigasus/internal/features/auth/eligibility"
@@ -32,13 +32,28 @@ const frameBuffer = 64
 type Local struct {
 	env EnvFunc
 
-	mu     sync.Mutex
-	closed bool
+	mu           sync.Mutex
+	closed       bool
+	activeActor  *actor.Actor
+	permHandler  PermissionHandler
+	pendingSteer []string
 }
 
-// NewLocal returns an engine that runs the turns in this process.
+var _ Engine = (*Local)(nil)
+var _ CapabilityProvider = (*Local)(nil)
+var _ ActionHandler = (*Local)(nil)
+var _ Steerer = (*Local)(nil)
+var _ SteerController = (*Local)(nil)
+var _ PermissionAware = (*Local)(nil)
+
+// NewLocal returns an engine that runs the turns in this process using the actor.Actor runtime.
 func NewLocal(env EnvFunc) *Local {
 	return &Local{env: env}
+}
+
+// NewActor returns an engine that runs turns using the actor.Actor runtime.
+func NewActor(env EnvFunc) *Local {
+	return NewLocal(env)
 }
 
 // Turn runs one turn and reports its events on the returned channel.
@@ -69,7 +84,32 @@ func (l *Local) Turn(ctx context.Context, t Turn) (<-chan agentlink.Frame, error
 	}
 
 	ch := make(chan agentlink.Frame, frameBuffer)
-	emit := func(f agentlink.Frame) bool {
+	var (
+		chMu     sync.Mutex
+		chClosed bool
+	)
+	safeClose := func() {
+		chMu.Lock()
+		defer chMu.Unlock()
+		if !chClosed {
+			chClosed = true
+			close(ch)
+		}
+	}
+	emit := func(f agentlink.Frame) (sent bool) {
+		defer func() {
+			if r := recover(); r != nil {
+				sent = false
+			}
+		}()
+		if ctx.Err() != nil {
+			return false
+		}
+		chMu.Lock()
+		defer chMu.Unlock()
+		if chClosed {
+			return false
+		}
 		select {
 		case ch <- f:
 			return true
@@ -78,7 +118,7 @@ func (l *Local) Turn(ctx context.Context, t Turn) (<-chan agentlink.Frame, error
 		}
 	}
 	go func() {
-		defer close(ch)
+		defer safeClose()
 		defer cleanup()
 		l.run(ctx, env, model, t, emit, ch)
 	}()
@@ -101,6 +141,9 @@ const resultTimeout = 2 * time.Second
 // reports a cancellation through the composer, not as an error — so the
 // terminator carries no error either.
 func emitResult(ch chan<- agentlink.Frame, f agentlink.Frame) {
+	defer func() {
+		_ = recover()
+	}()
 	timer := time.NewTimer(resultTimeout)
 	defer timer.Stop()
 	select {
@@ -109,11 +152,15 @@ func emitResult(ch chan<- agentlink.Frame, f agentlink.Frame) {
 	}
 }
 
-// Close releases the engine.
+// Close releases the engine and terminates its persistent actor runtime.
 func (l *Local) Close() error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	l.closed = true
+	if l.activeActor != nil {
+		_ = l.activeActor.Close()
+		l.activeActor = nil
+	}
 	return nil
 }
 
@@ -127,139 +174,149 @@ func (l *Local) Capabilities() Capability {
 	return CapAll
 }
 
-// run is the turn itself: it drives the agent loop and reports what the
-// loop produced as frames.
-func (l *Local) run(ctx context.Context, env Env, model string, t Turn, emit func(agentlink.Frame) bool, ch chan<- agentlink.Frame) {
-	var (
-		full    strings.Builder
-		thought strings.Builder
-		steps   []agentlink.Step
-		meta    *backend.ChunkMeta
-		done    bool
-	)
+// ExecuteAction executes a local engine action.
+func (l *Local) ExecuteAction(ctx context.Context, action string, args string) (ActionResult, error) {
+	return ActionResult{
+		Success: true,
+		Message: "Action processed by local engine",
+	}, nil
+}
 
-	// The sanitizer strips the reasoning block the upstream streams
-	// inline, and hands the reasoning itself to the thought frames.
-	sanitizer := agent.NewSanitizer()
-	sanitizer.OnThought = func(s string) {
-		if s == "" {
-			return
+// SetPermissionHandler wires an interactive permission handler to the local turn engine.
+func (l *Local) SetPermissionHandler(h PermissionHandler) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.permHandler = h
+}
+
+// Steer forwards dynamic guidance into the active Actor running in this engine.
+func (l *Local) Steer(instruction string) error {
+	instruction = strings.TrimSpace(instruction)
+	if instruction == "" {
+		return errors.New("agentturn: steer instruction cannot be empty")
+	}
+	l.mu.Lock()
+	act := l.activeActor
+	if act == nil {
+		l.pendingSteer = append(l.pendingSteer, instruction)
+		l.mu.Unlock()
+		return nil
+	}
+	l.mu.Unlock()
+	return act.Steer(instruction)
+}
+
+// PendingSteer returns a snapshot of pending steering instructions for the active turn.
+func (l *Local) PendingSteer() []string {
+	l.mu.Lock()
+	act := l.activeActor
+	pending := append([]string(nil), l.pendingSteer...)
+	l.mu.Unlock()
+	if act != nil {
+		pending = append(pending, act.PendingSteer()...)
+	}
+	return pending
+}
+
+// PopSteer removes and returns the most recent pending steering instruction.
+func (l *Local) PopSteer() (string, bool) {
+	l.mu.Lock()
+	act := l.activeActor
+	if act != nil {
+		if msg, ok := act.PopSteer(); ok {
+			l.mu.Unlock()
+			return msg, true
 		}
-		thought.WriteString(s)
-		emit(agentlink.Frame{Kind: agentlink.KindThought, Text: s})
 	}
-
-	runner := &frameRunner{inner: env.ToolRunner, emit: emit, steps: &steps}
-
-	// The loop treats a missing tool runner as "surface the calls, run
-	// none", so a session without one must not be handed a wrapper: the
-	// wrapper would turn the missing runner into a failing call.
-	var toolRunner backend.ToolRunner
-	if env.ToolRunner != nil {
-		toolRunner = runner
+	if len(l.pendingSteer) > 0 {
+		last := l.pendingSteer[len(l.pendingSteer)-1]
+		l.pendingSteer = l.pendingSteer[:len(l.pendingSteer)-1]
+		l.mu.Unlock()
+		return last, true
 	}
+	l.mu.Unlock()
+	return "", false
+}
 
-	// The compaction's duration is the server's own, so it is measured
-	// here and carried on the frame.
-	var compactStart time.Time
-
-	opts := agent.Options{
-		Backend:      env.Backend,
-		SystemPrompt: env.SystemPrompt,
-		Handler: func(chunk backend.StreamChunk) error {
-			if chunk.Error != nil {
-				emitError(chunk.Error, emit)
-				return nil
-			}
-			if chunk.Meta != nil {
-				meta = chunk.Meta
-			}
-			if chunk.Text != "" {
-				if s := sanitizer.Push(chunk.Text); s != "" {
-					full.WriteString(s)
-					emit(agentlink.Frame{Kind: agentlink.KindText, Text: s})
-				}
-			}
-			if chunk.Done && !done {
-				done = true
-				// The tail the sanitizer held back belongs to the
-				// answer, but the reference does not stream it — it
-				// appears with the finished turn.
-				full.WriteString(sanitizer.Finish())
-			}
-			return nil
-		},
-		DefaultModel:    model,
-		MaxTurns:        1,
-		Tools:           env.Tools,
-		ToolRunner:      toolRunner,
-		ExtraAgentTools: env.ExtraTools,
-		Effort:          env.Effort,
-		AutoCont:        true,
-		OnCompactionStart: func(reason string, startedAt time.Time) {
-			compactStart = startedAt
-			emit(agentlink.Frame{Kind: agentlink.KindCompact, Compact: &agentlink.Compact{
-				Phase:  agentlink.CompactStart,
-				Reason: reason,
-			}})
-		},
-		OnCompactionEnd: func(reason string, endedAt time.Time, summary string, tokensBefore, tokensAfter int, aborted bool) {
-			frame := agentlink.Frame{Kind: agentlink.KindCompact, Compact: &agentlink.Compact{
-				Phase:        agentlink.CompactEnd,
-				Reason:       reason,
-				Summary:      summary,
-				TokensBefore: tokensBefore,
-				TokensAfter:  tokensAfter,
-				Aborted:      aborted,
-			}}
-			if !compactStart.IsZero() && !endedAt.Before(compactStart) {
-				frame.Compact.ElapsedMS = endedAt.Sub(compactStart).Milliseconds()
-			}
-			emit(frame)
-		},
-		AutoContBanner: func(depth, maxDepth int) {
-			emit(agentlink.Frame{Kind: agentlink.KindNotice, Notice: &agentlink.Notice{
-				Kind:     agentlink.NoticeAutoCont,
-				Depth:    depth,
-				MaxDepth: maxDepth,
-			}})
-		},
+// ClearSteer clears all pending steering instructions for the active turn.
+func (l *Local) ClearSteer() []string {
+	l.mu.Lock()
+	act := l.activeActor
+	cleared := l.pendingSteer
+	l.pendingSteer = nil
+	l.mu.Unlock()
+	if act != nil {
+		cleared = append(cleared, act.ClearSteer()...)
 	}
+	return cleared
+}
 
-	loop, err := agent.New(opts)
-	if err != nil {
-		emit(agentlink.Frame{Kind: agentlink.KindResult, Error: err.Error()})
+func (l *Local) setActiveActor(act *actor.Actor) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.activeActor = act
+}
+
+// run is the turn itself: it drives the turn using the actor.Actor runtime
+// and reports what the actor produced as frames.
+func (l *Local) run(ctx context.Context, env Env, model string, t Turn, emit func(agentlink.Frame) bool, ch chan<- agentlink.Frame) {
+	if model == "" {
+		model = env.Model
+	}
+	if env.Backend == nil {
+		emit(agentlink.Frame{Kind: agentlink.KindResult, Error: ErrNoTransport.Error()})
 		return
 	}
-	defer loop.Close()
 
-	sendErr := loop.Send(ctx, agent.TurnInput{Messages: ToBackendMessages(t.History)})
-	if ctx.Err() != nil {
-		// A cancelled turn reports the cancellation through the
-		// composer, not as a failure of the turn.
-		sendErr = nil
-	}
-
-	frame := agentlink.Frame{
-		Kind: agentlink.KindResult,
-		Result: &agentlink.Result{
-			Reply:     full.String(),
-			Reasoning: thought.String(),
-			Steps:     steps,
-		},
-	}
-	if meta != nil {
-		frame.Usage = &agentlink.Usage{
-			PromptTokens:     meta.PromptTokens,
-			CompletionTokens: meta.CompletionTokens,
-			TotalTokens:      meta.TotalTokens,
-			ReasoningTokens:  meta.ReasoningTokens,
+	l.mu.Lock()
+	act := l.activeActor
+	// If active actor exists but is closed, or if history was reset/cleared, discard it
+	if act != nil {
+		storedTurns := act.Trajectory().TotalTurns()
+		if act.State().State == actor.StateClosed || (storedTurns > 0 && len(t.History) <= 1) || (storedTurns > 0 && len(t.History) <= storedTurns) {
+			_ = act.Close()
+			act = nil
+			l.activeActor = nil
 		}
 	}
-	if sendErr != nil {
-		frame.Error = sendErr.Error()
+
+	if act == nil {
+		var initialHistory []actor.ConversationMessage
+		if len(t.History) > 1 {
+			for i := 0; i < len(t.History)-1; i++ {
+				msg := t.History[i]
+				initialHistory = append(initialHistory, actor.ConversationMessage{
+					Role:    actor.Role(msg.Role),
+					Content: msg.Content,
+				})
+			}
+		}
+
+		provider := newBackendProviderAdapter(env.Backend, model)
+		var err error
+		act, err = actor.Spawn(actor.Config{
+			Model:          model,
+			SystemPrompt:   env.SystemPrompt,
+			Provider:       provider,
+			InitialHistory: initialHistory,
+		})
+		if err != nil {
+			l.mu.Unlock()
+			emit(agentlink.Frame{Kind: agentlink.KindResult, Error: err.Error()})
+			return
+		}
+		l.activeActor = act
 	}
-	emitResult(ch, frame)
+	if len(l.pendingSteer) > 0 {
+		for _, s := range l.pendingSteer {
+			_ = act.Steer(s)
+		}
+		l.pendingSteer = nil
+	}
+	permHandler := l.permHandler
+	l.mu.Unlock()
+
+	RunActorTurnOnActorWithPermHandler(ctx, act, env, model, t, emit, ch, permHandler)
 }
 
 // emitError reports a failure the upstream produced.

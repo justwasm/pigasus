@@ -209,3 +209,41 @@ func TestSplitVerb(t *testing.T) {
 		}
 	}
 }
+
+func TestParseLeadingCommands(t *testing.T) {
+	cases := []struct {
+		in           string
+		wantCommands []string
+		wantTask     string
+	}{
+		{"", nil, ""},
+		{"   ", nil, ""},
+		{"hello world", nil, "hello world"},
+		{"/", nil, "/"},
+		{"//", nil, "//"},
+		{"// comment", nil, "// comment"},
+		{"/plan", []string{"plan"}, ""},
+		{"/plan   ", []string{"plan"}, ""},
+		{"/plan fix bug", []string{"plan"}, "fix bug"},
+		{"/boost /plan /goal", []string{"boost", "plan", "goal"}, ""},
+		{"/boost /plan /goal fix the build", []string{"boost", "plan", "goal"}, "fix the build"},
+		{"  /boost \t /plan\n/goal   review code  ", []string{"boost", "plan", "goal"}, "review code"},
+		{"/boost /plan /goal:test do this", []string{"boost", "plan", "goal:test"}, "do this"},
+	}
+
+	for _, tc := range cases {
+		cmds, task := ParseLeadingCommands(tc.in)
+		if len(cmds) != len(tc.wantCommands) {
+			t.Errorf("ParseLeadingCommands(%q) commands = %v, want %v", tc.in, cmds, tc.wantCommands)
+			continue
+		}
+		for i := range cmds {
+			if cmds[i] != tc.wantCommands[i] {
+				t.Errorf("ParseLeadingCommands(%q) commands[%d] = %q, want %q", tc.in, i, cmds[i], tc.wantCommands[i])
+			}
+		}
+		if task != tc.wantTask {
+			t.Errorf("ParseLeadingCommands(%q) task = %q, want %q", tc.in, task, tc.wantTask)
+		}
+	}
+}

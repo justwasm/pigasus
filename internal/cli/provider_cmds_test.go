@@ -23,8 +23,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/justwasm/pigasus/internal/features/models/configtest"
 	"github.com/justwasm/pigasus/internal/features/models"
+	"github.com/justwasm/pigasus/internal/features/models/configtest"
 )
 
 // runProviderCmd runs a provider/model handler and returns stdout, stderr
@@ -680,4 +680,3 @@ func TestModelRemove_ProviderSlashSyntax(t *testing.T) {
 		t.Fatalf("showOut = %q", showOut)
 	}
 }
-

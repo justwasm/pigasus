@@ -18,7 +18,6 @@ import (
 // TestHiddenRootSubcommands pins the hidden root subcommands.
 func TestHiddenRootSubcommands(t *testing.T) {
 	want := []string{
-		"acp",
 		"auth",
 		"chat",
 		"hooks",

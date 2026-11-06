@@ -120,6 +120,9 @@ const (
 	SeparatorClose   = "\x1b[0m"
 	ToolAddClose     = "\x1b[39m"
 	ToolRemoveClose  = "\x1b[39m"
+	UserFgClose      = "\x1b[39m"
+	AgentFgClose     = "\x1b[39m"
+	TaskFgClose      = "\x1b[39m"
 
 	// Diff syntax highlight tokens
 	SyntaxKeywordOpen = "\x1b[38;2;166;38;164m"

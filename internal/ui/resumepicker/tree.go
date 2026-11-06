@@ -37,8 +37,8 @@ import (
 // rows — five of its conversations, not all 486.
 const (
 	// treeMaxChildren is how many conversations the reference keeps
-	// per group in the tree model.
-	treeMaxChildren = 5
+	// per group in the tree model before collapsing the remainder.
+	treeMaxChildren = 4
 	// treeCountCell is the width of a group row's "[N convs]" cell.
 	treeCountCell = 12
 	// treeGroupAgeCell is the width of a group row's age cell.
@@ -49,11 +49,13 @@ const (
 	treeChildAgeCell = 12
 )
 
-// treeRow is one row of the tree: a group row, or one of the group's
-// conversations.
+// treeRow is one row of the tree: a group row, one of the group's
+// conversations, or an expand-all "more" row.
 type treeRow struct {
-	group *resumetree.Group
-	item  *resumetree.Item
+	group     *resumetree.Group
+	item      *resumetree.Item
+	isMore    bool
+	moreCount int
 }
 
 // treeActive reports whether the picker draws the workspace tree.
@@ -76,12 +78,25 @@ func (p *Picker) treeRows() []treeRow {
 		if !p.expanded[g.Key] {
 			continue
 		}
+		if p.showAll != nil && p.showAll[g.Key] {
+			for j := range g.Items {
+				rows = append(rows, treeRow{group: g, item: &g.Items[j]})
+			}
+			continue
+		}
 		limit := len(g.Items)
 		if limit > treeMaxChildren {
 			limit = treeMaxChildren
 		}
 		for j := 0; j < limit; j++ {
 			rows = append(rows, treeRow{group: g, item: &g.Items[j]})
+		}
+		if len(g.Items) > treeMaxChildren {
+			rows = append(rows, treeRow{
+				group:     g,
+				isMore:    true,
+				moreCount: len(g.Items) - treeMaxChildren,
+			})
 		}
 	}
 	return rows
@@ -162,7 +177,11 @@ func (p *Picker) renderTreeChildRow(b *strings.Builder, item *resumetree.Item, i
 	if titleWidth < 1 {
 		titleWidth = 1
 	}
-	title, pad := titleCell(item.Title, titleWidth, prompt)
+	title := item.Title
+	if item.ID != "" && item.ID == p.currentConversationID() {
+		title = "[CURRENT] " + title
+	}
+	title, pad := titleCell(title, titleWidth, prompt)
 	steps := fmt.Sprintf("%*s", treeStepsCell, fmt.Sprintf("%d steps", item.Steps))
 	age := fmt.Sprintf("%*s", treeChildAgeCell, ageLabel(item.Time))
 	if isCursor {
@@ -187,12 +206,29 @@ func (p *Picker) renderTreeChildRow(b *strings.Builder, item *resumetree.Item, i
 	b.WriteString(cellOpen() + steps + "  " + age + reset + "\n")
 }
 
+// renderTreeMoreRow draws the "⋯ N more in <workspace> — enter to show" row.
+func (p *Picker) renderTreeMoreRow(b *strings.Builder, g *resumetree.Group, count int, isCursor bool, width int) {
+	text := fmt.Sprintf("⋯ %d more in %s", count, g.Label)
+	if width >= 70 {
+		text += " — enter to show"
+	}
+	if isCursor {
+		b.WriteString(blueOpen() + "> " + reset + "  " + blueOpen() + text + reset + "\n")
+		return
+	}
+	b.WriteString("    " + labelOpen() + text + reset + "\n")
+}
+
 // renderTree draws the tree and its keyboard hint.
 func (p *Picker) renderTree(b *strings.Builder, rows []treeRow, total, window, width int) {
 	win := tuiviewport.NewWindow(total, p.window, window)
 	countWidth := treeCountWidth(p.groups)
 	for i, row := range tuiviewport.Slice(rows, win) {
 		idx := win.Start() + i
+		if row.isMore {
+			p.renderTreeMoreRow(b, row.group, row.moreCount, idx == p.cursor, width)
+			continue
+		}
 		if row.item == nil {
 			p.renderTreeGroupRow(b, row.group, idx == p.cursor, width, countWidth)
 			continue
@@ -298,6 +334,7 @@ func (p *Picker) pinnedKey(summaries map[string]resumetree.Summary) string {
 func (p *Picker) resetTreeState() {
 	p.grouped = true
 	p.expanded = map[string]bool{}
+	p.showAll = map[string]bool{}
 	p.groups = nil
 	p.cursor = 0
 	p.window = 0
@@ -326,14 +363,18 @@ func (p *Picker) expandGroup(key string, expanded bool) {
 		p.expanded = map[string]bool{}
 	}
 	p.expanded[key] = expanded
+	if !expanded && p.showAll != nil {
+		delete(p.showAll, key)
+	}
 }
 
 // treeTarget is what the cursor points at: a group row, or a
 // conversation inside a group.
 type treeTarget struct {
-	valid bool
-	group string
-	item  string
+	valid  bool
+	group  string
+	item   string
+	isMore bool
 }
 
 // treeCursorTarget remembers what the cursor points at, so the cursor
@@ -344,6 +385,9 @@ func treeCursorTarget(rows []treeRow, cursor int) treeTarget {
 		return treeTarget{}
 	}
 	row := rows[cursor]
+	if row.isMore {
+		return treeTarget{valid: true, group: row.group.Key, isMore: true}
+	}
 	if row.item == nil {
 		return treeTarget{valid: true, group: row.group.Key}
 	}
@@ -364,6 +408,10 @@ func (p *Picker) treeFocusTarget(rows []treeRow, target treeTarget) {
 		}
 		if groupRow < 0 {
 			groupRow = i
+		}
+		if target.isMore && row.isMore {
+			p.cursor = i
+			return
 		}
 		if target.item != "" && row.item != nil && row.item.ID == target.item {
 			p.cursor = i
@@ -484,6 +532,10 @@ func (p *Picker) handleTreeKeys(key tea.Key, height int) tea.Cmd {
 			return nil
 		}
 		row := rows[p.cursor]
+		if row.isMore {
+			p.showAllGroup(row.group.Key)
+			return nil
+		}
 		if row.item == nil {
 			p.toggleGroupAt(rows, p.cursor)
 			return nil
@@ -496,8 +548,8 @@ func (p *Picker) handleTreeKeys(key tea.Key, height int) tea.Cmd {
 			return nil
 		}
 		row := rows[p.cursor]
-		if row.item == nil {
-			// f2 and f4 act on a conversation; a group row has none.
+		if row.item == nil || row.isMore {
+			// f2 and f4 act on a conversation; a group or more row has none.
 			return nil
 		}
 		picked := p.metaFor(row.item.ID)

@@ -41,25 +41,22 @@ import (
 	"errors"
 	"fmt"
 
-	piagent "github.com/MichaelKinsy/PiG/agent"
-	pi "github.com/MichaelKinsy/PiG/ai"
-
+	"github.com/justwasm/pigasus/actor"
 	"github.com/justwasm/pigasus/lifecyclehooks"
 	pb "github.com/justwasm/pigasus/localharness/pb/localharness"
-	"github.com/justwasm/pigasus/internal/app/tools/surface"
 )
 
-// clientTools returns the tools the client declared, as PiG tools.
+// clientTools returns the tools the client declared, as actor tools.
 //
 // The slice is nil when the client declared none: an empty tool list and
-// a nil one are the same to PiG, and a nil slice keeps the declaration
+// a nil one are the same, and a nil slice keeps the declaration
 // list free of empty entries.
-func (c *conversation) clientTools() []piagent.AgentTool {
+func (c *conversation) clientTools() []actor.Tool {
 	decls := c.cfg.GetTools()
 	if len(decls) == 0 {
 		return nil
 	}
-	out := make([]piagent.AgentTool, 0, len(decls))
+	out := make([]actor.Tool, 0, len(decls))
 	for _, decl := range decls {
 		if decl.GetName() == "" {
 			continue
@@ -78,34 +75,35 @@ type clientTool struct {
 // Name is the tool's name as the model knows it.
 func (t *clientTool) Name() string { return t.decl.GetName() }
 
-// Label is the display name of the tool header.
-func (t *clientTool) Label() string { return t.decl.GetName() }
+// Description is the tool's description.
+func (t *clientTool) Description() string { return t.decl.GetDescription() }
 
-// Schema is the tool's parameter schema.
-//
-// The client sends JSON Schema; the shared translator lowers the type
-// spellings to what PiG's metaschema validator expects, exactly as it
-// does for the clone's own declarations.
-func (t *clientTool) Schema() pi.ToolSchema {
-	return pi.ToolSchema{
+// RequiresApproval returns false for client-side tools.
+func (t *clientTool) RequiresApproval(string) bool { return false }
+
+// Definition returns the tool definition for the model.
+func (t *clientTool) Definition() actor.ToolDefinition {
+	var params map[string]any
+	if raw := t.decl.GetParametersJsonSchema(); raw != "" {
+		_ = json.Unmarshal([]byte(raw), &params)
+	}
+	return actor.ToolDefinition{
 		Name:        t.decl.GetName(),
 		Description: t.decl.GetDescription(),
-		Parameters:  surface.SchemaParams(json.RawMessage(t.decl.GetParametersJsonSchema())),
+		Parameters:  params,
 	}
 }
 
-// ExecutionMode is sequential: a client-side tool may have side effects
-// the client does not want interleaved.
-func (t *clientTool) ExecutionMode() piagent.ToolExecutionMode {
-	return piagent.ToolModeSequential
-}
-
 // Execute asks the client to run the tool and waits for its answer.
-func (t *clientTool) Execute(ctx context.Context, toolCallID string, params json.RawMessage, onUpdate piagent.ToolUpdateCallback) (piagent.AgentToolResult, error) {
+func (t *clientTool) Execute(ctx context.Context, input string) (actor.ToolResult, error) {
+	toolCallID := actor.ToolCallIDFromContext(ctx)
+	if toolCallID == "" {
+		toolCallID = "call-" + randomID()
+	}
 	call := &pb.ToolCall{}
 	call.SetId(toolCallID)
 	call.SetName(t.decl.GetName())
-	call.SetArgumentsJson(string(params))
+	call.SetArgumentsJson(input)
 	call.SetTrajectoryId(t.conv.trajectoryID)
 
 	ev := &pb.OutputEvent{}
@@ -114,14 +112,14 @@ func (t *clientTool) Execute(ctx context.Context, toolCallID string, params json
 		return t.conv.send(ctx, ev)
 	})
 	if err != nil {
-		return piagent.AgentToolResult{}, err
+		return actor.ToolResult{ToolCallID: toolCallID}, err
 	}
 	resp := answer.GetToolResponse()
 	if resp == nil {
-		return piagent.AgentToolResult{}, fmt.Errorf("harness: the client answered the %s tool call with no response", t.decl.GetName())
+		return actor.ToolResult{ToolCallID: toolCallID}, fmt.Errorf("harness: the client answered the %s tool call with no response", t.decl.GetName())
 	}
 	if message := resp.GetErrorMessage(); message != "" {
-		return piagent.AgentToolResult{}, errors.New(message)
+		return actor.ToolResult{ToolCallID: toolCallID, Error: message}, errors.New(message)
 	}
 	text := resp.GetResponseJson()
 	if text == "" {
@@ -136,7 +134,8 @@ func (t *clientTool) Execute(ctx context.Context, toolCallID string, params json
 	if text == "" {
 		text = "{}"
 	}
-	return piagent.AgentToolResult{
-		Content: []pi.ToolResultMessageContent{pi.TextContent{Text: text}},
+	return actor.ToolResult{
+		ToolCallID: toolCallID,
+		Output:     text,
 	}, nil
 }

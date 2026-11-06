@@ -229,6 +229,20 @@ func TestPoolUnknownServer(t *testing.T) {
 	}
 }
 
+func TestPoolStdioCommandNotFound(t *testing.T) {
+	pool := NewPool([]ServerSpec{
+		{Name: "missing", Type: "stdio", Command: "nosuchtool12345", Enabled: true},
+	})
+	_, err := pool.CallTool(context.Background(), "missing", "search", nil)
+	if err == nil {
+		t.Fatal("expected error for missing stdio command, got nil")
+	}
+	want := `"nosuchtool12345" is not installed or not on PATH, install it or set "command" to its full path`
+	if !strings.Contains(err.Error(), want) {
+		t.Errorf("error = %q, want it to contain %q", err.Error(), want)
+	}
+}
+
 func TestPoolServers(t *testing.T) {
 	pool := NewPool([]ServerSpec{
 		{Name: "b", Type: "stdio", Enabled: true},

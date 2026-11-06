@@ -8,8 +8,7 @@ import (
 	"testing"
 	"time"
 
-	pi "github.com/MichaelKinsy/PiG/ai"
-
+	"github.com/justwasm/pigasus/actor"
 	agentmessage "github.com/justwasm/pigasus/internal/core/msg"
 )
 
@@ -29,22 +28,15 @@ func TestSendMessageReachesALiveSubagent(t *testing.T) {
 
 	tool := &sendMessageTool{registry: registry, owner: "parent-1"}
 	args, _ := json.Marshal(map[string]string{"Recipient": "child-1", "Message": "PONG"})
-	res, err := tool.Execute(context.Background(), "call-1", args, nil)
+	res, err := tool.Execute(context.Background(), string(args))
 	if err != nil {
 		t.Fatalf("Execute: %v", err)
 	}
-	if res.IsError {
-		t.Fatalf("Execute returned IsError=true: %+v", res)
+	if !strings.HasSuffix(res.Output, `Message sent to "child-1".`) {
+		t.Fatalf("result %q does not end with the reference's success text", res.Output)
 	}
-	body, ok := res.Content[0].(pi.TextContent)
-	if !ok {
-		t.Fatalf("content[0] = %T, want pi.TextContent", res.Content[0])
-	}
-	if !strings.HasSuffix(body.Text, `Message sent to "child-1".`) {
-		t.Fatalf("result %q does not end with the reference's success text", body.Text)
-	}
-	if !strings.HasPrefix(body.Text, "Created At: ") {
-		t.Fatalf("result %q does not carry the reference's stamp header", body.Text)
+	if !strings.HasPrefix(res.Output, "Created At: ") {
+		t.Fatalf("result %q does not carry the reference's stamp header", res.Output)
 	}
 
 	// The message reached the child.
@@ -74,16 +66,12 @@ func TestSendMessageToAnUnknownRecipient(t *testing.T) {
 	registry := NewRegistry("parent-1")
 	tool := &sendMessageTool{registry: registry, owner: "parent-1"}
 	args, _ := json.Marshal(map[string]string{"Recipient": "abc123", "Message": "PONG"})
-	res, err := tool.Execute(context.Background(), "call-1", args, nil)
+	res, err := tool.Execute(context.Background(), string(args))
 	if err != nil {
 		t.Fatalf("Execute: %v", err)
 	}
-	if res.IsError {
-		t.Fatalf("Execute returned IsError=true: %+v", res)
-	}
-	body := res.Content[0].(pi.TextContent)
-	if !strings.HasSuffix(body.Text, `Encountered error in tool execution: recipient "abc123" not found`) {
-		t.Fatalf("result %q does not carry the reference's not-found text", body.Text)
+	if !strings.HasSuffix(res.Output, `Encountered error in tool execution: recipient "abc123" not found`) {
+		t.Fatalf("result %q does not carry the reference's not-found text", res.Output)
 	}
 }
 
@@ -100,13 +88,12 @@ func TestSubagentMessageReachesTheParent(t *testing.T) {
 
 	tool := &sendMessageTool{registry: registry, owner: "child-1"}
 	args, _ := json.Marshal(map[string]string{"Recipient": "parent-1", "Message": "PONG"})
-	res, err := tool.Execute(context.Background(), "call-1", args, nil)
+	res, err := tool.Execute(context.Background(), string(args))
 	if err != nil {
 		t.Fatalf("Execute: %v", err)
 	}
-	body := res.Content[0].(pi.TextContent)
-	if !strings.HasSuffix(body.Text, `Message sent to "parent-1".`) {
-		t.Fatalf("result %q does not carry the reference's success text", body.Text)
+	if !strings.HasSuffix(res.Output, `Message sent to "parent-1".`) {
+		t.Fatalf("result %q does not carry the reference's success text", res.Output)
 	}
 	if gotSender != "child-1" {
 		t.Fatalf("the parent was notified by %q, want the child's conversation id", gotSender)
@@ -135,15 +122,14 @@ func TestManageSubagentsListsTheLiveChildren(t *testing.T) {
 
 	tool := &manageSubagentsTool{registry: registry}
 	args, _ := json.Marshal(manageSubagentsArgs{Action: "list"})
-	res, err := tool.Execute(context.Background(), "call-1", args, nil)
+	res, err := tool.Execute(context.Background(), string(args))
 	if err != nil {
 		t.Fatalf("Execute: %v", err)
 	}
-	body := res.Content[0].(pi.TextContent)
 	want := `You have 1 active subagent(s):
 [{"type":"research","role":"research","conversationId":"child-1","state":"running"}]`
-	if !strings.HasSuffix(body.Text, want) {
-		t.Fatalf("list result %q does not end with %q", body.Text, want)
+	if !strings.HasSuffix(res.Output, want) {
+		t.Fatalf("list result %q does not end with %q", res.Output, want)
 	}
 }
 
@@ -161,14 +147,13 @@ func TestManageSubagentsKillsTheNamedChildren(t *testing.T) {
 
 	tool := &manageSubagentsTool{registry: registry}
 	args, _ := json.Marshal(manageSubagentsArgs{Action: "kill", ConversationIds: []string{"child-1"}})
-	res, err := tool.Execute(context.Background(), "call-1", args, nil)
+	res, err := tool.Execute(context.Background(), string(args))
 	if err != nil {
 		t.Fatalf("Execute: %v", err)
 	}
-	body := res.Content[0].(pi.TextContent)
 	want := "Successfully killed 1 subagent(s) and their descendants.\nKilled roles: Tester"
-	if !strings.HasSuffix(body.Text, want) {
-		t.Fatalf("kill result %q does not end with %q", body.Text, want)
+	if !strings.HasSuffix(res.Output, want) {
+		t.Fatalf("kill result %q does not end with %q", res.Output, want)
 	}
 	if !killed {
 		t.Fatal("the child was not killed")
@@ -176,14 +161,13 @@ func TestManageSubagentsKillsTheNamedChildren(t *testing.T) {
 
 	// An unknown id kills nothing.
 	args, _ = json.Marshal(manageSubagentsArgs{Action: "kill", ConversationIds: []string{"nope"}})
-	res, err = tool.Execute(context.Background(), "call-2", args, nil)
+	res, err = tool.Execute(context.Background(), string(args))
 	if err != nil {
 		t.Fatalf("Execute: %v", err)
 	}
-	body = res.Content[0].(pi.TextContent)
 	want = `conversation "nope" is not an active subagent of this conversation, so nothing was killed; run the "list" action to see the active subagents and their ids`
-	if !strings.HasSuffix(body.Text, want) {
-		t.Fatalf("kill result %q does not end with %q", body.Text, want)
+	if !strings.HasSuffix(res.Output, want) {
+		t.Fatalf("kill result %q does not end with %q", res.Output, want)
 	}
 }
 
@@ -193,13 +177,12 @@ func TestManageSubagentsKillAllWithoutChildren(t *testing.T) {
 	registry := NewRegistry("parent-1")
 	tool := &manageSubagentsTool{registry: registry}
 	args, _ := json.Marshal(manageSubagentsArgs{Action: "kill_all"})
-	res, err := tool.Execute(context.Background(), "call-1", args, nil)
+	res, err := tool.Execute(context.Background(), string(args))
 	if err != nil {
 		t.Fatalf("Execute: %v", err)
 	}
-	body := res.Content[0].(pi.TextContent)
-	if !strings.HasSuffix(body.Text, "No active subagents to kill.") {
-		t.Fatalf("kill_all result %q does not carry the reference's sentence", body.Text)
+	if !strings.HasSuffix(res.Output, "No active subagents to kill.") {
+		t.Fatalf("kill_all result %q does not carry the reference's sentence", res.Output)
 	}
 }
 
@@ -227,9 +210,6 @@ func TestRegistryBusyFollowsTheChildren(t *testing.T) {
 //   - the launch returns the acknowledgement at once;
 //   - the child runs in the background;
 //   - the child's answer reaches the parent as a message.
-//
-// 【一手】 the 1.4.4 capture: the delivery is a user-role content part
-// carrying the child's answer (docs/cycles/subagent-async-framing-capture/deliverable.md).
 func TestLaunchDeliversTheChildsAnswerToTheParent(t *testing.T) {
 	dir := t.TempDir()
 	registry := NewRegistry("parent-1")
@@ -243,16 +223,19 @@ func TestLaunchDeliversTheChildsAnswerToTheParent(t *testing.T) {
 	})
 	defer registry.Close()
 
+	mock := actor.NewMockProvider()
+	mock.EnqueueResponse("42")
+
 	deps := Deps{
-		Services:       subagentTestServices(t),
-		Model:          subagentTestModel(),
+		Model:          "mock-model",
+		Provider:       mock,
 		CWD:            dir,
 		AgentDir:       filepath.Join(dir, "agent"),
 		Registry:       registry,
 		ConversationID: "parent-1",
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
 	launched, err := Launch(ctx, Invocation{Prompt: "What is 20+22?"}, deps)
@@ -282,10 +265,6 @@ func TestLaunchDeliversTheChildsAnswerToTheParent(t *testing.T) {
 
 // TestChildsFirstMessageIsTheEnvelope pins the reference's own framing: the
 // child receives the task as a message from the agent that invoked it.
-//
-// 【一手】 the 1.4.4 capture: "The child sees the mirror image: its first
-// user message is the envelope carrying the parent's Prompt, with sender =
-// the parent's conversation id."
 func TestChildsFirstMessageIsTheEnvelope(t *testing.T) {
 	base := agentmessage.Render("parent-1", "What is 20+22?", time.Now(), agentmessage.PriorityHigh)
 	if !strings.HasPrefix(base, "The following is a <SYSTEM_MESSAGE>") {
@@ -301,15 +280,6 @@ func TestChildsFirstMessageIsTheEnvelope(t *testing.T) {
 
 // TestChildSystemPromptCarriesTheTaskInstruction pins the instruction the
 // reference gives a delegated agent.
-//
-// 【反编译】 agy 1.4.4's `handlers.(*InvokeSubagentHandler).launchSubagent`
-// carries this 224-byte literal as the subagent's system instruction:
-//
-//	Your task arrives as a system message from the agent that invoked you. Treat that message exactly as if the user had sent it to you directly: it is the user's complete request, and you respond to it as you would to the user.
-//
-// The `self` type inherits the parent's prompt as it is — the reference's
-// own words are "inherits the parent agent's full configuration including
-// tools, system prompt, and model" — so the instruction is not added there.
 func TestChildSystemPromptCarriesTheTaskInstruction(t *testing.T) {
 	got := childSystemPrompt("You are a subagent acting as: Tester.\n\nbase prompt", Invocation{})
 	if !strings.HasPrefix(got, taskInstruction) {

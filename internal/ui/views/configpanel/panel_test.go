@@ -319,7 +319,7 @@ func TestCycle197_ConfigRenderingModeWrap(t *testing.T) {
 	p := New(Seams{})
 	idx := rowIndex(t, p, "Rendering Mode")
 	p.SetCursor(idx)
-	if got := p.SettingValue(idx); got != "no flickering (altscreen)" {
+	if got := p.SettingValue(idx); got != "full screen (altscreen)" {
 		t.Fatalf("display = %q", got)
 	}
 	p.cycleValue(p.Rows(), +1)

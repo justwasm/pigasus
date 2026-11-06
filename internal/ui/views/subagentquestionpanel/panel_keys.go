@@ -23,31 +23,54 @@ import (
 // It reports whether the key was handled. While the picker is open
 // every key is handled; a closed picker handles none.
 func (p *Panel) HandleKey(key tea.Key) bool {
+	handled, _ := p.HandleKeyMsg(key)
+	return handled
+}
+
+// HandleKeyMsg handles a key while the picker is open and emits Elm messages.
+func (p *Panel) HandleKeyMsg(key tea.Key) (bool, tea.Cmd) {
 	if p == nil || !p.open {
-		return false
+		return false, nil
 	}
 	switch key.Code {
 	case tea.KeyEsc:
 		p.close()
+		return true, func() tea.Msg { return MsgDismissed{} }
 	case tea.KeyUp:
 		if p.cursor > 0 {
 			p.cursor--
 		}
 		p.optionCursor = 0
+		return true, nil
 	case tea.KeyDown:
 		pending := p.pending()
 		if p.cursor < len(pending)-1 {
 			p.cursor++
 		}
 		p.optionCursor = 0
+		return true, nil
 	case tea.KeyLeft:
 		p.moveOption(-1)
+		return true, nil
 	case tea.KeyRight:
 		p.moveOption(1)
+		return true, nil
 	case tea.KeyEnter:
-		p.stage()
+		pending := p.pending()
+		if p.cursor >= 0 && p.cursor < len(pending) {
+			selected := pending[p.cursor]
+			p.stage()
+			return true, func() tea.Msg {
+				return MsgQuestionStaged{
+					QuestionID: selected.ID,
+					Scope:      p.scope,
+					Prompt:     selected.Prompt,
+				}
+			}
+		}
+		return true, nil
 	}
-	return true
+	return true, nil
 }
 
 // close dismisses the picker without answering.

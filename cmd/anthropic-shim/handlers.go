@@ -9,7 +9,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/justwasm/pigasus/internal/agent"
 	"github.com/justwasm/pigasus/internal/core/backend"
 )
 
@@ -208,24 +207,24 @@ func (s *server) streamAnthropic(ctx context.Context, w http.ResponseWriter, req
 	var usage *backend.ChunkMeta
 	handler := createStreamHandler(emit, &usage)
 
-	loop, err := agent.New(agent.Options{
-		Backend:      s.backend,
-		Handler:      handler,
+	streamReq := backend.StreamRequest{
+		Model:        req.Model,
 		SystemPrompt: sysPrompt,
-		DefaultModel: req.Model,
-		MaxTurns:     1,
-	})
+		Messages:     msgs,
+		MaxTokens:    req.MaxTokens,
+		Temperature:  req.Temperature,
+	}
+
+	ch, err := s.backend.Stream(ctx, streamReq)
 	if err != nil {
 		_ = emit("error", map[string]any{"type": "error", "error": map[string]any{"type": "internal_error", "message": err.Error()}})
 		return
 	}
-	defer loop.Close()
-	_ = loop.Send(ctx, agent.TurnInput{
-		Model:       req.Model,
-		MaxTokens:   req.MaxTokens,
-		Temperature: req.Temperature,
-		Messages:    msgs,
-	})
+	for chunk := range ch {
+		if err := handler(chunk); err != nil {
+			break
+		}
+	}
 	emitStreamEpilogue(emit, usage)
 }
 
@@ -300,30 +299,26 @@ func emitStreamEpilogue(emit anthropicEmitter, usage *backend.ChunkMeta) {
 func (s *server) nonStreamAnthropic(ctx context.Context, w http.ResponseWriter, req messagesRequest, id, sysPrompt string, msgs []backend.Message) {
 	var acc strings.Builder
 	var usage *backend.ChunkMeta
-	loop, err := agent.New(agent.Options{
-		Backend: s.backend,
-		Handler: func(chunk backend.StreamChunk) error {
-			acc.WriteString(chunk.Text)
-			if chunk.Meta != nil {
-				usage = chunk.Meta
-			}
-			return nil
-		},
+
+	streamReq := backend.StreamRequest{
+		Model:        req.Model,
 		SystemPrompt: sysPrompt,
-		DefaultModel: req.Model,
-		MaxTurns:     1,
-	})
+		Messages:     msgs,
+		MaxTokens:    req.MaxTokens,
+		Temperature:  req.Temperature,
+	}
+
+	ch, err := s.backend.Stream(ctx, streamReq)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "agent_init", err.Error())
 		return
 	}
-	defer loop.Close()
-	_ = loop.Send(ctx, agent.TurnInput{
-		Model:       req.Model,
-		MaxTokens:   req.MaxTokens,
-		Temperature: req.Temperature,
-		Messages:    msgs,
-	})
+	for chunk := range ch {
+		acc.WriteString(chunk.Text)
+		if chunk.Meta != nil {
+			usage = chunk.Meta
+		}
+	}
 
 	resp := map[string]any{
 		"id":            id,

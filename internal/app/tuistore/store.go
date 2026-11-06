@@ -44,5 +44,8 @@ type Store struct {
 func New() *Store {
 	return &Store{
 		BashRowIdx: -1,
+		Queue: Queue{
+			QueueMode: true, // Default queuedMessages setting is "queue"
+		},
 	}
 }

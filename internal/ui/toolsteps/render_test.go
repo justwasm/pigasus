@@ -2,6 +2,7 @@ package toolsteps
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -855,5 +856,79 @@ func TestRenderBlock_VerbosityLow_Expanded(t *testing.T) {
 	}
 	if !strings.Contains(joined, "ctrl+o to collapse") {
 		t.Errorf("expanded low-verbosity missing ctrl+o to collapse hint:\n%s", joined)
+	}
+}
+
+func TestStepDetailLines_CommandOutputWrap(t *testing.T) {
+	longLine := "This is a very long line of command output that exceeds forty columns by a substantial margin."
+	s := Step{
+		Name:   "run_command",
+		Title:  "Bash(long_cmd)",
+		Detail: fmt.Sprintf("Command exited with code 0.\n\nCommand output:\n%s\n", longLine),
+	}
+	lines := stepDetailLines(s, 40)
+	if len(lines) < 3 {
+		t.Fatalf("expected wrapped lines, got %d lines: %v", len(lines), lines)
+	}
+	if !strings.HasPrefix(lines[0], tuitools.DetailBullet()) {
+		t.Errorf("line 0 missing DetailBullet: %q", lines[0])
+	}
+	for i := 1; i < len(lines); i++ {
+		if !strings.HasPrefix(lines[i], tuitools.DetailIndent) {
+			t.Errorf("line %d not indented with DetailIndent (7 spaces): %q", i, lines[i])
+		}
+		content := strings.TrimPrefix(lines[i], tuitools.DetailIndent)
+		plainContent := stripAnsiForTest(content)
+		if len(plainContent) > 33 {
+			t.Errorf("line %d content width %d exceeds wrapWidth 33: %q", i, len(plainContent), content)
+		}
+	}
+}
+
+func TestStepDetailLines_DiffOutputWrap(t *testing.T) {
+	longDiffLine := "+func TestPigcap_StdioHandshake_V2_WithExtraLongNameExceedingThirtyCharacters(t *testing.T) {"
+	s := Step{
+		Name:   "run_command",
+		Title:  "Bash(git log -p)",
+		Detail: fmt.Sprintf("Command exited with code 0.\n\nCommand output:\n@@ -1,1 +1,1 @@\n%s\n", longDiffLine),
+	}
+	lines := stepDetailLines(s, 40)
+	if len(lines) < 4 {
+		t.Fatalf("expected wrapped diff lines, got %d lines: %v", len(lines), lines)
+	}
+	// Lines 4..len-1 are the wrapped segments of longDiffLine; all must carry ToolAddOpen.
+	for i := 4; i < len(lines); i++ {
+		if !strings.Contains(lines[i], palette.ToolAddOpen) {
+			t.Errorf("expected wrapped diff line %d to maintain ToolAddOpen styling: %q", i, lines[i])
+		}
+	}
+	for i := 1; i < len(lines); i++ {
+		if !strings.HasPrefix(lines[i], tuitools.DetailIndent) {
+			t.Errorf("diff line %d not indented with DetailIndent: %q", i, lines[i])
+		}
+	}
+}
+
+func TestStepDetailLines_DiffRemoveOutputWrap(t *testing.T) {
+	longRemoveLine := "-func TestPigcap_StdioHandshake_OldDeprecatedLongFunctionSignature(t *testing.T) {"
+	s := Step{
+		Name:   "run_command",
+		Title:  "Bash(git log -p)",
+		Detail: fmt.Sprintf("Command exited with code 0.\n\nCommand output:\n@@ -1,1 +1,1 @@\n%s\n", longRemoveLine),
+	}
+	lines := stepDetailLines(s, 40)
+	if len(lines) < 4 {
+		t.Fatalf("expected wrapped diff lines, got %d lines: %v", len(lines), lines)
+	}
+	// Lines 4..len-1 are the wrapped segments of longRemoveLine; all must carry ToolRemoveOpen.
+	for i := 4; i < len(lines); i++ {
+		if !strings.Contains(lines[i], palette.ToolRemoveOpen) {
+			t.Errorf("expected wrapped diff remove line %d to maintain ToolRemoveOpen styling: %q", i, lines[i])
+		}
+	}
+	for i := 1; i < len(lines); i++ {
+		if !strings.HasPrefix(lines[i], tuitools.DetailIndent) {
+			t.Errorf("diff line %d not indented with DetailIndent: %q", i, lines[i])
+		}
 	}
 }

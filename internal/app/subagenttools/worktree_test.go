@@ -36,38 +36,17 @@ import (
 	"testing"
 	"time"
 
-	"github.com/MichaelKinsy/PiG/coding"
+	"github.com/justwasm/pigasus/actor"
 )
 
-// worktreeTestServices builds a coding.AgentSessionServices container the
-// worktree tests can share. Mirrors subagentTestServices but is
-// declared here so this file does not depend on the _test ordering
-// of subagenttools_test.go.
+// worktreeTestServices builds a Deps container the worktree tests can share.
 func worktreeTestServices(t *testing.T, agentDir string) (deps Deps) {
 	t.Helper()
-	svcs, err := openCodingServicesForWorktreeTest(agentDir)
-	if err != nil {
-		t.Fatalf("coding.CreateAgentSessionServices: %v", err)
-	}
-	t.Cleanup(func() { svcs.Close() })
-	deps = Deps{
-		Services: svcs,
-		Model:    subagentTestModel(),
+	return Deps{
+		Provider: actor.NewMockProvider(),
+		Model:    "mock-model",
 		AgentDir: agentDir,
 	}
-	return deps
-}
-
-// openCodingServicesForWorktreeTest is a thin indirection over
-// coding.CreateAgentSessionServices so the test file's single import point stays
-// close to the package boundary. The CWD and AgentDir are pinned
-// to the same per-test temp tree so the worktree ends up at
-// `<tempAgentDir>/worktrees/<subagentID>/`.
-func openCodingServicesForWorktreeTest(agentDir string) (*coding.AgentSessionServices, error) {
-	return coding.CreateAgentSessionServices(coding.CreateAgentSessionServicesOptions{
-		CWD:      agentDir,
-		AgentDir: agentDir,
-	})
 }
 
 // ─── 1. Subagent worktree under app data directory ────────────────────────

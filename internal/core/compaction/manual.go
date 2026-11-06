@@ -3,8 +3,6 @@ package compaction
 import (
 	"context"
 	"errors"
-
-	piagent "github.com/MichaelKinsy/PiG/agent"
 )
 
 // HandleManualResult updates doneCh or sends an initial error msg if err != nil.
@@ -37,9 +35,9 @@ func RunManualTask(
 		doneCh      = make(chan ManualDoneMsg, 1)
 		unsubscribe func()
 	)
-	unsubscribe = compactor.SubscribeManual(func(ev piagent.AgentEvent) {
+	unsubscribe = compactor.SubscribeManual(func(ev any) {
 		switch e := ev.(type) {
-		case piagent.CompactionEndEvent:
+		case CompactionEndEvent:
 			msg := ManualDoneMsg{
 				TokensBefore:       e.TokensBefore,
 				TokensAfter:        e.EstimatedTokensAfter,

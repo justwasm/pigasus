@@ -15,17 +15,17 @@ package helppanel
 import (
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/justwasm/pigasus/internal/ui/slashcommands"
 	"github.com/justwasm/pigasus/internal/ui/tuilib"
 )
 
-// HandleKey handles a key while the overlay is open.
-//
-// It reports whether the key was handled. While the overlay is open
-// every key is handled; a closed overlay handles none.
-func (p *Panel) HandleKey(key tea.Key) bool {
+// Update handles a key while the overlay is open in the Elm/Bubbletea single-direction
+// message passing style. It reports whether the key was handled and returns an optional tea.Cmd.
+func (p *Panel) Update(key tea.Key) (bool, tea.Cmd) {
 	if p == nil || !p.open {
-		return false
+		return false, nil
 	}
+	var cmd tea.Cmd
 	switch tuilib.ClassifyListNavKey(key) {
 	case tuilib.NavRight:
 		p.nextTab()
@@ -40,12 +40,45 @@ func (p *Panel) HandleKey(key tea.Key) bool {
 	case tuilib.NavBottom:
 		p.listEnd(p.listLen())
 	case tuilib.NavCancel:
-		p.Cancel()
+		p.open = false
+		p.respond(tuilib.SlashEchoLines("/help", "Exited /help command"))
+		cmd = DismissCmd(true)
+	case tuilib.NavSelect:
+		cmd = p.selectCurrentCmd()
 	}
 	if key.Code == tea.KeyTab {
 		p.nextTab()
 	}
-	return true
+	return true, cmd
+}
+
+// HandleKey handles a key while the overlay is open.
+//
+// It reports whether the key was handled. While the overlay is open
+// every key is handled; a closed overlay handles none.
+func (p *Panel) HandleKey(key tea.Key) bool {
+	handled, _ := p.Update(key)
+	return handled
+}
+
+// selectCurrentCmd handles Enter on the active tab and yields the appropriate tea.Cmd.
+func (p *Panel) selectCurrentCmd() tea.Cmd {
+	if p == nil || !p.open {
+		return nil
+	}
+	if p.tab == 1 {
+		cmds := slashcommands.Sorted()
+		if p.cursor >= 0 && p.cursor < len(cmds) {
+			cmd := cmds[p.cursor].Name
+			p.Close()
+			if p.seams.SelectCommand != nil {
+				p.seams.SelectCommand(cmd)
+			}
+			return SelectCommandCmd(cmd)
+		}
+	}
+	p.Close()
+	return DismissCmd(false)
 }
 
 // nextTab moves to the next tab, wrapping at the end.

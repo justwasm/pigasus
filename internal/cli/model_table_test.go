@@ -11,8 +11,8 @@
 package cli
 
 import (
-	"github.com/justwasm/pigasus/internal/features/models/catalog"
 	"bytes"
+	"github.com/justwasm/pigasus/internal/features/models/catalog"
 	"os"
 	"strings"
 	"testing"

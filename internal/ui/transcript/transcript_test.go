@@ -39,11 +39,13 @@ func TestUserPromptRow_MultiLineIndentsTheTail(t *testing.T) {
 	if lines[0] != palette.UserFgBoldOpen+"> one"+palette.BlueBoldClose {
 		t.Errorf("first row = %q", lines[0])
 	}
-	if lines[1] != "  two" {
-		t.Errorf("second row = %q, want %q", lines[1], "  two")
+	wantTwo := palette.UserFgBoldOpen + "  two" + palette.BlueBoldClose
+	if lines[1] != wantTwo {
+		t.Errorf("second row = %q, want %q", lines[1], wantTwo)
 	}
-	if lines[2] != "  three" {
-		t.Errorf("third row = %q, want %q", lines[2], "  three")
+	wantThree := palette.UserFgBoldOpen + "  three" + palette.BlueBoldClose
+	if lines[2] != wantThree {
+		t.Errorf("third row = %q, want %q", lines[2], wantThree)
 	}
 }
 
@@ -76,8 +78,8 @@ func TestRenderUserPrompt_WrapsAndIndentsTheTail(t *testing.T) {
 		t.Errorf("first row = %q", got[0])
 	}
 	for i, row := range got[1:] {
-		if !strings.HasPrefix(row, "  ") {
-			t.Errorf("row %d = %q, want the two-space indent", i+1, row)
+		if !strings.HasPrefix(row, palette.UserFgBoldOpen+"  ") {
+			t.Errorf("row %d = %q, want styled two-space indent", i+1, row)
 		}
 	}
 	for _, row := range got {
@@ -95,8 +97,9 @@ func TestRenderUserPrompt_NonPositiveWidthKeepsTheRawLines(t *testing.T) {
 	if !strings.HasSuffix(got[0], palette.BlueBoldClose) {
 		t.Errorf("first row = %q", got[0])
 	}
-	if got[1] != "  two" {
-		t.Errorf("second row = %q", got[1])
+	wantTwo := palette.UserFgBoldOpen + "  two" + palette.BlueBoldClose
+	if got[1] != wantTwo {
+		t.Errorf("second row = %q, want %q", got[1], wantTwo)
 	}
 }
 

@@ -7,6 +7,7 @@ import "encoding/json"
 // these four IDs/tags use snake_case and payload is raw JSON, not base64.
 // Recovered from the agy 1.4.11 Go type at 0x10988b010.
 type SignalingEnvelope struct {
+	SessionID   string          `json:"session_id,omitempty"`
 	MessageID   string          `json:"message_id,omitempty"`
 	SenderID    string          `json:"sender_id,omitempty"`
 	RecipientID string          `json:"recipient_id,omitempty"`

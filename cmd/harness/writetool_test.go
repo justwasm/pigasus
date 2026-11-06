@@ -5,8 +5,7 @@ import (
 	"encoding/json"
 	"testing"
 
-	piagent "github.com/MichaelKinsy/PiG/agent"
-	pi "github.com/MichaelKinsy/PiG/ai"
+	"github.com/justwasm/pigasus/actor"
 )
 
 // The reference's write tool ends the file with a newline.
@@ -91,12 +90,16 @@ type stubTool struct{ name string }
 
 func (s *stubTool) Name() string { return s.name }
 
-func (s *stubTool) Label() string { return s.name }
+func (s *stubTool) Description() string { return s.name }
 
-func (s *stubTool) Schema() pi.ToolSchema { return pi.ToolSchema{} }
+func (s *stubTool) Definition() actor.ToolDefinition {
+	return actor.ToolDefinition{Name: s.name}
+}
 
-func (s *stubTool) ExecutionMode() piagent.ToolExecutionMode { return piagent.ToolModeParallel }
+func (s *stubTool) RequiresApproval(input string) bool {
+	return false
+}
 
-func (s *stubTool) Execute(context.Context, string, json.RawMessage, piagent.ToolUpdateCallback) (piagent.AgentToolResult, error) {
-	return piagent.AgentToolResult{}, nil
+func (s *stubTool) Execute(context.Context, string) (actor.ToolResult, error) {
+	return actor.ToolResult{}, nil
 }

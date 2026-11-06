@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 )
@@ -361,5 +363,45 @@ func TestEmptyUnaryConnectResponseEmitsChunk(t *testing.T) {
 	}
 	if !sent[1].IsFinal {
 		t.Errorf("sent[1].IsFinal want true")
+	}
+}
+
+func TestSendForwardBatch(t *testing.T) {
+	var receivedBody string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		b, _ := io.ReadAll(r.Body)
+		receivedBody = string(b)
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("ok"))
+	}))
+	defer srv.Close()
+
+	client := NewClient(ClientOptions{
+		Endpoint: srv.URL,
+	})
+	client.sid = "test-sid"
+	client.gsession = "test-gsess"
+
+	ctx := context.Background()
+	_, err := client.sendForwardBatch(ctx, "test-token", []string{"data-0", "data-1", "data-2"})
+	if err != nil {
+		t.Fatalf("sendForwardBatch: %v", err)
+	}
+
+	values, err := url.ParseQuery(receivedBody)
+	if err != nil {
+		t.Fatalf("parse query: %v", err)
+	}
+	if values.Get("count") != "3" {
+		t.Errorf("count = %q, want 3", values.Get("count"))
+	}
+	if values.Get("req0___data__") != "data-0" {
+		t.Errorf("req0 = %q, want data-0", values.Get("req0___data__"))
+	}
+	if values.Get("req1___data__") != "data-1" {
+		t.Errorf("req1 = %q, want data-1", values.Get("req1___data__"))
+	}
+	if values.Get("req2___data__") != "data-2" {
+		t.Errorf("req2 = %q, want data-2", values.Get("req2___data__"))
 	}
 }

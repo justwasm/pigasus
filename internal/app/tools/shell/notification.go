@@ -137,6 +137,8 @@ func NotifyTask(n TaskNotification) {
 }
 
 func notifyTask(n TaskNotification) {
+	checkTimerEarlyCancellation(n)
+
 	taskNotifierMu.RLock()
 	fn := taskNotifier
 	taskNotifierMu.RUnlock()

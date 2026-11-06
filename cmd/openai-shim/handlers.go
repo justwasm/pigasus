@@ -9,7 +9,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/justwasm/pigasus/internal/agent"
 	"github.com/justwasm/pigasus/internal/core/backend"
 )
 
@@ -173,24 +172,25 @@ func (s *server) streamChatCompletions(ctx context.Context, w http.ResponseWrite
 		}
 		return nil
 	}
-	loop, err := agent.New(agent.Options{
-		Backend:      s.backend,
-		Handler:      handler,
+
+	streamReq := backend.StreamRequest{
+		Model:        req.Model,
 		SystemPrompt: systemPrompt,
-		DefaultModel: req.Model,
-		MaxTurns:     1,
-	})
+		Messages:     msgs,
+		MaxTokens:    req.MaxTokens,
+		Temperature:  req.Temperature,
+	}
+
+	ch, err := s.backend.Stream(ctx, streamReq)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "agent_init", err.Error())
 		return
 	}
-	defer loop.Close()
-	_ = loop.Send(ctx, agent.TurnInput{
-		Model:       req.Model,
-		MaxTokens:   req.MaxTokens,
-		Temperature: req.Temperature,
-		Messages:    msgs,
-	})
+	for chunk := range ch {
+		if err := handler(chunk); err != nil {
+			break
+		}
+	}
 	fmt.Fprintf(w, "data: [DONE]\n\n")
 	if flusher != nil {
 		flusher.Flush()
@@ -223,30 +223,26 @@ func formatOpenAIChunk(chunk backend.StreamChunk, id, model string, created int6
 func (s *server) singleChatCompletions(ctx context.Context, w http.ResponseWriter, req chatCompletionsRequest, msgs []backend.Message, systemPrompt, id string, created int64) {
 	var acc strings.Builder
 	var meta *backend.ChunkMeta
-	loop, err := agent.New(agent.Options{
-		Backend: s.backend,
-		Handler: func(chunk backend.StreamChunk) error {
-			acc.WriteString(chunk.Text)
-			if chunk.Meta != nil {
-				meta = chunk.Meta
-			}
-			return nil
-		},
+
+	streamReq := backend.StreamRequest{
+		Model:        req.Model,
 		SystemPrompt: systemPrompt,
-		DefaultModel: req.Model,
-		MaxTurns:     1,
-	})
+		Messages:     msgs,
+		MaxTokens:    req.MaxTokens,
+		Temperature:  req.Temperature,
+	}
+
+	ch, err := s.backend.Stream(ctx, streamReq)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "agent_init", err.Error())
 		return
 	}
-	defer loop.Close()
-	_ = loop.Send(ctx, agent.TurnInput{
-		Model:       req.Model,
-		MaxTokens:   req.MaxTokens,
-		Temperature: req.Temperature,
-		Messages:    msgs,
-	})
+	for chunk := range ch {
+		acc.WriteString(chunk.Text)
+		if chunk.Meta != nil {
+			meta = chunk.Meta
+		}
+	}
 	resp := buildSingleResponse(id, req.Model, created, acc.String(), meta)
 	writeJSON(w, http.StatusOK, resp)
 }

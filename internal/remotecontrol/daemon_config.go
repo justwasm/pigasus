@@ -76,6 +76,9 @@ type Config struct {
 	// DefaultSlashCommands / empty slices.
 	ListBackend ListBackend
 
+	// StatelessMode disables convstore/disk persistence entirely.
+	// Used for in-memory attached agent sessions.
+	StatelessMode bool
 	// FS is the seam the two read-only filesystem methods
 	// (ReadRemoteAgentFile / ReadRemoteAgentDir, cycle
 	// rc-file-ops) call into. nil → the dispatcher rejects

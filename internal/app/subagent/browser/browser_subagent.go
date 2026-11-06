@@ -61,9 +61,7 @@ import (
 	"sort"
 	"strings"
 
-	piagent "github.com/MichaelKinsy/PiG/agent"
-
-	"github.com/justwasm/pigasus/internal/piagentbridge"
+	"github.com/justwasm/pigasus/actor"
 	"github.com/justwasm/pigasus/internal/app/subagenttools"
 	"github.com/justwasm/pigasus/internal/app/tools"
 )
@@ -157,7 +155,7 @@ func Prompt(inventory []string, surface Surface) string {
 // The zero value is not usable: build one with New.
 type Runner struct {
 	deps  subagenttools.Deps
-	tools []piagent.AgentTool
+	tools []actor.Tool
 }
 
 // New builds a Runner.
@@ -165,40 +163,40 @@ type Runner struct {
 // browserTools are the tools the browser agent may call; they are handed to
 // the subagent's session as its own tool set. The caller normally gets them
 // from BrowserTools below.
-func New(deps subagenttools.Deps, browserTools []piagent.AgentTool) *Runner {
+func New(deps subagenttools.Deps, browserTools []actor.Tool) *Runner {
 	return &Runner{deps: deps, tools: browserTools}
 }
 
 // BrowserTools collects the browser tools out of a registry and adapts them
-// to PiG's tool interface.
+// to the actor.Tool interface.
 //
 // A registry that does not carry a tool is skipped, so a registry built from
 // a restricted surface (the --agent body path) simply yields fewer tools.
-func BrowserTools(reg *tools.Registry) []piagent.AgentTool {
+func BrowserTools(reg *tools.Registry) []actor.Tool {
 	if reg == nil {
 		return nil
 	}
-	var out []piagent.AgentTool
+	var out []actor.Tool
 	for _, name := range BrowserToolNames {
 		tool, ok := reg.Get(name)
 		if !ok || tool == nil {
 			continue
 		}
-		out = append(out, piagentbridge.Tool(tool))
+		out = append(out, adaptTool(tool))
 	}
 	return out
 }
 
 // inventory renders the tool list for the prompt: the tool's advertised
 // description when it has one, the name otherwise.
-func inventory(agentTools []piagent.AgentTool) []string {
+func inventory(agentTools []actor.Tool) []string {
 	out := make([]string, 0, len(agentTools))
 	for _, t := range agentTools {
 		if t == nil {
 			continue
 		}
 		line := t.Name()
-		if desc := t.Schema().Description; desc != "" {
+		if desc := t.Description(); desc != "" {
 			line += " — " + desc
 		}
 		out = append(out, line)

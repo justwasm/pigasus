@@ -21,8 +21,7 @@ import (
 	"context"
 	"encoding/json"
 	"strings"
-
-	"github.com/google/uuid"
+	"uuid"
 
 	"github.com/justwasm/pigasus/remotetransport"
 )
@@ -44,7 +43,7 @@ func NewDispatcher(inner remotetransport.Dispatcher, flags *Flags, layout Layout
 		ctx: AnswerContext{
 			Flags:      flags,
 			Layout:     layout,
-			InstanceID: uuid.NewString(),
+			InstanceID: uuid.New().String(),
 			Mocked:     mocked,
 		},
 	}

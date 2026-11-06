@@ -26,7 +26,7 @@ func UserPromptRow(text string) string {
 		if i == 0 {
 			lines[i] = palette.UserFgBoldOpen + "> " + l + palette.BlueBoldClose
 		} else if l != "" {
-			lines[i] = "  " + l
+			lines[i] = palette.UserFgBoldOpen + "  " + l + palette.BlueBoldClose
 		}
 	}
 	return strings.Join(lines, "\n")
@@ -54,7 +54,7 @@ func RenderUserPrompt(text string, width int) []string {
 			if i == 0 {
 				out = append(out, openStyle+"> "+l+closeStyle)
 			} else if l != "" {
-				out = append(out, "  "+l)
+				out = append(out, openStyle+"  "+l+closeStyle)
 			} else {
 				out = append(out, "")
 			}
@@ -88,7 +88,7 @@ func RenderUserPrompt(text string, width int) []string {
 				out = append(out, openStyle+"> "+wLine+closeStyle)
 				firstRow = false
 			} else if wLine != "" {
-				out = append(out, "  "+wLine)
+				out = append(out, openStyle+"  "+wLine+closeStyle)
 			} else {
 				out = append(out, "")
 			}

@@ -14,9 +14,9 @@
 package cli
 
 import (
-	"github.com/justwasm/pigasus/internal/ui/tuilib"
 	"bytes"
 	"encoding/json"
+	"github.com/justwasm/pigasus/internal/ui/tuilib"
 	"io"
 	"strings"
 	"testing"

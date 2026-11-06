@@ -22,10 +22,9 @@ import (
 	"encoding/json"
 	"time"
 
-	pi "github.com/MichaelKinsy/PiG/ai"
-
-	"github.com/justwasm/pigasus/internal/core/backend"
+	"github.com/justwasm/pigasus/actor"
 	"github.com/justwasm/pigasus/internal/app/harnesstools"
+	"github.com/justwasm/pigasus/internal/core/backend"
 	"github.com/justwasm/pigasus/internal/infra/backend/gemini"
 )
 
@@ -39,7 +38,7 @@ func (c *conversation) knownToolNames() map[string]bool {
 		out[decl.Name] = true
 	}
 	for _, tool := range c.clientTools() {
-		out[tool.Name()] = true
+		out[tool.Definition().Name] = true
 	}
 	return out
 }
@@ -122,17 +121,13 @@ func (c *conversation) invalidRetriesLeft() int {
 // with text instead of another call. The declarations stay on the wire —
 // only the mode changes.
 type functionCallingProvider struct {
-	inner  pi.Provider
-	client *gemini.GeminiClient
+	inner       actor.Provider
+	client      *gemini.GeminiClient
 	// retriesLeft reports how many retries the model has left.
 	retriesLeft func() int
 }
 
-func (p *functionCallingProvider) ID() string { return p.inner.ID() }
-
-func (p *functionCallingProvider) Close() error { return p.inner.Close() }
-
-func (p *functionCallingProvider) Stream(ctx context.Context, transcript pi.TranscriptContext, opts pi.StreamOptions) (*pi.AssistantMessageEventStream, error) {
+func (p *functionCallingProvider) Generate(ctx context.Context, req actor.GenerateRequest) (actor.ResponseStream, error) {
 	if p.client != nil {
 		mode := "AUTO"
 		if p.retriesLeft != nil && p.retriesLeft() <= 1 {
@@ -140,7 +135,7 @@ func (p *functionCallingProvider) Stream(ctx context.Context, transcript pi.Tran
 		}
 		p.client.SetFunctionCallingMode(mode)
 	}
-	return p.inner.Stream(ctx, transcript, opts)
+	return p.inner.Generate(ctx, req)
 }
 
 // withFunctionCallingMode wraps the provider so the request can turn the
@@ -148,7 +143,7 @@ func (p *functionCallingProvider) Stream(ctx context.Context, transcript pi.Tran
 //
 // The transport is only the Gemini one: the mode is a field of the Gemini
 // request, and the other dialects have no such field.
-func (c *conversation) withFunctionCallingMode(inner pi.Provider, be backend.Client) pi.Provider {
+func (c *conversation) withFunctionCallingMode(inner actor.Provider, be backend.Client) actor.Provider {
 	client, ok := be.(*gemini.GeminiClient)
 	if !ok {
 		return inner

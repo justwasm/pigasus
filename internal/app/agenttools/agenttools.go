@@ -11,23 +11,6 @@
 // subagent management. The declarations (descriptions and parameter schemas)
 // are reproduced byte for byte from that request in tools_1.4.7.json; the
 // executors are the clone's existing registry tools of the same name.
-//
-// 1.4.7 against 1.4.4 (【一手】, two live request bodies through
-// internal/agyproxy): the surface kept its seven names and their order, but
-// every declaration was rewritten — `toolSummary`/`toolAction` are gone from
-// all seven, the descriptions were reworded to the current wording (the one
-// the main agent's own surface already used), and the schemas gained
-// `minLength` ("1"), an `enum` on `generate_image.AspectRatio` and
-// `manage_task.Action`, and `maxItems` ("3") on
-// `generate_image.ImagePaths`. The required lists shrank accordingly: a
-// custom agent's `send_message` call no longer has to carry a summary and an
-// action.
-//
-// The old wording ("Send a message to another agent. This tool can be used to
-// communicate with subagents, peer agents, etc." and the `toolSummary` /
-// `toolAction` parameter descriptions) is still present in the 1.4.7 binary —
-// it belongs to the reference's *subagent* surface, not to this one — so the
-// clone keeps the old capture only in git history.
 package agenttools
 
 import (
@@ -37,11 +20,8 @@ import (
 	"fmt"
 	"sync"
 
-	piagent "github.com/MichaelKinsy/PiG/agent"
-	pi "github.com/MichaelKinsy/PiG/ai"
-
+	"github.com/justwasm/pigasus/actor"
 	"github.com/justwasm/pigasus/internal/app/tools"
-	"github.com/justwasm/pigasus/internal/app/tools/surface"
 )
 
 //go:embed tools_1.4.7.json
@@ -84,12 +64,12 @@ func Names() []string {
 // Tools adapts the captured declarations onto the clone's executors. A
 // declaration with no executor still advertises (and fails with the registry's
 // unknown-tool error at call time), keeping the wire surface exact.
-func Tools(registry *tools.Registry) []piagent.AgentTool {
+func Tools(registry *tools.Registry) []actor.Tool {
 	decls, err := Declarations()
 	if err != nil {
 		return nil
 	}
-	out := make([]piagent.AgentTool, 0, len(decls))
+	out := make([]actor.Tool, 0, len(decls))
 	for _, d := range decls {
 		var inner tools.Tool
 		if registry != nil {
@@ -105,40 +85,28 @@ type tool struct {
 	inner tools.Tool
 }
 
-func (t *tool) Name() string  { return t.decl.Name }
-func (t *tool) Label() string { return t.decl.Name }
+func (t *tool) Name() string        { return t.decl.Name }
+func (t *tool) Description() string { return t.decl.Description }
+func (t *tool) RequiresApproval(_ string) bool { return false }
 
-func (t *tool) Schema() pi.ToolSchema {
-	schema := pi.ToolSchema{Name: t.decl.Name, Description: t.decl.Description}
-	// The captured declarations use protojson's uppercase type names and
-	// string-encoded int counts, which draft 2020-12 (and therefore PiG's
-	// metaschema check) rejects. Without this every custom-agent tool call
-	// failed with "at '/properties/toolSummary/type': value must be one of
-	// 'array', 'boolean', … 'string'". The transport re-uppercases and
-	// re-stringifies on the wire, so the model still sees the capture.
-	b, err := json.Marshal(t.decl.Parameters)
-	if err == nil {
-		if params := surface.SchemaParams(b); params != nil {
-			schema.Parameters = params
-		}
+func (t *tool) Definition() actor.ToolDefinition {
+	return actor.ToolDefinition{
+		Name:        t.decl.Name,
+		Description: t.decl.Description,
+		Parameters:  t.decl.Parameters,
 	}
-	return schema
 }
 
-func (t *tool) ExecutionMode() piagent.ToolExecutionMode {
-	return piagent.ToolModeSequential
-}
-
-func (t *tool) Execute(ctx context.Context, _ string, params json.RawMessage, _ piagent.ToolUpdateCallback) (piagent.AgentToolResult, error) {
+func (t *tool) Execute(ctx context.Context, input string) (actor.ToolResult, error) {
 	if t.inner == nil {
-		return piagent.AgentToolResult{}, fmt.Errorf("unknown tool %q", t.decl.Name)
+		return actor.ToolResult{Error: fmt.Sprintf("unknown tool %q", t.decl.Name)}, fmt.Errorf("unknown tool %q", t.decl.Name)
 	}
-	out, err := t.inner.Run(ctx, params)
+	out, err := t.inner.Run(ctx, json.RawMessage(input))
 	if err != nil {
-		return piagent.AgentToolResult{}, err
+		return actor.ToolResult{Error: err.Error()}, err
 	}
-	return piagent.AgentToolResult{
-		Content: []pi.ToolResultMessageContent{pi.TextContent{Text: render(out)}},
+	return actor.ToolResult{
+		Output: render(out),
 	}, nil
 }
 

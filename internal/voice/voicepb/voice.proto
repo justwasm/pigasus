@@ -1,0 +1,216 @@
+syntax = "proto3";
+
+package exa.remote_agent_proxy_pb;
+
+option go_package = "github.com/justwasm/pigasus/internal/voice/voicepb;voicepb";
+
+import "google/protobuf/timestamp.proto";
+
+// Enum for model representation in Voice
+enum Model {
+  MODEL_UNSPECIFIED = 0;
+  MODEL_GEMINI_2_5_FLASH = 1;
+  MODEL_GEMINI_2_5_PRO = 2;
+  MODEL_CLAUDE_3_7_SONNET = 3;
+}
+
+// Runtime environment
+enum RuntimeEnvironment {
+  RUNTIME_ENVIRONMENT_UNSPECIFIED = 0;
+  RUNTIME_ENVIRONMENT_BROWSER = 1;
+  RUNTIME_ENVIRONMENT_ELECTRON = 2;
+}
+
+// Backend type
+enum BackendType {
+  BACKEND_TYPE_UNSPECIFIED = 0;
+  BACKEND_TYPE_CLOUD = 1;
+  BACKEND_TYPE_LOCAL = 2;
+}
+
+// Status representation
+message Status {
+  int32 code = 1;
+  string message = 2;
+}
+
+// VoiceChatLine represents a single utterance/line in a voice chat session.
+message VoiceChatLine {
+  enum Role {
+    ROLE_UNSPECIFIED = 0;
+    ROLE_USER = 1;
+    ROLE_VOICE = 2;
+    ROLE_HANDOFF = 3;
+  }
+  Role role = 1;
+  string text = 2;
+  google.protobuf.Timestamp time = 3;
+  int32 spoken_chars = 4;
+}
+
+// VoiceChat represents a voice conversation session with start/stop times and lines.
+message VoiceChat {
+  google.protobuf.Timestamp started_at = 1;
+  google.protobuf.Timestamp stopped_at = 2;
+  repeated VoiceChatLine lines = 3;
+}
+
+// VoiceChats is the container returned for /voice/chats endpoints.
+message VoiceChats {
+  repeated VoiceChat chats = 1;
+}
+
+// VoiceContextSnapshot represents context passed in voice sessions.
+message VoiceContextSnapshot {
+  string active_file = 1;
+  string selected_text = 2;
+}
+
+// VoiceClientMessage is incoming over the WebSocket from the client/browser.
+message VoiceClientMessage {
+  message Setup {
+    string cascade_id = 1;
+    string voice = 2;
+    int32 sample_rate_hertz = 3;
+    Model plan_model = 4;
+    double playback_speed = 5;
+    bool sends_user_transcript = 6;
+    RuntimeEnvironment runtime_environment = 7;
+    string client_version = 8;
+    string language_server_version = 9;
+    BackendType backend = 10;
+    string variant = 11;
+    bool speak_progress = 12;
+    repeated AsrHint asr_hints = 13;
+  }
+
+  message AsrHint {
+    int32 target = 1;
+    int32 mode = 2;
+    string custom_target = 3;
+    string role = 4;
+    repeated string texts = 5;
+  }
+
+  message SettingsUpdate {
+    Model plan_model = 1;
+    double playback_speed = 2;
+  }
+
+  message UserTranscript {
+    string text = 1;
+    bool is_final = 2;
+  }
+
+  oneof kind {
+    Setup setup = 1;
+    bytes mic_audio = 2;
+    SettingsUpdate settings_update = 3;
+    LanguageServerReply language_server_reply = 4;
+    UserTranscript user_transcript = 5;
+  }
+}
+
+// VoiceServerMessage is outgoing over the WebSocket to the client/browser.
+message VoiceServerMessage {
+  message SessionStatus {
+    enum State {
+      STATE_UNSPECIFIED = 0;
+      STARTING = 1;
+      LISTENING = 2;
+      RETRYING = 3;
+      STOPPING = 4;
+      FAILED = 5;
+    }
+    enum FailureReason {
+      FAILURE_REASON_UNSPECIFIED = 0;
+      SERVER_UNAVAILABLE = 1;
+      THROTTLED = 2;
+      SETUP_STALLED = 3;
+      CONNECTION_FAILED = 4;
+      ACCESS_DENIED = 5;
+      TIMEOUT = 6;
+      OTHER = 7;
+      VOICE_STALLED = 8;
+    }
+    State state = 1;
+    FailureReason failure_reason = 2;
+    string message = 3;
+    int32 attempt = 4;
+    int32 max_attempts = 5;
+    string cascade_id = 6;
+  }
+
+  message VoiceTranscript {
+    string text = 1;
+    int32 seq = 2;
+    int32 audio_ms = 3;
+  }
+
+  message AudioTiming {
+    int32 seq = 1;
+    int32 audio_ms = 2;
+    double playback_speed = 3;
+  }
+
+  message UserSpeech {
+    string text = 1;
+    int32 seq = 2;
+    bool interim = 3;
+  }
+
+  message ClearAudio {
+  }
+
+  oneof kind {
+    bytes voice_audio = 1;
+    SessionStatus status = 2;
+    LanguageServerCall language_server_call = 3;
+    VoiceEvent event = 4;
+    VoiceChat voice_chat = 5;
+    VoiceContextSnapshot snapshot = 6;
+    VoiceTranscript voice_transcript = 7;
+    UserSpeech user_speech = 8;
+    ClearAudio clear_audio = 9;
+    AudioTiming audio_timing = 10;
+  }
+}
+
+message LanguageServerCall {
+  message Start {
+    Method method = 1;
+    bytes request = 2;
+  }
+  message Cancel {
+  }
+  enum Method {
+    METHOD_UNSPECIFIED = 0;
+    STREAM_AGENT_STATE_UPDATES = 1;
+    SEND_USER_CASCADE_MESSAGE = 2;
+    CANCEL_CASCADE_INVOCATION = 3;
+    HANDLE_CASCADE_USER_INTERACTION = 4;
+    GET_CASCADE_MODEL_CONFIG_DATA = 5;
+  }
+  int64 call_id = 1;
+  oneof action {
+    Start start = 2;
+    Cancel cancel = 3;
+  }
+}
+
+message LanguageServerReply {
+  int64 call_id = 1;
+  oneof reply {
+    bytes response = 2;
+    Status end = 3;
+  }
+}
+
+message VoiceEvent {
+  message AttributesEntry {
+    string key = 1;
+    string value = 2;
+  }
+  string event_name = 1;
+  repeated AttributesEntry attributes = 2;
+}

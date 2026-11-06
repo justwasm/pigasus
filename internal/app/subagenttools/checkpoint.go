@@ -141,10 +141,10 @@ func RehydrateSubagents(subDir string, reg *Registry, taskReg *taskregistry.Regi
 			child.SetCancel(runCancel)
 			child.setState(StateRunning)
 			model := invModel(inv, deps)
-			if model == nil {
+			if model == "" {
 				model = deps.Model
 			}
-			go runChild(childRunCtx, child, deps, model, meta.SystemPrompt, meta.Worktree, meta.Worktree, subDir, inv, inv.Tools, meta.StartedAt, initialMsg)
+			go runChild(childRunCtx, child, deps, model, deps.Provider, meta.SystemPrompt, meta.Worktree, meta.Worktree, subDir, inv, inv.Tools, meta.StartedAt, initialMsg)
 		}
 		child.SetLaunch(launchFn)
 

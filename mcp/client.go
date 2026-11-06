@@ -495,10 +495,13 @@ func (p *Pool) connect(ctx context.Context, spec ServerSpec) (*sdk.ClientSession
 	}
 	client := sdk.NewClient(&sdk.Implementation{
 		Name:    "pigasus",
-		Version: "1.4.11",
+		Version: "1.5.0",
 	}, nil)
 	session, err := client.Connect(ctx, transport, nil)
 	if err != nil {
+		if errors.Is(err, exec.ErrNotFound) || strings.Contains(err.Error(), "executable file not found in $PATH") {
+			return nil, fmt.Errorf("%q is not installed or not on PATH, install it or set \"command\" to its full path", spec.Command)
+		}
 		return nil, fmt.Errorf("mcp server %q: %w", spec.Name, err)
 	}
 	return session, nil
@@ -545,6 +548,11 @@ func transportFor(spec ServerSpec) (sdk.Transport, error) {
 	default:
 		if spec.Command == "" {
 			return nil, fmt.Errorf("mcp server %q: no command", spec.Name)
+		}
+		if _, err := exec.LookPath(spec.Command); err != nil {
+			if errors.Is(err, exec.ErrNotFound) || strings.Contains(err.Error(), "executable file not found in $PATH") {
+				return nil, fmt.Errorf("%q is not installed or not on PATH, install it or set \"command\" to its full path", spec.Command)
+			}
 		}
 		cmd := exec.Command(spec.Command, spec.Args...)
 		// The documented `cwd` is the working directory of the spawned

@@ -70,6 +70,11 @@ type Seams struct {
 	//
 	// The panel writes one block here: the "/help" exit echo.
 	Respond func(lines []string)
+	// SelectCommand completes the chosen slash command into the composer.
+	//
+	// When the user presses Enter on the COMMANDS tab, the highlighted
+	// command's canonical name is passed here and the overlay closes.
+	SelectCommand func(cmd string)
 }
 
 // Panel is the /help overlay.
@@ -133,6 +138,14 @@ func (p *Panel) Cancel() {
 	}
 	p.open = false
 	p.respond(tuilib.SlashEchoLines("/help", "Exited /help command"))
+}
+
+// Close dismisses the overlay without echoing the exit line.
+func (p *Panel) Close() {
+	if p == nil {
+		return
+	}
+	p.open = false
 }
 
 // tabs is the tab bar's labels.

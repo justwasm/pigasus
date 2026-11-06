@@ -47,7 +47,7 @@ func TestStepTitle_NoErroredStringInPackageGoSources(t *testing.T) {
 	}{
 		{pkgDir, "toolsteps"},
 		{filepath.Join(pkgDir, "..", "tuitools"), "tuitools"},
-		{filepath.Join(pkgDir, "..", "..", "cliapp"), "cliapp"},
+		{filepath.Join(pkgDir, "..", "..", "tui"), "tui"},
 	}
 
 	var hits []string

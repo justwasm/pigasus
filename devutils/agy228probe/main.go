@@ -15,8 +15,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/MichaelKinsy/PiG/coding"
-
 	"github.com/justwasm/pigasus/internal/app/subagenttools"
 )
 
@@ -34,17 +32,7 @@ func run() error {
 	}
 	defer os.RemoveAll(dir)
 
-	services, err := coding.CreateAgentSessionServices(coding.CreateAgentSessionServicesOptions{
-		CWD:      dir,
-		AgentDir: filepath.Join(dir, "agent"),
-	})
-	if err != nil {
-		return fmt.Errorf("coding.CreateAgentSessionServices: %w", err)
-	}
-	defer services.Close()
-
 	deps := subagenttools.Deps{
-		Services: services,
 		CWD:      dir,
 		AgentDir: filepath.Join(dir, "agent"),
 	}
@@ -54,15 +42,15 @@ func run() error {
 	stubs := []string{}
 	schemas := []map[string]any{}
 	for _, t := range tools {
-		schema := t.Schema()
-		names = append(names, schema.Name)
-		if strings.Contains(schema.Description, "not yet implemented (cycle 228 stub)") {
-			stubs = append(stubs, schema.Name)
+		def := t.Definition()
+		names = append(names, def.Name)
+		if strings.Contains(def.Description, "not yet implemented (cycle 228 stub)") {
+			stubs = append(stubs, def.Name)
 		}
-		params, _ := json.Marshal(schema.Parameters)
+		params, _ := json.Marshal(def.Parameters)
 		schemas = append(schemas, map[string]any{
-			"name":        schema.Name,
-			"description": schema.Description,
+			"name":        def.Name,
+			"description": def.Description,
 			"parameters":  string(params),
 		})
 	}
@@ -82,7 +70,7 @@ func run() error {
 		return err
 	}
 
-	want := []string{"invoke_subagent", "send_message", "manage_subagents"}
+	want := []string{"invoke_subagent", "define_subagent", "send_message", "manage_subagents"}
 	for _, name := range want {
 		found := false
 		for _, n := range names {
@@ -92,11 +80,11 @@ func run() error {
 			}
 		}
 		if !found {
-			return fmt.Errorf("cycle 228 wire surface missing %q (have %v)", name, names)
+			return fmt.Errorf("wire surface missing %q (have %v)", name, names)
 		}
 	}
-	if len(tools) != 3 {
-		return fmt.Errorf("cycle 228 wire surface has %d tools, want 3", len(tools))
+	if len(tools) != 4 {
+		return fmt.Errorf("wire surface has %d tools, want 4", len(tools))
 	}
 	return nil
 }

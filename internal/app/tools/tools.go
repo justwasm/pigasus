@@ -34,11 +34,39 @@ type Tool interface {
 // Registry is the recovered tool registry. Source: agent.Registry.
 type Registry struct {
 	tools map[string]Tool
+	mws   []Middleware
 }
 
 func NewRegistry() *Registry { return &Registry{tools: map[string]Tool{}} }
 
-func (r *Registry) Register(t Tool) { r.tools[t.Name()] = t }
+// Use appends middlewares to the registry and applies them to all currently
+// registered tools as well as future registrations.
+func (r *Registry) Use(mws ...Middleware) {
+	if len(mws) == 0 {
+		return
+	}
+	r.mws = append(r.mws, mws...)
+	for name, t := range r.tools {
+		r.tools[name] = Wrap(t, mws...)
+	}
+}
+
+// Middlewares returns a copy of the registry's active middlewares.
+func (r *Registry) Middlewares() []Middleware {
+	if len(r.mws) == 0 {
+		return nil
+	}
+	out := make([]Middleware, len(r.mws))
+	copy(out, r.mws)
+	return out
+}
+
+func (r *Registry) Register(t Tool) {
+	if len(r.mws) > 0 {
+		t = Wrap(t, r.mws...)
+	}
+	r.tools[t.Name()] = t
+}
 func (r *Registry) Get(name string) (Tool, bool) {
 	t, ok := r.tools[name]
 	return t, ok

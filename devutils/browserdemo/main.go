@@ -19,17 +19,14 @@ import (
 	"os"
 	"time"
 
-	"github.com/MichaelKinsy/PiG/coding"
-
 	"github.com/justwasm/pigasus/browsercdp"
+	"github.com/justwasm/pigasus/internal/app/agentturn"
 	browsersubagent "github.com/justwasm/pigasus/internal/app/subagent/browser"
+	"github.com/justwasm/pigasus/internal/app/subagenttools"
+	"github.com/justwasm/pigasus/internal/app/tools/surface"
 	confhome "github.com/justwasm/pigasus/internal/core/confhome"
 	backendselect "github.com/justwasm/pigasus/internal/infra/backend/select"
 	"github.com/justwasm/pigasus/internal/ui/views/modelpicker"
-	"github.com/justwasm/pigasus/internal/printmode"
-	"github.com/justwasm/pigasus/internal/app/subagenttools"
-	"github.com/justwasm/pigasus/internal/app/tools"
-	"github.com/justwasm/pigasus/internal/app/tools/surface"
 )
 
 func main() {
@@ -42,11 +39,6 @@ func main() {
 	be := backendselect.Pick(fs, *model, modelpicker.ResolveCatalogueID)
 	if be == nil {
 		fmt.Fprintln(os.Stderr, "no backend for", *model)
-		os.Exit(1)
-	}
-	piModel := printmode.PigPrintModel(be, *model)
-	if piModel == nil {
-		fmt.Fprintln(os.Stderr, "no model for", *model)
 		os.Exit(1)
 	}
 	ws, _ := os.Getwd()
@@ -64,30 +56,20 @@ func main() {
 	// retries new tools instead of giving up (it only knows that a tool
 	// failed). The probe starts nothing — the browser starts on the
 	// first tool call, the reference's rule.
-	surface, err := browsersubagent.Probe(context.Background())
+	surf, err := browsersubagent.Probe(context.Background())
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "browser:", err)
 		os.Exit(1)
 	}
-	fmt.Fprintf(os.Stderr, "surface: %s\n", surface)
-
-	services, err := coding.CreateAgentSessionServices(coding.CreateAgentSessionServicesOptions{
-		CWD:      ws,
-		AgentDir: agentDir,
-	})
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "services:", err)
-		os.Exit(1)
-	}
-	defer services.Close()
+	fmt.Fprintf(os.Stderr, "surface: %s\n", surf)
 
 	catalog := surface.RuntimeCatalog(ws)
 	runner := browsersubagent.New(subagenttools.Deps{
-		Services: services,
-		Model:    piModel,
+		Model:    *model,
+		Provider: agentturn.NewBackendProviderAdapter(be, *model),
 		CWD:      ws,
 		AgentDir: agentDir,
-	}, browsersubagent.Tools(catalog))
+	}, browsersubagent.BrowserTools(catalog))
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()

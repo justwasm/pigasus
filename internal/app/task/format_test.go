@@ -415,3 +415,51 @@ func TestActiveSubagentRowLineTruncation(t *testing.T) {
 		t.Errorf("row = %q, want the status word cut away", plain)
 	}
 }
+
+func TestActiveTimerRowLine(t *testing.T) {
+	start := time.Date(2026, 11, 4, 18, 10, 0, 0, time.UTC)
+	target := time.Date(2026, 11, 4, 18, 20, 0, 0, time.UTC)
+	task := &Task{
+		ID:         "task-timer-1",
+		Name:       "Check build status",
+		Kind:       KindTimer,
+		State:      StateRunning,
+		StartedAt:  start,
+		TargetTime: target,
+	}
+
+	line := stripANSI(ActiveRowLine(task, false, 100))
+	if !strings.Contains(line, "⏳ 将在 18:20:00 自动探测并恢复跟进") {
+		t.Errorf("expected timer row to contain auto-followup prompt, got: %q", line)
+	}
+	if !strings.Contains(line, "Check build status") {
+		t.Errorf("expected timer row to contain task name, got: %q", line)
+	}
+}
+
+func TestActiveSubagentRow_BlockedStatus(t *testing.T) {
+	start := time.Date(2026, 11, 5, 10, 0, 0, 0, time.UTC)
+	subWithTool := &Task{
+		Name:        "Investigator",
+		Kind:        KindSubagent,
+		State:       StateBlocked,
+		CurrentTool: "AskQuestion",
+		StartedAt:   start,
+	}
+	plainWithTool := stripANSI(ActiveSubagentRowLine(subWithTool, false, 80))
+	if !strings.Contains(plainWithTool, "Blocked · AskQuestion") {
+		t.Errorf("row = %q, want status Blocked · AskQuestion", plainWithTool)
+	}
+
+	subNoTool := &Task{
+		Name:      "Investigator",
+		Kind:      KindSubagent,
+		State:     StateBlocked,
+		StartedAt: start,
+	}
+	plainNoTool := stripANSI(ActiveSubagentRowLine(subNoTool, false, 80))
+	if !strings.Contains(plainNoTool, "Blocked · Processing...") {
+		t.Errorf("row = %q, want status Blocked · Processing...", plainNoTool)
+	}
+}
+

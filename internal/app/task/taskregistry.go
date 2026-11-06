@@ -50,6 +50,7 @@ type State string
 const (
 	StatePending State = "pending" // registered but not yet started
 	StateRunning State = "running" // exec.Cmd started, Wait not yet returned
+	StateBlocked State = "blocked" // blocked waiting on user approval / question
 	StateDone    State = "done"    // exit code 0
 	StateFailed  State = "failed"  // non-zero exit, error, or exec failure
 	StateKilled  State = "killed"  // SIGTERM/SIGKILL — Kill() / ctx cancel
@@ -72,9 +73,10 @@ type Task struct {
 	Name      string
 	Kind      Kind
 	State     State
-	StartedAt time.Time
-	EndedAt   time.Time // zero while the task is still running
-	ExitCode  int       // ExitCodeUnset while still running
+	StartedAt  time.Time
+	EndedAt    time.Time // zero while the task is still running
+	TargetTime time.Time // expected target fire time for timers
+	ExitCode   int       // ExitCodeUnset while still running
 	OwnerID   string
 	Err       error
 	// Command is the command line a shell task runs. The /tasks detail
@@ -84,6 +86,8 @@ type Task struct {
 	// assistant text an LLM subagent produced. The detail view renders
 	// it under the reference's "Output" heading.
 	Output string
+	// OutputFunc provides real-time streaming output while the task is running.
+	OutputFunc func() string
 	// Prompt is the prompt an LLM subagent was given. The subagent
 	// detail view renders it under the reference's "Prompt" heading.
 	Prompt string

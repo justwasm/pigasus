@@ -201,6 +201,9 @@ type TCPConfig struct {
 	// `{"instanceId":"<uuid>","status":"ok"}` — and the standalone
 	// language server (internal/lsserver) wires it.
 	HealthzHandler http.Handler
+	// VoiceHandler optionally answers the /voice/ endpoints:
+	// /voice/health, /voice/chats, /voice/recordings, /voice/recordings/delete, /voice/ws.
+	VoiceHandler http.Handler
 	// AllowUnauthenticatedWebUI serves the web UI without the secret.
 	//
 	// The default (false) keeps the gate in front of the page: a

@@ -194,6 +194,11 @@ func (s *State) SetInsertFirst(v bool) {
 	s.clampCursor()
 }
 
+// InsertNewline inserts a newline at the current cursor position.
+func (s *State) InsertNewline() {
+	s.insertNewline()
+}
+
 // SetText replaces the buffer and re-clamps the cursor. The host calls
 // it when something outside the engine (history recall, a /-command
 // substitution, the external editor) changes the prompt text.

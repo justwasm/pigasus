@@ -62,7 +62,10 @@ func (p *Panel) handleListKey(key tea.Key) (bool, tea.Cmd) {
 		}
 		return true, nil
 	case tuilib.NavCancel:
-		return true, p.close()
+		if p.seams.Close != nil {
+			return true, p.seams.Close()
+		}
+		return true, func() tea.Msg { return MsgDismissed{} }
 	case tuilib.NavSelect:
 		p.openDetail()
 		return true, nil

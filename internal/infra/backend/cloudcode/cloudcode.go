@@ -301,7 +301,9 @@ func toBackendError(err error, url string) error {
 	}
 	var he *geminicode.HTTPError
 	if errors.As(err, &he) {
-		return apierror.NewHTTPError(he.StatusCode, he.Body, he.URL)
+		hErr := apierror.NewHTTPError(he.StatusCode, he.Body, he.URL)
+		hErr.Header = he.Header
+		return hErr
 	}
 	var se *geminicode.StreamError
 	if errors.As(err, &se) {

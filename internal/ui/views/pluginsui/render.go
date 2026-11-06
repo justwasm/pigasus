@@ -97,16 +97,26 @@ func RowBadge(enabled bool) string {
 	}
 }
 
+// NeedsSignInBadge returns the marker displayed for a plugin requiring authentication.
+// AGY 1.5.0: "a ⚠ needs sign-in marker and a Sign-in: row for the plugin in the Installed tab".
+func NeedsSignInBadge() string {
+	return "\x1b[33m⚠ needs sign-in\x1b[39m"
+}
+
 // InstalledLine renders one Installed plugin row.
-func InstalledLine(isCursor, enabled bool, name, desc string, max int) string {
+func InstalledLine(isCursor, enabled bool, name, desc string, max int, needsSignIn ...bool) string {
 	desc = TruncateTo(desc, max-(14+len(name)))
 	b := RowBadge(enabled)
+	extra := ""
+	if len(needsSignIn) > 0 && needsSignIn[0] {
+		extra = " " + NeedsSignInBadge()
+	}
 	if isCursor {
-		return palette.BlueOpen + "> " + b + " " +
+		return palette.BlueOpen + "> " + b + extra + " " +
 			"\x1b[1m" + palette.BlueOpen + name + "\x1b[0m" + " " +
 			palette.DimGrayOpen + desc + palette.DimGrayClose
 	}
-	return "  " + b + " " +
+	return "  " + b + extra + " " +
 		"\x1b[1m" + name + "\x1b[0m" + " " +
 		palette.DimGrayOpen + desc + palette.DimGrayClose
 }
@@ -229,6 +239,9 @@ func DiscoverDetails(name string, mkts []plugins.Marketplace, max int) []string 
 	out = append(out, DetailLine("Agents:", plugins.UnpackedAgents(name, mkts)))
 	out = append(out, DetailLine("Marketplace:", plugins.MarketplaceOf(name, mkts)))
 	out = append(out, DetailLine("Version:", plugins.MarketplaceVersion(name, mkts)))
+	if plugins.IsPartnerPlugin(name, mkts) {
+		out = append(out, DetailLine("Notice:", plugins.PartnerPluginDeveloperNotice))
+	}
 	return out
 }
 
@@ -244,7 +257,7 @@ func InstalledDetails(name string, mkts []plugins.Marketplace) []string {
 	if version == "" {
 		version = "-"
 	}
-	return []string{
+	lines := []string{
 		DetailLine("Description:", plugins.DescFor(name, mkts)),
 		DetailLine("Skills:", skills),
 		DetailLine("Agents:", agents),
@@ -252,6 +265,13 @@ func InstalledDetails(name string, mkts []plugins.Marketplace) []string {
 		DetailLine("Path:", plugins.Dir(name)),
 		DetailLine("Version:", version),
 	}
+	if plugins.PluginNeedsSignIn(name) {
+		lines = append(lines, DetailLine("Sign-in:", "needs sign-in (enter to connect)"))
+	}
+	if plugins.IsPartnerPlugin(name, mkts) {
+		lines = append(lines, DetailLine("Notice:", plugins.PartnerPluginDeveloperNotice))
+	}
+	return lines
 }
 
 // InstalledEmptyNote renders the message when no installed plugins match.

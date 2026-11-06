@@ -197,6 +197,7 @@ func TestRows_QueuedRowsDiffer(t *testing.T) {
 	const text = "x"
 	prompt := QueuedPromptRow(text)
 	command := QueuedCommandRow(text)
+	sending := SendingMessageRow(text)
 	if prompt == command {
 		t.Error("the queued prompt and the queued command rows are the same bytes")
 	}
@@ -205,5 +206,8 @@ func TestRows_QueuedRowsDiffer(t *testing.T) {
 	}
 	if strings.Contains(command, "alt+m") {
 		t.Errorf("the queued command row carries the gesture suffix: %q", command)
+	}
+	if !strings.HasSuffix(sending, " (Sending message...)"+goldenClose39) {
+		t.Errorf("the sending message row does not carry (Sending message...): %q", sending)
 	}
 }

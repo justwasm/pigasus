@@ -117,6 +117,9 @@ func KillByID(r *Registry, id string, m *subagent.Manager) bool {
 		// exit code").
 		return false
 	}
+	if r.Kill(id) {
+		return true
+	}
 	if m == nil {
 		return false
 	}

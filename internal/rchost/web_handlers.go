@@ -14,6 +14,7 @@ import (
 	"github.com/justwasm/pigasus/internal/infra/refbackend"
 	"github.com/justwasm/pigasus/internal/rcfrontend"
 	"github.com/justwasm/pigasus/internal/remotecontrol"
+	"github.com/justwasm/pigasus/internal/voice"
 	"github.com/justwasm/pigasus/originpolicy"
 	"github.com/justwasm/pigasus/remotetransport"
 )
@@ -101,10 +102,15 @@ func NewAPIHandler(opts WebHandlerOptions) (http.Handler, func(), error) {
 	}
 
 	seed := originpolicy.OriginPolicy{}
+	voiceSvc := voice.NewService(voice.Config{
+		WorkspaceDir: resolved.Workspace,
+		CSRFToken:    resolved.CSRFToken,
+	})
 	handler, err := remotetransport.NewHandler(disp, remotetransport.TCPConfig{
 		Path:         "/rpc",
 		OriginPolicy: &seed,
 		WebUIHandler: nil, // API-only mode
+		VoiceHandler: voiceSvc,
 		CSRFToken:    resolved.CSRFToken,
 	})
 	if err != nil {
@@ -143,10 +149,15 @@ func NewWebHandler(opts WebHandlerOptions) (http.Handler, func(), error) {
 	}
 
 	seed := originpolicy.OriginPolicy{}
+	voiceSvc := voice.NewService(voice.Config{
+		WorkspaceDir: resolved.Workspace,
+		CSRFToken:    resolved.CSRFToken,
+	})
 	handler, err := remotetransport.NewHandler(disp, remotetransport.TCPConfig{
 		Path:         "/rpc",
 		OriginPolicy: &seed,
 		WebUIHandler: uiHandler,
+		VoiceHandler: voiceSvc,
 		CSRFToken:    resolved.CSRFToken,
 	})
 	if err != nil {

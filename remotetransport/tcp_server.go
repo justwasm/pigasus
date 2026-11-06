@@ -147,6 +147,9 @@ func newTCPServer(disp Dispatcher, cfg TCPConfig, ln net.Listener) *TCPServer {
 	if cfg.HealthzHandler != nil {
 		s.mux.Handle("/healthz", cfg.HealthzHandler)
 	}
+	if cfg.VoiceHandler != nil {
+		s.mux.Handle("/voice/", cfg.VoiceHandler)
+	}
 	s.mux.Handle("/", s.newConnectRPCRouter(cfg.WebUIHandler))
 	s.httpServer = &http.Server{
 		Handler:           s.mux,

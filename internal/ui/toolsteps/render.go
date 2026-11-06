@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/x/ansi"
 	"github.com/justwasm/pigasus/internal/ui/tuitools"
 	"github.com/justwasm/pigasus/palette"
 )
@@ -305,12 +306,24 @@ func stepDetailLines(s Step, width int) []string {
 	if strings.TrimSpace(detail) == "" {
 		return nil
 	}
-	body := detail
+	wrapWidth := tuitools.DetailWrapWidth(width)
 	diffMode := tuitools.LooksLikeDiff(detail)
 	if !diffMode && tuitools.LooksLikeMarkdown(detail) {
-		body = tuitools.RenderMarkdownDetail(detail, width)
+		body := tuitools.RenderMarkdownDetail(detail, wrapWidth)
+		return tuitools.FormatDetailLines(strings.Split(body, "\n"), false)
 	}
-	return tuitools.FormatDetailLines(strings.Split(body, "\n"), diffMode)
+	rawLines := strings.Split(detail, "\n")
+	var wrappedLines []string
+	for _, l := range rawLines {
+		if diffMode {
+			wrappedLines = append(wrappedLines, tuitools.WrapDiffLine(l, wrapWidth)...)
+		} else {
+			l = tuitools.ExpandTabs(l, 4)
+			wrapped := ansi.Wrap(l, wrapWidth, "")
+			wrappedLines = append(wrappedLines, strings.Split(wrapped, "\n")...)
+		}
+	}
+	return tuitools.FormatDetailLines(wrappedLines, diffMode)
 }
 
 // renderStepTitle renders the step's head row.

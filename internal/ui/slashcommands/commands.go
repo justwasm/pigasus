@@ -213,7 +213,13 @@ var Hidden = []Command{
 func buildCatalogue() []Command {
 	rows := []Command{
 		{Name: "/add-dir", Description: "Add a directory to the workspace", Dispatched: true},
-		{Name: "/agents", Description: "List available custom agents", Dispatched: true},
+		{
+			Name:        "/agents",
+			Description: "List available custom agents",
+			Scope:       ScopeCapability,
+			RequiredCap: agentturn.CapAgents,
+			Dispatched:  true,
+		},
 		{Name: "/artifact", Description: "View and review artifacts", Dispatched: true},
 		{Name: "/btw", Description: "Ask a side question without interrupting the current task", Dispatched: true},
 		{Name: "/changelog", Description: "Show release notes and changes", Dispatched: true},
@@ -238,13 +244,20 @@ func buildCatalogue() []Command {
 		{Name: "/open", Description: "Open a file or view opened/edited files", Dispatched: true},
 		{Name: "/permissions", Description: "Manage tool permissions", Dispatched: true},
 		{Name: "/plugin", Description: "Manage, discover, install, uninstall, enable, and disable plugins", Aliases: []string{"plugins"}, Dispatched: true},
+		{Name: "/projects", Description: "View and manage local projects", Panel: panelregistry.Projects, Dispatched: true},
 		{Name: "/remote-control", Description: "Turn on remote control for this session (off to disable)", Dispatched: true},
 		{Name: "/rename", Description: "Rename the current conversation", Dispatched: true},
 		{Name: "/resume", Description: "Browse and resume past conversations", Aliases: []string{"switch", "conversation"}, Dispatched: true},
 		{Name: "/rewind", Description: "Rewind conversation to a previous message", Aliases: []string{"undo"}, Dispatched: true},
 		{Name: "/skills", Description: "List available skills", Dispatched: true},
 		{Name: "/statusline", Description: "Toggle the statusline", Dispatched: true},
-		{Name: "/tasks", Description: "View background tasks", Dispatched: true},
+		{
+			Name:        "/tasks",
+			Description: "View background tasks",
+			Scope:       ScopeCapability,
+			RequiredCap: agentturn.CapTasks,
+			Dispatched:  true,
+		},
 		{Name: "/title", Description: "Toggle custom terminal window title", Dispatched: true},
 		{Name: "/usage", Description: "View model quota usage", Aliases: []string{"quota"}, Dispatched: true},
 		{Name: "/voice", Description: "Dictate a prompt using your microphone", Aliases: []string{"record"}, Dispatched: true},
@@ -353,9 +366,12 @@ func assignCommandScope(c *Command) {
 	case "permissions":
 		c.Scope = ScopeCapability
 		c.RequiredCap = agentturn.CapNativeTools
-	case "plugin", "plugins", "skills", "mcp", "agents":
+	case "plugin", "plugins", "skills", "mcp":
 		c.Scope = ScopeCapability
 		c.RequiredCap = agentturn.CapPlugins
+	case "agents":
+		c.Scope = ScopeCapability
+		c.RequiredCap = agentturn.CapAgents
 	case "accounts", "pool", "credits", "usage", "quota":
 		c.Scope = ScopeCapability
 		c.RequiredCap = agentturn.CapGoogleAccounts

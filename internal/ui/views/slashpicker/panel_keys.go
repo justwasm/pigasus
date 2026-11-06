@@ -15,37 +15,43 @@ import (
 	tea "charm.land/bubbletea/v2"
 )
 
-// HandleKey handles a key while the popup is up.
-//
-// It reports whether the key was handled. A hidden popup handles
-// none.
-func (p *Panel) HandleKey(key tea.Key) bool {
+// UpdateKey handles a key while the popup is up in Elm single-direction
+// message passing style. It reports whether the key was handled and returns an optional tea.Cmd.
+func (p *Panel) UpdateKey(key tea.Key) (bool, tea.Cmd) {
 	if p == nil {
-		return false
+		return false, nil
 	}
 	switch key.Code {
 	case tea.KeyUp:
 		if !p.Visible() {
-			return false
+			return false, nil
 		}
 		p.MoveUp()
-		return true
+		return true, nil
 	case tea.KeyDown:
 		if !p.Visible() {
-			return false
+			return false, nil
 		}
 		p.MoveDown()
-		return true
+		return true, nil
 	case tea.KeyTab:
 		if key.Mod.Contains(tea.ModShift) {
-			return false
+			return false, nil
 		}
 		if p.Selected() == nil {
-			return false
+			return false, nil
 		}
-		return p.CommitSelectionToBuffer()
+		return p.CommitSelectionCmd()
 	}
-	return false
+	return false, nil
+}
+
+// HandleKey handles a key while the popup is up.
+//
+// It reports whether the key was handled. A hidden popup handles none.
+func (p *Panel) HandleKey(key tea.Key) bool {
+	handled, _ := p.UpdateKey(key)
+	return handled
 }
 
 // Cancel closes the popup. It reports whether the popup was open.
@@ -53,11 +59,39 @@ func (p *Panel) HandleKey(key tea.Key) bool {
 // The host's Esc handler asks the popup first: an open popup is the
 // modal that owns the key.
 func (p *Panel) Cancel() bool {
+	handled, _ := p.CancelCmd()
+	return handled
+}
+
+// CancelCmd closes the popup and returns a tea.Cmd emitting DismissedMsg.
+func (p *Panel) CancelCmd() (bool, tea.Cmd) {
 	if p == nil || !p.Visible() {
-		return false
+		return false, nil
 	}
 	p.Reset()
-	return true
+	return true, DismissCmd()
+}
+
+// CommitSelectionCmd completes the highlighted row into the composer and returns
+// a tea.Cmd emitting CompletedMsg.
+func (p *Panel) CommitSelectionCmd() (bool, tea.Cmd) {
+	if p == nil {
+		return false, nil
+	}
+	sel := p.Selected()
+	if sel == nil {
+		return false, nil
+	}
+	text := sel.Name
+	if p.modelMode {
+		text = "/model " + sel.Name
+		p.setBuffer(text)
+		p.Reset()
+		return true, CompletedCmd(text, true, sel.Name)
+	}
+	p.setBuffer(text)
+	p.Update([]rune(text))
+	return true, CompletedCmd(text, false, sel.Name)
 }
 
 // CommitSelectionToBuffer completes the highlighted row into the
@@ -68,19 +102,6 @@ func (p *Panel) Cancel() bool {
 // (【一手】 agy 1.4.6, live: "/model oss" + Tab → "/model GPT-OSS
 // 120B (Medium)", and the popup closes).
 func (p *Panel) CommitSelectionToBuffer() bool {
-	if p == nil {
-		return false
-	}
-	sel := p.Selected()
-	if sel == nil {
-		return false
-	}
-	if p.modelMode {
-		p.setBuffer("/model " + sel.Name)
-		p.Reset()
-		return true
-	}
-	p.setBuffer(sel.Name)
-	p.Update([]rune(sel.Name))
-	return true
+	handled, _ := p.CommitSelectionCmd()
+	return handled
 }

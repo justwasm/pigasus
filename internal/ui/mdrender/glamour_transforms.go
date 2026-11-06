@@ -5,6 +5,7 @@ package mdrender
 import (
 	"regexp"
 	"strings"
+	"unicode/utf8"
 )
 
 // osc8Re matches an OSC 8 hyperlink open/close token. glamour emits
@@ -36,6 +37,48 @@ func parseSGRSequence(s string, i int) (seq, params string, end int, ok bool) {
 		return s[i : j+1], s[i+2 : j], j + 1, true
 	}
 	return "", "", i, false
+}
+
+// ExpandTabs converts tab characters to spaces using standard tabWidth-column tab stops,
+// ignoring ANSI escape sequences when tracking column positions.
+func ExpandTabs(s string, tabWidth int) string {
+	if tabWidth <= 0 {
+		tabWidth = 4
+	}
+	if !strings.Contains(s, "\t") {
+		return s
+	}
+	var b strings.Builder
+	b.Grow(len(s) + 16)
+	col := 0
+	for i := 0; i < len(s); {
+		if s[i] == '\x1b' {
+			if seq, _, end, ok := parseSGRSequence(s, i); ok {
+				b.WriteString(seq)
+				i = end
+				continue
+			}
+		}
+		r, size := utf8.DecodeRuneInString(s[i:])
+		switch r {
+		case '\t':
+			spaces := tabWidth - (col % tabWidth)
+			for k := 0; k < spaces; k++ {
+				b.WriteByte(' ')
+			}
+			col += spaces
+		case '\n':
+			b.WriteRune(r)
+			col = 0
+		case '\r':
+			b.WriteRune(r)
+		default:
+			b.WriteRune(r)
+			col++
+		}
+		i += size
+	}
+	return b.String()
 }
 
 // coalesceSGR collapses glamour's per-run "reset then re-apply the same

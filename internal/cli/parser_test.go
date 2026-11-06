@@ -60,39 +60,40 @@ func TestParseAllFlags(t *testing.T) {
 	flags := StandardFlags()
 
 	want := map[string]string{
-		"add-dir":                      "stringSlice",
-		"agent":                        "string",
-		"c":                            "bool",
+		"add-dir": "stringSlice",
+		"agent":   "string",
+		"c":       "bool",
 		// The reference's local-Chrome CDP control: four hidden flags
 		// 【一手 + 反编译 — out/local-macos/FINDINGS.md §2, items 4-7】.
 		"cdp_port":                     "int",
 		"continue":                     "bool",
 		"conversation":                 "string",
 		"dangerously-skip-permissions": "bool",
-		"disable-slash-commands":      "bool",
-		"effort":                      "string",
-		"i":                           "string", // cycle 101: string alias for --prompt-interactive
-		"input-format":                "string",
-		"json-schema":                 "string",
+		"disable-slash-commands":       "bool",
+		"effort":                       "string",
+		"i":                            "string", // cycle 101: string alias for --prompt-interactive
+		"input-format":                 "string",
+		"json-schema":                  "string",
 		"local_chrome_headless":        "bool",
 		"local_chrome_user_data_dir":   "string",
-		"log-file":                    "string",
-		"mode":                        "string",
-		"model":                       "string",
-		"new-project":                 "bool",
-		"output-format":               "string",
-		"p":                           "string", // cycle 101: string alias for --print
-		"print":                       "string",
+		"log-file":                     "string",
+		"mode":                         "string",
+		"model":                        "string",
+		"new-project":                  "bool",
+		"output-format":                "string",
+		"p":                            "string", // cycle 101: string alias for --print
+		"print":                        "string",
 		// cycle headless-partial-response-flag: AGY 1.2.10 streaming flag.
 		"print-partial-response": "bool",
 		"print-timeout":          "duration",
 		"project":                "string",
 		"prompt":                 "string", // cycle 101: string alias for --print
 		"prompt-interactive":     "string",
-		"remote-control":              "bool",
-		"sandbox":                     "bool",
-		"settings":                    "string",
-		"use_local_chrome":             "bool",
+		"remote-agent":           "bool",
+		"remote-control":         "bool",
+		"sandbox":                "bool",
+		"settings":               "string",
+		"use_local_chrome":       "bool",
 		// cycle 101: recovered hidden `-v N` int flag. Absent from --help
 		// (Hidden, empty Usage) but parseable, matching 1.3.6.
 		"v": "int",
@@ -131,7 +132,7 @@ func TestParseAllFlags(t *testing.T) {
 // add four more.
 func TestParseAllFlags_RegisteredWithJetski(t *testing.T) {
 	p := NewParser(StandardFlags(), nil, "test", "test", "test")
-	if got, want := len(p.Root().Flags), 33; got != want {
+	if got, want := len(p.Root().Flags), 34; got != want {
 		t.Fatalf("JetskiCLI has %d flag descriptors, want %d (v1.3.5 --help count + hidden)", got, want)
 	}
 }
@@ -174,6 +175,7 @@ func TestVisibleFlagsMatchReferenceHelp(t *testing.T) {
 		"project",
 		"prompt",
 		"prompt-interactive",
+		"remote-agent",
 		"remote-control",
 		"sandbox",
 		"settings",
@@ -205,7 +207,7 @@ func TestVisibleFlagsMatchReferenceHelp(t *testing.T) {
 func TestSubcommandDispatch(t *testing.T) {
 	subs := StandardSubcommands()
 
-	// 16 visible subcommands: 12 reference subcommands plus openagy superset
+	// 17 visible subcommands: 13 reference subcommands (including acp at 1.5.0) plus openagy superset
 	// (accounts, model, provider, halloween).
 	visible := 0
 	for _, s := range subs {
@@ -213,8 +215,8 @@ func TestSubcommandDispatch(t *testing.T) {
 			visible++
 		}
 	}
-	if got, want := visible, 16; got != want {
-		t.Fatalf("visible subcommands: got %d, want %d (12 reference + 4 superset)", got, want)
+	if got, want := visible, 17; got != want {
+		t.Fatalf("visible subcommands: got %d, want %d (13 reference + 4 superset)", got, want)
 	}
 
 	// Sub-subcommand counts (only subcommands with children in v1.3.5).

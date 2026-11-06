@@ -46,6 +46,21 @@ func TestSplitHunks(t *testing.T) {
 }
 
 // TestSplitHunksNoHunks pins the hunkless case: everything is pre-header.
+func TestShouldDrawTopFoldDivider(t *testing.T) {
+	// New file: oldStart == 0
+	if ShouldDrawTopFoldDivider(0, 1) {
+		t.Errorf("ShouldDrawTopFoldDivider(0, 1) = true, want false (new file)")
+	}
+	// Edit starting at line 1
+	if ShouldDrawTopFoldDivider(1, 1) {
+		t.Errorf("ShouldDrawTopFoldDivider(1, 1) = true, want false (edit at line 1)")
+	}
+	// Edit starting at line 5: lines 1-4 folded away
+	if !ShouldDrawTopFoldDivider(5, 5) {
+		t.Errorf("ShouldDrawTopFoldDivider(5, 5) = false, want true")
+	}
+}
+
 func TestSplitHunksNoHunks(t *testing.T) {
 	body := []string{"diff --git a/x b/x", "index 1..2 100644"}
 	pre, hunks := SplitHunks(body)

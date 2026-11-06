@@ -221,8 +221,16 @@ func (d *Document) ReplaceLiveStepBatches(batches []LiveStepBatch, metrics tools
 					d.Runs[j].Start += delta
 				}
 			}
+			for j := range d.UserBlocks {
+				if d.UserBlocks[j].Start >= end {
+					d.UserBlocks[j].Start += delta
+				}
+			}
 			if d.ReplyStart >= end {
 				d.ReplyStart += delta
+			}
+			if d.LiveStart >= end {
+				d.LiveStart += delta
 			}
 		}
 	}
