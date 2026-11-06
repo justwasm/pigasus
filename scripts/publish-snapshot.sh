@@ -145,6 +145,7 @@ trap cleanup EXIT
 ALLOWLIST=(
   .github
   accountpool
+  actor
   agentbrowser
   agentlink
   atomicfile
