@@ -96,9 +96,9 @@ func TestResumeRehydratesTheDefinitions(t *testing.T) {
 	}
 	m := newRunMode(nil, "", "Gemini 3.8 Flash (High)", "", "/tmp", true)
 	m.seedConversation(c)
-	def, ok := m.subagentDefs.Get("viewer")
+	def, ok := m.engine.subagentDefs.Get("viewer")
 	if !ok {
-		t.Fatalf("the definition was not rehydrated: %v", m.subagentDefs.Names())
+		t.Fatalf("the definition was not rehydrated: %v", m.engine.subagentDefs.Names())
 	}
 	if def.SystemPrompt != "You are a Go developer." {
 		t.Fatalf("rehydrated definition = %+v", def)
@@ -127,14 +127,14 @@ func TestTrajectoryKeepsTheAdoptedSteps(t *testing.T) {
 
 	// A new turn: the user asks something, the model calls a tool and
 	// answers.
-	m.session = append(m.session, backend.Message{Role: "user", Content: "now run ls"})
+	m.engine.session = append(m.engine.session, backend.Message{Role: "user", Content: "now run ls"})
 	m.recordTrajectoryCalls([]toolsteps.Step{{
 		Kind:   toolsteps.KindTool,
 		Name:   "run_command",
 		Args:   `{"CommandLine":"ls"}`,
 		Result: "a b c",
 	}})
-	m.session = append(m.session, backend.Message{Role: "assistant", Content: "Listed."})
+	m.engine.session = append(m.engine.session, backend.Message{Role: "assistant", Content: "Listed."})
 
 	steps := convstore.BuildSteps(m.trajectoryFacts())
 	if len(steps) != 6 {

@@ -1,4 +1,11 @@
-// Code generated for sub-state components. DO NOT EDIT directly.
+// Package tui - substates.go: encapsulates the sub-state domains of runMode.
+//
+// The TUI state machine is decomposed into 5 cohesive sub-state domains:
+//   - sessionState:  identities, credentials, active conversation metadata & config
+//   - engineState:   backend stream channels, agent turn execution & step tracking
+//   - uiState:       viewport geometry, theme, tool step expansion & voice surface
+//   - composerState: text input buffer, history cursor, auto-complete & attachments
+//   - overlayState:  modal panels, side-question cards, announcements & dialogs
 package tui
 
 import (
@@ -29,6 +36,7 @@ import (
 	"github.com/justwasm/pigasus/internal/ui/editor/composer"
 	"github.com/justwasm/pigasus/internal/ui/editor/keybind"
 	"github.com/justwasm/pigasus/internal/ui/foundations/history"
+	tuiviewport "github.com/justwasm/pigasus/internal/ui/foundations/viewport"
 	"github.com/justwasm/pigasus/internal/ui/panelregistry"
 	"github.com/justwasm/pigasus/internal/ui/resumepicker"
 	"github.com/justwasm/pigasus/internal/ui/toolsteps"
@@ -328,6 +336,7 @@ type engineState struct {
 
 // uiState holds the domain state for uiState.
 type uiState struct {
+	tuiviewport.TextSelection
 	// seasonal is the seasonal event the session is themed with, or
 	// nil when no event is in season or the user has not opted in.
 	//
@@ -517,20 +526,20 @@ type overlayState struct {
 // dismissActiveOverlay handles the Escape dismissal chain for overlays and modals.
 // Returns handled=true and an optional tea.Cmd if an overlay was dismissed.
 func (m *runMode) dismissActiveOverlay() (tea.Model, tea.Cmd, bool) {
-	if m.login != nil {
-		if m.login.State == loginui.StateSelectMethod {
-			m.login = nil
+	if m.overlays.login != nil {
+		if m.overlays.login.State == loginui.StateSelectMethod {
+			m.overlays.login = nil
 			return m, nil, true
 		}
 	}
-	if m.panel.kind != panelregistry.None {
+	if m.overlays.panel.kind != panelregistry.None {
 		if handled, cmd := m.handlePanelKey(tea.Key{Code: tea.KeyEsc}); handled {
 			return m, cmd, true
 		}
 		return m, m.closePanel(), true
 	}
-	if m.resumePicker != nil && m.resumePicker.Active() {
-		cmd := m.resumePicker.HandleKey(tea.Key{Code: tea.KeyEsc}, m.height)
+	if m.overlays.resumePicker != nil && m.overlays.resumePicker.Active() {
+		cmd := m.overlays.resumePicker.HandleKey(tea.Key{Code: tea.KeyEsc}, m.viewport.height)
 		return m, cmd, true
 	}
 	if m.isBtwCardVisible() {

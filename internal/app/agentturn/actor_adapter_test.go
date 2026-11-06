@@ -375,7 +375,7 @@ func TestChunkSink_Execution(t *testing.T) {
 	sink.OnTurnCompleted(&actor.TurnSummary{
 		Status: "done",
 	})
-	_ = sink.Finish(nil)
+	_ = sink.Finish()
 
 	if gotText.String() != "hello world" {
 		t.Errorf("got %q, want 'hello world'", gotText.String())
@@ -480,5 +480,135 @@ func TestLocalTurn_SteerBufferingAndForwarding(t *testing.T) {
 	popped, ok := engine.PopSteer()
 	if !ok || popped != "guidance 2" {
 		t.Fatalf("expected popped 'guidance 2', got (%q, %v)", popped, ok)
+	}
+}
+
+type thresholdTestClient struct {
+	promptTokens int
+	summaryText  string
+}
+
+func (c *thresholdTestClient) Stream(ctx context.Context, req backend.StreamRequest) (<-chan backend.StreamChunk, error) {
+	out := make(chan backend.StreamChunk, 4)
+	go func() {
+		defer close(out)
+		// If this is a summary request (marked by continuation summary instructions in the user message)
+		if len(req.Messages) > 0 && strings.Contains(req.Messages[len(req.Messages)-1].Content, "continuation summary") {
+			out <- backend.StreamChunk{
+				Text: c.summaryText,
+			}
+			out <- backend.StreamChunk{
+				Done: true,
+			}
+			return
+		}
+
+		out <- backend.StreamChunk{
+			Text: "Hello there!",
+		}
+		out <- backend.StreamChunk{
+			Done: true,
+			Meta: &backend.ChunkMeta{
+				PromptTokens:     c.promptTokens,
+				CompletionTokens: 10,
+				TotalTokens:      c.promptTokens + 10,
+			},
+		}
+	}()
+	return out, nil
+}
+
+func TestLocalTurn_ThresholdAutoCompaction(t *testing.T) {
+	// gpt-oss-120b-medium has ckptLimit: 80_000, ckptOutput: 8_192
+	// Threshold = 80_000 - 8_192 = 71_808 tokens.
+	client := &thresholdTestClient{
+		promptTokens: 75_000, // Exceeds threshold!
+		summaryText:  "<summary>\n1. Primary Request: Solve math.\n2. Key Technical Concepts: Algebra.\n</summary>",
+	}
+
+	engine := NewLocal(func(_ context.Context, model string) (Env, func()) {
+		return Env{
+			Backend:      client,
+			Model:        "gpt-oss-120b-medium",
+			SystemPrompt: "test system prompt",
+		}, func() {}
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	frames, err := engine.Turn(ctx, Turn{
+		Model: "gpt-oss-120b-medium",
+		History: []agentlink.Message{
+			{Role: "user", Content: "Calculate everything"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Turn failed: %v", err)
+	}
+
+	got := collect(t, frames)
+
+	var compactStartSeen bool
+	var compactEndSeen bool
+	var endSummary string
+	var tokensBefore int
+	var tokensAfter int
+
+	for _, f := range got {
+		if f.Kind == agentlink.KindCompact && f.Compact != nil {
+			if f.Compact.Phase == agentlink.CompactStart {
+				compactStartSeen = true
+				if f.Compact.Reason != "threshold" {
+					t.Errorf("expected reason 'threshold', got %q", f.Compact.Reason)
+				}
+			}
+			if f.Compact.Phase == agentlink.CompactEnd {
+				compactEndSeen = true
+				endSummary = f.Compact.Summary
+				tokensBefore = f.Compact.TokensBefore
+				tokensAfter = f.Compact.TokensAfter
+			}
+		}
+	}
+
+	if !compactStartSeen {
+		t.Error("expected KindCompact Start frame to be emitted")
+	}
+	if !compactEndSeen {
+		t.Error("expected KindCompact End frame to be emitted")
+	}
+	if !strings.Contains(endSummary, "Primary Request") {
+		t.Errorf("expected endSummary to contain 'Primary Request', got %q", endSummary)
+	}
+	if tokensBefore != 75_000 {
+		t.Errorf("expected tokensBefore 75000, got %d", tokensBefore)
+	}
+	if tokensAfter <= 0 {
+		t.Errorf("expected positive tokensAfter, got %d", tokensAfter)
+	}
+
+	// Verify the Actor's history was reset with the resuming block
+	engine.mu.Lock()
+	act := engine.activeActor
+	engine.mu.Unlock()
+
+	if act == nil {
+		t.Fatal("expected activeActor to be present")
+	}
+
+	turns := act.Trajectory().Turns()
+	if len(turns) != 1 {
+		t.Fatalf("expected 1 turn in actor trajectory after compaction reset, got %d", len(turns))
+	}
+	userMsg, ok := turns[0].Input.(*actor.UserMessage)
+	if !ok {
+		t.Fatalf("expected turn input to be UserMessage, got %T", turns[0].Input)
+	}
+	if !strings.HasPrefix(userMsg.Text, "# Resuming from a compaction") {
+		t.Errorf("expected resuming block header in actor history, got: %q", userMsg.Text)
+	}
+	if !strings.Contains(userMsg.Text, "Calculate everything") {
+		t.Errorf("expected user request 'Calculate everything' preserved in resuming block, got: %q", userMsg.Text)
 	}
 }

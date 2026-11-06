@@ -47,3 +47,24 @@ func (e *engineState) ActiveTaskCount() int {
 	}
 	return 0
 }
+
+// CancelInFlight cancels the active in-flight stream if any.
+func (e *engineState) CancelInFlight() {
+	if e.turnCancel != nil {
+		e.turnCancel()
+		e.turnCancel = nil
+	}
+}
+
+// Delegators on runMode for backward compatibility and clean domain access:
+func (m *runMode) IsStreamActive() bool          { return m.engine.IsStreamActive() }
+func (m *runMode) SetStreamActive(active bool)   { m.engine.SetStreamActive(active) }
+func (m *runMode) IsThinkingActive() bool        { return m.engine.IsThinkingActive() }
+func (m *runMode) SetThinkingActive(active bool) { m.engine.SetThinkingActive(active) }
+func (m *runMode) WasTurnCancelled() bool        { return m.engine.WasTurnCancelled() }
+func (m *runMode) SetTurnCancelled(c bool)       { m.engine.SetTurnCancelled(c) }
+func (m *runMode) IsQuitting() bool              { return m.engine.IsQuitting() }
+func (m *runMode) SetQuitting(quitting bool)     { m.engine.SetQuitting(quitting) }
+func (m *runMode) ActiveTaskCount() int          { return m.engine.ActiveTaskCount() }
+func (m *runMode) CancelInFlight()               { m.engine.CancelInFlight() }
+

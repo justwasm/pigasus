@@ -33,7 +33,7 @@
 //
 // Stdlib-only test setup; uses
 // github.com/coder/websocket for the dial.
-package remotetransport
+package remotecontrol_test
 
 import (
 	"context"
@@ -44,15 +44,16 @@ import (
 	"github.com/coder/websocket"
 
 	"github.com/justwasm/pigasus/internal/remotecontrol"
+	"github.com/justwasm/pigasus/internal/remotecontrol/origins"
 )
 
 // newTestTCPServerWithOriginPolicy brings up a
 // TCPServer with the supplied
-// remotecontrol.OriginPolicyStore pre-installed
+// origins.Store pre-installed
 // and the dispatcher's originPolicySetter wired
 // to (*TCPServer).SetOriginPolicy. Mirrors
 // newTestTCPServerWithFastpush in shape.
-func newTestTCPServerWithOriginPolicy(t *testing.T, os_ remotecontrol.OriginPolicyStore) (*TCPServer, func()) {
+func newTestTCPServerWithOriginPolicy(t *testing.T, os_ origins.Store) (*TCPServer, func()) {
 	t.Helper()
 	sess := remotecontrol.NewSessionState("1.4.0")
 	disp, err := remotecontrol.NewDispatcher(remotecontrol.Config{
@@ -95,7 +96,7 @@ func newTestTCPServerWithOriginPolicy(t *testing.T, os_ remotecontrol.OriginPoli
 // because the WS transport now sees the new
 // policy.
 func TestSetRemoteControlOriginPatterns_WS_Ok(t *testing.T) {
-	store := remotecontrol.NewMemOriginPolicyStore(nil)
+	store := origins.NewMemStore(nil)
 	srv, done := newTestTCPServerWithOriginPolicy(t, store)
 	defer done()
 
@@ -174,7 +175,7 @@ func TestSetRemoteControlOriginPatterns_WS_Ok(t *testing.T) {
 // carrying the verbatim invalid entries; the
 // store lands only the accepted ones.
 func TestSetRemoteControlOriginPatterns_WS_BadParams(t *testing.T) {
-	store := remotecontrol.NewMemOriginPolicyStore(nil)
+	store := origins.NewMemStore(nil)
 	srv, done := newTestTCPServerWithOriginPolicy(t, store)
 	defer done()
 
@@ -224,7 +225,7 @@ func TestSetRemoteControlOriginPatterns_WS_BadParams(t *testing.T) {
 // pins that an explicit null patterns field
 // surfaces -32602 "Invalid params".
 func TestSetRemoteControlOriginPatterns_WS_NullPatterns(t *testing.T) {
-	store := remotecontrol.NewMemOriginPolicyStore(nil)
+	store := origins.NewMemStore(nil)
 	srv, done := newTestTCPServerWithOriginPolicy(t, store)
 	defer done()
 
@@ -255,7 +256,7 @@ func TestSetRemoteControlOriginPatterns_WS_NullPatterns(t *testing.T) {
 // -32602 (the standard JSON unmarshal failure
 // path).
 func TestSetRemoteControlOriginPatterns_WS_NonArrayPatterns(t *testing.T) {
-	store := remotecontrol.NewMemOriginPolicyStore(nil)
+	store := origins.NewMemStore(nil)
 	srv, done := newTestTCPServerWithOriginPolicy(t, store)
 	defer done()
 
@@ -288,7 +289,7 @@ func TestSetRemoteControlOriginPatterns_WS_NonArrayPatterns(t *testing.T) {
 // notification through the server's per-conn
 // outbound channel.
 func TestSetRemoteControlOriginPatterns_WS_BroadcastCrossConn(t *testing.T) {
-	store := remotecontrol.NewMemOriginPolicyStore(nil)
+	store := origins.NewMemStore(nil)
 	srv, done := newTestTCPServerWithOriginPolicy(t, store)
 	defer done()
 
@@ -400,7 +401,7 @@ func readJSONRPCNotification(t *testing.T, c *websocket.Conn) jsonRPCNotificatio
 // TestSetRemoteControlOriginPatterns_WS_BroadcastCrossConn
 // via a separate listener conn.
 func TestSetRemoteControlOriginPatterns_WS_TransportMirror(t *testing.T) {
-	store := remotecontrol.NewMemOriginPolicyStore(nil)
+	store := origins.NewMemStore(nil)
 	srv, done := newTestTCPServerWithOriginPolicy(t, store)
 	defer done()
 

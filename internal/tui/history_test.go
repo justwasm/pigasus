@@ -57,7 +57,7 @@ func trimEmptyHistoryMode(t *testing.T) *runMode {
 //
 // Covers the AGY 1.2.7 changelog fix. pushHistory used to skip only
 // empty strings — " " and "\n\t" went through and produced empty
-// entries in the history list, m.response, m.session, and history.jsonl.
+// entries in the history list, m.engine.response, m.engine.session, and history.jsonl.
 func TestPushHistory_SkipsWhitespaceOnly(t *testing.T) {
 	m := trimEmptyHistoryMode(t)
 
@@ -75,8 +75,8 @@ func TestPushHistory_SkipsWhitespaceOnly(t *testing.T) {
 	for _, b := range blanks {
 		m.pushHistory(b)
 	}
-	if m.promptHistory.Len() != 0 {
-		t.Fatalf("pushHistory stored blank entries: %q", m.promptHistory.Entries())
+	if m.composer.promptHistory.Len() != 0 {
+		t.Fatalf("pushHistory stored blank entries: %q", m.composer.promptHistory.Entries())
 	}
 }
 
@@ -91,20 +91,20 @@ func TestPushHistory_TrimsSurroundingWhitespace(t *testing.T) {
 	m := trimEmptyHistoryMode(t)
 
 	m.pushHistory("  hello  ")
-	if m.promptHistory.Len() != 1 || m.promptHistory.Entries()[0] != "hello" {
-		t.Fatalf("expected trimmed history entry, got %q", m.promptHistory.Entries())
+	if m.composer.promptHistory.Len() != 1 || m.composer.promptHistory.Entries()[0] != "hello" {
+		t.Fatalf("expected trimmed history entry, got %q", m.composer.promptHistory.Entries())
 	}
 
 	// Trim happens BEFORE the dedupe check.
 	m.pushHistory("\n\thello\t\n")
-	if m.promptHistory.Len() != 1 {
-		t.Fatalf("expected dedupe to collapse whitespace-padded duplicate, got %q", m.promptHistory.Entries())
+	if m.composer.promptHistory.Len() != 1 {
+		t.Fatalf("expected dedupe to collapse whitespace-padded duplicate, got %q", m.composer.promptHistory.Entries())
 	}
 
 	// Internal whitespace is preserved — only the outer run is trimmed.
 	m.pushHistory("  multi word prompt ")
-	if m.promptHistory.Len() != 2 || m.promptHistory.Entries()[1] != "multi word prompt" {
-		t.Fatalf("expected internal whitespace preserved, got %q", m.promptHistory.Entries())
+	if m.composer.promptHistory.Len() != 2 || m.composer.promptHistory.Entries()[1] != "multi word prompt" {
+		t.Fatalf("expected internal whitespace preserved, got %q", m.composer.promptHistory.Entries())
 	}
 }
 
@@ -117,40 +117,40 @@ func TestPushHistory_TrimsSurroundingWhitespace(t *testing.T) {
 // the prompt textarea stuck on whitespace.
 func TestSubmitPrompt_RejectsWhitespaceOnly(t *testing.T) {
 	m := trimEmptyHistoryMode(t)
-	m.input.SetValue("   ")
+	m.composer.input.SetValue("   ")
 
-	beforeResp := len(m.response)
-	beforeSess := len(m.session)
-	beforeHist := m.promptHistory.Len()
+	beforeResp := len(m.engine.response)
+	beforeSess := len(m.engine.session)
+	beforeHist := m.composer.promptHistory.Len()
 
 	if cmd := m.submitPrompt(); cmd != nil {
 		t.Errorf("submitPrompt for blank input returned cmd %v, want nil", cmd)
 	}
 
-	if len(m.response) != beforeResp {
-		t.Errorf("submitPrompt appended %d transcript rows for a blank prompt", len(m.response)-beforeResp)
+	if len(m.engine.response) != beforeResp {
+		t.Errorf("submitPrompt appended %d transcript rows for a blank prompt", len(m.engine.response)-beforeResp)
 	}
-	if len(m.session) != beforeSess {
-		t.Errorf("submitPrompt appended %d session messages for a blank prompt", len(m.session)-beforeSess)
+	if len(m.engine.session) != beforeSess {
+		t.Errorf("submitPrompt appended %d session messages for a blank prompt", len(m.engine.session)-beforeSess)
 	}
-	if m.promptHistory.Len() != beforeHist {
-		t.Errorf("submitPrompt pushed %d history entries for a blank prompt", m.promptHistory.Len()-beforeHist)
+	if m.composer.promptHistory.Len() != beforeHist {
+		t.Errorf("submitPrompt pushed %d history entries for a blank prompt", m.composer.promptHistory.Len()-beforeHist)
 	}
-	if m.streaming {
+	if m.engine.streaming {
 		t.Error("submitPrompt left streaming=true for a blank prompt")
 	}
-	if got := m.input.Value(); strings.TrimSpace(got) != "" {
+	if got := m.composer.input.Value(); strings.TrimSpace(got) != "" {
 		t.Errorf("submitPrompt left whitespace in the input buffer: %q", got)
 	}
 
 	// Tabs and newlines also count.
-	m.input.SetValue("\t\n  \t")
-	beforeResp = len(m.response)
+	m.composer.input.SetValue("\t\n  \t")
+	beforeResp = len(m.engine.response)
 	if cmd := m.submitPrompt(); cmd != nil {
 		t.Errorf("submitPrompt for tab/newline input returned cmd %v, want nil", cmd)
 	}
-	if len(m.response) != beforeResp {
-		t.Errorf("submitPrompt appended %d transcript rows for a tab/newline prompt", len(m.response)-beforeResp)
+	if len(m.engine.response) != beforeResp {
+		t.Errorf("submitPrompt appended %d transcript rows for a tab/newline prompt", len(m.engine.response)-beforeResp)
 	}
 }
 
@@ -158,7 +158,7 @@ func TestSubmitPrompt_RejectsWhitespaceOnly(t *testing.T) {
 //
 // A "gap" here means a transcript where one or more rows are blank.
 // Before the fix, whitespace-only submits could leave a row in
-// m.response that produced an empty `> ` line on the next render.
+// m.engine.response that produced an empty `> ` line on the next render.
 // The viewport math must still fit inside the terminal: the empty
 // row counts as one screen row, but the rendered content must
 // remain bounded by the terminal height regardless of how many gaps
@@ -174,21 +174,21 @@ func TestScroll_CalculationsHandleBlankRows(t *testing.T) {
 		// viewport math must tolerate them.
 		blankInsertions := []int{2, 7, 11}
 		for _, idx := range blankInsertions {
-			if idx >= len(m.response) {
+			if idx >= len(m.engine.response) {
 				continue
 			}
-			m.response = append(m.response, "")
+			m.engine.response = append(m.engine.response, "")
 			// Move "" to the requested index to keep the test
 			// representative rather than append-only.
-			blank := m.response[len(m.response)-1]
-			copy(m.response[idx+1:], m.response[idx:])
-			m.response[idx] = blank
+			blank := m.engine.response[len(m.engine.response)-1]
+			copy(m.engine.response[idx+1:], m.engine.response[idx:])
+			m.engine.response[idx] = blank
 		}
 		// Sanity: at least one blank row present when the body is long
 		// enough to host one.
 		if n > 8 {
 			foundBlank := false
-			for _, r := range m.response {
+			for _, r := range m.engine.response {
 				if r == "" {
 					foundBlank = true
 					break
@@ -239,57 +239,57 @@ func TestHistory_NavigationSkipsBlankEntries(t *testing.T) {
 	m.pushHistory("   ") // attempted blank — must be a no-op
 	m.pushHistory("delta")
 
-	if m.promptHistory.Len() != 4 {
-		t.Fatalf("history len = %d, want 4 (blank was rejected): %q", m.promptHistory.Len(), m.promptHistory.Entries())
+	if m.composer.promptHistory.Len() != 4 {
+		t.Fatalf("history len = %d, want 4 (blank was rejected): %q", m.composer.promptHistory.Len(), m.composer.promptHistory.Entries())
 	}
 	want := []string{"alpha", "beta", "gamma", "delta"}
 	for i, w := range want {
-		if m.promptHistory.Entries()[i] != w {
-			t.Errorf("history[%d] = %q, want %q", i, m.promptHistory.Entries()[i], w)
+		if m.composer.promptHistory.Entries()[i] != w {
+			t.Errorf("history[%d] = %q, want %q", i, m.composer.promptHistory.Entries()[i], w)
 		}
 	}
 
 	// Seed the input with a sentinel so the navigation's draft is
 	// non-empty during navigation.
-	m.input.SetValue("DRAFT")
-	m.promptHistory.Reset()
+	m.composer.input.SetValue("DRAFT")
+	m.composer.promptHistory.Reset()
 
 	// Walk back through every entry. historyUp advances the navigation's
 	// index each time; the rendered value at slot k is the list's entry
 	// at len-k.
 	m.historyUp()
-	if got := m.input.Value(); got != "delta" {
+	if got := m.composer.input.Value(); got != "delta" {
 		t.Errorf("Up #1: got %q, want %q", got, "delta")
 	}
 	m.historyUp()
-	if got := m.input.Value(); got != "gamma" {
+	if got := m.composer.input.Value(); got != "gamma" {
 		t.Errorf("Up #2: got %q, want %q", got, "gamma")
 	}
 	m.historyUp()
-	if got := m.input.Value(); got != "beta" {
+	if got := m.composer.input.Value(); got != "beta" {
 		t.Errorf("Up #3: got %q, want %q", got, "beta")
 	}
 	m.historyUp()
-	if got := m.input.Value(); got != "alpha" {
+	if got := m.composer.input.Value(); got != "alpha" {
 		t.Errorf("Up #4: got %q, want %q", got, "alpha")
 	}
 
 	// One more Up is a no-op — there's no fifth entry.
-	idxBefore := m.promptHistory.Index()
+	idxBefore := m.composer.promptHistory.Index()
 	m.historyUp()
-	if m.promptHistory.Index() != idxBefore {
-		t.Errorf("Up past the start advanced the history index: was %d, now %d", idxBefore, m.promptHistory.Index())
+	if m.composer.promptHistory.Index() != idxBefore {
+		t.Errorf("Up past the start advanced the history index: was %d, now %d", idxBefore, m.composer.promptHistory.Index())
 	}
 
 	// Walk forward; we expect to return to the draft.
 	m.historyDown()
-	if got := m.input.Value(); got != "beta" {
+	if got := m.composer.input.Value(); got != "beta" {
 		t.Errorf("Down #1: got %q, want %q", got, "beta")
 	}
 	m.historyDown()
 	m.historyDown()
 	m.historyDown()
-	if got := m.input.Value(); got != "DRAFT" {
+	if got := m.composer.input.Value(); got != "DRAFT" {
 		t.Errorf("Down past the start: got %q, want %q (the draft)", got, "DRAFT")
 	}
 }
@@ -302,33 +302,33 @@ func TestHistory_NavigationSkipsBlankEntries(t *testing.T) {
 // poison the next submit.
 func TestSubmitPrompt_RealPromptAfterBlankWorks(t *testing.T) {
 	m := trimEmptyHistoryMode(t)
-	m.input.SetValue("   ")
+	m.composer.input.SetValue("   ")
 	if cmd := m.submitPrompt(); cmd != nil {
 		t.Fatalf("blank submit returned cmd %v, want nil", cmd)
 	}
-	if m.streaming {
+	if m.engine.streaming {
 		t.Fatal("blank submit left streaming=true")
 	}
 
 	// Now type a real prompt and submit. We don't drive the model
 	// stream — we only verify that the submit path is reachable.
-	m.input.SetValue("real prompt")
-	beforeResp := len(m.response)
+	m.composer.input.SetValue("real prompt")
+	beforeResp := len(m.engine.response)
 	// submitPrompt will queue a stream and batch with a spinner tick.
 	// We can't await either in a unit test, but the synchronous side
 	// effects (history append, response echo, session append) all
 	// happen before the tea.Cmd is returned.
 	_ = m.submitPrompt()
 
-	if got := m.promptHistory.Len(); got != 1 || m.promptHistory.Entries()[0] != "real prompt" {
-		t.Errorf("after real submit: history = %q, want [\"real prompt\"]", m.promptHistory.Entries())
+	if got := m.composer.promptHistory.Len(); got != 1 || m.composer.promptHistory.Entries()[0] != "real prompt" {
+		t.Errorf("after real submit: history = %q, want [\"real prompt\"]", m.composer.promptHistory.Entries())
 	}
-	if len(m.response) <= beforeResp {
-		t.Errorf("real submit did not append a transcript row (was %d, now %d)", beforeResp, len(m.response))
+	if len(m.engine.response) <= beforeResp {
+		t.Errorf("real submit did not append a transcript row (was %d, now %d)", beforeResp, len(m.engine.response))
 	}
-	if len(m.session) == 0 {
+	if len(m.engine.session) == 0 {
 		t.Errorf("real submit did not append a session message")
-	} else if last := m.session[len(m.session)-1]; last.Role != "user" || strings.TrimSpace(last.Content) == "" {
+	} else if last := m.engine.session[len(m.engine.session)-1]; last.Role != "user" || strings.TrimSpace(last.Content) == "" {
 		t.Errorf("session tail = %+v, want a user message with non-blank content", last)
 	}
 }
@@ -345,19 +345,19 @@ func TestPushHistory_HistoryCapRespectedWithBlanks(t *testing.T) {
 	for i := 0; i < history.Cap; i++ {
 		m.pushHistory(fmt.Sprintf("prompt-%d", i))
 	}
-	if m.promptHistory.Len() != history.Cap {
-		t.Fatalf("history len = %d, want %d", m.promptHistory.Len(), history.Cap)
+	if m.composer.promptHistory.Len() != history.Cap {
+		t.Fatalf("history len = %d, want %d", m.composer.promptHistory.Len(), history.Cap)
 	}
 	// Interleave a flurry of blanks. They must be no-ops.
 	for i := 0; i < 50; i++ {
 		m.pushHistory(" \t\n  ")
 	}
-	if m.promptHistory.Len() != history.Cap {
-		t.Errorf("blanks changed history length: %d, want %d", m.promptHistory.Len(), history.Cap)
+	if m.composer.promptHistory.Len() != history.Cap {
+		t.Errorf("blanks changed history length: %d, want %d", m.composer.promptHistory.Len(), history.Cap)
 	}
 	// First entry should still be the first real prompt.
-	if m.promptHistory.Entries()[0] != "prompt-0" {
-		t.Errorf("first entry = %q, want %q", m.promptHistory.Entries()[0], "prompt-0")
+	if m.composer.promptHistory.Entries()[0] != "prompt-0" {
+		t.Errorf("first entry = %q, want %q", m.composer.promptHistory.Entries()[0], "prompt-0")
 	}
 }
 
@@ -377,42 +377,42 @@ func TestLoadHistory_PopulatesHistoryFromDisk(t *testing.T) {
 	}
 
 	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/workspace", true)
-	if m.promptHistory.Len() != 0 {
-		t.Fatalf("expected empty m.history before loadHistory(), got %d", m.promptHistory.Len())
+	if m.composer.promptHistory.Len() != 0 {
+		t.Fatalf("expected empty m.history before loadHistory(), got %d", m.composer.promptHistory.Len())
 	}
 
-	m.promptHistory.Load(convstore.LoadHistory("", history.Cap))
-	if m.promptHistory.Len() != 3 {
-		t.Fatalf("expected 3 entries in m.history after loadHistory(), got %d: %v", m.promptHistory.Len(), m.promptHistory.Entries())
+	m.composer.promptHistory.Load(convstore.LoadHistory("", history.Cap))
+	if m.composer.promptHistory.Len() != 3 {
+		t.Fatalf("expected 3 entries in m.history after loadHistory(), got %d: %v", m.composer.promptHistory.Len(), m.composer.promptHistory.Entries())
 	}
 
 	m.historyUp()
-	if got := m.input.Value(); got != "/help" {
+	if got := m.composer.input.Value(); got != "/help" {
 		t.Errorf("first Up = %q, want %q", got, "/help")
 	}
 
 	m.historyUp()
-	if got := m.input.Value(); got != "second command" {
+	if got := m.composer.input.Value(); got != "second command" {
 		t.Errorf("second Up = %q, want %q", got, "second command")
 	}
 
 	m.historyUp()
-	if got := m.input.Value(); got != "first command" {
+	if got := m.composer.input.Value(); got != "first command" {
 		t.Errorf("third Up = %q, want %q", got, "first command")
 	}
 
 	m.historyDown()
-	if got := m.input.Value(); got != "second command" {
+	if got := m.composer.input.Value(); got != "second command" {
 		t.Errorf("first Down = %q, want %q", got, "second command")
 	}
 
 	m.historyDown()
-	if got := m.input.Value(); got != "/help" {
+	if got := m.composer.input.Value(); got != "/help" {
 		t.Errorf("second Down = %q, want %q", got, "/help")
 	}
 
 	m.historyDown()
-	if got := m.input.Value(); got != "" {
+	if got := m.composer.input.Value(); got != "" {
 		t.Errorf("third Down (back to edit) = %q, want empty", got)
 	}
 }
@@ -422,15 +422,15 @@ func TestSubmitPrompt_CapturesSlashCommandInHistory(t *testing.T) {
 	t.Setenv("ANTIGRAVITY_HOME", home)
 
 	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/workspace", true)
-	m.input.SetValue("/clear")
+	m.composer.input.SetValue("/clear")
 	_ = m.submitPrompt()
 
-	if m.promptHistory.Len() != 1 || m.promptHistory.Entries()[0] != "/clear" {
-		t.Fatalf("m.history after /clear submit = %v, want [/clear]", m.promptHistory.Entries())
+	if m.composer.promptHistory.Len() != 1 || m.composer.promptHistory.Entries()[0] != "/clear" {
+		t.Fatalf("m.history after /clear submit = %v, want [/clear]", m.composer.promptHistory.Entries())
 	}
 
 	m.historyUp()
-	if got := m.input.Value(); got != "/clear" {
+	if got := m.composer.input.Value(); got != "/clear" {
 		t.Fatalf("historyUp recalled %q, want %q", got, "/clear")
 	}
 
@@ -452,17 +452,17 @@ func TestSubmitPrompt_CapturesStreamingQueueInHistory(t *testing.T) {
 	t.Setenv("ANTIGRAVITY_HOME", home)
 
 	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/workspace", true)
-	m.streaming = true
-	m.store.QueueMode = true
-	m.input.SetValue("queued while streaming")
+	m.engine.streaming = true
+	m.session.store.QueueMode = true
+	m.composer.input.SetValue("queued while streaming")
 	_ = m.submitPrompt()
 
-	if len(m.store.StreamQueue) != 1 || m.store.StreamQueue[0] != "queued while streaming" {
-		t.Fatalf("streamQueue = %v, want [queued while streaming]", m.store.StreamQueue)
+	if len(m.session.store.StreamQueue) != 1 || m.session.store.StreamQueue[0] != "queued while streaming" {
+		t.Fatalf("streamQueue = %v, want [queued while streaming]", m.session.store.StreamQueue)
 	}
 
-	if m.promptHistory.Len() != 1 || m.promptHistory.Entries()[0] != "queued while streaming" {
-		t.Fatalf("m.history = %v, want [queued while streaming]", m.promptHistory.Entries())
+	if m.composer.promptHistory.Len() != 1 || m.composer.promptHistory.Entries()[0] != "queued while streaming" {
+		t.Fatalf("m.history = %v, want [queued while streaming]", m.composer.promptHistory.Entries())
 	}
 }
 
@@ -471,16 +471,16 @@ func TestSubmitOrQueuePrompt_CapturesQueueModePrompt(t *testing.T) {
 	t.Setenv("ANTIGRAVITY_HOME", home)
 
 	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/workspace", true)
-	m.store.QueueMode = true
-	m.streaming = true
-	m.input.SetValue("queue mode prompt")
+	m.session.store.QueueMode = true
+	m.engine.streaming = true
+	m.composer.input.SetValue("queue mode prompt")
 	_ = m.submitOrQueuePrompt()
 
-	if len(m.store.StreamQueue) != 1 || m.store.StreamQueue[0] != "queue mode prompt" {
-		t.Fatalf("StreamQueue = %v, want ['queue mode prompt']", m.store.StreamQueue)
+	if len(m.session.store.StreamQueue) != 1 || m.session.store.StreamQueue[0] != "queue mode prompt" {
+		t.Fatalf("StreamQueue = %v, want ['queue mode prompt']", m.session.store.StreamQueue)
 	}
-	if m.promptHistory.Len() != 1 || m.promptHistory.Entries()[0] != "queue mode prompt" {
-		t.Fatalf("m.history = %v, want [queue mode prompt]", m.promptHistory.Entries())
+	if m.composer.promptHistory.Len() != 1 || m.composer.promptHistory.Entries()[0] != "queue mode prompt" {
+		t.Fatalf("m.history = %v, want [queue mode prompt]", m.composer.promptHistory.Entries())
 	}
 }
 
@@ -492,21 +492,21 @@ func TestTUISessionPersistence(t *testing.T) {
 	m := newRunMode(nil, "user@test.com", "MiniMax M3", "", ws, false)
 
 	prompt := "hello from wagyu"
-	m.input.SetValue(prompt)
-	if got := m.input.Value(); got != prompt {
+	m.composer.input.SetValue(prompt)
+	if got := m.composer.input.Value(); got != prompt {
 		t.Fatalf("input buffer = %q, want %q", got, prompt)
 	}
 	if cmd := m.submitPrompt(); cmd != nil {
 		_ = cmd
 	}
-	dbPathCheck := filepath.Join(tempHome, "conversations", m.conversationID+".db")
+	dbPathCheck := filepath.Join(tempHome, "conversations", m.session.conversationID+".db")
 	if _, err := os.Stat(dbPathCheck); err != nil {
-		t.Fatalf("after submitPrompt: %s missing: %v\nm.session=%+v m.conversationID=%q", dbPathCheck, err, m.session, m.conversationID)
+		t.Fatalf("after submitPrompt: %s missing: %v\nm.session=%+v m.session.conversationID=%q", dbPathCheck, err, m.engine.session, m.session.conversationID)
 	}
 
 	_, _ = m.Update(backendChunkMsg("I am MiniMax M3, ready to help."))
 
-	dbPath := filepath.Join(tempHome, "conversations", m.conversationID+".db")
+	dbPath := filepath.Join(tempHome, "conversations", m.session.conversationID+".db")
 	conv, err := convstore.LoadConversation(dbPath)
 	if err != nil {
 		t.Fatalf("LoadConversation(%s): %v", dbPath, err)
@@ -536,8 +536,8 @@ func TestTUISessionPersistence(t *testing.T) {
 	if histEntry.Workspace != ws {
 		t.Errorf("histEntry.Workspace = %q, want %q", histEntry.Workspace, ws)
 	}
-	if histEntry.ConversationID != m.conversationID {
-		t.Errorf("histEntry.ConversationID = %q, want %q", histEntry.ConversationID, m.conversationID)
+	if histEntry.ConversationID != m.session.conversationID {
+		t.Errorf("histEntry.ConversationID = %q, want %q", histEntry.ConversationID, m.session.conversationID)
 	}
 
 	lastPath := filepath.Join(tempHome, "cache", "last_conversations.json")
@@ -549,8 +549,8 @@ func TestTUISessionPersistence(t *testing.T) {
 	if err := json.Unmarshal(lastData, &lastMap); err != nil {
 		t.Fatalf("Unmarshal lastMap: %v", err)
 	}
-	if lastMap[ws] != m.conversationID {
-		t.Errorf("lastMap[%s] = %q, want %q", ws, lastMap[ws], m.conversationID)
+	if lastMap[ws] != m.session.conversationID {
+		t.Errorf("lastMap[%s] = %q, want %q", ws, lastMap[ws], m.session.conversationID)
 	}
 
 	list, err := convstore.ListConversations()
@@ -559,7 +559,7 @@ func TestTUISessionPersistence(t *testing.T) {
 	}
 	found := false
 	for _, c := range list {
-		if c.ID == m.conversationID {
+		if c.ID == m.session.conversationID {
 			found = true
 			if c.Title != "hello from wagyu" {
 				t.Errorf("c.Title = %q, want 'hello from wagyu'", c.Title)
@@ -571,7 +571,7 @@ func TestTUISessionPersistence(t *testing.T) {
 		}
 	}
 	if !found {
-		t.Errorf("conversation %q not discovered in ListConversations: %+v", m.conversationID, list)
+		t.Errorf("conversation %q not discovered in ListConversations: %+v", m.session.conversationID, list)
 	}
 }
 
@@ -588,25 +588,25 @@ func TestTUISessionPersistence(t *testing.T) {
 // env returns caps.OSC8 == false per DetectHyperlinkCaps), and
 // the test cares about the OSC 8 framed shape rather than the
 // detection rule. A separate sub-test exercises the OSC 8 off
-// branch via setting m.hyperlinkCaps.OSC8 = false.
+// branch via setting m.viewport.hyperlinkCaps.OSC8 = false.
 func eligibilityModel(t *testing.T) *runMode {
 	t.Helper()
 	t.Setenv("ANTIGRAVITY_HOME", t.TempDir())
 	t.Setenv("HOME", t.TempDir())
 	m := newRunMode(&fakeClient{}, "u@t", "Gemini 3.8 Flash (High)", "t", "/", true)
-	m.announceQueue.Load()
+	m.overlays.announceQueue.Load()
 	// Cycle 262 test scaffolding: the empty catalog keeps the
 	// announcement row out so the inline-notice slot is the only
 	// transient row in the layout. The queue's SaveError is left at
 	// its zero value so the announcement row returns "" cleanly.
-	m.announceQueue.Cards = nil
+	m.overlays.announceQueue.Cards = nil
 	// Force OSC 8 on for the OSC 8 ON test target. The test
 	// scaffolding sets TERM to xterm-256color via t.Setenv (a
 	// sibling line above) — newRunMode runs DetectHyperlinkCaps
 	// during construction, so the post-construction override is
 	// the only way to guarantee OSC 8 is on regardless of the
 	// test runner's environment.
-	m.hyperlinkCaps.OSC8 = true
+	m.viewport.hyperlinkCaps.OSC8 = true
 	return m
 }
 
@@ -642,9 +642,9 @@ func captureStderr(t *testing.T, fn func()) string {
 //
 // Two checks per run:
 //
-//   - m.response length is unchanged after the chunk handler runs
+//   - m.engine.response length is unchanged after the chunk handler runs
 //     (the cycle-262 hard constraint "inline notice must NOT be
-//     appended to m.response"); pre-condition is non-zero so a
+//     appended to m.engine.response"); pre-condition is non-zero so a
 //     silent drop is distinguishable from a passing test.
 //   - the inline notice row, when rendered into the screen buffer,
 //     contains both the Reason and the verification URL.
@@ -658,9 +658,9 @@ func TestEligibilityError_InlineNotStacked(t *testing.T) {
 	// eligibility handler does NOT grow the transcript. The exact
 	// content is irrelevant — what matters is the length stays
 	// stable across the eligibility-handler run.
-	m.response = []string{"> hello"}
-	preRespLen := len(m.response)
-	preSessLen := len(m.session)
+	m.engine.response = []string{"> hello"}
+	preRespLen := len(m.engine.response)
+	preSessLen := len(m.engine.session)
 
 	// Cycle 262 path: route an eligibility error through the
 	// Update() handler the way streamPrompt's chunk handler does.
@@ -670,21 +670,21 @@ func TestEligibilityError_InlineNotStacked(t *testing.T) {
 		VerificationURL: wantURL,
 	})
 
-	if len(m.response) != preRespLen {
-		t.Errorf("m.response grew: pre=%d post=%d (cycle 262 hard constraint: inline notice must NOT be appended)",
-			preRespLen, len(m.response))
+	if len(m.engine.response) != preRespLen {
+		t.Errorf("m.engine.response grew: pre=%d post=%d (cycle 262 hard constraint: inline notice must NOT be appended)",
+			preRespLen, len(m.engine.response))
 	}
-	if len(m.session) != preSessLen {
-		t.Errorf("m.session grew: pre=%d post=%d (cycle 262 hard constraint: inline notice must NOT be appended)",
-			preSessLen, len(m.session))
+	if len(m.engine.session) != preSessLen {
+		t.Errorf("m.engine.session grew: pre=%d post=%d (cycle 262 hard constraint: inline notice must NOT be appended)",
+			preSessLen, len(m.engine.session))
 	}
 	// The notice slot is populated.
-	if m.eligibilityNotice.Reason == "" {
+	if m.overlays.eligibilityNotice.Reason == "" {
 		t.Fatal("eligibilityNotice.Reason is empty after Update; want the upstream Reason")
 	}
-	if m.eligibilityNotice.VerificationURL != wantURL {
+	if m.overlays.eligibilityNotice.VerificationURL != wantURL {
 		t.Errorf("eligibilityNotice.VerificationURL = %q, want %q",
-			m.eligibilityNotice.VerificationURL, wantURL)
+			m.overlays.eligibilityNotice.VerificationURL, wantURL)
 	}
 
 	// The view-body render surfaces the URL inside the screen
@@ -789,7 +789,7 @@ func TestEligibilityError_RendersAsHyperlink(t *testing.T) {
 	// detection is caught.
 	t.Run("OSC8 off renders plain text", func(t *testing.T) {
 		m2 := eligibilityModel(t)
-		m2.hyperlinkCaps.OSC8 = false
+		m2.viewport.hyperlinkCaps.OSC8 = false
 		const url = "https://example.com/plain"
 		m2.Update(eligibilityNoticeMsg{
 			Reason:          "verify your account",
@@ -824,7 +824,7 @@ func TestEligibilityError_RendersAsHyperlink(t *testing.T) {
 //   - the eligibility notice field on the runMode is the zero
 //     value (Reason == ""), so the next View() does not render a
 //     row.
-//   - m.response / m.session length is unchanged (the notice
+//   - m.engine.response / m.engine.session length is unchanged (the notice
 //     didn't leak into the transcript).
 //
 // A separate sub-test drives an Enter (submit) — the
@@ -839,11 +839,11 @@ func TestEligibilityError_ClearsOnInput(t *testing.T) {
 			Reason:          "verify your account",
 			VerificationURL: "https://example.com/verify",
 		})
-		if m.eligibilityNotice.Reason == "" {
+		if m.overlays.eligibilityNotice.Reason == "" {
 			t.Fatal("notice not set up for the test")
 		}
-		preRespLen := len(m.response)
-		preSessLen := len(m.session)
+		preRespLen := len(m.engine.response)
+		preSessLen := len(m.engine.session)
 
 		// Drive a single rune through Update — the textarea's
 		// default branch inserts the rune and clears the
@@ -851,17 +851,17 @@ func TestEligibilityError_ClearsOnInput(t *testing.T) {
 		// signal).
 		_, _ = m.Update(runeKey('h'))
 
-		if m.eligibilityNotice.Reason != "" {
-			t.Errorf("eligibilityNotice.Reason = %q after typing, want \"\"", m.eligibilityNotice.Reason)
+		if m.overlays.eligibilityNotice.Reason != "" {
+			t.Errorf("eligibilityNotice.Reason = %q after typing, want \"\"", m.overlays.eligibilityNotice.Reason)
 		}
-		if m.eligibilityNotice.VerificationURL != "" {
-			t.Errorf("eligibilityNotice.VerificationURL = %q after typing, want \"\"", m.eligibilityNotice.VerificationURL)
+		if m.overlays.eligibilityNotice.VerificationURL != "" {
+			t.Errorf("eligibilityNotice.VerificationURL = %q after typing, want \"\"", m.overlays.eligibilityNotice.VerificationURL)
 		}
-		if len(m.response) != preRespLen {
-			t.Errorf("m.response grew during typing: pre=%d post=%d", preRespLen, len(m.response))
+		if len(m.engine.response) != preRespLen {
+			t.Errorf("m.engine.response grew during typing: pre=%d post=%d", preRespLen, len(m.engine.response))
 		}
-		if len(m.session) != preSessLen {
-			t.Errorf("m.session grew during typing: pre=%d post=%d", preSessLen, len(m.session))
+		if len(m.engine.session) != preSessLen {
+			t.Errorf("m.engine.session grew during typing: pre=%d post=%d", preSessLen, len(m.engine.session))
 		}
 	})
 
@@ -879,8 +879,8 @@ func TestEligibilityError_ClearsOnInput(t *testing.T) {
 		_, _ = m.Update(runeKey('h'))
 		_, _ = m.Update(runeKey('i'))
 		_, _ = m.Update(enterKey())
-		if m.eligibilityNotice.Reason != "" {
-			t.Errorf("eligibilityNotice.Reason = %q after submit, want \"\"", m.eligibilityNotice.Reason)
+		if m.overlays.eligibilityNotice.Reason != "" {
+			t.Errorf("eligibilityNotice.Reason = %q after submit, want \"\"", m.overlays.eligibilityNotice.Reason)
 		}
 	})
 }
@@ -900,11 +900,11 @@ func TestEligibilityError_WithoutURL(t *testing.T) {
 		VerificationURL: "", // upstream did not supply one
 	})
 
-	if m.eligibilityNotice.Reason != reason {
-		t.Errorf("eligibilityNotice.Reason = %q, want %q", m.eligibilityNotice.Reason, reason)
+	if m.overlays.eligibilityNotice.Reason != reason {
+		t.Errorf("eligibilityNotice.Reason = %q, want %q", m.overlays.eligibilityNotice.Reason, reason)
 	}
-	if m.eligibilityNotice.VerificationURL != "" {
-		t.Errorf("eligibilityNotice.VerificationURL = %q, want \"\"", m.eligibilityNotice.VerificationURL)
+	if m.overlays.eligibilityNotice.VerificationURL != "" {
+		t.Errorf("eligibilityNotice.VerificationURL = %q, want \"\"", m.overlays.eligibilityNotice.VerificationURL)
 	}
 
 	view := stripANSIErrView(t, m.View().Content)
@@ -1036,13 +1036,13 @@ func TestEligibilityError_PreservesPrintMode(t *testing.T) {
 	// eligibilityNotice stays at its zero value when the chunk
 	// handler never runs (i.e. when -p bypasses newRunMode).
 	// The test pins the contract that the print path does not
-	// touch m.eligibilityNotice at all. We instantiate a fresh
+	// touch m.overlays.eligibilityNotice at all. We instantiate a fresh
 	// runMode and verify the zero value is the no-notice state;
 	// the print path's main.go does not construct a runMode so
 	// the slot is never allocated in production.
 	m := eligibilityModel(t)
-	if m.eligibilityNotice.Reason != "" || m.eligibilityNotice.VerificationURL != "" {
-		t.Errorf("fresh runMode has non-empty eligibilityNotice: %+v", m.eligibilityNotice)
+	if m.overlays.eligibilityNotice.Reason != "" || m.overlays.eligibilityNotice.VerificationURL != "" {
+		t.Errorf("fresh runMode has non-empty eligibilityNotice: %+v", m.overlays.eligibilityNotice)
 	}
 }
 
@@ -1144,9 +1144,9 @@ func TestEligibilityError_StillLogged(t *testing.T) {
 			Reason:          ee.Reason,
 			VerificationURL: ee.VerificationURL,
 		})
-		if m.eligibilityNotice.Reason != reason || m.eligibilityNotice.VerificationURL != url {
+		if m.overlays.eligibilityNotice.Reason != reason || m.overlays.eligibilityNotice.VerificationURL != url {
 			t.Errorf("after wrapped notice: %+v, want Reason=%q VerificationURL=%q",
-				m.eligibilityNotice, reason, url)
+				m.overlays.eligibilityNotice, reason, url)
 		}
 		// Unwrap exposes the Cause chain for downstream callers
 		// (operator log on the diagnostic stream).

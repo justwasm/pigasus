@@ -22,7 +22,7 @@ import (
 func hookTestMode(t *testing.T, command string) *runMode {
 	t.Helper()
 	m := newRunModeBase(nil, "", "gemini-3.8-flash", "", t.TempDir(), false)
-	m.hookRT = &corehooks.Runtime{
+	m.session.hookRT = &corehooks.Runtime{
 		Registry: &corehooks.Registry{Entries: []corehooks.Entry{{
 			Hook:    "test",
 			Event:   corehooks.EventPreToolUse,
@@ -85,7 +85,7 @@ func TestHookToolGateAsk(t *testing.T) {
 		t.Error("the gate allowed the call, want it prompted")
 	}
 	// With a grant of the user's own, the decision respects it.
-	m.policy = &permissions.Policy{Allow: []permissions.Rule{{Tool: "run_command", Pattern: "ls"}}}
+	m.session.policy = &permissions.Policy{Allow: []permissions.Rule{{Tool: "run_command", Pattern: "ls"}}}
 	gate = m.hookToolGate(context.Background(), hookTestCall())
 	if gate.Denied {
 		t.Error("the gate blocked a granted call, want it allowed")
@@ -95,7 +95,7 @@ func TestHookToolGateAsk(t *testing.T) {
 // TestHookToolGateForceAsk pins the decision that ignores the grants.
 func TestHookToolGateForceAsk(t *testing.T) {
 	m := hookTestMode(t, `echo '{"decision":"force_ask"}'`)
-	m.policy = &permissions.Policy{Allow: []permissions.Rule{{Tool: "run_command", Pattern: "ls"}}}
+	m.session.policy = &permissions.Policy{Allow: []permissions.Rule{{Tool: "run_command", Pattern: "ls"}}}
 	gate := m.hookToolGate(context.Background(), hookTestCall())
 	if !gate.Denied {
 		t.Error("the gate allowed the call, want it prompted")
@@ -110,7 +110,7 @@ func TestHookToolGateAutoApprove(t *testing.T) {
 	if !gate.Approved {
 		t.Errorf("gate = %+v, want the call approved", gate)
 	}
-	m.policy = &permissions.Policy{Deny: []permissions.Rule{{Tool: "run_command", Pattern: "ls"}}}
+	m.session.policy = &permissions.Policy{Deny: []permissions.Rule{{Tool: "run_command", Pattern: "ls"}}}
 	gate = m.hookToolGate(context.Background(), hookTestCall())
 	if !gate.Denied {
 		t.Errorf("gate = %+v, want the denied target blocked", gate)
@@ -124,7 +124,7 @@ func TestHookToolGateDenyUnlessPriorGrant(t *testing.T) {
 	if !gate.Denied {
 		t.Error("the gate allowed the call, want it blocked without a grant")
 	}
-	m.policy = &permissions.Policy{Allow: []permissions.Rule{{Tool: "run_command", Pattern: "ls"}}}
+	m.session.policy = &permissions.Policy{Allow: []permissions.Rule{{Tool: "run_command", Pattern: "ls"}}}
 	gate = m.hookToolGate(context.Background(), hookTestCall())
 	if !gate.Approved {
 		t.Errorf("gate = %+v, want the granted call approved", gate)
@@ -254,15 +254,15 @@ func TestMergeHookArgs(t *testing.T) {
 // once per session.
 func TestHookSessionStartFiresOnce(t *testing.T) {
 	m := hookTestMode(t, `echo '{"decision":"allow"}'`)
-	m.hookRT.Registry.Entries = []corehooks.Entry{{
+	m.session.hookRT.Registry.Entries = []corehooks.Entry{{
 		Hook:    "test",
 		Event:   corehooks.EventSessionStart,
 		Handler: corehooks.Handler{Type: "command", Command: `echo '{"injectSteps":[]}'`},
 	}}
 	m.hookSessionStart(context.Background())
 	m.hookSessionStart(context.Background())
-	if m.hooks.Count(hooks.SessionStart) != 1 {
-		t.Errorf("SessionStart fired %d times, want 1", m.hooks.Count(hooks.SessionStart))
+	if m.session.hooks.Count(hooks.SessionStart) != 1 {
+		t.Errorf("SessionStart fired %d times, want 1", m.session.hooks.Count(hooks.SessionStart))
 	}
 }
 
@@ -279,7 +279,7 @@ func TestPostToolUseFiresAfterTheCall(t *testing.T) {
 	if _, err := runner.Run(context.Background(), hookTestCall()); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
-	if got := m.hooks.Count(hooks.PostToolUse); got != 1 {
+	if got := m.session.hooks.Count(hooks.PostToolUse); got != 1 {
 		t.Errorf("PostToolUse fired %d times, want 1", got)
 	}
 	// A call the policy blocked never ran, so it has no completion.
@@ -287,7 +287,7 @@ func TestPostToolUseFiresAfterTheCall(t *testing.T) {
 	if _, err := runner.Run(context.Background(), hookTestCall()); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
-	if got := m.hooks.Count(hooks.PostToolUse); got != 1 {
+	if got := m.session.hooks.Count(hooks.PostToolUse); got != 1 {
 		t.Errorf("PostToolUse fired %d times, want 1", got)
 	}
 }

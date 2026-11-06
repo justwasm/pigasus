@@ -15,13 +15,13 @@ import (
 func Test_HelpSelectCommandViaEnter(t *testing.T) {
 	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
 	handled, _ := m.handleSlashCommand("/help")
-	if !handled || !m.helpPanel.Active() {
+	if !handled || !m.viewport.helpPanel.Active() {
 		t.Fatal("/help should open overlay")
 	}
 	// Switch to tab 1 (COMMANDS)
 	m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyTab}))
-	if m.helpPanel.Tab() != 1 {
-		t.Fatalf("tab = %d, want 1", m.helpPanel.Tab())
+	if m.viewport.helpPanel.Tab() != 1 {
+		t.Fatalf("tab = %d, want 1", m.viewport.helpPanel.Tab())
 	}
 
 	cmds := slashcommands.Sorted()
@@ -36,18 +36,18 @@ func Test_HelpSelectCommandViaEnter(t *testing.T) {
 	m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
 
 	// Overlay must be closed
-	if m.helpPanel.Active() {
+	if m.viewport.helpPanel.Active() {
 		t.Error("help overlay should be closed after Enter")
 	}
 
 	// Input buffer must have the selected command
 	wantCmd := cmds[1].Name
-	if m.input.Value() != wantCmd {
-		t.Errorf("m.input.Value() = %q, want %q", m.input.Value(), wantCmd)
+	if m.composer.input.Value() != wantCmd {
+		t.Errorf("m.composer.input.Value() = %q, want %q", m.composer.input.Value(), wantCmd)
 	}
 
 	// Must not echo "Exited /help command" into the response
-	for _, line := range m.response {
+	for _, line := range m.engine.response {
 		if strings.Contains(line, "Exited /help command") {
 			t.Errorf("unexpected exit echo in response: %q", line)
 		}

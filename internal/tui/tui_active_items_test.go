@@ -34,13 +34,19 @@ func activeItemsHost(t *testing.T, height int) *runMode {
 	_ = os.WriteFile(filepath.Join(tempHome, "settings.json"), []byte("{}"), 0644)
 
 	m := &runMode{
-		taskReg: taskregistry.New(),
-		input:   tas.New(),
-		width:   80,
-		height:  height,
+		engine: engineState{
+			taskReg: taskregistry.New(),
+		},
+		composer: composerState{
+			input: tas.New(),
+		},
+		viewport: uiState{
+			width:  80,
+			height: height,
+		},
 	}
-	m.activeItems = m.newActiveItemsPanel()
-	m.input.Focus()
+	m.viewport.activeItems = m.newActiveItemsPanel()
+	m.composer.input.Focus()
 	return m
 }
 
@@ -50,7 +56,7 @@ func TestActiveItems_HostFocusAndRows(t *testing.T) {
 	m := activeItemsHost(t, 30)
 
 	// 1. Nothing running -> no rows.
-	if got := m.activeItems.Rows(); got != "" {
+	if got := m.viewport.activeItems.Rows(); got != "" {
 		t.Fatalf("expected no rows when no tasks running, got %q", got)
 	}
 
@@ -69,10 +75,10 @@ func TestActiveItems_HostFocusAndRows(t *testing.T) {
 		State:     taskregistry.StateRunning,
 		StartedAt: time.Now().Add(-5 * time.Second),
 	}
-	m.taskReg.Register(t1)
-	m.taskReg.Register(t2)
+	m.engine.taskReg.Register(t1)
+	m.engine.taskReg.Register(t2)
 
-	rows := m.activeItems.Rows()
+	rows := m.viewport.activeItems.Rows()
 	if !strings.Contains(rows, "Search Shanghai Weather") {
 		t.Errorf("expected rows to contain 'Search Shanghai Weather', got:\n%s", rows)
 	}
@@ -114,55 +120,55 @@ func TestActiveItems_HostFocusAndRows(t *testing.T) {
 
 	// 3. alt+j takes the focus.
 	m.Update(tea.KeyPressMsg(tea.Key{Code: 'j', Mod: tea.ModAlt, Text: "j"}))
-	if !m.activeItems.Focused() {
+	if !m.viewport.activeItems.Focused() {
 		t.Errorf("expected activeItems to be focused after alt+j")
 	}
 
 	// The focused view carries the selection marker "> " on the first
 	// item.
-	focusedRows := m.activeItems.Rows()
+	focusedRows := m.viewport.activeItems.Rows()
 	if !strings.Contains(focusedRows, "> ") {
 		t.Errorf("expected cursor marker '> ' in focused rows, got:\n%s", focusedRows)
 	}
 
 	// Down arrow moves the cursor to the second item.
 	m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyDown}))
-	if m.activeItems.Cursor() != 1 {
-		t.Errorf("expected cursor at 1 after KeyDown, got %d", m.activeItems.Cursor())
+	if m.viewport.activeItems.Cursor() != 1 {
+		t.Errorf("expected cursor at 1 after KeyDown, got %d", m.viewport.activeItems.Cursor())
 	}
 
 	// Esc un-focuses activeItems.
 	m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEsc}))
-	if m.activeItems.Focused() {
+	if m.viewport.activeItems.Focused() {
 		t.Errorf("expected activeItems to lose focus after Esc")
 	}
 
 	// 4. Enter opens the task detail view in the /tasks panel.
 	m.Update(tea.KeyPressMsg(tea.Key{Code: 'j', Mod: tea.ModAlt, Text: "j"}))
-	m.activeItems.SelectFirst()
+	m.viewport.activeItems.SelectFirst()
 	m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
-	if m.panel.kind != panelregistry.Tasks {
-		t.Errorf("expected panelregistry.Tasks to be open, got %v", m.panel.kind)
+	if m.overlays.panel.kind != panelregistry.Tasks {
+		t.Errorf("expected panelregistry.Tasks to be open, got %v", m.overlays.panel.kind)
 	}
-	if m.panel.tp == nil || !m.panel.tp.Detail() {
+	if m.overlays.panel.tp == nil || !m.overlays.panel.tp.Detail() {
 		t.Errorf("expected /tasks panel to be in detail view")
 	}
-	if m.panel.tp.DetailID() != "subagent-1001" {
-		t.Errorf("expected detail ID 'subagent-1001', got %q", m.panel.tp.DetailID())
+	if m.overlays.panel.tp.DetailID() != "subagent-1001" {
+		t.Errorf("expected detail ID 'subagent-1001', got %q", m.overlays.panel.tp.DetailID())
 	}
-	if m.activeItems.Focused() {
+	if m.viewport.activeItems.Focused() {
 		t.Errorf("expected activeItems to be unfocused after opening detail view")
 	}
 
 	// Close the panel.
-	m.panel = slashPanel{}
+	m.overlays.panel = slashPanel{}
 }
 
 // TestActiveItems_HostDownFromPrompt — the prompt's ↓ hands the focus
 // to the block, and ↑ at the top gives it back.
 func TestActiveItems_HostDownFromPrompt(t *testing.T) {
 	m := activeItemsHost(t, 30)
-	m.taskReg.Register(&taskregistry.Task{
+	m.engine.taskReg.Register(&taskregistry.Task{
 		ID:        "task-1",
 		Name:      "Job",
 		Kind:      taskregistry.KindShell,
@@ -171,38 +177,38 @@ func TestActiveItems_HostDownFromPrompt(t *testing.T) {
 	})
 
 	// 5a. Down arrow on empty input focuses ActiveItems
-	m.input.SetValue("")
-	if m.activeItems.Focused() {
+	m.composer.input.SetValue("")
+	if m.viewport.activeItems.Focused() {
 		t.Errorf("expected activeItems unfocused before Down arrow")
 	}
 	m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyDown}))
-	if !m.activeItems.Focused() {
+	if !m.viewport.activeItems.Focused() {
 		t.Errorf("expected activeItems to gain focus on Down arrow from empty prompt")
 	}
-	if m.activeItems.Cursor() != 0 {
-		t.Errorf("expected cursor at 0 after Down arrow focus switch, got %d", m.activeItems.Cursor())
+	if m.viewport.activeItems.Cursor() != 0 {
+		t.Errorf("expected cursor at 0 after Down arrow focus switch, got %d", m.viewport.activeItems.Cursor())
 	}
 
 	// 5b. Up arrow at cursor 0 defocuses ActiveItems back to prompt
 	m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyUp}))
-	if m.activeItems.Focused() {
+	if m.viewport.activeItems.Focused() {
 		t.Errorf("expected activeItems to lose focus on Up arrow at cursor 0")
 	}
 
 	// 5c. Multi-line input: Down arrow only switches focus when on last line
-	m.input.SetValue("line 1\nline 2")
+	m.composer.input.SetValue("line 1\nline 2")
 	m.setInputCursorOffset(0) // line 1
 	m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyDown}))
-	if m.activeItems.Focused() {
+	if m.viewport.activeItems.Focused() {
 		t.Errorf("expected Down arrow on line 1 of multi-line prompt NOT to focus active items")
 	}
 	// Cursor is now on line 2 (the last line)
 	m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyDown}))
-	if !m.activeItems.Focused() {
+	if !m.viewport.activeItems.Focused() {
 		t.Errorf("expected Down arrow on last line of multi-line prompt to focus active items")
 	}
-	m.activeItems.SetFocus(false)
-	m.input.SetValue("")
+	m.viewport.activeItems.SetFocus(false)
+	m.composer.input.SetValue("")
 }
 
 // TestActiveItems_DefocusOnTypingAndNoKill — the block owns no key of
@@ -217,32 +223,32 @@ func TestActiveItems_DefocusOnTypingAndNoKill(t *testing.T) {
 		State:     taskregistry.StateRunning,
 		StartedAt: time.Now(),
 	}
-	m.taskReg.Register(task)
+	m.engine.taskReg.Register(task)
 
 	// Focus active items
-	m.activeItems.SetFocus(true)
-	m.activeItems.SelectFirst()
+	m.viewport.activeItems.SetFocus(true)
+	m.viewport.activeItems.SelectFirst()
 
 	// 1. Pressing 'x' or 'k' must NOT kill the task
 	m.Update(tea.KeyPressMsg(tea.Key{Code: 'x', Text: "x"}))
-	gotTask := m.taskReg.Get("task-2001")
+	gotTask := m.engine.taskReg.Get("task-2001")
 	if gotTask == nil || gotTask.State != taskregistry.StateRunning {
 		t.Fatalf("task was unexpectedly killed on 'x' key press!")
 	}
 	// 'x' was an unhandled key, so it must have defocused active items
-	if m.activeItems.Focused() {
+	if m.viewport.activeItems.Focused() {
 		t.Errorf("expected activeItems to defocus on arbitrary letter 'x'")
 	}
 
 	// 2. Typing characters when focused defocusses active items and types into input
-	m.activeItems.SetFocus(true)
-	m.input.SetValue("")
+	m.viewport.activeItems.SetFocus(true)
+	m.composer.input.SetValue("")
 	m.Update(tea.KeyPressMsg(tea.Key{Code: 'a', Text: "a"}))
-	if m.activeItems.Focused() {
+	if m.viewport.activeItems.Focused() {
 		t.Errorf("expected activeItems to defocus when typing 'a'")
 	}
-	if m.input.Value() != "a" {
-		t.Errorf("expected input to receive 'a', got %q", m.input.Value())
+	if m.composer.input.Value() != "a" {
+		t.Errorf("expected input to receive 'a', got %q", m.composer.input.Value())
 	}
 }
 
@@ -250,7 +256,7 @@ func TestActiveItems_DefocusOnTypingAndNoKill(t *testing.T) {
 // block and moves its cursor.
 func TestActiveItems_VimModeNavigation(t *testing.T) {
 	m := activeItemsHost(t, 30)
-	m.vimOn = true // Enable vim mode
+	m.composer.vimOn = true // Enable vim mode
 
 	t1 := &taskregistry.Task{
 		ID:        "task-1",
@@ -266,45 +272,45 @@ func TestActiveItems_VimModeNavigation(t *testing.T) {
 		State:     taskregistry.StateRunning,
 		StartedAt: time.Now().Add(-5 * time.Second),
 	}
-	m.taskReg.Register(t1)
-	m.taskReg.Register(t2)
+	m.engine.taskReg.Register(t1)
+	m.engine.taskReg.Register(t2)
 
 	// In vim Normal mode, pressing 'j' on empty prompt focuses active items
-	m.input.SetValue("")
-	m.vimEng = nil // reset vim engine
+	m.composer.input.SetValue("")
+	m.composer.vimEng = nil // reset vim engine
 	m.Update(tea.KeyPressMsg(tea.Key{Code: 'j', Text: "j"}))
-	if !m.activeItems.Focused() {
+	if !m.viewport.activeItems.Focused() {
 		t.Fatalf("expected 'j' in vim normal mode on empty prompt to focus active items")
 	}
-	if m.activeItems.Cursor() != 0 {
-		t.Fatalf("expected cursor at 0, got %d", m.activeItems.Cursor())
+	if m.viewport.activeItems.Cursor() != 0 {
+		t.Fatalf("expected cursor at 0, got %d", m.viewport.activeItems.Cursor())
 	}
 
 	// In active items, pressing 'j' moves cursor down to item 1
 	m.Update(tea.KeyPressMsg(tea.Key{Code: 'j', Text: "j"}))
-	if m.activeItems.Cursor() != 1 {
-		t.Errorf("expected cursor at 1 after 'j', got %d", m.activeItems.Cursor())
+	if m.viewport.activeItems.Cursor() != 1 {
+		t.Errorf("expected cursor at 1 after 'j', got %d", m.viewport.activeItems.Cursor())
 	}
 
 	// In active items, pressing 'k' moves cursor up to item 0
 	m.Update(tea.KeyPressMsg(tea.Key{Code: 'k', Text: "k"}))
-	if m.activeItems.Cursor() != 0 {
-		t.Errorf("expected cursor at 0 after 'k', got %d", m.activeItems.Cursor())
+	if m.viewport.activeItems.Cursor() != 0 {
+		t.Errorf("expected cursor at 0 after 'k', got %d", m.viewport.activeItems.Cursor())
 	}
 
 	// In active items, pressing 'k' at cursor 0 defocuses back to prompt
 	m.Update(tea.KeyPressMsg(tea.Key{Code: 'k', Text: "k"}))
-	if m.activeItems.Focused() {
+	if m.viewport.activeItems.Focused() {
 		t.Errorf("expected activeItems to lose focus after 'k' at cursor 0")
 	}
 
 	// Test multi-line buffer in vim mode: 'j' moves line down first before focusing active items
-	m.input.SetValue("first\nsecond")
-	m.vimEng = nil
+	m.composer.input.SetValue("first\nsecond")
+	m.composer.vimEng = nil
 	eng := m.vimEngine()
 	eng.Row = 0 // first line
 	m.Update(tea.KeyPressMsg(tea.Key{Code: 'j', Text: "j"}))
-	if m.activeItems.Focused() {
+	if m.viewport.activeItems.Focused() {
 		t.Errorf("expected 'j' on line 0 to move to line 1, not focus active items")
 	}
 	if m.vimEngine().Row != 1 {
@@ -313,7 +319,7 @@ func TestActiveItems_VimModeNavigation(t *testing.T) {
 
 	// Now on line 1 (the last line), 'j' should focus active items
 	m.Update(tea.KeyPressMsg(tea.Key{Code: 'j', Text: "j"}))
-	if !m.activeItems.Focused() {
+	if !m.viewport.activeItems.Focused() {
 		t.Errorf("expected 'j' on last line of vim buffer to focus active items")
 	}
 }
@@ -322,7 +328,7 @@ func TestActiveItems_VimModeNavigation(t *testing.T) {
 // suppresses the block.
 func TestActiveItems_HostHiddenGate(t *testing.T) {
 	m := activeItemsHost(t, 30)
-	m.taskReg.Register(&taskregistry.Task{
+	m.engine.taskReg.Register(&taskregistry.Task{
 		ID:        "task-1",
 		Name:      "Job",
 		Kind:      taskregistry.KindShell,
@@ -330,13 +336,13 @@ func TestActiveItems_HostHiddenGate(t *testing.T) {
 		StartedAt: time.Now(),
 	})
 
-	if got := m.activeItems.Rows(); got == "" {
+	if got := m.viewport.activeItems.Rows(); got == "" {
 		t.Fatalf("expected the block to be drawn")
 	}
 	if err := settings.SetField("hideActiveItems", true); err != nil {
 		t.Fatalf("SetField failed: %v", err)
 	}
-	if got := m.activeItems.Rows(); got != "" {
+	if got := m.viewport.activeItems.Rows(); got != "" {
 		t.Errorf("expected the block to be suppressed when hideActiveItems=true, got %q", got)
 	}
 }
@@ -363,7 +369,7 @@ func TestActiveItems_PromptLayoutThreeLines(t *testing.T) {
 		State:     taskregistry.StateRunning,
 		StartedAt: time.Now(),
 	}
-	m.taskReg.Register(task)
+	m.engine.taskReg.Register(task)
 
 	var b2 strings.Builder
 	m.renderBodyPrompt(&b2)
@@ -416,9 +422,9 @@ func TestActiveItems_TimerTaskRow(t *testing.T) {
 		StartedAt:  time.Now(),
 		TargetTime: target,
 	}
-	m.taskReg.Register(task)
+	m.engine.taskReg.Register(task)
 
-	rows := m.activeItems.Rows()
+	rows := m.viewport.activeItems.Rows()
 	if !strings.Contains(rows, "⏳ 将在 18:17:00 自动探测并恢复跟进") {
 		t.Errorf("expected timer notice in active items rows, got: %q", rows)
 	}

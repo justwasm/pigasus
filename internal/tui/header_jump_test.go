@@ -16,12 +16,12 @@ func TestHeaderJumpConversation(t *testing.T) {
 		t.Skip("db not found: ", err)
 	}
 	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
-	m.width = 120
-	m.height = 40
+	m.viewport.width = 120
+	m.viewport.height = 40
 	m.seedConversation(c)
 	rows, _, _ := m.syncRowsView()
-	t.Logf("Total rows: %d, user prompt rows: %d", len(rows), len(m.userPromptRows))
-	for i, p := range m.userPromptRows {
+	t.Logf("Total rows: %d, user prompt rows: %d", len(rows), len(m.viewport.userPromptRows))
+	for i, p := range m.viewport.userPromptRows {
 		start := tuiviewport.PromptTurnStart(rows, p)
 		// Every turn (including first prompt after banner): start must be exactly 1 blank line before separator rule line
 		if rows[start] != "" {
@@ -42,20 +42,20 @@ func TestHeaderClickJump_ExactOneBlankLineAtTop(t *testing.T) {
 		t.Skip("db not found: ", err)
 	}
 	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
-	m.width = 120
-	m.height = 30
+	m.viewport.width = 120
+	m.viewport.height = 30
 	m.seedConversation(c)
 	m.syncRowsView()
 
 	// Pick prompt 2
-	targetPromptIdx := m.userPromptRows[2]
-	m.autoScroll = false
-	m.scroll = targetPromptIdx + 10 // scroll deep into assistant response of prompt 2
+	targetPromptIdx := m.viewport.userPromptRows[2]
+	m.viewport.autoScroll = false
+	m.viewport.scroll = targetPromptIdx + 10 // scroll deep into assistant response of prompt 2
 
 	// Render view to populate pinned prompt
 	_ = m.View()
-	if m.pinnedPromptRowIdx != targetPromptIdx {
-		t.Fatalf("expected pinnedPromptRowIdx=%d, got %d", targetPromptIdx, m.pinnedPromptRowIdx)
+	if m.viewport.pinnedPromptRowIdx != targetPromptIdx {
+		t.Fatalf("expected pinnedPromptRowIdx=%d, got %d", targetPromptIdx, m.viewport.pinnedPromptRowIdx)
 	}
 
 	// Click row 0 (the pinned prompt header)
@@ -87,18 +87,18 @@ func TestEveryPromptHeaderClickJump(t *testing.T) {
 		t.Skip("db not found: ", err)
 	}
 	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
-	m.width = 120
-	m.height = 30
+	m.viewport.width = 120
+	m.viewport.height = 30
 	m.seedConversation(c)
 	rows, _, _ := m.syncRowsView()
 
 	// Test clicking header from EVERY possible scroll position in the conversation!
 	for s := 0; s < len(rows); s++ {
-		m.autoScroll = false
-		m.scroll = s
+		m.viewport.autoScroll = false
+		m.viewport.scroll = s
 		_ = m.View()
 
-		if m.pinnedPromptText == "" {
+		if m.viewport.pinnedPromptText == "" {
 			continue // No header visible at this scroll position
 		}
 
@@ -112,7 +112,7 @@ func TestEveryPromptHeaderClickJump(t *testing.T) {
 		}
 		if blankCount > 1 {
 			t.Errorf("At scroll %d (pinned prompt %q): after click, visible starts with %d blank lines! Lines:\n[0]=%q\n[1]=%q\n[2]=%q\n[3]=%q",
-				s, m.pinnedPromptText, blankCount, visible[0], visible[1], visible[2], visible[3])
+				s, m.viewport.pinnedPromptText, blankCount, visible[0], visible[1], visible[2], visible[3])
 			break
 		}
 	}
@@ -120,10 +120,10 @@ func TestEveryPromptHeaderClickJump(t *testing.T) {
 
 func TestNonAltScreen_NoStickyPrompt(t *testing.T) {
 	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", false)
-	m.altScreen = false
-	m.width = 100
-	m.height = 30
-	m.response = []string{
+	m.viewport.altScreen = false
+	m.viewport.width = 100
+	m.viewport.height = 30
+	m.engine.response = []string{
 		transcript.UserPromptRow("prompt 1"),
 		"response 1",
 		"",
@@ -131,19 +131,19 @@ func TestNonAltScreen_NoStickyPrompt(t *testing.T) {
 		transcript.UserPromptRow("prompt 2"),
 		"response 2",
 	}
-	m.autoScroll = false
-	m.scroll = 5
+	m.viewport.autoScroll = false
+	m.viewport.scroll = 5
 	rows, header, resp := m.syncRowsView()
 	avail := 20
 	availScroll := m.updateStickyPrompt(rows, header, resp, avail)
 	if availScroll != avail {
 		t.Errorf("inline mode: expected availScroll == avail (%d), got %d", avail, availScroll)
 	}
-	if m.stickyBarRow != "" {
-		t.Errorf("inline mode: expected empty stickyBarRow, got %q", m.stickyBarRow)
+	if m.viewport.stickyBarRow != "" {
+		t.Errorf("inline mode: expected empty stickyBarRow, got %q", m.viewport.stickyBarRow)
 	}
-	if m.pinnedPromptText != "" {
-		t.Errorf("inline mode: expected empty pinnedPromptText, got %q", m.pinnedPromptText)
+	if m.viewport.pinnedPromptText != "" {
+		t.Errorf("inline mode: expected empty pinnedPromptText, got %q", m.viewport.pinnedPromptText)
 	}
 	visible := m.transcriptWindow()
 	for _, row := range visible {
@@ -155,10 +155,10 @@ func TestNonAltScreen_NoStickyPrompt(t *testing.T) {
 
 func TestBottomScrollDown_NoStickyHeaderFlicker(t *testing.T) {
 	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
-	m.altScreen = true
-	m.width = 100
-	m.height = 20
-	m.response = []string{
+	m.viewport.altScreen = true
+	m.viewport.width = 100
+	m.viewport.height = 20
+	m.engine.response = []string{
 		transcript.UserPromptRow("prompt 1"),
 		"response 1",
 		"",
@@ -166,17 +166,17 @@ func TestBottomScrollDown_NoStickyHeaderFlicker(t *testing.T) {
 		transcript.UserPromptRow("prompt 2"),
 	}
 	for i := 0; i < 50; i++ {
-		m.response = append(m.response, "line of response")
+		m.engine.response = append(m.engine.response, "line of response")
 	}
 
 	// Initial render at the bottom
 	_ = m.View()
 
-	if !m.autoScroll {
+	if !m.viewport.autoScroll {
 		t.Fatalf("expected autoScroll to be true at initial render at bottom")
 	}
-	if m.pinnedPromptText != "" {
-		t.Fatalf("expected no sticky header when parked at bottom, got %q", m.pinnedPromptText)
+	if m.viewport.pinnedPromptText != "" {
+		t.Fatalf("expected no sticky header when parked at bottom, got %q", m.viewport.pinnedPromptText)
 	}
 
 	// Continuing to scroll down at the bottom (e.g. mouse wheel down inertia)
@@ -184,32 +184,32 @@ func TestBottomScrollDown_NoStickyHeaderFlicker(t *testing.T) {
 	for i := 0; i < 10; i++ {
 		m.scrollBy(3)
 		_ = m.View()
-		if !m.autoScroll {
+		if !m.viewport.autoScroll {
 			t.Errorf("iteration %d: autoScroll should remain true on downward scroll at bottom", i)
 		}
-		if m.pinnedPromptText != "" {
-			t.Errorf("iteration %d: sticky header should not flash when scrolling down at bottom, got %q", i, m.pinnedPromptText)
+		if m.viewport.pinnedPromptText != "" {
+			t.Errorf("iteration %d: sticky header should not flash when scrolling down at bottom, got %q", i, m.viewport.pinnedPromptText)
 		}
 	}
 
 	// Only when user starts scrolling UP does sticky header appear
 	m.scrollBy(-10)
 	_ = m.View()
-	if m.autoScroll {
+	if m.viewport.autoScroll {
 		t.Errorf("scrolling up should set autoScroll to false")
 	}
-	if m.pinnedPromptText == "" {
+	if m.viewport.pinnedPromptText == "" {
 		t.Errorf("scrolling up should show sticky header")
 	}
 
 	// Scrolling back down to the bottom deactivates sticky header
 	m.scrollBy(20)
 	_ = m.View()
-	if !m.autoScroll {
+	if !m.viewport.autoScroll {
 		t.Errorf("scrolling to bottom should set autoScroll to true")
 	}
-	if m.pinnedPromptText != "" {
-		t.Errorf("scrolling back to bottom should deactivate sticky header, got %q", m.pinnedPromptText)
+	if m.viewport.pinnedPromptText != "" {
+		t.Errorf("scrolling back to bottom should deactivate sticky header, got %q", m.viewport.pinnedPromptText)
 	}
 }
 
@@ -219,13 +219,13 @@ func TestBottomScrollDown_ZeroAllocs(t *testing.T) {
 		t.Skip("db not found: ", err)
 	}
 	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
-	m.width = 120
-	m.height = 30
+	m.viewport.width = 120
+	m.viewport.height = 30
 	m.seedConversation(c)
 
 	// Initial render at the bottom
 	_ = m.View()
-	if !m.autoScroll {
+	if !m.viewport.autoScroll {
 		t.Fatalf("expected autoScroll to be true at initial render at bottom")
 	}
 
@@ -250,8 +250,8 @@ func BenchmarkBottomScrollDown(b *testing.B) {
 		b.Skip("db not found: ", err)
 	}
 	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
-	m.width = 120
-	m.height = 30
+	m.viewport.width = 120
+	m.viewport.height = 30
 	m.seedConversation(c)
 	_ = m.View()
 

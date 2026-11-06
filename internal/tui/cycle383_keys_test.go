@@ -29,11 +29,11 @@ func TestCtrlROpensTheArtifactPanel(t *testing.T) {
 	if !handled {
 		t.Fatal("Ctrl+R was not handled")
 	}
-	if m.panel.kind != panelregistry.Artifact {
-		t.Errorf("the open panel = %v, want panelregistry.Artifact", m.panel.kind)
+	if m.overlays.panel.kind != panelregistry.Artifact {
+		t.Errorf("the open panel = %v, want panelregistry.Artifact", m.overlays.panel.kind)
 	}
-	if m.panel.cmd != "/artifact" {
-		t.Errorf("the open panel's command = %q, want %q", m.panel.cmd, "/artifact")
+	if m.overlays.panel.cmd != "/artifact" {
+		t.Errorf("the open panel's command = %q, want %q", m.overlays.panel.cmd, "/artifact")
 	}
 }
 
@@ -46,8 +46,8 @@ func TestCtrlRIsIgnoredWhileAPanelIsOpen(t *testing.T) {
 		t.Fatal("openSlashPanel(context) = false, want true")
 	}
 	m.handleGlobalOrModalKeys(tea.Key{Code: 'r', Mod: tea.ModCtrl})
-	if m.panel.kind != panelregistry.Context {
-		t.Errorf("the open panel = %v, want panelregistry.Context", m.panel.kind)
+	if m.overlays.panel.kind != panelregistry.Context {
+		t.Errorf("the open panel = %v, want panelregistry.Context", m.overlays.panel.kind)
 	}
 }
 

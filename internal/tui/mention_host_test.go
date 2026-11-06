@@ -35,7 +35,7 @@ func mentionWorkspace(t *testing.T) string {
 func mentionMode(t *testing.T) *runMode {
 	t.Helper()
 	m := sizedMode(80, 24, 0)
-	m.cwd = mentionWorkspace(t)
+	m.session.cwd = mentionWorkspace(t)
 	return m
 }
 
@@ -43,9 +43,9 @@ func mentionMode(t *testing.T) *runMode {
 // reaching the painted frame.
 func TestMentionPicker_RowsReachTheFrame(t *testing.T) {
 	m := mentionMode(t)
-	m.input.SetValue("look at @ma")
-	m.atFilePicker.Update()
-	if !m.atFilePicker.Visible() {
+	m.composer.input.SetValue("look at @ma")
+	m.composer.atFilePicker.Update()
+	if !m.composer.atFilePicker.Visible() {
 		t.Fatal("setup: the dropdown should be visible for a mention")
 	}
 
@@ -60,18 +60,18 @@ func TestMentionPicker_RowsReachTheFrame(t *testing.T) {
 // for the next directory or file.
 func TestMentionPicker_TabCompletesTheMention(t *testing.T) {
 	m := mentionMode(t)
-	m.input.SetValue("look at @ma")
-	m.atFilePicker.Update()
-	if !m.atFilePicker.Visible() {
+	m.composer.input.SetValue("look at @ma")
+	m.composer.atFilePicker.Update()
+	if !m.composer.atFilePicker.Visible() {
 		t.Fatal("setup: the dropdown should be visible for a mention")
 	}
 
 	m.Update(tea.KeyPressMsg{Code: tea.KeyTab})
 
-	if got := m.input.Value(); got != "look at @main.go" {
+	if got := m.composer.input.Value(); got != "look at @main.go" {
 		t.Errorf("the composer after Tab = %q, want %q", got, "look at @main.go")
 	}
-	if !m.atFilePicker.Visible() {
+	if !m.composer.atFilePicker.Visible() {
 		t.Error("Tab must keep the dropdown open for directory and file browsing")
 	}
 }
@@ -80,18 +80,18 @@ func TestMentionPicker_TabCompletesTheMention(t *testing.T) {
 // mention is completed into the composer and the dropdown closes.
 func TestMentionPicker_EnterCompletesAndCloses(t *testing.T) {
 	m := mentionMode(t)
-	m.input.SetValue("look at @ma")
-	m.atFilePicker.Update()
-	if !m.atFilePicker.Visible() {
+	m.composer.input.SetValue("look at @ma")
+	m.composer.atFilePicker.Update()
+	if !m.composer.atFilePicker.Visible() {
 		t.Fatal("setup: the dropdown should be visible for a mention")
 	}
 
 	m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
 
-	if got := m.input.Value(); got != "look at @main.go" {
+	if got := m.composer.input.Value(); got != "look at @main.go" {
 		t.Errorf("the composer after Enter = %q, want %q", got, "look at @main.go")
 	}
-	if m.atFilePicker.Visible() {
+	if m.composer.atFilePicker.Visible() {
 		t.Error("Enter must close the dropdown")
 	}
 }
@@ -99,15 +99,15 @@ func TestMentionPicker_EnterCompletesAndCloses(t *testing.T) {
 // TestMentionPicker_EscClosesTheDropdown covers the Esc path.
 func TestMentionPicker_EscClosesTheDropdown(t *testing.T) {
 	m := mentionMode(t)
-	m.input.SetValue("look at @ma")
-	m.atFilePicker.Update()
-	if !m.atFilePicker.Visible() {
+	m.composer.input.SetValue("look at @ma")
+	m.composer.atFilePicker.Update()
+	if !m.composer.atFilePicker.Visible() {
 		t.Fatal("setup: the dropdown should be visible for a mention")
 	}
 
 	m.Update(tea.KeyPressMsg{Code: tea.KeyEsc})
 
-	if m.atFilePicker.Visible() {
+	if m.composer.atFilePicker.Visible() {
 		t.Error("Esc must close the dropdown")
 	}
 }

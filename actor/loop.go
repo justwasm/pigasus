@@ -102,7 +102,7 @@ func (a *Actor) executeTurn(input Message) {
 	}()
 
 	if err := a.fsm.Transition(StateRunning, turnID, ""); err != nil {
-		a.emitError(turnID, err.Error())
+		a.emitError(turnID, err)
 		return
 	}
 
@@ -221,7 +221,7 @@ func (a *Actor) executeTurn(input Message) {
 			} else {
 				turnStatus = "error"
 				turnErr = err
-				a.emitError(turnID, fmt.Sprintf("provider generate failed: %v", err))
+				a.emitError(turnID, err)
 			}
 			break
 		}
@@ -255,7 +255,7 @@ func (a *Actor) executeTurn(input Message) {
 				}
 				turnStatus = "error"
 				turnErr = rErr
-				a.emitError(turnID, fmt.Sprintf("stream recv error: %v", rErr))
+				a.emitError(turnID, rErr)
 				break
 			}
 
@@ -534,6 +534,7 @@ func (a *Actor) executeTurn(input Message) {
 		Timestamp:   completedAt,
 		TurnSummary: summary,
 		Error:       turnRecord.Error,
+		Err:         turnErr,
 	})
 }
 
@@ -597,12 +598,16 @@ func (a *Actor) buildCurrentTurnMessages(input Message, steps []Step, steer []st
 	return msgs
 }
 
-func (a *Actor) emitError(turnID, errText string) {
+func (a *Actor) emitError(turnID string, err error) {
+	if err == nil {
+		return
+	}
 	a.events.Publish(Event{
 		Type:      EventError,
 		ActorID:   a.id,
 		TurnID:    turnID,
 		Timestamp: time.Now(),
-		Error:     errText,
+		Error:     err.Error(),
+		Err:       err,
 	})
 }

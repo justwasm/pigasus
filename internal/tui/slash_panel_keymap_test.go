@@ -128,44 +128,44 @@ func goldenPanel(kind panelregistry.Kind) (m *runMode) {
 		}
 	}()
 	m = &runMode{}
-	m.panel = slashPanel{kind: kind, cmd: "/" + goldenKindName(kind)}
+	m.overlays.panel = slashPanel{kind: kind, cmd: "/" + goldenKindName(kind)}
 	switch kind {
 	case panelregistry.Tasks:
-		m.panel.tp = m.newTasksPanel()
+		m.overlays.panel.tp = m.newTasksPanel()
 	case panelregistry.Effort:
-		m.panel.ef = m.newEffortPanel()
+		m.overlays.panel.ef = m.newEffortPanel()
 	case panelregistry.Hooks:
-		m.panel.hk = m.newHooksPanel()
+		m.overlays.panel.hk = m.newHooksPanel()
 	case panelregistry.Permissions:
-		m.panel.perm = m.newPermissionsPanel()
+		m.overlays.panel.perm = m.newPermissionsPanel()
 	case panelregistry.Agents:
-		m.panel.ag = m.newAgentsPanel()
+		m.overlays.panel.ag = m.newAgentsPanel()
 	case panelregistry.Credits:
-		m.panel.cr = m.newCreditsPanel()
+		m.overlays.panel.cr = m.newCreditsPanel()
 	case panelregistry.CodeSearch:
-		m.panel.csp = m.newCodesearchPanel()
+		m.overlays.panel.csp = m.newCodesearchPanel()
 	case panelregistry.Feedback:
-		m.panel.fb = m.newFeedbackPanel()
+		m.overlays.panel.fb = m.newFeedbackPanel()
 	case panelregistry.Rewind:
-		m.panel.rw = m.newRewindPanel()
+		m.overlays.panel.rw = m.newRewindPanel()
 	case panelregistry.Model:
-		m.panel.mdl = m.newModelPanel()
+		m.overlays.panel.mdl = m.newModelPanel()
 	case panelregistry.Config:
-		m.panel.cfg = m.newConfigPanel()
+		m.overlays.panel.cfg = m.newConfigPanel()
 	case panelregistry.Plugin:
-		m.panel.plg = m.newPluginPanel()
+		m.overlays.panel.plg = m.newPluginPanel()
 	case panelregistry.Skills:
-		m.panel.sk = m.newSkillsPanel()
+		m.overlays.panel.sk = m.newSkillsPanel()
 	case panelregistry.Diff:
-		m.panel.df = m.newDiffPanel()
+		m.overlays.panel.df = m.newDiffPanel()
 	case panelregistry.Rename:
-		m.panel.rn = m.newRenamePanel()
+		m.overlays.panel.rn = m.newRenamePanel()
 	case panelregistry.AddDir:
-		m.panel.ad = m.newAddDirPanel()
+		m.overlays.panel.ad = m.newAddDirPanel()
 	case panelregistry.Provider:
-		m.panel.prov = m.newProviderPanel()
+		m.overlays.panel.prov = m.newProviderPanel()
 	case panelregistry.Accounts:
-		m.panel.acct = m.newAccountsPanel()
+		m.overlays.panel.acct = m.newAccountsPanel()
 	}
 	if kind.IsViewer() {
 		m.initViewerViewport()
@@ -207,7 +207,7 @@ func TestPanelKeymapGolden(t *testing.T) {
 			}
 			handled, _ := m.handlePanelKey(kf.key)
 			fmt.Fprintf(&b, "key %s %s -> handled=%v panel=%s cursor=%d\n",
-				kd.name, kf.name, handled, goldenKindName(m.panel.kind), m.panel.cursor)
+				kd.name, kf.name, handled, goldenKindName(m.overlays.panel.kind), m.overlays.panel.cursor)
 		}
 	}
 

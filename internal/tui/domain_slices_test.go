@@ -10,7 +10,7 @@ import (
 
 func TestDomainComposerSlice(t *testing.T) {
 	m := &runMode{
-		composerState: composerState{
+		composer: composerState{
 			input: tas.New(),
 		},
 	}
@@ -57,7 +57,7 @@ func TestDomainOverlaySlice(t *testing.T) {
 		t.Error("expected no active panel initially")
 	}
 
-	m.panel.kind = panelregistry.Tasks
+	m.overlays.panel.kind = panelregistry.Tasks
 	if !m.HasActivePanel() || m.ActivePanelKind() != panelregistry.Tasks {
 		t.Errorf("got active panel %v, want Tasks", m.ActivePanelKind())
 	}
@@ -65,7 +65,7 @@ func TestDomainOverlaySlice(t *testing.T) {
 		t.Error("expected active overlay when panel is open")
 	}
 
-	m.panel.kind = panelregistry.None
+	m.overlays.panel.kind = panelregistry.None
 	if m.HasActivePanel() {
 		t.Error("expected panel closed")
 	}
@@ -98,8 +98,8 @@ func TestDomainSessionSlice(t *testing.T) {
 
 func TestDomainUISlice(t *testing.T) {
 	m := &runMode{}
-	m.width = 120
-	m.height = 40
+	m.viewport.width = 120
+	m.viewport.height = 40
 	w, h := m.TerminalDimensions()
 	if w != 120 || h != 40 {
 		t.Errorf("dimensions = (%d, %d), want (120, 40)", w, h)

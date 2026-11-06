@@ -448,6 +448,25 @@ func (s *TCPServer) firstConnID() string {
 	return ""
 }
 
+// FirstConnID returns the connID of the first active connection, or "".
+func (s *TCPServer) FirstConnID() string {
+	return s.firstConnID()
+}
+
+// ConnIDs returns a snapshot of active connection IDs.
+func (s *TCPServer) ConnIDs() []string {
+	if s == nil {
+		return nil
+	}
+	s.connsMu.RLock()
+	defer s.connsMu.RUnlock()
+	ids := make([]string, 0, len(s.conns))
+	for id := range s.conns {
+		ids = append(ids, id)
+	}
+	return ids
+}
+
 // pushFrameForTest is the test-only direct-enqueue helper.
 // Wraps (*wsConn).enqueueFrame so tests can fill the bounded
 // outbound channel without dispatching a real JSON-RPC request.
@@ -461,6 +480,19 @@ func (s *TCPServer) pushFrameForTest(ctx context.Context, connID string, frame [
 		return ErrConnNotFound
 	}
 	return wc.enqueueFrame(ctx, frame)
+}
+
+// PushFrameForTest is the test-only direct-enqueue helper.
+func (s *TCPServer) PushFrameForTest(ctx context.Context, connID string, frame []byte) error {
+	return s.pushFrameForTest(ctx, connID, frame)
+}
+
+// Dispatcher returns the underlying dispatcher.
+func (s *TCPServer) Dispatcher() Dispatcher {
+	if s == nil {
+		return nil
+	}
+	return s.dispatcher
 }
 
 // DroppedFrames returns the cumulative count of frames lost to

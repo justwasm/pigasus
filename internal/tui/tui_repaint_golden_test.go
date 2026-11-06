@@ -54,39 +54,41 @@ func TestTranscriptRepaintGolden(t *testing.T) {
 
 	const width = 72
 	m := &runMode{
-		width:     width,
-		height:    24,
-		verbosity: "medium",
-		input:     tas.New(),
+		viewport: uiState{
+			width:  width,
+			height: 24,
+		},
+		engine:   engineState{verbosity: "medium"},
+		composer: composerState{input: tas.New()},
 	}
-	m.input.Focus()
+	m.composer.input.Focus()
 	mdrender.SetCurrentWidth(width)
 
 	// 1. The turn separator and the user's prompt.
-	m.response = append(m.response, transcript.TurnSeparator(width))
+	m.engine.response = append(m.engine.response, transcript.TurnSeparator(width))
 
 	promptRaw := "Please run the tests and tell me what broke."
 	promptLines := transcript.RenderUserPrompt(promptRaw, width)
-	promptStart := len(m.response)
-	m.response = append(m.response, promptLines...)
-	m.userBlocks = append(m.userBlocks, transcript.UserBlock{
+	promptStart := len(m.engine.response)
+	m.engine.response = append(m.engine.response, promptLines...)
+	m.engine.userBlocks = append(m.engine.userBlocks, transcript.UserBlock{
 		Start: promptStart,
 		Lines: len(promptLines),
 		Raw:   promptRaw,
 	})
-	m.response = append(m.response, "")
+	m.engine.response = append(m.engine.response, "")
 
 	// 2. The assistant's markdown reply.
 	replyRaw := "The **build** is green. Two checks failed:\n\n- `TestOne`\n- `TestTwo`"
 	replyLines := strings.Split(mdrender.RenderMarkdown(replyRaw, width), "\n")
-	replyStart := len(m.response)
-	m.response = append(m.response, replyLines...)
-	m.assistants = append(m.assistants, transcript.AssistantBlock{
+	replyStart := len(m.engine.response)
+	m.engine.response = append(m.engine.response, replyLines...)
+	m.engine.assistants = append(m.engine.assistants, transcript.AssistantBlock{
 		Start: replyStart,
 		Lines: len(replyLines),
 		Raw:   replyRaw,
 	})
-	m.response = append(m.response, "")
+	m.engine.response = append(m.engine.response, "")
 
 	// 3. A collapsed tool-step block.
 	stepA := toolsteps.Step{
@@ -100,9 +102,9 @@ func TestTranscriptRepaintGolden(t *testing.T) {
 		Width:     width,
 		Verbosity: toolsteps.VerbosityMedium,
 	})
-	startA := len(m.response)
-	m.response = append(m.response, linesA...)
-	m.blocks = append(m.blocks, transcript.NewBlock(transcript.Block{
+	startA := len(m.engine.response)
+	m.engine.response = append(m.engine.response, linesA...)
+	m.engine.blocks = append(m.engine.blocks, transcript.NewBlock(transcript.Block{
 		Start:    startA,
 		Lines:    len(linesA),
 		Steps:    []toolsteps.Step{stepA},
@@ -122,9 +124,9 @@ func TestTranscriptRepaintGolden(t *testing.T) {
 		Width:     width,
 		Verbosity: toolsteps.VerbosityMedium,
 	})
-	startB := len(m.response)
-	m.response = append(m.response, linesB...)
-	m.blocks = append(m.blocks, transcript.NewBlock(transcript.Block{
+	startB := len(m.engine.response)
+	m.engine.response = append(m.engine.response, linesB...)
+	m.engine.blocks = append(m.engine.blocks, transcript.NewBlock(transcript.Block{
 		Start:    startB,
 		Lines:    len(linesB),
 		Steps:    []toolsteps.Step{stepB},
@@ -133,8 +135,8 @@ func TestTranscriptRepaintGolden(t *testing.T) {
 
 	// 5. A prompt row and a slash echo row that no block owns: the
 	// theme repaint reaches them.
-	m.response = append(m.response, transcript.UserPromptRow("a plain prompt row"))
-	m.response = append(m.response, tuilib.SlashEchoLines("/config", "Exited /config command")...)
+	m.engine.response = append(m.engine.response, transcript.UserPromptRow("a plain prompt row"))
+	m.engine.response = append(m.engine.response, tuilib.SlashEchoLines("/config", "Exited /config command")...)
 
 	// 6. An in-flight step run.
 	liveStep := toolsteps.Step{
@@ -150,22 +152,22 @@ func TestTranscriptRepaintGolden(t *testing.T) {
 		Width:     width,
 		Verbosity: toolsteps.VerbosityMedium,
 	})
-	liveStart := len(m.response)
-	m.response = append(m.response, liveLines...)
-	m.liveStepRuns = append(m.liveStepRuns, transcript.LiveStepRun{
+	liveStart := len(m.engine.response)
+	m.engine.response = append(m.engine.response, liveLines...)
+	m.engine.liveStepRuns = append(m.engine.liveStepRuns, transcript.LiveStepRun{
 		Start: liveStart,
 		Lines: len(liveLines),
 		Step:  liveStep,
 	})
-	m.liveThoughtRunIdx = -1
+	m.engine.liveThoughtRunIdx = -1
 
 	// 7. A streaming reply in flight.
-	m.streaming = true
-	m.liveReplyBuf = "A streaming reply that wraps across several rows at the current width."
-	streamLines := strings.Split(mdrender.RenderMarkdown(m.liveReplyBuf, width), "\n")
-	m.replyStart = len(m.response)
-	m.liveTextLines = len(streamLines)
-	m.response = append(m.response, streamLines...)
+	m.engine.streaming = true
+	m.engine.liveReplyBuf = "A streaming reply that wraps across several rows at the current width."
+	streamLines := strings.Split(mdrender.RenderMarkdown(m.engine.liveReplyBuf, width), "\n")
+	m.engine.replyStart = len(m.engine.response)
+	m.engine.liveTextLines = len(streamLines)
+	m.engine.response = append(m.engine.response, streamLines...)
 
 	var dump strings.Builder
 	dump.WriteString(dumpTranscript(m, "initial"))
@@ -187,9 +189,9 @@ func TestTranscriptRepaintGolden(t *testing.T) {
 	dump.WriteString(dumpTranscript(m, "expanded"))
 
 	// 12. The turn thinks, and the thought is finished.
-	m.thinking = true
-	m.thinkingSince = time.Now()
-	m.liveThinking = "the model reasons about the failing check"
+	m.engine.thinking = true
+	m.engine.thinkingSince = time.Now()
+	m.engine.liveThinking = "the model reasons about the failing check"
 	m.rerenderLiveSteps()
 	dump.WriteString(dumpTranscript(m, "live-thought"))
 	m.finishLiveThinking()
@@ -197,7 +199,7 @@ func TestTranscriptRepaintGolden(t *testing.T) {
 
 	// 13. The terminal narrows without a full reflow: the blocks in the
 	// visible window are repainted on the next frame.
-	m.width = 60
+	m.viewport.width = 60
 	m.ensureVisibleBlocksExpanded(8)
 	dump.WriteString(dumpTranscript(m, "visible-window"))
 
@@ -225,23 +227,23 @@ func TestTranscriptRepaintGolden(t *testing.T) {
 func dumpTranscript(m *runMode, stage string) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "=== %s ===\n", stage)
-	for i, row := range m.response {
+	for i, row := range m.engine.response {
 		fmt.Fprintf(&b, "row %d %q\n", i, row)
 	}
-	for i, blk := range m.blocks {
+	for i, blk := range m.engine.blocks {
 		fmt.Fprintf(&b, "block %d start=%d lines=%d expanded=%t\n", i, blk.Start, blk.Lines, blk.Expanded)
 	}
-	for i, a := range m.assistants {
+	for i, a := range m.engine.assistants {
 		fmt.Fprintf(&b, "assistant %d start=%d lines=%d\n", i, a.Start, a.Lines)
 	}
-	for i, u := range m.userBlocks {
+	for i, u := range m.engine.userBlocks {
 		fmt.Fprintf(&b, "user %d start=%d lines=%d\n", i, u.Start, u.Lines)
 	}
-	for i, r := range m.liveStepRuns {
+	for i, r := range m.engine.liveStepRuns {
 		fmt.Fprintf(&b, "run %d start=%d lines=%d kind=%v batch=%d\n", i, r.Start, r.Lines, r.Step.Kind, r.Step.Batch)
 	}
 	fmt.Fprintf(&b, "liveStart=%d replyStart=%d liveThoughtRunIdx=%d liveTextLines=%d liveBatch=%d batchBreak=%t\n",
-		m.liveStart, m.replyStart, m.liveThoughtRunIdx, m.liveTextLines, m.liveBatch, m.batchBreak)
+		m.engine.liveStart, m.engine.replyStart, m.engine.liveThoughtRunIdx, m.engine.liveTextLines, m.engine.liveBatch, m.engine.batchBreak)
 	return b.String()
 }
 
@@ -258,30 +260,32 @@ func dumpLiveStepBatches(width int) string {
 	mdrender.SetCurrentWidth(width)
 
 	live := &runMode{
-		width:               width,
-		height:              24,
-		verbosity:           "medium",
-		expanded:            true,
-		expandedUserToggled: true,
-		input:               tas.New(),
+		viewport: uiState{
+			width:               width,
+			height:              24,
+			expanded:            true,
+			expandedUserToggled: true,
+		},
+		engine:   engineState{verbosity: "medium"},
+		composer: composerState{input: tas.New()},
 	}
-	live.input.Focus()
+	live.composer.input.Focus()
 	// The turn's own anchors: no reply is streaming and no thought is
 	// live when the first call arrives.
-	live.replyStart = -1
-	live.liveReplyIdx = -1
-	live.liveThoughtRunIdx = -1
+	live.engine.replyStart = -1
+	live.engine.liveReplyIdx = -1
+	live.engine.liveThoughtRunIdx = -1
 
 	// The turn's prompt.
 	const prompt = "run the two checks"
 	promptLines := transcript.RenderUserPrompt(prompt, width)
-	live.response = append(live.response, promptLines...)
-	live.userBlocks = append(live.userBlocks, transcript.UserBlock{
+	live.engine.response = append(live.engine.response, promptLines...)
+	live.engine.userBlocks = append(live.engine.userBlocks, transcript.UserBlock{
 		Start: 0,
 		Lines: len(promptLines),
 		Raw:   prompt,
 	})
-	live.response = append(live.response, "")
+	live.engine.response = append(live.engine.response, "")
 
 	var dump strings.Builder
 
@@ -321,9 +325,9 @@ func dumpLiveStepBatches(width int) string {
 	dump.WriteString(dumpTranscript(live, "live-batch-join"))
 
 	// 14d. The model thinks between the calls.
-	live.thinking = true
-	live.thinkingSince = time.Now()
-	live.liveThinking = "the model reasons between the calls"
+	live.engine.thinking = true
+	live.engine.thinkingSince = time.Now()
+	live.engine.liveThinking = "the model reasons between the calls"
 	live.syncLiveThoughtStep()
 	dump.WriteString(dumpTranscript(live, "live-batch-thought"))
 	live.finishLiveThinking()

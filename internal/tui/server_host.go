@@ -144,17 +144,17 @@ func runServer(j *cli.JetskiCLI, args cli.ServerArgs) error {
 // on-disk copies after it.
 func (m *runMode) syncAccountIdentity() tea.Cmd {
 	_, email := accounts.Current()
-	if email == "" || email == m.email {
+	if email == "" || email == m.session.email {
 		return nil
 	}
-	m.email = email
+	m.session.email = email
 	// The session's tier belonged to the previous account.
 	m.forgetSessionTier()
 	// The transport caches the keychain token it read, so it has to be
 	// rebuilt for the session to talk as the new account.
-	if m.backendFor != nil {
-		if b := m.backendFor(m.model); b != nil {
-			m.backend = b
+	if m.engine.backendFor != nil {
+		if b := m.engine.backendFor(m.session.model); b != nil {
+			m.engine.backend = b
 		}
 	}
 	return m.fetchPlanTierCmd()

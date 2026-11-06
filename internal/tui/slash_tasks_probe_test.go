@@ -74,12 +74,12 @@ func TestCycleTasksPanelProbe(t *testing.T) {
 		// Press "k" on the cursor row — the reference's KeyTaskKill
 		// binding. (Enter opens the row's detail view; the clone used
 		// to kill on Enter, which was the cycle-315 bug.)
-		m.panel = slashPanel{kind: panelregistry.Tasks, cmd: "/tasks"}
+		m.overlays.panel = slashPanel{kind: panelregistry.Tasks, cmd: "/tasks"}
 		_, _ = m.tasksPanel().HandleKey(tea.Key{Code: 'k'})
 		// Wait up to 1s for the killed transition to land.
 		deadline := time.Now().Add(1 * time.Second)
 		for time.Now().Before(deadline) {
-			if m.taskReg.CountRunning() == 0 {
+			if m.engine.taskReg.CountRunning() == 0 {
 				break
 			}
 			time.Sleep(20 * time.Millisecond)
@@ -112,15 +112,15 @@ func TestCycleTasksPanelProbe(t *testing.T) {
 
 func seedProbeRunMode() *runMode {
 	m := &runMode{}
-	m.taskReg = taskregistry.New()
-	m.taskSubagentManager = subagent.NewManager()
+	m.engine.taskReg = taskregistry.New()
+	m.engine.taskSubagentManager = subagent.NewManager()
 	return m
 }
 
 func seedProbeShell(m *runMode, name string) {
 	sa := subagent.NewSubagent("bash", "-c", strings.TrimPrefix(name, "bash -c "))
-	m.taskSubagentManager.Add(sa)
-	m.taskReg.AttachSubagent(sa, "")
+	m.engine.taskSubagentManager.Add(sa)
+	m.engine.taskReg.AttachSubagent(sa, "")
 	if err := sa.Start(); err != nil {
 		panic(err)
 	}
@@ -131,7 +131,7 @@ func renderProbePanel(m *runMode) string {
 	// minus the ANSI escapes so the probe bytes are stable
 	// across terminal widths.
 	var b strings.Builder
-	tasks := m.taskReg.List()
+	tasks := m.engine.taskReg.List()
 	b.WriteString("Tasks\n")
 	if len(tasks) == 0 {
 		b.WriteString("  No background tasks.\n")
@@ -170,7 +170,7 @@ func renderProbeRow(t *taskregistry.Task) string {
 }
 
 func renderProbeStatusRow(m *runMode) string {
-	n := m.taskReg.CountRunning()
+	n := m.engine.taskReg.CountRunning()
 	suffix := ""
 	if n == 1 {
 		suffix = " · 1 task"

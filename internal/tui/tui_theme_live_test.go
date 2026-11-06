@@ -21,23 +21,23 @@ func Test_LiveThemeSwitch_RepaintsUserPromptAndAssistantText(t *testing.T) {
 	}()
 
 	m := newRunMode(nil, "test@example.com", "gemini-test", "Pro", "/tmp", true)
-	m.width = 80
-	m.height = 24
+	m.viewport.width = 80
+	m.viewport.height = 24
 
 	// Start under solarized light
 	m.applyThemeLive("solarized light")
 
 	// Add a user prompt
 	prompt := "How does the color scheme look?"
-	m.response = append(m.response, transcript.UserPromptRow(prompt))
+	m.engine.response = append(m.engine.response, transcript.UserPromptRow(prompt))
 
 	// Add an assistant response (simulating streamed turn completion)
 	replyRaw := "The text should be crisp and visible on dark terminals."
-	styled := mdrender.RenderMarkdown(replyRaw, m.width)
+	styled := mdrender.RenderMarkdown(replyRaw, m.viewport.width)
 	replyLines := strings.Split(styled, "\n")
-	start := len(m.response)
-	m.response = append(m.response, replyLines...)
-	m.assistants = append(m.assistants, transcript.AssistantBlock{
+	start := len(m.engine.response)
+	m.engine.response = append(m.engine.response, replyLines...)
+	m.engine.assistants = append(m.engine.assistants, transcript.AssistantBlock{
 		Start: start,
 		Lines: len(replyLines),
 		Raw:   replyRaw,
@@ -48,10 +48,10 @@ func Test_LiveThemeSwitch_RepaintsUserPromptAndAssistantText(t *testing.T) {
 	// - model reply uses Solarized Fg #073642 (\x1b[38;2;7;54;66m)
 	solarizedPromptFg := "\x1b[38;2;38;139;210;1m"
 	solarizedBodyFg := "\x1b[38;2;7;54;66m"
-	if !strings.Contains(m.response[0], solarizedPromptFg) {
-		t.Errorf("solarized light prompt row missing expected fg %q; got: %q", solarizedPromptFg, m.response[0])
+	if !strings.Contains(m.engine.response[0], solarizedPromptFg) {
+		t.Errorf("solarized light prompt row missing expected fg %q; got: %q", solarizedPromptFg, m.engine.response[0])
 	}
-	joinedReplies := strings.Join(m.response[start:], "\n")
+	joinedReplies := strings.Join(m.engine.response[start:], "\n")
 	if !strings.Contains(joinedReplies, solarizedBodyFg) {
 		t.Errorf("solarized light body text missing expected fg %q; got: %q", solarizedBodyFg, joinedReplies)
 	}
@@ -64,10 +64,10 @@ func Test_LiveThemeSwitch_RepaintsUserPromptAndAssistantText(t *testing.T) {
 	// - model reply should now wear Dark Fg #e8eaed (\x1b[38;2;232;234;237m, Google crisp white)
 	darkPromptFg := "\x1b[38;2;138;180;248;1m"
 	darkBodyFg := "\x1b[38;2;232;234;237m"
-	if !strings.Contains(m.response[0], darkPromptFg) {
-		t.Errorf("dark scheme prompt row missing expected fg %q; got: %q", darkPromptFg, m.response[0])
+	if !strings.Contains(m.engine.response[0], darkPromptFg) {
+		t.Errorf("dark scheme prompt row missing expected fg %q; got: %q", darkPromptFg, m.engine.response[0])
 	}
-	joinedReplies = strings.Join(m.response[start:], "\n")
+	joinedReplies = strings.Join(m.engine.response[start:], "\n")
 	if !strings.Contains(joinedReplies, darkBodyFg) {
 		t.Errorf("dark scheme body text missing expected crisp white fg %q; got: %q", darkBodyFg, joinedReplies)
 	}
@@ -80,20 +80,20 @@ func Test_LiveThemeSwitch_RepaintsUserPromptAndAssistantText(t *testing.T) {
 	// - model reply should wear TokyoNight Fg #c0caf5 (\x1b[38;2;192;202;245m)
 	tokyoPromptFg := "\x1b[38;2;122;162;247;1m"
 	tokyoBodyFg := "\x1b[38;2;192;202;245m"
-	if !strings.Contains(m.response[0], tokyoPromptFg) {
-		t.Errorf("tokyo night prompt row missing expected fg %q; got: %q", tokyoPromptFg, m.response[0])
+	if !strings.Contains(m.engine.response[0], tokyoPromptFg) {
+		t.Errorf("tokyo night prompt row missing expected fg %q; got: %q", tokyoPromptFg, m.engine.response[0])
 	}
-	joinedReplies = strings.Join(m.response[start:], "\n")
+	joinedReplies = strings.Join(m.engine.response[start:], "\n")
 	if !strings.Contains(joinedReplies, tokyoBodyFg) {
 		t.Errorf("tokyo night body text missing expected fg %q; got: %q", tokyoBodyFg, joinedReplies)
 	}
 
 	// 3. Switch back to "solarized light" live
 	m.applyThemeLive("solarized light")
-	if !strings.Contains(m.response[0], solarizedPromptFg) {
-		t.Errorf("restored solarized light prompt row missing expected fg %q; got: %q", solarizedPromptFg, m.response[0])
+	if !strings.Contains(m.engine.response[0], solarizedPromptFg) {
+		t.Errorf("restored solarized light prompt row missing expected fg %q; got: %q", solarizedPromptFg, m.engine.response[0])
 	}
-	joinedReplies = strings.Join(m.response[start:], "\n")
+	joinedReplies = strings.Join(m.engine.response[start:], "\n")
 	if !strings.Contains(joinedReplies, solarizedBodyFg) {
 		t.Errorf("restored solarized light body text missing expected fg %q; got: %q", solarizedBodyFg, joinedReplies)
 	}
@@ -117,11 +117,11 @@ func Test_LiveThemeSwitch_RepaintsUserPromptAndAssistantText(t *testing.T) {
 	for _, sc := range schemes {
 		t.Run(sc.name, func(t *testing.T) {
 			m.applyThemeLive(sc.name)
-			if !strings.Contains(m.response[0], sc.wantUser) {
-				t.Errorf("%s: prompt row missing expected fg %q; got: %q", sc.name, sc.wantUser, m.response[0])
+			if !strings.Contains(m.engine.response[0], sc.wantUser) {
+				t.Errorf("%s: prompt row missing expected fg %q; got: %q", sc.name, sc.wantUser, m.engine.response[0])
 			}
 			if sc.wantBody != "" {
-				joined := strings.Join(m.response[start:], "\n")
+				joined := strings.Join(m.engine.response[start:], "\n")
 				if !strings.Contains(joined, sc.wantBody) {
 					t.Errorf("%s: body text missing expected fg %q; got: %q", sc.name, sc.wantBody, joined)
 				}
@@ -143,31 +143,31 @@ func Test_LiveThemeSwitch_ConfigSubmenuPreviewAndCancel(t *testing.T) {
 	cycle196TestHome(t, map[string]any{"colorScheme": "solarized light"})
 
 	m := newRunMode(nil, "test@example.com", "gemini-test", "Pro", "/tmp", true)
-	m.width = 80
-	m.height = 24
+	m.viewport.width = 80
+	m.viewport.height = 24
 
 	// Start under solarized light
 	m.applyThemeLive("solarized light")
 
 	// Add a user prompt and assistant response
-	m.response = append(m.response, transcript.UserPromptRow("hello"))
-	styled := mdrender.RenderMarkdown("response body", m.width)
+	m.engine.response = append(m.engine.response, transcript.UserPromptRow("hello"))
+	styled := mdrender.RenderMarkdown("response body", m.viewport.width)
 	lines := strings.Split(styled, "\n")
-	start := len(m.response)
-	m.response = append(m.response, lines...)
-	m.assistants = append(m.assistants, transcript.AssistantBlock{
+	start := len(m.engine.response)
+	m.engine.response = append(m.engine.response, lines...)
+	m.engine.assistants = append(m.engine.assistants, transcript.AssistantBlock{
 		Start: start,
 		Lines: len(lines),
 		Raw:   "response body",
 	})
 
-	m.panel = slashPanel{kind: panelregistry.Config, cmd: "/config"}
-	m.panel.cfg = m.newConfigPanel()
-	m.panel.cfg.SetCursor(configRowIndexForTest(t, m, "Color Scheme"))
+	m.overlays.panel = slashPanel{kind: panelregistry.Config, cmd: "/config"}
+	m.overlays.panel.cfg = m.newConfigPanel()
+	m.overlays.panel.cfg.SetCursor(configRowIndexForTest(t, m, "Color Scheme"))
 
 	// Enter opens the inline option submenu on the Color Scheme row.
 	m.handlePanelKey(tea.Key{Code: tea.KeyEnter})
-	if !m.panel.cfg.SubmenuOpen() {
+	if !m.overlays.panel.cfg.SubmenuOpen() {
 		t.Fatal("expected the option submenu to be open")
 	}
 
@@ -180,10 +180,10 @@ func Test_LiveThemeSwitch_ConfigSubmenuPreviewAndCancel(t *testing.T) {
 	// Verify transcript was updated to "dark"
 	darkPromptFg := "\x1b[38;2;138;180;248;1m"
 	darkBodyFg := "\x1b[38;2;232;234;237m"
-	if !strings.Contains(m.response[0], darkPromptFg) {
-		t.Errorf("expected previewed dark prompt to wear %q, got: %q", darkPromptFg, m.response[0])
+	if !strings.Contains(m.engine.response[0], darkPromptFg) {
+		t.Errorf("expected previewed dark prompt to wear %q, got: %q", darkPromptFg, m.engine.response[0])
 	}
-	joined := strings.Join(m.response[start:], "\n")
+	joined := strings.Join(m.engine.response[start:], "\n")
 	if !strings.Contains(joined, darkBodyFg) {
 		t.Errorf("expected previewed dark body to wear %q, got: %q", darkBodyFg, joined)
 	}
@@ -194,10 +194,10 @@ func Test_LiveThemeSwitch_ConfigSubmenuPreviewAndCancel(t *testing.T) {
 	// Verify transcript restored to solarized light
 	solarizedPromptFg := "\x1b[38;2;38;139;210;1m"
 	solarizedBodyFg := "\x1b[38;2;7;54;66m"
-	if !strings.Contains(m.response[0], solarizedPromptFg) {
-		t.Errorf("expected restored prompt to wear %q, got: %q", solarizedPromptFg, m.response[0])
+	if !strings.Contains(m.engine.response[0], solarizedPromptFg) {
+		t.Errorf("expected restored prompt to wear %q, got: %q", solarizedPromptFg, m.engine.response[0])
 	}
-	joined = strings.Join(m.response[start:], "\n")
+	joined = strings.Join(m.engine.response[start:], "\n")
 	if !strings.Contains(joined, solarizedBodyFg) {
 		t.Errorf("expected restored body to wear %q, got: %q", solarizedBodyFg, joined)
 	}
@@ -211,8 +211,8 @@ func Test_LiveThemeSwitch_SlashEchoBlockRepainted(t *testing.T) {
 	}()
 
 	m := newRunMode(nil, "test@example.com", "gemini-test", "Pro", "/tmp", true)
-	m.width = 80
-	m.height = 24
+	m.viewport.width = 80
+	m.viewport.height = 24
 
 	// Start under solarized light
 	m.applyThemeLive("solarized light")
@@ -220,18 +220,18 @@ func Test_LiveThemeSwitch_SlashEchoBlockRepainted(t *testing.T) {
 	// Append a slash command exit block:
 	// > /config
 	//   ⎿  Exited /config command
-	m.response = append(m.response, tuilib.SlashEchoLines("/config", "Exited /config command")...)
+	m.engine.response = append(m.engine.response, tuilib.SlashEchoLines("/config", "Exited /config command")...)
 
 	// 1. Under Solarized Light:
 	// - header: WarningBlueOpen \x1b[38;2;38;139;210;1m
 	// - hook continuation line: hook in \x1b[38;2;38;139;210;1m, text in SubtleOpen \x1b[38;2;88;110;117m
 	solBlue := "\x1b[38;2;38;139;210;1m"
 	solMuted := "\x1b[38;2;88;110;117m"
-	if !strings.Contains(m.response[0], solBlue) {
-		t.Errorf("solarized light slash header missing %q; got: %q", solBlue, m.response[0])
+	if !strings.Contains(m.engine.response[0], solBlue) {
+		t.Errorf("solarized light slash header missing %q; got: %q", solBlue, m.engine.response[0])
 	}
-	if !strings.Contains(m.response[1], solBlue) || !strings.Contains(m.response[1], solMuted) {
-		t.Errorf("solarized light slash continuation missing %q or %q; got: %q", solBlue, solMuted, m.response[1])
+	if !strings.Contains(m.engine.response[1], solBlue) || !strings.Contains(m.engine.response[1], solMuted) {
+		t.Errorf("solarized light slash continuation missing %q or %q; got: %q", solBlue, solMuted, m.engine.response[1])
 	}
 
 	// 2. Switch live to Dark
@@ -242,42 +242,42 @@ func Test_LiveThemeSwitch_SlashEchoBlockRepainted(t *testing.T) {
 	// - hook continuation line: hook in \x1b[38;2;138;180;248;1m, text in Dark SubtleOpen (#bdc1c6) \x1b[38;2;189;193;198m
 	darkBlue := "\x1b[38;2;138;180;248;1m"
 	darkMuted := "\x1b[38;2;189;193;198m"
-	if !strings.Contains(m.response[0], darkBlue) {
-		t.Errorf("dark slash header missing %q; got: %q", darkBlue, m.response[0])
+	if !strings.Contains(m.engine.response[0], darkBlue) {
+		t.Errorf("dark slash header missing %q; got: %q", darkBlue, m.engine.response[0])
 	}
-	if !strings.Contains(m.response[1], darkBlue) || !strings.Contains(m.response[1], darkMuted) {
-		t.Errorf("dark slash continuation missing %q or %q; got: %q", darkBlue, darkMuted, m.response[1])
+	if !strings.Contains(m.engine.response[1], darkBlue) || !strings.Contains(m.engine.response[1], darkMuted) {
+		t.Errorf("dark slash continuation missing %q or %q; got: %q", darkBlue, darkMuted, m.engine.response[1])
 	}
 
 	// 3. Switch live to Tokyo Night
 	m.applyThemeLive("tokyo night")
 	tokyoBlue := "\x1b[38;2;122;162;247;1m"
 	tokyoMuted := "\x1b[38;2;169;177;214m"
-	if !strings.Contains(m.response[0], tokyoBlue) {
-		t.Errorf("tokyo night slash header missing %q; got: %q", tokyoBlue, m.response[0])
+	if !strings.Contains(m.engine.response[0], tokyoBlue) {
+		t.Errorf("tokyo night slash header missing %q; got: %q", tokyoBlue, m.engine.response[0])
 	}
-	if !strings.Contains(m.response[1], tokyoBlue) || !strings.Contains(m.response[1], tokyoMuted) {
-		t.Errorf("tokyo night slash continuation missing %q or %q; got: %q", tokyoBlue, tokyoMuted, m.response[1])
+	if !strings.Contains(m.engine.response[1], tokyoBlue) || !strings.Contains(m.engine.response[1], tokyoMuted) {
+		t.Errorf("tokyo night slash continuation missing %q or %q; got: %q", tokyoBlue, tokyoMuted, m.engine.response[1])
 	}
 
 	// 4. Switch live to Terminal
 	m.applyThemeLive("terminal")
 	termBlue := "\x1b[94;1m"
 	termMuted := "\x1b[37m"
-	if !strings.Contains(m.response[0], termBlue) {
-		t.Errorf("terminal slash header missing %q; got: %q", termBlue, m.response[0])
+	if !strings.Contains(m.engine.response[0], termBlue) {
+		t.Errorf("terminal slash header missing %q; got: %q", termBlue, m.engine.response[0])
 	}
-	if !strings.Contains(m.response[1], termBlue) || !strings.Contains(m.response[1], termMuted) {
-		t.Errorf("terminal slash continuation missing %q or %q; got: %q", termBlue, termMuted, m.response[1])
+	if !strings.Contains(m.engine.response[1], termBlue) || !strings.Contains(m.engine.response[1], termMuted) {
+		t.Errorf("terminal slash continuation missing %q or %q; got: %q", termBlue, termMuted, m.engine.response[1])
 	}
 
 	// 5. Test closePanel / slashRespond in active Dark theme emits dark colors directly
 	m.applyThemeLive("dark")
-	m.panel = slashPanel{kind: panelregistry.Config, cmd: "/config"}
+	m.overlays.panel = slashPanel{kind: panelregistry.Config, cmd: "/config"}
 	m.closePanel()
 
-	lastHeader := m.response[len(m.response)-3]
-	lastHook := m.response[len(m.response)-2]
+	lastHeader := m.engine.response[len(m.engine.response)-3]
+	lastHook := m.engine.response[len(m.engine.response)-2]
 	if !strings.Contains(lastHeader, darkBlue) {
 		t.Errorf("freshly closed /config header missing darkBlue %q; got: %q", darkBlue, lastHeader)
 	}

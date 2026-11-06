@@ -464,10 +464,10 @@ func (m *runMode) titleStoreFor() *statusline.TitleStore {
 	}
 	windowTitleInitMu.Lock()
 	defer windowTitleInitMu.Unlock()
-	if m.titleStore == nil {
-		m.titleStore = &statusline.TitleStore{}
+	if m.viewport.titleStore == nil {
+		m.viewport.titleStore = &statusline.TitleStore{}
 	}
-	return m.titleStore
+	return m.viewport.titleStore
 }
 
 // ---- seasonal.go ----
@@ -518,13 +518,13 @@ func seasonalTheme() *seasonal.Event {
 // 【一手】 agy 1.4.7: the theme follows the setting, and the spinner
 // turns into the event's own moon phase while it is on.
 func (m *runMode) refreshSeasonalTheme() {
-	m.seasonal = seasonalTheme()
-	frames := m.seasonal.SpinnerFrames()
+	m.viewport.seasonal = seasonalTheme()
+	frames := m.viewport.seasonal.SpinnerFrames()
 	if len(frames) == 0 {
-		m.spinner = sp.New(sp.WithSpinner(sp.Dot))
+		m.engine.spinner = sp.New(sp.WithSpinner(sp.Dot))
 		return
 	}
-	m.spinner = sp.New(sp.WithSpinner(sp.Spinner{
+	m.engine.spinner = sp.New(sp.WithSpinner(sp.Spinner{
 		Frames: frames,
 		FPS:    seasonalSpinnerFPS,
 	}))

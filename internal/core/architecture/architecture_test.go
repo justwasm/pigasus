@@ -53,6 +53,8 @@ var hosts = []string{
 	"internal/clirunner",
 	"internal/tui",
 	"internal/printmode",
+	"internal/rchost",
+	"internal/lsserver",
 }
 
 // engineHosts are the hosts the app tier may reach: AGENTS.md lets the
@@ -68,6 +70,8 @@ var entryHosts = []string{
 	"internal/clirunner",
 	"internal/tui",
 	"internal/printmode",
+	"internal/rchost",
+	"internal/lsserver",
 }
 
 // skipDirs are the directories the walk never enters. out/ holds the
@@ -87,19 +91,41 @@ var skipDirs = map[string]bool{
 // The list is empty unless a rule genuinely does not hold on the tree. An
 // entry is a decision, not a hiding place: the guard prints the list on
 // every run, and a new violation next to an excused one still fails.
-var knownExceptions = []exception{
-	{
-		rule: "R5",
-		pkgs: []string{"remotetransport", "internal/remotecontrol"},
-		reason: "the cycle lives entirely in _test.go files — remotetransport's tests " +
-			"exercise the Connect and gRPC-Web codec against the internal reference-control implementation",
-	},
-	{
-		rule:     "R6",
-		pkgs:     []string{"remotetransport", "internal/remotecontrol"},
-		reason:   "test-only import — remotetransport's shipped code imports nothing from internal/",
-		testOnly: true,
-	},
+var knownExceptions = []exception{}
+
+// unclassifiedSubsystems records the legacy internal packages awaiting tier placement or host migration.
+// This is a strict ratchet to prevent architecture escape: any package under internal/ must either be
+// in tiers 1..5, be a registered host, or be documented here.
+var unclassifiedSubsystems = map[string]string{
+	"internal/agyupdate":                "auto-updater utility",
+	"internal/codeium_common_pb":        "generated protobuf contracts",
+	"internal/cortex":                   "cortex turn engine compatibility adapter",
+	"internal/cortex_pb":                "generated protobuf contracts",
+	"internal/extension_server_pb":      "generated protobuf contracts",
+	"internal/language_server":          "language server domain handler",
+	"internal/language_server_pb":       "generated protobuf contracts",
+	"internal/planrender":               "markdown plan rendering helper",
+	"internal/rcaudio":                  "remote control audio streamer",
+	"internal/rcfrontend":               "remote control web UI assets and routes",
+	"internal/rctunnel":                 "remote control tunnel manager",
+	"internal/rctunnel/patches":         "tunnel patch set",
+	"internal/remotecontrol":            "remote control RPC dispatcher",
+	"internal/remotecontrol/cascades":   "remote control cascades controller",
+	"internal/remotecontrol/convconfig": "remote control conversation config",
+	"internal/remotecontrol/effort":     "remote control reasoning effort vocabulary",
+	"internal/remotecontrol/fastpush":   "remote control fastpush controller",
+	"internal/remotecontrol/files":      "remote control file inspector",
+	"internal/remotecontrol/mendel":     "remote control mendel flag cache",
+	"internal/remotecontrol/origins":    "remote control origin policy",
+	"internal/remotecontrol/permissions": "remote control permission CRUD store",
+	"internal/remotecontrol/plugins":    "remote control plugin metadata manager",
+	"internal/remotecontrol/projects":   "remote control project controller",
+	"internal/remotecontrol/resources":  "remote control resource provider",
+	"internal/remotecontrol/rpc":        "remote control JSON-RPC wire codec",
+	"internal/remotecontrol/terminals":  "remote control terminal multiplexer",
+	"internal/remotecontrol/triggers":   "remote control trigger orchestrator",
+	"internal/voice":                    "voice dictation driver",
+	"internal/voice/voicepb":            "generated voice protobuf contracts",
 }
 
 // exception is one documented exemption from one rule.
@@ -675,6 +701,30 @@ func TestArchitecture(t *testing.T) {
 	internalProd, _ := internalPkgs(prodPkgs)
 	_, internalTest := internalPkgs(testPkgs)
 	internalProdCount, internalTestCount := len(internalProd), len(internalTest)
+
+	// R0: every package under internal/ must be classified (in a tier,
+	// registered as a host, or documented in unclassifiedSubsystems).
+	var unclassified []violation
+	for _, p := range allPkgs {
+		if !strings.HasPrefix(p.path, "internal/") {
+			continue
+		}
+		if tierOf(p.path) > 0 || isHost(p.path) {
+			continue
+		}
+		if _, ok := unclassifiedSubsystems[p.path]; ok {
+			continue
+		}
+		unclassified = append(unclassified, violation{
+			rule: "R0",
+			from: p.path,
+			to:   "unclassified",
+			file: "package must belong to a tier or host",
+		})
+	}
+	t.Run("R0 all internal packages accounted for", func(t *testing.T) {
+		report(t, "R0", "all internal packages accounted for", unclassified)
+	})
 
 	// R1: no upward edge. A tier-N package imports no tier-M package
 	// with M > N. The rule governs the shipped graph; the test-only

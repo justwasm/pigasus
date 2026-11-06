@@ -18,17 +18,17 @@ func TestVimPendingOperatorCarriesOverTheSubmit(t *testing.T) {
 	vimPress(t, m, vimEscKey())
 	// "d" is a half-typed operator: the engine waits for its motion.
 	vimPress(t, m, runeKey('d'))
-	if m.vimEng.Pending != "d" {
-		t.Fatalf("pending = %q, want d", m.vimEng.Pending)
+	if m.composer.vimEng.Pending != "d" {
+		t.Fatalf("pending = %q, want d", m.composer.vimEng.Pending)
 	}
 	// ctrl+s submits and clears the composer.
 	vimPress(t, m, ctrlKey('s'))
-	if got := m.input.Value(); got != "" {
+	if got := m.composer.input.Value(); got != "" {
 		t.Fatalf("composer after submit = %q, want empty", got)
 	}
 	// The operator is still waiting for its motion.
-	if m.vimEng.Pending != "d" {
-		t.Fatalf("pending after submit = %q, want d", m.vimEng.Pending)
+	if m.composer.vimEng.Pending != "d" {
+		t.Fatalf("pending after submit = %q, want d", m.composer.vimEng.Pending)
 	}
 }
 
@@ -41,7 +41,7 @@ func TestVimCarriedOperatorDoesNotSwallowTheNextKey(t *testing.T) {
 	// "i" is the way into Insert mode; the stale operator must not eat
 	// it.
 	vimPress(t, m, runeKey('i'))
-	if m.vimEng.Mode != vim.Insert {
-		t.Fatalf("mode = %v, want Insert", m.vimEng.Mode)
+	if m.composer.vimEng.Mode != vim.Insert {
+		t.Fatalf("mode = %v, want Insert", m.composer.vimEng.Mode)
 	}
 }

@@ -17,7 +17,7 @@ import (
 // TestRunMode_ArchitectureGuard verifies invariants:
 // 1. runMode field count drops to <= 15 (decomposed into cohesive sub-state components).
 // 2. runMode satisfies tuimodel.Model.
-// 3. Zero switch statements dispatch on m.panel.kind in internal/tui.
+// 3. Zero switch statements dispatch on m.overlays.panel.kind in internal/tui.
 // 4. internal/ui/tuimodel and internal/app/tuistore import no host packages.
 func TestRunMode_ArchitectureGuard(t *testing.T) {
 	// Invariant 1: runMode implements tuimodel.Model interface.
@@ -53,23 +53,46 @@ func TestRunMode_ArchitectureGuard(t *testing.T) {
 				if !ok {
 					continue
 				}
+				var embeddedCount int
+				var namedFields []string
 				for _, fl := range st.Fields.List {
 					if len(fl.Names) == 0 {
-						fields++ // embedded type
+						embeddedCount++
+						fields++
+						// Embedded field must only be tuimodel.Base
 						continue
 					}
+					for _, name := range fl.Names {
+						namedFields = append(namedFields, name.Name)
+					}
 					fields += len(fl.Names)
+				}
+				if embeddedCount > 1 {
+					t.Errorf("runMode has %d embedded structs, want <= 1 (only tuimodel.Base allowed; no anonymous domain embedding!)", embeddedCount)
+				}
+				expectedFields := []string{"session", "engine", "viewport", "composer", "overlays"}
+				for _, exp := range expectedFields {
+					found := false
+					for _, nf := range namedFields {
+						if nf == exp {
+							found = true
+							break
+						}
+					}
+					if !found {
+						t.Errorf("runMode missing explicit domain model field %q; fields are %v", exp, namedFields)
+					}
 				}
 			}
 		}
 	}
 
-	const maxAllowedFields = 10
+	const maxAllowedFields = 6
 	if fields > maxAllowedFields {
-		t.Errorf("runMode field count = %d, want <= %d (sub-state decomposition target)", fields, maxAllowedFields)
+		t.Errorf("runMode field count = %d, want <= %d (clean composite Elm model tree target)", fields, maxAllowedFields)
 	}
 
-	// Invariant 3: Zero switch m.panel.kind across internal/cliapp production files.
+	// Invariant 3: Zero switch m.overlays.panel.kind across internal/cliapp production files.
 	for _, f := range files {
 		if strings.HasSuffix(f, "_test.go") {
 			continue
@@ -78,7 +101,7 @@ func TestRunMode_ArchitectureGuard(t *testing.T) {
 		if err != nil {
 			t.Fatalf("read %s: %v", f, err)
 		}
-		if strings.Contains(string(data), "switch m.panel.kind") || strings.Contains(string(data), "switch panel.kind") {
+		if strings.Contains(string(data), "switch m.overlays.panel.kind") || strings.Contains(string(data), "switch m.panel.kind") || strings.Contains(string(data), "switch panel.kind") {
 			t.Errorf("%s contains switch dispatch on panel.kind, must route via panelregistry.Registry", f)
 		}
 	}

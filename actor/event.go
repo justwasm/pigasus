@@ -45,6 +45,7 @@ type Event struct {
 	NewState         LifecycleState  `json:"new_state,omitempty"`
 	ScheduleRecord   *ScheduleRecord `json:"schedule,omitempty"`
 	Error            string          `json:"error,omitempty"`
+	Err              error           `json:"-"`
 	TurnSummary      *TurnSummary    `json:"turn_summary,omitempty"`
 	Metadata         map[string]any  `json:"metadata,omitempty"`
 }

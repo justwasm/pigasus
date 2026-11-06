@@ -26,8 +26,6 @@ import (
 	"time"
 
 	"github.com/coder/websocket"
-
-	"github.com/justwasm/pigasus/internal/remotecontrol"
 )
 
 // testSecret is the secret the tests configure. It is long enough to
@@ -41,16 +39,7 @@ const testSecret = "test-secret-0123456789abcdef"
 // exercise the rules that apply to a remote peer).
 func newAuthTestServer(t *testing.T, cfg TCPConfig) (*TCPServer, func()) {
 	t.Helper()
-	sess := remotecontrol.NewSessionState("1.3.4-test")
-	sess.Workspace = "/tmp/ws-workspace"
-	disp, err := remotecontrol.NewDispatcher(remotecontrol.Config{
-		Session: sess,
-		Agents:  remotecontrol.DefaultAgentLister,
-		Reader:  remotecontrol.DefaultOutputReader{},
-	})
-	if err != nil {
-		t.Fatalf("NewDispatcher: %v", err)
-	}
+	disp := &mockRPCDispatcher{}
 	cfg.Addr = "127.0.0.1:0"
 	cfg.Path = "/rpc"
 	srv, err := NewTCPServer(context.Background(), disp, cfg)

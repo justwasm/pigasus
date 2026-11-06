@@ -19,8 +19,8 @@ import (
 // compaction.
 func TestCompactSpinnerTickAdvancesTheFrame(t *testing.T) {
 	m := &runMode{}
-	m.store.CompactStart = time.Now()
-	m.store.CompactEnd = time.Time{}
+	m.session.store.CompactStart = time.Now()
+	m.session.store.CompactEnd = time.Time{}
 
 	cmd := compactSpinnerTick()
 	if cmd == nil {
@@ -31,9 +31,9 @@ func TestCompactSpinnerTickAdvancesTheFrame(t *testing.T) {
 		t.Fatalf("compactSpinnerTick() produced %T, want compactSpinnerTickMsg", msg)
 	}
 
-	before := m.store.CompactSpinnerFrame
+	before := m.session.store.CompactSpinnerFrame
 	m.Update(msg)
-	if m.store.CompactSpinnerFrame != before+1 {
-		t.Errorf("compactSpinnerFrame = %d, want %d", m.store.CompactSpinnerFrame, before+1)
+	if m.session.store.CompactSpinnerFrame != before+1 {
+		t.Errorf("compactSpinnerFrame = %d, want %d", m.session.store.CompactSpinnerFrame, before+1)
 	}
 }

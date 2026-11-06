@@ -47,11 +47,11 @@ import (
 func TestResumeTypedKeysReachThePicker(t *testing.T) {
 	t.Setenv("ANTIGRAVITY_HOME", t.TempDir())
 	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
-	m.width, m.height = 200, 40
+	m.viewport.width, m.viewport.height = 200, 40
 	if handled, _ := m.handleSlashCommand("/resume"); !handled {
 		t.Fatal("/resume should be handled")
 	}
-	if !m.resumePicker.Active() {
+	if !m.overlays.resumePicker.Active() {
 		t.Fatal("/resume should open the picker")
 	}
 
@@ -65,10 +65,10 @@ func TestResumeTypedKeysReachThePicker(t *testing.T) {
 	} {
 		m.Update(tea.KeyPressMsg(k))
 	}
-	if got := m.resumePicker.Query(); got != "Fixing" {
+	if got := m.overlays.resumePicker.Query(); got != "Fixing" {
 		t.Fatalf("query = %q, want %q (shifted characters must be inserted)", got, "Fixing")
 	}
-	if got := m.input.Value(); got != "" {
+	if got := m.composer.input.Value(); got != "" {
 		t.Fatalf("the typed characters leaked into the prompt: %q", got)
 	}
 
@@ -76,11 +76,11 @@ func TestResumeTypedKeysReachThePicker(t *testing.T) {
 	// query even though some terminals attach Text to them. Ctrl+U clears
 	// the search field.
 	m.Update(tea.KeyPressMsg(tea.Key{Code: 'u', Mod: tea.ModCtrl}))
-	if got := m.resumePicker.Query(); got != "" {
+	if got := m.overlays.resumePicker.Query(); got != "" {
 		t.Fatalf("query = %q after ctrl+u, want empty", got)
 	}
 	m.Update(tea.KeyPressMsg(tea.Key{Code: 'v', Text: "v", Mod: tea.ModCtrl}))
-	if got := m.resumePicker.Query(); got != "" {
+	if got := m.overlays.resumePicker.Query(); got != "" {
 		t.Fatalf("query = %q after ctrl+v, want empty", got)
 	}
 }
@@ -103,14 +103,14 @@ func TestResumeEmptyStoreOpensPicker(t *testing.T) {
 	t.Setenv("ANTIGRAVITY_HOME", dir)
 
 	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
-	m.width, m.height = 200, 40
+	m.viewport.width, m.viewport.height = 200, 40
 	if handled, _ := m.handleSlashCommand("/resume"); !handled {
 		t.Fatal("/resume should be handled")
 	}
-	if !m.resumePicker.Active() {
+	if !m.overlays.resumePicker.Active() {
 		t.Fatal("/resume on an empty store must still open the picker")
 	}
-	body := ansi.Strip(m.resumePicker.View(m.width, m.height))
+	body := ansi.Strip(m.overlays.resumePicker.View(m.viewport.width, m.viewport.height))
 	if !strings.Contains(body, "No conversations available.") {
 		t.Errorf("missing empty-state line: %q", body)
 	}
@@ -126,11 +126,11 @@ func TestResumeEmptyStoreOpensPicker(t *testing.T) {
 
 	// Enter returns to the prompt without echoing anything.
 	m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
-	if m.resumePicker.Active() {
+	if m.overlays.resumePicker.Active() {
 		t.Fatal("Enter on the empty screen should close the picker")
 	}
-	if len(m.response) != 0 {
-		t.Fatalf("Enter on the empty screen echoed %q, want nothing", m.response)
+	if len(m.engine.response) != 0 {
+		t.Fatalf("Enter on the empty screen echoed %q, want nothing", m.engine.response)
 	}
 }
 
@@ -183,18 +183,18 @@ func TestResume_PopulatesFromStoreDir(t *testing.T) {
 	}
 
 	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
-	m.width, m.height = 200, 40
+	m.viewport.width, m.viewport.height = 200, 40
 	handled, _ := m.handleSlashCommand("/resume")
 	if !handled {
 		t.Fatal("/resume should be handled")
 	}
-	if !m.resumePicker.Active() {
+	if !m.overlays.resumePicker.Active() {
 		t.Fatal("/resume should open the picker")
 	}
-	if got := len(m.resumePicker.List()); got != 2 {
+	if got := len(m.overlays.resumePicker.List()); got != 2 {
 		t.Fatalf("expected 2 conversations, got %d", got)
 	}
-	body := m.resumePicker.View(m.width, m.height)
+	body := m.overlays.resumePicker.View(m.viewport.width, m.viewport.height)
 	if !strings.Contains(body, "fix the bug please") {
 		t.Errorf("picker missing first conversation title: %q", body)
 	}
@@ -220,34 +220,34 @@ func TestResume_UpDownMovesCursor(t *testing.T) {
 
 	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
 	_, _ = m.handleSlashCommand("/resume")
-	if !m.resumePicker.Active() {
+	if !m.overlays.resumePicker.Active() {
 		t.Fatal("/resume should open")
 	}
 	// Cycle 336: the picker opens on the workspace tree (agy 1.4.7). The
 	// three conversations above share one workspace — no workspace at all —
 	// so the tree is one group row followed by its three conversations,
 	// and the cursor opens on the first conversation (row 1).
-	if got := m.resumePicker.Cursor(); got != 1 {
+	if got := m.overlays.resumePicker.Cursor(); got != 1 {
 		t.Fatalf("initial cursor = %d, want 1 (the first conversation of the expanded group)", got)
 	}
 	m.Update(key(tea.KeyDown, 0))
-	if got := m.resumePicker.Cursor(); got != 2 {
+	if got := m.overlays.resumePicker.Cursor(); got != 2 {
 		t.Fatalf("after down, cursor = %d, want 2", got)
 	}
 	m.Update(key(tea.KeyDown, 0))
-	if got := m.resumePicker.Cursor(); got != 3 {
+	if got := m.overlays.resumePicker.Cursor(); got != 3 {
 		t.Fatalf("after 2nd down, cursor = %d, want 3", got)
 	}
 	m.Update(key(tea.KeyDown, 0))
-	if got := m.resumePicker.Cursor(); got != 3 {
+	if got := m.overlays.resumePicker.Cursor(); got != 3 {
 		t.Fatalf("down should clamp at last (3), got %d", got)
 	}
 	m.Update(key(tea.KeyUp, 0))
-	if got := m.resumePicker.Cursor(); got != 2 {
+	if got := m.overlays.resumePicker.Cursor(); got != 2 {
 		t.Fatalf("after up, cursor = %d, want 2", got)
 	}
 	m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEsc}))
-	if m.resumePicker.Active() {
+	if m.overlays.resumePicker.Active() {
 		t.Fatal("Esc should close the picker")
 	}
 }
@@ -269,7 +269,7 @@ func TestFork_WritesConvStoreAndAppearsInPicker(t *testing.T) {
 	}
 
 	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
-	m.session = []backend.Message{
+	m.engine.session = []backend.Message{
 		{Role: "user", Content: "do thing 1"},
 		{Role: "assistant", Content: "ok"},
 		{Role: "user", Content: "do thing 2"},
@@ -277,7 +277,7 @@ func TestFork_WritesConvStoreAndAppearsInPicker(t *testing.T) {
 	}
 
 	_, _ = m.handleSlashCommand("/fork")
-	if len(m.session) == 0 {
+	if len(m.engine.session) == 0 {
 		t.Fatal("fork should not wipe the live session")
 	}
 	entries, err := os.ReadDir(filepath.Join(dir, "conversations"))
@@ -288,12 +288,12 @@ func TestFork_WritesConvStoreAndAppearsInPicker(t *testing.T) {
 		t.Fatalf("expected 2 dbs (past + fork), got %d", len(entries))
 	}
 
-	m.resumePicker.Close()
+	m.overlays.resumePicker.Close()
 	_, _ = m.handleSlashCommand("/resume")
-	if !m.resumePicker.Active() {
-		t.Fatalf("/resume should open with the past conversation present (resp=%v)", m.response)
+	if !m.overlays.resumePicker.Active() {
+		t.Fatalf("/resume should open with the past conversation present (resp=%v)", m.engine.response)
 	}
-	list := m.resumePicker.List()
+	list := m.overlays.resumePicker.List()
 	if len(list) != 1 {
 		t.Fatalf("expected 1 conversation (the fork is current and hidden), got %d", len(list))
 	}
@@ -325,10 +325,10 @@ func TestResume_F4DeletesConversation(t *testing.T) {
 	}
 
 	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", false)
-	if _, _ = m.handleSlashCommand("/resume"); !m.resumePicker.Active() {
+	if _, _ = m.handleSlashCommand("/resume"); !m.overlays.resumePicker.Active() {
 		t.Fatal("/resume should open the picker")
 	}
-	if got := len(m.resumePicker.List()); got != 1 {
+	if got := len(m.overlays.resumePicker.List()); got != 1 {
 		t.Fatalf("expected 1 conversation in the picker, got %d", got)
 	}
 
@@ -362,18 +362,18 @@ func TestResume_F2RenamesConversation(t *testing.T) {
 	}
 
 	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", false)
-	if _, _ = m.handleSlashCommand("/resume"); !m.resumePicker.Active() {
+	if _, _ = m.handleSlashCommand("/resume"); !m.overlays.resumePicker.Active() {
 		t.Fatal("/resume should open the picker")
 	}
 
 	m.Update(tea.KeyPressMsg{Code: tea.KeyF2})
-	if m.resumePicker.Active() {
+	if m.overlays.resumePicker.Active() {
 		t.Fatal("the picker should be closed after F2 rename")
 	}
-	if m.panel.kind != panelregistry.Rename {
-		t.Fatalf("F2 in resume should open panelregistry.Rename; got %v", m.panel.kind)
+	if m.overlays.panel.kind != panelregistry.Rename {
+		t.Fatalf("F2 in resume should open panelregistry.Rename; got %v", m.overlays.panel.kind)
 	}
-	if got := m.conversationName; got != "Original Title" {
+	if got := m.session.conversationName; got != "Original Title" {
 		t.Errorf("conversationName = %q, want 'Original Title'", got)
 	}
 }
@@ -420,21 +420,21 @@ func TestContinueFlag(t *testing.T) {
 		t.Fatalf("sel.Store not loaded: %+v", sel.Store)
 	}
 	m := newRunMode(nil, "", "Gemini 3.8 Flash (High)", "", "/tmp", true)
-	m.conversationID = sel.ID
+	m.session.conversationID = sel.ID
 	m.seedConversation(sel.Store)
-	joined := strings.Join(m.response, "\n")
+	joined := strings.Join(m.engine.response, "\n")
 	// Resumed transcript echoes user prompts matching agy.
 	if !strings.Contains(joined, "say what?") {
 		t.Errorf("resumed transcript must echo user prompts; got:\n%s", joined)
 	}
 	seededUser := false
-	for _, msg := range m.session {
+	for _, msg := range m.engine.session {
 		if msg.Role == "user" && strings.Contains(msg.Content, "say what?") {
 			seededUser = true
 		}
 	}
 	if !seededUser {
-		t.Errorf("prior user prompt missing from the seeded session: %+v", m.session)
+		t.Errorf("prior user prompt missing from the seeded session: %+v", m.engine.session)
 	}
 }
 
@@ -498,14 +498,14 @@ func TestGoroutineLeakResumePicker(t *testing.T) {
 	for i := 0; i < 10; i++ {
 		m := newRunMode(nil, "", "Gemini 3.8 Flash (High)", "", dir, true)
 		handled, _ := m.handleSlashCommand("/resume")
-		if !handled || !m.resumePicker.Active() {
-			t.Fatalf("iter %d: /resume failed: handled=%v active=%v", i, handled, m.resumePicker.Active())
+		if !handled || !m.overlays.resumePicker.Active() {
+			t.Fatalf("iter %d: /resume failed: handled=%v active=%v", i, handled, m.overlays.resumePicker.Active())
 		}
 		// Drive the picker through the happy path so any spawned
 		// goroutines see their natural close.
 		m.Update(key(tea.KeyDown, 0))
 		m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEsc}))
-		if m.resumePicker.Active() {
+		if m.overlays.resumePicker.Active() {
 			t.Fatalf("iter %d: picker should close on Esc", i)
 		}
 		// Cycle tasks-panel: newRunMode arms a subscriber goroutine
@@ -513,7 +513,12 @@ func TestGoroutineLeakResumePicker(t *testing.T) {
 		// iteration's m doesn't accumulate (delta=10). The cancel
 		// callback closes the registry's channel, the goroutine's
 		// `for range ch` exits, and runtime.GC drains it.
-		m.tasksSubCancel()
+		if m.engine.taskCtrl != nil {
+			m.engine.taskCtrl.Close()
+		}
+		if m.engine.tasksSubCancel != nil {
+			m.engine.tasksSubCancel()
+		}
 	}
 	// Allow blink ticks to drain.
 	time.Sleep(700 * time.Millisecond)
@@ -528,8 +533,8 @@ func TestGoroutineLeakResumePicker(t *testing.T) {
 // TestSlashContinueResumeLast exercises the /continue slash command
 // the cycle-resume TUI surface adds. Seeds one conversation in the
 // active workspace, runs /continue, and checks (a) the slash was
-// handled, (b) m.conversationID was overwritten with the picked id,
-// (c) the prior-turn transcript re-appeared in m.response.
+// handled, (b) m.session.conversationID was overwritten with the picked id,
+// (c) the prior-turn transcript re-appeared in m.engine.response.
 func TestSlashContinueResumeLast(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("ANTIGRAVITY_HOME", dir)
@@ -555,14 +560,14 @@ func TestSlashContinueResumeLast(t *testing.T) {
 	}
 
 	m := newRunMode(nil, "", "Gemini 3.8 Flash (High)", "", ws, true)
-	m.conversationID = "pre-existing-id-from-new-run" // would otherwise short-circuit
+	m.session.conversationID = "pre-existing-id-from-new-run" // would otherwise short-circuit
 	if handled, _ := m.handleSlashCommand("/continue"); !handled {
 		t.Fatal("/continue should be handled")
 	}
-	if m.conversationID != id {
-		t.Errorf("m.conversationID = %q, want %q", m.conversationID, id)
+	if m.session.conversationID != id {
+		t.Errorf("m.session.conversationID = %q, want %q", m.session.conversationID, id)
 	}
-	joined := strings.Join(m.response, "\n")
+	joined := strings.Join(m.engine.response, "\n")
 	// Resumed transcript echoes user prompts and model reply matching agy.
 	if !strings.Contains(joined, "old reply") {
 		t.Errorf("missing the prior model reply: %q", joined)
@@ -583,7 +588,7 @@ func TestSlashContinueResumeLast(t *testing.T) {
 // TestSlashContinueNoConversation runs /continue in a fresh
 // ANTIGRAVITY_HOME — there is no candidate, so the handler echoes the
 // "No previous conversation to continue." line and leaves
-// m.conversationID alone.
+// m.session.conversationID alone.
 func TestSlashContinueNoConversation(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("ANTIGRAVITY_HOME", dir)
@@ -591,15 +596,15 @@ func TestSlashContinueNoConversation(t *testing.T) {
 
 	m := newRunMode(nil, "", "Gemini 3.8 Flash (High)", "", t.TempDir(), true)
 	const origID = "orig-conv-id-unchanged"
-	m.conversationID = origID
+	m.session.conversationID = origID
 	if handled, _ := m.handleSlashCommand("/continue"); !handled {
 		t.Fatal("/continue should be handled")
 	}
-	if m.conversationID != origID {
-		t.Errorf("m.conversationID = %q, want %q (unchanged on miss)",
-			m.conversationID, origID)
+	if m.session.conversationID != origID {
+		t.Errorf("m.session.conversationID = %q, want %q (unchanged on miss)",
+			m.session.conversationID, origID)
 	}
-	joined := strings.Join(m.response, "\n")
+	joined := strings.Join(m.engine.response, "\n")
 	if !strings.Contains(joined, "No previous conversation to continue.") {
 		t.Errorf("missing empty-state message: %q", joined)
 	}
@@ -643,17 +648,17 @@ func TestSlashContinueParentFallback(t *testing.T) {
 	if handled, _ := m.handleSlashCommand("/continue"); !handled {
 		t.Fatal("/continue should be handled")
 	}
-	if m.conversationID != id {
-		t.Errorf("m.conversationID = %q, want %q (the parent's session)", m.conversationID, id)
+	if m.session.conversationID != id {
+		t.Errorf("m.session.conversationID = %q, want %q (the parent's session)", m.session.conversationID, id)
 	}
 	seededUser := false
-	for _, msg := range m.session {
+	for _, msg := range m.engine.session {
 		if msg.Role == "user" && strings.Contains(msg.Content, "parent owned prompt") {
 			seededUser = true
 		}
 	}
 	if !seededUser {
-		t.Errorf("missing parent-owned prompt in the seeded session: %+v", m.session)
+		t.Errorf("missing parent-owned prompt in the seeded session: %+v", m.engine.session)
 	}
 }
 
@@ -1247,17 +1252,17 @@ func TestResumeConversation_BoostStepTextRestored(t *testing.T) {
 		},
 	}
 	m := newRunMode(nil, "", "m", "", "/tmp", true)
-	m.width, m.height = 120, 24
-	m.altScreen = true
+	m.viewport.width, m.viewport.height = 120, 24
+	m.viewport.altScreen = true
 	m.seedConversation(c)
 	_ = m.View()
 
-	if len(m.userPromptRows) == 0 {
+	if len(m.viewport.userPromptRows) == 0 {
 		t.Fatal("expected at least 1 user prompt row")
 	}
-	header := m.scrollHeaderRows(m.width)
-	wrapped := m.wrappedResponse(m.width)
-	promptIdx := m.userPromptRows[0] - len(header)
+	header := m.scrollHeaderRows(m.viewport.width)
+	wrapped := m.wrappedResponse(m.viewport.width)
+	promptIdx := m.viewport.userPromptRows[0] - len(header)
 	if promptIdx < 0 || promptIdx >= len(wrapped) {
 		t.Fatalf("promptIdx %d out of bounds for wrapped (len %d)", promptIdx, len(wrapped))
 	}
@@ -1268,18 +1273,18 @@ func TestResumeConversation_BoostStepTextRestored(t *testing.T) {
 	}
 
 	// Verify sticky header when scrolled down past prompt
-	m.scroll = m.userPromptRows[0] + 5
-	m.autoScroll = false
+	m.viewport.scroll = m.viewport.userPromptRows[0] + 5
+	m.viewport.autoScroll = false
 	_ = m.View()
 
-	if tuiviewport.StickyUserPromptRow(m.userPromptRows, m.autoScroll, m.scroll) < 0 {
-		t.Fatalf("stickyUserPromptRow = %d, want >= 0", tuiviewport.StickyUserPromptRow(m.userPromptRows, m.autoScroll, m.scroll))
+	if tuiviewport.StickyUserPromptRow(m.viewport.userPromptRows, m.viewport.autoScroll, m.viewport.scroll) < 0 {
+		t.Fatalf("stickyUserPromptRow = %d, want >= 0", tuiviewport.StickyUserPromptRow(m.viewport.userPromptRows, m.viewport.autoScroll, m.viewport.scroll))
 	}
-	if !strings.Contains(m.pinnedPromptText, "1.4.10") {
-		t.Errorf("pinnedPromptText = %q, want to contain '1.4.10'", m.pinnedPromptText)
+	if !strings.Contains(m.viewport.pinnedPromptText, "1.4.10") {
+		t.Errorf("pinnedPromptText = %q, want to contain '1.4.10'", m.viewport.pinnedPromptText)
 	}
-	if strings.Contains(m.pinnedPromptText, "jump to prompt") {
-		t.Errorf("pinnedPromptText = %q, expected no 'jump to prompt' hint matching agy 1.4.10", m.pinnedPromptText)
+	if strings.Contains(m.viewport.pinnedPromptText, "jump to prompt") {
+		t.Errorf("pinnedPromptText = %q, expected no 'jump to prompt' hint matching agy 1.4.10", m.viewport.pinnedPromptText)
 	}
 }
 
@@ -1301,14 +1306,14 @@ func TestResumeConversation_RestoresQueuedPrompts(t *testing.T) {
 		},
 	}
 	m := newRunMode(nil, "", "m", "", "/tmp", true)
-	m.conversationID = convID
+	m.session.conversationID = convID
 	m.seedConversation(c)
 
-	if m.store.QueuedPrompt != "pending prompt 1" {
-		t.Errorf("m.store.QueuedPrompt = %q, want %q", m.store.QueuedPrompt, "pending prompt 1")
+	if m.session.store.QueuedPrompt != "pending prompt 1" {
+		t.Errorf("m.session.store.QueuedPrompt = %q, want %q", m.session.store.QueuedPrompt, "pending prompt 1")
 	}
-	if len(m.store.StreamQueue) != 1 || m.store.StreamQueue[0] != "pending prompt 2" {
-		t.Errorf("m.store.StreamQueue = %v, want ['pending prompt 2']", m.store.StreamQueue)
+	if len(m.session.store.StreamQueue) != 1 || m.session.store.StreamQueue[0] != "pending prompt 2" {
+		t.Errorf("m.session.store.StreamQueue = %v, want ['pending prompt 2']", m.session.store.StreamQueue)
 	}
 
 	// Dequeue all queued prompts
@@ -1349,7 +1354,7 @@ func TestResumeConversation_RestoresActiveSchedules(t *testing.T) {
 		},
 	}
 	m := newRunMode(nil, "", "m", "", "/tmp", true)
-	m.conversationID = convID
+	m.session.conversationID = convID
 	m.seedConversation(c)
 
 	// Verify task is registered in shared task registry as running KindTimer
@@ -1403,7 +1408,7 @@ func TestResumeConversation_CatchesUpExpiredSchedules(t *testing.T) {
 		},
 	}
 	m := newRunMode(nil, "", "m", "", "/tmp", true)
-	m.conversationID = convID
+	m.session.conversationID = convID
 	m.seedConversation(c)
 
 	if receivedNotification == nil {

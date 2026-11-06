@@ -98,12 +98,12 @@ func (m *runMode) prepareStreamTurnMessages() []backend.Message {
 	// with this one.
 	m.collectImplicitMessages()
 	var msgs []backend.Message
-	if m.supervisor != nil {
-		msgs = m.supervisor.WireMessages()
+	if m.session.supervisor != nil {
+		msgs = m.session.supervisor.WireMessages()
 	} else {
-		msgs = make([]backend.Message, 0, len(m.implicitMsgs)+len(m.session))
-		msgs = append(msgs, m.implicitMsgs...)
-		msgs = append(msgs, m.session...)
+		msgs = make([]backend.Message, 0, len(m.engine.implicitMsgs)+len(m.engine.session))
+		msgs = append(msgs, m.engine.implicitMsgs...)
+		msgs = append(msgs, m.engine.session...)
 	}
 	for i := range msgs {
 		switch msgs[i].Role {
@@ -129,11 +129,11 @@ func (m *runMode) prepareStreamTurnMessages() []backend.Message {
 // A run mode built by hand — a test, a snapshot — has no engine yet, and
 // gets the local one.
 func (m *runMode) turnEngine() agentturn.Engine {
-	if m.engine != nil {
-		return m.engine
+	if m.engine.engine != nil {
+		return m.engine.engine
 	}
-	m.engine = agentturn.NewLocal(m.localTurnEnv)
-	return m.engine
+	m.engine.engine = agentturn.NewLocal(m.localTurnEnv)
+	return m.engine.engine
 }
 
 // localTurnEnv builds the environment one local turn runs in.
@@ -143,14 +143,14 @@ func (m *runMode) turnEngine() agentturn.Engine {
 // two turns — the user switches the model, a plugin installs a tool, the
 // workspace moves.
 func (m *runMode) localTurnEnv(ctx context.Context, model string) (agentturn.Env, func()) {
-	be := m.backend
+	be := m.engine.backend
 	extras, closeSub := m.subAgentExtras(ctx, be, model)
 	return agentturn.Env{
 		Backend:      be,
 		Model:        model,
 		SystemPrompt: m.systemPrompt(),
-		Tools:        m.tools,
-		ToolRunner:   m.toolRunner,
+		Tools:        m.engine.tools,
+		ToolRunner:   m.engine.toolRunner,
 		ExtraTools:   extras,
 		Effort:       m.currentEffortName(),
 	}, closeSub
@@ -352,7 +352,7 @@ func (c *turnCollector) result(f agentlink.Frame) {
 // remote one runs it on a server. Both answer with the same frames, so
 // this function does not know which one it is talking to.
 func (m *runMode) runTurn(ctx context.Context, msgs []backend.Message) tea.Msg {
-	if tl, ok := m.turnLock.(interface {
+	if tl, ok := m.engine.turnLock.(interface {
 		TryLock() bool
 		Unlock()
 	}); ok && tl != nil {
@@ -366,11 +366,11 @@ func (m *runMode) runTurn(ctx context.Context, msgs []backend.Message) tea.Msg {
 
 	bridge := NewEngineBridge(BridgeOptions{
 		Engine:    m.turnEngine(),
-		Program:   m.prog,
+		Program:   m.engine.prog,
 		PromptMgr: DefaultPermissionPrompts,
 		OnUsage:   m.recordTurnUsage,
 		OnFrame: func(f agentlink.Frame) {
-			if rec, ok := m.inprocessDisp.(interface {
+			if rec, ok := m.engine.inprocessDisp.(interface {
 				RecordExternalTurnFrame(string, string, string, string, string, string, bool)
 			}); ok && rec != nil {
 				var toolName, toolArgs, toolResult string
@@ -381,7 +381,7 @@ func (m *runMode) runTurn(ctx context.Context, msgs []backend.Message) tea.Msg {
 					toolResult = f.Tool.Result
 					toolErr = f.Tool.Err
 				}
-				rec.RecordExternalTurnFrame(m.conversationID, string(f.Kind), f.Text, toolName, toolArgs, toolResult, toolErr)
+				rec.RecordExternalTurnFrame(m.session.conversationID, string(f.Kind), f.Text, toolName, toolArgs, toolResult, toolErr)
 			}
 		},
 		HookStart: m.hookSessionStart,
@@ -389,15 +389,15 @@ func (m *runMode) runTurn(ctx context.Context, msgs []backend.Message) tea.Msg {
 		HookStop:  m.hookStop,
 		HookPost:  m.hookPostInvocation,
 	})
-	m.activeBridge = bridge
-	defer func() { m.activeBridge = nil }()
+	m.engine.activeBridge = bridge
+	defer func() { m.engine.activeBridge = nil }()
 	return bridge.RunTurn(ctx, m.turnModel(), msgs)
 }
 
 // turnModel is the model the session's turns run under.
 func (m *runMode) turnModel() string {
-	if m.model != "" {
-		return m.model
+	if m.session.model != "" {
+		return m.session.model
 	}
 	return "claude-4.5-sonnet"
 }
@@ -411,8 +411,8 @@ func (m *runMode) streamPrompt(prompt string) tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
-		m.turnCancel = cancel
-		defer func() { m.turnCancel = nil }()
+		m.engine.turnCancel = cancel
+		defer func() { m.engine.turnCancel = nil }()
 
 		return m.runTurn(ctx, msgs)
 	}
@@ -475,7 +475,7 @@ type quotaSummaryMsg struct {
 // shows the same numbers instead of querying the same account a second
 // time.
 func (m *runMode) fetchQuotaSummaryCmd() tea.Cmd {
-	cached := m.cachedQuota(m.email)
+	cached := m.cachedQuota(m.session.email)
 	return func() tea.Msg {
 		if cached != nil {
 			return quotaSummaryMsg{summary: cached}
@@ -513,35 +513,35 @@ type compactEndMsg struct {
 // systemPrompt builds the Antigravity CLI system prompt for this run mode.
 func (m *runMode) systemPrompt() string {
 	opts := m.promptOptions()
-	if m.agentBody != "" {
-		return agyprompt.BuildAgent(m.agentBody, opts)
+	if m.session.agentBody != "" {
+		return agyprompt.BuildAgent(m.session.agentBody, opts)
 	}
 	return agyprompt.Build(opts)
 }
 
 // promptOptions assembles the reference prompt inputs.
 func (m *runMode) promptOptions() agyprompt.Options {
-	workspace := m.cwd
+	workspace := m.session.cwd
 	if workspace == "" {
 		workspace = defaultWorkspaceForRunMode()
 	}
-	conversationID := m.conversationID
+	conversationID := m.session.conversationID
 	if conversationID == "" {
 		conversationID = newConversationID()
 	}
 	agentDir := confhome.Antigravity()
 	opts := agyprompt.DefaultOptions(workspace, agentDir, conversationID)
-	if m.flags != nil {
-		for _, dir := range cliflags.GetterStringValues(m.flags, "add-dir") {
+	if m.session.flags != nil {
+		for _, dir := range cliflags.GetterStringValues(m.session.flags, "add-dir") {
 			if abs, err := filepath.Abs(dir); err == nil {
 				opts.Workspaces = append(opts.Workspaces, abs)
 			}
 		}
 	}
 	opts.UserRules = agyprompt.DiscoverUserRules(workspace, agentDir)
-	opts.Skills = agyprompt.DiscoverSkills(agyprompt.AgySkillPaths(agentDir, m.cwd))
-	opts.PlanningMode = (m.mode == permissions.ModePlan)
-	if m.agentBody == "" {
+	opts.Skills = agyprompt.DiscoverSkills(agyprompt.AgySkillPaths(agentDir, m.session.cwd))
+	opts.PlanningMode = (m.session.mode == permissions.ModePlan)
+	if m.session.agentBody == "" {
 		// The browser agent is one of the built-in subagent types, and it
 		// comes before the user's own agents: the reference's list puts
 		// its built-ins first (the 1.4.6 capture lists self, research and
@@ -556,8 +556,8 @@ func (m *runMode) promptOptions() agyprompt.Options {
 // categories 1.4.3's /context panel reports separately.
 func (m *runMode) promptSectionTokens() (base, skills, subagents int) {
 	opts := m.promptOptions()
-	if m.agentBody != "" {
-		full := agyprompt.BuildAgent(m.agentBody, opts)
+	if m.session.agentBody != "" {
+		full := agyprompt.BuildAgent(m.session.agentBody, opts)
 		return len(full) / 3, 0, 0
 	}
 	full := agyprompt.Build(opts)
@@ -573,85 +573,92 @@ func (m *runMode) promptSectionTokens() (base, skills, subagents int) {
 // ---- tui_update_stream.go ----
 
 func (m *runMode) resetDiscardedTurn() {
-	m.discardTurn = false
-	m.liveSteps = nil
-	m.liveStepRuns = nil
-	m.activeTool = ""
-	m.streaming = false
-	m.thinking = false
-	m.liveThinking = ""
-	m.liveThinkingSnippet = ""
-	m.liveThoughtRunIdx = -1
-	m.activeTip = ""
-	m.replyStart = -1
-	m.liveReplyIdx = -1
-	m.liveTextLines = 0
-	m.liveReplyBuf = ""
-	m.lastStreamSave = time.Time{}
-	m.streamedText = false
-	m.liveBatch = 0
-	m.batchBreak = false
+	m.engine.discardTurn = false
+	m.engine.liveSteps = nil
+	m.engine.liveStepRuns = nil
+	m.engine.activeTool = ""
+	m.engine.streaming = false
+	m.engine.thinking = false
+	m.engine.liveThinking = ""
+	m.engine.liveThinkingSnippet = ""
+	m.engine.liveThoughtRunIdx = -1
+	m.viewport.activeTip = ""
+	m.engine.replyStart = -1
+	m.engine.liveReplyIdx = -1
+	m.engine.liveTextLines = 0
+	m.engine.liveReplyBuf = ""
+	m.engine.lastStreamSave = time.Time{}
+	m.engine.streamedText = false
+	m.engine.liveBatch = 0
+	m.engine.batchBreak = false
 }
 
 func (m *runMode) dequeueNextPrompt() string {
 	var queued []string
-	if m.store.QueuedPrompt != "" {
-		queued = append(queued, m.store.QueuedPrompt)
-		m.store.QueuedPrompt = ""
+	if m.session.store.QueuedPrompt != "" {
+		queued = append(queued, m.session.store.QueuedPrompt)
+		m.session.store.QueuedPrompt = ""
 	}
-	if len(m.store.StreamQueue) > 0 {
-		queued = append(queued, m.store.StreamQueue...)
-		m.store.StreamQueue = nil
+	if len(m.session.store.StreamQueue) > 0 {
+		queued = append(queued, m.session.store.StreamQueue...)
+		m.session.store.StreamQueue = nil
 	}
 	if len(queued) == 0 {
 		return ""
 	}
-	if m.conversationID != "" {
-		_ = convstore.SaveQueuedPrompts(m.conversationID, nil)
+	if m.session.conversationID != "" {
+		_ = convstore.SaveQueuedPrompts(m.session.conversationID, nil)
 	}
 	return strings.Join(queued, "\n")
 }
 
 func (m *runMode) recordTurnCompletion(msg toolsteps.TurnDoneMsg) {
-	m.liveSteps = nil
-	m.liveStepRuns = nil
-	m.activeTool = ""
-	m.streaming = false
-	m.thinking = false
-	m.liveThinking = ""
-	m.liveThinkingSnippet = ""
-	m.liveThoughtRunIdx = -1
-	m.activeTip = ""
-	m.replyStart = -1
-	m.liveTextLines = 0
-	m.liveReplyBuf = ""
-	m.store.SendingMessages = nil
-	m.lastStreamSave = time.Time{}
-	m.streamedText = false
-	m.liveBatch = 0
-	m.batchBreak = false
+	m.engine.liveSteps = nil
+	m.engine.liveStepRuns = nil
+	m.engine.activeTool = ""
+	m.engine.streaming = false
+	m.engine.thinking = false
+	m.engine.liveThinking = ""
+	m.engine.liveThinkingSnippet = ""
+	m.engine.liveThoughtRunIdx = -1
+	m.viewport.activeTip = ""
+	m.engine.replyStart = -1
+	m.engine.liveTextLines = 0
+	m.engine.liveReplyBuf = ""
+	m.session.store.SendingMessages = nil
+	m.engine.lastStreamSave = time.Time{}
+	m.engine.streamedText = false
+	m.engine.liveBatch = 0
+	m.engine.batchBreak = false
 	// The turn's outcome is a fact the session rests in: the status
 	// line's `agent_state` member reports it ("error" after a failed
 	// turn) and the terminal's own program status reads the same fact.
 	//
 	// A turn the user cancelled with Esc is not a failure: the
 	// cancellation is the turn's own outcome.
-	if msg.Err != nil && !m.turnInterrupted {
+	if msg.Err != nil && !m.engine.turnInterrupted {
 		m.recordTurnOutcome(tea.ProgramStateError)
 	} else {
 		m.recordTurnOutcome(tea.ProgramStateDone)
 	}
 
 	if !agentturn.IsEmptyAssistantTurn(msg.Reply, nil, msg.Reasoning) {
-		if m.liveReplyIdx >= 0 && m.liveReplyIdx < len(m.session) {
-			m.session[m.liveReplyIdx].Content = msg.Reply
-			if m.supervisor != nil {
-				m.supervisor.Replace(m.session)
-			}
-		} else {
-			m.session = append(m.session, backend.Message{Role: "assistant", Content: msg.Reply})
-			if m.supervisor != nil {
-				m.supervisor.Append(backend.Message{Role: "assistant", Content: msg.Reply})
+		// If a compaction just replaced the session with a ResumingBlock during this turn,
+		// the assistant's reply was already captured in the compacted summary.
+		isCompactedResumption := len(m.engine.session) == 1 &&
+			m.engine.session[0].Role == "user" &&
+			strings.HasPrefix(m.engine.session[0].Content, "# Resuming from a compaction")
+		if !isCompactedResumption {
+			if m.engine.liveReplyIdx >= 0 && m.engine.liveReplyIdx < len(m.engine.session) {
+				m.engine.session[m.engine.liveReplyIdx].Content = msg.Reply
+				if m.session.supervisor != nil {
+					m.session.supervisor.Replace(m.engine.session)
+				}
+			} else {
+				m.engine.session = append(m.engine.session, backend.Message{Role: "assistant", Content: msg.Reply})
+				if m.session.supervisor != nil {
+					m.session.supervisor.Append(backend.Message{Role: "assistant", Content: msg.Reply})
+				}
 			}
 		}
 	}
@@ -662,30 +669,30 @@ func (m *runMode) recordTurnCompletion(msg toolsteps.TurnDoneMsg) {
 	// reference answers a cancelled turn with the composer's interrupted
 	// hint instead (【反编译】 agy 1.4.8's `(*PromptModel).interruptedLine`),
 	// and the turn's own failure is the cancellation itself.
-	if msg.Err != nil && !m.turnInterrupted {
+	if msg.Err != nil && !m.engine.turnInterrupted {
 		if message, ok := agentturn.TurnErrorMessage(msg.Err); ok {
-			m.response = append(m.response, toolsteps.ErrorRow(message))
+			m.engine.response = append(m.engine.response, toolsteps.ErrorRow(message))
 		}
 	}
-	m.replyStart = -1
-	m.liveReplyIdx = -1
+	m.engine.replyStart = -1
+	m.engine.liveReplyIdx = -1
 	m.saveSession()
-	if len(m.response) > 0 {
-		m.response = append(m.response, "")
+	if len(m.engine.response) > 0 {
+		m.engine.response = append(m.engine.response, "")
 	}
 }
 
 func (m *runMode) flushNextQueued(nextQueued string) tea.Cmd {
 	if nextQueued == "" {
-		if len(m.store.BashQueue) > 0 {
-			next := m.store.BashQueue[0]
-			m.store.BashQueue = m.store.BashQueue[1:]
+		if len(m.session.store.BashQueue) > 0 {
+			next := m.session.store.BashQueue[0]
+			m.session.store.BashQueue = m.session.store.BashQueue[1:]
 			return m.startBashCommand(next)
 		}
 		// A background task that finished while the turn was running has
 		// a notification to deliver. The reference's agent picks it up
 		// and carries on without waiting for the user.
-		if m.taskInbox != nil && m.taskInbox.Len() > 0 {
+		if m.engine.taskInbox != nil && m.engine.taskInbox.Len() > 0 {
 			return m.startNotificationTurn()
 		}
 		return nil
@@ -694,81 +701,81 @@ func (m *runMode) flushNextQueued(nextQueued string) tea.Cmd {
 		return cmd
 	}
 	m.drainTaskNotifications()
-	for len(m.response) > 0 && strings.TrimSpace(m.response[len(m.response)-1]) == "" {
-		m.response = m.response[:len(m.response)-1]
+	for len(m.engine.response) > 0 && strings.TrimSpace(m.engine.response[len(m.engine.response)-1]) == "" {
+		m.engine.response = m.engine.response[:len(m.engine.response)-1]
 	}
-	sep := transcript.TurnSeparator(m.width)
-	if len(m.response) == 0 {
-		m.response = append(m.response, sep)
+	sep := transcript.TurnSeparator(m.viewport.width)
+	if len(m.engine.response) == 0 {
+		m.engine.response = append(m.engine.response, sep)
 	} else {
-		m.response = append(m.response, "", sep)
+		m.engine.response = append(m.engine.response, "", sep)
 	}
-	start := len(m.response)
-	promptLines := transcript.RenderUserPrompt(nextQueued, m.width)
-	m.response = append(m.response, promptLines...)
-	m.userBlocks = append(m.userBlocks, transcript.UserBlock{
+	start := len(m.engine.response)
+	promptLines := transcript.RenderUserPrompt(nextQueued, m.viewport.width)
+	m.engine.response = append(m.engine.response, promptLines...)
+	m.engine.userBlocks = append(m.engine.userBlocks, transcript.UserBlock{
 		Start: start,
 		Lines: len(promptLines),
 		Raw:   nextQueued,
 	})
-	m.liveStart = len(m.response)
-	m.replyStart = -1
-	m.liveReplyIdx = -1
-	m.liveSteps = nil
-	m.liveStepRuns = nil
-	m.activeTool = ""
-	m.thinking = false
-	m.liveTextLines = 0
-	m.liveReplyBuf = ""
-	m.lastStreamSave = time.Time{}
-	m.streamedText = false
-	m.liveBatch = 0
-	m.batchBreak = false
-	m.anyToolRun = false
-	m.spinFrame = 0
+	m.engine.liveStart = len(m.engine.response)
+	m.engine.replyStart = -1
+	m.engine.liveReplyIdx = -1
+	m.engine.liveSteps = nil
+	m.engine.liveStepRuns = nil
+	m.engine.activeTool = ""
+	m.engine.thinking = false
+	m.engine.liveTextLines = 0
+	m.engine.liveReplyBuf = ""
+	m.engine.lastStreamSave = time.Time{}
+	m.engine.streamedText = false
+	m.engine.liveBatch = 0
+	m.engine.batchBreak = false
+	m.engine.anyToolRun = false
+	m.engine.spinFrame = 0
 	m.appendUserTurn(nextQueued)
 	m.saveSession()
-	m.streaming = true
-	m.turnInterrupted = false
+	m.engine.streaming = true
+	m.engine.turnInterrupted = false
 	m.clearLastTurnOutcome()
-	tickCmd := func() tea.Msg { return m.spinner.Tick() }
+	tickCmd := func() tea.Msg { return m.engine.spinner.Tick() }
 	return tea.Batch(m.streamPrompt(nextQueued), tickCmd)
 }
 
 func (m *runMode) updateTurnDoneMsg(msg toolsteps.TurnDoneMsg) (tea.Model, tea.Cmd) {
-	m.inputNotice = ""
-	if m.discardTurn {
+	m.viewport.inputNotice = ""
+	if m.engine.discardTurn {
 		m.resetDiscardedTurn()
 		return m, tea.ClearScreen
 	}
 	// Promote any unapplied steer messages that arrived before turn completion into the queue
 	// so they are executed in the next turn as promised by the architecture design.
-	if len(m.store.SendingMessages) > 0 {
-		pending := append([]string(nil), m.store.SendingMessages...)
-		m.store.SendingMessages = nil
+	if len(m.session.store.SendingMessages) > 0 {
+		pending := append([]string(nil), m.session.store.SendingMessages...)
+		m.session.store.SendingMessages = nil
 		for _, instr := range pending {
-			m.store.StreamQueue = append(m.store.StreamQueue, instr)
+			m.session.store.StreamQueue = append(m.session.store.StreamQueue, instr)
 		}
 		m.saveSession()
 	}
 	nextQueued := m.dequeueNextPrompt()
 	doc := m.transcriptDocument()
 	if doc.FinaliseTurnReply(msg, m.transcriptOptions(msg)) {
-		m.rowsCacheDirty = true
+		m.viewport.rowsCacheDirty = true
 	}
 	m.applyTranscriptDocument(doc)
 	m.recordTurnCompletion(msg)
 
 	// If /goal mode is active, check the outcome of this turn.
-	if m.activeGoal != nil {
-		completed, cancelled := m.activeGoal.CheckOutcome(msg.Reply)
+	if m.session.activeGoal != nil {
+		completed, cancelled := m.session.activeGoal.CheckOutcome(msg.Reply)
 		if completed || cancelled {
-			m.activeGoal = nil
+			m.session.activeGoal = nil
 		} else {
 			// If the user manually queued a prompt, that takes priority and pauses the goal loop.
 			if nextQueued == "" {
-				m.activeGoal.ContinuationCount++
-				reminderPrompt := m.activeGoal.BuildReminderMessage()
+				m.session.activeGoal.ContinuationCount++
+				reminderPrompt := m.session.activeGoal.BuildReminderMessage()
 				return m, tea.Batch(m.startModelTurn(reminderPrompt), tea.ClearScreen)
 			}
 		}
@@ -779,33 +786,33 @@ func (m *runMode) updateTurnDoneMsg(msg toolsteps.TurnDoneMsg) (tea.Model, tea.C
 }
 
 func (m *runMode) updateToolRunningMsg(msg toolsteps.ToolRunningMsg) {
-	if m.thinking {
+	if m.engine.thinking {
 		m.finishLiveThinking()
 	}
-	m.activeTool = tuitools.RunningSpinnerText(msg.Step.Name)
-	m.anyToolRun = true
-	m.streaming = true
+	m.engine.activeTool = tuitools.RunningSpinnerText(msg.Step.Name)
+	m.engine.anyToolRun = true
+	m.engine.streaming = true
 
 	// The transcript owns the batch arithmetic: the running call either
 	// joins the current batch or starts a new one, and the rows of the
 	// batch are repainted. The host keeps the batch bookkeeping.
 	step := msg.Step
 	doc := m.transcriptDocument()
-	batch, batchBreak := doc.AppendRunningStep(&step, m.liveBatch, m.batchBreak, m.repaintOptions())
+	batch, batchBreak := doc.AppendRunningStep(&step, m.engine.liveBatch, m.engine.batchBreak, m.repaintOptions())
 	m.applyTranscriptDocument(doc)
-	m.liveBatch = batch
-	m.batchBreak = batchBreak
-	m.rowsCacheDirty = true
+	m.engine.liveBatch = batch
+	m.engine.batchBreak = batchBreak
+	m.viewport.rowsCacheDirty = true
 }
 
 func (m *runMode) updateToolStepMsg(msg toolsteps.ToolStepMsg) {
-	if m.thinking {
+	if m.engine.thinking {
 		m.finishLiveThinking()
 	}
-	m.activeTool = ""
-	m.replyStart = -1
-	m.liveTextLines = 0
-	m.liveReplyBuf = ""
+	m.engine.activeTool = ""
+	m.engine.replyStart = -1
+	m.engine.liveTextLines = 0
+	m.engine.liveReplyBuf = ""
 
 	// The finished call takes the running call's place in the batch,
 	// and the batch's rows are repainted with the block the batch now
@@ -815,19 +822,19 @@ func (m *runMode) updateToolStepMsg(msg toolsteps.ToolStepMsg) {
 	doc := m.transcriptDocument()
 	opts := m.repaintOptions()
 	if !doc.FinishLiveStep(&step, opts) {
-		batch, batchBreak := doc.AppendLiveStep(&step, m.liveBatch, m.batchBreak, opts)
-		m.liveBatch = batch
-		m.batchBreak = batchBreak
+		batch, batchBreak := doc.AppendLiveStep(&step, m.engine.liveBatch, m.engine.batchBreak, opts)
+		m.engine.liveBatch = batch
+		m.engine.batchBreak = batchBreak
 	}
 	m.applyTranscriptDocument(doc)
-	m.liveSteps = append(m.liveSteps, step)
-	m.rowsCacheDirty = true
+	m.engine.liveSteps = append(m.engine.liveSteps, step)
+	m.viewport.rowsCacheDirty = true
 
 	// If steer instructions were sent while this tool step was executing,
 	// apply them now to the transcript at this tool step completion boundary!
-	if len(m.store.SendingMessages) > 0 {
-		pending := append([]string(nil), m.store.SendingMessages...)
-		m.store.SendingMessages = nil
+	if len(m.session.store.SendingMessages) > 0 {
+		pending := append([]string(nil), m.session.store.SendingMessages...)
+		m.session.store.SendingMessages = nil
 		for _, instr := range pending {
 			m.applySteerToTranscript(instr)
 		}
@@ -835,46 +842,46 @@ func (m *runMode) updateToolStepMsg(msg toolsteps.ToolStepMsg) {
 }
 
 func (m *runMode) updateBackendChunkMsg(msg backendChunkMsg) {
-	if m.thinking {
+	if m.engine.thinking {
 		m.finishLiveThinking()
 	}
 	chunk := string(msg)
-	if chunk == "" || m.discardTurn {
+	if chunk == "" || m.engine.discardTurn {
 		return
 	}
 	// The cancelled turn's own stream error — the loop reports the
 	// cancellation as a chunk — is not part of the answer either. The
 	// reference's cancelled turn shows the composer's interrupted hint and
 	// nothing else.
-	if m.turnInterrupted && chunk == context.Canceled.Error() {
+	if m.engine.turnInterrupted && chunk == context.Canceled.Error() {
 		return
 	}
-	if m.replyStart < 0 {
-		m.response = transcript.BlankBefore(m.response)
-		m.replyStart = len(m.response)
-		m.liveTextLines = 0
-		m.liveReplyBuf = ""
+	if m.engine.replyStart < 0 {
+		m.engine.response = transcript.BlankBefore(m.engine.response)
+		m.engine.replyStart = len(m.engine.response)
+		m.engine.liveTextLines = 0
+		m.engine.liveReplyBuf = ""
 	}
-	m.liveReplyBuf += chunk
-	m.streamedText = true
-	m.batchBreak = true
-	if m.liveReplyIdx < 0 {
-		m.session = append(m.session, backend.Message{Role: "assistant", Content: chunk})
-		m.liveReplyIdx = len(m.session) - 1
-		if m.supervisor != nil {
-			m.supervisor.Append(backend.Message{Role: "assistant", Content: chunk})
+	m.engine.liveReplyBuf += chunk
+	m.engine.streamedText = true
+	m.engine.batchBreak = true
+	if m.engine.liveReplyIdx < 0 {
+		m.engine.session = append(m.engine.session, backend.Message{Role: "assistant", Content: chunk})
+		m.engine.liveReplyIdx = len(m.engine.session) - 1
+		if m.session.supervisor != nil {
+			m.session.supervisor.Append(backend.Message{Role: "assistant", Content: chunk})
 		}
 	} else {
-		m.session[m.liveReplyIdx].Content += chunk
-		if m.supervisor != nil {
-			m.supervisor.Replace(m.session)
+		m.engine.session[m.engine.liveReplyIdx].Content += chunk
+		if m.session.supervisor != nil {
+			m.session.supervisor.Replace(m.engine.session)
 		}
 	}
-	styled := mdrender.RenderMarkdown(m.liveReplyBuf, m.width)
+	styled := mdrender.RenderMarkdown(m.engine.liveReplyBuf, m.viewport.width)
 	lines := strings.Split(styled, "\n")
-	m.response = transcript.ReplaceRange(m.response, m.replyStart, m.replyStart+m.liveTextLines, lines)
-	m.liveTextLines = len(lines)
-	m.streaming = true
+	m.engine.response = transcript.ReplaceRange(m.engine.response, m.engine.replyStart, m.engine.replyStart+m.engine.liveTextLines, lines)
+	m.engine.liveTextLines = len(lines)
+	m.engine.streaming = true
 	m.saveSessionStreamDebounced()
 }
 
@@ -882,9 +889,9 @@ func (m *runMode) saveSessionStreamDebounced() {
 	now := time.Now()
 	// Persist the first chunk immediately so initial step is written to disk,
 	// then throttle subsequent disk writes to at most once every 1.5 seconds.
-	if m.lastStreamSave.IsZero() || now.Sub(m.lastStreamSave) >= 1500*time.Millisecond {
+	if m.engine.lastStreamSave.IsZero() || now.Sub(m.engine.lastStreamSave) >= 1500*time.Millisecond {
 		m.saveSession()
-		m.lastStreamSave = now
+		m.engine.lastStreamSave = now
 	}
 }
 
@@ -897,32 +904,32 @@ func (m *runMode) updateStreamingMsg(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
 		m.updateToolRunningMsg(msg)
 		return m, nil, true
 	case toolsteps.ThoughtStartMsg:
-		if !m.thinking {
-			m.thinking = true
-			m.thinkingSince = time.Now()
-			m.liveThinking = ""
-			m.liveThinkingSnippet = ""
-			m.liveThoughtRunIdx = -1
+		if !m.engine.thinking {
+			m.engine.thinking = true
+			m.engine.thinkingSince = time.Now()
+			m.engine.liveThinking = ""
+			m.engine.liveThinkingSnippet = ""
+			m.engine.liveThoughtRunIdx = -1
 		}
-		m.streaming = true
+		m.engine.streaming = true
 		return m, nil, true
 	case toolsteps.ThoughtChunkMsg:
-		if !m.thinking {
-			m.thinking = true
-			m.thinkingSince = time.Now()
+		if !m.engine.thinking {
+			m.engine.thinking = true
+			m.engine.thinkingSince = time.Now()
 		}
-		m.streaming = true
-		m.liveThinking += msg.Delta
-		m.liveThinkingSnippet = toolsteps.ThinkingLiveSnippet(m.liveThinking)
+		m.engine.streaming = true
+		m.engine.liveThinking += msg.Delta
+		m.engine.liveThinkingSnippet = toolsteps.ThinkingLiveSnippet(m.engine.liveThinking)
 		if m.isExpanded() {
 			m.syncLiveThoughtStep()
 		}
 		return m, nil, true
 	case autoContBannerMsg:
 		banner := "↻  auto-continuing… (retry " + fmt.Sprintf("%d", msg.depth) + " of " + fmt.Sprintf("%d", msg.maxDepth) + ")"
-		m.response = append(m.response, banner)
-		if m.streaming {
-			m.streaming = false
+		m.engine.response = append(m.engine.response, banner)
+		if m.engine.streaming {
+			m.engine.streaming = false
 		}
 		return m, nil, true
 	case eligibilityNoticeMsg:
@@ -947,13 +954,13 @@ func (m *runMode) updateStreamingMsg(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
 		m.updateSteerAppliedMsg(msg)
 		return m, nil, true
 	case backendDoneMsg:
-		m.replyStart = -1
-		m.liveReplyIdx = -1
-		m.streaming = false
-		m.thinking = false
+		m.engine.replyStart = -1
+		m.engine.liveReplyIdx = -1
+		m.engine.streaming = false
+		m.engine.thinking = false
 		m.saveSession()
-		if len(m.response) > 0 {
-			m.response = append(m.response, "")
+		if len(m.engine.response) > 0 {
+			m.engine.response = append(m.engine.response, "")
 		}
 		nextQueued := m.dequeueNextPrompt()
 		if queueCmd := m.flushNextQueued(nextQueued); queueCmd != nil {
@@ -975,26 +982,26 @@ func pickerHiddenCommands() []string {
 
 func (m *runMode) Init() tea.Cmd {
 	cmds := []tea.Cmd{tas.Blink, armTasksTick(), m.fetchPlanTierCmd()}
-	if m.statusLineScriptActive() || m.titleCfg.Active() {
-		m.store.StatusLineTickArmed = true
+	if m.statusLineScriptActive() || m.viewport.titleCfg.Active() {
+		m.session.store.StatusLineTickArmed = true
 		cmds = append(cmds, armExternalStatusLineTick())
 	}
 	return tea.Batch(cmds...)
 }
 
 func (m *runMode) cycleMode() {
-	next := permissions.NextMode(m.mode)
-	m.mode = next
-	if m.policy != nil {
-		m.policy.Mode = next
+	next := permissions.NextMode(m.session.mode)
+	m.session.mode = next
+	if m.session.policy != nil {
+		m.session.policy.Mode = next
 	}
-	m.input.Placeholder = permissions.ModeBanner(next)
-	m.modeHintDismissed = false
+	m.composer.input.Placeholder = permissions.ModeBanner(next)
+	m.composer.modeHintDismissed = false
 }
 
 func (m *runMode) enableTools(decls []backend.ToolDecl, runner backend.ToolRunner) {
-	m.tools = decls
-	m.toolRunner = runner
+	m.engine.tools = decls
+	m.engine.toolRunner = runner
 }
 
 func (m *runMode) moveWord(back bool) bool {
@@ -1014,49 +1021,49 @@ func agentToolRegistry(workspace, agentBody string) *tools.Registry {
 }
 
 func (m *runMode) registerSubagentQuestionTool(catalog *tools.Registry) {
-	if m.agentBody != "" {
+	if m.session.agentBody != "" {
 		return
 	}
 	catalog.Register(&tasks.AskQuestion{
-		SubAgentQuestions: m.subAgentQuestions,
+		SubAgentQuestions: m.engine.subAgentQuestions,
 		SubAgentID:        subagentquestions.ParentKey,
 	})
 }
 
 func (m *runMode) applyAgentSwitch(name, body string) {
 	m.saveSession()
-	m.agentName = name
-	m.agentBody = body
-	workspace := m.cwd
+	m.session.agentName = name
+	m.session.agentBody = body
+	workspace := m.session.cwd
 	if workspace == "" {
 		workspace, _ = os.Getwd()
 	}
-	if m.policy != nil {
+	if m.session.policy != nil {
 		catalog := agentToolRegistry(workspace, body)
 		m.registerSubagentQuestionTool(catalog)
 		m.enableTools(toolrunner.AdvertisedToolDecls(body, catalog), &permissionRunner{
 			inner:   &toolrunner.RegistryRunner{Reg: catalog},
-			policy:  m.policy,
-			sandbox: m.toolSandbox,
+			policy:  m.session.policy,
+			sandbox: m.engine.toolSandbox,
 			hook:    m.hookToolGate,
 			post:    m.hookPostToolUse,
 		})
 	}
-	m.response = nil
-	m.session = nil
-	if m.supervisor != nil {
-		m.supervisor.Clear()
+	m.engine.response = nil
+	m.engine.session = nil
+	if m.session.supervisor != nil {
+		m.session.supervisor.Clear()
 	}
-	m.blocks = nil
-	m.liveSteps = nil
-	m.activeTool = ""
-	m.autoTitle = ""
-	m.conversationID = newConversationID()
+	m.engine.blocks = nil
+	m.engine.liveSteps = nil
+	m.engine.activeTool = ""
+	m.session.autoTitle = ""
+	m.session.conversationID = newConversationID()
 	// The conversation changed, so the session did too: the documented
 	// SessionStart event fires for the new one.
-	m.hookSessionStarted = false
+	m.session.hookSessionStarted = false
 	// The definitions belong to the conversation that just ended.
-	m.subagentDefs = subagenttools.NewStore()
+	m.engine.subagentDefs = subagenttools.NewStore()
 	m.resetTrajectory()
 }
 
@@ -1064,10 +1071,10 @@ func (m *runMode) applyAgentSwitch(name, body string) {
 var tuiSilenceLogger = log.New(io.Discard, "", 0)
 
 func (m *runMode) subAgentExtras(_ context.Context, be backend.Client, modelLabel string) ([]actor.Tool, func()) {
-	if be == nil || m.agentBody != "" {
+	if be == nil || m.session.agentBody != "" {
 		return nil, func() {}
 	}
-	workspace := m.cwd
+	workspace := m.session.cwd
 	if workspace == "" {
 		workspace = defaultWorkspaceForRunMode()
 	}
@@ -1078,26 +1085,26 @@ func (m *runMode) subAgentExtras(_ context.Context, be backend.Client, modelLabe
 		Model:             modelLabel,
 		CWD:               workspace,
 		AgentDir:          agentDir,
-		Definitions:       m.subagentDefs,
-		Tasks:             m.taskReg,
+		Definitions:       m.engine.subagentDefs,
+		Tasks:             m.engine.taskReg,
 		Registry:          m.ensureSubagentRegistry(),
-		ConversationID:    m.conversationID,
+		ConversationID:    m.session.conversationID,
 		PermissionGateFor: m.subagentGateFactory,
 		SystemPrompt:      m.systemPrompt,
-		Catalogue:         browsersubagent.BrowserTools(m.catalog),
+		Catalogue:         browsersubagent.BrowserTools(m.engine.catalog),
 	}
 	subTools := subagenttools.Tools(subDeps)
 	subDir := filepath.Join(agentDir, "subagents")
-	_, _ = subagenttools.RehydrateSubagents(subDir, subDeps.Registry, m.taskReg, subDeps)
-	if m.catalog != nil {
+	_, _ = subagenttools.RehydrateSubagents(subDir, subDeps.Registry, m.engine.taskReg, subDeps)
+	if m.engine.catalog != nil {
 		browser.SetBrowserSubagentProvider(browsersubagent.New(subagenttools.Deps{
 			Provider: provider,
 			Model:    modelLabel,
 			CWD:      workspace,
 			AgentDir: agentDir,
-		}, browsersubagent.Tools(m.catalog)))
+		}, browsersubagent.Tools(m.engine.catalog)))
 		reg := builtinsubagent.Default()
-		if err := browsersubagent.InstallBuiltin(reg, subDeps, m.catalog); err != nil {
+		if err := browsersubagent.InstallBuiltin(reg, subDeps, m.engine.catalog); err != nil {
 			tuiSilenceLogger.Printf("[tui] browser built-in: %v", err)
 		} else {
 			subagenttools.SetBuiltinSubagentRegistry(reg)
@@ -1165,7 +1172,7 @@ func resolveRunModeDefaults(b backend.Client, email, model, tier, cwd string) (s
 func newRunModeBase(b backend.Client, email, model, tier, cwd string, altScreen bool) *runMode {
 	initConvID := newConversationID()
 	m := &runMode{
-		sessionState: sessionState{
+		session: sessionState{
 			email:                 email,
 			model:                 model,
 			statusModel:           tuilib.StripTier(model),
@@ -1179,7 +1186,7 @@ func newRunModeBase(b backend.Client, email, model, tier, cwd string, altScreen 
 			wireSettingsPending:   true,
 			hooks:                 hooks.NewManager(),
 		},
-		engineState: engineState{
+		engine: engineState{
 			backend:             b,
 			taskReg:             tools.SharedTaskRegistry(),
 			taskCtrl:            taskregistry.NewController(tools.SharedTaskRegistry()),
@@ -1194,54 +1201,54 @@ func newRunModeBase(b backend.Client, email, model, tier, cwd string, altScreen 
 			taskInbox:           agentturn.NewTaskInbox(),
 			verbosity:           settings.String("verbosity"),
 		},
-		uiState: uiState{
+		viewport: uiState{
 			altScreen:          altScreen,
 			autoScroll:         true,
 			rowsCacheDirty:     true,
 			pinnedPromptRowIdx: -1,
 			titleStore:         &statusline.TitleStore{},
 		},
-		overlayState: overlayState{
+		overlays: overlayState{
 			activeBtwIndex: -1,
 		},
 	}
-	m.picker = m.newSlashPicker()
-	m.activeItems = m.newActiveItemsPanel()
-	m.atFilePicker = m.newMentionPicker()
-	m.resumePicker = resumepicker.New(resumepicker.Seams{
-		CurrentConversationID: func() string { return m.conversationID },
+	m.composer.picker = m.newSlashPicker()
+	m.viewport.activeItems = m.newActiveItemsPanel()
+	m.composer.atFilePicker = m.newMentionPicker()
+	m.overlays.resumePicker = resumepicker.New(resumepicker.Seams{
+		CurrentConversationID: func() string { return m.session.conversationID },
 		ListConversations:     m.listResumeConversations,
 		ResumeConversation:    m.resumeConversation,
 		RenameConversation:    m.renameResumeConversation,
 	})
-	m.subAgentQuestionPanel = m.newSubAgentQuestionPanel()
-	m.helpPanel = m.newHelpPanel()
-	m.voiceSurface = m.newVoiceSurface()
+	m.engine.subAgentQuestionPanel = m.newSubAgentQuestionPanel()
+	m.viewport.helpPanel = m.newHelpPanel()
+	m.viewport.voiceSurface = m.newVoiceSurface()
 	return m
 }
 
 func initRunModeInput(m *runMode) {
-	m.input = tas.New()
-	m.input.SetVirtualCursor(false)
-	m.input.Prompt = inputPrompt
-	m.input.SetPromptFunc(2, func(info tas.PromptInfo) string {
+	m.composer.input = tas.New()
+	m.composer.input.SetVirtualCursor(false)
+	m.composer.input.Prompt = inputPrompt
+	m.composer.input.SetPromptFunc(2, func(info tas.PromptInfo) string {
 		if info.LineNumber == 0 {
-			if m.store.BashMode {
+			if m.session.store.BashMode {
 				return "! "
 			}
 			return "> "
 		}
 		return "  "
 	})
-	m.input.Placeholder = ""
-	m.input.ShowLineNumbers = false
-	m.input.SetWidth(inputWidth)
-	m.input.SetHeight(1)
-	m.input.MaxHeight = 24
-	m.input.CharLimit = 0
-	m.input.EndOfBufferCharacter = ' '
-	m.input.DynamicHeight = true
-	m.input.MinHeight = 1
+	m.composer.input.Placeholder = ""
+	m.composer.input.ShowLineNumbers = false
+	m.composer.input.SetWidth(inputWidth)
+	m.composer.input.SetHeight(1)
+	m.composer.input.MaxHeight = 24
+	m.composer.input.CharLimit = 0
+	m.composer.input.EndOfBufferCharacter = ' '
+	m.composer.input.DynamicHeight = true
+	m.composer.input.MinHeight = 1
 
 	// The prompt wears the selected scheme's accent and the placeholder
 	// its dim foreground; the colours follow the scheme, so they are
@@ -1250,11 +1257,11 @@ func initRunModeInput(m *runMode) {
 	// The session wears the configured scheme from the first frame, so
 	// the whole interface is painted in it — the reference resolves
 	// every colour from the selected scheme.
-	m.colorScheme = initScheme
+	m.viewport.colorScheme = initScheme
 	promptColor, placeholderColor := themepreview.ColorsFor(initScheme)
 	promptBlueStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(promptColor))
 	placeholderStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(placeholderColor))
-	st := m.input.Styles()
+	st := m.composer.input.Styles()
 	st.Focused.Base = lipgloss.NewStyle()
 	st.Focused.CursorLine = lipgloss.NewStyle()
 	st.Focused.Text = lipgloss.NewStyle()
@@ -1266,8 +1273,8 @@ func initRunModeInput(m *runMode) {
 	st.Blurred.Prompt = promptBlueStyle
 	st.Blurred.Placeholder = placeholderStyle
 	st.Blurred.EndOfBuffer = lipgloss.NewStyle()
-	m.input.SetStyles(st)
-	m.input.Focus()
+	m.composer.input.SetStyles(st)
+	m.composer.input.Focus()
 	if initScheme != "" {
 		m.applyThemeLive(initScheme)
 	}
@@ -1279,29 +1286,29 @@ func newRunMode(b backend.Client, email, model, tier, cwd string, altScreen bool
 	email, model, tier, cwd = resolveRunModeDefaults(b, email, model, tier, cwd)
 	m := newRunModeBase(b, email, model, tier, cwd, altScreen)
 	if settings.String("queuedMessages") == "send-immediately" {
-		m.store.QueueMode = false
+		m.session.store.QueueMode = false
 	} else {
-		m.store.QueueMode = true
+		m.session.store.QueueMode = true
 	}
 
 	if kb, err := keybind.Load(keybind.DefaultPath()); err == nil {
-		m.keybindings = kb
+		m.composer.keybindings = kb
 	}
 	m.startTasksSubscription()
 	initRunModeInput(m)
 
-	m.spinner = sp.New(sp.WithSpinner(sp.Dot))
+	m.engine.spinner = sp.New(sp.WithSpinner(sp.Dot))
 	// 【一手】 agy 1.4.7: with a seasonal event switched on the
 	// streaming spinner is the event's own — the Halloween event shows
 	// a four-frame moon phase ("◐  Generating…").
 	m.refreshSeasonalTheme()
 	if len(pickerHidden) > 0 {
-		m.picker.SetHiddenCommands(pickerHidden...)
+		m.composer.picker.SetHiddenCommands(pickerHidden...)
 	}
 	// The "/model <query>" popup filters the catalogue the CLI can
 	// select: the reference's own models plus the ones the user
 	// configured.
-	m.picker.SetModelCatalogueSource(modelargpopup.Rows)
+	m.composer.picker.SetModelCatalogueSource(modelargpopup.Rows)
 	return m
 }
 
@@ -1314,33 +1321,33 @@ func newRunMode(b backend.Client, email, model, tier, cwd string, altScreen bool
 // applyTranscriptDocument.
 func (m *runMode) transcriptDocument() transcript.Document {
 	return transcript.Document{
-		Lines:             m.response,
-		Blocks:            m.blocks,
-		Assistants:        m.assistants,
-		UserBlocks:        m.userBlocks,
-		Runs:              m.liveStepRuns,
-		LiveStart:         m.liveStart,
-		ReplyStart:        m.replyStart,
-		LiveThoughtRunIdx: m.liveThoughtRunIdx,
-		LiveTextLines:     m.liveTextLines,
-		LiveReplyBuf:      m.liveReplyBuf,
-		StreamedText:      m.streamedText,
+		Lines:             m.engine.response,
+		Blocks:            m.engine.blocks,
+		Assistants:        m.engine.assistants,
+		UserBlocks:        m.engine.userBlocks,
+		Runs:              m.engine.liveStepRuns,
+		LiveStart:         m.engine.liveStart,
+		ReplyStart:        m.engine.replyStart,
+		LiveThoughtRunIdx: m.engine.liveThoughtRunIdx,
+		LiveTextLines:     m.engine.liveTextLines,
+		LiveReplyBuf:      m.engine.liveReplyBuf,
+		StreamedText:      m.engine.streamedText,
 	}
 }
 
 // applyTranscriptDocument takes the transcript's state back.
 func (m *runMode) applyTranscriptDocument(doc transcript.Document) {
-	m.response = doc.Lines
-	m.blocks = doc.Blocks
-	m.assistants = doc.Assistants
-	m.userBlocks = doc.UserBlocks
-	m.liveStepRuns = doc.Runs
-	m.liveStart = doc.LiveStart
-	m.replyStart = doc.ReplyStart
-	m.liveThoughtRunIdx = doc.LiveThoughtRunIdx
-	m.liveTextLines = doc.LiveTextLines
-	m.liveReplyBuf = doc.LiveReplyBuf
-	m.streamedText = doc.StreamedText
+	m.engine.response = doc.Lines
+	m.engine.blocks = doc.Blocks
+	m.engine.assistants = doc.Assistants
+	m.engine.userBlocks = doc.UserBlocks
+	m.engine.liveStepRuns = doc.Runs
+	m.engine.liveStart = doc.LiveStart
+	m.engine.replyStart = doc.ReplyStart
+	m.engine.liveThoughtRunIdx = doc.LiveThoughtRunIdx
+	m.engine.liveTextLines = doc.LiveTextLines
+	m.engine.liveReplyBuf = doc.LiveReplyBuf
+	m.engine.streamedText = doc.StreamedText
 }
 
 // transcriptOptions are the host's own render facts, as the transcript's
@@ -1361,16 +1368,16 @@ func (m *runMode) transcriptOptions(msg toolsteps.TurnDoneMsg) transcript.Option
 func (m *runMode) repaintOptions() transcript.Options {
 	verb := m.currentVerbosity()
 	return transcript.Options{
-		Width:          m.width,
-		Height:         m.height,
+		Width:          m.viewport.width,
+		Height:         m.viewport.height,
 		Verbosity:      verb,
 		Expanded:       m.effectiveExpanded(verb),
 		ViewportHeight: m.viewportHeight,
-		Streaming:      m.streaming,
+		Streaming:      m.engine.streaming,
 		Thought: transcript.LiveThought{
-			Active: m.thinking,
-			Text:   m.liveThinking,
-			Since:  m.thinkingSince,
+			Active: m.engine.thinking,
+			Text:   m.engine.liveThinking,
+			Since:  m.engine.thinkingSince,
 		},
 	}
 }
@@ -1379,12 +1386,12 @@ func (m *runMode) repaintOptions() transcript.Options {
 // clears the scrollback by snapping the viewport to the active turn,
 // and repaints the tool-step blocks under the active verbosity.
 func (m *runMode) toggleTrajectoryExpanded() {
-	m.expandedUserToggled = true
-	m.expanded = !m.isExpanded()
-	m.scroll = 0
-	m.autoScroll = true
-	m.rowsCacheDirty = true
-	m.viewCacheValid = false
+	m.viewport.expandedUserToggled = true
+	m.viewport.expanded = !m.isExpanded()
+	m.viewport.scroll = 0
+	m.viewport.autoScroll = true
+	m.viewport.rowsCacheDirty = true
+	m.viewport.viewCacheValid = false
 	m.rerenderBlocks()
 	m.rerenderLiveSteps()
 }
@@ -1392,7 +1399,7 @@ func (m *runMode) toggleTrajectoryExpanded() {
 // rerenderBlocks repaints the transcript's tool-step blocks under the
 // active verbosity and expansion.
 func (m *runMode) rerenderBlocks() {
-	m.rowsCacheDirty = true
+	m.viewport.rowsCacheDirty = true
 	doc := m.transcriptDocument()
 	doc.RerenderBlocks(m.repaintOptions())
 	m.applyTranscriptDocument(doc)
@@ -1403,15 +1410,15 @@ func (m *runMode) rerenderBlocks() {
 // verbosity and expansion.
 func (m *runMode) ensureVisibleBlocksExpanded(avail int) {
 	doc := m.transcriptDocument()
-	if doc.EnsureVisibleBlocksExpanded(m.repaintOptions(), avail, m.scroll, m.autoScroll) {
-		m.rowsCacheDirty = true
-		m.viewCacheValid = false
+	if doc.EnsureVisibleBlocksExpanded(m.repaintOptions(), avail, m.viewport.scroll, m.viewport.autoScroll) {
+		m.viewport.rowsCacheDirty = true
+		m.viewport.viewCacheValid = false
 	}
 	m.applyTranscriptDocument(doc)
 }
 
 // rerenderTranscriptForTheme repaints all user prompts, assistant replies,
-// and tool step blocks across m.response under the active colour scheme.
+// and tool step blocks across m.engine.response under the active colour scheme.
 //
 // 【反编译】 agy 1.4.8 model.(*ConversationModel).handleSettingsChanges
 // calls store.(*Manager).RerenderAll when the colour scheme changes,
@@ -1420,16 +1427,16 @@ func (m *runMode) rerenderTranscriptForTheme() {
 	if m == nil {
 		return
 	}
-	m.rowsCacheDirty = true
+	m.viewport.rowsCacheDirty = true
 
 	doc := m.transcriptDocument()
 	doc.RerenderForTheme(m.repaintOptions())
 	m.applyTranscriptDocument(doc)
 
 	// Invalidate view caches so viewport redraws completely
-	m.rowsCacheDirty = true
-	m.rowsCache = wrapSlot{}
-	m.rowsView = composedRows{}
+	m.viewport.rowsCacheDirty = true
+	m.viewport.rowsCache = wrapSlot{}
+	m.viewport.rowsView = composedRows{}
 }
 
 // reflowTranscript re-renders and re-wraps the entire transcript (markdown replies,
@@ -1442,30 +1449,30 @@ func (m *runMode) reflowTranscript(width int) {
 	if m == nil || width <= 0 {
 		return
 	}
-	m.width = width
+	m.viewport.width = width
 	mdrender.SetCurrentWidth(width)
-	m.rowsCacheDirty = true
-	m.viewCacheValid = false
-	m.extraRowsValid = false
+	m.viewport.rowsCacheDirty = true
+	m.viewport.viewCacheValid = false
+	m.viewport.extraRowsValid = false
 
 	doc := m.transcriptDocument()
 	doc.Reflow(m.repaintOptions())
 	m.applyTranscriptDocument(doc)
 
 	// Invalidate viewport caches and rebuild wraps for the new width.
-	m.rowsCacheDirty = true
-	m.rowsCache = wrapSlot{}
-	m.rowsCacheN1 = wrapSlot{}
-	m.rowsView = composedRows{}
-	m.viewCacheValid = false
-	m.cachedHeaderKey = headerCacheKey{}
+	m.viewport.rowsCacheDirty = true
+	m.viewport.rowsCache = wrapSlot{}
+	m.viewport.rowsCacheN1 = wrapSlot{}
+	m.viewport.rowsView = composedRows{}
+	m.viewport.viewCacheValid = false
+	m.viewport.cachedHeaderKey = headerCacheKey{}
 }
 
 // syncLiveThoughtStep paints the turn's live thought row.
 func (m *runMode) syncLiveThoughtStep() {
 	doc := m.transcriptDocument()
 	if doc.SyncLiveThoughtStep(m.repaintOptions()) {
-		m.rowsCacheDirty = true
+		m.viewport.rowsCacheDirty = true
 	}
 	m.applyTranscriptDocument(doc)
 }
@@ -1473,19 +1480,19 @@ func (m *runMode) syncLiveThoughtStep() {
 // finishLiveThinking closes the turn's live thought: the running row
 // becomes the finished thought.
 func (m *runMode) finishLiveThinking() {
-	if !m.thinking {
+	if !m.engine.thinking {
 		return
 	}
 	// The options are taken while the thought is still live: the
 	// finished thought is painted from the thought that was running.
 	opts := m.repaintOptions()
-	m.thinking = false
-	m.liveThinking = ""
-	m.liveThinkingSnippet = ""
+	m.engine.thinking = false
+	m.engine.liveThinking = ""
+	m.engine.liveThinkingSnippet = ""
 
 	doc := m.transcriptDocument()
 	if doc.FinishLiveThinking(opts) {
-		m.rowsCacheDirty = true
+		m.viewport.rowsCacheDirty = true
 	}
 	m.applyTranscriptDocument(doc)
 }
@@ -1495,7 +1502,7 @@ func (m *runMode) finishLiveThinking() {
 func (m *runMode) rerenderLiveSteps() {
 	doc := m.transcriptDocument()
 	if doc.RerenderLiveSteps(m.repaintOptions()) {
-		m.rowsCacheDirty = true
+		m.viewport.rowsCacheDirty = true
 	}
 	m.applyTranscriptDocument(doc)
 }
@@ -1511,18 +1518,18 @@ func (m *runMode) rerenderLiveSteps() {
 // docs/cycles/auto-compact-parity/captures.md.
 func (m *runMode) appendCompactResult(msg compactDoneMsg) {
 	if msg.Err != nil {
-		m.response = append(m.response,
+		m.engine.response = append(m.engine.response,
 			uirows.NoticeCompact("Compact failed: "+msg.Err.Error()),
 			"",
 		)
 		return
 	}
-	stats := compaction.StatsRow(m.width, 0, msg.TokensBefore, msg.TokensAfter, -1, -1)
+	stats := compaction.StatsRow(m.viewport.width, 0, msg.TokensBefore, msg.TokensAfter, -1, -1)
 	if msg.Aborted {
 		stats += " (aborted)"
 	}
-	m.response = append(m.response,
-		compaction.DividerRow(m.width),
+	m.engine.response = append(m.engine.response,
+		compaction.DividerRow(m.viewport.width),
 		stats,
 		"",
 	)
@@ -1534,8 +1541,8 @@ var separator = palette.Rule(separatorWidth)
 // prompt. Cycle 119: when the terminal width is known the rule is drawn at
 // that width rather than the fixed 220 columns, so it never wraps.
 func (m *runMode) separator() string {
-	if m.width > 0 {
-		return palette.Rule(m.width)
+	if m.viewport.width > 0 {
+		return palette.Rule(m.viewport.width)
 	}
 	return separator
 }
@@ -1547,10 +1554,10 @@ func (m *runMode) separator() string {
 // it (out/changelog-147/ref/seasonal-prompt.txt) — while the rule that
 // separates the queued messages from the transcript stays plain.
 func (m *runMode) promptRule(top bool) string {
-	if m.seasonal == nil {
+	if m.viewport.seasonal == nil {
 		return m.separator()
 	}
-	return m.seasonal.Border.Rule(m.width, top)
+	return m.viewport.seasonal.Border.Rule(m.viewport.width, top)
 }
 
 const inputPrompt = "> "
@@ -1605,9 +1612,9 @@ type taskNotificationMsg struct{}
 // run mode to install it owns the notifications. That is the TUI's case:
 // there is one run mode per process.
 func (m *runMode) installTaskNotifier() {
-	if m.taskCtrl != nil {
+	if m.engine.taskCtrl != nil {
 		shell.SetTaskNotifier(func(n shell.TaskNotification) {
-			m.taskCtrl.Inbox().Add(taskregistry.TaskNotification{
+			m.engine.taskCtrl.Inbox().Add(taskregistry.TaskNotification{
 				TaskID:   n.TaskID,
 				Title:    n.Title,
 				Body:     n.Body,
@@ -1615,19 +1622,19 @@ func (m *runMode) installTaskNotifier() {
 				Priority: n.Priority,
 				At:       n.At,
 			})
-			if m.prog != nil {
-				m.prog.Send(taskNotificationMsg{})
+			if m.engine.prog != nil {
+				m.engine.prog.Send(taskNotificationMsg{})
 			}
 		})
 		return
 	}
-	if m.taskInbox == nil {
-		m.taskInbox = agentturn.NewTaskInbox()
+	if m.engine.taskInbox == nil {
+		m.engine.taskInbox = agentturn.NewTaskInbox()
 	}
 	shell.SetTaskNotifier(func(n shell.TaskNotification) {
-		m.taskInbox.Add(n)
-		if m.prog != nil {
-			m.prog.Send(taskNotificationMsg{})
+		m.engine.taskInbox.Add(n)
+		if m.engine.prog != nil {
+			m.engine.prog.Send(taskNotificationMsg{})
 		}
 	})
 }
@@ -1640,15 +1647,15 @@ func (m *runMode) installTaskNotifier() {
 // without waiting for the user to type something.
 func (m *runMode) updateTaskNotificationMsg() tea.Cmd {
 	hasItems := false
-	if m.taskCtrl != nil {
-		hasItems = m.taskCtrl.Inbox().Len() > 0
-	} else if m.taskInbox != nil {
-		hasItems = m.taskInbox.Len() > 0
+	if m.engine.taskCtrl != nil {
+		hasItems = m.engine.taskCtrl.Inbox().Len() > 0
+	} else if m.engine.taskInbox != nil {
+		hasItems = m.engine.taskInbox.Len() > 0
 	}
 	if !hasItems {
 		return nil
 	}
-	if m.streaming {
+	if m.engine.streaming {
 		// A turn is in flight: the notification waits for the next one.
 		// The turn's end starts a turn of its own for it.
 		return nil
@@ -1662,31 +1669,31 @@ func (m *runMode) updateTaskNotificationMsg() tea.Cmd {
 // startNotificationTurn starts a turn that hands the pending task
 // notifications to the model.
 func (m *runMode) startNotificationTurn() tea.Cmd {
-	m.liveStart = len(m.response)
-	m.replyStart = -1
-	m.liveReplyIdx = -1
-	m.liveSteps = nil
-	m.liveStepRuns = nil
-	m.activeTool = ""
-	m.thinking = false
-	m.liveTextLines = 0
-	m.liveReplyBuf = ""
-	m.streamedText = false
-	m.liveBatch = 0
-	m.batchBreak = false
-	m.anyToolRun = false
-	m.spinFrame = 0
-	m.streaming = true
+	m.engine.liveStart = len(m.engine.response)
+	m.engine.replyStart = -1
+	m.engine.liveReplyIdx = -1
+	m.engine.liveSteps = nil
+	m.engine.liveStepRuns = nil
+	m.engine.activeTool = ""
+	m.engine.thinking = false
+	m.engine.liveTextLines = 0
+	m.engine.liveReplyBuf = ""
+	m.engine.streamedText = false
+	m.engine.liveBatch = 0
+	m.engine.batchBreak = false
+	m.engine.anyToolRun = false
+	m.engine.spinFrame = 0
+	m.engine.streaming = true
 	m.clearLastTurnOutcome()
-	tickCmd := func() tea.Msg { return m.spinner.Tick() }
+	tickCmd := func() tea.Msg { return m.engine.spinner.Tick() }
 	return tea.Batch(m.streamPrompt(""), tickCmd)
 }
 
 // takeTaskNotifications removes the pending notifications from the inbox and
 // returns them, oldest first.
 func (m *runMode) takeTaskNotifications() []shell.TaskNotification {
-	if m.taskCtrl != nil {
-		items := m.taskCtrl.Inbox().Drain()
+	if m.engine.taskCtrl != nil {
+		items := m.engine.taskCtrl.Inbox().Drain()
 		if len(items) == 0 {
 			return nil
 		}
@@ -1703,10 +1710,10 @@ func (m *runMode) takeTaskNotifications() []shell.TaskNotification {
 		}
 		return out
 	}
-	if m.taskInbox == nil {
+	if m.engine.taskInbox == nil {
 		return nil
 	}
-	return m.taskInbox.Drain()
+	return m.engine.taskInbox.Drain()
 }
 
 // drainTaskNotifications moves the pending notifications into the session
@@ -1723,42 +1730,42 @@ func (m *runMode) drainTaskNotifications() {
 		return
 	}
 	rows := 0
-	trailingUser := len(m.session) > 0 && m.session[len(m.session)-1].Role == "user"
+	trailingUser := len(m.engine.session) > 0 && m.engine.session[len(m.engine.session)-1].Role == "user"
 	var userMsg backend.Message
 	if trailingUser {
-		userMsg = m.session[len(m.session)-1]
-		m.session = m.session[:len(m.session)-1]
+		userMsg = m.engine.session[len(m.engine.session)-1]
+		m.engine.session = m.engine.session[:len(m.engine.session)-1]
 	}
 
 	for _, item := range items {
 		msg := agentturn.TaskNotificationMessage(item)
-		m.session = append(m.session, msg)
-		if m.supervisor != nil {
-			m.supervisor.Append(msg)
+		m.engine.session = append(m.engine.session, msg)
+		if m.session.supervisor != nil {
+			m.session.supervisor.Append(msg)
 		}
 		lines := uirows.NotificationRows(item)
-		if trailingUser && len(m.userBlocks) > 0 {
-			ub := m.userBlocks[len(m.userBlocks)-1]
+		if trailingUser && len(m.engine.userBlocks) > 0 {
+			ub := m.engine.userBlocks[len(m.engine.userBlocks)-1]
 			idx := ub.Start
-			if idx >= 0 && idx <= len(m.response) {
-				m.response = append(m.response[:idx], append(lines, m.response[idx:]...)...)
-				m.userBlocks[len(m.userBlocks)-1].Start += len(lines)
+			if idx >= 0 && idx <= len(m.engine.response) {
+				m.engine.response = append(m.engine.response[:idx], append(lines, m.engine.response[idx:]...)...)
+				m.engine.userBlocks[len(m.engine.userBlocks)-1].Start += len(lines)
 			} else {
-				m.response = append(m.response, lines...)
+				m.engine.response = append(m.engine.response, lines...)
 			}
 		} else {
-			m.response = append(m.response, lines...)
+			m.engine.response = append(m.engine.response, lines...)
 		}
 		rows += len(lines)
 	}
 
 	if trailingUser {
-		m.session = append(m.session, userMsg)
+		m.engine.session = append(m.engine.session, userMsg)
 	}
 
 	// The turn's live block starts after the notification's rows.
-	if m.liveStart >= 0 && m.liveStart+rows <= len(m.response) {
-		m.liveStart += rows
+	if m.engine.liveStart >= 0 && m.engine.liveStart+rows <= len(m.engine.response) {
+		m.engine.liveStart += rows
 	}
 }
 
@@ -1784,16 +1791,16 @@ func (m *runMode) drainTaskNotifications() {
 //   - the permission gate, which judges the child's tool calls under the
 //     conversation's one policy.
 func (m *runMode) ensureSubagentRegistry() *subagenttools.Registry {
-	if m.subagentRegistry != nil && m.subagentRegistry.ParentID() == m.conversationID {
-		return m.subagentRegistry
+	if m.engine.subagentRegistry != nil && m.engine.subagentRegistry.ParentID() == m.session.conversationID {
+		return m.engine.subagentRegistry
 	}
-	if m.subagentRegistry != nil {
+	if m.engine.subagentRegistry != nil {
 		// The conversation changed: the old children belong to it.
-		m.subagentRegistry.Close()
+		m.engine.subagentRegistry.Close()
 	}
-	m.subagentRegistry = subagenttools.NewRegistry(m.conversationID)
-	m.subagentRegistry.SetNotify(m.notifySubagentMessage)
-	return m.subagentRegistry
+	m.engine.subagentRegistry = subagenttools.NewRegistry(m.session.conversationID)
+	m.engine.subagentRegistry.SetNotify(m.notifySubagentMessage)
+	return m.engine.subagentRegistry
 }
 
 // notifySubagentMessage hands a subagent's message to the session.
@@ -1803,27 +1810,27 @@ func (m *runMode) ensureSubagentRegistry() *subagenttools.Registry {
 // text the model reads is the reference's own envelope, with the
 // subagent's conversation id as the sender.
 func (m *runMode) notifySubagentMessage(sender, content string) {
-	if m.taskCtrl != nil {
-		m.taskCtrl.Inbox().Add(taskregistry.TaskNotification{
+	if m.engine.taskCtrl != nil {
+		m.engine.taskCtrl.Inbox().Add(taskregistry.TaskNotification{
 			TaskID:   sender,
 			Body:     content,
 			Priority: shell.TaskPriorityHigh,
 		})
-		if m.prog != nil {
-			m.prog.Send(taskNotificationMsg{})
+		if m.engine.prog != nil {
+			m.engine.prog.Send(taskNotificationMsg{})
 		}
 		return
 	}
-	if m.taskInbox == nil {
-		m.taskInbox = agentturn.NewTaskInbox()
+	if m.engine.taskInbox == nil {
+		m.engine.taskInbox = agentturn.NewTaskInbox()
 	}
-	m.taskInbox.Add(shell.TaskNotification{
+	m.engine.taskInbox.Add(shell.TaskNotification{
 		TaskID:   sender,
 		Body:     content,
 		Priority: shell.TaskPriorityHigh,
 	})
-	if m.prog != nil {
-		m.prog.Send(taskNotificationMsg{})
+	if m.engine.prog != nil {
+		m.engine.prog.Send(taskNotificationMsg{})
 	}
 }
 
@@ -1861,8 +1868,8 @@ func (g *subagentPermissionGate) Decide(_ context.Context, toolName string, args
 // directory.
 func (m *runMode) subagentGateFactory(worktree string) subagenttools.BeforeToolCallGate {
 	return &subagentPermissionGate{
-		policy:   m.policy,
-		sandbox:  m.toolSandbox,
+		policy:   m.session.policy,
+		sandbox:  m.engine.toolSandbox,
 		worktree: worktree,
 	}
 }
@@ -1897,24 +1904,24 @@ func (m *runMode) dispatchSlashLine(buf string) (bool, tea.Cmd) {
 	// current one.
 	syncCmd := m.syncAccountIdentity()
 	if cmdName, cmdArgs := slashparse.Split(buf); m.openSlashPanelArgs(cmdName, cmdArgs) {
-		m.input.Reset()
-		if m.undoMgr != nil {
-			m.undoMgr.Clear()
+		m.composer.input.Reset()
+		if m.composer.undoMgr != nil {
+			m.composer.undoMgr.Clear()
 		}
-		m.store.ResetInputSelection()
-		m.promptHistory.Reset()
-		m.picker.Reset()
-		m.atFilePicker.Reset()
-		if m.panel.kind == panelregistry.Usage && m.height > 0 {
-			m.quotaFrame = 0
+		m.ResetInputSelection()
+		m.composer.promptHistory.Reset()
+		m.composer.picker.Reset()
+		m.composer.atFilePicker.Reset()
+		if m.overlays.panel.kind == panelregistry.Usage && m.viewport.height > 0 {
+			m.engine.quotaFrame = 0
 			return true, tea.Batch(syncCmd, usagepanel.QuotaTick(), m.fetchQuotaSummaryCmd())
 		}
-		if m.panel.kind == panelregistry.Accounts {
+		if m.overlays.panel.kind == panelregistry.Accounts {
 			// The panel queries every account's quota, so the user
 			// does not have to open /usage for the numbers.
 			return true, tea.Batch(syncCmd, m.accountsPanel().QueueQuota())
 		}
-		if m.panel.kind == panelregistry.CodeSearch && m.height > 0 {
+		if m.overlays.panel.kind == panelregistry.CodeSearch && m.viewport.height > 0 {
 			// Cycle 381: the panel owns the tick; the host only arms it.
 			return true, tea.Batch(syncCmd, m.codesearchPanel().Tick())
 		}
@@ -1927,29 +1934,29 @@ func (m *runMode) dispatchSlashLine(buf string) (bool, tea.Cmd) {
 }
 
 func (m *runMode) submitBashMode(cmd string) (bool, tea.Cmd) {
-	m.store.BashMode = false
-	m.input.Reset()
-	if m.undoMgr != nil {
-		m.undoMgr.Clear()
+	m.session.store.BashMode = false
+	m.composer.input.Reset()
+	if m.composer.undoMgr != nil {
+		m.composer.undoMgr.Clear()
 	}
-	m.store.ResetInputSelection()
-	m.promptHistory.Reset()
-	m.picker.Reset()
-	m.atFilePicker.Reset()
-	m.modeHintDismissed = true
+	m.ResetInputSelection()
+	m.composer.promptHistory.Reset()
+	m.composer.picker.Reset()
+	m.composer.atFilePicker.Reset()
+	m.composer.modeHintDismissed = true
 	if history.IsBlank(cmd) {
 		return true, nil
 	}
 	m.pushHistory("!" + cmd)
-	if m.streaming {
+	if m.engine.streaming {
 		// A running *shell* command is preempted: the reference stops it,
 		// keeps what it printed, and runs the new one immediately (【一手】
 		// `!top` then `!pwd`). Only a model turn queues — there the command
 		// waits behind the turn and shows as `▸ <cmd>`.
-		if m.store.BashCancel != nil {
+		if m.session.store.BashCancel != nil {
 			return true, m.preemptBashCommand(cmd)
 		}
-		m.store.BashQueue = append(m.store.BashQueue, cmd)
+		m.session.store.BashQueue = append(m.session.store.BashQueue, cmd)
 		return true, nil
 	}
 	return true, m.startBashCommand(cmd)
@@ -1972,8 +1979,8 @@ func (m *runMode) submitVimBashMode(prompt string) (tea.Cmd, bool) {
 }
 
 func (m *runMode) popActiveSteer() (string, bool) {
-	if m.activeBridge != nil {
-		if msg, ok := m.activeBridge.PopSteer(); ok {
+	if m.engine.activeBridge != nil {
+		if msg, ok := m.engine.activeBridge.PopSteer(); ok {
 			return msg, true
 		}
 	}
@@ -1989,8 +1996,8 @@ func (m *runMode) steerActiveTurn(instruction string) bool {
 		return false
 	}
 	steered := false
-	if m.activeBridge != nil {
-		if err := m.activeBridge.Steer(instruction); err == nil {
+	if m.engine.activeBridge != nil {
+		if err := m.engine.activeBridge.Steer(instruction); err == nil {
 			steered = true
 		}
 	}
@@ -2008,9 +2015,9 @@ func (m *runMode) steerActiveTurn(instruction string) bool {
 	// In agy (0x102a5e230 addSendingMessage):
 	// The active step continues generating cleanly without interruption.
 	// Record in SendingMessages to render the "▸ <instruction> (Sending message...)" row.
-	m.store.SendingMessages = append(m.store.SendingMessages, instruction)
-	m.rowsCacheDirty = true
-	m.rowsGen++
+	m.session.store.SendingMessages = append(m.session.store.SendingMessages, instruction)
+	m.viewport.rowsCacheDirty = true
+	m.viewport.rowsGen++
 	return true
 }
 
@@ -2021,55 +2028,55 @@ func (m *runMode) applySteerToTranscript(instruction string) {
 	}
 
 	// Reconcile SendingMessages: remove the applied instruction
-	if len(m.store.SendingMessages) > 0 {
+	if len(m.session.store.SendingMessages) > 0 {
 		idx := -1
-		for i, s := range m.store.SendingMessages {
+		for i, s := range m.session.store.SendingMessages {
 			if s == instruction {
 				idx = i
 				break
 			}
 		}
 		if idx >= 0 {
-			m.store.SendingMessages = append(m.store.SendingMessages[:idx], m.store.SendingMessages[idx+1:]...)
+			m.session.store.SendingMessages = append(m.session.store.SendingMessages[:idx], m.session.store.SendingMessages[idx+1:]...)
 		} else {
-			m.store.SendingMessages = m.store.SendingMessages[1:]
+			m.session.store.SendingMessages = m.session.store.SendingMessages[1:]
 		}
 	}
 
 	// Deduplicate: do not commit the same instruction if already committed as the latest user block
-	if len(m.userBlocks) > 0 && m.userBlocks[len(m.userBlocks)-1].Raw == instruction {
+	if len(m.engine.userBlocks) > 0 && m.engine.userBlocks[len(m.engine.userBlocks)-1].Raw == instruction {
 		return
 	}
 
 	// Finalize live thinking & tool on preceding step
-	if m.thinking {
+	if m.engine.thinking {
 		m.finishLiveThinking()
 	}
-	m.activeTool = ""
-	m.replyStart = -1
-	m.liveReplyIdx = -1
-	m.liveTextLines = 0
-	m.liveReplyBuf = ""
+	m.engine.activeTool = ""
+	m.engine.replyStart = -1
+	m.engine.liveReplyIdx = -1
+	m.engine.liveTextLines = 0
+	m.engine.liveReplyBuf = ""
 
 	// Commit user prompt bubble into transcript after the finished step
-	for len(m.response) > 0 && strings.TrimSpace(m.response[len(m.response)-1]) == "" {
-		m.response = m.response[:len(m.response)-1]
+	for len(m.engine.response) > 0 && strings.TrimSpace(m.engine.response[len(m.engine.response)-1]) == "" {
+		m.engine.response = m.engine.response[:len(m.engine.response)-1]
 	}
-	m.response = append(m.response, "")
-	start := len(m.response)
-	promptLines := transcript.RenderUserPrompt(instruction, m.width)
-	m.response = append(m.response, promptLines...)
-	m.userBlocks = append(m.userBlocks, transcript.UserBlock{
+	m.engine.response = append(m.engine.response, "")
+	start := len(m.engine.response)
+	promptLines := transcript.RenderUserPrompt(instruction, m.viewport.width)
+	m.engine.response = append(m.engine.response, promptLines...)
+	m.engine.userBlocks = append(m.engine.userBlocks, transcript.UserBlock{
 		Start: start,
 		Lines: len(promptLines),
 		Raw:   instruction,
 	})
 	m.appendUserTurn(instruction)
-	m.liveStart = len(m.response)
-	m.liveBatch++
-	m.batchBreak = true
-	m.rowsCacheDirty = true
-	m.rowsGen++
+	m.engine.liveStart = len(m.engine.response)
+	m.engine.liveBatch++
+	m.engine.batchBreak = true
+	m.viewport.rowsCacheDirty = true
+	m.viewport.rowsGen++
 	m.saveSession()
 }
 
@@ -2078,28 +2085,28 @@ func (m *runMode) updateSteerAppliedMsg(msg steerAppliedMsg) {
 }
 
 func (m *runMode) checkStreamingQueue(prompt string) (bool, tea.Cmd) {
-	if !m.streaming {
+	if !m.engine.streaming {
 		return false, nil
 	}
 	if history.IsBlank(prompt) {
-		m.input.Reset()
-		m.store.ResetInputSelection()
-		m.promptHistory.Reset()
-		m.picker.Reset()
+		m.composer.input.Reset()
+		m.ResetInputSelection()
+		m.composer.promptHistory.Reset()
+		m.composer.picker.Reset()
 		return true, nil
 	}
 
 	// Move pending steer to queue: bare /queue or /unsteer
 	if prompt == "/queue" || prompt == "/unsteer" {
 		if msg, ok := m.popActiveSteer(); ok && msg != "" {
-			m.store.StreamQueue = append(m.store.StreamQueue, msg)
+			m.session.store.StreamQueue = append(m.session.store.StreamQueue, msg)
 			m.saveSession()
-			m.input.Reset()
-			m.store.ResetInputSelection()
-			m.promptHistory.Reset()
-			m.picker.Reset()
-			m.atFilePicker.Reset()
-			m.modeHintDismissed = true
+			m.composer.input.Reset()
+			m.ResetInputSelection()
+			m.composer.promptHistory.Reset()
+			m.composer.picker.Reset()
+			m.composer.atFilePicker.Reset()
+			m.composer.modeHintDismissed = true
 			return true, nil
 		}
 	}
@@ -2109,37 +2116,37 @@ func (m *runMode) checkStreamingQueue(prompt string) (bool, tea.Cmd) {
 		inst := strings.TrimSpace(strings.TrimPrefix(prompt, "/queue "))
 		if inst != "" {
 			m.pushHistory(prompt)
-			m.store.StreamQueue = append(m.store.StreamQueue, inst)
+			m.session.store.StreamQueue = append(m.session.store.StreamQueue, inst)
 			m.saveSession()
 		}
-		m.input.Reset()
-		m.store.ResetInputSelection()
-		m.promptHistory.Reset()
-		m.picker.Reset()
-		m.atFilePicker.Reset()
-		m.modeHintDismissed = true
+		m.composer.input.Reset()
+		m.ResetInputSelection()
+		m.composer.promptHistory.Reset()
+		m.composer.picker.Reset()
+		m.composer.atFilePicker.Reset()
+		m.composer.modeHintDismissed = true
 		return true, nil
 	}
 
 	// Promote queued prompt to steer if user inputs bare /steer
 	if prompt == "/steer" {
 		var inst string
-		if m.store.QueuedPrompt != "" {
-			inst = m.store.QueuedPrompt
-			m.store.QueuedPrompt = ""
-		} else if len(m.store.StreamQueue) > 0 {
-			inst = m.store.StreamQueue[0]
-			m.store.StreamQueue = m.store.StreamQueue[1:]
+		if m.session.store.QueuedPrompt != "" {
+			inst = m.session.store.QueuedPrompt
+			m.session.store.QueuedPrompt = ""
+		} else if len(m.session.store.StreamQueue) > 0 {
+			inst = m.session.store.StreamQueue[0]
+			m.session.store.StreamQueue = m.session.store.StreamQueue[1:]
 		}
 		if inst != "" {
 			m.saveSession()
 			m.steerActiveTurn(inst)
-			m.input.Reset()
-			m.store.ResetInputSelection()
-			m.promptHistory.Reset()
-			m.picker.Reset()
-			m.atFilePicker.Reset()
-			m.modeHintDismissed = true
+			m.composer.input.Reset()
+			m.ResetInputSelection()
+			m.composer.promptHistory.Reset()
+			m.composer.picker.Reset()
+			m.composer.atFilePicker.Reset()
+			m.composer.modeHintDismissed = true
 			return true, nil
 		}
 	}
@@ -2151,50 +2158,50 @@ func (m *runMode) checkStreamingQueue(prompt string) (bool, tea.Cmd) {
 			m.pushHistory(prompt)
 			m.steerActiveTurn(inst)
 		}
-		m.input.Reset()
-		m.store.ResetInputSelection()
-		m.promptHistory.Reset()
-		m.picker.Reset()
-		m.atFilePicker.Reset()
-		m.modeHintDismissed = true
+		m.composer.input.Reset()
+		m.ResetInputSelection()
+		m.composer.promptHistory.Reset()
+		m.composer.picker.Reset()
+		m.composer.atFilePicker.Reset()
+		m.composer.modeHintDismissed = true
 		return true, nil
 	}
 
 	// In Send Immediately mode (QueueMode is off): submitting plain text steers the active turn
-	if !m.store.QueueMode && !strings.HasPrefix(prompt, "/") {
+	if !m.session.store.QueueMode && !strings.HasPrefix(prompt, "/") {
 		m.pushHistory(prompt)
 		if m.steerActiveTurn(prompt) {
-			m.input.Reset()
-			m.store.ResetInputSelection()
-			m.promptHistory.Reset()
-			m.picker.Reset()
-			m.atFilePicker.Reset()
-			m.modeHintDismissed = true
+			m.composer.input.Reset()
+			m.ResetInputSelection()
+			m.composer.promptHistory.Reset()
+			m.composer.picker.Reset()
+			m.composer.atFilePicker.Reset()
+			m.composer.modeHintDismissed = true
 			return true, nil
 		}
 	}
 
 	if !strings.HasPrefix(prompt, "/") || m.slashQueuesWhileStreaming(prompt) {
 		m.pushHistory(prompt)
-		m.store.StreamQueue = append(m.store.StreamQueue, prompt)
-		m.rowsCacheDirty = true
-		m.rowsGen++
-		m.input.Reset()
-		m.store.ResetInputSelection()
-		m.promptHistory.Reset()
-		m.picker.Reset()
-		m.atFilePicker.Reset()
-		m.modeHintDismissed = true
+		m.session.store.StreamQueue = append(m.session.store.StreamQueue, prompt)
+		m.viewport.rowsCacheDirty = true
+		m.viewport.rowsGen++
+		m.composer.input.Reset()
+		m.ResetInputSelection()
+		m.composer.promptHistory.Reset()
+		m.composer.picker.Reset()
+		m.composer.atFilePicker.Reset()
+		m.composer.modeHintDismissed = true
 		return true, nil
 	}
 	return false, nil
 }
 
 func (m *runMode) expandPastedPlaceholders(prompt string) string {
-	if len(m.pastedBlocks) == 0 {
+	if len(m.composer.pastedBlocks) == 0 {
 		return prompt
 	}
-	for placeholder, content := range m.pastedBlocks {
+	for placeholder, content := range m.composer.pastedBlocks {
 		if strings.Contains(prompt, placeholder) {
 			prompt = strings.ReplaceAll(prompt, placeholder, content)
 		}
@@ -2203,18 +2210,18 @@ func (m *runMode) expandPastedPlaceholders(prompt string) string {
 }
 
 func (m *runMode) resolveSubmittedPrompt() (string, bool) {
-	rawPrompt := m.input.Value()
+	rawPrompt := m.composer.input.Value()
 	if history.IsBlank(rawPrompt) {
-		m.input.Reset()
-		m.store.ResetInputSelection()
-		m.promptHistory.Reset()
-		m.picker.Reset()
+		m.composer.input.Reset()
+		m.ResetInputSelection()
+		m.composer.promptHistory.Reset()
+		m.composer.picker.Reset()
 		return "", false
 	}
-	m.announceQueue.HideForSession()
+	m.overlays.announceQueue.HideForSession()
 	prompt := rawPrompt
-	if m.picker.Visible() {
-		if sel := m.picker.Selected(); sel != nil && strings.IndexByte(prompt, ' ') < 0 && strings.IndexByte(prompt, '\t') < 0 {
+	if m.composer.picker.Visible() {
+		if sel := m.composer.picker.Selected(); sel != nil && strings.IndexByte(prompt, ' ') < 0 && strings.IndexByte(prompt, '\t') < 0 {
 			prompt = sel.Name
 		}
 	}
@@ -2234,84 +2241,84 @@ func (m *runMode) dispatchPromptPrefix(prompt string) (bool, tea.Cmd) {
 	if flag.Lookup("test.v") == nil && !backendselect.HasOAuthToken() && os.Getenv("GEMINI_API_KEY") == "" && os.Getenv("AGY_ADC_AUTH") == "" {
 		m.slashRespond("/login", "Authentication required. Please visit the URL to log in:")
 		lm := loginui.New()
-		lm.Width = m.width
-		lm.Height = m.height
-		m.login = lm
-		m.input.Reset()
-		m.store.ResetInputSelection()
+		lm.Width = m.viewport.width
+		lm.Height = m.viewport.height
+		m.overlays.login = lm
+		m.composer.input.Reset()
+		m.ResetInputSelection()
 		return true, lm.Init()
 	}
 	return false, nil
 }
 
 func (m *runMode) resetLiveTurnState(prompt string) {
-	m.input.Reset()
-	if m.undoMgr != nil {
-		m.undoMgr.Clear()
+	m.composer.input.Reset()
+	if m.composer.undoMgr != nil {
+		m.composer.undoMgr.Clear()
 	}
-	m.pastedBlocks = nil
-	m.nextPasteID = 0
-	m.store.ResetInputSelection()
-	m.atFilePicker.Reset()
+	m.composer.pastedBlocks = nil
+	m.composer.nextPasteID = 0
+	m.ResetInputSelection()
+	m.composer.atFilePicker.Reset()
 	m.clearEligibilityNotice()
-	m.streaming = true
+	m.engine.streaming = true
 	// A new turn replaces the interrupted one: the reference's composer
 	// hint belongs to the turn that was cancelled, not to the next one.
-	m.turnInterrupted = false
-	m.promptHistory.Reset()
+	m.engine.turnInterrupted = false
+	m.composer.promptHistory.Reset()
 	m.clearLastTurnOutcome()
-	if m.autoTitle == "" {
-		m.autoTitle = convstore.GenerateConversationTitle(prompt)
+	if m.session.autoTitle == "" {
+		m.session.autoTitle = convstore.GenerateConversationTitle(prompt)
 	}
-	for _, row := range uirows.AttachmentRows(m.pendingMedia, m.mediaExpanded) {
-		m.response = append(m.response, row)
+	for _, row := range uirows.AttachmentRows(m.composer.pendingMedia, m.composer.mediaExpanded) {
+		m.engine.response = append(m.engine.response, row)
 	}
-	for len(m.response) > 0 && strings.TrimSpace(m.response[len(m.response)-1]) == "" {
-		m.response = m.response[:len(m.response)-1]
+	for len(m.engine.response) > 0 && strings.TrimSpace(m.engine.response[len(m.engine.response)-1]) == "" {
+		m.engine.response = m.engine.response[:len(m.engine.response)-1]
 	}
-	sep := transcript.TurnSeparator(m.width)
-	if len(m.response) == 0 {
-		m.response = append(m.response, sep)
+	sep := transcript.TurnSeparator(m.viewport.width)
+	if len(m.engine.response) == 0 {
+		m.engine.response = append(m.engine.response, sep)
 	} else {
-		m.response = append(m.response, "", sep)
+		m.engine.response = append(m.engine.response, "", sep)
 	}
-	start := len(m.response)
-	promptLines := transcript.RenderUserPrompt(prompt, m.width)
-	m.response = append(m.response, promptLines...)
-	m.userBlocks = append(m.userBlocks, transcript.UserBlock{
+	start := len(m.engine.response)
+	promptLines := transcript.RenderUserPrompt(prompt, m.viewport.width)
+	m.engine.response = append(m.engine.response, promptLines...)
+	m.engine.userBlocks = append(m.engine.userBlocks, transcript.UserBlock{
 		Start: start,
 		Lines: len(promptLines),
 		Raw:   prompt,
 	})
-	m.liveStart = len(m.response)
-	m.replyStart = -1
-	m.liveReplyIdx = -1
-	m.liveSteps = nil
-	m.liveStepRuns = nil
-	m.activeTool = ""
-	m.thinking = false
-	m.liveThinking = ""
-	m.liveThinkingSnippet = ""
-	m.liveThoughtRunIdx = -1
+	m.engine.liveStart = len(m.engine.response)
+	m.engine.replyStart = -1
+	m.engine.liveReplyIdx = -1
+	m.engine.liveSteps = nil
+	m.engine.liveStepRuns = nil
+	m.engine.activeTool = ""
+	m.engine.thinking = false
+	m.engine.liveThinking = ""
+	m.engine.liveThinkingSnippet = ""
+	m.engine.liveThoughtRunIdx = -1
 	showTips := true
 	if v, ok := settings.Bool("showTips"); ok {
 		showTips = v
 	}
 	if showTips {
-		m.activeTip = tuitools.RandomTip()
+		m.viewport.activeTip = tuitools.RandomTip()
 	} else {
-		m.activeTip = ""
+		m.viewport.activeTip = ""
 	}
-	m.liveTextLines = 0
-	m.liveReplyBuf = ""
-	m.lastStreamSave = time.Time{}
-	m.streamedText = false
-	m.liveBatch = 0
-	m.batchBreak = false
-	m.anyToolRun = false
-	m.spinFrame = 0
-	m.picker.Reset()
-	m.store.ResetCompaction()
+	m.engine.liveTextLines = 0
+	m.engine.liveReplyBuf = ""
+	m.engine.lastStreamSave = time.Time{}
+	m.engine.streamedText = false
+	m.engine.liveBatch = 0
+	m.engine.batchBreak = false
+	m.engine.anyToolRun = false
+	m.engine.spinFrame = 0
+	m.composer.picker.Reset()
+	m.session.store.ResetCompaction()
 }
 
 func (m *runMode) startModelTurn(prompt string) tea.Cmd {
@@ -2321,32 +2328,32 @@ func (m *runMode) startModelTurn(prompt string) tea.Cmd {
 	// account changed, and the stream command runs after this Update
 	// returns — so it picks the rebuilt transport up.
 	syncCmd := m.syncAccountIdentity()
-	m.conversationStarted = true
+	m.session.conversationStarted = true
 	m.drainTaskNotifications()
 	m.resetLiveTurnState(prompt)
 	m.appendUserTurn(prompt)
 	m.saveSession()
-	tickCmd := func() tea.Msg { return m.spinner.Tick() }
+	tickCmd := func() tea.Msg { return m.engine.spinner.Tick() }
 	return tea.Batch(m.streamPrompt(prompt), tickCmd, syncCmd)
 }
 
 func (m *runMode) submitPrompt() tea.Cmd {
-	m.inputNotice = ""
-	if m.store.BashMode {
-		_, cmd := m.submitBashMode(m.expandPastedPlaceholders(m.input.Value()))
+	m.viewport.inputNotice = ""
+	if m.session.store.BashMode {
+		_, cmd := m.submitBashMode(m.expandPastedPlaceholders(m.composer.input.Value()))
 		return cmd
 	}
 	// In vim mode the engine put the "!" into the buffer itself — the
 	// reference's NORMAL-mode "!" inserts the character and switches to
 	// INSERT mode — so the shell command reaches the submit path with
 	// the "!" still in front of it.
-	if cmd, ok := m.submitVimBashMode(m.expandPastedPlaceholders(m.input.Value())); ok {
+	if cmd, ok := m.submitVimBashMode(m.expandPastedPlaceholders(m.composer.input.Value())); ok {
 		return cmd
 	}
-	if handled, cmd := m.checkStreamingQueue(m.expandPastedPlaceholders(m.input.Value())); handled {
+	if handled, cmd := m.checkStreamingQueue(m.expandPastedPlaceholders(m.composer.input.Value())); handled {
 		return cmd
 	}
-	if m.subAgentQuestionPanel.SubmitAnswer() {
+	if m.engine.subAgentQuestionPanel.SubmitAnswer() {
 		return nil
 	}
 	// The "/model <query>" popup owns Enter while it is open: the
@@ -2359,7 +2366,7 @@ func (m *runMode) submitPrompt() tea.Cmd {
 	if !ok {
 		return nil
 	}
-	prompt = PrependSlashPlanIfNeeded(prompt, m.mode)
+	prompt = PrependSlashPlanIfNeeded(prompt, m.session.mode)
 	if handled, cmd := m.dispatchPromptPrefix(prompt); handled {
 		return cmd
 	}
@@ -2370,21 +2377,21 @@ func (m *runMode) appendUserTurn(text string) {
 	msg := backend.Message{
 		Role:        "user",
 		Content:     text,
-		WireContent: backend.WrapUserContent(text, m.model, m.wireSettingsPending, time.Now()),
+		WireContent: backend.WrapUserContent(text, m.session.model, m.session.wireSettingsPending, time.Now()),
 	}
 	// The images the user attached ride along with the turn (agy 1.4.9's
 	// image pasting). The transports carry them as image parts, so the
 	// model receives them the way the reference sends them.
 	if parts := m.mediaImageParts(); len(parts) > 0 {
 		msg.Images = parts
-		m.pendingMedia = nil
-		m.mediaExpanded = false
+		m.composer.pendingMedia = nil
+		m.composer.mediaExpanded = false
 	}
-	if m.supervisor != nil {
-		m.supervisor.Append(msg)
+	if m.session.supervisor != nil {
+		m.session.supervisor.Append(msg)
 	}
-	m.session = append(m.session, msg)
-	m.wireSettingsPending = false
+	m.engine.session = append(m.engine.session, msg)
+	m.session.wireSettingsPending = false
 }
 
 func (m *runMode) isEngineSlashCommand(cmd string) bool {
@@ -2407,7 +2414,7 @@ func (m *runMode) isEngineSlashCommand(cmd string) bool {
 			return true
 		}
 	}
-	return m.engine != nil
+	return m.engine.engine != nil
 }
 
 func (m *runMode) slashQueuesWhileStreaming(buf string) bool {
@@ -2436,35 +2443,35 @@ func (m *runMode) slashQueuesWhileStreaming(buf string) bool {
 }
 
 func (m *runMode) abortTurnForLocalCommand() {
-	if !m.streaming {
+	if !m.engine.streaming {
 		return
 	}
-	m.discardTurn = true
-	if m.turnCancel != nil {
-		m.turnCancel()
-		m.turnCancel = nil
+	m.engine.discardTurn = true
+	if m.engine.turnCancel != nil {
+		m.engine.turnCancel()
+		m.engine.turnCancel = nil
 	}
-	m.streaming = false
-	m.thinking = false
+	m.engine.streaming = false
+	m.engine.thinking = false
 }
 
 func (m *runMode) submitAlternate() tea.Cmd {
-	if m.subAgentQuestionPanel != nil && m.subAgentQuestionPanel.SubmitAnswer() {
+	if m.engine.subAgentQuestionPanel != nil && m.engine.subAgentQuestionPanel.SubmitAnswer() {
 		return nil
 	}
-	prompt := m.input.Value()
+	prompt := m.composer.input.Value()
 	if history.IsBlank(prompt) {
-		m.input.Reset()
-		m.store.ResetInputSelection()
-		m.promptHistory.Reset()
-		m.picker.Reset()
+		m.composer.input.Reset()
+		m.ResetInputSelection()
+		m.composer.promptHistory.Reset()
+		m.composer.picker.Reset()
 		return nil
 	}
 	// Invert QueueMode temporarily for this submission
-	orig := m.store.QueueMode
-	m.store.QueueMode = !orig
+	orig := m.session.store.QueueMode
+	m.session.store.QueueMode = !orig
 	defer func() {
-		m.store.QueueMode = orig
+		m.session.store.QueueMode = orig
 	}()
 	return m.submitPrompt()
 }
@@ -2475,32 +2482,32 @@ func (m *runMode) submitOrQueuePrompt() tea.Cmd {
 
 func (m *runMode) saveSession() {
 	var queued []string
-	if m.store.QueuedPrompt != "" {
-		queued = append(queued, m.store.QueuedPrompt)
+	if m.session.store.QueuedPrompt != "" {
+		queued = append(queued, m.session.store.QueuedPrompt)
 	}
-	if len(m.store.StreamQueue) > 0 {
-		queued = append(queued, m.store.StreamQueue...)
+	if len(m.session.store.StreamQueue) > 0 {
+		queued = append(queued, m.session.store.StreamQueue...)
 	}
-	if m.conversationID != "" {
-		_ = convstore.SaveQueuedPrompts(m.conversationID, queued)
+	if m.session.conversationID != "" {
+		_ = convstore.SaveQueuedPrompts(m.session.conversationID, queued)
 	}
 
-	if m.supervisor != nil {
-		_ = m.supervisor.Save(m.conversationID, m.autoTitle)
+	if m.session.supervisor != nil {
+		_ = m.session.supervisor.Save(m.session.conversationID, m.session.autoTitle)
 		return
 	}
-	if m.conversationID == "" || len(m.session) == 0 {
+	if m.session.conversationID == "" || len(m.engine.session) == 0 {
 		return
 	}
 	steps := convstore.BuildSteps(m.trajectoryFacts())
 	if len(steps) == 0 {
 		return
 	}
-	if err := convstore.SaveConversation(m.conversationID, m.cwd, steps); err != nil {
+	if err := convstore.SaveConversation(m.session.conversationID, m.session.cwd, steps); err != nil {
 		return
 	}
-	if m.autoTitle != "" {
-		_ = convstore.WriteSummariesTitle(m.conversationID, m.autoTitle)
-		_ = convstore.WriteCacheTitle(m.conversationID, m.autoTitle)
+	if m.session.autoTitle != "" {
+		_ = convstore.WriteSummariesTitle(m.session.conversationID, m.session.autoTitle)
+		_ = convstore.WriteCacheTitle(m.session.conversationID, m.session.autoTitle)
 	}
 }

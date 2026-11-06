@@ -80,7 +80,7 @@ func mkAccountsPanel(t *testing.T, emails ...string) *runMode {
 		}
 	}
 	m := &runMode{}
-	m.panel = slashPanel{kind: panelregistry.Accounts, cmd: "/accounts"}
+	m.overlays.panel = slashPanel{kind: panelregistry.Accounts, cmd: "/accounts"}
 	m.initOpenedSlashPanelData(panelregistry.Accounts)
 	return m
 }
@@ -112,20 +112,20 @@ func TestAccountsPanelIsListedInCatalogue(t *testing.T) {
 func TestAccountsPanelSwitchUpdatesTheSession(t *testing.T) {
 	accountsIsolate(t)
 	m := mkAccountsPanel(t, "a@example.com", "b@example.com")
-	m.tier = "Google AI Pro"
-	m.tierFetched = true
-	m.tierAccount = "a@example.com"
+	m.session.tier = "Google AI Pro"
+	m.session.tierFetched = true
+	m.session.tierAccount = "a@example.com"
 
 	m.accountsPanel().SetCursor(1)
 	m.accountsPanel().HandleKey(tea.Key{Code: tea.KeyEnter})
 
-	if m.email != "b@example.com" {
-		t.Fatalf("m.email = %q, want b@example.com", m.email)
+	if m.session.email != "b@example.com" {
+		t.Fatalf("m.session.email = %q, want b@example.com", m.session.email)
 	}
-	if m.tier != "" {
-		t.Errorf("the session's tier = %q, want none", m.tier)
+	if m.session.tier != "" {
+		t.Errorf("the session's tier = %q, want none", m.session.tier)
 	}
-	if m.tierFetched {
+	if m.session.tierFetched {
 		t.Error("the session kept the previous account's fetched tier")
 	}
 }
@@ -139,8 +139,8 @@ func TestAccountsPanelRemoveSignsTheSessionOut(t *testing.T) {
 
 	m.accountsPanel().HandleKey(tea.Key{Code: 'd', Text: "d"})
 
-	if m.email != "b@example.com" {
-		t.Fatalf("m.email = %q, want b@example.com", m.email)
+	if m.session.email != "b@example.com" {
+		t.Fatalf("m.session.email = %q, want b@example.com", m.session.email)
 	}
 }
 
@@ -170,7 +170,7 @@ func TestLogoutForgetsTheActiveAccount(t *testing.T) {
 func TestSyncAccountIdentityFollowsAnOutsideSwitch(t *testing.T) {
 	accountsIsolate(t)
 	mkAccountsPanel(t, "a@example.com")
-	m := &runMode{email: "a@example.com"}
+	m := &runMode{session: sessionState{email: "a@example.com"}}
 
 	// The shared credential now names another account.
 	if err := auth.SaveTokenUnified(accountsFakeToken(t, "b@example.com", "at-b@example.com")); err != nil {
@@ -178,14 +178,14 @@ func TestSyncAccountIdentityFollowsAnOutsideSwitch(t *testing.T) {
 	}
 
 	m.syncAccountIdentity()
-	if m.email != "b@example.com" {
-		t.Fatalf("m.email = %q, want b@example.com", m.email)
+	if m.session.email != "b@example.com" {
+		t.Fatalf("m.session.email = %q, want b@example.com", m.session.email)
 	}
 
 	// A sync that finds nothing to change leaves the session alone.
 	m.syncAccountIdentity()
-	if m.email != "b@example.com" {
-		t.Fatalf("m.email = %q, want it unchanged", m.email)
+	if m.session.email != "b@example.com" {
+		t.Fatalf("m.session.email = %q, want it unchanged", m.session.email)
 	}
 }
 
@@ -200,8 +200,8 @@ func TestSyncAccountIdentityFollowsAnOutsideSwitch(t *testing.T) {
 func TestAccountsPanelDoesNotRenderThePlaceholderTier(t *testing.T) {
 	accountsIsolate(t)
 	m := mkAccountsPanel(t, "a@example.com", "b@example.com")
-	m.tier = "Antigravity Starter Quota"
-	m.tierFetched = false
+	m.session.tier = "Antigravity Starter Quota"
+	m.session.tierFetched = false
 	lines := plainLines(m)
 	if strings.Contains(lines[3], "Starter Quota") {
 		t.Errorf("the placeholder tier is rendered as the account's tier: %q", lines[3])
@@ -218,17 +218,17 @@ func TestAccountsPanelDoesNotRenderThePlaceholderTier(t *testing.T) {
 func TestTheSessionShowsNoTierUntilTheServerNamesOne(t *testing.T) {
 	accountsIsolate(t)
 	m := mkAccountsPanel(t, "a@example.com")
-	m.tier = ""
-	m.tierFetched = false
-	if strings.Contains(m.tier, "Starter") {
-		t.Fatalf("the session's tier = %q, want none", m.tier)
+	m.session.tier = ""
+	m.session.tierFetched = false
+	if strings.Contains(m.session.tier, "Starter") {
+		t.Fatalf("the session's tier = %q, want none", m.session.tier)
 	}
 	m.forgetSessionTier()
-	if m.tier != "" {
-		t.Errorf("the session's tier = %q, want none", m.tier)
+	if m.session.tier != "" {
+		t.Errorf("the session's tier = %q, want none", m.session.tier)
 	}
 	var b bytes.Buffer
-	renderBanner(&b, "a@example.com", "Gemini 3.8 Flash (High)", m.tier, "/tmp")
+	renderBanner(&b, "a@example.com", "Gemini 3.8 Flash (High)", m.session.tier, "/tmp")
 	out := ansi.Strip(b.String())
 	// The banner's second line carries the email (and the tier, when
 	// there is one); the model line below it has parentheses of its
@@ -252,9 +252,9 @@ func TestTheSessionShowsNoTierUntilTheServerNamesOne(t *testing.T) {
 func TestAccountsPanelRendersTheFetchedSessionTier(t *testing.T) {
 	accountsIsolate(t)
 	m := mkAccountsPanel(t, "a@example.com", "b@example.com")
-	m.tier = "Google AI Pro"
-	m.tierFetched = true
-	m.tierAccount = "a@example.com"
+	m.session.tier = "Google AI Pro"
+	m.session.tierFetched = true
+	m.session.tierAccount = "a@example.com"
 	lines := plainLines(m)
 	if !strings.Contains(lines[3], "Google AI Pro") {
 		t.Errorf("the fetched tier is not rendered: %q", lines[3])
@@ -269,10 +269,10 @@ func TestAccountsPanelRendersTheFetchedSessionTier(t *testing.T) {
 func TestAccountsPanelDoesNotRenderAnotherAccountsTier(t *testing.T) {
 	accountsIsolate(t)
 	m := mkAccountsPanel(t, "a@example.com", "b@example.com")
-	m.tier = "Google AI Plus"
-	m.tierFetched = true
+	m.session.tier = "Google AI Plus"
+	m.session.tierFetched = true
 	// The tier was read for another account.
-	m.tierAccount = "b@example.com"
+	m.session.tierAccount = "b@example.com"
 	lines := plainLines(m)
 	if strings.Contains(lines[3], "Google AI Plus") {
 		t.Errorf("another account's tier is rendered against this row: %q", lines[3])
@@ -285,18 +285,18 @@ func TestAccountsPanelDoesNotRenderAnotherAccountsTier(t *testing.T) {
 func TestSignInFetchesTheTierOfTheNewAccount(t *testing.T) {
 	accountsIsolate(t)
 	m := mkAccountsPanel(t, "a@example.com")
-	m.tier = "Google AI Plus"
-	m.tierFetched = true
-	m.tierAccount = "a@example.com"
+	m.session.tier = "Google AI Plus"
+	m.session.tierFetched = true
+	m.session.tierAccount = "a@example.com"
 	cmd := m.finishLogin(nil)
 	if cmd == nil {
 		t.Fatal("finishLogin returned no command")
 	}
-	if m.tierAccount != "" {
-		t.Errorf("the session kept the previous account's tier: %q", m.tierAccount)
+	if m.session.tierAccount != "" {
+		t.Errorf("the session kept the previous account's tier: %q", m.session.tierAccount)
 	}
-	if m.tier != "" {
-		t.Errorf("the session's tier = %q, want none", m.tier)
+	if m.session.tier != "" {
+		t.Errorf("the session's tier = %q, want none", m.session.tier)
 	}
 }
 
@@ -306,17 +306,17 @@ func TestSignInFetchesTheTierOfTheNewAccount(t *testing.T) {
 func TestAccountsPanelShowsNoTierAfterASignIn(t *testing.T) {
 	accountsIsolate(t)
 	m := mkAccountsPanel(t, "a@example.com", "b@example.com")
-	m.tier = "Google AI Plus"
-	m.tierFetched = true
-	m.tierAccount = "a@example.com"
+	m.session.tier = "Google AI Plus"
+	m.session.tierFetched = true
+	m.session.tierAccount = "a@example.com"
 	// The sign-in switched the session to another account.
 	m.forgetSessionTier()
 	lines := plainLines(m)
 	if strings.Contains(lines[3], "Google AI Plus") {
 		t.Errorf("the previous account's tier survived the sign-in: %q", lines[3])
 	}
-	if m.tier != "" {
-		t.Errorf("the session's tier = %q, want none", m.tier)
+	if m.session.tier != "" {
+		t.Errorf("the session's tier = %q, want none", m.session.tier)
 	}
 }
 
@@ -331,7 +331,7 @@ func TestUsageReusesTheCachedQuotaSnapshot(t *testing.T) {
 	if _, _, err := accounts.Register(accountsFakeToken(t, "a@example.com", "at-a@example.com")); err != nil {
 		t.Fatalf("Register: %v", err)
 	}
-	m := &runMode{email: "a@example.com"}
+	m := &runMode{session: sessionState{email: "a@example.com"}}
 	summary := &auth.QuotaSummary{Description: "cached"}
 	if err := accounts.SetQuota("a@example.com", summary.Snapshot()); err != nil {
 		t.Fatalf("SetQuota: %v", err)
@@ -362,7 +362,7 @@ func TestUsageRefetchesAStaleQuotaSnapshot(t *testing.T) {
 	if _, _, err := accounts.Register(accountsFakeToken(t, "a@example.com", "at-a@example.com")); err != nil {
 		t.Fatalf("Register: %v", err)
 	}
-	m := &runMode{email: "a@example.com"}
+	m := &runMode{session: sessionState{email: "a@example.com"}}
 	stale := &auth.QuotaSnapshot{
 		FetchedAt: time.Now().Add(-10 * time.Minute),
 		Groups:    []auth.QuotaGroupSnapshot{{Name: "gpt"}},

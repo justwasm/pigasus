@@ -8,8 +8,8 @@ import (
 
 func TestCursor_HiddenWhenHelpActive(t *testing.T) {
 	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/tmp", true)
-	m.width = 80
-	m.height = 24
+	m.viewport.width = 80
+	m.viewport.height = 24
 
 	// Idle state: cursor should be visible in composer.
 	v := m.View()
@@ -18,8 +18,8 @@ func TestCursor_HiddenWhenHelpActive(t *testing.T) {
 	}
 
 	// Open /help on tab 0 (guides/about).
-	m.helpPanel.Open(0)
-	if !m.helpPanel.Active() {
+	m.viewport.helpPanel.Open(0)
+	if !m.viewport.helpPanel.Active() {
 		t.Fatal("help panel should be active")
 	}
 	v = m.View()
@@ -28,14 +28,14 @@ func TestCursor_HiddenWhenHelpActive(t *testing.T) {
 	}
 
 	// Open on tab 2 (shortcuts).
-	m.helpPanel.Open(2)
+	m.viewport.helpPanel.Open(2)
 	v = m.View()
 	if v.Cursor != nil {
 		t.Errorf("cursor must be hidden in /help mode (tab 2 shortcuts), got: %+v", v.Cursor)
 	}
 
 	// Close help panel: cursor should be visible again.
-	m.helpPanel.Cancel()
+	m.viewport.helpPanel.Cancel()
 	v = m.View()
 	if v.Cursor == nil {
 		t.Fatal("cursor should be restored after closing /help")
@@ -61,11 +61,11 @@ func TestCursor_HiddenWhenSlashPanelsActive(t *testing.T) {
 	for _, pt := range panelsToTest {
 		t.Run(pt.cmd, func(t *testing.T) {
 			m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/tmp", true)
-			m.width = 80
-			m.height = 24
+			m.viewport.width = 80
+			m.viewport.height = 24
 
-			m.panel = slashPanel{kind: pt.kind, cmd: pt.cmd}
-			if m.panel.kind != pt.kind {
+			m.overlays.panel = slashPanel{kind: pt.kind, cmd: pt.cmd}
+			if m.overlays.panel.kind != pt.kind {
 				t.Fatalf("expected panel %v to be open", pt.kind)
 			}
 
@@ -85,10 +85,10 @@ func TestCursor_HiddenWhenSlashPanelsActive(t *testing.T) {
 
 func TestCursor_HiddenWhenResumePickerActive(t *testing.T) {
 	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/tmp", true)
-	m.width = 80
-	m.height = 24
+	m.viewport.width = 80
+	m.viewport.height = 24
 
-	if err := m.resumePicker.Open(); err != nil {
+	if err := m.overlays.resumePicker.Open(); err != nil {
 		t.Fatalf("failed to open resume picker: %v", err)
 	}
 
@@ -97,7 +97,7 @@ func TestCursor_HiddenWhenResumePickerActive(t *testing.T) {
 		t.Errorf("cursor must be hidden when resume picker is active, got: %+v", v.Cursor)
 	}
 
-	m.resumePicker.Close()
+	m.overlays.resumePicker.Close()
 	v = m.View()
 	if v.Cursor == nil {
 		t.Fatal("cursor should be restored after closing resume picker")
@@ -106,20 +106,20 @@ func TestCursor_HiddenWhenResumePickerActive(t *testing.T) {
 
 func TestCursor_HiddenWhenActiveItemsFocused(t *testing.T) {
 	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/tmp", true)
-	m.width = 80
-	m.height = 24
+	m.viewport.width = 80
+	m.viewport.height = 24
 
-	if m.activeItems == nil {
+	if m.viewport.activeItems == nil {
 		t.Skip("activeItems is nil")
 	}
 
-	m.activeItems.SetFocus(true)
+	m.viewport.activeItems.SetFocus(true)
 	v := m.View()
 	if v.Cursor != nil {
 		t.Errorf("cursor must be hidden when activeItems is focused, got: %+v", v.Cursor)
 	}
 
-	m.activeItems.SetFocus(false)
+	m.viewport.activeItems.SetFocus(false)
 	v = m.View()
 	if v.Cursor == nil {
 		t.Fatal("cursor should be restored when activeItems is unfocused")

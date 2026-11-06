@@ -27,7 +27,7 @@ import (
 // user-prompt rows. All three are O(total rows) and allocate, so a warm
 // scroll frame cost grows with the conversation, not with the viewport.
 //
-// synthTranscript fills m.response with n user/model step pairs at
+// synthTranscript fills m.engine.response with n user/model step pairs at
 // replyBytes each, using the live renderers' row shapes (a prompt row with
 // the cWarningBlueOpen prefix, a blank separator, and a reply). It is
 // deterministic so benchmark runs are comparable.
@@ -36,7 +36,7 @@ func synthTranscript(m *runMode, steps, replyBytes int) {
 	reply := strings.Repeat(unit, replyBytes/len(unit)+1)
 	reply = reply[:replyBytes]
 	for i := 0; i < steps; i++ {
-		m.response = append(m.response,
+		m.engine.response = append(m.engine.response,
 			transcript.UserPromptRow(fmt.Sprintf("prompt %d", i)),
 			"",
 			reply,
@@ -51,11 +51,11 @@ func synthTranscript(m *runMode, steps, replyBytes int) {
 func warmModel(steps, replyBytes int) *runMode {
 	m := newBenchModel()
 	synthTranscript(m, steps, replyBytes)
-	m.width = 200
-	m.height = 40
+	m.viewport.width = 200
+	m.viewport.height = 40
 	_ = m.View()
-	m.autoScroll = false
-	m.scroll = 0
+	m.viewport.autoScroll = false
+	m.viewport.scroll = 0
 	_ = m.View()
 	return m
 }
@@ -96,7 +96,7 @@ func BenchmarkViewKeystrokeRewrap5000LongSteps(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		m.rowsCacheDirty = true // what Update() does for any non-scroll msg
+		m.viewport.rowsCacheDirty = true // what Update() does for any non-scroll msg
 		_ = m.View()
 	}
 }
@@ -105,10 +105,10 @@ func BenchmarkViewKeystrokeRewrap5000LongSteps(b *testing.B) {
 // across 1600 blocks (the user's reported heavy lag condition).
 func BenchmarkToggleTrajectoryExpanded1600Blocks(b *testing.B) {
 	m := newBenchModel()
-	m.width = 120
-	m.height = 40
+	m.viewport.width = 120
+	m.viewport.height = 40
 	for i := 0; i < 1600; i++ {
-		start := len(m.response)
+		start := len(m.engine.response)
 		step := toolsteps.Step{
 			Kind:   toolsteps.KindTool,
 			Name:   "run_command",
@@ -117,11 +117,11 @@ func BenchmarkToggleTrajectoryExpanded1600Blocks(b *testing.B) {
 		}
 		lines := toolsteps.RenderBlock([]toolsteps.Step{step}, toolsteps.RenderOptions{
 			Expanded:  false,
-			Width:     m.width,
+			Width:     m.viewport.width,
 			Verbosity: toolsteps.VerbosityLow,
 		})
-		m.response = append(m.response, lines...)
-		m.blocks = append(m.blocks, transcript.Block{
+		m.engine.response = append(m.engine.response, lines...)
+		m.engine.blocks = append(m.engine.blocks, transcript.Block{
 			Start: start,
 			Lines: len(lines),
 			Steps: []toolsteps.Step{step},
@@ -171,38 +171,38 @@ func TestClipToScreenRowsPrefixMatches(t *testing.T) {
 // reused across frames) must render exactly what a cold model with the same
 // state renders. It covers the two ways the cache can go stale: a response
 // mutation (an appended row) and a header change (the fallback warning
-// block) that does not touch m.response at all.
+// block) that does not touch m.engine.response at all.
 func TestComposedCacheMatchesColdRender(t *testing.T) {
 	warm := newBenchModel()
 	synthTranscript(warm, 120, 300)
-	warm.width, warm.height = 120, 24
-	warm.altScreen = true
+	warm.viewport.width, warm.viewport.height = 120, 24
+	warm.viewport.altScreen = true
 	_ = warm.View()
 
 	render := func(m *runMode) string {
-		m.width, m.height = 120, 24
-		m.altScreen = true
-		m.autoScroll = false
+		m.viewport.width, m.viewport.height = 120, 24
+		m.viewport.altScreen = true
+		m.viewport.autoScroll = false
 		return m.View().Content
 	}
 	cold := func(scroll int, fallback bool, extra []string) string {
 		c := newBenchModel()
-		c.response = append([]string(nil), warm.response...)
-		c.response = append(c.response, extra...)
+		c.engine.response = append([]string(nil), warm.engine.response...)
+		c.engine.response = append(c.engine.response, extra...)
 		if fallback {
-			c.fallbackFrom, c.fallbackTo = "Gemini 9.9 Pro", "Gemini 3.8 Flash (High)"
+			c.session.fallbackFrom, c.session.fallbackTo = "Gemini 9.9 Pro", "Gemini 3.8 Flash (High)"
 		}
-		c.scroll = scroll
+		c.viewport.scroll = scroll
 		return render(c)
 	}
 
 	check := func(scroll int, fallback bool) {
-		warm.scroll = scroll
-		warm.autoScroll = false
+		warm.viewport.scroll = scroll
+		warm.viewport.autoScroll = false
 		if fallback {
-			warm.fallbackFrom, warm.fallbackTo = "Gemini 9.9 Pro", "Gemini 3.8 Flash (High)"
+			warm.session.fallbackFrom, warm.session.fallbackTo = "Gemini 9.9 Pro", "Gemini 3.8 Flash (High)"
 		} else {
-			warm.fallbackFrom, warm.fallbackTo = "", ""
+			warm.session.fallbackFrom, warm.session.fallbackTo = "", ""
 		}
 		got := render(warm)
 		want := cold(scroll, fallback, nil)
@@ -221,12 +221,12 @@ func TestComposedCacheMatchesColdRender(t *testing.T) {
 	// the stream does, flip the dirty flag the way Update() does, and the
 	// bottom-anchored frame must include the new row.
 	extra := "a streamed reply that was not there when the cache was built"
-	warm.response = append(warm.response, extra, "")
-	warm.rowsCacheDirty = true
-	warm.width, warm.height = 120, 24
-	warm.altScreen = true
-	warm.autoScroll = true
-	warm.scroll = 1 << 30
+	warm.engine.response = append(warm.engine.response, extra, "")
+	warm.viewport.rowsCacheDirty = true
+	warm.viewport.width, warm.viewport.height = 120, 24
+	warm.viewport.altScreen = true
+	warm.viewport.autoScroll = true
+	warm.viewport.scroll = 1 << 30
 	if got := warm.View().Content; !strings.Contains(got, extra) {
 		t.Fatal("warm render after an append does not contain the appended row (stale composed cache)")
 	}

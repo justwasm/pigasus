@@ -14,7 +14,7 @@ func TestSlashGoalLifecycleAndContinuation(t *testing.T) {
 	if !handled || cmd == nil {
 		t.Errorf("bare /goal should return handled=true, cmd != nil")
 	}
-	if m.activeGoal == nil {
+	if m.session.activeGoal == nil {
 		t.Errorf("bare /goal should set activeGoal")
 	}
 
@@ -23,14 +23,14 @@ func TestSlashGoalLifecycleAndContinuation(t *testing.T) {
 	if !handled || cmd == nil {
 		t.Errorf("/goal with instruction should return cmd != nil")
 	}
-	if m.activeGoal == nil {
-		t.Fatalf("expected m.activeGoal to be non-nil")
+	if m.session.activeGoal == nil {
+		t.Fatalf("expected m.session.activeGoal to be non-nil")
 	}
-	if m.activeGoal.GoalText != "implement distributed consensus" {
-		t.Errorf("activeGoal.GoalText = %q, want 'implement distributed consensus'", m.activeGoal.GoalText)
+	if m.session.activeGoal.GoalText != "implement distributed consensus" {
+		t.Errorf("activeGoal.GoalText = %q, want 'implement distributed consensus'", m.session.activeGoal.GoalText)
 	}
-	if m.activeGoal.ContinuationCount != 0 {
-		t.Errorf("activeGoal.ContinuationCount = %d, want 0", m.activeGoal.ContinuationCount)
+	if m.session.activeGoal.ContinuationCount != 0 {
+		t.Errorf("activeGoal.ContinuationCount = %d, want 0", m.session.activeGoal.ContinuationCount)
 	}
 
 	// 3. First turn completion without completion token -> continues goal
@@ -41,11 +41,11 @@ func TestSlashGoalLifecycleAndContinuation(t *testing.T) {
 	if nextCmd == nil {
 		t.Errorf("expected nextCmd to trigger continuation")
 	}
-	if m.activeGoal == nil {
+	if m.session.activeGoal == nil {
 		t.Fatalf("goal should remain active")
 	}
-	if m.activeGoal.ContinuationCount != 1 {
-		t.Errorf("activeGoal.ContinuationCount = %d, want 1", m.activeGoal.ContinuationCount)
+	if m.session.activeGoal.ContinuationCount != 1 {
+		t.Errorf("activeGoal.ContinuationCount = %d, want 1", m.session.activeGoal.ContinuationCount)
 	}
 
 	// 4. Second turn completion with <!-- GOAL_COMPLETE --> -> finishes goal
@@ -53,20 +53,20 @@ func TestSlashGoalLifecycleAndContinuation(t *testing.T) {
 		Reply: "Consensus module is fully tested and verified.\n<!-- GOAL_COMPLETE -->",
 	}
 	m.updateTurnDoneMsg(msgDone)
-	if m.activeGoal != nil {
-		t.Errorf("activeGoal should be cleared after completion, got %+v", m.activeGoal)
+	if m.session.activeGoal != nil {
+		t.Errorf("activeGoal should be cleared after completion, got %+v", m.session.activeGoal)
 	}
 
 	// 5. Start new goal and cancel with <!-- GOAL_CANCELLED -->
 	m.slashGoal("another task")
-	if m.activeGoal == nil {
+	if m.session.activeGoal == nil {
 		t.Fatalf("expected activeGoal to be set")
 	}
 	msgCancel := toolsteps.TurnDoneMsg{
 		Reply: "Cannot continue due to requirement conflicts.\n<!-- GOAL_CANCELLED -->",
 	}
 	m.updateTurnDoneMsg(msgCancel)
-	if m.activeGoal != nil {
-		t.Errorf("activeGoal should be cleared after cancellation, got %+v", m.activeGoal)
+	if m.session.activeGoal != nil {
+		t.Errorf("activeGoal should be cleared after cancellation, got %+v", m.session.activeGoal)
 	}
 }

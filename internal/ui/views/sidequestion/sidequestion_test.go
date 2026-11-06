@@ -3,67 +3,27 @@ package sidequestion_test
 import (
 	"context"
 	"errors"
-	"io"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
-	"github.com/justwasm/pigasus/actor"
 	"github.com/justwasm/pigasus/internal/ui/views/sidequestion"
 )
 
-type fauxStream struct {
-	chunks []actor.StreamChunk
-	pos    int
-	closed bool
-}
-
-func (s *fauxStream) Recv() (actor.StreamChunk, error) {
-	if s.closed || s.pos >= len(s.chunks) {
-		return actor.StreamChunk{}, io.EOF
+func fauxStream(ctx context.Context, prompt string, onDelta func(string)) (int, error) {
+	if strings.Contains(prompt, "trigger error branch") {
+		return 0, errors.New("upstream stream failed")
 	}
-	c := s.chunks[s.pos]
-	s.pos++
-	if c.FinishReason == "error" {
-		return actor.StreamChunk{}, errors.New("upstream stream failed")
-	}
-	return c, nil
-}
-
-func (s *fauxStream) Close() error {
-	s.closed = true
-	return nil
-}
-
-type fauxProvider struct{}
-
-func (p *fauxProvider) Generate(ctx context.Context, req actor.GenerateRequest) (actor.ResponseStream, error) {
-	content := ""
-	if len(req.Messages) > 0 {
-		content = req.Messages[len(req.Messages)-1].Content
-	}
-	if strings.Contains(content, "trigger error branch") {
-		return &fauxStream{
-			chunks: []actor.StreamChunk{
-				{FinishReason: "error"},
-			},
-		}, nil
-	}
-
-	return &fauxStream{
-		chunks: []actor.StreamChunk{
-			{Delta: "42", Usage: &actor.TokenUsage{TotalTokens: 4}},
-			{FinishReason: "stop"},
-		},
-	}, nil
+	onDelta("42")
+	return 4, nil
 }
 
 func newManager(t *testing.T) *sidequestion.Manager {
 	t.Helper()
 	dir := t.TempDir()
 	m := sidequestion.NewManager(sidequestion.Options{
-		Provider:     &fauxProvider{},
+		StreamFn:     fauxStream,
 		Model:        "faux-1",
 		CWD:          dir,
 		AgentDir:     dir + "/.pig/agent",

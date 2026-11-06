@@ -17,7 +17,9 @@ func TestDispatchKeyAction_CustomKeybindings(t *testing.T) {
 	}
 
 	m := &runMode{
-		keybindings: kb,
+		composer: composerState{
+			keybindings: kb,
+		},
 	}
 	initRunModeInput(m)
 	initRunModeInput(m)
@@ -33,7 +35,7 @@ func TestDispatchKeyAction_CustomKeybindings(t *testing.T) {
 	tmp := t.TempDir() + "/keybindings.json"
 	_ = os.WriteFile(tmp, []byte(kbJSON), 0644) // load custom
 	kbCustom, _ := keybind.Load(tmp)
-	m.keybindings = kbCustom
+	m.composer.keybindings = kbCustom
 
 	_, quitCmd, handledQuit := m.handleGlobalOrModalKeys(tea.Key{Code: 'q', Mod: tea.ModCtrl})
 	if !handledQuit || quitCmd == nil {
@@ -45,15 +47,15 @@ func TestDispatchKeyAction_CustomKeybindings(t *testing.T) {
 	tmpConfirm := t.TempDir() + "/keybindings.json"
 	_ = os.WriteFile(tmpConfirm, []byte(kbJSONConfirm), 0644)
 	kbConfirm, _ := keybind.Load(tmpConfirm)
-	m.keybindings = kbConfirm
+	m.composer.keybindings = kbConfirm
 
-	m.exitConfirm = true
+	m.engine.exitConfirm = true
 	_, noCmd, handledNo := m.handleGlobalOrModalKeys(tea.Key{Code: 'n', Mod: tea.ModCtrl})
-	if !handledNo || noCmd != nil || m.exitConfirm {
+	if !handledNo || noCmd != nil || m.engine.exitConfirm {
 		t.Errorf("expected confirm.no to dismiss exit confirmation")
 	}
 
-	m.exitConfirm = true
+	m.engine.exitConfirm = true
 	_, yesCmd, handledYes := m.handleGlobalOrModalKeys(tea.Key{Code: 'y', Mod: tea.ModCtrl})
 	if !handledYes || yesCmd == nil {
 		t.Errorf("expected confirm.yes to trigger quit on exit confirmation")
@@ -71,7 +73,7 @@ func TestDispatchKeyAction_CustomKeybindings(t *testing.T) {
 	tmpExt := t.TempDir() + "/keybindings.json"
 	_ = os.WriteFile(tmpExt, []byte(kbJSONExtended), 0644)
 	kbExt, _ := keybind.Load(tmpExt)
-	m.keybindings = kbExt
+	m.composer.keybindings = kbExt
 
 	// Test cli.suspend
 	_, suspendCmd, handledSuspend := m.handleGlobalOrModalKeys(tea.Key{Code: 'z', Mod: tea.ModCtrl})
@@ -86,32 +88,32 @@ func TestDispatchKeyAction_CustomKeybindings(t *testing.T) {
 	}
 
 	// Test prompt.insert_newline
-	m.input.SetValue("first line")
+	m.composer.input.SetValue("first line")
 	_, _, handledNewline := m.handleGlobalOrModalKeys(tea.Key{Code: 'j', Mod: tea.ModCtrl})
-	if !handledNewline || m.input.Value() != "first line\n" {
-		t.Errorf("expected Ctrl+J mapped to prompt.insert_newline to insert newline, got %q", m.input.Value())
+	if !handledNewline || m.composer.input.Value() != "first line\n" {
+		t.Errorf("expected Ctrl+J mapped to prompt.insert_newline to insert newline, got %q", m.composer.input.Value())
 	}
 }
 
 func TestDispatchKeyAction_SubagentApproveFastVsJumpToWaiting(t *testing.T) {
 	m := newRunModeForSubagentQuestion(t)
-	m.subAgentQuestions.Enqueue(subagentquestions.ParentKey, "Approve operation?", []string{"yes", "no"})
+	m.engine.subAgentQuestions.Enqueue(subagentquestions.ParentKey, "Approve operation?", []string{"yes", "no"})
 
 	// 1. subagent.jump_to_waiting should toggle question panel focus without approving
 	_, _, handledJump := m.dispatchKeyAction("subagent.jump_to_waiting")
 	if !handledJump {
 		t.Fatal("expected subagent.jump_to_waiting to be handled")
 	}
-	if !m.subAgentQuestionPanel.Active() {
+	if !m.engine.subAgentQuestionPanel.Active() {
 		t.Fatal("expected subagent.jump_to_waiting to activate question panel")
 	}
-	if m.subAgentQuestions.PendingCount(subagentquestions.ParentKey) != 1 {
-		t.Fatalf("question should remain pending after jump, got %d", m.subAgentQuestions.PendingCount(subagentquestions.ParentKey))
+	if m.engine.subAgentQuestions.PendingCount(subagentquestions.ParentKey) != 1 {
+		t.Fatalf("question should remain pending after jump, got %d", m.engine.subAgentQuestions.PendingCount(subagentquestions.ParentKey))
 	}
 
 	// Close panel
-	m.subAgentQuestionPanel.Toggle()
-	if m.subAgentQuestionPanel.Active() {
+	m.engine.subAgentQuestionPanel.Toggle()
+	if m.engine.subAgentQuestionPanel.Active() {
 		t.Fatal("expected panel to be closed")
 	}
 
@@ -120,11 +122,11 @@ func TestDispatchKeyAction_SubagentApproveFastVsJumpToWaiting(t *testing.T) {
 	if !handledApprove {
 		t.Fatal("expected subagent.approve_fast to be handled")
 	}
-	if m.subAgentQuestionPanel.Active() {
+	if m.engine.subAgentQuestionPanel.Active() {
 		t.Fatal("subagent.approve_fast must not open or focus the question panel")
 	}
-	if m.subAgentQuestions.PendingCount(subagentquestions.ParentKey) != 0 {
-		t.Fatalf("expected pending questions to be 0 after approve_fast, got %d", m.subAgentQuestions.PendingCount(subagentquestions.ParentKey))
+	if m.engine.subAgentQuestions.PendingCount(subagentquestions.ParentKey) != 0 {
+		t.Fatalf("expected pending questions to be 0 after approve_fast, got %d", m.engine.subAgentQuestions.PendingCount(subagentquestions.ParentKey))
 	}
 }
 

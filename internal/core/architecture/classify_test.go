@@ -53,6 +53,8 @@ func TestIsHost(t *testing.T) {
 		{"internal/clirunner", true},
 		{"internal/tui", true},
 		{"internal/printmode", true},
+		{"internal/rchost", true},
+		{"internal/lsserver", true},
 		{"internal/core", false},
 		{"internal/app/agentturn", false},
 		{"render", false},
@@ -93,6 +95,8 @@ func TestIsEntryHost(t *testing.T) {
 		{"internal/clirunner", true},
 		{"internal/tui", true},
 		{"internal/printmode", true},
+		{"internal/rchost", true},
+		{"internal/lsserver", true},
 		{"internal/cli", false},
 		{"internal/core", false},
 	}

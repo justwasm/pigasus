@@ -37,12 +37,12 @@ func TestPluginsAliasOpensThePanel(t *testing.T) {
 	if !m.openSlashPanelArgs("plugins", "") {
 		t.Fatal("openSlashPanelArgs(plugins, \"\") = false, want true")
 	}
-	if m.panel.kind != panelregistry.Plugin {
-		t.Errorf("the open panel = %v, want panelregistry.Plugin", m.panel.kind)
+	if m.overlays.panel.kind != panelregistry.Plugin {
+		t.Errorf("the open panel = %v, want panelregistry.Plugin", m.overlays.panel.kind)
 	}
 	// The panel carries the canonical name (A-31).
-	if m.panel.cmd != "/plugin" {
-		t.Errorf("the open panel's command = %q, want %q", m.panel.cmd, "/plugin")
+	if m.overlays.panel.cmd != "/plugin" {
+		t.Errorf("the open panel's command = %q, want %q", m.overlays.panel.cmd, "/plugin")
 	}
 }
 
@@ -59,10 +59,10 @@ func TestPluginsAliasDispatchesTheVerb(t *testing.T) {
 	if !handled {
 		t.Fatal("/plugins list was not handled")
 	}
-	if m.panel.kind != panelregistry.None {
-		t.Errorf("/plugins list opened the %v panel, want no panel", m.panel.kind)
+	if m.overlays.panel.kind != panelregistry.None {
+		t.Errorf("/plugins list opened the %v panel, want no panel", m.overlays.panel.kind)
 	}
-	got := termcolor.StripSGR(strings.Join(m.response, "\n"))
+	got := termcolor.StripSGR(strings.Join(m.engine.response, "\n"))
 	if !strings.Contains(got, "No plugins installed.") {
 		t.Errorf("/plugins list did not answer the list verb; transcript:\n%s", got)
 	}
@@ -80,7 +80,7 @@ func TestPluginUnknownSubcommandIsTheReferenceString(t *testing.T) {
 	if !handled {
 		t.Fatal("/plugin bogus was not handled")
 	}
-	got := termcolor.StripSGR(strings.Join(m.response, "\n"))
+	got := termcolor.StripSGR(strings.Join(m.engine.response, "\n"))
 	if !strings.Contains(got, `Unknown subcommand "bogus".`) {
 		t.Errorf("the unknown-subcommand message is not the reference's; transcript:\n%s", got)
 	}
@@ -102,7 +102,7 @@ func TestPanelExitNoticeEchoesTheCanonicalName(t *testing.T) {
 			t.Fatalf("openSlashPanel(%q) = false, want true", typed)
 		}
 		m.closePanel()
-		got := termcolor.StripSGR(strings.Join(m.response, "\n"))
+		got := termcolor.StripSGR(strings.Join(m.engine.response, "\n"))
 		if !strings.Contains(got, "Exited /config command") {
 			t.Errorf("%s closed with the wrong notice; transcript:\n%s", typed, got)
 		}
@@ -134,27 +134,27 @@ func TestChainedSlashCommands_BoostPlanGoal(t *testing.T) {
 		t.Fatalf("expected tea.Cmd batch for streaming turn")
 	}
 	// Verify state modifiers: ModePlan
-	if m.mode != permissions.ModePlan {
-		t.Errorf("m.mode = %v, want ModePlan", m.mode)
+	if m.session.mode != permissions.ModePlan {
+		t.Errorf("m.session.mode = %v, want ModePlan", m.session.mode)
 	}
 	// Verify state modifiers: GoalState
-	if m.activeGoal == nil || m.activeGoal.GoalText != "refactor engine" {
-		t.Errorf("activeGoal = %v, want 'refactor engine'", m.activeGoal)
+	if m.session.activeGoal == nil || m.session.activeGoal.GoalText != "refactor engine" {
+		t.Errorf("activeGoal = %v, want 'refactor engine'", m.session.activeGoal)
 	}
 	// Verify display echo
-	if len(m.response) == 0 {
+	if len(m.engine.response) == 0 {
 		t.Fatalf("expected response echo")
 	}
-	echoRow := m.response[0]
+	echoRow := m.engine.response[0]
 	wantEcho := "> /boost /plan /goal refactor engine"
 	if echoRow != wantEcho {
 		t.Errorf("echoRow = %q, want %q", echoRow, wantEcho)
 	}
 	// Verify session history prompt composition
-	if len(m.session) == 0 {
+	if len(m.engine.session) == 0 {
 		t.Fatalf("expected session message")
 	}
-	prompt := m.session[0].Content
+	prompt := m.engine.session[0].Content
 	if !strings.Contains(prompt, "<ORCHESTRATOR>") {
 		t.Errorf("prompt missing <ORCHESTRATOR>, got:\n%s", prompt)
 	}
@@ -178,32 +178,32 @@ func TestChainedSlashCommands_PlanGoalWithoutTask(t *testing.T) {
 	if cmd == nil {
 		t.Fatalf("expected tea.Cmd batch for streaming turn")
 	}
-	if m.mode != permissions.ModePlan {
-		t.Errorf("m.mode = %v, want ModePlan", m.mode)
+	if m.session.mode != permissions.ModePlan {
+		t.Errorf("m.session.mode = %v, want ModePlan", m.session.mode)
 	}
-	if m.activeGoal == nil || m.activeGoal.GoalText != "Help me set a clear goal for this session" {
-		t.Errorf("activeGoal = %v, want default goal text", m.activeGoal)
+	if m.session.activeGoal == nil || m.session.activeGoal.GoalText != "Help me set a clear goal for this session" {
+		t.Errorf("activeGoal = %v, want default goal text", m.session.activeGoal)
 	}
-	if len(m.response) == 0 || m.response[0] != "> /plan /goal" {
-		t.Errorf("echoRow = %v, want '> /plan /goal'", m.response)
+	if len(m.engine.response) == 0 || m.engine.response[0] != "> /plan /goal" {
+		t.Errorf("echoRow = %v, want '> /plan /goal'", m.engine.response)
 	}
 }
 
 func TestChainedSlashCommands_QueuesWhileStreaming(t *testing.T) {
 	m := newSlashModel(t)
-	m.streaming = true
+	m.engine.streaming = true
 
 	input := "/boost /plan /goal refactor engine"
 	if !m.slashQueuesWhileStreaming(input) {
 		t.Fatalf("expected chained commands to queue while streaming")
 	}
 
-	m.input.SetValue(input)
+	m.composer.input.SetValue(input)
 	cmd := m.submitPrompt()
 	if cmd != nil {
 		t.Errorf("expected nil cmd when queued, got %v", cmd)
 	}
-	if len(m.store.StreamQueue) != 1 || m.store.StreamQueue[0] != input {
-		t.Errorf("expected %q in StreamQueue, got %v", input, m.store.StreamQueue)
+	if len(m.session.store.StreamQueue) != 1 || m.session.store.StreamQueue[0] != input {
+		t.Errorf("expected %q in StreamQueue, got %v", input, m.session.store.StreamQueue)
 	}
 }

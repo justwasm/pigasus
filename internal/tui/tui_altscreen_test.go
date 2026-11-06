@@ -67,16 +67,16 @@ func TestCycle294_ResolveAltScreenReadsSetting(t *testing.T) {
 // alternate buffer (?1049l) right after the row is switched.
 func TestCycle294_ConfigRenderingModeSwitchesSession(t *testing.T) {
 	dir := cycle196TestHome(t, map[string]any{"altScreenMode": "always"})
-	m := &runMode{altScreen: true}
-	m.panel = slashPanel{kind: panelregistry.Config, cmd: "/config"}
-	m.panel.cfg = m.newConfigPanel()
+	m := &runMode{viewport: uiState{altScreen: true}}
+	m.overlays.panel = slashPanel{kind: panelregistry.Config, cmd: "/config"}
+	m.overlays.panel.cfg = m.newConfigPanel()
 	idx := configRowIndexForTest(t, m, "Rendering Mode")
-	m.panel.cfg.SetCursor(idx)
-	if got := m.panel.cfg.SettingValue(idx); got != "full screen (altscreen)" {
+	m.overlays.panel.cfg.SetCursor(idx)
+	if got := m.overlays.panel.cfg.SettingValue(idx); got != "full screen (altscreen)" {
 		t.Fatalf("initial display = %q, want full screen (altscreen)", got)
 	}
 	m.handlePanelKey(tea.Key{Code: tea.KeyRight})
-	if m.altScreen {
+	if m.viewport.altScreen {
 		t.Error("after switching to inline: altScreen = true, want false")
 	}
 	if got := cycle196ValueAt(t, readCycle196Settings(t, dir), "altScreenMode"); got != "never" {
@@ -87,7 +87,7 @@ func TestCycle294_ConfigRenderingModeSwitchesSession(t *testing.T) {
 	}
 	// And back to the alternate screen.
 	m.handlePanelKey(tea.Key{Code: tea.KeyRight})
-	if !m.altScreen {
+	if !m.viewport.altScreen {
 		t.Error("after switching back: altScreen = false, want true")
 	}
 	if got := cycle196ValueAt(t, readCycle196Settings(t, dir), "altScreenMode"); got != "always" {
@@ -108,16 +108,16 @@ func TestCycle294_ConfigRenderingModeSwitchesSession(t *testing.T) {
 // to express the inline view.
 func TestCycle294_ConfigRenderingModeDefaultIsReachable(t *testing.T) {
 	dir := cycle196TestHome(t, map[string]any{})
-	m := &runMode{altScreen: true}
-	m.panel = slashPanel{kind: panelregistry.Config, cmd: "/config"}
-	m.panel.cfg = m.newConfigPanel()
+	m := &runMode{viewport: uiState{altScreen: true}}
+	m.overlays.panel = slashPanel{kind: panelregistry.Config, cmd: "/config"}
+	m.overlays.panel.cfg = m.newConfigPanel()
 	idx := configRowIndexForTest(t, m, "Rendering Mode")
-	m.panel.cfg.SetCursor(idx)
-	if got := m.panel.cfg.SettingValue(idx); got != "full screen (altscreen)" {
+	m.overlays.panel.cfg.SetCursor(idx)
+	if got := m.overlays.panel.cfg.SettingValue(idx); got != "full screen (altscreen)" {
 		t.Fatalf("initial display = %q, want full screen (altscreen)", got)
 	}
 	m.handlePanelKey(tea.Key{Code: tea.KeyLeft})
-	if m.altScreen {
+	if m.viewport.altScreen {
 		t.Error("after switching to inline: altScreen = true, want false")
 	}
 	if got := cycle196ValueAt(t, readCycle196Settings(t, dir), "altScreenMode"); got != "never" {

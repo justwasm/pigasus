@@ -7,12 +7,15 @@ import (
 	"io"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/justwasm/pigasus/actor"
 	"github.com/justwasm/pigasus/agentlink"
 	"github.com/justwasm/pigasus/internal/app/toolrunner"
 	"github.com/justwasm/pigasus/internal/core/backend"
+	"github.com/justwasm/pigasus/internal/core/compaction"
 	"github.com/justwasm/pigasus/internal/core/policy/permissions"
+	modelctx "github.com/justwasm/pigasus/internal/features/models/ctx"
 )
 
 // backendProviderAdapter adapts a backend.Client into an actor.Provider.
@@ -191,58 +194,30 @@ func (s *backendStreamAdapter) Close() error {
 	return nil
 }
 
-// ErrorRecordingProvider wraps an actor.Provider and records the last error in an out-of-band slot.
-type ErrorRecordingProvider struct {
-	inner actor.Provider
-	slot  *error
-}
-
-// NewErrorRecordingProvider creates a provider wrapper that captures underlying transport errors.
-func NewErrorRecordingProvider(inner actor.Provider, slot *error) *ErrorRecordingProvider {
-	return &ErrorRecordingProvider{inner: inner, slot: slot}
-}
-
-func (p *ErrorRecordingProvider) Generate(ctx context.Context, req actor.GenerateRequest) (actor.ResponseStream, error) {
-	stream, err := p.inner.Generate(ctx, req)
-	if err != nil {
-		if p.slot != nil {
-			*p.slot = err
-		}
-		return nil, err
-	}
-	return &errorRecordingStream{inner: stream, slot: p.slot}, nil
-}
-
-type errorRecordingStream struct {
-	inner actor.ResponseStream
-	slot  *error
-}
-
-func (s *errorRecordingStream) Recv() (actor.StreamChunk, error) {
-	chunk, err := s.inner.Recv()
-	if err != nil && !errors.Is(err, io.EOF) && s.slot != nil {
-		*s.slot = err
-	}
-	return chunk, err
-}
-
-func (s *errorRecordingStream) Close() error {
-	return s.inner.Close()
-}
-
-// GatedTool gates an actor.Tool through permissions.Policy.
+// GatedTool gates an actor.Tool through the toolrunner middleware pipeline.
 type GatedTool struct {
-	inner   actor.Tool
-	policy  *permissions.Policy
-	denials *[]string
+	inner    actor.Tool
+	policy   *permissions.Policy
+	denials  *[]string
+	pipeline *toolrunner.Pipeline
 }
 
 // NewGatedTool wraps an actor.Tool with permissions.Policy enforcement.
 func NewGatedTool(inner actor.Tool, policy *permissions.Policy, denials *[]string) *GatedTool {
+	var onDenial func(string)
+	if denials != nil {
+		onDenial = func(name string) {
+			*denials = append(*denials, name)
+		}
+	}
+	pipeline := toolrunner.NewPipeline(
+		toolrunner.PermissionGateMiddleware(policy, nil, onDenial),
+	)
 	return &GatedTool{
-		inner:   inner,
-		policy:  policy,
-		denials: denials,
+		inner:    inner,
+		policy:   policy,
+		denials:  denials,
+		pipeline: pipeline,
 	}
 }
 
@@ -261,16 +236,26 @@ func (g *GatedTool) RequiresApproval(input string) bool {
 }
 
 func (g *GatedTool) Execute(ctx context.Context, input string) (actor.ToolResult, error) {
-	if g.policy != nil {
-		target := toolrunner.ToolTarget(backend.ToolCall{Name: g.inner.Name(), Arguments: json.RawMessage(input)})
-		if g.policy.Decide(permissions.Request{Tool: g.inner.Name(), Target: target}) == permissions.Deny {
-			if g.denials != nil {
-				*g.denials = append(*g.denials, g.inner.Name())
-			}
-			return actor.ToolResult{Output: permissions.DeniedToolResult(g.inner.Name(), target)}, nil
-		}
+	call := backend.ToolCall{
+		Name:      g.inner.Name(),
+		Arguments: json.RawMessage(input),
 	}
-	return g.inner.Execute(ctx, input)
+	handler := g.pipeline.Wrap(func(ctx context.Context, c backend.ToolCall) (string, error) {
+		res, err := g.inner.Execute(ctx, string(c.Arguments))
+		if err != nil {
+			return "", err
+		}
+		if res.Error != "" {
+			return res.Error, nil
+		}
+		return res.Output, nil
+	})
+
+	out, err := handler(ctx, call)
+	if err != nil {
+		return actor.ToolResult{Error: err.Error()}, err
+	}
+	return actor.ToolResult{Output: out}, nil
 }
 
 // buildActorTools creates actor.Tool implementations bridging backend.ToolDecl and ToolRunner.
@@ -611,12 +596,9 @@ func (s *ChunkSink) OnCancelled() {
 func (s *ChunkSink) OnSteerApplied(_ string) {}
 
 // Finish reports any turn error and marks the stream chunk done.
-func (s *ChunkSink) Finish(errSlot *error) error {
+func (s *ChunkSink) Finish() error {
 	turnErr := s.turnErr
 	if turnErr != nil {
-		if errSlot != nil && *errSlot != nil {
-			turnErr = *errSlot
-		}
 		if s.handler != nil {
 			_ = s.handler(backend.StreamChunk{Error: turnErr, Done: true})
 		}
@@ -675,15 +657,23 @@ func ExecuteActorTurn(ctx context.Context, act *actor.Actor, prompt string, sink
 				sink.OnSteerApplied(ev.SteerInstruction)
 			}
 		case actor.EventError:
-			if ev.Error != "" && turnErr == nil {
-				turnErr = errors.New(ev.Error)
+			errVal := ev.Err
+			if errVal == nil && ev.Error != "" {
+				errVal = errors.New(ev.Error)
 			}
-			if sink != nil && ev.Error != "" {
-				sink.OnError(errors.New(ev.Error))
+			if errVal != nil && turnErr == nil {
+				turnErr = errVal
+			}
+			if sink != nil && errVal != nil {
+				sink.OnError(errVal)
 			}
 		case actor.EventTurnCompleted:
-			if ev.Error != "" && turnErr == nil {
-				turnErr = errors.New(ev.Error)
+			if turnErr == nil {
+				if ev.Err != nil {
+					turnErr = ev.Err
+				} else if ev.Error != "" {
+					turnErr = errors.New(ev.Error)
+				}
 			}
 			if sink != nil {
 				sink.OnTurnCompleted(ev.TurnSummary)
@@ -832,5 +822,117 @@ func RunActorTurnOnActorWithPermHandler(
 	_ = ExecuteActorTurn(ctx, act, lastPrompt, sink)
 
 	resultFrame := sink.ResultFrame(act, ctx.Err())
+
+	// Token pressure check & auto-compaction
+	checkAndTriggerAutoCompact(ctx, act, env, model, t, resultFrame, emit)
+
 	emitResult(ch, resultFrame)
+}
+
+// checkAndTriggerAutoCompact evaluates whether the conversation token volume
+// reached or exceeded the model's threshold (PromptTokens >= ContextWindow - ReserveTokens).
+// If breached, it emits agentlink.KindCompact (Phase: CompactStart, Reason: "threshold"),
+// calls compaction.ComputeSummary to generate a 7-section structured summary,
+// resets the Actor's history with the resumption block,
+// and emits agentlink.KindCompact (Phase: CompactEnd, Reason: "threshold", TokensBefore, TokensAfter, Summary).
+func checkAndTriggerAutoCompact(
+	ctx context.Context,
+	act *actor.Actor,
+	env Env,
+	model string,
+	t Turn,
+	resultFrame agentlink.Frame,
+	emit func(agentlink.Frame) bool,
+) {
+	if ctx.Err() != nil || env.Backend == nil || act == nil || emit == nil {
+		return
+	}
+
+	limit := modelctx.For(model)
+	threshold := limit.ContextWindow - limit.ReserveTokens
+	if threshold <= 0 {
+		return
+	}
+
+	promptTokens := 0
+	if resultFrame.Usage != nil && resultFrame.Usage.PromptTokens > 0 {
+		promptTokens = resultFrame.Usage.PromptTokens
+	} else {
+		// Fallback token estimation from history and current turn
+		backendMsgs := ToBackendMessages(t.History)
+		promptTokens = compaction.TranscriptTokens(backendMsgs)
+	}
+
+	if promptTokens < threshold {
+		return
+	}
+
+	// Threshold breached! Start auto-compaction
+	start := time.Now()
+	emit(agentlink.Frame{
+		Kind: agentlink.KindCompact,
+		Compact: &agentlink.Compact{
+			Phase:        agentlink.CompactStart,
+			Reason:       "threshold",
+			TokensBefore: promptTokens,
+		},
+	})
+
+	// Build the transcript to summarize: full history + last turn's final output
+	transcriptMsgs := ToBackendMessages(t.History)
+	if resultFrame.Result != nil && resultFrame.Result.Reply != "" {
+		if len(transcriptMsgs) == 0 || transcriptMsgs[len(transcriptMsgs)-1].Role != "assistant" {
+			transcriptMsgs = append(transcriptMsgs, backend.Message{
+				Role:    "assistant",
+				Content: resultFrame.Result.Reply,
+			})
+		}
+	}
+
+	summaryRes, err := compaction.ComputeSummary(ctx, env.Backend, model, env.SystemPrompt, transcriptMsgs)
+	if err != nil {
+		emit(agentlink.Frame{
+			Kind: agentlink.KindCompact,
+			Compact: &agentlink.Compact{
+				Phase:        agentlink.CompactEnd,
+				Reason:       "threshold",
+				TokensBefore: promptTokens,
+				Aborted:      true,
+			},
+		})
+		return
+	}
+
+	userReqs := compaction.UserRequests(transcriptMsgs, compaction.MaxUserRequests)
+	resumingText := compaction.ResumingBlock(userReqs, summaryRes.Text)
+
+	// Reset actor's internal trajectory with the new resuming block
+	act.ResetHistory([]actor.ConversationMessage{
+		{
+			Role:    actor.RoleUser,
+			Content: resumingText,
+		},
+	})
+
+	afterTokens := summaryRes.StatsAfter.Tokens
+	if afterTokens <= 0 {
+		afterTokens = compaction.EstimateTokens(resumingText)
+	}
+
+	elapsed := time.Since(start).Milliseconds()
+	if elapsed <= 0 {
+		elapsed = 1
+	}
+
+	emit(agentlink.Frame{
+		Kind: agentlink.KindCompact,
+		Compact: &agentlink.Compact{
+			Phase:        agentlink.CompactEnd,
+			Reason:       "threshold",
+			Summary:      summaryRes.Text,
+			TokensBefore: promptTokens,
+			TokensAfter:  afterTokens,
+			ElapsedMS:    elapsed,
+		},
+	})
 }

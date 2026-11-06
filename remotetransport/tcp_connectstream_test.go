@@ -1,50 +1,10 @@
 package remotetransport
 
 import (
-	"context"
 	"net/http"
 	"net/http/httptest"
 	"testing"
-	"time"
-
-	"github.com/justwasm/pigasus/internal/remotecontrol"
-	"github.com/justwasm/pigasus/originpolicy"
 )
-
-// newTestRPCServer starts a TCP server whose mux carries the
-// Connect-RPC HTTP route, which the mux only registers when a Web UI
-// handler is configured.
-func newTestRPCServer(t *testing.T) (*TCPServer, func()) {
-	t.Helper()
-	sess := remotecontrol.NewSessionState("1.4.7-test")
-	sess.Workspace = t.TempDir()
-	disp, err := remotecontrol.NewDispatcher(remotecontrol.Config{
-		Session: sess,
-		Agents:  remotecontrol.DefaultAgentLister,
-		Reader:  remotecontrol.DefaultOutputReader{},
-	})
-	if err != nil {
-		t.Fatalf("NewDispatcher: %v", err)
-	}
-	policy := originpolicy.OriginPolicy{Patterns: []string{"https://antigravity.google.com"}}
-	srv, err := NewTCPServer(context.Background(), disp, TCPConfig{
-		Addr:         "127.0.0.1:0",
-		Path:         "/rpc",
-		OriginPolicy: &policy,
-		WebUIHandler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			w.WriteHeader(http.StatusOK)
-		}),
-	})
-	if err != nil {
-		t.Fatalf("NewTCPServer: %v", err)
-	}
-	teardown := func() {
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-		defer cancel()
-		_ = srv.Shutdown(shutdownCtx)
-	}
-	return srv, teardown
-}
 
 func TestTCPServer_RPCRouteRejectsForeignOrigin(t *testing.T) {
 	srv, cleanup := newTestRPCServer(t)

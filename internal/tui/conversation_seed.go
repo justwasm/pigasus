@@ -62,7 +62,7 @@ func (m *runMode) seedConversation(c *convstore.Conversation) {
 		return
 	}
 	if len(c.Steps) > 0 || c.ID != "" {
-		m.conversationStarted = true
+		m.session.conversationStarted = true
 	}
 	m.rehydrateConversation(c)
 	steps := c.Transcript()
@@ -77,28 +77,28 @@ func (m *runMode) seedConversation(c *convstore.Conversation) {
 	// The trajectory starts as the conversation's own steps: the tool
 	// calls the reference stored are part of it, and the turns that run
 	// from here are appended to them.
-	if m.supervisor != nil {
-		m.supervisor.SetSeededConversation(c.Steps, len(m.session))
-		m.supervisor.Replace(m.session)
+	if m.session.supervisor != nil {
+		m.session.supervisor.SetSeededConversation(c.Steps, len(m.engine.session))
+		m.session.supervisor.Replace(m.engine.session)
 	}
-	m.trajLoaded = c.Steps
-	m.trajCalls = nil
-	m.trajSeededLen = len(m.session)
-	m.rowsCacheDirty = true
-	m.rowsGen++
+	m.engine.trajLoaded = c.Steps
+	m.engine.trajCalls = nil
+	m.engine.trajSeededLen = len(m.engine.session)
+	m.viewport.rowsCacheDirty = true
+	m.viewport.rowsGen++
 
 	// Direction 2: Restore persisted queued prompts if any.
 	convID := c.ID
 	if convID == "" {
-		convID = m.conversationID
+		convID = m.session.conversationID
 	}
 	if convID != "" {
 		sStore := session.NewStore("")
 		queued := sStore.LoadQueued(convID)
 		if len(queued) > 0 {
-			m.store.QueuedPrompt = queued[0]
+			m.session.store.QueuedPrompt = queued[0]
 			if len(queued) > 1 {
-				m.store.StreamQueue = append(m.store.StreamQueue, queued[1:]...)
+				m.session.store.StreamQueue = append(m.session.store.StreamQueue, queued[1:]...)
 			}
 		}
 
@@ -183,16 +183,16 @@ func (m *runMode) rehydrateConversation(c *convstore.Conversation) {
 	}
 	convID := c.ID
 	if convID == "" {
-		convID = m.conversationID
+		convID = m.session.conversationID
 	}
 	// A fresh store: adopting a conversation replaces the previous
 	// one's definitions, it does not add to them.
-	m.subagentDefs = subagenttools.NewStore()
+	m.engine.subagentDefs = subagenttools.NewStore()
 	state := &rehydration.State{
 		ConversationID: convID,
-		Definitions:    m.subagentDefs,
+		Definitions:    m.engine.subagentDefs,
 		Schedules:      shell.ScheduleTableFor(convID),
-		Tasks:          m.taskReg,
+		Tasks:          m.engine.taskReg,
 	}
 	rehydration.Restore(c.RehydrationSteps(), state)
 }
@@ -208,17 +208,17 @@ func (m *runMode) seedToolGroup(steps []convstore.Step, startIdx int) int {
 	exp := m.effectiveExpanded(verb)
 	block := toolsteps.RenderBlock(group, toolsteps.RenderOptions{
 		Expanded:  exp,
-		Width:     m.width,
+		Width:     m.viewport.width,
 		Verbosity: verb,
 	})
-	start := len(m.response)
-	m.response = append(m.response, block...)
-	m.blocks = append(m.blocks, transcript.NewBlock(transcript.Block{
+	start := len(m.engine.response)
+	m.engine.response = append(m.engine.response, block...)
+	m.engine.blocks = append(m.engine.blocks, transcript.NewBlock(transcript.Block{
 		Start:    start,
 		Lines:    len(block),
 		Steps:    group,
 		Expanded: exp,
-	}, block, m.width, verb))
+	}, block, m.viewport.width, verb))
 	return j
 }
 
@@ -228,20 +228,20 @@ func (m *runMode) seedNonToolStep(s convstore.Step) {
 		if strings.TrimSpace(s.Text) == "" {
 			return
 		}
-		m.session = append(m.session, backend.Message{Role: "user", Content: s.Text})
-		for len(m.response) > 0 && strings.TrimSpace(m.response[len(m.response)-1]) == "" {
-			m.response = m.response[:len(m.response)-1]
+		m.engine.session = append(m.engine.session, backend.Message{Role: "user", Content: s.Text})
+		for len(m.engine.response) > 0 && strings.TrimSpace(m.engine.response[len(m.engine.response)-1]) == "" {
+			m.engine.response = m.engine.response[:len(m.engine.response)-1]
 		}
-		sep := transcript.TurnSeparator(m.width)
-		if len(m.response) == 0 {
-			m.response = append(m.response, sep)
+		sep := transcript.TurnSeparator(m.viewport.width)
+		if len(m.engine.response) == 0 {
+			m.engine.response = append(m.engine.response, sep)
 		} else {
-			m.response = append(m.response, "", sep)
+			m.engine.response = append(m.engine.response, "", sep)
 		}
-		start := len(m.response)
-		promptLines := transcript.RenderUserPrompt(s.Text, m.width)
-		m.response = append(m.response, promptLines...)
-		m.userBlocks = append(m.userBlocks, transcript.UserBlock{
+		start := len(m.engine.response)
+		promptLines := transcript.RenderUserPrompt(s.Text, m.viewport.width)
+		m.engine.response = append(m.engine.response, promptLines...)
+		m.engine.userBlocks = append(m.engine.userBlocks, transcript.UserBlock{
 			Start: start,
 			Lines: len(promptLines),
 			Raw:   s.Text,
@@ -251,16 +251,16 @@ func (m *runMode) seedNonToolStep(s convstore.Step) {
 		if strings.TrimSpace(s.Text) == "" {
 			return
 		}
-		styled := mdrender.RenderMarkdown(s.Text, m.width)
+		styled := mdrender.RenderMarkdown(s.Text, m.viewport.width)
 		lines := strings.Split(styled, "\n")
-		start := len(m.response)
-		m.response = append(m.response, lines...)
-		m.session = append(m.session, backend.Message{Role: "assistant", Content: s.Text})
-		m.assistants = append(m.assistants, transcript.AssistantBlock{Start: start, Lines: len(lines), Raw: s.Text})
+		start := len(m.engine.response)
+		m.engine.response = append(m.engine.response, lines...)
+		m.engine.session = append(m.engine.session, backend.Message{Role: "assistant", Content: s.Text})
+		m.engine.assistants = append(m.engine.assistants, transcript.AssistantBlock{Start: start, Lines: len(lines), Raw: s.Text})
 	default:
-		m.response = append(m.response, "  "+tuilib.FirstLine(s.Text))
+		m.engine.response = append(m.engine.response, "  "+tuilib.FirstLine(s.Text))
 	}
-	m.response = append(m.response, "")
+	m.engine.response = append(m.engine.response, "")
 }
 
 func loadedToolStep(s convstore.Step) toolsteps.Step {
@@ -275,47 +275,47 @@ func loadedToolStep(s convstore.Step) toolsteps.Step {
 func (m *runMode) resumeConversation(meta convstore.ConversationMeta) tea.Cmd {
 	c, err := convstore.LoadConversation(meta.Path)
 	if err != nil {
-		m.response = append(m.response,
+		m.engine.response = append(m.engine.response,
 			"  Failed to load "+meta.ID+": "+err.Error())
 		return nil
 	}
-	m.response = nil
-	m.session = nil
-	if m.supervisor != nil {
-		m.supervisor.Clear()
+	m.engine.response = nil
+	m.engine.session = nil
+	if m.session.supervisor != nil {
+		m.session.supervisor.Clear()
 	}
-	m.blocks = nil
-	m.assistants = nil
-	m.userBlocks = nil
-	m.liveSteps = nil
-	m.liveStepRuns = nil
-	m.activeTool = ""
-	m.replyStart = -1
-	m.liveTextLines = 0
-	m.liveReplyBuf = ""
-	m.rowsCacheDirty = true
-	m.rowsCache = wrapSlot{}
-	m.rowsCacheN1 = wrapSlot{}
-	m.rowsView = composedRows{}
-	m.scroll = 0
-	m.autoScroll = true
-	if m.width <= 0 {
+	m.engine.blocks = nil
+	m.engine.assistants = nil
+	m.engine.userBlocks = nil
+	m.engine.liveSteps = nil
+	m.engine.liveStepRuns = nil
+	m.engine.activeTool = ""
+	m.engine.replyStart = -1
+	m.engine.liveTextLines = 0
+	m.engine.liveReplyBuf = ""
+	m.viewport.rowsCacheDirty = true
+	m.viewport.rowsCache = wrapSlot{}
+	m.viewport.rowsCacheN1 = wrapSlot{}
+	m.viewport.rowsView = composedRows{}
+	m.viewport.scroll = 0
+	m.viewport.autoScroll = true
+	if m.viewport.width <= 0 {
 		if cols, rows, err := term.GetSize(int(os.Stdout.Fd())); err == nil && cols > 0 {
-			m.width, m.height = cols, rows
+			m.viewport.width, m.viewport.height = cols, rows
 		}
 	}
-	if m.width > 0 {
-		mdrender.SetCurrentWidth(m.width)
+	if m.viewport.width > 0 {
+		mdrender.SetCurrentWidth(m.viewport.width)
 	}
 	m.seedConversation(c)
-	if m.width > 0 {
-		m.reflowTranscript(m.width)
+	if m.viewport.width > 0 {
+		m.reflowTranscript(m.viewport.width)
 	}
-	m.conversationID = meta.ID
+	m.session.conversationID = meta.ID
 	if c != nil && c.ID != "" {
-		m.conversationID = c.ID
+		m.session.conversationID = c.ID
 	}
-	m.autoTitle = ""
+	m.session.autoTitle = ""
 	return nil
 }
 

@@ -64,65 +64,65 @@ var _ = textinput.New
 // mkPanel returns a runMode with the given panel open.
 func mkPanel(kind panelregistry.Kind, cmd string, cursor int) *runMode {
 	m := &runMode{}
-	m.panel = slashPanel{kind: kind, cmd: cmd, cursor: cursor}
+	m.overlays.panel = slashPanel{kind: kind, cmd: cmd, cursor: cursor}
 	// Cycle 197: panelregistry.Model reads settings.json for the (current)
 	// annotation. The panel itself owns the cursor and the effort
 	// slider's position, so it is built with the host's seams and the
 	// cursor is handed to it.
 	if kind == panelregistry.Model {
-		m.panel.mdl = m.newModelPanel()
-		m.panel.mdl.SetCursor(cursor)
+		m.overlays.panel.mdl = m.newModelPanel()
+		m.overlays.panel.mdl.SetCursor(cursor)
 	}
 	// Cycle 225: panelregistry.Usage's quota.state defaults to quotaLoading,
 	// which forces the height-aware renderer through the loading doc
 	// path. Cycle-207 tests (e.g. TestCycle207UsageDocGeometry) key
-	// off the loaded doc's exact 20-line shape; they set m.height
+	// off the loaded doc's exact 20-line shape; they set m.viewport.height
 	// directly and never arm a tick, so the loading doc would break
 	// them. Pre-seed quotaLoaded (no refresh times — the cycle-207
-	// tests pin the doc via m.width and ignore the live countdown,
+	// tests pin the doc via m.viewport.width and ignore the live countdown,
 	// and the cycle-225 tests drive the loading state through
 	// quotaStubRefills / explicit state sets).
 	if kind == panelregistry.Usage {
-		m.panel.quota.state = quotaLoaded
+		m.overlays.panel.quota.state = quotaLoaded
 	}
 	// The /config panel owns its own cursor, so the panel is built with
 	// the host's seams and the cursor is handed to it.
 	if kind == panelregistry.Config {
-		m.panel.cfg = m.newConfigPanel()
-		m.panel.cfg.SetCursor(cursor)
+		m.overlays.panel.cfg = m.newConfigPanel()
+		m.overlays.panel.cfg.SetCursor(cursor)
 	}
 	// Cycle 381: the /permissions panel owns its own cursor too.
 	if kind == panelregistry.Permissions {
-		m.panel.perm = m.newPermissionsPanel()
-		m.panel.perm.SetCursor(cursor)
+		m.overlays.panel.perm = m.newPermissionsPanel()
+		m.overlays.panel.perm.SetCursor(cursor)
 	}
 	// Cycle 381: the /hooks panel owns its own cursor as well.
 	if kind == panelregistry.Hooks {
-		m.panel.hk = m.newHooksPanel()
-		m.panel.hk.SetCursor(cursor)
+		m.overlays.panel.hk = m.newHooksPanel()
+		m.overlays.panel.hk.SetCursor(cursor)
 	}
 	// Cycle 381: the /agents panel owns its own cursor too.
 	if kind == panelregistry.Agents {
-		m.panel.ag = m.newAgentsPanel()
-		m.panel.ag.SetCursor(cursor)
+		m.overlays.panel.ag = m.newAgentsPanel()
+		m.overlays.panel.ag.SetCursor(cursor)
 	}
 	// Cycle 381: the /feedback panel owns its own cursor as well.
 	if kind == panelregistry.Feedback {
-		m.panel.fb = m.newFeedbackPanel()
-		m.panel.fb.SetCursor(cursor)
+		m.overlays.panel.fb = m.newFeedbackPanel()
+		m.overlays.panel.fb.SetCursor(cursor)
 	}
 	// Cycle 381: the /credits panel owns its own cursor too.
 	if kind == panelregistry.Credits {
-		m.panel.cr = m.newCreditsPanel()
-		m.panel.cr.SetCursor(cursor)
+		m.overlays.panel.cr = m.newCreditsPanel()
+		m.overlays.panel.cr.SetCursor(cursor)
 	}
 	// Cycle 381: the /effort panel owns the slider's marker.
 	if kind == panelregistry.Effort {
-		m.panel.ef = m.newEffortPanel()
-		m.panel.ef.SetCursor(cursor)
+		m.overlays.panel.ef = m.newEffortPanel()
+		m.overlays.panel.ef.SetCursor(cursor)
 	}
 	if kind == panelregistry.Projects {
-		m.panel.proj = m.newProjectsPanel()
+		m.overlays.panel.proj = m.newProjectsPanel()
 	}
 	if kind.IsViewer() {
 		m.initViewerViewport()
@@ -199,8 +199,8 @@ func TestOpenSlashPanel(t *testing.T) {
 	if !m.openSlashPanel("mcp") {
 		t.Fatal("openSlashPanel(\"mcp\") = false")
 	}
-	if m.panel.kind != panelregistry.MCP || m.panel.cmd != "/mcp" {
-		t.Fatalf("panel = %+v, want kind=%v cmd=/mcp", m.panel, panelregistry.MCP)
+	if m.overlays.panel.kind != panelregistry.MCP || m.overlays.panel.cmd != "/mcp" {
+		t.Fatalf("panel = %+v, want kind=%v cmd=/mcp", m.overlays.panel, panelregistry.MCP)
 	}
 	if m.openSlashPanel("clear") {
 		t.Fatal("openSlashPanel(\"clear\") = true")
@@ -407,7 +407,7 @@ func TestRewindExitNotice(t *testing.T) {
 // pinned by the package's own tests; this test pins the wiring.
 func TestPanelContextRendersThroughPackage(t *testing.T) {
 	m := mkPanel(panelregistry.Context, "/context", 0)
-	m.model = "Gemini 3.8 Flash (High)"
+	m.session.model = "Gemini 3.8 Flash (High)"
 
 	got := plainLines(m)
 	want := make([]string, 0)
@@ -489,21 +489,21 @@ func TestPanelExitNotice(t *testing.T) {
 func TestClosePanelAppendsExitNotice(t *testing.T) {
 	m := mkPanel(panelregistry.Tasks, "/tasks", 0)
 	m.closePanel()
-	if m.panel.kind != panelregistry.None {
+	if m.overlays.panel.kind != panelregistry.None {
 		t.Fatal("panel not cleared")
 	}
-	if len(m.response) != 3 {
-		t.Fatalf("response = %q, want a 3-line echo block", m.response)
+	if len(m.engine.response) != 3 {
+		t.Fatalf("response = %q, want a 3-line echo block", m.engine.response)
 	}
-	if p := termcolor.StripSGR(m.response[1]); p != "  ⎿  Exited /tasks command" {
+	if p := termcolor.StripSGR(m.engine.response[1]); p != "  ⎿  Exited /tasks command" {
 		t.Errorf("exit notice = %q", p)
 	}
 
 	// /mcp closes silently.
 	m2 := mkPanel(panelregistry.MCP, "/mcp", 0)
 	m2.closePanel()
-	if len(m2.response) != 0 {
-		t.Fatalf("silent close appended %q", m2.response)
+	if len(m2.engine.response) != 0 {
+		t.Fatalf("silent close appended %q", m2.engine.response)
 	}
 }
 
@@ -711,8 +711,8 @@ func TestPanelUsageViewerScrolls(t *testing.T) {
 	if handled, _ := m.handlePanelKey(tea.Key{Code: tea.KeyDown}); !handled {
 		t.Fatal("down not handled")
 	}
-	if m.panel.window != 1 {
-		t.Fatalf("window = %d, want 1", m.panel.window)
+	if m.overlays.panel.window != 1 {
+		t.Fatalf("window = %d, want 1", m.overlays.panel.window)
 	}
 	if !strings.Contains(panelText(m), "(2–18 of 20 lines)") {
 		t.Errorf("counter did not follow the window:\n%s", panelText(m))
@@ -721,8 +721,8 @@ func TestPanelUsageViewerScrolls(t *testing.T) {
 	if handled, _ := m.handlePanelKey(tea.Key{Code: tea.KeyEnd, Mod: tea.ModCtrl}); !handled {
 		t.Fatal("ctrl+end not handled")
 	}
-	if m.panel.window != 3 {
-		t.Fatalf("ctrl+end window = %d, want 3", m.panel.window)
+	if m.overlays.panel.window != 3 {
+		t.Fatalf("ctrl+end window = %d, want 3", m.overlays.panel.window)
 	}
 	text := panelText(m)
 	if !strings.Contains(text, "(4–20 of 20 lines)") {
@@ -733,22 +733,22 @@ func TestPanelUsageViewerScrolls(t *testing.T) {
 	}
 	// Down past the end clamps.
 	m.handlePanelKey(tea.Key{Code: tea.KeyDown})
-	if m.panel.window != 3 {
-		t.Errorf("down at bottom moved window to %d", m.panel.window)
+	if m.overlays.panel.window != 3 {
+		t.Errorf("down at bottom moved window to %d", m.overlays.panel.window)
 	}
 	// ctrl+home returns to the top.
 	m.handlePanelKey(tea.Key{Code: tea.KeyHome, Mod: tea.ModCtrl})
-	if m.panel.window != 0 {
-		t.Errorf("ctrl+home window = %d, want 0", m.panel.window)
+	if m.overlays.panel.window != 0 {
+		t.Errorf("ctrl+home window = %d, want 0", m.overlays.panel.window)
 	}
 	// pgdn / pgup page by the window height and clamp the same way.
 	m.handlePanelKey(tea.Key{Code: tea.KeyPgDown})
-	if m.panel.window != 3 {
-		t.Errorf("pgdown window = %d, want 3 (clamped)", m.panel.window)
+	if m.overlays.panel.window != 3 {
+		t.Errorf("pgdown window = %d, want 3 (clamped)", m.overlays.panel.window)
 	}
 	m.handlePanelKey(tea.Key{Code: tea.KeyPgUp})
-	if m.panel.window != 0 {
-		t.Errorf("pgup window = %d, want 0", m.panel.window)
+	if m.overlays.panel.window != 0 {
+		t.Errorf("pgup window = %d, want 0", m.overlays.panel.window)
 	}
 }
 
@@ -757,7 +757,7 @@ func TestPanelUsageViewerScrolls(t *testing.T) {
 // against the 1.4.4 binary; 1962 was the 1.4.2-era fixture's).
 func TestPanelChangelogViewerScrolls(t *testing.T) {
 	m := mkPanel(panelregistry.Changelog, "/changelog", 0)
-	total := len(changelog.Document(m.width, m.height))
+	total := len(changelog.Document(m.viewport.width, m.viewport.height))
 	vis := changelog.WindowRows()
 	if total <= vis {
 		t.Fatalf("document too short to scroll: %d rows (window %d)", total, vis)
@@ -768,16 +768,16 @@ func TestPanelChangelogViewerScrolls(t *testing.T) {
 	if handled, _ := m.handlePanelKey(tea.Key{Code: tea.KeyDown}); !handled {
 		t.Fatal("down not handled")
 	}
-	if m.panel.window != 1 {
-		t.Fatalf("window = %d, want 1", m.panel.window)
+	if m.overlays.panel.window != 1 {
+		t.Fatalf("window = %d, want 1", m.overlays.panel.window)
 	}
 	if !strings.Contains(panelText(m), fmt.Sprintf("(2\u2013%d of %d lines)", vis+1, changelog.TotalLines)) {
 		t.Errorf("counter did not follow the window:\n%s", panelText(m)[:300])
 	}
 	// ctrl+end lands on the final window, which shows the 1.0.0 section.
 	m.handlePanelKey(tea.Key{Code: tea.KeyEnd, Mod: tea.ModCtrl})
-	if want := total - vis; m.panel.window != want {
-		t.Fatalf("ctrl+end window = %d, want %d", m.panel.window, want)
+	if want := total - vis; m.overlays.panel.window != want {
+		t.Fatalf("ctrl+end window = %d, want %d", m.overlays.panel.window, want)
 	}
 	text := panelText(m)
 	if !strings.Contains(text, "Initial release of the Antigravity CLI") {
@@ -788,8 +788,8 @@ func TestPanelChangelogViewerScrolls(t *testing.T) {
 	}
 	// ctrl+home returns to the first screen.
 	m.handlePanelKey(tea.Key{Code: tea.KeyHome, Mod: tea.ModCtrl})
-	if m.panel.window != 0 {
-		t.Errorf("ctrl+home window = %d, want 0", m.panel.window)
+	if m.overlays.panel.window != 0 {
+		t.Errorf("ctrl+home window = %d, want 0", m.overlays.panel.window)
 	}
 	if !strings.Contains(panelText(m), "## 1.4.11") {
 		t.Errorf("first screen should still open on 1.4.11:\n%s", panelText(m)[:200])
@@ -810,17 +810,17 @@ func TestPanelViewerKeySwallowAndEsc(t *testing.T) {
 	if handled, _ := m.handlePanelKey(tea.Key{Code: tea.KeyEsc}); !handled {
 		t.Fatal("esc not handled")
 	}
-	if m.panel.kind != panelregistry.None {
+	if m.overlays.panel.kind != panelregistry.None {
 		t.Fatal("esc did not close the panel")
 	}
-	if got := termcolor.StripSGR(strings.Join(m.response, "\n")); strings.Contains(got, "Exited") {
+	if got := termcolor.StripSGR(strings.Join(m.engine.response, "\n")); strings.Contains(got, "Exited") {
 		t.Errorf("usage esc should be silent, got %q", got)
 	}
 	// /changelog closes silently.
 	c := mkPanel(panelregistry.Changelog, "/changelog", 0)
 	c.handlePanelKey(tea.Key{Code: tea.KeyEsc})
-	if len(c.response) != 0 {
-		t.Errorf("changelog esc should be silent, got %q", c.response)
+	if len(c.engine.response) != 0 {
+		t.Errorf("changelog esc should be silent, got %q", c.engine.response)
 	}
 }
 
@@ -857,19 +857,19 @@ func TestPanelSkillsDetailView(t *testing.T) {
 	if handled, _ := m.handlePanelKey(tea.Key{Code: tea.KeyEsc}); !handled {
 		t.Fatal("esc not handled")
 	}
-	if m.skillsPanel().Detail() || m.panel.kind != panelregistry.Skills {
+	if m.skillsPanel().Detail() || m.overlays.panel.kind != panelregistry.Skills {
 		t.Fatalf("esc should return to the list: detail=%v kind=%v",
-			m.skillsPanel().Detail(), m.panel.kind)
+			m.skillsPanel().Detail(), m.overlays.panel.kind)
 	}
-	if len(m.response) != 0 {
-		t.Errorf("returning from detail should not touch the transcript: %q", m.response)
+	if len(m.engine.response) != 0 {
+		t.Errorf("returning from detail should not touch the transcript: %q", m.engine.response)
 	}
 	// From the list, Esc closes and emits the standard notice.
 	m.handlePanelKey(tea.Key{Code: tea.KeyEsc})
-	if m.panel.kind != panelregistry.None {
+	if m.overlays.panel.kind != panelregistry.None {
 		t.Fatal("second esc did not close the panel")
 	}
-	if got := termcolor.StripSGR(strings.Join(m.response, "\n")); !strings.Contains(got, "Exited /skills command") {
+	if got := termcolor.StripSGR(strings.Join(m.engine.response, "\n")); !strings.Contains(got, "Exited /skills command") {
 		t.Errorf("skills esc notice = %q", got)
 	}
 }
@@ -942,8 +942,8 @@ func TestSlashLogin_Handler(t *testing.T) {
 	if !handled {
 		t.Fatal("expected /login to be handled")
 	}
-	if m.login == nil {
-		t.Fatal("expected m.login to be active without restarting CLI")
+	if m.overlays.login == nil {
+		t.Fatal("expected m.overlays.login to be active without restarting CLI")
 	}
 	if cmd == nil {
 		t.Fatal("expected login init command returned")
@@ -954,7 +954,7 @@ func TestSlashLogin_Handler(t *testing.T) {
 		t.Fatalf("expected login view in m.View(), got:\n%s", view)
 	}
 
-	m.login = nil
+	m.overlays.login = nil
 }
 
 // TestCycle206OpenSlashPanelViaAlias pins the alias rule at the panel
@@ -985,11 +985,11 @@ func TestCycle206OpenSlashPanelViaAlias(t *testing.T) {
 			t.Errorf("openSlashPanel(%q) = false, want true", c.cmd)
 			continue
 		}
-		if m.panel.kind != c.kind {
-			t.Errorf("openSlashPanel(%q) kind = %v, want %v", c.cmd, m.panel.kind, c.kind)
+		if m.overlays.panel.kind != c.kind {
+			t.Errorf("openSlashPanel(%q) kind = %v, want %v", c.cmd, m.overlays.panel.kind, c.kind)
 		}
-		if m.panel.cmd != "/"+c.canonical {
-			t.Errorf("openSlashPanel(%q) cmd = %q, want %q", c.cmd, m.panel.cmd, "/"+c.canonical)
+		if m.overlays.panel.cmd != "/"+c.canonical {
+			t.Errorf("openSlashPanel(%q) cmd = %q, want %q", c.cmd, m.overlays.panel.cmd, "/"+c.canonical)
 		}
 	}
 	m := &runMode{}
@@ -1029,18 +1029,18 @@ func TestCycle206ListPanelsOwnEveryKey(t *testing.T) {
 	}
 	for _, k := range kinds {
 		m := mkPanel(k.kind, k.cmd, 0)
-		before := len(m.response)
+		before := len(m.engine.response)
 		for _, key := range keys {
 			handled, _ := m.handlePanelKey(key)
 			if !handled {
 				t.Errorf("%s: key %+v fell through, want swallowed", k.cmd, key)
 			}
 		}
-		if m.panel.kind != k.kind {
+		if m.overlays.panel.kind != k.kind {
 			t.Errorf("%s: panel closed by a non-Esc key", k.cmd)
 		}
-		if len(m.response) != before {
-			t.Errorf("%s: key changed the transcript (%d -> %d)", k.cmd, before, len(m.response))
+		if len(m.engine.response) != before {
+			t.Errorf("%s: key changed the transcript (%d -> %d)", k.cmd, before, len(m.engine.response))
 		}
 	}
 }
@@ -1080,10 +1080,10 @@ func TestCycle206ListPanelsEscCloses(t *testing.T) {
 			t.Errorf("%s: esc not handled", c.cmd)
 			continue
 		}
-		if m.panel.kind != panelregistry.None {
-			t.Errorf("%s: esc did not close the panel (kind=%v)", c.cmd, m.panel.kind)
+		if m.overlays.panel.kind != panelregistry.None {
+			t.Errorf("%s: esc did not close the panel (kind=%v)", c.cmd, m.overlays.panel.kind)
 		}
-		got := termcolor.StripSGR(strings.Join(m.response, "\n"))
+		got := termcolor.StripSGR(strings.Join(m.engine.response, "\n"))
 		if c.notice {
 			if !strings.Contains(got, "Exited "+c.cmd+" command") {
 				t.Errorf("%s: esc notice = %q", c.cmd, got)
@@ -1111,34 +1111,34 @@ func TestChangelogViewer_VimAndBubbleteaKeybindings(t *testing.T) {
 		t.Skipf("changelog_reference.txt not reachable from cwd %q — skipping", mustGetwd(t))
 	}
 	m := mkPanel(panelregistry.Changelog, "/changelog", 0)
-	if m.panel.kind != panelregistry.Changelog {
-		t.Fatalf("expected panelregistry.Changelog, got %v", m.panel.kind)
+	if m.overlays.panel.kind != panelregistry.Changelog {
+		t.Fatalf("expected panelregistry.Changelog, got %v", m.overlays.panel.kind)
 	}
 
-	if m.panel.window != 0 {
-		t.Fatalf("initial window = %d, want 0", m.panel.window)
+	if m.overlays.panel.window != 0 {
+		t.Fatalf("initial window = %d, want 0", m.overlays.panel.window)
 	}
 
 	handled, _ := m.handlePanelKey(tea.Key{Code: 'j', Text: "j"})
-	if !handled || m.panel.window != 1 {
-		t.Errorf("after 'j': handled=%v, window=%d, want 1", handled, m.panel.window)
+	if !handled || m.overlays.panel.window != 1 {
+		t.Errorf("after 'j': handled=%v, window=%d, want 1", handled, m.overlays.panel.window)
 	}
 
 	handled, _ = m.handlePanelKey(tea.Key{Code: 'k', Text: "k"})
-	if !handled || m.panel.window != 0 {
-		t.Errorf("after 'k': handled=%v, window=%d, want 0", handled, m.panel.window)
+	if !handled || m.overlays.panel.window != 0 {
+		t.Errorf("after 'k': handled=%v, window=%d, want 0", handled, m.overlays.panel.window)
 	}
 
 	handled, _ = m.handlePanelKey(tea.Key{Code: 'G', Text: "G"})
-	spec, _ := m.getPanelRegistry().ViewerSpec(m.panel.kind)
+	spec, _ := m.getPanelRegistry().ViewerSpec(m.overlays.panel.kind)
 	maxOffset := tuiviewer.MaxOffset(spec)
-	if !handled || m.panel.window != maxOffset {
-		t.Errorf("after 'G': handled=%v, window=%d, want %d", handled, m.panel.window, maxOffset)
+	if !handled || m.overlays.panel.window != maxOffset {
+		t.Errorf("after 'G': handled=%v, window=%d, want %d", handled, m.overlays.panel.window, maxOffset)
 	}
 
 	handled, _ = m.handlePanelKey(tea.Key{Code: 'g', Text: "g"})
-	if !handled || m.panel.window != 0 {
-		t.Errorf("after 'g': handled=%v, window=%d, want 0", handled, m.panel.window)
+	if !handled || m.overlays.panel.window != 0 {
+		t.Errorf("after 'g': handled=%v, window=%d, want 0", handled, m.overlays.panel.window)
 	}
 
 	handled, _ = m.handlePanelKey(tea.Key{Code: 'd', Text: "d"})
@@ -1146,18 +1146,18 @@ func TestChangelogViewer_VimAndBubbleteaKeybindings(t *testing.T) {
 	if half < 1 {
 		half = 1
 	}
-	if !handled || m.panel.window != half {
-		t.Errorf("after 'd': handled=%v, window=%d, want %d", handled, m.panel.window, half)
+	if !handled || m.overlays.panel.window != half {
+		t.Errorf("after 'd': handled=%v, window=%d, want %d", handled, m.overlays.panel.window, half)
 	}
 
 	handled, _ = m.handlePanelKey(tea.Key{Code: 'u', Text: "u"})
-	if !handled || m.panel.window != 0 {
-		t.Errorf("after 'u': handled=%v, window=%d, want 0", handled, m.panel.window)
+	if !handled || m.overlays.panel.window != 0 {
+		t.Errorf("after 'u': handled=%v, window=%d, want 0", handled, m.overlays.panel.window)
 	}
 
 	handled, _ = m.handlePanelKey(tea.Key{Code: 'q', Text: "q"})
-	if !handled || m.panel.kind != panelregistry.None {
-		t.Errorf("after 'q': handled=%v, panel.kind=%v, want panelregistry.None", handled, m.panel.kind)
+	if !handled || m.overlays.panel.kind != panelregistry.None {
+		t.Errorf("after 'q': handled=%v, panel.kind=%v, want panelregistry.None", handled, m.overlays.panel.kind)
 	}
 }
 
@@ -1185,9 +1185,9 @@ func TestFeatDiff_PanelLines(t *testing.T) {
 // pinned by the usagepanel package's tests.
 func TestUsageStateGathers(t *testing.T) {
 	m := mkPanel(panelregistry.Usage, "/usage", 0)
-	m.email = "a@b.c"
-	m.width, m.height = 220, 50
-	m.quotaFrame = 3
+	m.session.email = "a@b.c"
+	m.viewport.width, m.viewport.height = 220, 50
+	m.engine.quotaFrame = 3
 
 	st := m.usageState()
 	if st.Email != "a@b.c" {
@@ -1207,7 +1207,7 @@ func TestUsageStateGathers(t *testing.T) {
 	}
 
 	// The quota call is in flight: the panel shows the spinner row.
-	m.panel.quota.state = quotaLoading
+	m.overlays.panel.quota.state = quotaLoading
 	if st = m.usageState(); !st.Loading {
 		t.Error("loading = false, want true while the quota call is in flight")
 	}
@@ -1215,9 +1215,9 @@ func TestUsageStateGathers(t *testing.T) {
 	// The two buckets' refresh times reach the panel.
 	g := time.Now().Add(168 * time.Hour)
 	o := time.Now().Add(48 * time.Hour)
-	m.panel.quota.refreshG = g
-	m.panel.quota.refreshO = o
-	m.panel.quota.state = quotaLoaded
+	m.overlays.panel.quota.refreshG = g
+	m.overlays.panel.quota.refreshO = o
+	m.overlays.panel.quota.state = quotaLoaded
 	st = m.usageState()
 	if st.Loading {
 		t.Error("loading = true, want false once the answer landed")
@@ -1253,12 +1253,12 @@ func TestCycle225QuotaCountdown(t *testing.T) {
 
 func TestCycle225QuotaStubRefills(t *testing.T) {
 	m := mkPanel(panelregistry.Usage, "/usage", 0)
-	m.panel.quota.state = quotaLoading
+	m.overlays.panel.quota.state = quotaLoading
 	before := time.Now()
 	quotaStubRefills(m)
 	after := time.Now()
-	if m.panel.quota.state != quotaLoaded {
-		t.Errorf("state = %d, want quotaLoaded (%d)", m.panel.quota.state, quotaLoaded)
+	if m.overlays.panel.quota.state != quotaLoaded {
+		t.Errorf("state = %d, want quotaLoaded (%d)", m.overlays.panel.quota.state, quotaLoaded)
 	}
 	// The stub stamps its refresh times with a time.Now() of its own,
 	// so they land somewhere between `before` and `after`. The window
@@ -1266,56 +1266,56 @@ func TestCycle225QuotaStubRefills(t *testing.T) {
 	// clock tick, and a strict comparison on the lower bound fails
 	// whenever they do.
 	loG, hiG := before.Add(168*time.Hour), after.Add(168*time.Hour)
-	if m.panel.quota.refreshG.Before(loG) || m.panel.quota.refreshG.After(hiG) {
+	if m.overlays.panel.quota.refreshG.Before(loG) || m.overlays.panel.quota.refreshG.After(hiG) {
 		t.Errorf("refreshG = %v, want in [%v, %v]",
-			m.panel.quota.refreshG, loG, hiG)
+			m.overlays.panel.quota.refreshG, loG, hiG)
 	}
 	loO, hiO := before.Add(48*time.Hour), after.Add(48*time.Hour)
-	if m.panel.quota.refreshO.Before(loO) || m.panel.quota.refreshO.After(hiO) {
+	if m.overlays.panel.quota.refreshO.Before(loO) || m.overlays.panel.quota.refreshO.After(hiO) {
 		t.Errorf("refreshO = %v, want in [%v, %v]",
-			m.panel.quota.refreshO, loO, hiO)
+			m.overlays.panel.quota.refreshO, loO, hiO)
 	}
 }
 
 func TestCycle225UsageQuotaTickHandler(t *testing.T) {
 	m := &runMode{}
-	m.panel = slashPanel{kind: panelregistry.None}
+	m.overlays.panel = slashPanel{kind: panelregistry.None}
 	if _, cmd := m.Update(usageQuotaTickMsg{}); cmd != nil {
 		t.Errorf("closed panel returned a cmd: %v", cmd)
 	}
-	if m.quotaFrame != 0 {
-		t.Errorf("quotaFrame = %d, want 0", m.quotaFrame)
+	if m.engine.quotaFrame != 0 {
+		t.Errorf("quotaFrame = %d, want 0", m.engine.quotaFrame)
 	}
 
 	m = mkPanel(panelregistry.Usage, "/usage", 0)
-	m.panel.quota.state = quotaLoading
+	m.overlays.panel.quota.state = quotaLoading
 	for i := 0; i < usageQuotaLoadingTicks; i++ {
 		_, cmd := m.Update(usageQuotaTickMsg{})
 		if cmd == nil {
 			t.Fatalf("tick %d returned nil cmd", i)
 		}
 	}
-	if m.panel.quota.state != quotaLoaded {
-		t.Errorf("state = %d, want quotaLoaded", m.panel.quota.state)
+	if m.overlays.panel.quota.state != quotaLoaded {
+		t.Errorf("state = %d, want quotaLoaded", m.overlays.panel.quota.state)
 	}
-	if m.quotaFrame != usageQuotaLoadingTicks {
-		t.Errorf("quotaFrame = %d, want %d", m.quotaFrame, usageQuotaLoadingTicks)
+	if m.engine.quotaFrame != usageQuotaLoadingTicks {
+		t.Errorf("quotaFrame = %d, want %d", m.engine.quotaFrame, usageQuotaLoadingTicks)
 	}
 
 	_, cmd := m.Update(usageQuotaTickMsg{})
 	if cmd == nil {
 		t.Error("post-flip tick returned nil cmd")
 	}
-	if m.quotaFrame != usageQuotaLoadingTicks+1 {
-		t.Errorf("quotaFrame = %d, want %d", m.quotaFrame, usageQuotaLoadingTicks+1)
+	if m.engine.quotaFrame != usageQuotaLoadingTicks+1 {
+		t.Errorf("quotaFrame = %d, want %d", m.engine.quotaFrame, usageQuotaLoadingTicks+1)
 	}
 }
 
 func TestCycle225UsagePanelHeightAware(t *testing.T) {
 	m := mkPanel(panelregistry.Usage, "/usage", 0)
-	m.width, m.height = 220, 50
-	m.panel.quota.state = quotaLoading
-	m.quotaFrame = 0
+	m.viewport.width, m.viewport.height = 220, 50
+	m.overlays.panel.quota.state = quotaLoading
+	m.engine.quotaFrame = 0
 	lines := m.panelLines()
 	if len(lines) != 7 {
 		t.Fatalf("loading-state panel = %d rows, want 7", len(lines))
@@ -1325,7 +1325,7 @@ func TestCycle225UsagePanelHeightAware(t *testing.T) {
 	}
 
 	quotaStubRefills(m)
-	m.panel.window = 0
+	m.overlays.panel.window = 0
 	lines = m.panelLines()
 	if len(lines) != 26 {
 		t.Errorf("loaded-state panel = %d rows, want 26", len(lines))
@@ -1337,12 +1337,12 @@ func TestCycle225UsagePanelHeightAware(t *testing.T) {
 
 func TestCycle225UsageViewerStaticRegression(t *testing.T) {
 	m := mkPanel(panelregistry.Usage, "/usage", 0)
-	if m.height != 0 {
-		t.Fatalf("mkPanel did not seed height=0 (got %d)", m.height)
+	if m.viewport.height != 0 {
+		t.Fatalf("mkPanel did not seed height=0 (got %d)", m.viewport.height)
 	}
 	// The document is the panel's own: at height 0 the viewer spec hands
 	// out the static cycle-193 rows.
-	spec, ok := m.getPanelRegistry().ViewerSpec(m.panel.kind)
+	spec, ok := m.getPanelRegistry().ViewerSpec(m.overlays.panel.kind)
 	if !ok {
 		t.Fatal("viewerSpecFor returned ok=false for panelregistry.Usage")
 	}
@@ -1363,15 +1363,15 @@ func TestCycle225UsageViewerStaticRegression(t *testing.T) {
 
 func TestCycle225OpenUsagePanelArmsLoading(t *testing.T) {
 	m := &runMode{}
-	m.width, m.height = 220, 50
+	m.viewport.width, m.viewport.height = 220, 50
 	if !m.openSlashPanel("usage") {
 		t.Fatal("openSlashPanel(\"usage\") = false")
 	}
-	if m.panel.kind != panelregistry.Usage {
-		t.Errorf("panel kind = %v, want panelregistry.Usage", m.panel.kind)
+	if m.overlays.panel.kind != panelregistry.Usage {
+		t.Errorf("panel kind = %v, want panelregistry.Usage", m.overlays.panel.kind)
 	}
-	if m.panel.quota.state != quotaLoading {
-		t.Errorf("quota.state = %d, want quotaLoading", m.panel.quota.state)
+	if m.overlays.panel.quota.state != quotaLoading {
+		t.Errorf("quota.state = %d, want quotaLoading", m.overlays.panel.quota.state)
 	}
 }
 
@@ -1390,9 +1390,9 @@ func TestPanelAddDirForCommand(t *testing.T) {
 	if !m.openSlashPanel("add-dir") {
 		t.Fatal("openSlashPanel(\"add-dir\") = false")
 	}
-	if m.panel.kind != panelregistry.AddDir || m.panel.cmd != "/add-dir" {
+	if m.overlays.panel.kind != panelregistry.AddDir || m.overlays.panel.cmd != "/add-dir" {
 		t.Errorf("after openSlashPanel: panel = (%v, %q), want (panelregistry.AddDir, \"/add-dir\")",
-			m.panel.kind, m.panel.cmd)
+			m.overlays.panel.kind, m.overlays.panel.cmd)
 	}
 }
 
@@ -1410,15 +1410,15 @@ func TestPanelAddDirRouting(t *testing.T) {
 	if !m.openSlashPanelArgs("add-dir", "") {
 		t.Fatal("openSlashPanelArgs(\"add-dir\", \"\") = false, want true (panel)")
 	}
-	if m.panel.kind != panelregistry.AddDir {
-		t.Errorf("bare /add-dir did not open panel: kind = %v", m.panel.kind)
+	if m.overlays.panel.kind != panelregistry.AddDir {
+		t.Errorf("bare /add-dir did not open panel: kind = %v", m.overlays.panel.kind)
 	}
 	m2 := &runMode{}
 	if m2.openSlashPanelArgs("add-dir", "/tmp/foo") {
 		t.Fatal("openSlashPanelArgs(\"add-dir\", \"/tmp/foo\") = true, want false (fall through)")
 	}
-	if m2.panel.kind != panelregistry.None {
-		t.Errorf("panel should remain panelregistry.None after fall-through, got %v", m2.panel.kind)
+	if m2.overlays.panel.kind != panelregistry.None {
+		t.Errorf("panel should remain panelregistry.None after fall-through, got %v", m2.overlays.panel.kind)
 	}
 }
 
@@ -1477,12 +1477,12 @@ func TestPanelAddDirEnterEchoes(t *testing.T) {
 	if handled, _ := m.handlePanelKey(tea.Key{Code: tea.KeyEnter}); !handled {
 		t.Fatal("Enter not handled")
 	}
-	if m.panel.kind != panelregistry.None {
-		t.Errorf("panel still open: kind = %v", m.panel.kind)
+	if m.overlays.panel.kind != panelregistry.None {
+		t.Errorf("panel still open: kind = %v", m.overlays.panel.kind)
 	}
-	resp := termcolor.StripSGR(strings.Join(m.response, "\n"))
+	resp := termcolor.StripSGR(strings.Join(m.engine.response, "\n"))
 	if !strings.Contains(resp, "> /add-dir") {
-		t.Errorf("missing slashRespond header; m.response=%q", resp)
+		t.Errorf("missing slashRespond header; m.engine.response=%q", resp)
 	}
 	if !strings.Contains(resp, "Added "+sub+" to workspace") {
 		t.Errorf("missing success echo; got %q", resp)
@@ -1507,10 +1507,10 @@ func TestPanelAddDirEnterEmpty(t *testing.T) {
 	if handled, _ := m.handlePanelKey(tea.Key{Code: tea.KeyEnter}); !handled {
 		t.Fatal("Enter not handled")
 	}
-	if m.panel.kind != panelregistry.None {
-		t.Errorf("panel did not close: kind = %v", m.panel.kind)
+	if m.overlays.panel.kind != panelregistry.None {
+		t.Errorf("panel did not close: kind = %v", m.overlays.panel.kind)
 	}
-	resp := termcolor.StripSGR(strings.Join(m.response, "\n"))
+	resp := termcolor.StripSGR(strings.Join(m.engine.response, "\n"))
 	if !strings.Contains(resp, "error: no directory specified") {
 		t.Errorf("missing cycle-217 error echo; got %q", resp)
 	}
@@ -1530,10 +1530,10 @@ func TestPanelAddDirEnterInvalid(t *testing.T) {
 	if handled, _ := m.handlePanelKey(tea.Key{Code: tea.KeyEnter}); !handled {
 		t.Fatal("Enter not handled")
 	}
-	if m.panel.kind != panelregistry.None {
-		t.Errorf("panel did not close: kind = %v", m.panel.kind)
+	if m.overlays.panel.kind != panelregistry.None {
+		t.Errorf("panel did not close: kind = %v", m.overlays.panel.kind)
 	}
-	resp := termcolor.StripSGR(strings.Join(m.response, "\n"))
+	resp := termcolor.StripSGR(strings.Join(m.engine.response, "\n"))
 	if !strings.Contains(resp, "error: directory not found:") {
 		t.Errorf("missing validation echo; got %q", resp)
 	}
@@ -1554,10 +1554,10 @@ func TestPanelAddDirEsc(t *testing.T) {
 	if handled, _ := m.handlePanelKey(tea.Key{Code: tea.KeyEsc}); !handled {
 		t.Fatal("Esc not handled")
 	}
-	if m.panel.kind != panelregistry.None {
-		t.Errorf("panel still open: kind = %v", m.panel.kind)
+	if m.overlays.panel.kind != panelregistry.None {
+		t.Errorf("panel still open: kind = %v", m.overlays.panel.kind)
 	}
-	resp := termcolor.StripSGR(strings.Join(m.response, "\n"))
+	resp := termcolor.StripSGR(strings.Join(m.engine.response, "\n"))
 	if strings.Contains(resp, "Exited /add-dir command") {
 		t.Errorf("add-dir esc should be silent; got %q", resp)
 	}
@@ -1579,17 +1579,17 @@ func TestPanelAddDirExitNotice(t *testing.T) {
 // emitted uncoloured while REF keeps `38;2;101;123;131` (tmux) / rgb(95,99,104).
 func Test_StatusRowRightLabelColouredInHelpMode(t *testing.T) {
 	m := newRunMode(&fakeClient{}, "u@t", "Gemini 3.8 Flash (High)", "Antigravity Starter Quota", "/", true)
-	m.width = 220
-	m.helpPanel.Open(0)
-	if m.statusModel != "Gemini 3.8 Flash" {
-		t.Fatalf("statusModel = %q, want %q", m.statusModel, "Gemini 3.8 Flash")
+	m.viewport.width = 220
+	m.viewport.helpPanel.Open(0)
+	if m.session.statusModel != "Gemini 3.8 Flash" {
+		t.Fatalf("statusModel = %q, want %q", m.session.statusModel, "Gemini 3.8 Flash")
 	}
 
 	// The " · high" label is the model's effort suffix; the row paints
 	// it inside the same dim-gray wrap as the model name.
 	suffix := m.statusEffortSuffix()
 	if suffix == "" {
-		t.Fatalf("the effort suffix is empty for %q", m.statusModel)
+		t.Fatalf("the effort suffix is empty for %q", m.session.statusModel)
 	}
 
 	row := m.statusRow()
@@ -1602,7 +1602,7 @@ func Test_StatusRowRightLabelColouredInHelpMode(t *testing.T) {
 
 	// The idle row must keep the same wrap (regression guard: the fix
 	// must not change the byte-exact idle capture).
-	m.helpPanel.Cancel()
+	m.viewport.helpPanel.Cancel()
 	idle := m.statusRow()
 	if !strings.Contains(idle, cDimGrayOpen+"? for shortcuts"+cDimGrayClose) {
 		t.Errorf("idle left label lost its wrap: %q", idle)
@@ -1617,7 +1617,7 @@ func Test_StatusRowRightLabelColouredInHelpMode(t *testing.T) {
 // pattern matches a real chat.
 func seedRewindSession(m *runMode, snippets []string) {
 	for _, s := range snippets {
-		m.session = append(m.session,
+		m.engine.session = append(m.engine.session,
 			backend.Message{Role: "user", Content: s},
 			backend.Message{Role: "assistant", Content: "ack: " + s},
 		)
@@ -1631,12 +1631,12 @@ func seedRewindSession(m *runMode, snippets []string) {
 // transcript's echo — are pinned below.
 
 // TestPanelRewindEnterTruncates — selecting a non-current step and
-// pressing Enter truncates m.session and emits a slashRespond echo
+// pressing Enter truncates m.engine.session and emits a slashRespond echo
 // block via the cycle-195 `> /rewind / ⎿` format. The panel then
 // closes silently (same exit-notice=false set as /mcp /feedback).
 func TestPanelRewindEnterTruncates(t *testing.T) {
 	m := mkPanel(panelregistry.Rewind, "/rewind", 0)
-	m.width, m.height = 220, 50
+	m.viewport.width, m.viewport.height = 220, 50
 	seedRewindSession(m, []string{"first", "second", "third"})
 	// Move down twice to land on Turn 3 (the oldest = "first" turn).
 	if handled, _ := m.handlePanelKey(tea.Key{Code: tea.KeyDown}); !handled {
@@ -1649,8 +1649,8 @@ func TestPanelRewindEnterTruncates(t *testing.T) {
 		t.Fatalf("cursor = %d, want 2", m.rewindPanel().Cursor())
 	}
 	// Session has 6 messages before the test runs Enter.
-	if len(m.session) != 6 {
-		t.Fatalf("session before Enter: %d, want 6", len(m.session))
+	if len(m.engine.session) != 6 {
+		t.Fatalf("session before Enter: %d, want 6", len(m.engine.session))
 	}
 	// Press Enter — the picker closes (closePanel returns a nil Cmd;
 	// the panel-clearing mutation is the deliverable), the echo fires,
@@ -1660,17 +1660,17 @@ func TestPanelRewindEnterTruncates(t *testing.T) {
 	}
 	// 6 - 2 = 4 messages dropped — the picked Turn 3 (oldest) is the
 	// "first" user/assistant pair; everything after that survives.
-	if len(m.session) != 2 {
-		t.Errorf("after Enter session = %d messages, want 2", len(m.session))
+	if len(m.engine.session) != 2 {
+		t.Errorf("after Enter session = %d messages, want 2", len(m.engine.session))
 	}
-	if m.session[0].Role != "user" || m.session[0].Content != "first" {
-		t.Errorf("truncated head user = %+v, want first", m.session[0])
+	if m.engine.session[0].Role != "user" || m.engine.session[0].Content != "first" {
+		t.Errorf("truncated head user = %+v, want first", m.engine.session[0])
 	}
-	// The slashRespond echo must be present in m.response.
-	resp := strings.Join(m.response, "\n")
+	// The slashRespond echo must be present in m.engine.response.
+	resp := strings.Join(m.engine.response, "\n")
 	if !strings.Contains(resp, "> /rewind") {
-		t.Errorf("echo block missing slashRespond header; m.response=%q",
-			strings.Join(m.response, "\n"))
+		t.Errorf("echo block missing slashRespond header; m.engine.response=%q",
+			strings.Join(m.engine.response, "\n"))
 	}
 	if !strings.Contains(resp, "Rewound to step") {
 		t.Errorf("echo body missing Rewound to step; got %q", resp)
@@ -1679,8 +1679,8 @@ func TestPanelRewindEnterTruncates(t *testing.T) {
 		t.Errorf("echo should report 4 removed, got %q", resp)
 	}
 	// Panel must close on Enter.
-	if m.panel.kind != panelregistry.None {
-		t.Errorf("panel did not close: kind = %v", m.panel.kind)
+	if m.overlays.panel.kind != panelregistry.None {
+		t.Errorf("panel did not close: kind = %v", m.overlays.panel.kind)
 	}
 }
 
@@ -1690,22 +1690,22 @@ func TestPanelRewindEnterTruncates(t *testing.T) {
 // silently dismisses the picker when the user picks the current step.
 func TestPanelRewindEnterOnCurrent(t *testing.T) {
 	m := mkPanel(panelregistry.Rewind, "/rewind", 0)
-	m.width, m.height = 220, 50
+	m.viewport.width, m.viewport.height = 220, 50
 	seedRewindSession(m, []string{"a", "b", "c"})
 	if handled, _ := m.handlePanelKey(tea.Key{Code: tea.KeyEnter}); !handled {
 		t.Error("Enter not handled")
 	}
-	if len(m.session) != 6 {
+	if len(m.engine.session) != 6 {
 		t.Errorf("session = %d messages after Enter-on-current, want 6",
-			len(m.session))
+			len(m.engine.session))
 	}
-	if len(m.response) != 0 {
+	if len(m.engine.response) != 0 {
 		t.Errorf("echo should be empty on Enter-on-current; got %q",
-			strings.Join(m.response, "\n"))
+			strings.Join(m.engine.response, "\n"))
 	}
 	// Panel must close on Enter.
-	if m.panel.kind != panelregistry.None {
-		t.Errorf("panel did not close: kind = %v", m.panel.kind)
+	if m.overlays.panel.kind != panelregistry.None {
+		t.Errorf("panel did not close: kind = %v", m.overlays.panel.kind)
 	}
 }
 
@@ -2021,10 +2021,10 @@ func TestBlockedMCP_HelpersPrecedence(t *testing.T) {
 // conversation name (if any). The seeded value matches what the
 // cycle-106 conversationName getter would return.
 func TestOpenRenamePanel_KindAndSeed(t *testing.T) {
-	m := &runMode{conversationName: "vacation planning"}
+	m := &runMode{session: sessionState{conversationName: "vacation planning"}}
 	m.openRenamePanel()
-	if m.panel.kind != panelregistry.Rename {
-		t.Fatalf("panel.kind = %v, want panelregistry.Rename", m.panel.kind)
+	if m.overlays.panel.kind != panelregistry.Rename {
+		t.Fatalf("panel.kind = %v, want panelregistry.Rename", m.overlays.panel.kind)
 	}
 	if got := m.renamePanel().Value(); got != "vacation planning" {
 		t.Errorf("textinput value = %q, want %q (current conversation name)",
@@ -2044,10 +2044,10 @@ func TestOpenRenamePanel_KindAndSeed(t *testing.T) {
 // no prompt, and the typed name went nowhere.
 func TestSlashRenameBareOpensSeededPanel(t *testing.T) {
 	m := newRunMode(nil, "u@t", "m", "t", t.TempDir(), false)
-	m.conversationName = "trip"
+	m.session.conversationName = "trip"
 	m.dispatchSlashLine("/rename")
-	if m.panel.kind != panelregistry.Rename {
-		t.Fatalf("panel.kind = %v, want panelregistry.Rename", m.panel.kind)
+	if m.overlays.panel.kind != panelregistry.Rename {
+		t.Fatalf("panel.kind = %v, want panelregistry.Rename", m.overlays.panel.kind)
 	}
 	if got := m.renamePanel().Value(); got != "trip" {
 		t.Errorf("the panel's value = %q, want %q (the current name)", got, "trip")
@@ -2066,8 +2066,8 @@ func TestSlashRenameBareOpensSeededPanel(t *testing.T) {
 func TestOpenRenamePanel_EmptySeed(t *testing.T) {
 	m := &runMode{}
 	m.openRenamePanel()
-	if m.panel.kind != panelregistry.Rename {
-		t.Fatalf("panel.kind = %v, want panelregistry.Rename", m.panel.kind)
+	if m.overlays.panel.kind != panelregistry.Rename {
+		t.Fatalf("panel.kind = %v, want panelregistry.Rename", m.overlays.panel.kind)
 	}
 	if got := m.renamePanel().Value(); got != "" {
 		t.Errorf("textinput value = %q, want empty", got)
@@ -2082,7 +2082,7 @@ func TestOpenRenamePanel_EmptySeed(t *testing.T) {
 // "Error: Please provide a new name for the conversation." line —
 // matching the cycle-106 cmd-line path byte-for-byte.
 func TestHandleRenamePanelKey_EnterSubmits(t *testing.T) {
-	m := &runMode{conversationName: "trip"}
+	m := &runMode{session: sessionState{conversationName: "trip"}}
 	m.openRenamePanel()
 	m.renamePanel().SetValue("summer trip 2026")
 	// closePanelSilent() returns nil — the panel-clearing mutation is
@@ -2092,16 +2092,16 @@ func TestHandleRenamePanelKey_EnterSubmits(t *testing.T) {
 	if handled, _ := m.renamePanel().HandleKey(tea.Key{Code: tea.KeyEnter}); !handled {
 		t.Errorf("Enter not handled")
 	}
-	if m.panel.kind != panelregistry.None {
-		t.Errorf("panel still open after submit (kind=%v)", m.panel.kind)
+	if m.overlays.panel.kind != panelregistry.None {
+		t.Errorf("panel still open after submit (kind=%v)", m.overlays.panel.kind)
 	}
 	// renameFeedback emits the message via slashRespond; the message
-	// ends up in m.response. Verify the success line.
-	if !containsResponse(m.response, "Conversation renamed to: summer trip 2026") {
-		t.Errorf("submit did not emit success echo: %v", m.response)
+	// ends up in m.engine.response. Verify the success line.
+	if !containsResponse(m.engine.response, "Conversation renamed to: summer trip 2026") {
+		t.Errorf("submit did not emit success echo: %v", m.engine.response)
 	}
-	if m.conversationName != "summer trip 2026" {
-		t.Errorf("conversationName = %q, want %q", m.conversationName, "summer trip 2026")
+	if m.session.conversationName != "summer trip 2026" {
+		t.Errorf("conversationName = %q, want %q", m.session.conversationName, "summer trip 2026")
 	}
 }
 
@@ -2118,8 +2118,8 @@ func TestHandleRenamePanelKey_EmptySubmitHitsErrorPath(t *testing.T) {
 	if !handled {
 		t.Errorf("Enter not handled in empty state")
 	}
-	if !containsResponse(m.response, "Error: Please provide a new name") {
-		t.Errorf("empty submit did not emit error echo: %v", m.response)
+	if !containsResponse(m.engine.response, "Error: Please provide a new name") {
+		t.Errorf("empty submit did not emit error echo: %v", m.engine.response)
 	}
 }
 
@@ -2134,12 +2134,12 @@ func TestHandleRenamePanelKey_EscClosesSilently(t *testing.T) {
 	if !handled {
 		t.Errorf("Esc not handled")
 	}
-	if m.panel.kind != panelregistry.None {
-		t.Errorf("panel still open after Esc (kind=%v)", m.panel.kind)
+	if m.overlays.panel.kind != panelregistry.None {
+		t.Errorf("panel still open after Esc (kind=%v)", m.overlays.panel.kind)
 	}
-	if containsResponse(m.response, "Exited /rename") {
+	if containsResponse(m.engine.response, "Exited /rename") {
 		t.Errorf("Esc emitted an exit notice — panelregistry.Rename should be silent: %v",
-			m.response)
+			m.engine.response)
 	}
 }
 
@@ -2155,11 +2155,11 @@ func TestSubmitRenamePanel_NoopIfNoCurrentAndEmpty(t *testing.T) {
 	// returns nil — the panel-clearing mutation is the deliverable
 	// (matches closePanel's contract at slash_panels.go:3727).
 	m.renamePanel().HandleKey(tea.Key{Code: tea.KeyEnter})
-	if m.panel.kind != panelregistry.None {
-		t.Errorf("panel still open after empty submit (kind=%v)", m.panel.kind)
+	if m.overlays.panel.kind != panelregistry.None {
+		t.Errorf("panel still open after empty submit (kind=%v)", m.overlays.panel.kind)
 	}
-	if !containsResponse(m.response, "Error: Please provide a new name") {
-		t.Errorf("empty submit did not echo error: %v", m.response)
+	if !containsResponse(m.engine.response, "Error: Please provide a new name") {
+		t.Errorf("empty submit did not echo error: %v", m.engine.response)
 	}
 }
 
@@ -2178,11 +2178,11 @@ func containsResponse(response []string, substr string) bool {
 
 func TestF2_GlobalOpensRenamePanel(t *testing.T) {
 	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", false)
-	m.conversationName = "My Initial Name"
+	m.session.conversationName = "My Initial Name"
 
 	m.Update(tea.KeyPressMsg{Code: tea.KeyF2})
-	if m.panel.kind != panelregistry.Rename {
-		t.Fatalf("F2 did not open rename panel; panel.kind = %v", m.panel.kind)
+	if m.overlays.panel.kind != panelregistry.Rename {
+		t.Fatalf("F2 did not open rename panel; panel.kind = %v", m.overlays.panel.kind)
 	}
 	if got := m.renamePanel().Value(); got != "My Initial Name" {
 		t.Errorf("rename textinput initial value = %q, want 'My Initial Name'", got)
@@ -2308,8 +2308,8 @@ func TestSlashRename_NormalizesConversationName(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			m := newSlashModel(t)
 			m.handleSlashCommand("/rename " + tc.arg)
-			if m.conversationName != tc.want {
-				t.Errorf("conversationName = %q, want %q", m.conversationName, tc.want)
+			if m.session.conversationName != tc.want {
+				t.Errorf("conversationName = %q, want %q", m.session.conversationName, tc.want)
 			}
 			if got := m.conversationTitle(); got != tc.want {
 				t.Errorf("conversationTitle() = %q, want %q", got, tc.want)
@@ -2320,11 +2320,11 @@ func TestSlashRename_NormalizesConversationName(t *testing.T) {
 
 func TestConversationTitle_DisplayNormalisesUncleanStoredName(t *testing.T) {
 	m := newSlashModel(t)
-	m.conversationName = " My Display Title\n"
+	m.session.conversationName = " My Display Title\n"
 	if got := m.conversationTitle(); got != "My Display Title" {
 		t.Errorf("conversationTitle() = %q, want %q", got, "My Display Title")
 	}
-	m.conversationName = "\n   \n"
+	m.session.conversationName = "\n   \n"
 	if got := m.conversationTitle(); got == "" || strings.TrimSpace(got) == "" {
 		t.Errorf("conversationTitle() = %q, want non-empty fallback", got)
 	}
@@ -2361,7 +2361,7 @@ func TestNormalizeTitle_NoOpOnCleanInput(t *testing.T) {
 func TestCycle207UsageViewerHeight(t *testing.T) {
 	// h=50: the 20-line document fits in 37 rows — no counter, 26 rows total.
 	m := mkPanel(panelregistry.Usage, "/usage", 0)
-	m.width, m.height = 220, 50
+	m.viewport.width, m.viewport.height = 220, 50
 	lines := m.panelLines()
 	if len(lines) != 26 {
 		t.Fatalf("h=50 panel = %d rows, want 26", len(lines))
@@ -2377,7 +2377,7 @@ func TestCycle207UsageViewerHeight(t *testing.T) {
 
 	// h=24: window 11 of 20 — counter (1–11 of 20 lines), 18 rows total.
 	m2 := mkPanel(panelregistry.Usage, "/usage", 0)
-	m2.width, m2.height = 220, 24
+	m2.viewport.width, m2.viewport.height = 220, 24
 	lines2 := m2.panelLines()
 	if len(lines2) != 18 {
 		t.Fatalf("h=24 panel = %d rows, want 18", len(lines2))
@@ -2390,16 +2390,16 @@ func TestCycle207UsageViewerHeight(t *testing.T) {
 	if handled, _ := m2.handlePanelKey(tea.Key{Code: tea.KeyDown}); !handled {
 		t.Fatal("down not handled")
 	}
-	if m2.panel.window != 1 {
-		t.Fatalf("window = %d, want 1", m2.panel.window)
+	if m2.overlays.panel.window != 1 {
+		t.Fatalf("window = %d, want 1", m2.overlays.panel.window)
 	}
 	if !strings.Contains(termcolor.StripSGR(strings.Join(m2.panelLines(), "\n")), "(2–12 of 20 lines)") {
 		t.Errorf("counter did not follow:\n%s", strings.Join(plainLines(m2), "\n"))
 	}
 	// ctrl+end lands on the last window (offset 9 → (10–20 of 20 lines)).
 	m2.handlePanelKey(tea.Key{Code: tea.KeyEnd, Mod: tea.ModCtrl})
-	if m2.panel.window != 9 {
-		t.Fatalf("ctrl+end window = %d, want 9", m2.panel.window)
+	if m2.overlays.panel.window != 9 {
+		t.Fatalf("ctrl+end window = %d, want 9", m2.overlays.panel.window)
 	}
 	if !strings.Contains(termcolor.StripSGR(strings.Join(m2.panelLines(), "\n")), "(10–20 of 20 lines)") {
 		t.Errorf("bottom counter wrong:\n%s", strings.Join(plainLines(m2), "\n"))
@@ -2425,8 +2425,8 @@ func TestCycle207ChangelogTitle(t *testing.T) {
 // A sized /changelog window is height-4 lines of the document.
 func TestCycle207ChangelogHeight(t *testing.T) {
 	m := mkPanel(panelregistry.Changelog, "/changelog", 0)
-	m.height = 24
-	spec, ok := m.getPanelRegistry().ViewerSpec(m.panel.kind)
+	m.viewport.height = 24
+	spec, ok := m.getPanelRegistry().ViewerSpec(m.overlays.panel.kind)
 	if !ok {
 		t.Fatal("changelog is not a viewer")
 	}
@@ -2469,16 +2469,16 @@ func TestStatusLineTaskCount(t *testing.T) {
 	}
 
 	// Two running tasks → " · 2 tasks".
-	seedTask(m.taskReg, "t1", "bash -c sleep 60", taskregistry.KindShell, taskregistry.StateRunning)
-	seedTask(m.taskReg, "t2", "bash -c sleep 90", taskregistry.KindShell, taskregistry.StateRunning)
+	seedTask(m.engine.taskReg, "t1", "bash -c sleep 60", taskregistry.KindShell, taskregistry.StateRunning)
+	seedTask(m.engine.taskReg, "t2", "bash -c sleep 90", taskregistry.KindShell, taskregistry.StateRunning)
 	got := m.tasksStatusSuffix()
 	if got != " · 2 tasks" {
 		t.Errorf("two-task suffix = %q, want %q", got, " · 2 tasks")
 	}
 
 	// One running + one done → still " · 1 task".
-	tt := m.taskReg.Get("t2")
-	m.taskReg.Update(tt.ID, func(t *taskregistry.Task) {
+	tt := m.engine.taskReg.Get("t2")
+	m.engine.taskReg.Update(tt.ID, func(t *taskregistry.Task) {
 		t.State = taskregistry.StateDone
 		t.ExitCode = 0
 		t.EndedAt = time.Now()
@@ -2492,8 +2492,8 @@ func TestStatusLineUpdatesLive(t *testing.T) {
 	m := seedRunMode()
 	m.startTasksSubscription()
 	defer func() {
-		if m.tasksSubCancel != nil {
-			m.tasksSubCancel()
+		if m.engine.tasksSubCancel != nil {
+			m.engine.tasksSubCancel()
 		}
 	}()
 
@@ -2505,19 +2505,19 @@ func TestStatusLineUpdatesLive(t *testing.T) {
 	// Register a task; the subscriber goroutine should set
 	// tasksDirty within a few ms (the channel is buffered, so
 	// the send completes immediately).
-	seedTask(m.taskReg, "live-1", "bash -c sleep 5", taskregistry.KindShell, taskregistry.StateRunning)
+	seedTask(m.engine.taskReg, "live-1", "bash -c sleep 5", taskregistry.KindShell, taskregistry.StateRunning)
 
 	// Wait up to 100 ms for the dirty flag. The field is
 	// int32 (atomic) — go vet's atomic checker would otherwise
 	// flag this read.
 	deadline := time.Now().Add(100 * time.Millisecond)
 	for time.Now().Before(deadline) {
-		if atomic.LoadInt32(&m.tasksDirty) == 1 {
+		if atomic.LoadInt32(&m.engine.tasksDirty) == 1 {
 			break
 		}
 		time.Sleep(2 * time.Millisecond)
 	}
-	if atomic.LoadInt32(&m.tasksDirty) != 1 {
+	if atomic.LoadInt32(&m.engine.tasksDirty) != 1 {
 		t.Fatal("subscriber did not set tasksDirty within 100ms")
 	}
 
@@ -2548,9 +2548,9 @@ func TestTasksFeedback_Regression(t *testing.T) {
 func TestSubscribedIsIdempotent(t *testing.T) {
 	m := seedRunMode()
 	m.startTasksSubscription()
-	first := m.tasksSubCancel
+	first := m.engine.tasksSubCancel
 	m.startTasksSubscription()
-	second := m.tasksSubCancel
+	second := m.engine.tasksSubCancel
 	if first == nil || second == nil {
 		t.Fatal("subscriber did not arm")
 	}
@@ -2596,7 +2596,7 @@ func TestCycle208_ModelSliderOnlyOnTieredRow(t *testing.T) {
 func TestCycle208_ModelCursorRowPadOnlyWhenCurrent(t *testing.T) {
 	cycle196TestHome(t, map[string]any{"model": "gemini-3.8-flash-high"})
 	m := mkPanel(panelregistry.Model, "/model", 1) // Claude row, not current
-	m.height = 0
+	m.viewport.height = 0
 	lines := m.panelLines()
 	got := lines[5+1]
 	want := cBlueOpen + "> " + modelpicker.Rows[1].Display + cBlueClose
@@ -2614,7 +2614,7 @@ func TestCycle208_ModelCursorRowPadOnlyWhenCurrent(t *testing.T) {
 func TestCycle208_ModelEffortCursorReseeds(t *testing.T) {
 	cycle196TestHome(t, map[string]any{"model": "gemini-3.8-flash-high"})
 	m := mkPanel(panelregistry.Model, "/model", 0) // Gemini row — has the slider
-	m.height = 0
+	m.viewport.height = 0
 	if m.modelPanel().EffortCursor() != effortpanel.EffortHigh {
 		t.Fatalf("open cursor = %d, want high", m.modelPanel().EffortCursor())
 	}
@@ -2660,7 +2660,7 @@ func TestCycle208_StatusEffortSuffixTracksEffort(t *testing.T) {
 	}
 	fs := flag.NewFlagSet("t", flag.ContinueOnError)
 	fs.String("effort", "", "")
-	m.flags = fs
+	m.session.flags = fs
 	for level, want := range map[string]string{
 		"low": " \u00b7 low", "medium": " \u00b7 medium", "high": " \u00b7 high",
 	} {
@@ -2682,15 +2682,15 @@ func TestCycle208_EffortEnterApplies(t *testing.T) {
 	fs.String("effort", "", "")
 
 	m := mkPanel(panelregistry.Effort, "/effort", effortpanel.EffortHigh)
-	m.flags = fs
+	m.session.flags = fs
 	if handled, _ := m.handlePanelKey(tea.Key{Code: tea.KeyEnter}); !handled {
 		t.Fatal("enter not handled")
 	}
-	if m.panel.kind != panelregistry.None {
-		t.Fatalf("panel not closed: kind=%v", m.panel.kind)
+	if m.overlays.panel.kind != panelregistry.None {
+		t.Fatalf("panel not closed: kind=%v", m.overlays.panel.kind)
 	}
-	if len(m.response) != 0 {
-		t.Errorf("no-op apply must stay silent, got %q", m.response)
+	if len(m.engine.response) != 0 {
+		t.Errorf("no-op apply must stay silent, got %q", m.engine.response)
 	}
 	if s := readCycle196Settings(t, home); s["model"] != "MiniMax-M3" {
 		t.Errorf("no-op apply wrote settings: model=%v", s["model"])
@@ -2698,24 +2698,24 @@ func TestCycle208_EffortEnterApplies(t *testing.T) {
 
 	// Moving to Medium is a real change.
 	m2 := mkPanel(panelregistry.Effort, "/effort", effortpanel.EffortMedium)
-	m2.flags = fs
+	m2.session.flags = fs
 	if handled, _ := m2.handlePanelKey(tea.Key{Code: tea.KeyEnter}); !handled {
 		t.Fatal("enter not handled")
 	}
-	if m2.panel.kind != panelregistry.None {
-		t.Fatalf("panel not closed: kind=%v", m2.panel.kind)
+	if m2.overlays.panel.kind != panelregistry.None {
+		t.Fatalf("panel not closed: kind=%v", m2.overlays.panel.kind)
 	}
-	if got := termcolor.StripSGR(strings.Join(m2.response, "\n")); !strings.Contains(got, "Effort set to medium") {
+	if got := termcolor.StripSGR(strings.Join(m2.engine.response, "\n")); !strings.Contains(got, "Effort set to medium") {
 		t.Errorf("response = %q", got)
 	}
 	if s := readCycle196Settings(t, home); s["model"] != "Gemini 3.8 Flash (Medium)" {
 		t.Errorf("persisted model = %v", s["model"])
 	}
-	if m2.model != "Gemini 3.8 Flash (Medium)" {
-		t.Errorf("banner model = %q", m2.model)
+	if m2.session.model != "Gemini 3.8 Flash (Medium)" {
+		t.Errorf("banner model = %q", m2.session.model)
 	}
-	if m2.statusModel != "Gemini 3.8 Flash" {
-		t.Errorf("status model = %q", m2.statusModel)
+	if m2.session.statusModel != "Gemini 3.8 Flash" {
+		t.Errorf("status model = %q", m2.session.statusModel)
 	}
 	if got := m2.statusEffortSuffix(); got != " \u00b7 medium" {
 		t.Errorf("status suffix = %q", got)
@@ -2769,7 +2769,7 @@ func TestConfigPanel_OverrideIndicator(t *testing.T) {
 	fs.String("mode", "", "")
 	_ = fs.Parse([]string{"--sandbox", "--dangerously-skip-permissions", "--mode=auto"})
 
-	m := &runMode{flags: fs}
+	m := &runMode{session: sessionState{flags: fs}}
 	p := m.newConfigPanel()
 
 	sbIdx := configRowIndexForTest(t, m, "Sandbox Mode")
@@ -2806,10 +2806,10 @@ func TestChangelogPagination_RendersDoc(t *testing.T) {
 	if !strings.Contains(text, "## 1.4.11") {
 		t.Errorf("viewer missing the ## 1.4.11 header row:\n%s", truncForErr(text, 400))
 	}
-	if !strings.Contains(strings.Join(changelog.Document(m.width, m.height), "\n"), "## 1.4.3") {
+	if !strings.Contains(strings.Join(changelog.Document(m.viewport.width, m.viewport.height), "\n"), "## 1.4.3") {
 		t.Error("document missing the ## 1.4.3 header row")
 	}
-	doc := strings.Join(changelog.Document(m.width, m.height), "\n")
+	doc := strings.Join(changelog.Document(m.viewport.width, m.viewport.height), "\n")
 	if !strings.Contains(doc, "Initial release of the Antigravity CLI.") {
 		t.Errorf("document missing the 1.0.0 closing line:\n%s", doc)
 	}
@@ -2821,16 +2821,16 @@ func TestChangelogPagination_PageDown(t *testing.T) {
 	}
 	m := mkPanel(panelregistry.Changelog, "/changelog", 0)
 	vis := changelog.WindowRows()
-	if got, want := m.panel.window, 0; got != want {
+	if got, want := m.overlays.panel.window, 0; got != want {
 		t.Fatalf("initial window = %d, want %d", got, want)
 	}
 	if handled, _ := m.handlePanelKey(tea.Key{Code: tea.KeyDown}); !handled {
 		t.Fatal("down not handled")
 	}
-	if got, want := m.panel.window, 1; got != want {
+	if got, want := m.overlays.panel.window, 1; got != want {
 		t.Fatalf("after ↓ window = %d, want %d", got, want)
 	}
-	m.panel.window = 0
+	m.overlays.panel.window = 0
 	if handled, _ := m.handlePanelKey(tea.Key{Code: tea.KeyPgDown}); !handled {
 		t.Fatal("pgdown not handled")
 	}
@@ -2838,13 +2838,13 @@ func TestChangelogPagination_PageDown(t *testing.T) {
 	if page < 1 {
 		page = 1
 	}
-	if got, want := m.panel.window, page; got != want {
+	if got, want := m.overlays.panel.window, page; got != want {
 		t.Fatalf("after pgdown window = %d, want %d", got, want)
 	}
 	if handled, _ := m.handlePanelKey(tea.Key{Code: tea.KeyPgUp}); !handled {
 		t.Fatal("pgup not handled")
 	}
-	if got, want := m.panel.window, 0; got != want {
+	if got, want := m.overlays.panel.window, 0; got != want {
 		t.Fatalf("after pgup window = %d, want %d", got, want)
 	}
 }
@@ -2857,10 +2857,10 @@ func TestChangelogPagination_CtrlEnd(t *testing.T) {
 	if handled, _ := m.handlePanelKey(tea.Key{Code: tea.KeyEnd, Mod: tea.ModCtrl}); !handled {
 		t.Fatal("ctrl+end not handled")
 	}
-	total := len(changelog.Document(m.width, m.height))
+	total := len(changelog.Document(m.viewport.width, m.viewport.height))
 	vis := changelog.WindowRows()
-	if want := total - vis; m.panel.window != want {
-		t.Fatalf("ctrl+end window = %d, want %d", m.panel.window, want)
+	if want := total - vis; m.overlays.panel.window != want {
+		t.Fatalf("ctrl+end window = %d, want %d", m.overlays.panel.window, want)
 	}
 	text := panelText(m)
 	if !strings.Contains(text, "Initial release of the Antigravity CLI.") {
@@ -2869,8 +2869,8 @@ func TestChangelogPagination_CtrlEnd(t *testing.T) {
 	if handled, _ := m.handlePanelKey(tea.Key{Code: tea.KeyDown}); !handled {
 		t.Fatal("down at bottom not handled")
 	}
-	if want := total - vis; m.panel.window != want {
-		t.Errorf("down at bottom moved window to %d, want %d", m.panel.window, want)
+	if want := total - vis; m.overlays.panel.window != want {
+		t.Errorf("down at bottom moved window to %d, want %d", m.overlays.panel.window, want)
 	}
 }
 
@@ -2879,18 +2879,18 @@ func TestChangelogPagination_CtrlHome(t *testing.T) {
 		t.Skipf("changelog_reference.txt not reachable from cwd %q — skipping", mustGetwd(t))
 	}
 	m := mkPanel(panelregistry.Changelog, "/changelog", 0)
-	m.panel.window = 50
+	m.overlays.panel.window = 50
 	if handled, _ := m.handlePanelKey(tea.Key{Code: tea.KeyHome, Mod: tea.ModCtrl}); !handled {
 		t.Fatal("ctrl+home not handled")
 	}
-	if m.panel.window != 0 {
-		t.Fatalf("ctrl+home window = %d, want 0", m.panel.window)
+	if m.overlays.panel.window != 0 {
+		t.Fatalf("ctrl+home window = %d, want 0", m.overlays.panel.window)
 	}
 	text := panelText(m)
 	if !strings.Contains(text, "## 1.4.11") {
 		t.Errorf("first screen should open on 1.4.11:\n%s", truncForErr(text, 400))
 	}
-	if !strings.Contains(strings.Join(changelog.Document(m.width, m.height), "\n"), "## 1.4.3") {
+	if !strings.Contains(strings.Join(changelog.Document(m.viewport.width, m.viewport.height), "\n"), "## 1.4.3") {
 		t.Error("document missing the ## 1.4.3 header row")
 	}
 }
@@ -2927,7 +2927,7 @@ func TestChangelogPagination_FitsOnScreen(t *testing.T) {
 		t.Errorf("MaxOffset(2-of-5) = %d, want 3", got)
 	}
 	m := &runMode{}
-	m.panel.kind = panelregistry.Changelog
+	m.overlays.panel.kind = panelregistry.Changelog
 	tiny := tuiviewer.Spec{Lines: []string{"a", "b", "c"}, Visible: 12, Total: 3}
 	rows, start, end := m.viewerWindow(tiny)
 	if len(rows) != 3 || start != 1 || end != 3 {
@@ -3185,30 +3185,30 @@ func seedContextSession(m *runMode, payloads []string) {
 		if role == "user" {
 			msg.WireContent = backend.WrapUserContent(s, "", false, time.Date(2026, 10, 21, 7, 0, 0, 0, contextTestZone))
 		}
-		m.session = append(m.session, msg)
+		m.engine.session = append(m.engine.session, msg)
 	}
 }
 
 // sessionContextTokens mirrors sessionTokenCounts so each test can pin the
 // precise numbers the panel will see without reaching into its rendering.
 func sessionContextTokens(m *runMode) (user, agent, tool int) {
-	for _, msg := range m.session {
+	for _, msg := range m.engine.session {
 		if msg.Role == "user" {
 			user += backend.UserContentTokenCount(msg.WireText())
 		}
 	}
-	agent = int(m.store.SessionCompletionTokens - m.store.LastTurnCompletionTokens)
+	agent = int(m.session.store.SessionCompletionTokens - m.session.store.LastTurnCompletionTokens)
 	if agent < 0 {
 		agent = 0
 	}
-	for _, b := range m.blocks {
+	for _, b := range m.engine.blocks {
 		for _, st := range b.Steps {
 			if st.Kind == toolsteps.KindTool {
 				tool += backend.ToolResultTokenCount(st.Result)
 			}
 		}
 	}
-	for _, st := range m.liveSteps {
+	for _, st := range m.engine.liveSteps {
 		if st.Kind == toolsteps.KindTool {
 			tool += backend.ToolResultTokenCount(st.Result)
 		}
@@ -3228,7 +3228,7 @@ func TestSessionTokenCounts(t *testing.T) {
 	m := mkPanel(panelregistry.Context, "/context", 0)
 	wire := backend.WrapUserContent(strings.Repeat("a", 200), "Gemini 3.8 Flash (High)", false,
 		time.Date(2026, 10, 21, 7, 0, 0, 0, contextTestZone))
-	m.session = []backend.Message{
+	m.engine.session = []backend.Message{
 		{Role: "user", Content: strings.Repeat("a", 200), WireContent: wire},
 		{Role: "assistant", Content: strings.Repeat("b", 200)},
 	}
@@ -3239,28 +3239,28 @@ func TestSessionTokenCounts(t *testing.T) {
 	}
 
 	// Usage counters decide the agent row: the last step is excluded.
-	m.store.SessionCompletionTokens = 100
-	m.store.LastTurnCompletionTokens = 40
+	m.session.store.SessionCompletionTokens = 100
+	m.session.store.LastTurnCompletionTokens = 40
 	_, a, _ = m.sessionTokenCounts()
 	if a != 60 {
 		t.Errorf("agent row = %d, want 60 (100 completed - 40 in flight)", a)
 	}
 
 	// One tool step in a historical block, one live: results are what count.
-	m.blocks = []transcript.Block{
+	m.engine.blocks = []transcript.Block{
 		{Steps: []toolsteps.Step{
 			{Kind: toolsteps.KindThought, Tokens: 50},
 			{Kind: toolsteps.KindTool, Name: "fetch", Result: strings.Repeat("x", 109)},
 		}},
 	}
-	m.liveSteps = []toolsteps.Step{{Kind: toolsteps.KindTool, Name: "shell", Result: strings.Repeat("y", 158)}}
+	m.engine.liveSteps = []toolsteps.Step{{Kind: toolsteps.KindTool, Name: "shell", Result: strings.Repeat("y", 158)}}
 	_, _, tool = m.sessionTokenCounts()
 	if tool != 42+59 {
 		t.Errorf("tool row = %d, want 101 (42 + 59)", tool)
 	}
 
 	// A "system" role message is ignored.
-	m.session = append(m.session,
+	m.engine.session = append(m.engine.session,
 		backend.Message{Role: "system", Content: strings.Repeat("z", 400)},
 	)
 	u2, a2, tool2 := m.sessionTokenCounts()
@@ -3269,7 +3269,7 @@ func TestSessionTokenCounts(t *testing.T) {
 	}
 
 	// A running step has no result yet, so it contributes nothing.
-	m.liveSteps = append(m.liveSteps, toolsteps.Step{Kind: toolsteps.KindTool, Name: "running", Running: true})
+	m.engine.liveSteps = append(m.engine.liveSteps, toolsteps.Step{Kind: toolsteps.KindTool, Name: "running", Running: true})
 	_, _, tool3 := m.sessionTokenCounts()
 	if tool3 != 101 {
 		t.Errorf("running step counted: tool = %d, want 101", tool3)
@@ -3282,14 +3282,14 @@ func TestSessionTokenCounts(t *testing.T) {
 // gathers 15875 agent tokens.
 func TestContextStateAgentTokensComeFromUsage(t *testing.T) {
 	m := mkPanel(panelregistry.Context, "/context", 0)
-	m.model = "Gemini 3.8 Flash (High)"
+	m.session.model = "Gemini 3.8 Flash (High)"
 	payloads := make([]string, 0, 20)
 	for i := 0; i < 10; i++ {
 		payloads = append(payloads, strings.Repeat("u", 4000+i*200))
 		payloads = append(payloads, strings.Repeat("a", 5000+i*300))
 	}
 	seedContextSession(m, payloads)
-	m.store.SessionCompletionTokens = 15875
+	m.session.store.SessionCompletionTokens = 15875
 
 	st := m.contextState()
 	if st.Agent != 15875 {
@@ -3320,7 +3320,7 @@ func TestContextStateEmpty(t *testing.T) {
 // completed-turn layout's facts.
 func TestContextStateLive(t *testing.T) {
 	m := mkPanel(panelregistry.Context, "/context", 0)
-	m.model = "Gemini 3.8 Flash (High)"
+	m.session.model = "Gemini 3.8 Flash (High)"
 	seedContextSession(m, []string{
 		strings.Repeat("a", 2000),
 		strings.Repeat("b", 1500),
@@ -3328,7 +3328,7 @@ func TestContextStateLive(t *testing.T) {
 		strings.Repeat("d", 400),
 		strings.Repeat("e", 1200),
 	})
-	m.store.SessionCompletionTokens = 475
+	m.session.store.SessionCompletionTokens = 475
 
 	st := m.contextState()
 	if st.Mode != contextpanel.ModeLive {
@@ -3354,10 +3354,10 @@ func TestContextStateLive(t *testing.T) {
 // agent row counts the reply buffer.
 func TestContextStateStreaming(t *testing.T) {
 	m := mkPanel(panelregistry.Context, "/context", 0)
-	m.model = "Gemini 3.8 Flash (High)"
-	m.streaming = true
-	m.session = append(m.session, backend.Message{Role: "user", Content: "slow sea story please"})
-	m.liveReplyBuf = "The lighthouse stood at the edge of the harbor."
+	m.session.model = "Gemini 3.8 Flash (High)"
+	m.engine.streaming = true
+	m.engine.session = append(m.engine.session, backend.Message{Role: "user", Content: "slow sea story please"})
+	m.engine.liveReplyBuf = "The lighthouse stood at the edge of the harbor."
 
 	st := m.contextState()
 	if st.Mode != contextpanel.ModeStreaming {
@@ -3367,7 +3367,7 @@ func TestContextStateStreaming(t *testing.T) {
 	if st.User != wantUser {
 		t.Errorf("user = %d, want %d", st.User, wantUser)
 	}
-	wantAgent := len(m.liveReplyBuf) / 4
+	wantAgent := len(m.engine.liveReplyBuf) / 4
 	if st.Agent != wantAgent {
 		t.Errorf("agent = %d, want %d", st.Agent, wantAgent)
 	}
@@ -3377,15 +3377,15 @@ func TestContextStateStreaming(t *testing.T) {
 // the historical blocks and of the live steps.
 func TestContextStateToolCalls(t *testing.T) {
 	m := mkPanel(panelregistry.Context, "/context", 0)
-	m.model = "Gemini 3.8 Flash (High)"
+	m.session.model = "Gemini 3.8 Flash (High)"
 	seedContextSession(m, []string{strings.Repeat("a", 4000)})
 	res := strings.Repeat("r", 109) // (109+1)/3+6 = 42 tokens per call
-	m.blocks = []transcript.Block{
+	m.engine.blocks = []transcript.Block{
 		{Steps: []toolsteps.Step{{Kind: toolsteps.KindTool, Name: "read_file", Result: res}}},
 		{Steps: []toolsteps.Step{{Kind: toolsteps.KindThought, Tokens: 42}, {Kind: toolsteps.KindTool, Name: "glob", Result: res}}},
 		{Steps: []toolsteps.Step{{Kind: toolsteps.KindTool, Name: "grep", Result: res}}},
 	}
-	m.liveSteps = []toolsteps.Step{{Kind: toolsteps.KindTool, Name: "shell", Result: res}}
+	m.engine.liveSteps = []toolsteps.Step{{Kind: toolsteps.KindTool, Name: "shell", Result: res}}
 
 	st := m.contextState()
 	if st.Mode != contextpanel.ModeLive {
@@ -3412,7 +3412,7 @@ func TestConfigPanel_OpensWithThePanelBound(t *testing.T) {
 	if !m.openSlashPanel("config") {
 		t.Fatal("openSlashPanel(config) = false, want true")
 	}
-	if m.panel.cfg == nil {
+	if m.overlays.panel.cfg == nil {
 		t.Fatal("the /config panel was not built on open")
 	}
 	plain := plainLines(m)
@@ -3429,12 +3429,12 @@ func TestConfigPanel_OpensWithThePanelBound(t *testing.T) {
 // The assertions are on panel state that, if any other cycle had
 // tried to open a dropdown, would have flipped:
 //
-//   - m.panel.kind        stays panelregistry.Config
+//   - m.overlays.panel.kind        stays panelregistry.Config
 //   - the skills panel's  stays closed (skills sub-view; different
 //     detail                panel, defensive)
 //   - the /diff panel is never built (another panel's sub-view;
 //     defensive)
-//   - m.panel.cursor      unchanged after Left/Right (Up/Down are
+//   - m.overlays.panel.cursor      unchanged after Left/Right (Up/Down are
 //     the cursor-bearing keys here)
 //   - the panel renderer's line count is unchanged
 //
@@ -3445,14 +3445,14 @@ func TestConfigLeftRight_NoDropdownOpen(t *testing.T) {
 	cycle196TestHome(t, map[string]any{})
 
 	m := mkPanel(panelregistry.Config, "/config", 0)
-	m.panel.cfg.SetCursor(configRowIndexForTest(t, m, "Verbosity"))
+	m.overlays.panel.cfg.SetCursor(configRowIndexForTest(t, m, "Verbosity"))
 	preLines := plainLines(m)
 
 	// Snapshot the dropdown-opening state before the press.
-	preKind := m.panel.kind
+	preKind := m.overlays.panel.kind
 	preDetail := m.skillsPanel().Detail()
-	preDiffPanel := m.panel.df
-	preCursor := m.panel.cfg.Cursor()
+	preDiffPanel := m.overlays.panel.df
+	preCursor := m.overlays.panel.cfg.Cursor()
 
 	// Right → advances verbosity to "low"; must NOT mutate any of
 	// the panel overlay state.
@@ -3463,16 +3463,16 @@ func TestConfigLeftRight_NoDropdownOpen(t *testing.T) {
 	for name, pair := range map[string]struct {
 		pre, got any
 	}{
-		"kind":      {preKind, m.panel.kind},
+		"kind":      {preKind, m.overlays.panel.kind},
 		"detail":    {preDetail, m.skillsPanel().Detail()},
-		"diffPanel": {preDiffPanel, m.panel.df},
-		"cursor":    {preCursor, m.panel.cfg.Cursor()},
+		"diffPanel": {preDiffPanel, m.overlays.panel.df},
+		"cursor":    {preCursor, m.overlays.panel.cfg.Cursor()},
 	} {
 		if pair.pre != pair.got {
 			t.Errorf("%s changed: pre=%v got=%v", name, pair.pre, pair.got)
 		}
 	}
-	if m.panel.cfg.SubmenuOpen() {
+	if m.overlays.panel.cfg.SubmenuOpen() {
 		t.Error("Right opened the option submenu")
 	}
 
@@ -3487,8 +3487,8 @@ func TestConfigLeftRight_NoDropdownOpen(t *testing.T) {
 	if handled, _ := m.handlePanelKey(tea.Key{Code: tea.KeyLeft}); !handled {
 		t.Fatal("Left reported unhandled on /config")
 	}
-	if m.panel.kind != panelregistry.Config {
-		t.Errorf("Left mutated panel.kind = %v, want panelregistry.Config", m.panel.kind)
+	if m.overlays.panel.kind != panelregistry.Config {
+		t.Errorf("Left mutated panel.kind = %v, want panelregistry.Config", m.overlays.panel.kind)
 	}
 	post2 := plainLines(m)
 	if len(preLines) != len(post2) {
@@ -3586,9 +3586,9 @@ func TestCycle196_ConfigCycle_KeyHandler(t *testing.T) {
 		"colorScheme": "light",
 	})
 	m := &runMode{}
-	m.panel = slashPanel{kind: panelregistry.Config, cmd: "/config"}
-	m.panel.cfg = m.newConfigPanel()
-	m.panel.cfg.SetCursor(configRowIndexForTest(t, m, "Color Scheme"))
+	m.overlays.panel = slashPanel{kind: panelregistry.Config, cmd: "/config"}
+	m.overlays.panel.cfg = m.newConfigPanel()
+	m.overlays.panel.cfg.SetCursor(configRowIndexForTest(t, m, "Color Scheme"))
 
 	handled, _ := m.handlePanelKey(tea.Key{Code: tea.KeyRight})
 	if !handled {
@@ -3603,23 +3603,27 @@ func TestCycle196_ConfigCycle_KeyHandler(t *testing.T) {
 // the keys reach the panel, and the second Esc leaves the panel.
 func TestConfigSearchKeyHandling(t *testing.T) {
 	m := &runMode{
-		panel: slashPanel{
-			kind: panelregistry.Config,
-			cmd:  "/settings",
+		overlays: overlayState{
+			panel: slashPanel{
+				kind: panelregistry.Config,
+				cmd:  "/settings",
+			},
 		},
-		width:  120,
-		height: 40,
+		viewport: uiState{
+			width:  120,
+			height: 40,
+		},
 	}
 
 	// Type 'c'
 	m.handlePanelKey(tea.Key{Code: 'c', Text: "c"})
-	if got := m.panel.cfg.Query(); got != "c" {
+	if got := m.overlays.panel.cfg.Query(); got != "c" {
 		t.Fatalf("expected the query 'c', got %q", got)
 	}
 
 	// Type 'o'
 	m.handlePanelKey(tea.Key{Code: 'o', Text: "o"})
-	if got := m.panel.cfg.Query(); got != "co" {
+	if got := m.overlays.panel.cfg.Query(); got != "co" {
 		t.Fatalf("expected the query 'co', got %q", got)
 	}
 
@@ -3631,17 +3635,17 @@ func TestConfigSearchKeyHandling(t *testing.T) {
 
 	// Esc once: clears the search query, the panel stays open.
 	m.handlePanelKey(tea.Key{Code: tea.KeyEsc})
-	if got := m.panel.cfg.Query(); got != "" {
+	if got := m.overlays.panel.cfg.Query(); got != "" {
 		t.Fatalf("expected an empty query after the first Esc, got %q", got)
 	}
-	if m.panel.kind != panelregistry.Config {
-		t.Fatalf("expected the panel to remain open after clearing the search, got %v", m.panel.kind)
+	if m.overlays.panel.kind != panelregistry.Config {
+		t.Fatalf("expected the panel to remain open after clearing the search, got %v", m.overlays.panel.kind)
 	}
 
 	// Esc second time: closes the panel.
 	m.handlePanelKey(tea.Key{Code: tea.KeyEsc})
-	if m.panel.kind != panelregistry.None {
-		t.Fatalf("expected the panel to close after the second Esc, got %v", m.panel.kind)
+	if m.overlays.panel.kind != panelregistry.None {
+		t.Fatalf("expected the panel to close after the second Esc, got %v", m.overlays.panel.kind)
 	}
 }
 
@@ -3656,15 +3660,15 @@ func TestColorSchemeLiveThemeUpdate(t *testing.T) {
 	})
 
 	m := newRunMode(nil, "test@example.com", "gemini-test", "Pro", "/tmp", true)
-	m.width = 120
-	m.height = 40
-	m.panel = slashPanel{kind: panelregistry.Config, cmd: "/settings"}
-	m.panel.cfg = m.newConfigPanel()
-	m.panel.cfg.SetCursor(configRowIndexForTest(t, m, "Color Scheme"))
+	m.viewport.width = 120
+	m.viewport.height = 40
+	m.overlays.panel = slashPanel{kind: panelregistry.Config, cmd: "/settings"}
+	m.overlays.panel.cfg = m.newConfigPanel()
+	m.overlays.panel.cfg.SetCursor(configRowIndexForTest(t, m, "Color Scheme"))
 
 	// 1. Open the submenu.
 	m.handlePanelKey(tea.Key{Code: tea.KeyEnter})
-	if !m.panel.cfg.SubmenuOpen() {
+	if !m.overlays.panel.cfg.SubmenuOpen() {
 		t.Fatal("expected the submenu to be open")
 	}
 
@@ -3682,7 +3686,7 @@ func TestColorSchemeLiveThemeUpdate(t *testing.T) {
 
 	// 4. Cancel with Esc: the original theme comes back.
 	m.handlePanelKey(tea.Key{Code: tea.KeyEsc})
-	if m.panel.cfg.SubmenuOpen() {
+	if m.overlays.panel.cfg.SubmenuOpen() {
 		t.Fatal("expected the submenu to be closed")
 	}
 	if mdrender.CurrentColorScheme() != "terminal" {
@@ -3735,17 +3739,17 @@ func TestCycle241_TelemetryKeyHandlerRoutesToGate(t *testing.T) {
 	cycle196TestHome(t, map[string]any{})
 	m := mkPanel(panelregistry.Config, "/config", 0)
 	idx := configRowIndexForTest(t, m, "Enable Telemetry")
-	m.panel.cfg.SetCursor(idx)
+	m.overlays.panel.cfg.SetCursor(idx)
 	handled, _ := m.handlePanelKey(tea.Key{Code: tea.KeyRight})
 	if !handled {
 		t.Fatal("←/→ on /config: handlePanelKey reported unhandled")
 	}
-	if got := m.panel.cfg.SettingValue(idx); got != auth.TelemetryDisabledValue {
+	if got := m.overlays.panel.cfg.SettingValue(idx); got != auth.TelemetryDisabledValue {
 		t.Errorf("after handlePanelKey →: row = %q, want %q",
 			got, auth.TelemetryDisabledValue)
 	}
 	found := false
-	for _, line := range m.response {
+	for _, line := range m.engine.response {
 		if strings.Contains(termcolor.StripSGR(line), auth.TelemetryDisabledResponse) {
 			found = true
 			break
@@ -3753,6 +3757,6 @@ func TestCycle241_TelemetryKeyHandlerRoutesToGate(t *testing.T) {
 	}
 	if !found {
 		t.Errorf("after handlePanelKey →: transcript missing %q.\nresponse=%q",
-			auth.TelemetryDisabledResponse, m.response)
+			auth.TelemetryDisabledResponse, m.engine.response)
 	}
 }

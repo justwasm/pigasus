@@ -54,9 +54,10 @@ Three facts hold in the tree as it stands, and each one is checkable:
    and `devutils/tiergraph.py` prints the same figures out of tree.)
 3. **The lower four tiers import no host.** `internal/core`,
    `internal/features`, `internal/infra` and `internal/ui` never import
-   `internal/agent`, `internal/pigrt`, `internal/piagentbridge`,
-   `internal/modular` or `internal/cli`. The app tier is the only tier
-   that reaches the turn engines, and the hosts sit above every tier.
+   the entry surfaces or hosts (`internal/tui`, `internal/printmode`,
+   `internal/rchost`, `internal/lsserver`, `internal/cli`, `internal/modular`).
+   The app tier is the only tier that reaches the turn engines, and the
+   hosts sit above every tier.
 
 The `ui` tier may depend on the `app` tier — a view renders what the app
 produced — and the `app` tier never depends on the `ui` tier. That is the

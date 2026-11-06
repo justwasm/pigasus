@@ -257,7 +257,7 @@ func TestSeedConversationRendersTranscript(t *testing.T) {
 	m := newRunMode(nil, "", "Gemini 3.8 Flash (High)", "", "/tmp", true)
 	m.seedConversation(sel.Store)
 
-	joined := strings.Join(m.response, "\n")
+	joined := strings.Join(m.engine.response, "\n")
 	// Resumed transcript echoes user prompts as "> " rows matching agy.
 	if !strings.Contains(joined, transcript.UserPromptRow("summarise the repository layout")) {
 		t.Errorf("resumed transcript must echo user prompts:\n%s", joined)
@@ -275,10 +275,10 @@ func TestSeedConversationRendersTranscript(t *testing.T) {
 	if strings.Contains(joined, "quota reached") == false {
 		t.Errorf("the stored error step should be rendered:\n%s", joined)
 	}
-	if len(m.blocks) == 0 {
+	if len(m.engine.blocks) == 0 {
 		t.Error("tool steps should register a ctrl+o block")
 	}
-	if len(m.session) == 0 {
+	if len(m.engine.session) == 0 {
 		t.Error("the seeded transcript should seed the model session")
 	}
 }
@@ -286,8 +286,8 @@ func TestSeedConversationRendersTranscript(t *testing.T) {
 func TestSeedConversationNilIsSafe(t *testing.T) {
 	m := newRunMode(nil, "", "Gemini 3.8 Flash (High)", "", "/tmp", true)
 	m.seedConversation(nil)
-	if len(m.response) != 0 {
-		t.Errorf("nil store produced %d rows", len(m.response))
+	if len(m.engine.response) != 0 {
+		t.Errorf("nil store produced %d rows", len(m.engine.response))
 	}
 }
 
@@ -295,43 +295,43 @@ func TestResumeConversation_RendersUserPromptsAndStickyHeader(t *testing.T) {
 	dir := storeFixture(t, fixtureID)
 	dbPath := filepath.Join(dir, "conversations", fixtureID+".db")
 	m := newRunMode(nil, "", "Gemini 3.8 Flash (High)", "", "/tmp", true)
-	m.width, m.height = 100, 12
-	m.altScreen = true
+	m.viewport.width, m.viewport.height = 100, 12
+	m.viewport.altScreen = true
 
 	// Simulate initial conversation state before resume
-	m.response = []string{"previous text"}
-	m.scroll = 10
+	m.engine.response = []string{"previous text"}
+	m.viewport.scroll = 10
 
 	// Resume the conversation
 	m.resumeConversation(convstore.ConversationMeta{ID: fixtureID, Path: dbPath})
 
 	// User prompt must be present in response
 	promptStr := transcript.UserPromptRow("summarise the repository layout")
-	joined := strings.Join(m.response, "\n")
+	joined := strings.Join(m.engine.response, "\n")
 	if !strings.Contains(joined, promptStr) {
 		t.Fatalf("resumed response missing user prompt; response:\n%s", joined)
 	}
 
 	// Render view to populate cache and prompt rows
 	m.View()
-	if len(m.userPromptRows) == 0 {
+	if len(m.viewport.userPromptRows) == 0 {
 		t.Fatal("expected userPromptRows to be populated after View()")
 	}
 
 	// When parked at bottom with autoScroll=true, no sticky header
-	if tuiviewport.StickyUserPromptRow(m.userPromptRows, m.autoScroll, m.scroll) >= 0 {
-		t.Errorf("at bottom autoScroll: stickyUserPromptRow = %d, want -1", tuiviewport.StickyUserPromptRow(m.userPromptRows, m.autoScroll, m.scroll))
+	if tuiviewport.StickyUserPromptRow(m.viewport.userPromptRows, m.viewport.autoScroll, m.viewport.scroll) >= 0 {
+		t.Errorf("at bottom autoScroll: stickyUserPromptRow = %d, want -1", tuiviewport.StickyUserPromptRow(m.viewport.userPromptRows, m.viewport.autoScroll, m.viewport.scroll))
 	}
 
 	// Scroll up past the bottom but remaining >= first prompt row
 	m.scrollBy(-3)
 	m.View()
 
-	if tuiviewport.StickyUserPromptRow(m.userPromptRows, m.autoScroll, m.scroll) < 0 {
+	if tuiviewport.StickyUserPromptRow(m.viewport.userPromptRows, m.viewport.autoScroll, m.viewport.scroll) < 0 {
 		t.Fatalf("stickyUserPromptRow = %d, want >= 0 when scrolled up; promptRows=%v, scroll=%d",
-			tuiviewport.StickyUserPromptRow(m.userPromptRows, m.autoScroll, m.scroll), m.userPromptRows, m.scroll)
+			tuiviewport.StickyUserPromptRow(m.viewport.userPromptRows, m.viewport.autoScroll, m.viewport.scroll), m.viewport.userPromptRows, m.viewport.scroll)
 	}
-	if m.pinnedPromptText == "" {
+	if m.viewport.pinnedPromptText == "" {
 		t.Errorf("pinnedPromptText should be populated when scrolled up past user prompt")
 	}
 }
@@ -412,9 +412,9 @@ func TestStyleInlineBackticks_UnbalancedPassthrough(t *testing.T) {
 // Cycle 128: model-reply paths apply styleInlineBackticks.
 func TestConversation_ModelReplyAppliesInlineStyle(t *testing.T) {
 	m := newRunMode(nil, "u@t", "m", "t", "/tmp", true)
-	m.response = append(m.response, mdrender.StyleInlineBackticks("use `fmt.Println` here"))
-	if !strings.Contains(m.response[0], cInlineCodeOpen+"fmt.Println"+cInlineCodeClose) {
-		t.Errorf("expected inline chip in model reply, got %q", m.response[0])
+	m.engine.response = append(m.engine.response, mdrender.StyleInlineBackticks("use `fmt.Println` here"))
+	if !strings.Contains(m.engine.response[0], cInlineCodeOpen+"fmt.Println"+cInlineCodeClose) {
+		t.Errorf("expected inline chip in model reply, got %q", m.engine.response[0])
 	}
 }
 
@@ -841,7 +841,7 @@ func TestToolCallAssistantSaved(t *testing.T) {
 // TestContinueNoBlankTurns — load a conversation whose model step
 // has empty Text (a legacy DB shape) and feed it through
 // seedConversation. The runMode transcript must not gain a blank
-// row, and the live m.session must not gain an empty assistant
+// row, and the live m.engine.session must not gain an empty assistant
 // message. This is the --continue half of the AGY 1.2.13 fix.
 func TestContinueNoBlankTurns(t *testing.T) {
 	dir := t.TempDir()
@@ -872,13 +872,13 @@ func TestContinueNoBlankTurns(t *testing.T) {
 	}
 
 	m := newRunMode(&fakeClient{}, "u@t", "Gemini 3.8 Flash (High)", "t", "/", true)
-	m.conversationID = id
+	m.session.conversationID = id
 	m.seedConversation(c)
 
 	// Count assistant messages in the live session: must equal 1
 	// (the "real reply"), the blank row must not have been re-seeded.
 	var assistantCount int
-	for _, msg := range m.session {
+	for _, msg := range m.engine.session {
 		if msg.Role == "assistant" {
 			assistantCount++
 			if strings.TrimSpace(msg.Content) == "" {
@@ -887,12 +887,12 @@ func TestContinueNoBlankTurns(t *testing.T) {
 		}
 	}
 	if assistantCount != 1 {
-		t.Errorf("m.session assistant count = %d, want 1 (the blank row must be dropped)", assistantCount)
+		t.Errorf("m.engine.session assistant count = %d, want 1 (the blank row must be dropped)", assistantCount)
 	}
 
 	// User messages are still preserved (blank rows do not eat user turns).
 	var userTexts []string
-	for _, msg := range m.session {
+	for _, msg := range m.engine.session {
 		if msg.Role == "user" {
 			userTexts = append(userTexts, msg.Content)
 		}

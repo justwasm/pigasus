@@ -85,7 +85,7 @@ import (
 // `/browser`) now match the v1.4.0 reference. /goal, /plan, /learn,
 // /grill-me are prompt-sending commands — the slash form is a shortcut
 // for a normal model call, so the handler echoes the token, appends a
-// synthesized prompt to m.session, and starts the model stream via
+// synthesized prompt to m.engine.session, and starts the model stream via
 // sendAsPrompt. /keybindings opens ~/.gemini/antigravity-cli/keybindings.json
 // in the configured editor (creates the file with "{}" if missing).
 //
@@ -99,8 +99,8 @@ import (
 // capture held the failure and the clone reproduced it — a false
 // statement about the reader's own quota (see slash_browser.go).
 //
-// Handlers mutate m.response to show user echo + feedback, reset
-// m.input/m.picker, and never call the model — except the five prompt-
+// Handlers mutate m.engine.response to show user echo + feedback, reset
+// m.composer.input/m.composer.picker, and never call the model — except the five prompt-
 // sending commands above, which delegate to sendAsPrompt.
 //
 // Cycle 381, tranche 81: the slash *grammar* — the "/cmd args" parse,
@@ -122,7 +122,7 @@ import (
 // prompt area (or, in our case, the transcript with prompt-area styling),
 // matching REF's class-B special case (TODO.md §2.2).
 
-// slashRespond appends the REF-style slash command echo block to m.response.
+// slashRespond appends the REF-style slash command echo block to m.engine.response.
 //
 //	> /<cmd>          (bold blue)
 //	  ⎿  <msg>        (bold blue prefix + muted body)
@@ -130,25 +130,25 @@ import (
 //	<blank>
 //
 // The block's bytes belong to the ui tier (tuilib.SlashEchoLines); this
-// method owns only what the host owns: the rows land in m.response and
+// method owns only what the host owns: the rows land in m.engine.response and
 // the transcript's row cache is marked stale.
 //
 // Use this for every response-producing case. Multi-line responses pass
 // the additional lines as extra; they appear after the `⎿` wrapper and
 // before the trailing blank (matches /voice and /remote-control in REF).
 func (m *runMode) slashRespond(cmd, msg string, extra ...string) {
-	m.response = append(m.response, tuilib.SlashEchoLines(cmd, msg, extra...)...)
-	m.rowsCacheDirty = true
+	m.engine.response = append(m.engine.response, tuilib.SlashEchoLines(cmd, msg, extra...)...)
+	m.viewport.rowsCacheDirty = true
 }
 
-// slashRespondPlain appends a single message line to m.response WITHOUT
+// slashRespondPlain appends a single message line to m.engine.response WITHOUT
 // the `> /cmd` + `⎿` wrapper. Use for /compact's "Nothing to compact yet."
 // message — REF special-cases /compact: no `> /cmd` line, no `⎿` wrapper,
 // the text appears in the prompt area as `> <msg>`. We approximate that
 // by writing the styled line to the transcript instead.
 func (m *runMode) slashRespondPlain(msg string) {
-	m.response = append(m.response, panelGray238+msg+panelGray238C)
-	m.rowsCacheDirty = true
+	m.engine.response = append(m.engine.response, panelGray238+msg+panelGray238C)
+	m.viewport.rowsCacheDirty = true
 }
 
 type slashHandler func(m *runMode, args string) (bool, tea.Cmd)
@@ -237,12 +237,12 @@ func (m *runMode) handleSlashCommand(buf string) (bool, tea.Cmd) {
 		return false, nil
 	}
 
-	m.input.Reset()
-	if m.undoMgr != nil {
-		m.undoMgr.Clear()
+	m.composer.input.Reset()
+	if m.composer.undoMgr != nil {
+		m.composer.undoMgr.Clear()
 	}
-	m.picker.Reset()
-	m.promptHistory.Reset()
+	m.composer.picker.Reset()
+	m.composer.promptHistory.Reset()
 
 	disp := m.commandDispatcher()
 	handled, cmd := disp.Dispatch(buf)
@@ -287,11 +287,11 @@ func (m *runMode) commandDispatcher() *commands.Dispatcher {
 }
 
 func (m *runMode) IsStreaming() bool {
-	return m.streaming
+	return m.engine.streaming
 }
 
 func (m *runMode) SetInputNotice(msg string) {
-	m.inputNotice = msg
+	m.viewport.inputNotice = msg
 }
 
 func (m *runMode) HandleChainedSlashCommands(commands []string, task string) (bool, tea.Cmd) {
@@ -338,20 +338,20 @@ func (m *runMode) slashAgentCmd(args string) (bool, tea.Cmd) {
 // The print handlers emit tab-separated rows; a raw tab collapses in the TUI
 // renderer, so the columns are laid out by the ui tier's own row layout
 // (rows.TabAlignedRows). This method owns only what the host owns: the rows
-// land in m.response.
+// land in m.engine.response.
 func (m *runMode) slashContent(text string) {
-	m.response = append(m.response, rows.TabAlignedRows(text)...)
+	m.engine.response = append(m.engine.response, rows.TabAlignedRows(text)...)
 }
 
 func (m *runMode) applyQuoteInsert(content string) tea.Cmd {
-	m.input.SetValue(content)
-	m.promptHistory.Reset()
-	m.picker.Update([]rune(tuilib.FirstLine(content)))
+	m.composer.input.SetValue(content)
+	m.composer.promptHistory.Reset()
+	m.composer.picker.Update([]rune(tuilib.FirstLine(content)))
 	return nil
 }
 
 func (m *runMode) handleQuote(args string) (bool, tea.Cmd) {
-	content, errMsg := slashquote.ResolveQuote(args, m.session)
+	content, errMsg := slashquote.ResolveQuote(args, m.engine.session)
 	if errMsg != "" {
 		m.slashRespond("/quote", errMsg)
 		return true, nil
@@ -362,17 +362,17 @@ func (m *runMode) handleQuote(args string) (bool, tea.Cmd) {
 
 func (m *runMode) sendAsPrompt(token, prompt string) tea.Cmd {
 	m.pushHistory(token)
-	m.input.Reset()
-	m.streaming = true
-	m.promptHistory.Reset()
-	m.response = append(m.response, "> "+token)
-	m.liveStart = len(m.response)
-	m.liveSteps = nil
-	m.activeTool = ""
-	m.thinking = false
-	m.picker.Reset()
+	m.composer.input.Reset()
+	m.engine.streaming = true
+	m.composer.promptHistory.Reset()
+	m.engine.response = append(m.engine.response, "> "+token)
+	m.engine.liveStart = len(m.engine.response)
+	m.engine.liveSteps = nil
+	m.engine.activeTool = ""
+	m.engine.thinking = false
+	m.composer.picker.Reset()
 	m.appendUserTurn(prompt)
-	tickCmd := func() tea.Msg { return m.spinner.Tick() }
+	tickCmd := func() tea.Msg { return m.engine.spinner.Tick() }
 	return tea.Batch(m.streamPrompt(prompt), tickCmd)
 }
 
@@ -417,23 +417,23 @@ func (m *runMode) handleChainedSlashCommands(cmds []string, task string) (bool, 
 
 	// 1. Compose state modifiers
 	if hasPlan {
-		m.mode = permissions.ModePlan
-		if m.policy != nil {
-			m.policy.Mode = permissions.ModePlan
+		m.session.mode = permissions.ModePlan
+		if m.session.policy != nil {
+			m.session.policy.Mode = permissions.ModePlan
 		}
-		m.input.Placeholder = permissions.ModeBanner(permissions.ModePlan)
-		m.modeHintDismissed = false
+		m.composer.input.Placeholder = permissions.ModeBanner(permissions.ModePlan)
+		m.composer.modeHintDismissed = false
 	}
 
 	if hasGoal {
-		if m.activeGoal != nil && m.activeGoal.IsActive() {
-			m.activeGoal.State = convstore.GoalStateCancelled
+		if m.session.activeGoal != nil && m.session.activeGoal.IsActive() {
+			m.session.activeGoal.State = convstore.GoalStateCancelled
 		}
 		goalText := task
 		if goalText == "" {
 			goalText = "Help me set a clear goal for this session"
 		}
-		m.activeGoal = convstore.NewGoalState(goalText, len(m.session))
+		m.session.activeGoal = convstore.NewGoalState(goalText, len(m.engine.session))
 	}
 
 	// 2. Compose prompts
@@ -495,12 +495,12 @@ func (m *runMode) slashPlan(args string) (bool, tea.Cmd) {
 		}
 	}
 
-	m.mode = permissions.ModePlan
-	if m.policy != nil {
-		m.policy.Mode = permissions.ModePlan
+	m.session.mode = permissions.ModePlan
+	if m.session.policy != nil {
+		m.session.policy.Mode = permissions.ModePlan
 	}
-	m.input.Placeholder = permissions.ModeBanner(permissions.ModePlan)
-	m.modeHintDismissed = false
+	m.composer.input.Placeholder = permissions.ModeBanner(permissions.ModePlan)
+	m.composer.modeHintDismissed = false
 
 	prompt := slashactions.PlanPrompt()
 	if trimmed != "" {
@@ -518,8 +518,8 @@ func (m *runMode) slashGoal(args string) (bool, tea.Cmd) {
 		}
 	}
 
-	if m.activeGoal != nil && m.activeGoal.IsActive() {
-		m.activeGoal.State = convstore.GoalStateCancelled
+	if m.session.activeGoal != nil && m.session.activeGoal.IsActive() {
+		m.session.activeGoal.State = convstore.GoalStateCancelled
 	}
 	goalText := trimmed
 	prompt := slashactions.GoalPrompt()
@@ -528,7 +528,7 @@ func (m *runMode) slashGoal(args string) (bool, tea.Cmd) {
 	} else {
 		goalText = "Help me set a clear goal for this session"
 	}
-	m.activeGoal = convstore.NewGoalState(goalText, len(m.session))
+	m.session.activeGoal = convstore.NewGoalState(goalText, len(m.engine.session))
 	return true, m.sendAsPrompt("/goal", prompt)
 }
 
@@ -603,38 +603,38 @@ func (m *runMode) hostActionSeams() hostactions.Seams {
 	return hostactions.Seams{
 		AbortTurn: m.abortTurnForLocalCommand,
 		ClearState: func() {
-			if m.conversationStarted || len(m.session) > 0 {
+			if m.session.conversationStarted || len(m.engine.session) > 0 {
 				m.saveSession()
 			}
-			if m.supervisor != nil {
-				m.supervisor.Clear()
+			if m.session.supervisor != nil {
+				m.session.supervisor.Clear()
 			}
-			m.response = nil
-			m.session = nil
-			m.blocks = nil
-			m.liveSteps = nil
-			m.liveStepRuns = nil
-			m.activeTool = ""
-			m.store.ClearStreamQueue()
-			m.replyStart = -1
-			m.liveReplyIdx = -1
-			m.liveReplyBuf = ""
-			m.streamedText = false
-			m.wireSettingsPending = true
-			m.store.ResetSessionTokens()
-			m.autoTitle = ""
-			m.conversationID = newConversationID()
-			m.conversationStarted = false
-			m.hookSessionStarted = false
-			m.subagentDefs = subagenttools.NewStore()
-			m.subagentRegistry = subagenttools.NewRegistry(m.conversationID)
+			m.engine.response = nil
+			m.engine.session = nil
+			m.engine.blocks = nil
+			m.engine.liveSteps = nil
+			m.engine.liveStepRuns = nil
+			m.engine.activeTool = ""
+			m.session.store.ClearStreamQueue()
+			m.engine.replyStart = -1
+			m.engine.liveReplyIdx = -1
+			m.engine.liveReplyBuf = ""
+			m.engine.streamedText = false
+			m.session.wireSettingsPending = true
+			m.session.store.ResetSessionTokens()
+			m.session.autoTitle = ""
+			m.session.conversationID = newConversationID()
+			m.session.conversationStarted = false
+			m.session.hookSessionStarted = false
+			m.engine.subagentDefs = subagenttools.NewStore()
+			m.engine.subagentRegistry = subagenttools.NewRegistry(m.session.conversationID)
 			m.resetTrajectory()
 		},
 		Quit: func() {
-			m.quitting = true
+			m.engine.quitting = true
 		},
 		OpenHelp: func() {
-			m.helpPanel.Open(0)
+			m.viewport.helpPanel.Open(0)
 		},
 		OpenPanel: func(cmd string) bool {
 			return m.openSlashPanel(cmd)
@@ -648,8 +648,8 @@ func (m *runMode) hostActionSeams() hostactions.Seams {
 			m.slashRespond(cmd, msg, extra...)
 		},
 		ResetInputs: func() {
-			m.input.Reset()
-			m.promptHistory.Reset()
+			m.composer.input.Reset()
+			m.composer.promptHistory.Reset()
 		},
 	}
 }
@@ -676,10 +676,10 @@ func (m *runMode) slashModel(args string) (bool, tea.Cmd) {
 	if trimmed := slashparse.Trim(args); trimmed != "" {
 		return true, m.applyModelArgument(trimmed)
 	}
-	if m.flags != nil {
-		m.slashContent(printmode.PrintSlashModels(m.flags))
+	if m.session.flags != nil {
+		m.slashContent(printmode.PrintSlashModels(m.session.flags))
 	} else {
-		m.slashContent(modelcatalog.ModelSlug(m.model) + "\t" + m.model)
+		m.slashContent(modelcatalog.ModelSlug(m.session.model) + "\t" + m.session.model)
 	}
 	return true, nil
 }
@@ -697,7 +697,7 @@ func (m *runMode) slashContext(args string) (bool, tea.Cmd) {
 }
 
 func (m *runMode) slashContinue(args string) (bool, tea.Cmd) {
-	id, _, err := convstore.ResolveContinue(m.cwd)
+	id, _, err := convstore.ResolveContinue(m.session.cwd)
 	if err != nil {
 		m.slashRespond("/continue", "error: "+err.Error())
 		return true, nil
@@ -711,18 +711,18 @@ func (m *runMode) slashContinue(args string) (bool, tea.Cmd) {
 		m.slashRespond("/continue", "Failed to load conversation "+id)
 		return true, nil
 	}
-	m.conversationID = sel.ID
-	m.response = nil
-	m.session = nil
-	if m.supervisor != nil {
-		m.supervisor.Clear()
+	m.session.conversationID = sel.ID
+	m.engine.response = nil
+	m.engine.session = nil
+	if m.session.supervisor != nil {
+		m.session.supervisor.Clear()
 	}
-	m.blocks = nil
-	m.liveSteps = nil
-	m.activeTool = ""
+	m.engine.blocks = nil
+	m.engine.liveSteps = nil
+	m.engine.activeTool = ""
 	m.seedConversation(sel.Store)
-	m.autoTitle = ""
-	m.response = append(m.response, "  ⎿  Resumed conversation "+sel.ID)
+	m.session.autoTitle = ""
+	m.engine.response = append(m.engine.response, "  ⎿  Resumed conversation "+sel.ID)
 	return true, nil
 }
 
@@ -750,7 +750,7 @@ func (m *runMode) slashCredits(args string) (bool, tea.Cmd) {
 }
 
 func (m *runMode) slashDiff(args string) (bool, tea.Cmd) {
-	m.slashRespond("/diff", diffFeedback(m.cwd, m.width))
+	m.slashRespond("/diff", diffFeedback(m.session.cwd, m.viewport.width))
 	return true, nil
 }
 
@@ -763,8 +763,8 @@ func (m *runMode) slashEffort(args string) (bool, tea.Cmd) {
 		}
 		return true, m.applyEffortLevel(level, effortpanel.EffortIndexForName(level))
 	}
-	if m.flags != nil {
-		m.slashContent(printmode.PrintSlashEffort(m.flags))
+	if m.session.flags != nil {
+		m.slashContent(printmode.PrintSlashEffort(m.session.flags))
 	} else {
 		m.slashContent("high")
 	}
@@ -783,18 +783,18 @@ func (m *runMode) slashFeatureDiff(args string) (bool, tea.Cmd) {
 func (m *runMode) slashFork(args string) (bool, tea.Cmd) {
 	m.abortTurnForLocalCommand()
 	// Goal is cancelled on fork point
-	m.activeGoal = nil
+	m.session.activeGoal = nil
 
 	projectID := strings.TrimSpace(args)
 	agentDir := confhome.Antigravity()
 	var oldArtifactDir string
-	if m.conversationID != "" {
-		oldArtifactDir = filepath.Join(agentDir, "brain", m.conversationID)
+	if m.session.conversationID != "" {
+		oldArtifactDir = filepath.Join(agentDir, "brain", m.session.conversationID)
 	}
 
 	forkID, forkNotice, forkMsg, err := convstore.ForkConversationFull(
 		convstore.BuildSteps(m.trajectoryFacts()),
-		m.conversationID,
+		m.session.conversationID,
 		oldArtifactDir,
 		"", // automatically derived as <agentDir>/brain/<forkID>
 		projectID,
@@ -813,15 +813,15 @@ func (m *runMode) slashFork(args string) (bool, tea.Cmd) {
 	}
 	m.slashRespond("/fork", lines[0], extra...)
 	if forkID != "" {
-		m.conversationID = forkID
+		m.session.conversationID = forkID
 		if forkNotice != "" {
 			noticeMsg := backend.Message{
 				Role:    "user",
 				Content: forkNotice,
 			}
-			m.session = append(m.session, noticeMsg)
-			if m.supervisor != nil {
-				m.supervisor.Append(noticeMsg)
+			m.engine.session = append(m.engine.session, noticeMsg)
+			if m.session.supervisor != nil {
+				m.session.supervisor.Append(noticeMsg)
 			}
 			m.saveSession()
 		}
@@ -852,9 +852,9 @@ func (m *runMode) slashLogin(args string) (bool, tea.Cmd) {
 		return true, nil
 	}
 	lm := loginui.New()
-	lm.Width = m.width
-	lm.Height = m.height
-	m.login = lm
+	lm.Width = m.viewport.width
+	lm.Height = m.viewport.height
+	m.overlays.login = lm
 	return true, lm.Init()
 }
 
@@ -871,7 +871,7 @@ func (m *runMode) slashMCP(args string) (bool, tea.Cmd) {
 }
 
 func (m *runMode) slashOpen(args string) (bool, tea.Cmd) {
-	notice, editorCmd := editorkit.OpenFeedback(args, settings.String("editor"), m.cwd, diffaction.PathExists)
+	notice, editorCmd := editorkit.OpenFeedback(args, settings.String("editor"), m.session.cwd, diffaction.PathExists)
 	if notice != "" {
 		m.slashRespond("/open", notice)
 	}
@@ -938,11 +938,11 @@ func (m *runMode) slashRemoteControl(args string) (bool, tea.Cmd) {
 }
 
 func (m *runMode) activeRemoteConversationID() string {
-	if m == nil || m.conversationID == "" {
+	if m == nil || m.session.conversationID == "" {
 		return ""
 	}
-	if m.conversationStarted || (m.supervisor != nil && m.supervisor.Len() > 0) || len(m.session) > 0 || len(m.trajLoaded) > 0 || m.conversationID != m.initialConversationID {
-		return m.conversationID
+	if m.session.conversationStarted || (m.session.supervisor != nil && m.session.supervisor.Len() > 0) || len(m.engine.session) > 0 || len(m.engine.trajLoaded) > 0 || m.session.conversationID != m.session.initialConversationID {
+		return m.session.conversationID
 	}
 	return ""
 }
@@ -952,8 +952,8 @@ func (m *runMode) handleRemoteControl(args, conversationID string) (bool, tea.Cm
 		m.slashRespond("/remote-control", rchost.SlashADCErrorMessage())
 		return true, nil
 	}
-	next, msg := tuilib.RemoteControlFeedback(args, m.remoteControl)
-	m.remoteControl = next
+	next, msg := tuilib.RemoteControlFeedback(args, m.session.remoteControl)
+	m.session.remoteControl = next
 	if msg == "Remote control on for this session." {
 		if curTok, curEmail := accounts.Current(); curTok != nil && curEmail != "" {
 			_ = auth.SaveTokenUnified(curTok)
@@ -989,28 +989,28 @@ func (m *runMode) handleRemoteControl(args, conversationID string) (bool, tea.Cm
 		// chooser, which names the account the daemon registered with
 		// and then continues to the deep link. See
 		// docs/cycles/rc-cloud-remote-view/deliverable.md §7.4.
-		if m.remoteControlUUID == "" {
-			m.remoteControlUUID = persistentrc.InstallationUUID()
+		if m.session.remoteControlUUID == "" {
+			m.session.remoteControlUUID = persistentrc.InstallationUUID()
 		}
 		persistentrc.EnsureInstanceID()
-		desktop := m.remoteControlDesktop || (m.flags != nil && cliflags.BoolValue(m.flags, "desktop"))
+		desktop := m.session.remoteControlDesktop || (m.session.flags != nil && cliflags.BoolValue(m.session.flags, "desktop"))
 
 		// Check if we are running in attached / external engine mode (e.g. ACP / custom agent)
-		// If m.attachedEngine is true, run in-process without spawning external daemon!
-		if m.attachedEngine && m.engine != nil {
-			backend := rchost.NewEngineCascadeBackend(m.engine, m.model)
-			if tl, ok := m.turnLock.(*rchost.SimpleTurnLock); ok && tl != nil {
+		// If m.engine.attachedEngine is true, run in-process without spawning external daemon!
+		if m.engine.attachedEngine && m.engine.engine != nil {
+			backend := rchost.NewEngineCascadeBackend(m.engine.engine, m.session.model)
+			if tl, ok := m.engine.turnLock.(*rchost.SimpleTurnLock); ok && tl != nil {
 				backend.SetTurnLock(tl)
 			} else {
 				tl := &rchost.SimpleTurnLock{}
-				m.turnLock = tl
+				m.engine.turnLock = tl
 				backend.SetTurnLock(tl)
 			}
 			ctx := context.Background()
 			disp, stop, err := rchost.StartInProcessServe(ctx, backend, desktop, nil)
 			if err == nil {
-				m.remoteControlStop = stop
-				m.inprocessDisp = disp
+				m.engine.remoteControlStop = stop
+				m.engine.inprocessDisp = disp
 			}
 		} else {
 			go func() {
@@ -1019,8 +1019,8 @@ func (m *runMode) handleRemoteControl(args, conversationID string) (bool, tea.Cm
 				_ = persistentrc.StartOfficialDaemon(ctx, hostname, false, desktop)
 			}()
 		}
-		_, extra := buildRemoteControlCard(conversationID, m.remoteControlUUID, hostname, func(u string) []string {
-			return urlchunk.Rows(u, rcURLIndent, m.rcURLChunkWidth(), m.hyperlinkCaps)
+		_, extra := buildRemoteControlCard(conversationID, m.session.remoteControlUUID, hostname, func(u string) []string {
+			return urlchunk.Rows(u, rcURLIndent, m.rcURLChunkWidth(), m.viewport.hyperlinkCaps)
 		})
 		if runtime.GOOS != "darwin" {
 			extra = append(extra,
@@ -1029,10 +1029,10 @@ func (m *runMode) handleRemoteControl(args, conversationID string) (bool, tea.Cm
 		}
 		m.slashRespond("/remote-control", msg, extra...)
 	} else {
-		if m.remoteControlStop != nil {
-			m.remoteControlStop()
-			m.remoteControlStop = nil
-			m.inprocessDisp = nil
+		if m.engine.remoteControlStop != nil {
+			m.engine.remoteControlStop()
+			m.engine.remoteControlStop = nil
+			m.engine.inprocessDisp = nil
 		}
 		m.slashRespond("/remote-control", msg)
 	}
@@ -1044,14 +1044,14 @@ func (m *runMode) slashRename(args string) (bool, tea.Cmd) {
 		m.openRenamePanel()
 		return true, nil
 	}
-	next, msg := tuilib.RenameFeedback(args, m.conversationName)
-	m.conversationName = next
+	next, msg := tuilib.RenameFeedback(args, m.session.conversationName)
+	m.session.conversationName = next
 	m.slashRespond("/rename", msg)
 	return true, nil
 }
 
 func (m *runMode) slashResume(args string) (bool, tea.Cmd) {
-	if err := m.resumePicker.Open(); err != nil {
+	if err := m.overlays.resumePicker.Open(); err != nil {
 		m.slashRespond("/resume", "Failed to list conversations: "+err.Error())
 		return true, nil
 	}
@@ -1065,12 +1065,12 @@ func (m *runMode) slashRewind(args string) (bool, tea.Cmd) {
 	// never actually truncated; the policy now hands the truncated
 	// session back and the caller keeps it.
 	var r rewind.Result
-	if m.supervisor != nil {
-		r = m.supervisor.RewindPopTail()
-		m.session = r.Session
+	if m.session.supervisor != nil {
+		r = m.session.supervisor.RewindPopTail()
+		m.engine.session = r.Session
 	} else {
-		r = rewind.PopTail(m.session)
-		m.session = r.Session
+		r = rewind.PopTail(m.engine.session)
+		m.engine.session = r.Session
 	}
 	m.slashRespond("/rewind", rewind.TailEcho(r))
 	return true, nil
@@ -1105,10 +1105,10 @@ func (m *runMode) slashSkills(args string) (bool, tea.Cmd) {
 
 // sessionCount returns the active message count from supervisor or fallback session slice.
 func (m *runMode) sessionCount() int {
-	if m.supervisor != nil {
-		return m.supervisor.Len()
+	if m.session.supervisor != nil {
+		return m.session.supervisor.Len()
 	}
-	return len(m.session)
+	return len(m.engine.session)
 }
 
 // slashStatusline handles /statusline and its subcommands.
@@ -1144,7 +1144,7 @@ func (m *runMode) slashStatusline(args string) (bool, tea.Cmd) {
 	verb := strings.ToLower(strings.TrimSpace(args))
 	if verb == "" {
 		// Cycle 351: the bare command toggles (agy 1.4.8).
-		if m.statusLineCfg.Enabled {
+		if m.viewport.statusLineCfg.Enabled {
 			m.applyStatuslineOff(tuilib.StatuslineToggledOffMessage)
 		} else {
 			m.applyStatuslineOn()
@@ -1162,10 +1162,10 @@ func (m *runMode) slashStatusline(args string) (bool, tea.Cmd) {
 		m.applyStatuslineOff(tuilib.StatuslineDisabledMessage)
 	case "delete", "reset":
 		statusline.ClearCommand()
-		m.statusLine = "on"
-		m.statusLineExternal = false
-		m.statusLineCommand = ""
-		m.statusLineCfg = statusline.Config{}
+		m.viewport.statusLine = "on"
+		m.viewport.statusLineExternal = false
+		m.viewport.statusLineCommand = ""
+		m.viewport.statusLineCfg = statusline.Config{}
 		m.ensureExternalState().ResetDisabled()
 		m.slashRespond("/statusline", tuilib.StatuslineClearedMessage)
 	default:
@@ -1174,14 +1174,14 @@ func (m *runMode) slashStatusline(args string) (bool, tea.Cmd) {
 			m.slashRespond("/statusline", "Error: "+err.Error())
 			return true, nil
 		}
-		m.statusLine = "on"
-		m.statusLineExternal = true
-		m.statusLineCommand = command
+		m.viewport.statusLine = "on"
+		m.viewport.statusLineExternal = true
+		m.viewport.statusLineCommand = command
 		// The layout members survive: only the command and the
 		// visibility change.
-		m.statusLineCfg.Type = "command"
-		m.statusLineCfg.Command = command
-		m.statusLineCfg.Enabled = true
+		m.viewport.statusLineCfg.Type = "command"
+		m.viewport.statusLineCfg.Command = command
+		m.viewport.statusLineCfg.Enabled = true
 		m.ensureExternalState().ResetDisabled()
 		m.slashRespond("/statusline", tuilib.StatuslineSetMessage(command))
 	}
@@ -1192,11 +1192,11 @@ func (m *runMode) slashStatusline(args string) (bool, tea.Cmd) {
 // reference's "Statusline on." message (" (<command>)" when a custom
 // command is configured).
 func (m *runMode) applyStatuslineOn() {
-	cfg := m.statusLineCfg
+	cfg := m.viewport.statusLineCfg
 	statusline.PersistVisibility(true)
-	m.statusLine = "on"
-	m.statusLineExternal = strings.TrimSpace(cfg.Command) != ""
-	m.statusLineCfg.Enabled = true
+	m.viewport.statusLine = "on"
+	m.viewport.statusLineExternal = strings.TrimSpace(cfg.Command) != ""
+	m.viewport.statusLineCfg.Enabled = true
 	m.slashRespond("/statusline", tuilib.StatuslineEnabledMessage(cfg.Command))
 }
 
@@ -1205,9 +1205,9 @@ func (m *runMode) applyStatuslineOn() {
 // "Statusline off. Run /statusline to re-enable." for the bare toggle.
 func (m *runMode) applyStatuslineOff(msg string) {
 	statusline.PersistVisibility(false)
-	m.statusLine = "on"
-	m.statusLineExternal = false
-	m.statusLineCfg.Enabled = false
+	m.viewport.statusLine = "on"
+	m.viewport.statusLineExternal = false
+	m.viewport.statusLineCfg.Enabled = false
 	m.slashRespond("/statusline", msg)
 }
 
@@ -1224,8 +1224,8 @@ func indentStatuslineUsage(rows []string) []string {
 // slashTasks handles /tasks.
 func (m *runMode) slashTasks(args string) (bool, tea.Cmd) {
 	var states []string
-	if m.taskReg != nil {
-		for _, t := range m.taskReg.List() {
+	if m.engine.taskReg != nil {
+		for _, t := range m.engine.taskReg.List() {
 			states = append(states, string(t.State))
 		}
 	}
@@ -1271,7 +1271,7 @@ func (m *runMode) slashTitle(args string) (bool, tea.Cmd) {
 		m.slashRespond("/title", tuilib.TitleUsage)
 		return true, nil
 	}
-	cfg := m.titleCfg
+	cfg := m.viewport.titleCfg
 	if strings.TrimSpace(cfg.Command) == "" {
 		m.slashRespond("/title", tuilib.TitleNoCommandMessage)
 		return true, nil
@@ -1287,12 +1287,12 @@ func (m *runMode) setTitleEnabled(enabled bool, command string) tea.Cmd {
 		m.slashRespond("/title", "Error: "+err.Error())
 		return nil
 	}
-	m.titleCfg.Enabled = enabled
+	m.viewport.titleCfg.Enabled = enabled
 	if enabled {
-		m.title = "on"
+		m.viewport.title = "on"
 		m.slashRespond("/title", tuilib.TitleEnabledMessage(command))
 	} else {
-		m.title = "off"
+		m.viewport.title = "off"
 		m.slashRespond("/title", tuilib.TitleDisabledMessage)
 	}
 	return m.maybeArmStatusLineTick()
@@ -1304,7 +1304,7 @@ func (m *runMode) slashUsage(args string) (bool, tea.Cmd) {
 }
 
 func (m *runMode) slashVoice(args string) (bool, tea.Cmd) {
-	return true, m.voiceSurface.Start("/voice")
+	return true, m.viewport.voiceSurface.Start("/voice")
 }
 
 func (m *runMode) slashAddDir(args string) (bool, tea.Cmd) {
@@ -1346,7 +1346,7 @@ func (m *runMode) slashCodesearch(args string) (bool, tea.Cmd) {
 		m.slashRespond("/codesearch", codesearchEmptyMessage)
 		return true, nil
 	}
-	m.slashRespond("/codesearch", codesearchaction.Feedback(args, m.cwd))
+	m.slashRespond("/codesearch", codesearchaction.Feedback(args, m.session.cwd))
 	return true, nil
 }
 
@@ -1355,8 +1355,8 @@ func (m *runMode) slashQuote(args string) (bool, tea.Cmd) {
 }
 
 func (m *runMode) slashCompact(args string) (bool, tea.Cmd) {
-	if m.streaming {
-		m.inputNotice = "Nothing to compact yet."
+	if m.engine.streaming {
+		m.viewport.inputNotice = "Nothing to compact yet."
 		return true, nil
 	}
 	eng := m.turnEngine()
@@ -1527,7 +1527,7 @@ func runIsolatedSlash(m *runMode, cmd, args string, feedback isolation.FeedbackF
 	if m == nil || feedback == nil {
 		return
 	}
-	parentCwd := m.cwd
+	parentCwd := m.session.cwd
 	if parentCwd == "" {
 		parentCwd = defaultWorkspaceForRunMode()
 	}
@@ -1651,7 +1651,7 @@ func slashSkillLookup(name string) (jsonSkillInfo, bool) {
 // file used to carry. It had no caller and no test: the TUI's turn
 // engine is PiG's agent.Agent, not pigrt.Runtime, so the host had no
 // runtime for it to wrap, and the manual /compact path takes the
-// generic summarizer branch in production (m.compactor is nil; only
+// generic summarizer branch in production (m.engine.compactor is nil; only
 // the tests set it). The interface and the branch stay — they are
 // the seam — but the unreachable implementation is gone.
 //
@@ -1667,20 +1667,20 @@ type manualCompactor = compaction.ManualCompactor
 
 // startManualCompact is the /compact slash-command body. It is on
 // runMode (not a free function) because the transcript rows live on
-// m.response, and the cycle-229 spec calls for two consecutive rows
+// m.engine.response, and the cycle-229 spec calls for two consecutive rows
 // ("Compacting context…" + "Compacted: …") styled as a single
 // bracketed event.
 //
 // Cycle 237 split the old "Branch 1" (cycle-167 stub) into a real
 // summarizer that calls internal/compaction.ComputeSummary
-// directly. The cycle-167 half-trim of m.session is gone; the new
-// path replaces m.session with one user-role message carrying the
+// directly. The cycle-167 half-trim of m.engine.session is gone; the new
+// path replaces m.engine.session with one user-role message carrying the
 // model's reply (matching AGY 1.4.2's "the transcript becomes the
 // summary" contract).
 //
 // The method has four branches:
 //
-//   - m.compactor == nil: cycle-237 generic summarizer. Fires
+//   - m.engine.compactor == nil: cycle-237 generic summarizer. Fires
 //     compaction.ComputeSummary in a goroutine with a cancellable
 //     context (cycle-237's local channel). The transcript gets
 //     "Compacting conversation…" (matching the AGY 1.4.2 spec)
@@ -1690,7 +1690,7 @@ type manualCompactor = compaction.ManualCompactor
 //     form) is dispatched as a fresh prompt after the summary
 //     lands.
 //
-//   - m.compactor != nil && m.compactor.IsCompacting() == true:
+//   - m.engine.compactor != nil && m.engine.compactor.IsCompacting() == true:
 //     short-circuit with "⎿  Already compacting." — the cycle-229
 //     spec calls out the race where a user types /compact while
 //     PiG is mid-summarisation (auto-compact from cycle 227 OR a
@@ -1707,7 +1707,7 @@ type manualCompactor = compaction.ManualCompactor
 //
 //   - happy path (cycle-237 fallback): emit "⎿  Compacting
 //     conversation…" + custom-instructions echo, run the generic
-//     summarizer with a 60 s timeout, replace m.session with the
+//     summarizer with a 60 s timeout, replace m.engine.session with the
 //     summary, and echo the stats. The same cancel channel the
 //     Esc handler will reach from a future cycle (cycle 237 left
 //     it as a package-level singleton — see compactCancel below)
@@ -1721,10 +1721,10 @@ type manualCompactor = compaction.ManualCompactor
 func (m *runMode) startManualCompact(customInstructions string) {
 	// Branch 1 (cycle-237): no PiG compactor wired. Use the generic
 	// summarizer. The cycle-167 half-trim is retired — the new path
-	// replaces m.session with one user-role message carrying the
+	// replaces m.engine.session with one user-role message carrying the
 	// model's reply, matching AGY 1.4.2's "transcript becomes the
 	// summary" contract.
-	if m.compactor == nil {
+	if m.engine.compactor == nil {
 		m.startGenericCompact(customInstructions)
 		return
 	}
@@ -1734,8 +1734,8 @@ func (m *runMode) startManualCompact(customInstructions string) {
 	// queue / abort-and-restart, but the cycle-229 spec is explicit:
 	// echo "Already compacting." and skip the call so the user
 	// sees a clear "I heard you, but I am already busy" line.
-	if m.compactor.IsCompacting() {
-		m.response = append(m.response,
+	if m.engine.compactor.IsCompacting() {
+		m.engine.response = append(m.engine.response,
 			rows.NoticeCompact("Already compacting."),
 			"",
 		)
@@ -1746,18 +1746,18 @@ func (m *runMode) startManualCompact(customInstructions string) {
 	// the transcript shows the command was accepted, then arm the
 	// one-shot listener and kick off Compact() in the background.
 	//
-	// `m.prog` is the running *tea.Program; nil in tests, in which
-	// case the result is delivered straight into m.response (the
+	// `m.engine.prog` is the running *tea.Program; nil in tests, in which
+	// case the result is delivered straight into m.engine.response (the
 	// goroutine skips the prog.Send call). The split is the same
 	// shape cycle 227's compactStartMsg / compactEndMsg handlers
 	// use — cycle 229's manual path just collapses the start/end
 	// pair into a single two-row transcript block.
-	m.response = append(m.response,
+	m.engine.response = append(m.engine.response,
 		rows.NoticeCompact("Compacting context\u2026"),
 		"",
 	)
-	compactor := m.compactor
-	prog := m.prog
+	compactor := m.engine.compactor
+	prog := m.engine.prog
 	go runManualCompactionTask(compactor, customInstructions, prog)
 }
 
@@ -1805,30 +1805,30 @@ func runGenericCompactionTask(backendClient backend.Client, model, systemPrompt 
 }
 
 func (m *runMode) startGenericCompact(customInstructions string) {
-	if len(m.session) == 0 && (m.supervisor == nil || m.supervisor.Len() == 0) {
+	if len(m.engine.session) == 0 && (m.session.supervisor == nil || m.session.supervisor.Len() == 0) {
 		m.slashRespondPlain("Nothing to compact yet.")
 		return
 	}
 
 	var sessSnap []backend.Message
-	if m.supervisor != nil && m.supervisor.Len() > 0 {
-		sessSnap = m.supervisor.Messages()
+	if m.session.supervisor != nil && m.session.supervisor.Len() > 0 {
+		sessSnap = m.session.supervisor.Messages()
 	} else {
-		sessSnap = make([]backend.Message, len(m.session))
-		copy(sessSnap, m.session)
+		sessSnap = make([]backend.Message, len(m.engine.session))
+		copy(sessSnap, m.engine.session)
 	}
 
-	m.response = append(m.response,
+	m.engine.response = append(m.engine.response,
 		rows.NoticeCompact("Compacting conversation\u2026"),
 		"",
 	)
 
-	backendClient := m.backend
-	model := m.model
+	backendClient := m.engine.backend
+	model := m.session.model
 	if model == "" {
 		model = "claude-sonnet-4-6"
 	}
-	prog := m.prog
+	prog := m.engine.prog
 	started := time.Now()
 
 	systemPrompt := m.systemPrompt()
@@ -1841,10 +1841,10 @@ func (m *runMode) startGenericCompact(customInstructions string) {
 		return
 	}
 	// No program to post to (the test path). Hand the result over a
-	// channel instead: the worker never touches m.response or m.session,
+	// channel instead: the worker never touches m.engine.response or m.engine.session,
 	// which belong to the goroutine that owns the runMode.
 	ch := make(chan genericCompactDoneMsg, 1)
-	m.compactDone = ch
+	m.engine.compactDone = ch
 	go runGenericCompactionTask(backendClient, model, systemPrompt, overhead, sessSnap, customInstructions, started, nil, func(msg genericCompactDoneMsg) {
 		ch <- msg
 	})
@@ -1867,20 +1867,20 @@ func (m *runMode) applyGenericCompactSuccess(msg genericCompactDoneMsg, customIn
 	// running-task snapshots.
 	carriedTokens := 0
 	if msg.Summary != "" {
-		requests := compaction.UserRequests(m.session, compaction.MaxUserRequests)
+		requests := compaction.UserRequests(m.engine.session, compaction.MaxUserRequests)
 		carriedTokens = compaction.EstimateTokens(compaction.CarriedBlock(requests))
-		m.session = []backend.Message{{
+		m.engine.session = []backend.Message{{
 			Role:    "user",
 			Content: compaction.ResumingBlock(requests, msg.Summary),
 		}}
-		if m.supervisor != nil {
-			m.supervisor.Replace(m.session)
+		if m.session.supervisor != nil {
+			m.session.supervisor.Replace(m.engine.session)
 		}
 	}
 	beforeTokens, afterTokens, summaryTokens := compaction.ComputeCompactTokens(msg.StatsBefore.Tokens, msg.InputTokens, msg.StatsAfter.Tokens, msg.OutputTokens, msg.Overhead, msg.Summary, carriedTokens)
-	m.response = append(m.response,
-		compaction.DividerRow(m.width),
-		compaction.StatsRow(m.width,
+	m.engine.response = append(m.engine.response,
+		compaction.DividerRow(m.viewport.width),
+		compaction.StatsRow(m.viewport.width,
 			msg.StatsBefore.Messages,
 			beforeTokens,
 			afterTokens,
@@ -1889,9 +1889,9 @@ func (m *runMode) applyGenericCompactSuccess(msg genericCompactDoneMsg, customIn
 		"",
 	)
 	if customInstructions = strings.TrimSpace(customInstructions); customInstructions != "" {
-		m.session = append(m.session, backend.Message{Role: "user", Content: customInstructions})
-		if m.supervisor != nil {
-			m.supervisor.Append(backend.Message{Role: "user", Content: customInstructions})
+		m.engine.session = append(m.engine.session, backend.Message{Role: "user", Content: customInstructions})
+		if m.session.supervisor != nil {
+			m.session.supervisor.Append(backend.Message{Role: "user", Content: customInstructions})
 		}
 		return m.streamPrompt(customInstructions)
 	}
@@ -1901,13 +1901,13 @@ func (m *runMode) applyGenericCompactSuccess(msg genericCompactDoneMsg, customIn
 func (m *runMode) applyGenericCompactResult(msg genericCompactDoneMsg, customInstructions string) tea.Cmd {
 	switch {
 	case msg.Cancelled:
-		m.response = append(m.response,
+		m.engine.response = append(m.engine.response,
 			rows.NoticeCompact(compaction.CompactionCancelledLiteral),
 			"",
 		)
 		return nil
 	case msg.Err != nil:
-		m.response = append(m.response,
+		m.engine.response = append(m.engine.response,
 			rows.NoticeCompact("Compact failed: "+msg.Err.Error()),
 			"",
 		)
@@ -1938,15 +1938,15 @@ var newBtwManager = func(opts sidequestion.Options) *sidequestion.Manager {
 // without a backend cannot stream, so we surface /btw unavailable instead
 // of panicking on nil.
 func (m *runMode) btwManagerFor() *sidequestion.Manager {
-	if m.btwManager != nil {
-		return m.btwManager
+	if m.overlays.btwManager != nil {
+		return m.overlays.btwManager
 	}
-	if m.backend == nil {
+	if m.engine.backend == nil {
 		return nil
 	}
-	m.btwManager = newBtwManager(sidequestion.Options{
+	m.overlays.btwManager = newBtwManager(sidequestion.Options{
 		StreamWithToolsFn: func(ctx context.Context, prompt string, hooks sidequestion.ToolHooks) (int, error) {
-			catalog := surface.Catalog(m.cwd)
+			catalog := surface.Catalog(m.session.cwd)
 			allDecls := toolrunner.ToolDeclsFromRegistry(catalog)
 			var safeDecls []backend.ToolDecl
 			for _, d := range allDecls {
@@ -1955,13 +1955,18 @@ func (m *runMode) btwManagerFor() *sidequestion.Manager {
 					safeDecls = append(safeDecls, d)
 				}
 			}
-			messages := []backend.Message{
-				{Role: "user", Content: prompt},
+			var messages []backend.Message
+			if m.session.supervisor != nil && m.session.supervisor.Len() > 0 {
+				messages = m.session.supervisor.Messages()
+			} else if len(m.engine.session) > 0 {
+				messages = make([]backend.Message, len(m.engine.session))
+				copy(messages, m.engine.session)
 			}
+			messages = append(messages, backend.Message{Role: "user", Content: prompt})
 			tokens := 0
 			for turn := 0; turn < 5; turn++ {
-				streamCh, err := m.backend.Stream(ctx, backend.StreamRequest{
-					Model:        m.model,
+				streamCh, err := m.engine.backend.Stream(ctx, backend.StreamRequest{
+					Model:        m.session.model,
 					SystemPrompt: sidequestion.DefaultSystemPrompt,
 					Messages:     messages,
 					Tools:        safeDecls,
@@ -2008,11 +2013,11 @@ func (m *runMode) btwManagerFor() *sidequestion.Manager {
 			}
 			return tokens, nil
 		},
-		CWD:          m.cwd,
+		CWD:          m.session.cwd,
 		AgentDir:     confhome.Antigravity(),
 		SystemPrompt: sidequestion.DefaultSystemPrompt,
 	})
-	return m.btwManager
+	return m.overlays.btwManager
 }
 
 // runBtwTool executes safe read-only tools for /btw and auto-denies any tool that would ask for permission.
@@ -2085,16 +2090,15 @@ func (m *runMode) runBtwSideQuestion(args string) tea.Cmd {
 		return nil
 	}
 	trimmed = question
-	m.appendBtwToSession(trimmed)
 
 	ctx, cancel := context.WithCancel(context.Background())
-	m.activeBtwCancel = cancel
+	m.overlays.activeBtwCancel = cancel
 
 	card, run, err := mgr.StartAsk(ctx, trimmed)
 	if err != nil {
-		m.activeBtwCancel = nil
+		m.overlays.activeBtwCancel = nil
 		cancel()
-		m.response = append(m.response,
+		m.engine.response = append(m.engine.response,
 			panelGray238+"btw failed: "+err.Error()+panelGray238C,
 			"",
 		)
@@ -2102,30 +2106,30 @@ func (m *runMode) runBtwSideQuestion(args string) tea.Cmd {
 		return nil
 	}
 
-	// In non-interactive test mode (m.prog == nil and !m.asyncBtw), execute synchronously
-	if m.prog == nil && !m.asyncBtw {
-		m.activeBtwCancel = nil
+	// In non-interactive test mode (m.engine.prog == nil and !m.overlays.asyncBtw), execute synchronously
+	if m.engine.prog == nil && !m.overlays.asyncBtw {
+		m.overlays.activeBtwCancel = nil
 		cancel()
 		if runErr := run(); runErr != nil {
-			m.response = append(m.response,
+			m.engine.response = append(m.engine.response,
 				panelGray238+"btw failed: "+runErr.Error()+panelGray238C,
 				"",
 			)
 			m.firePostSideQuestionHook(preCtx, trimmed, nil, runErr)
 			return nil
 		}
-		m.btwCards = append(m.btwCards, card)
-		m.activeBtwIndex = len(m.btwCards) - 1
-		m.activeBtwID = card.ID
-		m.btwScroll = 0
+		m.overlays.btwCards = append(m.overlays.btwCards, card)
+		m.overlays.activeBtwIndex = len(m.overlays.btwCards) - 1
+		m.overlays.activeBtwID = card.ID
+		m.overlays.btwScroll = 0
 		m.firePostSideQuestionHook(preCtx, trimmed, card, nil)
 		return nil
 	}
 
-	m.btwCards = append(m.btwCards, card)
-	m.activeBtwIndex = len(m.btwCards) - 1
-	m.activeBtwID = card.ID
-	m.btwScroll = 0
+	m.overlays.btwCards = append(m.overlays.btwCards, card)
+	m.overlays.activeBtwIndex = len(m.overlays.btwCards) - 1
+	m.overlays.activeBtwID = card.ID
+	m.overlays.btwScroll = 0
 
 	askCmd := func() tea.Msg {
 		runErr := run()
@@ -2135,8 +2139,8 @@ func (m *runMode) runBtwSideQuestion(args string) tea.Cmd {
 }
 
 func (m *runMode) updateBtwDoneMsg(msg btwDoneMsg) (tea.Model, tea.Cmd) {
-	if m.activeBtwCancel != nil {
-		m.activeBtwCancel = nil
+	if m.overlays.activeBtwCancel != nil {
+		m.overlays.activeBtwCancel = nil
 	}
 	if msg.err != nil {
 		m.firePostSideQuestionHook(context.Background(), msg.card.Question, nil, msg.err)
@@ -2147,25 +2151,24 @@ func (m *runMode) updateBtwDoneMsg(msg btwDoneMsg) (tea.Model, tea.Cmd) {
 }
 
 func (m *runMode) firePreSideQuestionHook(preCtx context.Context, trimmed string) (string, bool) {
-	if m.hooks == nil {
+	if m.session.hooks == nil {
 		return trimmed, false
 	}
 	pre := hooks.SideQuestion(hooks.PreSideQuestion, trimmed)
-	blocked, final, reason := m.hooks.Fire(preCtx, hooks.PreSideQuestion, pre)
+	blocked, final, reason := m.session.hooks.Fire(preCtx, hooks.PreSideQuestion, pre)
 	if !blocked {
 		return final.Question, false
 	}
 	m.slashRespond("/btw", "blocked by hook: "+reason)
-	m.appendBtwToSession(final.Question)
 	post := hooks.SideQuestion(hooks.PostSideQuestion, final.Question)
 	post.Blocked = true
 	post.BlockReason = reason
-	_, _, _ = m.hooks.Fire(preCtx, hooks.PostSideQuestion, post)
+	_, _, _ = m.session.hooks.Fire(preCtx, hooks.PostSideQuestion, post)
 	return final.Question, true
 }
 
 func (m *runMode) firePostSideQuestionHook(preCtx context.Context, trimmed string, card *sidequestion.Card, err error) {
-	if m.hooks == nil {
+	if m.session.hooks == nil {
 		return
 	}
 	post := hooks.SideQuestion(hooks.PostSideQuestion, trimmed)
@@ -2176,23 +2179,7 @@ func (m *runMode) firePostSideQuestionHook(preCtx context.Context, trimmed strin
 		post.Answer = card.Answer
 		post.Tokens = card.Tokens
 	}
-	_, _, _ = m.hooks.Fire(preCtx, hooks.PostSideQuestion, post)
-}
-
-// appendBtwToSession records a /btw question in the parent
-// conversation's transcript.
-func (m *runMode) appendBtwToSession(question string) {
-	if strings.TrimSpace(question) == "" {
-		return
-	}
-	msg := backend.Message{
-		Role:    "user",
-		Content: "> /btw " + question,
-	}
-	m.session = append(m.session, msg)
-	if m.supervisor != nil {
-		m.supervisor.Append(msg)
-	}
+	_, _, _ = m.session.hooks.Fire(preCtx, hooks.PostSideQuestion, post)
 }
 
 // copyBtwCard handles "/copy btw".
@@ -2225,21 +2212,21 @@ func (m *runMode) copyBtwCard() (string, string) {
 // ShowBtwHistory reveals the most recent BTW card if history exists
 // and no card is currently generating. Returns true if history was shown.
 func (m *runMode) ShowBtwHistory() bool {
-	if len(m.btwCards) == 0 {
+	if len(m.overlays.btwCards) == 0 {
 		return false
 	}
 	if m.IsBtwActive() {
 		return false
 	}
-	m.activeBtwIndex = len(m.btwCards) - 1
-	m.activeBtwID = m.btwCards[m.activeBtwIndex].ID
-	m.btwScroll = 0
+	m.overlays.activeBtwIndex = len(m.overlays.btwCards) - 1
+	m.overlays.activeBtwID = m.overlays.btwCards[m.overlays.activeBtwIndex].ID
+	m.overlays.btwScroll = 0
 	return true
 }
 
 // IsBtwActive reports whether any /btw question is currently in progress.
 func (m *runMode) IsBtwActive() bool {
-	for _, c := range m.btwCards {
+	for _, c := range m.overlays.btwCards {
 		if c != nil && c.IsActive() {
 			return true
 		}
@@ -2249,16 +2236,16 @@ func (m *runMode) IsBtwActive() bool {
 
 // DismissBtwResponse dismisses the active BTW card and cancels any in-flight generation.
 func (m *runMode) DismissBtwResponse() {
-	if m.activeBtwCancel != nil {
-		m.activeBtwCancel()
-		m.activeBtwCancel = nil
+	if m.overlays.activeBtwCancel != nil {
+		m.overlays.activeBtwCancel()
+		m.overlays.activeBtwCancel = nil
 	}
 	if card := m.currentBtwResponse(); card != nil {
 		card.MarkCancelled()
 	}
-	m.activeBtwIndex = -1
-	m.activeBtwID = ""
-	m.btwScroll = 0
+	m.overlays.activeBtwIndex = -1
+	m.overlays.activeBtwID = ""
+	m.overlays.btwScroll = 0
 }
 
 // ToggleBtwExpanded flips the active BTW card's expansion state.
@@ -2268,25 +2255,25 @@ func (m *runMode) ToggleBtwExpanded() {
 		return
 	}
 	card.ToggleExpanded()
-	m.btwScroll = 0
+	m.overlays.btwScroll = 0
 }
 
 // NavigateBtw shifts the active BTW card index by delta (-1 or +1),
 // clamping to [0, len-1].
 func (m *runMode) NavigateBtw(delta int) {
-	if len(m.btwCards) == 0 {
+	if len(m.overlays.btwCards) == 0 {
 		return
 	}
-	idx := m.activeBtwIndex + delta
+	idx := m.overlays.activeBtwIndex + delta
 	if idx < 0 {
 		idx = 0
 	}
-	if idx >= len(m.btwCards) {
-		idx = len(m.btwCards) - 1
+	if idx >= len(m.overlays.btwCards) {
+		idx = len(m.overlays.btwCards) - 1
 	}
-	m.activeBtwIndex = idx
-	m.activeBtwID = m.btwCards[idx].ID
-	m.btwScroll = 0
+	m.overlays.activeBtwIndex = idx
+	m.overlays.activeBtwID = m.overlays.btwCards[idx].ID
+	m.overlays.btwScroll = 0
 }
 
 // btwScrollBy scrolls the active BTW card answer by delta (-1 or +1)
@@ -2303,35 +2290,35 @@ func (m *runMode) btwScrollBy(delta int) bool {
 	if answer == "" {
 		return false
 	}
-	maxLines := sidequestion.MaxBtwAnswerLines(m.height, true)
+	maxLines := sidequestion.MaxBtwAnswerLines(m.viewport.height, true)
 	lines := strings.Split(answer, "\n")
 	if len(lines) <= maxLines {
 		return false
 	}
 	maxScroll := len(lines) - maxLines
-	newScroll := m.btwScroll + delta
+	newScroll := m.overlays.btwScroll + delta
 	if newScroll < 0 {
 		newScroll = 0
 	}
 	if newScroll > maxScroll {
 		newScroll = maxScroll
 	}
-	if newScroll == m.btwScroll {
+	if newScroll == m.overlays.btwScroll {
 		return true
 	}
-	m.btwScroll = newScroll
+	m.overlays.btwScroll = newScroll
 	return true
 }
 
 func (m *runMode) currentBtwResponse() *sidequestion.Card {
-	if m.activeBtwIndex >= 0 && m.activeBtwIndex < len(m.btwCards) {
-		return m.btwCards[m.activeBtwIndex]
+	if m.overlays.activeBtwIndex >= 0 && m.overlays.activeBtwIndex < len(m.overlays.btwCards) {
+		return m.overlays.btwCards[m.overlays.activeBtwIndex]
 	}
 	return nil
 }
 
 func (m *runMode) isBtwCardVisible() bool {
-	return m.activeBtwIndex >= 0 && m.activeBtwIndex < len(m.btwCards)
+	return m.overlays.activeBtwIndex >= 0 && m.overlays.activeBtwIndex < len(m.overlays.btwCards)
 }
 
 // renderBtwCard renders the active side-question card.
@@ -2341,10 +2328,10 @@ func (m *runMode) renderBtwCard() string {
 		return ""
 	}
 	return sidequestion.RenderBtwCard(card, sidequestion.CardRenderOptions{
-		Width:     m.width,
-		Height:    m.height,
-		CardCount: len(m.btwCards),
-		Scroll:    m.btwScroll,
+		Width:     m.viewport.width,
+		Height:    m.viewport.height,
+		CardCount: len(m.overlays.btwCards),
+		Scroll:    m.overlays.btwScroll,
 		RenderMd:  mdrender.RenderMarkdown,
 	})
 }

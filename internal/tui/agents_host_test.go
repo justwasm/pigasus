@@ -19,7 +19,7 @@ import (
 // seedAgentsRunMode returns a runMode with a fresh subagent manager.
 func seedAgentsRunMode() *runMode {
 	m := &runMode{}
-	m.taskSubagentManager = subagent.NewManager()
+	m.engine.taskSubagentManager = subagent.NewManager()
 	return m
 }
 
@@ -32,7 +32,7 @@ func TestAgentsPanelKillReachesTheSessionManager(t *testing.T) {
 	if err := sa.Start(); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
-	m.taskSubagentManager.Add(sa)
+	m.engine.taskSubagentManager.Add(sa)
 
 	m.openSlashPanel("agents")
 	p := m.agentsPanel()
@@ -56,8 +56,8 @@ func TestAgentsPanelApprovalReachesTheSessionManager(t *testing.T) {
 	if err := sa.Start(); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
-	m.taskSubagentManager.Add(sa)
-	appr := m.taskSubagentManager.RequestAuthorization(sa.ID, lifecycle.ApprovalToolConfirm, "write_file", "")
+	m.engine.taskSubagentManager.Add(sa)
+	appr := m.engine.taskSubagentManager.RequestAuthorization(sa.ID, lifecycle.ApprovalToolConfirm, "write_file", "")
 	if appr.ID == "" {
 		t.Fatal("the queued authorization has no id")
 	}
@@ -70,7 +70,7 @@ func TestAgentsPanelApprovalReachesTheSessionManager(t *testing.T) {
 	if !handled {
 		t.Fatal("the 'a' key reported unhandled")
 	}
-	if _, ok := m.taskSubagentManager.PendingAuthorization(sa.ID); ok {
+	if _, ok := m.engine.taskSubagentManager.PendingAuthorization(sa.ID); ok {
 		t.Error("the authorization is still pending after 'a'")
 	}
 }
@@ -82,8 +82,8 @@ func TestAgentsPanelDenialReachesTheSessionManager(t *testing.T) {
 	if err := sa.Start(); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
-	m.taskSubagentManager.Add(sa)
-	m.taskSubagentManager.RequestAuthorization(sa.ID, lifecycle.ApprovalToolConfirm, "write_file", "")
+	m.engine.taskSubagentManager.Add(sa)
+	m.engine.taskSubagentManager.RequestAuthorization(sa.ID, lifecycle.ApprovalToolConfirm, "write_file", "")
 
 	m.openSlashPanel("agents")
 	p := m.agentsPanel()
@@ -93,7 +93,7 @@ func TestAgentsPanelDenialReachesTheSessionManager(t *testing.T) {
 	if !handled {
 		t.Fatal("the 'd' key reported unhandled")
 	}
-	if _, ok := m.taskSubagentManager.PendingAuthorization(sa.ID); ok {
+	if _, ok := m.engine.taskSubagentManager.PendingAuthorization(sa.ID); ok {
 		t.Error("the authorization is still pending after 'd'")
 	}
 }

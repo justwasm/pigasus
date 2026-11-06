@@ -141,42 +141,42 @@ func editorLineArgs(editor, path string, line int) []string {
 // PanelHostSeams adapts runMode to the panel builders in internal/cliapp/panels.
 
 // Tasks
-func (m *runMode) TaskRegistry() *taskregistry.Registry  { return m.taskReg }
+func (m *runMode) TaskRegistry() *taskregistry.Registry  { return m.engine.taskReg }
 func (m *runMode) KillSelectedTask(t *taskregistry.Task) { m.killSelectedTask(t) }
-func (m *runMode) TerminalSize() (int, int)              { return m.width, m.height }
+func (m *runMode) TerminalSize() (int, int)              { return m.viewport.width, m.viewport.height }
 func (m *runMode) ClosePanel() tea.Cmd                   { return m.closePanel() }
 func (m *runMode) newTasksPanel() *taskspanel.Panel      { return panels.NewTasksPanel(m) }
 func (m *runMode) tasksPanel() *taskspanel.Panel {
-	if m.panel.tp == nil {
-		m.panel.tp = m.newTasksPanel()
+	if m.overlays.panel.tp == nil {
+		m.overlays.panel.tp = m.newTasksPanel()
 	}
-	return m.panel.tp
+	return m.overlays.panel.tp
 }
 
 func (m *runMode) killSelectedTask(t *taskregistry.Task) {
 	if t == nil {
 		return
 	}
-	mgr := m.taskSubagentManager
+	mgr := m.engine.taskSubagentManager
 	if mgr == nil {
 		mgr = subagent.NewManager()
 	}
-	taskregistry.KillByID(m.taskReg, t.ID, mgr)
+	taskregistry.KillByID(m.engine.taskReg, t.ID, mgr)
 }
 
 func (m *runMode) openTasksDetail(id string, isSubagent bool) {
 	m.openSlashPanel("tasks")
-	if m.panel.tp != nil {
-		m.panel.tp.OpenTaskDetail(id, isSubagent)
+	if m.overlays.panel.tp != nil {
+		m.overlays.panel.tp.OpenTaskDetail(id, isSubagent)
 	}
-	m.activeItems.SetFocus(false)
+	m.viewport.activeItems.SetFocus(false)
 }
 
 func (m *runMode) tasksStatusSuffix() string {
 	taskPart := ""
-	reg := m.taskReg
-	if m.taskCtrl != nil && m.taskCtrl.Registry() != nil {
-		reg = m.taskCtrl.Registry()
+	reg := m.engine.taskReg
+	if m.engine.taskCtrl != nil && m.engine.taskCtrl.Registry() != nil {
+		reg = m.engine.taskCtrl.Registry()
 	}
 	if reg != nil {
 		taskPart = taskregistry.StatusSuffix(reg.CountRunning())
@@ -192,29 +192,29 @@ func (m *runMode) tasksStatusSuffix() string {
 }
 
 func (m *runMode) startTasksSubscription() {
-	if m.taskCtrl != nil {
-		m.taskCtrl.StartSubscription()
+	if m.engine.taskCtrl != nil {
+		m.engine.taskCtrl.StartSubscription()
 		return
 	}
-	if m.taskReg == nil || m.tasksSubscribed {
+	if m.engine.taskReg == nil || m.engine.tasksSubscribed {
 		return
 	}
-	ch, cancel := m.taskReg.Subscribe()
-	m.tasksSubCancel = cancel
-	m.tasksSubscribed = true
+	ch, cancel := m.engine.taskReg.Subscribe()
+	m.engine.tasksSubCancel = cancel
+	m.engine.tasksSubscribed = true
 	go func() {
 		for ev := range ch {
 			_ = ev
-			atomic.StoreInt32(&m.tasksDirty, 1)
+			atomic.StoreInt32(&m.engine.tasksDirty, 1)
 		}
 	}()
 }
 
 func (m *runMode) consumeTasksDirty() bool {
-	if m.taskCtrl != nil {
-		return m.taskCtrl.ConsumeDirty()
+	if m.engine.taskCtrl != nil {
+		return m.engine.taskCtrl.ConsumeDirty()
 	}
-	return atomic.SwapInt32(&m.tasksDirty, 0) == 1
+	return atomic.SwapInt32(&m.engine.tasksDirty, 0) == 1
 }
 
 type tasksTickMsg struct{}
@@ -237,10 +237,10 @@ func (m *runMode) ApplyAltScreenLive(stored any)        { m.applyAltScreenLive(s
 func (m *runMode) ApplyVerbosityLive(verbosity string)  { m.applyVerbosityLive(verbosity) }
 func (m *runMode) newConfigPanel() *configpanel.Panel   { return panels.NewConfigPanel(m) }
 func (m *runMode) configPanel() *configpanel.Panel {
-	if m.panel.cfg == nil {
-		m.panel.cfg = m.newConfigPanel()
+	if m.overlays.panel.cfg == nil {
+		m.overlays.panel.cfg = m.newConfigPanel()
 	}
-	return m.panel.cfg
+	return m.overlays.panel.cfg
 }
 
 func (m *runMode) applyThemeLive(scheme string) tea.Cmd {
@@ -248,53 +248,53 @@ func (m *runMode) applyThemeLive(scheme string) tea.Cmd {
 	mdrender.SetColorScheme(scheme)
 	promptColor, placeholderColor := themepreview.ColorsFor(scheme)
 	if m != nil {
-		m.colorScheme = scheme
-		st := m.input.Styles()
+		m.viewport.colorScheme = scheme
+		st := m.composer.input.Styles()
 		promptStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(promptColor))
 		placeholderStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(placeholderColor))
 		st.Focused.Prompt = promptStyle
 		st.Focused.Placeholder = placeholderStyle
 		st.Blurred.Prompt = promptStyle
 		st.Blurred.Placeholder = placeholderStyle
-		m.input.SetStyles(st)
+		m.composer.input.SetStyles(st)
 		m.rerenderTranscriptForTheme()
 	}
 	return tea.ClearScreen
 }
 
 func (m *runMode) applyAltScreenLive(stored any) {
-	m.altScreen = altScreenModeValue(stored)
+	m.viewport.altScreen = altScreenModeValue(stored)
 }
 
 func (m *runMode) applyVerbosityLive(verbosity string) {
 	if m == nil {
 		return
 	}
-	m.verbosity = verbosity
-	m.expandedUserToggled = false
+	m.engine.verbosity = verbosity
+	m.viewport.expandedUserToggled = false
 	m.rerenderBlocks()
 	m.rerenderLiveSteps()
 }
 
 func (m *runMode) configOverrideFor(row configpanel.Row) (string, bool) {
-	if m == nil || m.flags == nil {
+	if m == nil || m.session.flags == nil {
 		return "", false
 	}
 	switch row.SettingsKey {
 	case "enableTerminalSandbox":
-		if cliflags.BoolValue(m.flags, "sandbox") {
+		if cliflags.BoolValue(m.session.flags, "sandbox") {
 			return "(overridden by --sandbox)", true
 		}
 	case "toolPermission":
-		if cliflags.BoolValue(m.flags, "dangerously-skip-permissions") {
+		if cliflags.BoolValue(m.session.flags, "dangerously-skip-permissions") {
 			return "(overridden by --dangerously-skip-permissions)", true
 		}
 	case "agentMode":
-		if cliflags.StringValue(m.flags, "mode") != "" {
+		if cliflags.StringValue(m.session.flags, "mode") != "" {
 			return "(overridden by --mode)", true
 		}
 	case "acp":
-		if cliflags.StringValue(m.flags, "acp") != "" {
+		if cliflags.StringValue(m.session.flags, "acp") != "" {
 			return "(overridden by --acp)", true
 		}
 	}
@@ -304,19 +304,19 @@ func (m *runMode) configOverrideFor(row configpanel.Row) (string, bool) {
 // Permissions
 func (m *runMode) newPermissionsPanel() *permissionspanel.Panel { return panels.NewPermissionsPanel(m) }
 func (m *runMode) permissionsPanel() *permissionspanel.Panel {
-	if m.panel.perm == nil {
-		m.panel.perm = m.newPermissionsPanel()
+	if m.overlays.panel.perm == nil {
+		m.overlays.panel.perm = m.newPermissionsPanel()
 	}
-	return m.panel.perm
+	return m.overlays.panel.perm
 }
 
 // Hooks
 func (m *runMode) newHooksPanel() *hookspanel.Panel { return panels.NewHooksPanel(m) }
 func (m *runMode) hooksPanel() *hookspanel.Panel {
-	if m.panel.hk == nil {
-		m.panel.hk = m.newHooksPanel()
+	if m.overlays.panel.hk == nil {
+		m.overlays.panel.hk = m.newHooksPanel()
 	}
-	return m.panel.hk
+	return m.overlays.panel.hk
 }
 
 // Plugins
@@ -324,10 +324,10 @@ var pluginWatcherPtr = &plugins.WatcherPtr
 
 func (m *runMode) newPluginPanel() *pluginsui.Panel { return panels.NewPluginPanel(m) }
 func (m *runMode) pluginPanel() *pluginsui.Panel {
-	if m.panel.plg == nil {
-		m.panel.plg = m.newPluginPanel()
+	if m.overlays.panel.plg == nil {
+		m.overlays.panel.plg = m.newPluginPanel()
 	}
-	return m.panel.plg
+	return m.overlays.panel.plg
 }
 
 // openBrowser opens url with the default system browser.
@@ -357,10 +357,10 @@ func openBrowser(url string) error {
 func (m *runMode) OpenURL(url string) error             { return openBrowser(url) }
 func (m *runMode) newCreditsPanel() *creditspanel.Panel { return panels.NewCreditsPanel(m) }
 func (m *runMode) creditsPanel() *creditspanel.Panel {
-	if m.panel.cr == nil {
-		m.panel.cr = m.newCreditsPanel()
+	if m.overlays.panel.cr == nil {
+		m.overlays.panel.cr = m.newCreditsPanel()
 	}
-	return m.panel.cr
+	return m.overlays.panel.cr
 }
 
 // AddDir
@@ -372,10 +372,10 @@ func (m *runMode) SubmitAddDir(path string) tea.Cmd {
 }
 func (m *runMode) newAddDirPanel() *adddirpanel.Panel { return panels.NewAddDirPanel(m) }
 func (m *runMode) addDirPanel() *adddirpanel.Panel {
-	if m.panel.ad == nil {
-		m.panel.ad = m.newAddDirPanel()
+	if m.overlays.panel.ad == nil {
+		m.overlays.panel.ad = m.newAddDirPanel()
 	}
-	return m.panel.ad
+	return m.overlays.panel.ad
 }
 
 // Feedback
@@ -384,26 +384,26 @@ func (m *runMode) SubmitFeedback() {
 }
 
 func (m *runMode) submitFeedback() {
-	m.panel = slashPanel{}
+	m.overlays.panel = slashPanel{}
 	m.slashRespond("/feedback", "Feedback recorded (openagy has no upload endpoint; saved locally only)")
 }
 func (m *runMode) newFeedbackPanel() *feedbackpanel.Panel { return panels.NewFeedbackPanel(m) }
 func (m *runMode) feedbackPanel() *feedbackpanel.Panel {
-	if m.panel.fb == nil {
-		m.panel.fb = m.newFeedbackPanel()
+	if m.overlays.panel.fb == nil {
+		m.overlays.panel.fb = m.newFeedbackPanel()
 	}
-	return m.panel.fb
+	return m.overlays.panel.fb
 }
 
 // Skills
 func (m *runMode) SkillsCatalog() []skillsui.SkillInfo { return slashSkillCatalog() }
-func (m *runMode) TerminalOSC8() bool                  { return m.hyperlinkCaps.OSC8 }
+func (m *runMode) TerminalOSC8() bool                  { return m.viewport.hyperlinkCaps.OSC8 }
 func (m *runMode) newSkillsPanel() *skillsui.Panel     { return panels.NewSkillsPanel(m) }
 func (m *runMode) skillsPanel() *skillsui.Panel {
-	if m.panel.sk == nil {
-		m.panel.sk = m.newSkillsPanel()
+	if m.overlays.panel.sk == nil {
+		m.overlays.panel.sk = m.newSkillsPanel()
 	}
-	return m.panel.sk
+	return m.overlays.panel.sk
 }
 
 // Provider
@@ -413,79 +413,79 @@ func (m *runMode) ClipboardWrite(text string) error       { return clipboardWrit
 func (m *runMode) CurrentModelLabel() string              { return m.panelCurrentModelLabel() }
 func (m *runMode) newProviderPanel() *providerpanel.Panel { return panels.NewProviderPanel(m) }
 func (m *runMode) providerPanel() *providerpanel.Panel {
-	if m.panel.prov == nil {
-		m.panel.prov = m.newProviderPanel()
-		m.panel.prov.Reload()
+	if m.overlays.panel.prov == nil {
+		m.overlays.panel.prov = m.newProviderPanel()
+		m.overlays.panel.prov.Reload()
 	}
-	return m.panel.prov
+	return m.overlays.panel.prov
 }
 
 // Rename
-func (m *runMode) ConversationName() string { return m.conversationName }
+func (m *runMode) ConversationName() string { return m.session.conversationName }
 func (m *runMode) SubmitRename(name string) tea.Cmd {
-	next, msg := tuilib.RenameFeedback(name, m.conversationName)
+	next, msg := tuilib.RenameFeedback(name, m.session.conversationName)
 	if msg != "" {
 		m.slashRespond("/rename", msg)
 	}
 	if next != "" {
-		m.conversationName = next
+		m.session.conversationName = next
 	}
 	return m.closePanelSilent()
 }
 func (m *runMode) newRenamePanel() *renamepanel.Panel { return panels.NewRenamePanel(m) }
 func (m *runMode) renamePanel() *renamepanel.Panel {
-	if m.panel.rn == nil {
-		m.panel.rn = m.newRenamePanel()
+	if m.overlays.panel.rn == nil {
+		m.overlays.panel.rn = m.newRenamePanel()
 	}
-	return m.panel.rn
+	return m.overlays.panel.rn
 }
 
 func (m *runMode) SessionTierFor(email string) (string, bool) {
-	if m == nil || !m.tierFetched {
+	if m == nil || !m.session.tierFetched {
 		return "", false
 	}
-	if !strings.EqualFold(m.tierAccount, email) {
+	if !strings.EqualFold(m.session.tierAccount, email) {
 		return "", false
 	}
-	return m.tier, true
+	return m.session.tier, true
 }
 
 func (m *runMode) startAccountLogin() tea.Cmd {
 	lm := loginui.New()
-	lm.Width = m.width
-	lm.Height = m.height
-	m.login = lm
+	lm.Width = m.viewport.width
+	lm.Height = m.viewport.height
+	m.overlays.login = lm
 	return lm.Init()
 }
 
 func (m *runMode) ApplyActiveAccount(email string) {
-	m.email = email
+	m.session.email = email
 	m.forgetSessionTier()
-	if m.backendFor != nil {
-		if b := m.backendFor(m.model); b != nil {
-			m.backend = b
+	if m.engine.backendFor != nil {
+		if b := m.engine.backendFor(m.session.model); b != nil {
+			m.engine.backend = b
 		}
 	}
 }
 
 func (m *runMode) SignOutActiveAccount() {
-	m.email = ""
+	m.session.email = ""
 }
 
 func (m *runMode) forgetSessionTier() {
-	m.tier = ""
-	m.tierAccount = ""
-	m.tierFetched = false
+	m.session.tier = ""
+	m.session.tierAccount = ""
+	m.session.tierFetched = false
 }
 
 // plannerResponses returns the assistant ("planner") responses in order, which
 // is what /copy indexes. The reference's command description calls them
 // "planner response[s]".
 func (m *runMode) plannerResponses() []string {
-	if m.supervisor != nil && len(m.supervisor.Messages()) > 0 {
-		return slashactions.PlannerResponses(m.supervisor.Messages())
+	if m.session.supervisor != nil && len(m.session.supervisor.Messages()) > 0 {
+		return slashactions.PlannerResponses(m.session.supervisor.Messages())
 	}
-	return slashactions.PlannerResponses(m.session)
+	return slashactions.PlannerResponses(m.engine.session)
 }
 
 // deadcode: staged (test seam for slash_actions_test.go)
@@ -501,11 +501,11 @@ func (m *runMode) conversationTitle() string {
 	if len(os.Args) > 0 {
 		fallback = os.Args[0]
 	}
-	sess := m.session
-	if m.supervisor != nil && len(m.supervisor.Messages()) > 0 {
-		sess = m.supervisor.Messages()
+	sess := m.engine.session
+	if m.session.supervisor != nil && len(m.session.supervisor.Messages()) > 0 {
+		sess = m.session.supervisor.Messages()
 	}
-	return slashactions.ConversationTitle(m.conversationName, sess, fallback)
+	return slashactions.ConversationTitle(m.session.conversationName, sess, fallback)
 }
 
 // mcpServersFeedback renders /mcp. Recovered: `No MCP servers configured.` for
@@ -564,7 +564,7 @@ func (m *runMode) runBrowserTask(runner browser.BrowserSubagentProvider, closeRu
 
 func (m *runMode) updateBrowserAgentDoneMsg(msg browserAgentDoneMsg) {
 	if msg.err != nil {
-		m.response = append(m.response,
+		m.engine.response = append(m.engine.response,
 			panelGray166+msg.err.Error()+panelGray166C,
 			"",
 		)
@@ -572,43 +572,43 @@ func (m *runMode) updateBrowserAgentDoneMsg(msg browserAgentDoneMsg) {
 	}
 	answer := strings.TrimRight(strings.TrimSpace(msg.answer), "\n")
 	if answer == "" {
-		m.response = append(m.response,
+		m.engine.response = append(m.engine.response,
 			panelGray238+"(the browser agent returned no answer)"+panelGray238C,
 			"",
 		)
 		return
 	}
 	for _, line := range strings.Split(answer, "\n") {
-		m.response = append(m.response, line)
+		m.engine.response = append(m.engine.response, line)
 	}
-	m.response = append(m.response, "")
+	m.engine.response = append(m.engine.response, "")
 }
 
 func (m *runMode) newBrowserAgent() (browser.BrowserSubagentProvider, func(), error) {
-	if m.catalog == nil {
+	if m.engine.catalog == nil {
 		return nil, nil, errors.New("the browser tools are not available in this session")
 	}
-	if m.agentBody != "" {
+	if m.session.agentBody != "" {
 		return nil, nil, errors.New("this session runs an agent body, which has no browser agent")
 	}
-	if m.backend == nil {
+	if m.engine.backend == nil {
 		return nil, nil, errors.New("no model is selected")
 	}
 	if err := browserProbe(context.Background()); err != nil {
 		return nil, nil, err
 	}
-	workspace := m.cwd
+	workspace := m.session.cwd
 	if workspace == "" {
 		workspace = defaultWorkspaceForRunMode()
 	}
 	agentDir := confhome.Antigravity()
-	provider := agentturn.NewBackendProviderAdapter(m.backend, m.model)
+	provider := agentturn.NewBackendProviderAdapter(m.engine.backend, m.session.model)
 	runner := browsersubagent.New(subagenttools.Deps{
 		Provider: provider,
-		Model:    m.model,
+		Model:    m.session.model,
 		CWD:      workspace,
 		AgentDir: agentDir,
-	}, browsersubagent.Tools(m.catalog))
+	}, browsersubagent.Tools(m.engine.catalog))
 	return runner, func() {}, nil
 }
 
@@ -616,7 +616,7 @@ const rcURLIndent = "     "
 const rcURLDefaultWidth = 80
 
 func (m *runMode) rcURLChunkWidth() int {
-	width := m.width
+	width := m.viewport.width
 	if width <= 0 {
 		width = rcURLDefaultWidth
 	}
@@ -657,16 +657,16 @@ func buildRemoteControlCardForAccount(email, conversationID, uuid, hostname stri
 }
 
 func narrationSessionStart(m *runMode) time.Time {
-	if !m.narrationStart.IsZero() {
-		return m.narrationStart
+	if !m.session.narrationStart.IsZero() {
+		return m.session.narrationStart
 	}
 	return time.Time{}
 }
 
 func narrationFeedback(m *runMode, args string) (text, echo string, mutedNow, already bool) {
-	text, echo, mutedNow, already = narration.Feedback(args, narrationSessionStart(m), m.narrationOff)
+	text, echo, mutedNow, already = narration.Feedback(args, narrationSessionStart(m), m.session.narrationOff)
 	if mutedNow {
-		m.narrationOff = true
+		m.session.narrationOff = true
 	}
 	return text, echo, mutedNow, already
 }
@@ -678,9 +678,9 @@ func (m *runMode) handleNarrationSlash(args string) (bool, tea.Cmd) {
 	}
 	if text != "" {
 		for _, ln := range strings.Split(text, "\n") {
-			m.response = append(m.response, panelGray238+ln+panelGray238C)
+			m.engine.response = append(m.engine.response, panelGray238+ln+panelGray238C)
 		}
-		m.response = append(m.response, "")
+		m.engine.response = append(m.engine.response, "")
 	}
 	return true, nil
 }
@@ -689,43 +689,43 @@ func (m *runMode) sessionTokenTotals() (prompt, completion int) {
 	if m == nil {
 		return 0, 0
 	}
-	return int(atomic.LoadInt64(&m.store.SessionPromptTokens)),
-		int(atomic.LoadInt64(&m.store.SessionCompletionTokens))
+	return int(atomic.LoadInt64(&m.session.store.SessionPromptTokens)),
+		int(atomic.LoadInt64(&m.session.store.SessionCompletionTokens))
 }
 
 func (m *runMode) recordTurnUsage(meta *backend.ChunkMeta) {
 	if m == nil || meta == nil {
 		return
 	}
-	atomic.AddInt64(&m.store.SessionPromptTokens, int64(meta.PromptTokens))
-	atomic.AddInt64(&m.store.SessionCompletionTokens, int64(meta.CompletionTokens))
-	atomic.StoreInt64(&m.store.LastTurnPromptTokens, int64(meta.PromptTokens))
-	atomic.StoreInt64(&m.store.LastTurnCompletionTokens, int64(meta.CompletionTokens))
+	atomic.AddInt64(&m.session.store.SessionPromptTokens, int64(meta.PromptTokens))
+	atomic.AddInt64(&m.session.store.SessionCompletionTokens, int64(meta.CompletionTokens))
+	atomic.StoreInt64(&m.session.store.LastTurnPromptTokens, int64(meta.PromptTokens))
+	atomic.StoreInt64(&m.session.store.LastTurnCompletionTokens, int64(meta.CompletionTokens))
 }
 
 func (m *runMode) externalStateFor() *statusline.State {
 	if m == nil {
 		return nil
 	}
-	return m.statusLineExternalState
+	return m.viewport.statusLineExternalState
 }
 
 func (m *runMode) ensureExternalState() *statusline.State {
 	if m == nil {
 		return nil
 	}
-	if m.statusLineExternalState == nil {
-		m.statusLineExternalState = &statusline.State{}
+	if m.viewport.statusLineExternalState == nil {
+		m.viewport.statusLineExternalState = &statusline.State{}
 	}
-	return m.statusLineExternalState
+	return m.viewport.statusLineExternalState
 }
 
 func (m *runMode) runExternalStatusLineTick() {
 	if m == nil {
 		return
 	}
-	statusCfg := m.statusLineCfg
-	titleCfg := m.titleCfg
+	statusCfg := m.viewport.statusLineCfg
+	titleCfg := m.viewport.titleCfg
 	if !statusCfg.Active() && !titleCfg.Active() {
 		return
 	}
@@ -751,13 +751,13 @@ func armExternalStatusLineTick() tea.Cmd {
 }
 
 func (m *runMode) maybeArmStatusLineTick() tea.Cmd {
-	if m == nil || m.store.StatusLineTickArmed {
+	if m == nil || m.session.store.StatusLineTickArmed {
 		return nil
 	}
-	if !m.statusLineScriptActive() && !m.titleCfg.Active() {
+	if !m.statusLineScriptActive() && !m.viewport.titleCfg.Active() {
 		return nil
 	}
-	m.store.StatusLineTickArmed = true
+	m.session.store.StatusLineTickArmed = true
 	return armExternalStatusLineTick()
 }
 
@@ -765,7 +765,7 @@ func (m *runMode) externalRenderOK() bool {
 	if m == nil {
 		return false
 	}
-	if m.statusLine == "off" {
+	if m.viewport.statusLine == "off" {
 		return false
 	}
 	if !m.statusLineScriptActive() {
@@ -795,50 +795,50 @@ func (m *runMode) externalRenderedForRow() (string, error) {
 }
 
 func (m *runMode) buildStatusLinePayload() statusline.Payload {
-	model := m.statusModel
+	model := m.session.statusModel
 	if model == "" {
-		model = m.model
+		model = m.session.model
 	}
 	contextWindow := 0
 	if model != "" {
 		contextWindow = modelctx.ContextWindowFor(model)
 	}
 	taskCount := 0
-	if m.taskReg != nil {
-		taskCount = m.taskReg.CountRunning()
+	if m.engine.taskReg != nil {
+		taskCount = m.engine.taskReg.CountRunning()
 	}
 	prompt, completion := m.sessionTokenTotals()
 	return statusline.PayloadFrom(statusline.PayloadState{
-		Cwd:                      m.cwd,
-		ConversationID:           m.conversationID,
+		Cwd:                      m.session.cwd,
+		ConversationID:           m.session.conversationID,
 		ConversationTitle:        m.conversationTitle(),
-		Model:                    m.model,
+		Model:                    m.session.model,
 		Effort:                   m.currentEffortName(),
-		AgentName:                m.agentName,
-		CycleMode:                m.mode,
-		PlanTier:                 m.tier,
-		Email:                    m.email,
-		TerminalWidth:            m.width,
-		Streaming:                m.streaming,
+		AgentName:                m.session.agentName,
+		CycleMode:                m.session.mode,
+		PlanTier:                 m.session.tier,
+		Email:                    m.session.email,
+		TerminalWidth:            m.viewport.width,
+		Streaming:                m.engine.streaming,
 		ToolInFlight:             m.toolInFlight(),
 		TurnFailed:               m.turnFailed(),
-		SandboxEnabled:           m.toolSandbox.Enabled,
-		Quota:                    statusline.QuotaBuckets(m.cachedQuota(m.email), time.Now()),
+		SandboxEnabled:           m.engine.toolSandbox.Enabled,
+		Quota:                    statusline.QuotaBuckets(m.cachedQuota(m.session.email), time.Now()),
 		TaskCount:                taskCount,
 		PendingInputCount:        m.pendingInputCount(),
 		Subagents:                m.subagentInfos(),
 		VimMode:                  m.vimModeName(),
 		SessionPromptTokens:      prompt,
 		SessionCompletionTokens:  completion,
-		LastTurnPromptTokens:     int(atomic.LoadInt64(&m.store.LastTurnPromptTokens)),
-		LastTurnCompletionTokens: int(atomic.LoadInt64(&m.store.LastTurnCompletionTokens)),
+		LastTurnPromptTokens:     int(atomic.LoadInt64(&m.session.store.LastTurnPromptTokens)),
+		LastTurnCompletionTokens: int(atomic.LoadInt64(&m.session.store.LastTurnCompletionTokens)),
 		ContextWindowSize:        contextWindow,
 		PricingModel:             model,
 	})
 }
 
 func (m *runMode) agentState() string {
-	state := statusline.AgentState(m.streaming, m.toolInFlight(), m.turnFailed())
+	state := statusline.AgentState(m.engine.streaming, m.toolInFlight(), m.turnFailed())
 	if state == statusline.StateIdle {
 		return ""
 	}
@@ -846,26 +846,26 @@ func (m *runMode) agentState() string {
 }
 
 func (m *runMode) toolInFlight() bool {
-	return m.activeTool != ""
+	return m.engine.activeTool != ""
 }
 
 func (m *runMode) turnFailed() bool {
-	return m.lastTurnOutcome == tea.ProgramStateError
+	return m.engine.lastTurnOutcome == tea.ProgramStateError
 }
 
 func (m *runMode) pendingInputCount() int {
-	n := len(m.store.StreamQueue)
-	if m.store.QueuedPrompt != "" {
+	n := len(m.session.store.StreamQueue)
+	if m.session.store.QueuedPrompt != "" {
 		n++
 	}
 	return n
 }
 
 func (m *runMode) subagentInfos() []statusline.SubagentInfo {
-	if m.subagentRegistry == nil {
+	if m.engine.subagentRegistry == nil {
 		return nil
 	}
-	return statusline.Subagents(m.subagentRegistry.States())
+	return statusline.Subagents(m.engine.subagentRegistry.States())
 }
 
 func (m *runMode) vimModeName() string {
@@ -879,9 +879,9 @@ func (m *runMode) contextUsedPercent() float64 {
 	if m == nil {
 		return 0
 	}
-	model := m.statusModel
+	model := m.session.statusModel
 	if model == "" {
-		model = m.model
+		model = m.session.model
 	}
 	if model == "" {
 		return 0
@@ -889,7 +889,7 @@ func (m *runMode) contextUsedPercent() float64 {
 	// PromptTokens in the latest turn represents the active context window size.
 	// Accumulating session prompt tokens across all turns calculates total billing usage,
 	// which would overflow the single-turn context window and result in 3000%+ figures.
-	prompt := int(atomic.LoadInt64(&m.store.LastTurnPromptTokens))
+	prompt := int(atomic.LoadInt64(&m.session.store.LastTurnPromptTokens))
 	if prompt <= 0 {
 		prompt, _ = m.sessionTokenTotals()
 	}
@@ -928,50 +928,50 @@ func (m *runMode) statusLinePlanProgress() string {
 
 func (m *runMode) reloadStatusLineConfig() {
 	if cfg, ok := statusline.LoadConfig(); ok {
-		m.statusLineCfg = cfg
-		m.statusLineCommand = cfg.Command
-		m.statusLineExternal = cfg.Active()
+		m.viewport.statusLineCfg = cfg
+		m.viewport.statusLineCommand = cfg.Command
+		m.viewport.statusLineExternal = cfg.Active()
 	} else {
-		m.statusLineCfg = statusline.Config{}
-		m.statusLineCommand = ""
-		m.statusLineExternal = false
+		m.viewport.statusLineCfg = statusline.Config{}
+		m.viewport.statusLineCommand = ""
+		m.viewport.statusLineExternal = false
 	}
 	if cfg, ok := statusline.LoadTitleConfig(); ok {
-		m.titleCfg = cfg
-		m.titleCommand = cfg.Command
+		m.viewport.titleCfg = cfg
+		m.viewport.titleCommand = cfg.Command
 		if cfg.Active() {
-			m.title = "on"
+			m.viewport.title = "on"
 		}
 	} else {
-		m.titleCfg = statusline.Config{}
-		m.titleCommand = ""
+		m.viewport.titleCfg = statusline.Config{}
+		m.viewport.titleCommand = ""
 	}
 }
 
 func (m *runMode) statusLineScriptActive() bool {
-	if m.statusLineCfg.Active() {
+	if m.viewport.statusLineCfg.Active() {
 		return true
 	}
-	return m.statusLineExternal
+	return m.viewport.statusLineExternal
 }
 
 func (m *runMode) statusAreaState() statusline.AreaState {
 	return statusline.AreaState{
 		Builtin: statusrow.Render(m.statusRowState()),
 		Active:  m.statusLineScriptActive(),
-		Config:  m.statusLineCfg,
+		Config:  m.viewport.statusLineCfg,
 		State:   m.externalStateFor(),
 		LogPath: confhome.CLILogPath(logts.FormatLogTS()),
 	}
 }
 
 func (m *runMode) windowTitleText() string {
-	if m.titleCfg.Active() {
+	if m.viewport.titleCfg.Active() {
 		if title := m.titleStoreFor().Get(); title != "" {
 			return title
 		}
 	}
-	if m.title == "on" {
+	if m.viewport.title == "on" {
 		return m.conversationTitle()
 	}
 	return ""
@@ -981,14 +981,14 @@ func (m *runMode) windowTitleText() string {
 func (m *runMode) diffTurnCount() int {
 	return m.DiffTurnCount()
 }
-func (m *runMode) SessionCwd() string             { return m.cwd }
+func (m *runMode) SessionCwd() string             { return m.session.cwd }
 func (m *runMode) DiffTurnCount() int             { return m.diffTurnCount() }
 func (m *runMode) newDiffPanel() *diffpanel.Panel { return panels.NewDiffPanel(m) }
 func (m *runMode) diffPanel() *diffpanel.Panel {
-	if m.panel.df == nil {
-		m.panel.df = m.newDiffPanel()
+	if m.overlays.panel.df == nil {
+		m.overlays.panel.df = m.newDiffPanel()
 	}
-	return m.panel.df
+	return m.overlays.panel.df
 }
 
 func (m *runMode) effortTiers() []string {
@@ -996,7 +996,7 @@ func (m *runMode) effortTiers() []string {
 }
 
 func (m *runMode) effortModel() string {
-	if label := strings.TrimSpace(m.model); label != "" && catalog.ModelAvailable(label) {
+	if label := strings.TrimSpace(m.session.model); label != "" && catalog.ModelAvailable(label) {
 		return label
 	}
 	if effective, _ := catalog.ResolveEffectiveModel(""); strings.TrimSpace(effective) != "" {
@@ -1015,24 +1015,24 @@ func (m *runMode) CurrentEffortName() string {
 func (m *runMode) ApplyEffortSelection(level int) tea.Cmd { return m.applyEffortSelection(level) }
 func (m *runMode) newEffortPanel() *effortpanel.Panel     { return panels.NewEffortPanel(m) }
 func (m *runMode) effortPanel() *effortpanel.Panel {
-	if m.panel.ef == nil {
-		m.panel.ef = m.newEffortPanel()
+	if m.overlays.panel.ef == nil {
+		m.overlays.panel.ef = m.newEffortPanel()
 	}
-	return m.panel.ef
+	return m.overlays.panel.ef
 }
 
 // Help
-func (m *runMode) ModelName() string             { return m.model }
-func (m *runMode) TierName() string              { return m.tier }
-func (m *runMode) UserEmail() string             { return m.email }
-func (m *runMode) ConversationID() string        { return m.conversationID }
-func (m *runMode) AppendResponse(lines []string) { m.response = append(m.response, lines...) }
+func (m *runMode) ModelName() string             { return m.session.model }
+func (m *runMode) TierName() string              { return m.session.tier }
+func (m *runMode) UserEmail() string             { return m.session.email }
+func (m *runMode) ConversationID() string        { return m.session.conversationID }
+func (m *runMode) AppendResponse(lines []string) { m.engine.response = append(m.engine.response, lines...) }
 func (m *runMode) SelectCommand(cmd string) {
-	m.input.SetValue(cmd)
-	m.input.CursorEnd()
-	m.picker.Reset()
-	m.promptHistory.Reset()
-	m.store.ResetInputSelection()
+	m.composer.input.SetValue(cmd)
+	m.composer.input.CursorEnd()
+	m.composer.picker.Reset()
+	m.composer.promptHistory.Reset()
+	m.ResetInputSelection()
 }
 func (m *runMode) newHelpPanel() *helppanel.Panel { return panels.NewHelpPanel(m) }
 
@@ -1046,19 +1046,19 @@ func (m *runMode) FetchPlanTierCmd() tea.Cmd              { return m.fetchPlanTi
 func (m *runMode) FetchQuotaCmd(email string) tea.Cmd     { return fetchAccountQuotaCmd(email) }
 func (m *runMode) newAccountsPanel() *accountspanel.Panel { return panels.NewAccountsPanel(m) }
 func (m *runMode) accountsPanel() *accountspanel.Panel {
-	if m.panel.acct == nil {
-		m.panel.acct = m.newAccountsPanel()
+	if m.overlays.panel.acct == nil {
+		m.overlays.panel.acct = m.newAccountsPanel()
 	}
-	return m.panel.acct
+	return m.overlays.panel.acct
 }
 
 // Agents
-func (m *runMode) ActiveAgentName() string                { return m.agentName }
+func (m *runMode) ActiveAgentName() string                { return m.session.agentName }
 func (m *runMode) RunningSubagents() []*subagent.Subagent { return m.runningSubagents() }
-func (m *runMode) HasSessionTurns() bool                  { return len(m.session) > 0 }
+func (m *runMode) HasSessionTurns() bool                  { return len(m.engine.session) > 0 }
 func (m *runMode) ApplyAgentSwitch(name, body string) {
 	m.applyAgentSwitch(name, body)
-	m.panel = slashPanel{}
+	m.overlays.panel = slashPanel{}
 }
 func (m *runMode) KillAgentsSubagent(sa *subagent.Subagent) bool { return m.killAgentsSubagent(sa) }
 func (m *runMode) PendingSubagentAuthorization(id string) (lifecycle.PendingApproval, bool) {
@@ -1072,41 +1072,41 @@ func (m *runMode) newAgentsPanel() *agentspanel.Panel {
 	return panels.NewAgentsPanel(m)
 }
 func (m *runMode) agentsPanel() *agentspanel.Panel {
-	if m.panel.ag == nil {
-		m.panel.ag = m.newAgentsPanel()
+	if m.overlays.panel.ag == nil {
+		m.overlays.panel.ag = m.newAgentsPanel()
 	}
-	return m.panel.ag
+	return m.overlays.panel.ag
 }
 func (m *runMode) runningSubagents() []*subagent.Subagent {
-	mgr := m.taskSubagentManager
+	mgr := m.engine.taskSubagentManager
 	if mgr == nil {
 		return nil
 	}
 	return mgr.List()
 }
 func (m *runMode) killAgentsSubagent(sa *subagent.Subagent) bool {
-	mgr := m.taskSubagentManager
+	mgr := m.engine.taskSubagentManager
 	if mgr == nil || sa == nil {
 		return false
 	}
 	return mgr.KillRunning(sa.ID)
 }
 func (m *runMode) pendingSubagentAuthorization(subagentID string) (lifecycle.PendingApproval, bool) {
-	mgr := m.taskSubagentManager
+	mgr := m.engine.taskSubagentManager
 	if mgr == nil {
 		return lifecycle.PendingApproval{}, false
 	}
 	return mgr.PendingAuthorization(subagentID)
 }
 func (m *runMode) answerSubagentAuthorization(approvalID string, approve bool) bool {
-	mgr := m.taskSubagentManager
+	mgr := m.engine.taskSubagentManager
 	if mgr == nil {
 		return false
 	}
 	return mgr.AnswerAuthorization(approvalID, approve)
 }
 func (m *runMode) panelAgentsWorkspace() string {
-	workspace := m.cwd
+	workspace := m.session.cwd
 	if workspace == "" {
 		workspace, _ = os.Getwd()
 	}
@@ -1114,8 +1114,8 @@ func (m *runMode) panelAgentsWorkspace() string {
 }
 
 // Codesearch
-func (m *runMode) SearchRoot() string    { return m.cwd }
-func (m *runMode) SearchStreaming() bool { return m.streamingSearch }
+func (m *runMode) SearchRoot() string    { return m.session.cwd }
+func (m *runMode) SearchStreaming() bool { return m.engine.streamingSearch }
 func (m *runMode) CodesearchReadFile(path string) ([]string, string, bool) {
 	return m.codesearchReadFile(path)
 }
@@ -1129,10 +1129,10 @@ func (m *runMode) newCodesearchPanel() *codesearchpanel.Panel {
 	return panels.NewCodesearchPanel(m)
 }
 func (m *runMode) codesearchPanel() *codesearchpanel.Panel {
-	if m.panel.csp == nil {
-		m.panel.csp = m.newCodesearchPanel()
+	if m.overlays.panel.csp == nil {
+		m.overlays.panel.csp = m.newCodesearchPanel()
 	}
-	return m.panel.csp
+	return m.overlays.panel.csp
 }
 func (m *runMode) codesearchReadFile(path string) ([]string, string, bool) {
 	full := m.codesearchPath(path)
@@ -1156,24 +1156,24 @@ func (m *runMode) codesearchPath(path string) string {
 	if filepath.IsAbs(path) {
 		return path
 	}
-	return filepath.Join(m.cwd, path)
+	return filepath.Join(m.session.cwd, path)
 }
 func (m *runMode) codesearchOpenEditor(path string, line int) tea.Cmd {
 	name, args, notice, err := editorkit.ResolveEditor(settings.String("editor"))
 	if err != nil {
-		m.response = append(m.response, "Failed to resolve editor: "+err.Error())
+		m.engine.response = append(m.engine.response, "Failed to resolve editor: "+err.Error())
 		return nil
 	}
 	if _, err := exec.LookPath(name); err != nil {
-		m.response = append(m.response, "Failed to resolve editor: "+err.Error())
+		m.engine.response = append(m.engine.response, "Failed to resolve editor: "+err.Error())
 		return nil
 	}
 	if notice != "" {
-		m.response = append(m.response, notice)
+		m.engine.response = append(m.engine.response, notice)
 	}
 	full := m.codesearchPath(path)
 	c := exec.Command(name, append(args, editorLineArgs(name, full, line)...)...)
-	c.Dir = m.cwd
+	c.Dir = m.session.cwd
 	return tea.ExecProcess(c, func(err error) tea.Msg {
 		return editorFinishedMsg{err: err}
 	})
@@ -1188,14 +1188,14 @@ func (m *runMode) codesearchSendComments(text string) tea.Cmd {
 
 // Model
 func (m *runMode) ApplyModel(label string) {
-	m.model = label
-	m.statusModel = tuilib.StripTier(label)
+	m.session.model = label
+	m.session.statusModel = tuilib.StripTier(label)
 	m.syncBackendForModel()
 }
 func (m *runMode) CustomModelRows() []modelpicker.Row { return m.engineModelRows() }
 func (m *runMode) engineModelRows() []modelpicker.Row {
-	if len(m.engineModelRowsCache) > 0 {
-		return m.engineModelRowsCache
+	if len(m.engine.engineModelRowsCache) > 0 {
+		return m.engine.engineModelRowsCache
 	}
 	eng := m.turnEngine()
 	if eng == nil {
@@ -1221,65 +1221,65 @@ func (m *runMode) engineModelRows() []modelpicker.Row {
 			DefaultTier: info.DefaultTier,
 		})
 	}
-	m.engineModelRowsCache = rows
+	m.engine.engineModelRowsCache = rows
 	return rows
 }
 
 func (m *runMode) syncBackendForModel() {
-	if m.backendFor == nil || strings.TrimSpace(m.model) == "" {
+	if m.engine.backendFor == nil || strings.TrimSpace(m.session.model) == "" {
 		return
 	}
-	if b := m.backendFor(m.model); b != nil {
-		m.backend = b
+	if b := m.engine.backendFor(m.session.model); b != nil {
+		m.engine.backend = b
 	}
-	m.wireSettingsPending = true
+	m.session.wireSettingsPending = true
 }
 func (m *runMode) newModelPanel() *modelpicker.Panel { return panels.NewModelPanel(m) }
 func (m *runMode) modelPanel() *modelpicker.Panel {
-	if m.panel.mdl == nil {
-		m.panel.mdl = m.newModelPanel()
+	if m.overlays.panel.mdl == nil {
+		m.overlays.panel.mdl = m.newModelPanel()
 	}
-	return m.panel.mdl
+	return m.overlays.panel.mdl
 }
 
 // Viewer
 func (m *runMode) ViewerSpec() (tuiviewer.Spec, bool) {
-	return m.getPanelRegistry().ViewerSpec(m.panel.kind)
+	return m.getPanelRegistry().ViewerSpec(m.overlays.panel.kind)
 }
 func (m *runMode) ViewerPageRows(spec tuiviewer.Spec) int {
-	if m.panel.kind == panelregistry.Changelog {
-		return changelog.PageRows(spec, m.height)
+	if m.overlays.panel.kind == panelregistry.Changelog {
+		return changelog.PageRows(spec, m.viewport.height)
 	}
 	return spec.Visible
 }
 func (m *runMode) ViewerWidth() int                   { return m.viewerVPWidth() }
 func (m *runMode) newViewerPanel() *viewerpanel.Panel { return panels.NewViewerPanel(m) }
 func (m *runMode) viewerPanel() *viewerpanel.Panel {
-	if m.panel.vw == nil {
+	if m.overlays.panel.vw == nil {
 		p := m.newViewerPanel()
 		p.Open()
-		m.panel.vw = p
+		m.overlays.panel.vw = p
 	}
-	return m.panel.vw
+	return m.overlays.panel.vw
 }
 
 func (m *runMode) initViewerViewport() {
-	if m.panel.vw == nil {
-		m.panel.vw = m.newViewerPanel()
+	if m.overlays.panel.vw == nil {
+		m.overlays.panel.vw = m.newViewerPanel()
 	}
-	m.panel.vw.Open()
+	m.overlays.panel.vw.Open()
 }
 
 func (m *runMode) viewerVPWidth() int {
-	if m.width > 0 {
-		return m.width
+	if m.viewport.width > 0 {
+		return m.viewport.width
 	}
 	return 80
 }
 
 func (m *runMode) handleViewerPanelKey(key tea.Key) (bool, tea.Cmd) {
-	handled, cmd, offset := m.viewerPanel().HandleKey(key, m.panel.window)
-	m.panel.window = offset
+	handled, cmd, offset := m.viewerPanel().HandleKey(key, m.overlays.panel.window)
+	m.overlays.panel.window = offset
 	return handled, cmd
 }
 
@@ -1288,14 +1288,14 @@ func (m *runMode) listResumeConversations() ([]convstore.ConversationMeta, error
 }
 
 func (m *runMode) renameResumeConversation(meta convstore.ConversationMeta) {
-	m.conversationName = meta.Title
+	m.session.conversationName = meta.Title
 	m.openRenamePanel()
 }
 
 func (m *runMode) openRenamePanel() {
-	m.panel.kind = panelregistry.Rename
-	m.panel.cmd = "/rename"
-	m.panel.rn = m.newRenamePanel()
+	m.overlays.panel.kind = panelregistry.Rename
+	m.overlays.panel.cmd = "/rename"
+	m.overlays.panel.rn = m.newRenamePanel()
 	m.armRenameFocus()
 }
 
@@ -1306,13 +1306,13 @@ func (m *runMode) ContextState() contextpanel.State {
 func (m *runMode) contextState() contextpanel.State {
 	st := contextpanel.State{
 		Model: m.contextModel(),
-		Width: m.width,
+		Width: m.viewport.width,
 	}
 	switch {
-	case m.streaming:
+	case m.engine.streaming:
 		st.Mode = contextpanel.ModeStreaming
 		st.User, st.Agent, st.Tool = m.streamingTokenCounts()
-	case len(m.session) == 0:
+	case len(m.engine.session) == 0:
 		st.Mode = contextpanel.ModeEmpty
 	default:
 		st.Mode = contextpanel.ModeLive
@@ -1326,9 +1326,9 @@ func (m *runMode) contextState() contextpanel.State {
 		st.Skills = skills
 		st.Subagents = subagents
 		st.SystemTools = contextpanel.ToolTokenEstimate(m.wireToolDecls())
-		st.SystemMessages = contextpanel.SystemMessageTokens(m.session)
+		st.SystemMessages = contextpanel.SystemMessageTokens(m.engine.session)
 	}
-	st.CheckpointBuffer = contextpanel.CheckpointBufferTokens(m.session)
+	st.CheckpointBuffer = contextpanel.CheckpointBufferTokens(m.engine.session)
 	st.User -= st.CheckpointBuffer
 	if st.User < 0 {
 		st.User = 0
@@ -1344,71 +1344,71 @@ func (m *runMode) promptCategoryTokens() (base, rules, skills, subagents int) {
 }
 
 func (m *runMode) contextModel() string {
-	if m.model != "" {
-		return m.model
+	if m.session.model != "" {
+		return m.session.model
 	}
 	return defaultModel
 }
 
 func (m *runMode) streamingTokenCounts() (user, agent, tool int) {
 	user, _, tool = m.sessionTokenCounts()
-	user = contextpanel.AdjustStreamingUserTokens(m.session, user)
-	completed := atomic.LoadInt64(&m.store.SessionCompletionTokens)
-	lastTurn := atomic.LoadInt64(&m.store.LastTurnCompletionTokens)
-	agent = contextpanel.StreamingAgentTokens(completed, lastTurn, len(m.liveReplyBuf))
+	user = contextpanel.AdjustStreamingUserTokens(m.engine.session, user)
+	completed := atomic.LoadInt64(&m.session.store.SessionCompletionTokens)
+	lastTurn := atomic.LoadInt64(&m.session.store.LastTurnCompletionTokens)
+	agent = contextpanel.StreamingAgentTokens(completed, lastTurn, len(m.engine.liveReplyBuf))
 	return user, agent, tool
 }
 
 func (m *runMode) wireToolDecls() []backend.ToolDecl {
-	return append([]backend.ToolDecl(nil), m.tools...)
+	return append([]backend.ToolDecl(nil), m.engine.tools...)
 }
 
 func (m *runMode) sessionTokenCounts() (user, agent, tool int) {
-	user = contextpanel.UserMessageTokens(m.session)
-	completed := atomic.LoadInt64(&m.store.SessionCompletionTokens)
-	lastTurn := atomic.LoadInt64(&m.store.LastTurnCompletionTokens)
+	user = contextpanel.UserMessageTokens(m.engine.session)
+	completed := atomic.LoadInt64(&m.session.store.SessionCompletionTokens)
+	lastTurn := atomic.LoadInt64(&m.session.store.LastTurnCompletionTokens)
 	agent = contextpanel.AgentTokens(completed, lastTurn)
 	var steps []toolsteps.Step
-	for _, b := range m.blocks {
+	for _, b := range m.engine.blocks {
 		steps = append(steps, b.Steps...)
 	}
-	steps = append(steps, m.liveSteps...)
+	steps = append(steps, m.engine.liveSteps...)
 	tool = contextpanel.ToolResultTokens(toolsteps.ToolResults(steps)...)
 	return user, agent, tool
 }
 
 func (m *runMode) statusRowState() statusrow.State {
-	panelOpen := m.panel.kind != panelregistry.None
+	panelOpen := m.overlays.panel.kind != panelregistry.None
 	panelKeepsHint := false
 	if panelOpen {
-		panelKeepsHint = m.panel.kind.KeepStatusHint()
+		panelKeepsHint = m.overlays.panel.kind.KeepStatusHint()
 	}
 
 	return statusrow.State{
-		Width:          m.width,
+		Width:          m.viewport.width,
 		CanonicalWidth: separatorWidth,
 
-		PickerVisible:      m.picker.Visible(),
-		PickerModelMode:    m.picker.IsModelMode(),
-		Streaming:          m.streaming,
-		Queued:             len(m.store.StreamQueue) + len(m.store.BashQueue),
-		BufferEmpty:        strings.TrimSpace(m.input.Value()) == "",
-		ResumePickerActive: m.resumePicker.Active(),
-		BashMode:           m.store.BashMode,
-		HelpActive:         m.helpPanel.Active(),
+		PickerVisible:      m.composer.picker.Visible(),
+		PickerModelMode:    m.composer.picker.IsModelMode(),
+		Streaming:          m.engine.streaming,
+		Queued:             len(m.session.store.StreamQueue) + len(m.session.store.BashQueue),
+		BufferEmpty:        strings.TrimSpace(m.composer.input.Value()) == "",
+		ResumePickerActive: m.overlays.resumePicker.Active(),
+		BashMode:           m.session.store.BashMode,
+		HelpActive:         m.viewport.helpPanel.Active(),
 		PanelOpen:          panelOpen,
 		PanelKeepsHint:     panelKeepsHint,
-		ExitConfirm:        m.exitConfirm,
+		ExitConfirm:        m.engine.exitConfirm,
 		VimBadge:           vimkeys.Badge(m.vimEnabled(), m.vimMode()),
 		Compact:            m.compactState(),
 
-		Model:        m.model,
-		StatusModel:  m.statusModel,
-		AgentName:    m.agentName,
-		Mode:         m.mode,
+		Model:        m.session.model,
+		StatusModel:  m.session.statusModel,
+		AgentName:    m.session.agentName,
+		Mode:         m.session.mode,
 		EffortSuffix: m.statusEffortSuffix(),
 		TaskSuffix:   m.tasksStatusSuffix(),
-		QueueMode:    m.store.QueueMode,
+		QueueMode:    m.session.store.QueueMode,
 		AgentState:   m.agentState(),
 		// Reference agy 1.4.7/1.5.0 status row does not display context percentage by default
 		// ("auto · Gemini 3.8 Flash · high"). Optional opt-in via PIGASUS_STATUS_SHOW_CONTEXT.
@@ -1422,26 +1422,26 @@ func (m *runMode) statusRowState() statusrow.State {
 }
 
 func (m *runMode) compactState() *statusrow.Compact {
-	if m.store.CompactStart.IsZero() {
+	if m.session.store.CompactStart.IsZero() {
 		return nil
 	}
 	return &statusrow.Compact{
-		Start:        m.store.CompactStart,
-		End:          m.store.CompactEnd,
-		TokensBefore: m.store.CompactTokensBefore,
-		TokensAfter:  m.store.CompactTokensAfter,
-		SpinnerFrame: m.store.CompactSpinnerFrame,
+		Start:        m.session.store.CompactStart,
+		End:          m.session.store.CompactEnd,
+		TokensBefore: m.session.store.CompactTokensBefore,
+		TokensAfter:  m.session.store.CompactTokensAfter,
+		SpinnerFrame: m.session.store.CompactSpinnerFrame,
 	}
 }
 
 func (m *runMode) panelChangelogLines() []string {
-	spec, _ := m.getPanelRegistry().ViewerSpec(m.panel.kind)
+	spec, _ := m.getPanelRegistry().ViewerSpec(m.overlays.panel.kind)
 	rows, start, end := m.viewerWindow(spec)
 	return changelog.PanelLines(rows, start, end, spec.Total)
 }
 
 func (m *runMode) usageViewerSpec() tuiviewer.Spec {
-	if m.height > 0 {
+	if m.viewport.height > 0 {
 		return usagepanel.Spec(m.usageState())
 	}
 	return usagepanel.StaticSpec()
@@ -1449,29 +1449,29 @@ func (m *runMode) usageViewerSpec() tuiviewer.Spec {
 
 func (m *runMode) changelogViewerSpec() tuiviewer.Spec {
 	return tuiviewer.Spec{
-		Lines:   changelog.Document(m.width, m.height),
-		Visible: changelog.VisibleRows(m.height),
+		Lines:   changelog.Document(m.viewport.width, m.viewport.height),
+		Visible: changelog.VisibleRows(m.viewport.height),
 		Total:   changelog.TotalLines,
 	}
 }
 
 func (m *runMode) viewerWindow(spec tuiviewer.Spec) (rows []string, start, end int) {
-	r, s, e, clamped := tuiviewer.Window(spec, m.panel.window)
-	m.panel.window = clamped
+	r, s, e, clamped := tuiviewer.Window(spec, m.overlays.panel.window)
+	m.overlays.panel.window = clamped
 	return r, s, e
 }
 
 func (m *runMode) panelUsageLinesREF() []string {
-	lines, window := usagepanel.Lines(m.usageState(), m.panel.window)
-	m.panel.window = window
+	lines, window := usagepanel.Lines(m.usageState(), m.overlays.panel.window)
+	m.overlays.panel.window = window
 	return lines
 }
 
 func (m *runMode) panelUsageLines() []string {
-	if m.height > 0 {
+	if m.viewport.height > 0 {
 		return m.panelUsageLinesREF()
 	}
-	spec, _ := m.getPanelRegistry().ViewerSpec(m.panel.kind)
+	spec, _ := m.getPanelRegistry().ViewerSpec(m.overlays.panel.kind)
 	rows, start, end := m.viewerWindow(spec)
 	return usagepanel.StaticLines(rows, start, end, spec.Total)
 }
@@ -1482,59 +1482,59 @@ const usageQuotaLoadingTicks = usagepanel.QuotaLoadingTicks
 
 func quotaStubRefills(m *runMode) {
 	now := time.Now()
-	m.panel.quota.loadedAt = now
-	m.panel.quota.refreshG = now.Add(168 * time.Hour)
-	m.panel.quota.refreshO = now.Add(48 * time.Hour)
-	m.panel.quota.state = quotaLoaded
+	m.overlays.panel.quota.loadedAt = now
+	m.overlays.panel.quota.refreshG = now.Add(168 * time.Hour)
+	m.overlays.panel.quota.refreshO = now.Add(48 * time.Hour)
+	m.overlays.panel.quota.state = quotaLoaded
 }
 
 func (m *runMode) usageState() usagepanel.State {
 	return usagepanel.State{
-		Email:    m.email,
-		Width:    m.width,
-		Height:   m.height,
-		Loading:  m.panel.quota.state == quotaLoading,
-		Summary:  m.panel.quota.summary,
-		RefreshG: m.panel.quota.refreshG,
-		RefreshO: m.panel.quota.refreshO,
-		Frame:    m.quotaFrame,
+		Email:    m.session.email,
+		Width:    m.viewport.width,
+		Height:   m.viewport.height,
+		Loading:  m.overlays.panel.quota.state == quotaLoading,
+		Summary:  m.overlays.panel.quota.summary,
+		RefreshG: m.overlays.panel.quota.refreshG,
+		RefreshO: m.overlays.panel.quota.refreshO,
+		Frame:    m.engine.quotaFrame,
 	}
 }
 
 func (m *runMode) armRenameFocus() {
-	if m.panel.rn == nil {
+	if m.overlays.panel.rn == nil {
 		return
 	}
-	cmd := m.panel.rn.Focus()
-	if cmd != nil && m.prog != nil {
-		m.prog.Send(cmd)
+	cmd := m.overlays.panel.rn.Focus()
+	if cmd != nil && m.engine.prog != nil {
+		m.engine.prog.Send(cmd)
 	}
 }
 
 func (m *runMode) AppendSubAgentResponse(line string) {
-	m.response = append(m.response, line)
+	m.engine.response = append(m.engine.response, line)
 }
 
 // SubAgentQuestion
 func (m *runMode) SubAgentQuestionsManager() *questions.Manager {
-	return m.subAgentQuestions
+	return m.engine.subAgentQuestions
 }
-func (m *runMode) ResetInput() { m.input.Reset() }
+func (m *runMode) ResetInput() { m.composer.input.Reset() }
 func (m *runMode) newSubAgentQuestionPanel() *subagentquestionpanel.Panel {
 	return panels.NewSubAgentQuestionPanel(m)
 }
 
 // Mention
-func (m *runMode) InputValue() string                     { return m.input.Value() }
-func (m *runMode) SetInputValue(val string)               { m.input.SetValue(val) }
-func (m *runMode) TerminalWidth() int                     { return m.width }
-func (m *runMode) TerminalHeight() int                    { return m.height }
+func (m *runMode) InputValue() string                     { return m.composer.input.Value() }
+func (m *runMode) SetInputValue(val string)               { m.composer.input.SetValue(val) }
+func (m *runMode) TerminalWidth() int                     { return m.viewport.width }
+func (m *runMode) TerminalHeight() int                    { return m.viewport.height }
 func (m *runMode) newMentionPicker() *mentionpicker.Panel { return panels.NewMentionPicker(m) }
 
 func (m *runMode) IsInputY(y int) bool { return m.isInputY(y) }
 
 // SlashPicker
-func (m *runMode) AltScreenActive() bool { return m.altScreen }
+func (m *runMode) AltScreenActive() bool { return m.viewport.altScreen }
 func (m *runMode) SlashScopeContext() slashcommands.ScopeContext {
 	return m.slashScopeContext()
 }
@@ -1592,15 +1592,15 @@ func (m *runMode) newSlashPicker() *slashpicker.Panel {
 
 // Voice
 func (m *runMode) InsertDraft(text string) {
-	if m.input.Value() == "" {
-		m.input.SetValue(text)
+	if m.composer.input.Value() == "" {
+		m.composer.input.SetValue(text)
 	} else {
-		m.input.InsertString(text)
+		m.composer.input.InsertString(text)
 	}
 }
 func (m *runMode) ConnectVoice() error {
-	if m.voiceConnectFn != nil {
-		return m.voiceConnectFn()
+	if m.viewport.voiceConnectFn != nil {
+		return m.viewport.voiceConnectFn()
 	}
 	if micAddr := os.Getenv("ANTIGRAVITY_MIC"); micAddr != "" {
 		conn, err := net.DialTimeout("tcp", micAddr, 2*time.Second)
@@ -1620,19 +1620,19 @@ func (m *runMode) newVoiceSurface() *voice.Surface { return panels.NewVoiceSurfa
 
 // Rewind
 func (m *runMode) RewindSteps() []rewind.Step {
-	if m.supervisor != nil {
-		return m.supervisor.RewindSteps()
+	if m.session.supervisor != nil {
+		return m.session.supervisor.RewindSteps()
 	}
-	return rewind.Steps(m.session)
+	return rewind.Steps(m.engine.session)
 }
 func (m *runMode) RewindPickStep(index int) int {
 	var r rewind.Result
-	if m.supervisor != nil {
-		r = m.supervisor.RewindToStep(index)
-		m.session = r.Session
+	if m.session.supervisor != nil {
+		r = m.session.supervisor.RewindToStep(index)
+		m.engine.session = r.Session
 	} else {
-		r = rewind.ToStep(m.session, index)
-		m.session = r.Session
+		r = rewind.ToStep(m.engine.session, index)
+		m.engine.session = r.Session
 	}
 	if r.Removed <= 0 {
 		return 0
@@ -1642,10 +1642,10 @@ func (m *runMode) RewindPickStep(index int) int {
 }
 func (m *runMode) newRewindPanel() *rewindpanel.Panel { return panels.NewRewindPanel(m) }
 func (m *runMode) rewindPanel() *rewindpanel.Panel {
-	if m.panel.rw == nil {
-		m.panel.rw = m.newRewindPanel()
+	if m.overlays.panel.rw == nil {
+		m.overlays.panel.rw = m.newRewindPanel()
 	}
-	return m.panel.rw
+	return m.overlays.panel.rw
 }
 
 // ---- Merged from slash_panel_args.go, slash_panel_routing.go, slash_panel_wiring.go,
@@ -1685,33 +1685,33 @@ func (m *runMode) openSlashPanelArgs(cmd, args string) bool {
 	if !m.openSlashPanel(cmd) {
 		return false
 	}
-	if m.panel.kind == panelregistry.CodeSearch {
+	if m.overlays.panel.kind == panelregistry.CodeSearch {
 		m.codesearchPanel().Start(args)
 	}
 	return true
 }
 
 func (m *runMode) currentEffort() int {
-	switch word := cliflags.StringValue(m.flags, "effort"); word {
+	switch word := cliflags.StringValue(m.session.flags, "effort"); word {
 	case "low", "medium", "high":
 		return effortpanel.EffortIndexForName(word)
 	}
-	return effortCursorForLabel(m.model)
+	return effortCursorForLabel(m.session.model)
 }
 
 func (m *runMode) currentEffortName() string {
-	switch word := strings.ToLower(strings.TrimSpace(cliflags.StringValue(m.flags, "effort"))); word {
+	switch word := strings.ToLower(strings.TrimSpace(cliflags.StringValue(m.session.flags, "effort"))); word {
 	case "low", "medium", "high", "xhigh", "max":
 		return word
 	}
-	if tier := models.TierFromLabel(m.model); tier != "" {
+	if tier := models.TierFromLabel(m.session.model); tier != "" {
 		return tier
 	}
 	return effortpanel.EffortLevelName(m.currentEffort())
 }
 
 func (m *runMode) panelView() string {
-	if m.panel.kind == panelregistry.None {
+	if m.overlays.panel.kind == panelregistry.None {
 		return ""
 	}
 	var b strings.Builder
@@ -1719,37 +1719,37 @@ func (m *runMode) panelView() string {
 		b.WriteString(l)
 		b.WriteString("\n")
 	}
-	if m.panel.kind.TrailingBlank() {
+	if m.overlays.panel.kind.TrailingBlank() {
 		b.WriteString("\n")
 	}
 	return b.String()
 }
 
 func (m *runMode) panelLines() []string {
-	return m.getPanelRegistry().Lines(m.panel.kind)
+	return m.getPanelRegistry().Lines(m.overlays.panel.kind)
 }
 
 func (m *runMode) closePanel() tea.Cmd {
-	cmd := m.panel.cmd
-	notice := m.panel.kind.ExitNotice()
-	m.panel.csp.Cancel()
-	m.panel = slashPanel{}
+	cmd := m.overlays.panel.cmd
+	notice := m.overlays.panel.kind.ExitNotice()
+	m.overlays.panel.csp.Cancel()
+	m.overlays.panel = slashPanel{}
 	m.reloadVimSettings()
 	if notice {
-		m.response = append(m.response, tuilib.SlashEchoLines(cmd, "Exited "+cmd+" command")...)
+		m.engine.response = append(m.engine.response, tuilib.SlashEchoLines(cmd, "Exited "+cmd+" command")...)
 	}
 	return nil
 }
 
 func (m *runMode) closePanelSilent() tea.Cmd {
-	m.panel.csp.Cancel()
-	m.panel = slashPanel{}
+	m.overlays.panel.csp.Cancel()
+	m.overlays.panel = slashPanel{}
 	m.reloadVimSettings()
 	return nil
 }
 
 func (m *runMode) handleNavAndEnterKey(key tea.Key, n int) (bool, tea.Cmd, bool) {
-	if m.panel.kind == panelregistry.Config {
+	if m.overlays.panel.kind == panelregistry.Config {
 		if handled, cmd := m.configPanel().HandleKey(key); handled {
 			return true, cmd, true
 		}
@@ -1757,7 +1757,7 @@ func (m *runMode) handleNavAndEnterKey(key tea.Key, n int) (bool, tea.Cmd, bool)
 	switch action := tuilib.ClassifyListNavKey(key); action {
 	case tuilib.NavUp, tuilib.NavDown, tuilib.NavPageUp, tuilib.NavPageDown,
 		tuilib.NavTop, tuilib.NavBottom:
-		m.panel.cursor = tuiviewport.PanelCursor(m.panel.cursor, action, n)
+		m.overlays.panel.cursor = tuiviewport.PanelCursor(m.overlays.panel.cursor, action, n)
 		return true, nil, true
 	case tuilib.NavCancel:
 		return true, m.closePanel(), true
@@ -1766,14 +1766,14 @@ func (m *runMode) handleNavAndEnterKey(key tea.Key, n int) (bool, tea.Cmd, bool)
 }
 
 func (m *runMode) handlePanelKey(key tea.Key) (bool, tea.Cmd) {
-	if m.panel.kind == panelregistry.None {
+	if m.overlays.panel.kind == panelregistry.None {
 		return false, nil
 	}
-	if handled, cmd, claimed := m.panelRegistry().HandleKey(m.panel.kind, key); claimed {
+	if handled, cmd, claimed := m.panelRegistry().HandleKey(m.overlays.panel.kind, key); claimed {
 		return handled, cmd
 	}
-	n := m.panelRegistry().RowCount(m.panel.kind)
-	if m.panel.kind == panelregistry.Model {
+	n := m.panelRegistry().RowCount(m.overlays.panel.kind)
+	if m.overlays.panel.kind == panelregistry.Model {
 		if handled, cmd := m.modelPanel().HandleKey(key); handled {
 			return true, cmd
 		}
@@ -1890,44 +1890,44 @@ func (m *runMode) initOpenedSlashPanel(kind panelregistry.Kind) {
 
 var panelInitializers = map[panelregistry.Kind]func(m *runMode){
 	panelregistry.Provider: func(m *runMode) {
-		m.panel.prov = m.newProviderPanel()
-		m.panel.prov.Reload()
-		m.panel.prov.Notice("")
+		m.overlays.panel.prov = m.newProviderPanel()
+		m.overlays.panel.prov.Reload()
+		m.overlays.panel.prov.Notice("")
 	},
-	panelregistry.Config:      func(m *runMode) { m.panel.cfg = m.newConfigPanel() },
-	panelregistry.Model:       func(m *runMode) { m.panel.mdl = m.newModelPanel() },
-	panelregistry.Plugin:      func(m *runMode) { m.panel.plg = m.newPluginPanel() },
-	panelregistry.Skills:      func(m *runMode) { m.panel.sk = m.newSkillsPanel() },
-	panelregistry.Permissions: func(m *runMode) { m.panel.perm = m.newPermissionsPanel() },
-	panelregistry.Hooks:       func(m *runMode) { m.panel.hk = m.newHooksPanel() },
-	panelregistry.Agents:      func(m *runMode) { m.panel.ag = m.newAgentsPanel() },
-	panelregistry.Feedback:    func(m *runMode) { m.panel.fb = m.newFeedbackPanel() },
-	panelregistry.Credits:     func(m *runMode) { m.panel.cr = m.newCreditsPanel() },
-	panelregistry.Tasks:       func(m *runMode) { m.panel.tp = m.newTasksPanel() },
-	panelregistry.Effort:      func(m *runMode) { m.panel.ef = m.newEffortPanel() },
-	panelregistry.CodeSearch:  func(m *runMode) { m.panel.csp = m.newCodesearchPanel() },
-	panelregistry.Rewind:      func(m *runMode) { m.panel.rw = m.newRewindPanel() },
-	panelregistry.Diff:        func(m *runMode) { m.panel.df = m.newDiffPanel() },
+	panelregistry.Config:      func(m *runMode) { m.overlays.panel.cfg = m.newConfigPanel() },
+	panelregistry.Model:       func(m *runMode) { m.overlays.panel.mdl = m.newModelPanel() },
+	panelregistry.Plugin:      func(m *runMode) { m.overlays.panel.plg = m.newPluginPanel() },
+	panelregistry.Skills:      func(m *runMode) { m.overlays.panel.sk = m.newSkillsPanel() },
+	panelregistry.Permissions: func(m *runMode) { m.overlays.panel.perm = m.newPermissionsPanel() },
+	panelregistry.Hooks:       func(m *runMode) { m.overlays.panel.hk = m.newHooksPanel() },
+	panelregistry.Agents:      func(m *runMode) { m.overlays.panel.ag = m.newAgentsPanel() },
+	panelregistry.Feedback:    func(m *runMode) { m.overlays.panel.fb = m.newFeedbackPanel() },
+	panelregistry.Credits:     func(m *runMode) { m.overlays.panel.cr = m.newCreditsPanel() },
+	panelregistry.Tasks:       func(m *runMode) { m.overlays.panel.tp = m.newTasksPanel() },
+	panelregistry.Effort:      func(m *runMode) { m.overlays.panel.ef = m.newEffortPanel() },
+	panelregistry.CodeSearch:  func(m *runMode) { m.overlays.panel.csp = m.newCodesearchPanel() },
+	panelregistry.Rewind:      func(m *runMode) { m.overlays.panel.rw = m.newRewindPanel() },
+	panelregistry.Diff:        func(m *runMode) { m.overlays.panel.df = m.newDiffPanel() },
 	panelregistry.Rename: func(m *runMode) {
-		m.panel.rn = m.newRenamePanel()
+		m.overlays.panel.rn = m.newRenamePanel()
 		m.armRenameFocus()
 	},
-	panelregistry.AddDir:   func(m *runMode) { m.panel.ad = m.newAddDirPanel() },
-	panelregistry.Projects: func(m *runMode) { m.panel.proj = m.newProjectsPanel() },
+	panelregistry.AddDir:   func(m *runMode) { m.overlays.panel.ad = m.newAddDirPanel() },
+	panelregistry.Projects: func(m *runMode) { m.overlays.panel.proj = m.newProjectsPanel() },
 	panelregistry.Accounts: func(m *runMode) {
-		m.panel.acct = m.newAccountsPanel()
-		m.panel.acct.Reload()
-		m.panel.acct.ClearNotice()
-		if m.panel.cmd == "/pool" {
-			m.panel.acct.SetTab(accountspanel.TabPool)
+		m.overlays.panel.acct = m.newAccountsPanel()
+		m.overlays.panel.acct.Reload()
+		m.overlays.panel.acct.ClearNotice()
+		if m.overlays.panel.cmd == "/pool" {
+			m.overlays.panel.acct.SetTab(accountspanel.TabPool)
 		}
-		m.panel.acct.ReloadPolicy()
+		m.overlays.panel.acct.ReloadPolicy()
 	},
 }
 
 func (m *runMode) initOpenedSlashPanelData(kind panelregistry.Kind) {
-	if kind == panelregistry.Usage && m.height > 0 {
-		m.panel.quota = quotaState{state: quotaLoading}
+	if kind == panelregistry.Usage && m.viewport.height > 0 {
+		m.overlays.panel.quota = quotaState{state: quotaLoading}
 	}
 	if kind.IsViewer() {
 		m.initViewerViewport()
@@ -1952,7 +1952,7 @@ func (m *runMode) openSlashPanel(cmd string) bool {
 	if c, ok := slashcommands.Canonical(cmd); ok {
 		canonical = c
 	}
-	m.panel = slashPanel{kind: kind, cmd: "/" + canonical}
+	m.overlays.panel = slashPanel{kind: kind, cmd: "/" + canonical}
 	m.initOpenedSlashPanel(kind)
 	return true
 }
@@ -1969,7 +1969,7 @@ func effortCursorForLabel(label string) int {
 }
 
 func (m *runMode) panelCurrentModelLabel() string {
-	if lbl := strings.TrimSpace(m.model); lbl != "" {
+	if lbl := strings.TrimSpace(m.session.model); lbl != "" {
 		return lbl
 	}
 	lbl, _ := modelcatalog.ResolveEffectiveModel("")
@@ -1977,7 +1977,7 @@ func (m *runMode) panelCurrentModelLabel() string {
 }
 
 func (m *runMode) statusEffortSuffix() string {
-	if !modelpicker.HasEffortTiers(m.statusModel) {
+	if !modelpicker.HasEffortTiers(m.session.statusModel) {
 		return ""
 	}
 	return " \u00b7 " + m.currentEffortName()
@@ -2005,25 +2005,25 @@ func (m *runMode) applyEffortLevel(name string, level int) tea.Cmd {
 	label := modelcatalog.EffortLabelFor(model, name)
 	changed := label != "" && label != before
 
-	if m.flags != nil {
-		_ = m.flags.Set("effort", name)
+	if m.session.flags != nil {
+		_ = m.session.flags.Set("effort", name)
 	}
 
-	if m.panel.kind == panelregistry.Effort {
-		m.panel = slashPanel{}
+	if m.overlays.panel.kind == panelregistry.Effort {
+		m.overlays.panel = slashPanel{}
 	}
 	if !changed {
 		return nil
 	}
-	if strings.TrimSpace(m.model) == "" {
-		m.model = before
-		m.statusModel = tuilib.StripTier(before)
+	if strings.TrimSpace(m.session.model) == "" {
+		m.session.model = before
+		m.session.statusModel = tuilib.StripTier(before)
 	}
-	m.model = label
-	m.statusModel = tuilib.StripTier(label)
+	m.session.model = label
+	m.session.statusModel = tuilib.StripTier(label)
 	m.syncBackendForModel()
 	_ = settings.SetField("model", label)
-	m.response = append(m.response, tuilib.SlashEchoLines("/effort", "Effort set to "+name)...)
+	m.engine.response = append(m.engine.response, tuilib.SlashEchoLines("/effort", "Effort set to "+name)...)
 	return nil
 }
 
@@ -2047,19 +2047,19 @@ type editorFinishedMsg struct {
 func (m *runMode) editPromptCmd() tea.Cmd {
 	name, args, notice, err := editorkit.ResolveEditor(settings.String("editor"))
 	if err != nil {
-		m.response = append(m.response, "Failed to resolve editor: "+err.Error())
+		m.engine.response = append(m.engine.response, "Failed to resolve editor: "+err.Error())
 		return nil
 	}
 	if _, err := exec.LookPath(name); err != nil {
-		m.response = append(m.response, "Failed to resolve editor: "+err.Error())
+		m.engine.response = append(m.engine.response, "Failed to resolve editor: "+err.Error())
 		return nil
 	}
 	if notice != "" {
-		m.response = append(m.response, notice)
+		m.engine.response = append(m.engine.response, notice)
 	}
-	path, err := editorkit.PromptScratchFile(m.input.Value())
+	path, err := editorkit.PromptScratchFile(m.composer.input.Value())
 	if err != nil {
-		m.response = append(m.response, "Failed to create a temporary file: "+err.Error())
+		m.engine.response = append(m.engine.response, "Failed to create a temporary file: "+err.Error())
 		return nil
 	}
 	c := exec.Command(name, append(args, path)...)
@@ -2069,10 +2069,10 @@ func (m *runMode) editPromptCmd() tea.Cmd {
 }
 
 func (m *runMode) getPanelRegistry() *panelregistry.Registry {
-	if m.panelReg == nil {
-		m.panelReg = m.buildPanelRegistry()
+	if m.overlays.panelReg == nil {
+		m.overlays.panelReg = m.buildPanelRegistry()
 	}
-	return m.panelReg
+	return m.overlays.panelReg
 }
 
 func (m *runMode) Panel(k panelregistry.Kind) any {
@@ -2121,10 +2121,10 @@ func (m *runMode) Panel(k panelregistry.Kind) any {
 }
 
 func (m *runMode) projectsPanel() *projectspanel.Panel {
-	if m.panel.proj == nil {
-		m.panel.proj = m.newProjectsPanel()
+	if m.overlays.panel.proj == nil {
+		m.overlays.panel.proj = m.newProjectsPanel()
 	}
-	return m.panel.proj
+	return m.overlays.panel.proj
 }
 
 func (m *runMode) newProjectsPanel() *projectspanel.Panel {
@@ -2148,8 +2148,8 @@ func (m *runMode) HomeDir() string {
 }
 
 func (m *runMode) WorkspaceDir() string {
-	if m != nil && m.cwd != "" {
-		return m.cwd
+	if m != nil && m.session.cwd != "" {
+		return m.session.cwd
 	}
 	return ""
 }

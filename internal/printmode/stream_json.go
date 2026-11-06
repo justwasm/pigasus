@@ -105,7 +105,7 @@ func RunStreamJSON(w io.Writer, r io.Reader, fs *flag.FlagSet) error {
 		Supervisor:     cfg.sel.Supervisor,
 	}
 
-	provider, errSlot, err := preparePrintProvider(pcfg)
+	provider, err := preparePrintProvider(pcfg)
 	if err != nil {
 		return err
 	}
@@ -238,7 +238,7 @@ func RunStreamJSON(w io.Writer, r io.Reader, fs *flag.FlagSet) error {
 		turnPCfg.Prompt = promptText
 		turnPCfg.Handler = chunkHandler
 
-		runErr := executeActorPrintRun(ctx, act, turnPCfg, deliveries, errSlot)
+		runErr := executeActorPrintRun(ctx, act, turnPCfg, deliveries)
 
 		// 3. Emit agent_response step_update
 		stepType := "agent_response"

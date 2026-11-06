@@ -90,7 +90,7 @@ func TestSeasonalPromptRule(t *testing.T) {
 	if ev == nil {
 		t.Fatal("no event in October")
 	}
-	m := &runMode{width: 200, seasonal: ev}
+	m := &runMode{viewport: uiState{width: 200, seasonal: ev}}
 	top := termcolor.StripSGR(m.promptRule(true))
 	if !strings.Contains(top, "/^v^\\") {
 		t.Errorf("the top rule has no motif: %q", top)
@@ -99,7 +99,7 @@ func TestSeasonalPromptRule(t *testing.T) {
 	if !strings.Contains(bottom, "\\|//") {
 		t.Errorf("the bottom rule has no motif: %q", bottom)
 	}
-	plain := &runMode{width: 200}
+	plain := &runMode{viewport: uiState{width: 200}}
 	if got := plain.promptRule(true); !strings.Contains(got, "─") || strings.Contains(termcolor.StripSGR(got), "/^v^\\") {
 		t.Errorf("the unthemed rule is %q", got)
 	}

@@ -543,6 +543,11 @@ func (a *Actor) Trajectory() *Trajectory {
 	return a.trajectory
 }
 
+// ResetHistory resets the actor's trajectory with a fresh set of conversation messages.
+func (a *Actor) ResetHistory(history []ConversationMessage) {
+	a.trajectory.ResetWithHistory(history)
+}
+
 // Close shuts down the actor, its timers, and cancels any active turn.
 func (a *Actor) Close() error {
 	a.mu.Lock()

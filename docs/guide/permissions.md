@@ -54,11 +54,10 @@ of writing is not covered by the write grant.
 > **A one-shared-prefix-rule-for-six-actions is a bug, not a
 > simplification.** It was the state before cycle 383's fix 8.
 
-### The duplicate grammar
+### The unified grammar
 
-`internal/remotecontrol/permissions` is **stdlib-only** and cannot
-import `internal/core/policy/permissions`, so the grammar exists
-**twice**. The action set, the three error sentences
+The grant grammar is unified in `internal/core/policy/permissions` (Tier 1 Core),
+and reused by `internal/remotecontrol/permissions`. The action set, the three error sentences
 
 ```
 invalid grant string: %q
@@ -66,10 +65,7 @@ unknown action %q in grant string: %q
 unsandboxed is no longer a valid rule, use command() instead
 ```
 
-and the retired `unsandboxed` are the **shared facts** and must not
-drift between the two copies. The harness's own policy
-(`cmd/harness/conversation.go`) is a third surface and speaks the same
-vocabulary.
+and the retired `unsandboxed` have a single source of truth in `internal/core/policy/permissions/grant.go`.
 
 ## The three outcomes and their precedence
 

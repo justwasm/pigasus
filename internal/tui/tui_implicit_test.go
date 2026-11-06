@@ -100,7 +100,7 @@ func TestTheTrajectoryIsPerWorkspace(t *testing.T) {
 	m := implicitRunMode(t, home, one)
 
 	m.finishBashCommand(bashDoneMsg{cmd: "echo one", output: "one", hasCode: true})
-	m.cwd = two
+	m.session.cwd = two
 	m.finishBashCommand(bashDoneMsg{cmd: "echo two", output: "two", hasCode: true})
 
 	store := implicit.Open(home)

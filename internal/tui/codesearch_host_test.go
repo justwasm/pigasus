@@ -24,7 +24,7 @@ func TestCodesearchReadFile(t *testing.T) {
 		t.Fatal(err)
 	}
 	m := &runMode{}
-	m.cwd = root
+	m.session.cwd = root
 	lines, message, ok := m.codesearchReadFile("a.txt")
 	if !ok {
 		t.Fatalf("read failed: %s", message)
@@ -48,7 +48,7 @@ func TestCodesearchReadFile(t *testing.T) {
 func TestCodesearchReadFileMissing(t *testing.T) {
 	root := t.TempDir()
 	m := &runMode{}
-	m.cwd = root
+	m.session.cwd = root
 	_, message, ok := m.codesearchReadFile("nope.txt")
 	if ok {
 		t.Fatal("a missing file must not be readable")
@@ -67,7 +67,7 @@ func TestCodesearchReadFileNotRegular(t *testing.T) {
 		t.Fatal(err)
 	}
 	m := &runMode{}
-	m.cwd = root
+	m.session.cwd = root
 	_, message, ok := m.codesearchReadFile("sub")
 	if ok {
 		t.Fatal("a directory must not be readable")
@@ -141,7 +141,7 @@ func TestSplitFileLines(t *testing.T) {
 // search root.
 func TestCodesearchPath(t *testing.T) {
 	m := &runMode{}
-	m.cwd = "/work"
+	m.session.cwd = "/work"
 	if got := m.codesearchPath("a/b.txt"); got != filepath.Join("/work", "a/b.txt") {
 		t.Errorf("codesearchPath = %q", got)
 	}

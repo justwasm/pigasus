@@ -20,16 +20,16 @@ import (
 // and enables remote control for the session.
 func TestRemoteControlStartup_InteractiveFlagOn(t *testing.T) {
 	m := slashRemoteControlRunMode(t)
-	m.width = 120
+	m.viewport.width = 120
 
 	fs := buildRemoteControlFlagSet(t, []string{"--remote-control"})
 	setupTUIRemoteControl(m, fs)
 
-	if !m.remoteControl {
-		t.Fatal("expected m.remoteControl=true after setupTUIRemoteControl with --remote-control")
+	if !m.session.remoteControl {
+		t.Fatal("expected m.session.remoteControl=true after setupTUIRemoteControl with --remote-control")
 	}
 
-	joined := strings.Join(m.response, "\n")
+	joined := strings.Join(m.engine.response, "\n")
 	if !strings.Contains(joined, "> /remote-control") {
 		t.Errorf("expected command echo '> /remote-control' in transcript:\n%s", joined)
 	}
@@ -43,7 +43,7 @@ func TestRemoteControlStartup_InteractiveFlagOn(t *testing.T) {
 		t.Errorf("expected take-over lead line in transcript:\n%s", joined)
 	}
 
-	instanceID := persistentrc.InstanceIDPrefix + m.remoteControlUUID + persistentrc.InstanceIDSuffix
+	instanceID := persistentrc.InstanceIDPrefix + m.session.remoteControlUUID + persistentrc.InstanceIDSuffix
 	wantURL := rclink.BrowserURL(instanceID, "")
 	if !strings.Contains(joined, wantURL) {
 		t.Errorf("expected account chooser URL %q in transcript:\n%s", wantURL, joined)
@@ -63,23 +63,23 @@ func TestRemoteControlStartup_InteractiveFlagOn(t *testing.T) {
 // prose and includes the conversation query in the URL.
 func TestRemoteControlStartup_InteractiveFlagWithConversation(t *testing.T) {
 	m := slashRemoteControlRunMode(t)
-	m.width = 140
-	m.conversationID = "01234567-89ab-cdef-0123-456789abcdef"
+	m.viewport.width = 140
+	m.session.conversationID = "01234567-89ab-cdef-0123-456789abcdef"
 
-	fs := buildRemoteControlFlagSet(t, []string{"--remote-control", "--conversation", m.conversationID})
+	fs := buildRemoteControlFlagSet(t, []string{"--remote-control", "--conversation", m.session.conversationID})
 	setupTUIRemoteControl(m, fs)
 
-	if !m.remoteControl {
-		t.Fatal("expected m.remoteControl=true")
+	if !m.session.remoteControl {
+		t.Fatal("expected m.session.remoteControl=true")
 	}
 
-	joined := strings.Join(m.response, "\n")
+	joined := strings.Join(m.engine.response, "\n")
 	if !strings.Contains(joined, "Open on another device to continue this conversation:") {
 		t.Errorf("expected continuation lead line in transcript:\n%s", joined)
 	}
 
-	instanceID := persistentrc.InstanceIDPrefix + m.remoteControlUUID + persistentrc.InstanceIDSuffix
-	wantURL := rclink.BrowserURL(instanceID, "p=c%2F"+m.conversationID)
+	instanceID := persistentrc.InstanceIDPrefix + m.session.remoteControlUUID + persistentrc.InstanceIDSuffix
+	wantURL := rclink.BrowserURL(instanceID, "p=c%2F"+m.session.conversationID)
 	if !strings.Contains(joined, wantURL) {
 		t.Errorf("expected URL %q with conversation query in transcript:\n%s", wantURL, joined)
 	}
@@ -104,8 +104,8 @@ func TestRemoteControlStartup_InteractiveFlagWithContinue(t *testing.T) {
 	for _, flagArg := range []string{"--continue", "-c"} {
 		t.Run(flagArg, func(t *testing.T) {
 			m := slashRemoteControlRunMode(t)
-			m.width = 140
-			m.cwd = wsDir
+			m.viewport.width = 140
+			m.session.cwd = wsDir
 
 			if err := convstore.SaveConversation(convID, wsDir, steps); err != nil {
 				t.Fatalf("SaveConversation: %v", err)
@@ -115,19 +115,19 @@ func TestRemoteControlStartup_InteractiveFlagWithContinue(t *testing.T) {
 			setupTUIConversation(m, fs, wsDir)
 			setupTUIRemoteControl(m, fs)
 
-			if !m.remoteControl {
-				t.Fatal("expected m.remoteControl=true")
+			if !m.session.remoteControl {
+				t.Fatal("expected m.session.remoteControl=true")
 			}
-			if m.conversationID != convID {
-				t.Fatalf("expected m.conversationID=%q, got %q", convID, m.conversationID)
+			if m.session.conversationID != convID {
+				t.Fatalf("expected m.session.conversationID=%q, got %q", convID, m.session.conversationID)
 			}
 
-			joined := strings.Join(m.response, "\n")
+			joined := strings.Join(m.engine.response, "\n")
 			if !strings.Contains(joined, "Open on another device to continue this conversation:") {
 				t.Errorf("expected continuation lead line in transcript:\n%s", joined)
 			}
 
-			instanceID := persistentrc.InstanceIDPrefix + m.remoteControlUUID + persistentrc.InstanceIDSuffix
+			instanceID := persistentrc.InstanceIDPrefix + m.session.remoteControlUUID + persistentrc.InstanceIDSuffix
 			wantURL := rclink.BrowserURL(instanceID, "p=c%2F"+convID)
 			if !strings.Contains(joined, wantURL) {
 				t.Errorf("expected URL %q with conversation query in transcript:\n%s", wantURL, joined)
@@ -148,22 +148,22 @@ func TestRemoteControlStartup_InteractiveFlagWithContinueEmptyWorkspace(t *testi
 	defer func() { _ = os.Chdir(origWd) }()
 
 	m := slashRemoteControlRunMode(t)
-	m.width = 140
-	m.cwd = wsDir
+	m.viewport.width = 140
+	m.session.cwd = wsDir
 
 	fs := buildRemoteControlFlagSet(t, []string{"--remote-control", "--continue"})
 	setupTUIConversation(m, fs, wsDir)
 	setupTUIRemoteControl(m, fs)
 
-	if !m.remoteControl {
-		t.Fatal("expected m.remoteControl=true")
+	if !m.session.remoteControl {
+		t.Fatal("expected m.session.remoteControl=true")
 	}
 
-	joined := strings.Join(m.response, "\n")
+	joined := strings.Join(m.engine.response, "\n")
 	if !strings.Contains(joined, "Open on another device to take over:") {
 		t.Errorf("expected take-over lead line in transcript on empty workspace:\n%s", joined)
 	}
-	instanceID := persistentrc.InstanceIDPrefix + m.remoteControlUUID + persistentrc.InstanceIDSuffix
+	instanceID := persistentrc.InstanceIDPrefix + m.session.remoteControlUUID + persistentrc.InstanceIDSuffix
 	wantURL := rclink.BrowserURL(instanceID, "")
 	if !strings.Contains(joined, wantURL) {
 		t.Errorf("expected account chooser URL %q without conversation query in transcript:\n%s", wantURL, joined)
@@ -178,11 +178,11 @@ func TestRemoteControlStartup_InteractiveFlagOff(t *testing.T) {
 		fs := buildRemoteControlFlagSet(t, []string{})
 		setupTUIRemoteControl(m, fs)
 
-		if m.remoteControl {
-			t.Error("expected m.remoteControl=false when flag is omitted")
+		if m.session.remoteControl {
+			t.Error("expected m.session.remoteControl=false when flag is omitted")
 		}
-		if len(m.response) != 0 {
-			t.Errorf("expected empty m.response, got: %v", m.response)
+		if len(m.engine.response) != 0 {
+			t.Errorf("expected empty m.engine.response, got: %v", m.engine.response)
 		}
 	})
 
@@ -191,11 +191,11 @@ func TestRemoteControlStartup_InteractiveFlagOff(t *testing.T) {
 		fs := buildRemoteControlFlagSet(t, []string{"--remote-control=false"})
 		setupTUIRemoteControl(m, fs)
 
-		if m.remoteControl {
-			t.Error("expected m.remoteControl=false when --remote-control=false")
+		if m.session.remoteControl {
+			t.Error("expected m.session.remoteControl=false when --remote-control=false")
 		}
-		if len(m.response) != 0 {
-			t.Errorf("expected empty m.response, got: %v", m.response)
+		if len(m.engine.response) != 0 {
+			t.Errorf("expected empty m.engine.response, got: %v", m.engine.response)
 		}
 	})
 
@@ -203,7 +203,7 @@ func TestRemoteControlStartup_InteractiveFlagOff(t *testing.T) {
 		m := slashRemoteControlRunMode(t)
 		setupTUIRemoteControl(m, nil)
 		setupTUIRemoteControl(nil, &flag.FlagSet{})
-		if m.remoteControl || len(m.response) != 0 {
+		if m.session.remoteControl || len(m.engine.response) != 0 {
 			t.Error("expected no-op on nil arguments")
 		}
 	})
@@ -218,11 +218,11 @@ func TestRemoteControlStartup_InteractiveFlagUnderADC(t *testing.T) {
 	fs := buildRemoteControlFlagSet(t, []string{"--remote-control"})
 	setupTUIRemoteControl(m, fs)
 
-	if m.remoteControl {
-		t.Error("expected m.remoteControl=false under ADC")
+	if m.session.remoteControl {
+		t.Error("expected m.session.remoteControl=false under ADC")
 	}
 
-	joined := strings.Join(m.response, "\n")
+	joined := strings.Join(m.engine.response, "\n")
 	if !strings.Contains(joined, "Application Default Credentials") {
 		t.Errorf("expected ADC rejection message in transcript:\n%s", joined)
 	}
@@ -343,16 +343,16 @@ func TestRemoteControlStartup_InteractiveFlagDesktop(t *testing.T) {
 	defer func() { persistentrc.StartOfficialDaemon = origStart }()
 
 	m := slashRemoteControlRunMode(t)
-	m.width = 120
+	m.viewport.width = 120
 
 	fs := buildRemoteControlFlagSet(t, []string{"--remote-control", "--desktop"})
 	setupTUIRemoteControl(m, fs)
 
-	if !m.remoteControl {
-		t.Fatal("expected m.remoteControl=true after setupTUIRemoteControl with --remote-control --desktop")
+	if !m.session.remoteControl {
+		t.Fatal("expected m.session.remoteControl=true after setupTUIRemoteControl with --remote-control --desktop")
 	}
-	if !m.remoteControlDesktop {
-		t.Fatal("expected m.remoteControlDesktop=true")
+	if !m.session.remoteControlDesktop {
+		t.Fatal("expected m.session.remoteControlDesktop=true")
 	}
 
 	for i := 0; i < 50; i++ {
@@ -384,24 +384,24 @@ func TestRemoteControlStartup_DesktopFlagRetainedForSlashCommand(t *testing.T) {
 	defer func() { persistentrc.StartOfficialDaemon = origStart }()
 
 	m := slashRemoteControlRunMode(t)
-	m.width = 120
+	m.viewport.width = 120
 
 	fs := buildRemoteControlFlagSet(t, []string{"--desktop"})
 	setupTUIRemoteControl(m, fs)
 
-	if m.remoteControl {
-		t.Fatal("expected m.remoteControl=false when --remote-control flag was omitted")
+	if m.session.remoteControl {
+		t.Fatal("expected m.session.remoteControl=false when --remote-control flag was omitted")
 	}
-	if !m.remoteControlDesktop {
-		t.Fatal("expected m.remoteControlDesktop=true when --desktop was provided")
+	if !m.session.remoteControlDesktop {
+		t.Fatal("expected m.session.remoteControlDesktop=true when --desktop was provided")
 	}
 
 	handled, _ := m.handleSlashCommand("/remote-control")
 	if !handled {
 		t.Fatal("expected /remote-control to be handled")
 	}
-	if !m.remoteControl {
-		t.Fatal("expected m.remoteControl=true after /remote-control")
+	if !m.session.remoteControl {
+		t.Fatal("expected m.session.remoteControl=true after /remote-control")
 	}
 
 	for i := 0; i < 50; i++ {
@@ -490,30 +490,30 @@ func TestRemoteControlStartup_RunRootIntegration(t *testing.T) {
 func TestRemoteControlStartupAndSlashParity(t *testing.T) {
 	t.Run("fresh session without prior conversation", func(t *testing.T) {
 		m := slashRemoteControlRunMode(t)
-		m.width = 140
+		m.viewport.width = 140
 
 		// 1. Startup with --remote-control
 		fs := buildRemoteControlFlagSet(t, []string{"--remote-control"})
 		setupTUIRemoteControl(m, fs)
-		startupLines := append([]string(nil), m.response...)
+		startupLines := append([]string(nil), m.engine.response...)
 		startupJoined := strings.Join(startupLines, "\n")
 
 		if !strings.Contains(startupJoined, "Open on another device to take over:") {
 			t.Fatalf("startup expected 'take over':\n%s", startupJoined)
 		}
-		instanceID := persistentrc.InstanceIDPrefix + m.remoteControlUUID + persistentrc.InstanceIDSuffix
+		instanceID := persistentrc.InstanceIDPrefix + m.session.remoteControlUUID + persistentrc.InstanceIDSuffix
 		wantURL := rclink.BrowserURL(instanceID, "")
 		if !strings.Contains(startupJoined, wantURL) {
 			t.Fatalf("startup expected URL %q:\n%s", wantURL, startupJoined)
 		}
 
 		// 2. Clear response and run /remote-control before any user prompt
-		m.response = nil
+		m.engine.response = nil
 		handled, _ := m.handleSlashCommand("/remote-control")
 		if !handled {
 			t.Fatal("expected /remote-control handled=true")
 		}
-		slashLines := append([]string(nil), m.response...)
+		slashLines := append([]string(nil), m.engine.response...)
 		slashJoined := strings.Join(slashLines, "\n")
 
 		if !strings.Contains(slashJoined, "Open on another device to take over:") {
@@ -530,16 +530,16 @@ func TestRemoteControlStartupAndSlashParity(t *testing.T) {
 
 		// 4. After user submits a prompt, /remote-control should continue the conversation
 		m.startModelTurn("hello")
-		m.response = nil
+		m.engine.response = nil
 		handled, _ = m.handleSlashCommand("/remote-control")
 		if !handled {
 			t.Fatal("expected /remote-control handled=true")
 		}
-		activeSlashJoined := strings.Join(m.response, "\n")
+		activeSlashJoined := strings.Join(m.engine.response, "\n")
 		if !strings.Contains(activeSlashJoined, "Open on another device to continue this conversation:") {
 			t.Errorf("expected 'continue this conversation' after turn started:\n%s", activeSlashJoined)
 		}
-		wantActiveURL := rclink.BrowserURL(instanceID, "p=c%2F"+m.conversationID)
+		wantActiveURL := rclink.BrowserURL(instanceID, "p=c%2F"+m.session.conversationID)
 		if !strings.Contains(activeSlashJoined, wantActiveURL) {
 			t.Errorf("expected active conversation URL %q in:\n%s", wantActiveURL, activeSlashJoined)
 		}
@@ -547,17 +547,17 @@ func TestRemoteControlStartupAndSlashParity(t *testing.T) {
 
 	t.Run("session started with conversation flag", func(t *testing.T) {
 		m := slashRemoteControlRunMode(t)
-		m.width = 140
+		m.viewport.width = 140
 		convID := "explicit-conv-uuid-1234"
-		m.conversationID = convID
+		m.session.conversationID = convID
 
 		fs := buildRemoteControlFlagSet(t, []string{"--remote-control", "--conversation", convID})
 		setupTUIRemoteControl(m, fs)
-		startupJoined := strings.Join(m.response, "\n")
+		startupJoined := strings.Join(m.engine.response, "\n")
 
-		m.response = nil
+		m.engine.response = nil
 		m.handleSlashCommand("/remote-control")
-		slashJoined := strings.Join(m.response, "\n")
+		slashJoined := strings.Join(m.engine.response, "\n")
 
 		if startupJoined != slashJoined {
 			t.Errorf("URL/prose mismatch with --conversation:\n--- startup ---\n%s\n--- slash ---\n%s", startupJoined, slashJoined)

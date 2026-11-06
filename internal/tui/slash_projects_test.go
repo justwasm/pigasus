@@ -24,8 +24,8 @@ func TestSlashProjects_PanelRouting(t *testing.T) {
 	}
 
 	m := mkPanel(panelregistry.Projects, "/projects", 0)
-	if m.panel.kind != panelregistry.Projects {
-		t.Fatalf("m.panel.kind = %v, want %v", m.panel.kind, panelregistry.Projects)
+	if m.overlays.panel.kind != panelregistry.Projects {
+		t.Fatalf("m.overlays.panel.kind = %v, want %v", m.overlays.panel.kind, panelregistry.Projects)
 	}
 
 	// Test Lines returns rendered content

@@ -194,11 +194,11 @@ func TestRunPigPrintTurnSurfacesProviderError(t *testing.T) {
 // mock through the generic adapter.
 func TestPigPrintModelForBackend(t *testing.T) {
 	gateway := gatewayapi.NewGatewayWithConfig(gatewayapi.GatewayConfig{URL: "http://127.0.0.1:1", ExternalModel: "MiniMax-M3"})
-	p, _, err := preparePrintProvider(pigPrintConfig{Backend: gateway, Model: "claude-sonnet-4-6"})
+	p, err := preparePrintProvider(pigPrintConfig{Backend: gateway, Model: "claude-sonnet-4-6"})
 	if err != nil || p == nil {
 		t.Fatal("gateway backend must yield a provider")
 	}
-	pMock, _, err := preparePrintProvider(pigPrintConfig{Backend: backend.NewMock(), Model: "MiniMax-M3"})
+	pMock, err := preparePrintProvider(pigPrintConfig{Backend: backend.NewMock(), Model: "MiniMax-M3"})
 	if err != nil || pMock == nil {
 		t.Fatal("mock backend must yield a provider")
 	}

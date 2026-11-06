@@ -169,7 +169,7 @@ func TestSkillPrompt_PrefersBodyFallsBackToDescription(t *testing.T) {
 }
 
 // TestRunSkill_SendsPrompt is the routing contract for the §5 P5 gap: a
-// known skill must reach the model (m.streaming=true, a session message
+// known skill must reach the model (m.engine.streaming=true, a session message
 // carrying the skill body) and must NOT render "Unknown command".
 func TestRunSkill_SendsPrompt(t *testing.T) {
 	p := writeSkillMD(t, "---\nname: demo-skill\n---\nSkill instructions here.\n")
@@ -183,16 +183,16 @@ func TestRunSkill_SendsPrompt(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("/demo-skill should return a non-nil tea.Cmd (the model stream)")
 	}
-	if !m.streaming {
-		t.Error("/demo-skill should set m.streaming=true")
+	if !m.engine.streaming {
+		t.Error("/demo-skill should set m.engine.streaming=true")
 	}
-	if len(m.response) == 0 || m.response[0] != "> /demo-skill" {
-		t.Errorf("echo = %q, want %q", firstNLines(m.response, 1), "> /demo-skill")
+	if len(m.engine.response) == 0 || m.engine.response[0] != "> /demo-skill" {
+		t.Errorf("echo = %q, want %q", firstNLines(m.engine.response, 1), "> /demo-skill")
 	}
 	if got := lastUserMessage(m); got != "Skill instructions here." {
 		t.Errorf("session prompt = %q", got)
 	}
-	for _, row := range m.response {
+	for _, row := range m.engine.response {
 		if strings.Contains(row, "Unknown command") {
 			t.Errorf("known skill rendered %q", row)
 		}
@@ -229,8 +229,8 @@ func TestRunSkill_AliasRouting(t *testing.T) {
 	// Args after the name are echoed and appended to the prompt.
 	m := newSlashModel(t)
 	m.handleSlashCommand("/chrome-devtools inspect example.com")
-	if m.response[0] != "> /chrome-devtools inspect example.com" {
-		t.Errorf("echo with args = %q", m.response[0])
+	if m.engine.response[0] != "> /chrome-devtools inspect example.com" {
+		t.Errorf("echo with args = %q", m.engine.response[0])
 	}
 	if got := lastUserMessage(m); got != "CDP body.\n\ninspect example.com" {
 		t.Errorf("session prompt with args = %q", got)
@@ -247,7 +247,7 @@ func TestRunSkill_UnknownStillUnknown(t *testing.T) {
 	if !strings.Contains(rows, "Unknown command: /zzznotacommand") {
 		t.Errorf("unknown command rendered %q", rows)
 	}
-	if m.streaming {
+	if m.engine.streaming {
 		t.Error("an unknown command must not start a model stream")
 	}
 }
@@ -410,15 +410,15 @@ func TestRunSkill_AtPathVerbatimThroughRouter(t *testing.T) {
 	if !handled {
 		t.Fatal("/demo-skill @path/to/file was not handled")
 	}
-	if m.response == nil || m.response[0] != "> /demo-skill @path/to/file" {
-		t.Fatalf("transcript echo = %v, want \"> /demo-skill @path/to/file\"", m.response)
+	if m.engine.response == nil || m.engine.response[0] != "> /demo-skill @path/to/file" {
+		t.Fatalf("transcript echo = %v, want \"> /demo-skill @path/to/file\"", m.engine.response)
 	}
 	got := lastUserMessage(m)
 	want := "Skill instructions here.\n\n@path/to/file"
 	if got != want {
 		t.Fatalf("session prompt = %q, want %q", got, want)
 	}
-	for _, row := range m.response {
+	for _, row := range m.engine.response {
 		if strings.Contains(row, "<file name=") {
 			t.Errorf("transcript contains a file-mention wrapper: %q", row)
 		}
@@ -556,11 +556,11 @@ func TestSkillsPanelLayout_HostCatalogue(t *testing.T) {
 	}
 
 	m := mkPanel(panelregistry.Skills, "/skills", -1)
-	m.height = 50
-	m.width = 220
+	m.viewport.height = 50
+	m.viewport.width = 220
 	for _, l := range m.panelLines() {
-		if n := len([]rune(termcolor.StripSGR(l))); n > m.width-1 && strings.Contains(termcolor.StripSGR(l), ": ") {
-			t.Errorf("row exceeds %d columns (%d): %q", m.width-1, n, termcolor.StripSGR(l)[:40])
+		if n := len([]rune(termcolor.StripSGR(l))); n > m.viewport.width-1 && strings.Contains(termcolor.StripSGR(l), ": ") {
+			t.Errorf("row exceeds %d columns (%d): %q", m.viewport.width-1, n, termcolor.StripSGR(l)[:40])
 		}
 	}
 	joined := strings.Join(plainLines(m), "\n")
@@ -588,9 +588,9 @@ func TestSkillsDetail_OpensViaHandlePanelKey(t *testing.T) {
 		Name: "demo", Description: "d", Path: p,
 	}})
 	m := &runMode{}
-	m.panel = slashPanel{kind: panelregistry.Skills, cmd: "/skills"}
-	m.height = 50
-	m.width = 80
+	m.overlays.panel = slashPanel{kind: panelregistry.Skills, cmd: "/skills"}
+	m.viewport.height = 50
+	m.viewport.width = 80
 	m.skillsPanel().SetCursor(0)
 
 	if h, _ := m.handlePanelKey(tea.Key{Code: tea.KeyEnter}); !h {
@@ -602,8 +602,8 @@ func TestSkillsDetail_OpensViaHandlePanelKey(t *testing.T) {
 	if h, _ := m.handlePanelKey(tea.Key{Code: tea.KeyEsc}); !h {
 		t.Fatal("esc not handled")
 	}
-	if m.skillsPanel().Detail() || m.panel.kind != panelregistry.Skills {
+	if m.skillsPanel().Detail() || m.overlays.panel.kind != panelregistry.Skills {
 		t.Fatalf("esc should return to the list: detail=%v kind=%v",
-			m.skillsPanel().Detail(), m.panel.kind)
+			m.skillsPanel().Detail(), m.overlays.panel.kind)
 	}
 }

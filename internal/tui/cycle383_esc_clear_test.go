@@ -41,19 +41,19 @@ func TestEscEscClearsThePrompt(t *testing.T) {
 	for _, r := range "hello" {
 		m.Update(runeKey(r))
 	}
-	if got := m.input.Value(); got != "hello" {
+	if got := m.composer.input.Value(); got != "hello" {
 		t.Fatalf("precondition: the composer holds %q, want %q", got, "hello")
 	}
 
 	// First Esc: arms the clear, the draft survives.
 	escPress(t, m)
-	if got := m.input.Value(); got != "hello" {
+	if got := m.composer.input.Value(); got != "hello" {
 		t.Fatalf("one Esc must not clear the composer, got %q", got)
 	}
 
 	// Second Esc: the pair is complete, the composer is empty.
 	escPress(t, m)
-	if got := m.input.Value(); got != "" {
+	if got := m.composer.input.Value(); got != "" {
 		t.Fatalf("the second Esc must clear the composer, got %q", got)
 	}
 }
@@ -70,19 +70,19 @@ func TestEscPairIsBrokenByAnotherKey(t *testing.T) {
 	escPress(t, m)
 	// The intervening key breaks the pair and is inserted as text.
 	m.Update(runeKey('x'))
-	if got := m.input.Value(); got != "hix" {
+	if got := m.composer.input.Value(); got != "hix" {
 		t.Fatalf("the composer holds %q, want %q", got, "hix")
 	}
 
 	// The next Esc arms again — it does not clear.
 	escPress(t, m)
-	if got := m.input.Value(); got != "hix" {
+	if got := m.composer.input.Value(); got != "hix" {
 		t.Fatalf("one Esc after a broken pair must not clear the composer, got %q", got)
 	}
 
 	// And the Esc that follows it clears.
 	escPress(t, m)
-	if got := m.input.Value(); got != "" {
+	if got := m.composer.input.Value(); got != "" {
 		t.Fatalf("the second Esc must clear the composer, got %q", got)
 	}
 }
@@ -97,23 +97,23 @@ func TestEscThatClosesAnOverlayIsNotPartOfThePair(t *testing.T) {
 	}
 
 	// The overlay is a modal panel: open it over the draft.
-	m.helpPanel.Open(0)
-	if !m.helpPanel.Active() {
+	m.viewport.helpPanel.Open(0)
+	if !m.viewport.helpPanel.Active() {
 		t.Fatal("the /help overlay should be open")
 	}
 
 	// The Esc closes the overlay — the composer keeps its text.
 	escPress(t, m)
-	if m.helpPanel.Active() {
+	if m.viewport.helpPanel.Active() {
 		t.Fatal("the Esc should have closed the /help overlay")
 	}
-	if got := m.input.Value(); got != "hello" {
+	if got := m.composer.input.Value(); got != "hello" {
 		t.Fatalf("the Esc that closed the overlay must not touch the composer, got %q", got)
 	}
 
 	// And the pair was not armed by it: the next Esc only arms.
 	escPress(t, m)
-	if got := m.input.Value(); got != "hello" {
+	if got := m.composer.input.Value(); got != "hello" {
 		t.Fatalf("one Esc must not clear the composer, got %q", got)
 	}
 }
@@ -128,21 +128,21 @@ func TestQuestionMarkTypesWithTextInTheComposer(t *testing.T) {
 	}
 
 	m.Update(runeKey('?'))
-	if m.helpPanel.Active() {
+	if m.viewport.helpPanel.Active() {
 		t.Fatal("`?` must NOT open the /help overlay when text is in the composer")
 	}
-	if got := m.input.Value(); got != "hello?" {
+	if got := m.composer.input.Value(); got != "hello?" {
 		t.Errorf("the composer holds %q, want %q", got, "hello?")
 	}
 
 	// Clearing the composer restores `?` as the shortcuts overlay shortcut.
-	m.input.SetValue("")
+	m.composer.input.SetValue("")
 	m.Update(runeKey('?'))
-	if !m.helpPanel.Active() {
+	if !m.viewport.helpPanel.Active() {
 		t.Fatal("`?` on empty composer must open the /help overlay")
 	}
-	if m.helpPanel.Tab() != 2 {
-		t.Errorf("the overlay's tab = %d, want 2 (shortcuts)", m.helpPanel.Tab())
+	if m.viewport.helpPanel.Tab() != 2 {
+		t.Errorf("the overlay's tab = %d, want 2 (shortcuts)", m.viewport.helpPanel.Tab())
 	}
 }
 
@@ -157,10 +157,10 @@ func TestQuestionMarkTypesInVimInsertMode(t *testing.T) {
 	}
 
 	m.Update(runeKey('?'))
-	if m.helpPanel.Active() {
+	if m.viewport.helpPanel.Active() {
 		t.Fatal("`?` in the vim engine's INSERT mode must not open the overlay")
 	}
-	if got := m.input.Value(); got != "?" {
+	if got := m.composer.input.Value(); got != "?" {
 		t.Errorf("the composer holds %q, want %q", got, "?")
 	}
 }
@@ -171,11 +171,11 @@ func TestQuestionMarkOpensHelpInVimNormalMode(t *testing.T) {
 	m := vimTestMode(t, map[string]any{"editorMode": "vim"})
 
 	m.Update(runeKey('?'))
-	if !m.helpPanel.Active() {
+	if !m.viewport.helpPanel.Active() {
 		t.Fatal("`?` in the vim engine's NORMAL mode must open the overlay on empty prompt")
 	}
-	if m.helpPanel.Tab() != 2 {
-		t.Errorf("the overlay's tab = %d, want 2 (shortcuts)", m.helpPanel.Tab())
+	if m.viewport.helpPanel.Tab() != 2 {
+		t.Errorf("the overlay's tab = %d, want 2 (shortcuts)", m.viewport.helpPanel.Tab())
 	}
 }
 
@@ -183,10 +183,10 @@ func TestQuestionMarkOpensHelpInVimNormalMode(t *testing.T) {
 // '?' does not open the shortcuts panel in Vim Normal mode.
 func TestQuestionMarkInVimNormalModeWithText(t *testing.T) {
 	m := vimTestMode(t, map[string]any{"editorMode": "vim"})
-	m.input.SetValue("hello")
+	m.composer.input.SetValue("hello")
 
 	m.Update(runeKey('?'))
-	if m.helpPanel.Active() {
+	if m.viewport.helpPanel.Active() {
 		t.Fatal("`?` in Vim NORMAL mode must not open shortcuts when prompt has text")
 	}
 }
@@ -203,12 +203,12 @@ func TestSlashPanels_EscClosesPanel(t *testing.T) {
 		if !m.openSlashPanel(cmd) {
 			t.Fatalf("failed to open %s", cmd)
 		}
-		if m.panel.kind == panelregistry.None {
+		if m.overlays.panel.kind == panelregistry.None {
 			t.Fatalf("panel %s not open", cmd)
 		}
 		m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEsc}))
-		if m.panel.kind != panelregistry.None {
-			t.Errorf("panel %s did not close on Esc: kind=%v", cmd, m.panel.kind)
+		if m.overlays.panel.kind != panelregistry.None {
+			t.Errorf("panel %s did not close on Esc: kind=%v", cmd, m.overlays.panel.kind)
 		}
 	}
 }
@@ -220,10 +220,10 @@ func TestSlashPanels_EscTimeoutMsgClosesPanel(t *testing.T) {
 		if !m.openSlashPanel(cmd) {
 			t.Fatalf("failed to open %s", cmd)
 		}
-		m.altEscBuf.Pending = true
+		m.composer.altEscBuf.Pending = true
 		m.Update(keybind.EscTimeoutMsg{})
-		if m.panel.kind != panelregistry.None {
-			t.Errorf("panel %s did not close on EscTimeoutMsg: kind=%v", cmd, m.panel.kind)
+		if m.overlays.panel.kind != panelregistry.None {
+			t.Errorf("panel %s did not close on EscTimeoutMsg: kind=%v", cmd, m.overlays.panel.kind)
 		}
 	}
 }

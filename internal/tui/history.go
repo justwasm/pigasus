@@ -5,8 +5,8 @@
 // host owns the composer, the persistence to history.jsonl and the
 // composer's own overlays.
 //
-// Cycle 71: historyUp/historyDown operate on m.input (charm.land/bubbles/v2
-// textarea) instead of the hand-rolled []rune buffer. m.input.SetValue()
+// Cycle 71: historyUp/historyDown operate on m.composer.input (charm.land/bubbles/v2
+// textarea) instead of the hand-rolled []rune buffer. m.composer.input.SetValue()
 // rewrites the textarea's content, which automatically resets the cursor
 // to the end of the inserted text.
 //
@@ -33,7 +33,7 @@ import (
 // The entry is persisted so the user can navigate history from either
 // binary.
 func (m *runMode) pushHistory(prompt string) {
-	trimmed, ok := m.promptHistory.Push(prompt)
+	trimmed, ok := m.composer.promptHistory.Push(prompt)
 	if !ok {
 		return
 	}
@@ -41,8 +41,8 @@ func (m *runMode) pushHistory(prompt string) {
 	// can navigate history from either binary.
 	_ = convstore.AppendHistoryEntry(convstore.HistoryEntry{
 		Display:        trimmed,
-		Workspace:      m.cwd,
-		ConversationID: m.conversationID,
+		Workspace:      m.session.cwd,
+		ConversationID: m.session.conversationID,
 	})
 }
 
@@ -70,8 +70,8 @@ func (m *runMode) pushHistory(prompt string) {
 // swallowed the next Up/Down and the history stopped paging at the
 // first slash command in the list.
 func (m *runMode) closeComposerOverlays() {
-	m.picker.Reset()
-	m.atFilePicker.Reset()
+	m.composer.picker.Reset()
+	m.composer.atFilePicker.Reset()
 }
 
 // historyUp navigates one slot back.
@@ -79,7 +79,7 @@ func (m *runMode) closeComposerOverlays() {
 // The list owns the navigation; the host owns the composer's write and
 // the overlays the recall closes.
 func (m *runMode) historyUp() {
-	entry, ok := m.promptHistory.Up(m.input.Value())
+	entry, ok := m.composer.promptHistory.Up(m.composer.input.Value())
 	if !ok {
 		return
 	}
@@ -91,7 +91,7 @@ func (m *runMode) historyUp() {
 
 // historyDown navigates one slot forward.
 func (m *runMode) historyDown() {
-	entry, ok := m.promptHistory.Down()
+	entry, ok := m.composer.promptHistory.Down()
 	if !ok {
 		return
 	}
@@ -103,6 +103,6 @@ func (m *runMode) historyDown() {
 // internal/ui/views/helppanel, which owns the cursor and the window.
 //
 // Cycle 381: the history's own reset moved with the list. The host
-// calls m.promptHistory.Reset() directly — a one-line forward into
+// calls m.composer.promptHistory.Reset() directly — a one-line forward into
 // another package is a shell, and the host has no navigation state of
 // its own to leave.

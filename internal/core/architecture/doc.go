@@ -18,6 +18,10 @@
 //
 // The guard asserts:
 //
+//	R0  all internal packages accounted for — every package under internal/
+//	    must belong to a tier (1..5), be a registered host, or be recorded
+//	    in unclassifiedSubsystems. No invisible packages can escape the guard.
+//
 //	R1  no upward edge — a tier-N package imports no tier-M package with
 //	    M > N. The rule governs the shipped graph; an upward edge in the
 //	    test-only graph is reported, not failed, because a test may reach
@@ -40,13 +44,9 @@
 //
 //	R6  the public packages import no internal/ package.
 //
-// Two findings do not hold as written and are excused by name in the
-// test file, each with a one-line reason: the test-only cycle between
-// remotetransport and internal/remotecontrol, and remotetransport's
-// test-only import of internal/remotecontrol. Both live entirely in
-// _test.go files, and remotetransport's shipped code imports nothing
-// from internal/. The list is printed on every run, and an exception
-// that no longer excuses anything is reported as stale.
+// All rules hold across the module with zero exceptions. The public packages
+// (including remotetransport) import nothing from internal/ in either
+// production code or tests.
 //
 // The guard measures the whole module, because the public-package rule
 // is about the module's root packages, and it reports the internal/

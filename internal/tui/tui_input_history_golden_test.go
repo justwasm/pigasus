@@ -178,11 +178,11 @@ func goldenSelectionDump(b *bytes.Buffer, t *testing.T) {
 		fmt.Fprintf(b, "  value=%q view=%q\n", f.value, f.view)
 
 		m := goldenMode(t)
-		m.promptScreenY = 10
-		m.input.SetValue(f.value)
-		m.store.InputSelStart = f.start
-		m.store.InputSelEnd = f.end
-		s, e := m.store.InputSelectionRange()
+		m.composer.promptScreenY = 10
+		m.composer.input.SetValue(f.value)
+		m.viewport.InputSelStart = f.start
+		m.viewport.InputSelEnd = f.end
+		s, e := m.InputSelectionRange()
 		fmt.Fprintf(b, "  range=%d,%d\n", s, e)
 		fmt.Fprintf(b, "  highlight=%q\n", m.applyInputSelectionHighlight(f.view))
 		for _, c := range f.clicks {
@@ -191,34 +191,34 @@ func goldenSelectionDump(b *bytes.Buffer, t *testing.T) {
 
 		for _, off := range f.offs {
 			mc := goldenMode(t)
-			mc.input.SetValue(f.value)
+			mc.composer.input.SetValue(f.value)
 			mc.setInputCursorOffset(off)
 			fmt.Fprintf(b, "  cursor(%d)=%d,%d value=%q\n",
-				off, mc.input.Line(), mc.input.Column(), mc.input.Value())
+				off, mc.composer.input.Line(), mc.composer.input.Column(), mc.composer.input.Value())
 		}
 
 		md := goldenMode(t)
-		md.input.SetValue(f.value)
-		md.store.InputSelStart = f.start
-		md.store.InputSelEnd = f.end
+		md.composer.input.SetValue(f.value)
+		md.viewport.InputSelStart = f.start
+		md.viewport.InputSelEnd = f.end
 		md.deleteInputSelection()
 		fmt.Fprintf(b, "  delete=%q line=%d col=%d sel=%v\n",
-			md.input.Value(), md.input.Line(), md.input.Column(), md.hasInputSelection())
+			md.composer.input.Value(), md.composer.input.Line(), md.composer.input.Column(), md.hasInputSelection())
 
 		mr := goldenMode(t)
-		mr.input.SetValue(f.value)
-		mr.store.InputSelStart = f.start
-		mr.store.InputSelEnd = f.end
+		mr.composer.input.SetValue(f.value)
+		mr.viewport.InputSelStart = f.start
+		mr.viewport.InputSelEnd = f.end
 		mr.replaceInputSelection(f.rep)
 		fmt.Fprintf(b, "  replace=%q line=%d col=%d sel=%v\n",
-			mr.input.Value(), mr.input.Line(), mr.input.Column(), mr.hasInputSelection())
+			mr.composer.input.Value(), mr.composer.input.Line(), mr.composer.input.Column(), mr.hasInputSelection())
 	}
 }
 
 func goldenHistoryDump(b *bytes.Buffer, t *testing.T) {
 	t.Setenv("ANTIGRAVITY_HOME", t.TempDir())
 	m := goldenMode(t)
-	m.input.SetValue("DRAFT")
+	m.composer.input.SetValue("DRAFT")
 
 	for _, p := range []string{"", " ", "  hello  ", "hello", "world", "multi\nline", "!echo hi", "  \t\n "} {
 		m.pushHistory(p)
@@ -227,36 +227,36 @@ func goldenHistoryDump(b *bytes.Buffer, t *testing.T) {
 
 	for i := 1; i <= 5; i++ {
 		m.historyUp()
-		fmt.Fprintf(b, "hist up%d=%q\n", i, m.input.Value())
+		fmt.Fprintf(b, "hist up%d=%q\n", i, m.composer.input.Value())
 	}
 	m.historyUp()
-	fmt.Fprintf(b, "hist up-past-the-end=%q\n", m.input.Value())
+	fmt.Fprintf(b, "hist up-past-the-end=%q\n", m.composer.input.Value())
 
 	for i := 1; i <= 5; i++ {
 		m.historyDown()
-		fmt.Fprintf(b, "hist down%d=%q\n", i, m.input.Value())
+		fmt.Fprintf(b, "hist down%d=%q\n", i, m.composer.input.Value())
 	}
 
-	m.promptHistory.Reset()
+	m.composer.promptHistory.Reset()
 	m.historyUp()
-	fmt.Fprintf(b, "hist reset-then-up=%q\n", m.input.Value())
+	fmt.Fprintf(b, "hist reset-then-up=%q\n", m.composer.input.Value())
 
 	// A recall closes the composer's overlays; it does not re-derive them.
 	ms := goldenMode(t)
-	ms.input.SetValue("/help")
-	ms.picker.Update([]rune("/help"))
-	fmt.Fprintf(b, "hist slash-before=%v\n", ms.picker.Visible())
+	ms.composer.input.SetValue("/help")
+	ms.composer.picker.Update([]rune("/help"))
+	fmt.Fprintf(b, "hist slash-before=%v\n", ms.composer.picker.Visible())
 	ms.pushHistory("slash entry")
 	ms.historyUp()
-	fmt.Fprintf(b, "hist slash-after=%v value=%q\n", ms.picker.Visible(), ms.input.Value())
+	fmt.Fprintf(b, "hist slash-after=%v value=%q\n", ms.composer.picker.Visible(), ms.composer.input.Value())
 
 	mm := goldenMode(t)
-	mm.input.SetValue("note @zz")
-	mm.atFilePicker.Update()
-	fmt.Fprintf(b, "hist mention-before=%v\n", mm.atFilePicker.Visible())
+	mm.composer.input.SetValue("note @zz")
+	mm.composer.atFilePicker.Update()
+	fmt.Fprintf(b, "hist mention-before=%v\n", mm.composer.atFilePicker.Visible())
 	mm.pushHistory("mention entry")
 	mm.historyUp()
-	fmt.Fprintf(b, "hist mention-after=%v value=%q\n", mm.atFilePicker.Visible(), mm.input.Value())
+	fmt.Fprintf(b, "hist mention-after=%v value=%q\n", mm.composer.atFilePicker.Visible(), mm.composer.input.Value())
 
 	// The persistent store seeds an empty list.
 	t.Setenv("ANTIGRAVITY_HOME", t.TempDir())
@@ -270,14 +270,14 @@ func goldenHistoryDump(b *bytes.Buffer, t *testing.T) {
 		}
 	}
 	ml := goldenMode(t)
-	ml.promptHistory.Load(convstore.LoadHistory("", history.Cap))
+	ml.composer.promptHistory.Load(convstore.LoadHistory("", history.Cap))
 	for i := 1; i <= 4; i++ {
 		ml.historyUp()
-		fmt.Fprintf(b, "hist load-up%d=%q\n", i, ml.input.Value())
+		fmt.Fprintf(b, "hist load-up%d=%q\n", i, ml.composer.input.Value())
 	}
 	for i := 1; i <= 4; i++ {
 		ml.historyDown()
-		fmt.Fprintf(b, "hist load-down%d=%q\n", i, ml.input.Value())
+		fmt.Fprintf(b, "hist load-down%d=%q\n", i, ml.composer.input.Value())
 	}
 
 	// The cap keeps the newest entries.
@@ -288,7 +288,7 @@ func goldenHistoryDump(b *bytes.Buffer, t *testing.T) {
 	}
 	for i := 1; i <= 101; i++ {
 		mc.historyUp()
-		fmt.Fprintf(b, "hist cap-up%d=%q\n", i, mc.input.Value())
+		fmt.Fprintf(b, "hist cap-up%d=%q\n", i, mc.composer.input.Value())
 	}
 }
 

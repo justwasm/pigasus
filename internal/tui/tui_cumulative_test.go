@@ -48,8 +48,8 @@ func recordImplicitCommand(t *testing.T, cwd, cmd, output string) {
 func TestTheImplicitCommandReachesTheModel(t *testing.T) {
 	t.Setenv("ANTIGRAVITY_HOME", t.TempDir())
 
-	m := &runMode{cwd: "/private/var/folders/x/T/opencode"}
-	recordImplicitCommand(t, m.cwd, "ls -la", "total 12\n")
+	m := &runMode{session: sessionState{cwd: "/private/var/folders/x/T/opencode"}}
+	recordImplicitCommand(t, m.session.cwd, "ls -la", "total 12\n")
 
 	msgs := m.prepareStreamTurnMessages()
 	if len(msgs) != 2 {
@@ -80,12 +80,12 @@ func TestTheImplicitCommandReachesTheModel(t *testing.T) {
 func TestTheImplicitCommandStaysOutOfTheConversation(t *testing.T) {
 	t.Setenv("ANTIGRAVITY_HOME", t.TempDir())
 
-	m := &runMode{cwd: "/private/var/folders/x/T/opencode"}
-	recordImplicitCommand(t, m.cwd, "ls -la", "total 12\n")
+	m := &runMode{session: sessionState{cwd: "/private/var/folders/x/T/opencode"}}
+	recordImplicitCommand(t, m.session.cwd, "ls -la", "total 12\n")
 
 	m.prepareStreamTurnMessages()
-	if len(m.session) != 0 {
-		t.Errorf("the session holds %d messages, want 0", len(m.session))
+	if len(m.engine.session) != 0 {
+		t.Errorf("the session holds %d messages, want 0", len(m.engine.session))
 	}
 	steps := convstore.BuildSteps(m.trajectoryFacts())
 	if len(steps) != 0 {
@@ -98,8 +98,8 @@ func TestTheImplicitCommandStaysOutOfTheConversation(t *testing.T) {
 func TestTheImplicitCommandIsCarriedOnce(t *testing.T) {
 	t.Setenv("ANTIGRAVITY_HOME", t.TempDir())
 
-	m := &runMode{cwd: "/private/var/folders/x/T/opencode"}
-	recordImplicitCommand(t, m.cwd, "ls -la", "total 12\n")
+	m := &runMode{session: sessionState{cwd: "/private/var/folders/x/T/opencode"}}
+	recordImplicitCommand(t, m.session.cwd, "ls -la", "total 12\n")
 
 	if msgs := m.prepareStreamTurnMessages(); len(msgs) != 2 {
 		t.Fatalf("the first turn carries %d messages, want 2", len(msgs))
@@ -111,7 +111,7 @@ func TestTheImplicitCommandIsCarriedOnce(t *testing.T) {
 	// A second command reaches the model with the next turn, and the first
 	// one is still carried — the reference's cumulative prompt keeps the
 	// persistent context.
-	recordImplicitCommand(t, m.cwd, "pwd", "/tmp\n")
+	recordImplicitCommand(t, m.session.cwd, "pwd", "/tmp\n")
 	msgs := m.prepareStreamTurnMessages()
 	if len(msgs) != 4 {
 		t.Fatalf("the third turn carries %d messages, want 4", len(msgs))

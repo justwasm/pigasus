@@ -71,16 +71,16 @@ func (m *runMode) hookRuntime() *corehooks.Runtime {
 	if m == nil {
 		return nil
 	}
-	if m.hookRT != nil {
-		return m.hookRT
+	if m.session.hookRT != nil {
+		return m.session.hookRT
 	}
 	workspace := m.hookWorkspace()
-	m.hookRT = &corehooks.Runtime{
+	m.session.hookRT = &corehooks.Runtime{
 		Registry: corehooks.Load(workspace),
 		Shell:    shell.DefaultShellArgv,
 		WorkDir:  workspace,
 	}
-	return m.hookRT
+	return m.session.hookRT
 }
 
 // hookWorkspace is the workspace the session's hooks are read from.
@@ -88,8 +88,8 @@ func (m *runMode) hookWorkspace() string {
 	if m == nil {
 		return ""
 	}
-	if m.cwd != "" {
-		return m.cwd
+	if m.session.cwd != "" {
+		return m.session.cwd
 	}
 	return defaultWorkspaceForRunMode()
 }
@@ -103,7 +103,7 @@ func (m *runMode) hookWorkspace() string {
 // they stay empty rather than name a file that is not there.
 func (m *runMode) hookInput() corehooks.Input {
 	in := corehooks.Input{
-		ConversationID: m.conversationID,
+		ConversationID: m.session.conversationID,
 		ModelName:      m.turnModel(),
 	}
 	if ws := m.hookWorkspace(); ws != "" {
@@ -117,10 +117,10 @@ func (m *runMode) hookInput() corehooks.Input {
 // The bus's own in-process handlers run first; the documented handlers
 // run after them, through the runtime.
 func (m *runMode) fireHook(ctx context.Context, ev corehooks.Event, in corehooks.Input) corehooks.Outcome {
-	if m == nil || m.hooks == nil {
+	if m == nil || m.session.hooks == nil {
 		return corehooks.Outcome{}
 	}
-	out, err := m.hooks.FireDocumented(ctx, m.hookRuntime(), ev, in)
+	out, err := m.session.hooks.FireDocumented(ctx, m.hookRuntime(), ev, in)
 	if err != nil {
 		out.Problems = append(out.Problems, err.Error())
 	}
@@ -131,10 +131,10 @@ func (m *runMode) fireHook(ctx context.Context, ev corehooks.Event, in corehooks
 //
 // The event fires once per session, before the first model invocation.
 func (m *runMode) hookSessionStart(ctx context.Context) {
-	if m == nil || m.hookSessionStarted {
+	if m == nil || m.session.hookSessionStarted {
 		return
 	}
-	m.hookSessionStarted = true
+	m.session.hookSessionStarted = true
 	m.fireHook(ctx, corehooks.EventSessionStart, m.hookInput())
 }
 
@@ -146,10 +146,10 @@ func (m *runMode) hookPreInvocation(ctx context.Context) {
 	if m == nil {
 		return
 	}
-	m.hookInvocationNum++
+	m.session.hookInvocationNum++
 	in := m.hookInput()
-	in.InvocationNum = m.hookInvocationNum
-	in.InitialNumSteps = len(m.trajLoaded) + len(m.trajCalls)
+	in.InvocationNum = m.session.hookInvocationNum
+	in.InitialNumSteps = len(m.engine.trajLoaded) + len(m.engine.trajCalls)
 	m.fireHook(ctx, corehooks.EventPreInvocation, in)
 }
 
@@ -159,8 +159,8 @@ func (m *runMode) hookPostInvocation(ctx context.Context) {
 		return
 	}
 	in := m.hookInput()
-	in.InvocationNum = m.hookInvocationNum
-	in.InitialNumSteps = len(m.trajLoaded) + len(m.trajCalls)
+	in.InvocationNum = m.session.hookInvocationNum
+	in.InitialNumSteps = len(m.engine.trajLoaded) + len(m.engine.trajCalls)
 	m.fireHook(ctx, corehooks.EventPostInvocation, in)
 }
 
@@ -173,7 +173,7 @@ func (m *runMode) hookStop(ctx context.Context) {
 		return
 	}
 	in := m.hookInput()
-	in.ExecutionNum = m.hookInvocationNum
+	in.ExecutionNum = m.session.hookInvocationNum
 	in.FullyIdle = m.hookIdle()
 	m.fireHook(ctx, corehooks.EventStop, in)
 }
@@ -184,10 +184,10 @@ func (m *runMode) hookStop(ctx context.Context) {
 // completely finished: a background command or an asynchronous task
 // that is still running makes it false.
 func (m *runMode) hookIdle() bool {
-	if m == nil || m.taskReg == nil {
+	if m == nil || m.engine.taskReg == nil {
 		return true
 	}
-	return m.taskReg.CountRunning() == 0
+	return m.engine.taskReg.CountRunning() == 0
 }
 
 // hookToolGate asks the documented PreToolUse hooks about one tool
@@ -217,8 +217,8 @@ func (m *runMode) hookToolGate(ctx context.Context, call backend.ToolCall) hookT
 	target := toolrunner.ToolTarget(call)
 	names := tools.PermissionNames(call.Name)
 	policy := permissions.Policy{}
-	if m.policy != nil {
-		policy = *m.policy
+	if m.session.policy != nil {
+		policy = *m.session.policy
 	}
 	switch out.Decision {
 	case corehooks.DecisionAllow:

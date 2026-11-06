@@ -47,3 +47,15 @@ func (o *overlayState) ActiveSideQuestion() *sidequestion.Card {
 func (o *overlayState) HasAnnouncement() bool {
 	return o.announceQueue.Active() != nil
 }
+
+// Delegators on runMode for backward compatibility and domain access:
+func (m *runMode) HasActiveOverlay() bool                 { return m.overlays.HasActiveOverlay() }
+func (m *runMode) HasActivePanel() bool                   { return m.overlays.HasActivePanel() }
+func (m *runMode) ActivePanelKind() panelregistry.Kind   { return m.overlays.ActivePanelKind() }
+func (m *runMode) HasActiveResumePicker() bool           { return m.overlays.HasActiveResumePicker() }
+func (m *runMode) HasActiveLogin() bool                  { return m.overlays.HasActiveLogin() }
+func (m *runMode) HasSideQuestions() bool                { return m.overlays.HasSideQuestions() }
+func (m *runMode) ActiveSideQuestion() *sidequestion.Card { return m.overlays.ActiveSideQuestion() }
+func (m *runMode) HasAnnouncement() bool                 { return m.overlays.HasAnnouncement() }
+func (m *runMode) HasActiveModal() bool                  { return m.overlays.HasActiveModal() }
+func (m *runMode) ActiveCard() bool                      { return m.overlays.ActiveCard() }

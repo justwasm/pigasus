@@ -22,8 +22,8 @@ import (
 // seed the panel / status row.
 func seedRunMode() *runMode {
 	m := &runMode{}
-	m.taskReg = taskregistry.New()
-	m.taskSubagentManager = subagent.NewManager()
+	m.engine.taskReg = taskregistry.New()
+	m.engine.taskSubagentManager = subagent.NewManager()
 	return m
 }
 
@@ -53,10 +53,10 @@ func seedTask(reg *taskregistry.Registry, id string, name string, kind taskregis
 // opens, so a stale cursor or a stale detail view is never shown.
 func TestTasksPanelIsRebuiltOnOpen(t *testing.T) {
 	m := seedRunMode()
-	seedTask(m.taskReg, "t1", "bash -c sleep 60", taskregistry.KindShell, taskregistry.StateRunning)
+	seedTask(m.engine.taskReg, "t1", "bash -c sleep 60", taskregistry.KindShell, taskregistry.StateRunning)
 
 	m.openSlashPanel("tasks")
-	if m.panel.tp == nil {
+	if m.overlays.panel.tp == nil {
 		t.Fatal("the /tasks panel was not built on open")
 	}
 	m.tasksPanel().HandleKey(tea.Key{Code: tea.KeyDown})
@@ -80,18 +80,18 @@ func TestTasksPanelIsRebuiltOnOpen(t *testing.T) {
 func TestTasksPanelKeyReachesThePanel(t *testing.T) {
 	m := seedRunMode()
 	sa := subagent.NewSubagent("bash", "-c", "sleep 30")
-	taskID := m.taskReg.AttachSubagent(sa, "")
+	taskID := m.engine.taskReg.AttachSubagent(sa, "")
 	if taskID == "" {
 		t.Fatal("AttachSubagent returned empty ID")
 	}
-	m.taskSubagentManager.Add(sa)
+	m.engine.taskSubagentManager.Add(sa)
 	if err := sa.Start(); err != nil {
 		t.Fatalf("subagent.Start: %v", err)
 	}
 	// Spin briefly so the goroutine that drains stdout can fire the
 	// StateChangeFunc.
 	time.Sleep(50 * time.Millisecond)
-	if got := m.taskReg.Get(taskID).State; got != taskregistry.StateRunning {
+	if got := m.engine.taskReg.Get(taskID).State; got != taskregistry.StateRunning {
 		t.Fatalf("post-Start state = %q, want running", got)
 	}
 
@@ -105,12 +105,12 @@ func TestTasksPanelKeyReachesThePanel(t *testing.T) {
 	// the registry within 1s.
 	deadline := time.Now().Add(1 * time.Second)
 	for time.Now().Before(deadline) {
-		if m.taskReg.Get(taskID).State == taskregistry.StateKilled {
+		if m.engine.taskReg.Get(taskID).State == taskregistry.StateKilled {
 			break
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	if got := m.taskReg.Get(taskID).State; got != taskregistry.StateKilled {
+	if got := m.engine.taskReg.Get(taskID).State; got != taskregistry.StateKilled {
 		t.Errorf("state after kill = %q, want killed", got)
 	}
 }
@@ -122,16 +122,16 @@ func TestTasksPanelKeyReachesThePanel(t *testing.T) {
 func TestSlashTasksKillRunning(t *testing.T) {
 	m := seedRunMode()
 	sa := subagent.NewSubagent("bash", "-c", "sleep 30")
-	taskID := m.taskReg.AttachSubagent(sa, "")
+	taskID := m.engine.taskReg.AttachSubagent(sa, "")
 	if taskID == "" {
 		t.Fatal("AttachSubagent returned empty ID")
 	}
-	m.taskSubagentManager.Add(sa)
+	m.engine.taskSubagentManager.Add(sa)
 	if err := sa.Start(); err != nil {
 		t.Fatalf("subagent.Start: %v", err)
 	}
 	time.Sleep(50 * time.Millisecond)
-	if got := m.taskReg.Get(taskID).State; got != taskregistry.StateRunning {
+	if got := m.engine.taskReg.Get(taskID).State; got != taskregistry.StateRunning {
 		t.Fatalf("post-Start state = %q, want running", got)
 	}
 
@@ -143,12 +143,12 @@ func TestSlashTasksKillRunning(t *testing.T) {
 
 	deadline := time.Now().Add(1 * time.Second)
 	for time.Now().Before(deadline) {
-		if m.taskReg.Get(taskID).State == taskregistry.StateKilled {
+		if m.engine.taskReg.Get(taskID).State == taskregistry.StateKilled {
 			break
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	if got := m.taskReg.Get(taskID).State; got != taskregistry.StateKilled {
+	if got := m.engine.taskReg.Get(taskID).State; got != taskregistry.StateKilled {
 		t.Errorf("state after kill = %q, want killed", got)
 	}
 }

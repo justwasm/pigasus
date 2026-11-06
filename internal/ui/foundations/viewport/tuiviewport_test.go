@@ -28,6 +28,28 @@ func TestSelectionRange(t *testing.T) {
 	}
 }
 
+func TestTextSelection(t *testing.T) {
+	var s tuiviewport.TextSelection
+	s.SelDragging = true
+	s.SelStartRow = 5
+	s.ResetSelection()
+	if s.SelDragging || s.SelStartRow != 0 {
+		t.Errorf("ResetSelection failed")
+	}
+
+	s.InputSelStart = 10
+	s.InputSelEnd = 3
+	start, end := s.InputSelectionRange()
+	if start != 3 || end != 10 {
+		t.Errorf("InputSelectionRange = (%d, %d), want (3, 10)", start, end)
+	}
+
+	s.ResetInputSelection()
+	if s.InputSelStart != 0 || s.InputSelEnd != 0 {
+		t.Errorf("ResetInputSelection failed")
+	}
+}
+
 func TestApplySelectionHighlight(t *testing.T) {
 	row := "Hello, World!"
 	highlighted := tuiviewport.ApplySelectionHighlight(row, 0, 0, 0, 4, 0)

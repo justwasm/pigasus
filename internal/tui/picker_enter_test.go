@@ -21,21 +21,21 @@ func TestPickerView_EnterUsesHighlighted(t *testing.T) {
 	m.Update(runeKey('/'))
 	m.Update(runeKey('c'))
 	m.Update(runeKey('h'))
-	sel := m.picker.Selected()
+	sel := m.composer.picker.Selected()
 	if sel == nil || sel.Name != "/changelog" {
 		t.Fatalf("setup: highlighted should be /changelog, got %v", sel)
 	}
 	// Press Enter — dispatches the picker-selected command, not the
 	// typed "/ch".
 	m.Update(enterKey())
-	joined := strings.Join(m.response, "\n")
+	joined := strings.Join(m.engine.response, "\n")
 	// /changelog case opens the /help overlay (it would render the panel)
 	// but cycle 149 dropped the slash-command echo, so transcript is
 	// empty after dispatch. The picker substitution correctness is
 	// verified by checking that the picker closed (handleSlashCommand
-	// reset it via m.picker.Reset) and that the literal "/ch" was NOT
+	// reset it via m.composer.picker.Reset) and that the literal "/ch" was NOT
 	// dispatched to the default case ("Unknown command: /ch").
-	if m.picker.Visible() {
+	if m.composer.picker.Visible() {
 		t.Errorf("picker should be reset after Enter (cycle 150)")
 	}
 	if strings.Contains(joined, "Unknown command: /ch") {

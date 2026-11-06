@@ -77,8 +77,8 @@ func osc8Target(row string) string {
 func rcURLRunMode(t *testing.T, width int) *runMode {
 	t.Helper()
 	m := slashRemoteControlRunMode(t)
-	m.width = width
-	m.hyperlinkCaps.OSC8 = true
+	m.viewport.width = width
+	m.viewport.hyperlinkCaps.OSC8 = true
 	return m
 }
 
@@ -88,14 +88,14 @@ func rcURLRunMode(t *testing.T, width int) *runMode {
 func TestRemoteControlURL_WrapsIntoChunkRows(t *testing.T) {
 	m := rcURLRunMode(t, 80)
 
-	rows := urlchunk.Rows(chooserURL, rcURLIndent, m.rcURLChunkWidth(), m.hyperlinkCaps)
+	rows := urlchunk.Rows(chooserURL, rcURLIndent, m.rcURLChunkWidth(), m.viewport.hyperlinkCaps)
 	if len(rows) < 2 {
 		t.Fatalf("the URL was not wrapped into several rows: %d row(s)", len(rows))
 	}
 	var joined string
 	for _, row := range rows {
-		if w := ansi.StringWidth(row); w > m.width {
-			t.Errorf("a row is %d cells wide, wider than the terminal (%d): %q", w, m.width, ansi.Strip(row))
+		if w := ansi.StringWidth(row); w > m.viewport.width {
+			t.Errorf("a row is %d cells wide, wider than the terminal (%d): %q", w, m.viewport.width, ansi.Strip(row))
 		}
 		if !strings.HasPrefix(row, rcURLIndent) {
 			t.Errorf("a row does not carry the transcript indent: %q", row)
@@ -113,7 +113,7 @@ func TestRemoteControlURL_WrapsIntoChunkRows(t *testing.T) {
 func TestRemoteControlURL_EveryChunkIsALinkToTheCompleteURL(t *testing.T) {
 	m := rcURLRunMode(t, 80)
 
-	rows := urlchunk.Rows(chooserURL, rcURLIndent, m.rcURLChunkWidth(), m.hyperlinkCaps)
+	rows := urlchunk.Rows(chooserURL, rcURLIndent, m.rcURLChunkWidth(), m.viewport.hyperlinkCaps)
 	links := 0
 	for _, row := range rows {
 		target := osc8Target(row)
@@ -136,9 +136,9 @@ func TestRemoteControlURL_EveryChunkIsALinkToTheCompleteURL(t *testing.T) {
 // sequences — and it must still see the whole URL, one row at a time.
 func TestRemoteControlURL_PlainTextWithoutOSC8(t *testing.T) {
 	m := rcURLRunMode(t, 80)
-	m.hyperlinkCaps.OSC8 = false
+	m.viewport.hyperlinkCaps.OSC8 = false
 
-	rows := urlchunk.Rows(chooserURL, rcURLIndent, m.rcURLChunkWidth(), m.hyperlinkCaps)
+	rows := urlchunk.Rows(chooserURL, rcURLIndent, m.rcURLChunkWidth(), m.viewport.hyperlinkCaps)
 	var joined string
 	for _, row := range rows {
 		if strings.Contains(row, "\x1b") {
@@ -157,7 +157,7 @@ func TestRemoteControlURL_PlainTextWithoutOSC8(t *testing.T) {
 func TestRemoteControlURL_CopiesAsOneLine(t *testing.T) {
 	m := rcURLRunMode(t, 80)
 
-	rows := urlchunk.Rows(chooserURL, rcURLIndent, m.rcURLChunkWidth(), m.hyperlinkCaps)
+	rows := urlchunk.Rows(chooserURL, rcURLIndent, m.rcURLChunkWidth(), m.viewport.hyperlinkCaps)
 	copied := tuiviewport.SelectionText(rows, 0, 0, len(rows)-1, ansi.StringWidth(ansi.Strip(rows[len(rows)-1]))-1)
 	if strings.Contains(copied, "\n") {
 		t.Errorf("the copy carries a newline: %q", copied)
@@ -176,9 +176,9 @@ func TestRemoteControlURL_HandlerPrintsTheWrappedLink(t *testing.T) {
 	if handled, _ := m.handleSlashCommand("/remote-control"); !handled {
 		t.Fatal("expected handled=true")
 	}
-	rows := linkRows(m.response)
+	rows := linkRows(m.engine.response)
 	if len(rows) < 2 {
-		t.Fatalf("the link was not wrapped into several rows: %d row(s) in\n%s", len(rows), strings.Join(m.response, "\n"))
+		t.Fatalf("the link was not wrapped into several rows: %d row(s) in\n%s", len(rows), strings.Join(m.engine.response, "\n"))
 	}
 	// Every chunk row is a link to the complete URL.
 	want := osc8Target(rows[0])
@@ -191,7 +191,7 @@ func TestRemoteControlURL_HandlerPrintsTheWrappedLink(t *testing.T) {
 		}
 	}
 	// The visible text of the rows is the whole URL.
-	if got := linkText(m.response); !strings.Contains(got, want) {
+	if got := linkText(m.engine.response); !strings.Contains(got, want) {
 		t.Errorf("the visible link text %q does not carry the URL %q", got, want)
 	}
 	// The transcript's own wrap leaves the chunk rows alone: a row
@@ -199,7 +199,7 @@ func TestRemoteControlURL_HandlerPrintsTheWrappedLink(t *testing.T) {
 	// (the frame would be split across two rows) and the link would
 	// stop working.
 	for _, row := range rows {
-		if wrapped := tuilib.WrapRows(row, m.width); len(wrapped) != 1 {
+		if wrapped := tuilib.WrapRows(row, m.viewport.width); len(wrapped) != 1 {
 			t.Errorf("the transcript re-wrapped a chunk row into %d rows: %q", len(wrapped), row)
 		}
 	}

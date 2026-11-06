@@ -76,22 +76,24 @@ func payloadGoldenSession(t *testing.T) *runMode {
 		t.Fatalf("register the account: %v", err)
 	}
 	m := &runMode{
-		statusModel:      payloadGoldenStatus,
-		model:            payloadGoldenModel,
-		cwd:              payloadGoldenCwd,
-		conversationID:   payloadGoldenConvID,
-		conversationName: payloadGoldenTitle,
-		email:            payloadGoldenAccount,
-		tier:             payloadGoldenTier,
-		mode:             "auto",
-		width:            120,
-		agentName:        "probe",
-		store: tuistore.Store{Tokens: tuistore.Tokens{
-			SessionPromptTokens:      19136,
-			SessionCompletionTokens:  117,
-			LastTurnPromptTokens:     13327,
-			LastTurnCompletionTokens: 117,
-		}},
+		session: sessionState{
+			statusModel:      payloadGoldenStatus,
+			model:            payloadGoldenModel,
+			cwd:              payloadGoldenCwd,
+			conversationID:   payloadGoldenConvID,
+			conversationName: payloadGoldenTitle,
+			email:            payloadGoldenAccount,
+			tier:             payloadGoldenTier,
+			mode:             "auto",
+			agentName:        "probe",
+			store: tuistore.Store{Tokens: tuistore.Tokens{
+				SessionPromptTokens:      19136,
+				SessionCompletionTokens:  117,
+				LastTurnPromptTokens:     13327,
+				LastTurnCompletionTokens: 117,
+			}},
+		},
+		viewport: uiState{width: 120},
 	}
 	m.cacheQuota(payloadGoldenAccount, &auth.QuotaSummary{
 		Groups: []auth.QuotaGroup{{
@@ -121,7 +123,7 @@ func TestBuildStatusLinePayload_GoldenBytes(t *testing.T) {
 // the reference reports "working" while the agent runs.
 func TestBuildStatusLinePayload_WorkingState(t *testing.T) {
 	m := payloadGoldenSession(t)
-	m.streaming = true
+	m.engine.streaming = true
 	raw, err := json.Marshal(m.buildStatusLinePayload())
 	if err != nil {
 		t.Fatal(err)
@@ -140,8 +142,8 @@ func TestBuildStatusLinePayload_WorkingState(t *testing.T) {
 // model response.
 func TestBuildStatusLinePayload_NoUsageReportsNull(t *testing.T) {
 	m := payloadGoldenSession(t)
-	m.store.LastTurnPromptTokens = 0
-	m.store.LastTurnCompletionTokens = 0
+	m.session.store.LastTurnPromptTokens = 0
+	m.session.store.LastTurnCompletionTokens = 0
 	raw, err := json.Marshal(m.buildStatusLinePayload())
 	if err != nil {
 		t.Fatal(err)
@@ -179,7 +181,7 @@ func TestBuildStatusLinePayload_VimMember(t *testing.T) {
 		t.Errorf("vim must be absent while vim editor mode is off: %s", raw)
 	}
 
-	m.vimOn = true
+	m.composer.vimOn = true
 	raw, err = json.Marshal(m.buildStatusLinePayload())
 	if err != nil {
 		t.Fatal(err)
@@ -201,8 +203,8 @@ func TestBuildStatusLinePayload_VimMember(t *testing.T) {
 // session runs — and the bash queue does not: those are shell commands.
 func TestBuildStatusLinePayload_PendingInputCount(t *testing.T) {
 	m := payloadGoldenSession(t)
-	m.store.StreamQueue = []string{"first", "second"}
-	m.store.QueuedPrompt = "third"
+	m.session.store.StreamQueue = []string{"first", "second"}
+	m.session.store.QueuedPrompt = "third"
 	raw, err := json.Marshal(m.buildStatusLinePayload())
 	if err != nil {
 		t.Fatal(err)
@@ -219,7 +221,7 @@ func TestBuildStatusLinePayload_Subagents(t *testing.T) {
 	m := payloadGoldenSession(t)
 	registry := subagenttools.NewRegistry(payloadGoldenConvID)
 	registry.Add(subagenttools.NewChild("child-1", "research", "deep dive", "/tmp", nil))
-	m.subagentRegistry = registry
+	m.engine.subagentRegistry = registry
 	raw, err := json.Marshal(m.buildStatusLinePayload())
 	if err != nil {
 		t.Fatal(err)
@@ -249,19 +251,19 @@ func TestAgentState_HostFacts(t *testing.T) {
 		t.Errorf("agentState = %q, want no cell while the session is idle", got)
 	}
 
-	m.streaming = true
+	m.engine.streaming = true
 	if got := m.agentState(); got != "working" {
 		t.Errorf("agentState = %q, want working", got)
 	}
 
-	m.activeTool = "⠿ read_file"
+	m.engine.activeTool = "⠿ read_file"
 	if got := m.agentState(); got != "tool_use" {
 		t.Errorf("agentState = %q, want tool_use", got)
 	}
 
-	m.streaming = false
-	m.activeTool = ""
-	m.lastTurnOutcome = tea.ProgramStateError
+	m.engine.streaming = false
+	m.engine.activeTool = ""
+	m.engine.lastTurnOutcome = tea.ProgramStateError
 	if got := m.agentState(); got != "error" {
 		t.Errorf("agentState = %q, want error", got)
 	}

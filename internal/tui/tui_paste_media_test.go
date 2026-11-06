@@ -46,14 +46,14 @@ func TestPasteOfAnImagePathAttachesTheImage(t *testing.T) {
 		t.Fatalf("write png: %v", err)
 	}
 	m.handlePasteContent(path)
-	if len(m.pendingMedia) != 1 {
-		t.Fatalf("pendingMedia = %d entries, want 1", len(m.pendingMedia))
+	if len(m.composer.pendingMedia) != 1 {
+		t.Fatalf("pendingMedia = %d entries, want 1", len(m.composer.pendingMedia))
 	}
-	if m.pendingMedia[0].Filename != "shot.png" {
-		t.Errorf("filename = %q, want %q", m.pendingMedia[0].Filename, "shot.png")
+	if m.composer.pendingMedia[0].Filename != "shot.png" {
+		t.Errorf("filename = %q, want %q", m.composer.pendingMedia[0].Filename, "shot.png")
 	}
-	if m.input.Value() != "" {
-		t.Errorf("composer = %q, want empty (the path is not inserted)", m.input.Value())
+	if m.composer.input.Value() != "" {
+		t.Errorf("composer = %q, want empty (the path is not inserted)", m.composer.input.Value())
 	}
 }
 
@@ -61,11 +61,11 @@ func TestPasteOfAnImagePathAttachesTheImage(t *testing.T) {
 func TestPasteOfTextStaysText(t *testing.T) {
 	m := pasteRunMode(t)
 	m.handlePasteContent("hello")
-	if len(m.pendingMedia) != 0 {
-		t.Fatalf("pendingMedia = %d entries, want 0", len(m.pendingMedia))
+	if len(m.composer.pendingMedia) != 0 {
+		t.Fatalf("pendingMedia = %d entries, want 0", len(m.composer.pendingMedia))
 	}
-	if m.input.Value() != "hello" {
-		t.Errorf("composer = %q, want %q", m.input.Value(), "hello")
+	if m.composer.input.Value() != "hello" {
+		t.Errorf("composer = %q, want %q", m.composer.input.Value(), "hello")
 	}
 }
 
@@ -91,11 +91,11 @@ func TestPasteMediaMsgAttachesTheImage(t *testing.T) {
 	if !ok {
 		t.Fatalf("model is %T, want *runMode", mod)
 	}
-	if len(rm.pendingMedia) != 1 {
-		t.Fatalf("pendingMedia = %d entries, want 1", len(rm.pendingMedia))
+	if len(rm.composer.pendingMedia) != 1 {
+		t.Fatalf("pendingMedia = %d entries, want 1", len(rm.composer.pendingMedia))
 	}
-	if rm.inputNotice != "" {
-		t.Errorf("notice = %q, want empty", rm.inputNotice)
+	if rm.viewport.inputNotice != "" {
+		t.Errorf("notice = %q, want empty", rm.viewport.inputNotice)
 	}
 }
 
@@ -107,8 +107,8 @@ func TestPasteMediaMsgSaysTheReferencesSentence(t *testing.T) {
 	mod, _ := m.updatePasteMedia(pasteMediaMsg{err: clipboard.ErrNoMedia})
 	rm := mod.(*runMode)
 	want := "No image or video found in the clipboard"
-	if rm.inputNotice != want {
-		t.Errorf("notice = %q, want %q", rm.inputNotice, want)
+	if rm.viewport.inputNotice != want {
+		t.Errorf("notice = %q, want %q", rm.viewport.inputNotice, want)
 	}
 }
 
@@ -121,11 +121,11 @@ func TestPasteMediaMsgNamesTheMissingTool(t *testing.T) {
 		Package: "wl-clipboard",
 	}})
 	rm := mod.(*runMode)
-	if rm.inputNotice == "" {
+	if rm.viewport.inputNotice == "" {
 		t.Fatalf("notice is empty")
 	}
-	if !bytes.Contains([]byte(rm.inputNotice), []byte("wl-clipboard")) {
-		t.Errorf("notice %q does not name the package", rm.inputNotice)
+	if !bytes.Contains([]byte(rm.viewport.inputNotice), []byte("wl-clipboard")) {
+		t.Errorf("notice %q does not name the package", rm.viewport.inputNotice)
 	}
 }
 
@@ -135,10 +135,10 @@ func TestAttachedImageRidesWithTheUserTurn(t *testing.T) {
 	m := pasteRunMode(t)
 	m.attachMedia(clipboard.Media{Data: pastePNG(t), Format: 1, Filename: "pasted-image-1.png"})
 	m.appendUserTurn("what is this?")
-	if len(m.session) != 1 {
-		t.Fatalf("session = %d messages, want 1", len(m.session))
+	if len(m.engine.session) != 1 {
+		t.Fatalf("session = %d messages, want 1", len(m.engine.session))
 	}
-	msg := m.session[0]
+	msg := m.engine.session[0]
 	if len(msg.Images) != 1 {
 		t.Fatalf("images = %d, want 1", len(msg.Images))
 	}
@@ -148,8 +148,8 @@ func TestAttachedImageRidesWithTheUserTurn(t *testing.T) {
 	if len(msg.Images[0].Data) == 0 {
 		t.Errorf("image data is empty")
 	}
-	if len(m.pendingMedia) != 0 {
-		t.Errorf("pendingMedia = %d entries after the turn, want 0", len(m.pendingMedia))
+	if len(m.composer.pendingMedia) != 0 {
+		t.Errorf("pendingMedia = %d entries after the turn, want 0", len(m.composer.pendingMedia))
 	}
 }
 
@@ -195,14 +195,14 @@ func TestPasteMultipleImagesViaDragAndDrop(t *testing.T) {
 	if cmd != nil {
 		t.Errorf("handlePasteContent returned cmd %v, want nil", cmd)
 	}
-	if len(m.pendingMedia) != 2 {
-		t.Fatalf("pendingMedia = %d entries, want 2", len(m.pendingMedia))
+	if len(m.composer.pendingMedia) != 2 {
+		t.Fatalf("pendingMedia = %d entries, want 2", len(m.composer.pendingMedia))
 	}
-	if m.pendingMedia[0].Filename != "one.png" || m.pendingMedia[1].Filename != "two.png" {
-		t.Errorf("attached filenames = %q, %q", m.pendingMedia[0].Filename, m.pendingMedia[1].Filename)
+	if m.composer.pendingMedia[0].Filename != "one.png" || m.composer.pendingMedia[1].Filename != "two.png" {
+		t.Errorf("attached filenames = %q, %q", m.composer.pendingMedia[0].Filename, m.composer.pendingMedia[1].Filename)
 	}
-	if m.input.Value() != "" {
-		t.Errorf("composer input = %q, want empty", m.input.Value())
+	if m.composer.input.Value() != "" {
+		t.Errorf("composer input = %q, want empty", m.composer.input.Value())
 	}
 }
 
@@ -211,19 +211,19 @@ func TestCtrlOTogglesMediaExpanded(t *testing.T) {
 	m := pasteRunMode(t)
 	m.attachMedia(clipboard.Media{Filename: "shot.png", Format: 1, Data: pastePNG(t)})
 
-	if m.mediaExpanded {
+	if m.composer.mediaExpanded {
 		t.Fatalf("initially expanded = true, want false")
 	}
 
 	// Send ctrl+o
 	m.Update(tea.KeyPressMsg{Code: 'o', Mod: tea.ModCtrl})
-	if !m.mediaExpanded {
+	if !m.composer.mediaExpanded {
 		t.Errorf("after ctrl+o: mediaExpanded = false, want true")
 	}
 
 	// Send ctrl+o again
 	m.Update(tea.KeyPressMsg{Code: 'o', Mod: tea.ModCtrl})
-	if m.mediaExpanded {
+	if m.composer.mediaExpanded {
 		t.Errorf("after second ctrl+o: mediaExpanded = true, want false")
 	}
 }
@@ -234,19 +234,19 @@ func TestBackspaceRemovesLastPendingMediaWhenInputEmpty(t *testing.T) {
 	m.attachMedia(clipboard.Media{Filename: "1.png", Format: 1, Data: pastePNG(t)})
 	m.attachMedia(clipboard.Media{Filename: "2.png", Format: 1, Data: pastePNG(t)})
 
-	if len(m.pendingMedia) != 2 {
-		t.Fatalf("pendingMedia = %d, want 2", len(m.pendingMedia))
+	if len(m.composer.pendingMedia) != 2 {
+		t.Fatalf("pendingMedia = %d, want 2", len(m.composer.pendingMedia))
 	}
 
 	// Backspace when input is empty
 	m.Update(tea.KeyPressMsg{Code: tea.KeyBackspace})
-	if len(m.pendingMedia) != 1 || m.pendingMedia[0].Filename != "1.png" {
-		t.Errorf("after backspace: pendingMedia = %v, want [1.png]", m.pendingMedia)
+	if len(m.composer.pendingMedia) != 1 || m.composer.pendingMedia[0].Filename != "1.png" {
+		t.Errorf("after backspace: pendingMedia = %v, want [1.png]", m.composer.pendingMedia)
 	}
 
 	// Backspace again -> removes remaining
 	m.Update(tea.KeyPressMsg{Code: tea.KeyBackspace})
-	if len(m.pendingMedia) != 0 {
-		t.Errorf("after second backspace: pendingMedia = %v, want empty", m.pendingMedia)
+	if len(m.composer.pendingMedia) != 0 {
+		t.Errorf("after second backspace: pendingMedia = %v, want empty", m.composer.pendingMedia)
 	}
 }

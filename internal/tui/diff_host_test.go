@@ -80,7 +80,7 @@ func TestDiffPanelIsRebuiltOnOpen(t *testing.T) {
 	if !m.openSlashPanel("diff") {
 		t.Fatal("openSlashPanel(diff) = false, want true")
 	}
-	if m.panel.df == nil {
+	if m.overlays.panel.df == nil {
 		t.Fatal("the /diff panel was not built on open")
 	}
 	m.diffPanel().SetTab(2)
@@ -111,7 +111,7 @@ func TestDiffPanelCtrlOFoldsTheHunk(t *testing.T) {
 	initDiffHostRepo(t, dir)
 
 	m := &runMode{}
-	m.cwd = dir
+	m.session.cwd = dir
 	if !m.openSlashPanel("diff") {
 		t.Fatal("openSlashPanel(diff) = false, want true")
 	}
@@ -128,13 +128,13 @@ func TestDiffPanelCtrlOFoldsTheHunk(t *testing.T) {
 	row := diffHunkHeaderRow(t, m)
 	m.diffPanel().SetInlineRow(row)
 
-	m.expanded = false
+	m.viewport.expanded = false
 	_, cmd := m.Update(ctrlKey('o'))
 	if cmd != nil {
 		t.Errorf("ctrl+o in the /diff panel returned cmd %v, want nil", cmd)
 	}
-	if m.expanded {
-		t.Error("ctrl+o in the /diff panel mutated m.expanded")
+	if m.viewport.expanded {
+		t.Error("ctrl+o in the /diff panel mutated m.viewport.expanded")
 	}
 	folded := m.diffPanel().Folded()
 	if len(folded) != 1 || !folded[0] {

@@ -23,14 +23,16 @@ func TestInterruptedHintLineMatchesTheReference(t *testing.T) {
 func TestEscCancelAnswersWithTheComposerHint(t *testing.T) {
 	cancelled := false
 	m := &runMode{
-		streaming:  true,
-		turnCancel: func() { cancelled = true },
+		engine: engineState{
+			streaming:  true,
+			turnCancel: func() { cancelled = true },
+		},
 	}
 	_, _ = m.handleEscKeyMsg()
 	if !cancelled {
 		t.Fatal("Esc did not cancel the in-flight turn")
 	}
-	if !m.turnInterrupted {
+	if !m.engine.turnInterrupted {
 		t.Fatal("Esc did not mark the turn as interrupted")
 	}
 	if row := m.interruptedHintRow(); !strings.Contains(row, "What should") {
@@ -39,10 +41,10 @@ func TestEscCancelAnswersWithTheComposerHint(t *testing.T) {
 }
 
 func TestCancelledTurnLeavesNoErrorRow(t *testing.T) {
-	m := &runMode{streaming: true, turnCancel: func() {}}
+	m := &runMode{engine: engineState{streaming: true, turnCancel: func() {}}}
 	_, _ = m.handleEscKeyMsg()
 	m.recordTurnCompletion(toolsteps.TurnDoneMsg{Err: context.Canceled})
-	for _, line := range m.response {
+	for _, line := range m.engine.response {
 		if strings.Contains(line, "Error:") {
 			t.Fatalf("a cancelled turn left an error row behind: %q", line)
 		}
@@ -53,29 +55,29 @@ func TestFailedTurnStillReportsTheError(t *testing.T) {
 	m := &runMode{}
 	m.recordTurnCompletion(toolsteps.TurnDoneMsg{Err: errors.New("the model hung up")})
 	found := false
-	for _, line := range m.response {
+	for _, line := range m.engine.response {
 		if strings.Contains(line, "Error: the model hung up") {
 			found = true
 		}
 	}
 	if !found {
-		t.Fatalf("a failed turn lost its error row: %v", m.response)
+		t.Fatalf("a failed turn lost its error row: %v", m.engine.response)
 	}
 }
 
 func TestCancelledTurnSuppressesTheCancellationChunk(t *testing.T) {
-	m := &runMode{turnInterrupted: true}
+	m := &runMode{engine: engineState{turnInterrupted: true}}
 	m.updateBackendChunkMsg(backendChunkMsg(context.Canceled.Error()))
-	if len(m.response) != 0 {
-		t.Fatalf("the cancellation reached the transcript: %v", m.response)
+	if len(m.engine.response) != 0 {
+		t.Fatalf("the cancellation reached the transcript: %v", m.engine.response)
 	}
 }
 
 func TestTheComposerHintDisappearsWithTheNextTurn(t *testing.T) {
-	m := &runMode{turnInterrupted: true}
-	m.input = tas.New()
+	m := &runMode{engine: engineState{turnInterrupted: true}}
+	m.composer.input = tas.New()
 	m.resetLiveTurnState("do the thing")
-	if m.turnInterrupted {
+	if m.engine.turnInterrupted {
 		t.Fatal("the interrupted flag survived the next turn")
 	}
 	if row := m.interruptedHintRow(); row != "" {

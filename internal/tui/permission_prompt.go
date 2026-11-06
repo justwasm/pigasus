@@ -371,7 +371,7 @@ func (m *runMode) handlePermissionKey(key tea.Key) (permissionprompt.Result, boo
 //     handler posts to the program when chunk.Error carries an
 //     *EligibilityError. The Update() handler routes it into
 //     setEligibilityNotice, which writes the notice onto
-//     m.eligibilityNotice and emits the diagnostic to stderr.
+//     m.overlays.eligibilityNotice and emits the diagnostic to stderr.
 //
 //   - setEligibilityNotice stores the notice AND logs it for
 //     diagnostics. The diagnostic-log path is the only place the
@@ -396,7 +396,7 @@ func (m *runMode) handlePermissionKey(key tea.Key) (permissionprompt.Result, boo
 // handler posts to the program when chunk.Error carries an
 // *EligibilityError. The Update() handler routes it into
 // setEligibilityNotice, which writes the inline notice onto
-// m.eligibilityNotice and emits the diagnostic to stderr.
+// m.overlays.eligibilityNotice and emits the diagnostic to stderr.
 //
 // The struct is a value type (Reason / VerificationURL) rather
 // than a pointer-to-EligibilityError so the post path is a
@@ -424,7 +424,7 @@ type eligibilityNoticeMsg struct {
 // handler produces a fresh message — overwrites are an
 // emergent property, not an explicit branch.
 func (m *runMode) setEligibilityNotice(reason, url string) {
-	m.eligibilityNotice = announce.Notice{
+	m.overlays.eligibilityNotice = announce.Notice{
 		Reason:          reason,
 		VerificationURL: url,
 	}
@@ -447,5 +447,5 @@ func (m *runMode) setEligibilityNotice(reason, url string) {
 // The function is idempotent — clearing an already-empty
 // notice is a no-op so the call sites don't have to guard.
 func (m *runMode) clearEligibilityNotice() {
-	m.eligibilityNotice = announce.Notice{}
+	m.overlays.eligibilityNotice = announce.Notice{}
 }

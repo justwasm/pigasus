@@ -37,18 +37,18 @@ func TestPrependSlashPlanIfNeeded(t *testing.T) {
 
 func TestSlashPlanModeSwitchAndStacking(t *testing.T) {
 	m := newRunMode(nil, "", "Gemini 3.8 Flash (High)", "", t.TempDir(), true)
-	m.mode = permissions.ModeAuto
+	m.session.mode = permissions.ModeAuto
 
 	// Bare /plan switches mode to ModePlan and sends planning prompt
 	handled, cmd := m.slashPlan("")
 	if !handled || cmd == nil {
 		t.Errorf("bare /plan: handled=%v, cmd=%v", handled, cmd)
 	}
-	if m.mode != permissions.ModePlan {
-		t.Errorf("m.mode = %q, want %q", m.mode, permissions.ModePlan)
+	if m.session.mode != permissions.ModePlan {
+		t.Errorf("m.session.mode = %q, want %q", m.session.mode, permissions.ModePlan)
 	}
-	if m.input.Placeholder != permissions.ModeBanner(permissions.ModePlan) {
-		t.Errorf("placeholder = %q, want %q", m.input.Placeholder, permissions.ModeBanner(permissions.ModePlan))
+	if m.composer.input.Placeholder != permissions.ModeBanner(permissions.ModePlan) {
+		t.Errorf("placeholder = %q, want %q", m.composer.input.Placeholder, permissions.ModeBanner(permissions.ModePlan))
 	}
 
 	// /plan with prompt arguments starts model turn
@@ -60,13 +60,13 @@ func TestSlashPlanModeSwitchAndStacking(t *testing.T) {
 	// Verify promptOptions sets PlanningMode
 	opts := m.promptOptions()
 	if !opts.PlanningMode {
-		t.Errorf("expected opts.PlanningMode=true when m.mode==ModePlan")
+		t.Errorf("expected opts.PlanningMode=true when m.session.mode==ModePlan")
 	}
 
 	// ModeAuto should set PlanningMode=false
-	m.mode = permissions.ModeAuto
+	m.session.mode = permissions.ModeAuto
 	optsAuto := m.promptOptions()
 	if optsAuto.PlanningMode {
-		t.Errorf("expected opts.PlanningMode=false when m.mode==ModeAuto")
+		t.Errorf("expected opts.PlanningMode=false when m.session.mode==ModeAuto")
 	}
 }

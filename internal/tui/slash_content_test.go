@@ -55,7 +55,7 @@ func newSlashModel(t *testing.T) *runMode {
 	}
 	t.Setenv("HOME", t.TempDir())
 	m := newRunMode(&fakeClient{}, "u@t", "Gemini 3.8 Flash (High)", "t", "/", true)
-	m.flags = newStandardFlagSetForTest(t, nil)
+	m.session.flags = newStandardFlagSetForTest(t, nil)
 	return m
 }
 
@@ -83,30 +83,30 @@ func newSlashModel(t *testing.T) *runMode {
 // the transcript. v1.4.0 reverses that. The picker overlay still shows
 // the typed token; the echo lives in the transcript below it.
 func afterEcho(m *runMode) []string {
-	if len(m.response) == 0 {
-		return m.response
+	if len(m.engine.response) == 0 {
+		return m.engine.response
 	}
 	// Detect the `> /<cmd>` echo header: cWarningBlueOpen + "> ".
 	// If absent (e.g. slashContent or slashRespondPlain), return the
 	// SGR-stripped rows as-is.
-	if !strings.HasPrefix(m.response[0], cWarningBlueOpen+"> ") {
-		out := make([]string, len(m.response))
-		for i, r := range m.response {
+	if !strings.HasPrefix(m.engine.response[0], cWarningBlueOpen+"> ") {
+		out := make([]string, len(m.engine.response))
+		for i, r := range m.engine.response {
 			out[i] = termcolor.StripSGR(r)
 		}
 		return out
 	}
-	if len(m.response) < 2 {
+	if len(m.engine.response) < 2 {
 		return nil
 	}
 	// Strip SGR + "  ⎿  " prefix from the message line.
-	msgLine := termcolor.StripSGR(m.response[1])
+	msgLine := termcolor.StripSGR(m.engine.response[1])
 	msgLine = strings.TrimPrefix(msgLine, "  \u23bf  ")
 	out := []string{msgLine}
 	// Append any extra rows between the `⎿` line and the trailing blank.
 	// The blank line is always last; everything between is extra content
 	// (e.g. /voice's 5-space-indented hint line).
-	for _, r := range m.response[2:] {
+	for _, r := range m.engine.response[2:] {
 		if r == "" {
 			break
 		}
@@ -125,7 +125,7 @@ func TestSlashContent_ModelAndEffort(t *testing.T) {
 	}
 
 	m = newSlashModel(t)
-	m.flags = newStandardFlagSetForTest(t, []string{"--model", "gemini-3.8-flash", "--effort", "low"})
+	m.session.flags = newStandardFlagSetForTest(t, []string{"--model", "gemini-3.8-flash", "--effort", "low"})
 	m.handleSlashCommand("/model")
 	if got := strings.Join(afterEcho(m), "\n"); got != "gemini-3.8-flash-low  Gemini 3.8 Flash (Low)" {
 		t.Errorf("/model with --effort rendered %q", got)
@@ -215,8 +215,8 @@ func TestSlashCreditsOpensPanel(t *testing.T) {
 	if !handled {
 		t.Fatal("/credits was not handled")
 	}
-	if m.panel.kind != panelregistry.Credits {
-		t.Fatalf("/credits opened panel %v, want panelregistry.Credits", m.panel.kind)
+	if m.overlays.panel.kind != panelregistry.Credits {
+		t.Fatalf("/credits opened panel %v, want panelregistry.Credits", m.overlays.panel.kind)
 	}
 }
 
@@ -224,11 +224,11 @@ func TestSlashCreditsOpensPanel(t *testing.T) {
 // handled it, so it fell through to "Unknown command: /new").
 func TestSlashNewStartsFreshConversation(t *testing.T) {
 	m := newSlashModel(t)
-	oldConvID := m.conversationID
-	m.session = append(m.session, backend.Message{Role: "user", Content: "hi"})
-	m.blocks = []transcript.Block{{Start: 0, Lines: 1}}
-	m.liveSteps = []toolsteps.Step{{Kind: toolsteps.KindTool}}
-	m.activeTool = "read_file"
+	oldConvID := m.session.conversationID
+	m.engine.session = append(m.engine.session, backend.Message{Role: "user", Content: "hi"})
+	m.engine.blocks = []transcript.Block{{Start: 0, Lines: 1}}
+	m.engine.liveSteps = []toolsteps.Step{{Kind: toolsteps.KindTool}}
+	m.engine.activeTool = "read_file"
 
 	handled, cmd := m.handleSlashCommand("/new")
 	if !handled {
@@ -237,16 +237,16 @@ func TestSlashNewStartsFreshConversation(t *testing.T) {
 	if cmd != nil {
 		t.Error("/new should not schedule a tea.Cmd")
 	}
-	if len(m.session) != 0 || len(m.blocks) != 0 || len(m.liveSteps) != 0 || m.activeTool != "" {
+	if len(m.engine.session) != 0 || len(m.engine.blocks) != 0 || len(m.engine.liveSteps) != 0 || m.engine.activeTool != "" {
 		t.Errorf("/new did not reset state: session=%d blocks=%d liveSteps=%d activeTool=%q",
-			len(m.session), len(m.blocks), len(m.liveSteps), m.activeTool)
+			len(m.engine.session), len(m.engine.blocks), len(m.engine.liveSteps), m.engine.activeTool)
 	}
-	if m.conversationID == "" || m.conversationID == oldConvID {
-		t.Errorf("/new did not allocate a fresh conversation ID: got %q, old %q", m.conversationID, oldConvID)
+	if m.session.conversationID == "" || m.session.conversationID == oldConvID {
+		t.Errorf("/new did not allocate a fresh conversation ID: got %q, old %q", m.session.conversationID, oldConvID)
 	}
-	for _, line := range m.response {
+	for _, line := range m.engine.response {
 		if strings.Contains(line, "Unknown command") {
-			t.Errorf("/new reported as unknown: %v", m.response)
+			t.Errorf("/new reported as unknown: %v", m.engine.response)
 		}
 	}
 }
@@ -295,24 +295,24 @@ func TestForkConversationActiveSession(t *testing.T) {
 
 func TestForkSlashCommandResponse(t *testing.T) {
 	m := newRunMode(&fakeClient{}, "u@t", "m", "t", t.TempDir(), true)
-	m.conversationID = "parent-conv-1234"
-	m.session = []backend.Message{
+	m.session.conversationID = "parent-conv-1234"
+	m.engine.session = []backend.Message{
 		{Role: "user", Content: "hello"},
 		{Role: "assistant", Content: "world"},
 	}
 	_, _ = m.handleSlashCommand("/fork")
-	if m.conversationID == "parent-conv-1234" || m.conversationID == "" {
-		t.Fatalf("expected new conversation ID, got %q", m.conversationID)
+	if m.session.conversationID == "parent-conv-1234" || m.session.conversationID == "" {
+		t.Fatalf("expected new conversation ID, got %q", m.session.conversationID)
 	}
-	joined := strings.Join(m.response, "\n")
+	joined := strings.Join(m.engine.response, "\n")
 	if !strings.Contains(joined, "> /fork") {
-		t.Errorf("expected > /fork in response: %v", m.response)
+		t.Errorf("expected > /fork in response: %v", m.engine.response)
 	}
 	if !strings.Contains(joined, "Forked conversation.") {
-		t.Errorf("expected Forked conversation. in response: %v", m.response)
+		t.Errorf("expected Forked conversation. in response: %v", m.engine.response)
 	}
 	if !strings.Contains(joined, "To go back, use: /resume parent-conv-1234") {
-		t.Errorf("expected To go back, use: /resume parent-conv-1234 in response: %v", m.response)
+		t.Errorf("expected To go back, use: /resume parent-conv-1234 in response: %v", m.engine.response)
 	}
 }
 
@@ -355,7 +355,7 @@ func TestCycle235_NoEditorConfiguredError(t *testing.T) {
 		t.Errorf("/keybindings with no editor: cmd = %v, want nil", cmd)
 	}
 
-	got := strings.Join(m.response, "\n")
+	got := strings.Join(m.engine.response, "\n")
 	if !strings.Contains(got, "No editor configured") {
 		t.Errorf("/keybindings no-editor response missing error header: %q", got)
 	}
@@ -383,7 +383,7 @@ func TestCycle235_EditorSetUsesEditor(t *testing.T) {
 	_, cmd := m.handleSlashCommand("/keybindings edit")
 	_ = cmd
 
-	got := strings.Join(m.response, "\n")
+	got := strings.Join(m.engine.response, "\n")
 	if strings.Contains(got, "No editor configured") {
 		t.Errorf("/keybindings with $EDITOR set still surfaced error: %q", got)
 	}
@@ -400,7 +400,7 @@ func TestCycle235_VisualSetUsesVisual(t *testing.T) {
 	m := newSlashModel(t)
 	_, _ = m.handleSlashCommand("/keybindings edit")
 
-	got := strings.Join(m.response, "\n")
+	got := strings.Join(m.engine.response, "\n")
 	if strings.Contains(got, "No editor configured") {
 		t.Errorf("/keybindings with $VISUAL set should not report error: %q", got)
 	}
@@ -417,7 +417,7 @@ func TestCycle235_BothSetEditorWins(t *testing.T) {
 	m := newSlashModel(t)
 	_, _ = m.handleSlashCommand("/keybindings edit")
 
-	got := strings.Join(m.response, "\n")
+	got := strings.Join(m.engine.response, "\n")
 	if strings.Contains(got, "No editor configured") {
 		t.Errorf("/keybindings with both env vars set should not report error: %q", got)
 	}
@@ -433,7 +433,7 @@ func TestCycle235_ErrorMessageMentionsBothEnvVars(t *testing.T) {
 	m := newSlashModel(t)
 	_, _ = m.handleSlashCommand("/keybindings edit")
 
-	got := termcolor.StripSGR(strings.Join(m.response, "\n"))
+	got := termcolor.StripSGR(strings.Join(m.engine.response, "\n"))
 	want := "No editor configured: set $EDITOR or $VISUAL"
 	if !strings.Contains(got, want) {
 		t.Errorf("/keybindings error = %q, want substring %q", got, want)
@@ -457,7 +457,7 @@ func TestCycle235_BindingsTableRendersOnError(t *testing.T) {
 	m := newSlashModel(t)
 	_, _ = m.handleSlashCommand("/keybindings edit")
 
-	got := termcolor.StripSGR(strings.Join(m.response, "\n"))
+	got := termcolor.StripSGR(strings.Join(m.engine.response, "\n"))
 	if !strings.Contains(got, "No editor configured") {
 		t.Errorf("/keybindings edit error path did not render the error: %q", got)
 	}
@@ -521,14 +521,14 @@ func editorTestPath() string {
 	return "/usr/bin/env"
 }
 
-// seedSession writes the supplied messages into m.session verbatim.
+// seedSession writes the supplied messages into m.engine.session verbatim.
 // Test fixtures use this to put the runMode into a known prior-turn
 // state without driving the full Enter-key path.
 func seedSession(m *runMode, msgs []backend.Message) {
-	m.session = append(m.session, msgs...)
+	m.engine.session = append(m.engine.session, msgs...)
 }
 
-// TestQuoteInsertsVerbatim: the prior turn's content goes into m.input
+// TestQuoteInsertsVerbatim: the prior turn's content goes into m.composer.input
 // exactly as it was typed — no leading or trailing whitespace trim,
 // no escape sequences, no quote markers.
 func TestQuoteInsertsVerbatim(t *testing.T) {
@@ -541,7 +541,7 @@ func TestQuoteInsertsVerbatim(t *testing.T) {
 	if handled, _ := m.handleSlashCommand("/quote"); !handled {
 		t.Fatal("/quote was not handled by the router")
 	}
-	if got := m.input.Value(); got != "line1" {
+	if got := m.composer.input.Value(); got != "line1" {
 		t.Errorf("input after /quote = %q, want %q", got, "line1")
 	}
 }
@@ -560,7 +560,7 @@ func TestQuoteNoTrailingNewline(t *testing.T) {
 	if handled, _ := m.handleSlashCommand("/quote"); !handled {
 		t.Fatal("/quote was not handled")
 	}
-	got := m.input.Value()
+	got := m.composer.input.Value()
 	if strings.HasSuffix(got, "\n") {
 		t.Errorf("input after /quote ends in '\\n' (the AGY 1.2.13 bug): %q", got)
 	}
@@ -575,7 +575,7 @@ func TestQuoteNoTrailingNewline(t *testing.T) {
 }
 
 // TestQuotePreservesInternalNewlines: a multi-line prior turn lands
-// in m.input with its internal line breaks intact. The TrimRight fix
+// in m.composer.input with its internal line breaks intact. The TrimRight fix
 // only strips trailing newlines, never internal ones.
 func TestQuotePreservesInternalNewlines(t *testing.T) {
 	m := newSlashModel(t)
@@ -588,12 +588,12 @@ func TestQuotePreservesInternalNewlines(t *testing.T) {
 		t.Fatal("/quote was not handled")
 	}
 	want := "first\nsecond\nthird"
-	if got := m.input.Value(); got != want {
+	if got := m.composer.input.Value(); got != want {
 		t.Errorf("input after /quote = %q, want %q", got, want)
 	}
 	// Sanity: confirm no leading newline snuck in either.
-	if strings.HasPrefix(m.input.Value(), "\n") {
-		t.Errorf("input after /quote starts with '\\n': %q", m.input.Value())
+	if strings.HasPrefix(m.composer.input.Value(), "\n") {
+		t.Errorf("input after /quote starts with '\\n': %q", m.composer.input.Value())
 	}
 }
 
@@ -602,34 +602,34 @@ func TestQuotePreservesInternalNewlines(t *testing.T) {
 // input — that would visually clear whatever the user had typed and
 // would look identical to "the command did nothing". The reference's
 // recoverable path is a slashRespond line; we mirror that and keep
-// m.input untouched.
+// m.composer.input untouched.
 func TestQuoteEmptyIsNoOp(t *testing.T) {
 	m := newSlashModel(t)
 	// Intentionally seed nothing — empty session.
-	pre := m.input.Value()
+	pre := m.composer.input.Value()
 	if handled, _ := m.handleSlashCommand("/quote"); !handled {
 		t.Fatal("/quote was not handled")
 	}
-	if got := m.input.Value(); got != pre {
+	if got := m.composer.input.Value(); got != pre {
 		t.Errorf("input mutated by /quote on empty session: was %q, now %q", pre, got)
 	}
-	// The recoverable feedback lives in m.response after the echo
+	// The recoverable feedback lives in m.engine.response after the echo
 	// wrapper (`> /quote` + `⎿  <msg>`); confirm the body is the
 	// recovered "No previous turn to quote." line.
 	var found bool
-	for _, row := range m.response {
+	for _, row := range m.engine.response {
 		if strings.Contains(stripColor(row), "No previous turn to quote.") {
 			found = true
 			break
 		}
 	}
 	if !found {
-		t.Errorf("empty-session /quote did not echo 'No previous turn to quote.': %v", m.response)
+		t.Errorf("empty-session /quote did not echo 'No previous turn to quote.': %v", m.engine.response)
 	}
 }
 
 // TestQuoteMultiLineInsertedCorrectly: a three-line prior turn with
-// no trailing newline in storage goes into m.input byte-exact. This
+// no trailing newline in storage goes into m.composer.input byte-exact. This
 // is the more demanding version of TestQuotePreservesInternalNewlines
 // (different fixtures, different length, pinned across two content
 // rounds).
@@ -651,7 +651,7 @@ func TestQuoteMultiLineInsertedCorrectly(t *testing.T) {
 			t.Fatalf("/quote was not handled (prior=%q)", prior)
 		}
 		want := strings.TrimRight(prior, "\n")
-		if got := m.input.Value(); got != want {
+		if got := m.composer.input.Value(); got != want {
 			t.Errorf("input after /quote (prior=%q) = %q, want %q", prior, got, want)
 		}
 	}
@@ -676,7 +676,7 @@ func TestQuoteIndexedArg(t *testing.T) {
 	if handled, _ := m.handleSlashCommand("/quote"); !handled {
 		t.Fatal("/quote was not handled")
 	}
-	if got := m.input.Value(); got != "third and latest" {
+	if got := m.composer.input.Value(); got != "third and latest" {
 		t.Errorf("/quote default = %q, want %q", got, "third and latest")
 	}
 
@@ -684,7 +684,7 @@ func TestQuoteIndexedArg(t *testing.T) {
 	if handled, _ := m.handleSlashCommand("/quote 2"); !handled {
 		t.Fatal("/quote 2 was not handled")
 	}
-	if got := m.input.Value(); got != "second" {
+	if got := m.composer.input.Value(); got != "second" {
 		t.Errorf("/quote 2 = %q, want %q", got, "second")
 	}
 
@@ -692,13 +692,13 @@ func TestQuoteIndexedArg(t *testing.T) {
 	if handled, _ := m.handleSlashCommand("/quote 3"); !handled {
 		t.Fatal("/quote 3 was not handled")
 	}
-	if got := m.input.Value(); got != "first ever" {
+	if got := m.composer.input.Value(); got != "first ever" {
 		t.Errorf("/quote 3 = %q, want %q", got, "first ever")
 	}
 }
 
 // TestQuoteOutOfRange: when n exceeds the number of user turns, the
-// helper returns a recoverable "out of range" message and m.input is
+// helper returns a recoverable "out of range" message and m.composer.input is
 // not mutated.
 func TestQuoteOutOfRange(t *testing.T) {
 	m := newSlashModel(t)
@@ -706,22 +706,22 @@ func TestQuoteOutOfRange(t *testing.T) {
 		{Role: "user", Content: "only one"},
 		{Role: "assistant", Content: "ack"},
 	})
-	pre := m.input.Value()
+	pre := m.composer.input.Value()
 	if handled, _ := m.handleSlashCommand("/quote 5"); !handled {
 		t.Fatal("/quote 5 was not handled")
 	}
-	if got := m.input.Value(); got != pre {
+	if got := m.composer.input.Value(); got != pre {
 		t.Errorf("/quote 5 mutated input: was %q, now %q", pre, got)
 	}
 	var found bool
-	for _, row := range m.response {
+	for _, row := range m.engine.response {
 		if strings.Contains(stripColor(row), "Quote index out of range") {
 			found = true
 			break
 		}
 	}
 	if !found {
-		t.Errorf("/quote 5 did not echo 'Quote index out of range': %v", m.response)
+		t.Errorf("/quote 5 did not echo 'Quote index out of range': %v", m.engine.response)
 	}
 }
 
@@ -733,22 +733,22 @@ func TestQuoteBadArg(t *testing.T) {
 		{Role: "user", Content: "stuff"},
 		{Role: "assistant", Content: "ack"},
 	})
-	pre := m.input.Value()
+	pre := m.composer.input.Value()
 	if handled, _ := m.handleSlashCommand("/quote abc"); !handled {
 		t.Fatal("/quote abc was not handled")
 	}
-	if got := m.input.Value(); got != pre {
+	if got := m.composer.input.Value(); got != pre {
 		t.Errorf("/quote abc mutated input: was %q, now %q", pre, got)
 	}
 	var found bool
-	for _, row := range m.response {
+	for _, row := range m.engine.response {
 		if strings.Contains(stripColor(row), "Usage: /quote [n]") {
 			found = true
 			break
 		}
 	}
 	if !found {
-		t.Errorf("/quote abc did not echo 'Usage: /quote [n]': %v", m.response)
+		t.Errorf("/quote abc did not echo 'Usage: /quote [n]': %v", m.engine.response)
 	}
 }
 
@@ -814,8 +814,8 @@ func TestQuoteInsertTextTrimsTrailingNewlines(t *testing.T) {
 }
 
 // TestRunGoal_SendsPrompt exercises the cycle-194 /goal handler.
-// Confirms the slash token is echoed, m.streaming is flipped, and a
-// user-role message is appended to m.session — the three signals a
+// Confirms the slash token is echoed, m.engine.streaming is flipped, and a
+// user-role message is appended to m.engine.session — the three signals a
 // normal Enter-key submit also produces (see tui_run.go).
 func TestRunGoal_SendsPrompt(t *testing.T) {
 	m := newSlashModel(t)
@@ -823,11 +823,11 @@ func TestRunGoal_SendsPrompt(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("/goal should return a non-nil tea.Cmd (the model stream)")
 	}
-	if !m.streaming {
-		t.Error("/goal should set m.streaming=true while the model runs")
+	if !m.engine.streaming {
+		t.Error("/goal should set m.engine.streaming=true while the model runs")
 	}
-	if len(m.response) == 0 || m.response[0] != "> /goal" {
-		t.Errorf("/goal first echo = %q, want %q", firstNLines(m.response, 1), "> /goal")
+	if len(m.engine.response) == 0 || m.engine.response[0] != "> /goal" {
+		t.Errorf("/goal first echo = %q, want %q", firstNLines(m.engine.response, 1), "> /goal")
 	}
 	if got := lastUserMessage(m); !strings.Contains(got, "goal") {
 		t.Errorf("/goal session message lost the goal intent: %q", got)
@@ -843,11 +843,11 @@ func TestRunGoal_NoArgsAlsoSendsPrompt(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("bare /goal should return a non-nil tea.Cmd")
 	}
-	if !m.streaming {
-		t.Error("bare /goal should set m.streaming=true")
+	if !m.engine.streaming {
+		t.Error("bare /goal should set m.engine.streaming=true")
 	}
-	if m.response[0] != "> /goal" {
-		t.Errorf("bare /goal echo = %q, want %q", m.response[0], "> /goal")
+	if m.engine.response[0] != "> /goal" {
+		t.Errorf("bare /goal echo = %q, want %q", m.engine.response[0], "> /goal")
 	}
 }
 
@@ -860,11 +860,11 @@ func TestRunPlan_SendsPrompt(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("/plan should return a non-nil tea.Cmd")
 	}
-	if !m.streaming {
-		t.Error("/plan should set m.streaming=true")
+	if !m.engine.streaming {
+		t.Error("/plan should set m.engine.streaming=true")
 	}
-	if m.response[0] != "> /plan" {
-		t.Errorf("/plan echo = %q, want %q", m.response[0], "> /plan")
+	if m.engine.response[0] != "> /plan" {
+		t.Errorf("/plan echo = %q, want %q", m.engine.response[0], "> /plan")
 	}
 	if got := lastUserMessage(m); !strings.Contains(got, "plan") {
 		t.Errorf("/plan session message lost the plan intent: %q", got)
@@ -872,7 +872,7 @@ func TestRunPlan_SendsPrompt(t *testing.T) {
 }
 
 // TestRunLearn_SendsPrompt exercises the cycle-194 /learn handler.
-// The cycle-167 stub appended to m.learnings and printed a fixed
+// The cycle-167 stub appended to m.session.learnings and printed a fixed
 // echo; cycle 194 sends a prompt.
 func TestRunLearn_SendsPrompt(t *testing.T) {
 	m := newSlashModel(t)
@@ -880,11 +880,11 @@ func TestRunLearn_SendsPrompt(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("/learn should return a non-nil tea.Cmd")
 	}
-	if !m.streaming {
-		t.Error("/learn should set m.streaming=true")
+	if !m.engine.streaming {
+		t.Error("/learn should set m.engine.streaming=true")
 	}
-	if m.response[0] != "> /learn" {
-		t.Errorf("/learn echo = %q, want %q", m.response[0], "> /learn")
+	if m.engine.response[0] != "> /learn" {
+		t.Errorf("/learn echo = %q, want %q", m.engine.response[0], "> /learn")
 	}
 	if got := lastUserMessage(m); !strings.Contains(got, "learn") {
 		t.Errorf("/learn session message lost the learn intent: %q", got)
@@ -900,11 +900,11 @@ func TestRunGrillMe_SendsPrompt(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("/grill-me should return a non-nil tea.Cmd")
 	}
-	if !m.streaming {
-		t.Error("/grill-me should set m.streaming=true")
+	if !m.engine.streaming {
+		t.Error("/grill-me should set m.engine.streaming=true")
 	}
-	if m.response[0] != "> /grill-me" {
-		t.Errorf("/grill-me echo = %q, want %q", m.response[0], "> /grill-me")
+	if m.engine.response[0] != "> /grill-me" {
+		t.Errorf("/grill-me echo = %q, want %q", m.engine.response[0], "> /grill-me")
 	}
 	if got := lastUserMessage(m); !strings.Contains(got, "question") &&
 		!strings.Contains(got, "reasoning") {
@@ -927,11 +927,11 @@ func TestRunTeamwork_SendsPrompt(t *testing.T) {
 		if cmd == nil {
 			t.Fatalf("%s should return a non-nil tea.Cmd", typed)
 		}
-		if !m.streaming {
-			t.Errorf("%s should set m.streaming=true", typed)
+		if !m.engine.streaming {
+			t.Errorf("%s should set m.engine.streaming=true", typed)
 		}
-		if m.response[0] != "> /teamwork-preview" {
-			t.Errorf("%s echo = %q, want %q", typed, m.response[0], "> /teamwork-preview")
+		if m.engine.response[0] != "> /teamwork-preview" {
+			t.Errorf("%s echo = %q, want %q", typed, m.engine.response[0], "> /teamwork-preview")
 		}
 		if got := lastUserMessage(m); !strings.Contains(got, "team") &&
 			!strings.Contains(got, "autonomous agents") {
@@ -949,11 +949,11 @@ func TestRunBoost_SendsPrompt(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("/boost should return a non-nil tea.Cmd")
 	}
-	if !m.streaming {
-		t.Error("/boost should set m.streaming=true")
+	if !m.engine.streaming {
+		t.Error("/boost should set m.engine.streaming=true")
 	}
-	if m.response[0] != "> /boost" {
-		t.Errorf("/boost echo = %q, want %q", m.response[0], "> /boost")
+	if m.engine.response[0] != "> /boost" {
+		t.Errorf("/boost echo = %q, want %q", m.engine.response[0], "> /boost")
 	}
 	if got := lastUserMessage(m); !strings.Contains(got, "deep thinking") &&
 		!strings.Contains(got, "verification") {
@@ -1038,12 +1038,12 @@ func TestRunKeybindings_NoCreateIfExists(t *testing.T) {
 }
 
 // lastUserMessage returns the content of the most recent user-role
-// message in m.session, or empty if there are none. The cycle-194
+// message in m.engine.session, or empty if there are none. The cycle-194
 // handlers all append exactly one user message per slash invocation.
 func lastUserMessage(m *runMode) string {
-	for i := len(m.session) - 1; i >= 0; i-- {
-		if m.session[i].Role == "user" {
-			return m.session[i].Content
+	for i := len(m.engine.session) - 1; i >= 0; i-- {
+		if m.engine.session[i].Role == "user" {
+			return m.engine.session[i].Content
 		}
 	}
 	return ""
@@ -1072,8 +1072,8 @@ var (
 func newVoiceTestMode(t *testing.T) *runMode {
 	t.Helper()
 	m := newSlashModel(t)
-	m.width = 100
-	m.height = 30
+	m.viewport.width = 100
+	m.viewport.height = 30
 	return m
 }
 
@@ -1100,18 +1100,18 @@ func TestVoice_PrintModeRejection(t *testing.T) {
 
 func TestVoice_StartConnectingBanner(t *testing.T) {
 	m := newVoiceTestMode(t)
-	cmd := m.voiceSurface.Start("/voice")
+	cmd := m.viewport.voiceSurface.Start("/voice")
 	if cmd == nil {
 		t.Fatal("Start returned nil cmd")
 	}
-	if !m.voiceSurface.Active() {
+	if !m.viewport.voiceSurface.Active() {
 		t.Fatal("expected the voice surface to be active")
 	}
-	if m.voiceSurface.Phase() != voice.PhaseConnecting {
-		t.Fatalf("expected phase == %d (Connecting), got %d", voice.PhaseConnecting, m.voiceSurface.Phase())
+	if m.viewport.voiceSurface.Phase() != voice.PhaseConnecting {
+		t.Fatalf("expected phase == %d (Connecting), got %d", voice.PhaseConnecting, m.viewport.voiceSurface.Phase())
 	}
 
-	banner := m.voiceSurface.View()
+	banner := m.viewport.voiceSurface.View()
 	plain := termcolor.StripSGR(banner)
 	if !strings.Contains(plain, "Connecting...") {
 		t.Errorf("banner should contain 'Connecting...', got %q", plain)
@@ -1123,41 +1123,41 @@ func TestVoice_StartConnectingBanner(t *testing.T) {
 
 func TestVoice_EscCancelsConnecting(t *testing.T) {
 	m := newVoiceTestMode(t)
-	_ = m.voiceSurface.Start("/voice")
+	_ = m.viewport.voiceSurface.Start("/voice")
 
-	handled, _ := m.voiceSurface.HandleKey(tea.Key{Code: tea.KeyEsc})
+	handled, _ := m.viewport.voiceSurface.HandleKey(tea.Key{Code: tea.KeyEsc})
 	if !handled {
 		t.Fatal("expected Esc to be handled by voice mode")
 	}
-	if m.voiceSurface.Active() {
+	if m.viewport.voiceSurface.Active() {
 		t.Fatal("expected the voice surface to be inactive after Esc")
 	}
-	if !m.voiceSurface.Cancelled() {
+	if !m.viewport.voiceSurface.Cancelled() {
 		t.Fatal("expected the session to be marked cancelled")
 	}
 
-	respLen := len(m.response)
-	m.voiceSurface.HandleConnectDone(voice.ConnectDoneMsg{Err: errors.New("network failure")})
-	if len(m.response) != respLen {
-		t.Errorf("response should not be appended after cancellation; got %v", m.response)
+	respLen := len(m.engine.response)
+	m.viewport.voiceSurface.HandleConnectDone(voice.ConnectDoneMsg{Err: errors.New("network failure")})
+	if len(m.engine.response) != respLen {
+		t.Errorf("response should not be appended after cancellation; got %v", m.engine.response)
 	}
 }
 
 func TestVoice_FailedConnectionSurfacesPermissionDenied(t *testing.T) {
 	m := newVoiceTestMode(t)
-	_ = m.voiceSurface.Start("/voice")
+	_ = m.viewport.voiceSurface.Start("/voice")
 
-	m.voiceSurface.HandleConnectDone(voice.ConnectDoneMsg{
+	m.viewport.voiceSurface.HandleConnectDone(voice.ConnectDoneMsg{
 		Err: errors.New("transcription failed: failed to receive setup response: rpc error: code = PermissionDenied desc = Request had insufficient authentication scopes."),
 	})
 
-	if m.voiceSurface.Active() {
+	if m.viewport.voiceSurface.Active() {
 		t.Fatal("the voice surface should be inactive after connection failure")
 	}
-	if len(m.response) < 2 {
-		t.Fatalf("expected response rows for /voice failure, got %v", m.response)
+	if len(m.engine.response) < 2 {
+		t.Fatalf("expected response rows for /voice failure, got %v", m.engine.response)
 	}
-	msgText := strings.Join(m.response, "\n")
+	msgText := strings.Join(m.engine.response, "\n")
 	if !strings.Contains(msgText, "Could not start transcription") {
 		t.Errorf("response missing 'Could not start transcription': %s", msgText)
 	}
@@ -1168,16 +1168,16 @@ func TestVoice_FailedConnectionSurfacesPermissionDenied(t *testing.T) {
 
 func TestVoice_RecordingBannerAndTimer(t *testing.T) {
 	m := newVoiceTestMode(t)
-	m.voiceConnectFn = func() error { return nil }
-	_ = m.voiceSurface.Start("/voice")
+	m.viewport.voiceConnectFn = func() error { return nil }
+	_ = m.viewport.voiceSurface.Start("/voice")
 
-	m.voiceSurface.HandleConnectDone(voice.ConnectDoneMsg{Err: nil})
+	m.viewport.voiceSurface.HandleConnectDone(voice.ConnectDoneMsg{Err: nil})
 
-	if !m.voiceSurface.Active() || m.voiceSurface.Phase() != voice.PhaseRecording {
-		t.Fatalf("expected phase == %d (Recording), got %d", voice.PhaseRecording, m.voiceSurface.Phase())
+	if !m.viewport.voiceSurface.Active() || m.viewport.voiceSurface.Phase() != voice.PhaseRecording {
+		t.Fatalf("expected phase == %d (Recording), got %d", voice.PhaseRecording, m.viewport.voiceSurface.Phase())
 	}
 
-	banner := m.voiceSurface.View()
+	banner := m.viewport.voiceSurface.View()
 	plain := termcolor.StripSGR(banner)
 	if !strings.Contains(plain, "Recording 00:00") {
 		t.Errorf("banner missing 'Recording 00:00': %q", plain)
@@ -1190,9 +1190,9 @@ func TestVoice_RecordingBannerAndTimer(t *testing.T) {
 	}
 
 	for i := 0; i < 5; i++ {
-		m.voiceSurface.HandleTick()
+		m.viewport.voiceSurface.HandleTick()
 	}
-	banner5s := termcolor.StripSGR(m.voiceSurface.View())
+	banner5s := termcolor.StripSGR(m.viewport.voiceSurface.View())
 	if !strings.Contains(banner5s, "Recording 00:05") {
 		t.Errorf("banner missing 'Recording 00:05' after 5 ticks: %q", banner5s)
 	}
@@ -1200,18 +1200,18 @@ func TestVoice_RecordingBannerAndTimer(t *testing.T) {
 
 func TestVoice_FinishingAfterMaxDuration(t *testing.T) {
 	m := newVoiceTestMode(t)
-	m.voiceConnectFn = func() error { return nil }
-	_ = m.voiceSurface.Start("/voice")
-	m.voiceSurface.HandleConnectDone(voice.ConnectDoneMsg{Err: nil})
+	m.viewport.voiceConnectFn = func() error { return nil }
+	_ = m.viewport.voiceSurface.Start("/voice")
+	m.viewport.voiceSurface.HandleConnectDone(voice.ConnectDoneMsg{Err: nil})
 
-	m.voiceSurface.Recorder().Tick(voice.MaxRecordingDuration)
-	m.voiceSurface.HandleTick()
+	m.viewport.voiceSurface.Recorder().Tick(voice.MaxRecordingDuration)
+	m.viewport.voiceSurface.HandleTick()
 
-	if m.voiceSurface.Phase() != voice.PhaseFinishing {
-		t.Fatalf("expected phase == %d (Finishing), got %d", voice.PhaseFinishing, m.voiceSurface.Phase())
+	if m.viewport.voiceSurface.Phase() != voice.PhaseFinishing {
+		t.Fatalf("expected phase == %d (Finishing), got %d", voice.PhaseFinishing, m.viewport.voiceSurface.Phase())
 	}
 
-	banner := termcolor.StripSGR(m.voiceSurface.View())
+	banner := termcolor.StripSGR(m.viewport.voiceSurface.View())
 	if !strings.Contains(banner, "Finishing up...") {
 		t.Errorf("banner missing 'Finishing up...': %q", banner)
 	}
@@ -1222,21 +1222,21 @@ func TestVoice_FinishingAfterMaxDuration(t *testing.T) {
 
 func TestVoice_EnterOrF5InsertsDraft(t *testing.T) {
 	m := newVoiceTestMode(t)
-	m.voiceConnectFn = func() error { return nil }
-	_ = m.voiceSurface.Start("f5")
-	m.voiceSurface.HandleConnectDone(voice.ConnectDoneMsg{Err: nil})
+	m.viewport.voiceConnectFn = func() error { return nil }
+	_ = m.viewport.voiceSurface.Start("f5")
+	m.viewport.voiceSurface.HandleConnectDone(voice.ConnectDoneMsg{Err: nil})
 
-	_ = m.voiceSurface.Recorder().AppendDraft("hello from voice dictation")
+	_ = m.viewport.voiceSurface.Recorder().AppendDraft("hello from voice dictation")
 
-	handled, _ := m.voiceSurface.HandleKey(tea.Key{Code: tea.KeyF5})
+	handled, _ := m.viewport.voiceSurface.HandleKey(tea.Key{Code: tea.KeyF5})
 	if !handled {
 		t.Fatal("expected F5 to be handled")
 	}
-	if m.voiceSurface.Active() {
+	if m.viewport.voiceSurface.Active() {
 		t.Fatal("expected the voice surface to be inactive after confirmation")
 	}
 
-	got := m.input.Value()
+	got := m.composer.input.Value()
 	if got != "hello from voice dictation" {
 		t.Errorf("input value = %q, want 'hello from voice dictation'", got)
 	}
@@ -1244,13 +1244,13 @@ func TestVoice_EnterOrF5InsertsDraft(t *testing.T) {
 
 func TestVoice_F5KeyDispatchesVoiceDictation(t *testing.T) {
 	m := newVoiceTestMode(t)
-	if m.voiceSurface.Active() {
+	if m.viewport.voiceSurface.Active() {
 		t.Fatal("the voice surface should be inactive initially")
 	}
 
 	model, cmd := m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyF5}))
 	updated := model.(*runMode)
-	if !updated.voiceSurface.Active() {
+	if !updated.viewport.voiceSurface.Active() {
 		t.Fatal("pressing F5 should activate the voice surface")
 	}
 	if cmd == nil {
@@ -1282,24 +1282,24 @@ func TestVoice_LiveRecordingFlow(t *testing.T) {
 	m := newVoiceTestMode(t)
 	t.Setenv("ANTIGRAVITY_MIC", "")
 
-	cmd := m.voiceSurface.Start("/voice")
-	if !m.voiceSurface.Active() || m.voiceSurface.Phase() != voice.PhaseConnecting {
-		t.Fatalf("expected voicePhaseConnecting, got phase=%d", m.voiceSurface.Phase())
+	cmd := m.viewport.voiceSurface.Start("/voice")
+	if !m.viewport.voiceSurface.Active() || m.viewport.voiceSurface.Phase() != voice.PhaseConnecting {
+		t.Fatalf("expected voicePhaseConnecting, got phase=%d", m.viewport.voiceSurface.Phase())
 	}
 
 	msg := cmd().(voice.ConnectDoneMsg)
 	if msg.Err != nil {
 		t.Fatalf("expected nil connect error, got: %v", msg.Err)
 	}
-	tickCmd := m.voiceSurface.HandleConnectDone(msg)
-	if !m.voiceSurface.Active() || m.voiceSurface.Phase() != voice.PhaseRecording {
-		t.Fatalf("expected voicePhaseRecording, got phase=%d", m.voiceSurface.Phase())
+	tickCmd := m.viewport.voiceSurface.HandleConnectDone(msg)
+	if !m.viewport.voiceSurface.Active() || m.viewport.voiceSurface.Phase() != voice.PhaseRecording {
+		t.Fatalf("expected voicePhaseRecording, got phase=%d", m.viewport.voiceSurface.Phase())
 	}
 	if tickCmd == nil {
 		t.Fatal("expected non-nil tickCmd after entering recording")
 	}
 
-	banner := m.voiceSurface.View()
+	banner := m.viewport.voiceSurface.View()
 	if !strings.Contains(banner, "Recording 00:00") {
 		t.Errorf("banner missing initial timer: %q", banner)
 	}
@@ -1307,14 +1307,14 @@ func TestVoice_LiveRecordingFlow(t *testing.T) {
 		t.Errorf("banner missing instructions: %q", banner)
 	}
 
-	m.voiceSurface.HandleTick()
-	bannerTick := m.voiceSurface.View()
+	m.viewport.voiceSurface.HandleTick()
+	bannerTick := m.viewport.voiceSurface.View()
 	if !strings.Contains(bannerTick, "Recording 00:01") {
 		t.Errorf("banner missing updated timer: %q", bannerTick)
 	}
 
-	handled, _ := m.voiceSurface.HandleKey(tea.Key{Code: tea.KeyEnter})
-	if !handled || m.voiceSurface.Active() {
+	handled, _ := m.viewport.voiceSurface.HandleKey(tea.Key{Code: tea.KeyEnter})
+	if !handled || m.viewport.voiceSurface.Active() {
 		t.Fatal("expected Enter to confirm and leave the voice surface")
 	}
 }
@@ -1324,7 +1324,7 @@ func TestVoice_LiveRecordingFlow(t *testing.T) {
 func narrationTestMode(t *testing.T, sessionStart time.Time) *runMode {
 	t.Helper()
 	m := newSlashModel(t)
-	m.narrationStart = sessionStart
+	m.session.narrationStart = sessionStart
 	return m
 }
 
@@ -1339,8 +1339,8 @@ func TestSlashNarration_NoArgs(t *testing.T) {
 	if cmd != nil {
 		t.Error("cmd should be nil — narration is purely synchronous")
 	}
-	if len(m.response) == 0 {
-		t.Fatal("m.response is empty; expected a narration paragraph")
+	if len(m.engine.response) == 0 {
+		t.Fatal("m.engine.response is empty; expected a narration paragraph")
 	}
 	echoLines := afterEcho(m)
 	if len(echoLines) == 0 {
@@ -1379,19 +1379,19 @@ func TestSlashNarration_Off(t *testing.T) {
 	if !handled {
 		t.Fatal("handleSlashCommand not handled")
 	}
-	if !m.narrationOff {
-		t.Error("m.narrationOff should be true after '/narration off'")
+	if !m.session.narrationOff {
+		t.Error("m.session.narrationOff should be true after '/narration off'")
 	}
-	if len(m.response) != 0 {
-		t.Errorf("m.response should be empty after '/narration off', got %v", m.response)
+	if len(m.engine.response) != 0 {
+		t.Errorf("m.engine.response should be empty after '/narration off', got %v", m.engine.response)
 	}
 
 	handled, _ = m.handleSlashCommand("/narration")
 	if !handled {
 		t.Fatal("subsequent /narration not handled")
 	}
-	if len(m.response) != 0 {
-		t.Errorf("subsequent /narration should no-op when narrationOff=true, got %v", m.response)
+	if len(m.engine.response) != 0 {
+		t.Errorf("subsequent /narration should no-op when narrationOff=true, got %v", m.engine.response)
 	}
 }
 
@@ -1417,30 +1417,30 @@ func TestSlashNarration_DoesNotAffectSessionHistory(t *testing.T) {
 	start := time.Date(2026, 4, 1, 10, 0, 0, 0, time.UTC)
 	m := narrationTestMode(t, start)
 
-	m.session = []backend.Message{
+	m.engine.session = []backend.Message{
 		{Role: "user", Content: "hello"},
 		{Role: "assistant", Content: "world"},
 	}
-	initialLen := len(m.session)
+	initialLen := len(m.engine.session)
 
 	m.handleSlashCommand("/narration")
-	if len(m.session) != initialLen {
-		t.Errorf("session grew after bare /narration: had %d, now %d", initialLen, len(m.session))
+	if len(m.engine.session) != initialLen {
+		t.Errorf("session grew after bare /narration: had %d, now %d", initialLen, len(m.engine.session))
 	}
 
 	m.handleSlashCommand("/narration customized narrative")
-	if len(m.session) != initialLen {
-		t.Errorf("session grew after /narration <text>: had %d, now %d", initialLen, len(m.session))
+	if len(m.engine.session) != initialLen {
+		t.Errorf("session grew after /narration <text>: had %d, now %d", initialLen, len(m.engine.session))
 	}
 
 	m.handleSlashCommand("/narration auto refactor")
-	if len(m.session) != initialLen {
-		t.Errorf("session grew after /narration auto: had %d, now %d", initialLen, len(m.session))
+	if len(m.engine.session) != initialLen {
+		t.Errorf("session grew after /narration auto: had %d, now %d", initialLen, len(m.engine.session))
 	}
 
 	m.handleSlashCommand("/narration off")
-	if len(m.session) != initialLen {
-		t.Errorf("session grew after /narration off: had %d, now %d", initialLen, len(m.session))
+	if len(m.engine.session) != initialLen {
+		t.Errorf("session grew after /narration off: had %d, now %d", initialLen, len(m.engine.session))
 	}
 }
 
@@ -1491,7 +1491,7 @@ func TestBranch_DoesNotModifyParentSkills(t *testing.T) {
 	if skills := iw.RegisteredSkills(); len(skills) != 0 {
 		t.Errorf("post-Exit sandbox skills = %v, want empty (must not leak)", skills)
 	}
-	// /branch's output is captured into m.response. The captured
+	// /branch's output is captured into m.engine.response. The captured
 	// transcript must include the four feedback lines.
 	resp := strings.Join(afterEcho(m), "\n")
 	for _, want := range []string{
@@ -1513,13 +1513,13 @@ func TestShare_DoesNotModifyParentAgents(t *testing.T) {
 	m := newSlashModel(t)
 	// Snapshot parent agent router size.
 	beforeAgents := 0
-	if m.atRouter != nil {
-		beforeAgents = len(m.atRouter.Names())
+	if m.engine.atRouter != nil {
+		beforeAgents = len(m.engine.atRouter.Names())
 	}
 	m.handleSlashCommand("/share team-collaboration")
 	// Parent's agent router size is unchanged.
-	if m.atRouter != nil {
-		if got := len(m.atRouter.Names()); got != beforeAgents {
+	if m.engine.atRouter != nil {
+		if got := len(m.engine.atRouter.Names()); got != beforeAgents {
 			t.Errorf("after /share, parent agent router size = %d, want %d (must not leak)",
 				got, beforeAgents)
 		}
@@ -1534,7 +1534,7 @@ func TestShare_DoesNotModifyParentAgents(t *testing.T) {
 	if agents := iw.RegisteredAgents(); len(agents) != 0 {
 		t.Errorf("post-Exit sandbox agents = %v, want empty (must not leak)", agents)
 	}
-	// /share's output is captured into m.response. The captured
+	// /share's output is captured into m.engine.response. The captured
 	// transcript must include the four feedback lines, distinct
 	// from /branch's wording.
 	resp := strings.Join(afterEcho(m), "\n")
@@ -1569,9 +1569,9 @@ func TestBranch_OutputCapturedIntoParent(t *testing.T) {
 	if handled, _ := m.handleSlashCommand("/branch captured"); !handled {
 		t.Fatal("/branch should be handled by the router")
 	}
-	// m.response must include the echo header `> /branch`.
-	if len(m.response) == 0 || !strings.HasPrefix(m.response[0], cWarningBlueOpen+"> /branch") {
-		t.Errorf("/branch echo header missing; m.response[0] = %q", firstSliceLine(m.response))
+	// m.engine.response must include the echo header `> /branch`.
+	if len(m.engine.response) == 0 || !strings.HasPrefix(m.engine.response[0], cWarningBlueOpen+"> /branch") {
+		t.Errorf("/branch echo header missing; m.engine.response[0] = %q", firstSliceLine(m.engine.response))
 	}
 	// The captured output appears below the echo wrapper.
 	lines := afterEcho(m)
@@ -1594,11 +1594,11 @@ func TestBranch_OutputCapturedIntoParent(t *testing.T) {
 		}
 	}
 	// Parent's session / blocks / liveSteps are untouched.
-	if len(m.session) != 0 {
-		t.Errorf("/branch should not modify parent session; got %d messages", len(m.session))
+	if len(m.engine.session) != 0 {
+		t.Errorf("/branch should not modify parent session; got %d messages", len(m.engine.session))
 	}
-	if len(m.blocks) != 0 {
-		t.Errorf("/branch should not modify parent blocks; got %d entries", len(m.blocks))
+	if len(m.engine.blocks) != 0 {
+		t.Errorf("/branch should not modify parent blocks; got %d entries", len(m.engine.blocks))
 	}
 }
 
@@ -1611,8 +1611,8 @@ func TestShare_OutputCapturedIntoParent(t *testing.T) {
 	if handled, _ := m.handleSlashCommand("/share captured"); !handled {
 		t.Fatal("/share should be handled by the router")
 	}
-	if len(m.response) == 0 || !strings.HasPrefix(m.response[0], cWarningBlueOpen+"> /share") {
-		t.Errorf("/share echo header missing; m.response[0] = %q", firstSliceLine(m.response))
+	if len(m.engine.response) == 0 || !strings.HasPrefix(m.engine.response[0], cWarningBlueOpen+"> /share") {
+		t.Errorf("/share echo header missing; m.engine.response[0] = %q", firstSliceLine(m.engine.response))
 	}
 	lines := afterEcho(m)
 	if len(lines) < 4 {
@@ -1646,7 +1646,7 @@ func TestShare_OutputCapturedIntoParent(t *testing.T) {
 // firstSliceLine returns the first non-empty entry of s, or "" if
 // all entries are empty. Named to avoid colliding with tui_run.go's
 // firstLine helper, which has a different signature. Used to render
-// readable error messages when m.response[0] is the empty string.
+// readable error messages when m.engine.response[0] is the empty string.
 func firstSliceLine(s []string) string {
 	for _, l := range s {
 		if l != "" {
@@ -1811,8 +1811,8 @@ func TestSlashCodesearchNoArgs(t *testing.T) {
 		t.Errorf("handleSlashCommand(/codesearch) = (handled=%v cmd=%v), want handled=true cmd=nil",
 			handled, cmd)
 	}
-	if m.panel.kind == panelregistry.CodeSearch {
-		t.Errorf("bare /codesearch should not open the panel; panel.kind = %v", m.panel.kind)
+	if m.overlays.panel.kind == panelregistry.CodeSearch {
+		t.Errorf("bare /codesearch should not open the panel; panel.kind = %v", m.overlays.panel.kind)
 	}
 	joined := strings.Join(afterEcho(m), "\n")
 	if !strings.Contains(joined, "/codesearch needs a query.") {
@@ -1833,15 +1833,15 @@ func TestSlashCodesearchAliases(t *testing.T) {
 	for _, alias := range []string{"cs", "search"} {
 		t.Run(alias, func(t *testing.T) {
 			m := newSlashModel(t)
-			m.cwd = root
+			m.session.cwd = root
 			// Disable streaming to make the panel settle synchronously.
-			m.streamingSearch = false
+			m.engine.streamingSearch = false
 
 			if !m.openSlashPanelArgs(alias, "TODO") {
 				t.Fatalf("openSlashPanelArgs(%q, TODO) = false", alias)
 			}
-			if m.panel.kind != panelregistry.CodeSearch {
-				t.Errorf("panel.kind = %v, want panelregistry.CodeSearch", m.panel.kind)
+			if m.overlays.panel.kind != panelregistry.CodeSearch {
+				t.Errorf("panel.kind = %v, want panelregistry.CodeSearch", m.overlays.panel.kind)
 			}
 			if q := m.codesearchPanel().Query(); q != "TODO" {
 				t.Errorf("query = %q, want TODO", q)
@@ -1915,20 +1915,20 @@ func TestBtwSlashNoArgs(t *testing.T) {
 	if handled, _ := m.handleSlashCommand("/btw"); !handled {
 		t.Fatal("/btw not handled")
 	}
-	if len(m.btwCards) != 0 {
-		t.Errorf("no-args /btw opened %d cards", len(m.btwCards))
+	if len(m.overlays.btwCards) != 0 {
+		t.Errorf("no-args /btw opened %d cards", len(m.overlays.btwCards))
 	}
 	// The transcript carries the echo + "Usage: /btw <question>" line;
 	// strip the ANSI wrapper and assert on the message body.
 	var found bool
-	for _, row := range m.response {
+	for _, row := range m.engine.response {
 		if strings.Contains(stripColor(row), "Usage: /btw <question>") {
 			found = true
 			break
 		}
 	}
 	if !found {
-		t.Errorf("/btw (no args) transcript missing 'Usage: /btw <question>' line: %v", m.response)
+		t.Errorf("/btw (no args) transcript missing 'Usage: /btw <question>' line: %v", m.engine.response)
 	}
 }
 
@@ -1945,10 +1945,10 @@ func TestBtwSlashStreamingCard(t *testing.T) {
 	if handled, _ := m.handleSlashCommand("/btw Trigger: over-window response"); !handled {
 		t.Fatal("/btw not handled")
 	}
-	if len(m.btwCards) != 1 {
-		t.Fatalf("expected 1 card, got %d", len(m.btwCards))
+	if len(m.overlays.btwCards) != 1 {
+		t.Fatalf("expected 1 card, got %d", len(m.overlays.btwCards))
 	}
-	card := m.btwCards[0]
+	card := m.overlays.btwCards[0]
 	_, answer, tokens, state, err := card.LockedSnapshot()
 	if err != nil {
 		t.Fatalf("Card.Err: %v", err)
@@ -1963,17 +1963,16 @@ func TestBtwSlashStreamingCard(t *testing.T) {
 		t.Errorf("Card.Tokens = %d, want > 0", tokens)
 	}
 	// The active id pointer advanced to the new card.
-	if m.activeBtwID != card.ID {
-		t.Errorf("activeBtwID = %q, want %q", m.activeBtwID, card.ID)
+	if m.overlays.activeBtwID != card.ID {
+		t.Errorf("activeBtwID = %q, want %q", m.overlays.activeBtwID, card.ID)
 	}
 }
 
 // TestBtwParentTranscriptUntouched: after a /btw round-trip the
-// parent's m.session records the side question as a user message.
-// Cycle btw-runs-hooks inverts cycle-230's "session untouched"
-// contract so /btw shows up in the conversation history like any
-// other user input — see slash_btw.go's appendBtwToSession helper
-// and the cycle btw-runs-hooks deliverable for the rationale.
+// parent's m.engine.session remains completely untouched.
+// As specified in official-docs/cli/commands/btw.md:
+// "No conversation history growth: neither your /btw question nor its answer
+// is added to the main conversation, so later turns don't pay for it."
 func TestBtwParentTranscriptUntouched(t *testing.T) {
 	cleanup := withBtwManager(t)
 	defer cleanup()
@@ -1983,33 +1982,76 @@ func TestBtwParentTranscriptUntouched(t *testing.T) {
 		{Role: "user", Content: "parent question"},
 		{Role: "assistant", Content: "parent answer"},
 	}
-	m.session = append([]backend.Message(nil), parent...)
+	m.engine.session = append([]backend.Message(nil), parent...)
 
 	if handled, _ := m.handleSlashCommand("/btw What is 20+22?"); !handled {
 		t.Fatal("/btw not handled")
 	}
 
-	// The two parent messages stay intact and a new user message
-	// lands at the end with a "> /btw <question>" body so future
-	// turns can replay the side question in context.
-	if len(m.session) != len(parent)+1 {
-		t.Fatalf("parent session grew from %d to %d messages, want %d", len(parent), len(m.session), len(parent)+1)
+	// The parent messages stay intact and no new message is appended.
+	if len(m.engine.session) != len(parent) {
+		t.Fatalf("parent session grew from %d to %d messages, want %d", len(parent), len(m.engine.session), len(parent))
 	}
 	for i, msg := range parent {
-		if m.session[i].Role != msg.Role || m.session[i].Content != msg.Content {
-			t.Errorf("parent session[%d] = %+v, want %+v", i, m.session[i], msg)
+		if m.engine.session[i].Role != msg.Role || m.engine.session[i].Content != msg.Content {
+			t.Errorf("parent session[%d] = %+v, want %+v", i, m.engine.session[i], msg)
 		}
 	}
-	last := m.session[len(m.session)-1]
-	if last.Role != "user" {
-		t.Errorf("appended role = %q, want user", last.Role)
+}
+
+// TestBtwContextInherited: verifies that /btw inherits parent conversation
+// messages as context, so the model receives previous discussion turns.
+func TestBtwContextInherited(t *testing.T) {
+	m := newSlashModel(t)
+	var capturedMessages []backend.Message
+	fakeBackend := &btwRecordingBackend{
+		onStream: func(req backend.StreamRequest) {
+			capturedMessages = req.Messages
+		},
 	}
-	if !strings.Contains(last.Content, "What is 20+22?") {
-		t.Errorf("appended content = %q, want it to contain the side question", last.Content)
+	m.engine.backend = fakeBackend
+
+	parent := []backend.Message{
+		{Role: "user", Content: "define UserSession interface"},
+		{Role: "assistant", Content: "UserSession is defined in auth.go"},
 	}
-	if !strings.HasPrefix(last.Content, "> /btw ") {
-		t.Errorf("appended content = %q, want it to start with \"> /btw \"", last.Content)
+	m.engine.session = append([]backend.Message(nil), parent...)
+
+	if handled, _ := m.handleSlashCommand("/btw which file was it again?"); !handled {
+		t.Fatal("/btw not handled")
 	}
+
+	if len(capturedMessages) != len(parent)+1 {
+		t.Fatalf("expected %d messages sent to model (parent context + prompt), got %d", len(parent)+1, len(capturedMessages))
+	}
+	for i, msg := range parent {
+		if capturedMessages[i].Role != msg.Role || capturedMessages[i].Content != msg.Content {
+			t.Errorf("capturedMessages[%d] = %+v, want %+v", i, capturedMessages[i], msg)
+		}
+	}
+	last := capturedMessages[len(capturedMessages)-1]
+	if last.Role != "user" || last.Content != "which file was it again?" {
+		t.Errorf("last message = %+v, want user side question", last)
+	}
+
+	// And parent session must NOT have grown
+	if len(m.engine.session) != len(parent) {
+		t.Fatalf("parent session grew to %d messages, want %d", len(m.engine.session), len(parent))
+	}
+}
+
+type btwRecordingBackend struct {
+	onStream func(backend.StreamRequest)
+}
+
+func (b *btwRecordingBackend) Stream(ctx context.Context, req backend.StreamRequest) (<-chan backend.StreamChunk, error) {
+	if b.onStream != nil {
+		b.onStream(req)
+	}
+	ch := make(chan backend.StreamChunk, 1)
+	ch <- backend.StreamChunk{Text: "auth.go"}
+	close(ch)
+	return ch, nil
 }
 
 // TestBtwErrorPath: a session that fails mid-stream leaves the
@@ -2033,18 +2075,18 @@ func TestBtwErrorPath(t *testing.T) {
 	}
 	// The transcript must carry `btw failed: <err>` even though no
 	// card was registered.
-	if len(m.btwCards) != 0 {
-		t.Errorf("error path registered %d cards; want 0", len(m.btwCards))
+	if len(m.overlays.btwCards) != 0 {
+		t.Errorf("error path registered %d cards; want 0", len(m.overlays.btwCards))
 	}
 	var found bool
-	for _, row := range m.response {
+	for _, row := range m.engine.response {
 		if strings.HasPrefix(stripColor(row), "btw failed: ") {
 			found = true
 			break
 		}
 	}
 	if !found {
-		t.Errorf("btw failed line missing from transcript: %v", m.response)
+		t.Errorf("btw failed line missing from transcript: %v", m.engine.response)
 	}
 }
 
@@ -2068,27 +2110,27 @@ func TestCopyBtwSlash(t *testing.T) {
 		t.Errorf("clipboard written with no active card: %q", copied)
 	}
 	var noActive bool
-	for _, row := range m.response {
+	for _, row := range m.engine.response {
 		if strings.Contains(stripColor(row), "No /btw response to copy.") {
 			noActive = true
 			break
 		}
 	}
 	if !noActive {
-		t.Errorf("/copy btw with no card missed the no-active echo: %v", m.response)
+		t.Errorf("/copy btw with no card missed the no-active echo: %v", m.engine.response)
 	}
 
 	// Add a card via /btw, then /copy btw again.
 	clipboardWrite = func(s string) error { copied = s; return nil }
 	m = newSlashModel(t)
 	m.handleSlashCommand("/btw What is 20+22?")
-	card := m.btwCards[0]
+	card := m.overlays.btwCards[0]
 	m.handleSlashCommand("/copy btw")
 	if copied != "42" {
 		t.Errorf("clipboard got %q, want %q", copied, "42")
 	}
 	var copiedMsg bool
-	for _, row := range m.response {
+	for _, row := range m.engine.response {
 		plain := stripColor(row)
 		if strings.Contains(plain, "Copied /btw answer to clipboard.") {
 			copiedMsg = true
@@ -2096,7 +2138,7 @@ func TestCopyBtwSlash(t *testing.T) {
 		}
 	}
 	if !copiedMsg {
-		t.Errorf("/copy btw echo missing 'Copied /btw answer to clipboard.': %v", m.response)
+		t.Errorf("/copy btw echo missing 'Copied /btw answer to clipboard.': %v", m.engine.response)
 	}
 	_ = card
 }
@@ -2117,41 +2159,37 @@ func TestCopyBtwClipboardError(t *testing.T) {
 	m.handleSlashCommand("/copy btw")
 
 	var found bool
-	for _, row := range m.response {
+	for _, row := range m.engine.response {
 		if strings.Contains(stripColor(row), "Failed to copy to clipboard: ") {
 			found = true
 			break
 		}
 	}
 	if !found {
-		t.Errorf("/copy btw clipboard error echo missing: %v", m.response)
+		t.Errorf("/copy btw clipboard error echo missing: %v", m.engine.response)
 	}
 }
 
 // TestBtwIndependentServices: opening a btw card does not mutate
-// anything on the runMode outside the btwManager / btwCards /
-// session fields. After a /btw round-trip the parent session grows
-// by exactly one user message (the side-question record added by
-// appendBtwToSession); closing the runMode's main transport
-// (m.backend) does not retroactively affect the card. PiG's
-// coding.Services per-Ask isolation guarantees this; the test pins
-// the contract so a future cycle that decides to share a Services
-// cannot regress without noticing.
+// anything on the runMode outside the btwManager / btwCards fields.
+// In accordance with reference agy and official documentation, the parent session
+// is completely untouched (no history growth). Closing the runMode's main transport
+// (m.engine.backend) does not retroactively affect the card.
 func TestBtwIndependentServices(t *testing.T) {
 	cleanup := withBtwManager(t)
 	defer cleanup()
 
 	m := newSlashModel(t)
 	parent := []backend.Message{{Role: "user", Content: "p"}}
-	m.session = append([]backend.Message(nil), parent...)
+	m.engine.session = append([]backend.Message(nil), parent...)
 	if handled, _ := m.handleSlashCommand("/btw What is 20+22?"); !handled {
 		t.Fatal("/btw not handled")
 	}
-	if len(m.session) != len(parent)+1 {
-		t.Errorf("parent session length = %d, want %d", len(m.session), len(parent)+1)
+	if len(m.engine.session) != len(parent) {
+		t.Errorf("parent session length = %d, want %d", len(m.engine.session), len(parent))
 	}
-	if len(m.btwCards) != 1 {
-		t.Errorf("expected 1 btw card, got %d", len(m.btwCards))
+	if len(m.overlays.btwCards) != 1 {
+		t.Errorf("expected 1 btw card, got %d", len(m.overlays.btwCards))
 	}
 }
 
@@ -2160,7 +2198,7 @@ func TestBtwIndependentServices(t *testing.T) {
 // The next six tests are the cycle btw-runs-hooks deliverable for
 // AGY 1.3.3 line 49: /btw now fires the registered hooks. The
 // production Manager is constructed by newRunMode (see tui_run.go);
-// the tests overwrite m.hooks after construction so each case has
+// the tests overwrite m.session.hooks after construction so each case has
 // a private registry without leaking handlers between tests.
 
 // TestBtwFiresPreSideQuestionHook: /btw dispatches the
@@ -2174,7 +2212,7 @@ func TestBtwFiresPreSideQuestionHook(t *testing.T) {
 	m := newSlashModel(t)
 	called := 0
 	var seenEvent hooks.Event
-	m.hooks.Register(hooks.PreSideQuestion, func(ctx context.Context, p hooks.Payload) (hooks.Decision, string, error) {
+	m.session.hooks.Register(hooks.PreSideQuestion, func(ctx context.Context, p hooks.Payload) (hooks.Decision, string, error) {
 		called++
 		seenEvent = p.Event
 		return hooks.DecisionAllow, "", nil
@@ -2203,7 +2241,7 @@ func TestBtwFiresPostSideQuestionHook(t *testing.T) {
 	called := 0
 	var seenAnswer string
 	var seenTokens int
-	m.hooks.Register(hooks.PostSideQuestion, func(ctx context.Context, p hooks.Payload) (hooks.Decision, string, error) {
+	m.session.hooks.Register(hooks.PostSideQuestion, func(ctx context.Context, p hooks.Payload) (hooks.Decision, string, error) {
 		called++
 		seenAnswer = p.Answer
 		seenTokens = p.Tokens
@@ -2237,11 +2275,11 @@ func TestBtwHookCanBlock(t *testing.T) {
 	postCalls := 0
 	var postBlocked bool
 	var postReason string
-	m.hooks.Register(hooks.PreSideQuestion, func(ctx context.Context, p hooks.Payload) (hooks.Decision, string, error) {
+	m.session.hooks.Register(hooks.PreSideQuestion, func(ctx context.Context, p hooks.Payload) (hooks.Decision, string, error) {
 		preCalls++
 		return hooks.DecisionBlock, "policy: denied", nil
 	})
-	m.hooks.Register(hooks.PostSideQuestion, func(ctx context.Context, p hooks.Payload) (hooks.Decision, string, error) {
+	m.session.hooks.Register(hooks.PostSideQuestion, func(ctx context.Context, p hooks.Payload) (hooks.Decision, string, error) {
 		postCalls++
 		postBlocked = p.Blocked
 		postReason = p.BlockReason
@@ -2257,8 +2295,8 @@ func TestBtwHookCanBlock(t *testing.T) {
 	if postCalls != 1 {
 		t.Errorf("PostSideQuestion fired %d times; want 1", postCalls)
 	}
-	if len(m.btwCards) != 0 {
-		t.Errorf("blocked /btw registered %d cards; want 0", len(m.btwCards))
+	if len(m.overlays.btwCards) != 0 {
+		t.Errorf("blocked /btw registered %d cards; want 0", len(m.overlays.btwCards))
 	}
 	if !postBlocked {
 		t.Errorf("PostSideQuestion payload Blocked = false; want true")
@@ -2268,14 +2306,14 @@ func TestBtwHookCanBlock(t *testing.T) {
 	}
 	// The block reason echoes into the visible transcript.
 	var found bool
-	for _, row := range m.response {
+	for _, row := range m.engine.response {
 		if strings.Contains(stripColor(row), "blocked by hook: policy: denied") {
 			found = true
 			break
 		}
 	}
 	if !found {
-		t.Errorf("block reason missing from transcript: %v", m.response)
+		t.Errorf("block reason missing from transcript: %v", m.engine.response)
 	}
 }
 
@@ -2307,7 +2345,7 @@ func TestBtwMultipleInvocationsFireHooksPerCall(t *testing.T) {
 
 	for i, q := range questions {
 		m := newSlashModel(t)
-		m.hooks.Register(hooks.PreSideQuestion, func(ctx context.Context, p hooks.Payload) (hooks.Decision, string, error) {
+		m.session.hooks.Register(hooks.PreSideQuestion, func(ctx context.Context, p hooks.Payload) (hooks.Decision, string, error) {
 			seenQuestions = append(seenQuestions, p.Question)
 			return hooks.DecisionAllow, "", nil
 		})
@@ -2315,11 +2353,11 @@ func TestBtwMultipleInvocationsFireHooksPerCall(t *testing.T) {
 		if handled, _ := m.handleSlashCommand(buf); !handled {
 			t.Fatalf("/btw %d not handled", i+1)
 		}
-		if len(m.btwCards) != 1 {
-			t.Errorf("/btw %d btwCards length = %d, want 1", i+1, len(m.btwCards))
+		if len(m.overlays.btwCards) != 1 {
+			t.Errorf("/btw %d btwCards length = %d, want 1", i+1, len(m.overlays.btwCards))
 		}
-		pre += m.hooks.Count(hooks.PreSideQuestion)
-		post += m.hooks.Count(hooks.PostSideQuestion)
+		pre += m.session.hooks.Count(hooks.PreSideQuestion)
+		post += m.session.hooks.Count(hooks.PostSideQuestion)
 	}
 	if pre != 3 {
 		t.Errorf("cumulative PreSideQuestion count = %d, want 3", pre)
@@ -2348,7 +2386,7 @@ func TestBtwHookReceivesQuestionText(t *testing.T) {
 	m := newSlashModel(t)
 	const want = "explain quantum entanglement briefly"
 	seen := ""
-	m.hooks.Register(hooks.PreSideQuestion, func(ctx context.Context, p hooks.Payload) (hooks.Decision, string, error) {
+	m.session.hooks.Register(hooks.PreSideQuestion, func(ctx context.Context, p hooks.Payload) (hooks.Decision, string, error) {
 		seen = p.Question
 		return hooks.DecisionAllow, "", nil
 	})
@@ -2361,32 +2399,20 @@ func TestBtwHookReceivesQuestionText(t *testing.T) {
 	}
 }
 
-// TestBtwSideQuestionAppearsInTranscript: after /btw the parent
-// m.session grows by one user message whose body is the side
-// question prefixed with "> /btw ". The transcript records the
-// side question like any other user input so /resume and the
-// on-disk conversation db see it too.
-func TestBtwSideQuestionAppearsInTranscript(t *testing.T) {
+// TestBtwSideQuestionNoHistoryGrowth: after /btw the parent
+// m.engine.session remains completely unchanged.
+// Neither the question nor the answer is recorded in the main conversation.
+func TestBtwSideQuestionNoHistoryGrowth(t *testing.T) {
 	cleanup := withBtwManager(t)
 	defer cleanup()
 
 	m := newSlashModel(t)
-	// Empty session: appendBtwToSession should grow it from 0 to 1.
+	// Empty session: /btw should leave it at 0.
 	if handled, _ := m.handleSlashCommand("/btw What is 6*7?"); !handled {
 		t.Fatal("/btw not handled")
 	}
-	if len(m.session) != 1 {
-		t.Fatalf("m.session length = %d, want 1", len(m.session))
-	}
-	got := m.session[0]
-	if got.Role != "user" {
-		t.Errorf("appended role = %q, want user", got.Role)
-	}
-	if !strings.Contains(got.Content, "What is 6*7?") {
-		t.Errorf("appended content = %q, want it to contain the side question", got.Content)
-	}
-	if !strings.HasPrefix(got.Content, "> /btw ") {
-		t.Errorf("appended content = %q, want it to start with \"> /btw \"", got.Content)
+	if len(m.engine.session) != 0 {
+		t.Fatalf("m.engine.session length = %d, want 0", len(m.engine.session))
 	}
 }
 
@@ -2398,8 +2424,8 @@ func TestBtwShowHistoryWhenNoArgs(t *testing.T) {
 
 	m := newSlashModel(t)
 	m.handleSlashCommand("/btw What is 20+22?")
-	if len(m.btwCards) != 1 || m.activeBtwIndex != 0 {
-		t.Fatalf("expected 1 card active at index 0, got len=%d idx=%d", len(m.btwCards), m.activeBtwIndex)
+	if len(m.overlays.btwCards) != 1 || m.overlays.activeBtwIndex != 0 {
+		t.Fatalf("expected 1 card active at index 0, got len=%d idx=%d", len(m.overlays.btwCards), m.overlays.activeBtwIndex)
 	}
 
 	// Dismiss card
@@ -2409,17 +2435,17 @@ func TestBtwShowHistoryWhenNoArgs(t *testing.T) {
 	}
 
 	// Run /btw without arguments: should restore history
-	respLenBefore := len(m.response)
+	respLenBefore := len(m.engine.response)
 	m.handleSlashCommand("/btw")
 	if !m.isBtwCardVisible() {
 		t.Fatal("card should be visible after /btw with history")
 	}
-	if m.activeBtwIndex != 0 {
-		t.Errorf("expected activeBtwIndex=0, got %d", m.activeBtwIndex)
+	if m.overlays.activeBtwIndex != 0 {
+		t.Errorf("expected activeBtwIndex=0, got %d", m.overlays.activeBtwIndex)
 	}
 	// No error / usage response should have been appended
-	if len(m.response) > respLenBefore {
-		for _, row := range m.response[respLenBefore:] {
+	if len(m.engine.response) > respLenBefore {
+		for _, row := range m.engine.response[respLenBefore:] {
 			if strings.Contains(stripColor(row), "Usage: /btw") {
 				t.Errorf("unexpected usage output when showing history: %s", row)
 			}
@@ -2440,9 +2466,9 @@ func TestBtwConcurrencyGuard(t *testing.T) {
 		Question: "Running question?",
 		State:    sidequestion.StateStreaming,
 	}
-	m.btwCards = append(m.btwCards, activeCard)
-	m.activeBtwIndex = 0
-	m.activeBtwID = activeCard.ID
+	m.overlays.btwCards = append(m.overlays.btwCards, activeCard)
+	m.overlays.activeBtwIndex = 0
+	m.overlays.activeBtwID = activeCard.ID
 
 	if !m.IsBtwActive() {
 		t.Fatal("IsBtwActive should report true for streaming card")
@@ -2451,14 +2477,14 @@ func TestBtwConcurrencyGuard(t *testing.T) {
 	m.handleSlashCommand("/btw Another question")
 	var found bool
 	wantMsg := "A /btw question is already in progress. Please wait for it to finish."
-	for _, row := range m.response {
+	for _, row := range m.engine.response {
 		if strings.Contains(stripColor(row), wantMsg) {
 			found = true
 			break
 		}
 	}
 	if !found {
-		t.Errorf("transcript missing concurrency guard message %q: %v", wantMsg, m.response)
+		t.Errorf("transcript missing concurrency guard message %q: %v", wantMsg, m.engine.response)
 	}
 }
 
@@ -2473,21 +2499,21 @@ func TestCopyBtwInProgressAndFailed(t *testing.T) {
 		Question: "Generating...",
 		State:    sidequestion.StateStreaming,
 	}
-	m.btwCards = append(m.btwCards, streamingCard)
-	m.activeBtwIndex = 0
-	m.activeBtwID = streamingCard.ID
+	m.overlays.btwCards = append(m.overlays.btwCards, streamingCard)
+	m.overlays.activeBtwIndex = 0
+	m.overlays.activeBtwID = streamingCard.ID
 
 	m.handleSlashCommand("/copy btw")
 	wantGen := "The /btw answer is still being generated."
 	var foundGen bool
-	for _, row := range m.response {
+	for _, row := range m.engine.response {
 		if strings.Contains(stripColor(row), wantGen) {
 			foundGen = true
 			break
 		}
 	}
 	if !foundGen {
-		t.Errorf("missing in-progress message %q: %v", wantGen, m.response)
+		t.Errorf("missing in-progress message %q: %v", wantGen, m.engine.response)
 	}
 
 	// Now test failed card
@@ -2497,21 +2523,21 @@ func TestCopyBtwInProgressAndFailed(t *testing.T) {
 		State:    sidequestion.StateFailed,
 		Err:      errors.New("network timeout"),
 	}
-	m.btwCards = append(m.btwCards, failedCard)
-	m.activeBtwIndex = 1
-	m.activeBtwID = failedCard.ID
+	m.overlays.btwCards = append(m.overlays.btwCards, failedCard)
+	m.overlays.activeBtwIndex = 1
+	m.overlays.activeBtwID = failedCard.ID
 
 	m.handleSlashCommand("/copy btw")
 	wantFail := "The /btw question failed: network timeout"
 	var foundFail bool
-	for _, row := range m.response {
+	for _, row := range m.engine.response {
 		if strings.Contains(stripColor(row), wantFail) {
 			foundFail = true
 			break
 		}
 	}
 	if !foundFail {
-		t.Errorf("missing failure message %q: %v", wantFail, m.response)
+		t.Errorf("missing failure message %q: %v", wantFail, m.engine.response)
 	}
 }
 
@@ -2524,41 +2550,41 @@ func TestBtwNavigation(t *testing.T) {
 	c1 := &sidequestion.Card{ID: "c1", Question: "Q1", Answer: "A1", State: sidequestion.StateDone}
 	c2 := &sidequestion.Card{ID: "c2", Question: "Q2", Answer: "A2", State: sidequestion.StateDone}
 	c3 := &sidequestion.Card{ID: "c3", Question: "Q3", Answer: "A3", State: sidequestion.StateDone}
-	m.btwCards = []*sidequestion.Card{c1, c2, c3}
-	m.activeBtwIndex = 2
-	m.activeBtwID = c3.ID
+	m.overlays.btwCards = []*sidequestion.Card{c1, c2, c3}
+	m.overlays.activeBtwIndex = 2
+	m.overlays.activeBtwID = c3.ID
 
 	// Left navigates to c2
 	m.NavigateBtw(-1)
-	if m.activeBtwIndex != 1 || m.activeBtwID != c2.ID {
-		t.Errorf("expected idx=1 c2, got idx=%d id=%s", m.activeBtwIndex, m.activeBtwID)
+	if m.overlays.activeBtwIndex != 1 || m.overlays.activeBtwID != c2.ID {
+		t.Errorf("expected idx=1 c2, got idx=%d id=%s", m.overlays.activeBtwIndex, m.overlays.activeBtwID)
 	}
 
 	// Left navigates to c1
 	m.NavigateBtw(-1)
-	if m.activeBtwIndex != 0 || m.activeBtwID != c1.ID {
-		t.Errorf("expected idx=0 c1, got idx=%d id=%s", m.activeBtwIndex, m.activeBtwID)
+	if m.overlays.activeBtwIndex != 0 || m.overlays.activeBtwID != c1.ID {
+		t.Errorf("expected idx=0 c1, got idx=%d id=%s", m.overlays.activeBtwIndex, m.overlays.activeBtwID)
 	}
 
 	// Left clamps at 0
 	m.NavigateBtw(-1)
-	if m.activeBtwIndex != 0 {
-		t.Errorf("expected clamp to idx=0, got %d", m.activeBtwIndex)
+	if m.overlays.activeBtwIndex != 0 {
+		t.Errorf("expected clamp to idx=0, got %d", m.overlays.activeBtwIndex)
 	}
 
 	// Right navigates back to c2 then c3
 	m.NavigateBtw(1)
-	if m.activeBtwIndex != 1 {
-		t.Errorf("expected idx=1, got %d", m.activeBtwIndex)
+	if m.overlays.activeBtwIndex != 1 {
+		t.Errorf("expected idx=1, got %d", m.overlays.activeBtwIndex)
 	}
 	m.NavigateBtw(1)
-	if m.activeBtwIndex != 2 {
-		t.Errorf("expected idx=2, got %d", m.activeBtwIndex)
+	if m.overlays.activeBtwIndex != 2 {
+		t.Errorf("expected idx=2, got %d", m.overlays.activeBtwIndex)
 	}
 	// Right clamps at len-1
 	m.NavigateBtw(1)
-	if m.activeBtwIndex != 2 {
-		t.Errorf("expected clamp to idx=2, got %d", m.activeBtwIndex)
+	if m.overlays.activeBtwIndex != 2 {
+		t.Errorf("expected clamp to idx=2, got %d", m.overlays.activeBtwIndex)
 	}
 }
 
@@ -2569,17 +2595,17 @@ func TestBtwRenderCardFormatting(t *testing.T) {
 	defer cleanup()
 
 	m := newSlashModel(t)
-	m.width = 80
-	m.height = 30
+	m.viewport.width = 80
+	m.viewport.height = 30
 	c := &sidequestion.Card{
 		ID:       "card-render",
 		Question: "How does caching work?",
 		Answer:   "Caching stores computed results for fast retrieval.",
 		State:    sidequestion.StateDone,
 	}
-	m.btwCards = []*sidequestion.Card{c}
-	m.activeBtwIndex = 0
-	m.activeBtwID = c.ID
+	m.overlays.btwCards = []*sidequestion.Card{c}
+	m.overlays.activeBtwIndex = 0
+	m.overlays.activeBtwID = c.ID
 
 	rendered := m.renderBtwCard()
 	if !strings.Contains(rendered, "┃") {
@@ -2621,17 +2647,17 @@ func TestBtwEscDismissesCardBeforeInterruptingTurn(t *testing.T) {
 		Answer:   "4",
 		State:    sidequestion.StateDone,
 	}
-	m.btwCards = []*sidequestion.Card{c}
-	m.activeBtwIndex = 0
-	m.activeBtwID = c.ID
+	m.overlays.btwCards = []*sidequestion.Card{c}
+	m.overlays.activeBtwIndex = 0
+	m.overlays.activeBtwID = c.ID
 
 	if !m.isBtwCardVisible() {
 		t.Fatal("precondition: /btw card must be visible")
 	}
 
 	cancelled := false
-	m.streaming = true
-	m.turnCancel = func() { cancelled = true }
+	m.engine.streaming = true
+	m.engine.turnCancel = func() { cancelled = true }
 
 	// First Esc: dismisses /btw card, turn is NOT cancelled.
 	m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEsc}))
@@ -2641,7 +2667,7 @@ func TestBtwEscDismissesCardBeforeInterruptingTurn(t *testing.T) {
 	if cancelled {
 		t.Fatal("first Esc should NOT cancel the in-flight streaming turn")
 	}
-	if m.turnInterrupted {
+	if m.engine.turnInterrupted {
 		t.Fatal("first Esc should NOT mark turnInterrupted")
 	}
 
@@ -2650,7 +2676,7 @@ func TestBtwEscDismissesCardBeforeInterruptingTurn(t *testing.T) {
 	if !cancelled {
 		t.Fatal("second Esc should cancel the in-flight streaming turn")
 	}
-	if !m.turnInterrupted {
+	if !m.engine.turnInterrupted {
 		t.Fatal("second Esc should mark turnInterrupted")
 	}
 }
@@ -2659,14 +2685,14 @@ func TestBtwEscDismissesCardBeforeInterruptingTurn(t *testing.T) {
 // media preview is collapsed before interrupting a streaming turn.
 func TestMediaExpandedEscCollapsesBeforeInterruptingTurn(t *testing.T) {
 	m := newSlashModel(t)
-	m.mediaExpanded = true
+	m.composer.mediaExpanded = true
 
 	cancelled := false
-	m.streaming = true
-	m.turnCancel = func() { cancelled = true }
+	m.engine.streaming = true
+	m.engine.turnCancel = func() { cancelled = true }
 
 	m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEsc}))
-	if m.mediaExpanded {
+	if m.composer.mediaExpanded {
 		t.Fatal("first Esc should collapse mediaExpanded")
 	}
 	if cancelled {
@@ -2692,17 +2718,17 @@ func TestBtwEscPreservesDraftInputText(t *testing.T) {
 		Answer:   "Fast storage.",
 		State:    sidequestion.StateDone,
 	}
-	m.btwCards = []*sidequestion.Card{c}
-	m.activeBtwIndex = 0
-	m.activeBtwID = c.ID
-	m.input.SetValue("my pending question")
+	m.overlays.btwCards = []*sidequestion.Card{c}
+	m.overlays.activeBtwIndex = 0
+	m.overlays.activeBtwID = c.ID
+	m.composer.input.SetValue("my pending question")
 
 	// First Esc: dismisses /btw card, leaves input intact.
 	m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEsc}))
 	if m.isBtwCardVisible() {
 		t.Fatal("first Esc should dismiss the /btw card")
 	}
-	if got := m.input.Value(); got != "my pending question" {
+	if got := m.composer.input.Value(); got != "my pending question" {
 		t.Fatalf("first Esc should preserve input, got %q", got)
 	}
 
@@ -2710,26 +2736,26 @@ func TestBtwEscPreservesDraftInputText(t *testing.T) {
 	// reference clears the prompt box on two Escs,
 	// official-docs/cli/using.md:22), so the text is still there.
 	m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEsc}))
-	if got := m.input.Value(); got != "my pending question" {
+	if got := m.composer.input.Value(); got != "my pending question" {
 		t.Fatalf("second Esc should only arm the clear, got %q", got)
 	}
 
 	// Third Esc: completes the pair and clears the input.
 	m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEsc}))
-	if got := m.input.Value(); got != "" {
+	if got := m.composer.input.Value(); got != "" {
 		t.Fatalf("third Esc should clear input, got %q", got)
 	}
 }
 
 // TestBtw_AsyncNonBlocking verifies that in interactive mode (/btw with asyncBtw=true
-// or m.prog != nil), /btw immediately creates and attaches the Card in StatePending,
+// or m.engine.prog != nil), /btw immediately creates and attaches the Card in StatePending,
 // returns a non-nil tea.Cmd, keeps the TUI non-blocking, and streams the answer to StateDone.
 func TestBtw_AsyncNonBlocking(t *testing.T) {
 	cleanup := withBtwManager(t)
 	defer cleanup()
 
 	m := newSlashModel(t)
-	m.asyncBtw = true
+	m.overlays.asyncBtw = true
 
 	handled, cmd := m.handleSlashCommand("/btw What is 20+22?")
 	if !handled {
@@ -2741,10 +2767,10 @@ func TestBtw_AsyncNonBlocking(t *testing.T) {
 
 	// The card must be registered immediately in StatePending so the UI can render
 	// the thinking card without waiting for the network round-trip.
-	if len(m.btwCards) != 1 {
-		t.Fatalf("expected 1 card registered immediately, got %d", len(m.btwCards))
+	if len(m.overlays.btwCards) != 1 {
+		t.Fatalf("expected 1 card registered immediately, got %d", len(m.overlays.btwCards))
 	}
-	card := m.btwCards[0]
+	card := m.overlays.btwCards[0]
 	_, answer, _, state, err := card.LockedSnapshot()
 	if err != nil {
 		t.Fatalf("unexpected card error: %v", err)
@@ -2820,7 +2846,7 @@ func TestBtw_AsyncCancellationOnEsc(t *testing.T) {
 	defer cleanup()
 
 	m := newSlashModel(t)
-	m.asyncBtw = true
+	m.overlays.asyncBtw = true
 
 	handled, cmd := m.handleSlashCommand("/btw What is 20+22?")
 	if !handled || cmd == nil {
@@ -2829,7 +2855,7 @@ func TestBtw_AsyncCancellationOnEsc(t *testing.T) {
 	if !m.IsBtwActive() {
 		t.Fatal("precondition: /btw should be active")
 	}
-	if m.activeBtwCancel == nil {
+	if m.overlays.activeBtwCancel == nil {
 		t.Fatal("activeBtwCancel should be armed")
 	}
 
@@ -2839,10 +2865,10 @@ func TestBtw_AsyncCancellationOnEsc(t *testing.T) {
 	if m.isBtwCardVisible() {
 		t.Error("card should be dismissed after Esc")
 	}
-	if m.activeBtwCancel != nil {
+	if m.overlays.activeBtwCancel != nil {
 		t.Error("activeBtwCancel should be cleared after Esc")
 	}
-	card := m.btwCards[0]
+	card := m.overlays.btwCards[0]
 	if card.State != sidequestion.StateFailed {
 		t.Errorf("card state = %q, want failed", card.State)
 	}

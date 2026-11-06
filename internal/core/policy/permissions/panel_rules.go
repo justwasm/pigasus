@@ -132,21 +132,9 @@ func WriteProjectPermList(tab int, list []string) {
 // with the reference's own message; every other unknown action with the
 // "unknown action" one.
 func ValidateGrant(rule string) string {
-	open := strings.IndexByte(rule, '(')
-	if open <= 0 || !strings.HasSuffix(rule, ")") {
-		return fmt.Sprintf("invalid grant string: %q", rule)
-	}
-	action := strings.TrimSpace(rule[:open])
-	for _, r := range action {
-		if !(r >= 'a' && r <= 'z') && r != '_' {
-			return fmt.Sprintf("invalid grant string: %q", rule)
-		}
-	}
-	if action == ActionUnsandboxed {
-		return UnsandboxedRejectedMessage
-	}
-	if !ValidGrantAction(action) {
-		return fmt.Sprintf("unknown action %q in grant string: %q", action, rule)
+	_, _, err := ParseGrantString(rule)
+	if err != nil {
+		return err.Error()
 	}
 	return ""
 }

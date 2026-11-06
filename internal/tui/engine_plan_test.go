@@ -77,11 +77,13 @@ func (m *mockUsageEngine) Close() error {
 func TestEnginePlan(t *testing.T) {
 	t.Run("ImplementsPlanLister", func(t *testing.T) {
 		m := &runMode{
-			engine: &mockPlanEngine{
-				plan: []PlanEntry{
-					{Title: "Explore files", Completed: true},
-					{Title: "Edit code", Completed: false},
-					{Title: "Run tests", Status: "pending"},
+			engine: engineState{
+				engine: &mockPlanEngine{
+					plan: []PlanEntry{
+						{Title: "Explore files", Completed: true},
+						{Title: "Edit code", Completed: false},
+						{Title: "Run tests", Status: "pending"},
+					},
 				},
 			},
 		}
@@ -100,12 +102,14 @@ func TestEnginePlan(t *testing.T) {
 
 	t.Run("StatusKeywords", func(t *testing.T) {
 		m := &runMode{
-			engine: &mockPlanEngine{
-				plan: []PlanEntry{
-					{Title: "Step 1", Status: "completed"},
-					{Title: "Step 2", Status: "done"},
-					{Title: "Step 3", Status: "finished"},
-					{Title: "Step 4", Status: "in_progress"},
+			engine: engineState{
+				engine: &mockPlanEngine{
+					plan: []PlanEntry{
+						{Title: "Step 1", Status: "completed"},
+						{Title: "Step 2", Status: "done"},
+						{Title: "Step 3", Status: "finished"},
+						{Title: "Step 4", Status: "in_progress"},
+					},
 				},
 			},
 		}
@@ -119,8 +123,10 @@ func TestEnginePlan(t *testing.T) {
 
 	t.Run("EmptyPlan", func(t *testing.T) {
 		m := &runMode{
-			engine: &mockPlanEngine{
-				plan: []PlanEntry{},
+			engine: engineState{
+				engine: &mockPlanEngine{
+					plan: []PlanEntry{},
+				},
 			},
 		}
 
@@ -132,11 +138,13 @@ func TestEnginePlan(t *testing.T) {
 
 	t.Run("ReflectionDuckType", func(t *testing.T) {
 		m := &runMode{
-			engine: &mockReflectionPlanEngine{
-				items: []customPlanItem{
-					{Title: "Step 1", Completed: true},
-					{Title: "Step 2", Status: "done"},
-					{Title: "Step 3", Status: "working"},
+			engine: engineState{
+				engine: &mockReflectionPlanEngine{
+					items: []customPlanItem{
+						{Title: "Step 1", Completed: true},
+						{Title: "Step 2", Status: "done"},
+						{Title: "Step 3", Status: "working"},
+					},
 				},
 			},
 		}
@@ -163,11 +171,13 @@ func TestEnginePlan(t *testing.T) {
 
 	t.Run("TasksStatusSuffixIntegration", func(t *testing.T) {
 		m := &runMode{
-			taskReg: taskregistry.New(),
-			engine: &mockPlanEngine{
-				plan: []PlanEntry{
-					{Title: "Step 1", Completed: true},
-					{Title: "Step 2", Completed: false},
+			engine: engineState{
+				taskReg: taskregistry.New(),
+				engine: &mockPlanEngine{
+					plan: []PlanEntry{
+						{Title: "Step 1", Completed: true},
+						{Title: "Step 2", Completed: false},
+					},
 				},
 			},
 		}
@@ -182,13 +192,17 @@ func TestEnginePlan(t *testing.T) {
 
 	t.Run("PayloadDocJSONEnrichment", func(t *testing.T) {
 		m := &runMode{
-			cwd:            "/test/cwd",
-			conversationID: "test-convo-id",
-			model:          "claude-4.5-sonnet",
-			engine: &mockPlanEngine{
-				plan: []PlanEntry{
-					{Title: "Step 1", Completed: true},
-					{Title: "Step 2", Completed: false},
+			session: sessionState{
+				cwd:            "/test/cwd",
+				conversationID: "test-convo-id",
+				model:          "claude-4.5-sonnet",
+			},
+			engine: engineState{
+				engine: &mockPlanEngine{
+					plan: []PlanEntry{
+						{Title: "Step 1", Completed: true},
+						{Title: "Step 2", Completed: false},
+					},
 				},
 			},
 		}
@@ -220,8 +234,8 @@ func TestEnginePlan(t *testing.T) {
 * [x] Verify statusline payload in TUI
 `)
 		m := &runMode{
-			engine: acpRemote,
-			model:  "acp-agent",
+			engine:  engineState{engine: acpRemote},
+			session: sessionState{model: "acp-agent"},
 		}
 
 		got := m.enginePlan()
@@ -288,7 +302,7 @@ func TestTurnCollector_Usage(t *testing.T) {
 
 		// Pass through to recordTurnUsage and verify contextUsage
 		m := &runMode{
-			model: "gpt-oss-120b",
+			session: sessionState{model: "gpt-oss-120b"},
 		}
 		m.recordTurnUsage(c.meta)
 
@@ -344,9 +358,8 @@ func TestTurnCollector_Usage(t *testing.T) {
 		}
 
 		m := &runMode{
-			model:   "claude-4.5-sonnet",
-			engine:  engine,
-			backend: nil,
+			session: sessionState{model: "claude-4.5-sonnet"},
+			engine:  engineState{engine: engine, backend: nil},
 		}
 
 		msg := m.runTurn(context.Background(), []backend.Message{
@@ -370,10 +383,10 @@ func TestTurnCollector_Usage(t *testing.T) {
 
 		prompt, completion := m.sessionTokenTotals()
 		if prompt != 3000 {
-			t.Errorf("m.store.SessionPromptTokens = %d, want 3000", prompt)
+			t.Errorf("m.session.store.SessionPromptTokens = %d, want 3000", prompt)
 		}
 		if completion != 400 {
-			t.Errorf("m.store.SessionCompletionTokens = %d, want 400", completion)
+			t.Errorf("m.session.store.SessionCompletionTokens = %d, want 400", completion)
 		}
 
 		// contextUsage calculation

@@ -79,3 +79,21 @@ func (s *sessionState) SessionLearnings() []string {
 func (s *sessionState) AddSessionLearning(item string) {
 	s.learnings = append(s.learnings, item)
 }
+
+// Delegators on runMode for backward compatibility and clean domain access:
+func (m *runMode) CurrentModel() string                { return m.session.CurrentModel() }
+func (m *runMode) SetCurrentModel(model string)        { m.session.SetCurrentModel(model) }
+func (m *runMode) CurrentTier() string                 { return m.session.CurrentTier() }
+func (m *runMode) SetSessionTier(tier, account string) { m.session.SetSessionTier(tier, account) }
+func (m *runMode) IsTierFetched() bool                 { return m.session.IsTierFetched() }
+func (m *runMode) CurrentConversationID() string       { return m.session.CurrentConversationID() }
+func (m *runMode) SetCurrentConversationID(id string)  { m.session.SetCurrentConversationID(id) }
+func (m *runMode) ConversationTitle() string           { return m.session.ConversationTitle() }
+func (m *runMode) SetConversationTitle(title string)   { m.session.SetConversationTitle(title) }
+func (m *runMode) IsConversationStarted() bool         { return m.session.IsConversationStarted() }
+func (m *runMode) MarkConversationStarted()            { m.session.MarkConversationStarted() }
+func (m *runMode) SessionGoal() string                 { return m.session.SessionGoal() }
+func (m *runMode) SetSessionGoal(goal string)          { m.session.SetSessionGoal(goal) }
+func (m *runMode) SessionLearnings() []string          { return m.session.SessionLearnings() }
+func (m *runMode) AddSessionLearning(item string)      { m.session.AddSessionLearning(item) }
+

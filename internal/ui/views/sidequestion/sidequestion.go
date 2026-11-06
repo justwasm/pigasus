@@ -4,11 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"sync"
 	"time"
-
-	"github.com/justwasm/pigasus/actor"
 )
 
 // State values a Card carries during its lifetime.
@@ -130,7 +127,6 @@ type StreamWithToolsFn func(ctx context.Context, prompt string, hooks ToolHooks)
 type Options struct {
 	StreamFn          StreamFn
 	StreamWithToolsFn StreamWithToolsFn
-	Provider          actor.Provider
 	Model             string
 	CWD               string
 	AgentDir          string
@@ -145,7 +141,6 @@ type Manager struct {
 	nextSeq           int
 	streamFn          StreamFn
 	streamWithToolsFn StreamWithToolsFn
-	provider          actor.Provider
 	model             string
 	cwd               string
 	agentDir          string
@@ -167,7 +162,6 @@ func NewManager(opts Options) *Manager {
 	return &Manager{
 		streamFn:          opts.StreamFn,
 		streamWithToolsFn: opts.StreamWithToolsFn,
-		provider:          opts.Provider,
 		model:             opts.Model,
 		cwd:               opts.CWD,
 		agentDir:          opts.AgentDir,
@@ -185,8 +179,8 @@ func (m *Manager) StartAsk(ctx context.Context, question string) (*Card, func() 
 	if question == "" {
 		return nil, nil, ErrEmptyQuestion
 	}
-	if m.streamFn == nil && m.streamWithToolsFn == nil && m.provider == nil {
-		return nil, nil, errors.New("sidequestion: Manager requires StreamFn or Provider")
+	if m.streamFn == nil && m.streamWithToolsFn == nil {
+		return nil, nil, errors.New("sidequestion: Manager requires StreamFn or StreamWithToolsFn")
 	}
 
 	card := &Card{
@@ -246,48 +240,11 @@ func (m *Manager) StartAsk(ctx context.Context, question string) (*Card, func() 
 			return nil
 		}
 
-		stream, err := m.provider.Generate(askCtx, actor.GenerateRequest{
-			Model:        m.model,
-			SystemPrompt: m.systemPrompt,
-			Messages: []actor.ConversationMessage{
-				{Role: actor.RoleUser, Content: question},
-			},
-		})
-		if err != nil {
-			card.mu.Lock()
-			card.State = StateFailed
-			card.Err = err
-			card.mu.Unlock()
-			return err
-		}
-		defer stream.Close()
-
-		for {
-			chunk, recvErr := stream.Recv()
-			if errors.Is(recvErr, io.EOF) {
-				break
-			}
-			if recvErr != nil {
-				card.mu.Lock()
-				card.State = StateFailed
-				card.Err = recvErr
-				card.mu.Unlock()
-				return recvErr
-			}
-			if chunk.Delta != "" {
-				onDelta(chunk.Delta)
-			}
-			if chunk.Usage != nil && chunk.Usage.TotalTokens > 0 {
-				card.mu.Lock()
-				card.Tokens = chunk.Usage.TotalTokens
-				card.mu.Unlock()
-			}
-		}
-
 		card.mu.Lock()
-		card.State = StateDone
+		card.State = StateFailed
+		card.Err = errors.New("sidequestion: no stream runner available")
 		card.mu.Unlock()
-		return nil
+		return card.Err
 	}
 
 	return card, run, nil

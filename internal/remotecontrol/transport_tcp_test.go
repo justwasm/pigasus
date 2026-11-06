@@ -22,7 +22,7 @@
 // "daemon_test.go remains green". The new tests in this file
 // cover the new transport; the existing tests cover the existing
 // transport.
-package remotetransport
+package remotecontrol_test
 
 import (
 	"context"
@@ -40,6 +40,30 @@ import (
 	"github.com/coder/websocket"
 
 	"github.com/justwasm/pigasus/internal/remotecontrol"
+	"github.com/justwasm/pigasus/remotetransport"
+	"github.com/justwasm/pigasus/internal/remotecontrol/cascades"
+	"github.com/justwasm/pigasus/internal/remotecontrol/rpc"
+	"github.com/justwasm/pigasus/internal/remotecontrol/convconfig"
+	"github.com/justwasm/pigasus/internal/remotecontrol/fastpush"
+	"github.com/justwasm/pigasus/internal/remotecontrol/files"
+	"github.com/justwasm/pigasus/internal/remotecontrol/permissions"
+	"github.com/justwasm/pigasus/internal/remotecontrol/plugins"
+	"github.com/justwasm/pigasus/internal/remotecontrol/projects"
+	"github.com/justwasm/pigasus/internal/remotecontrol/resources"
+	"github.com/justwasm/pigasus/internal/remotecontrol/terminals"
+	"github.com/justwasm/pigasus/internal/remotecontrol/triggers"
+
+)
+
+type (
+	TCPServer = remotetransport.TCPServer
+	TCPConfig = remotetransport.TCPConfig
+)
+
+var (
+	NewTCPServer    = remotetransport.NewTCPServer
+	ErrConnNotFound = remotetransport.ErrConnNotFound
+	ErrBackpressure = remotetransport.ErrBackpressure
 )
 
 // newTestTCPServer brings up a TCPServer on 127.0.0.1:0 with a
@@ -278,9 +302,9 @@ func TestWSAdapter_HTTPPathRoutes404(t *testing.T) {
 	srv, _, done := newTestTCPServer(t)
 	defer done()
 
-	tcp, ok := srv.listener.Addr().(*net.TCPAddr)
+	tcp, ok := srv.Addr().(*net.TCPAddr)
 	if !ok {
-		t.Fatalf("server listener is not a *net.TCPAddr: %T", srv.listener.Addr())
+		t.Fatalf("server listener is not a *net.TCPAddr: %T", srv.Addr())
 	}
 	url := "http://" + tcp.IP.String() + ":" + itoa(tcp.Port) + "/not-rpc"
 	client := &http.Client{Timeout: 2 * time.Second}
@@ -425,17 +449,10 @@ func itoa(i int) string {
 // to be populated.
 func waitForConnID(t *testing.T, srv *TCPServer) string {
 	t.Helper()
-	var connID string
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
-		srv.connsMu.Lock()
-		for id := range srv.conns {
-			connID = id
-			break
-		}
-		srv.connsMu.Unlock()
-		if connID != "" {
-			return connID
+		if id := srv.FirstConnID(); id != "" {
+			return id
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
@@ -462,7 +479,7 @@ func TestServerPushNotification_Received(t *testing.T) {
 	// {"jsonrpc":"2.0","method":<name>,"params":<params>} and
 	// the transport hands it to the ws connection identified
 	// by connID.
-	if err := srv.dispatcher.Notify(context.Background(), connID, "test/notify", map[string]any{"hello": "world"}); err != nil {
+	if err := srv.Dispatcher().Notify(context.Background(), connID, "test/notify", map[string]any{"hello": "world"}); err != nil {
 		t.Fatalf("Notify: %v", err)
 	}
 
@@ -563,7 +580,7 @@ func TestServerPushNotification_UnknownConnID(t *testing.T) {
 
 	// No client connected — the registry is empty, so any
 	// connID is unknown.
-	if err := srv.dispatcher.Notify(context.Background(), "ws-99999", "test/notify", nil); !errors.Is(err, ErrConnNotFound) {
+	if err := srv.Dispatcher().Notify(context.Background(), "ws-99999", "test/notify", nil); !errors.Is(err, ErrConnNotFound) {
 		t.Errorf("Notify with unknown connID returned %v, want ErrConnNotFound", err)
 	}
 }
@@ -702,7 +719,7 @@ func TestServerGracefulShutdown_NoNewConns(t *testing.T) {
 // Used by the over-cap / uniqueness tests that need a
 // smaller maximum so they can hit the boundary in one
 // process run.
-func newTestTCPServerWithCap(t *testing.T, cascadeCap int) (*TCPServer, *remotecontrol.SessionState, *remotecontrol.CascadeRegistry, func()) {
+func newTestTCPServerWithCap(t *testing.T, cascadeCap int) (*TCPServer, *remotecontrol.SessionState, *cascades.Registry, func()) {
 	t.Helper()
 	sess := remotecontrol.NewSessionState("1.3.4-test")
 	sess.Workspace = "/tmp/ws-workspace"
@@ -711,7 +728,7 @@ func newTestTCPServerWithCap(t *testing.T, cascadeCap int) (*TCPServer, *remotec
 	sess.SetConversationID("conv-ws")
 	sess.SetTurnOutput("hello from the ws host")
 
-	registry := remotecontrol.NewCascadeRegistry(cascadeCap)
+	registry := cascades.NewRegistry(cascadeCap)
 	disp, err := remotecontrol.NewDispatcher(remotecontrol.Config{
 		Session:  sess,
 		Agents:   remotecontrol.DefaultAgentLister,
@@ -1060,7 +1077,7 @@ func TestStartRemoteAgentCascade_EmptyParams(t *testing.T) {
 // The cascadeCap param caps the registry (the test for
 // the cap-full path uses cap=1; most tests use the
 // production default).
-func newTestTCPServerWithBackend(t *testing.T, cascadeCap int) (*TCPServer, *remotecontrol.SessionState, *remotecontrol.CascadeRegistry, func()) {
+func newTestTCPServerWithBackend(t *testing.T, cascadeCap int) (*TCPServer, *remotecontrol.SessionState, *cascades.Registry, func()) {
 	t.Helper()
 	srv, sess, registry, teardown := newTestTCPServerWithCap(t, cascadeCap)
 	return srv, sess, registry, teardown
@@ -1105,10 +1122,10 @@ func TestSendRemoteAgentCascadeMessage_OK(t *testing.T) {
 	srv, _, registry, done := newTestTCPServerWithBackend(t, 256)
 	defer done()
 
-	be := &remotecontrol.StubBackend{
+	be := &cascades.StubBackend{
 		Reply:          "ws reply",
 		ConversationID: "conv-ws",
-		StopReason:     remotecontrol.StopReasonEndTurn,
+		StopReason:     cascades.StopReasonEndTurn,
 	}
 
 	c := dialWS(t, srv.HTTPURL())
@@ -1145,8 +1162,8 @@ func TestSendRemoteAgentCascadeMessage_OK(t *testing.T) {
 	if res["conversationId"] != "conv-ws" {
 		t.Errorf("Send: conversationId = %v, want conv-ws", res["conversationId"])
 	}
-	if res["stopReason"] != remotecontrol.StopReasonEndTurn {
-		t.Errorf("Send: stopReason = %v, want %s", res["stopReason"], remotecontrol.StopReasonEndTurn)
+	if res["stopReason"] != cascades.StopReasonEndTurn {
+		t.Errorf("Send: stopReason = %v, want %s", res["stopReason"], cascades.StopReasonEndTurn)
 	}
 	if _, ok := res["durationMs"].(float64); !ok {
 		t.Errorf("Send: durationMs = %T, want number", res["durationMs"])
@@ -1199,8 +1216,8 @@ func TestSendRemoteAgentCascadeMessage_NotFound(t *testing.T) {
 	if !ok {
 		t.Fatalf("not-found Send: no error envelope, got %#v", resp)
 	}
-	if got := int(errObj["code"].(float64)); got != remotecontrol.ErrCodeCascadeNotFound {
-		t.Errorf("error.code = %d, want %d (Cascade not found)", got, remotecontrol.ErrCodeCascadeNotFound)
+	if got := int(errObj["code"].(float64)); got != rpc.ErrCodeCascadeNotFound {
+		t.Errorf("error.code = %d, want %d (Cascade not found)", got, rpc.ErrCodeCascadeNotFound)
 	}
 }
 
@@ -1272,10 +1289,10 @@ func TestSendRemoteAgentCascadeMessage_ToolCalls(t *testing.T) {
 	srv, _, registry, done := newTestTCPServerWithBackend(t, 256)
 	defer done()
 
-	be := &remotecontrol.StubBackend{
+	be := &cascades.StubBackend{
 		Reply:      "done",
-		StopReason: remotecontrol.StopReasonToolUse,
-		ToolCalls: []remotecontrol.ToolCall{
+		StopReason: cascades.StopReasonToolUse,
+		ToolCalls: []cascades.ToolCall{
 			{
 				Name:   "read_file",
 				Args:   []byte(`{"path":"/etc/hostname"}`),
@@ -1315,8 +1332,8 @@ func TestSendRemoteAgentCascadeMessage_ToolCalls(t *testing.T) {
 	if res["reply"] != "done" {
 		t.Errorf("Send: reply = %v, want done", res["reply"])
 	}
-	if res["stopReason"] != remotecontrol.StopReasonToolUse {
-		t.Errorf("Send: stopReason = %v, want %s", res["stopReason"], remotecontrol.StopReasonToolUse)
+	if res["stopReason"] != cascades.StopReasonToolUse {
+		t.Errorf("Send: stopReason = %v, want %s", res["stopReason"], cascades.StopReasonToolUse)
 	}
 	tcs, ok := res["toolCalls"].([]any)
 	if !ok {
@@ -1348,7 +1365,7 @@ func TestSendRemoteAgentCascadeMessage_Timeout(t *testing.T) {
 	srv, _, registry, done := newTestTCPServerWithBackend(t, 256)
 	defer done()
 
-	be := &remotecontrol.StubBackend{Sleep: 200 * time.Millisecond}
+	be := &cascades.StubBackend{Sleep: 200 * time.Millisecond}
 	c := dialWS(t, srv.HTTPURL())
 	defer c.CloseNow()
 
@@ -1375,8 +1392,8 @@ func TestSendRemoteAgentCascadeMessage_Timeout(t *testing.T) {
 	if !ok {
 		t.Fatalf("timeout Send: no error envelope, got %#v", resp)
 	}
-	if got := int(errObj["code"].(float64)); got != remotecontrol.ErrCodeTurnTimeout {
-		t.Errorf("error.code = %d, want %d (Turn timeout)", got, remotecontrol.ErrCodeTurnTimeout)
+	if got := int(errObj["code"].(float64)); got != rpc.ErrCodeTurnTimeout {
+		t.Errorf("error.code = %d, want %d (Turn timeout)", got, rpc.ErrCodeTurnTimeout)
 	}
 }
 
@@ -1387,7 +1404,7 @@ func TestSendRemoteAgentCascadeMessage_PropagatesError(t *testing.T) {
 	srv, _, registry, done := newTestTCPServerWithBackend(t, 256)
 	defer done()
 
-	be := &remotecontrol.StubBackend{Err: errors.New("backend failed")}
+	be := &cascades.StubBackend{Err: errors.New("backend failed")}
 	c := dialWS(t, srv.HTTPURL())
 	defer c.CloseNow()
 
@@ -1441,11 +1458,11 @@ func TestSendStream_FrameOrder(t *testing.T) {
 	srv, _, registry, done := newTestTCPServerWithBackend(t, 256)
 	defer done()
 
-	be := &remotecontrol.StubBackend{
+	be := &cascades.StubBackend{
 		Reply:          "streamed-reply",
 		ConversationID: "conv-stream",
-		StopReason:     remotecontrol.StopReasonEndTurn,
-		ToolCalls: []remotecontrol.ToolCall{
+		StopReason:     cascades.StopReasonEndTurn,
+		ToolCalls: []cascades.ToolCall{
 			{Name: "echo", Args: []byte(`{"text":"hi"}`), Result: "hi", OK: true},
 			{Name: "noop", Args: []byte(`null`), Result: "", OK: true},
 		},
@@ -1487,11 +1504,11 @@ func TestSendStream_FrameOrder(t *testing.T) {
 	}
 
 	wantMethod := []string{
-		remotecontrol.NotifCascadeState,
-		remotecontrol.NotifCascadeTextDelta,
-		remotecontrol.NotifCascadeToolCall,
-		remotecontrol.NotifCascadeToolCall,
-		remotecontrol.NotifCascadeState,
+		cascades.NotifCascadeState,
+		cascades.NotifCascadeTextDelta,
+		cascades.NotifCascadeToolCall,
+		cascades.NotifCascadeToolCall,
+		cascades.NotifCascadeState,
 	}
 	for i, wm := range wantMethod {
 		if got := notifs[i].Method; got != wm {
@@ -1514,14 +1531,14 @@ func TestSendStream_FrameOrder(t *testing.T) {
 	// Pin the phase values on the two state notifications
 	// (frames 0 and 4). Frame 0 = starting; frame 4 = done
 	// with stopReason + durationMs.
-	if phase, _ := notifs[0].Params["phase"].(string); phase != remotecontrol.StatePhaseStarting {
-		t.Errorf("notif[0].phase = %q, want %q", notifs[0].Params["phase"], remotecontrol.StatePhaseStarting)
+	if phase, _ := notifs[0].Params["phase"].(string); phase != cascades.StatePhaseStarting {
+		t.Errorf("notif[0].phase = %q, want %q", notifs[0].Params["phase"], cascades.StatePhaseStarting)
 	}
-	if phase, _ := notifs[4].Params["phase"].(string); phase != remotecontrol.StatePhaseDone {
-		t.Errorf("notif[4].phase = %q, want %q", notifs[4].Params["phase"], remotecontrol.StatePhaseDone)
+	if phase, _ := notifs[4].Params["phase"].(string); phase != cascades.StatePhaseDone {
+		t.Errorf("notif[4].phase = %q, want %q", notifs[4].Params["phase"], cascades.StatePhaseDone)
 	}
-	if sr, _ := notifs[4].Params["stopReason"].(string); sr != remotecontrol.StopReasonEndTurn {
-		t.Errorf("notif[4].stopReason = %q, want %q", sr, remotecontrol.StopReasonEndTurn)
+	if sr, _ := notifs[4].Params["stopReason"].(string); sr != cascades.StopReasonEndTurn {
+		t.Errorf("notif[4].stopReason = %q, want %q", sr, cascades.StopReasonEndTurn)
 	}
 	// durationMs is emitted only when the sink's
 	// time.Since(startedAt).Milliseconds() > 0; a
@@ -1568,9 +1585,9 @@ func TestSendStream_SlowClientDoesNotBlock(t *testing.T) {
 	srv, _, registry, done := newTestTCPServerWithBackend(t, 256)
 	defer done()
 
-	be := &remotecontrol.StubBackend{
+	be := &cascades.StubBackend{
 		Reply:      "fast",
-		StopReason: remotecontrol.StopReasonEndTurn,
+		StopReason: cascades.StopReasonEndTurn,
 	}
 
 	c := dialWS(t, srv.HTTPURL())
@@ -1654,14 +1671,14 @@ func TestSendStream_TwoCascadesOnOneConn_DoNotMix(t *testing.T) {
 	// can deterministically assert the interleaved
 	// notification sequence.
 	gotA, _ := registry.Get(cidA)
-	gotA.SetBackend(&remotecontrol.StubBackend{
+	gotA.SetBackend(&cascades.StubBackend{
 		Reply:      "from-A",
-		StopReason: remotecontrol.StopReasonEndTurn,
+		StopReason: cascades.StopReasonEndTurn,
 	})
 	gotB, _ := registry.Get(cidB)
-	gotB.SetBackend(&remotecontrol.StubBackend{
+	gotB.SetBackend(&cascades.StubBackend{
 		Reply:      "from-B",
-		StopReason: remotecontrol.StopReasonEndTurn,
+		StopReason: cascades.StopReasonEndTurn,
 	})
 
 	// Send on cascade A.
@@ -1711,14 +1728,14 @@ func TestSendStream_MissingConnID_NoPanic(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewDispatcher: %v", err)
 	}
-	be := &remotecontrol.StubBackend{
+	be := &cascades.StubBackend{
 		Reply:      "no-connid",
-		StopReason: remotecontrol.StopReasonEndTurn,
+		StopReason: cascades.StopReasonEndTurn,
 	}
 	// Build a *Cascade by hand (the cascade_test.go helper
 	// `registerCascadeWithBackend` is unexported; this
 	// test lives in a different package and can't see it).
-	c, err := remotecontrol.NewCascade(remotecontrol.CascadeOpts{})
+	c, err := cascades.New(cascades.Opts{})
 	if err != nil {
 		t.Fatalf("NewCascade: %v", err)
 	}
@@ -1781,14 +1798,14 @@ func TestHandleUserInteraction_NotificationOverWire(t *testing.T) {
 	srv, _, registry, done := newTestTCPServerWithBackend(t, 256)
 	defer done()
 
-	be := &remotecontrol.StubBackend{
-		StopReason: remotecontrol.StopReasonEndTurn,
-		Interactions: []remotecontrol.PendingInteractionConfig{
+	be := &cascades.StubBackend{
+		StopReason: cascades.StopReasonEndTurn,
+		Interactions: []cascades.InteractionConfig{
 			{
-				Kind:   remotecontrol.InteractionKindPermission,
+				Kind:   cascades.InteractionKindPermission,
 				Title:  "Read main.go?",
 				Prompt: "ok?",
-				Options: []remotecontrol.InteractionOption{
+				Options: []cascades.InteractionOption{
 					{Label: "yes", Value: "yes"},
 					{Label: "no", Value: "no"},
 				},
@@ -1838,7 +1855,7 @@ func TestHandleUserInteraction_NotificationOverWire(t *testing.T) {
 			break
 		}
 		method, _ := frame["method"].(string)
-		if method == remotecontrol.NotifUserInteractionRequired {
+		if method == cascades.NotifUserInteractionRequired {
 			params, _ := frame["params"].(map[string]any)
 			uiNotif = &jsonRPCNotification{Method: method, Params: params}
 			break
@@ -1847,8 +1864,8 @@ func TestHandleUserInteraction_NotificationOverWire(t *testing.T) {
 	if uiNotif == nil {
 		t.Fatalf("did not see cascade/user_interaction_required within %d frames", maxFrames)
 	}
-	if uiNotif.Method != remotecontrol.NotifUserInteractionRequired {
-		t.Errorf("method = %q, want %q", uiNotif.Method, remotecontrol.NotifUserInteractionRequired)
+	if uiNotif.Method != cascades.NotifUserInteractionRequired {
+		t.Errorf("method = %q, want %q", uiNotif.Method, cascades.NotifUserInteractionRequired)
 	}
 	if cid2, _ := uiNotif.Params["cascade_id"].(string); cid2 != cid {
 		t.Errorf("cascade_id = %q, want %q", cid2, cid)
@@ -1857,8 +1874,8 @@ func TestHandleUserInteraction_NotificationOverWire(t *testing.T) {
 	if !strings.HasPrefix(intrID, "int_") {
 		t.Errorf("interaction_id = %q, want int_ prefix", intrID)
 	}
-	if kind, _ := uiNotif.Params["kind"].(string); kind != remotecontrol.InteractionKindPermission {
-		t.Errorf("kind = %q, want %q", kind, remotecontrol.InteractionKindPermission)
+	if kind, _ := uiNotif.Params["kind"].(string); kind != cascades.InteractionKindPermission {
+		t.Errorf("kind = %q, want %q", kind, cascades.InteractionKindPermission)
 	}
 	if title, _ := uiNotif.Params["title"].(string); title != "Read main.go?" {
 		t.Errorf("title = %q, want %q", title, "Read main.go?")
@@ -1915,8 +1932,8 @@ func TestHandleUserInteraction_UnknownCascade(t *testing.T) {
 	if !ok {
 		t.Fatalf("unknown-cascade Handle…: no error envelope, got %#v", resp)
 	}
-	if got := int(errObj["code"].(float64)); got != remotecontrol.ErrCodeCascadeNotFound {
-		t.Errorf("error.code = %d, want %d", got, remotecontrol.ErrCodeCascadeNotFound)
+	if got := int(errObj["code"].(float64)); got != rpc.ErrCodeCascadeNotFound {
+		t.Errorf("error.code = %d, want %d", got, rpc.ErrCodeCascadeNotFound)
 	}
 }
 
@@ -1947,8 +1964,8 @@ func TestHandleUserInteraction_UnknownInteraction(t *testing.T) {
 	if !ok {
 		t.Fatalf("unknown-interaction Handle…: no error envelope, got %#v", resp)
 	}
-	if got := int(errObj["code"].(float64)); got != remotecontrol.ErrCodeInteractionNotFound {
-		t.Errorf("error.code = %d, want %d", got, remotecontrol.ErrCodeInteractionNotFound)
+	if got := int(errObj["code"].(float64)); got != rpc.ErrCodeInteractionNotFound {
+		t.Errorf("error.code = %d, want %d", got, rpc.ErrCodeInteractionNotFound)
 	}
 }
 
@@ -2219,7 +2236,7 @@ func newTestTCPServerWithFS(t *testing.T) (*TCPServer, *remotecontrol.SessionSta
 	sess.Model = "Gemini 3.8 Flash (Medium)"
 
 	dir := t.TempDir()
-	scope := &remotecontrol.WorkdirScope{Workspace: dir}
+	scope := &files.WorkdirScope{Workspace: dir}
 
 	disp, err := remotecontrol.NewDispatcher(remotecontrol.Config{
 		Session: sess,
@@ -2258,7 +2275,7 @@ func newTestTCPServerWithMemFS(t *testing.T) (*TCPServer, *remotecontrol.Session
 	sess.Backend = "gateway"
 	sess.Model = "Gemini 3.8 Flash (Medium)"
 
-	mfs := remotecontrol.NewMemFS(map[string][]remotecontrol.MemFSEntry{
+	mfs := files.NewMemProvider(map[string][]files.MemEntry{
 		"/allowed": {
 			{Name: "main.go", IsDir: false, Data: []byte("package main\n\nfunc main() {}\n")},
 			{Name: "sub", IsDir: true, Data: nil},
@@ -2267,7 +2284,7 @@ func newTestTCPServerWithMemFS(t *testing.T) (*TCPServer, *remotecontrol.Session
 			{Name: "secret.txt", IsDir: false, Data: []byte("top secret\n")},
 		},
 	})
-	scope := &remotecontrol.WorkdirScope{Workspace: "/allowed"}
+	scope := &files.WorkdirScope{Workspace: "/allowed"}
 
 	disp, err := remotecontrol.NewDispatcher(remotecontrol.Config{
 		Session: sess,
@@ -2303,8 +2320,8 @@ func newTestTCPServerWithMemFS(t *testing.T) (*TCPServer, *remotecontrol.Session
 // ambiguous-embedded-methods issue embedded structs
 // would create.
 type memFSPolicyOverFS struct {
-	policy remotecontrol.FSProvider
-	fs     remotecontrol.FSProvider
+	policy files.Provider
+	fs     files.Provider
 }
 
 func (m *memFSPolicyOverFS) ResolvePolicy(path string) (string, error) {
@@ -2313,7 +2330,7 @@ func (m *memFSPolicyOverFS) ResolvePolicy(path string) (string, error) {
 func (m *memFSPolicyOverFS) ReadFile(canonical string, maxBytes int64, offset int64) (data []byte, total int64, truncated bool, isBinary bool, err error) {
 	return m.fs.ReadFile(canonical, maxBytes, offset)
 }
-func (m *memFSPolicyOverFS) ReadDir(canonical string, maxEntries int) (entries []remotecontrol.DirEntry, total int, truncated bool, err error) {
+func (m *memFSPolicyOverFS) ReadDir(canonical string, maxEntries int) (entries []files.Entry, total int, truncated bool, err error) {
 	return m.fs.ReadDir(canonical, maxEntries)
 }
 
@@ -2683,7 +2700,7 @@ func TestReadRemoteAgentDir_WS_PathNotAllowed(t *testing.T) {
 // whose dispatcher's ProjectStore seam is the supplied
 // *remotecontrol.MemProjectStore (one per test, so
 // state doesn't leak across tests).
-func newTestTCPServerWithProjects(t *testing.T, ps remotecontrol.ProjectStore) (*TCPServer, func()) {
+func newTestTCPServerWithProjects(t *testing.T, ps projects.Store) (*TCPServer, func()) {
 	t.Helper()
 	sess := remotecontrol.NewSessionState("1.4.0")
 	disp, err := remotecontrol.NewDispatcher(remotecontrol.Config{
@@ -2715,14 +2732,14 @@ func newTestTCPServerWithProjects(t *testing.T, ps remotecontrol.ProjectStore) (
 // the WS round-trip returns the rows in the wire
 // envelope.
 func TestListRemoteAgentProjects_WS_Ok(t *testing.T) {
-	ps := remotecontrol.NewMemProjectStore(nil)
-	if _, err := ps.Create(context.Background(), remotecontrol.NewProject{
+	ps := projects.NewMemStore(nil)
+	if _, err := ps.Create(context.Background(), projects.Create{
 		Name:      "alpha",
 		Workspace: "/ws/alpha",
 	}); err != nil {
 		t.Fatalf("seed Create alpha: %v", err)
 	}
-	if _, err := ps.Create(context.Background(), remotecontrol.NewProject{
+	if _, err := ps.Create(context.Background(), projects.Create{
 		Name:      "beta",
 		Workspace: "/ws/beta",
 	}); err != nil {
@@ -2765,7 +2782,7 @@ func TestListRemoteAgentProjects_WS_Ok(t *testing.T) {
 // the WS round-trip returns the new project's
 // metadata, and a follow-up List sees the row.
 func TestCreateRemoteAgentProject_WS_Ok(t *testing.T) {
-	ps := remotecontrol.NewMemProjectStore(nil)
+	ps := projects.NewMemStore(nil)
 	srv, done := newTestTCPServerWithProjects(t, ps)
 	defer done()
 
@@ -2825,7 +2842,7 @@ func TestCreateRemoteAgentProject_WS_Ok(t *testing.T) {
 // TestCreateRemoteAgentProject_WS_Duplicate pins the
 // duplicate-name → -32009 path over the wire.
 func TestCreateRemoteAgentProject_WS_Duplicate(t *testing.T) {
-	ps := remotecontrol.NewMemProjectStore(nil)
+	ps := projects.NewMemStore(nil)
 	srv, done := newTestTCPServerWithProjects(t, ps)
 	defer done()
 
@@ -2867,7 +2884,7 @@ func TestCreateRemoteAgentProject_WS_Duplicate(t *testing.T) {
 // TestCreateRemoteAgentProject_WS_BadParams pins the
 // empty-name → -32602 path over the wire.
 func TestCreateRemoteAgentProject_WS_BadParams(t *testing.T) {
-	ps := remotecontrol.NewMemProjectStore(nil)
+	ps := projects.NewMemStore(nil)
 	srv, done := newTestTCPServerWithProjects(t, ps)
 	defer done()
 
@@ -2899,7 +2916,7 @@ func TestCreateRemoteAgentProject_WS_BadParams(t *testing.T) {
 func TestUpdateRemoteAgentProject_WS_Ok(t *testing.T) {
 	// Monotonic clock so UpdatedAt > CreatedAt.
 	var tick int64
-	ps := remotecontrol.NewMemProjectStore(func() time.Time {
+	ps := projects.NewMemStore(func() time.Time {
 		tick++
 		return time.Unix(1700000000, tick).UTC()
 	})
@@ -2964,7 +2981,7 @@ func TestUpdateRemoteAgentProject_WS_Ok(t *testing.T) {
 // TestUpdateRemoteAgentProject_WS_NotFound pins the
 // unknown-id → -32004 path over the wire.
 func TestUpdateRemoteAgentProject_WS_NotFound(t *testing.T) {
-	ps := remotecontrol.NewMemProjectStore(nil)
+	ps := projects.NewMemStore(nil)
 	srv, done := newTestTCPServerWithProjects(t, ps)
 	defer done()
 
@@ -2995,7 +3012,7 @@ func TestUpdateRemoteAgentProject_WS_NotFound(t *testing.T) {
 // Update with only default_model leaves the name
 // untouched in the response envelope.
 func TestUpdateRemoteAgentProject_WS_PatchOnly(t *testing.T) {
-	ps := remotecontrol.NewMemProjectStore(nil)
+	ps := projects.NewMemStore(nil)
 	srv, done := newTestTCPServerWithProjects(t, ps)
 	defer done()
 
@@ -3058,7 +3075,7 @@ func TestUpdateRemoteAgentProject_WS_PatchOnly(t *testing.T) {
 // ConversationStore seams are pre-installed with
 // the supplied values. Returns a teardown closure
 // that shuts the server down.
-func newTestTCPServerWithDeletions(t *testing.T, ps remotecontrol.ProjectStore, cs remotecontrol.ConversationStore) (*TCPServer, func()) {
+func newTestTCPServerWithDeletions(t *testing.T, ps projects.Store, cs remotecontrol.ConversationStore) (*TCPServer, func()) {
 	t.Helper()
 	sess := remotecontrol.NewSessionState("1.4.0")
 	disp, err := remotecontrol.NewDispatcher(remotecontrol.Config{
@@ -3254,8 +3271,8 @@ func TestDeleteRemoteAgentConversation_WS_NotFound(t *testing.T) {
 // TestDeleteRemoteAgentProject_WS_Ok exercises
 // the happy-path project delete over the wire.
 func TestDeleteRemoteAgentProject_WS_Ok(t *testing.T) {
-	ps := remotecontrol.NewMemProjectStore(nil)
-	created, err := ps.Create(context.Background(), remotecontrol.NewProject{
+	ps := projects.NewMemStore(nil)
+	created, err := ps.Create(context.Background(), projects.Create{
 		Name:      "alpha",
 		Workspace: "/ws/alpha",
 	})
@@ -3295,8 +3312,8 @@ func TestDeleteRemoteAgentProject_WS_Ok(t *testing.T) {
 // TestDeleteRemoteAgentProject_WS_Bound pins
 // the -32013 envelope over the wire.
 func TestDeleteRemoteAgentProject_WS_Bound(t *testing.T) {
-	ps := remotecontrol.NewMemProjectStore(nil)
-	created, err := ps.Create(context.Background(), remotecontrol.NewProject{
+	ps := projects.NewMemStore(nil)
+	created, err := ps.Create(context.Background(), projects.Create{
 		Name:      "beta",
 		Workspace: "/ws/beta",
 	})
@@ -3504,13 +3521,13 @@ func TestStatus_RichShape_WS(t *testing.T) {
 	if len(scopes) != 0 {
 		t.Errorf("status.auth.scopes length = %d, want 0", len(scopes))
 	}
-	cascades, _ := snap["cascades"].(map[string]any)
-	if v, _ := cascades["total"].(float64); v != 0 {
-		t.Errorf("status.cascades.total = %v, want 0", cascades["total"])
+	cascadesMap, _ := snap["cascades"].(map[string]any)
+	if v, _ := cascadesMap["total"].(float64); v != 0 {
+		t.Errorf("status.cascades.total = %v, want 0", cascadesMap["total"])
 	}
-	if v, _ := cascades["max"].(float64); v != float64(remotecontrol.CascadeRegistryDefaultMax) {
+	if v, _ := cascadesMap["max"].(float64); v != float64(cascades.RegistryDefaultMax) {
 		t.Errorf("status.cascades.max = %v, want %d",
-			cascades["max"], remotecontrol.CascadeRegistryDefaultMax)
+			cascadesMap["max"], cascades.RegistryDefaultMax)
 	}
 }
 
@@ -3686,11 +3703,11 @@ func TestRemoteAgentErrorStatus_Recorded_WS(t *testing.T) {
 
 	// Start cascade, patch a backend that errors.
 	cid := startCascade(t, c)
-	got, ok := srv.dispatcher.(*remotecontrol.Dispatcher).Cascades().Get(cid)
+	got, ok := srv.Dispatcher().(*remotecontrol.Dispatcher).Cascades().Get(cid)
 	if !ok {
 		t.Fatalf("registry.Get(%q) failed", cid)
 	}
-	got.SetBackend(&remotecontrol.StubBackend{Err: errors.New("wire-tripped")})
+	got.SetBackend(&cascades.StubBackend{Err: errors.New("wire-tripped")})
 
 	// Drive a turn. Drain to the synchronous envelope
 	// (which carries -32603 because the backend errored).
@@ -3856,14 +3873,14 @@ func TestHandleRemoteAgentCascadeUserInteraction_BiDirectional_WS(t *testing.T) 
 	srv, _, registry, done := newTestTCPServerWithBackend(t, 256)
 	defer done()
 
-	be := &remotecontrol.StubBackend{
-		StopReason: remotecontrol.StopReasonEndTurn,
-		Interactions: []remotecontrol.PendingInteractionConfig{
+	be := &cascades.StubBackend{
+		StopReason: cascades.StopReasonEndTurn,
+		Interactions: []cascades.InteractionConfig{
 			{
-				Kind:   remotecontrol.InteractionKindPermission,
+				Kind:   cascades.InteractionKindPermission,
 				Title:  "Read main.go?",
 				Prompt: "ok?",
-				Options: []remotecontrol.InteractionOption{
+				Options: []cascades.InteractionOption{
 					{Label: "yes", Value: "yes"},
 					{Label: "no", Value: "no"},
 				},
@@ -3911,14 +3928,14 @@ func TestHandleRemoteAgentCascadeUserInteraction_BiDirectional_WS(t *testing.T) 
 	for i := 0; i < maxNotifFrames; i++ {
 		frame := readJSONRPC(t, c)
 		method, _ := frame["method"].(string)
-		if method == remotecontrol.NotifUserInteractionRequired {
+		if method == cascades.NotifUserInteractionRequired {
 			params, _ := frame["params"].(map[string]any)
 			intrID, _ = params["interaction_id"].(string)
 			break
 		}
 	}
 	if intrID == "" {
-		t.Fatalf("did not see %q within %d frames", remotecontrol.NotifUserInteractionRequired, maxNotifFrames)
+		t.Fatalf("did not see %q within %d frames", cascades.NotifUserInteractionRequired, maxNotifFrames)
 	}
 	if !strings.HasPrefix(intrID, "int_") {
 		t.Errorf("interaction_id = %q, want int_ prefix", intrID)
@@ -3992,8 +4009,8 @@ done:
 	if !ok {
 		t.Fatalf("id=2 result not an object: %#v", sendMsgResp)
 	}
-	if res["stopReason"] != remotecontrol.StopReasonEndTurn {
-		t.Errorf("id=2 stopReason = %v, want %q", res["stopReason"], remotecontrol.StopReasonEndTurn)
+	if res["stopReason"] != cascades.StopReasonEndTurn {
+		t.Errorf("id=2 stopReason = %v, want %q", res["stopReason"], cascades.StopReasonEndTurn)
 	}
 
 	handleResp, ok := seenIDs[3]
@@ -4037,9 +4054,9 @@ func TestStreamNotifications_ReachClient_DuringOtherRPC(t *testing.T) {
 	srv, _, registry, done := newTestTCPServerWithBackend(t, 256)
 	defer done()
 
-	be := &remotecontrol.StubBackend{
+	be := &cascades.StubBackend{
 		Reply:          "after-sleep",
-		StopReason:     remotecontrol.StopReasonEndTurn,
+		StopReason:     cascades.StopReasonEndTurn,
 		ConversationID: "conv-ws",
 		Sleep:          100 * time.Millisecond,
 	}
@@ -4213,10 +4230,10 @@ func TestBackpressure_Bounded(t *testing.T) {
 	})
 	_ = readJSONRPC(t, c)
 
-	if got := srv.connCount(); got != 1 {
+	if got := srv.ConnCount(); got != 1 {
 		t.Fatalf("connCount() = %d, want 1", got)
 	}
-	connID := srv.firstConnID()
+	connID := srv.FirstConnID()
 	if connID == "" {
 		t.Fatalf("firstConnID() empty; conn not registered")
 	}
@@ -4236,7 +4253,7 @@ func TestBackpressure_Bounded(t *testing.T) {
 	var bp int
 	for i := 0; i < total; i++ {
 		frame := append([]byte(nil), payload...)
-		err := srv.pushFrameForTest(context.Background(), connID, frame)
+		err := srv.PushFrameForTest(context.Background(), connID, frame)
 		if errors.Is(err, ErrBackpressure) {
 			bp++
 		} else if err != nil {
@@ -4362,9 +4379,9 @@ func TestConcurrentWrites_NoCorruption(t *testing.T) {
 func TestReaderExit_StopsWriter(t *testing.T) {
 	srv, _, registry, done := newTestTCPServerWithBackend(t, 256)
 
-	be := &remotecontrol.StubBackend{
+	be := &cascades.StubBackend{
 		Reply:          "after-sleep",
-		StopReason:     remotecontrol.StopReasonEndTurn,
+		StopReason:     cascades.StopReasonEndTurn,
 		ConversationID: "conv-ws",
 		// Sleep is generous enough that the dispatch
 		// goroutine is genuinely parked in SendStream
@@ -4483,8 +4500,8 @@ func TestCancelRemoteAgentCascade_Ok_WS(t *testing.T) {
 	srv, _, registry, done := newTestTCPServerWithBackend(t, 256)
 	defer done()
 
-	be := &remotecontrol.StubBackend{
-		StopReason: remotecontrol.StopReasonEndTurn,
+	be := &cascades.StubBackend{
+		StopReason: cascades.StopReasonEndTurn,
 		Sleep:      5 * time.Second,
 	}
 
@@ -4544,7 +4561,7 @@ func TestCancelRemoteAgentCascade_Ok_WS(t *testing.T) {
 			// Notification — capture if it's a
 			// cascade/state.
 			method, _ := frame["method"].(string)
-			if method == remotecontrol.NotifCascadeState {
+			if method == cascades.NotifCascadeState {
 				params, _ := frame["params"].(map[string]any)
 				notifications = append(notifications, notif{method: method, params: params})
 			}
@@ -4595,7 +4612,7 @@ done:
 	var sawCancelled bool
 	for _, n := range notifications {
 		phase, _ := n.params["phase"].(string)
-		if phase == remotecontrol.StatePhaseCancelled {
+		if phase == cascades.StatePhaseCancelled {
 			sawCancelled = true
 			if got, _ := n.params["cascade_id"].(string); got != cid {
 				t.Errorf("cancelled notification cascade_id = %q, want %q", got, cid)
@@ -4643,8 +4660,8 @@ func TestCancelRemoteAgentCascade_Idempotent_WS(t *testing.T) {
 	srv, _, registry, done := newTestTCPServerWithBackend(t, 256)
 	defer done()
 
-	be := &remotecontrol.StubBackend{
-		StopReason: remotecontrol.StopReasonEndTurn,
+	be := &cascades.StubBackend{
+		StopReason: cascades.StopReasonEndTurn,
 		Sleep:      5 * time.Second,
 	}
 
@@ -4784,8 +4801,8 @@ func TestCancelRemoteAgentCascade_NotFound_WS(t *testing.T) {
 	if !ok {
 		t.Fatalf("not-found Cancel: no error envelope, got %#v", resp)
 	}
-	if got := int(errObj["code"].(float64)); got != remotecontrol.ErrCodeCascadeNotFound {
-		t.Errorf("error.code = %d, want %d (Cascade not found)", got, remotecontrol.ErrCodeCascadeNotFound)
+	if got := int(errObj["code"].(float64)); got != rpc.ErrCodeCascadeNotFound {
+		t.Errorf("error.code = %d, want %d (Cascade not found)", got, rpc.ErrCodeCascadeNotFound)
 	}
 }
 
@@ -4930,8 +4947,8 @@ func TestRemoteControlDeepLink_FocusCascade_NotFound_WS(t *testing.T) {
 	if !ok {
 		t.Fatalf("focus-cascade: no error envelope, got %#v", resp)
 	}
-	if got := int(errObj["code"].(float64)); got != remotecontrol.ErrCodeCascadeNotFound {
-		t.Errorf("error.code = %d, want %d", got, remotecontrol.ErrCodeCascadeNotFound)
+	if got := int(errObj["code"].(float64)); got != rpc.ErrCodeCascadeNotFound {
+		t.Errorf("error.code = %d, want %d", got, rpc.ErrCodeCascadeNotFound)
 	}
 }
 
@@ -4979,7 +4996,7 @@ func TestRemoteControlDeepLink_FocusCascade_Ok_WS(t *testing.T) {
 		idF, hasID := frame["id"].(float64)
 		if !hasID {
 			method, _ := frame["method"].(string)
-			if method == remotecontrol.NotifCascadeState {
+			if method == cascades.NotifCascadeState {
 				params, _ := frame["params"].(map[string]any)
 				if phase, _ := params["phase"].(string); phase == "focused" {
 					sawFocusedNotif = true
@@ -5060,10 +5077,10 @@ func TestRemoteControlDeepLink_PasteAndSend_FiresTurn_WS(t *testing.T) {
 	srv, _, registry, done := newTestTCPServerWithBackend(t, 256)
 	defer done()
 
-	be := &remotecontrol.StubBackend{
+	be := &cascades.StubBackend{
 		Reply:          "paste-and-send reply",
 		ConversationID: "conv-pas",
-		StopReason:     remotecontrol.StopReasonEndTurn,
+		StopReason:     cascades.StopReasonEndTurn,
 	}
 
 	c := dialWS(t, srv.HTTPURL())
@@ -5099,9 +5116,9 @@ func TestRemoteControlDeepLink_PasteAndSend_FiresTurn_WS(t *testing.T) {
 		frame := readJSONRPC(t, c)
 		if _, hasID := frame["id"]; hasID {
 			resp = frame
-		} else if method, _ := frame["method"].(string); method == remotecontrol.NotifCascadeState {
+		} else if method, _ := frame["method"].(string); method == cascades.NotifCascadeState {
 			params, _ := frame["params"].(map[string]any)
-			if phase, _ := params["phase"].(string); phase == remotecontrol.StatePhaseDone {
+			if phase, _ := params["phase"].(string); phase == cascades.StatePhaseDone {
 				sawDone = true
 			}
 		}
@@ -5221,7 +5238,7 @@ func TestRemoteControlDeepLink_InvalidURL_WS(t *testing.T) {
 // seam is the supplied
 // *remotecontrol.MemPermissionStore (one per
 // test). Mirrors newTestTCPServerWithProjects.
-func newTestTCPServerWithPermissions(t *testing.T, ps remotecontrol.PermissionStore) (*TCPServer, func()) {
+func newTestTCPServerWithPermissions(t *testing.T, ps permissions.Store) (*TCPServer, func()) {
 	t.Helper()
 	sess := remotecontrol.NewSessionState("1.4.0")
 	disp, err := remotecontrol.NewDispatcher(remotecontrol.Config{
@@ -5268,19 +5285,13 @@ func waitForTwoConnIDs(t *testing.T, srv *TCPServer) (string, string) {
 	t.Helper()
 	deadline := time.Now().Add(2 * time.Second)
 	for time.Now().Before(deadline) {
-		srv.connsMu.RLock()
-		ids := make([]string, 0, 2)
-		for id := range srv.conns {
-			ids = append(ids, id)
-			if len(ids) == 2 {
-				srv.connsMu.RUnlock()
-				return ids[0], ids[1]
-			}
+		ids := srv.ConnIDs()
+		if len(ids) >= 2 {
+			return ids[0], ids[1]
 		}
-		srv.connsMu.RUnlock()
 		time.Sleep(10 * time.Millisecond)
 	}
-	t.Fatalf("only %d ws connection(s) registered within 2s of Dial", srv.connCount())
+	t.Fatalf("only %d ws connection(s) registered within 2s of Dial", srv.ConnCount())
 	return "", ""
 }
 
@@ -5336,8 +5347,8 @@ func assertPermissionChangedNotification(t *testing.T, label string, frame map[s
 	if frame["jsonrpc"] != "2.0" {
 		t.Errorf("%s: jsonrpc = %v, want 2.0", label, frame["jsonrpc"])
 	}
-	if frame["method"] != remotecontrol.PermissionsChangedMethod {
-		t.Errorf("%s: method = %v, want %q", label, frame["method"], remotecontrol.PermissionsChangedMethod)
+	if frame["method"] != permissions.NotifChangedMethod {
+		t.Errorf("%s: method = %v, want %q", label, frame["method"], permissions.NotifChangedMethod)
 	}
 	params, ok := frame["params"].(map[string]any)
 	if !ok {
@@ -5365,7 +5376,7 @@ func assertPermissionChangedNotification(t *testing.T, label string, frame map[s
 // conns, so we don't re-assert it in every
 // single-conn happy-path test.
 func TestSetRemoteAgentPermissionPreset_WS_Ok(t *testing.T) {
-	ps := remotecontrol.NewMemPermissionStore(nil)
+	ps := permissions.NewMemStore(nil)
 	srv, done := newTestTCPServerWithPermissions(t, ps)
 	defer done()
 
@@ -5396,7 +5407,7 @@ func TestSetRemoteAgentPermissionPreset_WS_Ok(t *testing.T) {
 // {default, strict, permissive} is
 // "Invalid params".
 func TestSetRemoteAgentPermissionPreset_WS_BadParams(t *testing.T) {
-	ps := remotecontrol.NewMemPermissionStore(nil)
+	ps := permissions.NewMemStore(nil)
 	srv, done := newTestTCPServerWithPermissions(t, ps)
 	defer done()
 
@@ -5428,7 +5439,7 @@ func TestSetRemoteAgentPermissionPreset_WS_BadParams(t *testing.T) {
 // to expose the review axis the
 // artifact-review tooling depends on.
 func TestSetRemoteAgentArtifactReviewMode_WS_Ok(t *testing.T) {
-	ps := remotecontrol.NewMemPermissionStore(nil)
+	ps := permissions.NewMemStore(nil)
 	srv, done := newTestTCPServerWithPermissions(t, ps)
 	defer done()
 
@@ -5461,7 +5472,7 @@ func TestSetRemoteAgentArtifactReviewMode_WS_Ok(t *testing.T) {
 // added_at) shape the
 // permissionStateToWire helper emits.
 func TestAddRemoteAgentPermissionGrants_WS_Ok(t *testing.T) {
-	ps := remotecontrol.NewMemPermissionStore(nil)
+	ps := permissions.NewMemStore(nil)
 	srv, done := newTestTCPServerWithPermissions(t, ps)
 	defer done()
 
@@ -5522,7 +5533,7 @@ func TestAddRemoteAgentPermissionGrants_WS_Ok(t *testing.T) {
 // the broadcast-notification arrival is pinned
 // by TestPermissionsChanged_Broadcast below.
 func TestAddRemoteAgentPermissionGrants_WS_Duplicate(t *testing.T) {
-	ps := remotecontrol.NewMemPermissionStore(nil)
+	ps := permissions.NewMemStore(nil)
 	srv, done := newTestTCPServerWithPermissions(t, ps)
 	defer done()
 
@@ -5575,7 +5586,7 @@ func TestAddRemoteAgentPermissionGrants_WS_Duplicate(t *testing.T) {
 // response carries the post-remove state
 // (empty grants).
 func TestRemoveRemoteAgentPermissionGrants_WS_Ok(t *testing.T) {
-	ps := remotecontrol.NewMemPermissionStore(nil)
+	ps := permissions.NewMemStore(nil)
 	srv, done := newTestTCPServerWithPermissions(t, ps)
 	defer done()
 
@@ -5650,7 +5661,7 @@ func TestRemoveRemoteAgentPermissionGrants_WS_Ok(t *testing.T) {
 // notification explicitly on c1 BEFORE
 // asking readJSONRPCResponse for the response.
 func TestPermissionsChanged_Broadcast(t *testing.T) {
-	ps := remotecontrol.NewMemPermissionStore(nil)
+	ps := permissions.NewMemStore(nil)
 	srv, done := newTestTCPServerWithPermissions(t, ps)
 	defer done()
 
@@ -5721,10 +5732,10 @@ func TestPermissionsChanged_Broadcast(t *testing.T) {
 
 // newTestTCPServerWithPlugins brings up a TCPServer whose
 // dispatcher's PluginsStore seam is the supplied
-// *remotecontrol.PluginStore (one per test). Mirrors
+// *plugins.Store (one per test). Mirrors
 // newTestTCPServerWithPermissions but for the plugin
 // surface. Cycle rc-plugins adds this helper.
-func newTestTCPServerWithPlugins(t *testing.T, ps remotecontrol.PluginStore) (*TCPServer, func()) {
+func newTestTCPServerWithPlugins(t *testing.T, ps plugins.Store) (*TCPServer, func()) {
 	t.Helper()
 	sess := remotecontrol.NewSessionState("1.4.0")
 	disp, err := remotecontrol.NewDispatcher(remotecontrol.Config{
@@ -5844,8 +5855,8 @@ func assertPluginsChangedNotification(t *testing.T, label string, frame map[stri
 	if frame["jsonrpc"] != "2.0" {
 		t.Errorf("%s: jsonrpc = %v, want 2.0", label, frame["jsonrpc"])
 	}
-	if frame["method"] != remotecontrol.PluginsChangedMethod {
-		t.Errorf("%s: method = %v, want %q", label, frame["method"], remotecontrol.PluginsChangedMethod)
+	if frame["method"] != plugins.NotifChangedMethod {
+		t.Errorf("%s: method = %v, want %q", label, frame["method"], plugins.NotifChangedMethod)
 	}
 	params, ok := frame["params"].(map[string]any)
 	if !ok {
@@ -5865,7 +5876,7 @@ func assertPluginsChangedNotification(t *testing.T, label string, frame map[stri
 // the only outbound frame. readJSONRPCResponse
 // returns the response directly.
 func TestListRemoteAgentPlugins_WS_Ok(t *testing.T) {
-	ps := remotecontrol.NewMemPluginStore(nil)
+	ps := plugins.NewMemStore(nil)
 	srv, done := newTestTCPServerWithPlugins(t, ps)
 	defer done()
 
@@ -5906,7 +5917,7 @@ func TestListRemoteAgentPlugins_WS_Ok(t *testing.T) {
 // shape: the dispatcher returns the same
 // envelope when params is missing / null.
 func TestListRemoteAgentPlugins_WS_OkNoParams(t *testing.T) {
-	ps := remotecontrol.NewMemPluginStore(nil)
+	ps := plugins.NewMemStore(nil)
 	srv, done := newTestTCPServerWithPlugins(t, ps)
 	defer done()
 
@@ -5950,7 +5961,7 @@ func TestListRemoteAgentPlugins_WS_OkNoParams(t *testing.T) {
 // explicitly on c1 BEFORE asking
 // readJSONRPCResponse for the response.
 func TestDisconnectRemoteAgentPlugin_WS_Ok(t *testing.T) {
-	ps := remotecontrol.NewMemPluginStore(nil)
+	ps := plugins.NewMemStore(nil)
 	srv, done := newTestTCPServerWithPlugins(t, ps)
 	defer done()
 
@@ -6020,7 +6031,7 @@ func TestDisconnectRemoteAgentPlugin_WS_Ok(t *testing.T) {
 // TestDisconnectRemoteAgentPlugin_WS_NotFound
 // pins the unknown-id → -32015 envelope.
 func TestDisconnectRemoteAgentPlugin_WS_NotFound(t *testing.T) {
-	ps := remotecontrol.NewMemPluginStore(nil)
+	ps := plugins.NewMemStore(nil)
 	srv, done := newTestTCPServerWithPlugins(t, ps)
 	defer done()
 
@@ -6063,7 +6074,7 @@ func TestDisconnectRemoteAgentPlugin_WS_BadParams(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.label, func(t *testing.T) {
-			ps := remotecontrol.NewMemPluginStore(nil)
+			ps := plugins.NewMemStore(nil)
 			srv, done := newTestTCPServerWithPlugins(t, ps)
 			defer done()
 
@@ -6108,7 +6119,7 @@ func TestDisconnectRemoteAgentPlugin_WS_BadParams(t *testing.T) {
 // second conn (which never sent a request) sees
 // only the notification.
 func TestPluginsChanged_Broadcast(t *testing.T) {
-	ps := remotecontrol.NewMemPluginStore(nil)
+	ps := plugins.NewMemStore(nil)
 	srv, done := newTestTCPServerWithPlugins(t, ps)
 	defer done()
 
@@ -6214,7 +6225,7 @@ func TestPluginsChanged_Broadcast(t *testing.T) {
 // *remotecontrol.MemTriggerStore (one per test). Mirrors
 // newTestTCPServerWithPlugins but for the trigger surface.
 // Cycle rc-triggers adds this helper.
-func newTestTCPServerWithTriggers(t *testing.T, ts remotecontrol.TriggerStore) (*TCPServer, func()) {
+func newTestTCPServerWithTriggers(t *testing.T, ts triggers.Store) (*TCPServer, func()) {
 	t.Helper()
 	sess := remotecontrol.NewSessionState("1.4.0")
 	disp, err := remotecontrol.NewDispatcher(remotecontrol.Config{
@@ -6335,8 +6346,8 @@ func assertTriggersChangedNotification(t *testing.T, label string, frame map[str
 	if frame["jsonrpc"] != "2.0" {
 		t.Errorf("%s: jsonrpc = %v, want 2.0", label, frame["jsonrpc"])
 	}
-	if frame["method"] != remotecontrol.TriggersChangedMethod {
-		t.Errorf("%s: method = %v, want %q", label, frame["method"], remotecontrol.TriggersChangedMethod)
+	if frame["method"] != triggers.NotifChangedMethod {
+		t.Errorf("%s: method = %v, want %q", label, frame["method"], triggers.NotifChangedMethod)
 	}
 	params, ok := frame["params"].(map[string]any)
 	if !ok {
@@ -6357,12 +6368,12 @@ func assertTriggersChangedNotification(t *testing.T, label string, frame map[str
 // outbound frame. readJSONRPCResponse returns the
 // response directly.
 func TestListRemoteAgentTriggers_WS_Ok(t *testing.T) {
-	t1 := remotecontrol.Trigger{
+	t1 := triggers.Trigger{
 		TriggerID: "tri_aaa",
 		ProjectID: "proj-1",
 		Name:      "on-pull",
-		Kind:      remotecontrol.TriggerFileChanged,
-		Spec: remotecontrol.TriggerSpec{
+		Kind:      triggers.FileChanged,
+		Spec: triggers.Spec{
 			"pattern": "*.go",
 			"event":   "modify",
 		},
@@ -6370,12 +6381,12 @@ func TestListRemoteAgentTriggers_WS_Ok(t *testing.T) {
 		CreatedAt: time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC),
 		UpdatedAt: time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC),
 	}
-	t2 := remotecontrol.Trigger{
+	t2 := triggers.Trigger{
 		TriggerID: "tri_bbb",
 		ProjectID: "proj-1",
 		Name:      "every-hour",
-		Kind:      remotecontrol.TriggerSchedule,
-		Spec: remotecontrol.TriggerSpec{
+		Kind:      triggers.Schedule,
+		Spec: triggers.Spec{
 			"prompt": "summarise",
 			"cron":   "0 * * * *",
 		},
@@ -6383,7 +6394,7 @@ func TestListRemoteAgentTriggers_WS_Ok(t *testing.T) {
 		CreatedAt: time.Date(2026, 1, 1, 12, 5, 0, 0, time.UTC),
 		UpdatedAt: time.Date(2026, 1, 1, 12, 5, 0, 0, time.UTC),
 	}
-	ts := remotecontrol.NewMemTriggerStoreWith([]remotecontrol.Trigger{t2, t1}, nil)
+	ts := triggers.NewMemStoreWith([]triggers.Trigger{t2, t1}, nil)
 	srv, done := newTestTCPServerWithTriggers(t, ts)
 	defer done()
 
@@ -6429,7 +6440,7 @@ func TestListRemoteAgentTriggers_WS_Ok(t *testing.T) {
 // dispatcher returns the same envelope when params is
 // missing / null.
 func TestListRemoteAgentTriggers_WS_OkNoParams(t *testing.T) {
-	ts := remotecontrol.NewMemTriggerStore(nil)
+	ts := triggers.NewMemStore(nil)
 	srv, done := newTestTCPServerWithTriggers(t, ts)
 	defer done()
 
@@ -6461,7 +6472,7 @@ func TestListRemoteAgentTriggers_WS_OkNoParams(t *testing.T) {
 // contract) so a JSON-roundtripped caller and an
 // in-process caller see the same shape.
 func TestListRemoteAgentTriggerOptions_WS_Ok(t *testing.T) {
-	ts := remotecontrol.NewMemTriggerStore(nil)
+	ts := triggers.NewMemStore(nil)
 	srv, done := newTestTCPServerWithTriggers(t, ts)
 	defer done()
 
@@ -6540,7 +6551,7 @@ func TestListRemoteAgentTriggerOptions_WS_Ok(t *testing.T) {
 // response]. readJSONRPCResponse drops the
 // notification, so we drain it explicitly first.
 func TestCreateRemoteAgentTrigger_WS_Ok(t *testing.T) {
-	ts := remotecontrol.NewMemTriggerStore(nil)
+	ts := triggers.NewMemStore(nil)
 	srv, done := newTestTCPServerWithTriggers(t, ts)
 	defer done()
 
@@ -6651,7 +6662,7 @@ func TestCreateRemoteAgentTrigger_WS_Ok(t *testing.T) {
 // TestCreateRemoteAgentTrigger_WS_Duplicate pins the
 // unique-within-(project_id, name) → -32016 envelope.
 func TestCreateRemoteAgentTrigger_WS_Duplicate(t *testing.T) {
-	ts := remotecontrol.NewMemTriggerStore(nil)
+	ts := triggers.NewMemStore(nil)
 	srv, done := newTestTCPServerWithTriggers(t, ts)
 	defer done()
 
@@ -6723,7 +6734,7 @@ func TestCreateRemoteAgentTrigger_WS_Duplicate(t *testing.T) {
 // the file-changed kind with a missing "pattern" key
 // (the validator's specFieldMissingErr path).
 func TestCreateRemoteAgentTrigger_WS_BadSpec(t *testing.T) {
-	ts := remotecontrol.NewMemTriggerStore(nil)
+	ts := triggers.NewMemStore(nil)
 	srv, done := newTestTCPServerWithTriggers(t, ts)
 	defer done()
 
@@ -6769,7 +6780,7 @@ func TestCreateRemoteAgentTrigger_WS_BadSpec(t *testing.T) {
 // Wire-order subtlety: Update emits triggers/changed
 // BEFORE the response. Drain the notification first.
 func TestUpdateRemoteAgentTrigger_WS_Ok(t *testing.T) {
-	ts := remotecontrol.NewMemTriggerStore(nil)
+	ts := triggers.NewMemStore(nil)
 	srv, done := newTestTCPServerWithTriggers(t, ts)
 	defer done()
 
@@ -6849,7 +6860,7 @@ func TestUpdateRemoteAgentTrigger_WS_Ok(t *testing.T) {
 // TestUpdateRemoteAgentTrigger_WS_NotFound pins the
 // unknown-id → -32017 envelope.
 func TestUpdateRemoteAgentTrigger_WS_NotFound(t *testing.T) {
-	ts := remotecontrol.NewMemTriggerStore(nil)
+	ts := triggers.NewMemStore(nil)
 	srv, done := newTestTCPServerWithTriggers(t, ts)
 	defer done()
 
@@ -6890,7 +6901,7 @@ func TestUpdateRemoteAgentTrigger_WS_NotFound(t *testing.T) {
 // BEFORE the response, with the post-mutation state
 // (zero triggers). Drain the notification first.
 func TestDeleteRemoteAgentTrigger_WS_Ok(t *testing.T) {
-	ts := remotecontrol.NewMemTriggerStore(nil)
+	ts := triggers.NewMemStore(nil)
 	srv, done := newTestTCPServerWithTriggers(t, ts)
 	defer done()
 
@@ -6973,7 +6984,7 @@ func TestDeleteRemoteAgentTrigger_WS_Ok(t *testing.T) {
 // TestDeleteRemoteAgentTrigger_WS_NotFound pins the
 // unknown-id → -32017 envelope.
 func TestDeleteRemoteAgentTrigger_WS_NotFound(t *testing.T) {
-	ts := remotecontrol.NewMemTriggerStore(nil)
+	ts := triggers.NewMemStore(nil)
 	srv, done := newTestTCPServerWithTriggers(t, ts)
 	defer done()
 
@@ -7015,7 +7026,7 @@ func TestDeleteRemoteAgentTrigger_WS_NotFound(t *testing.T) {
 // [notification, response]; the second conn (which
 // never sent a request) sees only the notification.
 func TestTriggersChanged_Broadcast(t *testing.T) {
-	ts := remotecontrol.NewMemTriggerStore(nil)
+	ts := triggers.NewMemStore(nil)
 	srv, done := newTestTCPServerWithTriggers(t, ts)
 	defer done()
 
@@ -7173,7 +7184,7 @@ func codeAsIntForWS(t *testing.T, v any) int {
 // newTestTCPServerWithTriggers but for the
 // fast-push surface. Cycle rc-fastpush-toggle adds
 // this helper.
-func newTestTCPServerWithFastpush(t *testing.T, fs remotecontrol.FastpushStore) (*TCPServer, func()) {
+func newTestTCPServerWithFastpush(t *testing.T, fs fastpush.Store) (*TCPServer, func()) {
 	t.Helper()
 	sess := remotecontrol.NewSessionState("1.4.0")
 	disp, err := remotecontrol.NewDispatcher(remotecontrol.Config{
@@ -7206,7 +7217,7 @@ func newTestTCPServerWithFastpush(t *testing.T, fs remotecontrol.FastpushStore) 
 // push_delivery, updated_at} map with the supplied
 // expected cascade_id / enabled. push_delivery is
 // always asserted to equal
-// remotecontrol.FastpushPushDeliveryDeferred
+// fastpush.PushDeliveryDeferred
 // ("deferred") — the explicit sentinel the brief pins.
 // updated_at is parsed and asserted to be a non-empty
 // RFC3339Nano string; the value is whatever the
@@ -7226,11 +7237,11 @@ func assertFastpushSettingEnvelope(t *testing.T, label string, result map[string
 	if got, _ := result["enabled"].(bool); got != wantEnabled {
 		t.Errorf("%s: result.enabled = %v, want %v", label, got, wantEnabled)
 	}
-	if got, _ := result["channel"].(string); got != remotecontrol.FastpushChannelName {
-		t.Errorf("%s: result.channel = %q, want %q", label, got, remotecontrol.FastpushChannelName)
+	if got, _ := result["channel"].(string); got != fastpush.ChannelName {
+		t.Errorf("%s: result.channel = %q, want %q", label, got, fastpush.ChannelName)
 	}
-	if got, _ := result["push_delivery"].(string); got != remotecontrol.FastpushPushDeliveryDeferred {
-		t.Errorf("%s: result.push_delivery = %q, want %q (deferred sentinel)", label, got, remotecontrol.FastpushPushDeliveryDeferred)
+	if got, _ := result["push_delivery"].(string); got != fastpush.PushDeliveryDeferred {
+		t.Errorf("%s: result.push_delivery = %q, want %q (deferred sentinel)", label, got, fastpush.PushDeliveryDeferred)
 	}
 	if got, _ := result["updated_at"].(string); got == "" {
 		t.Errorf("%s: result.updated_at missing or empty: %#v", label, result["updated_at"])
@@ -7251,8 +7262,8 @@ func assertFastpushSettingChangedNotification(t *testing.T, label string, frame 
 	if frame["jsonrpc"] != "2.0" {
 		t.Errorf("%s: jsonrpc = %v, want 2.0", label, frame["jsonrpc"])
 	}
-	if frame["method"] != remotecontrol.NotifFastpushSettingChangedMethod {
-		t.Errorf("%s: method = %v, want %q", label, frame["method"], remotecontrol.NotifFastpushSettingChangedMethod)
+	if frame["method"] != fastpush.NotifSettingChangedMethod {
+		t.Errorf("%s: method = %v, want %q", label, frame["method"], fastpush.NotifSettingChangedMethod)
 	}
 	params, ok := frame["params"].(map[string]any)
 	if !ok {
@@ -7287,7 +7298,7 @@ func assertFastpushSettingChangedNotification(t *testing.T, label string, frame 
 // the production path's semantics).
 func TestSetRemoteAgentFastpushEnabled_WS_Ok(t *testing.T) {
 	check := func(string) bool { return true }
-	fs := remotecontrol.NewMemFastpushStore(nil, check)
+	fs := fastpush.NewMemStore(nil, check)
 	srv, done := newTestTCPServerWithFastpush(t, fs)
 	defer done()
 
@@ -7295,11 +7306,11 @@ func TestSetRemoteAgentFastpushEnabled_WS_Ok(t *testing.T) {
 	// -32004 guard does not trip. The cascade is
 	// metadata-only; the test doesn't drive a
 	// turn.
-	c, err := remotecontrol.NewCascade(remotecontrol.CascadeOpts{})
+	c, err := cascades.New(cascades.Opts{})
 	if err != nil {
 		t.Fatalf("NewCascade: %v", err)
 	}
-	if err := srv.dispatcher.(*remotecontrol.Dispatcher).Cascades().Register(c); err != nil {
+	if err := srv.Dispatcher().(*remotecontrol.Dispatcher).Cascades().Register(c); err != nil {
 		t.Fatalf("Register: %v", err)
 	}
 
@@ -7332,7 +7343,7 @@ func TestSetRemoteAgentFastpushEnabled_WS_Ok(t *testing.T) {
 // string shape as -32602 "Invalid params".
 func TestSetRemoteAgentFastpushEnabled_WS_BadParams_EmptyCascadeID(t *testing.T) {
 	check := func(string) bool { return true }
-	fs := remotecontrol.NewMemFastpushStore(nil, check)
+	fs := fastpush.NewMemStore(nil, check)
 	srv, done := newTestTCPServerWithFastpush(t, fs)
 	defer done()
 
@@ -7368,18 +7379,18 @@ func TestSetRemoteAgentFastpushEnabled_WS_BadParams_EmptyCascadeID(t *testing.T)
 // send the field).
 func TestSetRemoteAgentFastpushEnabled_WS_BadParams_MissingEnabled(t *testing.T) {
 	check := func(string) bool { return true }
-	fs := remotecontrol.NewMemFastpushStore(nil, check)
+	fs := fastpush.NewMemStore(nil, check)
 	srv, done := newTestTCPServerWithFastpush(t, fs)
 	defer done()
 
 	// Pre-register a cascade so the dispatcher's
 	// cascade-existence check doesn't short-
 	// circuit the missing-enabled branch.
-	c, err := remotecontrol.NewCascade(remotecontrol.CascadeOpts{})
+	c, err := cascades.New(cascades.Opts{})
 	if err != nil {
 		t.Fatalf("NewCascade: %v", err)
 	}
-	if err := srv.dispatcher.(*remotecontrol.Dispatcher).Cascades().Register(c); err != nil {
+	if err := srv.Dispatcher().(*remotecontrol.Dispatcher).Cascades().Register(c); err != nil {
 		t.Fatalf("Register: %v", err)
 	}
 
@@ -7411,7 +7422,7 @@ func TestSetRemoteAgentFastpushEnabled_WS_BadParams_MissingEnabled(t *testing.T)
 // filters across the cascade lifecycle stay uniform.
 func TestSetRemoteAgentFastpushEnabled_WS_CascadeNotFound(t *testing.T) {
 	check := func(id string) bool { return false }
-	fs := remotecontrol.NewMemFastpushStore(nil, check)
+	fs := fastpush.NewMemStore(nil, check)
 	srv, done := newTestTCPServerWithFastpush(t, fs)
 	defer done()
 
@@ -7432,8 +7443,8 @@ func TestSetRemoteAgentFastpushEnabled_WS_CascadeNotFound(t *testing.T) {
 	if !ok {
 		t.Fatalf("SetRemoteAgentFastpushEnabled: no error envelope, got %#v", resp)
 	}
-	if got := codeAsIntForWS(t, errObj["code"]); got != remotecontrol.ErrCodeCascadeNotFound {
-		t.Errorf("error.code = %d, want %d (Cascade not found)", got, remotecontrol.ErrCodeCascadeNotFound)
+	if got := codeAsIntForWS(t, errObj["code"]); got != rpc.ErrCodeCascadeNotFound {
+		t.Errorf("error.code = %d, want %d (Cascade not found)", got, rpc.ErrCodeCascadeNotFound)
 	}
 	if got, _ := errObj["message"].(string); got != "Cascade not found" {
 		t.Errorf("error.message = %q, want %q", got, "Cascade not found")
@@ -7457,17 +7468,17 @@ func TestSetRemoteAgentFastpushEnabled_WS_CascadeNotFound(t *testing.T) {
 // never sent a request) sees only the notification.
 func TestSetRemoteAgentFastpushEnabled_Broadcasts_Setting_Changed(t *testing.T) {
 	check := func(string) bool { return true }
-	fs := remotecontrol.NewMemFastpushStore(nil, check)
+	fs := fastpush.NewMemStore(nil, check)
 	srv, done := newTestTCPServerWithFastpush(t, fs)
 	defer done()
 
 	// Pre-register a cascade so the dispatcher's
 	// cascade-existence check doesn't trip.
-	c, err := remotecontrol.NewCascade(remotecontrol.CascadeOpts{})
+	c, err := cascades.New(cascades.Opts{})
 	if err != nil {
 		t.Fatalf("NewCascade: %v", err)
 	}
-	if err := srv.dispatcher.(*remotecontrol.Dispatcher).Cascades().Register(c); err != nil {
+	if err := srv.Dispatcher().(*remotecontrol.Dispatcher).Cascades().Register(c); err != nil {
 		t.Fatalf("Register: %v", err)
 	}
 
@@ -7566,7 +7577,7 @@ func TestSetRemoteAgentFastpushEnabled_Broadcasts_Setting_Changed(t *testing.T) 
 // newTestTCPServerWithPlugins /
 // newTestTCPServerWithFastpush but for the resource
 // surface.
-func newTestTCPServerWithResources(t *testing.T, rs remotecontrol.ResourceStore, projects remotecontrol.ProjectStore) (*TCPServer, func()) {
+func newTestTCPServerWithResources(t *testing.T, rs resources.Store, projects projects.Store) (*TCPServer, func()) {
 	t.Helper()
 	sess := remotecontrol.NewSessionState("1.4.0")
 	disp, err := remotecontrol.NewDispatcher(remotecontrol.Config{
@@ -7609,8 +7620,8 @@ func assertResourcesChangedNotification(t *testing.T, label string, frame map[st
 	if frame["jsonrpc"] != "2.0" {
 		t.Errorf("%s: jsonrpc = %v, want 2.0", label, frame["jsonrpc"])
 	}
-	if frame["method"] != remotecontrol.NotifResourcesChangedMethod {
-		t.Errorf("%s: method = %v, want %q", label, frame["method"], remotecontrol.NotifResourcesChangedMethod)
+	if frame["method"] != resources.NotifChangedMethod {
+		t.Errorf("%s: method = %v, want %q", label, frame["method"], resources.NotifChangedMethod)
 	}
 	params, ok := frame["params"].(map[string]any)
 	if !ok {
@@ -7642,7 +7653,7 @@ func assertResourcesChangedNotification(t *testing.T, label string, frame map[st
 // providers (gdocs, github, linear, sentry in
 // alphabetical order).
 func TestListRemoteAgentResourceProviders_WS_Ok(t *testing.T) {
-	rs := remotecontrol.NewMemResourceStore(nil, nil)
+	rs := resources.NewMemStore(nil, nil)
 	srv, done := newTestTCPServerWithResources(t, rs, nil)
 	defer done()
 
@@ -7691,7 +7702,7 @@ func TestListRemoteAgentResourceProviders_WS_Ok(t *testing.T) {
 // set has 12 resources; alphabetical sort by
 // resource_id ascending.
 func TestListRemoteAgentAvailableResources_WS_Ok(t *testing.T) {
-	rs := remotecontrol.NewMemResourceStore(nil, nil)
+	rs := resources.NewMemStore(nil, nil)
 	srv, done := newTestTCPServerWithResources(t, rs, nil)
 	defer done()
 
@@ -7744,12 +7755,12 @@ func TestListRemoteAgentAvailableResources_WS_Ok(t *testing.T) {
 // before asking readJSONRPCResponse for the
 // response.
 func TestUpdateRemoteAgentProjectResources_WS_Ok(t *testing.T) {
-	ps := remotecontrol.NewMemProjectStore(nil)
-	row, err := ps.Create(context.Background(), remotecontrol.NewProject{Name: "p1", Workspace: "/ws/p1"})
+	ps := projects.NewMemStore(nil)
+	row, err := ps.Create(context.Background(), projects.Create{Name: "p1", Workspace: "/ws/p1"})
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
-	rs := remotecontrol.NewMemResourceStore(nil, ps)
+	rs := resources.NewMemStore(nil, ps)
 	srv, done := newTestTCPServerWithResources(t, rs, ps)
 	defer done()
 
@@ -7803,8 +7814,8 @@ func TestUpdateRemoteAgentProjectResources_WS_Ok(t *testing.T) {
 // -32004 envelope the dashboard already recognises
 // on UpdateRemoteAgentProject / DeleteRemoteAgentProject).
 func TestUpdateRemoteAgentProjectResources_WS_UnknownProject(t *testing.T) {
-	ps := remotecontrol.NewMemProjectStore(nil)
-	rs := remotecontrol.NewMemResourceStore(nil, ps)
+	ps := projects.NewMemStore(nil)
+	rs := resources.NewMemStore(nil, ps)
 	srv, done := newTestTCPServerWithResources(t, rs, ps)
 	defer done()
 
@@ -7840,8 +7851,8 @@ func TestUpdateRemoteAgentProjectResources_WS_UnknownProject(t *testing.T) {
 // (or whitespace-only) value is rejected before
 // the store call.
 func TestUpdateRemoteAgentProjectResources_WS_BadParams(t *testing.T) {
-	ps := remotecontrol.NewMemProjectStore(nil)
-	rs := remotecontrol.NewMemResourceStore(nil, ps)
+	ps := projects.NewMemStore(nil)
+	rs := resources.NewMemStore(nil, ps)
 	srv, done := newTestTCPServerWithResources(t, rs, ps)
 	defer done()
 
@@ -7911,7 +7922,7 @@ func TestUpdateRemoteAgentProjectResources_WS_BadParams(t *testing.T) {
 // newTestTCPServerWithFastpush but for the
 // conversation-config surface. Cycle
 // rc-conversation-config adds this helper.
-func newTestTCPServerWithConversationConfig(t *testing.T, cs remotecontrol.ConversationConfigStore) (*TCPServer, func()) {
+func newTestTCPServerWithConversationConfig(t *testing.T, cs convconfig.Store) (*TCPServer, func()) {
 	t.Helper()
 	sess := remotecontrol.NewSessionState("1.4.0")
 	disp, err := remotecontrol.NewDispatcher(remotecontrol.Config{
@@ -8004,8 +8015,8 @@ func assertConversationConfigChangedNotification(t *testing.T, label string, fra
 	if frame["jsonrpc"] != "2.0" {
 		t.Errorf("%s: jsonrpc = %v, want 2.0", label, frame["jsonrpc"])
 	}
-	if frame["method"] != remotecontrol.NotifConversationConfigChangedMethod {
-		t.Errorf("%s: method = %v, want %q", label, frame["method"], remotecontrol.NotifConversationConfigChangedMethod)
+	if frame["method"] != convconfig.NotifChangedMethod {
+		t.Errorf("%s: method = %v, want %q", label, frame["method"], convconfig.NotifChangedMethod)
 	}
 	params, ok := frame["params"].(map[string]any)
 	if !ok {
@@ -8035,7 +8046,7 @@ func assertConversationConfigChangedNotification(t *testing.T, label string, fra
 // test pins the notification arrival with two
 // conns.
 func TestUpsertRemoteAgentConversationConfig_WS_Ok(t *testing.T) {
-	cs := remotecontrol.NewMemConversationConfigStore(nil)
+	cs := convconfig.NewMemStore(nil)
 	srv, done := newTestTCPServerWithConversationConfig(t, cs)
 	defer done()
 
@@ -8114,7 +8125,7 @@ func TestUpsertRemoteAgentConversationConfig_WS_Ok(t *testing.T) {
 // ValidateConversationConfig closed-set guard
 // before the store call.
 func TestUpsertRemoteAgentConversationConfig_WS_BadModelEffort(t *testing.T) {
-	cs := remotecontrol.NewMemConversationConfigStore(nil)
+	cs := convconfig.NewMemStore(nil)
 	srv, done := newTestTCPServerWithConversationConfig(t, cs)
 	defer done()
 
@@ -8155,7 +8166,7 @@ func TestUpsertRemoteAgentConversationConfig_WS_BadModelEffort(t *testing.T) {
 // ValidateConversationConfig bounded-range guard
 // before the store call.
 func TestUpsertRemoteAgentConversationConfig_WS_BadTemperature(t *testing.T) {
-	cs := remotecontrol.NewMemConversationConfigStore(nil)
+	cs := convconfig.NewMemStore(nil)
 	srv, done := newTestTCPServerWithConversationConfig(t, cs)
 	defer done()
 
@@ -8192,7 +8203,7 @@ func TestUpsertRemoteAgentConversationConfig_WS_BadTemperature(t *testing.T) {
 // the empty / whitespace-only value as the "dashboard
 // forgot to fill in the field" branch.
 func TestUpsertRemoteAgentConversationConfig_WS_BadParams_EmptyConvID(t *testing.T) {
-	cs := remotecontrol.NewMemConversationConfigStore(nil)
+	cs := convconfig.NewMemStore(nil)
 	srv, done := newTestTCPServerWithConversationConfig(t, cs)
 	defer done()
 
@@ -8242,7 +8253,7 @@ func TestUpsertRemoteAgentConversationConfig_WS_BadParams_EmptyConvID(t *testing
 // never sent a request) sees only the
 // notification.
 func TestUpsertRemoteAgentConversationConfig_Broadcasts_Changed(t *testing.T) {
-	cs := remotecontrol.NewMemConversationConfigStore(nil)
+	cs := convconfig.NewMemStore(nil)
 	srv, done := newTestTCPServerWithConversationConfig(t, cs)
 	defer done()
 
@@ -8336,7 +8347,7 @@ func TestUpsertRemoteAgentConversationConfig_Broadcasts_Changed(t *testing.T) {
 // / newTestTCPServerWithConversationConfig but for
 // the terminal surface. Cycle rc-terminals adds
 // this helper.
-func newTestTCPServerWithTerminals(t *testing.T, reg *remotecontrol.TerminalsRegistry) (*TCPServer, func()) {
+func newTestTCPServerWithTerminals(t *testing.T, reg *terminals.Registry) (*TCPServer, func()) {
 	t.Helper()
 	sess := remotecontrol.NewSessionState("1.4.2")
 	disp, err := remotecontrol.NewDispatcher(remotecontrol.Config{
@@ -8380,8 +8391,8 @@ func assertTerminalOutputNotification(t *testing.T, label string, frame map[stri
 	if frame["jsonrpc"] != "2.0" {
 		t.Errorf("%s: jsonrpc = %v, want 2.0", label, frame["jsonrpc"])
 	}
-	if frame["method"] != remotecontrol.NotifTerminalOutputMethod {
-		t.Errorf("%s: method = %v, want %q", label, frame["method"], remotecontrol.NotifTerminalOutputMethod)
+	if frame["method"] != terminals.NotifOutputMethod {
+		t.Errorf("%s: method = %v, want %q", label, frame["method"], terminals.NotifOutputMethod)
 	}
 	params, ok := frame["params"].(map[string]any)
 	if !ok {
@@ -8424,8 +8435,8 @@ func assertTerminalClosedNotification(t *testing.T, label string, frame map[stri
 	if frame["jsonrpc"] != "2.0" {
 		t.Errorf("%s: jsonrpc = %v, want 2.0", label, frame["jsonrpc"])
 	}
-	if frame["method"] != remotecontrol.NotifTerminalClosedMethod {
-		t.Errorf("%s: method = %v, want %q", label, frame["method"], remotecontrol.NotifTerminalClosedMethod)
+	if frame["method"] != terminals.NotifClosedMethod {
+		t.Errorf("%s: method = %v, want %q", label, frame["method"], terminals.NotifClosedMethod)
 	}
 	params, ok := frame["params"].(map[string]any)
 	if !ok {
@@ -8449,7 +8460,7 @@ func assertTerminalClosedNotification(t *testing.T, label string, frame map[stri
 // created_at} envelope with a fresh tml_<hex> id
 // and server-stamped created_at.
 func TestCreateRemoteAgentTerminal_WS_Ok(t *testing.T) {
-	reg := remotecontrol.NewTerminalsRegistry()
+	reg := terminals.NewRegistry()
 	srv, done := newTestTCPServerWithTerminals(t, reg)
 	defer done()
 
@@ -8501,7 +8512,7 @@ func TestCreateRemoteAgentTerminal_WS_Ok(t *testing.T) {
 // refactor that wraps the array in an extra object
 // trips this test.
 func TestListRemoteAgentTerminals_WS_Ok(t *testing.T) {
-	reg := remotecontrol.NewTerminalsRegistry()
+	reg := terminals.NewRegistry()
 	srv, done := newTestTCPServerWithTerminals(t, reg)
 	defer done()
 
@@ -8563,7 +8574,7 @@ func TestListRemoteAgentTerminals_WS_Ok(t *testing.T) {
 // dispatchOne second); the second conn (which never
 // sent a request) sees only the notification.
 func TestSendRemoteAgentTerminalInput_WS_Ok(t *testing.T) {
-	reg := remotecontrol.NewTerminalsRegistry()
+	reg := terminals.NewRegistry()
 	srv, done := newTestTCPServerWithTerminals(t, reg)
 	defer done()
 
@@ -8638,7 +8649,7 @@ func TestSendRemoteAgentTerminalInput_WS_Ok(t *testing.T) {
 // with a terminal_id the registry has never seen
 // yields error.code == -32018.
 func TestSendRemoteAgentTerminalInput_WS_TerminalNotFound(t *testing.T) {
-	reg := remotecontrol.NewTerminalsRegistry()
+	reg := terminals.NewRegistry()
 	srv, done := newTestTCPServerWithTerminals(t, reg)
 	defer done()
 
@@ -8672,7 +8683,7 @@ func TestSendRemoteAgentTerminalInput_WS_TerminalNotFound(t *testing.T) {
 // trips the bad-params envelope rather than a
 // silent -32603).
 func TestSendRemoteAgentTerminalInput_WS_BadParams_NotBase64(t *testing.T) {
-	reg := remotecontrol.NewTerminalsRegistry()
+	reg := terminals.NewRegistry()
 	srv, done := newTestTCPServerWithTerminals(t, reg)
 	defer done()
 
@@ -8722,7 +8733,7 @@ func TestSendRemoteAgentTerminalInput_WS_BadParams_NotBase64(t *testing.T) {
 // accidentally echoes the input dims (instead of
 // the post-resize state) trips this test.
 func TestResizeRemoteAgentTerminal_WS_Ok(t *testing.T) {
-	reg := remotecontrol.NewTerminalsRegistry()
+	reg := terminals.NewRegistry()
 	srv, done := newTestTCPServerWithTerminals(t, reg)
 	defer done()
 
@@ -8775,7 +8786,7 @@ func TestResizeRemoteAgentTerminal_WS_Ok(t *testing.T) {
 // Pin the closed_at envelope so a buggy broadcaster
 // that omits the timestamp trips this test.
 func TestCloseRemoteAgentTerminal_WS_Ok(t *testing.T) {
-	reg := remotecontrol.NewTerminalsRegistry()
+	reg := terminals.NewRegistry()
 	srv, done := newTestTCPServerWithTerminals(t, reg)
 	defer done()
 
@@ -8837,7 +8848,7 @@ func TestCloseRemoteAgentTerminal_WS_Ok(t *testing.T) {
 // unknown-id envelope so dashboards' error filters
 // are uniform).
 func TestCloseRemoteAgentTerminal_WS_NotFound(t *testing.T) {
-	reg := remotecontrol.NewTerminalsRegistry()
+	reg := terminals.NewRegistry()
 	srv, done := newTestTCPServerWithTerminals(t, reg)
 	defer done()
 

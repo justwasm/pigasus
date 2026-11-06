@@ -67,6 +67,14 @@ func NewTrajectory() *Trajectory {
 	}
 }
 
+// ResetWithHistory clears the existing trajectory turns and re-seeds it with history.
+func (t *Trajectory) ResetWithHistory(history []ConversationMessage) {
+	t.mu.Lock()
+	t.turns = nil
+	t.mu.Unlock()
+	t.SeedHistory(history)
+}
+
 // AddTurn appends a completed turn record.
 func (t *Trajectory) AddTurn(tr *TurnRecord) {
 	if tr == nil {

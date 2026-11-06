@@ -17,6 +17,43 @@ const (
 	SelHighlightClose = "\x1b[0m"
 )
 
+// TextSelection tracks active text selection across the transcript viewport and input area.
+type TextSelection struct {
+	SelDragging bool
+	SelStartRow int
+	SelStartCol int
+	SelEndRow   int
+	SelEndCol   int
+
+	InputSelDragging bool
+	InputSelStart    int
+	InputSelEnd      int
+}
+
+// ResetSelection clears the transcript viewport text selection.
+func (s *TextSelection) ResetSelection() {
+	s.SelDragging = false
+	s.SelStartRow = 0
+	s.SelStartCol = 0
+	s.SelEndRow = 0
+	s.SelEndCol = 0
+}
+
+// ResetInputSelection clears the input textarea text selection.
+func (s *TextSelection) ResetInputSelection() {
+	s.InputSelDragging = false
+	s.InputSelStart = 0
+	s.InputSelEnd = 0
+}
+
+// InputSelectionRange returns normalized [start, end] byte offsets.
+func (s *TextSelection) InputSelectionRange() (start, end int) {
+	if s.InputSelStart <= s.InputSelEnd {
+		return s.InputSelStart, s.InputSelEnd
+	}
+	return s.InputSelEnd, s.InputSelStart
+}
+
 // SelectionRange returns the normalized range (start <= end by row,
 // ties broken by col) or (zero, zero, zero, zero, false) when no
 // selection is active.

@@ -8,7 +8,7 @@ import (
 
 func TestContextUsedPercent_MultiTurnDoesNotBalloon(t *testing.T) {
 	m := &runMode{
-		model: "gpt-oss-120b",
+		session: sessionState{model: "gpt-oss-120b"},
 	}
 
 	// Turn 1: 10,000 prompt tokens (window is 131,072 for gpt-oss-120b)

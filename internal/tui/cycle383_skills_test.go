@@ -57,7 +57,7 @@ func TestSlashSkillsReloadAnswersTheReferenceLine(t *testing.T) {
 	if !handled {
 		t.Fatal("/skills reload was not handled")
 	}
-	got := termcolor.StripSGR(strings.Join(m.response, "\n"))
+	got := termcolor.StripSGR(strings.Join(m.engine.response, "\n"))
 	if !strings.HasPrefix(got, "Reload skills from disk\n") {
 		t.Errorf("/skills reload did not answer the reference's line; transcript:\n%s", got)
 	}
@@ -76,11 +76,11 @@ func TestSlashSkillsBareStillOpensThePanel(t *testing.T) {
 	if !handled {
 		t.Fatal("/skills was not handled")
 	}
-	if m.panel.kind != panelregistry.Skills {
-		t.Errorf("the open panel = %v, want panelregistry.Skills", m.panel.kind)
+	if m.overlays.panel.kind != panelregistry.Skills {
+		t.Errorf("the open panel = %v, want panelregistry.Skills", m.overlays.panel.kind)
 	}
-	if len(m.response) != 0 {
-		t.Errorf("the bare command wrote %d transcript rows, want none", len(m.response))
+	if len(m.engine.response) != 0 {
+		t.Errorf("the bare command wrote %d transcript rows, want none", len(m.engine.response))
 	}
 }
 
@@ -118,7 +118,7 @@ func TestSlashSkillsReloadKeepsTheLoadedSkills(t *testing.T) {
 	if handled, _ := m2.dispatchSlashLine("/skills reload"); !handled {
 		t.Fatal("the second /skills reload was not handled")
 	}
-	got := termcolor.StripSGR(strings.Join(m2.response, "\n"))
+	got := termcolor.StripSGR(strings.Join(m2.engine.response, "\n"))
 	if !strings.Contains(got, "demo") {
 		t.Errorf("the reload lost the loaded skill; transcript:\n%s", got)
 	}

@@ -67,25 +67,20 @@ type PermissionRunner struct {
 
 // Run gates tool execution through policy and sandbox checks.
 func (r *PermissionRunner) Run(ctx context.Context, call backend.ToolCall) (string, error) {
-	gate := Decide(r.Policy, r.Sandbox, call)
-	if !gate.Allow {
-		if gate.Ask && r.PromptUser != nil {
-			approved, err := r.PromptUser(ctx, call)
-			if err == nil && approved {
-				gate = Gate{Allow: true}
-			}
+	pipeline := NewPipeline(
+		PermissionGateMiddleware(r.Policy, r.PromptUser, func(name string) {
+			r.Denials = append(r.Denials, name)
+		}),
+		SandboxBoundaryMiddleware(r.Sandbox),
+		OutputBudgetMiddleware(tools.DefaultMaxResultTokens),
+	)
+	handler := pipeline.Wrap(func(ctx context.Context, c backend.ToolCall) (string, error) {
+		if r.Inner == nil {
+			return "", nil
 		}
-	}
-	if !gate.Allow {
-		r.Denials = append(r.Denials, call.Name)
-		return gate.Reason, nil
-	}
-	res, err := r.Inner.Run(ctx, call)
-	if err == nil {
-		budget := tools.ApplyOutputBudget(res, "", tools.DefaultMaxResultTokens)
-		res = budget.Content
-	}
-	return res, err
+		return r.Inner.Run(ctx, c)
+	})
+	return handler(ctx, call)
 }
 
 // Gate is the verdict the permission gate reports for one tool call.

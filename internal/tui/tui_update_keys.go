@@ -11,6 +11,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/justwasm/pigasus/internal/app/agentturn"
 	subagentquestions "github.com/justwasm/pigasus/internal/app/subagent/questions"
+	"github.com/justwasm/pigasus/internal/core/backend"
 	"github.com/justwasm/pigasus/internal/core/compaction"
 	"github.com/justwasm/pigasus/internal/core/settings"
 	accounts "github.com/justwasm/pigasus/internal/features/accounts/core"
@@ -63,161 +64,161 @@ import (
 func (m *runMode) dispatchKeyAction(action string) (tea.Model, tea.Cmd, bool) {
 	switch action {
 	case "cli.clear_screen":
-		if !m.resumePicker.Active() {
-			m.scroll = 0
+		if !m.overlays.resumePicker.Active() {
+			m.viewport.scroll = 0
 			return m, tea.ClearScreen, true
 		}
 	case "cli.exit":
 		return m, tea.Quit, true
 	case "edit.open_editor":
-		if !m.resumePicker.Active() && m.panel.kind == panelregistry.None {
+		if !m.overlays.resumePicker.Active() && m.overlays.panel.kind == panelregistry.None {
 			return m, m.editPromptCmd(), true
 		}
 	case "prompt.submit_alternate":
-		if !m.resumePicker.Active() && !m.helpPanel.Active() && m.panel.kind == panelregistry.None && !m.picker.Visible() {
+		if !m.overlays.resumePicker.Active() && !m.viewport.helpPanel.Active() && m.overlays.panel.kind == panelregistry.None && !m.composer.picker.Visible() {
 			return m, m.submitAlternate(), true
 		}
 	case "view.review_artifact":
-		if !m.resumePicker.Active() && m.panel.kind == panelregistry.None {
+		if !m.overlays.resumePicker.Active() && m.overlays.panel.kind == panelregistry.None {
 			if m.openSlashPanel("artifact") {
 				return m, nil, true
 			}
 		}
 	case "view.toggle_trajectory":
-		if !m.resumePicker.Active() {
-			if len(m.pendingMedia) > 0 {
-				m.mediaExpanded = !m.mediaExpanded
+		if !m.overlays.resumePicker.Active() {
+			if len(m.composer.pendingMedia) > 0 {
+				m.composer.mediaExpanded = !m.composer.mediaExpanded
 				return m, nil, true
 			}
 			m.toggleTrajectoryExpanded()
 			return m, tea.ClearScreen, true
 		}
 	case "subagent.approve_fast":
-		if !m.resumePicker.Active() {
+		if !m.overlays.resumePicker.Active() {
 			m.fastApproveSubagent()
 			return m, nil, true
 		}
 	case "subagent.jump_to_waiting":
-		if !m.resumePicker.Active() {
-			if m.subAgentQuestionPanel != nil && m.subAgentQuestionPanel.PendingCount() > 0 {
-				m.subAgentQuestionPanel.Toggle()
+		if !m.overlays.resumePicker.Active() {
+			if m.engine.subAgentQuestionPanel != nil && m.engine.subAgentQuestionPanel.PendingCount() > 0 {
+				m.engine.subAgentQuestionPanel.Toggle()
 				return m, nil, true
 			}
-			if m.activeItems != nil && m.activeItems.Count() > 0 && !m.subAgentQuestionPanel.Active() {
-				m.activeItems.SetFocus(!m.activeItems.Focused())
+			if m.viewport.activeItems != nil && m.viewport.activeItems.Count() > 0 && !m.engine.subAgentQuestionPanel.Active() {
+				m.viewport.activeItems.SetFocus(!m.viewport.activeItems.Focused())
 				return m, nil, true
 			}
-			if m.subAgentQuestionPanel != nil {
-				m.subAgentQuestionPanel.Toggle()
+			if m.engine.subAgentQuestionPanel != nil {
+				m.engine.subAgentQuestionPanel.Toggle()
 				return m, nil, true
 			}
 		}
 	case "voice.start_dictation":
-		if !m.resumePicker.Active() && !m.voiceSurface.Active() && m.panel.kind == panelregistry.None {
-			return m, m.voiceSurface.Start("keybind"), true
+		if !m.overlays.resumePicker.Active() && !m.viewport.voiceSurface.Active() && m.overlays.panel.kind == panelregistry.None {
+			return m, m.viewport.voiceSurface.Start("keybind"), true
 		}
 	case "cli.cycle_mode":
-		if !m.resumePicker.Active() && !m.helpPanel.Active() && m.panel.kind == panelregistry.None && !m.picker.Visible() {
+		if !m.overlays.resumePicker.Active() && !m.viewport.helpPanel.Active() && m.overlays.panel.kind == panelregistry.None && !m.composer.picker.Visible() {
 			m.cycleMode()
 			return m, nil, true
 		}
 	case "item.rename":
-		if m.resumePicker.Active() {
-			return m, m.resumePicker.HandleKey(tea.Key{Code: tea.KeyF2}, m.height), true
+		if m.overlays.resumePicker.Active() {
+			return m, m.overlays.resumePicker.HandleKey(tea.Key{Code: tea.KeyF2}, m.viewport.height), true
 		}
-		if !m.resumePicker.Active() && !m.helpPanel.Active() && m.panel.kind == panelregistry.None && !m.picker.Visible() {
+		if !m.overlays.resumePicker.Active() && !m.viewport.helpPanel.Active() && m.overlays.panel.kind == panelregistry.None && !m.composer.picker.Visible() {
 			m.openRenamePanel()
 			return m, nil, true
 		}
 	case "item.delete":
-		if m.resumePicker.Active() {
-			return m, m.resumePicker.HandleKey(tea.Key{Code: tea.KeyF4}, m.height), true
+		if m.overlays.resumePicker.Active() {
+			return m, m.overlays.resumePicker.HandleKey(tea.Key{Code: tea.KeyF4}, m.viewport.height), true
 		}
 	case "navigation.go_to_top", "navigation.top":
-		if listPanelKind(m.panel.kind) {
-			m.panel.cursor = tuiviewport.PanelCursor(m.panel.cursor, tuilib.NavTop, m.panelRegistry().RowCount(m.panel.kind))
+		if listPanelKind(m.overlays.panel.kind) {
+			m.overlays.panel.cursor = tuiviewport.PanelCursor(m.overlays.panel.cursor, tuilib.NavTop, m.panelRegistry().RowCount(m.overlays.panel.kind))
 			return m, nil, true
 		}
-		if m.altScreen && !m.helpPanel.Active() && !m.picker.Visible() && !m.resumePicker.Active() {
+		if m.viewport.altScreen && !m.viewport.helpPanel.Active() && !m.composer.picker.Visible() && !m.overlays.resumePicker.Active() {
 			m.gotoTop()
 			return m, nil, true
 		}
 	case "navigation.go_to_bottom", "navigation.bottom":
-		if listPanelKind(m.panel.kind) {
-			m.panel.cursor = tuiviewport.PanelCursor(m.panel.cursor, tuilib.NavBottom, m.panelRegistry().RowCount(m.panel.kind))
+		if listPanelKind(m.overlays.panel.kind) {
+			m.overlays.panel.cursor = tuiviewport.PanelCursor(m.overlays.panel.cursor, tuilib.NavBottom, m.panelRegistry().RowCount(m.overlays.panel.kind))
 			return m, nil, true
 		}
-		if m.altScreen && !m.helpPanel.Active() && !m.picker.Visible() && !m.resumePicker.Active() {
+		if m.viewport.altScreen && !m.viewport.helpPanel.Active() && !m.composer.picker.Visible() && !m.overlays.resumePicker.Active() {
 			m.gotoBottom()
 			return m, nil, true
 		}
 	case "navigation.page_up":
-		if listPanelKind(m.panel.kind) {
-			m.panel.cursor = tuiviewport.PanelCursor(m.panel.cursor, tuilib.NavPageUp, m.panelRegistry().RowCount(m.panel.kind))
+		if listPanelKind(m.overlays.panel.kind) {
+			m.overlays.panel.cursor = tuiviewport.PanelCursor(m.overlays.panel.cursor, tuilib.NavPageUp, m.panelRegistry().RowCount(m.overlays.panel.kind))
 			return m, nil, true
 		}
-		if m.altScreen && !m.helpPanel.Active() && !m.picker.Visible() && !m.resumePicker.Active() {
-			m.scrollBy(-tuilib.ClampInt(m.vpRows-1, 1, 1<<20))
+		if m.viewport.altScreen && !m.viewport.helpPanel.Active() && !m.composer.picker.Visible() && !m.overlays.resumePicker.Active() {
+			m.scrollBy(-tuilib.ClampInt(m.viewport.vpRows-1, 1, 1<<20))
 			return m, nil, true
 		}
 	case "navigation.page_down":
-		if listPanelKind(m.panel.kind) {
-			m.panel.cursor = tuiviewport.PanelCursor(m.panel.cursor, tuilib.NavPageDown, m.panelRegistry().RowCount(m.panel.kind))
+		if listPanelKind(m.overlays.panel.kind) {
+			m.overlays.panel.cursor = tuiviewport.PanelCursor(m.overlays.panel.cursor, tuilib.NavPageDown, m.panelRegistry().RowCount(m.overlays.panel.kind))
 			return m, nil, true
 		}
-		if m.altScreen && !m.helpPanel.Active() && !m.picker.Visible() && !m.resumePicker.Active() {
-			m.scrollBy(tuilib.ClampInt(m.vpRows-1, 1, 1<<20))
+		if m.viewport.altScreen && !m.viewport.helpPanel.Active() && !m.composer.picker.Visible() && !m.overlays.resumePicker.Active() {
+			m.scrollBy(tuilib.ClampInt(m.viewport.vpRows-1, 1, 1<<20))
 			return m, nil, true
 		}
 	case "navigation.half_page_up":
-		if listPanelKind(m.panel.kind) {
-			m.panel.cursor = tuiviewport.PanelCursor(m.panel.cursor, tuilib.NavHalfPageUp, m.panelRegistry().RowCount(m.panel.kind))
+		if listPanelKind(m.overlays.panel.kind) {
+			m.overlays.panel.cursor = tuiviewport.PanelCursor(m.overlays.panel.cursor, tuilib.NavHalfPageUp, m.panelRegistry().RowCount(m.overlays.panel.kind))
 			return m, nil, true
 		}
-		if m.altScreen && !m.helpPanel.Active() && !m.picker.Visible() && !m.resumePicker.Active() {
-			m.scrollBy(-tuilib.ClampInt(m.vpRows/2, 1, 1<<20))
+		if m.viewport.altScreen && !m.viewport.helpPanel.Active() && !m.composer.picker.Visible() && !m.overlays.resumePicker.Active() {
+			m.scrollBy(-tuilib.ClampInt(m.viewport.vpRows/2, 1, 1<<20))
 			return m, nil, true
 		}
 	case "navigation.half_page_down":
-		if listPanelKind(m.panel.kind) {
-			m.panel.cursor = tuiviewport.PanelCursor(m.panel.cursor, tuilib.NavHalfPageDown, m.panelRegistry().RowCount(m.panel.kind))
+		if listPanelKind(m.overlays.panel.kind) {
+			m.overlays.panel.cursor = tuiviewport.PanelCursor(m.overlays.panel.cursor, tuilib.NavHalfPageDown, m.panelRegistry().RowCount(m.overlays.panel.kind))
 			return m, nil, true
 		}
-		if m.altScreen && !m.helpPanel.Active() && !m.picker.Visible() && !m.resumePicker.Active() {
-			m.scrollBy(tuilib.ClampInt(m.vpRows/2, 1, 1<<20))
+		if m.viewport.altScreen && !m.viewport.helpPanel.Active() && !m.composer.picker.Visible() && !m.overlays.resumePicker.Active() {
+			m.scrollBy(tuilib.ClampInt(m.viewport.vpRows/2, 1, 1<<20))
 			return m, nil, true
 		}
 	case "navigation.up":
-		if listPanelKind(m.panel.kind) {
-			m.panel.cursor = tuiviewport.PanelCursor(m.panel.cursor, tuilib.NavUp, m.panelRegistry().RowCount(m.panel.kind))
+		if listPanelKind(m.overlays.panel.kind) {
+			m.overlays.panel.cursor = tuiviewport.PanelCursor(m.overlays.panel.cursor, tuilib.NavUp, m.panelRegistry().RowCount(m.overlays.panel.kind))
 			return m, nil, true
 		}
-		if m.resumePicker.Active() {
-			return m, m.resumePicker.HandleKey(tea.Key{Code: tea.KeyUp}, m.height), true
+		if m.overlays.resumePicker.Active() {
+			return m, m.overlays.resumePicker.HandleKey(tea.Key{Code: tea.KeyUp}, m.viewport.height), true
 		}
 	case "navigation.down":
-		if listPanelKind(m.panel.kind) {
-			m.panel.cursor = tuiviewport.PanelCursor(m.panel.cursor, tuilib.NavDown, m.panelRegistry().RowCount(m.panel.kind))
+		if listPanelKind(m.overlays.panel.kind) {
+			m.overlays.panel.cursor = tuiviewport.PanelCursor(m.overlays.panel.cursor, tuilib.NavDown, m.panelRegistry().RowCount(m.overlays.panel.kind))
 			return m, nil, true
 		}
-		if m.resumePicker.Active() {
-			return m, m.resumePicker.HandleKey(tea.Key{Code: tea.KeyDown}, m.height), true
+		if m.overlays.resumePicker.Active() {
+			return m, m.overlays.resumePicker.HandleKey(tea.Key{Code: tea.KeyDown}, m.viewport.height), true
 		}
 	case "navigation.left":
-		if listPanelKind(m.panel.kind) {
-			m.panel.cursor = tuiviewport.PanelCursor(m.panel.cursor, tuilib.NavLeft, m.panelRegistry().RowCount(m.panel.kind))
+		if listPanelKind(m.overlays.panel.kind) {
+			m.overlays.panel.cursor = tuiviewport.PanelCursor(m.overlays.panel.cursor, tuilib.NavLeft, m.panelRegistry().RowCount(m.overlays.panel.kind))
 			return m, nil, true
 		}
-		if m.resumePicker.Active() {
-			return m, m.resumePicker.HandleKey(tea.Key{Code: tea.KeyLeft}, m.height), true
+		if m.overlays.resumePicker.Active() {
+			return m, m.overlays.resumePicker.HandleKey(tea.Key{Code: tea.KeyLeft}, m.viewport.height), true
 		}
 	case "navigation.right":
-		if listPanelKind(m.panel.kind) {
-			m.panel.cursor = tuiviewport.PanelCursor(m.panel.cursor, tuilib.NavRight, m.panelRegistry().RowCount(m.panel.kind))
+		if listPanelKind(m.overlays.panel.kind) {
+			m.overlays.panel.cursor = tuiviewport.PanelCursor(m.overlays.panel.cursor, tuilib.NavRight, m.panelRegistry().RowCount(m.overlays.panel.kind))
 			return m, nil, true
 		}
-		if m.resumePicker.Active() {
-			return m, m.resumePicker.HandleKey(tea.Key{Code: tea.KeyRight}, m.height), true
+		if m.overlays.resumePicker.Active() {
+			return m, m.overlays.resumePicker.HandleKey(tea.Key{Code: tea.KeyRight}, m.viewport.height), true
 		}
 	case "confirm.yes":
 		if m.hasActivePermissionPrompt() {
@@ -226,10 +227,10 @@ func (m *runMode) dispatchKeyAction(action string) (tea.Model, tea.Cmd, bool) {
 				return m, nil, true
 			}
 		}
-		if m.resumePicker.Active() {
-			return m, m.resumePicker.HandleKey(tea.Key{Code: 'y', Text: "y"}, m.height), true
+		if m.overlays.resumePicker.Active() {
+			return m, m.overlays.resumePicker.HandleKey(tea.Key{Code: 'y', Text: "y"}, m.viewport.height), true
 		}
-		if m.exitConfirm {
+		if m.engine.exitConfirm {
 			return m, tea.Quit, true
 		}
 	case "confirm.no":
@@ -239,79 +240,82 @@ func (m *runMode) dispatchKeyAction(action string) (tea.Model, tea.Cmd, bool) {
 				return m, nil, true
 			}
 		}
-		if m.resumePicker.Active() {
-			return m, m.resumePicker.HandleKey(tea.Key{Code: 'n', Text: "n"}, m.height), true
+		if m.overlays.resumePicker.Active() {
+			return m, m.overlays.resumePicker.HandleKey(tea.Key{Code: 'n', Text: "n"}, m.viewport.height), true
 		}
-		if m.exitConfirm {
-			m.exitConfirm = false
+		if m.engine.exitConfirm {
+			m.engine.exitConfirm = false
 			return m, nil, true
 		}
 	case "cli.suspend":
 		return m, tea.Suspend, true
 	case "cli.escape":
-		if m.vimEnabled() && !m.helpPanel.Active() && !m.picker.Visible() && !m.atFilePicker.Visible() && m.panel.kind == panelregistry.None {
+		if m.vimEnabled() && !m.viewport.helpPanel.Active() && !m.composer.picker.Visible() && !m.composer.atFilePicker.Visible() && m.overlays.panel.kind == panelregistry.None {
 			return m, nil, false
 		}
-		if !m.streaming && m.store.BashCancel == nil && !m.helpPanel.Active() && !m.picker.Visible() && !m.atFilePicker.Visible() && m.panel.kind == panelregistry.None && !m.mediaExpanded {
-			if m.exitConfirm {
-				m.exitConfirm = false
+		if !m.engine.streaming && m.session.store.BashCancel == nil && !m.viewport.helpPanel.Active() && !m.composer.picker.Visible() && !m.composer.atFilePicker.Visible() && m.overlays.panel.kind == panelregistry.None && !m.composer.mediaExpanded {
+			if m.engine.exitConfirm {
+				m.engine.exitConfirm = false
 				return m, nil, true
 			}
 		}
 		model, cmd := m.handleEscKeyMsg()
 		return model, cmd, true
 	case "cli.enter":
-		if m.vimEnabled() && !m.helpPanel.Active() && !m.picker.Visible() && !m.atFilePicker.Visible() && m.panel.kind == panelregistry.None {
+		if m.vimEnabled() && !m.viewport.helpPanel.Active() && !m.composer.picker.Visible() && !m.composer.atFilePicker.Visible() && m.overlays.panel.kind == panelregistry.None {
 			return m, nil, false
 		}
-		if !m.resumePicker.Active() && !m.helpPanel.Active() && m.panel.kind == panelregistry.None && !m.picker.Visible() {
+		if !m.overlays.resumePicker.Active() && !m.viewport.helpPanel.Active() && m.overlays.panel.kind == panelregistry.None && !m.composer.picker.Visible() {
 			return m.handleEnterKey(tea.Key{Code: tea.KeyEnter})
 		}
 	case "prompt.insert_newline":
-		if !m.resumePicker.Active() && !m.helpPanel.Active() && m.panel.kind == panelregistry.None {
-			if m.vimEnabled() && m.vimEng != nil && m.vimEng.Mode == vim.Insert {
-				m.vimEng.InsertNewline()
+		if !m.overlays.resumePicker.Active() && !m.viewport.helpPanel.Active() && m.overlays.panel.kind == panelregistry.None {
+			if m.vimEnabled() && m.composer.vimEng != nil && m.composer.vimEng.Mode == vim.Insert {
+				m.composer.vimEng.InsertNewline()
 				m.syncVimInput()
 			} else {
-				m.input.InsertRune('\n')
+				m.composer.input.InsertRune('\n')
 			}
-			m.modeHintDismissed = true
-			m.picker.Update([]rune(tuilib.FirstLine(m.input.Value())))
-			m.atFilePicker.Update()
-			m.promptHistory.Reset()
+			m.composer.modeHintDismissed = true
+			m.composer.picker.Update([]rune(tuilib.FirstLine(m.composer.input.Value())))
+			m.composer.atFilePicker.Update()
+			m.composer.promptHistory.Reset()
 			return m, nil, true
 		}
 	case "edit.paste":
-		m.promptHistory.Reset()
+		if m.overlays.resumePicker != nil && m.overlays.resumePicker.Active() {
+			return m, nil, true
+		}
+		m.composer.promptHistory.Reset()
 		return m, m.handlePasteContent(clipboardReadText()), true
 	case "edit.undo":
-		if m.undoMgr != nil {
-			if snap, ok := m.undoMgr.Undo(m.input.Value(), tuilib.InputCursorByteOffset(m.input)); ok {
-				m.store.ResetInputSelection()
-				m.input.SetValue(snap.Value)
+		if m.composer.undoMgr != nil {
+			if snap, ok := m.composer.undoMgr.Undo(m.composer.input.Value(), tuilib.InputCursorByteOffset(m.composer.input)); ok {
+				m.ResetInputSelection()
+				m.composer.input.SetValue(snap.Value)
 				m.setInputCursorOffset(snap.CursorOffset)
-				m.modeHintDismissed = true
-				m.picker.Update([]rune(tuilib.FirstLine(m.input.Value())))
+				m.composer.modeHintDismissed = true
+				m.composer.picker.Update([]rune(tuilib.FirstLine(m.composer.input.Value())))
 				m.clearEligibilityNotice()
-				m.atFilePicker.Update()
+				m.composer.atFilePicker.Update()
 				return m, nil, true
 			}
 		}
 	case "edit.redo":
-		if m.undoMgr != nil {
-			if snap, ok := m.undoMgr.Redo(m.input.Value(), tuilib.InputCursorByteOffset(m.input)); ok {
-				m.store.ResetInputSelection()
-				m.input.SetValue(snap.Value)
+		if m.composer.undoMgr != nil {
+			if snap, ok := m.composer.undoMgr.Redo(m.composer.input.Value(), tuilib.InputCursorByteOffset(m.composer.input)); ok {
+				m.ResetInputSelection()
+				m.composer.input.SetValue(snap.Value)
 				m.setInputCursorOffset(snap.CursorOffset)
-				m.modeHintDismissed = true
-				m.picker.Update([]rune(tuilib.FirstLine(m.input.Value())))
+				m.composer.modeHintDismissed = true
+				m.composer.picker.Update([]rune(tuilib.FirstLine(m.composer.input.Value())))
 				m.clearEligibilityNotice()
-				m.atFilePicker.Update()
+				m.composer.atFilePicker.Update()
 				return m, nil, true
 			}
 		}
 	case "edit.yank":
-		m.promptHistory.Reset()
+		m.composer.promptHistory.Reset()
 		text := clipboardReadText()
 		if text != "" {
 			return m, m.insertPastedText(text), true
@@ -321,7 +325,7 @@ func (m *runMode) dispatchKeyAction(action string) (tea.Model, tea.Cmd, bool) {
 		if m.handleTabCompletion(tea.Key{Code: tea.KeyTab}) {
 			return m, nil, true
 		}
-		if m.isBtwCardVisible() && !m.picker.Visible() && !m.atFilePicker.Visible() {
+		if m.isBtwCardVisible() && !m.composer.picker.Visible() && !m.composer.atFilePicker.Visible() {
 			m.ToggleBtwExpanded()
 			return m, nil, true
 		}
@@ -329,13 +333,13 @@ func (m *runMode) dispatchKeyAction(action string) (tea.Model, tea.Cmd, bool) {
 		if m.vimEnabled() {
 			m.syncVimInput()
 			cmd := m.submitPrompt()
-			m.vimEng.SetTextKeepingPending(m.input.Value())
+			m.composer.vimEng.SetTextKeepingPending(m.composer.input.Value())
 			m.syncVimInput()
 			return m, cmd, true
 		}
 	case "vim.insert.insert_newline":
-		if m.vimEnabled() && m.vimEng != nil && m.vimEng.Mode == vim.Insert {
-			m.vimEng.InsertNewline()
+		if m.vimEnabled() && m.composer.vimEng != nil && m.composer.vimEng.Mode == vim.Insert {
+			m.composer.vimEng.InsertNewline()
 			m.syncVimInput()
 			return m, nil, true
 		}
@@ -346,7 +350,7 @@ func (m *runMode) dispatchKeyAction(action string) (tea.Model, tea.Cmd, bool) {
 }
 
 func (m *runMode) fastApproveSubagent() bool {
-	if m.taskSubagentManager != nil {
+	if m.engine.taskSubagentManager != nil {
 		for _, sa := range m.runningSubagents() {
 			if sa == nil {
 				continue
@@ -358,8 +362,8 @@ func (m *runMode) fastApproveSubagent() bool {
 			}
 		}
 	}
-	if m.subAgentQuestions != nil {
-		all := m.subAgentQuestions.AllPending()
+	if m.engine.subAgentQuestions != nil {
+		all := m.engine.subAgentQuestions.AllPending()
 		for scope, qs := range all {
 			if len(qs) > 0 {
 				q := qs[0]
@@ -367,12 +371,12 @@ func (m *runMode) fastApproveSubagent() bool {
 					continue
 				}
 				ans := q.Options[0]
-				if err := m.subAgentQuestions.Answer(scope, q.ID, ans); err == nil {
+				if err := m.engine.subAgentQuestions.Answer(scope, q.ID, ans); err == nil {
 					label := scope
 					if label == subagentquestions.ParentKey {
 						label = "you"
 					}
-					m.response = append(m.response, tuilib.SlashEchoLines("", "  ⎿  Approved action for "+label)...)
+					m.engine.response = append(m.engine.response, tuilib.SlashEchoLines("", "  ⎿  Approved action for "+label)...)
 					return true
 				}
 			}
@@ -382,23 +386,23 @@ func (m *runMode) fastApproveSubagent() bool {
 }
 
 func (m *runMode) handleGlobalOrModalKeys(key tea.Key) (tea.Model, tea.Cmd, bool) {
-	if m.keybindings != nil {
-		if act := m.keybindings.ActionForKey(key); act != "" {
+	if m.composer.keybindings != nil {
+		if act := m.composer.keybindings.ActionForKey(key); act != "" {
 			if act == "cli.escape" && key.Code == 'c' && key.Mod.Contains(tea.ModCtrl) {
-				if m.store.BashCancel != nil {
+				if m.session.store.BashCancel != nil {
 					m.cancelBashCommand()
 					return m, nil, true
 				}
-				if m.streaming && m.turnCancel != nil {
+				if m.engine.streaming && m.engine.turnCancel != nil {
 					model, cmd := m.handleEscKeyMsg()
 					return model, cmd, true
 				}
-				if m.exitConfirm {
-					m.quitting = true
+				if m.engine.exitConfirm {
+					m.engine.quitting = true
 					return m, tea.Quit, true
 				}
-				m.exitConfirm = true
-				m.exitConfirmAt = time.Now()
+				m.engine.exitConfirm = true
+				m.engine.exitConfirmAt = time.Now()
 				return m, nil, true
 			}
 			if model, cmd, handled := m.dispatchKeyAction(act); handled {
@@ -407,8 +411,8 @@ func (m *runMode) handleGlobalOrModalKeys(key tea.Key) (tea.Model, tea.Cmd, bool
 		}
 	}
 	if r, ok := keybind.IsAltLetter(key); ok {
-		if m.keybindings != nil {
-			if action, ok := m.keybindings.LookupAltLetter(r); ok {
+		if m.composer.keybindings != nil {
+			if action, ok := m.composer.keybindings.LookupAltLetter(r); ok {
 				m.altDispatchAction(r, action)
 				return m, nil, true
 			}
@@ -417,28 +421,28 @@ func (m *runMode) handleGlobalOrModalKeys(key tea.Key) (tea.Model, tea.Cmd, bool
 			return m, m.submitAlternate(), true
 		}
 		if r == 'j' {
-			if m.activeItems.Count() > 0 {
-				m.activeItems.SetFocus(!m.activeItems.Focused())
+			if m.viewport.activeItems.Count() > 0 {
+				m.viewport.activeItems.SetFocus(!m.viewport.activeItems.Focused())
 				return m, nil, true
 			}
 		}
 	}
-	if m.voiceSurface.Active() {
-		if handled, cmd := m.voiceSurface.HandleKey(key); handled {
+	if m.viewport.voiceSurface.Active() {
+		if handled, cmd := m.viewport.voiceSurface.HandleKey(key); handled {
 			return m, cmd, true
 		}
 	}
-	if listPanelKind(m.panel.kind) {
+	if listPanelKind(m.overlays.panel.kind) {
 		if handled, cmd := m.handlePanelKey(key); handled {
 			return m, cmd, true
 		}
 	}
-	if key.Code == 'l' && key.Mod.Contains(tea.ModCtrl) && !m.resumePicker.Active() {
-		m.scroll = 0
+	if key.Code == 'l' && key.Mod.Contains(tea.ModCtrl) && !m.overlays.resumePicker.Active() {
+		m.viewport.scroll = 0
 		return m, tea.ClearScreen, true
 	}
-	if key.Code == 'o' && key.Mod.Contains(tea.ModCtrl) && !m.resumePicker.Active() {
-		if m.panel.kind == panelregistry.Diff {
+	if key.Code == 'o' && key.Mod.Contains(tea.ModCtrl) && !m.overlays.resumePicker.Active() {
+		if m.overlays.panel.kind == panelregistry.Diff {
 			// Cycle 381: the /diff panel owns the fold state, so the
 			// toggle is the panel's.
 			if m.diffPanel().View() != 0 {
@@ -446,17 +450,17 @@ func (m *runMode) handleGlobalOrModalKeys(key tea.Key) (tea.Model, tea.Cmd, bool
 			}
 			return m, nil, true
 		}
-		if m.panel.kind != panelregistry.None {
+		if m.overlays.panel.kind != panelregistry.None {
 			return m, nil, false
 		}
-		if len(m.pendingMedia) > 0 {
-			m.mediaExpanded = !m.mediaExpanded
+		if len(m.composer.pendingMedia) > 0 {
+			m.composer.mediaExpanded = !m.composer.mediaExpanded
 			return m, nil, true
 		}
 		m.toggleTrajectoryExpanded()
 		return m, tea.ClearScreen, true
 	}
-	if key.Code == 'r' && key.Mod.Contains(tea.ModCtrl) && !m.resumePicker.Active() {
+	if key.Code == 'r' && key.Mod.Contains(tea.ModCtrl) && !m.overlays.resumePicker.Active() {
 		// Cycle 383 (A-22): the reference binds Ctrl+R to
 		// `view.review_artifact` — it opens the Artifact Review panel
 		// (official-docs/cli/reference.md:81). The clone's own /help
@@ -465,7 +469,7 @@ func (m *runMode) handleGlobalOrModalKeys(key tea.Key) (tea.Model, tea.Cmd, bool
 		// The binding belongs to the prompt, so an open panel keeps
 		// the key: the reference's table lists Ctrl+R under the
 		// prompt-focus keys.
-		if m.panel.kind != panelregistry.None {
+		if m.overlays.panel.kind != panelregistry.None {
 			return m, nil, false
 		}
 		if m.openSlashPanel("artifact") {
@@ -473,8 +477,8 @@ func (m *runMode) handleGlobalOrModalKeys(key tea.Key) (tea.Model, tea.Cmd, bool
 		}
 		return m, nil, false
 	}
-	if key.Code == 'g' && key.Mod.Contains(tea.ModCtrl) && !m.resumePicker.Active() {
-		if m.panel.kind == panelregistry.Permissions {
+	if key.Code == 'g' && key.Mod.Contains(tea.ModCtrl) && !m.overlays.resumePicker.Active() {
+		if m.overlays.panel.kind == panelregistry.Permissions {
 			// Cycle 383 (A-30): the /permissions panel owns Ctrl+G —
 			// it is the edit alias of `e`
 			// (official-docs/cli/commands/permissions.md:41). The
@@ -491,8 +495,8 @@ func (m *runMode) handleGlobalOrModalKeys(key tea.Key) (tea.Model, tea.Cmd, bool
 		}
 		return m, m.editPromptCmd(), true
 	}
-	if key.Code == 'k' && key.Mod.Contains(tea.ModCtrl) && !m.resumePicker.Active() {
-		m.subAgentQuestionPanel.Toggle()
+	if key.Code == 'k' && key.Mod.Contains(tea.ModCtrl) && !m.overlays.resumePicker.Active() {
+		m.engine.subAgentQuestionPanel.Toggle()
 		return m, nil, true
 	}
 	return m, nil, false
@@ -522,11 +526,11 @@ func (m *runMode) handleFunctionAndModeKeys(key tea.Key) (tea.Model, tea.Cmd, bo
 	// When text has already been typed in the composer, '?' is a regular
 	// character (or a vim search/motion argument in normal mode) and must
 	// be handled by the editor, not intercepted by the shortcuts overlay.
-	if key.Code == '?' && key.Mod == 0 && m.input.Value() == "" && !m.composerInVimInsert() &&
-		!m.helpPanel.Active() && !m.picker.Visible() && !m.resumePicker.Active() && m.panel.kind == panelregistry.None {
-		m.helpPanel.Open(2) // shortcuts
-		m.store.ResetInputSelection()
-		m.promptHistory.Reset()
+	if key.Code == '?' && key.Mod == 0 && m.composer.input.Value() == "" && !m.composerInVimInsert() &&
+		!m.viewport.helpPanel.Active() && !m.composer.picker.Visible() && !m.overlays.resumePicker.Active() && m.overlays.panel.kind == panelregistry.None {
+		m.viewport.helpPanel.Open(2) // shortcuts
+		m.ResetInputSelection()
+		m.composer.promptHistory.Reset()
 		return m, nil, true
 	}
 	// In vim mode the "!" belongs to the engine: the reference's
@@ -535,42 +539,42 @@ func (m *runMode) handleFunctionAndModeKeys(key tea.Key) (tea.Model, tea.Cmd, bo
 	// typed into the buffer and the submit path runs it. Arming the
 	// bash mode here would swallow the character before the engine ever
 	// saw it.
-	if key.Code == '!' && key.Mod == 0 && m.input.Value() == "" && !m.store.BashMode &&
-		!m.helpPanel.Active() && !m.picker.Visible() && !m.resumePicker.Active() && m.panel.kind == panelregistry.None &&
+	if key.Code == '!' && key.Mod == 0 && m.composer.input.Value() == "" && !m.session.store.BashMode &&
+		!m.viewport.helpPanel.Active() && !m.composer.picker.Visible() && !m.overlays.resumePicker.Active() && m.overlays.panel.kind == panelregistry.None &&
 		!m.vimEnabled() {
-		m.store.BashMode = true
-		if m.undoMgr != nil {
-			m.undoMgr.Clear()
+		m.session.store.BashMode = true
+		if m.composer.undoMgr != nil {
+			m.composer.undoMgr.Clear()
 		}
 		return m, nil, true
 	}
-	if key.Code == tea.KeyBackspace && m.store.BashMode && m.input.Value() == "" {
-		m.store.BashMode = false
-		if m.undoMgr != nil {
-			m.undoMgr.Clear()
+	if key.Code == tea.KeyBackspace && m.session.store.BashMode && m.composer.input.Value() == "" {
+		m.session.store.BashMode = false
+		if m.composer.undoMgr != nil {
+			m.composer.undoMgr.Clear()
 		}
 		return m, nil, true
 	}
-	if key.Code == tea.KeyBackspace && m.input.Value() == "" && len(m.pendingMedia) > 0 {
-		m.pendingMedia = m.pendingMedia[:len(m.pendingMedia)-1]
-		if len(m.pendingMedia) == 0 {
-			m.mediaExpanded = false
+	if key.Code == tea.KeyBackspace && m.composer.input.Value() == "" && len(m.composer.pendingMedia) > 0 {
+		m.composer.pendingMedia = m.composer.pendingMedia[:len(m.composer.pendingMedia)-1]
+		if len(m.composer.pendingMedia) == 0 {
+			m.composer.mediaExpanded = false
 		}
 		return m, nil, true
 	}
-	if key.Code == tea.KeyF2 && !m.resumePicker.Active() && !m.helpPanel.Active() && m.panel.kind == panelregistry.None && !m.picker.Visible() {
+	if key.Code == tea.KeyF2 && !m.overlays.resumePicker.Active() && !m.viewport.helpPanel.Active() && m.overlays.panel.kind == panelregistry.None && !m.composer.picker.Visible() {
 		m.openRenamePanel()
 		return m, nil, true
 	}
-	if key.Code == tea.KeyF5 && !m.resumePicker.Active() && !m.helpPanel.Active() && m.panel.kind == panelregistry.None && !m.picker.Visible() && !m.voiceSurface.Active() {
-		return m, m.voiceSurface.Start("f5"), true
+	if key.Code == tea.KeyF5 && !m.overlays.resumePicker.Active() && !m.viewport.helpPanel.Active() && m.overlays.panel.kind == panelregistry.None && !m.composer.picker.Visible() && !m.viewport.voiceSurface.Active() {
+		return m, m.viewport.voiceSurface.Start("f5"), true
 	}
-	if m.panel.kind != panelregistry.None {
+	if m.overlays.panel.kind != panelregistry.None {
 		if handled, cmd := m.handlePanelKey(key); handled {
 			return m, cmd, true
 		}
 	}
-	if !m.helpPanel.Active() && !m.picker.Visible() && !m.resumePicker.Active() && m.handleScrollKey(key) {
+	if !m.viewport.helpPanel.Active() && !m.composer.picker.Visible() && !m.overlays.resumePicker.Active() && m.handleScrollKey(key) {
 		return m, nil, true
 	}
 	return m, nil, false
@@ -582,15 +586,15 @@ func (m *runMode) handleFunctionAndModeKeys(key tea.Key) (tea.Model, tea.Cmd, bo
 // and the tree — so the host only routes the key and carries the picker's
 // command back.
 func (m *runMode) handleResumeModeKeys(key tea.Key) (tea.Model, tea.Cmd, bool) {
-	if !m.resumePicker.Active() {
+	if !m.overlays.resumePicker.Active() {
 		return m, nil, false
 	}
-	return m, m.resumePicker.HandleKey(key, m.height), true
+	return m, m.overlays.resumePicker.HandleKey(key, m.viewport.height), true
 }
 
 func (m *runMode) handleEscKeyMsg() (tea.Model, tea.Cmd) {
-	if m.exitConfirm {
-		m.exitConfirm = false
+	if m.engine.exitConfirm {
+		m.engine.exitConfirm = false
 	}
 
 	// Cycle 383 (B-21): the reference clears the prompt box on `esc esc`
@@ -604,76 +608,76 @@ func (m *runMode) handleEscKeyMsg() (tea.Model, tea.Cmd) {
 	// re-arms it. The armed value is the composer content the pair was
 	// armed on, so a composer that changed in the meantime (a submit, a
 	// history recall) is not the one the user armed.
-	armed := m.escArmedFor
-	m.escArmedFor = ""
+	armed := m.composer.escArmedFor
+	m.composer.escArmedFor = ""
 
 	// Priority 1: Modals, overlays, pickers, and side-question cards
-	if m.helpPanel.Active() {
-		m.helpPanel.Cancel()
+	if m.viewport.helpPanel.Active() {
+		m.viewport.helpPanel.Cancel()
 		return m, nil
 	}
-	if m.picker.Cancel() {
+	if m.composer.picker.Cancel() {
 		return m, nil
 	}
-	if m.atFilePicker.Visible() {
-		m.atFilePicker.Reset()
+	if m.composer.atFilePicker.Visible() {
+		m.composer.atFilePicker.Reset()
 		return m, nil
 	}
 	if mod, cmd, handled := m.dismissActiveOverlay(); handled {
 		return mod, cmd
 	}
-	if m.mediaExpanded {
-		m.mediaExpanded = false
+	if m.composer.mediaExpanded {
+		m.composer.mediaExpanded = false
 		return m, nil
 	}
 
 	// Priority 2: Execution cancellation (in-flight bash command or streaming turn)
-	if m.store.BashCancel != nil {
+	if m.session.store.BashCancel != nil {
 		m.cancelBashCommand()
 		return m, nil
 	}
-	if m.streaming && m.turnCancel != nil {
-		m.turnCancel()
-		m.turnCancel = nil
+	if m.engine.streaming && m.engine.turnCancel != nil {
+		m.engine.turnCancel()
+		m.engine.turnCancel = nil
 		// The reference does not report a cancelled turn as an error: it
 		// answers with the composer's interrupted hint instead
 		// (【反编译】 agy 1.4.8's `(*PromptModel).interruptedLine`).
-		m.turnInterrupted = true
+		m.engine.turnInterrupted = true
 		return m, nil
 	}
 
 	// Priority 3: Composer input editing state (selection, draft text)
 	compaction.TriggerCancel()
 	if m.hasInputSelection() {
-		m.store.ResetInputSelection()
+		m.ResetInputSelection()
 		return m, nil
 	}
-	if m.store.BashMode {
-		m.store.BashMode = false
-		if m.input.Value() == "" {
+	if m.session.store.BashMode {
+		m.session.store.BashMode = false
+		if m.composer.input.Value() == "" {
 			return m, nil
 		}
 	}
-	if m.input.Value() != "" {
+	if m.composer.input.Value() != "" {
 		// Cycle 383 (B-21): the first Esc of the pair only arms the
 		// clear; the second one empties the composer.
-		if armed != m.input.Value() {
-			m.escArmedFor = m.input.Value()
+		if armed != m.composer.input.Value() {
+			m.composer.escArmedFor = m.composer.input.Value()
 			return m, nil
 		}
-		m.input.Reset()
-		m.store.ResetInputSelection()
-		m.store.BashMode = false
-		m.pastedBlocks = nil
-		m.nextPasteID = 0
+		m.composer.input.Reset()
+		m.ResetInputSelection()
+		m.session.store.BashMode = false
+		m.composer.pastedBlocks = nil
+		m.composer.nextPasteID = 0
 		return m, nil
 	}
 
 	// Priority 4: Background announcement cards (dismissed on empty prompt when not streaming)
-	if m.announceQueue.Active() != nil {
-		m.announceQueue.Dismiss()
-		if msg := m.announceQueue.SaveErrorMessage(); msg != "" {
-			m.response = append(m.response, msg)
+	if m.overlays.announceQueue.Active() != nil {
+		m.overlays.announceQueue.Dismiss()
+		if msg := m.overlays.announceQueue.SaveErrorMessage(); msg != "" {
+			m.engine.response = append(m.engine.response, msg)
 		}
 		return m, nil
 	}
@@ -689,19 +693,19 @@ func (m *runMode) handleTabCompletion(key tea.Key) bool {
 	// command name, the "/model <query>" rows complete the argument
 	// (the command stays, the display label is appended) and close the
 	// popup.
-	if handled, cmd := m.picker.UpdateKey(key); handled {
-		m.promptHistory.Reset()
+	if handled, cmd := m.composer.picker.UpdateKey(key); handled {
+		m.composer.promptHistory.Reset()
 		if cmd != nil {
 			msg := cmd()
 			if comp, ok := msg.(slashpicker.CompletedMsg); ok {
-				m.input.SetValue(comp.Text)
-				m.picker.Reset()
+				m.composer.input.SetValue(comp.Text)
+				m.composer.picker.Reset()
 			}
 		}
 		return true
 	}
-	if m.atFilePicker.HandleKey(key) {
-		m.promptHistory.Reset()
+	if m.composer.atFilePicker.HandleKey(key) {
+		m.composer.promptHistory.Reset()
 		return true
 	}
 	return false
@@ -713,40 +717,40 @@ func (m *runMode) handleCtrlAndTabKeys(key tea.Key) (tea.Model, tea.Cmd, bool) {
 		// exit confirmation with the same press (【一手】: the block
 		// finalises with no body while "press ctrl+c again to exit"
 		// appears). The clone used to only arm the confirmation.
-		if m.store.BashCancel != nil {
+		if m.session.store.BashCancel != nil {
 			m.cancelBashCommand()
 		}
-		if m.exitConfirm {
-			m.quitting = true
+		if m.engine.exitConfirm {
+			m.engine.quitting = true
 			return m, tea.Quit, true
 		}
-		m.exitConfirm = true
-		m.exitConfirmAt = time.Now()
+		m.engine.exitConfirm = true
+		m.engine.exitConfirmAt = time.Now()
 		return m, nil, true
 	}
 	if key.Code == 'd' && key.Mod.Contains(tea.ModCtrl) {
 		if m.hasInputSelection() {
 			m.deleteInputSelection()
-			m.modeHintDismissed = true
-			m.picker.Update([]rune(tuilib.FirstLine(m.input.Value())))
+			m.composer.modeHintDismissed = true
+			m.composer.picker.Update([]rune(tuilib.FirstLine(m.composer.input.Value())))
 			m.clearEligibilityNotice()
-			m.atFilePicker.Update()
+			m.composer.atFilePicker.Update()
 			return m, nil, true
 		}
-		if m.input.Value() == "" {
-			m.quitting = true
+		if m.composer.input.Value() == "" {
+			m.engine.quitting = true
 			return m, tea.Quit, true
 		}
 	}
-	if key.Code == 'a' && key.Mod == 0 && m.input.Value() == "" &&
-		!m.helpPanel.Active() && !m.picker.Visible() && !m.resumePicker.Active() &&
-		m.panel.kind == panelregistry.None &&
-		m.subAgentQuestionPanel.PendingCount() > 0 {
-		m.subAgentQuestionPanel.Toggle()
+	if key.Code == 'a' && key.Mod == 0 && m.composer.input.Value() == "" &&
+		!m.viewport.helpPanel.Active() && !m.composer.picker.Visible() && !m.overlays.resumePicker.Active() &&
+		m.overlays.panel.kind == panelregistry.None &&
+		m.engine.subAgentQuestionPanel.PendingCount() > 0 {
+		m.engine.subAgentQuestionPanel.Toggle()
 		return m, nil, true
 	}
-	if m.exitConfirm {
-		m.exitConfirm = false
+	if m.engine.exitConfirm {
+		m.engine.exitConfirm = false
 	}
 	if m.handleTabCompletion(key) {
 		return m, nil, true
@@ -759,7 +763,7 @@ func (m *runMode) handleCtrlAndTabKeys(key tea.Key) (tea.Model, tea.Cmd, bool) {
 // The overlay owns its own state — the tab, the cursor and the window
 // — and emits typed messages (CommandSelectedMsg, DismissedMsg) back to the host.
 func (m *runMode) handleHelpModeNavigation(key tea.Key) (tea.Model, tea.Cmd, bool) {
-	handled, cmd := m.helpPanel.Update(key)
+	handled, cmd := m.viewport.helpPanel.Update(key)
 	if !handled {
 		return m, nil, false
 	}
@@ -771,7 +775,7 @@ func (m *runMode) handleHelpModeNavigation(key tea.Key) (tea.Model, tea.Cmd, boo
 			return m, nil, true
 		case helppanel.DismissedMsg:
 			if ev.EchoLine {
-				m.response = append(m.response, tuilib.SlashEchoLines("/help", "Exited /help command")...)
+				m.engine.response = append(m.engine.response, tuilib.SlashEchoLines("/help", "Exited /help command")...)
 			}
 			return m, nil, true
 		}
@@ -788,8 +792,8 @@ func (m *runMode) updateKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	key := msg.Key()
 
 	// Global exit: Ctrl+D on empty input exits immediately.
-	if key.Code == 'd' && key.Mod.Contains(tea.ModCtrl) && m.input.Value() == "" {
-		m.quitting = true
+	if key.Code == 'd' && key.Mod.Contains(tea.ModCtrl) && m.composer.input.Value() == "" {
+		m.engine.quitting = true
 		return m, tea.Quit
 	}
 
@@ -797,12 +801,12 @@ func (m *runMode) updateKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	// the first Esc arms the clear, and only a second Esc that follows
 	// it empties the composer.
 	if key.Code != tea.KeyEsc {
-		m.escArmedFor = ""
+		m.composer.escArmedFor = ""
 	}
 
 	// Reset rapid enter burst counter if any key other than Enter is pressed.
 	if key.Code != tea.KeyEnter {
-		m.enterBurstCount = 0
+		m.composer.enterBurstCount = 0
 	}
 
 	if mod, cmd, handled := m.handleGlobalOrModalKeys(key); handled {
@@ -814,20 +818,20 @@ func (m *runMode) updateKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if mod, cmd, handled := m.handleResumeModeKeys(key); handled {
 		return mod, cmd
 	}
-	if handled, cmd := m.activeItems.HandleKey(key); handled {
+	if handled, cmd := m.viewport.activeItems.HandleKey(key); handled {
 		return m, cmd
 	}
 	// The question picker is modal: it claims every key while it is
 	// open, so nothing reaches the vim, Esc or Ctrl handlers.
-	if m.subAgentQuestionPanel.HandleKey(key) {
+	if m.engine.subAgentQuestionPanel.HandleKey(key) {
 		return m, nil
 	}
 	// Global terminal exit on empty prompt.
-	if m.vimEnabled() && !m.helpPanel.Active() && !m.picker.Visible() && !m.resumePicker.Active() &&
-		!m.isBtwCardVisible() && m.announceQueue.Active() == nil && !m.mediaExpanded &&
-		m.panel.kind == panelregistry.None {
+	if m.vimEnabled() && !m.viewport.helpPanel.Active() && !m.composer.picker.Visible() && !m.overlays.resumePicker.Active() &&
+		!m.isBtwCardVisible() && m.overlays.announceQueue.Active() == nil && !m.composer.mediaExpanded &&
+		m.overlays.panel.kind == panelregistry.None {
 		if cmd, handled := m.handleVimKey(key); handled {
-			m.exitConfirm = false
+			m.engine.exitConfirm = false
 			return m, cmd
 		}
 	}
@@ -845,7 +849,7 @@ func (m *runMode) updateKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	if key.Code == tea.KeyTab && !key.Mod.Contains(tea.ModShift) {
-		if m.isBtwCardVisible() && !m.picker.Visible() && !m.atFilePicker.Visible() {
+		if m.isBtwCardVisible() && !m.composer.picker.Visible() && !m.composer.atFilePicker.Visible() {
 			m.ToggleBtwExpanded()
 			return m, nil
 		}
@@ -856,55 +860,55 @@ func (m *runMode) updateKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // ---- tui_update_keys_edit.go ----
 
 func (m *runMode) handleKeyUp(key tea.Key) (tea.Model, tea.Cmd, bool) {
-	if m.picker.HandleKey(key) {
+	if m.composer.picker.HandleKey(key) {
 		return m, nil, true
 	}
-	if m.atFilePicker.HandleKey(key) {
+	if m.composer.atFilePicker.HandleKey(key) {
 		return m, nil, true
 	}
-	if m.isBtwCardVisible() && m.input.Value() == "" {
+	if m.isBtwCardVisible() && m.composer.input.Value() == "" {
 		if m.btwScrollBy(-1) {
 			return m, nil, true
 		}
 	}
-	if m.input.Value() == "" {
+	if m.composer.input.Value() == "" {
 		// 1. If currently streaming and there is an in-flight pending steer instruction, recall it for editing
-		if m.streaming {
-			if len(m.store.SendingMessages) > 0 {
-				last := len(m.store.SendingMessages) - 1
-				msg := m.store.SendingMessages[last]
-				m.store.SendingMessages = m.store.SendingMessages[:last]
+		if m.engine.streaming {
+			if len(m.session.store.SendingMessages) > 0 {
+				last := len(m.session.store.SendingMessages) - 1
+				msg := m.session.store.SendingMessages[last]
+				m.session.store.SendingMessages = m.session.store.SendingMessages[:last]
 				_, _ = m.popActiveSteer()
-				m.input.SetValue(msg)
-				m.modeHintDismissed = true
-				m.rowsCacheDirty = true
+				m.composer.input.SetValue(msg)
+				m.composer.modeHintDismissed = true
+				m.viewport.rowsCacheDirty = true
 				return m, nil, true
 			}
 			if msg, ok := m.popActiveSteer(); ok && msg != "" {
-				m.input.SetValue(msg)
-				m.modeHintDismissed = true
+				m.composer.input.SetValue(msg)
+				m.composer.modeHintDismissed = true
 				return m, nil, true
 			}
 		}
 
 		// 2. If prompts are queued while streaming or idle, recall ALL queued prompts combined
-		if len(m.store.StreamQueue) > 0 || m.store.QueuedPrompt != "" {
+		if len(m.session.store.StreamQueue) > 0 || m.session.store.QueuedPrompt != "" {
 			var allQueued []string
-			if m.store.QueuedPrompt != "" {
-				allQueued = append(allQueued, m.store.QueuedPrompt)
-				m.store.QueuedPrompt = ""
+			if m.session.store.QueuedPrompt != "" {
+				allQueued = append(allQueued, m.session.store.QueuedPrompt)
+				m.session.store.QueuedPrompt = ""
 			}
-			if len(m.store.StreamQueue) > 0 {
-				allQueued = append(allQueued, m.store.StreamQueue...)
-				m.store.StreamQueue = nil
+			if len(m.session.store.StreamQueue) > 0 {
+				allQueued = append(allQueued, m.session.store.StreamQueue...)
+				m.session.store.StreamQueue = nil
 			}
-			m.input.SetValue(strings.Join(allQueued, "\n"))
-			m.modeHintDismissed = true
+			m.composer.input.SetValue(strings.Join(allQueued, "\n"))
+			m.composer.modeHintDismissed = true
 			m.saveSession()
 			return m, nil, true
 		}
 	}
-	if m.promptHistory.Index() > 0 || history.IsBlank(m.input.Value()) {
+	if m.composer.promptHistory.Index() > 0 || history.IsBlank(m.composer.input.Value()) {
 		m.historyUp()
 		return m, nil, true
 	}
@@ -912,26 +916,26 @@ func (m *runMode) handleKeyUp(key tea.Key) (tea.Model, tea.Cmd, bool) {
 }
 
 func (m *runMode) handleKeyDown(key tea.Key) (tea.Model, tea.Cmd, bool) {
-	if m.picker.HandleKey(key) {
+	if m.composer.picker.HandleKey(key) {
 		return m, nil, true
 	}
-	if m.atFilePicker.HandleKey(key) {
+	if m.composer.atFilePicker.HandleKey(key) {
 		return m, nil, true
 	}
-	if m.isBtwCardVisible() && m.input.Value() == "" {
+	if m.isBtwCardVisible() && m.composer.input.Value() == "" {
 		if m.btwScrollBy(1) {
 			return m, nil, true
 		}
 	}
-	if m.promptHistory.Index() > 0 {
+	if m.composer.promptHistory.Index() > 0 {
 		m.historyDown()
 		return m, nil, true
 	}
-	if !m.activeItems.Hidden() && m.activeItems.Count() > 0 {
-		offset := tuilib.InputCursorByteOffset(m.input)
-		if tuilib.IsOnLastLine(m.input.Value(), offset) {
-			m.activeItems.SetFocus(true)
-			m.activeItems.SelectFirst()
+	if !m.viewport.activeItems.Hidden() && m.viewport.activeItems.Count() > 0 {
+		offset := tuilib.InputCursorByteOffset(m.composer.input)
+		if tuilib.IsOnLastLine(m.composer.input.Value(), offset) {
+			m.viewport.activeItems.SetFocus(true)
+			m.viewport.activeItems.SelectFirst()
 			return m, nil, true
 		}
 	}
@@ -943,47 +947,47 @@ func (m *runMode) handleEnterKey(key tea.Key) (tea.Model, tea.Cmd, bool) {
 		return m, nil, false
 	}
 	if key.Mod.Contains(tea.ModAlt) && key.Mod&(tea.ModCtrl|tea.ModShift) == 0 {
-		if m.streaming {
-			prompt := strings.TrimSpace(m.input.Value())
+		if m.engine.streaming {
+			prompt := strings.TrimSpace(m.composer.input.Value())
 			if prompt != "" {
 				prompt = m.expandPastedPlaceholders(prompt)
 				m.pushHistory(prompt)
-				if m.store.QueueMode {
+				if m.session.store.QueueMode {
 					if m.steerActiveTurn(prompt) {
-						m.input.Reset()
-						m.store.ResetInputSelection()
-						m.promptHistory.Reset()
-						m.picker.Reset()
-						m.atFilePicker.Reset()
-						m.modeHintDismissed = true
+						m.composer.input.Reset()
+						m.ResetInputSelection()
+						m.composer.promptHistory.Reset()
+						m.composer.picker.Reset()
+						m.composer.atFilePicker.Reset()
+						m.composer.modeHintDismissed = true
 						return m, nil, true
 					}
 				} else {
-					m.store.StreamQueue = append(m.store.StreamQueue, prompt)
-					m.input.Reset()
-					m.store.ResetInputSelection()
-					m.promptHistory.Reset()
-					m.picker.Reset()
-					m.atFilePicker.Reset()
-					m.modeHintDismissed = true
+					m.session.store.StreamQueue = append(m.session.store.StreamQueue, prompt)
+					m.composer.input.Reset()
+					m.ResetInputSelection()
+					m.composer.promptHistory.Reset()
+					m.composer.picker.Reset()
+					m.composer.atFilePicker.Reset()
+					m.composer.modeHintDismissed = true
 					return m, nil, true
 				}
 			}
 			return m, nil, true
 		}
-		m.input.InsertRune('\n')
-		m.modeHintDismissed = true
-		m.picker.Update([]rune(tuilib.FirstLine(m.input.Value())))
-		m.atFilePicker.Update()
-		m.promptHistory.Reset()
+		m.composer.input.InsertRune('\n')
+		m.composer.modeHintDismissed = true
+		m.composer.picker.Update([]rune(tuilib.FirstLine(m.composer.input.Value())))
+		m.composer.atFilePicker.Update()
+		m.composer.promptHistory.Reset()
 		return m, nil, true
 	}
 	if key.Mod.Contains(tea.ModShift) && key.Mod&(tea.ModCtrl) == 0 {
-		m.input.InsertRune('\n')
-		m.modeHintDismissed = true
-		m.picker.Update([]rune(tuilib.FirstLine(m.input.Value())))
-		m.atFilePicker.Update()
-		m.promptHistory.Reset()
+		m.composer.input.InsertRune('\n')
+		m.composer.modeHintDismissed = true
+		m.composer.picker.Update([]rune(tuilib.FirstLine(m.composer.input.Value())))
+		m.composer.atFilePicker.Update()
+		m.composer.promptHistory.Reset()
 		return m, nil, true
 	}
 	if key.Mod.Contains(tea.ModCtrl) {
@@ -999,37 +1003,37 @@ func (m *runMode) handleEnterKey(key tea.Key) (tea.Model, tea.Cmd, bool) {
 	// enterBurstCount. When enterBurstCount > 0, the Enter is absorbed as a newline
 	// in the composer and does not submit the prompt.
 	now := time.Now()
-	if !m.lastEnterTime.IsZero() && now.Sub(m.lastEnterTime) < 10*time.Millisecond {
-		m.enterBurstCount++
+	if !m.composer.lastEnterTime.IsZero() && now.Sub(m.composer.lastEnterTime) < 10*time.Millisecond {
+		m.composer.enterBurstCount++
 	} else {
-		m.enterBurstCount = 0
+		m.composer.enterBurstCount = 0
 	}
-	m.lastEnterTime = now
+	m.composer.lastEnterTime = now
 
-	if m.enterBurstCount > 0 {
-		m.input.InsertRune('\n')
-		m.modeHintDismissed = true
-		m.picker.Update([]rune(tuilib.FirstLine(m.input.Value())))
-		m.atFilePicker.Update()
-		m.promptHistory.Reset()
+	if m.composer.enterBurstCount > 0 {
+		m.composer.input.InsertRune('\n')
+		m.composer.modeHintDismissed = true
+		m.composer.picker.Update([]rune(tuilib.FirstLine(m.composer.input.Value())))
+		m.composer.atFilePicker.Update()
+		m.composer.promptHistory.Reset()
 		return m, nil, true
 	}
 
-	if m.altScreen && m.pinnedPromptText != "" && m.input.Value() == "" {
+	if m.viewport.altScreen && m.viewport.pinnedPromptText != "" && m.composer.input.Value() == "" {
 		if m.jumpToPinnedPrompt() {
 			return m, nil, true
 		}
 	}
-	if m.isBtwCardVisible() && m.input.Value() == "" {
+	if m.isBtwCardVisible() && m.composer.input.Value() == "" {
 		m.DismissBtwResponse()
 		return m, nil, true
 	}
 	if composer.BackslashNewline(m.composerSeams()) {
 		return m, nil, true
 	}
-	if m.atFilePicker.Visible() {
-		if m.atFilePicker.Complete(false) {
-			m.promptHistory.Reset()
+	if m.composer.atFilePicker.Visible() {
+		if m.composer.atFilePicker.Complete(false) {
+			m.composer.promptHistory.Reset()
 		}
 		return m, nil, true
 	}
@@ -1038,20 +1042,20 @@ func (m *runMode) handleEnterKey(key tea.Key) (tea.Model, tea.Cmd, bool) {
 
 func (m *runMode) handleWordMoveAndChords(key tea.Key) (tea.Model, tea.Cmd, bool) {
 	if key.Code == 'j' && key.Mod.Contains(tea.ModCtrl) {
-		m.input.InsertRune('\n')
-		m.picker.Update([]rune(tuilib.FirstLine(m.input.Value())))
-		m.atFilePicker.Update()
-		m.promptHistory.Reset()
+		m.composer.input.InsertRune('\n')
+		m.composer.picker.Update([]rune(tuilib.FirstLine(m.composer.input.Value())))
+		m.composer.atFilePicker.Update()
+		m.composer.promptHistory.Reset()
 		return m, nil, true
 	}
 	if key.Code == tea.KeyLeft {
 		if (key.Mod.Contains(tea.ModAlt) || key.Mod.Contains(tea.ModCtrl)) && !key.Mod.Contains(tea.ModShift) {
 			m.moveWord(true)
-			m.picker.Update([]rune(tuilib.FirstLine(m.input.Value())))
-			m.promptHistory.Reset()
+			m.composer.picker.Update([]rune(tuilib.FirstLine(m.composer.input.Value())))
+			m.composer.promptHistory.Reset()
 			return m, nil, true
 		}
-		if m.isBtwCardVisible() && m.input.Value() == "" && len(m.btwCards) > 1 {
+		if m.isBtwCardVisible() && m.composer.input.Value() == "" && len(m.overlays.btwCards) > 1 {
 			m.NavigateBtw(-1)
 			return m, nil, true
 		}
@@ -1059,11 +1063,11 @@ func (m *runMode) handleWordMoveAndChords(key tea.Key) (tea.Model, tea.Cmd, bool
 	if key.Code == tea.KeyRight {
 		if (key.Mod.Contains(tea.ModAlt) || key.Mod.Contains(tea.ModCtrl)) && !key.Mod.Contains(tea.ModShift) {
 			m.moveWord(false)
-			m.picker.Update([]rune(tuilib.FirstLine(m.input.Value())))
-			m.promptHistory.Reset()
+			m.composer.picker.Update([]rune(tuilib.FirstLine(m.composer.input.Value())))
+			m.composer.promptHistory.Reset()
 			return m, nil, true
 		}
-		if m.isBtwCardVisible() && m.input.Value() == "" && len(m.btwCards) > 1 {
+		if m.isBtwCardVisible() && m.composer.input.Value() == "" && len(m.overlays.btwCards) > 1 {
 			m.NavigateBtw(1)
 			return m, nil, true
 		}
@@ -1072,7 +1076,7 @@ func (m *runMode) handleWordMoveAndChords(key tea.Key) (tea.Model, tea.Cmd, bool
 		// The paste key's image half (agy 1.4.9): an image on the
 		// clipboard is attached, a dropped image file is attached, and
 		// only a clipboard with neither stays text.
-		m.promptHistory.Reset()
+		m.composer.promptHistory.Reset()
 		return m, m.handlePasteContent(clipboardReadText()), true
 	}
 	return m, nil, false
@@ -1109,18 +1113,18 @@ func (m *runMode) updateEditorKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 // panels and the session's own notices; the composer asks for them
 // here and does the editing.
 func (m *runMode) composerSeams() composer.Seams {
-	start, end := m.store.InputSelectionRange()
-	if m.undoMgr == nil {
-		m.undoMgr = composer.NewUndoManager(100)
+	start, end := m.InputSelectionRange()
+	if m.composer.undoMgr == nil {
+		m.composer.undoMgr = composer.NewUndoManager(100)
 	}
 	return composer.Seams{
-		Editor:           composer.NewTextArea(&m.input),
-		Picker:           m.picker,
-		Files:            m.atFilePicker,
-		History:          &m.promptHistory,
+		Editor:           composer.NewTextArea(&m.composer.input),
+		Picker:           m.composer.picker,
+		Files:            m.composer.atFilePicker,
+		History:          &m.composer.promptHistory,
 		Selection:        composer.Range{Start: start, End: end},
 		SelectAll:        m.selectAllInput,
-		ClearSelection:   m.store.ResetInputSelection,
+		ClearSelection:   m.ResetInputSelection,
 		DeleteSelection:  m.deleteInputSelection,
 		ReplaceSelection: m.replaceInputSelection,
 		Copy: func(text string) tea.Cmd {
@@ -1131,130 +1135,130 @@ func (m *runMode) composerSeams() composer.Seams {
 			return m.copySelectionCmd(text)
 		},
 		ClearEligibilityNotice: m.clearEligibilityNotice,
-		DismissModeHint:        func() { m.modeHintDismissed = true },
-		UndoMgr:                m.undoMgr,
+		DismissModeHint:        func() { m.composer.modeHintDismissed = true },
+		UndoMgr:                m.composer.undoMgr,
 	}
 }
 
 // ---- tui_update_mouse.go ----
 
 func (m *runMode) updateWindowSize(msg tea.WindowSizeMsg) (tea.Model, tea.Cmd) {
-	oldW := m.width
-	oldH := m.height
-	m.width, m.height = msg.Width, msg.Height
+	oldW := m.viewport.width
+	oldH := m.viewport.height
+	m.viewport.width, m.viewport.height = msg.Width, msg.Height
 	mdrender.SetCurrentWidth(msg.Width)
 	if w := msg.Width - len(inputPrompt); w > 10 {
-		m.input.SetWidth(w)
+		m.composer.input.SetWidth(w)
 	}
-	if (oldW != msg.Width || oldW == 0) && len(m.response) > 0 {
+	if (oldW != msg.Width || oldW == 0) && len(m.engine.response) > 0 {
 		m.reflowTranscript(msg.Width)
 	} else if oldH != msg.Height || oldW != msg.Width {
-		m.rowsCacheDirty = true
-		m.viewCacheValid = false
-		m.extraRowsValid = false
-		m.rowsCache = wrapSlot{}
-		m.rowsCacheN1 = wrapSlot{}
-		m.rowsView = composedRows{}
+		m.viewport.rowsCacheDirty = true
+		m.viewport.viewCacheValid = false
+		m.viewport.extraRowsValid = false
+		m.viewport.rowsCache = wrapSlot{}
+		m.viewport.rowsCacheN1 = wrapSlot{}
+		m.viewport.rowsView = composedRows{}
 	}
-	m.activeItems.Clamp()
+	m.viewport.activeItems.Clamp()
 	return m, nil
 }
 
 func (m *runMode) updateMouseClick(ev tea.Mouse) (tea.Model, tea.Cmd) {
-	if !m.altScreen || ev.Button != tea.MouseLeft {
+	if !m.viewport.altScreen || ev.Button != tea.MouseLeft {
 		return m, nil
 	}
-	if m.picker.HandleClick(ev) {
+	if m.composer.picker.HandleClick(ev) {
 		return m, nil
 	}
-	if m.picker.Visible() && !m.isInputY(ev.Y) {
-		m.picker.Reset()
+	if m.composer.picker.Visible() && !m.isInputY(ev.Y) {
+		m.composer.picker.Reset()
 	}
-	if m.pinnedPromptText != "" && (ev.Y == 0 || ev.Y == 1) {
+	if m.viewport.pinnedPromptText != "" && (ev.Y == 0 || ev.Y == 1) {
 		if m.jumpToPinnedPrompt() {
 			return m, nil
 		}
 	}
 	if m.isInputY(ev.Y) {
-		m.store.ResetSelection()
+		m.ResetSelection()
 		offset := m.inputOffsetAt(ev.X, ev.Y)
 		m.setInputCursorOffset(offset)
-		m.store.InputSelDragging = true
-		m.store.InputSelStart = offset
-		m.store.InputSelEnd = offset
+		m.viewport.InputSelDragging = true
+		m.viewport.InputSelStart = offset
+		m.viewport.InputSelEnd = offset
 		return m, nil
 	}
-	m.store.ResetInputSelection()
-	row, col, ok := tuiviewport.TranscriptCellAt(ev.X, ev.Y, m.viewportHeight(), m.width)
+	m.ResetInputSelection()
+	row, col, ok := tuiviewport.TranscriptCellAt(ev.X, ev.Y, m.viewportHeight(), m.viewport.width)
 	if !ok {
 		return m, nil
 	}
-	m.store.SelDragging = true
-	m.store.SelStartRow, m.store.SelStartCol = row, col
-	m.store.SelEndRow, m.store.SelEndCol = row, col
+	m.viewport.SelDragging = true
+	m.viewport.SelStartRow, m.viewport.SelStartCol = row, col
+	m.viewport.SelEndRow, m.viewport.SelEndCol = row, col
 	return m, nil
 }
 
 func (m *runMode) updateMouseMotion(ev tea.Mouse) (tea.Model, tea.Cmd) {
-	m.picker.HandleHover(ev)
-	if m.store.InputSelDragging && m.altScreen {
+	m.composer.picker.HandleHover(ev)
+	if m.viewport.InputSelDragging && m.viewport.altScreen {
 		offset := m.inputOffsetAt(ev.X, ev.Y)
-		if offset != m.store.InputSelEnd {
-			m.store.InputSelEnd = offset
+		if offset != m.viewport.InputSelEnd {
+			m.viewport.InputSelEnd = offset
 			m.setInputCursorOffset(offset)
 		}
 		return m, nil
 	}
-	if !m.store.SelDragging || !m.altScreen {
+	if !m.viewport.SelDragging || !m.viewport.altScreen {
 		return m, nil
 	}
-	row, col, ok := tuiviewport.TranscriptCellAt(ev.X, ev.Y, m.viewportHeight(), m.width)
+	row, col, ok := tuiviewport.TranscriptCellAt(ev.X, ev.Y, m.viewportHeight(), m.viewport.width)
 	if !ok {
 		return m, nil
 	}
-	if row != m.store.SelEndRow || col != m.store.SelEndCol {
-		m.store.SelEndRow, m.store.SelEndCol = row, col
+	if row != m.viewport.SelEndRow || col != m.viewport.SelEndCol {
+		m.viewport.SelEndRow, m.viewport.SelEndCol = row, col
 	}
 	return m, nil
 }
 
 func (m *runMode) updateMouseReleaseInputSel(ev tea.Mouse) (tea.Model, tea.Cmd) {
-	m.store.InputSelDragging = false
+	m.viewport.InputSelDragging = false
 	if ev.Button == tea.MouseLeft {
-		m.store.InputSelEnd = m.inputOffsetAt(ev.X, ev.Y)
+		m.viewport.InputSelEnd = m.inputOffsetAt(ev.X, ev.Y)
 	}
-	start, end := m.store.InputSelectionRange()
+	start, end := m.InputSelectionRange()
 	if start < end {
-		val := m.input.Value()
+		val := m.composer.input.Value()
 		if start < len(val) && end <= len(val) {
 			text := val[start:end]
 			_ = clipboard.Write(text)
 			return m, m.copySelectionCmd(text)
 		}
 	} else {
-		m.store.ResetInputSelection()
+		m.ResetInputSelection()
 	}
 	return m, nil
 }
 
 func (m *runMode) updateMouseRelease(ev tea.Mouse) (tea.Model, tea.Cmd) {
-	if m.store.InputSelDragging {
+	if m.viewport.InputSelDragging {
 		return m.updateMouseReleaseInputSel(ev)
 	}
-	if !m.store.SelDragging {
+	if !m.viewport.SelDragging {
 		return m, nil
 	}
-	m.store.SelDragging = false
+	m.viewport.SelDragging = false
 	if ev.Button != tea.MouseLeft {
-		m.store.ResetSelection()
+		m.ResetSelection()
 		return m, nil
 	}
-	row, col, ok := tuiviewport.TranscriptCellAt(ev.X, ev.Y, m.viewportHeight(), m.width)
+	row, col, ok := tuiviewport.TranscriptCellAt(ev.X, ev.Y, m.viewportHeight(), m.viewport.width)
 	if ok {
-		m.store.SelEndRow, m.store.SelEndCol = row, col
+		m.viewport.SelEndRow, m.viewport.SelEndCol = row, col
 	}
 	text := m.selectionText()
-	m.store.ResetSelection()
+	m.ResetSelection()
 	if text != "" {
 		_ = clipboard.Write(text)
 		return m, m.copySelectionCmd(text)
@@ -1267,12 +1271,12 @@ func (m *runMode) updateEditorFinished(msg editorFinishedMsg) (tea.Model, tea.Cm
 		defer func() { _ = os.Remove(msg.tempPath) }()
 		if msg.err == nil {
 			if data, err := os.ReadFile(msg.tempPath); err == nil {
-				m.input.SetValue(strings.TrimRight(string(data), "\n"))
+				m.composer.input.SetValue(strings.TrimRight(string(data), "\n"))
 			}
 		}
 	}
 	if msg.err != nil {
-		m.response = append(m.response, "Editor exited with error: "+msg.err.Error())
+		m.engine.response = append(m.engine.response, "Editor exited with error: "+msg.err.Error())
 	}
 	return m, nil
 }
@@ -1300,22 +1304,22 @@ func (m *runMode) updateMouseAndMiscMsg(msg tea.Msg) (tea.Model, tea.Cmd, bool) 
 		mod, cmd := m.updateEditorFinished(msg)
 		return mod, cmd, true
 	case resumepicker.BlinkMsg:
-		if m.resumePicker.Active() && m.resumePicker.Query() != "" {
-			m.resumePicker.SetCursorOn(!m.resumePicker.CursorOn())
+		if m.overlays.resumePicker.Active() && m.overlays.resumePicker.Query() != "" {
+			m.overlays.resumePicker.SetCursorOn(!m.overlays.resumePicker.CursorOn())
 			return m, resumepicker.BlinkCmd(), true
 		}
-		m.resumePicker.SetCursorOn(false)
+		m.overlays.resumePicker.SetCursorOn(false)
 		return m, nil, true
 	case keybind.EscTimeoutMsg:
-		if m.altEscBuf.Pending {
-			m.altEscBuf.Pending = false
+		if m.composer.altEscBuf.Pending {
+			m.composer.altEscBuf.Pending = false
 			_, _ = m.handleEscKey()
 		}
 		return m, nil, true
 	case voice.ConnectDoneMsg:
-		return m, m.voiceSurface.HandleConnectDone(msg), true
+		return m, m.viewport.voiceSurface.HandleConnectDone(msg), true
 	case voice.TickMsg:
-		return m, m.voiceSurface.HandleTick(), true
+		return m, m.viewport.voiceSurface.HandleTick(), true
 	case tea.PasteMsg:
 		cmd := m.handlePasteContent(msg.Content)
 		return m, cmd, true
@@ -1326,14 +1330,14 @@ func (m *runMode) updateMouseAndMiscMsg(msg tea.Msg) (tea.Model, tea.Cmd, bool) 
 		m.SelectCommand(msg.Command)
 		return m, nil, true
 	case helppanel.DismissedMsg:
-		m.helpPanel.Close()
+		m.viewport.helpPanel.Close()
 		return m, nil, true
 	case slashpicker.CompletedMsg:
-		m.input.SetValue(msg.Text)
-		m.picker.Reset()
+		m.composer.input.SetValue(msg.Text)
+		m.composer.picker.Reset()
 		return m, nil, true
 	case slashpicker.DismissedMsg:
-		m.picker.Reset()
+		m.composer.picker.Reset()
 		return m, nil, true
 	case modelpicker.ModelSelectedMsg:
 		m.ApplyModel(msg.Label)
@@ -1441,64 +1445,108 @@ func (m *runMode) updateCompactDoneMsg(msg compactDoneMsg) (tea.Model, tea.Cmd) 
 func (m *runMode) updateBashDoneMsg(msg bashDoneMsg) (tea.Model, tea.Cmd) {
 	// A preempted command's completion arrives after its successor started;
 	// its generation is stale, so it must not touch the live block.
-	if msg.gen != m.store.BashGen {
+	if msg.gen != m.session.store.BashGen {
 		return m, nil
 	}
 	m.finishBashCommand(msg)
-	if len(m.store.BashQueue) > 0 {
-		next := m.store.BashQueue[0]
-		m.store.BashQueue = m.store.BashQueue[1:]
+	if len(m.session.store.BashQueue) > 0 {
+		next := m.session.store.BashQueue[0]
+		m.session.store.BashQueue = m.session.store.BashQueue[1:]
 		return m, tea.Batch(m.startBashCommand(next), tea.ClearScreen)
 	}
 	return m, tea.ClearScreen
 }
 
 func (m *runMode) updateSpinnerTickMsg(msg sp.TickMsg) (tea.Model, tea.Cmd) {
-	if m.streaming {
+	if m.engine.streaming {
 		var cmd tea.Cmd
-		m.spinner, cmd = m.spinner.Update(msg)
-		m.spinFrame++
+		m.engine.spinner, cmd = m.engine.spinner.Update(msg)
+		m.engine.spinFrame++
 		return m, cmd
 	}
 	return m, nil
 }
 
 func (m *runMode) updateUsageQuotaTickMsg() (tea.Model, tea.Cmd) {
-	if m.panel.kind != panelregistry.Usage {
+	if m.overlays.panel.kind != panelregistry.Usage {
 		return m, nil
 	}
-	m.quotaFrame++
-	if m.panel.quota.state == quotaLoading && m.quotaFrame >= usageQuotaLoadingTicks {
+	m.engine.quotaFrame++
+	if m.overlays.panel.quota.state == quotaLoading && m.engine.quotaFrame >= usageQuotaLoadingTicks {
 		quotaStubRefills(m)
 	}
 	return m, usagepanel.QuotaTick()
 }
 
 func (m *runMode) updateCompactStartMsg(msg compactStartMsg) (tea.Model, tea.Cmd) {
-	m.store.CompactStart = msg.StartedAt
-	m.store.CompactEnd = time.Time{}
-	m.store.CompactSpinnerFrame = 0
-	m.store.CompactReason = msg.Reason
-	m.store.CompactTokensBefore = 0
-	m.store.CompactTokensAfter = 0
+	m.session.store.CompactStart = msg.StartedAt
+	m.session.store.CompactEnd = time.Time{}
+	m.session.store.CompactSpinnerFrame = 0
+	m.session.store.CompactReason = msg.Reason
+	m.session.store.CompactTokensBefore = 0
+	m.session.store.CompactTokensAfter = 0
 	return m, compactSpinnerTick()
 }
 
 func (m *runMode) updateCompactEndMsg(msg compactEndMsg) (tea.Model, tea.Cmd) {
-	m.store.CompactEnd = msg.EndedAt
-	m.store.CompactReason = msg.Reason
-	m.store.CompactTokensBefore = msg.TokensBefore
-	m.store.CompactTokensAfter = msg.EstimatedTokensAfter
+	m.session.store.CompactEnd = msg.EndedAt
+	m.session.store.CompactReason = msg.Reason
+	m.session.store.CompactTokensBefore = msg.TokensBefore
+	m.session.store.CompactTokensAfter = msg.EstimatedTokensAfter
+
+	if msg.Summary != "" {
+		requests := compaction.UserRequests(m.engine.session, compaction.MaxUserRequests)
+		carriedTokens := compaction.EstimateTokens(compaction.CarriedBlock(requests))
+		m.engine.session = []backend.Message{{
+			Role:    "user",
+			Content: compaction.ResumingBlock(requests, msg.Summary),
+		}}
+		if m.session.supervisor != nil {
+			m.session.supervisor.Replace(m.engine.session)
+		}
+		m.engine.liveReplyIdx = -1
+
+		overhead := compaction.ContextOverheadTokens(m.systemPrompt(), modelDeclarationsJSON())
+		beforeTokens, afterTokens, summaryTokens := compaction.ComputeCompactTokens(
+			msg.TokensBefore,
+			0,
+			msg.EstimatedTokensAfter,
+			0,
+			overhead,
+			msg.Summary,
+			carriedTokens,
+		)
+
+		took := msg.EndedAt.Sub(m.session.store.CompactStart)
+		if took < 0 {
+			took = 0
+		}
+
+		m.engine.response = append(m.engine.response,
+			compaction.DividerRow(m.viewport.width),
+			compaction.StatsRow(
+				m.viewport.width,
+				0,
+				beforeTokens,
+				afterTokens,
+				summaryTokens,
+				took,
+			),
+			"",
+		)
+		m.viewport.rowsCacheDirty = true
+	}
+
 	return m, nil
 }
 
 func (m *runMode) updateCompactSpinnerTickMsg() (tea.Model, tea.Cmd) {
-	if m.store.CompactStart.IsZero() || !m.store.CompactEnd.IsZero() {
+	if m.session.store.CompactStart.IsZero() || !m.session.store.CompactEnd.IsZero() {
 		return m, nil
 	}
-	m.store.CompactSpinnerFrame++
-	if m.store.CompactSpinnerFrame >= 8 {
-		m.store.CompactSpinnerFrame = 0
+	m.session.store.CompactSpinnerFrame++
+	if m.session.store.CompactSpinnerFrame >= 8 {
+		m.session.store.CompactSpinnerFrame = 0
 	}
 	return m, compactSpinnerTick()
 }
@@ -1507,11 +1555,11 @@ func (m *runMode) updatePluginBlinkMsg() (tea.Model, tea.Cmd) {
 	// Cycle 381: the blink phase is the panel's own state — the panel
 	// lives in internal/ui/views/pluginsui — so the host only flips it
 	// and re-arms the tick while a blinking cursor is on screen.
-	p := m.panel.plg
+	p := m.overlays.panel.plg
 	if p == nil {
 		return m, nil
 	}
-	if m.panel.kind == panelregistry.Plugin && p.Blinking() {
+	if m.overlays.panel.kind == panelregistry.Plugin && p.Blinking() {
 		p.ToggleBlink()
 		return m, pluginsui.Blink()
 	}
@@ -1526,7 +1574,7 @@ func (m *runMode) updatePluginBlinkMsg() (tea.Model, tea.Cmd) {
 // /codesearch panel (internal/ui/views/codesearchpanel); the host only
 // carries the tick message.
 func (m *runMode) updateCSTickMsg() (tea.Model, tea.Cmd) {
-	if m.panel.kind != panelregistry.CodeSearch {
+	if m.overlays.panel.kind != panelregistry.CodeSearch {
 		return m, nil
 	}
 	p := m.codesearchPanel()
@@ -1582,14 +1630,14 @@ func (m *runMode) updateTickMsg(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
 		// tier; until that answer lands the session shows the email
 		// alone, never the previous account's tier.
 		if msg.email != "" {
-			m.tierAccount = msg.email
-			m.tierFetched = msg.tier != ""
+			m.session.tierAccount = msg.email
+			m.session.tierFetched = msg.tier != ""
 			if msg.tier != "" {
-				m.tier = msg.tier
+				m.session.tier = msg.tier
 				// The tier was cached in the registry, and the /accounts
 				// panel shows the cached tier, so its rows have to be
 				// re-read.
-				if m.panel.kind == panelregistry.Accounts {
+				if m.overlays.panel.kind == panelregistry.Accounts {
 					m.accountsPanel().Reload()
 				}
 			} else {
@@ -1597,7 +1645,7 @@ func (m *runMode) updateTickMsg(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
 				// or an ineligible one): the session shows the email
 				// alone, not the previous account's tier and not a
 				// placeholder.
-				m.tier = ""
+				m.session.tier = ""
 			}
 		}
 		return m, nil, true
@@ -1638,17 +1686,17 @@ func (m *runMode) updateTickMsg(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
 func (m *runMode) updatePanelTickMsg(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
 	switch msg := msg.(type) {
 	case quotaSummaryMsg:
-		if m.panel.kind == panelregistry.Usage {
+		if m.overlays.panel.kind == panelregistry.Usage {
 			if msg.summary != nil {
-				m.panel.quota.summary = msg.summary
-				m.panel.quota.loadedAt = time.Now()
-				m.panel.quota.state = quotaLoaded
+				m.overlays.panel.quota.summary = msg.summary
+				m.overlays.panel.quota.loadedAt = time.Now()
+				m.overlays.panel.quota.state = quotaLoaded
 				// The summary is cached for the session, so the
 				// /accounts panel can show the active account's
 				// quota without querying it a second time.
-				m.cacheQuota(m.email, msg.summary)
+				m.cacheQuota(m.session.email, msg.summary)
 			} else if msg.err != nil {
-				m.panel.quota.fetchErr = msg.err.Error()
+				m.overlays.panel.quota.fetchErr = msg.err.Error()
 			}
 		}
 		return m, nil, true
@@ -1659,18 +1707,18 @@ func (m *runMode) updatePanelTickMsg(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
 	case providerpanel.VerifyMsg:
 		// The /provider panel's verification probe came back. The panel
 		// may have been closed while the request was in flight.
-		if m.panel.kind == panelregistry.Provider {
+		if m.overlays.panel.kind == panelregistry.Provider {
 			m.providerPanel().ApplyVerifyMsg(msg)
 		}
 		return m, nil, true
 	case providerpanel.OAuthResultMsg:
-		if m.panel.kind == panelregistry.Provider {
+		if m.overlays.panel.kind == panelregistry.Provider {
 			m.providerPanel().ApplyOAuthResultMsg(msg)
 		}
 		return m, nil, true
 	case providerpanel.OAuthTickMsg:
-		if m.panel.kind == panelregistry.Provider && m.panel.prov != nil {
-			return m, m.panel.prov.ApplyOAuthTick(), true
+		if m.overlays.panel.kind == panelregistry.Provider && m.overlays.panel.prov != nil {
+			return m, m.overlays.panel.prov.ApplyOAuthTick(), true
 		}
 		return m, nil, true
 	case usageQuotaTickMsg:
@@ -1689,33 +1737,33 @@ func (m *runMode) updatePanelTickMsg(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
 // ---- tui_update_login.go ----
 
 func (m *runMode) updateLogin(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
-	if m.login == nil {
+	if m.overlays.login == nil {
 		return m, nil, false
 	}
 	if !tuiviewport.IsScrollMsg(msg) {
-		m.rowsCacheDirty = true
+		m.viewport.rowsCacheDirty = true
 	}
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
-		m.width, m.height = msg.Width, msg.Height
-		m.login.Width, m.login.Height = msg.Width, msg.Height
+		m.viewport.width, m.viewport.height = msg.Width, msg.Height
+		m.overlays.login.Width, m.overlays.login.Height = msg.Width, msg.Height
 		return m, nil, true
 	case tea.KeyPressMsg:
 		if msg.String() == "ctrl+c" {
-			m.login = nil
+			m.overlays.login = nil
 			return m, tea.Quit, true
 		}
-		if msg.String() == "esc" && m.login.State == loginui.StateSelectMethod {
-			m.login = nil
+		if msg.String() == "esc" && m.overlays.login.State == loginui.StateSelectMethod {
+			m.overlays.login = nil
 			m.slashRespond("/login", "Sign in cancelled.")
 			return m, nil, true
 		}
 	case *auth.AntigravityToken:
 		return m, m.finishLogin(msg), true
 	}
-	newLM, cmd := m.login.Update(msg)
+	newLM, cmd := m.overlays.login.Update(msg)
 	if lm, ok := newLM.(*loginui.Model); ok {
-		m.login = lm
+		m.overlays.login = lm
 		if lm.Authenticated {
 			// Cycle multi-account-switch: the OAuth sign-in becomes a
 			// known account (the *auth.AntigravityToken case above).
@@ -1737,10 +1785,10 @@ func (m *runMode) updateLogin(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
 // account has to ask about *that* account — otherwise the previous
 // account's tier would be shown against the new one.
 func (m *runMode) finishLogin(token *auth.AntigravityToken) tea.Cmd {
-	m.login = nil
-	m.email = auth.EffectiveUserEmail()
-	if m.backendFor != nil {
-		m.backend = m.backendFor(m.model)
+	m.overlays.login = nil
+	m.session.email = auth.EffectiveUserEmail()
+	if m.engine.backendFor != nil {
+		m.engine.backend = m.engine.backendFor(m.session.model)
 	}
 	// The session's tier belonged to the previous account.
 	m.forgetSessionTier()
@@ -1749,7 +1797,7 @@ func (m *runMode) finishLogin(token *auth.AntigravityToken) tea.Cmd {
 	if token != nil {
 		acc, _, err := accounts.Register(token)
 		if err == nil && acc.Email != "" {
-			m.email = acc.Email
+			m.session.email = acc.Email
 		}
 	}
 	// The sign-in completed, so the shared credential changed: the
@@ -1771,8 +1819,8 @@ type altKeyFire struct {
 
 // altDispatchAction is the production action table.
 func (m *runMode) altDispatchAction(letter rune, action string) {
-	m.altKeyFires = append(m.altKeyFires, altKeyFire{Letter: letter, Action: action})
-	m.response = append(m.response,
+	m.composer.altKeyFires = append(m.composer.altKeyFires, altKeyFire{Letter: letter, Action: action})
+	m.engine.response = append(m.engine.response,
 		uirows.NoticeDim("alt+"+string(letter)+" → "+action))
 }
 
@@ -1791,11 +1839,12 @@ func (m *runMode) armEscReleaseTick() tea.Cmd {
 }
 
 func (m *runMode) canConsumeAltEsc() bool {
-	if m.panel.kind != panelregistry.None || m.helpPanel.Active() ||
-		m.picker.Visible() || m.atFilePicker.Visible() ||
-		m.resumePicker.Active() || m.voiceSurface.Active() ||
-		m.mediaExpanded || m.isBtwCardVisible() ||
-		m.streaming || m.store.BashCancel != nil ||
+	if m.vimEnabled() ||
+		m.overlays.panel.kind != panelregistry.None || m.viewport.helpPanel.Active() ||
+		m.composer.picker.Visible() || m.composer.atFilePicker.Visible() ||
+		m.overlays.resumePicker.Active() || m.viewport.voiceSurface.Active() ||
+		m.composer.mediaExpanded || m.isBtwCardVisible() ||
+		m.engine.streaming || m.session.store.BashCancel != nil ||
 		m.hasInputSelection() {
 		return false
 	}
@@ -1809,7 +1858,7 @@ func (m *runMode) consumeAltEsc(msg tea.KeyMsg) (newMsg tea.KeyMsg, consumed boo
 		return msg, false, nil
 	}
 
-	if m.keybindings == nil || len(m.keybindings.RawBindings()) == 0 {
+	if m.composer.keybindings == nil || len(m.composer.keybindings.RawBindings()) == 0 {
 		return msg, false, nil
 	}
 
@@ -1817,10 +1866,10 @@ func (m *runMode) consumeAltEsc(msg tea.KeyMsg) (newMsg tea.KeyMsg, consumed boo
 		return msg, false, nil
 	}
 
-	if m.altEscBuf.Pending {
-		consumedKey := m.altEscBuf.Feed(
+	if m.composer.altEscBuf.Pending {
+		consumedKey := m.composer.altEscBuf.Feed(
 			key,
-			func(r rune) bool { return m.keybindings != nil && m.keybindings.Has(r) },
+			func(r rune) bool { return m.composer.keybindings != nil && m.composer.keybindings.Has(r) },
 			func(r rune) {
 				key = tea.Key{Code: r, Mod: tea.ModAlt, Text: string(r)}
 			},
@@ -1834,7 +1883,7 @@ func (m *runMode) consumeAltEsc(msg tea.KeyMsg) (newMsg tea.KeyMsg, consumed boo
 	}
 
 	if key.Code == tea.KeyEsc && key.Mod == 0 {
-		if m.altEscBuf.Start(time.Now()) {
+		if m.composer.altEscBuf.Start(time.Now()) {
 			return msg, true, m.armEscReleaseTick()
 		}
 	}
@@ -1864,30 +1913,30 @@ func (m *runMode) consumeAltEsc(msg tea.KeyMsg) (newMsg tea.KeyMsg, consumed boo
 // closes, so toggling Editor Mode in /config applies without a restart);
 // it is kept in a field rather than re-read per keystroke so the tests
 // stay hermetic and the render path does no file I/O.
-func (m *runMode) vimEnabled() bool { return m.vimOn }
+func (m *runMode) vimEnabled() bool { return m.composer.vimOn }
 
 func (m *runMode) VimEnabled() bool { return m.vimEnabled() }
 
 // vimInsertFirstEnabled reports the "Editor Mode › Insert First" child
 // setting: when on, the prompt opens in Insert mode and a bare Enter
 // submits instead of inserting a newline.
-func (m *runMode) vimInsertFirstEnabled() bool { return m.vimFirstOn }
+func (m *runMode) vimInsertFirstEnabled() bool { return m.composer.vimFirstOn }
 
 // reloadVimSettings reads the two vim settings from the live
 // settings.json. It is called once at TUI start-up and again when a slash
 // panel closes (/config can change both).
 func (m *runMode) reloadVimSettings() {
-	m.vimOn = false
+	m.composer.vimOn = false
 	if raw, err := settings.Field("editorMode"); err == nil {
-		m.vimOn = configpanel.RawString(raw) == "vim"
+		m.composer.vimOn = configpanel.RawString(raw) == "vim"
 	}
-	m.vimFirstOn = false
+	m.composer.vimFirstOn = false
 	if raw, err := settings.Field("vimInsertFirst"); err == nil {
 		switch v := raw.(type) {
 		case bool:
-			m.vimFirstOn = v
+			m.composer.vimFirstOn = v
 		case string:
-			m.vimFirstOn = v == "on" || v == "true"
+			m.composer.vimFirstOn = v == "on" || v == "true"
 		}
 	}
 }
@@ -1898,15 +1947,15 @@ func (m *runMode) reloadVimSettings() {
 // substitution, a slash rewrite — the engine is re-seeded so it always
 // tracks what is actually on screen.
 func (m *runMode) vimEngine() *vim.State {
-	if m.vimEng == nil {
-		m.vimEng = vim.New(m.input.Value())
-	} else if m.vimEng.Text() != m.input.Value() {
-		m.vimEng.SetText(m.input.Value())
+	if m.composer.vimEng == nil {
+		m.composer.vimEng = vim.New(m.composer.input.Value())
+	} else if m.composer.vimEng.Text() != m.composer.input.Value() {
+		m.composer.vimEng.SetText(m.composer.input.Value())
 	}
 	// SetInsertFirst is a no-op when the setting is unchanged, so this
 	// does not yank the user back into Insert mode on every keystroke.
-	m.vimEng.SetInsertFirst(m.vimInsertFirstEnabled())
-	return m.vimEng
+	m.composer.vimEng.SetInsertFirst(m.vimInsertFirstEnabled())
+	return m.composer.vimEng
 }
 
 // vimMode reports the mode the status row's badge shows.
@@ -1930,15 +1979,15 @@ func (m *runMode) vimMode() vim.Mode {
 // of the line is legal in Insert mode (the append point), and the
 // textarea clamps it itself.
 func (m *runMode) syncVimInput() {
-	eng := m.vimEng
+	eng := m.composer.vimEng
 	if eng == nil {
 		return
 	}
-	m.input.SetValue(eng.Text())
-	for r := m.input.LineCount() - 1; r > eng.Row; r-- {
-		m.input.CursorUp()
+	m.composer.input.SetValue(eng.Text())
+	for r := m.composer.input.LineCount() - 1; r > eng.Row; r-- {
+		m.composer.input.CursorUp()
 	}
-	m.input.SetCursorColumn(eng.Col)
+	m.composer.input.SetCursorColumn(eng.Col)
 }
 
 // handleVimKey feeds one key to the engine. handled is false when the
@@ -1961,31 +2010,31 @@ func (m *runMode) handleVimKey(key tea.Key) (tea.Cmd, bool) {
 			isDown = isDown || ((key.Code == 'j' || key.Text == "j") && key.Mod == 0)
 		}
 		if isDown && eng.Row >= len(eng.Lines)-1 {
-			if !m.activeItems.Hidden() && m.activeItems.Count() > 0 {
-				m.activeItems.SetFocus(true)
-				m.activeItems.SelectFirst()
+			if !m.viewport.activeItems.Hidden() && m.viewport.activeItems.Count() > 0 {
+				m.viewport.activeItems.SetFocus(true)
+				m.viewport.activeItems.SelectFirst()
 				return nil, true
 			}
 		}
 	}
 
 	// Custom Vim submit bindings from keybindings.json
-	if m.keybindings != nil {
+	if m.composer.keybindings != nil {
 		ks := keybind.KeyString(key)
 		if ks != "" {
 			if eng.Mode == vim.Insert {
-				if act := m.keybindings.ActionForExactKeyInScope(ks, "vim.insert."); act == "vim.insert.submit" {
+				if act := m.composer.keybindings.ActionForExactKeyInScope(ks, "vim.insert."); act == "vim.insert.submit" {
 					m.syncVimInput()
 					cmd := m.submitPrompt()
-					m.vimEng.SetTextKeepingPending(m.input.Value())
+					m.composer.vimEng.SetTextKeepingPending(m.composer.input.Value())
 					m.syncVimInput()
 					return cmd, true
 				}
 			} else if eng.Mode == vim.Normal {
-				if act := m.keybindings.ActionForExactKeyInScope(ks, "vim.normal."); act == "vim.normal.submit" {
+				if act := m.composer.keybindings.ActionForExactKeyInScope(ks, "vim.normal."); act == "vim.normal.submit" {
 					m.syncVimInput()
 					cmd := m.submitPrompt()
-					m.vimEng.SetTextKeepingPending(m.input.Value())
+					m.composer.vimEng.SetTextKeepingPending(m.composer.input.Value())
 					m.syncVimInput()
 					return cmd, true
 				}
@@ -2025,7 +2074,7 @@ func (m *runMode) handleVimKey(key tea.Key) (tea.Cmd, bool) {
 		// half-typed operator such as `d` carrying over after you submit
 		// a prompt". The submit clears the composer, so the engine is
 		// re-seeded from it — with the half-typed operator intact.
-		m.vimEng.SetTextKeepingPending(m.input.Value())
+		m.composer.vimEng.SetTextKeepingPending(m.composer.input.Value())
 		m.syncVimInput()
 		return cmd, true
 	}
@@ -2059,61 +2108,61 @@ func (m *runMode) handleVimKey(key tea.Key) (tea.Cmd, bool) {
 
 // isInputY reports whether the screen row y falls within the input field.
 func (m *runMode) isInputY(y int) bool {
-	if m.promptScreenY < 0 {
+	if m.composer.promptScreenY < 0 {
 		return false
 	}
-	return y >= m.promptScreenY && y < m.promptScreenY+m.inputLineCount()
+	return y >= m.composer.promptScreenY && y < m.composer.promptScreenY+m.inputLineCount()
 }
 
 // inputLineCount returns the visual line count of the input field (at least 1).
 func (m *runMode) inputLineCount() int {
-	if m.input.LineCount() > 0 {
-		return m.input.LineCount()
+	if m.composer.input.LineCount() > 0 {
+		return m.composer.input.LineCount()
 	}
 	return 1
 }
 
 // hasInputSelection reports whether a non-empty selection is active in the input field.
 func (m *runMode) hasInputSelection() bool {
-	return m.store.InputSelStart != m.store.InputSelEnd
+	return m.viewport.InputSelStart != m.viewport.InputSelEnd
 }
 
-// inputOffsetAt maps screen coordinate (x, y) to a byte offset within m.input.Value().
+// inputOffsetAt maps screen coordinate (x, y) to a byte offset within m.composer.input.Value().
 //
 // The arithmetic is the inputselection package's; the host supplies the
 // values it cannot know.
 func (m *runMode) inputOffsetAt(x, y int) int {
-	return inputselection.OffsetAt(m.input.Value(), m.inputLineCount(), m.promptScreenY, x, y)
+	return inputselection.OffsetAt(m.composer.input.Value(), m.inputLineCount(), m.composer.promptScreenY, x, y)
 }
 
-// setInputCursorOffset moves the textarea cursor to the given byte offset in m.input.Value().
+// setInputCursorOffset moves the textarea cursor to the given byte offset in m.composer.input.Value().
 //
 // The arithmetic is the inputselection package's; the host supplies the
 // value it cannot know.
 func (m *runMode) setInputCursorOffset(offset int) {
-	line, col := inputselection.CursorPosition(m.input.Value(), offset)
-	m.input.MoveToBegin()
+	line, col := inputselection.CursorPosition(m.composer.input.Value(), offset)
+	m.composer.input.MoveToBegin()
 	for l := 0; l < line; l++ {
-		m.input.CursorDown()
+		m.composer.input.CursorDown()
 	}
-	m.input.SetCursorColumn(col)
+	m.composer.input.SetCursorColumn(col)
 }
 
 // selectAllInput selects all text in the input field, moves cursor to the end,
 // and auto-copies the text to clipboard.
 func (m *runMode) selectAllInput() (tea.Cmd, bool) {
-	val := m.input.Value()
+	val := m.composer.input.Value()
 	if len(val) == 0 {
 		return nil, false
 	}
-	m.store.InputSelStart = 0
-	m.store.InputSelEnd = len(val)
+	m.viewport.InputSelStart = 0
+	m.viewport.InputSelEnd = len(val)
 	m.setInputCursorOffset(len(val))
 	_ = clipboard.Write(val)
 	return m.copySelectionCmd(val), true
 }
 
-// deleteInputSelection deletes the selected substring from m.input and clears selection.
+// deleteInputSelection deletes the selected substring from m.composer.input and clears selection.
 //
 // The value arithmetic is the inputselection package's; the host supplies
 // the value and the range, and owns the textarea's write.
@@ -2121,13 +2170,13 @@ func (m *runMode) deleteInputSelection() {
 	if !m.hasInputSelection() {
 		return
 	}
-	start, end := m.store.InputSelectionRange()
-	val := m.input.Value()
+	start, end := m.InputSelectionRange()
+	val := m.composer.input.Value()
 	if newVal, ok := inputselection.DeleteRange(val, start, end); ok {
-		m.input.SetValue(newVal)
+		m.composer.input.SetValue(newVal)
 		m.setInputCursorOffset(start)
 	}
-	m.store.ResetInputSelection()
+	m.ResetInputSelection()
 }
 
 // replaceInputSelection replaces the selected substring with replacement and clears selection.
@@ -2138,13 +2187,13 @@ func (m *runMode) replaceInputSelection(replacement string) {
 	if !m.hasInputSelection() {
 		return
 	}
-	start, end := m.store.InputSelectionRange()
-	val := m.input.Value()
+	start, end := m.InputSelectionRange()
+	val := m.composer.input.Value()
 	if newVal, ok := inputselection.ReplaceRange(val, start, end, replacement); ok {
-		m.input.SetValue(newVal)
+		m.composer.input.SetValue(newVal)
 		m.setInputCursorOffset(start + len(replacement))
 	}
-	m.store.ResetInputSelection()
+	m.ResetInputSelection()
 }
 
 // applyInputSelectionHighlight applies reverse-video styling to the selected
@@ -2153,8 +2202,8 @@ func (m *runMode) replaceInputSelection(replacement string) {
 // The arithmetic is the inputselection package's; the host supplies the
 // selection's range and the value it is a range in.
 func (m *runMode) applyInputSelectionHighlight(inputView string) string {
-	start, end := m.store.InputSelectionRange()
-	return inputselection.ApplyHighlight(inputView, m.input.Value(), start, end)
+	start, end := m.InputSelectionRange()
+	return inputselection.ApplyHighlight(inputView, m.composer.input.Value(), start, end)
 }
 
 var clipboardReadText = clipboard.Read
@@ -2166,26 +2215,26 @@ func (m *runMode) insertPastedText(s string) tea.Cmd {
 	if s == "" {
 		return nil
 	}
-	if m.panel.kind == panelregistry.Rename {
+	if m.overlays.panel.kind == panelregistry.Rename {
 		// Cycle 381: the /rename panel owns its input, so the paste
 		// goes through the panel.
 		return m.renamePanel().HandlePaste(s)
 	}
-	if m.panel.kind == panelregistry.Provider {
+	if m.overlays.panel.kind == panelregistry.Provider {
 		return m.providerPanel().HandlePaste(s)
 	}
-	if m.helpPanel.Active() || m.panel.kind != panelregistry.None {
+	if m.viewport.helpPanel.Active() || m.overlays.panel.kind != panelregistry.None {
 		return nil
 	}
-	if m.resumePicker.Active() {
-		m.resumePicker.TypeText(s)
+	if m.overlays.resumePicker.Active() {
+		m.overlays.resumePicker.TypeText(s)
 		return nil
 	}
 	if m.hasInputSelection() {
 		m.deleteInputSelection()
 	}
-	if m.undoMgr != nil {
-		m.undoMgr.RecordBeforeChange(m.input.Value(), tuilib.InputCursorByteOffset(m.input), "paste")
+	if m.composer.undoMgr != nil {
+		m.composer.undoMgr.RecordBeforeChange(m.composer.input.Value(), tuilib.InputCursorByteOffset(m.composer.input), "paste")
 	}
 
 	// Folding threshold: >= 16 lines or > 1000 characters.
@@ -2194,23 +2243,23 @@ func (m *runMode) insertPastedText(s string) tea.Cmd {
 	lines := strings.Count(s, "\n") + 1
 	charCount := len([]rune(s))
 	if lines >= 16 || charCount > 1000 {
-		if m.pastedBlocks == nil {
-			m.pastedBlocks = make(map[string]string)
+		if m.composer.pastedBlocks == nil {
+			m.composer.pastedBlocks = make(map[string]string)
 		}
-		m.nextPasteID++
+		m.composer.nextPasteID++
 		var placeholder string
 		if lines >= 16 {
-			placeholder = fmt.Sprintf("[Pasted text #%d +%d lines]", m.nextPasteID, lines)
+			placeholder = fmt.Sprintf("[Pasted text #%d +%d lines]", m.composer.nextPasteID, lines)
 		} else {
-			placeholder = fmt.Sprintf("[Pasted text #%d %d chars]", m.nextPasteID, charCount)
+			placeholder = fmt.Sprintf("[Pasted text #%d %d chars]", m.composer.nextPasteID, charCount)
 		}
-		m.pastedBlocks[placeholder] = s
+		m.composer.pastedBlocks[placeholder] = s
 		toInsert = placeholder
 	}
 
-	m.input.InsertString(toInsert)
-	m.picker.Update([]rune(tuilib.FirstLine(m.input.Value())))
-	m.atFilePicker.Update()
+	m.composer.input.InsertString(toInsert)
+	m.composer.picker.Update([]rune(tuilib.FirstLine(m.composer.input.Value())))
+	m.composer.atFilePicker.Update()
 	m.clearEligibilityNotice()
 	return nil
 }
@@ -2267,18 +2316,18 @@ func (m *runMode) applyModelArgument(arg string) tea.Cmd {
 			argLower := strings.ToLower(strings.TrimSpace(arg))
 			for _, mdl := range models {
 				if strings.ToLower(mdl.ID) == argLower || strings.ToLower(mdl.DisplayName) == argLower {
-					if m.model == mdl.ID || m.model == mdl.DisplayName {
+					if m.session.model == mdl.ID || m.session.model == mdl.DisplayName {
 						m.slashRespond("/model", "Model already set to "+mdl.DisplayName)
 						return nil
 					}
-					if m.streaming && m.turnCancel != nil {
-						m.turnCancel()
-						m.turnCancel = nil
-						m.turnInterrupted = true
+					if m.engine.streaming && m.engine.turnCancel != nil {
+						m.engine.turnCancel()
+						m.engine.turnCancel = nil
+						m.engine.turnInterrupted = true
 					}
 					_ = settings.SetField("model", mdl.ID)
-					m.model = mdl.ID
-					m.statusModel = tuilib.StripTier(mdl.DisplayName)
+					m.session.model = mdl.ID
+					m.session.statusModel = tuilib.StripTier(mdl.DisplayName)
 					m.slashRespond("/model", "Model set to "+mdl.DisplayName)
 					return nil
 				}
@@ -2287,18 +2336,18 @@ func (m *runMode) applyModelArgument(arg string) tea.Cmd {
 		m.slashRespond("/model", modelargpopup.InvalidMessage(arg))
 		return nil
 	}
-	if m.model == entry.Label {
+	if m.session.model == entry.Label {
 		m.slashRespond("/model", "Model already set to "+entry.Label)
 		return nil
 	}
-	if m.streaming && m.turnCancel != nil {
-		m.turnCancel()
-		m.turnCancel = nil
-		m.turnInterrupted = true
+	if m.engine.streaming && m.engine.turnCancel != nil {
+		m.engine.turnCancel()
+		m.engine.turnCancel = nil
+		m.engine.turnInterrupted = true
 	}
 	_ = settings.SetField("model", entry.ID)
-	m.model = entry.Label
-	m.statusModel = tuilib.StripTier(entry.Label)
+	m.session.model = entry.Label
+	m.session.statusModel = tuilib.StripTier(entry.Label)
 	m.syncBackendForModel()
 	m.slashRespond("/model", "Model set to "+entry.Label)
 	return nil
@@ -2307,39 +2356,39 @@ func (m *runMode) applyModelArgument(arg string) tea.Cmd {
 // submitModelCompletion runs the Enter semantics of the "/model <query>"
 // popup. It reports whether it consumed the key.
 func (m *runMode) submitModelCompletion() (bool, tea.Cmd) {
-	if !m.picker.IsModelMode() {
+	if !m.composer.picker.IsModelMode() {
 		return false, nil
 	}
-	arg := strings.TrimSpace(m.picker.Query())
+	arg := strings.TrimSpace(m.composer.picker.Query())
 	if entry, ok := modelargpopup.Resolve(arg); ok {
-		m.picker.Reset()
-		m.input.Reset()
-		m.store.ResetInputSelection()
-		m.promptHistory.Reset()
-		if m.model == entry.Label {
+		m.composer.picker.Reset()
+		m.composer.input.Reset()
+		m.ResetInputSelection()
+		m.composer.promptHistory.Reset()
+		if m.session.model == entry.Label {
 			m.slashRespond("/model", "Model already set to "+entry.Label)
 			return true, nil
 		}
 		_ = settings.SetField("model", entry.ID)
-		m.model = entry.Label
-		m.statusModel = tuilib.StripTier(entry.Label)
+		m.session.model = entry.Label
+		m.session.statusModel = tuilib.StripTier(entry.Label)
 		m.syncBackendForModel()
 		m.slashRespond("/model", "Model set to "+entry.Label)
 		return true, nil
 	}
 	// The argument names no model: the highlighted row is completed into
 	// the composer instead of running the command.
-	if sel := m.picker.Selected(); sel != nil {
-		m.input.SetValue("/model " + sel.Name)
-		m.picker.Reset()
-		m.promptHistory.Reset()
+	if sel := m.composer.picker.Selected(); sel != nil {
+		m.composer.input.SetValue("/model " + sel.Name)
+		m.composer.picker.Reset()
+		m.composer.promptHistory.Reset()
 		return true, nil
 	}
 	// Nothing matches at all: the command runs and reports the argument.
-	m.picker.Reset()
-	m.input.Reset()
-	m.store.ResetInputSelection()
-	m.promptHistory.Reset()
+	m.composer.picker.Reset()
+	m.composer.input.Reset()
+	m.ResetInputSelection()
+	m.composer.promptHistory.Reset()
 	m.slashRespond("/model", modelargpopup.InvalidMessage(arg))
 	return true, nil
 }

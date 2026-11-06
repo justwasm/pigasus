@@ -58,14 +58,11 @@ type actorPrintConfig struct {
 	Selection      ConversationSelection
 }
 
-func preparePrintProvider(cfg actorPrintConfig) (actor.Provider, *error, error) {
+func preparePrintProvider(cfg actorPrintConfig) (actor.Provider, error) {
 	if cfg.Backend == nil {
-		return nil, nil, errors.New("actor runtime: backend must not be nil")
+		return nil, errors.New("actor runtime: backend must not be nil")
 	}
-	base := agentturn.NewBackendProviderAdapter(cfg.Backend, cfg.Model)
-	slot := new(error)
-	rec := agentturn.NewErrorRecordingProvider(base, slot)
-	return rec, slot, nil
+	return agentturn.NewBackendProviderAdapter(cfg.Backend, cfg.Model), nil
 }
 
 func buildPrintTools(cfg actorPrintConfig, provider actor.Provider, systemPrompt func() string, denials *[]string) ([]actor.Tool, func(), error) {
@@ -163,7 +160,7 @@ func runActorPrintTurn(ctx context.Context, cfg actorPrintConfig) ([]string, err
 		cfg.ConversationID = agyprompt.NewConversationID()
 	}
 
-	provider, errSlot, err := preparePrintProvider(cfg)
+	provider, err := preparePrintProvider(cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -216,7 +213,7 @@ func runActorPrintTurn(ctx context.Context, cfg actorPrintConfig) ([]string, err
 		_ = act.Close()
 	}()
 
-	return denials, executeActorPrintRun(ctx, act, cfg, deliveries, errSlot)
+	return denials, executeActorPrintRun(ctx, act, cfg, deliveries)
 }
 
 type subagentDelivery struct {
@@ -272,7 +269,7 @@ func actorImplicitHistory(workspace string) []printHistoryTurn {
 	return out
 }
 
-func executeActorPrintRun(ctx context.Context, act *actor.Actor, cfg actorPrintConfig, deliveries <-chan subagentDelivery, errSlot *error) error {
+func executeActorPrintRun(ctx context.Context, act *actor.Actor, cfg actorPrintConfig, deliveries <-chan subagentDelivery) error {
 	prompt := cfg.Prompt
 	if len(cfg.JSONSchema) > 0 {
 		prompt = fmt.Sprintf("%s\n\n[System constraint: You must output ONLY valid JSON matching this schema exactly, with no markdown code fences and no extra text:\n%s]", prompt, string(cfg.JSONSchema))
@@ -302,13 +299,10 @@ func executeActorPrintRun(ctx context.Context, act *actor.Actor, cfg actorPrintC
 		})
 
 		runErr := agentturn.ExecuteActorTurn(ctx, act, prompt, sink)
-		if finishErr := sink.Finish(errSlot); finishErr != nil {
+		if finishErr := sink.Finish(); finishErr != nil {
 			return finishErr
 		}
 		if runErr != nil {
-			if errSlot != nil && *errSlot != nil {
-				runErr = *errSlot
-			}
 			if herr := cfg.Handler(backend.StreamChunk{Error: runErr, Done: true}); herr != nil {
 				return herr
 			}

@@ -14,19 +14,18 @@ flowchart TB
     subgraph CLI["cmd/pigasus — the CLI"]
         main["main.go<br/>flags + the eighteen subcommands"]
         dispatch["main_dispatch.go<br/>the proxy group"]
-        print["print_pig.go<br/>the --print path"]
-        tui["internal/cliapp<br/>the interactive TUI"]
+        print["internal/printmode<br/>the --print path"]
+        tui["internal/tui<br/>the interactive TUI (Composite Elm)"]
     end
 
     subgraph Engines["turn engines"]
-        pigrt["internal/pigrt<br/>PiG coding.Session<br/>(headless: --print)"]
-        agentloop["internal/agent.Loop<br/>PiG agent.Agent<br/>(interactive TUI)"]
+        actor["actor.Actor<br/>Turn Runtime Engine<br/>(headless: --print, server)"]
+        agentloop["internal/app/agentturn.Engine<br/>Interactive Turn Engine<br/>(interactive TUI)"]
     end
 
-    subgraph Bridge["internal/piagentbridge — the only PiG translation layer"]
-        native["gatewayprovider.go<br/>native ai.Provider (OpenAI-shaped)"]
-        gen["backendprovider.go<br/>any backend.Client → ai.Provider"]
-        tools["tool.go<br/>the tool catalogue bridge"]
+    subgraph SurfaceSeams["translation seams"]
+        bridge["internal/tui/bridge.go<br/>EngineBridge"]
+        adapter["internal/app/agentturn/actor_adapter.go<br/>Actor Provider Adapter"]
     end
 
     subgraph Backend["internal/infra/backend — the transports"]
@@ -44,14 +43,15 @@ flowchart TB
     main --> dispatch
     main --> print
     main --> tui
-    print --> pigrt
-    tui --> agentloop
-    pigrt --> Bridge
-    agentloop --> Bridge
-    Bridge --> Backend
-    pigrt --> prompt
+    print --> actor
+    tui --> bridge
+    bridge --> agentloop
+    agentloop --> adapter
+    adapter --> Backend
+    actor --> Backend
+    print --> prompt
     agentloop --> prompt
-    Bridge --> toolcat
+    adapter --> toolcat
     cfg --> Backend
     Backend --> auth
 ```
@@ -61,9 +61,10 @@ flowchart TB
 | Package | What it owns |
 |---|---|
 | `cmd/pigasus` | the CLI: flags, the eighteen visible subcommands (the reference's twelve plus the clone's six), and the early `agy` dispatch (before the parser exists) |
-| `internal/agent` | the TUI's turn engine — `Loop.Send` delegates to PiG's `agent.Agent`; `pig.go` is the translation layer |
-| `internal/pigrt` | the headless turn engine — a wrapper around PiG's `coding.Session`, plus the `mcp.json` bridge, the skill roots and the out-of-band error slot |
-| `internal/piagentbridge` | the only place that speaks PiG: `backend.Client` → `ai.Provider`, the tool catalogue bridge, the stall watcher, the native gateway provider |
+| `actor` | the Actor turn runtime engine — powers headless `--print`, servers, and async task execution |
+| `internal/app/agentturn` | the TUI's turn loop engine — coordinates turns, tool steps, and dynamic capabilities |
+| `internal/tui` | the interactive TUI's **host**: Elm model decomposition (`session`, `engine`, `viewport`, `composer`, `overlays`), transcript streaming, composer and slash dispatch |
+| `internal/printmode` | the headless turn host (`--print` execution and json streaming) |
 | `internal/infra/backend` | the two transports: `cloudcode.go` (the reference's wire) and `gateway.go` (the configured endpoint, OpenAI + Anthropic) |
 | `internal/features/auth` | OAuth, the token store, the quota and plan-tier queries |
 | `internal/features/models` | `providers.json`: the registry, its single writer (`Editor`) and the ordered-JSON editor |
@@ -76,7 +77,7 @@ flowchart TB
 | `internal/app/prompt/step` | the reference's step strings (rendered from `step_strings/*.tmpl`) and the reader for both command-result shapes |
 | `internal/app/agenttools` | the seven declarations a custom `--agent` gets |
 | `internal/ui/tuilib`, `internal/ui/views/*` | the TUI widgets and the panels |
-| `internal/cliapp` | the interactive TUI's **host**: the turn loop, the transcript, the streaming, the composer and the slash dispatch |
+| `internal/tui` | the interactive TUI's **host**: Elm model decomposition (`session`, `engine`, `viewport`, `composer`, `overlays`), transcript streaming, composer and slash dispatch |
 | `internal/infra/agyproxy`, `internal/infra/proxy/bin` | the CloudCode proxy and the vendor-binary resolver |
 | `internal/app/session/convstore` | the read-only SQLite reader for the conversation store |
 | `internal/infra/referencedrift` | the gate that notices when the reference binary moves |
@@ -85,10 +86,10 @@ flowchart TB
 
 | Engine | Owns | Where |
 |---|---|---|
-| `internal/pigrt` (PiG `coding.Session`) | **`--print`** — the whole headless surface | `internal/printmode/print_pig.go` |
-| `internal/agent.Loop` (PiG `agent.Agent`) | the **interactive TUI** only | `internal/cliapp` |
+| `actor.Actor` / `internal/printmode` | **`--print`** — the whole headless surface and agent server | `actor/`, `internal/printmode` |
+| `internal/app/agentturn.Engine` | the **interactive TUI** | `internal/app/agentturn`, `internal/tui/bridge.go` |
 
-They share one bridge (`internal/piagentbridge`) and one transport
+They share common runtime tool runner contracts and one transport
 (`internal/infra/backend`), which is why the native provider and the gateway client
 have to stay behaviourally identical: the TUI and the headless path must
 produce the same bytes on the wire.

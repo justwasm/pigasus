@@ -71,8 +71,8 @@ func TestSlashPlugin_ListAllCases(t *testing.T) {
 			if !handled {
 				t.Fatalf("handleSlashCommand(%q) reported not handled; expected subcommand dispatch", tc.command)
 			}
-			if m.panel.kind != panelregistry.None {
-				t.Errorf("handleSlashCommand(%q) opened panel kind %d; want panelregistry.None", tc.command, m.panel.kind)
+			if m.overlays.panel.kind != panelregistry.None {
+				t.Errorf("handleSlashCommand(%q) opened panel kind %d; want panelregistry.None", tc.command, m.overlays.panel.kind)
 			}
 			got := strings.Join(afterEcho(m), "\n")
 			if !strings.Contains(got, "No plugins installed.") {
@@ -92,7 +92,7 @@ func TestSlashPlugin_InstallDispatch(t *testing.T) {
 			if !handled {
 				t.Fatalf("handleSlashCommand(%q) not handled", cmd)
 			}
-			if m.panel.kind != panelregistry.None {
+			if m.overlays.panel.kind != panelregistry.None {
 				t.Errorf("handleSlashCommand(%q) opened panel; want subcommand dispatch", cmd)
 			}
 			got := strings.Join(afterEcho(m), "\n")
@@ -172,7 +172,7 @@ func TestSlashPlugin_UnknownSubcommand(t *testing.T) {
 	if !handled {
 		t.Fatalf("handleSlashCommand not handled")
 	}
-	if m.panel.kind != panelregistry.None {
+	if m.overlays.panel.kind != panelregistry.None {
 		t.Errorf("panel opened for unknown subcommand")
 	}
 	got := strings.Join(afterEcho(m), "\n")
@@ -481,7 +481,7 @@ func TestDPL_PanelCloseResetsFilter(t *testing.T) {
 	// closePanel wipes the panel struct.
 	m.closePanel()
 	// Re-opening the panel builds a fresh one.
-	m.panel = slashPanel{kind: panelregistry.Plugin, cmd: "/plugin"}
+	m.overlays.panel = slashPanel{kind: panelregistry.Plugin, cmd: "/plugin"}
 	m.initOpenedSlashPanelData(panelregistry.Plugin)
 	if m.pluginPanel().EnabledOnly() {
 		t.Error("the reopened panel kept the filter — AGY 1.2.7 bug regressed")

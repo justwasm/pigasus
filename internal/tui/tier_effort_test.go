@@ -26,7 +26,7 @@ func TestCurrentEffortNameReadsTheTier(t *testing.T) {
 	newMode := func(model, effort string) *runMode {
 		fs := flag.NewFlagSet("t", flag.ContinueOnError)
 		fs.String("effort", effort, "")
-		return &runMode{model: model, flags: fs}
+		return &runMode{session: sessionState{model: model, flags: fs}}
 	}
 	cases := []struct {
 		model  string

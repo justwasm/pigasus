@@ -9,18 +9,6 @@ import (
 // Store holds session-scoped TUI state extracted from the host,
 // matching the responsibilities of agy 1.4.12's store.Manager.
 type Store struct {
-	// Selection state (transcript viewport)
-	SelDragging bool
-	SelStartRow int
-	SelStartCol int
-	SelEndRow   int
-	SelEndCol   int
-
-	// Selection state (input field)
-	InputSelDragging bool
-	InputSelStart    int
-	InputSelEnd      int
-
 	// Bash mode ("!" mode)
 	BashMode   bool
 	BashRowIdx int
