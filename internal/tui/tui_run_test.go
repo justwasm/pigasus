@@ -5521,6 +5521,22 @@ func TestSubmitPrompt_RunsContextPanelWhileStreaming(t *testing.T) {
 	}
 }
 
+func TestSubmitPrompt_RunsAccountsPanelWhileStreaming(t *testing.T) {
+	m := streamQueueMode(t)
+	m.input.SetValue("/accounts")
+
+	_ = m.submitPrompt()
+	if len(m.store.StreamQueue) != 0 {
+		t.Fatalf("streamQueue = %q, want /accounts not queued as prompt", m.store.StreamQueue)
+	}
+	if m.panel.kind != panelregistry.Accounts {
+		t.Fatalf("panel.kind = %v, want panelregistry.Accounts", m.panel.kind)
+	}
+	if !m.streaming {
+		t.Error("panel dispatch cleared streaming; the in-flight turn must survive")
+	}
+}
+
 func TestSubmitPrompt_QueuesModelTurnSlashWhileStreaming(t *testing.T) {
 	m := streamQueueMode(t)
 	m.input.SetValue("/plan next steps")

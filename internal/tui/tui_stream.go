@@ -2398,6 +2398,9 @@ func (m *runMode) isEngineSlashCommand(cmd string) bool {
 	if _, ok := slashHandlers[name]; ok {
 		return false
 	}
+	if _, ok := slashcommands.PanelFor(name); ok {
+		return false
+	}
 	for _, dyn := range m.engineSlashCommands() {
 		clean := strings.TrimPrefix(dyn.Name, "/")
 		if strings.EqualFold(clean, cmd) {
