@@ -80,9 +80,9 @@ jobs:
           [ "$GOOS" = "windows" ] && pigga_bin="$pigga_staging/pigga.exe"
           [ "$GOOS" = "windows" ] && agy_update_bin="$raw_staging/agy-update.exe"
 
-          go build -trimpath -ldflags "-s -w" -o "$bin" ./cmd/pigasus
-          go build -trimpath -ldflags "-s -w -X main.version=${VERSION}" -o "$pigga_bin" ./cmd/pigga
-          go build -trimpath -ldflags "-s -w" -o "$agy_update_bin" ./cmd/agy-update
+          go build -trimpath -ldflags "-s -w -checklinkname=0" -o "$bin" ./cmd/pigasus
+          go build -trimpath -ldflags "-s -w -checklinkname=0 -X main.version=${VERSION}" -o "$pigga_bin" ./cmd/pigga
+          go build -trimpath -ldflags "-s -w -checklinkname=0" -o "$agy_update_bin" ./cmd/agy-update
 
           chmod +x "$bin" "$pigga_bin" "$agy_update_bin"
 
