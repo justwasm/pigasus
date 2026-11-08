@@ -115,9 +115,6 @@ func (c *conversation) onEvent(ev actor.Event) {
 			}
 			c.flushUsage()
 		}
-	case actor.EventCompacted:
-		c.emitCompaction()
-		c.hooks.onCompaction(ctx)
 	case actor.EventTurnCompleted:
 		c.setPendingToolCalls(false)
 		if c.modelOpen && c.textBuf.Len() > 0 {

@@ -61,6 +61,7 @@ package main
 
 import (
 	"archive/zip"
+	"bytes"
 	"crypto/sha256"
 	"debug/elf"
 	"debug/macho"
@@ -334,32 +335,30 @@ type archive struct {
 // both relative to the start of the archive, so the archive's own start is
 // eocd - cdSize - cdOffset.
 func findArchives(path string) ([]archive, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	size := int64(len(data))
+	sig := []byte{0x50, 0x4b, 0x05, 0x06}
+
 	f, err := os.Open(path)
 	if err != nil {
 		return nil, err
 	}
 	defer f.Close()
-	st, err := f.Stat()
-	if err != nil {
-		return nil, err
-	}
-	size := st.Size()
 
 	var out []archive
-	const eocdSig = 0x06054b50
-	for off := int64(0); off+22 <= size; {
-		buf := make([]byte, 4)
-		if _, err := f.ReadAt(buf, off); err != nil {
+	for idx := 0; idx+22 <= len(data); {
+		pos := bytes.Index(data[idx:], sig)
+		if pos == -1 {
 			break
 		}
-		if binary.LittleEndian.Uint32(buf) != eocdSig {
-			off++
-			continue
-		}
-		rec := make([]byte, 22)
-		if _, err := f.ReadAt(rec, off); err != nil {
+		off := int64(idx + pos)
+		if off+22 > size {
 			break
 		}
+		rec := data[off : off+22]
 		disk := binary.LittleEndian.Uint16(rec[4:6])
 		cdDisk := binary.LittleEndian.Uint16(rec[6:8])
 		nEntries := binary.LittleEndian.Uint16(rec[10:12])
@@ -368,21 +367,21 @@ func findArchives(path string) ([]archive, error) {
 		commentLen := int64(binary.LittleEndian.Uint16(rec[20:22]))
 
 		if disk != 0 || cdDisk != 0 || nEntries == 0 || cdSize == 0 || cdOffset == 0 {
-			off += 4
+			idx = int(off) + 4
 			continue
 		}
 		start := off - cdSize - cdOffset
 		length := off + 22 + commentLen - start
 		if start < 0 || length <= 0 || off+22+commentLen > size {
-			off += 4
+			idx = int(off) + 4
 			continue
 		}
 		if a, ok := openArchive(f, start, length); ok {
 			out = append(out, a)
-			off = off + 22 + commentLen
+			idx = int(off + 22 + commentLen)
 			continue
 		}
-		off += 4
+		idx = int(off) + 4
 	}
 	for i := range out {
 		out[i].index = i

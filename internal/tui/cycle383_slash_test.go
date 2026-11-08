@@ -62,7 +62,7 @@ func TestPluginsAliasDispatchesTheVerb(t *testing.T) {
 	if m.overlays.panel.kind != panelregistry.None {
 		t.Errorf("/plugins list opened the %v panel, want no panel", m.overlays.panel.kind)
 	}
-	got := termcolor.StripSGR(strings.Join(m.engine.response, "\n"))
+	got := termcolor.StripSGR(strings.Join(m.conversation.response, "\n"))
 	if !strings.Contains(got, "No plugins installed.") {
 		t.Errorf("/plugins list did not answer the list verb; transcript:\n%s", got)
 	}
@@ -80,7 +80,7 @@ func TestPluginUnknownSubcommandIsTheReferenceString(t *testing.T) {
 	if !handled {
 		t.Fatal("/plugin bogus was not handled")
 	}
-	got := termcolor.StripSGR(strings.Join(m.engine.response, "\n"))
+	got := termcolor.StripSGR(strings.Join(m.conversation.response, "\n"))
 	if !strings.Contains(got, `Unknown subcommand "bogus".`) {
 		t.Errorf("the unknown-subcommand message is not the reference's; transcript:\n%s", got)
 	}
@@ -102,7 +102,7 @@ func TestPanelExitNoticeEchoesTheCanonicalName(t *testing.T) {
 			t.Fatalf("openSlashPanel(%q) = false, want true", typed)
 		}
 		m.closePanel()
-		got := termcolor.StripSGR(strings.Join(m.engine.response, "\n"))
+		got := termcolor.StripSGR(strings.Join(m.conversation.response, "\n"))
 		if !strings.Contains(got, "Exited /config command") {
 			t.Errorf("%s closed with the wrong notice; transcript:\n%s", typed, got)
 		}
@@ -142,19 +142,19 @@ func TestChainedSlashCommands_BoostPlanGoal(t *testing.T) {
 		t.Errorf("activeGoal = %v, want 'refactor engine'", m.session.activeGoal)
 	}
 	// Verify display echo
-	if len(m.engine.response) == 0 {
+	if len(m.conversation.response) == 0 {
 		t.Fatalf("expected response echo")
 	}
-	echoRow := m.engine.response[0]
+	echoRow := m.conversation.response[0]
 	wantEcho := "> /boost /plan /goal refactor engine"
 	if echoRow != wantEcho {
 		t.Errorf("echoRow = %q, want %q", echoRow, wantEcho)
 	}
 	// Verify session history prompt composition
-	if len(m.engine.session) == 0 {
+	if len(m.SessionMessages()) == 0 {
 		t.Fatalf("expected session message")
 	}
-	prompt := m.engine.session[0].Content
+	prompt := m.SessionMessages()[0].Content
 	if !strings.Contains(prompt, "<ORCHESTRATOR>") {
 		t.Errorf("prompt missing <ORCHESTRATOR>, got:\n%s", prompt)
 	}
@@ -184,21 +184,21 @@ func TestChainedSlashCommands_PlanGoalWithoutTask(t *testing.T) {
 	if m.session.activeGoal == nil || m.session.activeGoal.GoalText != "Help me set a clear goal for this session" {
 		t.Errorf("activeGoal = %v, want default goal text", m.session.activeGoal)
 	}
-	if len(m.engine.response) == 0 || m.engine.response[0] != "> /plan /goal" {
-		t.Errorf("echoRow = %v, want '> /plan /goal'", m.engine.response)
+	if len(m.conversation.response) == 0 || m.conversation.response[0] != "> /plan /goal" {
+		t.Errorf("echoRow = %v, want '> /plan /goal'", m.conversation.response)
 	}
 }
 
 func TestChainedSlashCommands_QueuesWhileStreaming(t *testing.T) {
 	m := newSlashModel(t)
-	m.engine.streaming = true
+	m.conversation.streaming = true
 
 	input := "/boost /plan /goal refactor engine"
 	if !m.slashQueuesWhileStreaming(input) {
 		t.Fatalf("expected chained commands to queue while streaming")
 	}
 
-	m.composer.input.SetValue(input)
+	m.prompt.input.SetValue(input)
 	cmd := m.submitPrompt()
 	if cmd != nil {
 		t.Errorf("expected nil cmd when queued, got %v", cmd)

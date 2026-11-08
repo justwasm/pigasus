@@ -23,6 +23,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"regexp"
+	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -103,44 +104,44 @@ func (f *fakeClient) Stream(ctx context.Context, req backend.StreamRequest) (<-c
 
 // Test_EnterSendsPrompt verifies that Enter submits the prompt.
 func Test_EnterSendsPrompt(t *testing.T) {
-	m := newRunMode(&fakeClient{}, "user@test", "claude-4.5-sonnet", "starter", "/tmp", true)
+	m := newRootModel(&fakeClient{}, "user@test", "claude-4.5-sonnet", "starter", "/tmp", true)
 	m.Update(runeKey('h'))
 	m.Update(runeKey('i'))
-	if got := m.composer.input.Value(); got != "hi" {
+	if got := m.prompt.input.Value(); got != "hi" {
 		t.Fatalf("expected textarea 'hi', got %q", got)
 	}
-	m.engine.streaming = false
+	m.conversation.streaming = false
 	_, _ = m.Update(enterKey())
-	if !m.engine.streaming {
+	if !m.conversation.streaming {
 		t.Fatalf("expected streaming=true after Enter, got false (cycle 50)")
 	}
-	if v := m.composer.input.Value(); v != "" {
+	if v := m.prompt.input.Value(); v != "" {
 		t.Errorf("expected textarea cleared after Enter, got %q", v)
 	}
 }
 
 // Test_CtrlJNewline verifies that Ctrl+J inserts a newline.
 func Test_CtrlJNewline(t *testing.T) {
-	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/", true)
 	m.Update(runeKey('a'))
 	m.Update(ctrlKey('j'))
 	m.Update(runeKey('b'))
-	got := m.composer.input.Value()
+	got := m.prompt.input.Value()
 	if !strings.Contains(got, "a") || !strings.Contains(got, "b") || !strings.Contains(got, "\n") {
 		t.Fatalf("expected 'a\\nb', got %q (cycle 71)", got)
 	}
-	if m.engine.streaming {
+	if m.conversation.streaming {
 		t.Errorf("Ctrl+J should NOT trigger streaming")
 	}
 }
 
 // Test_ShiftEnterNewline verifies Shift+Enter inserts newline.
 func Test_ShiftEnterNewline(t *testing.T) {
-	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/", true)
 	m.Update(runeKey('a'))
 	m.Update(shiftEnterKey())
 	m.Update(runeKey('b'))
-	got := m.composer.input.Value()
+	got := m.prompt.input.Value()
 	if !strings.Contains(got, "a") || !strings.Contains(got, "b") || !strings.Contains(got, "\n") {
 		t.Fatalf("expected 'a\\nb', got %q", got)
 	}
@@ -148,11 +149,11 @@ func Test_ShiftEnterNewline(t *testing.T) {
 
 // Test_BufferInsertSingleKey verifies ordinary rune insertion.
 func Test_BufferInsertSingleKey(t *testing.T) {
-	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/", true)
 	for _, r := range "hello" {
 		m.Update(runeKey(r))
 	}
-	if got := m.composer.input.Value(); got != "hello" {
+	if got := m.prompt.input.Value(); got != "hello" {
 		t.Fatalf("expected 'hello', got %q", got)
 	}
 }
@@ -160,7 +161,7 @@ func Test_BufferInsertSingleKey(t *testing.T) {
 // Test_ViewAltScreen verifies View() returns AltScreen=true with
 // a Cursor pointing into the textarea.
 func Test_ViewAltScreen(t *testing.T) {
-	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/", true)
 	for _, r := range "hi" {
 		m.Update(runeKey(r))
 	}
@@ -181,8 +182,8 @@ func Test_ViewAltScreen(t *testing.T) {
 // MouseMode is kept at None so that terminal-native text selection and
 // Cmd+click on hyperlinks are preserved while on the login modal.
 func Test_LoginViewKeepsAltScreen(t *testing.T) {
-	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
-	m.overlays.login = loginui.New()
+	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m.auth.login = loginui.New()
 	v := m.View()
 	if !v.AltScreen {
 		t.Error("the login view must keep the alternate screen")
@@ -196,8 +197,8 @@ func Test_LoginViewKeepsAltScreen(t *testing.T) {
 // must not force the alternate screen on when the session was started
 // without it.
 func Test_LoginViewRespectsNoAltScreen(t *testing.T) {
-	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", false)
-	m.overlays.login = loginui.New()
+	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/", false)
+	m.auth.login = loginui.New()
 	if v := m.View(); v.AltScreen {
 		t.Error("the login view must not turn the alternate screen on")
 	}
@@ -205,7 +206,7 @@ func Test_LoginViewRespectsNoAltScreen(t *testing.T) {
 
 // Test_CtrlLClearsScreen verifies that Ctrl+L clears the screen and resets scroll.
 func Test_CtrlLClearsScreen(t *testing.T) {
-	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/", true)
 	m.viewport.scroll = 42
 	_, cmd := m.Update(ctrlKey('l'))
 	if m.viewport.scroll != 0 {
@@ -225,7 +226,7 @@ func Test_CtrlLClearsScreen(t *testing.T) {
 // selection overlay replaces the cycle-166 "use the host terminal's
 // selection at the cost of wheel scroll" trade-off.
 func Test_MouseModeConstant(t *testing.T) {
-	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/", true)
 	v := m.View()
 	if v.MouseMode != tea.MouseModeCellMotion {
 		t.Errorf("default altScreen: got %v, want CellMotion", v.MouseMode)
@@ -244,35 +245,35 @@ func Test_MouseModeConstant(t *testing.T) {
 
 // Test_SessionAccumulatesTurns verifies cycle 70b multi-turn.
 func Test_SessionAccumulatesTurns(t *testing.T) {
-	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/", true)
 	for _, r := range "hi" {
 		m.Update(runeKey(r))
 	}
-	m.engine.streaming = false
+	m.conversation.streaming = false
 	_, _ = m.Update(enterKey())
-	if len(m.engine.session) != 1 || m.engine.session[0].Role != "user" || m.engine.session[0].Content != "hi" {
-		t.Fatalf("expected 1 user msg 'hi', got %+v", m.engine.session)
+	if len(m.SessionMessages()) != 1 || m.SessionMessages()[0].Role != "user" || m.SessionMessages()[0].Content != "hi" {
+		t.Fatalf("expected 1 user msg 'hi', got %+v", m.SessionMessages())
 	}
 	m.Update(backendChunkMsg("hello-back"))
-	if len(m.engine.session) != 2 || m.engine.session[1].Role != "assistant" || m.engine.session[1].Content != "hello-back" {
-		t.Fatalf("expected 2 msgs, got %+v", m.engine.session)
+	if len(m.SessionMessages()) != 2 || m.SessionMessages()[1].Role != "assistant" || m.SessionMessages()[1].Content != "hello-back" {
+		t.Fatalf("expected 2 msgs, got %+v", m.SessionMessages())
 	}
-	m.engine.streaming = true
+	m.conversation.streaming = true
 	m.Update(backendDoneMsg{})
-	m.engine.streaming = false
+	m.conversation.streaming = false
 	for _, r := range "yo" {
 		m.Update(runeKey(r))
 	}
 	_, _ = m.Update(enterKey())
-	if len(m.engine.session) != 3 || m.engine.session[2].Role != "user" || m.engine.session[2].Content != "yo" {
-		t.Fatalf("expected 3 msgs after 2nd turn, got %+v", m.engine.session)
+	if len(m.SessionMessages()) != 3 || m.SessionMessages()[2].Role != "user" || m.SessionMessages()[2].Content != "yo" {
+		t.Fatalf("expected 3 msgs after 2nd turn, got %+v", m.SessionMessages())
 	}
 }
 
 // Test_InputBetweenSeps verifies cycle 71: View() wraps the
 // textarea between two horizontal rules.
 func Test_InputBetweenSeps(t *testing.T) {
-	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/", true)
 	v := m.View()
 	view := v.Content
 	// At least two separator runs should appear (one above, one
@@ -286,9 +287,9 @@ func Test_InputBetweenSeps(t *testing.T) {
 // Test_DynamicHeightGrows verifies cycle 71: multi-line content
 // makes m.composer.input.Height() > 1.
 func Test_DynamicHeightGrows(t *testing.T) {
-	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
-	m.composer.input.SetValue("line1\nline2\nline3")
-	h := m.composer.input.Height()
+	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m.prompt.input.SetValue("line1\nline2\nline3")
+	h := m.prompt.input.Height()
 	if h < 2 {
 		t.Fatalf("expected textarea height >= 2 after multi-line content, got %d", h)
 	}
@@ -297,11 +298,11 @@ func Test_DynamicHeightGrows(t *testing.T) {
 // Test_TextareaCursorTracksText verifies the cursor position
 // tracks the textarea content (cycle 71 fix).
 func Test_TextareaCursorTracksText(t *testing.T) {
-	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
-	m.composer.input.SetValue("hello world")
+	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m.prompt.input.SetValue("hello world")
 	// Move to end via the textarea's CharacterForward binding (ctrl+f).
 	for i := 0; i < 50; i++ {
-		m.composer.input, _ = m.composer.input.Update(tea.KeyPressMsg(tea.Key{Code: 'f', Mod: tea.ModCtrl}))
+		m.prompt.input, _ = m.prompt.input.Update(tea.KeyPressMsg(tea.Key{Code: 'f', Mod: tea.ModCtrl}))
 	}
 	v := m.View()
 	if v.Cursor == nil {
@@ -319,9 +320,9 @@ var _ = tas.New
 // Test_PromptPrefixMatchesRef verifies cycle 74: prompt prefix is "> "
 // not " " (matches v1.3.5 binary byte-for-byte).
 func Test_PromptPrefixMatchesRef(t *testing.T) {
-	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
-	if m.composer.input.Prompt != "> " {
-		t.Fatalf("expected input.Prompt='> ', got %q (cycle 74)", m.composer.input.Prompt)
+	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/", true)
+	if m.prompt.input.Prompt != "> " {
+		t.Fatalf("expected input.Prompt='> ', got %q (cycle 74)", m.prompt.input.Prompt)
 	}
 }
 
@@ -335,7 +336,7 @@ func Test_PromptPrefixMatchesRef(t *testing.T) {
 // \x1b[39m (foreground reset) or \x1b[m (full SGR reset) as the
 // close — both render identically, so the test accepts either.
 func Test_IdlePromptHasMarker(t *testing.T) {
-	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/", true)
 	v := m.View()
 	view := v.Content
 	hasBlueOpen := strings.Contains(view, "\x1b[38;2;38;139;210m>")
@@ -352,9 +353,9 @@ func Test_IdlePromptHasMarker(t *testing.T) {
 // 256-colour fallback 38;2;101;123;131 which is the same shade in tmux
 // but distinguishable in a real terminal).
 func Test_PickerVisibleStatusLabel(t *testing.T) {
-	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/", true)
 	m.Update(runeKey('/'))
-	if !m.composer.picker.Visible() {
+	if !m.prompt.picker.Visible() {
 		t.Fatal("picker should be visible after typing '/'")
 	}
 	status := m.statusRow()
@@ -372,8 +373,8 @@ func Test_PickerVisibleStatusLabel(t *testing.T) {
 // Test_PickerHiddenStatusLabel verifies that when picker is hidden
 // the status row shows "? for shortcuts" (idle behavior).
 func Test_PickerHiddenStatusLabel(t *testing.T) {
-	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
-	if m.composer.picker.Visible() {
+	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/", true)
+	if m.prompt.picker.Visible() {
 		t.Fatal("picker should be hidden in idle state")
 	}
 	status := m.statusRow()
@@ -391,9 +392,9 @@ func Test_PickerHiddenStatusLabel(t *testing.T) {
 // which is the same shade in tmux but distinguishable in a real
 // terminal; cycle 126 normalises to 24-bit RGB.
 func Test_PickerHighlightColorIs69(t *testing.T) {
-	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/", true)
 	m.Update(runeKey('/'))
-	rows := m.composer.picker.Rows()
+	rows := m.prompt.picker.Rows()
 	if !strings.Contains(rows, "\033[38;2;38;139;210m") {
 		t.Fatalf("picker highlight should contain \\033[38;2;38;139;210m (true-colour blue), got %q (cycle 74/126)", rows)
 	}
@@ -403,9 +404,9 @@ func Test_PickerHighlightColorIs69(t *testing.T) {
 // are rendered in dim gray (matches ref binary). Cycle 126 normalised
 // the colour from 256-colour 38;5;238 to true-colour 38;2;101;123;131.
 func Test_PickerDescriptionDim(t *testing.T) {
-	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/", true)
 	m.Update(runeKey('/'))
-	rows := m.composer.picker.Rows()
+	rows := m.prompt.picker.Rows()
 	if !strings.Contains(rows, "\033[38;2;101;123;131m") {
 		t.Fatalf("picker rows should contain true-colour dim gray 38;2;101;123;131, got %q (cycle 74/126)", rows)
 	}
@@ -414,7 +415,7 @@ func Test_PickerDescriptionDim(t *testing.T) {
 // Test_CursorOnPromptLine verifies cycle 74f: cursor lands on the
 // prompt line (not on the second separator or picker row).
 func Test_CursorOnPromptLine(t *testing.T) {
-	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/", true)
 	v := m.View()
 	// Layout: top blank + 5 banner + blank + top sep + prompt line.
 	// 0-indexed prompt line Y = 8.
@@ -426,7 +427,7 @@ func Test_CursorOnPromptLine(t *testing.T) {
 // Test_CursorTracksTypedText verifies cycle 74f: cursor X moves
 // with each rune insertion (matches v1.3.5 binary).
 func Test_CursorTracksTypedText(t *testing.T) {
-	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/", true)
 	v := m.View()
 	idleX := v.Cursor.X
 	for _, r := range "hello" {
@@ -453,20 +454,20 @@ func Test_CursorTracksTypedText(t *testing.T) {
 // Cycle 351 (agy 1.4.8): the chrome-devtools-plugin:* filter is GONE —
 // the 1.4.8 picker shows every catalogue row, 105 of them, the same
 // count the /help COMMANDS tab reports ("[1-33 of 105 items]"). The
-// catalogue holds those 105 plus the clone's four superset commands
-// (/feature-diff, /accounts, /provider, /pool): 109 rows, and the
-// picker shows all of them.
+// 1.5.0 reference adds /projects (106), and the catalogue holds those
+// plus the clone's four superset commands (/feature-diff, /accounts,
+// /provider, /pool): 110 rows, and the picker shows all of them.
 //
 // Cycle 361 adds /pool: the /accounts panel's Pool tab on its own — the
 // account-routing policy that decides which account serves a turn.
 func Test_PickerCatalogMatchesRef(t *testing.T) {
 	got := len(slashcommands.Default)
-	if got != 109 {
-		t.Fatalf("expected 109 slash commands in catalog (105 ref + /feature-diff + /accounts + /provider + /pool), got %d", got)
+	if got != 110 {
+		t.Fatalf("expected 110 slash commands in catalog (106 ref incl. /projects + /feature-diff + /accounts + /provider + /pool), got %d", got)
 	}
 	filtered := len(slashcommands.Filter("/"))
-	if filtered != 109 {
-		t.Fatalf("expected 109 slash commands in picker (no chrome-devtools-plugin filter since 1.4.8), got %d", filtered)
+	if filtered != 110 {
+		t.Fatalf("expected 110 slash commands in picker (no chrome-devtools-plugin filter since 1.4.8), got %d", filtered)
 	}
 }
 
@@ -517,35 +518,40 @@ func (s *slowFakeClient) Stream(ctx context.Context, req backend.StreamRequest) 
 }
 
 // Test_SpinnerAppearsDuringStream verifies cycle 76: while
-// m.engine.streaming is true, the view contains the literal row
+// m.conversation.streaming is true, the view contains the literal row
 // "  <glyph>  Generating..." (two leading spaces, one spinner
 // glyph, two more spaces, then the word). Source-of-truth:
 // /tmp/ref_streaming_t*.bin captured from the v1.3.5 binary.
 func Test_SpinnerAppearsDuringStream(t *testing.T) {
 	be := &slowFakeClient{delay: 500 * time.Millisecond}
-	m := newRunMode(be, "u@t", "m", "t", "/", true)
+	m := newRootModel(be, "u@t", "m", "t", "/", true)
 	for _, r := range "hi" {
 		m.Update(runeKey(r))
 	}
-	m.engine.streaming = false
+	m.conversation.streaming = false
 	_, _ = m.Update(enterKey())
-	if !m.engine.streaming {
+	if !m.conversation.streaming {
 		t.Fatal("expected streaming=true after Enter")
 	}
 	v := m.View()
-	if !strings.Contains(v.Content, "Generating...") {
-		t.Fatalf("expected 'Generating...' in view during stream, got %q", v.Content)
+	// The activity label is the reference's animated wave: the first
+	// frames reveal only a prefix of "Generating", so the visible text
+	// (not the raw bytes, which carry the highlight split) is what the
+	// test can look for.
+	plain := ansi.Strip(v.Content)
+	if !strings.Contains(plain, "Genera") {
+		t.Fatalf("expected a visible 'Genera' prefix in view during stream, got %q", plain)
 	}
 	// Verify the spinner glyph sits between two pairs of spaces:
-	// "  <braille>  Generating..." (2 spaces + glyph + 2 spaces).
-	idx := strings.Index(v.Content, "Generating...")
+	// "  <braille>  Genera..." (2 spaces + glyph + 2 spaces).
+	idx := strings.Index(plain, "Genera")
 	if idx < 5 {
-		t.Fatal("Generating... not found with enough leading chars")
+		t.Fatal("Genera not found with enough leading chars")
 	}
 	// The pattern in v1.3.5 is: <glyph><space><space>Generating...
 	// (no leading indent before the glyph). bubbles sp.Dot frames
 	// each carry a trailing space, so the total is 2 spaces.
-	prefix := v.Content[idx-5 : idx]
+	prefix := plain[idx-5 : idx]
 	// 5 bytes = 3-byte UTF-8 braille glyph + 2 spaces
 	if !strings.HasSuffix(prefix, "  ") {
 		t.Errorf("expected 2 trailing spaces before Generating, got %q (cycle 76)", prefix)
@@ -564,57 +570,63 @@ func Test_SpinnerAppearsDuringStream(t *testing.T) {
 // first tick from the bubble loop. The spinner model is initialized
 // with frame=0; after the first tick it should be on frame 1.
 func Test_SpinnerAnimatesAcrossTicks(t *testing.T) {
-	m := newRunMode(&slowFakeClient{delay: time.Second}, "u@t", "m", "t", "/", true)
+	m := newRootModel(&slowFakeClient{delay: time.Second}, "u@t", "m", "t", "/", true)
 	for _, r := range "hi" {
 		m.Update(runeKey(r))
 	}
-	m.engine.streaming = false
+	m.conversation.streaming = false
 	_, _ = m.Update(enterKey())
-	if !m.engine.streaming {
+	if !m.conversation.streaming {
 		t.Fatal("expected streaming=true after Enter")
 	}
-	// Drain TickMsgs manually (simulating the bubbletea loop).
-	seen := make(map[string]bool)
+	// Drain TickMsgs manually (simulating the bubbletea loop). Each
+	// frame reveals one more character of "Generating"; the braille
+	// glyph in the row is the spinner's animated frame.
+	seen := make(map[rune]bool)
+	sawFull := false
 	for i := 0; i < 6; i++ {
-		v := m.View()
-		idx := strings.Index(v.Content, "Generating...")
-		if idx < 0 {
-			t.Fatalf("frame %d: Generating... not in view", i)
+		plain := ansi.Strip(m.View().Content)
+		if strings.Contains(plain, "Generating") {
+			sawFull = true
 		}
-		// Extract the spinner glyph — last non-space char before "  Generating".
-		before := v.Content[:idx]
-		runes := []rune(strings.TrimRight(before, " "))
-		if len(runes) == 0 {
+		for _, r := range plain {
+			if r >= 0x2800 && r <= 0x28FF {
+				seen[r] = true
+			}
+		}
+		if len(seen) == 0 {
 			t.Fatalf("frame %d: no spinner glyph", i)
 		}
-		seen[string(runes[len(runes)-1])] = true
 		// Simulate next tick — send empty TickMsg and Update.
 		_, _ = m.Update(sp.TickMsg{})
 	}
 	if len(seen) < 2 {
 		t.Errorf("spinner did not animate: only saw %d distinct frames %v", len(seen), seen)
 	}
+	if !sawFull {
+		t.Errorf("six ticks never revealed the full 'Generating' label")
+	}
 	// Cleanup.
 	m.Update(backendDoneMsg{})
 }
 
 // Test_SpinnerStopsWhenStreamDone verifies cycle 76: after
-// backendDoneMsg arrives, m.engine.streaming is false and subsequent
+// backendDoneMsg arrives, m.conversation.streaming is false and subsequent
 // TickMsg are ignored (frame freezes).
 func Test_SpinnerStopsWhenStreamDone(t *testing.T) {
 	be := &slowFakeClient{delay: 30 * time.Millisecond}
-	m := newRunMode(be, "u@t", "m", "t", "/", true)
+	m := newRootModel(be, "u@t", "m", "t", "/", true)
 	for _, r := range "hi" {
 		m.Update(runeKey(r))
 	}
-	m.engine.streaming = false
+	m.conversation.streaming = false
 	_, _ = m.Update(enterKey())
 	// In the test environment the tea.Cmd from Enter is never executed,
 	// so streaming stays true unless we manually flip it. Simulate the
 	// backend completing.
 	m.Update(backendDoneMsg{})
-	if m.engine.streaming {
-		t.Error("after backendDoneMsg, m.engine.streaming should be false")
+	if m.conversation.streaming {
+		t.Error("after backendDoneMsg, m.conversation.streaming should be false")
 	}
 	// View should NOT contain "Generating..." anymore.
 	v := m.View()
@@ -628,17 +640,17 @@ func Test_SpinnerStopsWhenStreamDone(t *testing.T) {
 // handleSlashCommand method intercepts and returns true so the LLM
 // path is skipped. Previously only /clear was intercepted.
 func Test_SlashCommandsAreNotSentToLLM(t *testing.T) {
-	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/", true)
 	for _, r := range "/help" {
 		m.Update(runeKey(r))
 	}
-	before := len(m.engine.session)
+	before := len(m.SessionMessages())
 	handled, _ := m.handleSlashCommand("/help")
 	if !handled {
 		t.Error("/help should be handled by router (cycle 77)")
 	}
-	if len(m.engine.session) != before {
-		t.Errorf("/help should NOT add to session (was %d, now %d)", before, len(m.engine.session))
+	if len(m.SessionMessages()) != before {
+		t.Errorf("/help should NOT add to session (was %d, now %d)", before, len(m.SessionMessages()))
 	}
 	// /unknown_xyz is routed to the "unknown" handler which echoes
 	// feedback. Still doesn't reach the LLM.
@@ -651,7 +663,7 @@ func Test_SlashCommandsAreNotSentToLLM(t *testing.T) {
 // Test_SlashExitReturnsQuitCmd verifies cycle 77: /exit and
 // /quit both schedule tea.Quit so the program actually terminates.
 func Test_SlashExitReturnsQuitCmd(t *testing.T) {
-	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/", true)
 	handled, cmd := m.handleSlashCommand("/exit")
 	if !handled {
 		t.Fatal("/exit should be handled")
@@ -670,20 +682,20 @@ func Test_SlashExitReturnsQuitCmd(t *testing.T) {
 
 // Test_SlashHelpFeedbackIncludesCatalog verifies cycle 83: /help
 // opens a 3-tab TUI overlay (the /help panel) instead of dumping the
-// catalog into m.engine.response. The TUI panels are rendered by View() via
+// catalog into m.conversation.response. The TUI panels are rendered by View() via
 // the panel's rows; here we only confirm the overlay is armed and the
 // response area only has the user echo line.
 func Test_SlashHelpFeedbackIncludesCatalog(t *testing.T) {
-	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/", true)
 	handled, _ := m.handleSlashCommand("/help")
 	if !handled {
 		t.Fatal("/help should be handled")
 	}
-	if !m.viewport.helpPanel.Active() {
+	if !m.help.Panel.Active() {
 		t.Error("expected the /help overlay after /help (cycle 83 overlay)")
 	}
-	if m.viewport.helpPanel.Tab() != 0 {
-		t.Errorf("expected helpTab=0 on entry, got %d", m.viewport.helpPanel.Tab())
+	if m.help.Panel.Tab() != 0 {
+		t.Errorf("expected helpTab=0 on entry, got %d", m.help.Panel.Tab())
 	}
 	// Response should be empty after /help — the reference binary
 	// does not echo slash commands into the transcript (the picker
@@ -692,8 +704,8 @@ func Test_SlashHelpFeedbackIncludesCatalog(t *testing.T) {
 	// Cycle 149: the cycle 92 / 126 echo is removed; capturing the
 	// ref binary running /help, /changelog, and other slash commands
 	// never shows a "> /<cmd>" line in the transcript.
-	if len(m.engine.response) != 0 {
-		t.Errorf("expected empty transcript after /help (cycle 149), got %v", m.engine.response)
+	if len(m.conversation.response) != 0 {
+		t.Errorf("expected empty transcript after /help (cycle 149), got %v", m.conversation.response)
 	}
 }
 
@@ -763,7 +775,7 @@ func Test_HelpTabBarActiveTabHighlight(t *testing.T) {
 // starting with "/" fall through to the LLM path (handleSlashCommand
 // returns false, nil).
 func Test_SlashNonSlashFallsThrough(t *testing.T) {
-	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/", true)
 	handled, cmd := m.handleSlashCommand("hello world")
 	if handled {
 		t.Error("plain text should not be handled as slash command (cycle 77)")
@@ -839,31 +851,31 @@ func Test_HelpGeneralPanelStyling(t *testing.T) {
 // '?' opens the shortcuts overlay when the composer is empty.
 // When text is present, typing '?' enters the character into the composer.
 func Test_QuestionMarkOpensHelpOverlay(t *testing.T) {
-	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/", true)
 
 	// Precondition: idle prompt, the overlay closed, input empty.
-	if m.viewport.helpPanel.Active() {
+	if m.help.Panel.Active() {
 		t.Fatal("the /help overlay should start closed")
 	}
-	if v := m.composer.input.Value(); v != "" {
+	if v := m.prompt.input.Value(); v != "" {
 		t.Fatalf("input should start empty, got %q", v)
 	}
 
 	// Case 1: `?` on an empty input opens the overlay on SHORTCUTS.
 	_, _ = m.Update(runeKey('?'))
-	if !m.viewport.helpPanel.Active() {
+	if !m.help.Panel.Active() {
 		t.Error("expected the overlay after ? on empty input (cycle 181)")
 	}
-	if m.viewport.helpPanel.Tab() != 2 {
-		t.Errorf("expected helpTab=2 (shortcuts) on ?-entry, got %d", m.viewport.helpPanel.Tab())
+	if m.help.Panel.Tab() != 2 {
+		t.Errorf("expected helpTab=2 (shortcuts) on ?-entry, got %d", m.help.Panel.Tab())
 	}
-	if v := m.composer.input.Value(); v != "" {
+	if v := m.prompt.input.Value(); v != "" {
 		t.Errorf("expected input cleared on entry to overlay, got %q", v)
 	}
 
 	// Esc dismisses (cycle 83 path).
 	_, _ = m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEsc}))
-	if m.viewport.helpPanel.Active() {
+	if m.help.Panel.Active() {
 		t.Error("expected the overlay to close after Esc")
 	}
 
@@ -872,14 +884,14 @@ func Test_QuestionMarkOpensHelpOverlay(t *testing.T) {
 	for _, r := range "hello" {
 		_, _ = m.Update(runeKey(r))
 	}
-	if v := m.composer.input.Value(); v != "hello" {
+	if v := m.prompt.input.Value(); v != "hello" {
 		t.Fatalf("precondition: expected 'hello' in input, got %q", v)
 	}
 	_, _ = m.Update(runeKey('?'))
-	if m.viewport.helpPanel.Active() {
+	if m.help.Panel.Active() {
 		t.Error("`?` with text in input must not open the overlay")
 	}
-	if v := m.composer.input.Value(); v != "hello?" {
+	if v := m.prompt.input.Value(); v != "hello?" {
 		t.Errorf("the composer holds %q, want 'hello?'", v)
 	}
 
@@ -887,28 +899,28 @@ func Test_QuestionMarkOpensHelpOverlay(t *testing.T) {
 	for i := 0; i < 6; i++ {
 		_, _ = m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyBackspace}))
 	}
-	if v := m.composer.input.Value(); v != "" {
+	if v := m.prompt.input.Value(); v != "" {
 		t.Fatalf("precondition: input should be empty after backspaces, got %q", v)
 	}
 	_, _ = m.Update(runeKey('?'))
-	if !m.viewport.helpPanel.Active() {
+	if !m.help.Panel.Active() {
 		t.Error("expected overlay to re-open after clearing input and pressing ?")
 	}
-	if m.viewport.helpPanel.Tab() != 2 {
-		t.Errorf("expected helpTab=2 on second ?-entry, got %d", m.viewport.helpPanel.Tab())
+	if m.help.Panel.Tab() != 2 {
+		t.Errorf("expected helpTab=2 on second ?-entry, got %d", m.help.Panel.Tab())
 	}
 
 	// Case 4: /help still lands on GENERAL (tab 0).
 	_, _ = m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEsc}))
-	if m.viewport.helpPanel.Active() {
+	if m.help.Panel.Active() {
 		t.Fatal("expected the overlay to close after Esc")
 	}
 	handled, _ := m.handleSlashCommand("/help")
 	if !handled {
 		t.Fatal("/help should be handled")
 	}
-	if m.viewport.helpPanel.Tab() != 0 {
-		t.Errorf("expected helpTab=0 on /help entry, got %d", m.viewport.helpPanel.Tab())
+	if m.help.Panel.Tab() != 0 {
+		t.Errorf("expected helpTab=0 on /help entry, got %d", m.help.Panel.Tab())
 	}
 }
 
@@ -951,7 +963,7 @@ func Test_NewConversationID(t *testing.T) {
 // visible column — counting CJK characters as 2 columns wide per
 // terminal convention.
 func Test_CursorXWithMultibyteRune(t *testing.T) {
-	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/", true)
 	v := m.View()
 	idleX := v.Cursor.X
 	// Type a single Chinese character. Bubbles' Cursor().X counts
@@ -970,7 +982,7 @@ func Test_CursorXWithMultibyteRune(t *testing.T) {
 // prefix). The lipgloss Prompt style wraps the prompt in ANSI
 // bytes that bubbles correctly excludes from Cursor().X count.
 func Test_CursorXWithPromptANSIOffset(t *testing.T) {
-	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/", true)
 	v := m.View()
 	if v.Cursor.X != 2 {
 		t.Errorf("idle cursor X should be 2 (after '> ' prompt prefix), got %d (cycle 90)", v.Cursor.X)
@@ -983,9 +995,9 @@ func Test_CursorXWithPromptANSIOffset(t *testing.T) {
 // (38;2;38;139;210) and labels in true-colour dim gray
 // (38;2;101;123;131), matching the v1.3.6 binary.
 func Test_PickerHintRowStyling(t *testing.T) {
-	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/", true)
 	m.Update(runeKey('/'))
-	if !m.composer.picker.Visible() {
+	if !m.prompt.picker.Visible() {
 		t.Fatal("picker should be visible after typing '/'")
 	}
 	view := m.View().Content
@@ -1018,14 +1030,14 @@ func Test_PickerHintRowStyling(t *testing.T) {
 // (38;2;25;103;210) for the ⎿ bullet and true-colour dim gray
 // (38;2;101;123;131 — for the body label).
 func Test_HelpExitFeedback(t *testing.T) {
-	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/", true)
 	handled, _ := m.handleSlashCommand("/help")
-	if !handled || !m.viewport.helpPanel.Active() {
+	if !handled || !m.help.Panel.Active() {
 		t.Fatal("/help should open overlay")
 	}
 	// Dismiss via Esc
 	m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEsc}))
-	if m.viewport.helpPanel.Active() {
+	if m.help.Panel.Active() {
 		t.Fatal("the /help overlay should be closed after Esc")
 	}
 	wantBlock := []string{
@@ -1034,18 +1046,18 @@ func Test_HelpExitFeedback(t *testing.T) {
 		"",
 	}
 	found := false
-	for i := 0; i+len(wantBlock) <= len(m.engine.response); i++ {
-		if strings.Join(m.engine.response[i:i+len(wantBlock)], "\x00") == strings.Join(wantBlock, "\x00") {
+	for i := 0; i+len(wantBlock) <= len(m.conversation.response); i++ {
+		if strings.Join(m.conversation.response[i:i+len(wantBlock)], "\x00") == strings.Join(wantBlock, "\x00") {
 			found = true
 			break
 		}
 	}
 	if !found {
-		t.Errorf("expected the standard `> /help` + Exited block, got %v", m.engine.response)
+		t.Errorf("expected the standard `> /help` + Exited block, got %v", m.conversation.response)
 	}
 }
 
-func TestRunModeSystemPromptIsTheReferencePrompt(t *testing.T) {
+func TestRootModelSystemPromptIsTheReferencePrompt(t *testing.T) {
 	root := t.TempDir()
 	agentHome := filepath.Join(root, ".gemini", "antigravity-cli")
 	if err := os.MkdirAll(agentHome, 0o755); err != nil {
@@ -1067,7 +1079,7 @@ func TestRunModeSystemPromptIsTheReferencePrompt(t *testing.T) {
 	}
 
 	ws := filepath.Join(root, "ws")
-	m := &runMode{session: sessionState{cwd: ws, conversationID: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"}}
+	m := &RootModel{session: sessionState{cwd: ws, conversationID: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"}}
 	got := m.systemPrompt()
 
 	for _, want := range []string{
@@ -1085,7 +1097,7 @@ func TestRunModeSystemPromptIsTheReferencePrompt(t *testing.T) {
 	}
 }
 
-func TestRunModeSystemPrompt_CustomAgent(t *testing.T) {
+func TestRootModelSystemPrompt_CustomAgent(t *testing.T) {
 	root := t.TempDir()
 	agentHome := filepath.Join(root, ".gemini", "antigravity-cli")
 	if err := os.MkdirAll(agentHome, 0o755); err != nil {
@@ -1093,7 +1105,7 @@ func TestRunModeSystemPrompt_CustomAgent(t *testing.T) {
 	}
 	t.Setenv("ANTIGRAVITY_HOME", agentHome)
 	ws := filepath.Join(root, "ws")
-	m := &runMode{session: sessionState{cwd: ws, conversationID: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee", agentBody: "You are foo."}}
+	m := &RootModel{session: sessionState{cwd: ws, conversationID: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee", agentBody: "You are foo."}}
 	got := m.systemPrompt()
 
 	if !strings.HasPrefix(got, "<System Prompt>\nYou are foo.\n</System Prompt>\n<user_information>") {
@@ -1117,54 +1129,50 @@ func escKey() tea.KeyPressMsg {
 // TestEscPickerOpenClosesDropdownOnly pins the first half of the
 // spec: pressing Esc while the suggestions dropdown is open must
 // close the dropdown and MUST NOT cancel the streaming turn. The
-// test arms both states (picker visible + turnCancel installed),
+// test arms both states (picker visible + a running turn bridge),
 // presses Esc, and verifies that:
 //   - the picker is closed (Visible() == false)
 //   - the cancel function was NOT invoked
-//   - m.engine.streaming stays true (turn is still in flight)
+//   - m.conversation.streaming stays true (turn is still in flight)
 func TestEscPickerOpenClosesDropdownOnly(t *testing.T) {
-	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/", true)
 	m.Update(runeKey('/'))
-	if !m.composer.picker.Visible() {
+	if !m.prompt.picker.Visible() {
 		t.Fatalf("precondition: picker should be visible after '/'")
 	}
-	m.engine.streaming = true
-	cancelCount := 0
-	m.engine.turnCancel = func() { cancelCount++ }
+	m.conversation.streaming = true
+	bridge, ctx := armRunningBridge(t)
+	m.turn.activeBridge = bridge
 
 	m.Update(escKey())
 
-	if m.composer.picker.Visible() {
+	if m.prompt.picker.Visible() {
 		t.Errorf("picker should be closed after Esc, still visible")
 	}
-	if cancelCount != 0 {
-		t.Errorf("first Esc (picker open) must NOT cancel the turn, got cancelCount=%d", cancelCount)
-	}
-	if !m.engine.streaming {
+	requireNotCancelled(t, ctx)
+	if !m.conversation.streaming {
 		t.Errorf("first Esc must leave streaming=true (turn untouched), got false")
 	}
 }
 
 // TestEscNoPickerInterruptsStreamingTurn pins the second half of
 // the spec: with the picker already closed and a turn in flight,
-// pressing Esc must cancel the in-flight stream via the stored
-// turnCancel. After the cancel fires the handler clears turnCancel
-// so a third Esc press (no-op in normal use) cannot re-cancel.
+// pressing Esc must cancel the in-flight stream through the turn
+// bridge. After the cancel fires the runtime clears itself, so a third
+// Esc press (no-op in normal use) cannot re-cancel.
 func TestEscNoPickerInterruptsStreamingTurn(t *testing.T) {
-	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
-	m.engine.streaming = true
-	cancelCount := 0
-	m.engine.turnCancel = func() { cancelCount++ }
+	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m.conversation.streaming = true
+	bridge, ctx := armRunningBridge(t)
+	m.turn.activeBridge = bridge
 
 	m.Update(escKey())
 
-	if cancelCount != 1 {
-		t.Errorf("Esc with streaming + no picker must call turnCancel once, got %d", cancelCount)
+	requireCancelled(t, ctx)
+	if bridge.IsRunning() {
+		t.Error("the bridge still reports a running turn after cancel")
 	}
-	if m.engine.turnCancel != nil {
-		t.Errorf("turnCancel must be cleared after cancel, got non-nil")
-	}
-	if !m.engine.streaming {
+	if !m.conversation.streaming {
 		t.Errorf("streaming stays true until turnDoneMsg fires; Esc alone only cancels the ctx, got false")
 	}
 }
@@ -1178,34 +1186,30 @@ func TestEscNoPickerInterruptsStreamingTurn(t *testing.T) {
 // check both states (picker visibility and cancel invocation)
 // after each press.
 func TestEscTwoPressesCloseThenInterrupt(t *testing.T) {
-	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/", true)
 	m.Update(runeKey('/'))
-	if !m.composer.picker.Visible() {
+	if !m.prompt.picker.Visible() {
 		t.Fatalf("precondition: picker should be visible after '/'")
 	}
-	m.engine.streaming = true
-	cancelCount := 0
-	m.engine.turnCancel = func() { cancelCount++ }
+	m.conversation.streaming = true
+	bridge, ctx := armRunningBridge(t)
+	m.turn.activeBridge = bridge
 
 	// First Esc — close the dropdown.
 	m.Update(escKey())
-	if m.composer.picker.Visible() {
+	if m.prompt.picker.Visible() {
 		t.Errorf("after first Esc: picker should be closed, still visible")
 	}
-	if cancelCount != 0 {
-		t.Errorf("after first Esc: cancelCount=%d, want 0 (turn untouched)", cancelCount)
-	}
-	if m.engine.turnCancel == nil {
-		t.Errorf("after first Esc: turnCancel should still be installed")
+	requireNotCancelled(t, ctx)
+	if !bridge.IsRunning() {
+		t.Errorf("after first Esc: the turn should still run")
 	}
 
 	// Second Esc — interrupt the turn.
 	m.Update(escKey())
-	if cancelCount != 1 {
-		t.Errorf("after second Esc: cancelCount=%d, want 1 (turn cancelled)", cancelCount)
-	}
-	if m.engine.turnCancel != nil {
-		t.Errorf("after second Esc: turnCancel should be cleared")
+	requireCancelled(t, ctx)
+	if bridge.IsRunning() {
+		t.Errorf("after second Esc: the bridge still reports a running turn")
 	}
 }
 
@@ -1215,59 +1219,56 @@ func TestEscTwoPressesCloseThenInterrupt(t *testing.T) {
 // and an empty input must do nothing — including NOT setting any
 // new state and NOT invoking any cancel.
 func TestEscNoDropdownNoStreamAbsorbsSilently(t *testing.T) {
-	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
-	if m.composer.picker.Visible() {
+	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/", true)
+	if m.prompt.picker.Visible() {
 		t.Fatalf("precondition: picker must start hidden")
 	}
-	if m.engine.streaming {
+	if m.conversation.streaming {
 		t.Fatalf("precondition: must not be streaming")
 	}
-	cancelCount := 0
-	m.engine.turnCancel = func() { cancelCount++ }
-
 	m.Update(escKey())
 
-	if m.composer.picker.Visible() {
+	if m.prompt.picker.Visible() {
 		t.Errorf("picker must remain hidden on no-op Esc")
 	}
-	if m.engine.streaming {
+	if m.conversation.streaming {
 		t.Errorf("streaming must remain false on no-op Esc")
 	}
-	if cancelCount != 0 {
-		t.Errorf("cancelCount=%d, want 0 (no turn to cancel)", cancelCount)
+	if m.turn.activeBridge != nil {
+		t.Errorf("no-op Esc installed a turn bridge")
 	}
-	if m.composer.input.Value() != "" {
-		t.Errorf("input must remain empty on no-op Esc, got %q", m.composer.input.Value())
+	if m.prompt.input.Value() != "" {
+		t.Errorf("input must remain empty on no-op Esc, got %q", m.prompt.input.Value())
 	}
-	if len(m.engine.response) != 0 {
-		t.Errorf("no-op Esc must not append to response, got %d rows", len(m.engine.response))
+	if len(m.conversation.response) != 0 {
+		t.Errorf("no-op Esc must not append to response, got %d rows", len(m.conversation.response))
 	}
 }
 
 // TestEscStreamingWithoutCancelDoesNotCrash covers the stale-flag
-// guard: streaming=true but turnCancel==nil (the test fakeClient
-// returns nil from Stream, so the runMode is left in streaming=true
+// guard: streaming=true but no active bridge (the test fakeClient
+// returns nil from Stream, so the RootModel is left in streaming=true
 // with no live cancel — the same shape a backend error leaves the
 // session in). Esc must NOT panic and must NOT block; it should
 // fall through to the silent-absorb branch.
 func TestEscStreamingWithoutCancelDoesNotCrash(t *testing.T) {
-	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
-	m.engine.streaming = true
-	if m.engine.turnCancel != nil {
-		t.Fatalf("precondition: turnCancel should start nil")
+	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m.conversation.streaming = true
+	if m.turn.activeBridge != nil {
+		t.Fatalf("precondition: activeBridge should start nil")
 	}
 
 	// Should not panic, should not append, should not crash.
 	m.Update(escKey())
 
-	if m.engine.turnCancel != nil {
-		t.Errorf("stale streaming without cancel must leave turnCancel nil")
+	if m.turn.activeBridge != nil {
+		t.Errorf("stale streaming without a bridge must leave activeBridge nil")
 	}
-	if !m.engine.streaming {
+	if !m.conversation.streaming {
 		t.Errorf("stale streaming flag must not be cleared by Esc, got false")
 	}
-	if len(m.engine.response) != 0 {
-		t.Errorf("no response rows should be appended on stale-streaming Esc, got %d", len(m.engine.response))
+	if len(m.conversation.response) != 0 {
+		t.Errorf("no response rows should be appended on stale-streaming Esc, got %d", len(m.conversation.response))
 	}
 }
 
@@ -1278,31 +1279,29 @@ func TestEscStreamingWithoutCancelDoesNotCrash(t *testing.T) {
 // input text + a turn in flight + no picker must clear the input
 // (the input-clear branch fires BEFORE the silent-absorb branch,
 // but the streaming-interrupt branch fires BEFORE input-clear and
-// takes precedence when turnCancel != nil).
+// takes precedence when a turn bridge is running).
 //
 // The spec is "second Esc interrupts" — once the picker is closed
 // and the turn is still streaming, the *next* Esc interrupts the
 // turn (input is left alone). This matches the reference binary's
 // behaviour captured in /tmp/agycmp/tui/esc_interrupts.esc.txt.
 func TestEscInputClearOrInterruptPriority(t *testing.T) {
-	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/", true)
 	m.Update(runeKey('h'))
 	m.Update(runeKey('i'))
-	if got := m.composer.input.Value(); got != "hi" {
+	if got := m.prompt.input.Value(); got != "hi" {
 		t.Fatalf("precondition: input should be 'hi', got %q", got)
 	}
-	m.engine.streaming = true
-	cancelCount := 0
-	m.engine.turnCancel = func() { cancelCount++ }
+	m.conversation.streaming = true
+	bridge, ctx := armRunningBridge(t)
+	m.turn.activeBridge = bridge
 
 	m.Update(escKey())
 
 	// Streaming-interrupt takes priority over input-clear: the
 	// turn is interrupted, the input text "hi" stays.
-	if cancelCount != 1 {
-		t.Errorf("Esc with streaming+no picker+input text must cancel turn, got cancelCount=%d", cancelCount)
-	}
-	if got := m.composer.input.Value(); got != "hi" {
+	requireCancelled(t, ctx)
+	if got := m.prompt.input.Value(); got != "hi" {
 		t.Errorf("Esc with streaming+no picker must leave input text intact (interrupts turn, not input), got %q", got)
 	}
 }
@@ -1331,7 +1330,7 @@ func TestMiniMaxHeaderAndFooter(t *testing.T) {
 			ExternalModel: "MiniMax-M3",
 		},
 	}
-	m := newRunMode(be, "user@test.com", "", "", "/test/workspace", false)
+	m := newRootModel(be, "user@test.com", "", "", "/test/workspace", false)
 	if m.session.model != "MiniMax M3" {
 		t.Fatalf("m.session.model = %q, want 'MiniMax M3'", m.session.model)
 	}
@@ -1350,7 +1349,7 @@ func TestMiniMaxHeaderAndFooter(t *testing.T) {
 		t.Errorf("View() should NOT have effort suffix for MiniMax M3, got:\n%s", view)
 	}
 
-	m2 := newRunMode(nil, "user@test.com", "MiniMax M3", "", "/test/workspace", false)
+	m2 := newRootModel(nil, "user@test.com", "MiniMax M3", "", "/test/workspace", false)
 	if m2.session.model != "MiniMax M3" || m2.session.statusModel != "MiniMax M3" {
 		t.Fatalf("m2.session.model = %q, m2.session.statusModel = %q", m2.session.model, m2.session.statusModel)
 	}
@@ -1362,7 +1361,7 @@ func TestMiniMaxHeaderAndFooter(t *testing.T) {
 		t.Errorf("View() should NOT contain hardcoded 'Gemini 3.8 Flash'")
 	}
 
-	m3 := newRunMode(nil, "user@test.com", "minimax-m3", "", "/test/workspace", false)
+	m3 := newRootModel(nil, "user@test.com", "minimax-m3", "", "/test/workspace", false)
 	if m3.session.model != "MiniMax M3" || m3.session.statusModel != "MiniMax M3" {
 		t.Fatalf("m3.model = %q, m3.statusModel = %q", m3.session.model, m3.session.statusModel)
 	}
@@ -1390,7 +1389,7 @@ func shiftTabKey() tea.KeyPressMsg {
 // Build without burning two presses.
 func TestShiftTabCyclesBuildToDefault(t *testing.T) {
 	policy := permissions.Policy{Mode: permissions.ModeAcceptEdits}
-	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/", true)
 	m.session.policy = &policy
 	m.session.mode = policy.Mode
 
@@ -1402,11 +1401,11 @@ func TestShiftTabCyclesBuildToDefault(t *testing.T) {
 		t.Errorf("Shift+Tab from Build: policy.Mode = %q, want %q (default)", policy.Mode, "")
 	}
 	// Cycle 283: the cue is the input placeholder, not a transcript line.
-	if got := m.composer.input.Placeholder; got != "" {
+	if got := m.prompt.input.Placeholder; got != "" {
 		t.Errorf("Build→Default placeholder = %q, want empty", got)
 	}
-	if len(m.engine.response) != 0 {
-		t.Errorf("Build→Default wrote %d transcript lines, want 0", len(m.engine.response))
+	if len(m.conversation.response) != 0 {
+		t.Errorf("Build→Default wrote %d transcript lines, want 0", len(m.conversation.response))
 	}
 }
 
@@ -1415,7 +1414,7 @@ func TestShiftTabCyclesBuildToDefault(t *testing.T) {
 // session's mode (was accept-edits in cycle 104). Documented in 硬約束.
 func TestShiftTabCyclesDefaultToAuto(t *testing.T) {
 	policy := permissions.Policy{Mode: ""}
-	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/", true)
 	m.session.policy = &policy
 	m.session.mode = policy.Mode
 
@@ -1426,18 +1425,18 @@ func TestShiftTabCyclesDefaultToAuto(t *testing.T) {
 	if policy.Mode != permissions.ModeAuto {
 		t.Errorf("Shift+Tab from Default: policy.Mode = %q, want %q", policy.Mode, permissions.ModeAuto)
 	}
-	if got := m.composer.input.Placeholder; got != permissions.AutoBanner {
+	if got := m.prompt.input.Placeholder; got != permissions.AutoBanner {
 		t.Errorf("Default→Auto placeholder = %q, want AutoBanner %q", got, permissions.AutoBanner)
 	}
-	if len(m.engine.response) != 0 {
-		t.Errorf("Default→Auto wrote %d transcript lines, want 0", len(m.engine.response))
+	if len(m.conversation.response) != 0 {
+		t.Errorf("Default→Auto wrote %d transcript lines, want 0", len(m.conversation.response))
 	}
 }
 
 // TestShiftTabCyclesAutoToPlan: starting at "auto", Shift+Tab → "plan".
 func TestShiftTabCyclesAutoToPlan(t *testing.T) {
 	policy := permissions.Policy{Mode: permissions.ModeAuto}
-	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/", true)
 	m.session.policy = &policy
 	m.session.mode = policy.Mode
 
@@ -1448,11 +1447,11 @@ func TestShiftTabCyclesAutoToPlan(t *testing.T) {
 	if policy.Mode != permissions.ModePlan {
 		t.Errorf("Shift+Tab from Auto: policy.Mode = %q, want %q", policy.Mode, permissions.ModePlan)
 	}
-	if got := m.composer.input.Placeholder; got != permissions.PlanBanner {
+	if got := m.prompt.input.Placeholder; got != permissions.PlanBanner {
 		t.Errorf("Auto→Plan placeholder = %q, want PlanBanner %q", got, permissions.PlanBanner)
 	}
-	if len(m.engine.response) != 0 {
-		t.Errorf("Auto→Plan wrote %d transcript lines, want 0", len(m.engine.response))
+	if len(m.conversation.response) != 0 {
+		t.Errorf("Auto→Plan wrote %d transcript lines, want 0", len(m.conversation.response))
 	}
 }
 
@@ -1462,7 +1461,7 @@ func TestShiftTabCyclesAutoToPlan(t *testing.T) {
 // second lap.
 func TestShiftTabCyclesPlanToBuild(t *testing.T) {
 	policy := permissions.Policy{Mode: permissions.ModePlan}
-	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/", true)
 	m.session.policy = &policy
 	m.session.mode = policy.Mode
 
@@ -1473,11 +1472,11 @@ func TestShiftTabCyclesPlanToBuild(t *testing.T) {
 	if policy.Mode != permissions.ModeAcceptEdits {
 		t.Errorf("Shift+Tab from Plan (wrap): policy.Mode = %q, want %q", policy.Mode, permissions.ModeAcceptEdits)
 	}
-	if got := m.composer.input.Placeholder; got != permissions.AcceptEditsBanner {
+	if got := m.prompt.input.Placeholder; got != permissions.AcceptEditsBanner {
 		t.Errorf("Plan→Build placeholder = %q, want AcceptEditsBanner %q", got, permissions.AcceptEditsBanner)
 	}
-	if len(m.engine.response) != 0 {
-		t.Errorf("Plan→Build wrote %d transcript lines, want 0", len(m.engine.response))
+	if len(m.conversation.response) != 0 {
+		t.Errorf("Plan→Build wrote %d transcript lines, want 0", len(m.conversation.response))
 	}
 }
 
@@ -1493,13 +1492,13 @@ func TestShiftTabCyclesPlanToBuild(t *testing.T) {
 // the Agent Mode setting.
 func TestShiftTab_NotInConfigMenu(t *testing.T) {
 	policy := permissions.Policy{Mode: ""}
-	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/", true)
 	m.session.policy = &policy
 	m.session.mode = policy.Mode
 	// Open /config on Agent Mode (cursor 0 — first row).
 	m.overlays.panel = slashPanel{kind: panelregistry.Config, cmd: "/config", cursor: 0}
 	startMode := m.session.mode
-	startRespLen := len(m.engine.response)
+	startRespLen := len(m.conversation.response)
 
 	m.Update(shiftTabKey())
 
@@ -1509,7 +1508,7 @@ func TestShiftTab_NotInConfigMenu(t *testing.T) {
 	if policy.Mode != startMode {
 		t.Errorf("Shift+Tab in /config mutated policy.Mode = %q, want %q", policy.Mode, startMode)
 	}
-	if got := len(m.engine.response); got != startRespLen {
+	if got := len(m.conversation.response); got != startRespLen {
 		t.Errorf("Shift+Tab in /config appended to response (%d → %d); the panel owns the key", startRespLen, got)
 	}
 }
@@ -1521,13 +1520,13 @@ func TestShiftTab_NotInConfigMenu(t *testing.T) {
 // pre-283 clone did, which stacked stale banners in the conversation.
 func TestShiftTab_StatusLineReflects(t *testing.T) {
 	policy := permissions.Policy{Mode: permissions.ModeAcceptEdits}
-	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/", true)
 	m.session.policy = &policy
 	m.session.mode = policy.Mode
 	m.session.statusModel = "MiniMax M3"
 
 	m.Update(shiftTabKey()) // Build → Default
-	if got := m.composer.input.Placeholder; got != "" {
+	if got := m.prompt.input.Placeholder; got != "" {
 		t.Errorf("Build→Default placeholder = %q, want empty", got)
 	}
 	if row := plainRow(m.statusRow()); strings.Contains(row, "accept-edits · ") || strings.Contains(row, " · MiniMax M3") {
@@ -1535,7 +1534,7 @@ func TestShiftTab_StatusLineReflects(t *testing.T) {
 	}
 
 	m.Update(shiftTabKey()) // Default → Auto
-	if got := m.composer.input.Placeholder; got != permissions.AutoBanner {
+	if got := m.prompt.input.Placeholder; got != permissions.AutoBanner {
 		t.Errorf("Default→Auto placeholder = %q, want AutoBanner", got)
 	}
 	if row := plainRow(m.statusRow()); !strings.Contains(row, "auto · MiniMax M3") {
@@ -1543,15 +1542,15 @@ func TestShiftTab_StatusLineReflects(t *testing.T) {
 	}
 
 	m.Update(shiftTabKey()) // Auto → Plan
-	if got := m.composer.input.Placeholder; got != permissions.PlanBanner {
+	if got := m.prompt.input.Placeholder; got != permissions.PlanBanner {
 		t.Errorf("Auto→Plan placeholder = %q, want PlanBanner", got)
 	}
 	if row := plainRow(m.statusRow()); !strings.Contains(row, "plan · MiniMax M3") {
 		t.Errorf("Auto→Plan status row = %q, want it to contain %q", row, "plan · MiniMax M3")
 	}
 
-	if len(m.engine.response) != 0 {
-		t.Errorf("Shift+Tab wrote %d transcript lines, want 0", len(m.engine.response))
+	if len(m.conversation.response) != 0 {
+		t.Errorf("Shift+Tab wrote %d transcript lines, want 0", len(m.conversation.response))
 	}
 }
 
@@ -1561,30 +1560,30 @@ func TestShiftTab_StatusLineReflects(t *testing.T) {
 // buffer does not bring it back, and neither does submitting.
 func TestModeHintHidesAfterEdit(t *testing.T) {
 	policy := permissions.Policy{Mode: permissions.ModeAuto}
-	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/", true)
 	m.session.policy = &policy
 	m.session.mode = policy.Mode
-	m.composer.input.Placeholder = permissions.ModeBanner(m.session.mode)
+	m.prompt.input.Placeholder = permissions.ModeBanner(m.session.mode)
 
 	// A keystroke marks the input as edited.
 	m.Update(tea.KeyPressMsg(tea.Key{Code: 'a', Text: "a"}))
-	if !m.composer.modeHintDismissed {
+	if !m.prompt.modeHintDismissed {
 		t.Fatal("typing did not dismiss the mode hint")
 	}
 
 	// Shift+Tab re-arms it (and the new mode's banner takes its place).
 	m.Update(shiftTabKey())
-	if m.composer.modeHintDismissed {
+	if m.prompt.modeHintDismissed {
 		t.Fatal("Shift+Tab did not re-arm the mode hint")
 	}
-	if got := m.composer.input.Placeholder; got != permissions.PlanBanner {
+	if got := m.prompt.input.Placeholder; got != permissions.PlanBanner {
 		t.Errorf("after Shift+Tab placeholder = %q, want PlanBanner", got)
 	}
 }
 
 func TestShiftTabCyclesMode(t *testing.T) {
 	policy := permissions.Policy{Mode: permissions.ModeAcceptEdits}
-	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/", true)
 	m.session.policy = &policy
 	m.session.mode = policy.Mode
 
@@ -1601,18 +1600,18 @@ func TestShiftTabCyclesMode(t *testing.T) {
 		if policy.Mode != want.mode {
 			t.Fatalf("after Shift+Tab policy.Mode = %q, want %q (the tool gate must see it)", policy.Mode, want.mode)
 		}
-		if got := m.composer.input.Placeholder; got != want.placeholder {
+		if got := m.prompt.input.Placeholder; got != want.placeholder {
 			t.Errorf("mode %q placeholder = %q, want %q", want.mode, got, want.placeholder)
 		}
-		if len(m.engine.response) != 0 {
-			t.Errorf("mode %q wrote %d transcript lines, want 0", want.mode, len(m.engine.response))
+		if len(m.conversation.response) != 0 {
+			t.Errorf("mode %q wrote %d transcript lines, want 0", want.mode, len(m.conversation.response))
 		}
 	}
 }
 
 func TestShiftTabStartsFromFlagMode(t *testing.T) {
 	policy := permissions.Policy{Mode: permissions.ModeAuto}
-	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/", true)
 	m.session.policy = &policy
 	m.session.mode = policy.Mode
 
@@ -1624,18 +1623,18 @@ func TestShiftTabStartsFromFlagMode(t *testing.T) {
 
 func TestShiftTabDoesNotCompletePickerRow(t *testing.T) {
 	policy := permissions.Policy{}
-	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/", true)
 	m.session.policy = &policy
-	m.composer.input.SetValue("/a")
-	m.composer.picker.Update([]rune("/a"))
-	if m.composer.picker.Selected() == nil {
+	m.prompt.input.SetValue("/a")
+	m.prompt.picker.Update([]rune("/a"))
+	if m.prompt.picker.Selected() == nil {
 		t.Skip("picker has no selection for this prefix")
 	}
-	before := m.composer.input.Value()
+	before := m.prompt.input.Value()
 
 	m.Update(shiftTabKey())
-	if m.composer.input.Value() != before {
-		t.Errorf("Shift+Tab rewrote the input to %q", m.composer.input.Value())
+	if m.prompt.input.Value() != before {
+		t.Errorf("Shift+Tab rewrote the input to %q", m.prompt.input.Value())
 	}
 	if m.session.mode == "" {
 		t.Errorf("Shift+Tab with the picker open did not cycle (mode=%q)", m.session.mode)
@@ -1648,13 +1647,13 @@ func TestShiftTabDoesNotCompletePickerRow(t *testing.T) {
 // was appended before submitPrompt (the prompt echo) stays the only
 // entry.
 func TestTurnDoneMsg_EmptyAssistantNotRecorded(t *testing.T) {
-	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/", true)
 	// Simulate the prompt echo + user-step append the real
 	// submitPrompt path produces. The cycle keeps this step; the
 	// gate is only about the assistant step.
-	m.engine.response = append(m.engine.response, "> hi")
-	m.engine.liveStart = len(m.engine.response)
-	m.engine.session = append(m.engine.session, backend.Message{Role: "user", Content: "hi"})
+	m.conversation.response = append(m.conversation.response, "> hi")
+	m.conversation.liveStart = len(m.conversation.response)
+	m.setSessionMessages(append(m.SessionMessages(), backend.Message{Role: "user", Content: "hi"}))
 
 	_, _ = m.Update(toolsteps.TurnDoneMsg{
 		Reply:     "",
@@ -1662,11 +1661,11 @@ func TestTurnDoneMsg_EmptyAssistantNotRecorded(t *testing.T) {
 		Reasoning: "",
 	})
 
-	if len(m.engine.session) != 1 {
-		t.Fatalf("empty turn appended %d session entries; want 1 (just the user prompt)", len(m.engine.session))
+	if len(m.SessionMessages()) != 1 {
+		t.Fatalf("empty turn appended %d session entries; want 1 (just the user prompt)", len(m.SessionMessages()))
 	}
-	if m.engine.session[0].Role != "user" {
-		t.Errorf("session[0].Role = %q; want user", m.engine.session[0].Role)
+	if m.SessionMessages()[0].Role != "user" {
+		t.Errorf("session[0].Role = %q; want user", m.SessionMessages()[0].Role)
 	}
 }
 
@@ -1679,10 +1678,10 @@ func TestTurnDoneMsg_EmptyAssistantNotRecorded(t *testing.T) {
 // recorded this case (msg.reply is "" so the gate would actually
 // skip; the new gate fixes that bug by also considering reasoning).
 func TestTurnDoneMsg_ReasoningOnlyRecordedAsStep(t *testing.T) {
-	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
-	m.engine.response = append(m.engine.response, "> think about it")
-	m.engine.liveStart = len(m.engine.response)
-	m.engine.session = append(m.engine.session, backend.Message{Role: "user", Content: "think about it"})
+	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m.conversation.response = append(m.conversation.response, "> think about it")
+	m.conversation.liveStart = len(m.conversation.response)
+	m.setSessionMessages(append(m.SessionMessages(), backend.Message{Role: "user", Content: "think about it"}))
 
 	thoughtStep := toolsteps.Step{
 		Kind:   toolsteps.KindThought,
@@ -1701,15 +1700,15 @@ func TestTurnDoneMsg_ReasoningOnlyRecordedAsStep(t *testing.T) {
 	// database stores this as StepModelResponse with empty text —
 	// the presence of the step tells the resumed conversation the
 	// model spent quota on this turn.
-	if len(m.engine.session) != 2 {
-		t.Fatalf("reasoning-only turn appended %d session entries; want 2", len(m.engine.session))
+	if len(m.SessionMessages()) != 2 {
+		t.Fatalf("reasoning-only turn appended %d session entries; want 2", len(m.SessionMessages()))
 	}
-	if m.engine.session[1].Role != "assistant" {
-		t.Errorf("session[1].Role = %q; want assistant", m.engine.session[1].Role)
+	if m.SessionMessages()[1].Role != "assistant" {
+		t.Errorf("session[1].Role = %q; want assistant", m.SessionMessages()[1].Role)
 	}
 	// The on-screen tool-step block is also rendered, so the user
 	// sees the reasoning content.
-	if len(m.engine.blocks) == 0 {
+	if len(m.conversation.blocks) == 0 {
 		t.Error("reasoning-only turn did not record a tool-step block; the on-screen reasoning would be lost")
 	}
 }
@@ -1719,10 +1718,10 @@ func TestTurnDoneMsg_ReasoningOnlyRecordedAsStep(t *testing.T) {
 // This is the case the previous gate `if msg.reply != ""` already
 // covered; the new gate must keep working.
 func TestTurnDoneMsg_ReplyRecorded(t *testing.T) {
-	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
-	m.engine.response = append(m.engine.response, "> greet")
-	m.engine.liveStart = len(m.engine.response)
-	m.engine.session = append(m.engine.session, backend.Message{Role: "user", Content: "greet"})
+	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m.conversation.response = append(m.conversation.response, "> greet")
+	m.conversation.liveStart = len(m.conversation.response)
+	m.setSessionMessages(append(m.SessionMessages(), backend.Message{Role: "user", Content: "greet"}))
 
 	_, _ = m.Update(toolsteps.TurnDoneMsg{
 		Reply:     "Hello there.",
@@ -1730,11 +1729,11 @@ func TestTurnDoneMsg_ReplyRecorded(t *testing.T) {
 		Reasoning: "",
 	})
 
-	if len(m.engine.session) != 2 {
-		t.Fatalf("normal turn recorded %d session entries; want 2", len(m.engine.session))
+	if len(m.SessionMessages()) != 2 {
+		t.Fatalf("normal turn recorded %d session entries; want 2", len(m.SessionMessages()))
 	}
-	if m.engine.session[1].Role != "assistant" || m.engine.session[1].Content != "Hello there." {
-		t.Errorf("session[1] = %+v; want assistant/Hello there.", m.engine.session[1])
+	if m.SessionMessages()[1].Role != "assistant" || m.SessionMessages()[1].Content != "Hello there." {
+		t.Errorf("session[1] = %+v; want assistant/Hello there.", m.SessionMessages()[1])
 	}
 }
 
@@ -1743,10 +1742,10 @@ func TestTurnDoneMsg_ReplyRecorded(t *testing.T) {
 // keeps the partial text as the assistant step. The classifier
 // reports non-empty (content is non-empty), so the gate fires.
 func TestTurnDoneMsg_PartialReplyRecorded(t *testing.T) {
-	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
-	m.engine.response = append(m.engine.response, "> long question")
-	m.engine.liveStart = len(m.engine.response)
-	m.engine.session = append(m.engine.session, backend.Message{Role: "user", Content: "long question"})
+	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m.conversation.response = append(m.conversation.response, "> long question")
+	m.conversation.liveStart = len(m.conversation.response)
+	m.setSessionMessages(append(m.SessionMessages(), backend.Message{Role: "user", Content: "long question"}))
 
 	partial := "I was about to say that"
 	_, _ = m.Update(toolsteps.TurnDoneMsg{
@@ -1755,28 +1754,28 @@ func TestTurnDoneMsg_PartialReplyRecorded(t *testing.T) {
 		Reasoning: "",
 	})
 
-	if len(m.engine.session) != 2 {
-		t.Fatalf("partial turn recorded %d session entries; want 2", len(m.engine.session))
+	if len(m.SessionMessages()) != 2 {
+		t.Fatalf("partial turn recorded %d session entries; want 2", len(m.SessionMessages()))
 	}
-	if m.engine.session[1].Content != partial {
-		t.Errorf("session[1].Content = %q; want %q", m.engine.session[1].Content, partial)
+	if m.SessionMessages()[1].Content != partial {
+		t.Errorf("session[1].Content = %q; want %q", m.SessionMessages()[1].Content, partial)
 	}
 }
 
 // TestTurnDoneMsg_ToolCallOnlyDoesNotAppendSessionStep pins the
 // recovered wire shape: tool calls are recorded as StepToolCall
 // rows of the conversation database (via the tool-step block in
-// m.engine.blocks), NOT as StepModelResponse rows from m.session. The new
+// m.conversation.blocks), NOT as StepModelResponse rows from m.session. The new
 // gate passes through the classifier's "non-empty" verdict for
 // tool-call-only turns, but the call site still skips the
 // m.engine.session append because the wire shape wants StepToolCall, not
 // StepModelResponse. The on-screen step block is the user-visible
 // artefact.
 func TestTurnDoneMsg_ToolCallOnlyDoesNotAppendSessionStep(t *testing.T) {
-	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
-	m.engine.response = append(m.engine.response, "> read the file")
-	m.engine.liveStart = len(m.engine.response)
-	m.engine.session = append(m.engine.session, backend.Message{Role: "user", Content: "read the file"})
+	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m.conversation.response = append(m.conversation.response, "> read the file")
+	m.conversation.liveStart = len(m.conversation.response)
+	m.setSessionMessages(append(m.SessionMessages(), backend.Message{Role: "user", Content: "read the file"}))
 
 	toolStepEntry := toolsteps.Step{
 		Name:   "read_file",
@@ -1791,17 +1790,17 @@ func TestTurnDoneMsg_ToolCallOnlyDoesNotAppendSessionStep(t *testing.T) {
 
 	// The classifier agrees the turn is non-empty (tool calls ARE
 	// content), so the on-screen tool-step block is rendered.
-	if len(m.engine.blocks) == 0 {
+	if len(m.conversation.blocks) == 0 {
 		t.Error("tool-call-only turn did not record a tool-step block; on-screen tool step would be lost")
 	}
 	// But the m.engine.session does NOT grow with a StepModelResponse —
 	// tool calls live as StepToolCall rows in the conversation
 	// database, not StepModelResponse.
-	if len(m.engine.session) != 1 {
-		t.Fatalf("tool-call-only turn appended %d session entries; want 1 (just the user prompt)", len(m.engine.session))
+	if len(m.SessionMessages()) != 1 {
+		t.Fatalf("tool-call-only turn appended %d session entries; want 1 (just the user prompt)", len(m.SessionMessages()))
 	}
-	if m.engine.session[0].Role != "user" {
-		t.Errorf("session[0].Role = %q; want user", m.engine.session[0].Role)
+	if m.SessionMessages()[0].Role != "user" {
+		t.Errorf("session[0].Role = %q; want user", m.SessionMessages()[0].Role)
 	}
 }
 
@@ -1815,10 +1814,10 @@ func TestTurnDoneMsg_ToolCallOnlyDoesNotAppendSessionStep(t *testing.T) {
 // This is the regression test for an earlier prototype that used
 // `content == ""` instead of `strings.TrimSpace(content) == ""`.
 func TestTurnDoneMsg_WhitespaceOnlyReplyClassifiedEmpty(t *testing.T) {
-	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
-	m.engine.response = append(m.engine.response, "> ping")
-	m.engine.liveStart = len(m.engine.response)
-	m.engine.session = append(m.engine.session, backend.Message{Role: "user", Content: "ping"})
+	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m.conversation.response = append(m.conversation.response, "> ping")
+	m.conversation.liveStart = len(m.conversation.response)
+	m.setSessionMessages(append(m.SessionMessages(), backend.Message{Role: "user", Content: "ping"}))
 
 	_, _ = m.Update(toolsteps.TurnDoneMsg{
 		Reply:     "\n",
@@ -1826,18 +1825,18 @@ func TestTurnDoneMsg_WhitespaceOnlyReplyClassifiedEmpty(t *testing.T) {
 		Reasoning: "",
 	})
 
-	if len(m.engine.session) != 1 {
-		t.Fatalf("whitespace-only reply appended %d session entries; want 1", len(m.engine.session))
+	if len(m.SessionMessages()) != 1 {
+		t.Fatalf("whitespace-only reply appended %d session entries; want 1", len(m.SessionMessages()))
 	}
 }
 
 // TestTurnDoneMsg_ErrorRowSurvivesTurnBlock pins the shape the user sees: the
 // tool block is still collapsed, and the failure is spelled out underneath it.
 func TestTurnDoneMsg_ErrorRowSurvivesTurnBlock(t *testing.T) {
-	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
-	m.engine.response = append(m.engine.response, "> do a long thing")
-	m.engine.liveStart = len(m.engine.response)
-	m.engine.session = append(m.engine.session, backend.Message{Role: "user", Content: "do a long thing"})
+	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m.conversation.response = append(m.conversation.response, "> do a long thing")
+	m.conversation.liveStart = len(m.conversation.response)
+	m.setSessionMessages(append(m.SessionMessages(), backend.Message{Role: "user", Content: "do a long thing"}))
 
 	_, _ = m.Update(toolsteps.TurnDoneMsg{
 		Reply: "",
@@ -1850,7 +1849,7 @@ func TestTurnDoneMsg_ErrorRowSurvivesTurnBlock(t *testing.T) {
 		Err: errors.New("context deadline exceeded"),
 	})
 
-	joined := strings.Join(m.engine.response, "\n")
+	joined := strings.Join(m.conversation.response, "\n")
 	if !strings.Contains(joined, "Error: context deadline exceeded") {
 		t.Fatalf("transcript has no error row:\n%s", joined)
 	}
@@ -1918,26 +1917,26 @@ func TestPickBackend_HonoursExplicitBackendFlag(t *testing.T) {
 	}
 }
 
-// vimTestMode builds a runMode in an isolated config home seeded with
-// the given settings. newRunMode itself is inert (vim off); the settings
+// vimTestMode builds a RootModel in an isolated config home seeded with
+// the given settings. newRootModel itself is inert (vim off); the settings
 // are applied the same way the production entry point does it.
-func vimTestMode(t *testing.T, settings map[string]any) *runMode {
+func vimTestMode(t *testing.T, settings map[string]any) *RootModel {
 	t.Helper()
 	cycle196TestHome(t, settings)
-	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/tmp", true)
+	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/tmp", true)
 	m.reloadVimSettings()
 	return m
 }
 
 // vimPress sends one key event through the run loop.
-func vimPress(t *testing.T, m *runMode, msg tea.Msg) tea.Cmd {
+func vimPress(t *testing.T, m *RootModel, msg tea.Msg) tea.Cmd {
 	t.Helper()
 	_, cmd := m.Update(msg)
 	return cmd
 }
 
 // vimType feeds a string of printable runes.
-func vimType(t *testing.T, m *runMode, s string) {
+func vimType(t *testing.T, m *RootModel, s string) {
 	t.Helper()
 	for _, r := range s {
 		vimPress(t, m, runeKey(r))
@@ -1956,10 +1955,10 @@ func TestVimDisabledLeavesInputAlone(t *testing.T) {
 		t.Fatal("vim should be off with empty settings")
 	}
 	vimType(t, m, "abc")
-	if got := m.composer.input.Value(); got != "abc" {
+	if got := m.prompt.input.Value(); got != "abc" {
 		t.Fatalf("non-vim textarea = %q, want abc", got)
 	}
-	if m.composer.vimEng != nil {
+	if m.prompt.vimEng != nil {
 		t.Fatal("the engine must not be built when vim is off")
 	}
 	if got := m.statusRowState().VimBadge; got != "" {
@@ -1974,22 +1973,22 @@ func TestVimNormalModeConsumesRunes(t *testing.T) {
 	}
 	// In Normal mode "a" opens Insert; the following runes are text.
 	vimType(t, m, "abc")
-	if got := m.composer.input.Value(); got != "bc" {
+	if got := m.prompt.input.Value(); got != "bc" {
 		t.Fatalf("textarea = %q, want bc", got)
 	}
-	if m.composer.vimEng.Mode != vim.Insert {
-		t.Fatalf("mode = %v, want Insert", m.composer.vimEng.Mode)
+	if m.prompt.vimEng.Mode != vim.Insert {
+		t.Fatalf("mode = %v, want Insert", m.prompt.vimEng.Mode)
 	}
 	// Esc returns to Normal without touching the buffer.
 	vimPress(t, m, vimEscKey())
-	if m.composer.vimEng.Mode != vim.Normal {
-		t.Fatalf("mode = %v, want Normal", m.composer.vimEng.Mode)
+	if m.prompt.vimEng.Mode != vim.Normal {
+		t.Fatalf("mode = %v, want Normal", m.prompt.vimEng.Mode)
 	}
-	if got := m.composer.input.Value(); got != "bc" {
+	if got := m.prompt.input.Value(); got != "bc" {
 		t.Fatalf("textarea after Esc = %q, want bc", got)
 	}
 	// Esc never clears the prompt in vim mode.
-	if got := m.composer.input.Value(); got == "" {
+	if got := m.prompt.input.Value(); got == "" {
 		t.Fatal("Esc must not clear the prompt in vim mode")
 	}
 }
@@ -1999,14 +1998,14 @@ func TestVimNormalModeConsumesRunes(t *testing.T) {
 func TestVimInsertCtrlSSubmits(t *testing.T) {
 	m := vimTestMode(t, map[string]any{"editorMode": "vim"})
 	vimType(t, m, "ihello")
-	if got := m.composer.input.Value(); got != "hello" {
+	if got := m.prompt.input.Value(); got != "hello" {
 		t.Fatalf("textarea = %q, want hello", got)
 	}
 	vimPress(t, m, ctrlKey('s'))
-	if !m.engine.streaming {
+	if !m.conversation.streaming {
 		t.Fatal("ctrl+s should submit from Insert mode")
 	}
-	if got := m.composer.input.Value(); got != "" {
+	if got := m.prompt.input.Value(); got != "" {
 		t.Fatalf("textarea after submit = %q, want empty", got)
 	}
 }
@@ -2018,7 +2017,7 @@ func TestVimNormalEnterSubmits(t *testing.T) {
 	// A bare Enter in Normal mode submits: the vim-normal map binds only
 	// ctrl+s / ctrl+enter, so Enter falls through to the global binding.
 	vimPress(t, m, enterKey())
-	if !m.engine.streaming {
+	if !m.conversation.streaming {
 		t.Fatal("plain Enter in Normal mode should submit")
 	}
 
@@ -2027,7 +2026,7 @@ func TestVimNormalEnterSubmits(t *testing.T) {
 	vimType(t, m2, "iabc")
 	vimPress(t, m2, vimEscKey())
 	vimPress(t, m2, ctrlKey('s'))
-	if !m2.engine.streaming {
+	if !m2.conversation.streaming {
 		t.Fatal("ctrl+s should submit from Normal mode")
 	}
 }
@@ -2040,7 +2039,7 @@ func TestVimOpenLineEntersInsert(t *testing.T) {
 	if got := m.statusRowState().VimBadge; got != "-- INSERT --" {
 		t.Fatalf("badge after o = %q, want -- INSERT --", got)
 	}
-	if got := m.composer.input.Value(); got != "abc\n" {
+	if got := m.prompt.input.Value(); got != "abc\n" {
 		t.Fatalf("textarea after o = %q, want %q", got, "abc\n")
 	}
 
@@ -2048,7 +2047,7 @@ func TestVimOpenLineEntersInsert(t *testing.T) {
 	vimType(t, m2, "iab")
 	vimPress(t, m2, vimEscKey())
 	vimPress(t, m2, runeKey('O'))
-	if got := m2.composer.input.Value(); got != "\nab" {
+	if got := m2.prompt.input.Value(); got != "\nab" {
 		t.Fatalf("textarea after O = %q, want %q", got, "\nab")
 	}
 }
@@ -2062,12 +2061,12 @@ func TestVimInsertFirstOpensInInsert(t *testing.T) {
 	}
 	// The first rune is text, not a command.
 	vimType(t, m, "hi")
-	if got := m.composer.input.Value(); got != "hi" {
+	if got := m.prompt.input.Value(); got != "hi" {
 		t.Fatalf("textarea = %q, want hi", got)
 	}
 	// A bare Enter submits...
 	vimPress(t, m, enterKey())
-	if !m.engine.streaming {
+	if !m.conversation.streaming {
 		t.Fatal("bare Enter under Insert First should submit")
 	}
 }
@@ -2076,15 +2075,15 @@ func TestVimInsertFirstShiftEnterInsertsNewline(t *testing.T) {
 	m := vimTestMode(t, map[string]any{"editorMode": "vim", "vimInsertFirst": true})
 	vimType(t, m, "hi")
 	vimPress(t, m, shiftEnterKey())
-	if m.engine.streaming {
+	if m.conversation.streaming {
 		t.Fatal("shift+enter under Insert First must insert a newline, not submit")
 	}
-	if got := m.composer.input.Value(); got != "hi\n" {
+	if got := m.prompt.input.Value(); got != "hi\n" {
 		t.Fatalf("textarea = %q, want %q", got, "hi\n")
 	}
 	// ctrl+j inserts a newline too.
 	vimPress(t, m, ctrlKey('j'))
-	if got := m.composer.input.Value(); got != "hi\n\n" {
+	if got := m.prompt.input.Value(); got != "hi\n\n" {
 		t.Fatalf("textarea = %q, want %q", got, "hi\n\n")
 	}
 }
@@ -2098,11 +2097,11 @@ func TestVimCursorMirrorsEngine(t *testing.T) {
 	// 0 then w: the engine lands on "world" (col 6).
 	vimPress(t, m, runeKey('0'))
 	vimPress(t, m, runeKey('w'))
-	if m.composer.vimEng.Col != 6 {
-		t.Fatalf("engine col = %d, want 6", m.composer.vimEng.Col)
+	if m.prompt.vimEng.Col != 6 {
+		t.Fatalf("engine col = %d, want 6", m.prompt.vimEng.Col)
 	}
 	// The textarea reports the same position (row 0, col 6).
-	if row, col := m.composer.input.Line(), m.composer.input.Column(); row != 0 || col != 6 {
+	if row, col := m.prompt.input.Line(), m.prompt.input.Column(); row != 0 || col != 6 {
 		t.Fatalf("textarea cursor = (row %d, col %d), want (0,6)", row, col)
 	}
 }
@@ -2113,9 +2112,9 @@ func TestVimEngineReseedsAfterHostRewrite(t *testing.T) {
 	vimPress(t, m, vimEscKey())
 	// The host rewrites the buffer behind the engine's back (history
 	// recall, picker substitution, slash rewrite).
-	m.composer.input.SetValue("world")
+	m.prompt.input.SetValue("world")
 	vimType(t, m, "A!")
-	if got := m.composer.input.Value(); got != "world!" {
+	if got := m.prompt.input.Value(); got != "world!" {
 		t.Fatalf("textarea = %q, want world!", got)
 	}
 }
@@ -2159,16 +2158,16 @@ func TestVimDeclinesGlobalKeys(t *testing.T) {
 	// ctrl+c is not a vim binding: the engine declines it and the host's
 	// two-step exit confirmation runs instead.
 	vimPress(t, m, ctrlKey('c'))
-	if !m.engine.exitConfirm {
+	if !m.display.exitConfirm {
 		t.Fatal("ctrl+c should arm the exit confirmation even in vim mode")
 	}
-	if m.engine.quitting {
+	if m.display.quitting {
 		t.Fatal("the first ctrl+c must not quit")
 	}
 	// Ctrl+D exits immediately.
 	m2 := vimTestMode(t, map[string]any{"editorMode": "vim"})
 	vimPress(t, m2, ctrlKey('d'))
-	if !m2.engine.quitting {
+	if !m2.display.quitting {
 		t.Fatal("ctrl+d should quit even in vim mode")
 	}
 }
@@ -2369,317 +2368,317 @@ func TestInputCursorByteOffset_UTF8(t *testing.T) {
 	}
 }
 
-// --- integration: runMode + tea.KeyMsg ------------------------------
+// --- integration: RootModel + tea.KeyMsg ------------------------------
 
-// runModeForTest returns a freshly-constructed runMode with no
+// rootModelForTest returns a freshly-constructed RootModel with no
 // history and no picker state, suitable for driving KeyMsg paths
 // from a unit test without leaking state across cases. Reuses
 // fakeClient declared in tui_run_test.go (same package).
-func runModeForTest() *runMode {
-	return newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+func rootModelForTest() *RootModel {
+	return newRootModel(&fakeClient{}, "u@t", "m", "t", "/", true)
 }
 
 func TestUpOnFirstLineSingleLine_TriggersHistory(t *testing.T) {
-	m := runModeForTest()
+	m := rootModelForTest()
 	// Push a history entry directly. Single-line input value
 	// (cursor on the first / only line) should recall it.
 	m.pushHistory("first prompt")
-	if got := m.composer.input.Value(); got != "" {
+	if got := m.prompt.input.Value(); got != "" {
 		t.Fatalf("pre-condition: empty input got %q", got)
 	}
 	// Up arrow on empty input → first (and only) line → historyUp.
 	m.Update(upKey())
-	if got := m.composer.input.Value(); got != "first prompt" {
+	if got := m.prompt.input.Value(); got != "first prompt" {
 		t.Errorf("Up on empty input should recall history; got input = %q, want %q",
 			got, "first prompt")
 	}
-	if m.composer.promptHistory.Index() != 1 {
-		t.Errorf("historyIdx = %d, want 1 after one historyUp", m.composer.promptHistory.Index())
+	if m.prompt.promptHistory.Index() != 1 {
+		t.Errorf("historyIdx = %d, want 1 after one historyUp", m.prompt.promptHistory.Index())
 	}
 }
 
 func TestUpOnFirstLineMultiLine_PreservesUnsubmittedInput(t *testing.T) {
-	m := runModeForTest()
+	m := rootModelForTest()
 	m.pushHistory("previous prompt")
-	m.composer.input.SetValue("first\nsecond\nthird")
-	m.composer.input.MoveToBegin()
-	if m.composer.input.Line() != 0 {
-		t.Fatalf("pre-condition: cursor should be on line 0, got line %d", m.composer.input.Line())
+	m.prompt.input.SetValue("first\nsecond\nthird")
+	m.prompt.input.MoveToBegin()
+	if m.prompt.input.Line() != 0 {
+		t.Fatalf("pre-condition: cursor should be on line 0, got line %d", m.prompt.input.Line())
 	}
-	valueBefore := m.composer.input.Value()
+	valueBefore := m.prompt.input.Value()
 	m.Update(upKey())
 	// Parity with agy: unsubmitted text must never be blown away by Up arrow.
-	if got := m.composer.input.Value(); got != valueBefore {
+	if got := m.prompt.input.Value(); got != valueBefore {
 		t.Errorf("Up on first line of unsubmitted multi-line input must preserve input; got %q, want %q", got, valueBefore)
 	}
-	if m.composer.promptHistory.Index() != 0 {
-		t.Errorf("historyIdx = %d, want 0 (no history recall for unsubmitted text)", m.composer.promptHistory.Index())
+	if m.prompt.promptHistory.Index() != 0 {
+		t.Errorf("historyIdx = %d, want 0 (no history recall for unsubmitted text)", m.prompt.promptHistory.Index())
 	}
 }
 
 func TestHistory_MultiLineEntry_PagingDirectlyWithoutIntraLineNavigation(t *testing.T) {
-	m := runModeForTest()
+	m := rootModelForTest()
 	m.pushHistory("older prompt")
 	m.pushHistory("multi\n[Pasted text #1 +16 lines]\nthird line")
 
 	// Up #1 recalls newest entry
 	m.Update(upKey())
-	if got := m.composer.input.Value(); got != "multi\n[Pasted text #1 +16 lines]\nthird line" {
+	if got := m.prompt.input.Value(); got != "multi\n[Pasted text #1 +16 lines]\nthird line" {
 		t.Fatalf("Up #1: got %q", got)
 	}
-	if m.composer.promptHistory.Index() != 1 {
-		t.Fatalf("Up #1: historyIdx = %d, want 1", m.composer.promptHistory.Index())
+	if m.prompt.promptHistory.Index() != 1 {
+		t.Fatalf("Up #1: historyIdx = %d, want 1", m.prompt.promptHistory.Index())
 	}
 
 	// Up #2 directly jumps to next older entry without moving within the multi-line entry
 	m.Update(upKey())
-	if got := m.composer.input.Value(); got != "older prompt" {
+	if got := m.prompt.input.Value(); got != "older prompt" {
 		t.Fatalf("Up #2: got %q, want %q", got, "older prompt")
 	}
-	if m.composer.promptHistory.Index() != 2 {
-		t.Fatalf("Up #2: historyIdx = %d, want 2", m.composer.promptHistory.Index())
+	if m.prompt.promptHistory.Index() != 2 {
+		t.Fatalf("Up #2: historyIdx = %d, want 2", m.prompt.promptHistory.Index())
 	}
 
 	// Down #1 directly jumps back to the multi-line entry
 	m.Update(downKey())
-	if got := m.composer.input.Value(); got != "multi\n[Pasted text #1 +16 lines]\nthird line" {
+	if got := m.prompt.input.Value(); got != "multi\n[Pasted text #1 +16 lines]\nthird line" {
 		t.Fatalf("Down #1: got %q", got)
 	}
-	if m.composer.promptHistory.Index() != 1 {
-		t.Fatalf("Down #1: historyIdx = %d, want 1", m.composer.promptHistory.Index())
+	if m.prompt.promptHistory.Index() != 1 {
+		t.Fatalf("Down #1: historyIdx = %d, want 1", m.prompt.promptHistory.Index())
 	}
 
 	// Down #2 returns to initial empty prompt
 	m.Update(downKey())
-	if got := m.composer.input.Value(); got != "" {
+	if got := m.prompt.input.Value(); got != "" {
 		t.Fatalf("Down #2: got %q, want empty", got)
 	}
-	if m.composer.promptHistory.Index() != 0 {
-		t.Fatalf("Down #2: historyIdx = %d, want 0", m.composer.promptHistory.Index())
+	if m.prompt.promptHistory.Index() != 0 {
+		t.Fatalf("Down #2: historyIdx = %d, want 0", m.prompt.promptHistory.Index())
 	}
 }
 
 func TestHistory_MultiLineEntry_HorizontalCursorMoveExitsHistoryNavigation(t *testing.T) {
-	m := runModeForTest()
+	m := rootModelForTest()
 	m.pushHistory("older prompt")
 	m.pushHistory("multi\nline2\nline3")
 
 	// Up #1 recalls newest entry
 	m.Update(upKey())
-	if m.composer.promptHistory.Index() != 1 {
-		t.Fatalf("Up #1: historyIdx = %d, want 1", m.composer.promptHistory.Index())
+	if m.prompt.promptHistory.Index() != 1 {
+		t.Fatalf("Up #1: historyIdx = %d, want 1", m.prompt.promptHistory.Index())
 	}
 
 	// Left arrow moves cursor and exits history browsing mode
 	m.Update(leftKey())
-	if m.composer.promptHistory.Index() != 0 {
-		t.Fatalf("Left arrow should exit history mode; got historyIdx = %d, want 0", m.composer.promptHistory.Index())
+	if m.prompt.promptHistory.Index() != 0 {
+		t.Fatalf("Left arrow should exit history mode; got historyIdx = %d, want 0", m.prompt.promptHistory.Index())
 	}
 
 	// Subsequent Up arrow navigates lines inside the entry instead of jumping history
 	m.Update(upKey())
-	if got := m.composer.input.Value(); got != "multi\nline2\nline3" {
+	if got := m.prompt.input.Value(); got != "multi\nline2\nline3" {
 		t.Fatalf("Up after cursor move should navigate within text; got %q", got)
 	}
-	if m.composer.promptHistory.Index() != 0 {
-		t.Fatalf("historyIdx should remain 0; got %d", m.composer.promptHistory.Index())
+	if m.prompt.promptHistory.Index() != 0 {
+		t.Fatalf("historyIdx should remain 0; got %d", m.prompt.promptHistory.Index())
 	}
 }
 
 func TestHistory_SlashCommandMultiLineEntry_NavigatesLinesAfterLeftArrow(t *testing.T) {
-	m := runModeForTest()
+	m := rootModelForTest()
 	m.pushHistory("older prompt")
 	entry := "/btw 现在进行到什么进度了\n\n[Pasted text #1 +16 lines]\n\n根据这个进程，现在是第几阶段"
 	m.pushHistory(entry)
 
 	// Up #1 recalls newest entry
 	m.Update(upKey())
-	if m.composer.promptHistory.Index() != 1 {
-		t.Fatalf("Up #1: historyIdx = %d, want 1", m.composer.promptHistory.Index())
+	if m.prompt.promptHistory.Index() != 1 {
+		t.Fatalf("Up #1: historyIdx = %d, want 1", m.prompt.promptHistory.Index())
 	}
-	if got := m.composer.input.Value(); got != entry {
+	if got := m.prompt.input.Value(); got != entry {
 		t.Fatalf("Up #1: input value = %q, want %q", got, entry)
 	}
-	if m.composer.picker.Visible() {
+	if m.prompt.picker.Visible() {
 		t.Fatal("recalled history entry should not leave picker visible")
 	}
 
 	// Left arrow moves cursor and exits history browsing mode
 	m.Update(leftKey())
-	if m.composer.promptHistory.Index() != 0 {
-		t.Fatalf("Left arrow should exit history mode; got historyIdx = %d, want 0", m.composer.promptHistory.Index())
+	if m.prompt.promptHistory.Index() != 0 {
+		t.Fatalf("Left arrow should exit history mode; got historyIdx = %d, want 0", m.prompt.promptHistory.Index())
 	}
-	if m.composer.picker.Visible() {
+	if m.prompt.picker.Visible() {
 		t.Fatal("Left arrow navigation in /btw multi-line prompt should not open picker")
 	}
 
-	lastLine := m.composer.input.Line()
+	lastLine := m.prompt.input.Line()
 	if lastLine == 0 {
 		t.Fatalf("pre-condition: cursor should start near bottom line, got %d", lastLine)
 	}
 
 	// Subsequent Up arrow navigates lines inside the entry instead of being blocked by picker or jumping history
 	m.Update(upKey())
-	if got := m.composer.input.Value(); got != entry {
+	if got := m.prompt.input.Value(); got != entry {
 		t.Fatalf("Up after cursor move should navigate within text; got %q", got)
 	}
-	if m.composer.promptHistory.Index() != 0 {
-		t.Fatalf("historyIdx should remain 0; got %d", m.composer.promptHistory.Index())
+	if m.prompt.promptHistory.Index() != 0 {
+		t.Fatalf("historyIdx should remain 0; got %d", m.prompt.promptHistory.Index())
 	}
-	if m.composer.input.Line() >= lastLine {
-		t.Fatalf("Up arrow should have moved cursor up a line, but line is %d (was %d)", m.composer.input.Line(), lastLine)
+	if m.prompt.input.Line() >= lastLine {
+		t.Fatalf("Up arrow should have moved cursor up a line, but line is %d (was %d)", m.prompt.input.Line(), lastLine)
 	}
 
 	// Subsequent Down arrow moves cursor down a line
-	lineBeforeDown := m.composer.input.Line()
+	lineBeforeDown := m.prompt.input.Line()
 	m.Update(downKey())
-	if m.composer.input.Line() <= lineBeforeDown {
-		t.Fatalf("Down arrow should have moved cursor down a line, but line is %d (was %d)", m.composer.input.Line(), lineBeforeDown)
+	if m.prompt.input.Line() <= lineBeforeDown {
+		t.Fatalf("Down arrow should have moved cursor down a line, but line is %d (was %d)", m.prompt.input.Line(), lineBeforeDown)
 	}
 }
 
 func TestPastePlaceholder_AtomicDeletion(t *testing.T) {
-	m := runModeForTest()
+	m := rootModelForTest()
 	entry := "prefix [Pasted text #1 +16 lines] suffix"
-	m.composer.input.SetValue(entry)
+	m.prompt.input.SetValue(entry)
 
 	// Position cursor inside the placeholder (e.g. byte offset 20)
-	m.setInputCursorOffset(20)
-	if off := tuilib.InputCursorByteOffset(m.composer.input); off != 20 {
+	m.prompt.SetInputCursorOffset(20)
+	if off := tuilib.InputCursorByteOffset(m.prompt.input); off != 20 {
 		t.Fatalf("pre-condition: cursor offset = %d, want 20", off)
 	}
 
 	// Backspace inside the placeholder atomically deletes the entire placeholder
 	m.Update(tea.KeyPressMsg{Code: tea.KeyBackspace})
-	if got := m.composer.input.Value(); got != "prefix  suffix" {
+	if got := m.prompt.input.Value(); got != "prefix  suffix" {
 		t.Fatalf("Backspace inside placeholder: got %q, want %q", got, "prefix  suffix")
 	}
-	if off := tuilib.InputCursorByteOffset(m.composer.input); off != len("prefix ") {
+	if off := tuilib.InputCursorByteOffset(m.prompt.input); off != len("prefix ") {
 		t.Fatalf("Cursor after atomic Backspace: got offset %d, want %d", off, len("prefix "))
 	}
 
 	// Test Delete at start of placeholder
 	entry2 := "before [Pasted text #2 42 chars] after"
-	m.composer.input.SetValue(entry2)
+	m.prompt.input.SetValue(entry2)
 	startOfPlaceholder := len("before ")
-	m.setInputCursorOffset(startOfPlaceholder)
+	m.prompt.SetInputCursorOffset(startOfPlaceholder)
 
 	m.Update(tea.KeyPressMsg{Code: tea.KeyDelete})
-	if got := m.composer.input.Value(); got != "before  after" {
+	if got := m.prompt.input.Value(); got != "before  after" {
 		t.Fatalf("Delete at start of placeholder: got %q, want %q", got, "before  after")
 	}
-	if off := tuilib.InputCursorByteOffset(m.composer.input); off != startOfPlaceholder {
+	if off := tuilib.InputCursorByteOffset(m.prompt.input); off != startOfPlaceholder {
 		t.Fatalf("Cursor after atomic Delete: got offset %d, want %d", off, startOfPlaceholder)
 	}
 }
 
 func TestUpOnMiddleLine_DoesNotTriggerHistory(t *testing.T) {
-	m := runModeForTest()
+	m := rootModelForTest()
 	m.pushHistory("should not be recalled")
-	m.composer.input.SetValue("first\nsecond\nthird")
+	m.prompt.input.SetValue("first\nsecond\nthird")
 	// SetValue leaves cursor on line 2; MoveToBegin + CursorDown
 	// lands it on the middle line (row 1).
-	m.composer.input.MoveToBegin()
-	m.composer.input.CursorDown()
-	if m.composer.input.Line() != 1 {
-		t.Fatalf("pre-condition: cursor should be on line 1, got line %d", m.composer.input.Line())
+	m.prompt.input.MoveToBegin()
+	m.prompt.input.CursorDown()
+	if m.prompt.input.Line() != 1 {
+		t.Fatalf("pre-condition: cursor should be on line 1, got line %d", m.prompt.input.Line())
 	}
-	valueBefore := m.composer.input.Value()
+	valueBefore := m.prompt.input.Value()
 	m.Update(upKey())
 	// Input value must NOT change (no historyUp).
-	if got := m.composer.input.Value(); got != valueBefore {
+	if got := m.prompt.input.Value(); got != valueBefore {
 		t.Errorf("Up on middle line should NOT call historyUp; input changed from %q to %q",
 			valueBefore, got)
 	}
 	// historyIdx stays at 0 (no history navigation occurred).
-	if m.composer.promptHistory.Index() != 0 {
-		t.Errorf("historyIdx = %d, want 0 (no history recall)", m.composer.promptHistory.Index())
+	if m.prompt.promptHistory.Index() != 0 {
+		t.Errorf("historyIdx = %d, want 0 (no history recall)", m.prompt.promptHistory.Index())
 	}
 	// Cursor should have moved up one logical line via the
 	// textarea's LinePrevious binding.
-	if m.composer.input.Line() != 0 {
-		t.Errorf("cursor Line() = %d, want 0 after Up moved cursor up", m.composer.input.Line())
+	if m.prompt.input.Line() != 0 {
+		t.Errorf("cursor Line() = %d, want 0 after Up moved cursor up", m.prompt.input.Line())
 	}
 }
 
 func TestDownOnLastLine_PreservesUnsubmittedInput(t *testing.T) {
-	m := runModeForTest()
+	m := rootModelForTest()
 	m.pushHistory("older prompt")
 	m.pushHistory("newer prompt")
 	// User types unsubmitted multi-line input (historyIdx remains 0)
-	m.composer.input.SetValue("alpha\nbeta\ngamma")
-	m.composer.input.CursorDown() // row=1
-	m.composer.input.CursorDown() // row=2, last line
-	if m.composer.input.Line() != 2 {
-		t.Fatalf("pre-condition: cursor should be on last line (2), got line %d", m.composer.input.Line())
+	m.prompt.input.SetValue("alpha\nbeta\ngamma")
+	m.prompt.input.CursorDown() // row=1
+	m.prompt.input.CursorDown() // row=2, last line
+	if m.prompt.input.Line() != 2 {
+		t.Fatalf("pre-condition: cursor should be on last line (2), got line %d", m.prompt.input.Line())
 	}
-	valueBefore := m.composer.input.Value()
+	valueBefore := m.prompt.input.Value()
 	m.Update(downKey())
 	// Parity with agy: Down on last line of unsubmitted text must NOT trigger history.
-	if got := m.composer.input.Value(); got != valueBefore {
+	if got := m.prompt.input.Value(); got != valueBefore {
 		t.Errorf("Down on last line should preserve unsubmitted text; got %q, want %q", got, valueBefore)
 	}
-	if m.composer.promptHistory.Index() != 0 {
-		t.Errorf("historyIdx = %d, want 0", m.composer.promptHistory.Index())
+	if m.prompt.promptHistory.Index() != 0 {
+		t.Errorf("historyIdx = %d, want 0", m.prompt.promptHistory.Index())
 	}
 }
 
 func TestDownOnMiddleLine_DoesNotTriggerHistory(t *testing.T) {
-	m := runModeForTest()
+	m := rootModelForTest()
 	m.pushHistory("must not be recalled")
-	m.composer.input.SetValue("first\nsecond\nthird")
+	m.prompt.input.SetValue("first\nsecond\nthird")
 	// SetValue leaves cursor on line 2; MoveToBegin + CursorDown
 	// lands it on the middle line (row 1).
-	m.composer.input.MoveToBegin()
-	m.composer.input.CursorDown()
-	if m.composer.input.Line() != 1 {
-		t.Fatalf("pre-condition: cursor should be on line 1, got line %d", m.composer.input.Line())
+	m.prompt.input.MoveToBegin()
+	m.prompt.input.CursorDown()
+	if m.prompt.input.Line() != 1 {
+		t.Fatalf("pre-condition: cursor should be on line 1, got line %d", m.prompt.input.Line())
 	}
-	valueBefore := m.composer.input.Value()
-	idxBefore := m.composer.promptHistory.Index()
+	valueBefore := m.prompt.input.Value()
+	idxBefore := m.prompt.promptHistory.Index()
 	m.Update(downKey())
 	// Input value must NOT change (no historyDown).
-	if got := m.composer.input.Value(); got != valueBefore {
+	if got := m.prompt.input.Value(); got != valueBefore {
 		t.Errorf("Down on middle line should NOT call historyDown; input changed from %q to %q",
 			valueBefore, got)
 	}
-	if m.composer.promptHistory.Index() != idxBefore {
-		t.Errorf("historyIdx = %d, want %d (no history navigation)", m.composer.promptHistory.Index(), idxBefore)
+	if m.prompt.promptHistory.Index() != idxBefore {
+		t.Errorf("historyIdx = %d, want %d (no history navigation)", m.prompt.promptHistory.Index(), idxBefore)
 	}
 	// Cursor should have moved down one logical line via the
 	// textarea's LineNext binding.
-	if m.composer.input.Line() != 2 {
-		t.Errorf("cursor Line() = %d, want 2 after Down moved cursor down", m.composer.input.Line())
+	if m.prompt.input.Line() != 2 {
+		t.Errorf("cursor Line() = %d, want 2 after Down moved cursor down", m.prompt.input.Line())
 	}
 }
 
 func TestPickerVisible_OverridesUpHistory(t *testing.T) {
-	m := runModeForTest()
+	m := rootModelForTest()
 	m.pushHistory("would be recalled if picker were hidden")
 	// Open the picker by typing '/'. After this m.composer.picker is
 	// visible with idx == 0.
 	m.Update(runeKey('/'))
-	if !m.composer.picker.Visible() {
+	if !m.prompt.picker.Visible() {
 		t.Fatalf("setup: picker should be visible after typing '/'")
 	}
 	// Move the picker highlight to row 1 so an Up arrow has
 	// somewhere to land.
 	m.Update(downKey()) // picker.MoveDown → idx=1
-	if m.composer.picker.Idx() != 1 {
-		t.Fatalf("setup: picker.Idx() = %d, want 1", m.composer.picker.Idx())
+	if m.prompt.picker.Idx() != 1 {
+		t.Fatalf("setup: picker.Idx() = %d, want 1", m.prompt.picker.Idx())
 	}
-	valueBefore := m.composer.input.Value()
-	idxBefore := m.composer.promptHistory.Index()
+	valueBefore := m.prompt.input.Value()
+	idxBefore := m.prompt.promptHistory.Index()
 	m.Update(upKey()) // picker.MoveUp → idx=0; historyUp MUST NOT fire
-	if m.composer.picker.Idx() != 0 {
+	if m.prompt.picker.Idx() != 0 {
 		t.Errorf("Up with picker visible should call picker.MoveUp; idx = %d, want 0",
-			m.composer.picker.Idx())
+			m.prompt.picker.Idx())
 	}
-	if m.composer.promptHistory.Index() != idxBefore {
+	if m.prompt.promptHistory.Index() != idxBefore {
 		t.Errorf("historyIdx = %d, want %d (picker should override historyUp)",
-			m.composer.promptHistory.Index(), idxBefore)
+			m.prompt.promptHistory.Index(), idxBefore)
 	}
-	if got := m.composer.input.Value(); got != valueBefore {
+	if got := m.prompt.input.Value(); got != valueBefore {
 		t.Errorf("input changed from %q to %q — picker path should not touch history",
 			valueBefore, got)
 	}
@@ -2688,16 +2687,16 @@ func TestPickerVisible_OverridesUpHistory(t *testing.T) {
 // ---------------------------------------------------------------- streaming clear (consolidated from streaming_clear_test.go)
 
 func TestTurnDoneMsg_StreamingClearReturnsClearScreenCmd(t *testing.T) {
-	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
-	m.engine.response = append(m.engine.response, "> analyze pwd")
-	m.engine.liveStart = len(m.engine.response)
-	m.engine.session = append(m.engine.session, backend.Message{Role: "user", Content: "analyze pwd"})
+	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m.conversation.response = append(m.conversation.response, "> analyze pwd")
+	m.conversation.liveStart = len(m.conversation.response)
+	m.setSessionMessages(append(m.SessionMessages(), backend.Message{Role: "user", Content: "analyze pwd"}))
 	chunks := []string{"mock reply f", "rom model=Ge", "mini 3.8 Fla", "sh (Medium):", " analyze pwd"}
 	for _, c := range chunks {
 		_, _ = m.Update(backendChunkMsg(c))
 	}
-	if m.engine.replyStart < 0 {
-		t.Fatalf("replyStart not anchored after 5 chunks; m.engine.replyStart=%d", m.engine.replyStart)
+	if m.conversation.replyStart < 0 {
+		t.Fatalf("replyStart not anchored after 5 chunks; m.conversation.replyStart=%d", m.conversation.replyStart)
 	}
 
 	_, cmd := m.Update(toolsteps.TurnDoneMsg{
@@ -2716,11 +2715,11 @@ func TestTurnDoneMsg_StreamingClearReturnsClearScreenCmd(t *testing.T) {
 }
 
 func TestBackendDoneMsg_StreamingClearReturnsClearScreenCmd(t *testing.T) {
-	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
-	m.engine.response = append(m.engine.response, "> hi")
-	m.engine.liveStart = len(m.engine.response)
-	m.engine.streaming = true
-	m.engine.session = append(m.engine.session, backend.Message{Role: "user", Content: "hi"})
+	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m.conversation.response = append(m.conversation.response, "> hi")
+	m.conversation.liveStart = len(m.conversation.response)
+	m.conversation.streaming = true
+	m.setSessionMessages(append(m.SessionMessages(), backend.Message{Role: "user", Content: "hi"}))
 
 	_, cmd := m.Update(backendDoneMsg{})
 	if cmd == nil {
@@ -2734,10 +2733,10 @@ func TestBackendDoneMsg_StreamingClearReturnsClearScreenCmd(t *testing.T) {
 }
 
 func TestTurnDoneMsg_QueueFlushKeepsClearScreen(t *testing.T) {
-	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
-	m.engine.response = append(m.engine.response, "> first")
-	m.engine.liveStart = len(m.engine.response)
-	m.engine.session = append(m.engine.session, backend.Message{Role: "user", Content: "first"})
+	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m.conversation.response = append(m.conversation.response, "> first")
+	m.conversation.liveStart = len(m.conversation.response)
+	m.setSessionMessages(append(m.SessionMessages(), backend.Message{Role: "user", Content: "first"}))
 
 	m.session.store.QueuedPrompt = "second"
 
@@ -2770,6 +2769,31 @@ func TestTurnDoneMsg_QueueFlushKeepsClearScreen(t *testing.T) {
 	}
 }
 
+func TestTurnDoneMsg_ErrorHaltsQueueAutoFlush(t *testing.T) {
+	m := queueTestMode(t)
+	m.session.store.QueueMode = true
+	m.session.store.StreamQueue = []string{"next-queued-message"}
+
+	// When turn completes with an error, the queue should not be flushed
+	_, cmd := m.Update(toolsteps.TurnDoneMsg{
+		Reply: "failed turn",
+		Err:   errors.New("network timeout"),
+	})
+
+	if len(m.session.store.StreamQueue) == 0 || m.session.store.StreamQueue[0] != "next-queued-message" {
+		t.Fatalf("expected queued message to be preserved on error, got: %v", m.session.store.StreamQueue)
+	}
+
+	// The command returned should not be a batch initiating another stream
+	if cmd == nil {
+		t.Fatalf("expected clear screen command, got nil")
+	}
+	got := execCmdForTest(cmd)
+	if _, isBatch := got.(tea.BatchMsg); isBatch {
+		t.Fatalf("expected simple command (ClearScreen), not BatchMsg starting next turn on error")
+	}
+}
+
 func TestTurnDoneMsg_StreamingClearContractIsStableAcrossResponseShapes(t *testing.T) {
 	cases := []struct {
 		name  string
@@ -2785,10 +2809,10 @@ func TestTurnDoneMsg_StreamingClearContractIsStableAcrossResponseShapes(t *testi
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
-			m.engine.response = append(m.engine.response, "> probe")
-			m.engine.liveStart = len(m.engine.response)
-			m.engine.session = append(m.engine.session, backend.Message{Role: "user", Content: "probe"})
+			m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/", true)
+			m.conversation.response = append(m.conversation.response, "> probe")
+			m.conversation.liveStart = len(m.conversation.response)
+			m.setSessionMessages(append(m.SessionMessages(), backend.Message{Role: "user", Content: "probe"}))
 			m.Update(backendChunkMsg(tc.reply))
 
 			_, cmd := m.Update(toolsteps.TurnDoneMsg{Reply: tc.reply})
@@ -2869,10 +2893,10 @@ const streamAccountingSample = "# Go 语言入门笔记\n" +
 	"> 这是一个引用块。\n"
 
 func TestStreamRowCountDoesNotExplode(t *testing.T) {
-	m := newRunMode(nil, "u@t", "m", "t", "/tmp", true)
+	m := newRootModel(nil, "u@t", "m", "t", "/tmp", true)
 	m.viewport.width = 100
-	m.engine.response = append(m.engine.response, "> seed")
-	m.engine.liveStart = len(m.engine.response)
+	m.conversation.response = append(m.conversation.response, "> seed")
+	m.conversation.liveStart = len(m.conversation.response)
 
 	sourceLines := strings.Split(strings.TrimRight(streamAccountingSample, "\n"), "\n")
 	accum := ""
@@ -2883,13 +2907,13 @@ func TestStreamRowCountDoesNotExplode(t *testing.T) {
 		}
 		accum += chunk
 		_, _ = m.Update(backendChunkMsg([]byte(chunk)))
-		rows := len(m.engine.response) - m.engine.replyStart
+		rows := len(m.conversation.response) - m.conversation.replyStart
 		want := len(strings.Split(mdrender.RenderMarkdown(accum, m.viewport.width), "\n"))
 		if rows != want {
 			t.Fatalf("after chunk %q the live range has %d rows; "+
 				"renderMarkdown(accumulated) has %d (re-rendering styled "+
 				"rows feeds pad back through glamour); live range:\n%s",
-				ln, rows, want, strings.Join(m.engine.response[m.engine.replyStart:], "\n"))
+				ln, rows, want, strings.Join(m.conversation.response[m.conversation.replyStart:], "\n"))
 		}
 		if rows > 3*len(sourceLines) {
 			t.Fatalf("live transcript exploded: %d rows after %q (%d source lines)",
@@ -2897,7 +2921,7 @@ func TestStreamRowCountDoesNotExplode(t *testing.T) {
 		}
 	}
 	want := strings.Split(mdrender.RenderMarkdown(streamAccountingSample, m.viewport.width), "\n")
-	got := m.engine.response[m.engine.replyStart:]
+	got := m.conversation.response[m.conversation.replyStart:]
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("final live range != renderMarkdown(accumulated):\ngot %d rows, want %d\n%s",
 			len(got), len(want), strings.Join(got, "\n"))
@@ -2906,46 +2930,46 @@ func TestStreamRowCountDoesNotExplode(t *testing.T) {
 
 // ---------------------------------------------------------------- program status (consolidated from program_status_test.go)
 
-func newPSModel() *runMode {
-	return &runMode{}
+func newPSModel() *RootModel {
+	return &RootModel{}
 }
 
-// psModelWithOpenPicker returns a runMode whose subagent-question
+// psModelWithOpenPicker returns a RootModel whose subagent-question
 // picker is open, so the status protocol reports the blocked/question
 // state.
-func psModelWithOpenPicker(t *testing.T) *runMode {
+func psModelWithOpenPicker(t *testing.T) *RootModel {
 	t.Helper()
 	m := newPSModel()
 	mgr := questions.NewManager(false)
-	m.engine.subAgentQuestions = mgr
-	m.engine.subAgentQuestionPanel = m.newSubAgentQuestionPanel()
+	m.askQuestion.manager = mgr
+	m.askQuestion.panel = m.newSubAgentQuestionPanel()
 	mgr.Enqueue(questions.ParentKey, "Q?", nil)
-	m.engine.subAgentQuestionPanel.Toggle()
+	m.askQuestion.panel.Toggle()
 	return m
 }
 
-// psModelWithStagedAnswer returns a runMode with an answer staged on a
+// psModelWithStagedAnswer returns a RootModel with an answer staged on a
 // queued question — the picker is closed, the answer is not sent yet.
-func psModelWithStagedAnswer(t *testing.T) *runMode {
+func psModelWithStagedAnswer(t *testing.T) *RootModel {
 	t.Helper()
 	m := psModelWithOpenPicker(t)
-	m.engine.subAgentQuestionPanel.HandleKey(tea.Key{Code: tea.KeyEnter})
+	m.askQuestion.panel.HandleKey(tea.Key{Code: tea.KeyEnter})
 	return m
 }
 
-// psModelWithOpenPickerAndStagedAnswer returns a runMode with both the
+// psModelWithOpenPickerAndStagedAnswer returns a RootModel with both the
 // picker open and an answer staged.
-func psModelWithOpenPickerAndStagedAnswer(t *testing.T) *runMode {
+func psModelWithOpenPickerAndStagedAnswer(t *testing.T) *RootModel {
 	t.Helper()
 	m := psModelWithStagedAnswer(t)
-	m.engine.subAgentQuestionPanel.Toggle()
+	m.askQuestion.panel.Toggle()
 	return m
 }
 
 func TestProgramStatus(t *testing.T) {
 	cases := []struct {
 		name  string
-		setup func(m *runMode)
+		setup func(m *RootModel)
 		want  tea.ProgramStatus
 	}{
 		{
@@ -2954,28 +2978,29 @@ func TestProgramStatus(t *testing.T) {
 		},
 		{
 			name: "working from streaming",
-			setup: func(m *runMode) {
-				m.engine.streaming = true
+			setup: func(m *RootModel) {
+				m.conversation.streaming = true
 			},
 			want: tea.ProgramStatus{State: tea.ProgramStateWorking, App: programstatus.App},
 		},
 		{
 			name: "working from thinking",
-			setup: func(m *runMode) {
-				m.engine.thinking = true
+			setup: func(m *RootModel) {
+				m.conversation.thinking = true
 			},
 			want: tea.ProgramStatus{State: tea.ProgramStateWorking, App: programstatus.App},
 		},
 		{
 			name: "working from in-flight cancel",
-			setup: func(m *runMode) {
-				m.engine.turnCancel = func() {}
+			setup: func(m *RootModel) {
+				bridge, _ := armRunningBridge(t)
+				m.turn.activeBridge = bridge
 			},
 			want: tea.ProgramStatus{State: tea.ProgramStateWorking, App: programstatus.App},
 		},
 		{
 			name: "blocked question when picker open",
-			setup: func(m *runMode) {
+			setup: func(m *RootModel) {
 				*m = *psModelWithOpenPicker(t)
 			},
 			want: tea.ProgramStatus{
@@ -2987,7 +3012,7 @@ func TestProgramStatus(t *testing.T) {
 		},
 		{
 			name: "blocked question when answer target set",
-			setup: func(m *runMode) {
+			setup: func(m *RootModel) {
 				*m = *psModelWithStagedAnswer(t)
 			},
 			want: tea.ProgramStatus{
@@ -2999,7 +3024,7 @@ func TestProgramStatus(t *testing.T) {
 		},
 		{
 			name: "blocked permission wins over question",
-			setup: func(m *runMode) {
+			setup: func(m *RootModel) {
 				*m = *psModelWithOpenPicker(t)
 				m.session.pendingPermission = true
 			},
@@ -3012,7 +3037,7 @@ func TestProgramStatus(t *testing.T) {
 		},
 		{
 			name: "blocked auth",
-			setup: func(m *runMode) {
+			setup: func(m *RootModel) {
 				m.session.pendingAuth = true
 			},
 			want: tea.ProgramStatus{
@@ -3024,7 +3049,7 @@ func TestProgramStatus(t *testing.T) {
 		},
 		{
 			name: "blocked question wins over auth too",
-			setup: func(m *runMode) {
+			setup: func(m *RootModel) {
 				*m = *psModelWithOpenPicker(t)
 				m.session.pendingAuth = true
 			},
@@ -3037,30 +3062,30 @@ func TestProgramStatus(t *testing.T) {
 		},
 		{
 			name: "working wins over the last outcome",
-			setup: func(m *runMode) {
-				m.engine.lastTurnOutcome = tea.ProgramStateDone
-				m.engine.streaming = true
+			setup: func(m *RootModel) {
+				m.display.lastTurnOutcome = tea.ProgramStateDone
+				m.conversation.streaming = true
 			},
 			want: tea.ProgramStatus{State: tea.ProgramStateWorking, App: programstatus.App},
 		},
 		{
 			name: "outcome once idle: done",
-			setup: func(m *runMode) {
-				m.engine.lastTurnOutcome = tea.ProgramStateDone
+			setup: func(m *RootModel) {
+				m.display.lastTurnOutcome = tea.ProgramStateDone
 			},
 			want: tea.ProgramStatus{State: tea.ProgramStateDone, App: programstatus.App},
 		},
 		{
 			name: "outcome once idle: error",
-			setup: func(m *runMode) {
-				m.engine.lastTurnOutcome = tea.ProgramStateError
+			setup: func(m *RootModel) {
+				m.display.lastTurnOutcome = tea.ProgramStateError
 			},
 			want: tea.ProgramStatus{State: tea.ProgramStateError, App: programstatus.App},
 		},
 		{
 			name: "idle when last outcome cleared",
-			setup: func(m *runMode) {
-				m.engine.lastTurnOutcome = tea.ProgramStateDone
+			setup: func(m *RootModel) {
+				m.display.lastTurnOutcome = tea.ProgramStateDone
 				m.clearLastTurnOutcome()
 			},
 			want: tea.ProgramStatus{State: tea.ProgramStateIdle, App: programstatus.App},
@@ -3120,13 +3145,13 @@ func TestProgramStatusReportIncludesApp(t *testing.T) {
 func TestHasPendingQuestion(t *testing.T) {
 	cases := []struct {
 		name string
-		set  func(m *runMode)
+		set  func(m *RootModel)
 		want bool
 	}{
-		{"off", func(m *runMode) {}, false},
-		{"picker open", func(m *runMode) { *m = *psModelWithOpenPicker(t) }, true},
-		{"answer target set", func(m *runMode) { *m = *psModelWithStagedAnswer(t) }, true},
-		{"both", func(m *runMode) {
+		{"off", func(m *RootModel) {}, false},
+		{"picker open", func(m *RootModel) { *m = *psModelWithOpenPicker(t) }, true},
+		{"answer target set", func(m *RootModel) { *m = *psModelWithStagedAnswer(t) }, true},
+		{"both", func(m *RootModel) {
 			*m = *psModelWithOpenPickerAndStagedAnswer(t)
 		}, true},
 	}
@@ -3134,7 +3159,7 @@ func TestHasPendingQuestion(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			m := newPSModel()
 			c.set(m)
-			if got := m.engine.subAgentQuestionPanel.HasPendingQuestion(); got != c.want {
+			if got := m.askQuestion.panel.HasPendingQuestion(); got != c.want {
 				t.Errorf("hasPendingQuestion() = %v, want %v", got, c.want)
 			}
 		})
@@ -3144,14 +3169,17 @@ func TestHasPendingQuestion(t *testing.T) {
 func TestIsAgentBusy(t *testing.T) {
 	cases := []struct {
 		name string
-		set  func(m *runMode)
+		set  func(m *RootModel)
 		want bool
 	}{
-		{"idle", func(m *runMode) {}, false},
-		{"streaming", func(m *runMode) { m.engine.streaming = true }, true},
-		{"thinking", func(m *runMode) { m.engine.thinking = true }, true},
-		{"turnCancel", func(m *runMode) { m.engine.turnCancel = func() {} }, true},
-		{"thinking wins over no streaming flag", func(m *runMode) { m.engine.thinking = true }, true},
+		{"idle", func(m *RootModel) {}, false},
+		{"streaming", func(m *RootModel) { m.conversation.streaming = true }, true},
+		{"thinking", func(m *RootModel) { m.conversation.thinking = true }, true},
+		{"running bridge", func(m *RootModel) {
+			bridge, _ := armRunningBridge(t)
+			m.turn.activeBridge = bridge
+		}, true},
+		{"thinking wins over no streaming flag", func(m *RootModel) { m.conversation.thinking = true }, true},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -3167,42 +3195,42 @@ func TestIsAgentBusy(t *testing.T) {
 func TestProgramStatusEmitsOSC7501Sequence(t *testing.T) {
 	cases := []struct {
 		name string
-		set  func(m *runMode)
+		set  func(m *RootModel)
 		want string
 	}{
 		{
 			name: "idle",
-			set:  func(m *runMode) {},
+			set:  func(m *RootModel) {},
 			want: "\x1b]7501;state=idle:app=wagyu\x07",
 		},
 		{
 			name: "working",
-			set:  func(m *runMode) { m.engine.streaming = true },
+			set:  func(m *RootModel) { m.conversation.streaming = true },
 			want: "\x1b]7501;state=working:app=wagyu\x07",
 		},
 		{
 			name: "done",
-			set:  func(m *runMode) { m.engine.lastTurnOutcome = tea.ProgramStateDone },
+			set:  func(m *RootModel) { m.display.lastTurnOutcome = tea.ProgramStateDone },
 			want: "\x1b]7501;state=done:app=wagyu\x07",
 		},
 		{
 			name: "error",
-			set:  func(m *runMode) { m.engine.lastTurnOutcome = tea.ProgramStateError },
+			set:  func(m *RootModel) { m.display.lastTurnOutcome = tea.ProgramStateError },
 			want: "\x1b]7501;state=error:app=wagyu\x07",
 		},
 		{
 			name: "blocked permission",
-			set:  func(m *runMode) { m.session.pendingPermission = true },
+			set:  func(m *RootModel) { m.session.pendingPermission = true },
 			want: "\x1b]7501;state=blocked:kind=permission:app=wagyu:msg=UGVybWlzc2lvbiByZXF1aXJlZA==\x07",
 		},
 		{
 			name: "blocked question",
-			set:  func(m *runMode) { *m = *psModelWithOpenPicker(t) },
+			set:  func(m *RootModel) { *m = *psModelWithOpenPicker(t) },
 			want: "\x1b]7501;state=blocked:kind=question:app=wagyu:msg=UXVlc3Rpb25zIG5lZWQgeW91ciBpbnB1dA==\x07",
 		},
 		{
 			name: "blocked auth",
-			set:  func(m *runMode) { m.session.pendingAuth = true },
+			set:  func(m *RootModel) { m.session.pendingAuth = true },
 			want: "\x1b]7501;state=blocked:kind=auth:app=wagyu:msg=U2lnbi1pbiByZXF1aXJlZA==\x07",
 		},
 	}
@@ -3247,7 +3275,7 @@ func TestProgramStatusAssignedToView(t *testing.T) {
 		t.Errorf("ProgramStatus.State = %q, want %q", got.ProgramStatus.State, tea.ProgramStateIdle)
 	}
 
-	m.engine.streaming = true
+	m.conversation.streaming = true
 	got2 := attach("body", m.programStatus())
 	if got2.ProgramStatus.State != tea.ProgramStateWorking {
 		t.Errorf("after streaming=true: ProgramStatus.State = %q, want %q",
@@ -3635,7 +3663,7 @@ func TestLoadStatusLineConfig_DisabledAndMissing(t *testing.T) {
 func TestStatusLinePayload_Fields(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("ANTIGRAVITY_HOME", home)
-	m := &runMode{
+	m := &RootModel{
 		session: sessionState{
 			statusModel: "MiniMax M3",
 			model:       "MiniMax M3",
@@ -3740,10 +3768,10 @@ func TestPricingForModel(t *testing.T) {
 
 // TestRecordTurnUsage_Accumulates puts the chunk-meta hook through
 // its paces: every Done chunk adds Meta.PromptTokens /
-// Meta.CompletionTokens to the runMode totals, regardless of how
+// Meta.CompletionTokens to the RootModel totals, regardless of how
 // many calls land in flight.
 func TestRecordTurnUsage_Accumulates(t *testing.T) {
-	m := &runMode{}
+	m := &RootModel{}
 	for i := 0; i < 5; i++ {
 		m.recordTurnUsage(&backend.ChunkMeta{
 			PromptTokens:     100,
@@ -3760,9 +3788,9 @@ func TestRecordTurnUsage_Accumulates(t *testing.T) {
 // receiver and a nil meta are both no-ops so the chunk handler's
 // call site stays simple.
 func TestRecordTurnUsage_NilSafe(t *testing.T) {
-	var nilM *runMode
+	var nilM *RootModel
 	nilM.recordTurnUsage(&backend.ChunkMeta{PromptTokens: 100}) // must not panic
-	var m *runMode
+	var m *RootModel
 	m.recordTurnUsage(nil) // nil meta — no panic, no change
 	nilM.recordTurnUsage(nil)
 }
@@ -3892,7 +3920,7 @@ func TestStatuslineExternal_NeverConfigured(t *testing.T) {
 	if len(rows) == 0 || rows[0] != "Statusline on." {
 		t.Fatalf("/statusline rendered %q", rows)
 	}
-	if m.viewport.statusLineExternal {
+	if m.statusLine.external {
 		t.Error("statusLineExternal must stay off without a command")
 	}
 	// The built-in row is still rendered.
@@ -3918,16 +3946,16 @@ func TestStatuslineExternal_CommandLifecycle(t *testing.T) {
 
 	m := newSlashModel(t)
 	m.reloadStatusLineConfig()
-	if !m.viewport.statusLineExternal {
+	if !m.statusLine.external {
 		t.Fatal("statusLineExternal must be on with an enabled command")
 	}
 
 	// off: the script stops, the built-in row returns, the command stays.
 	m.handleSlashCommand("/statusline off")
-	if m.viewport.statusLineExternal {
+	if m.statusLine.external {
 		t.Error("statusLineExternal must be off after /statusline off")
 	}
-	if m.viewport.statusLine == "off" {
+	if m.statusLine.visible == "off" {
 		t.Error("the built-in row must come back after /statusline off")
 	}
 	body := readSettings(t, home)
@@ -3940,7 +3968,7 @@ func TestStatuslineExternal_CommandLifecycle(t *testing.T) {
 
 	// on: the script runs again.
 	m.handleSlashCommand("/statusline on")
-	if !m.viewport.statusLineExternal {
+	if !m.statusLine.external {
 		t.Error("statusLineExternal must be on after /statusline on")
 	}
 	body = readSettings(t, home)
@@ -3956,7 +3984,7 @@ func TestStatuslineExternal_CommandLifecycle(t *testing.T) {
 	// Evidence 【一手】: agy 1.4.7's settings.json after `/statusline
 	// delete` held no `statusLine` key at all.
 	m.handleSlashCommand("/statusline delete")
-	if m.viewport.statusLineExternal {
+	if m.statusLine.external {
 		t.Error("statusLineExternal must be off after /statusline delete")
 	}
 	body = readSettings(t, home)
@@ -3972,8 +4000,8 @@ func TestStatusLineRowUsesExternalRender(t *testing.T) {
 	m := newSlashModel(t)
 	m.viewport.width = 80
 	m.viewport.height = 24
-	m.viewport.statusLineExternal = true
-	m.viewport.statusLine = "on" // visible
+	m.statusLine.external = true
+	m.statusLine.visible = "on" // visible
 	state := m.ensureExternalState()
 	state.SetRendered("…custom…", nil)
 
@@ -3999,8 +4027,8 @@ func TestStatusLineRowFallsBackOnError(t *testing.T) {
 	m := newSlashModel(t)
 	m.viewport.width = 80
 	m.viewport.height = 24
-	m.viewport.statusLineExternal = true
-	m.viewport.statusLine = "on"
+	m.statusLine.external = true
+	m.statusLine.visible = "on"
 	// Simulate a transient error: the script failed, so the cached
 	// output is empty and the error card takes the custom row's place.
 	state := m.ensureExternalState()
@@ -4034,7 +4062,7 @@ func (s stringErr) Error() string { return string(s) }
 // script can grep that exact key. We assert both the Go field and
 // the encoded JSON form so a struct rename trips the test.
 func TestStatusLinePayload_IncludesConversationTitle(t *testing.T) {
-	m := &runMode{
+	m := &RootModel{
 		session: sessionState{
 			statusModel: "MiniMax M3",
 			model:       "MiniMax M3",
@@ -4063,7 +4091,7 @@ func TestStatusLinePayload_IncludesConversationTitle(t *testing.T) {
 // /rename is visible within ~100 ms — but the read is *direct* on
 // m.session.conversationName, not cached anywhere.
 func TestStatusLinePayload_UpdatesOnRename(t *testing.T) {
-	m := &runMode{
+	m := &RootModel{
 		session: sessionState{
 			statusModel: "MiniMax M3",
 			model:       "MiniMax M3",
@@ -4118,7 +4146,7 @@ func TestStatusLinePayload_UpdatesOnRename(t *testing.T) {
 // `payload.conversation_title !== "<expected-fallback>"`, never
 // `payload.conversation_title === ""`.
 func TestStatusLinePayload_EmptyTitleWhenUntitled(t *testing.T) {
-	m := &runMode{
+	m := &RootModel{
 		session: sessionState{
 			statusModel: "MiniMax M3",
 			model:       "MiniMax M3",
@@ -4167,7 +4195,7 @@ func TestStatusLinePayload_EmptyTitleWhenUntitled(t *testing.T) {
 //
 // Evidence 【一手】: agy 1.4.7's captured payloads.
 func TestStatusLinePayload_ReferenceShape(t *testing.T) {
-	m := &runMode{
+	m := &RootModel{
 		session: sessionState{
 			statusModel: "MiniMax M3",
 			model:       "MiniMax M3",
@@ -4244,14 +4272,14 @@ func TestStatusLinePayload_PrintModeUnaffected(t *testing.T) {
 	// 1. Pure-function check: buildStatusLinePayload is deterministic
 	//    and does not spawn. Two back-to-back calls produce the
 	//    same payload — no goroutine, no subprocess.
-	m := &runMode{
+	m := &RootModel{
 		session: sessionState{
 			statusModel: "MiniMax M3",
 			model:       "MiniMax M3",
 			cwd:         "/private/tmp",
 		},
 	}
-	m.engine.session = []backend.Message{{Role: "user", Content: "hello"}}
+	m.setSessionMessages([]backend.Message{{Role: "user", Content: "hello"}})
 	a := m.buildStatusLinePayload()
 	b := m.buildStatusLinePayload()
 	if !reflect.DeepEqual(a, b) {
@@ -4310,14 +4338,14 @@ func TestStatusLinePayload_PrintModeUnaffected(t *testing.T) {
 	}
 }
 
-// altTestMode builds a runMode wired for alt-keytranslation tests.
+// altTestMode builds a RootModel wired for alt-keytranslation tests.
 // The caller sets TERM_PROGRAM and (optionally) writes a
 // keybindings.json under home before calling this — the helper
 // only sets the env and constructs the mode.
 //
-// Pass an empty home path to skip file I/O entirely; the runMode
+// Pass an empty home path to skip file I/O entirely; the RootModel
 // will still pick up the term-driven gates.
-func altTestMode(t *testing.T, keybindingsJSON string) *runMode {
+func altTestMode(t *testing.T, keybindingsJSON string) *RootModel {
 	t.Helper()
 	dir := t.TempDir()
 	t.Setenv("ANTIGRAVITY_HOME", dir)
@@ -4337,15 +4365,15 @@ func altTestMode(t *testing.T, keybindingsJSON string) *runMode {
 			t.Fatalf("write keybindings: %v", err)
 		}
 	}
-	return newRunMode(&fakeClient{}, "u@t", "m", "t", "/tmp", true)
+	return newRootModel(&fakeClient{}, "u@t", "m", "t", "/tmp", true)
 }
 
 // altFires returns the letter/action pairs the dispatcher fired
 // during a test. Useful for assertions without coupling to
 // response-row formatting.
-func (m *runMode) altFires() []altKeyFire {
-	out := make([]altKeyFire, len(m.composer.altKeyFires))
-	copy(out, m.composer.altKeyFires)
+func (m *RootModel) altFires() []altKeyFire {
+	out := make([]altKeyFire, len(m.prompt.altKeyFires))
+	copy(out, m.prompt.altKeyFires)
 	return out
 }
 
@@ -4388,7 +4416,7 @@ func TestAlt_TerminalApp_SynthesisesAltS(t *testing.T) {
 	}
 	// The synthesised event must not have leaked into the input —
 	// alt+s is not a printable rune.
-	if v := m.composer.input.Value(); v != "" {
+	if v := m.prompt.input.Value(); v != "" {
 		t.Errorf("input should not contain 's', got %q", v)
 	}
 }
@@ -4446,7 +4474,7 @@ func TestAlt_NoAltsConfigured_FallsThrough(t *testing.T) {
 
 	m.Update(runeKey('h'))
 	m.Update(runeKey('i'))
-	if v := m.composer.input.Value(); v != "hi" {
+	if v := m.prompt.input.Value(); v != "hi" {
 		t.Fatalf("setup: input should hold 'hi', got %q", v)
 	}
 
@@ -4454,20 +4482,20 @@ func TestAlt_NoAltsConfigured_FallsThrough(t *testing.T) {
 	// short-circuits and the Esc reaches the host's Esc handler. It
 	// arms the `esc esc` clear, so the text is still there.
 	m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEsc}))
-	if v := m.composer.input.Value(); v != "hi" {
+	if v := m.prompt.input.Value(); v != "hi" {
 		t.Errorf("one Esc must not clear the input (esc esc), got %q", v)
 	}
 
 	// The second Esc completes the pair: the first one was processed,
 	// not swallowed as an alt prefix.
 	m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEsc}))
-	if v := m.composer.input.Value(); v != "" {
+	if v := m.prompt.input.Value(); v != "" {
 		t.Errorf("the second Esc should clear the input, got %q", v)
 	}
 
 	// 's' arrives: insert as text.
 	m.Update(tea.KeyPressMsg(tea.Key{Code: 's', Text: "s"}))
-	if v := m.composer.input.Value(); v != "s" {
+	if v := m.prompt.input.Value(); v != "s" {
 		t.Errorf("'s' should insert into the cleared input, got %q", v)
 	}
 	if len(m.altFires()) != 0 {
@@ -4484,7 +4512,7 @@ func TestAlt_NoAltsConfigured_FallsThrough(t *testing.T) {
 func TestAlt_VimMode_NotDoubleHandled(t *testing.T) {
 	withTerminal(t, "Apple_Terminal")
 	cycle196TestHome(t, map[string]any{"editorMode": "vim"})
-	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/tmp", true)
+	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/tmp", true)
 	m.reloadVimSettings()
 	if !m.vimEnabled() {
 		t.Fatal("vim mode should be on")
@@ -4498,7 +4526,7 @@ func TestAlt_VimMode_NotDoubleHandled(t *testing.T) {
 		t.Fatal(err)
 	}
 	if kb, err := keybind.Load(path); err == nil {
-		m.composer.keybindings = kb
+		m.prompt.keybindings = kb
 	}
 
 	m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEsc}))
@@ -4509,7 +4537,7 @@ func TestAlt_VimMode_NotDoubleHandled(t *testing.T) {
 	}
 	// Vim engine owns the buffer when on; the input mirror should
 	// not show 's' inserted as a literal rune.
-	if v := m.composer.input.Value(); strings.Contains(v, "s") {
+	if v := m.prompt.input.Value(); strings.Contains(v, "s") {
 		t.Errorf("input should not contain 's' from a synthesised alt+s, got %q", v)
 	}
 }
@@ -4542,7 +4570,7 @@ func TestAlt_PlainLetter_NotMistranslated(t *testing.T) {
 
 	m.Update(tea.KeyPressMsg(tea.Key{Code: 's', Text: "s"}))
 
-	if v := m.composer.input.Value(); v != "s" {
+	if v := m.prompt.input.Value(); v != "s" {
 		t.Errorf("plain 's' should insert into input, got %q", v)
 	}
 	if got := len(m.altFires()); got != 0 {
@@ -4562,31 +4590,31 @@ func TestAlt_PlainLetter_NotMistranslated(t *testing.T) {
 func TestAlt_EscTimeout_ReleasesStaleBuffer(t *testing.T) {
 	withTerminal(t, "Apple_Terminal")
 	m := altTestMode(t, `{"alt+s": "submit"}`)
-	m.composer.input.SetValue("hi")
+	m.prompt.input.SetValue("hi")
 
 	// Buffer an Esc.
 	m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEsc}))
-	if v := m.composer.input.Value(); v != "hi" {
+	if v := m.prompt.input.Value(); v != "hi" {
 		t.Errorf("Esc should not yet clear input (still buffered), got %q", v)
 	}
 
 	// Simulate the tick firing after the window by manually
 	// expiring the buffer's timestamp. The handler runs the
 	// Esc branch on the buffer's behalf.
-	m.composer.altEscBuf.At = time.Now().Add(-100 * time.Millisecond)
+	m.prompt.altEscBuf.At = time.Now().Add(-100 * time.Millisecond)
 	m.Update(keybind.EscTimeoutMsg{})
 
 	// The Esc branch fired — it armed the clear, so the text is still
 	// there.
-	if v := m.composer.input.Value(); v != "hi" {
+	if v := m.prompt.input.Value(); v != "hi" {
 		t.Errorf("EscTimeoutMsg must not clear the input on its own, got %q", v)
 	}
 
 	// The second Esc, released the same way, completes the pair.
 	m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEsc}))
-	m.composer.altEscBuf.At = time.Now().Add(-100 * time.Millisecond)
+	m.prompt.altEscBuf.At = time.Now().Add(-100 * time.Millisecond)
 	m.Update(keybind.EscTimeoutMsg{})
-	if v := m.composer.input.Value(); v != "" {
+	if v := m.prompt.input.Value(); v != "" {
 		t.Errorf("the second Esc should clear the input via handleEscKey, got %q", v)
 	}
 }
@@ -4600,17 +4628,17 @@ func TestAlt_EscTimeout_ReleasesStaleBuffer(t *testing.T) {
 func TestAlt_StaleBufferFallsThrough(t *testing.T) {
 	withTerminal(t, "Apple_Terminal")
 	m := altTestMode(t, `{"alt+s": "submit"}`)
-	m.composer.input.SetValue("hi")
+	m.prompt.input.SetValue("hi")
 
 	// Buffer an Esc, then expire it.
 	m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEsc}))
-	m.composer.altEscBuf.At = time.Now().Add(-100 * time.Millisecond)
+	m.prompt.altEscBuf.At = time.Now().Add(-100 * time.Millisecond)
 
 	// 's' arrives; the buffer sees the window elapsed, releases
 	// the Esc (which arms the clear), and the 's' inserts.
 	m.Update(tea.KeyPressMsg(tea.Key{Code: 's', Text: "s"}))
 
-	if v := m.composer.input.Value(); v != "his" {
+	if v := m.prompt.input.Value(); v != "his" {
 		t.Errorf("after stale Esc + 's', input should be 'his', got %q", v)
 	}
 	if got := len(m.altFires()); got != 0 {
@@ -4640,7 +4668,7 @@ func TestAlt_DoubleLetterEscapesBuffer(t *testing.T) {
 func TestAlt_NonLetterFollowUpReleases(t *testing.T) {
 	withTerminal(t, "Apple_Terminal")
 	m := altTestMode(t, `{"alt+s": "submit"}`)
-	m.composer.input.SetValue("hi")
+	m.prompt.input.SetValue("hi")
 
 	m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEsc}))
 	// digit follows — not a letter candidate, release the Esc.
@@ -4648,7 +4676,7 @@ func TestAlt_NonLetterFollowUpReleases(t *testing.T) {
 
 	// Cycle 383 (B-21): the released Esc arms the `esc esc` clear and
 	// the digit breaks the pair, so the text keeps both characters.
-	if v := m.composer.input.Value(); v != "hi1" {
+	if v := m.prompt.input.Value(); v != "hi1" {
 		t.Errorf("Esc+1 should leave 'hi1', got %q", v)
 	}
 	if got := len(m.altFires()); got != 0 {
@@ -4657,10 +4685,10 @@ func TestAlt_NonLetterFollowUpReleases(t *testing.T) {
 }
 
 // altLeftKey / altRightKey build the synthetic tea.KeyPressMsg the
-// runMode.Update handler dispatches against. The bubbles textarea
+// RootModel.Update handler dispatches against. The bubbles textarea
 // needs a focused model and a non-virtual cursor for Cursor() to
 // return a non-nil offset (cycle 71 fix); the test setup below
-// mirrors what newRunMode produces for production.
+// mirrors what newRootModel produces for production.
 func altLeftKey() tea.KeyPressMsg {
 	return tea.KeyPressMsg(tea.Key{Code: tea.KeyLeft, Mod: tea.ModAlt})
 }
@@ -4674,7 +4702,7 @@ func altRightKey() tea.KeyPressMsg {
 // come from the same Update dispatch the production TUI uses (the
 // real terminal also delivers printable runes as Key.Code + Key.Text,
 // not via InsertRune).
-func typeString(m *runMode, s string) {
+func typeString(m *RootModel, s string) {
 	for _, r := range s {
 		m.Update(tea.KeyPressMsg(tea.Key{Code: r, Text: string(r)}))
 	}
@@ -4682,14 +4710,14 @@ func typeString(m *runMode, s string) {
 
 // cursorRowCol returns the current (row, col) of the textarea. Both
 // fields are read from the public Line() / Column() accessors.
-func cursorRowCol(m *runMode) (row, col int) {
-	return m.composer.input.Line(), m.composer.input.Column()
+func cursorRowCol(m *RootModel) (row, col int) {
+	return m.prompt.input.Line(), m.prompt.input.Column()
 }
 
 // TestAltRightNextWordBoundary verifies Alt+Right moves the cursor to
 // the end of the next word, matching macOS NSText semantics.
 func TestAltRightNextWordBoundary(t *testing.T) {
-	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/", true)
 	typeString(m, "hello world foo bar")
 	// Cursor is at the end (line=0, col=19). Alt+Right at end is a
 	// no-op (cycle-225 spec: stays put at end-of-buffer).
@@ -4735,7 +4763,7 @@ func TestAltRightNextWordBoundary(t *testing.T) {
 // backwards word-by-word, from end-of-buffer to start, landing on
 // the first rune of each word.
 func TestAltLeftPreviousWordBoundary(t *testing.T) {
-	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/", true)
 	typeString(m, "hello world foo bar")
 	// Cursor at end (col=19). Walk back via Alt+Left until col=0.
 	//   19 → 16 (start of "bar")
@@ -4755,7 +4783,7 @@ func TestAltLeftPreviousWordBoundary(t *testing.T) {
 // is a no-op — the cursor does not move. macOS NSText and bubbles'
 // wordRight agree on this.
 func TestAltRightAtEndStays(t *testing.T) {
-	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/", true)
 	typeString(m, "hello world")
 	startRow, startCol := cursorRowCol(m)
 	m.Update(altRightKey())
@@ -4770,7 +4798,7 @@ func TestAltRightAtEndStays(t *testing.T) {
 // TestAltLeftAtStartStays verifies Alt+Left at the start of the buffer
 // is a no-op. macOS NSText and bubbles' wordLeft agree.
 func TestAltLeftAtStartStays(t *testing.T) {
-	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/", true)
 	typeString(m, "hello world")
 	// Move cursor to start with the textarea's Home binding
 	// (ctrl+a → LineStart).
@@ -4790,7 +4818,7 @@ func TestAltLeftAtStartStays(t *testing.T) {
 // single-word buffer both stay put — there are no word boundaries to
 // cross.
 func TestSingleWordNoMovement(t *testing.T) {
-	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/", true)
 	typeString(m, "hello")
 	// Cursor at end (col=5). Alt+Right stays.
 	m.Update(altRightKey())
@@ -4820,7 +4848,7 @@ func TestSingleWordNoMovement(t *testing.T) {
 // Verified against bubbles textarea v2.1.1 (the prompt editor
 // upstream — cycle 71) via a probe before this fix.
 func TestAltWordCrossesLines(t *testing.T) {
-	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/", true)
 	typeString(m, "hello")
 	// ctrl+j inserts a newline (cycle 71 path).
 	m.Update(tea.KeyPressMsg(tea.Key{Code: 'j', Mod: tea.ModCtrl}))
@@ -4853,7 +4881,7 @@ func TestAltWordCrossesLines(t *testing.T) {
 // still lands at the end of the NEXT word, not the end of the current
 // one (macOS convention).
 func TestAltRightFromMiddleOfWord(t *testing.T) {
-	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/", true)
 	typeString(m, "hello world")
 	// Cursor at end (col=11). Move to middle of "hello" with
 	// repeated ctrl+b (bubble's WordBackward — verified to land at
@@ -4885,7 +4913,7 @@ func TestAltRightFromMiddleOfWord(t *testing.T) {
 
 // TestAltWordHelperDirect exercises wordBoundaryBack / wordBoundaryFwd
 // directly on representative macOS-convention inputs (Chinese text,
-// mixed punctuation, leading/trailing whitespace). The runMode-level
+// mixed punctuation, leading/trailing whitespace). The RootModel-level
 // tests above exercise the dispatcher; this one locks the helpers'
 // arithmetic against regressions.
 func TestAltWordHelperDirect(t *testing.T) {
@@ -4975,7 +5003,7 @@ func TestAltWordHelperDirect(t *testing.T) {
 // without that, the picker's "matches" cache would lag the cursor and
 // a subsequent Tab would complete against the old substring).
 func TestAltWordPickerOverlayStillUpdates(t *testing.T) {
-	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/", true)
 	typeString(m, "hello world foo bar")
 	// Move cursor with Alt+Left to mid-word.
 	for i := 0; i < 2; i++ {
@@ -4989,7 +5017,7 @@ func TestAltWordPickerOverlayStillUpdates(t *testing.T) {
 	// would now filter against "hello world foo bar" (unchanged, but
 	// exercised through this code path so any future regression
 	// where the picker is skipped on Alt+Left surfaces here).
-	if v := m.composer.input.Value(); !strings.Contains(v, "hello world foo bar") {
+	if v := m.prompt.input.Value(); !strings.Contains(v, "hello world foo bar") {
 		t.Fatalf("expected value intact after Alt+Left motion; got %q", v)
 	}
 }
@@ -5010,17 +5038,17 @@ func ctrlEnterKey() tea.KeyPressMsg {
 	return tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter, Mod: tea.ModCtrl, Text: "\n"})
 }
 
-// queueTestMode builds a runMode wired for the cycle-244 tests.
+// queueTestMode builds a RootModel wired for the cycle-244 tests.
 // Unlike altTestMode this helper does NOT set TERM_PROGRAM (the
 // tests pass the native alt+m chord directly), but it does pin
 // ANTIGRAVITY_HOME so any persistence path stays off the user's
 // real settings.json.
-func queueTestMode(t *testing.T) *runMode {
+func queueTestMode(t *testing.T) *RootModel {
 	t.Helper()
 	dir := t.TempDir()
 	t.Setenv("ANTIGRAVITY_HOME", dir)
 	t.Setenv("HOME", t.TempDir())
-	m := newRunMode(&fakeClient{}, "u@t", "Gemini 3.8 Flash (High)", "", "/tmp", true)
+	m := newRootModel(&fakeClient{}, "u@t", "Gemini 3.8 Flash (High)", "", "/tmp", true)
 	m.session.store.QueueMode = true
 	return m
 }
@@ -5029,12 +5057,31 @@ func queueTestMode(t *testing.T) *runMode {
 func TestAltMSubmitAlternate(t *testing.T) {
 	m := queueTestMode(t)
 	m.session.store.QueueMode = true
-	m.composer.input.SetValue("alternate prompt")
+	m.prompt.input.SetValue("alternate prompt")
 
 	m.Update(altMKey())
 	// In Queue mode, submitting with alternate executes immediate submission
-	if m.composer.input.Value() != "" {
-		t.Errorf("after alt+m submit alternate, input should be cleared; got %q", m.composer.input.Value())
+	if m.prompt.input.Value() != "" {
+		t.Errorf("after alt+m submit alternate, input should be cleared; got %q", m.prompt.input.Value())
+	}
+}
+
+func TestMacOptionMTranslatesToAltM(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("darwin only")
+	}
+	orig := os.Getenv("AGY_CLI_MAC_OPTION_AS_ALT")
+	defer os.Setenv("AGY_CLI_MAC_OPTION_AS_ALT", orig)
+	os.Unsetenv("AGY_CLI_MAC_OPTION_AS_ALT")
+
+	m := queueTestMode(t)
+	m.session.store.QueueMode = true
+	m.prompt.input.SetValue("alternate prompt option m")
+
+	// On macOS terminal without Option-as-meta, Option+m generates 'µ' (U+00B5)
+	m.Update(tea.KeyPressMsg(tea.Key{Code: 'µ', Text: "µ"}))
+	if m.prompt.input.Value() != "" {
+		t.Errorf("after typing Option+m ('µ'), input should be cleared by alt+m submit; got %q", m.prompt.input.Value())
 	}
 }
 
@@ -5042,10 +5089,10 @@ func TestAltMSubmitAlternate(t *testing.T) {
 // Cmd+Enter submits through the existing path.
 func TestQueueModeCmdEnterSubmits(t *testing.T) {
 	m := queueTestMode(t)
-	m.composer.input.SetValue("queued-prompt-body")
+	m.prompt.input.SetValue("queued-prompt-body")
 
 	m.Update(ctrlEnterKey())
-	if v := m.composer.input.Value(); v != "" {
+	if v := m.prompt.input.Value(); v != "" {
 		t.Errorf("Cmd+Enter: expected input cleared, got %q", v)
 	}
 }
@@ -5066,7 +5113,7 @@ func TestQueuedPromptDispatchesAfterTurnDone(t *testing.T) {
 	// A turnDoneMsg with no assistant reply: fakeClient has no model
 	// session, so the streaming-rendering branch is skipped; the
 	// queue-flush branch is the only thing we exercise here.
-	prevSessionLen := len(m.engine.session)
+	prevSessionLen := len(m.SessionMessages())
 	_, cmd := m.Update(toolsteps.TurnDoneMsg{Reply: "", Steps: nil, Reasoning: ""})
 	if cmd == nil {
 		t.Fatalf("after turnDoneMsg with queued prompt, expected non-nil cmd (the streamPrompt batch); got nil")
@@ -5077,10 +5124,10 @@ func TestQueuedPromptDispatchesAfterTurnDone(t *testing.T) {
 	if m.session.store.QueuedPrompt != "" {
 		t.Errorf("m.queuedPrompt should be cleared after flush; got %q", m.session.store.QueuedPrompt)
 	}
-	if got := len(m.engine.session); got != prevSessionLen+1 {
+	if got := len(m.SessionMessages()); got != prevSessionLen+1 {
 		t.Fatalf("m.engine.session length = %d, want %d", got, prevSessionLen+1)
 	}
-	last := m.engine.session[len(m.engine.session)-1]
+	last := m.SessionMessages()[len(m.SessionMessages())-1]
 	if last.Role != "user" {
 		t.Errorf("queued role = %q, want user", last.Role)
 	}
@@ -5095,7 +5142,7 @@ func TestQueueModePersistsAcrossTurns(t *testing.T) {
 	m.session.store.QueueMode = true
 
 	// Drive one cycle: a regular submitPrompt followed by a turnDoneMsg.
-	m.composer.input.SetValue("first prompt")
+	m.prompt.input.SetValue("first prompt")
 	_, _ = m.Update(enterKey())
 	_, _ = m.Update(toolsteps.TurnDoneMsg{Reply: "ok", Steps: nil, Reasoning: ""})
 	if !m.session.store.QueueMode {
@@ -5109,13 +5156,13 @@ func TestQueueModePersistsAcrossTurns(t *testing.T) {
 // the cycle-244 helpers.
 var _ = backend.Message{}
 
-// streamQueueMode returns a runMode already marked as streaming, so
+// streamQueueMode returns a RootModel already marked as streaming, so
 // submitPrompt takes the queue branch.
-func streamQueueMode(t *testing.T) *runMode {
+func streamQueueMode(t *testing.T) *RootModel {
 	t.Helper()
 	m := queueTestMode(t)
 	m.viewport.width, m.viewport.height = 200, 40
-	m.engine.streaming = true
+	m.conversation.streaming = true
 	return m
 }
 
@@ -5124,8 +5171,8 @@ func streamQueueMode(t *testing.T) *runMode {
 func TestSubmitWhileStreamingQueues(t *testing.T) {
 	m := streamQueueMode(t)
 	m.session.store.QueueMode = true
-	m.composer.input.SetValue("SECOND message while running")
-	before := len(m.engine.response)
+	m.prompt.input.SetValue("SECOND message while running")
+	before := len(m.conversation.response)
 
 	if cmd := m.submitPrompt(); cmd != nil {
 		t.Fatalf("submitPrompt mid-stream returned a cmd, want nil")
@@ -5133,11 +5180,11 @@ func TestSubmitWhileStreamingQueues(t *testing.T) {
 	if len(m.session.store.StreamQueue) != 1 || m.session.store.StreamQueue[0] != "SECOND message while running" {
 		t.Fatalf("streamQueue = %q, want the submitted prompt", m.session.store.StreamQueue)
 	}
-	if m.composer.input.Value() != "" {
-		t.Errorf("input not cleared after queueing: %q", m.composer.input.Value())
+	if m.prompt.input.Value() != "" {
+		t.Errorf("input not cleared after queueing: %q", m.prompt.input.Value())
 	}
-	if len(m.engine.response) != before {
-		t.Errorf("queueing echoed %d transcript rows, want 0", len(m.engine.response)-before)
+	if len(m.conversation.response) != before {
+		t.Errorf("queueing echoed %d transcript rows, want 0", len(m.conversation.response)-before)
 	}
 }
 
@@ -5175,8 +5222,8 @@ func (m *mockSteerEngine) ClearSteer() []string {
 func TestTUI_SteerActiveTurn(t *testing.T) {
 	m := streamQueueMode(t)
 	eng := &mockSteerEngine{}
-	m.engine.engine = eng
-	m.composer.input.SetValue("/steer format output as JSON")
+	m.turn.engine = eng
+	m.prompt.input.SetValue("/steer format output as JSON")
 
 	cmd := m.submitPrompt()
 	if cmd != nil {
@@ -5185,8 +5232,8 @@ func TestTUI_SteerActiveTurn(t *testing.T) {
 	if len(eng.steered) != 1 || eng.steered[0] != "format output as JSON" {
 		t.Errorf("steered = %v, want ['format output as JSON']", eng.steered)
 	}
-	if m.composer.input.Value() != "" {
-		t.Errorf("input not reset after steer: %q", m.composer.input.Value())
+	if m.prompt.input.Value() != "" {
+		t.Errorf("input not reset after steer: %q", m.prompt.input.Value())
 	}
 	// Verify that the instruction is in SendingMessages waiting for step completion
 	if len(m.session.store.SendingMessages) != 1 || m.session.store.SendingMessages[0] != "format output as JSON" {
@@ -5207,17 +5254,17 @@ func TestTUI_SteerActiveTurn(t *testing.T) {
 	}
 	// Verify that user prompt row was displayed in transcript
 	foundPrompt := false
-	for _, line := range m.engine.response {
+	for _, line := range m.conversation.response {
 		if strings.Contains(line, "format output as JSON") && strings.Contains(line, ">") {
 			foundPrompt = true
 			break
 		}
 	}
 	if !foundPrompt {
-		t.Errorf("expected user prompt row in transcript, got: %v", m.engine.response)
+		t.Errorf("expected user prompt row in transcript, got: %v", m.conversation.response)
 	}
-	if len(m.engine.session) == 0 || m.engine.session[len(m.engine.session)-1].Content != "format output as JSON" {
-		t.Errorf("expected steer message in session, got: %v", m.engine.session)
+	if len(m.SessionMessages()) == 0 || m.SessionMessages()[len(m.SessionMessages())-1].Content != "format output as JSON" {
+		t.Errorf("expected steer message in session, got: %v", m.SessionMessages())
 	}
 	if !m.viewport.rowsCacheDirty {
 		t.Errorf("expected rowsCacheDirty to be true after steering")
@@ -5227,8 +5274,8 @@ func TestTUI_SteerActiveTurn(t *testing.T) {
 func TestTUI_SteerCommand_DisplaysAsUserInputMessage(t *testing.T) {
 	m := streamQueueMode(t)
 	eng := &mockSteerEngine{}
-	m.engine.engine = eng
-	m.composer.input.SetValue("/steer Please switch to JSON format")
+	m.turn.engine = eng
+	m.prompt.input.SetValue("/steer Please switch to JSON format")
 
 	cmd := m.submitPrompt()
 	if cmd != nil {
@@ -5237,8 +5284,8 @@ func TestTUI_SteerCommand_DisplaysAsUserInputMessage(t *testing.T) {
 	if len(eng.steered) != 1 || eng.steered[0] != "Please switch to JSON format" {
 		t.Errorf("steered = %v, want ['Please switch to JSON format']", eng.steered)
 	}
-	if m.composer.input.Value() != "" {
-		t.Errorf("input not reset after steer: %q", m.composer.input.Value())
+	if m.prompt.input.Value() != "" {
+		t.Errorf("input not reset after steer: %q", m.prompt.input.Value())
 	}
 	if len(m.session.store.SendingMessages) != 1 || m.session.store.SendingMessages[0] != "Please switch to JSON format" {
 		t.Errorf("expected SendingMessages to have steer prompt, got: %v", m.session.store.SendingMessages)
@@ -5247,24 +5294,24 @@ func TestTUI_SteerCommand_DisplaysAsUserInputMessage(t *testing.T) {
 	// When step completes, steerAppliedMsg arrives
 	m.Update(steerAppliedMsg{instruction: "Please switch to JSON format"})
 
-	// Verify that user message appears in m.engine.response as a user prompt row
+	// Verify that user message appears in m.conversation.response as a user prompt row
 	foundPromptRow := false
-	for _, line := range m.engine.response {
+	for _, line := range m.conversation.response {
 		if strings.Contains(line, "Please switch to JSON format") && strings.Contains(line, ">") {
 			foundPromptRow = true
 			break
 		}
 	}
 	if !foundPromptRow {
-		t.Errorf("expected user prompt row in m.engine.response, got: %v", m.engine.response)
+		t.Errorf("expected user prompt row in m.conversation.response, got: %v", m.conversation.response)
 	}
 	// Verify that user block is recorded
-	if len(m.engine.userBlocks) == 0 || m.engine.userBlocks[len(m.engine.userBlocks)-1].Raw != "Please switch to JSON format" {
-		t.Errorf("expected user block recorded, got: %v", m.engine.userBlocks)
+	if len(m.conversation.userBlocks) == 0 || m.conversation.userBlocks[len(m.conversation.userBlocks)-1].Raw != "Please switch to JSON format" {
+		t.Errorf("expected user block recorded, got: %v", m.conversation.userBlocks)
 	}
 	// Verify that session recorded user turn
-	if len(m.engine.session) == 0 || m.engine.session[len(m.engine.session)-1].Content != "Please switch to JSON format" {
-		t.Errorf("expected session message recorded, got: %v", m.engine.session)
+	if len(m.SessionMessages()) == 0 || m.SessionMessages()[len(m.SessionMessages())-1].Content != "Please switch to JSON format" {
+		t.Errorf("expected session message recorded, got: %v", m.SessionMessages())
 	}
 	// Verify cache marked dirty
 	if !m.viewport.rowsCacheDirty {
@@ -5276,15 +5323,15 @@ func TestTUI_AltEnter_SteersInQueueMode(t *testing.T) {
 	m := streamQueueMode(t)
 	m.session.store.QueueMode = true
 	eng := &mockSteerEngine{}
-	m.engine.engine = eng
-	m.composer.input.SetValue("make this concise")
+	m.turn.engine = eng
+	m.prompt.input.SetValue("make this concise")
 
 	m.Update(tea.KeyPressMsg{Code: tea.KeyEnter, Mod: tea.ModAlt})
 	if len(eng.steered) != 1 || eng.steered[0] != "make this concise" {
 		t.Fatalf("steered = %v, want ['make this concise']", eng.steered)
 	}
-	if m.composer.input.Value() != "" {
-		t.Errorf("input not reset: %q", m.composer.input.Value())
+	if m.prompt.input.Value() != "" {
+		t.Errorf("input not reset: %q", m.prompt.input.Value())
 	}
 	if len(m.session.store.SendingMessages) != 1 || m.session.store.SendingMessages[0] != "make this concise" {
 		t.Errorf("expected SendingMessages to contain 'make this concise', got: %v", m.session.store.SendingMessages)
@@ -5293,14 +5340,14 @@ func TestTUI_AltEnter_SteersInQueueMode(t *testing.T) {
 	m.Update(steerAppliedMsg{instruction: "make this concise"})
 
 	foundPrompt := false
-	for _, line := range m.engine.response {
+	for _, line := range m.conversation.response {
 		if strings.Contains(line, "make this concise") && strings.Contains(line, ">") {
 			foundPrompt = true
 			break
 		}
 	}
 	if !foundPrompt {
-		t.Errorf("expected user prompt in response: %v", m.engine.response)
+		t.Errorf("expected user prompt in response: %v", m.conversation.response)
 	}
 }
 
@@ -5308,13 +5355,13 @@ func TestTUI_SteerAppliedAtToolStepCompletion(t *testing.T) {
 	m := streamQueueMode(t)
 	m.session.store.QueueMode = false // normal mode: plain Enter steers while streaming
 	eng := &mockSteerEngine{}
-	m.engine.engine = eng
+	m.turn.engine = eng
 
 	// 1. Tool starts running in Step 1
 	m.Update(toolsteps.ToolRunningMsg{Step: toolsteps.NewRunningStep("run_command", json.RawMessage(`{"CommandLine":"git status"}`))})
 
 	// 2. User submits steer mid-tool
-	m.composer.input.SetValue("check diff as well")
+	m.prompt.input.SetValue("check diff as well")
 	cmd := m.submitPrompt()
 	if cmd != nil {
 		t.Errorf("expected nil cmd, got %v", cmd)
@@ -5333,16 +5380,16 @@ func TestTUI_SteerAppliedAtToolStepCompletion(t *testing.T) {
 		t.Errorf("expected SendingMessages to be cleared after tool step finished, got: %v", m.session.store.SendingMessages)
 	}
 
-	// Verify that user prompt is visibly displayed in m.engine.response
+	// Verify that user prompt is visibly displayed in m.conversation.response
 	foundPrompt := false
-	for _, line := range m.engine.response {
+	for _, line := range m.conversation.response {
 		if strings.Contains(line, "check diff as well") && strings.Contains(line, ">") {
 			foundPrompt = true
 			break
 		}
 	}
 	if !foundPrompt {
-		t.Fatalf("expected steer message rendered as user prompt in transcript at step completion, got: %v", m.engine.response)
+		t.Fatalf("expected steer message rendered as user prompt in transcript at step completion, got: %v", m.conversation.response)
 	}
 
 	// 4. Step 2 streams its text response
@@ -5358,23 +5405,23 @@ func TestTUI_SteerAppliedAtToolStepCompletion(t *testing.T) {
 
 	// Verify that steer message is STILL in transcript and wasn't overwritten by TurnDoneMsg
 	foundPromptAfterTurnDone := false
-	for _, line := range m.engine.response {
+	for _, line := range m.conversation.response {
 		if strings.Contains(line, "check diff as well") && strings.Contains(line, ">") {
 			foundPromptAfterTurnDone = true
 			break
 		}
 	}
 	if !foundPromptAfterTurnDone {
-		t.Fatalf("expected steer message to persist in transcript after turn completion, got: %v", m.engine.response)
+		t.Fatalf("expected steer message to persist in transcript after turn completion, got: %v", m.conversation.response)
 	}
 }
 
 func TestTUI_PromoteQueuedToSteer(t *testing.T) {
 	m := streamQueueMode(t)
 	eng := &mockSteerEngine{}
-	m.engine.engine = eng
+	m.turn.engine = eng
 	m.session.store.QueuedPrompt = "make it fast"
-	m.composer.input.SetValue("/steer")
+	m.prompt.input.SetValue("/steer")
 
 	cmd := m.submitPrompt()
 	if cmd != nil {
@@ -5420,12 +5467,12 @@ func TestTurnDoneFlushesQueuedPrompt(t *testing.T) {
 	if cmd == nil {
 		t.Fatalf("turnDoneMsg returned nil cmd, want the queued streamPrompt batch")
 	}
-	last := m.engine.response[len(m.engine.response)-1]
+	last := m.conversation.response[len(m.conversation.response)-1]
 	if last != transcript.UserPromptRow("SECOND message while running") {
 		t.Errorf("flushed user row = %q, want %q", last, transcript.UserPromptRow("SECOND message while running"))
 	}
-	if len(m.engine.session) == 0 || m.engine.session[len(m.engine.session)-1].Content != "SECOND message while running" {
-		t.Errorf("queued prompt not appended to the session: %#v", m.engine.session)
+	if len(m.SessionMessages()) == 0 || m.SessionMessages()[len(m.SessionMessages())-1].Content != "SECOND message while running" {
+		t.Errorf("queued prompt not appended to the session: %#v", m.SessionMessages())
 	}
 }
 
@@ -5438,7 +5485,7 @@ func TestUpRecallsQueuedPrompt(t *testing.T) {
 	key := tea.KeyPressMsg(tea.Key{Code: tea.KeyUp})
 	m.Update(key)
 
-	if got := m.composer.input.Value(); got != "first\nsecond" {
+	if got := m.prompt.input.Value(); got != "first\nsecond" {
 		t.Errorf("input after Up = %q, want %q", got, "first\nsecond")
 	}
 	if len(m.session.store.StreamQueue) != 0 {
@@ -5454,7 +5501,7 @@ func TestTUI_UpRecallsQueuedPrompt_QueueMode(t *testing.T) {
 	key := tea.KeyPressMsg(tea.Key{Code: tea.KeyUp})
 	m.Update(key)
 
-	if got := m.composer.input.Value(); got != "queue mode prompt" {
+	if got := m.prompt.input.Value(); got != "queue mode prompt" {
 		t.Errorf("input after Up = %q, want 'queue mode prompt'", got)
 	}
 	if len(m.session.store.StreamQueue) != 0 {
@@ -5466,12 +5513,12 @@ func TestTUI_UpRecallsSteerPrompt(t *testing.T) {
 	m := streamQueueMode(t)
 	eng := &mockSteerEngine{}
 	eng.steered = []string{"steer guidance"}
-	m.engine.engine = eng
+	m.turn.engine = eng
 
 	key := tea.KeyPressMsg(tea.Key{Code: tea.KeyUp})
 	m.Update(key)
 
-	if got := m.composer.input.Value(); got != "steer guidance" {
+	if got := m.prompt.input.Value(); got != "steer guidance" {
 		t.Errorf("input after Up = %q, want 'steer guidance'", got)
 	}
 	if len(eng.steered) != 0 {
@@ -5483,9 +5530,9 @@ func TestTUI_MoveSteerToQueue(t *testing.T) {
 	m := streamQueueMode(t)
 	eng := &mockSteerEngine{}
 	eng.steered = []string{"steer instruction"}
-	m.engine.engine = eng
+	m.turn.engine = eng
 
-	m.composer.input.SetValue("/queue")
+	m.prompt.input.SetValue("/queue")
 	cmd := m.submitPrompt()
 	if cmd != nil {
 		t.Errorf("expected nil cmd, got %v", cmd)
@@ -5496,15 +5543,15 @@ func TestTUI_MoveSteerToQueue(t *testing.T) {
 	if len(m.session.store.StreamQueue) != 1 || m.session.store.StreamQueue[0] != "steer instruction" {
 		t.Errorf("expected 'steer instruction' in StreamQueue, got %v", m.session.store.StreamQueue)
 	}
-	if len(m.engine.response) != 0 {
-		t.Errorf("expected empty response after /queue, got: %v", m.engine.response)
+	if len(m.conversation.response) != 0 {
+		t.Errorf("expected empty response after /queue, got: %v", m.conversation.response)
 	}
 }
 
 func TestTUI_ExplicitQueueCommandWhileStreaming(t *testing.T) {
 	m := streamQueueMode(t)
 	m.session.store.QueueMode = false // normal mode: plain text would steer
-	m.composer.input.SetValue("/queue check this later")
+	m.prompt.input.SetValue("/queue check this later")
 
 	cmd := m.submitPrompt()
 	if cmd != nil {
@@ -5517,7 +5564,7 @@ func TestTUI_ExplicitQueueCommandWhileStreaming(t *testing.T) {
 
 func TestSubmitPrompt_RunsContextPanelWhileStreaming(t *testing.T) {
 	m := streamQueueMode(t)
-	m.composer.input.SetValue("/context")
+	m.prompt.input.SetValue("/context")
 
 	if cmd := m.submitPrompt(); cmd != nil {
 		t.Fatalf("submitPrompt(/context) mid-stream returned a cmd, want nil")
@@ -5528,14 +5575,14 @@ func TestSubmitPrompt_RunsContextPanelWhileStreaming(t *testing.T) {
 	if m.overlays.panel.kind != panelregistry.Context {
 		t.Fatalf("panel.kind = %v, want panelregistry.Context", m.overlays.panel.kind)
 	}
-	if !m.engine.streaming {
+	if !m.conversation.streaming {
 		t.Error("panel dispatch cleared streaming; the in-flight turn must survive")
 	}
 }
 
 func TestSubmitPrompt_RunsAccountsPanelWhileStreaming(t *testing.T) {
 	m := streamQueueMode(t)
-	m.composer.input.SetValue("/accounts")
+	m.prompt.input.SetValue("/accounts")
 
 	_ = m.submitPrompt()
 	if len(m.session.store.StreamQueue) != 0 {
@@ -5544,14 +5591,14 @@ func TestSubmitPrompt_RunsAccountsPanelWhileStreaming(t *testing.T) {
 	if m.overlays.panel.kind != panelregistry.Accounts {
 		t.Fatalf("panel.kind = %v, want panelregistry.Accounts", m.overlays.panel.kind)
 	}
-	if !m.engine.streaming {
+	if !m.conversation.streaming {
 		t.Error("panel dispatch cleared streaming; the in-flight turn must survive")
 	}
 }
 
 func TestSubmitPrompt_QueuesModelTurnSlashWhileStreaming(t *testing.T) {
 	m := streamQueueMode(t)
-	m.composer.input.SetValue("/plan next steps")
+	m.prompt.input.SetValue("/plan next steps")
 
 	if cmd := m.submitPrompt(); cmd != nil {
 		t.Fatalf("submitPrompt(/plan) mid-stream returned a cmd, want nil")
@@ -5567,51 +5614,51 @@ func TestSubmitPrompt_QueuesModelTurnSlashWhileStreaming(t *testing.T) {
 func TestSubmitPrompt_RunsTranscriptMutatingSlashWhileStreaming(t *testing.T) {
 	for _, buf := range []string{"/clear", "/new"} {
 		m := streamQueueMode(t)
-		m.engine.session = []backend.Message{{Role: "user", Content: "live turn"}}
-		m.engine.response = []string{"> live turn"}
-		m.composer.input.SetValue(buf)
+		m.setSessionMessages([]backend.Message{{Role: "user", Content: "live turn"}})
+		m.conversation.response = []string{"> live turn"}
+		m.prompt.input.SetValue(buf)
 		m.submitPrompt()
 
 		if len(m.session.store.StreamQueue) != 0 {
 			t.Errorf("%s: streamQueue = %q, want immediate dispatch", buf, m.session.store.StreamQueue)
 		}
-		if m.engine.streaming {
+		if m.conversation.streaming {
 			t.Errorf("%s: streaming = true, want the turn aborted", buf)
 		}
-		if !m.engine.discardTurn {
+		if !m.conversation.discardTurn {
 			t.Errorf("%s: discardTurn = false, want the cancelled turn suppressed", buf)
 		}
-		if len(m.engine.session) != 0 || len(m.engine.response) != 0 {
-			t.Errorf("%s: session/response not cleared (session %d, response %d)", buf, len(m.engine.session), len(m.engine.response))
+		if len(m.SessionMessages()) != 0 || len(m.conversation.response) != 0 {
+			t.Errorf("%s: session/response not cleared (session %d, response %d)", buf, len(m.SessionMessages()), len(m.conversation.response))
 		}
 	}
 
 	m := streamQueueMode(t)
-	m.composer.input.SetValue("/compact")
+	m.prompt.input.SetValue("/compact")
 	m.submitPrompt()
-	if !m.engine.streaming {
+	if !m.conversation.streaming {
 		t.Error("/compact mid-stream stopped the turn; the reference keeps streaming")
 	}
 	if m.viewport.inputNotice != "Nothing to compact yet." {
 		t.Errorf("/compact mid-stream inputNotice = %q, want %q", m.viewport.inputNotice, "Nothing to compact yet.")
 	}
-	if len(m.engine.response) != 0 {
-		t.Errorf("/compact mid-stream wrote a transcript row: %q", m.engine.response)
+	if len(m.conversation.response) != 0 {
+		t.Errorf("/compact mid-stream wrote a transcript row: %q", m.conversation.response)
 	}
-	if m.composer.input.Value() == "Nothing to compact yet." {
+	if m.prompt.input.Value() == "Nothing to compact yet." {
 		t.Error("/compact mid-stream put the notice in the editable buffer")
 	}
-	if m.engine.discardTurn {
+	if m.conversation.discardTurn {
 		t.Error("/compact mid-stream discarded the turn")
 	}
 
 	m = streamQueueMode(t)
-	m.composer.input.SetValue("/rewind")
+	m.prompt.input.SetValue("/rewind")
 	m.submitPrompt()
 	if m.overlays.panel.kind != panelregistry.Rewind {
 		t.Errorf("/rewind mid-stream panel = %v, want panelregistry.Rewind", m.overlays.panel.kind)
 	}
-	if !m.engine.streaming {
+	if !m.conversation.streaming {
 		t.Error("/rewind mid-stream stopped the turn; the reference leaves it running")
 	}
 }
@@ -5619,7 +5666,7 @@ func TestSubmitPrompt_RunsTranscriptMutatingSlashWhileStreaming(t *testing.T) {
 func TestQueuedSlashDispatchesOnTurnDone(t *testing.T) {
 	m := streamQueueMode(t)
 	m.session.store.StreamQueue = []string{"/context"}
-	prevSession := len(m.engine.session)
+	prevSession := len(m.SessionMessages())
 
 	if _, cmd := m.Update(toolsteps.TurnDoneMsg{Reply: "", Steps: nil, Reasoning: ""}); cmd == nil {
 		t.Fatal("turnDoneMsg with a queued slash returned a nil cmd (ClearScreen should remain)")
@@ -5627,11 +5674,11 @@ func TestQueuedSlashDispatchesOnTurnDone(t *testing.T) {
 	if m.overlays.panel.kind != panelregistry.Context {
 		t.Fatalf("queued /context did not open the panel on flush; panel.kind = %v", m.overlays.panel.kind)
 	}
-	if len(m.engine.session) != prevSession {
+	if len(m.SessionMessages()) != prevSession {
 		t.Errorf("queued slash was appended to the transcript as a user message (len %d, want %d)",
-			len(m.engine.session), prevSession)
+			len(m.SessionMessages()), prevSession)
 	}
-	if m.engine.streaming {
+	if m.conversation.streaming {
 		t.Error("queued slash started a model turn; streaming = true")
 	}
 }
@@ -5649,7 +5696,7 @@ func TestDispatchSlashLine(t *testing.T) {
 func TestContextPanel_StreamingLayout(t *testing.T) {
 	m := streamQueueMode(t)
 	m.viewport.width = 120
-	m.engine.session = append(m.engine.session, backend.Message{Role: "user", Content: "slow sea story please"})
+	m.setSessionMessages(append(m.SessionMessages(), backend.Message{Role: "user", Content: "slow sea story please"}))
 
 	lines := contextpanel.Lines(m.contextState())
 	joined := strings.Join(lines, "\n")
@@ -5663,9 +5710,9 @@ func TestContextPanel_StreamingLayout(t *testing.T) {
 	if !strings.Contains(joined, "User messages: "+wantUser+" tokens") {
 		t.Errorf("streaming /context user tokens = want %s:\n%s", wantUser, joined)
 	}
-	m.engine.liveReplyBuf = "The lighthouse stood at the edge of the harbor, its white tower weathered by salt and wind.  The lighthouse stood"
+	m.conversation.liveReplyBuf = "The lighthouse stood at the edge of the harbor, its white tower weathered by salt and wind.  The lighthouse stood"
 	joined = strings.Join(contextpanel.Lines(m.contextState()), "\n")
-	wantAgent := contextpanel.TokenLabel(len(m.engine.liveReplyBuf) / 4)
+	wantAgent := contextpanel.TokenLabel(len(m.conversation.liveReplyBuf) / 4)
 	if !strings.Contains(joined, "Agent responses: "+wantAgent+" tokens") {
 		t.Errorf("streaming /context agent tokens = want %s:\n%s", wantAgent, joined)
 	}
@@ -5712,7 +5759,7 @@ func mouseRelease(x, y int, btn tea.MouseButton) tea.MouseReleaseMsg {
 // returns an OSC52 copy cmd, and the highlight vanishes after the
 // release so subsequent frames don't paint a phantom rectangle.
 func Test_SelectionMouseDownMotionRelease(t *testing.T) {
-	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/", true)
 	m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 
 	// Press at (col=3, row=2). State: drag=true, start=end=(2,3).
@@ -5753,7 +5800,7 @@ func Test_SelectionMouseDownMotionRelease(t *testing.T) {
 // would write: a single-row drag yields that row's plain-text
 // slice; a multi-row drag joins rows with \n.
 func Test_SelectionCopyText(t *testing.T) {
-	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/", true)
 	m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 
 	// Single row.
@@ -5784,7 +5831,7 @@ func Test_SelectionCopyText(t *testing.T) {
 // drag from right-to-left still produces start <= end so the
 // highlight paints the right cells.
 func Test_SelectionReverseDrag(t *testing.T) {
-	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/", true)
 	m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 
 	m.Update(mouseClick(20, 3, tea.MouseLeft))
@@ -5810,7 +5857,7 @@ func Test_SelectionReverseDrag(t *testing.T) {
 // We construct the state directly (no mouse events) so the test is
 // independent of the transcript content.
 func Test_SelectionHighlightInView(t *testing.T) {
-	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/", true)
 	m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 
 	// No drag → no highlight.
@@ -5837,7 +5884,7 @@ func Test_SelectionHighlightInView(t *testing.T) {
 // Test_SelectionClickWithoutDrag verifies a click without any drag
 // is a no-op for copy: no OSC52 cmd, no highlight.
 func Test_SelectionClickWithoutDrag(t *testing.T) {
-	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/", true)
 	m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 
 	m.Update(mouseClick(3, 3, tea.MouseLeft))
@@ -5851,27 +5898,27 @@ func Test_SelectionClickWithoutDrag(t *testing.T) {
 }
 
 // Test_MouseSlashCommandRemoved verifies the cycle-166 /mouse slash
-// command no longer mutates runMode state. The reference binary
+// command no longer mutates RootModel state. The reference binary
 // has no such toggle and the cycle-174 work removes the toggle
 // infrastructure entirely. handleSlashCommand's default branch
 // handles /mouse the same way it handles any other unknown
 // command: appends "Unknown command: /mouse" to the response and
 // leaves the model fields alone.
 func Test_MouseSlashCommandRemoved(t *testing.T) {
-	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/", true)
 	m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 
 	// Snapshot the response before, so we can detect the
 	// "Unknown command" feedback without depending on whether
 	// some other state has been written previously.
-	before := len(m.engine.response)
+	before := len(m.conversation.response)
 	for _, arg := range []string{"/mouse off", "/mouse on", "/mouse toggle"} {
 		m.handleSlashCommand(arg)
 	}
 	// Every invocation must produce exactly one response entry —
 	// the "Unknown command: /mouse" line. None of them produce
 	// the cycle-166 "Mouse on / Mouse off" feedback.
-	for _, line := range m.engine.response[before:] {
+	for _, line := range m.conversation.response[before:] {
 		if strings.Contains(line, "Mouse on ") || strings.Contains(line, "Mouse off ") {
 			t.Errorf("cycle-166 toggle feedback leaked: %q", line)
 		}
@@ -5997,11 +6044,11 @@ func TestApplySelectionHighlight_OutOfRangeRowsAreUntouched(t *testing.T) {
 	}
 }
 
-// setupInputMode creates a runMode in altScreen mode with an initialized terminal size.
-func setupInputMode(val string) *runMode {
-	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+// setupInputMode creates a RootModel in altScreen mode with an initialized terminal size.
+func setupInputMode(val string) *RootModel {
+	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/", true)
 	m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
-	m.composer.input.SetValue(val)
+	m.prompt.input.SetValue(val)
 	// Render once to populate promptScreenY
 	_ = m.View()
 	return m
@@ -6009,26 +6056,26 @@ func setupInputMode(val string) *runMode {
 
 func TestInputSelection_MouseClickWithoutDrag(t *testing.T) {
 	m := setupInputMode("hello world")
-	if m.composer.promptScreenY < 0 {
-		t.Fatalf("promptScreenY should be >= 0, got %d", m.composer.promptScreenY)
+	if m.prompt.promptScreenY < 0 {
+		t.Fatalf("promptScreenY should be >= 0, got %d", m.prompt.promptScreenY)
 	}
 
 	// Click at 'w' (col = 2 (prompt "> ") + 6 ("hello ") = 8)
-	m.Update(mouseClick(8, m.composer.promptScreenY, tea.MouseLeft))
-	if !m.viewport.InputSelDragging {
+	m.Update(mouseClick(8, m.prompt.promptScreenY, tea.MouseLeft))
+	if !m.prompt.InputSelDragging {
 		t.Errorf("expected inputSelDragging to be true during click")
 	}
 
 	// Release without moving
-	_, cmd := m.Update(mouseRelease(8, m.composer.promptScreenY, tea.MouseLeft))
+	_, cmd := m.Update(mouseRelease(8, m.prompt.promptScreenY, tea.MouseLeft))
 	if cmd != nil {
 		t.Errorf("expected nil cmd for click without drag, got %v", cmd)
 	}
-	if m.hasInputSelection() {
+	if m.prompt.HasInputSelection() {
 		t.Errorf("expected no selection after click without drag")
 	}
-	if m.composer.input.Column() != 6 {
-		t.Errorf("expected cursor column 6, got %d", m.composer.input.Column())
+	if m.prompt.input.Column() != 6 {
+		t.Errorf("expected cursor column 6, got %d", m.prompt.input.Column())
 	}
 }
 
@@ -6036,14 +6083,14 @@ func TestInputSelection_MouseDragForwardAutoCopy(t *testing.T) {
 	m := setupInputMode("hello world")
 
 	// Click at start of "hello" (x=2)
-	m.Update(mouseClick(2, m.composer.promptScreenY, tea.MouseLeft))
+	m.Update(mouseClick(2, m.prompt.promptScreenY, tea.MouseLeft))
 	// Drag to end of "hello" (x=7)
-	m.Update(mouseMotion(7, m.composer.promptScreenY))
+	m.Update(mouseMotion(7, m.prompt.promptScreenY))
 
-	if !m.hasInputSelection() {
+	if !m.prompt.HasInputSelection() {
 		t.Fatalf("expected active input selection during drag")
 	}
-	start, end := m.InputSelectionRange()
+	start, end := m.prompt.InputSelectionRange()
 	if start != 0 || end != 5 {
 		t.Fatalf("expected range [0, 5], got [%d, %d]", start, end)
 	}
@@ -6056,12 +6103,12 @@ func TestInputSelection_MouseDragForwardAutoCopy(t *testing.T) {
 	}
 
 	// Release: should auto-copy "hello" to clipboard
-	_, cmd := m.Update(mouseRelease(7, m.composer.promptScreenY, tea.MouseLeft))
+	_, cmd := m.Update(mouseRelease(7, m.prompt.promptScreenY, tea.MouseLeft))
 	if cmd == nil {
 		t.Errorf("expected non-nil copy cmd on release")
 	}
 	// Selection stays active after release
-	if !m.hasInputSelection() {
+	if !m.prompt.HasInputSelection() {
 		t.Errorf("expected selection to remain highlighted after mouse release")
 	}
 }
@@ -6070,17 +6117,17 @@ func TestInputSelection_MouseDragBackwardAutoCopy(t *testing.T) {
 	m := setupInputMode("hello world")
 
 	// Click at end of "hello" (x=7)
-	m.Update(mouseClick(7, m.composer.promptScreenY, tea.MouseLeft))
+	m.Update(mouseClick(7, m.prompt.promptScreenY, tea.MouseLeft))
 	// Drag backward to start of "hello" (x=2)
-	m.Update(mouseMotion(2, m.composer.promptScreenY))
+	m.Update(mouseMotion(2, m.prompt.promptScreenY))
 
-	start, end := m.InputSelectionRange()
+	start, end := m.prompt.InputSelectionRange()
 	if start != 0 || end != 5 {
 		t.Fatalf("expected normalized range [0, 5], got [%d, %d]", start, end)
 	}
 
 	// Release
-	_, cmd := m.Update(mouseRelease(2, m.composer.promptScreenY, tea.MouseLeft))
+	_, cmd := m.Update(mouseRelease(2, m.prompt.promptScreenY, tea.MouseLeft))
 	if cmd == nil {
 		t.Errorf("expected non-nil copy cmd on release")
 	}
@@ -6090,18 +6137,18 @@ func TestInputSelection_DragOutsideClamps(t *testing.T) {
 	m := setupInputMode("hello")
 
 	// Click at x=2
-	m.Update(mouseClick(2, m.composer.promptScreenY, tea.MouseLeft))
+	m.Update(mouseClick(2, m.prompt.promptScreenY, tea.MouseLeft))
 
 	// Drag way beyond right wall and below screen
 	m.Update(mouseMotion(150, 40))
-	start, end := m.InputSelectionRange()
+	start, end := m.prompt.InputSelectionRange()
 	if start != 0 || end != len("hello") {
 		t.Errorf("expected clamped [0, 5], got [%d, %d]", start, end)
 	}
 
 	// Drag way above and to the left
 	m.Update(mouseMotion(-10, -5))
-	start, end = m.InputSelectionRange()
+	start, end = m.prompt.InputSelectionRange()
 	if start != 0 || end != 0 {
 		t.Errorf("expected clamped [0, 0], got [%d, %d]", start, end)
 	}
@@ -6115,10 +6162,10 @@ func TestInputSelection_CmdA_SelectAllAndAutoCopy(t *testing.T) {
 	if cmd == nil {
 		t.Errorf("expected non-nil copy cmd on Cmd+A")
 	}
-	if !m.hasInputSelection() {
+	if !m.prompt.HasInputSelection() {
 		t.Fatalf("expected active input selection on Cmd+A")
 	}
-	start, end := m.InputSelectionRange()
+	start, end := m.prompt.InputSelectionRange()
 	if start != 0 || end != len("echo 123") {
 		t.Errorf("expected [0, 8], got [%d, %d]", start, end)
 	}
@@ -6139,10 +6186,10 @@ func TestInputSelection_CtrlShiftA_SelectAll(t *testing.T) {
 	if cmd == nil {
 		t.Errorf("expected non-nil copy cmd on Ctrl+Shift+A")
 	}
-	if !m.hasInputSelection() {
+	if !m.prompt.HasInputSelection() {
 		t.Fatalf("expected active input selection on Ctrl+Shift+A")
 	}
-	start, end := m.InputSelectionRange()
+	start, end := m.prompt.InputSelectionRange()
 	if start != 0 || end != len("cat file.txt") {
 		t.Errorf("expected [0, 12], got [%d, %d]", start, end)
 	}
@@ -6152,15 +6199,15 @@ func TestInputSelection_BackspaceDeletesSelection(t *testing.T) {
 	m := setupInputMode("hello world")
 
 	// Select "world" [6, 11]
-	m.viewport.InputSelStart = 6
-	m.viewport.InputSelEnd = 11
+	m.prompt.InputSelStart = 6
+	m.prompt.InputSelEnd = 11
 
 	// Press Backspace
 	m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyBackspace}))
-	if m.hasInputSelection() {
+	if m.prompt.HasInputSelection() {
 		t.Errorf("expected selection cleared after backspace")
 	}
-	if got := m.composer.input.Value(); got != "hello " {
+	if got := m.prompt.input.Value(); got != "hello " {
 		t.Errorf("expected 'hello ', got %q", got)
 	}
 }
@@ -6169,15 +6216,15 @@ func TestInputSelection_DeleteDeletesSelection(t *testing.T) {
 	m := setupInputMode("hello world")
 
 	// Select "hello " [0, 6]
-	m.viewport.InputSelStart = 0
-	m.viewport.InputSelEnd = 6
+	m.prompt.InputSelStart = 0
+	m.prompt.InputSelEnd = 6
 
 	// Press Delete
 	m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyDelete}))
-	if m.hasInputSelection() {
+	if m.prompt.HasInputSelection() {
 		t.Errorf("expected selection cleared after delete")
 	}
-	if got := m.composer.input.Value(); got != "world" {
+	if got := m.prompt.input.Value(); got != "world" {
 		t.Errorf("expected 'world', got %q", got)
 	}
 }
@@ -6186,15 +6233,15 @@ func TestInputSelection_TypeReplacesSelection(t *testing.T) {
 	m := setupInputMode("hello world")
 
 	// Select "world" [6, 11]
-	m.viewport.InputSelStart = 6
-	m.viewport.InputSelEnd = 11
+	m.prompt.InputSelStart = 6
+	m.prompt.InputSelEnd = 11
 
 	// Type '!'
 	m.Update(tea.KeyPressMsg(tea.Key{Code: '!', Text: "!"}))
-	if m.hasInputSelection() {
+	if m.prompt.HasInputSelection() {
 		t.Errorf("expected selection cleared after typing")
 	}
-	if got := m.composer.input.Value(); got != "hello !" {
+	if got := m.prompt.input.Value(); got != "hello !" {
 		t.Errorf("expected 'hello !', got %q", got)
 	}
 }
@@ -6203,15 +6250,15 @@ func TestInputSelection_PasteReplacesSelection(t *testing.T) {
 	m := setupInputMode("hello world")
 
 	// Select "world" [6, 11]
-	m.viewport.InputSelStart = 6
-	m.viewport.InputSelEnd = 11
+	m.prompt.InputSelStart = 6
+	m.prompt.InputSelEnd = 11
 
 	// Paste "there"
 	m.insertPastedText("there")
-	if m.hasInputSelection() {
+	if m.prompt.HasInputSelection() {
 		t.Errorf("expected selection cleared after paste")
 	}
-	if got := m.composer.input.Value(); got != "hello there" {
+	if got := m.prompt.input.Value(); got != "hello there" {
 		t.Errorf("expected 'hello there', got %q", got)
 	}
 }
@@ -6221,17 +6268,17 @@ func TestInputSelection_EscapeClearsSelection(t *testing.T) {
 
 	// Select all via Cmd+A
 	m.Update(tea.KeyPressMsg(tea.Key{Code: 'a', Mod: tea.ModSuper}))
-	if !m.hasInputSelection() {
+	if !m.prompt.HasInputSelection() {
 		t.Fatalf("expected active selection")
 	}
 
 	// Press Esc
 	m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEsc}))
-	if m.hasInputSelection() {
+	if m.prompt.HasInputSelection() {
 		t.Errorf("expected selection cleared after Esc")
 	}
 	// Buffer should NOT be cleared by the first Esc when selection was active
-	if got := m.composer.input.Value(); got != "hello world" {
+	if got := m.prompt.input.Value(); got != "hello world" {
 		t.Errorf("expected buffer preserved after Esc-cleared selection, got %q", got)
 	}
 }
@@ -6239,23 +6286,23 @@ func TestInputSelection_EscapeClearsSelection(t *testing.T) {
 func TestInputSelection_ArrowKeysClearSelection(t *testing.T) {
 	m := setupInputMode("hello world")
 
-	m.viewport.InputSelStart = 0
-	m.viewport.InputSelEnd = 5
+	m.prompt.InputSelStart = 0
+	m.prompt.InputSelEnd = 5
 
 	// Press Left arrow
 	m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyLeft}))
-	if m.hasInputSelection() {
+	if m.prompt.HasInputSelection() {
 		t.Errorf("expected selection cleared after KeyLeft")
 	}
-	if col := m.composer.input.Column(); col != 0 {
+	if col := m.prompt.input.Column(); col != 0 {
 		t.Errorf("expected cursor at col 0, got %d", col)
 	}
 }
 
 func TestInputSelection_MultiLine(t *testing.T) {
 	m := setupInputMode("first line\nsecond line")
-	if m.inputLineCount() != 2 {
-		t.Fatalf("expected 2 lines, got %d", m.inputLineCount())
+	if m.prompt.InputLineCount() != 2 {
+		t.Fatalf("expected 2 lines, got %d", m.prompt.InputLineCount())
 	}
 
 	// Select all
@@ -6274,12 +6321,12 @@ func TestInputSelection_UTF8Accuracy(t *testing.T) {
 	m := setupInputMode("你好世界")
 
 	// Click at start of "世界": prompt "> " (2 cells) + "你好" (4 cells) = cell 6
-	m.Update(mouseClick(6, m.composer.promptScreenY, tea.MouseLeft))
+	m.Update(mouseClick(6, m.prompt.promptScreenY, tea.MouseLeft))
 	// Drag to end of "世界": cell 6 + 4 = 10
-	m.Update(mouseMotion(10, m.composer.promptScreenY))
+	m.Update(mouseMotion(10, m.prompt.promptScreenY))
 
-	start, end := m.InputSelectionRange()
-	val := m.composer.input.Value()
+	start, end := m.prompt.InputSelectionRange()
+	val := m.prompt.input.Value()
 	if val[start:end] != "世界" {
 		t.Errorf("expected '世界' selected, got %q (range %d..%d)", val[start:end], start, end)
 	}
@@ -6300,106 +6347,111 @@ func withClipboard(t *testing.T, fn func() string) {
 }
 
 func TestPasteMsgInsertsAtCursor(t *testing.T) {
-	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/tmp", true)
-	m.composer.input.SetValue("ab")
-	m.composer.input.CursorStart()
+	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/tmp", true)
+	m.prompt.input.SetValue("ab")
+	m.prompt.input.CursorStart()
 
 	if _, cmd := m.Update(tea.PasteMsg{Content: "XY"}); cmd != nil {
 		t.Fatalf("paste returned a cmd; it must not submit or leave the loop")
 	}
-	if got, want := m.composer.input.Value(), "XYab"; got != want {
+	if got, want := m.prompt.input.Value(), "XYab"; got != want {
 		t.Fatalf("input = %q, want %q", got, want)
 	}
 }
 
 func TestPasteMsgPreservesNewlines(t *testing.T) {
-	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/tmp", true)
-	m.composer.input.SetValue("")
+	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/tmp", true)
+	m.prompt.input.SetValue("")
 
 	m.Update(tea.PasteMsg{Content: "a\nb\nc"})
-	if got, want := m.composer.input.Value(), "a\nb\nc"; got != want {
+	if got, want := m.prompt.input.Value(), "a\nb\nc"; got != want {
 		t.Fatalf("input = %q, want %q", got, want)
 	}
-	if n := m.composer.input.LineCount(); n != 3 {
+	if n := m.prompt.input.LineCount(); n != 3 {
 		t.Fatalf("LineCount = %d, want 3", n)
 	}
 }
 
 func TestPasteMsgNormalizesCRLF(t *testing.T) {
-	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/tmp", true)
-	m.composer.input.SetValue("")
+	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/tmp", true)
+	m.prompt.input.SetValue("")
 
 	m.Update(tea.PasteMsg{Content: "a\r\nb\r"})
 	// Stray CR becomes newline to preserve lines in terminals emitting CR on paste
-	if got, want := m.composer.input.Value(), "a\nb\n"; got != want {
+	if got, want := m.prompt.input.Value(), "a\nb\n"; got != want {
 		t.Fatalf("input = %q, want %q", got, want)
 	}
 }
 
 func TestPasteMsgDoesNotSubmit(t *testing.T) {
-	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/tmp", true)
-	m.composer.input.SetValue("")
-	before := len(m.engine.response)
+	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/tmp", true)
+	m.prompt.input.SetValue("")
+	before := len(m.conversation.response)
 
 	m.Update(tea.PasteMsg{Content: "hello"})
-	if len(m.engine.response) != before {
+	if len(m.conversation.response) != before {
 		t.Fatalf("paste appended %d transcript rows; it must never submit",
-			len(m.engine.response)-before)
+			len(m.conversation.response)-before)
 	}
-	if m.engine.streaming {
+	if m.conversation.streaming {
 		t.Fatalf("paste started a turn")
 	}
 }
 
 func TestPasteMsgFoldsLargeBlocks(t *testing.T) {
-	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/tmp", true)
-	m.composer.input.SetValue("")
+	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/tmp", true)
+	m.prompt.input.SetValue("")
 
 	// 16 lines folds into [Pasted text #1 +16 lines]
 	content16 := strings.Repeat("line\n", 15) + "line16"
 	m.Update(tea.PasteMsg{Content: content16})
-	if got := m.composer.input.Value(); got != "[Pasted text #1 +16 lines]" {
+	if got := m.prompt.input.Value(); got != "[Pasted text #1 +16 lines]" {
 		t.Fatalf("16 lines paste folded into %q, want %q", got, "[Pasted text #1 +16 lines]")
 	}
 
 	// Submit expands placeholder and records expanded prompt to history
-	m.composer.input.SetValue("echo " + m.composer.input.Value())
+	m.prompt.input.SetValue("echo " + m.prompt.input.Value())
 	cmd := m.submitPrompt()
 	_ = cmd
-	if got := m.composer.promptHistory.Entries()[m.composer.promptHistory.Len()-1]; got != "echo "+content16 {
+	if got := m.prompt.promptHistory.Entries()[m.prompt.promptHistory.Len()-1]; got != "echo "+content16 {
 		t.Fatalf("history entry = %q, want expanded prompt", got)
 	}
-	if len(m.composer.pastedBlocks) != 0 {
-		t.Fatalf("pastedBlocks should be reset after submission, got %d", len(m.composer.pastedBlocks))
+	if len(m.prompt.pastedBlocks) != 0 {
+		t.Fatalf("pastedBlocks should be reset after submission, got %d", len(m.prompt.pastedBlocks))
 	}
 
 	// 1001 chars folds into [Pasted text #2 1001 chars]
-	m.composer.input.Reset()
+	m.prompt.input.Reset()
 	content1001 := strings.Repeat("x", 1001)
 	m.Update(tea.PasteMsg{Content: content1001})
-	if got := m.composer.input.Value(); got != "[Pasted text #1 1001 chars]" {
+	if got := m.prompt.input.Value(); got != "[Pasted text #1 1001 chars]" {
 		t.Fatalf("1001 chars paste folded into %q, want %q", got, "[Pasted text #1 1001 chars]")
 	}
 }
 
 func TestHistoryRecallFoldsLargeEntries(t *testing.T) {
-	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/tmp", true)
+	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/tmp", true)
 
 	// 1. Recalling an entry with >= 16 lines folds into [Pasted text #1 +16 lines]
 	content16 := strings.Repeat("line\n", 15) + "line16"
 	m.pushHistory(content16)
 
 	m.Update(upKey())
-	if got := m.composer.input.Value(); got != "[Pasted text #1 +16 lines]" {
+	if got := m.prompt.input.Value(); got != "[Pasted text #1 +16 lines]" {
 		t.Fatalf("recalled 16 lines folded into %q, want %q", got, "[Pasted text #1 +16 lines]")
 	}
-	if m.composer.pastedBlocks["[Pasted text #1 +16 lines]"] != content16 {
+	if m.prompt.pastedBlocks["[Pasted text #1 +16 lines]"] != content16 {
 		t.Fatalf("pastedBlocks missing content for recalled entry")
 	}
 
-	// Submitting the recalled entry expands placeholder back to full content
+	// Submitting the recalled entry expands placeholder back to full content.
+	// The test drops the returned command, so the fake turn never runs;
+	// mark it finished so the next Esc belongs to the composer rather than
+	// to turn cancellation.
 	m.submitPrompt()
-	if got := m.composer.promptHistory.Entries()[m.composer.promptHistory.Len()-1]; got != content16 {
+	m.conversation.streaming = false
+	m.turn.ClearActiveBridge()
+	if got := m.prompt.promptHistory.Entries()[m.prompt.promptHistory.Len()-1]; got != content16 {
 		t.Fatalf("re-submitted history entry = %q, want full content", got)
 	}
 
@@ -6408,57 +6460,57 @@ func TestHistoryRecallFoldsLargeEntries(t *testing.T) {
 	m.pushHistory(content1005)
 
 	m.Update(upKey())
-	if got := m.composer.input.Value(); got != "[Pasted text #1 1005 chars]" {
+	if got := m.prompt.input.Value(); got != "[Pasted text #1 1005 chars]" {
 		t.Fatalf("recalled 1005 chars folded into %q, want %q", got, "[Pasted text #1 1005 chars]")
 	}
-	if m.composer.pastedBlocks["[Pasted text #1 1005 chars]"] != content1005 {
+	if m.prompt.pastedBlocks["[Pasted text #1 1005 chars]"] != content1005 {
 		t.Fatalf("pastedBlocks missing content for recalled entry")
 	}
 
 	// Esc Esc clears composer and clears pastedBlocks
 	m.handleEscKey()
 	m.handleEscKey()
-	if len(m.composer.pastedBlocks) != 0 {
-		t.Fatalf("pastedBlocks should be reset after Esc Esc, got %d", len(m.composer.pastedBlocks))
+	if len(m.prompt.pastedBlocks) != 0 {
+		t.Fatalf("pastedBlocks should be reset after Esc Esc, got %d", len(m.prompt.pastedBlocks))
 	}
 }
 
 func TestUnbracketedPasteEnterBurstAbsorbedAsNewline(t *testing.T) {
-	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/tmp", true)
-	m.composer.input.SetValue("line1")
+	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/tmp", true)
+	m.prompt.input.SetValue("line1")
 
 	// First enter without preceding enter sets lastEnterTime; normal submit attempt
 	// (or empty submit if not streaming).
 	// To simulate rapid unbracketed paste from a terminal lacking bracketed paste:
 	// A burst of consecutive Enter keystrokes arrives spaced < 10ms apart.
-	m.composer.lastEnterTime = time.Now()
+	m.prompt.lastEnterTime = time.Now()
 	// Rapid Enter arrives 1ms after lastEnterTime
 	enterKey := tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter})
 	m.Update(enterKey)
 
-	if m.composer.enterBurstCount != 1 {
-		t.Fatalf("enterBurstCount = %d, want 1", m.composer.enterBurstCount)
+	if m.prompt.enterBurstCount != 1 {
+		t.Fatalf("enterBurstCount = %d, want 1", m.prompt.enterBurstCount)
 	}
-	if got := m.composer.input.Value(); got != "line1\n" {
+	if got := m.prompt.input.Value(); got != "line1\n" {
 		t.Fatalf("input value = %q, want %q", got, "line1\n")
 	}
-	if m.engine.streaming {
+	if m.conversation.streaming {
 		t.Fatalf("rapid enter burst prematurely submitted the turn")
 	}
 
 	// Another rapid Enter in the burst arrives immediately
 	m.Update(enterKey)
-	if m.composer.enterBurstCount != 2 {
-		t.Fatalf("enterBurstCount = %d, want 2", m.composer.enterBurstCount)
+	if m.prompt.enterBurstCount != 2 {
+		t.Fatalf("enterBurstCount = %d, want 2", m.prompt.enterBurstCount)
 	}
-	if got := m.composer.input.Value(); got != "line1\n\n" {
+	if got := m.prompt.input.Value(); got != "line1\n\n" {
 		t.Fatalf("input value = %q, want %q", got, "line1\n\n")
 	}
 
 	// Any non-enter key resets the burst counter
 	m.Update(tea.KeyPressMsg(tea.Key{Code: 'x', Text: "x"}))
-	if m.composer.enterBurstCount != 0 {
-		t.Fatalf("enterBurstCount after typing 'x' = %d, want 0", m.composer.enterBurstCount)
+	if m.prompt.enterBurstCount != 0 {
+		t.Fatalf("enterBurstCount after typing 'x' = %d, want 0", m.prompt.enterBurstCount)
 	}
 }
 
@@ -6467,40 +6519,40 @@ func TestUnbracketedPasteEnterBurstAbsorbedAsNewline(t *testing.T) {
 // copied" case, so the composer asks the platform clipboard for an
 // image. The buffer itself is left alone.
 func TestPasteMsgEmptyProbesTheClipboard(t *testing.T) {
-	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/tmp", true)
-	m.composer.input.SetValue("keep")
+	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/tmp", true)
+	m.prompt.input.SetValue("keep")
 
 	if _, cmd := m.Update(tea.PasteMsg{Content: ""}); cmd == nil {
 		t.Fatalf("empty paste returned no cmd; it must probe the clipboard")
 	}
-	if got := m.composer.input.Value(); got != "keep" {
+	if got := m.prompt.input.Value(); got != "keep" {
 		t.Fatalf("empty paste changed the buffer: %q", got)
 	}
 }
 
 func TestPasteMsgIgnoredWhileHelpOpen(t *testing.T) {
-	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/tmp", true)
-	m.composer.input.SetValue("keep")
-	m.viewport.helpPanel.Open(0)
+	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/tmp", true)
+	m.prompt.input.SetValue("keep")
+	m.help.Panel.Open(0)
 
 	m.Update(tea.PasteMsg{Content: "junk"})
-	if got := m.composer.input.Value(); got != "keep" {
+	if got := m.prompt.input.Value(); got != "keep" {
 		t.Fatalf("paste leaked into the prompt behind /help: %q", got)
 	}
 }
 
 func TestPasteMsgRoutesToResumeSearch(t *testing.T) {
-	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/tmp", true)
+	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/tmp", true)
 	if err := m.overlays.resumePicker.Open(); err != nil {
 		t.Fatalf("open the picker: %v", err)
 	}
-	m.composer.input.SetValue("")
+	m.prompt.input.SetValue("")
 
 	m.Update(tea.PasteMsg{Content: "abc"})
 	if got := m.overlays.resumePicker.Query(); got != "abc" {
 		t.Fatalf("query = %q, want \"abc\"", got)
 	}
-	if got := m.composer.input.Value(); got != "" {
+	if got := m.prompt.input.Value(); got != "" {
 		t.Fatalf("paste leaked into the prompt while /resume was open: %q", got)
 	}
 }
@@ -6508,11 +6560,11 @@ func TestPasteMsgRoutesToResumeSearch(t *testing.T) {
 func TestCtrlVPastesClipboardText(t *testing.T) {
 	withClipboard(t, func() string { return "from-clipboard" })
 
-	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/tmp", true)
-	m.composer.input.SetValue("")
+	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/tmp", true)
+	m.prompt.input.SetValue("")
 
 	m.Update(ctrlKey('v'))
-	if got, want := m.composer.input.Value(), "from-clipboard"; got != want {
+	if got, want := m.prompt.input.Value(), "from-clipboard"; got != want {
 		t.Fatalf("ctrl+v input = %q, want %q", got, want)
 	}
 }
@@ -6520,100 +6572,100 @@ func TestCtrlVPastesClipboardText(t *testing.T) {
 func TestCtrlVEmptyClipboardIsSilent(t *testing.T) {
 	withClipboard(t, func() string { return "" })
 
-	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/tmp", true)
-	m.composer.input.SetValue("keep")
-	before := len(m.engine.response)
+	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/tmp", true)
+	m.prompt.input.SetValue("keep")
+	before := len(m.conversation.response)
 
 	m.Update(ctrlKey('v'))
-	if got := m.composer.input.Value(); got != "keep" {
+	if got := m.prompt.input.Value(); got != "keep" {
 		t.Fatalf("empty clipboard changed the buffer: %q", got)
 	}
-	if len(m.engine.response) != before {
-		t.Fatalf("empty clipboard produced %d transcript rows", len(m.engine.response)-before)
+	if len(m.conversation.response) != before {
+		t.Fatalf("empty clipboard produced %d transcript rows", len(m.conversation.response)-before)
 	}
 }
 
 func TestCtrlVDoesNotInsertLiteralV(t *testing.T) {
 	withClipboard(t, func() string { return "" })
 
-	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/tmp", true)
-	m.composer.input.SetValue("")
+	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/tmp", true)
+	m.prompt.input.SetValue("")
 
 	m.Update(ctrlKey('v'))
-	if strings.Contains(m.composer.input.Value(), "v") {
-		t.Fatalf("ctrl+v inserted a literal v: %q", m.composer.input.Value())
+	if strings.Contains(m.prompt.input.Value(), "v") {
+		t.Fatalf("ctrl+v inserted a literal v: %q", m.prompt.input.Value())
 	}
 }
 
 func TestCtrlD_ForwardDeleteWhenTextPresent(t *testing.T) {
-	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", false)
-	m.composer.input.SetValue("hello")
-	m.composer.input.CursorStart()
+	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/", false)
+	m.prompt.input.SetValue("hello")
+	m.prompt.input.CursorStart()
 
 	m.Update(ctrlKey('d'))
-	if m.engine.quitting {
+	if m.display.quitting {
 		t.Fatal("ctrl+d on non-empty prompt must not quit")
 	}
-	if got := m.composer.input.Value(); got != "ello" {
+	if got := m.prompt.input.Value(); got != "ello" {
 		t.Fatalf("ctrl+d did not delete character forward: got %q, want 'ello'", got)
 	}
 
-	m.composer.input.SetValue("abcdef")
-	m.viewport.InputSelStart = 1
-	m.viewport.InputSelEnd = 4
+	m.prompt.input.SetValue("abcdef")
+	m.prompt.InputSelStart = 1
+	m.prompt.InputSelEnd = 4
 	m.Update(ctrlKey('d'))
-	if m.engine.quitting {
+	if m.display.quitting {
 		t.Fatal("ctrl+d on active selection must not quit")
 	}
-	if got := m.composer.input.Value(); got != "aef" {
+	if got := m.prompt.input.Value(); got != "aef" {
 		t.Fatalf("ctrl+d did not delete selection: got %q, want 'aef'", got)
 	}
 
-	m.composer.input.Reset()
+	m.prompt.input.Reset()
 	m.ResetInputSelection()
 	m.Update(ctrlKey('d'))
-	if !m.engine.quitting {
+	if !m.display.quitting {
 		t.Fatal("ctrl+d on empty prompt must trigger quit")
 	}
 }
 
 func TestNewlineShortcuts(t *testing.T) {
-	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", false)
+	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/", false)
 
-	m.composer.input.SetValue("echo foo \\")
-	m.composer.input.CursorEnd()
+	m.prompt.input.SetValue("echo foo \\")
+	m.prompt.input.CursorEnd()
 	m.Update(tea.KeyPressMsg{Code: tea.KeyEnter})
-	if got := m.composer.input.Value(); got != "echo foo \n" {
+	if got := m.prompt.input.Value(); got != "echo foo \n" {
 		t.Fatalf("\\ + Enter did not replace \\ with newline: got %q, want %q", got, "echo foo \n")
 	}
 
-	m.composer.input.SetValue("line 1")
-	m.composer.input.CursorEnd()
+	m.prompt.input.SetValue("line 1")
+	m.prompt.input.CursorEnd()
 	m.Update(tea.KeyPressMsg{Code: tea.KeyEnter, Mod: tea.ModAlt})
-	if got := m.composer.input.Value(); got != "line 1\n" {
+	if got := m.prompt.input.Value(); got != "line 1\n" {
 		t.Fatalf("Alt+Enter did not insert newline: got %q, want %q", got, "line 1\n")
 	}
 
-	m.composer.input.SetValue("line A")
-	m.composer.input.CursorEnd()
+	m.prompt.input.SetValue("line A")
+	m.prompt.input.CursorEnd()
 	m.Update(tea.KeyPressMsg{Code: tea.KeyEnter, Mod: tea.ModShift})
-	if got := m.composer.input.Value(); got != "line A\n" {
+	if got := m.prompt.input.Value(); got != "line A\n" {
 		t.Fatalf("Shift+Enter did not insert newline: got %q, want %q", got, "line A\n")
 	}
 }
 
 // sizedMode returns a model with a known terminal size and n response rows.
-func sizedMode(w, h, n int) *runMode {
-	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+func sizedMode(w, h, n int) *RootModel {
+	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/", true)
 	m.Update(tea.WindowSizeMsg{Width: w, Height: h})
 	for i := 0; i < n; i++ {
-		m.engine.response = append(m.engine.response, fmt.Sprintf("row-%02d", i))
+		m.conversation.response = append(m.conversation.response, fmt.Sprintf("row-%02d", i))
 	}
 	return m
 }
 
 // viewLines returns View()'s content split into lines.
-func viewLines(t *testing.T, m *runMode) []string {
+func viewLines(t *testing.T, m *RootModel) []string {
 	t.Helper()
 	v := m.View()
 	return strings.Split(v.Content, "\n")
@@ -6756,9 +6808,9 @@ func Test_ViewportAutoScrollFollowsNewContent(t *testing.T) {
 	m := sizedMode(80, 24, 40)
 	m.View()
 	for i := 40; i < 120; i++ {
-		m.engine.response = append(m.engine.response, fmt.Sprintf("row-%03d", i))
+		m.conversation.response = append(m.conversation.response, fmt.Sprintf("row-%03d", i))
 		// Cycle 122: Update() invalidates the wrap cache for any non-scroll
-		// message. Tests that mutate m.engine.response directly bypass Update()
+		// message. Tests that mutate m.conversation.response directly bypass Update()
 		// and must dirty the cache themselves.
 		m.viewport.rowsCacheDirty = true
 		m.View()
@@ -6864,7 +6916,7 @@ func Test_StickyUserPromptRow(t *testing.T) {
 		{"past last prompt", []int{5, 15, 25}, 100, false, 25},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+			m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/", true)
 			m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 			m.viewport.userPromptRows = tc.promptRows
 			m.viewport.scroll = tc.scroll
@@ -6886,10 +6938,10 @@ func Test_StickyUserPromptRow(t *testing.T) {
 // Test_ViewportLongLinesWrap verifies long response rows are soft-wrapped
 // rather than clipped, so no content is lost on a narrow terminal.
 func Test_ViewportLongLinesWrap(t *testing.T) {
-	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/", true)
 	m.Update(tea.WindowSizeMsg{Width: 40, Height: 20})
-	m.engine.response = append(m.engine.response, strings.Repeat("abcdefghij", 12)) // 120 cells
-	m.engine.response = append(m.engine.response, "tail-marker")
+	m.conversation.response = append(m.conversation.response, strings.Repeat("abcdefghij", 12)) // 120 cells
+	m.conversation.response = append(m.conversation.response, "tail-marker")
 	joined := ansi.Strip(m.View().Content)
 	if !strings.Contains(joined, "tail-marker") {
 		t.Errorf("tail marker lost:\n%s", joined)
@@ -6905,9 +6957,9 @@ func Test_ViewportLongLinesWrap(t *testing.T) {
 // guard: before the first WindowSizeMsg the view is exactly the pre-119
 // layout, which is what the byte-exact snapshots assert.
 func Test_ViewportUnknownSizeKeepsOldLayout(t *testing.T) {
-	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/", true)
 	for i := 0; i < 40; i++ {
-		m.engine.response = append(m.engine.response, fmt.Sprintf("row-%02d", i))
+		m.conversation.response = append(m.conversation.response, fmt.Sprintf("row-%02d", i))
 	}
 	v := m.View()
 	lines := strings.Split(v.Content, "\n")
@@ -6962,15 +7014,15 @@ func TestScrollCacheHit(t *testing.T) {
 	if testing.Short() {
 		t.Skip("timing test")
 	}
-	m := newRunMode(nil, "", "Gemini 3.8 Flash (High)", "", "/tmp", true)
+	m := newRootModel(nil, "", "Gemini 3.8 Flash (High)", "", "/tmp", true)
 	m.viewport.width = 100
 	m.viewport.height = 30
 	long := strings.Repeat("the quick brown fox jumps over the lazy dog ", 800) // ~35 KB
 	for i := 0; i < 200; i++ {
 		if i%5 == 1 || i%5 == 2 {
-			m.engine.response = append(m.engine.response, long)
+			m.conversation.response = append(m.conversation.response, long)
 		} else {
-			m.engine.response = append(m.engine.response, fmt.Sprintf("prompt row %d", i))
+			m.conversation.response = append(m.conversation.response, fmt.Sprintf("prompt row %d", i))
 		}
 	}
 	_ = m.View()
@@ -6989,20 +7041,20 @@ func TestScrollCacheHit(t *testing.T) {
 	}
 }
 
-// synthLargeTranscript populates m.engine.response with N rows: a few long model
+// synthLargeTranscript populates m.conversation.response with N rows: a few long model
 // replies (the dominant cost) plus the usual mix of prompts and tool rows.
-func synthLargeTranscript(m *runMode, n int) {
+func synthLargeTranscript(m *RootModel, n int) {
 	long := strings.Repeat("the quick brown fox jumps over the lazy dog ", 1600) // ~70 KB
 	for i := 0; i < n; i++ {
 		switch i % 5 {
 		case 0:
-			m.engine.response = append(m.engine.response, transcript.UserPromptRow(fmt.Sprintf("prompt %d", i)))
+			m.conversation.response = append(m.conversation.response, transcript.UserPromptRow(fmt.Sprintf("prompt %d", i)))
 		case 1, 2:
-			m.engine.response = append(m.engine.response, long)
+			m.conversation.response = append(m.conversation.response, long)
 		case 3:
-			m.engine.response = append(m.engine.response, "⏺ Ran a command")
+			m.conversation.response = append(m.conversation.response, "⏺ Ran a command")
 		case 4:
-			m.engine.response = append(m.engine.response, "")
+			m.conversation.response = append(m.conversation.response, "")
 		}
 	}
 }
@@ -7080,7 +7132,7 @@ func TestSeedThenScroll(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	m := newRunMode(nil, "", "Gemini 3.8 Flash (High)", "", "/tmp", true)
+	m := newRootModel(nil, "", "Gemini 3.8 Flash (High)", "", "/tmp", true)
 	m.seedConversation(c)
 	m.viewport.width = 100
 	m.viewport.height = 30
@@ -7091,9 +7143,9 @@ func TestSeedThenScroll(t *testing.T) {
 	}
 }
 
-// newBenchModel builds a runMode with the fields View() needs.
-func newBenchModel() *runMode {
-	return newRunMode(nil, "", "Gemini 3.8 Flash (High)", "", "/tmp", true)
+// newBenchModel builds a RootModel with the fields View() needs.
+func newBenchModel() *RootModel {
+	return newRootModel(nil, "", "Gemini 3.8 Flash (High)", "", "/tmp", true)
 }
 
 func TestCycle124_ClipToScreenRows(t *testing.T) {
@@ -7162,11 +7214,11 @@ func TestCycle124_ClipToScreenRows(t *testing.T) {
 }
 
 func TestCycle124_BannerPreservedAtTop(t *testing.T) {
-	m := newRunMode(&fakeClient{}, "u@t", "Gemini 3.8 Flash (High)", "Antigravity Starter Quota", "/Users/gear/Documents/GitHub/openagy", true)
+	m := newRootModel(&fakeClient{}, "u@t", "Gemini 3.8 Flash (High)", "Antigravity Starter Quota", "/Users/gear/Documents/GitHub/openagy", true)
 	m.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
 	m.session.fallbackFrom = "MiniMax-M3"
 	m.session.fallbackTo = "Gemini 3.8 Flash (High)"
-	m.engine.response = append(m.engine.response,
+	m.conversation.response = append(m.conversation.response,
 		"line one",
 		"line two with embedded\nnewline inside an entry",
 		"line three",
@@ -7179,10 +7231,10 @@ func TestCycle124_BannerPreservedAtTop(t *testing.T) {
 }
 
 func TestCycle124_BannerHidesAfterScroll(t *testing.T) {
-	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/", true)
 	m.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
 	for i := 0; i < 600; i++ {
-		m.engine.response = append(m.engine.response, "transcript line")
+		m.conversation.response = append(m.conversation.response, "transcript line")
 	}
 	m.gotoTop()
 	v := m.View()
@@ -7211,12 +7263,12 @@ func containsBannerLine(content, marker string) bool {
 }
 
 func TestCycle152_ChromeAnchoredAtBottom(t *testing.T) {
-	m := newRunMode(&fakeClient{}, "u@t", "Gemini 3.8 Flash (High)", "Antigravity Starter Quota", "/Users/gear/Documents/GitHub/openagy", true)
+	m := newRootModel(&fakeClient{}, "u@t", "Gemini 3.8 Flash (High)", "Antigravity Starter Quota", "/Users/gear/Documents/GitHub/openagy", true)
 	m.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
 	m.session.fallbackFrom = ""
 	m.session.fallbackTo = ""
 	for i := 0; i < 600; i++ {
-		m.engine.response = append(m.engine.response, "transcript line that is long enough to wrap onto two visual rows in a 100 column terminal for testing scrolling")
+		m.conversation.response = append(m.conversation.response, "transcript line that is long enough to wrap onto two visual rows in a 100 column terminal for testing scrolling")
 	}
 	m.gotoTop()
 
@@ -7251,7 +7303,7 @@ func TestCycle152_ChromeAnchoredAtBottom(t *testing.T) {
 }
 
 func TestCycle152_ChromeAnchoredEmptyTranscript(t *testing.T) {
-	m := newRunMode(&fakeClient{}, "u@t", "Gemini 3.8 Flash (High)", "Antigravity Starter Quota", "/Users/gear/Documents/GitHub/openagy", true)
+	m := newRootModel(&fakeClient{}, "u@t", "Gemini 3.8 Flash (High)", "Antigravity Starter Quota", "/Users/gear/Documents/GitHub/openagy", true)
 	m.Update(tea.WindowSizeMsg{Width: 100, Height: 30})
 	m.session.fallbackFrom = ""
 	m.session.fallbackTo = ""
@@ -7284,16 +7336,16 @@ func TestCycle152_ChromeAnchoredEmptyTranscript(t *testing.T) {
 }
 
 // pinnedPromptMode is a transcript builder helper: it stands up a
-// runMode with the given altscreen flag and seeds m.engine.response with
+// RootModel with the given altscreen flag and seeds m.conversation.response with
 // a sequence of "user prompt / assistant reply" turns so the
 // viewport has at least one user-prompt row to anchor the cycle-253
 // pinned header. The cycle-253 viewport reserves 1 row at the top
 // of the visible area when the pinned header is shown, so the
 // transcript has to be tall enough to overflow the 24-line
 // terminal for the scroll conditions to fire.
-func pinnedPromptMode(t *testing.T, altscreen bool) *runMode {
+func pinnedPromptMode(t *testing.T, altscreen bool) *RootModel {
 	t.Helper()
-	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", altscreen)
+	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/", altscreen)
 	m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 	// transcript.UserPromptRow() emits cWarningBlueOpen + "> <text>" + cWarningBlueClose
 	// which the cycle-179 isUserPromptRow classifier recognises. Each
@@ -7301,7 +7353,7 @@ func pinnedPromptMode(t *testing.T, altscreen bool) *runMode {
 	// — the layout a real conversation produces (submitPrompt
 	// appends ""> " + buf" then the streamed reply rows).
 	for i := 0; i < 30; i++ {
-		m.engine.response = append(m.engine.response,
+		m.conversation.response = append(m.conversation.response,
 			transcript.UserPromptRow("prompt-"+string(rune('a'+i%26))),
 			"",
 			"reply-line-1",
@@ -7316,7 +7368,7 @@ func pinnedPromptMode(t *testing.T, altscreen bool) *runMode {
 // with ANSI stripped, so tests can do plain substring checks for
 // the prompt text and the "↳ jump" hint without worrying about
 // escape sequences.
-func pinnedPromptView(t *testing.T, m *runMode) string {
+func pinnedPromptView(t *testing.T, m *RootModel) string {
 	t.Helper()
 	return ansi.Strip(m.View().Content)
 }
@@ -7326,7 +7378,7 @@ func pinnedPromptView(t *testing.T, m *runMode) string {
 // pinnedPromptText becomes non-empty and the cycle-253 header is
 // rendered. m.viewport.scroll is set to a value safely past the first user
 // prompt.
-func scrollAwayFromBottom(m *runMode) {
+func scrollAwayFromBottom(m *RootModel) {
 	m.viewport.autoScroll = false
 	// The header (banner + fallback warning) takes ~7 rows; with
 	// 30 turns × 5 rows = 150 rows of transcript the viewport at
@@ -7468,42 +7520,46 @@ func TestPinnedPrompt_EnterJumpsToPrompt(t *testing.T) {
 	// pinned prompt does not steal Enter from a typed message.
 	scrollAwayFromBottom(m)
 	m.Update(runeKey('h'))
-	if v := m.composer.input.Value(); v != "h" {
+	if v := m.prompt.input.Value(); v != "h" {
 		t.Fatalf("typed rune: input.Value()=%q, want %q", v, "h")
 	}
-	preSession := len(m.engine.session)
-	m.engine.streaming = false
+	preSession := len(m.SessionMessages())
+	m.conversation.streaming = false
+	// The jump's Enter and this one are separated by human typing; clear
+	// the unbracketed-paste clock so this Enter submits instead of being
+	// absorbed as a pasted newline.
+	m.prompt.lastEnterTime = time.Time{}
 	_, _ = m.Update(enterKey())
-	if !m.engine.streaming {
+	if !m.conversation.streaming {
 		t.Errorf("Enter with non-empty buffer must still submit (cycle 71 / 244), got streaming=false")
 	}
-	if m.composer.input.Value() != "" {
-		t.Errorf("Enter with non-empty buffer must clear the input, got %q", m.composer.input.Value())
+	if m.prompt.input.Value() != "" {
+		t.Errorf("Enter with non-empty buffer must clear the input, got %q", m.prompt.input.Value())
 	}
-	if len(m.engine.session) != preSession+1 {
+	if len(m.SessionMessages()) != preSession+1 {
 		t.Errorf("submitting a turn should append to m.engine.session (pre=%d post=%d)",
-			preSession, len(m.engine.session))
+			preSession, len(m.SessionMessages()))
 	}
-	if m.engine.session[len(m.engine.session)-1].Role != "user" || m.engine.session[len(m.engine.session)-1].Content != "h" {
-		t.Errorf("last session message = %+v, want {user, h}", m.engine.session[len(m.engine.session)-1])
+	if m.SessionMessages()[len(m.SessionMessages())-1].Role != "user" || m.SessionMessages()[len(m.SessionMessages())-1].Content != "h" {
+		t.Errorf("last session message = %+v, want {user, h}", m.SessionMessages()[len(m.SessionMessages())-1])
 	}
 }
 
 // TestPinnedPrompt_NoClickInPrintMode: the cycle-253 pinned
 // prompt is a TUI-only feature. Print mode (`-p`) goes through
 // runPrintMode (cmd/wagyu/main.go) which never instantiates
-// runMode / newRunMode. We verify this at the import-graph level
+// RootModel / newRootModel. We verify this at the import-graph level
 // so a future refactor that accidentally wires the pinned prompt
 // into runPrintMode (e.g. by sharing a helper file) is caught:
 //
-//  1. m.viewport.pinnedPromptText is populated only inside runMode's
-//     transcriptWindow — print mode has no runMode, so
+//  1. m.viewport.pinnedPromptText is populated only inside RootModel's
+//     transcriptWindow — print mode has no RootModel, so
 //     pinnedPromptText is meaningless outside the TUI.
-//  2. The TUI click handler is in runMode.Update() and is only
+//  2. The TUI click handler is in RootModel.Update() and is only
 //     reachable when the user is driving the alt-screen
 //     programme; -p does not.
 //
-// The test stands up a normal runMode with altscreen enabled and
+// The test stands up a normal RootModel with altscreen enabled and
 // sends a tea.MouseClickMsg at row 0. The jump fires; it does NOT
 // touch m.engine.session (verified). A grep against the print path
 // (cmd/wagyu/main.go + cmd/wagyu/print_*.go) confirms the
@@ -7517,7 +7573,7 @@ func TestPinnedPrompt_NoClickInPrintMode(t *testing.T) {
 	}
 	// Snapshot the session length so the click-jump is asserted
 	// to leave it unchanged.
-	preLen := len(m.engine.session)
+	preLen := len(m.SessionMessages())
 	target := m.viewport.pinnedPromptRowIdx
 	rows, _, _ := m.syncRowsView()
 	wantScroll := tuiviewport.PromptTurnStart(rows, target)
@@ -7532,9 +7588,9 @@ func TestPinnedPrompt_NoClickInPrintMode(t *testing.T) {
 			m.viewport.scroll, wantScroll)
 	}
 	// The pinned-prompt feature must NOT touch m.session.
-	if len(m.engine.session) != preLen {
+	if len(m.SessionMessages()) != preLen {
 		t.Errorf("click-jump mutated m.engine.session: pre=%d post=%d (pinned prompt is purely visual)",
-			preLen, len(m.engine.session))
+			preLen, len(m.SessionMessages()))
 	}
 }
 
@@ -7799,23 +7855,23 @@ func TestBanner_Branding_Switch(t *testing.T) {
 	}
 }
 
-// announcementModel returns a fresh runMode with the announcement
+// announcementModel returns a fresh RootModel with the announcement
 // queue seeded. Tests that need an empty catalog pass an
 // ANTIGRAVITY_HOME that has dismissed every card; tests that need a
 // populated catalog leave ANTIGRAVITY_HOME pointing at a fresh dir.
-func announcementModel(t *testing.T) *runMode {
+func announcementModel(t *testing.T) *RootModel {
 	t.Helper()
 	t.Setenv("ANTIGRAVITY_HOME", t.TempDir())
 	t.Setenv("HOME", t.TempDir())
-	m := newRunMode(&fakeClient{}, "u@t", "Gemini 3.8 Flash (High)", "t", "/", true)
+	m := newRootModel(&fakeClient{}, "u@t", "Gemini 3.8 Flash (High)", "t", "/", true)
 	m.overlays.announceQueue.Load()
 	return m
 }
 
-// announcementModelWithDismissals returns a fresh runMode whose
+// announcementModelWithDismissals returns a fresh RootModel whose
 // queue has every catalog card pre-dismissed. Useful for the
 // "empty queue shows no card row" test.
-func announcementModelWithDismissals(t *testing.T) *runMode {
+func announcementModelWithDismissals(t *testing.T) *RootModel {
 	t.Helper()
 	home := t.TempDir()
 	t.Setenv("ANTIGRAVITY_HOME", home)
@@ -7825,7 +7881,7 @@ func announcementModelWithDismissals(t *testing.T) *runMode {
 			t.Fatalf("SaveDismissed(%q): %v", c.ID, err)
 		}
 	}
-	m := newRunMode(&fakeClient{}, "u@t", "Gemini 3.8 Flash (High)", "t", "/", true)
+	m := newRootModel(&fakeClient{}, "u@t", "Gemini 3.8 Flash (High)", "t", "/", true)
 	m.overlays.announceQueue.Load()
 	return m
 }
@@ -7931,7 +7987,7 @@ func TestAnnouncementEsc_DismissesCard(t *testing.T) {
 		t.Errorf("post-Esc head = %q, want deprecate-gemini-2-0-flash", got.ID)
 	}
 	// And the dismissed ID is persisted to settings.json. We don't
-	// need to round-trip through newRunMode — LoadDismissed is
+	// need to round-trip through newRootModel — LoadDismissed is
 	// already covered by internal/announce — but a sanity check on
 	// the file content pins the integration.
 	body, err := os.ReadFile(os.Getenv("ANTIGRAVITY_HOME") + "/settings.json")
@@ -7990,7 +8046,7 @@ func TestAnnouncementSubmit_HidesForSession(t *testing.T) {
 	for _, r := range "hi" {
 		m.Update(runeKey(r))
 	}
-	m.engine.streaming = false
+	m.conversation.streaming = false
 	m.Update(enterKey())
 	if got := m.overlays.announceQueue.Active(); got == nil {
 		t.Fatal("submit should hide for session; got nil card with more in queue")
@@ -8017,7 +8073,7 @@ func TestAnnouncementSubmit_NoCardNoop(t *testing.T) {
 	for _, r := range "hi" {
 		m.Update(runeKey(r))
 	}
-	m.engine.streaming = false
+	m.conversation.streaming = false
 	m.Update(enterKey())
 	if m.overlays.announceQueue.Active() != nil {
 		t.Errorf("submit on empty queue surfaced a card")
@@ -8031,14 +8087,14 @@ func TestAnnouncementSubmit_NoCardNoop(t *testing.T) {
 // integration test: a card dismissed in one session is NOT shown in
 // the next. We persist via the queue's Dismiss (which calls
 // announce.SaveDismissed under the hood), then construct a fresh
-// runMode against the same ANTIGRAVITY_HOME so it picks up the
+// RootModel against the same ANTIGRAVITY_HOME so it picks up the
 // persisted list.
 func TestAnnouncementRestart_RespectsPersistedDismiss(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("ANTIGRAVITY_HOME", home)
 	t.Setenv("HOME", t.TempDir())
 
-	m := newRunMode(&fakeClient{}, "u@t", "Gemini 3.8 Flash (High)", "t", "/", true)
+	m := newRootModel(&fakeClient{}, "u@t", "Gemini 3.8 Flash (High)", "t", "/", true)
 	m.overlays.announceQueue.Load()
 	m.overlays.announceQueue.Dismiss()
 	if got := m.overlays.announceQueue.Active(); got == nil || got.ID != "deprecate-gemini-2-0-flash" {
@@ -8046,7 +8102,7 @@ func TestAnnouncementRestart_RespectsPersistedDismiss(t *testing.T) {
 	}
 	// New session, same ANTIGRAVITY_HOME — the persisted dismissal
 	// must be honoured.
-	m2 := newRunMode(&fakeClient{}, "u@t", "Gemini 3.8 Flash (High)", "t", "/", true)
+	m2 := newRootModel(&fakeClient{}, "u@t", "Gemini 3.8 Flash (High)", "t", "/", true)
 	m2.overlays.announceQueue.Load()
 	if m2.overlays.announceQueue.Active() == nil {
 		t.Fatal("new session has no active announcement after one dismiss; expected two left")
@@ -8065,7 +8121,7 @@ func TestAnnouncementRestart_RespectsPersistedDismiss(t *testing.T) {
 // announceSessionHiddenAfterSubmit returns true when the user's
 // last submitPrompt hid the given ID for the rest of the session.
 // Test helper to keep the assertion in TestAnnouncementSubmit_*.
-func (m *runMode) announceSessionHiddenAfterSubmit(id string) bool {
+func (m *RootModel) announceSessionHiddenAfterSubmit(id string) bool {
 	if m == nil {
 		return false
 	}
@@ -8093,7 +8149,7 @@ func TestAnnouncementRender_HintRow(t *testing.T) {
 // rows must precede the card's title row in the rendered output.
 func TestAnnouncementRender_CardRowNotInTranscript(t *testing.T) {
 	m := announcementModel(t)
-	m.engine.response = []string{"transcript line 1", "transcript line 2"}
+	m.conversation.response = []string{"transcript line 1", "transcript line 2"}
 	view := m.View()
 	transcriptRow := "transcript line 2"
 	transcriptIdx := -1
@@ -8115,10 +8171,10 @@ func TestAnnouncementRender_CardRowNotInTranscript(t *testing.T) {
 	}
 }
 
-func bashModeRunMode(t *testing.T) *runMode {
+func bashModeRootModel(t *testing.T) *RootModel {
 	t.Helper()
 	t.Setenv("ANTIGRAVITY_HOME", t.TempDir())
-	m := newRunMode(&fakeClient{}, "u@t", "Gemini 3.8 Flash (Medium)", "", "/tmp", false)
+	m := newRootModel(&fakeClient{}, "u@t", "Gemini 3.8 Flash (Medium)", "", "/tmp", false)
 	m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
 	return m
 }
@@ -8284,13 +8340,13 @@ func TestExecBashCommand(t *testing.T) {
 // TestBashModeKeyArming: "!" on an empty composer arms the mode and is
 // consumed; on a non-empty composer it is a literal rune.
 func TestBashModeKeyArming(t *testing.T) {
-	m := bashModeRunMode(t)
+	m := bashModeRootModel(t)
 	m.Update(tea.KeyPressMsg{Code: '!', Text: "!"})
 	if !m.session.store.BashMode {
 		t.Fatal("! on empty composer did not arm bash mode")
 	}
-	if m.composer.input.Value() != "" {
-		t.Fatalf("buffer = %q, want empty (the ! is the mode marker)", m.composer.input.Value())
+	if m.prompt.input.Value() != "" {
+		t.Fatalf("buffer = %q, want empty (the ! is the mode marker)", m.prompt.input.Value())
 	}
 
 	// Esc leaves the mode.
@@ -8306,7 +8362,7 @@ func TestBashModeKeyArming(t *testing.T) {
 	if m.session.store.BashMode {
 		t.Fatal("! after a space armed bash mode")
 	}
-	if got := m.composer.input.Value(); got != " !" {
+	if got := m.prompt.input.Value(); got != " !" {
 		t.Fatalf("buffer = %q, want %q", got, " !")
 	}
 }
@@ -8314,50 +8370,50 @@ func TestBashModeKeyArming(t *testing.T) {
 // TestBashModeSubmitRunsLocally: Enter in bash mode never touches the
 // model. The transcript gets the running head row and the mode clears.
 func TestBashModeSubmitRunsLocally(t *testing.T) {
-	m := bashModeRunMode(t)
+	m := bashModeRootModel(t)
 	m.session.store.BashMode = true
-	m.composer.input.SetValue("echo hello")
+	m.prompt.input.SetValue("echo hello")
 
 	cmd := m.submitPrompt()
 	if cmd == nil {
 		t.Fatal("submitPrompt returned nil, want the exec cmd")
 	}
-	if !m.engine.streaming {
+	if !m.conversation.streaming {
 		t.Fatal("streaming not set while the command runs")
 	}
 	if m.session.store.BashMode {
 		t.Fatal("bash mode survived submit")
 	}
-	if len(m.engine.session) != 0 {
-		t.Fatalf("shell command reached the model session: %#v", m.engine.session)
+	if len(m.SessionMessages()) != 0 {
+		t.Fatalf("shell command reached the model session: %#v", m.SessionMessages())
 	}
-	head := m.engine.response[len(m.engine.response)-1]
+	head := m.conversation.response[len(m.conversation.response)-1]
 	if want := bashmode.HeadRow("echo hello", false, true); head != want {
 		t.Fatalf("head row =\n%q\nwant\n%q", head, want)
 	}
-	if got := m.composer.promptHistory.Entries()[m.composer.promptHistory.Len()-1]; got != "!echo hello" {
+	if got := m.prompt.promptHistory.Entries()[m.prompt.promptHistory.Len()-1]; got != "!echo hello" {
 		t.Fatalf("history entry = %q, want %q", got, "!echo hello")
 	}
 
 	// Completion repaints the bullet and appends the body + blank row.
 	m.finishBashCommand(bashDoneMsg{cmd: "echo hello", output: "hello"})
-	if m.engine.streaming {
+	if m.conversation.streaming {
 		t.Fatal("streaming survived completion")
 	}
 	if m.session.store.BashRowIdx != -1 {
 		t.Fatalf("bashRowIdx = %d, want -1", m.session.store.BashRowIdx)
 	}
-	if want := bashmode.HeadRow("echo hello", false, false); m.engine.response[len(m.engine.response)-3] != want {
-		t.Fatalf("final head row = %q", m.engine.response[len(m.engine.response)-3])
+	if want := bashmode.HeadRow("echo hello", false, false); m.conversation.response[len(m.conversation.response)-3] != want {
+		t.Fatalf("final head row = %q", m.conversation.response[len(m.conversation.response)-3])
 	}
-	if m.engine.response[len(m.engine.response)-1] != "" {
+	if m.conversation.response[len(m.conversation.response)-1] != "" {
 		t.Fatal("no trailing blank row after the block")
 	}
 }
 
 // TestBashModeEmptyCommandJustLeaves: `!` + Enter prints nothing.
 func TestBashModeEmptyCommandJustLeaves(t *testing.T) {
-	m := bashModeRunMode(t)
+	m := bashModeRootModel(t)
 	m.session.store.BashMode = true
 	if cmd := m.submitPrompt(); cmd != nil {
 		t.Fatal("empty bash command returned a cmd")
@@ -8365,15 +8421,15 @@ func TestBashModeEmptyCommandJustLeaves(t *testing.T) {
 	if m.session.store.BashMode {
 		t.Fatal("bash mode survived the empty submit")
 	}
-	if len(m.engine.response) != 0 {
-		t.Fatalf("empty bash command wrote a transcript row: %#v", m.engine.response)
+	if len(m.conversation.response) != 0 {
+		t.Fatalf("empty bash command wrote a transcript row: %#v", m.conversation.response)
 	}
 }
 
 // TestBashModeCancel: Esc runs the cancel func and completion leaves the
 // head row without a body (【一手】 `!sleep 5` + Esc).
 func TestBashModeCancel(t *testing.T) {
-	m := bashModeRunMode(t)
+	m := bashModeRootModel(t)
 	cancelled := false
 	m.session.store.BashCancel = func() { cancelled = true }
 	m.Update(tea.KeyPressMsg{Code: tea.KeyEsc})
@@ -8387,18 +8443,18 @@ func TestBashModeCancel(t *testing.T) {
 
 // TestBashHistoryRecall re-arms the mode when the entry was a command.
 func TestBashHistoryRecall(t *testing.T) {
-	m := bashModeRunMode(t)
-	m.composer.promptHistory.Push("hello")
-	m.composer.promptHistory.Push("!echo hi")
-	m.composer.input.Reset()
+	m := bashModeRootModel(t)
+	m.prompt.promptHistory.Push("hello")
+	m.prompt.promptHistory.Push("!echo hi")
+	m.prompt.input.Reset()
 
 	m.historyUp()
-	if !m.session.store.BashMode || m.composer.input.Value() != "echo hi" {
-		t.Fatalf("recall = (%v, %q), want (true, %q)", m.session.store.BashMode, m.composer.input.Value(), "echo hi")
+	if !m.session.store.BashMode || m.prompt.input.Value() != "echo hi" {
+		t.Fatalf("recall = (%v, %q), want (true, %q)", m.session.store.BashMode, m.prompt.input.Value(), "echo hi")
 	}
 	m.historyUp()
-	if m.session.store.BashMode || m.composer.input.Value() != "hello" {
-		t.Fatalf("recall = (%v, %q), want (false, %q)", m.session.store.BashMode, m.composer.input.Value(), "hello")
+	if m.session.store.BashMode || m.prompt.input.Value() != "hello" {
+		t.Fatalf("recall = (%v, %q), want (false, %q)", m.session.store.BashMode, m.prompt.input.Value(), "hello")
 	}
 }
 
@@ -8410,11 +8466,11 @@ func TestBashHistoryRecall(t *testing.T) {
 // the first block gains `  ⎿  first` while keeping its hollow `○`, and the
 // second block completes, all before any key press.
 func TestBashPreemptsRunningCommand(t *testing.T) {
-	m := bashModeRunMode(t)
-	m.engine.streaming = true
+	m := bashModeRootModel(t)
+	m.conversation.streaming = true
 	m.session.store.BashGen = 4
-	m.session.store.BashRowIdx = len(m.engine.response)
-	m.engine.response = append(m.engine.response, bashmode.HeadRow("top", false, true))
+	m.session.store.BashRowIdx = len(m.conversation.response)
+	m.conversation.response = append(m.conversation.response, bashmode.HeadRow("top", false, true))
 	headIdx := m.session.store.BashRowIdx
 	out := &tools.SafeBuffer{}
 	if _, err := out.Write([]byte("first\nsecond\n")); err != nil {
@@ -8426,7 +8482,7 @@ func TestBashPreemptsRunningCommand(t *testing.T) {
 	m.session.store.BashCancel = func() { cancelled = true }
 
 	m.session.store.BashMode = true
-	m.composer.input.SetValue("echo next")
+	m.prompt.input.SetValue("echo next")
 	cmd := m.submitPrompt()
 	if cmd == nil {
 		t.Fatal("preemption returned no cmd for the new command")
@@ -8437,19 +8493,19 @@ func TestBashPreemptsRunningCommand(t *testing.T) {
 	if len(m.session.store.BashQueue) != 0 {
 		t.Fatalf("preemption queued instead of running: %#v", m.session.store.BashQueue)
 	}
-	if !m.engine.streaming {
+	if !m.conversation.streaming {
 		t.Fatal("streaming cleared during preemption")
 	}
-	if got := m.engine.response[headIdx]; got != bashmode.HeadRow("top", false, true) {
+	if got := m.conversation.response[headIdx]; got != bashmode.HeadRow("top", false, true) {
 		t.Fatalf("interrupted head was repainted:\n%q", got)
 	}
 	wantBody := bashmode.OutputRows("first\nsecond", false)
 	for i, want := range wantBody {
-		if got := m.engine.response[headIdx+1+i]; got != want {
+		if got := m.conversation.response[headIdx+1+i]; got != want {
 			t.Fatalf("body row %d =\n%q\nwant\n%q", i, got, want)
 		}
 	}
-	if got := m.engine.response[len(m.engine.response)-1]; got != bashmode.HeadRow("echo next", false, true) {
+	if got := m.conversation.response[len(m.conversation.response)-1]; got != bashmode.HeadRow("echo next", false, true) {
 		t.Fatalf("new running head =\n%q", got)
 	}
 	if m.session.store.BashGen != 5 {
@@ -8458,9 +8514,9 @@ func TestBashPreemptsRunningCommand(t *testing.T) {
 
 	// The preempted command's late completion carries the stale generation
 	// and must not touch the live block.
-	before := len(m.engine.response)
+	before := len(m.conversation.response)
 	m.updateBashDoneMsg(bashDoneMsg{gen: 4, cmd: "top", output: "late"})
-	if len(m.engine.response) != before || !m.engine.streaming {
+	if len(m.conversation.response) != before || !m.conversation.streaming {
 		t.Fatal("stale completion mutated the live block")
 	}
 }
@@ -8468,17 +8524,17 @@ func TestBashPreemptsRunningCommand(t *testing.T) {
 // TestBashCtrlCCancelsCommand: Ctrl+C stops a running shell command and still
 // arms the two-step exit confirmation on the same press (【一手】 agy 1.4.5).
 func TestBashCtrlCCancelsCommand(t *testing.T) {
-	m := bashModeRunMode(t)
+	m := bashModeRootModel(t)
 	cancelled := false
 	m.session.store.BashCancel = func() { cancelled = true }
 	m.Update(tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl})
 	if !cancelled {
 		t.Fatal("Ctrl+C did not cancel the running command")
 	}
-	if !m.engine.exitConfirm {
+	if !m.display.exitConfirm {
 		t.Fatal("Ctrl+C did not arm the exit confirmation")
 	}
-	if m.engine.quitting {
+	if m.display.quitting {
 		t.Fatal("the first Ctrl+C quit")
 	}
 }
@@ -8486,18 +8542,18 @@ func TestBashCtrlCCancelsCommand(t *testing.T) {
 // TestBashCancelDropsPartialOutput: Esc / Ctrl+C finalise the block with the
 // head only, even when the command had already printed something.
 func TestBashCancelDropsPartialOutput(t *testing.T) {
-	m := bashModeRunMode(t)
+	m := bashModeRootModel(t)
 	m.session.store.BashRowIdx = 0
-	m.engine.response = []string{bashmode.HeadRow("x", false, true)}
+	m.conversation.response = []string{bashmode.HeadRow("x", false, true)}
 	m.finishBashCommand(bashDoneMsg{gen: 1, cmd: "x", output: "first", cancelled: true})
-	if len(m.engine.response) != 2 {
-		t.Fatalf("cancelled block rows = %#v, want head + blank", m.engine.response)
+	if len(m.conversation.response) != 2 {
+		t.Fatalf("cancelled block rows = %#v, want head + blank", m.conversation.response)
 	}
-	if want := bashmode.HeadRow("x", false, false); m.engine.response[0] != want {
-		t.Fatalf("head = %q, want %q", m.engine.response[0], want)
+	if want := bashmode.HeadRow("x", false, false); m.conversation.response[0] != want {
+		t.Fatalf("head = %q, want %q", m.conversation.response[0], want)
 	}
-	if m.engine.response[1] != "" {
-		t.Fatalf("expected the trailing blank row, got %q", m.engine.response[1])
+	if m.conversation.response[1] != "" {
+		t.Fatalf("expected the trailing blank row, got %q", m.conversation.response[1])
 	}
 }
 
@@ -8591,48 +8647,48 @@ func TestBashBlockExpanded(t *testing.T) {
 // TestBashCtrlOTogglesBlock: the ctrl+o key re-renders the recorded block in
 // place, so the transcript row count follows the hint.
 func TestBashCtrlOTogglesBlock(t *testing.T) {
-	m := bashModeRunMode(t)
-	m.session.store.BashRowIdx = len(m.engine.response)
-	m.engine.response = append(m.engine.response, bashmode.HeadRow("seq 1 21", false, true))
+	m := bashModeRootModel(t)
+	m.session.store.BashRowIdx = len(m.conversation.response)
+	m.conversation.response = append(m.conversation.response, bashmode.HeadRow("seq 1 21", false, true))
 	var lines []string
 	for i := 1; i <= 200; i++ {
 		lines = append(lines, fmt.Sprintf("%d", i))
 	}
 	m.finishBashCommand(bashDoneMsg{gen: 1, cmd: "seq 1 200", output: strings.Join(lines, "\n")})
-	collapsed := len(m.engine.response)
+	collapsed := len(m.conversation.response)
 
 	m.Update(tea.KeyPressMsg{Code: 'o', Mod: tea.ModCtrl})
-	expanded := len(m.engine.response)
+	expanded := len(m.conversation.response)
 	if expanded != collapsed+179 {
 		t.Fatalf("expanded rows = %d, want %d (179 more than the marker + 20 kept rows)", expanded, collapsed+179)
 	}
-	if strings.Contains(strings.Join(m.engine.response, "\n"), "<output +") {
+	if strings.Contains(strings.Join(m.conversation.response, "\n"), "<output +") {
 		t.Fatal("ctrl+o kept the truncation marker")
 	}
-	if !strings.Contains(m.engine.response[len(m.engine.response)-2], "(ctrl+o to collapse)") {
-		t.Fatalf("missing collapse hint: %q", m.engine.response[len(m.engine.response)-2])
+	if !strings.Contains(m.conversation.response[len(m.conversation.response)-2], "(ctrl+o to collapse)") {
+		t.Fatalf("missing collapse hint: %q", m.conversation.response[len(m.conversation.response)-2])
 	}
 
 	m.Update(tea.KeyPressMsg{Code: 'o', Mod: tea.ModCtrl})
-	if len(m.engine.response) != collapsed {
-		t.Fatalf("collapse rows = %d, want %d", len(m.engine.response), collapsed)
+	if len(m.conversation.response) != collapsed {
+		t.Fatalf("collapse rows = %d, want %d", len(m.conversation.response), collapsed)
 	}
 }
 
 // TestBashQueueWhileStreaming: a command submitted mid-turn is queued and
 // rendered as "▸ <cmd>" without the (alt+m …) prompt suffix.
 func TestBashQueueWhileStreaming(t *testing.T) {
-	m := bashModeRunMode(t)
-	m.engine.streaming = true
+	m := bashModeRootModel(t)
+	m.conversation.streaming = true
 	m.session.store.BashMode = true
-	m.composer.input.SetValue("echo queued")
+	m.prompt.input.SetValue("echo queued")
 	if cmd := m.submitPrompt(); cmd != nil {
 		t.Fatal("a queued bash command returned a cmd")
 	}
 	if len(m.session.store.BashQueue) != 1 || m.session.store.BashQueue[0] != "echo queued" {
 		t.Fatalf("bashQueue = %#v", m.session.store.BashQueue)
 	}
-	if m.engine.streaming != true {
+	if m.conversation.streaming != true {
 		t.Fatal("queueing cleared the streaming flag")
 	}
 	// The queued row is the reference's own bytes: a dim grey "▸ <cmd>" and
@@ -8640,5 +8696,109 @@ func TestBashQueueWhileStreaming(t *testing.T) {
 	wantRow := cDimGrayOpen + "\u25b8 echo queued" + cDimGrayClose
 	if view := m.View().Content; !strings.Contains(view, wantRow) {
 		t.Fatalf("queue row missing from view:\n%s", view)
+	}
+}
+
+// countTranscriptText counts the transcript rows carrying text.
+func countTranscriptText(m *RootModel, text string) int {
+	n := 0
+	for _, line := range m.conversation.response {
+		if strings.Contains(line, text) {
+			n++
+		}
+	}
+	return n
+}
+
+// TestSteerAtTurnEndKeepsTheMessageVisible is the AGY 1.5.3 send-
+// immediately fix: a steer that arrives just as the turn ends stays in
+// the conversation instead of disappearing and reappearing.
+//
+// The message is visible from the "Sending message..." row, becomes a
+// transcript prompt when the steer is applied, and is still there —
+// once — when the turn finalises.
+func TestSteerAtTurnEndKeepsTheMessageVisible(t *testing.T) {
+	m := streamQueueMode(t)
+	m.session.store.QueueMode = false // Send Immediately
+	m.updateBackendChunkMsg(backendChunkMsg("pre-answer"))
+	m.prompt.input.SetValue("follow up")
+	if cmd := m.submitPrompt(); cmd != nil {
+		t.Fatalf("submit returned a cmd, want nil")
+	}
+	if countTranscriptText(m, "follow up") != 0 {
+		t.Fatalf("the steer is already a transcript prompt before it is applied")
+	}
+
+	m.Update(steerAppliedMsg{instruction: "follow up"})
+	if got := countTranscriptText(m, "follow up"); got != 1 {
+		t.Fatalf("prompt rows after the steer applied = %d, want 1: %v", got, m.conversation.response)
+	}
+
+	m.Update(toolsteps.TurnDoneMsg{Reply: "pre-answer"})
+	if got := countTranscriptText(m, "follow up"); got != 1 {
+		t.Fatalf("prompt rows after the turn ended = %d, want 1: %v", got, m.conversation.response)
+	}
+	if got := countTranscriptText(m, "pre-answer"); got != 1 {
+		t.Errorf("pre-steer answer rows = %d, want 1 (the reply was repeated below the prompt): %v", got, m.conversation.response)
+	}
+}
+
+// TestSteerAtTurnEndSplitsTheReply pins the same race with text after
+// the steer: the transcript keeps the pre-steer answer above the prompt
+// and the post-steer suffix below it, and the session history is split
+// the same way instead of duplicating the whole turn on the second
+// assistant message.
+func TestSteerAtTurnEndSplitsTheReply(t *testing.T) {
+	m := streamQueueMode(t)
+	m.session.store.QueueMode = false
+	m.updateBackendChunkMsg(backendChunkMsg("pre-answer"))
+	m.prompt.input.SetValue("follow up")
+	_ = m.submitPrompt()
+	m.Update(steerAppliedMsg{instruction: "follow up"})
+	m.updateBackendChunkMsg(backendChunkMsg("post-answer"))
+	m.Update(toolsteps.TurnDoneMsg{Reply: "pre-answerpost-answer"})
+
+	joined := strings.Join(m.conversation.response, "\n")
+	if got := strings.Count(joined, "pre-answer"); got != 1 {
+		t.Errorf("pre-answer appears %d times, want 1: %v", got, m.conversation.response)
+	}
+	if got := strings.Count(joined, "post-answer"); got != 1 {
+		t.Errorf("post-answer appears %d times, want 1: %v", got, m.conversation.response)
+	}
+	for _, msg := range m.SessionMessages() {
+		if msg.Role == "assistant" && msg.Content == "pre-answerpost-answer" {
+			t.Errorf("the session duplicated the whole turn on one assistant message: %v", m.SessionMessages())
+		}
+	}
+	last := m.SessionMessages()[len(m.SessionMessages())-1]
+	if last.Role != "assistant" || last.Content != "post-answer" {
+		t.Errorf("last session message = %+v, want the post-steer suffix", last)
+	}
+}
+
+// TestPendingSteerAtTurnEndIsCleared pins the other half: a steer the
+// engine accepted but did not apply before the turn ended becomes the
+// next turn's prompt, so the actor's pending copy must be dropped —
+// otherwise the next turn applies it twice.
+func TestPendingSteerAtTurnEndIsCleared(t *testing.T) {
+	m := streamQueueMode(t)
+	m.session.store.QueueMode = false
+	eng := &mockSteerEngine{}
+	m.turn.engine = eng
+	m.prompt.input.SetValue("just in time")
+	if cmd := m.submitPrompt(); cmd != nil {
+		t.Fatalf("submit returned a cmd, want nil")
+	}
+	if len(eng.steered) != 1 {
+		t.Fatalf("engine pending steers = %v, want the submitted message", eng.steered)
+	}
+
+	m.Update(toolsteps.TurnDoneMsg{Reply: "done"})
+
+	if len(eng.steered) != 0 {
+		t.Errorf("the engine kept the pending steer across the turn end: %v", eng.steered)
+	}
+	if got := countTranscriptText(m, "just in time"); got != 1 {
+		t.Errorf("prompt rows = %d, want 1: %v", got, m.conversation.response)
 	}
 }

@@ -20,11 +20,11 @@ func TestVimBangReachesTheComposer(t *testing.T) {
 	if m.session.store.BashMode {
 		t.Fatal("! armed bash mode in vim mode")
 	}
-	if got := m.composer.input.Value(); got != "!" {
+	if got := m.prompt.input.Value(); got != "!" {
 		t.Fatalf("composer = %q, want %q", got, "!")
 	}
-	if m.composer.vimEng.Mode != vim.Insert {
-		t.Fatalf("mode = %v, want %v", m.composer.vimEng.Mode, vim.Insert)
+	if m.prompt.vimEng.Mode != vim.Insert {
+		t.Fatalf("mode = %v, want %v", m.prompt.vimEng.Mode, vim.Insert)
 	}
 }
 
@@ -33,11 +33,11 @@ func TestVimBangReachesTheComposer(t *testing.T) {
 func TestVimSlashReachesTheComposer(t *testing.T) {
 	m := vimTestMode(t, map[string]any{"editorMode": "vim"})
 	vimPress(t, m, runeKey('/'))
-	if got := m.composer.input.Value(); got != "/" {
+	if got := m.prompt.input.Value(); got != "/" {
 		t.Fatalf("composer = %q, want %q", got, "/")
 	}
-	if m.composer.vimEng.Mode != vim.Insert {
-		t.Fatalf("mode = %v, want %v", m.composer.vimEng.Mode, vim.Insert)
+	if m.prompt.vimEng.Mode != vim.Insert {
+		t.Fatalf("mode = %v, want %v", m.prompt.vimEng.Mode, vim.Insert)
 	}
 }
 
@@ -47,18 +47,18 @@ func TestVimSlashReachesTheComposer(t *testing.T) {
 func TestVimBangSubmitRunsTheShellCommand(t *testing.T) {
 	m := vimTestMode(t, map[string]any{"editorMode": "vim"})
 	vimType(t, m, "!echo hello")
-	if got := m.composer.input.Value(); got != "!echo hello" {
+	if got := m.prompt.input.Value(); got != "!echo hello" {
 		t.Fatalf("composer = %q, want %q", got, "!echo hello")
 	}
 	// ctrl+s submits from Insert mode (vim.insert.submit).
 	vimPress(t, m, ctrlKey('s'))
-	if !m.engine.streaming {
+	if !m.conversation.streaming {
 		t.Fatal("streaming not set while the command runs")
 	}
-	if len(m.engine.session) != 0 {
-		t.Fatalf("shell command reached the model session: %#v", m.engine.session)
+	if len(m.SessionMessages()) != 0 {
+		t.Fatalf("shell command reached the model session: %#v", m.SessionMessages())
 	}
-	if got := m.composer.promptHistory.Entries()[m.composer.promptHistory.Len()-1]; got != "!echo hello" {
+	if got := m.prompt.promptHistory.Entries()[m.prompt.promptHistory.Len()-1]; got != "!echo hello" {
 		t.Fatalf("history entry = %q, want %q", got, "!echo hello")
 	}
 }
@@ -66,12 +66,12 @@ func TestVimBangSubmitRunsTheShellCommand(t *testing.T) {
 // TestVimBangIsNotShellOutsideVimMode: outside vim mode nothing changes —
 // the "!" arms the bash mode and the buffer stays empty.
 func TestVimBangIsNotShellOutsideVimMode(t *testing.T) {
-	m := bashModeRunMode(t)
+	m := bashModeRootModel(t)
 	m.Update(runeKey('!'))
 	if !m.session.store.BashMode {
 		t.Fatal("! on the empty composer did not arm bash mode")
 	}
-	if got := m.composer.input.Value(); got != "" {
+	if got := m.prompt.input.Value(); got != "" {
 		t.Fatalf("composer = %q, want empty (the ! is the mode marker)", got)
 	}
 }

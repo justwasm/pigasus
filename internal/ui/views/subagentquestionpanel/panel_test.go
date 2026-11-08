@@ -181,10 +181,10 @@ func TestSubmitAnswer_SendsTheComposerContent(t *testing.T) {
 }
 
 // TestSubmitAnswer_EmptyAnswerSkips pins the "empty answer is a skip"
-// behaviour: the model sees "(skipped)".
+// behaviour: the model sees "User Skipped".
 func TestSubmitAnswer_EmptyAnswerSkips(t *testing.T) {
 	p, mgr := newPanel(t)
-	q := mgr.Enqueue(subagentquestions.ParentKey, "Pick a colour", []string{"red"})
+	q := mgr.Enqueue(subagentquestions.ParentKey, "Pick a colour", nil)
 
 	p.Toggle()
 	p.HandleKey(tea.Key{Code: tea.KeyEnter})
@@ -257,10 +257,10 @@ func TestPickerRows_DrawsTheScopeAndTheHints(t *testing.T) {
 		"Pending questions for you",
 		"Pick a tool",
 		"Keyboard:",
-		"↑/↓ Navigate",
+		"↑/↓ Questions",
 		"←/→ Options",
-		"enter Answer",
-		"esc Cancel",
+		"enter Select",
+		"esc Skip",
 	} {
 		if !strings.Contains(body, want) {
 			t.Errorf("picker rows missing %q; got:\n%s", want, body)
@@ -404,17 +404,17 @@ func TestAskQuestion_LeftRightNav_LeftClampsAtFirst(t *testing.T) {
 }
 
 // TestAskQuestion_LeftRightNav_RightClampsAtLast pins the
-// right-bound behaviour: pressing Right on the last option keeps
-// the cursor at len-1 (no wrap to 0, no overflow). The picker
-// must remain open and the manager must still show the question
-// pending.
+// right-bound behaviour: pressing Right past the last row keeps
+// the cursor on the write-in row (no wrap to 0, no overflow). The
+// picker must remain open and the manager must still show the
+// question pending.
 func TestAskQuestion_LeftRightNav_RightClampsAtLast(t *testing.T) {
 	p, mgr := newPanel(t)
 	mgr.Enqueue(subagentquestions.ParentKey,
 		"Pick a colour", []string{"red", "green", "blue"})
 
 	p.Toggle()
-	// Move to last option.
+	// Move to the last real option.
 	p.HandleKey(arrowKey(tea.KeyRight))
 	p.HandleKey(arrowKey(tea.KeyRight))
 	if got := p.optionCursor; got != 2 {
@@ -422,9 +422,12 @@ func TestAskQuestion_LeftRightNav_RightClampsAtLast(t *testing.T) {
 	}
 
 	p.HandleKey(arrowKey(tea.KeyRight))
+	if got := p.optionCursor; got != 3 {
+		t.Errorf("option cursor after Right on last option = %d, want 3 (write-in row)", got)
+	}
 	p.HandleKey(arrowKey(tea.KeyRight))
-	if got := p.optionCursor; got != 2 {
-		t.Errorf("option cursor after 2× Right on last = %d, want 2 (clamped)",
+	if got := p.optionCursor; got != 3 {
+		t.Errorf("option cursor after 2× Right on last row = %d, want 3 (clamped)",
 			got)
 	}
 	if !p.Active() {

@@ -24,7 +24,7 @@ import (
 // TestCtrlROpensTheArtifactPanel pins the reference's Ctrl+R: it opens the
 // Artifact Review panel, the same panel the /artifact command opens.
 func TestCtrlROpensTheArtifactPanel(t *testing.T) {
-	m := &runMode{}
+	m := &RootModel{}
 	_, _, handled := m.handleGlobalOrModalKeys(tea.Key{Code: 'r', Mod: tea.ModCtrl})
 	if !handled {
 		t.Fatal("Ctrl+R was not handled")
@@ -41,7 +41,7 @@ func TestCtrlROpensTheArtifactPanel(t *testing.T) {
 // a prompt-focus key, so an open list panel keeps it and the Artifact
 // Review panel does not open.
 func TestCtrlRIsIgnoredWhileAPanelIsOpen(t *testing.T) {
-	m := &runMode{}
+	m := &RootModel{}
 	if !m.openSlashPanel("context") {
 		t.Fatal("openSlashPanel(context) = false, want true")
 	}
@@ -55,7 +55,7 @@ func TestCtrlRIsIgnoredWhileAPanelIsOpen(t *testing.T) {
 // Ctrl+G: the host's global handler must not swallow the key for the
 // $EDITOR command while the panel is up.
 func TestCtrlGReachesThePermissionsPanel(t *testing.T) {
-	m := &runMode{}
+	m := &RootModel{}
 	if !m.openSlashPanel("permissions") {
 		t.Fatal("openSlashPanel(permissions) = false, want true")
 	}

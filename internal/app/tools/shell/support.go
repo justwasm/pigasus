@@ -50,6 +50,16 @@ type BackgroundTask struct {
 	id      string
 	command string
 	started time.Time
+	// toolName is the tool that created the task ("run_command" for a
+	// command, "start_scheduled_task" for a timer). A checkpoint reports it.
+	toolName string
+	// toolSummary is the reference's short noun phrase for the task.
+	toolSummary string
+	// isDaemon marks a task that is expected to run indefinitely.
+	isDaemon bool
+	// stepIndex is the global step that started the task. Zero when the
+	// task was created outside an actor turn.
+	stepIndex int
 	// logPath is the reference's task log file. The command's output is
 	// written there when it finishes.
 	logPath string

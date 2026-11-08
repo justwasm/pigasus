@@ -15,10 +15,11 @@ import (
 )
 
 type acpV2Session struct {
-	cwd     acp2.AbsolutePath
-	session *Session
-	history []agentlink.Message
-	mu      sync.Mutex
+	cwd      acp2.AbsolutePath
+	session  *Session
+	history  []agentlink.Message
+	commands []acp2.AvailableCommand
+	mu       sync.Mutex
 }
 
 func (s *acpV2Session) SessionInfo() acp2.SessionInfo {
@@ -26,7 +27,10 @@ func (s *acpV2Session) SessionInfo() acp2.SessionInfo {
 }
 
 func (s *acpV2Session) AvailableCommands() []acp2.AvailableCommand {
-	return defaultV2Commands()
+	if s == nil || len(s.commands) == 0 {
+		return defaultV2Commands()
+	}
+	return s.commands
 }
 
 func defaultV2Commands() []acp2.AvailableCommand {
@@ -71,7 +75,11 @@ func NewACPV2Agent(srv *Server, client acp2.Client) *ACPV2Agent {
 			if cwd == "" {
 				cwd = acp2.AbsolutePath(sess.Workspace)
 			}
-			return sessID, &acpV2Session{cwd: cwd, session: sess}, nil
+			return sessID, &acpV2Session{
+				cwd:      cwd,
+				session:  sess,
+				commands: v2CommandsFor(srv.cfg),
+			}, nil
 		},
 	)
 	return a
@@ -100,7 +108,7 @@ func (a *ACPV2Agent) NewSession(ctx context.Context, params *acp2.NewSessionRequ
 	if a.client != nil {
 		send := func(c context.Context) {
 			stream := acp2.NewSessionStream(a.client, resp.SessionID)
-			_ = stream.SendCommands(c, defaultV2Commands())
+			_ = stream.SendCommands(c, commandsV2Of(resp.AvailableCommands))
 		}
 		if !acp.AfterReply(ctx, send) {
 			send(ctx)
@@ -171,7 +179,7 @@ func (a *ACPV2Agent) runTurn(ctx context.Context, stream *acp2.SessionStream, s 
 		return acp2.StopReasonRefusal, err
 	}
 
-	_ = stream.SendCommands(ctx, defaultV2Commands())
+	_ = stream.SendCommands(ctx, s.AvailableCommands())
 
 	agentMsgID := acp2.GenerateMessageID()
 	stopReason := acp2.StopReasonEndTurn

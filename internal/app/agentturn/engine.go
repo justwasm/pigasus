@@ -20,6 +20,7 @@ import (
 	"github.com/justwasm/pigasus/agentlink"
 	"github.com/justwasm/pigasus/internal/core/backend"
 	"github.com/justwasm/pigasus/internal/core/policy/permissions"
+	"github.com/justwasm/pigasus/internal/features/checkpoint"
 )
 
 // Env is what one turn needs from its host.
@@ -30,6 +31,10 @@ import (
 type Env struct {
 	// Backend is the transport the turn streams from.
 	Backend backend.Client
+	// BackendFor returns the transport for a model other than the turn's
+	// own. A checkpoint's SINGLE_PROMPT strategy needs a cheaper summariser
+	// model. Nil means Backend.
+	BackendFor func(model string) backend.Client
 	// Model is the model the turn runs under.
 	Model string
 	// SystemPrompt is prepended to every request the turn makes.
@@ -47,6 +52,18 @@ type Env struct {
 	Effort string
 	// Policy is the optional permissions policy for tool execution.
 	Policy *permissions.Policy
+	// CheckpointPolicy is an optional policy kept alive across turns by a
+	// persistent engine (Local). Nil creates a per-turn policy.
+	CheckpointPolicy *checkpoint.Policy
+	// CheckpointSnapshot supplies the resume block's dynamic sections —
+	// artifacts, running background tasks and subagents — for the turn about
+	// to run. The persistent engine copies it into the session policy before
+	// each turn; nil leaves the policy's static sections.
+	CheckpointSnapshot func() checkpoint.Snapshot
+	// CheckpointPriorRequests supplies the request list a rebuilt actor's
+	// first checkpoint should carry (the persisted checkpoint's list). Nil
+	// leaves the policy's own list.
+	CheckpointPriorRequests func() []string
 }
 
 // EnvFunc builds the environment for one turn.
@@ -74,6 +91,10 @@ type Turn struct {
 	// History is the transcript the turn replays, the user's prompt
 	// last.
 	History []agentlink.Message
+	// SessionEpoch identifies the host transcript this turn was built
+	// from. A local engine reuses its actor only while the epoch matches;
+	// /clear, /resume and a manual compaction bump it.
+	SessionEpoch uint64
 }
 
 // Engine answers turns.
@@ -130,6 +151,13 @@ type CommandInfo struct {
 // CommandLister is an optional interface an Engine may implement to provide its dynamic slash commands.
 type CommandLister interface {
 	AvailableCommands() []CommandInfo
+}
+
+// SessionResetter is an optional interface an Engine may implement to drop
+// the backend conversation when the host clears the transcript (/clear,
+// /new). Without it the backend keeps the history the user just discarded.
+type SessionResetter interface {
+	ResetSession()
 }
 
 // ActionHandler is an optional interface an Engine may implement to execute

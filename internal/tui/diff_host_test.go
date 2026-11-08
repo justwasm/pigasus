@@ -76,11 +76,11 @@ func TestDiffPanelExitNotice(t *testing.T) {
 // TestDiffPanelIsRebuiltOnOpen — the panel is rebuilt every time it
 // opens, so a stale tab or a stale cursor is never shown.
 func TestDiffPanelIsRebuiltOnOpen(t *testing.T) {
-	m := &runMode{}
+	m := &RootModel{}
 	if !m.openSlashPanel("diff") {
 		t.Fatal("openSlashPanel(diff) = false, want true")
 	}
-	if m.overlays.panel.df == nil {
+	if m.diff.panel == nil {
 		t.Fatal("the /diff panel was not built on open")
 	}
 	m.diffPanel().SetTab(2)
@@ -110,7 +110,7 @@ func TestDiffPanelCtrlOFoldsTheHunk(t *testing.T) {
 	dir := t.TempDir()
 	initDiffHostRepo(t, dir)
 
-	m := &runMode{}
+	m := &RootModel{}
 	m.session.cwd = dir
 	if !m.openSlashPanel("diff") {
 		t.Fatal("openSlashPanel(diff) = false, want true")
@@ -148,7 +148,7 @@ func TestDiffPanelCtrlOFoldsTheHunk(t *testing.T) {
 // The inline subview renders the title and a blank row above the body,
 // so the body's own row index is the rendered index minus the body's
 // first row — the "diff --git" file header.
-func diffHunkHeaderRow(t *testing.T, m *runMode) int {
+func diffHunkHeaderRow(t *testing.T, m *RootModel) int {
 	t.Helper()
 	lines := m.diffPanel().Lines()
 	bodyStart := -1

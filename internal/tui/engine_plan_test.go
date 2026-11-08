@@ -76,8 +76,8 @@ func (m *mockUsageEngine) Close() error {
 
 func TestEnginePlan(t *testing.T) {
 	t.Run("ImplementsPlanLister", func(t *testing.T) {
-		m := &runMode{
-			engine: engineState{
+		m := &RootModel{
+			turn: TurnService{
 				engine: &mockPlanEngine{
 					plan: []PlanEntry{
 						{Title: "Explore files", Completed: true},
@@ -101,8 +101,8 @@ func TestEnginePlan(t *testing.T) {
 	})
 
 	t.Run("StatusKeywords", func(t *testing.T) {
-		m := &runMode{
-			engine: engineState{
+		m := &RootModel{
+			turn: TurnService{
 				engine: &mockPlanEngine{
 					plan: []PlanEntry{
 						{Title: "Step 1", Status: "completed"},
@@ -122,8 +122,8 @@ func TestEnginePlan(t *testing.T) {
 	})
 
 	t.Run("EmptyPlan", func(t *testing.T) {
-		m := &runMode{
-			engine: engineState{
+		m := &RootModel{
+			turn: TurnService{
 				engine: &mockPlanEngine{
 					plan: []PlanEntry{},
 				},
@@ -137,8 +137,8 @@ func TestEnginePlan(t *testing.T) {
 	})
 
 	t.Run("ReflectionDuckType", func(t *testing.T) {
-		m := &runMode{
-			engine: engineState{
+		m := &RootModel{
+			turn: TurnService{
 				engine: &mockReflectionPlanEngine{
 					items: []customPlanItem{
 						{Title: "Step 1", Completed: true},
@@ -157,12 +157,12 @@ func TestEnginePlan(t *testing.T) {
 	})
 
 	t.Run("NilEngineOrNoPlan", func(t *testing.T) {
-		var nilM *runMode
+		var nilM *RootModel
 		if got := nilM.enginePlan(); got != "" {
-			t.Errorf("nil runMode enginePlan() = %q, want empty", got)
+			t.Errorf("nil RootModel enginePlan() = %q, want empty", got)
 		}
 
-		m := &runMode{}
+		m := &RootModel{}
 		// local engine has no Plan() method
 		if got := m.enginePlan(); got != "" {
 			t.Errorf("default enginePlan() = %q, want empty", got)
@@ -170,9 +170,8 @@ func TestEnginePlan(t *testing.T) {
 	})
 
 	t.Run("TasksStatusSuffixIntegration", func(t *testing.T) {
-		m := &runMode{
-			engine: engineState{
-				taskReg: taskregistry.New(),
+		m := &RootModel{
+			turn: TurnService{
 				engine: &mockPlanEngine{
 					plan: []PlanEntry{
 						{Title: "Step 1", Completed: true},
@@ -180,6 +179,7 @@ func TestEnginePlan(t *testing.T) {
 					},
 				},
 			},
+			tasks: TasksModel{reg: taskregistry.New()},
 		}
 
 		// Zero running tasks + plan
@@ -191,13 +191,13 @@ func TestEnginePlan(t *testing.T) {
 	})
 
 	t.Run("PayloadDocJSONEnrichment", func(t *testing.T) {
-		m := &runMode{
+		m := &RootModel{
 			session: sessionState{
 				cwd:            "/test/cwd",
 				conversationID: "test-convo-id",
 				model:          "claude-4.5-sonnet",
 			},
-			engine: engineState{
+			turn: TurnService{
 				engine: &mockPlanEngine{
 					plan: []PlanEntry{
 						{Title: "Step 1", Completed: true},
@@ -233,8 +233,8 @@ func TestEnginePlan(t *testing.T) {
 - [ ] Implement live statusline updates
 * [x] Verify statusline payload in TUI
 `)
-		m := &runMode{
-			engine:  engineState{engine: acpRemote},
+		m := &RootModel{
+			turn:    TurnService{engine: acpRemote},
 			session: sessionState{model: "acp-agent"},
 		}
 
@@ -301,7 +301,7 @@ func TestTurnCollector_Usage(t *testing.T) {
 		}
 
 		// Pass through to recordTurnUsage and verify contextUsage
-		m := &runMode{
+		m := &RootModel{
 			session: sessionState{model: "gpt-oss-120b"},
 		}
 		m.recordTurnUsage(c.meta)
@@ -357,12 +357,14 @@ func TestTurnCollector_Usage(t *testing.T) {
 			},
 		}
 
-		m := &runMode{
+		m := &RootModel{
 			session: sessionState{model: "claude-4.5-sonnet"},
-			engine:  engineState{engine: engine, backend: nil},
+			turn:    TurnService{engine: engine, backend: nil},
 		}
 
-		msg := m.runTurn(context.Background(), []backend.Message{
+		bridge := m.newTurnBridge()
+		m.turn.activeBridge = bridge
+		msg := bridge.RunTurn(context.Background(), m.turnModel(), []backend.Message{
 			{Role: "user", Content: "Hello"},
 		})
 

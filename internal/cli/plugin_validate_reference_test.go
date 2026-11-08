@@ -488,3 +488,28 @@ func TestPluginValidate_HiddenDirComponents(t *testing.T) {
 		}
 	}
 }
+
+// TestPluginValidate_ManifestCategory: AGY 1.5.3 accepts "category" in
+// plugin.json and only warns when it is not a non-empty string.
+func TestPluginValidate_ManifestCategory(t *testing.T) {
+	root := newValidatePlugin(t, `{"name":"plug","description":"d","category":"developer-tools"}`)
+	out, _, _ := runValidateRef(t, root)
+	if strings.Contains(out, `unknown field "category"`) {
+		t.Errorf("category is still reported as unknown:\n%s", out)
+	}
+	if strings.Contains(out, `"category" must be`) {
+		t.Errorf("a non-empty category produced a warning:\n%s", out)
+	}
+
+	for _, manifest := range []string{
+		`{"name":"plug","description":"d","category":42}`,
+		`{"name":"plug","description":"d","category":""}`,
+	} {
+		root = newValidatePlugin(t, manifest)
+		out, _, _ = runValidateRef(t, root)
+		want := `⚠ plugin.json: "category" must be a non-empty string; it is ignored`
+		if !strings.Contains(out, want) {
+			t.Errorf("missing %q for %s in:\n%s", want, manifest, out)
+		}
+	}
+}

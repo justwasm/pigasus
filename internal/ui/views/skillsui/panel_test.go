@@ -171,6 +171,26 @@ func TestSkillsPanelGroups(t *testing.T) {
 	}
 }
 
+func TestSkillsPanelGroups_RemoteAgent(t *testing.T) {
+	cat := []SkillInfo{
+		{Name: "local-skill", Description: "Local", Path: "/workspace/skills/local"},
+		{Name: "remote-skill", Description: "Remote", Remote: true},
+	}
+	groups := PanelGroups(cat)
+	foundRemote := false
+	for _, g := range groups {
+		if g.Left == "Remote agent skills" && g.Label == "From remote agent" {
+			foundRemote = true
+			if len(g.Skills) != 1 || g.Skills[0].Name != "remote-skill" {
+				t.Fatalf("unexpected remote skills: %+v", g.Skills)
+			}
+		}
+	}
+	if !foundRemote {
+		t.Fatalf("expected 'Remote agent skills' group, got: %+v", groups)
+	}
+}
+
 func namesOf(ss []SkillInfo) []string {
 	out := make([]string, len(ss))
 	for i, s := range ss {

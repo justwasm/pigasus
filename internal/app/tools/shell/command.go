@@ -26,6 +26,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/justwasm/pigasus/actor"
 	"github.com/justwasm/pigasus/internal/app/tools"
 	"os"
 	"os/exec"
@@ -303,6 +304,8 @@ type runCommandParams struct {
 	// IsDaemon marks a command that is expected to run indefinitely; the
 	// reference sends it to the background straight away.
 	IsDaemon bool `json:"is_daemon"`
+	// ToolSummary is the reference's short noun phrase for the task.
+	ToolSummary string `json:"tool_summary"`
 }
 
 func (r *RunCommand) Run(ctx context.Context, args json.RawMessage) (any, error) {
@@ -322,14 +325,14 @@ func (r *RunCommand) Run(ctx context.Context, args json.RawMessage) (any, error)
 	if p.IsDaemon {
 		// A daemon command is expected to run forever, so there is
 		// nothing to wait for: it goes straight to the background.
-		return r.sendToBackground(p)
+		return r.sendToBackground(ctx, p)
 	}
 	if p.Background {
 		// Cycle 276: the background path now goes through the same shell as
 		// the foreground one, so `background: true` can finally express a
 		// pipeline / redirect (it used to shlex-split argv and reach the
 		// program with `|` as a literal argument).
-		return r.sendToBackground(p)
+		return r.sendToBackground(ctx, p)
 	}
 	if p.WaitMsBeforeAsync > 0 {
 		return r.runWithAsyncWindow(ctx, p)
@@ -401,6 +404,12 @@ func (r *RunCommand) runWithAsyncWindow(ctx context.Context, p runCommandParams)
 	if err != nil {
 		return nil, err
 	}
+	t.toolName = r.Name()
+	t.toolSummary = p.ToolSummary
+	t.isDaemon = p.IsDaemon
+	if idx, ok := actor.ToolStepIndexFromContext(ctx); ok {
+		t.stepIndex = idx
+	}
 	wait, stdin, err := startWithPTYStdin(cmd, false)
 	if err != nil {
 		backgroundTasks.remove(fullID)
@@ -437,7 +446,7 @@ func (r *RunCommand) runWithAsyncWindow(ctx context.Context, p runCommandParams)
 
 // sendToBackground starts the command as a background task and returns the
 // reference's launch acknowledgement.
-func (r *RunCommand) sendToBackground(p runCommandParams) (any, error) {
+func (r *RunCommand) sendToBackground(ctx context.Context, p runCommandParams) (any, error) {
 	convID := r.conversationID()
 	taskID := NextTaskID(convID)
 	fullID := convID + "/" + taskID
@@ -445,15 +454,20 @@ func (r *RunCommand) sendToBackground(p runCommandParams) (any, error) {
 	if err := createTaskLog(logPath); err != nil {
 		return nil, err
 	}
-	if _, err := backgroundTasks.start(r.Workspace, fullID, logPath, p.Command,
-		DefaultShellArgv(p.Command), tools.SecondsToDuration(p.Timeout)); err != nil {
+	t, err := backgroundTasks.start(r.Workspace, fullID, logPath, p.Command,
+		DefaultShellArgv(p.Command), tools.SecondsToDuration(p.Timeout))
+	if err != nil {
 		return nil, err
 	}
-	if t, ok := backgroundTasks.get(fullID); ok {
-		registerShellBackgroundTask(t, p.Command)
-		armNotificationTimeout(t, p.NotificationTimeoutSeconds)
-		notifyOnCompletion(t)
+	t.toolName = r.Name()
+	t.toolSummary = p.ToolSummary
+	t.isDaemon = p.IsDaemon
+	if idx, ok := actor.ToolStepIndexFromContext(ctx); ok {
+		t.stepIndex = idx
 	}
+	registerShellBackgroundTask(t, p.Command)
+	armNotificationTimeout(t, p.NotificationTimeoutSeconds)
+	notifyOnCompletion(t)
 	return TaskLaunchResult(time.Now(), convID, taskID, logPath), nil
 }
 

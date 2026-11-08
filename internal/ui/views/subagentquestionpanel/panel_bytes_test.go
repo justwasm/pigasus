@@ -49,7 +49,7 @@ func TestRenderedBytes(t *testing.T) {
 	p.SetScope("subagent-B")
 	p.Toggle()
 	p.cursor = 0
-	p.optionCursor = 1
+	p.optionCursor = 0
 	wantPicker := PICKER
 	got = p.PickerRows()
 	if len(got) != len(wantPicker) {
@@ -70,10 +70,14 @@ func TestRenderedBytes(t *testing.T) {
 		t.Errorf("notice = %q, want %q", lines, NO_PENDING)
 	}
 
-	// The "> Answer for …" prompt.
+	// The "> Answer for …" prompt. The parent question has two
+	// options plus the write-in row, so move to the write-in row
+	// before Enter stages the composer answer.
 	p.SetScope(subagentquestions.ParentKey)
 	lines = nil
 	p.Toggle()
+	p.HandleKey(tea.Key{Code: tea.KeyRight})
+	p.HandleKey(tea.Key{Code: tea.KeyRight})
 	p.HandleKey(tea.Key{Code: tea.KeyEnter})
 	if len(lines) != 1 || lines[0] != ANSWER_FOR {
 		t.Errorf("answer prompt = %q, want %q", lines, ANSWER_FOR)
@@ -113,9 +117,10 @@ var (
 		"\x1b[38;2;38;139;210;1mPending questions for subagent-B\x1b[0m",
 		"",
 		"\x1b[38;2;38;139;210m> \x1b[0m\x1b[38;2;101;123;131mB question\x1b[39m",
-		"      b1\x1b[39m",
+		"    \x1b[38;2;38;139;210m› \x1b[39mb1\x1b[39m",
+		"      \x1b[38;2;101;123;131mWrite-in answer…\x1b[39m",
 		"",
-		"\x1b[38;2;101;123;131mKeyboard: \x1b[39m\x1b[38;2;38;139;210m↑/↓\x1b[0m\x1b[38;2;101;123;131m Navigate  \x1b[39m\x1b[38;2;38;139;210m←/→\x1b[0m\x1b[38;2;101;123;131m Options  \x1b[39m\x1b[38;2;38;139;210menter\x1b[0m\x1b[38;2;101;123;131m Answer  \x1b[39m\x1b[38;2;38;139;210mesc\x1b[0m\x1b[38;2;101;123;131m Cancel\x1b[39m",
+		"\x1b[38;2;101;123;131mKeyboard: \x1b[39m\x1b[38;2;38;139;210m↑/↓\x1b[0m\x1b[38;2;101;123;131m Questions  \x1b[39m\x1b[38;2;38;139;210m←/→\x1b[0m\x1b[38;2;101;123;131m Options  \x1b[39m\x1b[38;2;38;139;210menter\x1b[0m\x1b[38;2;101;123;131m Select  \x1b[39m\x1b[38;2;38;139;210mesc\x1b[0m\x1b[38;2;101;123;131m Skip\x1b[39m",
 	}
 
 	NO_PENDING = "\x1b[38;2;38;139;210;1m  ⎿  \x1b[0m\x1b[38;2;101;123;131mNo pending questions for subagent-none\x1b[39m"

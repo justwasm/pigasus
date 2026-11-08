@@ -86,7 +86,13 @@ type Subagent struct {
 	State  string
 	Result string
 	Err    error
-// Title is the human-given name the caller passed when sending the
+	// Model is the model the subagent runs on, when it is an LLM
+	// subagent. The /agents panel shows it next to the name (AGY 1.5.3)
+	// and in the detail view.
+	Model string
+	// Effort is the reasoning effort the subagent runs at, when known.
+	Effort string
+	// Title is the human-given name the caller passed when sending the
 	// subagent to the background. The taskregistry (and the /tasks
 	// panel / completion notifications) prefer this over the auto-derived
 	// "<Name> <args...>" string produced by subagentDisplayName so a
@@ -477,11 +483,6 @@ func NewSubagent(name string, args ...string) *Subagent {
 // Specific subagent types — thin convenience constructors built on
 // NewSubagent. They keep the original cycle-22 ergonomics for callers
 // that want a one-shot bash sub-process for a known task.
-
-
-
-
-
 
 // Manager tracks many Subagents by ID.
 type Manager struct {

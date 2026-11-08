@@ -55,13 +55,13 @@ func TestCycleTasksPanelProbe(t *testing.T) {
 
 	// 1. empty registry
 	{
-		m := seedProbeRunMode()
+		m := seedProbeRootModel()
 		writeProbe(t, "tasks-empty.raw.txt", renderProbePanel(m)+"\n\n"+renderProbeStatusRow(m)+"\n")
 	}
 
 	// 2. with-shells (2 running)
 	{
-		m := seedProbeRunMode()
+		m := seedProbeRootModel()
 		seedProbeShell(m, "bash -c sleep 30 # task 1")
 		seedProbeShell(m, "bash -c sleep 30 # task 2")
 		writeProbe(t, "tasks-with-shells.raw.txt", renderProbePanel(m)+"\n\n"+renderProbeStatusRow(m)+"\n")
@@ -69,7 +69,7 @@ func TestCycleTasksPanelProbe(t *testing.T) {
 
 	// 3. kill-running
 	{
-		m := seedProbeRunMode()
+		m := seedProbeRootModel()
 		seedProbeShell(m, "bash -c sleep 30 # task 1")
 		// Press "k" on the cursor row — the reference's KeyTaskKill
 		// binding. (Enter opens the row's detail view; the clone used
@@ -79,7 +79,7 @@ func TestCycleTasksPanelProbe(t *testing.T) {
 		// Wait up to 1s for the killed transition to land.
 		deadline := time.Now().Add(1 * time.Second)
 		for time.Now().Before(deadline) {
-			if m.engine.taskReg.CountRunning() == 0 {
+			if m.tasks.reg.CountRunning() == 0 {
 				break
 			}
 			time.Sleep(20 * time.Millisecond)
@@ -89,7 +89,7 @@ func TestCycleTasksPanelProbe(t *testing.T) {
 
 	// 4. status-line-count
 	{
-		m := seedProbeRunMode()
+		m := seedProbeRootModel()
 		seedProbeShell(m, "bash -c sleep 30 # task 1")
 		seedProbeShell(m, "bash -c sleep 30 # task 2")
 		writeProbe(t, "status-line-count.raw.txt", renderProbeStatusRow(m)+"\n")
@@ -110,28 +110,28 @@ func TestCycleTasksPanelProbe(t *testing.T) {
 	}
 }
 
-func seedProbeRunMode() *runMode {
-	m := &runMode{}
-	m.engine.taskReg = taskregistry.New()
-	m.engine.taskSubagentManager = subagent.NewManager()
+func seedProbeRootModel() *RootModel {
+	m := &RootModel{}
+	m.tasks.reg = taskregistry.New()
+	m.tasks.subagentManager = subagent.NewManager()
 	return m
 }
 
-func seedProbeShell(m *runMode, name string) {
+func seedProbeShell(m *RootModel, name string) {
 	sa := subagent.NewSubagent("bash", "-c", strings.TrimPrefix(name, "bash -c "))
-	m.engine.taskSubagentManager.Add(sa)
-	m.engine.taskReg.AttachSubagent(sa, "")
+	m.tasks.subagentManager.Add(sa)
+	m.tasks.reg.AttachSubagent(sa, "")
 	if err := sa.Start(); err != nil {
 		panic(err)
 	}
 }
 
-func renderProbePanel(m *runMode) string {
+func renderProbePanel(m *RootModel) string {
 	// Mirrors internal/ui/views/taskspanel's row renderer
 	// minus the ANSI escapes so the probe bytes are stable
 	// across terminal widths.
 	var b strings.Builder
-	tasks := m.engine.taskReg.List()
+	tasks := m.tasks.reg.List()
 	b.WriteString("Tasks\n")
 	if len(tasks) == 0 {
 		b.WriteString("  No background tasks.\n")
@@ -169,8 +169,8 @@ func renderProbeRow(t *taskregistry.Task) string {
 	return "  ⎿  ⠿ " + state + "  " + t.ID + "  " + t.Name + "  " + elapsed
 }
 
-func renderProbeStatusRow(m *runMode) string {
-	n := m.engine.taskReg.CountRunning()
+func renderProbeStatusRow(m *RootModel) string {
+	n := m.tasks.reg.CountRunning()
 	suffix := ""
 	if n == 1 {
 		suffix = " · 1 task"

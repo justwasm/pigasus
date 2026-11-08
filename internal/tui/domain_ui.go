@@ -55,20 +55,19 @@ func (u *uiState) SetAutoScroll(auto bool) {
 	u.autoScroll = auto
 }
 
-// Delegators on runMode for backward compatibility and clean domain access:
-func (m *runMode) TerminalDimensions() (int, int) { return m.viewport.TerminalDimensions() }
-func (m *runMode) InvalidateViewCache()           { m.viewport.InvalidateViewCache() }
-func (m *runMode) invalidateViewCache()           { m.viewport.InvalidateViewCache() }
-func (m *runMode) ActiveColorScheme() string      { return m.viewport.ActiveColorScheme() }
-func (m *runMode) SetActiveColorScheme(s string)  { m.viewport.SetActiveColorScheme(s) }
-func (m *runMode) IsAltScreenEnabled() bool       { return m.viewport.IsAltScreenEnabled() }
-func (m *runMode) SetAltScreen(enabled bool)      { m.viewport.SetAltScreen(enabled) }
-func (m *runMode) ViewportScroll() int            { return m.viewport.ViewportScroll() }
-func (m *runMode) SetViewportScroll(offset int)   { m.viewport.SetViewportScroll(offset) }
-func (m *runMode) IsAutoScrollEnabled() bool      { return m.viewport.IsAutoScrollEnabled() }
-func (m *runMode) SetAutoScroll(auto bool)        { m.viewport.SetAutoScroll(auto) }
+// Delegators on RootModel for backward compatibility and clean domain access:
+func (m *RootModel) TerminalDimensions() (int, int) { return m.viewport.TerminalDimensions() }
+func (m *RootModel) InvalidateViewCache()           { m.viewport.InvalidateViewCache() }
+func (m *RootModel) invalidateViewCache()           { m.viewport.InvalidateViewCache() }
+func (m *RootModel) ActiveColorScheme() string      { return m.viewport.ActiveColorScheme() }
+func (m *RootModel) SetActiveColorScheme(s string)  { m.viewport.SetActiveColorScheme(s) }
+func (m *RootModel) IsAltScreenEnabled() bool       { return m.viewport.IsAltScreenEnabled() }
+func (m *RootModel) SetAltScreen(enabled bool)      { m.viewport.SetAltScreen(enabled) }
+func (m *RootModel) ViewportScroll() int            { return m.viewport.ViewportScroll() }
+func (m *RootModel) SetViewportScroll(offset int)   { m.viewport.SetViewportScroll(offset) }
+func (m *RootModel) IsAutoScrollEnabled() bool      { return m.viewport.IsAutoScrollEnabled() }
+func (m *RootModel) SetAutoScroll(auto bool)        { m.viewport.SetAutoScroll(auto) }
 
-func (m *runMode) ResetSelection()                 { m.viewport.ResetSelection() }
-func (m *runMode) ResetInputSelection()            { m.viewport.ResetInputSelection() }
-func (m *runMode) InputSelectionRange() (int, int) { return m.viewport.InputSelectionRange() }
-
+func (m *RootModel) ResetSelection()                 { m.viewport.ResetSelection() }
+func (m *RootModel) ResetInputSelection()            { m.prompt.ResetInputSelection() }
+func (m *RootModel) InputSelectionRange() (int, int) { return m.prompt.InputSelectionRange() }

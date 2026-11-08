@@ -23,6 +23,7 @@ import (
 
 	"github.com/charmbracelet/x/ansi"
 
+	"github.com/justwasm/pigasus/internal/core/backend"
 	accounts "github.com/justwasm/pigasus/internal/features/accounts/core"
 	"github.com/justwasm/pigasus/internal/features/auth"
 	"github.com/justwasm/pigasus/internal/ui/panelregistry"
@@ -65,7 +66,7 @@ func accountsIsolate(t *testing.T) string {
 
 // mkAccountsPanel opens the /accounts panel over a registry holding the
 // given accounts, with the first one active.
-func mkAccountsPanel(t *testing.T, emails ...string) *runMode {
+func mkAccountsPanel(t *testing.T, emails ...string) *RootModel {
 	t.Helper()
 	for _, email := range emails {
 		if _, _, err := accounts.Register(accountsFakeToken(t, email, "at-"+email)); err != nil {
@@ -79,7 +80,7 @@ func mkAccountsPanel(t *testing.T, emails ...string) *runMode {
 			t.Fatalf("Activate(%s): %v", emails[0], err)
 		}
 	}
-	m := &runMode{}
+	m := &RootModel{}
 	m.overlays.panel = slashPanel{kind: panelregistry.Accounts, cmd: "/accounts"}
 	m.initOpenedSlashPanelData(panelregistry.Accounts)
 	return m
@@ -144,10 +145,50 @@ func TestAccountsPanelRemoveSignsTheSessionOut(t *testing.T) {
 	}
 }
 
+// accountsTestBackend is a distinguishable transport for the switch
+// tests. backend.NewMock returns a zero-size value, so two mocks can share
+// an address; the id makes "was it rebuilt?" observable.
+type accountsTestBackend struct {
+	backend.Client
+	id int
+}
+
+// TestAccountsPanelSwitchRebuildsTheTransport pins the other half of the
+// switch: the CloudCode client caches the keychain token it read, so the
+// session's backend has to be rebuilt or the next turn keeps talking as
+// the account the session started with.
+func TestAccountsPanelSwitchRebuildsTheTransport(t *testing.T) {
+	accountsIsolate(t)
+	m := mkAccountsPanel(t, "a@example.com", "b@example.com")
+
+	old := &accountsTestBackend{Client: backend.NewMock(), id: 0}
+	built := 0
+	m.turn.backend = old
+	m.turn.backendFor = func(string) backend.Client {
+		built++
+		return &accountsTestBackend{Client: backend.NewMock(), id: built}
+	}
+
+	m.accountsPanel().SetCursor(1)
+	m.accountsPanel().HandleKey(tea.Key{Code: tea.KeyEnter})
+
+	if built != 1 {
+		t.Fatalf("the transport was rebuilt %d times, want 1 (notice=%q email=%q)",
+			built, m.accountsPanel().Notice(), m.session.email)
+	}
+	if m.turn.backend == old {
+		t.Fatalf("the session kept the transport built for the previous account (notice=%q email=%q)",
+			m.accountsPanel().Notice(), m.session.email)
+	}
+	if got, ok := m.turn.backend.(*accountsTestBackend); !ok || got.id != 1 {
+		t.Fatalf("the session's transport = %#v, want the freshly built one", m.turn.backend)
+	}
+}
+
 func TestLogoutForgetsTheActiveAccount(t *testing.T) {
 	accountsIsolate(t)
 	mkAccountsPanel(t, "a@example.com", "b@example.com")
-	m := &runMode{}
+	m := &RootModel{}
 	m.slashLogout("")
 	st, err := accounts.Load()
 	if err != nil {
@@ -170,7 +211,13 @@ func TestLogoutForgetsTheActiveAccount(t *testing.T) {
 func TestSyncAccountIdentityFollowsAnOutsideSwitch(t *testing.T) {
 	accountsIsolate(t)
 	mkAccountsPanel(t, "a@example.com")
-	m := &runMode{session: sessionState{email: "a@example.com"}}
+	m := &RootModel{session: sessionState{email: "a@example.com"}}
+
+	old := &accountsTestBackend{Client: backend.NewMock(), id: 0}
+	m.turn.backend = old
+	m.turn.backendFor = func(string) backend.Client {
+		return &accountsTestBackend{Client: backend.NewMock(), id: 1}
+	}
 
 	// The shared credential now names another account.
 	if err := auth.SaveTokenUnified(accountsFakeToken(t, "b@example.com", "at-b@example.com")); err != nil {
@@ -180,6 +227,9 @@ func TestSyncAccountIdentityFollowsAnOutsideSwitch(t *testing.T) {
 	m.syncAccountIdentity()
 	if m.session.email != "b@example.com" {
 		t.Fatalf("m.session.email = %q, want b@example.com", m.session.email)
+	}
+	if m.turn.backend == old {
+		t.Fatal("the transport still belongs to the previous account")
 	}
 
 	// A sync that finds nothing to change leaves the session alone.
@@ -331,7 +381,7 @@ func TestUsageReusesTheCachedQuotaSnapshot(t *testing.T) {
 	if _, _, err := accounts.Register(accountsFakeToken(t, "a@example.com", "at-a@example.com")); err != nil {
 		t.Fatalf("Register: %v", err)
 	}
-	m := &runMode{session: sessionState{email: "a@example.com"}}
+	m := &RootModel{session: sessionState{email: "a@example.com"}}
 	summary := &auth.QuotaSummary{Description: "cached"}
 	if err := accounts.SetQuota("a@example.com", summary.Snapshot()); err != nil {
 		t.Fatalf("SetQuota: %v", err)
@@ -362,7 +412,7 @@ func TestUsageRefetchesAStaleQuotaSnapshot(t *testing.T) {
 	if _, _, err := accounts.Register(accountsFakeToken(t, "a@example.com", "at-a@example.com")); err != nil {
 		t.Fatalf("Register: %v", err)
 	}
-	m := &runMode{session: sessionState{email: "a@example.com"}}
+	m := &RootModel{session: sessionState{email: "a@example.com"}}
 	stale := &auth.QuotaSnapshot{
 		FetchedAt: time.Now().Add(-10 * time.Minute),
 		Groups:    []auth.QuotaGroupSnapshot{{Name: "gpt"}},

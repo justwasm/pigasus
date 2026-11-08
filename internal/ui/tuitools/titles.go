@@ -63,7 +63,21 @@ func ToolStepTitleMisc(name string, args json.RawMessage) string {
 	case "finish":
 		return "Finished"
 	case "ask_question":
-		return "Asked " + Clip(ArgStr(args, "question", "prompt"), 60)
+		qStr := ArgStr(args, "question", "prompt")
+		if qStr == "" {
+			var p struct {
+				Questions []struct {
+					Question string `json:"question"`
+				} `json:"questions"`
+			}
+			if err := json.Unmarshal(args, &p); err == nil && len(p.Questions) > 0 {
+				qStr = p.Questions[0].Question
+			}
+		}
+		if qStr != "" {
+			return "Asked " + Clip(qStr, 60)
+		}
+		return "Asked"
 	case "ask_permission", "ask_custom_permission":
 		return "Needs approval"
 	case "notify_user":

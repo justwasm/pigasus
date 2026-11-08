@@ -15,7 +15,7 @@ func TestHeaderJumpConversation(t *testing.T) {
 	if err != nil {
 		t.Skip("db not found: ", err)
 	}
-	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/", true)
 	m.viewport.width = 120
 	m.viewport.height = 40
 	m.seedConversation(c)
@@ -41,7 +41,7 @@ func TestHeaderClickJump_ExactOneBlankLineAtTop(t *testing.T) {
 	if err != nil {
 		t.Skip("db not found: ", err)
 	}
-	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/", true)
 	m.viewport.width = 120
 	m.viewport.height = 30
 	m.seedConversation(c)
@@ -86,7 +86,7 @@ func TestEveryPromptHeaderClickJump(t *testing.T) {
 	if err != nil {
 		t.Skip("db not found: ", err)
 	}
-	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/", true)
 	m.viewport.width = 120
 	m.viewport.height = 30
 	m.seedConversation(c)
@@ -119,11 +119,11 @@ func TestEveryPromptHeaderClickJump(t *testing.T) {
 }
 
 func TestNonAltScreen_NoStickyPrompt(t *testing.T) {
-	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", false)
+	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/", false)
 	m.viewport.altScreen = false
 	m.viewport.width = 100
 	m.viewport.height = 30
-	m.engine.response = []string{
+	m.conversation.response = []string{
 		transcript.UserPromptRow("prompt 1"),
 		"response 1",
 		"",
@@ -154,11 +154,11 @@ func TestNonAltScreen_NoStickyPrompt(t *testing.T) {
 }
 
 func TestBottomScrollDown_NoStickyHeaderFlicker(t *testing.T) {
-	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/", true)
 	m.viewport.altScreen = true
 	m.viewport.width = 100
 	m.viewport.height = 20
-	m.engine.response = []string{
+	m.conversation.response = []string{
 		transcript.UserPromptRow("prompt 1"),
 		"response 1",
 		"",
@@ -166,7 +166,7 @@ func TestBottomScrollDown_NoStickyHeaderFlicker(t *testing.T) {
 		transcript.UserPromptRow("prompt 2"),
 	}
 	for i := 0; i < 50; i++ {
-		m.engine.response = append(m.engine.response, "line of response")
+		m.conversation.response = append(m.conversation.response, "line of response")
 	}
 
 	// Initial render at the bottom
@@ -218,7 +218,7 @@ func TestBottomScrollDown_ZeroAllocs(t *testing.T) {
 	if err != nil {
 		t.Skip("db not found: ", err)
 	}
-	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/", true)
 	m.viewport.width = 120
 	m.viewport.height = 30
 	m.seedConversation(c)
@@ -249,7 +249,7 @@ func BenchmarkBottomScrollDown(b *testing.B) {
 	if err != nil {
 		b.Skip("db not found: ", err)
 	}
-	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/", true)
 	m.viewport.width = 120
 	m.viewport.height = 30
 	m.seedConversation(c)

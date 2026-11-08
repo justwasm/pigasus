@@ -7,7 +7,7 @@ import (
 )
 
 func TestContextUsedPercent_MultiTurnDoesNotBalloon(t *testing.T) {
-	m := &runMode{
+	m := &RootModel{
 		session: sessionState{model: "gpt-oss-120b"},
 	}
 

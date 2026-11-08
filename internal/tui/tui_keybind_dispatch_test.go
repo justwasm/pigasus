@@ -10,19 +10,89 @@ import (
 	"github.com/justwasm/pigasus/internal/ui/editor/keybind"
 )
 
+// TestCtrlDForwardDeleteWinsOverCLIExitBinding pins the keybinding
+// interplay: the reference's default binds ctrl+d to cli.exit, but while
+// the composer has text ctrl+d is Emacs forward-delete
+// (official-docs/changelog.md). Only an empty prompt exits.
+func TestCtrlDForwardDeleteWinsOverCLIExitBinding(t *testing.T) {
+	tmp := t.TempDir() + "/keybindings.json"
+	if err := os.WriteFile(tmp, []byte(`{"cli.exit": ["ctrl+d"]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	kb, err := keybind.Load(tmp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/", false)
+	m.prompt.keybindings = kb
+
+	m.prompt.input.SetValue("hello")
+	m.prompt.input.CursorStart()
+	m.Update(ctrlKey('d'))
+	if m.display.quitting {
+		t.Fatal("ctrl+d with text quit instead of forward-deleting")
+	}
+	if got := m.prompt.input.Value(); got != "ello" {
+		t.Fatalf("ctrl+d left %q, want 'ello'", got)
+	}
+
+	m.prompt.input.Reset()
+	m.ResetInputSelection()
+	m.Update(ctrlKey('d'))
+	if !m.display.quitting {
+		t.Fatal("ctrl+d on an empty prompt did not exit")
+	}
+}
+
+// TestCtrlCCancelsBashAndArmsExitWithKeybindings pins the keybinding path:
+// with cli.escape bound to ctrl+c, a press that kills a running shell
+// command still arms the two-step exit confirmation, and the next press
+// exits.
+func TestCtrlCCancelsBashAndArmsExitWithKeybindings(t *testing.T) {
+	tmp := t.TempDir() + "/keybindings.json"
+	if err := os.WriteFile(tmp, []byte(`{"cli.escape": ["ctrl+c", "esc"]}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	kb, err := keybind.Load(tmp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/", false)
+	m.prompt.keybindings = kb
+	cancelled := false
+	m.session.store.BashCancel = func() { cancelled = true }
+
+	m.Update(tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl})
+	if !cancelled {
+		t.Fatal("ctrl+c did not cancel the running command")
+	}
+	if !m.display.exitConfirm {
+		t.Fatal("ctrl+c did not arm the exit confirmation")
+	}
+	if m.display.quitting {
+		t.Fatal("the first ctrl+c quit")
+	}
+
+	// The command is gone; the second press is the confirmation.
+	m.Update(tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl})
+	if !m.display.quitting {
+		t.Fatal("the second ctrl+c did not quit")
+	}
+}
+
 func TestDispatchKeyAction_CustomKeybindings(t *testing.T) {
 	kb, err := keybind.Load("/nonexistent")
 	if err != nil {
 		t.Fatalf("unexpected load err: %v", err)
 	}
 
-	m := &runMode{
-		composer: composerState{
+	m := &RootModel{
+		prompt: PromptModel{
 			keybindings: kb,
 		},
 	}
-	initRunModeInput(m)
-	initRunModeInput(m)
+	initRootModelInput(m)
+	initRootModelInput(m)
 
 	// 1. Dispatch without binding should fall through to hardcoded keys
 	_, cmd, handled := m.handleGlobalOrModalKeys(tea.Key{Code: 'l', Mod: tea.ModCtrl})
@@ -35,7 +105,7 @@ func TestDispatchKeyAction_CustomKeybindings(t *testing.T) {
 	tmp := t.TempDir() + "/keybindings.json"
 	_ = os.WriteFile(tmp, []byte(kbJSON), 0644) // load custom
 	kbCustom, _ := keybind.Load(tmp)
-	m.composer.keybindings = kbCustom
+	m.prompt.keybindings = kbCustom
 
 	_, quitCmd, handledQuit := m.handleGlobalOrModalKeys(tea.Key{Code: 'q', Mod: tea.ModCtrl})
 	if !handledQuit || quitCmd == nil {
@@ -47,15 +117,15 @@ func TestDispatchKeyAction_CustomKeybindings(t *testing.T) {
 	tmpConfirm := t.TempDir() + "/keybindings.json"
 	_ = os.WriteFile(tmpConfirm, []byte(kbJSONConfirm), 0644)
 	kbConfirm, _ := keybind.Load(tmpConfirm)
-	m.composer.keybindings = kbConfirm
+	m.prompt.keybindings = kbConfirm
 
-	m.engine.exitConfirm = true
+	m.display.exitConfirm = true
 	_, noCmd, handledNo := m.handleGlobalOrModalKeys(tea.Key{Code: 'n', Mod: tea.ModCtrl})
-	if !handledNo || noCmd != nil || m.engine.exitConfirm {
+	if !handledNo || noCmd != nil || m.display.exitConfirm {
 		t.Errorf("expected confirm.no to dismiss exit confirmation")
 	}
 
-	m.engine.exitConfirm = true
+	m.display.exitConfirm = true
 	_, yesCmd, handledYes := m.handleGlobalOrModalKeys(tea.Key{Code: 'y', Mod: tea.ModCtrl})
 	if !handledYes || yesCmd == nil {
 		t.Errorf("expected confirm.yes to trigger quit on exit confirmation")
@@ -73,7 +143,7 @@ func TestDispatchKeyAction_CustomKeybindings(t *testing.T) {
 	tmpExt := t.TempDir() + "/keybindings.json"
 	_ = os.WriteFile(tmpExt, []byte(kbJSONExtended), 0644)
 	kbExt, _ := keybind.Load(tmpExt)
-	m.composer.keybindings = kbExt
+	m.prompt.keybindings = kbExt
 
 	// Test cli.suspend
 	_, suspendCmd, handledSuspend := m.handleGlobalOrModalKeys(tea.Key{Code: 'z', Mod: tea.ModCtrl})
@@ -88,32 +158,32 @@ func TestDispatchKeyAction_CustomKeybindings(t *testing.T) {
 	}
 
 	// Test prompt.insert_newline
-	m.composer.input.SetValue("first line")
+	m.prompt.input.SetValue("first line")
 	_, _, handledNewline := m.handleGlobalOrModalKeys(tea.Key{Code: 'j', Mod: tea.ModCtrl})
-	if !handledNewline || m.composer.input.Value() != "first line\n" {
-		t.Errorf("expected Ctrl+J mapped to prompt.insert_newline to insert newline, got %q", m.composer.input.Value())
+	if !handledNewline || m.prompt.input.Value() != "first line\n" {
+		t.Errorf("expected Ctrl+J mapped to prompt.insert_newline to insert newline, got %q", m.prompt.input.Value())
 	}
 }
 
 func TestDispatchKeyAction_SubagentApproveFastVsJumpToWaiting(t *testing.T) {
-	m := newRunModeForSubagentQuestion(t)
-	m.engine.subAgentQuestions.Enqueue(subagentquestions.ParentKey, "Approve operation?", []string{"yes", "no"})
+	m := newRootModelForSubagentQuestion(t)
+	m.askQuestion.manager.Enqueue(subagentquestions.ParentKey, "Approve operation?", []string{"yes", "no"})
 
 	// 1. subagent.jump_to_waiting should toggle question panel focus without approving
 	_, _, handledJump := m.dispatchKeyAction("subagent.jump_to_waiting")
 	if !handledJump {
 		t.Fatal("expected subagent.jump_to_waiting to be handled")
 	}
-	if !m.engine.subAgentQuestionPanel.Active() {
+	if !m.askQuestion.panel.Active() {
 		t.Fatal("expected subagent.jump_to_waiting to activate question panel")
 	}
-	if m.engine.subAgentQuestions.PendingCount(subagentquestions.ParentKey) != 1 {
-		t.Fatalf("question should remain pending after jump, got %d", m.engine.subAgentQuestions.PendingCount(subagentquestions.ParentKey))
+	if m.askQuestion.manager.PendingCount(subagentquestions.ParentKey) != 1 {
+		t.Fatalf("question should remain pending after jump, got %d", m.askQuestion.manager.PendingCount(subagentquestions.ParentKey))
 	}
 
 	// Close panel
-	m.engine.subAgentQuestionPanel.Toggle()
-	if m.engine.subAgentQuestionPanel.Active() {
+	m.askQuestion.panel.Toggle()
+	if m.askQuestion.panel.Active() {
 		t.Fatal("expected panel to be closed")
 	}
 
@@ -122,11 +192,11 @@ func TestDispatchKeyAction_SubagentApproveFastVsJumpToWaiting(t *testing.T) {
 	if !handledApprove {
 		t.Fatal("expected subagent.approve_fast to be handled")
 	}
-	if m.engine.subAgentQuestionPanel.Active() {
+	if m.askQuestion.panel.Active() {
 		t.Fatal("subagent.approve_fast must not open or focus the question panel")
 	}
-	if m.engine.subAgentQuestions.PendingCount(subagentquestions.ParentKey) != 0 {
-		t.Fatalf("expected pending questions to be 0 after approve_fast, got %d", m.engine.subAgentQuestions.PendingCount(subagentquestions.ParentKey))
+	if m.askQuestion.manager.PendingCount(subagentquestions.ParentKey) != 0 {
+		t.Fatalf("expected pending questions to be 0 after approve_fast, got %d", m.askQuestion.manager.PendingCount(subagentquestions.ParentKey))
 	}
 }
 

@@ -305,13 +305,21 @@ func SubagentDetailHeader(t *Task, ctx SubagentHeaderContext) []string {
 	steps := fmt.Sprintf(detailStepsFormat,
 		SubagentStateColor(t.State)+SubagentStateWord(t.State)+StateClose(),
 		title, string(t.Kind), len(t.Steps))
-	return []string{
+	lines := []string{
 		path,
 		detailElapsedLine(t),
 		detailIndent + steps,
 		detailIDPrefix + t.ID,
-		detailIndent + strings.Repeat(detailRuleCell, detailRuleCellsFor(ctx.Width)),
 	}
+	// AGY 1.5.3: the detail view carries the full model and effort.
+	if model := strings.TrimSpace(t.Model); model != "" {
+		line := detailIndent + "Model: " + model
+		if effort := strings.TrimSpace(t.Effort); effort != "" {
+			line += " (effort: " + effort + ")"
+		}
+		lines = append(lines, line)
+	}
+	return append(lines, detailIndent+strings.Repeat(detailRuleCell, detailRuleCellsFor(ctx.Width)))
 }
 
 // SubagentStateWord maps a registry state onto the reference's

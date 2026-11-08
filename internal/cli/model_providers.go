@@ -1061,7 +1061,10 @@ func usageAccounts(n string) string {
 		"Manage the signed-in Google accounts\n" +
 		"\n" +
 		"Subcommands:\n" +
+		"  tui      Launch the interactive accounts and routing management TUI\n" +
 		"  list     List the known accounts\n" +
+		"  show     Show one account in detail\n" +
+		"  add      Sign in to another Google account\n" +
 		"  switch   Make one account the active one\n" +
 		"  remove   Forget one account\n" +
 		"\n" +
@@ -1162,10 +1165,20 @@ func runAccountsRemove(j *JetskiCLI, args []string) error {
 	return nil
 }
 
-// runAccountsParent is the no-subcommand form: it prints the list.
+// runAccountsParent is the no-subcommand form: like `provider`, it prints
+// the usage instead of doing work, so `pigasus accounts` is a help screen
+// and `pigasus accounts list` is the list.
 func runAccountsParent(j *JetskiCLI, args []string) error {
 	if len(args) == 0 {
-		return runAccountsList(j, args)
+		if isInteractiveTerminal(j.Out) {
+			return runAccountsTUI(j, args)
+		}
+		fmt.Fprint(j.ErrOut, usageAccounts(j.Name))
+		return errExitCode(1)
+	}
+	if len(args) == 1 && isHelpArg(args[0]) {
+		fmt.Fprint(j.Out, usageAccounts(j.Name))
+		return nil
 	}
 	return usageFail(j, usageAccounts(j.Name), "Error: unknown accounts subcommand")
 }

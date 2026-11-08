@@ -26,7 +26,7 @@ import (
 )
 
 // escPress sends one Esc through the run loop.
-func escPress(t *testing.T, m *runMode) {
+func escPress(t *testing.T, m *RootModel) {
 	t.Helper()
 	m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEsc}))
 }
@@ -37,23 +37,23 @@ func escPress(t *testing.T, m *runMode) {
 // Cycle 383 (B-21): the clone cleared the prompt on the first Esc, so
 // a single Esc could throw away a draft the user had not finished.
 func TestEscEscClearsThePrompt(t *testing.T) {
-	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/", true)
 	for _, r := range "hello" {
 		m.Update(runeKey(r))
 	}
-	if got := m.composer.input.Value(); got != "hello" {
+	if got := m.prompt.input.Value(); got != "hello" {
 		t.Fatalf("precondition: the composer holds %q, want %q", got, "hello")
 	}
 
 	// First Esc: arms the clear, the draft survives.
 	escPress(t, m)
-	if got := m.composer.input.Value(); got != "hello" {
+	if got := m.prompt.input.Value(); got != "hello" {
 		t.Fatalf("one Esc must not clear the composer, got %q", got)
 	}
 
 	// Second Esc: the pair is complete, the composer is empty.
 	escPress(t, m)
-	if got := m.composer.input.Value(); got != "" {
+	if got := m.prompt.input.Value(); got != "" {
 		t.Fatalf("the second Esc must clear the composer, got %q", got)
 	}
 }
@@ -62,7 +62,7 @@ func TestEscEscClearsThePrompt(t *testing.T) {
 // row: any other key drops the arming, so the next Esc arms again
 // instead of clearing.
 func TestEscPairIsBrokenByAnotherKey(t *testing.T) {
-	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/", true)
 	for _, r := range "hi" {
 		m.Update(runeKey(r))
 	}
@@ -70,19 +70,19 @@ func TestEscPairIsBrokenByAnotherKey(t *testing.T) {
 	escPress(t, m)
 	// The intervening key breaks the pair and is inserted as text.
 	m.Update(runeKey('x'))
-	if got := m.composer.input.Value(); got != "hix" {
+	if got := m.prompt.input.Value(); got != "hix" {
 		t.Fatalf("the composer holds %q, want %q", got, "hix")
 	}
 
 	// The next Esc arms again — it does not clear.
 	escPress(t, m)
-	if got := m.composer.input.Value(); got != "hix" {
+	if got := m.prompt.input.Value(); got != "hix" {
 		t.Fatalf("one Esc after a broken pair must not clear the composer, got %q", got)
 	}
 
 	// And the Esc that follows it clears.
 	escPress(t, m)
-	if got := m.composer.input.Value(); got != "" {
+	if got := m.prompt.input.Value(); got != "" {
 		t.Fatalf("the second Esc must clear the composer, got %q", got)
 	}
 }
@@ -91,29 +91,29 @@ func TestEscPairIsBrokenByAnotherKey(t *testing.T) {
 // ends up somewhere else keeps its old meaning: it closes the overlay,
 // and it neither clears the composer nor arms the pair.
 func TestEscThatClosesAnOverlayIsNotPartOfThePair(t *testing.T) {
-	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/", true)
 	for _, r := range "hello" {
 		m.Update(runeKey(r))
 	}
 
 	// The overlay is a modal panel: open it over the draft.
-	m.viewport.helpPanel.Open(0)
-	if !m.viewport.helpPanel.Active() {
+	m.help.Panel.Open(0)
+	if !m.help.Panel.Active() {
 		t.Fatal("the /help overlay should be open")
 	}
 
 	// The Esc closes the overlay — the composer keeps its text.
 	escPress(t, m)
-	if m.viewport.helpPanel.Active() {
+	if m.help.Panel.Active() {
 		t.Fatal("the Esc should have closed the /help overlay")
 	}
-	if got := m.composer.input.Value(); got != "hello" {
+	if got := m.prompt.input.Value(); got != "hello" {
 		t.Fatalf("the Esc that closed the overlay must not touch the composer, got %q", got)
 	}
 
 	// And the pair was not armed by it: the next Esc only arms.
 	escPress(t, m)
-	if got := m.composer.input.Value(); got != "hello" {
+	if got := m.prompt.input.Value(); got != "hello" {
 		t.Fatalf("one Esc must not clear the composer, got %q", got)
 	}
 }
@@ -122,27 +122,27 @@ func TestEscThatClosesAnOverlayIsNotPartOfThePair(t *testing.T) {
 // the shortcuts overlay on an empty prompt. When text is present in the composer,
 // typing `?` inserts the character rather than opening /help.
 func TestQuestionMarkTypesWithTextInTheComposer(t *testing.T) {
-	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/", true)
 	for _, r := range "hello" {
 		m.Update(runeKey(r))
 	}
 
 	m.Update(runeKey('?'))
-	if m.viewport.helpPanel.Active() {
+	if m.help.Panel.Active() {
 		t.Fatal("`?` must NOT open the /help overlay when text is in the composer")
 	}
-	if got := m.composer.input.Value(); got != "hello?" {
+	if got := m.prompt.input.Value(); got != "hello?" {
 		t.Errorf("the composer holds %q, want %q", got, "hello?")
 	}
 
 	// Clearing the composer restores `?` as the shortcuts overlay shortcut.
-	m.composer.input.SetValue("")
+	m.prompt.input.SetValue("")
 	m.Update(runeKey('?'))
-	if !m.viewport.helpPanel.Active() {
+	if !m.help.Panel.Active() {
 		t.Fatal("`?` on empty composer must open the /help overlay")
 	}
-	if m.viewport.helpPanel.Tab() != 2 {
-		t.Errorf("the overlay's tab = %d, want 2 (shortcuts)", m.viewport.helpPanel.Tab())
+	if m.help.Panel.Tab() != 2 {
+		t.Errorf("the overlay's tab = %d, want 2 (shortcuts)", m.help.Panel.Tab())
 	}
 }
 
@@ -157,10 +157,10 @@ func TestQuestionMarkTypesInVimInsertMode(t *testing.T) {
 	}
 
 	m.Update(runeKey('?'))
-	if m.viewport.helpPanel.Active() {
+	if m.help.Panel.Active() {
 		t.Fatal("`?` in the vim engine's INSERT mode must not open the overlay")
 	}
-	if got := m.composer.input.Value(); got != "?" {
+	if got := m.prompt.input.Value(); got != "?" {
 		t.Errorf("the composer holds %q, want %q", got, "?")
 	}
 }
@@ -171,11 +171,11 @@ func TestQuestionMarkOpensHelpInVimNormalMode(t *testing.T) {
 	m := vimTestMode(t, map[string]any{"editorMode": "vim"})
 
 	m.Update(runeKey('?'))
-	if !m.viewport.helpPanel.Active() {
+	if !m.help.Panel.Active() {
 		t.Fatal("`?` in the vim engine's NORMAL mode must open the overlay on empty prompt")
 	}
-	if m.viewport.helpPanel.Tab() != 2 {
-		t.Errorf("the overlay's tab = %d, want 2 (shortcuts)", m.viewport.helpPanel.Tab())
+	if m.help.Panel.Tab() != 2 {
+		t.Errorf("the overlay's tab = %d, want 2 (shortcuts)", m.help.Panel.Tab())
 	}
 }
 
@@ -183,10 +183,10 @@ func TestQuestionMarkOpensHelpInVimNormalMode(t *testing.T) {
 // '?' does not open the shortcuts panel in Vim Normal mode.
 func TestQuestionMarkInVimNormalModeWithText(t *testing.T) {
 	m := vimTestMode(t, map[string]any{"editorMode": "vim"})
-	m.composer.input.SetValue("hello")
+	m.prompt.input.SetValue("hello")
 
 	m.Update(runeKey('?'))
-	if m.viewport.helpPanel.Active() {
+	if m.help.Panel.Active() {
 		t.Fatal("`?` in Vim NORMAL mode must not open shortcuts when prompt has text")
 	}
 }
@@ -199,7 +199,7 @@ func TestSlashPanels_EscClosesPanel(t *testing.T) {
 		"usage", "changelog", "codesearch", "mcp", "context", "artifact",
 	}
 	for _, cmd := range cmds {
-		m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+		m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/", true)
 		if !m.openSlashPanel(cmd) {
 			t.Fatalf("failed to open %s", cmd)
 		}
@@ -216,11 +216,11 @@ func TestSlashPanels_EscClosesPanel(t *testing.T) {
 func TestSlashPanels_EscTimeoutMsgClosesPanel(t *testing.T) {
 	cmds := []string{"provider", "model", "agents", "config", "skills"}
 	for _, cmd := range cmds {
-		m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+		m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/", true)
 		if !m.openSlashPanel(cmd) {
 			t.Fatalf("failed to open %s", cmd)
 		}
-		m.composer.altEscBuf.Pending = true
+		m.prompt.altEscBuf.Pending = true
 		m.Update(keybind.EscTimeoutMsg{})
 		if m.overlays.panel.kind != panelregistry.None {
 			t.Errorf("panel %s did not close on EscTimeoutMsg: kind=%v", cmd, m.overlays.panel.kind)

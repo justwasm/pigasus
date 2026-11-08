@@ -30,14 +30,14 @@ import (
 	tea "charm.land/bubbletea/v2"
 )
 
-// historyPopupMode returns a runMode whose ANTIGRAVITY_HOME and cwd
+// historyPopupMode returns a RootModel whose ANTIGRAVITY_HOME and cwd
 // are both inside a temp dir: the recall must not touch the user's
 // real agy home, and the @ dropdown must not walk a real tree.
-func historyPopupMode(t *testing.T) *runMode {
+func historyPopupMode(t *testing.T) *RootModel {
 	t.Helper()
 	dir := t.TempDir()
 	t.Setenv("ANTIGRAVITY_HOME", dir)
-	m := newRunMode(&fakeClient{}, "u@t", "m", "t", dir, true)
+	m := newRootModel(&fakeClient{}, "u@t", "m", "t", dir, true)
 	m.Update(tea.WindowSizeMsg{Width: 80, Height: 30})
 	return m
 }
@@ -50,21 +50,21 @@ func TestHistoryUp_SlashCommandEntryKeepsTheCommandPopupClosed(t *testing.T) {
 	m.pushHistory("/accounts")
 
 	m.Update(upKey())
-	if got := m.composer.input.Value(); got != "/accounts" {
+	if got := m.prompt.input.Value(); got != "/accounts" {
 		t.Fatalf("Up #1: input = %q, want %q", got, "/accounts")
 	}
-	if m.composer.picker.Visible() {
+	if m.prompt.picker.Visible() {
 		t.Errorf("the recalled slash command armed the command popup; it must stay closed")
 	}
 
 	// The next Up has to page the history instead of moving the
 	// popup's highlight.
 	m.Update(upKey())
-	if got := m.composer.input.Value(); got != "older prompt" {
+	if got := m.prompt.input.Value(); got != "older prompt" {
 		t.Errorf("Up #2: input = %q, want %q — the history must page past a slash command",
 			got, "older prompt")
 	}
-	if m.composer.picker.Visible() {
+	if m.prompt.picker.Visible() {
 		t.Errorf("the command popup is visible after paging past the slash command")
 	}
 }
@@ -77,16 +77,16 @@ func TestHistoryDown_SlashCommandEntryKeepsTheCommandPopupClosed(t *testing.T) {
 
 	m.Update(upKey())
 	m.Update(upKey())
-	if got := m.composer.input.Value(); got != "older prompt" {
+	if got := m.prompt.input.Value(); got != "older prompt" {
 		t.Fatalf("pre-condition: input = %q, want %q", got, "older prompt")
 	}
 
 	m.Update(downKey())
-	if got := m.composer.input.Value(); got != "/accounts" {
+	if got := m.prompt.input.Value(); got != "/accounts" {
 		t.Errorf("Down: input = %q, want %q — the history must page back to the slash command",
 			got, "/accounts")
 	}
-	if m.composer.picker.Visible() {
+	if m.prompt.picker.Visible() {
 		t.Errorf("the recalled slash command armed the command popup; it must stay closed")
 	}
 }
@@ -98,19 +98,19 @@ func TestHistoryUp_AtMentionEntryKeepsTheFileDropdownClosed(t *testing.T) {
 	m.pushHistory("look at @notes.md please")
 
 	m.Update(upKey())
-	if got := m.composer.input.Value(); got != "look at @notes.md please" {
+	if got := m.prompt.input.Value(); got != "look at @notes.md please" {
 		t.Fatalf("Up #1: input = %q, want %q", got, "look at @notes.md please")
 	}
-	if m.composer.atFilePicker.Visible() {
+	if m.prompt.atFilePicker.Visible() {
 		t.Errorf("the recalled @ mention armed the file dropdown; it must stay closed")
 	}
 
 	m.Update(upKey())
-	if got := m.composer.input.Value(); got != "older prompt" {
+	if got := m.prompt.input.Value(); got != "older prompt" {
 		t.Errorf("Up #2: input = %q, want %q — the history must page past the @ mention",
 			got, "older prompt")
 	}
-	if m.composer.atFilePicker.Visible() {
+	if m.prompt.atFilePicker.Visible() {
 		t.Errorf("the file dropdown is visible after paging past the @ mention")
 	}
 }
@@ -123,18 +123,18 @@ func TestHistoryUp_TypedKeyAfterRecallArmsTheCommandPopup(t *testing.T) {
 	m.pushHistory("/accounts")
 
 	m.Update(upKey())
-	if got := m.composer.input.Value(); got != "/accounts" {
+	if got := m.prompt.input.Value(); got != "/accounts" {
 		t.Fatalf("pre-condition: input = %q, want %q", got, "/accounts")
 	}
-	if m.composer.picker.Visible() {
+	if m.prompt.picker.Visible() {
 		t.Fatalf("pre-condition: the popup must be closed right after the recall")
 	}
 
 	m.Update(runeKey('x'))
-	if got := m.composer.input.Value(); got != "/accountsx" {
+	if got := m.prompt.input.Value(); got != "/accountsx" {
 		t.Errorf("after typing 'x': input = %q, want %q", got, "/accountsx")
 	}
-	if !m.composer.picker.Visible() {
+	if !m.prompt.picker.Visible() {
 		t.Errorf("the typed keystroke did not re-derive the command popup")
 	}
 }

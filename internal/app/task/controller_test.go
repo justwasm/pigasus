@@ -60,3 +60,33 @@ func TestController_Lifecycle(t *testing.T) {
 		t.Fatalf("expected not subscribed after Close")
 	}
 }
+
+func TestController_OnChangeCallback(t *testing.T) {
+	reg := New()
+	ctrl := NewController(reg)
+
+	changed := make(chan struct{}, 1)
+	ctrl.SetOnChange(func() {
+		select {
+		case changed <- struct{}{}:
+		default:
+		}
+	})
+
+	ctrl.StartSubscription()
+	defer ctrl.Close()
+
+	reg.Register(&Task{
+		ID:        "t2",
+		Kind:      KindShell,
+		State:     StateRunning,
+		StartedAt: time.Now(),
+	})
+
+	select {
+	case <-changed:
+		// Succeeded
+	case <-time.After(500 * time.Millisecond):
+		t.Fatalf("expected onChange callback to be triggered within 500ms")
+	}
+}

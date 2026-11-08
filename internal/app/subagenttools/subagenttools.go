@@ -69,6 +69,7 @@ import (
 
 	"github.com/justwasm/pigasus/actor"
 	taskregistry "github.com/justwasm/pigasus/internal/app/task"
+	"github.com/justwasm/pigasus/internal/core/backend"
 )
 
 // Invocation is the LLM-driven delegation request from the parent
@@ -111,8 +112,15 @@ type Deps struct {
 	// Model is the default model the subagent calls. Used when
 	// Invocation.Model is empty.
 	Model string
+	// Effort is the reasoning effort the subagent inherits from the
+	// parent session. It is displayed with the model (AGY 1.5.3); the
+	// actor transport derives its own generation settings from the model.
+	Effort string
 	// Provider is the actor.Provider the subagent calls.
 	Provider actor.Provider
+	// Backend is the checkpoint policy's summariser transport. Nil disables
+	// automatic checkpointing for the subagent.
+	Backend backend.Client
 	// SystemPrompt is the parent's own system prompt, resolved when a
 	// delegation needs it. Used when Invocation.SystemPrompt is empty.
 	SystemPrompt func() string

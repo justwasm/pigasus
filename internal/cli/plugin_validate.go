@@ -1322,6 +1322,7 @@ var knownPluginManifestFields = map[string]bool{
 	"keywords":     true,
 	"displayName":  true,
 	"display_name": true,
+	"category":     true,
 	"logo":         true,
 	"skills":       true,
 	"$schema":      true,
@@ -1438,6 +1439,7 @@ func validateManifest(dir, manifestRel string, res *validateResult) {
 	rep.Name = res.HeaderName
 
 	validateManifestUnknownFields(generic, manifestRel, rep)
+	validateManifestCategory(generic, manifestRel, rep)
 	validateManifestName(header.name, manifestRel, dir, rep, rep.AgentPluginsSpec)
 	validateManifestExtensions(generic, manifestRel, rep)
 	if rep.AgentPluginsSpec {
@@ -1581,6 +1583,27 @@ func validateManifestUnknownFields(generic map[string]json.RawMessage, manifestR
 	}
 }
 
+// validateManifestCategory checks plugin.json's "category" field.
+//
+// AGY 1.5.3: "Improved `agy plugin validate` so the `category` field in
+// `plugin.json` is accepted instead of reported as an unknown field, with
+// a warning only when it is not a non-empty string."
+func validateManifestCategory(generic map[string]json.RawMessage, manifestRel string, rep *validateReport) {
+	raw, ok := generic["category"]
+	if !ok {
+		return
+	}
+	var category string
+	if err := json.Unmarshal(raw, &category); err == nil && strings.TrimSpace(category) != "" {
+		return
+	}
+	rep.Findings = append(rep.Findings, validateFinding{
+		Severity: validateWarning,
+		File:     filepath.ToSlash(manifestRel),
+		Message:  `"category" must be a non-empty string; it is ignored`,
+	})
+}
+
 // validateManifestExtensions checks the manifest's "extensions" object.
 //
 // The extensions carry the plugin's context providers, so a manifest whose
@@ -1606,6 +1629,35 @@ func validateManifestExtensions(generic map[string]json.RawMessage, manifestRel 
 			File:     filepath.ToSlash(manifestRel),
 			Message:  `"extensions" isn't an object, so no context providers load from it`,
 		})
+		return
+	}
+
+	// AGY 1.5.2: In extensions["com.google.antigravity"], unknown fields are reported as
+	// warnings that the field was ignored, rather than causing validation failure, and
+	// validation proceeds with the rest of the extension.
+	if agyRaw, hasAgy := extensions["com.google.antigravity"]; hasAgy {
+		var agyFields map[string]json.RawMessage
+		if err := json.Unmarshal(agyRaw, &agyFields); err == nil && agyFields != nil {
+			knownAgyFields := map[string]bool{
+				"skills":           true,
+				"subagents":        true,
+				"tools":            true,
+				"commands":         true,
+				"mcp_servers":      true,
+				"mcpServers":       true,
+				"contextProviders": true,
+				"hooks":            true,
+			}
+			for k := range agyFields {
+				if !knownAgyFields[k] {
+					rep.Findings = append(rep.Findings, validateFinding{
+						Severity: validateWarning,
+						File:     filepath.ToSlash(manifestRel),
+						Message:  fmt.Sprintf(`unknown field %q under extensions["com.google.antigravity"] is ignored`, k),
+					})
+				}
+			}
+		}
 	}
 }
 

@@ -19,12 +19,17 @@ type CheckpointMeta struct {
 	ParentID       string    `json:"parentId"`
 	TypeName       string    `json:"typeName"`
 	Role           string    `json:"role"`
+	Model          string    `json:"model,omitempty"`
+	Effort         string    `json:"effort,omitempty"`
 	Worktree       string    `json:"worktree"`
 	Prompt         string    `json:"prompt"`
 	SystemPrompt   string    `json:"systemPrompt"`
 	InheritPrompt  bool      `json:"inheritPrompt"`
 	State          string    `json:"state"`
 	StartedAt      time.Time `json:"startedAt"`
+	// SpawnStepIndex is the global step the launch came from; a checkpoint
+	// reports it as spawnStepIndex.
+	SpawnStepIndex int32     `json:"spawnStepIndex,omitempty"`
 	EndedAt        time.Time `json:"endedAt,omitempty"`
 	LastActivityAt time.Time `json:"lastActivityAt"`
 	StepCount      int       `json:"stepCount"`
@@ -123,8 +128,13 @@ func RehydrateSubagents(subDir string, reg *Registry, taskReg *taskregistry.Regi
 		childCtx, cancel := context.WithCancel(context.Background())
 		_ = childCtx
 		child := NewChild(meta.ConversationID, meta.TypeName, meta.Role, meta.Worktree, cancel)
+		child.Model = meta.Model
+		child.Effort = meta.Effort
+		child.SpawnStepIndex = meta.SpawnStepIndex
+		child.StartedAt = meta.StartedAt
 		child.setState(resumedState)
 		child.SetSubDir(subDir)
+		child.LogAbsoluteURI = fileURI(filepath.Join(subDir, meta.ConversationID+".jsonl"))
 
 		inv := Invocation{
 			TypeName:      meta.TypeName,
@@ -164,6 +174,8 @@ func RehydrateSubagents(subDir string, reg *Registry, taskReg *taskregistry.Regi
 				LastActivityAt: meta.LastActivityAt,
 				Prompt:         meta.Prompt,
 				Tools:          meta.ToolsUsed,
+				Model:          meta.Model,
+				Effort:         meta.Effort,
 			}
 			if meta.Error != "" {
 				t.Err = errors.New(meta.Error)

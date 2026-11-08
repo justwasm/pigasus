@@ -154,3 +154,24 @@ func TestHTTPError_RetryAfterDuration(t *testing.T) {
 	}
 }
 
+// TestHTTPErrorMessage_VertexModelAccess pins the AGY 1.5.3 mapping of
+// Vertex AI's publisher-model failure to the reference's sentence.
+func TestHTTPErrorMessage_VertexModelAccess(t *testing.T) {
+	bodies := []string{
+		`{"error":{"code":404,"message":"Publisher Model ` + "`projects/p/locations/us-central1/publishers/google/models/gemini-4`" + ` was not found or your project does not have access to it."}}`,
+		`{"error":{"message":"publisher model is not found"}}`,
+		`{"error":{"message":"Publisher Model cannot be used by this project"}}`,
+	}
+	for _, body := range bodies {
+		e := &HTTPError{StatusCode: 404, Body: []byte(body)}
+		if got := e.Message(); got != VertexModelAccessMessage {
+			t.Errorf("Message() = %q, want %q", got, VertexModelAccessMessage)
+		}
+	}
+
+	// A 404 from some other provider is not rewritten.
+	e := &HTTPError{StatusCode: 404, Body: []byte(`{"error":{"message":"model not found"}}`)}
+	if got := e.Message(); got != "model not found" {
+		t.Errorf("unrelated 404 = %q", got)
+	}
+}

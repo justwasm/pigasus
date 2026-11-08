@@ -26,15 +26,15 @@ import (
 
 // typeModelLine types a line into the composer the way the terminal
 // does, so the picker refreshes on every keystroke.
-func typeModelLine(m *runMode, line string) {
+func typeModelLine(m *RootModel, line string) {
 	for _, r := range line {
 		m.Update(runeKey(r))
 	}
 }
 
 // modelPopupRows returns the popup's plain-text rows.
-func modelPopupRows(m *runMode) []string {
-	body := stripAnsi(m.composer.picker.Rows())
+func modelPopupRows(m *RootModel) []string {
+	body := stripAnsi(m.prompt.picker.Rows())
 	var rows []string
 	for _, line := range strings.Split(body, "\n") {
 		if strings.TrimSpace(line) == "" {
@@ -50,9 +50,9 @@ func modelPopupRows(m *runMode) []string {
 // the same column.
 func TestModelPopup_RendersLabelAndCatalogueID(t *testing.T) {
 	configtest.Isolate(t)
-	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/", true)
 	typeModelLine(m, "/model claude")
-	if !m.composer.picker.IsModelMode() {
+	if !m.prompt.picker.IsModelMode() {
 		t.Fatal("the popup should hold the model rows for \"/model claude\"")
 	}
 	rows := modelPopupRows(m)
@@ -79,7 +79,7 @@ func TestModelPopup_RendersLabelAndCatalogueID(t *testing.T) {
 // rows below the window the way the reference does.
 func TestModelPopup_EmptyQueryListsEveryModel(t *testing.T) {
 	configtest.Isolate(t)
-	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/", true)
 	typeModelLine(m, "/model ")
 	rows := modelPopupRows(m)
 	if len(rows) < 6 {
@@ -104,13 +104,13 @@ func TestModelPopup_EmptyQueryListsEveryModel(t *testing.T) {
 // popup.
 func TestModelPopup_TabCompletesTheLabel(t *testing.T) {
 	configtest.Isolate(t)
-	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/", true)
 	typeModelLine(m, "/model claude")
 	m.Update(key(tea.KeyTab, 0))
-	if got := m.composer.input.Value(); got != "/model Claude Sonnet 4.6 (Thinking)" {
+	if got := m.prompt.input.Value(); got != "/model Claude Sonnet 4.6 (Thinking)" {
 		t.Errorf("composer = %q, want the completed label", got)
 	}
-	if m.composer.picker.Visible() {
+	if m.prompt.picker.Visible() {
 		t.Error("the popup should close after Tab")
 	}
 }
@@ -120,16 +120,16 @@ func TestModelPopup_TabCompletesTheLabel(t *testing.T) {
 func TestModelPopup_EnterRunsTheNamedModel(t *testing.T) {
 	cycle196TestHome(t, nil)
 	configtest.Isolate(t)
-	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/", true)
 	typeModelLine(m, "/model Claude Sonnet 4.6 (Thinking)")
 	m.Update(enterKey())
 	if m.session.model != "Claude Sonnet 4.6 (Thinking)" {
 		t.Errorf("model = %q, want the named model", m.session.model)
 	}
-	if !strings.Contains(strings.Join(m.engine.response, "\n"), "Model set to Claude Sonnet 4.6 (Thinking)") {
-		t.Errorf("transcript = %v, want the Model set to line", m.engine.response)
+	if !strings.Contains(strings.Join(m.conversation.response, "\n"), "Model set to Claude Sonnet 4.6 (Thinking)") {
+		t.Errorf("transcript = %v, want the Model set to line", m.conversation.response)
 	}
-	if got := m.composer.input.Value(); got != "" {
+	if got := m.prompt.input.Value(); got != "" {
 		t.Errorf("composer = %q, want it cleared", got)
 	}
 }
@@ -138,7 +138,7 @@ func TestModelPopup_EnterRunsTheNamedModel(t *testing.T) {
 func TestModelPopup_EnterResolvesTheCatalogueID(t *testing.T) {
 	cycle196TestHome(t, nil)
 	configtest.Isolate(t)
-	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/", true)
 	typeModelLine(m, "/model claude-sonnet-4-6")
 	m.Update(enterKey())
 	if m.session.model != "Claude Sonnet 4.6 (Thinking)" {
@@ -151,17 +151,17 @@ func TestModelPopup_EnterResolvesTheCatalogueID(t *testing.T) {
 func TestModelPopup_EnterCompletesTheHighlightedRow(t *testing.T) {
 	cycle196TestHome(t, nil)
 	configtest.Isolate(t)
-	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/", true)
 	typeModelLine(m, "/model claude")
 	m.Update(enterKey())
-	if got := m.composer.input.Value(); got != "/model Claude Sonnet 4.6 (Thinking)" {
+	if got := m.prompt.input.Value(); got != "/model Claude Sonnet 4.6 (Thinking)" {
 		t.Errorf("composer = %q, want the completed label", got)
 	}
-	if m.composer.picker.Visible() {
+	if m.prompt.picker.Visible() {
 		t.Error("the popup should close after Enter")
 	}
-	if len(m.engine.response) != 0 {
-		t.Errorf("transcript = %v, want no command output", m.engine.response)
+	if len(m.conversation.response) != 0 {
+		t.Errorf("transcript = %v, want no command output", m.conversation.response)
 	}
 }
 
@@ -170,14 +170,14 @@ func TestModelPopup_EnterCompletesTheHighlightedRow(t *testing.T) {
 func TestModelPopup_EnterReportsAnUnknownModel(t *testing.T) {
 	cycle196TestHome(t, nil)
 	configtest.Isolate(t)
-	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/", true)
 	typeModelLine(m, "/model zzz")
 	m.Update(enterKey())
-	joined := strings.Join(m.engine.response, "\n")
+	joined := strings.Join(m.conversation.response, "\n")
 	if !strings.Contains(joined, `Invalid model "zzz" (available: gemini-3.8-flash-high,`) {
 		t.Errorf("transcript = %q, want the Invalid model line", joined)
 	}
-	if got := m.composer.input.Value(); got != "" {
+	if got := m.prompt.input.Value(); got != "" {
 		t.Errorf("composer = %q, want it cleared", got)
 	}
 }
@@ -186,13 +186,13 @@ func TestModelPopup_EnterReportsAnUnknownModel(t *testing.T) {
 // and colours the command token.
 func TestModelPopup_ComposerShowsTheArgumentHint(t *testing.T) {
 	configtest.Isolate(t)
-	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
-	m.composer.input.SetValue("/model ")
+	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m.prompt.input.SetValue("/model ")
 	view := stripAnsi(m.formatInputView())
 	if !strings.Contains(view, "> /model [model]") {
 		t.Errorf("composer = %q, want the [model] hint", view)
 	}
-	m.composer.input.SetValue("/model claude")
+	m.prompt.input.SetValue("/model claude")
 	view = stripAnsi(m.formatInputView())
 	if strings.Contains(view, "[model]") {
 		t.Errorf("composer = %q, want no hint once the argument is typed", view)
@@ -203,13 +203,13 @@ func TestModelPopup_ComposerShowsTheArgumentHint(t *testing.T) {
 // not.
 func TestComposer_CommandTokenIsColoured(t *testing.T) {
 	configtest.Isolate(t)
-	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
-	m.composer.input.SetValue("/model claude")
+	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m.prompt.input.SetValue("/model claude")
 	view := m.formatInputView()
 	if !strings.Contains(view, cBlueOpen+"/model"+cBlueClose) {
 		t.Errorf("composer = %q, want the blue command token", view)
 	}
-	m.composer.input.SetValue("/codesear")
+	m.prompt.input.SetValue("/codesear")
 	view = m.formatInputView()
 	if strings.Contains(view, cBlueOpen+"/codesear"+cBlueClose) {
 		t.Errorf("composer = %q, want a plain prefix", view)
@@ -220,15 +220,15 @@ func TestComposer_CommandTokenIsColoured(t *testing.T) {
 // carries.
 func TestModelPopup_StatusRowDropsTheCancelHint(t *testing.T) {
 	configtest.Isolate(t)
-	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/", true)
 	typeModelLine(m, "/model claude")
 	left := statusrow.Render(m.statusRowState())
 	if strings.Contains(left, "esc to cancel") {
 		t.Errorf("status left = %q, want no cancel hint", left)
 	}
 	typeModelLine(m, "") // reset the composer
-	m.composer.input.Reset()
-	m.composer.picker.Update([]rune("/"))
+	m.prompt.input.Reset()
+	m.prompt.picker.Update([]rune("/"))
 	left = statusrow.Render(m.statusRowState())
 	if !strings.Contains(left, "esc to cancel") {
 		t.Errorf("status left = %q, want the command popup's cancel hint", left)

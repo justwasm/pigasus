@@ -165,6 +165,103 @@ type Agent struct {
 	ResolvedHooks   []string `yaml:"-"`
 }
 
+// SkillEntry is one skill a custom agent lists in its `skills:`
+// frontmatter, resolved far enough to be advertised by name (the ACP
+// session's slash menu reads these).
+type SkillEntry struct {
+	// Name is the skill's frontmatter `name`, falling back to the
+	// directory or file stem when the SKILL.md does not name itself.
+	// A name reference that does not resolve to a path keeps the
+	// frontmatter spelling verbatim.
+	Name string
+	// Description is the skill's frontmatter `description`, trimmed.
+	// Empty when nothing could be read.
+	Description string
+	// Path is the resolved SKILL.md (or Markdown file) when one
+	// exists, and the unresolved entry otherwise.
+	Path string
+}
+
+// SkillEntries returns the skills this agent lists, sorted by name.
+// Entries that name a skill without a path are kept by name; entries
+// that resolve to a SKILL.md (or a Markdown file) carry that file's
+// frontmatter. A skill-less agent returns nil.
+func (a *Agent) SkillEntries() []SkillEntry {
+	if a == nil || len(a.ResolvedSkills) == 0 {
+		return nil
+	}
+	out := make([]SkillEntry, 0, len(a.ResolvedSkills))
+	seen := make(map[string]bool, len(a.ResolvedSkills))
+	for _, resolved := range a.ResolvedSkills {
+		entry := skillEntryFor(resolved)
+		if entry.Name == "" || seen[entry.Name] {
+			continue
+		}
+		seen[entry.Name] = true
+		out = append(out, entry)
+	}
+	sort.SliceStable(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out
+}
+
+// skillEntryFor resolves one `skills:` entry. A directory contributes
+// its SKILL.md; a file contributes itself; an entry that does not
+// exist is a name reference and keeps its spelling.
+func skillEntryFor(entry string) SkillEntry {
+	trimmed := strings.TrimSpace(entry)
+	if trimmed == "" {
+		return SkillEntry{}
+	}
+	path := trimmed
+	if info, err := os.Stat(trimmed); err == nil {
+		if info.IsDir() {
+			path = filepath.Join(trimmed, "SKILL.md")
+		}
+		name, description := skillFrontmatter(path)
+		if name == "" {
+			name = strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
+			if name == "SKILL" {
+				name = filepath.Base(filepath.Dir(path))
+			}
+		}
+		return SkillEntry{Name: name, Description: description, Path: path}
+	}
+	// Unresolved name reference: keep it as a skill name.
+	return SkillEntry{Name: filepath.Base(trimmed), Path: trimmed}
+}
+
+// skillFrontmatter reads the YAML block between the two `---` fences
+// of a SKILL.md and returns its name and description. An unreadable or
+// frontmatter-less file yields empty values.
+func skillFrontmatter(path string) (name, description string) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", ""
+	}
+	lines := bytes.Split(data, []byte{'\n'})
+	if len(lines) == 0 || !bytes.Equal(bytes.TrimSpace(lines[0]), []byte("---")) {
+		return "", ""
+	}
+	close := -1
+	for i := 1; i < len(lines); i++ {
+		if bytes.Equal(bytes.TrimSpace(lines[i]), []byte("---")) {
+			close = i
+			break
+		}
+	}
+	if close < 0 {
+		return "", ""
+	}
+	var doc struct {
+		Name        string `yaml:"name"`
+		Description string `yaml:"description"`
+	}
+	if err := yaml.Unmarshal(bytes.Join(lines[1:close], []byte("\n")), &doc); err != nil {
+		return "", ""
+	}
+	return strings.TrimSpace(doc.Name), strings.TrimSpace(doc.Description)
+}
+
 // ParseError describes a failure to parse a single agent file.
 // It implements error and carries the file path so a caller
 // listing a directory can surface which file broke without

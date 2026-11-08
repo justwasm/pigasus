@@ -32,8 +32,8 @@ import (
 //
 // The entry is persisted so the user can navigate history from either
 // binary.
-func (m *runMode) pushHistory(prompt string) {
-	trimmed, ok := m.composer.promptHistory.Push(prompt)
+func (m *RootModel) pushHistory(prompt string) {
+	trimmed, ok := m.prompt.promptHistory.Push(prompt)
 	if !ok {
 		return
 	}
@@ -69,17 +69,17 @@ func (m *runMode) pushHistory(prompt string) {
 // Before this the recall re-derived both overlays, so the popup
 // swallowed the next Up/Down and the history stopped paging at the
 // first slash command in the list.
-func (m *runMode) closeComposerOverlays() {
-	m.composer.picker.Reset()
-	m.composer.atFilePicker.Reset()
+func (m *RootModel) closeComposerOverlays() {
+	m.prompt.picker.Reset()
+	m.prompt.atFilePicker.Reset()
 }
 
 // historyUp navigates one slot back.
 //
 // The list owns the navigation; the host owns the composer's write and
 // the overlays the recall closes.
-func (m *runMode) historyUp() {
-	entry, ok := m.composer.promptHistory.Up(m.composer.input.Value())
+func (m *RootModel) historyUp() {
+	entry, ok := m.prompt.promptHistory.Up(m.prompt.input.Value())
 	if !ok {
 		return
 	}
@@ -90,8 +90,8 @@ func (m *runMode) historyUp() {
 }
 
 // historyDown navigates one slot forward.
-func (m *runMode) historyDown() {
-	entry, ok := m.composer.promptHistory.Down()
+func (m *RootModel) historyDown() {
+	entry, ok := m.prompt.promptHistory.Down()
 	if !ok {
 		return
 	}

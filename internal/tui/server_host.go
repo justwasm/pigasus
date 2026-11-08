@@ -142,7 +142,7 @@ func runServer(j *cli.JetskiCLI, args cli.ServerArgs) error {
 // changed, and nil when nothing changed. The credential read is the
 // same one auth.LoadTokenUnified does — the login keychain first, the
 // on-disk copies after it.
-func (m *runMode) syncAccountIdentity() tea.Cmd {
+func (m *RootModel) syncAccountIdentity() tea.Cmd {
 	_, email := accounts.Current()
 	if email == "" || email == m.session.email {
 		return nil
@@ -152,9 +152,9 @@ func (m *runMode) syncAccountIdentity() tea.Cmd {
 	m.forgetSessionTier()
 	// The transport caches the keychain token it read, so it has to be
 	// rebuilt for the session to talk as the new account.
-	if m.engine.backendFor != nil {
-		if b := m.engine.backendFor(m.session.model); b != nil {
-			m.engine.backend = b
+	if m.turn.backendFor != nil {
+		if b := m.turn.backendFor(m.session.model); b != nil {
+			m.turn.backend = b
 		}
 	}
 	return m.fetchPlanTierCmd()
@@ -233,7 +233,7 @@ func fetchAccountQuotaCmd(email string) tea.Cmd {
 // The method is the session's seam to the registry. Its callers live in
 // files this tranche does not own, so the seam stays here until they
 // name accounts.FreshQuota themselves.
-func (m *runMode) cachedQuota(email string) *auth.QuotaSummary {
+func (m *RootModel) cachedQuota(email string) *auth.QuotaSummary {
 	if m == nil || email == "" {
 		return nil
 	}
@@ -248,7 +248,7 @@ func (m *runMode) cachedQuota(email string) *auth.QuotaSummary {
 //
 // The registry keeps the snapshot, so the write is the registry's and
 // not the session's: a second session reads the same numbers.
-func (m *runMode) cacheQuota(email string, summary *auth.QuotaSummary) {
+func (m *RootModel) cacheQuota(email string, summary *auth.QuotaSummary) {
 	if m == nil || email == "" || summary == nil {
 		return
 	}

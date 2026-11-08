@@ -382,6 +382,8 @@ func encodeForkPayload(s Step) []byte {
 		return encodeProtoField(20, 2, planner)
 	case StepToolCall:
 		return encodeToolCallPayload(s)
+	case StepCheckpoint:
+		return encodeCheckpointPayload(s)
 	case StepError, StepSystemNotice:
 		// field 24 -> field 3 -> field 1 (text)
 		inner := encodeProtoField(1, 2, []byte(s.Text))
@@ -414,6 +416,47 @@ func encodeToolCallPayload(s Step) []byte {
 		payload = append(payload, encodeProtoField(140, 2, encodeProtoField(2, 2, result))...)
 	}
 	return payload
+}
+
+// encodeCheckpointPayload emits the reference's checkpoint step shape.
+//
+// 【一手】 agy 1.5.3, conversation e9bd3e8a-…: the step payload carries the
+// step type in field 1, the status in field 4, and the checkpoint itself in
+// field 30. Inside field 30 the live captures use:
+//
+//	1  checkpoint index
+//	3  included step indices (varint, repeated)
+//	4  user intent
+//	5  summary text
+//	11 first included step
+//	12 first step after the checkpoint (exclusive)
+//	30 user requests, each a nested message whose field 1 is the text
+//
+// The summary and the request list are what `/resume` needs; a checkpoint
+// written without them is an opaque type-23 placeholder.
+func encodeCheckpointPayload(s Step) []byte {
+	cp := encodeProtoVarint(1, uint64(s.CheckpointIndex))
+	for _, idx := range s.IncludedSteps {
+		cp = append(cp, encodeProtoVarint(3, uint64(idx))...)
+	}
+	if s.UserIntent != "" {
+		cp = append(cp, encodeProtoField(4, 2, []byte(s.UserIntent))...)
+	}
+	if s.Summary != "" {
+		cp = append(cp, encodeProtoField(5, 2, []byte(s.Summary))...)
+	}
+	if s.IncludedStart != 0 {
+		cp = append(cp, encodeProtoVarint(11, uint64(s.IncludedStart))...)
+	}
+	if s.IncludedEnd != 0 {
+		cp = append(cp, encodeProtoVarint(12, uint64(s.IncludedEnd))...)
+	}
+	for _, request := range s.UserRequests {
+		cp = append(cp, encodeProtoField(30, 2, encodeProtoField(1, 2, []byte(request)))...)
+	}
+	payload := encodeProtoVarint(1, uint64(s.Type))
+	payload = append(payload, encodeProtoVarint(4, uint64(s.Status))...)
+	return append(payload, encodeProtoField(30, 2, cp)...)
 }
 
 // encodeProtoVarint emits one tag + varint pair. wireType 0 is varint.

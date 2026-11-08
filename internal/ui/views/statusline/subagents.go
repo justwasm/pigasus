@@ -43,6 +43,7 @@ func Subagents(states []subagenttools.StateEntry) []SubagentInfo {
 			Name:   s.Type,
 			Role:   role,
 			Status: status,
+			Model:  s.Model,
 		})
 	}
 	return out

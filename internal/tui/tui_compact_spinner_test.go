@@ -18,7 +18,7 @@ import (
 // the status row sat on its first Braille glyph for the whole
 // compaction.
 func TestCompactSpinnerTickAdvancesTheFrame(t *testing.T) {
-	m := &runMode{}
+	m := &RootModel{}
 	m.session.store.CompactStart = time.Now()
 	m.session.store.CompactEnd = time.Time{}
 

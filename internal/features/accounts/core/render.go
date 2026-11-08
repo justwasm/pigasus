@@ -14,9 +14,7 @@ import (
 //
 // The row carries the three things the panel knows about the account:
 // the email, the cached plan tier and the cached quota. The quota is
-// the weekly and the five-hour remaining — the lowest across the
-// model groups, because that is the window that decides whether the
-// account can keep working.
+// the weekly and the five-hour remaining for Gemini models.
 func RowLine(acc Account, cursor bool, activeEmail string, emailPad int, blueOpen, blueClose string) string {
 	email := acc.Email
 	if strings.TrimSpace(email) == "" {

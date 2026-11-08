@@ -312,6 +312,52 @@ func TestVoice_AppendDraftOutsideRecording(t *testing.T) {
 	}
 }
 
+func TestVoice_NormalizeDictationDraft_CJKAndLatin(t *testing.T) {
+	clk := newFakeClock()
+	r, err := voice.NewRecorder("norm-recorder", 0, clk.Now)
+	if err != nil {
+		t.Fatalf("NewRecorder: %v", err)
+	}
+	if err := r.Start(); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+
+	// 1. CJK characters should not get interstitial spaces
+	if err := r.AppendDraft("你"); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.AppendDraft(" 好 "); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.AppendDraft("世界"); err != nil {
+		t.Fatal(err)
+	}
+	_, draft, _, _ := r.Snapshot()
+	if draft != "你好世界" {
+		t.Errorf("CJK draft expected '你好世界', got %q", draft)
+	}
+
+	// 2. Fullwidth Latin and normal Latin words retain spacing
+	r2, _ := voice.NewRecorder("latin-recorder", 0, clk.Now)
+	_ = r2.Start()
+	_ = r2.AppendDraft("Hello ")
+	_ = r2.AppendDraft("World")
+	_, d2, _, _ := r2.Snapshot()
+	if d2 != "Hello World" {
+		t.Errorf("Latin draft expected 'Hello World', got %q", d2)
+	}
+
+	// Fullwidth Latin: 'Ｈｅｌｌｏ' and 'Ｗｏｒｌｄ'
+	r3, _ := voice.NewRecorder("fw-recorder", 0, clk.Now)
+	_ = r3.Start()
+	_ = r3.AppendDraft("Ｈｅｌｌｏ ")
+	_ = r3.AppendDraft("Ｗｏｒｌｄ")
+	_, d3, _, _ := r3.Snapshot()
+	if d3 != "Ｈｅｌｌｏ Ｗｏｒｌｄ" {
+		t.Errorf("Fullwidth Latin draft expected 'Ｈｅｌｌｏ Ｗｏｒｌｄ', got %q", d3)
+	}
+}
+
 // TestVoice_NewRecorderEmptyID rejects an empty session id. An empty
 // id would silently shadow an earlier session's transcript card; the
 // constructor refuses it.

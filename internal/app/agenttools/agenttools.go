@@ -22,6 +22,7 @@ import (
 
 	"github.com/justwasm/pigasus/actor"
 	"github.com/justwasm/pigasus/internal/app/tools"
+	"github.com/justwasm/pigasus/internal/app/tools/surface"
 )
 
 //go:embed tools_1.4.7.json
@@ -80,13 +81,37 @@ func Tools(registry *tools.Registry) []actor.Tool {
 	return out
 }
 
+// MainAgentTools adapts the reference's twelve default-agent declarations
+// to the registry. The remote-agent bridge runs the full agent, not the
+// restricted seven-tool custom-agent surface: without this, the model sees no
+// run_command and answers that command execution is unavailable.
+func MainAgentTools(registry *tools.Registry) []actor.Tool {
+	decls := surface.ModelDeclarations()
+	out := make([]actor.Tool, 0, len(decls))
+	for _, d := range decls {
+		var params map[string]any
+		if len(d.Parameters) > 0 {
+			_ = json.Unmarshal(d.Parameters, &params)
+		}
+		var inner tools.Tool
+		if registry != nil {
+			inner, _ = registry.Get(d.Name)
+		}
+		out = append(out, &tool{
+			decl:  Declaration{Name: d.Name, Description: d.Description, Parameters: params},
+			inner: inner,
+		})
+	}
+	return out
+}
+
 type tool struct {
 	decl  Declaration
 	inner tools.Tool
 }
 
-func (t *tool) Name() string        { return t.decl.Name }
-func (t *tool) Description() string { return t.decl.Description }
+func (t *tool) Name() string                   { return t.decl.Name }
+func (t *tool) Description() string            { return t.decl.Description }
 func (t *tool) RequiresApproval(_ string) bool { return false }
 
 func (t *tool) Definition() actor.ToolDefinition {

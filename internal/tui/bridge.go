@@ -9,12 +9,14 @@ package tui
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/justwasm/pigasus/agentlink"
 	"github.com/justwasm/pigasus/internal/app/agentturn"
+	"github.com/justwasm/pigasus/internal/app/session"
 	"github.com/justwasm/pigasus/internal/core/backend"
 	"github.com/justwasm/pigasus/internal/ui/toolsteps"
 	"github.com/justwasm/pigasus/internal/ui/views/permissionprompt"
@@ -22,15 +24,17 @@ import (
 
 // EngineBridge abstracts and coordinates turn execution for the TUI.
 type EngineBridge struct {
-	engine    agentturn.Engine
-	prog      *tea.Program
-	promptMgr *PermissionPromptState
-	onUsage   func(*backend.ChunkMeta)
-	onFrame   func(agentlink.Frame)
-	hookStart func(context.Context)
-	hookPre   func(context.Context)
-	hookStop  func(context.Context)
-	hookPost  func(context.Context)
+	turns        *session.TurnRuntime
+	engine       agentturn.Engine
+	prog         *tea.Program
+	promptMgr    *PermissionPromptState
+	onUsage      func(*backend.ChunkMeta)
+	onFrame      func(agentlink.Frame)
+	hookStart    func(context.Context)
+	hookPre      func(context.Context)
+	hookStop     func(context.Context)
+	hookPost     func(context.Context)
+	sessionEpoch func() uint64
 }
 
 // BridgeOptions configures an EngineBridge.
@@ -44,20 +48,26 @@ type BridgeOptions struct {
 	HookPre   func(context.Context)
 	HookStop  func(context.Context)
 	HookPost  func(context.Context)
+	// SessionEpoch identifies the host transcript the bridge's turns are
+	// built from. The local engine uses it to keep its actor across a
+	// checkpoint and to rebuild it after /clear or /resume.
+	SessionEpoch func() uint64
 }
 
 // NewEngineBridge creates an EngineBridge instance.
 func NewEngineBridge(opts BridgeOptions) *EngineBridge {
 	b := &EngineBridge{
-		engine:    opts.Engine,
-		prog:      opts.Program,
-		promptMgr: opts.PromptMgr,
-		onUsage:   opts.OnUsage,
-		onFrame:   opts.OnFrame,
-		hookStart: opts.HookStart,
-		hookPre:   opts.HookPre,
-		hookStop:  opts.HookStop,
-		hookPost:  opts.HookPost,
+		turns:        session.NewTurnRuntime(),
+		engine:       opts.Engine,
+		prog:         opts.Program,
+		promptMgr:    opts.PromptMgr,
+		onUsage:      opts.OnUsage,
+		onFrame:      opts.OnFrame,
+		hookStart:    opts.HookStart,
+		hookPre:      opts.HookPre,
+		hookStop:     opts.HookStop,
+		hookPost:     opts.HookPost,
+		sessionEpoch: opts.SessionEpoch,
 	}
 	b.wirePermissionHandler()
 	return b
@@ -172,26 +182,40 @@ type PermissionPromptRaisedMsg struct {
 
 // RunTurn executes one turn through the bridge and returns the terminal tea.Msg.
 func (b *EngineBridge) RunTurn(ctx context.Context, model string, msgs []backend.Message) tea.Msg {
+	turnCtx, endTurn := b.turns.Begin(ctx)
+	defer endTurn()
+	return b.runTurnOn(turnCtx, model, msgs)
+}
+
+// runTurnOn runs a turn whose runtime has already begun. The local stream
+// path uses it to begin the runtime on the Update goroutine, so a cancel
+// that arrives before the command starts still finds a running turn.
+func (b *EngineBridge) runTurnOn(turnCtx context.Context, model string, msgs []backend.Message) tea.Msg {
 	if b.hookStart != nil {
-		b.hookStart(ctx)
+		b.hookStart(turnCtx)
 	}
 	if b.hookPre != nil {
-		b.hookPre(ctx)
+		b.hookPre(turnCtx)
 	}
 	if b.hookStop != nil {
-		defer b.hookStop(ctx)
+		defer b.hookStop(turnCtx)
 	}
 	if b.hookPost != nil {
-		defer b.hookPost(ctx)
+		defer b.hookPost(turnCtx)
 	}
 
 	if b.engine == nil {
 		return backendDoneMsg{}
 	}
 
-	frames, err := b.engine.Turn(ctx, agentturn.Turn{
-		Model:   model,
-		History: agentturn.ToWireMessages(msgs),
+	var epoch uint64
+	if b.sessionEpoch != nil {
+		epoch = b.sessionEpoch()
+	}
+	frames, err := b.engine.Turn(turnCtx, agentturn.Turn{
+		Model:        model,
+		History:      agentturn.ToWireMessages(msgs),
+		SessionEpoch: epoch,
 	})
 	if err != nil {
 		return backendDoneMsg{}
@@ -251,5 +275,76 @@ func (b *EngineBridge) RunTurn(ctx context.Context, model string, msgs []backend
 		Reasoning:    c.reasoning.String(),
 		Err:          c.err,
 		TokenMetrics: tm,
+	}
+}
+
+// CancelTurn cancels an in-flight turn if one is currently executing.
+// It returns true if a turn was active and cancelled.
+func (b *EngineBridge) CancelTurn() bool {
+	if b == nil {
+		return false
+	}
+	return b.turns.Cancel()
+}
+
+// IsRunning reports whether a turn is currently in flight through this bridge.
+func (b *EngineBridge) IsRunning() bool {
+	if b == nil {
+		return false
+	}
+	return b.turns.Running()
+}
+
+// ActiveEngine returns the underlying turn engine.
+func (b *EngineBridge) ActiveEngine() agentturn.Engine {
+	if b == nil {
+		return nil
+	}
+	return b.engine
+}
+
+// BridgeAction represents a domain or control operation dispatched to the bridge.
+type BridgeAction interface {
+	bridgeAction()
+}
+
+// ActionCancel requests cancellation of an active turn.
+type ActionCancel struct{}
+
+func (ActionCancel) bridgeAction() {}
+
+// ActionSteer delivers mid-turn guidance to the engine.
+type ActionSteer struct {
+	Instruction string
+}
+
+func (ActionSteer) bridgeAction() {}
+
+// ActionSwitchModel notifies the engine of a model switch.
+type ActionSwitchModel struct {
+	Model string
+}
+
+func (ActionSwitchModel) bridgeAction() {}
+
+// Dispatch routes a BridgeAction to the appropriate handler on the bridge or engine.
+func (b *EngineBridge) Dispatch(act BridgeAction) error {
+	if b == nil {
+		return errors.New("bridge: nil bridge")
+	}
+	switch a := act.(type) {
+	case ActionCancel:
+		b.CancelTurn()
+		return nil
+	case ActionSteer:
+		return b.Steer(a.Instruction)
+	case ActionSwitchModel:
+		if ah, ok := b.engine.(agentturn.ActionHandler); ok {
+			_, err := ah.ExecuteAction(context.Background(), "model", a.Model)
+			return err
+		}
+		return nil
+	default:
+		return fmt.Errorf("bridge: unhandled action %T", act)
 	}
 }

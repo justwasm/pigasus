@@ -37,7 +37,7 @@ import (
 	"github.com/justwasm/pigasus/palette"
 )
 
-func newSlashModel(t *testing.T) *runMode {
+func newSlashModel(t *testing.T) *RootModel {
 	t.Helper()
 	origScheme, _ := palette.CurrentScheme()
 	t.Cleanup(func() {
@@ -54,7 +54,7 @@ func newSlashModel(t *testing.T) *runMode {
 		t.Setenv("ANTIGRAVITY_HOME", t.TempDir())
 	}
 	t.Setenv("HOME", t.TempDir())
-	m := newRunMode(&fakeClient{}, "u@t", "Gemini 3.8 Flash (High)", "t", "/", true)
+	m := newRootModel(&fakeClient{}, "u@t", "Gemini 3.8 Flash (High)", "t", "/", true)
 	m.session.flags = newStandardFlagSetForTest(t, nil)
 	return m
 }
@@ -82,31 +82,31 @@ func newSlashModel(t *testing.T) *runMode {
 // Cycle 149 previously asserted the v1.3.6 reference did not echo into
 // the transcript. v1.4.0 reverses that. The picker overlay still shows
 // the typed token; the echo lives in the transcript below it.
-func afterEcho(m *runMode) []string {
-	if len(m.engine.response) == 0 {
-		return m.engine.response
+func afterEcho(m *RootModel) []string {
+	if len(m.conversation.response) == 0 {
+		return m.conversation.response
 	}
 	// Detect the `> /<cmd>` echo header: cWarningBlueOpen + "> ".
 	// If absent (e.g. slashContent or slashRespondPlain), return the
 	// SGR-stripped rows as-is.
-	if !strings.HasPrefix(m.engine.response[0], cWarningBlueOpen+"> ") {
-		out := make([]string, len(m.engine.response))
-		for i, r := range m.engine.response {
+	if !strings.HasPrefix(m.conversation.response[0], cWarningBlueOpen+"> ") {
+		out := make([]string, len(m.conversation.response))
+		for i, r := range m.conversation.response {
 			out[i] = termcolor.StripSGR(r)
 		}
 		return out
 	}
-	if len(m.engine.response) < 2 {
+	if len(m.conversation.response) < 2 {
 		return nil
 	}
 	// Strip SGR + "  ⎿  " prefix from the message line.
-	msgLine := termcolor.StripSGR(m.engine.response[1])
+	msgLine := termcolor.StripSGR(m.conversation.response[1])
 	msgLine = strings.TrimPrefix(msgLine, "  \u23bf  ")
 	out := []string{msgLine}
 	// Append any extra rows between the `⎿` line and the trailing blank.
 	// The blank line is always last; everything between is extra content
 	// (e.g. /voice's 5-space-indented hint line).
-	for _, r := range m.engine.response[2:] {
+	for _, r := range m.conversation.response[2:] {
 		if r == "" {
 			break
 		}
@@ -225,10 +225,10 @@ func TestSlashCreditsOpensPanel(t *testing.T) {
 func TestSlashNewStartsFreshConversation(t *testing.T) {
 	m := newSlashModel(t)
 	oldConvID := m.session.conversationID
-	m.engine.session = append(m.engine.session, backend.Message{Role: "user", Content: "hi"})
-	m.engine.blocks = []transcript.Block{{Start: 0, Lines: 1}}
-	m.engine.liveSteps = []toolsteps.Step{{Kind: toolsteps.KindTool}}
-	m.engine.activeTool = "read_file"
+	m.setSessionMessages(append(m.SessionMessages(), backend.Message{Role: "user", Content: "hi"}))
+	m.conversation.blocks = []transcript.Block{{Start: 0, Lines: 1}}
+	m.conversation.liveSteps = []toolsteps.Step{{Kind: toolsteps.KindTool}}
+	m.conversation.activeTool = "read_file"
 
 	handled, cmd := m.handleSlashCommand("/new")
 	if !handled {
@@ -237,16 +237,16 @@ func TestSlashNewStartsFreshConversation(t *testing.T) {
 	if cmd != nil {
 		t.Error("/new should not schedule a tea.Cmd")
 	}
-	if len(m.engine.session) != 0 || len(m.engine.blocks) != 0 || len(m.engine.liveSteps) != 0 || m.engine.activeTool != "" {
+	if len(m.SessionMessages()) != 0 || len(m.conversation.blocks) != 0 || len(m.conversation.liveSteps) != 0 || m.conversation.activeTool != "" {
 		t.Errorf("/new did not reset state: session=%d blocks=%d liveSteps=%d activeTool=%q",
-			len(m.engine.session), len(m.engine.blocks), len(m.engine.liveSteps), m.engine.activeTool)
+			len(m.SessionMessages()), len(m.conversation.blocks), len(m.conversation.liveSteps), m.conversation.activeTool)
 	}
 	if m.session.conversationID == "" || m.session.conversationID == oldConvID {
 		t.Errorf("/new did not allocate a fresh conversation ID: got %q, old %q", m.session.conversationID, oldConvID)
 	}
-	for _, line := range m.engine.response {
+	for _, line := range m.conversation.response {
 		if strings.Contains(line, "Unknown command") {
-			t.Errorf("/new reported as unknown: %v", m.engine.response)
+			t.Errorf("/new reported as unknown: %v", m.conversation.response)
 		}
 	}
 }
@@ -294,25 +294,25 @@ func TestForkConversationActiveSession(t *testing.T) {
 }
 
 func TestForkSlashCommandResponse(t *testing.T) {
-	m := newRunMode(&fakeClient{}, "u@t", "m", "t", t.TempDir(), true)
+	m := newRootModel(&fakeClient{}, "u@t", "m", "t", t.TempDir(), true)
 	m.session.conversationID = "parent-conv-1234"
-	m.engine.session = []backend.Message{
+	m.setSessionMessages([]backend.Message{
 		{Role: "user", Content: "hello"},
 		{Role: "assistant", Content: "world"},
-	}
+	})
 	_, _ = m.handleSlashCommand("/fork")
 	if m.session.conversationID == "parent-conv-1234" || m.session.conversationID == "" {
 		t.Fatalf("expected new conversation ID, got %q", m.session.conversationID)
 	}
-	joined := strings.Join(m.engine.response, "\n")
+	joined := strings.Join(m.conversation.response, "\n")
 	if !strings.Contains(joined, "> /fork") {
-		t.Errorf("expected > /fork in response: %v", m.engine.response)
+		t.Errorf("expected > /fork in response: %v", m.conversation.response)
 	}
 	if !strings.Contains(joined, "Forked conversation.") {
-		t.Errorf("expected Forked conversation. in response: %v", m.engine.response)
+		t.Errorf("expected Forked conversation. in response: %v", m.conversation.response)
 	}
 	if !strings.Contains(joined, "To go back, use: /resume parent-conv-1234") {
-		t.Errorf("expected To go back, use: /resume parent-conv-1234 in response: %v", m.engine.response)
+		t.Errorf("expected To go back, use: /resume parent-conv-1234 in response: %v", m.conversation.response)
 	}
 }
 
@@ -355,7 +355,7 @@ func TestCycle235_NoEditorConfiguredError(t *testing.T) {
 		t.Errorf("/keybindings with no editor: cmd = %v, want nil", cmd)
 	}
 
-	got := strings.Join(m.engine.response, "\n")
+	got := strings.Join(m.conversation.response, "\n")
 	if !strings.Contains(got, "No editor configured") {
 		t.Errorf("/keybindings no-editor response missing error header: %q", got)
 	}
@@ -383,7 +383,7 @@ func TestCycle235_EditorSetUsesEditor(t *testing.T) {
 	_, cmd := m.handleSlashCommand("/keybindings edit")
 	_ = cmd
 
-	got := strings.Join(m.engine.response, "\n")
+	got := strings.Join(m.conversation.response, "\n")
 	if strings.Contains(got, "No editor configured") {
 		t.Errorf("/keybindings with $EDITOR set still surfaced error: %q", got)
 	}
@@ -400,7 +400,7 @@ func TestCycle235_VisualSetUsesVisual(t *testing.T) {
 	m := newSlashModel(t)
 	_, _ = m.handleSlashCommand("/keybindings edit")
 
-	got := strings.Join(m.engine.response, "\n")
+	got := strings.Join(m.conversation.response, "\n")
 	if strings.Contains(got, "No editor configured") {
 		t.Errorf("/keybindings with $VISUAL set should not report error: %q", got)
 	}
@@ -417,7 +417,7 @@ func TestCycle235_BothSetEditorWins(t *testing.T) {
 	m := newSlashModel(t)
 	_, _ = m.handleSlashCommand("/keybindings edit")
 
-	got := strings.Join(m.engine.response, "\n")
+	got := strings.Join(m.conversation.response, "\n")
 	if strings.Contains(got, "No editor configured") {
 		t.Errorf("/keybindings with both env vars set should not report error: %q", got)
 	}
@@ -433,7 +433,7 @@ func TestCycle235_ErrorMessageMentionsBothEnvVars(t *testing.T) {
 	m := newSlashModel(t)
 	_, _ = m.handleSlashCommand("/keybindings edit")
 
-	got := termcolor.StripSGR(strings.Join(m.engine.response, "\n"))
+	got := termcolor.StripSGR(strings.Join(m.conversation.response, "\n"))
 	want := "No editor configured: set $EDITOR or $VISUAL"
 	if !strings.Contains(got, want) {
 		t.Errorf("/keybindings error = %q, want substring %q", got, want)
@@ -457,7 +457,7 @@ func TestCycle235_BindingsTableRendersOnError(t *testing.T) {
 	m := newSlashModel(t)
 	_, _ = m.handleSlashCommand("/keybindings edit")
 
-	got := termcolor.StripSGR(strings.Join(m.engine.response, "\n"))
+	got := termcolor.StripSGR(strings.Join(m.conversation.response, "\n"))
 	if !strings.Contains(got, "No editor configured") {
 		t.Errorf("/keybindings edit error path did not render the error: %q", got)
 	}
@@ -522,10 +522,10 @@ func editorTestPath() string {
 }
 
 // seedSession writes the supplied messages into m.engine.session verbatim.
-// Test fixtures use this to put the runMode into a known prior-turn
+// Test fixtures use this to put the RootModel into a known prior-turn
 // state without driving the full Enter-key path.
-func seedSession(m *runMode, msgs []backend.Message) {
-	m.engine.session = append(m.engine.session, msgs...)
+func seedSession(m *RootModel, msgs []backend.Message) {
+	m.setSessionMessages(append(m.SessionMessages(), msgs...))
 }
 
 // TestQuoteInsertsVerbatim: the prior turn's content goes into m.composer.input
@@ -541,7 +541,7 @@ func TestQuoteInsertsVerbatim(t *testing.T) {
 	if handled, _ := m.handleSlashCommand("/quote"); !handled {
 		t.Fatal("/quote was not handled by the router")
 	}
-	if got := m.composer.input.Value(); got != "line1" {
+	if got := m.prompt.input.Value(); got != "line1" {
 		t.Errorf("input after /quote = %q, want %q", got, "line1")
 	}
 }
@@ -560,7 +560,7 @@ func TestQuoteNoTrailingNewline(t *testing.T) {
 	if handled, _ := m.handleSlashCommand("/quote"); !handled {
 		t.Fatal("/quote was not handled")
 	}
-	got := m.composer.input.Value()
+	got := m.prompt.input.Value()
 	if strings.HasSuffix(got, "\n") {
 		t.Errorf("input after /quote ends in '\\n' (the AGY 1.2.13 bug): %q", got)
 	}
@@ -588,12 +588,12 @@ func TestQuotePreservesInternalNewlines(t *testing.T) {
 		t.Fatal("/quote was not handled")
 	}
 	want := "first\nsecond\nthird"
-	if got := m.composer.input.Value(); got != want {
+	if got := m.prompt.input.Value(); got != want {
 		t.Errorf("input after /quote = %q, want %q", got, want)
 	}
 	// Sanity: confirm no leading newline snuck in either.
-	if strings.HasPrefix(m.composer.input.Value(), "\n") {
-		t.Errorf("input after /quote starts with '\\n': %q", m.composer.input.Value())
+	if strings.HasPrefix(m.prompt.input.Value(), "\n") {
+		t.Errorf("input after /quote starts with '\\n': %q", m.prompt.input.Value())
 	}
 }
 
@@ -606,25 +606,25 @@ func TestQuotePreservesInternalNewlines(t *testing.T) {
 func TestQuoteEmptyIsNoOp(t *testing.T) {
 	m := newSlashModel(t)
 	// Intentionally seed nothing — empty session.
-	pre := m.composer.input.Value()
+	pre := m.prompt.input.Value()
 	if handled, _ := m.handleSlashCommand("/quote"); !handled {
 		t.Fatal("/quote was not handled")
 	}
-	if got := m.composer.input.Value(); got != pre {
+	if got := m.prompt.input.Value(); got != pre {
 		t.Errorf("input mutated by /quote on empty session: was %q, now %q", pre, got)
 	}
-	// The recoverable feedback lives in m.engine.response after the echo
+	// The recoverable feedback lives in m.conversation.response after the echo
 	// wrapper (`> /quote` + `⎿  <msg>`); confirm the body is the
 	// recovered "No previous turn to quote." line.
 	var found bool
-	for _, row := range m.engine.response {
+	for _, row := range m.conversation.response {
 		if strings.Contains(stripColor(row), "No previous turn to quote.") {
 			found = true
 			break
 		}
 	}
 	if !found {
-		t.Errorf("empty-session /quote did not echo 'No previous turn to quote.': %v", m.engine.response)
+		t.Errorf("empty-session /quote did not echo 'No previous turn to quote.': %v", m.conversation.response)
 	}
 }
 
@@ -651,7 +651,7 @@ func TestQuoteMultiLineInsertedCorrectly(t *testing.T) {
 			t.Fatalf("/quote was not handled (prior=%q)", prior)
 		}
 		want := strings.TrimRight(prior, "\n")
-		if got := m.composer.input.Value(); got != want {
+		if got := m.prompt.input.Value(); got != want {
 			t.Errorf("input after /quote (prior=%q) = %q, want %q", prior, got, want)
 		}
 	}
@@ -676,7 +676,7 @@ func TestQuoteIndexedArg(t *testing.T) {
 	if handled, _ := m.handleSlashCommand("/quote"); !handled {
 		t.Fatal("/quote was not handled")
 	}
-	if got := m.composer.input.Value(); got != "third and latest" {
+	if got := m.prompt.input.Value(); got != "third and latest" {
 		t.Errorf("/quote default = %q, want %q", got, "third and latest")
 	}
 
@@ -684,7 +684,7 @@ func TestQuoteIndexedArg(t *testing.T) {
 	if handled, _ := m.handleSlashCommand("/quote 2"); !handled {
 		t.Fatal("/quote 2 was not handled")
 	}
-	if got := m.composer.input.Value(); got != "second" {
+	if got := m.prompt.input.Value(); got != "second" {
 		t.Errorf("/quote 2 = %q, want %q", got, "second")
 	}
 
@@ -692,7 +692,7 @@ func TestQuoteIndexedArg(t *testing.T) {
 	if handled, _ := m.handleSlashCommand("/quote 3"); !handled {
 		t.Fatal("/quote 3 was not handled")
 	}
-	if got := m.composer.input.Value(); got != "first ever" {
+	if got := m.prompt.input.Value(); got != "first ever" {
 		t.Errorf("/quote 3 = %q, want %q", got, "first ever")
 	}
 }
@@ -706,22 +706,22 @@ func TestQuoteOutOfRange(t *testing.T) {
 		{Role: "user", Content: "only one"},
 		{Role: "assistant", Content: "ack"},
 	})
-	pre := m.composer.input.Value()
+	pre := m.prompt.input.Value()
 	if handled, _ := m.handleSlashCommand("/quote 5"); !handled {
 		t.Fatal("/quote 5 was not handled")
 	}
-	if got := m.composer.input.Value(); got != pre {
+	if got := m.prompt.input.Value(); got != pre {
 		t.Errorf("/quote 5 mutated input: was %q, now %q", pre, got)
 	}
 	var found bool
-	for _, row := range m.engine.response {
+	for _, row := range m.conversation.response {
 		if strings.Contains(stripColor(row), "Quote index out of range") {
 			found = true
 			break
 		}
 	}
 	if !found {
-		t.Errorf("/quote 5 did not echo 'Quote index out of range': %v", m.engine.response)
+		t.Errorf("/quote 5 did not echo 'Quote index out of range': %v", m.conversation.response)
 	}
 }
 
@@ -733,22 +733,22 @@ func TestQuoteBadArg(t *testing.T) {
 		{Role: "user", Content: "stuff"},
 		{Role: "assistant", Content: "ack"},
 	})
-	pre := m.composer.input.Value()
+	pre := m.prompt.input.Value()
 	if handled, _ := m.handleSlashCommand("/quote abc"); !handled {
 		t.Fatal("/quote abc was not handled")
 	}
-	if got := m.composer.input.Value(); got != pre {
+	if got := m.prompt.input.Value(); got != pre {
 		t.Errorf("/quote abc mutated input: was %q, now %q", pre, got)
 	}
 	var found bool
-	for _, row := range m.engine.response {
+	for _, row := range m.conversation.response {
 		if strings.Contains(stripColor(row), "Usage: /quote [n]") {
 			found = true
 			break
 		}
 	}
 	if !found {
-		t.Errorf("/quote abc did not echo 'Usage: /quote [n]': %v", m.engine.response)
+		t.Errorf("/quote abc did not echo 'Usage: /quote [n]': %v", m.conversation.response)
 	}
 }
 
@@ -814,7 +814,7 @@ func TestQuoteInsertTextTrimsTrailingNewlines(t *testing.T) {
 }
 
 // TestRunGoal_SendsPrompt exercises the cycle-194 /goal handler.
-// Confirms the slash token is echoed, m.engine.streaming is flipped, and a
+// Confirms the slash token is echoed, m.conversation.streaming is flipped, and a
 // user-role message is appended to m.engine.session — the three signals a
 // normal Enter-key submit also produces (see tui_run.go).
 func TestRunGoal_SendsPrompt(t *testing.T) {
@@ -823,11 +823,11 @@ func TestRunGoal_SendsPrompt(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("/goal should return a non-nil tea.Cmd (the model stream)")
 	}
-	if !m.engine.streaming {
-		t.Error("/goal should set m.engine.streaming=true while the model runs")
+	if !m.conversation.streaming {
+		t.Error("/goal should set m.conversation.streaming=true while the model runs")
 	}
-	if len(m.engine.response) == 0 || m.engine.response[0] != "> /goal" {
-		t.Errorf("/goal first echo = %q, want %q", firstNLines(m.engine.response, 1), "> /goal")
+	if len(m.conversation.response) == 0 || m.conversation.response[0] != "> /goal" {
+		t.Errorf("/goal first echo = %q, want %q", firstNLines(m.conversation.response, 1), "> /goal")
 	}
 	if got := lastUserMessage(m); !strings.Contains(got, "goal") {
 		t.Errorf("/goal session message lost the goal intent: %q", got)
@@ -843,11 +843,11 @@ func TestRunGoal_NoArgsAlsoSendsPrompt(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("bare /goal should return a non-nil tea.Cmd")
 	}
-	if !m.engine.streaming {
-		t.Error("bare /goal should set m.engine.streaming=true")
+	if !m.conversation.streaming {
+		t.Error("bare /goal should set m.conversation.streaming=true")
 	}
-	if m.engine.response[0] != "> /goal" {
-		t.Errorf("bare /goal echo = %q, want %q", m.engine.response[0], "> /goal")
+	if m.conversation.response[0] != "> /goal" {
+		t.Errorf("bare /goal echo = %q, want %q", m.conversation.response[0], "> /goal")
 	}
 }
 
@@ -860,11 +860,11 @@ func TestRunPlan_SendsPrompt(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("/plan should return a non-nil tea.Cmd")
 	}
-	if !m.engine.streaming {
-		t.Error("/plan should set m.engine.streaming=true")
+	if !m.conversation.streaming {
+		t.Error("/plan should set m.conversation.streaming=true")
 	}
-	if m.engine.response[0] != "> /plan" {
-		t.Errorf("/plan echo = %q, want %q", m.engine.response[0], "> /plan")
+	if m.conversation.response[0] != "> /plan" {
+		t.Errorf("/plan echo = %q, want %q", m.conversation.response[0], "> /plan")
 	}
 	if got := lastUserMessage(m); !strings.Contains(got, "plan") {
 		t.Errorf("/plan session message lost the plan intent: %q", got)
@@ -880,11 +880,11 @@ func TestRunLearn_SendsPrompt(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("/learn should return a non-nil tea.Cmd")
 	}
-	if !m.engine.streaming {
-		t.Error("/learn should set m.engine.streaming=true")
+	if !m.conversation.streaming {
+		t.Error("/learn should set m.conversation.streaming=true")
 	}
-	if m.engine.response[0] != "> /learn" {
-		t.Errorf("/learn echo = %q, want %q", m.engine.response[0], "> /learn")
+	if m.conversation.response[0] != "> /learn" {
+		t.Errorf("/learn echo = %q, want %q", m.conversation.response[0], "> /learn")
 	}
 	if got := lastUserMessage(m); !strings.Contains(got, "learn") {
 		t.Errorf("/learn session message lost the learn intent: %q", got)
@@ -900,11 +900,11 @@ func TestRunGrillMe_SendsPrompt(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("/grill-me should return a non-nil tea.Cmd")
 	}
-	if !m.engine.streaming {
-		t.Error("/grill-me should set m.engine.streaming=true")
+	if !m.conversation.streaming {
+		t.Error("/grill-me should set m.conversation.streaming=true")
 	}
-	if m.engine.response[0] != "> /grill-me" {
-		t.Errorf("/grill-me echo = %q, want %q", m.engine.response[0], "> /grill-me")
+	if m.conversation.response[0] != "> /grill-me" {
+		t.Errorf("/grill-me echo = %q, want %q", m.conversation.response[0], "> /grill-me")
 	}
 	if got := lastUserMessage(m); !strings.Contains(got, "question") &&
 		!strings.Contains(got, "reasoning") {
@@ -927,11 +927,11 @@ func TestRunTeamwork_SendsPrompt(t *testing.T) {
 		if cmd == nil {
 			t.Fatalf("%s should return a non-nil tea.Cmd", typed)
 		}
-		if !m.engine.streaming {
-			t.Errorf("%s should set m.engine.streaming=true", typed)
+		if !m.conversation.streaming {
+			t.Errorf("%s should set m.conversation.streaming=true", typed)
 		}
-		if m.engine.response[0] != "> /teamwork-preview" {
-			t.Errorf("%s echo = %q, want %q", typed, m.engine.response[0], "> /teamwork-preview")
+		if m.conversation.response[0] != "> /teamwork-preview" {
+			t.Errorf("%s echo = %q, want %q", typed, m.conversation.response[0], "> /teamwork-preview")
 		}
 		if got := lastUserMessage(m); !strings.Contains(got, "team") &&
 			!strings.Contains(got, "autonomous agents") {
@@ -949,11 +949,11 @@ func TestRunBoost_SendsPrompt(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("/boost should return a non-nil tea.Cmd")
 	}
-	if !m.engine.streaming {
-		t.Error("/boost should set m.engine.streaming=true")
+	if !m.conversation.streaming {
+		t.Error("/boost should set m.conversation.streaming=true")
 	}
-	if m.engine.response[0] != "> /boost" {
-		t.Errorf("/boost echo = %q, want %q", m.engine.response[0], "> /boost")
+	if m.conversation.response[0] != "> /boost" {
+		t.Errorf("/boost echo = %q, want %q", m.conversation.response[0], "> /boost")
 	}
 	if got := lastUserMessage(m); !strings.Contains(got, "deep thinking") &&
 		!strings.Contains(got, "verification") {
@@ -1040,10 +1040,10 @@ func TestRunKeybindings_NoCreateIfExists(t *testing.T) {
 // lastUserMessage returns the content of the most recent user-role
 // message in m.engine.session, or empty if there are none. The cycle-194
 // handlers all append exactly one user message per slash invocation.
-func lastUserMessage(m *runMode) string {
-	for i := len(m.engine.session) - 1; i >= 0; i-- {
-		if m.engine.session[i].Role == "user" {
-			return m.engine.session[i].Content
+func lastUserMessage(m *RootModel) string {
+	for i := len(m.SessionMessages()) - 1; i >= 0; i-- {
+		if m.SessionMessages()[i].Role == "user" {
+			return m.SessionMessages()[i].Content
 		}
 	}
 	return ""
@@ -1069,7 +1069,7 @@ var (
 
 // ---------------------------------------------------------------- voice & narration tests (from tui_voice_test.go)
 
-func newVoiceTestMode(t *testing.T) *runMode {
+func newVoiceTestMode(t *testing.T) *RootModel {
 	t.Helper()
 	m := newSlashModel(t)
 	m.viewport.width = 100
@@ -1100,18 +1100,18 @@ func TestVoice_PrintModeRejection(t *testing.T) {
 
 func TestVoice_StartConnectingBanner(t *testing.T) {
 	m := newVoiceTestMode(t)
-	cmd := m.viewport.voiceSurface.Start("/voice")
+	cmd := m.audio.Surface.Start("/voice")
 	if cmd == nil {
 		t.Fatal("Start returned nil cmd")
 	}
-	if !m.viewport.voiceSurface.Active() {
+	if !m.audio.Surface.Active() {
 		t.Fatal("expected the voice surface to be active")
 	}
-	if m.viewport.voiceSurface.Phase() != voice.PhaseConnecting {
-		t.Fatalf("expected phase == %d (Connecting), got %d", voice.PhaseConnecting, m.viewport.voiceSurface.Phase())
+	if m.audio.Surface.Phase() != voice.PhaseConnecting {
+		t.Fatalf("expected phase == %d (Connecting), got %d", voice.PhaseConnecting, m.audio.Surface.Phase())
 	}
 
-	banner := m.viewport.voiceSurface.View()
+	banner := m.audio.Surface.View()
 	plain := termcolor.StripSGR(banner)
 	if !strings.Contains(plain, "Connecting...") {
 		t.Errorf("banner should contain 'Connecting...', got %q", plain)
@@ -1123,41 +1123,41 @@ func TestVoice_StartConnectingBanner(t *testing.T) {
 
 func TestVoice_EscCancelsConnecting(t *testing.T) {
 	m := newVoiceTestMode(t)
-	_ = m.viewport.voiceSurface.Start("/voice")
+	_ = m.audio.Surface.Start("/voice")
 
-	handled, _ := m.viewport.voiceSurface.HandleKey(tea.Key{Code: tea.KeyEsc})
+	handled, _ := m.audio.Surface.HandleKey(tea.Key{Code: tea.KeyEsc})
 	if !handled {
 		t.Fatal("expected Esc to be handled by voice mode")
 	}
-	if m.viewport.voiceSurface.Active() {
+	if m.audio.Surface.Active() {
 		t.Fatal("expected the voice surface to be inactive after Esc")
 	}
-	if !m.viewport.voiceSurface.Cancelled() {
+	if !m.audio.Surface.Cancelled() {
 		t.Fatal("expected the session to be marked cancelled")
 	}
 
-	respLen := len(m.engine.response)
-	m.viewport.voiceSurface.HandleConnectDone(voice.ConnectDoneMsg{Err: errors.New("network failure")})
-	if len(m.engine.response) != respLen {
-		t.Errorf("response should not be appended after cancellation; got %v", m.engine.response)
+	respLen := len(m.conversation.response)
+	m.audio.Surface.HandleConnectDone(voice.ConnectDoneMsg{Err: errors.New("network failure")})
+	if len(m.conversation.response) != respLen {
+		t.Errorf("response should not be appended after cancellation; got %v", m.conversation.response)
 	}
 }
 
 func TestVoice_FailedConnectionSurfacesPermissionDenied(t *testing.T) {
 	m := newVoiceTestMode(t)
-	_ = m.viewport.voiceSurface.Start("/voice")
+	_ = m.audio.Surface.Start("/voice")
 
-	m.viewport.voiceSurface.HandleConnectDone(voice.ConnectDoneMsg{
+	m.audio.Surface.HandleConnectDone(voice.ConnectDoneMsg{
 		Err: errors.New("transcription failed: failed to receive setup response: rpc error: code = PermissionDenied desc = Request had insufficient authentication scopes."),
 	})
 
-	if m.viewport.voiceSurface.Active() {
+	if m.audio.Surface.Active() {
 		t.Fatal("the voice surface should be inactive after connection failure")
 	}
-	if len(m.engine.response) < 2 {
-		t.Fatalf("expected response rows for /voice failure, got %v", m.engine.response)
+	if len(m.conversation.response) < 2 {
+		t.Fatalf("expected response rows for /voice failure, got %v", m.conversation.response)
 	}
-	msgText := strings.Join(m.engine.response, "\n")
+	msgText := strings.Join(m.conversation.response, "\n")
 	if !strings.Contains(msgText, "Could not start transcription") {
 		t.Errorf("response missing 'Could not start transcription': %s", msgText)
 	}
@@ -1168,16 +1168,16 @@ func TestVoice_FailedConnectionSurfacesPermissionDenied(t *testing.T) {
 
 func TestVoice_RecordingBannerAndTimer(t *testing.T) {
 	m := newVoiceTestMode(t)
-	m.viewport.voiceConnectFn = func() error { return nil }
-	_ = m.viewport.voiceSurface.Start("/voice")
+	m.audio.connect = func() error { return nil }
+	_ = m.audio.Surface.Start("/voice")
 
-	m.viewport.voiceSurface.HandleConnectDone(voice.ConnectDoneMsg{Err: nil})
+	m.audio.Surface.HandleConnectDone(voice.ConnectDoneMsg{Err: nil})
 
-	if !m.viewport.voiceSurface.Active() || m.viewport.voiceSurface.Phase() != voice.PhaseRecording {
-		t.Fatalf("expected phase == %d (Recording), got %d", voice.PhaseRecording, m.viewport.voiceSurface.Phase())
+	if !m.audio.Surface.Active() || m.audio.Surface.Phase() != voice.PhaseRecording {
+		t.Fatalf("expected phase == %d (Recording), got %d", voice.PhaseRecording, m.audio.Surface.Phase())
 	}
 
-	banner := m.viewport.voiceSurface.View()
+	banner := m.audio.Surface.View()
 	plain := termcolor.StripSGR(banner)
 	if !strings.Contains(plain, "Recording 00:00") {
 		t.Errorf("banner missing 'Recording 00:00': %q", plain)
@@ -1190,9 +1190,9 @@ func TestVoice_RecordingBannerAndTimer(t *testing.T) {
 	}
 
 	for i := 0; i < 5; i++ {
-		m.viewport.voiceSurface.HandleTick()
+		m.audio.Surface.HandleTick()
 	}
-	banner5s := termcolor.StripSGR(m.viewport.voiceSurface.View())
+	banner5s := termcolor.StripSGR(m.audio.Surface.View())
 	if !strings.Contains(banner5s, "Recording 00:05") {
 		t.Errorf("banner missing 'Recording 00:05' after 5 ticks: %q", banner5s)
 	}
@@ -1200,18 +1200,18 @@ func TestVoice_RecordingBannerAndTimer(t *testing.T) {
 
 func TestVoice_FinishingAfterMaxDuration(t *testing.T) {
 	m := newVoiceTestMode(t)
-	m.viewport.voiceConnectFn = func() error { return nil }
-	_ = m.viewport.voiceSurface.Start("/voice")
-	m.viewport.voiceSurface.HandleConnectDone(voice.ConnectDoneMsg{Err: nil})
+	m.audio.connect = func() error { return nil }
+	_ = m.audio.Surface.Start("/voice")
+	m.audio.Surface.HandleConnectDone(voice.ConnectDoneMsg{Err: nil})
 
-	m.viewport.voiceSurface.Recorder().Tick(voice.MaxRecordingDuration)
-	m.viewport.voiceSurface.HandleTick()
+	m.audio.Surface.Recorder().Tick(voice.MaxRecordingDuration)
+	m.audio.Surface.HandleTick()
 
-	if m.viewport.voiceSurface.Phase() != voice.PhaseFinishing {
-		t.Fatalf("expected phase == %d (Finishing), got %d", voice.PhaseFinishing, m.viewport.voiceSurface.Phase())
+	if m.audio.Surface.Phase() != voice.PhaseFinishing {
+		t.Fatalf("expected phase == %d (Finishing), got %d", voice.PhaseFinishing, m.audio.Surface.Phase())
 	}
 
-	banner := termcolor.StripSGR(m.viewport.voiceSurface.View())
+	banner := termcolor.StripSGR(m.audio.Surface.View())
 	if !strings.Contains(banner, "Finishing up...") {
 		t.Errorf("banner missing 'Finishing up...': %q", banner)
 	}
@@ -1222,21 +1222,21 @@ func TestVoice_FinishingAfterMaxDuration(t *testing.T) {
 
 func TestVoice_EnterOrF5InsertsDraft(t *testing.T) {
 	m := newVoiceTestMode(t)
-	m.viewport.voiceConnectFn = func() error { return nil }
-	_ = m.viewport.voiceSurface.Start("f5")
-	m.viewport.voiceSurface.HandleConnectDone(voice.ConnectDoneMsg{Err: nil})
+	m.audio.connect = func() error { return nil }
+	_ = m.audio.Surface.Start("f5")
+	m.audio.Surface.HandleConnectDone(voice.ConnectDoneMsg{Err: nil})
 
-	_ = m.viewport.voiceSurface.Recorder().AppendDraft("hello from voice dictation")
+	_ = m.audio.Surface.Recorder().AppendDraft("hello from voice dictation")
 
-	handled, _ := m.viewport.voiceSurface.HandleKey(tea.Key{Code: tea.KeyF5})
+	handled, _ := m.audio.Surface.HandleKey(tea.Key{Code: tea.KeyF5})
 	if !handled {
 		t.Fatal("expected F5 to be handled")
 	}
-	if m.viewport.voiceSurface.Active() {
+	if m.audio.Surface.Active() {
 		t.Fatal("expected the voice surface to be inactive after confirmation")
 	}
 
-	got := m.composer.input.Value()
+	got := m.prompt.input.Value()
 	if got != "hello from voice dictation" {
 		t.Errorf("input value = %q, want 'hello from voice dictation'", got)
 	}
@@ -1244,13 +1244,13 @@ func TestVoice_EnterOrF5InsertsDraft(t *testing.T) {
 
 func TestVoice_F5KeyDispatchesVoiceDictation(t *testing.T) {
 	m := newVoiceTestMode(t)
-	if m.viewport.voiceSurface.Active() {
+	if m.audio.Surface.Active() {
 		t.Fatal("the voice surface should be inactive initially")
 	}
 
 	model, cmd := m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyF5}))
-	updated := model.(*runMode)
-	if !updated.viewport.voiceSurface.Active() {
+	updated := model.(*RootModel)
+	if !updated.audio.Surface.Active() {
 		t.Fatal("pressing F5 should activate the voice surface")
 	}
 	if cmd == nil {
@@ -1260,7 +1260,7 @@ func TestVoice_F5KeyDispatchesVoiceDictation(t *testing.T) {
 
 func TestVoice_AntigravityMicSSHRemote(t *testing.T) {
 	t.Setenv("ANTIGRAVITY_MIC", "127.0.0.1:54321")
-	m := &runMode{}
+	m := &RootModel{}
 	err := m.connectVoice()
 	if err == nil || !strings.Contains(err.Error(), "cannot reach the mic server at 127.0.0.1:54321 (tcp)") {
 		t.Fatalf("expected cannot reach mic server error, got: %v", err)
@@ -1282,24 +1282,24 @@ func TestVoice_LiveRecordingFlow(t *testing.T) {
 	m := newVoiceTestMode(t)
 	t.Setenv("ANTIGRAVITY_MIC", "")
 
-	cmd := m.viewport.voiceSurface.Start("/voice")
-	if !m.viewport.voiceSurface.Active() || m.viewport.voiceSurface.Phase() != voice.PhaseConnecting {
-		t.Fatalf("expected voicePhaseConnecting, got phase=%d", m.viewport.voiceSurface.Phase())
+	cmd := m.audio.Surface.Start("/voice")
+	if !m.audio.Surface.Active() || m.audio.Surface.Phase() != voice.PhaseConnecting {
+		t.Fatalf("expected voicePhaseConnecting, got phase=%d", m.audio.Surface.Phase())
 	}
 
 	msg := cmd().(voice.ConnectDoneMsg)
 	if msg.Err != nil {
 		t.Fatalf("expected nil connect error, got: %v", msg.Err)
 	}
-	tickCmd := m.viewport.voiceSurface.HandleConnectDone(msg)
-	if !m.viewport.voiceSurface.Active() || m.viewport.voiceSurface.Phase() != voice.PhaseRecording {
-		t.Fatalf("expected voicePhaseRecording, got phase=%d", m.viewport.voiceSurface.Phase())
+	tickCmd := m.audio.Surface.HandleConnectDone(msg)
+	if !m.audio.Surface.Active() || m.audio.Surface.Phase() != voice.PhaseRecording {
+		t.Fatalf("expected voicePhaseRecording, got phase=%d", m.audio.Surface.Phase())
 	}
 	if tickCmd == nil {
 		t.Fatal("expected non-nil tickCmd after entering recording")
 	}
 
-	banner := m.viewport.voiceSurface.View()
+	banner := m.audio.Surface.View()
 	if !strings.Contains(banner, "Recording 00:00") {
 		t.Errorf("banner missing initial timer: %q", banner)
 	}
@@ -1307,21 +1307,21 @@ func TestVoice_LiveRecordingFlow(t *testing.T) {
 		t.Errorf("banner missing instructions: %q", banner)
 	}
 
-	m.viewport.voiceSurface.HandleTick()
-	bannerTick := m.viewport.voiceSurface.View()
+	m.audio.Surface.HandleTick()
+	bannerTick := m.audio.Surface.View()
 	if !strings.Contains(bannerTick, "Recording 00:01") {
 		t.Errorf("banner missing updated timer: %q", bannerTick)
 	}
 
-	handled, _ := m.viewport.voiceSurface.HandleKey(tea.Key{Code: tea.KeyEnter})
-	if !handled || m.viewport.voiceSurface.Active() {
+	handled, _ := m.audio.Surface.HandleKey(tea.Key{Code: tea.KeyEnter})
+	if !handled || m.audio.Surface.Active() {
 		t.Fatal("expected Enter to confirm and leave the voice surface")
 	}
 }
 
 // ---- cycle 250: /narration slash command tests -----------------------------
 
-func narrationTestMode(t *testing.T, sessionStart time.Time) *runMode {
+func narrationTestMode(t *testing.T, sessionStart time.Time) *RootModel {
 	t.Helper()
 	m := newSlashModel(t)
 	m.session.narrationStart = sessionStart
@@ -1339,8 +1339,8 @@ func TestSlashNarration_NoArgs(t *testing.T) {
 	if cmd != nil {
 		t.Error("cmd should be nil — narration is purely synchronous")
 	}
-	if len(m.engine.response) == 0 {
-		t.Fatal("m.engine.response is empty; expected a narration paragraph")
+	if len(m.conversation.response) == 0 {
+		t.Fatal("m.conversation.response is empty; expected a narration paragraph")
 	}
 	echoLines := afterEcho(m)
 	if len(echoLines) == 0 {
@@ -1382,16 +1382,16 @@ func TestSlashNarration_Off(t *testing.T) {
 	if !m.session.narrationOff {
 		t.Error("m.session.narrationOff should be true after '/narration off'")
 	}
-	if len(m.engine.response) != 0 {
-		t.Errorf("m.engine.response should be empty after '/narration off', got %v", m.engine.response)
+	if len(m.conversation.response) != 0 {
+		t.Errorf("m.conversation.response should be empty after '/narration off', got %v", m.conversation.response)
 	}
 
 	handled, _ = m.handleSlashCommand("/narration")
 	if !handled {
 		t.Fatal("subsequent /narration not handled")
 	}
-	if len(m.engine.response) != 0 {
-		t.Errorf("subsequent /narration should no-op when narrationOff=true, got %v", m.engine.response)
+	if len(m.conversation.response) != 0 {
+		t.Errorf("subsequent /narration should no-op when narrationOff=true, got %v", m.conversation.response)
 	}
 }
 
@@ -1417,30 +1417,30 @@ func TestSlashNarration_DoesNotAffectSessionHistory(t *testing.T) {
 	start := time.Date(2026, 4, 1, 10, 0, 0, 0, time.UTC)
 	m := narrationTestMode(t, start)
 
-	m.engine.session = []backend.Message{
+	m.setSessionMessages([]backend.Message{
 		{Role: "user", Content: "hello"},
 		{Role: "assistant", Content: "world"},
-	}
-	initialLen := len(m.engine.session)
+	})
+	initialLen := len(m.SessionMessages())
 
 	m.handleSlashCommand("/narration")
-	if len(m.engine.session) != initialLen {
-		t.Errorf("session grew after bare /narration: had %d, now %d", initialLen, len(m.engine.session))
+	if len(m.SessionMessages()) != initialLen {
+		t.Errorf("session grew after bare /narration: had %d, now %d", initialLen, len(m.SessionMessages()))
 	}
 
 	m.handleSlashCommand("/narration customized narrative")
-	if len(m.engine.session) != initialLen {
-		t.Errorf("session grew after /narration <text>: had %d, now %d", initialLen, len(m.engine.session))
+	if len(m.SessionMessages()) != initialLen {
+		t.Errorf("session grew after /narration <text>: had %d, now %d", initialLen, len(m.SessionMessages()))
 	}
 
 	m.handleSlashCommand("/narration auto refactor")
-	if len(m.engine.session) != initialLen {
-		t.Errorf("session grew after /narration auto: had %d, now %d", initialLen, len(m.engine.session))
+	if len(m.SessionMessages()) != initialLen {
+		t.Errorf("session grew after /narration auto: had %d, now %d", initialLen, len(m.SessionMessages()))
 	}
 
 	m.handleSlashCommand("/narration off")
-	if len(m.engine.session) != initialLen {
-		t.Errorf("session grew after /narration off: had %d, now %d", initialLen, len(m.engine.session))
+	if len(m.SessionMessages()) != initialLen {
+		t.Errorf("session grew after /narration off: had %d, now %d", initialLen, len(m.SessionMessages()))
 	}
 }
 
@@ -1460,7 +1460,7 @@ func TestSlashNarration_StableAcrossCalls(t *testing.T) {
 }
 
 // TestBranch_DoesNotModifyParentSkills runs /branch through the
-// slash router and asserts the parent runMode's skill catalogue is
+// slash router and asserts the parent RootModel's skill catalogue is
 // untouched. The skill catalogue lives on disk; the sandbox-local
 // registration table is separate, so adding a name to it must not
 // create a phantom entry in slashSkillCatalog().
@@ -1481,7 +1481,7 @@ func TestBranch_DoesNotModifyParentSkills(t *testing.T) {
 	// Verify the sandbox-local registration table is empty after
 	// the command returns. We use a fresh workspace to assert
 	// this in isolation rather than reach into m's internals —
-	// the parent runMode has no fields that map directly to
+	// the parent RootModel has no fields that map directly to
 	// isolatedWorkspace.registeredSkills.
 	iw := isolation.New()
 	iw.Capture("/parent/workspace", map[string]string{})
@@ -1491,7 +1491,7 @@ func TestBranch_DoesNotModifyParentSkills(t *testing.T) {
 	if skills := iw.RegisteredSkills(); len(skills) != 0 {
 		t.Errorf("post-Exit sandbox skills = %v, want empty (must not leak)", skills)
 	}
-	// /branch's output is captured into m.engine.response. The captured
+	// /branch's output is captured into m.conversation.response. The captured
 	// transcript must include the four feedback lines.
 	resp := strings.Join(afterEcho(m), "\n")
 	for _, want := range []string{
@@ -1513,13 +1513,13 @@ func TestShare_DoesNotModifyParentAgents(t *testing.T) {
 	m := newSlashModel(t)
 	// Snapshot parent agent router size.
 	beforeAgents := 0
-	if m.engine.atRouter != nil {
-		beforeAgents = len(m.engine.atRouter.Names())
+	if m.agents.router != nil {
+		beforeAgents = len(m.agents.router.Names())
 	}
 	m.handleSlashCommand("/share team-collaboration")
 	// Parent's agent router size is unchanged.
-	if m.engine.atRouter != nil {
-		if got := len(m.engine.atRouter.Names()); got != beforeAgents {
+	if m.agents.router != nil {
+		if got := len(m.agents.router.Names()); got != beforeAgents {
 			t.Errorf("after /share, parent agent router size = %d, want %d (must not leak)",
 				got, beforeAgents)
 		}
@@ -1534,7 +1534,7 @@ func TestShare_DoesNotModifyParentAgents(t *testing.T) {
 	if agents := iw.RegisteredAgents(); len(agents) != 0 {
 		t.Errorf("post-Exit sandbox agents = %v, want empty (must not leak)", agents)
 	}
-	// /share's output is captured into m.engine.response. The captured
+	// /share's output is captured into m.conversation.response. The captured
 	// transcript must include the four feedback lines, distinct
 	// from /branch's wording.
 	resp := strings.Join(afterEcho(m), "\n")
@@ -1569,9 +1569,9 @@ func TestBranch_OutputCapturedIntoParent(t *testing.T) {
 	if handled, _ := m.handleSlashCommand("/branch captured"); !handled {
 		t.Fatal("/branch should be handled by the router")
 	}
-	// m.engine.response must include the echo header `> /branch`.
-	if len(m.engine.response) == 0 || !strings.HasPrefix(m.engine.response[0], cWarningBlueOpen+"> /branch") {
-		t.Errorf("/branch echo header missing; m.engine.response[0] = %q", firstSliceLine(m.engine.response))
+	// m.conversation.response must include the echo header `> /branch`.
+	if len(m.conversation.response) == 0 || !strings.HasPrefix(m.conversation.response[0], cWarningBlueOpen+"> /branch") {
+		t.Errorf("/branch echo header missing; m.conversation.response[0] = %q", firstSliceLine(m.conversation.response))
 	}
 	// The captured output appears below the echo wrapper.
 	lines := afterEcho(m)
@@ -1594,11 +1594,11 @@ func TestBranch_OutputCapturedIntoParent(t *testing.T) {
 		}
 	}
 	// Parent's session / blocks / liveSteps are untouched.
-	if len(m.engine.session) != 0 {
-		t.Errorf("/branch should not modify parent session; got %d messages", len(m.engine.session))
+	if len(m.SessionMessages()) != 0 {
+		t.Errorf("/branch should not modify parent session; got %d messages", len(m.SessionMessages()))
 	}
-	if len(m.engine.blocks) != 0 {
-		t.Errorf("/branch should not modify parent blocks; got %d entries", len(m.engine.blocks))
+	if len(m.conversation.blocks) != 0 {
+		t.Errorf("/branch should not modify parent blocks; got %d entries", len(m.conversation.blocks))
 	}
 }
 
@@ -1611,8 +1611,8 @@ func TestShare_OutputCapturedIntoParent(t *testing.T) {
 	if handled, _ := m.handleSlashCommand("/share captured"); !handled {
 		t.Fatal("/share should be handled by the router")
 	}
-	if len(m.engine.response) == 0 || !strings.HasPrefix(m.engine.response[0], cWarningBlueOpen+"> /share") {
-		t.Errorf("/share echo header missing; m.engine.response[0] = %q", firstSliceLine(m.engine.response))
+	if len(m.conversation.response) == 0 || !strings.HasPrefix(m.conversation.response[0], cWarningBlueOpen+"> /share") {
+		t.Errorf("/share echo header missing; m.conversation.response[0] = %q", firstSliceLine(m.conversation.response))
 	}
 	lines := afterEcho(m)
 	if len(lines) < 4 {
@@ -1646,7 +1646,7 @@ func TestShare_OutputCapturedIntoParent(t *testing.T) {
 // firstSliceLine returns the first non-empty entry of s, or "" if
 // all entries are empty. Named to avoid colliding with tui_run.go's
 // firstLine helper, which has a different signature. Used to render
-// readable error messages when m.engine.response[0] is the empty string.
+// readable error messages when m.conversation.response[0] is the empty string.
 func firstSliceLine(s []string) string {
 	for _, l := range s {
 		if l != "" {
@@ -1706,7 +1706,7 @@ func TestCycle213PanelLinesUsage(t *testing.T) {
 // recovered from the AGY 1.4.0 changelog).
 func TestCycle213PanelLinesResultList(t *testing.T) {
 	root := csTmpTree(t)
-	m := newRunMode(nil, "u@t", "Gemini 3.8 Flash (High)", "t", root, false)
+	m := newRootModel(nil, "u@t", "Gemini 3.8 Flash (High)", "t", root, false)
 	if !m.openSlashPanelArgs("codesearch", "needle") {
 		t.Fatal("openSlashPanelArgs(codesearch, needle) = false")
 	}
@@ -1746,7 +1746,7 @@ func TestCycle213PanelLinesResultList(t *testing.T) {
 // TestCycle213PanelLinesNoResults and PatternError lock the empty-list
 // fallback forms.
 func TestCycle213PanelLinesNoResults(t *testing.T) {
-	m := newRunMode(nil, "u@t", "m", "t", t.TempDir(), false)
+	m := newRootModel(nil, "u@t", "m", "t", t.TempDir(), false)
 	m.openSlashPanelArgs("codesearch", "nevergonnamatch")
 	if hits := m.codesearchPanel().Hits(); len(hits) != 0 {
 		t.Fatalf("hits = %d, want 0", len(hits))
@@ -1764,7 +1764,7 @@ func TestCycle213PanelLinesNoResults(t *testing.T) {
 	}
 
 	// Pattern error: unbalanced bracket yields a user-facing message.
-	m2 := newRunMode(nil, "u@t", "m", "t", t.TempDir(), false)
+	m2 := newRootModel(nil, "u@t", "m", "t", t.TempDir(), false)
 	m2.openSlashPanelArgs("codesearch", "(unclosed")
 	if m2.codesearchPanel().Err() == "" {
 		t.Error("expected the panel to carry a pattern error")
@@ -1787,7 +1787,7 @@ func TestCycle213PanelLinesNoResults(t *testing.T) {
 // every other panel command still renders its old content.
 func TestCycle213NonCodesearchArgsPanelsKeepsExisting(t *testing.T) {
 	for _, cmd := range []string{"mcp", "tasks", "context"} {
-		m := &runMode{}
+		m := &RootModel{}
 		if !m.openSlashPanelArgs(cmd, "withargs") {
 			t.Errorf("openSlashPanelArgs(%q, ...) = false", cmd)
 			continue
@@ -1835,7 +1835,7 @@ func TestSlashCodesearchAliases(t *testing.T) {
 			m := newSlashModel(t)
 			m.session.cwd = root
 			// Disable streaming to make the panel settle synchronously.
-			m.engine.streamingSearch = false
+			m.display.streamingSearch = false
 
 			if !m.openSlashPanelArgs(alias, "TODO") {
 				t.Fatalf("openSlashPanelArgs(%q, TODO) = false", alias)
@@ -1921,14 +1921,14 @@ func TestBtwSlashNoArgs(t *testing.T) {
 	// The transcript carries the echo + "Usage: /btw <question>" line;
 	// strip the ANSI wrapper and assert on the message body.
 	var found bool
-	for _, row := range m.engine.response {
+	for _, row := range m.conversation.response {
 		if strings.Contains(stripColor(row), "Usage: /btw <question>") {
 			found = true
 			break
 		}
 	}
 	if !found {
-		t.Errorf("/btw (no args) transcript missing 'Usage: /btw <question>' line: %v", m.engine.response)
+		t.Errorf("/btw (no args) transcript missing 'Usage: /btw <question>' line: %v", m.conversation.response)
 	}
 }
 
@@ -1982,19 +1982,19 @@ func TestBtwParentTranscriptUntouched(t *testing.T) {
 		{Role: "user", Content: "parent question"},
 		{Role: "assistant", Content: "parent answer"},
 	}
-	m.engine.session = append([]backend.Message(nil), parent...)
+	m.setSessionMessages(append([]backend.Message(nil), parent...))
 
 	if handled, _ := m.handleSlashCommand("/btw What is 20+22?"); !handled {
 		t.Fatal("/btw not handled")
 	}
 
 	// The parent messages stay intact and no new message is appended.
-	if len(m.engine.session) != len(parent) {
-		t.Fatalf("parent session grew from %d to %d messages, want %d", len(parent), len(m.engine.session), len(parent))
+	if len(m.SessionMessages()) != len(parent) {
+		t.Fatalf("parent session grew from %d to %d messages, want %d", len(parent), len(m.SessionMessages()), len(parent))
 	}
 	for i, msg := range parent {
-		if m.engine.session[i].Role != msg.Role || m.engine.session[i].Content != msg.Content {
-			t.Errorf("parent session[%d] = %+v, want %+v", i, m.engine.session[i], msg)
+		if m.SessionMessages()[i].Role != msg.Role || m.SessionMessages()[i].Content != msg.Content {
+			t.Errorf("parent session[%d] = %+v, want %+v", i, m.SessionMessages()[i], msg)
 		}
 	}
 }
@@ -2009,13 +2009,13 @@ func TestBtwContextInherited(t *testing.T) {
 			capturedMessages = req.Messages
 		},
 	}
-	m.engine.backend = fakeBackend
+	m.turn.backend = fakeBackend
 
 	parent := []backend.Message{
 		{Role: "user", Content: "define UserSession interface"},
 		{Role: "assistant", Content: "UserSession is defined in auth.go"},
 	}
-	m.engine.session = append([]backend.Message(nil), parent...)
+	m.setSessionMessages(append([]backend.Message(nil), parent...))
 
 	if handled, _ := m.handleSlashCommand("/btw which file was it again?"); !handled {
 		t.Fatal("/btw not handled")
@@ -2035,8 +2035,8 @@ func TestBtwContextInherited(t *testing.T) {
 	}
 
 	// And parent session must NOT have grown
-	if len(m.engine.session) != len(parent) {
-		t.Fatalf("parent session grew to %d messages, want %d", len(m.engine.session), len(parent))
+	if len(m.SessionMessages()) != len(parent) {
+		t.Fatalf("parent session grew to %d messages, want %d", len(m.SessionMessages()), len(parent))
 	}
 }
 
@@ -2079,14 +2079,14 @@ func TestBtwErrorPath(t *testing.T) {
 		t.Errorf("error path registered %d cards; want 0", len(m.overlays.btwCards))
 	}
 	var found bool
-	for _, row := range m.engine.response {
+	for _, row := range m.conversation.response {
 		if strings.HasPrefix(stripColor(row), "btw failed: ") {
 			found = true
 			break
 		}
 	}
 	if !found {
-		t.Errorf("btw failed line missing from transcript: %v", m.engine.response)
+		t.Errorf("btw failed line missing from transcript: %v", m.conversation.response)
 	}
 }
 
@@ -2110,14 +2110,14 @@ func TestCopyBtwSlash(t *testing.T) {
 		t.Errorf("clipboard written with no active card: %q", copied)
 	}
 	var noActive bool
-	for _, row := range m.engine.response {
+	for _, row := range m.conversation.response {
 		if strings.Contains(stripColor(row), "No /btw response to copy.") {
 			noActive = true
 			break
 		}
 	}
 	if !noActive {
-		t.Errorf("/copy btw with no card missed the no-active echo: %v", m.engine.response)
+		t.Errorf("/copy btw with no card missed the no-active echo: %v", m.conversation.response)
 	}
 
 	// Add a card via /btw, then /copy btw again.
@@ -2130,7 +2130,7 @@ func TestCopyBtwSlash(t *testing.T) {
 		t.Errorf("clipboard got %q, want %q", copied, "42")
 	}
 	var copiedMsg bool
-	for _, row := range m.engine.response {
+	for _, row := range m.conversation.response {
 		plain := stripColor(row)
 		if strings.Contains(plain, "Copied /btw answer to clipboard.") {
 			copiedMsg = true
@@ -2138,7 +2138,7 @@ func TestCopyBtwSlash(t *testing.T) {
 		}
 	}
 	if !copiedMsg {
-		t.Errorf("/copy btw echo missing 'Copied /btw answer to clipboard.': %v", m.engine.response)
+		t.Errorf("/copy btw echo missing 'Copied /btw answer to clipboard.': %v", m.conversation.response)
 	}
 	_ = card
 }
@@ -2159,34 +2159,34 @@ func TestCopyBtwClipboardError(t *testing.T) {
 	m.handleSlashCommand("/copy btw")
 
 	var found bool
-	for _, row := range m.engine.response {
+	for _, row := range m.conversation.response {
 		if strings.Contains(stripColor(row), "Failed to copy to clipboard: ") {
 			found = true
 			break
 		}
 	}
 	if !found {
-		t.Errorf("/copy btw clipboard error echo missing: %v", m.engine.response)
+		t.Errorf("/copy btw clipboard error echo missing: %v", m.conversation.response)
 	}
 }
 
 // TestBtwIndependentServices: opening a btw card does not mutate
-// anything on the runMode outside the btwManager / btwCards fields.
+// anything on the RootModel outside the btwManager / btwCards fields.
 // In accordance with reference agy and official documentation, the parent session
-// is completely untouched (no history growth). Closing the runMode's main transport
-// (m.engine.backend) does not retroactively affect the card.
+// is completely untouched (no history growth). Closing the RootModel's main transport
+// (m.turn.backend) does not retroactively affect the card.
 func TestBtwIndependentServices(t *testing.T) {
 	cleanup := withBtwManager(t)
 	defer cleanup()
 
 	m := newSlashModel(t)
 	parent := []backend.Message{{Role: "user", Content: "p"}}
-	m.engine.session = append([]backend.Message(nil), parent...)
+	m.setSessionMessages(append([]backend.Message(nil), parent...))
 	if handled, _ := m.handleSlashCommand("/btw What is 20+22?"); !handled {
 		t.Fatal("/btw not handled")
 	}
-	if len(m.engine.session) != len(parent) {
-		t.Errorf("parent session length = %d, want %d", len(m.engine.session), len(parent))
+	if len(m.SessionMessages()) != len(parent) {
+		t.Errorf("parent session length = %d, want %d", len(m.SessionMessages()), len(parent))
 	}
 	if len(m.overlays.btwCards) != 1 {
 		t.Errorf("expected 1 btw card, got %d", len(m.overlays.btwCards))
@@ -2197,7 +2197,7 @@ func TestBtwIndependentServices(t *testing.T) {
 //
 // The next six tests are the cycle btw-runs-hooks deliverable for
 // AGY 1.3.3 line 49: /btw now fires the registered hooks. The
-// production Manager is constructed by newRunMode (see tui_run.go);
+// production Manager is constructed by newRootModel (see tui_run.go);
 // the tests overwrite m.session.hooks after construction so each case has
 // a private registry without leaking handlers between tests.
 
@@ -2306,14 +2306,14 @@ func TestBtwHookCanBlock(t *testing.T) {
 	}
 	// The block reason echoes into the visible transcript.
 	var found bool
-	for _, row := range m.engine.response {
+	for _, row := range m.conversation.response {
 		if strings.Contains(stripColor(row), "blocked by hook: policy: denied") {
 			found = true
 			break
 		}
 	}
 	if !found {
-		t.Errorf("block reason missing from transcript: %v", m.engine.response)
+		t.Errorf("block reason missing from transcript: %v", m.conversation.response)
 	}
 }
 
@@ -2322,7 +2322,7 @@ func TestBtwHookCanBlock(t *testing.T) {
 // Manager's fire-count counter is a useful invariant for subagent
 // hosts that tally events over the session.
 //
-// The test rebuilds a fresh runMode per /btw so the underlying PiG
+// The test rebuilds a fresh RootModel per /btw so the underlying PiG
 // coding.Session lifecycle stays inside one Ask per model — every
 // existing cycle-230 test follows the same pattern (TestCopyBtwSlash
 // does `m = newSlashModel(t)` between turns; see also
@@ -2411,8 +2411,8 @@ func TestBtwSideQuestionNoHistoryGrowth(t *testing.T) {
 	if handled, _ := m.handleSlashCommand("/btw What is 6*7?"); !handled {
 		t.Fatal("/btw not handled")
 	}
-	if len(m.engine.session) != 0 {
-		t.Fatalf("m.engine.session length = %d, want 0", len(m.engine.session))
+	if len(m.SessionMessages()) != 0 {
+		t.Fatalf("m.engine.session length = %d, want 0", len(m.SessionMessages()))
 	}
 }
 
@@ -2435,7 +2435,7 @@ func TestBtwShowHistoryWhenNoArgs(t *testing.T) {
 	}
 
 	// Run /btw without arguments: should restore history
-	respLenBefore := len(m.engine.response)
+	respLenBefore := len(m.conversation.response)
 	m.handleSlashCommand("/btw")
 	if !m.isBtwCardVisible() {
 		t.Fatal("card should be visible after /btw with history")
@@ -2444,8 +2444,8 @@ func TestBtwShowHistoryWhenNoArgs(t *testing.T) {
 		t.Errorf("expected activeBtwIndex=0, got %d", m.overlays.activeBtwIndex)
 	}
 	// No error / usage response should have been appended
-	if len(m.engine.response) > respLenBefore {
-		for _, row := range m.engine.response[respLenBefore:] {
+	if len(m.conversation.response) > respLenBefore {
+		for _, row := range m.conversation.response[respLenBefore:] {
 			if strings.Contains(stripColor(row), "Usage: /btw") {
 				t.Errorf("unexpected usage output when showing history: %s", row)
 			}
@@ -2477,14 +2477,14 @@ func TestBtwConcurrencyGuard(t *testing.T) {
 	m.handleSlashCommand("/btw Another question")
 	var found bool
 	wantMsg := "A /btw question is already in progress. Please wait for it to finish."
-	for _, row := range m.engine.response {
+	for _, row := range m.conversation.response {
 		if strings.Contains(stripColor(row), wantMsg) {
 			found = true
 			break
 		}
 	}
 	if !found {
-		t.Errorf("transcript missing concurrency guard message %q: %v", wantMsg, m.engine.response)
+		t.Errorf("transcript missing concurrency guard message %q: %v", wantMsg, m.conversation.response)
 	}
 }
 
@@ -2506,14 +2506,14 @@ func TestCopyBtwInProgressAndFailed(t *testing.T) {
 	m.handleSlashCommand("/copy btw")
 	wantGen := "The /btw answer is still being generated."
 	var foundGen bool
-	for _, row := range m.engine.response {
+	for _, row := range m.conversation.response {
 		if strings.Contains(stripColor(row), wantGen) {
 			foundGen = true
 			break
 		}
 	}
 	if !foundGen {
-		t.Errorf("missing in-progress message %q: %v", wantGen, m.engine.response)
+		t.Errorf("missing in-progress message %q: %v", wantGen, m.conversation.response)
 	}
 
 	// Now test failed card
@@ -2530,14 +2530,14 @@ func TestCopyBtwInProgressAndFailed(t *testing.T) {
 	m.handleSlashCommand("/copy btw")
 	wantFail := "The /btw question failed: network timeout"
 	var foundFail bool
-	for _, row := range m.engine.response {
+	for _, row := range m.conversation.response {
 		if strings.Contains(stripColor(row), wantFail) {
 			foundFail = true
 			break
 		}
 	}
 	if !foundFail {
-		t.Errorf("missing failure message %q: %v", wantFail, m.engine.response)
+		t.Errorf("missing failure message %q: %v", wantFail, m.conversation.response)
 	}
 }
 
@@ -2655,28 +2655,24 @@ func TestBtwEscDismissesCardBeforeInterruptingTurn(t *testing.T) {
 		t.Fatal("precondition: /btw card must be visible")
 	}
 
-	cancelled := false
-	m.engine.streaming = true
-	m.engine.turnCancel = func() { cancelled = true }
+	m.conversation.streaming = true
+	bridge, ctx := armRunningBridge(t)
+	m.turn.activeBridge = bridge
 
 	// First Esc: dismisses /btw card, turn is NOT cancelled.
 	m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEsc}))
 	if m.isBtwCardVisible() {
 		t.Fatal("first Esc should dismiss the /btw card")
 	}
-	if cancelled {
-		t.Fatal("first Esc should NOT cancel the in-flight streaming turn")
-	}
-	if m.engine.turnInterrupted {
+	requireNotCancelled(t, ctx)
+	if m.conversation.turnInterrupted {
 		t.Fatal("first Esc should NOT mark turnInterrupted")
 	}
 
 	// Second Esc: now that /btw card is gone, interrupts the streaming turn.
 	m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEsc}))
-	if !cancelled {
-		t.Fatal("second Esc should cancel the in-flight streaming turn")
-	}
-	if !m.engine.turnInterrupted {
+	requireCancelled(t, ctx)
+	if !m.conversation.turnInterrupted {
 		t.Fatal("second Esc should mark turnInterrupted")
 	}
 }
@@ -2685,24 +2681,20 @@ func TestBtwEscDismissesCardBeforeInterruptingTurn(t *testing.T) {
 // media preview is collapsed before interrupting a streaming turn.
 func TestMediaExpandedEscCollapsesBeforeInterruptingTurn(t *testing.T) {
 	m := newSlashModel(t)
-	m.composer.mediaExpanded = true
+	m.prompt.mediaExpanded = true
 
-	cancelled := false
-	m.engine.streaming = true
-	m.engine.turnCancel = func() { cancelled = true }
+	m.conversation.streaming = true
+	bridge, ctx := armRunningBridge(t)
+	m.turn.activeBridge = bridge
 
 	m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEsc}))
-	if m.composer.mediaExpanded {
+	if m.prompt.mediaExpanded {
 		t.Fatal("first Esc should collapse mediaExpanded")
 	}
-	if cancelled {
-		t.Fatal("first Esc should NOT cancel the in-flight streaming turn")
-	}
+	requireNotCancelled(t, ctx)
 
 	m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEsc}))
-	if !cancelled {
-		t.Fatal("second Esc should cancel the in-flight streaming turn")
-	}
+	requireCancelled(t, ctx)
 }
 
 // TestBtwEscPreservesDraftInputText verifies that Esc dismisses /btw card
@@ -2721,14 +2713,14 @@ func TestBtwEscPreservesDraftInputText(t *testing.T) {
 	m.overlays.btwCards = []*sidequestion.Card{c}
 	m.overlays.activeBtwIndex = 0
 	m.overlays.activeBtwID = c.ID
-	m.composer.input.SetValue("my pending question")
+	m.prompt.input.SetValue("my pending question")
 
 	// First Esc: dismisses /btw card, leaves input intact.
 	m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEsc}))
 	if m.isBtwCardVisible() {
 		t.Fatal("first Esc should dismiss the /btw card")
 	}
-	if got := m.composer.input.Value(); got != "my pending question" {
+	if got := m.prompt.input.Value(); got != "my pending question" {
 		t.Fatalf("first Esc should preserve input, got %q", got)
 	}
 
@@ -2736,19 +2728,19 @@ func TestBtwEscPreservesDraftInputText(t *testing.T) {
 	// reference clears the prompt box on two Escs,
 	// official-docs/cli/using.md:22), so the text is still there.
 	m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEsc}))
-	if got := m.composer.input.Value(); got != "my pending question" {
+	if got := m.prompt.input.Value(); got != "my pending question" {
 		t.Fatalf("second Esc should only arm the clear, got %q", got)
 	}
 
 	// Third Esc: completes the pair and clears the input.
 	m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEsc}))
-	if got := m.composer.input.Value(); got != "" {
+	if got := m.prompt.input.Value(); got != "" {
 		t.Fatalf("third Esc should clear input, got %q", got)
 	}
 }
 
 // TestBtw_AsyncNonBlocking verifies that in interactive mode (/btw with asyncBtw=true
-// or m.engine.prog != nil), /btw immediately creates and attaches the Card in StatePending,
+// or m.turn.prog != nil), /btw immediately creates and attaches the Card in StatePending,
 // returns a non-nil tea.Cmd, keeps the TUI non-blocking, and streams the answer to StateDone.
 func TestBtw_AsyncNonBlocking(t *testing.T) {
 	cleanup := withBtwManager(t)

@@ -757,3 +757,24 @@ func TestPoolRowCount(t *testing.T) {
 		t.Errorf("the Pool tab's row count = %d, want %d", got, poolRowCount)
 	}
 }
+
+// TestPanelSwitchClearsThePreviousQuotaError: the panel's error line is
+// one line for the whole list, not one per row. A quota failure read
+// against the previous account must not stay under the new one after a
+// switch — otherwise a disabled old account labels the new account
+// "disabled" too.
+func TestPanelSwitchClearsThePreviousQuotaError(t *testing.T) {
+	accountsIsolate(t)
+	p := mkPanel(t, "a@example.com", "b@example.com")
+	p.quotaErr = "account has been disabled"
+
+	p.SetCursor(1)
+	p.HandleKey(tea.Key{Code: tea.KeyEnter})
+
+	if p.QuotaErr() != "" {
+		t.Fatalf("the previous account's quota error survived the switch: %q", p.QuotaErr())
+	}
+	if p.applied != "b@example.com" {
+		t.Fatalf("applied = %q, want b@example.com", p.applied)
+	}
+}

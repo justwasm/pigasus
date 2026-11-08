@@ -107,6 +107,19 @@ type Router struct {
 	// cascade, not a second implementation of it.
 	fallback func(context.Context) (string, error)
 
+	// fallbackDefault reports that fallback is a default credential
+	// source (not a test/caller-supplied one), and fallbackActive is the
+	// registry's active account when it was built. The source caches the
+	// credential it read, so an in-session switch has to rebuild it —
+	// otherwise a long-lived router (the proxy's, the daemon's) keeps
+	// talking as the account it started with until the process restarts.
+	fallbackDefault bool
+	fallbackActive  string
+
+	// newFallback builds the default credential source. It is a field so
+	// a test can answer without the machine's keychain.
+	newFallback func() func(context.Context) (string, error)
+
 	// policyOverride overrides the global Policy() call.
 	policyOverride func() *accountpool.Config
 
@@ -174,7 +187,10 @@ func NewRouter() *Router {
 		cancel:     cancel,
 	}
 	r.loadShared = readShared
-	r.fallback = credential.DefaultTokenSource()
+	r.newFallback = credential.DefaultTokenSource
+	r.fallback = r.newFallback()
+	r.fallbackDefault = true
+	r.fallbackActive = r.activeAccount()
 	return r
 }
 
@@ -265,7 +281,7 @@ func (r *Router) RouteTurn(ctx context.Context, modelFamily ...string) (RouteRes
 		if err != nil {
 			return RouteResult{}, err
 		}
-		return RouteResult{AccessToken: tok}, nil
+		return RouteResult{Email: r.currentAccountEmail(), AccessToken: tok}, nil
 	}
 
 	family := ""
@@ -284,7 +300,7 @@ func (r *Router) RouteTurn(ctx context.Context, modelFamily ...string) (RouteRes
 		if err != nil {
 			return RouteResult{}, err
 		}
-		return RouteResult{Decision: decision, AccessToken: tok}, nil
+		return RouteResult{Email: r.currentAccountEmail(), Decision: decision, AccessToken: tok}, nil
 	}
 
 	tok, err := r.tokenFor(ctx, decision.Email)
@@ -386,26 +402,44 @@ func (r *Router) SetFallback(src func(context.Context) (string, error)) {
 	if src == nil {
 		return
 	}
+	// Read the account before taking the lock: the registry read is I/O,
+	// and the lock guards the router's own state only.
+	active := r.activeAccount()
 	r.mu.Lock()
 	r.fallback = src
+	// The source was built for the account the registry names right now.
+	// Recording it lets defaultToken tell "still current" from "the user
+	// switched accounts without rebuilding the transport".
+	r.fallbackActive = active
 	r.mu.Unlock()
 }
 
 // defaultToken answers with the transport's own credential.
 //
-// The source is created once and kept: it caches the credential in
-// memory, and a second cache would be a second answer to the same
-// question.
+// The source is cached like the transport caches it: a source reads the
+// keychain once and keeps the result. The cache is dropped when the
+// registry's active account changes, which is how an in-session
+// `/accounts` switch reaches a long-lived router that was never rebuilt
+// (the proxy's, a daemon's) — without this, only a process restart
+// would pick the new credential up.
 func (r *Router) defaultToken(ctx context.Context) (string, error) {
+	active := r.activeAccount()
+
 	r.mu.Lock()
 	fallback := r.fallback
-	r.mu.Unlock()
-	if fallback == nil {
-		fallback = credential.DefaultTokenSource()
-		r.mu.Lock()
+	if r.fallbackDefault && active != "" && !strings.EqualFold(active, r.fallbackActive) {
+		fallback = r.newFallback()
 		r.fallback = fallback
-		r.mu.Unlock()
+		r.fallbackActive = active
 	}
+	if fallback == nil {
+		fallback = r.newFallback()
+		r.fallback = fallback
+		if r.fallbackDefault {
+			r.fallbackActive = active
+		}
+	}
+	r.mu.Unlock()
 	return fallback(ctx)
 }
 
@@ -854,6 +888,19 @@ func (r *Router) activeAccount() string {
 	return strings.TrimSpace(st.Active)
 }
 
+// currentAccountEmail names the account the shared credential belongs to.
+// The registry's Active field is the first answer; when it is empty the
+// credential itself is consulted, the same cascade accounts.Current uses.
+func (r *Router) currentAccountEmail() string {
+	if active := r.activeAccount(); active != "" {
+		return active
+	}
+	if _, email := accounts.Current(); email != "" {
+		return email
+	}
+	return ""
+}
+
 // sharedToken returns the credential of the account the session is signed
 // in with, and the account it belongs to.
 //
@@ -960,23 +1007,25 @@ func ModelFamily(model string) string {
 }
 
 // remainingForModelFamily returns the lowest remaining fraction for a specific model family.
-// If family is empty or no buckets match the family filter, it falls back to the lowest fraction across all groups.
+// If family is empty, it defaults to Gemini models. Claude and GPT groups are ignored for
+// Gemini routing.
 func remainingForModelFamily(snap *auth.QuotaSnapshot, family string) (float64, bool) {
 	if snap == nil {
 		return 0, false
 	}
 	target := strings.ToLower(strings.TrimSpace(family))
+	if target == "" {
+		target = "gemini"
+	}
 	found := false
 	lowest := 0.0
 	for _, g := range snap.Groups {
 		gName := strings.ToLower(g.Name)
-		if target != "" {
-			if target == "claude" && !strings.Contains(gName, "claude") && !strings.Contains(gName, "gpt") {
-				continue
-			}
-			if target == "gemini" && !strings.Contains(gName, "gemini") {
-				continue
-			}
+		if target == "claude" && !strings.Contains(gName, "claude") && !strings.Contains(gName, "gpt") {
+			continue
+		}
+		if target == "gemini" && !strings.Contains(gName, "gemini") {
+			continue
 		}
 		for _, b := range g.Buckets {
 			if !found || b.RemainingFraction < lowest {
@@ -985,8 +1034,21 @@ func remainingForModelFamily(snap *auth.QuotaSnapshot, family string) (float64, 
 			}
 		}
 	}
-	if !found && target != "" {
-		return remainingOf(snap)
+	if !found {
+		// Fallback for snapshots where group names do not explicitly mention the model family
+		// (e.g. generic single-group test fixtures), skipping claude/gpt if targeting gemini.
+		for _, g := range snap.Groups {
+			gName := strings.ToLower(g.Name)
+			if target == "gemini" && (strings.Contains(gName, "claude") || strings.Contains(gName, "gpt")) {
+				continue
+			}
+			for _, b := range g.Buckets {
+				if !found || b.RemainingFraction < lowest {
+					lowest = b.RemainingFraction
+					found = true
+				}
+			}
+		}
 	}
 	return lowest, found
 }

@@ -6,6 +6,8 @@ import (
 	"os"
 	"strings"
 	"testing"
+
+	"github.com/justwasm/pigasus/internal/clirunner"
 )
 
 func TestPrintUnknownModel_EmitsJSONEnvelope(t *testing.T) {
@@ -24,7 +26,7 @@ func TestPrintUnknownModel_EmitsJSONEnvelope(t *testing.T) {
 	}
 	os.Stdout = w
 
-	validateErr := validateRootFlags(fs, true)
+	validateErr := clirunner.ValidateRootFlags(fs, true)
 
 	_ = w.Close()
 	os.Stdout = oldStdout

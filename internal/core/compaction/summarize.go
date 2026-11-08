@@ -109,6 +109,18 @@ var ErrEmptyTranscript = errors.New("compaction: empty transcript")
 // The original transcript is preserved on the caller side; this
 // function never mutates sess.
 func ComputeSummary(ctx context.Context, client backend.Client, model, systemPrompt string, sess []backend.Message) (Summary, error) {
+	return computeSummary(ctx, client, model, systemPrompt, sess, SummarizePrompt+OnDemandCompactionSuffix)
+}
+
+// ComputeSummaryAuto runs the reference's automatic checkpoint instruction:
+// the continuation-summary body with no on-demand tail. The reference has no
+// observed automatic tail; carrying the on-demand one here made the automatic
+// request differ from the checkpoint payload's session_summary_prompt_override.
+func ComputeSummaryAuto(ctx context.Context, client backend.Client, model, systemPrompt string, sess []backend.Message) (Summary, error) {
+	return computeSummary(ctx, client, model, systemPrompt, sess, SummarizePrompt)
+}
+
+func computeSummary(ctx context.Context, client backend.Client, model, systemPrompt string, sess []backend.Message, instruction string) (Summary, error) {
 	before := Stats{
 		Messages: len(sess),
 		Tokens:   TranscriptTokens(sess),
@@ -122,7 +134,7 @@ func ComputeSummary(ctx context.Context, client backend.Client, model, systemPro
 	if model == "" {
 		model = "claude-sonnet-4-6"
 	}
-	req := buildSummarizeRequest(model, systemPrompt, sess)
+	req := buildSummarizeRequest(model, systemPrompt, sess, instruction)
 
 	chunks, err := client.Stream(ctx, req)
 	if err != nil {
@@ -140,7 +152,7 @@ func ComputeSummary(ctx context.Context, client backend.Client, model, systemPro
 		statsAfter := Stats{Tokens: EstimateTokens(text)}
 		return Summary{StatsBefore: before, StatsAfter: statsAfter}, err
 	}
-	summary := strings.TrimSpace(text)
+	summary := normalizeSummary(text)
 	after := Stats{Messages: 1, Tokens: EstimateTokens(summary)}
 	return Summary{
 		Text:         summary,
@@ -151,13 +163,51 @@ func ComputeSummary(ctx context.Context, client backend.Client, model, systemPro
 	}, nil
 }
 
-func buildSummarizeRequest(model, systemPrompt string, sess []backend.Message) backend.StreamRequest {
+// normalizeSummary keeps only the continuation summary the reference stores.
+//
+// 【一手】 agy 1.5.3, conversation e9bd3e8a-…: every stored checkpoint summary
+// begins at `<summary>` and ends at `</summary>`. CloudCode can prepend the
+// model's reasoning to the same stream; a live clone run stored
+// `<think>…</think><summary>…</summary>`, which the reference never does.
+func normalizeSummary(text string) string {
+	text = strings.TrimSpace(stripThinkBlocks(text))
+	lower := strings.ToLower(text)
+	start := strings.Index(lower, "<summary>")
+	if start < 0 {
+		return text
+	}
+	end := strings.Index(lower[start:], "</summary>")
+	if end < 0 {
+		return text
+	}
+	end += start + len("</summary>")
+	return strings.TrimSpace(text[start:end])
+}
+
+// stripThinkBlocks removes `<think>…</think>` reasoning blocks.
+func stripThinkBlocks(text string) string {
+	for {
+		lower := strings.ToLower(text)
+		start := strings.Index(lower, "<think>")
+		if start < 0 {
+			return text
+		}
+		end := strings.Index(lower[start:], "</think>")
+		if end < 0 {
+			return text
+		}
+		end += start + len("</think>")
+		text = strings.TrimSpace(text[:start] + text[end:])
+	}
+}
+
+func buildSummarizeRequest(model, systemPrompt string, sess []backend.Message, instruction string) backend.StreamRequest {
 	return backend.StreamRequest{
 		Model:        model,
 		SystemPrompt: systemPrompt,
 		Messages: []backend.Message{
 			{Role: "user", Content: transcriptText(sess)},
-			{Role: "user", Content: SummarizePrompt + OnDemandCompactionSuffix},
+			{Role: "user", Content: instruction},
 		},
 	}
 }

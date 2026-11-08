@@ -214,6 +214,21 @@ type Compact struct {
 	Reason string `json:"reason,omitempty"`
 	// Summary is the compaction's summary. It is set on an end frame.
 	Summary string `json:"summary,omitempty"`
+	// Resume is the exact "# Resuming from a compaction" block the actor
+	// installed. The client uses it as the new context verbatim.
+	Resume string `json:"resume,omitempty"`
+	// StepsSummarized is how many steps this checkpoint folded.
+	StepsSummarized int `json:"steps_summarized,omitempty"`
+	// Strategy is CHECKPOINT_STRATEGY_SAME_MODEL / SINGLE_PROMPT / ...
+	Strategy string `json:"strategy,omitempty"`
+	// SummaryModel is the model that wrote the summary.
+	SummaryModel string `json:"summary_model,omitempty"`
+	// Sync reports whether the checkpoint blocked the turn.
+	Sync bool `json:"sync,omitempty"`
+	// IncludedStepEnd is the global step index folded into Resume.
+	IncludedStepEnd int `json:"included_step_end,omitempty"`
+	// KeepRecent is the number of recent steps left outside the summary.
+	KeepRecent int `json:"keep_recent,omitempty"`
 	// TokensBefore is the token count before the compaction.
 	TokensBefore int `json:"tokens_before,omitempty"`
 	// TokensAfter is the estimated token count after it.

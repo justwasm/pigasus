@@ -16,7 +16,10 @@ import (
 	"github.com/justwasm/pigasus/internal/app/prompt/agyprompt"
 	"github.com/justwasm/pigasus/internal/app/subagenttools"
 	"github.com/justwasm/pigasus/internal/app/tools/surface"
+	"github.com/justwasm/pigasus/internal/app/tools/tasks"
 	"github.com/justwasm/pigasus/internal/core/backend"
+	"github.com/justwasm/pigasus/internal/core/interaction"
+	"github.com/justwasm/pigasus/internal/features/checkpoint"
 	"github.com/justwasm/pigasus/internal/remotecontrol"
 	"github.com/justwasm/pigasus/internal/remotecontrol/cascades"
 )
@@ -27,6 +30,9 @@ type RemoteCascadeOptions struct {
 	Workspace      string
 	AgentDir       string
 	Browser        *agentbrowser.Broker
+	// InteractionHost answers ask_question / ask_permission from the
+	// remote transport. Nil keeps the tools' headless behaviour.
+	InteractionHost interaction.Host
 }
 
 type browserActorTool struct {
@@ -83,9 +89,18 @@ func (s *remoteCascadeSession) Send(ctx context.Context, promptText string, even
 	provider := agentturn.NewBackendProviderAdapter(be, modelName)
 
 	catalog := surface.RuntimeCatalog(s.opts.Workspace)
-	catalogTools := agenttools.Tools(catalog)
+	if host := s.opts.InteractionHost; host != nil {
+		// The interactive tools are the only ones that need the
+		// transport: re-register them so their calls park on the host
+		// instead of answering for themselves.
+		catalog.Register(&tasks.AskQuestion{Host: host})
+		catalog.Register(&tasks.AskPermission{Host: host})
+		catalog.Register(&tasks.AskCustomPermission{Host: host})
+	}
+	catalogTools := agenttools.MainAgentTools(catalog)
 	subTools := subagenttools.Tools(subagenttools.Deps{
 		Provider:       provider,
+		Backend:        s.opts.Backend,
 		Model:          modelName,
 		CWD:            s.opts.Workspace,
 		AgentDir:       s.opts.AgentDir,
@@ -114,12 +129,13 @@ func (s *remoteCascadeSession) Send(ctx context.Context, promptText string, even
 	sysPrompt := agyprompt.Build(promptOpts)
 
 	act, err := actor.Spawn(actor.Config{
-		ID:           convID,
-		Name:         "remote_cascade_agent",
-		SystemPrompt: sysPrompt,
-		Model:        modelName,
-		Provider:     provider,
-		Tools:        allTools,
+		ID: convID,
+		Default: actor.TurnConfig{
+			SystemPrompt: sysPrompt,
+			Model:        modelName,
+			Provider:     provider,
+			Tools:        allTools,
+		},
 	})
 	if err != nil {
 		events <- remotecontrol.SessionEvent{Type: remotecontrol.SessionEventError, Error: err}
@@ -129,8 +145,18 @@ func (s *remoteCascadeSession) Send(ctx context.Context, promptText string, even
 
 	seedCascadeHistory(act, s.prompt.History)
 
-	eventsCh, unsub := act.Subscribe()
-	defer unsub()
+	var decls []actor.ToolDefinition
+	for _, t := range allTools {
+		decls = append(decls, t.Definition())
+	}
+	toolDecls, _ := json.Marshal(decls)
+	policy := checkpoint.New(checkpoint.Config{
+		Model:            modelName,
+		SystemPrompt:     sysPrompt,
+		ToolDeclarations: toolDecls,
+		Backend:          s.opts.Backend,
+		BackendFor:       s.opts.BackendFactory,
+	})
 
 	events <- remotecontrol.SessionEvent{Type: remotecontrol.SessionEventStart}
 
@@ -141,9 +167,27 @@ func (s *remoteCascadeSession) Send(ctx context.Context, promptText string, even
 	var turnDoneOnce sync.Once
 	signalDone := func() { turnDoneOnce.Do(func() { close(turnDone) }) }
 
+	turn, startErr := act.StartTurn(ctx, actor.TurnRequest{
+		Prompt: promptText,
+		TurnConfig: actor.TurnConfig{
+			Checkpoint: func(stepCtx context.Context, probe actor.CheckpointProbe) (actor.CheckpointDecision, error) {
+				return policy.BeforeStep(stepCtx, act, probe)
+			},
+		},
+	})
+	if startErr != nil {
+		events <- remotecontrol.SessionEvent{
+			Type:  remotecontrol.SessionEventError,
+			Error: startErr,
+		}
+		act.Close()
+		return nil, startErr
+	}
+
 	go func() {
 		defer close(drainDone)
-		for ev := range eventsCh {
+		defer policy.Close()
+		for ev := range turn.Events() {
 			switch ev.Type {
 			case actor.EventDelta:
 				if ev.Delta != "" {
@@ -191,18 +235,6 @@ func (s *remoteCascadeSession) Send(ctx context.Context, promptText string, even
 		}
 	}()
 
-	userMsg := actor.NewUserMessage(promptText)
-	sendErr := act.SendSync(ctx, userMsg)
-	if sendErr != nil {
-		events <- remotecontrol.SessionEvent{
-			Type:  remotecontrol.SessionEventError,
-			Error: sendErr,
-		}
-		act.Close()
-		<-drainDone
-		return nil, sendErr
-	}
-
 	select {
 	case <-ctx.Done():
 		_ = act.CancelTurn("context cancelled")
@@ -246,7 +278,7 @@ func seedCascadeHistory(act *actor.Actor, turns []cascades.HistoryTurn) {
 			} else {
 				tr := &actor.TurnRecord{
 					ID:          fmt.Sprintf("hist_%d", time.Now().UnixNano()),
-					Input:       actor.NewUserMessage(""),
+					Input:       "",
 					FinalOutput: t.Text,
 					Status:      "done",
 				}
@@ -258,7 +290,7 @@ func seedCascadeHistory(act *actor.Actor, turns []cascades.HistoryTurn) {
 			}
 			current = &actor.TurnRecord{
 				ID:     fmt.Sprintf("hist_%d", time.Now().UnixNano()),
-				Input:  actor.NewUserMessage(t.Text),
+				Input:  t.Text,
 				Status: "done",
 			}
 		}

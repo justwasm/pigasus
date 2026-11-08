@@ -36,7 +36,7 @@ func TestPrependSlashPlanIfNeeded(t *testing.T) {
 }
 
 func TestSlashPlanModeSwitchAndStacking(t *testing.T) {
-	m := newRunMode(nil, "", "Gemini 3.8 Flash (High)", "", t.TempDir(), true)
+	m := newRootModel(nil, "", "Gemini 3.8 Flash (High)", "", t.TempDir(), true)
 	m.session.mode = permissions.ModeAuto
 
 	// Bare /plan switches mode to ModePlan and sends planning prompt
@@ -47,8 +47,8 @@ func TestSlashPlanModeSwitchAndStacking(t *testing.T) {
 	if m.session.mode != permissions.ModePlan {
 		t.Errorf("m.session.mode = %q, want %q", m.session.mode, permissions.ModePlan)
 	}
-	if m.composer.input.Placeholder != permissions.ModeBanner(permissions.ModePlan) {
-		t.Errorf("placeholder = %q, want %q", m.composer.input.Placeholder, permissions.ModeBanner(permissions.ModePlan))
+	if m.prompt.input.Placeholder != permissions.ModeBanner(permissions.ModePlan) {
+		t.Errorf("placeholder = %q, want %q", m.prompt.input.Placeholder, permissions.ModeBanner(permissions.ModePlan))
 	}
 
 	// /plan with prompt arguments starts model turn

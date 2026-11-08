@@ -617,6 +617,7 @@ func providerSubcommand() SubcommandSpec {
 		Name:    "provider",
 		Short:   "Manage the configured model providers",
 		Aliases: []string{"providers"},
+		HelpFn:  usageProvider,
 		Subs: []SubSubSpec{
 			{Name: "list", Short: "List the configured providers", RunJ: runProviderList, HelpFn: func(n string) string {
 				return "Usage: " + n + " provider list\n"
@@ -633,8 +634,9 @@ func providerSubcommand() SubcommandSpec {
 
 func modelSubcommand() SubcommandSpec {
 	return SubcommandSpec{
-		Name:  "model",
-		Short: "Manage the configured models",
+		Name:   "model",
+		Short:  "Manage the configured models",
+		HelpFn: usageModel,
 		Subs: []SubSubSpec{
 			{Name: "list", Short: "List the configured models", RunJ: runModelList, HelpFn: func(n string) string {
 				return "Usage: " + n + " model list [--provider <provider>]\n"
@@ -649,12 +651,16 @@ func modelSubcommand() SubcommandSpec {
 
 func accountsSubcommand() SubcommandSpec {
 	return SubcommandSpec{
-		Name:  "accounts",
-		Short: "Manage the signed-in Google accounts",
+		Name:   "accounts",
+		Short:  "Manage the signed-in Google accounts",
+		HelpFn: usageAccounts,
 		Subs: []SubSubSpec{
+			{Name: "tui", Short: "Interactive accounts and routing management TUI", RunJ: runAccountsTUI, HelpFn: usageAccountsTUI},
 			{Name: "list", Short: "List the known accounts", RunJ: runAccountsList, HelpFn: func(n string) string {
 				return "Usage: " + n + " accounts list\n"
 			}},
+			{Name: "show", Short: "Show one account in detail", RunJ: runAccountsShow, HelpFn: usageAccountsShow},
+			{Name: "add", Short: "Sign in to another Google account", RunJ: runAccountsAdd, HelpFn: usageAccountsAdd},
 			{Name: "switch", Short: "Make one account the active one", RunJ: runAccountsSwitch, HelpFn: usageAccountsSwitch},
 			{Name: "remove", Short: "Forget one account", RunJ: runAccountsRemove, HelpFn: usageAccountsRemove},
 		},
@@ -698,8 +704,8 @@ func UpdateSubcommand() SubcommandSpec {
 		Run:      RunUpdate,
 	}
 }
-func ModelsSubcommand() SubcommandSpec    { return generalSubcommands()[4] }
-func HelpSubcommand() SubcommandSpec      { return generalSubcommands()[5] }
+func ModelsSubcommand() SubcommandSpec { return generalSubcommands()[4] }
+func HelpSubcommand() SubcommandSpec   { return generalSubcommands()[5] }
 
 func InstallSubcommand() SubcommandSpec {
 	return pluginAndMCPSubcommands(standardPluginSubs(), standardMCPSubs())[3]

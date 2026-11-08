@@ -193,6 +193,29 @@ func (t *CallMcpTool) Run(ctx context.Context, args json.RawMessage) (any, error
 	if !ok || len(payload) == 0 {
 		payload = json.RawMessage(`{}`)
 	}
+
+	// AGY 1.5.2: If the model passed explanation, toolSummary, toolAction, or
+	// waitForPreviousTools at the top level of call_mcp_tool, and they are not already
+	// present inside Arguments, forward them into the tool's Arguments payload so
+	// servers that declare these parameters receive them.
+	extraMetaKeys := []string{"explanation", "toolSummary", "toolAction", "waitForPreviousTools"}
+	var payloadObj map[string]json.RawMessage
+	if err := json.Unmarshal(payload, &payloadObj); err == nil && payloadObj != nil {
+		modified := false
+		for _, key := range extraMetaKeys {
+			if _, exists := payloadObj[key]; !exists {
+				if val, found := lookupMcpArg(fields, key); found {
+					payloadObj[key] = val
+					modified = true
+				}
+			}
+		}
+		if modified {
+			if updated, err := json.Marshal(payloadObj); err == nil {
+				payload = updated
+			}
+		}
+	}
 	provider := t.Provider
 	if provider == nil {
 		provider = DefaultMCPProvider()

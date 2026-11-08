@@ -100,3 +100,25 @@ func protoDuration(fs []protoField) time.Duration {
 	nanos := int64(protoVarint(fs, 2))
 	return time.Duration(secs)*time.Second + time.Duration(nanos)
 }
+
+// protoRepeatedText returns every length-delimited field with the given number.
+func protoRepeatedText(fs []protoField, num int) []string {
+	var out []string
+	for _, f := range fs {
+		if f.num == num && f.wire == 2 {
+			out = append(out, string(f.data))
+		}
+	}
+	return out
+}
+
+// protoRepeatedVarint returns every varint field with the given number.
+func protoRepeatedVarint(fs []protoField, num int) []int64 {
+	var out []int64
+	for _, f := range fs {
+		if f.num == num && f.wire == 0 {
+			out = append(out, int64(f.u))
+		}
+	}
+	return out
+}

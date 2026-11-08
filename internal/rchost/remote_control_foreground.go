@@ -124,6 +124,7 @@ func buildForegroundDispatcher(cwd, model, addr string, sess *remotecontrol.Sess
 		ListBackend:             buildHostListBackend(),
 		FS:                      fsProvider,
 		Projects:                projectStore,
+		Uploads:                 buildHostProjectUploadStore(),
 		Conversations:           buildHostConversationStore(projectStore),
 		AuthState:               authStateForCaller(),
 		DaemonMeta:              daemonMetaForCaller("tcp+ws", addr, "persistent"),

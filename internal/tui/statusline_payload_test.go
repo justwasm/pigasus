@@ -68,14 +68,14 @@ var payloadGolden = `{"cwd":"` + payloadGoldenCwd + `",` +
 // The account is registered in an isolated registry, because the quota
 // snapshot the payload carries is the registry's: the session's own
 // cache is the registry, so the fixture writes the snapshot there.
-func payloadGoldenSession(t *testing.T) *runMode {
+func payloadGoldenSession(t *testing.T) *RootModel {
 	t.Helper()
 	t.Setenv("ANTIGRAVITY_HOME", payloadGoldenHome)
 	t.Setenv("OPENAGY_ACCOUNTS_CONFIG", filepath.Join(t.TempDir(), "accounts.json"))
 	if _, _, err := accounts.Register(accountsFakeToken(t, payloadGoldenAccount, "at-probe")); err != nil {
 		t.Fatalf("register the account: %v", err)
 	}
-	m := &runMode{
+	m := &RootModel{
 		session: sessionState{
 			statusModel:      payloadGoldenStatus,
 			model:            payloadGoldenModel,
@@ -123,7 +123,7 @@ func TestBuildStatusLinePayload_GoldenBytes(t *testing.T) {
 // the reference reports "working" while the agent runs.
 func TestBuildStatusLinePayload_WorkingState(t *testing.T) {
 	m := payloadGoldenSession(t)
-	m.engine.streaming = true
+	m.conversation.streaming = true
 	raw, err := json.Marshal(m.buildStatusLinePayload())
 	if err != nil {
 		t.Fatal(err)
@@ -181,7 +181,7 @@ func TestBuildStatusLinePayload_VimMember(t *testing.T) {
 		t.Errorf("vim must be absent while vim editor mode is off: %s", raw)
 	}
 
-	m.composer.vimOn = true
+	m.prompt.vimOn = true
 	raw, err = json.Marshal(m.buildStatusLinePayload())
 	if err != nil {
 		t.Fatal(err)
@@ -220,8 +220,10 @@ func TestBuildStatusLinePayload_PendingInputCount(t *testing.T) {
 func TestBuildStatusLinePayload_Subagents(t *testing.T) {
 	m := payloadGoldenSession(t)
 	registry := subagenttools.NewRegistry(payloadGoldenConvID)
-	registry.Add(subagenttools.NewChild("child-1", "research", "deep dive", "/tmp", nil))
-	m.engine.subagentRegistry = registry
+	child := subagenttools.NewChild("child-1", "research", "deep dive", "/tmp", nil)
+	child.Model = "Gemini 3.8 Flash (High)"
+	registry.Add(child)
+	m.agents.registry = registry
 	raw, err := json.Marshal(m.buildStatusLinePayload())
 	if err != nil {
 		t.Fatal(err)
@@ -238,6 +240,9 @@ func TestBuildStatusLinePayload_Subagents(t *testing.T) {
 	if entry["name"] != "research" || entry["role"] != "deep dive" || entry["status"] != "running" {
 		t.Errorf("subagents[0] = %v, want research/deep dive/running", entry)
 	}
+	if entry["model"] != "Gemini 3.8 Flash (High)" {
+		t.Errorf("subagents[0].model = %v", entry["model"])
+	}
 }
 
 // TestAgentState_HostFacts pins the host's side of the `agent_state`
@@ -251,19 +256,19 @@ func TestAgentState_HostFacts(t *testing.T) {
 		t.Errorf("agentState = %q, want no cell while the session is idle", got)
 	}
 
-	m.engine.streaming = true
+	m.conversation.streaming = true
 	if got := m.agentState(); got != "working" {
 		t.Errorf("agentState = %q, want working", got)
 	}
 
-	m.engine.activeTool = "⠿ read_file"
+	m.conversation.activeTool = "⠿ read_file"
 	if got := m.agentState(); got != "tool_use" {
 		t.Errorf("agentState = %q, want tool_use", got)
 	}
 
-	m.engine.streaming = false
-	m.engine.activeTool = ""
-	m.engine.lastTurnOutcome = tea.ProgramStateError
+	m.conversation.streaming = false
+	m.conversation.activeTool = ""
+	m.display.lastTurnOutcome = tea.ProgramStateError
 	if got := m.agentState(); got != "error" {
 		t.Errorf("agentState = %q, want error", got)
 	}

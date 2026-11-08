@@ -46,9 +46,8 @@ func TestPrintPathAskQuestionHeadlessAutoSkips(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Dispatch: %v", err)
 	}
-	if out != subagentquestions.SkipAnswer {
-		t.Errorf("headless ask_question = %q, want %q", out,
-			subagentquestions.SkipAnswer)
+	if out != "A1: User Skipped" {
+		t.Errorf("headless ask_question = %q, want %q", out, "A1: User Skipped")
 	}
 }
 

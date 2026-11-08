@@ -174,12 +174,12 @@ the reference's, so the three extras are accepted and not advertised
 (`--addr`, `--name`, `--no-login`, `--desktop`), and `web` lists its own
 (`--desktop` included).
 
-## The hidden TUI slash commands (5)
+## The hidden TUI slash commands (8)
 
-The TUI's picker shows 99 built-in commands. Five more are handled but
-never listed — they are in the handler map
-(`internal/cliapp/slash_commands.go:101`) and not in the catalog
-(`internal/ui/tuilib/commands.go:57`).
+The TUI's picker shows the built-in catalogue. Eight more commands are
+handled but never listed — they are in the handler map
+(`internal/tui/slash_commands.go`) and in `slashcommands.Hidden`: five are
+the reference-hidden set, three are openagy-only remote-agent commands.
 
 | Command | Handler | What it does |
 |---|---|---|
@@ -188,8 +188,17 @@ never listed — they are in the handler map
 | `/narration` | `slashNarration` | Print the narration feedback — what the narration of a turn does |
 | `/quote <n>` | `slashQuote` | Insert a quoted block of the n-th turn into the prompt |
 | `/share <name>` | `slashShare` | Open a read-only, isolated share of the workspace |
+| `/terminal` | `slashTerminal` | Remote-only terminal: list/create/run/close a server PTY |
+| `/upload <path>` | `slashUpload` | Remote-only: upload a local file as a project resource |
+| `/triggers` | `slashTriggers` | Remote-only: list/add/pause/resume/delete remote triggers |
 
 `/logout` **is** visible (`/logout — Log out`); only `/login` is hidden.
+
+The last three are **openagy-only**: the reference has no CLI equivalent.
+They are registered in `slashcommands.Hidden` so the vocabulary and the
+host handler table agree, but they are remote-agent surfaces and answer
+"only available in a --remote-agent session" locally. See
+[`pigasus-extensions.md`](pigasus-extensions.md).
 
 ## The pre-parser launcher
 

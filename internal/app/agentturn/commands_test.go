@@ -38,3 +38,35 @@ func TestACPRemote_AvailableCommands(t *testing.T) {
 		t.Errorf("expected CapModelSwitch in capabilities, got: %v", caps)
 	}
 }
+
+func TestLocal_ExecuteAction(t *testing.T) {
+	loc := NewLocal(nil)
+
+	// Test steer action
+	res, err := loc.ExecuteAction(nil, "steer", "guide model")
+	if err != nil || !res.Success {
+		t.Fatalf("steer action failed: res=%+v, err=%v", res, err)
+	}
+	steerPending := loc.PendingSteer()
+	if len(steerPending) != 1 || steerPending[0] != "guide model" {
+		t.Errorf("pending steer = %+v, want ['guide model']", steerPending)
+	}
+
+	// Test model action
+	res, err = loc.ExecuteAction(nil, "model", "gemini-3.8-flash-high")
+	if err != nil || !res.Success {
+		t.Fatalf("model action failed: res=%+v, err=%v", res, err)
+	}
+	loc.mu.Lock()
+	ov := loc.overrideModel
+	loc.mu.Unlock()
+	if ov != "gemini-3.8-flash-high" {
+		t.Errorf("overrideModel = %q, want gemini-3.8-flash-high", ov)
+	}
+
+	// Test cancel action when no active turn
+	res, err = loc.ExecuteAction(nil, "cancel", "")
+	if err != nil || !res.Success {
+		t.Fatalf("cancel action failed: res=%+v, err=%v", res, err)
+	}
+}

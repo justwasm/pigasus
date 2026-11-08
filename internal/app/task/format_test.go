@@ -463,3 +463,24 @@ func TestActiveSubagentRow_BlockedStatus(t *testing.T) {
 	}
 }
 
+// TestActiveSubagentRowLine_Model pins the AGY 1.5.3 model cell: shown
+// next to the name on a wide terminal, hidden when the terminal is
+// narrow.
+func TestActiveSubagentRowLine_Model(t *testing.T) {
+	sub := &Task{
+		ID:        "subagent-1001",
+		Name:      "Explore",
+		Kind:      KindSubagent,
+		State:     StateRunning,
+		Model:     "Gemini 3.8 Flash (High)",
+		StartedAt: time.Now(),
+	}
+	wide := stripANSI(ActiveSubagentRowLine(sub, false, 80))
+	if !strings.Contains(wide, "Agent(Explore) · Gemini 3.8 Flash (High)") {
+		t.Errorf("wide row = %q, want the model next to the name", wide)
+	}
+	narrow := stripANSI(ActiveSubagentRowLine(sub, false, 50))
+	if strings.Contains(narrow, "Gemini") {
+		t.Errorf("narrow row = %q, want the model hidden", narrow)
+	}
+}

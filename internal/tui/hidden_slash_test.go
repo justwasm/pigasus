@@ -1,7 +1,7 @@
 // hidden_slash_test.go — the TUI's hidden slash commands, pinned.
 //
 // The picker shows the built-in catalog (slashcommands.Default);
-// five more commands are handled but never listed. The inventory lives
+// eight more commands are handled but never listed. The inventory lives
 // in docs/guide/hidden-commands-and-flags.md — this test is its other
 // half: a handler that the catalog neither names nor lists as an alias
 // is a hidden command.
@@ -15,10 +15,13 @@ import (
 	"github.com/justwasm/pigasus/internal/ui/slashcommands"
 )
 
-// TestHiddenSlashCommands pins the five commands the TUI handles but
+// TestHiddenSlashCommands pins the hidden commands the TUI handles but
 // does not list.
 func TestHiddenSlashCommands(t *testing.T) {
-	for _, name := range []string{"continue", "login", "narration", "quote", "share"} {
+	for _, name := range []string{
+		"continue", "login", "narration", "quote", "share",
+		"terminal", "upload", "triggers",
+	} {
 		if _, ok := slashHandlers[name]; !ok {
 			t.Errorf("slashHandlers[%q] is missing; the command would fall through to the model", name)
 		}
@@ -30,7 +33,7 @@ func TestHiddenSlashCommands(t *testing.T) {
 
 // TestHiddenSlashCommandsAreNotTheCatalog checks the whole handler map
 // against the catalog: the difference is the hidden set, and it must
-// stay exactly the five commands above. A catalog row's aliases count
+// stay exactly the eight commands above. A catalog row's aliases count
 // as listed — `/exit` advertises `quit`, `/fork` advertises `branch`.
 func TestHiddenSlashCommandsAreNotTheCatalog(t *testing.T) {
 	listed := map[string]bool{}
@@ -48,7 +51,10 @@ func TestHiddenSlashCommandsAreNotTheCatalog(t *testing.T) {
 		}
 	}
 	sort.Strings(hidden)
-	want := []string{"continue", "login", "narration", "quote", "share"}
+	want := []string{
+		"continue", "login", "narration", "quote", "share",
+		"terminal", "triggers", "upload",
+	}
 	if len(hidden) != len(want) {
 		t.Fatalf("hidden slash commands = %v\nwant %v", hidden, want)
 	}
@@ -89,9 +95,13 @@ func TestVocabularyDispatchedMatchesTheHostTable(t *testing.T) {
 			t.Errorf("slashHandlers[%q] is not in the vocabulary's dispatched set", name)
 		}
 	}
+	// The host answers a command from the legacy table or from the
+	// migrated dispatcher (internal/tui/commands); the vocabulary only
+	// has to be reachable through one of them.
+	m := &RootModel{}
 	for name := range dispatched {
-		if _, ok := slashHandlers[name]; !ok {
-			t.Errorf("the vocabulary dispatches %q but slashHandlers has no entry for it", name)
+		if !m.dispatchesCommand(name) {
+			t.Errorf("the vocabulary dispatches %q but the host has no handler for it", name)
 		}
 	}
 }
@@ -125,4 +135,22 @@ func listed(name string) bool {
 		}
 	}
 	return false
+}
+
+// TestHiddenOpenagyCommandsDispatch pins that the three openagy-only
+// hidden commands still reach their handlers now that they are registered
+// in the vocabulary's Hidden list.
+func TestHiddenOpenagyCommandsDispatch(t *testing.T) {
+	for _, command := range []string{"/terminal", "/upload", "/triggers"} {
+		m := &RootModel{}
+		initRootModelInput(m)
+		handled, _ := m.handleSlashCommand(command)
+		if !handled {
+			t.Errorf("%s was not dispatched", command)
+		}
+		joined := strings.Join(m.conversation.response, "\n")
+		if !strings.Contains(joined, "only available in a --remote-agent session") {
+			t.Errorf("%s in a local session = %q", command, joined)
+		}
+	}
 }

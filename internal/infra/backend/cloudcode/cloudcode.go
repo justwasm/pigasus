@@ -201,9 +201,15 @@ func (c *CloudCodeClient) turn(req backend.StreamRequest, model string) geminico
 		RequestID: geminicode.NewRequestID(),
 	}
 	for _, m := range req.Messages {
+		content := m.Content
+		if m.WireContent != "" {
+			content = m.WireContent
+		} else if m.Role == "user" && !strings.HasPrefix(strings.TrimSpace(content), "<USER_REQUEST>") && !strings.HasPrefix(content, "Step Id:") {
+			content = backend.WrapUserContent(content, model, false, time.Now())
+		}
 		msg := geminicode.TurnMessage{
 			Role:       m.Role,
-			Content:    m.Content,
+			Content:    content,
 			ToolCallID: m.ToolCallID,
 			Name:       m.Name,
 			IsError:    m.IsError,

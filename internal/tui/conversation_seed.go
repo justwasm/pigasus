@@ -1,6 +1,6 @@
 // conversation_seed.go — conversation seeding and @conversation mention logic.
 //
-// Which conversation a run continues, transcript seeding into runMode,
+// Which conversation a run continues, transcript seeding into RootModel,
 // and @conversation mention parsing, search, and insertion.
 //
 // Recovered behaviour (1.3.6, verified against the live binary):
@@ -57,15 +57,21 @@ func resolveConversationSelection(fs *flag.FlagSet, warn io.Writer) convstore.Se
 	return convstore.ResolveSelection(convID, cont, workspace.Current(), warn)
 }
 
-func (m *runMode) seedConversation(c *convstore.Conversation) {
+func (m *RootModel) seedConversation(c *convstore.Conversation) {
 	if c == nil {
 		return
 	}
+	m.session.bumpEpoch()
 	if len(c.Steps) > 0 || c.ID != "" {
 		m.session.conversationStarted = true
 	}
 	m.rehydrateConversation(c)
 	steps := c.Transcript()
+	cp := c.Checkpoint()
+	if cp != nil {
+		m.conversation.response = append(m.conversation.response, "  ⎿  Conversation compacted", "")
+		steps = stepsAfterCheckpoint(steps, cp.IncludedEnd)
+	}
 	for i := 0; i < len(steps); {
 		if steps[i].Role() == "tool" {
 			i = m.seedToolGroup(steps, i)
@@ -74,16 +80,19 @@ func (m *runMode) seedConversation(c *convstore.Conversation) {
 		m.seedNonToolStep(steps[i])
 		i++
 	}
+	// The model context is the checkpoint's resume block plus the steps
+	// after its boundary. The transcript still keeps the adopted steps for
+	// persistence and for the blocks above.
+	if cp != nil {
+		m.setSessionMessages(checkpointChatMessages(c.ChatTurns()))
+	}
 	// The trajectory starts as the conversation's own steps: the tool
 	// calls the reference stored are part of it, and the turns that run
-	// from here are appended to them.
-	if m.session.supervisor != nil {
-		m.session.supervisor.SetSeededConversation(c.Steps, len(m.engine.session))
-		m.session.supervisor.Replace(m.engine.session)
+	// from here are appended to them. The messages already live in the
+	// domain's supervisor, so only the trajectory seed is recorded here.
+	if sup := m.session.sup(); sup != nil {
+		sup.SetSeededConversation(c.Steps, m.session.messageCount())
 	}
-	m.engine.trajLoaded = c.Steps
-	m.engine.trajCalls = nil
-	m.engine.trajSeededLen = len(m.engine.session)
 	m.viewport.rowsCacheDirty = true
 	m.viewport.rowsGen++
 
@@ -108,7 +117,7 @@ func (m *runMode) seedConversation(c *convstore.Conversation) {
 }
 
 // restoreActiveSchedules restores durable timer and cron schedules on conversation resume.
-func (m *runMode) restoreActiveSchedules(sStore *session.Store, convID string) {
+func (m *RootModel) restoreActiveSchedules(sStore *session.Store, convID string) {
 	if convID == "" {
 		return
 	}
@@ -177,7 +186,7 @@ func (m *runMode) restoreActiveSchedules(sStore *session.Store, convID string) {
 // call, and it is skipped entirely when OPENAGY_DISABLE_REHYDRATION is
 // set (the clone's name for the reference's `cascade-disable-rehydration`
 // flag).
-func (m *runMode) rehydrateConversation(c *convstore.Conversation) {
+func (m *RootModel) rehydrateConversation(c *convstore.Conversation) {
 	if c == nil {
 		return
 	}
@@ -187,17 +196,17 @@ func (m *runMode) rehydrateConversation(c *convstore.Conversation) {
 	}
 	// A fresh store: adopting a conversation replaces the previous
 	// one's definitions, it does not add to them.
-	m.engine.subagentDefs = subagenttools.NewStore()
+	m.agents.defs = subagenttools.NewStore()
 	state := &rehydration.State{
 		ConversationID: convID,
-		Definitions:    m.engine.subagentDefs,
+		Definitions:    m.agents.defs,
 		Schedules:      shell.ScheduleTableFor(convID),
-		Tasks:          m.engine.taskReg,
+		Tasks:          m.tasks.reg,
 	}
 	rehydration.Restore(c.RehydrationSteps(), state)
 }
 
-func (m *runMode) seedToolGroup(steps []convstore.Step, startIdx int) int {
+func (m *RootModel) seedToolGroup(steps []convstore.Step, startIdx int) int {
 	j := startIdx
 	var group []toolsteps.Step
 	for j < len(steps) && steps[j].Role() == "tool" {
@@ -211,9 +220,9 @@ func (m *runMode) seedToolGroup(steps []convstore.Step, startIdx int) int {
 		Width:     m.viewport.width,
 		Verbosity: verb,
 	})
-	start := len(m.engine.response)
-	m.engine.response = append(m.engine.response, block...)
-	m.engine.blocks = append(m.engine.blocks, transcript.NewBlock(transcript.Block{
+	start := len(m.conversation.response)
+	m.conversation.response = append(m.conversation.response, block...)
+	m.conversation.blocks = append(m.conversation.blocks, transcript.NewBlock(transcript.Block{
 		Start:    start,
 		Lines:    len(block),
 		Steps:    group,
@@ -222,26 +231,26 @@ func (m *runMode) seedToolGroup(steps []convstore.Step, startIdx int) int {
 	return j
 }
 
-func (m *runMode) seedNonToolStep(s convstore.Step) {
+func (m *RootModel) seedNonToolStep(s convstore.Step) {
 	switch s.Role() {
 	case "user":
 		if strings.TrimSpace(s.Text) == "" {
 			return
 		}
-		m.engine.session = append(m.engine.session, backend.Message{Role: "user", Content: s.Text})
-		for len(m.engine.response) > 0 && strings.TrimSpace(m.engine.response[len(m.engine.response)-1]) == "" {
-			m.engine.response = m.engine.response[:len(m.engine.response)-1]
+		m.session.appendMessage(backend.Message{Role: "user", Content: s.Text})
+		for len(m.conversation.response) > 0 && strings.TrimSpace(m.conversation.response[len(m.conversation.response)-1]) == "" {
+			m.conversation.response = m.conversation.response[:len(m.conversation.response)-1]
 		}
 		sep := transcript.TurnSeparator(m.viewport.width)
-		if len(m.engine.response) == 0 {
-			m.engine.response = append(m.engine.response, sep)
+		if len(m.conversation.response) == 0 {
+			m.conversation.response = append(m.conversation.response, sep)
 		} else {
-			m.engine.response = append(m.engine.response, "", sep)
+			m.conversation.response = append(m.conversation.response, "", sep)
 		}
-		start := len(m.engine.response)
+		start := len(m.conversation.response)
 		promptLines := transcript.RenderUserPrompt(s.Text, m.viewport.width)
-		m.engine.response = append(m.engine.response, promptLines...)
-		m.engine.userBlocks = append(m.engine.userBlocks, transcript.UserBlock{
+		m.conversation.response = append(m.conversation.response, promptLines...)
+		m.conversation.userBlocks = append(m.conversation.userBlocks, transcript.UserBlock{
 			Start: start,
 			Lines: len(promptLines),
 			Raw:   s.Text,
@@ -253,14 +262,14 @@ func (m *runMode) seedNonToolStep(s convstore.Step) {
 		}
 		styled := mdrender.RenderMarkdown(s.Text, m.viewport.width)
 		lines := strings.Split(styled, "\n")
-		start := len(m.engine.response)
-		m.engine.response = append(m.engine.response, lines...)
-		m.engine.session = append(m.engine.session, backend.Message{Role: "assistant", Content: s.Text})
-		m.engine.assistants = append(m.engine.assistants, transcript.AssistantBlock{Start: start, Lines: len(lines), Raw: s.Text})
+		start := len(m.conversation.response)
+		m.conversation.response = append(m.conversation.response, lines...)
+		m.session.appendMessage(backend.Message{Role: "assistant", Content: s.Text})
+		m.conversation.assistants = append(m.conversation.assistants, transcript.AssistantBlock{Start: start, Lines: len(lines), Raw: s.Text})
 	default:
-		m.engine.response = append(m.engine.response, "  "+tuilib.FirstLine(s.Text))
+		m.conversation.response = append(m.conversation.response, "  "+tuilib.FirstLine(s.Text))
 	}
-	m.engine.response = append(m.engine.response, "")
+	m.conversation.response = append(m.conversation.response, "")
 }
 
 func loadedToolStep(s convstore.Step) toolsteps.Step {
@@ -272,27 +281,28 @@ func loadedToolStep(s convstore.Step) toolsteps.Step {
 	return st
 }
 
-func (m *runMode) resumeConversation(meta convstore.ConversationMeta) tea.Cmd {
+func (m *RootModel) resumeConversation(meta convstore.ConversationMeta) tea.Cmd {
 	c, err := convstore.LoadConversation(meta.Path)
 	if err != nil {
-		m.engine.response = append(m.engine.response,
+		m.conversation.response = append(m.conversation.response,
 			"  Failed to load "+meta.ID+": "+err.Error())
 		return nil
 	}
-	m.engine.response = nil
-	m.engine.session = nil
-	if m.session.supervisor != nil {
-		m.session.supervisor.Clear()
+	m.conversation.response = nil
+	m.session.bumpEpoch()
+	m.session.setMessages(nil)
+	if sup := m.session.sup(); sup != nil {
+		sup.Clear()
 	}
-	m.engine.blocks = nil
-	m.engine.assistants = nil
-	m.engine.userBlocks = nil
-	m.engine.liveSteps = nil
-	m.engine.liveStepRuns = nil
-	m.engine.activeTool = ""
-	m.engine.replyStart = -1
-	m.engine.liveTextLines = 0
-	m.engine.liveReplyBuf = ""
+	m.conversation.blocks = nil
+	m.conversation.assistants = nil
+	m.conversation.userBlocks = nil
+	m.conversation.liveSteps = nil
+	m.conversation.liveStepRuns = nil
+	m.conversation.activeTool = ""
+	m.conversation.replyStart = -1
+	m.conversation.liveTextLines = 0
+	m.conversation.liveReplyBuf = ""
 	m.viewport.rowsCacheDirty = true
 	m.viewport.rowsCache = wrapSlot{}
 	m.viewport.rowsCacheN1 = wrapSlot{}
@@ -329,4 +339,30 @@ func handleAtConversationMention(buf string) (bool, tea.Cmd) {
 		return false, nil
 	}
 	return true, nil
+}
+
+// stepsAfterCheckpoint keeps the steps that follow a checkpoint boundary.
+// IncludedEnd is exclusive: the checkpoint itself and everything it folded
+// are before it.
+func stepsAfterCheckpoint(steps []convstore.Step, end int) []convstore.Step {
+	if end <= 0 {
+		return steps
+	}
+	out := make([]convstore.Step, 0, len(steps))
+	for _, s := range steps {
+		if s.Idx >= int64(end) {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+// checkpointChatMessages turns the conversation's model turns into backend
+// messages. The first turn is the checkpoint's resume block when one exists.
+func checkpointChatMessages(turns []convstore.ChatTurn) []backend.Message {
+	out := make([]backend.Message, 0, len(turns))
+	for _, t := range turns {
+		out = append(out, backend.Message{Role: t.Role, Content: t.Text})
+	}
+	return out
 }

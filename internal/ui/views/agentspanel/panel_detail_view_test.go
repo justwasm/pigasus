@@ -12,10 +12,12 @@ import (
 
 func TestAgentsPanel_SubagentDetailView(t *testing.T) {
 	sa := &subagent.Subagent{
-		ID:    "sub-1",
-		Name:  "worker-1",
-		Title: "Analyze Repository",
-		State: "running",
+		ID:     "sub-1",
+		Name:   "worker-1",
+		Title:  "Analyze Repository",
+		State:  "running",
+		Model:  "Gemini 3.8 Flash (High)",
+		Effort: "high",
 	}
 
 	p := New(Seams{
@@ -41,6 +43,10 @@ func TestAgentsPanel_SubagentDetailView(t *testing.T) {
 	}
 	if !strings.Contains(lines, "Task Title:") || !strings.Contains(lines, "Analyze Repository") {
 		t.Errorf("expected task title in detail view, got:\n%s", lines)
+	}
+	// AGY 1.5.3: the detail view carries the full model and effort.
+	if !strings.Contains(lines, "Model: Gemini 3.8 Flash (High) (effort: high)") {
+		t.Errorf("expected model and effort in detail view, got:\n%s", lines)
 	}
 
 	// Press Esc to exit detail mode and return to list
@@ -113,5 +119,31 @@ func TestAgentsPanel_SubagentDetailView_LineWrapping(t *testing.T) {
 		if strings.Contains(l, "\t") {
 			t.Errorf("line %d contains unexpanded tab: %q", i, l)
 		}
+	}
+}
+
+// TestAgentsPanel_SubagentRowsShowModelAndOneTip pins the AGY 1.5.3
+// list changes: the model sits next to the subagent's name and the
+// panel prints one tip line instead of a per-row "[view details]".
+func TestAgentsPanel_SubagentRowsShowModelAndOneTip(t *testing.T) {
+	sa := &subagent.Subagent{
+		ID:    "sub-1",
+		Name:  "worker-1",
+		State: "running",
+		Model: "Gemini 3.8 Flash (High)",
+	}
+	p := New(Seams{
+		Size:      func() (int, int) { return 120, 40 },
+		Subagents: func() []*subagent.Subagent { return []*subagent.Subagent{sa} },
+	}, nil)
+	plain := ansi.Strip(strings.Join(p.Lines(), "\n"))
+	if !strings.Contains(plain, "worker-1 · Gemini 3.8 Flash (High)") {
+		t.Errorf("subagent row does not carry the model:\n%s", plain)
+	}
+	if got := strings.Count(plain, "Tip: Press enter on a subagent to view details."); got != 1 {
+		t.Errorf("tip line count = %d, want 1:\n%s", got, plain)
+	}
+	if strings.Contains(plain, "[view details]") {
+		t.Errorf("the panel repeats a per-row [view details]:\n%s", plain)
 	}
 }

@@ -557,3 +557,69 @@ func jsonEqual(a, b json.RawMessage) bool {
 	}
 	return reflect.DeepEqual(x, y)
 }
+
+// TestProfileForDisplayLabel pins that the TUI's display label resolves to the
+// same profile as the catalogue id. The policy reads the label because that is
+// what the session stores.
+func TestProfileForDisplayLabel(t *testing.T) {
+	p, ok := ProfileFor("Gemini 3.8 Flash (High)")
+	if !ok {
+		t.Fatal("display label did not resolve to a profile")
+	}
+	if p.Strategy != StrategySameModel {
+		t.Errorf("strategy = %q, want %q", p.Strategy, StrategySameModel)
+	}
+	if p.MovingWindowSize != 1 {
+		t.Errorf("moving window = %d, want 1", p.MovingWindowSize)
+	}
+}
+
+// TestProfileForUsesThe153ReportedTokenCount pins the 1.5.3 change: every
+// shipped profile now trusts the model's reported token count. The 1.4.8
+// table is still the structural source; the overlay is the only difference
+// the current reference version made.
+func TestProfileForUsesThe153ReportedTokenCount(t *testing.T) {
+	p, ok := ProfileFor("gemini-3.8-flash-high")
+	if !ok {
+		t.Fatal("no profile")
+	}
+	if !p.UseModelReportedTokenCount {
+		t.Error("1.5.3 profiles should use the model-reported token count")
+	}
+}
+
+// TestThe153DocumentUsesReportedTokens pins the one payload field that
+// changed between the 1.4.8 and 1.5.3 documents: every shipped profile now
+// trusts the model-reported token count.
+func TestThe153DocumentUsesReportedTokens(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("testdata", "model_profiles_1.5.3.json"))
+	if err != nil {
+		t.Fatalf("read the 1.5.3 document: %v", err)
+	}
+	var d document
+	if err := json.Unmarshal(raw, &d); err != nil {
+		t.Fatalf("parse the 1.5.3 document: %v", err)
+	}
+	seen := 0
+	for name, experiments := range d.ModelProfiles {
+		rawPayload, ok := experiments["CASCADE_USE_EXPERIMENT_CHECKPOINTER"]
+		if !ok {
+			continue
+		}
+		var text string
+		if err := json.Unmarshal(rawPayload, &text); err != nil {
+			t.Fatalf("%s payload: %v", name, err)
+		}
+		var p payload
+		if err := json.Unmarshal([]byte(text), &p); err != nil {
+			t.Fatalf("%s payload: %v", name, err)
+		}
+		if !p.UseModelReportedTokenCnt {
+			t.Errorf("%s: use_model_reported_token_count = false, want true", name)
+		}
+		seen++
+	}
+	if seen == 0 {
+		t.Fatal("the 1.5.3 document carried no checkpoint payloads")
+	}
+}

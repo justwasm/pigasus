@@ -14,7 +14,6 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"github.com/justwasm/pigasus/browsercdp"
 	"github.com/justwasm/pigasus/internal/app/agentturn"
-	cumulativeprompt "github.com/justwasm/pigasus/internal/app/prompt/cumulative"
 	"github.com/justwasm/pigasus/internal/app/prompt/implicit"
 	"github.com/justwasm/pigasus/internal/app/session/convstore"
 	"github.com/justwasm/pigasus/internal/app/session/setup"
@@ -37,6 +36,7 @@ import (
 	backendselect "github.com/justwasm/pigasus/internal/infra/backend/select"
 	"github.com/justwasm/pigasus/internal/infra/daemon"
 	"github.com/justwasm/pigasus/internal/infra/memtrim"
+	"github.com/justwasm/pigasus/internal/infra/remoteagentclient"
 	"github.com/justwasm/pigasus/internal/printmode"
 	"github.com/justwasm/pigasus/internal/ui/foundations/history"
 	tuiviewport "github.com/justwasm/pigasus/internal/ui/foundations/viewport"
@@ -117,15 +117,31 @@ const separatorWidth = 220
 // cycle-132 constant has a named home; do not add new uses.
 const helpCommandsPageSize = 18
 
-// runMode is the v1.3.5 binary 1:1 single-prompt TUI.
-type runMode struct {
+// RootModel is the v1.3.5 binary 1:1 single-prompt TUI.
+type RootModel struct {
 	tuimodel.Base
 
-	session  sessionState
-	engine   engineState
-	viewport uiState
-	composer composerState
-	overlays overlayState
+	session      sessionState
+	turn         TurnService
+	display      DisplayModel
+	commands     CommandsModel
+	viewport     uiState
+	prompt       PromptModel
+	overlays     OverlayModel
+	statusLine   StatusLineModel
+	conversation ConversationModel
+	diff         DiffModel
+	auth         AuthModel
+	rewind       RewindModel
+	activeItems  ActiveItemsModel
+	help         HelpModel
+	audio        AudioModel
+	askQuestion  AskQuestionModel
+	tasks        TasksModel
+	agents       AgentsModel
+	tools        ToolsModel
+	remote       RemoteModel
+	compaction   CompactionModel
 }
 
 type headerCacheKey struct {
@@ -140,7 +156,7 @@ type headerCacheKey struct {
 	fallbackTo   string
 }
 
-func (m *runMode) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+func (m *RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	// The palette's colours follow the selected scheme while the
 	// update runs: the rows this update paints (the streamed text, the
 	// tool rows, the panels) wear the scheme's colours.
@@ -171,20 +187,20 @@ func (m *runMode) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 // currentVerbosity returns the active verbosity level.
-func (m *runMode) currentVerbosity() toolsteps.Verbosity {
-	if m == nil || m.engine.verbosity == "" {
+func (m *RootModel) currentVerbosity() toolsteps.Verbosity {
+	if m == nil || m.display.verbosity == "" {
 		v := settings.String("verbosity")
 		if v == "" {
 			return toolsteps.VerbosityMedium
 		}
 		return toolsteps.ParseVerbosity(v)
 	}
-	return toolsteps.ParseVerbosity(m.engine.verbosity)
+	return toolsteps.ParseVerbosity(m.display.verbosity)
 }
 
 // effectiveExpanded returns whether tool-step blocks should be drawn expanded
 // under the current verbosity setting and user ctrl+o toggle.
-func (m *runMode) effectiveExpanded(verb toolsteps.Verbosity) bool {
+func (m *RootModel) effectiveExpanded(verb toolsteps.Verbosity) bool {
 	if m == nil {
 		return false
 	}
@@ -194,11 +210,11 @@ func (m *runMode) effectiveExpanded(verb toolsteps.Verbosity) bool {
 	return verb == toolsteps.VerbosityHigh
 }
 
-func (m *runMode) isExpanded() bool {
+func (m *RootModel) isExpanded() bool {
 	return m.effectiveExpanded(m.currentVerbosity())
 }
 
-var _ tuimodel.Model = (*runMode)(nil)
+var _ tuimodel.Model = (*RootModel)(nil)
 
 // ---- tui_entry.go ----
 
@@ -315,9 +331,25 @@ func resolveTUIModelAndBackend(fs *flag.FlagSet) (string, string, bool, backend.
 	return modelName, unavailableFrom, altScreen, be
 }
 
-func initTUIRunMode(fs *flag.FlagSet, be backend.Client, modelName, unavailableFrom string, altScreen bool) (*runMode, context.CancelFunc) {
+// unifiedAccessToken is the bearer the remote-agent client sends. It prefers
+// the shared credential and lets the normal refresh path keep it fresh.
+func unifiedAccessToken(ctx context.Context) (string, error) {
+	tok, err := auth.LoadTokenUnified()
+	if err != nil {
+		return "", err
+	}
+	if tok == nil || tok.Token.AccessToken == "" {
+		return "", auth.ErrNoToken
+	}
+	if updated, _, rerr := tok.RefreshIfNeeded(ctx); rerr == nil && updated != nil {
+		tok = updated
+	}
+	return tok.Token.AccessToken, nil
+}
+
+func initTUIRootModel(fs *flag.FlagSet, be backend.Client, modelName, unavailableFrom string, altScreen bool) (*RootModel, context.CancelFunc) {
 	userEmail := auth.EffectiveUserEmail()
-	m := newRunMode(be, userEmail, modelName, "", "", altScreen)
+	m := newRootModel(be, userEmail, modelName, "", "", altScreen)
 	// Cycle 309: the background task's completion notification reaches
 	// the model through the session's inbox.
 	m.installTaskNotifier()
@@ -325,8 +357,39 @@ func initTUIRunMode(fs *flag.FlagSet, be backend.Client, modelName, unavailableF
 	// becomes a known account, so /accounts lists it and the user can
 	// add a second one and switch back to this one later.
 	accounts.RegisterCurrent(userEmail)
-	m.engine.backendFor = func(label string) backend.Client {
+	m.turn.backendFor = func(label string) backend.Client {
 		return backendselect.Pick(fs, label, modelpicker.ResolveCatalogueID)
+	}
+	if cliflags.BoolValue(fs, "remote-agent") {
+		endpoint := strings.TrimSpace(os.Getenv("AICODE_ENDPOINT_URL"))
+		if endpoint == "" {
+			endpoint = remoteagentclient.DefaultEndpoint
+		}
+		client := remoteagentclient.New(remoteagentclient.Config{
+			BaseURL:   endpoint,
+			ProjectID: cliflags.StringValue(fs, "project"),
+			TokenFunc: unifiedAccessToken,
+		})
+		remoteEngine := agentturn.NewRemoteAgentEngine(agentturn.RemoteAgentConfig{
+			Client:    client,
+			Model:     modelName,
+			Workspace: m.session.cwd,
+			Project:   cliflags.StringValue(fs, "project"),
+		})
+		m.turn.engine = remoteEngine
+		m.remote.SetAttached(true)
+		m.remote.SetFiles(newRemoteFileCache(client))
+		m.session.remoteAgent = true
+		m.wireRemoteInteractionHandler()
+		// Remote skills feed the existing skills surfaces (the / menu and
+		// the /skills panel) through the provider, and the cache keeps the
+		// menu from blocking on the proxy.
+		builtinskills.SetRemoteSkillsProvider(remoteEngine.CachedSkills)
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			_, _ = remoteEngine.Skills(ctx)
+		}()
 	}
 	if name := cliflags.StringValue(fs, "agent"); name != "" {
 		if err := agents.ValidateAgent(name); err != nil {
@@ -347,7 +410,7 @@ func initTUIRunMode(fs *flag.FlagSet, be backend.Client, modelName, unavailableF
 	// immediately recalls the most recent prompt from earlier
 	// sessions. If the history list is already populated (e.g. by a
 	// test), the load preserves the existing entries.
-	m.composer.promptHistory.Load(convstore.LoadHistory("", history.Cap))
+	m.prompt.promptHistory.Load(convstore.LoadHistory("", history.Cap))
 	m.session.flags = fs
 	if unavailableFrom != "" {
 		m.session.fallbackFrom = unavailableFrom
@@ -362,7 +425,7 @@ func initTUIRunMode(fs *flag.FlagSet, be backend.Client, modelName, unavailableF
 	return m, watchCancel
 }
 
-func setupTUIToolsAndPolicy(m *runMode, fs *flag.FlagSet) {
+func setupTUIToolsAndPolicy(m *RootModel, fs *flag.FlagSet) {
 	workspace, _ := os.Getwd()
 	if fs != nil {
 		var extraWs []string
@@ -380,11 +443,11 @@ func setupTUIToolsAndPolicy(m *runMode, fs *flag.FlagSet) {
 	// when no server is configured.
 	setup.InstallMCPProvider(auth.AntigravityHome(), workspace)
 	catalog := agentToolRegistry(workspace, m.session.agentBody)
-	m.engine.catalog = catalog
+	m.tools.catalog = catalog
 	m.registerSubagentQuestionTool(catalog)
 	sessionPolicy := printmode.PrintModePolicy(fs)
 	sessionSandbox := printmode.PrintModeSandbox(fs, workspace, m.session.conversationID)
-	m.engine.toolSandbox = sessionSandbox
+	m.tools.sandbox = sessionSandbox
 	m.enableTools(toolrunner.AdvertisedToolDecls(m.session.agentBody, catalog), &permissionRunner{
 		inner:   &toolrunner.RegistryRunner{Reg: catalog},
 		policy:  &sessionPolicy,
@@ -394,29 +457,30 @@ func setupTUIToolsAndPolicy(m *runMode, fs *flag.FlagSet) {
 	})
 	m.session.mode = sessionPolicy.Mode
 	m.session.policy = &sessionPolicy
-	m.composer.input.Placeholder = permissions.ModeBanner(m.session.mode)
-	m.viewport.statusLine = "on"
+	m.prompt.input.Placeholder = permissions.ModeBanner(m.session.mode)
+	m.statusLine.visible = "on"
 	if v, ok := settings.Bool("statusLine"); ok && !v {
 		// The legacy boolean form. The reference reads it as an object
 		// without a command, so no script runs and the built-in row
 		// stays; the clone additionally hides the row, which is its
 		// cycle-105 behaviour.
-		m.viewport.statusLine = "off"
+		m.statusLine.visible = "off"
 	}
-	m.viewport.title = "off"
+	m.statusLine.title = "off"
 	if v, ok := settings.Bool("title"); ok && v {
-		m.viewport.title = "on"
+		m.statusLine.title = "on"
 	}
 	m.reloadStatusLineConfig()
 }
 
-func setupTUIConversation(m *runMode, fs *flag.FlagSet, canonicalCwd string) {
+func setupTUIConversation(m *RootModel, fs *flag.FlagSet, canonicalCwd string) {
 	sel := resolveConversationSelection(fs, os.Stderr)
 	if sel.ID != "" {
 		m.session.conversationID = sel.ID
 		m.session.conversationStarted = true
 	}
 	m.seedConversation(sel.Store)
+	m.remoteStartupConversation()
 }
 
 // RunLiveTUI launches the interactive Bubbletea TUI session (or renders static snapshot if non-interactive).
@@ -463,7 +527,7 @@ func runLiveTUI(w io.Writer, fs *flag.FlagSet) error {
 			return err
 		}
 		modelName, unavail, altScreen, be := resolveTUIModelAndBackend(fs)
-		m, watchCancel := initTUIRunMode(fs, be, modelName, unavail, altScreen)
+		m, watchCancel := initTUIRootModel(fs, be, modelName, unavail, altScreen)
 		defer watchCancel()
 		if m.viewport.pluginWatcher != nil {
 			defer pluginWatcherPtr.Store(nil)
@@ -480,7 +544,7 @@ func runLiveTUI(w io.Writer, fs *flag.FlagSet) error {
 	})
 }
 
-func setupTUIRemoteControl(m *runMode, fs *flag.FlagSet) {
+func setupTUIRemoteControl(m *RootModel, fs *flag.FlagSet) {
 	if m == nil || fs == nil {
 		return
 	}
@@ -495,7 +559,7 @@ func setupTUIRemoteControl(m *runMode, fs *flag.FlagSet) {
 	}
 }
 
-func runTUIProgram(m *runMode, fs *flag.FlagSet, altScreen bool, canonicalCwd string) error {
+func runTUIProgram(m *RootModel, fs *flag.FlagSet, altScreen bool, canonicalCwd string) error {
 	prog := tea.NewProgram(m, tea.WithColorProfile(termcolor.Resolve(os.Environ())))
 	debugOut := io.Discard
 	if isDebugMode(fs) {
@@ -510,7 +574,7 @@ func runTUIProgram(m *runMode, fs *flag.FlagSet, altScreen bool, canonicalCwd st
 		render.TmuxHyperlinkProbe(debugOut),
 		altScreen,
 	)
-	m.engine.prog = prog
+	m.turn.prog = prog
 	setupTUIRemoteControl(m, fs)
 	// 【一手】 agy 1.4.10: "the CLI now returns about 100 MB of memory
 	// left over from startup to the operating system 15 seconds after
@@ -527,7 +591,7 @@ func runTUIProgram(m *runMode, fs *flag.FlagSet, altScreen bool, canonicalCwd st
 	return err
 }
 
-func printTUIExitBanner(m *runMode, cwd string) {
+func printTUIExitBanner(m *RootModel, cwd string) {
 	convID := ""
 	if m != nil && m.session.conversationID != "" {
 		convID = m.session.conversationID
@@ -622,8 +686,8 @@ func isTerminalInteractive(f *os.File) bool {
 // the blue the other "⎿" rows use, the sentence in dim gray — is the
 // clone's own styling; the reference paints the whole line with one
 // lipgloss style that the decompilation does not name.
-func (m *runMode) interruptedHintRow() string {
-	if !m.engine.turnInterrupted {
+func (m *RootModel) interruptedHintRow() string {
+	if !m.conversation.turnInterrupted {
 		return ""
 	}
 	line := agentturn.InterruptedHintLine(branding.Current().CLIName)
@@ -661,7 +725,7 @@ func (m *runMode) interruptedHintRow() string {
 //
 // The write is best-effort: the reference writes the trajectory from its
 // server goroutine and a failure there does not reach the user either.
-func (m *runMode) recordImplicitStep(cmd, output string, exitCode int, hasExitCode, canceled bool) {
+func (m *RootModel) recordImplicitStep(cmd, output string, exitCode int, hasExitCode, canceled bool) {
 	if cmd == "" {
 		return
 	}
@@ -702,45 +766,21 @@ func (m *runMode) recordImplicitStep(cmd, output string, exitCode int, hasExitCo
 //
 // The clone therefore keeps the converted messages in their own field and
 // prepends them to the turn's message list, rather than appending them to
-// m.engine.session — the conversation store would then carry a `!` command the
+// transcript — the conversation store would then carry a `!` command the
 // reference never wrote there.
 //
 // The converted messages carry no <USER_REQUEST> envelope: the reference
 // wraps only what the user typed, and these messages are the reference's own
 // rendering of a step.
 
-// collectImplicitMessages converts the implicit trajectory's steps that no
-// prompt has carried yet.
-//
-// The read is best-effort: the trajectory lives on disk, and a failure to
-// read it must not stop the turn — the reference's own handler reports the
-// failure and carries on without the trajectory.
-func (m *runMode) collectImplicitMessages() {
-	if m.session.supervisor != nil {
-		m.session.supervisor.CollectImplicit()
-		m.engine.implicitMsgs = m.session.supervisor.ImplicitMessages()
-		return
+// collectImplicitMessages asks the session supervisor to fold in the
+// implicit trajectory's newly appended steps. The supervisor owns the
+// converted messages and WireMessages prepends them to the turn, so the
+// host keeps no copy.
+func (m *RootModel) collectImplicitMessages() {
+	if sup := m.session.sup(); sup != nil {
+		sup.CollectImplicit()
 	}
-	steps, err := implicit.Open(convstore.StoreDir()).Steps(implicit.WorkspaceURI(m.session.cwd))
-	if err != nil {
-		return
-	}
-	if len(steps) < m.engine.implicitCursor {
-		// The store only appends, so a shorter trajectory means the file was
-		// replaced. Start over rather than carry a stale cursor.
-		m.engine.implicitMsgs = nil
-		m.engine.implicitCursor = 0
-	}
-	if len(steps) == m.engine.implicitCursor {
-		return
-	}
-	for _, cm := range cumulativeprompt.Convert(steps, cumulativeprompt.Options{From: m.engine.implicitCursor}) {
-		m.engine.implicitMsgs = append(m.engine.implicitMsgs, backend.Message{
-			Role:    cm.Role,
-			Content: cm.Content,
-		})
-	}
-	m.engine.implicitCursor = len(steps)
 }
 
 // ---- tui_compact_spinner.go ----

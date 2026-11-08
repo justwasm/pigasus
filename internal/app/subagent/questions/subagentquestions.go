@@ -46,9 +46,9 @@ import (
 //   - StatePending: queued; the user has not yet seen it.
 //   - StateAnswered: the user (or a headless skip) supplied an
 //     answer; the subagent can read it via Answered(id).
-//   - StateSkipped: the headless -p path answered on the user's
-//     behalf with the literal text "(skipped)" so the subagent
-//     continues without a real reply.
+//   - StateSkipped: the user skipped the question (or the headless -p
+//     path answered on the user's behalf with SkipAnswer) so the
+//     subagent continues without a real reply.
 const (
 	StatePending  = "pending"
 	StateAnswered = "answered"
@@ -61,11 +61,10 @@ const (
 // mints as "subagent-<unix-nano>-<counter>").
 const ParentKey = ""
 
-// SkipAnswer is the literal the headless -p path reports back to
-// the subagent when the question is auto-skipped. The model can
-// branch on this text without a separate state field; the
-// subagent's loop sees "(skipped)" and continues without waiting.
-const SkipAnswer = "(skipped)"
+// SkipAnswer is the literal the reference reports back to the model when
+// the user skips a question. The ask_question tool prefixes it with the
+// question number, so the model sees "A1: User Skipped".
+const SkipAnswer = "User Skipped"
 
 // Question is one ask_question the user (or headless skip) has yet
 // to answer.

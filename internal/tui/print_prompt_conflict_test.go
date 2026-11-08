@@ -17,6 +17,7 @@ import (
 	"testing"
 
 	"github.com/justwasm/pigasus/internal/cli"
+	"github.com/justwasm/pigasus/internal/clirunner"
 	"github.com/justwasm/pigasus/internal/core/backend"
 	"github.com/justwasm/pigasus/internal/features/models/configtest"
 )
@@ -33,7 +34,7 @@ func runPigJetski(t *testing.T, args ...string) (string, string, int) {
 	t.Helper()
 	p := cli.NewParser(cli.StandardFlags(), cli.StandardSubcommands(),
 		"antigravity", "recovered", "recovered")
-	p.Root().RootRun = func(args []string) error { return runRoot(args, p) }
+	p.Root().RootRun = func(args []string) error { return clirunner.RunRoot(args, p) }
 	var out, errb bytes.Buffer
 	p.SetOut(&out)
 	p.SetErr(&errb)
@@ -212,7 +213,7 @@ func TestPrintPromptInteractiveConflict_RunRootGuard(t *testing.T) {
 	// before any model call.
 	root.Out = &out
 	root.ErrOut = &errb
-	err := runRoot(nil, p)
+	err := clirunner.RunRoot(nil, p)
 	if err == nil {
 		t.Fatalf("runRoot returned nil, want conflict error")
 	}
@@ -262,7 +263,7 @@ func TestPrintPromptInteractiveConflict_RunRootGuardNoModelCall(t *testing.T) {
 	if err := runfs.Set("prompt-interactive", "bye"); err != nil {
 		t.Fatalf("runfs.Set: %v", err)
 	}
-	if err := runRoot(nil, p); err == nil {
+	if err := clirunner.RunRoot(nil, p); err == nil {
 		t.Fatalf("runRoot returned nil, want conflict error")
 	}
 	if hits != 0 {

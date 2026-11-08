@@ -45,7 +45,7 @@ import (
 
 // ---- tui_view.go ----
 
-func (m *runMode) clipViewBody(body string, cursorY int) (string, int) {
+func (m *RootModel) clipViewBody(body string, cursorY int) (string, int) {
 	if m.viewport.height <= 0 {
 		return body, cursorY
 	}
@@ -77,9 +77,9 @@ func (m *runMode) clipViewBody(body string, cursorY int) (string, int) {
 			cursorY = -1
 		}
 	}
-	m.composer.picker.ClipBody(drop)
-	if m.composer.promptBodyStart >= drop {
-		m.composer.promptScreenY = m.composer.promptBodyStart - drop
+	m.prompt.picker.ClipBody(drop)
+	if m.prompt.promptBodyStart >= drop {
+		m.prompt.promptScreenY = m.prompt.promptBodyStart - drop
 	}
 	return body, cursorY
 }
@@ -93,7 +93,7 @@ func (m *runMode) clipViewBody(body string, cursorY int) (string, int) {
 // The login screen renders its own view (it is a whole-screen modal),
 // but it lives inside this program — it must not drop the terminal out
 // of the alternate screen that the session started in.
-func (m *runMode) applyTerminalSettings(v tea.View) tea.View {
+func (m *RootModel) applyTerminalSettings(v tea.View) tea.View {
 	v.AltScreen = m.viewport.altScreen
 	if m.viewport.altScreen {
 		v.MouseMode = tea.MouseModeCellMotion
@@ -101,8 +101,8 @@ func (m *runMode) applyTerminalSettings(v tea.View) tea.View {
 	return v
 }
 
-func (m *runMode) shouldShowInputCursor(cursorX, cursorY int) bool {
-	if m.viewport.helpPanel.Active() {
+func (m *RootModel) shouldShowInputCursor(cursorX, cursorY int) bool {
+	if m.help.Panel.Active() {
 		return false
 	}
 	if m.overlays.panel.kind != panelregistry.None {
@@ -111,13 +111,13 @@ func (m *runMode) shouldShowInputCursor(cursorX, cursorY int) bool {
 	if m.overlays.resumePicker != nil && m.overlays.resumePicker.Active() {
 		return false
 	}
-	if m.viewport.voiceSurface != nil && m.viewport.voiceSurface.Active() {
+	if m.audio.Surface != nil && m.audio.Surface.Active() {
 		return false
 	}
-	if m.viewport.activeItems != nil && m.viewport.activeItems.Focused() {
+	if m.activeItems.Panel != nil && m.activeItems.Panel.Focused() {
 		return false
 	}
-	if m.engine.subAgentQuestionPanel != nil && m.engine.subAgentQuestionPanel.Active() {
+	if m.askQuestion.panel != nil && m.askQuestion.panel.Active() {
 		return false
 	}
 	if m.hasActivePermissionPrompt() {
@@ -132,7 +132,7 @@ func (m *runMode) shouldShowInputCursor(cursorX, cursorY int) bool {
 	return true
 }
 
-func (m *runMode) buildTeaView(body string, cursorX, cursorY int) tea.View {
+func (m *RootModel) buildTeaView(body string, cursorX, cursorY int) tea.View {
 	v := tea.NewView(body)
 	v = m.applyTerminalSettings(v)
 	if title := m.windowTitleText(); title != "" {
@@ -149,17 +149,17 @@ func (m *runMode) buildTeaView(body string, cursorX, cursorY int) tea.View {
 	return v
 }
 
-func (m *runMode) isViewCacheValid() bool {
+func (m *RootModel) isViewCacheValid() bool {
 	if !m.viewport.viewCacheValid || m.viewport.rowsCacheDirty || m.viewport.cachedView.Content == "" {
 		return false
 	}
-	if m.viewport.cachedStreaming != m.engine.streaming || m.engine.streaming {
+	if m.viewport.cachedStreaming != m.conversation.streaming || m.conversation.streaming {
 		return false
 	}
-	if m.viewport.cachedPickerVis != m.composer.picker.Visible() || m.viewport.cachedPanelKind != m.overlays.panel.kind {
+	if m.viewport.cachedPickerVis != m.prompt.picker.Visible() || m.viewport.cachedPanelKind != m.overlays.panel.kind {
 		return false
 	}
-	if m.composer.picker.Visible() || m.overlays.panel.kind != panelregistry.None || m.viewport.helpPanel.Active() || (m.overlays.resumePicker != nil && m.overlays.resumePicker.Active()) || (m.viewport.voiceSurface != nil && m.viewport.voiceSurface.Active()) || (m.viewport.activeItems != nil && m.viewport.activeItems.Focused()) || (m.engine.subAgentQuestionPanel != nil && m.engine.subAgentQuestionPanel.Active()) || m.hasSelection() || m.hasInputSelection() {
+	if m.prompt.picker.Visible() || m.overlays.panel.kind != panelregistry.None || m.help.Panel.Active() || (m.overlays.resumePicker != nil && m.overlays.resumePicker.Active()) || (m.audio.Surface != nil && m.audio.Surface.Active()) || (m.activeItems.Panel != nil && m.activeItems.Panel.Focused()) || (m.askQuestion.panel != nil && m.askQuestion.panel.Active()) || m.hasSelection() || m.prompt.HasInputSelection() {
 		return false
 	}
 	if m.viewport.cachedScroll != m.viewport.scroll || m.viewport.cachedAutoScroll != m.viewport.autoScroll {
@@ -168,7 +168,7 @@ func (m *runMode) isViewCacheValid() bool {
 	if m.viewport.cachedW != m.viewport.width || m.viewport.cachedH != m.viewport.height {
 		return false
 	}
-	if m.viewport.cachedRespLen != len(m.engine.response) || m.viewport.cachedRowsGen != m.viewport.rowsGen {
+	if m.viewport.cachedRespLen != len(m.conversation.response) || m.viewport.cachedRowsGen != m.viewport.rowsGen {
 		return false
 	}
 	if m.viewport.cachedHeaderKey != m.currentHeaderKey(m.viewport.width) {
@@ -177,15 +177,15 @@ func (m *runMode) isViewCacheValid() bool {
 	return true
 }
 
-func (m *runMode) View() tea.View {
+func (m *RootModel) View() tea.View {
 	// The frame is painted with the selected scheme's colours: the
 	// palette resolves them from the scheme the session wears.
 	restore := palette.PushScheme(m.viewport.colorScheme)
 	defer restore()
-	if !m.composer.picker.Visible() {
-		m.composer.picker.ResetGeom()
+	if !m.prompt.picker.Visible() {
+		m.prompt.picker.ResetGeom()
 	}
-	if m.overlays.login != nil {
+	if m.auth.login != nil {
 		// The login screen owns its own layout, but it still runs in
 		// this program's terminal: keep the session's alternate-screen
 		// setting, or the renderer leaves it (the /accounts → a flow
@@ -195,7 +195,7 @@ func (m *runMode) View() tea.View {
 		// that the terminal can handle native mouse text selection,
 		// copying, and Cmd+click / click on OSC 8 links without
 		// application interception.
-		v := m.overlays.login.View()
+		v := m.auth.login.View()
 		v.AltScreen = m.viewport.altScreen
 		return v
 	}
@@ -221,17 +221,17 @@ func (m *runMode) View() tea.View {
 	m.viewport.cachedAutoScroll = m.viewport.autoScroll
 	m.viewport.cachedW = m.viewport.width
 	m.viewport.cachedH = m.viewport.height
-	m.viewport.cachedRespLen = len(m.engine.response)
+	m.viewport.cachedRespLen = len(m.conversation.response)
 	m.viewport.cachedRowsGen = m.viewport.rowsGen
-	m.viewport.cachedPickerVis = m.composer.picker.Visible()
+	m.viewport.cachedPickerVis = m.prompt.picker.Visible()
 	m.viewport.cachedPanelKind = m.overlays.panel.kind
-	m.viewport.cachedStreaming = m.engine.streaming
-	m.viewport.viewCacheValid = !m.engine.streaming && m.shouldShowInputCursor(cursorX, cursorY)
+	m.viewport.cachedStreaming = m.conversation.streaming
+	m.viewport.viewCacheValid = !m.conversation.streaming && m.shouldShowInputCursor(cursorX, cursorY)
 	return v
 }
 
-func (m *runMode) renderBodyQueuesAndCard(b *strings.Builder) {
-	if !m.composer.picker.Visible() && !m.overlays.resumePicker.Active() && !m.viewport.helpPanel.Active() {
+func (m *RootModel) renderBodyQueuesAndCard(b *strings.Builder) {
+	if !m.prompt.picker.Visible() && !m.overlays.resumePicker.Active() && !m.help.Panel.Active() {
 		if row := m.overlays.announceQueue.Row(); row != "" {
 			b.WriteString(row)
 		}
@@ -248,7 +248,7 @@ func (m *runMode) renderBodyQueuesAndCard(b *strings.Builder) {
 	if len(m.session.store.StreamQueue) > 0 || len(m.session.store.BashQueue) > 0 {
 		for i, queued := range m.session.store.StreamQueue {
 			isLast := i == len(m.session.store.StreamQueue)-1 && len(m.session.store.BashQueue) == 0
-			withHint := isLast && m.engine.streaming
+			withHint := isLast && m.conversation.streaming
 			b.WriteString(uirows.QueuedPromptRowWithHint(queued, withHint) + "\n")
 		}
 		for _, queued := range m.session.store.BashQueue {
@@ -261,22 +261,22 @@ func (m *runMode) renderBodyQueuesAndCard(b *strings.Builder) {
 	}
 }
 
-func (m *runMode) syncInputPlaceholder() {
+func (m *RootModel) syncInputPlaceholder() {
 	switch {
-	case m.composer.picker.Visible() || m.overlays.panel.kind != panelregistry.None || m.viewport.helpPanel.Active() || m.overlays.resumePicker.Active() || m.viewport.voiceSurface.Active():
-		m.composer.input.Placeholder = ""
+	case m.prompt.picker.Visible() || m.overlays.panel.kind != panelregistry.None || m.help.Panel.Active() || m.overlays.resumePicker.Active() || m.audio.Surface.Active():
+		m.prompt.input.Placeholder = ""
 	case m.viewport.inputNotice != "":
-		m.composer.input.Placeholder = m.viewport.inputNotice
-	case m.composer.modeHintDismissed:
-		m.composer.input.Placeholder = ""
+		m.prompt.input.Placeholder = m.viewport.inputNotice
+	case m.prompt.modeHintDismissed:
+		m.prompt.input.Placeholder = ""
 	default:
-		m.composer.input.Placeholder = permissions.ModeBanner(m.session.mode)
+		m.prompt.input.Placeholder = permissions.ModeBanner(m.session.mode)
 	}
 }
 
-func (m *runMode) formatInputView() string {
+func (m *RootModel) formatInputView() string {
 	m.syncInputPlaceholder()
-	inputView := m.composer.input.View()
+	inputView := m.prompt.input.View()
 	inputView = strings.Replace(inputView, cBlueOpen+"> \x1b[m", cBlueOpen+">\x1b[m ", 1)
 	if !strings.Contains(inputView, cBlueOpen+">\x1b[m ") {
 		inputView = strings.Replace(inputView, "\x1b[38;5;69m> \x1b[m", "\x1b[38;5;69m>\x1b[m ", 1)
@@ -284,7 +284,7 @@ func (m *runMode) formatInputView() string {
 	// The reference colours the command token in the composer and shows
 	// the argument hint of an empty "/model " argument
 	// (【一手】 agy 1.4.6, live — internal/tuilib/composer_token.go).
-	composerValue := tuilib.FirstLine(m.composer.input.Value())
+	composerValue := tuilib.FirstLine(m.prompt.input.Value())
 	inputView = tuilib.StyleComposerCommandToken(inputView, composerValue)
 	if hint, ok := tuilib.ComposerArgumentHint(composerValue); ok {
 		inputView = tuilib.AppendComposerHint(inputView, cDimGrayOpen+hint+cDimGrayClose, composerValue)
@@ -295,24 +295,30 @@ func (m *runMode) formatInputView() string {
 	if !strings.HasSuffix(inputView, "\n") {
 		inputView += "\n"
 	}
-	if m.hasInputSelection() {
-		inputView = m.applyInputSelectionHighlight(inputView)
+	if m.prompt.HasInputSelection() {
+		inputView = m.prompt.ApplyInputSelectionHighlight(inputView)
 	}
 	return inputView
 }
 
-func (m *runMode) renderBodyPrompt(b *strings.Builder) int {
+func (m *RootModel) renderBodyPrompt(b *strings.Builder) int {
 	b.WriteString(m.promptRule(true) + "\n")
 	m.renderBodyQueuesAndCard(b)
 
 	rowsAbovePrompt := tuilib.ViewRows(b.String())
-	m.composer.promptBodyStart = rowsAbovePrompt
+	m.prompt.promptBodyStart = rowsAbovePrompt
 
 	// The attachments of the next turn (agy 1.4.9's image pasting) sit
 	// above the composer, so the user can see what will be sent.
-	for _, row := range uirows.AttachmentRows(m.composer.pendingMedia, m.composer.mediaExpanded) {
+	for _, row := range uirows.AttachmentRows(m.prompt.pendingMedia, m.prompt.mediaExpanded) {
 		b.WriteString(row + "\n")
 		rowsAbovePrompt++
+	}
+
+	if m.askQuestion.Active() {
+		b.WriteString(m.askQuestion.View())
+		b.WriteString(m.promptRule(false) + "\n")
+		return rowsAbovePrompt
 	}
 
 	inputView := m.formatInputView()
@@ -325,23 +331,23 @@ func (m *runMode) renderBodyPrompt(b *strings.Builder) int {
 	}
 
 	cursorY := rowsAbovePrompt
-	if c := m.composer.input.Cursor(); c != nil {
+	if c := m.prompt.input.Cursor(); c != nil {
 		cursorY += c.Y
 	}
 	b.WriteString(m.promptRule(false) + "\n")
-	if activeView := m.viewport.activeItems.Rows(); activeView != "" {
+	if activeView := m.activeItems.Panel.Rows(); activeView != "" {
 		b.WriteString(activeView + "\n")
 		b.WriteString(m.separator() + "\n")
 	}
 	return cursorY
 }
 
-func (m *runMode) renderBodyOverlays(b *strings.Builder) {
-	m.composer.picker.SetBodyStart(tuilib.ViewRows(b.String()))
-	if pickerRows := m.composer.picker.Rows(); pickerRows != "" {
+func (m *RootModel) renderBodyOverlays(b *strings.Builder) {
+	m.prompt.picker.SetBodyStart(tuilib.ViewRows(b.String()))
+	if pickerRows := m.prompt.picker.Rows(); pickerRows != "" {
 		b.WriteString(pickerRows)
 	}
-	if atFileRows := m.composer.atFilePicker.Rows(); atFileRows != "" {
+	if atFileRows := m.prompt.atFilePicker.Rows(); atFileRows != "" {
 		b.WriteString(atFileRows)
 	}
 	if resumeRows := m.overlays.resumePicker.View(m.viewport.width, m.viewport.height); resumeRows != "" {
@@ -350,24 +356,31 @@ func (m *runMode) renderBodyOverlays(b *strings.Builder) {
 	if panelRows := m.panelView(); panelRows != "" {
 		b.WriteString(panelRows)
 	}
-	if voiceRows := m.viewport.voiceSurface.View(); voiceRows != "" {
+	if permissionRows := m.permissionPromptLines(m.viewport.width); len(permissionRows) > 0 {
+		for _, row := range permissionRows {
+			b.WriteString(row + "\n")
+		}
+	}
+	if voiceRows := m.audio.Surface.View(); voiceRows != "" {
 		b.WriteString(voiceRows)
 	}
-	if m.viewport.helpPanel.Active() {
-		b.WriteString(m.viewport.helpPanel.Rows())
+	if m.help.Panel.Active() {
+		b.WriteString(m.help.Panel.Rows())
 	}
 }
 
-func (m *runMode) renderBodyStatusLine(b *strings.Builder) {
-	if m.viewport.statusLine != "off" && !(m.overlays.panel.kind == panelregistry.Changelog && m.viewport.height > 0) {
-		if rows := m.engine.subAgentQuestionPanel.AlertRows(); len(rows) > 0 {
+func (m *RootModel) renderBodyStatusLine(b *strings.Builder) {
+	if m.statusLine.visible != "off" && !(m.overlays.panel.kind == panelregistry.Changelog && m.viewport.height > 0) {
+		if rows := m.askQuestion.panel.AlertRows(); len(rows) > 0 {
 			for _, row := range rows {
 				b.WriteString(row + "\n")
 			}
 		}
-		if rows := m.engine.subAgentQuestionPanel.PickerRows(); len(rows) > 0 {
-			for _, row := range rows {
-				b.WriteString(row + "\n")
+		if !m.askQuestion.Active() && m.askQuestion.panel != nil {
+			if rows := m.askQuestion.panel.PickerRows(); len(rows) > 0 {
+				for _, row := range rows {
+					b.WriteString(row + "\n")
+				}
 			}
 		}
 		m.writeStatusArea(b)
@@ -376,7 +389,7 @@ func (m *runMode) renderBodyStatusLine(b *strings.Builder) {
 
 // writeStatusArea writes the status area's rows. The last row carries no
 // trailing newline: it is the last thing on the screen.
-func (m *runMode) writeStatusArea(b *strings.Builder) {
+func (m *RootModel) writeStatusArea(b *strings.Builder) {
 	rows := statusline.AreaRows(m.statusAreaState())
 	for i, row := range rows {
 		if i < len(rows)-1 {
@@ -387,14 +400,14 @@ func (m *runMode) writeStatusArea(b *strings.Builder) {
 	}
 }
 
-func (m *runMode) viewBody(transcript []string) (string, int) {
+func (m *RootModel) viewBody(transcript []string) (string, int) {
 	var b strings.Builder
-	m.composer.picker.ResetGeom()
-	m.composer.promptScreenY = -1
+	m.prompt.picker.ResetGeom()
+	m.prompt.promptScreenY = -1
 
 	if (m.overlays.panel.kind == panelregistry.Changelog || m.overlays.panel.kind == panelregistry.Diff) && m.viewport.height > 0 {
 		b.WriteString(m.panelView())
-		if m.viewport.statusLine != "off" {
+		if m.statusLine.visible != "off" {
 			m.writeStatusArea(&b)
 		}
 		return b.String(), -1
@@ -415,8 +428,8 @@ func (m *runMode) viewBody(transcript []string) (string, int) {
 	return b.String(), cursorY
 }
 
-func (m *runMode) inputCursorX() int {
-	if c := m.composer.input.Cursor(); c != nil {
+func (m *RootModel) inputCursorX() int {
+	if c := m.prompt.input.Cursor(); c != nil {
 		return c.X
 	}
 	return 0
@@ -424,36 +437,36 @@ func (m *runMode) inputCursorX() int {
 
 // programStatus reports Wagyu's current state to terminals that support the
 // Program Status Protocol.
-func (m *runMode) programStatus() *tea.ProgramStatus {
+func (m *RootModel) programStatus() *tea.ProgramStatus {
 	return programstatus.Resolve(programstatus.Inputs{
 		PendingPermission:  m.session.pendingPermission,
-		HasPendingQuestion: m.engine.subAgentQuestionPanel.HasPendingQuestion(),
+		HasPendingQuestion: m.askQuestion.panel.HasPendingQuestion(),
 		PendingAuth:        m.session.pendingAuth,
 		IsAgentBusy:        m.isAgentBusy(),
-		LastTurnOutcome:    m.engine.lastTurnOutcome,
+		LastTurnOutcome:    m.display.lastTurnOutcome,
 	})
 }
 
 // isAgentBusy is true while a model turn is in flight.
-func (m *runMode) isAgentBusy() bool {
-	return m.engine.streaming || m.engine.turnCancel != nil || m.engine.thinking
+func (m *RootModel) isAgentBusy() bool {
+	return m.conversation.streaming || (m.turn.activeBridge != nil && m.turn.activeBridge.IsRunning()) || m.conversation.thinking
 }
 
 // recordTurnOutcome records how the open turn ended.
-func (m *runMode) recordTurnOutcome(state tea.ProgramState) {
-	m.engine.lastTurnOutcome = state
+func (m *RootModel) recordTurnOutcome(state tea.ProgramState) {
+	m.display.lastTurnOutcome = state
 }
 
 // clearLastTurnOutcome clears the recorded outcome.
-func (m *runMode) clearLastTurnOutcome() {
-	m.engine.lastTurnOutcome = ""
+func (m *RootModel) clearLastTurnOutcome() {
+	m.display.lastTurnOutcome = ""
 }
 
 // ---- tui_viewport_scroll.go ----
 
 const selHighlightOpen = tuiviewport.SelHighlightOpen
 
-func (m *runMode) selectionText() string {
+func (m *RootModel) selectionText() string {
 	if !m.viewport.altScreen {
 		return ""
 	}
@@ -464,24 +477,24 @@ func (m *runMode) selectionText() string {
 	return tuiviewport.SelectionText(m.transcriptWindow(), sr, sc, er, ec)
 }
 
-func (m *runMode) copySelectionCmd(text string) tea.Cmd {
+func (m *RootModel) copySelectionCmd(text string) tea.Cmd {
 	if text == "" {
 		return nil
 	}
 	return tea.SetClipboard(text)
 }
 
-func (m *runMode) selectionPass(rows []string) []string {
+func (m *RootModel) selectionPass(rows []string) []string {
 	sr, sc, er, ec, ok := tuiviewport.SelectionRange(m.viewport.SelStartRow, m.viewport.SelStartCol, m.viewport.SelEndRow, m.viewport.SelEndCol, m.viewport.SelDragging)
 	return tuiviewport.SelectionPass(rows, sr, sc, er, ec, ok)
 }
 
-func (m *runMode) hasSelection() bool {
+func (m *RootModel) hasSelection() bool {
 	_, _, _, _, ok := tuiviewport.SelectionRange(m.viewport.SelStartRow, m.viewport.SelStartCol, m.viewport.SelEndRow, m.viewport.SelEndCol, m.viewport.SelDragging)
 	return ok || m.viewport.SelDragging
 }
 
-func (m *runMode) scrollBy(delta int) {
+func (m *RootModel) scrollBy(delta int) {
 	if delta == 0 {
 		return
 	}
@@ -517,7 +530,7 @@ func (m *runMode) scrollBy(delta int) {
 }
 
 // jumpToPinnedPrompt scrolls the viewport so the producing user-prompt row lands at top.
-func (m *runMode) jumpToPinnedPrompt() bool {
+func (m *RootModel) jumpToPinnedPrompt() bool {
 	if m.viewport.pinnedPromptRowIdx < 0 {
 		return false
 	}
@@ -529,7 +542,7 @@ func (m *runMode) jumpToPinnedPrompt() bool {
 }
 
 // gotoTop / gotoBottom are the recovered ctrl+home / ctrl+end bindings.
-func (m *runMode) gotoTop() {
+func (m *RootModel) gotoTop() {
 	if m.viewport.scroll == 0 && !m.viewport.autoScroll {
 		return
 	}
@@ -538,7 +551,7 @@ func (m *runMode) gotoTop() {
 	m.viewport.viewCacheValid = false
 }
 
-func (m *runMode) gotoBottom() {
+func (m *RootModel) gotoBottom() {
 	if m.viewport.autoScroll {
 		return
 	}
@@ -551,7 +564,7 @@ func (m *runMode) gotoBottom() {
 //
 // The page-scroll distances are the recovered ones: a page is the
 // viewport's height less one row, and a half page is half of it.
-func (m *runMode) handleScrollKey(key tea.Key) bool {
+func (m *RootModel) handleScrollKey(key tea.Key) bool {
 	if !m.viewport.altScreen {
 		return false
 	}
@@ -579,11 +592,11 @@ func (m *runMode) handleScrollKey(key tea.Key) bool {
 }
 
 // handleMouseWheel scrolls the transcript on a wheel event.
-func (m *runMode) handleMouseWheel(msg tea.MouseMsg) bool {
+func (m *RootModel) handleMouseWheel(msg tea.MouseMsg) bool {
 	if !m.viewport.altScreen {
 		return false
 	}
-	if m.composer.picker.HandleWheel(msg.Mouse()) {
+	if m.prompt.picker.HandleWheel(msg.Mouse()) {
 		return true
 	}
 	switch msg.Mouse().Button {
@@ -605,7 +618,7 @@ const (
 	viewOverflowRows = tuiviewport.ViewOverflowRows
 )
 
-func (m *runMode) currentHeaderKey(width int) headerCacheKey {
+func (m *RootModel) currentHeaderKey(width int) headerCacheKey {
 	return headerCacheKey{
 		width:        width,
 		seasonal:     m.viewport.seasonal,
@@ -619,14 +632,18 @@ func (m *runMode) currentHeaderKey(width int) headerCacheKey {
 	}
 }
 
-func (m *runMode) scrollHeaderRows(width int) []string {
+func (m *RootModel) scrollHeaderRows(width int) []string {
 	key := m.currentHeaderKey(width)
 	if m.viewport.cachedHeaderKey == key && len(m.viewport.cachedHeaderRows) > 0 && !m.viewport.rowsCacheDirty {
 		return m.viewport.cachedHeaderRows
 	}
 	var b strings.Builder
 	b.WriteString("\n")
-	renderBannerWithTheme(&b, m.viewport.seasonal, m.session.email, m.session.model, m.session.tier, m.session.cwd)
+	bannerCwd := m.session.cwd
+	if m.session.remoteAgent {
+		bannerCwd = "remote workspace"
+	}
+	renderBannerWithTheme(&b, m.viewport.seasonal, m.session.email, m.session.model, m.session.tier, bannerCwd)
 	if m.session.agentWarning != "" {
 		b.WriteString("\n")
 		b.WriteString(tuilib.RenderAgentWarning(m.session.agentWarning))
@@ -648,10 +665,10 @@ func (m *runMode) scrollHeaderRows(width int) []string {
 	return rows
 }
 
-func (m *runMode) wrappedResponse(width int) []string {
+func (m *RootModel) wrappedResponse(width int) []string {
 	if width == m.viewport.width {
 		if m.viewport.rowsCacheDirty || !m.viewport.rowsCache.Built || m.viewport.rowsCache.Width != width {
-			if m.viewport.rowsCache.Rebuild(m.engine.response, width) {
+			if m.viewport.rowsCache.Rebuild(m.conversation.response, width) {
 				m.viewport.rowsGen++
 			}
 			m.viewport.rowsCacheDirty = false
@@ -659,14 +676,14 @@ func (m *runMode) wrappedResponse(width int) []string {
 		return m.viewport.rowsCache.Rows
 	}
 	if !m.viewport.rowsCacheN1.Built || m.viewport.rowsCacheN1.Width != width {
-		if m.viewport.rowsCacheN1.Rebuild(m.engine.response, width) {
+		if m.viewport.rowsCacheN1.Rebuild(m.conversation.response, width) {
 			m.viewport.rowsGen++
 		}
 	}
 	return m.viewport.rowsCacheN1.Rows
 }
 
-func (m *runMode) wrappedResponseCounts(width int) []int {
+func (m *RootModel) wrappedResponseCounts(width int) []int {
 	_ = m.wrappedResponse(width)
 	if width == m.viewport.width {
 		return m.viewport.rowsCache.Counts
@@ -674,26 +691,26 @@ func (m *runMode) wrappedResponseCounts(width int) []int {
 	return m.viewport.rowsCacheN1.Counts
 }
 
-func (m *runMode) liveRows(width int) []string {
-	if !m.engine.streaming {
+func (m *RootModel) liveRows(width int) []string {
+	if !m.conversation.streaming {
 		return nil
 	}
 	var rows []string
-	line := m.engine.spinner.View()
+	line := m.conversation.spinner.View()
 	phrase := "Generating"
-	if m.engine.anyToolRun {
+	if m.conversation.anyToolRun {
 		phrase = "Working"
 	}
-	if m.engine.thinking && m.engine.activeTool == "" {
-		if m.engine.liveThinkingSnippet != "" {
-			line += " " + palette.SpinnerBaseOpen + m.engine.liveThinkingSnippet + "\x1b[m"
+	if m.conversation.thinking && m.conversation.activeTool == "" {
+		if m.conversation.liveThinkingSnippet != "" {
+			line += " " + palette.SpinnerBaseOpen + m.conversation.liveThinkingSnippet + "\x1b[m"
 		} else {
-			line += " " + tuitools.SpinnerText("Thinking", m.engine.spinFrame)
+			line += " " + tuitools.SpinnerText("Thinking", m.conversation.spinFrame)
 		}
-	} else if m.engine.activeTool != "" {
-		line += " " + m.engine.activeTool
+	} else if m.conversation.activeTool != "" {
+		line += " " + m.conversation.activeTool
 	} else {
-		line += " " + tuitools.SpinnerText(phrase, m.engine.spinFrame)
+		line += " " + tuitools.SpinnerText(phrase, m.conversation.spinFrame)
 	}
 	if width > 0 {
 		line = tuilib.Truncate(line, width, "...")
@@ -711,20 +728,20 @@ func (m *runMode) liveRows(width int) []string {
 	return rows
 }
 
-func (m *runMode) transcriptRows(width int) []string {
-	if m.composer.picker.Visible() {
+func (m *RootModel) transcriptRows(width int) []string {
+	if m.prompt.picker.Visible() {
 		return nil
 	}
 	header := m.scrollHeaderRows(width)
-	rows := make([]string, 0, len(header)+len(m.engine.response))
+	rows := make([]string, 0, len(header)+len(m.conversation.response))
 	rows = append(rows, header...)
-	for _, line := range m.engine.response {
+	for _, line := range m.conversation.response {
 		rows = append(rows, tuilib.WrapRows(line, width)...)
 	}
 	return rows
 }
 
-func (m *runMode) syncRowsView() ([]string, []string, []string) {
+func (m *RootModel) syncRowsView() ([]string, []string, []string) {
 	header := m.scrollHeaderRows(m.viewport.width)
 	resp := m.wrappedResponse(m.viewport.width)
 	respCounts := m.wrappedResponseCounts(m.viewport.width)
@@ -735,7 +752,7 @@ func (m *runMode) syncRowsView() ([]string, []string, []string) {
 	return m.viewport.rowsView.Rows, header, resp
 }
 
-func (m *runMode) updateStickyPrompt(rows, header, resp []string, avail int) int {
+func (m *RootModel) updateStickyPrompt(rows, header, resp []string, avail int) int {
 	m.viewport.stickyBarRow = ""
 	m.viewport.pinnedPromptRowIdx = -1
 	m.viewport.pinnedPromptText = ""
@@ -761,14 +778,14 @@ func (m *runMode) updateStickyPrompt(rows, header, resp []string, avail int) int
 	return availScroll
 }
 
-func (m *runMode) computeVisibleWindow(rows []string, availScroll int) []string {
+func (m *RootModel) computeVisibleWindow(rows []string, availScroll int) []string {
 	visible, scroll, auto := tuiviewport.ComputeVisibleWindow(rows, m.viewport.rowsView.Prefix, m.viewport.scroll, availScroll, m.viewport.autoScroll)
 	m.viewport.scroll = scroll
 	m.viewport.autoScroll = auto
 	return visible
 }
 
-func (m *runMode) viewportHeight() int {
+func (m *RootModel) viewportHeight() int {
 	if m.viewport.height <= 0 {
 		return 0
 	}
@@ -779,8 +796,8 @@ func (m *runMode) viewportHeight() int {
 	} else {
 		body, _ := m.viewBody(nil)
 		extra = tuilib.ViewRows(body)
-		if m.viewport.helpPanel.Active() {
-			extra -= tuilib.ViewRows(m.viewport.helpPanel.Rows())
+		if m.help.Panel.Active() {
+			extra -= tuilib.ViewRows(m.help.Panel.Rows())
 		}
 		m.viewport.cachedExtraRows = extra
 		m.viewport.cachedExtraLiveRows = liveLen
@@ -789,7 +806,7 @@ func (m *runMode) viewportHeight() int {
 		m.viewport.extraRowsValid = true
 	}
 	budget := m.viewport.height
-	if m.viewport.helpPanel.Active() {
+	if m.help.Panel.Active() {
 		budget += viewOverflowRows
 	}
 	avail := budget - extra
@@ -799,7 +816,7 @@ func (m *runMode) viewportHeight() int {
 	return avail
 }
 
-func (m *runMode) transcriptWindow() []string {
+func (m *RootModel) transcriptWindow() []string {
 	avail := m.viewportHeight()
 	m.ensureVisibleBlocksExpanded(avail)
 	if avail <= 0 {
@@ -1184,15 +1201,15 @@ func runAttachedTUI(w io.Writer, fs *flag.FlagSet, args cli.TUIArgs) error {
 		modelName = defaultModel
 	}
 	altScreen := resolveAltScreen(fs)
-	m, watchCancel := initTUIRunMode(fs, nil, modelName, "", altScreen)
+	m, watchCancel := initTUIRootModel(fs, nil, modelName, "", altScreen)
 	defer watchCancel()
 	if m.viewport.pluginWatcher != nil {
 		defer pluginWatcherPtr.Store(nil)
 		defer m.viewport.pluginWatcher.Close()
 	}
 	// The turn runs on the server: the local engine would run it here.
-	m.engine.engine = agentturn.NewRemote(client)
-	m.engine.attachedEngine = true
+	m.turn.engine = agentturn.NewRemote(client)
+	m.remote.SetAttached(true)
 	setupTUIToolsAndPolicy(m, fs)
 	canonicalCwd := m.session.cwd
 	setupTUIConversation(m, fs, canonicalCwd)
@@ -1229,7 +1246,7 @@ func runAttachedTUI_AHP(w io.Writer, fs *flag.FlagSet, addr string, args cli.TUI
 	}
 
 	altScreen := resolveAltScreen(fs)
-	m, watchCancel := initTUIRunMode(fs, nil, modelName, "", altScreen)
+	m, watchCancel := initTUIRootModel(fs, nil, modelName, "", altScreen)
 	defer watchCancel()
 	if m.viewport.pluginWatcher != nil {
 		defer pluginWatcherPtr.Store(nil)
@@ -1237,8 +1254,8 @@ func runAttachedTUI_AHP(w io.Writer, fs *flag.FlagSet, addr string, args cli.TUI
 	}
 
 	// The turn runs on the AHP server.
-	m.engine.engine = remote
-	m.engine.attachedEngine = true
+	m.turn.engine = remote
+	m.remote.SetAttached(true)
 	setupTUIToolsAndPolicy(m, fs)
 	canonicalCwd := m.session.cwd
 	setupTUIConversation(m, fs, canonicalCwd)
@@ -1260,7 +1277,7 @@ func runAttachedTUI_ACP(w io.Writer, fs *flag.FlagSet, addr string, args cli.TUI
 
 	modelName := defaultModel
 	altScreen := resolveAltScreen(fs)
-	m, watchCancel := initTUIRunMode(fs, nil, modelName, "", altScreen)
+	m, watchCancel := initTUIRootModel(fs, nil, modelName, "", altScreen)
 	defer watchCancel()
 	if m.viewport.pluginWatcher != nil {
 		defer pluginWatcherPtr.Store(nil)
@@ -1268,8 +1285,8 @@ func runAttachedTUI_ACP(w io.Writer, fs *flag.FlagSet, addr string, args cli.TUI
 	}
 
 	// The turn runs on the ACP server.
-	m.engine.engine = remote
-	m.engine.attachedEngine = true
+	m.turn.engine = remote
+	m.remote.SetAttached(true)
 	setupTUIToolsAndPolicy(m, fs)
 	canonicalCwd := m.session.cwd
 	setupTUIConversation(m, fs, canonicalCwd)
@@ -1316,15 +1333,15 @@ func runAttachedTUI_Driver(w io.Writer, fs *flag.FlagSet, driver agentturn.Drive
 	}
 
 	altScreen := resolveAltScreen(fs)
-	m, watchCancel := initTUIRunMode(fs, nil, modelName, "", altScreen)
+	m, watchCancel := initTUIRootModel(fs, nil, modelName, "", altScreen)
 	defer watchCancel()
 	if m.viewport.pluginWatcher != nil {
 		defer pluginWatcherPtr.Store(nil)
 		defer m.viewport.pluginWatcher.Close()
 	}
 
-	m.engine.engine = remote
-	m.engine.attachedEngine = true
+	m.turn.engine = remote
+	m.remote.SetAttached(true)
 	setupTUIToolsAndPolicy(m, fs)
 	canonicalCwd := m.session.cwd
 	setupTUIConversation(m, fs, canonicalCwd)
@@ -1346,15 +1363,15 @@ func runAttachedTUI_ACPAgent(w io.Writer, fs *flag.FlagSet, agentID string, args
 
 	modelName := agentID
 	altScreen := resolveAltScreen(fs)
-	m, watchCancel := initTUIRunMode(fs, nil, modelName, "", altScreen)
+	m, watchCancel := initTUIRootModel(fs, nil, modelName, "", altScreen)
 	defer watchCancel()
 	if m.viewport.pluginWatcher != nil {
 		defer pluginWatcherPtr.Store(nil)
 		defer m.viewport.pluginWatcher.Close()
 	}
 
-	m.engine.engine = remote
-	m.engine.attachedEngine = true
+	m.turn.engine = remote
+	m.remote.SetAttached(true)
 	setupTUIToolsAndPolicy(m, fs)
 	canonicalCwd := m.session.cwd
 	setupTUIConversation(m, fs, canonicalCwd)
@@ -1381,15 +1398,15 @@ func runAttachedTUI_ACPCmd(w io.Writer, fs *flag.FlagSet, args cli.TUIArgs) erro
 
 	modelName := filepath.Base(cmdParts[0])
 	altScreen := resolveAltScreen(fs)
-	m, watchCancel := initTUIRunMode(fs, nil, modelName, "", altScreen)
+	m, watchCancel := initTUIRootModel(fs, nil, modelName, "", altScreen)
 	defer watchCancel()
 	if m.viewport.pluginWatcher != nil {
 		defer pluginWatcherPtr.Store(nil)
 		defer m.viewport.pluginWatcher.Close()
 	}
 
-	m.engine.engine = remote
-	m.engine.attachedEngine = true
+	m.turn.engine = remote
+	m.remote.SetAttached(true)
 	setupTUIToolsAndPolicy(m, fs)
 	canonicalCwd := m.session.cwd
 	setupTUIConversation(m, fs, canonicalCwd)
@@ -1411,15 +1428,15 @@ func runAttachedTUI_ACPManifest(w io.Writer, fs *flag.FlagSet, args cli.TUIArgs)
 
 	modelName := "acp-agent"
 	altScreen := resolveAltScreen(fs)
-	m, watchCancel := initTUIRunMode(fs, nil, modelName, "", altScreen)
+	m, watchCancel := initTUIRootModel(fs, nil, modelName, "", altScreen)
 	defer watchCancel()
 	if m.viewport.pluginWatcher != nil {
 		defer pluginWatcherPtr.Store(nil)
 		defer m.viewport.pluginWatcher.Close()
 	}
 
-	m.engine.engine = remote
-	m.engine.attachedEngine = true
+	m.turn.engine = remote
+	m.remote.SetAttached(true)
 	setupTUIToolsAndPolicy(m, fs)
 	canonicalCwd := m.session.cwd
 	setupTUIConversation(m, fs, canonicalCwd)
@@ -1498,28 +1515,28 @@ var _ transcript.BashBlock = (*bashmode.Block)(nil)
 // "esc to cancel"), and returns the tea.Cmd that performs the exec and the
 // spinner tick. The caller must have already cleared the composer and the
 // bash-mode flag.
-func (m *runMode) startBashCommand(cmd string) tea.Cmd {
+func (m *RootModel) startBashCommand(cmd string) tea.Cmd {
 	m.session.store.BashGen++
 	gen := m.session.store.BashGen
 	m.session.store.BashCmd = cmd
-	m.engine.response = transcript.BlankBefore(m.engine.response)
-	m.session.store.BashRowIdx = len(m.engine.response)
-	m.engine.response = append(m.engine.response, bashmode.HeadRow(cmd, false, true))
-	m.engine.streaming = true
-	m.engine.thinking = false
-	m.engine.activeTool = ""
-	m.engine.anyToolRun = false
-	m.engine.spinFrame = 0
+	m.conversation.response = transcript.BlankBefore(m.conversation.response)
+	m.session.store.BashRowIdx = len(m.conversation.response)
+	m.conversation.response = append(m.conversation.response, bashmode.HeadRow(cmd, false, true))
+	m.conversation.streaming = true
+	m.conversation.thinking = false
+	m.conversation.activeTool = ""
+	m.conversation.anyToolRun = false
+	m.conversation.spinFrame = 0
 	m.clearLastTurnOutcome()
 	out := &tools.SafeBuffer{}
 	m.session.store.BashRun = out
 	ctx, cancel := context.WithCancel(context.Background())
-	m.session.store.BashCancel = cancel
+	m.session.store.SetBashCancel(cancel)
 	dir := m.session.cwd
 	run := func() tea.Msg {
 		return execBashCommand(ctx, dir, cmd, out, gen)
 	}
-	tick := func() tea.Msg { return m.engine.spinner.Tick() }
+	tick := func() tea.Msg { return m.conversation.spinner.Tick() }
 	return tea.Batch(run, tick)
 }
 
@@ -1576,9 +1593,9 @@ func bashExitCode(err error) (int, bool) {
 // append the body (if any) plus the block's trailing blank row. A cancelled
 // command keeps only the head row — the reference never shows partial output
 // for Esc / Ctrl+C.
-func (m *runMode) finishBashCommand(msg bashDoneMsg) {
+func (m *RootModel) finishBashCommand(msg bashDoneMsg) {
 	m.session.store.ClearInFlightBash()
-	m.engine.streaming = false
+	m.conversation.streaming = false
 	b := &bashmode.Block{Cmd: msg.cmd, Failed: msg.failed}
 	if !msg.cancelled {
 		b.Body = msg.output
@@ -1592,20 +1609,20 @@ func (m *runMode) finishBashCommand(msg bashDoneMsg) {
 
 // placeBashBlock paints a finished block. When an in-flight head row exists it
 // is rebuilt in place and the rest appended after it; otherwise the block is
-// appended to the transcript. Every block is recorded in m.engine.blocks so ctrl+o
+// appended to the transcript. Every block is recorded in m.conversation.blocks so ctrl+o
 // can re-render it from the full body.
-func (m *runMode) placeBashBlock(b *bashmode.Block) {
+func (m *RootModel) placeBashBlock(b *bashmode.Block) {
 	rows := b.Lines(m.isExpanded(), m.viewport.height)
-	if m.session.store.BashRowIdx >= 0 && m.session.store.BashRowIdx < len(m.engine.response) {
-		m.engine.response[m.session.store.BashRowIdx] = rows[0]
-		m.engine.response = append(m.engine.response, rows[1:]...)
-		m.engine.blocks = append(m.engine.blocks, transcript.Block{Start: m.session.store.BashRowIdx, Lines: len(rows), Bash: b})
+	if m.session.store.BashRowIdx >= 0 && m.session.store.BashRowIdx < len(m.conversation.response) {
+		m.conversation.response[m.session.store.BashRowIdx] = rows[0]
+		m.conversation.response = append(m.conversation.response, rows[1:]...)
+		m.conversation.blocks = append(m.conversation.blocks, transcript.Block{Start: m.session.store.BashRowIdx, Lines: len(rows), Bash: b})
 		return
 	}
-	m.engine.response = transcript.BlankBefore(m.engine.response)
-	start := len(m.engine.response)
-	m.engine.response = append(m.engine.response, rows...)
-	m.engine.blocks = append(m.engine.blocks, transcript.Block{Start: start, Lines: len(rows), Bash: b})
+	m.conversation.response = transcript.BlankBefore(m.conversation.response)
+	start := len(m.conversation.response)
+	m.conversation.response = append(m.conversation.response, rows...)
+	m.conversation.blocks = append(m.conversation.blocks, transcript.Block{Start: start, Lines: len(rows), Bash: b})
 }
 
 // preemptBashCommand interrupts the running command the way the reference does
@@ -1616,16 +1633,13 @@ func (m *runMode) placeBashBlock(b *bashmode.Block) {
 // 【一手】 agy 1.4.5, `!sh -c 'echo first; sleep 30'` then `!echo queued2`: the
 // first block keeps its hollow amber `○` head (never repainted) and gains
 // `  ⎿  first`, then the second block runs to completion — all before any Esc.
-func (m *runMode) preemptBashCommand(next string) tea.Cmd {
+func (m *RootModel) preemptBashCommand(next string) tea.Cmd {
 	partial := ""
 	if m.session.store.BashRun != nil {
 		partial = bashmode.TrimOutput(m.session.store.BashRun.String())
 	}
 	cmd := m.session.store.BashCmd
-	if m.session.store.BashCancel != nil {
-		m.session.store.BashCancel()
-		m.session.store.BashCancel = nil
-	}
+	m.session.store.CancelBash()
 	m.session.store.BashRun = nil
 	m.placeBashBlock(&bashmode.Block{Cmd: cmd, Body: partial, Running: true})
 	m.session.store.BashRowIdx = -1
@@ -1637,12 +1651,8 @@ func (m *runMode) preemptBashCommand(next string) tea.Cmd {
 }
 
 // cancelBashCommand runs the Esc-cancel path for an in-flight command.
-func (m *runMode) cancelBashCommand() {
-	if m.session.store.BashCancel == nil {
-		return
-	}
-	m.session.store.BashCancel()
-	m.session.store.BashCancel = nil
+func (m *RootModel) cancelBashCommand() {
+	m.session.store.CancelBash()
 }
 
 // applyHistoryEntry loads a recalled entry into the composer. Entries are
@@ -1651,32 +1661,32 @@ func (m *runMode) cancelBashCommand() {
 // reference recalls "!echo hist" as "! echo hist" in bash mode.
 // If the recalled entry meets the folding threshold (>= 16 lines or > 1000 runes),
 // it is dynamically folded into [Pasted text #1 ...] matching reference agy.
-func (m *runMode) applyHistoryEntry(entry string) {
+func (m *RootModel) applyHistoryEntry(entry string) {
 	m.session.store.BashMode = false
 	if strings.HasPrefix(entry, "!") {
 		m.session.store.BashMode = true
 		entry = strings.TrimPrefix(entry, "!")
 		entry = strings.TrimPrefix(entry, " ")
 	}
-	m.composer.pastedBlocks = nil
-	m.composer.nextPasteID = 0
+	m.prompt.pastedBlocks = nil
+	m.prompt.nextPasteID = 0
 
 	lines := strings.Count(entry, "\n") + 1
 	charCount := len([]rune(entry))
 	if lines >= 16 || charCount > 1000 {
-		m.composer.pastedBlocks = make(map[string]string)
-		m.composer.nextPasteID = 1
+		m.prompt.pastedBlocks = make(map[string]string)
+		m.prompt.nextPasteID = 1
 		var placeholder string
 		if lines >= 16 {
 			placeholder = fmt.Sprintf("[Pasted text #1 +%d lines]", lines)
 		} else {
 			placeholder = fmt.Sprintf("[Pasted text #1 %d chars]", charCount)
 		}
-		m.composer.pastedBlocks[placeholder] = entry
+		m.prompt.pastedBlocks[placeholder] = entry
 		entry = placeholder
 	}
 
-	m.composer.input.SetValue(entry)
+	m.prompt.input.SetValue(entry)
 }
 
 // ---- tui_paste_media.go ----
@@ -1734,8 +1744,8 @@ type pasteMediaMsg struct {
 // a file to a program and inserts its path instead. Ordinary text is
 // pasted as text. Only a paste that delivered nothing asks the platform
 // for an image, which is the "Cmd+V with only an image copied" case.
-func (m *runMode) handlePasteContent(text string) tea.Cmd {
-	if m.viewport.helpPanel.Active() || m.overlays.panel.kind != panelregistry.None {
+func (m *RootModel) handlePasteContent(text string) tea.Cmd {
+	if m.help.Panel.Active() || m.overlays.panel.kind != panelregistry.None {
 		// A panel owns the keyboard (the /rename field pastes its own
 		// text); the composer's paste does not reach it.
 		return m.insertPastedText(text)
@@ -1761,7 +1771,7 @@ func (m *runMode) handlePasteContent(text string) tea.Cmd {
 // probeClipboardMedia asks the platform clipboard for an image. The read
 // shells out (osascript, wl-paste, xclip), so it runs off the update
 // goroutine.
-func (m *runMode) probeClipboardMedia() tea.Cmd {
+func (m *RootModel) probeClipboardMedia() tea.Cmd {
 	return func() tea.Msg {
 		media, err := clipboardReadMedia(clipboard.DefaultOptions())
 		return pasteMediaMsg{media: media, err: err}
@@ -1770,7 +1780,7 @@ func (m *runMode) probeClipboardMedia() tea.Cmd {
 
 // updatePasteMedia handles the probe's answer: an image is attached, and
 // a clipboard with nothing to attach says so.
-func (m *runMode) updatePasteMedia(msg pasteMediaMsg) (tea.Model, tea.Cmd) {
+func (m *RootModel) updatePasteMedia(msg pasteMediaMsg) (tea.Model, tea.Cmd) {
 	if msg.err == nil && len(msg.media.Data) > 0 {
 		m.attachMedia(msg.media)
 		return m, nil
@@ -1794,23 +1804,23 @@ func clipboardMediaNotice(err error) string {
 }
 
 // attachMedia adds an image to the attachments of the next turn.
-func (m *runMode) attachMedia(media clipboard.Media) {
+func (m *RootModel) attachMedia(media clipboard.Media) {
 	if len(media.Data) == 0 {
 		return
 	}
-	m.composer.pendingMedia = append(m.composer.pendingMedia, media)
+	m.prompt.pendingMedia = append(m.prompt.pendingMedia, media)
 	m.viewport.inputNotice = ""
 }
 
 // mediaImageParts turns the attachments into the transport's image
 // parts. The mime type comes from the detected format, so the model
 // receives the same inlineData block the reference sends.
-func (m *runMode) mediaImageParts() []backend.ImagePart {
-	if len(m.composer.pendingMedia) == 0 {
+func (m *RootModel) mediaImageParts() []backend.ImagePart {
+	if len(m.prompt.pendingMedia) == 0 {
 		return nil
 	}
-	parts := make([]backend.ImagePart, 0, len(m.composer.pendingMedia))
-	for _, media := range m.composer.pendingMedia {
+	parts := make([]backend.ImagePart, 0, len(m.prompt.pendingMedia))
+	for _, media := range m.prompt.pendingMedia {
 		mime := media.Format.MIMEType()
 		if mime == "" {
 			continue
@@ -1846,7 +1856,7 @@ const atDispatchTimeout = 30 * 1000 * 1000 * 1000 // 30 seconds
 
 // handlePromptAtPrefix dispatches a prompt that starts with "@" to a
 // named subagent.
-func (m *runMode) handlePromptAtPrefix(buf string) (bool, tea.Cmd) {
+func (m *RootModel) handlePromptAtPrefix(buf string) (bool, tea.Cmd) {
 	if len(buf) == 0 || buf[0] != '@' {
 		return false, nil
 	}
@@ -1856,7 +1866,7 @@ func (m *runMode) handlePromptAtPrefix(buf string) (bool, tea.Cmd) {
 	}
 	m.resetPromptForAt(buf)
 	if message == "" {
-		m.engine.response = append(m.engine.response, "", "> "+buf, "", subagentrouter.NamedSubagentEmptyMessage(name))
+		m.conversation.response = append(m.conversation.response, "", "> "+buf, "", subagentrouter.NamedSubagentEmptyMessage(name))
 		m.saveSession()
 		return true, nil
 	}
@@ -1865,29 +1875,29 @@ func (m *runMode) handlePromptAtPrefix(buf string) (bool, tea.Cmd) {
 }
 
 // resetPromptForAt clears the composer after an "@" dispatch.
-func (m *runMode) resetPromptForAt(buf string) {
+func (m *RootModel) resetPromptForAt(buf string) {
 	m.pushHistory(buf)
-	m.composer.input.Reset()
-	m.engine.streaming = false
-	m.composer.promptHistory.Reset()
-	m.composer.picker.Reset()
+	m.prompt.input.Reset()
+	m.conversation.streaming = false
+	m.prompt.promptHistory.Reset()
+	m.prompt.picker.Reset()
 }
 
 // deliverAtSubagent sends the message to the named subagent.
-func (m *runMode) deliverAtSubagent(name, message, buf string) {
-	if m.engine.atRouter == nil {
-		m.engine.atRouter = defaultRouter
+func (m *RootModel) deliverAtSubagent(name, message, buf string) {
+	if m.agents.router == nil {
+		m.agents.router = defaultRouter
 	}
-	entry, ok := m.engine.atRouter.Lookup(name)
+	entry, ok := m.agents.router.Lookup(name)
 	if !ok {
-		m.engine.response = append(m.engine.response, "", "> "+buf, "", subagentrouter.NamedSubagentUnknownMessage(name))
+		m.conversation.response = append(m.conversation.response, "", "> "+buf, "", subagentrouter.NamedSubagentUnknownMessage(name))
 		m.saveSession()
 		return
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), atDispatchTimeout)
 	defer cancel()
 	if err := entry.Sender.Send(ctx, message); err != nil {
-		m.engine.response = append(m.engine.response,
+		m.conversation.response = append(m.conversation.response,
 			"",
 			"> "+buf,
 			"",
@@ -1896,7 +1906,7 @@ func (m *runMode) deliverAtSubagent(name, message, buf string) {
 		m.saveSession()
 		return
 	}
-	m.engine.response = append(m.engine.response,
+	m.conversation.response = append(m.conversation.response,
 		"",
 		cWarningBlueOpen+"> @"+entry.Name+" "+message+cWarningBlueClose,
 		"",
@@ -1933,16 +1943,27 @@ func (m *runMode) deliverAtSubagent(name, message, buf string) {
 //
 // The host owns the facts — they are the live state of the running
 // session — and the store owns the assembly (convstore.BuildSteps).
-func (m *runMode) trajectoryFacts() convstore.Trajectory {
-	if m.session.supervisor != nil {
-		return m.session.supervisor.TrajectoryFacts()
+func (m *RootModel) trajectoryFacts() convstore.Trajectory {
+	if sup := m.session.sup(); sup != nil {
+		return sup.TrajectoryFacts()
 	}
-	return convstore.Trajectory{
-		Loaded:    m.engine.trajLoaded,
-		Calls:     m.engine.trajCalls,
-		Session:   m.engine.session,
-		SeededLen: m.engine.trajSeededLen,
+	return convstore.Trajectory{Session: m.SessionMessages()}
+}
+
+// trajectoryCounts reports the adopted step count, the calls made since and
+// the number of transcripts the adopted conversation contributed.
+func (m *RootModel) trajectoryCounts() (loaded, calls, seededLen int) {
+	if sup := m.session.sup(); sup != nil {
+		return sup.TrajectoryCounts()
 	}
+	return 0, 0, 0
+}
+
+// flushPendingCheckpoints inserts the checkpoints a turn recorded into the
+// trajectory's call list. The insertion point is the number of calls that
+// preceded the checkpoint, so the persisted order matches the turn.
+func (m *RootModel) flushPendingCheckpoints() {
+	m.session.flushCheckpoints()
 }
 
 // recordTrajectoryCalls adds a turn's tool calls to the trajectory.
@@ -1951,7 +1972,7 @@ func (m *runMode) trajectoryFacts() convstore.Trajectory {
 // the model produced are stored verbatim — the rehydration pass reads
 // them back to rebuild the state the calls produced (see
 // internal/app/session/rehydration).
-func (m *runMode) recordTrajectoryCalls(steps []toolsteps.Step) {
+func (m *RootModel) recordTrajectoryCalls(steps []toolsteps.Step) {
 	var convSteps []convstore.Step
 	for _, s := range steps {
 		if s.Kind != toolsteps.KindTool || s.Name == "" {
@@ -1969,18 +1990,14 @@ func (m *runMode) recordTrajectoryCalls(steps []toolsteps.Step) {
 			ToolResult: s.Result,
 		})
 	}
-	if m.session.supervisor != nil {
-		m.session.supervisor.RecordTrajectoryCalls(convSteps)
+	if sup := m.session.sup(); sup != nil {
+		sup.RecordTrajectoryCalls(convSteps)
 	}
-	m.engine.trajCalls = append(m.engine.trajCalls, convSteps...)
 }
 
 // resetTrajectory drops the trajectory of the conversation that ended.
-func (m *runMode) resetTrajectory() {
-	if m.session.supervisor != nil {
-		m.session.supervisor.Clear()
+func (m *RootModel) resetTrajectory() {
+	if sup := m.session.sup(); sup != nil {
+		sup.Clear()
 	}
-	m.engine.trajLoaded = nil
-	m.engine.trajCalls = nil
-	m.engine.trajSeededLen = 0
 }

@@ -13,10 +13,10 @@ the accounts the user signed in to and lets the user pick the active one
 | File | What it is |
 |---|---|
 | `internal/features/accounts/core/store.go` | the registry: `~/.openagy/accounts.json` (0600, atomic; `OPENAGY_ACCOUNTS_CONFIG` overrides). The directory is the clone's one configuration home — `~/.openagy`, or `$OPENAGY_CONFIG_HOME`. |
-| `internal/features/accounts/core/activate.go` | `Current`, `Register`, `RegisterWithEmail`, `Activate`, `Remove` |
+| `internal/features/accounts/core/activate.go` | `Current`, `Register`, `RegisterWithEmail`, `Add`, `Activate`, `Remove` |
 | `internal/ui/views/accountspanel/` | the `/accounts` panel (clone-only; **listed** in the catalogue, with the Pool tab beside the account list — see *The pool's own panel* below) |
 | `internal/cliapp/account_identity.go` | `syncAccountIdentity` (the session follows an account switched outside the TUI), `registerCurrentAccount` |
-| `internal/cli/accounts_cmds.go` | the `pigasus accounts {list,switch,remove}` subcommands (visible since commit `78f4a3b9`) |
+| `internal/cli/accounts_cmds.go` | the `pigasus accounts {list,show,add,switch,remove}` subcommands (visible since commit `78f4a3b9`) |
 | `internal/printmode/print_slash.go` | print mode's `/accounts` |
 
 Five things that are easy to get wrong:
@@ -30,7 +30,11 @@ Five things that are easy to get wrong:
   `AntigravityToken.UserEmail()` reads the signed claim first and the field
   second (the field goes stale, the claim does not).
 - **The transport has to be rebuilt.** The CloudCode client caches the keychain
-  token it read, so a switch sets `m.backend = m.backendFor(m.model)`.
+  token it read, so a switch sets `m.backend = m.backendFor(m.model)`. A
+  transport that is never rebuilt (the proxy's, a daemon's) is covered too:
+  `accountrouting.Router.defaultToken` drops its cached credential source when
+  the registry's active account changes, so an in-session `/accounts` switch
+  reaches it without a restart.
 - **A failed switch must restore the previous credential.**
   `auth.RefreshIfNeeded` calls `ClearTokenUnified()` on a definitive refresh
   rejection, so a failed switch would otherwise sign the user out.
@@ -41,6 +45,49 @@ Five things that are easy to get wrong:
 - **Removing the *active* account signs out for real** (the credential is
   cleared) and continues on another registered account. `/logout` keeps the
   reference's byte-exact reply and additionally forgets the account.
+
+### The atomic CLI and standalone TUI
+
+`pigasus accounts` is scriptable without the main Agent TUI. In an interactive terminal,
+the bare command `pigasus accounts` (or `pigasus accounts tui`) directly opens the full-screen
+interactive `/accounts` and routing pool management TUI without launching the outer agent window.
+In non-interactive pipelines (or with `--help`), it displays the usage. `accounts list` prints
+the registered accounts table.
+
+`accounts add` runs the same Google OAuth sign-in as the `/accounts` panel's
+`a` key, skipping the panel's method menu (the method is Google OAuth, not a
+Google Cloud project):
+
+```sh
+$ pigasus accounts add
+Open this URL to sign in:
+https://accounts.google.com/o/oauth2/auth?...
+Authorization code: _
+```
+
+The command opens the URL in the browser *and* prints it, so a headless or SSH
+session can copy it. The pasted authorization code is exchanged with PKCE, the
+token is written through `auth.SaveTokenUnified`, and the account is registered
+(and made active, like `/login`). `OPENAGY_NO_BROWSER=1` suppresses the
+browser launch without hiding the URL.
+
+The same command also accepts an existing credential, which is the fully
+non-interactive path:
+
+```sh
+pigasus accounts add me@example.com --refresh-token "$REFRESH_TOKEN"
+pigasus accounts add --token-file ~/.gemini/antigravity-cli/antigravity-oauth-token
+pigasus accounts add --token-file - < token.json
+pigasus accounts show me@example.com
+```
+
+`--email` defaults to the token's `id_token` claim. `--refresh-token`,
+`--access-token` and `--id-token` expand a leading `$NAME` from the environment,
+like `provider add --api-key`. `--token-file` wins over the individual flags.
+This form is deliberately not switching: `Add` writes the registry entry
+without touching `st.Active` or the shared credential, so a script can import a
+batch and activate one separately. Nothing prints a credential; `accounts
+show` reports the auth method, expiry and cached quota instead.
 
 Report: `docs/cycles/multi-account-switch/`.
 
@@ -67,10 +114,11 @@ Five things that are easy to get wrong:
 - **The tier is queried for the active account only** and cached per account,
   so an account that has been active once keeps its tier. The panel's `r`
   key refreshes the *quota* of every account, not the tiers.
-- **The panel shows the lowest remaining fraction across the model groups.**
+- **The panel shows the remaining fraction for Gemini models.**
   The response has one group per family and one bucket per window; the row
-  shows one number per window. A **missing** bucket is `5h -`, never `0.0%` —
-  two of this machine's accounts have no five-hour bucket at all.
+  shows the Gemini models quota (Claude and GPT groups are ignored). A
+  **missing** bucket is `5h -`, never `0.0%` — two of this machine's accounts
+  have no five-hour bucket at all.
 - **`/usage` reuses the snapshot `/accounts` fetched** (`quotaCache`, 2
   minutes). Opening `/usage` after `/accounts` shows the live numbers within
   a second, with no request; a cold session still queries the server.

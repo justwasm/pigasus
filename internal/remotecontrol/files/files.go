@@ -116,7 +116,7 @@ var ErrPathNotAllowed = errors.New("rc-file-ops: path not allowed")
 // file exceeds the caller's maxBytes cap. The dispatcher
 // maps this sentinel to JSON-RPC code -32603 "Internal
 // error" with a "file too large" message — the brief's
-// "maxBytes > 16 MiB" boundary already rejected requests
+// "maxBytes > 20 MiB" boundary already rejected requests
 // for absurd caps at the param-validation step, so this
 // path only fires when a caller requested a sane cap and
 // the file still doesn't fit.
@@ -131,18 +131,22 @@ var ErrNotRegularFile = errors.New("rc-file-ops: not a regular file")
 
 // DefaultReadMaxBytes is the default maxBytes cap the
 // dispatcher uses when the caller omits the field.
-// 1 MiB is generous for "show me a config file / source
-// file" probes a dashboard issues.
-const DefaultReadMaxBytes int64 = 1 << 20
+//
+// AGY 1.5.3: "Fixed files larger than the remote read limit being
+// silently cut off in `--remote-agent` sessions, which now load in full
+// up to 20 MiB and report an error above that instead of showing partial
+// content." A request that omits maxBytes therefore reads the whole
+// file (up to MaxReadMaxBytes) and fails above it; an explicit maxBytes
+// keeps the chunking behaviour.
+const DefaultReadMaxBytes int64 = 20 << 20
 
 // MaxReadMaxBytes is the absolute upper bound on maxBytes
 // the dispatcher accepts. Anything above this returns
 // -32602 (Invalid params) at the param-validation step
-// before the Provider is called. 16 MiB is large enough
-// to dump a sizable source tree, small enough that an
-// accidental pull-the-whole-repository loop doesn't OOM
-// the daemon.
-const MaxReadMaxBytes int64 = 16 << 20
+// before the Provider is called. 20 MiB is the AGY 1.5.3 remote-read
+// ceiling: a full read at or below it succeeds, and a larger file is
+// reported as an error rather than silently truncated.
+const MaxReadMaxBytes int64 = 20 << 20
 
 // DefaultReadDirMaxEntries is the default maxEntries cap
 // the dispatcher uses when the caller omits the field.

@@ -18,9 +18,8 @@ import (
 // userAgentTemplate is the User-Agent the reference sends, byte for byte,
 // including the `cl=` build number.
 //
-// 【一手】 the 1.4.4 CLI's header, recovered from the reference's own
-// request capture.
-const userAgentTemplate = "antigravity/cli/1.4.4 (aidev_client; os_type=%s; arch=%s; cl=1003595037; auth_method=consumer)"
+// 【一手】 the 1.5.3 CLI's header, recovered from live agy request capture.
+const userAgentTemplate = "antigravity/cli/1.5.3 (aidev_client; os_type=%s; arch=%s; cl=1016078699; auth_method=consumer)"
 
 // UserAgent returns the header value the reference sends.
 func UserAgent() string {

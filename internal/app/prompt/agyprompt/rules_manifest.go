@@ -238,23 +238,31 @@ func manifestPatternMatch(pattern, rel string) bool {
 // resolveManifestDir resolves an entry's path against the bases a relative
 // path may resolve against, and returns the first base that holds it.
 //
-// The bases are, in the reference's order: the directory that holds the
-// manifest (the .agents/ directory), the directory that holds the dot-dir
-// that declares it, and the project root
-// (official-docs/rules.md:129-130 and the reference's "JSON Configuration
-// Files" document).
+// AGY 1.5.2: In untrusted repositories, entries in .agents/plugins.json or .agents/skills.json
+// (and rules.json) are restricted to load only from within the workspace or repository root.
+// Traversal outside the root via absolute paths, "../", or symlinks is rejected/skipped.
 func resolveManifestDir(path string, bases []string) string {
 	if path == "" {
 		return ""
 	}
 	if resolved, ok := resolveHomePath(path); ok {
+		// Home directory paths outside workspace are rejected in workspace manifest context
+		if len(bases) > 0 && !isWithinWorkspaceOrRepo(resolved, bases) {
+			return ""
+		}
 		return resolved
 	}
 	if filepath.IsAbs(path) {
+		if len(bases) > 0 && !isWithinWorkspaceOrRepo(path, bases) {
+			return ""
+		}
 		return path
 	}
 	candidates := manifestCandidates(path, bases)
 	for _, candidate := range candidates {
+		if !isWithinWorkspaceOrRepo(candidate, bases) {
+			continue
+		}
 		if info, err := os.Stat(candidate); err == nil && info.IsDir() {
 			return candidate
 		}
@@ -262,7 +270,35 @@ func resolveManifestDir(path string, bases []string) string {
 	if len(candidates) == 0 {
 		return ""
 	}
-	return candidates[0]
+	if isWithinWorkspaceOrRepo(candidates[0], bases) {
+		return candidates[0]
+	}
+	return ""
+}
+
+// isWithinWorkspaceOrRepo verifies that the target path does not escape the bases
+// after resolving symlinks.
+func isWithinWorkspaceOrRepo(target string, bases []string) bool {
+	cleanTarget := filepath.Clean(target)
+	evalTarget, err := filepath.EvalSymlinks(cleanTarget)
+	if err != nil {
+		evalTarget = cleanTarget
+	}
+	for _, b := range bases {
+		if b == "" {
+			continue
+		}
+		cleanBase := filepath.Clean(b)
+		evalBase, err := filepath.EvalSymlinks(cleanBase)
+		if err != nil {
+			evalBase = cleanBase
+		}
+		rel, err := filepath.Rel(evalBase, evalTarget)
+		if err == nil && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) && rel != ".." {
+			return true
+		}
+	}
+	return false
 }
 
 // resolveManifestFile resolves the path of an inherited manifest.

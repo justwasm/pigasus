@@ -69,10 +69,16 @@ func AllChangesRow(c Change, cursor bool) string {
 
 // AllChangesLines renders the All Changes tab's file list or empty state.
 func AllChangesLines(tracked, untracked []Change, cursor int, emptyHint, navHint string) []string {
+	return AllChangesLinesWithVCS("git", tracked, untracked, cursor, emptyHint, navHint)
+}
+
+// AllChangesLinesWithVCS is AllChangesLines with an explicit VCS name: a
+// remote session's header reads "remote", not "git".
+func AllChangesLinesWithVCS(vcs string, tracked, untracked []Change, cursor int, emptyHint, navHint string) []string {
 	total := len(tracked) + len(untracked)
 	if total == 0 {
 		return []string{
-			TabRow("git", 0, true, Views),
+			TabRow(vcs, 0, true, Views),
 			"",
 			"   " + palette.DimGrayOpen + "No uncommitted changes" + palette.DimGrayClose,
 			"",
@@ -83,7 +89,7 @@ func AllChangesLines(tracked, untracked []Change, cursor int, emptyHint, navHint
 		cursor = 0
 	}
 	lines := []string{
-		TabRow("git", 0, false, Views),
+		TabRow(vcs, 0, false, Views),
 		palette.SubtleOpen + "  " + strconv.Itoa(total) + " file(s) changed\x1b[39m",
 		"",
 	}
@@ -103,9 +109,15 @@ func AllChangesLines(tracked, untracked []Change, cursor int, emptyHint, navHint
 // AllChangesLinesWindowed renders the All Changes tab's file list with windowing
 // and the reference position indicator "  [%d-%d of %d files]".
 func AllChangesLinesWindowed(tracked, untracked []Change, cursor, window, visible int, emptyHint, navHint string) []string {
+	return AllChangesLinesWindowedWithVCS("git", tracked, untracked, cursor, window, visible, emptyHint, navHint)
+}
+
+// AllChangesLinesWindowedWithVCS is AllChangesLinesWindowed with an
+// explicit VCS name.
+func AllChangesLinesWindowedWithVCS(vcs string, tracked, untracked []Change, cursor, window, visible int, emptyHint, navHint string) []string {
 	total := len(tracked) + len(untracked)
 	if total == 0 || visible <= 0 || total <= visible {
-		return AllChangesLines(tracked, untracked, cursor, emptyHint, navHint)
+		return AllChangesLinesWithVCS(vcs, tracked, untracked, cursor, emptyHint, navHint)
 	}
 	if cursor < 0 || cursor >= total {
 		cursor = 0
@@ -118,7 +130,7 @@ func AllChangesLinesWindowed(tracked, untracked []Change, cursor, window, visibl
 
 	indicator := fmt.Sprintf("  [%d-%d of %d files]", win.Start()+1, win.End(), total)
 	lines := []string{
-		TabRow("git", 0, false, Views),
+		TabRow(vcs, 0, false, Views),
 		palette.SubtleOpen + "  " + strconv.Itoa(total) + " file(s) changed" +
 			palette.DimGrayOpen + indicator + palette.DimGrayClose + "\x1b[39m",
 		"",

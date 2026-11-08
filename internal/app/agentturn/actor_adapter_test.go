@@ -3,6 +3,7 @@ package agentturn
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -14,7 +15,15 @@ import (
 
 // mockMultiStepClient simulates a model that first calls a tool, and then produces a final answer.
 type mockMultiStepClient struct {
-	turn int
+	turn   int
+	models []string
+}
+
+func (m *mockMultiStepClient) lastModel() string {
+	if len(m.models) == 0 {
+		return ""
+	}
+	return m.models[len(m.models)-1]
 }
 
 func (m *mockMultiStepClient) Stream(ctx context.Context, req backend.StreamRequest) (<-chan backend.StreamChunk, error) {
@@ -22,6 +31,7 @@ func (m *mockMultiStepClient) Stream(ctx context.Context, req backend.StreamRequ
 	go func() {
 		defer close(out)
 		m.turn++
+		m.models = append(m.models, req.Model)
 		if m.turn == 1 {
 			// Step 1: Model emits thought and calls a tool
 			out <- backend.StreamChunk{
@@ -235,8 +245,8 @@ func TestLocal_PersistentActorSessionLifecycle(t *testing.T) {
 	if act1.Trajectory().TotalTurns() != 1 {
 		t.Errorf("expected 1 turn in trajectory, got %d", act1.Trajectory().TotalTurns())
 	}
-	if act1.Model() != "model-v1" {
-		t.Errorf("actor.Model = %q, want 'model-v1'", act1.Model())
+	if got := mockClient.lastModel(); got != "model-v1" {
+		t.Errorf("provider model on Turn 1 = %q, want 'model-v1'", got)
 	}
 
 	// Turn 2 on same engine with updated model
@@ -261,8 +271,10 @@ func TestLocal_PersistentActorSessionLifecycle(t *testing.T) {
 	if act2 != act1 {
 		t.Errorf("expected actor to be reused across turns (act1 == act2), got different instances")
 	}
-	if act2.Model() != "model-v2" {
-		t.Errorf("actor.Model after Turn 2 = %q, want 'model-v2'", act2.Model())
+	// The actor's default is not rewritten by a turn: the turn carried its
+	// own model, and the provider saw it.
+	if got := mockClient.lastModel(); got != "model-v2" {
+		t.Errorf("provider model on Turn 2 = %q, want 'model-v2'", got)
 	}
 	if act2.Trajectory().TotalTurns() != 2 {
 		t.Errorf("expected 2 turns in trajectory, got %d", act2.Trajectory().TotalTurns())
@@ -518,19 +530,60 @@ func (c *thresholdTestClient) Stream(ctx context.Context, req backend.StreamRequ
 	return out, nil
 }
 
+type checkpointTestClient struct {
+	calls       int
+	summaryText string
+}
+
+func (c *checkpointTestClient) Stream(ctx context.Context, req backend.StreamRequest) (<-chan backend.StreamChunk, error) {
+	out := make(chan backend.StreamChunk, 4)
+	go func() {
+		defer close(out)
+		if len(req.Messages) > 0 && strings.Contains(req.Messages[len(req.Messages)-1].Content, "continuation summary") {
+			out <- backend.StreamChunk{Text: c.summaryText}
+			out <- backend.StreamChunk{Done: true}
+			return
+		}
+		c.calls++
+		if c.calls <= 2 {
+			out <- backend.StreamChunk{
+				ToolCalls: []backend.ToolCall{{ID: fmt.Sprintf("c%d", c.calls), Name: "noop", Arguments: []byte("{}")}},
+			}
+			out <- backend.StreamChunk{Done: true, Meta: &backend.ChunkMeta{PromptTokens: 10, CompletionTokens: 1}}
+			return
+		}
+		out <- backend.StreamChunk{Text: "Hello there!"}
+		out <- backend.StreamChunk{Done: true, Meta: &backend.ChunkMeta{PromptTokens: 10, CompletionTokens: 1}}
+	}()
+	return out, nil
+}
+
+// TestLocalTurn_ThresholdAutoCompaction pins the step-boundary checkpoint:
+// the first call asks for a tool, the second call is preceded by a summary,
+// and the turn finishes normally with both steps kept.
 func TestLocalTurn_ThresholdAutoCompaction(t *testing.T) {
-	// gpt-oss-120b-medium has ckptLimit: 80_000, ckptOutput: 8_192
-	// Threshold = 80_000 - 8_192 = 71_808 tokens.
-	client := &thresholdTestClient{
-		promptTokens: 75_000, // Exceeds threshold!
-		summaryText:  "<summary>\n1. Primary Request: Solve math.\n2. Key Technical Concepts: Algebra.\n</summary>",
+	client := &checkpointTestClient{
+		summaryText: "<summary>\n1. Primary Request: Solve math.\n2. Key Technical Concepts: Algebra.\n</summary>",
 	}
 
+	calls := 0
 	engine := NewLocal(func(_ context.Context, model string) (Env, func()) {
 		return Env{
-			Backend:      client,
-			Model:        "gpt-oss-120b-medium",
-			SystemPrompt: "test system prompt",
+			Backend: client,
+			Model:   "gpt-oss-120b-medium",
+			// ~33k tokens of base context: below the 80k - 8k hard
+			// limit, so the first model call fits.
+			SystemPrompt: strings.Repeat("x", 100_000),
+			Tools:        []backend.ToolDecl{{Name: "noop"}},
+			ToolRunner: runnerFunc(func(_ context.Context, _ backend.ToolCall) (string, error) {
+				calls++
+				if calls == 1 {
+					// ~83k tokens: pushes the second model call over
+					// the 72k hard limit, which is the checkpoint.
+					return strings.Repeat("y", 250_000), nil
+				}
+				return "ok", nil
+			}),
 		}, func() {}
 	})
 
@@ -552,8 +605,10 @@ func TestLocalTurn_ThresholdAutoCompaction(t *testing.T) {
 	var compactStartSeen bool
 	var compactEndSeen bool
 	var endSummary string
+	var endResume string
 	var tokensBefore int
 	var tokensAfter int
+	var steps int
 
 	for _, f := range got {
 		if f.Kind == agentlink.KindCompact && f.Compact != nil {
@@ -566,49 +621,46 @@ func TestLocalTurn_ThresholdAutoCompaction(t *testing.T) {
 			if f.Compact.Phase == agentlink.CompactEnd {
 				compactEndSeen = true
 				endSummary = f.Compact.Summary
+				endResume = f.Compact.Resume
 				tokensBefore = f.Compact.TokensBefore
 				tokensAfter = f.Compact.TokensAfter
+				steps = f.Compact.StepsSummarized
 			}
 		}
 	}
 
-	if !compactStartSeen {
-		t.Error("expected KindCompact Start frame to be emitted")
-	}
-	if !compactEndSeen {
-		t.Error("expected KindCompact End frame to be emitted")
+	if !compactStartSeen || !compactEndSeen {
+		t.Fatalf("expected compact start/end frames, got start=%v end=%v", compactStartSeen, compactEndSeen)
 	}
 	if !strings.Contains(endSummary, "Primary Request") {
 		t.Errorf("expected endSummary to contain 'Primary Request', got %q", endSummary)
 	}
-	if tokensBefore != 75_000 {
-		t.Errorf("expected tokensBefore 75000, got %d", tokensBefore)
+	if !strings.HasPrefix(endResume, "# Resuming from a compaction") {
+		t.Errorf("expected the exact resume block, got %q", endResume)
 	}
-	if tokensAfter <= 0 {
-		t.Errorf("expected positive tokensAfter, got %d", tokensAfter)
+	if tokensBefore <= 0 || tokensAfter <= 0 {
+		t.Errorf("tokens before/after = %d/%d", tokensBefore, tokensAfter)
+	}
+	if steps != 1 {
+		t.Errorf("steps summarized = %d, want 1", steps)
 	}
 
-	// Verify the Actor's history was reset with the resuming block
 	engine.mu.Lock()
 	act := engine.activeActor
 	engine.mu.Unlock()
-
 	if act == nil {
 		t.Fatal("expected activeActor to be present")
 	}
 
 	turns := act.Trajectory().Turns()
-	if len(turns) != 1 {
-		t.Fatalf("expected 1 turn in actor trajectory after compaction reset, got %d", len(turns))
+	if len(turns) != 1 || len(turns[0].Steps) != 3 {
+		t.Fatalf("expected one turn with three steps, got %d turns / %d steps", len(turns), len(turns[0].Steps))
 	}
-	userMsg, ok := turns[0].Input.(*actor.UserMessage)
-	if !ok {
-		t.Fatalf("expected turn input to be UserMessage, got %T", turns[0].Input)
+	cps := act.Trajectory().Checkpoints()
+	if len(cps) != 1 {
+		t.Fatalf("expected one checkpoint, got %d", len(cps))
 	}
-	if !strings.HasPrefix(userMsg.Text, "# Resuming from a compaction") {
-		t.Errorf("expected resuming block header in actor history, got: %q", userMsg.Text)
-	}
-	if !strings.Contains(userMsg.Text, "Calculate everything") {
-		t.Errorf("expected user request 'Calculate everything' preserved in resuming block, got: %q", userMsg.Text)
+	if cps[0].IncludedThroughStep != 0 {
+		t.Errorf("included through = %d, want 0", cps[0].IncludedThroughStep)
 	}
 }

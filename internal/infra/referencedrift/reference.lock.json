@@ -1,19 +1,19 @@
 {
-  "version": "1.5.0",
-  "lag_note": "The live binary is 1.5.0 and the clone is pinned to 1.5.0, so no lag is acknowledged - lag_acknowledged_through must be strictly newer than the pin. Aligned to 1.5.0 release.",
+  "version": "1.5.3",
+  "lag_note": "The live binary is 1.5.3 and the clone is pinned to 1.5.3, so no lag is acknowledged - lag_acknowledged_through must be strictly newer than the pin. Aligned to the 1.5.3 release.",
   "artifacts": [
     {
       "path": "internal/cli/testdata/changelog_reference.txt",
       "captured_at": "1.4.12",
       "digest": "34d2421bd2bbc414e7b9dc92661647cdcdc6622ee72f9265ef41efa905bf3dc8",
       "live": true,
-      "how": "agy changelog \u003e internal/cli/testdata/changelog_reference.txt, then update the five constants in internal/cli/changelog_data_test.go (byte length, line count, section count, bullet count, sha256) and regenerate this lock. Re-captured at 1.4.12 (2026-10-31): the feed gained the 1.4.11 section and is 188,429 bytes / 1,069 lines / 82 sections / 906 bullets, sha256 47d411f035301b9e1b2ae35f6c51e49b06915ca0b01d441ca7765f88f6b8b70e. It still ends at 1.4.11 - the 1.4.12 release notes are published in the public repository but the served feed does not carry them yet (they are recorded verbatim in internal/cli/testdata/changelog_upstream_1.4.12.md)."
+      "how": "agy changelog > internal/cli/testdata/changelog_reference.txt, then update the five constants in internal/cli/changelog_data_test.go (byte length, line count, section count, bullet count, sha256) and regenerate this lock. Re-captured at 1.4.12 (2026-10-31): the feed gained the 1.4.11 section and is 188,429 bytes / 1,069 lines / 82 sections / 906 bullets, sha256 47d411f035301b9e1b2ae35f6c51e49b06915ca0b01d441ca7765f88f6b8b70e. It still ends at 1.4.11 - the 1.4.12 release notes are published in the public repository but the served feed does not carry them yet (they are recorded verbatim in internal/cli/testdata/changelog_upstream_1.4.12.md)."
     },
     {
       "path": "internal/app/prompt/agyprompt/testdata/capture_1.4.6.txt",
       "captured_at": "1.4.8",
       "digest": "4443318b8dad0fb895187a6cb36f1552aad4a35f1c006d438173e2ed1242a7cc",
-      "how": "the full system prompt of a live agy request body, recorded through the clone's own proxy (internal/agyproxy, OPENAGY_CAPTURE_DIR). It is the reference for every static section. Re-verified at 1.4.8: the eight static sections (identity, terminal_sandbox, artifacts, conversation_transcript, guidelines, communication_style, slash_commands, messaging) are byte-identical to a live 1.4.8 request body - the \u003cterminal_sandbox\u003e section and the run_command BypassSandbox parameter are conditional on --sandbox, not on the version, and with --sandbox the whole surface matches. The environment-driven sections (skills, subagents, user_rules, user_information) differ because the machine's skill set and this repository's AGENTS.md changed, not because the reference changed. To refresh: re-record a request body against the new binary, then rebuild internal/app/prompt/agyprompt/sections/*.txt from it"
+      "how": "the full system prompt of a live agy request body, recorded through the clone's own proxy (internal/agyproxy, OPENAGY_CAPTURE_DIR). It is the reference for every static section. Re-verified at 1.4.8: the eight static sections (identity, terminal_sandbox, artifacts, conversation_transcript, guidelines, communication_style, slash_commands, messaging) are byte-identical to a live 1.4.8 request body - the <terminal_sandbox> section and the run_command BypassSandbox parameter are conditional on --sandbox, not on the version, and with --sandbox the whole surface matches. The environment-driven sections (skills, subagents, user_rules, user_information) differ because the machine's skill set and this repository's AGENTS.md changed, not because the reference changed. To refresh: re-record a request body against the new binary, then rebuild internal/app/prompt/agyprompt/sections/*.txt from it"
     },
     {
       "path": "internal/app/prompt/agyprompt/testdata/capture_1.4.6.json",
@@ -25,7 +25,7 @@
       "path": "internal/app/prompt/agyprompt/testdata/user_rules_1.4.5.txt",
       "captured_at": "1.4.6",
       "digest": "cbb1527b70f6ba44c962e5e22158bc6256c3f68bdd926b8d32def2eb4ea0614a",
-      "how": "the \u003cuser_rules\u003e block of a controlled probe request body. The block's own bytes are from 1.4.5; the rendering it pins was re-verified at 1.4.6 by the byte-identity of the whole 70,853-byte prompt (capture_1.4.6.txt) - preamble wording, user_global labels, plugin rules and the 24 KB truncation marker included. At 1.4.7 the \u003cRULE[path]\u003e wrapper renders the same way, but this machine's rules no longer reach the 24 KB truncation threshold, so that path was not re-exercised"
+      "how": "the <user_rules> block of a controlled probe request body. The block's own bytes are from 1.4.5; the rendering it pins was re-verified at 1.4.6 by the byte-identity of the whole 70,853-byte prompt (capture_1.4.6.txt) - preamble wording, user_global labels, plugin rules and the 24 KB truncation marker included. At 1.4.7 the <RULE[path]> wrapper renders the same way, but this machine's rules no longer reach the 24 KB truncation threshold, so that path was not re-exercised"
     },
     {
       "path": "internal/app/tools/surface/testdata/advertised_tools_1.4.3.txt",
@@ -46,7 +46,7 @@
       "captured_at": "1.4.8",
       "digest": "2edfb53cb1614cfa180ebd81c6f73882f10b946f5abcacaf1535c771be228cf3",
       "live": true,
-      "how": "the reference's embedded chroma XML lexers. Recover them with devutils/embedextract: `go build -o /tmp/embedextract ./devutils/embedextract` then `/tmp/embedextract -bin ~/.local/bin/agy -embed-out \u003cdir\u003e` writes the //go:embed file systems; the 279 files under its 'embedded/' root are upstream chroma's lexers/embedded/*.xml, and the 74 at the root are upstream's styles/*.xml. Each line here is '\u003cfile base\u003e \u003cthe alias that lexer registers\u003e'. At 1.4.8 all 353 embedded files are still byte-identical to upstream chroma v2.27.0, so a changed file set at a new release means the reference's chroma moved and the clone's dependency pin must follow it - see docs/cycles/cycle-300-chroma-parity/deliverable.md"
+      "how": "the reference's embedded chroma XML lexers. Recover them with devutils/embedextract: `go build -o /tmp/embedextract ./devutils/embedextract` then `/tmp/embedextract -bin ~/.local/bin/agy -embed-out <dir>` writes the //go:embed file systems; the 279 files under its 'embedded/' root are upstream chroma's lexers/embedded/*.xml, and the 74 at the root are upstream's styles/*.xml. Each line here is '<file base> <the alias that lexer registers>'. At 1.4.8 all 353 embedded files are still byte-identical to upstream chroma v2.27.0, so a changed file set at a new release means the reference's chroma moved and the clone's dependency pin must follow it - see docs/cycles/cycle-300-chroma-parity/deliverable.md"
     },
     {
       "path": "internal/app/tools/testdata/result_texts_1.4.7.txt",
@@ -60,13 +60,13 @@
       "captured_at": "1.4.7",
       "digest": "4a5d7db676e72164712bdff02d4b8465c0f2954b0764852ce83889dc98a14a71",
       "live": true,
-      "how": "run the real agy in a workspace with .agents/agents/\u003cname\u003e.md and --agent \u003cname\u003e, through the clone's own proxy, and extract request.tools[*].functionDeclarations. It must stay seven, in order. CHANGED at 1.4.7: toolSummary/toolAction are gone from all seven declarations, the descriptions were reworded to the current wording, and the schemas gained minLength, the AspectRatio/Action enums and maxItems. The old wording is still in the 1.4.7 binary - it belongs to the reference's subagent surface, not to this one. Not re-recorded at 1.4.8: the capture needs a live session with a custom agent, and there is none on this machine (the reference is not logged in). The seven declarations' texts are reference-authored and were re-checked statically against the 1.4.8 binary in cycle 359 - they are unchanged - but the capture's own metadata stays at 1.4.7"
+      "how": "run the real agy in a workspace with .agents/agents/<name>.md and --agent <name>, through the clone's own proxy, and extract request.tools[*].functionDeclarations. It must stay seven, in order. CHANGED at 1.4.7: toolSummary/toolAction are gone from all seven declarations, the descriptions were reworded to the current wording, and the schemas gained minLength, the AspectRatio/Action enums and maxItems. The old wording is still in the 1.4.7 binary - it belongs to the reference's subagent surface, not to this one. Not re-recorded at 1.4.8: the capture needs a live session with a custom agent, and there is none on this machine (the reference is not logged in). The seven declarations' texts are reference-authored and were re-checked statically against the 1.4.8 binary in cycle 359 - they are unchanged - but the capture's own metadata stays at 1.4.7"
     },
     {
       "path": "internal/remotecontrol/testdata/jetski_remote_agent_proxy_1.4.7.txt",
       "captured_at": "1.4.8",
       "digest": "b9349945add96fb63ccece5e332e81f5b029588aef4194024f341fab7da985e6",
-      "how": "extract the uncompressed FileDescriptorProto for google/gca/aicode/v1main/remote_agent_proxy.proto from the agy binary (see out/local-macos/protos/README.md) and emit one \u003cRPC\u003e\\t\u003cRequest\u003e\\t\u003cResponse\u003e line per method; TestReferenceRPCMethodsMatchFixture pins the order. Still seventy-nine methods at 1.4.8 - the method list did not move, but the descriptor gained one field (ProjectResource.default_branch, field 13, string); the 1.4.7, 1.4.6, 1.4.5 and 1.4.4 captures remain on disk as the previous releases' evidence"
+      "how": "extract the uncompressed FileDescriptorProto for google/gca/aicode/v1main/remote_agent_proxy.proto from the agy binary (see out/local-macos/protos/README.md) and emit one <RPC>\\t<Request>\\t<Response> line per method; TestReferenceRPCMethodsMatchFixture pins the order. Still seventy-nine methods at 1.4.8 - the method list did not move, but the descriptor gained one field (ProjectResource.default_branch, field 13, string); the 1.4.7, 1.4.6, 1.4.5 and 1.4.4 captures remain on disk as the previous releases' evidence"
     },
     {
       "path": "out/local-macos/protos/remote_agent_proxy_1.4.8.txt",
@@ -90,7 +90,7 @@
       "path": "out/local-macos/seeds/seeds.txt",
       "captured_at": "1.4.11",
       "digest": "c1084acd08ed5906a45fbef58cc60fc9f78bd1b2323e5c5fd833c2adab8cfa92",
-      "how": "cd rea-go-seeds \u0026\u0026 mkdir -p \u003coutdir\u003e \u0026\u0026 go run . ~/.local/bin/agy \u003coutdir\u003e. Regenerated at 1.4.11 (2026-10-30): 168,548 recovered names."
+      "how": "cd rea-go-seeds && mkdir -p <outdir> && go run . ~/.local/bin/agy <outdir>. Regenerated at 1.4.11 (2026-10-30): 168,548 recovered names."
     },
     {
       "path": "out/local-macos/seeds/funcs.txt",
@@ -103,13 +103,13 @@
       "captured_at": "1.4.8",
       "digest": "013de32c86279aeac72325e13507cdd36e4148f19b3e8ee5c013e3fa26db1166",
       "live": true,
-      "how": "capture `agy --help`, `agy \u003ccmd\u003e --help` for the thirty commands the golden covers, stdout and stderr separately, with a throwaway HOME. Re-verified at 1.4.8: byte-identical to the 1.4.6 capture - the flag table, the column widths and every per-command usage block are unchanged. The golden's top-level section also carries the clone's own commands (accounts, model, provider, halloween) next to the reference's twelve, because it pins the clone's help surface - the reference lists none of them"
+      "how": "capture `agy --help`, `agy <cmd> --help` for the thirty commands the golden covers, stdout and stderr separately, with a throwaway HOME. Re-verified at 1.4.8: byte-identical to the 1.4.6 capture - the flag table, the column widths and every per-command usage block are unchanged. The golden's top-level section also carries the clone's own commands (accounts, model, provider, halloween) next to the reference's twelve, because it pins the clone's help surface - the reference lists none of them"
     },
     {
       "path": "internal/app/tools/shell/testdata/reference_background_task_1.4.7.txt",
       "captured_at": "1.4.8",
       "digest": "929faa47ee6fd2872354ead6afdb2742fdabc0a63a6623955a6faa02079193d4",
-      "how": "the reference's own background-task texts, taken from its own transcript: ~/.gemini/antigravity-cli/brain/\u003cid\u003e/.system_generated/logs/transcript.jsonl of a live agy session on this repository. It holds the step contents of three backgrounded run_command calls (the steps that outlived the reference's WaitMsBeforeAsync window) and the SYSTEM_MESSAGE that carries a task's completion notification. The step contents are the reference's own bytes; the model-facing shape (the launch acknowledgement without the 'Task Description:' line) is the one the reference's conversation store carries for the schedule tool - see testdata/result_texts_1.4.7.txt. Re-verify by running the same agy session and reading the same file, or by the strings the format strings live at in the binary ('Tool is running as a background task with task id: %s', 'Task id %q %s%s')"
+      "how": "the reference's own background-task texts, taken from its own transcript: ~/.gemini/antigravity-cli/brain/<id>/.system_generated/logs/transcript.jsonl of a live agy session on this repository. It holds the step contents of three backgrounded run_command calls (the steps that outlived the reference's WaitMsBeforeAsync window) and the SYSTEM_MESSAGE that carries a task's completion notification. The step contents are the reference's own bytes; the model-facing shape (the launch acknowledgement without the 'Task Description:' line) is the one the reference's conversation store carries for the schedule tool - see testdata/result_texts_1.4.7.txt. Re-verify by running the same agy session and reading the same file, or by the strings the format strings live at in the binary ('Tool is running as a background task with task id: %s', 'Task id %q %s%s')"
     },
     {
       "path": "internal/features/models/ctx/testdata/model_profiles_1.4.8.json",
@@ -163,7 +163,7 @@
       "path": "internal/remotecontrol/testdata/language_server_rpcs_1.4.8.txt",
       "captured_at": "1.4.8",
       "digest": "3b3c2009472f02499ae3d7174264d230d8288424651514baef4fa97a3510f95a",
-      "how": "the language server's own RPC list, extracted from the uncompressed FileDescriptorProto of the IDE's language_server.proto (see out/local-macos/protos/README.md for the extraction procedure) and emitted as one \u003cRPC\u003e\\t\u003cRequest\u003e\\t\u003cResponse\u003e line per method. 358 methods at 1.4.8 - 351 at 1.4.7, plus WarmUpEnvironment, GetVoiceCallDebug, ListBackgroundTasks, CallMcpAppTool, SetPluginAuthAccountLabel, GetMarketplaceFeatured, GetPermissionSettings and UpdatePermissionSettings, minus GetResolvedCascadeConfig. The 1.4.7 list remains on disk as the previous release's evidence"
+      "how": "the language server's own RPC list, extracted from the uncompressed FileDescriptorProto of the IDE's language_server.proto (see out/local-macos/protos/README.md for the extraction procedure) and emitted as one <RPC>\\t<Request>\\t<Response> line per method. 358 methods at 1.4.8 - 351 at 1.4.7, plus WarmUpEnvironment, GetVoiceCallDebug, ListBackgroundTasks, CallMcpAppTool, SetPluginAuthAccountLabel, GetMarketplaceFeatured, GetPermissionSettings and UpdatePermissionSettings, minus GetResolvedCascadeConfig. The 1.4.7 list remains on disk as the previous release's evidence"
     },
     {
       "path": "internal/codeium_common_pb/testdata/permission_enums_1.4.8.txt",
@@ -175,13 +175,13 @@
       "path": "out/local-macos/seeds/diff_1.4.7_1.4.8.txt",
       "captured_at": "1.4.8",
       "digest": "85def99084b4d31e3eecebb36a806fbfdf68d4276cfc56cb3be1b01fa387be80",
-      "how": "the name-level difference between the pclntab seed sets of the two binaries: cd rea-go-seeds \u0026\u0026 go run . ~/.local/bin/agy \u003coutdir\u003e for each release, then diff the recovered names. 166,181 names at 1.4.8 against 165,692 at 1.4.7 - 782 added, 293 removed."
+      "how": "the name-level difference between the pclntab seed sets of the two binaries: cd rea-go-seeds && go run . ~/.local/bin/agy <outdir> for each release, then diff the recovered names. 166,181 names at 1.4.8 against 165,692 at 1.4.7 - 782 added, 293 removed."
     },
     {
       "path": "out/local-macos/seeds/diff_1.4.8_1.4.10.txt",
       "captured_at": "1.4.10",
       "digest": "a497c0da22849312f9502ef8c172760c74f228c89f7134316059e1806f5ee5ee",
-      "how": "the name-level difference between the pclntab seed sets of the two binaries: cd rea-go-seeds \u0026\u0026 go run . ~/.local/bin/agy \u003coutdir\u003e for each release, then diff the recovered names. 167,678 names at 1.4.10 against 166,181 at 1.4.8 - 3,751 added, 2,255 removed."
+      "how": "the name-level difference between the pclntab seed sets of the two binaries: cd rea-go-seeds && go run . ~/.local/bin/agy <outdir> for each release, then diff the recovered names. 167,678 names at 1.4.10 against 166,181 at 1.4.8 - 3,751 added, 2,255 removed."
     }
   ]
 }

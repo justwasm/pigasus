@@ -573,3 +573,29 @@ func TestGeminiRetry429WithRetryAfter(t *testing.T) {
 	}
 }
 
+// TestGeminiBaseURLDropsATrailingV1Beta pins the AGY 1.5.3 gateway fix:
+// a configured base URL that already ends in /v1beta must not produce a
+// doubled version segment.
+func TestGeminiBaseURLDropsATrailingV1Beta(t *testing.T) {
+	sse := "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"hi\"}],\"role\":\"model\"}}]}\n\n" +
+		"data: {\"usageMetadata\":{\"promptTokenCount\":1,\"candidatesTokenCount\":1,\"totalTokenCount\":2}}\n\n"
+	g := newGeminiServer(t, sse)
+
+	client := NewGeminiWithConfig(GeminiConfig{
+		BaseURL: g.server.URL + "/v1beta",
+		APIKey:  "secret-key",
+		Model:   "gemini-3-pro-preview",
+	})
+	chunks, err := client.Stream(context.Background(), backend.StreamRequest{
+		Model:    "gemini-3-pro-preview",
+		Messages: []backend.Message{{Role: "user", Content: "hi"}},
+	})
+	if err != nil {
+		t.Fatalf("stream: %v", err)
+	}
+	for range chunks {
+	}
+	if want := "/v1beta/models/gemini-3-pro-preview:streamGenerateContent?alt=sse"; g.path != want {
+		t.Fatalf("path = %q, want %q", g.path, want)
+	}
+}

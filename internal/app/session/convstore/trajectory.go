@@ -61,8 +61,21 @@ func BuildSteps(t Trajectory) []Step {
 	steps := make([]Step, 0, len(t.Loaded)+len(t.Calls)+len(t.Session))
 	steps = append(steps, t.Loaded...)
 	idx := NextStepIndex(t.Loaded)
+	lastCheckpointEnd := 0
+	for _, s := range t.Loaded {
+		if s.Type == StepCheckpoint && s.IncludedEnd > lastCheckpointEnd {
+			lastCheckpointEnd = s.IncludedEnd
+		}
+	}
 	calls := 0
-	for _, msg := range t.Session[t.SeededLen:] {
+	seededLen := t.SeededLen
+	if seededLen < 0 {
+		seededLen = 0
+	}
+	if seededLen > len(t.Session) {
+		seededLen = len(t.Session)
+	}
+	for _, msg := range t.Session[seededLen:] {
 		switch msg.Role {
 		case "user":
 			steps = append(steps, Step{
@@ -97,6 +110,12 @@ func BuildSteps(t Trajectory) []Step {
 			for ; calls < len(t.Calls); calls++ {
 				call := t.Calls[calls]
 				call.Idx = idx
+				if call.Type == StepCheckpoint {
+					call.CheckpointIndex = countCheckpoints(steps)
+					call.IncludedStart = lastCheckpointEnd
+					call.IncludedEnd = int(idx) + 1
+					lastCheckpointEnd = call.IncludedEnd
+				}
 				steps = append(steps, call)
 				idx++
 			}
@@ -113,6 +132,12 @@ func BuildSteps(t Trajectory) []Step {
 	for ; calls < len(t.Calls); calls++ {
 		call := t.Calls[calls]
 		call.Idx = idx
+		if call.Type == StepCheckpoint {
+			call.CheckpointIndex = countCheckpoints(steps)
+			call.IncludedStart = lastCheckpointEnd
+			call.IncludedEnd = int(idx) + 1
+			lastCheckpointEnd = call.IncludedEnd
+		}
 		steps = append(steps, call)
 		idx++
 	}
@@ -132,4 +157,16 @@ func NextStepIndex(steps []Step) int64 {
 		}
 	}
 	return next
+}
+
+// countCheckpoints is the number of checkpoint steps already in the
+// trajectory. It is the checkpoint's own index.
+func countCheckpoints(steps []Step) int {
+	n := 0
+	for _, s := range steps {
+		if s.Type == StepCheckpoint {
+			n++
+		}
+	}
+	return n
 }

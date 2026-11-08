@@ -22,4 +22,9 @@ type Seams struct {
 	// domain's methods answer -32603 ("no project store
 	// installed").
 	Store Store
+	// Uploads is where UploadProjectFile writes a project's
+	// uploaded files. A nil Uploads makes that one method answer
+	// -32603 ("no upload store installed"); the CRUD methods do
+	// not need it.
+	Uploads UploadStore
 }

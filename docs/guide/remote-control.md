@@ -823,7 +823,7 @@ The clone does the same, over one seam:
 
 | | |
 |---|---|
-| **`internal/core/seam`** | the seam: a tool asks through the `Host` its context carries, and the transport that put the `Host` there answers. `internal/app/tools/tasks` and `internal/remotecontrol` both import it — they cannot import each other |
+| **`internal/core/interaction`** | the interaction contract: a tool asks through the `Host` its context carries, and the transport that put the `Host` there answers. `internal/app/tools/tasks` and `internal/remotecontrol` both import it — they cannot import each other |
 | **the host's home** | `internal/remotecontrol` — it installs the host on the turn's context (`(*cascades.Registry).SendStream`), so the tool that asks is the one running in that turn |
 | **the waiting step** | the question becomes a trajectory step of type `CORTEX_STEP_TYPE_ASK_QUESTION` (138) in status `CORTEX_STEP_STATUS_WAITING` (9), carrying the questions twice: as the step's own `askQuestion`, and as `requestedInteraction.askQuestion` |
 | **the answer** | `HandleCascadeUserInteraction`, in the **IDE dialect** — the cloud dialect's alias is routed after it, so the IDE's method name wins |
@@ -1290,7 +1290,7 @@ cancel respectively. `killBackgroundTasks` kills the background tasks through
 | `internal/rchost/web_reference_assets.go` | the seam: `/__agy/*` is the clone's, the rest is the reference's |
 | `remotetransport/grpcweb_codec.go` | the gRPC-Web framing — the reference's own page's dialect |
 | `internal/app/tools/shell/tasks_kill.go` | the background tasks a cancel kills |
-| `internal/core/seam/seam.go` | the seam: the host, the request, the answer |
+| `internal/core/interaction/interaction.go` | the interaction contract: the host, the request, the answer |
 | `internal/remotecontrol/ls_interaction.go` | the waiting step, and the host that parks on the answer |
 | `internal/remotecontrol/ls_interaction_answer.go` | the answer's three shapes (canonical, wrapped, bare string) |
 | `internal/remotecontrol/ls_interaction_rpc.go` | `HandleCascadeUserInteraction` in the IDE dialect |

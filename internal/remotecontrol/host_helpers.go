@@ -107,6 +107,7 @@ func ConfigFromHost(hc HostConfig, sock string) Config {
 		ListBackend:             hc.ListBackend,
 		FS:                      hc.FS,
 		Projects:                hc.Projects,
+		Uploads:                 hc.Uploads,
 		Conversations:           hc.Conversations,
 		AuthState:               hc.AuthState,
 		DaemonMeta:              hc.DaemonMeta,

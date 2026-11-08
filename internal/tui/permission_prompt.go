@@ -326,25 +326,39 @@ func HandlePermissionPromptKey(key tea.Key) (permissionprompt.Result, bool) {
 	return DefaultPermissionPrompts.HandleKey(key)
 }
 
-// Host seams on runMode (without modifying runMode struct fields):
+// Host seams on RootModel (without modifying RootModel struct fields):
 
 // deadcode: staged (host seam tested in permission_prompt_test.go)
-func (m *runMode) raisePermissionPrompt(req permissionprompt.Request) *Prompt {
+func (m *RootModel) raisePermissionPrompt(req permissionprompt.Request) *Prompt {
 	return DefaultPermissionPrompts.Raise(req)
 }
 
 // deadcode: staged (host seam tested in permission_prompt_test.go)
-func (m *runMode) activePermissionPrompt() *Prompt {
+func (m *RootModel) activePermissionPrompt() *Prompt {
 	return DefaultPermissionPrompts.Active()
 }
 
 // deadcode: staged (host seam tested in permission_prompt_test.go)
-func (m *runMode) hasActivePermissionPrompt() bool {
+func (m *RootModel) hasActivePermissionPrompt() bool {
 	return DefaultPermissionPrompts.HasActive()
 }
 
+// permissionPromptLines renders the active modal for the body. The prompt
+// is raised by a tool goroutine (and, for --remote-agent, by the turn's
+// own goroutine), so the view polls it instead of waiting for a message.
+func (m *RootModel) permissionPromptLines(width int) []string {
+	active := DefaultPermissionPrompts.Active()
+	if active == nil || !active.IsOpen() {
+		return nil
+	}
+	if width <= 0 {
+		width = 80
+	}
+	return active.Lines(width)
+}
+
 // deadcode: staged (host seam tested in permission_prompt_test.go)
-func (m *runMode) handlePermissionKey(key tea.Key) (permissionprompt.Result, bool) {
+func (m *RootModel) handlePermissionKey(key tea.Key) (permissionprompt.Result, bool) {
 	return DefaultPermissionPrompts.HandleKey(key)
 }
 
@@ -408,7 +422,7 @@ type eligibilityNoticeMsg struct {
 	VerificationURL string
 }
 
-// setEligibilityNotice stores a notice on the runMode AND logs
+// setEligibilityNotice stores a notice on the RootModel AND logs
 // it for diagnostics.
 //
 // reason is the user-facing message (falls back to a generic
@@ -423,7 +437,7 @@ type eligibilityNoticeMsg struct {
 // only producer, and each eligibility error from the chunk
 // handler produces a fresh message — overwrites are an
 // emergent property, not an explicit branch.
-func (m *runMode) setEligibilityNotice(reason, url string) {
+func (m *RootModel) setEligibilityNotice(reason, url string) {
 	m.overlays.eligibilityNotice = announce.Notice{
 		Reason:          reason,
 		VerificationURL: url,
@@ -446,6 +460,6 @@ func (m *runMode) setEligibilityNotice(reason, url string) {
 //
 // The function is idempotent — clearing an already-empty
 // notice is a no-op so the call sites don't have to guard.
-func (m *runMode) clearEligibilityNotice() {
+func (m *RootModel) clearEligibilityNotice() {
 	m.overlays.eligibilityNotice = announce.Notice{}
 }

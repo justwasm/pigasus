@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"uuid"
 )
 
 // Turn is one model turn, in the dialect's own terms.
@@ -113,9 +114,6 @@ func BuildRequest(t Turn) GenerateContentRequest {
 	temp := t.Temperature
 	tc := &ThinkingConfig{IncludeThoughts: true}
 	level := strings.TrimSpace(t.ThinkingLevel)
-	if level == "" && GeminiGeneration(t.Model) >= 3 {
-		level = "high"
-	}
 	switch strings.ToLower(level) {
 	case "low", "medium", "high":
 		level = strings.ToLower(level)
@@ -123,11 +121,7 @@ func BuildRequest(t Turn) GenerateContentRequest {
 		level = ""
 		tc.IncludeThoughts = false
 	default:
-		if GeminiGeneration(t.Model) >= 3 {
-			level = "high"
-		} else {
-			level = ""
-		}
+		level = ""
 	}
 	if level != "" {
 		tc.ThinkingLevel = level
@@ -613,13 +607,15 @@ func ModelLabels(model string) map[string]string {
 func Limits(model string, maxOutputTokens, thinkingBudget int) (maxOut, budget int) {
 	if IsClaudeModel(model) {
 		maxOut, budget = 64000, 1024
+	} else if GeminiGeneration(model) >= 3 {
+		maxOut, budget = 65536, -1
 	} else {
 		maxOut, budget = 65536, 1000
 	}
 	if maxOutputTokens > 0 {
 		maxOut = maxOutputTokens
 	}
-	if thinkingBudget > 0 {
+	if thinkingBudget != 0 {
 		budget = thinkingBudget
 	}
 	return maxOut, budget
@@ -630,9 +626,10 @@ func IsClaudeModel(model string) bool {
 	return strings.HasPrefix(strings.ToLower(model), "claude")
 }
 
-// NewRequestID returns a request id in the reference's own shape.
+// NewRequestID returns a request id in the reference's own shape:
+// "agent/<uuid>/<millis>/<uuid>/1"
 func NewRequestID() string {
-	return fmt.Sprintf("agent/%s/%d/%s/1", randomHex(16), time.Now().UnixMilli(), randomHex(16))
+	return fmt.Sprintf("agent/%s/%d/%s/1", uuid.NewV4().String(), time.Now().UnixMilli(), uuid.NewV4().String())
 }
 
 // NewSessionID returns a session id in the reference's own shape: a

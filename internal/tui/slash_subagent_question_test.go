@@ -14,11 +14,11 @@ package tui
 //     tests that share the key)
 //
 // Most assertions target the helper layer
-// (runMode.subAgentQuestion* methods, subagentquestions.Manager +
+// (RootModel.subAgentQuestion* methods, subagentquestions.Manager +
 // tasks.AskQuestion) because driving a real bubbletea program from a
 // test would require a TTY and the picker text depends on terminal
 // width. The Alert-in-viewBody surface is asserted by walking
-// runMode.View() and stripping ANSI.
+// RootModel.View() and stripping ANSI.
 
 import (
 	"context"
@@ -40,29 +40,29 @@ import (
 	"github.com/justwasm/pigasus/internal/app/tools/tasks"
 )
 
-// newRunModeForSubagentQuestion constructs a runMode suitable for
+// newRootModelForSubagentQuestion constructs a RootModel suitable for
 // driving subAgentQuestions methods directly. The TUI's catalog is
 // not initialised here; tests that want the catalog wiring should
 // call runLiveTUI on a fully-built cfg, the same way the slash_btw
 // tests use newSlashModel for the underlying mode.
-func newRunModeForSubagentQuestion(t *testing.T) *runMode {
+func newRootModelForSubagentQuestion(t *testing.T) *RootModel {
 	t.Helper()
 	t.Setenv("ANTIGRAVITY_HOME", t.TempDir())
 	t.Setenv("HOME", t.TempDir())
-	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
-	if m.engine.subAgentQuestions == nil {
-		t.Fatalf("runMode.subAgentQuestions must be initialised by newRunMode")
+	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/", true)
+	if m.askQuestion.manager == nil {
+		t.Fatalf("RootModel.subAgentQuestions must be initialised by newRootModel")
 	}
 	// Default scope is the parent ("") — tests that exercise a
 	// subagent scope rewrite this before enqueuing.
-	m.engine.subAgentQuestionPanel.SetScope(subagentquestions.ParentKey)
+	m.askQuestion.panel.SetScope(subagentquestions.ParentKey)
 	return m
 }
 
-// viewBodyPlain returns runMode.View() with ANSI escapes stripped so
+// viewBodyPlain returns RootModel.View() with ANSI escapes stripped so
 // the test can assert on plain text fragments regardless of which
 // colour codes the renderer picked.
-func viewBodyPlain(m *runMode) string {
+func viewBodyPlain(m *RootModel) string {
 	return ansi.Strip(m.View().Content)
 }
 
@@ -70,9 +70,9 @@ func viewBodyPlain(m *runMode) string {
 // wording "<agent> has a question" in the rendered status row when
 // at least one question is pending for the parent scope.
 func TestSubAgentQuestion_AlertSurfacesInViewBody(t *testing.T) {
-	m := newRunModeForSubagentQuestion(t)
+	m := newRootModelForSubagentQuestion(t)
 
-	q := m.engine.subAgentQuestions.Enqueue(subagentquestions.ParentKey,
+	q := m.askQuestion.manager.Enqueue(subagentquestions.ParentKey,
 		"What port should the dev server bind?", []string{"3000", "8080"})
 	if q == nil {
 		t.Fatal("Enqueue returned nil")
@@ -92,10 +92,10 @@ func TestSubAgentQuestion_AlertSurfacesInViewBody(t *testing.T) {
 // routing: the alert names the subagent by its subagent_id, not by
 // the literal empty-string "you" key.
 func TestSubAgentQuestion_AlertNamesSubagentByID(t *testing.T) {
-	m := newRunModeForSubagentQuestion(t)
-	m.engine.subAgentQuestionPanel.SetScope("subagent-1761234567-3")
+	m := newRootModelForSubagentQuestion(t)
+	m.askQuestion.panel.SetScope("subagent-1761234567-3")
 
-	q := m.engine.subAgentQuestions.Enqueue("subagent-1761234567-3",
+	q := m.askQuestion.manager.Enqueue("subagent-1761234567-3",
 		"Should I commit the WIP?", []string{"yes", "no"})
 	if q == nil {
 		t.Fatal("Enqueue returned nil")
@@ -112,20 +112,143 @@ func TestSubAgentQuestion_AlertNamesSubagentByID(t *testing.T) {
 	}
 }
 
+// TestSubAgentQuestion_ParentAskAutoOpensPicker pins the fix: when the
+// model's ask_question enqueues a parent question, the host receives
+// askQuestionPendingMsg and the picker comes up without Ctrl+K.
+func TestSubAgentQuestion_ParentAskAutoOpensPicker(t *testing.T) {
+	m := newRootModelForSubagentQuestion(t)
+	_ = m.askQuestion.manager.Enqueue(subagentquestions.ParentKey,
+		"Pick a colour", []string{"red", "green"})
+
+	m.Update(askQuestionPendingMsg{scope: subagentquestions.ParentKey})
+
+	if !m.askQuestion.panel.Active() {
+		t.Fatal("the parent's ask_question did not open the picker")
+	}
+	body := viewBodyPlain(m)
+	if !strings.Contains(body, "Pick a colour") || !strings.Contains(body, "red") {
+		t.Errorf("picker body missing the question or its options:\n%s", body)
+	}
+}
+
+// TestSubAgentQuestion_AutoOpenRequestIsIdempotent pins the guard: the
+// open request must not close a picker the user already has open (the
+// message can arrive after Ctrl+K opened it).
+func TestSubAgentQuestion_AutoOpenRequestIsIdempotent(t *testing.T) {
+	m := newRootModelForSubagentQuestion(t)
+	_ = m.askQuestion.manager.Enqueue(subagentquestions.ParentKey, "Q?", nil)
+
+	m.Update(ctrlKey('k'))
+	if !m.askQuestion.panel.Active() {
+		t.Fatal("precondition: Ctrl+K should open the picker")
+	}
+	m.Update(askQuestionPendingMsg{scope: subagentquestions.ParentKey})
+	if !m.askQuestion.panel.Active() {
+		t.Fatal("the open request closed an already-open picker")
+	}
+}
+
+// TestSubAgentQuestion_AskQuestionDrivesThePicker is the end-to-end
+// parent path: the tool enqueues, the host opens the picker, Enter
+// selects the highlighted option, and the tool returns the numbered
+// answer. This is the loop the model actually uses.
+func TestSubAgentQuestion_AskQuestionDrivesThePicker(t *testing.T) {
+	m := newRootModelForSubagentQuestion(t)
+	asked := make(chan string, 1)
+	tool := &tasks.AskQuestion{
+		SubAgentQuestions: m.askQuestion.manager,
+		SubAgentID:        subagentquestions.ParentKey,
+		OnAsk:             func(scope string) { asked <- scope },
+	}
+
+	type runResult struct {
+		out any
+		err error
+	}
+	resCh := make(chan runResult, 1)
+	go func() {
+		out, err := tool.Run(context.Background(), json.RawMessage(`{"questions":[{"question":"Pick a colour","options":["red","green"]}]}`))
+		resCh <- runResult{out, err}
+	}()
+
+	select {
+	case <-asked:
+	case <-time.After(5 * time.Second):
+		t.Fatal("ask_question never notified the host")
+	}
+	m.Update(askQuestionPendingMsg{scope: subagentquestions.ParentKey})
+	if !m.askQuestion.panel.Active() {
+		t.Fatal("the picker did not open")
+	}
+
+	m.Update(enterKey())
+
+	res := <-resCh
+	if res.err != nil {
+		t.Fatalf("ask_question: %v", res.err)
+	}
+	if res.out != "A1: red" {
+		t.Errorf("ask_question = %q, want %q", res.out, "A1: red")
+	}
+	if got := m.askQuestion.manager.PendingCount(subagentquestions.ParentKey); got != 0 {
+		t.Errorf("PendingCount = %d, want 0", got)
+	}
+}
+
+// TestSubAgentQuestion_AskQuestionEscSkips is the escape path: Esc in
+// the picker skips the question, so the tool returns "A1: User Skipped"
+// instead of waiting forever.
+func TestSubAgentQuestion_AskQuestionEscSkips(t *testing.T) {
+	m := newRootModelForSubagentQuestion(t)
+	tool := &tasks.AskQuestion{
+		SubAgentQuestions: m.askQuestion.manager,
+		SubAgentID:        subagentquestions.ParentKey,
+	}
+
+	type runResult struct {
+		out any
+		err error
+	}
+	resCh := make(chan runResult, 1)
+	go func() {
+		out, err := tool.Run(context.Background(), json.RawMessage(`{"questions":[{"question":"Pick a colour","options":["red"]}]}`))
+		resCh <- runResult{out, err}
+	}()
+
+	deadline := time.After(5 * time.Second)
+	for m.askQuestion.manager.PendingCount(subagentquestions.ParentKey) == 0 {
+		select {
+		case <-deadline:
+			t.Fatal("question was never enqueued")
+		case <-time.After(time.Millisecond):
+		}
+	}
+	m.Update(askQuestionPendingMsg{scope: subagentquestions.ParentKey})
+	m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEsc}))
+
+	res := <-resCh
+	if res.err != nil {
+		t.Fatalf("ask_question: %v", res.err)
+	}
+	if res.out != "A1: User Skipped" {
+		t.Errorf("ask_question = %q, want %q", res.out, "A1: User Skipped")
+	}
+}
+
 // TestSubAgentQuestion_PickerOpensViaCtrlK verifies that the Ctrl+K
 // keybinding routes through openSubAgentQuestionPicker and toggles
 // the picker into the open state when a question is pending.
 func TestSubAgentQuestion_PickerOpensViaCtrlK(t *testing.T) {
-	m := newRunModeForSubagentQuestion(t)
+	m := newRootModelForSubagentQuestion(t)
 
-	q := m.engine.subAgentQuestions.Enqueue(subagentquestions.ParentKey,
+	q := m.askQuestion.manager.Enqueue(subagentquestions.ParentKey,
 		"Pick a colour", []string{"red", "green", "blue"})
 	if q == nil {
 		t.Fatal("Enqueue returned nil")
 	}
 
 	m.Update(ctrlKey('k'))
-	if !m.engine.subAgentQuestionPanel.Active() {
+	if !m.askQuestion.panel.Active() {
 		t.Fatal("Ctrl+K did not open the picker with a pending question")
 	}
 
@@ -143,26 +266,26 @@ func TestSubAgentQuestion_PickerOpensViaCtrlK(t *testing.T) {
 // TestSubAgentQuestion_PickerClosesViaCtrlKAndEscape covers the
 // toggle path: Ctrl+K opens, then closes; Esc only closes.
 func TestSubAgentQuestion_PickerClosesViaCtrlKAndEscape(t *testing.T) {
-	m := newRunModeForSubagentQuestion(t)
-	_ = m.engine.subAgentQuestions.Enqueue(subagentquestions.ParentKey, "Q?", nil)
+	m := newRootModelForSubagentQuestion(t)
+	_ = m.askQuestion.manager.Enqueue(subagentquestions.ParentKey, "Q?", nil)
 
 	m.Update(ctrlKey('k'))
-	if !m.engine.subAgentQuestionPanel.Active() {
+	if !m.askQuestion.panel.Active() {
 		t.Fatal("Ctrl+K should open picker")
 	}
 	// Second Ctrl+K closes.
 	m.Update(ctrlKey('k'))
-	if m.engine.subAgentQuestionPanel.Active() {
+	if m.askQuestion.panel.Active() {
 		t.Fatal("Ctrl+K should toggle picker closed")
 	}
 
 	m.Update(ctrlKey('k'))
-	if !m.engine.subAgentQuestionPanel.Active() {
+	if !m.askQuestion.panel.Active() {
 		t.Fatal("Ctrl+K should re-open picker")
 	}
 	// Esc closes.
 	m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEsc}))
-	if m.engine.subAgentQuestionPanel.Active() {
+	if m.askQuestion.panel.Active() {
 		t.Fatal("Esc should close the picker")
 	}
 }
@@ -204,22 +327,22 @@ func TestSubAgentQuestion_PickerRoutedAnswerUnblocksWait(t *testing.T) {
 }
 
 // TestSubAgentQuestion_SubmitRoutesViaInputStageing drives the
-// runMode end-to-end: enqueue a question, open the picker, select
+// RootModel end-to-end: enqueue a question, open the picker, select
 // the question, type the answer into the input, and Enter. The
 // submitPrompt() intercept calls submitSubAgentQuestionAnswer() and
 // the question's Wait must return the typed answer.
 func TestSubAgentQuestion_SubmitRoutesViaInputStageing(t *testing.T) {
-	m := newRunModeForSubagentQuestion(t)
-	q := m.engine.subAgentQuestions.Enqueue(subagentquestions.ParentKey,
+	m := newRootModelForSubagentQuestion(t)
+	q := m.askQuestion.manager.Enqueue(subagentquestions.ParentKey,
 		"Name the new file", nil)
 
 	// Open picker, cursor=0 already, press Enter to stage.
 	m.Update(ctrlKey('k'))
-	if !m.engine.subAgentQuestionPanel.Active() {
+	if !m.askQuestion.panel.Active() {
 		t.Fatal("picker did not open")
 	}
 	m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter, Text: "\n"}))
-	if m.engine.subAgentQuestionPanel.AnswerTarget() == "" {
+	if m.askQuestion.panel.AnswerTarget() == "" {
 		t.Fatal("picker did not stage a question target")
 	}
 
@@ -227,7 +350,7 @@ func TestSubAgentQuestion_SubmitRoutesViaInputStageing(t *testing.T) {
 	for _, r := range "example.txt" {
 		m.Update(runeKey(r))
 	}
-	if got := m.composer.input.Value(); got != "example.txt" {
+	if got := m.prompt.input.Value(); got != "example.txt" {
 		t.Fatalf("input = %q, want %q", got, "example.txt")
 	}
 
@@ -243,7 +366,7 @@ func TestSubAgentQuestion_SubmitRoutesViaInputStageing(t *testing.T) {
 		resCh <- waitResult{ans, ok}
 	}()
 
-	m.engine.streaming = false
+	m.conversation.streaming = false
 	_, _ = m.Update(enterKey())
 
 	res := <-resCh
@@ -253,10 +376,10 @@ func TestSubAgentQuestion_SubmitRoutesViaInputStageing(t *testing.T) {
 	if res.answer != "example.txt" {
 		t.Errorf("Wait answer = %q, want %q", res.answer, "example.txt")
 	}
-	if got := m.engine.subAgentQuestions.PendingCount(subagentquestions.ParentKey); got != 0 {
+	if got := m.askQuestion.manager.PendingCount(subagentquestions.ParentKey); got != 0 {
 		t.Errorf("PendingCount after submit = %d, want 0", got)
 	}
-	if got := m.composer.input.Value(); got != "" {
+	if got := m.prompt.input.Value(); got != "" {
 		t.Errorf("input not cleared after submit: %q", got)
 	}
 }
@@ -266,13 +389,13 @@ func TestSubAgentQuestion_SubmitRoutesViaInputStageing(t *testing.T) {
 // submits without typing, the model sees "(skipped)" and the
 // pending count drops to zero.
 func TestSubAgentQuestion_EmptyAnswerSkips(t *testing.T) {
-	m := newRunModeForSubagentQuestion(t)
-	q := m.engine.subAgentQuestions.Enqueue(subagentquestions.ParentKey,
-		"Pick a colour", []string{"red", "green"})
+	m := newRootModelForSubagentQuestion(t)
+	q := m.askQuestion.manager.Enqueue(subagentquestions.ParentKey,
+		"Pick a colour", nil)
 
 	m.Update(ctrlKey('k'))
 	m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter, Text: "\n"}))
-	if m.engine.subAgentQuestionPanel.AnswerTarget() == "" {
+	if m.askQuestion.panel.AnswerTarget() == "" {
 		t.Fatal("picker did not stage a target")
 	}
 
@@ -282,7 +405,7 @@ func TestSubAgentQuestion_EmptyAnswerSkips(t *testing.T) {
 		resCh <- ans
 	}()
 
-	m.engine.streaming = false
+	m.conversation.streaming = false
 	_, _ = m.Update(enterKey())
 
 	ans := <-resCh
@@ -290,7 +413,7 @@ func TestSubAgentQuestion_EmptyAnswerSkips(t *testing.T) {
 		t.Errorf("empty-submit answer = %q, want %q", ans,
 			subagentquestions.SkipAnswer)
 	}
-	if got := m.engine.subAgentQuestions.PendingCount(subagentquestions.ParentKey); got != 0 {
+	if got := m.askQuestion.manager.PendingCount(subagentquestions.ParentKey); got != 0 {
 		t.Errorf("PendingCount after empty-submit = %d, want 0", got)
 	}
 }
@@ -300,16 +423,16 @@ func TestSubAgentQuestion_EmptyAnswerSkips(t *testing.T) {
 // sibling subagent's picker — and that answering one does not
 // resolve the other.
 func TestSubAgentQuestion_MultipleSubagentsRouteIndependently(t *testing.T) {
-	m := newRunModeForSubagentQuestion(t)
-	qA := m.engine.subAgentQuestions.Enqueue("subagent-A", "A's question", nil)
-	qB := m.engine.subAgentQuestions.Enqueue("subagent-B", "B's question", nil)
+	m := newRootModelForSubagentQuestion(t)
+	qA := m.askQuestion.manager.Enqueue("subagent-A", "A's question", nil)
+	qB := m.askQuestion.manager.Enqueue("subagent-B", "B's question", nil)
 
 	// Active scope = A; the picker lists A only.
-	m.engine.subAgentQuestionPanel.SetScope("subagent-A")
-	if got := len(m.engine.subAgentQuestions.Pending("subagent-A")); got != 1 {
+	m.askQuestion.panel.SetScope("subagent-A")
+	if got := len(m.askQuestion.manager.Pending("subagent-A")); got != 1 {
 		t.Errorf("Pending(subagent-A) = %d, want 1", got)
 	}
-	if got := len(m.engine.subAgentQuestions.Pending("subagent-B")); got != 1 {
+	if got := len(m.askQuestion.manager.Pending("subagent-B")); got != 1 {
 		t.Errorf("Pending(subagent-B) = %d, want 1", got)
 	}
 
@@ -322,26 +445,26 @@ func TestSubAgentQuestion_MultipleSubagentsRouteIndependently(t *testing.T) {
 	}
 
 	// Answer A; B stays pending.
-	if err := m.engine.subAgentQuestions.Answer("subagent-A", qA.ID, "A's reply"); err != nil {
+	if err := m.askQuestion.manager.Answer("subagent-A", qA.ID, "A's reply"); err != nil {
 		t.Fatalf("Answer A: %v", err)
 	}
-	if got := m.engine.subAgentQuestions.PendingCount("subagent-A"); got != 0 {
+	if got := m.askQuestion.manager.PendingCount("subagent-A"); got != 0 {
 		t.Errorf("A's PendingCount = %d after Answer, want 0", got)
 	}
-	if got := m.engine.subAgentQuestions.PendingCount("subagent-B"); got != 1 {
+	if got := m.askQuestion.manager.PendingCount("subagent-B"); got != 1 {
 		t.Errorf("B's PendingCount = %d after A's answer, want 1", got)
 	}
 
 	// Cross-scope Answer must fail (B's question from A's scope).
-	if err := m.engine.subAgentQuestions.Answer("subagent-A", qB.ID, "wrong-scope"); err == nil {
+	if err := m.askQuestion.manager.Answer("subagent-A", qB.ID, "wrong-scope"); err == nil {
 		t.Errorf("cross-scope Answer unexpectedly succeeded; expected error")
 	}
 
 	// Drain for "subagent-A" must not touch "subagent-B".
-	if drained := m.engine.subAgentQuestions.Drain("subagent-A"); len(drained) != 0 {
+	if drained := m.askQuestion.manager.Drain("subagent-A"); len(drained) != 0 {
 		t.Errorf("Drain(subagent-A) returned %d, want 0", len(drained))
 	}
-	if got := m.engine.subAgentQuestions.PendingCount("subagent-B"); got != 1 {
+	if got := m.askQuestion.manager.PendingCount("subagent-B"); got != 1 {
 		t.Errorf("B's PendingCount = %d after Drain(A), want 1", got)
 	}
 }
@@ -352,17 +475,17 @@ func TestSubAgentQuestion_MultipleSubagentsRouteIndependently(t *testing.T) {
 // pending-question guard on the `a` keybinding is what kept
 // Test_ShiftEnterNewline and TestVimDisabledLeavesInputAlone green.
 func TestSubAgentQuestion_AFallsThroughToTextareaWhenNoPending(t *testing.T) {
-	m := newRunModeForSubagentQuestion(t)
-	if got := m.engine.subAgentQuestions.TotalPending(); got != 0 {
+	m := newRootModelForSubagentQuestion(t)
+	if got := m.askQuestion.manager.TotalPending(); got != 0 {
 		t.Fatalf("preconditions: TotalPending = %d, want 0", got)
 	}
 
 	m.Update(runeKey('a'))
-	if got := m.composer.input.Value(); got != "a" {
+	if got := m.prompt.input.Value(); got != "a" {
 		t.Fatalf("input = %q, want %q (regression: 'a' must fall through to textarea)",
 			got, "a")
 	}
-	if m.engine.subAgentQuestionPanel.Active() {
+	if m.askQuestion.panel.Active() {
 		t.Fatalf("picker opened despite no pending questions")
 	}
 }
@@ -371,12 +494,12 @@ func TestSubAgentQuestion_AFallsThroughToTextareaWhenNoPending(t *testing.T) {
 // of the same guard: with one pending question, pressing `a` while
 // the input is empty opens the picker.
 func TestSubAgentQuestion_AOpensPickerWhenPending(t *testing.T) {
-	m := newRunModeForSubagentQuestion(t)
-	_ = m.engine.subAgentQuestions.Enqueue(subagentquestions.ParentKey,
+	m := newRootModelForSubagentQuestion(t)
+	_ = m.askQuestion.manager.Enqueue(subagentquestions.ParentKey,
 		"Pick a tool", []string{"go", "node"})
 
 	m.Update(runeKey('a'))
-	if !m.engine.subAgentQuestionPanel.Active() {
+	if !m.askQuestion.panel.Active() {
 		t.Fatalf("'a' did not open picker with pending question")
 	}
 }
@@ -454,8 +577,8 @@ func TestSubAgentQuestion_AskQuestionToolRoutesThroughManager(t *testing.T) {
 	if !ok {
 		t.Fatalf("AskQuestion returned %T, want string", res.out)
 	}
-	if got != "3000" {
-		t.Errorf("AskQuestion returned %q, want %q", got, "3000")
+	if got != "A1: 3000" {
+		t.Errorf("AskQuestion returned %q, want %q", got, "A1: 3000")
 	}
 }
 
@@ -549,8 +672,8 @@ func TestSubAgentQuestion_HeadlessAskQuestionReturnsSkipAnswer(t *testing.T) {
 	if !ok {
 		t.Fatalf("Run returned %T, want string", out)
 	}
-	if got != subagentquestions.SkipAnswer {
-		t.Errorf("headless Run = %q, want %q", got, subagentquestions.SkipAnswer)
+	if got != "A1: User Skipped" {
+		t.Errorf("headless Run = %q, want %q", got, "A1: User Skipped")
 	}
 }
 
@@ -621,7 +744,7 @@ func TestParseAtSubagentPrompt_AcceptsLongNameAtBoundary(t *testing.T) {
 	}
 }
 
-// ---------------------------------------------------------------- runMode routing
+// ---------------------------------------------------------------- RootModel routing
 
 // atFakeSender records Send calls so tests can assert which (if any)
 // message the dispatch path delivered. Implements subagentrouter.Sender.
@@ -646,7 +769,7 @@ func (f *atFakeSender) LastMsg() string {
 	return v
 }
 
-func newAtRouterWith(t *testing.T, name string, sender subagentrouter.Sender) *runMode {
+func newAtRouterWith(t *testing.T, name string, sender subagentrouter.Sender) *RootModel {
 	t.Helper()
 	// defaultRouter is package-scoped; tests would otherwise see
 	// each other's registrations and the second Register would
@@ -660,8 +783,8 @@ func newAtRouterWith(t *testing.T, name string, sender subagentrouter.Sender) *r
 	defaultRouter = subagentrouter.NewManager()
 	t.Cleanup(func() { defaultRouter = prev })
 	m := newSlashModel(t)
-	m.engine.atRouter = defaultRouter
-	if _, err := m.engine.atRouter.Register(name, sender); err != nil {
+	m.agents.router = defaultRouter
+	if _, err := m.agents.router.Register(name, sender); err != nil {
 		t.Fatalf("Register(%q): %v", name, err)
 	}
 	return m
@@ -669,9 +792,9 @@ func newAtRouterWith(t *testing.T, name string, sender subagentrouter.Sender) *r
 
 // submitAt is the test entry point — wrap buffer in m.composer.input the
 // same way TestTUISessionPersistence does, then submit.
-func submitAt(t *testing.T, m *runMode, buf string) {
+func submitAt(t *testing.T, m *RootModel, buf string) {
 	t.Helper()
-	m.composer.input.SetValue(buf)
+	m.prompt.input.SetValue(buf)
 	cmd := m.submitPrompt()
 	if cmd != nil {
 		_ = cmd // stream prompts not exercised; at-routing is sync
@@ -692,12 +815,12 @@ func TestHandlePromptAtPrefix_RoutesToRegistered(t *testing.T) {
 	}
 	// Echo: at least one transcript row should mention explore-bot
 	// + the message body.
-	joined := stripColor(strings.Join(m.engine.response, "\n"))
+	joined := stripColor(strings.Join(m.conversation.response, "\n"))
 	if !strings.Contains(joined, "explore-bot") {
-		t.Errorf("transcript missing explore-bot mention: %v", m.engine.response)
+		t.Errorf("transcript missing explore-bot mention: %v", m.conversation.response)
 	}
 	if !strings.Contains(joined, "find the auth code") {
-		t.Errorf("transcript missing message body: %v", m.engine.response)
+		t.Errorf("transcript missing message body: %v", m.conversation.response)
 	}
 }
 
@@ -715,29 +838,29 @@ func TestHandlePromptAtPrefix_LookupCaseInsensitive(t *testing.T) {
 
 func TestHandlePromptAtPrefix_UnknownNameSurfacesError(t *testing.T) {
 	m := newSlashModel(t)
-	m.engine.atRouter = subagentrouter.NewManager()
+	m.agents.router = subagentrouter.NewManager()
 	if handled, _ := m.handlePromptAtPrefix("@ghost hello world"); !handled {
 		t.Fatal("handlePromptAtPrefix should still handle (and surface an error)")
 	}
-	joined := stripColor(strings.Join(m.engine.response, "\n"))
+	joined := stripColor(strings.Join(m.conversation.response, "\n"))
 	if !strings.Contains(joined, "No subagent named") {
-		t.Errorf("transcript missing unknown-name error; got: %v", m.engine.response)
+		t.Errorf("transcript missing unknown-name error; got: %v", m.conversation.response)
 	}
 	if !strings.Contains(joined, "ghost") {
-		t.Errorf("transcript should mention ghost; got: %v", m.engine.response)
+		t.Errorf("transcript should mention ghost; got: %v", m.conversation.response)
 	}
 }
 
 func TestHandlePromptAtPrefix_EmptyMessageSurfacesError(t *testing.T) {
 	m := newSlashModel(t)
-	m.engine.atRouter = subagentrouter.NewManager()
+	m.agents.router = subagentrouter.NewManager()
 	// "@explore-bot " — name matches, message is empty.
 	if handled, _ := m.handlePromptAtPrefix("@explore-bot "); !handled {
 		t.Fatal("handlePromptAtPrefix should still handle (and surface an error)")
 	}
-	joined := stripColor(strings.Join(m.engine.response, "\n"))
+	joined := stripColor(strings.Join(m.conversation.response, "\n"))
 	if !strings.Contains(joined, "no message body") {
-		t.Errorf("transcript missing empty-body hint; got: %v", m.engine.response)
+		t.Errorf("transcript missing empty-body hint; got: %v", m.conversation.response)
 	}
 }
 
@@ -747,9 +870,9 @@ func TestHandlePromptAtPrefix_DispatchErrorIsEchoed(t *testing.T) {
 	if handled, _ := m.handlePromptAtPrefix("@explore-bot hi"); !handled {
 		t.Fatal("expected handled")
 	}
-	joined := stripColor(strings.Join(m.engine.response, "\n"))
+	joined := stripColor(strings.Join(m.conversation.response, "\n"))
 	if !strings.Contains(joined, "pipe closed") {
-		t.Errorf("transcript should surface the dispatch failure; got: %v", m.engine.response)
+		t.Errorf("transcript should surface the dispatch failure; got: %v", m.conversation.response)
 	}
 }
 
@@ -769,7 +892,7 @@ func TestHandlePromptAtPrefix_NonAtBufferFallsThrough(t *testing.T) {
 
 func TestHandlePromptAtPrefix_BareAtFallsThrough(t *testing.T) {
 	m := newSlashModel(t)
-	m.engine.atRouter = subagentrouter.NewManager()
+	m.agents.router = subagentrouter.NewManager()
 	if handled, _ := m.handlePromptAtPrefix("@"); handled {
 		t.Fatal("a bare @ must not be interpreted as a routed prompt")
 	}
@@ -780,7 +903,7 @@ func TestHandlePromptAtPrefix_BareAtFallsThrough(t *testing.T) {
 
 func TestHandlePromptAtPrefix_PlainChatFallsThrough(t *testing.T) {
 	m := newSlashModel(t)
-	m.engine.atRouter = subagentrouter.NewManager()
+	m.agents.router = subagentrouter.NewManager()
 	if handled, _ := m.handlePromptAtPrefix("hello world"); handled {
 		t.Fatal("plain chat must not be intercepted")
 	}
@@ -805,12 +928,12 @@ func TestSubmitPrompt_AtSubagentRouting_HappyPath(t *testing.T) {
 
 func TestSubmitPrompt_AtSubagentRouting_UnknownNameNoBackend(t *testing.T) {
 	m := newSlashModel(t)
-	m.engine.atRouter = subagentrouter.NewManager()
+	m.agents.router = subagentrouter.NewManager()
 	submitAt(t, m, "@ghost what is up")
 	// The error row must mention "ghost" so the user knows which name was rejected.
-	joined := stripColor(strings.Join(m.engine.response, "\n"))
+	joined := stripColor(strings.Join(m.conversation.response, "\n"))
 	if !strings.Contains(joined, "ghost") {
-		t.Errorf("transcript should mention the unknown name; got: %v", m.engine.response)
+		t.Errorf("transcript should mention the unknown name; got: %v", m.conversation.response)
 	}
 }
 
@@ -820,9 +943,9 @@ func TestSubmitPrompt_AtSubagentRouting_DoesNotTouchBackend(t *testing.T) {
 	// NOT call the backend. The cycle-231 layer is pure routing.
 	sender := &atFakeSender{}
 	m := newAtRouterWith(t, "explore-bot", sender)
-	before := len(m.engine.session)
+	before := len(m.SessionMessages())
 	submitAt(t, m, "@explore-bot do something")
-	if got := len(m.engine.session); got != before {
+	if got := len(m.SessionMessages()); got != before {
 		t.Errorf("submitPrompt appended %d entries to m.engine.session; want no change", got-before)
 	}
 }
@@ -837,7 +960,7 @@ func TestSubmitPrompt_NonRoutedBuffersUnchanged(t *testing.T) {
 	if sender.Calls() != 0 {
 		t.Errorf("chat buffer accidentally routed to subagent")
 	}
-	if len(m.engine.session) == 0 {
+	if len(m.SessionMessages()) == 0 {
 		t.Fatalf("chat submit did not register a session message")
 	}
 }
@@ -861,33 +984,33 @@ func withAtFileFixtures(t *testing.T) string {
 	return dir
 }
 
-func newAtFileDropdownTestMode(t *testing.T) *runMode {
+func newAtFileDropdownTestMode(t *testing.T) *RootModel {
 	t.Helper()
 	if os.Getenv("ANTIGRAVITY_HOME") == "" {
 		t.Setenv("ANTIGRAVITY_HOME", t.TempDir())
 	}
 	t.Setenv("HOME", t.TempDir())
-	m := newRunMode(&fakeClient{}, "u@t", "Gemini 3.8 Flash (High)", "t", "/", true)
+	m := newRootModel(&fakeClient{}, "u@t", "Gemini 3.8 Flash (High)", "t", "/", true)
 	m.session.flags = newStandardFlagSetForTest(t, nil)
 	return m
 }
 
-func TestRunMode_AtFileDropdownView_EmptyBuffer(t *testing.T) {
+func TestRootModel_AtFileDropdownView_EmptyBuffer(t *testing.T) {
 	m := newAtFileDropdownTestMode(t)
-	if got := m.composer.atFilePicker.Rows(); got != "" {
+	if got := m.prompt.atFilePicker.Rows(); got != "" {
 		t.Errorf("the dropdown rows with empty buffer = %q, want \"\"", got)
 	}
 }
 
-func TestRunMode_AtFileDropdownView_FiresAfterNewline(t *testing.T) {
+func TestRootModel_AtFileDropdownView_FiresAfterNewline(t *testing.T) {
 	m := newAtFileDropdownTestMode(t)
 	m.session.cwd = withAtFileFixtures(t)
-	m.composer.input.SetValue("first line\n@ma")
-	m.composer.atFilePicker.Update()
-	if !m.composer.atFilePicker.Visible() {
+	m.prompt.input.SetValue("first line\n@ma")
+	m.prompt.atFilePicker.Update()
+	if !m.prompt.atFilePicker.Visible() {
 		t.Fatalf("atFileDropdown should be visible after newline trigger")
 	}
-	rendered := m.composer.atFilePicker.Rows()
+	rendered := m.prompt.atFilePicker.Rows()
 	if rendered == "" {
 		t.Fatalf("the dropdown rows returned empty string for visible dropdown")
 	}
@@ -896,25 +1019,25 @@ func TestRunMode_AtFileDropdownView_FiresAfterNewline(t *testing.T) {
 	}
 }
 
-func TestRunMode_AtFileDropdown_TabSplicesInput(t *testing.T) {
+func TestRootModel_AtFileDropdown_TabSplicesInput(t *testing.T) {
 	m := newAtFileDropdownTestMode(t)
 	m.session.cwd = withAtFileFixtures(t)
-	m.composer.input.SetValue("look at @ma")
-	m.composer.atFilePicker.Update()
-	if !m.composer.atFilePicker.Visible() {
+	m.prompt.input.SetValue("look at @ma")
+	m.prompt.atFilePicker.Update()
+	if !m.prompt.atFilePicker.Visible() {
 		t.Fatalf("dropdown should be visible")
 	}
-	if !m.composer.atFilePicker.Complete(true) {
+	if !m.prompt.atFilePicker.Complete(true) {
 		t.Fatalf("the completion should have mutated the input")
 	}
-	got := m.composer.input.Value()
+	got := m.prompt.input.Value()
 	if !strings.HasPrefix(got, "look at @") {
 		t.Errorf("post-splice prefix = %q, want \"look at @\"", got)
 	}
 	if strings.HasSuffix(got, " ") {
 		t.Errorf("post-splice should not append a trailing space; got %q", got)
 	}
-	if !m.composer.atFilePicker.Visible() {
+	if !m.prompt.atFilePicker.Visible() {
 		t.Errorf("Tab must keep the picker open for directory/file browsing")
 	}
 }

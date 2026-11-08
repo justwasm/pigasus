@@ -383,6 +383,8 @@ var DefaultDispatchMethods = []string{
 	"SetRemoteAgentFastpushEnabled",
 	"SetRemoteAgentPermissionPreset",
 	"UpdateRemoteAgentProject",
+	"UploadProjectFile",
+	"UploadRemoteAgentProjectFile",
 	"UpdateRemoteAgentProjectResources",
 	"UpdateRemoteAgentTrigger",
 	"UpsertRemoteAgentConversationConfig",

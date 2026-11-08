@@ -28,6 +28,7 @@ import (
 	agentmessage "github.com/justwasm/pigasus/internal/core/msg"
 	"github.com/justwasm/pigasus/internal/core/policy/permissions"
 	"github.com/justwasm/pigasus/internal/core/policy/sandbox"
+	"github.com/justwasm/pigasus/internal/features/checkpoint"
 )
 
 // printHistoryTurn is one turn to replay ahead of the new prompt.
@@ -52,6 +53,7 @@ type actorPrintConfig struct {
 	Effort         string
 	JSONSchema     json.RawMessage
 	AgentBody      string
+	SystemPrompt   string
 	Definitions    *subagenttools.Store
 	Registry       *subagenttools.Registry
 	Supervisor     *supervisor.Supervisor
@@ -79,6 +81,7 @@ func buildPrintTools(cfg actorPrintConfig, provider actor.Provider, systemPrompt
 
 	subTools := subagenttools.Tools(subagenttools.Deps{
 		Provider:          provider,
+		Backend:           cfg.Backend,
 		Model:             cfg.Model,
 		CWD:               cfg.Workspace,
 		AgentDir:          cfg.AgentDir,
@@ -96,6 +99,7 @@ func buildPrintTools(cfg actorPrintConfig, provider actor.Provider, systemPrompt
 		reg := builtinsubagent.Default()
 		if err := browsersubagent.InstallBuiltin(reg, subagenttools.Deps{
 			Provider: provider,
+			Backend:  cfg.Backend,
 			Model:    cfg.Model,
 			CWD:      cfg.Workspace,
 			AgentDir: cfg.AgentDir,
@@ -179,6 +183,7 @@ func runActorPrintTurn(ctx context.Context, cfg actorPrintConfig) ([]string, err
 	defer registry.Close()
 
 	sysPrompt := buildPrintSystemPrompt(cfg)
+	cfg.SystemPrompt = sysPrompt
 	toolsList, cleanup, err := buildPrintTools(cfg, provider, func() string { return sysPrompt }, &denials)
 	if err != nil {
 		return nil, err
@@ -198,12 +203,13 @@ func runActorPrintTurn(ctx context.Context, cfg actorPrintConfig) ([]string, err
 	}
 
 	act, err := actor.Spawn(actor.Config{
-		ID:             cfg.ConversationID,
-		Name:           "print_agent",
-		SystemPrompt:   sysPrompt,
-		Model:          cfg.Model,
-		Provider:       provider,
-		Tools:          toolsList,
+		ID: cfg.ConversationID,
+		Default: actor.TurnConfig{
+			SystemPrompt: sysPrompt,
+			Model:        cfg.Model,
+			Provider:     provider,
+			Tools:        toolsList,
+		},
 		InitialHistory: initialHistory,
 	})
 	if err != nil {
@@ -270,6 +276,19 @@ func actorImplicitHistory(workspace string) []printHistoryTurn {
 }
 
 func executeActorPrintRun(ctx context.Context, act *actor.Actor, cfg actorPrintConfig, deliveries <-chan subagentDelivery) error {
+	var decls []actor.ToolDefinition
+	for _, t := range agenttools.Tools(cfg.Catalog) {
+		decls = append(decls, t.Definition())
+	}
+	toolDecls, _ := json.Marshal(decls)
+	policy := checkpoint.New(checkpoint.Config{
+		Model:            cfg.Model,
+		SystemPrompt:     cfg.SystemPrompt,
+		ToolDeclarations: toolDecls,
+		Backend:          cfg.Backend,
+	})
+	defer policy.Close()
+
 	prompt := cfg.Prompt
 	if len(cfg.JSONSchema) > 0 {
 		prompt = fmt.Sprintf("%s\n\n[System constraint: You must output ONLY valid JSON matching this schema exactly, with no markdown code fences and no extra text:\n%s]", prompt, string(cfg.JSONSchema))
@@ -293,12 +312,16 @@ func executeActorPrintRun(ctx context.Context, act *actor.Actor, cfg actorPrintC
 				}
 				return cfg.Handler(chunk)
 			},
-			OnCompact: func() {
-				fmt.Fprintf(os.Stdout, "%s  \u23bf  %sCompacting context…%s\n", cDimGrayOpen, cDimGrayClose, "")
-			},
 		})
 
-		runErr := agentturn.ExecuteActorTurn(ctx, act, prompt, sink)
+		runErr := agentturn.ExecuteActorTurnRequest(ctx, act, actor.TurnRequest{
+			Prompt: prompt,
+			TurnConfig: actor.TurnConfig{
+				Checkpoint: func(stepCtx context.Context, probe actor.CheckpointProbe) (actor.CheckpointDecision, error) {
+					return policy.BeforeStep(stepCtx, act, probe)
+				},
+			},
+		}, sink)
 		if finishErr := sink.Finish(); finishErr != nil {
 			return finishErr
 		}
@@ -445,8 +468,8 @@ func savePrintConversation(cfg actorPrintConfig, act *actor.Actor, reply string)
 			for _, tr := range newTurns {
 				// User step
 				userText := cfg.Prompt
-				if u, ok := tr.Input.(*actor.UserMessage); ok && u.Text != "" {
-					userText = u.Text
+				if tr.Input != "" {
+					userText = tr.Input
 				}
 				steps = append(steps, convstore.Step{
 					Idx:    nextIdx,
@@ -538,4 +561,3 @@ func savePrintConversation(cfg actorPrintConfig, act *actor.Actor, reply string)
 		_ = convstore.SaveConversation(cfg.ConversationID, ws, steps)
 	}
 }
-

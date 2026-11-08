@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/justwasm/pigasus/geminicode"
+	accountrouting "github.com/justwasm/pigasus/internal/features/accounts/routing"
 )
 
 // ---- OpenAI Responses API ---------------------------------------------------
@@ -188,6 +189,7 @@ func (s *Server) handleResponses(w http.ResponseWriter, r *http.Request, body []
 	}
 
 	canonicalModel := normalizeModelName(req.Model)
+	family := accountrouting.ModelFamily(canonicalModel)
 
 	var systemPromptParts []string
 	if strings.TrimSpace(req.Instructions) != "" {
@@ -403,21 +405,25 @@ func (s *Server) handleResponses(w http.ResponseWriter, r *http.Request, body []
 	resp, currentEmail, err := s.executeBridgeRequest(ctx, turn, r.Header.Get("Authorization"))
 	recordAccount(w, currentEmail)
 	if err != nil {
-		s.logf("[responses] upstream error: %v", err)
-		writeOpenAIError(w, http.StatusBadGateway, "upstream_error", err.Error())
+		accTag := ""
+		if currentEmail != "" {
+			accTag = " [" + currentEmail + "]"
+		}
+		s.logf("[responses]%s upstream error: %v", accTag, err)
+		writeOpenAIError(w, http.StatusBadGateway, "upstream_error", formatClientErrorMessage(currentEmail, err))
 		return
 	}
 	defer resp.Body.Close()
 
 	respID := "resp_" + newUUIDv4()
 	if req.Stream {
-		s.streamResponses(w, r, resp, canonicalModel, respID, customTools, allItems)
+		s.streamResponses(w, r, resp, canonicalModel, respID, customTools, allItems, currentEmail, family)
 		return
 	}
-	s.unaryResponses(w, resp, canonicalModel, respID, customTools, allItems)
+	s.unaryResponses(w, resp, canonicalModel, respID, customTools, allItems, currentEmail)
 }
 
-func (s *Server) streamResponses(w http.ResponseWriter, r *http.Request, resp *http.Response, model, respID string, customTools map[string]bool, priorItems []json.RawMessage) {
+func (s *Server) streamResponses(w http.ResponseWriter, r *http.Request, resp *http.Response, model, respID string, customTools map[string]bool, priorItems []json.RawMessage, currentEmail, family string) {
 	ctx := context.Background()
 	if r != nil {
 		ctx = r.Context()
@@ -585,6 +591,21 @@ func (s *Server) streamResponses(w http.ResponseWriter, r *http.Request, resp *h
 			chunks := decoder.Feed(textLine)
 			for _, c := range chunks {
 				if c.Error != nil {
+					accTag := ""
+					if currentEmail != "" {
+						accTag = " [" + currentEmail + "]"
+					}
+					s.logf("[responses]%s in-stream error: %v", accTag, c.Error)
+					if sErr, ok := c.Error.(*geminicode.StreamError); ok {
+						if isAcc, isGlobal, reason := isStreamAccountError(sErr); isAcc {
+							if isGlobal {
+								s.router.Exclude(currentEmail)
+							} else {
+								s.router.ExcludeForModel(currentEmail, family)
+							}
+							s.logf("[responses] %s in-stream %s; excluded for future turns", currentEmail, reason)
+						}
+					}
 					sendEvent("response.failed", map[string]any{
 						"response": map[string]any{
 							"id":     respID,
@@ -830,7 +851,7 @@ StreamDone:
 	globalPrevStore.put(respID, allCached)
 }
 
-func (s *Server) unaryResponses(w http.ResponseWriter, resp *http.Response, model, respID string, customTools map[string]bool, priorItems []json.RawMessage) {
+func (s *Server) unaryResponses(w http.ResponseWriter, resp *http.Response, model, respID string, customTools map[string]bool, priorItems []json.RawMessage, currentEmail string) {
 	scanner := bufio.NewScanner(resp.Body)
 	scanner.Buffer(make([]byte, 64*1024), 16*1024*1024)
 	decoder := geminicode.NewDecoder(nil)
@@ -841,12 +862,17 @@ func (s *Server) unaryResponses(w http.ResponseWriter, resp *http.Response, mode
 
 	var thinkingText strings.Builder
 	var messageText strings.Builder
+	var lastStreamErr error
 	inThinking := false
 	promptTokens, compTokens, totalTokens := 0, 0, 0
 
 	for scanner.Scan() {
 		chunks := decoder.Feed(scanner.Text())
 		for _, c := range chunks {
+			if c.Error != nil {
+				lastStreamErr = c.Error
+				continue
+			}
 			text := c.Text
 			if text == "<think>" {
 				inThinking = true
@@ -909,6 +935,16 @@ func (s *Server) unaryResponses(w http.ResponseWriter, resp *http.Response, mode
 				totalTokens = c.Meta.TotalTokens
 			}
 		}
+	}
+
+	if lastStreamErr != nil && len(outputItems) == 0 && messageText.Len() == 0 {
+		accTag := ""
+		if currentEmail != "" {
+			accTag = " [" + currentEmail + "]"
+		}
+		s.logf("[responses]%s upstream stream error: %v", accTag, lastStreamErr)
+		writeOpenAIError(w, http.StatusBadGateway, "upstream_error", formatClientErrorMessage(currentEmail, lastStreamErr))
+		return
 	}
 
 	if thinkingText.Len() > 0 {

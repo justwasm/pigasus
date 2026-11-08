@@ -43,6 +43,14 @@ func buildHostProjectStore(fs files.Provider) projects.Store {
 	)
 }
 
+// buildHostProjectUploadStore returns the production upload store the
+// UploadProjectFile method calls into. It shares the project store's
+// root so uploads live under <root>/<project-id>/uploads/.
+func buildHostProjectUploadStore() projects.UploadStore {
+	root := filepath.Join(auth.AntigravityHome(), "projects")
+	return projects.NewFSUploadStore(root)
+}
+
 // buildHostPermissionStore returns the production permissions.Store the four
 // permission-mutation methods (cycle rc-permissions-grants) call into.
 // Wired here, in cmd/wagyu/, because the constructor needs to read

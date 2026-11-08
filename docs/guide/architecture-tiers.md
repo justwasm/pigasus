@@ -77,7 +77,7 @@ other eleven**, which the filename rule had missed:
 |---|---|
 | `internal/autocont` | `internal/app/session/autocont` |
 | `internal/branding` | `internal/core/branding` |
-| `internal/interaction` | `internal/core/seam` |
+| `internal/interaction` | `internal/core/interaction` |
 | `internal/workspacetrust` | `internal/core/policy/trust` |
 | `internal/modular/engines/stream` | `internal/app/engine/stream` |
 | `internal/modular/subsystems/daemon` | `internal/infra/subsystems/daemon` |
@@ -95,12 +95,10 @@ differed from the shell's, the old name survives as an explicit import
 alias, so no call site changed:
 
 ```go
-import interaction "github.com/justwasm/pigasus/internal/core/seam"
+import "github.com/justwasm/pigasus/internal/core/interaction"
 ```
 
-That keeps the codebase's vocabulary — the shell's name was the good one,
-the directory's name is the generic one — and it removes every possible
-collision between a renamed package qualifier and a local identifier.
+The package qualifier and the directory name are now aligned directly with the domain vocabulary (`internal/core/interaction`), removing the need for legacy aliases.
 
 The map, for the record:
 

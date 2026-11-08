@@ -32,7 +32,7 @@ type PlanLister interface {
 // enginePlan returns a concise plan status string (e.g. "Plan: 1/3 completed")
 // if the active engine implements PlanLister or exposes a Plan() method.
 // Returns "" if no plan is available.
-func (m *runMode) enginePlan() string {
+func (m *RootModel) enginePlan() string {
 	if m == nil {
 		return ""
 	}

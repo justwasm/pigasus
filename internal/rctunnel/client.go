@@ -584,56 +584,87 @@ func (c *Client) getAccessToken(ctx context.Context) (string, error) {
 }
 
 func (c *Client) handshake(ctx context.Context, token string) (string, string, error) {
-	rid := c.reqSeq.Add(1)
-	hsURL := fmt.Sprintf("%s?VER=8&RID=%d&CVER=25&X-HTTP-Session-Id=gsessionid&t=1", c.opts.Endpoint, rid)
-	req, err := http.NewRequestWithContext(ctx, "POST", hsURL, strings.NewReader("count=0"))
-	if err != nil {
-		return "", "", err
-	}
-	req.Header.Set("Authorization", "Bearer "+token)
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	req.Header.Set("User-Agent", "Go-http-client/1.1")
+	// AGY 1.5.2: Retries on transient network and server errors during handshake
+	// when establishing a new Remote Control connection.
+	var lastErr error
+	backoff := 500 * time.Millisecond
+	for attempt := 0; attempt < 3; attempt++ {
+		if attempt > 0 {
+			select {
+			case <-ctx.Done():
+				return "", "", ctx.Err()
+			case <-time.After(backoff):
+				backoff *= 2
+			}
+		}
 
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return "", "", err
-	}
-	defer resp.Body.Close()
+		rid := c.reqSeq.Add(1)
+		hsURL := fmt.Sprintf("%s?VER=8&RID=%d&CVER=25&X-HTTP-Session-Id=gsessionid&t=1", c.opts.Endpoint, rid)
+		req, err := http.NewRequestWithContext(ctx, "POST", hsURL, strings.NewReader("count=0"))
+		if err != nil {
+			return "", "", err
+		}
+		req.Header.Set("Authorization", "Bearer "+token)
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		req.Header.Set("User-Agent", "Go-http-client/1.1")
 
-	if resp.StatusCode != http.StatusOK {
-		b, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
-		return "", "", fmt.Errorf("handshake HTTP %d: %s", resp.StatusCode, string(b))
-	}
+		resp, err := c.httpClient.Do(req)
+		if err != nil {
+			lastErr = err
+			c.log("handshake attempt %d failed (%v), retrying...", attempt+1, err)
+			continue
+		}
 
-	var gsession string
-	if v := resp.Header.Get("X-Http-Session-Id"); v != "" {
-		gsession = v
-	}
-	reader := bufio.NewReader(resp.Body)
-	lenLine, err := reader.ReadString('\n')
-	if err != nil {
-		return "", "", fmt.Errorf("read chunk len: %w", err)
-	}
-	var chunkLen int
-	if _, err := fmt.Sscanf(strings.TrimSpace(lenLine), "%d", &chunkLen); err != nil || chunkLen <= 0 {
-		return "", "", fmt.Errorf("invalid chunk length header %q", lenLine)
-	}
+		if resp.StatusCode != http.StatusOK {
+			b, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+			resp.Body.Close()
+			lastErr = fmt.Errorf("handshake HTTP %d: %s", resp.StatusCode, string(b))
+			if resp.StatusCode >= 500 || resp.StatusCode == 429 {
+				c.log("handshake attempt %d failed (%v), retrying...", attempt+1, lastErr)
+				continue
+			}
+			return "", "", lastErr
+		}
 
-	chunkBytes := make([]byte, chunkLen)
-	if _, err := io.ReadFull(reader, chunkBytes); err != nil {
-		return "", "", fmt.Errorf("read chunk body: %w", err)
-	}
+		var gsession string
+		if v := resp.Header.Get("X-Http-Session-Id"); v != "" {
+			gsession = v
+		}
+		reader := bufio.NewReader(resp.Body)
+		lenLine, err := reader.ReadString('\n')
+		if err != nil {
+			resp.Body.Close()
+			lastErr = fmt.Errorf("read chunk len: %w", err)
+			continue
+		}
+		var chunkLen int
+		if _, err := fmt.Sscanf(strings.TrimSpace(lenLine), "%d", &chunkLen); err != nil || chunkLen <= 0 {
+			resp.Body.Close()
+			lastErr = fmt.Errorf("invalid chunk length header %q", lenLine)
+			continue
+		}
 
-	sess, err := parseConnectHandshake(chunkBytes)
-	if err != nil {
-		return "", "", err
-	}
-	sid := sess.sid
-	c.mu.Lock()
-	c.sess = sess
-	c.mu.Unlock()
+		chunkBytes := make([]byte, chunkLen)
+		if _, err := io.ReadFull(reader, chunkBytes); err != nil {
+			resp.Body.Close()
+			lastErr = fmt.Errorf("read chunk body: %w", err)
+			continue
+		}
+		resp.Body.Close()
 
-	return sid, gsession, nil
+		sess, err := parseConnectHandshake(chunkBytes)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		sid := sess.sid
+		c.mu.Lock()
+		c.sess = sess
+		c.mu.Unlock()
+
+		return sid, gsession, nil
+	}
+	return "", "", lastErr
 }
 
 // connectHandshake is what the server's handshake chunk states about

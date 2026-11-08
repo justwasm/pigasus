@@ -87,7 +87,7 @@ func TestTUITools_TurnAdvertisesAndRunsTool(t *testing.T) {
 		{{Text: "It is now."}, {Done: true}},
 	}}
 	runner := &recordingRunner{}
-	m := newRunMode(be, "u@t", "m", "t", "/tmp", true)
+	m := newRootModel(be, "u@t", "m", "t", "/tmp", true)
 	m.enableTools([]backend.ToolDecl{{Name: "run_command"}}, runner)
 
 	msg := m.streamPrompt("what time is it")()
@@ -135,7 +135,7 @@ func TestTUITools_NoRunnerIsTextOnly(t *testing.T) {
 	be := &scriptedTUIClient{turns: [][]backend.StreamChunk{
 		{{Text: "hello"}, {Done: true}},
 	}}
-	m := newRunMode(be, "u@t", "m", "t", "/tmp", true)
+	m := newRootModel(be, "u@t", "m", "t", "/tmp", true)
 	msg := m.streamPrompt("hi")()
 	done, ok := msg.(toolsteps.TurnDoneMsg)
 	if !ok {
@@ -152,9 +152,9 @@ func TestTUITools_NoRunnerIsTextOnly(t *testing.T) {
 // TestTUITools_CtrlOTogglesStepDetail pins the expand/collapse behaviour and
 // the recovered hint strings.
 func TestTUITools_CtrlOTogglesStepDetail(t *testing.T) {
-	m := newRunMode(nil, "u@t", "m", "t", "/tmp", true)
-	m.engine.response = append(m.engine.response, "> run date")
-	m.engine.liveStart = len(m.engine.response)
+	m := newRootModel(nil, "u@t", "m", "t", "/tmp", true)
+	m.conversation.response = append(m.conversation.response, "> run date")
+	m.conversation.liveStart = len(m.conversation.response)
 	_, _ = m.Update(toolsteps.TurnDoneMsg{
 		Reply: "It is now.",
 		Steps: []toolsteps.Step{{
@@ -164,7 +164,7 @@ func TestTUITools_CtrlOTogglesStepDetail(t *testing.T) {
 		}},
 	})
 
-	joined := strings.Join(m.engine.response, "\n")
+	joined := strings.Join(m.conversation.response, "\n")
 	if !strings.Contains(joined, "Ran") || !strings.Contains(joined, "date") {
 		t.Fatalf("step title missing:\n%s", joined)
 	}
@@ -179,7 +179,7 @@ func TestTUITools_CtrlOTogglesStepDetail(t *testing.T) {
 	}
 
 	_, _ = m.Update(ctrlKey('o'))
-	joined = strings.Join(m.engine.response, "\n")
+	joined = strings.Join(m.conversation.response, "\n")
 	if !strings.Contains(joined, "06:11:50") {
 		t.Fatalf("ctrl+o did not expand:\n%s", joined)
 	}
@@ -188,7 +188,7 @@ func TestTUITools_CtrlOTogglesStepDetail(t *testing.T) {
 	}
 
 	_, _ = m.Update(ctrlKey('o'))
-	joined = strings.Join(m.engine.response, "\n")
+	joined = strings.Join(m.conversation.response, "\n")
 	if strings.Contains(joined, "06:11:50") {
 		t.Fatalf("ctrl+o did not collapse:\n%s", joined)
 	}
@@ -201,19 +201,19 @@ func TestTUITools_CtrlOTogglesStepDetail(t *testing.T) {
 }
 
 // TestTUITools_TurnDoneRendersMarkdown pins the cycle-228 fix: a live-turn
-// reply that arrives via toolsteps.TurnDoneMsg must reach m.engine.response through the same
+// reply that arrives via toolsteps.TurnDoneMsg must reach m.conversation.response through the same
 // glamour-backed pipeline the resumed-conversation path uses (cycle 155 +
 // cycle glamour-migration). Before this fix the cycle-99 turn-end handler
 // appended msg.reply verbatim so a reply containing **bold**, lists, or
 // fenced code blocks showed up in the transcript as raw markdown.
 func TestTUITools_TurnDoneRendersMarkdown(t *testing.T) {
-	m := newRunMode(nil, "u@t", "m", "t", "/tmp", true)
-	m.engine.response = append(m.engine.response, "> ask for a markdown answer")
-	m.engine.liveStart = len(m.engine.response)
+	m := newRootModel(nil, "u@t", "m", "t", "/tmp", true)
+	m.conversation.response = append(m.conversation.response, "> ask for a markdown answer")
+	m.conversation.liveStart = len(m.conversation.response)
 	_, _ = m.Update(toolsteps.TurnDoneMsg{
 		Reply: "Here is **bold** and a list:\n\n- one\n- two",
 	})
-	joined := strings.Join(m.engine.response, "\n")
+	joined := strings.Join(m.conversation.response, "\n")
 	if strings.Contains(joined, "**bold**") {
 		t.Fatalf("toolsteps.TurnDoneMsg reply reached transcript as raw markdown:\n%s", joined)
 	}
@@ -233,51 +233,51 @@ func TestTUITools_TurnDoneRendersMarkdown(t *testing.T) {
 
 // TestTUITools_LiveStreamReplacesGlamourAtTurnEnd pins the cycle-229
 // streaming fix: when chunks arrive via backendChunkMsg, the raw text is
-// appended to m.engine.response live (so the TUI scrolls as the model types);
-// when the matching toolsteps.TurnDoneMsg lands, the [replyStart, len(m.engine.response))
+// appended to m.conversation.response live (so the TUI scrolls as the model types);
+// when the matching toolsteps.TurnDoneMsg lands, the [replyStart, len(m.conversation.response))
 // range is replaced with the glamour-rendered reply so the user sees the
 // styled output without double-rendering (raw streamed + glamour'd
 // appended). Pre-cycle 229 the TUI accumulated chunks silently in the
 // agent loop's `full` buffer, never forwarding them to the tea.Program,
 // so the user saw a frozen spinner until the turn finished.
 func TestTUITools_LiveStreamReplacesGlamourAtTurnEnd(t *testing.T) {
-	m := newRunMode(nil, "u@t", "m", "t", "/tmp", true)
-	m.engine.response = append(m.engine.response, "> stream markdown")
-	m.engine.liveStart = len(m.engine.response)
-	// Send three chunks; the body of m.engine.response should contain the raw
+	m := newRootModel(nil, "u@t", "m", "t", "/tmp", true)
+	m.conversation.response = append(m.conversation.response, "> stream markdown")
+	m.conversation.liveStart = len(m.conversation.response)
+	// Send three chunks; the body of m.conversation.response should contain the raw
 	// streamed text immediately, anchored by replyStart.
 	_, _ = m.Update(backendChunkMsg("Here is "))
 	_, _ = m.Update(backendChunkMsg("**bold** "))
 	_, _ = m.Update(backendChunkMsg("and a list."))
-	startAfterChunks := len(m.engine.response)
-	if startAfterChunks <= m.engine.liveStart {
-		t.Fatalf("backendChunkMsg did not append to m.engine.response: liveStart=%d len=%d",
-			m.engine.liveStart, startAfterChunks)
+	startAfterChunks := len(m.conversation.response)
+	if startAfterChunks <= m.conversation.liveStart {
+		t.Fatalf("backendChunkMsg did not append to m.conversation.response: liveStart=%d len=%d",
+			m.conversation.liveStart, startAfterChunks)
 	}
 	// Cycle 272: the live range is rendered on every chunk (it is
 	// renderMarkdown(accumulated raw), the same function toolsteps.TurnDoneMsg
 	// calls), so the streamed text is already styled before
 	// toolsteps.TurnDoneMsg — the prose is present, the raw ** markers are not.
-	liveVisible := diffaction.StripANSI(strings.Join(m.engine.response, "\n"))
+	liveVisible := diffaction.StripANSI(strings.Join(m.conversation.response, "\n"))
 	if !strings.Contains(liveVisible, "Here is bold and a list.") {
 		t.Fatalf("streamed prose missing before toolsteps.TurnDoneMsg:\n%s",
-			strings.Join(m.engine.response, "\n"))
+			strings.Join(m.conversation.response, "\n"))
 	}
 	if strings.Contains(liveVisible, "**bold**") {
 		t.Fatalf("raw **bold** survived the mid-stream render:\n%s",
-			strings.Join(m.engine.response, "\n"))
+			strings.Join(m.conversation.response, "\n"))
 	}
-	if m.engine.replyStart < m.engine.liveStart || m.engine.replyStart >= startAfterChunks {
+	if m.conversation.replyStart < m.conversation.liveStart || m.conversation.replyStart >= startAfterChunks {
 		t.Fatalf("replyStart=%d not within live-stream range [%d,%d)",
-			m.engine.replyStart, m.engine.liveStart, startAfterChunks)
+			m.conversation.replyStart, m.conversation.liveStart, startAfterChunks)
 	}
-	// toolsteps.TurnDoneMsg: the raw streamed text in [replyStart, len(m.engine.response))
+	// toolsteps.TurnDoneMsg: the raw streamed text in [replyStart, len(m.conversation.response))
 	// must be replaced (not appended next to) with the glamour'd version
 	// of the SAME reply.
 	reply := "Here is **bold** and a list."
 	_, _ = m.Update(toolsteps.TurnDoneMsg{Reply: reply})
 	// No double-render: the glamour'd text should not appear twice.
-	joined := strings.Join(m.engine.response, "\n")
+	joined := strings.Join(m.conversation.response, "\n")
 	// Count occurrences of the bold-text sentinel: glamour escapes the
 	// "bold" word with ESC[1m surrounding it, so an unrendered pass
 	// leaves the literal "**bold**". After the replace, the literal must
@@ -292,11 +292,11 @@ func TestTUITools_LiveStreamReplacesGlamourAtTurnEnd(t *testing.T) {
 	if !hasSGRBold(joined) {
 		t.Fatalf("glamour bold attribute missing after replace:\n%s", joined)
 	}
-	if m.engine.replyStart != -1 {
-		t.Fatalf("replyStart not reset to -1 after toolsteps.TurnDoneMsg: got %d", m.engine.replyStart)
+	if m.conversation.replyStart != -1 {
+		t.Fatalf("replyStart not reset to -1 after toolsteps.TurnDoneMsg: got %d", m.conversation.replyStart)
 	}
-	if m.engine.liveReplyIdx != -1 {
-		t.Fatalf("liveReplyIdx not reset to -1 after toolsteps.TurnDoneMsg: got %d", m.engine.liveReplyIdx)
+	if m.conversation.liveReplyIdx != -1 {
+		t.Fatalf("liveReplyIdx not reset to -1 after toolsteps.TurnDoneMsg: got %d", m.conversation.liveReplyIdx)
 	}
 }
 
@@ -307,32 +307,32 @@ func TestTUITools_LiveStreamReplacesGlamourAtTurnEnd(t *testing.T) {
 // in-progress assistant message; backendChunkMsg appends on the first
 // chunk and updates in place on subsequent chunks.
 func TestTUITools_LiveStreamCoalescesSessionMessages(t *testing.T) {
-	m := newRunMode(nil, "u@t", "m", "t", "/tmp", true)
+	m := newRootModel(nil, "u@t", "m", "t", "/tmp", true)
 	// Seed a user message by hand so we don't need ANTIGRAVITY_HOME +
 	// submitPrompt to put the DB on disk. The point of the test is the
 	// chunk→session coalescing, not submitPrompt's plumbing.
-	m.engine.session = append(m.engine.session, backend.Message{Role: "user", Content: "ask"})
-	if len(m.engine.session) != 1 || m.engine.session[0].Role != "user" {
-		t.Fatalf("pre-chunk session = %+v, want 1 user msg", m.engine.session)
+	m.setSessionMessages(append(m.SessionMessages(), backend.Message{Role: "user", Content: "ask"}))
+	if len(m.SessionMessages()) != 1 || m.SessionMessages()[0].Role != "user" {
+		t.Fatalf("pre-chunk session = %+v, want 1 user msg", m.SessionMessages())
 	}
 	_, _ = m.Update(backendChunkMsg("Hello"))
 	_, _ = m.Update(backendChunkMsg(", "))
 	_, _ = m.Update(backendChunkMsg("world!"))
-	if len(m.engine.session) != 2 {
+	if len(m.SessionMessages()) != 2 {
 		t.Fatalf("session grew to %d entries after 3 chunks, want 2: %+v",
-			len(m.engine.session), m.engine.session)
+			len(m.SessionMessages()), m.SessionMessages())
 	}
-	if got := m.engine.session[1]; got.Role != "assistant" || got.Content != "Hello, world!" {
+	if got := m.SessionMessages()[1]; got.Role != "assistant" || got.Content != "Hello, world!" {
 		t.Fatalf("assistant message = %+v, want {assistant, \"Hello, world!\"}", got)
 	}
 	// toolsteps.TurnDoneMsg overwrites the liveReply entry with the authoritative
 	// msg.reply (rather than appending a duplicate).
 	_, _ = m.Update(toolsteps.TurnDoneMsg{Reply: "Hello, world!"})
-	if len(m.engine.session) != 2 {
+	if len(m.SessionMessages()) != 2 {
 		t.Fatalf("toolsteps.TurnDoneMsg appended a duplicate assistant entry, got %d messages: %+v",
-			len(m.engine.session), m.engine.session)
+			len(m.SessionMessages()), m.SessionMessages())
 	}
-	if got := m.engine.session[1].Content; got != "Hello, world!" {
+	if got := m.SessionMessages()[1].Content; got != "Hello, world!" {
 		t.Fatalf("toolsteps.TurnDoneMsg message = %q, want \"Hello, world!\"", got)
 	}
 }
@@ -340,7 +340,7 @@ func TestTUITools_LiveStreamCoalescesSessionMessages(t *testing.T) {
 // TestTUITools_LiveStreamCoalescesChunksIntoOneRow pins cycle-230's
 // line discipline + cycle-232's mid-stream glamour: multiple
 // backendChunkMsg updates with no '\n' boundary must end up in ONE
-// row of m.engine.response (not N as cycle-229 did), so a model that
+// row of m.conversation.response (not N as cycle-229 did), so a model that
 // streams token-sized deltas does not produce one transcript row
 // per delta. A chunk containing '\n' must extend the current row up
 // to the newline, then start a fresh row for the trailing partial.
@@ -361,9 +361,9 @@ func TestTUITools_LiveStreamCoalescesSessionMessages(t *testing.T) {
 // it). toolsteps.TurnDoneMsg still swaps the live range for the authoritative
 // single-copy render (no double-rendering).
 func TestTUITools_LiveStreamCoalescesChunksIntoOneRow(t *testing.T) {
-	m := newRunMode(nil, "u@t", "m", "t", "/tmp", true)
-	m.engine.response = append(m.engine.response, "> stream markdown")
-	m.engine.liveStart = len(m.engine.response)
+	m := newRootModel(nil, "u@t", "m", "t", "/tmp", true)
+	m.conversation.response = append(m.conversation.response, "> stream markdown")
+	m.conversation.liveStart = len(m.conversation.response)
 	// Three chunks, no '\n' anywhere. They must still coalesce into
 	// one transcript row (cycle 230 discipline) — and cycle 272 means
 	// that one row is already the rendered form of the accumulated
@@ -371,30 +371,30 @@ func TestTUITools_LiveStreamCoalescesChunksIntoOneRow(t *testing.T) {
 	_, _ = m.Update(backendChunkMsg("Here's "))
 	_, _ = m.Update(backendChunkMsg("**bold "))
 	_, _ = m.Update(backendChunkMsg("text**."))
-	if m.engine.replyStart < m.engine.liveStart {
-		t.Fatalf("replyStart=%d not anchored (liveStart=%d)", m.engine.replyStart, m.engine.liveStart)
+	if m.conversation.replyStart < m.conversation.liveStart {
+		t.Fatalf("replyStart=%d not anchored (liveStart=%d)", m.conversation.replyStart, m.conversation.liveStart)
 	}
-	startedAt := m.engine.replyStart
-	if got, want := len(m.engine.response), startedAt+1; got != want {
+	startedAt := m.conversation.replyStart
+	if got, want := len(m.conversation.response), startedAt+1; got != want {
 		t.Fatalf("3 same-line chunks produced %d rows, want %d: %+v",
-			got-startedAt, want-startedAt, m.engine.response[startedAt:])
+			got-startedAt, want-startedAt, m.conversation.response[startedAt:])
 	}
 	// Cycle 272: the live row is renderMarkdown("Here's **bold
 	// text**.") — the ** markers are already gone (styled to ANSI)
 	// and the prose is present.
-	if got := diffaction.StripANSI(m.engine.response[startedAt]); !strings.Contains(got, "Here's bold text.") {
+	if got := diffaction.StripANSI(m.conversation.response[startedAt]); !strings.Contains(got, "Here's bold text.") {
 		t.Fatalf("live row = %q, want visible text %q", got,
 			"Here's bold text.")
 	}
-	if strings.Contains(diffaction.StripANSI(m.engine.response[startedAt]), "**") {
-		t.Fatalf("live row still carries raw ** markers: %q", m.engine.response[startedAt])
+	if strings.Contains(diffaction.StripANSI(m.conversation.response[startedAt]), "**") {
+		t.Fatalf("live row still carries raw ** markers: %q", m.conversation.response[startedAt])
 	}
 	// A chunk ending in '\n' extends the same paragraph; glamour
 	// renders the accumulated buffer, so the segment before the
 	// newline lands on the row and the whole paragraph stays one
 	// rendered row (no raw trailing slot to preserve).
 	_, _ = m.Update(backendChunkMsg(" line2\n"))
-	live := diffaction.StripANSI(strings.Join(m.engine.response[startedAt:], "\n"))
+	live := diffaction.StripANSI(strings.Join(m.conversation.response[startedAt:], "\n"))
 	if !strings.Contains(live, "Here's bold text. line2") {
 		t.Fatalf("accumulated prose missing after \\n chunk:\n%s", live)
 	}
@@ -402,14 +402,14 @@ func TestTUITools_LiveStreamCoalescesChunksIntoOneRow(t *testing.T) {
 		t.Fatalf("raw ** markers survived the mid-stream render:\n%s", live)
 	}
 	// And it carries ANSI styling — glamour styled the bold span.
-	if !strings.Contains(strings.Join(m.engine.response[startedAt:], "\n"), "\x1b[") {
+	if !strings.Contains(strings.Join(m.conversation.response[startedAt:], "\n"), "\x1b[") {
 		t.Fatalf("live rows carry no ANSI styling mid-stream:\n%s", live)
 	}
 	// toolsteps.TurnDoneMsg glamour-replace: the reply "Here's **bold text**.
 	// line2" must replace (not duplicate) the live range. The
 	// substring must appear exactly once.
 	_, _ = m.Update(toolsteps.TurnDoneMsg{Reply: "Here's **bold text**. line2"})
-	joined := strings.Join(m.engine.response, "\n")
+	joined := strings.Join(m.conversation.response, "\n")
 	if n := strings.Count(diffaction.StripANSI(joined), "Here's"); n != 1 {
 		t.Fatalf("toolsteps.TurnDoneMsg duplicated text, found %d copies of "+
 			"%q:\n%s", n, "Here's", joined)
@@ -418,26 +418,26 @@ func TestTUITools_LiveStreamCoalescesChunksIntoOneRow(t *testing.T) {
 		t.Fatalf("toolsteps.TurnDoneMsg duplicated text, found %d copies of %q:\n%s",
 			n, "line2", joined)
 	}
-	if m.engine.replyStart != -1 {
-		t.Fatalf("replyStart not reset to -1 after toolsteps.TurnDoneMsg: got %d", m.engine.replyStart)
+	if m.conversation.replyStart != -1 {
+		t.Fatalf("replyStart not reset to -1 after toolsteps.TurnDoneMsg: got %d", m.conversation.replyStart)
 	}
-	if m.engine.liveReplyIdx != -1 {
-		t.Fatalf("liveReplyIdx not reset to -1 after toolsteps.TurnDoneMsg: got %d", m.engine.liveReplyIdx)
+	if m.conversation.liveReplyIdx != -1 {
+		t.Fatalf("liveReplyIdx not reset to -1 after toolsteps.TurnDoneMsg: got %d", m.conversation.liveReplyIdx)
 	}
 }
 
 func TestTUITools_LiveStream_MultiParagraphIncremental(t *testing.T) {
-	m := newRunMode(nil, "u@t", "m", "t", "/tmp", true)
-	m.engine.response = append(m.engine.response, "> stream paragraphs")
-	m.engine.liveStart = len(m.engine.response)
+	m := newRootModel(nil, "u@t", "m", "t", "/tmp", true)
+	m.conversation.response = append(m.conversation.response, "> stream paragraphs")
+	m.conversation.liveStart = len(m.conversation.response)
 
 	_, _ = m.Update(backendChunkMsg("First paragraph content.\n\n"))
-	if m.engine.lastStreamSave.IsZero() {
+	if m.conversation.lastStreamSave.IsZero() {
 		t.Fatalf("expected lastStreamSave to be recorded on first chunk")
 	}
 
 	_, _ = m.Update(backendChunkMsg("Second paragraph begins..."))
-	visible := diffaction.StripANSI(strings.Join(m.engine.response, "\n"))
+	visible := diffaction.StripANSI(strings.Join(m.conversation.response, "\n"))
 	if !strings.Contains(visible, "First paragraph content.") {
 		t.Fatalf("missing first paragraph in live view:\n%s", visible)
 	}
@@ -450,7 +450,7 @@ func TestTUITools_LiveStream_MultiParagraphIncremental(t *testing.T) {
 // stream glamour surface: as each '\n'-bounded line completes (via
 // a chunk-ending '\n' boundary), the cycle-232 backendChunkMsg
 // handler runs that completed line through mdrender.LineANSI and
-// replaces the raw row in m.engine.response with the styled row. The user
+// replaces the raw row in m.conversation.response with the styled row. The user
 // sees the styled output grow row-by-row as the model streams,
 // matching the AGY 1.4.2 chat-transcript shape (crush's
 // streamingMarkdown.Render in
@@ -471,20 +471,20 @@ func TestTUITools_LiveStream_MultiParagraphIncremental(t *testing.T) {
 // escapes for styled constructs — plain prose renders with
 // padding-only (no escapes).
 func TestTUITools_StreamedLinesRenderGlamour(t *testing.T) {
-	m := newRunMode(nil, "u@t", "m", "t", "/tmp", true)
-	m.engine.response = append(m.engine.response, "> ask three chunks")
-	m.engine.liveStart = len(m.engine.response)
+	m := newRootModel(nil, "u@t", "m", "t", "/tmp", true)
+	m.conversation.response = append(m.conversation.response, "> ask three chunks")
+	m.conversation.liveStart = len(m.conversation.response)
 	// Chunk 1 carries a trailing '\n' → it holds "**First bold**."
 	// and cycle 272 renders it immediately.
 	_, _ = m.Update(backendChunkMsg("**First bold**.\n"))
 	// Cycle 285: the reference separates the prompt from the first
 	// assistant message with one blank row, so the run starts at
 	// liveStart+1.
-	if m.engine.replyStart != m.engine.liveStart+1 || m.engine.response[m.engine.liveStart] != "" {
+	if m.conversation.replyStart != m.conversation.liveStart+1 || m.conversation.response[m.conversation.liveStart] != "" {
 		t.Fatalf("replyStart=%d not anchored after the blank row at %d",
-			m.engine.replyStart, m.engine.liveStart)
+			m.conversation.replyStart, m.conversation.liveStart)
 	}
-	completedRow := m.engine.response[m.engine.replyStart]
+	completedRow := m.conversation.response[m.conversation.replyStart]
 	// Cycle 272: the row at replyStart carries ANSI glamour styling.
 	if !strings.Contains(completedRow, "\x1b[") {
 		t.Fatalf("completed row did not receive mid-stream "+
@@ -504,20 +504,20 @@ func TestTUITools_StreamedLinesRenderGlamour(t *testing.T) {
 	// complete bold span. Cycle 272 renders the accumulated buffer:
 	// both the first paragraph and the new bold span are styled.
 	_, _ = m.Update(backendChunkMsg("**Second** "))
-	if got := m.engine.response[m.engine.replyStart]; !strings.Contains(got, "\x1b[") {
+	if got := m.conversation.response[m.conversation.replyStart]; !strings.Contains(got, "\x1b[") {
 		t.Fatalf("row 0 lost glamour after chunk 2: %q", got)
 	}
-	if got := strings.TrimSpace(diffaction.StripANSI(m.engine.response[len(m.engine.response)-1])); got != "Second" {
+	if got := strings.TrimSpace(diffaction.StripANSI(m.conversation.response[len(m.conversation.response)-1])); got != "Second" {
 		t.Fatalf("trailing row after chunk 2 = %q, want %q",
 			got, "Second")
 	}
 	// Chunk 3 extends the row; the now-unclosed `**` renders
 	// literally ("partial third" stays as typed).
 	_, _ = m.Update(backendChunkMsg("partial third"))
-	if got := m.engine.response[m.engine.replyStart]; !strings.Contains(got, "\x1b[") {
+	if got := m.conversation.response[m.conversation.replyStart]; !strings.Contains(got, "\x1b[") {
 		t.Fatalf("row 0 lost glamour after chunk 3: %q", got)
 	}
-	if got := strings.TrimSpace(diffaction.StripANSI(m.engine.response[len(m.engine.response)-1])); got != "Second partial third" {
+	if got := strings.TrimSpace(diffaction.StripANSI(m.conversation.response[len(m.conversation.response)-1])); got != "Second partial third" {
 		t.Fatalf("trailing row after chunk 3 = %q, want %q", got,
 			"Second partial third")
 	}
@@ -534,18 +534,18 @@ func TestTUITools_StreamedLinesRenderGlamour(t *testing.T) {
 // of the accumulated markdown, which is what removes the pre-272
 // row-explosion and the half-rendered cross-line artefacts.
 func TestTUITools_PartialLastLineRendersLiterally(t *testing.T) {
-	m := newRunMode(nil, "u@t", "m", "t", "/tmp", true)
-	m.engine.response = append(m.engine.response, "> ask mid-stream")
-	m.engine.liveStart = len(m.engine.response)
+	m := newRootModel(nil, "u@t", "m", "t", "/tmp", true)
+	m.conversation.response = append(m.conversation.response, "> ask mid-stream")
+	m.conversation.liveStart = len(m.conversation.response)
 	_, _ = m.Update(backendChunkMsg("**bold partial"))
 	// Cycle 285: the reference separates the prompt from the first
 	// assistant message with one blank row, so the run starts at
 	// liveStart+1.
-	if m.engine.replyStart != m.engine.liveStart+1 || m.engine.response[m.engine.liveStart] != "" {
+	if m.conversation.replyStart != m.conversation.liveStart+1 || m.conversation.response[m.conversation.liveStart] != "" {
 		t.Fatalf("replyStart=%d not anchored after the blank row at %d",
-			m.engine.replyStart, m.engine.liveStart)
+			m.conversation.replyStart, m.conversation.liveStart)
 	}
-	row := m.engine.response[m.engine.replyStart]
+	row := m.conversation.response[m.conversation.replyStart]
 	// The unclosed ** renders literally: the visible glyphs are the
 	// source's own, so nothing is silently dropped or mis-bolded.
 	if got := strings.TrimSpace(diffaction.StripANSI(row)); got != "**bold partial" {
@@ -556,19 +556,19 @@ func TestTUITools_PartialLastLineRendersLiterally(t *testing.T) {
 	// gone — proving the partial is rendered through the same
 	// pipeline and re-rendered when the construct completes.
 	_, _ = m.Update(backendChunkMsg(" done**"))
-	if strings.Contains(strings.Join(m.engine.response[m.engine.replyStart:], "\n"), "**") {
+	if strings.Contains(strings.Join(m.conversation.response[m.conversation.replyStart:], "\n"), "**") {
 		t.Fatalf("closing chunk left raw ** markers:\n%s",
-			strings.Join(m.engine.response[m.engine.replyStart:], "\n"))
+			strings.Join(m.conversation.response[m.conversation.replyStart:], "\n"))
 	}
-	if !hasSGRBold(strings.Join(m.engine.response[m.engine.replyStart:], "\n")) {
+	if !hasSGRBold(strings.Join(m.conversation.response[m.conversation.replyStart:], "\n")) {
 		t.Fatalf("closing chunk did not style the completed span:\n%s",
-			strings.Join(m.engine.response[m.engine.replyStart:], "\n"))
+			strings.Join(m.conversation.response[m.conversation.replyStart:], "\n"))
 	}
 }
 
 // TestTUITools_TurnDoneReplaceStillIdempotent is the cycle-232
 // toolsteps.TurnDoneMsg contract: after a streaming turn that mid-stream-
-// styled its completed lines, toolsteps.TurnDoneMsg produces a final m.engine.response
+// styled its completed lines, toolsteps.TurnDoneMsg produces a final m.conversation.response
 // in which every line carries glamour styling (the partial that
 // toolsteps.TurnDoneMsg finally completes now also gets glamour). Crucially,
 // no double-styling — the cycle-228 renderMarkdown(whole-reply)
@@ -585,9 +585,9 @@ func TestTUITools_PartialLastLineRendersLiterally(t *testing.T) {
 // that mid-stream glamour rendered slightly off (an unclosed
 // `**bold**` like the chunk sequence below) are re-styled cleanly.
 func TestTUITools_TurnDoneReplaceStillIdempotent(t *testing.T) {
-	m := newRunMode(nil, "u@t", "m", "t", "/tmp", true)
-	m.engine.response = append(m.engine.response, "> idempotent replace")
-	m.engine.liveStart = len(m.engine.response)
+	m := newRootModel(nil, "u@t", "m", "t", "/tmp", true)
+	m.conversation.response = append(m.conversation.response, "> idempotent replace")
+	m.conversation.liveStart = len(m.conversation.response)
 	// Three chunks forming one soft-wrapped paragraph ("**bold
 	// first**" + "*italic second*" + "trailing partial"). Cycle 272
 	// renders the accumulated buffer on every chunk.
@@ -596,7 +596,7 @@ func TestTUITools_TurnDoneReplaceStillIdempotent(t *testing.T) {
 	_, _ = m.Update(backendChunkMsg("trailing partial"))
 	// After these chunks the live range is already the rendered
 	// form: styled (ANSI present), markers stripped, all text present.
-	live := strings.Join(m.engine.response[m.engine.liveStart:], "\n")
+	live := strings.Join(m.conversation.response[m.conversation.liveStart:], "\n")
 	if !strings.Contains(live, "\x1b[") {
 		t.Fatalf("live range carries no ANSI styling mid-stream:\n%q", live)
 	}
@@ -613,7 +613,7 @@ func TestTUITools_TurnDoneReplaceStillIdempotent(t *testing.T) {
 	// renderMarkdown and replaces the live range.
 	fullReply := "**bold first**\n*italic second*\ntrailing partial"
 	_, _ = m.Update(toolsteps.TurnDoneMsg{Reply: fullReply})
-	joined := strings.Join(m.engine.response, "\n")
+	joined := strings.Join(m.conversation.response, "\n")
 	// Every line in the joined response must contain its text
 	// content (after the cycle-228 renderMarkdown + indentModelReply
 	// pass that handles the replace). Glamour's whole-reply render
@@ -656,9 +656,9 @@ func TestTUITools_TurnDoneReplaceStillIdempotent(t *testing.T) {
 			"renderMarkdown apparently skipped — cycle-228 "+
 			"contract broken?\n%s", joined)
 	}
-	if m.engine.replyStart != -1 {
+	if m.conversation.replyStart != -1 {
 		t.Fatalf("replyStart not reset to -1 after toolsteps.TurnDoneMsg: got %d",
-			m.engine.replyStart)
+			m.conversation.replyStart)
 	}
 }
 
@@ -671,9 +671,9 @@ func TestTUITools_TurnDoneReplaceStillIdempotent(t *testing.T) {
 // that precondition.)
 func TestTUITools_CrossLineBoldMidStream(t *testing.T) {
 	InvalidateCacheMidStream(t)
-	m := newRunMode(nil, "u@t", "m", "t", "/tmp", true)
-	m.engine.response = append(m.engine.response, "> cycle 242 cross-line bold")
-	m.engine.liveStart = len(m.engine.response)
+	m := newRootModel(nil, "u@t", "m", "t", "/tmp", true)
+	m.conversation.response = append(m.conversation.response, "> cycle 242 cross-line bold")
+	m.conversation.liveStart = len(m.conversation.response)
 
 	// Chunks 1 + 2 emit a bold span split across a soft line break
 	// ("**bold opens\nmore text**"). Cycle 272 renders the whole
@@ -683,7 +683,7 @@ func TestTUITools_CrossLineBoldMidStream(t *testing.T) {
 	// replaces).
 	_, _ = m.Update(backendChunkMsg("**bold opens\n"))
 	_, _ = m.Update(backendChunkMsg("more text**\n"))
-	live := strings.Join(m.engine.response[m.engine.liveStart:], "\n")
+	live := strings.Join(m.conversation.response[m.conversation.liveStart:], "\n")
 	if !strings.Contains(live, "\x1b[") {
 		t.Fatalf("cross-line bold produced no ANSI escapes:\n%s", live)
 	}
@@ -698,7 +698,7 @@ func TestTUITools_CrossLineBoldMidStream(t *testing.T) {
 	// line arrives, and stays rendered as more text streams in.
 	_, _ = m.Update(backendChunkMsg("\n"))
 	_, _ = m.Update(backendChunkMsg("New paragraph."))
-	live = diffaction.StripANSI(strings.Join(m.engine.response[m.engine.liveStart:], "\n"))
+	live = diffaction.StripANSI(strings.Join(m.conversation.response[m.conversation.liveStart:], "\n"))
 	if !strings.Contains(live, "New paragraph.") {
 		t.Fatalf("next paragraph missing mid-stream:\n%s", live)
 	}
@@ -717,9 +717,9 @@ func InvalidateCacheMidStream(t *testing.T) {
 // the group summary (one file + one command reads "1 file, 1 command") and the
 // expanded "ctrl+o to collapse" hint.
 func TestTUITools_GroupHeaderForMultipleSteps(t *testing.T) {
-	m := newRunMode(nil, "u@t", "m", "t", "/tmp", true)
-	m.engine.response = append(m.engine.response, "> do two things")
-	m.engine.liveStart = len(m.engine.response)
+	m := newRootModel(nil, "u@t", "m", "t", "/tmp", true)
+	m.conversation.response = append(m.conversation.response, "> do two things")
+	m.conversation.liveStart = len(m.conversation.response)
 	_, _ = m.Update(toolsteps.TurnDoneMsg{
 		Reply: "done",
 		Steps: []toolsteps.Step{
@@ -727,7 +727,7 @@ func TestTUITools_GroupHeaderForMultipleSteps(t *testing.T) {
 			{Name: "view_file", Title: "Read(secret.txt)", Detail: "a\nb\nc\n"},
 		},
 	})
-	joined := strings.Join(m.engine.response, "\n")
+	joined := strings.Join(m.conversation.response, "\n")
 	if !strings.Contains(joined, "file") || !strings.Contains(joined, "command") {
 		t.Fatalf("group summary missing:\n%s", joined)
 	}
@@ -741,7 +741,7 @@ func TestTUITools_GroupHeaderForMultipleSteps(t *testing.T) {
 	}
 
 	_, _ = m.Update(ctrlKey('o'))
-	joined = strings.Join(m.engine.response, "\n")
+	joined = strings.Join(m.conversation.response, "\n")
 	if !strings.Contains(joined, "file") || !strings.Contains(joined, "command") {
 		t.Fatalf("expanded group header wrong:\n%s", joined)
 	}
@@ -759,10 +759,10 @@ func TestTUITools_GroupHeaderForMultipleSteps(t *testing.T) {
 }
 
 func TestTUITools_SpinnerNamesRunningTool(t *testing.T) {
-	m := newRunMode(nil, "u@t", "m", "t", "/tmp", true)
+	m := newRootModel(nil, "u@t", "m", "t", "/tmp", true)
 	_, _ = m.Update(toolsteps.ToolRunningMsg{Step: toolsteps.NewRunningStep("run_command", json.RawMessage(`{"CommandLine":"date"}`))})
-	if m.engine.activeTool != "Running command" || !m.engine.streaming {
-		t.Fatalf("spinner hint not set: %q streaming=%v", m.engine.activeTool, m.engine.streaming)
+	if m.conversation.activeTool != "Running command" || !m.conversation.streaming {
+		t.Fatalf("spinner hint not set: %q streaming=%v", m.conversation.activeTool, m.conversation.streaming)
 	}
 	view := m.View().Content
 	if !strings.Contains(view, "Running command") {
@@ -777,7 +777,7 @@ func TestTUITools_SpinnerNamesRunningTool(t *testing.T) {
 	// The finished step rewrites that row instead of appending a second.
 	_, _ = m.Update(toolsteps.ToolStepMsg{Step: toolsteps.NewToolStep("run_command",
 		json.RawMessage(`{"CommandLine":"date"}`), runCommandResult("0", "Mon Oct 20"), false)})
-	joined := strings.Join(m.engine.response, "\n")
+	joined := strings.Join(m.conversation.response, "\n")
 	if strings.Contains(joined, "Running (date)") {
 		t.Fatalf("provisional row survived completion:\n%s", joined)
 	}
@@ -787,19 +787,19 @@ func TestTUITools_SpinnerNamesRunningTool(t *testing.T) {
 }
 
 func TestTUITools_SpinnerAndTipStickyAboveInputWhenScrolledUp(t *testing.T) {
-	m := newRunMode(nil, "u@t", "m", "t", "/tmp", true)
+	m := newRootModel(nil, "u@t", "m", "t", "/tmp", true)
 	m.viewport.width = 80
 	m.viewport.height = 25
 	m.viewport.altScreen = true
 
 	// Populate transcript with enough rows to enable scrolling
 	for i := 0; i < 60; i++ {
-		m.engine.response = append(m.engine.response, fmt.Sprintf("Response line %02d", i))
+		m.conversation.response = append(m.conversation.response, fmt.Sprintf("Response line %02d", i))
 	}
 
 	// Active running command with spinner and tip
-	m.engine.streaming = true
-	m.engine.activeTool = "Running command"
+	m.conversation.streaming = true
+	m.conversation.activeTool = "Running command"
 	m.viewport.activeTip = "esc to interrupt"
 
 	// 1. When at bottom, spinner and tip are visible above input
@@ -835,8 +835,8 @@ func TestTUITools_SpinnerAndTipStickyAboveInputWhenScrolledUp(t *testing.T) {
 	}
 
 	// 3. When streaming stops, the sticky spinner and tip disappear
-	m.engine.streaming = false
-	m.engine.activeTool = ""
+	m.conversation.streaming = false
+	m.conversation.activeTool = ""
 	m.viewport.activeTip = ""
 	viewIdle := m.View().Content
 	if strings.Contains(viewIdle, "Running command") {
@@ -855,7 +855,7 @@ func TestTUITools_ThoughtStepFromStream(t *testing.T) {
 			{Done: true, Meta: &backend.ChunkMeta{ReasoningTokens: 24, CompletionTokens: 30}},
 		},
 	}}
-	m := newRunMode(be, "u@t", "m", "t", "/tmp", true)
+	m := newRootModel(be, "u@t", "m", "t", "/tmp", true)
 	msg := m.streamPrompt("17*23?")()
 	done, ok := msg.(toolsteps.TurnDoneMsg)
 	if !ok {
@@ -901,7 +901,7 @@ func TestTUITools_ThoughtPrecedesToolSteps(t *testing.T) {
 		{{Text: "done"}, {Done: true}},
 	}}
 	runner := &recordingRunner{}
-	m := newRunMode(be, "u@t", "m", "t", "/tmp", true)
+	m := newRootModel(be, "u@t", "m", "t", "/tmp", true)
 	m.enableTools([]backend.ToolDecl{{Name: "view_file"}}, runner)
 
 	msg := m.streamPrompt("read a.txt")()
@@ -956,35 +956,35 @@ func TestTUITools_ThoughtLiveFrame(t *testing.T) {
 	}
 
 	// toolsteps.ThoughtStartMsg flips the live frame on.
-	m := newRunMode(nil, "u@t", "m", "t", "/tmp", true)
-	if m.engine.thinking {
+	m := newRootModel(nil, "u@t", "m", "t", "/tmp", true)
+	if m.conversation.thinking {
 		t.Fatal("thinking should start false")
 	}
 	m.Update(toolsteps.ThoughtStartMsg{})
-	if !m.engine.thinking || m.engine.thinkingSince.IsZero() {
+	if !m.conversation.thinking || m.conversation.thinkingSince.IsZero() {
 		t.Fatal("toolsteps.ThoughtStartMsg did not start the live frame")
 	}
 	m.Update(toolsteps.TurnDoneMsg{})
-	if m.engine.thinking {
+	if m.conversation.thinking {
 		t.Fatal("toolsteps.TurnDoneMsg did not clear the live frame")
 	}
 }
 
 func TestLiveRows_PostToolPhrase(t *testing.T) {
-	m := newRunMode(nil, "u@t", "m", "t", "/tmp", true)
-	m.engine.streaming = true
+	m := newRootModel(nil, "u@t", "m", "t", "/tmp", true)
+	m.conversation.streaming = true
 	// Frames past the "typing" phase show the settled phrase.
-	m.engine.spinFrame = 9
+	m.conversation.spinFrame = 9
 	if got := strings.Join(m.liveRows(120), "\n"); !strings.Contains(got, "Generating") {
 		t.Fatalf("pre-tool spinner label = %q; want Generating", got)
 	}
-	m.engine.anyToolRun = true
-	m.engine.spinFrame = 6
+	m.conversation.anyToolRun = true
+	m.conversation.spinFrame = 6
 	if got := strings.Join(m.liveRows(120), "\n"); !strings.Contains(got, "Working") {
 		t.Fatalf("post-tool spinner label = %q; want Working", got)
 	}
-	m.engine.activeTool = "Running command"
-	m.engine.spinFrame = 15
+	m.conversation.activeTool = "Running command"
+	m.conversation.spinFrame = 15
 	if got := strings.Join(m.liveRows(120), "\n"); !strings.Contains(got, "Running command") {
 		t.Fatalf("in-call spinner label = %q; want Running command", got)
 	}
@@ -1078,7 +1078,7 @@ func TestCustomSubagents_AppendsDiscoveredAgents(t *testing.T) {
 }
 
 func TestAgentToolRegistry_CustomAgentHasSevenTools(t *testing.T) {
-	m := &runMode{session: sessionState{agentBody: "You are foo."}}
+	m := &RootModel{session: sessionState{agentBody: "You are foo."}}
 	catalog := agentToolRegistry(t.TempDir(), m.session.agentBody)
 	m.registerSubagentQuestionTool(catalog)
 
@@ -1094,7 +1094,7 @@ func TestAgentToolRegistry_CustomAgentHasSevenTools(t *testing.T) {
 }
 
 func TestAgentToolRegistry_DefaultIncludesAskQuestion(t *testing.T) {
-	m := &runMode{}
+	m := &RootModel{}
 	catalog := agentToolRegistry(t.TempDir(), "")
 	m.registerSubagentQuestionTool(catalog)
 	if _, ok := catalog.Get("ask_question"); !ok {
@@ -1103,12 +1103,12 @@ func TestAgentToolRegistry_DefaultIncludesAskQuestion(t *testing.T) {
 }
 
 func TestCtrlOExpandedRunCommandOutputIsNotBlank(t *testing.T) {
-	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/tmp", true)
+	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/tmp", true)
 	m.Update(tea.WindowSizeMsg{Width: 90, Height: 30})
 
-	m.engine.response = append(m.engine.response, "> ls")
-	m.engine.liveStart = len(m.engine.response)
-	m.engine.session = append(m.engine.session, backend.Message{Role: "user", Content: "ls"})
+	m.conversation.response = append(m.conversation.response, "> ls")
+	m.conversation.liveStart = len(m.conversation.response)
+	m.setSessionMessages(append(m.SessionMessages(), backend.Message{Role: "user", Content: "ls"}))
 
 	_, _ = m.Update(toolsteps.TurnDoneMsg{
 		Reply: "done",
@@ -1148,12 +1148,12 @@ func TestCtrlOExpandedRunCommandOutputIsNotBlank(t *testing.T) {
 	}
 }
 
-func liveStepFixture(t *testing.T) (*runMode, toolsteps.Step) {
+func liveStepFixture(t *testing.T) (*RootModel, toolsteps.Step) {
 	t.Helper()
-	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/tmp", true)
+	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/tmp", true)
 	m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
-	m.engine.response = append(m.engine.response, "> run it")
-	m.engine.liveStart = len(m.engine.response)
+	m.conversation.response = append(m.conversation.response, "> run it")
+	m.conversation.liveStart = len(m.conversation.response)
 	step := toolsteps.Step{
 		Kind:   toolsteps.KindTool,
 		Name:   "run_command",
@@ -1189,7 +1189,7 @@ func TestCtrlOExpandsLiveStepDuringStreaming(t *testing.T) {
 	if strings.Contains(m.View().Content, "hello-live") {
 		t.Fatalf("second ctrl+o did not collapse the live step:\n%s", m.View().Content)
 	}
-	if got := len(m.engine.response); got != 2 {
+	if got := len(m.conversation.response); got != 2 {
 		t.Fatalf("response has %d rows after collapse, want 2 (prompt + step)", got)
 	}
 }
@@ -1205,7 +1205,7 @@ func TestCtrlOTogglesLiveStepsAroundAStreamedChunk(t *testing.T) {
 	m.Update(toolsteps.ToolStepMsg{Step: first})
 	m.Update(backendChunkMsg("between the steps"))
 	m.Update(toolsteps.ToolStepMsg{Step: second})
-	rowsBefore := len(m.engine.response)
+	rowsBefore := len(m.conversation.response)
 
 	m.Update(ctrlKey('o'))
 	view := m.View().Content
@@ -1214,8 +1214,8 @@ func TestCtrlOTogglesLiveStepsAroundAStreamedChunk(t *testing.T) {
 	}
 
 	m.Update(ctrlKey('o'))
-	if got := len(m.engine.response); got != rowsBefore {
-		t.Fatalf("collapse left %d rows, want the original %d:\n%s", got, rowsBefore, strings.Join(m.engine.response, "\n"))
+	if got := len(m.conversation.response); got != rowsBefore {
+		t.Fatalf("collapse left %d rows, want the original %d:\n%s", got, rowsBefore, strings.Join(m.conversation.response, "\n"))
 	}
 	view = m.View().Content
 	if strings.Contains(view, "hello-live") || strings.Contains(view, "two-live") {
@@ -1234,7 +1234,7 @@ func TestTurnDoneKeepsStepsThatFollowAStreamedChunk(t *testing.T) {
 
 	m.Update(toolsteps.ToolStepMsg{Step: first})
 	m.Update(backendChunkMsg("Running the second one now."))
-	if m.engine.replyStart < 0 {
+	if m.conversation.replyStart < 0 {
 		t.Fatalf("replyStart was not anchored by backendChunkMsg")
 	}
 	m.Update(toolsteps.ToolStepMsg{Step: second})
@@ -1243,7 +1243,7 @@ func TestTurnDoneKeepsStepsThatFollowAStreamedChunk(t *testing.T) {
 	m.viewport.expanded = true
 	m.Update(toolsteps.TurnDoneMsg{Reply: "DONE", Steps: []toolsteps.Step{first, second}})
 
-	joined := strings.Join(m.engine.response, "\n")
+	joined := strings.Join(m.conversation.response, "\n")
 	if !strings.Contains(joined, "echo one") {
 		t.Fatalf("finalised block lost the first step:\n%s", joined)
 	}
@@ -1256,8 +1256,8 @@ func TestTurnDoneKeepsStepsThatFollowAStreamedChunk(t *testing.T) {
 	if i, j := strings.Index(joined, "sleep 2; echo two"), strings.Index(joined, "DONE"); j < i {
 		t.Fatalf("reply rendered before the tool block (step at %d, reply at %d)", i, j)
 	}
-	if len(m.engine.liveStepRuns) != 0 {
-		t.Fatalf("liveStepRuns not cleared at turn end: %+v", m.engine.liveStepRuns)
+	if len(m.conversation.liveStepRuns) != 0 {
+		t.Fatalf("liveStepRuns not cleared at turn end: %+v", m.conversation.liveStepRuns)
 	}
 }
 
@@ -1308,11 +1308,11 @@ func TestCtrlO_ModalPanelIgnored(t *testing.T) {
 }
 
 func TestVerbosityLive_RerendersBlocks(t *testing.T) {
-	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/tmp", true)
+	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/tmp", true)
 	m.Update(tea.WindowSizeMsg{Width: 90, Height: 30})
-	m.engine.response = append(m.engine.response, "> run")
-	m.engine.liveStart = len(m.engine.response)
-	m.engine.verbosity = "medium"
+	m.conversation.response = append(m.conversation.response, "> run")
+	m.conversation.liveStart = len(m.conversation.response)
+	m.display.verbosity = "medium"
 
 	metrics := toolsteps.TokenMetrics{
 		Input:     12500,
@@ -1376,19 +1376,19 @@ func TestVerbosityLive_RerendersBlocks(t *testing.T) {
 }
 
 func TestTUITools_LiveThinking_SnippetAndExpand(t *testing.T) {
-	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/tmp", true)
+	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/tmp", true)
 	m.Update(tea.WindowSizeMsg{Width: 80, Height: 30})
 
 	// Enter thinking
 	m.Update(toolsteps.ThoughtStartMsg{})
-	if !m.engine.thinking {
-		t.Fatalf("expected m.engine.thinking to be true")
+	if !m.conversation.thinking {
+		t.Fatalf("expected m.conversation.thinking to be true")
 	}
 
 	// Stream thinking chunks
 	m.Update(toolsteps.ThoughtChunkMsg{Delta: "I am analyzing the problem.\nLet's verify the binary."})
-	if m.engine.liveThinkingSnippet != "Let's verify the binary." {
-		t.Fatalf("expected liveThinkingSnippet 'Let's verify the binary.', got %q", m.engine.liveThinkingSnippet)
+	if m.conversation.liveThinkingSnippet != "Let's verify the binary." {
+		t.Fatalf("expected liveThinkingSnippet 'Let's verify the binary.', got %q", m.conversation.liveThinkingSnippet)
 	}
 
 	// Spinner live rows should contain the snippet
@@ -1412,7 +1412,7 @@ func TestTUITools_LiveThinking_SnippetAndExpand(t *testing.T) {
 	if !m.isExpanded() {
 		t.Fatalf("expected m.isExpanded() to be true")
 	}
-	viewExpanded := diffaction.StripANSI(strings.Join(m.engine.response, "\n"))
+	viewExpanded := diffaction.StripANSI(strings.Join(m.conversation.response, "\n"))
 	if !strings.Contains(viewExpanded, "Thinking...") {
 		t.Fatalf("expected response to contain live 'Thinking...' header, got:\n%s", viewExpanded)
 	}
@@ -1422,7 +1422,7 @@ func TestTUITools_LiveThinking_SnippetAndExpand(t *testing.T) {
 
 	// Stream another chunk while expanded
 	m.Update(toolsteps.ThoughtChunkMsg{Delta: "\nFinalizing plan."})
-	viewUpdated := diffaction.StripANSI(strings.Join(m.engine.response, "\n"))
+	viewUpdated := diffaction.StripANSI(strings.Join(m.conversation.response, "\n"))
 	if !strings.Contains(viewUpdated, "Finalizing plan.") {
 		t.Fatalf("expected live thinking block to update with new chunk, got:\n%s", viewUpdated)
 	}
@@ -1432,7 +1432,7 @@ func TestTUITools_LiveThinking_SnippetAndExpand(t *testing.T) {
 	if m.isExpanded() {
 		t.Fatalf("expected m.isExpanded() to be false")
 	}
-	viewCollapsed := diffaction.StripANSI(strings.Join(m.engine.response, "\n"))
+	viewCollapsed := diffaction.StripANSI(strings.Join(m.conversation.response, "\n"))
 	if strings.Contains(viewCollapsed, "Thinking...") {
 		t.Fatalf("expected live thinking to be removed from response when collapsed, got:\n%s", viewCollapsed)
 	}
@@ -1440,20 +1440,20 @@ func TestTUITools_LiveThinking_SnippetAndExpand(t *testing.T) {
 	// Transition to tool running: thinking should finalize
 	cmdStep := toolsteps.NewRunningStep("run_command", json.RawMessage(`{"CommandLine":"echo 1"}`))
 	m.Update(toolsteps.ToolRunningMsg{Step: cmdStep})
-	if m.engine.thinking {
+	if m.conversation.thinking {
 		t.Fatalf("expected thinking to be false once tool running begins")
 	}
-	viewTool := diffaction.StripANSI(strings.Join(m.engine.response, "\n"))
+	viewTool := diffaction.StripANSI(strings.Join(m.conversation.response, "\n"))
 	if !strings.Contains(viewTool, "Thought for") {
 		t.Fatalf("expected finalized thought step in response, got:\n%s", viewTool)
 	}
 }
 
 func TestTUITools_CtrlO_NoDuplicationAndCleanToggle(t *testing.T) {
-	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/tmp", true)
+	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/tmp", true)
 	m.Update(tea.WindowSizeMsg{Width: 80, Height: 30})
-	m.engine.streaming = true
-	m.engine.liveStart = len(m.engine.response)
+	m.conversation.streaming = true
+	m.conversation.liveStart = len(m.conversation.response)
 
 	// 1. Thinking starts
 	m.Update(toolsteps.ThoughtStartMsg{})
@@ -1502,7 +1502,7 @@ func TestTUITools_CtrlO_NoDuplicationAndCleanToggle(t *testing.T) {
 
 	// Check blocks count: should have exactly 1 thought block
 	thoughtBlocks := 0
-	for _, b := range m.engine.blocks {
+	for _, b := range m.conversation.blocks {
 		for _, s := range b.Steps {
 			if s.Kind == toolsteps.KindThought {
 				thoughtBlocks++
@@ -1510,7 +1510,7 @@ func TestTUITools_CtrlO_NoDuplicationAndCleanToggle(t *testing.T) {
 		}
 	}
 	if thoughtBlocks != 1 {
-		t.Fatalf("expected exactly 1 thought block in m.engine.blocks, got %d", thoughtBlocks)
+		t.Fatalf("expected exactly 1 thought block in m.conversation.blocks, got %d", thoughtBlocks)
 	}
 
 	// Repeated toggling ctrl+o after turn completes
@@ -1518,8 +1518,8 @@ func TestTUITools_CtrlO_NoDuplicationAndCleanToggle(t *testing.T) {
 		m.Update(ctrlKey('o'))
 	}
 
-	// Check for any duplicate "Thought for" in m.engine.response
-	joined := strings.Join(m.engine.response, "\n")
+	// Check for any duplicate "Thought for" in m.conversation.response
+	joined := strings.Join(m.conversation.response, "\n")
 	thoughtOccurrences := strings.Count(joined, "Thought for")
 	if thoughtOccurrences != 1 {
 		t.Fatalf("expected 'Thought for' to appear exactly once in response, got %d times in:\n%s", thoughtOccurrences, joined)
@@ -1529,18 +1529,18 @@ func TestTUITools_CtrlO_NoDuplicationAndCleanToggle(t *testing.T) {
 	if m.isExpanded() {
 		m.Update(ctrlKey('o'))
 	}
-	linesCollapsed := len(m.engine.response)
+	linesCollapsed := len(m.conversation.response)
 	m.Update(ctrlKey('o')) // expand
 	m.Update(ctrlKey('o')) // collapse
-	if len(m.engine.response) != linesCollapsed {
-		t.Fatalf("response line count changed after expand+collapse: was %d, now %d", linesCollapsed, len(m.engine.response))
+	if len(m.conversation.response) != linesCollapsed {
+		t.Fatalf("response line count changed after expand+collapse: was %d, now %d", linesCollapsed, len(m.conversation.response))
 	}
 }
 
 func TestTUITools_SpinnerTips(t *testing.T) {
-	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/tmp", true)
+	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/tmp", true)
 	m.Update(tea.WindowSizeMsg{Width: 80, Height: 30})
-	m.engine.streaming = true
+	m.conversation.streaming = true
 	m.viewport.activeTip = "Use /help to see all commands."
 
 	rows := m.liveRows(80)
@@ -1570,7 +1570,7 @@ func TestTUITools_SpinnerTips(t *testing.T) {
 }
 
 func TestTUITools_BatchGrouping_WithIntermediateText(t *testing.T) {
-	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/tmp", true)
+	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/tmp", true)
 	m.Update(tea.WindowSizeMsg{Width: 90, Height: 30})
 
 	// Start two consecutive tool calls in batch 1
@@ -1585,14 +1585,14 @@ func TestTUITools_BatchGrouping_WithIntermediateText(t *testing.T) {
 	m.Update(toolsteps.ToolStepMsg{Step: step2Done})
 
 	// In collapsed mode, batch 1 must be folded into a single row
-	contentCollapsed := diffaction.StripANSI(strings.Join(m.engine.response, "\n"))
+	contentCollapsed := diffaction.StripANSI(strings.Join(m.conversation.response, "\n"))
 	if !strings.Contains(contentCollapsed, "Ran 2 commands (echo one · echo two) (ctrl+o to expand)") {
 		t.Fatalf("expected collapsed summary for 2 commands, got:\n%s", contentCollapsed)
 	}
 
 	// Expand: should show both commands tightly packed without blank lines between them
 	m.Update(ctrlKey('o'))
-	contentExpanded := diffaction.StripANSI(strings.Join(m.engine.response, "\n"))
+	contentExpanded := diffaction.StripANSI(strings.Join(m.conversation.response, "\n"))
 	if !strings.Contains(contentExpanded, "echo one") || !strings.Contains(contentExpanded, "echo two") {
 		t.Fatalf("expected expanded view to list both commands:\n%s", contentExpanded)
 	}
@@ -1627,7 +1627,7 @@ func TestTUITools_BatchGrouping_WithIntermediateText(t *testing.T) {
 	step3Done := toolsteps.NewToolStep("run_command", json.RawMessage(`{"CommandLine":"echo three"}`), "Output:\nthree\n", false)
 	m.Update(toolsteps.ToolStepMsg{Step: step3Done})
 
-	contentAfterBreak := diffaction.StripANSI(strings.Join(m.engine.response, "\n"))
+	contentAfterBreak := diffaction.StripANSI(strings.Join(m.conversation.response, "\n"))
 	// Batch 1 summary should remain above the text
 	idxBatch1 := strings.Index(contentAfterBreak, "Ran 2 commands")
 	idxText := strings.Index(contentAfterBreak, "I completed the checks")

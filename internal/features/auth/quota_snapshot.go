@@ -16,10 +16,8 @@
 //
 // The response has one group per model family ("GEMINI MODELS",
 // "CLAUDE AND GPT MODELS") and one bucket per window inside a group
-// (the weekly limit and the five-hour limit). The panel wants one
-// number per window, so it takes the *lowest* remaining fraction
-// across the groups: the most constrained window is the one that
-// decides whether the account can keep working.
+// (the weekly limit and the five-hour limit). The panel tracks the
+// Gemini models quota; Claude and GPT groups are ignored.
 package auth
 
 import (
@@ -138,29 +136,56 @@ func QuotaWindow(displayName, window string) string {
 	return ""
 }
 
-// WeeklyRemaining returns the lowest weekly remaining fraction across
-// the snapshot's groups. It reports false when the snapshot holds no
-// weekly bucket — a quota response from a plan that has none.
+// WeeklyRemaining returns the weekly remaining fraction for Gemini
+// models. It reports false when the snapshot holds no weekly bucket — a
+// quota response from a plan that has none.
 func (s *QuotaSnapshot) WeeklyRemaining() (float64, bool) {
 	return s.remainingIn(QuotaWindowWeekly)
 }
 
-// FiveHourRemaining returns the lowest five-hour remaining fraction
-// across the snapshot's groups. It reports false when the snapshot
-// holds no five-hour bucket.
+// FiveHourRemaining returns the five-hour remaining fraction for Gemini
+// models. It reports false when the snapshot holds no five-hour bucket.
 func (s *QuotaSnapshot) FiveHourRemaining() (float64, bool) {
 	return s.remainingIn(QuotaWindowFiveHour)
 }
 
 // remainingIn returns the lowest remaining fraction of the buckets in
-// the given window.
+// the given window for Gemini models. Non-Gemini groups (such as Claude/GPT)
+// are ignored. If no explicit Gemini group is matched, it falls back to
+// searching groups that are not Claude/GPT (e.g. for snapshots without
+// explicit group names).
 func (s *QuotaSnapshot) remainingIn(window string) (float64, bool) {
 	if s == nil {
 		return 0, false
 	}
 	found := false
 	lowest := 0.0
+
+	// Check Gemini groups first.
 	for _, g := range s.Groups {
+		if strings.Contains(strings.ToLower(g.Name), "gemini") {
+			for _, b := range g.Buckets {
+				if QuotaWindow(b.DisplayName, b.Window) != window {
+					continue
+				}
+				if !found || b.RemainingFraction < lowest {
+					lowest = b.RemainingFraction
+					found = true
+				}
+			}
+		}
+	}
+	if found {
+		return lowest, true
+	}
+
+	// Fallback for snapshots where group names do not explicitly mention "gemini",
+	// skipping groups explicitly named claude or gpt.
+	for _, g := range s.Groups {
+		name := strings.ToLower(g.Name)
+		if strings.Contains(name, "claude") || strings.Contains(name, "gpt") {
+			continue
+		}
 		for _, b := range g.Buckets {
 			if QuotaWindow(b.DisplayName, b.Window) != window {
 				continue

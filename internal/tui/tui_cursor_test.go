@@ -7,7 +7,7 @@ import (
 )
 
 func TestCursor_HiddenWhenHelpActive(t *testing.T) {
-	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/tmp", true)
+	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/tmp", true)
 	m.viewport.width = 80
 	m.viewport.height = 24
 
@@ -18,8 +18,8 @@ func TestCursor_HiddenWhenHelpActive(t *testing.T) {
 	}
 
 	// Open /help on tab 0 (guides/about).
-	m.viewport.helpPanel.Open(0)
-	if !m.viewport.helpPanel.Active() {
+	m.help.Panel.Open(0)
+	if !m.help.Panel.Active() {
 		t.Fatal("help panel should be active")
 	}
 	v = m.View()
@@ -28,14 +28,14 @@ func TestCursor_HiddenWhenHelpActive(t *testing.T) {
 	}
 
 	// Open on tab 2 (shortcuts).
-	m.viewport.helpPanel.Open(2)
+	m.help.Panel.Open(2)
 	v = m.View()
 	if v.Cursor != nil {
 		t.Errorf("cursor must be hidden in /help mode (tab 2 shortcuts), got: %+v", v.Cursor)
 	}
 
 	// Close help panel: cursor should be visible again.
-	m.viewport.helpPanel.Cancel()
+	m.help.Panel.Cancel()
 	v = m.View()
 	if v.Cursor == nil {
 		t.Fatal("cursor should be restored after closing /help")
@@ -60,7 +60,7 @@ func TestCursor_HiddenWhenSlashPanelsActive(t *testing.T) {
 
 	for _, pt := range panelsToTest {
 		t.Run(pt.cmd, func(t *testing.T) {
-			m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/tmp", true)
+			m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/tmp", true)
 			m.viewport.width = 80
 			m.viewport.height = 24
 
@@ -84,7 +84,7 @@ func TestCursor_HiddenWhenSlashPanelsActive(t *testing.T) {
 }
 
 func TestCursor_HiddenWhenResumePickerActive(t *testing.T) {
-	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/tmp", true)
+	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/tmp", true)
 	m.viewport.width = 80
 	m.viewport.height = 24
 
@@ -105,21 +105,21 @@ func TestCursor_HiddenWhenResumePickerActive(t *testing.T) {
 }
 
 func TestCursor_HiddenWhenActiveItemsFocused(t *testing.T) {
-	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/tmp", true)
+	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/tmp", true)
 	m.viewport.width = 80
 	m.viewport.height = 24
 
-	if m.viewport.activeItems == nil {
+	if m.activeItems.Panel == nil {
 		t.Skip("activeItems is nil")
 	}
 
-	m.viewport.activeItems.SetFocus(true)
+	m.activeItems.Panel.SetFocus(true)
 	v := m.View()
 	if v.Cursor != nil {
 		t.Errorf("cursor must be hidden when activeItems is focused, got: %+v", v.Cursor)
 	}
 
-	m.viewport.activeItems.SetFocus(false)
+	m.activeItems.Panel.SetFocus(false)
 	v = m.View()
 	if v.Cursor == nil {
 		t.Fatal("cursor should be restored when activeItems is unfocused")

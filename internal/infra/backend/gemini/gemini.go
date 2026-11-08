@@ -187,6 +187,15 @@ type GeminiConfig struct {
 // withDefaults fills in the values that can be defaulted.
 func (c GeminiConfig) withDefaults() GeminiConfig {
 	c.BaseURL = strings.TrimRight(strings.TrimSpace(c.BaseURL), "/")
+	// AGY 1.5.3: "Fixed every model request failing with a 404 error when
+	// an enterprise model gateway URL ended in /v1beta, even though the
+	// model list loaded; a trailing /v1beta in the gateway URL is now
+	// ignored." The endpoint builder appends its own version segment, so
+	// a base URL that already carries one would otherwise double it
+	// (/v1beta/v1beta/...).
+	if strings.HasSuffix(c.BaseURL, "/"+GeminiAPIVersion) {
+		c.BaseURL = strings.TrimSuffix(c.BaseURL, "/"+GeminiAPIVersion)
+	}
 	if c.APIVersion == "" {
 		c.APIVersion = GeminiAPIVersion
 	}
@@ -241,7 +250,6 @@ func (c *GeminiClient) functionCallingModeOrDefault() string {
 	}
 	return "AUTO"
 }
-
 
 // NewGeminiWithConfig returns a backend.Client for the supplied config. A non-nil
 // HTTPClient is preserved (tests inject a stub server).
@@ -946,4 +954,3 @@ func geminiHasFunctionResponse(c geminiContent) bool {
 	}
 	return false
 }
-

@@ -27,7 +27,7 @@ import (
 	"strconv"
 	"strings"
 
-	interaction "github.com/justwasm/pigasus/internal/core/seam"
+	"github.com/justwasm/pigasus/internal/core/interaction"
 )
 
 // lsAskQuestionResponse is one answered question: the proto-JSON form

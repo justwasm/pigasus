@@ -25,7 +25,6 @@ import (
 	"github.com/justwasm/pigasus/internal/app/tools/surface"
 	"github.com/justwasm/pigasus/internal/core/backend"
 	"github.com/justwasm/pigasus/internal/core/cliflags"
-	"github.com/justwasm/pigasus/internal/core/compaction"
 	confhome "github.com/justwasm/pigasus/internal/core/confhome"
 	"github.com/justwasm/pigasus/internal/core/policy/permissions"
 	settings "github.com/justwasm/pigasus/internal/core/settings"
@@ -40,6 +39,7 @@ import (
 	"github.com/justwasm/pigasus/internal/features/tools/skills"
 	backendselect "github.com/justwasm/pigasus/internal/infra/backend/select"
 	persistentrc "github.com/justwasm/pigasus/internal/infra/remote/persistent"
+	"github.com/justwasm/pigasus/internal/infra/remoteagentclient"
 	"github.com/justwasm/pigasus/internal/printmode"
 	"github.com/justwasm/pigasus/internal/rchost"
 	"github.com/justwasm/pigasus/internal/tui/commands"
@@ -99,7 +99,7 @@ import (
 // capture held the failure and the clone reproduced it — a false
 // statement about the reader's own quota (see slash_browser.go).
 //
-// Handlers mutate m.engine.response to show user echo + feedback, reset
+// Handlers mutate m.conversation.response to show user echo + feedback, reset
 // m.composer.input/m.composer.picker, and never call the model — except the five prompt-
 // sending commands above, which delegate to sendAsPrompt.
 //
@@ -122,7 +122,7 @@ import (
 // prompt area (or, in our case, the transcript with prompt-area styling),
 // matching REF's class-B special case (TODO.md §2.2).
 
-// slashRespond appends the REF-style slash command echo block to m.engine.response.
+// slashRespond appends the REF-style slash command echo block to m.conversation.response.
 //
 //	> /<cmd>          (bold blue)
 //	  ⎿  <msg>        (bold blue prefix + muted body)
@@ -130,28 +130,28 @@ import (
 //	<blank>
 //
 // The block's bytes belong to the ui tier (tuilib.SlashEchoLines); this
-// method owns only what the host owns: the rows land in m.engine.response and
+// method owns only what the host owns: the rows land in m.conversation.response and
 // the transcript's row cache is marked stale.
 //
 // Use this for every response-producing case. Multi-line responses pass
 // the additional lines as extra; they appear after the `⎿` wrapper and
 // before the trailing blank (matches /voice and /remote-control in REF).
-func (m *runMode) slashRespond(cmd, msg string, extra ...string) {
-	m.engine.response = append(m.engine.response, tuilib.SlashEchoLines(cmd, msg, extra...)...)
+func (m *RootModel) slashRespond(cmd, msg string, extra ...string) {
+	m.conversation.response = append(m.conversation.response, tuilib.SlashEchoLines(cmd, msg, extra...)...)
 	m.viewport.rowsCacheDirty = true
 }
 
-// slashRespondPlain appends a single message line to m.engine.response WITHOUT
+// slashRespondPlain appends a single message line to m.conversation.response WITHOUT
 // the `> /cmd` + `⎿` wrapper. Use for /compact's "Nothing to compact yet."
 // message — REF special-cases /compact: no `> /cmd` line, no `⎿` wrapper,
 // the text appears in the prompt area as `> <msg>`. We approximate that
 // by writing the styled line to the transcript instead.
-func (m *runMode) slashRespondPlain(msg string) {
-	m.engine.response = append(m.engine.response, panelGray238+msg+panelGray238C)
+func (m *RootModel) slashRespondPlain(msg string) {
+	m.conversation.response = append(m.conversation.response, panelGray238+msg+panelGray238C)
 	m.viewport.rowsCacheDirty = true
 }
 
-type slashHandler func(m *runMode, args string) (bool, tea.Cmd)
+type slashHandler func(m *RootModel, args string) (bool, tea.Cmd)
 
 // slashHandlers is the host's command table: the canonical name of
 // every command the host answers with a handler of its own.
@@ -167,62 +167,62 @@ type slashHandler func(m *runMode, args string) (bool, tea.Cmd)
 // alias of "/fork", but the host answers "/branch" with a command of
 // its own, so the word is a command name here and the vocabulary
 // resolves it to itself.
+//
+// The commands that already live in internal/tui/commands are absent on
+// purpose: clear, exit, help, copy, feedback and compact are registered
+// by RegisterSessionCommands, steer by RegisterEngineCommands. Listing
+// them twice made registration order decide which handler ran.
 var slashHandlers map[string]slashHandler
 
 func init() {
 	slashHandlers = map[string]slashHandler{
-		"clear":            (*runMode).slashClear,
-		"exit":             (*runMode).slashExit,
-		"help":             (*runMode).slashHelp,
-		"model":            (*runMode).slashModel,
-		"config":           (*runMode).slashConfig,
-		"context":          (*runMode).slashContext,
-		"continue":         (*runMode).slashContinue,
-		"copy":             (*runMode).slashCopy,
-		"credits":          (*runMode).slashCredits,
-		"diff":             (*runMode).slashDiff,
-		"effort":           (*runMode).slashEffort,
-		"feedback":         (*runMode).slashFeedback,
-		"feature-diff":     (*runMode).slashFeatureDiff,
-		"fork":             (*runMode).slashFork,
-		"hooks":            (*runMode).slashHooks,
-		"keybindings":      (*runMode).slashKeybindings,
-		"logout":           (*runMode).slashLogout,
-		"login":            (*runMode).slashLogin,
-		"mcp":              (*runMode).slashMCP,
-		"open":             (*runMode).slashOpen,
-		"permissions":      (*runMode).slashPermissions,
-		"plugin":           (*runMode).slashPlugin,
-		"projects":         (*runMode).slashProjects,
-		"remote-control":   (*runMode).slashRemoteControl,
-		"rename":           (*runMode).slashRename,
-		"resume":           (*runMode).slashResume,
-		"rewind":           (*runMode).slashRewind,
-		"skills":           (*runMode).slashSkills,
-		"statusline":       (*runMode).slashStatusline,
-		"tasks":            (*runMode).slashTasks,
-		"title":            (*runMode).slashTitle,
-		"usage":            (*runMode).slashUsage,
-		"voice":            (*runMode).slashVoice,
-		"add-dir":          (*runMode).slashAddDir,
-		"agents":           (*runMode).slashAgents,
-		"artifact":         (*runMode).slashArtifact,
-		"btw":              (*runMode).slashBtw,
-		"changelog":        (*runMode).slashChangelog,
-		"codesearch":       (*runMode).slashCodesearch,
-		"quote":            (*runMode).slashQuote,
-		"compact":          (*runMode).slashCompact,
-		"browser":          (*runMode).slashBrowser,
-		"plan":             (*runMode).slashPlan,
-		"goal":             (*runMode).slashGoal,
-		"learn":            (*runMode).slashLearn,
-		"teamwork-preview": (*runMode).slashTeamwork,
-		"boost":            (*runMode).slashBoost,
-		"grill-me":         (*runMode).slashGrillMe,
-		"schedule":         (*runMode).slashSchedule,
-		"branch":           (*runMode).slashBranch,
-		"narration":        (*runMode).slashNarration,
-		"share":            (*runMode).slashShare,
+		"config":           (*RootModel).slashConfig,
+		"context":          (*RootModel).slashContext,
+		"continue":         (*RootModel).slashContinue,
+		"credits":          (*RootModel).slashCredits,
+		"diff":             (*RootModel).slashDiff,
+		"effort":           (*RootModel).slashEffort,
+		"feature-diff":     (*RootModel).slashFeatureDiff,
+		"fork":             (*RootModel).slashFork,
+		"hooks":            (*RootModel).slashHooks,
+		"keybindings":      (*RootModel).slashKeybindings,
+		"logout":           (*RootModel).slashLogout,
+		"login":            (*RootModel).slashLogin,
+		"mcp":              (*RootModel).slashMCP,
+		"open":             (*RootModel).slashOpen,
+		"permissions":      (*RootModel).slashPermissions,
+		"plugin":           (*RootModel).slashPlugin,
+		"projects":         (*RootModel).slashProjects,
+		"remote-control":   (*RootModel).slashRemoteControl,
+		"rename":           (*RootModel).slashRename,
+		"rewind":           (*RootModel).slashRewind,
+		"skills":           (*RootModel).slashSkills,
+		"statusline":       (*RootModel).slashStatusline,
+		"terminal":         (*RootModel).slashTerminal,
+		"upload":           (*RootModel).slashUpload,
+		"triggers":         (*RootModel).slashTriggers,
+		"tasks":            (*RootModel).slashTasks,
+		"title":            (*RootModel).slashTitle,
+		"usage":            (*RootModel).slashUsage,
+		"voice":            (*RootModel).slashVoice,
+		"add-dir":          (*RootModel).slashAddDir,
+		"agents":           (*RootModel).slashAgents,
+		"artifact":         (*RootModel).slashArtifact,
+		"btw":              (*RootModel).slashBtw,
+		"changelog":        (*RootModel).slashChangelog,
+		"codesearch":       (*RootModel).slashCodesearch,
+		"quote":            (*RootModel).slashQuote,
+		"browser":          (*RootModel).slashBrowser,
+		"plan":             (*RootModel).slashPlan,
+		"goal":             (*RootModel).slashGoal,
+		"learn":            (*RootModel).slashLearn,
+		"teamwork-preview": (*RootModel).slashTeamwork,
+		"boost":            (*RootModel).slashBoost,
+		"grill-me":         (*RootModel).slashGrillMe,
+		"schedule":         (*RootModel).slashSchedule,
+		"branch":           (*RootModel).slashBranch,
+		"narration":        (*RootModel).slashNarration,
+		"share":            (*RootModel).slashShare,
 	}
 }
 
@@ -232,17 +232,17 @@ func init() {
 // caller can fall back to sending it to the LLM. cmd may be nil for
 // commands that don't need to schedule anything (most) or non-nil for
 // commands like /exit that need tea.Quit to terminate the program.
-func (m *runMode) handleSlashCommand(buf string) (bool, tea.Cmd) {
+func (m *RootModel) handleSlashCommand(buf string) (bool, tea.Cmd) {
 	if len(buf) == 0 || buf[0] != '/' {
 		return false, nil
 	}
 
-	m.composer.input.Reset()
-	if m.composer.undoMgr != nil {
-		m.composer.undoMgr.Clear()
+	m.prompt.input.Reset()
+	if m.prompt.undoMgr != nil {
+		m.prompt.undoMgr.Clear()
 	}
-	m.composer.picker.Reset()
-	m.composer.promptHistory.Reset()
+	m.prompt.picker.Reset()
+	m.prompt.promptHistory.Reset()
 
 	disp := m.commandDispatcher()
 	handled, cmd := disp.Dispatch(buf)
@@ -260,15 +260,22 @@ func (m *runMode) handleSlashCommand(buf string) (bool, tea.Cmd) {
 	return true, nil
 }
 
-func (m *runMode) StartManualCompact(instructions string) {
+func (m *RootModel) StartManualCompact(instructions string) {
 	m.startManualCompact(instructions)
 }
 
-func (m *runMode) HostActionSeams() hostactions.Seams {
+func (m *RootModel) HostActionSeams() hostactions.Seams {
 	return m.hostActionSeams()
 }
 
-func (m *runMode) commandDispatcher() *commands.Dispatcher {
+// commandDispatcher returns the slash-command table, building it on first
+// use. The table is a property of the run, not of a command: rebuilding it
+// used to re-register 50+ handlers on every keystroke and let two entries
+// answer the same name.
+func (m *RootModel) commandDispatcher() *commands.Dispatcher {
+	if m.commands.dispatcher != nil {
+		return m.commands.dispatcher
+	}
 	d := commands.NewDispatcher(m)
 	for name, h := range slashHandlers {
 		fn := h
@@ -277,43 +284,77 @@ func (m *runMode) commandDispatcher() *commands.Dispatcher {
 		})
 	}
 	commands.RegisterSessionCommands(d, m)
+	commands.RegisterEngineCommands(d, m)
 	d.Register("agent", func(args string) (bool, tea.Cmd) {
 		return m.slashAgentCmd(args)
 	})
 	d.RegisterChained(func(cmds []string, task string) (bool, tea.Cmd) {
 		return m.handleChainedSlashCommands(cmds, task)
 	})
+	m.commands.dispatcher = d
 	return d
 }
 
-func (m *runMode) IsStreaming() bool {
-	return m.engine.streaming
+// dispatchesCommand reports whether the host answers name itself, either
+// from the legacy table or from the migrated command dispatcher.
+func (m *RootModel) dispatchesCommand(name string) bool {
+	if name == "agent" {
+		return true
+	}
+	if _, ok := slashHandlers[name]; ok {
+		return true
+	}
+	return m.commandDispatcher().Has(name)
 }
 
-func (m *runMode) SetInputNotice(msg string) {
+func (m *RootModel) IsStreaming() bool {
+	return m.conversation.streaming
+}
+
+func (m *RootModel) SetInputNotice(msg string) {
 	m.viewport.inputNotice = msg
 }
 
-func (m *runMode) HandleChainedSlashCommands(commands []string, task string) (bool, tea.Cmd) {
+func (m *RootModel) HandleChainedSlashCommands(commands []string, task string) (bool, tea.Cmd) {
 	return m.handleChainedSlashCommands(commands, task)
 }
 
-func (m *runMode) SendAsPrompt(token, prompt string) tea.Cmd {
+func (m *RootModel) SendAsPrompt(token, prompt string) tea.Cmd {
 	return m.sendAsPrompt(token, prompt)
 }
 
-func (m *runMode) TurnEngine() any {
+func (m *RootModel) TurnEngine() any {
 	return m.turnEngine()
 }
 
-func (m *runMode) LookupSkillPrompt(name, args string) (string, bool) {
+// ApplyModelArgument applies "/model <name>". The dispatcher owns the
+// command; the host owns the catalogue lookup and the live engine switch.
+func (m *RootModel) ApplyModelArgument(arg string) tea.Cmd {
+	return m.applyModelArgument(arg)
+}
+
+// ShowModelList renders the bare "/model" listing.
+func (m *RootModel) ShowModelList() {
+	if m.session.flags != nil {
+		m.slashContent(printmode.PrintSlashModels(m.session.flags))
+		return
+	}
+	m.slashContent(modelcatalog.ModelSlug(m.session.model) + "\t" + m.session.model)
+}
+
+// OpenResumePicker opens the conversation picker.
+func (m *RootModel) OpenResumePicker() error {
+	return m.overlays.resumePicker.Open()
+}
+
+func (m *RootModel) LookupSkillPrompt(name, args string) (string, bool) {
 	if skill, ok := slashSkillLookup(name); ok {
 		return printmode.SlashSkillPrompt(skill, args), true
 	}
 	return "", false
 }
 
-func (m *runMode) slashAgentCmd(args string) (bool, tea.Cmd) {
+func (m *RootModel) slashAgentCmd(args string) (bool, tea.Cmd) {
 	trimmed := strings.TrimSpace(args)
 	if trimmed == "" {
 		m.slashRespond("/agent", "Usage: /agent <command> [args] - dispatch a command directly to the active agent")
@@ -338,20 +379,20 @@ func (m *runMode) slashAgentCmd(args string) (bool, tea.Cmd) {
 // The print handlers emit tab-separated rows; a raw tab collapses in the TUI
 // renderer, so the columns are laid out by the ui tier's own row layout
 // (rows.TabAlignedRows). This method owns only what the host owns: the rows
-// land in m.engine.response.
-func (m *runMode) slashContent(text string) {
-	m.engine.response = append(m.engine.response, rows.TabAlignedRows(text)...)
+// land in m.conversation.response.
+func (m *RootModel) slashContent(text string) {
+	m.conversation.response = append(m.conversation.response, rows.TabAlignedRows(text)...)
 }
 
-func (m *runMode) applyQuoteInsert(content string) tea.Cmd {
-	m.composer.input.SetValue(content)
-	m.composer.promptHistory.Reset()
-	m.composer.picker.Update([]rune(tuilib.FirstLine(content)))
+func (m *RootModel) applyQuoteInsert(content string) tea.Cmd {
+	m.prompt.input.SetValue(content)
+	m.prompt.promptHistory.Reset()
+	m.prompt.picker.Update([]rune(tuilib.FirstLine(content)))
 	return nil
 }
 
-func (m *runMode) handleQuote(args string) (bool, tea.Cmd) {
-	content, errMsg := slashquote.ResolveQuote(args, m.engine.session)
+func (m *RootModel) handleQuote(args string) (bool, tea.Cmd) {
+	content, errMsg := slashquote.ResolveQuote(args, m.SessionMessages())
 	if errMsg != "" {
 		m.slashRespond("/quote", errMsg)
 		return true, nil
@@ -360,19 +401,19 @@ func (m *runMode) handleQuote(args string) (bool, tea.Cmd) {
 	return true, cmd
 }
 
-func (m *runMode) sendAsPrompt(token, prompt string) tea.Cmd {
+func (m *RootModel) sendAsPrompt(token, prompt string) tea.Cmd {
 	m.pushHistory(token)
-	m.composer.input.Reset()
-	m.engine.streaming = true
-	m.composer.promptHistory.Reset()
-	m.engine.response = append(m.engine.response, "> "+token)
-	m.engine.liveStart = len(m.engine.response)
-	m.engine.liveSteps = nil
-	m.engine.activeTool = ""
-	m.engine.thinking = false
-	m.composer.picker.Reset()
+	m.prompt.input.Reset()
+	m.conversation.streaming = true
+	m.prompt.promptHistory.Reset()
+	m.conversation.response = append(m.conversation.response, "> "+token)
+	m.conversation.liveStart = len(m.conversation.response)
+	m.conversation.liveSteps = nil
+	m.conversation.activeTool = ""
+	m.conversation.thinking = false
+	m.prompt.picker.Reset()
 	m.appendUserTurn(prompt)
-	tickCmd := func() tea.Msg { return m.engine.spinner.Tick() }
+	tickCmd := func() tea.Msg { return m.conversation.spinner.Tick() }
 	return tea.Batch(m.streamPrompt(prompt), tickCmd)
 }
 
@@ -380,7 +421,7 @@ func boostPrompt() string {
 	return fmt.Sprintf("<ORCHESTRATOR>\n%s\n</ORCHESTRATOR>", builtin.OrchestratorPrompt())
 }
 
-func (m *runMode) handleChainedSlashCommands(cmds []string, task string) (bool, tea.Cmd) {
+func (m *RootModel) handleChainedSlashCommands(cmds []string, task string) (bool, tea.Cmd) {
 	if len(cmds) == 0 {
 		return false, nil
 	}
@@ -421,8 +462,8 @@ func (m *runMode) handleChainedSlashCommands(cmds []string, task string) (bool, 
 		if m.session.policy != nil {
 			m.session.policy.Mode = permissions.ModePlan
 		}
-		m.composer.input.Placeholder = permissions.ModeBanner(permissions.ModePlan)
-		m.composer.modeHintDismissed = false
+		m.prompt.input.Placeholder = permissions.ModeBanner(permissions.ModePlan)
+		m.prompt.modeHintDismissed = false
 	}
 
 	if hasGoal {
@@ -433,7 +474,7 @@ func (m *runMode) handleChainedSlashCommands(cmds []string, task string) (bool, 
 		if goalText == "" {
 			goalText = "Help me set a clear goal for this session"
 		}
-		m.session.activeGoal = convstore.NewGoalState(goalText, len(m.engine.session))
+		m.session.activeGoal = convstore.NewGoalState(goalText, m.session.messageCount())
 	}
 
 	// 2. Compose prompts
@@ -486,7 +527,7 @@ func (m *runMode) handleChainedSlashCommands(cmds []string, task string) (bool, 
 	return true, m.sendAsPrompt(token, finalPrompt)
 }
 
-func (m *runMode) slashPlan(args string) (bool, tea.Cmd) {
+func (m *RootModel) slashPlan(args string) (bool, tea.Cmd) {
 	trimmed := strings.TrimSpace(args)
 	if strings.HasPrefix(trimmed, "/") {
 		cmds, task := slashparse.ParseLeadingCommands("/plan " + trimmed)
@@ -499,8 +540,8 @@ func (m *runMode) slashPlan(args string) (bool, tea.Cmd) {
 	if m.session.policy != nil {
 		m.session.policy.Mode = permissions.ModePlan
 	}
-	m.composer.input.Placeholder = permissions.ModeBanner(permissions.ModePlan)
-	m.composer.modeHintDismissed = false
+	m.prompt.input.Placeholder = permissions.ModeBanner(permissions.ModePlan)
+	m.prompt.modeHintDismissed = false
 
 	prompt := slashactions.PlanPrompt()
 	if trimmed != "" {
@@ -509,7 +550,7 @@ func (m *runMode) slashPlan(args string) (bool, tea.Cmd) {
 	return true, m.sendAsPrompt("/plan", prompt)
 }
 
-func (m *runMode) slashGoal(args string) (bool, tea.Cmd) {
+func (m *RootModel) slashGoal(args string) (bool, tea.Cmd) {
 	trimmed := strings.TrimSpace(args)
 	if strings.HasPrefix(trimmed, "/") {
 		cmds, task := slashparse.ParseLeadingCommands("/goal " + trimmed)
@@ -528,11 +569,11 @@ func (m *runMode) slashGoal(args string) (bool, tea.Cmd) {
 	} else {
 		goalText = "Help me set a clear goal for this session"
 	}
-	m.session.activeGoal = convstore.NewGoalState(goalText, len(m.engine.session))
+	m.session.activeGoal = convstore.NewGoalState(goalText, m.session.messageCount())
 	return true, m.sendAsPrompt("/goal", prompt)
 }
 
-func (m *runMode) slashLearn(args string) (bool, tea.Cmd) {
+func (m *RootModel) slashLearn(args string) (bool, tea.Cmd) {
 	trimmed := strings.TrimSpace(args)
 	if strings.HasPrefix(trimmed, "/") {
 		cmds, task := slashparse.ParseLeadingCommands("/learn " + trimmed)
@@ -550,7 +591,7 @@ func (m *runMode) slashLearn(args string) (bool, tea.Cmd) {
 // it), and "/teamwork" is the alias the documentation advertises for
 // it. Every other prompt-sending command echoes its canonical name
 // too, so the alias and the command produce the same bytes.
-func (m *runMode) slashTeamwork(args string) (bool, tea.Cmd) {
+func (m *RootModel) slashTeamwork(args string) (bool, tea.Cmd) {
 	trimmed := strings.TrimSpace(args)
 	if strings.HasPrefix(trimmed, "/") {
 		cmds, task := slashparse.ParseLeadingCommands("/teamwork-preview " + trimmed)
@@ -565,7 +606,7 @@ func (m *runMode) slashTeamwork(args string) (bool, tea.Cmd) {
 	return true, m.sendAsPrompt("/teamwork-preview", prompt)
 }
 
-func (m *runMode) slashBoost(args string) (bool, tea.Cmd) {
+func (m *RootModel) slashBoost(args string) (bool, tea.Cmd) {
 	clean := strings.TrimSpace(args)
 	if strings.HasPrefix(clean, "/") {
 		cmds, task := slashparse.ParseLeadingCommands("/boost " + clean)
@@ -580,7 +621,7 @@ func (m *runMode) slashBoost(args string) (bool, tea.Cmd) {
 	return true, m.sendAsPrompt("/boost", prompt)
 }
 
-func (m *runMode) slashGrillMe(args string) (bool, tea.Cmd) {
+func (m *RootModel) slashGrillMe(args string) (bool, tea.Cmd) {
 	clean := strings.TrimSpace(args)
 	if strings.HasPrefix(clean, "/") {
 		cmds, task := slashparse.ParseLeadingCommands("/grill-me " + clean)
@@ -599,42 +640,45 @@ func (m *runMode) slashGrillMe(args string) (bool, tea.Cmd) {
 
 // slash_commands_handlers.go — individual slash command action handlers.
 
-func (m *runMode) hostActionSeams() hostactions.Seams {
+func (m *RootModel) hostActionSeams() hostactions.Seams {
 	return hostactions.Seams{
 		AbortTurn: m.abortTurnForLocalCommand,
 		ClearState: func() {
-			if m.session.conversationStarted || len(m.engine.session) > 0 {
+			if m.session.conversationStarted || m.session.messageCount() > 0 {
 				m.saveSession()
 			}
-			if m.session.supervisor != nil {
-				m.session.supervisor.Clear()
+			if sup := m.session.sup(); sup != nil {
+				sup.Clear()
 			}
-			m.engine.response = nil
-			m.engine.session = nil
-			m.engine.blocks = nil
-			m.engine.liveSteps = nil
-			m.engine.liveStepRuns = nil
-			m.engine.activeTool = ""
+			m.conversation.response = nil
+			m.session.bumpEpoch()
+			m.conversation.blocks = nil
+			m.conversation.liveSteps = nil
+			m.conversation.liveStepRuns = nil
+			m.conversation.activeTool = ""
 			m.session.store.ClearStreamQueue()
-			m.engine.replyStart = -1
-			m.engine.liveReplyIdx = -1
-			m.engine.liveReplyBuf = ""
-			m.engine.streamedText = false
+			m.conversation.replyStart = -1
+			m.conversation.liveReplyIdx = -1
+			m.conversation.liveReplyBuf = ""
+			m.conversation.streamedText = false
 			m.session.wireSettingsPending = true
 			m.session.store.ResetSessionTokens()
 			m.session.autoTitle = ""
 			m.session.conversationID = newConversationID()
 			m.session.conversationStarted = false
 			m.session.hookSessionStarted = false
-			m.engine.subagentDefs = subagenttools.NewStore()
-			m.engine.subagentRegistry = subagenttools.NewRegistry(m.session.conversationID)
+			if resetter, ok := m.turn.engine.(agentturn.SessionResetter); ok {
+				resetter.ResetSession()
+			}
+			m.agents.defs = subagenttools.NewStore()
+			m.agents.registry = subagenttools.NewRegistry(m.session.conversationID)
 			m.resetTrajectory()
 		},
 		Quit: func() {
-			m.engine.quitting = true
+			m.display.quitting = true
 		},
 		OpenHelp: func() {
-			m.viewport.helpPanel.Open(0)
+			m.help.Panel.Open(0)
 		},
 		OpenPanel: func(cmd string) bool {
 			return m.openSlashPanel(cmd)
@@ -648,55 +692,28 @@ func (m *runMode) hostActionSeams() hostactions.Seams {
 			m.slashRespond(cmd, msg, extra...)
 		},
 		ResetInputs: func() {
-			m.composer.input.Reset()
-			m.composer.promptHistory.Reset()
+			m.prompt.input.Reset()
+			m.prompt.promptHistory.Reset()
 		},
 	}
 }
 
-func (m *runMode) slashClear(args string) (bool, tea.Cmd) {
-	hostactions.HandleClear(m.hostActionSeams(), args)
-	return true, nil
-}
-
-func (m *runMode) slashExit(args string) (bool, tea.Cmd) {
-	hostactions.HandleExit(m.hostActionSeams(), args)
-	return true, tea.Quit
-}
-
-func (m *runMode) slashHelp(args string) (bool, tea.Cmd) {
-	hostactions.HandleHelp(m.hostActionSeams(), args)
-	return true, nil
-}
-
-func (m *runMode) slashModel(args string) (bool, tea.Cmd) {
-	// "/model <name>" is a direct setter — the reference changes the
-	// model and echoes "Model set to <label>". Only a bare "/model" opens
-	// the Switch Model panel. 【一手】 agy 1.4.6, live.
-	if trimmed := slashparse.Trim(args); trimmed != "" {
-		return true, m.applyModelArgument(trimmed)
-	}
-	if m.session.flags != nil {
-		m.slashContent(printmode.PrintSlashModels(m.session.flags))
-	} else {
-		m.slashContent(modelcatalog.ModelSlug(m.session.model) + "\t" + m.session.model)
-	}
-	return true, nil
-}
-
-func (m *runMode) slashConfig(args string) (bool, tea.Cmd) {
+func (m *RootModel) slashConfig(args string) (bool, tea.Cmd) {
 	body := printmode.PrintSlashConfig()
 	m.slashContent(body)
 	customize.RecordToken("config", body)
 	return true, nil
 }
 
-func (m *runMode) slashContext(args string) (bool, tea.Cmd) {
+func (m *RootModel) slashContext(args string) (bool, tea.Cmd) {
 	m.slashRespond("/context", "Context usage: session has "+strconv.Itoa(m.sessionCount())+" message(s)")
 	return true, nil
 }
 
-func (m *runMode) slashContinue(args string) (bool, tea.Cmd) {
+func (m *RootModel) slashContinue(args string) (bool, tea.Cmd) {
+	if m.session.remoteAgent {
+		return m.slashContinueRemote()
+	}
 	id, _, err := convstore.ResolveContinue(m.session.cwd)
 	if err != nil {
 		m.slashRespond("/continue", "error: "+err.Error())
@@ -712,22 +729,17 @@ func (m *runMode) slashContinue(args string) (bool, tea.Cmd) {
 		return true, nil
 	}
 	m.session.conversationID = sel.ID
-	m.engine.response = nil
-	m.engine.session = nil
-	if m.session.supervisor != nil {
-		m.session.supervisor.Clear()
+	m.conversation.response = nil
+	m.session.bumpEpoch()
+	if sup := m.session.sup(); sup != nil {
+		sup.Clear()
 	}
-	m.engine.blocks = nil
-	m.engine.liveSteps = nil
-	m.engine.activeTool = ""
+	m.conversation.blocks = nil
+	m.conversation.liveSteps = nil
+	m.conversation.activeTool = ""
 	m.seedConversation(sel.Store)
 	m.session.autoTitle = ""
-	m.engine.response = append(m.engine.response, "  ⎿  Resumed conversation "+sel.ID)
-	return true, nil
-}
-
-func (m *runMode) slashCopy(args string) (bool, tea.Cmd) {
-	hostactions.HandleCopy(m.hostActionSeams(), args)
+	m.conversation.response = append(m.conversation.response, "  ⎿  Resumed conversation "+sel.ID)
 	return true, nil
 }
 
@@ -744,17 +756,20 @@ func (m *runMode) slashCopy(args string) (bool, tea.Cmd) {
 // The clone used to answer the command with an error line ("no credits info
 // found"), which is both the wrong surface and a wrong claim: the account's
 // G1 credits are readable (see internal/printmode/print_slash_credits.go).
-func (m *runMode) slashCredits(args string) (bool, tea.Cmd) {
+func (m *RootModel) slashCredits(args string) (bool, tea.Cmd) {
 	m.openSlashPanel("credits")
 	return true, nil
 }
 
-func (m *runMode) slashDiff(args string) (bool, tea.Cmd) {
+func (m *RootModel) slashDiff(args string) (bool, tea.Cmd) {
+	if m.session.remoteAgent {
+		return m.slashDiffRemote(args)
+	}
 	m.slashRespond("/diff", diffFeedback(m.session.cwd, m.viewport.width))
 	return true, nil
 }
 
-func (m *runMode) slashEffort(args string) (bool, tea.Cmd) {
+func (m *RootModel) slashEffort(args string) (bool, tea.Cmd) {
 	if trimmed := slashparse.Trim(args); trimmed != "" {
 		level, ok := printmode.ParseEffortWord(trimmed)
 		if !ok {
@@ -771,16 +786,11 @@ func (m *runMode) slashEffort(args string) (bool, tea.Cmd) {
 	return true, nil
 }
 
-func (m *runMode) slashFeedback(args string) (bool, tea.Cmd) {
-	hostactions.HandleFeedback(m.hostActionSeams(), args)
+func (m *RootModel) slashFeatureDiff(args string) (bool, tea.Cmd) {
 	return true, nil
 }
 
-func (m *runMode) slashFeatureDiff(args string) (bool, tea.Cmd) {
-	return true, nil
-}
-
-func (m *runMode) slashFork(args string) (bool, tea.Cmd) {
+func (m *RootModel) slashFork(args string) (bool, tea.Cmd) {
 	m.abortTurnForLocalCommand()
 	// Goal is cancelled on fork point
 	m.session.activeGoal = nil
@@ -819,21 +829,18 @@ func (m *runMode) slashFork(args string) (bool, tea.Cmd) {
 				Role:    "user",
 				Content: forkNotice,
 			}
-			m.engine.session = append(m.engine.session, noticeMsg)
-			if m.session.supervisor != nil {
-				m.session.supervisor.Append(noticeMsg)
-			}
+			m.session.appendMessage(noticeMsg)
 			m.saveSession()
 		}
 	}
 	return true, nil
 }
 
-func (m *runMode) slashHooks(args string) (bool, tea.Cmd) {
+func (m *RootModel) slashHooks(args string) (bool, tea.Cmd) {
 	return true, nil
 }
 
-func (m *runMode) slashLogout(args string) (bool, tea.Cmd) {
+func (m *RootModel) slashLogout(args string) (bool, tea.Cmd) {
 	// Cycle multi-account-switch: a sign-out is a real sign-out. The
 	// account leaves the registry as well, so /accounts cannot switch
 	// back to a credential the user threw away. The reply line is the
@@ -846,7 +853,7 @@ func (m *runMode) slashLogout(args string) (bool, tea.Cmd) {
 	return true, nil
 }
 
-func (m *runMode) slashLogin(args string) (bool, tea.Cmd) {
+func (m *RootModel) slashLogin(args string) (bool, tea.Cmd) {
 	if backendselect.HasOAuthToken() {
 		m.slashRespond("/login", "Already signed in. Use /logout to sign out.")
 		return true, nil
@@ -854,11 +861,11 @@ func (m *runMode) slashLogin(args string) (bool, tea.Cmd) {
 	lm := loginui.New()
 	lm.Width = m.viewport.width
 	lm.Height = m.viewport.height
-	m.overlays.login = lm
+	m.auth.login = lm
 	return true, lm.Init()
 }
 
-func (m *runMode) slashMCP(args string) (bool, tea.Cmd) {
+func (m *RootModel) slashMCP(args string) (bool, tea.Cmd) {
 	cfg, err := auth.LoadMCPConfig()
 	if err != nil {
 		m.slashRespond("/mcp", "error: "+err.Error())
@@ -870,7 +877,7 @@ func (m *runMode) slashMCP(args string) (bool, tea.Cmd) {
 	return true, nil
 }
 
-func (m *runMode) slashOpen(args string) (bool, tea.Cmd) {
+func (m *RootModel) slashOpen(args string) (bool, tea.Cmd) {
 	notice, editorCmd := editorkit.OpenFeedback(args, settings.String("editor"), m.session.cwd, diffaction.PathExists)
 	if notice != "" {
 		m.slashRespond("/open", notice)
@@ -883,8 +890,132 @@ func (m *runMode) slashOpen(args string) (bool, tea.Cmd) {
 	})
 }
 
-func (m *runMode) slashPermissions(args string) (bool, tea.Cmd) {
+// slashPluginRemote lists, installs and uninstalls the remote environment's
+// plugins through the proxy's plugin RPCs.
+func (m *RootModel) slashPluginRemote(args string) (bool, tea.Cmd) {
+	engine, ok := m.turn.engine.(*agentturn.RemoteAgentEngine)
+	if !ok {
+		m.slashRespond("/plugin", "No plugins installed.")
+		return true, nil
+	}
+	trimmed := slashparse.Trim(args)
+	verb, rest := slashparse.SplitVerb(trimmed)
+	ctx, cancel := remoteagentclient.WithUnaryTimeout(context.Background())
+	defer cancel()
+
+	switch {
+	case trimmed == "" || strings.EqualFold(verb, "list"):
+		plugins, installations, err := engine.Plugins(ctx)
+		if err != nil {
+			m.slashRespond("/plugin list", "error: "+err.Error())
+			return true, nil
+		}
+		lines := []string{"Remote plugins:"}
+		if len(plugins) == 0 {
+			lines = append(lines, "  No plugins available.")
+		}
+		for _, p := range plugins {
+			name := p.DisplayName
+			if name == "" {
+				name = p.PluginID
+			}
+			line := "  " + name
+			if p.PluginID != "" && p.PluginID != name {
+				line += " (" + p.PluginID + ")"
+			}
+			if p.Version != "" {
+				line += " v" + p.Version
+			}
+			if p.Description != "" {
+				line += " — " + p.Description
+			}
+			lines = append(lines, line)
+		}
+		if len(installations) > 0 {
+			lines = append(lines, "", "Installed remotely:")
+			for _, inst := range installations {
+				line := "  " + inst.PluginID
+				if inst.Target != "" {
+					line += " (" + inst.Target + ")"
+				}
+				lines = append(lines, line)
+			}
+		}
+		m.slashContent(strings.Join(lines, "\n"))
+		return true, nil
+	case strings.EqualFold(verb, "install"):
+		id := slashparse.Trim(rest)
+		if id == "" {
+			m.slashRespond("/plugin install", "Usage: /plugin install <target>")
+			return true, nil
+		}
+		uri, err := engine.InstallPlugin(ctx, id)
+		if err != nil {
+			m.slashRespond("/plugin install", "error: "+err.Error())
+			return true, nil
+		}
+		if uri != "" {
+			m.slashRespond("/plugin install", "Authorize "+id+" at: "+uri)
+		} else {
+			m.slashRespond("/plugin install", "Plugin "+id+" installed.")
+		}
+		return true, nil
+	case strings.EqualFold(verb, "uninstall"):
+		id := slashparse.Trim(rest)
+		if id == "" {
+			m.slashRespond("/plugin uninstall", "Usage: /plugin uninstall <name>")
+			return true, nil
+		}
+		if err := engine.UninstallPlugin(ctx, id); err != nil {
+			m.slashRespond("/plugin uninstall", "error: "+err.Error())
+			return true, nil
+		}
+		m.slashRespond("/plugin uninstall", "Plugin "+id+" uninstalled.")
+		return true, nil
+	default:
+		m.slashRespond("/plugin", fmt.Sprintf("Unknown subcommand %q.", verb))
+		return true, nil
+	}
+}
+
+func (m *RootModel) slashPermissions(args string) (bool, tea.Cmd) {
+	if m.session.remoteAgent {
+		return m.slashPermissionsRemote(args)
+	}
 	m.slashContent(printmode.PrintSlashPermissions())
+	return true, nil
+}
+
+// slashPermissionsRemote reads or writes the remote permission preset. The
+// remote agent does not use the local rules, so the local list is not shown.
+func (m *RootModel) slashPermissionsRemote(args string) (bool, tea.Cmd) {
+	engine, ok := m.turn.engine.(*agentturn.RemoteAgentEngine)
+	if !ok {
+		m.slashContent(printmode.PrintSlashPermissions())
+		return true, nil
+	}
+	ctx, cancel := remoteagentclient.WithUnaryTimeout(context.Background())
+	defer cancel()
+
+	if preset := slashparse.Trim(args); preset != "" {
+		if err := engine.SetPermissionPreset(ctx, preset); err != nil {
+			m.slashRespond("/permissions", "error: "+err.Error())
+			return true, nil
+		}
+		m.slashRespond("/permissions", "Remote permission preset set to "+preset+".")
+		return true, nil
+	}
+
+	settings, err := engine.PermissionSettings(ctx)
+	if err != nil {
+		m.slashRespond("/permissions", "error: "+err.Error())
+		return true, nil
+	}
+	body := "Remote permission preset: " + settings.PermissionPreset
+	if settings.ArtifactReviewMode != "" {
+		body += "\nArtifact review mode: " + settings.ArtifactReviewMode
+	}
+	m.slashContent(body)
 	return true, nil
 }
 
@@ -896,7 +1027,10 @@ func (m *runMode) slashPermissions(args string) (bool, tea.Cmd) {
 //
 // The verb and the rest of the line are parsed by the slash grammar's
 // owner, internal/core/slashparse.
-func (m *runMode) slashPlugin(args string) (bool, tea.Cmd) {
+func (m *RootModel) slashPlugin(args string) (bool, tea.Cmd) {
+	if m.session.remoteAgent {
+		return m.slashPluginRemote(args)
+	}
 	trimmed := slashparse.Trim(args)
 	if trimmed == "" {
 		m.slashRespond("/plugin", "Plugins: 0 installed")
@@ -924,7 +1058,7 @@ func (m *runMode) slashPlugin(args string) (bool, tea.Cmd) {
 	return true, nil
 }
 
-func (m *runMode) slashProjects(args string) (bool, tea.Cmd) {
+func (m *RootModel) slashProjects(args string) (bool, tea.Cmd) {
 	if m.openSlashPanel("projects") {
 		return true, nil
 	}
@@ -932,22 +1066,23 @@ func (m *runMode) slashProjects(args string) (bool, tea.Cmd) {
 	return true, nil
 }
 
-func (m *runMode) slashRemoteControl(args string) (bool, tea.Cmd) {
+func (m *RootModel) slashRemoteControl(args string) (bool, tea.Cmd) {
 	convID := m.activeRemoteConversationID()
 	return m.handleRemoteControl(args, convID)
 }
 
-func (m *runMode) activeRemoteConversationID() string {
+func (m *RootModel) activeRemoteConversationID() string {
 	if m == nil || m.session.conversationID == "" {
 		return ""
 	}
-	if m.session.conversationStarted || (m.session.supervisor != nil && m.session.supervisor.Len() > 0) || len(m.engine.session) > 0 || len(m.engine.trajLoaded) > 0 || m.session.conversationID != m.session.initialConversationID {
+	loaded, _, _ := m.trajectoryCounts()
+	if m.session.conversationStarted || m.session.messageCount() > 0 || loaded > 0 || m.session.conversationID != m.session.initialConversationID {
 		return m.session.conversationID
 	}
 	return ""
 }
 
-func (m *runMode) handleRemoteControl(args, conversationID string) (bool, tea.Cmd) {
+func (m *RootModel) handleRemoteControl(args, conversationID string) (bool, tea.Cmd) {
 	if auth.IsBusinessAccount() {
 		m.slashRespond("/remote-control", rchost.SlashADCErrorMessage())
 		return true, nil
@@ -996,21 +1131,14 @@ func (m *runMode) handleRemoteControl(args, conversationID string) (bool, tea.Cm
 		desktop := m.session.remoteControlDesktop || (m.session.flags != nil && cliflags.BoolValue(m.session.flags, "desktop"))
 
 		// Check if we are running in attached / external engine mode (e.g. ACP / custom agent)
-		// If m.engine.attachedEngine is true, run in-process without spawning external daemon!
-		if m.engine.attachedEngine && m.engine.engine != nil {
-			backend := rchost.NewEngineCascadeBackend(m.engine.engine, m.session.model)
-			if tl, ok := m.engine.turnLock.(*rchost.SimpleTurnLock); ok && tl != nil {
-				backend.SetTurnLock(tl)
-			} else {
-				tl := &rchost.SimpleTurnLock{}
-				m.engine.turnLock = tl
-				backend.SetTurnLock(tl)
-			}
+		// If m.remote.attachedEngine is true, run in-process without spawning external daemon!
+		if m.remote.attachedEngine && m.turn.engine != nil {
+			backend := rchost.NewEngineCascadeBackend(m.turn.engine, m.session.model)
+			backend.SetTurnLock(m.remote.EnsureTurnLock())
 			ctx := context.Background()
 			disp, stop, err := rchost.StartInProcessServe(ctx, backend, desktop, nil)
 			if err == nil {
-				m.engine.remoteControlStop = stop
-				m.engine.inprocessDisp = disp
+				m.remote.SetControl(stop, disp)
 			}
 		} else {
 			go func() {
@@ -1029,17 +1157,13 @@ func (m *runMode) handleRemoteControl(args, conversationID string) (bool, tea.Cm
 		}
 		m.slashRespond("/remote-control", msg, extra...)
 	} else {
-		if m.engine.remoteControlStop != nil {
-			m.engine.remoteControlStop()
-			m.engine.remoteControlStop = nil
-			m.engine.inprocessDisp = nil
-		}
+		m.remote.StopControl()
 		m.slashRespond("/remote-control", msg)
 	}
 	return true, nil
 }
 
-func (m *runMode) slashRename(args string) (bool, tea.Cmd) {
+func (m *RootModel) slashRename(args string) (bool, tea.Cmd) {
 	if strings.TrimSpace(args) == "" {
 		m.openRenamePanel()
 		return true, nil
@@ -1050,28 +1174,17 @@ func (m *runMode) slashRename(args string) (bool, tea.Cmd) {
 	return true, nil
 }
 
-func (m *runMode) slashResume(args string) (bool, tea.Cmd) {
-	if err := m.overlays.resumePicker.Open(); err != nil {
-		m.slashRespond("/resume", "Failed to list conversations: "+err.Error())
-		return true, nil
-	}
-	return true, nil
-}
-
-func (m *runMode) slashRewind(args string) (bool, tea.Cmd) {
+func (m *RootModel) slashRewind(args string) (bool, tea.Cmd) {
 	// Cycle 381, tranche 75: the rewind policy is the session layer's
 	// (internal/app/session/rewind). The tail pop used to run on a
 	// copy of the slice, so the session it reported a rewind for was
 	// never actually truncated; the policy now hands the truncated
 	// session back and the caller keeps it.
-	var r rewind.Result
-	if m.session.supervisor != nil {
-		r = m.session.supervisor.RewindPopTail()
-		m.engine.session = r.Session
-	} else {
-		r = rewind.PopTail(m.engine.session)
-		m.engine.session = r.Session
+	sup := m.session.sup()
+	if sup == nil {
+		return true, nil
 	}
+	r := sup.RewindPopTail()
 	m.slashRespond("/rewind", rewind.TailEcho(r))
 	return true, nil
 }
@@ -1089,7 +1202,16 @@ func (m *runMode) slashRewind(args string) (bool, tea.Cmd) {
 // 【strings】 agy 1.4.x: the binary's string table carries the literal
 // "Reload skills from disk" next to "/skills reload"; the wording after
 // that line is unrecovered (【推测】 the listing is kept).
-func (m *runMode) slashSkills(args string) (bool, tea.Cmd) {
+func (m *RootModel) slashSkills(args string) (bool, tea.Cmd) {
+	// A remote session's skills live on the proxy: refresh the cache
+	// before the local reload path renders the listing.
+	if m.session.remoteAgent && skills.IsReload(args) {
+		if engine, ok := m.turn.engine.(*agentturn.RemoteAgentEngine); ok {
+			ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+			_, _ = engine.ReloadSkills(ctx)
+			cancel()
+		}
+	}
 	if skills.IsReload(args) {
 		listing := skills.RenderList(skills.Reload())
 		m.slashContent(skills.ReloadMessage)
@@ -1103,13 +1225,8 @@ func (m *runMode) slashSkills(args string) (bool, tea.Cmd) {
 	return true, nil
 }
 
-// sessionCount returns the active message count from supervisor or fallback session slice.
-func (m *runMode) sessionCount() int {
-	if m.session.supervisor != nil {
-		return m.session.supervisor.Len()
-	}
-	return len(m.engine.session)
-}
+// sessionCount returns the active message count.
+func (m *RootModel) sessionCount() int { return m.session.messageCount() }
 
 // slashStatusline handles /statusline and its subcommands.
 //
@@ -1137,14 +1254,14 @@ func (m *runMode) sessionCount() int {
 // driven through the bare toggle (twice, reading settings.json's
 // `statusLine.enabled` after each press) and through `on`, `off`,
 // `enable`, `disable` and `help`.
-func (m *runMode) slashStatusline(args string) (bool, tea.Cmd) {
+func (m *RootModel) slashStatusline(args string) (bool, tea.Cmd) {
 	// The command may have been changed outside the TUI, so the block is
 	// re-read before it is answered.
 	m.reloadStatusLineConfig()
 	verb := strings.ToLower(strings.TrimSpace(args))
 	if verb == "" {
 		// Cycle 351: the bare command toggles (agy 1.4.8).
-		if m.viewport.statusLineCfg.Enabled {
+		if m.statusLine.cfg.Enabled {
 			m.applyStatuslineOff(tuilib.StatuslineToggledOffMessage)
 		} else {
 			m.applyStatuslineOn()
@@ -1162,10 +1279,10 @@ func (m *runMode) slashStatusline(args string) (bool, tea.Cmd) {
 		m.applyStatuslineOff(tuilib.StatuslineDisabledMessage)
 	case "delete", "reset":
 		statusline.ClearCommand()
-		m.viewport.statusLine = "on"
-		m.viewport.statusLineExternal = false
-		m.viewport.statusLineCommand = ""
-		m.viewport.statusLineCfg = statusline.Config{}
+		m.statusLine.visible = "on"
+		m.statusLine.external = false
+		m.statusLine.command = ""
+		m.statusLine.cfg = statusline.Config{}
 		m.ensureExternalState().ResetDisabled()
 		m.slashRespond("/statusline", tuilib.StatuslineClearedMessage)
 	default:
@@ -1174,14 +1291,14 @@ func (m *runMode) slashStatusline(args string) (bool, tea.Cmd) {
 			m.slashRespond("/statusline", "Error: "+err.Error())
 			return true, nil
 		}
-		m.viewport.statusLine = "on"
-		m.viewport.statusLineExternal = true
-		m.viewport.statusLineCommand = command
+		m.statusLine.visible = "on"
+		m.statusLine.external = true
+		m.statusLine.command = command
 		// The layout members survive: only the command and the
 		// visibility change.
-		m.viewport.statusLineCfg.Type = "command"
-		m.viewport.statusLineCfg.Command = command
-		m.viewport.statusLineCfg.Enabled = true
+		m.statusLine.cfg.Type = "command"
+		m.statusLine.cfg.Command = command
+		m.statusLine.cfg.Enabled = true
 		m.ensureExternalState().ResetDisabled()
 		m.slashRespond("/statusline", tuilib.StatuslineSetMessage(command))
 	}
@@ -1191,23 +1308,23 @@ func (m *runMode) slashStatusline(args string) (bool, tea.Cmd) {
 // applyStatuslineOn switches the statusline on and answers with the
 // reference's "Statusline on." message (" (<command>)" when a custom
 // command is configured).
-func (m *runMode) applyStatuslineOn() {
-	cfg := m.viewport.statusLineCfg
+func (m *RootModel) applyStatuslineOn() {
+	cfg := m.statusLine.cfg
 	statusline.PersistVisibility(true)
-	m.viewport.statusLine = "on"
-	m.viewport.statusLineExternal = strings.TrimSpace(cfg.Command) != ""
-	m.viewport.statusLineCfg.Enabled = true
+	m.statusLine.visible = "on"
+	m.statusLine.external = strings.TrimSpace(cfg.Command) != ""
+	m.statusLine.cfg.Enabled = true
 	m.slashRespond("/statusline", tuilib.StatuslineEnabledMessage(cfg.Command))
 }
 
 // applyStatuslineOff switches the statusline off and answers with msg —
 // the short "Statusline off." for the explicit subcommand, the long
 // "Statusline off. Run /statusline to re-enable." for the bare toggle.
-func (m *runMode) applyStatuslineOff(msg string) {
+func (m *RootModel) applyStatuslineOff(msg string) {
 	statusline.PersistVisibility(false)
-	m.viewport.statusLine = "on"
-	m.viewport.statusLineExternal = false
-	m.viewport.statusLineCfg.Enabled = false
+	m.statusLine.visible = "on"
+	m.statusLine.external = false
+	m.statusLine.cfg.Enabled = false
 	m.slashRespond("/statusline", msg)
 }
 
@@ -1222,10 +1339,10 @@ func indentStatuslineUsage(rows []string) []string {
 }
 
 // slashTasks handles /tasks.
-func (m *runMode) slashTasks(args string) (bool, tea.Cmd) {
+func (m *RootModel) slashTasks(args string) (bool, tea.Cmd) {
 	var states []string
-	if m.engine.taskReg != nil {
-		for _, t := range m.engine.taskReg.List() {
+	if m.tasks.reg != nil {
+		for _, t := range m.tasks.reg.List() {
 			states = append(states, string(t.State))
 		}
 	}
@@ -1262,7 +1379,7 @@ func (m *runMode) slashTasks(args string) (bool, tea.Cmd) {
 //   - `/title` with the title off → "Custom title enabled. (<command>)"
 //   - `/title bogus` → "Usage: /title [on|off]"
 //   - `/title` without a command → the "No title command configured" error
-func (m *runMode) slashTitle(args string) (bool, tea.Cmd) {
+func (m *RootModel) slashTitle(args string) (bool, tea.Cmd) {
 	// The block may have been changed outside the TUI, so it is re-read
 	// before it is answered.
 	m.reloadStatusLineConfig()
@@ -1271,7 +1388,7 @@ func (m *runMode) slashTitle(args string) (bool, tea.Cmd) {
 		m.slashRespond("/title", tuilib.TitleUsage)
 		return true, nil
 	}
-	cfg := m.viewport.titleCfg
+	cfg := m.statusLine.titleCfg
 	if strings.TrimSpace(cfg.Command) == "" {
 		m.slashRespond("/title", tuilib.TitleNoCommandMessage)
 		return true, nil
@@ -1282,37 +1399,37 @@ func (m *runMode) slashTitle(args string) (bool, tea.Cmd) {
 
 // setTitleEnabled persists the title block's visibility and answers the
 // command.
-func (m *runMode) setTitleEnabled(enabled bool, command string) tea.Cmd {
+func (m *RootModel) setTitleEnabled(enabled bool, command string) tea.Cmd {
 	if err := statusline.PersistTitleEnabled(enabled); err != nil {
 		m.slashRespond("/title", "Error: "+err.Error())
 		return nil
 	}
-	m.viewport.titleCfg.Enabled = enabled
+	m.statusLine.titleCfg.Enabled = enabled
 	if enabled {
-		m.viewport.title = "on"
+		m.statusLine.title = "on"
 		m.slashRespond("/title", tuilib.TitleEnabledMessage(command))
 	} else {
-		m.viewport.title = "off"
+		m.statusLine.title = "off"
 		m.slashRespond("/title", tuilib.TitleDisabledMessage)
 	}
 	return m.maybeArmStatusLineTick()
 }
 
-func (m *runMode) slashUsage(args string) (bool, tea.Cmd) {
+func (m *RootModel) slashUsage(args string) (bool, tea.Cmd) {
 	m.slashContent("error: /usage failed: retrieving quota summary: failed to retrieve user quota summary: no quota summary is available for this account")
 	return true, nil
 }
 
-func (m *runMode) slashVoice(args string) (bool, tea.Cmd) {
-	return true, m.viewport.voiceSurface.Start("/voice")
+func (m *RootModel) slashVoice(args string) (bool, tea.Cmd) {
+	return true, m.audio.Surface.Start("/voice")
 }
 
-func (m *runMode) slashAddDir(args string) (bool, tea.Cmd) {
+func (m *RootModel) slashAddDir(args string) (bool, tea.Cmd) {
 	m.slashRespond("/add-dir", tuilib.AddDirFeedback(args))
 	return true, nil
 }
 
-func (m *runMode) slashAgents(args string) (bool, tea.Cmd) {
+func (m *RootModel) slashAgents(args string) (bool, tea.Cmd) {
 	eng := m.turnEngine()
 	if eng != nil {
 		name, caps := agentturn.CapabilitiesOf(eng)
@@ -1327,21 +1444,21 @@ func (m *runMode) slashAgents(args string) (bool, tea.Cmd) {
 	return true, nil
 }
 
-func (m *runMode) slashArtifact(args string) (bool, tea.Cmd) {
+func (m *RootModel) slashArtifact(args string) (bool, tea.Cmd) {
 	m.slashRespond("/artifact", "No artifacts")
 	return true, nil
 }
 
-func (m *runMode) slashBtw(args string) (bool, tea.Cmd) {
+func (m *RootModel) slashBtw(args string) (bool, tea.Cmd) {
 	return true, m.runBtwSideQuestion(args)
 }
 
-func (m *runMode) slashChangelog(args string) (bool, tea.Cmd) {
+func (m *RootModel) slashChangelog(args string) (bool, tea.Cmd) {
 	m.slashContent(changelog.Markdown)
 	return true, nil
 }
 
-func (m *runMode) slashCodesearch(args string) (bool, tea.Cmd) {
+func (m *RootModel) slashCodesearch(args string) (bool, tea.Cmd) {
 	if strings.TrimSpace(args) == "" {
 		m.slashRespond("/codesearch", codesearchEmptyMessage)
 		return true, nil
@@ -1350,28 +1467,8 @@ func (m *runMode) slashCodesearch(args string) (bool, tea.Cmd) {
 	return true, nil
 }
 
-func (m *runMode) slashQuote(args string) (bool, tea.Cmd) {
+func (m *RootModel) slashQuote(args string) (bool, tea.Cmd) {
 	return m.handleQuote(args)
-}
-
-func (m *runMode) slashCompact(args string) (bool, tea.Cmd) {
-	if m.engine.streaming {
-		m.viewport.inputNotice = "Nothing to compact yet."
-		return true, nil
-	}
-	eng := m.turnEngine()
-	if handler, ok := eng.(agentturn.ActionHandler); ok {
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		res, err := handler.ExecuteAction(ctx, "compact", args)
-		cancel()
-		if err == nil && res.Success && res.Message != "" && res.Message != "Action processed by local engine" {
-			m.slashRespond("/compact", res.Message)
-			return true, nil
-		}
-	}
-	instructions := slashparse.Trim(args)
-	m.startManualCompact(instructions)
-	return true, nil
 }
 
 // slashBrowser runs the browser agent.
@@ -1382,7 +1479,7 @@ func (m *runMode) slashCompact(args string) (bool, tea.Cmd) {
 // reproduced it for every user. The command now does the work the
 // reference's own description names: "Invoke a browser agent for web
 // tasks." (see slash_browser.go).
-func (m *runMode) slashBrowser(args string) (bool, tea.Cmd) {
+func (m *RootModel) slashBrowser(args string) (bool, tea.Cmd) {
 	return m.runBrowserCommand(args)
 }
 
@@ -1393,7 +1490,7 @@ func (m *runMode) slashBrowser(args string) (bool, tea.Cmd) {
 // /browser printed. The reference's capture of /schedule shows model
 // output under the command, so the command is a prompt-sending one —
 // like /plan and /goal — and the clone now sends one.
-func (m *runMode) slashSchedule(args string) (bool, tea.Cmd) {
+func (m *RootModel) slashSchedule(args string) (bool, tea.Cmd) {
 	instruction := strings.TrimSpace(args)
 	if instruction == "" {
 		m.slashRespond("/schedule", "Usage: /schedule <instruction>")
@@ -1402,17 +1499,17 @@ func (m *runMode) slashSchedule(args string) (bool, tea.Cmd) {
 	return true, m.sendAsPrompt("/schedule", instruction+"\n\n"+slashactions.SchedulePrompt())
 }
 
-func (m *runMode) slashBranch(args string) (bool, tea.Cmd) {
+func (m *RootModel) slashBranch(args string) (bool, tea.Cmd) {
 	m.abortTurnForLocalCommand()
 	runIsolatedSlash(m, "/branch", args, isolation.BranchFeedback)
 	return true, nil
 }
 
-func (m *runMode) slashNarration(args string) (bool, tea.Cmd) {
+func (m *RootModel) slashNarration(args string) (bool, tea.Cmd) {
 	return m.handleNarrationSlash(args)
 }
 
-func (m *runMode) slashShare(args string) (bool, tea.Cmd) {
+func (m *RootModel) slashShare(args string) (bool, tea.Cmd) {
 	runIsolatedSlash(m, "/share", args, isolation.ShareFeedback)
 	return true, nil
 }
@@ -1479,7 +1576,7 @@ func openKeybindingsFile(configuredEditor string) (notice string, cmd *exec.Cmd,
 // "/keybindings opens the file in your editor"), but the command's own
 // answer is the report — the two are different surfaces, and a command
 // that silently opens an editor cannot also answer a question.
-func (m *runMode) slashKeybindings(args string) (bool, tea.Cmd) {
+func (m *RootModel) slashKeybindings(args string) (bool, tea.Cmd) {
 	if strings.EqualFold(slashparse.Trim(args), "edit") {
 		return m.slashKeybindingsEdit()
 	}
@@ -1504,7 +1601,7 @@ func (m *runMode) slashKeybindings(args string) (bool, tea.Cmd) {
 // The file is created with an empty object when it does not exist — the
 // reference creates it only when the user asks for the customization
 // command 【strings】.
-func (m *runMode) slashKeybindingsEdit() (bool, tea.Cmd) {
+func (m *RootModel) slashKeybindingsEdit() (bool, tea.Cmd) {
 	notice, editorCmd, errMsg := openKeybindingsFile(settings.String("editor"))
 	if errMsg != "" {
 		m.slashRespond("/keybindings", errMsg)
@@ -1523,13 +1620,13 @@ func (m *runMode) slashKeybindingsEdit() (bool, tea.Cmd) {
 
 // runIsolatedSlash wires the /branch and /share slash-command
 // handlers to the isolation sandbox.
-func runIsolatedSlash(m *runMode, cmd, args string, feedback isolation.FeedbackFn) {
+func runIsolatedSlash(m *RootModel, cmd, args string, feedback isolation.FeedbackFn) {
 	if m == nil || feedback == nil {
 		return
 	}
 	parentCwd := m.session.cwd
 	if parentCwd == "" {
-		parentCwd = defaultWorkspaceForRunMode()
+		parentCwd = defaultWorkspaceForRootModel()
 	}
 	iw := isolation.New()
 	iw.Capture(parentCwd, isolation.EnvSnapshot(os.Environ()))
@@ -1614,309 +1711,6 @@ func slashSkillLookup(name string) (jsonSkillInfo, bool) {
 // the catalogue the panel reads — slashSkillCatalog — and the seam file
 // skills_host.go.
 
-// ---- slash_compact.go ----
-
-// slash_compact.go — cycle 229 seam between the manual /compact
-// slash command and PiG's coding.Session.Compact(), extended by
-// cycle 237 with a generic summarizer path.
-//
-// Cycle 229 closes the PiG loop: the manual /compact slash command
-// fires PiG's Compact(ctx, customInstructions), listens for the
-// matching CompactionEndEvent, and surfaces the upstream token counts
-// in the transcript. AGY 1.4.0 builds on the same API — strings like
-// `summaryCache` and `cascade_config.checkpoint_config.max_token_limit`
-// (recovered in docs/research/agy-auto-compact-vs-pig.md) are the
-// upstream knobs PiG already exposes through Session.Compact.
-//
-// Cycle 237 closes the AGY 1.4.2 gap: the reference binary shipped
-// `/compact <message>` (summarize, then answer the user's appended
-// question) and a "Compacting conversation..." progress label with
-// Esc-cancel. The cycle-229 PiG seam covers the production runtime;
-// cycle 237 adds a parallel path that does not require a pigrt
-// runtime, so offline tests / print mode / direct handleSlashCommand
-// callers see the cycle-237 "Compacted N messages (-Y%)" echo
-// instead of the cycle-167 half-trim stub.
-//
-// The seam is `manualCompactor` — a three-method interface so the
-// production wiring and the test wiring (a fakeCompactor that
-// records calls and replays synthetic events) compose in the same
-// handleSlashCommand path. runMode holds one compactor; cycle 227
-// populates it when the pigrt.Runtime TUI integration lands, and
-// cycle 229 leaves it nil for callers that have not wired PiG yet
-// (print mode, offline tests). Cycle 237 falls back to
-// internal/compaction.ComputeSummary when the compactor is nil — the
-// cycle-167 half-trim helper is retired.
-//
-// Cycle 381 (tranche 27) removed the *pigrt.Runtime adapter this
-// file used to carry. It had no caller and no test: the TUI's turn
-// engine is PiG's agent.Agent, not pigrt.Runtime, so the host had no
-// runtime for it to wrap, and the manual /compact path takes the
-// generic summarizer branch in production (m.engine.compactor is nil; only
-// the tests set it). The interface and the branch stay — they are
-// the seam — but the unreachable implementation is gone.
-//
-// Cycle 237 deliberately does NOT touch internal/pigrt/runtime.go,
-// internal/agent/pig.go, or cmd/wagyu/tui_run.go (cycle 232's
-// territory). The Esc-cancel hook uses a package-level channel
-// (compactCancel) so the TUI's existing Esc handler can fire it
-// from a future cycle without this file changing again — see the
-// 硬約束 section of the cycle-237 deliverable for the trade-off.
-
-// manualCompactor is aliased to compaction.ManualCompactor.
-type manualCompactor = compaction.ManualCompactor
-
-// startManualCompact is the /compact slash-command body. It is on
-// runMode (not a free function) because the transcript rows live on
-// m.engine.response, and the cycle-229 spec calls for two consecutive rows
-// ("Compacting context…" + "Compacted: …") styled as a single
-// bracketed event.
-//
-// Cycle 237 split the old "Branch 1" (cycle-167 stub) into a real
-// summarizer that calls internal/compaction.ComputeSummary
-// directly. The cycle-167 half-trim of m.engine.session is gone; the new
-// path replaces m.engine.session with one user-role message carrying the
-// model's reply (matching AGY 1.4.2's "the transcript becomes the
-// summary" contract).
-//
-// The method has four branches:
-//
-//   - m.engine.compactor == nil: cycle-237 generic summarizer. Fires
-//     compaction.ComputeSummary in a goroutine with a cancellable
-//     context (cycle-237's local channel). The transcript gets
-//     "Compacting conversation…" (matching the AGY 1.4.2 spec)
-//     and a follow-up "Compacted N messages (-Y%)" / "[compact
-//     cancelled]" row when the goroutine resolves. A trailing
-//     user-supplied customInstructions (the "/compact <message>"
-//     form) is dispatched as a fresh prompt after the summary
-//     lands.
-//
-//   - m.engine.compactor != nil && m.engine.compactor.IsCompacting() == true:
-//     short-circuit with "⎿  Already compacting." — the cycle-229
-//     spec calls out the race where a user types /compact while
-//     PiG is mid-summarisation (auto-compact from cycle 227 OR a
-//     second /compact press before the first finishes). PiG
-//     itself would abort the in-flight compact and start a new
-//     one; the gate keeps the transcript honest.
-//
-//   - happy path (cycle-229): emit "⎿  Compacting context…" +
-//     custom-instructions echo, subscribe a one-shot listener on
-//     the compactor, and fire Compact(ctx, customInstructions) in
-//     a goroutine. The goroutine posts a compactDoneMsg back to
-//     the bubbletea runtime so the transcript gets the success /
-//     failure row.
-//
-//   - happy path (cycle-237 fallback): emit "⎿  Compacting
-//     conversation…" + custom-instructions echo, run the generic
-//     summarizer with a 60 s timeout, replace m.engine.session with the
-//     summary, and echo the stats. The same cancel channel the
-//     Esc handler will reach from a future cycle (cycle 237 left
-//     it as a package-level singleton — see compactCancel below)
-//     aborts the summarization without touching m.session.
-//
-// The Compact() / ComputeSummary calls use a 60 s timeout — the
-// same window the TUI prompt stream uses (streamPrompt in
-// tui_run.go). Long compactions that exceed it are aborted at
-// the goroutine level; PiG's own compactCancel path
-// (coding/session.go:compactCancel) takes over from there.
-func (m *runMode) startManualCompact(customInstructions string) {
-	// Branch 1 (cycle-237): no PiG compactor wired. Use the generic
-	// summarizer. The cycle-167 half-trim is retired — the new path
-	// replaces m.engine.session with one user-role message carrying the
-	// model's reply, matching AGY 1.4.2's "transcript becomes the
-	// summary" contract.
-	if m.engine.compactor == nil {
-		m.startGenericCompact(customInstructions)
-		return
-	}
-
-	// Branch 2: an auto-compact (cycle 227) or a manual press from
-	// a moment ago is still running. PiG's coding.Session would
-	// queue / abort-and-restart, but the cycle-229 spec is explicit:
-	// echo "Already compacting." and skip the call so the user
-	// sees a clear "I heard you, but I am already busy" line.
-	if m.engine.compactor.IsCompacting() {
-		m.engine.response = append(m.engine.response,
-			rows.NoticeCompact("Already compacting."),
-			"",
-		)
-		return
-	}
-
-	// Branch 3: cycle-229 happy path. Echo the running row first so
-	// the transcript shows the command was accepted, then arm the
-	// one-shot listener and kick off Compact() in the background.
-	//
-	// `m.engine.prog` is the running *tea.Program; nil in tests, in which
-	// case the result is delivered straight into m.engine.response (the
-	// goroutine skips the prog.Send call). The split is the same
-	// shape cycle 227's compactStartMsg / compactEndMsg handlers
-	// use — cycle 229's manual path just collapses the start/end
-	// pair into a single two-row transcript block.
-	m.engine.response = append(m.engine.response,
-		rows.NoticeCompact("Compacting context\u2026"),
-		"",
-	)
-	compactor := m.engine.compactor
-	prog := m.engine.prog
-	go runManualCompactionTask(compactor, customInstructions, prog)
-}
-
-func runManualCompactionTask(compactor manualCompactor, customInstructions string, prog *tea.Program) {
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-	defer cancel()
-
-	compaction.RunManualTask(ctx, compactor, customInstructions, func(msg compactDoneMsg) {
-		if prog != nil {
-			prog.Send(msg)
-		}
-	})
-}
-
-// startGenericCompact is the cycle-237 path: no PiG compactor, so
-// the slash command drives internal/compaction.ComputeSummary
-// directly. The transcript gets:
-//
-//	⎿  Compacting conversation…                       (running row, cycle-237)
-//	⎿  Compacted 12 messages (-87%). [follow-up row]  (success)
-//	or
-//	⎿  Compaction cancelled. Conversation was not compacted. (Esc / timeout)
-//
-// The session is replaced with one user-role message carrying the
-// summary, so the next model turn sees only the summary in its
-// history. The original session is preserved verbatim until the
-// goroutine resolves, so a cancellation does not clobber the
-// user's history (TestSlashCompact_CancelRestoresSession).
-type genericCompactDoneMsg = compaction.GenericDoneMsg
-
-func runGenericCompactionTask(backendClient backend.Client, model, systemPrompt string, overhead int, sessSnap []backend.Message, customInstructions string, started time.Time, prog *tea.Program, onDone func(genericCompactDoneMsg)) {
-	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
-	defer cancel()
-
-	cleanup := compaction.InstallCancel(cancel)
-	defer cleanup()
-
-	compaction.RunGenericTask(ctx, backendClient, model, systemPrompt, overhead, sessSnap, customInstructions, started, func(msg genericCompactDoneMsg) {
-		if prog != nil {
-			prog.Send(msg)
-		} else if onDone != nil {
-			onDone(msg)
-		}
-	})
-}
-
-func (m *runMode) startGenericCompact(customInstructions string) {
-	if len(m.engine.session) == 0 && (m.session.supervisor == nil || m.session.supervisor.Len() == 0) {
-		m.slashRespondPlain("Nothing to compact yet.")
-		return
-	}
-
-	var sessSnap []backend.Message
-	if m.session.supervisor != nil && m.session.supervisor.Len() > 0 {
-		sessSnap = m.session.supervisor.Messages()
-	} else {
-		sessSnap = make([]backend.Message, len(m.engine.session))
-		copy(sessSnap, m.engine.session)
-	}
-
-	m.engine.response = append(m.engine.response,
-		rows.NoticeCompact("Compacting conversation\u2026"),
-		"",
-	)
-
-	backendClient := m.engine.backend
-	model := m.session.model
-	if model == "" {
-		model = "claude-sonnet-4-6"
-	}
-	prog := m.engine.prog
-	started := time.Now()
-
-	systemPrompt := m.systemPrompt()
-	overhead := compaction.ContextOverheadTokens(systemPrompt, modelDeclarationsJSON())
-
-	if prog != nil {
-		// Production: the result travels as a tea.Msg and is applied by
-		// the Update loop, on the UI goroutine.
-		go runGenericCompactionTask(backendClient, model, systemPrompt, overhead, sessSnap, customInstructions, started, prog, nil)
-		return
-	}
-	// No program to post to (the test path). Hand the result over a
-	// channel instead: the worker never touches m.engine.response or m.engine.session,
-	// which belong to the goroutine that owns the runMode.
-	ch := make(chan genericCompactDoneMsg, 1)
-	m.engine.compactDone = ch
-	go runGenericCompactionTask(backendClient, model, systemPrompt, overhead, sessSnap, customInstructions, started, nil, func(msg genericCompactDoneMsg) {
-		ch <- msg
-	})
-}
-
-func modelDeclarationsJSON() []byte {
-	decls := surface.ModelDeclarations()
-	b, err := json.Marshal(decls)
-	if err != nil {
-		return nil
-	}
-	return b
-}
-
-func (m *runMode) applyGenericCompactSuccess(msg genericCompactDoneMsg, customInstructions string) tea.Cmd {
-	// What the summary carries into the next prompt is counted beside
-	// the summary in the "after" figure — the earlier requests and the
-	// snapshots the reference's checkpoint carries. The clone's resume
-	// block carries the requests; it has no artifact, subagent or
-	// running-task snapshots.
-	carriedTokens := 0
-	if msg.Summary != "" {
-		requests := compaction.UserRequests(m.engine.session, compaction.MaxUserRequests)
-		carriedTokens = compaction.EstimateTokens(compaction.CarriedBlock(requests))
-		m.engine.session = []backend.Message{{
-			Role:    "user",
-			Content: compaction.ResumingBlock(requests, msg.Summary),
-		}}
-		if m.session.supervisor != nil {
-			m.session.supervisor.Replace(m.engine.session)
-		}
-	}
-	beforeTokens, afterTokens, summaryTokens := compaction.ComputeCompactTokens(msg.StatsBefore.Tokens, msg.InputTokens, msg.StatsAfter.Tokens, msg.OutputTokens, msg.Overhead, msg.Summary, carriedTokens)
-	m.engine.response = append(m.engine.response,
-		compaction.DividerRow(m.viewport.width),
-		compaction.StatsRow(m.viewport.width,
-			msg.StatsBefore.Messages,
-			beforeTokens,
-			afterTokens,
-			summaryTokens,
-			msg.Took),
-		"",
-	)
-	if customInstructions = strings.TrimSpace(customInstructions); customInstructions != "" {
-		m.engine.session = append(m.engine.session, backend.Message{Role: "user", Content: customInstructions})
-		if m.session.supervisor != nil {
-			m.session.supervisor.Append(backend.Message{Role: "user", Content: customInstructions})
-		}
-		return m.streamPrompt(customInstructions)
-	}
-	return nil
-}
-
-func (m *runMode) applyGenericCompactResult(msg genericCompactDoneMsg, customInstructions string) tea.Cmd {
-	switch {
-	case msg.Cancelled:
-		m.engine.response = append(m.engine.response,
-			rows.NoticeCompact(compaction.CompactionCancelledLiteral),
-			"",
-		)
-		return nil
-	case msg.Err != nil:
-		m.engine.response = append(m.engine.response,
-			rows.NoticeCompact("Compact failed: "+msg.Err.Error()),
-			"",
-		)
-		return nil
-	default:
-		return m.applyGenericCompactSuccess(msg, customInstructions)
-	}
-}
-
 // ---- slash_btw.go ----
 
 // slash_btw.go — cycle 230: /btw side-question card lifecycle.
@@ -1928,20 +1722,20 @@ func (m *runMode) applyGenericCompactResult(msg genericCompactDoneMsg, customIns
 
 // newBtwManager is the hook the slash command uses to build a side-
 // question Manager. Production callers go through btwManagerFor which
-// binds to the runMode's backend; tests replace the variable directly.
+// binds to the RootModel's backend; tests replace the variable directly.
 var newBtwManager = func(opts sidequestion.Options) *sidequestion.Manager {
 	return sidequestion.NewManager(opts)
 }
 
 // btwManagerFor returns (or constructs on first call) the Manager the
-// runMode uses for /btw. Nil is a deliberate possibility: a runMode
+// RootModel uses for /btw. Nil is a deliberate possibility: a RootModel
 // without a backend cannot stream, so we surface /btw unavailable instead
 // of panicking on nil.
-func (m *runMode) btwManagerFor() *sidequestion.Manager {
+func (m *RootModel) btwManagerFor() *sidequestion.Manager {
 	if m.overlays.btwManager != nil {
 		return m.overlays.btwManager
 	}
-	if m.engine.backend == nil {
+	if m.turn.backend == nil {
 		return nil
 	}
 	m.overlays.btwManager = newBtwManager(sidequestion.Options{
@@ -1955,17 +1749,10 @@ func (m *runMode) btwManagerFor() *sidequestion.Manager {
 					safeDecls = append(safeDecls, d)
 				}
 			}
-			var messages []backend.Message
-			if m.session.supervisor != nil && m.session.supervisor.Len() > 0 {
-				messages = m.session.supervisor.Messages()
-			} else if len(m.engine.session) > 0 {
-				messages = make([]backend.Message, len(m.engine.session))
-				copy(messages, m.engine.session)
-			}
-			messages = append(messages, backend.Message{Role: "user", Content: prompt})
+			messages := append(m.SessionMessages(), backend.Message{Role: "user", Content: prompt})
 			tokens := 0
 			for turn := 0; turn < 5; turn++ {
-				streamCh, err := m.engine.backend.Stream(ctx, backend.StreamRequest{
+				streamCh, err := m.turn.backend.Stream(ctx, backend.StreamRequest{
 					Model:        m.session.model,
 					SystemPrompt: sidequestion.DefaultSystemPrompt,
 					Messages:     messages,
@@ -2065,7 +1852,7 @@ func btwTick() tea.Cmd {
 //   - If a question is already active (IsBtwActive), emits:
 //     "A /btw question is already in progress. Please wait for it to finish."
 //   - Otherwise, dispatches the question, sets active card index, and renders above the input.
-func (m *runMode) runBtwSideQuestion(args string) tea.Cmd {
+func (m *RootModel) runBtwSideQuestion(args string) tea.Cmd {
 	trimmed := strings.TrimSpace(args)
 	if trimmed == "" {
 		if m.ShowBtwHistory() {
@@ -2098,7 +1885,7 @@ func (m *runMode) runBtwSideQuestion(args string) tea.Cmd {
 	if err != nil {
 		m.overlays.activeBtwCancel = nil
 		cancel()
-		m.engine.response = append(m.engine.response,
+		m.conversation.response = append(m.conversation.response,
 			panelGray238+"btw failed: "+err.Error()+panelGray238C,
 			"",
 		)
@@ -2106,12 +1893,12 @@ func (m *runMode) runBtwSideQuestion(args string) tea.Cmd {
 		return nil
 	}
 
-	// In non-interactive test mode (m.engine.prog == nil and !m.overlays.asyncBtw), execute synchronously
-	if m.engine.prog == nil && !m.overlays.asyncBtw {
+	// In non-interactive test mode (m.turn.prog == nil and !m.overlays.asyncBtw), execute synchronously
+	if m.turn.prog == nil && !m.overlays.asyncBtw {
 		m.overlays.activeBtwCancel = nil
 		cancel()
 		if runErr := run(); runErr != nil {
-			m.engine.response = append(m.engine.response,
+			m.conversation.response = append(m.conversation.response,
 				panelGray238+"btw failed: "+runErr.Error()+panelGray238C,
 				"",
 			)
@@ -2138,7 +1925,7 @@ func (m *runMode) runBtwSideQuestion(args string) tea.Cmd {
 	return tea.Batch(askCmd, btwTick())
 }
 
-func (m *runMode) updateBtwDoneMsg(msg btwDoneMsg) (tea.Model, tea.Cmd) {
+func (m *RootModel) updateBtwDoneMsg(msg btwDoneMsg) (tea.Model, tea.Cmd) {
 	if m.overlays.activeBtwCancel != nil {
 		m.overlays.activeBtwCancel = nil
 	}
@@ -2150,7 +1937,7 @@ func (m *runMode) updateBtwDoneMsg(msg btwDoneMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func (m *runMode) firePreSideQuestionHook(preCtx context.Context, trimmed string) (string, bool) {
+func (m *RootModel) firePreSideQuestionHook(preCtx context.Context, trimmed string) (string, bool) {
 	if m.session.hooks == nil {
 		return trimmed, false
 	}
@@ -2167,7 +1954,7 @@ func (m *runMode) firePreSideQuestionHook(preCtx context.Context, trimmed string
 	return final.Question, true
 }
 
-func (m *runMode) firePostSideQuestionHook(preCtx context.Context, trimmed string, card *sidequestion.Card, err error) {
+func (m *RootModel) firePostSideQuestionHook(preCtx context.Context, trimmed string, card *sidequestion.Card, err error) {
 	if m.session.hooks == nil {
 		return
 	}
@@ -2188,7 +1975,7 @@ func (m *runMode) firePostSideQuestionHook(preCtx context.Context, trimmed strin
 //   - If active card has answer: returns answer, "Copied /btw answer to clipboard."
 //   - If active card is still generating: "The /btw answer is still being generated."
 //   - If active card failed: "The /btw question failed: <err>"
-func (m *runMode) copyBtwCard() (string, string) {
+func (m *RootModel) copyBtwCard() (string, string) {
 	card := m.currentBtwResponse()
 	if card == nil {
 		return "", "No /btw response to copy."
@@ -2211,7 +1998,7 @@ func (m *runMode) copyBtwCard() (string, string) {
 
 // ShowBtwHistory reveals the most recent BTW card if history exists
 // and no card is currently generating. Returns true if history was shown.
-func (m *runMode) ShowBtwHistory() bool {
+func (m *RootModel) ShowBtwHistory() bool {
 	if len(m.overlays.btwCards) == 0 {
 		return false
 	}
@@ -2225,7 +2012,7 @@ func (m *runMode) ShowBtwHistory() bool {
 }
 
 // IsBtwActive reports whether any /btw question is currently in progress.
-func (m *runMode) IsBtwActive() bool {
+func (m *RootModel) IsBtwActive() bool {
 	for _, c := range m.overlays.btwCards {
 		if c != nil && c.IsActive() {
 			return true
@@ -2235,7 +2022,7 @@ func (m *runMode) IsBtwActive() bool {
 }
 
 // DismissBtwResponse dismisses the active BTW card and cancels any in-flight generation.
-func (m *runMode) DismissBtwResponse() {
+func (m *RootModel) DismissBtwResponse() {
 	if m.overlays.activeBtwCancel != nil {
 		m.overlays.activeBtwCancel()
 		m.overlays.activeBtwCancel = nil
@@ -2249,7 +2036,7 @@ func (m *runMode) DismissBtwResponse() {
 }
 
 // ToggleBtwExpanded flips the active BTW card's expansion state.
-func (m *runMode) ToggleBtwExpanded() {
+func (m *RootModel) ToggleBtwExpanded() {
 	card := m.currentBtwResponse()
 	if card == nil {
 		return
@@ -2260,7 +2047,7 @@ func (m *runMode) ToggleBtwExpanded() {
 
 // NavigateBtw shifts the active BTW card index by delta (-1 or +1),
 // clamping to [0, len-1].
-func (m *runMode) NavigateBtw(delta int) {
+func (m *RootModel) NavigateBtw(delta int) {
 	if len(m.overlays.btwCards) == 0 {
 		return
 	}
@@ -2278,7 +2065,7 @@ func (m *runMode) NavigateBtw(delta int) {
 
 // btwScrollBy scrolls the active BTW card answer by delta (-1 or +1)
 // when expanded. Returns true if the event was consumed.
-func (m *runMode) btwScrollBy(delta int) bool {
+func (m *RootModel) btwScrollBy(delta int) bool {
 	card := m.currentBtwResponse()
 	if card == nil {
 		return false
@@ -2310,19 +2097,17 @@ func (m *runMode) btwScrollBy(delta int) bool {
 	return true
 }
 
-func (m *runMode) currentBtwResponse() *sidequestion.Card {
+func (m *RootModel) currentBtwResponse() *sidequestion.Card {
 	if m.overlays.activeBtwIndex >= 0 && m.overlays.activeBtwIndex < len(m.overlays.btwCards) {
 		return m.overlays.btwCards[m.overlays.activeBtwIndex]
 	}
 	return nil
 }
 
-func (m *runMode) isBtwCardVisible() bool {
-	return m.overlays.activeBtwIndex >= 0 && m.overlays.activeBtwIndex < len(m.overlays.btwCards)
-}
+func (m *RootModel) isBtwCardVisible() bool { return m.overlays.BtwCardVisible() }
 
 // renderBtwCard renders the active side-question card.
-func (m *runMode) renderBtwCard() string {
+func (m *RootModel) renderBtwCard() string {
 	card := m.currentBtwResponse()
 	if card == nil {
 		return ""
@@ -2337,7 +2122,7 @@ func (m *runMode) renderBtwCard() string {
 }
 
 // aboveInputCard renders the card directly above the input prompt.
-func (m *runMode) aboveInputCard() string {
+func (m *RootModel) aboveInputCard() string {
 	if m.isBtwCardVisible() {
 		return m.renderBtwCard()
 	}

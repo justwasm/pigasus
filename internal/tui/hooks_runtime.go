@@ -67,7 +67,7 @@ type hookToolGate struct {
 // global one at ~/.gemini/config/hooks.json and the workspace one at
 // <workspace>/.agents/hooks.json. A document that is not there is not
 // an error — the session simply has no hooks.
-func (m *runMode) hookRuntime() *corehooks.Runtime {
+func (m *RootModel) hookRuntime() *corehooks.Runtime {
 	if m == nil {
 		return nil
 	}
@@ -84,14 +84,14 @@ func (m *runMode) hookRuntime() *corehooks.Runtime {
 }
 
 // hookWorkspace is the workspace the session's hooks are read from.
-func (m *runMode) hookWorkspace() string {
+func (m *RootModel) hookWorkspace() string {
 	if m == nil {
 		return ""
 	}
 	if m.session.cwd != "" {
 		return m.session.cwd
 	}
-	return defaultWorkspaceForRunMode()
+	return defaultWorkspaceForRootModel()
 }
 
 // hookInput builds the payload the documented handlers receive on stdin.
@@ -101,7 +101,7 @@ func (m *runMode) hookWorkspace() string {
 // transcript and the artifact directory are the reference's own paths
 // under ~/.gemini/antigravity-cli — the clone does not write them, so
 // they stay empty rather than name a file that is not there.
-func (m *runMode) hookInput() corehooks.Input {
+func (m *RootModel) hookInput() corehooks.Input {
 	in := corehooks.Input{
 		ConversationID: m.session.conversationID,
 		ModelName:      m.turnModel(),
@@ -116,7 +116,7 @@ func (m *runMode) hookInput() corehooks.Input {
 //
 // The bus's own in-process handlers run first; the documented handlers
 // run after them, through the runtime.
-func (m *runMode) fireHook(ctx context.Context, ev corehooks.Event, in corehooks.Input) corehooks.Outcome {
+func (m *RootModel) fireHook(ctx context.Context, ev corehooks.Event, in corehooks.Input) corehooks.Outcome {
 	if m == nil || m.session.hooks == nil {
 		return corehooks.Outcome{}
 	}
@@ -130,7 +130,7 @@ func (m *runMode) fireHook(ctx context.Context, ev corehooks.Event, in corehooks
 // hookSessionStart fires the SessionStart event.
 //
 // The event fires once per session, before the first model invocation.
-func (m *runMode) hookSessionStart(ctx context.Context) {
+func (m *RootModel) hookSessionStart(ctx context.Context) {
 	if m == nil || m.session.hookSessionStarted {
 		return
 	}
@@ -142,25 +142,27 @@ func (m *runMode) hookSessionStart(ctx context.Context) {
 //
 // The clone's turn is the host's unit: the model's own invocations
 // happen inside the turn engine, so the event fires once per turn.
-func (m *runMode) hookPreInvocation(ctx context.Context) {
+func (m *RootModel) hookPreInvocation(ctx context.Context) {
 	if m == nil {
 		return
 	}
 	m.session.hookInvocationNum++
 	in := m.hookInput()
 	in.InvocationNum = m.session.hookInvocationNum
-	in.InitialNumSteps = len(m.engine.trajLoaded) + len(m.engine.trajCalls)
+	loaded, calls, _ := m.trajectoryCounts()
+	in.InitialNumSteps = loaded + calls
 	m.fireHook(ctx, corehooks.EventPreInvocation, in)
 }
 
 // hookPostInvocation fires the PostInvocation event.
-func (m *runMode) hookPostInvocation(ctx context.Context) {
+func (m *RootModel) hookPostInvocation(ctx context.Context) {
 	if m == nil {
 		return
 	}
 	in := m.hookInput()
 	in.InvocationNum = m.session.hookInvocationNum
-	in.InitialNumSteps = len(m.engine.trajLoaded) + len(m.engine.trajCalls)
+	loaded, calls, _ := m.trajectoryCounts()
+	in.InitialNumSteps = loaded + calls
 	m.fireHook(ctx, corehooks.EventPostInvocation, in)
 }
 
@@ -168,7 +170,7 @@ func (m *runMode) hookPostInvocation(ctx context.Context) {
 //
 // The event fires when the execution loop terminates, which in the clone
 // is the end of the turn.
-func (m *runMode) hookStop(ctx context.Context) {
+func (m *RootModel) hookStop(ctx context.Context) {
 	if m == nil {
 		return
 	}
@@ -183,11 +185,11 @@ func (m *runMode) hookStop(ctx context.Context) {
 // The Stop payload's fullyIdle flag says whether the agent is
 // completely finished: a background command or an asynchronous task
 // that is still running makes it false.
-func (m *runMode) hookIdle() bool {
-	if m == nil || m.engine.taskReg == nil {
+func (m *RootModel) hookIdle() bool {
+	if m == nil || m.tasks.reg == nil {
 		return true
 	}
-	return m.engine.taskReg.CountRunning() == 0
+	return m.tasks.reg.CountRunning() == 0
 }
 
 // hookToolGate asks the documented PreToolUse hooks about one tool
@@ -201,7 +203,7 @@ func (m *runMode) hookIdle() bool {
 // The decision "allow" is the delegation the documentation names: the
 // call goes to the default policy. The decision "ask" respects the
 // user's own "always allow" grants, and "force_ask" does not.
-func (m *runMode) hookToolGate(ctx context.Context, call backend.ToolCall) hookToolGate {
+func (m *RootModel) hookToolGate(ctx context.Context, call backend.ToolCall) hookToolGate {
 	rt := m.hookRuntime()
 	if rt == nil || rt.Registry.Len() == 0 {
 		return hookToolGate{}
@@ -267,7 +269,7 @@ func (m *runMode) hookToolGate(ctx context.Context, call backend.ToolCall) hookT
 // hookPostToolUse fires the PostToolUse event after a tool call.
 //
 // The event sees the call that ran and the error it failed with.
-func (m *runMode) hookPostToolUse(ctx context.Context, call backend.ToolCall, err error) {
+func (m *RootModel) hookPostToolUse(ctx context.Context, call backend.ToolCall, err error) {
 	rt := m.hookRuntime()
 	if rt == nil || rt.Registry.Len() == 0 {
 		return

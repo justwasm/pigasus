@@ -184,6 +184,35 @@ func TestCallMcpToolPassesArgumentsVerbatim(t *testing.T) {
 	}
 }
 
+func TestCallMcpToolPassesMetaFields(t *testing.T) {
+	provider := &fakeMCPProvider{servers: []string{"srv"}, text: "ok"}
+	tool := &CallMcpTool{Provider: provider}
+	args := json.RawMessage(`{
+		"ServerName": "srv",
+		"ToolName": "custom_mcp_tool",
+		"Arguments": {"query": "test"},
+		"toolSummary": "summary text",
+		"explanation": "why this tool is called",
+		"waitForPreviousTools": true
+	}`)
+	if _, err := tool.Run(context.Background(), args); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	var got map[string]any
+	if err := json.Unmarshal(provider.calledArgs, &got); err != nil {
+		t.Fatalf("arguments are not JSON: %v", err)
+	}
+	if got["toolSummary"] != "summary text" {
+		t.Errorf("toolSummary = %v, want 'summary text'", got["toolSummary"])
+	}
+	if got["explanation"] != "why this tool is called" {
+		t.Errorf("explanation = %v, want 'why this tool is called'", got["explanation"])
+	}
+	if got["waitForPreviousTools"] != true {
+		t.Errorf("waitForPreviousTools = %v, want true", got["waitForPreviousTools"])
+	}
+}
+
 // TestCallMcpToolAcceptsReferenceNames checks the reference's PascalCase
 // parameter names are the ones that reach the client.
 func TestCallMcpToolAcceptsReferenceNames(t *testing.T) {

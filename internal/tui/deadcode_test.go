@@ -100,7 +100,7 @@ var deadCodeAllowlist = map[string]string{
 
 	// tui_viewport_scroll.go — the viewport's own constants and its
 	// span type, reached through the ui tier's own package.
-	"selHighlightOpen":     "viewport seam: the selection's opening span; the host names it, the ui tier renders it",
+	"selHighlightOpen": "viewport seam: the selection's opening span; the host names it, the ui tier renders it",
 
 	// tui_run.go — the /help window's historical fixed size. The
 	// live value is computed per terminal height; the constant is

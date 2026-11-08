@@ -477,6 +477,11 @@ const (
 // the message (0x1033f1247), "killed" becomes "Killed" (0x1033df87d)
 // and a subagent that is still working shows "Processing..."
 // (0x103487a55).
+// activeSubagentModelMinWidth is the narrow-terminal cutoff for the
+// subagent row's model cell. Below it the model is hidden so the status
+// word and elapsed time keep their room.
+const activeSubagentModelMinWidth = 64
+
 const (
 	activeSubagentDone       = "Done"
 	activeSubagentError      = "Error: "
@@ -507,7 +512,14 @@ func ActiveSubagentRowLine(t *Task, selected bool, width int) string {
 	// 【反编译】 the cell is fmt.Sprintf("%s %s  ", marker, toolInfo) —
 	// the styled marker, the tool info and the two spaces the format
 	// carries.
-	cell := activeSubagentMarker(t) + " " + activeSubagentToolInfo(t) + "  "
+	//
+	// AGY 1.5.3: "Added each subagent's model next to its name in the
+	// subagent rows above the prompt ... (hidden on narrow terminals)".
+	toolInfo := activeSubagentToolInfo(t)
+	if model := strings.TrimSpace(t.Model); model != "" && width >= activeSubagentModelMinWidth {
+		toolInfo += palette.DimGrayOpen + " · " + model + palette.DimGrayClose
+	}
+	cell := activeSubagentMarker(t) + " " + toolInfo + "  "
 
 	// 【反编译】 the elapsed cell carries the time the subagent has been
 	// running, rounded to the second.

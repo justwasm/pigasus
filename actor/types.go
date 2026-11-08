@@ -1,90 +1,66 @@
-// Package actor provides an Actor-model runtime for autonomous AI agent orchestration.
+// Package actor provides a serialized turn runtime for autonomous AI agent
+// orchestration.
 //
-// In this architecture, an agent is an Actor:
-//   - Mailbox: Receives asynchronous input messages (user prompts, scheduled wakeups,
-//     approval decisions, steering instructions, cancellation signals).
-//   - State Machine: Manages the turn lifecycle (Idle, Running, WaitingApproval,
-//     Paused, Closed) with zero external concurrent state mutation.
-//   - Event Stream: Non-blocking broadcast of observable events (thought deltas,
-//     text deltas, tool executions, approval requests, turn completion).
-//   - Decoupled Provider & Tools: Clean dependency injection for any LLM backend
-//     and tool definition without coupling to internal host machinery.
-//   - Built-in Scheduling: Reactive timer and cron capabilities that wake the
-//     actor by dispatching self-addressed messages into its mailbox.
+// One goroutine owns the turn loop: submitted turns queue in a mailbox and run
+// one at a time. There is no message vocabulary and no broadcast — a turn is a
+// TurnRequest, and its result is a TurnHandle.
+//   - State Machine: the turn lifecycle (Idle, Running, WaitingApproval,
+//     Closed) is guarded so no illegal transition is silent.
+//   - Event Stream: every turn has a lossless, per-turn event channel. A slow
+//     reader applies backpressure instead of losing the completion event.
+//   - Per-turn configuration: model, system prompt, provider and tools travel
+//     with the request, so a queued turn cannot be rewritten by the next one.
+//
+// Cancellation, steering and approval are methods, not messages: they must
+// take effect while the loop is busy, which is exactly when a queued message
+// would not be read. Cancellation is scoped by the TurnHandle the caller holds.
 //
 // Package actor has zero dependencies on internal/ packages and is safe for
 // direct consumption by external applications.
 package actor
 
 import (
+	"context"
 	"errors"
 	"time"
 )
 
 var (
-	// ErrActorClosed is returned when sending or operating on a closed Actor.
+	// ErrActorClosed is returned when submitting a turn to a closed Actor.
 	ErrActorClosed = errors.New("actor: actor is closed")
-	// ErrMailboxFull is returned when sending to a full, non-blocking mailbox.
-	ErrMailboxFull = errors.New("actor: mailbox is full")
 	// ErrTurnCancelled is returned when a turn is cancelled by signal or context.
 	ErrTurnCancelled = errors.New("actor: turn was cancelled")
-	// ErrToolNotFound is returned when the model calls an unregistered tool.
-	ErrToolNotFound = errors.New("actor: tool not found")
-	// ErrApprovalDenied is returned when human-in-the-loop approval is rejected.
-	ErrApprovalDenied = errors.New("actor: tool approval was denied")
-	// ErrInvalidSchedule is returned when scheduling parameters are invalid.
-	ErrInvalidSchedule = errors.New("actor: invalid schedule specification")
-	// ErrMaxStepsReached is returned when consecutive tool steps reach the maximum iteration limit.
-	ErrMaxStepsReached = errors.New("actor: maximum steps per turn reached")
+	// ErrTurnNotFound is returned when a turn-scoped operation names a turn
+	// that is neither running nor queued.
+	ErrTurnNotFound = errors.New("actor: turn is not active")
+	// ErrAutoContinueLimit is returned when a turn has recovered from
+	// truncation or transport interruption AutoContMaxDepth times and still
+	// cannot finish; the next step is the user's.
+	ErrAutoContinueLimit = errors.New("actor: auto-continue limit reached; user input required")
 )
+
+// mailboxSize is the number of turns that may wait behind the running one.
+const mailboxSize = 128
 
 // Config configures a new Actor instance.
 type Config struct {
 	// ID is the unique identifier for the actor. If empty, a random ID is generated.
 	ID string
 
-	// Name is an optional human-readable name for the actor.
-	Name string
+	// Default is the configuration a turn inherits when its TurnRequest does
+	// not override a field. Provider is required.
+	Default TurnConfig
 
-	// SystemPrompt is the base instructions for the agent.
-	SystemPrompt string
-
-	// Model specifies the default model identifier to use (e.g. "gemini-2.5-pro").
-	Model string
-
-	// Provider is the LLM completion engine used by the actor. Required.
-	Provider Provider
-
-	// Tools is the initial set of tools registered with the actor.
-	Tools []Tool
-
-	// MailboxSize is the buffer capacity of the actor's incoming message queue.
-	// Defaults to 128 if <= 0.
-	MailboxSize int
-
-	// EventBufferSize is the buffer capacity for event subscriber channels.
+	// EventBufferSize is the buffer capacity of a turn's event channel.
 	// Defaults to 256 if <= 0.
 	EventBufferSize int
-
-	// MaxStepsPerTurn limits consecutive tool execution loops within a single turn.
-	// Defaults to 0 (unlimited).
-	MaxStepsPerTurn int
-
-	// AutoCompactThreshold triggers trajectory compaction when history steps
-	// exceed this count. Set to 0 to disable auto-compaction.
-	AutoCompactThreshold int
-
-	// Temperature controls LLM generation sampling.
-	Temperature *float32
 
 	// AutoContinue enables automatic continuation when model output is truncated by length cap.
 	// Defaults to true when nil.
 	AutoContinue *bool
 
-	// MaxTokens is the maximum tokens for model generations.
-	MaxTokens int
-
-	// TimeNow allows overriding clock in tests. If nil, time.Now is used.
+	// TimeNow is the clock the actor stamps its own facts with: event
+	// timestamps, turn records, state snapshots. If nil, time.Now is used.
 	TimeNow func() time.Time
 
 	// InitialHistory allows pre-populating conversation messages into the actor's trajectory upon spawn.
@@ -104,14 +80,97 @@ func (c *Config) AutoContinueEnabled() bool {
 
 // EnsureDefaults fills in default configuration values where omitted.
 func (c *Config) EnsureDefaults() {
-	if c.MailboxSize <= 0 {
-		c.MailboxSize = 128
-	}
 	if c.EventBufferSize <= 0 {
 		c.EventBufferSize = 256
 	}
-	// MaxStepsPerTurn defaults to 0 (unlimited)
 	if c.TimeNow == nil {
 		c.TimeNow = time.Now
 	}
 }
+
+// TurnConfig is the configuration a turn runs under.
+//
+// It appears twice: as Config.Default (the actor's defaults) and embedded in
+// TurnRequest (per-turn overrides). A zero field inherits the default for that
+// turn; Tools is the exception — nil inherits, an empty non-nil slice means the
+// turn runs with no tools.
+type TurnConfig struct {
+	Model        string
+	SystemPrompt string
+	Provider     Provider
+	Tools        []Tool
+	Temperature  *float32
+	MaxTokens    int
+
+	// Checkpoint is asked before every model call. A nil callback means the
+	// host does not checkpoint. The callback only inspects the probe and
+	// returns a decision; it must not mutate the actor or cancel the turn.
+	Checkpoint CheckpointFunc
+
+	// tools is the resolved snapshot a turn executes against. It is set when
+	// the request is submitted, never by a caller.
+	tools *ToolRegistry
+}
+
+// TurnRequest is one turn: its prompt and the configuration it runs under.
+//
+// The configuration travels with the request, not with the actor, so two
+// queued turns keep their own model, provider and tools.
+type TurnRequest struct {
+	TurnConfig
+	Prompt string
+}
+
+// CheckpointProbe is the state the actor reports at a step boundary.
+//
+// It is deliberately cheap: the host can decide from LastStep/TurnUsage
+// whether it needs the full transcript, which it can read through
+// Actor.Trajectory().CheckpointView() without the actor copying it.
+type CheckpointProbe struct {
+	TurnID          string
+	StepIndex       int
+	GlobalStepIndex int
+	Model           string
+	LastStep        *Step
+	TurnUsage       TokenUsage
+}
+
+// CheckpointDecision tells the actor how to replace the model context before
+// the next call.
+type CheckpointDecision struct {
+	// Apply reports whether the actor should record the checkpoint and use
+	// ResumeText for the next call.
+	Apply bool
+	// ResumeText is the reference's "# Resuming from a compaction" block.
+	ResumeText string
+	// Summary is the model's summary, kept for hosts and persistence.
+	Summary string
+	// Model is the model that wrote the summary.
+	Model string
+	// Strategy is CHECKPOINT_STRATEGY_SAME_MODEL / SINGLE_PROMPT / ...
+	Strategy string
+	// IncludedThroughStep is the global step index folded into ResumeText.
+	IncludedThroughStep int
+	// KeepRecent is the number of most recent steps left outside the summary.
+	KeepRecent int
+	// KeepInput reports that the current turn's input is not folded into the
+	// summary and must still be sent to the model.
+	KeepInput bool
+	// TokensBefore and TokensAfter are the checkpoint's own accounting.
+	TokensBefore int
+	TokensAfter  int
+	// StepsSummarized is the number of steps folded into this checkpoint.
+	StepsSummarized int
+	// Sync reports whether the checkpoint blocked the turn.
+	Sync bool
+}
+
+// CheckpointFunc is asked before each model call. Returning Apply=false keeps
+// the turn's full context; an error that is not context.Canceled is treated as
+// a checkpoint failure and leaves the full context in place. The host decides
+// whether a failure is fatal by returning ErrCheckpointRequired.
+type CheckpointFunc func(ctx context.Context, probe CheckpointProbe) (CheckpointDecision, error)
+
+// ErrCheckpointRequired reports that the context cannot fit another model call
+// and the checkpoint did not produce a replacement.
+var ErrCheckpointRequired = errors.New("actor: checkpoint required before the next model call")

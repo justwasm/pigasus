@@ -294,3 +294,53 @@ func TestRemoveClearsTheSharedCredential(t *testing.T) {
 		t.Fatalf("accounts = %d, want 0", len(st.Accounts))
 	}
 }
+
+// TestAddStoresWithoutSwitching pins the CLI's contract: adding a batch of
+// credentials must not change the active account (or the shared credential),
+// which is what makes `accounts add` usable in a script.
+func TestAddStoresWithoutSwitching(t *testing.T) {
+	isolate(t)
+	first := fakeToken(t, "first@example.com", "at-1", "rt-1")
+	if _, _, err := Register(first); err != nil {
+		t.Fatalf("register: %v", err)
+	}
+
+	second := fakeToken(t, "second@example.com", "at-2", "rt-2")
+	acc, existed, err := Add("second@example.com", second)
+	if err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+	if existed {
+		t.Error("Add reported the account as already known")
+	}
+	if acc.Email != "second@example.com" {
+		t.Errorf("Add returned %+v", acc)
+	}
+	st, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.Active != "first@example.com" {
+		t.Errorf("active = %q, want the previously active account", st.Active)
+	}
+	if len(st.Accounts) != 2 {
+		t.Fatalf("accounts = %+v", st.Accounts)
+	}
+
+	// Re-adding keeps AddedAt and reports the account as known.
+	before, _ := st.Find("second@example.com")
+	again := fakeToken(t, "", "at-3", "rt-3")
+	acc2, existed, err := Add("second@example.com", again)
+	if err != nil {
+		t.Fatalf("second Add: %v", err)
+	}
+	if !existed {
+		t.Error("a re-add did not report the account as known")
+	}
+	if !acc2.AddedAt.Equal(before.AddedAt) {
+		t.Errorf("AddedAt moved: %v -> %v", before.AddedAt, acc2.AddedAt)
+	}
+	if acc2.Token.Token.RefreshToken != "rt-3" {
+		t.Errorf("token = %+v", acc2.Token)
+	}
+}

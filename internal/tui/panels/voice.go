@@ -18,7 +18,7 @@ func NewVoiceSurface(h VoiceHost) *voice.Surface {
 		Connect:     h.ConnectVoice,
 		InsertDraft: h.InsertDraft,
 		Respond: func(msg string, extra ...string) {
-			h.SlashRespond("/voice", msg)
+			h.SlashRespond("/voice", msg, extra...)
 		},
 		Width: h.TerminalWidth,
 	})

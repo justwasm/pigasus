@@ -22,9 +22,13 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	"github.com/justwasm/pigasus/actor"
 	"github.com/justwasm/pigasus/internal/app/agentturn"
-	"github.com/justwasm/pigasus/internal/app/toolrunner"
-	"github.com/justwasm/pigasus/internal/cli"
 	"github.com/justwasm/pigasus/internal/app/session/convstore"
+	"github.com/justwasm/pigasus/internal/app/task"
+	"github.com/justwasm/pigasus/internal/app/toolrunner"
+	"github.com/justwasm/pigasus/internal/app/tools"
+	"github.com/justwasm/pigasus/internal/app/tools/shell"
+	"github.com/justwasm/pigasus/internal/app/tools/surface"
+	"github.com/justwasm/pigasus/internal/cli"
 	"github.com/justwasm/pigasus/internal/core/backend"
 	"github.com/justwasm/pigasus/internal/core/policy/permissions"
 	"github.com/justwasm/pigasus/internal/core/policy/sandbox"
@@ -32,10 +36,6 @@ import (
 	tuiviewport "github.com/justwasm/pigasus/internal/ui/foundations/viewport"
 	"github.com/justwasm/pigasus/internal/ui/panelregistry"
 	_ "github.com/ncruces/go-sqlite3/driver"
-	"github.com/justwasm/pigasus/internal/app/task"
-	"github.com/justwasm/pigasus/internal/app/tools"
-	"github.com/justwasm/pigasus/internal/app/tools/shell"
-	"github.com/justwasm/pigasus/internal/app/tools/surface"
 )
 
 // TestResumeTypedKeysReachThePicker pins the host's routing: while the
@@ -46,7 +46,7 @@ import (
 // ctrl-modified key is a command — is pinned in internal/ui/resumepicker.
 func TestResumeTypedKeysReachThePicker(t *testing.T) {
 	t.Setenv("ANTIGRAVITY_HOME", t.TempDir())
-	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/", true)
 	m.viewport.width, m.viewport.height = 200, 40
 	if handled, _ := m.handleSlashCommand("/resume"); !handled {
 		t.Fatal("/resume should be handled")
@@ -68,7 +68,7 @@ func TestResumeTypedKeysReachThePicker(t *testing.T) {
 	if got := m.overlays.resumePicker.Query(); got != "Fixing" {
 		t.Fatalf("query = %q, want %q (shifted characters must be inserted)", got, "Fixing")
 	}
-	if got := m.composer.input.Value(); got != "" {
+	if got := m.prompt.input.Value(); got != "" {
 		t.Fatalf("the typed characters leaked into the prompt: %q", got)
 	}
 
@@ -102,7 +102,7 @@ func TestResumeEmptyStoreOpensPicker(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("ANTIGRAVITY_HOME", dir)
 
-	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/", true)
 	m.viewport.width, m.viewport.height = 200, 40
 	if handled, _ := m.handleSlashCommand("/resume"); !handled {
 		t.Fatal("/resume should be handled")
@@ -129,8 +129,8 @@ func TestResumeEmptyStoreOpensPicker(t *testing.T) {
 	if m.overlays.resumePicker.Active() {
 		t.Fatal("Enter on the empty screen should close the picker")
 	}
-	if len(m.engine.response) != 0 {
-		t.Fatalf("Enter on the empty screen echoed %q, want nothing", m.engine.response)
+	if len(m.conversation.response) != 0 {
+		t.Fatalf("Enter on the empty screen echoed %q, want nothing", m.conversation.response)
 	}
 }
 
@@ -182,7 +182,7 @@ func TestResume_PopulatesFromStoreDir(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/", true)
 	m.viewport.width, m.viewport.height = 200, 40
 	handled, _ := m.handleSlashCommand("/resume")
 	if !handled {
@@ -218,7 +218,7 @@ func TestResume_UpDownMovesCursor(t *testing.T) {
 			})
 	}
 
-	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/", true)
 	_, _ = m.handleSlashCommand("/resume")
 	if !m.overlays.resumePicker.Active() {
 		t.Fatal("/resume should open")
@@ -268,16 +268,16 @@ func TestFork_WritesConvStoreAndAppearsInPicker(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", true)
-	m.engine.session = []backend.Message{
+	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m.setSessionMessages([]backend.Message{
 		{Role: "user", Content: "do thing 1"},
 		{Role: "assistant", Content: "ok"},
 		{Role: "user", Content: "do thing 2"},
 		{Role: "assistant", Content: "ok done"},
-	}
+	})
 
 	_, _ = m.handleSlashCommand("/fork")
-	if len(m.engine.session) == 0 {
+	if len(m.SessionMessages()) == 0 {
 		t.Fatal("fork should not wipe the live session")
 	}
 	entries, err := os.ReadDir(filepath.Join(dir, "conversations"))
@@ -291,7 +291,7 @@ func TestFork_WritesConvStoreAndAppearsInPicker(t *testing.T) {
 	m.overlays.resumePicker.Close()
 	_, _ = m.handleSlashCommand("/resume")
 	if !m.overlays.resumePicker.Active() {
-		t.Fatalf("/resume should open with the past conversation present (resp=%v)", m.engine.response)
+		t.Fatalf("/resume should open with the past conversation present (resp=%v)", m.conversation.response)
 	}
 	list := m.overlays.resumePicker.List()
 	if len(list) != 1 {
@@ -299,6 +299,44 @@ func TestFork_WritesConvStoreAndAppearsInPicker(t *testing.T) {
 	}
 	if list[0].Title == "" || !strings.Contains(list[0].Title, "older prompt") {
 		t.Errorf("picker should show the past conversation, got %q", list[0].Title)
+	}
+}
+
+// TestResume_HidesTheCurrentConversation pins the seam contract: the
+// picker lists the store minus the conversation the session is showing.
+// Resuming the current conversation is a no-op, so the row is noise.
+func TestResume_HidesTheCurrentConversation(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("ANTIGRAVITY_HOME", dir)
+	if err := os.MkdirAll(filepath.Join(dir, "conversations"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	ids := []string{
+		"aaaa1111-0000-4000-8000-000000000001",
+		"bbbb2222-0000-4000-8000-000000000002",
+	}
+	for _, id := range ids {
+		if err := convstore.WriteConversation(
+			filepath.Join(dir, "conversations", id+".db"),
+			"traj-"+id,
+			[]convstore.Step{
+				{Idx: 0, Type: convstore.StepUserInput, Status: 3, Text: "prompt " + id},
+			}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m.session.conversationID = ids[0]
+	if _, _ = m.handleSlashCommand("/resume"); !m.overlays.resumePicker.Active() {
+		t.Fatal("/resume should open the picker")
+	}
+	list := m.overlays.resumePicker.List()
+	if len(list) != 1 {
+		t.Fatalf("expected 1 conversation (the current one is hidden), got %d", len(list))
+	}
+	if list[0].ID != ids[1] {
+		t.Errorf("picker shows %q, want the other conversation %q", list[0].ID, ids[1])
 	}
 }
 
@@ -324,7 +362,7 @@ func TestResume_F4DeletesConversation(t *testing.T) {
 		t.Fatalf("SaveConversation: %v", err)
 	}
 
-	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", false)
+	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/", false)
 	if _, _ = m.handleSlashCommand("/resume"); !m.overlays.resumePicker.Active() {
 		t.Fatal("/resume should open the picker")
 	}
@@ -361,7 +399,7 @@ func TestResume_F2RenamesConversation(t *testing.T) {
 		t.Fatalf("SaveConversation: %v", err)
 	}
 
-	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", false)
+	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/", false)
 	if _, _ = m.handleSlashCommand("/resume"); !m.overlays.resumePicker.Active() {
 		t.Fatal("/resume should open the picker")
 	}
@@ -381,7 +419,7 @@ func TestResume_F2RenamesConversation(t *testing.T) {
 // TestContinueFlag exercises the documented top-level --continue:
 // resolves the conversation through resolveConversationSelection (which
 // in turn consults FindMostRecent for the parent/child fallback), seeds
-// the runMode session, and renders an "Resumed conversation: <title>"
+// the RootModel session, and renders an "Resumed conversation: <title>"
 // banner the v1.4.0 changelog requires.
 func TestContinueFlag(t *testing.T) {
 	dir := t.TempDir()
@@ -419,22 +457,22 @@ func TestContinueFlag(t *testing.T) {
 	if sel.Store == nil || len(sel.Store.Steps) == 0 {
 		t.Fatalf("sel.Store not loaded: %+v", sel.Store)
 	}
-	m := newRunMode(nil, "", "Gemini 3.8 Flash (High)", "", "/tmp", true)
+	m := newRootModel(nil, "", "Gemini 3.8 Flash (High)", "", "/tmp", true)
 	m.session.conversationID = sel.ID
 	m.seedConversation(sel.Store)
-	joined := strings.Join(m.engine.response, "\n")
+	joined := strings.Join(m.conversation.response, "\n")
 	// Resumed transcript echoes user prompts matching agy.
 	if !strings.Contains(joined, "say what?") {
 		t.Errorf("resumed transcript must echo user prompts; got:\n%s", joined)
 	}
 	seededUser := false
-	for _, msg := range m.engine.session {
+	for _, msg := range m.SessionMessages() {
 		if msg.Role == "user" && strings.Contains(msg.Content, "say what?") {
 			seededUser = true
 		}
 	}
 	if !seededUser {
-		t.Errorf("prior user prompt missing from the seeded session: %+v", m.engine.session)
+		t.Errorf("prior user prompt missing from the seeded session: %+v", m.SessionMessages())
 	}
 }
 
@@ -496,7 +534,7 @@ func TestGoroutineLeakResumePicker(t *testing.T) {
 	runtime.GC()
 	baseline := runtime.NumGoroutine()
 	for i := 0; i < 10; i++ {
-		m := newRunMode(nil, "", "Gemini 3.8 Flash (High)", "", dir, true)
+		m := newRootModel(nil, "", "Gemini 3.8 Flash (High)", "", dir, true)
 		handled, _ := m.handleSlashCommand("/resume")
 		if !handled || !m.overlays.resumePicker.Active() {
 			t.Fatalf("iter %d: /resume failed: handled=%v active=%v", i, handled, m.overlays.resumePicker.Active())
@@ -508,16 +546,16 @@ func TestGoroutineLeakResumePicker(t *testing.T) {
 		if m.overlays.resumePicker.Active() {
 			t.Fatalf("iter %d: picker should close on Esc", i)
 		}
-		// Cycle tasks-panel: newRunMode arms a subscriber goroutine
+		// Cycle tasks-panel: newRootModel arms a subscriber goroutine
 		// on the shared task registry; close it here so the next
 		// iteration's m doesn't accumulate (delta=10). The cancel
 		// callback closes the registry's channel, the goroutine's
 		// `for range ch` exits, and runtime.GC drains it.
-		if m.engine.taskCtrl != nil {
-			m.engine.taskCtrl.Close()
+		if m.tasks.ctrl != nil {
+			m.tasks.ctrl.Close()
 		}
-		if m.engine.tasksSubCancel != nil {
-			m.engine.tasksSubCancel()
+		if m.tasks.cancel != nil {
+			m.tasks.cancel()
 		}
 	}
 	// Allow blink ticks to drain.
@@ -534,7 +572,7 @@ func TestGoroutineLeakResumePicker(t *testing.T) {
 // the cycle-resume TUI surface adds. Seeds one conversation in the
 // active workspace, runs /continue, and checks (a) the slash was
 // handled, (b) m.session.conversationID was overwritten with the picked id,
-// (c) the prior-turn transcript re-appeared in m.engine.response.
+// (c) the prior-turn transcript re-appeared in m.conversation.response.
 func TestSlashContinueResumeLast(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("ANTIGRAVITY_HOME", dir)
@@ -559,7 +597,7 @@ func TestSlashContinueResumeLast(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	m := newRunMode(nil, "", "Gemini 3.8 Flash (High)", "", ws, true)
+	m := newRootModel(nil, "", "Gemini 3.8 Flash (High)", "", ws, true)
 	m.session.conversationID = "pre-existing-id-from-new-run" // would otherwise short-circuit
 	if handled, _ := m.handleSlashCommand("/continue"); !handled {
 		t.Fatal("/continue should be handled")
@@ -567,7 +605,7 @@ func TestSlashContinueResumeLast(t *testing.T) {
 	if m.session.conversationID != id {
 		t.Errorf("m.session.conversationID = %q, want %q", m.session.conversationID, id)
 	}
-	joined := strings.Join(m.engine.response, "\n")
+	joined := strings.Join(m.conversation.response, "\n")
 	// Resumed transcript echoes user prompts and model reply matching agy.
 	if !strings.Contains(joined, "old reply") {
 		t.Errorf("missing the prior model reply: %q", joined)
@@ -594,7 +632,7 @@ func TestSlashContinueNoConversation(t *testing.T) {
 	t.Setenv("ANTIGRAVITY_HOME", dir)
 	t.Chdir(t.TempDir())
 
-	m := newRunMode(nil, "", "Gemini 3.8 Flash (High)", "", t.TempDir(), true)
+	m := newRootModel(nil, "", "Gemini 3.8 Flash (High)", "", t.TempDir(), true)
 	const origID = "orig-conv-id-unchanged"
 	m.session.conversationID = origID
 	if handled, _ := m.handleSlashCommand("/continue"); !handled {
@@ -604,7 +642,7 @@ func TestSlashContinueNoConversation(t *testing.T) {
 		t.Errorf("m.session.conversationID = %q, want %q (unchanged on miss)",
 			m.session.conversationID, origID)
 	}
-	joined := strings.Join(m.engine.response, "\n")
+	joined := strings.Join(m.conversation.response, "\n")
 	if !strings.Contains(joined, "No previous conversation to continue.") {
 		t.Errorf("missing empty-state message: %q", joined)
 	}
@@ -644,7 +682,7 @@ func TestSlashContinueParentFallback(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	m := newRunMode(nil, "", "Gemini 3.8 Flash (High)", "", sub, true)
+	m := newRootModel(nil, "", "Gemini 3.8 Flash (High)", "", sub, true)
 	if handled, _ := m.handleSlashCommand("/continue"); !handled {
 		t.Fatal("/continue should be handled")
 	}
@@ -652,13 +690,13 @@ func TestSlashContinueParentFallback(t *testing.T) {
 		t.Errorf("m.session.conversationID = %q, want %q (the parent's session)", m.session.conversationID, id)
 	}
 	seededUser := false
-	for _, msg := range m.engine.session {
+	for _, msg := range m.SessionMessages() {
 		if msg.Role == "user" && strings.Contains(msg.Content, "parent owned prompt") {
 			seededUser = true
 		}
 	}
 	if !seededUser {
-		t.Errorf("missing parent-owned prompt in the seeded session: %+v", m.engine.session)
+		t.Errorf("missing parent-owned prompt in the seeded session: %+v", m.SessionMessages())
 	}
 }
 
@@ -796,9 +834,13 @@ func TestPermissionRunner_DefaultAllows(t *testing.T) {
 	}
 }
 
+// denyAsk is the no-user approval seam: it answers "no" the way a
+// headless run's soft-deny does.
+func denyAsk(context.Context, backend.ToolCall) (bool, error) { return false, nil }
+
 func TestPermissionRunner_StrictSoftDenies(t *testing.T) {
 	inner := &recordingRunner{}
-	gate := &permissionRunner{inner: inner, policy: &permissions.Policy{Strict: true}}
+	gate := &permissionRunner{inner: inner, policy: &permissions.Policy{Strict: true}, ask: denyAsk}
 	out, err := gate.Run(context.Background(), backend.ToolCall{
 		Name: "run_command", Arguments: json.RawMessage(`{"command":"date"}`),
 	})
@@ -838,7 +880,7 @@ func TestPermissionRunner_SkipPermissionsAllowsUnderStrict(t *testing.T) {
 
 func TestPermissionRunner_AllowRuleAllowsUnderStrict(t *testing.T) {
 	inner := &recordingRunner{}
-	gate := &permissionRunner{inner: inner, policy: &permissions.Policy{
+	gate := &permissionRunner{inner: inner, ask: denyAsk, policy: &permissions.Policy{
 		Strict: true,
 		Allow:  []permissions.Rule{{Tool: "run_command", Pattern: "date"}},
 	}}
@@ -992,8 +1034,8 @@ type gateTestRunnerTool struct {
 	runner backend.ToolRunner
 }
 
-func (t *gateTestRunnerTool) Name() string                        { return t.decl.Name }
-func (t *gateTestRunnerTool) Description() string                 { return t.decl.Description }
+func (t *gateTestRunnerTool) Name() string                       { return t.decl.Name }
+func (t *gateTestRunnerTool) Description() string                { return t.decl.Description }
 func (t *gateTestRunnerTool) RequiresApproval(input string) bool { return false }
 func (t *gateTestRunnerTool) Definition() actor.ToolDefinition {
 	return actor.ToolDefinition{Name: t.decl.Name}
@@ -1025,11 +1067,13 @@ func TestGateThroughAgentLoop(t *testing.T) {
 	}}
 	var final strings.Builder
 	act, err := actor.Spawn(actor.Config{
-		Provider: agentturn.NewBackendProviderAdapter(be, "test"),
-		Tools: []actor.Tool{&gateTestRunnerTool{
-			decl:   backend.ToolDecl{Name: "run_command"},
-			runner: gate,
-		}},
+		Default: actor.TurnConfig{
+			Provider: agentturn.NewBackendProviderAdapter(be, "test"),
+			Tools: []actor.Tool{&gateTestRunnerTool{
+				decl:   backend.ToolDecl{Name: "run_command"},
+				runner: gate,
+			}},
+		},
 	})
 	if err != nil {
 		t.Fatalf("actor.Spawn: %v", err)
@@ -1040,7 +1084,7 @@ func TestGateThroughAgentLoop(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Ask: %v", err)
 	}
-	for ev := range ch {
+	for ev := range ch.Events() {
 		if ev.Type == actor.EventDelta {
 			final.WriteString(ev.Delta)
 		}
@@ -1251,7 +1295,7 @@ func TestResumeConversation_BoostStepTextRestored(t *testing.T) {
 			{Idx: 1, Type: convstore.StepModelResponse, Text: longReply},
 		},
 	}
-	m := newRunMode(nil, "", "m", "", "/tmp", true)
+	m := newRootModel(nil, "", "m", "", "/tmp", true)
 	m.viewport.width, m.viewport.height = 120, 24
 	m.viewport.altScreen = true
 	m.seedConversation(c)
@@ -1305,7 +1349,7 @@ func TestResumeConversation_RestoresQueuedPrompts(t *testing.T) {
 			{Idx: 1, Type: convstore.StepModelResponse, Text: "hello"},
 		},
 	}
-	m := newRunMode(nil, "", "m", "", "/tmp", true)
+	m := newRootModel(nil, "", "m", "", "/tmp", true)
 	m.session.conversationID = convID
 	m.seedConversation(c)
 
@@ -1353,7 +1397,7 @@ func TestResumeConversation_RestoresActiveSchedules(t *testing.T) {
 			{Idx: 0, Type: convstore.StepUserInput, Text: "monitor server"},
 		},
 	}
-	m := newRunMode(nil, "", "m", "", "/tmp", true)
+	m := newRootModel(nil, "", "m", "", "/tmp", true)
 	m.session.conversationID = convID
 	m.seedConversation(c)
 
@@ -1407,7 +1451,7 @@ func TestResumeConversation_CatchesUpExpiredSchedules(t *testing.T) {
 			{Idx: 0, Type: convstore.StepUserInput, Text: "remind me later"},
 		},
 	}
-	m := newRunMode(nil, "", "m", "", "/tmp", true)
+	m := newRootModel(nil, "", "m", "", "/tmp", true)
 	m.session.conversationID = convID
 	m.seedConversation(c)
 

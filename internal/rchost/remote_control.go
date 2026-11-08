@@ -120,6 +120,7 @@ func buildHostConfig(fs *flag.FlagSet, sess *remotecontrol.SessionState, sockPat
 		ListBackend:             buildHostListBackend(),
 		FS:                      fsProv,
 		Projects:                projStore,
+		Uploads:                 buildHostProjectUploadStore(),
 		Conversations:           buildHostConversationStore(projStore),
 		AuthState:               authStateForCaller(),
 		DaemonMeta:              daemonMetaForCaller(transport, addr, "in-process"),

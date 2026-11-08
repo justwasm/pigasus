@@ -13,9 +13,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/justwasm/pigasus/internal/app/tools/surface"
 	"github.com/justwasm/pigasus/internal/core/backend"
 	"github.com/justwasm/pigasus/internal/infra/backend/gateway"
-	"github.com/justwasm/pigasus/internal/app/tools/surface"
 )
 
 // recordingGateway serves the gateway SSE shape and keeps the request body, so a test

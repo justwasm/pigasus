@@ -32,14 +32,14 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/justwasm/pigasus/internal/features/models/configtest"
 	"github.com/justwasm/pigasus/internal/core/backend"
 	"github.com/justwasm/pigasus/internal/core/cliflags"
 	accountrouting "github.com/justwasm/pigasus/internal/features/accounts/routing"
 	modelcatalog "github.com/justwasm/pigasus/internal/features/models/catalog"
-	backendselect "github.com/justwasm/pigasus/internal/infra/backend/select"
+	"github.com/justwasm/pigasus/internal/features/models/configtest"
 	"github.com/justwasm/pigasus/internal/infra/backend/cloudcode"
 	"github.com/justwasm/pigasus/internal/infra/backend/gateway"
+	backendselect "github.com/justwasm/pigasus/internal/infra/backend/select"
 	"github.com/justwasm/pigasus/internal/printmode"
 	"github.com/justwasm/pigasus/internal/ui/panelregistry"
 	termcolor "github.com/justwasm/pigasus/internal/ui/render/color"
@@ -131,9 +131,9 @@ func TestEffortPickerAcceptsBareName(t *testing.T) {
 	fs := flag.NewFlagSet("t", flag.ContinueOnError)
 	fs.String("effort", "", "")
 
-	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", false)
-	m.composer.picker.Reset()
-	m.composer.input.Reset()
+	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/", false)
+	m.prompt.picker.Reset()
+	m.prompt.input.Reset()
 	m.session.flags = fs
 	// Cycle 197 / 1.3.4: m.session.model carries the *display label*, not the slug.
 	// canonicalModelLabel maps "gemini-3.8-flash" -> "Gemini 3.8 Flash" via
@@ -463,7 +463,7 @@ func TestPickBackend_ExplicitCloudCode(t *testing.T) {
 }
 
 // TestModelSelectionSwapsBackend pins the runtime half of the fix: choosing a
-// model in /model must replace m.engine.backend, not only m.session.model, or the next turn
+// model in /model must replace m.turn.backend, not only m.session.model, or the next turn
 // still goes to MiniMax.
 //
 // Cycle 381: the panel owns the selection and hands the display label over
@@ -473,10 +473,10 @@ func TestModelSelectionSwapsBackend(t *testing.T) {
 	cycle196TestHome(t, map[string]any{"model": "gemini-3.8-flash-medium"})
 	m := mkPanel(panelregistry.Model, "/model", 0)
 	old := backend.NewMock()
-	m.engine.backend = old
+	m.turn.backend = old
 
 	byModel := map[string]backend.Client{}
-	m.engine.backendFor = func(label string) backend.Client {
+	m.turn.backendFor = func(label string) backend.Client {
 		c := backend.NewMock()
 		byModel[label] = c
 		return c
@@ -496,13 +496,13 @@ func TestModelSelectionSwapsBackend(t *testing.T) {
 	if !ok {
 		t.Fatalf("backend factory never saw %q (saw %v)", label, keysOf(byModel))
 	}
-	if m.engine.backend != got {
-		t.Fatal("m.engine.backend was not rebuilt on Enter")
+	if m.turn.backend != got {
+		t.Fatal("m.turn.backend was not rebuilt on Enter")
 	}
 
 	// ←/→ on the same row must rebuild too. Re-open the panel: the
 	// Enter path closes it in the real UI.
-	m.engine.backend = old
+	m.turn.backend = old
 	reopenModelPanel(m)
 	parkOnGemini(t, m)
 	if handled, _ = m.handlePanelKey(tea.Key{Code: tea.KeyRight}); !handled {
@@ -513,13 +513,13 @@ func TestModelSelectionSwapsBackend(t *testing.T) {
 	if !ok {
 		t.Fatalf("backend factory never saw %q on ←/→ (saw %v)", cycleLabel, keysOf(byModel))
 	}
-	if m.engine.backend != cycleClient {
-		t.Fatal("m.engine.backend was not rebuilt on ←/→")
+	if m.turn.backend != cycleClient {
+		t.Fatal("m.turn.backend was not rebuilt on ←/→")
 	}
 }
 
 // parkOnGemini puts the /model panel's cursor on the Gemini row.
-func parkOnGemini(t *testing.T, m *runMode) {
+func parkOnGemini(t *testing.T, m *RootModel) {
 	t.Helper()
 	for i, r := range modelpicker.RowsView() {
 		if r.Slug == "gemini-3.8-flash" {
@@ -532,7 +532,7 @@ func parkOnGemini(t *testing.T, m *runMode) {
 
 // reopenModelPanel opens the /model panel again — the Enter path closes it,
 // and the host rebuilds the panel on every open.
-func reopenModelPanel(m *runMode) {
+func reopenModelPanel(m *RootModel) {
 	m.overlays.panel = slashPanel{kind: panelregistry.Model, cmd: "/model"}
 	m.overlays.panel.mdl = m.newModelPanel()
 }
@@ -575,11 +575,11 @@ func TestCycle197_ModelEnterKeyHandlerClosesPanel(t *testing.T) {
 	}
 }
 
-func newEffortRunMode(t *testing.T) *runMode {
+func newEffortRootModel(t *testing.T) *RootModel {
 	t.Helper()
-	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/", false)
-	m.composer.picker.Reset()
-	m.composer.input.Reset()
+	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/", false)
+	m.prompt.picker.Reset()
+	m.prompt.input.Reset()
 	return m
 }
 
@@ -587,14 +587,14 @@ func TestEffortSlashDirect(t *testing.T) {
 	_ = cycle196TestHome(t, map[string]any{"model": "Gemini 3.8 Flash (Medium)"})
 	fs := flag.NewFlagSet("t", flag.ContinueOnError)
 	fs.String("effort", "medium", "")
-	m := newEffortRunMode(t)
+	m := newEffortRootModel(t)
 	m.session.flags = fs
 
 	handled, _ := m.handleSlashCommand("/effort high")
 	if !handled {
 		t.Fatal("handleSlashCommand did not consume /effort high")
 	}
-	got := termcolor.StripSGR(strings.Join(m.engine.response, "\n"))
+	got := termcolor.StripSGR(strings.Join(m.conversation.response, "\n"))
 	if !strings.Contains(got, "Effort set to high") {
 		t.Errorf("expected 'Effort set to high' in response, got %q", got)
 	}
@@ -607,14 +607,14 @@ func TestEffortSlashInvalidLevel(t *testing.T) {
 	_ = cycle196TestHome(t, map[string]any{"model": "Gemini 3.8 Flash (High)"})
 	fs := flag.NewFlagSet("t", flag.ContinueOnError)
 	fs.String("effort", "high", "")
-	m := newEffortRunMode(t)
+	m := newEffortRootModel(t)
 	m.session.flags = fs
 
 	handled, _ := m.handleSlashCommand("/effort extreme")
 	if !handled {
 		t.Fatal("handleSlashCommand did not consume /effort extreme")
 	}
-	got := termcolor.StripSGR(strings.Join(m.engine.response, "\n"))
+	got := termcolor.StripSGR(strings.Join(m.conversation.response, "\n"))
 	// Cycle 383 (A-2): the reference's own format string is
 	// `Invalid effort %q (valid: %s)`, and the valid list is the
 	// catalogue's vocabulary — five words.
@@ -628,7 +628,7 @@ func TestEffortSlashInvalidLevel(t *testing.T) {
 
 func TestEffortSlashNoArgsOpensPicker(t *testing.T) {
 	_ = cycle196TestHome(t, map[string]any{"model": "Gemini 3.8 Flash (High)"})
-	m := newEffortRunMode(t)
+	m := newEffortRootModel(t)
 	if !m.openSlashPanel("effort") {
 		t.Fatal("openSlashPanel(\"effort\") = false, want true")
 	}
@@ -649,7 +649,7 @@ func TestEffortPickerNavigate(t *testing.T) {
 	fs := flag.NewFlagSet("t", flag.ContinueOnError)
 	fs.String("effort", "low", "")
 
-	m := newEffortRunMode(t)
+	m := newEffortRootModel(t)
 	m.session.flags = fs
 	m.openSlashPanel("effort")
 	if m.effortPanel().Cursor() != effortpanel.EffortLow {
@@ -671,7 +671,7 @@ func TestEffortPickerNavigate(t *testing.T) {
 	if m.overlays.panel.kind != panelregistry.None {
 		t.Errorf("panel not closed: kind = %v", m.overlays.panel.kind)
 	}
-	got := termcolor.StripSGR(strings.Join(m.engine.response, "\n"))
+	got := termcolor.StripSGR(strings.Join(m.conversation.response, "\n"))
 	if !strings.Contains(got, "Effort set to medium") {
 		t.Errorf("expected 'Effort set to medium' in response, got %q", got)
 	}
@@ -685,7 +685,7 @@ func TestEffortPickerEscape(t *testing.T) {
 	fs := flag.NewFlagSet("t", flag.ContinueOnError)
 	fs.String("effort", "high", "")
 
-	m := newEffortRunMode(t)
+	m := newEffortRootModel(t)
 	m.session.flags = fs
 	m.openSlashPanel("effort")
 
@@ -701,7 +701,7 @@ func TestEffortPickerEscape(t *testing.T) {
 	if m.overlays.panel.kind != panelregistry.None {
 		t.Errorf("esc did not close panel: kind = %v", m.overlays.panel.kind)
 	}
-	got := termcolor.StripSGR(strings.Join(m.engine.response, "\n"))
+	got := termcolor.StripSGR(strings.Join(m.conversation.response, "\n"))
 	if !strings.Contains(got, "Exited /effort command") {
 		t.Errorf("expected 'Exited /effort command' in response, got %q", got)
 	}
@@ -747,7 +747,7 @@ func TestEffortPersistence(t *testing.T) {
 
 	fs := flag.NewFlagSet("t", flag.ContinueOnError)
 	fs.String("effort", "", "")
-	m := &runMode{session: sessionState{flags: fs}}
+	m := &RootModel{session: sessionState{flags: fs}}
 	if got := m.currentEffortName(); got != "high" {
 		t.Errorf("currentEffortName = %q, want %q (from settings.json)", got, "high")
 	}

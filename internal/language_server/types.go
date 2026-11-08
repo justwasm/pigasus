@@ -174,12 +174,17 @@ type Server struct {
 // turnAttributionTracker is the recovered turn-attribution tracker.
 // Source: 0x8601f00 .OnTurnActive, 0x8602260 .OnTurnIdle, 0x8602700 .Close,
 // 0x8602a40 setupAttribution.
+//
+// The recovered stub (out/local-macos/gosrc/.../api_generated.go) carries no
+// parameter list, so no turn identifier is asserted here. The tracker only
+// flips an attribution flag; treating a turn id as a native agy field would be
+// an inference, not evidence.
 type turnAttributionTracker struct {
 	enabled bool
 }
 
 // OnTurnActive is the recovered method at 0x8601f00.
-func (t *turnAttributionTracker) OnTurnActive(turnID string) {
+func (t *turnAttributionTracker) OnTurnActive() {
 	if t == nil {
 		return
 	}
@@ -187,7 +192,7 @@ func (t *turnAttributionTracker) OnTurnActive(turnID string) {
 }
 
 // OnTurnIdle is the recovered method at 0x8602260.
-func (t *turnAttributionTracker) OnTurnIdle(turnID string) {
+func (t *turnAttributionTracker) OnTurnIdle() {
 	if t == nil {
 		return
 	}

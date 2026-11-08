@@ -13,6 +13,7 @@ import (
 
 	"github.com/justwasm/pigasus/actor"
 	taskregistry "github.com/justwasm/pigasus/internal/app/task"
+	"github.com/justwasm/pigasus/internal/features/checkpoint"
 )
 
 // SubagentMessage represents a single message in the subagent transcript.
@@ -124,12 +125,13 @@ func Invoke(ctx context.Context, inv Invocation, deps Deps) (Result, error) {
 	}
 
 	act, err := actor.Spawn(actor.Config{
-		ID:           subID,
-		Name:         subagentDisplayName(inv),
-		SystemPrompt: systemPrompt,
-		Model:        model,
-		Provider:     provider,
-		Tools:        gatedTools,
+		ID: subID,
+		Default: actor.TurnConfig{
+			SystemPrompt: systemPrompt,
+			Model:        model,
+			Provider:     provider,
+			Tools:        gatedTools,
+		},
 	})
 	if err != nil {
 		if taskReg != nil {
@@ -143,6 +145,22 @@ func Invoke(ctx context.Context, inv Invocation, deps Deps) (Result, error) {
 	}
 	defer act.Close()
 
+	var policy *checkpoint.Policy
+	if deps.Backend != nil {
+		var defs []actor.ToolDefinition
+		for _, t := range gatedTools {
+			defs = append(defs, t.Definition())
+		}
+		decls, _ := json.Marshal(defs)
+		policy = checkpoint.New(checkpoint.Config{
+			Model:            model,
+			SystemPrompt:     systemPrompt,
+			ToolDeclarations: decls,
+			Backend:          deps.Backend,
+		})
+		defer policy.Close()
+	}
+
 	watchdog := newActivityWatchdog(DefaultWatchdogTimeout, func() {
 		_ = act.CancelTurn("watchdog stalled")
 		if taskReg != nil {
@@ -155,10 +173,17 @@ func Invoke(ctx context.Context, inv Invocation, deps Deps) (Result, error) {
 	})
 	defer watchdog.Stop()
 
-	events, err := act.Prompt(ctx, inv.Prompt)
+	req := actor.TurnRequest{Prompt: inv.Prompt}
+	if policy != nil {
+		req.Checkpoint = func(stepCtx context.Context, probe actor.CheckpointProbe) (actor.CheckpointDecision, error) {
+			return policy.BeforeStep(stepCtx, act, probe)
+		}
+	}
+	turn, err := act.StartTurn(ctx, req)
 	if err != nil {
 		return Result{}, err
 	}
+	events := turn.Events()
 
 	var textBuilder strings.Builder
 	for ev := range events {
@@ -339,16 +364,10 @@ func trajectoryToSubagentMessages(tr *actor.Trajectory) []SubagentMessage {
 	}
 	var out []SubagentMessage
 	for _, turn := range tr.Turns() {
-		if turn.Input != nil {
-			role := string(turn.Input.MessageType())
-			content := ""
-			if usr, ok := turn.Input.(*actor.UserMessage); ok {
-				role = "user"
-				content = usr.Text
-			}
+		if turn.Input != "" {
 			out = append(out, SubagentMessage{
-				Role:    role,
-				Content: content,
+				Role:    "user",
+				Content: turn.Input,
 			})
 		}
 		for _, step := range turn.Steps {

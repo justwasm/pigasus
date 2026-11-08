@@ -5,6 +5,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/justwasm/pigasus/internal/core/slashparse"
 	"github.com/justwasm/pigasus/internal/ui/views/hostactions"
 )
 
@@ -16,9 +17,17 @@ type SessionHost interface {
 	TurnEngine() any
 	IsStreaming() bool
 	SetInputNotice(msg string)
+	// ApplyModelArgument applies the "/model <name>" form; the host owns
+	// the catalogue and the active-engine refresh.
+	ApplyModelArgument(arg string) tea.Cmd
+	// ShowModelList renders the bare "/model" listing.
+	ShowModelList()
+	// OpenResumePicker opens the conversation picker for "/resume".
+	OpenResumePicker() error
 }
 
-// RegisterSessionCommands attaches clear, exit, help, copy, feedback and compact handlers to the dispatcher.
+// RegisterSessionCommands attaches the session-level commands — clear,
+// exit, help, copy, feedback, compact, model and resume — to the dispatcher.
 func RegisterSessionCommands(d *Dispatcher, h SessionHost) {
 	d.Register("clear", func(args string) (bool, tea.Cmd) {
 		hostactions.HandleClear(h.HostActionSeams(), args)
@@ -52,6 +61,25 @@ func RegisterSessionCommands(d *Dispatcher, h SessionHost) {
 		}
 		instructions := strings.TrimSpace(args)
 		h.StartManualCompact(instructions)
+		return true, nil
+	})
+
+	// "/model <name>" is a direct setter — the reference changes the model
+	// and echoes "Model set to <label>". Only a bare "/model" opens the
+	// listing. 【一手】 agy 1.4.6, live.
+	d.Register("model", func(args string) (bool, tea.Cmd) {
+		if trimmed := slashparse.Trim(args); trimmed != "" {
+			return true, h.ApplyModelArgument(trimmed)
+		}
+		h.ShowModelList()
+		return true, nil
+	})
+
+	// "/resume" opens the conversation picker; the picker owns the list.
+	d.Register("resume", func(args string) (bool, tea.Cmd) {
+		if err := h.OpenResumePicker(); err != nil {
+			h.SlashRespond("/resume", "Failed to list conversations: "+err.Error())
+		}
 		return true, nil
 	})
 }

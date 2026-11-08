@@ -640,3 +640,33 @@ func TestReadRemoteAgentFile_EmptyPath(t *testing.T) {
 // TestWorkdirScope_AllowList covers the --add-dir
 // path: a path inside an allowed dir is permitted
 // even when outside the workspace.
+
+// TestReadRemoteAgentFile_FullReadOverLimitIsAnError pins the AGY 1.5.3
+// remote-read contract: a request that omits maxBytes reads the whole
+// file up to 20 MiB, and a larger file is an error instead of a silent
+// partial answer.
+func TestReadRemoteAgentFile_FullReadOverLimitIsAnError(t *testing.T) {
+	size := files.MaxReadMaxBytes + 1
+	data := make([]byte, size)
+	m := files.NewMemProvider(map[string][]files.MemEntry{
+		"/allowed": {
+			{Name: "huge.bin", Data: data},
+		},
+	})
+	d := newFSDispatcher(t, m)
+
+	res, errObj := dispatchFile(t, d, "ReadRemoteAgentFile", map[string]any{
+		"path": "/allowed/huge.bin",
+	})
+	if errObj == nil {
+		t.Fatalf("full read over the limit returned a result, want an error: %v", res)
+	}
+	if code := codeAsInt(t, errObj["code"]); code != -32603 {
+		t.Errorf("code = %v, want -32603 (Internal error)", errObj["code"])
+	}
+	msg, _ := errObj["message"].(string)
+	dataText, _ := errObj["data"].(string)
+	if !strings.Contains(msg+dataText, "over the 20971520-byte remote read limit") {
+		t.Errorf("error = %v, want the remote read limit named", errObj)
+	}
+}

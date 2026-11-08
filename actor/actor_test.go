@@ -3,6 +3,7 @@ package actor_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"strings"
@@ -30,28 +31,21 @@ func TestActor_UserTurn(t *testing.T) {
 	})
 
 	act, err := actor.Spawn(actor.Config{
-		Name:         "test-assistant",
-		SystemPrompt: "You are a helpful test assistant.",
-		Provider:     mock,
+		Default: actor.TurnConfig{
+			SystemPrompt: "You are a helpful test assistant.",
+			Provider:     mock,
+		},
 	})
 	if err != nil {
 		t.Fatalf("failed to spawn actor: %v", err)
 	}
 	defer act.Close()
 
-	if act.Name() != "test-assistant" {
-		t.Errorf("expected name test-assistant, got %s", act.Name())
+	turn, err := act.Prompt(context.Background(), "Hi there")
+	if err != nil {
+		t.Fatalf("failed to start turn: %v", err)
 	}
-	if act.SystemPrompt() != "You are a helpful test assistant." {
-		t.Errorf("unexpected system prompt: %s", act.SystemPrompt())
-	}
-
-	events := act.Events()
-
-	msg := actor.NewUserMessage("Hi there")
-	if err := act.Send(msg); err != nil {
-		t.Fatalf("failed to send message: %v", err)
-	}
+	events := turn.Events()
 
 	var thoughts strings.Builder
 	var output strings.Builder
@@ -92,13 +86,13 @@ func TestActor_UserTurn(t *testing.T) {
 	if traj.TotalTurns() != 1 {
 		t.Fatalf("expected 1 turn in trajectory, got %d", traj.TotalTurns())
 	}
-	turn := traj.LastTurn()
-	if turn.FinalOutput != "Hello world!" {
-		t.Errorf("expected turn final output 'Hello world!', got %q", turn.FinalOutput)
+	record := traj.LastTurn()
+	if record.FinalOutput != "Hello world!" {
+		t.Errorf("expected turn final output 'Hello world!', got %q", record.FinalOutput)
 	}
 }
 
-func TestActor_Ask(t *testing.T) {
+func TestActor_StartTurnHandle(t *testing.T) {
 	mock := actor.NewMockProvider()
 	mock.EnqueueChunks([]actor.StreamChunk{
 		{Delta: "Direct ask answer"},
@@ -106,7 +100,9 @@ func TestActor_Ask(t *testing.T) {
 	})
 
 	act, err := actor.Spawn(actor.Config{
-		Provider: mock,
+		Default: actor.TurnConfig{
+			Provider: mock,
+		},
 	})
 	if err != nil {
 		t.Fatalf("failed to spawn actor: %v", err)
@@ -116,14 +112,14 @@ func TestActor_Ask(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	stream, err := act.Ask(ctx, actor.NewUserMessage("Tell me something"))
+	stream, err := act.StartTurn(ctx, actor.TurnRequest{Prompt: "Tell me something"})
 	if err != nil {
 		t.Fatalf("failed to ask: %v", err)
 	}
 
 	var deltas strings.Builder
 	var completed bool
-	for ev := range stream {
+	for ev := range stream.Events() {
 		if ev.Type == actor.EventDelta {
 			deltas.WriteString(ev.Delta)
 		}
@@ -133,7 +129,7 @@ func TestActor_Ask(t *testing.T) {
 	}
 
 	if !completed {
-		t.Error("expected turn completion in Ask stream")
+		t.Error("expected turn completion in the handle stream")
 	}
 	if deltas.String() != "Direct ask answer" {
 		t.Errorf("got %q, want 'Direct ask answer'", deltas.String())
@@ -175,19 +171,21 @@ func TestActor_ToolCalling_Autonomous(t *testing.T) {
 	})
 
 	act, err := actor.Spawn(actor.Config{
-		Provider: mock,
-		Tools:    []actor.Tool{addTool},
+		Default: actor.TurnConfig{
+			Provider: mock,
+			Tools:    []actor.Tool{addTool},
+		},
 	})
 	if err != nil {
 		t.Fatalf("failed to spawn actor: %v", err)
 	}
 	defer act.Close()
 
-	events := act.Events()
-
-	if err := act.Send(actor.NewUserMessage("What is 17 + 25?")); err != nil {
-		t.Fatalf("failed to send: %v", err)
+	turn, err := act.Prompt(context.Background(), "What is 17 + 25?")
+	if err != nil {
+		t.Fatalf("failed to start turn: %v", err)
 	}
+	events := turn.Events()
 
 	var toolStarted bool
 	var toolFinished bool
@@ -284,19 +282,21 @@ func TestActor_ToolApproval_Approved(t *testing.T) {
 	)
 
 	act, err := actor.Spawn(actor.Config{
-		Provider: mock,
-		Tools:    []actor.Tool{deployTool},
+		Default: actor.TurnConfig{
+			Provider: mock,
+			Tools:    []actor.Tool{deployTool},
+		},
 	})
 	if err != nil {
 		t.Fatalf("failed to spawn: %v", err)
 	}
 	defer act.Close()
 
-	events := act.Events()
-
-	if err := act.Send(actor.NewUserMessage("Deploy to prod")); err != nil {
-		t.Fatalf("failed to send: %v", err)
+	turn, err := act.Prompt(context.Background(), "Deploy to prod")
+	if err != nil {
+		t.Fatalf("failed to start turn: %v", err)
 	}
+	events := turn.Events()
 
 	approvalRequiredReceived := false
 	turnCompleted := false
@@ -369,19 +369,21 @@ func TestActor_ToolApproval_Denied(t *testing.T) {
 	)
 
 	act, err := actor.Spawn(actor.Config{
-		Provider: mock,
-		Tools:    []actor.Tool{deleteTool},
+		Default: actor.TurnConfig{
+			Provider: mock,
+			Tools:    []actor.Tool{deleteTool},
+		},
 	})
 	if err != nil {
 		t.Fatalf("failed to spawn: %v", err)
 	}
 	defer act.Close()
 
-	events := act.Events()
-
-	if err := act.Send(actor.NewUserMessage("Delete the database")); err != nil {
-		t.Fatalf("failed to send: %v", err)
+	turn, err := act.Prompt(context.Background(), "Delete the database")
+	if err != nil {
+		t.Fatalf("failed to start turn: %v", err)
 	}
+	events := turn.Events()
 
 	turnCompleted := false
 	timeout := time.After(2 * time.Second)
@@ -422,7 +424,9 @@ func TestActor_DynamicSteering(t *testing.T) {
 	})
 
 	act, err := actor.Spawn(actor.Config{
-		Provider: mock,
+		Default: actor.TurnConfig{
+			Provider: mock,
+		},
 	})
 	if err != nil {
 		t.Fatalf("failed to spawn: %v", err)
@@ -430,22 +434,13 @@ func TestActor_DynamicSteering(t *testing.T) {
 	defer act.Close()
 
 	// Send steer instruction before turn
-	_ = act.Send(actor.NewSteerMessage("Always format output as JSON"))
-	_ = act.Send(actor.NewUserMessage("List users"))
-
-	events := act.Events()
-	timeout := time.After(2 * time.Second)
-	for {
-		select {
-		case <-timeout:
-			t.Fatal("timeout waiting for steer turn")
-		case ev := <-events:
-			if ev.Type == actor.EventTurnCompleted {
-				goto Done
-			}
-		}
+	_ = act.Steer("Always format output as JSON")
+	turn, err := act.Prompt(context.Background(), "List users")
+	if err != nil {
+		t.Fatalf("failed to start turn: %v", err)
 	}
-Done:
+	for range turn.Events() {
+	}
 	if !strings.Contains(receivedPrompt, "[Active Guidance]: Always format output as JSON") {
 		t.Errorf("prompt did not receive guidance, got: %q", receivedPrompt)
 	}
@@ -464,7 +459,9 @@ func TestActor_CancelTurn(t *testing.T) {
 	})
 
 	act, err := actor.Spawn(actor.Config{
-		Provider: mock,
+		Default: actor.TurnConfig{
+			Provider: mock,
+		},
 	})
 	if err != nil {
 		t.Fatalf("failed to spawn: %v", err)
@@ -472,9 +469,11 @@ func TestActor_CancelTurn(t *testing.T) {
 	defer act.Close()
 	defer close(blockCh)
 
-	events := act.Events()
-
-	_ = act.Send(actor.NewUserMessage("Slow computation"))
+	turn, err := act.Prompt(context.Background(), "Slow computation")
+	if err != nil {
+		t.Fatalf("failed to start turn: %v", err)
+	}
+	events := turn.Events()
 
 	// Wait for turn to be running
 	timeout := time.After(time.Second)
@@ -492,70 +491,31 @@ func TestActor_CancelTurn(t *testing.T) {
 		t.Fatalf("failed to cancel: %v", err)
 	}
 
-	cancelledReceived := false
-	for !cancelledReceived {
+	// The handle closes immediately, even though the turn loop is still
+	// inside the provider call.
+	for range events {
+	}
+	if !errors.Is(turn.Err(), actor.ErrTurnCancelled) {
+		t.Errorf("turn Err() = %v, want ErrTurnCancelled", turn.Err())
+	}
+
+	deadline := time.After(time.Second)
+	for act.State().State != actor.StateIdle {
 		select {
-		case <-timeout:
-			t.Fatal("timeout waiting for cancellation event")
-		case ev := <-events:
-			if ev.Type == actor.EventCancelled {
-				cancelledReceived = true
-			}
+		case <-deadline:
+			t.Fatalf("expected StateIdle after cancellation, got %s", act.State().State)
+		default:
+			time.Sleep(5 * time.Millisecond)
 		}
-	}
-
-	if act.State().State != actor.StateIdle {
-		t.Errorf("expected StateIdle after cancellation, got %s", act.State().State)
-	}
-}
-
-func TestActor_AutoCompaction(t *testing.T) {
-	mock := actor.NewMockProvider()
-	// Return quick responses
-	for i := 0; i < 5; i++ {
-		mock.EnqueueResponse(fmt.Sprintf("Answer %d", i+1))
-	}
-
-	act, err := actor.Spawn(actor.Config{
-		Provider:             mock,
-		AutoCompactThreshold: 3, // compacts when steps exceed 3
-	})
-	if err != nil {
-		t.Fatalf("failed to spawn: %v", err)
-	}
-	defer act.Close()
-
-	events := act.Events()
-	compactReceived := false
-
-	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		for ev := range events {
-			if ev.Type == actor.EventCompacted {
-				compactReceived = true
-			}
-		}
-	}()
-
-	for i := 0; i < 5; i++ {
-		_ = act.Send(actor.NewUserMessage(fmt.Sprintf("Turn %d", i+1)))
-		time.Sleep(30 * time.Millisecond)
-	}
-
-	_ = act.Close()
-	wg.Wait()
-
-	if !compactReceived {
-		t.Error("expected EventCompacted to be triggered")
 	}
 }
 
 func TestActor_Closed_ErrActorClosed(t *testing.T) {
 	mock := actor.NewMockProvider()
 	act, err := actor.Spawn(actor.Config{
-		Provider: mock,
+		Default: actor.TurnConfig{
+			Provider: mock,
+		},
 	})
 	if err != nil {
 		t.Fatalf("failed to spawn: %v", err)
@@ -565,32 +525,23 @@ func TestActor_Closed_ErrActorClosed(t *testing.T) {
 		t.Fatalf("failed to close: %v", err)
 	}
 
-	// Sending message to closed actor returns ErrActorClosed
-	err = act.Send(actor.NewUserMessage("Hello after close"))
-	if err != actor.ErrActorClosed {
-		t.Errorf("expected ErrActorClosed, got %v", err)
-	}
-
-	// Schedule on closed actor returns ErrActorClosed
-	_, err = act.Schedule(time.Minute, "delayed")
-	if err != actor.ErrActorClosed {
-		t.Errorf("expected ErrActorClosed for Schedule, got %v", err)
+	// A turn on a closed actor returns ErrActorClosed
+	if _, err = act.Prompt(context.Background(), "hello after close"); err != actor.ErrActorClosed {
+		t.Errorf("expected ErrActorClosed for Prompt, got %v", err)
 	}
 }
 
-func TestActor_Prompt_And_Run(t *testing.T) {
+func TestActor_Prompt(t *testing.T) {
 	mock := actor.NewMockProvider()
 	mock.EnqueueChunks([]actor.StreamChunk{
 		{Delta: "Direct prompt answer"},
 		{FinishReason: "stop"},
 	})
-	mock.EnqueueChunks([]actor.StreamChunk{
-		{Delta: "Synchronous run answer"},
-		{FinishReason: "stop"},
-	})
 
 	act, err := actor.Spawn(actor.Config{
-		Provider: mock,
+		Default: actor.TurnConfig{
+			Provider: mock,
+		},
 	})
 	if err != nil {
 		t.Fatalf("failed to spawn: %v", err)
@@ -606,7 +557,7 @@ func TestActor_Prompt_And_Run(t *testing.T) {
 		t.Fatalf("Prompt failed: %v", err)
 	}
 	var promptText strings.Builder
-	for ev := range evStream {
+	for ev := range evStream.Events() {
 		if ev.Type == actor.EventDelta {
 			promptText.WriteString(ev.Delta)
 		}
@@ -615,14 +566,6 @@ func TestActor_Prompt_And_Run(t *testing.T) {
 		t.Errorf("Prompt output = %q, want 'Direct prompt answer'", promptText.String())
 	}
 
-	// Test Run
-	runResult, err := act.Run(ctx, "hello from run")
-	if err != nil {
-		t.Fatalf("Run failed: %v", err)
-	}
-	if runResult != "Synchronous run answer" {
-		t.Errorf("Run output = %q, want 'Synchronous run answer'", runResult)
-	}
 }
 
 func TestActor_InitialHistory(t *testing.T) {
@@ -641,8 +584,10 @@ func TestActor_InitialHistory(t *testing.T) {
 	}
 
 	act, err := actor.Spawn(actor.Config{
-		Provider:       mock,
 		InitialHistory: history,
+		Default: actor.TurnConfig{
+			Provider: mock,
+		},
 	})
 	if err != nil {
 		t.Fatalf("failed to spawn with initial history: %v", err)
@@ -656,12 +601,18 @@ func TestActor_InitialHistory(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 
-	res, err := act.Run(ctx, "And what is your purpose?")
+	turn, err := act.Prompt(ctx, "And what is your purpose?")
 	if err != nil {
-		t.Fatalf("Run failed: %v", err)
+		t.Fatalf("Prompt failed: %v", err)
 	}
-	if res != "response" {
-		t.Errorf("unexpected res: %s", res)
+	var res strings.Builder
+	for ev := range turn.Events() {
+		if ev.Type == actor.EventDelta {
+			res.WriteString(ev.Delta)
+		}
+	}
+	if res.String() != "response" {
+		t.Errorf("unexpected res: %s", res.String())
 	}
 
 	// Verify captured request contains all history messages + current prompt
@@ -686,15 +637,17 @@ func TestActor_InitialTurns(t *testing.T) {
 	initialTurns := []*actor.TurnRecord{
 		{
 			ID:          "turn_1",
-			Input:       actor.NewUserMessage("first"),
+			Input:       "first",
 			FinalOutput: "answer 1",
 			Status:      "done",
 		},
 	}
 
 	act, err := actor.Spawn(actor.Config{
-		Provider:     mock,
 		InitialTurns: initialTurns,
+		Default: actor.TurnConfig{
+			Provider: mock,
+		},
 	})
 	if err != nil {
 		t.Fatalf("failed to spawn: %v", err)
@@ -748,8 +701,10 @@ func TestActor_Steer_InFlight(t *testing.T) {
 	})
 
 	act, err := actor.Spawn(actor.Config{
-		Provider: mock,
-		Tools:    []actor.Tool{pauseTool},
+		Default: actor.TurnConfig{
+			Provider: mock,
+			Tools:    []actor.Tool{pauseTool},
+		},
 	})
 	if err != nil {
 		t.Fatalf("failed to spawn: %v", err)
@@ -780,7 +735,7 @@ func TestActor_Steer_InFlight(t *testing.T) {
 	close(continueTool)
 
 	var output strings.Builder
-	for ev := range events {
+	for ev := range events.Events() {
 		if ev.Type == actor.EventDelta {
 			output.WriteString(ev.Delta)
 		}
@@ -795,79 +750,13 @@ func TestActor_Steer_InFlight(t *testing.T) {
 	}
 }
 
-func TestActor_DynamicConfiguration(t *testing.T) {
-	mock := actor.NewMockProvider()
-	mock.EnqueueChunks([]actor.StreamChunk{
-		{Delta: "reply 1", FinishReason: "stop"},
-	})
-	mock.EnqueueChunks([]actor.StreamChunk{
-		{Delta: "reply 2", FinishReason: "stop"},
-	})
-
-	act, err := actor.Spawn(actor.Config{
-		Model:        "model-v1",
-		SystemPrompt: "system-prompt-1",
-		Provider:     mock,
-	})
-	if err != nil {
-		t.Fatalf("Spawn: %v", err)
-	}
-	defer act.Close()
-
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-
-	// Turn 1 with initial configuration
-	_, err = act.Run(ctx, "hello 1")
-	if err != nil {
-		t.Fatalf("Run 1: %v", err)
-	}
-	if len(mock.Requests) != 1 {
-		t.Fatalf("expected 1 request, got %d", len(mock.Requests))
-	}
-	if mock.Requests[0].Model != "model-v1" {
-		t.Errorf("req.Model = %q, want 'model-v1'", mock.Requests[0].Model)
-	}
-	if mock.Requests[0].SystemPrompt != "system-prompt-1" {
-		t.Errorf("req.SystemPrompt = %q, want 'system-prompt-1'", mock.Requests[0].SystemPrompt)
-	}
-
-	// Dynamic update: change model, system prompt, tools
-	act.SetModel("model-v2")
-	act.SetSystemPrompt("system-prompt-2")
-	act.SetTools(actor.NewFuncTool("calc", "calculator", func(ctx context.Context, input string) (string, error) {
-		return "42", nil
-	}))
-
-	if act.Model() != "model-v2" {
-		t.Errorf("act.Model() = %q, want 'model-v2'", act.Model())
-	}
-	if act.SystemPrompt() != "system-prompt-2" {
-		t.Errorf("act.SystemPrompt() = %q, want 'system-prompt-2'", act.SystemPrompt())
-	}
-
-	// Turn 2 with dynamically updated configuration on the same actor
-	_, err = act.Run(ctx, "hello 2")
-	if err != nil {
-		t.Fatalf("Run 2: %v", err)
-	}
-	if len(mock.Requests) != 2 {
-		t.Fatalf("expected 2 requests, got %d", len(mock.Requests))
-	}
-	if mock.Requests[1].Model != "model-v2" {
-		t.Errorf("req.Model = %q, want 'model-v2'", mock.Requests[1].Model)
-	}
-	if mock.Requests[1].SystemPrompt != "system-prompt-2" {
-		t.Errorf("req.SystemPrompt = %q, want 'system-prompt-2'", mock.Requests[1].SystemPrompt)
-	}
-	if len(mock.Requests[1].Tools) != 1 || mock.Requests[1].Tools[0].Name != "calc" {
-		t.Errorf("req.Tools = %+v, want 1 tool 'calc'", mock.Requests[1].Tools)
-	}
-}
-
 func TestActor_SteerQueueManipulation(t *testing.T) {
 	mock := actor.NewMockProvider()
-	act, err := actor.Spawn(actor.Config{Provider: mock})
+	act, err := actor.Spawn(actor.Config{
+		Default: actor.TurnConfig{
+			Provider: mock,
+		},
+	})
 	if err != nil {
 		t.Fatalf("Spawn: %v", err)
 	}
@@ -902,116 +791,6 @@ func TestActor_SteerQueueManipulation(t *testing.T) {
 	}
 	if act.PendingSteer() != nil {
 		t.Errorf("expected nil PendingSteer after ClearSteer, got %v", act.PendingSteer())
-	}
-}
-
-func TestActor_DefaultUnlimitedSteps(t *testing.T) {
-	mock := actor.NewMockProvider()
-	const stepCount = 30 // More than the previous 25 limit
-
-	for i := 0; i < stepCount; i++ {
-		mock.EnqueueChunks([]actor.StreamChunk{
-			{
-				ToolCalls: []actor.ToolCall{
-					{
-						ID:    fmt.Sprintf("call_%d", i),
-						Name:  "ping",
-						Input: "{}",
-					},
-				},
-			},
-		})
-	}
-	mock.EnqueueChunks([]actor.StreamChunk{
-		{Delta: "All 30 steps completed successfully!"},
-		{FinishReason: "stop"},
-	})
-
-	pingTool := actor.NewFuncTool("ping", "ping tool", func(ctx context.Context, input string) (string, error) {
-		return "pong", nil
-	})
-
-	// Default config has MaxStepsPerTurn = 0 (unlimited)
-	act, err := actor.Spawn(actor.Config{
-		Provider: mock,
-		Tools:    []actor.Tool{pingTool},
-	})
-	if err != nil {
-		t.Fatalf("failed to spawn actor: %v", err)
-	}
-	defer act.Close()
-
-	stream, err := act.Ask(context.Background(), actor.NewUserMessage("run long loop"))
-	if err != nil {
-		t.Fatalf("Ask failed with error: %v", err)
-	}
-	var output strings.Builder
-	var turnCompleted bool
-	for ev := range stream {
-		if ev.Type == actor.EventDelta {
-			output.WriteString(ev.Delta)
-		}
-		if ev.Type == actor.EventTurnCompleted {
-			turnCompleted = true
-		}
-	}
-	if !turnCompleted {
-		t.Fatal("turn did not complete")
-	}
-	if output.String() != "All 30 steps completed successfully!" {
-		t.Errorf("unexpected output: %q", output.String())
-	}
-	turn := act.Trajectory().LastTurn()
-	if turn.Status != "done" {
-		t.Errorf("turn status = %q, want 'done'", turn.Status)
-	}
-	if len(turn.Steps) != 31 {
-		t.Errorf("len(turn.Steps) = %d, want 31", len(turn.Steps))
-	}
-}
-
-func TestActor_ExplicitMaxStepsEnforced(t *testing.T) {
-	mock := actor.NewMockProvider()
-	for i := 0; i < 5; i++ {
-		mock.EnqueueChunks([]actor.StreamChunk{
-			{
-				ToolCalls: []actor.ToolCall{
-					{
-						ID:    fmt.Sprintf("call_%d", i),
-						Name:  "ping",
-						Input: "{}",
-					},
-				},
-			},
-		})
-	}
-
-	pingTool := actor.NewFuncTool("ping", "ping tool", func(ctx context.Context, input string) (string, error) {
-		return "pong", nil
-	})
-
-	act, err := actor.Spawn(actor.Config{
-		Provider:        mock,
-		Tools:           []actor.Tool{pingTool},
-		MaxStepsPerTurn: 3,
-	})
-	if err != nil {
-		t.Fatalf("failed to spawn actor: %v", err)
-	}
-	defer act.Close()
-
-	stream, err := act.Ask(context.Background(), actor.NewUserMessage("run limited loop"))
-	if err != nil {
-		t.Fatalf("Ask failed with error: %v", err)
-	}
-	var turnErr string
-	for ev := range stream {
-		if ev.Type == actor.EventTurnCompleted && ev.TurnSummary != nil {
-			turnErr = ev.Error
-		}
-	}
-	if !strings.Contains(turnErr, "maximum steps per turn reached") {
-		t.Errorf("expected maximum steps error, got %q", turnErr)
 	}
 }
 
@@ -1111,7 +890,9 @@ func TestActor_Steer_TextStream_InFlight(t *testing.T) {
 	}
 
 	act, err := actor.Spawn(actor.Config{
-		Provider: provider,
+		Default: actor.TurnConfig{
+			Provider: provider,
+		},
 	})
 	if err != nil {
 		t.Fatalf("failed to spawn actor: %v", err)
@@ -1135,7 +916,7 @@ func TestActor_Steer_TextStream_InFlight(t *testing.T) {
 	close(steerDone)
 
 	var output strings.Builder
-	for ev := range events {
+	for ev := range events.Events() {
 		if ev.Type == actor.EventDelta {
 			output.WriteString(ev.Delta)
 		}
@@ -1155,82 +936,6 @@ func TestActor_Steer_TextStream_InFlight(t *testing.T) {
 	}
 }
 
-func TestActor_InterfacesAndMessageBoundaries(t *testing.T) {
-	mock := actor.NewMockProvider()
-	act, err := actor.Spawn(actor.Config{
-		Provider: mock,
-	})
-	if err != nil {
-		t.Fatalf("failed to spawn actor: %v", err)
-	}
-	defer act.Close()
-
-	// Verify interface satisfaction
-	var (
-		_ actor.ActorHandle    = act
-		_ actor.TurnRunner     = act
-		_ actor.Steerer        = act
-		_ actor.TurnController = act
-		_ actor.SteerTracker   = act
-		_ actor.EventStreamer  = act
-	)
-
-	// Verify SteerTracker operations
-	if len(act.PendingSteer()) != 0 {
-		t.Fatalf("expected empty pending steer, got %v", act.PendingSteer())
-	}
-	if err := act.Steer("rule 1"); err != nil {
-		t.Fatalf("steer failed: %v", err)
-	}
-	if err := act.Steer("rule 2"); err != nil {
-		t.Fatalf("steer failed: %v", err)
-	}
-
-	pending := act.PendingSteer()
-	if len(pending) != 2 || pending[0] != "rule 1" || pending[1] != "rule 2" {
-		t.Errorf("unexpected pending steer list: %v", pending)
-	}
-
-	popped, ok := act.PopSteer()
-	if !ok || popped != "rule 2" {
-		t.Errorf("expected popped rule 2, got %q (ok=%v)", popped, ok)
-	}
-
-	cleared := act.ClearSteer()
-	if len(cleared) != 1 || cleared[0] != "rule 1" {
-		t.Errorf("expected cleared [rule 1], got %v", cleared)
-	}
-	if len(act.PendingSteer()) != 0 {
-		t.Errorf("expected pending steer to be empty after ClearSteer")
-	}
-
-	// Verify IsTurnInitiator boundary helper
-	if !actor.IsTurnInitiator(actor.NewUserMessage("hello")) {
-		t.Errorf("UserMessage must be a turn initiator")
-	}
-	if !actor.IsTurnInitiator(actor.NewScheduledWakeup("s1", "wake", "timer")) {
-		t.Errorf("ScheduledWakeup must be a turn initiator")
-	}
-	if actor.IsTurnInitiator(actor.NewSteerMessage("guidance")) {
-		t.Errorf("SteerMessage is out-of-band guidance, not a turn initiator")
-	}
-	if actor.IsTurnInitiator(actor.NewCancelSignal("t1", "stop")) {
-		t.Errorf("CancelSignal is an out-of-band signal, not a turn initiator")
-	}
-	if actor.IsTurnInitiator(actor.NewApprovalDecision("tc1", true, "")) {
-		t.Errorf("ApprovalDecision is an out-of-band authorization, not a turn initiator")
-	}
-	if actor.IsTurnInitiator(actor.NewSystemPromptUpdate("system")) {
-		t.Errorf("SystemPromptUpdate is configuration, not a turn initiator")
-	}
-	if actor.IsTurnInitiator(actor.NewCustomMessage("custom", "data")) {
-		t.Errorf("CustomMessage is not a turn initiator by default")
-	}
-	if actor.IsTurnInitiator(nil) {
-		t.Errorf("nil message should return false")
-	}
-}
-
 func TestActor_SteerLifecycleEvents(t *testing.T) {
 	firstDone := make(chan struct{})
 	steerDone := make(chan struct{})
@@ -1243,19 +948,19 @@ func TestActor_SteerLifecycleEvents(t *testing.T) {
 	}
 
 	act, err := actor.Spawn(actor.Config{
-		Provider: provider,
+		Default: actor.TurnConfig{
+			Provider: provider,
+		},
 	})
 	if err != nil {
 		t.Fatalf("failed to spawn actor: %v", err)
 	}
 	defer act.Close()
 
-	events := act.Events()
-
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
-	turnEvents, err := act.Prompt(ctx, "Start generation")
+	turn, err := act.Prompt(ctx, "Start generation")
 	if err != nil {
 		t.Fatalf("Prompt failed: %v", err)
 	}
@@ -1269,43 +974,17 @@ func TestActor_SteerLifecycleEvents(t *testing.T) {
 	}
 	close(steerDone)
 
-	// Consume turn events to completion
-	for range turnEvents {
-	}
-
-	// Verify events on general subscription
-	var receivedEventFound, appliedEventFound bool
-	timeout := time.After(2 * time.Second)
-
-loop:
-	for {
-		select {
-		case ev := <-events:
-			if ev.Type == actor.EventSteerReceived {
-				if ev.SteerInstruction != steerInstruction {
-					t.Errorf("EventSteerReceived instruction mismatch: got %q, want %q", ev.SteerInstruction, steerInstruction)
-				}
-				receivedEventFound = true
+	var applied bool
+	for ev := range turn.Events() {
+		if ev.Type == actor.EventSteerApplied {
+			if ev.SteerInstruction != steerInstruction {
+				t.Errorf("EventSteerApplied instruction mismatch: got %q, want %q", ev.SteerInstruction, steerInstruction)
 			}
-			if ev.Type == actor.EventSteerApplied {
-				if ev.SteerInstruction != steerInstruction {
-					t.Errorf("EventSteerApplied instruction mismatch: got %q, want %q", ev.SteerInstruction, steerInstruction)
-				}
-				appliedEventFound = true
-			}
-			if receivedEventFound && appliedEventFound {
-				break loop
-			}
-		case <-timeout:
-			break loop
+			applied = true
 		}
 	}
-
-	if !receivedEventFound {
-		t.Errorf("did not observe EventSteerReceived on actor event stream")
-	}
-	if !appliedEventFound {
-		t.Errorf("did not observe EventSteerApplied on actor event stream")
+	if !applied {
+		t.Error("did not observe EventSteerApplied on the turn stream")
 	}
 }
 
@@ -1338,7 +1017,9 @@ func TestActor_AutoContinue_OnTruncation(t *testing.T) {
 	})
 
 	act, err := actor.Spawn(actor.Config{
-		Provider: mock,
+		Default: actor.TurnConfig{
+			Provider: mock,
+		},
 	})
 	if err != nil {
 		t.Fatalf("failed to spawn actor: %v", err)
@@ -1348,14 +1029,20 @@ func TestActor_AutoContinue_OnTruncation(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
 
-	output, err := act.Run(ctx, "Tell me a long story")
+	turn, err := act.Prompt(ctx, "Tell me a long story")
 	if err != nil {
-		t.Fatalf("Run failed: %v", err)
+		t.Fatalf("Prompt failed: %v", err)
+	}
+	var output strings.Builder
+	for ev := range turn.Events() {
+		if ev.Type == actor.EventDelta {
+			output.WriteString(ev.Delta)
+		}
 	}
 
 	expected := "This is part one of the story, but then it continues into part two to finish cleanly."
-	if output != expected {
-		t.Errorf("got output %q, want %q", output, expected)
+	if output.String() != expected {
+		t.Errorf("got output %q, want %q", output.String(), expected)
 	}
 
 	// Verify that the trajectory recorded 2 steps in the turn
@@ -1367,4 +1054,3 @@ func TestActor_AutoContinue_OnTruncation(t *testing.T) {
 		t.Errorf("expected 2 steps in the turn, got %d", len(turns[0].Steps))
 	}
 }
-

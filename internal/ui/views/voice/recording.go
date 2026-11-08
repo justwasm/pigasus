@@ -36,8 +36,11 @@ package voice
 
 import (
 	"errors"
+	"strings"
 	"sync"
 	"time"
+	"unicode"
+	"unicode/utf8"
 )
 
 // MaxRecordingDuration is the upper bound for a single voice dictation
@@ -182,17 +185,66 @@ func (r *Recorder) Start() error {
 // must be in StateRecording; any other state returns ErrNotRecording
 // without mutating the draft.
 //
-// AppendDraft concatenates — multiple deltas combine into the same
-// draft string. The recorder does not interpret the text, so leading
-// or trailing whitespace is preserved verbatim.
+// In AGY 1.5.2, CJK drafts no longer insert spurious spaces between characters
+// during live interim transcription, while spacing between fullwidth Latin words
+// is preserved.
 func (r *Recorder) AppendDraft(text string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.state != StateRecording {
 		return ErrNotRecording
 	}
-	r.draft += text
+	r.draft = NormalizeDictationDraft(r.draft, text)
 	return nil
+}
+
+// NormalizeDictationDraft combines an existing draft and an incoming chunk
+// according to CJK and Latin spacing rules:
+//   - If either boundary character is CJK (Han, Hiragana, Katakana, Hangul)
+//     and separated by whitespace, spurious boundary space is removed.
+//   - If boundaries are Latin/alphanumeric (including fullwidth Latin), whitespace is preserved.
+func NormalizeDictationDraft(existing, chunk string) string {
+	if existing == "" {
+		return chunk
+	}
+	if chunk == "" {
+		return existing
+	}
+
+	// If neither has boundary space, simply join them.
+	hasSpace := strings.HasSuffix(existing, " ") || strings.HasPrefix(chunk, " ")
+	trimmedExisting := strings.TrimRight(existing, " ")
+	trimmedChunk := strings.TrimLeft(chunk, " ")
+
+	if trimmedExisting == "" {
+		return chunk
+	}
+	if trimmedChunk == "" {
+		return existing
+	}
+
+	lastRune, _ := utf8.DecodeLastRuneInString(trimmedExisting)
+	firstRune, _ := utf8.DecodeRuneInString(trimmedChunk)
+
+	isCJKLast := isCJKRune(lastRune)
+	isCJKFirst := isCJKRune(firstRune)
+
+	if isCJKLast || isCJKFirst {
+		// Between CJK or across CJK boundary, drop the interstitial space
+		return trimmedExisting + trimmedChunk
+	}
+
+	if hasSpace {
+		return trimmedExisting + " " + trimmedChunk
+	}
+	return existing + chunk
+}
+
+func isCJKRune(r rune) bool {
+	return unicode.Is(unicode.Han, r) ||
+		unicode.Is(unicode.Hiragana, r) ||
+		unicode.Is(unicode.Katakana, r) ||
+		unicode.Is(unicode.Hangul, r)
 }
 
 // Tick advances the recorder's internal elapsed counter by d. If the

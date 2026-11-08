@@ -30,7 +30,6 @@ import (
 	"github.com/justwasm/pigasus/internal/core/backend"
 	"github.com/justwasm/pigasus/internal/core/cliflags"
 	confhome "github.com/justwasm/pigasus/internal/core/confhome"
-	"github.com/justwasm/pigasus/internal/core/logts"
 	settings "github.com/justwasm/pigasus/internal/core/settings"
 	"github.com/justwasm/pigasus/internal/features/auth"
 	modelctx "github.com/justwasm/pigasus/internal/features/models/ctx"
@@ -51,6 +50,7 @@ import (
 	"github.com/justwasm/pigasus/internal/ui/views/usagepanel"
 	"github.com/justwasm/pigasus/palette"
 
+	atfiles "github.com/justwasm/pigasus/internal/app/prompt/mentions/files"
 	"github.com/justwasm/pigasus/internal/app/session/rewind"
 	subagent "github.com/justwasm/pigasus/internal/app/subagent/core"
 	"github.com/justwasm/pigasus/internal/app/subagent/questions"
@@ -62,6 +62,7 @@ import (
 	"github.com/justwasm/pigasus/internal/features/models/catalog"
 	modelcatalog "github.com/justwasm/pigasus/internal/features/models/catalog"
 	plugins "github.com/justwasm/pigasus/internal/features/plugins/core"
+	"github.com/justwasm/pigasus/internal/features/tools/skills"
 	"github.com/justwasm/pigasus/internal/tui/panels"
 	tuiviewer "github.com/justwasm/pigasus/internal/ui/foundations/viewer"
 	tuiviewport "github.com/justwasm/pigasus/internal/ui/foundations/viewport"
@@ -138,45 +139,48 @@ func editorLineArgs(editor, path string, line int) []string {
 	return []string{path}
 }
 
-// PanelHostSeams adapts runMode to the panel builders in internal/cliapp/panels.
+// PanelHostSeams adapts RootModel to the panel builders in internal/cliapp/panels.
 
 // Tasks
-func (m *runMode) TaskRegistry() *taskregistry.Registry  { return m.engine.taskReg }
-func (m *runMode) KillSelectedTask(t *taskregistry.Task) { m.killSelectedTask(t) }
-func (m *runMode) TerminalSize() (int, int)              { return m.viewport.width, m.viewport.height }
-func (m *runMode) ClosePanel() tea.Cmd                   { return m.closePanel() }
-func (m *runMode) newTasksPanel() *taskspanel.Panel      { return panels.NewTasksPanel(m) }
-func (m *runMode) tasksPanel() *taskspanel.Panel {
+func (m *RootModel) TaskRegistry() *taskregistry.Registry  { return m.tasks.reg }
+func (m *RootModel) KillSelectedTask(t *taskregistry.Task) { m.killSelectedTask(t) }
+func (m *RootModel) TerminalSize() (int, int)              { return m.viewport.width, m.viewport.height }
+func (m *RootModel) ClosePanel() tea.Cmd                   { return m.closePanel() }
+func (m *RootModel) newTasksPanel() *taskspanel.Panel      { return panels.NewTasksPanel(m) }
+func (m *RootModel) tasksPanel() *taskspanel.Panel {
 	if m.overlays.panel.tp == nil {
 		m.overlays.panel.tp = m.newTasksPanel()
 	}
 	return m.overlays.panel.tp
 }
 
-func (m *runMode) killSelectedTask(t *taskregistry.Task) {
+func (m *RootModel) killSelectedTask(t *taskregistry.Task) {
 	if t == nil {
 		return
 	}
-	mgr := m.engine.taskSubagentManager
+	mgr := m.tasks.subagentManager
 	if mgr == nil {
 		mgr = subagent.NewManager()
 	}
-	taskregistry.KillByID(m.engine.taskReg, t.ID, mgr)
+	taskregistry.KillByID(m.tasks.reg, t.ID, mgr)
 }
 
-func (m *runMode) openTasksDetail(id string, isSubagent bool) {
-	m.openSlashPanel("tasks")
+func (m *RootModel) openTasksDetail(id string, isSubagent bool) tea.Cmd {
+	if m.overlays.panel.kind != panelregistry.Tasks || m.overlays.panel.tp == nil {
+		m.openSlashPanel("tasks")
+	}
 	if m.overlays.panel.tp != nil {
 		m.overlays.panel.tp.OpenTaskDetail(id, isSubagent)
 	}
-	m.viewport.activeItems.SetFocus(false)
+	m.activeItems.Panel.SetFocus(false)
+	return armTasksTick()
 }
 
-func (m *runMode) tasksStatusSuffix() string {
+func (m *RootModel) tasksStatusSuffix() string {
 	taskPart := ""
-	reg := m.engine.taskReg
-	if m.engine.taskCtrl != nil && m.engine.taskCtrl.Registry() != nil {
-		reg = m.engine.taskCtrl.Registry()
+	reg := m.tasks.reg
+	if m.tasks.ctrl != nil && m.tasks.ctrl.Registry() != nil {
+		reg = m.tasks.ctrl.Registry()
 	}
 	if reg != nil {
 		taskPart = taskregistry.StatusSuffix(reg.CountRunning())
@@ -191,30 +195,52 @@ func (m *runMode) tasksStatusSuffix() string {
 	return taskPart
 }
 
-func (m *runMode) startTasksSubscription() {
-	if m.engine.taskCtrl != nil {
-		m.engine.taskCtrl.StartSubscription()
+func (m *RootModel) shouldTickTasks() bool {
+	if m.overlays.panel.kind == panelregistry.Tasks {
+		return true
+	}
+	reg := m.tasks.reg
+	if m.tasks.ctrl != nil && m.tasks.ctrl.Registry() != nil {
+		reg = m.tasks.ctrl.Registry()
+	}
+	if reg != nil && reg.CountRunning() > 0 {
+		return true
+	}
+	return false
+}
+
+func (m *RootModel) startTasksSubscription() {
+	if m.tasks.ctrl != nil {
+		m.tasks.ctrl.SetOnChange(func() {
+			if m.turn.prog != nil {
+				m.turn.prog.Send(tasksTickMsg{})
+			}
+		})
+		m.tasks.ctrl.StartSubscription()
 		return
 	}
-	if m.engine.taskReg == nil || m.engine.tasksSubscribed {
+	if m.tasks.reg == nil || m.tasks.subscribed {
 		return
 	}
-	ch, cancel := m.engine.taskReg.Subscribe()
-	m.engine.tasksSubCancel = cancel
-	m.engine.tasksSubscribed = true
+	ch, cancel := m.tasks.reg.Subscribe()
+	m.tasks.cancel = cancel
+	m.tasks.subscribed = true
 	go func() {
 		for ev := range ch {
 			_ = ev
-			atomic.StoreInt32(&m.engine.tasksDirty, 1)
+			atomic.StoreInt32(&m.tasks.dirty, 1)
+			if m.turn.prog != nil {
+				m.turn.prog.Send(tasksTickMsg{})
+			}
 		}
 	}()
 }
 
-func (m *runMode) consumeTasksDirty() bool {
-	if m.engine.taskCtrl != nil {
-		return m.engine.taskCtrl.ConsumeDirty()
+func (m *RootModel) consumeTasksDirty() bool {
+	if m.tasks.ctrl != nil {
+		return m.tasks.ctrl.ConsumeDirty()
 	}
-	return atomic.SwapInt32(&m.engine.tasksDirty, 0) == 1
+	return atomic.SwapInt32(&m.tasks.dirty, 0) == 1
 }
 
 type tasksTickMsg struct{}
@@ -224,59 +250,59 @@ func armTasksTick() tea.Cmd {
 }
 
 // Config
-func (m *runMode) RefreshSeasonalTheme() { m.refreshSeasonalTheme() }
-func (m *runMode) SlashRespond(cmd, msg string, extra ...string) {
+func (m *RootModel) RefreshSeasonalTheme() { m.refreshSeasonalTheme() }
+func (m *RootModel) SlashRespond(cmd, msg string, extra ...string) {
 	m.slashRespond(cmd, msg, extra...)
 }
-func (m *runMode) SeasonalNow() time.Time { return seasonalNow() }
-func (m *runMode) ConfigOverrideFor(row configpanel.Row) (string, bool) {
+func (m *RootModel) SeasonalNow() time.Time { return seasonalNow() }
+func (m *RootModel) ConfigOverrideFor(row configpanel.Row) (string, bool) {
 	return m.configOverrideFor(row)
 }
-func (m *runMode) ApplyThemeLive(scheme string) tea.Cmd { return m.applyThemeLive(scheme) }
-func (m *runMode) ApplyAltScreenLive(stored any)        { m.applyAltScreenLive(stored) }
-func (m *runMode) ApplyVerbosityLive(verbosity string)  { m.applyVerbosityLive(verbosity) }
-func (m *runMode) newConfigPanel() *configpanel.Panel   { return panels.NewConfigPanel(m) }
-func (m *runMode) configPanel() *configpanel.Panel {
+func (m *RootModel) ApplyThemeLive(scheme string) tea.Cmd { return m.applyThemeLive(scheme) }
+func (m *RootModel) ApplyAltScreenLive(stored any)        { m.applyAltScreenLive(stored) }
+func (m *RootModel) ApplyVerbosityLive(verbosity string)  { m.applyVerbosityLive(verbosity) }
+func (m *RootModel) newConfigPanel() *configpanel.Panel   { return panels.NewConfigPanel(m) }
+func (m *RootModel) configPanel() *configpanel.Panel {
 	if m.overlays.panel.cfg == nil {
 		m.overlays.panel.cfg = m.newConfigPanel()
 	}
 	return m.overlays.panel.cfg
 }
 
-func (m *runMode) applyThemeLive(scheme string) tea.Cmd {
+func (m *RootModel) applyThemeLive(scheme string) tea.Cmd {
 	palette.SetScheme(scheme)
 	mdrender.SetColorScheme(scheme)
 	promptColor, placeholderColor := themepreview.ColorsFor(scheme)
 	if m != nil {
 		m.viewport.colorScheme = scheme
-		st := m.composer.input.Styles()
+		st := m.prompt.input.Styles()
 		promptStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(promptColor))
 		placeholderStyle := lipgloss.NewStyle().Foreground(lipgloss.Color(placeholderColor))
 		st.Focused.Prompt = promptStyle
 		st.Focused.Placeholder = placeholderStyle
 		st.Blurred.Prompt = promptStyle
 		st.Blurred.Placeholder = placeholderStyle
-		m.composer.input.SetStyles(st)
+		m.prompt.input.SetStyles(st)
 		m.rerenderTranscriptForTheme()
 	}
 	return tea.ClearScreen
 }
 
-func (m *runMode) applyAltScreenLive(stored any) {
+func (m *RootModel) applyAltScreenLive(stored any) {
 	m.viewport.altScreen = altScreenModeValue(stored)
 }
 
-func (m *runMode) applyVerbosityLive(verbosity string) {
+func (m *RootModel) applyVerbosityLive(verbosity string) {
 	if m == nil {
 		return
 	}
-	m.engine.verbosity = verbosity
+	m.display.verbosity = verbosity
 	m.viewport.expandedUserToggled = false
 	m.rerenderBlocks()
 	m.rerenderLiveSteps()
 }
 
-func (m *runMode) configOverrideFor(row configpanel.Row) (string, bool) {
+func (m *RootModel) configOverrideFor(row configpanel.Row) (string, bool) {
 	if m == nil || m.session.flags == nil {
 		return "", false
 	}
@@ -302,8 +328,10 @@ func (m *runMode) configOverrideFor(row configpanel.Row) (string, bool) {
 }
 
 // Permissions
-func (m *runMode) newPermissionsPanel() *permissionspanel.Panel { return panels.NewPermissionsPanel(m) }
-func (m *runMode) permissionsPanel() *permissionspanel.Panel {
+func (m *RootModel) newPermissionsPanel() *permissionspanel.Panel {
+	return panels.NewPermissionsPanel(m)
+}
+func (m *RootModel) permissionsPanel() *permissionspanel.Panel {
 	if m.overlays.panel.perm == nil {
 		m.overlays.panel.perm = m.newPermissionsPanel()
 	}
@@ -311,8 +339,8 @@ func (m *runMode) permissionsPanel() *permissionspanel.Panel {
 }
 
 // Hooks
-func (m *runMode) newHooksPanel() *hookspanel.Panel { return panels.NewHooksPanel(m) }
-func (m *runMode) hooksPanel() *hookspanel.Panel {
+func (m *RootModel) newHooksPanel() *hookspanel.Panel { return panels.NewHooksPanel(m) }
+func (m *RootModel) hooksPanel() *hookspanel.Panel {
 	if m.overlays.panel.hk == nil {
 		m.overlays.panel.hk = m.newHooksPanel()
 	}
@@ -322,8 +350,8 @@ func (m *runMode) hooksPanel() *hookspanel.Panel {
 // Plugins
 var pluginWatcherPtr = &plugins.WatcherPtr
 
-func (m *runMode) newPluginPanel() *pluginsui.Panel { return panels.NewPluginPanel(m) }
-func (m *runMode) pluginPanel() *pluginsui.Panel {
+func (m *RootModel) newPluginPanel() *pluginsui.Panel { return panels.NewPluginPanel(m) }
+func (m *RootModel) pluginPanel() *pluginsui.Panel {
 	if m.overlays.panel.plg == nil {
 		m.overlays.panel.plg = m.newPluginPanel()
 	}
@@ -354,9 +382,9 @@ func openBrowser(url string) error {
 }
 
 // Credits
-func (m *runMode) OpenURL(url string) error             { return openBrowser(url) }
-func (m *runMode) newCreditsPanel() *creditspanel.Panel { return panels.NewCreditsPanel(m) }
-func (m *runMode) creditsPanel() *creditspanel.Panel {
+func (m *RootModel) OpenURL(url string) error             { return openBrowser(url) }
+func (m *RootModel) newCreditsPanel() *creditspanel.Panel { return panels.NewCreditsPanel(m) }
+func (m *RootModel) creditsPanel() *creditspanel.Panel {
 	if m.overlays.panel.cr == nil {
 		m.overlays.panel.cr = m.newCreditsPanel()
 	}
@@ -364,14 +392,14 @@ func (m *runMode) creditsPanel() *creditspanel.Panel {
 }
 
 // AddDir
-func (m *runMode) ClosePanelSilent() tea.Cmd { return m.closePanelSilent() }
-func (m *runMode) SubmitAddDir(path string) tea.Cmd {
+func (m *RootModel) ClosePanelSilent() tea.Cmd { return m.closePanelSilent() }
+func (m *RootModel) SubmitAddDir(path string) tea.Cmd {
 	msg := tuilib.AddDirFeedback(path)
 	m.slashRespond("/add-dir", msg)
 	return m.closePanelSilent()
 }
-func (m *runMode) newAddDirPanel() *adddirpanel.Panel { return panels.NewAddDirPanel(m) }
-func (m *runMode) addDirPanel() *adddirpanel.Panel {
+func (m *RootModel) newAddDirPanel() *adddirpanel.Panel { return panels.NewAddDirPanel(m) }
+func (m *RootModel) addDirPanel() *adddirpanel.Panel {
 	if m.overlays.panel.ad == nil {
 		m.overlays.panel.ad = m.newAddDirPanel()
 	}
@@ -379,16 +407,16 @@ func (m *runMode) addDirPanel() *adddirpanel.Panel {
 }
 
 // Feedback
-func (m *runMode) SubmitFeedback() {
+func (m *RootModel) SubmitFeedback() {
 	m.submitFeedback()
 }
 
-func (m *runMode) submitFeedback() {
+func (m *RootModel) submitFeedback() {
 	m.overlays.panel = slashPanel{}
 	m.slashRespond("/feedback", "Feedback recorded (openagy has no upload endpoint; saved locally only)")
 }
-func (m *runMode) newFeedbackPanel() *feedbackpanel.Panel { return panels.NewFeedbackPanel(m) }
-func (m *runMode) feedbackPanel() *feedbackpanel.Panel {
+func (m *RootModel) newFeedbackPanel() *feedbackpanel.Panel { return panels.NewFeedbackPanel(m) }
+func (m *RootModel) feedbackPanel() *feedbackpanel.Panel {
 	if m.overlays.panel.fb == nil {
 		m.overlays.panel.fb = m.newFeedbackPanel()
 	}
@@ -396,10 +424,10 @@ func (m *runMode) feedbackPanel() *feedbackpanel.Panel {
 }
 
 // Skills
-func (m *runMode) SkillsCatalog() []skillsui.SkillInfo { return slashSkillCatalog() }
-func (m *runMode) TerminalOSC8() bool                  { return m.viewport.hyperlinkCaps.OSC8 }
-func (m *runMode) newSkillsPanel() *skillsui.Panel     { return panels.NewSkillsPanel(m) }
-func (m *runMode) skillsPanel() *skillsui.Panel {
+func (m *RootModel) SkillsCatalog() []skillsui.SkillInfo { return slashSkillCatalog() }
+func (m *RootModel) TerminalOSC8() bool                  { return m.viewport.hyperlinkCaps.OSC8 }
+func (m *RootModel) newSkillsPanel() *skillsui.Panel     { return panels.NewSkillsPanel(m) }
+func (m *RootModel) skillsPanel() *skillsui.Panel {
 	if m.overlays.panel.sk == nil {
 		m.overlays.panel.sk = m.newSkillsPanel()
 	}
@@ -407,12 +435,12 @@ func (m *runMode) skillsPanel() *skillsui.Panel {
 }
 
 // Provider
-func (m *runMode) OpenBrowser(url string) error           { return cli.OpenBrowser(url) }
-func (m *runMode) ClipboardRead() string                  { return clipboardReadText() }
-func (m *runMode) ClipboardWrite(text string) error       { return clipboardWrite(text) }
-func (m *runMode) CurrentModelLabel() string              { return m.panelCurrentModelLabel() }
-func (m *runMode) newProviderPanel() *providerpanel.Panel { return panels.NewProviderPanel(m) }
-func (m *runMode) providerPanel() *providerpanel.Panel {
+func (m *RootModel) OpenBrowser(url string) error           { return cli.OpenBrowser(url) }
+func (m *RootModel) ClipboardRead() string                  { return clipboardReadText() }
+func (m *RootModel) ClipboardWrite(text string) error       { return clipboardWrite(text) }
+func (m *RootModel) CurrentModelLabel() string              { return m.panelCurrentModelLabel() }
+func (m *RootModel) newProviderPanel() *providerpanel.Panel { return panels.NewProviderPanel(m) }
+func (m *RootModel) providerPanel() *providerpanel.Panel {
 	if m.overlays.panel.prov == nil {
 		m.overlays.panel.prov = m.newProviderPanel()
 		m.overlays.panel.prov.Reload()
@@ -421,8 +449,8 @@ func (m *runMode) providerPanel() *providerpanel.Panel {
 }
 
 // Rename
-func (m *runMode) ConversationName() string { return m.session.conversationName }
-func (m *runMode) SubmitRename(name string) tea.Cmd {
+func (m *RootModel) ConversationName() string { return m.session.conversationName }
+func (m *RootModel) SubmitRename(name string) tea.Cmd {
 	next, msg := tuilib.RenameFeedback(name, m.session.conversationName)
 	if msg != "" {
 		m.slashRespond("/rename", msg)
@@ -432,15 +460,15 @@ func (m *runMode) SubmitRename(name string) tea.Cmd {
 	}
 	return m.closePanelSilent()
 }
-func (m *runMode) newRenamePanel() *renamepanel.Panel { return panels.NewRenamePanel(m) }
-func (m *runMode) renamePanel() *renamepanel.Panel {
+func (m *RootModel) newRenamePanel() *renamepanel.Panel { return panels.NewRenamePanel(m) }
+func (m *RootModel) renamePanel() *renamepanel.Panel {
 	if m.overlays.panel.rn == nil {
 		m.overlays.panel.rn = m.newRenamePanel()
 	}
 	return m.overlays.panel.rn
 }
 
-func (m *runMode) SessionTierFor(email string) (string, bool) {
+func (m *RootModel) SessionTierFor(email string) (string, bool) {
 	if m == nil || !m.session.tierFetched {
 		return "", false
 	}
@@ -450,29 +478,29 @@ func (m *runMode) SessionTierFor(email string) (string, bool) {
 	return m.session.tier, true
 }
 
-func (m *runMode) startAccountLogin() tea.Cmd {
+func (m *RootModel) startAccountLogin() tea.Cmd {
 	lm := loginui.New()
 	lm.Width = m.viewport.width
 	lm.Height = m.viewport.height
-	m.overlays.login = lm
+	m.auth.login = lm
 	return lm.Init()
 }
 
-func (m *runMode) ApplyActiveAccount(email string) {
+func (m *RootModel) ApplyActiveAccount(email string) {
 	m.session.email = email
 	m.forgetSessionTier()
-	if m.engine.backendFor != nil {
-		if b := m.engine.backendFor(m.session.model); b != nil {
-			m.engine.backend = b
+	if m.turn.backendFor != nil {
+		if b := m.turn.backendFor(m.session.model); b != nil {
+			m.turn.backend = b
 		}
 	}
 }
 
-func (m *runMode) SignOutActiveAccount() {
+func (m *RootModel) SignOutActiveAccount() {
 	m.session.email = ""
 }
 
-func (m *runMode) forgetSessionTier() {
+func (m *RootModel) forgetSessionTier() {
 	m.session.tier = ""
 	m.session.tierAccount = ""
 	m.session.tierFetched = false
@@ -481,11 +509,8 @@ func (m *runMode) forgetSessionTier() {
 // plannerResponses returns the assistant ("planner") responses in order, which
 // is what /copy indexes. The reference's command description calls them
 // "planner response[s]".
-func (m *runMode) plannerResponses() []string {
-	if m.session.supervisor != nil && len(m.session.supervisor.Messages()) > 0 {
-		return slashactions.PlannerResponses(m.session.supervisor.Messages())
-	}
-	return slashactions.PlannerResponses(m.engine.session)
+func (m *RootModel) plannerResponses() []string {
+	return slashactions.PlannerResponses(m.SessionMessages())
 }
 
 // deadcode: staged (test seam for slash_actions_test.go)
@@ -496,16 +521,12 @@ func resolveCopy(args string, responses []string) (string, string) {
 // conversationTitle is the text /title names. The reference's value is
 // unrecovered; a /rename name wins, then the first user message, then the
 // program name — 【推测】.
-func (m *runMode) conversationTitle() string {
+func (m *RootModel) conversationTitle() string {
 	fallback := ""
 	if len(os.Args) > 0 {
 		fallback = os.Args[0]
 	}
-	sess := m.engine.session
-	if m.session.supervisor != nil && len(m.session.supervisor.Messages()) > 0 {
-		sess = m.session.supervisor.Messages()
-	}
-	return slashactions.ConversationTitle(m.session.conversationName, sess, fallback)
+	return slashactions.ConversationTitle(m.session.conversationName, m.SessionMessages(), fallback)
 }
 
 // mcpServersFeedback renders /mcp. Recovered: `No MCP servers configured.` for
@@ -521,7 +542,7 @@ type browserAgentDoneMsg struct {
 	err    error
 }
 
-var browserAgentFactory = func(m *runMode) (browser.BrowserSubagentProvider, func(), error) {
+var browserAgentFactory = func(m *RootModel) (browser.BrowserSubagentProvider, func(), error) {
 	return m.newBrowserAgent()
 }
 
@@ -532,7 +553,7 @@ var browserProbe = func(ctx context.Context) error {
 
 const browserAgentTimeout = 10 * time.Minute
 
-func (m *runMode) runBrowserCommand(args string) (bool, tea.Cmd) {
+func (m *RootModel) runBrowserCommand(args string) (bool, tea.Cmd) {
 	task := strings.TrimSpace(args)
 	if task == "" {
 		m.slashRespond("/browser", "Usage: /browser <task>")
@@ -547,7 +568,7 @@ func (m *runMode) runBrowserCommand(args string) (bool, tea.Cmd) {
 	return true, m.runBrowserTask(runner, closeRunner, task)
 }
 
-func (m *runMode) runBrowserTask(runner browser.BrowserSubagentProvider, closeRunner func(), task string) tea.Cmd {
+func (m *RootModel) runBrowserTask(runner browser.BrowserSubagentProvider, closeRunner func(), task string) tea.Cmd {
 	return func() tea.Msg {
 		if closeRunner != nil {
 			defer closeRunner()
@@ -562,9 +583,9 @@ func (m *runMode) runBrowserTask(runner browser.BrowserSubagentProvider, closeRu
 	}
 }
 
-func (m *runMode) updateBrowserAgentDoneMsg(msg browserAgentDoneMsg) {
+func (m *RootModel) updateBrowserAgentDoneMsg(msg browserAgentDoneMsg) {
 	if msg.err != nil {
-		m.engine.response = append(m.engine.response,
+		m.conversation.response = append(m.conversation.response,
 			panelGray166+msg.err.Error()+panelGray166C,
 			"",
 		)
@@ -572,26 +593,26 @@ func (m *runMode) updateBrowserAgentDoneMsg(msg browserAgentDoneMsg) {
 	}
 	answer := strings.TrimRight(strings.TrimSpace(msg.answer), "\n")
 	if answer == "" {
-		m.engine.response = append(m.engine.response,
+		m.conversation.response = append(m.conversation.response,
 			panelGray238+"(the browser agent returned no answer)"+panelGray238C,
 			"",
 		)
 		return
 	}
 	for _, line := range strings.Split(answer, "\n") {
-		m.engine.response = append(m.engine.response, line)
+		m.conversation.response = append(m.conversation.response, line)
 	}
-	m.engine.response = append(m.engine.response, "")
+	m.conversation.response = append(m.conversation.response, "")
 }
 
-func (m *runMode) newBrowserAgent() (browser.BrowserSubagentProvider, func(), error) {
-	if m.engine.catalog == nil {
+func (m *RootModel) newBrowserAgent() (browser.BrowserSubagentProvider, func(), error) {
+	if m.tools.catalog == nil {
 		return nil, nil, errors.New("the browser tools are not available in this session")
 	}
 	if m.session.agentBody != "" {
 		return nil, nil, errors.New("this session runs an agent body, which has no browser agent")
 	}
-	if m.engine.backend == nil {
+	if m.turn.backend == nil {
 		return nil, nil, errors.New("no model is selected")
 	}
 	if err := browserProbe(context.Background()); err != nil {
@@ -599,23 +620,24 @@ func (m *runMode) newBrowserAgent() (browser.BrowserSubagentProvider, func(), er
 	}
 	workspace := m.session.cwd
 	if workspace == "" {
-		workspace = defaultWorkspaceForRunMode()
+		workspace = defaultWorkspaceForRootModel()
 	}
 	agentDir := confhome.Antigravity()
-	provider := agentturn.NewBackendProviderAdapter(m.engine.backend, m.session.model)
+	provider := agentturn.NewBackendProviderAdapter(m.turn.backend, m.session.model)
 	runner := browsersubagent.New(subagenttools.Deps{
 		Provider: provider,
+		Backend:  m.turn.backend,
 		Model:    m.session.model,
 		CWD:      workspace,
 		AgentDir: agentDir,
-	}, browsersubagent.Tools(m.engine.catalog))
+	}, browsersubagent.Tools(m.tools.catalog))
 	return runner, func() {}, nil
 }
 
 const rcURLIndent = "     "
 const rcURLDefaultWidth = 80
 
-func (m *runMode) rcURLChunkWidth() int {
+func (m *RootModel) rcURLChunkWidth() int {
 	width := m.viewport.width
 	if width <= 0 {
 		width = rcURLDefaultWidth
@@ -656,14 +678,14 @@ func buildRemoteControlCardForAccount(email, conversationID, uuid, hostname stri
 	return msg, extra
 }
 
-func narrationSessionStart(m *runMode) time.Time {
+func narrationSessionStart(m *RootModel) time.Time {
 	if !m.session.narrationStart.IsZero() {
 		return m.session.narrationStart
 	}
 	return time.Time{}
 }
 
-func narrationFeedback(m *runMode, args string) (text, echo string, mutedNow, already bool) {
+func narrationFeedback(m *RootModel, args string) (text, echo string, mutedNow, already bool) {
 	text, echo, mutedNow, already = narration.Feedback(args, narrationSessionStart(m), m.session.narrationOff)
 	if mutedNow {
 		m.session.narrationOff = true
@@ -671,21 +693,21 @@ func narrationFeedback(m *runMode, args string) (text, echo string, mutedNow, al
 	return text, echo, mutedNow, already
 }
 
-func (m *runMode) handleNarrationSlash(args string) (bool, tea.Cmd) {
+func (m *RootModel) handleNarrationSlash(args string) (bool, tea.Cmd) {
 	text, _, mutedNow, already := narrationFeedback(m, args)
 	if mutedNow || already {
 		return true, nil
 	}
 	if text != "" {
 		for _, ln := range strings.Split(text, "\n") {
-			m.engine.response = append(m.engine.response, panelGray238+ln+panelGray238C)
+			m.conversation.response = append(m.conversation.response, panelGray238+ln+panelGray238C)
 		}
-		m.engine.response = append(m.engine.response, "")
+		m.conversation.response = append(m.conversation.response, "")
 	}
 	return true, nil
 }
 
-func (m *runMode) sessionTokenTotals() (prompt, completion int) {
+func (m *RootModel) sessionTokenTotals() (prompt, completion int) {
 	if m == nil {
 		return 0, 0
 	}
@@ -693,7 +715,7 @@ func (m *runMode) sessionTokenTotals() (prompt, completion int) {
 		int(atomic.LoadInt64(&m.session.store.SessionCompletionTokens))
 }
 
-func (m *runMode) recordTurnUsage(meta *backend.ChunkMeta) {
+func (m *RootModel) recordTurnUsage(meta *backend.ChunkMeta) {
 	if m == nil || meta == nil {
 		return
 	}
@@ -703,29 +725,26 @@ func (m *runMode) recordTurnUsage(meta *backend.ChunkMeta) {
 	atomic.StoreInt64(&m.session.store.LastTurnCompletionTokens, int64(meta.CompletionTokens))
 }
 
-func (m *runMode) externalStateFor() *statusline.State {
+func (m *RootModel) externalStateFor() *statusline.State {
 	if m == nil {
 		return nil
 	}
-	return m.viewport.statusLineExternalState
+	return m.statusLine.ExternalState()
 }
 
-func (m *runMode) ensureExternalState() *statusline.State {
+func (m *RootModel) ensureExternalState() *statusline.State {
 	if m == nil {
 		return nil
 	}
-	if m.viewport.statusLineExternalState == nil {
-		m.viewport.statusLineExternalState = &statusline.State{}
-	}
-	return m.viewport.statusLineExternalState
+	return m.statusLine.EnsureExternalState()
 }
 
-func (m *runMode) runExternalStatusLineTick() {
+func (m *RootModel) runExternalStatusLineTick() {
 	if m == nil {
 		return
 	}
-	statusCfg := m.viewport.statusLineCfg
-	titleCfg := m.viewport.titleCfg
+	statusCfg := m.statusLine.cfg
+	titleCfg := m.statusLine.titleCfg
 	if !statusCfg.Active() && !titleCfg.Active() {
 		return
 	}
@@ -750,36 +769,25 @@ func armExternalStatusLineTick() tea.Cmd {
 	return tea.Tick(statusline.ScriptInterval, func(time.Time) tea.Msg { return statusLineExternalTickMsg{} })
 }
 
-func (m *runMode) maybeArmStatusLineTick() tea.Cmd {
+func (m *RootModel) maybeArmStatusLineTick() tea.Cmd {
 	if m == nil || m.session.store.StatusLineTickArmed {
 		return nil
 	}
-	if !m.statusLineScriptActive() && !m.viewport.titleCfg.Active() {
+	if !m.statusLineScriptActive() && !m.statusLine.titleCfg.Active() {
 		return nil
 	}
 	m.session.store.StatusLineTickArmed = true
 	return armExternalStatusLineTick()
 }
 
-func (m *runMode) externalRenderOK() bool {
+func (m *RootModel) externalRenderOK() bool {
 	if m == nil {
 		return false
 	}
-	if m.viewport.statusLine == "off" {
-		return false
-	}
-	if !m.statusLineScriptActive() {
-		return false
-	}
-	state := m.externalStateFor()
-	if state == nil {
-		return false
-	}
-	out, _ := state.Current()
-	return strings.TrimSpace(out) != ""
+	return m.statusLine.ExternalRenderOK()
 }
 
-func (m *runMode) externalRenderedForRow() (string, error) {
+func (m *RootModel) externalRenderedForRow() (string, error) {
 	if !m.externalRenderOK() {
 		return "", nil
 	}
@@ -794,7 +802,7 @@ func (m *runMode) externalRenderedForRow() (string, error) {
 	return out, lastErr
 }
 
-func (m *runMode) buildStatusLinePayload() statusline.Payload {
+func (m *RootModel) buildStatusLinePayload() statusline.Payload {
 	model := m.session.statusModel
 	if model == "" {
 		model = m.session.model
@@ -804,8 +812,8 @@ func (m *runMode) buildStatusLinePayload() statusline.Payload {
 		contextWindow = modelctx.ContextWindowFor(model)
 	}
 	taskCount := 0
-	if m.engine.taskReg != nil {
-		taskCount = m.engine.taskReg.CountRunning()
+	if m.tasks.reg != nil {
+		taskCount = m.tasks.reg.CountRunning()
 	}
 	prompt, completion := m.sessionTokenTotals()
 	return statusline.PayloadFrom(statusline.PayloadState{
@@ -819,10 +827,10 @@ func (m *runMode) buildStatusLinePayload() statusline.Payload {
 		PlanTier:                 m.session.tier,
 		Email:                    m.session.email,
 		TerminalWidth:            m.viewport.width,
-		Streaming:                m.engine.streaming,
+		Streaming:                m.conversation.streaming,
 		ToolInFlight:             m.toolInFlight(),
 		TurnFailed:               m.turnFailed(),
-		SandboxEnabled:           m.engine.toolSandbox.Enabled,
+		SandboxEnabled:           m.tools.sandbox.Enabled,
 		Quota:                    statusline.QuotaBuckets(m.cachedQuota(m.session.email), time.Now()),
 		TaskCount:                taskCount,
 		PendingInputCount:        m.pendingInputCount(),
@@ -837,23 +845,23 @@ func (m *runMode) buildStatusLinePayload() statusline.Payload {
 	})
 }
 
-func (m *runMode) agentState() string {
-	state := statusline.AgentState(m.engine.streaming, m.toolInFlight(), m.turnFailed())
+func (m *RootModel) agentState() string {
+	state := statusline.AgentState(m.conversation.streaming, m.toolInFlight(), m.turnFailed())
 	if state == statusline.StateIdle {
 		return ""
 	}
 	return state
 }
 
-func (m *runMode) toolInFlight() bool {
-	return m.engine.activeTool != ""
+func (m *RootModel) toolInFlight() bool {
+	return m.conversation.activeTool != ""
 }
 
-func (m *runMode) turnFailed() bool {
-	return m.engine.lastTurnOutcome == tea.ProgramStateError
+func (m *RootModel) turnFailed() bool {
+	return m.display.lastTurnOutcome == tea.ProgramStateError
 }
 
-func (m *runMode) pendingInputCount() int {
+func (m *RootModel) pendingInputCount() int {
 	n := len(m.session.store.StreamQueue)
 	if m.session.store.QueuedPrompt != "" {
 		n++
@@ -861,21 +869,21 @@ func (m *runMode) pendingInputCount() int {
 	return n
 }
 
-func (m *runMode) subagentInfos() []statusline.SubagentInfo {
-	if m.engine.subagentRegistry == nil {
+func (m *RootModel) subagentInfos() []statusline.SubagentInfo {
+	if m.agents.registry == nil {
 		return nil
 	}
-	return statusline.Subagents(m.engine.subagentRegistry.States())
+	return statusline.Subagents(m.agents.registry.States())
 }
 
-func (m *runMode) vimModeName() string {
+func (m *RootModel) vimModeName() string {
 	if !m.vimEnabled() {
 		return ""
 	}
 	return statusline.VimModeName(m.vimMode())
 }
 
-func (m *runMode) contextUsedPercent() float64 {
+func (m *RootModel) contextUsedPercent() float64 {
 	if m == nil {
 		return 0
 	}
@@ -897,7 +905,7 @@ func (m *runMode) contextUsedPercent() float64 {
 }
 
 // deadcode: staged (context usage percentage seam tested in engine_plan_test.go)
-func (m *runMode) contextUsage() float64 {
+func (m *RootModel) contextUsage() float64 {
 	if m == nil {
 		return 0
 	}
@@ -909,7 +917,7 @@ type StatusLinePayloadWithPlan struct {
 	Plan string `json:"plan,omitempty"`
 }
 
-func (m *runMode) buildStatusLinePayloadDoc() any {
+func (m *RootModel) buildStatusLinePayloadDoc() any {
 	base := m.buildStatusLinePayload()
 	plan := m.enginePlan()
 	if plan == "" {
@@ -922,80 +930,49 @@ func (m *runMode) buildStatusLinePayloadDoc() any {
 }
 
 // deadcode: staged (test seam for engine_plan_test.go)
-func (m *runMode) statusLinePlanProgress() string {
+func (m *RootModel) statusLinePlanProgress() string {
 	return m.enginePlan()
 }
 
-func (m *runMode) reloadStatusLineConfig() {
-	if cfg, ok := statusline.LoadConfig(); ok {
-		m.viewport.statusLineCfg = cfg
-		m.viewport.statusLineCommand = cfg.Command
-		m.viewport.statusLineExternal = cfg.Active()
-	} else {
-		m.viewport.statusLineCfg = statusline.Config{}
-		m.viewport.statusLineCommand = ""
-		m.viewport.statusLineExternal = false
-	}
-	if cfg, ok := statusline.LoadTitleConfig(); ok {
-		m.viewport.titleCfg = cfg
-		m.viewport.titleCommand = cfg.Command
-		if cfg.Active() {
-			m.viewport.title = "on"
-		}
-	} else {
-		m.viewport.titleCfg = statusline.Config{}
-		m.viewport.titleCommand = ""
-	}
+func (m *RootModel) reloadStatusLineConfig() {
+	m.statusLine.Reload()
 }
 
-func (m *runMode) statusLineScriptActive() bool {
-	if m.viewport.statusLineCfg.Active() {
-		return true
-	}
-	return m.viewport.statusLineExternal
+func (m *RootModel) statusLineScriptActive() bool {
+	return m.statusLine.ScriptActive()
 }
 
-func (m *runMode) statusAreaState() statusline.AreaState {
-	return statusline.AreaState{
-		Builtin: statusrow.Render(m.statusRowState()),
-		Active:  m.statusLineScriptActive(),
-		Config:  m.viewport.statusLineCfg,
-		State:   m.externalStateFor(),
-		LogPath: confhome.CLILogPath(logts.FormatLogTS()),
-	}
+func (m *RootModel) statusAreaState() statusline.AreaState {
+	return m.statusLine.AreaState(statusrow.Render(m.statusRowState()))
 }
 
-func (m *runMode) windowTitleText() string {
-	if m.viewport.titleCfg.Active() {
+func (m *RootModel) windowTitleText() string {
+	if m.statusLine.titleCfg.Active() {
 		if title := m.titleStoreFor().Get(); title != "" {
 			return title
 		}
 	}
-	if m.viewport.title == "on" {
+	if m.statusLine.title == "on" {
 		return m.conversationTitle()
 	}
 	return ""
 }
 
 // DiffTurnCount
-func (m *runMode) diffTurnCount() int {
+func (m *RootModel) diffTurnCount() int {
 	return m.DiffTurnCount()
 }
-func (m *runMode) SessionCwd() string             { return m.session.cwd }
-func (m *runMode) DiffTurnCount() int             { return m.diffTurnCount() }
-func (m *runMode) newDiffPanel() *diffpanel.Panel { return panels.NewDiffPanel(m) }
-func (m *runMode) diffPanel() *diffpanel.Panel {
-	if m.overlays.panel.df == nil {
-		m.overlays.panel.df = m.newDiffPanel()
-	}
-	return m.overlays.panel.df
+func (m *RootModel) SessionCwd() string { return m.session.cwd }
+func (m *RootModel) DiffTurnCount() int { return m.diffTurnCount() }
+func (m *RootModel) diffPanel() *diffpanel.Panel {
+	return m.diff.Panel(m)
 }
 
-func (m *runMode) effortTiers() []string {
+func (m *RootModel) effortTiers() []string {
 	return catalog.EffortTiersFor(m.effortModel())
 }
 
-func (m *runMode) effortModel() string {
+func (m *RootModel) effortModel() string {
 	if label := strings.TrimSpace(m.session.model); label != "" && catalog.ModelAvailable(label) {
 		return label
 	}
@@ -1005,16 +982,16 @@ func (m *runMode) effortModel() string {
 	return catalog.DefaultModel
 }
 
-func (m *runMode) EffortTiers() []string {
+func (m *RootModel) EffortTiers() []string {
 	return m.effortTiers()
 }
 
-func (m *runMode) CurrentEffortName() string {
+func (m *RootModel) CurrentEffortName() string {
 	return m.currentEffortName()
 }
-func (m *runMode) ApplyEffortSelection(level int) tea.Cmd { return m.applyEffortSelection(level) }
-func (m *runMode) newEffortPanel() *effortpanel.Panel     { return panels.NewEffortPanel(m) }
-func (m *runMode) effortPanel() *effortpanel.Panel {
+func (m *RootModel) ApplyEffortSelection(level int) tea.Cmd { return m.applyEffortSelection(level) }
+func (m *RootModel) newEffortPanel() *effortpanel.Panel     { return panels.NewEffortPanel(m) }
+func (m *RootModel) effortPanel() *effortpanel.Panel {
 	if m.overlays.panel.ef == nil {
 		m.overlays.panel.ef = m.newEffortPanel()
 	}
@@ -1022,30 +999,34 @@ func (m *runMode) effortPanel() *effortpanel.Panel {
 }
 
 // Help
-func (m *runMode) ModelName() string             { return m.session.model }
-func (m *runMode) TierName() string              { return m.session.tier }
-func (m *runMode) UserEmail() string             { return m.session.email }
-func (m *runMode) ConversationID() string        { return m.session.conversationID }
-func (m *runMode) AppendResponse(lines []string) { m.engine.response = append(m.engine.response, lines...) }
-func (m *runMode) SelectCommand(cmd string) {
-	m.composer.input.SetValue(cmd)
-	m.composer.input.CursorEnd()
-	m.composer.picker.Reset()
-	m.composer.promptHistory.Reset()
+func (m *RootModel) ModelName() string      { return m.session.model }
+func (m *RootModel) TierName() string       { return m.session.tier }
+func (m *RootModel) UserEmail() string      { return m.session.email }
+func (m *RootModel) ConversationID() string { return m.session.conversationID }
+func (m *RootModel) AppendResponse(lines []string) {
+	m.conversation.response = append(m.conversation.response, lines...)
+}
+func (m *RootModel) SelectCommand(cmd string) {
+	m.prompt.input.SetValue(cmd)
+	m.prompt.input.CursorEnd()
+	m.prompt.picker.Reset()
+	m.prompt.promptHistory.Reset()
 	m.ResetInputSelection()
 }
-func (m *runMode) newHelpPanel() *helppanel.Panel { return panels.NewHelpPanel(m) }
+func (m *RootModel) newHelpPanel() *helppanel.Panel { return panels.NewHelpPanel(m) }
 
 // ActiveItems
-func (m *runMode) OpenTasksDetail(id string, isSubagent bool)   { m.openTasksDetail(id, isSubagent) }
-func (m *runMode) newActiveItemsPanel() *activeitemspanel.Panel { return panels.NewActiveItemsPanel(m) }
+func (m *RootModel) OpenTasksDetail(id string, isSubagent bool) { m.openTasksDetail(id, isSubagent) }
+func (m *RootModel) newActiveItemsPanel() *activeitemspanel.Panel {
+	return panels.NewActiveItemsPanel(m)
+}
 
 // Accounts
-func (m *runMode) StartAccountLogin() tea.Cmd             { return m.startAccountLogin() }
-func (m *runMode) FetchPlanTierCmd() tea.Cmd              { return m.fetchPlanTierCmd() }
-func (m *runMode) FetchQuotaCmd(email string) tea.Cmd     { return fetchAccountQuotaCmd(email) }
-func (m *runMode) newAccountsPanel() *accountspanel.Panel { return panels.NewAccountsPanel(m) }
-func (m *runMode) accountsPanel() *accountspanel.Panel {
+func (m *RootModel) StartAccountLogin() tea.Cmd             { return m.startAccountLogin() }
+func (m *RootModel) FetchPlanTierCmd() tea.Cmd              { return m.fetchPlanTierCmd() }
+func (m *RootModel) FetchQuotaCmd(email string) tea.Cmd     { return fetchAccountQuotaCmd(email) }
+func (m *RootModel) newAccountsPanel() *accountspanel.Panel { return panels.NewAccountsPanel(m) }
+func (m *RootModel) accountsPanel() *accountspanel.Panel {
 	if m.overlays.panel.acct == nil {
 		m.overlays.panel.acct = m.newAccountsPanel()
 	}
@@ -1053,59 +1034,59 @@ func (m *runMode) accountsPanel() *accountspanel.Panel {
 }
 
 // Agents
-func (m *runMode) ActiveAgentName() string                { return m.session.agentName }
-func (m *runMode) RunningSubagents() []*subagent.Subagent { return m.runningSubagents() }
-func (m *runMode) HasSessionTurns() bool                  { return len(m.engine.session) > 0 }
-func (m *runMode) ApplyAgentSwitch(name, body string) {
+func (m *RootModel) ActiveAgentName() string                { return m.session.agentName }
+func (m *RootModel) RunningSubagents() []*subagent.Subagent { return m.runningSubagents() }
+func (m *RootModel) HasSessionTurns() bool                  { return m.session.messageCount() > 0 }
+func (m *RootModel) ApplyAgentSwitch(name, body string) {
 	m.applyAgentSwitch(name, body)
 	m.overlays.panel = slashPanel{}
 }
-func (m *runMode) KillAgentsSubagent(sa *subagent.Subagent) bool { return m.killAgentsSubagent(sa) }
-func (m *runMode) PendingSubagentAuthorization(id string) (lifecycle.PendingApproval, bool) {
+func (m *RootModel) KillAgentsSubagent(sa *subagent.Subagent) bool { return m.killAgentsSubagent(sa) }
+func (m *RootModel) PendingSubagentAuthorization(id string) (lifecycle.PendingApproval, bool) {
 	return m.pendingSubagentAuthorization(id)
 }
-func (m *runMode) AnswerSubagentAuthorization(id string, approved bool) bool {
+func (m *RootModel) AnswerSubagentAuthorization(id string, approved bool) bool {
 	return m.answerSubagentAuthorization(id, approved)
 }
-func (m *runMode) AgentsWorkspace() string { return m.panelAgentsWorkspace() }
-func (m *runMode) newAgentsPanel() *agentspanel.Panel {
+func (m *RootModel) AgentsWorkspace() string { return m.panelAgentsWorkspace() }
+func (m *RootModel) newAgentsPanel() *agentspanel.Panel {
 	return panels.NewAgentsPanel(m)
 }
-func (m *runMode) agentsPanel() *agentspanel.Panel {
+func (m *RootModel) agentsPanel() *agentspanel.Panel {
 	if m.overlays.panel.ag == nil {
 		m.overlays.panel.ag = m.newAgentsPanel()
 	}
 	return m.overlays.panel.ag
 }
-func (m *runMode) runningSubagents() []*subagent.Subagent {
-	mgr := m.engine.taskSubagentManager
+func (m *RootModel) runningSubagents() []*subagent.Subagent {
+	mgr := m.tasks.subagentManager
 	if mgr == nil {
 		return nil
 	}
 	return mgr.List()
 }
-func (m *runMode) killAgentsSubagent(sa *subagent.Subagent) bool {
-	mgr := m.engine.taskSubagentManager
+func (m *RootModel) killAgentsSubagent(sa *subagent.Subagent) bool {
+	mgr := m.tasks.subagentManager
 	if mgr == nil || sa == nil {
 		return false
 	}
 	return mgr.KillRunning(sa.ID)
 }
-func (m *runMode) pendingSubagentAuthorization(subagentID string) (lifecycle.PendingApproval, bool) {
-	mgr := m.engine.taskSubagentManager
+func (m *RootModel) pendingSubagentAuthorization(subagentID string) (lifecycle.PendingApproval, bool) {
+	mgr := m.tasks.subagentManager
 	if mgr == nil {
 		return lifecycle.PendingApproval{}, false
 	}
 	return mgr.PendingAuthorization(subagentID)
 }
-func (m *runMode) answerSubagentAuthorization(approvalID string, approve bool) bool {
-	mgr := m.engine.taskSubagentManager
+func (m *RootModel) answerSubagentAuthorization(approvalID string, approve bool) bool {
+	mgr := m.tasks.subagentManager
 	if mgr == nil {
 		return false
 	}
 	return mgr.AnswerAuthorization(approvalID, approve)
 }
-func (m *runMode) panelAgentsWorkspace() string {
+func (m *RootModel) panelAgentsWorkspace() string {
 	workspace := m.session.cwd
 	if workspace == "" {
 		workspace, _ = os.Getwd()
@@ -1114,27 +1095,27 @@ func (m *runMode) panelAgentsWorkspace() string {
 }
 
 // Codesearch
-func (m *runMode) SearchRoot() string    { return m.session.cwd }
-func (m *runMode) SearchStreaming() bool { return m.engine.streamingSearch }
-func (m *runMode) CodesearchReadFile(path string) ([]string, string, bool) {
+func (m *RootModel) SearchRoot() string    { return m.session.cwd }
+func (m *RootModel) SearchStreaming() bool { return m.display.streamingSearch }
+func (m *RootModel) CodesearchReadFile(path string) ([]string, string, bool) {
 	return m.codesearchReadFile(path)
 }
-func (m *runMode) CodesearchOpenEditor(path string, line int) tea.Cmd {
+func (m *RootModel) CodesearchOpenEditor(path string, line int) tea.Cmd {
 	return m.codesearchOpenEditor(path, line)
 }
-func (m *runMode) CodesearchSendComments(text string) tea.Cmd {
+func (m *RootModel) CodesearchSendComments(text string) tea.Cmd {
 	return m.codesearchSendComments(text)
 }
-func (m *runMode) newCodesearchPanel() *codesearchpanel.Panel {
+func (m *RootModel) newCodesearchPanel() *codesearchpanel.Panel {
 	return panels.NewCodesearchPanel(m)
 }
-func (m *runMode) codesearchPanel() *codesearchpanel.Panel {
+func (m *RootModel) codesearchPanel() *codesearchpanel.Panel {
 	if m.overlays.panel.csp == nil {
 		m.overlays.panel.csp = m.newCodesearchPanel()
 	}
 	return m.overlays.panel.csp
 }
-func (m *runMode) codesearchReadFile(path string) ([]string, string, bool) {
+func (m *RootModel) codesearchReadFile(path string) ([]string, string, bool) {
 	full := m.codesearchPath(path)
 	info, err := os.Stat(full)
 	if err != nil {
@@ -1152,24 +1133,24 @@ func (m *runMode) codesearchReadFile(path string) ([]string, string, bool) {
 	}
 	return splitFileLines(data), "", true
 }
-func (m *runMode) codesearchPath(path string) string {
+func (m *RootModel) codesearchPath(path string) string {
 	if filepath.IsAbs(path) {
 		return path
 	}
 	return filepath.Join(m.session.cwd, path)
 }
-func (m *runMode) codesearchOpenEditor(path string, line int) tea.Cmd {
+func (m *RootModel) codesearchOpenEditor(path string, line int) tea.Cmd {
 	name, args, notice, err := editorkit.ResolveEditor(settings.String("editor"))
 	if err != nil {
-		m.engine.response = append(m.engine.response, "Failed to resolve editor: "+err.Error())
+		m.conversation.response = append(m.conversation.response, "Failed to resolve editor: "+err.Error())
 		return nil
 	}
 	if _, err := exec.LookPath(name); err != nil {
-		m.engine.response = append(m.engine.response, "Failed to resolve editor: "+err.Error())
+		m.conversation.response = append(m.conversation.response, "Failed to resolve editor: "+err.Error())
 		return nil
 	}
 	if notice != "" {
-		m.engine.response = append(m.engine.response, notice)
+		m.conversation.response = append(m.conversation.response, notice)
 	}
 	full := m.codesearchPath(path)
 	c := exec.Command(name, append(args, editorLineArgs(name, full, line)...)...)
@@ -1178,7 +1159,7 @@ func (m *runMode) codesearchOpenEditor(path string, line int) tea.Cmd {
 		return editorFinishedMsg{err: err}
 	})
 }
-func (m *runMode) codesearchSendComments(text string) tea.Cmd {
+func (m *RootModel) codesearchSendComments(text string) tea.Cmd {
 	closed := m.closePanel()
 	if strings.TrimSpace(text) == "" {
 		return closed
@@ -1187,15 +1168,15 @@ func (m *runMode) codesearchSendComments(text string) tea.Cmd {
 }
 
 // Model
-func (m *runMode) ApplyModel(label string) {
+func (m *RootModel) ApplyModel(label string) {
 	m.session.model = label
 	m.session.statusModel = tuilib.StripTier(label)
 	m.syncBackendForModel()
 }
-func (m *runMode) CustomModelRows() []modelpicker.Row { return m.engineModelRows() }
-func (m *runMode) engineModelRows() []modelpicker.Row {
-	if len(m.engine.engineModelRowsCache) > 0 {
-		return m.engine.engineModelRowsCache
+func (m *RootModel) CustomModelRows() []modelpicker.Row { return m.engineModelRows() }
+func (m *RootModel) engineModelRows() []modelpicker.Row {
+	if len(m.display.engineModelRowsCache) > 0 {
+		return m.display.engineModelRowsCache
 	}
 	eng := m.turnEngine()
 	if eng == nil {
@@ -1221,21 +1202,21 @@ func (m *runMode) engineModelRows() []modelpicker.Row {
 			DefaultTier: info.DefaultTier,
 		})
 	}
-	m.engine.engineModelRowsCache = rows
+	m.display.engineModelRowsCache = rows
 	return rows
 }
 
-func (m *runMode) syncBackendForModel() {
-	if m.engine.backendFor == nil || strings.TrimSpace(m.session.model) == "" {
+func (m *RootModel) syncBackendForModel() {
+	if m.turn.backendFor == nil || strings.TrimSpace(m.session.model) == "" {
 		return
 	}
-	if b := m.engine.backendFor(m.session.model); b != nil {
-		m.engine.backend = b
+	if b := m.turn.backendFor(m.session.model); b != nil {
+		m.turn.backend = b
 	}
 	m.session.wireSettingsPending = true
 }
-func (m *runMode) newModelPanel() *modelpicker.Panel { return panels.NewModelPanel(m) }
-func (m *runMode) modelPanel() *modelpicker.Panel {
+func (m *RootModel) newModelPanel() *modelpicker.Panel { return panels.NewModelPanel(m) }
+func (m *RootModel) modelPanel() *modelpicker.Panel {
 	if m.overlays.panel.mdl == nil {
 		m.overlays.panel.mdl = m.newModelPanel()
 	}
@@ -1243,18 +1224,18 @@ func (m *runMode) modelPanel() *modelpicker.Panel {
 }
 
 // Viewer
-func (m *runMode) ViewerSpec() (tuiviewer.Spec, bool) {
+func (m *RootModel) ViewerSpec() (tuiviewer.Spec, bool) {
 	return m.getPanelRegistry().ViewerSpec(m.overlays.panel.kind)
 }
-func (m *runMode) ViewerPageRows(spec tuiviewer.Spec) int {
+func (m *RootModel) ViewerPageRows(spec tuiviewer.Spec) int {
 	if m.overlays.panel.kind == panelregistry.Changelog {
 		return changelog.PageRows(spec, m.viewport.height)
 	}
 	return spec.Visible
 }
-func (m *runMode) ViewerWidth() int                   { return m.viewerVPWidth() }
-func (m *runMode) newViewerPanel() *viewerpanel.Panel { return panels.NewViewerPanel(m) }
-func (m *runMode) viewerPanel() *viewerpanel.Panel {
+func (m *RootModel) ViewerWidth() int                   { return m.viewerVPWidth() }
+func (m *RootModel) newViewerPanel() *viewerpanel.Panel { return panels.NewViewerPanel(m) }
+func (m *RootModel) viewerPanel() *viewerpanel.Panel {
 	if m.overlays.panel.vw == nil {
 		p := m.newViewerPanel()
 		p.Open()
@@ -1263,56 +1244,74 @@ func (m *runMode) viewerPanel() *viewerpanel.Panel {
 	return m.overlays.panel.vw
 }
 
-func (m *runMode) initViewerViewport() {
+func (m *RootModel) initViewerViewport() {
 	if m.overlays.panel.vw == nil {
 		m.overlays.panel.vw = m.newViewerPanel()
 	}
 	m.overlays.panel.vw.Open()
 }
 
-func (m *runMode) viewerVPWidth() int {
+func (m *RootModel) viewerVPWidth() int {
 	if m.viewport.width > 0 {
 		return m.viewport.width
 	}
 	return 80
 }
 
-func (m *runMode) handleViewerPanelKey(key tea.Key) (bool, tea.Cmd) {
+func (m *RootModel) handleViewerPanelKey(key tea.Key) (bool, tea.Cmd) {
 	handled, cmd, offset := m.viewerPanel().HandleKey(key, m.overlays.panel.window)
 	m.overlays.panel.window = offset
 	return handled, cmd
 }
 
-func (m *runMode) listResumeConversations() ([]convstore.ConversationMeta, error) {
-	return convstore.ListConversations()
+// listResumeConversations returns the store's conversations minus the one
+// the session is showing. The picker pins that conversation's workspace
+// group to the top of the tree, but it never lists the conversation
+// itself: resuming the one you are in is a no-op.
+func (m *RootModel) listResumeConversations() ([]convstore.ConversationMeta, error) {
+	list, err := convstore.ListConversations()
+	if err != nil {
+		return nil, err
+	}
+	cur := m.session.conversationID
+	if cur == "" || list == nil {
+		return list, nil
+	}
+	out := make([]convstore.ConversationMeta, 0, len(list))
+	for _, c := range list {
+		if c.ID != cur {
+			out = append(out, c)
+		}
+	}
+	return out, nil
 }
 
-func (m *runMode) renameResumeConversation(meta convstore.ConversationMeta) {
+func (m *RootModel) renameResumeConversation(meta convstore.ConversationMeta) {
 	m.session.conversationName = meta.Title
 	m.openRenamePanel()
 }
 
-func (m *runMode) openRenamePanel() {
+func (m *RootModel) openRenamePanel() {
 	m.overlays.panel.kind = panelregistry.Rename
 	m.overlays.panel.cmd = "/rename"
 	m.overlays.panel.rn = m.newRenamePanel()
 	m.armRenameFocus()
 }
 
-func (m *runMode) ContextState() contextpanel.State {
+func (m *RootModel) ContextState() contextpanel.State {
 	return m.contextState()
 }
 
-func (m *runMode) contextState() contextpanel.State {
+func (m *RootModel) contextState() contextpanel.State {
 	st := contextpanel.State{
 		Model: m.contextModel(),
 		Width: m.viewport.width,
 	}
 	switch {
-	case m.engine.streaming:
+	case m.conversation.streaming:
 		st.Mode = contextpanel.ModeStreaming
 		st.User, st.Agent, st.Tool = m.streamingTokenCounts()
-	case len(m.engine.session) == 0:
+	case m.session.messageCount() == 0:
 		st.Mode = contextpanel.ModeEmpty
 	default:
 		st.Mode = contextpanel.ModeLive
@@ -1326,9 +1325,9 @@ func (m *runMode) contextState() contextpanel.State {
 		st.Skills = skills
 		st.Subagents = subagents
 		st.SystemTools = contextpanel.ToolTokenEstimate(m.wireToolDecls())
-		st.SystemMessages = contextpanel.SystemMessageTokens(m.engine.session)
+		st.SystemMessages = contextpanel.SystemMessageTokens(m.SessionMessages())
 	}
-	st.CheckpointBuffer = contextpanel.CheckpointBufferTokens(m.engine.session)
+	st.CheckpointBuffer = contextpanel.CheckpointBufferTokens(m.SessionMessages())
 	st.User -= st.CheckpointBuffer
 	if st.User < 0 {
 		st.User = 0
@@ -1336,48 +1335,48 @@ func (m *runMode) contextState() contextpanel.State {
 	return st
 }
 
-func (m *runMode) promptCategoryTokens() (base, rules, skills, subagents int) {
+func (m *RootModel) promptCategoryTokens() (base, rules, skills, subagents int) {
 	base, skills, subagents = m.promptSectionTokens()
 	opts := m.promptOptions()
 	rules = agyprompt.SectionTokenCount("user_rules", agyprompt.SectionBody(opts, "user_rules"))
 	return base, rules, skills, subagents
 }
 
-func (m *runMode) contextModel() string {
+func (m *RootModel) contextModel() string {
 	if m.session.model != "" {
 		return m.session.model
 	}
 	return defaultModel
 }
 
-func (m *runMode) streamingTokenCounts() (user, agent, tool int) {
+func (m *RootModel) streamingTokenCounts() (user, agent, tool int) {
 	user, _, tool = m.sessionTokenCounts()
-	user = contextpanel.AdjustStreamingUserTokens(m.engine.session, user)
+	user = contextpanel.AdjustStreamingUserTokens(m.SessionMessages(), user)
 	completed := atomic.LoadInt64(&m.session.store.SessionCompletionTokens)
 	lastTurn := atomic.LoadInt64(&m.session.store.LastTurnCompletionTokens)
-	agent = contextpanel.StreamingAgentTokens(completed, lastTurn, len(m.engine.liveReplyBuf))
+	agent = contextpanel.StreamingAgentTokens(completed, lastTurn, len(m.conversation.liveReplyBuf))
 	return user, agent, tool
 }
 
-func (m *runMode) wireToolDecls() []backend.ToolDecl {
-	return append([]backend.ToolDecl(nil), m.engine.tools...)
+func (m *RootModel) wireToolDecls() []backend.ToolDecl {
+	return append([]backend.ToolDecl(nil), m.tools.decls...)
 }
 
-func (m *runMode) sessionTokenCounts() (user, agent, tool int) {
-	user = contextpanel.UserMessageTokens(m.engine.session)
+func (m *RootModel) sessionTokenCounts() (user, agent, tool int) {
+	user = contextpanel.UserMessageTokens(m.SessionMessages())
 	completed := atomic.LoadInt64(&m.session.store.SessionCompletionTokens)
 	lastTurn := atomic.LoadInt64(&m.session.store.LastTurnCompletionTokens)
 	agent = contextpanel.AgentTokens(completed, lastTurn)
 	var steps []toolsteps.Step
-	for _, b := range m.engine.blocks {
+	for _, b := range m.conversation.blocks {
 		steps = append(steps, b.Steps...)
 	}
-	steps = append(steps, m.engine.liveSteps...)
+	steps = append(steps, m.conversation.liveSteps...)
 	tool = contextpanel.ToolResultTokens(toolsteps.ToolResults(steps)...)
 	return user, agent, tool
 }
 
-func (m *runMode) statusRowState() statusrow.State {
+func (m *RootModel) statusRowState() statusrow.State {
 	panelOpen := m.overlays.panel.kind != panelregistry.None
 	panelKeepsHint := false
 	if panelOpen {
@@ -1388,17 +1387,17 @@ func (m *runMode) statusRowState() statusrow.State {
 		Width:          m.viewport.width,
 		CanonicalWidth: separatorWidth,
 
-		PickerVisible:      m.composer.picker.Visible(),
-		PickerModelMode:    m.composer.picker.IsModelMode(),
-		Streaming:          m.engine.streaming,
+		PickerVisible:      m.prompt.picker.Visible(),
+		PickerModelMode:    m.prompt.picker.IsModelMode(),
+		Streaming:          m.conversation.streaming,
 		Queued:             len(m.session.store.StreamQueue) + len(m.session.store.BashQueue),
-		BufferEmpty:        strings.TrimSpace(m.composer.input.Value()) == "",
+		BufferEmpty:        strings.TrimSpace(m.prompt.input.Value()) == "",
 		ResumePickerActive: m.overlays.resumePicker.Active(),
 		BashMode:           m.session.store.BashMode,
-		HelpActive:         m.viewport.helpPanel.Active(),
+		HelpActive:         m.help.Panel.Active(),
 		PanelOpen:          panelOpen,
 		PanelKeepsHint:     panelKeepsHint,
-		ExitConfirm:        m.engine.exitConfirm,
+		ExitConfirm:        m.display.exitConfirm,
 		VimBadge:           vimkeys.Badge(m.vimEnabled(), m.vimMode()),
 		Compact:            m.compactState(),
 
@@ -1421,7 +1420,7 @@ func (m *runMode) statusRowState() statusrow.State {
 	}
 }
 
-func (m *runMode) compactState() *statusrow.Compact {
+func (m *RootModel) compactState() *statusrow.Compact {
 	if m.session.store.CompactStart.IsZero() {
 		return nil
 	}
@@ -1434,20 +1433,20 @@ func (m *runMode) compactState() *statusrow.Compact {
 	}
 }
 
-func (m *runMode) panelChangelogLines() []string {
+func (m *RootModel) panelChangelogLines() []string {
 	spec, _ := m.getPanelRegistry().ViewerSpec(m.overlays.panel.kind)
 	rows, start, end := m.viewerWindow(spec)
 	return changelog.PanelLines(rows, start, end, spec.Total)
 }
 
-func (m *runMode) usageViewerSpec() tuiviewer.Spec {
+func (m *RootModel) usageViewerSpec() tuiviewer.Spec {
 	if m.viewport.height > 0 {
 		return usagepanel.Spec(m.usageState())
 	}
 	return usagepanel.StaticSpec()
 }
 
-func (m *runMode) changelogViewerSpec() tuiviewer.Spec {
+func (m *RootModel) changelogViewerSpec() tuiviewer.Spec {
 	return tuiviewer.Spec{
 		Lines:   changelog.Document(m.viewport.width, m.viewport.height),
 		Visible: changelog.VisibleRows(m.viewport.height),
@@ -1455,19 +1454,19 @@ func (m *runMode) changelogViewerSpec() tuiviewer.Spec {
 	}
 }
 
-func (m *runMode) viewerWindow(spec tuiviewer.Spec) (rows []string, start, end int) {
+func (m *RootModel) viewerWindow(spec tuiviewer.Spec) (rows []string, start, end int) {
 	r, s, e, clamped := tuiviewer.Window(spec, m.overlays.panel.window)
 	m.overlays.panel.window = clamped
 	return r, s, e
 }
 
-func (m *runMode) panelUsageLinesREF() []string {
+func (m *RootModel) panelUsageLinesREF() []string {
 	lines, window := usagepanel.Lines(m.usageState(), m.overlays.panel.window)
 	m.overlays.panel.window = window
 	return lines
 }
 
-func (m *runMode) panelUsageLines() []string {
+func (m *RootModel) panelUsageLines() []string {
 	if m.viewport.height > 0 {
 		return m.panelUsageLinesREF()
 	}
@@ -1480,7 +1479,7 @@ type usageQuotaTickMsg = usagepanel.QuotaTickMsg
 
 const usageQuotaLoadingTicks = usagepanel.QuotaLoadingTicks
 
-func quotaStubRefills(m *runMode) {
+func quotaStubRefills(m *RootModel) {
 	now := time.Now()
 	m.overlays.panel.quota.loadedAt = now
 	m.overlays.panel.quota.refreshG = now.Add(168 * time.Hour)
@@ -1488,7 +1487,7 @@ func quotaStubRefills(m *runMode) {
 	m.overlays.panel.quota.state = quotaLoaded
 }
 
-func (m *runMode) usageState() usagepanel.State {
+func (m *RootModel) usageState() usagepanel.State {
 	return usagepanel.State{
 		Email:    m.session.email,
 		Width:    m.viewport.width,
@@ -1497,48 +1496,60 @@ func (m *runMode) usageState() usagepanel.State {
 		Summary:  m.overlays.panel.quota.summary,
 		RefreshG: m.overlays.panel.quota.refreshG,
 		RefreshO: m.overlays.panel.quota.refreshO,
-		Frame:    m.engine.quotaFrame,
+		Frame:    m.display.quotaFrame,
 	}
 }
 
-func (m *runMode) armRenameFocus() {
+func (m *RootModel) armRenameFocus() {
 	if m.overlays.panel.rn == nil {
 		return
 	}
 	cmd := m.overlays.panel.rn.Focus()
-	if cmd != nil && m.engine.prog != nil {
-		m.engine.prog.Send(cmd)
+	if cmd != nil && m.turn.prog != nil {
+		m.turn.prog.Send(cmd)
 	}
 }
 
-func (m *runMode) AppendSubAgentResponse(line string) {
-	m.engine.response = append(m.engine.response, line)
+func (m *RootModel) AppendSubAgentResponse(line string) {
+	m.conversation.response = append(m.conversation.response, line)
 }
 
 // SubAgentQuestion
-func (m *runMode) SubAgentQuestionsManager() *questions.Manager {
-	return m.engine.subAgentQuestions
+func (m *RootModel) SubAgentQuestionsManager() *questions.Manager {
+	return m.askQuestion.manager
 }
-func (m *runMode) ResetInput() { m.composer.input.Reset() }
-func (m *runMode) newSubAgentQuestionPanel() *subagentquestionpanel.Panel {
+func (m *RootModel) ResetInput() { m.prompt.input.Reset() }
+func (m *RootModel) newSubAgentQuestionPanel() *subagentquestionpanel.Panel {
 	return panels.NewSubAgentQuestionPanel(m)
 }
 
 // Mention
-func (m *runMode) InputValue() string                     { return m.composer.input.Value() }
-func (m *runMode) SetInputValue(val string)               { m.composer.input.SetValue(val) }
-func (m *runMode) TerminalWidth() int                     { return m.viewport.width }
-func (m *runMode) TerminalHeight() int                    { return m.viewport.height }
-func (m *runMode) newMentionPicker() *mentionpicker.Panel { return panels.NewMentionPicker(m) }
+func (m *RootModel) InputValue() string                     { return m.prompt.input.Value() }
+func (m *RootModel) SetInputValue(val string)               { m.prompt.input.SetValue(val) }
+func (m *RootModel) TerminalWidth() int                     { return m.viewport.width }
+func (m *RootModel) TerminalHeight() int                    { return m.viewport.height }
+func (m *RootModel) newMentionPicker() *mentionpicker.Panel { return panels.NewMentionPicker(m) }
 
-func (m *runMode) IsInputY(y int) bool { return m.isInputY(y) }
+// MentionList makes the @ picker read the remote workspace in a
+// --remote-agent session. The picker is built before the flag injection, so
+// the decision is made per call rather than at construction.
+func (m *RootModel) MentionList() func(string) ([]atfiles.Entry, error) {
+	return func(root string) ([]atfiles.Entry, error) {
+		if m != nil && m.session.remoteAgent && m.remote.files != nil {
+			return m.remote.files.List(root)
+		}
+		return atfiles.List(root)
+	}
+}
+
+func (m *RootModel) IsInputY(y int) bool { return m.prompt.IsInputY(y) }
 
 // SlashPicker
-func (m *runMode) AltScreenActive() bool { return m.viewport.altScreen }
-func (m *runMode) SlashScopeContext() slashcommands.ScopeContext {
+func (m *RootModel) AltScreenActive() bool { return m.viewport.altScreen }
+func (m *RootModel) SlashScopeContext() slashcommands.ScopeContext {
 	return m.slashScopeContext()
 }
-func (m *runMode) slashScopeContext() slashcommands.ScopeContext {
+func (m *RootModel) slashScopeContext() slashcommands.ScopeContext {
 	eng := m.turnEngine()
 	name, caps := agentturn.CapabilitiesOf(eng)
 	return slashcommands.ScopeContext{
@@ -1546,23 +1557,37 @@ func (m *runMode) slashScopeContext() slashcommands.ScopeContext {
 		Capabilities: caps,
 	}
 }
-func (m *runMode) EngineSlashCommands() []slashcommands.Command {
+func (m *RootModel) EngineSlashCommands() []slashcommands.Command {
 	return m.engineSlashCommands()
 }
-func (m *runMode) engineSlashCommands() []slashcommands.Command {
+func (m *RootModel) engineSlashCommands() []slashcommands.Command {
+	var out []slashcommands.Command
+	// In AGY 1.5.2: In --remote-agent sessions, skills from connected remote/cloud plugins
+	// appear in the `/` menu, message-beginning completions, and `/skills`.
+	if remotes := skills.RemoteSkills(); len(remotes) > 0 {
+		for _, s := range remotes {
+			name := "/" + s.Name
+			out = append(out, slashcommands.Command{
+				Name:        name,
+				Description: s.Description,
+				Source:      slashcommands.SourceSkill,
+				Badge:       "remote",
+			})
+		}
+	}
+
 	eng := m.turnEngine()
 	if eng == nil {
-		return nil
+		return out
 	}
 	lister, ok := eng.(agentturn.CommandLister)
 	if !ok {
-		return nil
+		return out
 	}
 	cmds := lister.AvailableCommands()
 	if len(cmds) == 0 {
-		return nil
+		return out
 	}
-	out := make([]slashcommands.Command, 0, len(cmds))
 	for _, c := range cmds {
 		name := c.Name
 		if !strings.HasPrefix(name, "/") {
@@ -1586,21 +1611,21 @@ func (m *runMode) engineSlashCommands() []slashcommands.Command {
 	}
 	return out
 }
-func (m *runMode) newSlashPicker() *slashpicker.Panel {
+func (m *RootModel) newSlashPicker() *slashpicker.Panel {
 	return panels.NewSlashPicker(m)
 }
 
 // Voice
-func (m *runMode) InsertDraft(text string) {
-	if m.composer.input.Value() == "" {
-		m.composer.input.SetValue(text)
+func (m *RootModel) InsertDraft(text string) {
+	if m.prompt.input.Value() == "" {
+		m.prompt.input.SetValue(text)
 	} else {
-		m.composer.input.InsertString(text)
+		m.prompt.input.InsertString(text)
 	}
 }
-func (m *runMode) ConnectVoice() error {
-	if m.viewport.voiceConnectFn != nil {
-		return m.viewport.voiceConnectFn()
+func (m *RootModel) ConnectVoice() error {
+	if m.audio.connect != nil {
+		return m.audio.connect()
 	}
 	if micAddr := os.Getenv("ANTIGRAVITY_MIC"); micAddr != "" {
 		conn, err := net.DialTimeout("tcp", micAddr, 2*time.Second)
@@ -1613,47 +1638,54 @@ func (m *runMode) ConnectVoice() error {
 }
 
 // deadcode: staged (voice connection seam tested in slash_content_test.go)
-func (m *runMode) connectVoice() error {
+func (m *RootModel) connectVoice() error {
 	return m.ConnectVoice()
 }
-func (m *runMode) newVoiceSurface() *voice.Surface { return panels.NewVoiceSurface(m) }
+func (m *RootModel) newVoiceSurface() *voice.Surface { return panels.NewVoiceSurface(m) }
 
 // Rewind
-func (m *runMode) RewindSteps() []rewind.Step {
-	if m.session.supervisor != nil {
-		return m.session.supervisor.RewindSteps()
+func (m *RootModel) RewindSteps() []rewind.Step {
+	if sup := m.session.sup(); sup != nil {
+		return sup.RewindSteps()
 	}
-	return rewind.Steps(m.engine.session)
+	return nil
 }
-func (m *runMode) RewindPickStep(index int) int {
-	var r rewind.Result
-	if m.session.supervisor != nil {
-		r = m.session.supervisor.RewindToStep(index)
-		m.engine.session = r.Session
-	} else {
-		r = rewind.ToStep(m.engine.session, index)
-		m.engine.session = r.Session
+func (m *RootModel) RewindPickStep(index int) int {
+	sup := m.session.sup()
+	if sup == nil {
+		return 0
 	}
+	r := sup.RewindToStep(index)
 	if r.Removed <= 0 {
 		return 0
 	}
 	m.slashRespond("/rewind", rewind.StepEcho(r))
 	return r.Removed
 }
-func (m *runMode) newRewindPanel() *rewindpanel.Panel { return panels.NewRewindPanel(m) }
-func (m *runMode) rewindPanel() *rewindpanel.Panel {
-	if m.overlays.panel.rw == nil {
-		m.overlays.panel.rw = m.newRewindPanel()
-	}
-	return m.overlays.panel.rw
+func (m *RootModel) rewindPanel() *rewindpanel.Panel {
+	return m.rewind.Panel(m)
 }
 
 // ---- Merged from slash_panel_args.go, slash_panel_routing.go, slash_panel_wiring.go,
 // slash_panel_keymap.go, slash_panels.go, and slash_regression.go ----
 
-func (m *runMode) openSlashPanelArgs(cmd, args string) bool {
+func (m *RootModel) openSlashPanelArgs(cmd, args string) bool {
 	if canonical, ok := slashcommands.Canonical(cmd); ok {
 		cmd = canonical
+	}
+	// Remote sessions answer these from the proxy, not from a local panel:
+	// /permissions reads the remote preset and /plugin manages the remote
+	// catalogue.
+	if m.session.remoteAgent && (cmd == "permissions" || cmd == "plugin") {
+		return false
+	}
+	// /diff reads the proxy's turn diff; a failure is reported instead of
+	// opening a panel backed by the client's own git tree.
+	if m.session.remoteAgent && cmd == "diff" {
+		if err := m.prepareRemoteDiff(); err != nil {
+			m.slashRespond("/diff", "error: "+err.Error())
+			return true
+		}
 	}
 	if eng := m.turnEngine(); eng != nil {
 		name, _ := agentturn.CapabilitiesOf(eng)
@@ -1691,7 +1723,7 @@ func (m *runMode) openSlashPanelArgs(cmd, args string) bool {
 	return true
 }
 
-func (m *runMode) currentEffort() int {
+func (m *RootModel) currentEffort() int {
 	switch word := cliflags.StringValue(m.session.flags, "effort"); word {
 	case "low", "medium", "high":
 		return effortpanel.EffortIndexForName(word)
@@ -1699,7 +1731,7 @@ func (m *runMode) currentEffort() int {
 	return effortCursorForLabel(m.session.model)
 }
 
-func (m *runMode) currentEffortName() string {
+func (m *RootModel) currentEffortName() string {
 	switch word := strings.ToLower(strings.TrimSpace(cliflags.StringValue(m.session.flags, "effort"))); word {
 	case "low", "medium", "high", "xhigh", "max":
 		return word
@@ -1710,7 +1742,7 @@ func (m *runMode) currentEffortName() string {
 	return effortpanel.EffortLevelName(m.currentEffort())
 }
 
-func (m *runMode) panelView() string {
+func (m *RootModel) panelView() string {
 	if m.overlays.panel.kind == panelregistry.None {
 		return ""
 	}
@@ -1725,30 +1757,30 @@ func (m *runMode) panelView() string {
 	return b.String()
 }
 
-func (m *runMode) panelLines() []string {
+func (m *RootModel) panelLines() []string {
 	return m.getPanelRegistry().Lines(m.overlays.panel.kind)
 }
 
-func (m *runMode) closePanel() tea.Cmd {
+func (m *RootModel) closePanel() tea.Cmd {
 	cmd := m.overlays.panel.cmd
 	notice := m.overlays.panel.kind.ExitNotice()
 	m.overlays.panel.csp.Cancel()
 	m.overlays.panel = slashPanel{}
 	m.reloadVimSettings()
 	if notice {
-		m.engine.response = append(m.engine.response, tuilib.SlashEchoLines(cmd, "Exited "+cmd+" command")...)
+		m.conversation.response = append(m.conversation.response, tuilib.SlashEchoLines(cmd, "Exited "+cmd+" command")...)
 	}
 	return nil
 }
 
-func (m *runMode) closePanelSilent() tea.Cmd {
+func (m *RootModel) closePanelSilent() tea.Cmd {
 	m.overlays.panel.csp.Cancel()
 	m.overlays.panel = slashPanel{}
 	m.reloadVimSettings()
 	return nil
 }
 
-func (m *runMode) handleNavAndEnterKey(key tea.Key, n int) (bool, tea.Cmd, bool) {
+func (m *RootModel) handleNavAndEnterKey(key tea.Key, n int) (bool, tea.Cmd, bool) {
 	if m.overlays.panel.kind == panelregistry.Config {
 		if handled, cmd := m.configPanel().HandleKey(key); handled {
 			return true, cmd, true
@@ -1765,7 +1797,7 @@ func (m *runMode) handleNavAndEnterKey(key tea.Key, n int) (bool, tea.Cmd, bool)
 	return false, nil, false
 }
 
-func (m *runMode) handlePanelKey(key tea.Key) (bool, tea.Cmd) {
+func (m *RootModel) handlePanelKey(key tea.Key) (bool, tea.Cmd) {
 	if m.overlays.panel.kind == panelregistry.None {
 		return false, nil
 	}
@@ -1797,7 +1829,7 @@ func listPanelKind(k panelregistry.Kind) bool {
 	return k.IsList()
 }
 
-func (m *runMode) panelRegistry() *panelregistry.Registry {
+func (m *RootModel) panelRegistry() *panelregistry.Registry {
 	reg := m.getPanelRegistry()
 	if !reg.Wired() {
 		m.wirePanelRegistry(reg)
@@ -1805,7 +1837,7 @@ func (m *runMode) panelRegistry() *panelregistry.Registry {
 	return reg
 }
 
-func (m *runMode) wirePanelRegistry(reg *panelregistry.Registry) {
+func (m *RootModel) wirePanelRegistry(reg *panelregistry.Registry) {
 	reg.Wire(panelregistry.Wiring{
 		Rows: map[panelregistry.Kind]func() int{
 			panelregistry.Tasks:       func() int { return m.tasksPanel().RowCount() },
@@ -1854,7 +1886,6 @@ type slashPanel struct {
 	rn     *renamepanel.Panel
 	ad     *adddirpanel.Panel
 	vw     *viewerpanel.Panel
-	df     *diffpanel.Panel
 	csp    *codesearchpanel.Panel
 	quota  quotaState
 	prov   *providerpanel.Panel
@@ -1866,7 +1897,6 @@ type slashPanel struct {
 	hk     *hookspanel.Panel
 	tp     *taskspanel.Panel
 	ef     *effortpanel.Panel
-	rw     *rewindpanel.Panel
 	proj   *projectspanel.Panel
 }
 
@@ -1884,37 +1914,37 @@ const (
 	quotaLoaded
 )
 
-func (m *runMode) initOpenedSlashPanel(kind panelregistry.Kind) {
+func (m *RootModel) initOpenedSlashPanel(kind panelregistry.Kind) {
 	m.initOpenedSlashPanelData(kind)
 }
 
-var panelInitializers = map[panelregistry.Kind]func(m *runMode){
-	panelregistry.Provider: func(m *runMode) {
+var panelInitializers = map[panelregistry.Kind]func(m *RootModel){
+	panelregistry.Provider: func(m *RootModel) {
 		m.overlays.panel.prov = m.newProviderPanel()
 		m.overlays.panel.prov.Reload()
 		m.overlays.panel.prov.Notice("")
 	},
-	panelregistry.Config:      func(m *runMode) { m.overlays.panel.cfg = m.newConfigPanel() },
-	panelregistry.Model:       func(m *runMode) { m.overlays.panel.mdl = m.newModelPanel() },
-	panelregistry.Plugin:      func(m *runMode) { m.overlays.panel.plg = m.newPluginPanel() },
-	panelregistry.Skills:      func(m *runMode) { m.overlays.panel.sk = m.newSkillsPanel() },
-	panelregistry.Permissions: func(m *runMode) { m.overlays.panel.perm = m.newPermissionsPanel() },
-	panelregistry.Hooks:       func(m *runMode) { m.overlays.panel.hk = m.newHooksPanel() },
-	panelregistry.Agents:      func(m *runMode) { m.overlays.panel.ag = m.newAgentsPanel() },
-	panelregistry.Feedback:    func(m *runMode) { m.overlays.panel.fb = m.newFeedbackPanel() },
-	panelregistry.Credits:     func(m *runMode) { m.overlays.panel.cr = m.newCreditsPanel() },
-	panelregistry.Tasks:       func(m *runMode) { m.overlays.panel.tp = m.newTasksPanel() },
-	panelregistry.Effort:      func(m *runMode) { m.overlays.panel.ef = m.newEffortPanel() },
-	panelregistry.CodeSearch:  func(m *runMode) { m.overlays.panel.csp = m.newCodesearchPanel() },
-	panelregistry.Rewind:      func(m *runMode) { m.overlays.panel.rw = m.newRewindPanel() },
-	panelregistry.Diff:        func(m *runMode) { m.overlays.panel.df = m.newDiffPanel() },
-	panelregistry.Rename: func(m *runMode) {
+	panelregistry.Config:      func(m *RootModel) { m.overlays.panel.cfg = m.newConfigPanel() },
+	panelregistry.Model:       func(m *RootModel) { m.overlays.panel.mdl = m.newModelPanel() },
+	panelregistry.Plugin:      func(m *RootModel) { m.overlays.panel.plg = m.newPluginPanel() },
+	panelregistry.Skills:      func(m *RootModel) { m.overlays.panel.sk = m.newSkillsPanel() },
+	panelregistry.Permissions: func(m *RootModel) { m.overlays.panel.perm = m.newPermissionsPanel() },
+	panelregistry.Hooks:       func(m *RootModel) { m.overlays.panel.hk = m.newHooksPanel() },
+	panelregistry.Agents:      func(m *RootModel) { m.overlays.panel.ag = m.newAgentsPanel() },
+	panelregistry.Feedback:    func(m *RootModel) { m.overlays.panel.fb = m.newFeedbackPanel() },
+	panelregistry.Credits:     func(m *RootModel) { m.overlays.panel.cr = m.newCreditsPanel() },
+	panelregistry.Tasks:       func(m *RootModel) { m.overlays.panel.tp = m.newTasksPanel() },
+	panelregistry.Effort:      func(m *RootModel) { m.overlays.panel.ef = m.newEffortPanel() },
+	panelregistry.CodeSearch:  func(m *RootModel) { m.overlays.panel.csp = m.newCodesearchPanel() },
+	panelregistry.Rewind:      func(m *RootModel) { m.rewind.Reopen(m) },
+	panelregistry.Diff:        func(m *RootModel) { m.diff.Reopen(m) },
+	panelregistry.Rename: func(m *RootModel) {
 		m.overlays.panel.rn = m.newRenamePanel()
 		m.armRenameFocus()
 	},
-	panelregistry.AddDir:   func(m *runMode) { m.overlays.panel.ad = m.newAddDirPanel() },
-	panelregistry.Projects: func(m *runMode) { m.overlays.panel.proj = m.newProjectsPanel() },
-	panelregistry.Accounts: func(m *runMode) {
+	panelregistry.AddDir:   func(m *RootModel) { m.overlays.panel.ad = m.newAddDirPanel() },
+	panelregistry.Projects: func(m *RootModel) { m.overlays.panel.proj = m.newProjectsPanel() },
+	panelregistry.Accounts: func(m *RootModel) {
 		m.overlays.panel.acct = m.newAccountsPanel()
 		m.overlays.panel.acct.Reload()
 		m.overlays.panel.acct.ClearNotice()
@@ -1925,7 +1955,7 @@ var panelInitializers = map[panelregistry.Kind]func(m *runMode){
 	},
 }
 
-func (m *runMode) initOpenedSlashPanelData(kind panelregistry.Kind) {
+func (m *RootModel) initOpenedSlashPanelData(kind panelregistry.Kind) {
 	if kind == panelregistry.Usage && m.viewport.height > 0 {
 		m.overlays.panel.quota = quotaState{state: quotaLoading}
 	}
@@ -1937,7 +1967,7 @@ func (m *runMode) initOpenedSlashPanelData(kind panelregistry.Kind) {
 	}
 }
 
-func (m *runMode) openSlashPanel(cmd string) bool {
+func (m *RootModel) openSlashPanel(cmd string) bool {
 	kind, ok := slashcommands.PanelFor(cmd)
 	if !ok {
 		return false
@@ -1968,7 +1998,7 @@ func effortCursorForLabel(label string) int {
 	return 2
 }
 
-func (m *runMode) panelCurrentModelLabel() string {
+func (m *RootModel) panelCurrentModelLabel() string {
 	if lbl := strings.TrimSpace(m.session.model); lbl != "" {
 		return lbl
 	}
@@ -1976,14 +2006,14 @@ func (m *runMode) panelCurrentModelLabel() string {
 	return lbl
 }
 
-func (m *runMode) statusEffortSuffix() string {
+func (m *RootModel) statusEffortSuffix() string {
 	if !modelpicker.HasEffortTiers(m.session.statusModel) {
 		return ""
 	}
 	return " \u00b7 " + m.currentEffortName()
 }
 
-func (m *runMode) applyEffortSelection(level int) tea.Cmd {
+func (m *RootModel) applyEffortSelection(level int) tea.Cmd {
 	name := models.TierNameAt(m.effortTiers(), level)
 	if name == "" {
 		name = effortpanel.EffortLevelName(level)
@@ -1991,7 +2021,7 @@ func (m *runMode) applyEffortSelection(level int) tea.Cmd {
 	return m.applyEffortLevel(name, level)
 }
 
-func (m *runMode) applyEffortLevel(name string, level int) tea.Cmd {
+func (m *RootModel) applyEffortLevel(name string, level int) tea.Cmd {
 	name = strings.ToLower(strings.TrimSpace(name))
 	if name == "" {
 		name = effortpanel.EffortLevelName(level)
@@ -2023,7 +2053,7 @@ func (m *runMode) applyEffortLevel(name string, level int) tea.Cmd {
 	m.session.statusModel = tuilib.StripTier(label)
 	m.syncBackendForModel()
 	_ = settings.SetField("model", label)
-	m.engine.response = append(m.engine.response, tuilib.SlashEchoLines("/effort", "Effort set to "+name)...)
+	m.conversation.response = append(m.conversation.response, tuilib.SlashEchoLines("/effort", "Effort set to "+name)...)
 	return nil
 }
 
@@ -2044,22 +2074,22 @@ type editorFinishedMsg struct {
 	tempPath string
 }
 
-func (m *runMode) editPromptCmd() tea.Cmd {
+func (m *RootModel) editPromptCmd() tea.Cmd {
 	name, args, notice, err := editorkit.ResolveEditor(settings.String("editor"))
 	if err != nil {
-		m.engine.response = append(m.engine.response, "Failed to resolve editor: "+err.Error())
+		m.conversation.response = append(m.conversation.response, "Failed to resolve editor: "+err.Error())
 		return nil
 	}
 	if _, err := exec.LookPath(name); err != nil {
-		m.engine.response = append(m.engine.response, "Failed to resolve editor: "+err.Error())
+		m.conversation.response = append(m.conversation.response, "Failed to resolve editor: "+err.Error())
 		return nil
 	}
 	if notice != "" {
-		m.engine.response = append(m.engine.response, notice)
+		m.conversation.response = append(m.conversation.response, notice)
 	}
-	path, err := editorkit.PromptScratchFile(m.composer.input.Value())
+	path, err := editorkit.PromptScratchFile(m.prompt.input.Value())
 	if err != nil {
-		m.engine.response = append(m.engine.response, "Failed to create a temporary file: "+err.Error())
+		m.conversation.response = append(m.conversation.response, "Failed to create a temporary file: "+err.Error())
 		return nil
 	}
 	c := exec.Command(name, append(args, path)...)
@@ -2068,14 +2098,14 @@ func (m *runMode) editPromptCmd() tea.Cmd {
 	})
 }
 
-func (m *runMode) getPanelRegistry() *panelregistry.Registry {
+func (m *RootModel) getPanelRegistry() *panelregistry.Registry {
 	if m.overlays.panelReg == nil {
 		m.overlays.panelReg = m.buildPanelRegistry()
 	}
 	return m.overlays.panelReg
 }
 
-func (m *runMode) Panel(k panelregistry.Kind) any {
+func (m *RootModel) Panel(k panelregistry.Kind) any {
 	switch k {
 	case panelregistry.Tasks:
 		return m.tasksPanel()
@@ -2120,18 +2150,18 @@ func (m *runMode) Panel(k panelregistry.Kind) any {
 	}
 }
 
-func (m *runMode) projectsPanel() *projectspanel.Panel {
+func (m *RootModel) projectsPanel() *projectspanel.Panel {
 	if m.overlays.panel.proj == nil {
 		m.overlays.panel.proj = m.newProjectsPanel()
 	}
 	return m.overlays.panel.proj
 }
 
-func (m *runMode) newProjectsPanel() *projectspanel.Panel {
+func (m *RootModel) newProjectsPanel() *projectspanel.Panel {
 	return panels.NewProjectsPanel(m)
 }
 
-func (m *runMode) SwitchProject(proj coreprojects.LocalProject) tea.Cmd {
+func (m *RootModel) SwitchProject(proj coreprojects.LocalProject) tea.Cmd {
 	for _, f := range proj.Folders {
 		tuilib.AddDirFeedback(f)
 	}
@@ -2140,36 +2170,36 @@ func (m *runMode) SwitchProject(proj coreprojects.LocalProject) tea.Cmd {
 	return m.closePanel()
 }
 
-func (m *runMode) HomeDir() string {
+func (m *RootModel) HomeDir() string {
 	if h, err := os.UserHomeDir(); err == nil {
 		return h
 	}
 	return ""
 }
 
-func (m *runMode) WorkspaceDir() string {
+func (m *RootModel) WorkspaceDir() string {
 	if m != nil && m.session.cwd != "" {
 		return m.session.cwd
 	}
 	return ""
 }
 
-func (m *runMode) PanelUsageLines() []string {
+func (m *RootModel) PanelUsageLines() []string {
 	return m.panelUsageLines()
 }
 
-func (m *runMode) UsageViewerSpec() tuiviewer.Spec {
+func (m *RootModel) UsageViewerSpec() tuiviewer.Spec {
 	return m.usageViewerSpec()
 }
 
-func (m *runMode) PanelChangelogLines() []string {
+func (m *RootModel) PanelChangelogLines() []string {
 	return m.panelChangelogLines()
 }
 
-func (m *runMode) ChangelogViewerSpec() tuiviewer.Spec {
+func (m *RootModel) ChangelogViewerSpec() tuiviewer.Spec {
 	return m.changelogViewerSpec()
 }
 
-func (m *runMode) buildPanelRegistry() *panelregistry.Registry {
+func (m *RootModel) buildPanelRegistry() *panelregistry.Registry {
 	return panels.BuildRegistry(m)
 }

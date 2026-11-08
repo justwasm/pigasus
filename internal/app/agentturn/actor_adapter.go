@@ -7,15 +7,13 @@ import (
 	"io"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/justwasm/pigasus/actor"
 	"github.com/justwasm/pigasus/agentlink"
 	"github.com/justwasm/pigasus/internal/app/toolrunner"
 	"github.com/justwasm/pigasus/internal/core/backend"
-	"github.com/justwasm/pigasus/internal/core/compaction"
 	"github.com/justwasm/pigasus/internal/core/policy/permissions"
-	modelctx "github.com/justwasm/pigasus/internal/features/models/ctx"
+	"github.com/justwasm/pigasus/internal/features/checkpoint"
 )
 
 // backendProviderAdapter adapts a backend.Client into an actor.Provider.
@@ -302,11 +300,6 @@ func buildActorTools(tools []backend.ToolDecl, runner backend.ToolRunner, emit f
 	return actorTools
 }
 
-// BuildActorTools creates actor.Tool implementations bridging backend.ToolDecl and ToolRunner.
-func BuildActorTools(tools []backend.ToolDecl, runner backend.ToolRunner) []actor.Tool {
-	return buildActorTools(tools, runner, nil, nil)
-}
-
 // EventSink consumes streaming events from an actor.Actor turn execution.
 type EventSink interface {
 	OnThought(thought string)
@@ -314,7 +307,6 @@ type EventSink interface {
 	OnToolStart(call actor.ToolCall)
 	OnToolFinished(call actor.ToolCall, res actor.ToolResult)
 	OnApprovalRequired(ctx context.Context, act *actor.Actor, call actor.ToolCall)
-	OnCompacted()
 	OnError(err error)
 	OnTurnCompleted(summary *actor.TurnSummary)
 	OnCancelled()
@@ -429,15 +421,6 @@ func (s *FrameSink) OnApprovalRequired(ctx context.Context, act *actor.Actor, ca
 	_ = act.Approve(call.ID, false, "execution denied: no interactive permission handler")
 }
 
-func (s *FrameSink) OnCompacted() {
-	s.safeEmit(agentlink.Frame{
-		Kind: agentlink.KindCompact,
-		Compact: &agentlink.Compact{
-			Phase: agentlink.CompactEnd,
-		},
-	})
-}
-
 func (s *FrameSink) OnError(err error) {
 	s.mu.Lock()
 	if s.turnErr == "" {
@@ -449,11 +432,15 @@ func (s *FrameSink) OnError(err error) {
 
 func (s *FrameSink) OnTurnCompleted(summary *actor.TurnSummary) {
 	s.mu.Lock()
-	if summary != nil && summary.TotalTokens > 0 {
+	// A turn may report only reasoning tokens (a thinking-only provider
+	// answer) and no total, so a zero total is not "no usage".
+	if summary != nil && (summary.TotalTokens > 0 ||
+		summary.PromptTokens > 0 || summary.OutputTokens > 0 || summary.ThoughtsTokens > 0) {
 		s.metaUsage = &actor.TokenUsage{
-			PromptTokens: summary.PromptTokens,
-			OutputTokens: summary.OutputTokens,
-			TotalTokens:  summary.TotalTokens,
+			PromptTokens:   summary.PromptTokens,
+			OutputTokens:   summary.OutputTokens,
+			TotalTokens:    summary.TotalTokens,
+			ThoughtsTokens: summary.ThoughtsTokens,
 		}
 	}
 	s.mu.Unlock()
@@ -516,6 +503,7 @@ func (s *FrameSink) ResultFrame(act *actor.Actor, ctxErr error) agentlink.Frame 
 			PromptTokens:     usage.PromptTokens,
 			CompletionTokens: usage.OutputTokens,
 			TotalTokens:      usage.TotalTokens,
+			ReasoningTokens:  usage.ThoughtsTokens,
 		}
 	}
 	return resultFrame
@@ -523,23 +511,20 @@ func (s *FrameSink) ResultFrame(act *actor.Actor, ctxErr error) agentlink.Frame 
 
 // ChunkSinkOptions configures a ChunkSink.
 type ChunkSinkOptions struct {
-	Handler   func(backend.StreamChunk) error
-	OnCompact func()
+	Handler func(backend.StreamChunk) error
 }
 
 // ChunkSink adapts Actor turn events into backend.StreamChunks.
 type ChunkSink struct {
-	handler   func(backend.StreamChunk) error
-	onCompact func()
-	turnErr   error
-	summary   *actor.TurnSummary
+	handler func(backend.StreamChunk) error
+	turnErr error
+	summary *actor.TurnSummary
 }
 
 // NewChunkSink creates a ChunkSink for streaming output chunks.
 func NewChunkSink(opts ChunkSinkOptions) *ChunkSink {
 	return &ChunkSink{
-		handler:   opts.Handler,
-		onCompact: opts.OnCompact,
+		handler: opts.Handler,
 	}
 }
 
@@ -555,12 +540,6 @@ func (s *ChunkSink) OnToolStart(_ actor.ToolCall)                        {}
 func (s *ChunkSink) OnToolFinished(_ actor.ToolCall, _ actor.ToolResult) {}
 func (s *ChunkSink) OnApprovalRequired(_ context.Context, act *actor.Actor, call actor.ToolCall) {
 	_ = act.Approve(call.ID, false, "execution denied in headless mode")
-}
-
-func (s *ChunkSink) OnCompacted() {
-	if s.onCompact != nil {
-		s.onCompact()
-	}
 }
 
 func (s *ChunkSink) OnError(err error) {
@@ -609,11 +588,16 @@ func (s *ChunkSink) Finish() error {
 
 // ExecuteActorTurn executes a prompt on an actor instance and routes all lifecycle events to sink.
 func ExecuteActorTurn(ctx context.Context, act *actor.Actor, prompt string, sink EventSink) error {
+	return ExecuteActorTurnRequest(ctx, act, actor.TurnRequest{Prompt: prompt}, sink)
+}
+
+// ExecuteActorTurnRequest executes one turn request and routes its events to sink.
+func ExecuteActorTurnRequest(ctx context.Context, act *actor.Actor, req actor.TurnRequest, sink EventSink) error {
 	if act == nil {
 		return errors.New("agentturn: actor is nil")
 	}
 
-	events, err := act.Ask(ctx, actor.NewUserMessage(prompt))
+	turn, err := act.StartTurn(ctx, req)
 	if err != nil {
 		if sink != nil {
 			sink.OnError(err)
@@ -622,7 +606,7 @@ func ExecuteActorTurn(ctx context.Context, act *actor.Actor, prompt string, sink
 	}
 
 	var turnErr error
-	for ev := range events {
+	for ev := range turn.Events() {
 		switch ev.Type {
 		case actor.EventThought:
 			if sink != nil {
@@ -647,10 +631,6 @@ func ExecuteActorTurn(ctx context.Context, act *actor.Actor, prompt string, sink
 		case actor.EventApprovalRequired:
 			if sink != nil && ev.ToolCall != nil {
 				sink.OnApprovalRequired(ctx, act, *ev.ToolCall)
-			}
-		case actor.EventCompacted:
-			if sink != nil {
-				sink.OnCompacted()
 			}
 		case actor.EventSteerApplied:
 			if sink != nil {
@@ -688,86 +668,12 @@ func ExecuteActorTurn(ctx context.Context, act *actor.Actor, prompt string, sink
 		}
 	}
 	if ctx.Err() != nil {
-		_ = act.CancelTurn("context cancelled")
+		_ = turn.Cancel("context cancelled")
+	}
+	if turnErr == nil {
+		turnErr = turn.Err()
 	}
 	return turnErr
-}
-
-// RunActorTurn executes a Turn using the actor.Actor engine and streams agentlink.Frames.
-func RunActorTurn(
-	ctx context.Context,
-	env Env,
-	model string,
-	t Turn,
-	emit func(agentlink.Frame) bool,
-	ch chan<- agentlink.Frame,
-) {
-	RunActorTurnWithBinder(ctx, env, model, t, emit, ch, nil)
-}
-
-// RunActorTurnWithBinder executes a Turn and registers the spawned Actor with onSpawn.
-func RunActorTurnWithBinder(
-	ctx context.Context,
-	env Env,
-	model string,
-	t Turn,
-	emit func(agentlink.Frame) bool,
-	ch chan<- agentlink.Frame,
-	onSpawn func(*actor.Actor),
-) {
-	if model == "" {
-		model = env.Model
-	}
-	if env.Backend == nil {
-		emit(agentlink.Frame{Kind: agentlink.KindResult, Error: ErrNoTransport.Error()})
-		return
-	}
-
-	var initialHistory []actor.ConversationMessage
-	if len(t.History) > 1 {
-		for i := 0; i < len(t.History)-1; i++ {
-			msg := t.History[i]
-			initialHistory = append(initialHistory, actor.ConversationMessage{
-				Role:    actor.Role(msg.Role),
-				Content: msg.Content,
-			})
-		}
-	}
-
-	provider := newBackendProviderAdapter(env.Backend, model)
-	act, err := actor.Spawn(actor.Config{
-		Model:          model,
-		SystemPrompt:   env.SystemPrompt,
-		Provider:       provider,
-		InitialHistory: initialHistory,
-	})
-	if err != nil {
-		emit(agentlink.Frame{Kind: agentlink.KindResult, Error: err.Error()})
-		return
-	}
-	defer act.Close()
-
-	if onSpawn != nil {
-		onSpawn(act)
-		defer onSpawn(nil)
-	}
-
-	RunActorTurnOnActor(ctx, act, env, model, t, emit, ch)
-}
-
-// RunActorTurnOnActor executes a Turn on an existing persistent Actor instance.
-// It dynamically updates the actor's model, system prompt, provider, and tools,
-// and executes the turn to completion without closing the actor runtime.
-func RunActorTurnOnActor(
-	ctx context.Context,
-	act *actor.Actor,
-	env Env,
-	model string,
-	t Turn,
-	emit func(agentlink.Frame) bool,
-	ch chan<- agentlink.Frame,
-) {
-	RunActorTurnOnActorWithPermHandler(ctx, act, env, model, t, emit, ch, nil)
 }
 
 // RunActorTurnOnActorWithPermHandler executes a Turn on an existing persistent Actor instance
@@ -794,13 +700,16 @@ func RunActorTurnOnActorWithPermHandler(
 		return
 	}
 
-	// Dynamically configure actor for this turn
-	act.SetModel(model)
-	act.SetSystemPrompt(env.SystemPrompt)
+	// The turn carries its own configuration: a queued turn must not be
+	// rewritten by the next submission's model, prompt, provider or tools.
 	provider := newBackendProviderAdapter(env.Backend, model)
-	act.SetProvider(provider)
 
 	actorTools := buildActorTools(env.Tools, env.ToolRunner, nil, nil)
+	if actorTools == nil {
+		// A nil tool slice means "inherit the actor's registry"; this turn
+		// means "these are the turn's tools", even when it has none.
+		actorTools = []actor.Tool{}
+	}
 	if len(env.ExtraTools) > 0 {
 		actorTools = append(actorTools, env.ExtraTools...)
 	}
@@ -811,128 +720,66 @@ func RunActorTurnOnActorWithPermHandler(
 		}
 		actorTools = gated
 	}
-	act.SetTools(actorTools...)
 
 	var lastPrompt string
 	if len(t.History) > 0 {
 		lastPrompt = t.History[len(t.History)-1].Content
 	}
 
+	policy := env.CheckpointPolicy
+	if policy == nil {
+		toolDecls, _ := json.Marshal(env.Tools)
+		policy = checkpoint.New(checkpoint.Config{
+			Model:            model,
+			SystemPrompt:     env.SystemPrompt,
+			ToolDeclarations: toolDecls,
+			Backend:          env.Backend,
+			BackendFor:       env.BackendFor,
+			Emit:             func(ev checkpoint.Event) { emitCheckpointEvent(emit, ev) },
+		})
+		defer policy.Close()
+	}
+
 	sink := NewFrameSink(emit, permHandler)
-	_ = ExecuteActorTurn(ctx, act, lastPrompt, sink)
+	_ = ExecuteActorTurnRequest(ctx, act, actor.TurnRequest{
+		Prompt: lastPrompt,
+		TurnConfig: actor.TurnConfig{
+			Model:        model,
+			SystemPrompt: env.SystemPrompt,
+			Provider:     provider,
+			Tools:        actorTools,
+			Checkpoint: func(stepCtx context.Context, probe actor.CheckpointProbe) (actor.CheckpointDecision, error) {
+				return policy.BeforeStep(stepCtx, act, probe)
+			},
+		},
+	}, sink)
 
 	resultFrame := sink.ResultFrame(act, ctx.Err())
-
-	// Token pressure check & auto-compaction
-	checkAndTriggerAutoCompact(ctx, act, env, model, t, resultFrame, emit)
-
 	emitResult(ch, resultFrame)
 }
 
-// checkAndTriggerAutoCompact evaluates whether the conversation token volume
-// reached or exceeded the model's threshold (PromptTokens >= ContextWindow - ReserveTokens).
-// If breached, it emits agentlink.KindCompact (Phase: CompactStart, Reason: "threshold"),
-// calls compaction.ComputeSummary to generate a 7-section structured summary,
-// resets the Actor's history with the resumption block,
-// and emits agentlink.KindCompact (Phase: CompactEnd, Reason: "threshold", TokensBefore, TokensAfter, Summary).
-func checkAndTriggerAutoCompact(
-	ctx context.Context,
-	act *actor.Actor,
-	env Env,
-	model string,
-	t Turn,
-	resultFrame agentlink.Frame,
-	emit func(agentlink.Frame) bool,
-) {
-	if ctx.Err() != nil || env.Backend == nil || act == nil || emit == nil {
+// emitCheckpointEvent maps a checkpoint progress event to a Compact frame.
+func emitCheckpointEvent(emit func(agentlink.Frame) bool, ev checkpoint.Event) {
+	if emit == nil {
 		return
 	}
-
-	limit := modelctx.For(model)
-	threshold := limit.ContextWindow - limit.ReserveTokens
-	if threshold <= 0 {
-		return
+	compact := &agentlink.Compact{
+		Phase:           agentlink.CompactEnd,
+		Reason:          ev.Reason,
+		Summary:         ev.Summary,
+		Resume:          ev.Resume,
+		StepsSummarized: ev.Steps,
+		KeepRecent:      ev.KeepRecent,
+		Strategy:        ev.Strategy,
+		SummaryModel:    ev.Model,
+		Sync:            ev.Sync,
+		TokensBefore:    ev.TokensBefore,
+		TokensAfter:     ev.TokensAfter,
+		ElapsedMS:       ev.ElapsedMS,
+		Aborted:         ev.Aborted,
 	}
-
-	promptTokens := 0
-	if resultFrame.Usage != nil && resultFrame.Usage.PromptTokens > 0 {
-		promptTokens = resultFrame.Usage.PromptTokens
-	} else {
-		// Fallback token estimation from history and current turn
-		backendMsgs := ToBackendMessages(t.History)
-		promptTokens = compaction.TranscriptTokens(backendMsgs)
+	if ev.Phase == checkpoint.EventStart {
+		compact.Phase = agentlink.CompactStart
 	}
-
-	if promptTokens < threshold {
-		return
-	}
-
-	// Threshold breached! Start auto-compaction
-	start := time.Now()
-	emit(agentlink.Frame{
-		Kind: agentlink.KindCompact,
-		Compact: &agentlink.Compact{
-			Phase:        agentlink.CompactStart,
-			Reason:       "threshold",
-			TokensBefore: promptTokens,
-		},
-	})
-
-	// Build the transcript to summarize: full history + last turn's final output
-	transcriptMsgs := ToBackendMessages(t.History)
-	if resultFrame.Result != nil && resultFrame.Result.Reply != "" {
-		if len(transcriptMsgs) == 0 || transcriptMsgs[len(transcriptMsgs)-1].Role != "assistant" {
-			transcriptMsgs = append(transcriptMsgs, backend.Message{
-				Role:    "assistant",
-				Content: resultFrame.Result.Reply,
-			})
-		}
-	}
-
-	summaryRes, err := compaction.ComputeSummary(ctx, env.Backend, model, env.SystemPrompt, transcriptMsgs)
-	if err != nil {
-		emit(agentlink.Frame{
-			Kind: agentlink.KindCompact,
-			Compact: &agentlink.Compact{
-				Phase:        agentlink.CompactEnd,
-				Reason:       "threshold",
-				TokensBefore: promptTokens,
-				Aborted:      true,
-			},
-		})
-		return
-	}
-
-	userReqs := compaction.UserRequests(transcriptMsgs, compaction.MaxUserRequests)
-	resumingText := compaction.ResumingBlock(userReqs, summaryRes.Text)
-
-	// Reset actor's internal trajectory with the new resuming block
-	act.ResetHistory([]actor.ConversationMessage{
-		{
-			Role:    actor.RoleUser,
-			Content: resumingText,
-		},
-	})
-
-	afterTokens := summaryRes.StatsAfter.Tokens
-	if afterTokens <= 0 {
-		afterTokens = compaction.EstimateTokens(resumingText)
-	}
-
-	elapsed := time.Since(start).Milliseconds()
-	if elapsed <= 0 {
-		elapsed = 1
-	}
-
-	emit(agentlink.Frame{
-		Kind: agentlink.KindCompact,
-		Compact: &agentlink.Compact{
-			Phase:        agentlink.CompactEnd,
-			Reason:       "threshold",
-			Summary:      summaryRes.Text,
-			TokensBefore: promptTokens,
-			TokensAfter:  afterTokens,
-			ElapsedMS:    elapsed,
-		},
-	})
+	emit(agentlink.Frame{Kind: agentlink.KindCompact, Compact: compact})
 }

@@ -28,7 +28,7 @@ func (s *streamServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if got := r.Header.Get("Authorization"); got != "Bearer test-token" {
 		s.t.Errorf("Authorization = %q", got)
 	}
-	if got := r.Header.Get("User-Agent"); !strings.HasPrefix(got, "antigravity/cli/1.4.4") {
+	if got := r.Header.Get("User-Agent"); !strings.HasPrefix(got, "antigravity/cli/1.5.3") {
 		s.t.Errorf("User-Agent = %q", got)
 	}
 	var body map[string]any

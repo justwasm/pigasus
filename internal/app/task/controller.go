@@ -82,6 +82,9 @@ type Controller struct {
 	// dirty is an atomic flag set when task state transitions occur.
 	dirty int32
 
+	// onChange is called when registry transitions are received.
+	onChange func()
+
 	// inbox collects notifications from background tasks.
 	inbox *TaskInbox
 }
@@ -138,8 +141,21 @@ func (c *Controller) StartSubscription() {
 	go func() {
 		for range ch {
 			atomic.StoreInt32(&c.dirty, 1)
+			c.mu.RLock()
+			fn := c.onChange
+			c.mu.RUnlock()
+			if fn != nil {
+				fn()
+			}
 		}
 	}()
+}
+
+// SetOnChange registers a callback invoked when task transitions occur.
+func (c *Controller) SetOnChange(fn func()) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.onChange = fn
 }
 
 // Subscribed reports whether the controller is actively subscribed.

@@ -23,7 +23,7 @@ func TestCodesearchReadFile(t *testing.T) {
 		[]byte("line1\nline2 needle here\nline3\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	m := &runMode{}
+	m := &RootModel{}
 	m.session.cwd = root
 	lines, message, ok := m.codesearchReadFile("a.txt")
 	if !ok {
@@ -47,7 +47,7 @@ func TestCodesearchReadFile(t *testing.T) {
 // the reference's own sentence.
 func TestCodesearchReadFileMissing(t *testing.T) {
 	root := t.TempDir()
-	m := &runMode{}
+	m := &RootModel{}
 	m.session.cwd = root
 	_, message, ok := m.codesearchReadFile("nope.txt")
 	if ok {
@@ -66,7 +66,7 @@ func TestCodesearchReadFileNotRegular(t *testing.T) {
 	if err := os.Mkdir(filepath.Join(root, "sub"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	m := &runMode{}
+	m := &RootModel{}
 	m.session.cwd = root
 	_, message, ok := m.codesearchReadFile("sub")
 	if ok {
@@ -140,7 +140,7 @@ func TestSplitFileLines(t *testing.T) {
 // TestCodesearchPath: the path the panel carries is relative to the
 // search root.
 func TestCodesearchPath(t *testing.T) {
-	m := &runMode{}
+	m := &RootModel{}
 	m.session.cwd = "/work"
 	if got := m.codesearchPath("a/b.txt"); got != filepath.Join("/work", "a/b.txt") {
 		t.Errorf("codesearchPath = %q", got)

@@ -2,6 +2,7 @@ package agyprompt
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -290,6 +291,25 @@ func TestRuleManifest_Inherits(t *testing.T) {
 	}
 	if !found {
 		t.Errorf("the inherited rule was not registered: %q", got)
+	}
+}
+
+func TestRuleManifest_OutsidePathRejected(t *testing.T) {
+	_, appData := ruleHome(t)
+	ws := t.TempDir()
+	outside := t.TempDir()
+
+	writeFile(t, filepath.Join(outside, "evil.md"), "---\ntrigger: always_on\n---\nevil\n")
+	// .agents/rules.json attempts to escape the workspace
+	writeFile(t, filepath.Join(ws, ".agents", "rules.json"), fmt.Sprintf(`{
+	  "entries": [ { "path": %q } ]
+	}`, outside))
+
+	got := labels(DiscoverUserRules(ws, appData))
+	for _, l := range got {
+		if strings.HasSuffix(l, "evil.md") {
+			t.Fatalf("outside rule from %s should be rejected, got: %s", outside, l)
+		}
 	}
 }
 

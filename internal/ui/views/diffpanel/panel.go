@@ -41,8 +41,8 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
-	diffaction "github.com/justwasm/pigasus/internal/ui/views/diff/action"
 	tuiviewport "github.com/justwasm/pigasus/internal/ui/foundations/viewport"
+	diffaction "github.com/justwasm/pigasus/internal/ui/views/diff/action"
 	"github.com/justwasm/pigasus/internal/ui/views/linecomments"
 	"github.com/justwasm/pigasus/palette"
 )
@@ -112,6 +112,19 @@ type Seams struct {
 
 	// VimEnabled reports whether vim modal editing is active in the CLI.
 	VimEnabled func() bool
+
+	// Changes overrides the local working-copy scan. A remote session
+	// returns the proxy's turn diff instead of reading the local git
+	// tree; ok=false falls back to the local scan.
+	Changes func() (tracked, untracked []Change, ok bool)
+
+	// Body overrides the local inline diff body. ok=false falls back to
+	// git.
+	Body func(target, kind string) (lines []string, ok bool)
+
+	// VCS names the version-control source; empty falls back to the
+	// local detection.
+	VCS func() string
 
 	// Close leaves the panel.
 	Close func() tea.Cmd
@@ -328,7 +341,22 @@ func (p *Panel) close() tea.Cmd {
 // It returns ok=false when git is unavailable or the workspace is not
 // a repo.
 func (p *Panel) changes() (tracked, untracked []Change, ok bool) {
+	if p.seams.Changes != nil {
+		if t, u, override := p.seams.Changes(); override {
+			return t, u, true
+		}
+	}
 	return diffaction.GitChanges(p.cwd())
+}
+
+// vcsName is the version-control source the header names.
+func (p *Panel) vcsName() string {
+	if p.seams.VCS != nil {
+		if name := p.seams.VCS(); name != "" {
+			return name
+		}
+	}
+	return diffaction.DetectVCS(p.cwd())
 }
 
 // commitLog returns the repository's commit log in the reference's own
@@ -350,6 +378,11 @@ func (p *Panel) commitLog() string {
 //
 // The log line is the reference's own: `git log --pretty=%h%x09%s`.
 func (p *Panel) commits() [][2]string {
+	// A remote workspace's history is not local; the panel must not show
+	// the client's own repository.
+	if p.vcsName() == "remote" {
+		return nil
+	}
 	log := p.commitLog()
 	if log == "" {
 		return nil
@@ -366,6 +399,11 @@ func (p *Panel) commits() [][2]string {
 // body returns the diff body for the given target: the working-copy
 // file's diff ("file") or the commit's diff ("commit").
 func (p *Panel) body(target, kind string) []string {
+	if p.seams.Body != nil {
+		if lines, override := p.seams.Body(target, kind); override {
+			return lines
+		}
+	}
 	return diffaction.GitDiffBody(p.cwd(), target, kind)
 }
 

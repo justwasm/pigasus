@@ -169,7 +169,7 @@ func TestSkillPrompt_PrefersBodyFallsBackToDescription(t *testing.T) {
 }
 
 // TestRunSkill_SendsPrompt is the routing contract for the §5 P5 gap: a
-// known skill must reach the model (m.engine.streaming=true, a session message
+// known skill must reach the model (m.conversation.streaming=true, a session message
 // carrying the skill body) and must NOT render "Unknown command".
 func TestRunSkill_SendsPrompt(t *testing.T) {
 	p := writeSkillMD(t, "---\nname: demo-skill\n---\nSkill instructions here.\n")
@@ -183,16 +183,16 @@ func TestRunSkill_SendsPrompt(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("/demo-skill should return a non-nil tea.Cmd (the model stream)")
 	}
-	if !m.engine.streaming {
-		t.Error("/demo-skill should set m.engine.streaming=true")
+	if !m.conversation.streaming {
+		t.Error("/demo-skill should set m.conversation.streaming=true")
 	}
-	if len(m.engine.response) == 0 || m.engine.response[0] != "> /demo-skill" {
-		t.Errorf("echo = %q, want %q", firstNLines(m.engine.response, 1), "> /demo-skill")
+	if len(m.conversation.response) == 0 || m.conversation.response[0] != "> /demo-skill" {
+		t.Errorf("echo = %q, want %q", firstNLines(m.conversation.response, 1), "> /demo-skill")
 	}
 	if got := lastUserMessage(m); got != "Skill instructions here." {
 		t.Errorf("session prompt = %q", got)
 	}
-	for _, row := range m.engine.response {
+	for _, row := range m.conversation.response {
 		if strings.Contains(row, "Unknown command") {
 			t.Errorf("known skill rendered %q", row)
 		}
@@ -229,8 +229,8 @@ func TestRunSkill_AliasRouting(t *testing.T) {
 	// Args after the name are echoed and appended to the prompt.
 	m := newSlashModel(t)
 	m.handleSlashCommand("/chrome-devtools inspect example.com")
-	if m.engine.response[0] != "> /chrome-devtools inspect example.com" {
-		t.Errorf("echo with args = %q", m.engine.response[0])
+	if m.conversation.response[0] != "> /chrome-devtools inspect example.com" {
+		t.Errorf("echo with args = %q", m.conversation.response[0])
 	}
 	if got := lastUserMessage(m); got != "CDP body.\n\ninspect example.com" {
 		t.Errorf("session prompt with args = %q", got)
@@ -247,7 +247,7 @@ func TestRunSkill_UnknownStillUnknown(t *testing.T) {
 	if !strings.Contains(rows, "Unknown command: /zzznotacommand") {
 		t.Errorf("unknown command rendered %q", rows)
 	}
-	if m.engine.streaming {
+	if m.conversation.streaming {
 		t.Error("an unknown command must not start a model stream")
 	}
 }
@@ -410,15 +410,15 @@ func TestRunSkill_AtPathVerbatimThroughRouter(t *testing.T) {
 	if !handled {
 		t.Fatal("/demo-skill @path/to/file was not handled")
 	}
-	if m.engine.response == nil || m.engine.response[0] != "> /demo-skill @path/to/file" {
-		t.Fatalf("transcript echo = %v, want \"> /demo-skill @path/to/file\"", m.engine.response)
+	if m.conversation.response == nil || m.conversation.response[0] != "> /demo-skill @path/to/file" {
+		t.Fatalf("transcript echo = %v, want \"> /demo-skill @path/to/file\"", m.conversation.response)
 	}
 	got := lastUserMessage(m)
 	want := "Skill instructions here.\n\n@path/to/file"
 	if got != want {
 		t.Fatalf("session prompt = %q, want %q", got, want)
 	}
-	for _, row := range m.engine.response {
+	for _, row := range m.conversation.response {
 		if strings.Contains(row, "<file name=") {
 			t.Errorf("transcript contains a file-mention wrapper: %q", row)
 		}
@@ -475,7 +475,7 @@ func syntheticSharedSkills(n int) []jsonSkillInfo {
 // -1 (the reference shows no "› " until the first ↓).
 func TestSkillsPanelOpensUnselected(t *testing.T) {
 	withSyntheticCatalog(t, syntheticSharedSkills(3))
-	m := &runMode{}
+	m := &RootModel{}
 	if !m.openSlashPanel("skills") {
 		t.Fatal("openSlashPanel(skills) = false")
 	}
@@ -587,7 +587,7 @@ func TestSkillsDetail_OpensViaHandlePanelKey(t *testing.T) {
 	withSyntheticCatalog(t, []jsonSkillInfo{{
 		Name: "demo", Description: "d", Path: p,
 	}})
-	m := &runMode{}
+	m := &RootModel{}
 	m.overlays.panel = slashPanel{kind: panelregistry.Skills, cmd: "/skills"}
 	m.viewport.height = 50
 	m.viewport.width = 80

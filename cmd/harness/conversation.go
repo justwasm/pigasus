@@ -60,8 +60,11 @@ import (
 	"github.com/justwasm/pigasus/internal/app/toolrunner"
 	"github.com/justwasm/pigasus/internal/app/tools/surface"
 	"github.com/justwasm/pigasus/internal/core/backend"
+	"github.com/justwasm/pigasus/internal/core/compaction"
 	"github.com/justwasm/pigasus/internal/core/policy/permissions"
+	"github.com/justwasm/pigasus/internal/features/checkpoint"
 	modelcatalog "github.com/justwasm/pigasus/internal/features/models/catalog"
+	modelctx "github.com/justwasm/pigasus/internal/features/models/ctx"
 	backendselect "github.com/justwasm/pigasus/internal/infra/backend/select"
 	"github.com/justwasm/pigasus/lifecyclehooks"
 	"github.com/justwasm/pigasus/localharness"
@@ -96,6 +99,8 @@ type conversation struct {
 	settings     sessionSettings
 	configPolicy *configPolicy
 	act          *actor.Actor
+	be           backend.Client
+	model        string
 	budget       *budget.Manager
 	hooks        *hookDispatcher
 	policy       permissions.Policy
@@ -428,19 +433,21 @@ func (c *conversation) startRuntime(ctx context.Context) error {
 
 	agentHome := agentHomeFor(c.opts, c.settings)
 	act, err := actor.Spawn(actor.Config{
-		ID:                    c.cascadeID,
-		Name:                  "harness_agent",
-		SystemPrompt:          c.systemPrompt(),
-		Model:                 wire,
-		Provider:              provider,
-		Tools:                 extra,
-		AutoCompactThreshold: int(c.settings.CompactionThreshold),
+		ID: c.cascadeID,
+		Default: actor.TurnConfig{
+			SystemPrompt: c.systemPrompt(),
+			Model:        wire,
+			Provider:     provider,
+			Tools:        extra,
+		},
 	})
 	if err != nil {
 		return err
 	}
 	c.turnMu.Lock()
 	c.act = act
+	c.be = be
+	c.model = wire
 	c.turnMu.Unlock()
 	c.logger.Debug("harness: runtime ready",
 		"model", wire, "workspace", workspace, "agent_home", agentHome,
@@ -603,6 +610,67 @@ func (c *conversation) endSession(ctx context.Context) {
 	c.halt()
 }
 
+// compactIfNeeded replaces the actor's history with a model-written summary
+// when the transcript crosses the configured share of the context window.
+//
+// The actor does not compact: this is the same core implementation the TUI
+// and print mode use, so there is one summary shape and one compaction policy
+// in the clone.
+func (c *conversation) compactIfNeeded(ctx context.Context) {
+	c.turnMu.Lock()
+	act, be, model := c.act, c.be, c.model
+	c.turnMu.Unlock()
+	if act == nil || be == nil || c.settings.CompactionThreshold == 0 || ctx.Err() != nil {
+		return
+	}
+
+	limit := modelctx.For(model)
+	threshold := limit.ContextWindow * int(c.settings.CompactionThreshold) / 100
+	if threshold <= 0 {
+		return
+	}
+
+	msgs := actorMessagesToBackend(act.Trajectory().ToConversationMessages())
+	if compaction.TranscriptTokens(msgs) < threshold {
+		return
+	}
+
+	summary, err := compaction.ComputeSummary(ctx, be, model, c.systemPrompt(), msgs)
+	if err != nil {
+		c.logger.Warn("harness: compaction failed", "error", err)
+		return
+	}
+
+	requests := compaction.UserRequests(msgs, compaction.MaxUserRequests)
+	resume := compaction.ResumingBlock(requests, summary.Text)
+	act.ResetHistory([]actor.ConversationMessage{{Role: actor.RoleUser, Content: resume}})
+	c.emitCompaction()
+	c.hooks.onCompaction(ctx)
+}
+
+// actorMessagesToBackend maps the actor's trajectory back onto the backend's
+// message shape for the summarizer.
+func actorMessagesToBackend(msgs []actor.ConversationMessage) []backend.Message {
+	out := make([]backend.Message, 0, len(msgs))
+	for _, m := range msgs {
+		b := backend.Message{
+			Role:       string(m.Role),
+			Content:    m.Content,
+			ToolCallID: m.ToolCallID,
+			Name:       m.ToolName,
+		}
+		for _, call := range m.ToolCalls {
+			b.ToolCalls = append(b.ToolCalls, backend.ToolCall{
+				ID:        call.ID,
+				Name:      call.Name,
+				Arguments: json.RawMessage(call.Input),
+			})
+		}
+		out = append(out, b)
+	}
+	return out
+}
+
 // runTurn runs one turn: the pre-turn hook, the model loop, the post-turn
 // hook and the stop hook.
 func (c *conversation) runTurn(ctx context.Context, in *pb.UserInput) error {
@@ -650,14 +718,34 @@ func (c *conversation) runTurn(ctx context.Context, in *pb.UserInput) error {
 		// envelope, not as the bare text.
 		wire := backend.WrapUserContent(prompt, "", false, time.Now())
 
-		evCh, runErr := act.Prompt(ctx, wire)
+		policy := checkpoint.New(checkpoint.Config{
+			Model:        c.model,
+			SystemPrompt: c.systemPrompt(),
+			Backend:      c.be,
+			Emit: func(ev checkpoint.Event) {
+				if ev.Phase == checkpoint.EventEnd {
+					c.emitCompaction()
+					c.hooks.onCompaction(ctx)
+				}
+			},
+		})
+		turn, runErr := act.StartTurn(ctx, actor.TurnRequest{
+			Prompt: wire,
+			TurnConfig: actor.TurnConfig{
+				Checkpoint: func(stepCtx context.Context, probe actor.CheckpointProbe) (actor.CheckpointDecision, error) {
+					return policy.BeforeStep(stepCtx, act, probe)
+				},
+			},
+		})
 		if runErr != nil {
+			policy.Close()
 			c.hooks.postTurn(ctx, "")
 			return runErr
 		}
-		for ev := range evCh {
+		for ev := range turn.Events() {
 			c.onEvent(ev)
 		}
+		policy.Close()
 		responseText := c.textBuf.String()
 		c.hooks.postTurn(ctx, responseText)
 		if reason := c.invalidFailureReason(); reason != "" {

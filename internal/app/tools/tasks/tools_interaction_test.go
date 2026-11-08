@@ -3,7 +3,7 @@
 //
 // The three tools that need the user — ask_question, ask_permission,
 // ask_custom_permission — take the first transport that exists: the
-// turn's interaction host (internal/core/seam), the subagent-question
+// turn's interaction host (internal/core/interaction), the subagent-question
 // store, or nobody (headless).
 package tasks
 
@@ -12,9 +12,11 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
+	subagentquestions "github.com/justwasm/pigasus/internal/app/subagent/questions"
 	"github.com/justwasm/pigasus/internal/app/tools/shell"
-	interaction "github.com/justwasm/pigasus/internal/core/seam"
+	"github.com/justwasm/pigasus/internal/core/interaction"
 )
 
 // fakeInteractionHost answers with a canned answer and keeps the
@@ -41,8 +43,8 @@ func TestAskQuestion_AsksTheHost(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ask_question: %v", err)
 	}
-	if got != "Tea" {
-		t.Errorf("ask_question = %q, want %q", got, "Tea")
+	if got != "A1: Tea" {
+		t.Errorf("ask_question = %q, want %q", got, "A1: Tea")
 	}
 	if host.request.Kind != interaction.KindQuestion {
 		t.Errorf("request kind = %q, want %q", host.request.Kind, interaction.KindQuestion)
@@ -72,8 +74,87 @@ func TestAskQuestion_Dismissed(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ask_question: %v", err)
 	}
-	if got != questionCancelledText {
-		t.Errorf("ask_question = %q, want %q", got, questionCancelledText)
+	if got != "A1: User Skipped" {
+		t.Errorf("ask_question = %q, want %q", got, "A1: User Skipped")
+	}
+}
+
+// TestAskQuestion_OnAskFiresBeforeWait pins the auto-open seam: the
+// tool notifies the host as soon as it enqueues, before it blocks, so
+// the picker can come up while the turn waits.
+func TestAskQuestion_OnAskFiresBeforeWait(t *testing.T) {
+	mgr := subagentquestions.NewManager(false)
+	asked := make(chan string, 1)
+	tool := &AskQuestion{
+		SubAgentQuestions: mgr,
+		SubAgentID:        subagentquestions.ParentKey,
+		OnAsk:             func(scope string) { asked <- scope },
+	}
+
+	resCh := make(chan any, 1)
+	go func() {
+		out, err := tool.Run(context.Background(), json.RawMessage(`{"questions":[{"question":"Which tea?","options":["Tea"]}]}`))
+		if err != nil {
+			t.Errorf("ask_question: %v", err)
+		}
+		resCh <- out
+	}()
+
+	select {
+	case scope := <-asked:
+		if scope != subagentquestions.ParentKey {
+			t.Errorf("OnAsk scope = %q, want the parent scope", scope)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("OnAsk did not fire before Wait")
+	}
+
+	pending := mgr.Pending(subagentquestions.ParentKey)
+	if len(pending) != 1 {
+		t.Fatalf("pending questions = %d, want 1", len(pending))
+	}
+	if err := mgr.Answer(subagentquestions.ParentKey, pending[0].ID, "Tea"); err != nil {
+		t.Fatalf("Answer: %v", err)
+	}
+	if got := <-resCh; got != "A1: Tea" {
+		t.Errorf("ask_question = %q, want %q", got, "A1: Tea")
+	}
+}
+
+// TestAskQuestion_NumbersEveryAnswer pins the multi-question result:
+// each answer is numbered, so the model can tell which question it
+// belongs to.
+func TestAskQuestion_NumbersEveryAnswer(t *testing.T) {
+	mgr := subagentquestions.NewManager(false)
+	tool := &AskQuestion{
+		SubAgentQuestions: mgr,
+		SubAgentID:        subagentquestions.ParentKey,
+	}
+	resCh := make(chan any, 1)
+	go func() {
+		out, _ := tool.Run(context.Background(), json.RawMessage(`{"questions":[{"question":"One?","options":["a"]},{"question":"Two?","options":["b"]}]}`))
+		resCh <- out
+	}()
+
+	for _, answer := range []string{"a", "b"} {
+		deadline := time.After(5 * time.Second)
+		for {
+			pending := mgr.Pending(subagentquestions.ParentKey)
+			if len(pending) > 0 {
+				if err := mgr.Answer(subagentquestions.ParentKey, pending[0].ID, answer); err != nil {
+					t.Fatalf("Answer: %v", err)
+				}
+				break
+			}
+			select {
+			case <-deadline:
+				t.Fatalf("question %q never enqueued", answer)
+			case <-time.After(time.Millisecond):
+			}
+		}
+	}
+	if got := <-resCh; got != "A1: a\nA2: b" {
+		t.Errorf("ask_question = %q, want %q", got, "A1: a\nA2: b")
 	}
 }
 

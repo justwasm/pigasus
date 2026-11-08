@@ -155,6 +155,9 @@ func (e *HTTPError) Message() string {
 	if len(body) == 0 {
 		return http.StatusText(e.StatusCode)
 	}
+	if msg := vertexModelAccessMessage(e.StatusCode, body); msg != "" {
+		return msg
+	}
 	if body[0] == '{' || body[0] == '[' {
 		var v struct {
 			Error struct {
@@ -177,6 +180,35 @@ func (e *HTTPError) Message() string {
 		}
 	}
 	return truncateErrorBody(body)
+}
+
+// VertexModelAccessMessage is the reference's own sentence for the Vertex
+// AI model-not-found / no-access failure.
+//
+// AGY 1.5.3: "Changed the error shown when Vertex AI reports that the
+// selected model does not exist or that your Google Cloud project cannot
+// use it, which now reads `The requested model was not found, or your
+// project does not have access to it.` instead of the raw API error."
+const VertexModelAccessMessage = "The requested model was not found, or your project does not have access to it."
+
+// vertexModelAccessMessage recognises Vertex AI's own publisher-model
+// failure. The phrase "publisher model" is Vertex-specific, so the
+// mapping does not swallow an unrelated 404 from another provider.
+func vertexModelAccessMessage(status int, body []byte) string {
+	if status < 400 {
+		return ""
+	}
+	low := strings.ToLower(string(body))
+	if !strings.Contains(low, "publisher model") {
+		return ""
+	}
+	if strings.Contains(low, "not found") ||
+		strings.Contains(low, "does not have access") ||
+		strings.Contains(low, "cannot use") ||
+		strings.Contains(low, "cannot be used") {
+		return VertexModelAccessMessage
+	}
+	return ""
 }
 
 // truncateErrorBody cuts a body to MaxErrorBody bytes and appends the recovered

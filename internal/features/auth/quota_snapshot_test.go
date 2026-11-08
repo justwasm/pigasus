@@ -80,24 +80,23 @@ func TestQuotaSnapshotRoundTrip(t *testing.T) {
 	}
 }
 
-// TestQuotaSnapshotRemainingIsTheLowestAcrossGroups is the panel's
-// rule: the number it shows is the most constrained window, not the
-// first group's.
-func TestQuotaSnapshotRemainingIsTheLowestAcrossGroups(t *testing.T) {
+// TestQuotaSnapshotRemainingTracksGeminiModels pins that the panel's
+// numbers track the Gemini models quota and ignore Claude and GPT groups.
+func TestQuotaSnapshotRemainingTracksGeminiModels(t *testing.T) {
 	snap := quotaTestSummary().Snapshot()
 	weekly, ok := snap.WeeklyRemaining()
 	if !ok {
 		t.Fatal("WeeklyRemaining() found no weekly bucket")
 	}
-	if weekly != 0.1 {
-		t.Errorf("weekly = %v, want 0.1 (the lowest across the groups)", weekly)
+	if weekly != 0.25 {
+		t.Errorf("weekly = %v, want 0.25 (Gemini models quota)", weekly)
 	}
 	fiveHour, ok := snap.FiveHourRemaining()
 	if !ok {
 		t.Fatal("FiveHourRemaining() found no five-hour bucket")
 	}
 	if fiveHour != 0.5 {
-		t.Errorf("five hour = %v, want 0.5 (the lowest across the groups)", fiveHour)
+		t.Errorf("five hour = %v, want 0.5 (Gemini models quota)", fiveHour)
 	}
 }
 

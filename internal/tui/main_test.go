@@ -67,7 +67,7 @@ func TestMain(m *testing.M) {
 	// call **registers a launchd agent**. The launchd label is
 	// global to the login session, so registering it from a test
 	// (whose $HOME is a temporary directory — see
-	// slashRemoteControlRunMode) does not add a second daemon: it
+	// slashRemoteControlRootModel) does not add a second daemon: it
 	// replaces the one the user already runs, and the replacement
 	// writes its log into a directory that is deleted with the test.
 	//

@@ -36,7 +36,7 @@ func TestVimEngineStartsInNormalMode(t *testing.T) {
 func TestVimUndoRedoRoundTrip(t *testing.T) {
 	m := vimTestMode(t, map[string]any{"editorMode": "vim"})
 	vimType(t, m, "abc")
-	if got := m.composer.input.Value(); got != "bc" {
+	if got := m.prompt.input.Value(); got != "bc" {
 		t.Fatalf("composer = %q, want %q", got, "bc")
 	}
 	vimPress(t, m, vimEscKey())
@@ -45,7 +45,7 @@ func TestVimUndoRedoRoundTrip(t *testing.T) {
 	}
 
 	vimPress(t, m, runeKey('u'))
-	if got := m.composer.input.Value(); got != "" {
+	if got := m.prompt.input.Value(); got != "" {
 		t.Fatalf("composer after u = %q, want empty", got)
 	}
 	if got := m.vimMode(); got != vim.Normal {
@@ -53,7 +53,7 @@ func TestVimUndoRedoRoundTrip(t *testing.T) {
 	}
 
 	vimPress(t, m, runeKey('U'))
-	if got := m.composer.input.Value(); got != "bc" {
+	if got := m.prompt.input.Value(); got != "bc" {
 		t.Fatalf("composer after U = %q, want %q", got, "bc")
 	}
 }

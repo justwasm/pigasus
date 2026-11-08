@@ -44,11 +44,16 @@ import (
 // dashboard posts for ReadRemoteAgentFile. Field names
 // mirror the agy decompiled ReadRemoteAgentFile
 // envelope; offset is optional, maxBytes is optional
-// (default DefaultReadMaxBytes = 1 MiB).
+// (default DefaultReadMaxBytes = 20 MiB).
 type readRemoteAgentFileParams struct {
 	Path     string `json:"path"`
 	MaxBytes int64  `json:"maxBytes"`
 	Offset   int64  `json:"offset"`
+
+	// maxBytesSet records whether the caller named maxBytes. An
+	// omitted field is a full read: over MaxReadMaxBytes it is an
+	// error, not a silently truncated answer.
+	maxBytesSet bool
 }
 
 // readRemoteAgentFileResult is the JSON shape the
@@ -97,8 +102,9 @@ type readRemoteAgentDirResult struct {
 //     -32602 (matches the dispatcher's general
 //     "required-field missing" pattern).
 //   - maxBytes: optional, capped at MaxReadMaxBytes
-//     (16 MiB). Anything above → -32602. Zero / unset
-//     → DefaultReadMaxBytes (1 MiB).
+//     (20 MiB). Anything above → -32602. Zero / unset
+//     → DefaultReadMaxBytes (20 MiB); a full read that exceeds the
+//     ceiling is an error, not partial content (AGY 1.5.3).
 //   - offset: optional, >= 0. Negative → -32602.
 //
 // FS resolution:
@@ -136,6 +142,12 @@ func HandleReadFile(s Seams, params json.RawMessage) (any, *rpc.ErrorBody) {
 	data, total, truncated, isBinary, err := s.Provider.ReadFile(canonical, p.MaxBytes, p.Offset)
 	if err != nil {
 		return nil, MapError(err, "read file")
+	}
+	// AGY 1.5.3: a full-read request (no explicit maxBytes, no offset)
+	// that hits the ceiling must say so instead of returning a prefix.
+	if !p.maxBytesSet && p.Offset == 0 && truncated && total > p.MaxBytes {
+		return nil, rpc.InternalError(fmt.Sprintf(
+			"file is %d bytes, over the %d-byte remote read limit", total, p.MaxBytes))
 	}
 	encoding := "utf-8"
 	if isBinary {
@@ -179,6 +191,7 @@ func decodeReadFileParams(params json.RawMessage) (*readRemoteAgentFileParams, *
 	if p.MaxBytes < 0 {
 		return nil, rpc.InvalidParams("maxBytes must be >= 0")
 	}
+	p.maxBytesSet = p.MaxBytes > 0
 	if p.MaxBytes == 0 {
 		p.MaxBytes = DefaultReadMaxBytes
 	}

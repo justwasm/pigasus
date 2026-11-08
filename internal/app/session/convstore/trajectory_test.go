@@ -154,3 +154,79 @@ func TestNextStepIndex(t *testing.T) {
 		t.Fatalf("NextStepIndex = %d, want 8", got)
 	}
 }
+
+// TestBuildStepsHandlesSeededLenOutOfBounds pins that BuildSteps does not panic
+// when SeededLen is larger than the session length (e.g. after a compaction or rewind)
+// or negative.
+func TestBuildStepsHandlesSeededLenOutOfBounds(t *testing.T) {
+	// SeededLen > len(Session)
+	steps := BuildSteps(Trajectory{
+		Loaded: []Step{
+			{Idx: 0, Type: StepUserInput, Status: 3, Text: "seeded user"},
+		},
+		Calls: []Step{
+			{Type: StepToolCall, Status: 3, ToolName: "tool1"},
+		},
+		Session: []backend.Message{
+			{Role: "user", Content: "# Resuming from a compaction"},
+		},
+		SeededLen: 363,
+	})
+	if len(steps) != 2 {
+		t.Fatalf("trajectory = %d steps, want 2: %+v", len(steps), steps)
+	}
+	if steps[0].Text != "seeded user" {
+		t.Fatalf("step 0 text = %q, want 'seeded user'", steps[0].Text)
+	}
+	if steps[1].ToolName != "tool1" {
+		t.Fatalf("step 1 tool = %q, want 'tool1'", steps[1].ToolName)
+	}
+
+	// SeededLen < 0
+	stepsNeg := BuildSteps(Trajectory{
+		Loaded: []Step{
+			{Idx: 0, Type: StepUserInput, Status: 3, Text: "loaded"},
+		},
+		Session: []backend.Message{
+			{Role: "user", Content: "fresh"},
+		},
+		SeededLen: -1,
+	})
+	if len(stepsNeg) != 2 {
+		t.Fatalf("trajectory = %d steps, want 2: %+v", len(stepsNeg), stepsNeg)
+	}
+}
+
+// TestBuildStepsInsertsCheckpoints pins the durable checkpoint placement and
+// the exclusive boundary ChatTurns reads.
+func TestBuildStepsInsertsCheckpoints(t *testing.T) {
+	steps := BuildSteps(Trajectory{
+		Calls: []Step{
+			{Type: StepToolCall, Status: 3, ToolName: "first"},
+			{Type: StepCheckpoint, Status: 3, Summary: "<summary>s</summary>", UserRequests: []string{"go"}},
+			{Type: StepToolCall, Status: 3, ToolName: "second"},
+		},
+		Session: []backend.Message{
+			{Role: "user", Content: "go"},
+			{Role: "assistant", Content: "done"},
+		},
+	})
+	if len(steps) != 5 {
+		t.Fatalf("steps = %d, want 5: %+v", len(steps), steps)
+	}
+	var cp *Step
+	for i := range steps {
+		if steps[i].Type == StepCheckpoint {
+			cp = &steps[i]
+		}
+	}
+	if cp == nil {
+		t.Fatalf("no checkpoint in %+v", steps)
+	}
+	if cp.IncludedStart != 0 || cp.IncludedEnd != int(cp.Idx)+1 {
+		t.Errorf("checkpoint range = %d..%d, idx %d", cp.IncludedStart, cp.IncludedEnd, cp.Idx)
+	}
+	if cp.CheckpointIndex != 0 {
+		t.Errorf("checkpoint index = %d, want 0", cp.CheckpointIndex)
+	}
+}

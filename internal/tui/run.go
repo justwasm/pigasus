@@ -7,16 +7,13 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/exec"
 	"runtime"
-	"sync"
 	"time"
 
 	sp "charm.land/bubbles/v2/spinner"
 	"charm.land/lipgloss/v2"
 	"github.com/justwasm/pigasus/internal/app/prompt/agyprompt"
 	"github.com/justwasm/pigasus/internal/app/toolrunner"
-	"github.com/justwasm/pigasus/internal/app/tools/shell"
 	"github.com/justwasm/pigasus/internal/cli"
 	"github.com/justwasm/pigasus/internal/clirunner"
 	"github.com/justwasm/pigasus/internal/core/backend"
@@ -31,7 +28,6 @@ import (
 	accounts "github.com/justwasm/pigasus/internal/features/accounts/core"
 	"github.com/justwasm/pigasus/internal/features/auth"
 	modelcatalog "github.com/justwasm/pigasus/internal/features/models/catalog"
-	"github.com/justwasm/pigasus/internal/infra/agyproxy"
 	"github.com/justwasm/pigasus/internal/infra/backend/gateway"
 	persistentrc "github.com/justwasm/pigasus/internal/infra/remote/persistent"
 	"github.com/justwasm/pigasus/internal/rchost"
@@ -79,19 +75,6 @@ func SetupCLIParser(prog string) *cli.Parser {
 	return clirunner.SetupCLIParser(prog)
 }
 
-func setupCLIParserWithProg(prog string) *cli.Parser {
-	return clirunner.SetupCLIParserWithProg(prog)
-}
-
-// runRoot delegates to clirunner for testing and root command dispatch.
-func runRoot(args []string, p *cli.Parser) error {
-	return clirunner.RunRoot(args, p)
-}
-
-func validateRootFlags(fs *flag.FlagSet, printMode bool) error {
-	return clirunner.ValidateRootFlags(fs, printMode)
-}
-
 const defaultModel = modelcatalog.DefaultModel
 
 type permissionRunner struct {
@@ -105,6 +88,11 @@ type permissionRunner struct {
 	// post is the documented PostToolUse dispatch. It is nil when the
 	// session armed no documented hooks.
 	post func(ctx context.Context, call backend.ToolCall, err error)
+	// ask is the optional approval seam. Nil means the TUI's own
+	// permission prompt; a headless caller passes a seam that answers
+	// without a user, so a Strict policy's Ask becomes the documented
+	// soft-deny instead of blocking forever.
+	ask func(ctx context.Context, call backend.ToolCall) (bool, error)
 }
 
 func (r *permissionRunner) Run(ctx context.Context, call backend.ToolCall) (string, error) {
@@ -129,6 +117,9 @@ func (r *permissionRunner) Run(ctx context.Context, call backend.ToolCall) (stri
 		Sandbox: r.sandbox,
 		Denials: r.Denials,
 		PromptUser: func(ctx context.Context, call backend.ToolCall) (bool, error) {
+			if r.ask != nil {
+				return r.ask(ctx, call)
+			}
 			kind := permissionprompt.KindDefault
 			switch call.Name {
 			case "write_to_file", "write_file":
@@ -161,67 +152,6 @@ func (r *permissionRunner) Run(ctx context.Context, call backend.ToolCall) (stri
 		r.post(ctx, call, err)
 	}
 	return res, err
-}
-
-// dispatchTool is the --tool NAME --tool-args JSON path.
-func dispatchTool(w io.Writer, name, argsJSON string) error {
-	var args map[string]any
-	if argsJSON == "" {
-		argsJSON = "{}"
-	}
-	if err := json.Unmarshal([]byte(argsJSON), &args); err != nil {
-		return fmt.Errorf("tool: invalid --tool-args JSON: %w", err)
-	}
-	if name != "run_command" {
-		fmt.Fprintf(w, "[tool-stub] %s args=%v\n", name, args)
-		return nil
-	}
-	cmdStr, _ := args["command"].(string)
-	if cmdStr == "" {
-		return fmt.Errorf("run_command: --tool-args must include {\"command\": \"...\"}")
-	}
-	argv := shell.DefaultShellArgv(cmdStr)
-	if runtime.GOOS == "windows" && shell.SelectWindowsShell() == "" {
-		return fmt.Errorf("run_command: no powershell found on PATH (looked for powershell.exe, then pwsh.exe)")
-	}
-	c := exec.Command(argv[0], argv[1:]...)
-	c.Stdout = w
-	c.Stderr = w
-	return shell.RunWithPTYStdin(c)
-}
-
-// printTools writes the recovered tools catalog to w.
-func printTools(w io.Writer) {
-	fmt.Fprintf(w, "Recovered tools (%d):\n", len(cli.RecoveredTools))
-	for i, t := range cli.RecoveredTools {
-		fmt.Fprintf(w, "  %2d. %s\n", i+1, t)
-	}
-}
-
-// printServices writes the gRPC service catalog to w.
-func printServices(w io.Writer) {
-	fmt.Fprintf(w, "Recovered gRPC services (%d):\n", len(cli.RecoveredServices))
-	for i, s := range cli.RecoveredServices {
-		fmt.Fprintf(w, "  %2d. %s\n", i+1, s)
-	}
-}
-
-// printOAuthConfig writes the static OAuth config skeleton.
-func printOAuthConfig(w io.Writer) {
-	cfg := map[string]any{
-		"client_id":     "antigravity-cli",
-		"client_secret": "<redacted>",
-		"device_url":    "https://cloudaicompanion.googleapis.com/v1/oauth/device",
-		"token_url":     "https://oauth2.googleapis.com/token",
-		"scopes":        []string{"https://www.googleapis.com/auth/cloud-platform"},
-		"redirect_uri":  "http://127.0.0.1:0/oauth/callback",
-		"auth_method":   "consumer",
-		"status":        "stub (sandbox: cloudaicompanion unreachable)",
-		"issued_at":     time.Now().Format(time.RFC3339),
-	}
-	enc := json.NewEncoder(w)
-	enc.SetIndent("", "  ")
-	_ = enc.Encode(cfg)
 }
 
 // RenderTUI prints the static TUI snapshot to w.
@@ -329,100 +259,6 @@ type gatewayBackend interface {
 	GatewayConfig() gateway.GatewayConfig
 }
 
-// proxySubcommand is the hidden `proxy` group: the local CloudCode proxy's
-// admin commands.
-//
-//	wagyu proxy doctor     agy path/version, registry, port, capture, upstream
-//	wagyu proxy log        tail the proxy log
-//	wagyu proxy capture    toggle the request/response capture
-//	wagyu proxy version    proxy and agy versions
-//
-// It is hidden: `agy --help` lists the reference's twelve visible
-// subcommands and nothing else, and the proxy is an openagy-only feature.
-//
-// The provider/model registry is *not* here: it belongs to the clone
-// (`wagyu provider`, `wagyu model`), and the proxy only reads it.
-func proxySubcommand() cli.SubcommandSpec {
-	names := []string{"doctor", "log", "capture", "balance", "aggregate", "serve", "version", "help"}
-	subs := make([]cli.SubSubSpec, 0, len(names))
-	for _, name := range names {
-		subs = append(subs, cli.SubSubSpec{
-			Name:  name,
-			Short: proxySubShort(name),
-			RunJ:  proxyRun(name),
-		})
-	}
-	return cli.SubcommandSpec{
-		Name:  "proxy",
-		Short: "Manage the local CloudCode proxy",
-		Subs:  subs,
-		// The same wording the other parents use.
-		UnknownSubError: "Error: unknown command: %s",
-		RunJ:            proxyParent,
-	}
-}
-
-// proxySubShort is the one-line description of a proxy subcommand.
-func proxySubShort(name string) string {
-	switch name {
-	case "doctor":
-		return "Report the proxy, the registry and the upstream"
-	case "log":
-		return "Tail the proxy log"
-	case "capture":
-		return "Toggle the request/response capture"
-	case "balance":
-		return "Toggle multi-account load balancing"
-	case "aggregate":
-		return "Toggle unified virtual account aggregation"
-	case "serve":
-		return "Run the gateway server in foreground"
-	case "version":
-		return "Print the proxy and agy versions"
-	case "help":
-		return "Show help for proxy commands"
-	default:
-		return ""
-	}
-}
-
-// proxyRun runs one proxy admin command and turns its exit status into the
-// clone's exit-code error, so the parser maps it to the process status.
-func proxyRun(name string) func(j *cli.JetskiCLI, args []string) error {
-	return func(j *cli.JetskiCLI, args []string) error {
-		opts := agyproxy.AdminOptions{Prog: j.Name, Out: j.Out, Err: j.ErrOut}
-		if code := agyproxy.Admin(opts, append([]string{name}, args...)); code != 0 {
-			return cli.ExitCodeError(code, "")
-		}
-		return nil
-	}
-}
-
-// proxyParent handles `wagyu proxy` with no subcommand: it prints the
-// proxy's usage, like every other parent command in the clone.
-func proxyParent(j *cli.JetskiCLI, args []string) error {
-	if len(args) > 0 {
-		return cli.ExitCodeError(1, fmt.Sprintf("Error: unknown command: %s", args[0]))
-	}
-	fmt.Fprint(j.ErrOut, proxyUsage(j.Name))
-	return cli.ExitCodeError(1, "")
-}
-
-// proxyUsage is the hidden group's usage block.
-func proxyUsage(prog string) string {
-	return "Usage: " + prog + " proxy <command> [args]\n" +
-		"\n" +
-		"Manage the local CloudCode proxy that gives the official agy\n" +
-		"access to the configured providers.\n" +
-		"\n" +
-		"Commands:\n" +
-		"  doctor     agy path/version, registry, port, capture, upstream\n" +
-		"  log        tail the proxy log\n" +
-		"  capture    toggle the request/response capture\n" +
-		"  balance    toggle multi-account load balancing\n" +
-		"  version    proxy and agy versions\n"
-}
-
 // ---- session_flags.go ----
 
 // applySessionFlags applies the flags a session starts with: the browser's
@@ -450,24 +286,13 @@ func applySessionFlags(fs *flag.FlagSet) {
 // model's goroutine, so the value needs its own lock. The host keeps the
 // lazily created store and the accessor the status area reads it through.
 
-// windowTitleInitMu guards the creation of a runMode's title store.
-//
-// The store is created with the model, so this lock is only taken on the
-// path where a model was built without the constructor (the tests).
-var windowTitleInitMu sync.Mutex
-
 // titleStoreFor returns the model's title store, creating it if the model
 // was built without one.
-func (m *runMode) titleStoreFor() *statusline.TitleStore {
+func (m *RootModel) titleStoreFor() *statusline.TitleStore {
 	if m == nil {
 		return nil
 	}
-	windowTitleInitMu.Lock()
-	defer windowTitleInitMu.Unlock()
-	if m.viewport.titleStore == nil {
-		m.viewport.titleStore = &statusline.TitleStore{}
-	}
-	return m.viewport.titleStore
+	return m.statusLine.TitleStore()
 }
 
 // ---- seasonal.go ----
@@ -517,14 +342,14 @@ func seasonalTheme() *seasonal.Event {
 //
 // 【一手】 agy 1.4.7: the theme follows the setting, and the spinner
 // turns into the event's own moon phase while it is on.
-func (m *runMode) refreshSeasonalTheme() {
+func (m *RootModel) refreshSeasonalTheme() {
 	m.viewport.seasonal = seasonalTheme()
 	frames := m.viewport.seasonal.SpinnerFrames()
 	if len(frames) == 0 {
-		m.engine.spinner = sp.New(sp.WithSpinner(sp.Dot))
+		m.conversation.spinner = sp.New(sp.WithSpinner(sp.Dot))
 		return
 	}
-	m.engine.spinner = sp.New(sp.WithSpinner(sp.Spinner{
+	m.conversation.spinner = sp.New(sp.WithSpinner(sp.Spinner{
 		Frames: frames,
 		FPS:    seasonalSpinnerFPS,
 	}))

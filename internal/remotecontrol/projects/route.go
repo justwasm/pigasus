@@ -53,6 +53,9 @@ func Route(s Seams, method string, params json.RawMessage) (any, *rpc.ErrorBody,
 	case MethodDelete, LegacyMethodDelete:
 		r, e := HandleDelete(s, params)
 		return r, e, true
+	case MethodUploadProjectFile, LegacyMethodUploadProjectFile:
+		r, e := HandleUpload(s, params)
+		return r, e, true
 	}
 	return nil, nil, false
 }

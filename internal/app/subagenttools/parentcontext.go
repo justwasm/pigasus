@@ -60,6 +60,9 @@ type ParentContext struct {
 	// Messages are the parent's most recent messages, oldest first. At
 	// most MaxParentMessages of them are kept.
 	Messages []ParentMessage
+
+	// truncated records that Record dropped an older message.
+	truncated bool
 }
 
 // Record notes a message the parent agent sent.
@@ -73,6 +76,7 @@ func (p *ParentContext) Record(content string, at time.Time) {
 	p.Messages = append(p.Messages, ParentMessage{Content: content, At: at})
 	if len(p.Messages) > MaxParentMessages {
 		p.Messages = p.Messages[len(p.Messages)-MaxParentMessages:]
+		p.truncated = true
 	}
 }
 
@@ -101,6 +105,38 @@ func parentIDOf(deps Deps) string {
 		}
 	}
 	return deps.ConversationID
+}
+
+// Lines renders the parent's half in the checkpoint's form: the task first,
+// then the messages the parent sent since, one agent-message line each.
+//
+// 【一手】 agy 1.5.3, conversation a9756e99-…, checkpoint at step 350. The
+// minimum verbatim shape is:
+//
+//	# Parent Agent Messages
+//	The following were messages from your parent agent in the truncated conversation in chronological order:
+//	1. [Message] timestamp=… sender=… priority=MESSAGE_PRIORITY_HIGH content=…
+//
+// The bool is true when the cap hid older messages, which selects the
+// reference's "most recent messages" preamble.
+func (p *ParentContext) Lines() ([]string, bool) {
+	if p == nil {
+		return nil, false
+	}
+	var out []string
+	if strings.TrimSpace(p.Task) != "" {
+		out = append(out, agentmessage.RenderLine(p.ID, p.Task, p.TaskAt, agentmessage.PriorityHigh))
+	}
+	for _, msg := range p.Messages {
+		if strings.TrimSpace(msg.Content) == strings.TrimSpace(p.Task) {
+			continue
+		}
+		out = append(out, agentmessage.RenderLine(p.ID, msg.Content, msg.At, agentmessage.PriorityHigh))
+	}
+	if len(out) > MaxParentMessages {
+		return out[len(out)-MaxParentMessages:], true
+	}
+	return out, p.truncated
 }
 
 // Summary renders the parent's half for the subagent's compaction

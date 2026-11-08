@@ -203,6 +203,11 @@ var Hidden = []Command{
 	{Name: "/narration", Dispatched: true},
 	{Name: "/quote", Dispatched: true},
 	{Name: "/share", Dispatched: true},
+	// openagy-only host surfaces. They are remote-agent commands; the
+	// reference has no CLI equivalent, so they stay off the picker.
+	{Name: "/terminal", Dispatched: true},
+	{Name: "/upload", Dispatched: true},
+	{Name: "/triggers", Dispatched: true},
 }
 
 // buildCatalogue is the advertised catalogue with the panel kinds the

@@ -254,10 +254,10 @@ func TestSeedConversationRendersTranscript(t *testing.T) {
 	if sel.Store == nil {
 		t.Fatal("no store loaded")
 	}
-	m := newRunMode(nil, "", "Gemini 3.8 Flash (High)", "", "/tmp", true)
+	m := newRootModel(nil, "", "Gemini 3.8 Flash (High)", "", "/tmp", true)
 	m.seedConversation(sel.Store)
 
-	joined := strings.Join(m.engine.response, "\n")
+	joined := strings.Join(m.conversation.response, "\n")
 	// Resumed transcript echoes user prompts as "> " rows matching agy.
 	if !strings.Contains(joined, transcript.UserPromptRow("summarise the repository layout")) {
 		t.Errorf("resumed transcript must echo user prompts:\n%s", joined)
@@ -275,31 +275,31 @@ func TestSeedConversationRendersTranscript(t *testing.T) {
 	if strings.Contains(joined, "quota reached") == false {
 		t.Errorf("the stored error step should be rendered:\n%s", joined)
 	}
-	if len(m.engine.blocks) == 0 {
+	if len(m.conversation.blocks) == 0 {
 		t.Error("tool steps should register a ctrl+o block")
 	}
-	if len(m.engine.session) == 0 {
+	if len(m.SessionMessages()) == 0 {
 		t.Error("the seeded transcript should seed the model session")
 	}
 }
 
 func TestSeedConversationNilIsSafe(t *testing.T) {
-	m := newRunMode(nil, "", "Gemini 3.8 Flash (High)", "", "/tmp", true)
+	m := newRootModel(nil, "", "Gemini 3.8 Flash (High)", "", "/tmp", true)
 	m.seedConversation(nil)
-	if len(m.engine.response) != 0 {
-		t.Errorf("nil store produced %d rows", len(m.engine.response))
+	if len(m.conversation.response) != 0 {
+		t.Errorf("nil store produced %d rows", len(m.conversation.response))
 	}
 }
 
 func TestResumeConversation_RendersUserPromptsAndStickyHeader(t *testing.T) {
 	dir := storeFixture(t, fixtureID)
 	dbPath := filepath.Join(dir, "conversations", fixtureID+".db")
-	m := newRunMode(nil, "", "Gemini 3.8 Flash (High)", "", "/tmp", true)
+	m := newRootModel(nil, "", "Gemini 3.8 Flash (High)", "", "/tmp", true)
 	m.viewport.width, m.viewport.height = 100, 12
 	m.viewport.altScreen = true
 
 	// Simulate initial conversation state before resume
-	m.engine.response = []string{"previous text"}
+	m.conversation.response = []string{"previous text"}
 	m.viewport.scroll = 10
 
 	// Resume the conversation
@@ -307,7 +307,7 @@ func TestResumeConversation_RendersUserPromptsAndStickyHeader(t *testing.T) {
 
 	// User prompt must be present in response
 	promptStr := transcript.UserPromptRow("summarise the repository layout")
-	joined := strings.Join(m.engine.response, "\n")
+	joined := strings.Join(m.conversation.response, "\n")
 	if !strings.Contains(joined, promptStr) {
 		t.Fatalf("resumed response missing user prompt; response:\n%s", joined)
 	}
@@ -356,13 +356,15 @@ func TestUserPromptRow_MultiLineIndentation(t *testing.T) {
 	if !tuiviewport.IsUserPromptRow(lines[0]) {
 		t.Fatalf("line 0 should match isUserPromptRow: %q", lines[0])
 	}
-	if !strings.HasPrefix(lines[1], "  line 2") {
+	// Continuation rows carry the prompt's own SGR wrapper, so the
+	// two-space indent sits inside the style, not at the byte prefix.
+	if !strings.HasPrefix(lines[1], palette.UserFgBoldOpen+"  line 2") {
 		t.Fatalf("line 1 should be indented with 2 spaces: %q", lines[1])
 	}
 	if tuiviewport.IsUserPromptRow(lines[1]) {
 		t.Fatalf("line 1 should not match isUserPromptRow: %q", lines[1])
 	}
-	if !strings.HasPrefix(lines[2], "  line 3") {
+	if !strings.HasPrefix(lines[2], palette.UserFgBoldOpen+"  line 3") {
 		t.Fatalf("line 2 should be indented with 2 spaces: %q", lines[2])
 	}
 	if tuiviewport.IsUserPromptRow(lines[2]) {
@@ -411,10 +413,10 @@ func TestStyleInlineBackticks_UnbalancedPassthrough(t *testing.T) {
 
 // Cycle 128: model-reply paths apply styleInlineBackticks.
 func TestConversation_ModelReplyAppliesInlineStyle(t *testing.T) {
-	m := newRunMode(nil, "u@t", "m", "t", "/tmp", true)
-	m.engine.response = append(m.engine.response, mdrender.StyleInlineBackticks("use `fmt.Println` here"))
-	if !strings.Contains(m.engine.response[0], cInlineCodeOpen+"fmt.Println"+cInlineCodeClose) {
-		t.Errorf("expected inline chip in model reply, got %q", m.engine.response[0])
+	m := newRootModel(nil, "u@t", "m", "t", "/tmp", true)
+	m.conversation.response = append(m.conversation.response, mdrender.StyleInlineBackticks("use `fmt.Println` here"))
+	if !strings.Contains(m.conversation.response[0], cInlineCodeOpen+"fmt.Println"+cInlineCodeClose) {
+		t.Errorf("expected inline chip in model reply, got %q", m.conversation.response[0])
 	}
 }
 
@@ -840,7 +842,7 @@ func TestToolCallAssistantSaved(t *testing.T) {
 
 // TestContinueNoBlankTurns — load a conversation whose model step
 // has empty Text (a legacy DB shape) and feed it through
-// seedConversation. The runMode transcript must not gain a blank
+// seedConversation. The RootModel transcript must not gain a blank
 // row, and the live m.engine.session must not gain an empty assistant
 // message. This is the --continue half of the AGY 1.2.13 fix.
 func TestContinueNoBlankTurns(t *testing.T) {
@@ -871,14 +873,14 @@ func TestContinueNoBlankTurns(t *testing.T) {
 		t.Fatalf("LoadConversation: %v", err)
 	}
 
-	m := newRunMode(&fakeClient{}, "u@t", "Gemini 3.8 Flash (High)", "t", "/", true)
+	m := newRootModel(&fakeClient{}, "u@t", "Gemini 3.8 Flash (High)", "t", "/", true)
 	m.session.conversationID = id
 	m.seedConversation(c)
 
 	// Count assistant messages in the live session: must equal 1
 	// (the "real reply"), the blank row must not have been re-seeded.
 	var assistantCount int
-	for _, msg := range m.engine.session {
+	for _, msg := range m.SessionMessages() {
 		if msg.Role == "assistant" {
 			assistantCount++
 			if strings.TrimSpace(msg.Content) == "" {
@@ -892,7 +894,7 @@ func TestContinueNoBlankTurns(t *testing.T) {
 
 	// User messages are still preserved (blank rows do not eat user turns).
 	var userTexts []string
-	for _, msg := range m.engine.session {
+	for _, msg := range m.SessionMessages() {
 		if msg.Role == "user" {
 			userTexts = append(userTexts, msg.Content)
 		}

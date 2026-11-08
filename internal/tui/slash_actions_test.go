@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/justwasm/pigasus/endpoints"
+	"github.com/justwasm/pigasus/internal/app/session/convstore"
 	"github.com/justwasm/pigasus/internal/cli"
 	"github.com/justwasm/pigasus/internal/core/backend"
 	"github.com/justwasm/pigasus/internal/core/branding"
@@ -126,11 +127,11 @@ func TestSlashCopy_Clipboard(t *testing.T) {
 	clipboardWrite = func(s string) error { copied = s; return nil }
 
 	m := newSlashModel(t)
-	m.engine.session = []backend.Message{
+	m.setSessionMessages([]backend.Message{
 		{Role: "user", Content: "hi"},
 		{Role: "assistant", Content: "first"},
 		{Role: "assistant", Content: "second"},
-	}
+	})
 	m.handleSlashCommand("/copy")
 	if copied != "second" {
 		t.Errorf("clipboard got %q, want the last assistant message", copied)
@@ -142,7 +143,7 @@ func TestSlashCopy_Clipboard(t *testing.T) {
 	// Failure path.
 	clipboardWrite = func(string) error { return os.ErrPermission }
 	m = newSlashModel(t)
-	m.engine.session = []backend.Message{{Role: "assistant", Content: "x"}}
+	m.setSessionMessages([]backend.Message{{Role: "assistant", Content: "x"}})
 	m.handleSlashCommand("/copy")
 	if got := strings.Join(afterEcho(m), "\n"); !strings.HasPrefix(got, "Failed to copy to clipboard: ") {
 		t.Errorf("/copy failure rendered %q", got)
@@ -194,7 +195,7 @@ func TestResolveCopy_Forms(t *testing.T) {
 }
 
 // TestSlashCopy_ArgumentForms exercises /copy through the router, including
-// /copy 2. Cycle 230 moved /copy btw to runMode.copyBtwCard so it can reach
+// /copy 2. Cycle 230 moved /copy btw to RootModel.copyBtwCard so it can reach
 // the active side-question Card; that path is covered by the slash_btw_test
 // suite.
 func TestSlashCopy_ArgumentForms(t *testing.T) {
@@ -204,11 +205,11 @@ func TestSlashCopy_ArgumentForms(t *testing.T) {
 	clipboardWrite = func(s string) error { copied = append(copied, s); return nil }
 
 	m := newSlashModel(t)
-	m.engine.session = []backend.Message{
+	m.setSessionMessages([]backend.Message{
 		{Role: "user", Content: "q1"},
 		{Role: "assistant", Content: "a1"},
 		{Role: "assistant", Content: "a2"},
-	}
+	})
 	m.handleSlashCommand("/copy 2")
 	if len(copied) != 1 || copied[0] != "a1" {
 		t.Fatalf("copied %q, want [a1]", copied)
@@ -247,7 +248,7 @@ func TestSlashStatusline_Subcommands(t *testing.T) {
 		t.Fatalf("/statusline rendered %q", rows)
 	}
 	// A second bare press switches it off again, with the long form.
-	m.engine.response = nil
+	m.conversation.response = nil
 	m.handleSlashCommand("/statusline")
 	rows = afterEcho(m)
 	if len(rows) == 0 || rows[0] != "Statusline off. Run /statusline to re-enable." {
@@ -280,7 +281,7 @@ func TestSlashStatusline_Subcommands(t *testing.T) {
 	if strings.Contains(body, `"enabled"`) {
 		t.Errorf("settings.json must not carry an enabled member:\n%s", body)
 	}
-	if !m.viewport.statusLineExternal {
+	if !m.statusLine.external {
 		t.Error("statusLineExternal must be on after /statusline <command>")
 	}
 
@@ -295,7 +296,7 @@ func TestSlashStatusline_Subcommands(t *testing.T) {
 	if got := strings.Join(afterEcho(m), "\n"); got != "Statusline off." {
 		t.Errorf("/statusline OFF rendered %q", got)
 	}
-	if m.viewport.statusLineExternal {
+	if m.statusLine.external {
 		t.Error("statusLineExternal must be off after /statusline off")
 	}
 	body = readSettings(t, home)
@@ -363,8 +364,8 @@ func TestSlashTitle_Subcommands(t *testing.T) {
 	if got := strings.Join(afterEcho(m), "\n"); got != "Custom title enabled. (/bin/echo hi)" {
 		t.Errorf("/title ON rendered %q", got)
 	}
-	if m.viewport.title != "on" {
-		t.Errorf("after /title ON m.viewport.title = %q", m.viewport.title)
+	if m.statusLine.title != "on" {
+		t.Errorf("after /title ON m.statusLine.title = %q", m.statusLine.title)
 	}
 	body := readSettings(t, home)
 	if !strings.Contains(body, `"enabled": true`) {
@@ -381,8 +382,8 @@ func TestSlashTitle_Subcommands(t *testing.T) {
 	if got := strings.Join(afterEcho(m), "\n"); got != "Custom title disabled." {
 		t.Errorf("/title off rendered %q", got)
 	}
-	if m.viewport.title != "off" {
-		t.Errorf("after /title off m.viewport.title = %q", m.viewport.title)
+	if m.statusLine.title != "off" {
+		t.Errorf("after /title off m.statusLine.title = %q", m.statusLine.title)
 	}
 
 	// A bare /title toggles the feature back on.
@@ -413,8 +414,8 @@ func TestSlashToggles_Persist(t *testing.T) {
 
 	m := newSlashModel(t)
 	m.handleSlashCommand("/statusline on")
-	if m.viewport.statusLine != "on" {
-		t.Errorf("after /statusline on m.viewport.statusLine = %q, want on", m.viewport.statusLine)
+	if m.statusLine.visible != "on" {
+		t.Errorf("after /statusline on m.statusLine.visible = %q, want on", m.statusLine.visible)
 	}
 	if body := readSettings(t, home); !strings.Contains(body, `"enabled": true`) {
 		t.Errorf("settings.json missing enabled=true:\n%s", body)
@@ -430,7 +431,7 @@ func TestSlashToggles_Persist(t *testing.T) {
 	// missing command and leaves the state alone.
 	m = newSlashModel(t)
 	m.handleSlashCommand("/title on")
-	if m.viewport.title == "on" {
+	if m.statusLine.title == "on" {
 		t.Error("after /title on without a block the title must stay off")
 	}
 	// The other keys survive both writes.
@@ -458,11 +459,11 @@ func TestSettingsString(t *testing.T) {
 // TestStatuslineOffHidesRow checks the visible effect of /statusline.
 func TestStatuslineOffHidesRow(t *testing.T) {
 	m := newSlashModel(t)
-	m.viewport.statusLine = ""
+	m.statusLine.visible = ""
 	if !strings.Contains(m.View().Content, "? for shortcuts") {
 		t.Fatal("status row missing with statusLine on")
 	}
-	m.viewport.statusLine = "off"
+	m.statusLine.visible = "off"
 	if strings.Contains(m.View().Content, "? for shortcuts") {
 		t.Error("status row still rendered with statusLine off")
 	}
@@ -515,7 +516,7 @@ func TestEditPromptCmd(t *testing.T) {
 		t.Fatal(err)
 	}
 	m.Update(editorFinishedMsg{tempPath: path})
-	if got := m.composer.input.Value(); got != "EDITED" {
+	if got := m.prompt.input.Value(); got != "EDITED" {
 		t.Errorf("prompt after ctrl+g = %q, want EDITED", got)
 	}
 	if _, err := os.Stat(path); !os.IsNotExist(err) {
@@ -529,13 +530,13 @@ func TestEditPromptCmd(t *testing.T) {
 	}
 	defer func() { _ = os.Remove(path2) }()
 	m = newSlashModel(t)
-	m.composer.input.SetValue("keep me")
+	m.prompt.input.SetValue("keep me")
 	m.Update(editorFinishedMsg{err: os.ErrPermission, tempPath: path2})
-	if got := m.composer.input.Value(); got != "keep me" {
+	if got := m.prompt.input.Value(); got != "keep me" {
 		t.Errorf("prompt after a failed editor = %q", got)
 	}
 	want := "Editor exited with error: " + os.ErrPermission.Error()
-	if got := m.engine.response[len(m.engine.response)-1]; got != want {
+	if got := m.conversation.response[len(m.conversation.response)-1]; got != want {
 		t.Errorf("failed editor rendered %q, want %q", got, want)
 	}
 }
@@ -546,7 +547,7 @@ func TestEditPromptCmd_Scheduled(t *testing.T) {
 	t.Setenv("ANTIGRAVITY_HOME", t.TempDir())
 	t.Setenv("EDITOR", "cat")
 	m := newSlashModel(t)
-	m.composer.input.SetValue("hello")
+	m.prompt.input.SetValue("hello")
 	if cmd := m.editPromptCmd(); cmd == nil {
 		t.Fatal("editPromptCmd returned nil for a working editor")
 	}
@@ -566,9 +567,9 @@ func TestEditPromptCmd_BadEditor(t *testing.T) {
 	if cmd := m.editPromptCmd(); cmd != nil {
 		t.Error("ctrl+g scheduled a command for a missing editor")
 	}
-	if len(m.engine.response) == 0 ||
-		!strings.HasPrefix(m.engine.response[len(m.engine.response)-1], "Failed to resolve editor: ") {
-		t.Errorf("ctrl+g with a bad editor rendered %q", m.engine.response)
+	if len(m.conversation.response) == 0 ||
+		!strings.HasPrefix(m.conversation.response[len(m.conversation.response)-1], "Failed to resolve editor: ") {
+		t.Errorf("ctrl+g with a bad editor rendered %q", m.conversation.response)
 	}
 }
 
@@ -606,12 +607,12 @@ func TestSlashOpen_Router(t *testing.T) {
 func TestEditorFinishedMsg(t *testing.T) {
 	m := newSlashModel(t)
 	m.Update(editorFinishedMsg{})
-	if len(m.engine.response) != 0 {
-		t.Errorf("successful editor exit produced %q", m.engine.response)
+	if len(m.conversation.response) != 0 {
+		t.Errorf("successful editor exit produced %q", m.conversation.response)
 	}
 	m.Update(editorFinishedMsg{err: os.ErrPermission})
 	want := "Editor exited with error: " + os.ErrPermission.Error()
-	if got := m.engine.response[len(m.engine.response)-1]; got != want {
+	if got := m.conversation.response[len(m.conversation.response)-1]; got != want {
 		t.Errorf("editor failure rendered %q, want %q", got, want)
 	}
 }
@@ -789,7 +790,7 @@ func TestSlashRename_UpdatesTitle(t *testing.T) {
 	}
 	// With no rename the first user message is used.
 	m = newSlashModel(t)
-	m.engine.session = []backend.Message{{Role: "user", Content: "fix the build"}}
+	m.setSessionMessages([]backend.Message{{Role: "user", Content: "fix the build"}})
 	if got := m.conversationTitle(); got != "fix the build" {
 		t.Errorf("conversationTitle() = %q", got)
 	}
@@ -1166,21 +1167,21 @@ func TestRemoteControl_FailsUnderADC(t *testing.T) {
 
 // ---- 2. TUI slash command: /remote-control under ADC -------------------------
 
-// slashRemoteControlRunMode builds a runMode suitable for driving
+// slashRemoteControlRootModel builds a RootModel suitable for driving
 // handleSlashCommand with the /remote-control case directly. The TUI
 // input editor must be fully initialised because handleSlashCommand
 // resets m.composer.input as part of the dispatch prelude (see
 // cmd/wagyu/slash_commands.go:117), which delegates to the bubbles
 // textarea's Reset, which in turn touches the viewport. A bare
-// `&runMode{}` panics — we go through newRunMode with a no-op backend
+// `&RootModel{}` panics — we go through newRootModel with a no-op backend
 // (the test never sends a turn) and a fresh tmpdir for ANTIGRAVITY_HOME
 // so the constructor's keyring/auth probing doesn't wander off into
 // the host's real config tree.
-func slashRemoteControlRunMode(t *testing.T) *runMode {
+func slashRemoteControlRootModel(t *testing.T) *RootModel {
 	t.Helper()
 	t.Setenv("ANTIGRAVITY_HOME", t.TempDir())
 	t.Setenv("HOME", t.TempDir())
-	m := newRunMode(&fakeClient{}, "u@t", "m", "t", t.TempDir(), true)
+	m := newRootModel(&fakeClient{}, "u@t", "m", "t", t.TempDir(), true)
 	return m
 }
 
@@ -1193,7 +1194,7 @@ func slashRemoteControlRunMode(t *testing.T) *runMode {
 func TestRemoteControl_FailsUnderADCSlashCommand(t *testing.T) {
 	t.Setenv("AGY_ADC_AUTH", "1")
 
-	m := slashRemoteControlRunMode(t)
+	m := slashRemoteControlRootModel(t)
 	handled, cmd := m.handleSlashCommand("/remote-control")
 	if !handled {
 		t.Fatal(`/remote-control was not handled under ADC; want handled=true`)
@@ -1205,13 +1206,13 @@ func TestRemoteControl_FailsUnderADCSlashCommand(t *testing.T) {
 		t.Errorf("handleSlashCommand returned a tea.Cmd (%T %v); want nil", cmd, cmd)
 	}
 
-	// The transcript (`m.engine.response`) must contain the error message.
+	// The transcript (`m.conversation.response`) must contain the error message.
 	// m.slashRespond appends three rows: `> /remote-control`, then
 	// `  ⎿  <msg>`, then a blank. We look for the canonical keywords
 	// across the joined transcript so the test does not fragment when
 	// slashRespond's colour codes change.
 	var joined strings.Builder
-	for _, line := range m.engine.response {
+	for _, line := range m.conversation.response {
 		joined.WriteString(line)
 		joined.WriteByte('\n')
 	}
@@ -1234,7 +1235,7 @@ func TestRemoteControl_FailsUnderADCSlashCommand(t *testing.T) {
 	// The cycle 106 contract is that m.session.remoteControl becomes true on
 	// a successful "/remote-control" (bare or "/remote-control on").
 	// Under ADC we must reject without flipping the flag, otherwise a
-	// subsequent newRunMode boot could read a stale true and report a
+	// subsequent newRootModel boot could read a stale true and report a
 	// ghost session.
 	if m.session.remoteControl {
 		t.Errorf("m.session.remoteControl became true under ADC rejection; want false (no state change)")
@@ -1264,7 +1265,7 @@ func TestRemoteControl_AllowedUnderOAuth(t *testing.T) {
 	//    m.session.remoteControl flips true (the state change), so a future
 	//    refactor that mistakenly always rejects has no chance to slip
 	//    through unnoticed.
-	m := slashRemoteControlRunMode(t)
+	m := slashRemoteControlRootModel(t)
 	handled, _ := m.handleSlashCommand("/remote-control")
 	if !handled {
 		t.Fatal(`/remote-control was not handled under OAuth; want handled=true`)
@@ -1276,7 +1277,7 @@ func TestRemoteControl_AllowedUnderOAuth(t *testing.T) {
 
 func TestRemoteControl_OutputFormatting(t *testing.T) {
 	t.Run("with conversation id and wrap", func(t *testing.T) {
-		m := slashRemoteControlRunMode(t)
+		m := slashRemoteControlRootModel(t)
 		m.session.conversationID = "45fde9e1-76d5-4b87-bd23-1b2c626bbf26"
 		m.viewport.width = 155
 
@@ -1285,7 +1286,7 @@ func TestRemoteControl_OutputFormatting(t *testing.T) {
 			t.Fatal("expected handled=true")
 		}
 		var clean []string
-		for _, r := range m.engine.response {
+		for _, r := range m.conversation.response {
 			clean = append(clean, termcolor.StripSGR(r))
 		}
 		joined := strings.Join(clean, "\n")
@@ -1325,7 +1326,7 @@ func TestRemoteControl_OutputFormatting(t *testing.T) {
 		// into chunks when the terminal is narrower than it (see
 		// TestRemoteControlURL_*); what matters here is that the
 		// visible text of the link rows is the URL itself.
-		if got := linkText(m.engine.response); got != wantURL {
+		if got := linkText(m.conversation.response); got != wantURL {
 			t.Errorf("the link rows show %q, want %q", got, wantURL)
 		}
 		// The prose leads on its own line — the id no longer rides in
@@ -1336,7 +1337,7 @@ func TestRemoteControl_OutputFormatting(t *testing.T) {
 
 		// Stability of UUID across multiple /remote-control invocations
 		uuid1 := m.session.remoteControlUUID
-		m.engine.response = nil
+		m.conversation.response = nil
 		m.handleSlashCommand("/remote-control")
 		if m.session.remoteControlUUID != uuid1 {
 			t.Errorf("remoteControlUUID changed from %q to %q", uuid1, m.session.remoteControlUUID)
@@ -1344,7 +1345,7 @@ func TestRemoteControl_OutputFormatting(t *testing.T) {
 	})
 
 	t.Run("without conversation id", func(t *testing.T) {
-		m := slashRemoteControlRunMode(t)
+		m := slashRemoteControlRootModel(t)
 		m.session.conversationID = ""
 		m.viewport.width = 200
 
@@ -1353,7 +1354,7 @@ func TestRemoteControl_OutputFormatting(t *testing.T) {
 			t.Fatal("expected handled=true")
 		}
 		var clean []string
-		for _, r := range m.engine.response {
+		for _, r := range m.conversation.response {
 			clean = append(clean, termcolor.StripSGR(r))
 		}
 		joined := strings.Join(clean, "\n")
@@ -1363,13 +1364,13 @@ func TestRemoteControl_OutputFormatting(t *testing.T) {
 		if !strings.Contains(joined, wantMsg) {
 			t.Errorf("expected %q in:\n%s", wantMsg, joined)
 		}
-		if got := linkText(m.engine.response); got != wantURL {
+		if got := linkText(m.conversation.response); got != wantURL {
 			t.Errorf("the link rows show %q, want %q", got, wantURL)
 		}
 	})
 
 	t.Run("remote control off", func(t *testing.T) {
-		m := slashRemoteControlRunMode(t)
+		m := slashRemoteControlRootModel(t)
 		m.session.remoteControl = true
 
 		handled, _ := m.handleSlashCommand("/remote-control off")
@@ -1380,7 +1381,7 @@ func TestRemoteControl_OutputFormatting(t *testing.T) {
 			t.Errorf("expected m.session.remoteControl = false")
 		}
 		var clean []string
-		for _, r := range m.engine.response {
+		for _, r := range m.conversation.response {
 			clean = append(clean, termcolor.StripSGR(r))
 		}
 		joined := strings.Join(clean, "\n")
@@ -1397,10 +1398,10 @@ func TestRemoteControl_OutputFormatting(t *testing.T) {
 
 		// Pigasus branding
 		branding.SetCurrent(branding.BrandPigasus)
-		m1 := slashRemoteControlRunMode(t)
+		m1 := slashRemoteControlRootModel(t)
 		m1.handleSlashCommand("/remote-control")
 		var clean1 []string
-		for _, r := range m1.engine.response {
+		for _, r := range m1.conversation.response {
 			clean1 = append(clean1, termcolor.StripSGR(r))
 		}
 		joined1 := strings.Join(clean1, "\n")
@@ -1410,10 +1411,10 @@ func TestRemoteControl_OutputFormatting(t *testing.T) {
 
 		// Antigravity branding
 		branding.SetCurrent(branding.BrandAntigravity)
-		m2 := slashRemoteControlRunMode(t)
+		m2 := slashRemoteControlRootModel(t)
 		m2.handleSlashCommand("/remote-control")
 		var clean2 []string
-		for _, r := range m2.engine.response {
+		for _, r := range m2.conversation.response {
 			clean2 = append(clean2, termcolor.StripSGR(r))
 		}
 		joined2 := strings.Join(clean2, "\n")
@@ -1427,7 +1428,7 @@ func TestRemoteControl_OutputFormatting(t *testing.T) {
 
 // TestRemoteControl_HiddenUnderADCInSlashMenu drives the
 // tuilib.PickerState with the same SetHiddenCommands call
-// cmd/wagyu.tui_run.go's newRunMode uses when ADC is in effect. The
+// cmd/wagyu.tui_run.go's newRootModel uses when ADC is in effect. The
 // picker starts on a bare "/" buffer; no row whose Name equals
 // "/remote-control" may appear in the result. The substring filter
 // still runs, so typing "/remote" under ADC must produce the picker-
@@ -1436,7 +1437,7 @@ func TestRemoteControl_OutputFormatting(t *testing.T) {
 func TestRemoteControl_HiddenUnderADCInSlashMenu(t *testing.T) {
 	t.Setenv("AGY_ADC_AUTH", "1")
 
-	// Hide RC just like newRunMode does.
+	// Hide RC just like newRootModel does.
 	hidden := pickerHiddenCommands()
 	if len(hidden) == 0 {
 		t.Fatal("pickerHiddenCommands returned nil under ADC; want at least /remote-control")
@@ -1656,19 +1657,19 @@ func (f *fakeStreamClient) Stream(ctx context.Context, req backend.StreamRequest
 	return out, nil
 }
 
-// mkCompactNoProgModel returns a runMode wired for the cycle-237
-// generic-compact path (m.engine.compactor == nil, m.engine.prog == nil so the
-// goroutine resolves straight into m.engine.response via
+// mkCompactNoProgModel returns a RootModel wired for the cycle-237
+// generic-compact path (m.compaction.Compactor() == nil, m.turn.prog == nil so the
+// goroutine resolves straight into m.conversation.response via
 // applyGenericCompactResult). The backend is the supplied fake.
 //
 // Mirrors mkCompactModel in slash_cycle229_test.go but skips the
 // compactor wiring so every test below hits the cycle-237 branch
 // of startManualCompact.
-func mkCompactNoProgModel(t *testing.T, be *fakeStreamClient) *runMode {
+func mkCompactNoProgModel(t *testing.T, be *fakeStreamClient) *RootModel {
 	t.Helper()
 	t.Setenv("ANTIGRAVITY_HOME", t.TempDir())
 	t.Setenv("HOME", t.TempDir())
-	m := newRunMode(be, "u@t", "Gemini 3.8 Flash (High)", "t", "/", true)
+	m := newRootModel(be, "u@t", "Gemini 3.8 Flash (High)", "t", "/", true)
 	m.session.flags = newStandardFlagSetForTest(t, nil)
 	return m
 }
@@ -1816,7 +1817,7 @@ func TestSlashCompact_CancelRestoresSession(t *testing.T) {
 		{Role: "user", Content: "first turn"},
 		{Role: "assistant", Content: "first reply"},
 	}
-	m.engine.session = append([]backend.Message(nil), sess...)
+	m.setSessionMessages(append([]backend.Message(nil), sess...))
 
 	// Drive the goroutine path. We want cancellation to fire
 	// immediately after the slash command dispatches, so we
@@ -1828,22 +1829,22 @@ func TestSlashCompact_CancelRestoresSession(t *testing.T) {
 	time.Sleep(20 * time.Millisecond)
 	compaction.TriggerCancel()
 
-	// The goroutine posts to m.engine.response via applyGenericCompactResult
-	// because m.engine.prog is nil. Wait for the goroutine to settle.
+	// The goroutine posts to m.conversation.response via applyGenericCompactResult
+	// because m.turn.prog is nil. Wait for the goroutine to settle.
 	waitForCompactSettle(t, m, 2*time.Second)
 
 	// Original session preserved verbatim.
-	if len(m.engine.session) != len(sess) {
-		t.Fatalf("m.engine.session length = %d, want %d (cancellation must not clobber)", len(m.engine.session), len(sess))
+	if len(m.SessionMessages()) != len(sess) {
+		t.Fatalf("m.engine.session length = %d, want %d (cancellation must not clobber)", len(m.SessionMessages()), len(sess))
 	}
 	for i, want := range sess {
-		if m.engine.session[i].Role != want.Role || m.engine.session[i].Content != want.Content {
-			t.Errorf("m.engine.session[%d] = %+v, want %+v", i, m.engine.session[i], want)
+		if m.SessionMessages()[i].Role != want.Role || m.SessionMessages()[i].Content != want.Content {
+			t.Errorf("m.engine.session[%d] = %+v, want %+v", i, m.SessionMessages()[i], want)
 		}
 	}
 	// Transcript echoes the cancellation with the reference literal.
 	if !responseContains(m, compaction.CompactionCancelledLiteral) {
-		t.Errorf("transcript missing %q after cancel:\n%q", compaction.CompactionCancelledLiteral, m.engine.response)
+		t.Errorf("transcript missing %q after cancel:\n%q", compaction.CompactionCancelledLiteral, m.conversation.response)
 	}
 }
 
@@ -1869,7 +1870,7 @@ func TestSlashCompact_SuccessReplacesSession(t *testing.T) {
 		{Role: "user", Content: strings.Repeat("u", 400)},
 		{Role: "assistant", Content: strings.Repeat("a", 400)},
 	}
-	m.engine.session = append([]backend.Message(nil), sess...)
+	m.setSessionMessages(append([]backend.Message(nil), sess...))
 
 	// /compact with a trailing message: the slash command should
 	// append "summarize this and answer" to m.engine.session after the
@@ -1880,20 +1881,20 @@ func TestSlashCompact_SuccessReplacesSession(t *testing.T) {
 	}
 	waitForCompactSettle(t, m, 2*time.Second)
 
-	if len(m.engine.session) != 2 {
-		t.Fatalf("m.engine.session length = %d, want 2 (summary + trailing message)", len(m.engine.session))
+	if len(m.SessionMessages()) != 2 {
+		t.Fatalf("m.engine.session length = %d, want 2 (summary + trailing message)", len(m.SessionMessages()))
 	}
-	if m.engine.session[0].Role != "user" || !strings.Contains(m.engine.session[0].Content, "compacted summary") {
-		t.Errorf("m.engine.session[0] = %+v; want user-role carrying the summary", m.engine.session[0])
+	if m.SessionMessages()[0].Role != "user" || !strings.Contains(m.SessionMessages()[0].Content, "compacted summary") {
+		t.Errorf("m.engine.session[0] = %+v; want user-role carrying the summary", m.SessionMessages()[0])
 	}
-	if m.engine.session[1].Role != "user" || m.engine.session[1].Content != "summarize this and answer" {
-		t.Errorf("m.engine.session[1] = %+v; want user-role carrying the trailing message", m.engine.session[1])
+	if m.SessionMessages()[1].Role != "user" || m.SessionMessages()[1].Content != "summarize this and answer" {
+		t.Errorf("m.engine.session[1] = %+v; want user-role carrying the trailing message", m.SessionMessages()[1])
 	}
 	if !responseContains(m, "Conversation compacted") {
-		t.Errorf("transcript missing the 'Conversation compacted' divider:\n%q", m.engine.response)
+		t.Errorf("transcript missing the 'Conversation compacted' divider:\n%q", m.conversation.response)
 	}
 	if !responseContains(m, "4 steps summarized") {
-		t.Errorf("transcript missing the '4 steps summarized' stats row:\n%q", m.engine.response)
+		t.Errorf("transcript missing the '4 steps summarized' stats row:\n%q", m.conversation.response)
 	}
 	// The reference's pair is "context A → ~B (C summary)": A is the
 	// context the compaction ran against (the base context plus the
@@ -1907,16 +1908,16 @@ func TestSlashCompact_SuccessReplacesSession(t *testing.T) {
 	want := fmt.Sprintf("context %s → ~%s (%d summary)",
 		compaction.TokenMagnitude(before), compaction.TokenMagnitude(after), summaryTokens)
 	if !responseContains(m, want) {
-		t.Errorf("transcript missing the context/summary stats group %q:\n%q", want, m.engine.response)
+		t.Errorf("transcript missing the context/summary stats group %q:\n%q", want, m.conversation.response)
 	}
 	// The reference replaces the compacted history with its "Resuming
 	// from a compaction" block: the preamble, the recent user
 	// requests and the summary.
-	if !strings.Contains(m.engine.session[0].Content, "# Resuming from a compaction") {
-		t.Errorf("m.engine.session[0] = %q; want the reference's resuming block", m.engine.session[0].Content)
+	if !strings.Contains(m.SessionMessages()[0].Content, "# Resuming from a compaction") {
+		t.Errorf("m.engine.session[0] = %q; want the reference's resuming block", m.SessionMessages()[0].Content)
 	}
-	if !strings.Contains(m.engine.session[0].Content, "# User Requests") {
-		t.Errorf("m.engine.session[0] = %q; want the '# User Requests' section", m.engine.session[0].Content)
+	if !strings.Contains(m.SessionMessages()[0].Content, "# User Requests") {
+		t.Errorf("m.engine.session[0] = %q; want the '# User Requests' section", m.SessionMessages()[0].Content)
 	}
 }
 
@@ -1935,7 +1936,7 @@ func TestSlashCompact_EmptyTranscriptShortCircuits(t *testing.T) {
 		t.Errorf("backend.Stream called %d times for empty session; want 0", be.calls)
 	}
 	if !responseContains(m, "Nothing to compact yet.") {
-		t.Errorf("transcript missing 'Nothing to compact yet.':\n%q", m.engine.response)
+		t.Errorf("transcript missing 'Nothing to compact yet.':\n%q", m.conversation.response)
 	}
 }
 
@@ -1957,31 +1958,31 @@ func TestEstimateTokens_RoughAccuracy(t *testing.T) {
 
 // waitForCompactSettle waits for the compaction worker to hand its
 // result over and applies it on this goroutine. The compact goroutine
-// posts via prog.Send (in production) or over m.engine.compactDone (in the
+// posts via prog.Send (in production) or over m.compaction.Done() (in the
 // no-prog test path); the no-prog path applies the result here,
 // because the transcript and the session belong to the goroutine that
-// owns the runMode — the worker must not touch them.
-func waitForCompactSettle(t *testing.T, m *runMode, timeout time.Duration) {
+// owns the RootModel — the worker must not touch them.
+func waitForCompactSettle(t *testing.T, m *RootModel, timeout time.Duration) {
 	t.Helper()
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
 		select {
-		case msg := <-m.engine.compactDone:
+		case msg := <-m.compaction.Done():
 			m.applyGenericCompactResult(msg, msg.CustomInstructions)
 			return
 		default:
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	t.Fatalf("compact did not settle within %s; transcript:\n%q", timeout, m.engine.response)
+	t.Fatalf("compact did not settle within %s; transcript:\n%q", timeout, m.conversation.response)
 }
 
-// responseContains reports whether any line in m.engine.response contains
+// responseContains reports whether any line in m.conversation.response contains
 // needle. The cycle-237 path emits styled rows — the message line
 // is wrapped in cWarningBlueOpen / panelGray238 — so a substring
 // search tolerates the SGR decorations.
-func responseContains(m *runMode, needle string) bool {
-	for _, line := range m.engine.response {
+func responseContains(m *RootModel, needle string) bool {
+	for _, line := range m.conversation.response {
 		if strings.Contains(line, needle) {
 			return true
 		}
@@ -2004,6 +2005,78 @@ func TestSlashCompact_TriggerCancelNoOp(t *testing.T) {
 // uses errors.Is to distinguish Esc from backend failure. A future
 // refactor that returns the raw ctx.Err() instead would silently
 // break the cancel-detection path.
+// TestSlashCompact_ManualCheckpointCarriesTheReferenceTails pins the live
+// manual /compact shape (agy 1.5.3, Gemini 3.8 Flash High): the current
+// command is a user request, the artifact snapshot is rendered from the
+// conversation's brain directory, and the fixed conversation-log tail is
+// present even though the profile disables it for automatic checkpoints.
+func TestSlashCompact_ManualCheckpointCarriesTheReferenceTails(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("ANTIGRAVITY_HOME", home)
+	conv := "conv-manual-tail"
+	dir := filepath.Join(home, "brain", conv)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "plan.md"), []byte("# plan"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "plan.md.metadata.json"),
+		[]byte(`{"summary":"plan","updatedAt":"2026-11-08T08:52:45.471075Z","userFacing":true}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	m := &RootModel{}
+	m.setSessionMessages([]backend.Message{
+		{Role: "user", Content: "hello"},
+		{Role: "assistant", Content: "world"},
+	})
+	m.session.conversationID = conv
+	m.applyGenericCompactResult(genericCompactDoneMsg{
+		Summary:     "<summary>done</summary>",
+		StatsBefore: compaction.Stats{Messages: 2, Tokens: 100},
+		StatsAfter:  compaction.Stats{Messages: 1, Tokens: 20},
+	}, "")
+
+	got := m.SessionMessages()[0].Content
+	for _, want := range []string{
+		"# User Requests\nThe following were user requests from the truncated conversation in chronological order:\n1. hello\n2. /compact\n",
+		"You have the 1 following artifacts written to the artifacts directory:",
+		"[ARTIFACT: plan]\nPath: file://" + filepath.Join(dir, "plan.md") + "\nLast Edited: 2026-11-08T08:52:45Z",
+		compaction.ConversationLogs,
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("resume block lacks %q:\n%q", want, got)
+		}
+	}
+
+	steps := convstore.BuildSteps(m.trajectoryFacts())
+	if len(steps) == 0 {
+		t.Fatal("no trajectory step written")
+	}
+	last := steps[len(steps)-1]
+	if last.Type != convstore.StepCheckpoint {
+		t.Fatalf("last step type = %v, want a checkpoint", last.Type)
+	}
+	if len(last.UserRequests) != 2 || last.UserRequests[1] != "/compact" {
+		t.Errorf("persisted user requests = %+v, want the current /compact", last.UserRequests)
+	}
+
+	// A second manual compaction keeps the earlier requests and appends the
+	// new command. The live 1.5.3 capture lists the original request, the
+	// first /compact and the current /compact in that order.
+	m.applyGenericCompactResult(genericCompactDoneMsg{
+		Summary:     "<summary>again</summary>",
+		StatsBefore: compaction.Stats{Messages: 1, Tokens: 30},
+		StatsAfter:  compaction.Stats{Messages: 1, Tokens: 20},
+	}, "")
+	again := m.SessionMessages()[0].Content
+	want := "# User Requests\nThe following were user requests from the truncated conversation in chronological order:\n1. hello\n2. /compact\n3. /compact\n"
+	if !strings.Contains(again, want) {
+		t.Errorf("second resume block lacks %q:\n%q", want, again)
+	}
+}
+
 func TestSlashCompact_ErrCancelledSentinel(t *testing.T) {
 	if !errors.Is(compaction.ErrCancelled, compaction.ErrCancelled) {
 		t.Fatal("compaction.ErrCancelled should be a sentinel")
@@ -2014,14 +2087,11 @@ func TestSlashCompact_ErrCancelledSentinel(t *testing.T) {
 }
 
 func TestSlashCompact_GenericDoneDispatchesTrailingPrompt(t *testing.T) {
-	m := &runMode{
-		engine: engineState{
-			session: []backend.Message{
-				{Role: "user", Content: "hello"},
-				{Role: "assistant", Content: "world"},
-			},
-		},
-	}
+	m := &RootModel{}
+	m.setSessionMessages([]backend.Message{
+		{Role: "user", Content: "hello"},
+		{Role: "assistant", Content: "world"},
+	})
 	msg := genericCompactDoneMsg{
 		Summary:            "concise summary of conversation",
 		StatsBefore:        compaction.Stats{Messages: 2, Tokens: 100},
@@ -2029,23 +2099,23 @@ func TestSlashCompact_GenericDoneDispatchesTrailingPrompt(t *testing.T) {
 		CustomInstructions: "now do the next task",
 	}
 	cmd := m.applyGenericCompactResult(msg, msg.CustomInstructions)
-	if len(m.engine.session) != 2 {
-		t.Fatalf("session len = %d, want 2 (summary + custom instructions)", len(m.engine.session))
+	if len(m.SessionMessages()) != 2 {
+		t.Fatalf("session len = %d, want 2 (summary + custom instructions)", len(m.SessionMessages()))
 	}
 	// The reference replaces the compacted history with its "Resuming
 	// from a compaction" block: the preamble, the recent user requests
 	// and the summary.
-	if !strings.Contains(m.engine.session[0].Content, "# Resuming from a compaction") {
-		t.Errorf("session[0] = %q, want the reference's resuming block", m.engine.session[0].Content)
+	if !strings.Contains(m.SessionMessages()[0].Content, "# Resuming from a compaction") {
+		t.Errorf("session[0] = %q, want the reference's resuming block", m.SessionMessages()[0].Content)
 	}
-	if !strings.Contains(m.engine.session[0].Content, "1. hello") {
-		t.Errorf("session[0] = %q, want the user request list", m.engine.session[0].Content)
+	if !strings.Contains(m.SessionMessages()[0].Content, "1. hello") {
+		t.Errorf("session[0] = %q, want the user request list", m.SessionMessages()[0].Content)
 	}
-	if !strings.Contains(m.engine.session[0].Content, "concise summary of conversation") {
-		t.Errorf("session[0] = %q, want the summary inside the block", m.engine.session[0].Content)
+	if !strings.Contains(m.SessionMessages()[0].Content, "concise summary of conversation") {
+		t.Errorf("session[0] = %q, want the summary inside the block", m.SessionMessages()[0].Content)
 	}
-	if m.engine.session[1].Content != "now do the next task" {
-		t.Errorf("session[1] = %q, want custom instructions", m.engine.session[1].Content)
+	if m.SessionMessages()[1].Content != "now do the next task" {
+		t.Errorf("session[1] = %q, want custom instructions", m.SessionMessages()[1].Content)
 	}
 	if cmd == nil {
 		t.Fatalf("cmd is nil, want prompt stream cmd")
@@ -2175,7 +2245,7 @@ func (f *fakeCompactor) SubscribeManual(listener func(any)) func() {
 // fireEnd publishes a synthetic CompactionEndEvent to every
 // currently-registered listener (skipping the nil markers an
 // unsubscribe wrote). Tests call this from the main goroutine so the
-// transcript append happens before the assertion reads m.engine.response.
+// transcript append happens before the assertion reads m.conversation.response.
 func (f *fakeCompactor) fireEnd(ev compaction.CompactionEndEvent) {
 	f.mu.Lock()
 	listeners := append([]func(any){}, f.listeners...)
@@ -2188,32 +2258,32 @@ func (f *fakeCompactor) fireEnd(ev compaction.CompactionEndEvent) {
 	}
 }
 
-// mkCompactModel returns a runMode with m.engine.compactor wired to fake.
+// mkCompactModel returns a RootModel with m.compaction.Compactor() wired to fake.
 // Mirrors newSlashModel's HOME / ANTIGRAVITY_HOME setup so tests
 // start with a clean settings.json and do not leak state between
 // cases.
-func mkCompactModel(t *testing.T, comp manualCompactor) *runMode {
+func mkCompactModel(t *testing.T, comp manualCompactor) *RootModel {
 	t.Helper()
 	if comp == nil {
 		comp = newFakeCompactor()
 	}
 	t.Setenv("ANTIGRAVITY_HOME", t.TempDir())
 	t.Setenv("HOME", t.TempDir())
-	m := newRunMode(&fakeClient{}, "u@t", "Gemini 3.8 Flash (High)", "t", "/", true)
+	m := newRootModel(&fakeClient{}, "u@t", "Gemini 3.8 Flash (High)", "t", "/", true)
 	m.session.flags = newStandardFlagSetForTest(t, nil)
-	m.engine.compactor = comp
+	m.compaction.SetCompactor(comp)
 	return m
 }
 
-// transcriptContains reports whether any line in m.engine.response contains
+// transcriptContains reports whether any line in m.conversation.response contains
 // needle. Cycle 229's slash command emits styled rows — the message
 // line starts with the warning-blue + ⎿ prefix, then the dim gray
 // payload. The assertion uses substring search rather than line
 // equality because the SGR escape sequences are byte-exact-sensitive
 // and a stray whitespace change in the prefix would otherwise
 // invalidate the test for no good reason.
-func transcriptContains(m *runMode, needle string) bool {
-	for _, line := range m.engine.response {
+func transcriptContains(m *RootModel, needle string) bool {
+	for _, line := range m.conversation.response {
 		if strings.Contains(line, needle) {
 			return true
 		}
@@ -2232,7 +2302,7 @@ func TestSlashCompactNoArgs(t *testing.T) {
 		t.Fatal("/compact should be handled")
 	}
 	if !transcriptContains(m, "Compacting context") {
-		t.Errorf("transcript missing 'Compacting context…' running echo:\n%q", m.engine.response)
+		t.Errorf("transcript missing 'Compacting context…' running echo:\n%q", m.conversation.response)
 	}
 	time.Sleep(20 * time.Millisecond)
 	calls := fake.compactCallArgs()
@@ -2254,7 +2324,7 @@ func TestSlashCompactWithInstructions(t *testing.T) {
 		t.Fatal("/compact should be handled")
 	}
 	if !transcriptContains(m, "Compacting context") {
-		t.Errorf("transcript missing 'Compacting context…' running echo:\n%q", m.engine.response)
+		t.Errorf("transcript missing 'Compacting context…' running echo:\n%q", m.conversation.response)
 	}
 	time.Sleep(20 * time.Millisecond)
 	calls := fake.compactCallArgs()
@@ -2279,13 +2349,13 @@ func TestSlashCompactAlreadyRunning(t *testing.T) {
 		t.Fatal("/compact should be handled")
 	}
 	if !transcriptContains(m, "Already compacting.") {
-		t.Errorf("transcript missing 'Already compacting.' echo:\n%q", m.engine.response)
+		t.Errorf("transcript missing 'Already compacting.' echo:\n%q", m.conversation.response)
 	}
 	if got := len(fake.compactCallArgs()); got != 0 {
 		t.Errorf("Compact() called %d times despite IsCompacting=true, want 0", got)
 	}
 	if transcriptContains(m, "Compacting context") {
-		t.Errorf("transcript unexpectedly contains 'Compacting context…' despite IsCompacting=true:\n%q", m.engine.response)
+		t.Errorf("transcript unexpectedly contains 'Compacting context…' despite IsCompacting=true:\n%q", m.conversation.response)
 	}
 }
 
@@ -2293,16 +2363,16 @@ func TestSlashCompactError(t *testing.T) {
 	fake := newFakeCompactor()
 	fake.compactErr = context.DeadlineExceeded
 	m := mkCompactModel(t, fake)
-	m.engine.prog = nil
+	m.turn.prog = nil
 	if _, _ = m.handleSlashCommand("/compact"); false {
 	}
 	time.Sleep(100 * time.Millisecond)
 	m.appendCompactResult(compactDoneMsg{Err: fake.compactErr})
 	if !transcriptContains(m, "Compact failed") {
-		t.Errorf("transcript missing 'Compact failed:' echo:\n%q", m.engine.response)
+		t.Errorf("transcript missing 'Compact failed:' echo:\n%q", m.conversation.response)
 	}
 	if !transcriptContains(m, "context deadline exceeded") {
-		t.Errorf("transcript missing 'context deadline exceeded' detail:\n%q", m.engine.response)
+		t.Errorf("transcript missing 'context deadline exceeded' detail:\n%q", m.conversation.response)
 	}
 }
 
@@ -2314,14 +2384,14 @@ func TestSlashCompactTokensReduction(t *testing.T) {
 		Reason:       "manual",
 	})
 	if !transcriptContains(m, "Conversation compacted") {
-		t.Errorf("transcript missing the 'Conversation compacted' divider:\n%q", m.engine.response)
+		t.Errorf("transcript missing the 'Conversation compacted' divider:\n%q", m.conversation.response)
 	}
 	want := "context 184.0k \u2192 ~42.0k"
 	if !transcriptContains(m, want) {
-		t.Errorf("transcript missing %q:\n%q", want, m.engine.response)
+		t.Errorf("transcript missing %q:\n%q", want, m.conversation.response)
 	}
 	if transcriptContains(m, "% reduction") {
-		t.Errorf("transcript unexpectedly contains '%% reduction':\n%q", m.engine.response)
+		t.Errorf("transcript unexpectedly contains '%% reduction':\n%q", m.conversation.response)
 	}
 }
 
@@ -2329,17 +2399,17 @@ func TestSlashCompactZeroTokens(t *testing.T) {
 	m := mkCompactModel(t, newFakeCompactor())
 	m.appendCompactResult(compactDoneMsg{})
 	if !transcriptContains(m, "context 0 \u2192 ~0") {
-		t.Errorf("transcript missing 'context 0 → ~0' fallback:\n%q", m.engine.response)
+		t.Errorf("transcript missing 'context 0 → ~0' fallback:\n%q", m.conversation.response)
 	}
 	if transcriptContains(m, "% reduction") {
-		t.Errorf("transcript unexpectedly contains '%% reduction' on zero-token row:\n%q", m.engine.response)
+		t.Errorf("transcript unexpectedly contains '%% reduction' on zero-token row:\n%q", m.conversation.response)
 	}
 }
 
 func TestSlashCompactFullEventFlow(t *testing.T) {
 	fake := newFakeCompactor()
 	m := mkCompactModel(t, fake)
-	m.engine.prog = nil
+	m.turn.prog = nil
 	if _, _ = m.handleSlashCommand("/compact"); false {
 	}
 	time.Sleep(50 * time.Millisecond)
@@ -2355,32 +2425,32 @@ func TestSlashCompactFullEventFlow(t *testing.T) {
 		Reason:       "manual",
 	})
 	if !transcriptContains(m, "Compacting context") {
-		t.Errorf("transcript missing 'Compacting context…':\n%q", m.engine.response)
+		t.Errorf("transcript missing 'Compacting context…':\n%q", m.conversation.response)
 	}
 	if !transcriptContains(m, "context 50.0k \u2192 ~12.0k") {
-		t.Errorf("transcript missing 'context 50.0k → ~12.0k':\n%q", m.engine.response)
+		t.Errorf("transcript missing 'context 50.0k → ~12.0k':\n%q", m.conversation.response)
 	}
 	if !transcriptContains(m, "Conversation compacted") {
-		t.Errorf("transcript missing the 'Conversation compacted' divider:\n%q", m.engine.response)
+		t.Errorf("transcript missing the 'Conversation compacted' divider:\n%q", m.conversation.response)
 	}
 }
 
 func TestSlashCompactCycle167StubPath(t *testing.T) {
 	t.Setenv("ANTIGRAVITY_HOME", t.TempDir())
 	t.Setenv("HOME", t.TempDir())
-	m := newRunMode(&fakeClient{}, "u@t", "Gemini 3.8 Flash (High)", "t", "/", true)
+	m := newRootModel(&fakeClient{}, "u@t", "Gemini 3.8 Flash (High)", "t", "/", true)
 	m.session.flags = newStandardFlagSetForTest(t, nil)
 	if _, _ = m.handleSlashCommand("/compact"); false {
 	}
 	if !transcriptContains(m, "Nothing to compact yet.") {
-		t.Errorf("stub path missing 'Nothing to compact yet.' echo:\n%q", m.engine.response)
+		t.Errorf("stub path missing 'Nothing to compact yet.' echo:\n%q", m.conversation.response)
 	}
 }
 
 var _ manualCompactor = (*fakeCompactor)(nil)
 
 func TestStatusRowCompactingSpinner(t *testing.T) {
-	m := &runMode{}
+	m := &RootModel{}
 	m.overlays.panel = slashPanel{kind: panelregistry.None}
 	m.viewport.width, m.viewport.height = 220, 50
 
@@ -2436,7 +2506,7 @@ func TestStatusRowCompactingSpinner(t *testing.T) {
 }
 
 func TestStatusRowCompactTickClearedByEnd(t *testing.T) {
-	m := &runMode{}
+	m := &RootModel{}
 	m.overlays.panel = slashPanel{kind: panelregistry.None}
 	m.viewport.width, m.viewport.height = 220, 50
 
@@ -2455,7 +2525,7 @@ func TestStatusRowCompactTickClearedByEnd(t *testing.T) {
 }
 
 func TestStatusRowCompactNoStart(t *testing.T) {
-	m := &runMode{}
+	m := &RootModel{}
 	m.overlays.panel = slashPanel{kind: panelregistry.None}
 	m.viewport.width, m.viewport.height = 220, 50
 
@@ -2476,17 +2546,17 @@ func TestStatusRowCompactNoStart(t *testing.T) {
 }
 
 func TestCompactEndMsg_WithSummary_UpdatesSessionAndTranscript(t *testing.T) {
-	m := &runMode{}
+	m := &RootModel{}
 	m.overlays.panel = slashPanel{kind: panelregistry.None}
 	m.viewport.width, m.viewport.height = 100, 30
 	m.session.store.CompactStart = time.Now().Add(-2 * time.Second)
 
 	// Populate an initial session
-	m.engine.session = []backend.Message{
+	m.setSessionMessages([]backend.Message{
 		{Role: "user", Content: "First request from user"},
 		{Role: "assistant", Content: "First response from assistant"},
 		{Role: "user", Content: "Second request from user"},
-	}
+	})
 
 	summaryText := "<summary>\n1. Primary Request: Build auto-compactor.\n2. Technical Concepts: Token pressure trigger.\n</summary>"
 
@@ -2500,25 +2570,25 @@ func TestCompactEndMsg_WithSummary_UpdatesSessionAndTranscript(t *testing.T) {
 
 	// 1. Session replacement check:
 	// m.engine.session should now contain exactly 1 message with Role "user"
-	if len(m.engine.session) != 1 {
-		t.Fatalf("expected m.engine.session to have 1 message, got %d", len(m.engine.session))
+	if len(m.SessionMessages()) != 1 {
+		t.Fatalf("expected m.engine.session to have 1 message, got %d", len(m.SessionMessages()))
 	}
-	if m.engine.session[0].Role != "user" {
-		t.Errorf("expected session[0].Role == 'user', got %q", m.engine.session[0].Role)
+	if m.SessionMessages()[0].Role != "user" {
+		t.Errorf("expected session[0].Role == 'user', got %q", m.SessionMessages()[0].Role)
 	}
-	if !strings.HasPrefix(m.engine.session[0].Content, "# Resuming from a compaction") {
-		t.Errorf("expected session[0].Content to start with '# Resuming from a compaction', got: %q", m.engine.session[0].Content)
+	if !strings.HasPrefix(m.SessionMessages()[0].Content, "# Resuming from a compaction") {
+		t.Errorf("expected session[0].Content to start with '# Resuming from a compaction', got: %q", m.SessionMessages()[0].Content)
 	}
-	if !strings.Contains(m.engine.session[0].Content, "First request from user") {
-		t.Errorf("expected session[0].Content to retain user request, got: %q", m.engine.session[0].Content)
+	if !strings.Contains(m.SessionMessages()[0].Content, "First request from user") {
+		t.Errorf("expected session[0].Content to retain user request, got: %q", m.SessionMessages()[0].Content)
 	}
-	if !strings.Contains(m.engine.session[0].Content, summaryText) {
-		t.Errorf("expected session[0].Content to contain summaryText, got: %q", m.engine.session[0].Content)
+	if !strings.Contains(m.SessionMessages()[0].Content, summaryText) {
+		t.Errorf("expected session[0].Content to contain summaryText, got: %q", m.SessionMessages()[0].Content)
 	}
 
 	// 2. Transcript check:
-	// m.engine.response must include the "Conversation compacted" divider and stats line
-	joinedResponse := strings.Join(m.engine.response, "\n")
+	// m.conversation.response must include the "Conversation compacted" divider and stats line
+	joinedResponse := strings.Join(m.conversation.response, "\n")
 	if !strings.Contains(joinedResponse, "Conversation compacted") {
 		t.Errorf("expected response transcript to contain 'Conversation compacted', got:\n%s", joinedResponse)
 	}
@@ -2547,20 +2617,20 @@ func TestSlashBoostPromptFormatting(t *testing.T) {
 
 	t.Setenv("ANTIGRAVITY_HOME", t.TempDir())
 	t.Setenv("HOME", t.TempDir())
-	m := newRunMode(&fakeClient{}, "u@t", "m", "t", t.TempDir(), true)
+	m := newRootModel(&fakeClient{}, "u@t", "m", "t", t.TempDir(), true)
 	ok, cmd := m.slashBoost("Fix memory leak in network buffer")
 	if !ok || cmd == nil {
 		t.Fatalf("slashBoost returned ok=%v, cmd=%v", ok, cmd)
 	}
 	foundTask := false
-	for _, msg := range m.engine.session {
+	for _, msg := range m.SessionMessages() {
 		if strings.Contains(msg.Content, "**Task**: Fix memory leak in network buffer") {
 			foundTask = true
 			break
 		}
 	}
 	if !foundTask {
-		t.Fatalf("slashBoost did not format **Task**: Fix memory leak in network buffer into conversation: %+v", m.engine.session)
+		t.Fatalf("slashBoost did not format **Task**: Fix memory leak in network buffer into conversation: %+v", m.SessionMessages())
 	}
 }
 

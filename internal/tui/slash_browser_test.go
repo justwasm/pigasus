@@ -39,16 +39,16 @@ func (f *fakeBrowserAgent) RunBrowserTask(_ context.Context, task string) (strin
 func withFakeBrowserAgent(t *testing.T, agent *fakeBrowserAgent) {
 	t.Helper()
 	prev := browserAgentFactory
-	browserAgentFactory = func(*runMode) (browser.BrowserSubagentProvider, func(), error) {
+	browserAgentFactory = func(*RootModel) (browser.BrowserSubagentProvider, func(), error) {
 		return agent, nil, nil
 	}
 	t.Cleanup(func() { browserAgentFactory = prev })
 }
 
 // strippedRows returns the transcript rows without their SGR styling.
-func strippedRows(m *runMode) []string {
-	out := make([]string, len(m.engine.response))
-	for i, row := range m.engine.response {
+func strippedRows(m *RootModel) []string {
+	out := make([]string, len(m.conversation.response))
+	for i, row := range m.conversation.response {
 		out[i] = termcolor.StripSGR(row)
 	}
 	return out
@@ -70,7 +70,7 @@ func withFakeBrowserProbe(t *testing.T, err error) {
 // to the turn that installed it, and that turn is over).
 func TestNewBrowserAgent_BuildsARunner(t *testing.T) {
 	m := newSlashModel(t)
-	m.engine.catalog = surface.RuntimeCatalog(t.TempDir())
+	m.tools.catalog = surface.RuntimeCatalog(t.TempDir())
 	withFakeBrowserProbe(t, nil)
 	runner, closeRunner, err := m.newBrowserAgent()
 	if err != nil {
@@ -93,7 +93,7 @@ func TestNewBrowserAgent_BuildsARunner(t *testing.T) {
 // quota on a dozen calls that cannot work.
 func TestNewBrowserAgent_NoBrowser_SaysWhy(t *testing.T) {
 	m := newSlashModel(t)
-	m.engine.catalog = surface.RuntimeCatalog(t.TempDir())
+	m.tools.catalog = surface.RuntimeCatalog(t.TempDir())
 	withFakeBrowserProbe(t, browsercdp.ErrBrowserUnavailable)
 
 	runner, closeRunner, err := m.newBrowserAgent()
@@ -168,7 +168,7 @@ func TestSlashBrowser_RunsTheBrowserAgent(t *testing.T) {
 func TestSlashBrowser_AgentUnavailable(t *testing.T) {
 	m := newSlashModel(t)
 	prev := browserAgentFactory
-	browserAgentFactory = func(*runMode) (browser.BrowserSubagentProvider, func(), error) {
+	browserAgentFactory = func(*RootModel) (browser.BrowserSubagentProvider, func(), error) {
 		return nil, nil, errors.New("the browser tools are not available in this session")
 	}
 	t.Cleanup(func() { browserAgentFactory = prev })
@@ -235,8 +235,8 @@ func TestSlashSchedule_NoInstruction_ShowsUsage(t *testing.T) {
 	if cmd != nil {
 		t.Error("/schedule without an instruction should not schedule a tea.Cmd")
 	}
-	if m.engine.streaming {
-		t.Error("/schedule without an instruction should leave m.engine.streaming=false")
+	if m.conversation.streaming {
+		t.Error("/schedule without an instruction should leave m.conversation.streaming=false")
 	}
 	rows := afterEcho(m)
 	if len(rows) == 0 || rows[0] != "Usage: /schedule <instruction>" {
@@ -253,11 +253,11 @@ func TestSlashSchedule_SendsTheInstruction(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("/schedule with an instruction should return a tea.Cmd")
 	}
-	if !m.engine.streaming {
-		t.Error("/schedule should set m.engine.streaming=true")
+	if !m.conversation.streaming {
+		t.Error("/schedule should set m.conversation.streaming=true")
 	}
-	if m.engine.response[0] != "> /schedule" {
-		t.Errorf("/schedule echo = %q, want %q", m.engine.response[0], "> /schedule")
+	if m.conversation.response[0] != "> /schedule" {
+		t.Errorf("/schedule echo = %q, want %q", m.conversation.response[0], "> /schedule")
 	}
 	got := lastUserMessage(m)
 	if !strings.Contains(got, "check the build every hour") {

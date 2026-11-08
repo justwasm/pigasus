@@ -79,13 +79,13 @@ func (p *Panel) PickerRows() []string {
 		"",
 		palette.DimGrayOpen+"Keyboard: "+palette.DimGrayClose+
 			palette.BlueOpen+"↑/↓"+palette.WarningBlueClose+
-			palette.DimGrayOpen+" Navigate  "+palette.DimGrayClose+
+			palette.DimGrayOpen+" Questions  "+palette.DimGrayClose+
 			palette.BlueOpen+"←/→"+palette.WarningBlueClose+
 			palette.DimGrayOpen+" Options  "+palette.DimGrayClose+
 			palette.BlueOpen+"enter"+palette.WarningBlueClose+
-			palette.DimGrayOpen+" Answer  "+palette.DimGrayClose+
+			palette.DimGrayOpen+" Select  "+palette.DimGrayClose+
 			palette.BlueOpen+"esc"+palette.WarningBlueClose+
-			palette.DimGrayOpen+" Cancel"+palette.DimGrayClose,
+			palette.DimGrayOpen+" Skip"+palette.DimGrayClose,
 	)
 	return rows
 }
@@ -122,6 +122,18 @@ func (p *Panel) renderItems(pending []*subagentquestions.Question) []string {
 			row := "    " + optRune + tuilib.FirstLine(opt)
 			rows = append(rows, row+palette.DimGrayClose)
 		}
+		// The write-in row is the last row of the option list: it lets
+		// the user answer in their own words instead of choosing one of
+		// the offered options.
+		writeInRune := "  "
+		if p.optionCursor >= len(q.Options) {
+			writeInRune = palette.BlueOpen + "› " + palette.DimGrayClose
+		}
+		label := "Write-in answer…"
+		if len(q.Options) == 0 {
+			label = "Type your answer…"
+		}
+		rows = append(rows, "    "+writeInRune+palette.DimGrayOpen+label+palette.DimGrayClose)
 	}
 	return rows
 }

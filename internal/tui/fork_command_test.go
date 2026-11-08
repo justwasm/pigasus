@@ -12,19 +12,17 @@ func TestSlashForkCancelsActiveGoal(t *testing.T) {
 	tmpDir := t.TempDir()
 	t.Setenv("OPENAGY_CONFIG_HOME", tmpDir)
 
-	m := &runMode{
+	m := &RootModel{
 		session: sessionState{
 			cwd:            tmpDir,
 			conversationID: "src-conv-123",
 			activeGoal:     convstore.NewGoalState("test goal", 0),
 		},
-		engine: engineState{
-			session: []backend.Message{
-				{Role: "user", Content: "initial prompt"},
-				{Role: "assistant", Content: "initial response"},
-			},
-		},
 	}
+	m.setSessionMessages([]backend.Message{
+		{Role: "user", Content: "initial prompt"},
+		{Role: "assistant", Content: "initial response"},
+	})
 
 	if m.session.activeGoal == nil {
 		t.Fatal("expected activeGoal to be non-nil before fork")
@@ -46,7 +44,7 @@ func TestSlashForkCancelsActiveGoal(t *testing.T) {
 	}
 
 	// Check that a fork notice was appended to the session
-	lastMsg := m.engine.session[len(m.engine.session)-1]
+	lastMsg := m.SessionMessages()[len(m.SessionMessages())-1]
 	if !strings.Contains(lastMsg.Content, "<fork_notice>") {
 		t.Errorf("expected last session message to contain <fork_notice>, got %q", lastMsg.Content)
 	}
@@ -59,18 +57,16 @@ func TestSlashForkWithProjectID(t *testing.T) {
 	tmpDir := t.TempDir()
 	t.Setenv("OPENAGY_CONFIG_HOME", tmpDir)
 
-	m := &runMode{
+	m := &RootModel{
 		session: sessionState{
 			cwd:            tmpDir,
 			conversationID: "source-conv-456",
 		},
-		engine: engineState{
-			session: []backend.Message{
-				{Role: "user", Content: "task prompt"},
-				{Role: "assistant", Content: "task response"},
-			},
-		},
 	}
+	m.setSessionMessages([]backend.Message{
+		{Role: "user", Content: "task prompt"},
+		{Role: "assistant", Content: "task response"},
+	})
 
 	handled, _ := m.slashFork("my-special-project")
 	if !handled {
@@ -79,13 +75,13 @@ func TestSlashForkWithProjectID(t *testing.T) {
 
 	// Verify response transcript contains project ID
 	foundProjectMsg := false
-	for _, line := range m.engine.response {
+	for _, line := range m.conversation.response {
 		if strings.Contains(line, "my-special-project") {
 			foundProjectMsg = true
 			break
 		}
 	}
 	if !foundProjectMsg {
-		t.Errorf("expected response to mention project ID 'my-special-project', got: %v", m.engine.response)
+		t.Errorf("expected response to mention project ID 'my-special-project', got: %v", m.conversation.response)
 	}
 }

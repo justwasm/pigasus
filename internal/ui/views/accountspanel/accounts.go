@@ -117,6 +117,10 @@ func (p *Panel) switchAccount(email string) tea.Cmd {
 		return nil
 	}
 	p.notice = fmt.Sprintf("Switched to %s.", acc.Email)
+	// The quota error belonged to the account that was active before the
+	// switch; keeping it would label the new account with the old one's
+	// failure (the panel's one error line is not per row).
+	p.quotaErr = ""
 	p.applyAccount(acc.Email)
 	p.Reload()
 	return p.refreshTier()

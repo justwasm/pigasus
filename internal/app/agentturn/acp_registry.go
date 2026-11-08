@@ -62,7 +62,7 @@ var BuiltinACPRegistry = map[string]ACPAgentManifest{
 	"agy-acp": {
 		ID:          "agy-acp",
 		Name:        "Google Antigravity ACP Server",
-		Version:     "1.5.0",
+		Version:     "1.5.3",
 		Description: "Official Agent Client Protocol server for Google Antigravity (agy acp)",
 		Repository:  "https://github.com/agentclientprotocol/registry/tree/main/antigravity-acp",
 		Distribution: ACPDistribution{
@@ -77,7 +77,7 @@ var BuiltinACPRegistry = map[string]ACPAgentManifest{
 	"agy-acp-server": {
 		ID:          "agy-acp",
 		Name:        "Google Antigravity ACP Server",
-		Version:     "1.5.0",
+		Version:     "1.5.3",
 		Description: "Official Agent Client Protocol server for Google Antigravity (agy acp)",
 		Repository:  "https://github.com/agentclientprotocol/registry/tree/main/antigravity-acp",
 		Distribution: ACPDistribution{
@@ -92,7 +92,7 @@ var BuiltinACPRegistry = map[string]ACPAgentManifest{
 	"pigasus-acp": {
 		ID:          "pigasus-acp",
 		Name:        "Pigasus ACP Server",
-		Version:     "1.5.0",
+		Version:     "1.5.3",
 		Description: "Native Agent Client Protocol server for Pigasus (pigasus acp)",
 		Distribution: ACPDistribution{
 			Binary: map[string]ACPBinaryDistribution{

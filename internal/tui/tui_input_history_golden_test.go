@@ -35,9 +35,9 @@ import (
 	"github.com/justwasm/pigasus/internal/ui/foundations/history"
 )
 
-func goldenMode(t *testing.T) *runMode {
+func goldenMode(t *testing.T) *RootModel {
 	t.Helper()
-	m := newRunMode(&fakeClient{}, "u@t", "m", "t", "/workspace", false)
+	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/workspace", false)
 	m.Update(tea.WindowSizeMsg{Width: 80, Height: 30})
 	return m
 }
@@ -178,47 +178,47 @@ func goldenSelectionDump(b *bytes.Buffer, t *testing.T) {
 		fmt.Fprintf(b, "  value=%q view=%q\n", f.value, f.view)
 
 		m := goldenMode(t)
-		m.composer.promptScreenY = 10
-		m.composer.input.SetValue(f.value)
-		m.viewport.InputSelStart = f.start
-		m.viewport.InputSelEnd = f.end
-		s, e := m.InputSelectionRange()
+		m.prompt.promptScreenY = 10
+		m.prompt.input.SetValue(f.value)
+		m.prompt.InputSelStart = f.start
+		m.prompt.InputSelEnd = f.end
+		s, e := m.prompt.InputSelectionRange()
 		fmt.Fprintf(b, "  range=%d,%d\n", s, e)
-		fmt.Fprintf(b, "  highlight=%q\n", m.applyInputSelectionHighlight(f.view))
+		fmt.Fprintf(b, "  highlight=%q\n", m.prompt.ApplyInputSelectionHighlight(f.view))
 		for _, c := range f.clicks {
-			fmt.Fprintf(b, "  offsetAt(%d,%d)=%d\n", c.x, c.y, m.inputOffsetAt(c.x, c.y))
+			fmt.Fprintf(b, "  offsetAt(%d,%d)=%d\n", c.x, c.y, m.prompt.InputOffsetAt(c.x, c.y))
 		}
 
 		for _, off := range f.offs {
 			mc := goldenMode(t)
-			mc.composer.input.SetValue(f.value)
-			mc.setInputCursorOffset(off)
+			mc.prompt.input.SetValue(f.value)
+			mc.prompt.SetInputCursorOffset(off)
 			fmt.Fprintf(b, "  cursor(%d)=%d,%d value=%q\n",
-				off, mc.composer.input.Line(), mc.composer.input.Column(), mc.composer.input.Value())
+				off, mc.prompt.input.Line(), mc.prompt.input.Column(), mc.prompt.input.Value())
 		}
 
 		md := goldenMode(t)
-		md.composer.input.SetValue(f.value)
-		md.viewport.InputSelStart = f.start
-		md.viewport.InputSelEnd = f.end
-		md.deleteInputSelection()
+		md.prompt.input.SetValue(f.value)
+		md.prompt.InputSelStart = f.start
+		md.prompt.InputSelEnd = f.end
+		md.prompt.DeleteInputSelection()
 		fmt.Fprintf(b, "  delete=%q line=%d col=%d sel=%v\n",
-			md.composer.input.Value(), md.composer.input.Line(), md.composer.input.Column(), md.hasInputSelection())
+			md.prompt.input.Value(), md.prompt.input.Line(), md.prompt.input.Column(), md.prompt.HasInputSelection())
 
 		mr := goldenMode(t)
-		mr.composer.input.SetValue(f.value)
-		mr.viewport.InputSelStart = f.start
-		mr.viewport.InputSelEnd = f.end
-		mr.replaceInputSelection(f.rep)
+		mr.prompt.input.SetValue(f.value)
+		mr.prompt.InputSelStart = f.start
+		mr.prompt.InputSelEnd = f.end
+		mr.prompt.ReplaceInputSelection(f.rep)
 		fmt.Fprintf(b, "  replace=%q line=%d col=%d sel=%v\n",
-			mr.composer.input.Value(), mr.composer.input.Line(), mr.composer.input.Column(), mr.hasInputSelection())
+			mr.prompt.input.Value(), mr.prompt.input.Line(), mr.prompt.input.Column(), mr.prompt.HasInputSelection())
 	}
 }
 
 func goldenHistoryDump(b *bytes.Buffer, t *testing.T) {
 	t.Setenv("ANTIGRAVITY_HOME", t.TempDir())
 	m := goldenMode(t)
-	m.composer.input.SetValue("DRAFT")
+	m.prompt.input.SetValue("DRAFT")
 
 	for _, p := range []string{"", " ", "  hello  ", "hello", "world", "multi\nline", "!echo hi", "  \t\n "} {
 		m.pushHistory(p)
@@ -227,36 +227,36 @@ func goldenHistoryDump(b *bytes.Buffer, t *testing.T) {
 
 	for i := 1; i <= 5; i++ {
 		m.historyUp()
-		fmt.Fprintf(b, "hist up%d=%q\n", i, m.composer.input.Value())
+		fmt.Fprintf(b, "hist up%d=%q\n", i, m.prompt.input.Value())
 	}
 	m.historyUp()
-	fmt.Fprintf(b, "hist up-past-the-end=%q\n", m.composer.input.Value())
+	fmt.Fprintf(b, "hist up-past-the-end=%q\n", m.prompt.input.Value())
 
 	for i := 1; i <= 5; i++ {
 		m.historyDown()
-		fmt.Fprintf(b, "hist down%d=%q\n", i, m.composer.input.Value())
+		fmt.Fprintf(b, "hist down%d=%q\n", i, m.prompt.input.Value())
 	}
 
-	m.composer.promptHistory.Reset()
+	m.prompt.promptHistory.Reset()
 	m.historyUp()
-	fmt.Fprintf(b, "hist reset-then-up=%q\n", m.composer.input.Value())
+	fmt.Fprintf(b, "hist reset-then-up=%q\n", m.prompt.input.Value())
 
 	// A recall closes the composer's overlays; it does not re-derive them.
 	ms := goldenMode(t)
-	ms.composer.input.SetValue("/help")
-	ms.composer.picker.Update([]rune("/help"))
-	fmt.Fprintf(b, "hist slash-before=%v\n", ms.composer.picker.Visible())
+	ms.prompt.input.SetValue("/help")
+	ms.prompt.picker.Update([]rune("/help"))
+	fmt.Fprintf(b, "hist slash-before=%v\n", ms.prompt.picker.Visible())
 	ms.pushHistory("slash entry")
 	ms.historyUp()
-	fmt.Fprintf(b, "hist slash-after=%v value=%q\n", ms.composer.picker.Visible(), ms.composer.input.Value())
+	fmt.Fprintf(b, "hist slash-after=%v value=%q\n", ms.prompt.picker.Visible(), ms.prompt.input.Value())
 
 	mm := goldenMode(t)
-	mm.composer.input.SetValue("note @zz")
-	mm.composer.atFilePicker.Update()
-	fmt.Fprintf(b, "hist mention-before=%v\n", mm.composer.atFilePicker.Visible())
+	mm.prompt.input.SetValue("note @zz")
+	mm.prompt.atFilePicker.Update()
+	fmt.Fprintf(b, "hist mention-before=%v\n", mm.prompt.atFilePicker.Visible())
 	mm.pushHistory("mention entry")
 	mm.historyUp()
-	fmt.Fprintf(b, "hist mention-after=%v value=%q\n", mm.composer.atFilePicker.Visible(), mm.composer.input.Value())
+	fmt.Fprintf(b, "hist mention-after=%v value=%q\n", mm.prompt.atFilePicker.Visible(), mm.prompt.input.Value())
 
 	// The persistent store seeds an empty list.
 	t.Setenv("ANTIGRAVITY_HOME", t.TempDir())
@@ -270,14 +270,14 @@ func goldenHistoryDump(b *bytes.Buffer, t *testing.T) {
 		}
 	}
 	ml := goldenMode(t)
-	ml.composer.promptHistory.Load(convstore.LoadHistory("", history.Cap))
+	ml.prompt.promptHistory.Load(convstore.LoadHistory("", history.Cap))
 	for i := 1; i <= 4; i++ {
 		ml.historyUp()
-		fmt.Fprintf(b, "hist load-up%d=%q\n", i, ml.composer.input.Value())
+		fmt.Fprintf(b, "hist load-up%d=%q\n", i, ml.prompt.input.Value())
 	}
 	for i := 1; i <= 4; i++ {
 		ml.historyDown()
-		fmt.Fprintf(b, "hist load-down%d=%q\n", i, ml.composer.input.Value())
+		fmt.Fprintf(b, "hist load-down%d=%q\n", i, ml.prompt.input.Value())
 	}
 
 	// The cap keeps the newest entries.
@@ -288,7 +288,7 @@ func goldenHistoryDump(b *bytes.Buffer, t *testing.T) {
 	}
 	for i := 1; i <= 101; i++ {
 		mc.historyUp()
-		fmt.Fprintf(b, "hist cap-up%d=%q\n", i, mc.composer.input.Value())
+		fmt.Fprintf(b, "hist cap-up%d=%q\n", i, mc.prompt.input.Value())
 	}
 }
 

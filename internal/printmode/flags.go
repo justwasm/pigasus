@@ -47,4 +47,3 @@ func flagStringValue(fs *flag.FlagSet, name string) string {
 func flagStringValues(fs *flag.FlagSet, name string) []string {
 	return cliflags.GetterStringValues(fs, name)
 }
-

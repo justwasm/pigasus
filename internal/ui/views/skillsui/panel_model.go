@@ -92,14 +92,16 @@ func SortBuiltinSkills(builtin []SkillInfo) {
 	})
 }
 
-// PartitionSkillsForPanel splits the catalogue into the shared, builtin
-// and per-plugin buckets, plus the plugin names in plugin-name order.
-func PartitionSkillsForPanel(skills []SkillInfo) ([]SkillInfo, []SkillInfo, map[string][]SkillInfo, []string) {
-	var shared, builtin []SkillInfo
+// PartitionSkillsForPanel splits the catalogue into the shared, builtin,
+// remote agent skills, and per-plugin buckets, plus the plugin names in plugin-name order.
+func PartitionSkillsForPanel(skills []SkillInfo) ([]SkillInfo, []SkillInfo, []SkillInfo, map[string][]SkillInfo, []string) {
+	var shared, builtin, remote []SkillInfo
 	byPlugin := map[string][]SkillInfo{}
 	var pluginOrder []string
 	for _, s := range skills {
 		switch {
+		case s.Remote:
+			remote = append(remote, s)
 		case s.Builtin:
 			builtin = append(builtin, s)
 		case s.Plugin != "":
@@ -112,17 +114,17 @@ func PartitionSkillsForPanel(skills []SkillInfo) ([]SkillInfo, []SkillInfo, map[
 		}
 	}
 	sort.Strings(pluginOrder)
-	return shared, builtin, byPlugin, pluginOrder
+	return shared, builtin, remote, byPlugin, pluginOrder
 }
 
 // PanelGroups splits the catalogue (already sorted by display name) into
-// the reference's groups: Shared, Built-in, then the plugin groups in
+// the reference's groups: Shared, Built-in, Remote agent skills, then the plugin groups in
 // plugin-name order. Each group's header reads "<left> · <label>"; the left
 // side is the absolute skills directory except for the Shared group, whose
 // header is the literal "Shared skills", and the label is "Built-in" for
 // the bundle and "From <dir>" (tilde-shortened) for the rest.
 func PanelGroups(catalog []SkillInfo) []PanelGroup {
-	shared, builtin, byPlugin, pluginOrder := PartitionSkillsForPanel(catalog)
+	shared, builtin, remote, byPlugin, pluginOrder := PartitionSkillsForPanel(catalog)
 
 	var groups []PanelGroup
 	if len(shared) > 0 {
@@ -138,6 +140,13 @@ func PanelGroups(catalog []SkillInfo) []PanelGroup {
 			Left:   GroupDir(builtin[0]),
 			Label:  "Built-in",
 			Skills: builtin,
+		})
+	}
+	if len(remote) > 0 {
+		groups = append(groups, PanelGroup{
+			Left:   "Remote agent skills",
+			Label:  "From remote agent",
+			Skills: remote,
 		})
 	}
 	for _, p := range pluginOrder {

@@ -113,6 +113,13 @@ func Reload() []SkillInfo {
 	}
 	skillsLoader.roots = kept
 
+	if remotes := RemoteSkills(); len(remotes) > 0 {
+		for _, r := range remotes {
+			r.Remote = true
+			found = append(found, r)
+		}
+	}
+
 	sort.Slice(found, func(i, j int) bool { return found[i].Name < found[j].Name })
 	return dedupeByHash(found)
 }

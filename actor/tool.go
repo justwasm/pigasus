@@ -31,6 +31,8 @@ type ToolResult struct {
 
 type toolCallIDKey struct{}
 
+type toolStepIndexKey struct{}
+
 // ContextWithToolCallID stores the tool call ID into the context.
 func ContextWithToolCallID(ctx context.Context, id string) context.Context {
 	return context.WithValue(ctx, toolCallIDKey{}, id)
@@ -42,6 +44,24 @@ func ToolCallIDFromContext(ctx context.Context) string {
 		return v
 	}
 	return ""
+}
+
+// ContextWithToolStepIndex stores the global step index into the context.
+//
+// A tool that outlives its step — a background task, a subagent — records the
+// step it started from, and a checkpoint reports that index the way the
+// reference's TaskSnapshot.step_index and SubagentSnapshot.spawn_step_index do.
+func ContextWithToolStepIndex(ctx context.Context, index int) context.Context {
+	return context.WithValue(ctx, toolStepIndexKey{}, index)
+}
+
+// ToolStepIndexFromContext retrieves the global step index from the context.
+//
+// The second result is false when the context carries no step index, which is
+// the case outside an actor turn.
+func ToolStepIndexFromContext(ctx context.Context) (int, bool) {
+	v, ok := ctx.Value(toolStepIndexKey{}).(int)
+	return v, ok
 }
 
 // Tool is the interface for capabilities executable by an Actor.

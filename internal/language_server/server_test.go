@@ -229,11 +229,11 @@ func TestLanguageServerConfig(t *testing.T) {
 
 func TestTurnAttributionTracker(t *testing.T) {
 	tracker := &turnAttributionTracker{}
-	tracker.OnTurnActive("turn-1")
+	tracker.OnTurnActive()
 	if !tracker.enabled {
 		t.Error("OnTurnActive: enabled = false, want true")
 	}
-	tracker.OnTurnIdle("turn-1")
+	tracker.OnTurnIdle()
 	if tracker.enabled {
 		t.Error("OnTurnIdle: enabled = true, want false")
 	}

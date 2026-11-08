@@ -2,6 +2,141 @@
 
 > The transcript display, the model picker, argument completion and bash mode.
 
+## The run state model
+
+`RootModel` is a thin host over three state buckets (`internal/tui/substates.go`)
+and three component models. The buckets (`session`, `engine`, `viewport`) group
+data the host still coordinates; the component models own their own state:
+
+- **`PromptModel`** (`prompt_model.go`) owns the textarea, undo/Vim state,
+  prompt history, completion popups, pasted blocks, pending media and the
+  input-area mouse selection (the viewport's `InputSelection`, split out of
+  `TextSelection`). The root only writes the clipboard and submits the turn.
+- **`OverlayModel`** (`overlay_model.go`) owns the modal panel, resume
+  picker, side-question cards, announcements, eligibility notice and login,
+  plus the Escape dismissal chain. Its host seam is two methods
+  (`overlay_host.go`): the terminal height and the panel key handler.
+- **`StatusLineModel`** (`status_line_model.go`) owns the `statusLine` and
+  `title` settings blocks, the external script's cached state and the window
+  title store. The root still assembles the payload (it needs the session's
+  model, cwd and token counts) and paints the row.
+- **`ConversationModel`** (`conversation_model.go`) owns the rendered
+  transcript rows, the block indexes a repaint uses to find a turn's tool
+  group or an assistant reply, and the live turn's streaming state (reply
+  buffers, step runs, thinking, batch and spinner). The domain session keeps
+  the messages; this model owns their presentation and the turn's
+  presentation lifecycle. Turn cancellation is not here: `session.TurnRuntime`
+  (Tier 4) owns the cancel function and running flag, and `EngineBridge`
+  delegates `CancelTurn`/`IsRunning` to it. The local stream path begins the
+  runtime on the Update goroutine and runs the turn through the bridge, so
+  the conversation no longer carries a fallback cancel function.
+  (`BeginThinking`/`AppendThought`/`ClearThinking`, `BeginReply`/
+  `AppendReplyChunk`, `BeginToolRun`/`BeginToolResult`, `EndStream`). The
+  turn's message handlers live in `conversation_stream.go` and drive those
+  transitions; the root still performs the I/O they imply (session appends,
+  persistence, transcript-document edits).
+- **`DiffModel`** (`diff_model.go`) owns the `/diff` panel and the remote
+  turn-diff cache. The panel itself stays in `internal/ui/views/diffpanel`
+  (its tabs, folds and cursor are the panel's); the model is the root's
+  owner for it, so it is no longer a loose field on the slash-panel bucket.
+- **`AuthModel`** (`auth_model.go`) owns the in-session login dialog, which
+  used to sit in the overlay bucket. The dialog's own state machine stays in
+  `internal/ui/views/loginui`; the root runs the Esc chain as
+  auth → composer popups → overlays, and the modal predicates OR the auth
+  dialog with the overlay stack.
+- **`RewindModel`** (`rewind_model.go`) owns the `/rewind` panel, which was
+  the last panel still stashed in the slash-panel bucket. The panel's cursor,
+  preview and staged choice stay in `internal/ui/views/rewindpanel`; the
+  model builds it lazily and replaces it on each `/rewind`.
+- **`ActiveItemsModel`** (`active_items_model.go`) owns the inline block that
+  lists running and pending tasks/subagents under the prompt. The block stays
+  in `internal/ui/views/activeitemspanel` (cursor, window, rows, keys); the
+  model is the root's owner for it, so it left the viewport bucket.
+- **`HelpModel`** (`help_model.go`) owns the /help overlay, which had been a
+  pointer on the viewport bucket. The panel's tabs, cursor, window and keys
+  stay in `internal/ui/views/helppanel`.
+- **`AudioModel`** (`audio_model.go`) owns the dictation surface and the
+  host's connect seam. The phase machine, recorder and cancel flag stay in
+  `internal/ui/views/voice`; the model is the root's owner for the surface.
+- **`AskQuestionModel`** (`ask_question_model.go`) owns the pending
+  subagent questions and their picker: the app-tier manager and the
+  `internal/ui/views/subagentquestionpanel` panel. Both left the engine
+  bucket. The `ask_question` tool calls `OnAsk` as soon as it enqueues a
+  question; `requestAskQuestion` sends `askQuestionPendingMsg` to the running
+  program, and `OpenParent` brings the picker up without Ctrl+K. The picker
+  answers the highlighted option on Enter, offers a write-in row, and skips
+  on Esc, so the tool's `Wait` always unblocks. Results are numbered the way
+  the reference renders them (`A1: alpha`, `A2: User Skipped`).
+- **`TasksModel`** (`tasks_model.go`) owns the background-task registry, its
+  change controller, the subagent manager /tasks kills through, and the
+  subscription state, including the inbox of task notifications delivered
+  between turns. The /tasks panel stays in `internal/ui/views/taskspanel`;
+  the model owns the data behind it.
+- **`AgentsModel`** (`agents_model.go`) owns the conversation-scoped
+  subagent definition store, the live-child registry and the @-mention
+  router, which had been loose engine fields.
+- **`ToolsModel`** (`tools_model.go`) owns the advertised tool declarations,
+  the runner, the sandbox and the tool catalogue, which had been loose
+  transport-bucket fields.
+- **`RemoteModel`** (`remote_model.go`) owns the attached-engine flag, the
+  remote @ picker cache, the last `/terminal` id and the in-process Remote
+  Control server (stop function, dispatcher and turn lock), which had been
+  loose transport-bucket fields.
+- **`CompactionModel`** (`compaction_model.go`) is the host handle on
+  `session.CompactionRuntime`: the optional manual compactor and the
+  no-program result channel now live in Tier 4, and the model lazily
+  creates the runtime so a bare RootModel literal still works.
+- **`TurnService`** (`turn_service.go`) owns the transport composition:
+  the backend client, its model-change factory, the turn engine, the
+  active `EngineBridge` and the running `*tea.Program`. `EngineBridge`
+  remains the per-turn translation seam; `TurnService` is the session's
+  composition around it.
+- **`DisplayModel`** (`display_model.go`) owns the display/lifecycle flags:
+  the quit flag, the two-step Ctrl+C confirmation, the verbosity override,
+  the /usage spinner frame, the streaming-search gate, the last terminal
+  program state and the attached-engine model-row cache.
+- **`CommandsModel`** (`commands_model.go`) owns the one slash-command
+  dispatcher, built on first use and reused for the session.
+
+`model_tree_test.go` pins the shape: the root holds the components by name,
+and a component file may not read `m.session` / `m.engine` / `m.viewport`.
+
+Two ownership rules keep the buckets from drifting:
+
+- **The domain session owns the transcript.** `sessionState.domain`
+  (`internal/app/session.Session`, backed by its trajectory supervisor) is the
+  only copy of the messages. The TUI reads through `SessionMessages` and writes
+  through `appendMessage` / `setMessages` / `truncateMessages` /
+  `setMessageContent` / `appendMessageContent`; there is no second
+  `[]backend.Message` beside it. A resumed conversation therefore keeps the
+  history it adopted when the next prompt arrives. The trajectory
+  (`loaded` steps, calls, seeded length) is owned by the same supervisor.
+- **One slash table per run.** `commandDispatcher()` builds the dispatcher on
+  first use and caches it on `engineState.dispatcher`. A command lives in
+  exactly one place: the legacy `slashHandlers` map or `internal/tui/commands`
+  (`RegisterSessionCommands`, `RegisterEngineCommands`). Registration order no
+  longer decides which of two handlers runs.
+
+The trajectory's turn-local checkpoint queue is owned by the session
+supervisor too: a compact turn queues its checkpoint with the call count that
+preceded it (`QueueCheckpoint`) and flushes it into the call list
+(`FlushCheckpoints`), so the TUI carries neither the queued steps nor their
+insertion points.
+
+The implicit (`!` command) trajectory is owned by the session supervisor:
+`CollectImplicit` folds in new steps and `WireMessages` prepends them to a
+turn, so the TUI carries no converted-message copy of its own.
+
+The transcript epoch is owned by the domain session (`session.Session.Epoch`
+/ `BumpEpoch`); the TUI's `sessionState.epoch`/`bumpEpoch` are thin adapters,
+so the turn engines and the host read one counter rather than an engine-side
+copy.
+
+`internal/tui/commands` is the migration destination. Session commands
+(clear/exit/help/copy/feedback/compact/model/resume) and engine commands
+(steer) already live there; the rest still use `slashHandlers` and migrate one
+at a time.
+
 ## The `/model` picker (cycle `model-picker-search`)
 
 `internal/ui/views/modelpicker` draws the picker and owns its keys; `internal/cliapp/slash_panel_keymap.go`
@@ -1607,6 +1742,13 @@ Four things that are easy to get wrong:
 
 The row's body is laid out in the block's width minus the prefix's two
 cells — the same two cells the prefix occupies.
+
+**Focus order.** While the block has the focus its key handler runs
+before the keybinding dispatch and the global handlers: ↑/↓ move the
+cursor, plain Enter opens the row's detail view in `/tasks`, Esc hands the
+focus back, and any other key hands it back before that key is dispatched
+normally. Dispatching `cli.enter` first is a regression: Enter submitted
+the prompt and the detail view never opened.
 
 Report: `docs/cycles/cycle-320-tui-active-items-row/`.
 

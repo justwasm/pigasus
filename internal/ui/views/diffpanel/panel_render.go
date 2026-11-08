@@ -30,7 +30,7 @@ func (p *Panel) Lines() []string {
 	if p.view != 0 {
 		return p.inlineLines()
 	}
-	if p.cwd() != "" && diffaction.DetectVCS(p.cwd()) == "git" {
+	if p.vcsName() != "" {
 		return p.vcsLines()
 	}
 	return p.noVCSLines()
@@ -92,13 +92,13 @@ func navHint() string {
 
 // allChangesLines renders the tab's file list, or the empty state.
 func (p *Panel) allChangesLines(tracked, untracked []Change, cursor int) []string {
-	return diffaction.AllChangesLines(tracked, untracked, cursor, emptyHint(), navHint())
+	return diffaction.AllChangesLinesWithVCS(p.vcsName(), tracked, untracked, cursor, emptyHint(), navHint())
 }
 
 // allChangesLinesWindowed renders the tab's file list with the visible
 // window and the reference's position indicator.
 func (p *Panel) allChangesLinesWindowed(tracked, untracked []Change, cursor, window, visible int) []string {
-	return diffaction.AllChangesLinesWindowed(tracked, untracked, cursor, window, visible, emptyHint(), navHint())
+	return diffaction.AllChangesLinesWindowedWithVCS(p.vcsName(), tracked, untracked, cursor, window, visible, emptyHint(), navHint())
 }
 
 // noVCSLines renders the /diff panel in a directory that is not a
@@ -167,7 +167,7 @@ func (p *Panel) perTurnLines() []string {
 	}
 
 	lines := []string{
-		tabRow("git", 1, true),
+		tabRow(p.vcsName(), 1, true),
 		" " + gray238 + "  " + strconv.Itoa(turns) + " turn(s) · " +
 			strconv.Itoa(len(all)) + " file(s) changed" + palette.DimGrayOpen + indicator + palette.DimGrayClose + gray238Close,
 		"",
@@ -192,7 +192,7 @@ func (p *Panel) perTurnLines() []string {
 // notice and the legend.
 func (p *Panel) perTurnEmpty() []string {
 	return []string{
-		tabRow("git", 1, true),
+		tabRow(p.vcsName(), 1, true),
 		"",
 		"   " + dimGrayOpen + "No file changes in conversation" + dimGrayClose,
 		"",
@@ -232,7 +232,7 @@ func (p *Panel) commitTreeLines() []string {
 	}
 
 	lines := []string{
-		tabRow("git", 2, true),
+		tabRow(p.vcsName(), 2, true),
 		" " + gray238 + "  " + strconv.Itoa(len(commits)) + " commit(s) available" + palette.DimGrayOpen + indicator + palette.DimGrayClose + gray238Close,
 		"",
 		" \x1b[38;5;69m\x1b[48;5;255m▌\x1b[39m \x1b[1m*\x1b[0m\x1b[48;5;255m  \x1b[1m\x1b[38;5;172mWorking Copy (Uncommitted Changes)\x1b[0m\x1b[48;5;255m",

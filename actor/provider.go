@@ -18,12 +18,12 @@ const (
 
 // ConversationMessage is an individual message sent to the model backend.
 type ConversationMessage struct {
-	Role       Role        `json:"role"`
-	Content    string      `json:"content"`
-	Thought    string      `json:"thought,omitempty"`
-	ToolCalls  []ToolCall  `json:"tool_calls,omitempty"`
-	ToolCallID string      `json:"tool_call_id,omitempty"`
-	ToolName   string      `json:"tool_name,omitempty"`
+	Role       Role       `json:"role"`
+	Content    string     `json:"content"`
+	Thought    string     `json:"thought,omitempty"`
+	ToolCalls  []ToolCall `json:"tool_calls,omitempty"`
+	ToolCallID string     `json:"tool_call_id,omitempty"`
+	ToolName   string     `json:"tool_name,omitempty"`
 }
 
 // GenerateRequest bundles parameters for a model generation turn.
@@ -38,11 +38,11 @@ type GenerateRequest struct {
 
 // StreamChunk is one incremental delta emitted by a ResponseStream.
 type StreamChunk struct {
-	Delta        string     `json:"delta,omitempty"`
-	Thought      string     `json:"thought,omitempty"`
-	ToolCalls    []ToolCall `json:"tool_calls,omitempty"`
+	Delta        string      `json:"delta,omitempty"`
+	Thought      string      `json:"thought,omitempty"`
+	ToolCalls    []ToolCall  `json:"tool_calls,omitempty"`
 	Usage        *TokenUsage `json:"usage,omitempty"`
-	FinishReason string     `json:"finish_reason,omitempty"`
+	FinishReason string      `json:"finish_reason,omitempty"`
 }
 
 // ResponseStream consumes incremental streaming responses from a Provider.

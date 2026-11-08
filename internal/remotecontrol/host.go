@@ -87,6 +87,12 @@ type HostConfig struct {
 	// $ANTIGRAVITY_HOME/projects/.
 	Projects projects.Store
 
+	// Uploads is the seam UploadProjectFile writes through. nil →
+	// Start wires nothing into Config.Uploads, and that one method
+	// answers -32603. Production passes a projects.FSUploadStore
+	// rooted at $ANTIGRAVITY_HOME/projects/.
+	Uploads projects.UploadStore
+
 	// Conversations is the seam the three destructive
 	// methods introduced in cycle
 	// rc-conversation-deletions —

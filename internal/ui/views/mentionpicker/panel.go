@@ -59,6 +59,9 @@ type Seams struct {
 	Cwd func() string
 	// Width returns the terminal's width in columns.
 	Width func() int
+	// List enumerates the workspace when it is not the local disk (a
+	// remote-agent session). Nil means atfiles.List on Cwd.
+	List func(root string) ([]atfiles.Entry, error)
 }
 
 // Panel is the "@" file-mention dropdown.
@@ -220,7 +223,11 @@ func (p *Panel) Update() bool {
 		return prev
 	}
 	if p.cwd != cwd || p.all == nil {
-		all, err := atfiles.List(cwd)
+		list := atfiles.List
+		if p.seams.List != nil {
+			list = p.seams.List
+		}
+		all, err := list(cwd)
 		if err != nil {
 			p.all = nil
 		} else {

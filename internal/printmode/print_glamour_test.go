@@ -33,7 +33,7 @@
 //     useGlamour=true (and returns the styled text the user saw) and
 //     streams raw flushed text when useGlamour=false.
 //   - The full glamour-on-Done path: three chunks carrying `**bold**`
-//     + a list item land as ANSI-styled output after Flush, and the
+//   - a list item land as ANSI-styled output after Flush, and the
 //     literal `**` and bare `- alpha` markers are gone.
 //   - The glamourTTYCheck seam: a fake TTY-detector in tests pins
 //     the format-vs-TTY decision the production seam makes.

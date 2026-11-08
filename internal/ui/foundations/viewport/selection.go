@@ -17,14 +17,19 @@ const (
 	SelHighlightClose = "\x1b[0m"
 )
 
-// TextSelection tracks active text selection across the transcript viewport and input area.
+// TextSelection tracks the active text selection across the transcript
+// viewport. The input area's own selection lives in InputSelection, which
+// the composer model owns.
 type TextSelection struct {
 	SelDragging bool
 	SelStartRow int
 	SelStartCol int
 	SelEndRow   int
 	SelEndCol   int
+}
 
+// InputSelection tracks the composer's mouse selection.
+type InputSelection struct {
 	InputSelDragging bool
 	InputSelStart    int
 	InputSelEnd      int
@@ -40,14 +45,14 @@ func (s *TextSelection) ResetSelection() {
 }
 
 // ResetInputSelection clears the input textarea text selection.
-func (s *TextSelection) ResetInputSelection() {
+func (s *InputSelection) ResetInputSelection() {
 	s.InputSelDragging = false
 	s.InputSelStart = 0
 	s.InputSelEnd = 0
 }
 
 // InputSelectionRange returns normalized [start, end] byte offsets.
-func (s *TextSelection) InputSelectionRange() (start, end int) {
+func (s *InputSelection) InputSelectionRange() (start, end int) {
 	if s.InputSelStart <= s.InputSelEnd {
 		return s.InputSelStart, s.InputSelEnd
 	}

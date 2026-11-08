@@ -5,6 +5,8 @@ import (
 	"context"
 	"io"
 	"net"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -214,4 +216,96 @@ type testACPClientForHost struct {
 
 type testACPV2ClientForHost struct {
 	acp2.UnimplementedClient
+}
+
+func TestParseACPFlags_Agent(t *testing.T) {
+	opts := parseACPFlags([]string{"--agent", "helper", "--model", "m"})
+	if opts.agent != "helper" {
+		t.Errorf("agent = %q, want helper", opts.agent)
+	}
+	if opts.model != "m" {
+		t.Errorf("model = %q, want m", opts.model)
+	}
+	if opts := parseACPFlags(nil); opts.agent != "" {
+		t.Errorf("default agent = %q, want empty", opts.agent)
+	}
+}
+
+// TestACPHost_AgentFlagAdvertisesSkills runs the ACP host under
+// `--agent helper` and asserts the v2 session advertises the custom
+// agent's skill in its command list.
+func TestACPHost_AgentFlagAdvertisesSkills(t *testing.T) {
+	workspace := t.TempDir()
+	writeHostTestFile(t, filepath.Join(workspace, ".agents", "agents", "helper.md"),
+		"---\nname: helper\ndescription: Helps\nskills:\n  - ../../skills/reviewer\n---\nHelper body\n")
+	writeHostTestFile(t, filepath.Join(workspace, "skills", "reviewer", "SKILL.md"),
+		"---\nname: code-reviewer\ndescription: Reviews code changes\n---\n")
+	t.Chdir(workspace)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	agentInR, clientInW := io.Pipe()
+	clientOutR, agentOutW := io.Pipe()
+	defer agentInR.Close()
+	defer clientInW.Close()
+	defer clientOutR.Close()
+	defer agentOutW.Close()
+
+	go func() {
+		_ = runAcpHandler(nil, cli.ACPArgs{
+			In:        agentInR,
+			Out:       agentOutW,
+			Err:       &bytes.Buffer{},
+			Ctx:       ctx,
+			Workspace: workspace,
+			Model:     "test-model",
+			RawArgs:   []string{"--agent", "helper", "--acp-version", "2"},
+		})
+	}()
+
+	clientConn := acp2.NewClientSideConnection(func(c *acp2.ClientSideConnection) acp2.Client {
+		return &testACPV2ClientForHost{}
+	}, acp.NewStdioTransport(clientOutR, clientInW))
+	go func() { _ = clientConn.Start(ctx) }()
+
+	if _, err := clientConn.Initialize(ctx, &acp2.InitializeRequest{
+		ProtocolVersion: 2,
+		Info:            acp2.Implementation{Name: "v2-client", Version: "2.0.0"},
+	}); err != nil {
+		t.Fatalf("Initialize v2 failed: %v", err)
+	}
+	sessResp, err := clientConn.NewSession(ctx, &acp2.NewSessionRequest{
+		Cwd: acp2.AbsolutePath(workspace),
+	})
+	if err != nil {
+		t.Fatalf("NewSession failed: %v", err)
+	}
+
+	var names []string
+	for _, cmd := range sessResp.AvailableCommands {
+		names = append(names, cmd.Name)
+	}
+	for _, want := range []string{"/agent", "/code-reviewer"} {
+		found := false
+		for _, name := range names {
+			if name == want {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("AvailableCommands missing %q: %v", want, names)
+		}
+	}
+}
+
+func writeHostTestFile(t *testing.T, path, content string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("mkdir %s: %v", filepath.Dir(path), err)
+	}
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("write %s: %v", path, err)
+	}
 }

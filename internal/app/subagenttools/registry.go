@@ -59,18 +59,34 @@ type Child struct {
 	// Role is the role the call asked for, or the type's name when the
 	// call named none — the reference's own rule for the list entry.
 	Role string
+	// Model is the model the child runs on. AGY 1.5.3 surfaces it in the
+	// subagent rows, the /agents detail view and the status-line JSON.
+	Model string
+	// Effort is the reasoning effort the child runs at, when the parent
+	// session has one.
+	Effort string
 	// Worktree is the directory the child's session is anchored to.
 	Worktree string
+	// LogAbsoluteURI is the child's transcript log, as the launch
+	// acknowledgement reported it. A checkpoint's SubagentSnapshot carries
+	// it as result.logAbsoluteUri.
+	LogAbsoluteURI string
+	// SpawnStepIndex is the global step the launch came from. A checkpoint's
+	// SubagentSnapshot carries it as spawnStepIndex; zero means the child
+	// was launched outside a turn.
+	SpawnStepIndex int32
+	// StartedAt is when the child was launched.
+	StartedAt time.Time
 
 	mu          sync.Mutex
 	state       string
 	currentTool string
 	cancel      context.CancelFunc
-	abortTurn func()
-	inbox     chan Message
-	reported  bool
-	launchFn  func(ctx context.Context, initialMsg *Message)
-	subDir    string
+	abortTurn   func()
+	inbox       chan Message
+	reported    bool
+	launchFn    func(ctx context.Context, initialMsg *Message)
+	subDir      string
 }
 
 // NewChild returns a child in the running state.
@@ -497,6 +513,10 @@ type StateEntry struct {
 	Role           string `json:"role"`
 	ConversationID string `json:"conversationId"`
 	State          string `json:"state"`
+	// Model is the model the child runs on (AGY 1.5.3).
+	Model string `json:"model,omitempty"`
+	// Effort is the child's reasoning effort, when known.
+	Effort string `json:"effort,omitempty"`
 }
 
 // States renders the registry's children as the reference's list entries.
@@ -517,6 +537,8 @@ func (r *Registry) States() []StateEntry {
 			Role:           role,
 			ConversationID: c.ConversationID,
 			State:          c.State(),
+			Model:          c.Model,
+			Effort:         c.Effort,
 		})
 	}
 	return out

@@ -24,7 +24,7 @@ import (
 // The frame's line index is the terminal row: the body the host paints
 // *is* the screen, and the popup's rectangle is expressed in the same
 // rows.
-func paintedRow(t *testing.T, m *runMode, text string) int {
+func paintedRow(t *testing.T, m *RootModel, text string) int {
 	t.Helper()
 	lines := strings.Split(m.View().Content, "\n")
 	for i, l := range lines {
@@ -43,7 +43,7 @@ func paintedRow(t *testing.T, m *runMode, text string) int {
 func TestPickerMouse_ClickOnPaintedRowCompletesTheCommand(t *testing.T) {
 	m := sizedMode(80, 24, 0)
 	m.Update(runeKey('/'))
-	if !m.composer.picker.Visible() {
+	if !m.prompt.picker.Visible() {
 		t.Fatal("setup: the popup should be visible after '/'")
 	}
 
@@ -53,7 +53,7 @@ func TestPickerMouse_ClickOnPaintedRowCompletesTheCommand(t *testing.T) {
 	row := paintedRow(t, m, "/agents")
 	m.Update(tea.MouseClickMsg(tea.Mouse{X: 5, Y: row, Button: tea.MouseLeft}))
 
-	if got := m.composer.input.Value(); got != "/agents" {
+	if got := m.prompt.input.Value(); got != "/agents" {
 		t.Errorf("the composer after the click = %q, want %q", got, "/agents")
 	}
 }
@@ -64,7 +64,7 @@ func TestPickerMouse_ClickOnPaintedRowCompletesTheCommand(t *testing.T) {
 func TestPickerMouse_ClickOutsideThePopupLeavesTheComposer(t *testing.T) {
 	m := sizedMode(80, 24, 0)
 	m.Update(runeKey('/'))
-	if !m.composer.picker.Visible() {
+	if !m.prompt.picker.Visible() {
 		t.Fatal("setup: the popup should be visible after '/'")
 	}
 	m.View()
@@ -72,7 +72,7 @@ func TestPickerMouse_ClickOutsideThePopupLeavesTheComposer(t *testing.T) {
 	// Row 0 is the transcript, well above the popup's rectangle.
 	m.Update(tea.MouseClickMsg(tea.Mouse{X: 5, Y: 0, Button: tea.MouseLeft}))
 
-	if got := m.composer.input.Value(); got != "/" {
+	if got := m.prompt.input.Value(); got != "/" {
 		t.Errorf("the composer after a click outside the popup = %q, want %q", got, "/")
 	}
 }

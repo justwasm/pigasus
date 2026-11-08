@@ -332,6 +332,9 @@ func recordAccount(w http.ResponseWriter, email string) {
 	if email == "" {
 		return
 	}
+	if w != nil {
+		w.Header().Set("X-OpenAGY-Account", email)
+	}
 	for curr := w; curr != nil; {
 		if rec, ok := curr.(accountRecorder); ok {
 			rec.setAccount(email)

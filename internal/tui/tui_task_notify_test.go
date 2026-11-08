@@ -26,15 +26,15 @@ func TestTheNotifierPutsTheNotificationInTheInbox(t *testing.T) {
 	prev := shell.SetTaskNotifier(nil)
 	defer shell.SetTaskNotifier(prev)
 
-	m := &runMode{engine: engineState{taskCtrl: taskregistry.NewController(nil)}}
+	m := &RootModel{tasks: TasksModel{ctrl: taskregistry.NewController(nil)}}
 	m.installTaskNotifier()
 
 	shell.NotifyTask(shell.TaskNotification{
 		TaskID: "conv-1/task-1",
 		Body:   "Task id \"conv-1/task-1\" finished with result:",
 	})
-	if m.engine.taskCtrl.Inbox().Len() != 1 {
-		t.Fatalf("the inbox holds %d notifications, want 1", m.engine.taskCtrl.Inbox().Len())
+	if m.tasks.ctrl.Inbox().Len() != 1 {
+		t.Fatalf("the inbox holds %d notifications, want 1", m.tasks.ctrl.Inbox().Len())
 	}
 }
 
@@ -46,8 +46,8 @@ func TestTheNotifierPutsTheNotificationInTheInbox(t *testing.T) {
 // The reference's own lead-in says the message "was not actually sent by
 // the user" — which is why it travels where a user message travels.
 func TestTheNotificationReachesTheModelAsAUserTurn(t *testing.T) {
-	m := &runMode{engine: engineState{taskCtrl: taskregistry.NewController(nil)}}
-	m.engine.taskCtrl.Inbox().Add(taskregistry.TaskNotification{
+	m := &RootModel{tasks: TasksModel{ctrl: taskregistry.NewController(nil)}}
+	m.tasks.ctrl.Inbox().Add(taskregistry.TaskNotification{
 		TaskID: "conv-1/task-1",
 		Body:   "Task id \"conv-1/task-1\" finished with result:",
 	})
@@ -67,8 +67,8 @@ func TestTheNotificationReachesTheModelAsAUserTurn(t *testing.T) {
 	}
 	// The session keeps the notification as a system message: the
 	// reference stores it as its own step type.
-	if len(m.engine.session) != 1 || m.engine.session[0].Role != "system" {
-		t.Fatalf("the session does not keep the notification as a system message: %+v", m.engine.session)
+	if len(m.SessionMessages()) != 1 || m.SessionMessages()[0].Role != "system" {
+		t.Fatalf("the session does not keep the notification as a system message: %+v", m.SessionMessages())
 	}
 }
 
@@ -76,8 +76,8 @@ func TestTheNotificationReachesTheModelAsAUserTurn(t *testing.T) {
 // reference stores a system message under its own step type,
 // CORTEX_STEP_TYPE_SYSTEM_MESSAGE = 101.
 func TestTheNotificationIsStoredAsASystemNotice(t *testing.T) {
-	m := &runMode{engine: engineState{taskInbox: agentturn.NewTaskInbox()}}
-	m.engine.taskInbox.Add(shell.TaskNotification{
+	m := &RootModel{tasks: TasksModel{inbox: agentturn.NewTaskInbox()}}
+	m.tasks.inbox.Add(shell.TaskNotification{
 		TaskID: "conv-1/task-1",
 		Body:   "Task id \"conv-1/task-1\" finished with result:",
 	})
@@ -99,8 +99,8 @@ func TestTheNotificationIsStoredAsASystemNotice(t *testing.T) {
 // picks the message up and carries on with its work — the clone starts a
 // turn of its own rather than waiting for the user to type something.
 func TestANotificationStartsATurnWhenTheAgentIsIdle(t *testing.T) {
-	m := &runMode{engine: engineState{taskCtrl: taskregistry.NewController(nil)}}
-	m.engine.taskCtrl.Inbox().Add(taskregistry.TaskNotification{
+	m := &RootModel{tasks: TasksModel{ctrl: taskregistry.NewController(nil)}}
+	m.tasks.ctrl.Inbox().Add(taskregistry.TaskNotification{
 		TaskID: "conv-1/task-1",
 		Body:   "Task id \"conv-1/task-1\" finished with result:",
 	})
@@ -109,19 +109,19 @@ func TestANotificationStartsATurnWhenTheAgentIsIdle(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("an idle agent did not start a turn for the notification")
 	}
-	if !m.engine.streaming {
+	if !m.conversation.streaming {
 		t.Error("the turn was not marked as running")
 	}
-	if len(m.engine.session) != 1 {
-		t.Fatalf("the session holds %d messages, want 1", len(m.engine.session))
+	if len(m.SessionMessages()) != 1 {
+		t.Fatalf("the session holds %d messages, want 1", len(m.SessionMessages()))
 	}
 }
 
 // TestANotificationWaitsWhileATurnIsRunning: a turn that is already in
 // flight is not interrupted; the notification is delivered by the next one.
 func TestANotificationWaitsWhileATurnIsRunning(t *testing.T) {
-	m := &runMode{engine: engineState{taskCtrl: taskregistry.NewController(nil), streaming: true}}
-	m.engine.taskCtrl.Inbox().Add(taskregistry.TaskNotification{
+	m := &RootModel{tasks: TasksModel{ctrl: taskregistry.NewController(nil)}, conversation: ConversationModel{streaming: true}}
+	m.tasks.ctrl.Inbox().Add(taskregistry.TaskNotification{
 		TaskID: "conv-1/task-1",
 		Body:   "Task id \"conv-1/task-1\" finished with result:",
 	})
@@ -129,8 +129,8 @@ func TestANotificationWaitsWhileATurnIsRunning(t *testing.T) {
 	if cmd := m.updateTaskNotificationMsg(); cmd != nil {
 		t.Error("a running turn was interrupted by the notification")
 	}
-	if m.engine.taskCtrl.Inbox().Len() != 1 {
-		t.Errorf("the inbox holds %d notifications, want 1", m.engine.taskCtrl.Inbox().Len())
+	if m.tasks.ctrl.Inbox().Len() != 1 {
+		t.Errorf("the inbox holds %d notifications, want 1", m.tasks.ctrl.Inbox().Len())
 	}
 }
 
@@ -139,24 +139,24 @@ func TestANotificationWaitsWhileATurnIsRunning(t *testing.T) {
 // model treats the user prompt as the active instruction.
 func TestNotificationDeliveredBeforeUserTurn(t *testing.T) {
 	m := newSlashModel(t)
-	if m.engine.taskCtrl == nil {
-		m.engine.taskCtrl = taskregistry.NewController(nil)
+	if m.tasks.ctrl == nil {
+		m.tasks.ctrl = taskregistry.NewController(nil)
 	}
-	m.engine.taskCtrl.Inbox().Add(taskregistry.TaskNotification{
+	m.tasks.ctrl.Inbox().Add(taskregistry.TaskNotification{
 		TaskID: "conv-1/task-1",
 		Body:   "Task id \"conv-1/task-1\" finished with result:\nok",
 	})
 
 	m.startModelTurn("what is the current status?")
 
-	if len(m.engine.session) != 2 {
-		t.Fatalf("expected 2 session messages (system notification then user prompt), got %d", len(m.engine.session))
+	if len(m.SessionMessages()) != 2 {
+		t.Fatalf("expected 2 session messages (system notification then user prompt), got %d", len(m.SessionMessages()))
 	}
-	if m.engine.session[0].Role != "system" || !strings.Contains(m.engine.session[0].Content, "conv-1/task-1") {
-		t.Errorf("expected session[0] to be task notification system message, got: %+v", m.engine.session[0])
+	if m.SessionMessages()[0].Role != "system" || !strings.Contains(m.SessionMessages()[0].Content, "conv-1/task-1") {
+		t.Errorf("expected session[0] to be task notification system message, got: %+v", m.SessionMessages()[0])
 	}
-	if m.engine.session[1].Role != "user" || !strings.Contains(m.engine.session[1].Content, "what is the current status?") {
-		t.Errorf("expected session[1] to be user prompt, got: %+v", m.engine.session[1])
+	if m.SessionMessages()[1].Role != "user" || !strings.Contains(m.SessionMessages()[1].Content, "what is the current status?") {
+		t.Errorf("expected session[1] to be user prompt, got: %+v", m.SessionMessages()[1])
 	}
 }
 
@@ -175,10 +175,32 @@ func TestUnappliedSteerPromotedToQueue(t *testing.T) {
 	if len(m.session.store.StreamQueue) != 0 {
 		t.Errorf("expected StreamQueue to be dequeued for next turn, got: %v", m.session.store.StreamQueue)
 	}
-	if !m.engine.streaming {
+	if !m.conversation.streaming {
 		t.Errorf("expected next turn to start streaming for the unapplied instruction")
 	}
-	if len(m.engine.session) == 0 || m.engine.session[len(m.engine.session)-1].Content != "unapplied user instruction" {
-		t.Errorf("expected unapplied instruction to be active turn prompt, got session: %+v", m.engine.session)
+	if len(m.SessionMessages()) == 0 || m.SessionMessages()[len(m.SessionMessages())-1].Content != "unapplied user instruction" {
+		t.Errorf("expected unapplied instruction to be active turn prompt, got session: %+v", m.SessionMessages())
+	}
+}
+
+// TestFlushNextQueued_PicksUpTaskCtrlInbox verifies that flushNextQueued seamlessly
+// starts a notification turn when subagent/task notifications arrived into taskCtrl.Inbox()
+// during a turn (or after auto-compaction), preventing the agent from stalling into idle.
+func TestFlushNextQueued_PicksUpTaskCtrlInbox(t *testing.T) {
+	m := newSlashModel(t)
+	if m.tasks.ctrl == nil {
+		m.tasks.ctrl = taskregistry.NewController(nil)
+	}
+	m.tasks.ctrl.Inbox().Add(taskregistry.TaskNotification{
+		TaskID: "subagent-101",
+		Body:   "Subagent subagent-101 completed the translation task",
+	})
+
+	cmd := m.flushNextQueued("")
+	if cmd == nil {
+		t.Fatalf("expected flushNextQueued to return a non-nil Cmd to process taskCtrl.Inbox() notification")
+	}
+	if !m.conversation.streaming {
+		t.Errorf("expected engine to be streaming for notification turn")
 	}
 }

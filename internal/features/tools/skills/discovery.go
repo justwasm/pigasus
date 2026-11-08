@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 
 	"github.com/justwasm/pigasus/internal/core/confhome"
 	"gopkg.in/yaml.v3"
@@ -42,6 +43,7 @@ type SkillInfo struct {
 	Builtin        bool   `json:"builtin"`
 	ModelInvocable bool   `json:"model_invocable"`
 	Icon           string `json:"-"`
+	Remote         bool   `json:"remote,omitempty"`
 }
 
 type jsonSkillInfo = SkillInfo
@@ -207,11 +209,43 @@ func scanUnits(home string) []scanUnit {
 // (frontmatter `name:`) name. The reference's AGY 1.2.7 changelog records
 // this as the gap fix; see the file comment of slash_skills_dedup.go for
 // the rule and its evidence grade.
+// remoteSkillsProvider is an optional hook that supplies skills exposed by a remote agent.
+var (
+	remoteSkillsMu sync.RWMutex
+	remoteSkillsFn func() []SkillInfo
+)
+
+// SetRemoteSkillsProvider registers a provider for remote agent skills.
+func SetRemoteSkillsProvider(fn func() []SkillInfo) {
+	remoteSkillsMu.Lock()
+	defer remoteSkillsMu.Unlock()
+	remoteSkillsFn = fn
+}
+
+// RemoteSkills returns the currently registered remote agent skills.
+func RemoteSkills() []SkillInfo {
+	remoteSkillsMu.RLock()
+	defer remoteSkillsMu.RUnlock()
+	if remoteSkillsFn == nil {
+		return nil
+	}
+	return remoteSkillsFn()
+}
+
 // Discover enumerates the skills installed on this machine: the builtin
 // bundle, the shared ~/.gemini/skills library and every plugin's skills/
-// directory.
+// directory, plus any inherited remote agent skills.
 func Discover() []SkillInfo {
-	return discoverInternal()
+	found := discoverInternal()
+	if remotes := RemoteSkills(); len(remotes) > 0 {
+		for _, r := range remotes {
+			r.Remote = true
+			found = append(found, r)
+		}
+		sort.Slice(found, func(i, j int) bool { return found[i].Name < found[j].Name })
+		return dedupeByHash(found)
+	}
+	return found
 }
 
 func discoverInternal() []jsonSkillInfo {

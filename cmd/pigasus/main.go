@@ -18,6 +18,7 @@ import (
 	_ "github.com/justwasm/pigasus/internal/app/subcommands/remotecontrol"
 	_ "github.com/justwasm/pigasus/internal/app/subcommands/update"
 	"github.com/justwasm/pigasus/internal/clirunner"
+	_ "github.com/justwasm/pigasus/internal/rchost/agentserver"
 	_ "github.com/justwasm/pigasus/internal/tui"
 )
 

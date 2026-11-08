@@ -15,13 +15,28 @@ type DiffHost interface {
 	ClosePanel() tea.Cmd
 }
 
+// DiffRemote is the optional remote-session seam: the workspace and its
+// history live on the proxy, so the panel asks the host for the turn diff
+// instead of reading local git.
+type DiffRemote interface {
+	RemoteDiffChanges() (tracked, untracked []diffpanel.Change, ok bool)
+	RemoteDiffBody(target, kind string) (lines []string, ok bool)
+	RemoteDiffVCS() string
+}
+
 // NewDiffPanel builds the /diff panel with the given host seams.
 func NewDiffPanel(h DiffHost) *diffpanel.Panel {
-	return diffpanel.New(diffpanel.Seams{
+	seams := diffpanel.Seams{
 		Cwd:        h.SessionCwd,
 		Size:       h.TerminalSize,
 		Turns:      h.DiffTurnCount,
 		VimEnabled: h.VimEnabled,
 		Close:      h.ClosePanel,
-	})
+	}
+	if remote, ok := h.(DiffRemote); ok {
+		seams.Changes = remote.RemoteDiffChanges
+		seams.Body = remote.RemoteDiffBody
+		seams.VCS = remote.RemoteDiffVCS
+	}
+	return diffpanel.New(seams)
 }

@@ -8,7 +8,7 @@ import (
 
 // DefaultWatchdogTimeout is the duration of zero activity before a streaming turn
 // is considered stalled.
-const DefaultWatchdogTimeout = 60 * time.Second
+const DefaultWatchdogTimeout = 180 * time.Second
 
 // ErrConnectionStalled indicates that no network stream tokens or tool updates
 // were received within the watchdog window.

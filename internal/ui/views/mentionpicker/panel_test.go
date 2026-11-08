@@ -12,6 +12,8 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+
+	atfiles "github.com/justwasm/pigasus/internal/app/prompt/mentions/files"
 )
 
 // harness is a panel over a buffer and a workspace root.
@@ -329,5 +331,68 @@ func withDir(t *testing.T, p string) {
 	t.Helper()
 	if err := os.MkdirAll(p, 0o755); err != nil {
 		t.Fatalf("MkdirAll(%q): %v", p, err)
+	}
+}
+
+// TestPanel_UsesHostLister pins the remote-agent seam: when the host
+// supplies a lister, the dropdown does not scan the local disk.
+func TestPanel_UsesHostLister(t *testing.T) {
+	called := 0
+	h := &harness{dir: "/remote-workspace", width: 120}
+	h.p = New(Seams{
+		Buffer:    func() string { return h.buf },
+		SetBuffer: func(s string) { h.buf = s },
+		Cwd:       func() string { return h.dir },
+		Width:     func() int { return h.width },
+		List: func(root string) ([]atfiles.Entry, error) {
+			called++
+			if root != "/remote-workspace" {
+				t.Errorf("lister root = %q", root)
+			}
+			return []atfiles.Entry{
+				{Path: "/remote-workspace/go.mod", Rel: "go.mod"},
+				{Path: "/remote-workspace/cmd/", Rel: "cmd/", IsDir: true},
+			}, nil
+		},
+	})
+	h.type_("look at @go")
+
+	if called == 0 {
+		t.Fatal("the host lister was not called")
+	}
+	if !h.p.Visible() || h.p.Len() != 1 {
+		t.Fatalf("visible=%v candidates=%d, want one go.mod candidate", h.p.Visible(), h.p.Len())
+	}
+	if got := h.p.selectedEntry().Rel; got != "go.mod" {
+		t.Errorf("selected = %q, want go.mod", got)
+	}
+}
+
+// TestPanel_AsyncListerUpdatesOnNextKeystroke pins the remote walk: the
+// first call may return nothing while the cache fills; the next keystroke
+// must pick the listing up.
+func TestPanel_AsyncListerUpdatesOnNextKeystroke(t *testing.T) {
+	calls := 0
+	h := &harness{dir: "/remote-workspace", width: 120}
+	h.p = New(Seams{
+		Buffer:    func() string { return h.buf },
+		SetBuffer: func(s string) { h.buf = s },
+		Cwd:       func() string { return h.dir },
+		Width:     func() int { return h.width },
+		List: func(root string) ([]atfiles.Entry, error) {
+			calls++
+			if calls == 1 {
+				return nil, nil
+			}
+			return []atfiles.Entry{{Path: "/remote-workspace/go.mod", Rel: "go.mod"}}, nil
+		},
+	})
+	h.type_("@go")
+	if h.p.Len() != 0 {
+		t.Fatalf("first update should be empty, got %d", h.p.Len())
+	}
+	h.type_("@go.")
+	if h.p.Len() != 1 || h.p.selectedEntry().Rel != "go.mod" {
+		t.Fatalf("second update candidates = %d", h.p.Len())
 	}
 }

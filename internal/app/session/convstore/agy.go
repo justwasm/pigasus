@@ -10,6 +10,7 @@ import (
 	"unicode/utf8"
 
 	agystep "github.com/justwasm/pigasus/internal/app/prompt/step"
+	"github.com/justwasm/pigasus/internal/core/compaction"
 )
 
 // Step type ids, recovered from the reference's own conversation databases.
@@ -21,9 +22,11 @@ const (
 	StepUserInput     = 14
 	StepModelResponse = 15
 	StepError         = 17
-	StepSubagent      = 23
-	StepSystemNotice  = 101
-	StepToolCall      = 132
+	// StepCheckpoint is CORTEX_STEP_TYPE_CHECKPOINT = 23. It carries the
+	// reference's compaction boundary, not a subagent.
+	StepCheckpoint   = 23
+	StepSystemNotice = 101
+	StepToolCall     = 132
 )
 
 // Step is one entry of a conversation as the reference stores it.
@@ -56,6 +59,20 @@ type Step struct {
 	// by inspecting real convstore databases; pre-cycle-163 the clone ignored
 	// this field, so an expanded loaded step (ctrl+o) showed its title only.
 	ToolResult string
+
+	// Checkpoint fields, set for StepCheckpoint. The reference's
+	// CortexStepCheckpoint lives at step_payload field 30.
+	CheckpointIndex int
+	IncludedStart   int // first step index folded into the summary
+	IncludedEnd     int // exclusive: first step after the checkpoint
+	IncludedSteps   []int64
+	Summary         string
+	UserIntent      string
+	UserRequests    []string
+	CheckpointModel string
+	Strategy        string
+	TokensBefore    int
+	TokensAfter     int
 }
 
 // Role classifies a step for rendering.
@@ -71,8 +88,8 @@ func (s Step) Role() string {
 		return "error"
 	case StepSystemNotice:
 		return "system"
-	case StepSubagent:
-		return "subagent"
+	case StepCheckpoint:
+		return "checkpoint"
 	}
 	return "other"
 }
@@ -230,6 +247,8 @@ func parseStepPayload(s *Step, payload []byte) {
 		parseToolCallStep(s, top)
 	case StepError, StepSystemNotice:
 		parseErrorStep(s, top)
+	case StepCheckpoint:
+		parseCheckpointStep(s, top)
 	}
 }
 
@@ -268,7 +287,6 @@ func isPrintableText(s string) bool {
 	return true
 }
 
-
 func parseToolCallStep(s *Step, top []protoField) {
 	p5 := protoBytes(top, 5)
 	if p5 == nil {
@@ -291,6 +309,45 @@ func parseToolCallStep(s *Step, top []protoField) {
 			}
 		}
 	}
+}
+
+func parseCheckpointStep(s *Step, top []protoField) {
+	p30 := protoBytes(top, 30)
+	if p30 == nil {
+		return
+	}
+	f := protoFields(p30)
+	s.CheckpointIndex = int(protoVarint(f, 1))
+	s.UserIntent = protoText(f, 4)
+	s.Summary = protoText(f, 5)
+	s.IncludedStart = int(protoVarint(f, 11))
+	s.IncludedEnd = int(protoVarint(f, 12))
+	s.IncludedSteps = protoRepeatedVarint(f, 3)
+	s.UserRequests = checkpointUserRequests(f)
+}
+
+// checkpointUserRequests reads the request list a stored checkpoint carries.
+//
+// 【一手】 agy 1.5.3, the conversation database behind the live manual
+// `/compact` capture (conversation e9bd3e8a-…): each request is field 30 of
+// the checkpoint message, encoded as a nested message whose field 1 is the
+// request text. Field 19 was a guess from an older cycle and never appears in
+// a reference database; it is kept as a fallback for stores the clone itself
+// may have written.
+func checkpointUserRequests(f []protoField) []string {
+	var out []string
+	for _, field := range f {
+		if field.num != 30 || field.wire != 2 {
+			continue
+		}
+		if text := protoText(protoFields(field.data), 1); text != "" {
+			out = append(out, text)
+		}
+	}
+	if len(out) == 0 {
+		out = protoRepeatedText(f, 19)
+	}
+	return out
 }
 
 func parseErrorStep(s *Step, top []protoField) {
@@ -338,13 +395,45 @@ type ChatTurn struct {
 	Text string
 }
 
+// Checkpoint returns the latest checkpoint step, or nil.
+func (c *Conversation) Checkpoint() *Step {
+	var latest *Step
+	for i := range c.Steps {
+		if c.Steps[i].Type != StepCheckpoint {
+			continue
+		}
+		// A payload-less type-23 placeholder is opaque. It is not a
+		// usable compaction boundary.
+		if c.Steps[i].Summary == "" && c.Steps[i].UserIntent == "" && c.Steps[i].IncludedEnd == 0 {
+			continue
+		}
+		latest = &c.Steps[i]
+	}
+	return latest
+}
+
 // ChatTurns flattens the conversation into alternating user/assistant messages
 // for replaying into a new model call. Tool calls and notices are omitted: the
 // clone does not reproduce the reference's tool-result format, so feeding it
 // half a transcript would be worse than feeding the prose.
 func (c *Conversation) ChatTurns() []ChatTurn {
 	var out []ChatTurn
+	start := int64(0)
+	if cp := c.Checkpoint(); cp != nil {
+		summary := strings.TrimSpace(cp.Summary)
+		if summary == "" {
+			summary = strings.TrimSpace(cp.UserIntent)
+		}
+		out = append(out, ChatTurn{
+			Role: "user",
+			Text: compaction.ResumingBlock(cp.UserRequests, summary),
+		})
+		start = int64(cp.IncludedEnd)
+	}
 	for _, s := range c.Steps {
+		if s.Idx < start || s.Type == StepCheckpoint {
+			continue
+		}
 		switch s.Role() {
 		case "user":
 			if t := strings.TrimSpace(s.Text); t != "" {

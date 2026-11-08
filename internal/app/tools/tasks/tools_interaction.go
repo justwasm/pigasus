@@ -9,8 +9,8 @@ import (
 	subagentquestions "github.com/justwasm/pigasus/internal/app/subagent/questions"
 	"github.com/justwasm/pigasus/internal/app/tools"
 	"github.com/justwasm/pigasus/internal/app/tools/shell"
+	"github.com/justwasm/pigasus/internal/core/interaction"
 	"github.com/justwasm/pigasus/internal/core/policy/permissions"
-	interaction "github.com/justwasm/pigasus/internal/core/seam"
 )
 
 // ---- user interaction ------------------------------------------------------
@@ -35,14 +35,6 @@ import (
 // noUserText is returned by the interactive tools when nothing can be asked.
 const noUserText = "The user cannot be asked in this mode, so no answer was provided."
 
-// questionCancelledText is the tool's result when the user dismissed
-// the prompt instead of answering it.
-//
-// 【推测】 the reference's own text for a dismissed questionnaire is not
-// in the recovered evidence; the clone says what happened, so the model
-// knows the question was not answered rather than answered empty.
-const questionCancelledText = "The user dismissed the question without answering it."
-
 // permissionGrantedText is the tool's result when the user allowed the
 // action.
 //
@@ -58,6 +50,10 @@ func permissionGrantedText(action, target string) string {
 
 // AskQuestion — Source: tools.ask_question.
 type AskQuestion struct {
+	// Host is an optional interaction host the caller wires directly
+	// (the remote-agent server). The context's host still wins, so a
+	// transport that installs one keeps precedence.
+	Host interaction.Host
 	// SubAgentQuestions is the optional subagent question store
 	// the parent TUI / print runtime wires in. nil keeps the
 	// pre-picker behaviour.
@@ -65,17 +61,23 @@ type AskQuestion struct {
 	// SubAgentID identifies the subagent scope this tool call
 	// is running in. Empty means the parent's own ask_question.
 	SubAgentID string
+	// OnAsk, when set, is called after a question is enqueued and
+	// before the tool blocks on Wait. A host with a UI uses it to
+	// bring the question up immediately instead of waiting for the
+	// user to open the picker.
+	OnAsk func(scope string)
 }
 
 func (a *AskQuestion) Name() string { return "ask_question" }
 func (a *AskQuestion) Schema() json.RawMessage {
-	return tools.Obj(`"questions":{"type":"array","description":"Questions to ask.","items":{"type":"object","properties":{"question":{"type":"string"},"options":{"type":"array","items":{"type":"string"}}},"required":["question"]}}`,
+	return tools.Obj(`"questions":{"type":"array","description":"Questions to ask.","items":{"type":"object","properties":{"question":{"type":"string","description":"The question to ask."},"options":{"type":"array","description":"Options for the user to choose from.","items":{"type":"string"}},"is_multi_select":{"type":"boolean","description":"Whether the user can select multiple options."}},"required":["question"]}}`,
 		"questions")
 }
 
 type questionItem struct {
-	Question string   `json:"question"`
-	Options  []string `json:"options"`
+	Question      string   `json:"question"`
+	Options       []string `json:"options"`
+	IsMultiSelect bool     `json:"is_multi_select,omitempty"`
 }
 
 func (a *AskQuestion) askSubagentQuestions(questions []questionItem) string {
@@ -86,13 +88,27 @@ func (a *AskQuestion) askSubagentQuestions(questions []questionItem) string {
 			answers = append(answers, noUserText)
 			continue
 		}
+		if a.OnAsk != nil {
+			a.OnAsk(a.SubAgentID)
+		}
 		ans, _ := queued.Wait()
 		answers = append(answers, ans)
 	}
+	return formatQuestionAnswers(answers)
+}
+
+// formatQuestionAnswers renders the answers the way the reference's
+// ask_question result does: one line per question, numbered in the
+// order the model asked them ("A1: alpha", "A2: User Skipped").
+func formatQuestionAnswers(answers []string) string {
 	if len(answers) == 1 {
-		return answers[0]
+		return "A1: " + answers[0]
 	}
-	return strings.Join(answers, "\n")
+	lines := make([]string, len(answers))
+	for i, ans := range answers {
+		lines[i] = fmt.Sprintf("A%d: %s", i+1, ans)
+	}
+	return strings.Join(lines, "\n")
 }
 
 func (a *AskQuestion) Run(ctx context.Context, args json.RawMessage) (any, error) {
@@ -105,7 +121,7 @@ func (a *AskQuestion) Run(ctx context.Context, args json.RawMessage) (any, error
 	if len(p.Questions) == 0 {
 		return nil, fmt.Errorf("ask_question: at least one question is required")
 	}
-	if host := interaction.HostFrom(ctx); host != nil {
+	if host := a.host(ctx); host != nil {
 		return a.askHost(ctx, host, p.Questions, string(args))
 	}
 	if a.SubAgentQuestions == nil {
@@ -124,8 +140,9 @@ func (a *AskQuestion) askHost(ctx context.Context, host interaction.Host, questi
 	req := interaction.Request{Kind: interaction.KindQuestion, ToolName: a.Name(), ArgsJSON: argsJSON}
 	for _, q := range questions {
 		req.Questions = append(req.Questions, interaction.Question{
-			Prompt:  q.Question,
-			Options: q.Options,
+			Prompt:        q.Question,
+			Options:       q.Options,
+			IsMultiSelect: q.IsMultiSelect,
 		})
 	}
 	ans, err := host.Ask(ctx, req)
@@ -133,16 +150,46 @@ func (a *AskQuestion) askHost(ctx context.Context, host interaction.Host, questi
 		return nil, err
 	}
 	if ans.Cancelled {
-		return questionCancelledText, nil
+		skipped := make([]string, len(questions))
+		for i := range skipped {
+			skipped[i] = subagentquestions.SkipAnswer
+		}
+		return formatQuestionAnswers(skipped), nil
+	}
+	if len(ans.Answers) > 0 {
+		return formatQuestionAnswers(ans.Answers), nil
 	}
 	if ans.Text == "" {
 		return noUserText, nil
 	}
-	return ans.Text, nil
+	if strings.HasPrefix(ans.Text, "A1: ") {
+		return ans.Text, nil
+	}
+	return formatQuestionAnswers([]string{ans.Text}), nil
+}
+
+// host resolves the interaction host: the context's first, then the
+// field the caller wired.
+func (a *AskQuestion) host(ctx context.Context) interaction.Host {
+	if h := interaction.HostFrom(ctx); h != nil {
+		return h
+	}
+	return a.Host
 }
 
 // AskPermission — Source: tools.ask_permission.
-type AskPermission struct{}
+type AskPermission struct {
+	// Host is the caller-wired interaction host.
+	Host interaction.Host
+}
+
+// host resolves the interaction host: the context's first, then the field.
+func (a *AskPermission) host(ctx context.Context) interaction.Host {
+	if h := interaction.HostFrom(ctx); h != nil {
+		return h
+	}
+	return a.Host
+}
 
 func (a *AskPermission) Name() string { return "ask_permission" }
 func (a *AskPermission) Schema() json.RawMessage {
@@ -161,7 +208,7 @@ func (a *AskPermission) Run(ctx context.Context, args json.RawMessage) (any, err
 	if p.Action == "" {
 		return nil, fmt.Errorf("ask_permission: action is required")
 	}
-	if host := interaction.HostFrom(ctx); host != nil {
+	if host := a.host(ctx); host != nil {
 		return a.askHost(ctx, host, p.Action, p.Target, "", string(args))
 	}
 	return permissions.DeniedToolResult(p.Action, p.Target), nil
@@ -191,7 +238,18 @@ func (a *AskPermission) askHost(ctx context.Context, host interaction.Host, acti
 }
 
 // AskCustomPermission — Source: tools.ask_custom_permission.
-type AskCustomPermission struct{}
+type AskCustomPermission struct {
+	// Host is the caller-wired interaction host.
+	Host interaction.Host
+}
+
+// host resolves the interaction host: the context's first, then the field.
+func (a *AskCustomPermission) host(ctx context.Context) interaction.Host {
+	if h := interaction.HostFrom(ctx); h != nil {
+		return h
+	}
+	return a.Host
+}
 
 func (a *AskCustomPermission) Name() string { return "ask_custom_permission" }
 func (a *AskCustomPermission) Schema() json.RawMessage {
@@ -212,7 +270,7 @@ func (a *AskCustomPermission) Run(ctx context.Context, args json.RawMessage) (an
 	if p.Action == "" {
 		return nil, fmt.Errorf("ask_custom_permission: action is required")
 	}
-	if host := interaction.HostFrom(ctx); host != nil {
+	if host := a.host(ctx); host != nil {
 		return a.askHost(ctx, host, p.Action, p.Target, p.Reason, string(args))
 	}
 	return permissions.DeniedToolResult(p.Action, p.Target), nil

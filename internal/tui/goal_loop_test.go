@@ -7,7 +7,7 @@ import (
 )
 
 func TestSlashGoalLifecycleAndContinuation(t *testing.T) {
-	m := newRunMode(nil, "", "Gemini 3.8 Flash (High)", "", t.TempDir(), true)
+	m := newRootModel(nil, "", "Gemini 3.8 Flash (High)", "", t.TempDir(), true)
 
 	// 1. Bare /goal initializes goal and sends prompt
 	handled, cmd := m.slashGoal("")

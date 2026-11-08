@@ -214,7 +214,7 @@ func TestPipeline_OutputBudgetMiddleware(t *testing.T) {
 func TestPipeline_PassThroughError(t *testing.T) {
 	pipeline := NewPipeline(
 		PermissionGateMiddleware(nil, nil, nil),
-		SandboxBoundaryMiddleware(sandbox.Sandbox{}),
+		SandboxBoundaryMiddleware(sandbox.Sandbox{}, nil),
 		OutputBudgetMiddleware(100),
 	)
 	handler := pipeline.Wrap(func(ctx context.Context, call backend.ToolCall) (string, error) {

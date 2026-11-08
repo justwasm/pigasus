@@ -19,6 +19,9 @@ type Host interface {
 	SlashRespond(cmd, msg string, extra ...string)
 	SendAsPrompt(token, prompt string) tea.Cmd
 	EngineSlashCommands() []slashcommands.Command
+	// TurnEngine returns the active engine. It is any on purpose: the
+	// dispatcher probes it for optional capabilities (Steerer,
+	// ActionHandler), and those are separate interfaces.
 	TurnEngine() any
 	LookupSkillPrompt(name, args string) (string, bool)
 }
@@ -52,6 +55,16 @@ func NewDispatcher(host Host) *Dispatcher {
 // Register binds a command name to a handler.
 func (d *Dispatcher) Register(name string, h Handler) {
 	d.handlers[name] = h
+}
+
+// Has reports whether name is registered. The host uses it to tell a
+// command the dispatcher answers from one the engine must receive.
+func (d *Dispatcher) Has(name string) bool {
+	if d == nil {
+		return false
+	}
+	_, ok := d.handlers[name]
+	return ok
 }
 
 // RegisterChained binds a handler for multiple stacked slash commands.
@@ -140,13 +153,19 @@ func (d *Dispatcher) Dispatch(buf string) (bool, tea.Cmd) {
 		}
 	}
 
-	// Non-blocking pass-through for active agent backends
+	// Non-blocking pass-through for external agent backends: an ACP or
+	// other attached agent may answer a slash command of its own. The
+	// standalone pigasus/agy engine has no such vocabulary, so an unknown
+	// name gets the reference's "Unknown command" line instead of being
+	// sent to the model.
 	if eng := d.host.TurnEngine(); eng != nil {
-		token := "/" + cmd
-		if args != "" {
-			token += " " + args
+		if name := d.host.SlashScopeContext().EngineName; name != "pigasus" && name != "agy" {
+			token := "/" + cmd
+			if args != "" {
+				token += " " + args
+			}
+			return true, d.host.SendAsPrompt(token, token)
 		}
-		return true, d.host.SendAsPrompt(token, token)
 	}
 
 	return false, nil

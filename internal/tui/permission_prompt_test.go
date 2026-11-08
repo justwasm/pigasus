@@ -155,8 +155,8 @@ func TestPermissionPrompt_StateManagerQueue(t *testing.T) {
 	}
 }
 
-func TestPermissionPrompt_RunModeSeams(t *testing.T) {
-	m := &runMode{}
+func TestPermissionPrompt_RootModelSeams(t *testing.T) {
+	m := &RootModel{}
 
 	DefaultPermissionPrompts.Reset()
 	defer DefaultPermissionPrompts.Reset()

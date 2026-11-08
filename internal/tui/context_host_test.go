@@ -33,7 +33,7 @@ func TestContextStateRulesLeaveTheSystemPrompt(t *testing.T) {
 		t.Fatal(err)
 	}
 	m.session.cwd = dir
-	m.engine.session = append(m.engine.session, backend.Message{Role: "user", Content: "hello"})
+	m.setSessionMessages(append(m.SessionMessages(), backend.Message{Role: "user", Content: "hello"}))
 
 	st := m.contextState()
 	if st.Rules <= 0 {
@@ -53,13 +53,13 @@ func TestContextStateCheckpointBufferIsOutsideTheUsage(t *testing.T) {
 	m := mkPanel(panelregistry.Context, "/context", 0)
 	m.session.model = "Gemini 3.8 Flash (High)"
 	block := compaction.ResumingBlock([]string{"do the thing"}, "<summary>done</summary>")
-	m.engine.session = append(m.engine.session, backend.Message{Role: "user", Content: block})
+	m.setSessionMessages(append(m.SessionMessages(), backend.Message{Role: "user", Content: block}))
 
 	st := m.contextState()
 	if st.CheckpointBuffer <= 0 {
 		t.Fatalf("checkpoint buffer = %d, want the session's own resume block", st.CheckpointBuffer)
 	}
-	raw := contextpanel.UserMessageTokens(m.engine.session)
+	raw := contextpanel.UserMessageTokens(m.SessionMessages())
 	if want := raw - st.CheckpointBuffer; st.User != want {
 		t.Errorf("user = %d, want %d (the checkpoint's tokens leave the user row)", st.User, want)
 	}
@@ -74,16 +74,16 @@ func TestContextStateCheckpointBufferIsOutsideTheUsage(t *testing.T) {
 func TestContextStateSystemMessagesAreTheirOwnCategory(t *testing.T) {
 	m := mkPanel(panelregistry.Context, "/context", 0)
 	m.session.model = "Gemini 3.8 Flash (High)"
-	m.engine.session = append(m.engine.session,
+	m.setSessionMessages(append(m.SessionMessages(),
 		backend.Message{Role: "user", Content: "hello"},
 		backend.Message{Role: "system", Content: "a background task finished"},
-	)
+	))
 
 	st := m.contextState()
 	if st.SystemMessages <= 0 {
 		t.Fatalf("system messages = %d, want the session's own system message", st.SystemMessages)
 	}
-	if want := contextpanel.UserMessageTokens(m.engine.session); st.User != want {
+	if want := contextpanel.UserMessageTokens(m.SessionMessages()); st.User != want {
 		t.Errorf("user = %d, want %d (the system message is not a user message)", st.User, want)
 	}
 	if !strings.Contains(strings.Join(contextpanel.Lines(st), "\n"), "System messages:") {

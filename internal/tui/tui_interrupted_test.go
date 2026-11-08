@@ -21,18 +21,14 @@ func TestInterruptedHintLineMatchesTheReference(t *testing.T) {
 }
 
 func TestEscCancelAnswersWithTheComposerHint(t *testing.T) {
-	cancelled := false
-	m := &runMode{
-		engine: engineState{
-			streaming:  true,
-			turnCancel: func() { cancelled = true },
-		},
+	bridge, ctx := armRunningBridge(t)
+	m := &RootModel{
+		turn:         TurnService{activeBridge: bridge},
+		conversation: ConversationModel{streaming: true},
 	}
 	_, _ = m.handleEscKeyMsg()
-	if !cancelled {
-		t.Fatal("Esc did not cancel the in-flight turn")
-	}
-	if !m.engine.turnInterrupted {
+	requireCancelled(t, ctx)
+	if !m.conversation.turnInterrupted {
 		t.Fatal("Esc did not mark the turn as interrupted")
 	}
 	if row := m.interruptedHintRow(); !strings.Contains(row, "What should") {
@@ -41,10 +37,12 @@ func TestEscCancelAnswersWithTheComposerHint(t *testing.T) {
 }
 
 func TestCancelledTurnLeavesNoErrorRow(t *testing.T) {
-	m := &runMode{engine: engineState{streaming: true, turnCancel: func() {}}}
+	bridge, ctx := armRunningBridge(t)
+	m := &RootModel{turn: TurnService{activeBridge: bridge}, conversation: ConversationModel{streaming: true}}
 	_, _ = m.handleEscKeyMsg()
+	requireCancelled(t, ctx)
 	m.recordTurnCompletion(toolsteps.TurnDoneMsg{Err: context.Canceled})
-	for _, line := range m.engine.response {
+	for _, line := range m.conversation.response {
 		if strings.Contains(line, "Error:") {
 			t.Fatalf("a cancelled turn left an error row behind: %q", line)
 		}
@@ -52,32 +50,32 @@ func TestCancelledTurnLeavesNoErrorRow(t *testing.T) {
 }
 
 func TestFailedTurnStillReportsTheError(t *testing.T) {
-	m := &runMode{}
+	m := &RootModel{}
 	m.recordTurnCompletion(toolsteps.TurnDoneMsg{Err: errors.New("the model hung up")})
 	found := false
-	for _, line := range m.engine.response {
+	for _, line := range m.conversation.response {
 		if strings.Contains(line, "Error: the model hung up") {
 			found = true
 		}
 	}
 	if !found {
-		t.Fatalf("a failed turn lost its error row: %v", m.engine.response)
+		t.Fatalf("a failed turn lost its error row: %v", m.conversation.response)
 	}
 }
 
 func TestCancelledTurnSuppressesTheCancellationChunk(t *testing.T) {
-	m := &runMode{engine: engineState{turnInterrupted: true}}
+	m := &RootModel{conversation: ConversationModel{turnInterrupted: true}}
 	m.updateBackendChunkMsg(backendChunkMsg(context.Canceled.Error()))
-	if len(m.engine.response) != 0 {
-		t.Fatalf("the cancellation reached the transcript: %v", m.engine.response)
+	if len(m.conversation.response) != 0 {
+		t.Fatalf("the cancellation reached the transcript: %v", m.conversation.response)
 	}
 }
 
 func TestTheComposerHintDisappearsWithTheNextTurn(t *testing.T) {
-	m := &runMode{engine: engineState{turnInterrupted: true}}
-	m.composer.input = tas.New()
+	m := &RootModel{conversation: ConversationModel{turnInterrupted: true}}
+	m.prompt.input = tas.New()
 	m.resetLiveTurnState("do the thing")
-	if m.engine.turnInterrupted {
+	if m.conversation.turnInterrupted {
 		t.Fatal("the interrupted flag survived the next turn")
 	}
 	if row := m.interruptedHintRow(); row != "" {

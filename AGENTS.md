@@ -7,7 +7,7 @@
 ## 1. System Identity & Mission
 
 `pigasus` (repo: `openagy`) is a dual-capability agent engine:
-1. **Clean-room Reference Compatibility**: High-fidelity reimplementation of the Antigravity agent CLI/backend (`jetski/cortex`, reference version **1.5.0** / `internal/cli.ReferenceVersion`).
+1. **Clean-room Reference Compatibility**: High-fidelity reimplementation of the Antigravity agent CLI/backend (`jetski/cortex`, reference version **1.5.3** / `internal/cli.ReferenceVersion`).
 2. **Modern Agent Runtime**: An extensible agent harness supporting multiple providers (CloudCode, OpenAI, Anthropic, ACP, Gateway), plugins, tools, sandboxed execution, and headless/server orchestration.
 
 > **Single Source of Truth Notice**: Always consult [`docs/guide/`](docs/guide/) for active subsystem facts. Historical reports under [`docs/cycles/`](docs/cycles/) represent exploratory or past iterations and are secondary to [`docs/guide/`](docs/guide/).
@@ -35,7 +35,7 @@ Presentation / Entry Surfaces
   ├────────────────────────────────────────────────────────┤
   │ Tier 2: Features (internal/features)                   │ accounts, models, auth, plugins, compat/agy
   ├────────────────────────────────────────────────────────┤
-  │ Tier 1: Core (internal/core)                           │ policy, seam, tokenfmt, cliflags, logts
+  │ Tier 1: Core (internal/core)                           │ policy, interaction, tokenfmt, cliflags, logts
   └────────────────────────────────────────────────────────┘
 ```
 
@@ -113,5 +113,7 @@ When working on specific subsystems, refer to the focused manuals under `docs/gu
 | Plugins & Marketplace | [`docs/guide/plugins.md`](docs/guide/plugins.md) | `internal/features/plugins/*`, `internal/ui/views/pluginsui` |
 | Localharness SDK Wire | [`docs/guide/localharness.md`](docs/guide/localharness.md) | `localharness/`, `cmd/harness`, `budget/`, `lifecyclehooks/` |
 | Remote Control & Web UI Wire | [`docs/guide/remote-control.md`](docs/guide/remote-control.md) | `internal/remotecontrol/*`, `remotetransport/`, `rcmesh/` |
+| Remote Agents Protocol & Mock | [`docs/guide/remote-agents.md`](docs/guide/remote-agents.md) | `internal/infra/mockremoteagent`, `cmd/mock-remote-agent`, `out/extracted-1.5.3/` |
+| pigasus-only surfaces (index) | [`docs/guide/pigasus-extensions.md`](docs/guide/pigasus-extensions.md) | `internal/tui/remote_*.go`, `internal/infra/remoteagentclient`, `internal/rchost/agentserver` |
 | Architecture Tier Ledger | [`docs/guide/architecture-tiers.md`](docs/guide/architecture-tiers.md) | `internal/core/architecture` |
 | Reverse-Engineering SOP | [`docs/guide/reverse-engineering.md`](docs/guide/reverse-engineering.md) | `scripts/re/`, `out/` |

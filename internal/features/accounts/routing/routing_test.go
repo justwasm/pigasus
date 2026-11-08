@@ -109,8 +109,11 @@ func setup(t *testing.T, section map[string]any, accs ...accounts.Account) *Rout
 		return nil, "", auth.ErrNoToken
 	}
 	// The transport's own credential source answers when the routing is
-	// off; in a test it is a stub, so no machine state is read.
+	// off; in a test it is a stub, so no machine state is read. It is not
+	// the default source, so the router must not rebuild it on an account
+	// change (the test owns it).
 	r.fallback = func(context.Context) (string, error) { return "shared", nil }
+	r.fallbackDefault = false
 	return r
 }
 
@@ -720,5 +723,68 @@ func TestCooldown_AutoQuotaRefresh(t *testing.T) {
 	// IsExcluded should detect expiration, delete exclusion, and return false
 	if r.IsExcluded("a@example.com", "gemini") {
 		t.Errorf("expected exclusion to expire after 50ms cooldown")
+	}
+}
+
+// TestDefaultTokenRebuildsOnAnAccountSwitch pins the in-session switch
+// contract for a router that is never rebuilt — the proxy's, a daemon's.
+//
+// The transport's credential source caches the keychain entry it read, so
+// a router that kept the source built at start-up would keep talking as
+// the account the process started with until a restart. The router drops
+// the source when the registry's active account changes, which is what an
+// `/accounts` switch writes.
+func TestDefaultTokenRebuildsOnAnAccountSwitch(t *testing.T) {
+	accs := []accounts.Account{
+		{Email: "a@example.com", Token: token("a")},
+		{Email: "b@example.com", Token: token("b")},
+	}
+	r := setup(t, nil, accs...)
+
+	// Mimic the real source: capture the active account's credential at
+	// build time, exactly as the keychain read is cached once.
+	r.newFallback = func() func(context.Context) (string, error) {
+		st, err := accounts.Load()
+		if err != nil {
+			t.Fatalf("Load: %v", err)
+		}
+		active := st.Active
+		acc, ok := st.Find(active)
+		if !ok || acc.Token == nil {
+			return func(context.Context) (string, error) { return "", auth.ErrNoToken }
+		}
+		access := acc.Token.Token.AccessToken
+		return func(context.Context) (string, error) { return access, nil }
+	}
+	r.fallback = r.newFallback()
+	r.fallbackDefault = true
+	r.fallbackActive = "a@example.com"
+
+	got, err := r.TokenFunc(context.Background())
+	if err != nil {
+		t.Fatalf("TokenFunc: %v", err)
+	}
+	if got != "a" {
+		t.Fatalf("before the switch the credential = %q, want a", got)
+	}
+
+	// The switch writes the registry's Active field (and the shared
+	// credential); the router is not rebuilt.
+	writeRegistry(t, os.Getenv("OPENAGY_ACCOUNTS_CONFIG"), "b@example.com", accs...)
+
+	got, err = r.TokenFunc(context.Background())
+	if err != nil {
+		t.Fatalf("TokenFunc after the switch: %v", err)
+	}
+	if got != "b" {
+		t.Errorf("after the switch the credential = %q, want b", got)
+	}
+
+	res, err := r.RouteTurn(context.Background())
+	if err != nil {
+		t.Fatalf("RouteTurn: %v", err)
+	}
+	if res.Email != "b@example.com" {
+		t.Errorf("RouteTurn Email = %q, want b@example.com", res.Email)
 	}
 }

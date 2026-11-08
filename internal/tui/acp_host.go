@@ -20,6 +20,7 @@ import (
 	"github.com/justwasm/pigasus/internal/app/agentserver"
 	"github.com/justwasm/pigasus/internal/cli"
 	"github.com/justwasm/pigasus/internal/core/backend"
+	"github.com/justwasm/pigasus/internal/features/agents"
 	backendselect "github.com/justwasm/pigasus/internal/infra/backend/select"
 	"github.com/justwasm/pigasus/internal/ui/views/modelpicker"
 )
@@ -30,6 +31,7 @@ type acpHostOpts struct {
 	port            int
 	workspace       string
 	model           string
+	agent           string
 	effort          string
 	token           string
 	skipPermissions bool
@@ -47,6 +49,7 @@ func parseACPFlags(rawArgs []string) acpHostOpts {
 	fs.StringVar(&opts.workspace, "workspace", "", "Root workspace directory")
 	fs.StringVar(&opts.workspace, "w", "", "Root workspace directory alias")
 	fs.StringVar(&opts.model, "model", "", "Model name")
+	fs.StringVar(&opts.agent, "agent", "", "Custom agent name")
 	fs.StringVar(&opts.effort, "effort", "", "Reasoning effort")
 	fs.StringVar(&opts.token, "token", "", "Bearer token")
 	fs.BoolVar(&opts.skipPermissions, "dangerously-skip-permissions", false, "Auto-approve all tool permission requests")
@@ -105,6 +108,21 @@ func runAcpHandler(j *cli.JetskiCLI, args cli.ACPArgs) error {
 		errOut = os.Stderr
 	}
 
+	// Resolve --agent against the catalogue. The reference warns and falls
+	// back to the built-in agent in interactive sessions; ACP is a host for
+	// interactive clients, so it does the same rather than failing startup.
+	agentName := strings.TrimSpace(opts.agent)
+	var agentBody, agentPath string
+	if agentName != "" && agentName != "default" {
+		if err := agents.ValidateAgent(agentName); err != nil {
+			fmt.Fprintf(errOut, "warning: %v; falling back to the default agent\n", err)
+			agentName = ""
+		} else if a, ok := agents.Lookup(agentName); ok {
+			agentBody = a.Body
+			agentPath = a.Path
+		}
+	}
+
 	ctx := args.Ctx
 	if ctx == nil {
 		var cancel context.CancelFunc
@@ -118,6 +136,9 @@ func runAcpHandler(j *cli.JetskiCLI, args cli.ACPArgs) error {
 	srv, err := agentserver.New(agentserver.Config{
 		Workspace:       absWorkspace,
 		Model:           model,
+		AgentName:       agentName,
+		AgentPath:       agentPath,
+		AgentBody:       agentBody,
 		Effort:          strings.TrimSpace(opts.effort),
 		Token:           strings.TrimSpace(opts.token),
 		SkipPermissions: opts.skipPermissions,

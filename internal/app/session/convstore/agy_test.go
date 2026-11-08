@@ -66,7 +66,7 @@ func TestStepPayloadShapes(t *testing.T) {
 func TestRoles(t *testing.T) {
 	c := loadFixture(t)
 	want := map[int64]string{
-		0: "user", 1: "model", 2: "tool", 4: "error", 5: "system", 7: "subagent",
+		0: "user", 1: "model", 2: "tool", 4: "error", 5: "system", 7: "checkpoint",
 	}
 	for _, s := range c.Steps {
 		if w, ok := want[s.Idx]; ok {
@@ -300,4 +300,3 @@ func TestParseUserInputStep_Shapes(t *testing.T) {
 		t.Errorf("shape 4 (binary reject): got %q, want empty", s4.Text)
 	}
 }
-

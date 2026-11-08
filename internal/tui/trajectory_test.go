@@ -94,11 +94,11 @@ func TestResumeRehydratesTheDefinitions(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load fixture: %v", err)
 	}
-	m := newRunMode(nil, "", "Gemini 3.8 Flash (High)", "", "/tmp", true)
+	m := newRootModel(nil, "", "Gemini 3.8 Flash (High)", "", "/tmp", true)
 	m.seedConversation(c)
-	def, ok := m.engine.subagentDefs.Get("viewer")
+	def, ok := m.agents.defs.Get("viewer")
 	if !ok {
-		t.Fatalf("the definition was not rehydrated: %v", m.engine.subagentDefs.Names())
+		t.Fatalf("the definition was not rehydrated: %v", m.agents.defs.Names())
 	}
 	if def.SystemPrompt != "You are a Go developer." {
 		t.Fatalf("rehydrated definition = %+v", def)
@@ -122,19 +122,19 @@ func TestTrajectoryKeepsTheAdoptedSteps(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load fixture: %v", err)
 	}
-	m := newRunMode(nil, "", "Gemini 3.8 Flash (High)", "", "/tmp", true)
+	m := newRootModel(nil, "", "Gemini 3.8 Flash (High)", "", "/tmp", true)
 	m.seedConversation(c)
 
 	// A new turn: the user asks something, the model calls a tool and
 	// answers.
-	m.engine.session = append(m.engine.session, backend.Message{Role: "user", Content: "now run ls"})
+	m.setSessionMessages(append(m.SessionMessages(), backend.Message{Role: "user", Content: "now run ls"}))
 	m.recordTrajectoryCalls([]toolsteps.Step{{
 		Kind:   toolsteps.KindTool,
 		Name:   "run_command",
 		Args:   `{"CommandLine":"ls"}`,
 		Result: "a b c",
 	}})
-	m.engine.session = append(m.engine.session, backend.Message{Role: "assistant", Content: "Listed."})
+	m.setSessionMessages(append(m.SessionMessages(), backend.Message{Role: "assistant", Content: "Listed."}))
 
 	steps := convstore.BuildSteps(m.trajectoryFacts())
 	if len(steps) != 6 {
@@ -214,5 +214,71 @@ func TestTrajectorySaveRoundTrip(t *testing.T) {
 	// The store is a real file the picker can find.
 	if _, err := os.Stat(path); err != nil {
 		t.Fatalf("stat: %v", err)
+	}
+}
+
+// TestTrajectoryCompactionResumption_NoSliceBoundsPanic verifies that when a resumed
+// conversation experiences auto-compaction (or manual compaction) during a turn,
+// neither BuildSteps nor saveSession panics with a slice bounds out of range error,
+// and trajectory tracking state is cleanly reset.
+func TestTrajectoryCompactionResumption_NoSliceBoundsPanic(t *testing.T) {
+	var fixtureSteps []convstore.Step
+	for i := 0; i < 10; i++ {
+		stype := int64(convstore.StepUserInput)
+		if i%2 == 1 {
+			stype = convstore.StepModelResponse
+		}
+		fixtureSteps = append(fixtureSteps, convstore.Step{
+			Idx:    int64(i),
+			Type:   stype,
+			Status: 3,
+			Text:   "turn " + string(rune('0'+i)),
+		})
+	}
+	path := writeTrajectoryFixture(t, fixtureSteps)
+	c, err := convstore.LoadConversation(path)
+	if err != nil {
+		t.Fatalf("load fixture: %v", err)
+	}
+
+	m := newRootModel(nil, "", "Gemini 3.8 Flash (High)", "", "/tmp", true)
+	m.session.conversationID = "test-compaction-conv"
+	m.seedConversation(c)
+
+	if _, _, seeded := m.trajectoryCounts(); seeded != 10 {
+		t.Fatalf("seeded len = %d, want 10", seeded)
+	}
+
+	// User sends a new prompt in this session
+	m.setSessionMessages(append(m.SessionMessages(), backend.Message{Role: "user", Content: "heavy prompt"}))
+	if m.session.sup() != nil {
+		m.session.sup().Append(backend.Message{Role: "user", Content: "heavy prompt"})
+	}
+
+	// Auto-compaction arrives via compactEndMsg
+	m.updateCompactEndMsg(compactEndMsg{
+		Summary: "Summary of conversation",
+		EndedAt: m.session.store.CompactStart,
+	})
+
+	if len(m.SessionMessages()) != 1 {
+		t.Fatalf("expected session len 1 after compactEndMsg, got %d", len(m.SessionMessages()))
+	}
+	if _, _, seeded := m.trajectoryCounts(); seeded != 1 {
+		t.Fatalf("expected trajSeededLen 1 after compactEndMsg, got %d", seeded)
+	}
+
+	// Turn completion arrives with tool calls
+	m.recordTurnCompletion(toolsteps.TurnDoneMsg{
+		Reply: "assistant reply that was summarized",
+		Steps: []toolsteps.Step{
+			{Kind: toolsteps.KindTool, Name: "run_command", Args: `{"CommandLine":"ls"}`},
+		},
+	})
+
+	// Must not panic and must assemble clean trajectory
+	steps := convstore.BuildSteps(m.trajectoryFacts())
+	if len(steps) == 0 {
+		t.Fatalf("expected steps > 0")
 	}
 }

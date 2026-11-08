@@ -101,3 +101,24 @@ func TestDeclarationsCarryNoToolSummaryOrAction(t *testing.T) {
 		}
 	}
 }
+
+// TestMainAgentToolsIncludesRunCommand pins the full default-agent surface
+// used by the remote-agent bridge. The restricted custom-agent surface has
+// seven tools and no run_command, which made the model answer that command
+// execution was unavailable.
+func TestMainAgentToolsIncludesRunCommand(t *testing.T) {
+	tools := MainAgentTools(nil)
+	names := make(map[string]bool, len(tools))
+	for _, tool := range tools {
+		names[tool.Name()] = true
+	}
+	if !names["run_command"] {
+		t.Errorf("MainAgentTools missing run_command: %v", names)
+	}
+	if !names["write_file"] || !names["edit_file"] {
+		t.Errorf("MainAgentTools missing file tools: %v", names)
+	}
+	if len(tools) != 12 {
+		t.Errorf("MainAgentTools count = %d, want 12", len(tools))
+	}
+}

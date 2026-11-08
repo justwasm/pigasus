@@ -250,6 +250,12 @@ func isStringConnectionDropped(msg string) bool {
 		"network is down",
 		"http2: client connection lost",
 		"client connection lost",
+		// AGY 1.5.3: a model that takes longer than 60 s to start
+		// responding surfaces as "http2: timeout awaiting response
+		// headers"; it is a transient transport failure, not a turn
+		// failure.
+		"timeout awaiting response headers",
+		"awaiting response headers",
 		"connection refused",
 		"no such host",
 		"network is unreachable",

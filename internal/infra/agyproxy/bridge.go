@@ -445,6 +445,7 @@ func (s *Server) handleOpenAIChat(w http.ResponseWriter, r *http.Request, body [
 	}
 
 	canonicalModel := normalizeModelName(req.Model)
+	family := accountrouting.ModelFamily(canonicalModel)
 
 	// Map tool_call_id to function name from assistant messages so tool responses
 	// whose client payload omits "name" (like @ai-sdk/openai-compatible) retain their function name.
@@ -542,21 +543,25 @@ func (s *Server) handleOpenAIChat(w http.ResponseWriter, r *http.Request, body [
 	resp, currentEmail, err := s.executeBridgeRequest(ctx, turn, r.Header.Get("Authorization"))
 	recordAccount(w, currentEmail)
 	if err != nil {
-		s.logf("[bridge] upstream error: %v", err)
-		writeOpenAIError(w, http.StatusBadGateway, "upstream_error", err.Error())
+		accTag := ""
+		if currentEmail != "" {
+			accTag = " [" + currentEmail + "]"
+		}
+		s.logf("[bridge]%s upstream error: %v", accTag, err)
+		writeOpenAIError(w, http.StatusBadGateway, "upstream_error", formatClientErrorMessage(currentEmail, err))
 		return
 	}
 	defer resp.Body.Close()
 
 	reqID := "chatcmpl-" + newUUIDv4()
 	if req.Stream {
-		s.streamOpenAI(w, r, resp, canonicalModel, reqID)
+		s.streamOpenAI(w, r, resp, canonicalModel, reqID, currentEmail, family)
 		return
 	}
-	s.unaryOpenAI(w, resp, canonicalModel, reqID)
+	s.unaryOpenAI(w, resp, canonicalModel, reqID, currentEmail)
 }
 
-func (s *Server) streamOpenAI(w http.ResponseWriter, r *http.Request, resp *http.Response, model, reqID string) {
+func (s *Server) streamOpenAI(w http.ResponseWriter, r *http.Request, resp *http.Response, model, reqID, currentEmail, family string) {
 	ctx := context.Background()
 	if r != nil {
 		ctx = r.Context()
@@ -628,6 +633,21 @@ func (s *Server) streamOpenAI(w http.ResponseWriter, r *http.Request, resp *http
 			chunks := decoder.Feed(textLine)
 			for _, c := range chunks {
 				if c.Error != nil {
+					accTag := ""
+					if currentEmail != "" {
+						accTag = " [" + currentEmail + "]"
+					}
+					s.logf("[bridge]%s in-stream error: %v", accTag, c.Error)
+					if sErr, ok := c.Error.(*geminicode.StreamError); ok {
+						if isAcc, isGlobal, reason := isStreamAccountError(sErr); isAcc {
+							if isGlobal {
+								s.router.Exclude(currentEmail)
+							} else {
+								s.router.ExcludeForModel(currentEmail, family)
+							}
+							s.logf("[bridge] %s in-stream %s; excluded for future turns", currentEmail, reason)
+						}
+					}
 					emitChunk(map[string]any{}, "error", nil)
 					continue
 				}
@@ -699,7 +719,7 @@ OpenAIDone:
 	}
 }
 
-func (s *Server) unaryOpenAI(w http.ResponseWriter, resp *http.Response, model, reqID string) {
+func (s *Server) unaryOpenAI(w http.ResponseWriter, resp *http.Response, model, reqID, currentEmail string) {
 	scanner := bufio.NewScanner(resp.Body)
 	scanner.Buffer(make([]byte, 64*1024), 16*1024*1024)
 	decoder := geminicode.NewDecoder(nil)
@@ -708,11 +728,16 @@ func (s *Server) unaryOpenAI(w http.ResponseWriter, resp *http.Response, model, 
 	var fullThinking strings.Builder
 	var allToolCalls []geminicode.TurnToolCall
 	var finalMeta geminicode.Meta
+	var lastStreamErr error
 	inThinking := false
 
 	for scanner.Scan() {
 		chunks := decoder.Feed(scanner.Text())
 		for _, c := range chunks {
+			if c.Error != nil {
+				lastStreamErr = c.Error
+				continue
+			}
 			text := c.Text
 			if text == "<think>" {
 				inThinking = true
@@ -745,6 +770,16 @@ func (s *Server) unaryOpenAI(w http.ResponseWriter, resp *http.Response, model, 
 				finalMeta = *c.Meta
 			}
 		}
+	}
+
+	if lastStreamErr != nil && fullText.Len() == 0 && len(allToolCalls) == 0 {
+		accTag := ""
+		if currentEmail != "" {
+			accTag = " [" + currentEmail + "]"
+		}
+		s.logf("[bridge]%s upstream stream error: %v", accTag, lastStreamErr)
+		writeOpenAIError(w, http.StatusBadGateway, "upstream_error", formatClientErrorMessage(currentEmail, lastStreamErr))
+		return
 	}
 
 	msgObj := map[string]any{
@@ -950,6 +985,7 @@ func (s *Server) handleAnthropicMessages(w http.ResponseWriter, r *http.Request,
 	}
 
 	canonicalModel := normalizeModelName(req.Model)
+	family := accountrouting.ModelFamily(canonicalModel)
 	sysPrompt := parseAnthropicSystem(req.System)
 	turnMessages := parseAnthropicMessages(req.Messages)
 
@@ -987,20 +1023,25 @@ func (s *Server) handleAnthropicMessages(w http.ResponseWriter, r *http.Request,
 	resp, currentEmail, err := s.executeBridgeRequest(ctx, turn, r.Header.Get("Authorization"))
 	recordAccount(w, currentEmail)
 	if err != nil {
-		writeAnthropicError(w, http.StatusBadGateway, "api_error", err.Error())
+		accTag := ""
+		if currentEmail != "" {
+			accTag = " [" + currentEmail + "]"
+		}
+		s.logf("[bridge]%s upstream error: %v", accTag, err)
+		writeAnthropicError(w, http.StatusBadGateway, "api_error", formatClientErrorMessage(currentEmail, err))
 		return
 	}
 	defer resp.Body.Close()
 
 	msgID := newAnthropicID()
 	if req.Stream {
-		s.streamAnthropic(w, r, resp, canonicalModel, msgID)
+		s.streamAnthropic(w, r, resp, canonicalModel, msgID, currentEmail, family)
 		return
 	}
-	s.unaryAnthropic(w, resp, canonicalModel, msgID)
+	s.unaryAnthropic(w, resp, canonicalModel, msgID, currentEmail)
 }
 
-func (s *Server) streamAnthropic(w http.ResponseWriter, r *http.Request, resp *http.Response, model, msgID string) {
+func (s *Server) streamAnthropic(w http.ResponseWriter, r *http.Request, resp *http.Response, model, msgID, currentEmail, family string) {
 	ctx := context.Background()
 	if r != nil {
 		ctx = r.Context()
@@ -1087,6 +1128,21 @@ func (s *Server) streamAnthropic(w http.ResponseWriter, r *http.Request, resp *h
 			chunks := decoder.Feed(textLine)
 			for _, c := range chunks {
 				if c.Error != nil {
+					accTag := ""
+					if currentEmail != "" {
+						accTag = " [" + currentEmail + "]"
+					}
+					s.logf("[bridge]%s in-stream error: %v", accTag, c.Error)
+					if sErr, ok := c.Error.(*geminicode.StreamError); ok {
+						if isAcc, isGlobal, reason := isStreamAccountError(sErr); isAcc {
+							if isGlobal {
+								s.router.Exclude(currentEmail)
+							} else {
+								s.router.ExcludeForModel(currentEmail, family)
+							}
+							s.logf("[bridge] %s in-stream %s; excluded for future turns", currentEmail, reason)
+						}
+					}
 					emitEvent("error", map[string]any{
 						"type": "error",
 						"error": map[string]any{
@@ -1225,7 +1281,7 @@ AnthropicDone:
 	emitEvent("message_stop", map[string]any{"type": "message_stop"})
 }
 
-func (s *Server) unaryAnthropic(w http.ResponseWriter, resp *http.Response, model, msgID string) {
+func (s *Server) unaryAnthropic(w http.ResponseWriter, resp *http.Response, model, msgID, currentEmail string) {
 	scanner := bufio.NewScanner(resp.Body)
 	scanner.Buffer(make([]byte, 64*1024), 16*1024*1024)
 	decoder := geminicode.NewDecoder(nil)
@@ -1234,11 +1290,16 @@ func (s *Server) unaryAnthropic(w http.ResponseWriter, resp *http.Response, mode
 	var fullThinking strings.Builder
 	var allToolCalls []geminicode.TurnToolCall
 	var finalMeta geminicode.Meta
+	var lastStreamErr error
 	inThinking := false
 
 	for scanner.Scan() {
 		chunks := decoder.Feed(scanner.Text())
 		for _, c := range chunks {
+			if c.Error != nil {
+				lastStreamErr = c.Error
+				continue
+			}
 			text := c.Text
 			if text == "<think>" {
 				inThinking = true
@@ -1271,6 +1332,16 @@ func (s *Server) unaryAnthropic(w http.ResponseWriter, resp *http.Response, mode
 				finalMeta = *c.Meta
 			}
 		}
+	}
+
+	if lastStreamErr != nil && fullText.Len() == 0 && len(allToolCalls) == 0 {
+		accTag := ""
+		if currentEmail != "" {
+			accTag = " [" + currentEmail + "]"
+		}
+		s.logf("[bridge]%s upstream stream error: %v", accTag, lastStreamErr)
+		writeAnthropicError(w, http.StatusBadGateway, "api_error", formatClientErrorMessage(currentEmail, lastStreamErr))
+		return
 	}
 
 	var contentBlocks []map[string]any
@@ -1371,12 +1442,12 @@ func (s *Server) executeBridgeRequest(ctx context.Context, turn geminicode.Turn,
 		reqEnv := geminicode.BuildRequest(turn)
 		bodyBytes, err := json.Marshal(reqEnv)
 		if err != nil {
-			return nil, "", fmt.Errorf("marshal request: %w", err)
+			return nil, lastAttemptEmail, fmt.Errorf("marshal request: %w", err)
 		}
 
 		httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, upstreamURL, bytes.NewReader(bodyBytes))
 		if err != nil {
-			return nil, "", fmt.Errorf("create request: %w", err)
+			return nil, lastAttemptEmail, fmt.Errorf("create request: %w", err)
 		}
 		httpReq.Header.Set("Content-Type", "application/json")
 		httpReq.Header.Set("Accept", "text/event-stream")
@@ -1404,35 +1475,6 @@ func (s *Server) executeBridgeRequest(ctx context.Context, turn geminicode.Turn,
 			continue
 		}
 
-		if isQuotaStatus(resp.StatusCode) {
-			errBytes, _ := readAll(resp.Body, maxRequestBody)
-			resp.Body.Close()
-			if s.cap != nil {
-				s.cap.write(captureRecord{
-					TS:           time.Now(),
-					Kind:         "response",
-					Method:       "bridge_upstream",
-					HTTPMethod:   http.MethodPost,
-					Path:         upstreamURL,
-					Model:        turn.Model,
-					Status:       resp.StatusCode,
-					ResponseBody: rawBody(errBytes),
-				})
-			}
-			if isQuotaResponseBody(resp.StatusCode, errBytes) {
-				s.logf("[bridge] %s quota exceeded (%d); excluding and retrying (attempt %d/%d)",
-					currentEmail, resp.StatusCode, attempt+1, maxAttempts)
-				if currentEmail != "" {
-					s.router.ExcludeForModel(currentEmail, family)
-				}
-				lastErr = fmt.Errorf("quota exceeded (%d): %s", resp.StatusCode, string(errBytes))
-				if attempt+1 < maxAttempts {
-					continue
-				}
-			}
-			return nil, "", fmt.Errorf("upstream rejected with status %d: %s", resp.StatusCode, string(errBytes))
-		}
-
 		if resp.StatusCode != http.StatusOK {
 			errBytes, _ := readAll(resp.Body, maxRequestBody)
 			resp.Body.Close()
@@ -1448,6 +1490,41 @@ func (s *Server) executeBridgeRequest(ctx context.Context, turn geminicode.Turn,
 					ResponseBody: rawBody(errBytes),
 				})
 			}
+
+			kind, reasonText := classifyAccountFailure(resp.StatusCode, errBytes)
+			if kind != failureNone {
+				reason, _, appealURL := extractErrorInfo(errBytes)
+				appealText := ""
+				if appealURL != "" {
+					appealText = fmt.Sprintf(" | appeal: %s", appealURL)
+				}
+				reasonDesc := reasonText
+				if reason != "" {
+					reasonDesc = fmt.Sprintf("%s: %s", reasonText, reason)
+				}
+
+				if kind == failureQuotaExceeded {
+					if currentEmail != "" {
+						s.router.ExcludeForModel(currentEmail, family)
+					}
+				} else {
+					if currentEmail != "" {
+						s.router.Exclude(currentEmail)
+					}
+				}
+
+				if attempt+1 < maxAttempts {
+					s.logf("[bridge] %s %s (%d)%s; excluding and retrying (attempt %d/%d)",
+						currentEmail, reasonDesc, resp.StatusCode, appealText, attempt+1, maxAttempts)
+					lastErr = fmt.Errorf("upstream rejected with status %d: %s", resp.StatusCode, string(errBytes))
+					continue
+				}
+
+				s.logf("[bridge] %s %s (%d)%s; pool exhausted (attempt %d/%d)",
+					currentEmail, reasonDesc, resp.StatusCode, appealText, attempt+1, maxAttempts)
+				return nil, currentEmail, fmt.Errorf("upstream rejected with status %d: %s", resp.StatusCode, string(errBytes))
+			}
+
 			return nil, currentEmail, fmt.Errorf("upstream error (%d): %s", resp.StatusCode, string(errBytes))
 		}
 

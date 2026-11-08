@@ -152,12 +152,13 @@ func RunStreamJSON(w io.Writer, r io.Reader, fs *flag.FlagSet) error {
 	}
 
 	act, err := actor.Spawn(actor.Config{
-		ID:             pcfg.ConversationID,
-		Name:           "print_agent",
-		SystemPrompt:   sysPrompt,
-		Model:          pcfg.Model,
-		Provider:       provider,
-		Tools:          toolsList,
+		ID: pcfg.ConversationID,
+		Default: actor.TurnConfig{
+			SystemPrompt: sysPrompt,
+			Model:        pcfg.Model,
+			Provider:     provider,
+			Tools:        toolsList,
+		},
 		InitialHistory: initialHistory,
 	})
 	if err != nil {

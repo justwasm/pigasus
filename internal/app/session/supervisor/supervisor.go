@@ -25,6 +25,11 @@ type Supervisor struct {
 
 	// implicitMsgs holds messages converted from the implicit trajectory (! shell commands).
 	implicitMsgs []backend.Message
+	// pendingCheckpoints are the checkpoints a turn recorded but has
+	// not inserted into the call list yet. Their insertion points are
+	// the call counts that preceded them.
+	pendingCheckpoints     []convstore.Step
+	pendingCheckpointAfter []int
 
 	// implicitCursor records how many implicit trajectory steps were processed.
 	implicitCursor int
@@ -78,16 +83,85 @@ func (s *Supervisor) Append(msgs ...backend.Message) {
 	s.session = append(s.session, msgs...)
 }
 
+// MessageAt returns the message at index i. The second result is false
+// when i is out of range, so callers never have to bracket the read with
+// a separate Len call.
+func (s *Supervisor) MessageAt(i int) (backend.Message, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if i < 0 || i >= len(s.session) {
+		return backend.Message{}, false
+	}
+	return s.session[i], true
+}
+
+// LastMessage returns the newest message in the session.
+func (s *Supervisor) LastMessage() (backend.Message, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if len(s.session) == 0 {
+		return backend.Message{}, false
+	}
+	return s.session[len(s.session)-1], true
+}
+
+// SetMessageContent replaces the content of the message at index i. It is
+// the write side of a streaming reply, whose final text replaces the
+// placeholder the first chunk created. It reports whether the index was
+// in range.
+func (s *Supervisor) SetMessageContent(i int, content string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if i < 0 || i >= len(s.session) {
+		return false
+	}
+	s.session[i].Content = content
+	return true
+}
+
+// AppendMessageContent appends delta to the content of the message at
+// index i. It reports whether the index was in range.
+func (s *Supervisor) AppendMessageContent(i int, delta string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if i < 0 || i >= len(s.session) {
+		return false
+	}
+	s.session[i].Content += delta
+	return true
+}
+
+// Truncate keeps the first n messages and drops the rest. A negative n is
+// treated as zero, so a truncation never leaves a negative length behind.
+func (s *Supervisor) Truncate(n int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if n < 0 {
+		n = 0
+	}
+	if n >= len(s.session) {
+		return
+	}
+	s.session = s.session[:n]
+	if s.trajSeededLen > n {
+		s.trajSeededLen = n
+	}
+}
+
 // Replace replaces the entire active session with the provided messages.
 func (s *Supervisor) Replace(msgs []backend.Message) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if len(msgs) == 0 {
 		s.session = nil
+		s.trajSeededLen = 0
 		return
 	}
 	s.session = make([]backend.Message, len(msgs))
 	copy(s.session, msgs)
+	if s.trajSeededLen > len(s.session) {
+		s.trajSeededLen = len(s.session)
+	}
 }
 
 // Clear resets the active conversation session and trajectory tracking.
@@ -158,6 +232,9 @@ func (s *Supervisor) RewindPopTail() rewind.Result {
 	defer s.mu.Unlock()
 	r := rewind.PopTail(s.session)
 	s.session = r.Session
+	if s.trajSeededLen > len(s.session) {
+		s.trajSeededLen = len(s.session)
+	}
 	return r
 }
 
@@ -167,6 +244,9 @@ func (s *Supervisor) RewindToStep(index int) rewind.Result {
 	defer s.mu.Unlock()
 	r := rewind.ToStep(s.session, index)
 	s.session = r.Session
+	if s.trajSeededLen > len(s.session) {
+		s.trajSeededLen = len(s.session)
+	}
 	return r
 }
 
@@ -184,12 +264,57 @@ func (s *Supervisor) RecordTrajectoryCalls(steps []convstore.Step) {
 	s.trajCalls = append(s.trajCalls, steps...)
 }
 
-// SetSeededConversation records the conversation steps adopted upon resumption.
+// SetSeededConversation records the conversation steps adopted upon
+// resumption. Adopting a trajectory replaces the calls the previous
+// conversation made: they belong to the old transcript, not the new one.
 func (s *Supervisor) SetSeededConversation(steps []convstore.Step, seededLen int) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.trajLoaded = steps
+	s.trajCalls = nil
 	s.trajSeededLen = seededLen
+}
+
+// InsertTrajectoryCall inserts a step into the call list at the given
+// position. A checkpoint belongs where the turn that recorded it ran, not
+// at the end of the list.
+func (s *Supervisor) InsertTrajectoryCall(at int, step convstore.Step) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.insertTrajectoryCallLocked(at, step)
+}
+
+func (s *Supervisor) insertTrajectoryCallLocked(at int, step convstore.Step) {
+	if at < 0 {
+		at = 0
+	}
+	if at > len(s.trajCalls) {
+		at = len(s.trajCalls)
+	}
+	s.trajCalls = append(s.trajCalls, convstore.Step{})
+	copy(s.trajCalls[at+1:], s.trajCalls[at:])
+	s.trajCalls[at] = step
+}
+
+// QueueCheckpoint records a checkpoint and the call count that preceded
+// it. The turn flushes the queue once its calls are recorded.
+func (s *Supervisor) QueueCheckpoint(step convstore.Step, after int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.pendingCheckpoints = append(s.pendingCheckpoints, step)
+	s.pendingCheckpointAfter = append(s.pendingCheckpointAfter, after)
+}
+
+// FlushCheckpoints inserts every queued checkpoint at its recorded call
+// count and clears the queue.
+func (s *Supervisor) FlushCheckpoints() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i, cp := range s.pendingCheckpoints {
+		s.insertTrajectoryCallLocked(s.pendingCheckpointAfter[i]+i, cp)
+	}
+	s.pendingCheckpoints = nil
+	s.pendingCheckpointAfter = nil
 }
 
 // TrajectoryFacts builds the durable Trajectory struct for persistence.

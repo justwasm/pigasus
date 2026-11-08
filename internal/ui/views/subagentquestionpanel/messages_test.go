@@ -9,7 +9,7 @@ import (
 
 func Test_SubAgentQuestionPanelPureMessagePassing(t *testing.T) {
 	mgr := subagentquestions.NewManager(false)
-	q := mgr.Enqueue(subagentquestions.ParentKey, "What is the secret?", []string{"Option A", "Option B"})
+	q := mgr.Enqueue(subagentquestions.ParentKey, "What is the secret?", nil)
 
 	p := New(Seams{
 		Manager: mgr,

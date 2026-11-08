@@ -2,6 +2,7 @@ package subagenttools
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -13,6 +14,7 @@ import (
 	"github.com/justwasm/pigasus/actor"
 	taskregistry "github.com/justwasm/pigasus/internal/app/task"
 	agentmessage "github.com/justwasm/pigasus/internal/core/msg"
+	"github.com/justwasm/pigasus/internal/features/checkpoint"
 )
 
 // taskInstruction is the reference's own instruction to a delegated agent.
@@ -62,7 +64,13 @@ func Launch(ctx context.Context, inv Invocation, deps Deps) (Launched, error) {
 
 	childCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
 	child := NewChild(conversationID, inv.TypeName, inv.Role, worktreePath, cancel)
+	child.Model = model
+	child.Effort = strings.TrimSpace(deps.Effort)
 	child.SetSubDir(subDir)
+	child.StartedAt = startedAt
+	if idx, ok := actor.ToolStepIndexFromContext(ctx); ok {
+		child.SpawnStepIndex = int32(idx)
+	}
 
 	ack := Acknowledgement{
 		ConversationID: conversationID,
@@ -70,6 +78,7 @@ func Launch(ctx context.Context, inv Invocation, deps Deps) (Launched, error) {
 		WorkspaceURIs:  []string{fileURI(worktreePath)},
 		At:             startedAt,
 	}
+	child.LogAbsoluteURI = ack.LogAbsoluteURI
 
 	if deps.Registry != nil {
 		deps.Registry.Add(child)
@@ -84,6 +93,8 @@ func Launch(ctx context.Context, inv Invocation, deps Deps) (Launched, error) {
 			StartedAt:      startedAt,
 			LastActivityAt: startedAt,
 			Prompt:         inv.Prompt,
+			Model:          model,
+			Effort:         strings.TrimSpace(deps.Effort),
 		})
 		deps.Tasks.RegisterHandle(conversationID, &taskregistry.TaskHandle{
 			ID:     conversationID,
@@ -202,13 +213,15 @@ func runChild(
 
 	loadedMsgs, _ := loadTranscript(subDir, child.ConversationID)
 
+	childPrompt := childSystemPrompt(systemPrompt, inv)
 	act, err := actor.Spawn(actor.Config{
-		ID:           child.ConversationID,
-		Name:         subagentDisplayName(inv),
-		SystemPrompt: childSystemPrompt(systemPrompt, inv),
-		Model:        model,
-		Provider:     provider,
-		Tools:        childTools,
+		ID: child.ConversationID,
+		Default: actor.TurnConfig{
+			SystemPrompt: childPrompt,
+			Model:        model,
+			Provider:     provider,
+			Tools:        childTools,
+		},
 	})
 	if err != nil {
 		child.setState(StateErrored)
@@ -224,6 +237,22 @@ func runChild(
 	}
 	defer act.Close()
 
+	var policy *checkpoint.Policy
+	if deps.Backend != nil {
+		var defs []actor.ToolDefinition
+		for _, t := range childTools {
+			defs = append(defs, t.Definition())
+		}
+		decls, _ := json.Marshal(defs)
+		policy = checkpoint.New(checkpoint.Config{
+			Model:            model,
+			SystemPrompt:     childPrompt,
+			ToolDeclarations: decls,
+			Backend:          deps.Backend,
+		})
+		defer policy.Close()
+	}
+
 	watchdog := newActivityWatchdog(DefaultWatchdogTimeout, func() {
 		child.abortTurn()
 	})
@@ -236,10 +265,25 @@ func runChild(
 	})
 
 	executeTurn := func(prompt string) ([]SubagentMessage, error) {
-		events, err := act.Prompt(ctx, prompt)
+		req := actor.TurnRequest{Prompt: prompt}
+		if policy != nil {
+			// The parent's half is refreshed before every turn: a message
+			// delivered after an earlier checkpoint must appear in the next
+			// one.
+			lines, mostRecent := pctx.Lines()
+			policy.SetSnapshot(checkpoint.Snapshot{
+				ParentMessages:           lines,
+				ParentMessagesMostRecent: mostRecent,
+			})
+			req.Checkpoint = func(stepCtx context.Context, probe actor.CheckpointProbe) (actor.CheckpointDecision, error) {
+				return policy.BeforeStep(stepCtx, act, probe)
+			}
+		}
+		turn, err := act.StartTurn(ctx, req)
 		if err != nil {
 			return nil, err
 		}
+		events := turn.Events()
 		var textBuilder strings.Builder
 		for ev := range events {
 			switch ev.Type {
@@ -510,11 +554,14 @@ func recordChildTurnWithMeta(
 			TypeName:       inv.TypeName,
 			Role:           inv.Role,
 			Worktree:       child.Worktree,
+			Model:          child.Model,
+			Effort:         child.Effort,
 			Prompt:         inv.Prompt,
 			SystemPrompt:   inv.SystemPrompt,
 			InheritPrompt:  inv.InheritPrompt,
 			State:          state,
 			StartedAt:      startedAt,
+			SpawnStepIndex: child.SpawnStepIndex,
 			EndedAt:        endedAt,
 			LastActivityAt: time.Now(),
 			StepCount:      len(usedSteps(msgs)),

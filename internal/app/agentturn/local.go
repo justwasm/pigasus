@@ -2,7 +2,9 @@ package agentturn
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"sync"
 	"time"
@@ -12,6 +14,7 @@ import (
 	"github.com/justwasm/pigasus/internal/core/apierror"
 	"github.com/justwasm/pigasus/internal/core/backend"
 	"github.com/justwasm/pigasus/internal/features/auth/eligibility"
+	"github.com/justwasm/pigasus/internal/features/checkpoint"
 )
 
 // frameBuffer is how many frames a turn may run ahead of its reader.
@@ -32,11 +35,19 @@ const frameBuffer = 64
 type Local struct {
 	env EnvFunc
 
-	mu           sync.Mutex
-	closed       bool
-	activeActor  *actor.Actor
+	mu            sync.Mutex
+	closed        bool
+	overrideModel string
+	activeActor   *actor.Actor
+	resetEpoch   uint64
+	sessionEpoch uint64
+	fedMessages  int
 	permHandler  PermissionHandler
 	pendingSteer []string
+
+	checkpoint        *checkpoint.Policy
+	checkpointModel   string
+	checkpointEmitter *checkpoint.Emitter
 }
 
 var _ Engine = (*Local)(nil)
@@ -75,6 +86,11 @@ func (l *Local) Turn(ctx context.Context, t Turn) (<-chan agentlink.Frame, error
 		cleanup = func() {}
 	}
 	model := t.Model
+	if model == "" {
+		l.mu.Lock()
+		model = l.overrideModel
+		l.mu.Unlock()
+	}
 	if model == "" {
 		model = env.Model
 	}
@@ -161,6 +177,10 @@ func (l *Local) Close() error {
 		_ = l.activeActor.Close()
 		l.activeActor = nil
 	}
+	if l.checkpoint != nil {
+		l.checkpoint.Close()
+		l.checkpoint = nil
+	}
 	return nil
 }
 
@@ -176,10 +196,38 @@ func (l *Local) Capabilities() Capability {
 
 // ExecuteAction executes a local engine action.
 func (l *Local) ExecuteAction(ctx context.Context, action string, args string) (ActionResult, error) {
-	return ActionResult{
-		Success: true,
-		Message: "Action processed by local engine",
-	}, nil
+	action = strings.ToLower(strings.TrimSpace(action))
+	switch action {
+	case "steer":
+		err := l.Steer(args)
+		if err != nil {
+			return ActionResult{Success: false, Message: err.Error()}, err
+		}
+		return ActionResult{Success: true, Message: "Steering guidance queued"}, nil
+	case "model":
+		args = strings.TrimSpace(args)
+		if args != "" {
+			l.mu.Lock()
+			l.overrideModel = args
+			l.mu.Unlock()
+			return ActionResult{Success: true, Message: fmt.Sprintf("Model set to %s", args)}, nil
+		}
+		return ActionResult{Success: true, Message: "Model unchanged"}, nil
+	case "cancel":
+		l.mu.Lock()
+		act := l.activeActor
+		l.mu.Unlock()
+		if act != nil {
+			_ = act.CancelTurn(args)
+			return ActionResult{Success: true, Message: "Turn cancelled"}, nil
+		}
+		return ActionResult{Success: true, Message: "No active turn to cancel"}, nil
+	default:
+		return ActionResult{
+			Success: true,
+			Message: "Action processed by local engine",
+		}, nil
+	}
 }
 
 // SetPermissionHandler wires an interactive permission handler to the local turn engine.
@@ -268,15 +316,35 @@ func (l *Local) run(ctx context.Context, env Env, model string, t Turn, emit fun
 		return
 	}
 
+	toolDecls, _ := json.Marshal(env.Tools)
+
 	l.mu.Lock()
 	act := l.activeActor
-	// If active actor exists but is closed, or if history was reset/cleared, discard it
+	// The actor keeps its own trajectory between turns. Discard it when it was
+	// closed, when its history was reset behind our back (a manual compaction
+	// bumps the revision), or when the host replaced the transcript instead of
+	// extending it. The last test compares host messages to host messages —
+	// never to the actor's turn count.
 	if act != nil {
-		storedTurns := act.Trajectory().TotalTurns()
-		if act.State().State == actor.StateClosed || (storedTurns > 0 && len(t.History) <= 1) || (storedTurns > 0 && len(t.History) <= storedTurns) {
+		// A checkpoint changes Revision but not ResetEpoch: the actor
+		// compacted its own context and must stay alive. A /clear, /resume
+		// or manual compaction either bumps the host epoch or resets the
+		// actor's history, and then the actor is rebuilt from the host.
+		checkpointed := len(act.Trajectory().Checkpoints()) > 0
+		stale := act.State().State == actor.StateClosed ||
+			t.SessionEpoch != l.sessionEpoch ||
+			act.Trajectory().ResetEpoch() != l.resetEpoch ||
+			(!checkpointed && len(t.History) <= l.fedMessages)
+		if stale {
 			_ = act.Close()
 			act = nil
 			l.activeActor = nil
+			if l.checkpoint != nil {
+				l.checkpoint.Close()
+				l.checkpoint = nil
+				l.checkpointEmitter = nil
+				l.checkpointModel = ""
+			}
 		}
 	}
 
@@ -295,9 +363,11 @@ func (l *Local) run(ctx context.Context, env Env, model string, t Turn, emit fun
 		provider := newBackendProviderAdapter(env.Backend, model)
 		var err error
 		act, err = actor.Spawn(actor.Config{
-			Model:          model,
-			SystemPrompt:   env.SystemPrompt,
-			Provider:       provider,
+			Default: actor.TurnConfig{
+				Model:        model,
+				SystemPrompt: env.SystemPrompt,
+				Provider:     provider,
+			},
 			InitialHistory: initialHistory,
 		})
 		if err != nil {
@@ -306,7 +376,42 @@ func (l *Local) run(ctx context.Context, env Env, model string, t Turn, emit fun
 			return
 		}
 		l.activeActor = act
+		l.resetEpoch = act.Trajectory().ResetEpoch()
+		l.sessionEpoch = t.SessionEpoch
+		l.fedMessages = len(t.History)
 	}
+	// The checkpoint policy is session-scoped: an asynchronous summary that
+	// finishes after one turn is applied by the next. A model change starts
+	// a new policy.
+	created := false
+	if l.checkpoint == nil || l.checkpointModel != model {
+		if l.checkpoint != nil {
+			l.checkpoint.Close()
+		}
+		e := checkpoint.NewEmitter()
+		l.checkpointEmitter = e
+		l.checkpoint = checkpoint.New(checkpoint.Config{
+			Model:            model,
+			SystemPrompt:     env.SystemPrompt,
+			ToolDeclarations: toolDecls,
+			Backend:          env.Backend,
+			BackendFor:       env.BackendFor,
+			Emit:             e.Emit,
+		})
+		l.checkpointModel = model
+		created = true
+	}
+	if env.CheckpointSnapshot != nil {
+		l.checkpoint.SetSnapshot(env.CheckpointSnapshot())
+	}
+	// Seed the request list only when the policy is new: a live policy is
+	// already accumulating this turn's requests, and reseeding it from a
+	// persisted checkpoint that has not caught up would drop them.
+	if created && env.CheckpointPriorRequests != nil {
+		l.checkpoint.SetPriorRequests(env.CheckpointPriorRequests())
+	}
+	env.CheckpointPolicy = l.checkpoint
+	l.checkpointEmitter.Set(func(ev checkpoint.Event) { emitCheckpointEvent(emit, ev) })
 	if len(l.pendingSteer) > 0 {
 		for _, s := range l.pendingSteer {
 			_ = act.Steer(s)
@@ -317,6 +422,14 @@ func (l *Local) run(ctx context.Context, env Env, model string, t Turn, emit fun
 	l.mu.Unlock()
 
 	RunActorTurnOnActorWithPermHandler(ctx, act, env, model, t, emit, ch, permHandler)
+
+	l.mu.Lock()
+	if l.activeActor == act {
+		l.resetEpoch = act.Trajectory().ResetEpoch()
+		l.sessionEpoch = t.SessionEpoch
+		l.fedMessages = len(t.History)
+	}
+	l.mu.Unlock()
 }
 
 // emitError reports a failure the upstream produced.

@@ -69,16 +69,16 @@ const ExitCodeUnset = -1
 // (subscribers). Err is read by subscribers to surface failure text
 // in the panel detail view.
 type Task struct {
-	ID        string
-	Name      string
-	Kind      Kind
-	State     State
+	ID         string
+	Name       string
+	Kind       Kind
+	State      State
 	StartedAt  time.Time
 	EndedAt    time.Time // zero while the task is still running
 	TargetTime time.Time // expected target fire time for timers
 	ExitCode   int       // ExitCodeUnset while still running
-	OwnerID   string
-	Err       error
+	OwnerID    string
+	Err        error
 	// Command is the command line a shell task runs. The /tasks detail
 	// view renders it under the reference's "Command: " label.
 	Command string
@@ -91,6 +91,14 @@ type Task struct {
 	// Prompt is the prompt an LLM subagent was given. The subagent
 	// detail view renders it under the reference's "Prompt" heading.
 	Prompt string
+	// Model is the model an LLM subagent runs on. The active-subagent
+	// row above the prompt shows it next to the subagent's name (AGY
+	// 1.5.3), and the subagent detail view shows it in full.
+	Model string
+	// Effort is the reasoning effort the subagent runs at, when the
+	// session has one. The subagent detail view shows it beside the
+	// model.
+	Effort string
 	// Tools lists the tool names an LLM subagent called, in call
 	// order. The subagent detail view renders them under the
 	// reference's "Tools" heading ("No tools used yet" when empty).

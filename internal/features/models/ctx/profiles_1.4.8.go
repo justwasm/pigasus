@@ -57,6 +57,8 @@
 // docs/cycles/cycle-303-cascade-model-profiles/deliverable.md.
 package ctx
 
+import "sort"
+
 // CheckpointVariant is the reference's base checkpoint variant — the
 // "checkpoint-variant" setting of the embedded document's base block.
 //
@@ -97,6 +99,8 @@ type Profile struct {
 	MaxOutputTokens int
 	// TokenThreshold is the checkpoint's own threshold.
 	TokenThreshold int
+	// MovingWindowSize is how many recent steps stay outside the summary.
+	MovingWindowSize int
 	// MaxOverheadRatio is the overhead budget the validator checks.
 	MaxOverheadRatio float64
 	// Enabled is the checkpoint switch.
@@ -122,6 +126,12 @@ type Profile struct {
 	IncludeArtifactSnapshots bool
 	// RetryMaxRetries is the checkpoint's own retry policy.
 	RetryMaxRetries int
+	// RetryInitialSleepMS is the first backoff delay.
+	RetryInitialSleepMS int
+	// RetryMultiplier multiplies the delay after each failure.
+	RetryMultiplier float64
+	// RetryIncludeErrorFeedback appends the previous failure to the retry.
+	RetryIncludeErrorFeedback bool
 	// UseModelReportedTokenCount makes the checkpoint trust the model's
 	// reported token count instead of estimating it.
 	UseModelReportedTokenCount bool
@@ -140,6 +150,7 @@ var profiles = map[string]Profile{
 		MaxTokenLimit:              128000,
 		MaxOutputTokens:            16384,
 		TokenThreshold:             50000,
+		MovingWindowSize:           1,
 		MaxOverheadRatio:           0.15,
 		Enabled:                    true,
 		CheckpointModel:            "MODEL_PLACEHOLDER_M50",
@@ -152,6 +163,8 @@ var profiles = map[string]Profile{
 		IncludeSubagentSnapshots:   true,
 		IncludeArtifactSnapshots:   true,
 		RetryMaxRetries:            0,
+		RetryInitialSleepMS:        1000,
+		RetryMultiplier:            2,
 		UseModelReportedTokenCount: false,
 		SessionSummaryPrompt:       false,
 	},
@@ -160,6 +173,7 @@ var profiles = map[string]Profile{
 		MaxTokenLimit:              128000,
 		MaxOutputTokens:            16384,
 		TokenThreshold:             50000,
+		MovingWindowSize:           1,
 		MaxOverheadRatio:           0.15,
 		Enabled:                    true,
 		CheckpointModel:            "MODEL_PLACEHOLDER_M50",
@@ -172,6 +186,8 @@ var profiles = map[string]Profile{
 		IncludeSubagentSnapshots:   true,
 		IncludeArtifactSnapshots:   true,
 		RetryMaxRetries:            0,
+		RetryInitialSleepMS:        1000,
+		RetryMultiplier:            2,
 		UseModelReportedTokenCount: false,
 		SessionSummaryPrompt:       false,
 	},
@@ -180,6 +196,7 @@ var profiles = map[string]Profile{
 		MaxTokenLimit:              80000,
 		MaxOutputTokens:            8192,
 		TokenThreshold:             50000,
+		MovingWindowSize:           1,
 		MaxOverheadRatio:           0.15,
 		Enabled:                    true,
 		CheckpointModel:            "MODEL_PLACEHOLDER_M50",
@@ -192,6 +209,8 @@ var profiles = map[string]Profile{
 		IncludeSubagentSnapshots:   true,
 		IncludeArtifactSnapshots:   true,
 		RetryMaxRetries:            0,
+		RetryInitialSleepMS:        1000,
+		RetryMultiplier:            2,
 		UseModelReportedTokenCount: false,
 		SessionSummaryPrompt:       false,
 	},
@@ -200,6 +219,7 @@ var profiles = map[string]Profile{
 		MaxTokenLimit:              256000,
 		MaxOutputTokens:            16384,
 		TokenThreshold:             50000,
+		MovingWindowSize:           1,
 		MaxOverheadRatio:           0.15,
 		Enabled:                    true,
 		CheckpointModel:            "MODEL_PLACEHOLDER_M50",
@@ -212,6 +232,8 @@ var profiles = map[string]Profile{
 		IncludeSubagentSnapshots:   true,
 		IncludeArtifactSnapshots:   true,
 		RetryMaxRetries:            4,
+		RetryInitialSleepMS:        1000,
+		RetryMultiplier:            2,
 		UseModelReportedTokenCount: false,
 		SessionSummaryPrompt:       true,
 	},
@@ -220,6 +242,7 @@ var profiles = map[string]Profile{
 		MaxTokenLimit:              160000,
 		MaxOutputTokens:            16384,
 		TokenThreshold:             50000,
+		MovingWindowSize:           1,
 		MaxOverheadRatio:           0.15,
 		Enabled:                    true,
 		CheckpointModel:            "MODEL_PLACEHOLDER_M50",
@@ -232,6 +255,8 @@ var profiles = map[string]Profile{
 		IncludeSubagentSnapshots:   true,
 		IncludeArtifactSnapshots:   true,
 		RetryMaxRetries:            0,
+		RetryInitialSleepMS:        1000,
+		RetryMultiplier:            2,
 		UseModelReportedTokenCount: false,
 		SessionSummaryPrompt:       false,
 	},
@@ -240,6 +265,7 @@ var profiles = map[string]Profile{
 		MaxTokenLimit:              256000,
 		MaxOutputTokens:            16384,
 		TokenThreshold:             50000,
+		MovingWindowSize:           1,
 		MaxOverheadRatio:           0.15,
 		Enabled:                    true,
 		CheckpointModel:            "MODEL_PLACEHOLDER_M50",
@@ -252,6 +278,8 @@ var profiles = map[string]Profile{
 		IncludeSubagentSnapshots:   true,
 		IncludeArtifactSnapshots:   true,
 		RetryMaxRetries:            4,
+		RetryInitialSleepMS:        1000,
+		RetryMultiplier:            2,
 		UseModelReportedTokenCount: false,
 		SessionSummaryPrompt:       false,
 	},
@@ -260,6 +288,7 @@ var profiles = map[string]Profile{
 		MaxTokenLimit:              256000,
 		MaxOutputTokens:            16384,
 		TokenThreshold:             50000,
+		MovingWindowSize:           1,
 		MaxOverheadRatio:           0.15,
 		Enabled:                    true,
 		CheckpointModel:            "MODEL_PLACEHOLDER_M50",
@@ -272,6 +301,8 @@ var profiles = map[string]Profile{
 		IncludeSubagentSnapshots:   true,
 		IncludeArtifactSnapshots:   true,
 		RetryMaxRetries:            4,
+		RetryInitialSleepMS:        1000,
+		RetryMultiplier:            2,
 		UseModelReportedTokenCount: false,
 		SessionSummaryPrompt:       true,
 	},
@@ -284,6 +315,7 @@ var profileVariants = map[string]Profile{
 		MaxTokenLimit:              840000,
 		MaxOutputTokens:            16384,
 		TokenThreshold:             50000,
+		MovingWindowSize:           1,
 		MaxOverheadRatio:           0.15,
 		Enabled:                    true,
 		CheckpointModel:            "MODEL_PLACEHOLDER_M50",
@@ -296,6 +328,8 @@ var profileVariants = map[string]Profile{
 		IncludeSubagentSnapshots:   true,
 		IncludeArtifactSnapshots:   true,
 		RetryMaxRetries:            4,
+		RetryInitialSleepMS:        1000,
+		RetryMultiplier:            2,
 		UseModelReportedTokenCount: true,
 		SessionSummaryPrompt:       false,
 	},
@@ -352,7 +386,20 @@ var profileAliases = map[string]string{
 // It reports false for a model the 1.4.8 catalogue does not carry — the
 // caller falls back to the 1.4.4 capture.
 func ProfileFor(modelID string) (Profile, bool) {
-	m, ok := catalogue[normalize(modelID)]
+	id := normalize(modelID)
+	for _, cand := range candidates(modelID, id) {
+		if p, ok := profileForID(cand); ok {
+			// 1.5.3 set use_model_reported_token_count on every shipped
+			// profile; the 1.4.8 document (kept as evidence) has false.
+			p.UseModelReportedTokenCount = true
+			return p, true
+		}
+	}
+	return Profile{}, false
+}
+
+func profileForID(id string) (Profile, bool) {
+	m, ok := catalogue[id]
 	if !ok {
 		return Profile{}, false
 	}
@@ -368,4 +415,23 @@ func ProfileFor(modelID string) (Profile, bool) {
 		p = v
 	}
 	return p, true
+}
+
+// ModelForEnum returns the public model id for an internal model enum.
+//
+// The checkpoint payload names its summariser by enum (MODEL_PLACEHOLDER_M50);
+// the backend needs the public id. The catalogue is the reverse map, and a
+// sorted walk keeps the answer deterministic when an enum has aliases.
+func ModelForEnum(enum string) (string, bool) {
+	ids := make([]string, 0, len(catalogue))
+	for id := range catalogue {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	for _, id := range ids {
+		if catalogue[id].enum == enum {
+			return id, true
+		}
+	}
+	return "", false
 }

@@ -684,3 +684,48 @@ func TestAgentSortedFromLoadAgentDirIsStable(t *testing.T) {
 		t.Errorf("walker unstable: first=%v second=%v", firstNames, secondNames)
 	}
 }
+
+// TestSkillEntries resolves the three shapes a `skills:` entry takes: a
+// directory holding SKILL.md, a loose Markdown file, and a bare name
+// reference. The returned list is sorted and de-duplicated by name.
+func TestSkillEntries(t *testing.T) {
+	root := t.TempDir()
+	writeFile(t, root, "skills/reviewer/SKILL.md",
+		"---\nname: code-reviewer\ndescription: Reviews code changes\n---\n")
+	writeFile(t, root, "skills/loose.md",
+		"---\nname: loose-skill\ndescription: A loose Markdown skill\n---\n")
+	agentPath := writeFile(t, root, "agents/helper.md",
+		"---\nname: helper\ndescription: Helps\nskills:\n  - ../skills/reviewer\n  - ../skills/loose.md\n  - plain-name\n---\nbody\n")
+
+	agent, err := customagent.LoadAgent(agentPath)
+	if err != nil {
+		t.Fatalf("LoadAgent: %v", err)
+	}
+	entries := agent.SkillEntries()
+	var names []string
+	for _, entry := range entries {
+		names = append(names, entry.Name)
+	}
+	want := []string{"code-reviewer", "loose-skill", "plain-name"}
+	if !reflect.DeepEqual(names, want) {
+		t.Fatalf("SkillEntries names = %v, want %v", names, want)
+	}
+	if entries[0].Description != "Reviews code changes" {
+		t.Errorf("code-reviewer description = %q", entries[0].Description)
+	}
+	if entries[1].Description != "A loose Markdown skill" {
+		t.Errorf("loose-skill description = %q", entries[1].Description)
+	}
+	if entries[2].Path != "plain-name" {
+		t.Errorf("plain-name path = %q, want unresolved spelling", entries[2].Path)
+	}
+
+	empty, err := customagent.LoadAgent(writeFile(t, root, "agents/plain.md",
+		"---\nname: plain\ndescription: No skills\n---\nbody\n"))
+	if err != nil {
+		t.Fatalf("LoadAgent plain: %v", err)
+	}
+	if got := empty.SkillEntries(); got != nil {
+		t.Errorf("SkillEntries for skill-less agent = %v, want nil", got)
+	}
+}

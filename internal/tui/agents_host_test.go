@@ -16,10 +16,10 @@ import (
 	lifecycle "github.com/justwasm/pigasus/internal/core/lifecycle"
 )
 
-// seedAgentsRunMode returns a runMode with a fresh subagent manager.
-func seedAgentsRunMode() *runMode {
-	m := &runMode{}
-	m.engine.taskSubagentManager = subagent.NewManager()
+// seedAgentsRootModel returns a RootModel with a fresh subagent manager.
+func seedAgentsRootModel() *RootModel {
+	m := &RootModel{}
+	m.tasks.subagentManager = subagent.NewManager()
 	return m
 }
 
@@ -27,12 +27,12 @@ func seedAgentsRunMode() *runMode {
 // owns reaches the manager that owns the subagent, and the subagent
 // dies.
 func TestAgentsPanelKillReachesTheSessionManager(t *testing.T) {
-	m := seedAgentsRunMode()
+	m := seedAgentsRootModel()
 	sa := subagent.NewSubagent("sh", "-c", "sleep 30")
 	if err := sa.Start(); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
-	m.engine.taskSubagentManager.Add(sa)
+	m.tasks.subagentManager.Add(sa)
 
 	m.openSlashPanel("agents")
 	p := m.agentsPanel()
@@ -51,13 +51,13 @@ func TestAgentsPanelKillReachesTheSessionManager(t *testing.T) {
 // TestAgentsPanelApprovalReachesTheSessionManager — the "a" key the
 // panel owns answers the authorization the session's manager holds.
 func TestAgentsPanelApprovalReachesTheSessionManager(t *testing.T) {
-	m := seedAgentsRunMode()
+	m := seedAgentsRootModel()
 	sa := subagent.NewSubagent("sh", "-c", "sleep 30")
 	if err := sa.Start(); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
-	m.engine.taskSubagentManager.Add(sa)
-	appr := m.engine.taskSubagentManager.RequestAuthorization(sa.ID, lifecycle.ApprovalToolConfirm, "write_file", "")
+	m.tasks.subagentManager.Add(sa)
+	appr := m.tasks.subagentManager.RequestAuthorization(sa.ID, lifecycle.ApprovalToolConfirm, "write_file", "")
 	if appr.ID == "" {
 		t.Fatal("the queued authorization has no id")
 	}
@@ -70,20 +70,20 @@ func TestAgentsPanelApprovalReachesTheSessionManager(t *testing.T) {
 	if !handled {
 		t.Fatal("the 'a' key reported unhandled")
 	}
-	if _, ok := m.engine.taskSubagentManager.PendingAuthorization(sa.ID); ok {
+	if _, ok := m.tasks.subagentManager.PendingAuthorization(sa.ID); ok {
 		t.Error("the authorization is still pending after 'a'")
 	}
 }
 
 // TestAgentsPanelDenialReachesTheSessionManager — the "d" key refuses.
 func TestAgentsPanelDenialReachesTheSessionManager(t *testing.T) {
-	m := seedAgentsRunMode()
+	m := seedAgentsRootModel()
 	sa := subagent.NewSubagent("sh", "-c", "sleep 30")
 	if err := sa.Start(); err != nil {
 		t.Fatalf("Start: %v", err)
 	}
-	m.engine.taskSubagentManager.Add(sa)
-	m.engine.taskSubagentManager.RequestAuthorization(sa.ID, lifecycle.ApprovalToolConfirm, "write_file", "")
+	m.tasks.subagentManager.Add(sa)
+	m.tasks.subagentManager.RequestAuthorization(sa.ID, lifecycle.ApprovalToolConfirm, "write_file", "")
 
 	m.openSlashPanel("agents")
 	p := m.agentsPanel()
@@ -93,7 +93,7 @@ func TestAgentsPanelDenialReachesTheSessionManager(t *testing.T) {
 	if !handled {
 		t.Fatal("the 'd' key reported unhandled")
 	}
-	if _, ok := m.engine.taskSubagentManager.PendingAuthorization(sa.ID); ok {
+	if _, ok := m.tasks.subagentManager.PendingAuthorization(sa.ID); ok {
 		t.Error("the authorization is still pending after 'd'")
 	}
 }

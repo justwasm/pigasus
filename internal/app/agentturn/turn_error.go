@@ -5,13 +5,7 @@ import (
 	"fmt"
 	"strconv"
 
-	"github.com/justwasm/pigasus/actor"
 	"github.com/justwasm/pigasus/internal/core/apierror"
-)
-
-var (
-	// ErrMaxTurnsReached is returned when the loop hits the maximum tool iterations cap.
-	ErrMaxTurnsReached = actor.ErrMaxStepsReached
 )
 
 // ErrAutoContNetworkFailed reports that auto-continue was abandoned because the

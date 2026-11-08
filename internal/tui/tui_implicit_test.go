@@ -8,12 +8,12 @@ import (
 	"github.com/justwasm/pigasus/internal/app/prompt/implicit"
 )
 
-// implicitRunMode builds a run mode whose implicit-trajectory store lives in
+// implicitRootModel builds a run mode whose implicit-trajectory store lives in
 // a fresh directory.
-func implicitRunMode(t *testing.T, home, workspace string) *runMode {
+func implicitRootModel(t *testing.T, home, workspace string) *RootModel {
 	t.Helper()
 	t.Setenv("ANTIGRAVITY_HOME", home)
-	m := newRunMode(&fakeClient{}, "u@t", "Gemni 3.8 Flash (Medium)", "", workspace, false)
+	m := newRootModel(&fakeClient{}, "u@t", "Gemni 3.8 Flash (Medium)", "", workspace, false)
 	m.Update(tea.WindowSizeMsg{Width: 120, Height: 40})
 	return m
 }
@@ -28,7 +28,7 @@ func implicitRunMode(t *testing.T, home, workspace string) *runMode {
 func TestBashCommandIsRecordedInTheImplicitTrajectory(t *testing.T) {
 	home := t.TempDir()
 	workspace := t.TempDir()
-	m := implicitRunMode(t, home, workspace)
+	m := implicitRootModel(t, home, workspace)
 
 	m.finishBashCommand(bashDoneMsg{cmd: "printf 'a\\nb\\n'", output: "a\nb", hasCode: true})
 
@@ -72,7 +72,7 @@ func TestBashCommandIsRecordedInTheImplicitTrajectory(t *testing.T) {
 func TestACanceledBashCommandIsRecordedAsCanceled(t *testing.T) {
 	home := t.TempDir()
 	workspace := t.TempDir()
-	m := implicitRunMode(t, home, workspace)
+	m := implicitRootModel(t, home, workspace)
 
 	m.finishBashCommand(bashDoneMsg{cmd: "top", cancelled: true})
 
@@ -97,7 +97,7 @@ func TestTheTrajectoryIsPerWorkspace(t *testing.T) {
 	home := t.TempDir()
 	one := t.TempDir()
 	two := t.TempDir()
-	m := implicitRunMode(t, home, one)
+	m := implicitRootModel(t, home, one)
 
 	m.finishBashCommand(bashDoneMsg{cmd: "echo one", output: "one", hasCode: true})
 	m.session.cwd = two

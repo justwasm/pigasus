@@ -67,7 +67,7 @@ func TestCycle294_ResolveAltScreenReadsSetting(t *testing.T) {
 // alternate buffer (?1049l) right after the row is switched.
 func TestCycle294_ConfigRenderingModeSwitchesSession(t *testing.T) {
 	dir := cycle196TestHome(t, map[string]any{"altScreenMode": "always"})
-	m := &runMode{viewport: uiState{altScreen: true}}
+	m := &RootModel{viewport: uiState{altScreen: true}}
 	m.overlays.panel = slashPanel{kind: panelregistry.Config, cmd: "/config"}
 	m.overlays.panel.cfg = m.newConfigPanel()
 	idx := configRowIndexForTest(t, m, "Rendering Mode")
@@ -108,7 +108,7 @@ func TestCycle294_ConfigRenderingModeSwitchesSession(t *testing.T) {
 // to express the inline view.
 func TestCycle294_ConfigRenderingModeDefaultIsReachable(t *testing.T) {
 	dir := cycle196TestHome(t, map[string]any{})
-	m := &runMode{viewport: uiState{altScreen: true}}
+	m := &RootModel{viewport: uiState{altScreen: true}}
 	m.overlays.panel = slashPanel{kind: panelregistry.Config, cmd: "/config"}
 	m.overlays.panel.cfg = m.newConfigPanel()
 	idx := configRowIndexForTest(t, m, "Rendering Mode")

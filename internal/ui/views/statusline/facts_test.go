@@ -41,7 +41,7 @@ func TestVimModeName(t *testing.T) {
 // is the payload's own two-value vocabulary.
 func TestSubagents(t *testing.T) {
 	states := []subagenttools.StateEntry{
-		{Type: "research", Role: "deep dive", State: subagenttools.StateRunning},
+		{Type: "research", Role: "deep dive", State: subagenttools.StateRunning, Model: "Gemini 3.8 Flash (High)"},
 		{Type: "self", State: subagenttools.StateIdle},
 	}
 	got := statusline.Subagents(states)
@@ -50,6 +50,9 @@ func TestSubagents(t *testing.T) {
 	}
 	if got[0].Name != "research" || got[0].Role != "deep dive" || got[0].Status != "running" {
 		t.Errorf("subagents[0] = %+v, want research/deep dive/running", got[0])
+	}
+	if got[0].Model != "Gemini 3.8 Flash (High)" {
+		t.Errorf("subagents[0].Model = %q", got[0].Model)
 	}
 	if got[1].Name != "self" || got[1].Role != "self" || got[1].Status != "completed" {
 		t.Errorf("subagents[1] = %+v, want self/self/completed", got[1])

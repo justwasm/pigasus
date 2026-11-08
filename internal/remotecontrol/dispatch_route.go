@@ -138,7 +138,8 @@ func (d *Dispatcher) routeProjectMethods(ctx context.Context, method string, par
 // through.
 func (d *Dispatcher) projectsSeams() projects.Seams {
 	return projects.Seams{
-		Store: d.cfg.Projects,
+		Store:   d.cfg.Projects,
+		Uploads: d.cfg.Uploads,
 	}
 }
 

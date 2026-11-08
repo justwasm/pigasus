@@ -37,15 +37,16 @@ func TestTextSelection(t *testing.T) {
 		t.Errorf("ResetSelection failed")
 	}
 
-	s.InputSelStart = 10
-	s.InputSelEnd = 3
-	start, end := s.InputSelectionRange()
+	var in tuiviewport.InputSelection
+	in.InputSelStart = 10
+	in.InputSelEnd = 3
+	start, end := in.InputSelectionRange()
 	if start != 3 || end != 10 {
 		t.Errorf("InputSelectionRange = (%d, %d), want (3, 10)", start, end)
 	}
 
-	s.ResetInputSelection()
-	if s.InputSelStart != 0 || s.InputSelEnd != 0 {
+	in.ResetInputSelection()
+	if in.InputSelStart != 0 || in.InputSelEnd != 0 {
 		t.Errorf("ResetInputSelection failed")
 	}
 }
@@ -204,7 +205,6 @@ func TestPromptAndScrollHelpers(t *testing.T) {
 	if ansi.StringWidth(pinnedWide) > 40 {
 		t.Errorf("expected pinnedWide width <= 40, got %d", ansi.StringWidth(pinnedWide))
 	}
-
 
 	if !tuiviewport.IsScrollKey(tea.Key{Code: tea.KeyPgUp}) {
 		t.Errorf("expected KeyPgUp to be scroll key")
@@ -506,5 +506,3 @@ func TestListNav(t *testing.T) {
 		t.Errorf("HandleNav NavSelect should not be handled by list nav")
 	}
 }
-
-

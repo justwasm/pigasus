@@ -149,6 +149,30 @@ func (p *Panel) PendingCount() int {
 	return p.seams.Manager.PendingCount(p.scope)
 }
 
+// Open opens the picker when the active scope has at least one pending
+// question. It reports whether the picker is open afterwards.
+//
+// The host calls it when the model asks a question, so the picker comes
+// up immediately instead of waiting for Ctrl+K.
+func (p *Panel) Open() bool {
+	if p == nil || p.seams.Manager == nil {
+		return false
+	}
+	if p.open {
+		return true
+	}
+	if len(p.pending()) == 0 {
+		return false
+	}
+	p.open = true
+	p.cursor = 0
+	// cycle feature/ask-question-left-right-nav: opening the picker
+	// always starts on the first option of the first question, even if
+	// the user moved Left/Right on a different question before.
+	p.optionCursor = 0
+	return true
+}
+
 // Toggle flips the picker into the open state when the active scope has
 // at least one pending question, and closes it when it is already open.
 // When there is nothing to answer it echoes a friendly line instead.
@@ -162,8 +186,7 @@ func (p *Panel) Toggle() {
 		p.open = false
 		return
 	}
-	pending := p.seams.Manager.Pending(p.scope)
-	if len(pending) == 0 {
+	if len(p.pending()) == 0 {
 		// No questions to answer. Echo a friendly line so the
 		// user understands what just happened.
 		p.respond(palette.WarningBlueOpen + "  ⎿  " + palette.WarningBlueClose +
@@ -171,12 +194,7 @@ func (p *Panel) Toggle() {
 			scopeLabel(p.scope) + palette.DimGrayClose)
 		return
 	}
-	p.open = true
-	p.cursor = 0
-	// cycle feature/ask-question-left-right-nav: opening the picker
-	// always starts on the first option of the first question, even if
-	// the user moved Left/Right on a different question before.
-	p.optionCursor = 0
+	p.Open()
 }
 
 // SubmitAnswer sends the composer's content to the staged question.
@@ -215,6 +233,62 @@ func (p *Panel) SubmitAnswer() bool {
 	}
 	p.respond(palette.DimGrayOpen + "  ⎿  Answer sent to " +
 		scopeLabel(p.scope) + "." + palette.DimGrayClose)
+	return true
+}
+
+// AnswerSelected sends the highlighted option to the highlighted
+// question and closes the picker. It is the Enter path for a question
+// that offers options: the selection is the answer, no composer typing
+// step is needed.
+func (p *Panel) AnswerSelected() bool {
+	pending := p.pending()
+	if p.cursor < 0 || p.cursor >= len(pending) {
+		return false
+	}
+	selected := pending[p.cursor]
+	if len(selected.Options) == 0 || p.optionCursor < 0 || p.optionCursor >= len(selected.Options) {
+		return false
+	}
+	return p.answer(selected, selected.Options[p.optionCursor])
+}
+
+// SkipCurrent skips the highlighted question and closes the picker when
+// no pending question remains. A skipped question unblocks its Wait
+// with the reference's "User Skipped" text.
+func (p *Panel) SkipCurrent() bool {
+	pending := p.pending()
+	if p.cursor < 0 || p.cursor >= len(pending) {
+		return false
+	}
+	selected := pending[p.cursor]
+	if err := p.seams.Manager.Skip(p.scope, selected.ID); err != nil {
+		p.respond(palette.DimGrayOpen + "subagent-question skip: " +
+			err.Error() + palette.DimGrayClose)
+		return true
+	}
+	p.respond(palette.DimGrayOpen + "  ⎿  Question skipped." + palette.DimGrayClose)
+	remaining := p.pending()
+	if len(remaining) == 0 {
+		p.close()
+		return true
+	}
+	if p.cursor >= len(remaining) {
+		p.cursor = len(remaining) - 1
+	}
+	p.optionCursor = 0
+	return true
+}
+
+// answer sends text to selected and closes the picker.
+func (p *Panel) answer(selected *subagentquestions.Question, text string) bool {
+	if err := p.seams.Manager.Answer(p.scope, selected.ID, text); err != nil {
+		p.respond(palette.DimGrayOpen + "subagent-question answer: " +
+			err.Error() + palette.DimGrayClose)
+		return true
+	}
+	p.respond(palette.DimGrayOpen + "  ⎿  Answer sent to " +
+		scopeLabel(p.scope) + "." + palette.DimGrayClose)
+	p.close()
 	return true
 }
 

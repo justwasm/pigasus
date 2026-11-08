@@ -109,12 +109,28 @@ func Register(tok *auth.AntigravityToken) (Account, bool, error) {
 // email comes from somewhere else: the userinfo probe or the
 // environment.
 func RegisterWithEmail(email string, tok *auth.AntigravityToken) (Account, bool, error) {
+	return registerAccount(email, tok, true)
+}
+
+// Add stores an account without making it active.
+//
+// It is the CLI's door: a script can register a batch of credentials and
+// decide separately which one the shared credential should hold. The
+// registry entry is written atomically, like every other change.
+func Add(email string, tok *auth.AntigravityToken) (Account, bool, error) {
+	return registerAccount(email, tok, false)
+}
+
+func registerAccount(email string, tok *auth.AntigravityToken, activate bool) (Account, bool, error) {
 	if tok == nil {
 		return Account{}, false, errors.New("accounts: nil token")
 	}
 	email = strings.TrimSpace(email)
 	if email == "" {
 		return Account{}, false, errors.New("accounts: no email for the account")
+	}
+	if strings.TrimSpace(tok.IDTokenEmail) == "" && tok.UserEmail() == "" {
+		tok.IDTokenEmail = email
 	}
 	mu.Lock()
 	defer mu.Unlock()
@@ -130,7 +146,9 @@ func RegisterWithEmail(email string, tok *auth.AntigravityToken) (Account, bool,
 	}
 	acc.LastUsed = time.Now()
 	st.Put(acc)
-	st.Active = email
+	if activate {
+		st.Active = email
+	}
 	if err := st.saveLocked(); err != nil {
 		return Account{}, existed, err
 	}

@@ -1,5 +1,5 @@
 // Package panels provides builder and glue functions for modal TUI panels,
-// decoupling individual panel views from the cliapp runMode host.
+// decoupling individual panel views from the cliapp RootModel host.
 package panels
 
 // Version indicates the panels package version/revision.

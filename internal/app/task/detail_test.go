@@ -399,3 +399,20 @@ func TestTaskDetailBody_TabExpansionAndWrap(t *testing.T) {
 		t.Errorf("expected 4-space tab expansion, got:\n%s", joined)
 	}
 }
+
+// TestSubagentDetailHeaderShowsModelAndEffort pins the AGY 1.5.3 detail
+// line: the subagent's full model and effort.
+func TestSubagentDetailHeaderShowsModelAndEffort(t *testing.T) {
+	header := SubagentDetailHeader(&Task{
+		ID:     "sub-1",
+		Name:   "worker",
+		Kind:   KindSubagent,
+		State:  StateRunning,
+		Model:  "Gemini 3.8 Flash (High)",
+		Effort: "high",
+	}, SubagentHeaderContext{Width: 80})
+	joined := strings.Join(header, "\n")
+	if !strings.Contains(joined, "Model: Gemini 3.8 Flash (High) (effort: high)") {
+		t.Errorf("header = %q, want the model and effort line", joined)
+	}
+}

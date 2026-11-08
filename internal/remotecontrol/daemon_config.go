@@ -97,6 +97,14 @@ type Config struct {
 	// a projects.FSStore rooted at $ANTIGRAVITY_HOME/projects/.
 	Projects projects.Store
 
+	// Uploads is the seam UploadProjectFile writes through.
+	// nil → that method answers -32603 ("no upload store
+	// installed") while the CRUD methods keep working.
+	// Production wiring installs a projects.FSUploadStore rooted
+	// at $ANTIGRAVITY_HOME/projects/, so uploads land under
+	// <root>/<project-id>/uploads/.
+	Uploads projects.UploadStore
+
 	// Conversations is the seam the three destructive
 	// methods introduced in cycle
 	// rc-conversation-deletions —

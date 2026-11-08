@@ -617,6 +617,8 @@ func TestClassifyTransportErrorStringMatch(t *testing.T) {
 		{"software caused connection abort", "read tcp 127.0.0.1:1->127.0.0.1:2: read: software caused connection abort", true},
 		{"network is down", "write tcp: network is down", true},
 		{"http2: client connection lost", "http2: client connection lost", true},
+		{"http2: timeout awaiting response headers", "http2: timeout awaiting response headers", true},
+		{"net/http: timeout awaiting response headers", "net/http: timeout awaiting response headers", true},
 		{"connection refused", "dial tcp 127.0.0.1:1: connect: connection refused", true},
 		{"no such host", "dial tcp: lookup example.invalid: no such host", true},
 		{"EOF in message", "gateway: sse read: unexpected EOF", true},

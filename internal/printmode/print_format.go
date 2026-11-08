@@ -232,11 +232,11 @@ func writeJSONLine(w io.Writer, v any) error {
 // event ends with a `\n` so the shell prompt that runs after the
 // CLI does not glue to the last byte of stdout.
 const (
-	streamEventInit            = "init"
-	streamEventStepUpdate      = "step_update"
-	streamEventCommandResult   = "command_result"
-	streamEventPartialResponse = "partial_response"
-	streamEventResult          = "result"
+	streamEventInit             = "init"
+	streamEventStepUpdate       = "step_update"
+	streamEventCommandResult    = "command_result"
+	streamEventPartialResponse  = "partial_response"
+	streamEventResult           = "result"
 	streamEventAssistantMessage = "assistant_message"
 )
 
@@ -458,6 +458,7 @@ func emitAssistantMessage(w io.Writer, message, model string) error {
 func printVerbose(fs *flag.FlagSet) bool {
 	return flagBoolValue(fs, "verbose")
 }
+
 // printTimeout returns the --print-timeout deadline. The changelog changed the
 // default headless timeout from 5 minutes to unlimited — "long-running agent
 // turns run until the response completes unless --print-timeout is passed

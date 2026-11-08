@@ -28,17 +28,20 @@ import (
 
 	"github.com/justwasm/pigasus/agentlink"
 	"github.com/justwasm/pigasus/internal/app/agenttools"
-	"github.com/justwasm/pigasus/internal/app/prompt/agyprompt"
 	"github.com/justwasm/pigasus/internal/app/agentturn"
+	"github.com/justwasm/pigasus/internal/app/artifacts"
+	"github.com/justwasm/pigasus/internal/app/prompt/agyprompt"
 	"github.com/justwasm/pigasus/internal/app/session/setup"
 	browsersubagent "github.com/justwasm/pigasus/internal/app/subagent/browser"
+	"github.com/justwasm/pigasus/internal/app/toolrunner"
+	"github.com/justwasm/pigasus/internal/app/tools"
+	"github.com/justwasm/pigasus/internal/app/tools/shell"
+	"github.com/justwasm/pigasus/internal/app/tools/surface"
 	"github.com/justwasm/pigasus/internal/core/backend"
 	confhome "github.com/justwasm/pigasus/internal/core/confhome"
 	"github.com/justwasm/pigasus/internal/core/version"
 	"github.com/justwasm/pigasus/internal/features/auth"
-	"github.com/justwasm/pigasus/internal/app/toolrunner"
-	"github.com/justwasm/pigasus/internal/app/tools"
-	"github.com/justwasm/pigasus/internal/app/tools/surface"
+	"github.com/justwasm/pigasus/internal/features/checkpoint"
 )
 
 // Version is the server's version. It rides the hello frame, so a
@@ -74,6 +77,14 @@ type Config struct {
 	// AgentBody is a custom agent's body. Empty means the default
 	// agent.
 	AgentBody string
+	// AgentName is the custom agent's name, when --agent selects one.
+	// It is advertised in the ACP session's command list; empty means
+	// the default agent.
+	AgentName string
+	// AgentPath is the custom agent's Markdown file. The ACP session
+	// reads its resolved skills so they appear in the slash menu.
+	// Empty means the default agent.
+	AgentPath string
 	// BackendFor returns the transport for a model. It is asked per
 	// turn, so a client may switch the model without reconnecting.
 	BackendFor func(model string) backend.Client
@@ -355,6 +366,12 @@ func (s *Session) env(ctx context.Context, model string) (agentturn.Env, func())
 		Tools:        s.Tools,
 		ToolRunner:   s.Runner,
 		Effort:       s.Effort,
+		CheckpointSnapshot: func() checkpoint.Snapshot {
+			return checkpoint.Snapshot{
+				Artifacts:    artifacts.List(s.ConversationID),
+				RunningTasks: shell.RunningTaskSnapshots(s.ConversationID),
+			}
+		},
 	}, func() {}
 }
 
@@ -440,4 +457,3 @@ func (s *Server) prompt(workspace, agentDir, conversationID string) string {
 	}
 	return agyprompt.Build(opts)
 }
-

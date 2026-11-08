@@ -27,16 +27,16 @@ import (
 // user-prompt rows. All three are O(total rows) and allocate, so a warm
 // scroll frame cost grows with the conversation, not with the viewport.
 //
-// synthTranscript fills m.engine.response with n user/model step pairs at
+// synthTranscript fills m.conversation.response with n user/model step pairs at
 // replyBytes each, using the live renderers' row shapes (a prompt row with
 // the cWarningBlueOpen prefix, a blank separator, and a reply). It is
 // deterministic so benchmark runs are comparable.
-func synthTranscript(m *runMode, steps, replyBytes int) {
+func synthTranscript(m *RootModel, steps, replyBytes int) {
 	unit := "the quick brown fox jumps over the lazy dog "
 	reply := strings.Repeat(unit, replyBytes/len(unit)+1)
 	reply = reply[:replyBytes]
 	for i := 0; i < steps; i++ {
-		m.engine.response = append(m.engine.response,
+		m.conversation.response = append(m.conversation.response,
 			transcript.UserPromptRow(fmt.Sprintf("prompt %d", i)),
 			"",
 			reply,
@@ -48,7 +48,7 @@ func synthTranscript(m *runMode, steps, replyBytes int) {
 // warmModel returns an idle model sized 200x40 with the transcript already
 // wrapped and the composed-row cache primed, i.e. the state a scroll
 // keypress renders from.
-func warmModel(steps, replyBytes int) *runMode {
+func warmModel(steps, replyBytes int) *RootModel {
 	m := newBenchModel()
 	synthTranscript(m, steps, replyBytes)
 	m.viewport.width = 200
@@ -108,7 +108,7 @@ func BenchmarkToggleTrajectoryExpanded1600Blocks(b *testing.B) {
 	m.viewport.width = 120
 	m.viewport.height = 40
 	for i := 0; i < 1600; i++ {
-		start := len(m.engine.response)
+		start := len(m.conversation.response)
 		step := toolsteps.Step{
 			Kind:   toolsteps.KindTool,
 			Name:   "run_command",
@@ -120,8 +120,8 @@ func BenchmarkToggleTrajectoryExpanded1600Blocks(b *testing.B) {
 			Width:     m.viewport.width,
 			Verbosity: toolsteps.VerbosityLow,
 		})
-		m.engine.response = append(m.engine.response, lines...)
-		m.engine.blocks = append(m.engine.blocks, transcript.Block{
+		m.conversation.response = append(m.conversation.response, lines...)
+		m.conversation.blocks = append(m.conversation.blocks, transcript.Block{
 			Start: start,
 			Lines: len(lines),
 			Steps: []toolsteps.Step{step},
@@ -171,7 +171,7 @@ func TestClipToScreenRowsPrefixMatches(t *testing.T) {
 // reused across frames) must render exactly what a cold model with the same
 // state renders. It covers the two ways the cache can go stale: a response
 // mutation (an appended row) and a header change (the fallback warning
-// block) that does not touch m.engine.response at all.
+// block) that does not touch m.conversation.response at all.
 func TestComposedCacheMatchesColdRender(t *testing.T) {
 	warm := newBenchModel()
 	synthTranscript(warm, 120, 300)
@@ -179,7 +179,7 @@ func TestComposedCacheMatchesColdRender(t *testing.T) {
 	warm.viewport.altScreen = true
 	_ = warm.View()
 
-	render := func(m *runMode) string {
+	render := func(m *RootModel) string {
 		m.viewport.width, m.viewport.height = 120, 24
 		m.viewport.altScreen = true
 		m.viewport.autoScroll = false
@@ -187,8 +187,8 @@ func TestComposedCacheMatchesColdRender(t *testing.T) {
 	}
 	cold := func(scroll int, fallback bool, extra []string) string {
 		c := newBenchModel()
-		c.engine.response = append([]string(nil), warm.engine.response...)
-		c.engine.response = append(c.engine.response, extra...)
+		c.conversation.response = append([]string(nil), warm.conversation.response...)
+		c.conversation.response = append(c.conversation.response, extra...)
 		if fallback {
 			c.session.fallbackFrom, c.session.fallbackTo = "Gemini 9.9 Pro", "Gemini 3.8 Flash (High)"
 		}
@@ -221,7 +221,7 @@ func TestComposedCacheMatchesColdRender(t *testing.T) {
 	// the stream does, flip the dirty flag the way Update() does, and the
 	// bottom-anchored frame must include the new row.
 	extra := "a streamed reply that was not there when the cache was built"
-	warm.engine.response = append(warm.engine.response, extra, "")
+	warm.conversation.response = append(warm.conversation.response, extra, "")
 	warm.viewport.rowsCacheDirty = true
 	warm.viewport.width, warm.viewport.height = 120, 24
 	warm.viewport.altScreen = true

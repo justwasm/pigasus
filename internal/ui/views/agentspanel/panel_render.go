@@ -24,6 +24,10 @@ import (
 //
 // The palette's colours follow the selected colour scheme, so the
 // scheme-dependent ones are read from the palette at draw time.
+// subagentModelMinWidth is the narrow-terminal cutoff for the model
+// cell in the /agents subagent rows (AGY 1.5.3).
+const subagentModelMinWidth = 64
+
 const (
 	// panelTitleOpen is the reference's own title span: bold on the
 	// default foreground.
@@ -85,6 +89,8 @@ func (p *Panel) Lines() []string {
 		running, done := subagentCounts(subs)
 		lines = append(lines, "", panelBoldOpen+subagentsHeader(running, done)+panelBoldClose)
 		lines = append(lines, p.subagentRows(subs)...)
+		// AGY 1.5.3: one tip line instead of a per-row "[view details]".
+		lines = append(lines, "  "+palette.SubtleOpen+"Tip: Press enter on a subagent to view details."+panelGray238C)
 	}
 
 	lines = append(lines,
@@ -110,8 +116,15 @@ func (p *Panel) detailLines() []string {
 	lines := []string{
 		panelTitleOpen + "Subagent Detail: " + sa.Name + panelTitleClose,
 		palette.SubtleOpen + "Status: " + sa.StatusLine() + panelGray238C,
-		"",
 	}
+	if model := strings.TrimSpace(sa.Model); model != "" {
+		modelLine := "Model: " + model
+		if effort := strings.TrimSpace(sa.Effort); effort != "" {
+			modelLine += " (effort: " + effort + ")"
+		}
+		lines = append(lines, palette.SubtleOpen+modelLine+panelGray238C)
+	}
+	lines = append(lines, "")
 	if sa.Title != "" {
 		lines = append(lines, panelBoldOpen+"Task Title:"+panelBoldClose)
 		titleWrapped := strings.Split(ansi.Wrap(mdrender.ExpandTabs(sa.Title, 4), wrapWidth, ""), "\n")
@@ -221,7 +234,11 @@ func (p *Panel) subagentRows(subs []*subagent.Subagent) []string {
 		if p.cursor-offset == i {
 			prefix = "> "
 		}
-		line := prefix + fmt.Sprintf("%s  %s", sa.Name, sa.StatusLine())
+		name := sa.Name
+		if model := strings.TrimSpace(sa.Model); model != "" && p.width() >= subagentModelMinWidth {
+			name += palette.DimGrayOpen + " · " + model + panelGray238C
+		}
+		line := prefix + fmt.Sprintf("%s  %s", name, sa.StatusLine())
 		if appr, ok := p.pendingAuthorization(sa); ok {
 			line += approvalSuffix(appr)
 		}

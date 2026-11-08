@@ -5,6 +5,8 @@ import (
 	"testing"
 	"time"
 
+	tea "charm.land/bubbletea/v2"
+
 	"github.com/justwasm/pigasus/agentlink"
 	"github.com/justwasm/pigasus/internal/app/agentturn"
 	"github.com/justwasm/pigasus/internal/core/backend"
@@ -116,5 +118,93 @@ func TestEngineBridge_HandleACPPermission(t *testing.T) {
 	}
 	if !dec.Approved || dec.OptionID != "opt-allow" {
 		t.Errorf("got decision %+v, want Approved: true, OptionID: opt-allow", dec)
+	}
+}
+
+type blockingMockEngine struct {
+	steerReceived string
+}
+
+func (b *blockingMockEngine) Turn(ctx context.Context, t agentturn.Turn) (<-chan agentlink.Frame, error) {
+	ch := make(chan agentlink.Frame)
+	go func() {
+		defer close(ch)
+		<-ctx.Done()
+	}()
+	return ch, nil
+}
+
+func (b *blockingMockEngine) Close() error {
+	return nil
+}
+
+func (b *blockingMockEngine) Steer(instruction string) error {
+	b.steerReceived = instruction
+	return nil
+}
+
+func TestEngineBridge_CancelAndRunning(t *testing.T) {
+	eng := &blockingMockEngine{}
+	bridge := NewEngineBridge(BridgeOptions{
+		Engine: eng,
+	})
+
+	if bridge.IsRunning() {
+		t.Fatal("bridge should not be running before RunTurn")
+	}
+	if bridge.ActiveEngine() != eng {
+		t.Fatal("ActiveEngine did not return the configured engine")
+	}
+
+	done := make(chan tea.Msg, 1)
+	go func() {
+		msg := bridge.RunTurn(context.Background(), "test-model", []backend.Message{
+			{Role: "user", Content: "test"},
+		})
+		done <- msg
+	}()
+
+	// Wait for turn to start
+	var running bool
+	for i := 0; i < 20; i++ {
+		time.Sleep(10 * time.Millisecond)
+		if bridge.IsRunning() {
+			running = true
+			break
+		}
+	}
+	if !running {
+		t.Fatal("bridge failed to enter running state")
+	}
+
+	// Dispatch Cancel
+	err := bridge.Dispatch(ActionCancel{})
+	if err != nil {
+		t.Fatalf("dispatch cancel failed: %v", err)
+	}
+
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("turn did not terminate after cancel")
+	}
+
+	if bridge.IsRunning() {
+		t.Fatal("bridge should not be running after cancel")
+	}
+}
+
+func TestEngineBridge_DispatchSteer(t *testing.T) {
+	eng := &blockingMockEngine{}
+	bridge := NewEngineBridge(BridgeOptions{
+		Engine: eng,
+	})
+
+	err := bridge.Dispatch(ActionSteer{Instruction: "steer hint"})
+	if err != nil {
+		t.Fatalf("dispatch steer failed: %v", err)
+	}
+	if eng.steerReceived != "steer hint" {
+		t.Errorf("steer received = %q, want 'steer hint'", eng.steerReceived)
 	}
 }

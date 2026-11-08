@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httputil"
@@ -147,7 +148,12 @@ func (s *Server) passthrough(w http.ResponseWriter, r *http.Request, body []byte
 			}
 		},
 		ErrorHandler: func(w http.ResponseWriter, _ *http.Request, err error) {
-			s.logf("%s %s: upstream error: %v", r.Method, r.URL.Path, err)
+			acc := s.resolveAccount("", r.Header.Get("Authorization"))
+			accTag := ""
+			if acc != "" {
+				accTag = " [" + acc + "]"
+			}
+			s.logf("%s %s%s: upstream error: %v", r.Method, r.URL.Path, accTag, err)
 			writeJSONError(w, http.StatusBadGateway, "upstream request failed: "+err.Error())
 		},
 	}
@@ -300,26 +306,53 @@ func (s *Server) handleBalancedPassthrough(w http.ResponseWriter, r *http.Reques
 
 		resp, err := s.client.Do(upstreamReq)
 		if err != nil {
-			s.logf("[account-pool] %s %s: upstream error: %v", r.Method, r.URL.Path, err)
+			accTag := ""
+			if currentEmail != "" {
+				accTag = " [" + currentEmail + "]"
+			}
+			s.logf("[account-pool] %s %s%s: upstream error: %v", r.Method, r.URL.Path, accTag, err)
 			writeJSONError(w, http.StatusBadGateway, "upstream request failed: "+err.Error())
 			return
 		}
 
-		if isQuotaStatus(resp.StatusCode) {
+		if resp.StatusCode != http.StatusOK {
 			errBytes, _ := readAll(resp.Body, maxRequestBody)
 			resp.Body.Close()
 
-			if isQuotaResponseBody(resp.StatusCode, errBytes) {
-				s.logf("[account-pool] %s quota exceeded (%d); excluding and switching account (attempt %d/%d)",
-					currentEmail, resp.StatusCode, attempt+1, maxAttempts)
-				if currentEmail != "" {
-					s.router.ExcludeForModel(currentEmail, family)
+			kind, reasonText := classifyAccountFailure(resp.StatusCode, errBytes)
+			if kind != failureNone {
+				reason, _, appealURL := extractErrorInfo(errBytes)
+				appealText := ""
+				if appealURL != "" {
+					appealText = fmt.Sprintf(" | appeal: %s", appealURL)
 				}
-				lastErrResp = resp
-				lastErrBody = errBytes
+				reasonDesc := reasonText
+				if reason != "" {
+					reasonDesc = fmt.Sprintf("%s: %s", reasonText, reason)
+				}
+
+				if kind == failureQuotaExceeded {
+					if currentEmail != "" {
+						s.router.ExcludeForModel(currentEmail, family)
+					}
+				} else {
+					if currentEmail != "" {
+						s.router.Exclude(currentEmail)
+					}
+				}
+
 				if attempt+1 < maxAttempts {
+					s.logf("[account-pool] %s %s (%d)%s; excluding and switching account (attempt %d/%d)",
+						currentEmail, reasonDesc, resp.StatusCode, appealText, attempt+1, maxAttempts)
+					lastErrResp = resp
+					lastErrBody = errBytes
 					continue
 				}
+
+				s.logf("[account-pool] %s %s (%d)%s; pool exhausted (attempt %d/%d)",
+					currentEmail, reasonDesc, resp.StatusCode, appealText, attempt+1, maxAttempts)
+				lastErrResp = resp
+				lastErrBody = errBytes
 				s.writeUpstreamResponse(w, lastErrResp, lastErrBody)
 				return
 			}
@@ -409,14 +442,23 @@ func (s *Server) forwardStreamResponse(w http.ResponseWriter, resp *http.Respons
 		sawError = geminicode.ParseFrameError(dataPayload.String())
 	}
 
-	// Immediate quota error on first frame: transparent failover if attempts remain
-	if sawError != nil && isStreamQuotaError(sawError) && attempt+1 < maxAttempts {
-		s.logf("[account-pool] %s stream quota exceeded (%d: %s); excluding and switching account (attempt %d/%d)",
-			currentEmail, sawError.Code, sawError.Message, attempt+1, maxAttempts)
-		if onImmediateQuota != nil {
-			onImmediateQuota()
+	// Immediate quota or account error on first frame: transparent failover if attempts remain
+	if sawError != nil {
+		if isAcc, isGlobal, reason := isStreamAccountError(sawError); isAcc && attempt+1 < maxAttempts {
+			s.logf("[account-pool] %s stream %s (%d: %s); excluding and switching account (attempt %d/%d)",
+				currentEmail, reason, sawError.Code, sawError.Message, attempt+1, maxAttempts)
+			if currentEmail != "" {
+				if isGlobal {
+					s.router.Exclude(currentEmail)
+				} else {
+					s.router.ExcludeForModel(currentEmail, family)
+				}
+			}
+			if onImmediateQuota != nil {
+				onImmediateQuota()
+			}
+			return false
 		}
-		return false
 	}
 
 	copyHeaders(w.Header(), resp.Header)
@@ -435,8 +477,15 @@ func (s *Server) forwardStreamResponse(w http.ResponseWriter, resp *http.Respons
 		}
 	}
 
-	if sawError != nil && isStreamQuotaError(sawError) && currentEmail != "" {
-		s.router.ExcludeForModel(currentEmail, family)
+	if sawError != nil {
+		if isAcc, isGlobal, reason := isStreamAccountError(sawError); isAcc && currentEmail != "" {
+			if isGlobal {
+				s.router.Exclude(currentEmail)
+			} else {
+				s.router.ExcludeForModel(currentEmail, family)
+			}
+			s.logf("[account-pool] %s stream %s; excluded for future turns", currentEmail, reason)
+		}
 	}
 
 	// Stream remaining bytes, monitoring for protocol error frames
@@ -461,10 +510,16 @@ func (s *Server) forwardStreamResponse(w http.ResponseWriter, resp *http.Respons
 						if midStreamData.Len() > 0 {
 							payload := midStreamData.String()
 							midStreamData.Reset()
-							if sErr := geminicode.ParseFrameError(payload); sErr != nil && isStreamQuotaError(sErr) {
-								if currentEmail != "" {
-									s.router.ExcludeForModel(currentEmail, family)
-									s.logf("[account-pool] %s mid-stream quota error; excluded for future turns", currentEmail)
+							if sErr := geminicode.ParseFrameError(payload); sErr != nil {
+								if isAcc, isGlobal, reason := isStreamAccountError(sErr); isAcc {
+									if currentEmail != "" {
+										if isGlobal {
+											s.router.Exclude(currentEmail)
+										} else {
+											s.router.ExcludeForModel(currentEmail, family)
+										}
+										s.logf("[account-pool] %s mid-stream %s; excluded for future turns", currentEmail, reason)
+									}
 								}
 							}
 						}
@@ -485,10 +540,16 @@ func (s *Server) forwardStreamResponse(w http.ResponseWriter, resp *http.Respons
 	}
 	if midStreamData.Len() > 0 {
 		payload := midStreamData.String()
-		if sErr := geminicode.ParseFrameError(payload); sErr != nil && isStreamQuotaError(sErr) {
-			if currentEmail != "" {
-				s.router.ExcludeForModel(currentEmail, family)
-				s.logf("[account-pool] %s mid-stream quota error; excluded for future turns", currentEmail)
+		if sErr := geminicode.ParseFrameError(payload); sErr != nil {
+			if isAcc, isGlobal, reason := isStreamAccountError(sErr); isAcc {
+				if currentEmail != "" {
+					if isGlobal {
+						s.router.Exclude(currentEmail)
+					} else {
+						s.router.ExcludeForModel(currentEmail, family)
+					}
+					s.logf("[account-pool] %s mid-stream %s; excluded for future turns", currentEmail, reason)
+				}
 			}
 		}
 	}
@@ -496,28 +557,15 @@ func (s *Server) forwardStreamResponse(w http.ResponseWriter, resp *http.Respons
 }
 
 func isQuotaStatus(code int) bool {
-	return code == http.StatusTooManyRequests || code == http.StatusForbidden
+	return code == http.StatusTooManyRequests || code == http.StatusForbidden || code == http.StatusUnauthorized
 }
 
 func isQuotaResponseBody(code int, body []byte) bool {
-	if code == http.StatusTooManyRequests {
-		return true
-	}
-	low := bytes.ToLower(body)
-	return bytes.Contains(low, []byte("quota")) ||
-		bytes.Contains(low, []byte("resource_exhausted"))
+	kind, _ := classifyAccountFailure(code, body)
+	return kind != failureNone
 }
 
 func isStreamQuotaError(sErr *geminicode.StreamError) bool {
-	if sErr == nil {
-		return false
-	}
-	if sErr.Code == 429 {
-		return true
-	}
-	if strings.EqualFold(sErr.Status, "RESOURCE_EXHAUSTED") {
-		return true
-	}
-	msg := strings.ToLower(sErr.Message)
-	return strings.Contains(msg, "quota") || strings.Contains(msg, "resource_exhausted")
+	isAcc, _, _ := isStreamAccountError(sErr)
+	return isAcc
 }

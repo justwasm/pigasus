@@ -21,9 +21,9 @@ import (
 
 	"github.com/justwasm/pigasus/internal/app/prompt/implicit"
 	"github.com/justwasm/pigasus/internal/app/session/convstore"
+	"github.com/justwasm/pigasus/internal/app/tools/surface"
 	"github.com/justwasm/pigasus/internal/core/backend"
 	"github.com/justwasm/pigasus/internal/infra/backend/gateway"
-	"github.com/justwasm/pigasus/internal/app/tools/surface"
 )
 
 // TestRunPigPrintTurnCarriesTheImplicitTrajectory pins the delivery: a `!`

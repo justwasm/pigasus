@@ -78,12 +78,19 @@ func PermissionGateMiddleware(
 }
 
 // SandboxBoundaryMiddleware enforces filesystem and path boundaries on command execution.
-func SandboxBoundaryMiddleware(sb sandbox.Sandbox) Middleware {
+//
+// onDenial, when set, records the call the sandbox refused. The runner's
+// denial list feeds the reference's end-of-run "N tool(s) required
+// approval" notice, so a sandbox refusal counts like a policy refusal.
+func SandboxBoundaryMiddleware(sb sandbox.Sandbox, onDenial func(toolName string)) Middleware {
 	return func(next Handler) Handler {
 		return func(ctx context.Context, call backend.ToolCall) (string, error) {
 			if sb.Enabled && (call.Name == "run_command" || call.Name == "run_shell_command") {
 				target := ToolTarget(call)
 				if res := sb.CheckCommandWithBypass(target, shell.BypassSandboxRequested(call.Arguments)); res.Outside {
+					if onDenial != nil {
+						onDenial(call.Name)
+					}
 					return SandboxDeniedToolResult(call.Name, target, sb.AllowedPaths()), nil
 				}
 			}

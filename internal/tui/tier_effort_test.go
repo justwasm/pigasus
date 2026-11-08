@@ -23,10 +23,10 @@ func TestCurrentEffortNameReadsTheTier(t *testing.T) {
      "reasoning_efforts": ["low", "medium", "high", "xhigh", "max"],
      "reasoning_effort": "high"}
   ]}}}`)
-	newMode := func(model, effort string) *runMode {
+	newMode := func(model, effort string) *RootModel {
 		fs := flag.NewFlagSet("t", flag.ContinueOnError)
 		fs.String("effort", effort, "")
-		return &runMode{session: sessionState{model: model, flags: fs}}
+		return &RootModel{session: sessionState{model: model, flags: fs}}
 	}
 	cases := []struct {
 		model  string

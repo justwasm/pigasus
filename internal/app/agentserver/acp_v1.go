@@ -17,11 +17,12 @@ import (
 )
 
 type acpV1Session struct {
-	cwd     string
-	mode    string
-	session *Session
-	history []agentlink.Message
-	mu      sync.Mutex
+	cwd      string
+	mode     string
+	session  *Session
+	history  []agentlink.Message
+	commands []acp1.AvailableCommand
+	mu       sync.Mutex
 }
 
 func (s *acpV1Session) SessionInfo() acp1.SessionInfo {
@@ -77,7 +78,12 @@ func NewACPV1Agent(srv *Server, client acp1.Client) *ACPV1Agent {
 			if cwd == "" {
 				cwd = sess.Workspace
 			}
-			return sessID, &acpV1Session{cwd: cwd, mode: "default", session: sess}, nil
+			return sessID, &acpV1Session{
+				cwd:      cwd,
+				mode:     "default",
+				session:  sess,
+				commands: v1CommandsFor(srv.cfg),
+			}, nil
 		},
 	)
 	return a
@@ -253,7 +259,7 @@ func (a *ACPV1Agent) NewSession(ctx context.Context, params *acp1.NewSessionRequ
 	if a.client != nil {
 		send := func(c context.Context) {
 			stream := acp1.NewSessionStream(a.client, resp.SessionID)
-			_ = stream.SendCommands(c, defaultV1Commands())
+			_ = stream.SendCommands(c, sessionCommandsV1(s))
 		}
 		if !acp.AfterReply(ctx, send) {
 			send(ctx)
@@ -365,7 +371,7 @@ func (a *ACPV1Agent) runTurn(ctx context.Context, sessID acp1.SessionID, s *acpV
 	}
 
 	stream := acp1.NewSessionStream(a.client, sessID)
-	_ = stream.SendCommands(ctx, defaultV1Commands())
+	_ = stream.SendCommands(ctx, sessionCommandsV1(s))
 
 	stopReason := acp1.StopReasonEndTurn
 	var lastUsage *acp1.Usage

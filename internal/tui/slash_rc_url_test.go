@@ -18,8 +18,8 @@ import (
 
 	"github.com/charmbracelet/x/ansi"
 
-	"github.com/justwasm/pigasus/internal/ui/tuilib"
 	tuiviewport "github.com/justwasm/pigasus/internal/ui/foundations/viewport"
+	"github.com/justwasm/pigasus/internal/ui/tuilib"
 	"github.com/justwasm/pigasus/urlchunk"
 )
 
@@ -67,16 +67,16 @@ func osc8Target(row string) string {
 	return rest[:j]
 }
 
-// rcURLRunMode returns a run mode with the OSC 8 hyperlink support
+// rcURLRootModel returns a run mode with the OSC 8 hyperlink support
 // forced on.
 //
 // The detection consults os.Environ(), and a `go test` runner does not
 // necessarily advertise OSC 8 — so the test that cares about the
 // hyperlink frame turns it on explicitly, the way the eligibility
 // notice's test does.
-func rcURLRunMode(t *testing.T, width int) *runMode {
+func rcURLRootModel(t *testing.T, width int) *RootModel {
 	t.Helper()
-	m := slashRemoteControlRunMode(t)
+	m := slashRemoteControlRootModel(t)
 	m.viewport.width = width
 	m.viewport.hyperlinkCaps.OSC8 = true
 	return m
@@ -86,7 +86,7 @@ func rcURLRunMode(t *testing.T, width int) *runMode {
 // the clipping: the URL is cut into rows that fit the terminal, and
 // the chunks are the URL — nothing is lost.
 func TestRemoteControlURL_WrapsIntoChunkRows(t *testing.T) {
-	m := rcURLRunMode(t, 80)
+	m := rcURLRootModel(t, 80)
 
 	rows := urlchunk.Rows(chooserURL, rcURLIndent, m.rcURLChunkWidth(), m.viewport.hyperlinkCaps)
 	if len(rows) < 2 {
@@ -111,7 +111,7 @@ func TestRemoteControlURL_WrapsIntoChunkRows(t *testing.T) {
 // mobile path: a tap (or a cmd+click) on any chunk opens the whole
 // link, not the chunk.
 func TestRemoteControlURL_EveryChunkIsALinkToTheCompleteURL(t *testing.T) {
-	m := rcURLRunMode(t, 80)
+	m := rcURLRootModel(t, 80)
 
 	rows := urlchunk.Rows(chooserURL, rcURLIndent, m.rcURLChunkWidth(), m.viewport.hyperlinkCaps)
 	links := 0
@@ -135,7 +135,7 @@ func TestRemoteControlURL_EveryChunkIsALinkToTheCompleteURL(t *testing.T) {
 // terminal that does not speak OSC 8 must not see the escape
 // sequences — and it must still see the whole URL, one row at a time.
 func TestRemoteControlURL_PlainTextWithoutOSC8(t *testing.T) {
-	m := rcURLRunMode(t, 80)
+	m := rcURLRootModel(t, 80)
 	m.viewport.hyperlinkCaps.OSC8 = false
 
 	rows := urlchunk.Rows(chooserURL, rcURLIndent, m.rcURLChunkWidth(), m.viewport.hyperlinkCaps)
@@ -155,7 +155,7 @@ func TestRemoteControlURL_PlainTextWithoutOSC8(t *testing.T) {
 // chunks are one logical string, so copying them yields the URL and
 // not a stack of lines.
 func TestRemoteControlURL_CopiesAsOneLine(t *testing.T) {
-	m := rcURLRunMode(t, 80)
+	m := rcURLRootModel(t, 80)
 
 	rows := urlchunk.Rows(chooserURL, rcURLIndent, m.rcURLChunkWidth(), m.viewport.hyperlinkCaps)
 	copied := tuiviewport.SelectionText(rows, 0, 0, len(rows)-1, ansi.StringWidth(ansi.Strip(rows[len(rows)-1]))-1)
@@ -171,14 +171,14 @@ func TestRemoteControlURL_CopiesAsOneLine(t *testing.T) {
 // guard: the /remote-control row prints the link through the same
 // helper, so what the user sees is the wrapped, clickable form.
 func TestRemoteControlURL_HandlerPrintsTheWrappedLink(t *testing.T) {
-	m := rcURLRunMode(t, 60)
+	m := rcURLRootModel(t, 60)
 
 	if handled, _ := m.handleSlashCommand("/remote-control"); !handled {
 		t.Fatal("expected handled=true")
 	}
-	rows := linkRows(m.engine.response)
+	rows := linkRows(m.conversation.response)
 	if len(rows) < 2 {
-		t.Fatalf("the link was not wrapped into several rows: %d row(s) in\n%s", len(rows), strings.Join(m.engine.response, "\n"))
+		t.Fatalf("the link was not wrapped into several rows: %d row(s) in\n%s", len(rows), strings.Join(m.conversation.response, "\n"))
 	}
 	// Every chunk row is a link to the complete URL.
 	want := osc8Target(rows[0])
@@ -191,7 +191,7 @@ func TestRemoteControlURL_HandlerPrintsTheWrappedLink(t *testing.T) {
 		}
 	}
 	// The visible text of the rows is the whole URL.
-	if got := linkText(m.engine.response); !strings.Contains(got, want) {
+	if got := linkText(m.conversation.response); !strings.Contains(got, want) {
 		t.Errorf("the visible link text %q does not carry the URL %q", got, want)
 	}
 	// The transcript's own wrap leaves the chunk rows alone: a row

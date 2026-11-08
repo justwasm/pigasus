@@ -25,6 +25,8 @@
 | [`reference-drift.md`](reference-drift.md) | the gate, the version-scoped artefacts, re-evidencing | the reference binary moves |
 | [`legacy-evidence.md`](legacy-evidence.md) | what the 1.3.x-era evidence sweep retired, what survived, and the recipe that rebuilds it | a citation points at a retired path, or you need the old artefacts back |
 | [`proxy.md`](proxy.md) | the CloudCode proxy, the launcher, the capture directory | touch `internal/infra/agyproxy`, `internal/infra/proxy/bin` |
+| [`remote-agents.md`](remote-agents.md) | the Remote Agent proxy wire, `AICODE_ENDPOINT_URL`, dual-channel SSE+RPC, local mock execution, and binary asset/proto extraction SOP | touch `internal/infra/mockremoteagent`, `cmd/mock-remote-agent`, or test `agy --remote-agent` |
+| [`pigasus-extensions.md`](pigasus-extensions.md) | an index of the openagy-only surfaces and where each one is documented; it holds only the interactive-terminal-panel design | you need to know what is *not* reference parity, or where a remote feature's facts live |
 | [`remote-control.md`](remote-control.md) | the tunnel, the daemon, the Web UI's wire, the terminals and the voice | touch `internal/remotecontrol`, `internal/rchost`, `internal/infra/remote/link` |
 | [`reverse-engineering.md`](reverse-engineering.md) | pclntab → seeds → Ghidra → reports, the formats, the analysis gotchas | reverse the binary |
 | [`ide-language-server.md`](ide-language-server.md) | the IDE's second reference binary: the name diff vs the CLI, the shared prompt, the spawn contract, the decompiled cross-check, the Web UI's wire and `--reference-backend` | cross-check the CLI, open the IDE-only surface, or run the reference as the web backend |

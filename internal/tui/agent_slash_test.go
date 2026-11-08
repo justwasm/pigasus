@@ -7,6 +7,7 @@ import (
 
 	"github.com/justwasm/pigasus/agentlink"
 	"github.com/justwasm/pigasus/internal/app/agentturn"
+	"github.com/justwasm/pigasus/internal/features/tools/skills"
 	"github.com/justwasm/pigasus/internal/ui/slashcommands"
 )
 
@@ -44,11 +45,11 @@ func TestEngineSlashCommands_Discovery(t *testing.T) {
 		},
 	}
 
-	m := &runMode{
-		engine: engineState{engine: mockEng},
+	m := &RootModel{
+		turn: TurnService{engine: mockEng},
 	}
-	initRunModeInput(m)
-	m.composer.picker = m.newSlashPicker()
+	initRootModelInput(m)
+	m.prompt.picker = m.newSlashPicker()
 
 	cmds := m.engineSlashCommands()
 	if len(cmds) != 2 {
@@ -74,10 +75,30 @@ func TestEngineSlashCommands_Discovery(t *testing.T) {
 			},
 		},
 	}
-	m.engine.engine = mockACPEng
+	m.turn.engine = mockACPEng
 	acpCmds := m.engineSlashCommands()
 	if len(acpCmds) != 1 || acpCmds[0].Badge != "acp" {
 		t.Errorf("expected acp badge for ACP engine, got: %+v", acpCmds)
+	}
+
+	// Remote skills registered via SetRemoteSkillsProvider appear in EngineSlashCommands
+	skills.SetRemoteSkillsProvider(func() []skills.SkillInfo {
+		return []skills.SkillInfo{
+			{Name: "remote-deploy", Description: "Deploy via remote agent", Remote: true},
+		}
+	})
+	defer skills.SetRemoteSkillsProvider(nil)
+
+	allCmds := m.engineSlashCommands()
+	foundRemote := false
+	for _, c := range allCmds {
+		if c.Name == "/remote-deploy" && c.Badge == "remote" {
+			foundRemote = true
+			break
+		}
+	}
+	if !foundRemote {
+		t.Errorf("expected /remote-deploy in slash commands, got: %+v", allCmds)
 	}
 }
 
@@ -96,13 +117,13 @@ func TestHandleSlashCommand_AgentCommandPassThrough(t *testing.T) {
 		},
 	}
 
-	m := &runMode{
-		engine: engineState{engine: mockEng},
+	m := &RootModel{
+		turn: TurnService{engine: mockEng},
 	}
-	initRunModeInput(m)
-	m.composer.picker = m.newSlashPicker()
-	initRunModeInput(m)
-	m.composer.picker = m.newSlashPicker()
+	initRootModelInput(m)
+	m.prompt.picker = m.newSlashPicker()
+	initRootModelInput(m)
+	m.prompt.picker = m.newSlashPicker()
 
 	// 1. Direct invocation of dynamic agent command /review
 	handled, _ := m.handleSlashCommand("/review main")
@@ -110,28 +131,28 @@ func TestHandleSlashCommand_AgentCommandPassThrough(t *testing.T) {
 		t.Errorf("expected /review main to be handled")
 	}
 	// Verify that it sent as prompt rather than responding with "Unknown command"
-	for _, line := range m.engine.response {
+	for _, line := range m.conversation.response {
 		if strings.Contains(line, "Unknown command") {
-			t.Errorf("expected /review not to produce Unknown command, got response: %v", m.engine.response)
+			t.Errorf("expected /review not to produce Unknown command, got response: %v", m.conversation.response)
 		}
 	}
-	if len(m.engine.response) == 0 || !strings.Contains(m.engine.response[0], "> /review main") {
-		t.Errorf("expected response to record prompt '> /review main', got: %v", m.engine.response)
+	if len(m.conversation.response) == 0 || !strings.Contains(m.conversation.response[0], "> /review main") {
+		t.Errorf("expected response to record prompt '> /review main', got: %v", m.conversation.response)
 	}
 
 	// 2. /agent namespaced invocation
-	m.engine.response = nil
+	m.conversation.response = nil
 	handled, _ = m.handleSlashCommand("/agent deploy staging")
 	if !handled {
 		t.Errorf("expected /agent deploy staging to be handled")
 	}
-	for _, line := range m.engine.response {
+	for _, line := range m.conversation.response {
 		if strings.Contains(line, "Unknown command") {
-			t.Errorf("expected /agent deploy staging not to produce Unknown command, got response: %v", m.engine.response)
+			t.Errorf("expected /agent deploy staging not to produce Unknown command, got response: %v", m.conversation.response)
 		}
 	}
-	if len(m.engine.response) == 0 || !strings.Contains(m.engine.response[0], "> /deploy staging") {
-		t.Errorf("expected response to record prompt '> /deploy staging', got: %v", m.engine.response)
+	if len(m.conversation.response) == 0 || !strings.Contains(m.conversation.response[0], "> /deploy staging") {
+		t.Errorf("expected response to record prompt '> /deploy staging', got: %v", m.conversation.response)
 	}
 }
 
@@ -142,13 +163,13 @@ func TestAgentCommands_QueueWhileStreaming(t *testing.T) {
 		},
 	}
 
-	m := &runMode{
-		engine: engineState{engine: mockEng},
+	m := &RootModel{
+		turn: TurnService{engine: mockEng},
 	}
-	initRunModeInput(m)
-	m.composer.picker = m.newSlashPicker()
-	initRunModeInput(m)
-	m.composer.picker = m.newSlashPicker()
+	initRootModelInput(m)
+	m.prompt.picker = m.newSlashPicker()
+	initRootModelInput(m)
+	m.prompt.picker = m.newSlashPicker()
 
 	// 1. Check isEngineSlashCommand and slashQueuesWhileStreaming
 	if !m.isEngineSlashCommand("review") {
@@ -165,8 +186,8 @@ func TestAgentCommands_QueueWhileStreaming(t *testing.T) {
 	}
 
 	// 2. Submit while streaming -> should be queued into StreamQueue
-	m.engine.streaming = true
-	m.composer.input.SetValue("/review main")
+	m.conversation.streaming = true
+	m.prompt.input.SetValue("/review main")
 	cmd := m.submitPrompt()
 	if cmd != nil {
 		t.Errorf("expected submitPrompt to return nil cmd when queued, got %v", cmd)
@@ -183,11 +204,11 @@ func TestSlashCommand_BackendScopedRejection(t *testing.T) {
 		},
 	}
 
-	m := &runMode{
-		engine: engineState{engine: mockEng},
+	m := &RootModel{
+		turn: TurnService{engine: mockEng},
 	}
-	initRunModeInput(m)
-	m.composer.picker = m.newSlashPicker()
+	initRootModelInput(m)
+	m.prompt.picker = m.newSlashPicker()
 
 	// 1. Invoking a pigasus-exclusive command (/accounts) on codex engine should be rejected
 	handled, _ := m.handleSlashCommand("/accounts")
@@ -197,31 +218,31 @@ func TestSlashCommand_BackendScopedRejection(t *testing.T) {
 
 	// Verify rejection notice in response
 	foundNotice := false
-	for _, row := range m.engine.response {
+	for _, row := range m.conversation.response {
 		if strings.Contains(row, "/accounts is not supported by the codex backend") {
 			foundNotice = true
 			break
 		}
 	}
 	if !foundNotice {
-		t.Errorf("expected rejection notice in response, got: %v", m.engine.response)
+		t.Errorf("expected rejection notice in response, got: %v", m.conversation.response)
 	}
 
 	// 2. Invoking a pigasus-exclusive skill (/science:uv) on codex engine should be rejected
-	m.engine.response = nil
+	m.conversation.response = nil
 	handled, _ = m.handleSlashCommand("/science:uv")
 	if !handled {
 		t.Fatalf("expected /science:uv to be intercepted and handled")
 	}
 	foundNotice = false
-	for _, row := range m.engine.response {
+	for _, row := range m.conversation.response {
 		if strings.Contains(row, "not supported by the codex backend") {
 			foundNotice = true
 			break
 		}
 	}
 	if !foundNotice {
-		t.Errorf("expected skill rejection notice in response, got: %v", m.engine.response)
+		t.Errorf("expected skill rejection notice in response, got: %v", m.conversation.response)
 	}
 }
 
@@ -257,11 +278,11 @@ func TestSlashTasksAndAgents_OverRemoteACP(t *testing.T) {
 		},
 	}
 
-	m := &runMode{
-		engine: engineState{engine: remoteEng},
+	m := &RootModel{
+		turn: TurnService{engine: remoteEng},
 	}
-	initRunModeInput(m)
-	m.composer.picker = m.newSlashPicker()
+	initRootModelInput(m)
+	m.prompt.picker = m.newSlashPicker()
 
 	// 1. /tasks over ACP
 	handled, _ := m.dispatchSlashLine("/tasks")
@@ -271,12 +292,12 @@ func TestSlashTasksAndAgents_OverRemoteACP(t *testing.T) {
 	if m.overlays.panel.kind != 0 {
 		t.Errorf("expected no local panel to open, got panel kind %v", m.overlays.panel.kind)
 	}
-	if len(m.engine.response) == 0 || !strings.Contains(m.engine.response[0], "> /tasks") {
-		t.Errorf("expected prompt '> /tasks' recorded in response, got: %v", m.engine.response)
+	if len(m.conversation.response) == 0 || !strings.Contains(m.conversation.response[0], "> /tasks") {
+		t.Errorf("expected prompt '> /tasks' recorded in response, got: %v", m.conversation.response)
 	}
 
 	// 2. /agents over ACP
-	m.engine.response = nil
+	m.conversation.response = nil
 	handled, _ = m.dispatchSlashLine("/agents")
 	if !handled {
 		t.Fatalf("expected /agents to be handled")
@@ -284,7 +305,7 @@ func TestSlashTasksAndAgents_OverRemoteACP(t *testing.T) {
 	if m.overlays.panel.kind != 0 {
 		t.Errorf("expected no local panel to open, got panel kind %v", m.overlays.panel.kind)
 	}
-	if len(m.engine.response) == 0 || !strings.Contains(m.engine.response[0], "> /agents") {
-		t.Errorf("expected prompt '> /agents' recorded in response, got: %v", m.engine.response)
+	if len(m.conversation.response) == 0 || !strings.Contains(m.conversation.response[0], "> /agents") {
+		t.Errorf("expected prompt '> /agents' recorded in response, got: %v", m.conversation.response)
 	}
 }

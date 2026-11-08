@@ -19,9 +19,9 @@ import (
 )
 
 // hookTestMode builds a run mode with one documented hook.
-func hookTestMode(t *testing.T, command string) *runMode {
+func hookTestMode(t *testing.T, command string) *RootModel {
 	t.Helper()
-	m := newRunModeBase(nil, "", "gemini-3.8-flash", "", t.TempDir(), false)
+	m := newRootModelBase(nil, "", "gemini-3.8-flash", "", t.TempDir(), false)
 	m.session.hookRT = &corehooks.Runtime{
 		Registry: &corehooks.Registry{Entries: []corehooks.Entry{{
 			Hook:    "test",
@@ -134,7 +134,7 @@ func TestHookToolGateDenyUnlessPriorGrant(t *testing.T) {
 // TestHookToolGateWithoutHooks pins the gate of a session with no
 // documented hooks: the policy decides everything.
 func TestHookToolGateWithoutHooks(t *testing.T) {
-	m := newRunModeBase(nil, "", "gemini-3.8-flash", "", t.TempDir(), false)
+	m := newRootModelBase(nil, "", "gemini-3.8-flash", "", t.TempDir(), false)
 	gate := m.hookToolGate(context.Background(), hookTestCall())
 	if gate.Denied || gate.Approved {
 		t.Errorf("gate = %+v, want nothing", gate)
@@ -282,8 +282,12 @@ func TestPostToolUseFiresAfterTheCall(t *testing.T) {
 	if got := m.session.hooks.Count(hooks.PostToolUse); got != 1 {
 		t.Errorf("PostToolUse fired %d times, want 1", got)
 	}
-	// A call the policy blocked never ran, so it has no completion.
-	runner.policy = &permissions.Policy{Strict: true}
+	// A call the policy denied never ran, so it has no completion. A
+	// deny rule blocks it outright; Strict alone would only Ask, and the
+	// prompt has no user to answer it here.
+	runner.policy = &permissions.Policy{Deny: []permissions.Rule{
+		{Action: "command", Pattern: "ls"},
+	}}
 	if _, err := runner.Run(context.Background(), hookTestCall()); err != nil {
 		t.Fatalf("Run: %v", err)
 	}

@@ -23,6 +23,50 @@ Execution in `actor.Actor` follows a structured concurrent loop:
 4. **Tool Approval & Dispatch**: Invokes policy check (`permissions.Engine`). If user approval is required, requests confirmation via `OnApprovalRequired`. Upon approval, executes the tool via sandboxed tool surface and emits the result.
 5. **Iteration & Completion**: Loops back to evaluate additional tool calls or delivers the final response when the model terminates the turn.
 
+### Turn handles, per-turn configuration and the control plane
+
+The runtime's contract is narrower than the word "actor" suggests; three rules
+are load-bearing:
+
+- **A turn is a request.** `StartTurn(ctx, TurnRequest)` is the only way into
+  the mailbox; `TurnRequest` is a prompt plus a `TurnConfig`. There is no
+  message type and no broadcast. Control is method-only (`CancelTurn`,
+  `TurnHandle.Cancel`, `Steer`, `Approve`) because anything queued behind the
+  running turn would arrive too late. The `TurnHandle` is the cancellation
+  identity — there is no turn id to guess.
+- **Configuration travels with the turn.** `StartTurn` resolves the request
+  against `Config.Default` at submission and captures the result, so a queued
+  turn cannot be rewritten mid-flight. A host overrides model, prompt,
+  provider or tools per turn; it never mutates the actor.
+- **Completion is lossless.** `TurnHandle.Events()` is per-turn and closes
+  when the turn ends; `Done` closes just after it and `Err` reports the
+  terminal error. There is no shared broadcast: a slow reader applies
+  backpressure instead of losing the completion event. Cancelling closes the
+  handle immediately, so a tool that ignores its context cannot hold a caller
+  hostage.
+
+A turn is staged as a `running` record before the first model call and
+finalised at the end. A transport interruption keeps the partial step
+(`Status: "interrupted"`) and continues the same turn with the reference's
+recovery copy; truncation (`length`) does the same; both are bounded by
+`AutoContMaxDepth = 3`. Cancellation keeps the partial step (`cancelled`) and
+its text in `FinalOutput`. A user-authored "continue" is a new turn.
+
+The actor owns no scheduling or step cap. Compaction is host policy exposed as
+a **step-boundary seam**: before every model call the actor asks
+`TurnConfig.Checkpoint` whether to replace the context. The host's
+`internal/features/checkpoint` policy applies the reference's per-model
+limits, writes the continuation summary, and returns the
+`# Resuming from a compaction` block. The actor records a `Checkpoint`
+boundary and continues the **same** turn; it never calls `ResetHistory` for an
+automatic checkpoint.
+
+`Trajectory.Revision()` changes on every mutation; `ResetEpoch()` changes only
+when the trajectory is reset or re-seeded. `agentturn.Local` uses the epoch
+(not a message-count comparison) to keep its actor across a checkpoint and
+rebuild it after `/clear` or `/resume`. Automatic compaction therefore cannot
+discard an in-flight turn or its steps.
+
 ### Stream Contract & Typed Error Preservation
 
 - **Typed Error Recovery**: Streaming preserves typed errors (`*backend.HTTPError`) out-of-band in an error slot (`errorSlot`), ensuring precise HTTP status recovery across the stream boundary.

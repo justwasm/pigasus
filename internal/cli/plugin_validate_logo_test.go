@@ -241,6 +241,17 @@ func TestPluginValidate_Extensions(t *testing.T) {
 	if strings.Contains(out, "extensions") {
 		t.Errorf("an object \"extensions\" must not be warned about:\n%s", out)
 	}
+
+	// Unknown field in extensions["com.google.antigravity"] produces a warning that it is ignored
+	root = newValidatePlugin(t, `{"name":"ok-plugin","extensions":{"com.google.antigravity":{"customField":123}}}`)
+	out, _, code := runValidateRef(t, root)
+	wantWarning := `unknown field "customField" under extensions["com.google.antigravity"] is ignored`
+	if !strings.Contains(out, wantWarning) {
+		t.Errorf("expected warning %q, got:\n%s", wantWarning, out)
+	}
+	if code != 0 {
+		t.Errorf("expected exit code 0 for warning-only manifest, got %d", code)
+	}
 }
 
 // quoteJSON renders a Go string as a JSON string literal.

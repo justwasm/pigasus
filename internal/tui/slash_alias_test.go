@@ -36,13 +36,14 @@ func handlerPointer(h slashHandler) uintptr {
 // and the handler answers the rest — so this test checks the handler,
 // which is what the alias rule reaches after the panel declined.
 func TestAdvertisedAliasesReachTheirCommand(t *testing.T) {
+	m := &RootModel{}
 	for _, row := range slashcommands.Default {
 		if !row.Dispatched {
 			continue
 		}
 		canonical := row.Name[1:]
-		want, ok := slashHandlers[canonical]
-		if !ok {
+		want, legacy := slashHandlers[canonical]
+		if !legacy && !m.commandDispatcher().Has(canonical) {
 			t.Errorf("%s is dispatched but the host has no handler for it", row.Name)
 			continue
 		}
@@ -58,8 +59,17 @@ func TestAdvertisedAliasesReachTheirCommand(t *testing.T) {
 				// "branch" is an alias of "/fork" in the catalogue
 				// and a command of its own in the host, so it
 				// resolves to itself — and the host answers it.
-				if _, ok := slashHandlers[resolved]; !ok {
+				if !m.dispatchesCommand(resolved) {
 					t.Errorf("the alias %q of %s resolves to %q, which the host does not dispatch", alias, row.Name, resolved)
+				}
+				continue
+			}
+			if !legacy {
+				// The command migrated to internal/tui/commands: the
+				// dispatcher answers the alias by the canonical name,
+				// and there is no legacy handler identity to compare.
+				if !m.commandDispatcher().Has(resolved) {
+					t.Errorf("the alias %q of %s resolves to %q, which the dispatcher does not answer", alias, row.Name, resolved)
 				}
 				continue
 			}
@@ -85,12 +95,13 @@ func TestAdvertisedAliasesReachTheirCommand(t *testing.T) {
 // catalogue's Aliases field — and the two copies disagreed: these two
 // spellings were advertised but answered with "Unknown command".
 func TestResumeAliasesAreAnswered(t *testing.T) {
+	m := &RootModel{}
 	for _, alias := range []string{"switch", "conversation"} {
 		resolved, ok := slashcommands.Canonical(alias)
 		if !ok || resolved != "resume" {
 			t.Fatalf("Canonical(%q) = (%q, %v), want (\"resume\", true)", alias, resolved, ok)
 		}
-		if _, ok := slashHandlers[resolved]; !ok {
+		if !m.dispatchesCommand(resolved) {
 			t.Errorf("the alias %q resolves to %q, which the host does not dispatch", alias, resolved)
 		}
 	}

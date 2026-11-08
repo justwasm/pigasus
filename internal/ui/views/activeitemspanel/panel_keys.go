@@ -56,8 +56,11 @@ func (p *Panel) HandleKey(key tea.Key) (bool, tea.Cmd) {
 	case key.Code == tea.KeyEsc:
 		p.focused = false
 		return true, func() tea.Msg { return MsgDefocused{} }
-	case key.Code == tea.KeyEnter:
-		// Enter on the selected item opens its detail view in /tasks.
+	case key.Code == tea.KeyEnter && key.Mod == 0:
+		// Plain Enter on the selected item opens its detail view in
+		// /tasks. A modified Enter (shift/alt/ctrl) is the composer's
+		// newline chord, so it falls through to the default branch and
+		// gives the focus back instead.
 		if p.cursor >= 0 && p.cursor < total {
 			selected := items[p.cursor]
 			isSubagent := selected.Kind == taskregistry.KindSubagent

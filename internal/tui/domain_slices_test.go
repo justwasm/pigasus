@@ -9,8 +9,8 @@ import (
 )
 
 func TestDomainComposerSlice(t *testing.T) {
-	m := &runMode{
-		composer: composerState{
+	m := &RootModel{
+		prompt: PromptModel{
 			input: tas.New(),
 		},
 	}
@@ -52,7 +52,7 @@ func TestDomainComposerSlice(t *testing.T) {
 }
 
 func TestDomainOverlaySlice(t *testing.T) {
-	m := &runMode{}
+	m := &RootModel{}
 	if m.HasActivePanel() {
 		t.Error("expected no active panel initially")
 	}
@@ -72,7 +72,7 @@ func TestDomainOverlaySlice(t *testing.T) {
 }
 
 func TestDomainSessionSlice(t *testing.T) {
-	m := &runMode{}
+	m := &RootModel{}
 	m.SetCurrentModel("claude-sonnet-4")
 	if m.CurrentModel() != "claude-sonnet-4" {
 		t.Errorf("got model %q, want claude-sonnet-4", m.CurrentModel())
@@ -97,7 +97,7 @@ func TestDomainSessionSlice(t *testing.T) {
 }
 
 func TestDomainUISlice(t *testing.T) {
-	m := &runMode{}
+	m := &RootModel{}
 	m.viewport.width = 120
 	m.viewport.height = 40
 	w, h := m.TerminalDimensions()
@@ -127,7 +127,7 @@ func TestDomainUISlice(t *testing.T) {
 }
 
 func TestDomainEngineSlice(t *testing.T) {
-	m := &runMode{}
+	m := &RootModel{}
 	m.SetStreamActive(true)
 	if !m.IsStreamActive() {
 		t.Error("expected stream active")

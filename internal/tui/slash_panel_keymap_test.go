@@ -117,17 +117,17 @@ func goldenCommands() []string {
 	}
 }
 
-// goldenPanel builds a runMode with the given panel open.
+// goldenPanel builds a RootModel with the given panel open.
 //
 // The fixture is the host's own: the panel object is built with the
 // host's seams, exactly as the open path builds it.
-func goldenPanel(kind panelregistry.Kind) (m *runMode) {
+func goldenPanel(kind panelregistry.Kind) (m *RootModel) {
 	defer func() {
 		if r := recover(); r != nil {
 			m = nil
 		}
 	}()
-	m = &runMode{}
+	m = &RootModel{}
 	m.overlays.panel = slashPanel{kind: kind, cmd: "/" + goldenKindName(kind)}
 	switch kind {
 	case panelregistry.Tasks:
@@ -147,7 +147,7 @@ func goldenPanel(kind panelregistry.Kind) (m *runMode) {
 	case panelregistry.Feedback:
 		m.overlays.panel.fb = m.newFeedbackPanel()
 	case panelregistry.Rewind:
-		m.overlays.panel.rw = m.newRewindPanel()
+		m.rewind.Reopen(m)
 	case panelregistry.Model:
 		m.overlays.panel.mdl = m.newModelPanel()
 	case panelregistry.Config:
@@ -157,7 +157,7 @@ func goldenPanel(kind panelregistry.Kind) (m *runMode) {
 	case panelregistry.Skills:
 		m.overlays.panel.sk = m.newSkillsPanel()
 	case panelregistry.Diff:
-		m.overlays.panel.df = m.newDiffPanel()
+		m.diff.Reopen(m)
 	case panelregistry.Rename:
 		m.overlays.panel.rn = m.newRenamePanel()
 	case panelregistry.AddDir:
@@ -260,18 +260,18 @@ func TestPanelRowCounts(t *testing.T) {
 	wiring := []struct {
 		kind  panelregistry.Kind
 		name  string
-		panel func(m *runMode) int
+		panel func(m *RootModel) int
 	}{
-		{panelregistry.Tasks, "tasks", func(m *runMode) int { return m.tasksPanel().RowCount() }},
-		{panelregistry.Permissions, "permissions", func(m *runMode) int { return m.permissionsPanel().RowCount() }},
-		{panelregistry.Agents, "agents", func(m *runMode) int { return m.agentsPanel().RowCount() }},
-		{panelregistry.Rewind, "rewind", func(m *runMode) int { return m.rewindPanel().RowCount() }},
-		{panelregistry.Model, "model", func(m *runMode) int { return m.modelPanel().RowCount() }},
-		{panelregistry.Config, "config", func(m *runMode) int { return m.configPanel().RowCount() }},
-		{panelregistry.Plugin, "plugin", func(m *runMode) int { return m.pluginPanel().RowCount() }},
-		{panelregistry.Skills, "skills", func(m *runMode) int { return m.skillsPanel().RowCount() }},
-		{panelregistry.Provider, "provider", func(m *runMode) int { return m.providerPanel().RowCount() }},
-		{panelregistry.Accounts, "accounts", func(m *runMode) int { return m.accountsPanel().RowCount() }},
+		{panelregistry.Tasks, "tasks", func(m *RootModel) int { return m.tasksPanel().RowCount() }},
+		{panelregistry.Permissions, "permissions", func(m *RootModel) int { return m.permissionsPanel().RowCount() }},
+		{panelregistry.Agents, "agents", func(m *RootModel) int { return m.agentsPanel().RowCount() }},
+		{panelregistry.Rewind, "rewind", func(m *RootModel) int { return m.rewindPanel().RowCount() }},
+		{panelregistry.Model, "model", func(m *RootModel) int { return m.modelPanel().RowCount() }},
+		{panelregistry.Config, "config", func(m *RootModel) int { return m.configPanel().RowCount() }},
+		{panelregistry.Plugin, "plugin", func(m *RootModel) int { return m.pluginPanel().RowCount() }},
+		{panelregistry.Skills, "skills", func(m *RootModel) int { return m.skillsPanel().RowCount() }},
+		{panelregistry.Provider, "provider", func(m *RootModel) int { return m.providerPanel().RowCount() }},
+		{panelregistry.Accounts, "accounts", func(m *RootModel) int { return m.accountsPanel().RowCount() }},
 	}
 	for _, c := range wiring {
 		m := goldenPanel(c.kind)

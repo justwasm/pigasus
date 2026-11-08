@@ -4,10 +4,10 @@ import (
 	"flag"
 
 	"github.com/justwasm/pigasus/internal/app/session/setup"
+	"github.com/justwasm/pigasus/internal/app/toolrunner"
 	"github.com/justwasm/pigasus/internal/core/backend"
 	"github.com/justwasm/pigasus/internal/core/policy/permissions"
 	"github.com/justwasm/pigasus/internal/core/policy/sandbox"
-	"github.com/justwasm/pigasus/internal/app/toolrunner"
 )
 
 // Cycle 346: this file used to carry a second copy of the tool-running

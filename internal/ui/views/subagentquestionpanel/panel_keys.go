@@ -32,9 +32,17 @@ func (p *Panel) HandleKeyMsg(key tea.Key) (bool, tea.Cmd) {
 	if p == nil || !p.open {
 		return false, nil
 	}
+	// Ctrl+K belongs to the host: it toggles the picker even while the
+	// picker is open, so the panel must not swallow it.
+	if key.Code == 'k' && key.Mod.Contains(tea.ModCtrl) {
+		return false, nil
+	}
 	switch key.Code {
 	case tea.KeyEsc:
-		p.close()
+		// Esc skips the highlighted question: the question's Wait
+		// returns the reference's "User Skipped" text, so the model
+		// or subagent continues instead of waiting forever.
+		p.SkipCurrent()
 		return true, func() tea.Msg { return MsgDismissed{} }
 	case tea.KeyUp:
 		if p.cursor > 0 {
@@ -57,18 +65,25 @@ func (p *Panel) HandleKeyMsg(key tea.Key) (bool, tea.Cmd) {
 		return true, nil
 	case tea.KeyEnter:
 		pending := p.pending()
-		if p.cursor >= 0 && p.cursor < len(pending) {
-			selected := pending[p.cursor]
-			p.stage()
-			return true, func() tea.Msg {
-				return MsgQuestionStaged{
-					QuestionID: selected.ID,
-					Scope:      p.scope,
-					Prompt:     selected.Prompt,
-				}
+		if p.cursor < 0 || p.cursor >= len(pending) {
+			return true, nil
+		}
+		selected := pending[p.cursor]
+		// A question with options answers the highlighted option
+		// directly. The last row of the option list is the write-in
+		// row: selecting it stages the composer answer instead.
+		if len(selected.Options) > 0 && p.optionCursor < len(selected.Options) {
+			p.AnswerSelected()
+			return true, nil
+		}
+		p.stage()
+		return true, func() tea.Msg {
+			return MsgQuestionStaged{
+				QuestionID: selected.ID,
+				Scope:      p.scope,
+				Prompt:     selected.Prompt,
 			}
 		}
-		return true, nil
 	}
 	return true, nil
 }
@@ -92,11 +107,16 @@ func (p *Panel) moveOption(delta int) {
 		return
 	}
 	cur := pending[p.cursor]
+	// The option cursor may rest on the write-in row after the last
+	// real option, so the upper bound is len(options), not len-1.
 	if len(cur.Options) == 0 {
+		if p.optionCursor != 0 {
+			p.optionCursor = 0
+		}
 		return
 	}
 	newPos := p.optionCursor + delta
-	if newPos >= 0 && newPos < len(cur.Options) {
+	if newPos >= 0 && newPos <= len(cur.Options) {
 		p.optionCursor = newPos
 	}
 }

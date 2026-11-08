@@ -381,6 +381,9 @@ func runPluginInstall(j *JetskiCLI, args []string) error {
 	if err != nil {
 		return err
 	}
+	if !isValidPluginName(name) {
+		return fail(j, 1, fmt.Sprintf("invalid plugin name: %q", name))
+	}
 	skills := legacyListSkills(target)
 	agents, agentsErr, _ := legacyListAgents(target)
 	if agentsErr != nil {
@@ -524,6 +527,9 @@ func runPluginUninstall(j *JetskiCLI, args []string) error {
 		return fail(j, 1, "Error: uninstall requires a plugin name")
 	}
 	name := args[0]
+	if !isValidPluginName(name) {
+		return fail(j, 1, fmt.Sprintf("invalid plugin name: %q", name))
+	}
 	dir := legacyPluginsDir()
 	if dir != "" {
 		if err := os.RemoveAll(filepath.Join(dir, name)); err == nil {
@@ -534,12 +540,30 @@ func runPluginUninstall(j *JetskiCLI, args []string) error {
 	return fail(j, 1, fmt.Sprintf("Error: plugin %q not found or invalid", name))
 }
 
+func isValidPluginName(name string) bool {
+	if name == "" || len(name) > 128 {
+		return false
+	}
+	if strings.Contains(name, "/") || strings.Contains(name, "\\") || strings.Contains(name, "..") {
+		return false
+	}
+	for _, r := range name {
+		if r == 0 || r < 32 || r == 127 {
+			return false
+		}
+	}
+	return true
+}
+
 func runPluginToggle(verb string) func(j *JetskiCLI, args []string) error {
 	return func(j *JetskiCLI, args []string) error {
 		if len(args) == 0 {
 			return fail(j, 1, fmt.Sprintf("Error: %s requires a plugin name", verb))
 		}
 		name := args[0]
+		if !isValidPluginName(name) {
+			return fail(j, 1, fmt.Sprintf("invalid plugin name: %q", name))
+		}
 		dir := legacyPluginsDir()
 		if dir != "" {
 			if legacyFindManifest(filepath.Join(dir, name)) != "" {

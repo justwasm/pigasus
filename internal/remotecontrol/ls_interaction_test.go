@@ -17,7 +17,7 @@ import (
 	"time"
 
 	"github.com/justwasm/pigasus/internal/app/session/convstore"
-	interaction "github.com/justwasm/pigasus/internal/core/seam"
+	"github.com/justwasm/pigasus/internal/core/interaction"
 	"github.com/justwasm/pigasus/internal/remotecontrol/cascades"
 	"github.com/justwasm/pigasus/internal/remotecontrol/rpc"
 )

@@ -5,12 +5,12 @@ import (
 	"encoding/json"
 	"sort"
 
-	"github.com/justwasm/pigasus/internal/core/backend"
-	"github.com/justwasm/pigasus/internal/core/policy/permissions"
-	"github.com/justwasm/pigasus/internal/core/policy/sandbox"
 	"github.com/justwasm/pigasus/internal/app/tools"
 	"github.com/justwasm/pigasus/internal/app/tools/shell"
 	"github.com/justwasm/pigasus/internal/app/tools/surface"
+	"github.com/justwasm/pigasus/internal/core/backend"
+	"github.com/justwasm/pigasus/internal/core/policy/permissions"
+	"github.com/justwasm/pigasus/internal/core/policy/sandbox"
 )
 
 // ToolDeclsFromRegistry extracts declarations from a tools.Registry.
@@ -67,11 +67,13 @@ type PermissionRunner struct {
 
 // Run gates tool execution through policy and sandbox checks.
 func (r *PermissionRunner) Run(ctx context.Context, call backend.ToolCall) (string, error) {
+	onDenial := func(name string) { r.Denials = append(r.Denials, name) }
+	// The sandbox check runs first: it is the stricter of the two gates,
+	// so an out-of-bounds command is refused without asking the user to
+	// approve it.
 	pipeline := NewPipeline(
-		PermissionGateMiddleware(r.Policy, r.PromptUser, func(name string) {
-			r.Denials = append(r.Denials, name)
-		}),
-		SandboxBoundaryMiddleware(r.Sandbox),
+		SandboxBoundaryMiddleware(r.Sandbox, onDenial),
+		PermissionGateMiddleware(r.Policy, r.PromptUser, onDenial),
 		OutputBudgetMiddleware(tools.DefaultMaxResultTokens),
 	)
 	handler := pipeline.Wrap(func(ctx context.Context, c backend.ToolCall) (string, error) {

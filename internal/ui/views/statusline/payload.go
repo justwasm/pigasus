@@ -193,6 +193,8 @@ type SubagentInfo struct {
 	Role string `json:"role,omitempty"`
 	// Status is "running" or "completed".
 	Status string `json:"status,omitempty"`
+	// Model is the model the subagent runs on (AGY 1.5.3).
+	Model string `json:"model,omitempty"`
 }
 
 // AgentInfo names the active agent.
