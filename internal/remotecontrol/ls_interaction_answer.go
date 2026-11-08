@@ -206,7 +206,11 @@ func (c lsCascadeUserInteraction) answer(req interaction.Request) interaction.An
 	if c.AskQuestion.Cancelled {
 		return interaction.Answer{Cancelled: true}
 	}
-	return interaction.Answer{Text: lsQuestionAnswerText(c.AskQuestion.Responses, req.Questions)}
+	answers := lsQuestionAnswers(c.AskQuestion.Responses, req.Questions)
+	return interaction.Answer{
+		Text:    strings.Join(answers, "\n"),
+		Answers: answers,
+	}
 }
 
 // lsQuestionAnswerText renders the answers of every question.
@@ -214,6 +218,15 @@ func (c lsCascadeUserInteraction) answer(req interaction.Request) interaction.An
 // The questions are joined with a newline, the way the clone's own
 // subagent-question path joins them.
 func lsQuestionAnswerText(responses []lsAskQuestionResponse, questions []interaction.Question) string {
+	return strings.Join(lsQuestionAnswers(responses, questions), "\n")
+}
+
+// lsQuestionAnswers renders one answer per question.
+//
+// Answers carries them separately so the tool can number each question
+// itself ("A1: …", "A2: …"); the joined Text remains for transports that
+// only understood a single string.
+func lsQuestionAnswers(responses []lsAskQuestionResponse, questions []interaction.Question) []string {
 	parts := make([]string, 0, len(responses))
 	for i, entry := range responses {
 		var question interaction.Question
@@ -222,7 +235,7 @@ func lsQuestionAnswerText(responses []lsAskQuestionResponse, questions []interac
 		}
 		parts = append(parts, lsResponseText(entry, question))
 	}
-	return strings.Join(parts, "\n")
+	return parts
 }
 
 // lsResponseText renders one answer.

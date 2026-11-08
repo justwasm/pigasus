@@ -32,8 +32,12 @@ type QuestionState struct {
 type Response struct {
 	Question        string
 	SelectedOptions []string
-	WriteInText     string
-	Skipped         bool
+	// SelectedOptionIndices is the index of every selected option in the
+	// question's Options slice. Transports that answer by stable option
+	// id (the remote-agent wire) use it instead of matching texts.
+	SelectedOptionIndices []int
+	WriteInText           string
+	Skipped               bool
 }
 
 // FormattedAnswer returns the human-readable string answer for tool output.
@@ -161,6 +165,43 @@ func (m *Model) Responses() []Response {
 	return m.responses
 }
 
+// CancelResponses builds the responses for a form dismissed while it is
+// still open. Every question keeps what the user already chose; a
+// question the user has not answered is marked skipped, exactly as it
+// would be if the form had been submitted.
+//
+// The host calls this when the turn is cancelled (Ctrl+C) so an
+// unanswered question does not throw away the answers already given.
+func (m *Model) CancelResponses() []Response {
+	if m == nil {
+		return nil
+	}
+	if m.responses != nil {
+		return m.responses
+	}
+	// A write-in the user is still typing has not reached WriteInText
+	// yet (that happens on Enter). Commit it first so a dismissal does
+	// not lose the text on screen.
+	if m.currentQuestion >= 0 && m.currentQuestion < len(m.states) {
+		st := &m.states[m.currentQuestion]
+		if st.WriteInActive {
+			st.WriteInText = strings.TrimSpace(m.input.Value())
+			if !m.questions[m.currentQuestion].IsMultiSelect {
+				st.SelectedOption = len(m.questions[m.currentQuestion].Options)
+			}
+		}
+	}
+	return m.buildResponses()
+}
+
+// Width reports the layout width the model was built with.
+func (m *Model) Width() int {
+	if m == nil {
+		return 0
+	}
+	return m.width
+}
+
 // CurrentQuestionIndex returns the index of the question currently being answered (0-indexed).
 func (m *Model) CurrentQuestionIndex() int {
 	if m == nil {
@@ -219,6 +260,7 @@ func (m *Model) buildResponses() []Response {
 				for optIdx, opt := range q.Options {
 					if st.SelectedOptions[optIdx] {
 						r.SelectedOptions = append(r.SelectedOptions, opt)
+						r.SelectedOptionIndices = append(r.SelectedOptionIndices, optIdx)
 					}
 				}
 				if st.WriteInText != "" {
@@ -236,6 +278,7 @@ func (m *Model) buildResponses() []Response {
 					}
 				} else if st.SelectedOption >= 0 && st.SelectedOption < len(q.Options) {
 					r.SelectedOptions = []string{q.Options[st.SelectedOption]}
+					r.SelectedOptionIndices = []int{st.SelectedOption}
 				} else {
 					r.Skipped = true
 				}
@@ -264,6 +307,17 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.KeyPressMsg:
 		return m.handleKeyPress(tea.Key(msg), msg)
+
+	case tea.PasteMsg:
+		// A paste belongs to the write-in field only while that field
+		// has the focus. Anywhere else it would type into a textarea the
+		// user cannot see (the composer behind the question is hidden).
+		if m.currentQuestion >= 0 && m.currentQuestion < len(m.states) && m.states[m.currentQuestion].WriteInActive {
+			var cmd tea.Cmd
+			m.input, cmd = m.input.Update(msg)
+			return m, cmd
+		}
+		return m, nil
 	}
 
 	return m, nil

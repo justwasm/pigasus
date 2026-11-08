@@ -242,3 +242,89 @@ func TestBackgroundTaskDoorAnswersForALiveTask(t *testing.T) {
 		t.Errorf("the table does not carry the task %q", id)
 	}
 }
+
+// TestAskQuestion_SchemaMatchesTheModelDeclaration pins the registry
+// schema against the reference's model-facing declaration: at least one
+// question, both question and options required, at least two options and
+// a non-empty question.
+func TestAskQuestion_SchemaMatchesTheModelDeclaration(t *testing.T) {
+	var schema struct {
+		Properties struct {
+			Questions struct {
+				MinItems int `json:"minItems"`
+				Items    struct {
+					Required   []string `json:"required"`
+					Properties struct {
+						Question struct {
+							MinLength int `json:"minLength"`
+						} `json:"question"`
+						Options struct {
+							MinItems int `json:"minItems"`
+						} `json:"options"`
+					} `json:"properties"`
+				} `json:"items"`
+			} `json:"questions"`
+		} `json:"properties"`
+	}
+	if err := json.Unmarshal((&AskQuestion{}).Schema(), &schema); err != nil {
+		t.Fatalf("ask_question schema: %v", err)
+	}
+	questions := schema.Properties.Questions
+	if questions.MinItems != 1 {
+		t.Errorf("questions.minItems = %d, want 1", questions.MinItems)
+	}
+	required := strings.Join(questions.Items.Required, ",")
+	if required != "question,options" {
+		t.Errorf("required = %q, want question,options", required)
+	}
+	if got := questions.Items.Properties.Options.MinItems; got != 2 {
+		t.Errorf("options.minItems = %d, want 2", got)
+	}
+	if got := questions.Items.Properties.Question.MinLength; got != 1 {
+		t.Errorf("question.minLength = %d, want 1", got)
+	}
+}
+
+// TestAskQuestion_NumbersPerQuestionAnswers pins the host path: a host
+// that carries the answers separately gets one numbered line per
+// question.
+func TestAskQuestion_NumbersPerQuestionAnswers(t *testing.T) {
+	host := &fakeInteractionHost{answer: interaction.Answer{Answers: []string{"a", "b"}}}
+	ctx := interaction.WithHost(context.Background(), host)
+	got, err := (&AskQuestion{}).Run(ctx, json.RawMessage(`{"questions":[{"question":"One?","options":["a"]},{"question":"Two?","options":["b"]}]}`))
+	if err != nil {
+		t.Fatalf("ask_question: %v", err)
+	}
+	if got != "A1: a\nA2: b" {
+		t.Errorf("ask_question = %q, want %q", got, "A1: a\nA2: b")
+	}
+}
+
+// TestAskQuestion_KeepsPreformattedLegacyAnswer pins the legacy
+// dashboard's already-numbered multi-question string.
+func TestAskQuestion_KeepsPreformattedLegacyAnswer(t *testing.T) {
+	host := &fakeInteractionHost{answer: interaction.Answer{Text: "A1: a\nA2: b"}}
+	ctx := interaction.WithHost(context.Background(), host)
+	got, err := (&AskQuestion{}).Run(ctx, json.RawMessage(`{"questions":[{"question":"One?","options":["a"]},{"question":"Two?","options":["b"]}]}`))
+	if err != nil {
+		t.Fatalf("ask_question: %v", err)
+	}
+	if got != "A1: a\nA2: b" {
+		t.Errorf("ask_question = %q, want the legacy answer unchanged", got)
+	}
+}
+
+// TestAskQuestion_SingleAnswerStartingWithA1IsNumbered pins that the
+// legacy detection only applies to multi-question answers: a one-question
+// write-in that happens to start with "A1: " is still an answer.
+func TestAskQuestion_SingleAnswerStartingWithA1IsNumbered(t *testing.T) {
+	host := &fakeInteractionHost{answer: interaction.Answer{Text: "A1: hello"}}
+	ctx := interaction.WithHost(context.Background(), host)
+	got, err := (&AskQuestion{}).Run(ctx, json.RawMessage(`{"questions":[{"question":"One?","options":["a"]}]}`))
+	if err != nil {
+		t.Fatalf("ask_question: %v", err)
+	}
+	if got != "A1: A1: hello" {
+		t.Errorf("ask_question = %q, want %q", got, "A1: A1: hello")
+	}
+}

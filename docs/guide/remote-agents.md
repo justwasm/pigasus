@@ -243,7 +243,7 @@ the server's administrative surface. The current split:
 | `getPermissionSettings` / `setPermissionPreset` | ✅ | `/permissions` reads and writes the remote preset |
 | `getConversation` | ✅ | `/continue` and `--continue` attach to the stored cascade |
 | `generateConversationTitle` | ✅ | exposed; the host keeps its local title |
-| `handleCascadeUserInteraction` | ✅ | permission modal + subagent-question picker answer `WAITING` steps |
+| `handleCascadeUserInteraction` | ✅ | permission modal + interactive `ask_question` form answer `WAITING` steps |
 | `getTurnDiff` | ✅ | `/diff` in a remote session: the All Changes tab + inline body |
 | `getCodeActionDiff` | ✅ | the inline view of a file whose code-action/file-change step is known |
 | `createTerminal` / `listTerminals` / `sendTerminalInput` / `streamTerminalOutput` / `closeTerminal` | ✅ | `/terminal` (host-only) drives a real server PTY |
@@ -312,8 +312,10 @@ remote workspace with a different absolute root falls back to the
 
 Remote turns park on a `WAITING` step (status 9) in two shapes: an
 `ask_question` (type 138) or a permission request on a generic step. The
-TUI raises the permission modal (y/a/n/d) or the subagent-question picker,
-then posts `handleCascadeUserInteraction` with the proxy's payload —
+TUI raises the permission modal (y/a/n/d) or the same interactive question
+form a local `ask_question` uses — multi-select, write-in and per-question
+navigation included (`isMultiSelect` is decoded from the step) — then posts
+`handleCascadeUserInteraction` with the proxy's payload —
 `conversationId` plus `interaction.{trajectoryId, stepIndex, permission|askQuestion}`.
 `pigasus agent-server` implements the other half: its interaction host
 publishes the waiting step and resolves it from that RPC.

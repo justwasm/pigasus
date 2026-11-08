@@ -28,8 +28,9 @@ func TestAskUserPublishesWaitingStep(t *testing.T) {
 			ToolName: "ask_question",
 			ArgsJSON: `{"questions":[]}`,
 			Questions: []interaction.Question{{
-				Prompt:  "Would you like tea or coffee?",
-				Options: []string{"Tea", "Coffee"},
+				Prompt:        "Would you like tea or coffee?",
+				Options:       []string{"Tea", "Coffee"},
+				IsMultiSelect: true,
 			}},
 		})
 		done <- result{answer: answer, err: err}
@@ -48,6 +49,13 @@ func TestAskUserPublishesWaitingStep(t *testing.T) {
 	}
 	if _, ok := frame["askQuestion"].(map[string]any)["questions"]; !ok {
 		t.Errorf("askQuestion = %#v", frame["askQuestion"])
+	}
+	if len(step.AskQuestions) != 1 {
+		t.Fatalf("step questions = %d, want 1", len(step.AskQuestions))
+	}
+	entry, _ := step.AskQuestions[0].(map[string]any)
+	if entry["isMultiSelect"] != true {
+		t.Errorf("isMultiSelect = %v, want true", entry["isMultiSelect"])
 	}
 
 	response := map[string]any{

@@ -5,18 +5,19 @@
 //
 //   - a permission request raises the permission modal (y/a/n/d) and the
 //     verdict travels back as `permission.allow`;
-//   - an ask_question joins the subagent-question store, so the status
-//     line shows the alert and Ctrl+K / `a` opens the picker, exactly as
-//     for a local subagent question. The typed answer becomes
-//     `askQuestion.responses`.
+//   - an ask_question opens the same interactive form the local tool uses
+//     (multi-select, write-in and per-question navigation included), and
+//     the answers travel back as `askQuestion.responses` with the picked
+//     option ids and write-in text.
 package tui
 
 import (
 	"context"
 	"strings"
 
+	tea "charm.land/bubbletea/v2"
 	"github.com/justwasm/pigasus/internal/app/agentturn"
-	subagentquestions "github.com/justwasm/pigasus/internal/app/subagent/questions"
+	"github.com/justwasm/pigasus/internal/ui/views/askquestion"
 	"github.com/justwasm/pigasus/internal/ui/views/permissionprompt"
 )
 
@@ -57,50 +58,84 @@ func (m *RootModel) answerRemotePermission(ctx context.Context, req agentturn.Re
 	return agentturn.RemoteInteractionAnswer{Allowed: res.IsApproved()}, nil
 }
 
-// answerRemoteQuestions hands each question to the subagent-question store.
+// answerRemoteQuestions opens the same interactive form the local
+// ask_question tool uses, so a remote turn keeps multi-select and the
+// per-question flow instead of falling back to the single-select
+// subagent-question picker.
 func (m *RootModel) answerRemoteQuestions(ctx context.Context, req agentturn.RemoteInteraction) (agentturn.RemoteInteractionAnswer, error) {
-	if m.askQuestion.manager == nil {
+	if m == nil || m.turn.prog == nil {
 		return agentturn.RemoteInteractionAnswer{Cancelled: true}, nil
 	}
-	answer := agentturn.RemoteInteractionAnswer{}
-	for _, q := range req.Questions {
-		options := make([]string, 0, len(q.Options))
-		for _, opt := range q.Options {
-			options = append(options, opt.Text)
-		}
-		queued := m.askQuestion.manager.Enqueue(subagentquestions.ParentKey, q.Prompt, options)
-		if queued == nil {
-			answer.Cancelled = true
-			return answer, nil
-		}
-		m.requestAskQuestion(subagentquestions.ParentKey)
-		m.repaint()
+	return m.answerRemoteQuestionsVia(ctx, req, m.turn.prog.Send)
+}
 
-		replied := make(chan string, 1)
-		go func() {
-			text, _ := queued.Wait()
-			replied <- text
-		}()
+// answerRemoteQuestionsVia is the seam tests use: send posts a message to
+// the running program.
+func (m *RootModel) answerRemoteQuestionsVia(ctx context.Context, req agentturn.RemoteInteraction, send func(tea.Msg)) (agentturn.RemoteInteractionAnswer, error) {
+	if len(req.Questions) == 0 {
+		return agentturn.RemoteInteractionAnswer{Cancelled: true}, nil
+	}
 
-		select {
-		case text := <-replied:
-			if text == subagentquestions.SkipAnswer {
-				answer.Answers = append(answer.Answers, agentturn.RemoteQuestionAnswer{
-					Prompt:  q.Prompt,
-					Options: q.Options,
-					Skipped: true,
-				})
-				continue
-			}
-			answer.Answers = append(answer.Answers, agentturn.AnswerFromText(q, text))
-		case <-ctx.Done():
-			_ = m.askQuestion.manager.Skip(subagentquestions.ParentKey, queued.ID)
-			<-replied
-			answer.Cancelled = true
-			return answer, nil
+	questions := make([]askquestion.Question, len(req.Questions))
+	for i, q := range req.Questions {
+		options := make([]string, len(q.Options))
+		for j, opt := range q.Options {
+			options[j] = opt.Text
+		}
+		questions[i] = askquestion.Question{
+			Question:      q.Prompt,
+			Options:       options,
+			IsMultiSelect: q.IsMultiSelect,
 		}
 	}
+
+	resps, err := askThroughProgram(ctx, send, questions)
+	if err != nil {
+		return agentturn.RemoteInteractionAnswer{Cancelled: true}, nil
+	}
+
+	answer := agentturn.RemoteInteractionAnswer{
+		Answers: make([]agentturn.RemoteQuestionAnswer, 0, len(req.Questions)),
+	}
+	for i, q := range req.Questions {
+		var resp askquestion.Response
+		if i < len(resps) {
+			resp = resps[i]
+		}
+		answer.Answers = append(answer.Answers, remoteQuestionAnswer(q, resp))
+	}
 	return answer, nil
+}
+
+// remoteQuestionAnswer maps the form's response back to the remote wire
+// answer, which names the picked options by their stable ids.
+func remoteQuestionAnswer(q agentturn.RemoteQuestion, resp askquestion.Response) agentturn.RemoteQuestionAnswer {
+	out := agentturn.RemoteQuestionAnswer{Prompt: q.Prompt, Options: q.Options}
+	if resp.Skipped {
+		out.Skipped = true
+		return out
+	}
+	for _, idx := range resp.SelectedOptionIndices {
+		if idx >= 0 && idx < len(q.Options) {
+			out.SelectedOptionIDs = append(out.SelectedOptionIDs, q.Options[idx].ID)
+		}
+	}
+	// A response built without indices falls back to matching the texts.
+	if len(out.SelectedOptionIDs) == 0 && len(resp.SelectedOptions) > 0 {
+		for _, text := range resp.SelectedOptions {
+			for _, opt := range q.Options {
+				if opt.Text == text {
+					out.SelectedOptionIDs = append(out.SelectedOptionIDs, opt.ID)
+					break
+				}
+			}
+		}
+	}
+	out.WriteInResponse = resp.WriteInText
+	if len(out.SelectedOptionIDs) == 0 && out.WriteInResponse == "" {
+		out.Skipped = true
+	}
+	return out
 }
 
 // repaint asks Bubble Tea to render immediately. A WAITING prompt is raised

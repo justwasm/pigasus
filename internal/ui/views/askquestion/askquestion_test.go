@@ -333,3 +333,95 @@ func TestAskQuestion_ViewRendering(t *testing.T) {
 		t.Errorf("expected 'enter Select' hint for single choice, got: %s", view2)
 	}
 }
+
+// TestAskQuestion_CancelResponsesKeepsAnsweredQuestions pins the
+// dismissal path: a form closed while it is still open keeps the answers
+// the user already gave and only marks the remaining questions skipped.
+func TestAskQuestion_CancelResponsesKeepsAnsweredQuestions(t *testing.T) {
+	m := New([]Question{
+		{Question: "One?", Options: []string{"A", "B"}},
+		{Question: "Two?", Options: []string{"C", "D"}},
+	}, 80)
+
+	m.Update(key("1")) // Q1 = A, advances to Q2
+
+	res := m.CancelResponses()
+	if len(res) != 2 {
+		t.Fatalf("responses = %d, want 2", len(res))
+	}
+	if got := res[0].FormattedAnswer(); got != "A" {
+		t.Errorf("Q1 = %q, want A", got)
+	}
+	if !res[1].Skipped || res[1].FormattedAnswer() != "User Skipped" {
+		t.Errorf("Q2 = %+v, want skipped", res[1])
+	}
+}
+
+// TestAskQuestion_CancelResponsesBeforeAnyAnswerSkipsAll pins the empty
+// dismissal: nothing was answered, so every question is skipped.
+func TestAskQuestion_CancelResponsesBeforeAnyAnswerSkipsAll(t *testing.T) {
+	m := New([]Question{
+		{Question: "One?", Options: []string{"A", "B"}},
+		{Question: "Two?", Options: []string{"C", "D"}},
+	}, 80)
+
+	res := m.CancelResponses()
+	if len(res) != 2 {
+		t.Fatalf("responses = %d, want 2", len(res))
+	}
+	for i := range res {
+		if !res[i].Skipped {
+			t.Errorf("Q%d = %+v, want skipped", i+1, res[i])
+		}
+	}
+}
+
+// TestAskQuestion_CancelResponsesKeepsTypedWriteIn pins that text the
+// user has typed but not confirmed with Enter survives a dismissal.
+func TestAskQuestion_CancelResponsesKeepsTypedWriteIn(t *testing.T) {
+	m := New([]Question{{Question: "Pick?", Options: []string{"A", "B"}}}, 80)
+	m.Update(key("3")) // the write-in row
+	m.Update(tea.PasteMsg{Content: "custom"})
+
+	res := m.CancelResponses()
+	if len(res) != 1 {
+		t.Fatalf("responses = %d, want 1", len(res))
+	}
+	if got := res[0].FormattedAnswer(); got != "custom" {
+		t.Errorf("answer = %q, want custom", got)
+	}
+}
+
+// TestAskQuestion_PasteGoesToWriteIn pins the write-in paste path: a
+// PasteMsg is inserted into the embedded textarea, not the composer.
+func TestAskQuestion_PasteGoesToWriteIn(t *testing.T) {
+	var got []Response
+	m := New([]Question{{Question: "Pick?", Options: []string{"A", "B"}}}, 80)
+	m.SetOnComplete(func(r []Response) { got = r })
+
+	m.Update(key("3")) // the write-in row
+	m.Update(tea.PasteMsg{Content: "hello"})
+	m.Update(specialKey("enter"))
+
+	if len(got) != 1 {
+		t.Fatalf("responses = %d, want 1", len(got))
+	}
+	if answer := got[0].FormattedAnswer(); answer != "hello" {
+		t.Errorf("answer = %q, want hello", answer)
+	}
+}
+
+// TestAskQuestion_PasteIgnoredOutsideWriteIn pins that pasting while
+// the list has the focus does not type into the hidden textarea.
+func TestAskQuestion_PasteIgnoredOutsideWriteIn(t *testing.T) {
+	var got []Response
+	m := New([]Question{{Question: "Pick?", Options: []string{"A", "B"}}}, 80)
+	m.SetOnComplete(func(r []Response) { got = r })
+
+	m.Update(tea.PasteMsg{Content: "hello"})
+	m.Update(key("1")) // choose A
+
+	if len(got) != 1 || got[0].FormattedAnswer() != "A" {
+		t.Fatalf("responses = %+v, want A", got)
+	}
+}

@@ -643,6 +643,14 @@ func stringField(m map[string]any, key string) string {
 	return v
 }
 
+func boolField(m map[string]any, key string) bool {
+	if m == nil {
+		return false
+	}
+	v, _ := m[key].(bool)
+	return v
+}
+
 func intField(m map[string]any, key string) int {
 	if m == nil {
 		return 0

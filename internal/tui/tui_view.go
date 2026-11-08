@@ -120,6 +120,13 @@ func (m *RootModel) shouldShowInputCursor(cursorX, cursorY int) bool {
 	if m.askQuestion.panel != nil && m.askQuestion.panel.Active() {
 		return false
 	}
+	// The turn-level question view replaces the composer; the real
+	// terminal cursor would otherwise keep blinking at the old composer
+	// position while the form is up. The write-in textarea draws its own
+	// virtual cursor.
+	if m.askQuestion.Active() {
+		return false
+	}
 	if m.hasActivePermissionPrompt() {
 		return false
 	}
@@ -159,7 +166,7 @@ func (m *RootModel) isViewCacheValid() bool {
 	if m.viewport.cachedPickerVis != m.prompt.picker.Visible() || m.viewport.cachedPanelKind != m.overlays.panel.kind {
 		return false
 	}
-	if m.prompt.picker.Visible() || m.overlays.panel.kind != panelregistry.None || m.help.Panel.Active() || (m.overlays.resumePicker != nil && m.overlays.resumePicker.Active()) || (m.audio.Surface != nil && m.audio.Surface.Active()) || (m.activeItems.Panel != nil && m.activeItems.Panel.Focused()) || (m.askQuestion.panel != nil && m.askQuestion.panel.Active()) || m.hasSelection() || m.prompt.HasInputSelection() {
+	if m.prompt.picker.Visible() || m.overlays.panel.kind != panelregistry.None || m.help.Panel.Active() || (m.overlays.resumePicker != nil && m.overlays.resumePicker.Active()) || (m.audio.Surface != nil && m.audio.Surface.Active()) || (m.activeItems.Panel != nil && m.activeItems.Panel.Focused()) || m.askQuestion.Active() || (m.askQuestion.panel != nil && m.askQuestion.panel.Active()) || m.hasSelection() || m.prompt.HasInputSelection() {
 		return false
 	}
 	if m.viewport.cachedScroll != m.viewport.scroll || m.viewport.cachedAutoScroll != m.viewport.autoScroll {

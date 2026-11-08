@@ -72,32 +72,29 @@ func TestHandleRemotePermission(t *testing.T) {
 	}
 }
 
-// TestHandleRemoteQuestion routes a question through the subagent-question
-// store and maps the typed answer to the option id.
+// TestHandleRemoteQuestion drives a remote question through the same
+// interactive form as a local ask_question and maps the picked option to
+// its wire id.
 func TestHandleRemoteQuestion(t *testing.T) {
-	manager := subagentquestions.NewManager(false)
-	m := &RootModel{}
-	m.askQuestion.manager = manager
+	m := newRootModelForSubagentQuestion(t)
+	m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
 
-	done := make(chan agentturn.RemoteInteractionAnswer, 1)
-	go func() {
-		ans, _ := m.handleRemoteInteraction(context.Background(), agentturn.RemoteInteraction{
-			Kind: agentturn.RemoteInteractionQuestion,
-			Questions: []agentturn.RemoteQuestion{{
-				Prompt: "Would you like tea or coffee?",
-				Options: []agentturn.RemoteOption{
-					{ID: "1", Text: "Tea"},
-					{ID: "2", Text: "Coffee"},
-				},
-			}},
-		})
-		done <- ans
-	}()
-
-	question := waitForPendingQuestion(t, manager)
-	if err := manager.Answer(subagentquestions.ParentKey, question.ID, "Coffee"); err != nil {
-		t.Fatalf("Answer: %v", err)
+	req := agentturn.RemoteInteraction{
+		Kind: agentturn.RemoteInteractionQuestion,
+		Questions: []agentturn.RemoteQuestion{{
+			Prompt: "Would you like tea or coffee?",
+			Options: []agentturn.RemoteOption{
+				{ID: "1", Text: "Tea"},
+				{ID: "2", Text: "Coffee"},
+			},
+		}},
 	}
+	done := startRemoteQuestion(t, context.Background(), m, req)
+
+	if !m.askQuestion.Active() {
+		t.Fatal("the interactive form did not open")
+	}
+	m.Update(testKeyPress("2", '2')) // Coffee
 
 	select {
 	case ans := <-done:
@@ -113,6 +110,156 @@ func TestHandleRemoteQuestion(t *testing.T) {
 	}
 }
 
+// TestHandleRemoteQuestion_MultiSelect pins that a remote multi-select
+// question keeps every picked option id instead of degrading to one.
+func TestHandleRemoteQuestion_MultiSelect(t *testing.T) {
+	m := newRootModelForSubagentQuestion(t)
+	m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+
+	req := agentturn.RemoteInteraction{
+		Kind: agentturn.RemoteInteractionQuestion,
+		Questions: []agentturn.RemoteQuestion{{
+			Prompt:        "Pick tools",
+			IsMultiSelect: true,
+			Options: []agentturn.RemoteOption{
+				{ID: "git", Text: "Git"},
+				{ID: "docker", Text: "Docker"},
+			},
+		}},
+	}
+	done := startRemoteQuestion(t, context.Background(), m, req)
+
+	m.Update(testKeyPress("1", '1')) // toggle Git
+	m.Update(testKeyPress("2", '2')) // toggle Docker
+	m.Update(testKeyPress("enter", tea.KeyEnter))
+
+	select {
+	case ans := <-done:
+		got := ans.Answers[0]
+		if strings.Join(got.SelectedOptionIDs, ",") != "git,docker" {
+			t.Errorf("selectedOptionIds = %v, want [git docker]", got.SelectedOptionIDs)
+		}
+		if got.Skipped {
+			t.Error("the multi-select answer was marked skipped")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("handleRemoteInteraction did not return")
+	}
+}
+
+// TestHandleRemoteQuestion_WriteInAndSkip pins the write-in and skip
+// paths through the remote wire answer.
+func TestHandleRemoteQuestion_WriteInAndSkip(t *testing.T) {
+	t.Run("write-in", func(t *testing.T) {
+		m := newRootModelForSubagentQuestion(t)
+		m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+		req := agentturn.RemoteInteraction{
+			Kind: agentturn.RemoteInteractionQuestion,
+			Questions: []agentturn.RemoteQuestion{{
+				Prompt:  "Pick a drink",
+				Options: []agentturn.RemoteOption{{ID: "1", Text: "Tea"}},
+			}},
+		}
+		done := startRemoteQuestion(t, context.Background(), m, req)
+
+		m.Update(testKeyPress("2", '2')) // write-in row
+		for _, ch := range "Latte" {
+			m.Update(testKeyPress(string(ch), ch))
+		}
+		m.Update(testKeyPress("enter", tea.KeyEnter))
+
+		select {
+		case ans := <-done:
+			if got := ans.Answers[0]; got.WriteInResponse != "Latte" || len(got.SelectedOptionIDs) != 0 {
+				t.Errorf("answer = %+v, want the Latte write-in", got)
+			}
+		case <-time.After(2 * time.Second):
+			t.Fatal("handleRemoteInteraction did not return")
+		}
+	})
+
+	t.Run("skip", func(t *testing.T) {
+		m := newRootModelForSubagentQuestion(t)
+		m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+		req := agentturn.RemoteInteraction{
+			Kind: agentturn.RemoteInteractionQuestion,
+			Questions: []agentturn.RemoteQuestion{{
+				Prompt:  "Pick a drink",
+				Options: []agentturn.RemoteOption{{ID: "1", Text: "Tea"}},
+			}},
+		}
+		done := startRemoteQuestion(t, context.Background(), m, req)
+
+		m.Update(testKeyPress("esc", tea.KeyEsc))
+
+		select {
+		case ans := <-done:
+			if !ans.Answers[0].Skipped {
+				t.Errorf("answer = %+v, want skipped", ans.Answers[0])
+			}
+		case <-time.After(2 * time.Second):
+			t.Fatal("handleRemoteInteraction did not return")
+		}
+	})
+}
+
+// TestHandleRemoteQuestion_ContextCancel pins that a cancelled turn closes
+// the form and answers the wire with cancelled instead of blocking.
+func TestHandleRemoteQuestion_ContextCancel(t *testing.T) {
+	m := newRootModelForSubagentQuestion(t)
+	m.Update(tea.WindowSizeMsg{Width: 80, Height: 24})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	req := agentturn.RemoteInteraction{
+		Kind: agentturn.RemoteInteractionQuestion,
+		Questions: []agentturn.RemoteQuestion{{
+			Prompt:  "Pick a drink",
+			Options: []agentturn.RemoteOption{{ID: "1", Text: "Tea"}},
+		}},
+	}
+	done := startRemoteQuestion(t, ctx, m, req)
+	cancel()
+
+	select {
+	case ans := <-done:
+		if !ans.Cancelled {
+			t.Errorf("answer = %+v, want cancelled", ans)
+		}
+		if m.askQuestion.Active() {
+			t.Error("the form is still active after cancellation")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("handleRemoteInteraction did not return")
+	}
+}
+
+// startRemoteQuestion runs the remote answer path with a send seam that
+// feeds the open message to the model, then returns the result channel.
+func startRemoteQuestion(t *testing.T, ctx context.Context, m *RootModel, req agentturn.RemoteInteraction) <-chan agentturn.RemoteInteractionAnswer {
+	t.Helper()
+	opened := make(chan struct{})
+	done := make(chan agentturn.RemoteInteractionAnswer, 1)
+	var closed bool
+	send := func(msg tea.Msg) {
+		m.Update(msg)
+		if _, ok := msg.(askQuestionOpenMsg); ok && !closed {
+			closed = true
+			close(opened)
+		}
+	}
+	go func() {
+		ans, _ := m.answerRemoteQuestionsVia(ctx, req, send)
+		done <- ans
+	}()
+	select {
+	case <-opened:
+	case <-time.After(2 * time.Second):
+		t.Fatal("the interactive question never opened")
+	}
+	return done
+}
+
 func waitForPermissionPrompt(t *testing.T) *Prompt {
 	t.Helper()
 	deadline := time.Now().Add(2 * time.Second)
@@ -123,19 +270,6 @@ func waitForPermissionPrompt(t *testing.T) *Prompt {
 		time.Sleep(10 * time.Millisecond)
 	}
 	t.Fatal("permission prompt was never raised")
-	return nil
-}
-
-func waitForPendingQuestion(t *testing.T, manager *subagentquestions.Manager) *subagentquestions.Question {
-	t.Helper()
-	deadline := time.Now().Add(2 * time.Second)
-	for time.Now().Before(deadline) {
-		if pending := manager.Pending(subagentquestions.ParentKey); len(pending) > 0 {
-			return pending[0]
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-	t.Fatal("question was never enqueued")
 	return nil
 }
 

@@ -180,7 +180,7 @@ func (cs *CascadeSession) AskUser(ctx context.Context, req interaction.Request) 
 			questions = append(questions, map[string]any{
 				"question":      q.Prompt,
 				"options":       options,
-				"isMultiSelect": false,
+				"isMultiSelect": q.IsMultiSelect,
 			})
 		}
 		step.AskQuestions = questions

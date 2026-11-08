@@ -70,7 +70,17 @@ type AskQuestion struct {
 
 func (a *AskQuestion) Name() string { return "ask_question" }
 func (a *AskQuestion) Schema() json.RawMessage {
-	return tools.Obj(`"questions":{"type":"array","description":"Questions to ask.","items":{"type":"object","properties":{"question":{"type":"string","description":"The question to ask."},"options":{"type":"array","description":"Options for the user to choose from.","items":{"type":"string"}},"is_multi_select":{"type":"boolean","description":"Whether the user can select multiple options."}},"required":["question"]}}`,
+	// Mirrors the model-facing declaration in
+	// internal/app/tools/surface/model_tools_1.4.6.json: at least one
+	// question, every question at least two options, and both fields
+	// required. The descriptions are the reference's own — the model is
+	// told not to number options, add an "Other" row or repeat the
+	// "select all that apply" hint because the UI supplies all three.
+	return tools.Obj(`"questions":{"type":"array","minItems":1,"items":{"type":"object","properties":{`+
+		`"question":{"type":"string","description":"The question, without 'select all that apply' or similar; the UI adds that.","minLength":1},`+
+		`"options":{"type":"array","description":"Answers to choose from, unnumbered and without an 'Other' option; the UI adds both. Put a recommended answer first, prefixed with '(Recommended)'.","items":{"type":"string"},"minItems":2},`+
+		`"is_multi_select":{"type":"boolean","description":"Whether the user can select several options."}},`+
+		`"required":["question","options"]}}`,
 		"questions")
 }
 
@@ -162,7 +172,11 @@ func (a *AskQuestion) askHost(ctx context.Context, host interaction.Host, questi
 	if ans.Text == "" {
 		return noUserText, nil
 	}
-	if strings.HasPrefix(ans.Text, "A1: ") {
+	// A legacy dashboard can send the already-numbered result
+	// ("A1: …\nA2: …") as a bare string. Only multi-question answers
+	// are rendered that way; a single question's write-in that happens
+	// to start with "A1: " is still an answer and gets its own number.
+	if len(questions) > 1 && strings.HasPrefix(ans.Text, "A1: ") {
 		return ans.Text, nil
 	}
 	return formatQuestionAnswers([]string{ans.Text}), nil

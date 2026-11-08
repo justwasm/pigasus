@@ -58,15 +58,26 @@ data the host still coordinates; the component models own their own state:
 - **`AudioModel`** (`audio_model.go`) owns the dictation surface and the
   host's connect seam. The phase machine, recorder and cancel flag stay in
   `internal/ui/views/voice`; the model is the root's owner for the surface.
-- **`AskQuestionModel`** (`ask_question_model.go`) owns the pending
-  subagent questions and their picker: the app-tier manager and the
-  `internal/ui/views/subagentquestionpanel` panel. Both left the engine
-  bucket. The `ask_question` tool calls `OnAsk` as soon as it enqueues a
-  question; `requestAskQuestion` sends `askQuestionPendingMsg` to the running
-  program, and `OpenParent` brings the picker up without Ctrl+K. The picker
-  answers the highlighted option on Enter, offers a write-in row, and skips
-  on Esc, so the tool's `Wait` always unblocks. Results are numbered the way
-  the reference renders them (`A1: alpha`, `A2: User Skipped`).
+- **`AskQuestionModel`** (`ask_question_model.go`) owns the turn-level
+  `ask_question` form, the pending subagent questions and their picker.
+  The interactive form itself is `internal/ui/views/askquestion`: while a
+  turn's question is active it replaces the composer (`renderBodyPrompt`),
+  owns every key before the keybinding dispatch, and answers with number
+  shortcuts, ↑/↓ (j/k), ←/→ (h/l), Space/x for multi-select checkboxes,
+  and a write-in row with an embedded textarea. Enter submits or advances,
+  Esc skips the current question. The tool reaches it through
+  `turnInteractionHost`: the host is installed on the turn's context and on
+  the registered tool, so the local turn prefers the form over the picker.
+  Pastes are routed to the write-in textarea only; the hidden composer never
+  receives them. The real terminal cursor is suppressed while the form is
+  up (the textarea draws its own), and `Cancel` keeps the answers already
+  given while marking the rest skipped. Results are numbered the way the
+  reference renders them (`A1: alpha`, `A2: User Skipped`).
+  The subagent picker half still owns the app-tier manager and the
+  `internal/ui/views/subagentquestionpanel` panel: `OnAsk` fires as soon as
+  a question is enqueued, `requestAskQuestion` sends
+  `askQuestionPendingMsg` to the running program, and `OpenParent` brings
+  the picker up without Ctrl+K.
 - **`TasksModel`** (`tasks_model.go`) owns the background-task registry, its
   change controller, the subagent manager /tasks kills through, and the
   subscription state, including the inbox of task notifications delivered

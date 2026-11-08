@@ -202,7 +202,10 @@ func lsAskQuestionStep(req interaction.Request) map[string]any {
 func lsAskQuestionEntries(questions []interaction.Question) []any {
 	out := make([]any, 0, len(questions))
 	for _, q := range questions {
-		entry := map[string]any{"question": q.Prompt}
+		entry := map[string]any{
+			"question":      q.Prompt,
+			"isMultiSelect": q.IsMultiSelect,
+		}
 		if len(q.Options) > 0 {
 			opts := make([]any, 0, len(q.Options))
 			for i, text := range q.Options {

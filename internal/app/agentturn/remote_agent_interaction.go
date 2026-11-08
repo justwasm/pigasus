@@ -36,8 +36,9 @@ type RemoteOption struct {
 
 // RemoteQuestion is one entry of a remote ask_question.
 type RemoteQuestion struct {
-	Prompt  string
-	Options []RemoteOption
+	Prompt        string
+	Options       []RemoteOption
+	IsMultiSelect bool
 }
 
 // RemoteInteraction is a WAITING step, decoded.
@@ -251,7 +252,12 @@ func decodeQuestions(raw any) []RemoteQuestion {
 		if entry == nil {
 			continue
 		}
-		q := RemoteQuestion{Prompt: stringField(entry, "question")}
+		q := RemoteQuestion{
+			Prompt: stringField(entry, "question"),
+			// Proto-JSON spells it isMultiSelect; accept the clone's own
+			// snake_case spelling too so older captures keep working.
+			IsMultiSelect: boolField(entry, "isMultiSelect") || boolField(entry, "is_multi_select"),
+		}
 		if options, ok := entry["options"].([]any); ok {
 			for i, optRaw := range options {
 				switch opt := optRaw.(type) {

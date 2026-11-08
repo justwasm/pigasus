@@ -340,6 +340,56 @@ func TestLSResponseText(t *testing.T) {
 	}
 }
 
+// TestLSAskQuestionEntriesCarriesMultiSelect pins the Web UI contract:
+// the card decides between radio buttons and checkboxes from the entry's
+// isMultiSelect flag.
+func TestLSAskQuestionEntriesCarriesMultiSelect(t *testing.T) {
+	entries := lsAskQuestionEntries([]interaction.Question{
+		{Prompt: "Pick", Options: []string{"A", "B"}, IsMultiSelect: true},
+		{Prompt: "One", Options: []string{"C", "D"}},
+	})
+	if len(entries) != 2 {
+		t.Fatalf("entries = %d, want 2", len(entries))
+	}
+	first, ok := entries[0].(map[string]any)
+	if !ok {
+		t.Fatalf("entry = %T, want map", entries[0])
+	}
+	if got := first["isMultiSelect"]; got != true {
+		t.Errorf("isMultiSelect = %v, want true", got)
+	}
+	second := entries[1].(map[string]any)
+	if got := second["isMultiSelect"]; got != false {
+		t.Errorf("second isMultiSelect = %v, want false", got)
+	}
+}
+
+// TestLSAnswerBuildsPerQuestionAnswers pins that the Web UI's per-question
+// responses reach the tool separately, so it can number them itself.
+func TestLSAnswerBuildsPerQuestionAnswers(t *testing.T) {
+	req := interaction.Request{Questions: []interaction.Question{
+		{Prompt: "One?", Options: []string{"A", "B"}},
+		{Prompt: "Two?", Options: []string{"C", "D"}},
+	}}
+	cue := lsCascadeUserInteraction{AskQuestion: &lsAskQuestionBlock{
+		Responses: []lsAskQuestionResponse{
+			{SelectedOptionIDs: []string{"1"}},
+			{SelectedOptionIDs: []string{"2"}},
+		},
+	}}
+
+	answer := cue.answer(req)
+	if len(answer.Answers) != 2 {
+		t.Fatalf("answers = %#v, want 2", answer.Answers)
+	}
+	if answer.Answers[0] != "A" || answer.Answers[1] != "D" {
+		t.Errorf("answers = %#v, want [A D]", answer.Answers)
+	}
+	if answer.Text != "A\nD" {
+		t.Errorf("text = %q, want %q", answer.Text, "A\nD")
+	}
+}
+
 // lsWaitForStep waits for the trajectory's first step and returns it.
 func lsWaitForStep(t *testing.T, traj *lsTrajectory) map[string]any {
 	t.Helper()

@@ -1207,6 +1207,9 @@ func (m *RootModel) updateWindowSize(msg tea.WindowSizeMsg) (tea.Model, tea.Cmd)
 	if w := msg.Width - len(inputPrompt); w > 10 {
 		m.prompt.input.SetWidth(w)
 	}
+	if m.askQuestion.Active() {
+		m.askQuestion.SetWidth(msg.Width)
+	}
 	if (oldW != msg.Width || oldW == 0) && len(m.conversation.response) > 0 {
 		m.reflowTranscript(msg.Width)
 	} else if oldH != msg.Height || oldW != msg.Width {
@@ -1389,9 +1392,21 @@ func (m *RootModel) updateMouseAndMiscMsg(msg tea.Msg) (tea.Model, tea.Cmd, bool
 	case voice.TickMsg:
 		return m, m.audio.Surface.HandleTick(), true
 	case tea.PasteMsg:
+		// The question form owns the input area while it is up. A paste
+		// goes to its write-in field (when that field has the focus)
+		// instead of the hidden composer behind it.
+		if m.askQuestion.Active() {
+			cmd := m.askQuestion.Update(msg)
+			return m, cmd, true
+		}
 		cmd := m.handlePasteContent(msg.Content)
 		return m, cmd, true
 	case pasteMediaMsg:
+		// A paused question form cannot show media; do not attach it to
+		// the hidden composer.
+		if m.askQuestion.Active() {
+			return m, nil, true
+		}
 		mod, cmd := m.updatePasteMedia(msg)
 		return mod, cmd, true
 	case helppanel.CommandSelectedMsg:

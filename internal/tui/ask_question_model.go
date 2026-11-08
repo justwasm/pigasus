@@ -10,6 +10,7 @@ package tui
 
 import (
 	"context"
+	"errors"
 
 	tea "charm.land/bubbletea/v2"
 	subagentquestions "github.com/justwasm/pigasus/internal/app/subagent/questions"
@@ -69,9 +70,17 @@ func (a *AskQuestionModel) SetWidth(w int) {
 }
 
 // OpenQuestions activates the interactive ask_question prompt in the input area.
+//
+// A second request while a question is already up would orphan the first
+// caller: the host would overwrite the reply channel and the first tool
+// would block until its context dies. Dismiss the open form first so the
+// first caller gets the answers it already has instead of hanging.
 func (a *AskQuestionModel) OpenQuestions(questions []askquestion.Question, width int, replyCh chan []askquestion.Response) {
 	if a == nil {
 		return
+	}
+	if a.replyCh != nil {
+		a.Cancel()
 	}
 	a.replyCh = replyCh
 	a.model = askquestion.New(questions, width)
@@ -83,7 +92,8 @@ func (a *AskQuestionModel) OpenQuestions(questions []askquestion.Question, width
 	})
 }
 
-// Cancel dismisses the active question prompt as skipped.
+// Cancel dismisses the active question prompt. Answers the user already
+// gave are kept; the questions that were still open are marked skipped.
 func (a *AskQuestionModel) Cancel() {
 	if a == nil {
 		return
@@ -91,12 +101,7 @@ func (a *AskQuestionModel) Cancel() {
 	if a.replyCh != nil {
 		var responses []askquestion.Response
 		if a.model != nil {
-			for _, r := range a.model.Responses() {
-				responses = append(responses, askquestion.Response{
-					Question: r.Question,
-					Skipped:  true,
-				})
-			}
+			responses = a.model.CancelResponses()
 		}
 		a.replyCh <- responses
 		a.replyCh = nil
@@ -117,6 +122,36 @@ func (a *AskQuestionModel) OpenParent() bool {
 // from tool goroutines to the interactive TUI prompt.
 type turnInteractionHost struct {
 	prog func() *tea.Program
+}
+
+// errNoInteractiveHost is returned when no running program can show the
+// interactive form. Callers translate it to a cancelled answer.
+var errNoInteractiveHost = errors.New("ask_question: no interactive host")
+
+// askThroughProgram opens the interactive form through send and blocks
+// until the user finishes it or ctx is cancelled. It returns the
+// per-question responses, which keep both the selected option texts and
+// their indices so a transport can map them back to its own option ids.
+func askThroughProgram(ctx context.Context, send func(tea.Msg), questions []askquestion.Question) ([]askquestion.Response, error) {
+	if len(questions) == 0 {
+		return nil, nil
+	}
+	if send == nil {
+		return nil, errNoInteractiveHost
+	}
+	replyCh := make(chan []askquestion.Response, 1)
+	send(askQuestionOpenMsg{
+		questions: questions,
+		replyCh:   replyCh,
+	})
+
+	select {
+	case <-ctx.Done():
+		send(askQuestionCancelMsg{})
+		return nil, ctx.Err()
+	case resps := <-replyCh:
+		return resps, nil
+	}
 }
 
 func (h *turnInteractionHost) Ask(ctx context.Context, req interaction.Request) (interaction.Answer, error) {
@@ -141,30 +176,22 @@ func (h *turnInteractionHost) Ask(ctx context.Context, req interaction.Request) 
 		}
 	}
 
-	replyCh := make(chan []askquestion.Response, 1)
-	prog.Send(askQuestionOpenMsg{
-		questions: qs,
-		replyCh:   replyCh,
-	})
-
-	select {
-	case <-ctx.Done():
-		prog.Send(askQuestionCancelMsg{})
-		return interaction.Answer{Cancelled: true}, ctx.Err()
-	case resps := <-replyCh:
-		var answers []string
-		allSkipped := true
-		for _, r := range resps {
-			if !r.Skipped {
-				allSkipped = false
-			}
-			answers = append(answers, r.FormattedAnswer())
-		}
-		return interaction.Answer{
-			Answers:   answers,
-			Cancelled: allSkipped,
-		}, nil
+	resps, err := askThroughProgram(ctx, prog.Send, qs)
+	if err != nil {
+		return interaction.Answer{Cancelled: true}, err
 	}
+	var answers []string
+	allSkipped := true
+	for _, r := range resps {
+		if !r.Skipped {
+			allSkipped = false
+		}
+		answers = append(answers, r.FormattedAnswer())
+	}
+	return interaction.Answer{
+		Answers:   answers,
+		Cancelled: allSkipped,
+	}, nil
 }
 
 func (m *RootModel) turnInteractionHost() interaction.Host {
