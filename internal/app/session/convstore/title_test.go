@@ -42,6 +42,14 @@ func TestWriteSummariesTitleUpdatesRow(t *testing.T) {
 	if got != "auto-title-1" {
 		t.Errorf("title = %q, want %q", got, "auto-title-1")
 	}
+	annPath := filepath.Join(StoreDir(), "annotations", id+".pbtxt")
+	annBytes, err := os.ReadFile(annPath)
+	if err != nil {
+		t.Fatalf("ReadFile annotation: %v", err)
+	}
+	if string(annBytes) != "title:\"auto-title-1\"\n" {
+		t.Errorf("annotation = %q, want %q", string(annBytes), "title:\"auto-title-1\"\n")
+	}
 	// Empty title is a no-op: the row keeps whatever title it had.
 	if err := WriteSummariesTitle(id, ""); err != nil {
 		t.Errorf("empty title should not error: %v", err)

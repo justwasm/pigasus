@@ -598,11 +598,7 @@ func (s *Server) streamResponses(w http.ResponseWriter, r *http.Request, resp *h
 					s.logf("[responses]%s in-stream error: %v", accTag, c.Error)
 					if sErr, ok := c.Error.(*geminicode.StreamError); ok {
 						if isAcc, isGlobal, reason := isStreamAccountError(sErr); isAcc {
-							if isGlobal {
-								s.router.Exclude(currentEmail)
-							} else {
-								s.router.ExcludeForModel(currentEmail, family)
-							}
+							s.markAccountFailure(currentEmail, reason, isGlobal, family)
 							s.logf("[responses] %s in-stream %s; excluded for future turns", currentEmail, reason)
 						}
 					}

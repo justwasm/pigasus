@@ -116,6 +116,7 @@ func SaveConversation(id, workspace string, steps []Step) error {
 	if err := WriteConversation(dbPath, id, steps); err != nil {
 		return err
 	}
+	_ = updateTrajectoryMetadataBlob(dbPath, id, workspace)
 
 	if workspace != "" {
 		updateLastConversations(filepath.Join(cacheDir, "last_conversations.json"), workspace, id)
@@ -233,7 +234,11 @@ func updateConversationSummariesDB(path, id, workspace string, steps []Step) {
 	if title == "" {
 		title = preview
 	}
-	nowStr := time.Now().UTC().Format(time.RFC3339Nano)
+	if title != "" {
+		_ = WriteAnnotationTitle(id, title)
+	}
+	const referenceTimeLayout = "2006-01-02 15:04:05.999999-07:00"
+	nowStr := time.Now().UTC().Format(referenceTimeLayout)
 	uris := "[]"
 	if workspace != "" {
 		clean := filepath.Clean(workspace)
@@ -255,16 +260,30 @@ func updateConversationSummariesDB(path, id, workspace string, steps []Step) {
 	// afterwards: a conversation the reference named keeps its name when
 	// the clone rewrites the conversation file, and the clone's own
 	// generated title is written by WriteSummariesTitle.
-	_, _ = sdb.Exec(`INSERT INTO conversation_summaries (conversation_id, title, preview, step_count, workspace_uris, last_modified_time, last_user_input_time)
-		VALUES (?, ?, ?, ?, ?, ?, ?)
+	_, _ = sdb.Exec(`INSERT INTO conversation_summaries (
+			conversation_id, title, preview, step_count, workspace_uris,
+			last_modified_time, last_user_input_time,
+			app_data_dir, project_id, status)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(conversation_id) DO UPDATE SET
 			title=CASE WHEN conversation_summaries.title='' THEN excluded.title ELSE conversation_summaries.title END,
 			preview=CASE WHEN conversation_summaries.preview='' THEN excluded.preview ELSE conversation_summaries.preview END,
 			step_count=excluded.step_count,
 			workspace_uris=CASE WHEN excluded.workspace_uris!='[]' AND excluded.workspace_uris!='' THEN excluded.workspace_uris ELSE conversation_summaries.workspace_uris END,
 			last_modified_time=excluded.last_modified_time,
-			last_user_input_time=excluded.last_user_input_time`,
-		id, title, preview, len(steps), uris, nowStr, nowStr)
+			last_user_input_time=excluded.last_user_input_time,
+			app_data_dir=CASE WHEN conversation_summaries.app_data_dir='' THEN excluded.app_data_dir ELSE conversation_summaries.app_data_dir END,
+			project_id=CASE WHEN conversation_summaries.project_id='' THEN excluded.project_id ELSE conversation_summaries.project_id END,
+			status=CASE WHEN conversation_summaries.status='' THEN excluded.status ELSE conversation_summaries.status END`,
+		id, title, preview, len(steps), uris, nowStr, nowStr, "antigravity-cli", "default-cli-project", "CASCADE_RUN_STATUS_IDLE")
+
+	// Self-heal any older records in conversation_summaries.db so previously
+	// created pigasus sessions become immediately visible to agy /resume.
+	_, _ = sdb.Exec(`UPDATE conversation_summaries SET app_data_dir = 'antigravity-cli' WHERE app_data_dir = ''`)
+	_, _ = sdb.Exec(`UPDATE conversation_summaries SET project_id = 'default-cli-project' WHERE project_id = ''`)
+	_, _ = sdb.Exec(`UPDATE conversation_summaries SET status = 'CASCADE_RUN_STATUS_IDLE' WHERE status = ''`)
+	_, _ = sdb.Exec(`UPDATE conversation_summaries SET last_modified_time = replace(replace(last_modified_time, 'T', ' '), 'Z', '+00:00') WHERE last_modified_time LIKE '%T%'`)
+	_, _ = sdb.Exec(`UPDATE conversation_summaries SET last_user_input_time = replace(replace(last_user_input_time, 'T', ' '), 'Z', '+00:00') WHERE last_user_input_time LIKE '%T%'`)
 }
 
 // WriteConversation creates a fresh SQLite database at path with the
@@ -306,6 +325,13 @@ func WriteConversation(path, trajectoryID string, steps []Step) error {
 		fmt.Fprintf(os.Stderr, "convstore: write steps schema: %v (NOT removing %s)\n", err, path)
 		return fmt.Errorf("convstore: write schema: %w", err)
 	}
+	_, _ = sdb.Exec(`CREATE INDEX IF NOT EXISTS idx_steps_status ON steps(status)`)
+	_, _ = sdb.Exec(`CREATE INDEX IF NOT EXISTS idx_steps_step_type ON steps(step_type)`)
+	_, _ = sdb.Exec(`CREATE TABLE IF NOT EXISTS trajectory_metadata_blob (id text DEFAULT "main", data blob, PRIMARY KEY (id))`)
+	if trajectoryID != "" {
+		_, _ = sdb.Exec(`INSERT INTO trajectory_metadata_blob (id, data) VALUES ('main', ?)
+			ON CONFLICT(id) DO NOTHING`, encodeTrajectoryMetadata(trajectoryID, ""))
+	}
 	if _, err := sdb.Exec(
 		`INSERT INTO trajectory_meta VALUES (?, ?, ?, ?)
 		 ON CONFLICT(trajectory_id) DO UPDATE SET
@@ -330,6 +356,59 @@ func WriteConversation(path, trajectoryID string, steps []Step) error {
 		}
 	}
 	return nil
+}
+
+// updateTrajectoryMetadataBlob updates the trajectory_metadata_blob in the
+// conversation database so the reference agy binary can discover the workspace.
+func updateTrajectoryMetadataBlob(path, convID, workspace string) error {
+	sdb, err := sql.Open("sqlite3", "file:"+path+"?mode=rw")
+	if err != nil {
+		return err
+	}
+	defer sdb.Close()
+	_, err = sdb.Exec(`CREATE TABLE IF NOT EXISTS trajectory_metadata_blob (id text DEFAULT "main", data blob, PRIMARY KEY (id))`)
+	if err != nil {
+		return err
+	}
+	data := encodeTrajectoryMetadata(convID, workspace)
+	_, err = sdb.Exec(`INSERT INTO trajectory_metadata_blob (id, data) VALUES ('main', ?)
+		ON CONFLICT(id) DO UPDATE SET data=excluded.data`, data)
+	return err
+}
+
+// encodeTrajectoryMetadata serializes the trajectory_metadata_blob payload
+// expected by the reference agy binary (v1.5.3). Field 1 contains workspace
+// URI metadata, field 6 is conversation ID, field 7 is workspace URI, and
+// field 18 is project ID.
+func encodeTrajectoryMetadata(convID, workspace string) []byte {
+	var wsURI string
+	if workspace != "" {
+		clean := filepath.Clean(workspace)
+		if strings.HasPrefix(clean, "file://") {
+			wsURI = clean
+		} else {
+			wsURI = "file://" + clean
+		}
+	}
+
+	var wsMsg []byte
+	if wsURI != "" {
+		wsMsg = append(wsMsg, encodeProtoField(1, 2, []byte(wsURI))...)
+		wsMsg = append(wsMsg, encodeProtoField(2, 2, []byte(wsURI))...)
+	}
+
+	var meta []byte
+	if len(wsMsg) > 0 {
+		meta = append(meta, encodeProtoField(1, 2, wsMsg)...)
+	}
+	if convID != "" {
+		meta = append(meta, encodeProtoField(6, 2, []byte(convID))...)
+	}
+	if wsURI != "" {
+		meta = append(meta, encodeProtoField(7, 2, []byte(wsURI))...)
+	}
+	meta = append(meta, encodeProtoField(18, 2, []byte("default-cli-project"))...)
+	return meta
 }
 
 // encodeForkPayload emits the protobuf shape LoadConversation parses

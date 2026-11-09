@@ -662,6 +662,7 @@ func accountsSubcommand() SubcommandSpec {
 			{Name: "show", Short: "Show one account in detail", RunJ: runAccountsShow, HelpFn: usageAccountsShow},
 			{Name: "add", Short: "Sign in to another Google account", RunJ: runAccountsAdd, HelpFn: usageAccountsAdd},
 			{Name: "switch", Short: "Make one account the active one", RunJ: runAccountsSwitch, HelpFn: usageAccountsSwitch},
+			{Name: "enable", Short: "Clear quarantine / disabled status of an account", RunJ: runAccountsEnable, HelpFn: usageAccountsEnable},
 			{Name: "remove", Short: "Forget one account", RunJ: runAccountsRemove, HelpFn: usageAccountsRemove},
 		},
 		RunJ: runAccountsParent,

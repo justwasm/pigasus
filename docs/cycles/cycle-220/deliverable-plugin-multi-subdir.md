@@ -317,7 +317,7 @@ failures" and that holds.
   is the only place we know the harness is sign-in-bound at the head of
   the cycle. The reference login dialog is bypassed by the OAuth
   token already on disk at `~/.config/antigravity/oauth-token`
-  (libredot@gmail.com). A different login state on a clean machine
+  (user3@example.com). A different login state on a clean machine
   will need to drive the same trust-folder dialog (Enter) and
   `/plugin Enter Tab Enter` sequence that `probe_multi_tab.py` opens
   with.

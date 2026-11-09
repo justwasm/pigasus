@@ -121,7 +121,7 @@ if m.helpMode {
   `width <= 0` disables it. Measured REF: w=60→8, 80→28, 100→48, 120/220
   untruncated.
 * GENERAL email row carries the plan tier suffix
-  (`navigaid@gmail.com (Antigravity Starter Quota)`), matching the banner —
+  (`user@example.com (Antigravity Starter Quota)`), matching the banner —
   the cycle-145 comment that claimed otherwise was reading a stale capture.
 
 ### 5. Three smaller fixes

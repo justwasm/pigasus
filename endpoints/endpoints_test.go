@@ -187,9 +187,9 @@ func TestAutoUpdaterManifestURL(t *testing.T) {
 func TestTheAccountChooserURL(t *testing.T) {
 	writeConfig(t, `{}`)
 
-	got := Current().AccountChooserURL("naivgaid@gmail.com",
+	got := Current().AccountChooserURL("user@example.com",
 		"https://antigravity.google.com/r/d4465084-5df7-4817-84ee-355a7801b045-v2")
-	want := "https://accounts.google.com/AccountChooser?Email=naivgaid%40gmail.com" +
+	want := "https://accounts.google.com/AccountChooser?Email=user%40example.com" +
 		"&continue=https%3A%2F%2Fantigravity.google.com%2Fr%2Fd4465084-5df7-4817-84ee-355a7801b045-v2"
 	if got != want {
 		t.Errorf("AccountChooserURL =\n  %q\nwant\n  %q", got, want)

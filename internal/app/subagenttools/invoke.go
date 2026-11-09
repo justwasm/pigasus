@@ -332,6 +332,28 @@ func invokeErrorResult(res Result, err error) (actor.ToolResult, error) {
 	}, nil
 }
 
+func (t *invokeTool) isActorSubagentType(name string) bool {
+	switch name {
+	case "self", "research",
+		string(builtinsubagent.KindDeepCoder),
+		string(builtinsubagent.KindDeepCoderWorkerL0),
+		string(builtinsubagent.KindDeepCoderImprovementWorker),
+		string(builtinsubagent.KindDeepInvestigator),
+		string(builtinsubagent.KindDeepInvestigatorWorkerL0),
+		string(builtinsubagent.KindDeepInvestigatorImprovementWorker):
+		return true
+	}
+	if _, ok := builtinsubagent.LookupTeamworkRole(name); ok {
+		return true
+	}
+	if t.defs != nil {
+		if _, ok := t.defs.Get(name); ok {
+			return true
+		}
+	}
+	return false
+}
+
 // Execute launches the delegation and returns the reference's
 // acknowledgement.
 func (t *invokeTool) Execute(ctx context.Context, input string) (actor.ToolResult, error) {
@@ -339,7 +361,7 @@ func (t *invokeTool) Execute(ctx context.Context, input string) (actor.ToolResul
 	if err != nil {
 		return actor.ToolResult{Error: err.Error()}, err
 	}
-	if name := strings.TrimSpace(args.AgentName); name != "" {
+	if name := strings.TrimSpace(args.AgentName); name != "" && !t.isActorSubagentType(name) {
 		return invokeBuiltinSubagent(ctx, name, args.Prompt)
 	}
 	inv, handled, res, err := t.resolve(ctx, args)

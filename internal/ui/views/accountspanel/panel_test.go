@@ -778,3 +778,36 @@ func TestPanelSwitchClearsThePreviousQuotaError(t *testing.T) {
 		t.Fatalf("applied = %q, want b@example.com", p.applied)
 	}
 }
+
+func TestPanelQuarantinedAccountDisplay(t *testing.T) {
+	accountsIsolate(t)
+	p := mkPanel(t, "healthy@example.com", "banned@example.com")
+	if err := accounts.MarkDisabled("banned@example.com", "Terms of Service violation"); err != nil {
+		t.Fatalf("MarkDisabled: %v", err)
+	}
+	p.Reload()
+
+	lines := p.Lines()
+	joined := strings.Join(lines, "\n")
+
+	if !strings.Contains(joined, "[ToS Banned]") {
+		t.Errorf("expected [ToS Banned] badge in panel lines, got:\n%s", joined)
+	}
+
+	// Move cursor to banned@example.com (index 1)
+	p.SetCursor(1)
+	linesOnBanned := p.Lines()
+	joinedOnBanned := strings.Join(linesOnBanned, "\n")
+	if !strings.Contains(joinedOnBanned, "⚠ Quarantined: Terms of Service violation") {
+		t.Errorf("expected quarantine detail line when cursor on banned account, got:\n%s", joinedOnBanned)
+	}
+
+	// Try to switch to banned account
+	p.HandleKey(tea.Key{Code: tea.KeyEnter})
+	if !strings.Contains(p.notice, "is quarantined") {
+		t.Errorf("expected notice about quarantined account, got: %q", p.notice)
+	}
+	if p.applied == "banned@example.com" {
+		t.Errorf("should not switch to quarantined account")
+	}
+}

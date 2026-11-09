@@ -156,13 +156,13 @@ func Test_BuildCommandRowCursorStyling(t *testing.T) {
 // Test_RenderHelpGeneralTierSuffix verifies cycle 182: the GENERAL
 // panel's email row carries the plan tier in parentheses, exactly like
 // the banner. The pre-182 comment claimed REF omitted it; the v1.4.0
-// raw capture shows 'navigaid@gmail.com (Antigravity Starter Quota)'.
+// raw capture shows 'user@example.com (Antigravity Starter Quota)'.
 func Test_RenderHelpGeneralTierSuffix(t *testing.T) {
 	var b strings.Builder
 	RenderHelpGeneral(&b, "Gemini 3.8 Flash (High)", "Antigravity Starter Quota",
-		"~/GitHub/openagy", "navigaid@gmail.com", "uuid")
+		"~/GitHub/openagy", "user@example.com", "uuid")
 	out := b.String()
-	if !strings.Contains(out, HelpDimGrayOpen+"navigaid@gmail.com (Antigravity Starter Quota)"+HelpDimGrayClose) {
+	if !strings.Contains(out, HelpDimGrayOpen+"user@example.com (Antigravity Starter Quota)"+HelpDimGrayClose) {
 		t.Errorf("email row missing tier suffix: %q", out)
 	}
 

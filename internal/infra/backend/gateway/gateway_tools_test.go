@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/justwasm/pigasus/internal/core/backend"
@@ -179,3 +180,76 @@ func TestGatewayOmitsToolsWhenNoneAdvertised(t *testing.T) {
 		t.Errorf("tools key present with no advertised tools: %#v", captured["tools"])
 	}
 }
+
+// TestGatewayNormalizesToolSchemaTypes pins that Gemini uppercase schema types
+// (like BOOLEAN, OBJECT, STRING) are normalized to standard JSON Schema types
+// (boolean, object, string) so third-party providers like DeepSeek do not reject them.
+func TestGatewayNormalizesToolSchemaTypes(t *testing.T) {
+	var captured map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		captured = body
+		w.Header().Set("content-type", "text/event-stream")
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprint(w, "data: [DONE]\n\n")
+	}))
+	defer srv.Close()
+
+	c := NewGatewayWithConfig(GatewayConfig{URL: srv.URL + "/v1/chat/completions", ExternalModel: "deepseek-chat"})
+	stream, err := c.Stream(context.Background(), backend.StreamRequest{
+		Messages: []backend.Message{{Role: "user", Content: "hi"}},
+		Tools: []backend.ToolDecl{{
+			Name:        "write_file",
+			Description: "Create a new file.",
+			Parameters: json.RawMessage(`{
+				"type": "OBJECT",
+				"properties": {
+					"Append": {
+						"type": "BOOLEAN",
+						"description": "Whether to append."
+					},
+					"Path": {
+						"type": "STRING",
+						"minLength": "1"
+					}
+				},
+				"required": ["Path"]
+			}`),
+		}},
+	})
+	if err != nil {
+		t.Fatalf("Stream: %v", err)
+	}
+	for range stream {
+	}
+
+	tools, ok := captured["tools"].([]any)
+	if !ok || len(tools) != 1 {
+		t.Fatalf("expected 1 tool in captured request, got %#v", captured["tools"])
+	}
+	fn := tools[0].(map[string]any)["function"].(map[string]any)
+	params := fn["parameters"].(map[string]any)
+	if params["type"] != "object" {
+		t.Errorf("expected root type 'object', got %v", params["type"])
+	}
+	props := params["properties"].(map[string]any)
+	app := props["Append"].(map[string]any)
+	if app["type"] != "boolean" {
+		t.Errorf("Append type = %v, want boolean", app["type"])
+	}
+	path := props["Path"].(map[string]any)
+	if path["type"] != "string" {
+		t.Errorf("Path type = %v, want string", path["type"])
+	}
+	if path["minLength"] != float64(1) && path["minLength"] != 1 {
+		t.Errorf("Path minLength = %v (%T), want 1", path["minLength"], path["minLength"])
+	}
+
+	// Verify no uppercase BOOLEAN exists anywhere in the JSON
+	raw, _ := json.Marshal(captured)
+	if strings.Contains(string(raw), "BOOLEAN") || strings.Contains(string(raw), "OBJECT") {
+		t.Errorf("request contains unnormalized uppercase types: %s", string(raw))
+	}
+}
+

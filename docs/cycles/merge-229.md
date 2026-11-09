@@ -70,7 +70,7 @@ Transcript: ⎿  Compacted: 184000 → 42000 tokens (77.2% reduction)
 ## REF probes (220×50 + 220×30)
 
 REF probes were attempted but blocked by Google OAuth + zero quota on
-`navigaid@gmail.com`; the cycle-229 deliverable documents this as 存疑 §1.
+`user@example.com`; the cycle-229 deliverable documents this as 存疑 §1.
 `agy229/ref/` is empty by design.
 
 **Our probes (in `agy229/our/`):**

@@ -83,6 +83,10 @@ type Router struct {
 	// the server said so.
 	excluded map[string]time.Time
 
+	// quarantined holds accounts that are permanently disabled (e.g. Terms
+	// of Service violation), mapped to the quarantine reason.
+	quarantined map[string]string
+
 	// lastUsed holds when an account last served a turn.
 	lastUsed map[string]time.Time
 
@@ -178,13 +182,25 @@ func Shared() *Router { return shared() }
 func NewRouter() *Router {
 	ctx, cancel := context.WithCancel(context.Background())
 	r := &Router{
-		remaining:  map[string]quota{},
-		excluded:   map[string]time.Time{},
-		lastUsed:   map[string]time.Time{},
-		refreshing: map[string]bool{},
-		log:        defaultLogWriter(),
-		ctx:        ctx,
-		cancel:     cancel,
+		remaining:   map[string]quota{},
+		excluded:    map[string]time.Time{},
+		quarantined: map[string]string{},
+		lastUsed:    map[string]time.Time{},
+		refreshing:  map[string]bool{},
+		log:         defaultLogWriter(),
+		ctx:         ctx,
+		cancel:      cancel,
+	}
+	if st, err := accounts.Load(); err == nil {
+		for _, acc := range st.Accounts {
+			if acc.Disabled {
+				reason := acc.DisabledReason
+				if reason == "" {
+					reason = "account disabled / Terms of Service violation"
+				}
+				r.quarantined[strings.ToLower(strings.TrimSpace(acc.Email))] = reason
+			}
+		}
 	}
 	r.loadShared = readShared
 	r.newFallback = credential.DefaultTokenSource
@@ -281,7 +297,14 @@ func (r *Router) RouteTurn(ctx context.Context, modelFamily ...string) (RouteRes
 		if err != nil {
 			return RouteResult{}, err
 		}
-		return RouteResult{Email: r.currentAccountEmail(), AccessToken: tok}, nil
+		active := r.currentAccountEmail()
+		r.mu.Lock()
+		r.lastRouted = active
+		r.mu.Unlock()
+		if slot, ok := ctx.Value(routeSlotKey{}).(*routeSlot); ok && slot != nil {
+			slot.email = active
+		}
+		return RouteResult{Email: active, AccessToken: tok}, nil
 	}
 
 	family := ""
@@ -303,8 +326,17 @@ func (r *Router) RouteTurn(ctx context.Context, modelFamily ...string) (RouteRes
 		return RouteResult{Email: r.currentAccountEmail(), Decision: decision, AccessToken: tok}, nil
 	}
 
+	if slot, ok := ctx.Value(routeSlotKey{}).(*routeSlot); ok && slot != nil {
+		slot.email = decision.Email
+	}
+
 	tok, err := r.tokenFor(ctx, decision.Email)
 	if err != nil {
+		if apierror.IsAccountDisabledErr(err) {
+			r.Quarantine(decision.Email, apierror.AccountDisabledReason(err))
+		} else if apierror.IsAuthFailureErr(err) {
+			r.Exclude(decision.Email)
+		}
 		return RouteResult{}, err
 	}
 	r.logf("[account-pool] %s — %s", decision.Email, decision.Reason)
@@ -312,10 +344,6 @@ func (r *Router) RouteTurn(ctx context.Context, modelFamily ...string) (RouteRes
 	r.mu.Lock()
 	r.lastRouted = decision.Email
 	r.mu.Unlock()
-
-	if slot, ok := ctx.Value(routeSlotKey{}).(*routeSlot); ok && slot != nil {
-		slot.email = decision.Email
-	}
 
 	r.mu.Lock()
 	shouldPrewarm := time.Since(r.lastPrewarm) > 3*time.Minute
@@ -517,13 +545,67 @@ func (r *Router) ExcludeForModel(email string, modelFamily string) {
 	}
 }
 
-// IsExcluded reports whether an account is currently in cooldown.
+// Quarantine permanently marks an account as disabled (e.g. Terms of Service
+// violation) and removes it from active rotation in the pool.
+func (r *Router) Quarantine(email, reason string) {
+	email = strings.TrimSpace(email)
+	if email == "" {
+		return
+	}
+	norm := strings.ToLower(email)
+	if reason == "" {
+		reason = "Terms of Service violation / account service disabled"
+	}
+	now := time.Now()
+	r.mu.Lock()
+	r.quarantined[norm] = reason
+	r.excluded[norm] = now.Add(100 * 365 * 24 * time.Hour)
+	r.mu.Unlock()
+
+	r.logf("[account-pool] %s is quarantined: %s", email, reason)
+	_ = accounts.MarkDisabled(email, reason)
+}
+
+// IsQuarantined reports whether an account has been quarantined, and the reason.
+func (r *Router) IsQuarantined(email string) (bool, string) {
+	norm := strings.ToLower(strings.TrimSpace(email))
+	if norm == "" {
+		return false, ""
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	reason, ok := r.quarantined[norm]
+	return ok, reason
+}
+
+// Unquarantine clears the quarantine status of an account.
+func (r *Router) Unquarantine(email string) {
+	email = strings.TrimSpace(email)
+	if email == "" {
+		return
+	}
+	norm := strings.ToLower(email)
+	r.mu.Lock()
+	delete(r.quarantined, norm)
+	delete(r.excluded, norm)
+	r.mu.Unlock()
+	_ = accounts.ClearDisabled(email)
+}
+
+// IsExcluded reports whether an account is currently in cooldown or quarantined.
 // If modelFamily is supplied, it checks both global cooldown and model-family cooldown.
 func (r *Router) IsExcluded(email string, modelFamily ...string) bool {
 	email = strings.TrimSpace(email)
 	if email == "" {
 		return false
 	}
+	norm := strings.ToLower(email)
+	r.mu.Lock()
+	if _, isQ := r.quarantined[norm]; isQ {
+		r.mu.Unlock()
+		return true
+	}
+	r.mu.Unlock()
 	family := ""
 	if len(modelFamily) > 0 {
 		family = strings.ToLower(strings.TrimSpace(modelFamily[0]))
@@ -638,6 +720,9 @@ func (r *Router) PrewarmCandidates(ctx context.Context) {
 		if email == "" {
 			continue
 		}
+		if isQ, _ := r.IsQuarantined(email); isQ || acc.Disabled {
+			continue
+		}
 		r.enqueuePrewarm(email)
 	}
 }
@@ -673,18 +758,25 @@ func (r *Router) statesForModel(ctx context.Context, cfg accountpool.Config, mod
 		remaining, known := r.quotaForModel(ctx, cfg, acc, modelFamily)
 		r.mu.Lock()
 		excluded, expired := r.isExcludedLocked(email, modelFamily, cfg.CooldownDuration(), now)
+		qReason, isQuarantined := r.quarantined[strings.ToLower(email)]
+		if !isQuarantined && acc.Disabled {
+			isQuarantined = true
+			qReason = acc.DisabledReason
+		}
 		lastUsed := r.lastUsed[email]
 		r.mu.Unlock()
 		if len(expired) > 0 {
 			toRefresh = append(toRefresh, expired...)
 		}
 		out = append(out, accountpool.State{
-			Email:     email,
-			Remaining: remaining,
-			Known:     known,
-			Current:   strings.EqualFold(email, current),
-			Excluded:  excluded,
-			LastUsed:  lastUsed,
+			Email:            email,
+			Remaining:        remaining,
+			Known:            known,
+			Current:          strings.EqualFold(email, current),
+			Excluded:         excluded,
+			Quarantined:      isQuarantined,
+			QuarantineReason: qReason,
+			LastUsed:         lastUsed,
 		})
 	}
 	for _, exp := range toRefresh {
@@ -1127,68 +1219,243 @@ func (c *routedClient) Unwrap() backend.Client { return c.inner }
 
 // Stream runs one turn on the account the policy picked.
 //
-// A quota error is the one failure the pool acts on: the account is put
-// out of the pool and the turn is tried again on another one, as far as
-// the policy's attempt count allows. Any other failure is the transport's
-// own — the runtime's retry decides what happens next.
+// Failover policy:
+//   - When an account hits a Terms of Service violation / disabled service, it
+//     is permanently Quarantined and excluded from future turns. If attempts remain,
+//     the turn seamlessly fails over to the next healthy account in the pool.
+//   - When an account hits an authentication failure (401, expired/revoked token),
+//     it is excluded and the turn fails over to the next healthy account.
+//   - When an account runs out of quota and SwitchOnQuotaError is enabled, it is
+//     excluded for the model and the turn fails over to the next healthy account.
+//   - When an in-stream error frame arrives on chunk 0 before user-visible content
+//     has been emitted, transparent failover switches to the next healthy account
+//     without erroring or interrupting the turn.
 func (c *routedClient) Stream(ctx context.Context, req backend.StreamRequest) (<-chan backend.StreamChunk, error) {
 	policy := Policy()
 	if policy == nil || !policy.Enabled {
 		// The routing is off: the transport answers for itself.
-		return c.inner.Stream(ctx, req)
+		// However, if the active account hits a permanent ToS violation, quarantine it immediately.
+		var slot routeSlot
+		callCtx := withRouteSlot(ctx, &slot)
+		out, err := c.inner.Stream(callCtx, req)
+		activeEmail := slot.email
+		if activeEmail == "" {
+			activeEmail = c.router.currentAccountEmail()
+		}
+		if err != nil {
+			if apierror.IsAccountDisabledErr(err) {
+				c.router.Quarantine(activeEmail, apierror.AccountDisabledReason(err))
+			}
+			return nil, err
+		}
+		return c.watchPrefixedList(ctx, nil, backend.StreamChunk{}, out, activeEmail, ""), nil
 	}
 	cfg := policy.Normalised()
 
 	family := ModelFamily(req.Model)
+	maxAttempts := cfg.MaxAttempts
+	if cands, err := c.router.CandidateAccounts(ctx); err == nil && len(cands) > maxAttempts {
+		maxAttempts = len(cands)
+	}
+	if maxAttempts < 1 {
+		maxAttempts = 1
+	}
+
 	var lastErr error
-	for attempt := 0; attempt < cfg.MaxAttempts; attempt++ {
+	for attempt := 0; attempt < maxAttempts; attempt++ {
 		var slot routeSlot
 		callCtx := withRouteSlot(WithModel(ctx, req.Model), &slot)
 		out, err := c.inner.Stream(callCtx, req)
-		if err == nil {
-			return c.watch(ctx, out, slot.email, family), nil
-		}
-		lastErr = err
-		if !apierror.IsQuotaReachedErr(err) {
+		if err != nil {
+			lastErr = err
+			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+				return nil, err
+			}
+			email := slot.email
+			if email == "" {
+				email = c.router.LastRouted()
+			}
+			if apierror.IsAccountDisabledErr(err) {
+				reason := apierror.AccountDisabledReason(err)
+				c.router.Quarantine(email, reason)
+				c.router.logf("[account-pool] %s is quarantined: %s; trying another account", email, reason)
+				if attempt+1 < maxAttempts {
+					continue
+				}
+				return nil, err
+			}
+			if apierror.IsAuthFailureErr(err) {
+				c.router.Exclude(email)
+				c.router.logf("[account-pool] %s authentication failed; trying another account", email)
+				if attempt+1 < maxAttempts {
+					continue
+				}
+				return nil, err
+			}
+			if apierror.IsQuotaReachedErr(err) && cfg.SwitchOnQuotaErrorEnabled() {
+				c.router.ExcludeForModel(email, family)
+				if family != "" {
+					c.router.logf("[account-pool] %s is out of %s quota; trying another account", email, family)
+				} else {
+					c.router.logf("[account-pool] %s is out of quota; trying another account", email)
+				}
+				if attempt+1 < maxAttempts {
+					continue
+				}
+				return nil, err
+			}
 			return nil, err
 		}
-		if !cfg.SwitchOnQuotaErrorEnabled() {
-			return nil, err
+
+		// Peek stream until first non-empty content chunk or error chunk is received.
+		var buffered []backend.StreamChunk
+		var firstNonEmpty backend.StreamChunk
+		hasContent := false
+		gotError := false
+
+		for {
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case chunk, ok := <-out:
+				if !ok {
+					return replayBuffered(buffered), nil
+				}
+				if chunk.Error != nil {
+					gotError = true
+					firstNonEmpty = chunk
+					break
+				}
+				// Empty preamble chunks without content/meta/tool-calls/done
+				if chunk.Text == "" && len(chunk.ToolCalls) == 0 && len(chunk.ThinkingBlocks) == 0 && !chunk.Done {
+					buffered = append(buffered, chunk)
+					continue
+				}
+				hasContent = true
+				firstNonEmpty = chunk
+				break
+			}
+			if gotError || hasContent {
+				break
+			}
 		}
-		email := slot.email
-		if email == "" {
-			email = c.router.LastRouted()
+
+		if gotError {
+			// Drain remaining in background to avoid leaking upstream goroutine
+			go func(ch <-chan backend.StreamChunk) {
+				for range ch {
+				}
+			}(out)
+
+			email := slot.email
+			if email == "" {
+				email = c.router.LastRouted()
+			}
+			lastErr = firstNonEmpty.Error
+
+			if apierror.IsAccountDisabledErr(firstNonEmpty.Error) {
+				reason := apierror.AccountDisabledReason(firstNonEmpty.Error)
+				c.router.Quarantine(email, reason)
+				c.router.logf("[account-pool] %s stream quarantined: %s; switching account (attempt %d/%d)", email, reason, attempt+1, maxAttempts)
+				if attempt+1 < maxAttempts {
+					continue
+				}
+				return errorChunkChan(firstNonEmpty), nil
+			}
+			if apierror.IsAuthFailureErr(firstNonEmpty.Error) {
+				c.router.Exclude(email)
+				c.router.logf("[account-pool] %s stream authentication failed; switching account (attempt %d/%d)", email, attempt+1, maxAttempts)
+				if attempt+1 < maxAttempts {
+					continue
+				}
+				return errorChunkChan(firstNonEmpty), nil
+			}
+			if apierror.IsQuotaReachedErr(firstNonEmpty.Error) && cfg.SwitchOnQuotaErrorEnabled() {
+				c.router.ExcludeForModel(email, family)
+				if family != "" {
+					c.router.logf("[account-pool] %s stream is out of %s quota; switching account (attempt %d/%d)", email, family, attempt+1, maxAttempts)
+				} else {
+					c.router.logf("[account-pool] %s stream is out of quota; switching account (attempt %d/%d)", email, attempt+1, maxAttempts)
+				}
+				if attempt+1 < maxAttempts {
+					continue
+				}
+				return errorChunkChan(firstNonEmpty), nil
+			}
+			return errorChunkChan(firstNonEmpty), nil
 		}
-		c.router.ExcludeForModel(email, family)
-		if family != "" {
-			c.router.logf("[account-pool] %s is out of %s quota; trying another account", email, family)
-		} else {
-			c.router.logf("[account-pool] %s is out of quota; trying another account", email)
+
+		if hasContent {
+			return c.watchPrefixedList(ctx, buffered, firstNonEmpty, out, slot.email, family), nil
 		}
 	}
 	return nil, lastErr
 }
 
-// watch forwards a turn's chunks and watches them for a quota error.
-//
-// A quota error that arrives mid-turn cannot be retried — the turn has
-// already produced output — but it does put the account out of the pool,
-// so the *next* turn goes to another account.
-func (c *routedClient) watch(ctx context.Context, in <-chan backend.StreamChunk, email, family string) <-chan backend.StreamChunk {
+// replayBuffered yields buffered chunks and closes.
+func replayBuffered(buffered []backend.StreamChunk) <-chan backend.StreamChunk {
+	ch := make(chan backend.StreamChunk, len(buffered))
+	for _, b := range buffered {
+		ch <- b
+	}
+	close(ch)
+	return ch
+}
+
+// errorChunkChan emits a single error chunk and closes.
+func errorChunkChan(chunk backend.StreamChunk) <-chan backend.StreamChunk {
+	ch := make(chan backend.StreamChunk, 1)
+	ch <- chunk
+	close(ch)
+	return ch
+}
+
+// watchPrefixedList forwards the buffered preamble, head chunk, and subsequent stream chunks,
+// watching for mid-stream account errors to quarantine or exclude for subsequent turns.
+func (c *routedClient) watchPrefixedList(ctx context.Context, prefix []backend.StreamChunk, head backend.StreamChunk, in <-chan backend.StreamChunk, email, family string) <-chan backend.StreamChunk {
 	out := make(chan backend.StreamChunk)
 	go func() {
 		defer close(out)
+		for _, p := range prefix {
+			select {
+			case out <- p:
+			case <-ctx.Done():
+				return
+			}
+		}
+		select {
+		case out <- head:
+		case <-ctx.Done():
+			return
+		}
+		if head.Done {
+			go func() {
+				for range in {
+				}
+			}()
+			return
+		}
 		for chunk := range in {
-			if chunk.Error != nil && apierror.IsQuotaReachedErr(chunk.Error) {
+			if chunk.Error != nil {
 				acc := email
 				if acc == "" {
 					acc = c.router.LastRouted()
 				}
-				c.router.ExcludeForModel(acc, family)
+				if apierror.IsAccountDisabledErr(chunk.Error) {
+					c.router.Quarantine(acc, apierror.AccountDisabledReason(chunk.Error))
+				} else if apierror.IsAuthFailureErr(chunk.Error) {
+					c.router.Exclude(acc)
+				} else if apierror.IsQuotaReachedErr(chunk.Error) {
+					c.router.ExcludeForModel(acc, family)
+				}
 			}
 			select {
 			case out <- chunk:
 			case <-ctx.Done():
+				go func() {
+					for range in {
+					}
+				}()
 				return
 			}
 		}

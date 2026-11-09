@@ -344,7 +344,31 @@ func (m *RootModel) ShowModelList() {
 
 // OpenResumePicker opens the conversation picker.
 func (m *RootModel) OpenResumePicker() error {
+	m.saveSession()
 	return m.overlays.resumePicker.Open()
+}
+
+// ResumeConversationByID resumes a conversation by full UUID or prefix match.
+func (m *RootModel) ResumeConversationByID(target string) error {
+	path := convstore.FindConversation(target)
+	id := target
+	if path == "" {
+		matches := convstore.FindPrefixMatches(target)
+		if len(matches) == 1 {
+			id = matches[0]
+			path = convstore.ConversationPath(id)
+		} else if len(matches) > 1 {
+			return fmt.Errorf("ambiguous conversation prefix %q (matches: %s)", target, strings.Join(matches, ", "))
+		} else {
+			return fmt.Errorf("conversation %q not found", target)
+		}
+	}
+	m.saveSession()
+	m.resumeConversation(convstore.ConversationMeta{
+		ID:   id,
+		Path: path,
+	})
+	return nil
 }
 
 func (m *RootModel) LookupSkillPrompt(name, args string) (string, bool) {

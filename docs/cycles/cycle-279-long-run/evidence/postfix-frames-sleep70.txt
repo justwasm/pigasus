@@ -10,7 +10,7 @@
 ===== 14:53:53 (75 s after the prompt; the old 60 s deadline would have fired 15 s ago) =====
 ===== 14:53:53 =====
       ▄▀▀▄        Antigravity CLI 1.4.2
-     ▀▀▀▀▀▀       navigaid@gmail.com (Antigravity Starter Quota)
+     ▀▀▀▀▀▀       user@example.com (Antigravity Starter Quota)
     ▀▀▀▀▀▀▀▀      MiniMax M3
    ▄▀▀    ▀▀▄     /tmp/m3-ws
   ▄▀▀      ▀▀▄
@@ -26,7 +26,7 @@
 ===== 14:54:04 (tool done, turn alive: 'Thinking... (1m13.3s)') =====
 ===== 14:54:04 =====
       ▄▀▀▄        Antigravity CLI 1.4.2
-     ▀▀▀▀▀▀       navigaid@gmail.com (Antigravity Starter Quota)
+     ▀▀▀▀▀▀       user@example.com (Antigravity Starter Quota)
     ▀▀▀▀▀▀▀▀      MiniMax M3
    ▄▀▀    ▀▀▄     /tmp/m3-ws
   ▄▀▀      ▀▀▄
@@ -43,7 +43,7 @@
 ===== 14:54:06 (final answer) =====
 ===== 14:54:06 =====
       ▄▀▀▄        Antigravity CLI 1.4.2
-     ▀▀▀▀▀▀       navigaid@gmail.com (Antigravity Starter Quota)
+     ▀▀▀▀▀▀       user@example.com (Antigravity Starter Quota)
     ▀▀▀▀▀▀▀▀      MiniMax M3
    ▄▀▀    ▀▀▄     /tmp/m3-ws
   ▄▀▀      ▀▀▄

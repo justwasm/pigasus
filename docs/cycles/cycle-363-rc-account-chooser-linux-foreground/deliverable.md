@@ -69,7 +69,7 @@ out of a hand-rolled string.
 【一手】 2026-10-29, live: opening
 
 ```
-https://accounts.google.com/AccountChooser?Email=naivgaid%40gmail.com&continue=https%3A%2F%2Fantigravity.google.com%2Fr%2F0698e8f6-2cee-42c0-a454-02c764f6b9b6-v2
+https://accounts.google.com/AccountChooser?Email=user%40example.com&continue=https%3A%2F%2Fantigravity.google.com%2Fr%2F0698e8f6-2cee-42c0-a454-02c764f6b9b6-v2
 ```
 
 in a real browser landed on
@@ -217,7 +217,7 @@ depend on the platform, and `remote-control run` is it:
 ```
 $ pigasus remote-control run
 remote-control run: listening on ws://127.0.0.1:8787/rpc (path=/rpc, name=pigasus-7411f32fc696, antigravity_home=/root/.gemini/antigravity-cli)
-remote-control run: open https://accounts.google.com/AccountChooser?Email=naivgaid%40gmail.com&continue=https%3A%2F%2Fantigravity.google.com%2Fr%2F98bc1aa9-eb81-4c35-8c20-fde1e5b64300-v2 on another device to take over.
+remote-control run: open https://accounts.google.com/AccountChooser?Email=user%40example.com&continue=https%3A%2F%2Fantigravity.google.com%2Fr%2F98bc1aa9-eb81-4c35-8c20-fde1e5b64300-v2 on another device to take over.
 ```
 
 【一手】 2026-10-29, measured in the `debian:bookworm-slim` container
@@ -271,7 +271,7 @@ The first Linux run printed a link naming one instance id and registered
 another:
 
 ```
-remote-control start: open https://accounts.google.com/AccountChooser?Email=naivgaid%40gmail.com&continue=…%2F7327d0cc-f915-45a4-884a-3b7592f1d1f6-v2 on another device to take over.
+remote-control start: open https://accounts.google.com/AccountChooser?Email=user%40example.com&continue=…%2F7327d0cc-f915-45a4-884a-3b7592f1d1f6-v2 on another device to take over.
 [CloudTunnel] registered instance "pigasus-1f1f8239a9bf" (id: 3da6eeed-0f99-4998-91cd-a7617327d4ac-v2)
 ```
 
@@ -386,7 +386,7 @@ mounted in:
 remote-control start: linux/amd64 has no launchd — running the daemon in the foreground, as `remote-control run` does (Ctrl-C to stop)
 using existing token at /root/.gemini/antigravity-cli/antigravity-oauth-token
 remote-control start: listening on ws://127.0.0.1:8787/rpc (path=/rpc, name=pigasus-aa8572b56009, antigravity_home=/root/.gemini/antigravity-cli)
-remote-control start: open https://accounts.google.com/AccountChooser?Email=naivgaid%40gmail.com&continue=https%3A%2F%2Fantigravity.google.com%2Fr%2F614633c6-3552-4d78-9a64-02f45c881c3a-v2 on another device to take over.
+remote-control start: open https://accounts.google.com/AccountChooser?Email=user%40example.com&continue=https%3A%2F%2Fantigravity.google.com%2Fr%2F614633c6-3552-4d78-9a64-02f45c881c3a-v2 on another device to take over.
 [CloudTunnel] connected session sid=I6JNYT5Agw0Jgk6JXHd_Zg …
 [CloudTunnel] registered instance "pigasus-aa8572b56009" (id: 614633c6-3552-4d78-9a64-02f45c881c3a-v2)
 ```
@@ -420,7 +420,7 @@ code still behaves. Same result, and the Web UI's own device switcher
 (bottom-left) named the container's instance:
 
 ```
-remote-control start: open https://accounts.google.com/AccountChooser?Email=naivgaid%40gmail.com&continue=https%3A%2F%2Fantigravity.google.com%2Fr%2Fb1d28878-693b-4abb-bf9f-a1b4db6d431a-v2 on another device to take over.
+remote-control start: open https://accounts.google.com/AccountChooser?Email=user%40example.com&continue=https%3A%2F%2Fantigravity.google.com%2Fr%2Fb1d28878-693b-4abb-bf9f-a1b4db6d431a-v2 on another device to take over.
 [CloudTunnel] registered instance "pigasus-2808d71eefe1" (id: b1d28878-693b-4abb-bf9f-a1b4db6d431a-v2)
 ```
 

@@ -15,6 +15,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/justwasm/pigasus/geminicode"
 	"github.com/justwasm/pigasus/internal/core/backend"
 	"github.com/justwasm/pigasus/internal/infra/backend/retry"
 	"github.com/justwasm/pigasus/internal/infra/backend/streampipe"
@@ -310,6 +311,10 @@ func formatAnthropicTools(tools []backend.ToolDecl) []anthropicTool {
 		schema := t.Parameters
 		if len(strings.TrimSpace(string(schema))) == 0 {
 			schema = json.RawMessage(`{"type":"object","properties":{}}`)
+		} else if norm := geminicode.NormalizeToolSchema(schema, true); norm != nil {
+			if b, err := json.Marshal(norm); err == nil {
+				schema = b
+			}
 		}
 		out = append(out, anthropicTool{
 			Name:        t.Name,

@@ -108,14 +108,48 @@ func (m *RootModel) dispatchKeyAction(action string) (tea.Model, tea.Cmd, bool) 
 		return m, tea.ClearScreen, true
 	case "subagent.approve_fast":
 		if !m.overlays.resumePicker.Active() {
-			m.fastApproveSubagent()
+			if m.askQuestion.panel != nil && m.askQuestion.panel.Active() {
+				m.askQuestion.panel.Toggle()
+				return m, nil, true
+			}
+			if m.fastApproveSubagent() {
+				return m, nil, true
+			}
+			if m.askQuestion.manager != nil && m.askQuestion.manager.TotalPending() > 0 {
+				waiting := m.askQuestion.manager.PendingSubagents()
+				if len(waiting) > 0 && m.askQuestion.panel != nil {
+					m.askQuestion.panel.SetScope(waiting[0])
+					m.askQuestion.panel.Open()
+					return m, nil, true
+				}
+			}
 			return m, nil, true
 		}
 	case "subagent.jump_to_waiting":
 		if !m.overlays.resumePicker.Active() {
-			if m.askQuestion.panel != nil && m.askQuestion.panel.PendingCount() > 0 {
-				m.askQuestion.panel.Toggle()
-				return m, nil, true
+			if m.askQuestion.manager != nil && m.askQuestion.manager.TotalPending() > 0 {
+				waiting := m.askQuestion.manager.PendingSubagents()
+				if len(waiting) > 0 {
+					nextScope := waiting[0]
+					if m.askQuestion.panel != nil && m.askQuestion.panel.Active() {
+						currentScope := m.askQuestion.panel.Scope()
+						if len(waiting) == 1 {
+							m.askQuestion.panel.Toggle()
+							return m, nil, true
+						}
+						for i, s := range waiting {
+							if s == currentScope {
+								nextScope = waiting[(i+1)%len(waiting)]
+								break
+							}
+						}
+					}
+					if m.askQuestion.panel != nil {
+						m.askQuestion.panel.SetScope(nextScope)
+						m.askQuestion.panel.Open()
+						return m, nil, true
+					}
+				}
 			}
 			if m.activeItems.Panel != nil && m.activeItems.Panel.Count() > 0 && !m.askQuestion.panel.Active() {
 				m.activeItems.Panel.SetFocus(!m.activeItems.Panel.Focused())
@@ -528,8 +562,11 @@ func (m *RootModel) handleGlobalOrModalKeys(key tea.Key) (tea.Model, tea.Cmd, bo
 		return m, m.editPromptCmd(), true
 	}
 	if key.Code == 'k' && key.Mod.Contains(tea.ModCtrl) && !m.overlays.resumePicker.Active() {
-		m.askQuestion.panel.Toggle()
-		return m, nil, true
+		if m.askQuestion.panel != nil {
+			m.askQuestion.panel.Toggle()
+			return m, nil, true
+		}
+		return m, nil, false
 	}
 	return m, nil, false
 }
@@ -770,9 +807,13 @@ func (m *RootModel) handleCtrlAndTabKeys(key tea.Key) (tea.Model, tea.Cmd, bool)
 	if key.Code == 'a' && key.Mod == 0 && m.prompt.input.Value() == "" &&
 		!m.help.Panel.Active() && !m.prompt.picker.Visible() && !m.overlays.resumePicker.Active() &&
 		m.overlays.panel.kind == panelregistry.None &&
-		m.askQuestion.panel.PendingCount() > 0 {
-		m.askQuestion.panel.Toggle()
-		return m, nil, true
+		m.askQuestion.manager != nil && m.askQuestion.manager.TotalPending() > 0 {
+		waiting := m.askQuestion.manager.PendingSubagents()
+		if len(waiting) > 0 && m.askQuestion.panel != nil {
+			m.askQuestion.panel.SetScope(waiting[0])
+			m.askQuestion.panel.Toggle()
+			return m, nil, true
+		}
 	}
 	if m.display.exitConfirm {
 		m.display.exitConfirm = false
@@ -1350,9 +1391,13 @@ func (m *RootModel) updateMouseAndMiscMsg(msg tea.Msg) (tea.Model, tea.Cmd, bool
 		m.askQuestion.Cancel()
 		return m, nil, true
 	case askQuestionPendingMsg:
-		// ask_question asked from the turn's goroutine: bring the
-		// parent's picker up now, rather than waiting for Ctrl+K.
-		m.askQuestion.OpenParent()
+		if m.askQuestion.panel != nil {
+			if msg.scope != "" && msg.scope != subagentquestions.ParentKey {
+				m.askQuestion.panel.SetScope(msg.scope)
+			} else {
+				m.askQuestion.OpenParent()
+			}
+		}
 		return m, tea.ClearScreen, true
 	case tea.WindowSizeMsg:
 		mod, cmd := m.updateWindowSize(msg)

@@ -271,6 +271,28 @@ func TestChooseEmptyPool(t *testing.T) {
 	}
 }
 
+func TestChooseQuarantined(t *testing.T) {
+	cfg := Config{Strategy: StrategyQuotaAware}.Normalised()
+	states := []State{
+		{Email: "banned@example.com", Remaining: 0.9, Known: true, Quarantined: true, QuarantineReason: "Terms of Service violation"},
+		{Email: "healthy@example.com", Remaining: 0.2, Known: true},
+	}
+	d := Choose(cfg, states, 0)
+	if d.Email != "healthy@example.com" {
+		t.Errorf("chose %q, want healthy@example.com (banned account must be skipped)", d.Email)
+	}
+
+	// Even if all accounts are out of quota or banned, quarantined accounts are never picked
+	statesAllOut := []State{
+		{Email: "banned@example.com", Remaining: 0.9, Known: true, Quarantined: true, QuarantineReason: "ToS Banned"},
+		{Email: "exhausted@example.com", Remaining: 0.05, Known: true, Excluded: true},
+	}
+	d2 := Choose(Config{Strategy: StrategyQuotaAware, Threshold: 0.5}.Normalised(), statesAllOut, 0)
+	if d2.Email != "exhausted@example.com" {
+		t.Errorf("chose %q, want exhausted@example.com (quarantined account must never be fallback)", d2.Email)
+	}
+}
+
 func TestChooseAggregate(t *testing.T) {
 	cfg := Config{Strategy: StrategyAggregate, Threshold: 0.15}.Normalised()
 	if !cfg.Aggregate {

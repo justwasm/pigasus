@@ -430,3 +430,41 @@ func TestSchema_BooleanConstAndEnum(t *testing.T) {
 	}
 }
 
+func TestNormalizeToolSchema_WriteFile(t *testing.T) {
+	raw := json.RawMessage(`{
+		"type": "OBJECT",
+		"properties": {
+			"Append": {
+				"type": "BOOLEAN",
+				"description": "Whether to append Content."
+			},
+			"Path": {
+				"type": "STRING",
+				"minLength": "1"
+			}
+		},
+		"required": ["Path"]
+	}`)
+
+	norm, ok := NormalizeToolSchema(raw, true).(map[string]any)
+	if !ok {
+		t.Fatalf("NormalizeToolSchema returned non-map: %T", norm)
+	}
+	if norm["type"] != "object" {
+		t.Errorf("expected root type 'object', got %v", norm["type"])
+	}
+	props := norm["properties"].(map[string]any)
+	app := props["Append"].(map[string]any)
+	if app["type"] != "boolean" {
+		t.Errorf("Append type = %v, want boolean", app["type"])
+	}
+	path := props["Path"].(map[string]any)
+	if path["type"] != "string" {
+		t.Errorf("Path type = %v, want string", path["type"])
+	}
+	if path["minLength"] != 1 {
+		t.Errorf("Path minLength = %v (%T), want 1", path["minLength"], path["minLength"])
+	}
+}
+
+

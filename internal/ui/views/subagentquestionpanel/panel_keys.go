@@ -14,6 +14,7 @@ package subagentquestionpanel
 import (
 	tea "charm.land/bubbletea/v2"
 
+	subagentquestions "github.com/justwasm/pigasus/internal/app/subagent/questions"
 	"github.com/justwasm/pigasus/internal/ui/tuilib"
 	"github.com/justwasm/pigasus/palette"
 )
@@ -37,6 +38,29 @@ func (p *Panel) HandleKeyMsg(key tea.Key) (bool, tea.Cmd) {
 	if key.Code == 'k' && key.Mod.Contains(tea.ModCtrl) {
 		return false, nil
 	}
+
+	if p.writeInActive {
+		switch key.Code {
+		case tea.KeyEsc:
+			p.writeInActive = false
+			p.writeInInput.Blur()
+			return true, nil
+		case tea.KeyEnter:
+			p.commitWriteIn()
+			return true, nil
+		default:
+			var cmd tea.Cmd
+			p.writeInInput, cmd = p.writeInInput.Update(tea.KeyPressMsg(key))
+			return true, cmd
+		}
+	}
+
+	pending := p.pending()
+	var cur *subagentquestions.Question
+	if p.cursor >= 0 && p.cursor < len(pending) {
+		cur = pending[p.cursor]
+	}
+
 	switch key.Code {
 	case tea.KeyEsc:
 		// Esc skips the highlighted question: the question's Wait
@@ -51,7 +75,6 @@ func (p *Panel) HandleKeyMsg(key tea.Key) (bool, tea.Cmd) {
 		p.optionCursor = 0
 		return true, nil
 	case tea.KeyDown:
-		pending := p.pending()
 		if p.cursor < len(pending)-1 {
 			p.cursor++
 		}
@@ -63,25 +86,55 @@ func (p *Panel) HandleKeyMsg(key tea.Key) (bool, tea.Cmd) {
 	case tea.KeyRight:
 		p.moveOption(1)
 		return true, nil
-	case tea.KeyEnter:
-		pending := p.pending()
-		if p.cursor < 0 || p.cursor >= len(pending) {
+	case tea.KeySpace, 'x':
+		if cur != nil && cur.IsMultiSelect {
+			if p.optionCursor < len(cur.Options) {
+				p.toggleOption(cur.ID, p.optionCursor)
+				return true, nil
+			}
+			p.activateWriteIn(cur)
+			return true, nil
+		} else if cur != nil && p.optionCursor >= len(cur.Options) {
+			p.activateWriteIn(cur)
 			return true, nil
 		}
-		selected := pending[p.cursor]
-		// A question with options answers the highlighted option
+	case 'e':
+		if cur != nil && p.optionCursor >= len(cur.Options) {
+			p.activateWriteIn(cur)
+			return true, nil
+		}
+	case tea.KeyEnter:
+		if cur == nil {
+			return true, nil
+		}
+		// A question with multi-select:
+		if cur.IsMultiSelect {
+			if p.optionCursor >= len(cur.Options) && p.writeInText[cur.ID] == "" {
+				p.activateWriteIn(cur)
+				return true, nil
+			}
+			p.submitMultiSelect(cur)
+			return true, nil
+		}
+
+		// A single-select question with options answers the highlighted option
 		// directly. The last row of the option list is the write-in
-		// row: selecting it stages the composer answer instead.
-		if len(selected.Options) > 0 && p.optionCursor < len(selected.Options) {
+		// row: selecting it stages the composer answer instead (or submits
+		// if typed).
+		if len(cur.Options) > 0 && p.optionCursor < len(cur.Options) {
 			p.AnswerSelected()
+			return true, nil
+		}
+		if p.writeInText[cur.ID] != "" {
+			p.answer(cur, p.writeInText[cur.ID])
 			return true, nil
 		}
 		p.stage()
 		return true, func() tea.Msg {
 			return MsgQuestionStaged{
-				QuestionID: selected.ID,
+				QuestionID: cur.ID,
 				Scope:      p.scope,
-				Prompt:     selected.Prompt,
+				Prompt:     cur.Prompt,
 			}
 		}
 	}
@@ -93,6 +146,8 @@ func (p *Panel) close() {
 	p.open = false
 	p.cursor = 0
 	p.optionCursor = 0
+	p.writeInActive = false
+	p.writeInInput.Blur()
 }
 
 // moveOption walks the options of the highlighted question.

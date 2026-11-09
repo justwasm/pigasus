@@ -302,10 +302,9 @@ func TestFork_WritesConvStoreAndAppearsInPicker(t *testing.T) {
 	}
 }
 
-// TestResume_HidesTheCurrentConversation pins the seam contract: the
-// picker lists the store minus the conversation the session is showing.
-// Resuming the current conversation is a no-op, so the row is noise.
-func TestResume_HidesTheCurrentConversation(t *testing.T) {
+// TestResume_ShowsCurrentConversationTagged pins reference parity (agy 1.5.1):
+// the picker lists conversations including the active one, tagged [CURRENT].
+func TestResume_ShowsCurrentConversationTagged(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("ANTIGRAVITY_HOME", dir)
 	if err := os.MkdirAll(filepath.Join(dir, "conversations"), 0o755); err != nil {
@@ -332,11 +331,42 @@ func TestResume_HidesTheCurrentConversation(t *testing.T) {
 		t.Fatal("/resume should open the picker")
 	}
 	list := m.overlays.resumePicker.List()
-	if len(list) != 1 {
-		t.Fatalf("expected 1 conversation (the current one is hidden), got %d", len(list))
+	if len(list) != 2 {
+		t.Fatalf("expected 2 conversations (current conversation included), got %d", len(list))
 	}
-	if list[0].ID != ids[1] {
-		t.Errorf("picker shows %q, want the other conversation %q", list[0].ID, ids[1])
+	body := ansi.Strip(m.overlays.resumePicker.View(100, 20))
+	if !strings.Contains(body, "[CURRENT]") {
+		t.Errorf("expected view to tag current conversation with [CURRENT], got:\n%s", body)
+	}
+}
+
+// TestResume_DirectArgumentResumes tests that /resume <id> resumes directly without opening picker.
+func TestResume_DirectArgumentResumes(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("ANTIGRAVITY_HOME", dir)
+	if err := os.MkdirAll(filepath.Join(dir, "conversations"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	targetID := "cccc3333-0000-4000-8000-000000000003"
+	if err := convstore.WriteConversation(
+		filepath.Join(dir, "conversations", targetID+".db"),
+		targetID,
+		[]convstore.Step{
+			{Idx: 0, Type: convstore.StepUserInput, Status: 3, Text: "hello target"},
+		}); err != nil {
+		t.Fatal(err)
+	}
+
+	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/", false)
+	handled, _ := m.handleSlashCommand("/resume " + targetID)
+	if !handled {
+		t.Fatal("expected /resume <id> to be handled")
+	}
+	if m.overlays.resumePicker.Active() {
+		t.Fatal("expected picker not to open when resuming directly by ID")
+	}
+	if m.session.conversationID != targetID {
+		t.Fatalf("expected session conversationID = %q, got %q", targetID, m.session.conversationID)
 	}
 }
 

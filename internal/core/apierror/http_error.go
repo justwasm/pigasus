@@ -423,6 +423,98 @@ func RetryAfterDurationErr(err error) time.Duration {
 	return he.RetryAfterDuration()
 }
 
+// accountDisabledKeywords are substrings that identify an account as being
+// disabled, suspended, or flagged for Terms of Service violations by Google.
+var accountDisabledKeywords = []string{
+	"service has been disabled",
+	"account has been disabled",
+	"account_disabled",
+	"terms of service",
+	"tos_violation",
+}
+
+// IsAccountDisabled reports whether this HTTPError represents an account
+// service disabled or Terms of Service violation from upstream.
+func (e *HTTPError) IsAccountDisabled() bool {
+	if e == nil {
+		return false
+	}
+	lowerBody := bytes.ToLower(bytes.TrimSpace(e.Body))
+	for _, kw := range accountDisabledKeywords {
+		if bytes.Contains(lowerBody, []byte(kw)) {
+			return true
+		}
+	}
+	lowerMsg := strings.ToLower(e.Message())
+	for _, kw := range accountDisabledKeywords {
+		if strings.Contains(lowerMsg, kw) {
+			return true
+		}
+	}
+	return false
+}
+
+// IsAccountDisabledErr walks err's chain via errors.As looking for an
+// *HTTPError or inspects err.Error() for Terms of Service / disabled keywords.
+func IsAccountDisabledErr(err error) bool {
+	if err == nil {
+		return false
+	}
+	var he *HTTPError
+	if errors.As(err, &he) {
+		if he.IsAccountDisabled() {
+			return true
+		}
+	}
+	msg := strings.ToLower(err.Error())
+	for _, kw := range accountDisabledKeywords {
+		if strings.Contains(msg, kw) {
+			return true
+		}
+	}
+	return false
+}
+
+// AccountDisabledReason returns a human-readable explanation if err
+// represents an account disabled / ToS error, or empty string otherwise.
+func AccountDisabledReason(err error) string {
+	if !IsAccountDisabledErr(err) {
+		return ""
+	}
+	return "Terms of Service violation / account service disabled"
+}
+
+// IsAuthFailure reports whether an error represents an authentication failure
+// (401 Unauthorized, unauthenticated, invalid_grant, or revoked token).
+func (e *HTTPError) IsAuthFailure() bool {
+	if e == nil {
+		return false
+	}
+	if e.StatusCode == http.StatusUnauthorized || e.Kind == KindAuthExpired {
+		return true
+	}
+	low := strings.ToLower(string(e.Body))
+	return strings.Contains(low, "unauthenticated") ||
+		strings.Contains(low, "invalid_grant") ||
+		strings.Contains(low, "token has been expired or revoked")
+}
+
+// IsAuthFailureErr reports whether err represents an authentication failure.
+func IsAuthFailureErr(err error) bool {
+	if err == nil {
+		return false
+	}
+	var he *HTTPError
+	if errors.As(err, &he) {
+		return he.IsAuthFailure()
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "unauthenticated") ||
+		strings.Contains(msg, "invalid_grant") ||
+		strings.Contains(msg, "token has been expired or revoked") ||
+		strings.Contains(msg, "authentication expired")
+}
+
 // IsScopeMismatch reports whether this HTTPError is the AGY "OAuth
 // token lacks required scopes" case. The check is status 403 plus a
 // body / message that carries one of the recovered scope keywords

@@ -204,3 +204,48 @@ func TestFlushNextQueued_PicksUpTaskCtrlInbox(t *testing.T) {
 		t.Errorf("expected engine to be streaming for notification turn")
 	}
 }
+
+// TestSubagentNotifyParentWiresToInboxAndWakesTUI verifies that ensureSubagentRegistry
+// wires NotifyParent to the session's inbox even on pre-existing registries, and that
+// when a subagent finishes and reports to parent, the parent inbox receives it and
+// initiates a notification turn.
+func TestSubagentNotifyParentWiresToInboxAndWakesTUI(t *testing.T) {
+	m := newSlashModel(t)
+	if m.tasks.ctrl == nil {
+		m.tasks.ctrl = taskregistry.NewController(nil)
+	}
+
+	reg := m.ensureSubagentRegistry()
+	if reg == nil {
+		t.Fatal("expected non-nil registry")
+	}
+
+	ok := reg.NotifyParent("child-789", "Weather in Shanghai is 18C, clear sky")
+	if !ok {
+		t.Fatal("expected NotifyParent to return true when notify handler is installed")
+	}
+
+	if !m.hasPendingTaskNotifications() {
+		t.Fatal("expected pending task notifications in inbox")
+	}
+
+	cmd := m.updateTaskNotificationMsg()
+	if cmd == nil {
+		t.Fatal("expected updateTaskNotificationMsg to start a notification turn")
+	}
+	if !m.conversation.streaming {
+		t.Error("expected conversation to be streaming for notification turn")
+	}
+
+	msgs := m.prepareStreamTurnMessages()
+	found := false
+	for _, msg := range msgs {
+		if strings.Contains(msg.Content, "Weather in Shanghai is 18C, clear sky") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("expected prepared stream messages to include subagent report, got: %+v", msgs)
+	}
+}

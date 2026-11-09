@@ -4,7 +4,7 @@
 
 The clone's auth surface was three stubs: `hasOAuthToken()` returning a bool, a
 `/logout` that deleted one file, and a `NewRunMode` that hardcoded
-`navigaid@gmail.com` as the account email (a value transcribed out of a capture,
+`user@example.com` as the account email (a value transcribed out of a capture,
 not a real identity). This cycle replaces all three with the reference's actual
 flow, captured live from `agy 1.4.3`.
 
@@ -85,7 +85,7 @@ OS clipboard through the existing `clipboardReadText()` seam.
 
 ### 2.6 Real account email
 
-`navigaid@gmail.com` was a capture fixture, not an identity. Two causes:
+`user@example.com` was a capture fixture, not an identity. Two causes:
 
 1. `LoadTokenUnified` consulted the on-disk token files *before* the keychain,
    so a stale `antigravity-oauth-token` (whose `id_token` was empty) shadowed

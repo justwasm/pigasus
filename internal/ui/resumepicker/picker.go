@@ -30,11 +30,12 @@ import (
 // own state.
 type Seams struct {
 	// CurrentConversationID is the conversation the session is showing.
-	// The picker keeps it out of its own list and pins its workspace
-	// group to the top of the tree.
+	// The picker tags it with [CURRENT] and pins its workspace group to
+	// the top of the tree.
 	CurrentConversationID func() string
-	// ListConversations returns the store's conversations, minus the
-	// session's own conversation.
+	// CurrentWorkspace is the workspace directory the session is running in.
+	CurrentWorkspace func() string
+	// ListConversations returns the store's conversations.
 	ListConversations func() ([]convstore.ConversationMeta, error)
 	// ResumeConversation switches the session to the conversation.
 	ResumeConversation func(meta convstore.ConversationMeta) tea.Cmd

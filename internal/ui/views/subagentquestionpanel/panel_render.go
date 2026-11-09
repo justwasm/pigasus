@@ -13,6 +13,7 @@ package subagentquestionpanel
 
 import (
 	"sort"
+	"strings"
 
 	subagentquestions "github.com/justwasm/pigasus/internal/app/subagent/questions"
 	"github.com/justwasm/pigasus/internal/ui/tuilib"
@@ -75,19 +76,53 @@ func (p *Panel) PickerRows() []string {
 	} else {
 		rows = append(rows, p.renderItems(pending)...)
 	}
-	rows = append(rows,
-		"",
-		palette.DimGrayOpen+"Keyboard: "+palette.DimGrayClose+
-			palette.BlueOpen+"↑/↓"+palette.WarningBlueClose+
-			palette.DimGrayOpen+" Questions  "+palette.DimGrayClose+
-			palette.BlueOpen+"←/→"+palette.WarningBlueClose+
-			palette.DimGrayOpen+" Options  "+palette.DimGrayClose+
-			palette.BlueOpen+"enter"+palette.WarningBlueClose+
-			palette.DimGrayOpen+" Select  "+palette.DimGrayClose+
-			palette.BlueOpen+"esc"+palette.WarningBlueClose+
-			palette.DimGrayOpen+" Skip"+palette.DimGrayClose,
-	)
+	if p.writeInActive {
+		rows = append(rows,
+			"",
+			palette.DimGrayOpen+"Keyboard: "+palette.DimGrayClose+
+				palette.BlueOpen+"enter"+palette.WarningBlueClose+
+				palette.DimGrayOpen+" Submit  "+palette.DimGrayClose+
+				palette.BlueOpen+"esc"+palette.WarningBlueClose+
+				palette.DimGrayOpen+" Back"+palette.DimGrayClose,
+		)
+	} else {
+		var activeQ *subagentquestions.Question
+		if p.cursor >= 0 && p.cursor < len(pending) {
+			activeQ = pending[p.cursor]
+		}
+		spaceHint := ""
+		if activeQ != nil && activeQ.IsMultiSelect {
+			spaceHint = palette.BlueOpen + "space" + palette.WarningBlueClose +
+				palette.DimGrayOpen + " Toggle  " + palette.DimGrayClose
+		}
+		rows = append(rows,
+			"",
+			palette.DimGrayOpen+"Keyboard: "+palette.DimGrayClose+
+				palette.BlueOpen+"↑/↓"+palette.WarningBlueClose+
+				palette.DimGrayOpen+" Questions  "+palette.DimGrayClose+
+				palette.BlueOpen+"←/→"+palette.WarningBlueClose+
+				palette.DimGrayOpen+" Options  "+palette.DimGrayClose+
+				spaceHint+
+				palette.BlueOpen+"enter"+palette.WarningBlueClose+
+				palette.DimGrayOpen+" Select  "+palette.DimGrayClose+
+				palette.BlueOpen+"esc"+palette.WarningBlueClose+
+				palette.DimGrayOpen+" Skip"+palette.DimGrayClose,
+		)
+	}
 	return rows
+}
+
+func writeInDisplayLabel(text string) string {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return "Write-in answer…"
+	}
+	text = strings.ReplaceAll(text, "\n", " ")
+	runes := []rune(text)
+	if len(runes) > 40 {
+		return string(runes[:40]) + "..."
+	}
+	return text
 }
 
 // renderItems renders the picker's question rows.
@@ -119,7 +154,15 @@ func (p *Panel) renderItems(pending []*subagentquestions.Question) []string {
 			if oi == p.optionCursor {
 				optRune = palette.BlueOpen + "› " + palette.DimGrayClose
 			}
-			row := "    " + optRune + tuilib.FirstLine(opt)
+			checkPrefix := ""
+			if q.IsMultiSelect {
+				if p.isOptionSelected(q.ID, oi) {
+					checkPrefix = "[x] "
+				} else {
+					checkPrefix = "[ ] "
+				}
+			}
+			row := "    " + optRune + checkPrefix + tuilib.FirstLine(opt)
 			rows = append(rows, row+palette.DimGrayClose)
 		}
 		// The write-in row is the last row of the option list: it lets
@@ -133,7 +176,18 @@ func (p *Panel) renderItems(pending []*subagentquestions.Question) []string {
 		if len(q.Options) == 0 {
 			label = "Type your answer…"
 		}
+		if text := p.writeInText[q.ID]; text != "" {
+			label = writeInDisplayLabel(text)
+		}
 		rows = append(rows, "    "+writeInRune+palette.DimGrayOpen+label+palette.DimGrayClose)
+
+		if p.writeInActive && i == p.cursor {
+			rows = append(rows, "")
+			rows = append(rows, palette.DimGrayOpen+"      Your answer:"+palette.DimGrayClose)
+			for _, line := range strings.Split(p.writeInInput.View(), "\n") {
+				rows = append(rows, "      "+line)
+			}
+		}
 	}
 	return rows
 }

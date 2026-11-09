@@ -16,15 +16,15 @@ import (
 func TestListProjectsReturnsSignedInAccount(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	t.Setenv("AGY_USER_EMAIL", "stakingminer@gmail.com")
+	t.Setenv("AGY_USER_EMAIL", "user4@example.com")
 
 	cacheDir := filepath.Join(home, ".gemini", "antigravity-cli", "cache")
 	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
 		t.Fatalf("mkdir cache: %v", err)
 	}
 	cache := `{
-		"stakingminer@gmail.com": "5375b8e0-06d4-4393-8580-2f833e111343",
-		"bastionturbofish@gmail.com": "f3168bbc-a23d-499d-b9c0-97971fc2ead1"
+		"user4@example.com": "5375b8e0-06d4-4393-8580-2f833e111343",
+		"user5@example.com": "f3168bbc-a23d-499d-b9c0-97971fc2ead1"
 	}`
 	if err := os.WriteFile(filepath.Join(cacheDir, "default_cloud_project_ids.json"), []byte(cache), 0o644); err != nil {
 		t.Fatalf("write cache: %v", err)

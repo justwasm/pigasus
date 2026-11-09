@@ -33,7 +33,7 @@ $ tmux -L agy224 new-session -d -s main -x 220 -y 50 -c /tmp
 $ tmux -L agy224 send-keys -t main \
     '/private/var/folders/.../agy224/our/agy' Enter
 # → Welcome to Antigravity CLI.
-#   navigaid@gmail.com (Antigravity Starter Quota).
+#   user@example.com (Antigravity Starter Quota).
 #   ⚠ "MiniMax-M3" no longer available. Using "MiniMax M3".
 #   ⚠ ADC authentication failed. Please run:
 #     gcloud auth application-default login

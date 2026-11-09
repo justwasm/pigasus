@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -157,6 +158,69 @@ func TestSaveConversation(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("conversation %q not found in ListConversations: %+v", convID, list)
+	}
+
+	// 5. Verify conversation_summaries.db contains the columns expected by agy /resume:
+	// app_data_dir = 'antigravity-cli', project_id = 'default-cli-project',
+	// status = 'CASCADE_RUN_STATUS_IDLE', and space-separated last_modified_time.
+	sumDB, err := Open(filepath.Join(tempHome, "conversation_summaries.db"))
+	if err != nil {
+		t.Fatalf("Open conversation_summaries.db: %v", err)
+	}
+	defer sumDB.Close()
+	var rowFound bool
+	_ = sumDB.Scan("conversation_summaries", func(r *Row) error {
+		if r.Text("conversation_id") == convID {
+			rowFound = true
+			if got := r.Text("app_data_dir"); got != "antigravity-cli" {
+				t.Errorf("app_data_dir = %q, want 'antigravity-cli'", got)
+			}
+			if got := r.Text("project_id"); got != "default-cli-project" {
+				t.Errorf("project_id = %q, want 'default-cli-project'", got)
+			}
+			if got := r.Text("status"); got != "CASCADE_RUN_STATUS_IDLE" {
+				t.Errorf("status = %q, want 'CASCADE_RUN_STATUS_IDLE'", got)
+			}
+			modTime := r.Text("last_modified_time")
+			if strings.Contains(modTime, "T") {
+				t.Errorf("last_modified_time contains 'T': %q, want space-separated", modTime)
+			}
+		}
+		return nil
+	})
+	if !rowFound {
+		t.Fatalf("row for %q not found in conversation_summaries.db", convID)
+	}
+
+	// 6. Verify annotations/<id>.pbtxt exists and has expected format
+	annPath := filepath.Join(tempHome, "annotations", convID+".pbtxt")
+	annBytes, err := os.ReadFile(annPath)
+	if err != nil {
+		t.Fatalf("ReadFile annotation: %v", err)
+	}
+	if string(annBytes) != "title:\"first prompt\"\n" {
+		t.Errorf("annotation = %q, want 'title:\"first prompt\"\\n'", string(annBytes))
+	}
+
+	// 7. Verify trajectory_metadata_blob exists in conversation db
+	cDB, err := Open(dbPath)
+	if err != nil {
+		t.Fatalf("Open conversation db: %v", err)
+	}
+	defer cDB.Close()
+	var metaFound bool
+	_ = cDB.Scan("trajectory_metadata_blob", func(r *Row) error {
+		if r.Text("id") == "main" {
+			metaFound = true
+			data := r.Bytes("data")
+			if len(data) == 0 {
+				t.Errorf("trajectory_metadata_blob data is empty")
+			}
+		}
+		return nil
+	})
+	if !metaFound {
+		t.Fatalf("trajectory_metadata_blob row 'main' not found in %s", dbPath)
 	}
 }
 

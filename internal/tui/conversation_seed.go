@@ -282,6 +282,9 @@ func loadedToolStep(s convstore.Step) toolsteps.Step {
 }
 
 func (m *RootModel) resumeConversation(meta convstore.ConversationMeta) tea.Cmd {
+	if meta.ID != "" && meta.ID == m.session.conversationID {
+		return nil
+	}
 	c, err := convstore.LoadConversation(meta.Path)
 	if err != nil {
 		m.conversation.response = append(m.conversation.response,

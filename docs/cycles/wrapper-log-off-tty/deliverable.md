@@ -121,7 +121,7 @@ and the pane is intact — including the injected model in the header:
 
 ```
       ▄▀▀▄        Antigravity CLI 1.4.2
-     ▀▀▀▀▀▀       navigaid@gmail.com (Antigravity Starter Quota)
+     ▀▀▀▀▀▀       user@example.com (Antigravity Starter Quota)
     ▀▀▀▀▀▀▀▀      MiniMax M3
    ▄▀▀    ▀▀▄     /tmp
 ```

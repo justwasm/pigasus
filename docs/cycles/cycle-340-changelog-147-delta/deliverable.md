@@ -127,7 +127,7 @@ and version, account, model, cwd — and the sentence follows the art:
 
 ```
       ▀        ▄▄▀▀▀▀▀▀▄▄      ▀▄▄▄▀    ▄     Antigravity CLI 1.4.7
-      ▀      ▄▀▀▀▀▀▀▀▀▀▀▀▀▄    ▄      ▀▄▀     naivgaid@gmail.com (Google AI Pro)
+      ▀      ▄▀▀▀▀▀▀▀▀▀▀▀▀▄    ▄      ▀▄▀     user@example.com (Google AI Pro)
     ▀▄▀▄▀    ▀▀▀▀▀▀▀▀▀▀▀▀▀▀       ▄▄▄▄▄       Gemini 3.8 Flash (High)
     ▀▀▀▀▀  ▄▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▄    ▀▀▀▀▀▀▀      ~/Documents/GitHub/openagy
    ▀ ▀ ▀   ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀    ▀▀▀▀▀▀▀

@@ -120,7 +120,7 @@ PiG surface used:
 ## Live parity (probe-vs-clone, `agy229/`)
 
 REF 1.4.0 (`~/.local/bin/agy`) is gated behind Google OAuth on this
-machine and `navigaid@gmail.com` has no quota — REF probes are not
+machine and `user@example.com` has no quota — REF probes are not
 capturable here. Recorded as 存疑 below.
 
 The clone (`/tmp/wagyu229` built from the `w229` worktree at HEAD
@@ -216,7 +216,7 @@ signature.
 ## 存疑 / limitations
 
 1. **REF probes not capturable on this machine.** `~/.local/bin/agy`
-   1.4.0 is gated behind Google OAuth and `navigaid@gmail.com` has no
+   1.4.0 is gated behind Google OAuth and `user@example.com` has no
    quota. The `agy229/ref/` directory is empty. The clone's cycle-167
    stub transcript (`"Nothing to compact yet."`) is therefore the only
    observable output in the live probes; the cycle-229 styled rows

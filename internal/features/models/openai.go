@@ -13,6 +13,8 @@ import (
 	"io"
 	"net/http"
 	"strings"
+
+	"github.com/justwasm/pigasus/geminicode"
 )
 
 // openAIShapeProvider handles the four OpenAI-shaped providers.
@@ -307,6 +309,10 @@ func (p *openAIShapeProvider) buildBody(req ChatRequest, stream bool) openAIRequ
 		params := t.Parameters
 		if len(params) == 0 {
 			params = json.RawMessage(`{"type":"object","properties":{}}`)
+		} else if norm := geminicode.NormalizeToolSchema(params, true); norm != nil {
+			if b, err := json.Marshal(norm); err == nil {
+				params = b
+			}
 		}
 		body.Tools = append(body.Tools, openAITool{
 			Type: "function",

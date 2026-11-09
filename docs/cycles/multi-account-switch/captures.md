@@ -17,9 +17,9 @@ registers an account that became active outside the clone):
 ```
 $ /tmp/wagyu accounts list
 accounts: /Users/gear/.config/openagy/accounts.json
-navigaid@gmail.com                       -
-naivgaid@gmail.com                       -                  (active)
-btwiuse@gmail.com                       -
+user@example.com                       -
+user@example.com                       -                  (active)
+user2@example.com                       -
 ```
 
 ## 2. The `/accounts` panel
@@ -30,7 +30,7 @@ $ tmux send-keys -t acctlive "/accounts" Enter
 
 ```
   ▀▀▄      ▄▀▀    Pigasus CLI 1.4.5
-   ▀▀▀    ▀▀▀     naivgaid@gmail.com (Google AI Plus)
+   ▀▀▀    ▀▀▀     user@example.com (Google AI Plus)
     ▀▀▄▄▀▀▀▀      MiniMax M3.1 Flash
      ▀▀▀▀▀▀       /tmp
       ▀▀▀▀
@@ -38,11 +38,11 @@ $ tmux send-keys -t acctlive "/accounts" Enter
 >
 ──────────────────────────────────────────────────────────────────────────────
 Accounts
-> navigaid@gmail.com              -
-  naivgaid@gmail.com              Google AI Plus     (active)
-  btwiuse@gmail.com               -
-  libredot@gmail.com              -
-  chap67j8man@gmail.com           -
+> user@example.com              -
+  user@example.com              Google AI Plus     (active)
+  user2@example.com               -
+  user3@example.com              -
+  user6@example.com           -
   /Users/gear/.config/openagy/accounts.json
 Keyboard: ↑/↓ Navigate  enter Switch  a Add account  d Remove  esc Exit
 ```
@@ -58,7 +58,7 @@ $ tmux send-keys -t acctlive "/usage" Enter
 
 ```
 └ Models & Quota
-  Account: naivgaid@gmail.com
+  Account: user@example.com
 ```
 
 The account line is the session's identity, resolved from the shared credential
@@ -72,7 +72,7 @@ $ tmux send-keys -t acref "$HOME/.local/bin/agy" Enter
 
 ```
       ▄▀▀▄        Antigravity CLI 1.4.6
-     ▀▀▀▀▀▀       naivgaid@gmail.com
+     ▀▀▀▀▀▀       user@example.com
     ▀▀▀▀▀▀▀▀      Gemini 3.8 Flash (High)
    ▄▀▀    ▀▀▄     /tmp
   ▄▀▀      ▄▀▀
@@ -140,7 +140,7 @@ decoded:
 
 ```json
 {"auth_method": "consumer",
- "id_token_email": "navigaid@gmail.com",
+ "id_token_email": "user@example.com",
  "token": {"access_token": "ya29.…", "refresh_token": "1//…", "expiry": "2026-10-23T15:39:49.57094+08:00"}}
 ```
 
@@ -158,7 +158,7 @@ quota):
 
 ```
 Accounts
-> navigaid@gmail.com              -
+> user@example.com              -
   switch-probe@example.com        -                  (active)
   /Users/gear/.config/openagy/accounts.json
 Keyboard: ↑/↓ Navigate  enter Switch  a Add account  d Remove  esc Exit
@@ -168,9 +168,9 @@ Keyboard: ↑/↓ Navigate  enter Switch  a Add account  d Remove  esc Exit
 
 ```
 Accounts
-> navigaid@gmail.com              -                  (active)
+> user@example.com              -                  (active)
   switch-probe@example.com        -
-  Switched to navigaid@gmail.com.
+  Switched to user@example.com.
   /Users/gear/.config/openagy/accounts.json
 ```
 
@@ -178,7 +178,7 @@ The shared credential after the switch:
 
 ```
 $ security find-generic-password -s gemini -a antigravity -w | base64 -d
-{"auth_method": "consumer", "id_token": "…", "id_token_email": "navigaid@gmail.com",
+{"auth_method": "consumer", "id_token": "…", "id_token_email": "user@example.com",
  "token": {"access_token": "ya29.…", …}}
 ```
 
@@ -186,7 +186,7 @@ and a fresh `agy`:
 
 ```
       ▄▀▀▄        Antigravity CLI 1.4.6
-     ▀▀▀▀▀▀       navigaid@gmail.com
+     ▀▀▀▀▀▀       user@example.com
 ```
 
 ## 8. An account switched *outside* the TUI
@@ -208,11 +208,11 @@ $ tmux send-keys -t acctlive "/usage" Enter
 ```
 
 The same with a real account, switched from the shell while the clone ran
-(`agy accounts switch btwiuse@gmail.com`, then the panel reopened):
+(`agy accounts switch user2@example.com`, then the panel reopened):
 
 ```
 └ Models & Quota
-  Account: chap67j8man@gmail.com
+  Account: user6@example.com
 ```
 
 and the banner of the same running session:
@@ -232,7 +232,7 @@ $ tmux send-keys -t acctlive "d"
 
 ```
 Accounts
-  navigaid@gmail.com              -                  (active)
+  user@example.com              -                  (active)
   Removed switch-probe@example.com.
   /Users/gear/.config/openagy/accounts.json
 ```
@@ -245,9 +245,9 @@ cleared) and continues on another registered account, so the session survives.
 ```
 $ /tmp/wagyu accounts list
 accounts: /Users/gear/.config/openagy/accounts.json
-navigaid@gmail.com                       -
-naivgaid@gmail.com                       -                  (active)
-btwiuse@gmail.com                       -
+user@example.com                       -
+user@example.com                       -                  (active)
+user2@example.com                       -
 ```
 
 ```
@@ -261,7 +261,7 @@ Print mode:
 
 ```
 $ /tmp/wagyu --backend shim -p "/accounts"
-navigaid@gmail.com	-
-naivgaid@gmail.com	-	(active)
-btwiuse@gmail.com	-
+user@example.com	-
+user@example.com	-	(active)
+user2@example.com	-
 ```

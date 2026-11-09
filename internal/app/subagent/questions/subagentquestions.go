@@ -84,14 +84,15 @@ const SkipAnswer = "User Skipped"
 //   - Answer: the user's typed answer or SkipAnswer.
 //   - AnsweredAt: zero while pending.
 type Question struct {
-	ID         string
-	SubagentID string
-	Prompt     string
-	Options    []string
-	CreatedAt  time.Time
-	State      string
-	Answer     string
-	AnsweredAt time.Time
+	ID            string
+	SubagentID    string
+	Prompt        string
+	Options       []string
+	IsMultiSelect bool
+	CreatedAt     time.Time
+	State         string
+	Answer        string
+	AnsweredAt    time.Time
 
 	chMu      sync.Mutex  // guards lazy creation of answerCh + Answer/State writes
 	answerCh  chan string // closed on Answer; callers Wait on it
@@ -206,25 +207,31 @@ func (m *Manager) Headless() bool {
 // parent session itself). prompt is the literal question the
 // model passed. options is the structured-choice list — empty
 // for freeform questions; the picker renders options verbatim.
+// isMultiSelect indicates whether multiple options can be chosen.
 //
 // The returned Question is registered with the Manager; the
 // caller's only responsibility is to Wait on it (or read the
 // Answer field later by ID). The ID is unique within the
 // Manager; multiple subagents sharing a Manager never collide.
-func (m *Manager) Enqueue(subAgentID, prompt string, options []string) *Question {
+func (m *Manager) Enqueue(subAgentID, prompt string, options []string, isMultiSelect ...bool) *Question {
 	if m == nil {
 		return nil
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.idCounter++
+	multi := false
+	if len(isMultiSelect) > 0 && isMultiSelect[0] {
+		multi = true
+	}
 	q := &Question{
-		ID:         fmt.Sprintf("q-%d-%d", time.Now().UnixNano(), m.idCounter),
-		SubagentID: subAgentID,
-		Prompt:     prompt,
-		Options:    append([]string(nil), options...),
-		CreatedAt:  time.Now(),
-		State:      StatePending,
+		ID:            fmt.Sprintf("q-%d-%d", time.Now().UnixNano(), m.idCounter),
+		SubagentID:    subAgentID,
+		Prompt:        prompt,
+		Options:       append([]string(nil), options...),
+		IsMultiSelect: multi,
+		CreatedAt:     time.Now(),
+		State:         StatePending,
 	}
 	m.pending[subAgentID] = append(m.pending[subAgentID], q)
 	if m.skipInHead {

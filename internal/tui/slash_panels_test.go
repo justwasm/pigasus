@@ -633,7 +633,7 @@ func TestPanelUsageLayout(t *testing.T) {
 	joined := strings.Join(plain, "\n")
 	expectedEmail := auth.EffectiveUserEmail()
 	if expectedEmail == "" {
-		expectedEmail = "navigaid@gmail.com"
+		expectedEmail = "user@example.com"
 	}
 	if !strings.Contains(joined, expectedEmail) {
 		t.Errorf("missing account email: %s", joined)

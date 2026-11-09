@@ -350,16 +350,16 @@ The account index is the browser's account-chooser order:
 
 | idx | account | |
 |---|---|---|
-| 0 | navigaid@gmail.com | the browser's default — the bare `/r/<id>` URL resolves here |
-| 1 | btwiuse@gmail.com | |
-| 2 | libredot@gmail.com | **the reference** — its token's `id_token_email`, and its own log: `Headless auth: authenticated as "libredot@gmail.com"` |
-| 3 | naivgaid@gmail.com | **the clone** — `accounts.Current()`'s active account |
-| 4 | stakingminer@gmail.com | |
-| 5 | justwasm@gmail.com | |
+| 0 | user@example.com | the browser's default — the bare `/r/<id>` URL resolves here |
+| 1 | user2@example.com | |
+| 2 | user3@example.com | **the reference** — its token's `id_token_email`, and its own log: `Headless auth: authenticated as "user3@example.com"` |
+| 3 | user@example.com | **the clone** — `accounts.Current()`'s active account |
+| 4 | user4@example.com | |
+| 5 | developer@example.com | |
 
 An instance's row therefore lives under **the account its daemon
-authenticates as**: the clone registers with `naivgaid@gmail.com` (index 3),
-the reference with `libredot@gmail.com` (index 2).
+authenticates as**: the clone registers with `user@example.com` (index 3),
+the reference with `user3@example.com` (index 2).
 
 Both binaries read the **same** token file —
 `~/.gemini/antigravity-cli/antigravity-oauth-token`, the reference's own
@@ -370,8 +370,8 @@ two views need different `/u/<N>/` paths.
 
 【一手】 That shared file is not a theory: on a restart of the clone's
 daemon (2026-10-26 15:22) the file was rewritten with
-`stakingminer@gmail.com`, the clone's daemon logged
-`Headless auth: authenticated as "stakingminer@gmail.com"` — and **the
+`user4@example.com`, the clone's daemon logged
+`Headless auth: authenticated as "user4@example.com"` — and **the
 reference's own daemon**, which reads the same file, logged the same
 account two seconds later (`cli-20261026_152214.log`, pid 13858). The
 clone's instance moved from index 3 to index 4 with it, and the live view
@@ -577,7 +577,7 @@ the Web UI's header still reads **"reply with exactly one word ok"**.
 > re-authenticates at start-up and writes the account it picked into the
 > shared token file (`~/.gemini/antigravity-cli/antigravity-oauth-token`),
 > so a restart can move the instance to another account — here from index 3
-> (`naivgaid@gmail.com`) to index 4 (`stakingminer@gmail.com`), and the
+> (`user@example.com`) to index 4 (`user4@example.com`), and the
 > view moved with it to `/u/4/r/<id>` (§7.4).
 
 

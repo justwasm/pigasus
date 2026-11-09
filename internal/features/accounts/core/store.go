@@ -71,12 +71,14 @@ var mu sync.Mutex
 // derived, and they belong to this account — which is why they are
 // cached per account and not once per session.
 type Account struct {
-	Email    string                 `json:"email"`
-	PlanTier string                 `json:"plan_tier,omitempty"`
-	Quota    *auth.QuotaSnapshot    `json:"quota,omitempty"`
-	AddedAt  time.Time              `json:"added_at"`
-	LastUsed time.Time              `json:"last_used"`
-	Token    *auth.AntigravityToken `json:"token"`
+	Email          string                 `json:"email"`
+	PlanTier       string                 `json:"plan_tier,omitempty"`
+	Quota          *auth.QuotaSnapshot    `json:"quota,omitempty"`
+	AddedAt        time.Time              `json:"added_at"`
+	LastUsed       time.Time              `json:"last_used"`
+	Token          *auth.AntigravityToken `json:"token"`
+	Disabled       bool                   `json:"disabled,omitempty"`
+	DisabledReason string                 `json:"disabled_reason,omitempty"`
 }
 
 // Store is the on-disk account registry.
@@ -231,4 +233,58 @@ func (s *Store) Emails() []string {
 		out = append(out, a.Email)
 	}
 	return out
+}
+
+// MarkDisabled sets an account's disabled status and reason and persists it.
+func MarkDisabled(email, reason string) error {
+	email = strings.TrimSpace(email)
+	if email == "" {
+		return nil
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	st, err := loadLocked()
+	if err != nil {
+		return err
+	}
+	found := false
+	for i := range st.Accounts {
+		if strings.EqualFold(st.Accounts[i].Email, email) {
+			st.Accounts[i].Disabled = true
+			st.Accounts[i].DisabledReason = reason
+			found = true
+			break
+		}
+	}
+	if !found {
+		return fmt.Errorf("account %q not found", email)
+	}
+	return st.saveLocked()
+}
+
+// ClearDisabled clears an account's disabled status and persists it.
+func ClearDisabled(email string) error {
+	email = strings.TrimSpace(email)
+	if email == "" {
+		return nil
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	st, err := loadLocked()
+	if err != nil {
+		return err
+	}
+	found := false
+	for i := range st.Accounts {
+		if strings.EqualFold(st.Accounts[i].Email, email) {
+			st.Accounts[i].Disabled = false
+			st.Accounts[i].DisabledReason = ""
+			found = true
+			break
+		}
+	}
+	if !found {
+		return fmt.Errorf("account %q not found", email)
+	}
+	return st.saveLocked()
 }

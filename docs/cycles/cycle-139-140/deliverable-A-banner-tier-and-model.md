@@ -8,7 +8,7 @@ The v1.3.6 reference banner (captured at
 
 ```
      ▄▀▀▄        Antigravity CLI 1.3.6
-    ▀▀▀▀▀▀       navigaid@gmail.com
+    ▀▀▀▀▀▀       user@example.com
    ▀▀▀▀▀▀▀▀      ~/GitHub/openagy
   ▄▀▀    ▀▀▄
  ▄▀▀      ▀▀▄
@@ -18,7 +18,7 @@ The cycle-83g clone's banner was:
 
 ```
      ▄▀▀▄        Antigravity CLI 1.3.6
-    ▀▀▀▀▀▀       navigaid@gmail.com (Antigravity Starter Quota)
+    ▀▀▀▀▀▀       user@example.com (Antigravity Starter Quota)
    ▀▀▀▀▀▀▀▀      Gemini 3.8 Flash (High)
   ▄▀▀    ▀▀▄     ~/GitHub/openagy
  ▄▀▀      ▀▀▄
@@ -28,7 +28,7 @@ Two visible differences:
 
 1. **Tier annotation** — the clone prepended "(Antigravity
    Starter Quota)" to the email row whenever the user wasn't on a
-   paid plan. The reference shows bare `navigaid@gmail.com` with
+   paid plan. The reference shows bare `user@example.com` with
    no parens. Cycle 139 makes the parens conditional on a non-empty
    tier string, and removes the default `tier = "Antigravity
    Starter Quota"` in `NewV135RunMode` so the banner starts empty.

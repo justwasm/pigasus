@@ -27,9 +27,9 @@ type bannerCase struct {
 
 // bannerCases are the branches the themed banner's golden pins.
 var bannerCases = []bannerCase{
-	{name: "tier", email: "naivgaid@gmail.com", model: "Gemini 3.8 Flash (High)", tier: "Google AI Pro", cwd: "~/Documents/GitHub/openagy"},
-	{name: "no-tier", email: "naivgaid@gmail.com", model: "Gemini 3.8 Flash (High)", tier: "", cwd: "~/Documents/GitHub/openagy"},
-	{name: "greeting-with-name", email: "naivgaid+work@gmail.com", model: "Gemini 3.8 Flash (High)", tier: "", cwd: "~/Documents/GitHub/openagy"},
+	{name: "tier", email: "user@example.com", model: "Gemini 3.8 Flash (High)", tier: "Google AI Pro", cwd: "~/Documents/GitHub/openagy"},
+	{name: "no-tier", email: "user@example.com", model: "Gemini 3.8 Flash (High)", tier: "", cwd: "~/Documents/GitHub/openagy"},
+	{name: "greeting-with-name", email: "user+work@example.com", model: "Gemini 3.8 Flash (High)", tier: "", cwd: "~/Documents/GitHub/openagy"},
 	{name: "greeting-without-name", email: "", model: "Gemini 3.8 Flash (High)", tier: "", cwd: "~/Documents/GitHub/openagy"},
 	{name: "nil-event", nilEv: true},
 }
@@ -129,7 +129,7 @@ func TestRenderBannerDrawsOneOfTheEventScenes(t *testing.T) {
 		oldArt, oldGreeting := SetBannerPicks(s, 0)
 		var b strings.Builder
 		RenderBanner(&b, ev, State{
-			Email:   "naivgaid@gmail.com",
+			Email:   "user@example.com",
 			Model:   "Gemini 3.8 Flash (High)",
 			Tier:    "Google AI Pro",
 			Cwd:     "~/Documents/GitHub/openagy",

@@ -536,6 +536,34 @@ func NormalizeToolSchema(v any, isRoot bool) any {
 				case []string, []any:
 					out[k] = ev
 				}
+			case "minLength", "maxLength", "minItems", "maxItems":
+				switch v := val.(type) {
+				case string:
+					if n, err := strconv.Atoi(v); err == nil {
+						out[k] = n
+						continue
+					}
+				case json.Number:
+					if n, err := v.Int64(); err == nil {
+						out[k] = int(n)
+						continue
+					}
+				}
+				out[k] = val
+			case "minimum", "maximum":
+				switch v := val.(type) {
+				case string:
+					if f, err := strconv.ParseFloat(v, 64); err == nil {
+						out[k] = f
+						continue
+					}
+				case json.Number:
+					if f, err := v.Float64(); err == nil {
+						out[k] = f
+						continue
+					}
+				}
+				out[k] = val
 			default:
 				out[k] = NormalizeToolSchema(val, false)
 			}

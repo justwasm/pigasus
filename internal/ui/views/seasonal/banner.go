@@ -50,7 +50,7 @@ type State struct {
 // (out/changelog-147/ref/config-seasonal-on.txt):
 //
 //	<art row 0>Antigravity CLI 1.4.7
-//	<art row 1>naivgaid@gmail.com (Google AI Pro)
+//	<art row 1>user@example.com (Google AI Pro)
 //	<art row 2>Gemini 3.8 Flash (High)
 //	<art row 3>~/Documents/GitHub/openagy
 //	<art row 4>
@@ -146,7 +146,7 @@ func pickGreeting(ev *Event) string {
 // to.
 //
 // 【一手】 agy 1.4.7's banner reads "Spooky season, steady builds,
-// naivgaid." for the account naivgaid@gmail.com — the local part of the
+// naivgaid." for the account user@example.com — the local part of the
 // session's email.
 // 【推测】 The reference may be greeting the account's display name; the
 // banner shows the email and nothing else, so the local part is the

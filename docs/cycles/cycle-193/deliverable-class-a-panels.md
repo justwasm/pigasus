@@ -92,7 +92,7 @@ feedback rewind context plugin changelog diff`).
     state row if absent); Shared skills group header; `[1-11 of 63
     items]`; legend `↑/↓ Navigate  enter View  esc Cancel`.
   - `panelUsageLines()` — title `└ Models & Quota`; `Account:
-    navigaid@gmail.com` (brand blue); 100% full green bar and
+    user@example.com` (brand blue); 100% full green bar and
     `Quota available`; 0% dim bar and `Refreshes in 74h 29m`;
     `(1–17 of 20 lines)`; full dot-hint scroller.
   - `panelChangelogLines()` — title `Antigravity CLI Changelog` (yellow

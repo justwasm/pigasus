@@ -182,6 +182,13 @@ func Activate(ctx context.Context, email string) (Account, error) {
 	if acc.Token == nil {
 		return Account{}, fmt.Errorf("accounts: account %q has no stored credentials", acc.Email)
 	}
+	if acc.Disabled {
+		reason := acc.DisabledReason
+		if reason == "" {
+			reason = "quarantined"
+		}
+		return Account{}, fmt.Errorf("accounts: account %q is disabled (%s)", acc.Email, reason)
+	}
 
 	// Keep the current credential so a failed switch can put it back.
 	previous, _ := currentLocked()

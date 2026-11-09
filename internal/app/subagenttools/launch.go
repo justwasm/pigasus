@@ -13,6 +13,8 @@ import (
 
 	"github.com/justwasm/pigasus/actor"
 	taskregistry "github.com/justwasm/pigasus/internal/app/task"
+	"github.com/justwasm/pigasus/internal/app/tools"
+	"github.com/justwasm/pigasus/internal/app/tools/tasks"
 	agentmessage "github.com/justwasm/pigasus/internal/core/msg"
 	"github.com/justwasm/pigasus/internal/features/checkpoint"
 )
@@ -109,10 +111,10 @@ func Launch(ctx context.Context, inv Invocation, deps Deps) (Launched, error) {
 		})
 	}
 
-	tools := rebindMessaging(inv.Tools, deps.Registry, conversationID)
+	tools := rebindMessaging(inv.Tools, deps, conversationID)
 	if len(tools) == 0 {
 		tools = grantedToolSet(deps, deps.Definitions, inv.Grant)
-		tools = rebindMessaging(tools, deps.Registry, conversationID)
+		tools = rebindMessaging(tools, deps, conversationID)
 	}
 	var gate BeforeToolCallGate
 	if deps.PermissionGateFor != nil {
@@ -140,19 +142,70 @@ func Launch(ctx context.Context, inv Invocation, deps Deps) (Launched, error) {
 }
 
 // rebindMessaging points the conversation-scoped tools at the child that owns them.
-func rebindMessaging(list []actor.Tool, registry *Registry, owner string) []actor.Tool {
-	out := make([]actor.Tool, 0, len(list))
+func rebindMessaging(list []actor.Tool, deps Deps, owner string) []actor.Tool {
+	out := make([]actor.Tool, 0, len(list)+1)
+	hasAskQuestion := false
 	for _, t := range list {
-		switch t.(type) {
-		case *sendMessageTool:
-			out = append(out, &sendMessageTool{registry: registry, owner: owner})
-		case *manageSubagentsTool:
-			out = append(out, &manageSubagentsTool{registry: registry, owner: owner})
+		if t == nil {
+			continue
+		}
+		switch t.Name() {
+		case "send_message":
+			out = append(out, &sendMessageTool{registry: deps.Registry, owner: owner})
+		case "manage_subagents":
+			out = append(out, &manageSubagentsTool{registry: deps.Registry, owner: owner})
+		case "ask_question":
+			hasAskQuestion = true
+			if deps.Questions != nil {
+				qTool := &tasks.AskQuestion{
+					Host:              nil,
+					SubAgentQuestions: deps.Questions,
+					SubAgentID:        owner,
+					OnAsk:             deps.OnAsk,
+				}
+				out = append(out, adaptSubagentTool(qTool))
+			} else {
+				out = append(out, t)
+			}
 		default:
 			out = append(out, t)
 		}
 	}
+	if !hasAskQuestion && deps.Questions != nil {
+		qTool := &tasks.AskQuestion{
+			Host:              nil,
+			SubAgentQuestions: deps.Questions,
+			SubAgentID:        owner,
+			OnAsk:             deps.OnAsk,
+		}
+		out = append(out, adaptSubagentTool(qTool))
+	}
 	return out
+}
+
+func adaptSubagentTool(t tools.Tool) actor.Tool {
+	if t == nil {
+		return nil
+	}
+	var params map[string]any
+	desc := t.Name()
+	if raw := t.Schema(); len(raw) > 0 {
+		_ = json.Unmarshal(raw, &params)
+		if d, ok := params["description"].(string); ok && d != "" {
+			desc = d
+		}
+	}
+	return actor.NewFuncTool(t.Name(), desc, func(ctx context.Context, input string) (string, error) {
+		res, err := t.Run(ctx, json.RawMessage(input))
+		if err != nil {
+			return "", err
+		}
+		if s, ok := res.(string); ok {
+			return s, nil
+		}
+		b, _ := json.Marshal(res)
+		return string(b), nil
+	}, actor.WithParameters(params))
 }
 
 func runChild(

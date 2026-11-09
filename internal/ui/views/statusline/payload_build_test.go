@@ -38,7 +38,7 @@ func goldenState() statusline.PayloadState {
 		AgentName:         "probe",
 		CycleMode:         "auto",
 		PlanTier:          "Google AI Pro",
-		Email:             "stakingminer@gmail.com",
+		Email:             "user4@example.com",
 		TerminalWidth:     120,
 		SandboxEnabled:    false,
 		Quota: map[string]statusline.QuotaBucket{
@@ -78,7 +78,7 @@ var goldenPayload = `{"cwd":"/agyprobe/repo","session_id":"eab2aff5-dfbc-436e-b1
 	`"current_usage":{"input_tokens":13327,"output_tokens":117,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}},` +
 	`"exceeds_200k_tokens":false,"agent":{"name":"probe"},"product":"antigravity",` +
 	`"quota":{"3p-5h":{"remaining_fraction":1}},"agent_state":"idle","cycle_mode":"auto",` +
-	`"sandbox":{"enabled":false},"plan_tier":"Google AI Pro","email":"stakingminer@gmail.com",` +
+	`"sandbox":{"enabled":false},"plan_tier":"Google AI Pro","email":"user4@example.com",` +
 	`"terminal_width":120,"cost":{"total_usd":0.0097435,"subagent_usd":0,"estimated":true}}`
 
 // TestPayloadFrom_GoldenBytes pins the document's bytes.

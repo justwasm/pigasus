@@ -51,7 +51,7 @@ User 给真 OAuth token, 验证:
     tier[1]: id=standard-tier name=Antigravity default=false gcpTos=true
 --- PASS: TestCloudCodeAPIClient_LoadCodeAssist_Live (2.14s)
 === RUN   TestTokenValidatesViaUserinfo
-    token valid: sub=105126221582794464410 email=navigaid@gmail.com name=Hangbiao Zou
+    token valid: sub=105126221582794464410 email=user@example.com name=Hangbiao Zou
 --- PASS: TestTokenValidatesViaUserinfo (0.31s)
 ```
 

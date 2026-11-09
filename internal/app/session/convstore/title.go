@@ -21,11 +21,28 @@ package convstore
 import (
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 
 	_ "github.com/ncruces/go-sqlite3/driver"
 )
+
+// WriteAnnotationTitle writes or updates the annotations/<id>.pbtxt file used by
+// the reference CLI (agy 1.5.3) to display titles in /resume.
+func WriteAnnotationTitle(id, title string) error {
+	if id == "" || title == "" {
+		return nil
+	}
+	annDir := filepath.Join(StoreDir(), "annotations")
+	if err := os.MkdirAll(annDir, 0o755); err != nil {
+		return err
+	}
+	content := fmt.Sprintf("title:%s\n", strconv.Quote(title))
+	annPath := filepath.Join(annDir, id+".pbtxt")
+	return os.WriteFile(annPath, []byte(content), 0o644)
+}
 
 // WriteSummariesTitle overrides the title / preview columns of the
 // conversation_summaries row for `id` with `title`. Returns nil when
@@ -37,6 +54,7 @@ func WriteSummariesTitle(id, title string) error {
 	if id == "" || title == "" {
 		return nil
 	}
+	_ = WriteAnnotationTitle(id, title)
 	indexPath := filepath.Join(StoreDir(), "conversation_summaries.db")
 	if _, err := os.Stat(indexPath); err != nil {
 		// Fresh install — no index file yet. SaveConversation will

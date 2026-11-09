@@ -25,6 +25,17 @@ func RowLine(acc Account, cursor bool, activeEmail string, emailPad int, blueOpe
 	if active {
 		marker = palette.AgentFgOpen + "(active)" + palette.ToolBulletClose
 	}
+	if acc.Disabled {
+		tag := "[Disabled]"
+		low := strings.ToLower(acc.DisabledReason)
+		if strings.Contains(low, "terms of service") || strings.Contains(low, "tos") || strings.Contains(low, "disabled") {
+			tag = "[ToS Banned]"
+		}
+		if marker != "" {
+			marker += " "
+		}
+		marker += palette.ToolFailedSuffixOpen + tag + palette.ToolBulletClose
+	}
 	tier := acc.PlanTier
 	if strings.TrimSpace(tier) == "" {
 		tier = "-"

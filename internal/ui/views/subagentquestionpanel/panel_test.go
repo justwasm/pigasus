@@ -3,6 +3,7 @@ package subagentquestionpanel
 import (
 	"strings"
 	"testing"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
@@ -621,5 +622,126 @@ func TestAskQuestion_LeftRightNav_NoOptionsIsInert(t *testing.T) {
 	if p.answerTarget != "" {
 		t.Errorf("AnswerTarget = %q, want empty (Left/Right must not commit)",
 			p.answerTarget)
+	}
+}
+
+// TestAskQuestion_MultiSelect_CheckboxesAndSpaceToggle tests that
+// questions with IsMultiSelect render checkboxes and support Space toggle.
+func TestAskQuestion_MultiSelect_CheckboxesAndSpaceToggle(t *testing.T) {
+	p, mgr := newPanel(t)
+	mgr.Enqueue(subagentquestions.ParentKey,
+		"Which features to enable?", []string{"auth", "metrics", "tracing"}, true)
+
+	p.Toggle()
+	body := plainRows(p.PickerRows())
+	if !strings.Contains(body, "[ ] auth") || !strings.Contains(body, "[ ] metrics") {
+		t.Fatalf("expected unselected checkboxes; got:\n%s", body)
+	}
+
+	// Option cursor starts at 0 (auth). Press Space to toggle.
+	p.HandleKey(tea.Key{Code: tea.KeySpace})
+	body = plainRows(p.PickerRows())
+	if !strings.Contains(body, "[x] auth") {
+		t.Errorf("expected [x] auth after space toggle; got:\n%s", body)
+	}
+
+	// Move to metrics (idx 1) and toggle.
+	p.HandleKey(arrowKey(tea.KeyRight))
+	p.HandleKey(tea.Key{Code: 'x'})
+	body = plainRows(p.PickerRows())
+	if !strings.Contains(body, "[x] metrics") {
+		t.Errorf("expected [x] metrics after 'x' toggle; got:\n%s", body)
+	}
+
+	// Press Space again on metrics to untoggle.
+	p.HandleKey(tea.Key{Code: tea.KeySpace})
+	body = plainRows(p.PickerRows())
+	if !strings.Contains(body, "[ ] metrics") {
+		t.Errorf("expected [ ] metrics after untoggle; got:\n%s", body)
+	}
+}
+
+// TestAskQuestion_MultiSelect_EnterSubmitsCheckedOptions verifies that
+// pressing Enter in multi-select mode submits all checked options.
+func TestAskQuestion_MultiSelect_EnterSubmitsCheckedOptions(t *testing.T) {
+	p, mgr := newPanel(t)
+	q := mgr.Enqueue(subagentquestions.ParentKey,
+		"Which features?", []string{"feature-A", "feature-B", "feature-C"}, true)
+
+	p.Toggle()
+	// Toggle feature-A
+	p.HandleKey(tea.Key{Code: tea.KeySpace})
+	// Move to feature-C (two rights)
+	p.HandleKey(arrowKey(tea.KeyRight))
+	p.HandleKey(arrowKey(tea.KeyRight))
+	// Toggle feature-C
+	p.HandleKey(tea.Key{Code: tea.KeySpace})
+
+	resCh := make(chan string, 1)
+	go func() {
+		ans, _ := q.Wait()
+		resCh <- ans
+	}()
+
+	p.HandleKey(tea.Key{Code: tea.KeyEnter})
+
+	select {
+	case ans := <-resCh:
+		if ans != "feature-A, feature-C" {
+			t.Errorf("got answer %q, want %q", ans, "feature-A, feature-C")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for answer submission")
+	}
+
+	if p.Active() {
+		t.Errorf("picker should close after answer submission")
+	}
+}
+
+// TestAskQuestion_MultiLineWriteIn verifies inline textarea activation,
+// multi-line typing, and submission.
+func TestAskQuestion_MultiLineWriteIn(t *testing.T) {
+	p, mgr := newPanel(t)
+	q := mgr.Enqueue(subagentquestions.ParentKey,
+		"Provide details", []string{"default"}, false)
+
+	p.Toggle()
+	// Move to write-in row
+	p.HandleKey(arrowKey(tea.KeyRight))
+	// Press 'e' or space to activate multi-line write-in
+	p.HandleKey(tea.Key{Code: 'e'})
+
+	if !p.writeInActive {
+		t.Fatalf("expected writeInActive to be true")
+	}
+
+	// Verify "Your answer:" is rendered
+	body := plainRows(p.PickerRows())
+	if !strings.Contains(body, "Your answer:") {
+		t.Errorf("expected 'Your answer:' prompt; got:\n%s", body)
+	}
+
+	// Type into write-in
+	for _, r := range "custom explanation" {
+		p.HandleKey(tea.Key{Code: r, Text: string(r)})
+	}
+
+	resCh := make(chan string, 1)
+	go func() {
+		ans, _ := q.Wait()
+		resCh <- ans
+	}()
+
+	// Press Enter to commit write-in and submit
+	p.HandleKey(tea.Key{Code: tea.KeyEnter})
+
+	select {
+	case ans := <-resCh:
+		if ans != "custom explanation" {
+			t.Errorf("got answer %q, want %q", ans, "custom explanation")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for write-in submission")
 	}
 }

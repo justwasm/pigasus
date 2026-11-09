@@ -409,24 +409,24 @@ chooser.
 
 | idx | account | a live row |
 |---|---|---|
-| 0 | navigaid@gmail.com | — (the browser's default — the bare `/r/<id>` URL lands here) |
-| 1 | btwiuse@gmail.com | — |
-| 2 | libredot@gmail.com | the reference (`agy remote-control serve`) |
-| 3 | naivgaid@gmail.com | the clone (`pigasus remote-control serve`) |
-| 4 | stakingminer@gmail.com | — |
-| 5 | justwasm@gmail.com | — |
+| 0 | user@example.com | — (the browser's default — the bare `/r/<id>` URL lands here) |
+| 1 | user2@example.com | — |
+| 2 | user3@example.com | the reference (`agy remote-control serve`) |
+| 3 | user@example.com | the clone (`pigasus remote-control serve`) |
+| 4 | user4@example.com | — |
+| 5 | developer@example.com | — |
 
 An instance's row lives under **the account its daemon authenticates as**.
-The clone registers with its active account (`naivgaid@gmail.com`), the
-reference with the account in its own token (`libredot@gmail.com` — its log:
-`Headless auth: authenticated as "libredot@gmail.com"`).
+The clone registers with its active account (`user@example.com`), the
+reference with the account in its own token (`user3@example.com` — its log:
+`Headless auth: authenticated as "user3@example.com"`).
 
 Both binaries read the **same** token file,
 `~/.gemini/antigravity-cli/antigravity-oauth-token`, so the account a daemon
 registers under is whatever that file held when it started. On 2026-10-26
-17:43 it held `naivgaid@gmail.com`, and **both** instances sat under index 3
+17:43 it held `user@example.com`, and **both** instances sat under index 3
 — the reference's own log reads `Headless auth: authenticated as
-"naivgaid@gmail.com"`. The table above is the state at the time of the
+"user@example.com"`. The table above is the state at the time of the
 measurement, not a fixed mapping.
 
 **The tunnel's liveness writes that row** — the clone's
@@ -501,7 +501,7 @@ link.
   ⎿  Remote control on for this session.
      Open on another device to take over:
      Hostname: laptop
-     https://accounts.google.com/AccountChooser?Email=naivgaid%40gmail.com&cont
+     https://accounts.google.com/AccountChooser?Email=user%40example.com&cont
      inue=https%3A%2F%2Fantigravity.google.com%2Fr%2F98bc1aa9-eb81-4c35-8c20-fd
      e1e5b64300-v2
 ```

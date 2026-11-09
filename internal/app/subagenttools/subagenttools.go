@@ -68,6 +68,7 @@ import (
 	"time"
 
 	"github.com/justwasm/pigasus/actor"
+	subagentquestions "github.com/justwasm/pigasus/internal/app/subagent/questions"
 	taskregistry "github.com/justwasm/pigasus/internal/app/task"
 	"github.com/justwasm/pigasus/internal/core/backend"
 )
@@ -144,6 +145,10 @@ type Deps struct {
 	Definitions *Store
 	// Tasks is the optional task registry to register running subagents into.
 	Tasks *taskregistry.Registry
+	// Questions is the optional subagent question store.
+	Questions *subagentquestions.Manager
+	// OnAsk is called when a question is enqueued by a subagent.
+	OnAsk func(scope string)
 }
 
 // BeforeToolCallGate is the optional policy hook a subagent's tool

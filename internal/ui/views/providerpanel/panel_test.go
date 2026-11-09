@@ -1010,7 +1010,7 @@ func TestPanel_GoogleAntigravityOAuth(t *testing.T) {
 			DeviceCode:      "test-verifier-12345",
 			UserCode:        "(paste authorization code with Cmd+V / Ctrl+V)",
 		},
-		LocalEmail: "navigaid@gmail.com",
+		LocalEmail: "user@example.com",
 		LocalToken: "ya29.test-local-token",
 		Spinning:   true,
 	}
@@ -1026,7 +1026,7 @@ func TestPanel_GoogleAntigravityOAuth(t *testing.T) {
 	if !strings.Contains(lines, "Paste authorization code below") {
 		t.Fatalf("expected prompt to paste code, got:\n%s", lines)
 	}
-	if !strings.Contains(lines, "Local session detected") || !strings.Contains(lines, "navigaid@gmail.com") {
+	if !strings.Contains(lines, "Local session detected") || !strings.Contains(lines, "user@example.com") {
 		t.Fatalf("expected local session notice with email, got:\n%s", lines)
 	}
 

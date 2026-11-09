@@ -47,11 +47,11 @@ active account — but the answer is now *kept*, so the panel can show the tier
 of every account that has been active at least once:
 
 ```
-> navigaid@gmail.com            Google AI Pro        wk   1.0%  5h  96.0%   now
-  naivgaid@gmail.com            Google AI Plus       wk 100.0%  5h      -   now
-  btwiuse@gmail.com             Google AI Pro        wk  18.4%  5h  99.2%   now
-  libredot@gmail.com            Google AI Pro        wk 100.0%  5h 100.0%   now
-  stakingminer@gmail.com        -                    wk      -  5h      -   -
+> user@example.com            Google AI Pro        wk   1.0%  5h  96.0%   now
+  user@example.com            Google AI Plus       wk 100.0%  5h      -   now
+  user2@example.com             Google AI Pro        wk  18.4%  5h  99.2%   now
+  user3@example.com            Google AI Pro        wk 100.0%  5h 100.0%   now
+  user4@example.com        -                    wk      -  5h      -   -
 ```
 
 【一手】 live capture, this machine's registry. The fifth account was signed in
@@ -157,11 +157,11 @@ cached value matches:
 
 | Account | Cached | Live (own credential) |
 |---|---|---|
-| navigaid@gmail.com | Google AI Pro | Google AI Pro |
-| naivgaid@gmail.com | Google AI Plus | Google AI Plus |
-| btwiuse@gmail.com | Google AI Pro | Google AI Pro |
-| libredot@gmail.com | Google AI Pro | Google AI Pro |
-| stakingminer@gmail.com | *(none)* | *(none)* |
+| user@example.com | Google AI Pro | Google AI Pro |
+| user@example.com | Google AI Plus | Google AI Plus |
+| user2@example.com | Google AI Pro | Google AI Pro |
+| user3@example.com | Google AI Pro | Google AI Pro |
+| user4@example.com | *(none)* | *(none)* |
 
 So no wrong tier is left in the registry, and the "Plus → Pro" transition can
 no longer happen: the cache the panel renders *is* the tier that account's own
@@ -178,7 +178,7 @@ no cached tier, and the panel shows `-` for it (§4c).
 ## 4c. The tier that belonged to another account
 
 > 我发现新增的这个账号并没有 Google AI Plus 的 tier，但是还是默认显示 AI Plus:
-> stakingminer@gmail.com
+> user4@example.com
 >
 > ("…the account I just added does not have the Google AI Plus tier, but it
 > still shows AI Plus by default…")
@@ -193,7 +193,7 @@ and the panel fell back to it for the new row:
 | step | what the session knew |
 |---|---|
 | the session ran as an "AI Plus" account | `m.tier = "Google AI Plus"` |
-| the user signed in as `stakingminer@gmail.com` | the tier was never re-read — the session still said "Google AI Plus" |
+| the user signed in as `user4@example.com` | the tier was never re-read — the session still said "Google AI Plus" |
 | the panel rendered the new row | the registry carries no tier for it, so the panel fell back to the session's tier → "Google AI Plus" |
 
 Three fixes, one idea — **the tier belongs to an account, not to a session**:
@@ -224,7 +224,7 @@ until the server names one.
 
 | Place | Before | Now |
 |---|---|---|
-| the banner (`email (tier)`) | `navigaid@gmail.com (Antigravity Starter Quota)` until the answer lands | `navigaid@gmail.com` |
+| the banner (`email (tier)`) | `user@example.com (Antigravity Starter Quota)` until the answer lands | `user@example.com` |
 | the `/help` panel | the same placeholder | the email alone |
 | the `/accounts` row | `-` (the placeholder was never rendered as a tier) | `-` |
 | a switch | the placeholder appeared, then the real tier | the email alone, then the real tier |
@@ -257,11 +257,11 @@ bucket in that window) is padded like a number, so the column keeps its shape.
 The same helper renders the three account lists, so they agree:
 
 ```
-navigaid@gmail.com            Google AI Pro        wk   1.0%  5h  96.0%   now
-naivgaid@gmail.com            Google AI Plus       wk 100.0%  5h      -   now
-btwiuse@gmail.com             Google AI Pro        wk  18.4%  5h  99.2%   now
-libredot@gmail.com            Google AI Pro        wk 100.0%  5h 100.0%   now
-stakingminer@gmail.com        -                    wk      -  5h      -   -
+user@example.com            Google AI Pro        wk   1.0%  5h  96.0%   now
+user@example.com            Google AI Plus       wk 100.0%  5h      -   now
+user2@example.com             Google AI Pro        wk  18.4%  5h  99.2%   now
+user3@example.com            Google AI Pro        wk 100.0%  5h 100.0%   now
+user4@example.com        -                    wk      -  5h      -   -
 ```
 
 The print mode's `/accounts` table was tab-separated, where a right-aligned
@@ -294,11 +294,11 @@ are identical to the ones a cold fetch produces.
 ```
 Accounts
 
-> navigaid@gmail.com            Google AI Pro        wk   1.0%  5h  96.0%   now
-  naivgaid@gmail.com            Google AI Plus       wk 100.0%  5h      -   now
-  btwiuse@gmail.com             Google AI Pro        wk  18.4%  5h  99.2%   now
-  libredot@gmail.com            Google AI Pro        wk 100.0%  5h 100.0%   now
-  stakingminer@gmail.com        -                    wk      -  5h      -   -
+> user@example.com            Google AI Pro        wk   1.0%  5h  96.0%   now
+  user@example.com            Google AI Plus       wk 100.0%  5h      -   now
+  user2@example.com             Google AI Pro        wk  18.4%  5h  99.2%   now
+  user3@example.com            Google AI Pro        wk 100.0%  5h 100.0%   now
+  user4@example.com        -                    wk      -  5h      -   -
 
   /Users/gear/.config/openagy/accounts.json
 Keyboard: ↑/↓ Navigate  enter Switch  a Add account  d Remove  r Refresh  esc Exit
@@ -386,10 +386,10 @@ The registry writes are now serialized by a package-level mutex in
 - The tier names ("Google AI Pro", "Google AI Plus", "Antigravity Starter
   Quota") are the server's own `paidTier.name` values — 【一手】 for the two
   this machine returns, 【推测】 for the rest of the catalogue.
-- 【存疑】 **`libredot@gmail.com` read "Google AI Plus" earlier in the day
+- 【存疑】 **`user3@example.com` read "Google AI Plus" earlier in the day
   and reads "Google AI Pro" now**, with its *own* credential, three times in
   a row. The registry's token for that account is its own (the `id_token`
-  claim says `libredot@gmail.com`, and no other account shares its
+  claim says `user3@example.com`, and no other account shares its
   refresh-token fingerprint), so the earlier reading is not a mis-filed
   credential. Either the account's plan changed, or the server's
   `loadCodeAssist` answer depends on something that changed (an experiment

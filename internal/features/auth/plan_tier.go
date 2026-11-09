@@ -2,7 +2,7 @@
 //
 // agy 1.4.3 renders the email row as
 //
-//	navigaid@gmail.com (Google AI Pro)
+//	user@example.com (Google AI Pro)
 //
 // On a paid account. The string is the loadCodeAssist response's
 // `paidTier.name` (the free account's paidTier is "Antigravity Starter

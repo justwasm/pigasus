@@ -85,6 +85,11 @@ func ForkConversationSteps(steps []Step, currentID string) (string, string) {
 		return "", "  Failed to fork: " + err.Error()
 	}
 	if currentID != "" {
+		srcAnn := filepath.Join(StoreDir(), "annotations", currentID+".pbtxt")
+		if annData, err := os.ReadFile(srcAnn); err == nil {
+			dstAnn := filepath.Join(StoreDir(), "annotations", id+".pbtxt")
+			_ = os.WriteFile(dstAnn, annData, 0o644)
+		}
 		return id, fmt.Sprintf("Forked conversation.\nTo go back, use: /resume %s", currentID)
 	}
 	return id, "Forked conversation."
@@ -244,6 +249,14 @@ func ForkConversationFull(steps []Step, currentID string, oldArtifactDir, newArt
 	if !copiedDB {
 		if err := WriteConversation(dstPath, newID, steps); err != nil {
 			return "", "", "", fmt.Errorf("write conversation: %w", err)
+		}
+	}
+
+	if currentID != "" {
+		srcAnn := filepath.Join(StoreDir(), "annotations", currentID+".pbtxt")
+		if annData, err := os.ReadFile(srcAnn); err == nil {
+			dstAnn := filepath.Join(StoreDir(), "annotations", newID+".pbtxt")
+			_ = os.WriteFile(dstAnn, annData, 0o644)
 		}
 	}
 

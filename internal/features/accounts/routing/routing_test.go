@@ -788,3 +788,157 @@ func TestDefaultTokenRebuildsOnAnAccountSwitch(t *testing.T) {
 		t.Errorf("RouteTurn Email = %q, want b@example.com", res.Email)
 	}
 }
+
+type streamErrorClient struct {
+	router *Router
+	calls  int
+	emails []string
+}
+
+func (c *streamErrorClient) Stream(ctx context.Context, req backend.StreamRequest) (<-chan backend.StreamChunk, error) {
+	c.calls++
+	var email string
+	if c.router != nil {
+		_, _ = c.router.TokenFunc(ctx)
+		email = c.router.LastRouted()
+		c.emails = append(c.emails, email)
+	}
+	out := make(chan backend.StreamChunk, 2)
+	if email == "banned@example.com" {
+		out <- backend.StreamChunk{
+			Error: apierror.NewHTTPError(403, []byte(`{"error":{"code":403,"message":"This service has been disabled in this account for violation of Terms of Service. Please submit an appeal to continue using this product.","status":"PERMISSION_DENIED"}}`), "https://daily-cloudcode-pa.googleapis.com/v1internal:streamGenerateContent"),
+			Done:  true,
+		}
+		close(out)
+		return out, nil
+	}
+	out <- backend.StreamChunk{Text: "healthy response", Done: true}
+	close(out)
+	return out, nil
+}
+
+func TestRoutedClientFailover_ToSQuarantine(t *testing.T) {
+	r := setup(t, map[string]any{
+		"enabled":  true,
+		"strategy": "round_robin",
+	},
+		accounts.Account{Email: "banned@example.com", Quota: quotaSnapshot(0.9), Token: token("banned")},
+		accounts.Account{Email: "healthy@example.com", Quota: quotaSnapshot(0.9), Token: token("healthy")},
+	)
+
+	inner := &streamErrorClient{router: r}
+	client := &routedClient{inner: inner, router: r}
+
+	out, err := client.Stream(context.Background(), backend.StreamRequest{Model: "gemini-2.5-flash"})
+	if err != nil {
+		t.Fatalf("expected transparent failover, got error: %v", err)
+	}
+
+	var texts []string
+	for chunk := range out {
+		if chunk.Error != nil {
+			t.Fatalf("unexpected chunk error: %v", chunk.Error)
+		}
+		if chunk.Text != "" {
+			texts = append(texts, chunk.Text)
+		}
+	}
+	if len(texts) == 0 || texts[0] != "healthy response" {
+		t.Errorf("got texts %v, want ['healthy response']", texts)
+	}
+
+	// Verify banned@example.com is permanently quarantined
+	isQ, reason := r.IsQuarantined("banned@example.com")
+	if !isQ {
+		t.Errorf("banned@example.com should be quarantined")
+	}
+	if !strings.Contains(strings.ToLower(reason), "terms of service") {
+		t.Errorf("expected ToS quarantine reason, got: %q", reason)
+	}
+
+	// Verify healthy account is NOT quarantined
+	if isQ2, _ := r.IsQuarantined("healthy@example.com"); isQ2 {
+		t.Errorf("healthy@example.com should not be quarantined")
+	}
+
+	// On the next turn, banned@example.com must be skipped completely
+	d, err := r.Decide(context.Background())
+	if err != nil {
+		t.Fatalf("Decide: %v", err)
+	}
+	if d.Email != "healthy@example.com" {
+		t.Errorf("next turn chose %q, want healthy@example.com (banned account must be skipped)", d.Email)
+	}
+}
+
+func TestRoutedClientFailover_AuthFailure(t *testing.T) {
+	r := setup(t, map[string]any{
+		"enabled":  true,
+		"strategy": "round_robin",
+	},
+		accounts.Account{Email: "authfail@example.com", Quota: quotaSnapshot(0.9), Token: token("authfail")},
+		accounts.Account{Email: "healthy@example.com", Quota: quotaSnapshot(0.9), Token: token("healthy")},
+	)
+
+	calls := 0
+	inner := &customClient{
+		fn: func(ctx context.Context, req backend.StreamRequest) (<-chan backend.StreamChunk, error) {
+			calls++
+			_, _ = r.TokenFunc(ctx)
+			email := r.LastRouted()
+			if email == "authfail@example.com" {
+				return nil, apierror.NewHTTPError(401, []byte(`{"error":{"code":401,"message":"Request unauthenticated: invalid credentials","status":"UNAUTHENTICATED"}}`), "")
+			}
+			out := make(chan backend.StreamChunk, 1)
+			out <- backend.StreamChunk{Text: "auth ok", Done: true}
+			close(out)
+			return out, nil
+		},
+	}
+	client := &routedClient{inner: inner, router: r}
+
+	out, err := client.Stream(context.Background(), backend.StreamRequest{Model: "gemini-2.5-flash"})
+	if err != nil {
+		t.Fatalf("expected transparent failover on auth failure, got error: %v", err)
+	}
+	var texts []string
+	for chunk := range out {
+		if chunk.Text != "" {
+			texts = append(texts, chunk.Text)
+		}
+	}
+	if len(texts) == 0 || texts[0] != "auth ok" {
+		t.Errorf("got texts %v, want ['auth ok']", texts)
+	}
+	if calls != 2 {
+		t.Errorf("calls = %d, want 2 (failover from authfail to healthy)", calls)
+	}
+}
+
+type customClient struct {
+	fn func(ctx context.Context, req backend.StreamRequest) (<-chan backend.StreamChunk, error)
+}
+
+func (c *customClient) Stream(ctx context.Context, req backend.StreamRequest) (<-chan backend.StreamChunk, error) {
+	return c.fn(ctx, req)
+}
+
+func TestWrapQuarantinesOnToSEvenWhenRoutingIsOff(t *testing.T) {
+	r := setup(t, nil,
+		accounts.Account{Email: "banned@example.com", Quota: quotaSnapshot(0.9), Token: token("banned")},
+	)
+
+	inner := &streamErrorClient{router: r}
+	client := &routedClient{inner: inner, router: r}
+
+	out, err := client.Stream(context.Background(), backend.StreamRequest{Model: "gemini-2.5-flash"})
+	if err == nil {
+		for chunk := range out {
+			_ = chunk
+		}
+	}
+	isQ, _ := r.IsQuarantined("banned@example.com")
+	if !isQ {
+		t.Errorf("banned@example.com should be quarantined even when account pool is disabled")
+	}
+}

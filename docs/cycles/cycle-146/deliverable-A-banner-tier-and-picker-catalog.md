@@ -8,7 +8,7 @@ Two stale-capture corrections from cycles 139-140 and 135:
    tier from `NewV135RunMode` based on a capture where the
    reference was in the "Signing in..." welcome state (no tier
    set). The actual steady-state ref banner renders
-   `navigaid@gmail.com (Antigravity Starter Quota)` — the
+   `user@example.com (Antigravity Starter Quota)` — the
    parenthetical IS the default tier and is shown on every
    session start. Cycle 145 fixed the model row but kept the
    email tier stripped; cycle 146 restores it.
@@ -26,7 +26,7 @@ Captured at `/tmp/agycmp/hotpath/cold_start/ref.000-init.txt`
 
 ```
       ▄▀▀▄        Antigravity CLI 1.3.6
-     ▀▀▀▀▀▀       navigaid@gmail.com (Antigravity Starter Quota)
+     ▀▀▀▀▀▀       user@example.com (Antigravity Starter Quota)
     ▀▀▀▀▀▀▀▀      Gemini 3.8 Flash (High)
    ▄▀▀    ▀▀▄     ~/GitHub/openagy
   ▄▀▀      ▀▀▄
@@ -83,7 +83,7 @@ picker overlay shows:
 - The /help GENERAL email row is still bare (no tier annotation).
   The tier lives on the banner email row, not on the /help email
   row — captured `help_tabs/ref.000-general.txt` shows bare
-  `navigaid@gmail.com`. Cycle 142 was correct on /help.
+  `user@example.com`. Cycle 142 was correct on /help.
 - The 5-row banner geometry is unchanged.
 - The picker overlay's `tab Complete` / `↑/↓ Navigate` /
   `enter Select` keyboard hint rows are unchanged.

@@ -48,7 +48,7 @@ The reference does not keep the `id_token` in the credential. After its first
 refresh it writes:
 
 ```json
-{"auth_method": "consumer", "id_token_email": "navigaid@gmail.com",
+{"auth_method": "consumer", "id_token_email": "user@example.com",
  "token": {"access_token": "ya29.…", "refresh_token": "1//…", "expiry": "…"}}
 ```
 
@@ -112,7 +112,7 @@ entries and the count is byte-pinned to the reference's.
 
 ```
 Accounts
-> navigaid@gmail.com              -
+> user@example.com              -
   switch-probe@example.com        -                  (active)
   /Users/gear/.config/openagy/accounts.json
 Keyboard: ↑/↓ Navigate  enter Switch  a Add account  d Remove  esc Exit
@@ -197,7 +197,7 @@ Measured live (full transcripts in `captures.md`):
 | Moment | The reference's banner |
 |---|---|
 | the clone switched to the probe account | `switch-probe@example.com` (a fresh `agy` start) |
-| the clone switched back | `navigaid@gmail.com` (a fresh `agy` start) |
+| the clone switched back | `user@example.com` (a fresh `agy` start) |
 | a *running* `agy`, switched from the clone | unchanged — it holds its credential in memory |
 
 The third row is the reference's own behaviour, not a divergence: it re-reads
@@ -212,9 +212,9 @@ the reference's twelve visible subcommands and nothing else.
 ```
 $ agy accounts list
 accounts: /Users/gear/.config/openagy/accounts.json
-navigaid@gmail.com                       -
-naivgaid@gmail.com                       -
-btwiuse@gmail.com                       -                  (active)
+user@example.com                       -
+user@example.com                       -
+user2@example.com                       -                  (active)
 ```
 
 `switch` writes the shared credential (so `agy` itself is now that account),

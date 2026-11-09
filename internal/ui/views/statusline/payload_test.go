@@ -28,7 +28,7 @@ import (
 //	 "product":"antigravity","quota":{…},"agent_state":"idle","vcs":{"type":"git"},
 //	 "cycle_mode":"auto","sandbox":{"enabled":false},"plan_tier":"Google AI Pro",
 //	 "email":"…","terminal_width":120}
-const referencePayload = `{"cwd":"/tmp/agyprobe/repo","session_id":"eab2aff5-dfbc-436e-b19d-8c113441f508","conversation_id":"eab2aff5-dfbc-436e-b19d-8c113441f508","transcript_path":"/Users/gear/.gemini/antigravity/brain/eab2aff5-dfbc-436e-b19d-8c113441f508/.system_generated/logs/transcript.jsonl","model":{"id":"Gemini 3.8 Flash (High)","display_name":"Gemini 3.8 Flash (High)","effort":"high"},"workspace":{"current_dir":"/tmp/agyprobe/repo","project_dir":"/tmp/agyprobe/repo"},"version":"1.4.7","context_window":{"total_input_tokens":19136,"total_output_tokens":117,"context_window_size":1048576,"used_percentage":1.824951171875,"remaining_percentage":98.175048828125,"current_usage":{"input_tokens":13327,"output_tokens":117,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}},"exceeds_200k_tokens":false,"product":"antigravity","quota":{"3p-5h":{"remaining_fraction":1,"reset_time":"2026-10-25T18:00:20Z","reset_in_seconds":17948}},"agent_state":"idle","vcs":{"type":"git"},"cycle_mode":"auto","sandbox":{"enabled":false},"plan_tier":"Google AI Pro","email":"stakingminer@gmail.com","terminal_width":120}`
+const referencePayload = `{"cwd":"/tmp/agyprobe/repo","session_id":"eab2aff5-dfbc-436e-b19d-8c113441f508","conversation_id":"eab2aff5-dfbc-436e-b19d-8c113441f508","transcript_path":"/Users/gear/.gemini/antigravity/brain/eab2aff5-dfbc-436e-b19d-8c113441f508/.system_generated/logs/transcript.jsonl","model":{"id":"Gemini 3.8 Flash (High)","display_name":"Gemini 3.8 Flash (High)","effort":"high"},"workspace":{"current_dir":"/tmp/agyprobe/repo","project_dir":"/tmp/agyprobe/repo"},"version":"1.4.7","context_window":{"total_input_tokens":19136,"total_output_tokens":117,"context_window_size":1048576,"used_percentage":1.824951171875,"remaining_percentage":98.175048828125,"current_usage":{"input_tokens":13327,"output_tokens":117,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}},"exceeds_200k_tokens":false,"product":"antigravity","quota":{"3p-5h":{"remaining_fraction":1,"reset_time":"2026-10-25T18:00:20Z","reset_in_seconds":17948}},"agent_state":"idle","vcs":{"type":"git"},"cycle_mode":"auto","sandbox":{"enabled":false},"plan_tier":"Google AI Pro","email":"user4@example.com","terminal_width":120}`
 
 // referenceKeyOrder is the member order of the reference's payload.
 var referenceKeyOrder = []string{
@@ -149,7 +149,7 @@ func TestPayload_ReferenceKeyOrder(t *testing.T) {
 		Subagents:               []statusline.SubagentInfo{{Name: "probe", Role: "worker", Status: "running"}},
 		ArtifactCount:           2,
 		PlanTier:                "Google AI Pro",
-		Email:                   "stakingminer@gmail.com",
+		Email:                   "user4@example.com",
 		PendingInputCount:       1,
 		ToolConfirmationPending: true,
 		TaskCount:               3,
@@ -220,7 +220,7 @@ func TestPayload_MatchesReferenceBytes(t *testing.T) {
 		CycleMode:     "auto",
 		Sandbox:       &statusline.SandboxInfo{Enabled: false},
 		PlanTier:      "Google AI Pro",
-		Email:         "stakingminer@gmail.com",
+		Email:         "user4@example.com",
 		TerminalWidth: 120,
 	}
 	out, err := json.Marshal(payload)

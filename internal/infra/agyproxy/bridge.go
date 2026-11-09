@@ -641,7 +641,11 @@ func (s *Server) streamOpenAI(w http.ResponseWriter, r *http.Request, resp *http
 					if sErr, ok := c.Error.(*geminicode.StreamError); ok {
 						if isAcc, isGlobal, reason := isStreamAccountError(sErr); isAcc {
 							if isGlobal {
-								s.router.Exclude(currentEmail)
+								if strings.Contains(strings.ToLower(reason), "terms of service") || strings.Contains(strings.ToLower(reason), "disabled") {
+									s.router.Quarantine(currentEmail, reason)
+								} else {
+									s.router.Exclude(currentEmail)
+								}
 							} else {
 								s.router.ExcludeForModel(currentEmail, family)
 							}
@@ -1136,7 +1140,11 @@ func (s *Server) streamAnthropic(w http.ResponseWriter, r *http.Request, resp *h
 					if sErr, ok := c.Error.(*geminicode.StreamError); ok {
 						if isAcc, isGlobal, reason := isStreamAccountError(sErr); isAcc {
 							if isGlobal {
-								s.router.Exclude(currentEmail)
+								if strings.Contains(strings.ToLower(reason), "terms of service") || strings.Contains(strings.ToLower(reason), "disabled") {
+									s.router.Quarantine(currentEmail, reason)
+								} else {
+									s.router.Exclude(currentEmail)
+								}
 							} else {
 								s.router.ExcludeForModel(currentEmail, family)
 							}
@@ -1506,6 +1514,10 @@ func (s *Server) executeBridgeRequest(ctx context.Context, turn geminicode.Turn,
 				if kind == failureQuotaExceeded {
 					if currentEmail != "" {
 						s.router.ExcludeForModel(currentEmail, family)
+					}
+				} else if kind == failureAccountDisabled {
+					if currentEmail != "" {
+						s.router.Quarantine(currentEmail, reasonDesc)
 					}
 				} else {
 					if currentEmail != "" {

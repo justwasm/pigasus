@@ -126,7 +126,7 @@ Captured panes from `/tmp/agycmp/hotpath/cold_start/our.000-init.txt`:
 
 ```
        ▄▀▀▄        Antigravity CLI 1.3.6
-      ▀▀▀▀▀▀       navigaid@gmail.com (Antigravity Starter Quota)
+      ▀▀▀▀▀▀       user@example.com (Antigravity Starter Quota)
      ▀▀▀▀▀▀▀▀      Gemini 3.8 Flash (High)
     ▄▀▀    ▀▀▄     ~/GitHub/openagy
    ▄▀▀      ▀▀▄

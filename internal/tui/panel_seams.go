@@ -1264,26 +1264,10 @@ func (m *RootModel) handleViewerPanelKey(key tea.Key) (bool, tea.Cmd) {
 	return handled, cmd
 }
 
-// listResumeConversations returns the store's conversations minus the one
-// the session is showing. The picker pins that conversation's workspace
-// group to the top of the tree, but it never lists the conversation
-// itself: resuming the one you are in is a no-op.
+// listResumeConversations returns the store's conversations for the /resume picker.
+// The active conversation is included and tagged [CURRENT] (matching agy 1.5.1).
 func (m *RootModel) listResumeConversations() ([]convstore.ConversationMeta, error) {
-	list, err := convstore.ListConversations()
-	if err != nil {
-		return nil, err
-	}
-	cur := m.session.conversationID
-	if cur == "" || list == nil {
-		return list, nil
-	}
-	out := make([]convstore.ConversationMeta, 0, len(list))
-	for _, c := range list {
-		if c.ID != cur {
-			out = append(out, c)
-		}
-	}
-	return out, nil
+	return convstore.ListConversations()
 }
 
 func (m *RootModel) renameResumeConversation(meta convstore.ConversationMeta) {

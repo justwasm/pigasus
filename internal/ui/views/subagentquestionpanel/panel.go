@@ -47,6 +47,7 @@ package subagentquestionpanel
 import (
 	"strings"
 
+	tas "charm.land/bubbles/v2/textarea"
 	subagentquestions "github.com/justwasm/pigasus/internal/app/subagent/questions"
 	"github.com/justwasm/pigasus/palette"
 )
@@ -98,11 +99,36 @@ type Panel struct {
 	optionCursor int
 	// answerTarget is the id of the question the staged answer goes to.
 	answerTarget string
+
+	// selectedOptions tracks checked checkboxes per question ID for multi-select.
+	selectedOptions map[string]map[int]bool
+
+	// writeInActive reports whether the user is typing in the multi-line textarea.
+	writeInActive bool
+	// writeInInput is the embedded multi-line textarea for write-in answers.
+	writeInInput tas.Model
+	// writeInText stores the typed answer per question ID.
+	writeInText map[string]string
+}
+
+func newWriteInInput() tas.Model {
+	ta := tas.New()
+	ta.Prompt = ""
+	ta.ShowLineNumbers = false
+	ta.SetWidth(60)
+	ta.SetHeight(3)
+	return ta
 }
 
 // New builds the picker. The scope starts at the parent's.
 func New(seams Seams) *Panel {
-	return &Panel{seams: seams, scope: subagentquestions.ParentKey}
+	return &Panel{
+		seams:           seams,
+		scope:           subagentquestions.ParentKey,
+		selectedOptions: make(map[string]map[int]bool),
+		writeInText:     make(map[string]string),
+		writeInInput:    newWriteInInput(),
+	}
 }
 
 // SetScope points the picker at another subagent's questions.
@@ -115,6 +141,14 @@ func (p *Panel) SetScope(scope string) {
 		return
 	}
 	p.scope = scope
+}
+
+// Scope returns the currently active scope.
+func (p *Panel) Scope() string {
+	if p == nil {
+		return ""
+	}
+	return p.scope
 }
 
 // Active is true while the picker overlay is open.
@@ -187,6 +221,11 @@ func (p *Panel) Toggle() {
 		return
 	}
 	if len(p.pending()) == 0 {
+		if subs := p.seams.Manager.PendingSubagents(); len(subs) > 0 {
+			p.SetScope(subs[0])
+			p.Open()
+			return
+		}
 		// No questions to answer. Echo a friendly line so the
 		// user understands what just happened.
 		p.respond(palette.WarningBlueOpen + "  ⎿  " + palette.WarningBlueClose +
@@ -334,4 +373,105 @@ func scopeLabel(scope string) string {
 		return "you"
 	}
 	return scope
+}
+
+// SetWidth sets the width of the inline write-in textarea.
+func (p *Panel) SetWidth(w int) {
+	if p == nil {
+		return
+	}
+	tw := w - 8
+	if tw < 20 {
+		tw = 60
+	}
+	p.writeInInput.SetWidth(tw)
+}
+
+func (p *Panel) isOptionSelected(qid string, idx int) bool {
+	if p == nil || p.selectedOptions == nil {
+		return false
+	}
+	return p.selectedOptions[qid][idx]
+}
+
+func (p *Panel) toggleOption(qid string, idx int) {
+	if p == nil {
+		return
+	}
+	if p.selectedOptions == nil {
+		p.selectedOptions = make(map[string]map[int]bool)
+	}
+	if p.selectedOptions[qid] == nil {
+		p.selectedOptions[qid] = make(map[int]bool)
+	}
+	p.selectedOptions[qid][idx] = !p.selectedOptions[qid][idx]
+}
+
+func (p *Panel) selectedOptionTexts(q *subagentquestions.Question) []string {
+	if p == nil || q == nil || p.selectedOptions == nil {
+		return nil
+	}
+	var res []string
+	for i, opt := range q.Options {
+		if p.selectedOptions[q.ID][i] {
+			res = append(res, opt)
+		}
+	}
+	return res
+}
+
+func (p *Panel) activateWriteIn(q *subagentquestions.Question) {
+	if p == nil || q == nil {
+		return
+	}
+	p.writeInActive = true
+	p.writeInInput.Reset()
+	if text := p.writeInText[q.ID]; text != "" {
+		p.writeInInput.SetValue(text)
+	}
+	p.writeInInput.Focus()
+}
+
+func (p *Panel) commitWriteIn() {
+	if p == nil {
+		return
+	}
+	pending := p.pending()
+	if p.cursor < 0 || p.cursor >= len(pending) {
+		p.writeInActive = false
+		p.writeInInput.Blur()
+		return
+	}
+	cur := pending[p.cursor]
+	val := strings.TrimSpace(p.writeInInput.Value())
+	if p.writeInText == nil {
+		p.writeInText = make(map[string]string)
+	}
+	p.writeInText[cur.ID] = val
+	p.writeInActive = false
+	p.writeInInput.Blur()
+
+	if !cur.IsMultiSelect && val != "" {
+		p.answer(cur, val)
+	}
+}
+
+func (p *Panel) submitMultiSelect(cur *subagentquestions.Question) bool {
+	if p == nil || cur == nil {
+		return false
+	}
+	selected := p.selectedOptionTexts(cur)
+	if text := p.writeInText[cur.ID]; text != "" {
+		selected = append(selected, text)
+	}
+	if len(selected) == 0 {
+		if p.optionCursor < len(cur.Options) {
+			p.toggleOption(cur.ID, p.optionCursor)
+			selected = p.selectedOptionTexts(cur)
+		}
+	}
+	if len(selected) == 0 {
+		return p.SkipCurrent()
+	}
+	return p.answer(cur, strings.Join(selected, ", "))
 }

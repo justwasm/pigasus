@@ -296,6 +296,13 @@ type State struct {
 	// its quota is spent and its cooldown has not passed.
 	Excluded bool
 
+	// Quarantined marks an account that is permanently disabled (e.g. Terms of
+	// Service violation) and must not be chosen, even as a fallback.
+	Quarantined bool
+
+	// QuarantineReason explains why the account is quarantined.
+	QuarantineReason string
+
 	// LastUsed is when the account last served a turn.
 	LastUsed time.Time
 }
@@ -355,6 +362,12 @@ func Choose(cfg Config, states []State, cursor int) Decision {
 	eligible := make([]State, 0, len(allowed))
 	for _, s := range allowed {
 		switch {
+		case s.Quarantined:
+			reason := s.QuarantineReason
+			if reason == "" {
+				reason = "account disabled / Terms of Service violation"
+			}
+			decision.Skipped = append(decision.Skipped, Skip{Email: s.Email, Reason: "quarantined: " + reason})
 		case s.Excluded:
 			decision.Skipped = append(decision.Skipped, Skip{Email: s.Email, Reason: "in cooldown after a quota error"})
 		case cfg.Strategy != StrategyFailover && s.Known && s.Remaining < cfg.Threshold:
@@ -367,13 +380,24 @@ func Choose(cfg Config, states []State, cursor int) Decision {
 		}
 	}
 
-	// Every account is out: use the one with the most left. A turn with
-	// no account cannot be served at all, so the threshold is a
-	// preference and not a wall.
+	// Every eligible account is out: use the one with the most left among
+	// non-quarantined accounts. A turn with no account cannot be served at all,
+	// so the threshold is a preference and not a wall. But quarantined accounts
+	// are never used.
 	if len(eligible) == 0 {
-		fallback := mostRemaining(allowed)
-		decision.Email = fallback.Email
-		decision.Reason = fmt.Sprintf("every account is out of quota; using the one with the most left (%.1f%%)", fallback.Remaining*100)
+		var nonQuarantined []State
+		for _, s := range allowed {
+			if !s.Quarantined {
+				nonQuarantined = append(nonQuarantined, s)
+			}
+		}
+		if len(nonQuarantined) > 0 {
+			fallback := mostRemaining(nonQuarantined)
+			decision.Email = fallback.Email
+			decision.Reason = fmt.Sprintf("every account is out of quota; using the one with the most left (%.1f%%)", fallback.Remaining*100)
+			return decision
+		}
+		decision.Reason = "all accounts in pool are quarantined or disabled"
 		return decision
 	}
 

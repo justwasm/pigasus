@@ -100,3 +100,27 @@ func TestRowLineDefaultsAndPadding(t *testing.T) {
 		t.Errorf("tight row = %q, want prefix %q", tight, wantPrefix)
 	}
 }
+
+func TestRowLineDisabled(t *testing.T) {
+	accBanned := Account{
+		Email:          "banned@example.com",
+		PlanTier:       "Google AI Pro",
+		Disabled:       true,
+		DisabledReason: "Terms of Service violation",
+	}
+	lineBanned := RowLine(accBanned, false, "", 30, "", "")
+	if !strings.Contains(lineBanned, "[ToS Banned]") {
+		t.Errorf("expected [ToS Banned] tag in line, got: %q", lineBanned)
+	}
+
+	accDisabled := Account{
+		Email:          "disabled@example.com",
+		PlanTier:       "Google AI Pro",
+		Disabled:       true,
+		DisabledReason: "manual exclusion",
+	}
+	lineDisabled := RowLine(accDisabled, false, "", 30, "", "")
+	if !strings.Contains(lineDisabled, "[Disabled]") {
+		t.Errorf("expected [Disabled] tag in line, got: %q", lineDisabled)
+	}
+}

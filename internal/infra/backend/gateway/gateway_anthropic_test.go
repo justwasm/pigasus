@@ -496,3 +496,33 @@ func TestGatewayAnthropicThinkingNoSignatureDropped(t *testing.T) {
 		}
 	}
 }
+
+// TestGatewayAnthropicNormalizesToolSchemaTypes pins that Anthropic tools
+// normalize uppercase schema types to standard lowercase JSON schema.
+func TestGatewayAnthropicNormalizesToolSchemaTypes(t *testing.T) {
+	tools := []backend.ToolDecl{{
+		Name:        "write_file",
+		Description: "Create a new file.",
+		Parameters: json.RawMessage(`{
+			"type": "OBJECT",
+			"properties": {
+				"Append": {
+					"type": "BOOLEAN"
+				}
+			}
+		}`),
+	}}
+
+	anthropicTools := formatAnthropicTools(tools)
+	if len(anthropicTools) != 1 {
+		t.Fatalf("expected 1 tool, got %d", len(anthropicTools))
+	}
+	raw := string(anthropicTools[0].InputSchema)
+	if strings.Contains(raw, "BOOLEAN") || strings.Contains(raw, "OBJECT") {
+		t.Errorf("anthropic tool input_schema has unnormalized types: %s", raw)
+	}
+	if !strings.Contains(raw, `"boolean"`) || !strings.Contains(raw, `"object"`) {
+		t.Errorf("anthropic tool input_schema missing lowercase types: %s", raw)
+	}
+}
+

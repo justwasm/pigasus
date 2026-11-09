@@ -3,22 +3,22 @@
 ## Why
 
 After cycle 139 stripped the default tier in `NewV135RunMode`, the
-banner email row became bare (`navigaid@gmail.com` instead of
-`navigaid@gmail.com (Antigravity Starter Quota)`). But the
+banner email row became bare (`user@example.com` instead of
+`user@example.com (Antigravity Starter Quota)`). But the
 `/help` GENERAL panel still rendered the same email row with
 the unconditional `email + " (" + tier + ")"` template —
-producing `navigaid@gmail.com ()` when tier is empty.
+producing `user@example.com ()` when tier is empty.
 
 Captured at `/tmp/agycmp/hotpath/help_tabs/our.000-general.txt`:
 
 ```
-navigaid@gmail.com ()            ← was: navigaid@gmail.com (Antigravity Starter Quota)
+user@example.com ()            ← was: user@example.com (Antigravity Starter Quota)
 Workspace:      ~/GitHub/openagy
 ```
 
 The reference's `/help` general panel at
 `/tmp/agycmp/hotpath/help_tabs/ref.000-general.txt` shows
-`navigaid@gmail.com (Antigravity Starter Quota)` because the
+`user@example.com (Antigravity Starter Quota)` because the
 reference's tier is populated at session start; the conditional
 rule still applies (when the user's tier is "Starter", show the
 annotation; when unset, show bare email).

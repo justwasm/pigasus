@@ -13,6 +13,7 @@ import (
 	accounts "github.com/justwasm/pigasus/internal/features/accounts/core"
 	"github.com/justwasm/pigasus/internal/features/models"
 	"github.com/justwasm/pigasus/internal/features/models/catalog"
+	"github.com/justwasm/pigasus/palette"
 )
 
 // ---- model_actions.go ----
@@ -1066,6 +1067,7 @@ func usageAccounts(n string) string {
 		"  show     Show one account in detail\n" +
 		"  add      Sign in to another Google account\n" +
 		"  switch   Make one account the active one\n" +
+		"  enable   Clear quarantine / disabled status of an account\n" +
 		"  remove   Forget one account\n" +
 		"\n" +
 		"The registry is " + accounts.Path() + "\n"
@@ -1107,6 +1109,19 @@ func runAccountsList(j *JetskiCLI, args []string) error {
 		marker := ""
 		if strings.EqualFold(acc.Email, active) {
 			marker = "  (active)"
+		}
+		if acc.Disabled {
+			tag := "[Disabled]"
+			low := strings.ToLower(acc.DisabledReason)
+			if strings.Contains(low, "terms of service") || strings.Contains(low, "tos") || strings.Contains(low, "disabled") {
+				tag = "[ToS Banned]"
+			}
+			coloredTag := palette.ToolFailedSuffixOpen + tag + palette.ToolBulletClose
+			if marker != "" {
+				marker += "  " + coloredTag
+			} else {
+				marker = "  " + coloredTag
+			}
 		}
 		tier := acc.PlanTier
 		if strings.TrimSpace(tier) == "" {

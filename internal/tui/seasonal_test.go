@@ -47,7 +47,7 @@ func TestSeasonalBanner(t *testing.T) {
 		t.Fatal("no event in October")
 	}
 	var b strings.Builder
-	renderBannerWithTheme(&b, ev, "naivgaid@gmail.com", "Gemini 3.8 Flash (High)",
+	renderBannerWithTheme(&b, ev, "user@example.com", "Gemini 3.8 Flash (High)",
 		"Google AI Pro", "/home/pigasus/Documents/GitHub/openagy")
 	lines := strings.Split(strings.TrimRight(b.String(), "\n"), "\n")
 	if len(lines) != 8 {
@@ -66,7 +66,7 @@ func TestSeasonalBanner(t *testing.T) {
 	if got := col(0); !strings.HasPrefix(got, "Pigasus CLI ") {
 		t.Errorf("the information column starts with %q", got)
 	}
-	if !strings.Contains(col(1), "naivgaid@gmail.com (Google AI Pro)") {
+	if !strings.Contains(col(1), "user@example.com (Google AI Pro)") {
 		t.Errorf("the account row is %q", col(1))
 	}
 	if !strings.Contains(col(3), "~/Documents/GitHub/openagy") {
@@ -75,7 +75,7 @@ func TestSeasonalBanner(t *testing.T) {
 	if !strings.HasPrefix(plain[7], "  ") {
 		t.Errorf("the sentence row is %q", plain[7])
 	}
-	if !strings.HasSuffix(plain[7], ", naivgaid.") {
+	if !strings.HasSuffix(plain[7], ", user.") {
 		t.Errorf("the sentence row is %q", plain[7])
 	}
 }

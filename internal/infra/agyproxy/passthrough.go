@@ -335,6 +335,10 @@ func (s *Server) handleBalancedPassthrough(w http.ResponseWriter, r *http.Reques
 					if currentEmail != "" {
 						s.router.ExcludeForModel(currentEmail, family)
 					}
+				} else if kind == failureAccountDisabled {
+					if currentEmail != "" {
+						s.router.Quarantine(currentEmail, reasonDesc)
+					}
 				} else {
 					if currentEmail != "" {
 						s.router.Exclude(currentEmail)
@@ -447,13 +451,7 @@ func (s *Server) forwardStreamResponse(w http.ResponseWriter, resp *http.Respons
 		if isAcc, isGlobal, reason := isStreamAccountError(sawError); isAcc && attempt+1 < maxAttempts {
 			s.logf("[account-pool] %s stream %s (%d: %s); excluding and switching account (attempt %d/%d)",
 				currentEmail, reason, sawError.Code, sawError.Message, attempt+1, maxAttempts)
-			if currentEmail != "" {
-				if isGlobal {
-					s.router.Exclude(currentEmail)
-				} else {
-					s.router.ExcludeForModel(currentEmail, family)
-				}
-			}
+			s.markAccountFailure(currentEmail, reason, isGlobal, family)
 			if onImmediateQuota != nil {
 				onImmediateQuota()
 			}
@@ -479,11 +477,7 @@ func (s *Server) forwardStreamResponse(w http.ResponseWriter, resp *http.Respons
 
 	if sawError != nil {
 		if isAcc, isGlobal, reason := isStreamAccountError(sawError); isAcc && currentEmail != "" {
-			if isGlobal {
-				s.router.Exclude(currentEmail)
-			} else {
-				s.router.ExcludeForModel(currentEmail, family)
-			}
+			s.markAccountFailure(currentEmail, reason, isGlobal, family)
 			s.logf("[account-pool] %s stream %s; excluded for future turns", currentEmail, reason)
 		}
 	}
@@ -513,11 +507,7 @@ func (s *Server) forwardStreamResponse(w http.ResponseWriter, resp *http.Respons
 							if sErr := geminicode.ParseFrameError(payload); sErr != nil {
 								if isAcc, isGlobal, reason := isStreamAccountError(sErr); isAcc {
 									if currentEmail != "" {
-										if isGlobal {
-											s.router.Exclude(currentEmail)
-										} else {
-											s.router.ExcludeForModel(currentEmail, family)
-										}
+										s.markAccountFailure(currentEmail, reason, isGlobal, family)
 										s.logf("[account-pool] %s mid-stream %s; excluded for future turns", currentEmail, reason)
 									}
 								}
@@ -543,11 +533,7 @@ func (s *Server) forwardStreamResponse(w http.ResponseWriter, resp *http.Respons
 		if sErr := geminicode.ParseFrameError(payload); sErr != nil {
 			if isAcc, isGlobal, reason := isStreamAccountError(sErr); isAcc {
 				if currentEmail != "" {
-					if isGlobal {
-						s.router.Exclude(currentEmail)
-					} else {
-						s.router.ExcludeForModel(currentEmail, family)
-					}
+					s.markAccountFailure(currentEmail, reason, isGlobal, family)
 					s.logf("[account-pool] %s mid-stream %s; excluded for future turns", currentEmail, reason)
 				}
 			}
@@ -568,4 +554,20 @@ func isQuotaResponseBody(code int, body []byte) bool {
 func isStreamQuotaError(sErr *geminicode.StreamError) bool {
 	isAcc, _, _ := isStreamAccountError(sErr)
 	return isAcc
+}
+
+func (s *Server) markAccountFailure(email, reason string, isGlobal bool, family string) {
+	if email == "" {
+		return
+	}
+	low := strings.ToLower(reason)
+	if strings.Contains(low, "terms of service") || strings.Contains(low, "disabled") || strings.Contains(low, "tos") {
+		s.router.Quarantine(email, reason)
+		return
+	}
+	if isGlobal {
+		s.router.Exclude(email)
+	} else {
+		s.router.ExcludeForModel(email, family)
+	}
 }

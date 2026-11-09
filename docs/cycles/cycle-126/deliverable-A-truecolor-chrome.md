@@ -108,7 +108,7 @@ Compared against the reference capture
 | element | ref bytes | clone bytes |
 |---|---|---|
 | `Antigravity CLI 1.3.6` | `38;2;66;133;244;1m` | `38;2;66;133;244;1m` ✓ |
-| `navigaid@gmail.com` | `38;2;95;99;104m` | `38;2;95;99;104m` ✓ |
+| `user@example.com` | `38;2;95;99;104m` | `38;2;95;99;104m` ✓ |
 | separator ─ | `38;2;218;220;224m` | `38;2;218;220;224m` ✓ |
 | prompt `>` | `38;2;66;133;244m` | `38;2;66;133;244m` ✓ |
 

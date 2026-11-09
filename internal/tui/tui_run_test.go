@@ -793,7 +793,7 @@ func Test_SlashNonSlashFallsThrough(t *testing.T) {
 // bold prefix + true-colour blue keys + dim gray labels.
 func Test_HelpGeneralPanelStyling(t *testing.T) {
 	var b strings.Builder
-	tuilib.RenderHelpGeneral(&b, "Gemini 3.8 Flash (High)", "Antigravity Starter Quota", "~/GitHub/openagy", "navigaid@gmail.com", "test-uuid-0000-0000-0000-000000000000")
+	tuilib.RenderHelpGeneral(&b, "Gemini 3.8 Flash (High)", "Antigravity Starter Quota", "~/GitHub/openagy", "user@example.com", "test-uuid-0000-0000-0000-000000000000")
 	out := b.String()
 
 	// Description block must be wrapped in dim gray.

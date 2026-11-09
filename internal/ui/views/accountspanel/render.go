@@ -7,6 +7,7 @@ package accountspanel
 
 import (
 	accounts "github.com/justwasm/pigasus/internal/features/accounts/core"
+	accountrouting "github.com/justwasm/pigasus/internal/features/accounts/routing"
 	"github.com/justwasm/pigasus/palette"
 )
 
@@ -47,6 +48,18 @@ func (p *Panel) accountsLines() []string {
 	}
 	for i, acc := range p.rows {
 		lines = append(lines, p.accountRowLine(acc, i == p.cursor))
+	}
+	if p.cursor >= 0 && p.cursor < len(p.rows) {
+		selected := p.rows[p.cursor]
+		if isQ, qReason := accountrouting.Shared().IsQuarantined(selected.Email); isQ {
+			selected.Disabled = true
+			if selected.DisabledReason == "" {
+				selected.DisabledReason = qReason
+			}
+		}
+		if selected.Disabled && selected.DisabledReason != "" {
+			lines = append(lines, "  "+palette.ToolFailedSuffixOpen+"⚠ Quarantined: "+selected.DisabledReason+palette.ToolBulletClose)
+		}
 	}
 	if p.notice != "" {
 		lines = append(lines, "", noticeLine(p.notice))

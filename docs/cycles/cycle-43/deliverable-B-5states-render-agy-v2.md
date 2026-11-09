@@ -11,7 +11,7 @@
 | 文件 | 大小 | 用途 |
 |---|---|---|
 | `state-0-onboarding-welcome.log` | 4752 B | onboarding 第一屏: 5 行彩虹渐变 ASCII art logo + `Welcome to Antigravity CLI!` + 8 个 color scheme 选择 (terminal/light/solarized light/colorblind-friendly light/dark/solarized dark/colorblind-friendly dark/tokyo night) + 右侧 preview box (rounded corners) |
-| `state-1-idle.log` | 2309 B | 主 TUI idle: 顶部 logo + 右上 header (Antigravity CLI 1.3.5 / navigaid@gmail.com (Antigravity Starter Quota) / Gemini 3.8 Flash (High) / /root) + 上下 ─ 分割线 + `>` prompt + footer (`? for shortcuts` / `Gemini 3.8 Flash · high`) |
+| `state-1-idle.log` | 2309 B | 主 TUI idle: 顶部 logo + 右上 header (Antigravity CLI 1.3.5 / user@example.com (Antigravity Starter Quota) / Gemini 3.8 Flash (High) / /root) + 上下 ─ 分割线 + `>` prompt + footer (`? for shortcuts` / `Gemini 3.8 Flash · high`) |
 | `state-2-thinking.log` | 2643 B | 输入 `hello, what is 1+1?` 后 spinner `Generating...` + `esc to cancel` 提示 |
 | `state-3-tool-running.log` | 3236 B | LLM 触发 `ls -la` tool, TUI 显示 `Running (ls -la) (ctrl+o to expand)` + `Generating...` + 注释 "Tip: When reviewing a file edit, press f to see the full diff" |
 | `state-4-approval.log` | 6473 B | LLM 触发 `rm -v /tmp/foo.txt` 需要 approval, TUI 显示 `Run this command?` 4 选 1 prompt: (1) Yes, run / (2) Yes+always allow this / (3) Yes+always allow persist settings.json / (4) No, cancel + 底部 `↑/↓ Navigate · tab Amend · ctrl+g edit/expand command` + `esc to cancel` |

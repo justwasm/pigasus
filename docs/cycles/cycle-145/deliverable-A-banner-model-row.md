@@ -9,7 +9,7 @@ Captured at `/tmp/agycmp/hotpath/cold_start/ref.000-init.txt`:
 
 ```
       ▄▀▀▄        Antigravity CLI 1.3.6
-     ▀▀▀▀▀▀       navigaid@gmail.com
+     ▀▀▀▀▀▀       user@example.com
     ▀▀▀▀▀▀▀▀      Gemini 3.8 Flash (High)
    ▄▀▀    ▀▀▄     ~/GitHub/openagy
   ▄▀▀      ▀▀▄
@@ -30,7 +30,7 @@ the email row. Captured `/help` general at
 
 ```
 Version 1.3.6
-navigaid@gmail.com                 ← bare, no tier parens
+user@example.com                 ← bare, no tier parens
 Workspace:      ~/GitHub/openagy
 ```
 

@@ -26,6 +26,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	accounts "github.com/justwasm/pigasus/internal/features/accounts/core"
+	accountrouting "github.com/justwasm/pigasus/internal/features/accounts/routing"
 	"github.com/justwasm/pigasus/internal/ui/tuilib"
 	"github.com/justwasm/pigasus/palette"
 )
@@ -74,6 +75,12 @@ func currentAccountEmail(st *accounts.Store) string {
 
 // accountRowLine renders one account row.
 func (p *Panel) accountRowLine(acc accounts.Account, cursor bool) string {
+	if isQ, qReason := accountrouting.Shared().IsQuarantined(acc.Email); isQ {
+		acc.Disabled = true
+		if acc.DisabledReason == "" {
+			acc.DisabledReason = qReason
+		}
+	}
 	if strings.TrimSpace(acc.PlanTier) == "" {
 		// The tier the session read belongs to the account it was read
 		// for: a session that signed in as another account must not show
@@ -104,6 +111,10 @@ func (p *Panel) switchAccount(email string) tea.Cmd {
 	email = strings.TrimSpace(email)
 	if email == "" {
 		p.notice = "error: no account selected."
+		return nil
+	}
+	if isQ, qReason := accountrouting.Shared().IsQuarantined(email); isQ {
+		p.notice = fmt.Sprintf("error: %s is quarantined (%s).", email, qReason)
 		return nil
 	}
 	if strings.EqualFold(email, p.active) {

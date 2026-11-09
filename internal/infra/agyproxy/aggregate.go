@@ -81,6 +81,14 @@ func (s *Server) collectQuotaSummaries(ctx context.Context, accs []accounts.Acco
 	var wg sync.WaitGroup
 	for _, acc := range accs {
 		acc := acc
+		if acc.Disabled {
+			continue
+		}
+		if s.router != nil {
+			if isQ, _ := s.router.IsQuarantined(acc.Email); isQ {
+				continue
+			}
+		}
 		// 1. Check custom test fetcher
 		if s.quotaFetcher != nil {
 			wg.Add(1)
@@ -141,7 +149,19 @@ func (s *Server) collectQuotaSummaries(ctx context.Context, accs []accounts.Acco
 }
 
 func (s *Server) mergeQuotaSummaries(accs []accounts.Account, summaries map[string]*auth.QuotaSummary) aggregatedQuotaWire {
-	totalPool := len(accs)
+	var activeAccs []accounts.Account
+	for _, acc := range accs {
+		if acc.Disabled {
+			continue
+		}
+		if s.router != nil {
+			if isQ, _ := s.router.IsQuarantined(acc.Email); isQ {
+				continue
+			}
+		}
+		activeAccs = append(activeAccs, acc)
+	}
+	totalPool := len(activeAccs)
 	if totalPool == 0 {
 		return aggregatedQuotaWire{}
 	}
@@ -153,13 +173,13 @@ func (s *Server) mergeQuotaSummaries(accs []accounts.Account, summaries map[stri
 	}
 
 	type bucketAgg struct {
-		groupName   string
-		groupDesc   string
-		bucketID    string
-		displayName string
-		window      string
-		sumFraction float64
-		activeCount int
+		groupName     string
+		groupDesc     string
+		bucketID      string
+		displayName   string
+		window        string
+		sumFraction   float64
+		activeCount   int
 		earliestReset time.Time
 		latestReset   time.Time
 	}
@@ -169,7 +189,7 @@ func (s *Server) mergeQuotaSummaries(accs []accounts.Account, summaries map[stri
 	groupDescriptions := make(map[string]string)
 	aggs := make(map[bucketKey]*bucketAgg)
 
-	for _, acc := range accs {
+	for _, acc := range activeAccs {
 		sum, ok := summaries[acc.Email]
 		if !ok || sum == nil {
 			continue

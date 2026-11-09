@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/justwasm/pigasus/geminicode"
 	"github.com/justwasm/pigasus/internal/core/backend"
 )
 
@@ -160,12 +161,20 @@ func formatOpenAITools(req backend.StreamRequest) []gatewayTool {
 		if strings.TrimSpace(t.Name) == "" {
 			continue
 		}
+		params := t.Parameters
+		if len(strings.TrimSpace(string(params))) == 0 {
+			params = json.RawMessage(`{"type":"object","properties":{}}`)
+		} else if norm := geminicode.NormalizeToolSchema(params, true); norm != nil {
+			if b, err := json.Marshal(norm); err == nil {
+				params = b
+			}
+		}
 		tools = append(tools, gatewayTool{
 			Type: "function",
 			Function: gatewayToolFnShape{
 				Name:        t.Name,
 				Description: t.Description,
-				Parameters:  t.Parameters,
+				Parameters:  params,
 			},
 		})
 	}

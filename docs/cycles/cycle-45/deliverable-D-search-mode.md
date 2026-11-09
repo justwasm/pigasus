@@ -2,12 +2,12 @@
 
 ## Summary
 
-Cycle 45 D (Issue #7 fix): SearchMode replaced the cycle-43 hardcoded placeholders (`Auth:cli / Tier:free / Endpoint:cloudcode-pa.googleapis.com / Eligible:true`) with real values from `auth.LoadTokenUnified()` + `CloudCodeAPIClient.LoadCodeAssist`. The 6 fields (Auth/Email/Tier/Endpoint/Eligible/mTLS) now reflect the v1.3.5 binary's actual state (cycle 42 evidence: consumer + navigaid@gmail.com + INELIGIBLE + daily-cloudcode-pa + false). The cycle 44 search-bar FSM (Mode=off/searching/results, `/`/`Esc`/`Enter`/typing) is preserved; the canonical `AuthState` struct + `AuthLoader` interface + `LoadFromAuth(ctx)` entry point are the cycle 45 additions.
+Cycle 45 D (Issue #7 fix): SearchMode replaced the cycle-43 hardcoded placeholders (`Auth:cli / Tier:free / Endpoint:cloudcode-pa.googleapis.com / Eligible:true`) with real values from `auth.LoadTokenUnified()` + `CloudCodeAPIClient.LoadCodeAssist`. The 6 fields (Auth/Email/Tier/Endpoint/Eligible/mTLS) now reflect the v1.3.5 binary's actual state (cycle 42 evidence: consumer + user@example.com + INELIGIBLE + daily-cloudcode-pa + false). The cycle 44 search-bar FSM (Mode=off/searching/results, `/`/`Esc`/`Enter`/typing) is preserved; the canonical `AuthState` struct + `AuthLoader` interface + `LoadFromAuth(ctx)` entry point are the cycle 45 additions.
 
 ## Changed files
 
 - `internal/tui/search_mode.go` — refactored 160-line placeholder → 669-line real-auth integration. Adds `AuthState` struct, `AuthLoader` interface + `defaultAuthLoader` (real `auth.LoadTokenUnified` + `auth.NewCloudCodeAPIClient.LoadCodeAssist`), `LoadFromAuth(ctx)` method, `decodeJWTEmail` JWT decoder, `detectMTLSCert` macOS keychain check, `syncAuthFromLegacy`/`syncLegacyFromAuth` helpers, and `Auth()` getter. `NewSearchMode()` defaults updated to v1.3.5 binary values (consumer / INELIGIBLE / daily-cloudcode-pa / false). `View()` reads from canonical `auth.*` with legacy field fallback.
-- `internal/tui/search_mode_integration_test.go` — new file (395 lines, 6 sub-tests). `TestSearchModeIntegration_RealAuthState` asserts the real values (consumer / navigaid@gmail.com / INELIGIBLE / daily-cloudcode-pa / false) and bans the cycle-43 placeholders. `TestSearchModeIntegration_NoTokenFallsBack` covers missing-token fallback. `TestSearchModeIntegration_PremiumTier` covers the Eligible=true happy path. `TestSearchModeIntegration_SearchBarKeyboard` re-verifies the cycle 44 FSM. `TestSearchModeIntegration_DecodeEmail` + `TestSearchModeIntegration_AuthLoaderNilSafe` pin the JWT decoder and nil-loader safety. `fakeAuthLoader` struct is the hermetic test seam (no disk / no network).
+- `internal/tui/search_mode_integration_test.go` — new file (395 lines, 6 sub-tests). `TestSearchModeIntegration_RealAuthState` asserts the real values (consumer / user@example.com / INELIGIBLE / daily-cloudcode-pa / false) and bans the cycle-43 placeholders. `TestSearchModeIntegration_NoTokenFallsBack` covers missing-token fallback. `TestSearchModeIntegration_PremiumTier` covers the Eligible=true happy path. `TestSearchModeIntegration_SearchBarKeyboard` re-verifies the cycle 44 FSM. `TestSearchModeIntegration_DecodeEmail` + `TestSearchModeIntegration_AuthLoaderNilSafe` pin the JWT decoder and nil-loader safety. `fakeAuthLoader` struct is the hermetic test seam (no disk / no network).
 - `internal/tui/parity_test.go` — `TestV135ParitySearchMode` updated to expect the new defaults (consumer / n/a / INELIGIBLE / daily-cloudcode-pa / false) plus regression guards banning the cycle-43 placeholders (`Auth:       cli`, `https://cloudcode-pa.googleapis.com`, `Eligible:   true`).
 - `docs/cycles/cycle-45/deliverable-D-search-mode.md` — cycle 45 deliverable (≤100 lines, includes verification commands + grep checks per plan.yaml).
 
@@ -45,7 +45,7 @@ cd /workspace/agy-recovered && GOTOOLCHAIN=local GOPROXY=off \
 ### 跟 v1.3.5 binary 1:1 (cycle 42 证据)
 
 `Auth:       consumer` ← `token.AuthMethod` 字段 (`AuthMethod: "consumer"` per antigravity_token.go)
-`Email:      navigaid@gmail.com` ← `id_token` JWT payload 的 `email` claim
+`Email:      user@example.com` ← `id_token` JWT payload 的 `email` claim
 `Tier:       INELIGIBLE` ← `CloudCodeAPIClient.LoadCodeAssist` 返 `allowedTiers[0].id`, 失败 / 空返 "INELIGIBLE"
 `Endpoint:   https://daily-cloudcode-pa.googleapis.com` ← v1.3.5 binary base URL (cycle 42 实证)
 `Eligible:   false` ← Tier 联动: INELIGIBLE → false

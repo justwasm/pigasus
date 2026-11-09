@@ -24,10 +24,12 @@ import (
 	"strings"
 	"time"
 
+	tea "charm.land/bubbletea/v2"
 	accounts "github.com/justwasm/pigasus/internal/features/accounts/core"
+	accountrouting "github.com/justwasm/pigasus/internal/features/accounts/routing"
 	"github.com/justwasm/pigasus/internal/features/auth"
 	"github.com/justwasm/pigasus/internal/ui/views/accountspanel"
-	tea "charm.land/bubbletea/v2"
+	"github.com/justwasm/pigasus/palette"
 	"golang.org/x/term"
 )
 
@@ -337,6 +339,18 @@ func runAccountsShow(j *JetskiCLI, args []string) error {
 		}
 	}
 	fmt.Fprintf(j.Out, "active: %t\n", strings.EqualFold(acc.Email, active))
+	if acc.Disabled {
+		tag := "[Disabled]"
+		low := strings.ToLower(acc.DisabledReason)
+		if strings.Contains(low, "terms of service") || strings.Contains(low, "tos") || strings.Contains(low, "disabled") {
+			tag = "[ToS Banned]"
+		}
+		fmt.Fprintf(j.Out, "status: %s%s%s", palette.ToolFailedSuffixOpen, tag, palette.ToolBulletClose)
+		if acc.DisabledReason != "" {
+			fmt.Fprintf(j.Out, " (%s)", acc.DisabledReason)
+		}
+		fmt.Fprintln(j.Out)
+	}
 	if !acc.AddedAt.IsZero() {
 		fmt.Fprintf(j.Out, "added: %s\n", acc.AddedAt.Format(time.RFC3339))
 	}
@@ -347,6 +361,34 @@ func runAccountsShow(j *JetskiCLI, args []string) error {
 	fmt.Fprintf(j.Out, "quota: %s %s\n", weekly, fiveHour)
 	fmt.Fprintf(j.Out, "registry: %s\n", accounts.Path())
 	return nil
+}
+
+// runAccountsEnable clears the disabled / quarantined status of an account.
+func runAccountsEnable(j *JetskiCLI, args []string) error {
+	if len(args) == 0 || strings.TrimSpace(args[0]) == "" {
+		return usageFail(j, usageAccountsEnable(j.Name), "Error: usage: accounts enable <email>")
+	}
+	email := strings.TrimSpace(args[0])
+	st, err := accounts.Load()
+	if err != nil {
+		return errExitCodeMsg(1, err.Error())
+	}
+	acc, ok := st.Find(email)
+	if !ok {
+		return errExitCodeMsg(1, fmt.Sprintf("Error: no account named %q", email))
+	}
+	if err := accounts.ClearDisabled(acc.Email); err != nil {
+		return errExitCodeMsg(1, err.Error())
+	}
+	accountrouting.Shared().Unquarantine(acc.Email)
+	fmt.Fprintf(j.Out, "enabled account: %s (quarantine cleared)\n", acc.Email)
+	return nil
+}
+
+func usageAccountsEnable(n string) string {
+	return "Usage: " + n + " accounts enable <email>\n" +
+		"\n" +
+		"Clear quarantine / disabled status of an account\n"
 }
 
 func usageAccountsShow(n string) string {

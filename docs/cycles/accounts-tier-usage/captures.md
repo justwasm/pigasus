@@ -12,10 +12,10 @@ move continuously, so only the *shape* is pinned.
 ```
 Accounts
 
-> navigaid@gmail.com            Google AI Pro        wk 1.0%    5h 96.0%    now  (active)
-  naivgaid@gmail.com            Google AI Plus       wk 100.0%  5h -        now
-  btwiuse@gmail.com             Google AI Pro        wk 18.4%   5h 99.2%    now
-  libredot@gmail.com            Google AI Plus       wk 100.0%  5h -        now
+> user@example.com            Google AI Pro        wk 1.0%    5h 96.0%    now  (active)
+  user@example.com            Google AI Plus       wk 100.0%  5h -        now
+  user2@example.com             Google AI Pro        wk 18.4%   5h 99.2%    now
+  user3@example.com            Google AI Plus       wk 100.0%  5h -        now
 
   /Users/gear/.config/openagy/accounts.json
 Keyboard: ↑/↓ Navigate  enter Switch  a Add account  d Remove  r Refresh quota  esc Exit
@@ -35,10 +35,10 @@ command never queries the server):
 ```
 $ /tmp/wagyu accounts list
 accounts: /Users/gear/.config/openagy/accounts.json
-navigaid@gmail.com                       Google AI Pro      wk 1.0%          5h 96.0%
-naivgaid@gmail.com                       Google AI Plus     wk 100.0%        5h -
-btwiuse@gmail.com                        Google AI Pro      wk 18.4%         5h 99.2%          (active)
-libredot@gmail.com                       Google AI Plus     wk 100.0%        5h -
+user@example.com                       Google AI Pro      wk 1.0%          5h 96.0%
+user@example.com                       Google AI Plus     wk 100.0%        5h -
+user2@example.com                        Google AI Pro      wk 18.4%         5h 99.2%          (active)
+user3@example.com                       Google AI Plus     wk 100.0%        5h -
 ```
 
 ## 2. The panel while the refresh runs
@@ -47,16 +47,16 @@ The accounts are fetched one at a time; the panel shows the cached numbers
 and updates them as they land.
 
 ```
-  btwiuse@gmail.com             Google AI Pro        wk 18.4%   5h 99.2%    7m   (active)
-  libredot@gmail.com            Google AI Plus       wk 100.0%  5h -        7m
+  user2@example.com             Google AI Pro        wk 18.4%   5h 99.2%    7m   (active)
+  user3@example.com            Google AI Plus       wk 100.0%  5h -        7m
   Refreshing quota… 4 queued
 ```
 
 →
 
 ```
-  btwiuse@gmail.com             Google AI Pro        wk 18.4%   5h 99.2%    now  (active)
-  libredot@gmail.com            Google AI Plus       wk 100.0%  5h -        8m
+  user2@example.com             Google AI Pro        wk 18.4%   5h 99.2%    now  (active)
+  user3@example.com            Google AI Plus       wk 100.0%  5h -        8m
   quota: Post "https://daily-cloudcode-pa.googleapis.com/v1internal:retrieveUserQuotaSummary": context deadline exceeded
 ```
 
@@ -67,10 +67,10 @@ token was expired. The budget is now 45 s and the same fetch succeeds (§4).
 ## 3. Switching inside the panel
 
 ```
-> btwiuse@gmail.com             Google AI Pro        wk 18.4%   5h 99.2%    now  (active)
-  libredot@gmail.com            Google AI Plus       wk 100.0%  5h -        now
+> user2@example.com             Google AI Pro        wk 18.4%   5h 99.2%    now  (active)
+  user3@example.com            Google AI Plus       wk 100.0%  5h -        now
 
-  Switched to btwiuse@gmail.com.
+  Switched to user2@example.com.
 ```
 
 The switch writes the shared credential (the keychain entry the installed
@@ -99,7 +99,7 @@ Same binary, same account, two runs.
 ```
 $ tmux send-keys -t acctier2 "/usage"; tmux send-keys -t acctier2 Enter
 # 2 s later:
-  Account: btwiuse@gmail.com
+  Account: user2@example.com
 
 GEMINI MODELS
   Weekly Limit Remaining
@@ -139,10 +139,10 @@ quota snapshot are cached next to the token:
 ```json
 {
   "version": 1,
-  "active": "btwiuse@gmail.com",
+  "active": "user2@example.com",
   "accounts": [
     {
-      "email": "navigaid@gmail.com",
+      "email": "user@example.com",
       "plan_tier": "Google AI Pro",
       "quota": {
         "fetched_at": "2026-10-23T15:57:03.193971+08:00",
@@ -179,11 +179,11 @@ refresh-quiet token refresh followed by `loadCodeAssist` — and compared with
 the value the registry carried:
 
 ```
-navigaid@gmail.com       cached="Google AI Pro"    live="Google AI Pro"    ok
-naivgaid@gmail.com       cached="Google AI Plus"   live="Google AI Plus"   ok
-btwiuse@gmail.com        cached="Google AI Pro"    live="Google AI Pro"    ok
-libredot@gmail.com       cached="Google AI Plus"   live="Google AI Plus"   ok
-stakingminer@gmail.com   cached=""                 live=""                 ok
+user@example.com       cached="Google AI Pro"    live="Google AI Pro"    ok
+user@example.com       cached="Google AI Plus"   live="Google AI Plus"   ok
+user2@example.com        cached="Google AI Pro"    live="Google AI Pro"    ok
+user3@example.com       cached="Google AI Plus"   live="Google AI Plus"   ok
+user4@example.com   cached=""                 live=""                 ok
 ```
 
 Five accounts, five `ok` — no cached tier differs from the tier that
@@ -191,7 +191,7 @@ account's own credential returns, so the row cannot change from "Plus" to
 "Pro" any more.
 
 > The capture above was taken before the fifth account was signed in. A later
-> run of the same probe reports `libredot@gmail.com` as **"Google AI Pro"**
+> run of the same probe reports `user3@example.com` as **"Google AI Pro"**
 > (cached *and* live, three readings in a row) — see the 存疑 section of the
 > deliverable. The fifth account has no tier at all: the server names none,
 > which is what the session's eligibility check reports.
@@ -201,10 +201,10 @@ by side:
 
 | Account | Tier | Weekly | Five-hour |
 |---|---|---|---|
-| navigaid@gmail.com | Google AI Pro | 1.0 % | 96.0 % |
-| naivgaid@gmail.com | Google AI Plus | 100.0 % | — (no bucket) |
-| btwiuse@gmail.com | Google AI Pro | 18.4 % | 99.2 % |
-| libredot@gmail.com | Google AI Plus | 100.0 % | — (no bucket) |
+| user@example.com | Google AI Pro | 1.0 % | 96.0 % |
+| user@example.com | Google AI Plus | 100.0 % | — (no bucket) |
+| user2@example.com | Google AI Pro | 18.4 % | 99.2 % |
+| user3@example.com | Google AI Plus | 100.0 % | — (no bucket) |
 
 The two "Google AI Plus" accounts are exactly the two with no five-hour
 bucket — the plan difference shows up in the quota response as well, from a
@@ -221,7 +221,7 @@ account is the one that was signed in while the cycle ran — it has no tier):
 
 ```
   ▀▀▄      ▄▀▀    Pigasus CLI 1.4.5
-   ▀▀▀    ▀▀▀     stakingminer@gmail.com
+   ▀▀▀    ▀▀▀     user4@example.com
     ▀▀▀▄▄▀▀▀      Gemini 3.8 Flash (High)
      ▀▀▀▀▀▀       /tmp
       ▀▀▀▀
@@ -236,17 +236,17 @@ switch and half a second later, when the answer has landed:
 
 ```
   ▀▀▄      ▄▀▀    Pigasus CLI 1.4.5
-   ▀▀▀    ▀▀▀     navigaid@gmail.com              ← during the switch: the email alone
+   ▀▀▀    ▀▀▀     user@example.com              ← during the switch: the email alone
     ▀▀▀▄▄▀▀▀      Gemini 3.8 Flash (High)
      ▀▀▀▀▀▀       /tmp
 
   ▀▀▄      ▄▀▀    Pigasus CLI 1.4.5
-   ▀▀▀    ▀▀▀     navigaid@gmail.com (Google AI Pro)   ← the answer landed
+   ▀▀▀    ▀▀▀     user@example.com (Google AI Pro)   ← the answer landed
     ▀▀▀▄▄▀▀▀      Gemini 3.8 Flash (High)
      ▀▀▀▀▀▀       /tmp
 ```
 
-Before the fix that first line read `navigaid@gmail.com (Antigravity Starter
+Before the fix that first line read `user@example.com (Antigravity Starter
 Quota)` — the placeholder, i.e. a value that is not the account's.
 
 The `/accounts` panel of the same session:
@@ -254,11 +254,11 @@ The `/accounts` panel of the same session:
 ```
 Accounts
 
-> navigaid@gmail.com            Google AI Pro        wk   1.0%  5h  96.0%   now
-  naivgaid@gmail.com            Google AI Plus       wk 100.0%  5h      -   now
-  btwiuse@gmail.com             Google AI Pro        wk  18.4%  5h  99.2%   now
-  libredot@gmail.com            Google AI Pro        wk 100.0%  5h 100.0%   now
-  stakingminer@gmail.com        -                    wk      -  5h      -   -
+> user@example.com            Google AI Pro        wk   1.0%  5h  96.0%   now
+  user@example.com            Google AI Plus       wk 100.0%  5h      -   now
+  user2@example.com             Google AI Pro        wk  18.4%  5h  99.2%   now
+  user3@example.com            Google AI Pro        wk 100.0%  5h 100.0%   now
+  user4@example.com        -                    wk      -  5h      -   -
 
   /Users/gear/.config/openagy/accounts.json
 Keyboard: ↑/↓ Navigate  enter Switch  a Add account  d Remove  r Refresh  esc Exit
@@ -273,23 +273,23 @@ Keyboard: ↑/↓ Navigate  enter Switch  a Add account  d Remove  r Refresh  es
 
 ```
 accounts: /Users/gear/.config/openagy/accounts.json
-navigaid@gmail.com                       Google AI Pro      wk   1.0%        5h  96.0%
-naivgaid@gmail.com                       Google AI Plus     wk 100.0%        5h      -
-btwiuse@gmail.com                        Google AI Pro      wk  18.4%        5h  99.2%
-libredot@gmail.com                       Google AI Pro      wk 100.0%        5h 100.0%
-stakingminer@gmail.com                   -                  wk      -        5h      -         (active)
+user@example.com                       Google AI Pro      wk   1.0%        5h  96.0%
+user@example.com                       Google AI Plus     wk 100.0%        5h      -
+user2@example.com                        Google AI Pro      wk  18.4%        5h  99.2%
+user3@example.com                       Google AI Pro      wk 100.0%        5h 100.0%
+user4@example.com                   -                  wk      -        5h      -         (active)
 ```
 
 And the print mode, whose JSON envelope keeps the **raw** values:
 
 ```
 $ agy -p "/accounts" --output-format json
-{"response":"navigaid@gmail.com                       Google AI Pro      wk   1.0%        5h  96.0%\n…",
+{"response":"user@example.com                       Google AI Pro      wk   1.0%        5h  96.0%\n…",
  "command":{"name":"accounts","data":{"accounts":[
-   {"active":false,"email":"navigaid@gmail.com","five_hour":"96.0%","plan_tier":"Google AI Pro",
+   {"active":false,"email":"user@example.com","five_hour":"96.0%","plan_tier":"Google AI Pro",
     "quota_fetched_at":"2026-10-23T17:41:17+08:00","weekly":"1.0%"},
    …
-   {"active":true,"email":"stakingminer@gmail.com","five_hour":"-","plan_tier":"","weekly":"-"}]}}}
+   {"active":true,"email":"user4@example.com","five_hour":"-","plan_tier":"","weekly":"-"}]}}}
 ```
 
 

@@ -296,10 +296,14 @@ func (p *Picker) buildGroups() {
 			// The preview is the raw first user message; the
 			// search matches its first line.
 			p.previews[c.ID] = summary.Preview
+		} else if c.ID == p.currentConversationID() && p.seams.CurrentWorkspace != nil {
+			if ws := p.seams.CurrentWorkspace(); ws != "" {
+				item.WorkspaceURIs = []string{"file://" + ws}
+			}
 		}
 		items = append(items, item)
 	}
-	pinned := p.pinnedKey(summaries)
+	pinned := p.pinnedKey(summaries, cache)
 	p.groups = resumetree.Build(items, pinned)
 	if p.expanded == nil {
 		p.expanded = map[string]bool{}
@@ -315,16 +319,23 @@ func (p *Picker) buildGroups() {
 // 【一手】 The reference's live picker keeps the "/Users/gear" group first
 // whatever its timestamps say — that group holds the conversation the
 // reference's session was showing.
-func (p *Picker) pinnedKey(summaries map[string]resumetree.Summary) string {
+func (p *Picker) pinnedKey(summaries, cache map[string]resumetree.Summary) string {
 	cur := p.currentConversationID()
-	if cur == "" {
-		return ""
+	if cur != "" {
+		summary, ok := summaries[cur]
+		if !ok && cache != nil {
+			summary, ok = cache[cur]
+		}
+		if ok && len(summary.WorkspaceURIs) > 0 {
+			return resumetree.ItemWorkspaceURI(summary.WorkspaceURIs)
+		}
 	}
-	summary, ok := summaries[cur]
-	if !ok {
-		return ""
+	if p.seams.CurrentWorkspace != nil {
+		if ws := p.seams.CurrentWorkspace(); ws != "" {
+			return resumetree.NormalizeWorkspaceURI(ws)
+		}
 	}
-	return resumetree.ItemWorkspaceURI(summary.WorkspaceURIs)
+	return ""
 }
 
 // resetTreeState prepares the tree of a freshly opened picker.

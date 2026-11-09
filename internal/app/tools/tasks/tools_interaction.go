@@ -93,7 +93,7 @@ type questionItem struct {
 func (a *AskQuestion) askSubagentQuestions(questions []questionItem) string {
 	var answers []string
 	for _, q := range questions {
-		queued := a.SubAgentQuestions.Enqueue(a.SubAgentID, q.Question, q.Options)
+		queued := a.SubAgentQuestions.Enqueue(a.SubAgentID, q.Question, q.Options, q.IsMultiSelect)
 		if queued == nil {
 			answers = append(answers, noUserText)
 			continue

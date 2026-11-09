@@ -764,13 +764,7 @@ func (m *RootModel) flushNextQueued(nextQueued string) tea.Cmd {
 		// A background task that finished while the turn was running has
 		// a notification to deliver. The reference's agent picks it up
 		// and carries on without waiting for the user.
-		hasNotification := false
-		if m.tasks.ctrl != nil && m.tasks.ctrl.Inbox().Len() > 0 {
-			hasNotification = true
-		} else if m.tasks.inbox != nil && m.tasks.inbox.Len() > 0 {
-			hasNotification = true
-		}
-		if hasNotification {
+		if m.hasPendingTaskNotifications() {
 			return m.startNotificationTurn()
 		}
 		return nil
@@ -943,6 +937,10 @@ func (m *RootModel) subAgentExtras(_ context.Context, be backend.Client, modelLa
 	}
 	agentDir := confhome.Antigravity()
 	provider := agentturn.NewBackendProviderAdapter(be, modelLabel)
+	catalogue := allCatalogActorTools(m.tools.catalog)
+	if len(catalogue) == 0 && m.tools.catalog != nil {
+		catalogue = browsersubagent.BrowserTools(m.tools.catalog)
+	}
 	subDeps := subagenttools.Deps{
 		Provider:          provider,
 		Backend:           be,
@@ -956,7 +954,9 @@ func (m *RootModel) subAgentExtras(_ context.Context, be backend.Client, modelLa
 		ConversationID:    m.session.conversationID,
 		PermissionGateFor: m.subagentGateFactory,
 		SystemPrompt:      m.systemPrompt,
-		Catalogue:         browsersubagent.BrowserTools(m.tools.catalog),
+		Catalogue:         catalogue,
+		Questions:         m.askQuestion.manager,
+		OnAsk:             m.requestAskQuestion,
 	}
 	subTools := subagenttools.Tools(subDeps)
 	subDir := filepath.Join(agentDir, "subagents")
@@ -984,6 +984,40 @@ func defaultWorkspaceForRootModel() string {
 		return wd
 	}
 	return ""
+}
+
+func allCatalogActorTools(reg *tools.Registry) []actor.Tool {
+	if reg == nil {
+		return nil
+	}
+	var out []actor.Tool
+	for _, name := range reg.List() {
+		tool, ok := reg.Get(name)
+		if !ok || tool == nil {
+			continue
+		}
+		var params map[string]any
+		desc := tool.Name()
+		if raw := tool.Schema(); len(raw) > 0 {
+			_ = json.Unmarshal(raw, &params)
+			if d, ok := params["description"].(string); ok && d != "" {
+				desc = d
+			}
+		}
+		t := tool
+		out = append(out, actor.NewFuncTool(t.Name(), desc, func(ctx context.Context, input string) (string, error) {
+			res, err := t.Run(ctx, json.RawMessage(input))
+			if err != nil {
+				return "", err
+			}
+			if s, ok := res.(string); ok {
+				return s, nil
+			}
+			b, _ := json.Marshal(res)
+			return string(b), nil
+		}, actor.WithParameters(params)))
+	}
+	return out
 }
 
 // newConversationID returns an RFC-4122-style 8-4-4-4-12 hex UUID
@@ -1098,6 +1132,7 @@ func newRootModelBase(b backend.Client, email, model, tier, cwd string, altScree
 	m.prompt.atFilePicker = m.newMentionPicker()
 	m.overlays.resumePicker = resumepicker.New(resumepicker.Seams{
 		CurrentConversationID: func() string { return m.session.conversationID },
+		CurrentWorkspace:      func() string { return m.session.cwd },
 		ListConversations:     m.listResumeConversations,
 		ResumeConversation:    m.resumeConversation,
 		RenameConversation:    m.renameResumeConversation,
@@ -1518,6 +1553,18 @@ func (m *RootModel) installTaskNotifier() {
 	})
 }
 
+// hasPendingTaskNotifications reports whether any background task or subagent
+// notification is waiting to be processed.
+func (m *RootModel) hasPendingTaskNotifications() bool {
+	if m.tasks.ctrl != nil && m.tasks.ctrl.Inbox().Len() > 0 {
+		return true
+	}
+	if m.tasks.inbox != nil && m.tasks.inbox.Len() > 0 {
+		return true
+	}
+	return false
+}
+
 // updateTaskNotificationMsg handles a task notification that arrived.
 //
 // The notification is drained into the session by the next turn's message
@@ -1525,13 +1572,7 @@ func (m *RootModel) installTaskNotifier() {
 // reference's agent picks the message up and carries on with its work
 // without waiting for the user to type something.
 func (m *RootModel) updateTaskNotificationMsg() tea.Cmd {
-	hasItems := false
-	if m.tasks.ctrl != nil {
-		hasItems = m.tasks.ctrl.Inbox().Len() > 0
-	} else if m.tasks.inbox != nil {
-		hasItems = m.tasks.inbox.Len() > 0
-	}
-	if !hasItems {
+	if !m.hasPendingTaskNotifications() {
 		return nil
 	}
 	if m.conversation.streaming {
@@ -1571,28 +1612,23 @@ func (m *RootModel) startNotificationTurn() tea.Cmd {
 // takeTaskNotifications removes the pending notifications from the inbox and
 // returns them, oldest first.
 func (m *RootModel) takeTaskNotifications() []shell.TaskNotification {
+	var out []shell.TaskNotification
 	if m.tasks.ctrl != nil {
-		items := m.tasks.ctrl.Inbox().Drain()
-		if len(items) == 0 {
-			return nil
-		}
-		out := make([]shell.TaskNotification, len(items))
-		for i, n := range items {
-			out[i] = shell.TaskNotification{
+		for _, n := range m.tasks.ctrl.Inbox().Drain() {
+			out = append(out, shell.TaskNotification{
 				TaskID:   n.TaskID,
 				Title:    n.Title,
 				Body:     n.Body,
 				LogPath:  n.LogPath,
 				Priority: n.Priority,
 				At:       n.At,
-			}
+			})
 		}
-		return out
 	}
-	if m.tasks.inbox == nil {
-		return nil
+	if m.tasks.inbox != nil {
+		out = append(out, m.tasks.inbox.Drain()...)
 	}
-	return m.tasks.inbox.Drain()
+	return out
 }
 
 // drainTaskNotifications moves the pending notifications into the session
@@ -1669,6 +1705,7 @@ func (m *RootModel) drainTaskNotifications() {
 //     conversation's one policy.
 func (m *RootModel) ensureSubagentRegistry() *subagenttools.Registry {
 	if m.agents.registry != nil && m.agents.registry.ParentID() == m.session.conversationID {
+		m.agents.registry.SetNotify(m.notifySubagentMessage)
 		return m.agents.registry
 	}
 	if m.agents.registry != nil {
@@ -1677,6 +1714,9 @@ func (m *RootModel) ensureSubagentRegistry() *subagenttools.Registry {
 	}
 	m.agents.registry = subagenttools.NewRegistry(m.session.conversationID)
 	m.agents.registry.SetNotify(m.notifySubagentMessage)
+	if dom := m.DomainSession(); dom != nil {
+		dom.SetSubagentRegistry(m.agents.registry)
+	}
 	return m.agents.registry
 }
 
@@ -1692,6 +1732,7 @@ func (m *RootModel) notifySubagentMessage(sender, content string) {
 			TaskID:   sender,
 			Body:     content,
 			Priority: shell.TaskPriorityHigh,
+			At:       time.Now(),
 		})
 		if m.turn.prog != nil {
 			m.turn.prog.Send(taskNotificationMsg{})
@@ -1705,6 +1746,7 @@ func (m *RootModel) notifySubagentMessage(sender, content string) {
 		TaskID:   sender,
 		Body:     content,
 		Priority: shell.TaskPriorityHigh,
+		At:       time.Now(),
 	})
 	if m.turn.prog != nil {
 		m.turn.prog.Send(taskNotificationMsg{})

@@ -24,6 +24,8 @@ type SessionHost interface {
 	ShowModelList()
 	// OpenResumePicker opens the conversation picker for "/resume".
 	OpenResumePicker() error
+	// ResumeConversationByID resumes a specific conversation by ID or prefix.
+	ResumeConversationByID(id string) error
 }
 
 // RegisterSessionCommands attaches the session-level commands — clear,
@@ -75,8 +77,14 @@ func RegisterSessionCommands(d *Dispatcher, h SessionHost) {
 		return true, nil
 	})
 
-	// "/resume" opens the conversation picker; the picker owns the list.
+	// "/resume" opens the conversation picker; if an argument is given, it resumes by ID.
 	d.Register("resume", func(args string) (bool, tea.Cmd) {
+		if trimmed := slashparse.Trim(args); trimmed != "" {
+			if err := h.ResumeConversationByID(trimmed); err != nil {
+				h.SlashRespond("/resume", err.Error())
+			}
+			return true, nil
+		}
 		if err := h.OpenResumePicker(); err != nil {
 			h.SlashRespond("/resume", "Failed to list conversations: "+err.Error())
 		}

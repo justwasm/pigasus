@@ -25,7 +25,7 @@ import (
 
 // chooserURL is the account chooser link the clone prints — the long
 // form, ~164 characters.
-const chooserURL = "https://accounts.google.com/AccountChooser?Email=naivgaid%40gmail.com&continue=https%3A%2F%2Fantigravity.google.com%2Fr%2F98bc1aa9-eb81-4c35-8c20-fde1e5b64300-v2"
+const chooserURL = "https://accounts.google.com/AccountChooser?Email=user%40example.com&continue=https%3A%2F%2Fantigravity.google.com%2Fr%2F98bc1aa9-eb81-4c35-8c20-fde1e5b64300-v2"
 
 // linkRows returns the transcript rows that carry a browser link.
 //

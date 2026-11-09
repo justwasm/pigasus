@@ -353,6 +353,7 @@ func initTUIRootModel(fs *flag.FlagSet, be backend.Client, modelName, unavailabl
 	// Cycle 309: the background task's completion notification reaches
 	// the model through the session's inbox.
 	m.installTaskNotifier()
+	m.ensureSubagentRegistry()
 	// Cycle multi-account-switch: the account the session starts on
 	// becomes a known account, so /accounts lists it and the user can
 	// add a second one and switch back to this one later.

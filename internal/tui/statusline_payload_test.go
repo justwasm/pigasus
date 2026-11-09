@@ -39,7 +39,7 @@ const (
 	payloadGoldenCwd     = "/agyprobe/repo"
 	payloadGoldenHome    = "/agyprobe/home"
 	payloadGoldenTitle   = "Probe"
-	payloadGoldenAccount = "stakingminer@gmail.com"
+	payloadGoldenAccount = "user4@example.com"
 	payloadGoldenTier    = "Google AI Pro"
 )
 
