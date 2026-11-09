@@ -22,6 +22,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -64,13 +65,16 @@ func TestWatchInstanceName_PushesTheRename(t *testing.T) {
 	writeInstanceName(t, configHome, "old-name")
 
 	var (
+		mu      sync.Mutex
 		gotBody string
 		gotPath string
 	)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		gotPath = r.URL.Path
 		b, _ := io.ReadAll(r.Body)
+		mu.Lock()
+		gotPath = r.URL.Path
 		gotBody = string(b)
+		mu.Unlock()
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer server.Close()
@@ -102,23 +106,31 @@ func TestWatchInstanceName_PushesTheRename(t *testing.T) {
 
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
-		if gotBody != "" {
+		mu.Lock()
+		b := gotBody
+		mu.Unlock()
+		if b != "" {
 			break
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
 
-	if gotBody == "" {
+	mu.Lock()
+	finalBody := gotBody
+	finalPath := gotPath
+	mu.Unlock()
+
+	if finalBody == "" {
 		cancel()
 		<-done
 		t.Fatalf("the rename never reached the update endpoint; log:\n%s", log.String())
 	}
-	if gotPath != "/v1internal:updateInstance" {
-		t.Errorf("path = %q, want /v1internal:updateInstance", gotPath)
+	if finalPath != "/v1internal:updateInstance" {
+		t.Errorf("path = %q, want /v1internal:updateInstance", finalPath)
 	}
 	var body map[string]any
-	if err := json.Unmarshal([]byte(gotBody), &body); err != nil {
-		t.Fatalf("the body is not JSON: %v (%s)", err, gotBody)
+	if err := json.Unmarshal([]byte(finalBody), &body); err != nil {
+		t.Fatalf("the body is not JSON: %v (%s)", err, finalBody)
 	}
 	meta, _ := body["metadata"].(map[string]any)
 	want := persistentrc.ResolveInstanceName("new-name")

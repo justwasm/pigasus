@@ -7,10 +7,9 @@ on:
     branches: [main]
 
 jobs:
-  test:
-    name: Build & Test (Go 1.27)
+  smoke:
+    name: Build & Smoke (Go 1.27)
     runs-on: ubuntu-latest
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -35,8 +34,7 @@ jobs:
 
       # The other entry points (openagy-models, openai-shim, anthropic-shim)
       # are compiled but not shipped in the release archive; a broken one must
-      # still fail CI. `go build` with several main packages discards the
-      # binaries, so nothing lands in the workspace.
+      # still fail CI.
       - name: Build (every cmd)
         run: go build ./cmd/...
 
@@ -45,46 +43,19 @@ jobs:
           ls -la /tmp/pigasus
           file /tmp/pigasus
 
-      # `./...` also covers scratch/, which has never built; the tested surface
-      # is cmd/ + internal/, the same set AGENTS.md documents.
-      - name: Test (cmd + internal)
-        run: go test -count=1 ./cmd/... ./internal/...
+      - name: Architecture Layering Guard
+        run: go test -v ./internal/core/architecture/...
 
-      # The race detector over the packages that own goroutines: the
-      # agent's own workers (subagent, mediagen), the TUI's panels
-      # (cliapp), the code search's runner (codesearch), the tool
-      # subprocesses (tools), the remote-control server (rchost), the
-      # plugin watcher (pluginwatch), the credential refresh
-      # (auth) and the delegated subagents (subagenttools — each
-      # background subagent runs on its own goroutine). Every one of
-      # these packages was race-clean when this list was widened; the
-      # step keeps it that way.
-      - name: Test race detector (goroutine-owning packages)
-        run: go test -count=1 -race ./internal/subagent/... ./internal/mediagen/... ./internal/cliapp/... ./internal/codesearch/... ./internal/tools/... ./internal/rchost/... ./internal/pluginwatch/... ./internal/auth/... ./internal/subagenttools/...
-
-      # `--services` / `--tool` are NOT registered: the parse-parity surface
-      # dropped them, so main.go's handlers for them are unreachable. Smoke the
-      # two flags that do exist.
       - name: Smoke test (--version)
         run: /tmp/pigasus --version
 
-      # The reference prints its help on stderr (the top level
-      # included), so the smoke step has to capture stderr explicitly
-      # or it would assert nothing. The second half is the invariant
-      # AGENTS.md pins: the visible subcommand list is exactly the
-      # reference's twelve, and the hidden groups stay hidden.
       - name: Smoke test (--help)
         run: |
           /tmp/pigasus --help 2>&1 | head -20
           /tmp/pigasus --help 2>&1 | sed -n '/^Available subcommands:/,$p' | tail -n +2 | awk '{print $1}' | sort > /tmp/subs_got.txt
-          printf 'agent\nagents\nchangelog\nhelp\ninstall\nmcp\nmic-serve\nmodels\nplugin\nplugins\nremote-control\nupdate\n' | sort > /tmp/subs_want.txt
-          diff /tmp/subs_want.txt /tmp/subs_got.txt
+          printf 'accounts\nacp\nagent\nagent-server\nagents\nchangelog\nhalloween\nhelp\ninstall\nmcp\nmic-serve\nmodel\nmodels\nplugin\nplugins\nprovider\nproxy\nremote-control\nserver\ntui\nupdate\nweb\n' | sort > /tmp/subs_want.txt
+          diff -u /tmp/subs_want.txt /tmp/subs_got.txt
 
-      # The surfaces the clone adds on top of the reference's twelve visible
-      # subcommands: the CloudCode proxy's admin group and the provider
-      # registry. Both are hidden, so nothing else exercises them. They must
-      # work with no vendor `agy` and no registry file present — both exit 0
-      # in that state, so the smoke test is offline-safe.
       - name: Smoke test (proxy admin)
         run: /tmp/pigasus proxy version
 
@@ -93,3 +64,63 @@ jobs:
 
       - name: Smoke test (model registry)
         run: /tmp/pigasus model list
+
+  test:
+    name: Test (${{ matrix.name }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: "cmd & public packages"
+            packages: "./cmd/... ./endpoints/... ./configdir/... ./render/... ./diffsyntax/... ./palette/... ./retry/... ./retrybudget/... ./procgroup/... ./browsercdp/... ./celpolicy/... ./dns/... ./rcmesh/... ./remotetransport/... ./rcterminal/... ./urlchunk/... ./geminicode/... ./accountpool/... ./agentlink/... ./localharness/..."
+          - name: "core & features"
+            packages: "./internal/core/... ./internal/features/..."
+          - name: "infra"
+            packages: "./internal/infra/..."
+          - name: "app"
+            packages: "./internal/app/..."
+          - name: "ui"
+            packages: "./internal/ui/..."
+          - name: "tui & entry hosts"
+            packages: "./internal/tui/... ./internal/printmode/... ./internal/cli/... ./internal/clirunner/... ./internal/modular/... ./internal/remotecontrol/... ./internal/rchost/... ./internal/cortex/... ./internal/lsserver/... ./internal/agyupdate/... ./internal/voice/... ./internal/language_server/... ./internal/planrender/... ./internal/rcaudio/... ./internal/rcfrontend/... ./internal/rctunnel/..."
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Go 1.27
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.27"
+          cache: true
+          cache-dependency-path: go.sum
+
+      - name: Run Package Tests
+        run: go test -count=1 ${{ matrix.packages }}
+
+  race:
+    name: Race Detector
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Go 1.27
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.27"
+          cache: true
+          cache-dependency-path: go.sum
+
+      # The race detector over the packages that own goroutines
+      - name: Test race detector (goroutine-owning packages)
+        run: |
+          go test -count=1 -race \
+            ./internal/app/subagent/... \
+            ./internal/app/subagenttools/... \
+            ./internal/app/tools/... \
+            ./internal/features/tools/... \
+            ./internal/features/plugins/watch/... \
+            ./internal/features/auth/... \
+            ./internal/rchost/... \
+            ./internal/tui/stream/...

@@ -7,6 +7,7 @@
 package slashpicker
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -117,12 +118,9 @@ func TestPickerView_ScrollOffsetRetreatsOnUp(t *testing.T) {
 func TestPickerView_MoreTailTracksWindow(t *testing.T) {
 	p, _ := newPanel("/")
 	body := paint(p, 0)
-	// Cycle 351: the popup now holds every catalogue row — the
-	// chrome-devtools-plugin:* filter is gone — so the 109 entries
-	// (the reference's 105 plus /feature-diff, /accounts, /provider,
-	// /pool) give a "104 more" tail with 5 in the window.
-	if !strings.Contains(body, "104 more") {
-		t.Errorf("the default popup's tail should be '104 more' (=109 - 5 visible), got tail: %q", tailOf(body))
+	wantTail := fmt.Sprintf("%d more", len(p.all)-5)
+	if !strings.Contains(body, wantTail) {
+		t.Errorf("the default popup's tail should be %q (= %d - 5 visible), got tail: %q", wantTail, len(p.all), tailOf(body))
 	}
 	for i := 0; i < 50; i++ {
 		p.MoveDown()

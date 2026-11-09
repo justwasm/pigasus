@@ -310,6 +310,13 @@ func (cs *CascadeSession) SetStatus(status string) {
 	cs.broadcastLocked()
 }
 
+// GetStatus returns the current status thread-safely.
+func (cs *CascadeSession) GetStatus() string {
+	cs.mu.Lock()
+	defer cs.mu.Unlock()
+	return cs.Status
+}
+
 // Subscribe adds a subscriber channel for state updates.
 func (cs *CascadeSession) Subscribe() chan StreamAgentStateUpdatesResponse {
 	cs.mu.Lock()

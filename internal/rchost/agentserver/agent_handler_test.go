@@ -100,7 +100,7 @@ func TestAgentTurnHandler_MockBackend(t *testing.T) {
 	deadline := time.Now().Add(3 * time.Second)
 	for time.Now().Before(deadline) {
 		steps := session.StepsSnapshot()
-		if len(steps) >= 2 && session.Status == "IDLE" {
+		if len(steps) >= 2 && session.GetStatus() == "IDLE" {
 			lastStep := steps[len(steps)-1]
 			if lastStep.Type == "PLANNER_RESPONSE" && lastStep.Status == "CORTEX_STEP_STATUS_DONE" {
 				return
@@ -109,7 +109,7 @@ func TestAgentTurnHandler_MockBackend(t *testing.T) {
 		time.Sleep(20 * time.Millisecond)
 	}
 
-	t.Fatalf("turn did not complete in time, status: %s, steps: %+v", session.Status, session.StepsSnapshot())
+	t.Fatalf("turn did not complete in time, status: %s, steps: %+v", session.GetStatus(), session.StepsSnapshot())
 }
 
 // TestResolveAgentModel pins the Pigasus-side model setting: a reference

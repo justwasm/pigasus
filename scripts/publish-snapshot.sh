@@ -189,6 +189,7 @@ ALLOWLIST=(
   docs/research
   go.mod
   go.sum
+  Makefile
   AGENTS.md
   README.md
   REVIEW.md

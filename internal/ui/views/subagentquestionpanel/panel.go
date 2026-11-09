@@ -221,7 +221,8 @@ func (p *Panel) Toggle() {
 		return
 	}
 	if len(p.pending()) == 0 {
-		if subs := p.seams.Manager.PendingSubagents(); len(subs) > 0 {
+		if (p.scope == "" || p.scope == subagentquestions.ParentKey) && len(p.seams.Manager.PendingSubagents()) > 0 {
+			subs := p.seams.Manager.PendingSubagents()
 			p.SetScope(subs[0])
 			p.Open()
 			return
