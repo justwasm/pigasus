@@ -291,23 +291,36 @@ func (r *Registry) List() []*Task {
 // removed task is not in the block — it stays in the /tasks panel,
 // which keeps the whole history.
 //
-// The order is the registry's own: the rows read in the order the work
-// started, so the block is stable while the session runs.
+// Active answers the tasks that are currently active or session subagents,
+// in the order they started.
+//
+// Background shell tasks only appear while running, pending, or blocked.
+// Session subagents remain in the list throughout their lifecycle (including
+// done, failed, and killed) so that the user can inspect and navigate them
+// beneath the composer, matching the reference's ActiveItemsModel.getActiveItems
+// behavior.
 func (r *Registry) Active() []*Task {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	out := make([]*Task, 0, len(r.tasks))
 	for _, t := range r.tasks {
-		if t.hidden {
+		if t.hidden || t.State == StateRemoved {
 			continue
 		}
-		if t.State != StateRunning && t.State != StatePending {
+		if t.Kind == KindSubagent {
+			out = append(out, t)
+			continue
+		}
+		if t.State != StateRunning && t.State != StatePending && t.State != StateBlocked {
 			continue
 		}
 		out = append(out, t)
 	}
 	sort.Slice(out, func(i, j int) bool {
-		return out[i].StartedAt.Before(out[j].StartedAt)
+		if !out[i].StartedAt.Equal(out[j].StartedAt) {
+			return out[i].StartedAt.Before(out[j].StartedAt)
+		}
+		return out[i].ID < out[j].ID
 	})
 	return out
 }

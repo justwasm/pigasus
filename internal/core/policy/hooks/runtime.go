@@ -229,6 +229,7 @@ func (r *Runtime) run(ctx context.Context, entry Entry, in Input) (Output, error
 	runCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	cmd := exec.CommandContext(runCtx, argv[0], argv[1:]...)
+	cmd.WaitDelay = 500 * time.Millisecond
 	cmd.Stdin = bytes.NewReader(payload)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout

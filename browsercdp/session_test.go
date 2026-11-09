@@ -14,6 +14,16 @@ import (
 	"testing"
 )
 
+// testChromeProfileDir returns the primary Chrome profile dir for the current platform.
+func testChromeProfileDir() string {
+	dirs := chromeProfileDirs()
+	if len(dirs) > 0 {
+		return dirs[0]
+	}
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, "Library", "Application Support", "Google", "Chrome")
+}
+
 // fakeChrome is a DevTools endpoint that answers like a Chrome does,
 // without being one.
 //
@@ -75,7 +85,7 @@ func TestResolveRunningChrome_FindsTheUsersChrome(t *testing.T) {
 	t.Setenv("CHROME_REMOTE_DEBUGGING_PORT", "")
 
 	// The file Chrome writes when remote debugging is on.
-	dir := filepath.Join(home, "Library", "Application Support", "Google", "Chrome")
+	dir := testChromeProfileDir()
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
@@ -161,7 +171,7 @@ func TestSeedUserSession_CopiesTheSession(t *testing.T) {
 	t.Setenv("HOME", home)
 	t.Setenv("CHROME_REMOTE_DEBUGGING_PORT", "")
 
-	src := filepath.Join(home, "Library", "Application Support", "Google", "Chrome")
+	src := testChromeProfileDir()
 	writeFile(t, filepath.Join(src, "Local State"), `{"profile":{"info_cache":{"Default":{},"Profile 1":{}}}}`)
 	writeFile(t, filepath.Join(src, "Default", "Network", "Cookies"), "cookies")
 	writeFile(t, filepath.Join(src, "Default", "Login Data"), "passwords")

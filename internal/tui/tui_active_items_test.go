@@ -429,3 +429,53 @@ func TestActiveItems_TimerTaskRow(t *testing.T) {
 		t.Errorf("expected timer notice in active items rows, got: %q", rows)
 	}
 }
+
+// TestActiveItems_NavigateHistoricalSubagents pins that completed historical subagents
+// remain present and navigable below the prompt, and pressing Enter opens their detail view.
+func TestActiveItems_NavigateHistoricalSubagents(t *testing.T) {
+	m := activeItemsHost(t, 30)
+	now := time.Now()
+
+	// sub-1 is done (historical); sub-2 is running.
+	m.tasks.reg.Register(&taskregistry.Task{
+		ID:        "sub-1",
+		Name:      "First Historical Subagent",
+		Kind:      taskregistry.KindSubagent,
+		State:     taskregistry.StateDone,
+		StartedAt: now.Add(-60 * time.Second),
+		EndedAt:   now.Add(-30 * time.Second),
+	})
+	m.tasks.reg.Register(&taskregistry.Task{
+		ID:        "sub-2",
+		Name:      "Second Active Subagent",
+		Kind:      taskregistry.KindSubagent,
+		State:     taskregistry.StateRunning,
+		StartedAt: now.Add(-10 * time.Second),
+	})
+
+	if m.activeItems.Panel.Count() != 2 {
+		t.Fatalf("expected activeItems Count 2, got %d", m.activeItems.Panel.Count())
+	}
+
+	// Down arrow from prompt focuses the active items list.
+	m.prompt.input.SetValue("")
+	m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyDown}))
+	if !m.activeItems.Panel.Focused() {
+		t.Fatalf("expected activeItems to be focused after Down arrow")
+	}
+	if m.activeItems.Panel.Cursor() != 0 {
+		t.Fatalf("expected cursor at 0, got %d", m.activeItems.Panel.Cursor())
+	}
+
+	// Press Enter on cursor 0 (sub-1, historical done subagent).
+	m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+	if m.overlays.panel.kind != panelregistry.Tasks {
+		t.Fatalf("expected panelregistry.Tasks to open, got %v", m.overlays.panel.kind)
+	}
+	if m.overlays.panel.tp == nil || !m.overlays.panel.tp.Detail() {
+		t.Fatalf("expected /tasks panel to be in detail view")
+	}
+	if m.overlays.panel.tp.DetailID() != "sub-1" {
+		t.Fatalf("expected detail ID 'sub-1', got %q", m.overlays.panel.tp.DetailID())
+	}
+}

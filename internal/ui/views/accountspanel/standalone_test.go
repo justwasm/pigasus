@@ -5,9 +5,15 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	accounts "github.com/justwasm/pigasus/internal/features/accounts/core"
 )
 
 func TestStandaloneModel_Init(t *testing.T) {
+	accountsIsolate(t)
+	poolIsolate(t)
+	if _, _, err := accounts.Register(accountsFakeToken(t, "user@example.com", "at-user")); err != nil {
+		t.Fatalf("Register: %v", err)
+	}
 	m := NewStandaloneModel(Seams{})
 	cmd := m.Init()
 	if cmd == nil {
@@ -29,6 +35,8 @@ func TestStandaloneModel_Init(t *testing.T) {
 }
 
 func TestStandaloneModel_QuitKeys(t *testing.T) {
+	accountsIsolate(t)
+	poolIsolate(t)
 	m := NewStandaloneModel(Seams{})
 	m.Init()
 

@@ -14,6 +14,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -53,7 +54,7 @@ func TestRefusesTemporaryHome(t *testing.T) {
 // guard: with $HOME pointing at a temporary tree, the registration is
 // refused — and nothing is written and no launchctl call is made.
 func TestStartOfficialDaemon_RefusesATemporaryHome(t *testing.T) {
-	if os.Getenv("GOOS") == "windows" {
+	if runtime.GOOS != "darwin" {
 		t.Skip("the launchd path is macOS-only")
 	}
 	home := t.TempDir()

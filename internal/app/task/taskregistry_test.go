@@ -326,6 +326,50 @@ func TestErrClosedExists(t *testing.T) {
 	}
 }
 
+// TestRegistry_ActiveSubagentsRetained verifies that Active() keeps session
+// subagents regardless of whether they are running, done, failed, or killed,
+// while dropping completed background shell tasks.
+func TestRegistry_ActiveSubagentsRetained(t *testing.T) {
+	r := New()
+	now := time.Now()
+
+	// 1. Register running and finished shell tasks.
+	r.Register(&Task{ID: "shell-running", Kind: KindShell, State: StateRunning, StartedAt: now.Add(1 * time.Second)})
+	r.Register(&Task{ID: "shell-done", Kind: KindShell, State: StateDone, StartedAt: now.Add(2 * time.Second)})
+
+	// 2. Register subagents in various lifecycle states.
+	r.Register(&Task{ID: "sub-running", Kind: KindSubagent, State: StateRunning, StartedAt: now.Add(3 * time.Second)})
+	r.Register(&Task{ID: "sub-done", Kind: KindSubagent, State: StateDone, StartedAt: now.Add(4 * time.Second)})
+	r.Register(&Task{ID: "sub-failed", Kind: KindSubagent, State: StateFailed, StartedAt: now.Add(5 * time.Second)})
+	r.Register(&Task{ID: "sub-killed", Kind: KindSubagent, State: StateKilled, StartedAt: now.Add(6 * time.Second)})
+	r.Register(&Task{ID: "sub-removed", Kind: KindSubagent, State: StateRemoved, StartedAt: now.Add(7 * time.Second)})
+
+	active := r.Active()
+	var gotIDs []string
+	for _, task := range active {
+		gotIDs = append(gotIDs, task.ID)
+	}
+
+	wantIDs := []string{"shell-running", "sub-running", "sub-done", "sub-failed", "sub-killed"}
+	if len(gotIDs) != len(wantIDs) {
+		t.Fatalf("Active() returned %d tasks (%v), want %d (%v)", len(gotIDs), gotIDs, len(wantIDs), wantIDs)
+	}
+	for i, want := range wantIDs {
+		if gotIDs[i] != want {
+			t.Errorf("Active()[%d] = %q, want %q", i, gotIDs[i], want)
+		}
+	}
+
+	// 3. Hiding a subagent removes it from Active().
+	r.Hide("sub-done")
+	active = r.Active()
+	for _, task := range active {
+		if task.ID == "sub-done" {
+			t.Errorf("hidden subagent 'sub-done' should not be in Active()")
+		}
+	}
+}
+
 // silent atomic import so go vet does not flag the atomic.Uint64
 // field as unused when other tests are added.
 var _ = atomic.LoadUint64

@@ -74,16 +74,22 @@ jobs:
         include:
           - name: "cmd & public packages"
             packages: "./cmd/... ./endpoints/... ./configdir/... ./render/... ./diffsyntax/... ./palette/... ./retry/... ./retrybudget/... ./procgroup/... ./browsercdp/... ./celpolicy/... ./dns/... ./rcmesh/... ./remotetransport/... ./rcterminal/... ./urlchunk/... ./geminicode/... ./accountpool/... ./agentlink/... ./localharness/..."
-          - name: "core & features"
-            packages: "./internal/core/... ./internal/features/..."
+          - name: "core"
+            packages: "./internal/core/..."
+          - name: "features"
+            packages: "./internal/features/..."
           - name: "infra"
             packages: "./internal/infra/..."
           - name: "app"
             packages: "./internal/app/..."
           - name: "ui"
             packages: "./internal/ui/..."
-          - name: "tui & entry hosts"
-            packages: "./internal/tui/... ./internal/printmode/... ./internal/cli/... ./internal/clirunner/... ./internal/modular/... ./internal/remotecontrol/... ./internal/rchost/... ./internal/cortex/... ./internal/lsserver/... ./internal/agyupdate/... ./internal/voice/... ./internal/language_server/... ./internal/planrender/... ./internal/rcaudio/... ./internal/rcfrontend/... ./internal/rctunnel/..."
+          - name: "entry-hosts"
+            packages: "./internal/printmode/... ./internal/cli/... ./internal/clirunner/... ./internal/modular/... ./internal/cortex/... ./internal/lsserver/... ./internal/agyupdate/... ./internal/voice/... ./internal/language_server/... ./internal/planrender/..."
+          - name: "remote-control"
+            packages: "./internal/remotecontrol/... ./internal/rchost/... ./internal/rcaudio/... ./internal/rcfrontend/... ./internal/rctunnel/..."
+          - name: "tui"
+            packages: "./internal/tui/..."
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -96,7 +102,7 @@ jobs:
           cache-dependency-path: go.sum
 
       - name: Run Package Tests
-        run: go test -count=1 ${{ matrix.packages }}
+        run: go test -count=1 -timeout 10m ${{ matrix.packages }}
 
   race:
     name: Race Detector

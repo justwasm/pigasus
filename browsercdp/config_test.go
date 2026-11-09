@@ -35,7 +35,7 @@ func TestLocalChromePorts_Order(t *testing.T) {
 
 	// The discovery reads the standard Chrome profile dirs, which hang
 	// off the home directory.
-	dir := filepath.Join(home, "Library", "Application Support", "Google", "Chrome")
+	dir := testChromeProfileDir()
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}

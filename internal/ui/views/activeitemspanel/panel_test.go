@@ -404,3 +404,75 @@ func TestPanel_Nil(t *testing.T) {
 		t.Fatalf("expected a nil panel's cursor at 0")
 	}
 }
+
+// TestPanel_NavigateMultipleSubagents verifies navigation and selection
+// across running and historical (done, failed) subagents.
+func TestPanel_NavigateMultipleSubagents(t *testing.T) {
+	tempHome(t)
+	h := newHarness(t)
+	now := time.Now()
+
+	h.reg.Register(&taskregistry.Task{
+		ID:        "sub-1",
+		Name:      "Subagent 1",
+		Kind:      taskregistry.KindSubagent,
+		State:     taskregistry.StateRunning,
+		StartedAt: now.Add(-30 * time.Second),
+	})
+	h.reg.Register(&taskregistry.Task{
+		ID:        "sub-2",
+		Name:      "Subagent 2",
+		Kind:      taskregistry.KindSubagent,
+		State:     taskregistry.StateDone,
+		StartedAt: now.Add(-20 * time.Second),
+		EndedAt:   now.Add(-10 * time.Second),
+	})
+	h.reg.Register(&taskregistry.Task{
+		ID:        "sub-3",
+		Name:      "Subagent 3",
+		Kind:      taskregistry.KindSubagent,
+		State:     taskregistry.StateFailed,
+		StartedAt: now.Add(-10 * time.Second),
+	})
+
+	if count := h.panel.Count(); count != 3 {
+		t.Fatalf("expected count 3, got %d", count)
+	}
+
+	h.panel.SetFocus(true)
+	h.panel.SelectFirst()
+	if h.panel.Cursor() != 0 {
+		t.Fatalf("expected cursor at 0, got %d", h.panel.Cursor())
+	}
+
+	// Move to sub-2 (Done).
+	h.panel.HandleKey(tea.Key{Code: tea.KeyDown})
+	if h.panel.Cursor() != 1 {
+		t.Fatalf("expected cursor at 1, got %d", h.panel.Cursor())
+	}
+
+	// Move to sub-3 (Failed).
+	h.panel.HandleKey(tea.Key{Code: tea.KeyDown})
+	if h.panel.Cursor() != 2 {
+		t.Fatalf("expected cursor at 2, got %d", h.panel.Cursor())
+	}
+
+	// Enter opens sub-3.
+	h.panel.HandleKey(tea.Key{Code: tea.KeyEnter})
+	if !h.opened || h.openedID != "sub-3" || !h.openedSub {
+		t.Fatalf("expected sub-3 detail opened, got opened=%v id=%q isSub=%v", h.opened, h.openedID, h.openedSub)
+	}
+
+	// Move back up to sub-2 (Done).
+	h.panel.HandleKey(tea.Key{Code: tea.KeyUp})
+	if h.panel.Cursor() != 1 {
+		t.Fatalf("expected cursor at 1 after KeyUp, got %d", h.panel.Cursor())
+	}
+
+	// Enter opens sub-2 (historical done subagent).
+	h.opened = false
+	h.panel.HandleKey(tea.Key{Code: tea.KeyEnter})
+	if !h.opened || h.openedID != "sub-2" || !h.openedSub {
+		t.Fatalf("expected sub-2 detail opened, got opened=%v id=%q isSub=%v", h.opened, h.openedID, h.openedSub)
+	}
+}

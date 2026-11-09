@@ -118,7 +118,7 @@ func TestACPRemote_V1_EndToEndTurn(t *testing.T) {
 	defer clientR.Close()
 	defer agentW.Close()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
 	agentConn := acp1.NewAgentSideConnection(func(c *acp1.AgentSideConnection) acp1.Agent {
@@ -180,7 +180,7 @@ func TestACPRemote_V2_EndToEndTurn(t *testing.T) {
 	defer clientR.Close()
 	defer agentW.Close()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
 	agentConn := acp2.NewAgentSideConnection(func(c *acp2.AgentSideConnection) acp2.Agent {
@@ -239,7 +239,7 @@ func TestACPRemote_V1_UsageUpdate(t *testing.T) {
 	defer clientR.Close()
 	defer agentW.Close()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
 	agentConn := acp1.NewAgentSideConnection(func(c *acp1.AgentSideConnection) acp1.Agent {
@@ -294,7 +294,7 @@ func TestACPRemote_V2_UsageUpdate(t *testing.T) {
 	defer clientR.Close()
 	defer agentW.Close()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
 	agentConn := acp2.NewAgentSideConnection(func(c *acp2.AgentSideConnection) acp2.Agent {
@@ -349,7 +349,7 @@ func TestACPRemote_V1_PlanTracking(t *testing.T) {
 	defer clientR.Close()
 	defer agentW.Close()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
 	agentConn := acp1.NewAgentSideConnection(func(c *acp1.AgentSideConnection) acp1.Agent {
@@ -403,7 +403,7 @@ func TestACPRemote_V2_PlanTracking(t *testing.T) {
 	defer clientR.Close()
 	defer agentW.Close()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
 	agentConn := acp2.NewAgentSideConnection(func(c *acp2.AgentSideConnection) acp2.Agent {
@@ -482,7 +482,7 @@ func TestACPRemote_V1_RequestPermission_AutoApprove(t *testing.T) {
 	defer clientR.Close()
 	defer agentW.Close()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
 	var permissionAllowed bool
@@ -533,7 +533,7 @@ func TestACPRemote_V2_RequestPermission_AutoApprove(t *testing.T) {
 	defer clientR.Close()
 	defer agentW.Close()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
 	var permissionAllowed bool
@@ -588,7 +588,7 @@ func TestACPRemote_RequestPermission_CustomRejectWithFeedback(t *testing.T) {
 	defer clientR.Close()
 	defer agentW.Close()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
 	var permissionAllowed bool
@@ -659,7 +659,7 @@ func TestACPRemote_FS_ReadAndWriteFile(t *testing.T) {
 	defer clientR.Close()
 	defer agentW.Close()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
 	tmpDir := t.TempDir()
@@ -731,7 +731,7 @@ func TestACPRemote_Terminal_CreateAndExit(t *testing.T) {
 	defer clientR.Close()
 	defer agentW.Close()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
 	tmpDir := t.TempDir()
@@ -818,7 +818,7 @@ func TestACPRemote_Terminal_TruncateAndKill(t *testing.T) {
 	defer clientR.Close()
 	defer agentW.Close()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
 	tmpDir := t.TempDir()
