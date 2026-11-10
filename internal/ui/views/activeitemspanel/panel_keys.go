@@ -65,6 +65,7 @@ func (p *Panel) HandleKey(key tea.Key) (bool, tea.Cmd) {
 			selected := items[p.cursor]
 			isSubagent := selected.Kind == taskregistry.KindSubagent
 			p.openDetail(selected.ID, isSubagent)
+			p.focused = false
 			return true, func() tea.Msg {
 				return MsgOpenDetail{ID: selected.ID, IsSubagent: isSubagent}
 			}

@@ -423,15 +423,14 @@ func TestPanel_NavigateMultipleSubagents(t *testing.T) {
 		ID:        "sub-2",
 		Name:      "Subagent 2",
 		Kind:      taskregistry.KindSubagent,
-		State:     taskregistry.StateDone,
+		State:     taskregistry.StatePending,
 		StartedAt: now.Add(-20 * time.Second),
-		EndedAt:   now.Add(-10 * time.Second),
 	})
 	h.reg.Register(&taskregistry.Task{
 		ID:        "sub-3",
 		Name:      "Subagent 3",
 		Kind:      taskregistry.KindSubagent,
-		State:     taskregistry.StateFailed,
+		State:     taskregistry.StateBlocked,
 		StartedAt: now.Add(-10 * time.Second),
 	})
 
@@ -463,7 +462,8 @@ func TestPanel_NavigateMultipleSubagents(t *testing.T) {
 		t.Fatalf("expected sub-3 detail opened, got opened=%v id=%q isSub=%v", h.opened, h.openedID, h.openedSub)
 	}
 
-	// Move back up to sub-2 (Done).
+	// Move back up to sub-2.
+	h.panel.SetFocus(true)
 	h.panel.HandleKey(tea.Key{Code: tea.KeyUp})
 	if h.panel.Cursor() != 1 {
 		t.Fatalf("expected cursor at 1 after KeyUp, got %d", h.panel.Cursor())

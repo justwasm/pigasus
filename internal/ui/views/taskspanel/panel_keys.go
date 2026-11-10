@@ -134,6 +134,15 @@ func (p *Panel) handleListKey(key tea.Key) (bool, tea.Cmd) {
 func (p *Panel) handleDetailKey(key tea.Key) (bool, tea.Cmd) {
 	switch key.Code {
 	case tea.KeyEsc:
+		if p.fromActiveItems {
+			p.fromActiveItems = false
+			p.closeDetail()
+			cmd := p.close()
+			if cmd == nil {
+				cmd = DismissWithActiveItemsCmd()
+			}
+			return true, cmd
+		}
 		p.closeDetail()
 		return true, nil
 	case tea.KeyUp:
@@ -190,6 +199,7 @@ func (p *Panel) openDetail() {
 	p.detail = true
 	p.detailID = t.ID
 	p.detailSubagent = t.Kind == taskregistry.KindSubagent
+	p.fromActiveItems = false
 	p.window = 0
 }
 
@@ -199,6 +209,7 @@ func (p *Panel) closeDetail() {
 	p.detail = false
 	p.detailID = ""
 	p.detailSubagent = false
+	p.fromActiveItems = false
 	p.window = 0
 }
 

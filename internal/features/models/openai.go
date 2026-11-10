@@ -372,5 +372,8 @@ func (p *openAIShapeProvider) doPost(ctx context.Context, body openAIRequestBody
 		httpReq.Header.Set("HTTP-Referer", "https://github.com/justwasm/pigasus")
 		httpReq.Header.Set("X-Title", "openagy (recovered)")
 	}
+	for name, value := range p.model.ExtraHeaders {
+		httpReq.Header.Set(name, value)
+	}
 	return p.httpClient.Do(httpReq)
 }

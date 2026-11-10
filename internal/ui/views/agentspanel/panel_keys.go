@@ -27,6 +27,7 @@ func (p *Panel) HandleKey(key tea.Key) (bool, tea.Cmd) {
 		if p.detailMode {
 			p.detailMode = false
 			p.detailSubagent = nil
+			p.window = 0
 			return true, nil
 		}
 		// The reference applies a prepared switch when the panel is
@@ -43,13 +44,33 @@ func (p *Panel) HandleKey(key tea.Key) (bool, tea.Cmd) {
 		}
 		return true, func() tea.Msg { return MsgClose{} }
 	case tea.KeyUp:
+		if p.detailMode {
+			p.scroll(-1)
+			return true, nil
+		}
 		if p.cursor > 0 {
 			p.cursor--
 		}
 		return true, nil
 	case tea.KeyDown:
+		if p.detailMode {
+			p.scroll(1)
+			return true, nil
+		}
 		if p.cursor < p.RowCount()-1 {
 			p.cursor++
+		}
+		return true, nil
+	case tea.KeyPgUp:
+		if p.detailMode {
+			p.scroll(-10)
+			return true, nil
+		}
+		return true, nil
+	case tea.KeyPgDown:
+		if p.detailMode {
+			p.scroll(10)
+			return true, nil
 		}
 		return true, nil
 	case tea.KeyEnter:
@@ -175,6 +196,7 @@ func (p *Panel) prepare() {
 		if sa != nil {
 			p.detailMode = true
 			p.detailSubagent = sa
+			p.window = 0
 		}
 		return
 	}

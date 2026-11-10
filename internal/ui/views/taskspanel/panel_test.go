@@ -653,3 +653,130 @@ func Test_TasksPanelPureMessagePassing(t *testing.T) {
 	}
 }
 
+func TestPanel_SubagentRowsRenderRichFormat(t *testing.T) {
+	reg := taskregistry.New()
+	seedTask(reg, "shell-1", "sleep 60", taskregistry.KindShell, taskregistry.StateRunning)
+	reg.Register(&taskregistry.Task{
+		ID:        "sub-1",
+		Name:      "Weather Researcher",
+		Kind:      taskregistry.KindSubagent,
+		State:     taskregistry.StateRunning,
+		Model:     "gemini-3.8-flash",
+		StartedAt: time.Now().Add(-15 * time.Second),
+	})
+
+	p, _ := testPanelSized(t, reg, 80, 24)
+	lines := p.Lines()
+
+	joined := stripAll(strings.Join(lines, "\n"))
+	if !strings.Contains(joined, "sleep 60") {
+		t.Errorf("expected sleep 60 row in list, got:\n%s", joined)
+	}
+	if !strings.Contains(joined, "Agent(Weather Researcher)") {
+		t.Errorf("expected Agent(Weather Researcher) in list, got:\n%s", joined)
+	}
+	if !strings.Contains(joined, "gemini-3.8-flash") {
+		t.Errorf("expected model name gemini-3.8-flash in subagent row, got:\n%s", joined)
+	}
+}
+
+func TestPanel_HandleWheelListAndDetail(t *testing.T) {
+	reg := taskregistry.New()
+	seedTask(reg, "t-1", "task 1", taskregistry.KindShell, taskregistry.StateRunning)
+	seedTask(reg, "t-2", "task 2", taskregistry.KindShell, taskregistry.StateRunning)
+	seedTask(reg, "t-3", "task 3", taskregistry.KindShell, taskregistry.StateRunning)
+
+	p, _ := testPanelSized(t, reg, 80, 24)
+	if p.Cursor() != 0 {
+		t.Fatalf("initial cursor = %d, want 0", p.Cursor())
+	}
+
+	// 1. Wheel down in list view moves cursor down
+	p.HandleWheel(false)
+	if p.Cursor() != 1 {
+		t.Errorf("cursor after wheel down = %d, want 1", p.Cursor())
+	}
+	p.HandleWheel(false)
+	if p.Cursor() != 2 {
+		t.Errorf("cursor after second wheel down = %d, want 2", p.Cursor())
+	}
+
+	// 2. Wheel up moves cursor up
+	p.HandleWheel(true)
+	if p.Cursor() != 1 {
+		t.Errorf("cursor after wheel up = %d, want 1", p.Cursor())
+	}
+
+	// 3. Open detail view
+	p.openDetail()
+	if !p.Detail() {
+		t.Fatal("expected detail view to be open")
+	}
+	if p.window != 0 {
+		t.Fatalf("initial detail window = %d, want 0", p.window)
+	}
+
+	// 4. Wheel down in detail view scrolls window down
+	p.HandleWheel(false)
+	if p.window != 3 {
+		t.Errorf("detail window after wheel down = %d, want 3", p.window)
+	}
+
+	// 5. Wheel up in detail view scrolls window up
+	p.HandleWheel(true)
+	if p.window != 0 {
+		t.Errorf("detail window after wheel up = %d, want 0", p.window)
+	}
+}
+
+func TestPanel_DetailEscFromActiveItemsVsList(t *testing.T) {
+	reg := taskregistry.New()
+	seedTask(reg, "task-1", "sleep 100", taskregistry.KindShell, taskregistry.StateRunning)
+	var closed bool
+	p := New(Seams{
+		Registry: func() *taskregistry.Registry { return reg },
+		Close: func() tea.Cmd {
+			closed = true
+			return nil
+		},
+	})
+
+	// Case 1: opened from /tasks list (openDetail).
+	// Esc should close detail and stay in the panel (no DismissedMsg, closed=false).
+	p.SetCursor(0)
+	p.openDetail()
+	if !p.Detail() || p.FromActiveItems() {
+		t.Fatalf("expected detail open with fromActiveItems=false, got detail=%v, fromActiveItems=%v", p.Detail(), p.FromActiveItems())
+	}
+	handled, cmd := p.HandleKey(tea.Key{Code: tea.KeyEsc})
+	if !handled || cmd != nil {
+		t.Fatalf("expected handled=true and cmd=nil when returning from detail to list, got handled=%v, cmd=%v", handled, cmd)
+	}
+	if p.Detail() {
+		t.Fatal("expected detail view closed")
+	}
+	if closed {
+		t.Fatal("expected panel not closed when leaving detail to list")
+	}
+
+	// Case 2: opened from active items (OpenTaskDetail).
+	// Esc should close detail, close the panel, and return DismissedMsg{FromActiveItems: true}.
+	p.OpenTaskDetail("task-1", false)
+	if !p.Detail() || !p.FromActiveItems() {
+		t.Fatalf("expected detail open with fromActiveItems=true, got detail=%v, fromActiveItems=%v", p.Detail(), p.FromActiveItems())
+	}
+	handled, cmd = p.HandleKey(tea.Key{Code: tea.KeyEsc})
+	if !handled || cmd == nil {
+		t.Fatalf("expected handled=true and non-nil cmd when leaving detail to active items, got handled=%v, cmd=%v", handled, cmd)
+	}
+	if !closed {
+		t.Fatal("expected panel Close seam to be called")
+	}
+	if p.Detail() {
+		t.Fatal("expected detail view closed")
+	}
+	dis, ok := cmd().(DismissedMsg)
+	if !ok || !dis.FromActiveItems {
+		t.Fatalf("expected DismissedMsg{FromActiveItems: true}, got %#v", cmd())
+	}
+}

@@ -12,6 +12,7 @@ import (
 	"github.com/justwasm/pigasus/internal/app/session/convstore"
 	"github.com/justwasm/pigasus/internal/cli"
 	"github.com/justwasm/pigasus/internal/clirunner"
+	"github.com/justwasm/pigasus/internal/core/registry"
 	rclink "github.com/justwasm/pigasus/internal/infra/remote/link"
 	persistentrc "github.com/justwasm/pigasus/internal/infra/remote/persistent"
 )
@@ -436,6 +437,10 @@ func TestRemoteControlStartup_RunRootIntegration(t *testing.T) {
 
 	t.Run("non-interactive runRoot prints remote-control card", func(t *testing.T) {
 		t.Setenv("AGY_ADC_AUTH", "")
+		origRunner := registry.GetTUIRunner()
+		defer registry.SetTUIRunner(origRunner)
+		registry.SetTUIRunner(renderTUIWithFlags)
+
 		var out bytes.Buffer
 		p := cli.NewParser(cli.StandardFlags(), cli.StandardSubcommands(),
 			"pigasus", "recovered", "recovered", cli.ExtraFlags()...)
@@ -463,6 +468,10 @@ func TestRemoteControlStartup_RunRootIntegration(t *testing.T) {
 
 	t.Run("non-interactive runRoot accepts --remote-control with --desktop", func(t *testing.T) {
 		t.Setenv("AGY_ADC_AUTH", "")
+		origRunner := registry.GetTUIRunner()
+		defer registry.SetTUIRunner(origRunner)
+		registry.SetTUIRunner(renderTUIWithFlags)
+
 		var out bytes.Buffer
 		p := cli.NewParser(cli.StandardFlags(), cli.StandardSubcommands(),
 			"pigasus", "recovered", "recovered", cli.ExtraFlags()...)

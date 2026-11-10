@@ -164,8 +164,8 @@ func applyProvider(raw []byte, id string, p ProviderConfig) ([]byte, error) {
 	if raw, err = setOrDeleteInt(raw, pfx+"max_retries", p.MaxRetries); err != nil {
 		return nil, err
 	}
-	if len(p.ExtraHeaders) > 0 {
-		return sjson.SetBytes(raw, pfx+"extra_headers", p.ExtraHeaders)
+	if headers := p.EffectiveHeaders(); len(headers) > 0 {
+		return sjson.SetBytes(raw, pfx+"extra_headers", headers)
 	}
 	return sjson.DeleteBytes(raw, pfx+"extra_headers")
 }

@@ -430,20 +430,19 @@ func TestActiveItems_TimerTaskRow(t *testing.T) {
 	}
 }
 
-// TestActiveItems_NavigateHistoricalSubagents pins that completed historical subagents
+// TestActiveItems_NavigateActiveSubagents pins that running active subagents
 // remain present and navigable below the prompt, and pressing Enter opens their detail view.
-func TestActiveItems_NavigateHistoricalSubagents(t *testing.T) {
+func TestActiveItems_NavigateActiveSubagents(t *testing.T) {
 	m := activeItemsHost(t, 30)
 	now := time.Now()
 
-	// sub-1 is done (historical); sub-2 is running.
+	// sub-1 and sub-2 are active subagents.
 	m.tasks.reg.Register(&taskregistry.Task{
 		ID:        "sub-1",
-		Name:      "First Historical Subagent",
+		Name:      "First Active Subagent",
 		Kind:      taskregistry.KindSubagent,
-		State:     taskregistry.StateDone,
+		State:     taskregistry.StateRunning,
 		StartedAt: now.Add(-60 * time.Second),
-		EndedAt:   now.Add(-30 * time.Second),
 	})
 	m.tasks.reg.Register(&taskregistry.Task{
 		ID:        "sub-2",
@@ -467,7 +466,7 @@ func TestActiveItems_NavigateHistoricalSubagents(t *testing.T) {
 		t.Fatalf("expected cursor at 0, got %d", m.activeItems.Panel.Cursor())
 	}
 
-	// Press Enter on cursor 0 (sub-1, historical done subagent).
+	// Press Enter on cursor 0 (sub-1, active subagent).
 	m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
 	if m.overlays.panel.kind != panelregistry.Tasks {
 		t.Fatalf("expected panelregistry.Tasks to open, got %v", m.overlays.panel.kind)

@@ -98,8 +98,16 @@ func RenderProviderDetail(w io.Writer, id string, p ProviderConfig) {
 	if p.MaxRetries > 0 {
 		fmt.Fprintf(w, "  retries:     %d\n", p.MaxRetries)
 	}
-	for k, v := range p.ExtraHeaders {
-		fmt.Fprintf(w, "  header:      %s: %s\n", k, v)
+	headers := p.EffectiveHeaders()
+	if len(headers) > 0 {
+		keys := make([]string, 0, len(headers))
+		for k := range headers {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		for _, k := range keys {
+			fmt.Fprintf(w, "  header:      %s: %s\n", k, headers[k])
+		}
 	}
 	mList := p.EffectiveModels()
 	if len(mList) == 0 {

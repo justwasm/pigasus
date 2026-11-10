@@ -207,7 +207,25 @@ func (r *Registry) Gen() uint64 {
 
 func (r *Registry) rebuildCacheLocked() {
 	var flat []Model
-	for _, p := range r.providers {
+	// Deterministic provider ordering: explicit user-configured models come first,
+	// then alphabetical by provider ID.
+	pIDs := make([]string, 0, len(r.providers))
+	for id := range r.providers {
+		pIDs = append(pIDs, id)
+	}
+	sort.Slice(pIDs, func(i, j int) bool {
+		pi := r.providers[pIDs[i]]
+		pj := r.providers[pIDs[j]]
+		iExplicit := len(pi.Models) > 0
+		jExplicit := len(pj.Models) > 0
+		if iExplicit != jExplicit {
+			return iExplicit
+		}
+		return pIDs[i] < pIDs[j]
+	})
+
+	for _, id := range pIDs {
+		p := r.providers[id]
 		flat = append(flat, p.Flatten()...)
 	}
 	sorted := make([]Model, len(flat))

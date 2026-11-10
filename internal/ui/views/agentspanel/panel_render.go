@@ -15,6 +15,8 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	subagent "github.com/justwasm/pigasus/internal/app/subagent/core"
 	lifecycle "github.com/justwasm/pigasus/internal/core/lifecycle"
+	tuiviewer "github.com/justwasm/pigasus/internal/ui/foundations/viewer"
+	tuiviewport "github.com/justwasm/pigasus/internal/ui/foundations/viewport"
 	"github.com/justwasm/pigasus/internal/ui/mdrender"
 	"github.com/justwasm/pigasus/internal/ui/tuilib"
 	"github.com/justwasm/pigasus/palette"
@@ -125,45 +127,58 @@ func (p *Panel) detailLines() []string {
 		lines = append(lines, palette.SubtleOpen+modelLine+panelGray238C)
 	}
 	lines = append(lines, "")
+
+	var body []string
 	if sa.Title != "" {
-		lines = append(lines, panelBoldOpen+"Task Title:"+panelBoldClose)
+		body = append(body, panelBoldOpen+"Task Title:"+panelBoldClose)
 		titleWrapped := strings.Split(ansi.Wrap(mdrender.ExpandTabs(sa.Title, 4), wrapWidth, ""), "\n")
 		for _, wl := range titleWrapped {
-			lines = append(lines, indent+wl)
+			body = append(body, indent+wl)
 		}
-		lines = append(lines, "")
+		body = append(body, "")
 	}
 	if appr, ok := p.pendingAuthorization(sa); ok {
-		lines = append(lines, panelBoldOpen+palette.WarningOpen+"Pending Approval:"+palette.SeparatorClose+panelBoldClose)
+		body = append(body, panelBoldOpen+palette.WarningOpen+"Pending Approval:"+palette.SeparatorClose+panelBoldClose)
 		suffixWrapped := strings.Split(ansi.Wrap(mdrender.ExpandTabs(approvalSuffix(appr), 4), wrapWidth, ""), "\n")
 		for _, wl := range suffixWrapped {
-			lines = append(lines, indent+wl)
+			body = append(body, indent+wl)
 		}
-		lines = append(lines, "")
+		body = append(body, "")
 	}
 	out := sa.Output()
-	lines = append(lines,
-		panelBoldOpen+"Execution Output / Log:"+panelBoldClose,
-	)
+	body = append(body, panelBoldOpen+"Execution Output / Log:"+panelBoldClose)
 	if out != "" {
 		rawLines := strings.Split(strings.TrimRight(out, "\n"), "\n")
 		for _, raw := range rawLines {
 			if strings.TrimSpace(raw) == "" {
-				lines = append(lines, "")
+				body = append(body, "")
 				continue
 			}
 			expanded := mdrender.ExpandTabs(raw, 4)
 			wrapped := strings.Split(ansi.Wrap(expanded, wrapWidth, ""), "\n")
 			for _, wl := range wrapped {
-				lines = append(lines, indent+wl)
+				body = append(body, indent+wl)
 			}
 		}
 	} else {
-		lines = append(lines, indent+"(no output captured yet)")
+		body = append(body, indent+"(no output captured yet)")
+	}
+
+	_, h := p.size()
+	visible := h - len(lines) - 4
+	if visible < 4 {
+		visible = 15
+	}
+	total := len(body)
+	win := tuiviewport.ScrollWindow(total, p.window, visible)
+	p.window = win.Start()
+	lines = append(lines, win.SliceRows(body)...)
+	if visible < total {
+		lines = append(lines, tuiviewer.Counter(win.Start()+1, win.End(), total))
 	}
 	lines = append(lines,
 		"",
-		tuilib.PanelKeyboardHint("k", "Kill Subagent", "a", "Approve", "d", "Deny", "esc", "Back to list"),
+		tuilib.PanelKeyboardHint("k", "Kill Subagent", "a", "Approve", "d", "Deny", "↑/↓", "Scroll", "esc", "Back to list"),
 	)
 	return lines
 }

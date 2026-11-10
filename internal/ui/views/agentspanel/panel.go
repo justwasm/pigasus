@@ -116,6 +116,13 @@ func (p *Panel) width() int {
 	return w
 }
 
+func (p *Panel) size() (int, int) {
+	if p != nil && p.seams.Size != nil {
+		return p.seams.Size()
+	}
+	return p.width(), 0
+}
+
 // DetailMode reports whether the panel is in the subagent detail view.
 func (p *Panel) DetailMode() bool {
 	if p == nil {
@@ -166,6 +173,9 @@ type Panel struct {
 
 	// detailSubagent is the subagent inspected in detailMode.
 	detailSubagent *subagent.Subagent
+
+	// window is the scroll offset in the detail view.
+	window int
 }
 
 // New builds the /agents panel.
@@ -349,4 +359,36 @@ func (p *Panel) close() tea.Cmd {
 		return nil
 	}
 	return p.seams.Close()
+}
+
+func (p *Panel) scroll(delta int) {
+	p.window += delta
+	if p.window < 0 {
+		p.window = 0
+	}
+}
+
+// HandleWheel handles a mouse wheel event while the panel is visible.
+func (p *Panel) HandleWheel(up bool) bool {
+	if p == nil {
+		return false
+	}
+	if p.detailMode {
+		if up {
+			p.scroll(-3)
+		} else {
+			p.scroll(3)
+		}
+		return true
+	}
+	if up {
+		if p.cursor > 0 {
+			p.cursor--
+		}
+	} else {
+		if p.cursor < p.RowCount()-1 {
+			p.cursor++
+		}
+	}
+	return true
 }

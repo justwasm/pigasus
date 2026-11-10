@@ -326,10 +326,9 @@ func TestErrClosedExists(t *testing.T) {
 	}
 }
 
-// TestRegistry_ActiveSubagentsRetained verifies that Active() keeps session
-// subagents regardless of whether they are running, done, failed, or killed,
-// while dropping completed background shell tasks.
-func TestRegistry_ActiveSubagentsRetained(t *testing.T) {
+// TestRegistry_ActiveTasksOnlyRunning verifies that Active() only keeps running,
+// pending, or blocked tasks and subagents.
+func TestRegistry_ActiveTasksOnlyRunning(t *testing.T) {
 	r := New()
 	now := time.Now()
 
@@ -350,7 +349,7 @@ func TestRegistry_ActiveSubagentsRetained(t *testing.T) {
 		gotIDs = append(gotIDs, task.ID)
 	}
 
-	wantIDs := []string{"shell-running", "sub-running", "sub-done", "sub-failed", "sub-killed"}
+	wantIDs := []string{"shell-running", "sub-running"}
 	if len(gotIDs) != len(wantIDs) {
 		t.Fatalf("Active() returned %d tasks (%v), want %d (%v)", len(gotIDs), gotIDs, len(wantIDs), wantIDs)
 	}
@@ -360,13 +359,10 @@ func TestRegistry_ActiveSubagentsRetained(t *testing.T) {
 		}
 	}
 
-	// 3. Hiding a subagent removes it from Active().
-	r.Hide("sub-done")
-	active = r.Active()
-	for _, task := range active {
-		if task.ID == "sub-done" {
-			t.Errorf("hidden subagent 'sub-done' should not be in Active()")
-		}
+	// Finished tasks remain in List() for /tasks panel.
+	all := r.List()
+	if len(all) != 7 {
+		t.Fatalf("List() returned %d tasks, want 7", len(all))
 	}
 }
 

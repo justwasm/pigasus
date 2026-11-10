@@ -28,6 +28,7 @@ func (m *mockDispatcher) DispatchDirect(ctx context.Context, method string, payl
 }
 
 func TestClient_MockWebChannelRoundTrip(t *testing.T) {
+	t.Setenv("JETSKI_OAUTH_TOKEN", "ya29.mock-test-token")
 	var (
 		mu           sync.Mutex
 		handshakeHit bool

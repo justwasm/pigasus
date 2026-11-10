@@ -67,6 +67,9 @@ func (p *anthropicProvider) Chat(ctx context.Context, req ChatRequest) (ChatResp
 	httpReq.Header.Set("content-type", "application/json")
 	httpReq.Header.Set("x-api-key", p.model.APIKey)
 	httpReq.Header.Set("anthropic-version", "2023-06-01")
+	for name, value := range p.model.ExtraHeaders {
+		httpReq.Header.Set(name, value)
+	}
 	resp, err := p.httpClient.Do(httpReq)
 	if err != nil {
 		return ChatResponse{}, err
@@ -111,6 +114,9 @@ func (p *anthropicProvider) Stream(ctx context.Context, req ChatRequest) (<-chan
 	httpReq.Header.Set("content-type", "application/json")
 	httpReq.Header.Set("x-api-key", p.model.APIKey)
 	httpReq.Header.Set("anthropic-version", "2023-06-01")
+	for name, value := range p.model.ExtraHeaders {
+		httpReq.Header.Set(name, value)
+	}
 	resp, err := p.httpClient.Do(httpReq)
 	if err != nil {
 		return nil, err

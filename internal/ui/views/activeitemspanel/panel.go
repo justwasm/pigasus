@@ -127,6 +127,30 @@ func (p *Panel) Focused() bool {
 	return p != nil && p.focused
 }
 
+// HandleWheel scrolls the active items block when mouse wheel is used while focused.
+func (p *Panel) HandleWheel(up bool) bool {
+	if p == nil || !p.focused {
+		return false
+	}
+	items := p.items()
+	total := len(items)
+	if total == 0 {
+		return false
+	}
+	if up {
+		if p.cursor > 0 {
+			p.cursor--
+			p.adjustScroll(total, p.height())
+		}
+	} else {
+		if p.cursor < total-1 {
+			p.cursor++
+			p.adjustScroll(total, p.height())
+		}
+	}
+	return true
+}
+
 // SetFocus hands the keyboard to the block, or takes it back.
 func (p *Panel) SetFocus(f bool) {
 	if p == nil {

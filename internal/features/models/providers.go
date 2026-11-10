@@ -80,6 +80,10 @@ type ProviderConfig struct {
 	APIKey string `json:"api_key,omitempty"`
 	// ExtraHeaders are added to every request to this provider.
 	ExtraHeaders map[string]string `json:"extra_headers,omitempty"`
+	// Headers is an alias for ExtraHeaders in providers.json.
+	Headers map[string]string `json:"headers,omitempty"`
+	// HeaderOverrides is an alias for ExtraHeaders in providers.json.
+	HeaderOverrides map[string]string `json:"header_overrides,omitempty"`
 	// TimeoutSeconds bounds one request. 0 means the transport's default.
 	TimeoutSeconds int `json:"timeout_seconds,omitempty"`
 	// MaxRetries is the retry count for 5xx and network failures.
@@ -459,10 +463,28 @@ func (p ProviderConfig) Flatten() []Model {
 			EffortSupported:            m.EffortSupported,
 			TimeoutSeconds:             p.TimeoutSeconds,
 			MaxRetries:                 p.MaxRetries,
-			ExtraHeaders:               copyHeaders(p.ExtraHeaders),
+			ExtraHeaders:               copyHeaders(p.EffectiveHeaders()),
 		})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out
+}
+
+// EffectiveHeaders returns the merged headers from Headers, HeaderOverrides, and ExtraHeaders.
+func (p ProviderConfig) EffectiveHeaders() map[string]string {
+	if len(p.ExtraHeaders) == 0 && len(p.Headers) == 0 && len(p.HeaderOverrides) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(p.Headers)+len(p.HeaderOverrides)+len(p.ExtraHeaders))
+	for k, v := range p.Headers {
+		out[k] = v
+	}
+	for k, v := range p.HeaderOverrides {
+		out[k] = v
+	}
+	for k, v := range p.ExtraHeaders {
+		out[k] = v
+	}
 	return out
 }
 

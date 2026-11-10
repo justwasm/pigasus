@@ -283,32 +283,18 @@ func (r *Registry) List() []*Task {
 	return out
 }
 
-// Active returns the tasks that are running or pending, sorted by
+// Active returns the tasks that are running, pending, or blocked, sorted by
 // StartedAt ascending.
 //
 // The active-items block under the prompt shows exactly these: the
-// work the session has in flight. A finished, failed, killed or
-// removed task is not in the block — it stays in the /tasks panel,
-// which keeps the whole history.
-//
-// Active answers the tasks that are currently active or session subagents,
-// in the order they started.
-//
-// Background shell tasks only appear while running, pending, or blocked.
-// Session subagents remain in the list throughout their lifecycle (including
-// done, failed, and killed) so that the user can inspect and navigate them
-// beneath the composer, matching the reference's ActiveItemsModel.getActiveItems
-// behavior.
+// work the session has in flight. Finished, failed, killed or stopped tasks
+// and subagents stay in the /tasks panel, which keeps the full history.
 func (r *Registry) Active() []*Task {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	out := make([]*Task, 0, len(r.tasks))
 	for _, t := range r.tasks {
 		if t.hidden || t.State == StateRemoved {
-			continue
-		}
-		if t.Kind == KindSubagent {
-			out = append(out, t)
 			continue
 		}
 		if t.State != StateRunning && t.State != StatePending && t.State != StateBlocked {

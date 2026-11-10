@@ -167,10 +167,12 @@ func (m *RootModel) killSelectedTask(t *taskregistry.Task) {
 
 func (m *RootModel) openTasksDetail(id string, isSubagent bool) tea.Cmd {
 	if m.overlays.panel.kind != panelregistry.Tasks || m.overlays.panel.tp == nil {
-		m.openSlashPanel("tasks")
+		m.overlays.panel = slashPanel{kind: panelregistry.Tasks, cmd: ""}
+		m.initOpenedSlashPanel(panelregistry.Tasks)
 	}
 	if m.overlays.panel.tp != nil {
 		m.overlays.panel.tp.OpenTaskDetail(id, isSubagent)
+		m.overlays.panel.tp.SetFromActiveItems(true)
 	}
 	m.activeItems.Panel.SetFocus(false)
 	return armTasksTick()
@@ -1746,12 +1748,15 @@ func (m *RootModel) panelLines() []string {
 }
 
 func (m *RootModel) closePanel() tea.Cmd {
+	if m.overlays.panel.kind == panelregistry.None {
+		return nil
+	}
 	cmd := m.overlays.panel.cmd
 	notice := m.overlays.panel.kind.ExitNotice()
 	m.overlays.panel.csp.Cancel()
 	m.overlays.panel = slashPanel{}
 	m.reloadVimSettings()
-	if notice {
+	if notice && cmd != "" {
 		m.conversation.response = append(m.conversation.response, tuilib.SlashEchoLines(cmd, "Exited "+cmd+" command")...)
 	}
 	return nil
@@ -1786,6 +1791,9 @@ func (m *RootModel) handlePanelKey(key tea.Key) (bool, tea.Cmd) {
 		return false, nil
 	}
 	if handled, cmd, claimed := m.panelRegistry().HandleKey(m.overlays.panel.kind, key); claimed {
+		if m.overlays.panel.kind == panelregistry.Tasks && m.overlays.panel.tp != nil {
+			m.overlays.panel.cursor = m.overlays.panel.tp.Cursor()
+		}
 		return handled, cmd
 	}
 	n := m.panelRegistry().RowCount(m.overlays.panel.kind)

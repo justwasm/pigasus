@@ -41,7 +41,7 @@ const (
 // ExitNotice reports whether closing the panel displays an exit notice.
 func (k Kind) ExitNotice() bool {
 	switch k {
-	case MCP, Permissions, CodeSearch, Feedback,
+	case None, MCP, Permissions, CodeSearch, Feedback,
 		Rewind, Context, Plugin, Changelog,
 		Usage, AddDir, Rename, FeatDiff, Projects:
 		return false

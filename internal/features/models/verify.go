@@ -108,7 +108,7 @@ func verifyChat(ctx context.Context, p ProviderConfig, key, wire string) VerifyR
 		Provider:          p.WireType(),
 		ProviderID:        strings.TrimSpace(p.ID),
 		Type:              p.WireType(),
-		ExtraHeaders:      copyHeaders(p.ExtraHeaders),
+		ExtraHeaders:      copyHeaders(p.EffectiveHeaders()),
 		APIKey:            key,
 		APIURL:            p.Endpoint(),
 		ExternalModelName: wire,
@@ -164,7 +164,7 @@ func verifyListing(ctx context.Context, p ProviderConfig, key string) VerifyResu
 			req.Header.Set("Authorization", "Bearer "+key)
 		}
 	}
-	for name, value := range p.ExtraHeaders {
+	for name, value := range p.EffectiveHeaders() {
 		req.Header.Set(name, value)
 	}
 	client := &http.Client{Timeout: providerTimeout(p)}
@@ -297,7 +297,7 @@ func FetchListedModels(ctx context.Context, p ProviderConfig, key string) ([]Pro
 			req.Header.Set("Authorization", "Bearer "+key)
 		}
 	}
-	for name, value := range p.ExtraHeaders {
+	for name, value := range p.EffectiveHeaders() {
 		req.Header.Set(name, value)
 	}
 	client := &http.Client{Timeout: providerTimeout(p)}

@@ -26,6 +26,7 @@ import (
 	"github.com/justwasm/pigasus/internal/core/backend"
 	"github.com/justwasm/pigasus/internal/core/cliflags"
 	"github.com/justwasm/pigasus/internal/core/policy/permissions"
+	"github.com/justwasm/pigasus/internal/core/settings"
 	modelcatalog "github.com/justwasm/pigasus/internal/features/models/catalog"
 	"github.com/justwasm/pigasus/internal/features/tools/bashmode"
 	"github.com/justwasm/pigasus/internal/features/tools/clipboard"
@@ -84,6 +85,66 @@ func (m *RootModel) clipViewBody(body string, cursorY int) (string, int) {
 	return body, cursorY
 }
 
+// isFullViewportPanel reports whether the active panel occupies the full terminal viewport,
+// replacing the conversation transcript, live rows, and prompt box.
+func (m *RootModel) isFullViewportPanel() bool {
+	kind := m.overlays.panel.kind
+	if kind == panelregistry.None {
+		return false
+	}
+	if kind == panelregistry.Changelog || kind == panelregistry.Diff || kind == panelregistry.FeatDiff {
+		return true
+	}
+	if kind == panelregistry.Tasks && m.overlays.panel.tp != nil && m.overlays.panel.tp.Detail() {
+		return true
+	}
+	if kind == panelregistry.Agents && m.overlays.panel.ag != nil && m.overlays.panel.ag.DetailMode() {
+		return true
+	}
+	if kind == panelregistry.Skills && m.overlays.panel.sk != nil && m.overlays.panel.sk.Detail() {
+		return true
+	}
+	return false
+}
+
+// requiresAltScreen reports whether the current view/panel demands alternate screen mode.
+func (m *RootModel) requiresAltScreen() bool {
+	if m.isAltScreenDisabled() {
+		return false
+	}
+	if m.isFullViewportPanel() {
+		return true
+	}
+	kind := m.overlays.panel.kind
+	if kind == panelregistry.CodeSearch || kind == panelregistry.Rewind {
+		return true
+	}
+	return false
+}
+
+// isAltScreenDisabled reports whether altScreenMode is explicitly disabled in settings.
+func (m *RootModel) isAltScreenDisabled() bool {
+	stored, err := settings.Field("altScreenMode")
+	if err == nil && stored != nil {
+		if s, ok := stored.(string); ok {
+			s = strings.ToLower(strings.TrimSpace(s))
+			if s == "never" || s == "off" || s == "false" || s == "0" {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// effectiveAltScreen returns the actual alternate screen state for the frame:
+// true if session altScreen is enabled, or if the current active view demands altScreen.
+func (m *RootModel) effectiveAltScreen() bool {
+	if m.isAltScreenDisabled() {
+		return false
+	}
+	return m.viewport.altScreen || m.requiresAltScreen()
+}
+
 // applyTerminalSettings applies the session's terminal settings to a
 // view.
 //
@@ -94,8 +155,9 @@ func (m *RootModel) clipViewBody(body string, cursorY int) (string, int) {
 // but it lives inside this program — it must not drop the terminal out
 // of the alternate screen that the session started in.
 func (m *RootModel) applyTerminalSettings(v tea.View) tea.View {
-	v.AltScreen = m.viewport.altScreen
-	if m.viewport.altScreen {
+	altScreen := m.effectiveAltScreen()
+	v.AltScreen = altScreen
+	if altScreen {
 		v.MouseMode = tea.MouseModeCellMotion
 	}
 	return v
@@ -106,6 +168,27 @@ func (m *RootModel) shouldShowInputCursor(cursorX, cursorY int) bool {
 		return false
 	}
 	if m.overlays.panel.kind != panelregistry.None {
+		return false
+	}
+	if m.isFullViewportPanel() {
+		return false
+	}
+	if m.conversation.streaming || m.conversation.thinking {
+		return false
+	}
+	if m.session.store.BashRunning() {
+		return false
+	}
+	if !m.prompt.input.Focused() {
+		return false
+	}
+	if m.hasSelection() || m.prompt.HasInputSelection() {
+		return false
+	}
+	if len(m.overlays.btwCards) > 0 || m.overlays.activeBtwID != "" {
+		return false
+	}
+	if m.overlays.HasActiveModal() {
 		return false
 	}
 	if m.overlays.resumePicker != nil && m.overlays.resumePicker.Active() {
@@ -163,6 +246,9 @@ func (m *RootModel) isViewCacheValid() bool {
 	if m.viewport.cachedStreaming != m.conversation.streaming || m.conversation.streaming {
 		return false
 	}
+	if m.conversation.thinking || m.session.store.BashRunning() {
+		return false
+	}
 	if m.viewport.cachedPickerVis != m.prompt.picker.Visible() || m.viewport.cachedPanelKind != m.overlays.panel.kind {
 		return false
 	}
@@ -203,7 +289,7 @@ func (m *RootModel) View() tea.View {
 		// copying, and Cmd+click / click on OSC 8 links without
 		// application interception.
 		v := m.auth.login.View()
-		v.AltScreen = m.viewport.altScreen
+		v.AltScreen = m.effectiveAltScreen()
 		return v
 	}
 	if m.isViewCacheValid() {
@@ -233,7 +319,7 @@ func (m *RootModel) View() tea.View {
 	m.viewport.cachedPickerVis = m.prompt.picker.Visible()
 	m.viewport.cachedPanelKind = m.overlays.panel.kind
 	m.viewport.cachedStreaming = m.conversation.streaming
-	m.viewport.viewCacheValid = !m.conversation.streaming && m.shouldShowInputCursor(cursorX, cursorY)
+	m.viewport.viewCacheValid = !m.conversation.streaming && !m.conversation.thinking && !m.session.store.BashRunning() && m.shouldShowInputCursor(cursorX, cursorY)
 	return v
 }
 
@@ -342,9 +428,11 @@ func (m *RootModel) renderBodyPrompt(b *strings.Builder) int {
 		cursorY += c.Y
 	}
 	b.WriteString(m.promptRule(false) + "\n")
-	if activeView := m.activeItems.Panel.Rows(); activeView != "" {
-		b.WriteString(activeView + "\n")
-		b.WriteString(m.separator() + "\n")
+	if m.overlays.panel.kind == panelregistry.None {
+		if activeView := m.activeItems.Panel.Rows(); activeView != "" {
+			b.WriteString(activeView + "\n")
+			b.WriteString(m.separator() + "\n")
+		}
 	}
 	return cursorY
 }
@@ -412,7 +500,7 @@ func (m *RootModel) viewBody(transcript []string) (string, int) {
 	m.prompt.picker.ResetGeom()
 	m.prompt.promptScreenY = -1
 
-	if (m.overlays.panel.kind == panelregistry.Changelog || m.overlays.panel.kind == panelregistry.Diff) && m.viewport.height > 0 {
+	if m.isFullViewportPanel() && m.viewport.height > 0 {
 		b.WriteString(m.panelView())
 		if m.statusLine.visible != "off" {
 			m.writeStatusArea(&b)
@@ -598,13 +686,59 @@ func (m *RootModel) handleScrollKey(key tea.Key) bool {
 	return false
 }
 
-// handleMouseWheel scrolls the transcript on a wheel event.
+// handleMouseWheel scrolls the transcript or active panel on a wheel event.
 func (m *RootModel) handleMouseWheel(msg tea.MouseMsg) bool {
-	if !m.viewport.altScreen {
+	if !m.effectiveAltScreen() {
 		return false
 	}
 	if m.prompt.picker.HandleWheel(msg.Mouse()) {
 		return true
+	}
+	up := msg.Mouse().Button == tea.MouseWheelUp
+	if m.overlays.resumePicker != nil && m.overlays.resumePicker.Active() {
+		key := tea.Key{Code: tea.KeyDown}
+		if up {
+			key.Code = tea.KeyUp
+		}
+		m.overlays.resumePicker.HandleKey(key, m.viewport.height)
+		return true
+	}
+	if m.overlays.panel.kind != panelregistry.None {
+		if m.overlays.panel.kind == panelregistry.Tasks && m.overlays.panel.tp != nil {
+			if m.overlays.panel.tp.HandleWheel(up) {
+				m.overlays.panel.cursor = m.overlays.panel.tp.Cursor()
+				return true
+			}
+		}
+		if m.overlays.panel.kind == panelregistry.Agents && m.overlays.panel.ag != nil {
+			if m.overlays.panel.ag.HandleWheel(up) {
+				m.overlays.panel.cursor = m.overlays.panel.ag.Cursor()
+				return true
+			}
+		}
+		if m.overlays.panel.kind.IsViewer() {
+			for i := 0; i < mouseWheelRows; i++ {
+				key := tea.Key{Code: tea.KeyDown}
+				if up {
+					key.Code = tea.KeyUp
+				}
+				m.handleViewerPanelKey(key)
+			}
+			return true
+		}
+		// For all other interactive panels, dispatch Up/Down navigation keys
+		// to the panel handler and ensure the overlay completely absorbs the wheel.
+		key := tea.Key{Code: tea.KeyDown}
+		if up {
+			key.Code = tea.KeyUp
+		}
+		m.handlePanelKey(key)
+		return true
+	}
+	if m.activeItems.Panel != nil && m.activeItems.Panel.Focused() {
+		if m.activeItems.Panel.HandleWheel(up) {
+			return true
+		}
 	}
 	switch msg.Mouse().Button {
 	case tea.MouseWheelUp:

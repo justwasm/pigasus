@@ -89,6 +89,10 @@ type Panel struct {
 	// detailSubagent says the open detail view is the subagent one.
 	detailSubagent bool
 
+	// fromActiveItems indicates that the detail view was opened directly
+	// from the active items list below composer.
+	fromActiveItems bool
+
 	// window is the detail view's scroll offset, in body rows.
 	window int
 }
@@ -153,7 +157,24 @@ func (p *Panel) OpenTaskDetail(id string, isSubagent bool) {
 	p.detail = true
 	p.detailID = id
 	p.detailSubagent = isSubagent
+	p.fromActiveItems = true
 	p.window = 0
+}
+
+// SetFromActiveItems sets whether the detail view was opened from active items.
+func (p *Panel) SetFromActiveItems(b bool) {
+	if p == nil {
+		return
+	}
+	p.fromActiveItems = b
+}
+
+// FromActiveItems reports whether the detail view was opened from active items.
+func (p *Panel) FromActiveItems() bool {
+	if p == nil {
+		return false
+	}
+	return p.fromActiveItems
 }
 
 // RowCount is the number of rows the list renders.
@@ -165,6 +186,25 @@ func (p *Panel) RowCount() int {
 		return 0
 	}
 	return len(p.snapshot())
+}
+
+// HandleWheel handles a mouse wheel event while the panel is visible.
+// When detail view is open, it scrolls the detail body window by 3 lines.
+// When task list is open, it moves the selection cursor.
+func (p *Panel) HandleWheel(up bool) bool {
+	if p == nil {
+		return false
+	}
+	if p.detail {
+		if up {
+			p.scroll(-3)
+		} else {
+			p.scroll(3)
+		}
+		return true
+	}
+	p.moveCursor(!up)
+	return true
 }
 
 // ---- the seams ---------------------------------------------------------

@@ -22,7 +22,9 @@ type DetailOpenedMsg struct {
 }
 
 // DismissedMsg is emitted when the tasks panel is closed.
-type DismissedMsg struct{}
+type DismissedMsg struct {
+	FromActiveItems bool
+}
 
 // KillTaskCmd wraps TaskKilledMsg into a tea.Cmd.
 func KillTaskCmd(t *taskregistry.Task) tea.Cmd {
@@ -49,5 +51,12 @@ func OpenDetailCmd(t *taskregistry.Task) tea.Cmd {
 func DismissCmd() tea.Cmd {
 	return func() tea.Msg {
 		return DismissedMsg{}
+	}
+}
+
+// DismissWithActiveItemsCmd wraps DismissedMsg with FromActiveItems=true into a tea.Cmd.
+func DismissWithActiveItemsCmd() tea.Cmd {
+	return func() tea.Msg {
+		return DismissedMsg{FromActiveItems: true}
 	}
 }

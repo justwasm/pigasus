@@ -437,3 +437,37 @@ func TestProviderModel_MarshalJSON_CleanFormat(t *testing.T) {
 		t.Errorf("expected 'model' to be preserved when differing: %s", string(dataCustom))
 	}
 }
+
+func TestProviderConfig_EffectiveHeaders(t *testing.T) {
+	raw := `{
+		"providers": {
+			"p1": {
+				"headers": {"User-Agent": "agent-one", "X-Custom": "val1"},
+				"header_overrides": {"X-Custom": "val2", "X-Override": "yes"},
+				"extra_headers": {"Extra": "present"}
+			}
+		}
+	}`
+	parsed, err := ParseProviders([]byte(raw))
+	if err != nil {
+		t.Fatalf("ParseProviders: %v", err)
+	}
+	p := parsed["p1"]
+	headers := p.EffectiveHeaders()
+	if headers["User-Agent"] != "agent-one" {
+		t.Errorf("User-Agent = %q, want agent-one", headers["User-Agent"])
+	}
+	if headers["X-Custom"] != "val2" {
+		t.Errorf("X-Custom = %q, want val2", headers["X-Custom"])
+	}
+	if headers["X-Override"] != "yes" {
+		t.Errorf("X-Override = %q, want yes", headers["X-Override"])
+	}
+	if headers["Extra"] != "present" {
+		t.Errorf("Extra = %q, want present", headers["Extra"])
+	}
+	flattened := p.Flatten()
+	if len(flattened) > 0 && flattened[0].ExtraHeaders["User-Agent"] != "agent-one" {
+		t.Errorf("flattened ExtraHeaders[User-Agent] = %q, want agent-one", flattened[0].ExtraHeaders["User-Agent"])
+	}
+}

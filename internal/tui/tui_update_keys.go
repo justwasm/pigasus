@@ -182,6 +182,11 @@ func (m *RootModel) dispatchKeyAction(action string) (tea.Model, tea.Cmd, bool) 
 			return m, m.overlays.resumePicker.HandleKey(tea.Key{Code: tea.KeyF4}, m.viewport.height), true
 		}
 	case "navigation.go_to_top", "navigation.top":
+		if m.overlays.panel.kind != panelregistry.None {
+			if handled, cmd := m.handlePanelKey(tea.Key{Code: tea.KeyHome}); handled {
+				return m, cmd, true
+			}
+		}
 		if listPanelKind(m.overlays.panel.kind) {
 			m.overlays.panel.cursor = tuiviewport.PanelCursor(m.overlays.panel.cursor, tuilib.NavTop, m.panelRegistry().RowCount(m.overlays.panel.kind))
 			return m, nil, true
@@ -191,6 +196,11 @@ func (m *RootModel) dispatchKeyAction(action string) (tea.Model, tea.Cmd, bool) 
 			return m, nil, true
 		}
 	case "navigation.go_to_bottom", "navigation.bottom":
+		if m.overlays.panel.kind != panelregistry.None {
+			if handled, cmd := m.handlePanelKey(tea.Key{Code: tea.KeyEnd}); handled {
+				return m, cmd, true
+			}
+		}
 		if listPanelKind(m.overlays.panel.kind) {
 			m.overlays.panel.cursor = tuiviewport.PanelCursor(m.overlays.panel.cursor, tuilib.NavBottom, m.panelRegistry().RowCount(m.overlays.panel.kind))
 			return m, nil, true
@@ -200,6 +210,11 @@ func (m *RootModel) dispatchKeyAction(action string) (tea.Model, tea.Cmd, bool) 
 			return m, nil, true
 		}
 	case "navigation.page_up":
+		if m.overlays.panel.kind != panelregistry.None {
+			if handled, cmd := m.handlePanelKey(tea.Key{Code: tea.KeyPgUp}); handled {
+				return m, cmd, true
+			}
+		}
 		if listPanelKind(m.overlays.panel.kind) {
 			m.overlays.panel.cursor = tuiviewport.PanelCursor(m.overlays.panel.cursor, tuilib.NavPageUp, m.panelRegistry().RowCount(m.overlays.panel.kind))
 			return m, nil, true
@@ -209,6 +224,11 @@ func (m *RootModel) dispatchKeyAction(action string) (tea.Model, tea.Cmd, bool) 
 			return m, nil, true
 		}
 	case "navigation.page_down":
+		if m.overlays.panel.kind != panelregistry.None {
+			if handled, cmd := m.handlePanelKey(tea.Key{Code: tea.KeyPgDown}); handled {
+				return m, cmd, true
+			}
+		}
 		if listPanelKind(m.overlays.panel.kind) {
 			m.overlays.panel.cursor = tuiviewport.PanelCursor(m.overlays.panel.cursor, tuilib.NavPageDown, m.panelRegistry().RowCount(m.overlays.panel.kind))
 			return m, nil, true
@@ -218,6 +238,11 @@ func (m *RootModel) dispatchKeyAction(action string) (tea.Model, tea.Cmd, bool) 
 			return m, nil, true
 		}
 	case "navigation.half_page_up":
+		if m.overlays.panel.kind != panelregistry.None {
+			if handled, cmd := m.handlePanelKey(tea.Key{Code: tea.KeyPgUp}); handled {
+				return m, cmd, true
+			}
+		}
 		if listPanelKind(m.overlays.panel.kind) {
 			m.overlays.panel.cursor = tuiviewport.PanelCursor(m.overlays.panel.cursor, tuilib.NavHalfPageUp, m.panelRegistry().RowCount(m.overlays.panel.kind))
 			return m, nil, true
@@ -227,6 +252,11 @@ func (m *RootModel) dispatchKeyAction(action string) (tea.Model, tea.Cmd, bool) 
 			return m, nil, true
 		}
 	case "navigation.half_page_down":
+		if m.overlays.panel.kind != panelregistry.None {
+			if handled, cmd := m.handlePanelKey(tea.Key{Code: tea.KeyPgDown}); handled {
+				return m, cmd, true
+			}
+		}
 		if listPanelKind(m.overlays.panel.kind) {
 			m.overlays.panel.cursor = tuiviewport.PanelCursor(m.overlays.panel.cursor, tuilib.NavHalfPageDown, m.panelRegistry().RowCount(m.overlays.panel.kind))
 			return m, nil, true
@@ -236,6 +266,11 @@ func (m *RootModel) dispatchKeyAction(action string) (tea.Model, tea.Cmd, bool) 
 			return m, nil, true
 		}
 	case "navigation.up":
+		if m.overlays.panel.kind != panelregistry.None {
+			if handled, cmd := m.handlePanelKey(tea.Key{Code: tea.KeyUp}); handled {
+				return m, cmd, true
+			}
+		}
 		if listPanelKind(m.overlays.panel.kind) {
 			m.overlays.panel.cursor = tuiviewport.PanelCursor(m.overlays.panel.cursor, tuilib.NavUp, m.panelRegistry().RowCount(m.overlays.panel.kind))
 			return m, nil, true
@@ -244,6 +279,11 @@ func (m *RootModel) dispatchKeyAction(action string) (tea.Model, tea.Cmd, bool) 
 			return m, m.overlays.resumePicker.HandleKey(tea.Key{Code: tea.KeyUp}, m.viewport.height), true
 		}
 	case "navigation.down":
+		if m.overlays.panel.kind != panelregistry.None {
+			if handled, cmd := m.handlePanelKey(tea.Key{Code: tea.KeyDown}); handled {
+				return m, cmd, true
+			}
+		}
 		if listPanelKind(m.overlays.panel.kind) {
 			m.overlays.panel.cursor = tuiviewport.PanelCursor(m.overlays.panel.cursor, tuilib.NavDown, m.panelRegistry().RowCount(m.overlays.panel.kind))
 			return m, nil, true
@@ -252,6 +292,11 @@ func (m *RootModel) dispatchKeyAction(action string) (tea.Model, tea.Cmd, bool) 
 			return m, m.overlays.resumePicker.HandleKey(tea.Key{Code: tea.KeyDown}, m.viewport.height), true
 		}
 	case "navigation.left":
+		if m.overlays.panel.kind != panelregistry.None {
+			if handled, cmd := m.handlePanelKey(tea.Key{Code: tea.KeyLeft}); handled {
+				return m, cmd, true
+			}
+		}
 		if listPanelKind(m.overlays.panel.kind) {
 			m.overlays.panel.cursor = tuiviewport.PanelCursor(m.overlays.panel.cursor, tuilib.NavLeft, m.panelRegistry().RowCount(m.overlays.panel.kind))
 			return m, nil, true
@@ -260,6 +305,11 @@ func (m *RootModel) dispatchKeyAction(action string) (tea.Model, tea.Cmd, bool) 
 			return m, m.overlays.resumePicker.HandleKey(tea.Key{Code: tea.KeyLeft}, m.viewport.height), true
 		}
 	case "navigation.right":
+		if m.overlays.panel.kind != panelregistry.None {
+			if handled, cmd := m.handlePanelKey(tea.Key{Code: tea.KeyRight}); handled {
+				return m, cmd, true
+			}
+		}
 		if listPanelKind(m.overlays.panel.kind) {
 			m.overlays.panel.cursor = tuiviewport.PanelCursor(m.overlays.panel.cursor, tuilib.NavRight, m.panelRegistry().RowCount(m.overlays.panel.kind))
 			return m, nil, true
@@ -1483,6 +1533,9 @@ func (m *RootModel) updateMouseAndMiscMsg(msg tea.Msg) (tea.Model, tea.Cmd, bool
 	case taskspanel.TaskRemovedMsg:
 		return m, armTasksTick(), true
 	case taskspanel.DismissedMsg:
+		if msg.FromActiveItems && m.activeItems.Panel != nil && m.activeItems.Panel.Count() > 0 {
+			m.activeItems.Panel.SetFocus(true)
+		}
 		return m, m.closePanel(), true
 	case codesearchpanel.SendCommentsMsg:
 		return m, m.codesearchSendComments(msg.Text), true

@@ -74,7 +74,11 @@ func (p *Panel) listLines() []string {
 	} else {
 		width, _ := p.size()
 		for i, t := range tasks {
-			lines = append(lines, taskregistry.RowLine(t, i == p.cursor, width))
+			if t != nil && t.Kind == taskregistry.KindSubagent {
+				lines = append(lines, taskregistry.ActiveSubagentRowLine(t, i == p.cursor, width))
+			} else {
+				lines = append(lines, taskregistry.RowLine(t, i == p.cursor, width))
+			}
 		}
 		if filtered := p.filtered(); filtered > 0 {
 			lines = append(lines,

@@ -61,7 +61,7 @@ func TestLSWorktree_Lifecycle(t *testing.T) {
 	if out, err := initCmd.CombinedOutput(); err != nil {
 		t.Fatalf("git init: %v (%s)", err, out)
 	}
-	commitCmd := exec.Command("git", "-C", repoDir, "commit", "--allow-empty", "-m", "init")
+	commitCmd := exec.Command("git", "-C", repoDir, "-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "--allow-empty", "-m", "init")
 	if out, err := commitCmd.CombinedOutput(); err != nil {
 		t.Fatalf("git commit: %v (%s)", err, out)
 	}
@@ -95,7 +95,7 @@ func TestLSWorktree_Lifecycle(t *testing.T) {
 		t.Fatal(err)
 	}
 	_ = exec.Command("git", "-C", wtPath, "add", "new.txt").Run()
-	_ = exec.Command("git", "-C", wtPath, "commit", "-m", "wt commit").Run()
+	_ = exec.Command("git", "-C", wtPath, "-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-m", "wt commit").Run()
 
 	// 3. Test GetWorktreeDiff
 	diffReq, _ := json.Marshal(map[string]any{

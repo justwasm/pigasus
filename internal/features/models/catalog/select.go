@@ -189,6 +189,7 @@ func resolveModelWithoutEffort(model string) (string, error) {
 		if tier := models.DefaultEffort(m); tier != "" {
 			return models.TierRowID(m.Name, tier), nil
 		}
+		return m.Name, nil
 	}
 	return "", invalidModelSelection(model, "",
 		"model "+model+" is not recognized as a known model or custom model in settings\n"+availableModelsBlock())
@@ -204,6 +205,9 @@ func configuredModel(name string) (models.Model, bool) {
 	name = strings.TrimSpace(name)
 	if name == "" {
 		return models.Model{}, false
+	}
+	if m, ok := reg.GetByName(name); ok {
+		return *m, true
 	}
 	for _, m := range reg.List() {
 		if m.Name == name || strings.TrimSpace(m.DisplayName) == name {
