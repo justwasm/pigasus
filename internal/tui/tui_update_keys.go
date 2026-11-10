@@ -855,8 +855,7 @@ func (m *RootModel) handleCtrlAndTabKeys(key tea.Key) (tea.Model, tea.Cmd, bool)
 		}
 	}
 	if key.Code == 'a' && key.Mod == 0 && m.prompt.input.Value() == "" &&
-		!m.help.Panel.Active() && !m.prompt.picker.Visible() && !m.overlays.resumePicker.Active() &&
-		m.overlays.panel.kind == panelregistry.None &&
+		!m.hasActiveModal() && !m.prompt.picker.Visible() &&
 		m.askQuestion.manager != nil && m.askQuestion.manager.TotalPending() > 0 {
 		waiting := m.askQuestion.manager.PendingSubagents()
 		if len(waiting) > 0 && m.askQuestion.panel != nil {

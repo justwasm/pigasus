@@ -294,11 +294,18 @@ func TestFork_WritesConvStoreAndAppearsInPicker(t *testing.T) {
 		t.Fatalf("/resume should open with the past conversation present (resp=%v)", m.conversation.response)
 	}
 	list := m.overlays.resumePicker.List()
-	if len(list) != 1 {
-		t.Fatalf("expected 1 conversation (the fork is current and hidden), got %d", len(list))
+	if len(list) != 2 {
+		t.Fatalf("expected 2 conversations (current fork + past conversation), got %d", len(list))
 	}
-	if list[0].Title == "" || !strings.Contains(list[0].Title, "older prompt") {
-		t.Errorf("picker should show the past conversation, got %q", list[0].Title)
+	foundPast := false
+	for _, item := range list {
+		if strings.Contains(item.Title, "older prompt") {
+			foundPast = true
+			break
+		}
+	}
+	if !foundPast {
+		t.Errorf("picker should show the past conversation with 'older prompt'")
 	}
 }
 

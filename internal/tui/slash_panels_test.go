@@ -84,6 +84,7 @@ func mkPanel(kind panelregistry.Kind, cmd string, cursor int) *RootModel {
 	// quotaStubRefills / explicit state sets).
 	if kind == panelregistry.Usage {
 		m.overlays.panel.quota.state = quotaLoaded
+		m.session.email = "user@example.com"
 	}
 	// The /config panel owns its own cursor, so the panel is built with
 	// the host's seams and the cursor is handed to it.

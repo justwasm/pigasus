@@ -173,6 +173,7 @@ var catalogue = map[string]catalogueEntry{
 	"claude-opus-4-6-thinking": {enum: "MODEL_PLACEHOLDER_M26", inputLimit: 250_000, outputCap: 64_000, ckptLimit: 160_000, ckptOutput: 16_384},
 	// MODEL_OPENAI_GPT_OSS_120B_MEDIUM — maxTokens 131072, max_output
 	// 32768, checkpoint limit 80000 / output 8192.
+	"gpt-oss-120b":        {enum: "MODEL_OPENAI_GPT_OSS_120B_MEDIUM", inputLimit: 131_072, outputCap: 32_768, ckptLimit: 80_000, ckptOutput: 8_192},
 	"gpt-oss-120b-medium": {enum: "MODEL_OPENAI_GPT_OSS_120B_MEDIUM", inputLimit: 131_072, outputCap: 32_768, ckptLimit: 80_000, ckptOutput: 8_192},
 
 	// --- advertised but not selectable (the reference's own validator
@@ -337,6 +338,26 @@ func configuredLimit(modelID string) (Limit, bool) {
 		reserve = DefaultReserveTokens
 	}
 	return Limit{ContextWindow: window, ReserveTokens: reserve}, true
+}
+
+// PublishedContextWindow returns the model's published input token limit
+// (e.g. 131072 for gpt-oss-120b, 1048576 for gemini-2.5-pro) without the
+// internal checkpointer experiment clamp. This is what the reference's
+// status line reports in context_window.context_window_size.
+func PublishedContextWindow(modelID string) int {
+	id := normalize(modelID)
+	for _, cand := range candidates(modelID, id) {
+		if m, ok := catalogue[cand]; ok && m.inputLimit > 0 {
+			return m.inputLimit
+		}
+		if p, ok := ProfileFor(cand); ok && p.MaxTokenLimit > 0 {
+			return p.MaxTokenLimit
+		}
+	}
+	if l, ok := configuredLimit(modelID); ok && l.ContextWindow > 0 {
+		return l.ContextWindow
+	}
+	return DefaultContextWindow
 }
 
 // ContextWindowFor returns the effective context limit for a catalogue model

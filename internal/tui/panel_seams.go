@@ -811,7 +811,7 @@ func (m *RootModel) buildStatusLinePayload() statusline.Payload {
 	}
 	contextWindow := 0
 	if model != "" {
-		contextWindow = modelctx.ContextWindowFor(model)
+		contextWindow = modelctx.PublishedContextWindow(model)
 	}
 	taskCount := 0
 	if m.tasks.reg != nil {

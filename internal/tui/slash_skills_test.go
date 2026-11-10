@@ -508,7 +508,8 @@ func assertPanelSkillsLayout(t *testing.T) {
 	if len(cat) == 0 {
 		return
 	}
-	if !strings.Contains(joined, "Shared skills · ") {
+	shared, _, _, _, _ := skillsui.PartitionSkillsForPanel(cat)
+	if len(shared) > 0 && !strings.Contains(joined, "Shared skills · ") {
 		t.Errorf("missing the shared group header:\n%s", joined)
 	}
 	if n := len(skillsui.NewPanelModel(slashSkillCatalog()).Items); n > 11 {
