@@ -14,6 +14,8 @@ type fakeOverlayHost struct {
 	closed     bool
 	btwDismiss bool
 	height     int
+	helpActive bool
+	helpClosed bool
 }
 
 func (f *fakeOverlayHost) HandlePanelKey(key tea.Key) (bool, tea.Cmd) {
@@ -22,15 +24,24 @@ func (f *fakeOverlayHost) HandlePanelKey(key tea.Key) (bool, tea.Cmd) {
 func (f *fakeOverlayHost) ClosePanel() tea.Cmd { f.closed = true; return nil }
 func (f *fakeOverlayHost) DismissBtwResponse() { f.btwDismiss = true }
 func (f *fakeOverlayHost) ViewportHeight() int { return f.height }
+func (f *fakeOverlayHost) HelpActive() bool    { return f.helpActive }
+func (f *fakeOverlayHost) CloseHelp()          { f.helpClosed = true }
 
 // TestOverlayModel_DismissChain pins the Esc priority for overlays: the
-// modal panel first, then the side-question card. The login dialog is the
-// AuthModel's and is dismissed by the root before this chain runs.
+// help overlay first, then the modal panel, then the side-question card.
 func TestOverlayModel_DismissChain(t *testing.T) {
 	host := &fakeOverlayHost{}
 
-	// A panel that does not claim Esc is closed by the host.
+	// Help overlay has highest priority in modal overlay dismiss chain.
+	host.helpActive = true
 	o := OverlayModel{panel: slashPanel{kind: panelregistry.Tasks}}
+	if _, handled := o.Dismiss(host); !handled || !host.helpClosed {
+		t.Fatalf("help dismissal: handled=%v closed=%v", handled, host.helpClosed)
+	}
+	host.helpActive = false
+
+	// A panel that does not claim Esc is closed by the host.
+	o = OverlayModel{panel: slashPanel{kind: panelregistry.Tasks}}
 	if _, handled := o.Dismiss(host); !handled || !host.closed {
 		t.Fatalf("panel dismissal: handled=%v closed=%v", handled, host.closed)
 	}

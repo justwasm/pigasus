@@ -75,7 +75,7 @@ func (m *RootModel) dispatchKeyAction(action string) (tea.Model, tea.Cmd, bool) 
 			return m, m.editPromptCmd(), true
 		}
 	case "prompt.submit_alternate":
-		if !m.overlays.resumePicker.Active() && !m.help.Panel.Active() && m.overlays.panel.kind == panelregistry.None && !m.prompt.picker.Visible() {
+		if !m.hasActiveModal() && !m.prompt.picker.Visible() {
 			return m, m.submitAlternate(), true
 		}
 	case "view.review_artifact":
@@ -165,7 +165,7 @@ func (m *RootModel) dispatchKeyAction(action string) (tea.Model, tea.Cmd, bool) 
 			return m, m.audio.Surface.Start("keybind"), true
 		}
 	case "cli.cycle_mode":
-		if !m.overlays.resumePicker.Active() && !m.help.Panel.Active() && m.overlays.panel.kind == panelregistry.None && !m.prompt.picker.Visible() {
+		if !m.hasActiveModal() && !m.prompt.picker.Visible() {
 			m.cycleMode()
 			return m, nil, true
 		}
@@ -173,7 +173,7 @@ func (m *RootModel) dispatchKeyAction(action string) (tea.Model, tea.Cmd, bool) 
 		if m.overlays.resumePicker.Active() {
 			return m, m.overlays.resumePicker.HandleKey(tea.Key{Code: tea.KeyF2}, m.viewport.height), true
 		}
-		if !m.overlays.resumePicker.Active() && !m.help.Panel.Active() && m.overlays.panel.kind == panelregistry.None && !m.prompt.picker.Visible() {
+		if !m.hasActiveModal() && !m.prompt.picker.Visible() {
 			m.openRenamePanel()
 			return m, nil, true
 		}
@@ -191,7 +191,7 @@ func (m *RootModel) dispatchKeyAction(action string) (tea.Model, tea.Cmd, bool) 
 			m.overlays.panel.cursor = tuiviewport.PanelCursor(m.overlays.panel.cursor, tuilib.NavTop, m.panelRegistry().RowCount(m.overlays.panel.kind))
 			return m, nil, true
 		}
-		if m.viewport.altScreen && !m.help.Panel.Active() && !m.prompt.picker.Visible() && !m.overlays.resumePicker.Active() {
+		if m.viewport.altScreen && !m.hasActiveModal() && !m.prompt.picker.Visible() {
 			m.gotoTop()
 			return m, nil, true
 		}
@@ -205,7 +205,7 @@ func (m *RootModel) dispatchKeyAction(action string) (tea.Model, tea.Cmd, bool) 
 			m.overlays.panel.cursor = tuiviewport.PanelCursor(m.overlays.panel.cursor, tuilib.NavBottom, m.panelRegistry().RowCount(m.overlays.panel.kind))
 			return m, nil, true
 		}
-		if m.viewport.altScreen && !m.help.Panel.Active() && !m.prompt.picker.Visible() && !m.overlays.resumePicker.Active() {
+		if m.viewport.altScreen && !m.hasActiveModal() && !m.prompt.picker.Visible() {
 			m.gotoBottom()
 			return m, nil, true
 		}
@@ -219,7 +219,7 @@ func (m *RootModel) dispatchKeyAction(action string) (tea.Model, tea.Cmd, bool) 
 			m.overlays.panel.cursor = tuiviewport.PanelCursor(m.overlays.panel.cursor, tuilib.NavPageUp, m.panelRegistry().RowCount(m.overlays.panel.kind))
 			return m, nil, true
 		}
-		if m.viewport.altScreen && !m.help.Panel.Active() && !m.prompt.picker.Visible() && !m.overlays.resumePicker.Active() {
+		if m.viewport.altScreen && !m.hasActiveModal() && !m.prompt.picker.Visible() {
 			m.scrollBy(-tuilib.ClampInt(m.viewport.vpRows-1, 1, 1<<20))
 			return m, nil, true
 		}
@@ -233,7 +233,7 @@ func (m *RootModel) dispatchKeyAction(action string) (tea.Model, tea.Cmd, bool) 
 			m.overlays.panel.cursor = tuiviewport.PanelCursor(m.overlays.panel.cursor, tuilib.NavPageDown, m.panelRegistry().RowCount(m.overlays.panel.kind))
 			return m, nil, true
 		}
-		if m.viewport.altScreen && !m.help.Panel.Active() && !m.prompt.picker.Visible() && !m.overlays.resumePicker.Active() {
+		if m.viewport.altScreen && !m.hasActiveModal() && !m.prompt.picker.Visible() {
 			m.scrollBy(tuilib.ClampInt(m.viewport.vpRows-1, 1, 1<<20))
 			return m, nil, true
 		}
@@ -247,7 +247,7 @@ func (m *RootModel) dispatchKeyAction(action string) (tea.Model, tea.Cmd, bool) 
 			m.overlays.panel.cursor = tuiviewport.PanelCursor(m.overlays.panel.cursor, tuilib.NavHalfPageUp, m.panelRegistry().RowCount(m.overlays.panel.kind))
 			return m, nil, true
 		}
-		if m.viewport.altScreen && !m.help.Panel.Active() && !m.prompt.picker.Visible() && !m.overlays.resumePicker.Active() {
+		if m.viewport.altScreen && !m.hasActiveModal() && !m.prompt.picker.Visible() {
 			m.scrollBy(-tuilib.ClampInt(m.viewport.vpRows/2, 1, 1<<20))
 			return m, nil, true
 		}
@@ -261,7 +261,7 @@ func (m *RootModel) dispatchKeyAction(action string) (tea.Model, tea.Cmd, bool) 
 			m.overlays.panel.cursor = tuiviewport.PanelCursor(m.overlays.panel.cursor, tuilib.NavHalfPageDown, m.panelRegistry().RowCount(m.overlays.panel.kind))
 			return m, nil, true
 		}
-		if m.viewport.altScreen && !m.help.Panel.Active() && !m.prompt.picker.Visible() && !m.overlays.resumePicker.Active() {
+		if m.viewport.altScreen && !m.hasActiveModal() && !m.prompt.picker.Visible() {
 			m.scrollBy(tuilib.ClampInt(m.viewport.vpRows/2, 1, 1<<20))
 			return m, nil, true
 		}
@@ -347,10 +347,10 @@ func (m *RootModel) dispatchKeyAction(action string) (tea.Model, tea.Cmd, bool) 
 	case "cli.suspend":
 		return m, tea.Suspend, true
 	case "cli.escape":
-		if m.vimEnabled() && !m.help.Panel.Active() && !m.prompt.picker.Visible() && !m.prompt.atFilePicker.Visible() && m.overlays.panel.kind == panelregistry.None {
+		if m.vimEnabled() && !m.hasActiveModal() && !m.prompt.picker.Visible() && !m.prompt.atFilePicker.Visible() {
 			return m, nil, false
 		}
-		if !m.conversation.streaming && !m.session.store.BashRunning() && !m.help.Panel.Active() && !m.prompt.picker.Visible() && !m.prompt.atFilePicker.Visible() && m.overlays.panel.kind == panelregistry.None && !m.prompt.mediaExpanded {
+		if !m.conversation.streaming && !m.session.store.BashRunning() && !m.hasActiveModal() && !m.prompt.picker.Visible() && !m.prompt.atFilePicker.Visible() && !m.prompt.mediaExpanded {
 			if m.display.exitConfirm {
 				m.display.exitConfirm = false
 				return m, nil, true
@@ -359,14 +359,14 @@ func (m *RootModel) dispatchKeyAction(action string) (tea.Model, tea.Cmd, bool) 
 		model, cmd := m.handleEscKeyMsg()
 		return model, cmd, true
 	case "cli.enter":
-		if m.vimEnabled() && !m.help.Panel.Active() && !m.prompt.picker.Visible() && !m.prompt.atFilePicker.Visible() && m.overlays.panel.kind == panelregistry.None {
+		if m.vimEnabled() && !m.hasActiveModal() && !m.prompt.picker.Visible() && !m.prompt.atFilePicker.Visible() {
 			return m, nil, false
 		}
-		if !m.overlays.resumePicker.Active() && !m.help.Panel.Active() && m.overlays.panel.kind == panelregistry.None && !m.prompt.picker.Visible() {
+		if !m.hasActiveModal() && !m.prompt.picker.Visible() {
 			return m.handleEnterKey(tea.Key{Code: tea.KeyEnter})
 		}
 	case "prompt.insert_newline":
-		if !m.overlays.resumePicker.Active() && !m.help.Panel.Active() && m.overlays.panel.kind == panelregistry.None {
+		if !m.hasActiveModal() {
 			if m.vimEnabled() && m.prompt.vimEng != nil && m.prompt.vimEng.Mode == vim.Insert {
 				m.prompt.vimEng.InsertNewline()
 				m.syncVimInput()
@@ -646,7 +646,7 @@ func (m *RootModel) handleFunctionAndModeKeys(key tea.Key) (tea.Model, tea.Cmd, 
 	// character (or a vim search/motion argument in normal mode) and must
 	// be handled by the editor, not intercepted by the shortcuts overlay.
 	if key.Code == '?' && key.Mod == 0 && m.prompt.input.Value() == "" && !m.composerInVimInsert() &&
-		!m.help.Panel.Active() && !m.prompt.picker.Visible() && !m.overlays.resumePicker.Active() && m.overlays.panel.kind == panelregistry.None {
+		!m.hasActiveModal() && !m.prompt.picker.Visible() {
 		m.help.Panel.Open(2) // shortcuts
 		m.ResetInputSelection()
 		m.prompt.promptHistory.Reset()
@@ -659,7 +659,7 @@ func (m *RootModel) handleFunctionAndModeKeys(key tea.Key) (tea.Model, tea.Cmd, 
 	// bash mode here would swallow the character before the engine ever
 	// saw it.
 	if key.Code == '!' && key.Mod == 0 && m.prompt.input.Value() == "" && !m.session.store.BashMode &&
-		!m.help.Panel.Active() && !m.prompt.picker.Visible() && !m.overlays.resumePicker.Active() && m.overlays.panel.kind == panelregistry.None &&
+		!m.hasActiveModal() && !m.prompt.picker.Visible() &&
 		!m.vimEnabled() {
 		m.session.store.BashMode = true
 		if m.prompt.undoMgr != nil {
@@ -681,11 +681,11 @@ func (m *RootModel) handleFunctionAndModeKeys(key tea.Key) (tea.Model, tea.Cmd, 
 		}
 		return m, nil, true
 	}
-	if key.Code == tea.KeyF2 && !m.overlays.resumePicker.Active() && !m.help.Panel.Active() && m.overlays.panel.kind == panelregistry.None && !m.prompt.picker.Visible() {
+	if key.Code == tea.KeyF2 && !m.hasActiveModal() && !m.prompt.picker.Visible() {
 		m.openRenamePanel()
 		return m, nil, true
 	}
-	if key.Code == tea.KeyF5 && !m.overlays.resumePicker.Active() && !m.help.Panel.Active() && m.overlays.panel.kind == panelregistry.None && !m.prompt.picker.Visible() && !m.audio.Surface.Active() {
+	if key.Code == tea.KeyF5 && !m.hasActiveModal() && !m.prompt.picker.Visible() && !m.audio.Surface.Active() {
 		return m, m.audio.Surface.Start("f5"), true
 	}
 	if m.overlays.panel.kind != panelregistry.None {
@@ -693,7 +693,7 @@ func (m *RootModel) handleFunctionAndModeKeys(key tea.Key) (tea.Model, tea.Cmd, 
 			return m, cmd, true
 		}
 	}
-	if !m.help.Panel.Active() && !m.prompt.picker.Visible() && !m.overlays.resumePicker.Active() && m.handleScrollKey(key) {
+	if !m.hasActiveModal() && !m.prompt.picker.Visible() && m.handleScrollKey(key) {
 		return m, nil, true
 	}
 	return m, nil, false

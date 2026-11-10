@@ -3,7 +3,10 @@
 package daemon
 
 import (
+	"bytes"
 	"errors"
+	"fmt"
+	"os"
 	"os/exec"
 	"syscall"
 	"time"
@@ -31,6 +34,23 @@ func killProcessGroupGracefully(pgid int) {
 }
 
 func isProcessAlive(pid int) bool {
+	if pid <= 0 {
+		return false
+	}
+	// On Linux, inspect /proc/<pid>/stat to distinguish zombies from running processes.
+	// A zombie process has already terminated, but kill(pid, 0) still succeeds until reaped.
+	if data, err := os.ReadFile(fmt.Sprintf("/proc/%d/stat", pid)); err == nil {
+		if idx := bytes.LastIndexByte(data, ')'); idx != -1 && idx+2 < len(data) {
+			state := data[idx+2]
+			if state == 'Z' || state == 'X' {
+				return false
+			}
+		}
+	} else if errors.Is(err, os.ErrNotExist) || os.IsNotExist(err) {
+		if _, statErr := os.Stat("/proc"); statErr == nil {
+			return false
+		}
+	}
 	err := syscall.Kill(pid, 0)
 	if err != nil && errors.Is(err, syscall.ESRCH) {
 		return false

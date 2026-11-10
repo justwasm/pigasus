@@ -743,7 +743,19 @@ func (h *AHPHost) startTurn(chat *ahpChat, action *ahptypes.ChatTurnStartedActio
 	chat.turnMu.Lock()
 	if chat.turnCancel != nil {
 		chat.turnMu.Unlock()
-		return
+		for i := 0; i < 25; i++ {
+			time.Sleep(20 * time.Millisecond)
+			chat.turnMu.Lock()
+			if chat.turnCancel == nil {
+				break
+			}
+			chat.turnMu.Unlock()
+		}
+		chat.turnMu.Lock()
+		if chat.turnCancel != nil {
+			chat.turnMu.Unlock()
+			return
+		}
 	}
 	chat.turnMu.Unlock()
 
@@ -962,6 +974,16 @@ func (h *AHPHost) startTurn(chat *ahpChat, action *ahptypes.ChatTurnStartedActio
 			return
 		}
 
+		chat.turnMu.Lock()
+		chat.history = append(chat.history, agentlink.Message{
+			Role:    "assistant",
+			Content: assistantText.String(),
+		})
+		if chat.turnCancel != nil {
+			chat.turnCancel = nil
+		}
+		chat.turnMu.Unlock()
+
 		duration := time.Since(startTime).Milliseconds()
 		h.broadcastAction(chat.resource, ahptypes.StateAction{
 			Value: &ahptypes.ChatTurnCompleteAction{
@@ -970,13 +992,6 @@ func (h *AHPHost) startTurn(chat *ahpChat, action *ahptypes.ChatTurnStartedActio
 				Duration: duration,
 			},
 		})
-
-		chat.turnMu.Lock()
-		chat.history = append(chat.history, agentlink.Message{
-			Role:    "assistant",
-			Content: assistantText.String(),
-		})
-		chat.turnMu.Unlock()
 
 		// Notify parent session of chat update
 		if chat.parentSession != nil {

@@ -206,11 +206,18 @@ func (t *Tracker) spawnReaper(pid int, tr *tracked) {
 		defer ticker.Stop()
 		for range ticker.C {
 			if !isProcessAlive(pid) {
-				close(tr.exitCh)
+				select {
+				case <-tr.exitCh:
+				default:
+					close(tr.exitCh)
+				}
 				t.Untrack(pid)
 				return
 			}
-			if t.closed.Load() {
+			t.mu.Lock()
+			_, present := t.procs[pid]
+			t.mu.Unlock()
+			if !present {
 				return
 			}
 		}
@@ -365,10 +372,21 @@ func (t *Tracker) escalateKill(delay time.Duration, logger Logger, ctx context.C
 }
 
 func (t *Tracker) waitForGraceExit(graceCtx context.Context, delay time.Duration, logger Logger, ctx context.Context) int {
-	ticker := time.NewTicker(50 * time.Millisecond)
+	ticker := time.NewTicker(20 * time.Millisecond)
 	defer ticker.Stop()
 	for {
 		t.mu.Lock()
+		for pid, tr := range t.procs {
+			if !isProcessAlive(pid) {
+				select {
+				case <-tr.exitCh:
+				default:
+					close(tr.exitCh)
+				}
+				delete(t.procs, pid)
+				t.wg.Done()
+			}
+		}
 		alive := len(t.procs)
 		t.mu.Unlock()
 		if alive == 0 {

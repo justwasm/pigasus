@@ -74,22 +74,43 @@ jobs:
         include:
           - name: "cmd & public packages"
             packages: "./cmd/... ./endpoints/... ./configdir/... ./render/... ./diffsyntax/... ./palette/... ./retry/... ./retrybudget/... ./procgroup/... ./browsercdp/... ./celpolicy/... ./dns/... ./rcmesh/... ./remotetransport/... ./rcterminal/... ./urlchunk/... ./geminicode/... ./accountpool/... ./agentlink/... ./localharness/..."
+            flags: ""
           - name: "core"
             packages: "./internal/core/..."
+            flags: ""
           - name: "features"
             packages: "./internal/features/..."
+            flags: ""
           - name: "infra"
             packages: "./internal/infra/..."
+            flags: ""
           - name: "app"
             packages: "./internal/app/..."
+            flags: ""
           - name: "ui"
             packages: "./internal/ui/..."
+            flags: ""
           - name: "entry-hosts"
             packages: "./internal/printmode/... ./internal/cli/... ./internal/clirunner/... ./internal/modular/... ./internal/cortex/... ./internal/lsserver/... ./internal/agyupdate/... ./internal/voice/... ./internal/language_server/... ./internal/planrender/..."
+            flags: ""
           - name: "remote-control"
             packages: "./internal/remotecontrol/... ./internal/rchost/... ./internal/rcaudio/... ./internal/rcfrontend/... ./internal/rctunnel/..."
-          - name: "tui"
-            packages: "./internal/tui/..."
+            flags: ""
+          - name: "tui (A-M)"
+            packages: "./internal/tui"
+            flags: '-run "^Test[A-M]"'
+          - name: "tui (N-R)"
+            packages: "./internal/tui"
+            flags: '-run "^Test[N-R]"'
+          - name: "tui (S)"
+            packages: "./internal/tui"
+            flags: '-run "^TestS"'
+          - name: "tui (T-Z)"
+            packages: "./internal/tui"
+            flags: '-run "^Test[T-Z]"'
+          - name: "tui (subpackages)"
+            packages: "./internal/tui/commands/... ./internal/tui/panels/... ./internal/tui/stream/..."
+            flags: ""
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -102,7 +123,7 @@ jobs:
           cache-dependency-path: go.sum
 
       - name: Run Package Tests
-        run: go test -count=1 -timeout 10m ${{ matrix.packages }}
+        run: go test -count=1 -timeout 10m ${{ matrix.flags }} ${{ matrix.packages }}
 
   race:
     name: Race Detector

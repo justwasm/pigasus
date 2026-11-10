@@ -56,14 +56,20 @@ type OverlayDismissHost interface {
 	ClosePanel() tea.Cmd
 	DismissBtwResponse()
 	ViewportHeight() int
+	HelpActive() bool
+	CloseHelp()
 }
 
-// Dismiss runs the Escape dismissal chain in priority order: login, modal
-// panel, resume picker, side-question card. It reports whether an overlay
+// Dismiss runs the Escape dismissal chain in priority order: help overlay,
+// modal panel, resume picker, side-question card. It reports whether an overlay
 // claimed the key and the command the dismissal scheduled.
 func (o *OverlayModel) Dismiss(host OverlayDismissHost) (tea.Cmd, bool) {
 	if o == nil {
 		return nil, false
+	}
+	if host != nil && host.HelpActive() {
+		host.CloseHelp()
+		return nil, true
 	}
 	if o.panel.kind != panelregistry.None {
 		if handled, cmd := host.HandlePanelKey(tea.Key{Code: tea.KeyEsc}); handled {

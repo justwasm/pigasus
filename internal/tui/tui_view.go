@@ -252,7 +252,7 @@ func (m *RootModel) isViewCacheValid() bool {
 	if m.viewport.cachedPickerVis != m.prompt.picker.Visible() || m.viewport.cachedPanelKind != m.overlays.panel.kind {
 		return false
 	}
-	if m.prompt.picker.Visible() || m.overlays.panel.kind != panelregistry.None || m.help.Panel.Active() || (m.overlays.resumePicker != nil && m.overlays.resumePicker.Active()) || (m.audio.Surface != nil && m.audio.Surface.Active()) || (m.activeItems.Panel != nil && m.activeItems.Panel.Focused()) || m.askQuestion.Active() || (m.askQuestion.panel != nil && m.askQuestion.panel.Active()) || m.hasSelection() || m.prompt.HasInputSelection() {
+	if m.prompt.picker.Visible() || m.hasActiveModal() || (m.audio.Surface != nil && m.audio.Surface.Active()) || (m.activeItems.Panel != nil && m.activeItems.Panel.Focused()) || m.askQuestion.Active() || (m.askQuestion.panel != nil && m.askQuestion.panel.Active()) || m.hasSelection() || m.prompt.HasInputSelection() {
 		return false
 	}
 	if m.viewport.cachedScroll != m.viewport.scroll || m.viewport.cachedAutoScroll != m.viewport.autoScroll {
@@ -324,7 +324,7 @@ func (m *RootModel) View() tea.View {
 }
 
 func (m *RootModel) renderBodyQueuesAndCard(b *strings.Builder) {
-	if !m.prompt.picker.Visible() && !m.overlays.resumePicker.Active() && !m.help.Panel.Active() {
+	if !m.prompt.picker.Visible() && !m.hasActiveModal() {
 		if row := m.overlays.announceQueue.Row(); row != "" {
 			b.WriteString(row)
 		}
@@ -356,7 +356,7 @@ func (m *RootModel) renderBodyQueuesAndCard(b *strings.Builder) {
 
 func (m *RootModel) syncInputPlaceholder() {
 	switch {
-	case m.prompt.picker.Visible() || m.overlays.panel.kind != panelregistry.None || m.help.Panel.Active() || m.overlays.resumePicker.Active() || m.audio.Surface.Active():
+	case m.prompt.picker.Visible() || m.hasActiveModal() || m.audio.Surface.Active():
 		m.prompt.input.Placeholder = ""
 	case m.viewport.inputNotice != "":
 		m.prompt.input.Placeholder = m.viewport.inputNotice
@@ -703,6 +703,14 @@ func (m *RootModel) handleMouseWheel(msg tea.MouseMsg) bool {
 		m.overlays.resumePicker.HandleKey(key, m.viewport.height)
 		return true
 	}
+	if m.help.Panel != nil && m.help.Panel.Active() {
+		key := tea.Key{Code: tea.KeyDown}
+		if up {
+			key.Code = tea.KeyUp
+		}
+		m.help.Panel.Update(key)
+		return true
+	}
 	if m.overlays.panel.kind != panelregistry.None {
 		if m.overlays.panel.kind == panelregistry.Tasks && m.overlays.panel.tp != nil {
 			if m.overlays.panel.tp.HandleWheel(up) {
@@ -717,7 +725,8 @@ func (m *RootModel) handleMouseWheel(msg tea.MouseMsg) bool {
 			}
 		}
 		if m.overlays.panel.kind.IsViewer() {
-			for i := 0; i < mouseWheelRows; i++ {
+			step := m.wheelScrollRows()
+			for i := 0; i < step; i++ {
 				key := tea.Key{Code: tea.KeyDown}
 				if up {
 					key.Code = tea.KeyUp
@@ -740,15 +749,36 @@ func (m *RootModel) handleMouseWheel(msg tea.MouseMsg) bool {
 			return true
 		}
 	}
+	step := m.wheelScrollRows()
 	switch msg.Mouse().Button {
 	case tea.MouseWheelUp:
-		m.scrollBy(-mouseWheelRows)
+		m.scrollBy(-step)
 		return true
 	case tea.MouseWheelDown:
-		m.scrollBy(mouseWheelRows)
+		m.scrollBy(step)
 		return true
 	}
 	return false
+}
+
+// wheelScrollRows returns the dynamic scroll step for mouse wheel events,
+// deriving the step from the available viewport height:
+//
+//	availableLines = totalHeight - chromeLines
+//	step = max(1, availableLines / 3)
+//	step = min(step, mouseWheelRows)
+//
+// Upstream: google3/third_party/jetski/cli/model/model.(*ConversationModel).scrollWheel (0x102bb5430)
+func (m *RootModel) wheelScrollRows() int {
+	avail := m.viewportHeight()
+	step := avail / 3
+	if step < 1 {
+		step = 1
+	}
+	if step > mouseWheelRows {
+		step = mouseWheelRows
+	}
+	return step
 }
 
 type wrapSlot = tuiviewport.WrapSlot
@@ -1886,7 +1916,7 @@ type pasteMediaMsg struct {
 // pasted as text. Only a paste that delivered nothing asks the platform
 // for an image, which is the "Cmd+V with only an image copied" case.
 func (m *RootModel) handlePasteContent(text string) tea.Cmd {
-	if m.help.Panel.Active() || m.overlays.panel.kind != panelregistry.None {
+	if m.hasActiveModal() {
 		// A panel owns the keyboard (the /rename field pastes its own
 		// text); the composer's paste does not reach it.
 		return m.insertPastedText(text)

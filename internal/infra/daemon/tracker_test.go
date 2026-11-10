@@ -284,7 +284,7 @@ func TestGracefulShutdownWaitsForCleanExit(t *testing.T) {
 		// path; fall back to the PATH lookup.
 		bin = "sh"
 	}
-	cmd := exec.Command(bin, "-c", `trap "exit 0" TERM; sleep 30`)
+	cmd := exec.Command(bin, "-c", `trap "exit 0" TERM; sleep 30 & wait`)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	if err := cmd.Start(); err != nil {
 		t.Fatalf("start: %v", err)
@@ -869,7 +869,7 @@ func TestExitGracefulShutdownWaits(t *testing.T) {
 	if _, err := os.Stat(bin); err != nil {
 		bin = "sh"
 	}
-	cmd := exec.Command(bin, "-c", `trap "exit 0" TERM; sleep 30`)
+	cmd := exec.Command(bin, "-c", `trap "exit 0" TERM; sleep 30 & wait`)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	if err := cmd.Start(); err != nil {
 		t.Fatalf("start: %v", err)
