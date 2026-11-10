@@ -35,7 +35,7 @@ func WorkspacePath(workspace string) string {
 	return filepath.Join(workspace, ".agents", "hooks.json")
 }
 
-// Load reads the global and the workspace documents.
+// Load reads the global, the workspace, and the installed plugins' hook documents.
 //
 // A missing document is not an error: the clone simply has no hooks. A
 // document that cannot be read or parsed is skipped, and the reason is
@@ -43,7 +43,8 @@ func WorkspacePath(workspace string) string {
 // the other one with it.
 //
 // The order is the reference's: the global document first, the workspace
-// document second, so a workspace hook fires after a global one.
+// document second, and plugin documents, so a workspace or plugin hook fires
+// in expected order.
 func Load(workspace string) *Registry {
 	reg := &Registry{}
 	for _, path := range []string{GlobalPath(), WorkspacePath(workspace)} {
@@ -64,6 +65,34 @@ func Load(workspace string) *Registry {
 			reg.Problems = append(reg.Problems, Problem{Path: path, Reason: reason})
 		}
 	}
+
+	// Also load hooks from enabled/installed plugins in ~/.gemini/config/plugins.
+	home, _ := os.UserHomeDir()
+	if home != "" {
+		pluginsDir := filepath.Join(home, ".gemini", "config", "plugins")
+		if entries, err := os.ReadDir(pluginsDir); err == nil {
+			for _, e := range entries {
+				pluginDir := filepath.Join(pluginsDir, e.Name())
+				hookPath := filepath.Join(pluginDir, "hooks.json")
+				raw, err := os.ReadFile(hookPath)
+				if err != nil {
+					continue
+				}
+				reg.Sources = append(reg.Sources, hookPath)
+				parsedEntries, problems := Parse(raw)
+				pluginDataDir := filepath.Join(home, ".gemini", "antigravity-cli", "plugin_data", e.Name())
+				for i := range parsedEntries {
+					parsedEntries[i].PluginRoot = pluginDir
+					parsedEntries[i].PluginData = pluginDataDir
+				}
+				reg.Entries = append(reg.Entries, parsedEntries...)
+				for _, reason := range problems {
+					reg.Problems = append(reg.Problems, Problem{Path: hookPath, Reason: reason})
+				}
+			}
+		}
+	}
+
 	return reg
 }
 

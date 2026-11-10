@@ -176,3 +176,55 @@ func TestFallbackShellArgv(t *testing.T) {
 		t.Errorf("FallbackShellArgv = %v, want the command last", argv)
 	}
 }
+
+// TestHookInputFields_154 verifies that hookEventName, cwd, and toolCall.id
+// are sent in the hook JSON input (AGY 1.5.4).
+func TestHookInputFields_154(t *testing.T) {
+	cmd := `input=$(cat); if echo "$input" | grep -q "hookEventName" && echo "$input" | grep -q "cwd" && echo "$input" | grep -q "call_999"; then echo '{"decision":"deny","reason":"matched_154"}'; else echo '{}'; fi`
+	rt := testRuntime(entry(cmd))
+	rt.WorkDir = t.TempDir()
+	out := rt.Fire(context.Background(), EventPreToolUse, Input{
+		ToolCall: &ToolCall{ID: "call_999", Name: "run_command"},
+	})
+	if out.Decision != DecisionDeny || out.Reason != "matched_154" {
+		t.Fatalf("failed to match 1.5.4 hook input fields: decision=%v reason=%v problems=%v", out.Decision, out.Reason, out.Problems)
+	}
+}
+
+// TestPluginHookEnvVars_154 verifies PLUGIN_ROOT and PLUGIN_DATA env injection
+// and variable expansion for plugin hook commands (AGY 1.5.4).
+func TestPluginHookEnvVars_154(t *testing.T) {
+	e := Entry{
+		Hook:       "plugin-hook",
+		Event:      EventPreToolUse,
+		PluginRoot: "/plugins/my-plugin",
+		PluginData: "/data/my-plugin",
+		Handler: Handler{
+			Type:    "command",
+			Command: `if [ "$PLUGIN_ROOT" = "/plugins/my-plugin" ] && [ "$PLUGIN_DATA" = "/data/my-plugin" ]; then echo '{"decision":"deny","reason":"env_ok"}'; else echo '{}'; fi`,
+		},
+	}
+	rt := testRuntime(e)
+	out := rt.Fire(context.Background(), EventPreToolUse, Input{})
+	if out.Decision != DecisionDeny || out.Reason != "env_ok" {
+		t.Fatalf("expected env vars injected: decision=%v reason=%v", out.Decision, out.Reason)
+	}
+
+	// Also verify placeholder expansion
+	e2 := Entry{
+		Hook:       "expand-hook",
+		Event:      EventPreToolUse,
+		PluginRoot: "/plugins/my-plugin",
+		PluginData: "/data/my-plugin",
+		Handler: Handler{
+			Type:    "command",
+			Command: `echo '{"decision":"deny","reason":"${PLUGIN_ROOT}"}'`,
+		},
+	}
+	rt2 := testRuntime(e2)
+	out2 := rt2.Fire(context.Background(), EventPreToolUse, Input{})
+	if out2.Reason != "/plugins/my-plugin" {
+		t.Fatalf("expected ${PLUGIN_ROOT} expanded, got %q", out2.Reason)
+	}
+}
+
