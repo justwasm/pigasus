@@ -18,6 +18,11 @@ import (
 // The field names are the documentation's own (camelCase): the common
 // fields every hook receives, and the event-specific ones.
 type Input struct {
+	// HookEventName is the event being run, as written in hooks.json.
+	HookEventName string `json:"hookEventName,omitempty"`
+	// Cwd is the agent's working directory, where its commands run by default.
+	Cwd string `json:"cwd,omitempty"`
+
 	// ConversationID is the unique id of the active conversation.
 	ConversationID string `json:"conversationId"`
 	// WorkspacePaths are the absolute paths of the mounted workspaces.
@@ -57,6 +62,8 @@ type Input struct {
 
 // ToolCall is the tool call a hook sees.
 type ToolCall struct {
+	// ID is the unique identifier of the tool call.
+	ID string `json:"id,omitempty"`
 	// Name is the name of the tool.
 	Name string `json:"name"`
 	// Args are the arguments the tool was called with.
@@ -158,6 +165,12 @@ func (r *Runtime) Fire(ctx context.Context, ev Event, in Input) Outcome {
 	if r == nil {
 		return out
 	}
+	if in.HookEventName == "" {
+		in.HookEventName = string(ev)
+	}
+	if in.Cwd == "" && r.WorkDir != "" {
+		in.Cwd = r.WorkDir
+	}
 	for _, entry := range r.Registry.Match(ev, in.ToolName()) {
 		res, err := r.run(ctx, entry, in)
 		if err != nil {
@@ -217,7 +230,16 @@ func (o *Outcome) merge(ev Event, res Output) {
 
 // run executes one handler and reads its answer.
 func (r *Runtime) run(ctx context.Context, entry Entry, in Input) (Output, error) {
-	argv := r.argv(entry.Handler.Command)
+	command := entry.Handler.Command
+	if entry.PluginRoot != "" {
+		command = strings.ReplaceAll(command, "${PLUGIN_ROOT}", entry.PluginRoot)
+		command = strings.ReplaceAll(command, "$PLUGIN_ROOT", entry.PluginRoot)
+	}
+	if entry.PluginData != "" {
+		command = strings.ReplaceAll(command, "${PLUGIN_DATA}", entry.PluginData)
+		command = strings.ReplaceAll(command, "$PLUGIN_DATA", entry.PluginData)
+	}
+	argv := r.argv(command)
 	if len(argv) == 0 {
 		return Output{}, errors.New("hook " + strconv.Quote(entry.Hook) + ": no shell to run the command with")
 	}
@@ -235,7 +257,17 @@ func (r *Runtime) run(ctx context.Context, entry Entry, in Input) (Output, error
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 	cmd.Dir = r.WorkDir
-	cmd.Env = r.Env
+	cmdEnv := r.Env
+	if entry.PluginRoot != "" || entry.PluginData != "" {
+		cmdEnv = append([]string{}, cmdEnv...)
+		if entry.PluginRoot != "" {
+			cmdEnv = append(cmdEnv, "PLUGIN_ROOT="+entry.PluginRoot)
+		}
+		if entry.PluginData != "" {
+			cmdEnv = append(cmdEnv, "PLUGIN_DATA="+entry.PluginData)
+		}
+	}
+	cmd.Env = cmdEnv
 	if err := cmd.Run(); err != nil {
 		detail := strings.TrimSpace(stderr.String())
 		if detail != "" {

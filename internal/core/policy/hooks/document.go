@@ -51,6 +51,10 @@ type Entry struct {
 	Matcher string
 	// Handler is the command the entry runs.
 	Handler Handler
+	// PluginRoot is the directory of the plugin defining this hook (if any).
+	PluginRoot string
+	// PluginData is the directory for plugin-specific persistent data (if any).
+	PluginData string
 }
 
 // Problem is one thing a document got wrong.

@@ -105,6 +105,7 @@ func (m *RootModel) hookInput() corehooks.Input {
 	in := corehooks.Input{
 		ConversationID: m.session.conversationID,
 		ModelName:      m.turnModel(),
+		Cwd:            m.hookWorkspace(),
 	}
 	if ws := m.hookWorkspace(); ws != "" {
 		in.WorkspacePaths = []string{ws}
@@ -119,6 +120,10 @@ func (m *RootModel) hookInput() corehooks.Input {
 func (m *RootModel) fireHook(ctx context.Context, ev corehooks.Event, in corehooks.Input) corehooks.Outcome {
 	if m == nil || m.session.hooks == nil {
 		return corehooks.Outcome{}
+	}
+	in.HookEventName = string(ev)
+	if in.Cwd == "" {
+		in.Cwd = m.hookWorkspace()
 	}
 	out, err := m.session.hooks.FireDocumented(ctx, m.hookRuntime(), ev, in)
 	if err != nil {
@@ -209,7 +214,7 @@ func (m *RootModel) hookToolGate(ctx context.Context, call backend.ToolCall) hoo
 		return hookToolGate{}
 	}
 	in := m.hookInput()
-	in.ToolCall = &corehooks.ToolCall{Name: call.Name, Args: call.Arguments}
+	in.ToolCall = &corehooks.ToolCall{ID: call.ID, Name: call.Name, Args: call.Arguments}
 	out := m.fireHook(ctx, corehooks.EventPreToolUse, in)
 	if out.Ran == 0 {
 		// No handler ran: the policy decides.
@@ -275,7 +280,7 @@ func (m *RootModel) hookPostToolUse(ctx context.Context, call backend.ToolCall, 
 		return
 	}
 	in := m.hookInput()
-	in.ToolCall = &corehooks.ToolCall{Name: call.Name, Args: call.Arguments}
+	in.ToolCall = &corehooks.ToolCall{ID: call.ID, Name: call.Name, Args: call.Arguments}
 	if err != nil {
 		in.Error = err.Error()
 	}

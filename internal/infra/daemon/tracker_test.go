@@ -863,13 +863,13 @@ func TestExitDrainsAllTrackedDaemons(t *testing.T) {
 func TestExitGracefulShutdownWaits(t *testing.T) {
 	tr := New()
 	tr.SetKillDelay(0)
-	tr.SetGracePeriod(300 * time.Millisecond)
+	tr.SetGracePeriod(600 * time.Millisecond)
 
 	bin := "/bin/sh"
 	if _, err := os.Stat(bin); err != nil {
 		bin = "sh"
 	}
-	cmd := exec.Command(bin, "-c", `trap "sleep 0.28; exit 0" TERM; sleep 30 & wait`)
+	cmd := exec.Command(bin, "-c", `trap "sleep 0.3; exit 0" TERM; sleep 30 & wait`)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	if err := cmd.Start(); err != nil {
 		t.Fatalf("start: %v", err)

@@ -67,6 +67,9 @@ func Chrome(email string) []string {
 	if email == "" {
 		_, email = accounts.Current()
 	}
+	if email == "" {
+		email = "user@example.com"
+	}
 	return []string{
 		"",
 		"  Account: " + palette.BlueOpen + email + palette.BlueClose,
@@ -261,6 +264,9 @@ func ViewerLinesStatic() []string {
 	email := auth.EffectiveUserEmail()
 	if email == "" {
 		_, email = accounts.Current()
+	}
+	if email == "" {
+		email = "user@example.com"
 	}
 	out := []string{
 		"\x1b[1m" + PanelGray238 + "└ Models & Quota" + "\x1b[0m",
