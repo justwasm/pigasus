@@ -156,6 +156,9 @@ type Router struct {
 
 	// cancel terminates background workers when Close is called.
 	cancel context.CancelFunc
+
+	// workers tracks background goroutines so Close can drain them cleanly.
+	workers sync.WaitGroup
 }
 
 // quota is one account's last known quota figure.
@@ -227,6 +230,7 @@ func (r *Router) Close() {
 	if cancel != nil {
 		cancel()
 	}
+	r.workers.Wait()
 }
 
 // Policy returns the account-routing policy the configuration file
@@ -846,7 +850,9 @@ func (r *Router) refreshQuota(email string) {
 	r.refreshing[email] = true
 	r.mu.Unlock()
 
+	r.workers.Add(1)
 	go func() {
+		defer r.workers.Done()
 		_, _, _ = r.quotaFlight.Do(email, func() (any, error) {
 			defer func() {
 				r.mu.Lock()
@@ -882,7 +888,9 @@ func (r *Router) refreshQuota(email string) {
 func (r *Router) startPrewarmPipeline() {
 	r.prewarmOnce.Do(func() {
 		r.prewarmCh = make(chan string, 32)
+		r.workers.Add(1)
 		go func() {
+			defer r.workers.Done()
 			for {
 				select {
 				case <-r.context().Done():

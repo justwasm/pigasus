@@ -258,6 +258,7 @@ func TestBalanceFeatureFlagOptIn(t *testing.T) {
 		t.Errorf("balance off: expected original token, got %q", receivedAuth)
 	}
 	mu.Unlock()
+	_ = srv.Close()
 
 	// 2. Balance on via Config: routes to beta (most quota: 0.9 vs 0.2).
 	srvBal, err := New(Config{
@@ -288,6 +289,7 @@ func TestBalanceFeatureFlagOptIn(t *testing.T) {
 		t.Errorf("balance on: expected beta token, got %q", receivedAuth)
 	}
 	mu.Unlock()
+	_ = srvBal.Close()
 
 	// 3. Balance on via OPENAGY_ACCOUNT_BALANCE=1 env var.
 	t.Setenv("OPENAGY_ACCOUNT_BALANCE", "1")
@@ -574,7 +576,7 @@ func TestBalanceSwitchOnQuotaErrorDisabled(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer resp.Body.Close()
+	_ = resp.Body.Close()
 
 	if resp.StatusCode != http.StatusTooManyRequests {
 		t.Fatalf("expected 429, got %d", resp.StatusCode)
@@ -582,6 +584,7 @@ func TestBalanceSwitchOnQuotaErrorDisabled(t *testing.T) {
 	if attempts != 1 {
 		t.Fatalf("expected exactly 1 attempt when switch_on_quota_error=false, got %d", attempts)
 	}
+	_ = srv.Close()
 }
 
 func TestBalanceRoundRobinRotation(t *testing.T) {
