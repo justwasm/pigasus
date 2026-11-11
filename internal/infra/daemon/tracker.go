@@ -117,7 +117,19 @@ type tracked struct {
 	// observe a clean exit. The Wait() helper blocks on wg instead,
 	// but the channel is useful for tests that want a synchronous
 	// per-process signal.
-	exitCh chan struct{}
+	exitCh    chan struct{}
+	closeOnce sync.Once
+}
+
+func (tr *tracked) closeExit() {
+	if tr == nil {
+		return
+	}
+	tr.closeOnce.Do(func() {
+		if tr.exitCh != nil {
+			close(tr.exitCh)
+		}
+	})
 }
 
 // Logger is the optional sink for shutdown diagnostics. The default
@@ -196,7 +208,7 @@ func (t *Tracker) handleLateTrack(pgid int, tr *tracked) {
 	go func() {
 		defer t.wg.Done()
 		killProcessGroupGracefully(pgid)
-		close(tr.exitCh)
+		tr.closeExit()
 	}()
 }
 
@@ -206,11 +218,7 @@ func (t *Tracker) spawnReaper(pid int, tr *tracked) {
 		defer ticker.Stop()
 		for range ticker.C {
 			if !isProcessAlive(pid) {
-				select {
-				case <-tr.exitCh:
-				default:
-					close(tr.exitCh)
-				}
+				tr.closeExit()
 				t.Untrack(pid)
 				return
 			}
@@ -378,11 +386,7 @@ func (t *Tracker) waitForGraceExit(graceCtx context.Context, delay time.Duration
 		t.mu.Lock()
 		for pid, tr := range t.procs {
 			if !isProcessAlive(pid) {
-				select {
-				case <-tr.exitCh:
-				default:
-					close(tr.exitCh)
-				}
+				tr.closeExit()
 				delete(t.procs, pid)
 				t.wg.Done()
 			}
