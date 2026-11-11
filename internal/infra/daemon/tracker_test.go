@@ -3,6 +3,7 @@ package daemon
 import (
 	"context"
 	"errors"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -869,10 +870,18 @@ func TestExitGracefulShutdownWaits(t *testing.T) {
 	if _, err := os.Stat(bin); err != nil {
 		bin = "sh"
 	}
-	cmd := exec.Command(bin, "-c", `trap "sleep 0.3; exit 0" TERM; sleep 30 & wait`)
+	cmd := exec.Command(bin, "-c", `trap "sleep 0.3; exit 0" TERM; echo ready; sleep 30 & wait`)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		t.Fatalf("stdout pipe: %v", err)
+	}
 	if err := cmd.Start(); err != nil {
 		t.Fatalf("start: %v", err)
+	}
+	buf := make([]byte, 5)
+	if _, err := io.ReadFull(stdout, buf); err != nil {
+		t.Fatalf("read ready: %v", err)
 	}
 	if _, err := tr.Track("graceful", cmd); err != nil {
 		t.Fatalf("Track: %v", err)
