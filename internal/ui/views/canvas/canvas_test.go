@@ -160,7 +160,7 @@ func TestLine_RenderMultipleHighlights(t *testing.T) {
 	if firstClose < 0 || firstClose < opens[0] {
 		t.Fatalf("first close not after first open in %q", got)
 	}
-	if firstSlice := stripANSI(got[opens[0]:firstClose+len(closeSeq)]); firstSlice != "bc" {
+	if firstSlice := stripANSI(got[opens[0] : firstClose+len(closeSeq)]); firstSlice != "bc" {
 		t.Fatalf("first highlight slice: got %q want %q", firstSlice, "bc")
 	}
 
@@ -277,10 +277,10 @@ func TestLine_RenderOutOfRangeHighlight(t *testing.T) {
 	line := Line{
 		Content: "hello",
 		Highlights: []Range{
-			{Start: -5, End: 2},     // clamps to [0, 2) → "he"
-			{Start: 4, End: 100},    // clamps to [4, 5) → "o"
-			{Start: 3, End: 1},      // inverted → dropped
-			{Start: 2, End: 2},      // zero-width → dropped
+			{Start: -5, End: 2},  // clamps to [0, 2) → "he"
+			{Start: 4, End: 100}, // clamps to [4, 5) → "o"
+			{Start: 3, End: 1},   // inverted → dropped
+			{Start: 2, End: 2},   // zero-width → dropped
 		},
 	}
 	got := line.RenderWithStyle(yellow)

@@ -5,13 +5,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/justwasm/pigasus/internal/app/tools"
-	"github.com/justwasm/pigasus/internal/app/tools/web"
 	"os"
 	"path/filepath"
 	"sort"
 	"strings"
 	"testing"
+
+	"github.com/justwasm/pigasus/internal/app/tools"
+	"github.com/justwasm/pigasus/internal/app/tools/web"
 )
 
 // TestCatalogMatchesRecoveredAdvertisedList pins the advertised surface against

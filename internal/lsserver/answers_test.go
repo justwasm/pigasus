@@ -2,11 +2,12 @@ package lsserver
 
 import (
 	"encoding/json"
-	"github.com/justwasm/pigasus/endpoints"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/justwasm/pigasus/endpoints"
 )
 
 // TestServerConfigurationIsTheReferenceAnswer checks the reference's

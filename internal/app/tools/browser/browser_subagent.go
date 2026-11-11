@@ -34,9 +34,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/justwasm/pigasus/internal/app/tools"
 	"strings"
 	"sync"
+
+	"github.com/justwasm/pigasus/internal/app/tools"
 )
 
 // BrowserSubagentProvider is the seam the browser_subagent tool uses to reach

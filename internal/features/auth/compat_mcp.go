@@ -13,7 +13,7 @@ import (
 // ~/.gemini/antigravity-cli/mcp.json servers{}. The Type field
 // is either "http" (url) or "stdio" (command + args + env).
 type MCPServer struct {
-	Type    string            `json:"type"`    // "http" or "stdio"
+	Type    string            `json:"type"` // "http" or "stdio"
 	URL     string            `json:"url,omitempty"`
 	Command string            `json:"command,omitempty"`
 	Args    []string          `json:"args,omitempty"`

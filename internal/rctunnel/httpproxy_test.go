@@ -33,9 +33,9 @@ func TestBuildProxiedRequestMatchesReference(t *testing.T) {
 		t.Errorf("%s = %q, want %q", headerRemoteTransport, got, transportWebChannel)
 	}
 	// The caller named the JSON dialect, so the local handler has to be
-// told JSON: the answer comes back in the dialect the caller asked
-// for.
-if got := httpReq.Header.Get("Content-Type"); got != contentTypeJSON {
+	// told JSON: the answer comes back in the dialect the caller asked
+	// for.
+	if got := httpReq.Header.Get("Content-Type"); got != contentTypeJSON {
 		t.Errorf("Content-Type = %q, want %q", got, contentTypeJSON)
 	}
 	if got := httpReq.Header.Get(headerConnectVersion); got != "1" {

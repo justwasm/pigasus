@@ -99,6 +99,39 @@ func TestTheThreeFamiliesResolve(t *testing.T) {
 	}
 }
 
+func TestGemini4CarbonADC(t *testing.T) {
+	configtest.Isolate(t)
+	t.Setenv("AGY_ADC_AUTH", "")
+	if ADCAuthAvailable() {
+		t.Fatalf("expected ADCAuthAvailable() false when unset")
+	}
+	for _, m := range ReferenceModels() {
+		if m.ID == "gemini-4-carbon-high" {
+			t.Fatalf("gemini-4-carbon should not appear without ADC auth")
+		}
+	}
+
+	t.Setenv("AGY_ADC_AUTH", "true")
+	if !ADCAuthAvailable() {
+		t.Fatalf("expected ADCAuthAvailable() true when AGY_ADC_AUTH=true")
+	}
+	found := false
+	for _, m := range ReferenceModels() {
+		if m.ID == "gemini-4-carbon-high" && m.Label == "Gemini 4 Carbon (High)" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("gemini-4-carbon-high missing from ReferenceModels() under AGY_ADC_AUTH=true")
+	}
+
+	tiers := EffortTiersFor("gemini-4-carbon")
+	if len(tiers) != 3 || tiers[0] != "low" || tiers[1] != "medium" || tiers[2] != "high" {
+		t.Fatalf("EffortTiersFor(gemini-4-carbon) = %v, want [low, medium, high]", tiers)
+	}
+}
+
 // TestTheThreeFamiliesAreSelectable pins that a pinned id selects itself:
 // the reference answers a known model with its own id, and a tier that is
 // spelled into the id conflicts with an explicit --effort the way the

@@ -182,6 +182,29 @@ func TestCJKTruncation(t *testing.T) {
 	}
 }
 
+func TestEmbeddedRipgrepDisabled(t *testing.T) {
+	t.Setenv("ANTIGRAVITY_DISABLE_EMBEDDED_RIPGREP", "1")
+	if !EmbeddedRipgrepDisabled() {
+		t.Errorf("expected EmbeddedRipgrepDisabled() to be true for '1'")
+	}
+	t.Setenv("ANTIGRAVITY_DISABLE_EMBEDDED_RIPGREP", "true")
+	if !EmbeddedRipgrepDisabled() {
+		t.Errorf("expected EmbeddedRipgrepDisabled() to be true for 'true'")
+	}
+	t.Setenv("ANTIGRAVITY_DISABLE_EMBEDDED_RIPGREP", "0")
+	if EmbeddedRipgrepDisabled() {
+		t.Errorf("expected EmbeddedRipgrepDisabled() to be false for '0'")
+	}
+	t.Setenv("ANTIGRAVITY_DISABLE_EMBEDDED_RIPGREP", "false")
+	if EmbeddedRipgrepDisabled() {
+		t.Errorf("expected EmbeddedRipgrepDisabled() to be false for 'false'")
+	}
+	t.Setenv("ANTIGRAVITY_DISABLE_EMBEDDED_RIPGREP", "")
+	if EmbeddedRipgrepDisabled() {
+		t.Errorf("expected EmbeddedRipgrepDisabled() to be false for empty")
+	}
+}
+
 // stringSliceEqual is a tiny helper for test assertions.
 func stringSliceEqual(a, b []string) bool {
 	if len(a) != len(b) {

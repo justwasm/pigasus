@@ -36,12 +36,13 @@ const (
 	Provider
 	Accounts
 	Projects
+	Help
 )
 
 // ExitNotice reports whether closing the panel displays an exit notice.
 func (k Kind) ExitNotice() bool {
 	switch k {
-	case None, MCP, Permissions, CodeSearch, Feedback,
+	case None, Help, MCP, Permissions, CodeSearch, Feedback,
 		Rewind, Context, Plugin, Changelog,
 		Usage, AddDir, Rename, FeatDiff, Projects:
 		return false
@@ -62,14 +63,14 @@ func (k Kind) IsViewer() bool {
 // TrailingBlank reports whether the panel's legend row is followed by an
 // empty row before the status row.
 func (k Kind) TrailingBlank() bool {
-	return k != Hooks && k != Context && k != Usage && k != Changelog && k != Diff
+	return k != Help && k != Hooks && k != Context && k != Usage && k != Changelog && k != Diff
 }
 
 // OwnsEarlyKeys reports whether the panel intercepts keyboard navigation
 // before the generic list handlers.
 func (k Kind) OwnsEarlyKeys() bool {
 	switch k {
-	case Permissions, Hooks, Agents, Provider, Accounts, Plugin, Skills, Effort, Projects:
+	case Help, Permissions, Hooks, Agents, Provider, Accounts, Plugin, Skills, Effort, Projects:
 		return true
 	default:
 		return false

@@ -50,6 +50,18 @@ func (p *Panel) Rows() string {
 	return b.String()
 }
 
+// Lines returns the overlay rendered as a slice of lines.
+func (p *Panel) Lines() []string {
+	if p == nil || !p.open {
+		return nil
+	}
+	rows := p.Rows()
+	if rows == "" {
+		return nil
+	}
+	return strings.Split(strings.TrimRight(rows, "\n"), "\n")
+}
+
 // renderCommands draws the COMMANDS tab: the whole slash-command
 // catalogue, sorted, with the cursor's row highlighted.
 func (p *Panel) renderCommands(b *strings.Builder) {

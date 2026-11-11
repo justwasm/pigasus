@@ -223,6 +223,7 @@ func init() {
 		"branch":           (*RootModel).slashBranch,
 		"narration":        (*RootModel).slashNarration,
 		"share":            (*RootModel).slashShare,
+		"swarm":            (*RootModel).slashSwarm,
 	}
 }
 
@@ -630,6 +631,28 @@ func (m *RootModel) slashTeamwork(args string) (bool, tea.Cmd) {
 	return true, m.sendAsPrompt("/teamwork-preview", prompt)
 }
 
+func (m *RootModel) slashSwarm(args string) (bool, tea.Cmd) {
+	trimmed := strings.TrimSpace(args)
+	if trimmed == "board" {
+		if m.swarm.Board == nil {
+			m.swarm.Board = m.newSwarmBoard()
+		}
+		m.swarm.Board.Toggle()
+		return true, nil
+	}
+	if strings.HasPrefix(trimmed, "/") {
+		cmds, task := slashparse.ParseLeadingCommands("/swarm " + trimmed)
+		if len(cmds) > 1 {
+			return m.handleChainedSlashCommands(cmds, task)
+		}
+	}
+	prompt := "(Preview & Quota Heavy) Run a swarm: several agents working in parallel on one task, each in its own conversation, collaborating through a shared message board."
+	if trimmed != "" {
+		prompt = trimmed + "\n\n" + prompt
+	}
+	return true, m.sendAsPrompt("/swarm", prompt)
+}
+
 func (m *RootModel) slashBoost(args string) (bool, tea.Cmd) {
 	clean := strings.TrimSpace(args)
 	if strings.HasPrefix(clean, "/") {
@@ -702,7 +725,7 @@ func (m *RootModel) hostActionSeams() hostactions.Seams {
 			m.display.quitting = true
 		},
 		OpenHelp: func() {
-			m.help.Panel.Open(0)
+			m.openHelp(0)
 		},
 		OpenPanel: func(cmd string) bool {
 			return m.openSlashPanel(cmd)

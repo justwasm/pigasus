@@ -188,6 +188,3 @@ func TestPiggaNativeUpdateCommand_CustomVersion(t *testing.T) {
 		t.Fatalf("expected custom version in checking message, got: %s", s)
 	}
 }
-
-
-

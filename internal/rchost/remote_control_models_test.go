@@ -156,4 +156,3 @@ func TestHostListModelsDefaultsToGeminiFlashHigh(t *testing.T) {
 		t.Errorf("default model = %q, want gemini-3.8-flash-high", defModel)
 	}
 }
-

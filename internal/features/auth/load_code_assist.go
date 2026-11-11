@@ -7,11 +7,12 @@
 // and reads the same OAuth file as the v1.3.5 binary.
 //
 // Reference 1.3.5 binary strings:
-//   "google3/third_party/jetski/language_server/code_assist_client/codeassistclient.(*CodeAssistClient).streamGenerateContentFromCCPA"
-//   "https://daily-cloudcode-pa.googleapis.com"
-//   "v1internal:loadCodeAssist"
-//   "v1internal:streamGenerateContent"
-//   "v1internal:fetchAvailableModels"
+//
+//	"google3/third_party/jetski/language_server/code_assist_client/codeassistclient.(*CodeAssistClient).streamGenerateContentFromCCPA"
+//	"https://daily-cloudcode-pa.googleapis.com"
+//	"v1internal:loadCodeAssist"
+//	"v1internal:streamGenerateContent"
+//	"v1internal:fetchAvailableModels"
 //
 // Endpoints verified working (2026-10-14):
 //   - v1internal:loadCodeAssist        POST → allowedTiers JSON
@@ -78,9 +79,9 @@ func NewCloudCodeAPIClient(tok *AntigravityToken) *CloudCodeAPIClient {
 // IdeMetadata is the metadata block v4 binary attaches to every
 // daily-cloudcode-pa call. Source: codeassistclient.(*CodeAssistClient).
 type IdeMetadata struct {
-	IDEType     string `json:"ideType"`     // "IDE_UNSPECIFIED" / "VSCODE" / "CLOUD_SHELL" / ...
-	Platform    string `json:"platform"`    // "PLATFORM_UNSPECIFIED" / "MACOS" / "WINDOWS" / "LINUX" / ...
-	PluginType  string `json:"pluginType"`  // "GEMINI" / "ANTIGRAVITY"
+	IDEType       string `json:"ideType"`    // "IDE_UNSPECIFIED" / "VSCODE" / "CLOUD_SHELL" / ...
+	Platform      string `json:"platform"`   // "PLATFORM_UNSPECIFIED" / "MACOS" / "WINDOWS" / "LINUX" / ...
+	PluginType    string `json:"pluginType"` // "GEMINI" / "ANTIGRAVITY"
 	PluginVersion string `json:"pluginVersion,omitempty"`
 }
 
@@ -101,13 +102,13 @@ type LoadCodeAssistRequest struct {
 // AllowedTier describes one tier the user is eligible for.
 // Source: LoadCodeAssistResponse protobuf.
 type AllowedTier struct {
-	ID                              string `json:"id"`
-	Name                            string `json:"name"`
-	Description                     string `json:"description"`
-	UserDefinedCloudaicompanionProject bool `json:"userDefinedCloudaicompanionProject"`
-	PrivacyNotice                   map[string]any `json:"privacyNotice"`
-	IsDefault                       bool   `json:"isDefault"`
-	UsesGcpTos                      bool   `json:"usesGcpTos"`
+	ID                                 string         `json:"id"`
+	Name                               string         `json:"name"`
+	Description                        string         `json:"description"`
+	UserDefinedCloudaicompanionProject bool           `json:"userDefinedCloudaicompanionProject"`
+	PrivacyNotice                      map[string]any `json:"privacyNotice"`
+	IsDefault                          bool           `json:"isDefault"`
+	UsesGcpTos                         bool           `json:"usesGcpTos"`
 }
 
 // LoadCodeAssistResponse is the parsed v1internal:loadCodeAssist response.

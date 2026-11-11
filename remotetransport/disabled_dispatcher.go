@@ -65,7 +65,8 @@ func (d *DisabledDispatcher) Notify(_ context.Context, _, _ string, _ any) error
 }
 
 // SetNotifier is a no-op stub.
-func (d *DisabledDispatcher) SetNotifier(_ func(ctx context.Context, connID string, frame []byte) error) {}
+func (d *DisabledDispatcher) SetNotifier(_ func(ctx context.Context, connID string, frame []byte) error) {
+}
 
 // WithConnID returns the context unchanged.
 func (d *DisabledDispatcher) WithConnID(ctx context.Context, _ string) context.Context {
@@ -73,4 +74,5 @@ func (d *DisabledDispatcher) WithConnID(ctx context.Context, _ string) context.C
 }
 
 // SetBroadcaster is a no-op stub.
-func (d *DisabledDispatcher) SetBroadcaster(_ func(ctx context.Context, method string, params any) error) {}
+func (d *DisabledDispatcher) SetBroadcaster(_ func(ctx context.Context, method string, params any) error) {
+}

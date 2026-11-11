@@ -29,12 +29,12 @@ func TestCascadeModelConfigData_Fields(t *testing.T) {
 
 func TestCascadeNUXConfig_Fields(t *testing.T) {
 	c := &CascadeNUXConfig{
-		Uid:       "nux-1",
-		Location:  CascadeNUXLocationChat,
-		Trigger:   CascadeNUXTriggerFirstRun,
-		Title:     "Welcome to Cascade",
-		Body:      "Try it now",
-		Session:   CascadeNUXSessionLoggedIn,
+		Uid:      "nux-1",
+		Location: CascadeNUXLocationChat,
+		Trigger:  CascadeNUXTriggerFirstRun,
+		Title:    "Welcome to Cascade",
+		Body:     "Try it now",
+		Session:  CascadeNUXSessionLoggedIn,
 	}
 	if c.Uid != "nux-1" {
 		t.Errorf("Uid = %q, want nux-1", c.Uid)
@@ -63,17 +63,17 @@ func TestCascadeNUXState_Fields(t *testing.T) {
 
 func TestPlanInfo_Fields(t *testing.T) {
 	p := &PlanInfo{
-		PlanName:                       "Pro",
-		PlanTier:                       TeamsTierPro,
-		IsPaidTier:                     true,
-		AllowCasCadeOverDailyLimit:     false,
-		AllowCascadeInBackground:       true,
-		AllowBrowserTools:              true,
-		CascadePlannerMode:             ConversationalPlannerModeOn,
-		RunExtensionCode:               CascadeRunExtensionCodeOn,
-		RunExtensionCodeAutoRun:        CascadeRunExtensionCodeAutoRunOff,
-		CascadeInputAutocomplete:       CascadeInputAutocompleteOn,
-		CascadeAutoExecutionPolicy:     CascadeCommandsAutoExecutionOn,
+		PlanName:                              "Pro",
+		PlanTier:                              TeamsTierPro,
+		IsPaidTier:                            true,
+		AllowCasCadeOverDailyLimit:            false,
+		AllowCascadeInBackground:              true,
+		AllowBrowserTools:                     true,
+		CascadePlannerMode:                    ConversationalPlannerModeOn,
+		RunExtensionCode:                      CascadeRunExtensionCodeOn,
+		RunExtensionCodeAutoRun:               CascadeRunExtensionCodeAutoRunOff,
+		CascadeInputAutocomplete:              CascadeInputAutocompleteOn,
+		CascadeAutoExecutionPolicy:            CascadeCommandsAutoExecutionOn,
 		AutoContinueOnMaxGeneratorInvocations: AutoContinueOnMaxGeneratorInvocationsOn,
 	}
 	if p.PlanName != "Pro" {
@@ -86,25 +86,25 @@ func TestPlanInfo_Fields(t *testing.T) {
 
 func TestUserSettings_BooleanFields(t *testing.T) {
 	u := &UserSettings{
-		DisableTelemetry:            true,
-		DisableCascade:              false,
-		DisableAutocomplete:         false,
-		AllowTabKey:                 true,
-		EnableSupercomplete:         true,
-		EnableMcp:                   true,
-		EnableBrowserTools:          true,
-		EnableCascadeWebSearch:      true,
-		EnableCustomModels:          false,
-		CascadeWebSearchDisabled:    false,
-		DisableOpenCascadeOnReload:  false,
+		DisableTelemetry:                 true,
+		DisableCascade:                   false,
+		DisableAutocomplete:              false,
+		AllowTabKey:                      true,
+		EnableSupercomplete:              true,
+		EnableMcp:                        true,
+		EnableBrowserTools:               true,
+		EnableCascadeWebSearch:           true,
+		EnableCustomModels:               false,
+		CascadeWebSearchDisabled:         false,
+		DisableOpenCascadeOnReload:       false,
 		AllowCascadeAccessGitignoreFiles: true,
-		DisableCascadeAutoFixLints:  false,
-		AllowCascadeInBackground:    true,
-		RunExtensionCode:            CascadeRunExtensionCodeOn,
-		RunExtensionCodeAutoRun:     CascadeRunExtensionCodeAutoRunOff,
-		CascadeInputAutocomplete:    CascadeInputAutocompleteOn,
-		ThemePreference:             ThemePreferenceDark,
-		RememberLastModelSelection:  RememberLastModelSelectionOn,
+		DisableCascadeAutoFixLints:       false,
+		AllowCascadeInBackground:         true,
+		RunExtensionCode:                 CascadeRunExtensionCodeOn,
+		RunExtensionCodeAutoRun:          CascadeRunExtensionCodeAutoRunOff,
+		CascadeInputAutocomplete:         CascadeInputAutocompleteOn,
+		ThemePreference:                  ThemePreferenceDark,
+		RememberLastModelSelection:       RememberLastModelSelectionOn,
 	}
 	if !u.DisableTelemetry {
 		t.Error("DisableTelemetry = false, want true")
@@ -216,11 +216,11 @@ func TestEnums_Language(t *testing.T) {
 
 func TestCompletion_Fields(t *testing.T) {
 	c := &Completion{
-		Text:      "fmt.Println(\"hi\")",
-		Source:    CompletionSourceCloud,
-		Type:      CompletionTypeSnippet,
-		Language:  LanguageGo,
-		Model:     "gpt-4",
+		Text:        "fmt.Println(\"hi\")",
+		Source:      CompletionSourceCloud,
+		Type:        CompletionTypeSnippet,
+		Language:    LanguageGo,
+		Model:       "gpt-4",
 		WasAccepted: true,
 	}
 	if c.Text == "" {
@@ -277,15 +277,15 @@ func TestAntigravityDeployment_Fields(t *testing.T) {
 func TestTerminalShellCommand_Fields(t *testing.T) {
 	now := time.Now()
 	c := &TerminalShellCommand{
-		CommandLine:     "ls -la",
-		Cwd:             "/tmp",
-		ExitCode:        0,
-		StartedAt:       now,
-		CompletedAt:     now,
-		Source:          TerminalShellCommandSourceUser,
-		Status:          TerminalShellCommandStatusCompleted,
-		ConversationId:  "conv-1",
-		TerminalId:      "term-1",
+		CommandLine:    "ls -la",
+		Cwd:            "/tmp",
+		ExitCode:       0,
+		StartedAt:      now,
+		CompletedAt:    now,
+		Source:         TerminalShellCommandSourceUser,
+		Status:         TerminalShellCommandStatusCompleted,
+		ConversationId: "conv-1",
+		TerminalId:     "term-1",
 	}
 	if c.CommandLine != "ls -la" {
 		t.Errorf("CommandLine = %q", c.CommandLine)

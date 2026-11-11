@@ -16,10 +16,11 @@ package cli
 import (
 	"bytes"
 	"encoding/json"
-	"github.com/justwasm/pigasus/internal/ui/tuilib"
 	"io"
 	"strings"
 	"testing"
+
+	"github.com/justwasm/pigasus/internal/ui/tuilib"
 
 	rclink "github.com/justwasm/pigasus/internal/infra/remote/link"
 	persistentrc "github.com/justwasm/pigasus/internal/infra/remote/persistent"

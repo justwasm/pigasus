@@ -6,8 +6,8 @@ import (
 	"context"
 	"testing"
 
-	mesh "github.com/justwasm/pigasus/rcmesh/pion"
 	"github.com/justwasm/pigasus/rcmesh"
+	mesh "github.com/justwasm/pigasus/rcmesh/pion"
 )
 
 var _ rcmesh.Answerer = mesh.NewAnswer

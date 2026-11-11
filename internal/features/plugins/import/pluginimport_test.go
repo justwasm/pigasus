@@ -82,14 +82,18 @@ func TestClaudeImportReportsEveryComponent(t *testing.T) {
 	if out != want {
 		t.Fatalf("stdout =\n%q\nwant\n%q", out, want)
 	}
-	// The command became a skill.
-	staged := filepath.Join(roots.ConfigHome, "plugins", "full", "skills", "full-cmd-hello", "SKILL.md")
+	// The command became a skill named after the command/folder.
+	staged := filepath.Join(roots.ConfigHome, "plugins", "full", "skills", "hello", "SKILL.md")
 	body, err := os.ReadFile(staged)
 	if err != nil {
 		t.Fatalf("read %s: %v", staged, err)
 	}
-	if string(body) != "hello\n" {
+	if !strings.Contains(string(body), "hello") {
 		t.Errorf("the converted skill holds %q", body)
+	}
+	// Leftover commands/ directory was removed to prevent agy plugin validate warnings.
+	if _, err := os.Stat(filepath.Join(roots.ConfigHome, "plugins", "full", "commands")); !os.IsNotExist(err) {
+		t.Errorf("leftover commands directory should be removed")
 	}
 	// The CLI's own manifest carries name, version, description and author.
 	raw, err := os.ReadFile(filepath.Join(roots.ConfigHome, "plugins", "full", "plugin.json"))
@@ -341,5 +345,107 @@ func TestTopLevelPluginDirsAreImported(t *testing.T) {
 	out, _ := run(t, roots, false, SourceClaude)
 	if !strings.Contains(out, "  [ok]    top\n") {
 		t.Fatalf("stdout = %q", out)
+	}
+}
+
+func TestClaudeHookTranslationAndCommandFeatures(t *testing.T) {
+	roots, _ := testRoots(t)
+	dir := claudePlugin(t, roots, "hookplug", `{"name":"hookplug","version":"1.0.0"}`)
+
+	// Command with BOM and argument-hint
+	cmdWithBOM := []byte("\xef\xbb\xbf---\ndescription: Git PR helper\nargument-hint: [base branch] [focus]\n---\nRun PR command\n")
+	if err := os.MkdirAll(filepath.Join(dir, "commands"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "commands", "pull-request.md"), cmdWithBOM, 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	// hooks.json with supported events, Bash/Read mapping, and unsupported TodoWrite/UserPromptSubmit
+	hooksContent := `{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash|Read",
+        "command": "echo check-tool"
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "TodoWrite",
+        "command": "echo todo"
+      }
+    ],
+    "SessionStart": [
+      {
+        "command": "echo start"
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "command": "echo submit"
+      }
+    ]
+  }
+}`
+	if err := os.MkdirAll(filepath.Join(dir, "hooks"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "hooks", "hooks.json"), []byte(hooksContent), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	out, errOut := run(t, roots, false, SourceClaude)
+	if errOut != "" {
+		t.Fatalf("stderr = %q, want empty", errOut)
+	}
+
+	// Assert command skill created under pull-request/SKILL.md
+	stagedSkill := filepath.Join(roots.ConfigHome, "plugins", "hookplug", "skills", "pull-request", "SKILL.md")
+	skillBytes, err := os.ReadFile(stagedSkill)
+	if err != nil {
+		t.Fatalf("read converted skill: %v", err)
+	}
+	if !strings.Contains(string(skillBytes), "argument-hint: '[base branch] [focus]'") && !strings.Contains(string(skillBytes), "argument-hint: [base branch] [focus]") {
+		t.Errorf("skill missing argument-hint: %s", string(skillBytes))
+	}
+	if !strings.Contains(string(skillBytes), "description: Git PR helper") {
+		t.Errorf("skill missing description: %s", string(skillBytes))
+	}
+
+	// Assert leftover commands/ removed
+	if _, err := os.Stat(filepath.Join(roots.ConfigHome, "plugins", "hookplug", "commands")); !os.IsNotExist(err) {
+		t.Errorf("leftover commands/ folder should be removed")
+	}
+
+	// Assert converted hooks.json
+	stagedHooks := filepath.Join(roots.ConfigHome, "plugins", "hookplug", "hooks", "hooks.json")
+	hookData, err := os.ReadFile(stagedHooks)
+	if err != nil {
+		t.Fatalf("read converted hooks: %v", err)
+	}
+	var doc struct {
+		Hooks map[string][]struct {
+			Matcher string `json:"matcher"`
+			Hooks   []struct {
+				Command string `json:"command"`
+				Timeout int    `json:"timeout"`
+			} `json:"hooks"`
+		} `json:"hooks"`
+	}
+	if err := json.Unmarshal(hookData, &doc); err != nil {
+		t.Fatalf("parse converted hooks: %v", err)
+	}
+	pre := doc.Hooks["PreToolUse"]
+	if len(pre) == 0 || pre[0].Matcher != "run_command|view_file" {
+		t.Errorf("PreToolUse matcher = %v, want run_command|view_file", pre)
+	}
+	if len(pre[0].Hooks) == 0 || pre[0].Hooks[0].Timeout != 60 {
+		t.Errorf("default timeout = %v, want 60", pre[0].Hooks[0].Timeout)
+	}
+
+	// Assert warnings in output for TodoWrite and UserPromptSubmit
+	if !strings.Contains(out, "TodoWrite") || !strings.Contains(out, "UserPromptSubmit") {
+		t.Errorf("expected warnings in output for TodoWrite/UserPromptSubmit, got:\n%s", out)
 	}
 }

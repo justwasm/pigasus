@@ -56,13 +56,19 @@ type mockSession struct {
 	pinned     []string
 }
 
-func (s *mockSession) AnswerSDP() string                     { return s.answerSDP }
-func (s *mockSession) AddICECandidate(c ICECandidate) error { s.candidates = append(s.candidates, c); return nil }
-func (s *mockSession) Authenticated() bool                  { return s.authed }
-func (s *mockSession) Done() <-chan struct{}                 { return s.done }
-func (s *mockSession) Err() error                           { return s.err }
-func (s *mockSession) Close() error                         { return nil }
-func (s *mockSession) SetSessionPin(keys []string) error    { s.pinned = append([]string(nil), keys...); return nil }
+func (s *mockSession) AnswerSDP() string { return s.answerSDP }
+func (s *mockSession) AddICECandidate(c ICECandidate) error {
+	s.candidates = append(s.candidates, c)
+	return nil
+}
+func (s *mockSession) Authenticated() bool   { return s.authed }
+func (s *mockSession) Done() <-chan struct{} { return s.done }
+func (s *mockSession) Err() error            { return s.err }
+func (s *mockSession) Close() error          { return nil }
+func (s *mockSession) SetSessionPin(keys []string) error {
+	s.pinned = append([]string(nil), keys...)
+	return nil
+}
 
 func generateTestPubKey(t *testing.T) string {
 	t.Helper()

@@ -144,13 +144,13 @@ type opencodeWireEvent struct {
 		Message string `json:"message"`
 	} `json:"error"`
 	Part struct {
-		ID        string          `json:"id"`
-		PartID    string          `json:"partID"`
-		Type      string          `json:"type"`
-		Text      string          `json:"text"`
-		Tool      string          `json:"tool"`
-		Reason    string          `json:"reason"`
-		State     *struct {
+		ID     string `json:"id"`
+		PartID string `json:"partID"`
+		Type   string `json:"type"`
+		Text   string `json:"text"`
+		Tool   string `json:"tool"`
+		Reason string `json:"reason"`
+		State  *struct {
 			Status string `json:"status"`
 			Input  any    `json:"input"`
 			Output string `json:"output"`

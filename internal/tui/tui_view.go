@@ -167,6 +167,9 @@ func (m *RootModel) shouldShowInputCursor(cursorX, cursorY int) bool {
 	if m.help.Panel.Active() {
 		return false
 	}
+	if m.swarm.Board != nil && m.swarm.Board.Active() {
+		return false
+	}
 	if m.overlays.panel.kind != panelregistry.None {
 		return false
 	}
@@ -252,6 +255,9 @@ func (m *RootModel) isViewCacheValid() bool {
 	if m.viewport.cachedPickerVis != m.prompt.picker.Visible() || m.viewport.cachedPanelKind != m.overlays.panel.kind {
 		return false
 	}
+	if m.swarm.Board != nil && m.swarm.Board.Active() {
+		return false
+	}
 	if m.prompt.picker.Visible() || m.hasActiveModal() || (m.audio.Surface != nil && m.audio.Surface.Active()) || (m.activeItems.Panel != nil && m.activeItems.Panel.Focused()) || m.askQuestion.Active() || (m.askQuestion.panel != nil && m.askQuestion.panel.Active()) || m.hasSelection() || m.prompt.HasInputSelection() {
 		return false
 	}
@@ -291,6 +297,10 @@ func (m *RootModel) View() tea.View {
 		v := m.auth.login.View()
 		v.AltScreen = m.effectiveAltScreen()
 		return v
+	}
+	if m.swarm.Board != nil && m.swarm.Board.Active() {
+		m.swarm.Board.SetSize(m.viewport.width, m.viewport.height)
+		return m.applyTerminalSettings(tea.NewView(m.swarm.Board.View()))
 	}
 	if m.isViewCacheValid() {
 		return m.viewport.cachedView
@@ -459,7 +469,7 @@ func (m *RootModel) renderBodyOverlays(b *strings.Builder) {
 	if voiceRows := m.audio.Surface.View(); voiceRows != "" {
 		b.WriteString(voiceRows)
 	}
-	if m.help.Panel.Active() {
+	if m.overlays.panel.kind != panelregistry.Help && m.help.Panel.Active() {
 		b.WriteString(m.help.Panel.Rows())
 	}
 }
@@ -655,6 +665,40 @@ func (m *RootModel) gotoBottom() {
 	m.viewport.viewCacheValid = false
 }
 
+// pageStep computes the vertical distance one PageUp or PageDown moves,
+// accounting for any pinned prompt header lines in altScreen mode (AGY 1.5.4).
+func (m *RootModel) pageStep() int {
+	step := m.viewport.vpRows - 1
+	if m.viewport.pinnedPromptText != "" {
+		step -= 2
+	}
+	return tuilib.ClampInt(step, 1, 1<<20)
+}
+
+// scrollPage scrolls by one page and aligns to user prompt message boundaries
+// to avoid skipping prompt rows (AGY 1.5.4).
+func (m *RootModel) scrollPage(down bool) {
+	step := m.pageStep()
+	if !down {
+		step = -step
+	}
+	target := m.viewport.scroll + step
+	for _, pRow := range m.viewport.userPromptRows {
+		if down {
+			if target > pRow && target <= pRow+2 {
+				target = pRow
+				break
+			}
+		} else {
+			if target < pRow && target >= pRow-2 {
+				target = pRow
+				break
+			}
+		}
+	}
+	m.scrollBy(target - m.viewport.scroll)
+}
+
 // handleScrollKey consumes the recovered transcript scroll bindings.
 //
 // The page-scroll distances are the recovered ones: a page is the
@@ -665,10 +709,10 @@ func (m *RootModel) handleScrollKey(key tea.Key) bool {
 	}
 	switch {
 	case key.Code == tea.KeyPgUp:
-		m.scrollBy(-tuilib.ClampInt(m.viewport.vpRows-1, 1, 1<<20))
+		m.scrollPage(false)
 		return true
 	case key.Code == tea.KeyPgDown:
-		m.scrollBy(tuilib.ClampInt(m.viewport.vpRows-1, 1, 1<<20))
+		m.scrollPage(true)
 		return true
 	case key.Code == tea.KeyUp && key.Mod.Contains(tea.ModShift):
 		m.scrollBy(-tuilib.ClampInt(m.viewport.vpRows/2, 1, 1<<20))

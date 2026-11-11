@@ -90,8 +90,8 @@ func (m *Model) initTextarea() {
 	m.input.Prompt = ""
 	m.input.ShowLineNumbers = false
 	w := m.width - 4
-	if w < 20 {
-		w = 76
+	if w < 10 {
+		w = 10
 	}
 	m.input.SetWidth(w)
 	m.input.SetHeight(3)
@@ -140,11 +140,17 @@ func (m *Model) SetOnComplete(cb func([]Response)) {
 }
 
 // SetWidth updates the viewport width and resizes the embedded textarea.
+// It guards against unknown or very narrow terminal sizes (AGY 1.5.4).
 func (m *Model) SetWidth(w int) {
-	m.width = w
-	if w > 4 {
-		m.input.SetWidth(w - 4)
+	if w <= 0 {
+		w = 80
 	}
+	m.width = w
+	tw := w - 4
+	if tw < 10 {
+		tw = 10
+	}
+	m.input.SetWidth(tw)
 }
 
 // Active reports whether the question prompt is currently open and accepting input.

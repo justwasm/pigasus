@@ -18,6 +18,7 @@ type BaseModelSpec struct {
 // BaseModelEfforts maps a base model slug to its BaseModelSpec.
 var BaseModelEfforts = map[string]BaseModelSpec{
 	"gemini-3.8-flash": {Levels: []string{"low", "medium", "high"}, Def: "high"},
+	"gemini-4-carbon":  {Levels: []string{"low", "medium", "high"}, Def: "high"},
 	"gpt-oss-120b":     {Levels: []string{"medium"}, Def: "medium"},
 }
 

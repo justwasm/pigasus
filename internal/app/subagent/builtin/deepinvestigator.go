@@ -8,15 +8,15 @@ import (
 // DeepInvestigator builtin agent type constants.
 // Recovered from google3/third_party/jetski/cortex/customizations/builtin/owl/deepinvestigator/deepinvestigator.
 const (
-	KindDeepInvestigator                 Kind = "DeepInvestigator"
-	KindDeepInvestigatorWorkerL0         Kind = "DeepInvestigatorWorkerL0"
+	KindDeepInvestigator                  Kind = "DeepInvestigator"
+	KindDeepInvestigatorWorkerL0          Kind = "DeepInvestigatorWorkerL0"
 	KindDeepInvestigatorImprovementWorker Kind = "DeepInvestigatorImprovementWorker"
 )
 
 // Roles for DeepInvestigator coordinator and workers matching agy 1:1.
 const (
-	RoleDeepInvestigator                 = "DeepInvestigator investigation coordinator that executes iterative investigation pipelines."
-	RoleDeepInvestigatorWorkerL0         = "DeepInvestigator Layer 0 investigation worker that analyzes questions from scratch."
+	RoleDeepInvestigator                  = "DeepInvestigator investigation coordinator that executes iterative investigation pipelines."
+	RoleDeepInvestigatorWorkerL0          = "DeepInvestigator Layer 0 investigation worker that analyzes questions from scratch."
 	RoleDeepInvestigatorImprovementWorker = "DeepInvestigator improvement investigation worker that challenges and extends prior findings."
 )
 

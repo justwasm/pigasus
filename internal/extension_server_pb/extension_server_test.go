@@ -150,7 +150,7 @@ func TestEnums_NotebookCellStatus(t *testing.T) {
 
 func TestUnifiedStateSyncUpdate_Fields(t *testing.T) {
 	u := &UnifiedStateSyncUpdate{
-		UpdateType:  UnifiedStateSyncUpdate_UpdateTypeInitial,
+		UpdateType:   UnifiedStateSyncUpdate_UpdateTypeInitial,
 		InitialState: []byte("state-bytes"),
 	}
 	if u.UpdateType != UnifiedStateSyncUpdate_UpdateTypeInitial {

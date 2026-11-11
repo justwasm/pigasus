@@ -103,7 +103,7 @@ type Cascade struct {
 // (silent); pass a closure to render transitions to stderr/stdout.
 func NewCascade(observer OnTransitionFn) *Cascade {
 	c := &Cascade{
-		state: StateInit,
+		state:   StateInit,
 		onTrans: observer,
 	}
 	// Record the initial transition (init -> init is a no-op; instead we

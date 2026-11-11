@@ -13,6 +13,9 @@ import (
 	"github.com/ironpark/acp-go/acp1"
 	"github.com/justwasm/pigasus/agentlink"
 	"github.com/justwasm/pigasus/internal/app/agentturn"
+	"github.com/justwasm/pigasus/internal/app/toolrunner"
+	"github.com/justwasm/pigasus/internal/core/backend"
+	"github.com/justwasm/pigasus/internal/core/policy/permissions"
 	"github.com/justwasm/pigasus/internal/features/models/catalog"
 )
 
@@ -25,8 +28,52 @@ type acpV1Session struct {
 	mu       sync.Mutex
 }
 
+var _ acp1.SessionModesReporter = (*acpV1Session)(nil)
+var _ acp1.SessionConfigOptionsReporter = (*acpV1Session)(nil)
+var _ acp1.SessionCommandsReporter = (*acpV1Session)(nil)
+
 func (s *acpV1Session) SessionInfo() acp1.SessionInfo {
 	return acp1.SessionInfo{Cwd: s.cwd}
+}
+
+func (s *acpV1Session) SessionModes() *acp1.SessionModeState {
+	s.mu.Lock()
+	m := s.mode
+	s.mu.Unlock()
+	return buildV1Modes(m)
+}
+
+func (s *acpV1Session) SessionConfigOptions() []acp1.SessionConfigOption {
+	return buildV1ConfigOptions(s)
+}
+
+func (s *acpV1Session) AvailableCommands() []acp1.AvailableCommand {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if len(s.commands) == 0 {
+		return defaultV1Commands()
+	}
+	return s.commands
+}
+
+func (s *acpV1Session) applyMode(mode string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.mode = mode
+	if s.session != nil {
+		if pr, ok := s.session.Runner.(*toolrunner.PermissionRunner); ok && pr != nil && pr.Policy != nil {
+			switch mode {
+			case "auto":
+				pr.Policy.Mode = permissions.ModeAuto
+			case "accept-edits":
+				pr.Policy.Mode = permissions.ModeAcceptEdits
+			case "plan":
+				pr.Policy.Mode = permissions.ModePlan
+			default:
+				pr.Policy.Mode = ""
+			}
+		}
+	}
 }
 
 func defaultV1Commands() []acp1.AvailableCommand {
@@ -52,6 +99,7 @@ var _ acp1.Agent = (*ACPV1Agent)(nil)
 var _ acp1.SessionLister = (*ACPV1Agent)(nil)
 var _ acp1.SessionCloser = (*ACPV1Agent)(nil)
 var _ acp1.SessionResumer = (*ACPV1Agent)(nil)
+var _ acp1.SessionLoader = (*ACPV1Agent)(nil)
 var _ acp1.SessionModeSetter = (*ACPV1Agent)(nil)
 var _ acp1.SessionConfigOptionSetter = (*ACPV1Agent)(nil)
 var _ acp1.Authenticator = (*ACPV1Agent)(nil)
@@ -146,7 +194,7 @@ func (a *ACPV1Agent) Initialize(ctx context.Context, params *acp1.InitializeRequ
 	}, nil
 }
 
-func (a *ACPV1Agent) buildConfigOptions(s *acpV1Session) []acp1.SessionConfigOption {
+func buildV1ConfigOptions(s *acpV1Session) []acp1.SessionConfigOption {
 	currentModel := s.session.Model
 	if currentModel == "" {
 		currentModel = catalog.DefaultModel
@@ -155,7 +203,9 @@ func (a *ACPV1Agent) buildConfigOptions(s *acpV1Session) []acp1.SessionConfigOpt
 	if currentEffort == "" {
 		currentEffort = "high"
 	}
+	s.mu.Lock()
 	currentMode := s.mode
+	s.mu.Unlock()
 	if currentMode == "" {
 		currentMode = "default"
 	}
@@ -186,6 +236,7 @@ func (a *ACPV1Agent) buildConfigOptions(s *acpV1Session) []acp1.SessionConfigOpt
 	modeChoices := []acp1.SessionConfigSelectOption{
 		{Value: "default", Name: "Default"},
 		{Value: "accept-edits", Name: "Accept Edits"},
+		{Value: "auto", Name: "Auto"},
 		{Value: "plan", Name: "Plan"},
 	}
 
@@ -223,13 +274,17 @@ func (a *ACPV1Agent) buildConfigOptions(s *acpV1Session) []acp1.SessionConfigOpt
 	}
 }
 
-func (a *ACPV1Agent) buildModes(s *acpV1Session) *acp1.SessionModeState {
-	currentMode := s.mode
+func (a *ACPV1Agent) buildConfigOptions(s *acpV1Session) []acp1.SessionConfigOption {
+	return buildV1ConfigOptions(s)
+}
+
+func buildV1Modes(currentMode string) *acp1.SessionModeState {
 	if currentMode == "" {
 		currentMode = "default"
 	}
 	descDefault := "Default permission prompt flow"
 	descAcceptEdits := "Auto-approve file edits, prompt for commands"
+	descAuto := "Auto-approve edits in workspace and commands in sandbox, ask before commands leaving sandbox"
 	descPlan := "Research and plan without making changes"
 
 	return &acp1.SessionModeState{
@@ -237,9 +292,17 @@ func (a *ACPV1Agent) buildModes(s *acpV1Session) *acp1.SessionModeState {
 		AvailableModes: []acp1.SessionMode{
 			{ID: "default", Name: "Default", Description: &descDefault},
 			{ID: "accept-edits", Name: "Accept Edits", Description: &descAcceptEdits},
+			{ID: "auto", Name: "Auto", Description: &descAuto},
 			{ID: "plan", Name: "Plan", Description: &descPlan},
 		},
 	}
+}
+
+func (a *ACPV1Agent) buildModes(s *acpV1Session) *acp1.SessionModeState {
+	s.mu.Lock()
+	m := s.mode
+	s.mu.Unlock()
+	return buildV1Modes(m)
 }
 
 // NewSession implements acp1.Agent.
@@ -288,7 +351,7 @@ func (a *ACPV1Agent) SetSessionConfigOption(ctx context.Context, params *acp1.Se
 		if m == "auto_edit" || m == "yolo" {
 			m = "accept-edits"
 		}
-		s.mode = m
+		s.applyMode(m)
 	}
 	return &acp1.SetSessionConfigOptionResponse{
 		ConfigOptions: a.buildConfigOptions(s),
@@ -305,8 +368,23 @@ func (a *ACPV1Agent) SetSessionMode(ctx context.Context, params *acp1.SetSession
 	if m == "auto_edit" || m == "yolo" {
 		m = "accept-edits"
 	}
-	s.mode = m
+	s.applyMode(m)
 	return &acp1.SetSessionModeResponse{}, nil
+}
+
+// LoadSession implements acp1.SessionLoader.
+func (a *ACPV1Agent) LoadSession(ctx context.Context, params *acp1.LoadSessionRequest) (*acp1.LoadSessionResponse, error) {
+	if params == nil {
+		return nil, fmt.Errorf("load session: nil params")
+	}
+	s, err := a.Lookup(ctx, params.SessionID)
+	if err != nil {
+		return nil, err
+	}
+	return &acp1.LoadSessionResponse{
+		Modes:         a.buildModes(s),
+		ConfigOptions: a.buildConfigOptions(s),
+	}, nil
 }
 
 // Authenticate implements acp1.Authenticator.
@@ -365,13 +443,41 @@ func (a *ACPV1Agent) runTurn(ctx context.Context, sessID acp1.SessionID, s *acpV
 		History: turnHistory,
 	}
 
+	stream := acp1.NewSessionStream(a.client, sessID)
+	_ = stream.SendCommands(ctx, sessionCommandsV1(s))
+
+	var origPromptUser func(context.Context, backend.ToolCall) (bool, error)
+	if pr, ok := s.session.Runner.(*toolrunner.PermissionRunner); ok && pr != nil {
+		origPromptUser = pr.PromptUser
+		pr.PromptUser = func(callCtx context.Context, call backend.ToolCall) (bool, error) {
+			callID := call.ID
+			if callID == "" {
+				callID = fmt.Sprintf("call_%s_%d", call.Name, time.Now().UnixNano())
+			}
+			var title *string
+			target := toolrunner.ToolTarget(call)
+			if target != "" {
+				t := fmt.Sprintf("%s: %s", call.Name, target)
+				title = &t
+			} else {
+				t := call.Name
+				title = &t
+			}
+			_, allowed, err := stream.RequestPermission(callCtx, acp1.ToolCallUpdate{
+				ToolCallID: acp1.ToolCallID(callID),
+				Title:      title,
+			}, acp1.DefaultPermissionOptions()...)
+			return allowed, err
+		}
+		defer func() {
+			pr.PromptUser = origPromptUser
+		}()
+	}
+
 	frames, err := engine.Turn(ctx, turn)
 	if err != nil {
 		return &acp1.PromptResponse{StopReason: acp1.StopReasonRefusal}, err
 	}
-
-	stream := acp1.NewSessionStream(a.client, sessID)
-	_ = stream.SendCommands(ctx, sessionCommandsV1(s))
 
 	stopReason := acp1.StopReasonEndTurn
 	var lastUsage *acp1.Usage

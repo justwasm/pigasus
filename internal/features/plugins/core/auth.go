@@ -10,10 +10,11 @@
 // failing or prompting the user to sign in.
 //
 // 【一手】 Recovered from agy 1.4.12 symbols and strings:
-//   google3/third_party/jetski/cortex/utils/utils.readPluginAuthFile
-//   google3/third_party/jetski/cortex/utils/utils.TranslatePluginAuth
-//   google3/third_party/jetski/cortex/utils/utils.translateProvider
-//   google3/third_party/jetski/cortex/utils/utils.PluginAuthProviderInfo
+//
+//	google3/third_party/jetski/cortex/utils/utils.readPluginAuthFile
+//	google3/third_party/jetski/cortex/utils/utils.TranslatePluginAuth
+//	google3/third_party/jetski/cortex/utils/utils.translateProvider
+//	google3/third_party/jetski/cortex/utils/utils.PluginAuthProviderInfo
 package core
 
 import (

@@ -185,4 +185,3 @@ func (c *Controller) Close() {
 		c.subscribed = false
 	}
 }
-

@@ -1,6 +1,6 @@
 {
-  "version": "1.5.3",
-  "lag_note": "The live binary is 1.5.3 and the clone is pinned to 1.5.3, so no lag is acknowledged - lag_acknowledged_through must be strictly newer than the pin. Aligned to the 1.5.3 release.",
+  "version": "1.5.5",
+  "lag_note": "The live binary is 1.5.5 and the clone is pinned to 1.5.5, so no lag is acknowledged - lag_acknowledged_through must be strictly newer than the pin. Aligned to the 1.5.5 release.",
   "artifacts": [
     {
       "path": "internal/cli/testdata/changelog_reference.txt",

@@ -24,10 +24,10 @@ func (m *mockHost) Panel(k panelregistry.Kind) any {
 	}
 	return nil
 }
-func (m *mockHost) ContextState() contextpanel.State   { return contextpanel.State{} }
-func (m *mockHost) PanelUsageLines() []string          { return []string{"usage row"} }
-func (m *mockHost) UsageViewerSpec() tuiviewer.Spec    { return tuiviewer.Spec{Total: 10} }
-func (m *mockHost) PanelChangelogLines() []string      { return []string{"changelog row"} }
+func (m *mockHost) ContextState() contextpanel.State    { return contextpanel.State{} }
+func (m *mockHost) PanelUsageLines() []string           { return []string{"usage row"} }
+func (m *mockHost) UsageViewerSpec() tuiviewer.Spec     { return tuiviewer.Spec{Total: 10} }
+func (m *mockHost) PanelChangelogLines() []string       { return []string{"changelog row"} }
 func (m *mockHost) ChangelogViewerSpec() tuiviewer.Spec { return tuiviewer.Spec{Total: 20} }
 
 type mockInteractivePanel struct {

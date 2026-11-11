@@ -9,7 +9,6 @@ import (
 	"github.com/justwasm/pigasus/internal/modular"
 )
 
-
 type dummyEngine struct {
 	name string
 }
@@ -90,9 +89,9 @@ type dummySubsystem struct {
 	enabled bool
 }
 
-func (s *dummySubsystem) Name() string                     { return s.name }
-func (s *dummySubsystem) Enabled() bool                    { return s.enabled }
-func (s *dummySubsystem) Init(ctx context.Context) error   { return nil }
+func (s *dummySubsystem) Name() string                       { return s.name }
+func (s *dummySubsystem) Enabled() bool                      { return s.enabled }
+func (s *dummySubsystem) Init(ctx context.Context) error     { return nil }
 func (s *dummySubsystem) Shutdown(ctx context.Context) error { return nil }
 
 func TestSubsystemRegistry(t *testing.T) {
@@ -133,4 +132,3 @@ func TestSubcommandRegistry(t *testing.T) {
 		t.Errorf("expected custom-cmd in registered subcommands")
 	}
 }
-

@@ -12,7 +12,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/justwasm/pigasus/internal/app/tools"
 	"html"
 	"io"
 	"net/http"
@@ -21,6 +20,8 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/justwasm/pigasus/internal/app/tools"
 )
 
 // SearchWeb — Web search (reference name `search_web`).

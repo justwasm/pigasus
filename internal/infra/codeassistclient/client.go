@@ -1,16 +1,17 @@
 // CodeAssistClient implementation. Source-of-truth artifacts:
 // /decompiled/c/google3_third_party_jetski_language_server_code_assist_client_codeassistclient./
-//   _FetchLicensesFromAICode.c      (FetchLicensesFromAICode)
-//   _SelfAssignLicense.c           (SelfAssignLicense) [via _LanguageServerService_SelfAssignLicense_Handler]
-//   _StreamGenerateContentFromAICode.c
-//   _GenerateContentFromAICode.c
-//   _FetchConfigFromAICode.c
-//   _GetHTTPClient.c
-//   _SetEndpointURL.c / _GetEndpointURL.c
-//   _GetCAICProject.c / _SetCAICProject
-//   _GetGCPLocation.c
-//   _IsBusinessPayGo.c / _IsBusinessEnterprise.c
-//   _ResolveAuthMode.c
+//
+//	_FetchLicensesFromAICode.c      (FetchLicensesFromAICode)
+//	_SelfAssignLicense.c           (SelfAssignLicense) [via _LanguageServerService_SelfAssignLicense_Handler]
+//	_StreamGenerateContentFromAICode.c
+//	_GenerateContentFromAICode.c
+//	_FetchConfigFromAICode.c
+//	_GetHTTPClient.c
+//	_SetEndpointURL.c / _GetEndpointURL.c
+//	_GetCAICProject.c / _SetCAICProject
+//	_GetGCPLocation.c
+//	_IsBusinessPayGo.c / _IsBusinessEnterprise.c
+//	_ResolveAuthMode.c
 //
 // In the recovered 1.3.3 build, this client preserves the recovered
 // structure but does not actually dial cloudcode-pa.googleapis.com —

@@ -20,8 +20,8 @@ import (
 	"testing"
 	"time"
 
-	mesh "github.com/justwasm/pigasus/rcmesh/pion"
 	"github.com/justwasm/pigasus/rcmesh"
+	mesh "github.com/justwasm/pigasus/rcmesh/pion"
 	"github.com/pion/webrtc/v4"
 )
 

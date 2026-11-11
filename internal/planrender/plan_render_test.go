@@ -293,18 +293,19 @@ func TestPlanRender_FirstLineAlignsAcrossItems(t *testing.T) {
 // explicitly update the expected output and the cycle deliverable.
 //
 // Layout (width=24):
-//   item 1: prefix "1. " (3) + body "中修复 bug xxxxxxxxx..." (31 cells)
-//     wraps into content budget 21 cells:
-//     row[0]: "1. " + "中修复 bug xxxxxxxxx" (3+21=24 cells)
-//     row[1]: contIndent (5) + "xxxxxxxxxxx" + 10 padding (5+11+8=24 cells)
-//   item 2: prefix "2. " (3) + body "plain text yyy..." (31 cells)
-//     wraps similarly:
-//     row[2]: "2. " + "plain text yyyyyyyy" (3+21=24 cells)
-//     row[3]: contIndent (5) + "yyyyyyyyyy" + 10 padding (5+10+9=24 cells)
-//   item 3: prefix "3. " (3) + empty first line, then "中 zz..." (23 cells)
-//     row[4]: "3. " + 21 padding (3+21=24 cells)
-//     row[5]: contIndent (5) + "中 zzzzzzzzzzzzzzz" (5+19=24 cells)
-//     row[6]: contIndent (5) + "zzzz" + 15 padding (5+4+15=24 cells)
+//
+//	item 1: prefix "1. " (3) + body "中修复 bug xxxxxxxxx..." (31 cells)
+//	  wraps into content budget 21 cells:
+//	  row[0]: "1. " + "中修复 bug xxxxxxxxx" (3+21=24 cells)
+//	  row[1]: contIndent (5) + "xxxxxxxxxxx" + 10 padding (5+11+8=24 cells)
+//	item 2: prefix "2. " (3) + body "plain text yyy..." (31 cells)
+//	  wraps similarly:
+//	  row[2]: "2. " + "plain text yyyyyyyy" (3+21=24 cells)
+//	  row[3]: contIndent (5) + "yyyyyyyyyy" + 10 padding (5+10+9=24 cells)
+//	item 3: prefix "3. " (3) + empty first line, then "中 zz..." (23 cells)
+//	  row[4]: "3. " + 21 padding (3+21=24 cells)
+//	  row[5]: contIndent (5) + "中 zzzzzzzzzzzzzzz" (5+19=24 cells)
+//	  row[6]: contIndent (5) + "zzzz" + 15 padding (5+4+15=24 cells)
 func TestPlanRender_FullPlanRenderingEndToEnd(t *testing.T) {
 	items := []PlanItem{
 		{Prefix: "1. ", Lines: []string{

@@ -101,6 +101,8 @@ var actionLabels = map[string]string{
 	"prompt.submit_alternate":   "Send with opposite Queued Messages setting",
 	"subagent.approve_fast":     "Approve subagent fast",
 	"subagent.jump_to_waiting":  "Manage subagent",
+	"swarm.board":               "Swarm board",
+	"swarm.dismiss":             "Dismiss swarm",
 	"view.review_artifact":      "Review artifact",
 	"view.toggle_trajectory":    "Toggle trajectory view",
 	"vim.insert.insert_newline": "Insert newline (Vim insert)",

@@ -58,6 +58,7 @@
 package mdrender
 
 import (
+	"os"
 	"regexp"
 	"strings"
 
@@ -72,7 +73,7 @@ import (
 // Autolinks (`<https://…>`) and reference-style links
 // (`[label][ref]` with the [ref]: URL elsewhere) are NOT matched
 // here. Reference-style links are uncommon in the clone's
-// transcripts; the `\`` escaping rule would be a separate regex.
+// transcripts; the `\“ escaping rule would be a separate regex.
 var markdownLinkRe = regexp.MustCompile(`\[([^\[\]\n]+)\]\(([^()\s]+)\)`)
 
 // preprocessFileLinks rewrites every matched markdown link's URL
@@ -106,6 +107,13 @@ func preprocessFileLinks(src string) string {
 		}
 		label, url := sub[1], sub[2]
 		normalised := render.NormalizeFileLink(url)
+		// AGY 1.5.5: File link labels in terminals that do not support clicking links
+		// now show paths relative to working directory, relative to ~/, or absolute.
+		if strings.HasPrefix(url, "file://") {
+			cwd, _ := os.Getwd()
+			home, _ := os.UserHomeDir()
+			label = render.ResolveFileLinkLabel(label, normalised, cwd, home)
+		}
 		// Cycle 252: directory-link substitution. When the URL
 		// (post file-link normalisation) is a directory-link, the
 		// entire `[label](url)` is replaced with the URL itself,
@@ -119,8 +127,8 @@ func preprocessFileLinks(src string) string {
 		if dirLabel := RenderDirLink(normalised); dirLabel != "" {
 			return dirLabel
 		}
-		if normalised == url {
-			// No anchor rewrite; skip the rebuild to keep the
+		if normalised == url && label == sub[1] {
+			// No anchor rewrite or label resolve; skip the rebuild to keep the
 			// input bytes byte-identical where possible.
 			return match
 		}

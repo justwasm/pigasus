@@ -28,13 +28,13 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/justwasm/pigasus/internal/features/models/catalog"
 	"github.com/justwasm/pigasus/internal/core/backend"
 	"github.com/justwasm/pigasus/internal/core/cliflags"
 	accountrouting "github.com/justwasm/pigasus/internal/features/accounts/routing"
 	"github.com/justwasm/pigasus/internal/features/auth"
 	"github.com/justwasm/pigasus/internal/features/auth/credential"
 	"github.com/justwasm/pigasus/internal/features/models"
+	"github.com/justwasm/pigasus/internal/features/models/catalog"
 	"github.com/justwasm/pigasus/internal/infra/backend/cloudcode"
 	"github.com/justwasm/pigasus/internal/infra/backend/gateway"
 )

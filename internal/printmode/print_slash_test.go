@@ -11,13 +11,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/justwasm/pigasus/internal/ui/views/changelog"
 	"os"
 	"path/filepath"
 	"slices"
 	"sort"
 	"strings"
 	"testing"
+
+	"github.com/justwasm/pigasus/internal/ui/views/changelog"
 
 	"github.com/justwasm/pigasus/internal/cli"
 )

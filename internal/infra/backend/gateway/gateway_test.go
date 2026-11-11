@@ -70,6 +70,41 @@ func TestGatewayConfigEnvOverride(t *testing.T) {
 	}
 }
 
+func TestValidateGatewayURL(t *testing.T) {
+	valid := []string{
+		"https://example.com/v1",
+		"https://gateway.internal.corp:8443/v1",
+		"http://localhost:8080/v1",
+		"http://127.0.0.1:8080/v1",
+		"http://127.0.0.2:9000/v1",
+		"http://[::1]:8080/v1",
+		"",
+	}
+	for _, u := range valid {
+		if err := ValidateGatewayURL(u); err != nil {
+			t.Errorf("ValidateGatewayURL(%q) unexpected error: %v", u, err)
+		}
+	}
+
+	invalid := []string{
+		"http://example.com/v1",
+		"http://192.168.1.1:8080/v1",
+		"http://10.0.0.1:8080/v1",
+		"http://gateway.corp/v1",
+	}
+	for _, u := range invalid {
+		err := ValidateGatewayURL(u)
+		if err == nil {
+			t.Errorf("ValidateGatewayURL(%q) expected error, got nil", u)
+			continue
+		}
+		wantMsg := fmt.Sprintf("gateway URL %q uses plain http to a non-loopback host; use https (http is only allowed for localhost, 127.0.0.0/8, or ::1)", u)
+		if err.Error() != wantMsg {
+			t.Errorf("ValidateGatewayURL(%q) = %q, want %q", u, err.Error(), wantMsg)
+		}
+	}
+}
+
 // TestGatewayEndpointDescription makes sure the Endpoint() string is
 // safe to log (no leaked API key) and mentions the model so operators
 // can spot a misconfiguration at a glance.

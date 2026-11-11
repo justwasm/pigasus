@@ -12,9 +12,10 @@
 // plus a parallel subagent approval flow in
 // google3/third_party/jetski/cli/store/store
 // (TriggerSubagentApprovalFast at 0x8aa6f20,
-//  updatePendingApprovalsQueue at 0x8aa3f80,
-//  HandleSubagentUserInput at 0x8aa7da0,
-//  commitSubagentStates at 0x8aa0b20).
+//
+//	updatePendingApprovalsQueue at 0x8aa3f80,
+//	HandleSubagentUserInput at 0x8aa7da0,
+//	commitSubagentStates at 0x8aa0b20).
 //
 // This file reconstructs the cascader side of that lifecycle in Go:
 //
@@ -180,7 +181,6 @@ func NewRealLifecycle(be backend.Backend) *RealLifecycle {
 		be:    be,
 	}
 }
-
 
 // Close tears down the lifecycle. Mirrors the decompiled
 // `(*CascadeRunState).closeSubagentForwarder` at 0x76caa60 — any

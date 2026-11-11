@@ -3,9 +3,10 @@ package onboarding
 
 import (
 	"bytes"
-	"github.com/justwasm/pigasus/endpoints"
 	"strings"
 	"testing"
+
+	"github.com/justwasm/pigasus/endpoints"
 )
 
 func verifyColorSchemeHeaderAndList(t *testing.T, out string) {

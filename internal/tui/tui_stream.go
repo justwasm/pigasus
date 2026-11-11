@@ -1140,6 +1140,7 @@ func newRootModelBase(b backend.Client, email, model, tier, cwd string, altScree
 	m.askQuestion.panel = m.newSubAgentQuestionPanel()
 	m.help.Panel = m.newHelpPanel()
 	m.audio.Surface = m.newVoiceSurface()
+	m.swarm.Board = m.newSwarmBoard()
 	return m
 }
 

@@ -140,8 +140,28 @@ func TestGeminiStreamRequestShape(t *testing.T) {
 	if !ok || fcc["mode"] != "AUTO" {
 		t.Fatalf("functionCallingConfig = %v", toolConfig["functionCallingConfig"])
 	}
-	if _, ok := body["sessionId"].(string); !ok {
-		t.Fatalf("sessionId missing: %s", g.body)
+	if _, ok := body["sessionId"].(string); ok {
+		t.Fatalf("sessionId should be omitted by default: %s", g.body)
+	}
+}
+
+func TestGeminiSessionIDExplicit(t *testing.T) {
+	sse := "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"hello\"}],\"role\":\"model\"}}]}\n\n"
+	g := newGeminiServer(t, sse)
+
+	client := NewGeminiWithConfig(GeminiConfig{BaseURL: g.server.URL, Model: "m", SessionID: "session-42"})
+	chunks, err := client.Stream(context.Background(), backend.StreamRequest{Model: "m"})
+	if err != nil {
+		t.Fatalf("stream: %v", err)
+	}
+	for range chunks {
+	}
+	var body map[string]any
+	if err := json.Unmarshal(g.body, &body); err != nil {
+		t.Fatalf("unmarshal request body: %v", err)
+	}
+	if sid, ok := body["sessionId"].(string); !ok || sid != "session-42" {
+		t.Fatalf("sessionId = %v, want session-42", body["sessionId"])
 	}
 }
 
@@ -232,7 +252,7 @@ func TestGeminiVertexURL(t *testing.T) {
 // a `json.Encoder`, which appends one.
 func TestGeminiBodyEndsWithANewline(t *testing.T) {
 	g := newGeminiServer(t, "")
-	client := NewGeminiWithConfig(GeminiConfig{BaseURL: g.server.URL, Model: "gemini-3-pro-preview"})
+	client := NewGeminiWithConfig(GeminiConfig{BaseURL: g.server.URL, Model: "gemini-3-pro-preview", SessionID: "test-sess"})
 	chunks, err := client.Stream(context.Background(), backend.StreamRequest{
 		Model:    "gemini-3-pro-preview",
 		Messages: []backend.Message{{Role: "user", Content: "hello"}},
@@ -257,7 +277,7 @@ func TestGeminiBodyEndsWithANewline(t *testing.T) {
 // declaration.
 func TestGeminiBodyIsKeyedAlphabetically(t *testing.T) {
 	g := newGeminiServer(t, "")
-	client := NewGeminiWithConfig(GeminiConfig{BaseURL: g.server.URL, Model: "gemini-3-pro-preview"})
+	client := NewGeminiWithConfig(GeminiConfig{BaseURL: g.server.URL, Model: "gemini-3-pro-preview", SessionID: "test-sess"})
 	chunks, err := client.Stream(context.Background(), backend.StreamRequest{
 		Model:        "gemini-3-pro-preview",
 		SystemPrompt: "you are antigravity",
@@ -305,7 +325,7 @@ func TestGeminiBodyIsKeyedAlphabetically(t *testing.T) {
 // `parameters`.
 func TestGeminiJSONSchemaGoesToParametersJSONSchema(t *testing.T) {
 	g := newGeminiServer(t, "")
-	client := NewGeminiWithConfig(GeminiConfig{BaseURL: g.server.URL, Model: "gemini-3-pro-preview"})
+	client := NewGeminiWithConfig(GeminiConfig{BaseURL: g.server.URL, Model: "gemini-3-pro-preview", SessionID: "test-sess"})
 	chunks, err := client.Stream(context.Background(), backend.StreamRequest{
 		Model: "gemini-3-pro-preview",
 		Tools: []backend.ToolDecl{

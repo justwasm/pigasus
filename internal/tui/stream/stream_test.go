@@ -17,15 +17,15 @@ type mockHost struct {
 	notices   []stream.Notification
 }
 
-func (m *mockHost) ActiveModel() string             { return m.model }
-func (m *mockHost) IsStreaming() bool               { return m.streaming }
-func (m *mockHost) AppendStreamDelta(delta string)  { m.deltas = append(m.deltas, delta) }
+func (m *mockHost) ActiveModel() string            { return m.model }
+func (m *mockHost) IsStreaming() bool              { return m.streaming }
+func (m *mockHost) AppendStreamDelta(delta string) { m.deltas = append(m.deltas, delta) }
 func (m *mockHost) OnTurnComplete(reply string, err error) tea.Cmd {
 	m.completed = reply
 	m.err = err
 	return nil
 }
-func (m *mockHost) Notify(n stream.Notification)   { m.notices = append(m.notices, n) }
+func (m *mockHost) Notify(n stream.Notification) { m.notices = append(m.notices, n) }
 
 func TestStreamHandler(t *testing.T) {
 	host := &mockHost{model: "test-model", streaming: true}

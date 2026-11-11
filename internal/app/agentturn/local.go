@@ -39,11 +39,11 @@ type Local struct {
 	closed        bool
 	overrideModel string
 	activeActor   *actor.Actor
-	resetEpoch   uint64
-	sessionEpoch uint64
-	fedMessages  int
-	permHandler  PermissionHandler
-	pendingSteer []string
+	resetEpoch    uint64
+	sessionEpoch  uint64
+	fedMessages   int
+	permHandler   PermissionHandler
+	pendingSteer  []string
 
 	checkpoint        *checkpoint.Policy
 	checkpointModel   string

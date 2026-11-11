@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/justwasm/pigasus/internal/app/prompt/agyprompt"
+	"github.com/justwasm/pigasus/internal/app/tools"
 	"github.com/justwasm/pigasus/internal/core/backend"
 	confhome "github.com/justwasm/pigasus/internal/core/confhome"
 	cascade "github.com/justwasm/pigasus/internal/core/lifecycle"
@@ -14,9 +15,7 @@ import (
 	modelcatalog "github.com/justwasm/pigasus/internal/features/models/catalog"
 	backendselect "github.com/justwasm/pigasus/internal/infra/backend/select"
 	"github.com/justwasm/pigasus/internal/modular"
-	"github.com/justwasm/pigasus/internal/app/tools"
 )
-
 
 func init() {
 	modular.RegisterEngine("stream", NewEngine())
@@ -79,7 +78,6 @@ func (e *Engine) Send(ctx context.Context, input modular.TurnInput) (*modular.Tu
 	if client == nil {
 		return nil, fmt.Errorf("stream: failed to initialize backend client for %q", modelName)
 	}
-
 
 	// 3. Resolve System Prompt
 	sysPrompt := input.SystemPrompt
@@ -200,7 +198,6 @@ func (e *Engine) Send(ctx context.Context, input modular.TurnInput) (*modular.Tu
 				IsError:    isErr,
 			})
 		}
-
 
 		transition(cascade.CascaderStream, cascade.CascaderExecute, "tool execution complete; planning follow-up turn")
 	}

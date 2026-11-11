@@ -91,10 +91,10 @@ func (s *SendCommandInput) Run(ctx context.Context, args json.RawMessage) (any, 
 // declaration and the CLI-side description recovered from the 1.4.8
 // binary) advertises four actions:
 //
-//	- 'list': List all currently running background tasks
-//	- 'kill': Cancel the task's execution
-//	- 'status': Check the task's current status and log file location
-//	- 'send_input': Send input to a running task
+//   - 'list': List all currently running background tasks
+//   - 'kill': Cancel the task's execution
+//   - 'status': Check the task's current status and log file location
+//   - 'send_input': Send input to a running task
 //
 // The clone implements all four. The tasks it manages are the
 // conversation's background commands; the schedules a conversation owns
@@ -384,4 +384,3 @@ func (s *ScheduleTool) Run(ctx context.Context, args json.RawMessage) (any, erro
 	// returns, because in the reference both are tasks.
 	return shell.TaskLaunchResult(start, conversationID, taskID, logPath), nil
 }
-

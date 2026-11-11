@@ -149,6 +149,12 @@ func (p *Panel) detailLines() []string {
 	body = append(body, panelBoldOpen+"Execution Output / Log:"+panelBoldClose)
 	if out != "" {
 		rawLines := strings.Split(strings.TrimRight(out, "\n"), "\n")
+		const maxOutputLines = 500
+		if len(rawLines) > maxOutputLines {
+			omitted := len(rawLines) - maxOutputLines
+			body = append(body, indent+palette.SubtleOpen+fmt.Sprintf("... (%d earlier lines omitted) ...", omitted)+panelGray238C)
+			rawLines = rawLines[omitted:]
+		}
 		for _, raw := range rawLines {
 			if strings.TrimSpace(raw) == "" {
 				body = append(body, "")

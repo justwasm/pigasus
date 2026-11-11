@@ -65,12 +65,12 @@ type crushRPCRequest struct {
 }
 
 type crushRPCResponse struct {
-	JSONRPC string           `json:"jsonrpc"`
-	ID      *uint64          `json:"id,omitempty"`
-	Result  json.RawMessage  `json:"result,omitempty"`
-	Error   *crushRPCError   `json:"error,omitempty"`
-	Method  string           `json:"method,omitempty"`
-	Params  json.RawMessage  `json:"params,omitempty"`
+	JSONRPC string          `json:"jsonrpc"`
+	ID      *uint64         `json:"id,omitempty"`
+	Result  json.RawMessage `json:"result,omitempty"`
+	Error   *crushRPCError  `json:"error,omitempty"`
+	Method  string          `json:"method,omitempty"`
+	Params  json.RawMessage `json:"params,omitempty"`
 }
 
 type crushRPCError struct {

@@ -8,8 +8,8 @@ import (
 
 func Test_DiffPanelPureMessagePassing(t *testing.T) {
 	p := New(Seams{
-		Cwd: func() string { return t.TempDir() },
-		Size: func() (int, int) { return 80, 24 },
+		Cwd:   func() string { return t.TempDir() },
+		Size:  func() (int, int) { return 80, 24 },
 		Turns: func() int { return 0 },
 	})
 

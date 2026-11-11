@@ -12,10 +12,11 @@ package cli
 
 import (
 	"bytes"
-	"github.com/justwasm/pigasus/internal/features/models/catalog"
 	"os"
 	"strings"
 	"testing"
+
+	"github.com/justwasm/pigasus/internal/features/models/catalog"
 )
 
 func TestModelTable_TabSeparatedWhenNotATerminal(t *testing.T) {

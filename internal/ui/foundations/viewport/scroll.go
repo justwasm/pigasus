@@ -80,7 +80,6 @@ func RenderPinnedPrompt(promptRow string, width int) string {
 	return promptRow
 }
 
-
 // IsScrollKey reports whether k is one of the recovered transcript scroll bindings.
 func IsScrollKey(k tea.Key) bool {
 	switch k.Code {

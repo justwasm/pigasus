@@ -518,8 +518,16 @@ func (e *RemoteAgentEngine) finish(out chan<- agentlink.Frame, reply, reasoning 
 }
 
 func (e *RemoteAgentEngine) emitError(out chan<- agentlink.Frame, err error) {
+	msg := err.Error()
+	// AGY 1.5.4: Show "Sign-in update needed" warning when --remote-agent receives
+	// "cloud conversations are not enabled for this user".
+	if strings.Contains(msg, "cloud conversations are not enabled for this user") {
+		if !strings.HasPrefix(msg, "Sign-in update needed") {
+			msg = "Sign-in update needed: " + msg
+		}
+	}
 	select {
-	case out <- agentlink.Frame{Kind: agentlink.KindResult, Error: err.Error()}:
+	case out <- agentlink.Frame{Kind: agentlink.KindResult, Error: msg}:
 	default:
 	}
 }

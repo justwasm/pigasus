@@ -140,6 +140,9 @@ func (p *Panel) SetScope(scope string) {
 	if p == nil {
 		return
 	}
+	if p.writeInActive {
+		return
+	}
 	p.scope = scope
 }
 
@@ -377,13 +380,20 @@ func scopeLabel(scope string) string {
 }
 
 // SetWidth sets the width of the inline write-in textarea.
+// It guards against unknown or very narrow terminal sizes (AGY 1.5.4).
 func (p *Panel) SetWidth(w int) {
 	if p == nil {
 		return
 	}
+	if w <= 0 {
+		w = 80
+	}
 	tw := w - 8
-	if tw < 20 {
-		tw = 60
+	if tw < 10 {
+		tw = 10
+	}
+	if tw > w {
+		tw = w
 	}
 	p.writeInInput.SetWidth(tw)
 }

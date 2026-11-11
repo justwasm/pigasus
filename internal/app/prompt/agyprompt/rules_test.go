@@ -334,4 +334,3 @@ func TestRenderUserRules_MatchesLiveCapture(t *testing.T) {
 		t.Errorf("rendered block differs from the 1.4.5 capture:\n got %q\nwant %q", got, want)
 	}
 }
-

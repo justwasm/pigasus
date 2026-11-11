@@ -19,10 +19,10 @@ package persistent
 
 import (
 	"context"
-	"runtime"
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -57,10 +57,10 @@ func tempPlistDir(t *testing.T) string {
 // tests.  Callers override the fields they care about.
 func fillSpec(name string) Spec {
 	return Spec{
-		Name:       name,
-		Addr:       DefaultAddr,
-		LogFile:    LogFilePath(name),
-		BinaryPath: "/usr/local/bin/wagyu",
+		Name:        name,
+		Addr:        DefaultAddr,
+		LogFile:     LogFilePath(name),
+		BinaryPath:  "/usr/local/bin/wagyu",
 		SkipLaunchd: true,
 	}
 }

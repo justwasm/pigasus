@@ -373,9 +373,9 @@ func TestNamesCoversEveryEndpoint(t *testing.T) {
 // derive from the tunnel's own host and can be overridden explicitly.
 func TestSignalingURLsDeriveFromWebChannel(t *testing.T) {
 	cases := []struct {
-		webChannel    string
-		wantPoll      string
-		wantSend      string
+		webChannel string
+		wantPoll   string
+		wantSend   string
 	}{
 		{DefaultWebChannel, DefaultPollSignaling, DefaultSendSignaling},
 		{

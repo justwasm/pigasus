@@ -1,8 +1,8 @@
 package panels
 
 import (
-	"github.com/justwasm/pigasus/internal/ui/views/modelpicker"
 	tea "charm.land/bubbletea/v2"
+	"github.com/justwasm/pigasus/internal/ui/views/modelpicker"
 )
 
 // ModelHost defines the host operations needed by the /model panel.

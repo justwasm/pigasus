@@ -541,8 +541,8 @@ func TestGlamour_RenderMarkdown_ChatTranscript(t *testing.T) {
 	for _, want := range []string{
 		"Here is",
 		"what changed",
-		"parser",  // inside *parser*
-		"fenced",  // inside `fenced`
+		"parser", // inside *parser*
+		"fenced", // inside `fenced`
 		"bullet markers get the round-dot glyph",
 		"bold", // inside **bold**
 	} {

@@ -83,13 +83,35 @@ func PermissionGateMiddleware(
 // denial list feeds the reference's end-of-run "N tool(s) required
 // approval" notice, so a sandbox refusal counts like a policy refusal.
 func SandboxBoundaryMiddleware(sb sandbox.Sandbox, onDenial func(toolName string)) Middleware {
+	return SandboxBoundaryMiddlewareWithMode(sb, "", nil, onDenial)
+}
+
+// SandboxBoundaryMiddlewareWithMode enforces sandbox boundaries and, in Auto mode (AGY 1.5.4),
+// requests user approval before executing commands that leave the sandbox.
+func SandboxBoundaryMiddlewareWithMode(
+	sb sandbox.Sandbox,
+	mode string,
+	promptUser func(ctx context.Context, call backend.ToolCall) (bool, error),
+	onDenial func(toolName string),
+) Middleware {
 	return func(next Handler) Handler {
 		return func(ctx context.Context, call backend.ToolCall) (string, error) {
 			if sb.Enabled && (call.Name == "run_command" || call.Name == "run_shell_command") {
 				target := ToolTarget(call)
 				if res := sb.CheckCommandWithBypass(target, shell.BypassSandboxRequested(call.Arguments)); res.Outside {
+					// AGY 1.5.4: In Auto mode, commands that would leave the sandbox prompt for
+					// user approval rather than outright failing.
+					if mode == permissions.ModeAuto && promptUser != nil {
+						approved, err := promptUser(ctx, call)
+						if err == nil && approved {
+							return next(ctx, call)
+						}
+					}
 					if onDenial != nil {
 						onDenial(call.Name)
+					}
+					if mode == permissions.ModeAuto {
+						return permissions.DeniedToolResult(call.Name, target), nil
 					}
 					return SandboxDeniedToolResult(call.Name, target, sb.AllowedPaths()), nil
 				}

@@ -10,7 +10,7 @@ import "fmt"
 // bytes long in the binary (the `fmt.Sprintf` length argument is 0x30) and
 // lives at 0x103617a41:
 //
-//	  ⎿  Interrupted · What should %s do instead?
+//	⎿  Interrupted · What should %s do instead?
 //
 // The same function returns a second literal when the Esc cancelled a
 // *compaction* instead of a turn — "  ⎿  Compaction cancelled. Conversation

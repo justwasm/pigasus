@@ -325,10 +325,10 @@ func TestBalanceFailoverOnQuotaError(t *testing.T) {
 	acc2 := accounts.Account{Email: "beta@example.com", Token: testToken("beta"), Quota: testQuotaSnapshot(0.5)}
 
 	setupTestEnvironment(t, map[string]any{
-		"enabled":                 true,
-		"strategy":                "sticky", // starts on alpha (active)
-		"max_attempts":            3,
-		"switch_on_quota_error":   true,
+		"enabled":               true,
+		"strategy":              "sticky", // starts on alpha (active)
+		"max_attempts":          3,
+		"switch_on_quota_error": true,
 	}, acc1, acc2)
 
 	var authCalls []string
@@ -353,7 +353,7 @@ func TestBalanceFailoverOnQuotaError(t *testing.T) {
 	}))
 	defer upstream.Close()
 
-		router := newTestRouter(acc1, acc2)
+	router := newTestRouter(acc1, acc2)
 	srv, err := New(Config{
 		Addr:     "127.0.0.1:0",
 		Upstream: upstream.URL,
@@ -1177,5 +1177,3 @@ func TestBalanceStreamMultilineDataErrorFailover(t *testing.T) {
 		t.Fatalf("expected 2 calls, got %v", authCalls)
 	}
 }
-
-

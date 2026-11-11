@@ -69,10 +69,90 @@
 package render
 
 import (
+	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
 )
+
+// PathUnder reports whether target is inside baseDir, returning the relative path if true.
+func PathUnder(target, baseDir string) (string, bool) {
+	if target == "" || baseDir == "" {
+		return "", false
+	}
+	cleanTarget := filepath.Clean(target)
+	cleanBase := filepath.Clean(baseDir)
+	rel, err := filepath.Rel(cleanBase, cleanTarget)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", false
+	}
+	return rel, true
+}
+
+// DisplayPath formats a path for display in terminal link labels:
+// relative to cwd, relative to home (~/...), or absolute.
+// Recovered from jetski/cli/render/render.displayPath.
+func DisplayPath(target, cwd, home string) string {
+	target = strings.TrimSpace(target)
+	if target == "" {
+		return ""
+	}
+	cleanTarget := filepath.Clean(target)
+	if cwd != "" {
+		if rel, ok := PathUnder(cleanTarget, cwd); ok {
+			return filepath.ToSlash(rel)
+		}
+	}
+	if home != "" {
+		if rel, ok := PathUnder(cleanTarget, home); ok {
+			return "~/" + filepath.ToSlash(rel)
+		}
+	}
+	return filepath.ToSlash(cleanTarget)
+}
+
+// ResolveFileLinkLabel updates a file link's label so terminals without OSC 8
+// link support show the relative/clean path instead of just the basename.
+// Recovered from jetski/cli/render/render.resolveFileLinkLabel.
+func ResolveFileLinkLabel(label, rawURL, cwd, home string) string {
+	label = strings.TrimSpace(label)
+	rawURL = strings.TrimSpace(rawURL)
+	if rawURL == "" {
+		return label
+	}
+
+	// Extract path and anchor
+	u := rawURL
+	if idx := strings.Index(u, "?"); idx >= 0 {
+		u = u[:idx]
+	}
+	var anchor string
+	if idx := strings.Index(u, "#L"); idx >= 0 {
+		anchor = u[idx+2:]
+		u = u[:idx]
+	} else if idx := strings.Index(u, "%23L"); idx >= 0 {
+		anchor = u[idx+4:]
+		u = u[:idx]
+	}
+	filePath := strings.TrimPrefix(u, "file://")
+
+	// Check if label was just the file name/basename
+	base := filepath.Base(filePath)
+	cleanLabel := label
+	if colonIdx := strings.LastIndex(cleanLabel, ":"); colonIdx >= 0 {
+		cleanLabel = cleanLabel[:colonIdx]
+	}
+	cleanLabel = strings.TrimPrefix(cleanLabel, "file://")
+
+	if cleanLabel == base || cleanLabel == filePath || strings.HasSuffix(filepath.ToSlash(filePath), "/"+filepath.ToSlash(cleanLabel)) {
+		disp := DisplayPath(filePath, cwd, home)
+		if anchor != "" && !strings.Contains(disp, ":") {
+			disp = disp + ":" + anchor
+		}
+		return disp
+	}
+	return label
+}
 
 // lineAnchorRe matches a `#L<digits>` fragment. We only touch the
 // fragment portion of a URL — `path#L<digits>` rewrites to

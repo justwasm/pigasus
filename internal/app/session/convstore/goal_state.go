@@ -10,10 +10,11 @@ import (
 // GoalState represents the state of a goal within a conversation.
 // In agy (google3/third_party/jetski/cortex_pb/cortex.proto GoalState),
 // the state values are:
-//   0: UNSPECIFIED
-//   1: ACTIVE
-//   2: COMPLETED
-//   3: CANCELLED
+//
+//	0: UNSPECIFIED
+//	1: ACTIVE
+//	2: COMPLETED
+//	3: CANCELLED
 const (
 	GoalStateUnspecified = 0
 	GoalStateActive      = 1

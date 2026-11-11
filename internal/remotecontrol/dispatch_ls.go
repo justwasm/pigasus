@@ -568,6 +568,7 @@ func (d *Dispatcher) RecordExternalTurnFrame(conversationID string, kind string,
 		traj.Append(lsToolCallStep(toolName, toolArgs, toolResult))
 	}
 }
+
 // autocomplete. The IDE's SlashCommandDefinition wraps the command
 // info in an `info` field and repeats the name as `title`; the
 // clone's own catalogue carries a different field set, so each entry

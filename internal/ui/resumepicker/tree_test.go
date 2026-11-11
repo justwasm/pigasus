@@ -603,4 +603,3 @@ func TestTreeCurrentConversationTag(t *testing.T) {
 		t.Fatalf("flat view should contain '[CURRENT] Probe One', got:\n%s", flatBody)
 	}
 }
-

@@ -3,9 +3,10 @@ package filesystem
 import (
 	"context"
 	"encoding/json"
-	"github.com/justwasm/pigasus/internal/app/tools"
 	"os"
 	"path/filepath"
+
+	"github.com/justwasm/pigasus/internal/app/tools"
 )
 
 // DeleteFile — Source: tools.delete_file (v4 32 #20). The only fs tool

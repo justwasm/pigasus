@@ -4,10 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/justwasm/pigasus/internal/app/tools"
 	"os"
 	"regexp"
 	"strings"
+
+	"github.com/justwasm/pigasus/internal/app/tools"
 )
 
 // ReplaceSpec is one entry of multi_replace_file_content.

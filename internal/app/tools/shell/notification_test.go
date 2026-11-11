@@ -2,9 +2,10 @@ package shell
 
 import (
 	"encoding/json"
-	"github.com/justwasm/pigasus/internal/app/tools"
 	"testing"
 	"time"
+
+	"github.com/justwasm/pigasus/internal/app/tools"
 )
 
 // The reference's own schema field, read out of the 1.4.8 binary.

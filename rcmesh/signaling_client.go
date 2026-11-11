@@ -64,6 +64,7 @@ func (c SignalingClient) Poll(ctx context.Context, request PollRequest) (PollRes
 	err := c.call(ctx, c.PollURL, request, &response)
 	return response, err
 }
+
 // Send posts one signaling message.
 //
 // 【反编译】 the request's payload member carries the *bare* content, never

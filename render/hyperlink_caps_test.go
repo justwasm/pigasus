@@ -48,221 +48,221 @@ var detectHyperlinkCases = []struct {
 	tmuxProbeResult bool
 	want            HyperlinkCaps
 }{
-		{
-			name: "empty env defaults to OSC 8 off",
-			env:  nil,
-			want: HyperlinkCaps{
-				OSC8:  false,
-				OSC52: false,
-			},
+	{
+		name: "empty env defaults to OSC 8 off",
+		env:  nil,
+		want: HyperlinkCaps{
+			OSC8:  false,
+			OSC52: false,
 		},
-		{
-			name: "Apple Terminal disables OSC 8",
-			env:  envFrom("TERM_PROGRAM", "Apple_Terminal"),
-			want: HyperlinkCaps{
-				OSC8:     false,
-				OSC52:    false,
-				Terminal: "Apple_Terminal",
-			},
+	},
+	{
+		name: "Apple Terminal disables OSC 8",
+		env:  envFrom("TERM_PROGRAM", "Apple_Terminal"),
+		want: HyperlinkCaps{
+			OSC8:     false,
+			OSC52:    false,
+			Terminal: "Apple_Terminal",
 		},
-		{
-			name: "Apple Terminal over SSH marks the SSH+Terminal.app case",
-			env: envFrom(
-				"TERM_PROGRAM", "Apple_Terminal",
-				"SSH_CONNECTION", "192.0.2.1 12345 198.51.100.1 22",
-			),
-			want: HyperlinkCaps{
-				OSC8:             false,
-				OSC52:            false,
-				Terminal:         "Apple_Terminal",
-				SSH:              true,
-				AppleTerminalSSH: true,
-			},
+	},
+	{
+		name: "Apple Terminal over SSH marks the SSH+Terminal.app case",
+		env: envFrom(
+			"TERM_PROGRAM", "Apple_Terminal",
+			"SSH_CONNECTION", "192.0.2.1 12345 198.51.100.1 22",
+		),
+		want: HyperlinkCaps{
+			OSC8:             false,
+			OSC52:            false,
+			Terminal:         "Apple_Terminal",
+			SSH:              true,
+			AppleTerminalSSH: true,
 		},
-		{
-			name: "GNU screen 256colour disables OSC 8",
-			env:  envFrom("TERM", "screen-256color"),
-			want: HyperlinkCaps{
-				OSC8:     false,
-				OSC52:    false,
-				Terminal: "screen",
-			},
+	},
+	{
+		name: "GNU screen 256colour disables OSC 8",
+		env:  envFrom("TERM", "screen-256color"),
+		want: HyperlinkCaps{
+			OSC8:     false,
+			OSC52:    false,
+			Terminal: "screen",
 		},
-		{
-			name: "GNU screen-256color-bce disables OSC 8",
-			env:  envFrom("TERM", "screen-256color-bce"),
-			want: HyperlinkCaps{
-				OSC8:     false,
-				OSC52:    false,
-				Terminal: "screen",
-			},
+	},
+	{
+		name: "GNU screen-256color-bce disables OSC 8",
+		env:  envFrom("TERM", "screen-256color-bce"),
+		want: HyperlinkCaps{
+			OSC8:     false,
+			OSC52:    false,
+			Terminal: "screen",
 		},
-		{
-			name: "tmux without passthrough disables OSC 8",
-			env:  envFrom("TERM", "tmux-256color", "TMUX", "/tmp/tmux-1000/default,12345,0"),
-			want: HyperlinkCaps{
-				OSC8:     false,
-				OSC52:    true,
-				Terminal: "tmux",
-			},
+	},
+	{
+		name: "tmux without passthrough disables OSC 8",
+		env:  envFrom("TERM", "tmux-256color", "TMUX", "/tmp/tmux-1000/default,12345,0"),
+		want: HyperlinkCaps{
+			OSC8:     false,
+			OSC52:    true,
+			Terminal: "tmux",
 		},
-		{
-			name:            "tmux with passthrough enabled keeps OSC 8 on",
-			env:             envFrom("TERM", "tmux-256color", "TMUX", "/tmp/tmux-1000/default,12345,0"),
-			tmuxProbeResult: true,
-			want: HyperlinkCaps{
-				OSC8:                     true,
-				OSC52:                    true,
-				Terminal:                 "tmux",
-				TmuxHyperlinkPassthrough: true,
-			},
+	},
+	{
+		name:            "tmux with passthrough enabled keeps OSC 8 on",
+		env:             envFrom("TERM", "tmux-256color", "TMUX", "/tmp/tmux-1000/default,12345,0"),
+		tmuxProbeResult: true,
+		want: HyperlinkCaps{
+			OSC8:                     true,
+			OSC52:                    true,
+			Terminal:                 "tmux",
+			TmuxHyperlinkPassthrough: true,
 		},
-		{
-			name: "kitty enables OSC 8",
-			env:  envFrom("TERM_PROGRAM", "kitty", "TERM", "xterm-kitty"),
-			want: HyperlinkCaps{
-				OSC8:     true,
-				OSC52:    true,
-				Terminal: "kitty",
-			},
+	},
+	{
+		name: "kitty enables OSC 8",
+		env:  envFrom("TERM_PROGRAM", "kitty", "TERM", "xterm-kitty"),
+		want: HyperlinkCaps{
+			OSC8:     true,
+			OSC52:    true,
+			Terminal: "kitty",
 		},
-		{
-			name: "ghostty enables OSC 8",
-			env:  envFrom("TERM_PROGRAM", "ghostty", "TERM", "xterm-ghostty"),
-			want: HyperlinkCaps{
-				OSC8:     true,
-				OSC52:    true,
-				Terminal: "ghostty",
-			},
+	},
+	{
+		name: "ghostty enables OSC 8",
+		env:  envFrom("TERM_PROGRAM", "ghostty", "TERM", "xterm-ghostty"),
+		want: HyperlinkCaps{
+			OSC8:     true,
+			OSC52:    true,
+			Terminal: "ghostty",
 		},
-		{
-			name: "WezTerm enables OSC 8",
-			env:  envFrom("TERM_PROGRAM", "WezTerm", "TERM", "wezterm"),
-			want: HyperlinkCaps{
-				OSC8:     true,
-				OSC52:    true,
-				Terminal: "WezTerm",
-			},
+	},
+	{
+		name: "WezTerm enables OSC 8",
+		env:  envFrom("TERM_PROGRAM", "WezTerm", "TERM", "wezterm"),
+		want: HyperlinkCaps{
+			OSC8:     true,
+			OSC52:    true,
+			Terminal: "WezTerm",
 		},
-		{
-			name: "foot enables OSC 8",
-			env:  envFrom("TERM_PROGRAM", "foot", "TERM", "foot-extra"),
-			want: HyperlinkCaps{
-				OSC8:     true,
-				OSC52:    true,
-				Terminal: "foot",
-			},
+	},
+	{
+		name: "foot enables OSC 8",
+		env:  envFrom("TERM_PROGRAM", "foot", "TERM", "foot-extra"),
+		want: HyperlinkCaps{
+			OSC8:     true,
+			OSC52:    true,
+			Terminal: "foot",
 		},
-		{
-			name: "iTerm.app enables OSC 8",
-			env:  envFrom("TERM_PROGRAM", "iTerm.app", "TERM", "xterm-256color"),
-			want: HyperlinkCaps{
-				OSC8:     true,
-				OSC52:    true,
-				Terminal: "iTerm2",
-			},
+	},
+	{
+		name: "iTerm.app enables OSC 8",
+		env:  envFrom("TERM_PROGRAM", "iTerm.app", "TERM", "xterm-256color"),
+		want: HyperlinkCaps{
+			OSC8:     true,
+			OSC52:    true,
+			Terminal: "iTerm2",
 		},
-		{
-			name: "iTerm2 (legacy) enables OSC 8",
-			env:  envFrom("TERM_PROGRAM", "iTerm2", "TERM", "xterm-256color"),
-			want: HyperlinkCaps{
-				OSC8:     true,
-				OSC52:    true,
-				Terminal: "iTerm2",
-			},
+	},
+	{
+		name: "iTerm2 (legacy) enables OSC 8",
+		env:  envFrom("TERM_PROGRAM", "iTerm2", "TERM", "xterm-256color"),
+		want: HyperlinkCaps{
+			OSC8:     true,
+			OSC52:    true,
+			Terminal: "iTerm2",
 		},
-		{
-			name: "konsole enables OSC 8",
-			env:  envFrom("TERM_PROGRAM", "konsole", "TERM", "xterm-256color"),
-			want: HyperlinkCaps{
-				OSC8:     true,
-				OSC52:    true,
-				Terminal: "konsole",
-			},
+	},
+	{
+		name: "konsole enables OSC 8",
+		env:  envFrom("TERM_PROGRAM", "konsole", "TERM", "xterm-256color"),
+		want: HyperlinkCaps{
+			OSC8:     true,
+			OSC52:    true,
+			Terminal: "konsole",
 		},
-		{
-			name: "alacritty enables OSC 8",
-			env:  envFrom("TERM_PROGRAM", "alacritty", "TERM", "alacritty"),
-			want: HyperlinkCaps{
-				OSC8:     true,
-				OSC52:    true,
-				Terminal: "alacritty",
-			},
+	},
+	{
+		name: "alacritty enables OSC 8",
+		env:  envFrom("TERM_PROGRAM", "alacritty", "TERM", "alacritty"),
+		want: HyperlinkCaps{
+			OSC8:     true,
+			OSC52:    true,
+			Terminal: "alacritty",
 		},
-		{
-			name: "VS Code integrated enables OSC 8 (≥ 1.79)",
-			env:  envFrom("TERM_PROGRAM", "vscode", "TERM", "xterm-256color"),
-			want: HyperlinkCaps{
-				OSC8:     true,
-				OSC52:    true,
-				Terminal: "vscode",
-			},
+	},
+	{
+		name: "VS Code integrated enables OSC 8 (≥ 1.79)",
+		env:  envFrom("TERM_PROGRAM", "vscode", "TERM", "xterm-256color"),
+		want: HyperlinkCaps{
+			OSC8:     true,
+			OSC52:    true,
+			Terminal: "vscode",
 		},
-		{
-			name: "xterm-256color local enables OSC 8 (modern xterm ≥ 379 supports OSC 8)",
-			env:  envFrom("TERM", "xterm-256color"),
-			want: HyperlinkCaps{
-				OSC8:     true,
-				OSC52:    true,
-				Terminal: "xterm-256color",
-			},
+	},
+	{
+		name: "xterm-256color local enables OSC 8 (modern xterm ≥ 379 supports OSC 8)",
+		env:  envFrom("TERM", "xterm-256color"),
+		want: HyperlinkCaps{
+			OSC8:     true,
+			OSC52:    true,
+			Terminal: "xterm-256color",
 		},
-		{
-			name: "SSH + xterm-256color + no TERM_PROGRAM keeps OSC 8 on (modern ssh passthrough)",
-			env: envFrom(
-				"TERM", "xterm-256color",
-				"SSH_CONNECTION", "192.0.2.1 12345 198.51.100.1 22",
-			),
-			want: HyperlinkCaps{
-				OSC8:     true,
-				OSC52:    true,
-				Terminal: "xterm-256color",
-				SSH:      true,
-			},
+	},
+	{
+		name: "SSH + xterm-256color + no TERM_PROGRAM keeps OSC 8 on (modern ssh passthrough)",
+		env: envFrom(
+			"TERM", "xterm-256color",
+			"SSH_CONNECTION", "192.0.2.1 12345 198.51.100.1 22",
+		),
+		want: HyperlinkCaps{
+			OSC8:     true,
+			OSC52:    true,
+			Terminal: "xterm-256color",
+			SSH:      true,
 		},
-		{
-			name: "SSH + kitty keeps OSC 8 on",
-			env: envFrom(
-				"TERM_PROGRAM", "kitty",
-				"TERM", "xterm-kitty",
-				"SSH_CONNECTION", "192.0.2.1 12345 198.51.100.1 22",
-			),
-			want: HyperlinkCaps{
-				OSC8:     true,
-				OSC52:    true,
-				Terminal: "kitty",
-				SSH:      true,
-			},
+	},
+	{
+		name: "SSH + kitty keeps OSC 8 on",
+		env: envFrom(
+			"TERM_PROGRAM", "kitty",
+			"TERM", "xterm-kitty",
+			"SSH_CONNECTION", "192.0.2.1 12345 198.51.100.1 22",
+		),
+		want: HyperlinkCaps{
+			OSC8:     true,
+			OSC52:    true,
+			Terminal: "kitty",
+			SSH:      true,
 		},
-		{
-			name: "SSH + Apple_Terminal disables OSC 8 (the changelog case)",
-			env: envFrom(
-				"TERM_PROGRAM", "Apple_Terminal",
-				"TERM", "xterm-256color",
-				"SSH_CONNECTION", "192.0.2.1 12345 198.51.100.1 22",
-			),
-			want: HyperlinkCaps{
-				OSC8:             false,
-				OSC52:            false,
-				Terminal:         "Apple_Terminal",
-				SSH:              true,
-				AppleTerminalSSH: true,
-			},
+	},
+	{
+		name: "SSH + Apple_Terminal disables OSC 8 (the changelog case)",
+		env: envFrom(
+			"TERM_PROGRAM", "Apple_Terminal",
+			"TERM", "xterm-256color",
+			"SSH_CONNECTION", "192.0.2.1 12345 198.51.100.1 22",
+		),
+		want: HyperlinkCaps{
+			OSC8:             false,
+			OSC52:            false,
+			Terminal:         "Apple_Terminal",
+			SSH:              true,
+			AppleTerminalSSH: true,
 		},
-		{
-			name: "SSH + GNU screen disables OSC 8",
-			env: envFrom(
-				"TERM", "screen-256color",
-				"SSH_CONNECTION", "192.0.2.1 12345 198.51.100.1 22",
-			),
-			want: HyperlinkCaps{
-				OSC8:     false,
-				OSC52:    false,
-				Terminal: "screen",
-				SSH:      true,
-			},
+	},
+	{
+		name: "SSH + GNU screen disables OSC 8",
+		env: envFrom(
+			"TERM", "screen-256color",
+			"SSH_CONNECTION", "192.0.2.1 12345 198.51.100.1 22",
+		),
+		want: HyperlinkCaps{
+			OSC8:     false,
+			OSC52:    false,
+			Terminal: "screen",
+			SSH:      true,
 		},
-	}
+	},
+}
 
 func TestDetectHyperlinkCaps(t *testing.T) {
 	for _, c := range detectHyperlinkCases {

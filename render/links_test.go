@@ -448,3 +448,40 @@ func TestFileLinkHoverParam(t *testing.T) {
 		t.Errorf("FormatFileLinkAt uses %q: got %q, want %q", FileLinkHoverParam, got, want)
 	}
 }
+
+func TestDisplayPathAndResolveFileLinkLabel(t *testing.T) {
+	cwd := "/Users/alice/projects/app"
+	home := "/Users/alice"
+
+	// 1. Under cwd
+	p1 := "/Users/alice/projects/app/src/main.go"
+	if got := DisplayPath(p1, cwd, home); got != "src/main.go" {
+		t.Errorf("DisplayPath(%q) = %q, want src/main.go", p1, got)
+	}
+	if got := ResolveFileLinkLabel("main.go", "file://"+p1+"#L42", cwd, home); got != "src/main.go:42" {
+		t.Errorf("ResolveFileLinkLabel = %q, want src/main.go:42", got)
+	}
+
+	// 2. Under home but outside cwd
+	p2 := "/Users/alice/.gemini/config/settings.json"
+	if got := DisplayPath(p2, cwd, home); got != "~/.gemini/config/settings.json" {
+		t.Errorf("DisplayPath(%q) = %q, want ~/.gemini/config/settings.json", p2, got)
+	}
+	if got := ResolveFileLinkLabel("settings.json", "file://"+p2, cwd, home); got != "~/.gemini/config/settings.json" {
+		t.Errorf("ResolveFileLinkLabel = %q, want ~/.gemini/config/settings.json", got)
+	}
+
+	// 3. Outside home and cwd
+	p3 := "/var/log/syslog"
+	if got := DisplayPath(p3, cwd, home); got != "/var/log/syslog" {
+		t.Errorf("DisplayPath(%q) = %q, want /var/log/syslog", p3, got)
+	}
+	if got := ResolveFileLinkLabel("syslog", "file://"+p3, cwd, home); got != "/var/log/syslog" {
+		t.Errorf("ResolveFileLinkLabel = %q, want /var/log/syslog", got)
+	}
+
+	// 4. Custom descriptive label preserved
+	if got := ResolveFileLinkLabel("View system logs", "file://"+p3, cwd, home); got != "View system logs" {
+		t.Errorf("ResolveFileLinkLabel custom label preserved: got %q", got)
+	}
+}

@@ -447,11 +447,17 @@ func handlePrintChunkDone(w, out io.Writer, cfg *printRunConfig, st *printTurnSt
 	return nil
 }
 
+// PrintShutdownTimeout bounds background task completion during headless shutdown (AGY 1.5.5).
+const PrintShutdownTimeout = 30 * time.Second
+
 func waitForBackgroundTasks(ctx context.Context) error {
 	reg := tools.SharedTaskRegistry()
 	if reg == nil {
 		return nil
 	}
+	shutdownCtx, cancel := context.WithTimeout(ctx, PrintShutdownTimeout)
+	defer cancel()
+
 	ticker := time.NewTicker(50 * time.Millisecond)
 	defer ticker.Stop()
 	for {
@@ -466,8 +472,10 @@ func waitForBackgroundTasks(ctx context.Context) error {
 			return nil
 		}
 		select {
-		case <-ctx.Done():
-			return ctx.Err()
+		case <-shutdownCtx.Done():
+			// 1.5.5: if background tasks get stuck, terminate them and shut down cleanly within 30s.
+			_ = terminateRunningTasks()
+			return nil
 		case <-ticker.C:
 		}
 	}

@@ -121,8 +121,8 @@ func (c *conversation) invalidRetriesLeft() int {
 // with text instead of another call. The declarations stay on the wire —
 // only the mode changes.
 type functionCallingProvider struct {
-	inner       actor.Provider
-	client      *gemini.GeminiClient
+	inner  actor.Provider
+	client *gemini.GeminiClient
 	// retriesLeft reports how many retries the model has left.
 	retriesLeft func() int
 }

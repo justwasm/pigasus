@@ -456,6 +456,12 @@ func ensureBearerTokenForServe(out, err io.Writer) error {
 		fmt.Fprintf(out, "using existing token at %s\n", auth.TokenFilePath())
 		return nil
 	}
+	// AGY 1.5.4: Prevent permanent disconnect on boot before network is up;
+	// stop printing sign-in links on network errors when a saved token exists on disk.
+	if auth.TokenFileExists() || auth.EnvRefreshToken() != "" {
+		fmt.Fprintf(out, "saved token found on disk at %s; waiting for network/refresh\n", auth.TokenFilePath())
+		return nil
+	}
 	fmt.Fprintln(out, "no bearer token on disk; running OAuth login inline")
 	fmt.Fprintln(out, "")
 	return cli.RunDeviceFlowLogin(context.Background(), out, err)

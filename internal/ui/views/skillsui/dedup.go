@@ -5,9 +5,10 @@ package skillsui
 import (
 	"crypto/sha256"
 	"encoding/hex"
-	"github.com/justwasm/pigasus/internal/features/tools/skills"
 	"io"
 	"os"
+
+	"github.com/justwasm/pigasus/internal/features/tools/skills"
 )
 
 // SkillInfo is an alias for the canonical skill info struct.

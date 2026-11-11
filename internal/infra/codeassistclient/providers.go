@@ -28,10 +28,10 @@ const (
 	HubClientID  = "1058168928961-7c6nqmvcdjg2ctiapf8jf29kt95s5lfs.apps.googleusercontent.com"
 	GeminiAPIEnv = "GEMINI_API_KEY"
 
-	EndpointProd    = "https://cloudcode-pa.googleapis.com"
-	EndpointDaily   = "https://daily-cloudcode-pa.googleapis.com"
-	EndpointStage   = "https://autopush-cloudcode-pa.sandbox.googleapis.com"
-	EndpointAICode  = "https://aicode.googleapis.com"
+	EndpointProd   = "https://cloudcode-pa.googleapis.com"
+	EndpointDaily  = "https://daily-cloudcode-pa.googleapis.com"
+	EndpointStage  = "https://autopush-cloudcode-pa.sandbox.googleapis.com"
+	EndpointAICode = "https://aicode.googleapis.com"
 )
 
 // ---------------------------------------------------------------------------
@@ -125,9 +125,9 @@ func (c *CLIAuthProvider) IsEval() bool { return false }
 // codeassistclient.AntigravityHubAuthProvider (see _GetTokenSource.c at
 // 0x798ea00).
 type AntigravityHubAuthProvider struct {
-	mu     sync.Mutex
-	cached TokenSource
-	cookie string
+	mu        sync.Mutex
+	cached    TokenSource
+	cookie    string
 	credStore CredentialStore
 }
 
@@ -219,8 +219,8 @@ func (s *StandaloneAuthProvider) IsEval() bool { return false }
 // HostAuthProvider delegates auth to the host IDE process. Source:
 // codeassistclient.HostAuthProvider (see _GetTokenSource.c at 0x798fac0).
 type HostAuthProvider struct {
-	mu     sync.Mutex
-	cached TokenSource
+	mu         sync.Mutex
+	cached     TokenSource
 	hostSocket string
 	credStore  CredentialStore
 }
@@ -273,9 +273,9 @@ func (h *HostAuthProvider) IsEval() bool { return false }
 // codeassistclient.StubbyAuthProvider (see _GetTokenSource.c at
 // 0x79915c0).
 type StubbyAuthProvider struct {
-	mu      sync.Mutex
-	cached  TokenSource
-	stubURL string
+	mu        sync.Mutex
+	cached    TokenSource
+	stubURL   string
 	credStore CredentialStore
 }
 
@@ -309,7 +309,7 @@ func (s *StubbyAuthProvider) GetOAuthTokenInfo(ctx context.Context) (*OAuthToken
 	return &OAuthTokenInfo{AccessToken: tok, TokenType: "Stubby"}, nil
 }
 
-func (s *StubbyAuthProvider) GetUserTier(ctx context.Context) (Tier, error)     { return TierStandard, nil }
+func (s *StubbyAuthProvider) GetUserTier(ctx context.Context) (Tier, error) { return TierStandard, nil }
 func (s *StubbyAuthProvider) GetEntitlement(ctx context.Context) (Entitlement, error) {
 	return EntitlementStandardUser, nil
 }
@@ -324,10 +324,10 @@ func (s *StubbyAuthProvider) IsEval() bool { return true }
 // (different from CLIClientID). Source: codeassistclient.IDEAuthProvider
 // (see _GetTokenSource.c at 0x7993e60).
 type IDEAuthProvider struct {
-	mu     sync.Mutex
-	cached TokenSource
+	mu        sync.Mutex
+	cached    TokenSource
 	credStore CredentialStore
-	opts   IDEAuthOptions
+	opts      IDEAuthOptions
 }
 
 type IDEAuthOptions struct {
@@ -386,7 +386,7 @@ func (i *IDEAuthProvider) GetOAuthTokenInfo(ctx context.Context) (*OAuthTokenInf
 	return rts.OAuthTokenInfo(), nil
 }
 
-func (i *IDEAuthProvider) GetUserTier(ctx context.Context) (Tier, error)     { return TierStandard, nil }
+func (i *IDEAuthProvider) GetUserTier(ctx context.Context) (Tier, error) { return TierStandard, nil }
 func (i *IDEAuthProvider) GetEntitlement(ctx context.Context) (Entitlement, error) {
 	return EntitlementStandardUser, nil
 }
@@ -419,7 +419,9 @@ func (g *GeminiAPIKeyAuthProvider) GetOAuthTokenInfo(ctx context.Context) (*OAut
 	return &OAuthTokenInfo{TokenType: "APIKey"}, nil
 }
 
-func (g *GeminiAPIKeyAuthProvider) GetUserTier(ctx context.Context) (Tier, error) { return TierFree, nil }
+func (g *GeminiAPIKeyAuthProvider) GetUserTier(ctx context.Context) (Tier, error) {
+	return TierFree, nil
+}
 func (g *GeminiAPIKeyAuthProvider) GetEntitlement(ctx context.Context) (Entitlement, error) {
 	return EntitlementFreeUser, nil
 }

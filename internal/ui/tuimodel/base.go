@@ -40,32 +40,32 @@ const (
 )
 
 var phaseNames = [...]string{
-	UIPhaseAuthStart:              "AuthStart",
-	UIPhaseAuthWaiting:            "AuthWaiting",
-	UIPhaseAuthFailure:            "AuthFailure",
-	UIPhaseSettingsError:          "SettingsError",
-	UIPhaseOnboarding:             "Onboarding",
-	UIPhaseWorkspaceTrust:         "WorkspaceTrust",
-	UIPhaseIdle:                   "Idle",
-	UIPhaseAgentWorking:           "AgentWorking",
-	UIPhaseToolConfirmation:       "ToolConfirmation",
-	UIPhaseReviewAvailable:        "ReviewAvailable",
-	UIPhaseArtifactReview:         "ArtifactReview",
-	UIPhaseEditingFeedback:        "EditingFeedback",
-	UIPhasePanelHelp:              "PanelHelp",
-	UIPhasePanelSettings:          "PanelSettings",
-	UIPhasePanelModelSelector:     "PanelModelSelector",
-	UIPhasePanelPermissions:       "PanelPermissions",
-	UIPhasePanelSkills:            "PanelSkills",
+	UIPhaseAuthStart:               "AuthStart",
+	UIPhaseAuthWaiting:             "AuthWaiting",
+	UIPhaseAuthFailure:             "AuthFailure",
+	UIPhaseSettingsError:           "SettingsError",
+	UIPhaseOnboarding:              "Onboarding",
+	UIPhaseWorkspaceTrust:          "WorkspaceTrust",
+	UIPhaseIdle:                    "Idle",
+	UIPhaseAgentWorking:            "AgentWorking",
+	UIPhaseToolConfirmation:        "ToolConfirmation",
+	UIPhaseReviewAvailable:         "ReviewAvailable",
+	UIPhaseArtifactReview:          "ArtifactReview",
+	UIPhaseEditingFeedback:         "EditingFeedback",
+	UIPhasePanelHelp:               "PanelHelp",
+	UIPhasePanelSettings:           "PanelSettings",
+	UIPhasePanelModelSelector:      "PanelModelSelector",
+	UIPhasePanelPermissions:        "PanelPermissions",
+	UIPhasePanelSkills:             "PanelSkills",
 	UIPhasePanelConversationPicker: "PanelConversationPicker",
-	UIPhasePanelHooks:             "PanelHooks",
-	UIPhasePanelMcp:               "PanelMcp",
-	UIPhasePanelTasks:             "PanelTasks",
-	UIPhasePanelContext:           "PanelContext",
-	UIPhasePanelUsage:             "PanelUsage",
-	UIPhasePanelCredits:           "PanelCredits",
-	UIPhaseBattleWorking:          "BattleWorking",
-	UIPhaseBattleIdle:             "BattleIdle",
+	UIPhasePanelHooks:              "PanelHooks",
+	UIPhasePanelMcp:                "PanelMcp",
+	UIPhasePanelTasks:              "PanelTasks",
+	UIPhasePanelContext:            "PanelContext",
+	UIPhasePanelUsage:              "PanelUsage",
+	UIPhasePanelCredits:            "PanelCredits",
+	UIPhaseBattleWorking:           "BattleWorking",
+	UIPhaseBattleIdle:              "BattleIdle",
 }
 
 // String returns the canonical UIPhase name recovered from the agy binary.
@@ -79,13 +79,13 @@ func (p UIPhase) String() string {
 // Layout captures the vertical line breakdown of the TUI frame, matching
 // agy 1.4.12's google3/third_party/jetski/cli/layout/layout.Layout.
 type Layout struct {
-	PromptHeight         int
-	InputAreaHeight      int
-	PendingLineHeight    int
-	HintHeight           int
-	BtwHeight            int
-	SubagentAlertHeight  int
-	StatusLineHeight     int
+	PromptHeight        int
+	InputAreaHeight     int
+	PendingLineHeight   int
+	HintHeight          int
+	BtwHeight           int
+	SubagentAlertHeight int
+	StatusLineHeight    int
 }
 
 // FrameOverhead returns the sum of chrome and auxiliary line heights.

@@ -39,9 +39,9 @@ type updateInstanceMetadata struct {
 //
 //	{"instanceId":"<id>","metadata":{"name":"<name>"},"updateMask":"metadata.name"}
 type updateInstanceRequest struct {
-	InstanceID string                 `json:"instanceId,omitempty"`
+	InstanceID string                  `json:"instanceId,omitempty"`
 	Metadata   *updateInstanceMetadata `json:"metadata,omitempty"`
-	UpdateMask string                 `json:"updateMask,omitempty"`
+	UpdateMask string                  `json:"updateMask,omitempty"`
 }
 
 // updateInstanceTimeout bounds the rename call.

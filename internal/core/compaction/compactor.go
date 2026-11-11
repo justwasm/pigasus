@@ -3,7 +3,6 @@ package compaction
 import (
 	"context"
 	"time"
-
 )
 
 // CompactionStartEvent marks the beginning of context compaction.

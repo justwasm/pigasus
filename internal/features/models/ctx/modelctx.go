@@ -81,8 +81,8 @@ package ctx
 import (
 	"strings"
 
-	"github.com/justwasm/pigasus/internal/features/models/catalog"
 	"github.com/justwasm/pigasus/internal/features/models"
+	"github.com/justwasm/pigasus/internal/features/models/catalog"
 )
 
 const (

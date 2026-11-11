@@ -7,7 +7,7 @@
 ## 1. System Identity & Mission
 
 `pigasus` (repo: `openagy`) is a dual-capability agent engine:
-1. **Clean-room Reference Compatibility**: High-fidelity reimplementation of the Antigravity agent CLI/backend (`jetski/cortex`, reference version **1.5.3** / `internal/cli.ReferenceVersion`).
+1. **Clean-room Reference Compatibility**: High-fidelity reimplementation of the Antigravity agent CLI/backend (`jetski/cortex`, reference version **1.5.5** / `internal/cli.ReferenceVersion`).
 2. **Modern Agent Runtime**: An extensible agent harness supporting multiple providers (CloudCode, OpenAI, Anthropic, ACP, Gateway), plugins, tools, sandboxed execution, and headless/server orchestration.
 
 > **Single Source of Truth Notice**: Always consult [`docs/guide/`](docs/guide/) for active subsystem facts. Historical reports under [`docs/cycles/`](docs/cycles/) represent exploratory or past iterations and are secondary to [`docs/guide/`](docs/guide/).

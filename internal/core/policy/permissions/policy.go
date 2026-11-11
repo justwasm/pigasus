@@ -47,6 +47,10 @@ const (
 	ModePlan        = "plan"
 )
 
+// AutoModeReviewerModel is the lightweight model with lower thinking budget used
+// for safety reviews in Auto mode when commands attempt to leave the sandbox (AGY 1.5.4).
+const AutoModeReviewerModel = "gemini-3.8-flash-low"
+
 // Modes is the accepted --mode set in the order the reference prints it.
 var Modes = []string{ModeAcceptEdits, ModeAuto, ModePlan}
 
@@ -404,12 +408,12 @@ func (r Rule) matches(req Request) bool {
 }
 
 // SuggestAllowAlwaysPattern derives an "Always allow" permission pattern from a command string.
-// - Normalizes line endings (\r\n -> \n) and trims surrounding whitespace.
-// - For multi-line commands and inline script runners (python -c, node -e, ruby -e, bash -c, sh -c, perl -e),
-//   preserves the exact script or command so approving one script does not grant arbitrary execution.
-// - For compound commands (e.g. chained with && or ;), preserves the exact compound chain.
-// - For script runners (npm run, yarn, pnpm, cargo run), pins the specific script/target name.
-// - For standard CLI commands, suggests the command or subcommand prefix.
+//   - Normalizes line endings (\r\n -> \n) and trims surrounding whitespace.
+//   - For multi-line commands and inline script runners (python -c, node -e, ruby -e, bash -c, sh -c, perl -e),
+//     preserves the exact script or command so approving one script does not grant arbitrary execution.
+//   - For compound commands (e.g. chained with && or ;), preserves the exact compound chain.
+//   - For script runners (npm run, yarn, pnpm, cargo run), pins the specific script/target name.
+//   - For standard CLI commands, suggests the command or subcommand prefix.
 func SuggestAllowAlwaysPattern(cmd string) string {
 	cmd = strings.ReplaceAll(cmd, "\r\n", "\n")
 	cmd = strings.TrimSpace(cmd)

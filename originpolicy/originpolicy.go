@@ -59,11 +59,12 @@
 package originpolicy
 
 import (
-	"github.com/justwasm/pigasus/endpoints"
 	"net/url"
 	"os"
 	"strings"
 	"time"
+
+	"github.com/justwasm/pigasus/endpoints"
 )
 
 // DefaultOriginPatterns is the well-known

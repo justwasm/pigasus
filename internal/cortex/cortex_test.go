@@ -2,12 +2,12 @@
 // CascadeManager type presence, constructor, options, and methods.
 //
 // These tests verify that:
-//   1. All 12 recovered type names from v1.3.5 binary are present and
-//      instantiable.
-//   2. cortex.NewCascadeManager constructor exists and returns non-nil.
-//   3. All 28 With* option helpers exist and accept arguments.
-//   4. CascadeManager top-level method set contains all recovered methods.
-//   5. EndBattleModeError implements error + Unwrap.
+//  1. All 12 recovered type names from v1.3.5 binary are present and
+//     instantiable.
+//  2. cortex.NewCascadeManager constructor exists and returns non-nil.
+//  3. All 28 With* option helpers exist and accept arguments.
+//  4. CascadeManager top-level method set contains all recovered methods.
+//  5. EndBattleModeError implements error + Unwrap.
 package cortex
 
 import (
@@ -264,11 +264,11 @@ func isExpectedErr(err error) bool {
 // nopSubagentHub is a no-op SubagentHubLike used in option tests.
 type nopSubagentHub struct{}
 
-func (n *nopSubagentHub) Register(_, _ string) error            { return nil }
-func (n *nopSubagentHub) Lookup(_ string) (SubagentState, bool) { return SubagentState{}, true }
+func (n *nopSubagentHub) Register(_, _ string) error             { return nil }
+func (n *nopSubagentHub) Lookup(_ string) (SubagentState, bool)  { return SubagentState{}, true }
 func (n *nopSubagentHub) ListForParent(_ string) []SubagentState { return nil }
-func (n *nopSubagentHub) Unregister(_ string) error             { return nil }
-func (n *nopSubagentHub) Gate() SubagentGate                    { return &nopSubagentGate{} }
+func (n *nopSubagentHub) Unregister(_ string) error              { return nil }
+func (n *nopSubagentHub) Gate() SubagentGate                     { return &nopSubagentGate{} }
 
 // nopSubagentGate is a no-op SubagentGate used in option tests.
 type nopSubagentGate struct{}

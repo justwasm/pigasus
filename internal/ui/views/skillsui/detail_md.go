@@ -80,7 +80,7 @@ func scanNextTok(s string, i int) ([]MDTok, int, bool) {
 			return []MDTok{{Kind: MDTokBold, Kids: MDTokenize(s[i+2 : i+2+j])}}, j + 4, true
 		}
 	case s[i] == '<':
-		if j := strings.IndexByte(s[i:], '>'); j >= 0 && IsURL(s[i+1 : i+j]) {
+		if j := strings.IndexByte(s[i:], '>'); j >= 0 && IsURL(s[i+1:i+j]) {
 			return []MDTok{{Kind: MDTokURL, Text: s[i+1 : i+j]}}, j + 1, true
 		}
 	case s[i] == '[':

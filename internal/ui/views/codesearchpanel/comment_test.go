@@ -527,4 +527,3 @@ func Test_CodesearchPureMessagePassing(t *testing.T) {
 		t.Fatalf("expected SendCommentsMsg containing comment, got %#v", cmd())
 	}
 }
-

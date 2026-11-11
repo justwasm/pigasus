@@ -363,4 +363,3 @@ func Test_SlashPickerPureMessagePassing(t *testing.T) {
 		t.Fatalf("expected DismissedMsg, got %T", cmd())
 	}
 }
-

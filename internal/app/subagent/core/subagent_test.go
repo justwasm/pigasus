@@ -99,7 +99,7 @@ func TestSubagentSend(t *testing.T) {
 	}
 	if s.State != "killed" {
 		if s.State != "killed" && s.State != "failed" {
-		t.Errorf("expected State=killed or failed after Kill, got %q", s.State)
-	}
+			t.Errorf("expected State=killed or failed after Kill, got %q", s.State)
+		}
 	}
 }

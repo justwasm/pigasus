@@ -525,4 +525,3 @@ func TestGatewayAnthropicNormalizesToolSchemaTypes(t *testing.T) {
 		t.Errorf("anthropic tool input_schema missing lowercase types: %s", raw)
 	}
 }
-

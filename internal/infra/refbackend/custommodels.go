@@ -43,8 +43,8 @@ import (
 	"strings"
 
 	"github.com/justwasm/pigasus/endpoints"
-	"github.com/justwasm/pigasus/internal/infra/agyproxy"
 	"github.com/justwasm/pigasus/internal/features/models"
+	"github.com/justwasm/pigasus/internal/infra/agyproxy"
 )
 
 // referenceCloudCodeEndpoint is the CloudCode host the reference talks

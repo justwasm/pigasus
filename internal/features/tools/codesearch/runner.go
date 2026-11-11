@@ -29,16 +29,17 @@ type Runner struct {
 	// mu guards cancelCmd: the runner goroutine attaches and detaches
 	// the child while the UI goroutine cancels it (Esc), so the pointer
 	// is never read or written outside the lock.
-	mu       sync.Mutex
+	mu        sync.Mutex
 	cancelCmd *exec.Cmd
 }
 
-// NewRunner builds a Runner with the default rg path. Returns a Runner
-// whose RgPath is empty when no ripgrep binary is on PATH — Run will
-// skip straight to the fallback in that case.
+// NewRunner builds a Runner with the resolved rg path. Returns a Runner
+// whose RgPath is empty when no ripgrep binary is on PATH or available — Run
+// will skip straight to the fallback in that case.
 func NewRunner(workdir string) *Runner {
-	r := &Runner{Workdir: workdir, RgPath: "rg", RgBin: DefaultRgCmd}
-	if _, err := exec.LookPath(r.RgPath); err != nil {
+	rg, err := ResolveRipgrepBinary()
+	r := &Runner{Workdir: workdir, RgPath: rg, RgBin: DefaultRgCmd}
+	if err != nil || r.RgPath == "" {
 		r.RgPath = ""
 		r.RgBin = nil
 	}

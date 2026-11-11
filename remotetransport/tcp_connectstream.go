@@ -2,9 +2,10 @@
 package remotetransport
 
 import (
-	"github.com/justwasm/pigasus/rctoken"
 	"net/http"
 	"strings"
+
+	"github.com/justwasm/pigasus/rctoken"
 )
 
 const (

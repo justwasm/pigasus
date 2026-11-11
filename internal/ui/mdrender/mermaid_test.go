@@ -565,4 +565,3 @@ func TestMermaid_GlamourPipelineRoundtrip_Fallback(t *testing.T) {
 		t.Errorf("expected raw source preserved in bordered box:\n%s", restored)
 	}
 }
-

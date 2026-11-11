@@ -277,10 +277,10 @@ func (r *ClaudeRemote) handleLine(line []byte) {
 		var uMsg struct {
 			Message struct {
 				Content []struct {
-					Type       string `json:"type"`
-					ToolUseID  string `json:"tool_use_id,omitempty"`
-					Content    string `json:"content,omitempty"`
-					IsError    bool   `json:"is_error,omitempty"`
+					Type      string `json:"type"`
+					ToolUseID string `json:"tool_use_id,omitempty"`
+					Content   string `json:"content,omitempty"`
+					IsError   bool   `json:"is_error,omitempty"`
 				} `json:"content"`
 			} `json:"message"`
 		}

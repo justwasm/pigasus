@@ -43,10 +43,10 @@ func ParseFrameError(payload string) *StreamError {
 		return nil
 	}
 	var f struct {
-		Code     int          `json:"code"`
-		Message  string       `json:"message"`
-		Status   string       `json:"status"`
-		Error    any          `json:"error"`
+		Code     int    `json:"code"`
+		Message  string `json:"message"`
+		Status   string `json:"status"`
+		Error    any    `json:"error"`
 		Response *struct {
 			Error any `json:"error"`
 		} `json:"response"`

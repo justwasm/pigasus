@@ -93,6 +93,7 @@ import (
 	"github.com/justwasm/pigasus/internal/ui/views/skillsui"
 	"github.com/justwasm/pigasus/internal/ui/views/slashpicker"
 	"github.com/justwasm/pigasus/internal/ui/views/subagentquestionpanel"
+	"github.com/justwasm/pigasus/internal/ui/views/swarmboard"
 	"github.com/justwasm/pigasus/internal/ui/views/taskspanel"
 	"github.com/justwasm/pigasus/internal/ui/views/viewerpanel"
 	"github.com/justwasm/pigasus/internal/ui/views/voice"
@@ -1017,10 +1018,64 @@ func (m *RootModel) SelectCommand(cmd string) {
 }
 func (m *RootModel) newHelpPanel() *helppanel.Panel { return panels.NewHelpPanel(m) }
 
+func (m *RootModel) helpPanel() *helppanel.Panel {
+	if m.help.Panel == nil {
+		m.help.Panel = m.newHelpPanel()
+	}
+	return m.help.Panel
+}
+
+func (m *RootModel) openHelp(tab int) {
+	hp := m.helpPanel()
+	hp.Open(tab)
+	m.overlays.panel = slashPanel{kind: panelregistry.Help, cmd: "/help"}
+}
+
 // ActiveItems
 func (m *RootModel) OpenTasksDetail(id string, isSubagent bool) { m.openTasksDetail(id, isSubagent) }
 func (m *RootModel) newActiveItemsPanel() *activeitemspanel.Panel {
 	return panels.NewActiveItemsPanel(m)
+}
+func (m *RootModel) SwarmItem() *activeitemspanel.SwarmItem {
+	if m == nil || m.swarm.dismissed {
+		return nil
+	}
+	if m.swarm.item != nil {
+		return m.swarm.item
+	}
+	if m.swarm.Board != nil && (m.swarm.Board.PostCount() > 0 || m.swarm.Board.Title() != "") {
+		latestText := ""
+		if post, ok := m.swarm.Board.LatestPost(); ok {
+			latestText = post.Body
+		}
+		return &activeitemspanel.SwarmItem{
+			Title:     m.swarm.Board.Title(),
+			Latest:    latestText,
+			PostCount: m.swarm.Board.PostCount(),
+			IsDone:    m.swarm.Board.IsDone(),
+		}
+	}
+	return nil
+}
+func (m *RootModel) OpenSwarmBoard() {
+	if m == nil {
+		return
+	}
+	if m.swarm.Board == nil {
+		m.swarm.Board = m.newSwarmBoard()
+	}
+	m.swarm.Board.Open()
+}
+func (m *RootModel) DismissSwarm() {
+	if m == nil {
+		return
+	}
+	m.swarm.dismissed = true
+}
+func (m *RootModel) newSwarmBoard() *swarmboard.Board {
+	return swarmboard.NewBoard(func(convID string) {
+		m.openTasksDetail(convID, true)
+	})
 }
 
 // Accounts
@@ -1751,6 +1806,11 @@ func (m *RootModel) closePanel() tea.Cmd {
 	if m.overlays.panel.kind == panelregistry.None {
 		return nil
 	}
+	if m.overlays.panel.kind == panelregistry.Help {
+		if m.help.Panel != nil && m.help.Panel.Active() {
+			m.help.Panel.Cancel()
+		}
+	}
 	cmd := m.overlays.panel.cmd
 	notice := m.overlays.panel.kind.ExitNotice()
 	m.overlays.panel.csp.Cancel()
@@ -1763,6 +1823,11 @@ func (m *RootModel) closePanel() tea.Cmd {
 }
 
 func (m *RootModel) closePanelSilent() tea.Cmd {
+	if m.overlays.panel.kind == panelregistry.Help {
+		if m.help.Panel != nil && m.help.Panel.Active() {
+			m.help.Panel.Cancel()
+		}
+	}
 	m.overlays.panel.csp.Cancel()
 	m.overlays.panel = slashPanel{}
 	m.reloadVimSettings()
@@ -2099,6 +2164,8 @@ func (m *RootModel) getPanelRegistry() *panelregistry.Registry {
 
 func (m *RootModel) Panel(k panelregistry.Kind) any {
 	switch k {
+	case panelregistry.Help:
+		return m.helpPanel()
 	case panelregistry.Tasks:
 		return m.tasksPanel()
 	case panelregistry.Effort:

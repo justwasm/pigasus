@@ -6,9 +6,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/justwasm/pigasus/internal/core/backend"
-	"github.com/justwasm/pigasus/internal/app/tools/wasm"
 	"github.com/justwasm/pigasus/internal/app/tools"
+	"github.com/justwasm/pigasus/internal/app/tools/wasm"
+	"github.com/justwasm/pigasus/internal/core/backend"
 )
 
 func TestWASMProviderDeclarations(t *testing.T) {
@@ -104,4 +104,3 @@ func TestWASMProviderUnknownTool(t *testing.T) {
 		t.Fatalf("expected error for unknown tool, got nil")
 	}
 }
-

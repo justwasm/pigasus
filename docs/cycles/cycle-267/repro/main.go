@@ -9,27 +9,27 @@
 // drives the binary, captures the raw escape stream, and asserts the
 // five post-ClearScreen signals:
 //
-//   1. \x1b[H\x1b[2J after state=done ← tea.ClearScreen trigger
-//   2. no raw-chunk "mock reply f " leaked past state=done
-//   3. response fragments "mock reply from model=" + "Gemini 3.8 Flash (Medium)" present
-//   4. no spinner "Generating" leaked past state=done
-//   5. Card 2 "Daily quota resets" visible (Card 1 transitioned)
+//  1. \x1b[H\x1b[2J after state=done ← tea.ClearScreen trigger
+//  2. no raw-chunk "mock reply f " leaked past state=done
+//  3. response fragments "mock reply from model=" + "Gemini 3.8 Flash (Medium)" present
+//  4. no spinner "Generating" leaked past state=done
+//  5. Card 2 "Daily quota resets" visible (Card 1 transitioned)
 //
 // Usage (run from the worktree root):
 //
-//   go run ./docs/cycles/cycle-267/repro -mode repro1 -bin /tmp/wagyu-c267
-//   go run ./docs/cycles/cycle-267/repro -mode repro2 -bin /tmp/wagyu-final
-//   go run ./docs/cycles/cycle-267/repro -mode repro3
+//	go run ./docs/cycles/cycle-267/repro -mode repro1 -bin /tmp/wagyu-c267
+//	go run ./docs/cycles/cycle-267/repro -mode repro2 -bin /tmp/wagyu-final
+//	go run ./docs/cycles/cycle-267/repro -mode repro3
 //
 // Three modes:
 //
-//   repro1 — post-fix binary. Expect 5/5 PASS, exit 0.
-//   repro2 — pre-fix baseline (cycle 266). Expect 3/5 PASS with
-//            card2=False and clear-sig=False (this is the regression
-//            the fix closes; running repro2 against the post-fix
-//            binary should be a regression failure).
-//   repro3 — run only the headless unit tests (cmd/wagyu/cycle267_streaming_clear_test.go),
-//            no PTY. Useful in CI environments that don't have a TTY.
+//	repro1 — post-fix binary. Expect 5/5 PASS, exit 0.
+//	repro2 — pre-fix baseline (cycle 266). Expect 3/5 PASS with
+//	         card2=False and clear-sig=False (this is the regression
+//	         the fix closes; running repro2 against the post-fix
+//	         binary should be a regression failure).
+//	repro3 — run only the headless unit tests (cmd/wagyu/cycle267_streaming_clear_test.go),
+//	         no PTY. Useful in CI environments that don't have a TTY.
 //
 // Note on cwd: `go run ./docs/cycles/cycle-267/repro` builds in a
 // temporary directory and the harnessPath() resolution depends on

@@ -112,4 +112,3 @@ func TestAppNoArgsInteractiveRunner(t *testing.T) {
 		t.Fatalf("expected InteractiveRunner to be invoked when no args passed")
 	}
 }
-

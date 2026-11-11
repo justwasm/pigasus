@@ -1,9 +1,9 @@
 package panels
 
 import (
+	tea "charm.land/bubbletea/v2"
 	tuiviewer "github.com/justwasm/pigasus/internal/ui/foundations/viewer"
 	"github.com/justwasm/pigasus/internal/ui/views/viewerpanel"
-	tea "charm.land/bubbletea/v2"
 )
 
 // ViewerHost defines the host operations needed by viewer panels.

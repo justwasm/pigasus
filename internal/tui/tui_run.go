@@ -142,6 +142,7 @@ type RootModel struct {
 	tools        ToolsModel
 	remote       RemoteModel
 	compaction   CompactionModel
+	swarm        SwarmModel
 }
 
 type headerCacheKey struct {

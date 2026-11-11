@@ -135,6 +135,25 @@ var PanelSpecs = []PanelSpec{
 	makeStandardSpec(panelregistry.Diff),
 	makeStandardSpec(panelregistry.AddDir),
 	makeStandardSpec(panelregistry.Rename),
+	{
+		Kind: panelregistry.Help,
+		Handler: func(h RegistryHost) panelregistry.Handler {
+			return panelregistry.FuncHandler{
+				OnLines: func() []string {
+					if p, ok := h.Panel(panelregistry.Help).(interface{ Lines() []string }); ok {
+						return p.Lines()
+					}
+					return nil
+				},
+				OnHandleKey: func(key tea.Key) (bool, tea.Cmd) {
+					if p, ok := h.Panel(panelregistry.Help).(interface{ Update(tea.Key) (bool, tea.Cmd) }); ok {
+						return p.Update(key)
+					}
+					return false, nil
+				},
+			}
+		},
+	},
 
 	// Dimension-aware panels
 	{

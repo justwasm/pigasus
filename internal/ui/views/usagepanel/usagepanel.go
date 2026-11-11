@@ -172,7 +172,7 @@ func DocSummary(s *auth.QuotaSummary, width int) []string {
 		note = NoteText
 	}
 	for _, l := range wrapWords(note, WrapWidth(width)) {
-		doc = append(doc, "  " + palette.SeparatorOpen + "│" + palette.DimGrayOpen+l+"\x1b[39m")
+		doc = append(doc, "  "+palette.SeparatorOpen+"│"+palette.DimGrayOpen+l+"\x1b[39m")
 	}
 	return doc
 }

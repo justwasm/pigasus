@@ -3,8 +3,8 @@ package rehydration
 import (
 	"encoding/json"
 
-	taskregistry "github.com/justwasm/pigasus/internal/app/task"
 	"github.com/justwasm/pigasus/internal/app/subagenttools"
+	taskregistry "github.com/justwasm/pigasus/internal/app/task"
 	"github.com/justwasm/pigasus/internal/app/tools/shell"
 	"github.com/justwasm/pigasus/internal/app/tools/tasks"
 )

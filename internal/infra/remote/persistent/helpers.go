@@ -69,7 +69,6 @@ func activePlistDir() string {
 // The package's own tests flip it; production never touches it.
 var plistDirOverride string
 
-
 // LogFilePath returns the default log file path for the given
 // name.  $TMPDIR is preferred (matches the rest of the
 // antigravity stack); falls back to os.TempDir when TMPDIR is

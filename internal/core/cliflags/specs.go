@@ -43,8 +43,8 @@ type SubcommandSpec struct {
 
 // Subcommand constructors / providers registry hooks
 var (
-	subcommandMu sync.RWMutex
-	providers    = make(map[string]func() SubcommandSpec)
+	subcommandMu   sync.RWMutex
+	providers      = make(map[string]func() SubcommandSpec)
 	multiProviders = make(map[string]func() []SubcommandSpec)
 )
 
@@ -153,4 +153,3 @@ func RCSubcommands() []SubcommandSpec {
 	}
 	return []SubcommandSpec{{Name: "remote-control"}}
 }
-

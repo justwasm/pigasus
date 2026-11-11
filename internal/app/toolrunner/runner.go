@@ -68,11 +68,16 @@ type PermissionRunner struct {
 // Run gates tool execution through policy and sandbox checks.
 func (r *PermissionRunner) Run(ctx context.Context, call backend.ToolCall) (string, error) {
 	onDenial := func(name string) { r.Denials = append(r.Denials, name) }
+	mode := ""
+	if r.Policy != nil {
+		mode = r.Policy.Mode
+	}
 	// The sandbox check runs first: it is the stricter of the two gates,
 	// so an out-of-bounds command is refused without asking the user to
-	// approve it.
+	// approve it, except in Auto mode where commands leaving the sandbox
+	// prompt for approval before running (AGY 1.5.4).
 	pipeline := NewPipeline(
-		SandboxBoundaryMiddleware(r.Sandbox, onDenial),
+		SandboxBoundaryMiddlewareWithMode(r.Sandbox, mode, r.PromptUser, onDenial),
 		PermissionGateMiddleware(r.Policy, r.PromptUser, onDenial),
 		OutputBudgetMiddleware(tools.DefaultMaxResultTokens),
 	)
@@ -112,6 +117,9 @@ func Decide(policy *permissions.Policy, sb sandbox.Sandbox, call backend.ToolCal
 		// BypassSandbox is a per-call decision (【一手】 agy 1.4.6): the model
 		// may ask for one call to run outside the sandbox.
 		if res := sb.CheckCommandWithBypass(target, shell.BypassSandboxRequested(call.Arguments)); res.Outside {
+			if policy != nil && policy.Mode == permissions.ModeAuto {
+				return Gate{Allow: false, Ask: true, Reason: permissions.DeniedToolResult(call.Name, target)}
+			}
 			return Gate{Allow: false, Reason: SandboxDeniedToolResult(call.Name, target, sb.AllowedPaths())}
 		}
 	}

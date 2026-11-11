@@ -11,7 +11,6 @@ const (
 	HyperProviderID = "hyper"
 	// DefaultHyperBaseURL is the upstream endpoint for Charm Hyper.
 	DefaultHyperBaseURL = "https://hyper.charm.land"
-
 )
 
 // HyperBaseURL returns the configured base URL for Hyper, respecting $HYPER_URL.
@@ -21,4 +20,3 @@ func HyperBaseURL() string {
 	}
 	return DefaultHyperBaseURL
 }
-

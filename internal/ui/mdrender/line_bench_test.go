@@ -2,7 +2,8 @@
 // + cycle 243 cache-hit benchmark.
 //
 // Run with:
-//   go test -vet=off -run=^$ -bench='BenchmarkLineANSI|BenchmarkLineANSIBoundedWithCache' -benchtime=1s ./internal/mdrender/
+//
+//	go test -vet=off -run=^$ -bench='BenchmarkLineANSI|BenchmarkLineANSIBoundedWithCache' -benchtime=1s ./internal/mdrender/
 //
 // The first iteration pays the getRenderer mint cost (the per-(variant,
 // width) TermRenderer memoisation in glamour_adapter.go:121); every
@@ -81,14 +82,16 @@ func BenchmarkLineANSI_PlainProse(b *testing.B) {
 // bookkeeping) compared to cycle-232's 642 allocs/op.
 //
 // Run with:
-//   go test -vet=off -run=^$ -bench=BenchmarkLineANSIBoundedWithCache_Hit -benchtime=1s ./internal/mdrender/
+//
+//	go test -vet=off -run=^$ -bench=BenchmarkLineANSIBoundedWithCache_Hit -benchtime=1s ./internal/mdrender/
 //
 // Expected output (cycle-243 targets):
 //
 //	BenchmarkLineANSIBoundedWithCache_Hit-10   10000000   ~100 ns/op   ~0 B/op   ~0 allocs/op
 //
 // vs cycle-232's BenchmarkLineANSI_CachedCall:
-//   ~35,000 ns/op, 16,313 B/op, 642 allocs/op
+//
+//	~35,000 ns/op, 16,313 B/op, 642 allocs/op
 //
 // The 350× speedup is the whole point of the cycle.
 func BenchmarkLineANSIBoundedWithCache_Hit(b *testing.B) {

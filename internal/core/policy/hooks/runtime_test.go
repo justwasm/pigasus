@@ -227,4 +227,3 @@ func TestPluginHookEnvVars_154(t *testing.T) {
 		t.Fatalf("expected ${PLUGIN_ROOT} expanded, got %q", out2.Reason)
 	}
 }
-

@@ -13,11 +13,12 @@ package codesearchaction
 import (
 	"bytes"
 	"fmt"
-	"github.com/justwasm/pigasus/internal/core/plural"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/justwasm/pigasus/internal/core/plural"
 
 	"github.com/dlclark/regexp2"
 )

@@ -25,8 +25,8 @@ import (
 	"github.com/justwasm/pigasus/internal/core/backend"
 	"github.com/justwasm/pigasus/internal/infra/backend/gateway"
 	backendselect "github.com/justwasm/pigasus/internal/infra/backend/select"
-	"github.com/justwasm/pigasus/internal/ui/views/modelpicker"
 	"github.com/justwasm/pigasus/internal/rchost"
+	"github.com/justwasm/pigasus/internal/ui/views/modelpicker"
 )
 
 // wireBackend points the daemon's turn backend at the clone's real

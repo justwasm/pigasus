@@ -56,11 +56,12 @@ package surface
 import (
 	_ "embed"
 	"encoding/json"
-	"github.com/justwasm/pigasus/internal/app/tools"
-	"github.com/justwasm/pigasus/internal/app/tools/filesystem"
 	"strconv"
 	"strings"
 	"sync"
+
+	"github.com/justwasm/pigasus/internal/app/tools"
+	"github.com/justwasm/pigasus/internal/app/tools/filesystem"
 )
 
 //go:embed model_tools_1.4.6.json

@@ -11,9 +11,9 @@ type dummyModel struct {
 	Base
 }
 
-func (d *dummyModel) Init() tea.Cmd { return nil }
+func (d *dummyModel) Init() tea.Cmd                           { return nil }
 func (d *dummyModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) { return d, nil }
-func (d *dummyModel) View() tea.View { return tea.NewView("") }
+func (d *dummyModel) View() tea.View                          { return tea.NewView("") }
 
 var _ Model = (*dummyModel)(nil)
 

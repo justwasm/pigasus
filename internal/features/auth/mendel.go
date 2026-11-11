@@ -152,7 +152,7 @@ type MendelFlag struct {
 
 // mendelResponse is the ListExperiments answer.
 type mendelResponse struct {
-	ExperimentIDs []int64         `json:"experimentIds"`
+	ExperimentIDs []int64          `json:"experimentIds"`
 	Flags         []mendelFlagWire `json:"flags"`
 }
 

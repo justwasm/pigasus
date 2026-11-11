@@ -146,15 +146,15 @@ type Spec struct {
 //	{ "running": false, "name": "<n>",
 //	  "hint": "no LaunchAgent registered; run `wagyu remote-control start`" }
 type StatusReport struct {
-	Running   bool   `json:"running"`
-	PID       int    `json:"pid,omitempty"`
-	Name      string `json:"name"`
-	Addr      string `json:"addr,omitempty"`
-	Account   string `json:"account,omitempty"`
-	StartedAt string `json:"started_at,omitempty"` // RFC3339Nano
-	Uptime    string `json:"uptime,omitempty"`     // e.g. "1h23m"
-	StartedAtEpoch int64 `json:"started_at_epoch,omitempty"`
-	Hint      string `json:"hint,omitempty"`
+	Running        bool   `json:"running"`
+	PID            int    `json:"pid,omitempty"`
+	Name           string `json:"name"`
+	Addr           string `json:"addr,omitempty"`
+	Account        string `json:"account,omitempty"`
+	StartedAt      string `json:"started_at,omitempty"` // RFC3339Nano
+	Uptime         string `json:"uptime,omitempty"`     // e.g. "1h23m"
+	StartedAtEpoch int64  `json:"started_at_epoch,omitempty"`
+	Hint           string `json:"hint,omitempty"`
 }
 
 // ErrUnsupported is returned by Start on non-darwin platforms when

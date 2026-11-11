@@ -147,4 +147,3 @@ func Truncate(s string, w int, tail string) string {
 	}
 	return ansi.Truncate(s, w, tail)
 }
-

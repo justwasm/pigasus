@@ -7,12 +7,13 @@
 package localharness
 
 import (
+	reflect "reflect"
+	unsafe "unsafe"
+
 	genai "github.com/justwasm/pigasus/localharness/pb/genai"
 	genaiskills "github.com/justwasm/pigasus/localharness/pb/genaiskills"
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
-	reflect "reflect"
-	unsafe "unsafe"
 )
 
 const (

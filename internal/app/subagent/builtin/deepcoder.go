@@ -8,15 +8,15 @@ import (
 // DeepCoder builtin agent type constants.
 // Recovered from google3/third_party/jetski/cortex/customizations/builtin/owl/deepcoder/deepcoder.
 const (
-	KindDeepCoder                 Kind = "DeepCoder"
-	KindDeepCoderWorkerL0         Kind = "DeepCoderWorkerL0"
+	KindDeepCoder                  Kind = "DeepCoder"
+	KindDeepCoderWorkerL0          Kind = "DeepCoderWorkerL0"
 	KindDeepCoderImprovementWorker Kind = "DeepCoderImprovementWorker"
 )
 
 // Roles for DeepCoder coordinator and workers matching agy 1:1.
 const (
-	RoleDeepCoder                 = "DeepCoder coding coordinator that executes iterative coding pipelines."
-	RoleDeepCoderWorkerL0         = "DeepCoder Layer 0 coding worker that implements initial solutions from scratch."
+	RoleDeepCoder                  = "DeepCoder coding coordinator that executes iterative coding pipelines."
+	RoleDeepCoderWorkerL0          = "DeepCoder Layer 0 coding worker that implements initial solutions from scratch."
 	RoleDeepCoderImprovementWorker = "DeepCoder improvement coding worker that breaks and fixes prior implementations."
 )
 

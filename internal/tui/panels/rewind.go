@@ -1,9 +1,9 @@
 package panels
 
 import (
+	tea "charm.land/bubbletea/v2"
 	"github.com/justwasm/pigasus/internal/app/session/rewind"
 	"github.com/justwasm/pigasus/internal/ui/views/rewindpanel"
-	tea "charm.land/bubbletea/v2"
 )
 
 // RewindHost defines host seams for the /rewind panel.

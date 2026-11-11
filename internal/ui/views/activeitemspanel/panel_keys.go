@@ -27,7 +27,7 @@ func (p *Panel) HandleKey(key tea.Key) (bool, tea.Cmd) {
 	if p == nil || !p.focused {
 		return false, nil
 	}
-	items := p.items()
+	items := p.entries()
 	total := len(items)
 	if total == 0 {
 		p.focused = false
@@ -38,6 +38,13 @@ func (p *Panel) HandleKey(key tea.Key) (bool, tea.Cmd) {
 	isDown := key.Code == tea.KeyDown || (p.vimEnabled() && (key.Code == 'j' || key.Text == "j") && key.Mod == 0)
 
 	switch {
+	case (key.Code == 'x' || key.Text == "x") && key.Mod.Contains(tea.ModAlt):
+		if p.HasActiveSwarm() {
+			p.DismissSwarm()
+			return true, nil
+		}
+		p.focused = false
+		return false, nil
 	case isUp:
 		if p.cursor > 0 {
 			p.cursor--
@@ -58,11 +65,17 @@ func (p *Panel) HandleKey(key tea.Key) (bool, tea.Cmd) {
 		return true, func() tea.Msg { return MsgDefocused{} }
 	case key.Code == tea.KeyEnter && key.Mod == 0:
 		// Plain Enter on the selected item opens its detail view in
-		// /tasks. A modified Enter (shift/alt/ctrl) is the composer's
-		// newline chord, so it falls through to the default branch and
-		// gives the focus back instead.
+		// /tasks or opens the Swarm Board. A modified Enter (shift/alt/ctrl)
+		// is the composer's newline chord, so it falls through to the
+		// default branch and gives the focus back instead.
 		if p.cursor >= 0 && p.cursor < total {
-			selected := items[p.cursor]
+			entry := items[p.cursor]
+			if entry.Swarm != nil {
+				p.OpenSwarmBoard()
+				p.focused = false
+				return true, nil
+			}
+			selected := entry.Task
 			isSubagent := selected.Kind == taskregistry.KindSubagent
 			p.openDetail(selected.ID, isSubagent)
 			p.focused = false

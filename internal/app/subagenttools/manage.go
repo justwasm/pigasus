@@ -38,8 +38,8 @@ type manageSubagentsTool struct {
 	owner string
 }
 
-func (t *manageSubagentsTool) Name() string        { return "manage_subagents" }
-func (t *manageSubagentsTool) Description() string { return manageSubagentsDescription }
+func (t *manageSubagentsTool) Name() string                   { return "manage_subagents" }
+func (t *manageSubagentsTool) Description() string            { return manageSubagentsDescription }
 func (t *manageSubagentsTool) RequiresApproval(_ string) bool { return false }
 
 func (t *manageSubagentsTool) Definition() actor.ToolDefinition {

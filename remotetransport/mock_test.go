@@ -48,7 +48,7 @@ func (m *mockRPCDispatcher) DispatchDirect(ctx context.Context, method string, p
 	}
 }
 
-func (m *mockRPCDispatcher) Accepted() uint64   { return m.accepted }
+func (m *mockRPCDispatcher) Accepted() uint64    { return m.accepted }
 func (m *mockRPCDispatcher) MarkAccepted()       { m.accepted++ }
 func (m *mockRPCDispatcher) NotifyConnected()    {}
 func (m *mockRPCDispatcher) NotifyDisconnected() {}

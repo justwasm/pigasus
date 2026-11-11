@@ -233,6 +233,8 @@ func TestDispatchKeyAction_FullReferenceKeybindings(t *testing.T) {
   "prompt.submit_alternate": ["alt+m"],
   "subagent.approve_fast": ["ctrl+k"],
   "subagent.jump_to_waiting": ["alt+j"],
+  "swarm.board": ["alt+s"],
+  "swarm.dismiss": ["alt+x"],
   "view.review_artifact": ["ctrl+r"],
   "view.toggle_trajectory": ["ctrl+o"],
   "vim.insert.insert_newline": ["alt+enter", "ctrl+j", "enter", "shift+enter"],
@@ -250,9 +252,9 @@ func TestDispatchKeyAction_FullReferenceKeybindings(t *testing.T) {
 		t.Fatalf("failed to load full keybindings: %v", err)
 	}
 
-	// Verify all 37 action keys are parsed from the reference JSON
-	if len(kb.ActionKeys()) != 37 {
-		t.Fatalf("parsed %d actions, want 37", len(kb.ActionKeys()))
+	// Verify all 39 action keys are parsed from the reference JSON
+	if len(kb.ActionKeys()) != 39 {
+		t.Fatalf("parsed %d actions, want 39", len(kb.ActionKeys()))
 	}
 
 	// Verify key string normalization and canonical lookup for each

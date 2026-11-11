@@ -19,9 +19,10 @@
 package shell
 
 import (
-	"github.com/justwasm/pigasus/internal/app/tools"
 	"strings"
 	"testing"
+
+	"github.com/justwasm/pigasus/internal/app/tools"
 )
 
 // fillBuffer writes s into a fresh tools.SafeBuffer and returns it.

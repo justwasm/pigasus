@@ -108,8 +108,8 @@ type Content struct {
 
 // Part is one piece of a Content (text / inline_data / function_call / ...).
 type Part struct {
-	Text       string
-	InlineData *Blob
+	Text         string
+	InlineData   *Blob
 	FunctionCall *FunctionCall
 }
 
@@ -136,18 +136,18 @@ type GenerateContentResponse struct {
 
 // Candidate is one model response candidate.
 type Candidate struct {
-	Index int
-	Content Content
+	Index        int
+	Content      Content
 	FinishReason string
 }
 
 // UsageMetadata tracks token usage.
 type UsageMetadata struct {
-	PromptTokenCount     int
+	PromptTokenCount        int
 	CachedContentTokenCount int
-	CandidatesTokenCount int
-	ThoughtsTokenCount   int
-	TotalTokenCount      int
+	CandidatesTokenCount    int
+	ThoughtsTokenCount      int
+	TotalTokenCount         int
 }
 
 // ErrNotImplemented is returned by placeholder RPCs.
@@ -255,12 +255,12 @@ func (c *lsClient) GetStatus(ctx context.Context, req *GetStatusRequest) (*GetSt
 	}
 	// Recovered: rpc /google.cloudcode.LanguageServerService/GetStatus
 	return &GetStatusResponse{
-		UserTier:     "free-tier",
-		Entitlement:  "free_user",
-		Eligible:     true,
-		EndpointURL:  c.opts.Endpoint,
-		CAICProject:  "",
-		GCPLocation:  "us-central1",
+		UserTier:    "free-tier",
+		Entitlement: "free_user",
+		Eligible:    true,
+		EndpointURL: c.opts.Endpoint,
+		CAICProject: "",
+		GCPLocation: "us-central1",
 	}, nil
 }
 

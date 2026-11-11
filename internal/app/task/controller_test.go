@@ -41,8 +41,8 @@ func TestController_Lifecycle(t *testing.T) {
 
 	// Inbox notification test
 	ctrl.Inbox().Add(TaskNotification{
-		TaskID:  "t1",
-		Body:    "test output",
+		TaskID: "t1",
+		Body:   "test output",
 	})
 	if ctrl.Inbox().Len() != 1 {
 		t.Fatalf("expected 1 notification in inbox, got %d", ctrl.Inbox().Len())

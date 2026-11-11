@@ -1362,6 +1362,59 @@ func TestListLocalAtConversationMatches_NoStoreReturnsEmpty(t *testing.T) {
 	})
 }
 
+// TestSeedConversation_PreservesFullHistoryWithCheckpoint pins that resuming a
+// conversation with a compaction checkpoint preserves earlier user inputs,
+// tool steps, and places the compaction marker inline rather than truncating
+// early conversation history.
+func TestSeedConversation_PreservesFullHistoryWithCheckpoint(t *testing.T) {
+	c := &convstore.Conversation{
+		ID: "test-checkpoint-preserve",
+		Steps: []convstore.Step{
+			{Idx: 0, Type: convstore.StepUserInput, Text: "early user input"},
+			{Idx: 1, Type: convstore.StepToolCall, ToolName: "run_command", ToolArgs: `{"CommandLine":"ls"}`, Status: 3},
+			{Idx: 2, Type: convstore.StepCheckpoint,
+				Summary:       "<summary>early progress</summary>",
+				UserRequests:  []string{"early user input"},
+				IncludedStart: 0,
+				IncludedEnd:   3,
+			},
+			{Idx: 3, Type: convstore.StepUserInput, Text: "later user input"},
+			{Idx: 4, Type: convstore.StepModelResponse, Text: "later assistant reply"},
+		},
+	}
+
+	m := &RootModel{}
+	m.seedConversation(c)
+
+	if len(m.conversation.userBlocks) != 2 {
+		t.Fatalf("userBlocks = %d, want 2 (both early and later user inputs preserved)", len(m.conversation.userBlocks))
+	}
+	if m.conversation.userBlocks[0].Raw != "early user input" {
+		t.Errorf("userBlock[0] = %q, want early user input", m.conversation.userBlocks[0].Raw)
+	}
+	if m.conversation.userBlocks[1].Raw != "later user input" {
+		t.Errorf("userBlock[1] = %q, want later user input", m.conversation.userBlocks[1].Raw)
+	}
+
+	// Verify compaction marker is placed in the transcript between tool/early inputs and later inputs.
+	foundMarker := false
+	for _, line := range m.conversation.response {
+		if strings.Contains(line, "Conversation compacted") {
+			foundMarker = true
+			break
+		}
+	}
+	if !foundMarker {
+		t.Errorf("expected Conversation compacted marker in m.conversation.response")
+	}
+
+	// Backend messages should still start at the compaction resume block for LLM context.
+	msgs := m.SessionMessages()
+	if len(msgs) == 0 || !strings.Contains(msgs[0].Content, "# Resuming from a compaction") {
+		t.Errorf("first session message = %+v, expected resume block", msgs[0])
+	}
+}
+
 // ---------------------------------------------------------------- helpers
 //
 // The filtering behaviour of listLocalAtConversationMatches is

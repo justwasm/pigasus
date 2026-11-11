@@ -706,6 +706,3 @@ func TestReconcileThoughtSignatures_Gemini(t *testing.T) {
 		t.Errorf("call_2 signature = %q, want %q", contents[0].Parts[2].ThoughtSignature, SkipThoughtSignature)
 	}
 }
-
-
-

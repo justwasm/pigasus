@@ -72,7 +72,6 @@ func TestAgyUpdateUnknownFlag(t *testing.T) {
 	}
 }
 
-
 func TestAgyUpdateWithConfigEndpoint(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -184,4 +183,3 @@ func TestAgyUpdateDownloadAndReplace(t *testing.T) {
 		t.Fatalf("expected updated binary content %q, got %q", string(newBinary), string(gotData))
 	}
 }
-

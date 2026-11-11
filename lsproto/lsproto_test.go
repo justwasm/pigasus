@@ -319,7 +319,7 @@ func TestOutputMessageIsCallable(t *testing.T) {
 
 func TestStreamTerminalOutputCodec(t *testing.T) {
 	c := newTestCodec(t)
-	
+
 	// Test title frame
 	titleJSON := `{"title":"bash"}`
 	bTitle, err := c.EncodeResponse("StreamTerminalOutput", []byte(titleJSON))
@@ -327,7 +327,7 @@ func TestStreamTerminalOutputCodec(t *testing.T) {
 		t.Fatalf("Encode title failed: %v", err)
 	}
 	t.Logf("bTitle len=%d: %x", len(bTitle), bTitle)
-	
+
 	// Test output frame
 	outJSON := `{"output":"aGVsbG8=","isScrollback":true}`
 	bOut, err := c.EncodeResponse("StreamTerminalOutput", []byte(outJSON))
@@ -335,7 +335,7 @@ func TestStreamTerminalOutputCodec(t *testing.T) {
 		t.Fatalf("Encode output failed: %v", err)
 	}
 	t.Logf("bOut len=%d: %x", len(bOut), bOut)
-	
+
 	// Test exitCode frame
 	exitJSON := `{"exitCode":0}`
 	bExit, err := c.EncodeResponse("StreamTerminalOutput", []byte(exitJSON))

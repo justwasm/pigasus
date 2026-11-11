@@ -22,7 +22,7 @@ type Policy struct {
 func DefaultPolicy() Policy {
 	return Policy{
 		Enabled:          true,
-		ReferenceVersion: "1.5.3",
+		ReferenceVersion: "1.5.5",
 	}
 }
 

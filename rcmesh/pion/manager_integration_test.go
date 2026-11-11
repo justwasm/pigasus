@@ -18,19 +18,19 @@ import (
 	"testing"
 	"time"
 
-	mesh "github.com/justwasm/pigasus/rcmesh/pion"
 	"github.com/justwasm/pigasus/rcmesh"
+	mesh "github.com/justwasm/pigasus/rcmesh/pion"
 	"github.com/pion/webrtc/v4"
 )
 
 // loopbackSignaler simulates cloud signaling between browser and host.
 type loopbackSignaler struct {
-	mu           sync.Mutex
-	hostID       string
-	authKeys     []string
-	toHost       []rcmesh.SignalingMessageDetails
-	toBrowser    []rcmesh.SendRequest
-	hostPollCh   chan struct{}
+	mu            sync.Mutex
+	hostID        string
+	authKeys      []string
+	toHost        []rcmesh.SignalingMessageDetails
+	toBrowser     []rcmesh.SendRequest
+	hostPollCh    chan struct{}
 	browserRecvCh chan rcmesh.SendRequest
 }
 
@@ -163,7 +163,7 @@ func TestPositiveEndToEndFlow(t *testing.T) {
 			Handler:    rpcHandler,
 			ICEServers: []rcmesh.ICEServer{},
 		},
-		MaxPeers:     4,
+		MaxPeers:         4,
 		PollInterval:     20 * time.Millisecond,
 		IdlePollInterval: 20 * time.Millisecond,
 	}
@@ -378,7 +378,7 @@ func TestPositiveEndToEndFlowWithTrickleCandidates(t *testing.T) {
 			Handler:    rpcHandler,
 			ICEServers: []rcmesh.ICEServer{},
 		},
-		MaxPeers:     4,
+		MaxPeers:         4,
 		PollInterval:     20 * time.Millisecond,
 		IdlePollInterval: 20 * time.Millisecond,
 	}

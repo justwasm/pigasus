@@ -79,5 +79,16 @@ func SaveKeychainToken(tok *AntigravityToken) error {
 	if err != nil {
 		return err
 	}
-	return keyring.Set(keychainService, keychainAccount, string(rawBytes))
+	err = keyring.Set(keychainService, keychainAccount, string(rawBytes))
+	if err != nil && len(rawBytes) > 1024 {
+		// AGY 1.5.4: Gemini Enterprise tokens often contain multi-KB id_token claims
+		// that exceed the OS keychain attribute limit. Strip auxiliary IDToken
+		// while preserving core AccessToken, RefreshToken, and identity.
+		compact := *tok
+		compact.IDToken = ""
+		if compactBytes, marshalErr := json.Marshal(&compact); marshalErr == nil {
+			err = keyring.Set(keychainService, keychainAccount, string(compactBytes))
+		}
+	}
+	return err
 }

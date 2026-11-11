@@ -897,13 +897,11 @@ func toolResponseFor(message backend.Message) map[string]any {
 	return map[string]any{"output": message.Content}
 }
 
-// sessionID returns the request's `sessionId`, minting a random one when
-// the config does not name it.
+// sessionID returns the request's `sessionId` if explicitly configured.
+// Enterprise gateways and Gemini endpoints reject requests with non-standard
+// sessionId fields; 1.5.5 omits it by default unless explicitly configured.
 func (c *GeminiClient) sessionID() string {
-	if c.cfg.SessionID != "" {
-		return c.cfg.SessionID
-	}
-	return geminiSessionID()
+	return c.cfg.SessionID
 }
 
 // geminiSessionID mints a random int64 rendered as a decimal string —

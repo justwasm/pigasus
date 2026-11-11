@@ -68,10 +68,6 @@ func (m *RootModel) seedConversation(c *convstore.Conversation) {
 	m.rehydrateConversation(c)
 	steps := c.Transcript()
 	cp := c.Checkpoint()
-	if cp != nil {
-		m.conversation.response = append(m.conversation.response, "  ⎿  Conversation compacted", "")
-		steps = stepsAfterCheckpoint(steps, cp.IncludedEnd)
-	}
 	for i := 0; i < len(steps); {
 		if steps[i].Role() == "tool" {
 			i = m.seedToolGroup(steps, i)
@@ -266,6 +262,9 @@ func (m *RootModel) seedNonToolStep(s convstore.Step) {
 		m.conversation.response = append(m.conversation.response, lines...)
 		m.session.appendMessage(backend.Message{Role: "assistant", Content: s.Text})
 		m.conversation.assistants = append(m.conversation.assistants, transcript.AssistantBlock{Start: start, Lines: len(lines), Raw: s.Text})
+	case "checkpoint":
+		m.conversation.response = append(m.conversation.response, "  ⎿  Conversation compacted", "")
+		return
 	default:
 		m.conversation.response = append(m.conversation.response, "  "+tuilib.FirstLine(s.Text))
 	}
@@ -342,22 +341,6 @@ func handleAtConversationMention(buf string) (bool, tea.Cmd) {
 		return false, nil
 	}
 	return true, nil
-}
-
-// stepsAfterCheckpoint keeps the steps that follow a checkpoint boundary.
-// IncludedEnd is exclusive: the checkpoint itself and everything it folded
-// are before it.
-func stepsAfterCheckpoint(steps []convstore.Step, end int) []convstore.Step {
-	if end <= 0 {
-		return steps
-	}
-	out := make([]convstore.Step, 0, len(steps))
-	for _, s := range steps {
-		if s.Idx >= int64(end) {
-			out = append(out, s)
-		}
-	}
-	return out
 }
 
 // checkpointChatMessages turns the conversation's model turns into backend

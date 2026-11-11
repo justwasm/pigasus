@@ -66,7 +66,6 @@ import (
 	"github.com/justwasm/pigasus/internal/app/tools"
 )
 
-
 // PromptLead is the reference's own opening sentence for the browser agent
 // (【strings】 the literal at 0x1035588eb).
 const PromptLead = "You are a browser agent."

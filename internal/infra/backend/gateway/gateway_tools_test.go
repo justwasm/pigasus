@@ -252,4 +252,3 @@ func TestGatewayNormalizesToolSchemaTypes(t *testing.T) {
 		t.Errorf("request contains unnormalized uppercase types: %s", string(raw))
 	}
 }
-

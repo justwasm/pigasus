@@ -14,8 +14,8 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	"github.com/justwasm/pigasus/internal/app/harnesstools"
-	pb "github.com/justwasm/pigasus/localharness/pb/localharness"
 	"github.com/justwasm/pigasus/internal/app/tools/surface"
+	pb "github.com/justwasm/pigasus/localharness/pb/localharness"
 )
 
 // protojsonText renders a message the way the wire carries it.

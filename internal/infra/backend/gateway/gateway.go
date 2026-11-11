@@ -49,6 +49,7 @@ package gateway
 import (
 	"context"
 	"fmt"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -58,6 +59,36 @@ import (
 	"github.com/justwasm/pigasus/internal/core/backend"
 	"github.com/justwasm/pigasus/internal/features/models"
 )
+
+// ValidateGatewayURL validates that a gateway URL uses https, or http only on loopback hosts.
+// Recovered from jetski/admin_controls/admincontrols.(*AdminSettings).Validate.
+func ValidateGatewayURL(rawURL string) error {
+	rawURL = strings.TrimSpace(rawURL)
+	if rawURL == "" {
+		return nil
+	}
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return err
+	}
+	if strings.EqualFold(u.Scheme, "http") {
+		host := u.Hostname()
+		if !IsLoopbackHost(host) {
+			return fmt.Errorf("gateway URL %q uses plain http to a non-loopback host; use https (http is only allowed for localhost, 127.0.0.0/8, or ::1)", rawURL)
+		}
+	}
+	return nil
+}
+
+// IsLoopbackHost reports whether host is localhost or a loopback IP (127.0.0.0/8 or ::1).
+// Recovered from jetski/admin_controls/admincontrols.isLoopbackHost.
+func IsLoopbackHost(host string) bool {
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
+}
 
 // GatewayTimeoutUnlimited disables the gateway client's per-request timeout
 // so the caller's context is the only bound. The headless (`-p` / `--prompt`)
@@ -204,6 +235,9 @@ func (c *GatewayClient) Stream(ctx context.Context, req backend.StreamRequest) (
 	}
 	if strings.TrimSpace(c.baseURL) == "" {
 		return nil, fmt.Errorf("gateway: no endpoint configured: set the provider's base URL in the provider configuration (%s)", models.ProvidersPath())
+	}
+	if err := ValidateGatewayURL(c.baseURL); err != nil {
+		return nil, err
 	}
 	raw, err := c.buildRequest(req, externalModel)
 	if err != nil {

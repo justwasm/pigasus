@@ -92,6 +92,34 @@ func TestChatTurns_StartsAtCheckpoint(t *testing.T) {
 	}
 }
 
+func TestTranscript_IncludesCheckpointAndPreCompactionSteps(t *testing.T) {
+	c := &Conversation{Steps: []Step{
+		{Idx: 0, Type: StepUserInput, Text: "early user input"},
+		{Idx: 1, Type: StepToolCall, ToolName: "read_file"},
+		{Idx: 2, Type: StepCheckpoint,
+			Summary:       "<summary>progress</summary>",
+			UserRequests:  []string{"early user input"},
+			IncludedStart: 0,
+			IncludedEnd:   3,
+		},
+		{Idx: 3, Type: StepUserInput, Text: "later user input"},
+		{Idx: 4, Type: StepModelResponse, Text: "later answer"},
+	}}
+	transcript := c.Transcript()
+	if len(transcript) != 5 {
+		t.Fatalf("transcript len = %d, want 5 (all pre and post steps plus checkpoint)", len(transcript))
+	}
+	if transcript[0].Text != "early user input" {
+		t.Errorf("step 0 text = %q, want early user input", transcript[0].Text)
+	}
+	if transcript[2].Role() != "checkpoint" {
+		t.Errorf("step 2 role = %q, want checkpoint", transcript[2].Role())
+	}
+	if transcript[3].Text != "later user input" {
+		t.Errorf("step 3 text = %q, want later user input", transcript[3].Text)
+	}
+}
+
 // TestWriteConversation_CheckpointRoundTrip pins that a checkpoint the clone
 // persists is not an opaque type-23 placeholder: the summary, the included
 // range and the request list survive the write and the load, so `/resume`

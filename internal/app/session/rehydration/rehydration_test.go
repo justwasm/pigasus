@@ -15,7 +15,7 @@ import (
 func TestRehydrateRoutesByToolName(t *testing.T) {
 	d := New(
 		Tool{
-			Name:      "alpha",
+			Name: "alpha",
 			Rehydrate: func(args json.RawMessage) (map[string]string, bool) {
 				return map[string]string{"seen": string(args)}, true
 			},

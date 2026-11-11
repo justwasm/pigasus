@@ -2,7 +2,7 @@
 
 > **Pigasus**（开源工作台代号 **OpenAGY**）是一个**现代、高保真复刻且功能超越原厂**的 Antigravity 生态平台与通用 Agent 运行时。它采用 **TUI / Engine 彻底分离**的解耦架构，既像素级还原了 Google 内部闭源 `agy` CLI 的终端交互与原生能力，又作为通用 Agent 客户端与增强外挂，打破了原厂的封闭生态与功能局限。
 
-[![CI](https://github.com/justwasm/pigasus/actions/workflows/test.yml/badge.svg)](https://github.com/justwasm/pigasus/actions/workflows/test.yml)
+[![CI](https://github.com/justwasm/pigasus/actions/workflows/ci.yml/badge.svg)](https://github.com/justwasm/pigasus/actions/workflows/ci.yml)
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](./LICENSE)
 [![Go 1.27+](https://img.shields.io/badge/Go-1.27%2B-00ADD8.svg)](https://go.dev/)
 

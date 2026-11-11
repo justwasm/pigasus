@@ -34,10 +34,11 @@ package printmode
 import (
 	"flag"
 	"fmt"
-	"github.com/justwasm/pigasus/internal/ui/views/changelog"
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/justwasm/pigasus/internal/ui/views/changelog"
 
 	"github.com/justwasm/pigasus/accountpool"
 	"github.com/justwasm/pigasus/endpoints"

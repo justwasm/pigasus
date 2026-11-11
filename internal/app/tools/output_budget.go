@@ -120,10 +120,10 @@ func ApplyOutputBudget(content string, format string, maxTokens int) BudgetResul
 	before := estimateTokens(content)
 	if before <= maxTokens {
 		return BudgetResult{
-			Content:     content,
-			Format:      format,
+			Content:      content,
+			Format:       format,
 			TokensBefore: before,
-			TokensAfter: before,
+			TokensAfter:  before,
 		}
 	}
 	truncated := truncateByFormat(content, format, maxTokens)
@@ -133,18 +133,18 @@ func ApplyOutputBudget(content string, format string, maxTokens int) BudgetResul
 	after := estimateTokens(truncated)
 	if truncated == content {
 		return BudgetResult{
-			Content:     content,
-			Format:      format,
+			Content:      content,
+			Format:       format,
 			TokensBefore: before,
-			TokensAfter: after,
+			TokensAfter:  after,
 		}
 	}
 	return BudgetResult{
-		Content:     truncated,
-		Truncated:   true,
-		Format:      format,
+		Content:      truncated,
+		Truncated:    true,
+		Format:       format,
 		TokensBefore: before,
-		TokensAfter: after,
+		TokensAfter:  after,
 	}
 }
 

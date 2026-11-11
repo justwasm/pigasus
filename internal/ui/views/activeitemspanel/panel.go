@@ -83,6 +83,28 @@ type Seams struct {
 	// The detail view belongs to the /tasks panel, so the host owns
 	// the way into it.
 	OpenDetail func(id string, isSubagent bool)
+
+	// Swarm returns the active swarm item, if any.
+	Swarm func() *SwarmItem
+	// OpenSwarmBoard opens the swarm board view overlay.
+	OpenSwarmBoard func()
+	// DismissSwarm dismisses the active swarm item from the tray.
+	DismissSwarm func()
+}
+
+// SwarmItem describes the swarm row displayed in the active-items tray.
+type SwarmItem struct {
+	Title     string
+	Latest    string
+	PostCount int
+	IsDone    bool
+	Dismissed bool
+}
+
+// TrayItem is an entry shown in the active-items tray: either a Task or a Swarm.
+type TrayItem struct {
+	Task  *taskregistry.Task
+	Swarm *SwarmItem
 }
 
 // Panel is the active-items block.
@@ -132,7 +154,7 @@ func (p *Panel) HandleWheel(up bool) bool {
 	if p == nil || !p.focused {
 		return false
 	}
-	items := p.items()
+	items := p.entries()
 	total := len(items)
 	if total == 0 {
 		return false
@@ -178,6 +200,31 @@ func (p *Panel) Cursor() int {
 
 // ---- the panel's facts -------------------------------------------------
 
+// HasActiveSwarm reports whether an active, non-dismissed swarm is present.
+func (p *Panel) HasActiveSwarm() bool {
+	if p == nil || p.seams.Swarm == nil {
+		return false
+	}
+	s := p.seams.Swarm()
+	return s != nil && !s.Dismissed
+}
+
+// DismissSwarm dismisses the active swarm item from the tray.
+func (p *Panel) DismissSwarm() {
+	if p == nil || p.seams.DismissSwarm == nil {
+		return
+	}
+	p.seams.DismissSwarm()
+}
+
+// OpenSwarmBoard opens the swarm board overlay.
+func (p *Panel) OpenSwarmBoard() {
+	if p == nil || p.seams.OpenSwarmBoard == nil {
+		return
+	}
+	p.seams.OpenSwarmBoard()
+}
+
 // Count is how many items are in flight.
 //
 // The count ignores the "Show Active Tasks" setting: it answers what
@@ -186,7 +233,7 @@ func (p *Panel) Count() int {
 	if p == nil {
 		return 0
 	}
-	return len(p.items())
+	return len(p.entries())
 }
 
 // Clamp keeps the cursor and the scroll window inside the item list.
@@ -197,7 +244,7 @@ func (p *Panel) Clamp() {
 	if p == nil {
 		return
 	}
-	p.clamp(len(p.items()), p.height())
+	p.clamp(len(p.entries()), p.height())
 }
 
 // Hidden reports whether the block is switched off.
@@ -234,6 +281,19 @@ func (p *Panel) items() []*taskregistry.Task {
 		return nil
 	}
 	return reg.Active()
+}
+
+// entries returns all active tray items: swarm row (if present) followed by tasks.
+func (p *Panel) entries() []TrayItem {
+	var out []TrayItem
+	if p.HasActiveSwarm() {
+		out = append(out, TrayItem{Swarm: p.seams.Swarm()})
+	}
+	tasks := p.items()
+	for _, t := range tasks {
+		out = append(out, TrayItem{Task: t})
+	}
+	return out
 }
 
 // width is the terminal's width.

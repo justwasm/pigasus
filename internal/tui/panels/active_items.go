@@ -11,15 +11,21 @@ type ActiveItemsHost interface {
 	TerminalSize() (width int, height int)
 	VimEnabled() bool
 	OpenTasksDetail(id string, isSubagent bool)
+	SwarmItem() *activeitemspanel.SwarmItem
+	OpenSwarmBoard()
+	DismissSwarm()
 }
 
 // NewActiveItemsPanel builds the active items panel with the given host seams.
 func NewActiveItemsPanel(h ActiveItemsHost) *activeitemspanel.Panel {
 	return activeitemspanel.New(activeitemspanel.Seams{
-		Registry:   h.TaskRegistry,
-		Width:      func() int { w, _ := h.TerminalSize(); return w },
-		Height:     func() int { _, hgt := h.TerminalSize(); return hgt },
-		VimEnabled: h.VimEnabled,
-		OpenDetail: h.OpenTasksDetail,
+		Registry:       h.TaskRegistry,
+		Width:          func() int { w, _ := h.TerminalSize(); return w },
+		Height:         func() int { _, hgt := h.TerminalSize(); return hgt },
+		VimEnabled:     h.VimEnabled,
+		OpenDetail:     h.OpenTasksDetail,
+		Swarm:          h.SwarmItem,
+		OpenSwarmBoard: h.OpenSwarmBoard,
+		DismissSwarm:   h.DismissSwarm,
 	})
 }

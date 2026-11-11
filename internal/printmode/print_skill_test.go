@@ -12,8 +12,9 @@ package printmode
 // exercised here. See slash_skills.go for the captured aliases / prompt choice.
 
 import (
-	"github.com/justwasm/pigasus/internal/features/tools/skills"
 	"testing"
+
+	"github.com/justwasm/pigasus/internal/features/tools/skills"
 )
 
 // TestDispatchPrintSlash_SkillExpandsToPrompt pins that a known skill is not

@@ -10,8 +10,20 @@
 // feature, in the tier that already owns the user's configured models.
 package catalog
 
+import (
+	"os"
+	"strings"
+)
+
 // ModelEntry is one row of the reference's model catalogue.
 type ModelEntry struct{ ID, Label string }
+
+// ADCAuthAvailable reports whether Application Default Credentials (AGY_ADC_AUTH)
+// sign-in is active.
+func ADCAuthAvailable() bool {
+	v := strings.TrimSpace(os.Getenv("AGY_ADC_AUTH"))
+	return strings.EqualFold(v, "true") || v == "1"
+}
 
 // ReferenceModels is the catalogue `agy models` prints. The reference also
 // uses it to decide whether a configured model is still available: a model
@@ -75,6 +87,13 @@ func ReferenceModels() []ModelEntry {
 		{"claude-sonnet-4-6", "Claude Sonnet 4.6 (Thinking)"},
 		{"claude-opus-4-6-thinking", "Claude Opus 4.6 (Thinking)"},
 		{"gpt-oss-120b-medium", "GPT-OSS 120B (Medium)"},
+	}
+	if ADCAuthAvailable() {
+		out = append(out,
+			ModelEntry{"gemini-4-carbon-high", "Gemini 4 Carbon (High)"},
+			ModelEntry{"gemini-4-carbon-medium", "Gemini 4 Carbon (Medium)"},
+			ModelEntry{"gemini-4-carbon-low", "Gemini 4 Carbon (Low)"},
+		)
 	}
 	if Claude55Available() {
 		out = append(out,

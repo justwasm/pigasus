@@ -1,9 +1,9 @@
 package panels
 
 import (
+	tea "charm.land/bubbletea/v2"
 	"github.com/justwasm/pigasus/internal/features/tools/codesearch"
 	"github.com/justwasm/pigasus/internal/ui/views/codesearchpanel"
-	tea "charm.land/bubbletea/v2"
 )
 
 // CodesearchHost defines the host operations needed by the /codesearch panel.

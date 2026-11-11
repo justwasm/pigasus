@@ -445,16 +445,16 @@ const SkipThoughtSignature = "skip_thought_signature_validator"
 
 // ReconcileThoughtSignatures reconciles thought signatures across conversation contents:
 //
-// 1. In Claude models, agy often places the returned thought signature on the subsequent
-//    FunctionCall part instead of the preceding thought part (thought: true). When Google CloudCode
-//    converts this to Anthropic Messages API, the thinking block has no signature and Anthropic
-//    rejects it with 400 "messages.1.content.0: Invalid signature in thinking block".
-//    This function finds any genuine signature in the turn and ensures it is present on any
-//    thought part (thought: true).
-// 2. For non-Claude models (Gemini), historical FunctionCall parts that lack a signature are
-//    assigned the turn's genuine signature, or SkipThoughtSignature if none exists.
-// 3. For Claude models, SkipThoughtSignature is NEVER injected because Anthropic requires
-//    authentic cryptographic signatures.
+//  1. In Claude models, agy often places the returned thought signature on the subsequent
+//     FunctionCall part instead of the preceding thought part (thought: true). When Google CloudCode
+//     converts this to Anthropic Messages API, the thinking block has no signature and Anthropic
+//     rejects it with 400 "messages.1.content.0: Invalid signature in thinking block".
+//     This function finds any genuine signature in the turn and ensures it is present on any
+//     thought part (thought: true).
+//  2. For non-Claude models (Gemini), historical FunctionCall parts that lack a signature are
+//     assigned the turn's genuine signature, or SkipThoughtSignature if none exists.
+//  3. For Claude models, SkipThoughtSignature is NEVER injected because Anthropic requires
+//     authentic cryptographic signatures.
 func ReconcileThoughtSignatures(model string, contents []Content) bool {
 	modified := false
 	isClaude := IsClaudeModel(model)

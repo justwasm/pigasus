@@ -325,9 +325,9 @@ func (s *Service) runVoiceSession(ctx context.Context, c *websocket.Conn, convID
 	initStatus := &voicepb.VoiceServerMessage{
 		Kind: &voicepb.VoiceServerMessage_Status{
 			Status: &voicepb.VoiceServerMessage_SessionStatus{
-				State:      voicepb.VoiceServerMessage_SessionStatus_LISTENING,
-				CascadeId:  convID,
-				Attempt:    1,
+				State:       voicepb.VoiceServerMessage_SessionStatus_LISTENING,
+				CascadeId:   convID,
+				Attempt:     1,
 				MaxAttempts: 5,
 			},
 		},
@@ -370,9 +370,9 @@ func (s *Service) runVoiceSession(ctx context.Context, c *websocket.Conn, convID
 			status := &voicepb.VoiceServerMessage{
 				Kind: &voicepb.VoiceServerMessage_Status{
 					Status: &voicepb.VoiceServerMessage_SessionStatus{
-						State:      voicepb.VoiceServerMessage_SessionStatus_LISTENING,
-						CascadeId:  k.Setup.CascadeId,
-						Attempt:    1,
+						State:       voicepb.VoiceServerMessage_SessionStatus_LISTENING,
+						CascadeId:   k.Setup.CascadeId,
+						Attempt:     1,
 						MaxAttempts: 5,
 					},
 				},

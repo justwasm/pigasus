@@ -275,6 +275,7 @@ func stagePlugin(opts Options, src Source, p candidate) ([]component, []string, 
 	if len(agents) > 0 {
 		comps[componentAgents] = agents
 	}
+	var warns []string
 	if src == SourceClaude {
 		// A Claude Code command is a slash command; the CLI loads it as a
 		// skill, so the importer converts it.
@@ -285,11 +286,17 @@ func stagePlugin(opts Options, src Source, p candidate) ([]component, []string, 
 		if len(cmds) > 0 {
 			comps[componentCommands] = cmds
 		}
+		hookWarns, err := stageClaudeHooks(dest)
+		if err != nil {
+			return nil, nil, err
+		}
+		warns = append(warns, hookWarns...)
 	}
-	servers, warns, err := convertMCPServers(p.dir, dest)
+	servers, mcpWarns, err := convertMCPServers(p.dir, dest)
 	if err != nil {
 		return nil, warns, err
 	}
+	warns = append(warns, mcpWarns...)
 	if len(servers) > 0 {
 		comps[componentMCPServers] = servers
 	}
@@ -388,38 +395,6 @@ func agentFiles(dir string) []string {
 	}
 	sort.Strings(names)
 	return names
-}
-
-// convertCommands turns <plugin>/commands/<name>.md into the skill
-// <plugin>/skills/<plugin>-cmd-<name>/SKILL.md and returns the command
-// names.
-func convertCommands(dest, plugin string) ([]string, error) {
-	dir := filepath.Join(dest, "commands")
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return nil, nil
-	}
-	var names []string
-	for _, e := range entries {
-		if e.IsDir() || !strings.HasSuffix(e.Name(), ".md") {
-			continue
-		}
-		name := strings.TrimSuffix(e.Name(), ".md")
-		body, err := os.ReadFile(filepath.Join(dir, e.Name()))
-		if err != nil {
-			return nil, err
-		}
-		skillDir := filepath.Join(dest, "skills", plugin+"-cmd-"+name)
-		if err := os.MkdirAll(skillDir, 0700); err != nil {
-			return nil, err
-		}
-		if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), body, 0600); err != nil {
-			return nil, err
-		}
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	return names, nil
 }
 
 // manifest is the on-disk import_manifest.json the reference keeps in

@@ -18,11 +18,12 @@
 package marketplace
 
 import (
-	"github.com/justwasm/pigasus/endpoints"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/justwasm/pigasus/endpoints"
 )
 
 // marketplaceLinkForSkillInRoute exposes the testable inner so each test

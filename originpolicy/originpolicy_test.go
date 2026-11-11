@@ -1,9 +1,10 @@
 package originpolicy
 
 import (
-	"github.com/justwasm/pigasus/endpoints"
 	"strings"
 	"testing"
+
+	"github.com/justwasm/pigasus/endpoints"
 )
 
 // TestValidateOriginPattern_OK covers the

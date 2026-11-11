@@ -71,6 +71,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+
 	"github.com/justwasm/pigasus/internal/app/prompt/agyprompt"
 	"github.com/justwasm/pigasus/internal/app/tools"
 	"github.com/justwasm/pigasus/internal/app/tools/browser"
@@ -160,7 +161,6 @@ func referenceSpecsPart1(ws string) []refSpec {
 		{name: "click_browser_pixel", desc: "Click a pixel coordinate in the browser page.",
 			back: &browser.ClickBrowserPixel{Workspace: ws}},
 
-
 		// ---- command execution (real) ----
 		{name: "command_status", desc: tools.RefDesc("command_status"),
 			back: &tasks.CommandStatus{}},
@@ -205,7 +205,6 @@ func referenceSpecsPart2(ws string) []refSpec {
 		{name: "manage_subagents", desc: tools.RefDesc("manage_subagents")},
 		{name: "manage_task", desc: tools.RefDesc("manage_task"),
 			back: &tasks.ManageTask{}},
-
 
 		// ---- filesystem edits (real) ----
 		{name: "multi_replace_file_content", desc: tools.RefDesc("multi_replace_file_content"),
@@ -252,7 +251,6 @@ func referenceSpecsPart3(ws string) []refSpec {
 			back: &tasks.SendCommandInput{}},
 		{name: "send_message", desc: tools.RefDesc("send_message"),
 			back: &tasks.SendMessageTool{}},
-
 
 		// ---- filesystem read/write (real) ----
 		{name: "view_file", desc: filesystem.ViewFileDescription, schema: filesystem.ViewFileSchema,
@@ -347,4 +345,3 @@ func Catalog(ws string) *tools.Registry {
 	}
 	return reg
 }
-

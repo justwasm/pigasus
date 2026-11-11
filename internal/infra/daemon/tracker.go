@@ -471,4 +471,3 @@ func (t *Tracker) String() string {
 	}
 	return fmt.Sprintf("daemon.Tracker{closed=%v, procs=%v}", t.closed.Load(), names)
 }
-

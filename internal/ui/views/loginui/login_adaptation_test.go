@@ -5,8 +5,8 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
-	"github.com/justwasm/pigasus/internal/ui/views/loginui"
 	"github.com/justwasm/pigasus/internal/ui/tuilib"
+	"github.com/justwasm/pigasus/internal/ui/views/loginui"
 )
 
 func TestLoginView_BannerOnlyShowsWhenWholeStepFits(t *testing.T) {

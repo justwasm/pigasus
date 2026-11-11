@@ -196,4 +196,3 @@ func IncompleteTableLines(rows []string) int {
 	}
 	return count
 }
-

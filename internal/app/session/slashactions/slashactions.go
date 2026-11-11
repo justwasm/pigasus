@@ -205,5 +205,3 @@ func ResolveTitleToggle(verb TitleVerbKind, currentlyEnabled bool) bool {
 		return currentlyEnabled
 	}
 }
-
-

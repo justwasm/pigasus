@@ -189,4 +189,3 @@ func TestTeamworkRolesCannotBeShadowedOrRedefined(t *testing.T) {
 		})
 	}
 }
-

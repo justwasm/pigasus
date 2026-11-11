@@ -66,6 +66,8 @@ func TestKindRoutes(t *testing.T) {
 		Skills:      RoutePanel,
 		Provider:    RoutePanel,
 		Accounts:    RoutePanel,
+		Projects:    RoutePanel,
+		Help:        RoutePanel,
 		// The search route: the panel owns the keys of its result list
 		// and lets the rest through to the list rule.
 		CodeSearch: RouteSearch,

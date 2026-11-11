@@ -48,10 +48,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/justwasm/pigasus/internal/app/tools"
 	"sort"
 	"strings"
 	"sync"
+
+	"github.com/justwasm/pigasus/internal/app/tools"
 )
 
 // MCPProvider is the seam the three MCP tools use to reach a server.

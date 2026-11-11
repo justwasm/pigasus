@@ -215,4 +215,3 @@ func TestFindCatwalkModel(t *testing.T) {
 		t.Errorf("expected positive context window, got %d", m.ContextWindow)
 	}
 }
-

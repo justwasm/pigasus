@@ -12,6 +12,8 @@ import (
 	"github.com/ironpark/acp-go/acp2"
 	"github.com/justwasm/pigasus/agentlink"
 	"github.com/justwasm/pigasus/internal/app/agentturn"
+	"github.com/justwasm/pigasus/internal/app/toolrunner"
+	"github.com/justwasm/pigasus/internal/core/backend"
 )
 
 type acpV2Session struct {
@@ -172,6 +174,22 @@ func (a *ACPV2Agent) runTurn(ctx context.Context, stream *acp2.SessionStream, s 
 	turn := agentturn.Turn{
 		Model:   s.session.Model,
 		History: turnHistory,
+	}
+
+	var origPromptUser func(context.Context, backend.ToolCall) (bool, error)
+	if pr, ok := s.session.Runner.(*toolrunner.PermissionRunner); ok && pr != nil {
+		origPromptUser = pr.PromptUser
+		pr.PromptUser = func(callCtx context.Context, call backend.ToolCall) (bool, error) {
+			title := call.Name
+			if target := toolrunner.ToolTarget(call); target != "" {
+				title = fmt.Sprintf("%s: %s", call.Name, target)
+			}
+			_, allowed, err := stream.RequestPermission(callCtx, title, acp2.RequestPermissionSubject{}, acp2.DefaultPermissionOptions()...)
+			return allowed, err
+		}
+		defer func() {
+			pr.PromptUser = origPromptUser
+		}()
 	}
 
 	frames, err := engine.Turn(ctx, turn)

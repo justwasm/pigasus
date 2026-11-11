@@ -12,10 +12,10 @@ import (
 	"testing"
 
 	"github.com/justwasm/pigasus/actor"
-	fixture "github.com/justwasm/pigasus/internal/core/resultparity"
 	"github.com/justwasm/pigasus/internal/app/subagenttools"
 	"github.com/justwasm/pigasus/internal/app/tools"
 	"github.com/justwasm/pigasus/internal/app/tools/surface"
+	fixture "github.com/justwasm/pigasus/internal/core/resultparity"
 )
 
 // fixturePath is the 【一手】 capture: one "## <tool> {args}" header per call

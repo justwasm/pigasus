@@ -7,16 +7,16 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/justwasm/pigasus/palette"
 	"github.com/justwasm/pigasus/internal/ui/tuilib"
+	"github.com/justwasm/pigasus/palette"
 )
 
 func TestFirstChangedPath(t *testing.T) {
 	for _, tc := range []struct {
-		name       string
-		tracked    []string
-		untracked  []string
-		want       string
+		name      string
+		tracked   []string
+		untracked []string
+		want      string
 	}{
 		{"tracked first", []string{"a.go", "b.go"}, []string{"c.go"}, "a.go"},
 		{"untracked fallback", nil, []string{"c.go"}, "c.go"},

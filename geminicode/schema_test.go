@@ -194,7 +194,7 @@ func TestNormalizeToolSchema(t *testing.T) {
 	input := map[string]any{
 		"type": "OBJECT",
 		"properties": map[string]any{
-			"flag": true,
+			"flag":      true,
 			"emptyProp": map[string]any{},
 			"tags": map[string]any{
 				"type":  "ARRAY",
@@ -466,5 +466,3 @@ func TestNormalizeToolSchema_WriteFile(t *testing.T) {
 		t.Errorf("Path minLength = %v (%T), want 1", path["minLength"], path["minLength"])
 	}
 }
-
-

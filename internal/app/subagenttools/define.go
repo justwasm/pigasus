@@ -19,8 +19,8 @@ import (
 //	invoke_subagent.
 type defineTool struct{ defs *Store }
 
-func (t *defineTool) Name() string        { return "define_subagent" }
-func (t *defineTool) Description() string { return defineSubagentDescription }
+func (t *defineTool) Name() string                   { return "define_subagent" }
+func (t *defineTool) Description() string            { return defineSubagentDescription }
 func (t *defineTool) RequiresApproval(_ string) bool { return false }
 
 func (t *defineTool) Definition() actor.ToolDefinition {

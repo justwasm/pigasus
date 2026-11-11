@@ -476,3 +476,71 @@ func TestPanel_NavigateMultipleSubagents(t *testing.T) {
 		t.Fatalf("expected sub-2 detail opened, got opened=%v id=%q isSub=%v", h.opened, h.openedID, h.openedSub)
 	}
 }
+
+func TestPanel_SwarmRow(t *testing.T) {
+	tempHome(t)
+	swarmItem := &SwarmItem{
+		Title:     "Refactor",
+		Latest:    "Working on parser",
+		PostCount: 3,
+		IsDone:    false,
+		Dismissed: false,
+	}
+
+	boardOpened := false
+	swarmDismissed := false
+
+	p := New(Seams{
+		Width:  func() int { return 80 },
+		Height: func() int { return 24 },
+		Swarm:  func() *SwarmItem { return swarmItem },
+		OpenSwarmBoard: func() {
+			boardOpened = true
+		},
+		DismissSwarm: func() {
+			swarmDismissed = true
+			swarmItem.Dismissed = true
+		},
+	})
+
+	if p.Count() != 1 {
+		t.Fatalf("Count = %d, want 1", p.Count())
+	}
+
+	rows := p.Rows()
+	if !strings.Contains(rows, "Swarm(Refactor)") {
+		t.Errorf("expected rows to contain Swarm(Refactor), got %q", rows)
+	}
+	if !strings.Contains(rows, "3 posts") {
+		t.Errorf("expected rows to contain '3 posts', got %q", rows)
+	}
+	if !strings.Contains(rows, "Working on parser") {
+		t.Errorf("expected rows to contain latest message preview, got %q", rows)
+	}
+
+	// Focus and press Enter -> opens board
+	p.SetFocus(true)
+	handled, _ := p.HandleKey(tea.Key{Code: tea.KeyEnter})
+	if !handled || !boardOpened {
+		t.Fatalf("expected Enter to open Swarm Board, handled=%v, boardOpened=%v", handled, boardOpened)
+	}
+
+	// When swarm is done, status shows "Done"
+	swarmItem.IsDone = true
+	doneRows := p.Rows()
+	if !strings.Contains(doneRows, "Done") {
+		t.Errorf("expected done swarm to show 'Done', got %q", doneRows)
+	}
+
+	// Press alt+x to dismiss
+	p.SetFocus(true)
+	handledDismiss, _ := p.HandleKey(tea.Key{Code: 'x', Text: "x", Mod: tea.ModAlt})
+	if !handledDismiss || !swarmDismissed {
+		t.Fatalf("expected alt+x to dismiss swarm, handled=%v, dismissed=%v", handledDismiss, swarmDismissed)
+	}
+
+	// Once dismissed, count is 0
+	if p.Count() != 0 {
+		t.Fatalf("Count after dismiss = %d, want 0", p.Count())
+	}
+}

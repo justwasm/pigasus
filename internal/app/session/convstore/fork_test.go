@@ -98,14 +98,14 @@ func TestCopyArtifactTree(t *testing.T) {
 	// - .system_generated/messages/msg1.txt
 	// - .system_generated/logs/transcript.jsonl
 	files := map[string]string{
-		"doc.txt":                                   "hello world",
-		"sub/nested.txt":                            "nested content",
-		".git/HEAD":                                 "ref: refs/heads/main",
-		".jj/repo":                                  "jj data",
-		".system_generated/worktrees/wt1.txt":       "wt data",
-		".system_generated/subagents/sub1.txt":      "subagent data",
-		".system_generated/messages/msg1.txt":       "message data",
-		".system_generated/logs/transcript.jsonl":   `{"step": 1}`,
+		"doc.txt":                                 "hello world",
+		"sub/nested.txt":                          "nested content",
+		".git/HEAD":                               "ref: refs/heads/main",
+		".jj/repo":                                "jj data",
+		".system_generated/worktrees/wt1.txt":     "wt data",
+		".system_generated/subagents/sub1.txt":    "subagent data",
+		".system_generated/messages/msg1.txt":     "message data",
+		".system_generated/logs/transcript.jsonl": `{"step": 1}`,
 	}
 
 	for path, content := range files {

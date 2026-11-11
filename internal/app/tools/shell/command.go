@@ -26,14 +26,15 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/justwasm/pigasus/actor"
-	"github.com/justwasm/pigasus/internal/app/tools"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"time"
+
+	"github.com/justwasm/pigasus/actor"
+	"github.com/justwasm/pigasus/internal/app/tools"
 )
 
 // AgentShellEnvKVs are the env vars the agent tools always inject on top of

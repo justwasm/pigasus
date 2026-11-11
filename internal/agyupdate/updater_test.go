@@ -499,7 +499,6 @@ func TestRun_NewVersionWithTargetBinary(t *testing.T) {
 	}
 }
 
-
 func TestRun_RespectsEndpointsConfig(t *testing.T) {
 	requestedPath := ""
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

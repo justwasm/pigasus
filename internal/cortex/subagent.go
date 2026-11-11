@@ -80,20 +80,20 @@ type SubagentTransition struct {
 // subagentRecord is the per-subagent FSM record kept in the
 // subagentHub.
 type subagentRecord struct {
-	state     SubagentFSMState
-	history   []SubagentTransition
-	parent    string
+	state        SubagentFSMState
+	history      []SubagentTransition
+	parent       string
 	trajectoryID string
-	created   time.Time
+	created      time.Time
 }
 
 // newSubagentRecord returns a fresh subagent record at init.
 func newSubagentRecord(id, parent, trajectoryID string) *subagentRecord {
 	return &subagentRecord{
-		state:       SubagentFSMInit,
-		parent:      parent,
+		state:        SubagentFSMInit,
+		parent:       parent,
 		trajectoryID: trajectoryID,
-		created:     time.Now(),
+		created:      time.Now(),
 		history: []SubagentTransition{{
 			From: "",
 			To:   SubagentFSMInit,
@@ -124,10 +124,10 @@ func (r *subagentRecord) transition(to SubagentFSMState, note string) {
 // v1.3.5. It implements SubagentHubLike and holds the per-trajectory
 // subagent FSM records.
 type subagentHub struct {
-	mu    sync.Mutex
-	cm    *CascadeManager
-	regs  map[string]*subagentRecord
-	gate  *gatedSubagentHub
+	mu   sync.Mutex
+	cm   *CascadeManager
+	regs map[string]*subagentRecord
+	gate *gatedSubagentHub
 }
 
 // newSubagentHub returns a fresh subagent hub.
@@ -164,12 +164,12 @@ func (h *subagentHub) Lookup(id string) (SubagentState, bool) {
 		return SubagentState{}, false
 	}
 	return SubagentState{
-		ID:          id,
-		Parent:      r.parent,
+		ID:           id,
+		Parent:       r.parent,
 		TrajectoryID: r.trajectoryID,
-		Status:      SubagentStatus(r.state),
-		CreatedAt:   r.created,
-		UpdatedAt:   time.Now(),
+		Status:       SubagentStatus(r.state),
+		CreatedAt:    r.created,
+		UpdatedAt:    time.Now(),
 	}, true
 }
 
@@ -186,12 +186,12 @@ func (h *subagentHub) ListForParent(parent string) []SubagentState {
 			continue
 		}
 		out = append(out, SubagentState{
-			ID:          id,
-			Parent:      r.parent,
+			ID:           id,
+			Parent:       r.parent,
 			TrajectoryID: r.trajectoryID,
-			Status:      SubagentStatus(r.state),
-			CreatedAt:   r.created,
-			UpdatedAt:   time.Now(),
+			Status:       SubagentStatus(r.state),
+			CreatedAt:    r.created,
+			UpdatedAt:    time.Now(),
 		})
 	}
 	return out

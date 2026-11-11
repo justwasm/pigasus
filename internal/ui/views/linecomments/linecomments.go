@@ -88,7 +88,7 @@ func (e *Editor) Close() {
 	e.Active = false
 	e.Buffer.Reset()
 }
-//
+
 // The store is the model's owner: it decides what the comments are and
 // in which order they are reported. The lines are kept in line order,
 // the order the reference's screen shows them in.

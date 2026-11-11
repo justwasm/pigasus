@@ -10,8 +10,8 @@ import (
 	"encoding/json"
 	"testing"
 
-	pb "github.com/justwasm/pigasus/localharness/pb/localharness"
 	"github.com/justwasm/pigasus/internal/app/tools/surface"
+	pb "github.com/justwasm/pigasus/localharness/pb/localharness"
 )
 
 // sideToolConfig builds a side-tool configuration from the enabled tools.

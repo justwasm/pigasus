@@ -279,4 +279,3 @@ func TestValidateAndSaveModel_CatwalkPresetAutoFills(t *testing.T) {
 		t.Errorf("expected positive context window from Catwalk preset, got %d", m.ContextWindow)
 	}
 }
-

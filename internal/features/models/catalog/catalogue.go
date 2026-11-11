@@ -14,6 +14,7 @@ var (
 	catLastReg  *models.Registry
 	catLastGen  uint64
 	catLastGate bool
+	catLastADC  bool
 )
 
 // ModelCatalogue returns every model the CLI can select: the reference's own
@@ -34,13 +35,14 @@ var (
 func ModelCatalogue() []ModelEntry {
 	reg := models.CachedRegistry()
 	gate := Claude55Available()
+	adc := ADCAuthAvailable()
 	var gen uint64
 	if reg != nil {
 		gen = reg.Gen()
 	}
 
 	catMu.RLock()
-	if catCached != nil && catLastReg == reg && catLastGen == gen && catLastGate == gate {
+	if catCached != nil && catLastReg == reg && catLastGen == gen && catLastGate == gate && catLastADC == adc {
 		out := make([]ModelEntry, len(catCached))
 		copy(out, catCached)
 		catMu.RUnlock()
@@ -50,7 +52,7 @@ func ModelCatalogue() []ModelEntry {
 
 	catMu.Lock()
 	defer catMu.Unlock()
-	if catCached != nil && catLastReg == reg && catLastGen == gen && catLastGate == gate {
+	if catCached != nil && catLastReg == reg && catLastGen == gen && catLastGate == gate && catLastADC == adc {
 		out := make([]ModelEntry, len(catCached))
 		copy(out, catCached)
 		return out
@@ -76,6 +78,7 @@ func ModelCatalogue() []ModelEntry {
 	catLastReg = reg
 	catLastGen = gen
 	catLastGate = gate
+	catLastADC = adc
 
 	return out
 }

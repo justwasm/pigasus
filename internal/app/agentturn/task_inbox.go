@@ -47,9 +47,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/justwasm/pigasus/internal/app/tools/shell"
 	"github.com/justwasm/pigasus/internal/core/backend"
 	agentmessage "github.com/justwasm/pigasus/internal/core/msg"
-	"github.com/justwasm/pigasus/internal/app/tools/shell"
 )
 
 const (

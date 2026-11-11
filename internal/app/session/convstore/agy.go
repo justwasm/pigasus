@@ -381,6 +381,12 @@ func (c *Conversation) Transcript() []Step {
 			if strings.TrimSpace(s.ToolName) == "" {
 				continue
 			}
+		case "checkpoint":
+			if s.Summary == "" && s.UserIntent == "" && s.IncludedEnd == 0 {
+				continue
+			}
+			out = append(out, s)
+			continue
 		default:
 			continue
 		}

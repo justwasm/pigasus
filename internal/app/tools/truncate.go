@@ -256,7 +256,6 @@ func truncateByFormat(content, format string, maxTokens int) string {
 // valid partial JSON object — the first key/value pairs that fit
 // within maxTokens. The wrapped JSON is parseable by encoding/json
 // (no trailing commas, no broken escapes).
-//
 func buildTruncatedJSONObjectPreview(v map[string]json.RawMessage, keys []string, budget int) string {
 	var preview strings.Builder
 	preview.WriteByte('{')

@@ -582,5 +582,3 @@ func TestAutoDownload_OverwriteExistingTarget(t *testing.T) {
 		t.Fatalf("Version = %q, want 1.4.12", ver)
 	}
 }
-
-

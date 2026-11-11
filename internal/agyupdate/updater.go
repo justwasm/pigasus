@@ -20,10 +20,10 @@ import (
 	"strings"
 	"time"
 
-	"golang.org/x/mod/semver"
 	"github.com/justwasm/pigasus/atomicfile"
 	"github.com/justwasm/pigasus/endpoints"
 	"github.com/justwasm/pigasus/internal/cli"
+	"golang.org/x/mod/semver"
 )
 
 // Manifest represents the auto-updater release manifest JSON structure.

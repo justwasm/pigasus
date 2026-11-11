@@ -37,8 +37,8 @@ type sendMessageTool struct {
 	owner string
 }
 
-func (t *sendMessageTool) Name() string        { return "send_message" }
-func (t *sendMessageTool) Description() string { return sendMessageDescription }
+func (t *sendMessageTool) Name() string                   { return "send_message" }
+func (t *sendMessageTool) Description() string            { return sendMessageDescription }
 func (t *sendMessageTool) RequiresApproval(_ string) bool { return false }
 
 func (t *sendMessageTool) Definition() actor.ToolDefinition {
@@ -157,7 +157,6 @@ func (t *sendMessageTool) broadcast(message string) actor.ToolResult {
 // 【存疑】 the reference's own wording for a recipient that cannot be
 // reached is not recovered; the sentence it wraps is the reference's.
 var errRecipientGone = errors.New("the recipient is no longer reachable")
-
 
 // deliver hands the message to the recipient.
 //

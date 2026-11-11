@@ -40,9 +40,7 @@ import (
 	"github.com/coder/websocket"
 
 	"github.com/justwasm/pigasus/internal/remotecontrol"
-	"github.com/justwasm/pigasus/remotetransport"
 	"github.com/justwasm/pigasus/internal/remotecontrol/cascades"
-	"github.com/justwasm/pigasus/internal/remotecontrol/rpc"
 	"github.com/justwasm/pigasus/internal/remotecontrol/convconfig"
 	"github.com/justwasm/pigasus/internal/remotecontrol/fastpush"
 	"github.com/justwasm/pigasus/internal/remotecontrol/files"
@@ -50,9 +48,10 @@ import (
 	"github.com/justwasm/pigasus/internal/remotecontrol/plugins"
 	"github.com/justwasm/pigasus/internal/remotecontrol/projects"
 	"github.com/justwasm/pigasus/internal/remotecontrol/resources"
+	"github.com/justwasm/pigasus/internal/remotecontrol/rpc"
 	"github.com/justwasm/pigasus/internal/remotecontrol/terminals"
 	"github.com/justwasm/pigasus/internal/remotecontrol/triggers"
-
+	"github.com/justwasm/pigasus/remotetransport"
 )
 
 type (

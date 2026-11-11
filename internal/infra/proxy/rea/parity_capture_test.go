@@ -298,7 +298,7 @@ func TestPTYCaptureParity(t *testing.T) {
 	for _, tc := range cases {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
-		t.Parallel()
+			t.Parallel()
 			v4Path := filepath.Join("..", "..", "v4-captures", "v4-"+tc.name+".json")
 			oursPath := filepath.Join("..", "..", "v4-captures", "chadgpt-"+tc.name+".json")
 			compareCapturesStatic(t, v4Path, oursPath, tc.wantExitCode, tc.wantMinLines, tc.mustContain, tc.exactLines)
@@ -494,7 +494,7 @@ func TestPTYCaptureLive_MultiFlag(t *testing.T) {
 	for _, tc := range cases {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
-		t.Parallel()
+			t.Parallel()
 			tmp := t.TempDir()
 			var v4, ours map[string]any
 			for label, bin := range map[string]string{"v4": v4Bin, "ours": oursBin} {
@@ -603,7 +603,7 @@ func TestSubcommandParity(t *testing.T) {
 	for _, tc := range cases {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
-		t.Parallel()
+			t.Parallel()
 			tmp := t.TempDir()
 			var v4, ours map[string]any
 			for label, bin := range map[string]string{"v4": v4Bin, "ours": oursBin} {
@@ -819,5 +819,3 @@ func TestREA_HealthyToolchain(t *testing.T) {
 	body, _ := io.ReadAll(resp.Body)
 	t.Logf("userinfo HTTP %d, body[0:50]=%q", resp.StatusCode, string(body)[0:50])
 }
-
-

@@ -276,6 +276,7 @@ func buildCatalogue() []Command {
 		{Name: "/plan", Description: "Plan carefully before executing a task.", Dispatched: true},
 		{Name: "/grill-me", Description: "Interview me to align on a plan.", Dispatched: true},
 		{Name: "/teamwork-preview", Description: "Invoke a team of agents to autonomously tackle large projects.", Aliases: []string{"teamwork"}, Dispatched: true},
+		{Name: "/swarm", Description: "(Preview & Quota Heavy) Run a swarm: several agents working in parallel on one task, each in its own conversation, collaborating through a shared message board.", Dispatched: true},
 		{Name: "/learn", Description: "Reflect on recent successes or corrections to capture reusable skills or rules.", Dispatched: true},
 		{Name: "/boost", Description: "Invoke the Boost multi-agent orchestrator for complex tasks.", Dispatched: true},
 		{Name: "/agents-sdk", Description: "Build AI agents on Cloudflare Workers using the Agents SDK. Load when creating stateful agents, durable workflows, real-time WebSocket apps, scheduled tasks, or chat agents with built-in state."},
@@ -383,7 +384,7 @@ func assignCommandScope(c *Command) {
 	case "hooks":
 		c.Scope = ScopeCapability
 		c.RequiredCap = agentturn.CapHooks
-	case "config", "goal", "schedule", "browser", "plan", "learn", "grill-me", "teamwork", "teamwork-preview", "boost", "fork", "voice", "remote-control":
+	case "config", "goal", "schedule", "browser", "plan", "learn", "grill-me", "teamwork", "teamwork-preview", "boost", "fork", "voice", "remote-control", "swarm":
 		c.Scope = ScopeCapability
 		c.RequiredCap = agentturn.CapWorkflows
 	case "provider", "providers", "feature-diff":

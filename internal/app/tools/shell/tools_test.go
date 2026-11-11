@@ -93,7 +93,7 @@ func TestRunCommandEmpty(t *testing.T) {
 	r := &RunCommand{Workspace: dir}
 	for _, in := range []string{`""`, `"   "`, `"\t\n  "`} {
 		_, err := r.Run(context.Background(), json.RawMessage(
-			`{"command":` + in + `}`))
+			`{"command":`+in+`}`))
 		if err == nil {
 			t.Errorf("input %s: expected error, got nil", in)
 		}

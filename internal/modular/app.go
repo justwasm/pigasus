@@ -227,7 +227,6 @@ func (a *App) executeTurn(fs *flag.FlagSet, prompt string, out io.Writer) error 
 	return nil
 }
 
-
 // Run executes the CLI.
 func (a *App) Run(args []string) int {
 	if a.parser == nil {

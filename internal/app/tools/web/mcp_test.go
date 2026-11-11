@@ -8,9 +8,10 @@ package web
 import (
 	"context"
 	"encoding/json"
-	"github.com/justwasm/pigasus/internal/app/tools"
 	"strings"
 	"testing"
+
+	"github.com/justwasm/pigasus/internal/app/tools"
 )
 
 // fakeMCPProvider records what the tools asked for.

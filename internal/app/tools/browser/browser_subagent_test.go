@@ -3,9 +3,10 @@ package browser
 import (
 	"context"
 	"encoding/json"
-	"github.com/justwasm/pigasus/internal/app/tools"
 	"strings"
 	"testing"
+
+	"github.com/justwasm/pigasus/internal/app/tools"
 )
 
 // The browser_subagent tool: the reference's browser agent, behind a

@@ -153,10 +153,10 @@ func (d *ApprovalDriver) Revive(id string) (SubagentState, error) {
 // For test purposes, the adapter is fine; for production, drive
 // either cortex or cascade, not both.
 type CascadeAdapter struct {
-	cm       *CascadeManager
-	gate     *SubagentAwaitsApprovalGate
-	cascade  CascadeAdapterCascadeAPI
-	mu       sync.Mutex
+	cm      *CascadeManager
+	gate    *SubagentAwaitsApprovalGate
+	cascade CascadeAdapterCascadeAPI
+	mu      sync.Mutex
 }
 
 // CascadeAdapterCascadeAPI is the slice of the cycle 41

@@ -220,7 +220,7 @@ func (m *RootModel) dispatchKeyAction(action string) (tea.Model, tea.Cmd, bool) 
 			return m, nil, true
 		}
 		if m.viewport.altScreen && !m.hasActiveModal() && !m.prompt.picker.Visible() {
-			m.scrollBy(-tuilib.ClampInt(m.viewport.vpRows-1, 1, 1<<20))
+			m.scrollPage(false)
 			return m, nil, true
 		}
 	case "navigation.page_down":
@@ -234,7 +234,7 @@ func (m *RootModel) dispatchKeyAction(action string) (tea.Model, tea.Cmd, bool) 
 			return m, nil, true
 		}
 		if m.viewport.altScreen && !m.hasActiveModal() && !m.prompt.picker.Visible() {
-			m.scrollBy(tuilib.ClampInt(m.viewport.vpRows-1, 1, 1<<20))
+			m.scrollPage(true)
 			return m, nil, true
 		}
 	case "navigation.half_page_up":
@@ -442,6 +442,15 @@ func (m *RootModel) dispatchKeyAction(action string) (tea.Model, tea.Cmd, bool) 
 		}
 	case "cli.test":
 		return m, nil, true
+	case "swarm.board":
+		if m.swarm.Board == nil {
+			m.swarm.Board = m.newSwarmBoard()
+		}
+		m.swarm.Board.Toggle()
+		return m, nil, true
+	case "swarm.dismiss":
+		m.DismissSwarm()
+		return m, nil, true
 	}
 	return m, nil, false
 }
@@ -542,6 +551,28 @@ func (m *RootModel) handleGlobalOrModalKeys(key tea.Key) (tea.Model, tea.Cmd, bo
 				return m, nil, true
 			}
 		}
+		if r == 's' {
+			if m.swarm.Board == nil {
+				m.swarm.Board = m.newSwarmBoard()
+			}
+			m.swarm.Board.Toggle()
+			return m, nil, true
+		}
+		if r == 'x' {
+			m.DismissSwarm()
+			return m, nil, true
+		}
+	}
+	if m.swarm.Board != nil && m.swarm.Board.Active() {
+		if key.Code == tea.KeyEsc {
+			m.swarm.Board.Close()
+			return m, nil, true
+		}
+		handled, cmd := m.swarm.Board.HandleKey(key)
+		if handled {
+			return m, cmd, true
+		}
+		return m, nil, true
 	}
 	if m.audio.Surface.Active() {
 		if handled, cmd := m.audio.Surface.HandleKey(key); handled {
@@ -647,7 +678,7 @@ func (m *RootModel) handleFunctionAndModeKeys(key tea.Key) (tea.Model, tea.Cmd, 
 	// be handled by the editor, not intercepted by the shortcuts overlay.
 	if key.Code == '?' && key.Mod == 0 && m.prompt.input.Value() == "" && !m.composerInVimInsert() &&
 		!m.hasActiveModal() && !m.prompt.picker.Visible() {
-		m.help.Panel.Open(2) // shortcuts
+		m.openHelp(2) // shortcuts
 		m.ResetInputSelection()
 		m.prompt.promptHistory.Reset()
 		return m, nil, true
@@ -733,6 +764,10 @@ func (m *RootModel) handleEscKeyMsg() (tea.Model, tea.Cmd) {
 	// Priority 1: Modals, overlays, pickers, and side-question cards
 	if m.help.Panel.Active() {
 		m.help.Panel.Cancel()
+		return m, nil
+	}
+	if m.swarm.Board != nil && m.swarm.Board.Active() {
+		m.swarm.Board.Close()
 		return m, nil
 	}
 	if m.prompt.DismissPopups() {
@@ -882,15 +917,24 @@ func (m *RootModel) handleHelpModeNavigation(key tea.Key) (tea.Model, tea.Cmd, b
 	if !handled {
 		return m, nil, false
 	}
+	if !m.help.Panel.Active() && m.overlays.panel.kind == panelregistry.Help {
+		m.overlays.panel = slashPanel{}
+	}
 	if cmd != nil {
 		msg := cmd()
 		switch ev := msg.(type) {
 		case helppanel.CommandSelectedMsg:
 			m.SelectCommand(ev.Command)
+			if m.overlays.panel.kind == panelregistry.Help {
+				m.overlays.panel = slashPanel{}
+			}
 			return m, nil, true
 		case helppanel.DismissedMsg:
 			if ev.EchoLine {
 				m.conversation.response = append(m.conversation.response, tuilib.SlashEchoLines("/help", "Exited /help command")...)
+			}
+			if m.overlays.panel.kind == panelregistry.Help {
+				m.overlays.panel = slashPanel{}
 			}
 			return m, nil, true
 		}
@@ -2056,6 +2100,7 @@ func (m *RootModel) armEscReleaseTick() tea.Cmd {
 
 func (m *RootModel) canConsumeAltEsc() bool {
 	if m.overlays.panel.kind != panelregistry.None || m.help.Panel.Active() ||
+		(m.swarm.Board != nil && m.swarm.Board.Active()) ||
 		m.prompt.picker.Visible() || m.prompt.atFilePicker.Visible() ||
 		m.overlays.resumePicker.Active() || m.audio.Surface.Active() ||
 		m.prompt.mediaExpanded || m.isBtwCardVisible() ||

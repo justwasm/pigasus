@@ -3,7 +3,8 @@
 // google3/third_party/jetski/language_server/code_assist_client.
 //
 // Source-of-truth artifacts: /decompiled/c/google3_third_party_jetski_cli_backend_*/
-//                          and /decompiled/c/google3_third_party_jetski_language_server_code_assist_client_*/
+//
+//	and /decompiled/c/google3_third_party_jetski_language_server_code_assist_client_*/
 package cliauth
 
 import (
@@ -19,7 +20,6 @@ import (
 	"github.com/justwasm/pigasus/internal/core/store"
 	"github.com/justwasm/pigasus/internal/features/auth"
 )
-
 
 // CLIAuthProvider is the recovered default AuthProvider for the CLI.
 // Source: codeassistclient.(*CLIAuthProvider).GetTokenSource.

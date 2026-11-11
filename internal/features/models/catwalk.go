@@ -112,7 +112,6 @@ func CatwalkSearchIndex() map[string]CatwalkPresetSearch {
 	return catwalkSearchIndex
 }
 
-
 func normalizePresetID(id string) string {
 	needle := strings.ToLower(strings.TrimSpace(id))
 	switch needle {
@@ -246,12 +245,12 @@ func buildPresetConfig(cp *catwalk.Provider) ProviderConfig {
 	}
 
 	return ProviderConfig{
-		ID:       string(cp.ID),
-		Name:     cp.Name,
-		Type:     wireType,
-		BaseURL:  baseURL,
-		APIURL:   apiURL,
-		Models:   modelsList,
+		ID:      string(cp.ID),
+		Name:    cp.Name,
+		Type:    wireType,
+		BaseURL: baseURL,
+		APIURL:  apiURL,
+		Models:  modelsList,
 	}
 }
 
@@ -272,4 +271,3 @@ func FindCatwalkModel(providerID, modelID string) (*ProviderModel, bool) {
 	}
 	return nil, false
 }
-

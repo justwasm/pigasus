@@ -275,7 +275,31 @@ func thoughtStepLines(s Step, expanded bool, width int) []string {
 		return []string{head}
 	}
 	out := []string{head}
-	return append(out, stepDetailLines(s, width)...)
+	return append(out, thoughtDetailLines(s, width)...)
+}
+
+// thoughtDetailLines renders the reasoning text of an expanded thought step.
+// Thoughts following a tool result are rendered with clean 2-space indentation
+// rather than being formatted as tool detail bullets (  ⎿  ) (AGY 1.5.4).
+func thoughtDetailLines(s Step, width int) []string {
+	detail := strings.TrimRight(tuitools.NormalizeDetailNewlines(s.Result), "\n")
+	if strings.TrimSpace(detail) == "" {
+		return nil
+	}
+	wrapWidth := tuitools.DetailWrapWidth(width)
+	rawLines := strings.Split(detail, "\n")
+	var wrappedLines []string
+	for _, l := range rawLines {
+		l = tuitools.ExpandTabs(l, 4)
+		wrapped := ansi.Wrap(l, wrapWidth, "")
+		wrappedLines = append(wrappedLines, strings.Split(wrapped, "\n")...)
+	}
+	out := make([]string, 0, len(wrappedLines))
+	const indent = "  "
+	for _, wl := range wrappedLines {
+		out = append(out, indent+wl)
+	}
+	return out
 }
 
 // stepDetailText maps a tool result onto the text the reference's expanded

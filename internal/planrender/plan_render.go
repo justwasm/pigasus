@@ -295,9 +295,10 @@ func wrapPlanLine(line string, width int) []string {
 //	width = 10
 //	input = "修复修复..."  (12 chars = 36 bytes = 24 cells)
 //	output = "修复修复…"  (4 chars + ellipsis = 9 cells;
-	                            // cannot reach 10 cells because 5
-	                            // CJK chars + ellipsis would be 11
-	                            // cells, exceeding the budget)
+//
+// cannot reach 10 cells because 5
+// CJK chars + ellipsis would be 11
+// cells, exceeding the budget)
 //
 // runewidth.Truncate handles the cell math and the grapheme-cluster
 // boundary (a multi-byte codepoint is never split mid-codepoint, the

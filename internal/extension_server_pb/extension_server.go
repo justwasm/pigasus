@@ -114,9 +114,9 @@ type FocusManagerWindow struct {
 // the binary at pclntab 0x7335bc0). One of initial_state or update is
 // populated per message.
 type UnifiedStateSyncUpdate struct {
-	UpdateType     UnifiedStateSyncUpdate_UpdateType `protobuf:"varint,1,opt,name=update_type,json=updateType,proto3,enum=extension_server_pb.UnifiedStateSyncUpdate_UpdateType" json:"update_type,omitempty"`
-	InitialState   []byte `protobuf:"bytes,2,opt,name=initial_state,json=initialState,proto3" json:"initial_state,omitempty"`
-	AppliedUpdate  []byte `protobuf:"bytes,3,opt,name=applied_update,json=appliedUpdate,proto3" json:"applied_update,omitempty"`
+	UpdateType    UnifiedStateSyncUpdate_UpdateType `protobuf:"varint,1,opt,name=update_type,json=updateType,proto3,enum=extension_server_pb.UnifiedStateSyncUpdate_UpdateType" json:"update_type,omitempty"`
+	InitialState  []byte                            `protobuf:"bytes,2,opt,name=initial_state,json=initialState,proto3" json:"initial_state,omitempty"`
+	AppliedUpdate []byte                            `protobuf:"bytes,3,opt,name=applied_update,json=appliedUpdate,proto3" json:"applied_update,omitempty"`
 }
 
 // UnifiedStateSyncUpdate.UpdateType is the recovered enum for the
@@ -124,10 +124,10 @@ type UnifiedStateSyncUpdate struct {
 type UnifiedStateSyncUpdate_UpdateType int32
 
 const (
-	UnifiedStateSyncUpdate_UpdateTypeUnspecified    UnifiedStateSyncUpdate_UpdateType = 0
-	UnifiedStateSyncUpdate_UpdateTypeInitial        UnifiedStateSyncUpdate_UpdateType = 1
-	UnifiedStateSyncUpdate_UpdateTypeAppend         UnifiedStateSyncUpdate_UpdateType = 2
-	UnifiedStateSyncUpdate_UpdateTypeAck            UnifiedStateSyncUpdate_UpdateType = 3
+	UnifiedStateSyncUpdate_UpdateTypeUnspecified UnifiedStateSyncUpdate_UpdateType = 0
+	UnifiedStateSyncUpdate_UpdateTypeInitial     UnifiedStateSyncUpdate_UpdateType = 1
+	UnifiedStateSyncUpdate_UpdateTypeAppend      UnifiedStateSyncUpdate_UpdateType = 2
+	UnifiedStateSyncUpdate_UpdateTypeAck         UnifiedStateSyncUpdate_UpdateType = 3
 )
 
 // ---------------------------------------------------------------------------
@@ -148,10 +148,10 @@ type HeartbeatResponse struct {
 }
 
 type LanguageServerStartedRequest struct {
-	HttpPort   int32  `protobuf:"varint,1,opt,name=http_port,json=httpPort,proto3" json:"http_port,omitempty"`
-	HttpsPort  int32  `protobuf:"varint,2,opt,name=https_port,json=httpsPort,proto3" json:"https_port,omitempty"`
-	LspPort    int32  `protobuf:"varint,3,opt,name=lsp_port,json=lspPort,proto3" json:"lsp_port,omitempty"`
-	CsrfToken  string `protobuf:"bytes,4,opt,name=csrf_token,json=csrfToken,proto3" json:"csrf_token,omitempty"`
+	HttpPort  int32  `protobuf:"varint,1,opt,name=http_port,json=httpPort,proto3" json:"http_port,omitempty"`
+	HttpsPort int32  `protobuf:"varint,2,opt,name=https_port,json=httpsPort,proto3" json:"https_port,omitempty"`
+	LspPort   int32  `protobuf:"varint,3,opt,name=lsp_port,json=lspPort,proto3" json:"lsp_port,omitempty"`
+	CsrfToken string `protobuf:"bytes,4,opt,name=csrf_token,json=csrfToken,proto3" json:"csrf_token,omitempty"`
 }
 
 type LanguageServerStartedResponse struct{}
@@ -232,13 +232,13 @@ type TerminateCommandRequest struct {
 type TerminateCommandResponse struct{}
 
 type ExecuteCommandRequest struct {
-	CommandLine    string            `protobuf:"bytes,1,opt,name=command_line,json=commandLine,proto3" json:"command_line,omitempty"`
-	Cwd            string            `protobuf:"bytes,2,opt,name=cwd,proto3" json:"cwd,omitempty"`
-	Env            map[string]string `protobuf:"bytes,3,rep,name=env,proto3" json:"env,omitempty" protobuf_key:"bytes,1,opt,name=key,proto3" protobuf_val:"bytes,2,opt,name=value,proto3"`
-	SandboxOverride string           `protobuf:"bytes,4,opt,name=sandbox_override,json=sandboxOverride,proto3" json:"sandbox_override,omitempty"`
-	TerminalId     string            `protobuf:"bytes,5,opt,name=terminal_id,json=terminalId,proto3" json:"terminal_id,omitempty"`
-	TerminalHost   string            `protobuf:"bytes,6,opt,name=terminal_host,json=terminalHost,proto3" json:"terminal_host,omitempty"`
-	ConversationId string            `protobuf:"bytes,7,opt,name=conversation_id,json=conversationId,proto3" json:"conversation_id,omitempty"`
+	CommandLine     string            `protobuf:"bytes,1,opt,name=command_line,json=commandLine,proto3" json:"command_line,omitempty"`
+	Cwd             string            `protobuf:"bytes,2,opt,name=cwd,proto3" json:"cwd,omitempty"`
+	Env             map[string]string `protobuf:"bytes,3,rep,name=env,proto3" json:"env,omitempty" protobuf_key:"bytes,1,opt,name=key,proto3" protobuf_val:"bytes,2,opt,name=value,proto3"`
+	SandboxOverride string            `protobuf:"bytes,4,opt,name=sandbox_override,json=sandboxOverride,proto3" json:"sandbox_override,omitempty"`
+	TerminalId      string            `protobuf:"bytes,5,opt,name=terminal_id,json=terminalId,proto3" json:"terminal_id,omitempty"`
+	TerminalHost    string            `protobuf:"bytes,6,opt,name=terminal_host,json=terminalHost,proto3" json:"terminal_host,omitempty"`
+	ConversationId  string            `protobuf:"bytes,7,opt,name=conversation_id,json=conversationId,proto3" json:"conversation_id,omitempty"`
 }
 
 // ExecuteCommandResponse is server-streamed as
@@ -267,19 +267,19 @@ type RunExtensionCodeResponse struct {
 }
 
 type OpenFilePointerRequest struct {
-	FileUri    string `protobuf:"bytes,1,opt,name=file_uri,json=fileUri,proto3" json:"file_uri,omitempty"`
-	StartLine  int32  `protobuf:"varint,2,opt,name=start_line,json=startLine,proto3" json:"start_line,omitempty"`
-	StartCol   int32  `protobuf:"varint,3,opt,name=start_col,json=startCol,proto3" json:"start_col,omitempty"`
-	EndLine    int32  `protobuf:"varint,4,opt,name=end_line,json=endLine,proto3" json:"end_line,omitempty"`
-	EndCol     int32  `protobuf:"varint,5,opt,name=end_col,json=endCol,proto3" json:"end_col,omitempty"`
-	IsCascadeDiff bool `protobuf:"varint,6,opt,name=is_cascade_diff,json=isCascadeDiff,proto3" json:"is_cascade_diff,omitempty"`
+	FileUri       string `protobuf:"bytes,1,opt,name=file_uri,json=fileUri,proto3" json:"file_uri,omitempty"`
+	StartLine     int32  `protobuf:"varint,2,opt,name=start_line,json=startLine,proto3" json:"start_line,omitempty"`
+	StartCol      int32  `protobuf:"varint,3,opt,name=start_col,json=startCol,proto3" json:"start_col,omitempty"`
+	EndLine       int32  `protobuf:"varint,4,opt,name=end_line,json=endLine,proto3" json:"end_line,omitempty"`
+	EndCol        int32  `protobuf:"varint,5,opt,name=end_col,json=endCol,proto3" json:"end_col,omitempty"`
+	IsCascadeDiff bool   `protobuf:"varint,6,opt,name=is_cascade_diff,json=isCascadeDiff,proto3" json:"is_cascade_diff,omitempty"`
 }
 
 type OpenFilePointerResponse struct{}
 
 type OpenVirtualFileRequest struct {
-	Text                 string `protobuf:"bytes,1,opt,name=text,proto3" json:"text,omitempty"`
-	ShowMarkdownPreview  bool   `protobuf:"varint,2,opt,name=show_markdown_preview,json=showMarkdownPreview,proto3" json:"show_markdown_preview,omitempty"`
+	Text                string `protobuf:"bytes,1,opt,name=text,proto3" json:"text,omitempty"`
+	ShowMarkdownPreview bool   `protobuf:"varint,2,opt,name=show_markdown_preview,json=showMarkdownPreview,proto3" json:"show_markdown_preview,omitempty"`
 }
 
 type OpenVirtualFileResponse struct{}
@@ -292,7 +292,7 @@ type SaveDocumentRequest struct {
 type SaveDocumentResponse struct{}
 
 type InsertCodeAtCursorRequest struct {
-	Text       string          `protobuf:"bytes,1,opt,name=text,proto3" json:"text,omitempty"`
+	Text       string           `protobuf:"bytes,1,opt,name=text,proto3" json:"text,omitempty"`
 	EditorType ActiveEditorType `protobuf:"varint,2,opt,name=editor_type,json=editorType,proto3,enum=extension_server_pb.ActiveEditorType" json:"editor_type,omitempty"`
 }
 
@@ -361,9 +361,9 @@ type StoreSecretValueRequest struct {
 type StoreSecretValueResponse struct{}
 
 type LogEventRequest struct {
-	Event      string               `protobuf:"bytes,1,opt,name=event,proto3" json:"event,omitempty"`
-	EventString string              `protobuf:"bytes,2,opt,name=event_string,json=eventString,proto3" json:"event_string,omitempty"`
-	Metadata   []*EventMetadataRecord `protobuf:"bytes,3,rep,name=metadata,proto3" json:"metadata,omitempty"`
+	Event       string                 `protobuf:"bytes,1,opt,name=event,proto3" json:"event,omitempty"`
+	EventString string                 `protobuf:"bytes,2,opt,name=event_string,json=eventString,proto3" json:"event_string,omitempty"`
+	Metadata    []*EventMetadataRecord `protobuf:"bytes,3,rep,name=metadata,proto3" json:"metadata,omitempty"`
 }
 
 type LogEventResponse struct{}
@@ -396,8 +396,8 @@ type HandleProposeCodeExtensionVerificationResponse struct {
 }
 
 type FocusIDEWindowRequest struct {
-	WindowType string            `protobuf:"bytes,1,opt,name=window_type,json=windowType,proto3" json:"window_type,omitempty"`
-	Editor     *FocusEditorWindow `protobuf:"bytes,2,opt,name=editor,proto3" json:"editor,omitempty"`
+	WindowType string              `protobuf:"bytes,1,opt,name=window_type,json=windowType,proto3" json:"window_type,omitempty"`
+	Editor     *FocusEditorWindow  `protobuf:"bytes,2,opt,name=editor,proto3" json:"editor,omitempty"`
 	Manager    *FocusManagerWindow `protobuf:"bytes,3,opt,name=manager,proto3" json:"manager,omitempty"`
 }
 
@@ -410,10 +410,10 @@ type PlaySoundRequest struct {
 type PlaySoundResponse struct{}
 
 type FindAllReferencesRequest struct {
-	FileUri        string `protobuf:"bytes,1,opt,name=file_uri,json=fileUri,proto3" json:"file_uri,omitempty"`
-	Line           int32  `protobuf:"varint,2,opt,name=line,proto3" json:"line,omitempty"`
-	OccurrenceIndex int32 `protobuf:"varint,3,opt,name=occurrence_index,json=occurrenceIndex,proto3" json:"occurrence_index,omitempty"`
-	Symbol         string `protobuf:"bytes,4,opt,name=symbol,proto3" json:"symbol,omitempty"`
+	FileUri         string `protobuf:"bytes,1,opt,name=file_uri,json=fileUri,proto3" json:"file_uri,omitempty"`
+	Line            int32  `protobuf:"varint,2,opt,name=line,proto3" json:"line,omitempty"`
+	OccurrenceIndex int32  `protobuf:"varint,3,opt,name=occurrence_index,json=occurrenceIndex,proto3" json:"occurrence_index,omitempty"`
+	Symbol          string `protobuf:"bytes,4,opt,name=symbol,proto3" json:"symbol,omitempty"`
 }
 
 type FindAllReferencesResponse struct {
@@ -451,20 +451,20 @@ type GetLintErrorsRequest_AwaitNewLintsConfig struct {
 }
 
 type GetLintErrorsRequest struct {
-	ConversationId       string                                   `protobuf:"bytes,1,opt,name=conversation_id,json=conversationId,proto3" json:"conversation_id,omitempty"`
-	AwaitNewLintsConfig  *GetLintErrorsRequest_AwaitNewLintsConfig `protobuf:"bytes,2,opt,name=await_new_lints_config,json=awaitNewLintsConfig,proto3" json:"await_new_lints_config,omitempty"`
+	ConversationId      string                                    `protobuf:"bytes,1,opt,name=conversation_id,json=conversationId,proto3" json:"conversation_id,omitempty"`
+	AwaitNewLintsConfig *GetLintErrorsRequest_AwaitNewLintsConfig `protobuf:"bytes,2,opt,name=await_new_lints_config,json=awaitNewLintsConfig,proto3" json:"await_new_lints_config,omitempty"`
 }
 
 type GetLintErrorsResponse struct {
-	LintErrors         []string `protobuf:"bytes,1,rep,name=lint_errors,json=lintErrors,proto3" json:"lint_errors,omitempty"`
+	LintErrors           []string `protobuf:"bytes,1,rep,name=lint_errors,json=lintErrors,proto3" json:"lint_errors,omitempty"`
 	PersistentLintErrors []string `protobuf:"bytes,2,rep,name=persistent_lint_errors,json=persistentLintErrors,proto3" json:"persistent_lint_errors,omitempty"`
 }
 
 type ConversationPickerRequest struct {
-	CurrentCascadeId             string   `protobuf:"bytes,1,opt,name=current_cascade_id,json=currentCascadeId,proto3" json:"current_cascade_id,omitempty"`
-	CurrentWorkspaceUri          string   `protobuf:"bytes,2,opt,name=current_workspace_uri,json=currentWorkspaceUri,proto3" json:"current_workspace_uri,omitempty"`
-	CurrentWorkspaceNormalizedPath string  `protobuf:"bytes,3,opt,name=current_workspace_normalized_path,json=currentWorkspaceNormalizedPath,proto3" json:"current_workspace_normalized_path,omitempty"`
-	Summaries                    []string `protobuf:"bytes,4,rep,name=summaries,proto3" json:"summaries,omitempty"`
+	CurrentCascadeId               string   `protobuf:"bytes,1,opt,name=current_cascade_id,json=currentCascadeId,proto3" json:"current_cascade_id,omitempty"`
+	CurrentWorkspaceUri            string   `protobuf:"bytes,2,opt,name=current_workspace_uri,json=currentWorkspaceUri,proto3" json:"current_workspace_uri,omitempty"`
+	CurrentWorkspaceNormalizedPath string   `protobuf:"bytes,3,opt,name=current_workspace_normalized_path,json=currentWorkspaceNormalizedPath,proto3" json:"current_workspace_normalized_path,omitempty"`
+	Summaries                      []string `protobuf:"bytes,4,rep,name=summaries,proto3" json:"summaries,omitempty"`
 }
 
 type ConversationPickerResponse struct {
@@ -541,17 +541,17 @@ type EditNotebookResponse_ModifiedCell struct {
 }
 
 type EditNotebookRequest struct {
-	AbsolutePathUri string                    `protobuf:"bytes,1,opt,name=absolute_path_uri,json=absolutePathUri,proto3" json:"absolute_path_uri,omitempty"`
-	AnchorCellId    string                    `protobuf:"bytes,2,opt,name=anchor_cell_id,json=anchorCellId,proto3" json:"anchor_cell_id,omitempty"`
-	AnchorCellIndex int32                     `protobuf:"varint,3,opt,name=anchor_cell_index,json=anchorCellIndex,proto3" json:"anchor_cell_index,omitempty"`
-	DeleteCount     int32                     `protobuf:"varint,4,opt,name=delete_count,json=deleteCount,proto3" json:"delete_count,omitempty"`
-	Operation       EditNotebookOperation     `protobuf:"varint,5,opt,name=operation,proto3,enum=extension_server_pb.EditNotebookOperation" json:"operation,omitempty"`
+	AbsolutePathUri string                      `protobuf:"bytes,1,opt,name=absolute_path_uri,json=absolutePathUri,proto3" json:"absolute_path_uri,omitempty"`
+	AnchorCellId    string                      `protobuf:"bytes,2,opt,name=anchor_cell_id,json=anchorCellId,proto3" json:"anchor_cell_id,omitempty"`
+	AnchorCellIndex int32                       `protobuf:"varint,3,opt,name=anchor_cell_index,json=anchorCellIndex,proto3" json:"anchor_cell_index,omitempty"`
+	DeleteCount     int32                       `protobuf:"varint,4,opt,name=delete_count,json=deleteCount,proto3" json:"delete_count,omitempty"`
+	Operation       EditNotebookOperation       `protobuf:"varint,5,opt,name=operation,proto3,enum=extension_server_pb.EditNotebookOperation" json:"operation,omitempty"`
 	Cells           []*EditNotebookRequest_Cell `protobuf:"bytes,6,rep,name=cells,proto3" json:"cells,omitempty"`
 }
 
 type EditNotebookResponse struct {
-	TotalCellCount  int32                              `protobuf:"varint,1,opt,name=total_cell_count,json=totalCellCount,proto3" json:"total_cell_count,omitempty"`
-	ModifiedCells   []*EditNotebookResponse_ModifiedCell `protobuf:"bytes,2,rep,name=modified_cells,json=modifiedCells,proto3" json:"modified_cells,omitempty"`
+	TotalCellCount int32                                `protobuf:"varint,1,opt,name=total_cell_count,json=totalCellCount,proto3" json:"total_cell_count,omitempty"`
+	ModifiedCells  []*EditNotebookResponse_ModifiedCell `protobuf:"bytes,2,rep,name=modified_cells,json=modifiedCells,proto3" json:"modified_cells,omitempty"`
 }
 
 type ReadNotebookRequest struct {
@@ -568,14 +568,14 @@ type ReadNotebookResponse struct {
 
 // ExecuteNotebookResponse_CellOutput is the per-cell output entry.
 type ExecuteNotebookResponse_CellOutput struct {
-	CellId            string                            `protobuf:"bytes,1,opt,name=cell_id,json=cellId,proto3" json:"cell_id,omitempty"`
-	CellIndex         int32                             `protobuf:"varint,2,opt,name=cell_index,json=cellIndex,proto3" json:"cell_index,omitempty"`
-	Status            ExecuteNotebookResponse_CellStatus `protobuf:"varint,3,opt,name=status,proto3,enum=extension_server_pb.ExecuteNotebookResponse_CellStatus" json:"status,omitempty"`
-	OutputText        string                            `protobuf:"bytes,4,opt,name=output_text,json=outputText,proto3" json:"output_text,omitempty"`
-	OutputTextTruncated bool                            `protobuf:"varint,5,opt,name=output_text_truncated,json=outputTextTruncated,proto3" json:"output_text_truncated,omitempty"`
-	ErrorTrace        string                            `protobuf:"bytes,6,opt,name=error_trace,json=errorTrace,proto3" json:"error_trace,omitempty"`
-	Blobs             []byte                            `protobuf:"bytes,7,opt,name=blobs,proto3" json:"blobs,omitempty"`
-	GeneratedImages   [][]byte                          `protobuf:"bytes,8,rep,name=generated_images,json=generatedImages,proto3" json:"generated_images,omitempty"`
+	CellId              string                             `protobuf:"bytes,1,opt,name=cell_id,json=cellId,proto3" json:"cell_id,omitempty"`
+	CellIndex           int32                              `protobuf:"varint,2,opt,name=cell_index,json=cellIndex,proto3" json:"cell_index,omitempty"`
+	Status              ExecuteNotebookResponse_CellStatus `protobuf:"varint,3,opt,name=status,proto3,enum=extension_server_pb.ExecuteNotebookResponse_CellStatus" json:"status,omitempty"`
+	OutputText          string                             `protobuf:"bytes,4,opt,name=output_text,json=outputText,proto3" json:"output_text,omitempty"`
+	OutputTextTruncated bool                               `protobuf:"varint,5,opt,name=output_text_truncated,json=outputTextTruncated,proto3" json:"output_text_truncated,omitempty"`
+	ErrorTrace          string                             `protobuf:"bytes,6,opt,name=error_trace,json=errorTrace,proto3" json:"error_trace,omitempty"`
+	Blobs               []byte                             `protobuf:"bytes,7,opt,name=blobs,proto3" json:"blobs,omitempty"`
+	GeneratedImages     [][]byte                           `protobuf:"bytes,8,rep,name=generated_images,json=generatedImages,proto3" json:"generated_images,omitempty"`
 }
 
 type ExecuteNotebookRequest struct {
@@ -588,9 +588,9 @@ type ExecuteNotebookRequest struct {
 
 type ExecuteNotebookResponse struct {
 	Status             ExecuteNotebookResponse_ExecutionStatus `protobuf:"varint,1,opt,name=status,proto3,enum=extension_server_pb.ExecuteNotebookResponse_ExecutionStatus" json:"status,omitempty"`
-	CellOutputs        []*ExecuteNotebookResponse_CellOutput    `protobuf:"bytes,2,rep,name=cell_outputs,json=cellOutputs,proto3" json:"cell_outputs,omitempty"`
-	ErrorTrace         string                                   `protobuf:"bytes,3,opt,name=error_trace,json=errorTrace,proto3" json:"error_trace,omitempty"`
-	ExecutedCellsCount int32                                    `protobuf:"varint,4,opt,name=executed_cells_count,json=executedCellsCount,proto3" json:"executed_cells_count,omitempty"`
+	CellOutputs        []*ExecuteNotebookResponse_CellOutput   `protobuf:"bytes,2,rep,name=cell_outputs,json=cellOutputs,proto3" json:"cell_outputs,omitempty"`
+	ErrorTrace         string                                  `protobuf:"bytes,3,opt,name=error_trace,json=errorTrace,proto3" json:"error_trace,omitempty"`
+	ExecutedCellsCount int32                                   `protobuf:"varint,4,opt,name=executed_cells_count,json=executedCellsCount,proto3" json:"executed_cells_count,omitempty"`
 }
 
 type UpdateCascadeTrajectorySummariesRequest struct {
@@ -1185,9 +1185,9 @@ type placeholderStreamClient struct {
 	ctx context.Context
 }
 
-func (p *placeholderStreamClient) Recv() (any, error)        { return nil, ErrNotImplemented }
-func (p *placeholderStreamClient) Context() context.Context   { return p.ctx }
-func (p *placeholderStreamClient) Close() error              { return nil }
+func (p *placeholderStreamClient) Recv() (any, error)       { return nil, ErrNotImplemented }
+func (p *placeholderStreamClient) Context() context.Context { return p.ctx }
+func (p *placeholderStreamClient) Close() error             { return nil }
 
 // placeholderUnifiedStateStreamClient is the placeholder for
 // SubscribeToUnifiedStateSyncTopic client.
@@ -1199,4 +1199,4 @@ func (p *placeholderUnifiedStateStreamClient) Recv() (*UnifiedStateSyncUpdate, e
 	return nil, ErrNotImplemented
 }
 func (p *placeholderUnifiedStateStreamClient) Context() context.Context { return p.ctx }
-func (p *placeholderUnifiedStateStreamClient) Close() error            { return nil }
+func (p *placeholderUnifiedStateStreamClient) Close() error             { return nil }

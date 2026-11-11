@@ -21,9 +21,9 @@ const (
 )
 
 const (
-	gray238 = "\x1b[38;5;238m"
-	sgrOff  = "\x1b[0m"
-	redDot  = "\x1b[38;5;196m●\x1b[0m"
+	gray238   = "\x1b[38;5;238m"
+	sgrOff    = "\x1b[0m"
+	redDot    = "\x1b[38;5;196m●\x1b[0m"
 	hollowDot = "\x1b[38;5;196m○\x1b[0m"
 )
 

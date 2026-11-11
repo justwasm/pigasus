@@ -38,10 +38,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/justwasm/pigasus/internal/app/tools"
 	"os/exec"
 	"strconv"
 	"strings"
+
+	"github.com/justwasm/pigasus/internal/app/tools"
 )
 
 // bgLogTailBytes is the upper bound on the bytes preserved in a task log

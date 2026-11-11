@@ -1101,3 +1101,42 @@ func TestRemoteSkillsCacheAndMapping(t *testing.T) {
 		t.Errorf("calls after reload = %d, want 2", calls)
 	}
 }
+
+// TestRemoteAgentEngine_CloudConversationsDisabledWarning_154 pins the AGY 1.5.4 warning prefix:
+// "Sign-in update needed" when cloud conversations are not enabled for the user.
+func TestRemoteAgentEngine_CloudConversationsDisabledWarning_154(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "cloud conversations are not enabled for this user", http.StatusForbidden)
+	}))
+	defer server.Close()
+
+	client := remoteagentclient.New(remoteagentclient.Config{
+		BaseURL: server.URL,
+	})
+	engine := NewRemoteAgentEngine(RemoteAgentConfig{
+		Client:    client,
+		Workspace: t.TempDir(),
+		Model:     "gemini-3.8-flash",
+	})
+	defer engine.Close()
+
+	ch, err := engine.Turn(context.Background(), Turn{
+		Model: "gemini-3.8-flash",
+		History: []agentlink.Message{
+			{Role: "user", Content: "Hello"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Turn returned error: %v", err)
+	}
+
+	var errMsg string
+	for frame := range ch {
+		if frame.Kind == agentlink.KindResult && frame.Error != "" {
+			errMsg = frame.Error
+		}
+	}
+	if !strings.HasPrefix(errMsg, "Sign-in update needed:") {
+		t.Fatalf("expected error to start with 'Sign-in update needed:', got %q", errMsg)
+	}
+}

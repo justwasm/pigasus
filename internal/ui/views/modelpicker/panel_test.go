@@ -945,4 +945,3 @@ func Test_ModelPickerPureMessagePassing(t *testing.T) {
 		t.Fatalf("expected ModelSelectedMsg in batch or directly, got %#v", msg)
 	}
 }
-

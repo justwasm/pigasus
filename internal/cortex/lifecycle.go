@@ -98,12 +98,12 @@ type CortexLifecycleTransition struct {
 // cascade.RealLifecycle — same FSM, but driving a CascadeManager
 // instead of a generic backend.Backend.
 type CortexLifecycle struct {
-	mu        sync.Mutex
-	cm        *CascadeManager
-	state     CortexLifecycleState
-	history   []CortexLifecycleTransition
-	subagent  SubagentState
-	closed    bool
+	mu       sync.Mutex
+	cm       *CascadeManager
+	state    CortexLifecycleState
+	history  []CortexLifecycleTransition
+	subagent SubagentState
+	closed   bool
 }
 
 // NewCortexLifecycle wires a CascadeManager to a fresh lifecycle.
@@ -441,4 +441,3 @@ func (cm *CascadeManager) ForceStopTree() error {
 	}
 	return nil
 }
-

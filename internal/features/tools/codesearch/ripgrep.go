@@ -7,10 +7,29 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 )
+
+// EmbeddedRipgrepDisabled reports whether embedded ripgrep extraction is disabled
+// via the ANTIGRAVITY_DISABLE_EMBEDDED_RIPGREP environment variable.
+func EmbeddedRipgrepDisabled() bool {
+	b, err := strconv.ParseBool(os.Getenv("ANTIGRAVITY_DISABLE_EMBEDDED_RIPGREP"))
+	return err == nil && b
+}
+
+// ResolveRipgrepBinary resolves the ripgrep executable path. When
+// ANTIGRAVITY_DISABLE_EMBEDDED_RIPGREP is enabled, it skips any embedded
+// binary and resolves the system 'rg' from PATH.
+func ResolveRipgrepBinary() (string, error) {
+	if EmbeddedRipgrepDisabled() {
+		return exec.LookPath("rg")
+	}
+	return exec.LookPath("rg")
+}
 
 // DefaultRgCmd returns the default ripgrep invocation. Public so
 // tests can call it to assert against the same flag list the

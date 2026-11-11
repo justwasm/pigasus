@@ -14,6 +14,7 @@
 //     Only the entry the command named was replaced; a sibling entry
 //     kept its own members, including one the documented schema does not
 //     list.
+//
 //   - A malformed file is refused rather than overwritten:
 //
 //     Error: failed to parse <path>: failed to parse JSON config: invalid character 'n' looking for beginning of object key string

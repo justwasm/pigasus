@@ -4,9 +4,9 @@
 // 没共享配置, 而且 recovered 不支持 token refresh.
 //
 // v1.3.5 binary 实际用的 config path (从 binary strings 抽 + 实测):
-//   1. ~/.config/antigravity/oauth-token        (cycle 42 实证, keyring 后台读)
-//   2. ~/.config/antigravity/antigravity-auth.json  (cycle 35 v3 残留)
-//   3. ~/.gemini/antigravity-cli/antigravity-oauth-token  (v4 binary 用, recovered 现在唯一读这个)
+//  1. ~/.config/antigravity/oauth-token        (cycle 42 实证, keyring 后台读)
+//  2. ~/.config/antigravity/antigravity-auth.json  (cycle 35 v3 残留)
+//  3. ~/.gemini/antigravity-cli/antigravity-oauth-token  (v4 binary 用, recovered 现在唯一读这个)
 //
 // Recovered 之前只读 path 3, 而且 RefreshTokenReal 没传 client_secret (cycle 42
 // 实证 client_secret 必须, 否则 refresh
@@ -49,9 +49,9 @@ func AllTokenPaths() []string {
 		home = "/root"
 	}
 	return []string{
-		filepath.Join(home, LegacyTokenPath),         // v1.3.5 binary 真值
-		filepath.Join(home, LegacyAuthPath),     // cycle 35 v3 残留
-		filepath.Join(home, ConfigPathV4),           // v4 binary (recovered 之前读这个)
+		filepath.Join(home, LegacyTokenPath), // v1.3.5 binary 真值
+		filepath.Join(home, LegacyAuthPath),  // cycle 35 v3 残留
+		filepath.Join(home, ConfigPathV4),    // v4 binary (recovered 之前读这个)
 	}
 }
 
@@ -65,12 +65,22 @@ func EnvOAuthToken() string { return os.Getenv("JETSKI_OAUTH_TOKEN") }
 // EnvRefreshToken = ANTIGRAVITY_REFRESH_TOKEN env var 支持 (让 CI/沙箱可以预存)
 func EnvRefreshToken() string { return os.Getenv("ANTIGRAVITY_REFRESH_TOKEN") }
 
+// TokenFileExists reports whether a saved token file exists in any recognized token path (AGY 1.5.4).
+func TokenFileExists() bool {
+	for _, p := range AllTokenPaths() {
+		if st, err := os.Stat(p); err == nil && st.Size() > 0 {
+			return true
+		}
+	}
+	return false
+}
+
 // LoadTokenUnified cascade priority:
-//   1. JETSKI_OAUTH_TOKEN env var (cycle 42 实证, 最简 path)
-//   2. ~/.config/antigravity/oauth-token (v1.3.5 binary 真值)
-//   3. ~/.config/antigravity/antigravity-auth.json (v3 残留)
-//   4. ~/.gemini/antigravity-cli/antigravity-oauth-token (v4 binary)
-//   5. ANTIGRAVITY_REFRESH_TOKEN env var (只用 refresh_token 走 refresh flow)
+//  1. JETSKI_OAUTH_TOKEN env var (cycle 42 实证, 最简 path)
+//  2. ~/.config/antigravity/oauth-token (v1.3.5 binary 真值)
+//  3. ~/.config/antigravity/antigravity-auth.json (v3 残留)
+//  4. ~/.gemini/antigravity-cli/antigravity-oauth-token (v4 binary)
+//  5. ANTIGRAVITY_REFRESH_TOKEN env var (只用 refresh_token 走 refresh flow)
 //
 // Returns *AntigravityToken 或 error. Priority 1-4 直接有 access_token,
 // priority 5 没 access_token 但有 refresh_token, 调用方应该走 Refresh flow.
@@ -142,6 +152,7 @@ func SaveTokenUnified(tok *AntigravityToken) error {
 		}
 	}
 	var firstErr error
+	savedOnDisk := false
 	for _, p := range AllTokenPaths() {
 		if err := SaveAntigravityTokenTo(p, tok); err != nil {
 			if firstErr == nil {
@@ -149,9 +160,14 @@ func SaveTokenUnified(tok *AntigravityToken) error {
 			}
 			continue
 		}
+		savedOnDisk = true
 	}
 	if err := SaveKeychainToken(tok); err != nil {
-		if firstErr == nil {
+		// AGY 1.5.4: Gemini Enterprise Plan & Large Token Recovery:
+		// When a large token (e.g. Gemini Enterprise with large multi-org claims)
+		// exceeds the OS keychain storage limit, do not fail the save if the token
+		// was successfully persisted to on-disk storage.
+		if !savedOnDisk && firstErr == nil {
 			firstErr = err
 		}
 	}
@@ -273,10 +289,13 @@ func (t *AntigravityToken) RefreshQuiet(ctx context.Context) (*AntigravityToken,
 // RefreshTokenRealWithSecret cycle 42 fix: 加 client_secret 配对, 否则 invalid_client.
 //
 // v1.3.5 binary 配对:
-//   client_id     = CLIClientID
-//   client_secret = publicClientSecret (Google OAuth public secret)
+//
+//	client_id     = CLIClientID
+//	client_secret = publicClientSecret (Google OAuth public secret)
+//
 // Refresh 返: {access_token, expires_in, scope, token_type}
-//   scope 含: cloud-platform userinfo.email userinfo.profile openid cclog experimentsandconfigs
+//
+//	scope 含: cloud-platform userinfo.email userinfo.profile openid cclog experimentsandconfigs
 func RefreshTokenRealWithSecret(ctx context.Context, clientID, clientSecret, refreshToken string) (*TokenResponse, error) {
 	if clientID == "" {
 		clientID = CLIClientID

@@ -248,4 +248,3 @@ func TestDialectFor(t *testing.T) {
 		}
 	}
 }
-

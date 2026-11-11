@@ -60,13 +60,13 @@ var declarationAliases = map[string]string{
 	"search_web": "search_web",
 
 	// the agent-to-agent surface
-	"send_message":      "send_message",
-	"define_subagent":   "define_subagent",
-	"invoke_subagent":   "invoke_subagent",
-	"manage_subagents":  "manage_subagents",
-	"manage_task":       "manage_task",
-	"schedule":          "schedule",
-	"ask_question":      "ask_question",
+	"send_message":     "send_message",
+	"define_subagent":  "define_subagent",
+	"invoke_subagent":  "invoke_subagent",
+	"manage_subagents": "manage_subagents",
+	"manage_task":      "manage_task",
+	"schedule":         "schedule",
+	"ask_question":     "ask_question",
 }
 
 // DeclarationName returns the model-facing declaration name of a catalogue

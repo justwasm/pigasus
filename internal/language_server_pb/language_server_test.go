@@ -15,8 +15,8 @@ func TestDialLanguageServerService_MissingToken(t *testing.T) {
 
 func TestSelectLicense(t *testing.T) {
 	client, err := DialLanguageServerService(DialOptions{
-		Endpoint:     "https://cloudcode-pa.googleapis.com",
-		BearerToken:  func() (string, error) { return "test-token", nil },
+		Endpoint:    "https://cloudcode-pa.googleapis.com",
+		BearerToken: func() (string, error) { return "test-token", nil },
 	})
 	if err != nil {
 		t.Fatalf("Dial: %v", err)
@@ -95,7 +95,7 @@ func TestStreamGenerateContent(t *testing.T) {
 	stream, err := client.StreamGenerateContent(context.Background(), &GenerateContentRequest{
 		Model: "gemini-1.5-pro",
 		Contents: []Content{{
-			Role: "user",
+			Role:  "user",
 			Parts: []Part{{Text: "hello"}},
 		}},
 	})

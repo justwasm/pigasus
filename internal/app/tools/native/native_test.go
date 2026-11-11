@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/justwasm/pigasus/internal/core/backend"
 	"github.com/justwasm/pigasus/internal/app/tools/native"
+	"github.com/justwasm/pigasus/internal/core/backend"
 	"github.com/justwasm/pigasus/internal/modular"
 )
 
@@ -94,8 +94,8 @@ func TestNativeProviderUnknownTool(t *testing.T) {
 
 type testCustomTool struct{}
 
-func (c *testCustomTool) Name() string                     { return "custom_echo" }
-func (c *testCustomTool) Decl() backend.ToolDecl           { return backend.ToolDecl{Name: "custom_echo"} }
+func (c *testCustomTool) Name() string           { return "custom_echo" }
+func (c *testCustomTool) Decl() backend.ToolDecl { return backend.ToolDecl{Name: "custom_echo"} }
 func (c *testCustomTool) Run(ctx context.Context, args []byte) (string, error) {
 	return "custom echo result", nil
 }
@@ -113,4 +113,3 @@ func TestNativeProviderDispatchFallbackToCustomTool(t *testing.T) {
 		t.Fatalf("expected custom echo result, got: %s", res)
 	}
 }
-

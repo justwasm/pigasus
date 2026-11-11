@@ -15,10 +15,11 @@ package lsserver
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/justwasm/pigasus/endpoints"
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/justwasm/pigasus/endpoints"
 )
 
 // AnswerContext is what the reference's answers are built from.
