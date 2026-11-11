@@ -282,7 +282,11 @@ func thoughtStepLines(s Step, expanded bool, width int) []string {
 // Thoughts following a tool result are rendered with clean 2-space indentation
 // rather than being formatted as tool detail bullets (  ⎿  ) (AGY 1.5.4).
 func thoughtDetailLines(s Step, width int) []string {
-	detail := strings.TrimRight(tuitools.NormalizeDetailNewlines(s.Result), "\n")
+	raw := s.Result
+	if raw == "" {
+		raw = s.Detail
+	}
+	detail := strings.TrimRight(tuitools.NormalizeDetailNewlines(raw), "\n")
 	if strings.TrimSpace(detail) == "" {
 		return nil
 	}

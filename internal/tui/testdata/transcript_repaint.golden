@@ -141,7 +141,7 @@ row 15 "\x1b[38;2;253;214;99m●\x1b[39m \x1b[38;2;253;214;99;1mRan\x1b[0m \x1b[
 row 16 "  \x1b[38;2;232;234;237mA streaming reply that wraps across several  \x1b[m"
 row 17 "  \x1b[38;2;232;234;237mrows at the current width.                   \x1b[m"
 row 18 "\x1b[38;2;189;193;198m▾\x1b[39m Thinking..."
-row 19 "\x1b[38;2;189;193;198m  ⎿  \x1b[mthe model reasons about the failing check \x1b[38;2;189;193;198m(ctrl+o to collapse)\x1b[39m"
+row 19 "  the model reasons about the failing check \x1b[38;2;189;193;198m(ctrl+o to collapse)\x1b[39m"
 block 0 start=8 lines=1 expanded=true
 block 1 start=9 lines=2 expanded=true
 assistant 0 start=3 lines=4
@@ -169,7 +169,7 @@ row 15 "\x1b[38;2;253;214;99m●\x1b[39m \x1b[38;2;253;214;99;1mRan\x1b[0m \x1b[
 row 16 "  \x1b[38;2;232;234;237mA streaming reply that wraps across several  \x1b[m"
 row 17 "  \x1b[38;2;232;234;237mrows at the current width.                   \x1b[m"
 row 18 "\x1b[38;2;189;193;198m▾\x1b[39m Thought for <dur>"
-row 19 "\x1b[38;2;189;193;198m  ⎿  \x1b[mthe model reasons about the failing check \x1b[38;2;189;193;198m(ctrl+o to collapse)\x1b[39m"
+row 19 "  the model reasons about the failing check \x1b[38;2;189;193;198m(ctrl+o to collapse)\x1b[39m"
 block 0 start=8 lines=1 expanded=true
 block 1 start=9 lines=2 expanded=true
 assistant 0 start=3 lines=4
@@ -197,7 +197,7 @@ row 15 "\x1b[38;2;253;214;99m●\x1b[39m \x1b[38;2;253;214;99;1mRan\x1b[0m \x1b[
 row 16 "  \x1b[38;2;232;234;237mA streaming reply that wraps across several  \x1b[m"
 row 17 "  \x1b[38;2;232;234;237mrows at the current width.                   \x1b[m"
 row 18 "\x1b[38;2;189;193;198m▾\x1b[39m Thought for <dur>"
-row 19 "\x1b[38;2;189;193;198m  ⎿  \x1b[mthe model reasons about the failing check \x1b[38;2;189;193;198m(ctrl+o to collapse)\x1b[39m"
+row 19 "  the model reasons about the failing check \x1b[38;2;189;193;198m(ctrl+o to collapse)\x1b[39m"
 block 0 start=8 lines=1 expanded=true
 block 1 start=9 lines=2 expanded=true
 assistant 0 start=3 lines=4
@@ -239,7 +239,7 @@ row 3 "\x1b[38;2;129;201;149m●\x1b[39m \x1b[38;2;253;214;99;1mBash\x1b[0m\x1b[
 row 4 "\x1b[38;2;189;193;198m  ⎿  \x1b[mone"
 row 5 "\x1b[38;2;253;214;99m●\x1b[39m \x1b[38;2;253;214;99;1mBash\x1b[0m\x1b[38;2;189;193;198m(echo two)\x1b[39m \x1b[38;2;189;193;198m(ctrl+o to collapse)\x1b[39m"
 row 6 "\x1b[38;2;189;193;198m▾\x1b[39m Thinking..."
-row 7 "\x1b[38;2;189;193;198m  ⎿  \x1b[mthe model reasons between the calls \x1b[38;2;189;193;198m(ctrl+o to collapse)\x1b[39m"
+row 7 "  the model reasons between the calls \x1b[38;2;189;193;198m(ctrl+o to collapse)\x1b[39m"
 user 0 start=0 lines=1
 run 0 start=2 lines=4 kind=0 batch=1
 run 1 start=2 lines=4 kind=0 batch=1
@@ -253,7 +253,7 @@ row 3 "\x1b[38;2;129;201;149m●\x1b[39m \x1b[38;2;253;214;99;1mBash\x1b[0m\x1b[
 row 4 "\x1b[38;2;189;193;198m  ⎿  \x1b[mone"
 row 5 "\x1b[38;2;253;214;99m●\x1b[39m \x1b[38;2;253;214;99;1mBash\x1b[0m\x1b[38;2;189;193;198m(echo two)\x1b[39m \x1b[38;2;189;193;198m(ctrl+o to collapse)\x1b[39m"
 row 6 "\x1b[38;2;189;193;198m▾\x1b[39m Thought for <dur>"
-row 7 "\x1b[38;2;189;193;198m  ⎿  \x1b[mthe model reasons between the calls \x1b[38;2;189;193;198m(ctrl+o to collapse)\x1b[39m"
+row 7 "  the model reasons between the calls \x1b[38;2;189;193;198m(ctrl+o to collapse)\x1b[39m"
 user 0 start=0 lines=1
 run 0 start=2 lines=4 kind=0 batch=1
 run 1 start=2 lines=4 kind=0 batch=1

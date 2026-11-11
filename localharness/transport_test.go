@@ -726,7 +726,10 @@ func TestSpawnAgainstStubHarnessKeepsStderrOnFailure(t *testing.T) {
 		conn.Close()
 		t.Fatal("want an error for a harness that dies, got nil")
 	}
-	if !strings.Contains(err.Error(), "output config") {
-		t.Errorf("error %q does not mention the output config", err)
+	if !strings.Contains(err.Error(), "config") {
+		t.Errorf("error %q does not mention the config handshake", err)
+	}
+	if !strings.Contains(err.Error(), "broken harness") {
+		t.Errorf("error %q does not keep harness stderr", err)
 	}
 }

@@ -80,6 +80,7 @@ func TestRootModel_ArchitectureGuard(t *testing.T) {
 					"conversation", "diff", "auth", "rewind",
 					"activeItems", "help", "audio", "askQuestion",
 					"tasks", "agents", "tools", "remote", "compaction",
+					"swarm",
 				}
 				present := make(map[string]bool, len(namedFields))
 				for _, nf := range namedFields {
@@ -111,7 +112,7 @@ func TestRootModel_ArchitectureGuard(t *testing.T) {
 		}
 	}
 
-	const maxAllowedFields = 22
+	const maxAllowedFields = 23
 	if fields > maxAllowedFields {
 		t.Errorf("RootModel field count = %d, want <= %d (composite Elm model tree)", fields, maxAllowedFields)
 	}

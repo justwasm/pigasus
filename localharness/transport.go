@@ -366,6 +366,11 @@ func Spawn(ctx context.Context, opts Options) (*Conn, error) {
 
 	if err := c.handshake(ctx, opts); err != nil {
 		_ = c.Close()
+		if !strings.Contains(err.Error(), "--- harness stderr ---") {
+			if suffix := c.stderrSuffix(); suffix != "" {
+				err = fmt.Errorf("%w%s", err, suffix)
+			}
+		}
 		return nil, err
 	}
 	return c, nil
