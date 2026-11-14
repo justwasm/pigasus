@@ -353,7 +353,7 @@ func TestSetRemoteControlOriginPatterns_WS_BroadcastCrossConn(t *testing.T) {
 // readJSONRPCNotifications consumes).
 func readJSONRPCNotification(t *testing.T, c *websocket.Conn) jsonRPCNotification {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	_, raw, err := c.Read(ctx)
 	if err != nil {

@@ -126,6 +126,21 @@ type Task struct {
 	hidden bool
 }
 
+// Clone returns a thread-safe snapshot of the task with cloned slice fields.
+func (t *Task) Clone() *Task {
+	if t == nil {
+		return nil
+	}
+	cp := *t
+	if len(t.Tools) > 0 {
+		cp.Tools = append([]string(nil), t.Tools...)
+	}
+	if len(t.Steps) > 0 {
+		cp.Steps = append([]string(nil), t.Steps...)
+	}
+	return &cp
+}
+
 // Registry is the singleton-ish table of tasks for one process. The
 // cmd/wagyu binary wires one Registry into Subagent and one Registry
 // into the runMode, so they share the same view of "what's running".
@@ -216,8 +231,9 @@ func (r *Registry) Register(t *Task) string {
 		t.ExitCode = ExitCodeUnset
 	}
 	r.tasks[t.ID] = t
+	cloned := t.Clone()
 	r.mu.Unlock()
-	r.fanout(TaskEvent{Kind: "registered", ID: t.ID, Task: t})
+	r.fanout(TaskEvent{Kind: "registered", ID: t.ID, Task: cloned})
 	return t.ID
 }
 
@@ -245,13 +261,13 @@ func (r *Registry) Update(id string, mut func(*Task)) {
 		return
 	}
 	mut(t)
+	cloned := t.Clone()
 	r.mu.Unlock()
-	r.fanout(TaskEvent{Kind: "updated", ID: id, Task: t})
+	r.fanout(TaskEvent{Kind: "updated", ID: id, Task: cloned})
 }
 
 // Get returns the task with the given ID, or nil if unknown. The
-// returned *Task is the live pointer; callers that need an immutable
-// snapshot must copy the fields they care about.
+// returned *Task is an immutable snapshot safe for concurrent reads.
 func (r *Registry) Get(id string) *Task {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -259,12 +275,12 @@ func (r *Registry) Get(id string) *Task {
 	if !ok {
 		return nil
 	}
-	return t
+	return t.Clone()
 }
 
 // List returns every non-hidden task, sorted by StartedAt ascending.
-// The returned slice is freshly allocated so callers can sort or
-// mutate it without disturbing the registry. Hidden tasks (those the
+// The returned slice is freshly allocated with cloned tasks so callers
+// can read and iterate safely without race conditions. Hidden tasks (those the
 // user removed with x) are filtered out so the panel does not have
 // to thread the hidden flag through every render.
 func (r *Registry) List() []*Task {
@@ -275,7 +291,7 @@ func (r *Registry) List() []*Task {
 		if t.hidden {
 			continue
 		}
-		out = append(out, t)
+		out = append(out, t.Clone())
 	}
 	sort.Slice(out, func(i, j int) bool {
 		return out[i].StartedAt.Before(out[j].StartedAt)
@@ -300,7 +316,7 @@ func (r *Registry) Active() []*Task {
 		if t.State != StateRunning && t.State != StatePending && t.State != StateBlocked {
 			continue
 		}
-		out = append(out, t)
+		out = append(out, t.Clone())
 	}
 	sort.Slice(out, func(i, j int) bool {
 		if !out[i].StartedAt.Equal(out[j].StartedAt) {

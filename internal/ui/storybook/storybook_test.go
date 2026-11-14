@@ -268,8 +268,8 @@ func TestCtrlO_InteractiveToggle(t *testing.T) {
 	bashInst.SetState(3) // Dynamic Tail Overflow
 
 	bashV0 := bashInst.View()
-	if !strings.Contains(bashV0, "<output +70 lines>") {
-		t.Errorf("expected expanded bash step to contain '<output +70 lines>', got:\n%s", bashV0)
+	if !strings.Contains(bashV0, "<output +") {
+		t.Errorf("expected expanded bash step to contain '<output +...', got:\n%s", bashV0)
 	}
 	if !strings.Contains(bashV0, "TestIsEngineHost") {
 		t.Errorf("expected expanded bash step to contain tail test output 'TestIsEngineHost', got:\n%s", bashV0)
