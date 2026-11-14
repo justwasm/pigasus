@@ -18,6 +18,7 @@ import (
 // it would depend on the machine it runs on.
 func writeConfig(t *testing.T, body string) string {
 	t.Helper()
+	t.Setenv("CLOUD_CODE_URL", "")
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.json")
 	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
@@ -96,6 +97,7 @@ func TestCurrentReturnsTheCompiledInDefaults(t *testing.T) {
 // TestAMissingFileIsAnEmptyConfiguration pins that a user who never wrote
 // a configuration file gets the defaults — not an error.
 func TestAMissingFileIsAnEmptyConfiguration(t *testing.T) {
+	t.Setenv("CLOUD_CODE_URL", "")
 	t.Setenv(ConfigPathEnvVar, filepath.Join(t.TempDir(), "absent.json"))
 
 	got := Current()

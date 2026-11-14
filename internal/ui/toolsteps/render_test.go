@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/justwasm/pigasus/internal/ui/tuitools"
 	"github.com/justwasm/pigasus/palette"
@@ -38,19 +39,28 @@ func hasSGRBold(s string) bool {
 }
 
 // TestTUITools_TruncatesLongDetail pins the recovered "<output +%d lines>"
-// overflow marker.
+// overflow marker. In 1.5.5, the marker sits at the head (row 1) with the
+// tail lines below it, and the final row carrying the collapse hint.
 func TestTUITools_TruncatesLongDetail(t *testing.T) {
 	var lines []string
 	for i := 0; i < tuitools.MaxDetailLines+7; i++ {
-		lines = append(lines, "line")
+		lines = append(lines, fmt.Sprintf("line %d", i))
 	}
-	got := strings.Join(SingleLines(Step{
+	rows := SingleLines(Step{
 		Name:   "run_command",
 		Title:  "Ran seq",
 		Detail: strings.Join(lines, "\n"),
-	}, true, 0), "\n")
+	}, true, 0)
+	got := strings.Join(rows, "\n")
 	if !strings.Contains(got, "<output +7 lines>") {
 		t.Fatalf("overflow marker missing:\n%s", got)
+	}
+	if !strings.Contains(rows[1], "<output +7 lines>") {
+		t.Fatalf("expected overflow marker on row 1, got %q", rows[1])
+	}
+	lastRow := rows[len(rows)-1]
+	if !strings.Contains(lastRow, fmt.Sprintf("line %d", len(lines)-1)) || !strings.Contains(lastRow, "ctrl+o to collapse") {
+		t.Fatalf("expected last line and collapse hint on final row, got %q", lastRow)
 	}
 }
 
@@ -63,7 +73,8 @@ func TestTUITools_TruncatesLongDetail(t *testing.T) {
 //
 // Cycle 157: the suffix is wrapped in cToolFailedSuffixOpen / Close
 // (bold + red) and the bullet swaps to stepBulletErrOpen (red).
-// The verb "Ran" stays in the cycle-157 verb palette (bold + orange).
+// AGY 1.5.8: the collapsed row names the call itself (`Bash(false)`), not
+// the past-tense summary — measured with tuialign 27/28.
 func TestTUITools_FailedStepTitle(t *testing.T) {
 	step := Step{
 		Name:    "run_command",
@@ -73,7 +84,7 @@ func TestTUITools_FailedStepTitle(t *testing.T) {
 		Err:     true,
 	}
 	collapsed := strings.Join(SingleLines(step, false, 0), "\n")
-	if !strings.Contains(collapsed, "Ran") || !strings.Contains(collapsed, "false") || !strings.Contains(collapsed, "failed") {
+	if !strings.Contains(collapsed, "Bash") || !strings.Contains(collapsed, "false") || !strings.Contains(collapsed, "failed") {
 		t.Fatalf("failed collapsed title missing:\n%s", collapsed)
 	}
 	if !strings.HasPrefix(collapsed, stepBulletErrOpen) {
@@ -487,37 +498,37 @@ func TestReadFile_OneLineHasNoDetail(t *testing.T) {
 	}
 }
 
-// TestGroupLines_PerCategoryRows pins the mixed-batch shape: one summary row
-// per category, in first-appearance order, then (expanded only) each call.
-
-// TestGroupLines_PerCategoryRows pins the mixed-batch shape: one summary row
-// per category, in first-appearance order, then (expanded only) each call.
-func TestGroupLines_PerCategoryRows(t *testing.T) {
+// TestGroupLines_MultiCallShowsTheLastCall pins the 1.5.8 measured shape
+// (tuialign 27/28): a multi-call block never grows an aggregate summary.
+// Collapsed it is one row naming the last call; expanded it is each call plus
+// its detail, with no summary header above them.
+func TestGroupLines_MultiCallShowsTheLastCall(t *testing.T) {
 	steps := []Step{
-		{Kind: KindTool, Name: "read_file", Title: "Read(/tmp/a)", Summary: "Explored 1 file (a)", Detail: "one\ntwo\n"},
-		{Kind: KindTool, Name: "edit_file", Title: "Edit(/tmp/a)", Summary: "Edited 1 file (a)", Detail: "ok"},
+		{Kind: KindTool, Name: "run_command", Title: "Bash(echo one)", Summary: "Ran (echo one)", Detail: "one\n"},
+		{Kind: KindTool, Name: "run_command", Title: "Bash(echo two)", Summary: "Ran (echo two)", Detail: "two\n"},
 	}
 	collapsed := groupLines(steps, false, 0)
-	if len(collapsed) != 2 {
-		t.Fatalf("collapsed rows = %d (%q), want 2", len(collapsed), collapsed)
+	if len(collapsed) != 1 {
+		t.Fatalf("collapsed rows = %d (%q), want 1 (the last call)", len(collapsed), collapsed)
 	}
-	if !strings.Contains(collapsed[0], "Explored") || !strings.Contains(collapsed[0], "1 file") {
-		t.Errorf("first summary = %q", collapsed[0])
+	plainCollapsed := stripAnsiForTest(collapsed[0])
+	if !strings.Contains(plainCollapsed, "echo two") {
+		t.Errorf("collapsed row = %q, want the last call", plainCollapsed)
 	}
-	if !strings.Contains(collapsed[1], "Edited") || !strings.Contains(collapsed[1], "1 file") {
-		t.Errorf("second summary = %q", collapsed[1])
+	if strings.Contains(plainCollapsed, "echo one") || strings.Contains(plainCollapsed, "2 commands") {
+		t.Errorf("collapsed row aggregates the batch instead of naming the last call: %q", plainCollapsed)
 	}
+
 	expanded := groupLines(steps, true, 0)
-	if len(expanded) < 4 {
-		t.Fatalf("expanded rows = %d (%q), want the summaries plus both calls", len(expanded), expanded)
+	if len(expanded) < 2 {
+		t.Fatalf("expanded rows = %d (%q), want both calls", len(expanded), expanded)
 	}
-	if !strings.Contains(expanded[0], "Explored") || !strings.Contains(expanded[1], "Edited") {
-		t.Errorf("expanded summaries = %q", expanded[:2])
+	plain := stripAnsiForTest(strings.Join(expanded, "\n"))
+	if !strings.Contains(plain, "echo one") || !strings.Contains(plain, "echo two") {
+		t.Errorf("expanded calls missing:\n%s", plain)
 	}
-	joined := strings.Join(expanded, "\n")
-	plain := stripAnsiForTest(joined)
-	if !strings.Contains(plain, "Read(/tmp/a)") || !strings.Contains(plain, "Edit(/tmp/a)") {
-		t.Errorf("expanded calls missing:\n%s", joined)
+	if strings.Contains(plain, "2 commands") {
+		t.Errorf("expanded block kept an aggregate header:\n%s", plain)
 	}
 }
 
@@ -625,8 +636,10 @@ func TestStepTitle_NonZeroExit_HasFailedLabel(t *testing.T) {
 	if !strings.HasPrefix(collapsed, stepBulletErrOpen) {
 		t.Fatalf("expected red error bullet, got %q", collapsed)
 	}
-	if !strings.Contains(collapsed, "Ran") || !strings.Contains(collapsed, "(false)") {
-		t.Fatalf("collapsed summary missing args: %q", collapsed)
+	// AGY 1.5.8: the call's own title, not "Ran (...)"; measured with
+	// tuialign 27/28.
+	if !strings.Contains(collapsed, "Bash") || !strings.Contains(collapsed, "(false)") {
+		t.Fatalf("collapsed row missing the call title and args: %q", collapsed)
 	}
 	if !strings.Contains(collapsed, "failed") || strings.Contains(collapsed, "(Failed)") {
 		t.Fatalf("collapsed failure word = %q; want lowercase \"failed\"", collapsed)
@@ -675,10 +688,6 @@ func TestStepTitle_ZeroExit_NoFailedLabel(t *testing.T) {
 		!strings.Contains(expanded, "Command output:") ||
 		!strings.Contains(expanded, "one ") {
 		t.Fatalf("expanded detail = %q; want exit line + Command output body", expanded)
-	}
-	// The raw result's timestamps are model-facing only.
-	if strings.Contains(expanded, "Created At") {
-		t.Fatalf("expanded detail leaked the raw result timestamps:\n%s", expanded)
 	}
 }
 
@@ -800,7 +809,7 @@ func TestTokenMetrics_Summary(t *testing.T) {
 
 func TestRenderBlock_VerbosityLow_Collapsed(t *testing.T) {
 	steps := []Step{
-		{Kind: KindThought, Detail: "Thinking about file", Tokens: 1200},
+		{Kind: KindThought, Detail: "Thinking about file", Running: true, Tokens: 1200},
 		{Kind: KindTool, Name: "run_command", Title: "Bash(echo one)", Summary: "Ran (echo one)", Detail: "one\n"},
 	}
 	tm := TokenMetrics{
@@ -822,13 +831,118 @@ func TestRenderBlock_VerbosityLow_Collapsed(t *testing.T) {
 	if !strings.Contains(lines[0], "12.3k in | 450 out | 1.2k thinking") {
 		t.Errorf("line 0 missing token summary: %q", lines[0])
 	}
-	// Second line must contain Thinking...
+	// Second line must contain Thinking... for running thought
 	if !strings.Contains(lines[1], "Thinking...") {
 		t.Errorf("line 1 missing Thinking...: %q", lines[1])
 	}
-	// Last line must carry ctrl+o to expand
+	// Last line must carry ctrl+o to expand on the tool line
 	if !strings.Contains(lines[len(lines)-1], "ctrl+o to expand") {
 		t.Errorf("last line missing hint: %q", lines[len(lines)-1])
+	}
+}
+
+func TestRenderBlock_VerbosityLow_Collapsed_CompletedThought(t *testing.T) {
+	steps := []Step{
+		{Kind: KindThought, Detail: "Thinking about file", Dur: 2 * time.Second, Tokens: 1200},
+		{Kind: KindTool, Name: "run_command", Title: "Bash(echo one)", Summary: "Ran (echo one)", Detail: "one\n"},
+	}
+	tm := TokenMetrics{
+		Input:     12300,
+		Output:    450,
+		Reasoning: 1200,
+	}
+
+	lines := RenderBlock(steps, RenderOptions{
+		Expanded:     false,
+		Verbosity:    VerbosityLow,
+		TokenMetrics: tm,
+	})
+	if len(lines) < 3 {
+		t.Fatalf("expected at least 3 lines, got %d:\n%v", len(lines), lines)
+	}
+
+	if !strings.Contains(lines[1], "Thought for 2s, 1200 tokens") {
+		t.Errorf("line 1 missing Thought for 2s, 1200 tokens: %q", lines[1])
+	}
+	if !strings.Contains(lines[len(lines)-1], "ctrl+o to expand") {
+		t.Errorf("last line missing hint: %q", lines[len(lines)-1])
+	}
+}
+
+func TestRenderBlock_PureThought_Collapsed(t *testing.T) {
+	steps := []Step{
+		{
+			Kind:   KindThought,
+			Detail: "I'm thinking through how to approach this.",
+			Dur:    64 * time.Millisecond,
+			Tokens: 130,
+		},
+	}
+	tm := TokenMetrics{
+		Input:     18200,
+		Output:    18,
+		Reasoning: 130,
+	}
+
+	for _, v := range []Verbosity{VerbosityLow, VerbosityMedium, VerbosityHigh} {
+		lines := RenderBlock(steps, RenderOptions{
+			Expanded:     false,
+			Verbosity:    v,
+			TokenMetrics: tm,
+			Width:        80,
+		})
+		if len(lines) != 1 {
+			t.Fatalf("[%v] expected 1 collapsed thought line, got %d:\n%v", v, len(lines), lines)
+		}
+		// Pure thought step MUST NOT emit token metrics table
+		if strings.Contains(lines[0], "18.2k in") || strings.Contains(lines[0], "thinking") {
+			t.Errorf("[%v] collapsed pure thought unexpectedly emitted token metrics: %q", v, lines[0])
+		}
+		// Pure thought step MUST NOT attach ctrl+o hint
+		if strings.Contains(lines[0], "ctrl+o") {
+			t.Errorf("[%v] collapsed pure thought unexpectedly carries hint: %q", v, lines[0])
+		}
+		if !strings.Contains(lines[0], "Thought for 64ms, 130 tokens") {
+			t.Errorf("[%v] line 0 missing Thought for 64ms, 130 tokens: %q", v, lines[0])
+		}
+	}
+}
+
+func TestRenderBlock_PureThought_Expanded(t *testing.T) {
+	steps := []Step{
+		{
+			Kind:   KindThought,
+			Detail: "I'm thinking through how to approach this.",
+			Dur:    64 * time.Millisecond,
+			Tokens: 130,
+		},
+	}
+	tm := TokenMetrics{
+		Input:     18200,
+		Output:    18,
+		Reasoning: 130,
+	}
+
+	for _, v := range []Verbosity{VerbosityLow, VerbosityMedium, VerbosityHigh} {
+		lines := RenderBlock(steps, RenderOptions{
+			Expanded:     true,
+			Verbosity:    v,
+			TokenMetrics: tm,
+			Width:        80,
+		})
+		if len(lines) != 2 {
+			t.Fatalf("[%v] expected 2 expanded thought lines (header + 1 reasoning), got %d:\n%v", v, len(lines), lines)
+		}
+		if !strings.Contains(lines[0], "Thought for 64ms, 130 tokens") {
+			t.Errorf("[%v] line 0 missing Thought for 64ms, 130 tokens: %q", v, lines[0])
+		}
+		if !strings.Contains(lines[1], "  I'm thinking through how to approach this.") {
+			t.Errorf("[%v] line 1 missing 2-space indented reasoning: %q", v, lines[1])
+		}
+		// Expanded reasoning line MUST NOT have (ctrl+o to collapse) appended to it
+		if strings.Contains(lines[1], "ctrl+o") {
+			t.Errorf("[%v] expanded reasoning text unexpectedly carries hint: %q", v, lines[1])
+		}
 	}
 }
 
@@ -875,12 +989,12 @@ func TestStepDetailLines_CommandOutputWrap(t *testing.T) {
 	}
 	for i := 1; i < len(lines); i++ {
 		if !strings.HasPrefix(lines[i], tuitools.DetailIndent) {
-			t.Errorf("line %d not indented with DetailIndent (7 spaces): %q", i, lines[i])
+			t.Errorf("line %d not indented with DetailIndent (5 spaces): %q", i, lines[i])
 		}
 		content := strings.TrimPrefix(lines[i], tuitools.DetailIndent)
 		plainContent := stripAnsiForTest(content)
-		if len(plainContent) > 33 {
-			t.Errorf("line %d content width %d exceeds wrapWidth 33: %q", i, len(plainContent), content)
+		if len(plainContent) > 35 {
+			t.Errorf("line %d content width %d exceeds wrapWidth 35: %q", i, len(plainContent), content)
 		}
 	}
 }

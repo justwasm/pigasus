@@ -343,14 +343,33 @@ func WriteConversation(path, trajectoryID string, steps []Step) error {
 		return fmt.Errorf("convstore: write meta: %w", err)
 	}
 	for _, s := range steps {
-		payload := encodeForkPayload(s)
+		var payload []byte
+		var rinfo []byte
+		var metadata []byte
+
+		if len(s.RawPayload) > 0 {
+			// Step was loaded from an existing database: preserve byte-for-byte fidelity!
+			payload = s.RawPayload
+			rinfo = s.RawRenderInfo
+			metadata = s.RawMetadata
+		} else {
+			if s.Type == StepToolCall {
+				rinfo = encodeStepRenderInfo(s)
+				payload = encodeToolCallPayload(s, rinfo)
+			} else {
+				payload = encodeForkPayload(s)
+			}
+		}
+
 		if _, err := sdb.Exec(
-			`INSERT INTO steps (idx, step_type, status, step_payload) VALUES (?, ?, ?, ?)
+			`INSERT INTO steps (idx, step_type, status, metadata, render_info, step_payload) VALUES (?, ?, ?, ?, ?, ?)
 			 ON CONFLICT(idx) DO UPDATE SET
 			   step_type=excluded.step_type,
 			   status=excluded.status,
-			   step_payload=excluded.step_payload`,
-			s.Idx, s.Type, s.Status, payload); err != nil {
+			   metadata=COALESCE(excluded.metadata, steps.metadata),
+			   render_info=COALESCE(excluded.render_info, steps.render_info),
+			   step_payload=COALESCE(excluded.step_payload, steps.step_payload)`,
+			s.Idx, s.Type, s.Status, metadata, rinfo, payload); err != nil {
 			fmt.Fprintf(os.Stderr, "convstore: write step %d: %v (NOT removing %s)\n", s.Idx, err, path)
 			return fmt.Errorf("convstore: write step %d: %w", s.Idx, err)
 		}
@@ -474,27 +493,176 @@ func encodeForkPayload(s Step) []byte {
 
 // encodeToolCallPayload emits the reference's tool-call step shape.
 //
-// 【一手】 verified against the reference's own conversation stores: a
-// stored tool call carries the call id, the tool name and the raw JSON
-// arguments in field 4 of the tool-call payload (field 5 of the step),
-// and the result in field 140. The step's own type and status ride
-// along in fields 1 and 4 of the step payload.
-//
-// The clone's parser (parseToolCallStep) reads exactly those three
-// places, so a db the clone writes reads back the way a reference db
-// reads back.
-func encodeToolCallPayload(s Step) []byte {
+// In reference agy 1.5.5 and 1.5.8, tool calls reside in CortexStepGeneric (field 140)
+// with GenericStepCall (field 1) and GenericStepResult (field 2), which embeds
+// StepRenderInfo (field 3) alongside the output text (field 1).
+// Legacy field 5 -> 4 is also emitted for backwards compatibility.
+func encodeToolCallPayload(s Step, rinfo ...[]byte) []byte {
+	var renderInfoBytes []byte
+	if len(rinfo) > 0 {
+		renderInfoBytes = rinfo[0]
+	} else {
+		renderInfoBytes = encodeStepRenderInfo(s)
+	}
+
+	// 1. Legacy call: field 5 -> field 4 -> {2: tool_name, 3: tool_args}
 	call := encodeProtoField(2, 2, []byte(s.ToolName))
 	call = append(call, encodeProtoField(3, 2, []byte(s.ToolArgs))...)
 	payload := encodeProtoField(5, 2, encodeProtoField(4, 2, call))
 	payload = append(payload, encodeProtoVarint(1, uint64(s.Type))...)
 	payload = append(payload, encodeProtoVarint(4, uint64(s.Status))...)
-	if s.ToolResult != "" {
-		// field 140 -> field 2 -> field 1 (the result text)
-		result := encodeProtoField(1, 2, []byte(s.ToolResult))
-		payload = append(payload, encodeProtoField(140, 2, encodeProtoField(2, 2, result))...)
+
+	// 2. Aligned field 140 (CortexStepGeneric)
+	// GenericStepCall (field 1)
+	genCall := encodeProtoField(1, 2, []byte(s.ToolName))
+	if s.ToolArgs != "" {
+		genCall = append(genCall, encodeProtoField(2, 2, []byte(s.ToolArgs))...)
 	}
+
+	// GenericStepResult (field 2)
+	var genRes []byte
+	if s.ToolResult != "" {
+		genRes = append(genRes, encodeProtoField(1, 2, []byte(s.ToolResult))...)
+	}
+	if len(renderInfoBytes) > 0 {
+		genRes = append(genRes, encodeProtoField(3, 2, renderInfoBytes)...)
+	}
+
+	var generic []byte
+	generic = append(generic, encodeProtoField(1, 2, genCall)...)
+	if len(genRes) > 0 {
+		generic = append(generic, encodeProtoField(2, 2, genRes)...)
+	}
+	payload = append(payload, encodeProtoField(140, 2, generic)...)
+
 	return payload
+}
+
+// encodeStepRenderInfo serializes a StepRenderInfo protobuf for the tool call.
+// This is written to both the render_info SQLite column and embedded in
+// step_payload.field_140.field_2.field_3.
+func encodeStepRenderInfo(s Step) []byte {
+	prefix := s.ToolPrefix
+	icon := "terminal"
+	aggKey := "terminal"
+	toolLower := strings.ToLower(s.ToolName)
+
+	switch {
+	case strings.Contains(toolLower, "command") || strings.Contains(toolLower, "bash") || toolLower == "sh":
+		if prefix == "" {
+			prefix = "Ran"
+		}
+		icon = "terminal"
+		aggKey = "terminal"
+	case strings.Contains(toolLower, "read") || (strings.Contains(toolLower, "file") && !strings.Contains(toolLower, "edit") && !strings.Contains(toolLower, "write")):
+		if prefix == "" {
+			prefix = "Analyzed"
+		}
+		icon = "description"
+		aggKey = "files"
+	case strings.Contains(toolLower, "write"):
+		if prefix == "" {
+			prefix = "Created"
+		}
+		icon = "edit"
+		aggKey = "edits"
+	case strings.Contains(toolLower, "edit"):
+		if prefix == "" {
+			prefix = "Edited"
+		}
+		icon = "edit"
+		aggKey = "edits"
+	case strings.Contains(toolLower, "task"):
+		if prefix == "" {
+			prefix = "Checked task"
+		}
+		icon = "task_alt"
+		aggKey = "tasks"
+	default:
+		if prefix == "" {
+			prefix = "Ran"
+		}
+		icon = "terminal"
+		aggKey = "terminal"
+	}
+
+	title := s.ToolSummary
+	cmd := ""
+	cwd := ""
+	filePath := ""
+	if strings.HasPrefix(strings.TrimSpace(s.ToolArgs), "{") {
+		var m map[string]any
+		if err := json.Unmarshal([]byte(s.ToolArgs), &m); err == nil {
+			if c, ok := m["CommandLine"].(string); ok && c != "" {
+				cmd = c
+			}
+			if w, ok := m["Cwd"].(string); ok && w != "" {
+				cwd = w
+			}
+			if p, ok := m["Path"].(string); ok && p != "" {
+				filePath = p
+			}
+		}
+	}
+
+	if title == "" {
+		if cmd != "" {
+			title = cmd
+		} else if filePath != "" {
+			title = filepath.Base(filePath)
+		} else if s.ToolArgs != "" {
+			title = s.ToolArgs
+		} else {
+			title = s.ToolName
+		}
+	}
+
+	var rinfo []byte
+	rinfo = append(rinfo, encodeProtoField(5, 2, []byte(prefix))...)
+	rinfo = append(rinfo, encodeProtoField(6, 2, []byte(icon))...)
+	rinfo = append(rinfo, encodeProtoField(7, 2, []byte(aggKey))...)
+
+	if filePath != "" && (icon == "description" || icon == "edit") {
+		uri := filePath
+		if !strings.HasPrefix(uri, "file://") {
+			uri = "file://" + filepath.Clean(uri)
+		}
+		var fileRef []byte
+		fileRef = append(fileRef, encodeProtoField(1, 2, []byte(uri))...)
+		fileRef = append(fileRef, encodeProtoVarint(2, 1)...)
+		fileRef = append(fileRef, encodeProtoVarint(3, 100)...)
+		titlePart := encodeProtoField(2, 2, fileRef)
+		rinfo = append(rinfo, encodeProtoField(9, 2, titlePart)...)
+	} else if title != "" {
+		titlePart := encodeProtoField(1, 2, []byte(title))
+		rinfo = append(rinfo, encodeProtoField(9, 2, titlePart)...)
+	}
+
+	if icon == "terminal" {
+		if cmd == "" {
+			cmd = title
+		}
+		exitCode := 0
+		if s.Status == 4 {
+			exitCode = 1
+		}
+		var termBlock []byte
+		termBlock = append(termBlock, encodeProtoField(1, 2, []byte(cmd))...)
+		if cwd != "" {
+			termBlock = append(termBlock, encodeProtoField(2, 2, []byte(cwd))...)
+		}
+		termBlock = append(termBlock, encodeProtoVarint(3, uint64(exitCode))...)
+		if s.ToolResult != "" {
+			termBlock = append(termBlock, encodeProtoField(4, 2, []byte(s.ToolResult))...)
+		}
+		contentBlock := encodeProtoField(3, 2, termBlock)
+		rinfo = append(rinfo, encodeProtoField(10, 2, contentBlock)...)
+	} else if s.ToolResult != "" {
+		contentBlock := encodeProtoField(1, 2, []byte(s.ToolResult))
+		rinfo = append(rinfo, encodeProtoField(10, 2, contentBlock)...)
+	}
+
+	return rinfo
 }
 
 // encodeCheckpointPayload emits the reference's checkpoint step shape.

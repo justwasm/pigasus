@@ -52,6 +52,34 @@ func TestResolve_DefaultsToDisabled(t *testing.T) {
 // surface; TestSandboxArtifactDirAllowed exists so the cycle 228
 // targeted-test regex `TestSandbox|TestArtifact|TestScratch|TestBypass`
 // picks up this package as well as cmd/wagyu.
+func TestSandboxSafeSSHCarveOut(t *testing.T) {
+	s := Resolve(true, "/work", "/home/.gemini/antigravity-cli", "conv-a")
+	// Safe SSH files allowed
+	safe := []string{
+		"/Users/user/.ssh/config",
+		"/Users/user/.ssh/known_hosts",
+		"/Users/user/.ssh/authorized_keys",
+		"/Users/user/.ssh/id_rsa.pub",
+		"/Users/user/.ssh/id_ed25519.pub",
+	}
+	for _, p := range safe {
+		if !s.Allowed(p) {
+			t.Errorf("Allowed(%q) = false, want true (safe ssh read carve-out)", p)
+		}
+	}
+	// Private keys remain restricted
+	unsafe := []string{
+		"/Users/user/.ssh/id_rsa",
+		"/Users/user/.ssh/id_ed25519",
+		"/Users/user/.ssh/id_ecdsa",
+	}
+	for _, p := range unsafe {
+		if s.Allowed(p) {
+			t.Errorf("Allowed(%q) = true, want false (private key must remain restricted)", p)
+		}
+	}
+}
+
 func TestSandboxArtifactDirAllowed(t *testing.T) {
 	root := "/home/.gemini/antigravity-cli/artifacts"
 	s := Resolve(true, "/work", "/home/.gemini/antigravity-cli", "conv-a")

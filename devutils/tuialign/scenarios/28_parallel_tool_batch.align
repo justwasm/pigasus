@@ -1,0 +1,34 @@
+NAME "Parallel Tool Batch Collapsed Summary (1.5.8)"
+WINDOW 100 30
+TARGET both
+
+# One response carrying three tool calls: a parallel batch, which the
+# reference summarises on one line (unlike sequential steps).
+MOCK_TURN
+  TOOL run_command {"CommandLine":"echo alpha","toolSummary":"Alpha","WaitMsBeforeAsync":5000}
+  TOOL run_command {"CommandLine":"echo beta","toolSummary":"Beta","WaitMsBeforeAsync":5000}
+  TOOL run_command {"CommandLine":"echo gamma","toolSummary":"Gamma","WaitMsBeforeAsync":5000}
+  USAGE PROMPT 18200 CANDIDATES 30 THOUGHTS 0
+  FINISH STOP
+
+MOCK_TURN
+  TEXT "All three ran in parallel."
+  USAGE PROMPT 18400 CANDIDATES 12 THOUGHTS 0
+  FINISH STOP
+
+BOOT_BOTH
+WAIT_READY 10s
+
+TYPE "run a parallel batch"
+ENTER
+
+WAIT_TEXT "All three ran in parallel." 25s
+SLEEP 500ms
+SNAPSHOT "01_parallel_batch_collapsed"
+
+KEYS "C-o"
+SLEEP 500ms
+SNAPSHOT "02_parallel_batch_expanded"
+
+DIFF
+CLEANUP

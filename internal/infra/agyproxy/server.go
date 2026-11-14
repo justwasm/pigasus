@@ -232,9 +232,9 @@ func (s *Server) balanceActive() bool {
 	return s.balanceEnabled()
 }
 
-// models returns configured custom models if explicitly supplied in Config.
-// The proxy does not inject or take over catwalk providers from providers.json.
-// It solely manages Google OAuth accounts (/accounts) load balancing, quota aggregation, and passthrough.
+// models returns the custom models supplied in Config — the operator's
+// registry models for `pigasus agy` and the reference backend. A caller that
+// supplies none leaves the vendor binary with Google's own catalogue.
 func (s *Server) models() []models.Model {
 	return s.cfg.Models
 }

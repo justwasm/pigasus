@@ -1,0 +1,22 @@
+NAME "Long Continuous Line Wrap Alignment (1.5.7)"
+WINDOW 100 30
+TARGET both
+
+# Turn 1: Emit an extremely long line without spaces to test wrap handling
+MOCK_TURN
+  THOUGHT "Analyzing long continuous token string..." TOKENS 100 DELAY 100ms
+  TEXT "Here is an extremely long string without spaces:\nABCDEF1234567890abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcdefghijklmnopqrstuvwxyz01234567890123456789ABCDEFGHIJKLM\nDone rendering."
+  USAGE PROMPT 18200 CANDIDATES 60 THOUGHTS 100
+  FINISH STOP
+
+BOOT_BOTH
+WAIT_READY 10s
+
+TYPE "test wrap"
+ENTER
+
+WAIT_TEXT "Done rendering" 15s
+SNAPSHOT "01_long_line_wrapped"
+
+DIFF
+CLEANUP

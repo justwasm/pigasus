@@ -93,6 +93,13 @@ func TestNoticeAndQueueBytes(t *testing.T) {
 	q.SaveError = errors.New("disk full")
 	add("queue/save-error", q.SaveErrorMessage())
 
+	if os.Getenv("UPDATE_GOLDEN") == "1" {
+		if err := os.WriteFile(goldenPath(), []byte(b.String()), 0644); err != nil {
+			t.Fatalf("failed to update golden: %v", err)
+		}
+		want = []byte(b.String())
+	}
+
 	if got := b.String(); got != string(want) {
 		t.Errorf("rendered bytes changed.\ngot:\n%q\nwant:\n%q", got, string(want))
 	}

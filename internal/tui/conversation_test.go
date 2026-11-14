@@ -17,6 +17,7 @@ import (
 	tuiviewport "github.com/justwasm/pigasus/internal/ui/foundations/viewport"
 	"github.com/justwasm/pigasus/internal/ui/mdrender"
 	"github.com/justwasm/pigasus/internal/ui/transcript"
+	diffaction "github.com/justwasm/pigasus/internal/ui/views/diff/action"
 	"github.com/justwasm/pigasus/palette"
 )
 
@@ -265,8 +266,11 @@ func TestSeedConversationRendersTranscript(t *testing.T) {
 	if !strings.Contains(joined, "I will start by listing the top level.") {
 		t.Errorf("missing the first reply:\n%s", joined)
 	}
-	if !strings.Contains(joined, "Ran") || !strings.Contains(joined, "ls") {
-		t.Errorf("missing the tool step title:\n%s", joined)
+	// AGY 1.5.8 names the call itself in the collapsed row (`Bash(ls)`),
+	// not the past-tense "Ran (...)" form. Styled spans split the name from
+	// its args, so compare without ANSI.
+	if plain := diffaction.StripANSI(joined); !strings.Contains(plain, "Bash(ls)") {
+		t.Errorf("missing the tool step title:\n%s", plain)
 	}
 	if !strings.Contains(joined, "Done: internal/ has these packages.") {
 		t.Errorf("missing the last reply:\n%s", joined)

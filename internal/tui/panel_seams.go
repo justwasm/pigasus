@@ -30,6 +30,7 @@ import (
 	"github.com/justwasm/pigasus/internal/core/backend"
 	"github.com/justwasm/pigasus/internal/core/cliflags"
 	confhome "github.com/justwasm/pigasus/internal/core/confhome"
+	"github.com/justwasm/pigasus/internal/core/policy/permissions"
 	settings "github.com/justwasm/pigasus/internal/core/settings"
 	"github.com/justwasm/pigasus/internal/features/auth"
 	modelctx "github.com/justwasm/pigasus/internal/features/models/ctx"
@@ -63,6 +64,7 @@ import (
 	modelcatalog "github.com/justwasm/pigasus/internal/features/models/catalog"
 	plugins "github.com/justwasm/pigasus/internal/features/plugins/core"
 	"github.com/justwasm/pigasus/internal/features/tools/skills"
+	backendselect "github.com/justwasm/pigasus/internal/infra/backend/select"
 	"github.com/justwasm/pigasus/internal/tui/panels"
 	tuiviewer "github.com/justwasm/pigasus/internal/ui/foundations/viewer"
 	tuiviewport "github.com/justwasm/pigasus/internal/ui/foundations/viewport"
@@ -826,7 +828,7 @@ func (m *RootModel) buildStatusLinePayload() statusline.Payload {
 		Model:                    m.session.model,
 		Effort:                   m.currentEffortName(),
 		AgentName:                m.session.agentName,
-		CycleMode:                m.session.mode,
+		CycleMode:                m.statusModeLabel(),
 		PlanTier:                 m.session.tier,
 		Email:                    m.session.email,
 		TerminalWidth:            m.viewport.width,
@@ -1074,6 +1076,7 @@ func (m *RootModel) DismissSwarm() {
 }
 func (m *RootModel) newSwarmBoard() *swarmboard.Board {
 	return swarmboard.NewBoard(func(convID string) {
+		m.swarm.fromBoard = true
 		m.openTasksDetail(convID, true)
 	})
 }
@@ -1225,6 +1228,36 @@ func (m *RootModel) codesearchSendComments(text string) tea.Cmd {
 }
 
 // Model
+// statusModeLabel is the agent mode the built-in status row and the status
+// line's `cycle_mode` name — the mode's own word, or "" while the session
+// has no configured mode.
+//
+// When running in the default mode (no agentMode set in settings or flags),
+// agy 1.5.8 omits the mode label from the status line. When explicitly configured
+// (e.g. {"agentMode": "auto"} in settings/--settings) or cycled away from start,
+// agy explicitly renders "auto · " (in cyan).
+func (m *RootModel) statusModeLabel() string {
+	mode := strings.TrimSpace(m.session.mode)
+	if mode == "" {
+		return ""
+	}
+	if mode == permissions.ModeAuto && !settings.Has("agentMode") && m.session.startMode == permissions.ModeAuto {
+		return ""
+	}
+	return mode
+}
+
+// promptPlaceholder is the composer's placeholder for a session: non-default
+// modes (plan, accept-edits) show their banner, while Auto mode keeps the prompt
+// clean ("> ").
+func (m *RootModel) promptPlaceholder(mode string) string {
+	mode = strings.TrimSpace(mode)
+	if mode == permissions.ModeAuto || mode == "" {
+		return ""
+	}
+	return permissions.ModeBanner(mode)
+}
+
 func (m *RootModel) ApplyModel(label string) {
 	m.session.model = label
 	m.session.statusModel = tuilib.StripTier(label)
@@ -1269,6 +1302,11 @@ func (m *RootModel) syncBackendForModel() {
 	}
 	if b := m.turn.backendFor(m.session.model); b != nil {
 		m.turn.backend = b
+		if backend.IsMock(b) && !backendselect.IsReferenceModel(m.session.model, modelpicker.ResolveCatalogueID) {
+			m.session.modelWarning = fmt.Sprintf("Model %q is not configured in %s. Falling back to mock shim.", m.session.model, models.ProvidersPath())
+		} else {
+			m.session.modelWarning = ""
+		}
 	}
 	m.session.wireSettingsPending = true
 }
@@ -1442,14 +1480,31 @@ func (m *RootModel) statusRowState() statusrow.State {
 		VimBadge:           vimkeys.Badge(m.vimEnabled(), m.vimMode()),
 		Compact:            m.compactState(),
 
-		Model:        m.session.model,
-		StatusModel:  m.session.statusModel,
-		AgentName:    m.session.agentName,
-		Mode:         m.session.mode,
+		Model: m.session.model,
+		StatusModel: func() string {
+			sm := m.session.statusModel
+			if sm == "" {
+				sm = m.session.model
+			}
+			if m.session.modelWarning != "" {
+				return "[mock] " + sm
+			}
+			return sm
+		}(),
+		AgentName: m.session.agentName,
+		Mode:         m.statusModeLabel(),
 		EffortSuffix: m.statusEffortSuffix(),
 		TaskSuffix:   m.tasksStatusSuffix(),
 		QueueMode:    m.session.store.QueueMode,
-		AgentState:   m.agentState(),
+		// Reference agy built-in status row does not display agentState (" · working" / " · tool_use")
+		// by default — it stays "auto · Gemini 3.8 Flash · high" throughout the turn.
+		// Optional opt-in via PIGASUS_STATUS_SHOW_AGENT_STATE.
+		AgentState: func() string {
+			if os.Getenv("PIGASUS_STATUS_SHOW_AGENT_STATE") == "1" || os.Getenv("PIGASUS_STATUS_SHOW_AGENT_STATE") == "true" {
+				return m.agentState()
+			}
+			return ""
+		}(),
 		// Reference agy 1.4.7/1.5.0 status row does not display context percentage by default
 		// ("auto · Gemini 3.8 Flash · high"). Optional opt-in via PIGASUS_STATUS_SHOW_CONTEXT.
 		ContextUsedPercent: func() float64 {

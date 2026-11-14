@@ -200,10 +200,9 @@ func (c *GatewayClient) applyProtocolHeaders(req *http.Request) {
 func gatewayToolCallFrom(tc backend.ToolCall) gatewayToolCall {
 	out := gatewayToolCall{ID: tc.ID, Type: "function"}
 	out.Function.Name = tc.Name
-	args := string(tc.Arguments)
-	if strings.TrimSpace(args) == "" {
-		args = "{}"
-	}
-	out.Function.Arguments = args
+	// A replayed call whose arguments arrived with a duplicated key (a
+	// streamed call can) is answered by the provider with a 400 otherwise;
+	// see geminicode.CanonicalArgs.
+	out.Function.Arguments = string(geminicode.CanonicalArgs(tc.Arguments))
 	return out
 }

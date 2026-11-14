@@ -15,6 +15,7 @@ var (
 	catLastGen  uint64
 	catLastGate bool
 	catLastADC  bool
+	catLastKey  bool
 )
 
 // ModelCatalogue returns every model the CLI can select: the reference's own
@@ -36,13 +37,14 @@ func ModelCatalogue() []ModelEntry {
 	reg := models.CachedRegistry()
 	gate := Claude55Available()
 	adc := ADCAuthAvailable()
+	key := GeminiAPIKeyAvailable()
 	var gen uint64
 	if reg != nil {
 		gen = reg.Gen()
 	}
 
 	catMu.RLock()
-	if catCached != nil && catLastReg == reg && catLastGen == gen && catLastGate == gate && catLastADC == adc {
+	if catCached != nil && catLastReg == reg && catLastGen == gen && catLastGate == gate && catLastADC == adc && catLastKey == key {
 		out := make([]ModelEntry, len(catCached))
 		copy(out, catCached)
 		catMu.RUnlock()
@@ -52,7 +54,7 @@ func ModelCatalogue() []ModelEntry {
 
 	catMu.Lock()
 	defer catMu.Unlock()
-	if catCached != nil && catLastReg == reg && catLastGen == gen && catLastGate == gate && catLastADC == adc {
+	if catCached != nil && catLastReg == reg && catLastGen == gen && catLastGate == gate && catLastADC == adc && catLastKey == key {
 		out := make([]ModelEntry, len(catCached))
 		copy(out, catCached)
 		return out
@@ -79,6 +81,7 @@ func ModelCatalogue() []ModelEntry {
 	catLastGen = gen
 	catLastGate = gate
 	catLastADC = adc
+	catLastKey = key
 
 	return out
 }

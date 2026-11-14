@@ -1,0 +1,20 @@
+NAME "Status Panel Alignment (/status)"
+WINDOW 100 30
+TARGET both
+
+BOOT_BOTH
+WAIT_READY 10s
+
+# Type /status and open status view
+TYPE "/status"
+ENTER
+SLEEP 500ms
+SNAPSHOT "01_status_open"
+
+# Press Escape to return to prompt
+KEYS "Escape"
+SLEEP 500ms
+SNAPSHOT "02_status_closed"
+
+DIFF
+CLEANUP

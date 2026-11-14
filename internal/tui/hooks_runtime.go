@@ -182,7 +182,13 @@ func (m *RootModel) hookStop(ctx context.Context) {
 	in := m.hookInput()
 	in.ExecutionNum = m.session.hookInvocationNum
 	in.FullyIdle = m.hookIdle()
-	m.fireHook(ctx, corehooks.EventStop, in)
+	in.ContinuationActive = m.session.stopContinuationActive
+	out := m.fireHook(ctx, corehooks.EventStop, in)
+	if out.Continue {
+		m.session.stopContinuationActive = true
+	} else {
+		m.session.stopContinuationActive = false
+	}
 }
 
 // hookIdle reports whether every background task has finished.

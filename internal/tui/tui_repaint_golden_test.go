@@ -213,12 +213,20 @@ func TestTranscriptRepaintGolden(t *testing.T) {
 	got := thoughtDuration.ReplaceAllString(dump.String(), "Thought for <dur>")
 
 	golden := filepath.Join("testdata", "transcript_repaint.golden")
+	// Regenerate with UPDATE_GOLDEN=1 when a deliberate rendering change
+	// lands; the diff is then reviewed like any other.
+	if os.Getenv("UPDATE_GOLDEN") == "1" {
+		if err := os.WriteFile(golden, []byte(got), 0o644); err != nil {
+			t.Fatalf("write golden %s: %v", golden, err)
+		}
+		return
+	}
 	want, err := os.ReadFile(golden)
 	if err != nil {
 		t.Fatalf("read golden %s: %v", golden, err)
 	}
 	if got != string(want) {
-		t.Errorf("transcript repaint bytes changed:\n--- got ---\n%s\n--- want ---\n%s", got, string(want))
+		t.Errorf("transcript repaint bytes changed (re-run with UPDATE_GOLDEN=1 after reviewing the diff):\n--- got ---\n%s\n--- want ---\n%s", got, string(want))
 	}
 }
 

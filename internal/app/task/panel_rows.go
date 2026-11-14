@@ -39,6 +39,13 @@ func (r *PanelRows) Filtered() int {
 }
 
 // Rebuild updates the cache from the registry.
+//
+// Subagents are not /tasks rows. The reference (measured with tuialign
+// scenario 29) keeps a delegated agent out of that list entirely — `/tasks`
+// reads "No background tasks." while the subagent runs — and surfaces it in
+// the transcript as an inline `● Agent(<type>: <role>)` step instead. The
+// active-items tray is the other surface that shows it, which is why
+// Registry.Active still returns it.
 func (r *PanelRows) Rebuild(reg *Registry) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -48,7 +55,14 @@ func (r *PanelRows) Rebuild(reg *Registry) {
 		r.updated = time.Now()
 		return
 	}
-	all := reg.List()
+	raw := reg.List()
+	all := make([]*Task, 0, len(raw))
+	for _, t := range raw {
+		if t != nil && t.Kind == KindSubagent {
+			continue
+		}
+		all = append(all, t)
+	}
 	if len(all) > TasksPanelLimit {
 		r.filtered = len(all) - TasksPanelLimit
 		all = all[len(all)-TasksPanelLimit:]

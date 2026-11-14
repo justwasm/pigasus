@@ -839,7 +839,7 @@ func (m *RootModel) cycleMode() {
 	if m.session.policy != nil {
 		m.session.policy.Mode = next
 	}
-	m.prompt.input.Placeholder = permissions.ModeBanner(next)
+	m.prompt.input.Placeholder = m.promptPlaceholder(next)
 	m.prompt.modeHintDismissed = false
 }
 

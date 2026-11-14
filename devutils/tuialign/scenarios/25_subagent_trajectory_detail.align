@@ -1,0 +1,50 @@
+NAME "Subagent Trajectory Detail Alignment (/tasks ▸ subagent) (1.5.6)"
+WINDOW 100 30
+TARGET both
+
+# Turn 1: the model delegates a self-contained task to a subagent.
+# The reference's own schema keys are snake_case (type_name / role / prompt).
+MOCK_TURN
+  THOUGHT "This is a self-contained task; delegating it to a subagent." TOKENS 90 DELAY 100ms
+  TOOL invoke_subagent {"prompt":"查询当前上海的天气情况","type_name":"research","role":"Weather Researcher","workspace":"inherit"}
+  USAGE PROMPT 18200 CANDIDATES 40 THOUGHTS 90
+  FINISH STOP
+
+# The child subagent's own turn (and the parent's follow-up turn) take the
+# deterministic fallback reply, so the scenario does not depend on how many
+# streamGenerateContent calls a binary issues.
+MOCK_TURN
+  THOUGHT "Looking up the current conditions." TOKENS 60 DELAY 100ms
+  TEXT "Shanghai: 18C, overcast, 97% humidity, light south-east breeze."
+  USAGE PROMPT 18400 CANDIDATES 30 THOUGHTS 60
+  FINISH STOP
+
+BOOT_BOTH
+WAIT_READY 10s
+
+TYPE "查一下上海天气"
+ENTER
+
+# Let the subagent launch, run, and report back.
+SLEEP 6s
+SNAPSHOT "01_parent_turn"
+
+# Open the background-task list; the subagent is one of its rows.
+TYPE "/tasks"
+ENTER
+SLEEP 1s
+SNAPSHOT "02_tasks_list"
+
+# Enter opens the row's detail view — the subagent detail.
+KEYS "Enter"
+SLEEP 1s
+SNAPSHOT "03_subagent_detail"
+
+# Scroll the detail body to the trajectory section.
+KEYS "Down" "Down" "Down" "Down" "Down" "Down" "Down" "Down"
+KEYS "Down" "Down" "Down" "Down" "Down" "Down" "Down" "Down"
+SLEEP 500ms
+SNAPSHOT "04_subagent_trajectory"
+
+DIFF
+CLEANUP

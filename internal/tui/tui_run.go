@@ -24,12 +24,12 @@ import (
 	"github.com/justwasm/pigasus/internal/core/branding"
 	"github.com/justwasm/pigasus/internal/core/cliflags"
 	confhome "github.com/justwasm/pigasus/internal/core/confhome"
-	"github.com/justwasm/pigasus/internal/core/policy/permissions"
 	workspacetrust "github.com/justwasm/pigasus/internal/core/policy/trust"
 	"github.com/justwasm/pigasus/internal/core/settings"
 	accounts "github.com/justwasm/pigasus/internal/features/accounts/core"
 	"github.com/justwasm/pigasus/internal/features/agents"
 	"github.com/justwasm/pigasus/internal/features/auth"
+	"github.com/justwasm/pigasus/internal/features/models"
 	modelcatalog "github.com/justwasm/pigasus/internal/features/models/catalog"
 	pluginwatch "github.com/justwasm/pigasus/internal/features/plugins/watch"
 	builtinskills "github.com/justwasm/pigasus/internal/features/tools/skills"
@@ -153,6 +153,7 @@ type headerCacheKey struct {
 	tier         string
 	cwd          string
 	agentWarning string
+	modelWarning string
 	fallbackFrom string
 	fallbackTo   string
 }
@@ -417,6 +418,8 @@ func initTUIRootModel(fs *flag.FlagSet, be backend.Client, modelName, unavailabl
 	if unavailableFrom != "" {
 		m.session.fallbackFrom = unavailableFrom
 		m.session.fallbackTo = modelName
+	} else if !backendselect.ModelSupported(modelName, modelpicker.ResolveCatalogueID) {
+		m.session.modelWarning = fmt.Sprintf("Model %q is not configured in %s. Falling back to mock shim.", modelName, models.ProvidersPath())
 	}
 	watchCtx, watchCancel := context.WithCancel(context.Background())
 	if w, werr := pluginwatch.New(confhome.Antigravity()); werr == nil && w != nil {
@@ -458,8 +461,9 @@ func setupTUIToolsAndPolicy(m *RootModel, fs *flag.FlagSet) {
 		post:    m.hookPostToolUse,
 	})
 	m.session.mode = sessionPolicy.Mode
+	m.session.startMode = sessionPolicy.Mode
 	m.session.policy = &sessionPolicy
-	m.prompt.input.Placeholder = permissions.ModeBanner(m.session.mode)
+	m.prompt.input.Placeholder = m.promptPlaceholder(m.session.mode)
 	m.statusLine.visible = "on"
 	if v, ok := settings.Bool("statusLine"); ok && !v {
 		// The legacy boolean form. The reference reads it as an object

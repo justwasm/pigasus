@@ -802,12 +802,18 @@ func TestPanelQuarantinedAccountDisplay(t *testing.T) {
 		t.Errorf("expected quarantine detail line when cursor on banned account, got:\n%s", joinedOnBanned)
 	}
 
-	// Try to switch to banned account
+	// Switch to banned account should succeed so the user can verify if it works.
 	p.HandleKey(tea.Key{Code: tea.KeyEnter})
-	if !strings.Contains(p.notice, "is quarantined") {
-		t.Errorf("expected notice about quarantined account, got: %q", p.notice)
+	if p.applied != "banned@example.com" {
+		t.Errorf("applied = %q, want banned@example.com", p.applied)
 	}
-	if p.applied == "banned@example.com" {
-		t.Errorf("should not switch to quarantined account")
+	if !strings.Contains(p.notice, "Switched to banned@example.com") {
+		t.Errorf("notice = %q, want switch confirmation", p.notice)
+	}
+
+	// Verify both (active) and [ToS Banned] are displayed on the active banned account row.
+	linesAfterSwitch := strings.Join(p.Lines(), "\n")
+	if !strings.Contains(linesAfterSwitch, "(active)") || !strings.Contains(linesAfterSwitch, "[ToS Banned]") {
+		t.Errorf("expected both (active) and [ToS Banned] badges, got:\n%s", linesAfterSwitch)
 	}
 }

@@ -25,6 +25,11 @@ func ADCAuthAvailable() bool {
 	return strings.EqualFold(v, "true") || v == "1"
 }
 
+// GeminiAPIKeyAvailable reports whether a GEMINI_API_KEY environment variable is set.
+func GeminiAPIKeyAvailable() bool {
+	return strings.TrimSpace(os.Getenv("GEMINI_API_KEY")) != ""
+}
+
 // ReferenceModels is the catalogue `agy models` prints. The reference also
 // uses it to decide whether a configured model is still available: a model
 // that is not in the catalogue triggers the "is no longer available" warning
@@ -88,15 +93,42 @@ func ReferenceModels() []ModelEntry {
 		{"claude-opus-4-6-thinking", "Claude Opus 4.6 (Thinking)"},
 		{"gpt-oss-120b-medium", "GPT-OSS 120B (Medium)"},
 	}
+	appendUnique := func(entries ...ModelEntry) {
+		seen := make(map[string]bool, len(out))
+		for _, e := range out {
+			seen[e.ID] = true
+		}
+		for _, e := range entries {
+			if !seen[e.ID] {
+				seen[e.ID] = true
+				out = append(out, e)
+			}
+		}
+	}
+	if GeminiAPIKeyAvailable() {
+		appendUnique(
+			ModelEntry{"gemini-4-hydrogen-xhigh", "Gemini 4 Hydrogen (XHigh)"},
+			ModelEntry{"gemini-4-hydrogen-high", "Gemini 4 Hydrogen (High)"},
+			ModelEntry{"gemini-4-hydrogen-medium", "Gemini 4 Hydrogen (Medium)"},
+			ModelEntry{"gemini-4-hydrogen-low", "Gemini 4 Hydrogen (Low)"},
+			ModelEntry{"gemini-4-carbon-high", "Gemini 4 Carbon (High)"},
+			ModelEntry{"gemini-4-carbon-medium", "Gemini 4 Carbon (Medium)"},
+			ModelEntry{"gemini-4-carbon-low", "Gemini 4 Carbon (Low)"},
+		)
+	}
 	if ADCAuthAvailable() {
-		out = append(out,
+		appendUnique(
+			ModelEntry{"gemini-4-hydrogen-xhigh", "Gemini 4 Hydrogen (XHigh)"},
+			ModelEntry{"gemini-4-hydrogen-high", "Gemini 4 Hydrogen (High)"},
+			ModelEntry{"gemini-4-hydrogen-medium", "Gemini 4 Hydrogen (Medium)"},
+			ModelEntry{"gemini-4-hydrogen-low", "Gemini 4 Hydrogen (Low)"},
 			ModelEntry{"gemini-4-carbon-high", "Gemini 4 Carbon (High)"},
 			ModelEntry{"gemini-4-carbon-medium", "Gemini 4 Carbon (Medium)"},
 			ModelEntry{"gemini-4-carbon-low", "Gemini 4 Carbon (Low)"},
 		)
 	}
 	if Claude55Available() {
-		out = append(out,
+		appendUnique(
 			ModelEntry{"claude-opus-5-5", "Claude Opus 5.5"},
 			ModelEntry{"claude-sonnet-5-5", "Claude Sonnet 5.5"},
 		)

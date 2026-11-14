@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/justwasm/pigasus/geminicode"
 	"github.com/justwasm/pigasus/internal/core/apierror"
 	"github.com/justwasm/pigasus/internal/core/backend"
 	"github.com/justwasm/pigasus/internal/infra/backend/retry"
@@ -84,10 +85,14 @@ func (a *gatewayToolAccumulator) list() []backend.ToolCall {
 		if strings.TrimSpace(args) == "" {
 			args = "{}"
 		}
+		// The loop above concatenates argument fragments; a provider that
+		// re-sends a fragment leaves the object with a duplicated key, which
+		// the next model's request would be rejected for. Canonicalise once,
+		// where the call is completed.
 		out = append(out, backend.ToolCall{
 			ID:        tc.ID,
 			Name:      tc.Function.Name,
-			Arguments: json.RawMessage(args),
+			Arguments: geminicode.CanonicalArgs(json.RawMessage(args)),
 		})
 	}
 	return out

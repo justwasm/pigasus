@@ -30,6 +30,7 @@ import (
 
 	"github.com/justwasm/pigasus/internal/core/backend"
 	"github.com/justwasm/pigasus/internal/core/cliflags"
+	confhome "github.com/justwasm/pigasus/internal/core/confhome"
 	accountrouting "github.com/justwasm/pigasus/internal/features/accounts/routing"
 	"github.com/justwasm/pigasus/internal/features/auth"
 	"github.com/justwasm/pigasus/internal/features/auth/credential"
@@ -70,16 +71,38 @@ func PickWithLog(fs *flag.FlagSet, modelName string, logWriter io.Writer, gatewa
 	return backend.NewMock()
 }
 
+// writeLog emits a warning message to the provided logWriter and also appends
+// it to the CLI log file (confhome.Antigravity()/cli.log) if available.
+func writeLog(w io.Writer, format string, args ...any) {
+	msg := fmt.Sprintf(format, args...)
+	if w != nil && w != io.Discard {
+		_, _ = io.WriteString(w, msg)
+	}
+	logPath := filepath.Join(confhome.Antigravity(), "cli.log")
+	if f, err := os.OpenFile(logPath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644); err == nil {
+		defer f.Close()
+		_, _ = io.WriteString(f, msg)
+	}
+}
+
+// IsConfiguredModel reports whether name matches a configured provider model.
+func IsConfiguredModel(name string, catalogueID CatalogueIDFunc) bool {
+	_, ok := resolveConfigured(name, catalogueID)
+	return ok
+}
+
+// ModelSupported reports whether name is either a reference model or a configured model.
+func ModelSupported(name string, catalogueID CatalogueIDFunc) bool {
+	return IsReferenceModel(name, catalogueID) || IsConfiguredModel(name, catalogueID)
+}
+
 // IsReferenceModel reports whether name resolves to a model the reference
 // serves itself — one of the models in its own catalogue.
 //
 // A model the user configured is not one of those: it has its own endpoint,
 // and the configured transport is what reaches it.
 func IsReferenceModel(name string, catalogueID CatalogueIDFunc) bool {
-	if catalogueID == nil {
-		return false
-	}
-	slug := catalogueID(name)
+	slug := catalogueSlug(name, catalogueID)
 	if slug == "" {
 		return false
 	}
@@ -91,6 +114,33 @@ func IsReferenceModel(name string, catalogueID CatalogueIDFunc) bool {
 	return false
 }
 
+// catalogueSlug resolves a name the dispatch was handed — a catalogue id, a
+// display label, a tier-less label or an upstream spelling — to the catalogue
+// id the transports key on.
+//
+// The picker's own lookup is exact and runs first. It is not enough by itself:
+// a host that sets the model from settings.json or from its own model menu can
+// hand over a display label the picker has no row for ("MiniMax M3",
+// "DeepSeek-V4-Flash"), and a label that resolves to "" silently turned a
+// configured model into the shim. The catalogue's own resolution knows the
+// rest: the label of a tiered model maps to its default tier row.
+func catalogueSlug(name string, catalogueID CatalogueIDFunc) string {
+	if catalogueID != nil {
+		if id := strings.TrimSpace(catalogueID(name)); id != "" {
+			return id
+		}
+	}
+	if label := catalog.CanonicalModelLabel(name); label != "" {
+		if id, ok := catalog.CatalogueID(label); ok {
+			return id
+		}
+	}
+	if id, err := catalog.ResolveModelSelection(strings.TrimSpace(name), ""); err == nil && id != "" {
+		return id
+	}
+	return ""
+}
+
 // newConfiguredBackend builds the transport for a model the user configured.
 //
 // The endpoint, the credential, the upstream model id and the wire protocol
@@ -99,16 +149,9 @@ func IsReferenceModel(name string, catalogueID CatalogueIDFunc) bool {
 // instead — with a warning, because a model that silently answers from the
 // shim would look like a working model.
 func newConfiguredBackend(modelName string, timeoutSeconds int, logWriter io.Writer, catalogueID CatalogueIDFunc) backend.Client {
-	id := ""
-	if catalogueID != nil {
-		id = catalogueID(modelName)
-	}
-	if id == "" {
-		id = strings.TrimSpace(modelName)
-	}
-	m, ok := models.CachedRegistry().GetByName(id)
+	m, ok := resolveConfigured(modelName, catalogueID)
 	if !ok {
-		fmt.Fprintf(logWriter, "[warn] model %q is not configured: add it under a provider in %s\n", modelName, models.ProvidersPath())
+		writeLog(logWriter, "[warn] model %q is not configured: add it under a provider in %s\n", modelName, models.ProvidersPath())
 		return backend.NewMock()
 	}
 	timeout := timeoutSeconds
@@ -130,6 +173,48 @@ func newConfiguredBackend(modelName string, timeoutSeconds int, logWriter io.Wri
 	})
 }
 
+// resolveConfigured returns the configured model a requested name names, and
+// whether it names one at all.
+//
+// The name arrives in whatever form the caller had: the picker's display label
+// ("MiniMax M3"), the catalogue id ("minimax-m3"), the upstream spelling
+// ("MiniMax-M3.1-Flash"), or the tier-less label of a model that declares
+// reasoning tiers ("DeepSeek-V4-Flash", whose catalogue rows are the "(Low)"
+// / "(High)" / "(Max)" spellings). All of those name a model the user
+// configured, and none of them may fall through to the shim: a configured
+// model that answered with the mock client looked like a working model and
+// produced a turn of synthetic text (the 2026-11-14 report).
+func resolveConfigured(name string, catalogueID CatalogueIDFunc) (models.Model, bool) {
+	reg := models.CachedRegistry()
+	if reg == nil {
+		return models.Model{}, false
+	}
+	requested := strings.TrimSpace(name)
+	if requested == "" {
+		return models.Model{}, false
+	}
+	candidates := []string{requested}
+	if id := strings.TrimSpace(catalogueSlug(requested, catalogueID)); id != "" {
+		candidates = append(candidates, id)
+	}
+	for _, cand := range candidates {
+		if m, ok := reg.GetByName(cand); ok {
+			return *m, true
+		}
+	}
+	// The registry's own Name is the catalogue id; the label and the upstream
+	// spelling are what a picker row and an external model menu carry.
+	want := strings.ToLower(requested)
+	for _, m := range reg.List() {
+		for _, v := range []string{m.DisplayName, m.ExternalModelName, m.QualifiedName()} {
+			if v != "" && strings.ToLower(strings.TrimSpace(v)) == want {
+				return m, true
+			}
+		}
+	}
+	return models.Model{}, false
+}
+
 // newOfficialBackend builds the CloudCode transport for one catalogue model.
 //
 // CloudCode is the reference's own transport and it needs an OAuth token. A
@@ -147,7 +232,7 @@ func newConfiguredBackend(modelName string, timeoutSeconds int, logWriter io.Wri
 // TUI's own panel takes effect on the next turn, without a restart.
 func newOfficialBackend(modelName string, logWriter io.Writer, catalogueID CatalogueIDFunc) backend.Client {
 	if !HasOAuthToken() {
-		fmt.Fprintln(logWriter, "[warn] no OAuth token found (need $JETSKI_OAUTH_TOKEN or ~/.config/antigravity/oauth-token); falling back to shim backend")
+		writeLog(logWriter, "[warn] no OAuth token found (need $JETSKI_OAUTH_TOKEN or ~/.config/antigravity/oauth-token); falling back to shim backend\n")
 		return backend.NewMock()
 	}
 	slug := ""
@@ -188,7 +273,7 @@ func Resolve(fs *flag.FlagSet, logWriter io.Writer) (string, bool) {
 	}
 	resolved := Normalise(raw, logWriter)
 	if resolved == "cloudcode" && !HasOAuthToken() {
-		fmt.Fprintf(logWriter, "[warn] %s=%s requested but no OAuth token found (need $JETSKI_OAUTH_TOKEN or ~/.config/antigravity/oauth-token); falling back to shim backend\n", source, resolved)
+		writeLog(logWriter, "[warn] %s=%s requested but no OAuth token found (need $JETSKI_OAUTH_TOKEN or ~/.config/antigravity/oauth-token); falling back to shim backend\n", source, resolved)
 		resolved = "shim"
 	}
 	return resolved, fromFlag
@@ -206,7 +291,7 @@ func Normalise(raw string, logWriter io.Writer) string {
 	case "shim", "mock", "off", "false", "test":
 		return "shim"
 	default:
-		fmt.Fprintf(logWriter, "[warn] unknown backend %q; expected gateway|cloudcode|shim (falling back to default 'gateway')\n", raw)
+		writeLog(logWriter, "[warn] unknown backend %q; expected gateway|cloudcode|shim (falling back to default 'gateway')\n", raw)
 		return "gateway"
 	}
 }

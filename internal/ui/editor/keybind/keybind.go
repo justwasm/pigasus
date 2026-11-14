@@ -464,6 +464,11 @@ type EscTimeoutMsg struct{}
 type EscBuffer struct {
 	Pending bool
 	At      time.Time
+	// Delivered is true when the buffered Esc was already dispatched to
+	// the app — vim mode does that, so Normal mode starts on the key press
+	// itself — and only the alt-pair fold is still waiting. Releasing such
+	// a buffer must not dispatch a second Esc.
+	Delivered bool
 }
 
 // Feed walks one KeyMsg through the buffer.
@@ -493,21 +498,42 @@ func (b *EscBuffer) Feed(
 	// Window elapsed without a follow-up: release the stale Esc.
 	if now.Sub(b.At) > EscReleaseWindow {
 		b.Pending = false
-		onRelease()
+		if !b.Delivered {
+			onRelease()
+		}
+		b.Delivered = false
+		return false
+	}
+	// The Esc already reached the app (vim dispatches it on the press, so
+	// Normal mode starts at once). Folding the next letter would swallow a
+	// vim command — `v` would become alt+v instead of Visual mode — so the
+	// pair cannot form: the buffer is dropped and the key is dispatched.
+	if b.Delivered {
+		b.Pending = false
+		b.Delivered = false
 		return false
 	}
 	r := key.Code
-	if isAltLetterCandidate(r) {
+	// Only a *bare* letter continues the pair: a modified key (ctrl+s on
+	// its way to submit, say) is its own command, and folding it into
+	// alt+<letter> would swallow the press. Terminal.app's Option+<letter>
+	// arrives as Esc then a bare letter, which is the case this exists for.
+	if key.Mod == 0 && isAltLetterCandidate(r) {
 		letter := unicode.ToLower(r)
 		if hasBinding(letter) {
 			b.Pending = false
+			b.Delivered = false
 			onSynth(letter)
 			return true
 		}
 	}
-	// Not synthesised — release Esc first, then dispatch the current key.
+	// Not synthesised — release Esc first (when it was held back), then
+	// dispatch the current key.
 	b.Pending = false
-	onRelease()
+	if !b.Delivered {
+		onRelease()
+	}
+	b.Delivered = false
 	return false
 }
 
@@ -520,6 +546,7 @@ func (b *EscBuffer) Start(now time.Time) bool {
 	}
 	b.Pending = true
 	b.At = now
+	b.Delivered = false
 	return true
 }
 

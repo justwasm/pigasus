@@ -10,4 +10,5 @@ type SwarmModel struct {
 	Board     *swarmboard.Board
 	item      *activeitemspanel.SwarmItem
 	dismissed bool
+	fromBoard bool
 }

@@ -111,9 +111,11 @@ func StartScheduledTask(opts ScheduledTaskOptions) (*BackgroundTask, error) {
 		reg.RegisterHandle(fullID, &taskregistry.TaskHandle{
 			Abort: func() {
 				_, _ = t.Kill()
+				markRegistryState(fullID, taskregistry.StateKilled)
 			},
 			Cancel: func() {
 				_, _ = t.Kill()
+				markRegistryState(fullID, taskregistry.StateKilled)
 			},
 		})
 	}

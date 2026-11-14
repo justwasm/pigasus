@@ -77,11 +77,19 @@ type sessionState struct {
 	agentName string
 	// agentWarning is the ⚠ Agent Not Found body when --agent named nothing
 	agentWarning string
+	// modelWarning is the ⚠ Model Not Configured body when the selected model is unconfigured
+	modelWarning string
 	// flags is the parsed top-level flag set. Cycle 102: the TUI reuses the
 	flags *flag.FlagSet
 	// mode is the agent execution mode for this session ("", "accept-edits",
 	mode   string
 	policy *permissions.Policy
+	// startMode is the mode the session started in. The status row and the
+	// prompt banner name a mode only while it differs from this one:
+	// agy 1.5.8 starts in Auto and shows nothing, and cycling away from
+	// Auto and back is silent again — while a session that started in
+	// Default names Auto when the user cycles to it.
+	startMode string
 	// activeGoal tracks an active /goal command and its verification loop.
 	activeGoal *convstore.GoalState
 	// Cycle 292: true on the first user turn of a conversation and again
@@ -116,6 +124,9 @@ type sessionState struct {
 	// hookInvocationNum is the number of the invocation the documented
 	// events last saw. The first invocation of a session is 0.
 	hookInvocationNum int
+	// stopContinuationActive is true while the agent is working on a continuation
+	// requested by an earlier Stop hook (AGY 1.5.6).
+	stopContinuationActive bool
 }
 
 // uiState holds the domain state for uiState.

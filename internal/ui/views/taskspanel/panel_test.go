@@ -362,7 +362,10 @@ func TestEnterOpensTheTaskDetail(t *testing.T) {
 
 // TestEnterOpensTheSubagentDetail — an agent (subagent) row opens the
 // reference's other detail model, the subagent detail.
-func TestEnterOpensTheSubagentDetail(t *testing.T) {
+// TestOpenSubagentDetailFromTheTray — the reference keeps subagents out of
+// /tasks (tuialign 29), so the subagent detail is reachable from the
+// active-items tray instead: the host opens it by id.
+func TestOpenSubagentDetailFromTheTray(t *testing.T) {
 	reg := taskregistry.New()
 	task := seedTask(reg, "sub-2", "review the diff", taskregistry.KindSubagent, taskregistry.StateDone)
 	task.Prompt = "review the diff please"
@@ -371,9 +374,14 @@ func TestEnterOpensTheSubagentDetail(t *testing.T) {
 	task.Steps = []string{"read_file", "run_command", "the answer"}
 	p, _ := testPanel(t, reg)
 
-	p.HandleKey(tea.Key{Code: tea.KeyEnter})
+	// A subagent is not a /tasks row.
+	if joined := stripAll(strings.Join(p.Lines(), "\n")); !strings.Contains(joined, "No background tasks.") {
+		t.Fatalf("a subagent produced a /tasks row:\n%s", joined)
+	}
+
+	p.OpenTaskDetail("sub-2", true)
 	if !p.Detail() {
-		t.Fatal("Enter did not open the detail view")
+		t.Fatal("the tray's subagent detail did not open")
 	}
 	got := strings.Join(plainLines(p), "\n")
 	for _, want := range []string{
@@ -419,7 +427,8 @@ func TestDetailEmptyForms(t *testing.T) {
 	seedTask(reg, "sub-3", "nothing yet", taskregistry.KindSubagent, taskregistry.StateRunning)
 	p, _ := testPanel(t, reg)
 
-	p.HandleKey(tea.Key{Code: tea.KeyEnter})
+	// Subagents are reachable only from the active-items tray.
+	p.OpenTaskDetail("sub-3", true)
 	got := strings.Join(plainLines(p), "\n")
 	for _, want := range []string{"(no prompt available)", "No tools used yet", "(no output)", "No steps yet"} {
 		if !strings.Contains(got, want) {
@@ -569,8 +578,8 @@ func TestDetailViewLineWrapAndReflow(t *testing.T) {
 		Close:    func() tea.Cmd { return nil },
 	})
 
-	// Enter detail view
-	p.HandleKey(tea.Key{Code: tea.KeyEnter})
+	// Open the subagent detail the way the tray does: by id.
+	p.OpenTaskDetail("sub-wrap-panel", true)
 	if !p.Detail() {
 		t.Fatal("expected detail view to open")
 	}
@@ -672,11 +681,17 @@ func TestPanel_SubagentRowsRenderRichFormat(t *testing.T) {
 	if !strings.Contains(joined, "sleep 60") {
 		t.Errorf("expected sleep 60 row in list, got:\n%s", joined)
 	}
-	if !strings.Contains(joined, "Agent(Weather Researcher)") {
-		t.Errorf("expected Agent(Weather Researcher) in list, got:\n%s", joined)
+	// The reference keeps a subagent out of /tasks (tuialign 29) …
+	if strings.Contains(joined, "Agent(Weather Researcher)") {
+		t.Errorf("a subagent produced a /tasks row:\n%s", joined)
 	}
-	if !strings.Contains(joined, "gemini-3.8-flash") {
-		t.Errorf("expected model name gemini-3.8-flash in subagent row, got:\n%s", joined)
+	// … while the active-items tray still renders its rich row.
+	trayRow := stripAll(taskregistry.ActiveSubagentRowLine(reg.Get("sub-1"), false, 80))
+	if !strings.Contains(trayRow, "Agent(Weather Researcher)") {
+		t.Errorf("tray row = %q, want Agent(Weather Researcher)", trayRow)
+	}
+	if !strings.Contains(trayRow, "gemini-3.8-flash") {
+		t.Errorf("tray row = %q, want the model name", trayRow)
 	}
 }
 

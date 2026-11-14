@@ -1,0 +1,29 @@
+NAME "Settings Flag & Tip Suppression Alignment (--settings showTips=false)"
+WINDOW 100 30
+TARGET both
+SETTINGS {"showTips":false}
+
+# Turn 1: Streaming with delay to test tip suppression
+MOCK_TURN
+  THOUGHT "Processing deep query without tips..." TOKENS 100 DELAY 500ms
+  DELAY 1500ms
+  TEXT "Analysis done cleanly without tooltips."
+  USAGE PROMPT 18200 CANDIDATES 20 THOUGHTS 100
+  FINISH STOP
+
+BOOT_BOTH
+WAIT_READY 10s
+
+TYPE "run analysis"
+ENTER
+
+# Mid-stream snapshot: showTips is false, so "Tip:" should NOT be present in either pane!
+SLEEP 800ms
+SNAPSHOT "01_streaming_no_tips"
+ASSERT_NOT_TEXT "Tip:"
+
+EXPECT_TEXT "Analysis done" 15s
+SNAPSHOT "02_finished_no_tips"
+
+DIFF
+CLEANUP

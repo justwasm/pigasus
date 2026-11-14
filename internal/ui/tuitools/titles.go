@@ -27,6 +27,28 @@ func ToolStepTitleFile(name string, args json.RawMessage) string {
 	return ""
 }
 
+// subagentCallTitle renders a delegation the way the reference does:
+//
+//	● Agent(research: Weather Researcher)(查询当前上海的天气情况)
+//
+// — the type name and role in the first pair, the prompt in the second.
+// Measured with tuialign 29 (agy 1.5.8).
+func subagentCallTitle(args json.RawMessage) string {
+	typeName := ArgStr(args, "type_name", "TypeName", "agent_name")
+	role := ArgStr(args, "role", "Role")
+	prompt := Clip(ArgStr(args, "prompt", "Prompt"), 60)
+
+	who := typeName
+	if role != "" {
+		if who != "" {
+			who += ": " + role
+		} else {
+			who = role
+		}
+	}
+	return "Agent(" + who + ")(" + prompt + ")"
+}
+
 // ToolStepTitleSearch returns the formatted title for search tools.
 func ToolStepTitleSearch(name string, args json.RawMessage) string {
 	switch strings.ToLower(name) {
@@ -98,6 +120,8 @@ func ToolStepTitleMisc(name string, args json.RawMessage) string {
 		return "Edited notebook"
 	case "notebook_execution":
 		return "Ran notebook"
+	case "invoke_subagent":
+		return subagentCallTitle(args)
 	case "list_resources":
 		return "Listed resources"
 	case "read_resource":

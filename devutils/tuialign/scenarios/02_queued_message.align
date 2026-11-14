@@ -1,0 +1,35 @@
+NAME "Prompt Queue and In-Flight Steer Alignment"
+WINDOW 100 30
+TARGET both
+
+# Turn 1 Mock Response with long delay to capture sending/queue state
+MOCK_TURN
+  THOUGHT "Processing complex task..." TOKENS 200 DELAY 500ms
+  DELAY 1500ms
+  TEXT "Finished analyzing task."
+  USAGE PROMPT 15000 CANDIDATES 10 THOUGHTS 200
+  FINISH STOP
+
+# Turn 2 Mock Response (for the queued second message)
+MOCK_TURN
+  TEXT "Received second message."
+  FINISH STOP
+
+BOOT_BOTH
+WAIT_READY 10s
+
+TYPE "start task"
+ENTER
+
+# Type a second message while turn 1 is streaming in flight
+SLEEP 200ms
+TYPE "second message"
+ENTER
+SLEEP 300ms
+SNAPSHOT "01_sending_message_in_queue"
+
+WAIT_TEXT "Finished analyzing" 15s
+SNAPSHOT "02_turn_done"
+
+DIFF
+CLEANUP

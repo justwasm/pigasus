@@ -127,8 +127,9 @@ func GoalPrompt() string {
 }
 
 // LearnPrompt returns the prompt /learn sends to the model.
+// AGY 1.5.6: validates against documented 24 KB rule file limits (GEMINI.md, AGENTS.md).
 func LearnPrompt() string {
-	return "Capture a learning from what I just discussed. Write it as a short note I can refer back to, with the takeaway up front and any open questions below."
+	return "Capture a learning from what I just discussed. Write it as a short note or rule to persist for future tasks, verifying that rule files (such as GEMINI.md or AGENTS.md) remain within their 24 KB documented size limit and proposing consolidation or alternative handling if the limit is approached."
 }
 
 // TeamworkPrompt returns the prompt /teamwork sends to the model.

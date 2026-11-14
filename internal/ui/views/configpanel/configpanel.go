@@ -127,7 +127,7 @@ const TelemetryRowName = "Enable Telemetry"
 var SettingsRows = []Row{
 	{Name: "Agent Mode", SettingsKey: "agentMode",
 		Values: []Val{
-			V("default", ""), V("accept-edits", "accept-edits"),
+			{Display: "default", Stored: ""}, V("accept-edits", "accept-edits"),
 			V("auto", "auto"), V("plan", "plan"),
 		},
 		Description: "'default': standard behavior. 'accept-edits': auto-approve file edits, prompt for commands. 'auto': auto-approve edits and safe commands, prompt on irreversible actions. 'plan': research and plan without making changes"},

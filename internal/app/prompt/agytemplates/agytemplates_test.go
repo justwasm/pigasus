@@ -8,24 +8,24 @@ import (
 
 // templateDigests pins the recovered templates byte for byte.
 //
-// The files under templates/ are the reference's, taken out of the agy 1.4.7
+// The files under templates/ are the reference's, taken out of the agy 1.5.5
 // binary (see templates/PROVENANCE.md). They are the *source* of the prompt
 // and of the step strings now, so an accidental edit — a whitespace fix, a
 // reformat, a "typo fix" — would silently change what the clone sends. The
 // digests make that a test failure instead.
 var templateDigests = map[string]string{
-	"helpers/errors.tmpl": "5d37ed29f71d8da88f2eea9a1ebf5db8cbee22be4bde63506f1887f7da0ff0ea",
+	"helpers/errors.tmpl":                                    "5d37ed29f71d8da88f2eea9a1ebf5db8cbee22be4bde63506f1887f7da0ff0ea",
 	"step_strings/helpers/default_status_output_string.tmpl": "c9d1a48159f15ad0ebbac54129db898fcc8276ade3765e8ca3bd8bc29c560504",
-	"step_strings/run_command.tmpl":                          "f9ded495eef28b0a90a50b02c2023724f4acb0cdfc9f5511ed63947b594513bc",
+	"step_strings/run_command.tmpl":                          "4edd693408313c291eff37e3554b7a05e3a77107a97686632c54fd560ee6755f",
 	"step_strings/send_command_input.tmpl":                   "704a1b6454a8b3d988ea62f0ac5aae50e0b5dc11b6e652d81844dea2880379b9",
-	"system_prompts/artifacts.tmpl":                          "9a294feb3115fe931cfeafe5b19aa181d061868928ee9e636fafe15885f04009",
-	"system_prompts/communication_style.tmpl":                "3c72250feec1f1ade822a29f28fc1519a67c241b82f3bc8dff25a8c8617294c1",
+	"system_prompts/artifacts.tmpl":                          "515f4acac086242608c40b753b5161ec0825f2c21bb782b68e12fea283fc51a6",
+	"system_prompts/communication_style.tmpl":                "96e2f45838771003bbfb05206623bb6be4b64187eaa97a4e4d1f2d9e9de86c8f",
 	"system_prompts/conversation_transcript.tmpl":            "9c977fd7da47dde426c3f0f09b52ca4e62feea5cd621e99fcaa40c5a6470d7a4",
 	"system_prompts/ephemeral_message.tmpl":                  "d4ced5dc63c1faad5adf01169cb1e52fd986d39fa2649f1e8a854b016eaa0ec4",
 	"system_prompts/function_call.tmpl":                      "959cde80246a35b7042b42ddc2cfa55616aa7d60bf9bb8d6d2b3b7b26810ce58",
-	"system_prompts/guidelines.tmpl":                         "8b71f78b140f7d9707e54007383121cb6d3f3d5f32fdcebeb2092043c731ef9a",
+	"system_prompts/guidelines.tmpl":                         "f4ede326caaa79f7454af6dac251cf0436ab8375c1b06eade975bcaf85a7c439",
 	"system_prompts/helpers/async_termination_rule.tmpl":     "1314701504f2b452dee278583104b7e588ca094e05ae49d7f5af26314f1c1722",
-	"system_prompts/identity.tmpl":                           "a28e035ae6e1197db070be8e5a86361273d1a81824404191dc6c0351251b73b1",
+	"system_prompts/identity.tmpl":                           "bd8957e589c97f9fa5d5fe3077b01c49b0329f0987bd58cf73bab123ea0a199b",
 	"system_prompts/persistent_context.tmpl":                 "9d707bc641421bf7bfeef7c9b81b40d61a8c6dee3ffc93c049f0c73b04b39ff5",
 	"system_prompts/planning_mode_artifacts.tmpl":            "6a65b6a2769d01e8928d4b3aa5326438b0109933d073ff1bd4b93b1301c2235b",
 	"system_prompts/plugins.tmpl":                            "8f76c5269140ee4b891f390b54d4d596925e4a390267ebb447a18c40e6de3402",

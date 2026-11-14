@@ -713,9 +713,10 @@ func InvalidateCacheMidStream(t *testing.T) {
 	mdrender.InvalidateCache()
 }
 
-// TestTUITools_GroupHeaderForMultipleSteps pins the recovered category counts in
-// the group summary (one file + one command reads "1 file, 1 command") and the
-// expanded "ctrl+o to collapse" hint.
+// TestTUITools_GroupHeaderForMultipleSteps pins the 1.5.8 multi-step shape
+// (tuialign 27/28): collapsed, the block is one row naming the LAST call — the
+// reference never prints a "1 file, 1 command" aggregate — and expanded it
+// lists every call with its detail and no summary header.
 func TestTUITools_GroupHeaderForMultipleSteps(t *testing.T) {
 	m := newRootModel(nil, "u@t", "m", "t", "/tmp", true)
 	m.conversation.response = append(m.conversation.response, "> do two things")
@@ -728,22 +729,26 @@ func TestTUITools_GroupHeaderForMultipleSteps(t *testing.T) {
 		},
 	})
 	joined := strings.Join(m.conversation.response, "\n")
-	if !strings.Contains(joined, "file") || !strings.Contains(joined, "command") {
-		t.Fatalf("group summary missing:\n%s", joined)
+	// The styled spans split a call title from its arguments, so the
+	// title is only contiguous once the escapes are stripped.
+	plain := diffaction.StripANSI(joined)
+	if strings.Contains(plain, "1 file") || strings.Contains(plain, "1 command") {
+		t.Fatalf("collapsed block grew an aggregate summary:\n%s", plain)
 	}
-	// Cycle 178: collapsed groups hide the per-step titles — only the
-	// group header is shown. This test uses a MIXED category group
-	// ("1 file, 1 command") so the "(+N · <last>)" suffix is NOT
-	// emitted (suffix is single-category only); the assertion below
-	// only checks the count summary, not a per-step title.
-	if strings.Contains(joined, "out-1") || strings.Contains(joined, "out-2") {
+	if !strings.Contains(plain, "Read(secret.txt)") {
+		t.Fatalf("collapsed block does not name the last call:\n%s", plain)
+	}
+	if strings.Contains(plain, "Bash(date)") {
+		t.Fatalf("collapsed block still lists an earlier call:\n%s", plain)
+	}
+	if strings.Contains(joined, "out-1") || strings.Contains(joined, "out-2") || strings.Contains(joined, "a\nb\nc") {
 		t.Fatalf("details visible while collapsed:\n%s", joined)
 	}
 
 	_, _ = m.Update(ctrlKey('o'))
 	joined = strings.Join(m.conversation.response, "\n")
-	if !strings.Contains(joined, "file") || !strings.Contains(joined, "command") {
-		t.Fatalf("expanded group header wrong:\n%s", joined)
+	if strings.Contains(joined, "1 file") || strings.Contains(joined, "1 command") {
+		t.Fatalf("expanded block kept a summary header:\n%s", joined)
 	}
 	if !strings.Contains(joined, "Bash") || !strings.Contains(joined, "date") || !strings.Contains(joined, "Read") || !strings.Contains(joined, "secret.txt") {
 		t.Fatalf("steps missing when expanded:\n%s", joined)
@@ -781,8 +786,10 @@ func TestTUITools_SpinnerNamesRunningTool(t *testing.T) {
 	if strings.Contains(joined, "Running (date)") {
 		t.Fatalf("provisional row survived completion:\n%s", joined)
 	}
-	if !strings.Contains(joined, "Ran") || !strings.Contains(joined, "(date)") {
-		t.Fatalf("finished row missing:\n%s", joined)
+	// The finished row keeps the reference's call form: `Bash(date)`. The
+	// styled spans split the name from its args, so compare without ANSI.
+	if plain := diffaction.StripANSI(joined); !strings.Contains(plain, "Bash(date)") {
+		t.Fatalf("finished row missing:\n%s", plain)
 	}
 }
 
@@ -940,19 +947,22 @@ func TestTUITools_ThoughtLiveFrame(t *testing.T) {
 		t.Errorf("live frame = %q", got)
 	}
 
-	// A completed thought renders as a collapsed step with the recovered
-	// expand hint; ctrl+o reveals the reasoning.
+	// A completed thought renders as a collapsed step; pure thought
+	// steps do not carry a trailing "(ctrl+o to expand)" hint.
 	steps := []toolsteps.Step{{Kind: toolsteps.KindThought, Detail: "line one\nline two", Dur: 2 * time.Second, Tokens: 12}}
 	collapsed := toolsteps.BlockLines(steps, false, 0)
 	if len(collapsed) != 1 || !strings.Contains(collapsed[0], "Thought for 2s, 12 tokens") {
 		t.Fatalf("collapsed = %+v", collapsed)
 	}
-	if !strings.Contains(collapsed[0], "ctrl+o to expand") {
-		t.Fatalf("missing expand hint: %q", collapsed[0])
+	if strings.Contains(collapsed[0], "ctrl+o") {
+		t.Fatalf("thought step should not carry ctrl+o hint: %q", collapsed[0])
 	}
 	expanded := toolsteps.BlockLines(steps, true, 0)
 	if len(expanded) != 3 || !strings.Contains(expanded[1], "line one") {
 		t.Fatalf("expanded = %+v", expanded)
+	}
+	if strings.Contains(strings.Join(expanded, "\n"), "ctrl+o") {
+		t.Fatalf("expanded thought should not carry ctrl+o hint: %v", expanded)
 	}
 
 	// toolsteps.ThoughtStartMsg flips the live frame on.
@@ -1584,10 +1594,14 @@ func TestTUITools_BatchGrouping_WithIntermediateText(t *testing.T) {
 	step2Done := toolsteps.NewToolStep("run_command", json.RawMessage(`{"CommandLine":"echo two"}`), "Output:\ntwo\n", false)
 	m.Update(toolsteps.ToolStepMsg{Step: step2Done})
 
-	// In collapsed mode, batch 1 must be folded into a single row
+	// In collapsed mode, batch 1 must be one row naming its last call — the
+	// reference does not aggregate (tuialign 27/28).
 	contentCollapsed := diffaction.StripANSI(strings.Join(m.conversation.response, "\n"))
-	if !strings.Contains(contentCollapsed, "Ran 2 commands (echo one · echo two) (ctrl+o to expand)") {
-		t.Fatalf("expected collapsed summary for 2 commands, got:\n%s", contentCollapsed)
+	if !strings.Contains(contentCollapsed, "Bash(echo two) (ctrl+o to expand)") {
+		t.Fatalf("expected the collapsed row to name the last call, got:\n%s", contentCollapsed)
+	}
+	if strings.Contains(contentCollapsed, "Ran 2 commands") {
+		t.Fatalf("collapsed block grew an aggregate summary:\n%s", contentCollapsed)
 	}
 
 	// Expand: should show both commands tightly packed without blank lines between them
@@ -1602,7 +1616,7 @@ func TestTUITools_BatchGrouping_WithIntermediateText(t *testing.T) {
 	hasBlankBetweenTools := false
 	inToolBlock := false
 	for _, l := range lines {
-		if strings.Contains(l, "Ran 2 commands") {
+		if strings.Contains(l, "Bash(echo one)") {
 			inToolBlock = true
 			continue
 		}
@@ -1628,10 +1642,10 @@ func TestTUITools_BatchGrouping_WithIntermediateText(t *testing.T) {
 	m.Update(toolsteps.ToolStepMsg{Step: step3Done})
 
 	contentAfterBreak := diffaction.StripANSI(strings.Join(m.conversation.response, "\n"))
-	// Batch 1 summary should remain above the text
-	idxBatch1 := strings.Index(contentAfterBreak, "Ran 2 commands")
+	// Batch 1's row should remain above the text
+	idxBatch1 := strings.Index(contentAfterBreak, "Bash(echo two)")
 	idxText := strings.Index(contentAfterBreak, "I completed the checks")
-	idxBatch2 := strings.Index(contentAfterBreak, "Ran (echo three)")
+	idxBatch2 := strings.Index(contentAfterBreak, "Bash(echo three)")
 	if idxBatch1 < 0 || idxText < 0 || idxBatch2 < 0 {
 		t.Fatalf("missing expected elements after break:\n%s", contentAfterBreak)
 	}

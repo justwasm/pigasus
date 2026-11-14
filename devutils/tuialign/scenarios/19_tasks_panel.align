@@ -1,0 +1,20 @@
+NAME "Tasks Panel Alignment (/tasks) (1.5.7)"
+WINDOW 100 30
+TARGET both
+
+BOOT_BOTH
+WAIT_READY 10s
+
+# Type /tasks to open background tasks view
+TYPE "/tasks"
+ENTER
+SLEEP 500ms
+SNAPSHOT "01_tasks_open"
+
+# Press Escape to return to prompt
+KEYS "Escape"
+SLEEP 500ms
+SNAPSHOT "02_tasks_closed"
+
+DIFF 100
+CLEANUP

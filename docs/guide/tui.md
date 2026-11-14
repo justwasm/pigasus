@@ -1412,12 +1412,22 @@ press ctrl+c again to exit         MiniMax M3
 | `internal/cliapp/statusrow_host.go` | the host's facts: the model, the mode, the effort tier, the running tasks, the compaction state, the composer and the pickers |
 | `internal/core/tokenfmt/` | the token formatter ("184 K" / "1.2 M"), below every tier (cycle 381) |
 
-Five things that are easy to get wrong:
+Six things that are easy to get wrong:
 
 - **The row is a view, not a panel.** It has no keys and no writes of its
   own — the host asks it for a line — so it takes a `State` of values
   rather than a `Seams` of callbacks. The host's facts reach it through
   `statusRowState()`.
+- **The mode is named only when it is not the default one.** `auto ·` is
+  1.4.7's row, where Auto was a mode the user had cycled *to*; 1.5.7 made
+  Auto the default, and 1.5.8's row reads `Gemini 3.8 Flash · high` at
+  startup. The host therefore hands the row `modeLabelFor(mode)` — the
+  mode's own word, or `""` when it equals `setup.DefaultMode()` — and the
+  prompt placeholder follows the same rule (`modePlaceholder`), which is
+  why an idle 1.5.8 prompt is a bare `>` rather than the
+  `Auto mode: edits & safe commands auto-approved (shift+tab to cycle)`
+  banner the 1.4.7 capture shows. The status-line payload's `cycle_mode`
+  is documented the same way ("omitted in the default mode").
 - **The left half is five rules and four overrides.** The rules decide the
   hint: the slash popup says "esc to cancel" (except in the `/model
   <query>` mode, which leaves the segment empty), a streaming turn says

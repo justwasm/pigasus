@@ -233,6 +233,14 @@ func runRoot(args []string, p *cli.Parser) error {
 	if done, err := checkRootShortCircuits(fs, p, out); done || err != nil {
 		return err
 	}
+	if v := cliflags.StringValue(fs, "settings"); v != "" {
+		overlay, err := settings.ParseAndValidateFlag(v)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %s\n", err)
+			return cli.ExitCodeError(1, err.Error())
+		}
+		settings.SetSessionOverlay(overlay)
+	}
 	printMode := resolvePrintMode(fs)
 	if err := validateRootFlags(fs, printMode); err != nil {
 		return err

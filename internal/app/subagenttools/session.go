@@ -208,6 +208,10 @@ func Invoke(ctx context.Context, inv Invocation, deps Deps) (Result, error) {
 				taskReg.Update(subID, func(t *taskregistry.Task) {
 					if ev.ToolCall != nil {
 						t.CurrentTool = ev.ToolCall.Name
+						// The trajectory fills while the child works;
+						// the turn's end replaces the list with
+						// usedSteps(msgs).
+						t.Steps = append(t.Steps, ev.ToolCall.Name)
 					}
 				})
 			}

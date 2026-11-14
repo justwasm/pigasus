@@ -1,0 +1,25 @@
+NAME "Configuration Panel Alignment (/config) (1.5.7)"
+WINDOW 100 30
+TARGET both
+
+BOOT_BOTH
+WAIT_READY 10s
+
+# Type /config and open panel
+TYPE "/config"
+ENTER
+SLEEP 500ms
+SNAPSHOT "01_config_open"
+
+# Navigate down in config options
+KEYS "Down"
+SLEEP 300ms
+SNAPSHOT "02_config_navigated"
+
+# Escape back to main view
+KEYS "Escape"
+SLEEP 500ms
+SNAPSHOT "03_config_closed"
+
+DIFF
+CLEANUP

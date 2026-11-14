@@ -334,12 +334,17 @@ func (d *Document) FinaliseTurnReply(msg toolsteps.TurnDoneMsg, opts Options) bo
 			Verbosity:    opts.Verbosity,
 			TokenMetrics: msg.TokenMetrics,
 		})
-		final := make([]string, 0, len(block)+len(replyLines)+1)
+		final := make([]string, 0, len(block)+len(replyLines)+2)
 		pad := d.LiveStart > 0 && strings.TrimSpace(diffaction.StripANSI(d.Lines[d.LiveStart-1])) != ""
 		if pad {
 			final = append(final, "")
 		}
 		final = append(final, block...)
+		// AGY 1.4.5+: a blank line separates the collapsed/expanded thought
+		// or tool block from the assistant response.
+		if len(block) > 0 && len(replyLines) > 0 {
+			final = append(final, "")
+		}
 		replyStart := d.LiveStart + len(final)
 		final = append(final, replyLines...)
 		d.Lines = ReplaceRange(d.Lines, d.LiveStart, len(d.Lines), final)

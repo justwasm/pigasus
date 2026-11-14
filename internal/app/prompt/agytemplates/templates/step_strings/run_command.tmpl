@@ -10,7 +10,6 @@ Data: StepStringData with Step field
 {{- $statusStr := $step.GetStatus.String -}}
 {{- $combinedOutput := $runCommand.GetCombinedOutput -}}
 {{- $combinedOutputSnapshot := $runCommand.GetCombinedOutputSnapshot -}}
-{{- $sourceStr := $step.GetMetadata.GetSource.String -}}
 
 {{- $isError := or (eq $statusStr "CORTEX_STEP_STATUS_ERROR") (eq $statusStr "CORTEX_STEP_STATUS_INVALID") -}}
 
@@ -59,27 +58,16 @@ There were sandbox errors that may or may not be related to the failure. If you 
 			{{- end }}
 		{{- end -}}
 		{{/* Output section */ -}}
-		{{- $hasOutput := false -}}
-		{{- if $combinedOutput }}{{ if ne $combinedOutput.GetFull "" }}{{ $hasOutput = true }}{{ end }}{{ end -}}
-		{{- if ne $runCommand.GetStdoutOutput.GetFull "" }}{{ $hasOutput = true }}{{ end -}}
-		{{- if ne $runCommand.GetStderrOutput.GetFull "" }}{{ $hasOutput = true }}{{ end -}}
-
-		{{- if or (not $isError) $hasOutput }}
-			{{- if or (eq $sourceStr "CORTEX_STEP_SOURCE_USER_EXPLICIT") $combinedOutput }}
-				{{- if ne $combinedOutput.GetFull "" }}
+		{{- if ne $combinedOutput.GetFull "" }}
 Output:
 {{ $combinedOutput.GetFull }}
-				{{- else if not $isError }}
-No output
-				{{- end }}
-			{{- else -}}
-				{{- if or (not $isError) (or (ne $runCommand.GetStdoutOutput.GetFull "") (ne $runCommand.GetStderrOutput.GetFull "")) }}
+		{{- else if or (ne $runCommand.GetStdoutOutput.GetFull "") (ne $runCommand.GetStderrOutput.GetFull "") }}
 Stdout:
 {{ $runCommand.GetStdoutOutput.GetFull }}
 Stderr:
 {{ $runCommand.GetStderrOutput.GetFull }}
-				{{- end }}
-			{{- end }}
+		{{- else if not $isError }}
+No output
 		{{- end }}
 	{{- end }}
 {{- end }}

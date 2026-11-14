@@ -130,6 +130,54 @@ func TestGemini4CarbonADC(t *testing.T) {
 	if len(tiers) != 3 || tiers[0] != "low" || tiers[1] != "medium" || tiers[2] != "high" {
 		t.Fatalf("EffortTiersFor(gemini-4-carbon) = %v, want [low, medium, high]", tiers)
 	}
+
+	foundHydrogen := false
+	for _, m := range ReferenceModels() {
+		if m.ID == "gemini-4-hydrogen-high" && m.Label == "Gemini 4 Hydrogen (High)" {
+			foundHydrogen = true
+			break
+		}
+	}
+	if !foundHydrogen {
+		t.Fatalf("gemini-4-hydrogen-high missing from ReferenceModels() under AGY_ADC_AUTH=true")
+	}
+
+	hTiers := EffortTiersFor("gemini-4-hydrogen")
+	if len(hTiers) != 4 || hTiers[0] != "low" || hTiers[1] != "medium" || hTiers[2] != "high" || hTiers[3] != "xhigh" {
+		t.Fatalf("EffortTiersFor(gemini-4-hydrogen) = %v, want [low, medium, high, xhigh]", hTiers)
+	}
+}
+
+func TestGemini4HydrogenAndCarbonAPIKey(t *testing.T) {
+	configtest.Isolate(t)
+	t.Setenv("AGY_ADC_AUTH", "")
+	t.Setenv("GEMINI_API_KEY", "")
+	for _, m := range ReferenceModels() {
+		if m.ID == "gemini-4-hydrogen-high" || m.ID == "gemini-4-carbon-high" {
+			t.Fatalf("model %s should not appear without GEMINI_API_KEY or ADC", m.ID)
+		}
+	}
+
+	t.Setenv("GEMINI_API_KEY", "test-key")
+	if !GeminiAPIKeyAvailable() {
+		t.Fatalf("expected GeminiAPIKeyAvailable() true")
+	}
+	foundHydrogen := false
+	foundCarbon := false
+	for _, m := range ReferenceModels() {
+		if m.ID == "gemini-4-hydrogen-xhigh" && m.Label == "Gemini 4 Hydrogen (XHigh)" {
+			foundHydrogen = true
+		}
+		if m.ID == "gemini-4-carbon-high" && m.Label == "Gemini 4 Carbon (High)" {
+			foundCarbon = true
+		}
+	}
+	if !foundHydrogen {
+		t.Errorf("gemini-4-hydrogen-xhigh missing under GEMINI_API_KEY")
+	}
+	if !foundCarbon {
+		t.Errorf("gemini-4-carbon-high missing under GEMINI_API_KEY")
+	}
 }
 
 // TestTheThreeFamiliesAreSelectable pins that a pinned id selects itself:

@@ -24,6 +24,23 @@ case "$MODE" in
     echo "==> Quick verification passed!"
     ;;
 
+  align)
+    echo "==> Running tuialign scenario DSL tests..."
+    go test ./devutils/tuialign/...
+
+    # The live half needs the reference binary and tmux; it is skipped
+    # rather than failed on a machine that has neither, because the
+    # scenario's textual gates (EXPECT_TEXT / ASSERT_NOT_TEXT) are the
+    # point and they run against pigasus.
+    agy_bin="${AGY_REAL_BIN:-$HOME/.local/bin/agy}"
+    if [ "${RUN_LIVE_ALIGN:-1}" = "1" ] && command -v tmux >/dev/null 2>&1 && [ -x "$agy_bin" ]; then
+      echo "==> Running the live alignment scenario against $agy_bin..."
+      ./scripts/tui-align.sh run devutils/tuialign/scenarios/26_tool_output_preformatted.align
+    else
+      echo "==> Skipping the live scenario (no tmux or no reference agy; set AGY_REAL_BIN, or RUN_LIVE_ALIGN=0)"
+    fi
+    ;;
+
   all|test)
     echo "==> Running architecture layering guard..."
     go test ./internal/core/architecture/...
@@ -42,7 +59,7 @@ case "$MODE" in
 
   *)
     echo "Unknown mode: $MODE"
-    echo "Usage: $0 [arch|quick|all]"
+    echo "Usage: $0 [arch|quick|all|align]"
     exit 1
     ;;
 esac

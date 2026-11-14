@@ -58,6 +58,9 @@ type Input struct {
 	TerminationReason string `json:"terminationReason,omitempty"`
 	// FullyIdle reports whether every background task has finished.
 	FullyIdle bool `json:"fullyIdle,omitempty"`
+	// ContinuationActive reports whether the agent is already working on a continuation
+	// requested by an earlier Stop hook.
+	ContinuationActive bool `json:"continuation_active,omitempty"`
 }
 
 // ToolCall is the tool call a hook sees.

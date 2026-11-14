@@ -1,0 +1,25 @@
+NAME "Permissions Panel Alignment (/permissions) (1.5.7)"
+WINDOW 100 30
+TARGET both
+
+BOOT_BOTH
+WAIT_READY 10s
+
+# Type /permissions and open permissions view
+TYPE "/permissions"
+ENTER
+SLEEP 500ms
+SNAPSHOT "01_permissions_open"
+
+# Press Down to navigate rules
+KEYS "Down"
+SLEEP 300ms
+SNAPSHOT "02_permissions_navigated"
+
+# Press Escape to return to prompt
+KEYS "Escape"
+SLEEP 500ms
+SNAPSHOT "03_permissions_closed"
+
+DIFF 100
+CLEANUP

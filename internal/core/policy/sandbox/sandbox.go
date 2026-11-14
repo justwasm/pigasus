@@ -136,6 +136,9 @@ func (s Sandbox) Allowed(p string) bool {
 	if p == "" || p == "." {
 		return true
 	}
+	if isSafeSSHRead(p) {
+		return true
+	}
 	for _, root := range s.AllowedPaths() {
 		root = filepath.Clean(root)
 		if root == "" {
@@ -228,4 +231,23 @@ func (s Sandbox) CheckCommandWithBypass(cmd string, bypassed bool) CommandResult
 		return CommandResult{}
 	}
 	return s.CheckCommand(cmd)
+}
+
+// isSafeSSHRead reports whether p is a safe non-secret SSH configuration or public key file (AGY 1.5.6).
+func isSafeSSHRead(p string) bool {
+	p = filepath.ToSlash(p)
+	parts := strings.Split(p, "/")
+	n := len(parts)
+	if n < 2 {
+		return false
+	}
+	if parts[n-2] != ".ssh" {
+		return false
+	}
+	base := parts[n-1]
+	switch base {
+	case "config", "known_hosts", "authorized_keys":
+		return true
+	}
+	return strings.HasSuffix(base, ".pub")
 }

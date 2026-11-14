@@ -429,7 +429,7 @@ func (r *RunCommand) runWithAsyncWindow(ctx context.Context, p runCommandParams)
 		if err != nil {
 			return nil, err
 		}
-		output, _, _ := t.StepState()
+		output := t.RawOutput()
 		return r.renderResult(started, time.Now(), code, tools.NormalizeCommandOutput(output)), nil
 	case <-timer.C:
 		// The window closed with the command still running: it is a task

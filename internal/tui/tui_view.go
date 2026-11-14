@@ -14,6 +14,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/charmbracelet/x/ansi"
+
 	tea "charm.land/bubbletea/v2"
 	"github.com/justwasm/pigasus/agentlink"
 	"github.com/justwasm/pigasus/internal/app/agentturn"
@@ -25,7 +27,6 @@ import (
 	"github.com/justwasm/pigasus/internal/cli"
 	"github.com/justwasm/pigasus/internal/core/backend"
 	"github.com/justwasm/pigasus/internal/core/cliflags"
-	"github.com/justwasm/pigasus/internal/core/policy/permissions"
 	"github.com/justwasm/pigasus/internal/core/settings"
 	modelcatalog "github.com/justwasm/pigasus/internal/features/models/catalog"
 	"github.com/justwasm/pigasus/internal/features/tools/bashmode"
@@ -51,25 +52,17 @@ func (m *RootModel) clipViewBody(body string, cursorY int) (string, int) {
 		return body, cursorY
 	}
 	rows := tuilib.ViewRows(body)
-	maxRows := m.viewport.height + viewOverflowRows
 	drop := rows - m.viewport.height
 	if drop < 0 {
 		drop = 0
 	}
-	if rows > maxRows || drop > 0 {
+	if drop > 0 {
 		lines := strings.Split(body, "\n")
 		if n := len(lines); n > 0 && lines[n-1] == "" {
 			lines = lines[:n-1]
 		}
-		keep := len(lines)
-		if keep > maxRows {
-			keep = maxRows
-		}
-		if drop > keep {
-			drop = keep
-		}
-		if drop < keep {
-			body = strings.Join(lines[drop:keep], "\n")
+		if drop < len(lines) {
+			body = strings.Join(lines[drop:], "\n")
 		} else {
 			body = ""
 		}
@@ -176,19 +169,10 @@ func (m *RootModel) shouldShowInputCursor(cursorX, cursorY int) bool {
 	if m.isFullViewportPanel() {
 		return false
 	}
-	if m.conversation.streaming || m.conversation.thinking {
-		return false
-	}
-	if m.session.store.BashRunning() {
-		return false
-	}
 	if !m.prompt.input.Focused() {
 		return false
 	}
 	if m.hasSelection() || m.prompt.HasInputSelection() {
-		return false
-	}
-	if len(m.overlays.btwCards) > 0 || m.overlays.activeBtwID != "" {
 		return false
 	}
 	if m.overlays.HasActiveModal() {
@@ -346,7 +330,6 @@ func (m *RootModel) renderBodyQueuesAndCard(b *strings.Builder) {
 		for _, sending := range m.session.store.SendingMessages {
 			b.WriteString(uirows.SendingMessageRow(sending) + "\n")
 		}
-		b.WriteString(m.separator() + "\n")
 	}
 	if len(m.session.store.StreamQueue) > 0 || len(m.session.store.BashQueue) > 0 {
 		for i, queued := range m.session.store.StreamQueue {
@@ -357,7 +340,6 @@ func (m *RootModel) renderBodyQueuesAndCard(b *strings.Builder) {
 		for _, queued := range m.session.store.BashQueue {
 			b.WriteString(uirows.QueuedCommandRow(queued) + "\n")
 		}
-		b.WriteString(m.separator() + "\n")
 	}
 	if row := m.aboveInputCard(); row != "" {
 		b.WriteString(row + "\n")
@@ -373,7 +355,7 @@ func (m *RootModel) syncInputPlaceholder() {
 	case m.prompt.modeHintDismissed:
 		m.prompt.input.Placeholder = ""
 	default:
-		m.prompt.input.Placeholder = permissions.ModeBanner(m.session.mode)
+		m.prompt.input.Placeholder = m.promptPlaceholder(m.session.mode)
 	}
 }
 
@@ -405,8 +387,8 @@ func (m *RootModel) formatInputView() string {
 }
 
 func (m *RootModel) renderBodyPrompt(b *strings.Builder) int {
-	b.WriteString(m.promptRule(true) + "\n")
 	m.renderBodyQueuesAndCard(b)
+	b.WriteString(m.promptRule(true) + "\n")
 
 	rowsAbovePrompt := tuilib.ViewRows(b.String())
 	m.prompt.promptBodyStart = rowsAbovePrompt
@@ -436,6 +418,8 @@ func (m *RootModel) renderBodyPrompt(b *strings.Builder) int {
 	cursorY := rowsAbovePrompt
 	if c := m.prompt.input.Cursor(); c != nil {
 		cursorY += c.Y
+	} else {
+		cursorY += m.prompt.input.Line()
 	}
 	b.WriteString(m.promptRule(false) + "\n")
 	if m.overlays.panel.kind == panelregistry.None {
@@ -537,7 +521,19 @@ func (m *RootModel) inputCursorX() int {
 	if c := m.prompt.input.Cursor(); c != nil {
 		return c.X
 	}
-	return 0
+	prefixWidth := 2
+	val := m.prompt.input.Value()
+	line := m.prompt.input.Line()
+	col := m.prompt.input.Column()
+	lines := strings.Split(val, "\n")
+	if line >= 0 && line < len(lines) {
+		runes := []rune(lines[line])
+		if col > len(runes) {
+			col = len(runes)
+		}
+		return prefixWidth + ansi.StringWidth(string(runes[:col]))
+	}
+	return prefixWidth
 }
 
 // programStatus reports Wagyu's current state to terminals that support the
@@ -842,6 +838,7 @@ func (m *RootModel) currentHeaderKey(width int) headerCacheKey {
 		tier:         m.session.tier,
 		cwd:          m.session.cwd,
 		agentWarning: m.session.agentWarning,
+		modelWarning: m.session.modelWarning,
 		fallbackFrom: m.session.fallbackFrom,
 		fallbackTo:   m.session.fallbackTo,
 	}
@@ -862,6 +859,10 @@ func (m *RootModel) scrollHeaderRows(width int) []string {
 	if m.session.agentWarning != "" {
 		b.WriteString("\n")
 		b.WriteString(tuilib.RenderAgentWarning(m.session.agentWarning))
+	}
+	if m.session.modelWarning != "" {
+		b.WriteString("\n")
+		b.WriteString(tuilib.RenderModelWarning(m.session.modelWarning))
 	}
 	if m.session.fallbackFrom != "" && m.session.fallbackTo != "" {
 		b.WriteString("\n")
@@ -1004,21 +1005,10 @@ func (m *RootModel) viewportHeight() int {
 	if m.viewport.height <= 0 {
 		return 0
 	}
-	var extra int
-	liveLen := len(m.liveRows(m.viewport.width))
-	if m.viewport.extraRowsValid && m.viewport.cachedExtraW == m.viewport.width && m.viewport.cachedExtraH == m.viewport.height && m.viewport.cachedExtraLiveRows == liveLen {
-		extra = m.viewport.cachedExtraRows
-	} else {
-		body, _ := m.viewBody(nil)
-		extra = tuilib.ViewRows(body)
-		if m.help.Panel.Active() {
-			extra -= tuilib.ViewRows(m.help.Panel.Rows())
-		}
-		m.viewport.cachedExtraRows = extra
-		m.viewport.cachedExtraLiveRows = liveLen
-		m.viewport.cachedExtraW = m.viewport.width
-		m.viewport.cachedExtraH = m.viewport.height
-		m.viewport.extraRowsValid = true
+	body, _ := m.viewBody(nil)
+	extra := tuilib.ViewRows(body)
+	if m.help.Panel.Active() {
+		extra -= tuilib.ViewRows(m.help.Panel.Rows())
 	}
 	budget := m.viewport.height
 	if m.help.Panel.Active() {
@@ -1771,7 +1761,7 @@ func execBashCommand(ctx context.Context, dir, command string, out *tools.SafeBu
 	c.Stderr = out
 	procgroup.Set(c)
 	c.Cancel = func() error { return procgroup.Kill(c) }
-	c.WaitDelay = 2 * time.Second
+	c.WaitDelay = 800 * time.Millisecond
 	err := c.Run()
 	if ctx.Err() != nil {
 		// Esc / Ctrl+C: the reference finalises the block with no body and
@@ -2198,11 +2188,12 @@ func (m *RootModel) recordTrajectoryCalls(steps []toolsteps.Step) {
 			status = 4
 		}
 		convSteps = append(convSteps, convstore.Step{
-			Type:       convstore.StepToolCall,
-			Status:     status,
-			ToolName:   s.Name,
-			ToolArgs:   s.Args,
-			ToolResult: s.Result,
+			Type:        convstore.StepToolCall,
+			Status:      status,
+			ToolName:    s.Name,
+			ToolArgs:    s.Args,
+			ToolResult:  s.Result,
+			ToolSummary: s.Summary,
 		})
 	}
 	if sup := m.session.sup(); sup != nil {

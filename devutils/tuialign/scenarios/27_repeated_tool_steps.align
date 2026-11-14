@@ -1,0 +1,39 @@
+NAME "Repeated Bash Steps Stay One Line Each (1.5.8)"
+WINDOW 100 30
+TARGET both
+
+# Three tool calls in three consecutive turns, then a closing answer.
+# Collapsed, each call must own exactly one summary row: the clone used to
+# keep appending to a single growing line.
+MOCK_TURN
+  TOOL run_command {"CommandLine":"echo one","toolSummary":"Echo one","WaitMsBeforeAsync":5000}
+  USAGE PROMPT 18200 CANDIDATES 10 THOUGHTS 0
+  FINISH STOP
+
+MOCK_TURN
+  TOOL run_command {"CommandLine":"echo two","toolSummary":"Echo two","WaitMsBeforeAsync":5000}
+  USAGE PROMPT 18300 CANDIDATES 10 THOUGHTS 0
+  FINISH STOP
+
+MOCK_TURN
+  TOOL run_command {"CommandLine":"echo three","toolSummary":"Echo three","WaitMsBeforeAsync":5000}
+  USAGE PROMPT 18400 CANDIDATES 10 THOUGHTS 0
+  FINISH STOP
+
+MOCK_TURN
+  TEXT "All three commands ran."
+  USAGE PROMPT 18500 CANDIDATES 12 THOUGHTS 0
+  FINISH STOP
+
+BOOT_BOTH
+WAIT_READY 10s
+
+TYPE "run three commands"
+ENTER
+
+WAIT_TEXT "All three commands ran." 25s
+SLEEP 500ms
+SNAPSHOT "01_three_calls_collapsed"
+
+DIFF
+CLEANUP

@@ -1,0 +1,25 @@
+NAME "Changelog Panel Alignment (/changelog)"
+WINDOW 100 30
+TARGET both
+
+BOOT_BOTH
+WAIT_READY 10s
+
+# Type /changelog to open changelog view
+TYPE "/changelog"
+ENTER
+SLEEP 500ms
+SNAPSHOT "01_changelog_open"
+
+# Navigate down
+KEYS "Down"
+SLEEP 300ms
+SNAPSHOT "02_changelog_navigated"
+
+# Press Escape to return to prompt
+KEYS "Escape"
+SLEEP 500ms
+SNAPSHOT "03_changelog_closed"
+
+DIFF
+CLEANUP

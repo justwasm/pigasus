@@ -266,6 +266,11 @@ func flushToolCalls(ctx context.Context, out chan<- StreamEvent, partial map[int
 		if !ok || c.Name == "" {
 			continue
 		}
+		// The arguments above are concatenated fragments; a provider that
+		// re-sends a fragment leaves a duplicated key behind, which the next
+		// model's request would be rejected for. Canonicalise where the call
+		// is completed.
+		c.Arguments = string(geminicode.CanonicalArgs(json.RawMessage(c.Arguments)))
 		calls = append(calls, *c)
 	}
 	for k := range partial {

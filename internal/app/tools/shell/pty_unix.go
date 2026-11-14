@@ -23,6 +23,7 @@ import (
 	"io"
 	"os/exec"
 	"syscall"
+	"time"
 
 	"github.com/creack/pty"
 )
@@ -113,6 +114,12 @@ func startWithPTYStdin(cmd *exec.Cmd, eof bool) (func() error, io.WriteCloser, e
 		tty.Close()
 		ptmx.Close()
 		return func() error { return cmd.Run() }, nil, nil
+	}
+
+	if cmd.WaitDelay <= 0 {
+		// AGY 1.5.8: "Reduced cmd.Wait wait window from 5s to under 1s when a
+		// terminal subprocess exits but child processes hold pipes open."
+		cmd.WaitDelay = 800 * time.Millisecond
 	}
 
 	cmd.Stdin = tty

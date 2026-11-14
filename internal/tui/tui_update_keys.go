@@ -1521,8 +1521,14 @@ func (m *RootModel) updateMouseAndMiscMsg(msg tea.Msg) (tea.Model, tea.Cmd, bool
 		return m, nil, true
 	case keybind.EscTimeoutMsg:
 		if m.prompt.altEscBuf.Pending {
+			// A vim-owned Esc was already dispatched on the key press;
+			// only a held-back one is released here.
+			delivered := m.prompt.altEscBuf.Delivered
 			m.prompt.altEscBuf.Pending = false
-			m.releaseBufferedEsc()
+			m.prompt.altEscBuf.Delivered = false
+			if !delivered {
+				m.releaseBufferedEsc()
+			}
 		}
 		return m, nil, true
 	case voice.ConnectDoneMsg:
@@ -1576,6 +1582,11 @@ func (m *RootModel) updateMouseAndMiscMsg(msg tea.Msg) (tea.Model, tea.Cmd, bool
 	case taskspanel.TaskRemovedMsg:
 		return m, armTasksTick(), true
 	case taskspanel.DismissedMsg:
+		if m.swarm.fromBoard {
+			m.swarm.fromBoard = false
+			m.OpenSwarmBoard()
+			return m, m.closePanel(), true
+		}
 		if msg.FromActiveItems && m.activeItems.Panel != nil && m.activeItems.Panel.Count() > 0 {
 			m.activeItems.Panel.SetFocus(true)
 		}
@@ -2099,12 +2110,15 @@ func (m *RootModel) armEscReleaseTick() tea.Cmd {
 }
 
 func (m *RootModel) canConsumeAltEsc() bool {
-	if m.overlays.panel.kind != panelregistry.None || m.help.Panel.Active() ||
-		(m.swarm.Board != nil && m.swarm.Board.Active()) ||
+	if m.overlays.panel.kind != panelregistry.None || m.help.Panel.Active() || (m.swarm.Board != nil && m.swarm.Board.Active()) ||
 		m.prompt.picker.Visible() || m.prompt.atFilePicker.Visible() ||
 		m.overlays.resumePicker.Active() || m.audio.Surface.Active() ||
 		m.prompt.mediaExpanded || m.isBtwCardVisible() ||
 		m.conversation.streaming || m.session.store.BashRunning() ||
+		// Bash mode's Esc leaves the mode: holding it for an alt pair
+		// would make the key look dead in a composer whose own editor
+		// owns Esc.
+		m.session.store.BashMode ||
 		m.prompt.HasInputSelection() {
 		return false
 	}
@@ -2144,6 +2158,16 @@ func (m *RootModel) consumeAltEsc(msg tea.KeyMsg) (newMsg tea.KeyMsg, consumed b
 
 	if key.Code == tea.KeyEsc && key.Mod == 0 {
 		if m.prompt.altEscBuf.Start(time.Now()) {
+			if m.vimEnabled() {
+				// Vim owns the bare Esc: deliver it now so Normal mode
+				// starts on the key press itself, and keep the buffer
+				// only so a following bound letter still folds into one
+				// alt+<key> event (Terminal.app sends Esc then the
+				// letter). Releasing the buffer must not dispatch a
+				// second Esc — Delivered says so.
+				m.prompt.altEscBuf.Delivered = true
+				return msg, false, m.armEscReleaseTick()
+			}
 			return msg, true, m.armEscReleaseTick()
 		}
 	}
@@ -2501,7 +2525,11 @@ func (m *RootModel) applyModelArgument(arg string) tea.Cmd {
 	m.session.model = entry.Label
 	m.session.statusModel = tuilib.StripTier(entry.Label)
 	m.syncBackendForModel()
-	m.slashRespond("/model", "Model set to "+entry.Label)
+	if m.session.modelWarning != "" {
+		m.slashRespond("/model", fmt.Sprintf("Model set to %s (warning: unconfigured, falling back to mock shim)", entry.Label))
+	} else {
+		m.slashRespond("/model", "Model set to "+entry.Label)
+	}
 	return nil
 }
 

@@ -1,0 +1,36 @@
+NAME "Bottom-Right Status Working State Alignment (Auto & Gemini)"
+WINDOW 100 30
+TARGET both
+SETTINGS '{"agentMode":"auto","showTips":false}'
+
+# Turn 1: Stream a response with delay so we can inspect in-flight bottom-right status
+MOCK_TURN
+  THOUGHT "Analyzing and processing user request..." TOKENS 120 DELAY 400ms
+  DELAY 1500ms
+  TEXT "Processing finished successfully."
+  USAGE PROMPT 18200 CANDIDATES 20 THOUGHTS 120
+  FINISH STOP
+
+BOOT_BOTH
+WAIT_READY 10s
+
+# Verify initial bottom-right identity in auto mode
+SNAPSHOT "01_boot_ready_status"
+EXPECT_TEXT "Gemini 3.8 Flash · high" 5s
+
+TYPE "check statusline"
+ENTER
+
+# Mid-stream: verify that neither agy nor pigasus appends " · working" or " · tool_use"
+SLEEP 800ms
+SNAPSHOT "02_streaming_in_flight"
+ASSERT_NOT_TEXT "working"
+ASSERT_NOT_TEXT "tool_use"
+
+# After turn completes: verify final status
+WAIT_TEXT "Processing finished" 15s
+SNAPSHOT "03_turn_completed"
+ASSERT_NOT_TEXT "working"
+
+DIFF
+CLEANUP

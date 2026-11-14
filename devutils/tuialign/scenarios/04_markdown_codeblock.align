@@ -1,0 +1,22 @@
+NAME "Markdown Code Block and Syntax Highlighting Alignment (1.5.7)"
+WINDOW 100 30
+TARGET both
+
+# Turn 1: Emit markdown code block with language specifier and inline backticks
+MOCK_TURN
+  THOUGHT "Formatting code snippet with syntax highlighting..." TOKENS 120 DELAY 100ms
+  TEXT "Here is a sample Go function:\n\n```go\nfunc add(a, b int) int {\n\treturn a + b\n}\n```\n\nUse `add(1, 2)` to call it."
+  USAGE PROMPT 18200 CANDIDATES 45 THOUGHTS 120
+  FINISH STOP
+
+BOOT_BOTH
+WAIT_READY 10s
+
+TYPE "show code"
+ENTER
+
+WAIT_TEXT "Use add(1, 2)" 15s
+SNAPSHOT "01_markdown_codeblock"
+
+DIFF
+CLEANUP

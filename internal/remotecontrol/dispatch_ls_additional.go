@@ -252,6 +252,18 @@ func (d *Dispatcher) routeLSTelemetryAndMisc(method string, params json.RawMessa
 		return map[string]any{"clNumber": 0, "clUrl": ""}, nil, true
 	case "ListBackgroundTasks", "listBackgroundTasks":
 		return map[string]any{"tasks": []any{}}, nil, true
+	case "CancelLogin", "cancelLogin":
+		return map[string]any{}, nil, true
+	case "GetLoginSession", "getLoginSession":
+		return map[string]any{"active": false, "authUrl": "", "mode": 0}, nil, true
+	case "SwitchLoginToAuthCode", "switchLoginToAuthCode":
+		return map[string]any{"active": false, "authUrl": "", "mode": 0}, nil, true
+	case "SubmitLoginAuthCode", "submitLoginAuthCode":
+		return map[string]any{"accepted": true, "retryError": ""}, nil, true
+	case "GetOnboardingPersonas", "getOnboardingPersonas":
+		return map[string]any{"personas": []any{}}, nil, true
+	case "SearchGcpProjects", "searchGcpProjects":
+		return map[string]any{"projects": []any{}, "nextPageToken": ""}, nil, true
 	case "StartBattleMode", "startBattleMode",
 		"EndBattleMode", "endBattleMode",
 		"EliminateBattleModeArm", "eliminateBattleModeArm":

@@ -67,16 +67,35 @@ func TestEscPairIsBrokenByAnotherKey(t *testing.T) {
 		m.Update(runeKey(r))
 	}
 
+	// The intervening key must not be an alt binding: Terminal.app sends
+	// Option+<letter> as Esc then the letter, so a *bound* letter folds
+	// into that binding (TestAlt_VimMode_NotDoubleHandled pins that side).
+	// The pair-breaking key is therefore the first letter the keymap does
+	// not claim.
+	breaking := byte(0)
+	if kb := m.prompt.keybindings; kb != nil {
+		for r := 'a'; r <= 'z'; r++ {
+			if !kb.Has(r) {
+				breaking = byte(r)
+				break
+			}
+		}
+	}
+	if breaking == 0 {
+		t.Skip("every letter is an alt binding; no letter can break the pair")
+	}
+
 	escPress(t, m)
 	// The intervening key breaks the pair and is inserted as text.
-	m.Update(runeKey('x'))
-	if got := m.prompt.input.Value(); got != "hix" {
-		t.Fatalf("the composer holds %q, want %q", got, "hix")
+	m.Update(runeKey(rune(breaking)))
+	want := "hi" + string(breaking)
+	if got := m.prompt.input.Value(); got != want {
+		t.Fatalf("the composer holds %q, want %q", got, want)
 	}
 
 	// The next Esc arms again — it does not clear.
 	escPress(t, m)
-	if got := m.prompt.input.Value(); got != "hix" {
+	if got := m.prompt.input.Value(); got != want {
 		t.Fatalf("one Esc after a broken pair must not clear the composer, got %q", got)
 	}
 

@@ -1,5 +1,5 @@
 // Package agy implements quarantined compatibility behaviors, quirks, and prompt templates
-// specific to the Antigravity (agy 1.4.12) reference implementation.
+// specific to the Antigravity (agy 1.5.5) reference implementation.
 //
 // Following the 5-tier architecture rules, this package is located in Tier 2 (internal/features/compat/agy),
 // importing only Tier 1 (core) and Tier 2 (features), ensuring complete isolation from generic
@@ -22,7 +22,7 @@ type Policy struct {
 func DefaultPolicy() Policy {
 	return Policy{
 		Enabled:          true,
-		ReferenceVersion: "1.5.5",
+		ReferenceVersion: "1.5.6",
 	}
 }
 

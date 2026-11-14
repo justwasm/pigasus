@@ -42,4 +42,5 @@ package version
 // 1.4.12 → 1.5.3 delta; the 1.5.1–1.5.3 notes are in the public
 // repository and out/extracted-1.5.3/ carries the recovered assets).
 // The installed binary now prints 1.5.5 (aligned to official 1.5.5 release).
-const Reference = "1.5.5"
+// 1.5.6 aligns with latest agy protobuf descriptors and non-destructive convstore.
+const Reference = "1.5.6"

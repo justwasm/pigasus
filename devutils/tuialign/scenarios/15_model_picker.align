@@ -1,0 +1,25 @@
+NAME "Model Picker Alignment (/model) (1.5.7)"
+WINDOW 100 30
+TARGET both
+
+BOOT_BOTH
+WAIT_READY 10s
+
+# Type /model to open model selection overlay
+TYPE "/model"
+ENTER
+SLEEP 500ms
+SNAPSHOT "01_model_picker_open"
+
+# Navigate down through models
+KEYS "Down"
+SLEEP 300ms
+SNAPSHOT "02_model_picker_navigated"
+
+# Press Escape to cancel and return to prompt
+KEYS "Escape"
+SLEEP 500ms
+SNAPSHOT "03_model_picker_closed"
+
+DIFF
+CLEANUP

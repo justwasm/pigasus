@@ -210,6 +210,25 @@ type Client interface {
 // SSE framing path in both shims.
 func NewMock() Client { return &mockClient{} }
 
+type unwrapper interface {
+	Unwrap() Client
+}
+
+// IsMock reports whether c is a mockClient or wraps one.
+func IsMock(c Client) bool {
+	for c != nil {
+		if _, ok := c.(*mockClient); ok {
+			return true
+		}
+		if u, ok := c.(unwrapper); ok {
+			c = u.Unwrap()
+		} else {
+			break
+		}
+	}
+	return false
+}
+
 // mockClient is a deterministic stand-in for the real Antigravity gRPC
 // stream. It deliberately has zero external dependencies and zero goroutine
 // leaks: the channel is closed before Stream returns.

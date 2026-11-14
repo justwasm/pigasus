@@ -17,6 +17,7 @@ import (
 
 	"github.com/justwasm/pigasus/agentlink"
 	"github.com/justwasm/pigasus/internal/app/agentturn"
+	coreversion "github.com/justwasm/pigasus/internal/core/version"
 )
 
 func init() {
@@ -167,7 +168,7 @@ func NewCodexRemote(ctx context.Context, in io.Writer, out io.Reader, closer io.
 		CodexHome string `json:"codexHome"`
 	}
 	if err := r.call(ctx, "initialize", initParams{
-		ClientInfo: clientInfo{Name: "pigasus-tui", Version: "1.4.12"},
+		ClientInfo: clientInfo{Name: "pigasus-tui", Version: coreversion.Reference},
 	}, &initResp); err != nil {
 		_ = r.Close()
 		return nil, fmt.Errorf("codex initialize failed: %w", err)

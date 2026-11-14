@@ -85,8 +85,9 @@ func (p *customModelProxy) close() {
 // falls back to the last good one, and a reference without the
 // operator's models is still a working reference.
 func configuredModels() []models.Model {
-	// The reference backend does not take over catwalk providers from providers.json.
-	// It relies purely on Google OAuth accounts and CloudCode.
+	if reg := models.CachedRegistry(); reg != nil {
+		return reg.List()
+	}
 	return nil
 }
 

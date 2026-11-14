@@ -8,7 +8,7 @@ package builtin
 // webview_browserimage-generator…" (the blob at 0x1034b3b17) — next to
 // `image-generator`, which the
 // reference's own prompt lists as an available subagent
-// (internal/agyprompt/testdata/capture_1.4.6.txt, the <subagents>
+// (internal/app/prompt/agyprompt/testdata/capture_1.5.5.txt, the <subagents>
 // section). The blob is the agents' name vocabulary.
 //
 // 【一手】 the reference's browser-agent description names the same

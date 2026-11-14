@@ -7,6 +7,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/justwasm/pigasus/internal/ui/views/swarmboard"
+	"github.com/justwasm/pigasus/internal/ui/views/taskspanel"
 )
 
 func TestSwarmBoard_SlashAndToggle(t *testing.T) {
@@ -105,5 +106,45 @@ func TestSwarmTrayRow_Integration(t *testing.T) {
 	}
 	if strings.Contains(m.activeItems.Panel.Rows(), "Swarm") {
 		t.Fatalf("tray rows should not contain dismissed swarm: %q", m.activeItems.Panel.Rows())
+	}
+}
+
+// TestSwarmBoard_DetailEscReturnsToBoard pins the AGY 1.5.6 fix:
+// "Fixed pressing esc in a swarm member's conversation opened from /swarm board
+// with o dropping you back at the prompt; it now returns to the board with the
+// same selection, filter, focused pane, and zoom."
+func TestSwarmBoard_DetailEscReturnsToBoard(t *testing.T) {
+	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/tmp", true)
+	m.OpenSwarmBoard()
+	if !m.swarm.Board.Active() {
+		t.Fatal("expected swarm board to be open")
+	}
+
+	// Apply snapshot
+	m.swarm.Board.ApplySnapshot(&swarmboard.SwarmSnapshot{
+		Title: "Test Swarm",
+		Members: []swarmboard.Member{
+			{Name: "worker-1", Role: "Builder", State: "working", ConversationID: "conv-w1"},
+		},
+	})
+
+	// Press 'o' to open member subagent detail
+	m.handleGlobalOrModalKeys(tea.Key{Code: 'o', Text: "o"})
+	if !m.swarm.fromBoard {
+		t.Fatal("expected swarm.fromBoard to be set")
+	}
+	if !m.tasksPanel().Detail() {
+		t.Fatal("expected tasks panel detail to be open")
+	}
+
+	// Press Esc in task detail view -> sends taskspanel.DismissedMsg
+	m.Update(taskspanel.DismissedMsg{FromActiveItems: true})
+
+	// Must return back to the Swarm Board
+	if !m.swarm.Board.Active() {
+		t.Fatal("expected swarm board to be reopened after Esc from member detail")
+	}
+	if m.swarm.fromBoard {
+		t.Fatal("expected swarm.fromBoard to be reset")
 	}
 }

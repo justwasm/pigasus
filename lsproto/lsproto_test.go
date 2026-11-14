@@ -21,30 +21,35 @@ func newTestCodec(t *testing.T) *Codec {
 }
 
 // TestServiceMethodCount pins the size of the surface the web UI
-// speaks. The reference's LanguageServerService declares 368 RPCs
-// (added 4 methods in CL 1012861565 / agy 1.5.0: FetchSandboxPort,
-// StartMcpOAuthSignIn, GetDefinition, GetReferences).
+// speaks. The reference's LanguageServerService declares 373 RPCs
+// (added 6 methods and removed 1 in CL 1017595969 / Antigravity 2.31.0:
+// CancelLogin, GetLoginSession, GetOnboardingPersonas, SearchGcpProjects,
+// SubmitLoginAuthCode, SwitchLoginToAuthCode; removed GetWorkspaceGitHubPullRequests).
 func TestServiceMethodCount(t *testing.T) {
 	c := newTestCodec(t)
-	if got := c.MethodCount(); got != 368 {
-		t.Fatalf("MethodCount = %d, want 368", got)
+	if got := c.MethodCount(); got != 373 {
+		t.Fatalf("MethodCount = %d, want 373", got)
 	}
-	// Check new methods in 2.28.0, CL 1012028536, and 1.5.0 / CL 1012861565:
+	// Check new methods across releases:
 	for _, m := range []string{
 		"GetMarketplaceFeatured", "CallMcpAppTool", "WarmUpEnvironment",
 		"SetPluginAuthAccountLabel", "GetVoiceCallDebug", "ListBackgroundTasks",
 		"DeleteAllUserData", "GetGitHubPullRequests", "GetGoogleChatLinkInfo",
-		"GetPermissionSettings", "GetUserDataDeletionStatus", "GetWorkspaceGitHubPullRequests",
+		"GetPermissionSettings", "GetUserDataDeletionStatus",
 		"RunTrigger", "UpdatePermissionSettings",
 		"FetchSandboxPort", "GetDefinition", "GetReferences", "StartMcpOAuthSignIn",
+		"CancelLogin", "GetLoginSession", "GetOnboardingPersonas",
+		"SearchGcpProjects", "SubmitLoginAuthCode", "SwitchLoginToAuthCode",
 	} {
 		if !c.HasMethod(m) {
 			t.Errorf("expected method %s to exist", m)
 		}
 	}
-	// Check removed method:
-	if c.HasMethod("GetResolvedCascadeConfig") {
-		t.Errorf("GetResolvedCascadeConfig should have been removed")
+	// Check removed methods:
+	for _, m := range []string{"GetResolvedCascadeConfig", "GetWorkspaceGitHubPullRequests"} {
+		if c.HasMethod(m) {
+			t.Errorf("%s should have been removed", m)
+		}
 	}
 }
 

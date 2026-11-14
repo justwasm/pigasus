@@ -9,10 +9,10 @@
 //
 // The reference's four lines are:
 //
-//	Built on: 2026-11-02 19:07:42 +0800 CST
-//	Built at CL: 1012028536
+//	Built on: 2026-11-10 05:44:09 +0800 CST
+//	Built at CL: 1017595969
 //	Build label:
-//	Built info: changelist 1012028536 in a mint client based on //depot/google3
+//	Built info: changelist 1017595969 with baseline 1016950284 in a mint client based on //depot/branches/antigravity_web_release_branch/1016950284.1/google3
 //
 // The clone reports the same identity, the way `cli.ReferenceVersion`
 // reports the reference CLI's version: the replica stands in for the
@@ -32,16 +32,16 @@ import (
 // override each of them.
 var (
 	// StampBuiltOn is the reference binary's build time.
-	StampBuiltOn = "2026-11-02 19:07:42 +0800 CST"
+	StampBuiltOn = "2026-11-10 05:44:09 +0800 CST"
 	// StampCL is the reference binary's changelist number.
-	StampCL = "1012028536"
+	StampCL = "1017595969"
 	// StampBaseline is the reference binary's baseline changelist.
-	StampBaseline = ""
+	StampBaseline = "1016950284"
 	// StampLabel is the reference binary's build label. The
 	// reference prints an empty one.
 	StampLabel = ""
 	// StampBranch is the branch the reference binary was cut from.
-	StampBranch = "//depot/google3"
+	StampBranch = "//depot/branches/antigravity_web_release_branch/1016950284.1/google3"
 )
 
 // WriteStamp writes the reference's stamp to w.

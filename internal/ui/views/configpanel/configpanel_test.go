@@ -84,6 +84,13 @@ func TestDefaultIsAbsent(t *testing.T) {
 			}
 			continue
 		}
+		if r.Name == "Agent Mode" {
+			// AGY 1.5.7: "to keep the previous behavior, choose Default for Agent Mode in /config, which saves 'agentMode': '' to settings.json"
+			if r.Values[0].Stored != "" {
+				t.Errorf("row %q default stores %v, want empty string", r.Name, r.Values[0].Stored)
+			}
+			continue
+		}
 		if r.Values[0].Stored != nil {
 			t.Errorf("row %q default stores %v, want nil (absent)", r.Name, r.Values[0].Stored)
 		}

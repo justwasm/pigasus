@@ -1,13 +1,13 @@
 package onboarding
 
 import (
-	"bytes"
 	"fmt"
 	"io"
 	"strings"
 
+	"github.com/charmbracelet/x/ansi"
 	tuiviewport "github.com/justwasm/pigasus/internal/ui/foundations/viewport"
-	textwrap "github.com/justwasm/pigasus/internal/ui/render/wrap"
+	"github.com/justwasm/pigasus/internal/ui/tuilib"
 	"github.com/justwasm/pigasus/palette"
 )
 
@@ -124,7 +124,7 @@ func terminalPalette() Palette {
 		FG: 15, BG: 0,
 		Keyword: 33, String: 46, Number: 220,
 		FunctionName: 214, Type: 51, Comment: 245,
-		Tool: 244, Task: 117, Err: 196, Warn: 214,
+		Tool: 220, Task: 34, Err: 196, Warn: 214,
 		Link: 39, Accent: 141, Dim_: 244,
 	}
 }
@@ -204,9 +204,6 @@ func Palettes() []Palette {
 // card's `import`/`func` in the keyword colour, `"fmt"` in the string
 // colour, `main`/`greet` in the function colour and `string` in the
 // type colour, and every one of them changes with the scheme.
-//
-// 【一手】 agy 1.4.8's /config → Color Scheme preview card, read off
-// under each of the eight schemes (see palette.SyntaxFor).
 func PaletteFor(c ColorScheme) Palette {
 	p := Palettes()[int(c)]
 	syn := palette.SyntaxFor(c.String())
@@ -222,78 +219,182 @@ func PaletteFor(c ColorScheme) Palette {
 // (google3/third_party/jetski/cli/onboarding/onboarding.go).
 const stepNameColorScheme = "Choose your color scheme:"
 
-func renderSchemeList(w io.Writer, selected ColorScheme) error {
-	for _, scheme := range AllSchemes() {
-		marker := " "
-		if int(scheme) == int(selected) {
-			marker = "▸"
-		}
-		if _, err := fmt.Fprintf(w, "  %s  %s\n", marker, scheme.String()); err != nil {
-			return err
-		}
+// formatInnerRow truncates or pads a styled string to fit inside innerWidth visible cells.
+func formatInnerRow(raw string, innerWidth int) string {
+	w := ansi.StringWidth(raw)
+	if w > innerWidth {
+		raw = ansi.Truncate(raw, innerWidth, "")
+		raw += ansiReset
+	} else if w < innerWidth {
+		raw += strings.Repeat(" ", innerWidth-w)
 	}
-	return nil
+	return raw
 }
 
-// renderColorScheme writes Step 1 of the wizard to w.
-func renderColorScheme(w io.Writer, selected ColorScheme) error {
-	return renderColorSchemeWithDims(w, selected, 0, 0, 0)
+// buildPreviewRows constructs the 20 internal lines of the official agy code & markers preview card.
+func buildPreviewRows(selected ColorScheme) []string {
+	p := PaletteFor(selected)
+	kwColor := fg256(p.Keyword)
+	strColor := fg256(p.String)
+	fnColor := fg256(p.FunctionName)
+	typeColor := fg256(p.Type)
+
+	var rows []string
+
+	// 1. User Prompt
+	rows = append(rows, " "+ansiBold+"\x1b[34m> you: \x1b[0madd a greeting function")
+	// 2. Blank
+	rows = append(rows, "")
+	// 3. Diff introduction
+	rows = append(rows, "   "+ansiBold+"\x1b[32mHere's the change:\x1b[0m")
+	// 4. Blank
+	rows = append(rows, "")
+	// 5. Line 3: import "fmt"
+	rows = append(rows, "   \x1b[90m3\x1b[0m     "+ansiBold+kwColor+"import"+ansiReset+"  "+strColor+"\"fmt\""+ansiReset)
+	// 6. Line 4: blank
+	rows = append(rows, "   \x1b[90m4\x1b[0m")
+	// 7. Line 5: deletion - func main() {
+	delBg := "\x1b[48;5;131m"
+	rows = append(rows, "   \x1b[90m5\x1b[0m"+delBg+"  \x1b[31m-   "+ansiBold+kwColor+"func"+ansiReset+delBg+"  "+fnColor+"main"+ansiReset+delBg+"() {                                       \x1b[49m")
+	// 8. Line 5: addition + func greet(name string) {
+	addBg := "\x1b[48;5;65m"
+	rows = append(rows, "   \x1b[90m5\x1b[0m"+addBg+"  \x1b[32m+   "+ansiBold+kwColor+"func"+ansiReset+addBg+"  "+fnColor+"greet"+ansiReset+addBg+"(name  "+typeColor+"string"+ansiReset+addBg+") {                           \x1b[49m")
+	// 9. Line 6: addition + fmt.Printf("Hello, %s!\n", name)
+	rows = append(rows, "   \x1b[90m6\x1b[0m"+addBg+"  \x1b[32m+   \x1b[39m    fmt."+fnColor+"Printf"+ansiReset+addBg+"("+strColor+"\"Hello, %s!\\n\""+ansiReset+addBg+", name)                \x1b[49m")
+	// 10. Line 7: }
+	rows = append(rows, "   \x1b[90m7\x1b[0m    }")
+	// 11. Blank
+	rows = append(rows, "")
+	// 12. Thought Process Header
+	rows = append(rows, "  \x1b[37m  ▾ Thought Process\x1b[39m")
+	// 13. Thought Process Detail
+	rows = append(rows, "  \x1b[37m    I need to add a greeting function. I'll use fmt.Printf.\x1b[39m")
+	// 14. Tool execution
+	rows = append(rows, "  \x1b[33m  "+MarkerTool+" tool:  \x1b[39mwrite_file main.go")
+	// 15. Task item
+	rows = append(rows, "  \x1b[35m  "+MarkerTask+" task:  \x1b[39mImplementing greeting")
+	// 16. Error indication
+	rows = append(rows, "  \x1b[31m  "+MarkerError+" error:  \x1b[39mcompilation failed")
+	// 17. Warning indication
+	rows = append(rows, "  \x1b[33m  "+MarkerWarning+" warning:  \x1b[39mdeprecation warning")
+	// 18. Link item
+	rows = append(rows, "   "+MarkerLink+" link:  \x1b[4m\x1b[34mfile:///path/to/main.go\x1b[0m")
+	// 19. Accent item
+	rows = append(rows, "  "+ansiBold+"\x1b[94m  "+MarkerAccent+" accent:  \x1b[0mhighlighted text")
+	// 20. Dim footer hint
+	rows = append(rows, "  \x1b[90m  "+MarkerDim+" dim: press Enter to continue\x1b[39m")
+
+	return rows
 }
 
 func renderColorSchemeLines(selected ColorScheme, width int) []string {
 	var lines []string
-	lines = append(lines, stepNameColorScheme, "")
-	for _, scheme := range AllSchemes() {
-		marker := " "
-		if int(scheme) == int(selected) {
-			marker = "▸"
-		}
-		lines = append(lines, fmt.Sprintf("  %s  %s", marker, scheme.String()))
-	}
 
-	// In very narrow terminals (< 60 cols), the color preview is hidden.
-	if width > 0 && width < 60 {
+	// 1. Google Gemini Sparkle Logo (5 lines)
+	logo := tuilib.RenderLogoLines()
+	lines = append(lines, "")
+	for _, l := range logo {
+		lines = append(lines, l)
+	}
+	lines = append(lines, "")
+
+	// 2. Welcome Banner
+	lines = append(lines, "Welcome to \x1b[38;2;66;133;244mAntigravity CLI\x1b[39m!")
+	lines = append(lines, "")
+
+	// 3. Narrow layout (< 70 cols): Hide preview card, show (widen the terminal to see a preview)
+	if width > 0 && width < 70 {
+		lines = append(lines, ansiBold+stepNameColorScheme+ansiReset, "")
+		for _, scheme := range AllSchemes() {
+			marker := " "
+			if scheme == selected {
+				marker = ">"
+			}
+			lines = append(lines, fmt.Sprintf("  %s %s", marker, scheme.String()))
+		}
+		lines = append(lines, "  \x1b[90m(widen the terminal to see a preview)\x1b[0m")
+		lines = append(lines, "")
+		lines = append(lines, "    \x1b[1m\x1b[32m[Next]\x1b[0m")
+		lines = append(lines, "")
+		lines = append(lines, "  \x1b[1m\x1b[94m↑/↓\x1b[0m\x1b[90m Navigate · \x1b[1m\x1b[94menter\x1b[0m\x1b[90m Confirm\x1b[0m")
+		if width >= 30 {
+			tag := "\x1b[2mGemini 3.8 Flash · high\x1b[0m"
+			pad := width - 23
+			if pad > 0 {
+				lines = append(lines, strings.Repeat(" ", pad)+tag)
+			}
+		}
 		return lines
 	}
 
-	lines = append(lines, "")
-	rule := "─── Preview ──────────────────────────────────────────────────────────────"
-	if width >= 60 && width < 80 {
-		chunks := textwrap.Break(rule, width)
-		if len(chunks) > 0 {
-			rule = chunks[0]
+	// 4. Side-by-Side Responsive Layout (width == 0 || width >= 70)
+	leftWidth := 33
+	boxWidth := 63
+	if width > 0 && width < leftWidth+1+boxWidth {
+		boxWidth = width - leftWidth - 1
+		if boxWidth < 30 {
+			boxWidth = 30
 		}
 	}
-	lines = append(lines, rule)
+	innerWidth := boxWidth - 2
 
-	var buf bytes.Buffer
-	_ = renderGoPreview(&buf, selected)
-	_ = renderMarkersFooter(&buf)
-	previewStr := strings.TrimRight(buf.String(), "\n")
-	for _, l := range strings.Split(previewStr, "\n") {
-		if width >= 60 && width < 80 {
-			lines = append(lines, textwrap.Words(l, width)...)
-		} else {
-			lines = append(lines, l)
+	// Left Column Lines
+	leftCol := make([]string, 0, 22)
+	leftCol = append(leftCol, ansiBold+stepNameColorScheme+ansiReset) // row 0: Choose your color scheme:
+	leftCol = append(leftCol, "")                                    // row 1: blank
+	for _, scheme := range AllSchemes() {                             // rows 2..9: 8 schemes
+		marker := " "
+		if scheme == selected {
+			marker = ">"
 		}
+		leftCol = append(leftCol, fmt.Sprintf("  %s %s", marker, scheme.String()))
 	}
+	for len(leftCol) < 22 {
+		leftCol = append(leftCol, "")
+	}
+
+	// Right Column Card Lines (22 lines total: top border + 20 rows + bottom border)
+	cardLines := make([]string, 0, 22)
+	cardLines = append(cardLines, "\x1b[90m╭"+strings.Repeat("─", innerWidth)+"╮\x1b[0m")
+	previewRows := buildPreviewRows(selected)
+	for _, row := range previewRows {
+		cardLines = append(cardLines, "\x1b[90m│\x1b[0m"+formatInnerRow(row, innerWidth)+"\x1b[90m│\x1b[0m")
+	}
+	cardLines = append(cardLines, "\x1b[90m╰"+strings.Repeat("─", innerWidth)+"╯\x1b[0m")
+
+	// Merge Left Column and Right Card side-by-side
+	for r := 0; r < 22; r++ {
+		l := leftCol[r]
+		w := ansi.StringWidth(l)
+		pad := leftWidth - w
+		if pad < 0 {
+			pad = 0
+		}
+		lines = append(lines, l+strings.Repeat(" ", pad)+" "+cardLines[r])
+	}
+
+	lines = append(lines, "")
+	lines = append(lines, "    \x1b[1m\x1b[32m[Next]\x1b[0m")
+	lines = append(lines, "")
+	lines = append(lines, "  \x1b[1m\x1b[94m↑/↓\x1b[0m\x1b[90m Navigate · \x1b[1m\x1b[94menter\x1b[0m\x1b[90m Confirm\x1b[0m")
+
+	targetW := width
+	if targetW <= 0 {
+		targetW = 97
+	}
+	tag := "\x1b[2mGemini 3.8 Flash · high\x1b[0m"
+	pad := targetW - 23
+	if pad > 0 {
+		lines = append(lines, strings.Repeat(" ", pad)+tag)
+	}
+
 	return lines
 }
 
 func renderColorSchemeWithDims(w io.Writer, selected ColorScheme, width, height, scroll int) error {
 	lines := renderColorSchemeLines(selected, width)
-	footer := "                              [ Next ]"
-	if width > 0 && len(footer) > width {
-		btn := "[ Next ]"
-		if len(btn) <= width {
-			pad := (width - len(btn)) / 2
-			footer = strings.Repeat(" ", pad) + btn
-		} else {
-			footer = btn
-		}
-	}
-	if height > 0 {
-		area := max(1, height-3)
+	if height > 0 && len(lines) > height {
+		area := max(1, height-1)
 		lines = tuiviewport.ScrollWindow(len(lines), scroll, area).SliceRows(lines)
 	}
 	for _, l := range lines {
@@ -301,119 +402,17 @@ func renderColorSchemeWithDims(w io.Writer, selected ColorScheme, width, height,
 			return err
 		}
 	}
-	if _, err := fmt.Fprintln(w); err != nil {
-		return err
-	}
-	_, err := fmt.Fprintln(w, footer)
-	return err
-}
-
-type previewSegment struct {
-	text  string
-	color string
-}
-
-func emitPreviewLine(w io.Writer, bg, fg string, parts ...previewSegment) error {
-	var sb strings.Builder
-	sb.WriteString(bg)
-	sb.WriteString(fg)
-	for _, s := range parts {
-		if s.color != "" {
-			sb.WriteString(s.color)
-		}
-		sb.WriteString(s.text)
-		if s.color != "" {
-			sb.WriteString(ansiReset)
-			sb.WriteString(bg)
-			sb.WriteString(fg)
-		}
-	}
-	sb.WriteString(ansiReset)
-	_, err := fmt.Fprintln(w, sb.String())
-	return err
-}
-
-func renderPreviewThoughts(w io.Writer, bg, fg string) error {
-	thought := "I need to add a greeting function that takes a name and prints a hello message."
-	if _, err := fmt.Fprintf(w, "%s%s%s%s%s\n", bg, fg, ansiDim, thought, ansiReset); err != nil {
-		return err
-	}
-	_, err := fmt.Fprintf(w, "%s%s%s%s%s\n", bg, fg, ansiDim, "Let me check the existing code structure first.", ansiReset)
-	return err
-}
-
-func renderPreviewMain(w io.Writer, bg, fg, kwColor, strColor, fnColor string) error {
-	if err := emitPreviewLine(w, bg, fg,
-		previewSegment{text: "import", color: kwColor},
-		previewSegment{text: " "},
-		previewSegment{text: "\"fmt\"", color: strColor},
-	); err != nil {
-		return err
-	}
-	if err := emitPreviewLine(w, bg, fg,
-		previewSegment{text: "func", color: kwColor},
-		previewSegment{text: " "},
-		previewSegment{text: "main", color: fnColor},
-		previewSegment{text: "() {"},
-	); err != nil {
-		return err
-	}
-	if err := emitPreviewLine(w, bg, fg,
-		previewSegment{text: "\tgreet", color: fnColor},
-		previewSegment{text: "("},
-		previewSegment{text: "\"World\"", color: strColor},
-		previewSegment{text: ")"},
-	); err != nil {
-		return err
-	}
-	if err := emitPreviewLine(w, bg, fg, previewSegment{text: "}"}); err != nil {
-		return err
-	}
-	return emitPreviewLine(w, bg, fg, previewSegment{text: ""})
-}
-
-func renderPreviewGreet(w io.Writer, bg, fg, kwColor, strColor, fnColor, typeColor string) error {
-	if err := emitPreviewLine(w, bg, fg,
-		previewSegment{text: "func", color: kwColor},
-		previewSegment{text: " "},
-		previewSegment{text: "greet", color: fnColor},
-		previewSegment{text: "(name "},
-		previewSegment{text: "string", color: typeColor},
-		previewSegment{text: ") {"},
-	); err != nil {
-		return err
-	}
-	if err := emitPreviewLine(w, bg, fg,
-		previewSegment{text: "\t", color: fg},
-		previewSegment{text: "fmt", color: typeColor},
-		previewSegment{text: "."},
-		previewSegment{text: "Printf", color: fnColor},
-		previewSegment{text: "("},
-		previewSegment{text: "\"Hello, %s!\\n\"", color: strColor},
-		previewSegment{text: ", name)"},
-	); err != nil {
-		return err
-	}
-	return emitPreviewLine(w, bg, fg, previewSegment{text: "}"})
+	return nil
 }
 
 // renderGoPreview writes a small Go program rendered with the
-// selected scheme's ANSI palette.
+// selected scheme's ANSI palette (kept for backward-compatibility with cycle tests).
 func renderGoPreview(w io.Writer, scheme ColorScheme) error {
-	p := PaletteFor(scheme)
-	bg := bg256(p.BG)
-	fg := fg256(p.FG)
-
-	if err := renderPreviewThoughts(w, bg, fg); err != nil {
-		return err
+	rows := buildPreviewRows(scheme)
+	for _, r := range rows {
+		if _, err := fmt.Fprintln(w, r); err != nil {
+			return err
+		}
 	}
-	kwColor := fg256(p.Keyword)
-	strColor := fg256(p.String)
-	fnColor := fg256(p.FunctionName)
-	typeColor := fg256(p.Type)
-
-	if err := renderPreviewMain(w, bg, fg, kwColor, strColor, fnColor); err != nil {
-		return err
-	}
-	return renderPreviewGreet(w, bg, fg, kwColor, strColor, fnColor, typeColor)
+	return nil
 }

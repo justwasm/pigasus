@@ -58,7 +58,11 @@ var payloadGolden = `{"cwd":"` + payloadGoldenCwd + `",` +
 	`"used_percentage":14.599609375,"remaining_percentage":85.400390625,` +
 	`"current_usage":{"input_tokens":13327,"output_tokens":117,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}},` +
 	`"exceeds_200k_tokens":false,"agent":{"name":"probe"},"product":"antigravity",` +
-	`"quota":{"3p-5h":{"remaining_fraction":1}},"agent_state":"idle","cycle_mode":"auto",` +
+	// No cycle_mode: the fixture's session runs in Auto, and 1.5.7 made
+	// Auto the default mode, so the payload omits it (the same rule the
+	// built-in status row follows). TestBuildStatusLinePayload_CycleMode
+	// pins the member for a mode that is *not* the default.
+	`"quota":{"3p-5h":{"remaining_fraction":1}},"agent_state":"idle",` +
 	`"sandbox":{"enabled":false},"plan_tier":"` + payloadGoldenTier + `","email":"` + payloadGoldenAccount + `",` +
 	`"terminal_width":120,"cost":{"total_usd":0.0097435,"subagent_usd":0,"estimated":true}}`
 
@@ -85,6 +89,7 @@ func payloadGoldenSession(t *testing.T) *RootModel {
 			email:            payloadGoldenAccount,
 			tier:             payloadGoldenTier,
 			mode:             "auto",
+			startMode:        "auto",
 			agentName:        "probe",
 			store: tuistore.Store{Tokens: tuistore.Tokens{
 				SessionPromptTokens:      19136,
@@ -163,6 +168,26 @@ func TestBuildStatusLinePayload_NoUsageReportsNull(t *testing.T) {
 	if cw["current_usage"] != nil {
 		t.Errorf("current_usage = %v, want null before the first response",
 			cw["current_usage"])
+	}
+}
+
+// TestBuildStatusLinePayload_CycleMode pins the `cycle_mode` member: it
+// names a mode the user cycled to, and is omitted in the default mode.
+//
+// 【一手】 agy 1.4.7's capture carries "cycle_mode":"auto" because Auto was
+// not the default then; 1.5.7 made Auto the default, so the same session
+// reports nothing at startup.
+func TestBuildStatusLinePayload_CycleMode(t *testing.T) {
+	m := payloadGoldenSession(t)
+	decoded := decodeHostPayload(t, mustMarshal(t, m.buildStatusLinePayload()))
+	if got, ok := decoded["cycle_mode"]; ok {
+		t.Errorf("cycle_mode = %v, want it omitted in the default mode (%q)", got, m.session.mode)
+	}
+
+	m.session.mode = "accept-edits"
+	decoded = decodeHostPayload(t, mustMarshal(t, m.buildStatusLinePayload()))
+	if decoded["cycle_mode"] != "accept-edits" {
+		t.Errorf("cycle_mode = %v, want accept-edits", decoded["cycle_mode"])
 	}
 }
 
@@ -285,4 +310,14 @@ func decodeHostPayload(t *testing.T, raw []byte) map[string]any {
 		t.Fatal(err)
 	}
 	return decoded
+}
+
+// mustMarshal renders a payload, failing the test on an encoding error.
+func mustMarshal(t *testing.T, v any) []byte {
+	t.Helper()
+	raw, err := json.Marshal(v)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return raw
 }

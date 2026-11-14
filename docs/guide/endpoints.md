@@ -94,6 +94,14 @@ The environment variables stay where they were — `CLOUD_CODE_URL`
 still win over the file: a variable set for one invocation is more specific
 than a file that is always there.
 
+`CLOUD_CODE_URL` is applied **in `currentOverrides()`**, not only in the
+transport: every caller of `Current()` — the plan-tier lookup behind the
+banner and `/accounts`, the quota summary, the reference-backend spawn —
+reads the same host. When only the transport honoured it, a run pointed at a
+local service still sent its tier and quota calls to Google with the
+operator's real token (found by `tuialign`: the banner had no
+`(Antigravity Pro)` because the tier call never reached the mock).
+
 ## Where the file is
 
 ```

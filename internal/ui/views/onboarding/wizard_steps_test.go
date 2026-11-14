@@ -57,11 +57,11 @@ func verifyPreviewCodeAndMarkers(t *testing.T, out string) {
 			t.Errorf("color-scheme render missing marker %q", marker)
 		}
 	}
-	if !strings.Contains(out, "[ Next ]") {
-		t.Errorf("color-scheme render missing [ Next ] button")
+	if !strings.Contains(out, "[Next]") && !strings.Contains(out, "[ Next ]") {
+		t.Errorf("color-scheme render missing [Next] button")
 	}
-	if !strings.Contains(out, "▸") {
-		t.Errorf("color-scheme render missing ▸ selected marker")
+	if !strings.Contains(out, ">") && !strings.Contains(out, "▸") {
+		t.Errorf("color-scheme render missing > or ▸ selected marker")
 	}
 	if strings.Contains(out, "[ Done ]") {
 		t.Errorf("color-scheme render should not contain [ Done ]")

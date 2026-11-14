@@ -85,7 +85,7 @@ func RenderBtwBodyLines(state string, answer string, err error, cardWidth int, e
 func RenderBtwCardBodyLines(card *Card, state string, answer string, err error, cardWidth int, expanded bool, height, scroll int, renderMd ...MarkdownRenderer) []string {
 	if state == StatePending || (state == StateStreaming && answer == "") {
 		if card != nil && card.GetCurrentTool() != "" {
-			return []string{Spinner() + " Calling " + card.GetCurrentTool() + "..."}
+			return []string{Spinner() + " Calling " + card.GetCurrentTool() + "... (Enter/Esc to cancel)"}
 		}
 		return []string{Spinner() + " Thinking..."}
 	}
@@ -108,7 +108,7 @@ func RenderBtwCardBodyLines(card *Card, state string, answer string, err error, 
 		}
 		return lines
 	}
-	return []string{"Error: /btw ended unexpectedly without a response"}
+	return []string{"Error: /btw ended unexpectedly without a response", "Press Enter/Esc to dismiss"}
 }
 
 // RenderBtwCard renders the active side-question card into an input-card box.
@@ -139,21 +139,49 @@ func (c *Card) Render(opts CardRenderOptions) string {
 
 func buildCardLines(card *Card, question, answer, state string, err error, cardWidth int, expanded bool, opts CardRenderOptions) []string {
 	var lines []string
-	lines = append(lines, firstLine(question), "")
+	lines = append(lines, formatQuestion(question), "")
+
+	if err != nil || state == StateFailed {
+		errMsg := "unknown error"
+		if err != nil {
+			errMsg = err.Error()
+		}
+		lines = append(lines, "Error: "+errMsg, "Press Enter/Esc to dismiss")
+		return lines
+	}
+
+	if answer != "" {
+		body := RenderBtwCardBodyLines(card, state, answer, err, cardWidth, expanded, opts.Height, opts.Scroll, opts.RenderMd)
+		lines = append(lines, body...)
+		lines = append(lines, "")
+
+		if state == StatePending || state == StateStreaming {
+			if card != nil && card.GetCurrentTool() != "" {
+				lines = append(lines, Spinner()+" Calling "+card.GetCurrentTool()+"... (Enter/Esc to cancel)")
+			} else {
+				lines = append(lines, Spinner()+" Generating... (Enter/Esc to cancel)")
+			}
+		} else {
+			lines = append(lines, HintText(expanded, opts.CardCount))
+		}
+		return lines
+	}
+
+	// answer == ""
 	body := RenderBtwCardBodyLines(card, state, answer, err, cardWidth, expanded, opts.Height, opts.Scroll, opts.RenderMd)
 	lines = append(lines, body...)
-	lines = append(lines, "")
-
-	if state == StatePending || state == StateStreaming {
-		if card != nil && card.GetCurrentTool() != "" {
-			lines = append(lines, Spinner()+" Calling "+card.GetCurrentTool()+"... (Enter/Esc to cancel)")
-		} else {
-			lines = append(lines, Spinner()+" Generating... (Enter/Esc to cancel)")
-		}
-	} else if err == nil && state != StateFailed {
-		lines = append(lines, HintText(expanded, opts.CardCount))
-	}
 	return lines
+}
+
+func formatQuestion(q string) string {
+	line := strings.TrimSpace(firstLine(q))
+	if line == "" {
+		return "/btw"
+	}
+	if strings.HasPrefix(line, "/btw ") || strings.HasPrefix(line, "/help ") {
+		return line
+	}
+	return "/btw " + line
 }
 
 func firstLine(s string) string {

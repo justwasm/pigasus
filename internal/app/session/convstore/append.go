@@ -60,13 +60,32 @@ func AppendConversationSteps(id, workspace string, steps []Step) error {
 	}
 	for i, s := range steps {
 		idx := next + 1 + int64(i)
+		var payload []byte
+		var rinfo []byte
+		var metadata []byte
+
+		if len(s.RawPayload) > 0 {
+			payload = s.RawPayload
+			rinfo = s.RawRenderInfo
+			metadata = s.RawMetadata
+		} else {
+			if s.Type == StepToolCall {
+				rinfo = encodeStepRenderInfo(s)
+				payload = encodeToolCallPayload(s, rinfo)
+			} else {
+				payload = encodeForkPayload(s)
+			}
+		}
+
 		if _, err := sdb.Exec(
-			`INSERT INTO steps (idx, step_type, status, step_payload) VALUES (?, ?, ?, ?)
+			`INSERT INTO steps (idx, step_type, status, metadata, render_info, step_payload) VALUES (?, ?, ?, ?, ?, ?)
 			 ON CONFLICT(idx) DO UPDATE SET
 			   step_type=excluded.step_type,
 			   status=excluded.status,
-			   step_payload=excluded.step_payload`,
-			idx, s.Type, s.Status, encodeForkPayload(s)); err != nil {
+			   metadata=COALESCE(excluded.metadata, steps.metadata),
+			   render_info=COALESCE(excluded.render_info, steps.render_info),
+			   step_payload=COALESCE(excluded.step_payload, steps.step_payload)`,
+			idx, s.Type, s.Status, metadata, rinfo, payload); err != nil {
 			return fmt.Errorf("convstore: append step %d: %w", idx, err)
 		}
 	}

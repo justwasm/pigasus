@@ -277,6 +277,9 @@ func loadedToolStep(s convstore.Step) toolsteps.Step {
 	// `StepIndicesExcludingStatuses` excludes.
 	failed := !rehydration.Succeeded(s.Status)
 	st := toolsteps.NewToolStep(s.ToolName, json.RawMessage(s.ToolArgs), s.ToolResult, failed)
+	if s.ToolSummary != "" && (st.Summary == "" || st.Summary == s.ToolName) {
+		st.Summary = s.ToolSummary
+	}
 	return st
 }
 

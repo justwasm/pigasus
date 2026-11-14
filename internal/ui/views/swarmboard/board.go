@@ -458,10 +458,10 @@ func (b *Board) View() string {
 
 	var sb strings.Builder
 
-	// Title Bar
-	titleText := "Swarm Board"
+	// Title Bar (AGY 1.5.6: Queen bee in header)
+	titleText := "👑🐝 Swarm Board"
 	if b.title != "" {
-		titleText = fmt.Sprintf("Swarm: %s", b.title)
+		titleText = fmt.Sprintf("👑🐝 Swarm: %s", b.title)
 	}
 	statusBadge := palette.AgentDoneOpen + "● RUNNING" + palette.BlueClose
 	if b.isDone {
@@ -605,9 +605,9 @@ func (b *Board) renderRosterPane(width, height int) string {
 func (b *Board) memberBullet(state string) string {
 	switch strings.ToLower(state) {
 	case "working":
-		return palette.AgentDoneOpen + "●" + palette.BlueClose
+		return palette.AgentDoneOpen + "🐝 ●" + palette.BlueClose
 	case "waiting":
-		return palette.AgentActiveOpen + "●" + palette.BlueClose
+		return palette.AgentActiveOpen + "🐝 ○" + palette.BlueClose
 	case "killed":
 		return palette.AgentErrorOpen + "×" + palette.BlueClose
 	case "stopped":

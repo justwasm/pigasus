@@ -519,6 +519,7 @@ func validateWrappedHooks(hooksRaw json.RawMessage, topCount int, rep *validateR
 				})
 				return
 			}
+			checkHookCommands(g, rep)
 		}
 	}
 	rep.Findings = append(rep.Findings, validateFinding{
@@ -563,6 +564,41 @@ func validateFlatHooks(top map[string]json.RawMessage, rep *validateReport) {
 					File:     "hooks.json",
 					Message:  fmt.Sprintf("hook %q: unknown event %q is ignored (events: %s)", name, key, hookEvents),
 				})
+			} else {
+				checkHookCommands(spec[key], rep)
+			}
+		}
+	}
+}
+
+func checkHookCommands(raw json.RawMessage, rep *validateReport) {
+	if len(raw) == 0 {
+		return
+	}
+	var single map[string]any
+	if err := json.Unmarshal(raw, &single); err == nil {
+		if cmd, ok := single["command"].(string); ok {
+			if strings.Contains(cmd, "${PLUGIN_ROOT}") || strings.Contains(cmd, "$PLUGIN_ROOT") {
+				rep.Findings = append(rep.Findings, validateFinding{
+					Severity: validateWarning,
+					File:     "hooks.json",
+					Message:  `hook command uses ${PLUGIN_ROOT} or $PLUGIN_ROOT; hooks already run inside the plugin folder, suggest using a relative path instead`,
+				})
+			}
+		}
+		return
+	}
+	var list []map[string]any
+	if err := json.Unmarshal(raw, &list); err == nil {
+		for _, item := range list {
+			if cmd, ok := item["command"].(string); ok {
+				if strings.Contains(cmd, "${PLUGIN_ROOT}") || strings.Contains(cmd, "$PLUGIN_ROOT") {
+					rep.Findings = append(rep.Findings, validateFinding{
+						Severity: validateWarning,
+						File:     "hooks.json",
+						Message:  `hook command uses ${PLUGIN_ROOT} or $PLUGIN_ROOT; hooks already run inside the plugin folder, suggest using a relative path instead`,
+					})
+				}
 			}
 		}
 	}

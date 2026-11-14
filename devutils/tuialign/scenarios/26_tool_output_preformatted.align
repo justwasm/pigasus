@@ -1,0 +1,57 @@
+NAME "Tool Output Is Preformatted (run_command) (1.5.8)"
+WINDOW 100 30
+TARGET both
+
+# A `run_command` body is machine output, so it is drawn preformatted: the
+# source's own leading whitespace survives and backtick-quoted struct tags
+# stay backtick-quoted.
+#
+# The regression this pins (2026-11-14): one step rendered with its nesting
+# intact and the next dedented with the tags turned into colour-only code
+# spans, because that body contained Go's double pointer
+# (`meta **StreamMeta`) and `**` alone used to mean "this is markdown".
+# goldmark re-flowed the body: its indentation collapsed to the glamour
+# margin and the backticks disappeared.
+#
+# Two turns, not one: the first writes the fixture with a quoted heredoc so
+# both binaries hand the shell identical bytes (a `printf` body would differ
+# between them — agy's shell keeps the escapes literal), the second reads it
+# back as tool output.
+MOCK_TURN
+  THOUGHT "Writing a small Go fixture, then reading it back through the shell." TOKENS 110 DELAY 100ms
+  TOOL run_command {"CommandLine":"cat > sample.go <<'GOEOF'\nfunc (p *googleProvider) Stream(ctx context.Context) {\n\tout := make(chan StreamEvent, 1)\n\tif ctx == nil {\n\t\tclose(out)\n\t}\n}\n\nfunc updateMessageDelta(payload string, meta **StreamMeta) {\n\tvar d struct {\n\t\tUsage struct {\n\t\t\tInputTokens  int `json:\"input_tokens\"`\n\t\t\tOutputTokens int `json:\"output_tokens\"`\n\t\t}\n\t}\n}\nGOEOF","toolSummary":"Write fixture","WaitMsBeforeAsync":5000}
+  USAGE PROMPT 18200 CANDIDATES 40 THOUGHTS 110
+  FINISH STOP
+
+MOCK_TURN
+  TOOL run_command {"CommandLine":"cat sample.go","toolSummary":"Read sample.go","WaitMsBeforeAsync":5000}
+  USAGE PROMPT 18400 CANDIDATES 20 THOUGHTS 0
+  FINISH STOP
+
+MOCK_TURN
+  TEXT "Both listings rendered."
+  USAGE PROMPT 18500 CANDIDATES 8 THOUGHTS 0
+  FINISH STOP
+
+BOOT_BOTH
+WAIT_READY 10s
+
+TYPE "show both files"
+ENTER
+
+WAIT_TEXT "Both listings rendered." 30s
+SNAPSHOT "01_tool_output_collapsed"
+
+# The step is expanded: ctrl+o toggles the body open.
+KEYS "C-o"
+SLEEP 500ms
+SNAPSHOT "02_tool_output_expanded"
+
+# The backticks are the discriminator: the markdown path turns
+# `` `json:"input_tokens"` `` into a code span and the ticks vanish.
+EXPECT_TEXT "int `json:\"input_tokens\"`" 5s
+# ... and the code-span form the markdown path produced must be gone.
+ASSERT_NOT_TEXT "int json:"
+
+DIFF
+CLEANUP

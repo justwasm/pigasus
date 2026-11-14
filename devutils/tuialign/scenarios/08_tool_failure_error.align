@@ -1,0 +1,33 @@
+NAME "Tool Call Error & Non-Zero Exit Code Alignment"
+WINDOW 100 30
+TARGET both
+
+# Turn 1: Model calls run_command that fails with non-zero exit code
+MOCK_TURN
+  THOUGHT "Checking contents of non-existent directory..." TOKENS 100 DELAY 100ms
+  TOOL run_command {"CommandLine":"cat /non_existent_file_xyz_12345.txt","toolSummary":"Read non-existent file","WaitMsBeforeAsync":5000}
+  USAGE PROMPT 18200 CANDIDATES 25 THOUGHTS 100
+  FINISH STOP
+
+# Turn 2: Model reports the failure
+MOCK_TURN
+  THOUGHT "Analyzing command failure and explaining to user..." TOKENS 80 DELAY 100ms
+  TEXT "The command failed with an error: no such file or directory."
+  USAGE PROMPT 18400 CANDIDATES 20 THOUGHTS 80
+  FINISH STOP
+
+BOOT_BOTH
+WAIT_READY 10s
+
+TYPE "check non existent file"
+ENTER
+
+WAIT_TEXT "The command failed" 20s
+SNAPSHOT "01_tool_error_collapsed"
+
+KEYS "C-o"
+SLEEP 500ms
+SNAPSHOT "02_tool_error_expanded"
+
+DIFF
+CLEANUP

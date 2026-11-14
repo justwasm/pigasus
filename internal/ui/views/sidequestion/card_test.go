@@ -104,8 +104,8 @@ func TestRenderBtwBodyLines_Errors(t *testing.T) {
 	}
 
 	doneEmpty := RenderBtwBodyLines(StateDone, "", nil, 80, false, 24, 0)
-	if len(doneEmpty) != 1 || !strings.Contains(doneEmpty[0], "ended unexpectedly") {
-		t.Errorf("expected ended unexpectedly error, got %v", doneEmpty)
+	if len(doneEmpty) != 2 || !strings.Contains(doneEmpty[0], "ended unexpectedly") {
+		t.Errorf("expected ended unexpectedly error (2 lines), got %v", doneEmpty)
 	}
 }
 
@@ -134,9 +134,40 @@ func TestRenderBtwCard_NilAndStates(t *testing.T) {
 	if strings.Contains(renderedPending, "Extra line") {
 		t.Errorf("firstLine should have stripped extra line:\n%s", renderedPending)
 	}
-	if !strings.Contains(renderedPending, "Generating... (Enter/Esc to cancel)") {
-		t.Errorf("missing generating prompt in pending card:\n%s", renderedPending)
+	if !strings.Contains(renderedPending, "Thinking...") {
+		t.Errorf("missing thinking prompt in pending card:\n%s", renderedPending)
 	}
+	if strings.Contains(renderedPending, "Generating... (Enter/Esc to cancel)") {
+		t.Errorf("pending card must not have duplicate Generating spinner footer:\n%s", renderedPending)
+	}
+	if n := countSpinnersInCard(renderedPending); n != 1 {
+		t.Errorf("expected exactly 1 spinner in pending card, got %d:\n%s", n, renderedPending)
+	}
+
+	cStreaming := &Card{
+		Question: "Why is the sky blue?",
+		Answer:   "Because of Rayleigh scattering.",
+		State:    StateStreaming,
+	}
+	renderedStreaming := RenderBtwCard(cStreaming, CardRenderOptions{Width: 80, Height: 24})
+	if !strings.Contains(renderedStreaming, "Generating... (Enter/Esc to cancel)") {
+		t.Errorf("missing generating prompt in streaming card:\n%s", renderedStreaming)
+	}
+	if strings.Contains(renderedStreaming, "Thinking...") {
+		t.Errorf("streaming card with answer must not contain Thinking...:\n%s", renderedStreaming)
+	}
+	if n := countSpinnersInCard(renderedStreaming); n != 1 {
+		t.Errorf("expected exactly 1 spinner in streaming card, got %d:\n%s", n, renderedStreaming)
+	}
+}
+
+func countSpinnersInCard(s string) int {
+	frames := []string{"⣾", "⣷", "⣯", "⣟", "⡿", "⢿", "⣻", "⣽"}
+	count := 0
+	for _, f := range frames {
+		count += strings.Count(s, f)
+	}
+	return count
 }
 
 func TestRenderBtwCard_DoneAndExpanded(t *testing.T) {

@@ -35,7 +35,18 @@ type CheckpointMeta struct {
 	StepCount      int       `json:"stepCount"`
 	NestingDepth   int       `json:"nestingDepth"`
 	ToolsUsed      []string  `json:"toolsUsed"`
-	Error          string    `json:"error,omitempty"`
+	// Output is the child's answer — what the subagent detail renders under
+	// its "Answer" heading. Without it a restored child shows
+	// "(no output)" even though its trajectory holds the answer.
+	Output string `json:"output,omitempty"`
+	// Steps is the child's trajectory, in order — the same list the
+	// subagent detail's "Trajectory — <name> (<N> steps)" section
+	// renders. It is persisted so a restored subagent keeps its
+	// trajectory instead of reporting "No steps yet"; see
+	// rehydrateSteps for the fallback that rebuilds it from the
+	// transcript when the field is absent.
+	Steps []string `json:"steps,omitempty"`
+	Error string   `json:"error,omitempty"`
 }
 
 // saveCheckpoint atomically writes the subagent's metadata to <subDir>/<id>.meta.json.
@@ -73,6 +84,53 @@ func loadCheckpoint(subDir, conversationID string) (*CheckpointMeta, error) {
 		return nil, fmt.Errorf("unmarshal checkpoint meta: %w", err)
 	}
 	return &meta, nil
+}
+
+// rehydrateSteps returns the restored child's trajectory.
+//
+// The checkpoint carries it, so a subagent restored after a restart keeps
+// the "Trajectory — <name> (<N> steps)" section its detail view renders.
+// A checkpoint written before the field existed has none; the transcript
+// beside it does, and the steps are the same derivation the live run
+// used (usedSteps over the persisted messages), so they are rebuilt from
+// there rather than left empty.
+func rehydrateSteps(subDir string, meta *CheckpointMeta) []string {
+	if meta == nil {
+		return nil
+	}
+	if len(meta.Steps) > 0 {
+		return append([]string(nil), meta.Steps...)
+	}
+	if subDir == "" || meta.ConversationID == "" {
+		return nil
+	}
+	msgs, err := loadTranscript(subDir, meta.ConversationID)
+	if err != nil || len(msgs) == 0 {
+		return nil
+	}
+	return usedSteps(msgs)
+}
+
+// rehydrateOutput returns the restored child's answer.
+//
+// The checkpoint carries it; a checkpoint written before the field existed
+// has only the transcript beside it, and the answer is the same derivation
+// the live run used (assistantText over the persisted messages).
+func rehydrateOutput(subDir string, meta *CheckpointMeta) string {
+	if meta == nil {
+		return ""
+	}
+	if meta.Output != "" {
+		return meta.Output
+	}
+	if subDir == "" || meta.ConversationID == "" {
+		return ""
+	}
+	msgs, err := loadTranscript(subDir, meta.ConversationID)
+	if err != nil || len(msgs) == 0 {
+		return ""
+	}
+	return assistantText(msgs)
 }
 
 // isRecoverableLimitError detects rate limit, token exhaustion, or quota errors.
@@ -115,8 +173,28 @@ func RehydrateSubagents(subDir string, reg *Registry, taskReg *taskregistry.Regi
 			continue
 		}
 
-		if deps.ConversationID != "" && meta.ParentID != "" && meta.ParentID != deps.ConversationID {
+		// A child belongs to exactly one conversation. The checkpoint
+		// records that owner, so a conversation only adopts its own
+		// children: without the check, opening any conversation in a
+		// process that shares the subagents directory lists another
+		// conversation's (finished) subagents in /tasks.
+		//
+		// A checkpoint written before the parent id was recorded
+		// carries no owner. It cannot be attributed, so it is not
+		// adopted: guessing would put a stranger's subagent — and an
+		// empty trajectory for it — in the panel.
+		if deps.ConversationID != "" && meta.ParentID != deps.ConversationID {
 			continue
+		}
+
+		// A child that is still live in this process owns its own task
+		// row: the checkpoint beside it is the snapshot from its last
+		// finished turn, and adopting that snapshot would show the child
+		// as idle with its latest turn's answer missing.
+		if reg != nil {
+			if _, live := reg.Get(meta.ConversationID); live {
+				continue
+			}
 		}
 
 		// Reconstitute state: an interrupted "running" task after CLI restart becomes "stopped"
@@ -128,6 +206,7 @@ func RehydrateSubagents(subDir string, reg *Registry, taskReg *taskregistry.Regi
 		childCtx, cancel := context.WithCancel(context.Background())
 		_ = childCtx
 		child := NewChild(meta.ConversationID, meta.TypeName, meta.Role, meta.Worktree, cancel)
+		child.ParentID = meta.ParentID
 		child.Model = meta.Model
 		child.Effort = meta.Effort
 		child.SpawnStepIndex = meta.SpawnStepIndex
@@ -174,6 +253,8 @@ func RehydrateSubagents(subDir string, reg *Registry, taskReg *taskregistry.Regi
 				LastActivityAt: meta.LastActivityAt,
 				Prompt:         meta.Prompt,
 				Tools:          meta.ToolsUsed,
+				Steps:          rehydrateSteps(subDir, meta),
+				Output:         rehydrateOutput(subDir, meta),
 				Model:          meta.Model,
 				Effort:         meta.Effort,
 			}

@@ -288,10 +288,9 @@ func formatAnthropicAssistantBlocks(m backend.Message) []anthropicContent {
 		blocks = append(blocks, anthropicContent{Type: "text", Text: m.Content})
 	}
 	for _, tc := range m.ToolCalls {
-		args := tc.Arguments
-		if len(strings.TrimSpace(string(args))) == 0 {
-			args = json.RawMessage("{}")
-		}
+		// Canonical arguments, for the same reason the OpenAI dialect uses
+		// them: a duplicated key from a streamed call is rejected upstream.
+		args := geminicode.CanonicalArgs(tc.Arguments)
 		blocks = append(blocks, anthropicContent{
 			Type:  "tool_use",
 			ID:    tc.ID,

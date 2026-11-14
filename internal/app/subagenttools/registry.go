@@ -53,6 +53,10 @@ type Child struct {
 	// by. It is what invoke_subagent's acknowledgement reports and what
 	// send_message and manage_subagents take.
 	ConversationID string
+	// ParentID is the conversation that owns the child. The checkpoint
+	// records it so only that conversation rehydrates the child after a
+	// restart.
+	ParentID string
 	// TypeName is the subagent type the child was launched as ("self",
 	// "research", or a definition's own name).
 	TypeName string

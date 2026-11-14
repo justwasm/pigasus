@@ -143,6 +143,19 @@ func TestRenderAgentWarning(t *testing.T) {
 	}
 }
 
+// TestRenderModelWarning pins the ⚠ Model Not Configured card.
+func TestRenderModelWarning(t *testing.T) {
+	got := RenderModelWarning("model xyz is not configured")
+	for _, want := range []string{"⚠ Model Not Configured", "model xyz is not configured"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("model warning missing %q:\n%s", want, got)
+		}
+	}
+	if !strings.Contains(got, "  ⎿  ") {
+		t.Errorf("model warning missing the ⎿ marker:\n%s", got)
+	}
+}
+
 // TestStripTier pins the parenthesised-tier suffix removal.
 func TestStripTier(t *testing.T) {
 	for _, tc := range []struct{ in, want string }{

@@ -569,10 +569,10 @@ func ResolveThinkingConfig(model string, gc *GenerationConfig) bool {
 // callPart builds a functionCall part and replays the thoughtSignature
 // Gemini 3 returned with it, or passes SkipThoughtSignature if unrecorded.
 func callPart(tc TurnToolCall, signatures map[string]string) Part {
-	args := json.RawMessage(tc.Arguments)
-	if len(args) == 0 || !json.Valid(args) {
-		args = json.RawMessage(`{}`)
-	}
+	// CanonicalArgs keeps a streamed call replayable: the model's own bytes
+	// go back out, minus a key the streaming duplicated (Google answers that
+	// with 400 "Repeated map key"). See args.go.
+	args := CanonicalArgs(json.RawMessage(tc.Arguments))
 	part := Part{FunctionCall: &FunctionCall{ID: tc.ID, Name: tc.Name, Args: args}}
 	if signatures != nil && signatures[tc.ID] != "" {
 		part.ThoughtSignature = signatures[tc.ID]

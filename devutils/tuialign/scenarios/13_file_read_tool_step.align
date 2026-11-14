@@ -1,0 +1,33 @@
+NAME "File Read Tool Step Alignment (read_file)"
+WINDOW 100 30
+TARGET both
+
+# Turn 1: Model reads /etc/hosts
+MOCK_TURN
+  THOUGHT "Reading system hosts file to check local mappings..." TOKENS 100 DELAY 100ms
+  TOOL read_file {"Path":"/etc/hosts"}
+  USAGE PROMPT 18200 CANDIDATES 25 THOUGHTS 100
+  FINISH STOP
+
+# Turn 2: Model replies after reading
+MOCK_TURN
+  THOUGHT "Explaining hosts file contents..." TOKENS 80 DELAY 100ms
+  TEXT "I have inspected /etc/hosts. It contains standard loopback entries."
+  USAGE PROMPT 18400 CANDIDATES 20 THOUGHTS 80
+  FINISH STOP
+
+BOOT_BOTH
+WAIT_READY 10s
+
+TYPE "read hosts file"
+ENTER
+
+WAIT_TEXT "inspected /etc/hosts" 20s
+SNAPSHOT "01_file_read_collapsed"
+
+KEYS "C-o"
+SLEEP 500ms
+SNAPSHOT "02_file_read_expanded"
+
+DIFF
+CLEANUP

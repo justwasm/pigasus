@@ -1,0 +1,48 @@
+NAME "Delegated Subagent Stays Out Of /tasks (1.5.8)"
+WINDOW 100 30
+TARGET both
+
+# A delegated agent is not a background task. The reference keeps it out of
+# the /tasks list entirely — that panel reads "No background tasks." while
+# the subagent runs — and shows it inline in the transcript as
+# `● Agent(<type>: <role>)`.
+MOCK_TURN
+  THOUGHT "This is self-contained; delegating it." TOKENS 60 DELAY 100ms
+  TOOL invoke_subagent {"prompt":"查询当前上海的天气情况","type_name":"research","role":"Weather Researcher","workspace":"inherit"}
+  USAGE PROMPT 18200 CANDIDATES 30 THOUGHTS 60
+  FINISH STOP
+
+# The child's own turn, then the parent's closing answer, take the
+# deterministic fallback reply so the scenario does not depend on how many
+# requests a binary issues.
+MOCK_TURN
+  TEXT "Shanghai: 18C, overcast."
+  USAGE PROMPT 18400 CANDIDATES 20 THOUGHTS 0
+  FINISH STOP
+
+MOCK_TURN
+  TEXT "The subagent reported the forecast."
+  USAGE PROMPT 18600 CANDIDATES 14 THOUGHTS 0
+  FINISH STOP
+
+BOOT_BOTH
+WAIT_READY 10s
+
+TYPE "查一下上海天气"
+ENTER
+
+# Let the subagent launch and run.
+SLEEP 5s
+
+# /tasks must show the empty state, not the delegated child.
+TYPE "/tasks"
+ENTER
+SLEEP 1s
+SNAPSHOT "01_tasks_with_a_live_subagent"
+
+KEYS "Escape"
+SLEEP 500ms
+SNAPSHOT "02_back_to_transcript"
+
+DIFF
+CLEANUP

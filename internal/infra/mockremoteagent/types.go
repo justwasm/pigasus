@@ -60,15 +60,23 @@ type ProjectIdentifier struct {
 
 // StartCascadeRequest represents the request to StartCascade.
 type StartCascadeRequest struct {
-	InitialPrompt     string             `json:"initialPrompt,omitempty"`
-	UserPrompt        string             `json:"userPrompt,omitempty"`
-	Items             []TextOrScopeItem  `json:"items,omitempty"`
-	ProjectID         string             `json:"projectId,omitempty"`
-	ProjectIdentifier *ProjectIdentifier `json:"projectIdentifier,omitempty"`
-	WorkspaceURIs     []string           `json:"workspaceUris,omitempty"`
-	Environment       *Environment       `json:"environment,omitempty"`
-	ClientInfo        map[string]any     `json:"clientInfo,omitempty"`
-	Model             string             `json:"model,omitempty"`
+	InitialPrompt          string             `json:"initialPrompt,omitempty"`
+	UserPrompt             string             `json:"userPrompt,omitempty"`
+	Items                  []TextOrScopeItem  `json:"items,omitempty"`
+	ProjectID              string             `json:"projectId,omitempty"`
+	ProjectIdentifier      *ProjectIdentifier `json:"projectIdentifier,omitempty"`
+	WorkspaceURIs          []string           `json:"workspaceUris,omitempty"`
+	Environment            *Environment       `json:"environment,omitempty"`
+	ForceThirdPartyRouting bool               `json:"forceThirdPartyRouting,omitempty"`
+	ConfigOverrides        map[string]any     `json:"configOverrides,omitempty"`
+	AceVMID                string             `json:"aceVmId,omitempty"`
+	Media                  []map[string]any   `json:"media,omitempty"`
+	Title                  string             `json:"title,omitempty"`
+	Tags                   []string           `json:"tags,omitempty"`
+	ClientMessageID        string             `json:"clientMessageId,omitempty"`
+	AgentPath              string             `json:"agentPath,omitempty"`
+	ClientInfo             map[string]any     `json:"clientInfo,omitempty"`
+	Model                  string             `json:"model,omitempty"`
 }
 
 // ExecutionStatus represents execution status in Cascade lifecycle.
@@ -87,10 +95,19 @@ type StartCascadeResponse struct {
 
 // SendUserCascadeMessageRequest represents the request to SendUserCascadeMessage.
 type SendUserCascadeMessageRequest struct {
-	CascadeID   string            `json:"cascadeId"`
-	Text        string            `json:"text,omitempty"`
-	MessageText string            `json:"messageText,omitempty"`
-	Items       []TextOrScopeItem `json:"items,omitempty"`
+	CascadeID        string            `json:"cascadeId"`
+	Text             string            `json:"text,omitempty"`
+	MessageText      string            `json:"messageText,omitempty"`
+	Items            []TextOrScopeItem `json:"items,omitempty"`
+	DeliveryStrategy int               `json:"deliveryStrategy,omitempty"`
+	ContinueExecution bool              `json:"continueExecution,omitempty"`
+	ConfigOverrides  map[string]any    `json:"configOverrides,omitempty"`
+	Media            []map[string]any  `json:"media,omitempty"`
+	ArtifactComments []map[string]any  `json:"artifactComments,omitempty"`
+	FileDiffComments []map[string]any  `json:"fileDiffComments,omitempty"`
+	FileComments     []map[string]any  `json:"fileComments,omitempty"`
+	Tags             []string          `json:"tags,omitempty"`
+	ClientMessageID  string            `json:"clientMessageId,omitempty"`
 }
 
 // SendUserCascadeMessageResponse represents the response to SendUserCascadeMessage.

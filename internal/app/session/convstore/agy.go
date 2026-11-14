@@ -2,6 +2,7 @@ package convstore
 
 import (
 	"bytes"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"sort"
@@ -59,6 +60,18 @@ type Step struct {
 	// by inspecting real convstore databases; pre-cycle-163 the clone ignored
 	// this field, so an expanded loaded step (ctrl+o) showed its title only.
 	ToolResult string
+	// ToolSummary carries the collapsed human-readable summary
+	// (e.g. "check git status" or "List all packages in repository")
+	// recovered from render_info field 9.
+	ToolSummary string
+	// ToolPrefix carries the render_info title_prefix (e.g. "Ran", "Analyzed", "Checked task").
+	ToolPrefix string
+
+	// Raw database blobs. Preserved across Load -> Save so
+	// pre-existing steps from official agy or earlier sessions are never re-encoded or mutated lossily.
+	RawPayload    []byte
+	RawRenderInfo []byte
+	RawMetadata   []byte
 
 	// Checkpoint fields, set for StepCheckpoint. The reference's
 	// CortexStepCheckpoint lives at step_payload field 30.
@@ -183,8 +196,15 @@ func LoadConversation(path string) (*Conversation, error) {
 		return nil
 	})
 	if err := db.Scan("steps", func(r *Row) error {
-		s := Step{Idx: r.Int("idx"), Type: r.Int("step_type"), Status: r.Int("status")}
-		parseStepPayload(&s, r.Bytes("step_payload"))
+		s := Step{
+			Idx:           r.Int("idx"),
+			Type:          r.Int("step_type"),
+			Status:        r.Int("status"),
+			RawPayload:    r.Bytes("step_payload"),
+			RawRenderInfo: r.Bytes("render_info"),
+			RawMetadata:   r.Bytes("metadata"),
+		}
+		parseStepPayload(&s, s.RawPayload, s.RawRenderInfo)
 		c.Steps = append(c.Steps, s)
 		return nil
 	}); err != nil {
@@ -214,17 +234,24 @@ func isUnreadableStore(err error) bool {
 		strings.Contains(msg, "table \"trajectory_meta\" not found")
 }
 
-// parseStepPayload fills s from the raw step_payload blob.
+// parseStepPayload fills s from the raw step_payload and render_info blobs.
 //
 // The shapes, all verified against real databases:
 //
 //	14  user input      19 -> 3 -> 1  (text; 3 is the text itself when shallow)
 //	15  model response  20 -> 1       (text)
-//	132 tool call        5 -> 4 -> {2: tool name, 3: JSON arguments}
+//	132 tool call       140 -> 1 -> {1: tool name, 2: args}
+//	                    140 -> 2 -> {1: result text, 3: step_render_info}
+//	                    render_info column: StepRenderInfo
+//	                    5 -> 4 -> {2: tool name, 3: JSON arguments} (legacy fallback)
 //	17  error           24 -> 3 -> {1: short message, 2: long message}
 //	101 system notice   24 -> 3 -> {1: message}
-func parseStepPayload(s *Step, payload []byte) {
-	if len(payload) == 0 {
+func parseStepPayload(s *Step, payload []byte, renderInfo ...[]byte) {
+	var rinfo []byte
+	if len(renderInfo) > 0 {
+		rinfo = renderInfo[0]
+	}
+	if len(payload) == 0 && len(rinfo) == 0 {
 		return
 	}
 	top := protoFields(payload)
@@ -244,7 +271,7 @@ func parseStepPayload(s *Step, payload []byte) {
 			}
 		}
 	case StepToolCall:
-		parseToolCallStep(s, top)
+		parseToolCallStep(s, top, rinfo)
 	case StepError, StepSystemNotice:
 		parseErrorStep(s, top)
 	case StepCheckpoint:
@@ -287,25 +314,129 @@ func isPrintableText(s string) bool {
 	return true
 }
 
-func parseToolCallStep(s *Step, top []protoField) {
-	p5 := protoBytes(top, 5)
-	if p5 == nil {
-		return
-	}
-	p4 := protoBytes(protoFields(p5), 4)
-	if p4 == nil {
-		return
-	}
-	f4 := protoFields(p4)
-	s.ToolName = protoText(f4, 2)
-	s.ToolArgs = protoText(f4, 3)
+func parseToolCallStep(s *Step, top []protoField, renderInfo []byte) {
+	// 1. Recover tool name and tool args from field 140 (CortexStepGeneric)
 	if p140 := protoBytes(top, 140); p140 != nil {
 		f140 := protoFields(p140)
-		if p2 := protoText(f140, 2); p2 != "" {
-			if txt := protoText(protoFields([]byte(p2)), 1); txt != "" {
-				s.ToolResult = cleanToolResult(txt)
-			} else {
-				s.ToolResult = cleanToolResult(p2)
+		for _, f := range f140 {
+			if f.num == 1 && f.wire == 2 { // GenericStepCall
+				fCall := protoFields(f.data)
+				if name := protoText(fCall, 1); name != "" && s.ToolName == "" {
+					s.ToolName = name
+				}
+				if args := protoText(fCall, 2); args != "" && s.ToolArgs == "" {
+					s.ToolArgs = args
+				}
+			}
+		}
+	}
+	// Fall back to field 5.4 (legacy clone writer or older reference)
+	if s.ToolName == "" || s.ToolArgs == "" {
+		if p5 := protoBytes(top, 5); p5 != nil {
+			if p4 := protoBytes(protoFields(p5), 4); p4 != nil {
+				f4 := protoFields(p4)
+				if s.ToolName == "" {
+					s.ToolName = protoText(f4, 2)
+				}
+				if s.ToolArgs == "" {
+					s.ToolArgs = protoText(f4, 3)
+				}
+			}
+		}
+	}
+
+	// 2. Recover tool result, summary and prefix from render_info
+	// renderInfo can come from the SQLite column or embedded in field 140.2.3
+	rBytes := renderInfo
+	if len(rBytes) == 0 {
+		if p140 := protoBytes(top, 140); p140 != nil {
+			f140 := protoFields(p140)
+			for _, f := range f140 {
+				if f.num == 2 && f.wire == 2 { // GenericStepResult
+					fRes := protoFields(f.data)
+					if r := protoBytes(fRes, 3); len(r) > 0 {
+						rBytes = r
+						break
+					}
+				}
+			}
+		}
+	}
+
+	if len(rBytes) > 0 {
+		rFields := protoFields(rBytes)
+		s.ToolPrefix = protoText(rFields, 5)
+		icon := protoText(rFields, 6)
+		aggKey := protoText(rFields, 7)
+
+		// TitlePart (field 9)
+		if p9 := protoBytes(rFields, 9); len(p9) > 0 {
+			f9 := protoFields(p9)
+			s.ToolSummary = protoText(f9, 1)
+			if pFile := protoBytes(f9, 2); len(pFile) > 0 {
+				fFile := protoFields(pFile)
+				if uri := protoText(fFile, 1); uri != "" {
+					cleanPath := strings.TrimPrefix(uri, "file://")
+					if s.ToolSummary == "" {
+						s.ToolSummary = filepath.Base(cleanPath)
+					}
+					if s.ToolArgs == "" {
+						encoded, _ := json.Marshal(map[string]string{"Path": cleanPath})
+						s.ToolArgs = string(encoded)
+					}
+				}
+			}
+		}
+
+		// ContentBlock (field 10)
+		for _, f := range rFields {
+			if f.num == 10 && f.wire == 2 {
+				f10 := protoFields(f.data)
+				// TerminalBlock is field 3
+				if pTerm := protoBytes(f10, 3); len(pTerm) > 0 {
+					fTerm := protoFields(pTerm)
+					cmd := protoText(fTerm, 1)
+					out := protoText(fTerm, 4)
+					if s.ToolArgs == "" && cmd != "" {
+						encoded, _ := json.Marshal(map[string]string{"CommandLine": cmd})
+						s.ToolArgs = string(encoded)
+					}
+					if s.ToolResult == "" && out != "" {
+						s.ToolResult = cleanToolResult(out)
+					}
+				}
+				// Markdown block is field 1
+				if md := protoText(f10, 1); md != "" && s.ToolResult == "" {
+					s.ToolResult = cleanToolResult(md)
+				}
+			}
+		}
+
+		// Tool name fallback from icon/aggregation
+		if s.ToolName == "" {
+			if icon == "terminal" || aggKey == "terminal" {
+				s.ToolName = "run_command"
+			} else if aggKey == "files" || icon == "description" {
+				s.ToolName = "read_file"
+			} else if aggKey == "edits" || icon == "edit" {
+				s.ToolName = "edit_file"
+			} else if aggKey == "tasks" || icon == "task_alt" {
+				s.ToolName = "manage_task"
+			}
+		}
+	}
+
+	// 3. Fall back to GenericStepResult.output (field 140.2.1)
+	if s.ToolResult == "" {
+		if p140 := protoBytes(top, 140); p140 != nil {
+			f140 := protoFields(p140)
+			for _, f := range f140 {
+				if f.num == 2 && f.wire == 2 {
+					fRes := protoFields(f.data)
+					if out := protoText(fRes, 1); out != "" {
+						s.ToolResult = cleanToolResult(out)
+					}
+				}
 			}
 		}
 	}
@@ -378,7 +509,7 @@ func (c *Conversation) Transcript() []Step {
 				continue
 			}
 		case "tool":
-			if strings.TrimSpace(s.ToolName) == "" {
+			if strings.TrimSpace(s.ToolName) == "" && strings.TrimSpace(s.ToolSummary) == "" && len(s.RawRenderInfo) == 0 {
 				continue
 			}
 		case "checkpoint":

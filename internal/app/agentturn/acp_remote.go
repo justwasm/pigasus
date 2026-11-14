@@ -25,6 +25,7 @@ import (
 	schemav1 "github.com/ironpark/acp-go/schema/v1"
 	schemav2 "github.com/ironpark/acp-go/schema/v2"
 	"github.com/justwasm/pigasus/agentlink"
+	coreversion "github.com/justwasm/pigasus/internal/core/version"
 )
 
 // ACPRemote runs turns against an ACP (Agent Client Protocol) server,
@@ -450,7 +451,7 @@ func connectACPRemote(ctx context.Context, dial func(context.Context) (acp.Trans
 	connector := router.NewClient()
 	clientInfo := &acp1.Implementation{
 		Name:    "pigasus-tui",
-		Version: "1.4.12",
+		Version: coreversion.Reference,
 	}
 
 	v1Client := &acpRemoteV1Client{r: r}

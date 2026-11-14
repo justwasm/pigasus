@@ -381,6 +381,12 @@ func (t *BackgroundTask) StepState() (output string, running bool, exitCode int)
 	return output, false, 0
 }
 
+// RawOutput returns the command's raw stdout/stderr before any termination
+// reason line ("exit code 0") was recorded into the persistent log.
+func (t *BackgroundTask) RawOutput() string {
+	return t.out.String()
+}
+
 func (t *BackgroundTask) Status() string {
 	t.mu.Lock()
 	state := "running"
@@ -451,10 +457,35 @@ func (t *BackgroundTask) Kill() (string, error) {
 		default:
 			close(t.finished)
 		}
+		// The task's own registry row has to follow: a killed timer used to
+		// stay StateRunning in the package-level registry, so the
+		// active-items tray kept drawing it in every later model of the
+		// same process.
+		markRegistryState(t.id, taskregistry.StateKilled)
 		return fmt.Sprintf("Task %s killed.", t.id), nil
 	}
 	if cmd == nil || cmd.Process == nil {
-		return "", fmt.Errorf("task %s has no process", t.id)
+		// A scheduled timer (and any other process-less task) is cancelled
+		// by ending its wait, not by signalling a child. Before this, the
+		// cancellation returned an error and left the registry row in
+		// StateRunning for the rest of the process: the active-items tray
+		// and /tasks then showed a timer that no longer existed, and every
+		// later model in the same process inherited those rows.
+		t.mu.Lock()
+		t.killed = true
+		t.done = true
+		t.completed = true
+		t.mu.Unlock()
+		if t.cancel != nil {
+			t.cancel()
+		}
+		select {
+		case <-t.finished:
+		default:
+			close(t.finished)
+		}
+		markRegistryState(t.id, taskregistry.StateKilled)
+		return fmt.Sprintf("Task %s killed.", t.id), nil
 	}
 	if err := killProcessGroup(cmd); err != nil {
 		return "", err
@@ -514,6 +545,30 @@ func registerShellBackgroundTask(t *BackgroundTask, command string) {
 		Cancel: func() {
 			_, _ = t.Kill()
 		},
+	})
+}
+
+// markRegistryState moves a shared-registry row to a terminal state.
+//
+// A cancelled task has to leave the active-items tray and /tasks, and the
+// row is the only thing those surfaces read: the registry is package-level,
+// so a row left in StateRunning outlives the task it describes.
+func markRegistryState(id string, state taskregistry.State) {
+	if id == "" {
+		return
+	}
+	reg := tools.SharedTaskRegistry()
+	if reg == nil {
+		return
+	}
+	reg.Update(id, func(t *taskregistry.Task) {
+		if t.State == taskregistry.StateDone || t.State == taskregistry.StateFailed {
+			return
+		}
+		t.State = state
+		if t.EndedAt.IsZero() {
+			t.EndedAt = time.Now()
+		}
 	})
 }
 

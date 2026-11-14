@@ -262,6 +262,30 @@ Error: The turn stopped before it finished: Duplicate function declaration found
 
 The clone keeps the first declaration per name.
 
+**5. `functionCall.args` must not carry a repeated key.**
+
+The arguments are replayed from history, and Google parses them as a
+protobuf `Struct`: two members with the same name are a 400, and the whole
+turn dies on a call that ran successfully earlier — on whatever model the
+turn is sent to:
+
+```
+Error: gateway: upstream 400: Invalid JSON payload received. Unknown name
+"commandLine" at 'request.contents[83].parts[1].function_call.args.fields[0]':
+Repeated map key: 'commandLine' is already set.
+```
+
+`encoding/json` accepts a repeated key (last wins), so a payload like that
+can come from a *streamed* call — a provider that re-sends an argument
+fragment, or a model that restarts its JSON after a false start — and then
+sit in the conversation store poisoning every later turn. `geminicode.CanonicalArgs`
+collapses the duplicate (first position, last value) on the way out;
+`geminicode/args_test.go` pins the payload above. The same rule is applied
+by the gateway's two dialects (`gateway_request.go`, `gateway_anthropic.go`)
+and by the two stream accumulators that build the call
+(`internal/infra/backend/gateway/gateway_stream.go`,
+`internal/features/models/openai.go`).
+
 ### A.7 The labels
 
 | the model | the labels |

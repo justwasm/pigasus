@@ -20,7 +20,7 @@ import (
 // rules too. That is what pins the rule rendering (labels, verbatim bodies,
 // the 24,000-byte truncation) against the reference.
 func TestBuildMatchesCapture(t *testing.T) {
-	raw, err := os.ReadFile("testdata/capture_1.4.6.json")
+	raw, err := os.ReadFile("testdata/capture_1.5.5.json")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -38,7 +38,7 @@ func TestBuildMatchesCapture(t *testing.T) {
 	if err := json.Unmarshal(raw, &fx); err != nil {
 		t.Fatal(err)
 	}
-	want, err := os.ReadFile("testdata/capture_1.4.6.txt")
+	want, err := os.ReadFile("testdata/capture_1.5.5.txt")
 	if err != nil {
 		t.Fatal(err)
 	}

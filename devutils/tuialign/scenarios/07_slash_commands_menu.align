@@ -1,0 +1,29 @@
+NAME "Slash Commands Menu Alignment"
+WINDOW 100 30
+TARGET both
+
+BOOT_BOTH
+WAIT_READY 10s
+
+# Type '/' to open slash commands picker
+TYPE "/"
+SLEEP 500ms
+SNAPSHOT "01_slash_menu_open"
+
+# Type 'mo' to filter commands
+TYPE "mo"
+SLEEP 500ms
+SNAPSHOT "02_slash_menu_filtered"
+
+# Press Down arrow to navigate selection
+KEYS "Down"
+SLEEP 300ms
+SNAPSHOT "03_slash_menu_down"
+
+# Press Escape to dismiss the menu
+KEYS "Escape"
+SLEEP 300ms
+SNAPSHOT "04_slash_menu_dismissed"
+
+DIFF
+CLEANUP

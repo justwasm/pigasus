@@ -41,7 +41,7 @@ func TestOnboardingTerms_TextAndLinksWrap(t *testing.T) {
 }
 
 func TestOnboardingColorScheme_NarrowTerminalPreviewHidingAndCropping(t *testing.T) {
-	// Width = 50 (< 60): Preview should be completely hidden
+	// Width = 50 (< 70): Preview box should be hidden, showing (widen the terminal to see a preview)
 	wzNarrow := NewWizard()
 	wzNarrow.Step = StepColorScheme
 	wzNarrow.Width = 50
@@ -51,17 +51,20 @@ func TestOnboardingColorScheme_NarrowTerminalPreviewHidingAndCropping(t *testing
 		t.Fatalf("Render narrow: %v", err)
 	}
 	outNarrow := bufNarrow.String()
-	if strings.Contains(outNarrow, "─── Preview") {
-		t.Errorf("preview should be hidden at width 50, but found preview separator")
+	if strings.Contains(outNarrow, "╭") {
+		t.Errorf("preview box should be hidden at width 50, but found preview border")
 	}
 	if strings.Contains(outNarrow, "import") {
 		t.Errorf("preview code should be hidden at width 50")
 	}
-	if !strings.Contains(outNarrow, "[ Next ]") {
-		t.Errorf("expected [ Next ] button at width 50")
+	if !strings.Contains(outNarrow, "(widen the terminal to see a preview)") {
+		t.Errorf("expected (widen the terminal to see a preview) hint at width 50")
+	}
+	if !strings.Contains(outNarrow, "[Next]") && !strings.Contains(outNarrow, "[ Next ]") {
+		t.Errorf("expected [Next] button at width 50")
 	}
 
-	// Width = 70 (60 <= width < 80): Preview should be cropped
+	// Width = 70 (side-by-side mode enabled): Preview card should be visible and cropped
 	wzMid := NewWizard()
 	wzMid.Step = StepColorScheme
 	wzMid.Width = 70
@@ -71,8 +74,11 @@ func TestOnboardingColorScheme_NarrowTerminalPreviewHidingAndCropping(t *testing
 		t.Fatalf("Render mid: %v", err)
 	}
 	outMid := bufMid.String()
-	if !strings.Contains(outMid, "─── Preview") {
-		t.Errorf("preview should be visible at width 70")
+	if !strings.Contains(outMid, "╭") {
+		t.Errorf("preview box border should be visible at width 70")
+	}
+	if !strings.Contains(outMid, "import") {
+		t.Errorf("preview code should be visible at width 70")
 	}
 	for i, l := range strings.Split(strings.TrimRight(outMid, "\n"), "\n") {
 		w := ansi.StringWidth(l)
@@ -115,5 +121,29 @@ func TestOnboardingScrolling_ButtonsRemainVisible(t *testing.T) {
 	wz.HandleKey("pgup")
 	if wz.Scroll != 0 {
 		t.Errorf("after pgup: scroll = %d, want 0", wz.Scroll)
+	}
+}
+
+func TestOnboardingColorScheme_CodeIndentationSpaces(t *testing.T) {
+	wz := NewWizard()
+	wz.Step = StepColorScheme
+	wz.Width = 100
+	wz.Height = 30
+
+	var buf bytes.Buffer
+	if err := wz.Render(&buf); err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	out := buf.String()
+
+	// Ensure no raw tabs are present in the preview
+	if strings.Contains(out, "\t") {
+		t.Errorf("preview contains raw tab character; spaces must be used for indentation")
+	}
+
+	// Ensure 4 spaces indentation exists for the function body (stripped of ANSI escapes)
+	plain := ansi.Strip(out)
+	if !strings.Contains(plain, "fmt.Printf(") || !strings.Contains(plain, "func  greet") {
+		t.Errorf("expected indented code lines in preview, got:\n%s", plain)
 	}
 }

@@ -11,6 +11,7 @@ package shell
 import (
 	"io"
 	"os/exec"
+	"time"
 )
 
 // RunWithPTYStdin runs cmd without a pseudo-terminal. See the unix build for
@@ -27,5 +28,8 @@ func RunWithPTYStdin(cmd *exec.Cmd) error {
 // there is no pty, so the command runs with the caller's stdio and there
 // is no stdin writer to hand back.
 func startWithPTYStdin(cmd *exec.Cmd, eof bool) (func() error, io.WriteCloser, error) {
+	if cmd.WaitDelay <= 0 {
+		cmd.WaitDelay = 800 * time.Millisecond
+	}
 	return func() error { return cmd.Run() }, nil, nil
 }

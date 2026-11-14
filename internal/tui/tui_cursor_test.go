@@ -1,10 +1,13 @@
 package tui
 
 import (
+	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/justwasm/pigasus/internal/ui/panelregistry"
+	"github.com/justwasm/pigasus/internal/ui/views/sidequestion"
 )
 
 func TestCursor_HiddenWhenHelpActive(t *testing.T) {
@@ -127,47 +130,72 @@ func TestCursor_HiddenWhenActiveItemsFocused(t *testing.T) {
 	}
 }
 
-func TestCursor_HiddenDuringStreamingAndThinking(t *testing.T) {
+func TestCursor_VisibleDuringStreamingAndThinking(t *testing.T) {
 	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/tmp", true)
 	m.viewport.width = 80
 	m.viewport.height = 24
 
-	// Streaming: cursor hidden
+	// Idle state: cursor visible
+	vIdle := m.View()
+	if vIdle.Cursor == nil {
+		t.Fatal("cursor should be visible in idle prompt")
+	}
+
+	// Streaming: cursor must remain visible in input box
 	m.conversation.streaming = true
-	if v := m.View(); v.Cursor != nil {
-		t.Errorf("cursor must be hidden during streaming, got: %+v", v.Cursor)
+	vStream := m.View()
+	if vStream.Cursor == nil {
+		t.Fatal("cursor must be visible in composer during streaming")
+	}
+	lines := strings.Split(vStream.Content, "\n")
+	if vStream.Cursor.Y >= len(lines) {
+		t.Fatalf("cursor Y=%d outside view rows %d", vStream.Cursor.Y, len(lines))
+	}
+	promptLine := ansi.Strip(lines[vStream.Cursor.Y])
+	if !strings.HasPrefix(promptLine, ">") {
+		t.Errorf("cursor row %d is not the prompt line: %q", vStream.Cursor.Y, promptLine)
 	}
 
+	// Thinking: cursor must remain visible in input box
 	m.conversation.streaming = false
-	if v := m.View(); v.Cursor == nil {
-		t.Errorf("cursor should be restored when streaming finishes")
-	}
-
-	// Thinking: cursor hidden
 	m.conversation.thinking = true
-	if v := m.View(); v.Cursor != nil {
-		t.Errorf("cursor must be hidden during thinking, got: %+v", v.Cursor)
+	vThink := m.View()
+	if vThink.Cursor == nil {
+		t.Fatal("cursor must be visible in composer during thinking")
 	}
-
-	m.conversation.thinking = false
-	if v := m.View(); v.Cursor == nil {
-		t.Errorf("cursor should be restored when thinking finishes")
+	lines = strings.Split(vThink.Content, "\n")
+	if vThink.Cursor.Y >= len(lines) {
+		t.Fatalf("cursor Y=%d outside view rows %d", vThink.Cursor.Y, len(lines))
+	}
+	promptLine = ansi.Strip(lines[vThink.Cursor.Y])
+	if !strings.HasPrefix(promptLine, ">") {
+		t.Errorf("cursor row %d is not the prompt line: %q", vThink.Cursor.Y, promptLine)
 	}
 }
 
-func TestCursor_HiddenWhenBashRunning(t *testing.T) {
+func TestCursor_VisibleWhenBashRunning(t *testing.T) {
 	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/tmp", true)
 	m.viewport.width = 80
 	m.viewport.height = 24
 
 	m.session.store.SetBashCancel(func() {})
-	if v := m.View(); v.Cursor != nil {
-		t.Errorf("cursor must be hidden when bash command is running, got: %+v", v.Cursor)
+	v := m.View()
+	if v.Cursor == nil {
+		t.Fatal("cursor must remain visible in composer when bash command is running")
+	}
+	lines := strings.Split(v.Content, "\n")
+	if v.Cursor.Y >= len(lines) {
+		t.Fatalf("cursor Y=%d outside view rows %d", v.Cursor.Y, len(lines))
+	}
+	promptLine := ansi.Strip(lines[v.Cursor.Y])
+	if !strings.HasPrefix(promptLine, ">") {
+		t.Errorf("cursor row %d is not the prompt line: %q", v.Cursor.Y, promptLine)
 	}
 
 	m.session.store.CancelBash()
-	if v := m.View(); v.Cursor == nil {
-		t.Errorf("cursor should be restored when bash command finishes")
+	v = m.View()
+	if v.Cursor == nil {
+		t.Errorf("cursor should remain visible when bash command finishes")
 	}
 }
 
@@ -209,19 +237,78 @@ func TestCursor_HiddenWhenTextSelected(t *testing.T) {
 	}
 }
 
-func TestCursor_HiddenWhenBtwActive(t *testing.T) {
+func TestCursor_VisibleWhenBtwActive(t *testing.T) {
 	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/tmp", true)
 	m.viewport.width = 80
 	m.viewport.height = 24
 
-	m.overlays.activeBtwID = "btw-test"
-	if v := m.View(); v.Cursor != nil {
-		t.Errorf("cursor must be hidden when btw card is active, got: %+v", v.Cursor)
+	c := &sidequestion.Card{
+		ID:       "btw-test",
+		Question: "What is caching?",
+		Answer:   "Fast storage.",
+		State:    sidequestion.StateDone,
+	}
+	m.overlays.btwCards = []*sidequestion.Card{c}
+	m.overlays.activeBtwIndex = 0
+	m.overlays.activeBtwID = c.ID
+
+	v := m.View()
+	if v.Cursor == nil {
+		t.Fatal("cursor must remain visible in composer when btw card is active")
 	}
 
-	m.overlays.activeBtwID = ""
-	if v := m.View(); v.Cursor == nil {
-		t.Errorf("cursor should be restored when btw card closes")
+	lines := strings.Split(v.Content, "\n")
+	if v.Cursor.Y >= len(lines) {
+		t.Fatalf("cursor Y=%d outside view rows %d", v.Cursor.Y, len(lines))
+	}
+	promptLine := ansi.Strip(lines[v.Cursor.Y])
+	if !strings.HasPrefix(promptLine, ">") {
+		t.Errorf("cursor Y=%d is not prompt line: %q", v.Cursor.Y, promptLine)
+	}
+
+	// Verify layout ordering:
+	// btw card is rendered ABOVE the top prompt rule line, NOT between the two prompt rules!
+	cardRow := -1
+	topRuleRow := -1
+	promptRow := -1
+	bottomRuleRow := -1
+
+	rulePattern := ansi.Strip(m.promptRule(true))
+	for i, l := range lines {
+		stripped := ansi.Strip(l)
+		if strings.Contains(stripped, "What is caching?") && cardRow == -1 {
+			cardRow = i
+		}
+		if stripped == rulePattern {
+			if topRuleRow == -1 {
+				topRuleRow = i
+			} else if bottomRuleRow == -1 {
+				bottomRuleRow = i
+			}
+		}
+		if strings.HasPrefix(stripped, ">") && promptRow == -1 {
+			promptRow = i
+		}
+	}
+
+	if cardRow == -1 {
+		t.Fatalf("btw card question not found in view:\n%s", v.Content)
+	}
+	if topRuleRow == -1 {
+		t.Fatalf("top prompt rule not found in view:\n%s", v.Content)
+	}
+	if promptRow == -1 {
+		t.Fatalf("prompt row not found in view:\n%s", v.Content)
+	}
+
+	if cardRow >= topRuleRow {
+		t.Errorf("layout bug: btw card row %d must be ABOVE top prompt rule row %d", cardRow, topRuleRow)
+	}
+	if topRuleRow >= promptRow {
+		t.Errorf("top prompt rule row %d must be ABOVE prompt row %d", topRuleRow, promptRow)
+	}
+	if bottomRuleRow != -1 && promptRow >= bottomRuleRow {
+		t.Errorf("prompt row %d must be ABOVE bottom prompt rule row %d", promptRow, bottomRuleRow)
 	}
 }
 
@@ -293,4 +380,69 @@ func TestFullViewportPanel_TakesEntireScreen_AndEnablesAltScreen(t *testing.T) {
 		t.Fatalf("task detail should be closed")
 	}
 	m.closePanelSilent()
+}
+
+func TestCursor_ChineseInputAndStreamingStability(t *testing.T) {
+	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/tmp", true)
+	m.viewport.width = 100
+	m.viewport.height = 30
+
+	// 1. Typing Chinese into the composer.
+	chineseText := "你好，世界！"
+	m.prompt.input.SetValue(chineseText)
+	m.prompt.input.CursorEnd()
+
+	v := m.View()
+	if v.Cursor == nil {
+		t.Fatal("cursor must be visible in composer after typing Chinese")
+	}
+
+	expectedX := 2 + ansi.StringWidth(chineseText) // "> " has width 2, "你好，世界！" has width 12
+	if v.Cursor.X != expectedX {
+		t.Errorf("cursor X = %d, want %d for Chinese text %q", v.Cursor.X, expectedX, chineseText)
+	}
+
+	// 2. Start streaming / thinking with live spinner.
+	m.conversation.streaming = true
+	m.conversation.thinking = true
+	m.conversation.liveThinkingSnippet = "Searching the codebase..."
+
+	vStream := m.View()
+	if vStream.Cursor == nil {
+		t.Fatal("cursor must remain visible in composer during streaming with Chinese input")
+	}
+
+	// Cursor X must still be parked at the end of the Chinese input.
+	if vStream.Cursor.X != expectedX {
+		t.Errorf("during streaming, cursor X = %d, want %d", vStream.Cursor.X, expectedX)
+	}
+
+	// Verify cursor Y points to the prompt row, not to the spinner row!
+	lines := strings.Split(vStream.Content, "\n")
+	if vStream.Cursor.Y >= len(lines) {
+		t.Fatalf("cursor Y=%d outside view rows %d", vStream.Cursor.Y, len(lines))
+	}
+	promptLine := ansi.Strip(lines[vStream.Cursor.Y])
+	if !strings.HasPrefix(promptLine, ">") {
+		t.Errorf("cursor Y=%d is not prompt line: %q", vStream.Cursor.Y, promptLine)
+	}
+
+	// Check that spinner exists on an earlier row and cursor is NOT on the spinner row.
+	spinnerFound := false
+	for i, l := range lines {
+		stripped := ansi.Strip(l)
+		if strings.Contains(stripped, "Searching the codebase...") {
+			spinnerFound = true
+			if i == vStream.Cursor.Y {
+				t.Fatalf("cursor drifted to spinner row %d!", i)
+			}
+			if i >= vStream.Cursor.Y {
+				t.Errorf("spinner row %d should be above cursor prompt row %d", i, vStream.Cursor.Y)
+			}
+			break
+		}
+	}
+	if !spinnerFound {
+		t.Error("expected live thinking snippet row to be present in view")
+	}
 }

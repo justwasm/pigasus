@@ -1,0 +1,28 @@
+NAME "Side Question /btw Card Alignment"
+WINDOW 100 30
+TARGET both
+SETTINGS {"showTips":false}
+
+# Mock turn for the side question
+MOCK_TURN
+  THOUGHT "Answering side question briefly..." TOKENS 50 DELAY 100ms
+  TEXT "A goroutine is a lightweight thread of execution managed by Go runtime."
+  USAGE PROMPT 5000 CANDIDATES 20 THOUGHTS 50
+  FINISH STOP
+
+BOOT_BOTH
+WAIT_READY 10s
+
+TYPE "/btw what is a goroutine?"
+ENTER
+
+EXPECT_TEXT "goroutine is a lightweight" 15s
+SNAPSHOT "01_btw_answered"
+
+# Press Escape to dismiss the side-question card
+KEYS "Escape"
+SLEEP 500ms
+SNAPSHOT "02_btw_dismissed"
+
+DIFF
+CLEANUP

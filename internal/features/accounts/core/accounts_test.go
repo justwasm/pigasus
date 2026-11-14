@@ -265,6 +265,46 @@ func TestActivateRejectsAnUnknownAccount(t *testing.T) {
 	}
 }
 
+func TestActivateAllowedForDisabledAccount(t *testing.T) {
+	isolate(t)
+	if _, _, err := Register(fakeToken(t, "healthy@example.com", "at-healthy", "rt-healthy")); err != nil {
+		t.Fatalf("Register: %v", err)
+	}
+	if _, _, err := Register(fakeToken(t, "banned@example.com", "at-banned", "rt-banned")); err != nil {
+		t.Fatalf("Register: %v", err)
+	}
+	if err := MarkDisabled("banned@example.com", "Terms of Service violation"); err != nil {
+		t.Fatalf("MarkDisabled: %v", err)
+	}
+
+	acc, err := Activate(t.Context(), "banned@example.com")
+	if err != nil {
+		t.Fatalf("Activate should succeed for disabled account: %v", err)
+	}
+	if acc.Email != "banned@example.com" {
+		t.Fatalf("acc.Email = %q, want banned@example.com", acc.Email)
+	}
+	if !acc.Disabled {
+		t.Fatalf("acc.Disabled = false, want true")
+	}
+
+	st, err := Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if st.Active != "banned@example.com" {
+		t.Fatalf("st.Active = %q, want banned@example.com", st.Active)
+	}
+
+	tok, err := auth.LoadTokenUnified()
+	if err != nil {
+		t.Fatalf("LoadTokenUnified: %v", err)
+	}
+	if got := tok.UserEmail(); got != "banned@example.com" {
+		t.Fatalf("shared token = %q, want banned@example.com", got)
+	}
+}
+
 // TestRemoveClearsTheSharedCredential covers the sign-out path: the
 // account leaves the registry and the shared credential is cleared, so
 // neither the clone nor the reference keeps using it.

@@ -12,43 +12,43 @@
 ### queue/zero-cards
 <<END>>
 ### queue/one-card
-[38;2;101;123;131m  ┌─ announcement ──────────────────────────────────[0m
-[38;2;101;123;131m  │  [38;2;38;139;210mⓘ [39mClaude Opus 5.5 available
-[38;2;101;123;131m  │  Try `/model claude-opus-5-5` to use it.
-[38;2;101;123;131m  │  Esc to dismiss · Send a message to hide
-[38;2;101;123;131m  └──────────────────────────────────────────────────────────────────────[0m
+[38;2;101;123;131m  ┌─ announcement ───────────────────────────────────────────────────┐[0m
+[38;2;101;123;131m  │  [38;2;38;139;210mⓘ [39mClaude Opus 5.5 available                                   [38;2;101;123;131m  │[0m
+[38;2;101;123;131m  │  [39mTry `/model claude-opus-5-5` to use it.                       [38;2;101;123;131m  │[0m
+[38;2;101;123;131m  │  Esc to dismiss · Send a message to hide                       [38;2;101;123;131m  │[0m
+[38;2;101;123;131m  └──────────────────────────────────────────────────────────────────┘[0m
 <<END>>
 ### queue/all-cards
-[38;2;101;123;131m  ┌─ announcement ──────────────────────────────────[0m
-[38;2;101;123;131m  │  [38;2;38;139;210mⓘ [39mClaude Opus 5.5 available
-[38;2;101;123;131m  │  Try `/model claude-opus-5-5` to use it.
-[38;2;101;123;131m  │  Esc to dismiss · Send a message to hide
-[38;2;101;123;131m  └──────────────────────────────────────────────────────────────────────[0m
+[38;2;101;123;131m  ┌─ announcement ───────────────────────────────────────────────────┐[0m
+[38;2;101;123;131m  │  [38;2;38;139;210mⓘ [39mClaude Opus 5.5 available                                   [38;2;101;123;131m  │[0m
+[38;2;101;123;131m  │  [39mTry `/model claude-opus-5-5` to use it.                       [38;2;101;123;131m  │[0m
+[38;2;101;123;131m  │  Esc to dismiss · Send a message to hide                       [38;2;101;123;131m  │[0m
+[38;2;101;123;131m  └──────────────────────────────────────────────────────────────────┘[0m
 <<END>>
 ### queue/all-dismissed
 <<END>>
 ### queue/visible/deprecate-gemini-2-0-flash
-[38;2;101;123;131m  ┌─ announcement ──────────────────────────────────[0m
-[38;2;101;123;131m  │  [38;2;38;139;210mⓘ [39mGemini 2.0 Flash retiring 2026-12-01
-[38;2;101;123;131m  │  Switch to Gemini 3.x with `/model` before that date.
-[38;2;101;123;131m  │  Esc to dismiss · Send a message to hide
-[38;2;101;123;131m  └──────────────────────────────────────────────────────────────────────[0m
+[38;2;101;123;131m  ┌─ announcement ───────────────────────────────────────────────────┐[0m
+[38;2;101;123;131m  │  [38;2;38;139;210mⓘ [39mGemini 2.0 Flash retiring 2026-12-01                        [38;2;101;123;131m  │[0m
+[38;2;101;123;131m  │  [39mSwitch to Gemini 3.x with `/model` before that date.          [38;2;101;123;131m  │[0m
+[38;2;101;123;131m  │  Esc to dismiss · Send a message to hide                       [38;2;101;123;131m  │[0m
+[38;2;101;123;131m  └──────────────────────────────────────────────────────────────────┘[0m
 <<END>>
 ### queue/visible/service-quota-rollover
-[38;2;101;123;131m  ┌─ announcement ──────────────────────────────────[0m
-[38;2;101;123;131m  │  [38;2;38;139;210mⓘ [39mDaily quota resets at 00:00 UTC
-[38;2;101;123;131m  │  Antigravity Starter Quota and Pro tiers reset together.
-[38;2;101;123;131m  │  Esc to dismiss · Send a message to hide
-[38;2;101;123;131m  └──────────────────────────────────────────────────────────────────────[0m
+[38;2;101;123;131m  ┌─ announcement ───────────────────────────────────────────────────┐[0m
+[38;2;101;123;131m  │  [38;2;38;139;210mⓘ [39mDaily quota resets at 00:00 UTC                             [38;2;101;123;131m  │[0m
+[38;2;101;123;131m  │  [39mAntigravity Starter Quota and Pro tiers reset together.       [38;2;101;123;131m  │[0m
+[38;2;101;123;131m  │  Esc to dismiss · Send a message to hide                       [38;2;101;123;131m  │[0m
+[38;2;101;123;131m  └──────────────────────────────────────────────────────────────────┘[0m
 <<END>>
 ### queue/visible-ids
 deprecate-gemini-2-0-flash,service-quota-rollover<<END>>
 ### queue/hidden-for-session/row
-[38;2;101;123;131m  ┌─ announcement ──────────────────────────────────[0m
-[38;2;101;123;131m  │  [38;2;38;139;210mⓘ [39mGemini 2.0 Flash retiring 2026-12-01
-[38;2;101;123;131m  │  Switch to Gemini 3.x with `/model` before that date.
-[38;2;101;123;131m  │  Esc to dismiss · Send a message to hide
-[38;2;101;123;131m  └──────────────────────────────────────────────────────────────────────[0m
+[38;2;101;123;131m  ┌─ announcement ───────────────────────────────────────────────────┐[0m
+[38;2;101;123;131m  │  [38;2;38;139;210mⓘ [39mGemini 2.0 Flash retiring 2026-12-01                        [38;2;101;123;131m  │[0m
+[38;2;101;123;131m  │  [39mSwitch to Gemini 3.x with `/model` before that date.          [38;2;101;123;131m  │[0m
+[38;2;101;123;131m  │  Esc to dismiss · Send a message to hide                       [38;2;101;123;131m  │[0m
+[38;2;101;123;131m  └──────────────────────────────────────────────────────────────────┘[0m
 <<END>>
 ### queue/hidden-for-session/id
 model-claude-opus-5-5<<END>>

@@ -328,6 +328,19 @@ own results did not parse: a failed command was never marked as failed, and
 the `Created At` / `Completed At` stamp reached the screen — contradicting
 cycle 285, which measured that the timestamps never get there.
 
+**Command output is drawn preformatted, never re-interpreted.** The cycle-176
+markdown pass in `internal/ui/toolsteps` applies to *page* tools
+(`read_url_content`, `view_content_chunk`), not to machine output:
+`tuitools.PreformattedDetail` keeps `run_command`, the search/list tools and
+the command-status tools on the verbatim path, so every row keeps its own
+leading whitespace and backtick-quoted code. Without it, a body that merely
+contained `meta **StreamMeta` was taken for markdown and rendered dedented,
+with its `json:"…"` tags turned into colour-only code spans — two consecutive
+`run_command` steps then disagreed about indentation (2026-11-14). The
+heuristic itself now requires a real strong *span* (`**x**`), not a bare pair
+of asterisks, so Go's double pointers, C's `char **argv`, `**/*.go` globs and
+`2**10` no longer trip it.
+
 The **plain** `run_command` result stays on the CLI's own formatter — the
 model-facing bytes are pinned by
 `internal/app/tools/shell/command_output_truncation_test.go` and by the live capture.

@@ -21,6 +21,7 @@
 | [`hooks.md`](hooks.md) | the `hooks.json` runtime: the six events, the document shape, the decisions and the handler execution | touch `internal/core/policy/hooks`, the `/hooks` panel, or a hook that does not fire |
 | [`plugins.md`](plugins.md) | the `/plugin` Discover tab's shelves, `agy plugin import`, the MCP server conversion | touch `internal/ui/views/pluginsui`, the `/plugin` panel, or the plugin importer |
 | [`tui.md`](tui.md) | the transcript display, the model picker, argument completion, bash mode, syntax highlighting | touch a panel or the composer |
+| [`tui-storybook-blueprint.md`](tui-storybook-blueprint.md) | TUI component storybook, visual regression testing, and 5-layer clean-room reconstruction blueprint | touch `cmd/storybook`, `internal/ui/storybook`, or rebuild UI components from decompilation |
 | [`compaction.md`](compaction.md) | the two compaction paths, the reference's numbers, the context window | touch `internal/core/compaction`, `internal/pigrt` |
 | [`reference-drift.md`](reference-drift.md) | the gate, the version-scoped artefacts, re-evidencing | the reference binary moves |
 | [`legacy-evidence.md`](legacy-evidence.md) | what the 1.3.x-era evidence sweep retired, what survived, and the recipe that rebuilds it | a citation points at a retired path, or you need the old artefacts back |

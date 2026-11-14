@@ -1,6 +1,7 @@
 package tuitools
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -19,7 +20,7 @@ func TestStepDetailText_Commands(t *testing.T) {
 			name:   "command success",
 			tool:   "run_command",
 			detail: "Created At: x\nCompleted At: y\n\nThe command exited with code 0.\nOutput:\nhello\n",
-			want:   "Command exited with code 0.\n\nCommand output:\nhello",
+			want:   "Created At: x\nCompleted At: y\nCommand exited with code 0.\n\nCommand output:\nhello",
 		},
 		{
 			name:   "command empty output",
@@ -41,19 +42,19 @@ func TestStepDetailText_Commands(t *testing.T) {
 			name:   "current shape",
 			tool:   "run_command",
 			detail: "Created At: x\nCompleted At: y\nCommand exited with code 0.\n\nCommand output:\nhello\n",
-			want:   "Command exited with code 0.\n\nCommand output:\nhello",
+			want:   "Created At: x\nCompleted At: y\nCommand exited with code 0.\n\nCommand output:\nhello",
 		},
 		{
 			name:   "current shape, failed command",
 			tool:   "run_command",
 			detail: "Created At: x\nCompleted At: y\nCommand exited with code 2.\n\nCommand output:\nboom\n",
-			want:   "Command exited with code 2.\n\nCommand output:\nboom",
+			want:   "Created At: x\nCompleted At: y\nCommand exited with code 2.\n\nCommand output:\nboom",
 		},
 		{
 			name:   "current shape, empty output",
 			tool:   "run_command",
 			detail: "Created At: x\nCompleted At: y\nCommand exited with code 0.\n\nNo output from the command.",
-			want:   "Command exited with code 0.\n\nNo output from the command.",
+			want:   "Created At: x\nCompleted At: y\nCommand exited with code 0.\n\nNo output from the command.",
 		},
 	}
 	for _, c := range cases {
@@ -135,9 +136,9 @@ func TestDetailWrapWidth(t *testing.T) {
 		width int
 		want  int
 	}{
-		{80, 73},
-		{100, 93},
-		{27, 20},
+		{80, 75},
+		{100, 95},
+		{27, 22},
 		{25, 20}, // clamped to DetailMinWrapWidth (20)
 		{10, 20}, // clamped to DetailMinWrapWidth (20)
 	}
@@ -167,15 +168,20 @@ func TestFormatDetailLines_ExpandsTabs(t *testing.T) {
 func TestFormatDetailLinesOverflow(t *testing.T) {
 	lines := make([]string, MaxDetailLines+3)
 	for i := range lines {
-		lines[i] = "row"
+		lines[i] = fmt.Sprintf("row %d", i)
 	}
 	out := FormatDetailLines(lines, false)
 	if len(out) != MaxDetailLines+1 {
 		t.Fatalf("FormatDetailLines returned %d rows, want %d", len(out), MaxDetailLines+1)
 	}
-	want := DetailIndent + "<output +3 lines>"
-	if out[len(out)-1] != want {
-		t.Errorf("overflow row = %q, want %q", out[len(out)-1], want)
+	wantFirst := DetailBullet() + "<output +3 lines>"
+	if out[0] != wantFirst {
+		t.Errorf("overflow row at top = %q, want %q", out[0], wantFirst)
+	}
+	// Verify tail lines are preserved
+	wantLast := DetailIndent + fmt.Sprintf("row %d", len(lines)-1)
+	if out[len(out)-1] != wantLast {
+		t.Errorf("last row = %q, want %q", out[len(out)-1], wantLast)
 	}
 }
 

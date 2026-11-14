@@ -1,0 +1,32 @@
+NAME "Terminal Resize & Dynamic Reflow Parity (SIGWINCH)"
+WINDOW 100 30
+TARGET both
+SETTINGS '{"showTips":false}'
+
+# Turn 1: Return a multi-line markdown response with long sentences and codeblock
+MOCK_TURN
+  TEXT "Terminal resizing triggers a SIGWINCH signal. Antigravity and Pigasus must reflow markdown content, recalculate composer bounds, adapt horizontal dividers, and update status line padding dynamically."
+  FINISH STOP
+
+BOOT_BOTH
+WAIT_READY 10s
+
+TYPE "test reflow"
+ENTER
+WAIT_TEXT "Terminal resizing triggers" 15s
+
+# 1. Capture at original dimensions (100x30)
+SNAPSHOT "01_original_100x30"
+
+# 2. Resize mid-turn to narrower & shorter terminal (80x25)
+RESIZE 80 25
+SLEEP 500ms
+SNAPSHOT "02_narrow_80x25"
+
+# 3. Resize mid-turn to wider & taller terminal (120x35)
+RESIZE 120 35
+SLEEP 500ms
+SNAPSHOT "03_wide_120x35"
+
+DIFF
+CLEANUP

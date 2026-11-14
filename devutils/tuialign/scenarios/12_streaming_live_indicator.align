@@ -1,0 +1,27 @@
+NAME "Streaming Indicator & Live Thought Animation Alignment"
+WINDOW 100 30
+TARGET both
+
+# Turn 1: Streaming with delay to capture active in-flight indicator
+MOCK_TURN
+  THOUGHT "Analyzing project architecture in real time..." TOKENS 150 DELAY 500ms
+  DELAY 2000ms
+  TEXT "Analysis complete and ready."
+  USAGE PROMPT 18200 CANDIDATES 20 THOUGHTS 150
+  FINISH STOP
+
+BOOT_BOTH
+WAIT_READY 10s
+
+TYPE "analyze codebase"
+ENTER
+
+# Capture mid-stream state while thought is active and model is thinking
+SLEEP 1000ms
+SNAPSHOT "01_mid_streaming_thought"
+
+WAIT_TEXT "Analysis complete" 15s
+SNAPSHOT "02_streaming_finished"
+
+DIFF
+CLEANUP

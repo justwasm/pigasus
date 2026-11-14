@@ -1,0 +1,33 @@
+NAME "Multiple Tool Calls & Tool Grouping Alignment (1.5.7)"
+WINDOW 100 30
+TARGET both
+
+# Turn 1: Model emits two sequential tool calls in a single turn
+MOCK_TURN
+  THOUGHT "Running diagnostic checks in parallel..." TOKENS 120 DELAY 100ms
+  TOOL run_command {"CommandLine":"echo 'disk ok'","toolSummary":"Check disk space","WaitMsBeforeAsync":5000}
+  TOOL run_command {"CommandLine":"echo 'memory ok'","toolSummary":"Check memory usage","WaitMsBeforeAsync":5000}
+  USAGE PROMPT 18200 CANDIDATES 60 THOUGHTS 120
+  FINISH STOP
+
+# Turn 2: Final summary
+MOCK_TURN
+  TEXT "All system diagnostics passed successfully."
+  USAGE PROMPT 18500 CANDIDATES 15 THOUGHTS 0
+  FINISH STOP
+
+BOOT_BOTH
+WAIT_READY 10s
+
+TYPE "run diagnostics"
+ENTER
+
+WAIT_TEXT "diagnostics passed" 25s
+SNAPSHOT "01_tools_group_collapsed"
+
+KEYS "C-o"
+SLEEP 500ms
+SNAPSHOT "02_tools_group_expanded"
+
+DIFF
+CLEANUP

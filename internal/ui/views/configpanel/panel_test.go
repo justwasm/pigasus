@@ -229,8 +229,9 @@ func TestCycle197_ConfigDefaultDeletesKey(t *testing.T) {
 	}
 	p.cycleValue(rows, +1)
 	got := readSettings(t, dir)
-	if v, present := got["agentMode"]; present {
-		t.Errorf("after wrapping to default: agentMode = %v, want key absent", v)
+	// AGY 1.5.7: "choose Default for Agent Mode in /config, which saves "agentMode": "" to settings.json"
+	if v, ok := got["agentMode"].(string); !ok || v != "" {
+		t.Errorf("after wrapping to default: agentMode = %v, want empty string", got["agentMode"])
 	}
 	if d := p.SettingValue(rowIndex(t, p, "Agent Mode")); d != "default" {
 		t.Errorf("display after wrap = %q, want %q", d, "default")

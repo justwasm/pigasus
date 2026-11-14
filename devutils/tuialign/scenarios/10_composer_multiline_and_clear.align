@@ -1,0 +1,31 @@
+NAME "Composer Editing, Backspace & Line Kill Alignment"
+WINDOW 100 30
+TARGET both
+
+BOOT_BOTH
+WAIT_READY 10s
+
+# 1. Initial typing
+TYPE "hello world"
+SLEEP 300ms
+SNAPSHOT "01_text_typed"
+
+# 2. Backspace deletion
+KEYS "Bspace" "Bspace" "Bspace" "Bspace" "Bspace"
+SLEEP 200ms
+TYPE "there"
+SLEEP 300ms
+SNAPSHOT "02_backspace_edited"
+
+# 3. Line kill with Ctrl+U
+KEYS "C-u"
+SLEEP 300ms
+SNAPSHOT "03_ctrl_u_cleared"
+
+# 4. Re-type new text
+TYPE "clean message"
+SLEEP 300ms
+SNAPSHOT "04_retyped"
+
+DIFF 100
+CLEANUP

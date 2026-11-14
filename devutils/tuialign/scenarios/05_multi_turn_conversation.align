@@ -1,0 +1,35 @@
+NAME "Multi-Turn Conversation & Follow-Up Alignment"
+WINDOW 100 30
+TARGET both
+
+# Turn 1: Initial query
+MOCK_TURN
+  THOUGHT "Calculating sum of 1 and 1..." TOKENS 80 DELAY 80ms
+  TEXT "1 + 1 equals 2."
+  USAGE PROMPT 18200 CANDIDATES 12 THOUGHTS 80
+  FINISH STOP
+
+# Turn 2: Follow-up question
+MOCK_TURN
+  THOUGHT "Adding 3 to the previous result of 2..." TOKENS 90 DELAY 80ms
+  TEXT "2 + 3 equals 5."
+  USAGE PROMPT 18300 CANDIDATES 12 THOUGHTS 90
+  FINISH STOP
+
+BOOT_BOTH
+WAIT_READY 10s
+
+# Turn 1
+TYPE "what is 1 + 1"
+ENTER
+WAIT_TEXT "equals 2" 15s
+SNAPSHOT "01_turn_one_done"
+
+# Turn 2
+TYPE "and plus 3?"
+ENTER
+WAIT_TEXT "equals 5" 15s
+SNAPSHOT "02_turn_two_done"
+
+DIFF
+CLEANUP

@@ -113,20 +113,6 @@ func (p *Panel) switchAccount(email string) tea.Cmd {
 		p.notice = "error: no account selected."
 		return nil
 	}
-	if isQ, qReason := accountrouting.Shared().IsQuarantined(email); isQ {
-		p.notice = fmt.Sprintf("error: %s is quarantined (%s).", email, qReason)
-		return nil
-	}
-	for _, row := range p.rows {
-		if strings.EqualFold(row.Email, email) && row.Disabled {
-			reason := row.DisabledReason
-			if reason == "" {
-				reason = "account is disabled"
-			}
-			p.notice = fmt.Sprintf("error: %s is quarantined (%s).", email, reason)
-			return nil
-		}
-	}
 	if strings.EqualFold(email, p.active) {
 		p.notice = fmt.Sprintf("%s is already the active account.", email)
 		return nil

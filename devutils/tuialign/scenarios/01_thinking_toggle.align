@@ -1,0 +1,27 @@
+NAME "Thinking and Thought Toggle Alignment"
+WINDOW 100 30
+TARGET both
+
+# Turn 1 Mock Response
+MOCK_TURN
+  THOUGHT "I am thinking through how to approach this question." TOKENS 130 DELAY 100ms
+  TEXT "Hello! How can I help you today with openagy or your current task?" DELAY 150ms
+  USAGE PROMPT 18200 CANDIDATES 18 THOUGHTS 130
+  FINISH STOP
+
+# Automated Interaction Steps
+BOOT_BOTH
+WAIT_READY 10s
+SNAPSHOT "01_boot_ready"
+
+TYPE "hi"
+ENTER
+WAIT_TEXT "Hello!" 15s
+SNAPSHOT "02_turn_collapsed"
+
+KEYS "C-o"
+SLEEP 500ms
+SNAPSHOT "03_thought_expanded"
+
+DIFF
+CLEANUP

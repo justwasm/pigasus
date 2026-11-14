@@ -1,0 +1,22 @@
+NAME "Statusline Command & Configuration Alignment (/statusline)"
+WINDOW 100 30
+TARGET both
+SETTINGS {"showTips":false}
+
+BOOT_BOTH
+WAIT_READY 10s
+
+# Type /statusline to toggle statusline
+TYPE "/statusline"
+ENTER
+SLEEP 500ms
+SNAPSHOT "01_statusline_toggled"
+
+# Type /statusline a second time to toggle back
+TYPE "/statusline"
+ENTER
+SLEEP 500ms
+SNAPSHOT "02_statusline_toggled_back"
+
+DIFF 95
+CLEANUP

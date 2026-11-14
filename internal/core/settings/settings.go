@@ -112,6 +112,7 @@ func ParseAndValidateFlag(raw string) (map[string]any, error) {
 		}
 	}
 	var overlay map[string]any
+	data = confhome.StripBOM(data)
 	if err := json.Unmarshal(data, &overlay); err != nil {
 		return nil, fmt.Errorf("--settings must be a JSON object of settings.json keys: %w", err)
 	}
@@ -180,7 +181,7 @@ func readSettingsBytes() ([]byte, error) {
 	return merged, nil
 }
 
-func modifySettings(createIfMissing bool, mutate func(data []byte) ([]byte, error)) error {
+func modifySettings(createIfMissing, resetIfCorrupt bool, mutate func(data []byte) ([]byte, error)) error {
 	dir := confhome.Antigravity()
 	if createIfMissing {
 		if err := os.MkdirAll(dir, 0700); err != nil {
@@ -198,7 +199,7 @@ func modifySettings(createIfMissing bool, mutate func(data []byte) ([]byte, erro
 	} else {
 		data = confhome.StripBOM(data)
 		if !gjson.ValidBytes(data) {
-			if createIfMissing {
+			if resetIfCorrupt {
 				data = []byte("{}")
 			} else {
 				var m map[string]any
@@ -224,7 +225,7 @@ func modifySettings(createIfMissing bool, mutate func(data []byte) ([]byte, erro
 // cycle 48 WriteCompatDefaults will write the default on first
 // run).
 func SaveColorScheme(name string) error {
-	return modifySettings(false, func(data []byte) ([]byte, error) {
+	return modifySettings(false, false, func(data []byte) ([]byte, error) {
 		return sjson.SetBytes(data, "colorScheme", name)
 	})
 }
@@ -232,7 +233,7 @@ func SaveColorScheme(name string) error {
 // SetString writes one string value into
 // ~/.gemini/antigravity-cli/settings.json, preserving every other field.
 func SetString(key, value string) error {
-	return modifySettings(false, func(data []byte) ([]byte, error) {
+	return modifySettings(false, false, func(data []byte) ([]byte, error) {
 		return sjson.SetBytes(data, key, value)
 	})
 }
@@ -253,7 +254,7 @@ func SetString(key, value string) error {
 // a live settings.json and starting agy: true/false are accepted, every
 // string form ("on"/"off"/"auto"/"always"/"never") is rejected.
 func SetBool(key string, value bool) error {
-	return modifySettings(false, func(data []byte) ([]byte, error) {
+	return modifySettings(true, false, func(data []byte) ([]byte, error) {
 		return sjson.SetBytes(data, key, value)
 	})
 }
@@ -288,6 +289,15 @@ func Bool(key string) (value, ok bool) {
 		}
 	}
 	return false, false
+}
+
+// Has reports whether key is present in settings.json.
+func Has(key string) bool {
+	data, err := readSettingsBytes()
+	if err != nil {
+		return false
+	}
+	return gjson.GetBytes(data, key).Exists()
 }
 
 // String returns one string value from settings.json, or "" when the
@@ -341,8 +351,17 @@ func Field(key string) (any, error) {
 // had no live persistence; settings.json only updated via the /statusline
 // and /title slash-command toggles.
 func SetField(key string, value any) error {
-	return modifySettings(false, func(data []byte) ([]byte, error) {
-		return sjson.SetBytes(data, key, value)
+	return modifySettings(true, false, func(data []byte) ([]byte, error) {
+		switch v := value.(type) {
+		case bool, int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64, float32, float64, string, nil:
+			return sjson.SetBytes(data, key, v)
+		default:
+			b, err := json.Marshal(v)
+			if err != nil {
+				return nil, err
+			}
+			return sjson.SetRawBytes(data, key, b)
+		}
 	})
 }
 
@@ -356,7 +375,7 @@ func SetField(key string, value any) error {
 // no-op. Parent objects left empty are kept, matching the reference which
 // never prunes `statusLine`/`title` shells.
 func DeleteField(key string) error {
-	return modifySettings(true, func(data []byte) ([]byte, error) {
+	return modifySettings(true, true, func(data []byte) ([]byte, error) {
 		return sjson.DeleteBytes(data, key)
 	})
 }
@@ -371,7 +390,7 @@ func DeleteField(key string) error {
 // Update (preserves unknown fields, alphabetises keys via
 // map marshalling).
 func UpdateOrCreate(mutate func(map[string]any)) error {
-	return modifySettings(true, func(data []byte) ([]byte, error) {
+	return modifySettings(true, true, func(data []byte) ([]byte, error) {
 		var m map[string]any
 		_ = json.Unmarshal(data, &m)
 		if m == nil {

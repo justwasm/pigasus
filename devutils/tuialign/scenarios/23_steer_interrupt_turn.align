@@ -1,0 +1,37 @@
+NAME "Mid-Stream User Steering Alignment"
+WINDOW 100 30
+TARGET both
+SETTINGS {"showTips":false}
+
+# Turn 1: Long delayed turn
+MOCK_TURN
+  THOUGHT "Processing initial request slowly..." TOKENS 100 DELAY 500ms
+  DELAY 2000ms
+  TEXT "Finished initial response."
+  USAGE PROMPT 18000 CANDIDATES 20 THOUGHTS 100
+  FINISH STOP
+
+# Turn 2: Steered turn response
+MOCK_TURN
+  THOUGHT "Processing user steer..." TOKENS 80 DELAY 100ms
+  TEXT "Understood the new direction. Proceeding with updated plan."
+  USAGE PROMPT 18200 CANDIDATES 20 THOUGHTS 80
+  FINISH STOP
+
+BOOT_BOTH
+WAIT_READY 10s
+
+TYPE "start long analysis"
+ENTER
+
+# While Turn 1 is actively streaming, steer with new input
+SLEEP 400ms
+STEER "actually do something else instead"
+SLEEP 400ms
+SNAPSHOT "01_steer_queued_in_flight"
+
+EXPECT_TEXT "Understood the new direction" 20s
+SNAPSHOT "02_steer_completed"
+
+DIFF
+CLEANUP

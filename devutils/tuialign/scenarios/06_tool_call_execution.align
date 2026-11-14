@@ -1,0 +1,32 @@
+NAME "Tool Call Step & Execution Alignment (1.5.7)"
+WINDOW 100 30
+TARGET both
+
+# Turn 1: Emit a tool call (run_command) with valid schema
+MOCK_TURN
+  THOUGHT "Executing build command to verify project..." TOKENS 110 DELAY 100ms
+  TOOL run_command {"CommandLine":"echo 'build completed'","toolSummary":"Build project","WaitMsBeforeAsync":5000}
+  USAGE PROMPT 18200 CANDIDATES 25 THOUGHTS 110
+  FINISH STOP
+
+# Turn 2: Return final answer after tool completion
+MOCK_TURN
+  TEXT "The build command ran and reported that the build completed."
+  USAGE PROMPT 18350 CANDIDATES 20 THOUGHTS 0
+  FINISH STOP
+
+BOOT_BOTH
+WAIT_READY 10s
+
+TYPE "build project"
+ENTER
+
+WAIT_TEXT "build completed" 20s
+SNAPSHOT "01_tool_step_finished"
+
+KEYS "C-o"
+SLEEP 500ms
+SNAPSHOT "02_tool_step_expanded"
+
+DIFF
+CLEANUP

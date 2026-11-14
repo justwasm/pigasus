@@ -90,9 +90,16 @@ func TestAppendRunningStep_JoinsTheBatchAndRepaintsItsRows(t *testing.T) {
 		t.Fatalf("the batch's runs have different heights: %d and %d",
 			doc.Runs[0].Lines, doc.Runs[1].Lines)
 	}
-	if !strings.Contains(plainRows(doc.Lines), "Ran 2 commands (echo one · echo two)") {
+	// The batch's row is repainted with the second call: the reference's
+	// collapsed block names the last call only (tuialign 27/28), and names
+	// it by its call title, so the repaint must replace the row rather than
+	// append to it.
+	if !strings.Contains(plainRows(doc.Lines), "Bash(echo two)") {
 		t.Fatalf("the batch's rows were not repainted with the second call:\n%s",
 			plainRows(doc.Lines))
+	}
+	if strings.Contains(plainRows(doc.Lines), "Ran 2 commands") {
+		t.Fatalf("the batch grew an aggregate summary row:\n%s", plainRows(doc.Lines))
 	}
 }
 

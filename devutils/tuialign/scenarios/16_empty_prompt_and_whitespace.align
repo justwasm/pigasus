@@ -1,0 +1,25 @@
+NAME "Empty Prompt and Whitespace Enter Handling Alignment"
+WINDOW 100 30
+TARGET both
+
+BOOT_BOTH
+WAIT_READY 10s
+
+# Press Enter on completely empty prompt
+ENTER
+SLEEP 500ms
+SNAPSHOT "01_empty_enter"
+
+# Type spaces and press Enter
+TYPE "   "
+ENTER
+SLEEP 500ms
+SNAPSHOT "02_spaces_enter"
+
+# Type valid text after empty submits
+TYPE "hello"
+SLEEP 300ms
+SNAPSHOT "03_valid_text_typed"
+
+DIFF 100
+CLEANUP

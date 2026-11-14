@@ -39,6 +39,7 @@ package endpoints
 import (
 	"fmt"
 	"net/url"
+	"os"
 	"runtime"
 	"strings"
 )
@@ -261,7 +262,7 @@ type Set struct {
 func Current() Set {
 	o := currentOverrides()
 	return Set{
-		CloudCode:          pick(o, CloudCode, DefaultCloudCode),
+		CloudCode:          cloudCode(o),
 		CloudCodeProd:      pick(o, CloudCodeProd, DefaultCloudCodeProd),
 		OAuth2Token:        pick(o, OAuth2Token, DefaultOAuth2Token),
 		OAuth2Auth:         pick(o, OAuth2Auth, DefaultOAuth2Auth),
@@ -281,6 +282,25 @@ func Current() Set {
 		PollSignaling:      pick(o, PollSignaling, ""),
 		SendSignaling:      pick(o, SendSignaling, ""),
 	}
+}
+
+// cloudCode resolves the Code Assist host: CLOUD_CODE_URL, then the file's
+// override, then the compiled-in default.
+//
+// The variable is read here rather than folded into the cached override map
+// for two reasons: it is the precedence the package documents (the
+// environment beats the file), and it is what every local-service
+// walkthrough already sets. Only the transport used to read it, so a run
+// pointed at a local service still sent its plan-tier, quota and account
+// calls to Google with the operator's own token — found by tuialign, whose
+// banner had no account tier for that reason. Reading it per call also keeps
+// the override cache honest: that cache is keyed on the file's stamp alone,
+// and a variable does not change it.
+func cloudCode(o map[string]string) string {
+	if v := strings.TrimSpace(os.Getenv("CLOUD_CODE_URL")); v != "" {
+		return v
+	}
+	return pick(o, CloudCode, DefaultCloudCode)
 }
 
 // AccountChooserURL returns the URL that asks Google's account chooser

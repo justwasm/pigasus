@@ -28,10 +28,13 @@ func Launch(args []string) int {
 
 	filteredArgs, balanceFlag, aggregateFlag := parseProxyFlags(args)
 
-	// The proxy does not inject or take over catwalk providers from providers.json.
-	// It purely manages Google OAuth accounts (/accounts) load balancing, quota aggregation,
-	// and passthrough to Google CloudCode.
-	srv, addr, err := startProxyServer(nil, logf, balanceFlag, aggregateFlag)
+	// The operator's own models ride along: the proxy merges them into the
+	// catalogue the vendor binary reads and translates a turn that picks one
+	// to the configured provider. The registry is only read here; a missing
+	// or malformed file leaves the vendor binary exactly as it was.
+	configured := configuredModels()
+	logf("agy proxy: %d configured model(s) offered to the vendor binary", len(configured))
+	srv, addr, err := startProxyServer(configured, logf, balanceFlag, aggregateFlag)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "agy proxy: proxy: %v\n", err)
 		return 1
@@ -39,6 +42,20 @@ func Launch(args []string) int {
 	defer srv.Close()
 
 	return runWrappedChild(real, filteredArgs, addr)
+}
+
+// configuredModels returns the operator's models from the provider registry
+// (~/.openagy/providers.json).
+//
+// CachedRegistry never fails: a malformed file falls back to the last good
+// registry, and to an empty one when there is none, so a broken edit cannot
+// stop `pigasus agy` from starting. An empty slice means "no injection" and
+// the vendor binary talks to Google exactly as it does unproxied.
+func configuredModels() []models.Model {
+	if reg := models.CachedRegistry(); reg != nil {
+		return reg.List()
+	}
+	return nil
 }
 
 // parseProxyFlags extracts proxy-level flags (e.g. --balance, --aggregate) before arguments

@@ -23,14 +23,13 @@
 //	  reference binary;
 //	user_rules, user_information — assembled from the host, not from a file.
 //
-// The ground truth is still the captured request body:
-// testdata/capture_1.4.6.txt, recorded by the cycle-274 wrapper (the 1.4.4
-// capture is kept beside it as history). Rendering the reference's own
-// templates reproduces it byte for byte — see TestBuildMatchesCapture.
+// The ground truth is the captured request body:
+// testdata/capture_1.5.5.txt (earlier captures kept beside it as history).
+// Rendering the reference's own templates reproduces it byte for byte —
+// see TestBuildMatchesCapture.
 //
-// 1.4.6 vs 1.4.5 (【一手】, docs/cycles/reference-drift-146/): the reference
-// added the whole `<terminal_sandbox>` section (second position) and one
-// bullet to `<guidelines>`. Everything else static is byte-identical.
+// 1.5.5 vs 1.4.6: the reference added CAPTCHA / anti-bot challenge guidelines
+// and updated prompt experiment switches (generic-system-prompt, generative UI).
 //
 // agy sends tool declarations separately (twelve of them, as
 // functionDeclarations); they are NOT part of this text.
@@ -97,7 +96,7 @@ type Options struct {
 	// The flags below are the branches the recovered templates take. The
 	// reference reads them from its cascade configuration (fetched from the
 	// server) and its experiment list; the clone has no server, so they are
-	// inputs. Every default reproduces the captured 1.4.6 request.
+	// inputs. Every default reproduces the captured 1.5.5 request.
 
 	// Autonomous renders the prompt for an agent that cannot ask the user
 	// anything. The reference's own value is false for the CLI.

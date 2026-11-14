@@ -3,6 +3,7 @@ package tuitools
 import (
 	"bytes"
 	"fmt"
+	"regexp"
 	"strings"
 
 	"github.com/charmbracelet/x/ansi"
@@ -13,7 +14,8 @@ import (
 
 // MaxDetailLines caps how many output lines the expanded view shows
 // before switching to the recovered "<output +%d lines>" overflow marker.
-const MaxDetailLines = 20
+// In AgY 1.5.8, 10 lines of tail output are kept when truncated.
+const MaxDetailLines = 10
 
 // StepDetailText maps a tool result onto the text the reference's
 // expanded step actually shows. The tool *result* and the transcript
@@ -47,18 +49,21 @@ func StepDetailText(name, detail string, isThought bool) string {
 	return detail
 }
 
+var stampRE = regexp.MustCompile(`^(Created At: [^\r\n]+\r?\nCompleted At: [^\r\n]+\r?\n)`)
+
+func extractStamp(s string) string {
+	if m := stampRE.FindString(s); m != "" {
+		return m
+	}
+	return ""
+}
+
 // CommandDetailText reformats a run_command result body into the transcript
 // display form. ok is false when the body carries no exit-code line (a
 // tool-level failure or a timeout note), in which case the caller keeps the
 // raw text.
 //
-// The reader is internal/app/prompt/step's: it knows the reference's two shapes —
-// the CLI's own formatter ("Command exited with code N." / "Command
-// output:") and the step string ("The command exited with code N." /
-// "Output:"). Before cycle 298 this function only knew the second one, so
-// it stopped recognising the clone's own results: a failed command was not
-// marked as failed and the "Created At / Completed At" stamp reached the
-// screen, which cycle 285 says it never does.
+// In AgY 1.5.8, timestamp rows (Created At / Completed At) are retained when present.
 func CommandDetailText(result string) (string, bool) {
 	res, ok := agystep.ParseRunCommandResult(result)
 	if !ok {
@@ -66,6 +71,9 @@ func CommandDetailText(result string) (string, bool) {
 	}
 	out := strings.TrimRight(res.Output, "\n")
 	var b strings.Builder
+	if stamp := extractStamp(result); stamp != "" {
+		b.WriteString(stamp)
+	}
 	fmt.Fprintf(&b, "Command exited with code %d.", res.ExitCode)
 	if strings.TrimSpace(out) == "" {
 		b.WriteString("\n\nNo output from the command.")
@@ -141,19 +149,17 @@ func RenderMarkdownDetail(detail string, width int) string {
 }
 
 // DetailIndent is the indent continuation lines carry in expanded tool steps.
-// Verified against agy 1.5.1 render.formatCommandOutputDetail at 0x102b0f7a0:
-// 7 spaces ("       ").
-const DetailIndent = "       "
+// In AgY 1.5.8, continuation lines align with the body of "  ⎿  " (5 spaces).
+const DetailIndent = "     "
 
 // DetailIndentWidth is the width of DetailIndent in cells.
-const DetailIndentWidth = 7
+const DetailIndentWidth = 5
 
 // DetailMinWrapWidth is the minimum wrap width enforced by the reference.
 const DetailMinWrapWidth = 20
 
 // DetailWrapWidth calculates the content wrap width given the terminal width.
-// Verified against agy 1.5.1 render.formatCommandOutputDetail at 0x102b0f7a0:
-// max(20, width - 7).
+// AgY 1.5.8 wrap width: max(20, width - 5).
 func DetailWrapWidth(width int) int {
 	toolWidth := width
 	if toolWidth <= 0 {
@@ -230,28 +236,39 @@ func DetailBullet() string {
 }
 
 // FormatDetailLines renders the body rows of an expanded step, capping
-// the count and adding the overflow marker.
+// the count and adding the overflow marker. In upstream AgY 1.5.5, command
+// execution output retains the tail window (most recent rows) when truncated,
+// placing the overflow indicator at the top with DetailBullet.
 func FormatDetailLines(lines []string, diffMode bool) []string {
 	extra := 0
 	if len(lines) > MaxDetailLines {
 		extra = len(lines) - MaxDetailLines
-		lines = lines[:MaxDetailLines]
+		lines = lines[extra:]
 	}
 	out := make([]string, 0, len(lines)+1)
-	for i, l := range lines {
-		l = mdrender.ExpandTabs(l, 4)
-		styled := l
-		if diffMode && !strings.Contains(l, "\x1b[") {
-			styled = StyleDiffLine(l)
-		}
-		if i == 0 {
-			out = append(out, DetailBullet()+styled)
-		} else {
+	if extra > 0 {
+		out = append(out, fmt.Sprintf("%s<output +%d lines>", DetailBullet(), extra))
+		for _, l := range lines {
+			l = mdrender.ExpandTabs(l, 4)
+			styled := l
+			if diffMode && !strings.Contains(l, "\x1b[") {
+				styled = StyleDiffLine(l)
+			}
 			out = append(out, DetailIndent+styled)
 		}
-	}
-	if extra > 0 {
-		out = append(out, fmt.Sprintf("%s<output +%d lines>", DetailIndent, extra))
+	} else {
+		for i, l := range lines {
+			l = mdrender.ExpandTabs(l, 4)
+			styled := l
+			if diffMode && !strings.Contains(l, "\x1b[") {
+				styled = StyleDiffLine(l)
+			}
+			if i == 0 {
+				out = append(out, DetailBullet()+styled)
+			} else {
+				out = append(out, DetailIndent+styled)
+			}
+		}
 	}
 	return out
 }
@@ -297,6 +314,33 @@ func LooksLikeDiff(s string) bool {
 	return hasMinus && hasPlus
 }
 
+// PreformattedDetail reports whether the tool's detail is machine output —
+// a command's stdout, a search result, a directory listing — rather than a
+// document a human wrote.
+//
+// The reference draws those bodies preformatted: every row keeps its own
+// leading whitespace, and the text is never re-flows, re-indents or eats a
+// backtick. Rendering them through the markdown path was the reported
+// inconsistency (2026-11-14): two `run_command` steps, one shown with its
+// source indentation and struct tags intact and the next dedented with the
+// tags stripped, because the second one's output happened to contain the
+// Go type `meta **StreamMeta` — and `**` alone used to mean "this is
+// markdown".
+//
+// A tool that is not listed keeps the markdown path: read_url_content
+// returns a page, and a page may genuinely be markdown (cycle 176).
+func PreformattedDetail(name string) bool {
+	switch name {
+	case "run_command", "run_shell_command", "exec_command",
+		"bash", "exec", "execute_command", "execute", "terminal", "sh",
+		"command_status", "send_command_input",
+		"grep_search", "grep", "find_by_name", "list_dir", "list_directory",
+		"list_processes":
+		return true
+	}
+	return false
+}
+
 // LooksLikeMarkdown returns true if s contains Markdown markers that
 // goldmark would recognise on parse.
 //
@@ -311,8 +355,8 @@ func LooksLikeDiff(s string) bool {
 //
 // The six markers checked are:
 //
-//   - "**"               paired-asterisk strong (most Markdown
-//     prose has at least one bold run)
+//   - "**…**"            paired-asterisk strong — a *span*, not the bare
+//     pair of asterisks (see hasStrongSpan)
 //   - "```"              fenced code block delimiter (readme /
 //     changelog files almost always have one)
 //   - "# " at line start ATX heading
@@ -321,12 +365,11 @@ func LooksLikeDiff(s string) bool {
 //   - "* " at line start unordered list item
 //
 // The check is purely lexical — it does not parse the content with
-// goldmark first. A pathological input that contains "**" as
-// literal text (e.g. someone running `printf 'a**b' | cat`) would
-// be mis-rendered; in practice such content never appears in tool
-// output.
+// goldmark first. A pathological input that contains a literal strong
+// span (e.g. `printf 'a **b** c' | cat`) would be mis-rendered; in
+// practice such content never appears in tool output.
 func LooksLikeMarkdown(s string) bool {
-	if strings.Contains(s, "**") {
+	if hasStrongSpan(s) {
 		return true
 	}
 	if strings.Contains(s, "```") {
@@ -343,6 +386,45 @@ func LooksLikeMarkdown(s string) bool {
 	}
 	if strings.HasPrefix(s, "* ") || strings.Contains(s, "\n* ") {
 		return true
+	}
+	return false
+}
+
+// hasStrongSpan reports whether s carries a CommonMark strong span:
+// `**` immediately followed by non-space text, and a later `**` immediately
+// preceded by non-space text on the same line.
+//
+// A bare `**` is NOT a marker. Source code is full of them — Go's
+// `meta **StreamMeta`, C's `char **argv`, a `**/*.go` glob, `2**10` — and
+// treating the pair as "this is markdown" made one tool output render
+// preformatted and the next dedented with its backticks eaten
+// (2026-11-14). The flanking rules keep both halves of a real emphasis
+// span (`**important**`) while refusing every one of those code shapes.
+func hasStrongSpan(s string) bool {
+	for i := 0; i+1 < len(s); i++ {
+		if s[i] != '*' || s[i+1] != '*' {
+			continue
+		}
+		if i+2 >= len(s) {
+			return false
+		}
+		switch s[i+2] {
+		case ' ', '\t', '\n', '*':
+			continue
+		}
+		for j := i + 3; j+1 < len(s); j++ {
+			if s[j] == '\n' {
+				break // emphasis does not cross a line in tool output
+			}
+			if s[j] != '*' || s[j+1] != '*' {
+				continue
+			}
+			switch s[j-1] {
+			case ' ', '\t', '\n':
+				continue
+			}
+			return true
+		}
 	}
 	return false
 }

@@ -1,0 +1,25 @@
+NAME "Help & Shortcuts Panel Alignment (/help)"
+WINDOW 100 30
+TARGET both
+
+BOOT_BOTH
+WAIT_READY 10s
+
+# Type /help and open shortcuts/help panel
+TYPE "/help"
+ENTER
+SLEEP 500ms
+SNAPSHOT "01_help_panel_open"
+
+# Navigate down
+KEYS "Down"
+SLEEP 300ms
+SNAPSHOT "02_help_navigated"
+
+# Escape back to prompt
+KEYS "Escape"
+SLEEP 500ms
+SNAPSHOT "03_help_closed"
+
+DIFF
+CLEANUP

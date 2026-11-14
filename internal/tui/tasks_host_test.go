@@ -161,9 +161,12 @@ func TestSlashTasksKillRunning(t *testing.T) {
 // TestTasksPanel_EnterOpensDetailAndArmsTick pins that pressing Enter on a task
 // opens its detail view and emits a DetailOpenedMsg which triggers armTasksTick
 // to keep live output refreshing.
+//
+// The row is a background command: the reference keeps subagents out of /tasks
+// (tuialign 29), so a subagent cannot be the row under the cursor.
 func TestTasksPanel_EnterOpensDetailAndArmsTick(t *testing.T) {
 	m := seedRootModel()
-	seedTask(m.tasks.reg, "sub-live", "bash -c sleep 60", taskregistry.KindSubagent, taskregistry.StateRunning)
+	seedTask(m.tasks.reg, "sub-live", "bash -c sleep 60", taskregistry.KindShell, taskregistry.StateRunning)
 
 	m.openSlashPanel("tasks")
 	handled, cmd := m.handlePanelKey(tea.Key{Code: tea.KeyEnter})

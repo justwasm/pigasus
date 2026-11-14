@@ -43,7 +43,8 @@ var errRuleNoFrontmatter = errors.New("agyprompt: the rule has no frontmatter")
 // line break that terminated it is dropped, the blank line the author wrote
 // after the frontmatter is not.
 func parseRuleFrontmatter(raw []byte) (ruleFrontmatter, string, error) {
-	text := strings.ReplaceAll(string(raw), "\r\n", "\n")
+	text := strings.TrimPrefix(string(raw), "\ufeff")
+	text = strings.ReplaceAll(text, "\r\n", "\n")
 	if !strings.HasPrefix(text, "---\n") {
 		return ruleFrontmatter{}, text, errRuleNoFrontmatter
 	}

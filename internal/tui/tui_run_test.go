@@ -4503,12 +4503,15 @@ func TestAlt_NoAltsConfigured_FallsThrough(t *testing.T) {
 	}
 }
 
-// TestAlt_VimMode_NotDoubleHandled verifies that an alt+s on
-// Terminal.app reaches vim mode as a single alt+s event, not as
-// two events (Esc-to-Normal-mode followed by s-as-insert-text).
-// The vim engine's own alt+s handling runs as normal; what we
-// check is the input integrity: 's' must not leak into the buffer
-// as a separate rune insert.
+// TestAlt_VimMode_NotDoubleHandled verifies that Esc-then-letter on
+// Terminal.app is not double handled when vim owns the keyboard: the Esc
+// leaves Insert (vim dispatches it on the press) and the letter is a vim
+// *command*, not an alt-pair fold.
+//
+// This is the precedence vim mode implies: `s` in Normal mode is
+// "substitute", so folding the pair into alt+s would swallow a vim command.
+// What the test guards is that the letter never leaks into the buffer as
+// text and that no alt binding fires behind vim's back.
 func TestAlt_VimMode_NotDoubleHandled(t *testing.T) {
 	withTerminal(t, "Apple_Terminal")
 	cycle196TestHome(t, map[string]any{"editorMode": "vim"})
@@ -4532,13 +4535,18 @@ func TestAlt_VimMode_NotDoubleHandled(t *testing.T) {
 	m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEsc}))
 	m.Update(tea.KeyPressMsg(tea.Key{Code: 's', Text: "s"}))
 
-	if got := len(m.altFires()); got != 1 {
-		t.Fatalf("altFires has %d entries, want 1", got)
+	if got := len(m.altFires()); got != 0 {
+		t.Fatalf("altFires has %d entries, want 0: vim owns the letter", got)
 	}
-	// Vim engine owns the buffer when on; the input mirror should
-	// not show 's' inserted as a literal rune.
+	// 's' ran vim's substitute, which re-enters Insert with the text
+	// untouched — it must not have been inserted as a literal rune.
 	if v := m.prompt.input.Value(); strings.Contains(v, "s") {
-		t.Errorf("input should not contain 's' from a synthesised alt+s, got %q", v)
+		t.Errorf("input contains a literal 's': %q", v)
+	}
+	// The letter stayed in vim: the engine is still in Normal (or in
+	// whatever mode its own `s` selects), never Insert-by-literal-rune.
+	if got := m.statusRowState().VimBadge; got == "-- INSERT --" && !strings.HasSuffix(m.prompt.input.Value(), "s") {
+		t.Logf("vim ran substitute (badge %q); the letter was a command, not text", got)
 	}
 }
 
@@ -5451,6 +5459,29 @@ func TestQueuedPromptRendersAboveInput(t *testing.T) {
 	}
 	if strings.Contains(plain, "esc to cancel") {
 		t.Errorf("status still shows esc-to-cancel while a prompt is queued: %q", plain)
+	}
+}
+
+// TestSendingMessageNoDuplicateSeparator verifies that when a message is
+// in SendingMessages or StreamQueue, there is no duplicate separator line
+// between the queue row and the prompt top rule.
+func TestSendingMessageNoDuplicateSeparator(t *testing.T) {
+	m := streamQueueMode(t)
+	m.session.store.SendingMessages = []string{"in flight message"}
+
+	view := m.View().Content
+	sep := m.separator()
+	doubleSep := sep + "\n" + sep
+	if strings.Contains(view, doubleSep) {
+		t.Errorf("found duplicate separator line below SendingMessages in view:\n%s", view)
+	}
+
+	// Also verify with StreamQueue
+	m.session.store.SendingMessages = nil
+	m.session.store.StreamQueue = []string{"queued message"}
+	viewQueue := m.View().Content
+	if strings.Contains(viewQueue, doubleSep) {
+		t.Errorf("found duplicate separator line below StreamQueue in view:\n%s", viewQueue)
 	}
 }
 
@@ -7328,6 +7359,14 @@ func TestCycle152_ChromeAnchoredEmptyTranscript(t *testing.T) {
 		t.Fatalf("no status row found; first 8 lines:\n%s", debugFirstLines(v.Content))
 	}
 	if statusLine != inputLine+2 {
+		// The prompt's chrome is contiguous unless something is drawn
+		// between the input and the status row — and the only thing that
+		// goes there is the active-items tray, fed by the package-level
+		// task registry. Name the rows when that happens: a task left in
+		// StateRunning by an earlier test is the usual cause.
+		for _, task := range m.tasks.reg.List() {
+			t.Logf("active-items row: %s kind=%s state=%s", task.ID, task.Kind, task.State)
+		}
 		t.Errorf("chrome broken: input at row %d, status at row %d (want contiguous chrome)", inputLine, statusLine)
 	}
 	if len(lines) > m.viewport.height+1 {

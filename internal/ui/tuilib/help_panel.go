@@ -122,6 +122,23 @@ func RenderAgentWarning(body string) string {
 	return b.String()
 }
 
+// RenderModelWarning is the reference-style ⚠ Model Not Configured card.
+func RenderModelWarning(body string) string {
+	var b strings.Builder
+	b.WriteString(palette.WarningOpen)
+	b.WriteString("⚠ Model Not Configured")
+	b.WriteString(palette.WarningClose)
+	b.WriteString("\n")
+	b.WriteString(palette.WarningBlueOpen)
+	b.WriteString("  ⎿  ")
+	b.WriteString(palette.WarningBlueClose)
+	b.WriteString(palette.WarningBodyOpen)
+	b.WriteString(body)
+	b.WriteString(palette.WarningBodyClose)
+	b.WriteString("\n")
+	return b.String()
+}
+
 // RenderWarning emits the cycle-81 fallback warning block.
 func RenderWarning(from, to string) string {
 	var b strings.Builder

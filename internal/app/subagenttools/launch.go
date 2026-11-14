@@ -66,6 +66,10 @@ func Launch(ctx context.Context, inv Invocation, deps Deps) (Launched, error) {
 
 	childCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
 	child := NewChild(conversationID, inv.TypeName, inv.Role, worktreePath, cancel)
+	child.ParentID = deps.ConversationID
+	if deps.Registry != nil && deps.Registry.ParentID() != "" {
+		child.ParentID = deps.Registry.ParentID()
+	}
 	child.Model = model
 	child.Effort = strings.TrimSpace(deps.Effort)
 	child.SetSubDir(subDir)
@@ -360,6 +364,13 @@ func runChild(
 					taskReg.Update(child.ConversationID, func(t *taskregistry.Task) {
 						if ev.ToolCall != nil {
 							t.CurrentTool = ev.ToolCall.Name
+							// The trajectory fills while the child
+							// works: a detail view opened mid-run
+							// shows the steps taken so far instead
+							// of "No steps yet". The turn's end
+							// replaces the list with usedSteps(msgs),
+							// so nothing is counted twice.
+							t.Steps = append(t.Steps, ev.ToolCall.Name)
 						}
 					})
 				}
@@ -602,8 +613,10 @@ func recordChildTurnWithMeta(
 	}
 
 	if subDir != "" && child != nil {
+		steps := usedSteps(msgs)
 		meta := CheckpointMeta{
 			ConversationID: child.ConversationID,
+			ParentID:       child.ParentID,
 			TypeName:       inv.TypeName,
 			Role:           inv.Role,
 			Worktree:       child.Worktree,
@@ -617,8 +630,10 @@ func recordChildTurnWithMeta(
 			SpawnStepIndex: child.SpawnStepIndex,
 			EndedAt:        endedAt,
 			LastActivityAt: time.Now(),
-			StepCount:      len(usedSteps(msgs)),
+			StepCount:      len(steps),
 			ToolsUsed:      usedTools(msgs),
+			Steps:          steps,
+			Output:         assistantText(msgs),
 		}
 		if runErr != nil {
 			meta.Error = runErr.Error()

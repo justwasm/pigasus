@@ -62,6 +62,15 @@ func PolicyFrom(mode string, skipPermissions bool) permissions.Policy {
 	if strings.TrimSpace(mode) == "" {
 		if v := settings.String("agentMode"); isKnownMode(v) {
 			mode = v
+		} else if !settings.Has("agentMode") {
+			// AGY 1.5.7: "Changed the default Agent Mode from Default to Auto:
+			// sessions with no saved mode, including headless -p runs, now start
+			// in Auto wherever Auto mode is available and in Default elsewhere;
+			// to keep the previous behavior, choose Default for Agent Mode in
+			// /config, which saves "agentMode": "" to settings.json."
+			if auth.AutoModeAvailable() {
+				mode = permissions.ModeAuto
+			}
 		}
 	}
 	p := permissions.Policy{
@@ -81,6 +90,15 @@ func PolicyFrom(mode string, skipPermissions bool) permissions.Policy {
 	}
 	return p
 }
+
+// DefaultMode is the agent mode a session starts in when neither the command
+// line nor a saved setting names one.
+//
+// The status row names the mode only when it differs from this one (see
+// internal/ui/views/statusrow), so the answer has to be the same value the
+// session's policy resolved to — hence the delegation rather than a second
+// copy of the 1.5.7 rule.
+func DefaultMode() string { return PolicyFrom("", false).Mode }
 
 // isKnownMode reports whether v is one of the policy's own modes.
 func isKnownMode(v string) bool {

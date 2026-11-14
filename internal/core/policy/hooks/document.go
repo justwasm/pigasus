@@ -1,6 +1,7 @@
 package hooks
 
 import (
+	"bytes"
 	"encoding/json"
 	"regexp"
 	"sort"
@@ -165,6 +166,7 @@ func validMatcher(matcher string) bool {
 // matcher that is not a regular expression. The offending entry is
 // skipped — the rest of the document still loads.
 func Parse(raw []byte) ([]Entry, []string) {
+	raw = bytes.TrimPrefix(raw, []byte("\xef\xbb\xbf"))
 	var top map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &top); err != nil {
 		return nil, []string{"failed to parse hooks.json: " + err.Error()}

@@ -77,6 +77,14 @@ func TestLSAdditionalMethodsCoverage(t *testing.T) {
 		{name: "GetWorkspaceGitHubPullRequests", checkKey: "workspaces"},
 		{name: "GetGoogleChatLinkInfo", checkKey: "infos"},
 		{name: "RunTrigger"},
+
+		// Antigravity 2.31.0 / CL 1017595969 Additions
+		{name: "CancelLogin"},
+		{name: "GetLoginSession", checkKey: "active"},
+		{name: "SwitchLoginToAuthCode", checkKey: "active"},
+		{name: "SubmitLoginAuthCode", checkKey: "accepted"},
+		{name: "GetOnboardingPersonas", checkKey: "personas"},
+		{name: "SearchGcpProjects", checkKey: "projects"},
 	}
 
 	for _, tc := range testCases {
@@ -141,9 +149,14 @@ func TestTCPServer_EndToEndWiringForAdditionalMethods(t *testing.T) {
 		"DeleteAllUserData",
 		"GetUserDataDeletionStatus",
 		"GetGitHubPullRequests",
-		"GetWorkspaceGitHubPullRequests",
 		"GetGoogleChatLinkInfo",
 		"RunTrigger",
+		"CancelLogin",
+		"GetLoginSession",
+		"SwitchLoginToAuthCode",
+		"SubmitLoginAuthCode",
+		"GetOnboardingPersonas",
+		"SearchGcpProjects",
 	}
 
 	for _, m := range testMethods {

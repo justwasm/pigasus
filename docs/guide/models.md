@@ -371,6 +371,17 @@ account** instead of the configured endpoint — so the quota that ran out was
 the Google account's, not the reader's. The reference resolves a bare id the
 same way (`gemini-3.8-flash` answers `Gemini 3.8 Flash (High)`).
 
+**The dispatch resolves the same way.** `backendselect` is handed whatever
+spelling the caller had — the picker's label, the catalogue id, the upstream
+id, or the tier-less label of a tiered model — and resolves it through the
+same catalogue path (`catalogueSlug` → `models.Registry.GetByName`, with the
+display label and the upstream spelling as the last resort). Its own exact
+lookup alone was not enough: a tier-less label such as `DeepSeek-V4-Flash`
+has no catalogue row, and the miss silently sent a configured model to the
+**shim** — a turn of `mock reply from model=…` that looked like a working
+answer (2026-11-14). Only a name nobody configured reaches the shim, with the
+`… is not configured` warning.
+
 ### The wire
 
 The tier rides the request as the OpenAI dialect's `reasoning_effort` hint.

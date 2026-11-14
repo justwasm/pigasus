@@ -131,6 +131,7 @@ func currentOverrides() map[string]string {
 			values[name] = strings.TrimSpace(url)
 		}
 	}
+
 	snapshot := &overrides{stamp: stamp, values: values}
 	overridesCache.Store(snapshot)
 	return snapshot.values

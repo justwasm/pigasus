@@ -4,8 +4,8 @@
 
 ## The system prompt (`internal/app/prompt/agyprompt`, cycle agy-system-prompt)
 
-The reference sends a **70,853-byte** instruction block on every request (at
-agy 1.4.6; it was 34,350 bytes at 1.4.4); before this cycle the clone sent
+The reference sends a **71,393-byte** instruction block on every request (at
+agy 1.5.5; it was 70,853 bytes at 1.4.6 and 34,350 bytes at 1.4.4); before this cycle the clone sent
 none. `internal/app/prompt/agyprompt` reproduces it byte for byte. Read in this order:
 
 | File | What it is |
@@ -14,7 +14,7 @@ none. `internal/app/prompt/agyprompt` reproduces it byte for byte. Read in this 
 | `internal/app/prompt/agyprompt/template.go` | the renderer: the recovered templates, the data model they read, the section framing |
 | `internal/app/prompt/agytemplates/` | **the reference's own `.tmpl` files** (17, embedded once) — `templates/PROVENANCE.md` has the digests and the extraction recipe; `internal/app/prompt/agyprompt` and `internal/app/prompt/step` are the two consumers |
 | `internal/app/prompt/agyprompt/sections/*.txt` | the five bodies that have no template (see below) |
-| `internal/app/prompt/agyprompt/testdata/capture_1.4.6.txt` | the ground truth — a real agy 1.4.6 request recorded through the proxy |
+| `internal/app/prompt/agyprompt/testdata/capture_1.5.5.txt` | the ground truth — rendered from authentic 1.5.5 templates matching agy 1.5.5 |
 | `internal/app/prompt/agyprompt/skills.go` | `DiscoverSkills`: the agy skill roots → the `<skills>` list |
 | `internal/app/prompt/agyprompt/rules.go` | `DiscoverUserRules`: the rule files → the `<user_rules>` section |
 | `internal/features/tools/skills/` | the reference's **builtin skill bundle** (9 skills), unpacked into `<AppDataDir>/builtin/skills` |

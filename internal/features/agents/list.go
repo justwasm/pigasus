@@ -156,7 +156,8 @@ func discoverScope(scope string) []Agent {
 // parseAgentFile splits the frontmatter and body. The loader requires a
 // leading `---` block and both name and description; anything else is ignored.
 func parseAgentFile(raw []byte) (Agent, bool) {
-	text := string(raw)
+	text := strings.TrimPrefix(string(raw), "\ufeff")
+	text = strings.ReplaceAll(text, "\r\n", "\n")
 	if !strings.HasPrefix(text, "---\n") {
 		return Agent{}, false
 	}

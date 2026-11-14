@@ -115,9 +115,6 @@ func RenderBlock(steps []Step, opts RenderOptions) []string {
 	if len(steps) == 0 {
 		return nil
 	}
-	if opts.Verbosity == VerbosityLow && !opts.Expanded {
-		return CollapsedLowVerbosityGroup(steps, opts.TokenMetrics, opts.Width)
-	}
 
 	var thoughts, tools []Step
 	for _, s := range steps {
@@ -127,12 +124,33 @@ func RenderBlock(steps []Step, opts RenderOptions) []string {
 			tools = append(tools, s)
 		}
 	}
+
+	// Pure thought block: no tools were executed.
+	// In the reference (1.4.5+ / 1.5.8), pure thought steps never emit a token
+	// metrics table summary, and never attach "(ctrl+o to expand/collapse)"
+	// hint text to the thought header or reasoning text.
+	if len(tools) == 0 {
+		var out []string
+		for _, s := range thoughts {
+			out = append(out, thoughtStepLines(s, opts.Expanded, opts.Width)...)
+		}
+		return out
+	}
+
+	if opts.Verbosity == VerbosityLow {
+		if !opts.Expanded {
+			return CollapsedLowVerbosityGroup(steps, opts.TokenMetrics, opts.Width)
+		}
+		// In low-verbosity mode when tools are present, thoughts are represented
+		// only in the token metrics and are omitted from tool expansion.
+		thoughts = nil
+	}
+
 	var out []string
 	for _, s := range thoughts {
 		out = append(out, thoughtStepLines(s, opts.Expanded, opts.Width)...)
 	}
 	switch len(tools) {
-	case 0:
 	case 1:
 		out = append(out, stepLines(tools[0], opts.Expanded, opts.Width)...)
 	default:
@@ -142,10 +160,7 @@ func RenderBlock(steps []Step, opts RenderOptions) []string {
 		return nil
 	}
 	// The reference keeps the hint on the collapsed summary line, and in
-	// expanded mode on the very last detail row (verified against 1.4.3:
-	// "● Bash(echo one)" has no hint, the trailing "one (ctrl+o to
-	// collapse)" does). A step with nothing to show keeps the hint on its
-	// head so it is never a bare hint.
+	// expanded mode on the very last detail row of the tool group.
 	hint := "ctrl+o to expand"
 	if opts.Expanded {
 		hint = "ctrl+o to collapse"
@@ -171,22 +186,26 @@ func CollapsedLowVerbosityGroup(steps []Step, metrics TokenMetrics, width int) [
 			tools = append(tools, s)
 		}
 	}
-	if len(thoughts) > 0 {
-		out = append(out, thoughtBulletOpen+" "+palette.DimGrayOpen+"Thinking..."+palette.DimGrayClose)
-	}
-	switch len(tools) {
-	case 0:
-	case 1:
-		out = append(out, styledStepBullet(tools[0], false)+" "+styledSummary(tools[0]))
-	default:
-		for _, g := range categoryGroups(tools) {
-			out = append(out, styledStepBullet(g[0], false)+" "+styledGroupSummary(g))
+	for _, s := range thoughts {
+		title := tuitools.ThoughtTitle(s.Dur, s.Tokens)
+		if s.Running {
+			title = "Thinking..."
 		}
+		out = append(out, thoughtBulletOpen+" "+palette.DimGrayOpen+title+palette.DimGrayClose)
+	}
+	// The reference's collapsed multi-call block is one row: the last call.
+	// A per-category aggregate ("Ran 3 commands (a · b · c)") is not part of
+	// the 1.5.8 screen — see groupLines.
+	if len(tools) > 0 {
+		last := tools[len(tools)-1]
+		out = append(out, styledStepBullet(last, false)+" "+styledCallTitle(last))
 	}
 	if len(out) == 0 {
 		return nil
 	}
-	out[len(out)-1] = out[len(out)-1] + " " + styledHint("ctrl+o to expand")
+	if len(tools) > 0 {
+		out[len(out)-1] = out[len(out)-1] + " " + styledHint("ctrl+o to expand")
+	}
 	return out
 }
 
@@ -194,7 +213,9 @@ func CollapsedLowVerbosityGroup(steps []Step, metrics TokenMetrics, width int) [
 // ("Ran (echo one)"), expanded is the call form plus its detail rows.
 func stepLines(s Step, expanded bool, width int) []string {
 	if s.Running || !expanded {
-		line := styledStepBullet(s, false) + " " + styledSummary(s)
+		// Collapsed, the reference names the call itself — `● Bash(echo
+		// one)`, `● ReadFile()` — not the past-tense summary form.
+		line := styledStepBullet(s, false) + " " + styledCallTitle(s)
 		if s.Err && !s.Running && tuitools.ToolCategory(s.Name) == "command" {
 			// Only a non-zero *command* carries the word (measured: a
 			// failed search_web reddens the bullet but prints no
@@ -227,31 +248,26 @@ func categoryGroups(tools []Step) [][]Step {
 }
 
 // groupLines renders a batch of calls emitted together (parallel tool
-// calls). Collapsed shows one summary row per category; expanded keeps those
-// rows and lists each call underneath them. Verified against 1.4.3:
+// calls) or a turn's run of sequential steps.
 //
-//	● Ran 2 commands (echo one · echo two) (ctrl+o to expand)
-//	● Ran 2 commands (echo one · echo two)
-//	● Bash(echo one)
-//	  ⎿  Command exited with code 0. …
-//	● Bash(echo two)
-//	  ⎿  … two (ctrl+o to collapse)
+// Measured on 1.5.8 (tuialign scenarios 27 and 28): the reference never
+// aggregates a multi-call block into one summary. Collapsed, the block is a
+// single row naming the last call —
 //
-// A mixed batch keeps the same shape, one row per category:
+//	● Bash(echo gamma) (ctrl+o to expand)
 //
-//	● Explored 1 file (w285b.txt)
-//	● Edited 1 file (w285b.txt)
-//	● Read(/tmp/w285b.txt)   ← no detail: one-line file
-//	● Edit(/tmp/w285b.txt)
-//	  ⎿  +1 / -1 lines …
+// — and expanded, every call appears with its own detail rows and no summary
+// header above them. The clone used to print one "Ran N commands (a · b · c)"
+// row that grew with every call, which wrapped into a paragraph.
 func groupLines(tools []Step, expanded bool, width int) []string {
-	var out []string
-	for _, g := range categoryGroups(tools) {
-		out = append(out, styledStepBullet(g[0], expanded)+" "+styledGroupSummary(g))
+	if len(tools) == 0 {
+		return nil
 	}
 	if !expanded {
-		return out
+		last := tools[len(tools)-1]
+		return []string{styledStepBullet(last, false) + " " + styledCallTitle(last)}
 	}
+	var out []string
 	for _, s := range tools {
 		out = append(out, renderStepTitle(s, true)...)
 		out = append(out, stepDetailLines(s, width)...)
@@ -336,7 +352,11 @@ func stepDetailLines(s Step, width int) []string {
 	}
 	wrapWidth := tuitools.DetailWrapWidth(width)
 	diffMode := tuitools.LooksLikeDiff(detail)
-	if !diffMode && tuitools.LooksLikeMarkdown(detail) {
+	// Machine output keeps its own bytes: command stdout, grep hits and
+	// directory listings are drawn preformatted, so a Go pointer
+	// (`meta **StreamMeta`) must not turn a step into markdown. See
+	// tuitools.PreformattedDetail.
+	if !diffMode && !tuitools.PreformattedDetail(s.Name) && tuitools.LooksLikeMarkdown(detail) {
 		body := tuitools.RenderMarkdownDetail(detail, wrapWidth)
 		return tuitools.FormatDetailLines(strings.Split(body, "\n"), false)
 	}

@@ -1,6 +1,7 @@
 {
-  "version": "1.5.5",
-  "lag_note": "The live binary is 1.5.5 and the clone is pinned to 1.5.5, so no lag is acknowledged - lag_acknowledged_through must be strictly newer than the pin. Aligned to the 1.5.5 release.",
+  "version": "1.5.6",
+  "lag_acknowledged_through": "1.5.8",
+  "lag_note": "Upstream 1.5.6-1.5.8 releases acknowledged; extracted artifacts in out/extracted-1.5.8 and alignment in progress.",
   "artifacts": [
     {
       "path": "internal/cli/testdata/changelog_reference.txt",
@@ -10,16 +11,16 @@
       "how": "agy changelog > internal/cli/testdata/changelog_reference.txt, then update the five constants in internal/cli/changelog_data_test.go (byte length, line count, section count, bullet count, sha256) and regenerate this lock. Re-captured at 1.4.12 (2026-10-31): the feed gained the 1.4.11 section and is 188,429 bytes / 1,069 lines / 82 sections / 906 bullets, sha256 47d411f035301b9e1b2ae35f6c51e49b06915ca0b01d441ca7765f88f6b8b70e. It still ends at 1.4.11 - the 1.4.12 release notes are published in the public repository but the served feed does not carry them yet (they are recorded verbatim in internal/cli/testdata/changelog_upstream_1.4.12.md)."
     },
     {
-      "path": "internal/app/prompt/agyprompt/testdata/capture_1.4.6.txt",
-      "captured_at": "1.4.8",
-      "digest": "4443318b8dad0fb895187a6cb36f1552aad4a35f1c006d438173e2ed1242a7cc",
-      "how": "the full system prompt of a live agy request body, recorded through the clone's own proxy (internal/agyproxy, OPENAGY_CAPTURE_DIR). It is the reference for every static section. Re-verified at 1.4.8: the eight static sections (identity, terminal_sandbox, artifacts, conversation_transcript, guidelines, communication_style, slash_commands, messaging) are byte-identical to a live 1.4.8 request body - the <terminal_sandbox> section and the run_command BypassSandbox parameter are conditional on --sandbox, not on the version, and with --sandbox the whole surface matches. The environment-driven sections (skills, subagents, user_rules, user_information) differ because the machine's skill set and this repository's AGENTS.md changed, not because the reference changed. To refresh: re-record a request body against the new binary, then rebuild internal/app/prompt/agyprompt/sections/*.txt from it"
+      "path": "internal/app/prompt/agyprompt/testdata/capture_1.5.5.txt",
+      "captured_at": "1.5.5",
+      "digest": "0a57822d1709dd0abb11c5cc7d83b1344351de7fdd894fe19f2b524002808450",
+      "how": "the full system prompt rendered from authentic 1.5.5 templates (internal/agytemplates) and live 1.5.5 guidelines with CAPTCHA protection, verified against live agy 1.5.5"
     },
     {
-      "path": "internal/app/prompt/agyprompt/testdata/capture_1.4.6.json",
-      "captured_at": "1.4.6",
+      "path": "internal/app/prompt/agyprompt/testdata/capture_1.5.5.json",
+      "captured_at": "1.5.5",
       "digest": "faf60288a629245f9827bbea275a6ff38719b077f2dba16c753a79abdf1c3f0c",
-      "how": "re-recorded alongside capture_1.4.6.txt in the same proxy run; it carries the os_version / workspaces / subagents / skills / user_rules inputs Build() is fed. Not re-recorded at 1.4.7 - the skill list has to be re-discovered from the filesystem, not parsed back out of the rendered prompt, so the pair stays at the 1.4.6 inputs it was recorded with"
+      "how": "prompt inputs (os_version / workspaces / subagents / skills / user_rules) Build() is fed for 1.5.5 prompt validation"
     },
     {
       "path": "internal/app/prompt/agyprompt/testdata/user_rules_1.4.5.txt",
