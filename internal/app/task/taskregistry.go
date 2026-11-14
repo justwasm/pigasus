@@ -231,9 +231,8 @@ func (r *Registry) Register(t *Task) string {
 		t.ExitCode = ExitCodeUnset
 	}
 	r.tasks[t.ID] = t
-	cloned := t.Clone()
 	r.mu.Unlock()
-	r.fanout(TaskEvent{Kind: "registered", ID: t.ID, Task: cloned})
+	r.fanout(TaskEvent{Kind: "registered", ID: t.ID, Task: t})
 	return t.ID
 }
 
@@ -261,13 +260,13 @@ func (r *Registry) Update(id string, mut func(*Task)) {
 		return
 	}
 	mut(t)
-	cloned := t.Clone()
 	r.mu.Unlock()
-	r.fanout(TaskEvent{Kind: "updated", ID: id, Task: cloned})
+	r.fanout(TaskEvent{Kind: "updated", ID: id, Task: t})
 }
 
 // Get returns the task with the given ID, or nil if unknown. The
-// returned *Task is an immutable snapshot safe for concurrent reads.
+// returned *Task is the live pointer; callers that need an immutable
+// snapshot must copy the fields they care about.
 func (r *Registry) Get(id string) *Task {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -275,7 +274,7 @@ func (r *Registry) Get(id string) *Task {
 	if !ok {
 		return nil
 	}
-	return t.Clone()
+	return t
 }
 
 // List returns every non-hidden task, sorted by StartedAt ascending.

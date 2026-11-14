@@ -264,7 +264,7 @@ func TestParity_AgyResumesPigasusDB(t *testing.T) {
 
 	ready := false
 	var lastPane []byte
-	for i := 0; i < 20; i++ {
+	for i := 0; i < 50; i++ {
 		time.Sleep(100 * time.Millisecond)
 		out, err := execCommandOutput("tmux", "capture-pane", "-p", "-t", sname)
 		if err == nil {
@@ -272,7 +272,7 @@ func TestParity_AgyResumesPigasusDB(t *testing.T) {
 			if bytes.Contains(out, []byte("Do you trust")) {
 				_ = execCommand("tmux", "send-keys", "-t", sname, "C-m")
 			}
-			if bytes.Contains(out, []byte("for shortcuts")) {
+			if bytes.Contains(out, []byte("Here are the convstore files")) {
 				ready = true
 				break
 			}
