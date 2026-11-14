@@ -73,7 +73,7 @@ jobs:
       matrix:
         include:
           - name: "cmd & public packages"
-            packages: "./cmd/... ./endpoints/... ./configdir/... ./render/... ./diffsyntax/... ./palette/... ./retry/... ./retrybudget/... ./procgroup/... ./browsercdp/... ./celpolicy/... ./dns/... ./rcmesh/... ./remotetransport/... ./rcterminal/... ./urlchunk/... ./geminicode/... ./accountpool/... ./agentlink/... ./localharness/..."
+            packages: "./cmd/... ./endpoints/... ./configdir/... ./render/... ./diffsyntax/... ./palette/... ./retry/... ./retrybudget/... ./procgroup/... ./browsercdp/... ./celpolicy/... ./dns/... ./rcmesh/... ./remotetransport/... ./rcterminal/... ./urlchunk/... ./geminicode/... ./accountpool/... ./agentlink/... ./localharness/... ./herdr/..."
             flags: ""
           - name: "core"
             packages: "./internal/core/..."

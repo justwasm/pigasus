@@ -81,7 +81,7 @@ func TestRenderRunCommandWithoutOutput(t *testing.T) {
 	})
 	want := stampLines() +
 		"\nThe command exited with code 0.\n" +
-		"Stdout:\n\nStderr:\n\n"
+		"No output\n"
 	if out.Text != want {
 		t.Errorf("run_command text =\n%q\nwant\n%q", out.Text, want)
 	}

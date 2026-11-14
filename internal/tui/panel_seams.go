@@ -1247,15 +1247,21 @@ func (m *RootModel) statusModeLabel() string {
 	return mode
 }
 
-// promptPlaceholder is the composer's placeholder for a session: non-default
-// modes (plan, accept-edits) show their banner, while Auto mode keeps the prompt
-// clean ("> ").
-func (m *RootModel) promptPlaceholder(mode string) string {
+func modeLabelFrom(mode, start string) string {
 	mode = strings.TrimSpace(mode)
-	if mode == permissions.ModeAuto || mode == "" {
+	if mode == "" || mode == strings.TrimSpace(start) {
 		return ""
 	}
-	return permissions.ModeBanner(mode)
+	return mode
+}
+
+// promptPlaceholder is the composer's placeholder for a session: the live
+// mode's banner, measured against the mode the session started in.
+//
+// agy 1.5.8 starts in Auto with an empty prompt and shows nothing, while a session
+// that started in Default names the mode it cycles to.
+func (m *RootModel) promptPlaceholder(mode string) string {
+	return permissions.ModeBanner(modeLabelFrom(mode, m.session.startMode))
 }
 
 func (m *RootModel) ApplyModel(label string) {

@@ -163,6 +163,7 @@ ALLOWLIST=(
   geminicode
   grpc
   harnessprompt
+  herdr
   imagery
   internal
   lifecyclehooks
