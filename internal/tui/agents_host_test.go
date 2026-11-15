@@ -36,8 +36,8 @@ func TestAgentsPanelKillReachesTheSessionManager(t *testing.T) {
 
 	m.openSlashPanel("agents")
 	p := m.agentsPanel()
-	// The subagent row is the last row: the default agent is the first.
-	p.SetCursor(p.RowCount() - 1)
+	p.SetExpandedSubagents(true)
+	p.SetCursor(1) // on subagent row
 
 	handled, _ := m.handlePanelKey(tea.Key{Code: 'k'})
 	if !handled {
@@ -64,7 +64,8 @@ func TestAgentsPanelApprovalReachesTheSessionManager(t *testing.T) {
 
 	m.openSlashPanel("agents")
 	p := m.agentsPanel()
-	p.SetCursor(p.RowCount() - 1)
+	p.SetExpandedSubagents(true)
+	p.SetCursor(1)
 
 	handled, _ := m.handlePanelKey(tea.Key{Code: 'a'})
 	if !handled {
@@ -87,7 +88,8 @@ func TestAgentsPanelDenialReachesTheSessionManager(t *testing.T) {
 
 	m.openSlashPanel("agents")
 	p := m.agentsPanel()
-	p.SetCursor(p.RowCount() - 1)
+	p.SetExpandedSubagents(true)
+	p.SetCursor(1)
 
 	handled, _ := m.handlePanelKey(tea.Key{Code: 'd'})
 	if !handled {

@@ -1275,17 +1275,21 @@ func (m *RootModel) codesearchSendComments(text string) tea.Cmd {
 // line's `cycle_mode` name — the mode's own word, or "" while the session
 // has no configured mode.
 func (m *RootModel) statusModeLabel() string {
-	return strings.TrimSpace(m.session.mode)
+	return modeLabelFrom(m.session.mode, m.session.startMode)
 }
 
 func modeLabelFrom(mode, start string) string {
-	return strings.TrimSpace(mode)
+	mode = strings.TrimSpace(mode)
+	if mode == "" || mode == strings.TrimSpace(start) {
+		return ""
+	}
+	return mode
 }
 
 // promptPlaceholder is the composer's placeholder for a session: the live
 // mode's banner.
 func (m *RootModel) promptPlaceholder(mode string) string {
-	return permissions.ModeBanner(strings.TrimSpace(mode))
+	return permissions.ModeBanner(modeLabelFrom(mode, m.session.startMode))
 }
 
 func (m *RootModel) ApplyModel(label string) {

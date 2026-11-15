@@ -129,17 +129,7 @@ func RenderBlock(steps []Step, opts RenderOptions) []string {
 	// In the reference (1.4.5+ / 1.5.8), pure thought steps never emit a token
 	// metrics table summary, and never attach "(ctrl+o to expand/collapse)"
 	// hint text to the thought header or reasoning text.
-	// When finished and collapsed, pure thought is hidden until expanded (ctrl+o).
 	if len(tools) == 0 {
-		if !opts.Expanded {
-			var running []string
-			for _, s := range thoughts {
-				if s.Running {
-					running = append(running, thoughtStepLines(s, false, opts.Width)...)
-				}
-			}
-			return running
-		}
 		var out []string
 		for _, s := range thoughts {
 			out = append(out, thoughtStepLines(s, opts.Expanded, opts.Width)...)
@@ -285,24 +275,23 @@ func groupLines(tools []Step, expanded bool, width int) []string {
 	return out
 }
 
-// thoughtStepLines renders a thought step: "▾ Thought Process" (expanded) or "▸ Thought Process"
-// (collapsed) plus, when expanded, the reasoning body.
+// thoughtStepLines renders a thought step: "▸ Thought for 3s" plus, when
+// expanded, the reasoning body.
 func thoughtStepLines(s Step, expanded bool, width int) []string {
-	if s.Running {
-		bullet := thoughtBulletOpen
-		if expanded {
-			bullet = palette.ThoughtBulletOpen + "▾" + palette.ThoughtBulletClose
-		}
-		return []string{bullet + " Thinking..."}
-	}
-	title := "Thought Process"
+	bullet := thoughtBulletOpen
 	if expanded {
-		head := palette.ThoughtBulletOpen + "▾ " + title + palette.ThoughtBulletClose
-		out := []string{head}
-		return append(out, thoughtDetailLines(s, width)...)
+		bullet = palette.ThoughtBulletOpen + "▾" + palette.ThoughtBulletClose
 	}
-	head := palette.ThoughtBulletOpen + "▸ " + title + palette.ThoughtBulletClose
-	return []string{head}
+	title := tuitools.ThoughtTitle(s.Dur, s.Tokens)
+	if s.Running {
+		title = "Thinking..."
+	}
+	head := bullet + " " + title
+	if !expanded {
+		return []string{head}
+	}
+	out := []string{head}
+	return append(out, thoughtDetailLines(s, width)...)
 }
 
 // thoughtDetailLines renders the reasoning text of an expanded thought step.

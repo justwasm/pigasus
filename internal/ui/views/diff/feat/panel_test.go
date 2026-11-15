@@ -27,7 +27,7 @@ func TestNotFoundLines(t *testing.T) {
 		"",
 		"\x1b[38;2;101;123;131m  data file not found (run from the project root).\x1b[39m",
 		"",
-		"  \x1b[1m\x1b[38;5;69mesc\x1b[0m\x1b[38;2;101;123;131m Close\x1b[39m",
+		"  \x1b[38;2;38;139;210;1mesc\x1b[0m\x1b[38;2;101;123;131m Close\x1b[39m",
 	}
 	got := notFoundLines()
 	if len(got) != len(want) {

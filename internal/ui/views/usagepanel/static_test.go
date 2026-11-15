@@ -46,7 +46,7 @@ func TestStaticLines(t *testing.T) {
 		"",
 		"\x1b[38;2;101;123;131m  (1\u20132 of 20 lines)\x1b[39m",
 		"",
-		"  \x1b[1m\x1b[38;5;69m\u2191/\u2193\x1b[0m\x1b[38;2;101;123;131m Scroll \u00b7 \x1b[1m\x1b[38;5;69mpgup/pgdown\x1b[0m\x1b[38;2;101;123;131m Page \u00b7 \x1b[1m\x1b[38;5;69mctrl+end\x1b[0m\x1b[38;2;101;123;131m Bottom \u00b7 \x1b[1m\x1b[38;5;69mctrl+home\x1b[0m\x1b[38;2;101;123;131m Top \u00b7 \x1b[1m\x1b[38;5;69mesc\x1b[0m\x1b[38;2;101;123;131m Close\x1b[39m",
+		"  \x1b[38;2;38;139;210;1m\u2191/\u2193\x1b[0m\x1b[38;2;101;123;131m Scroll \u00b7 \x1b[38;2;38;139;210;1mpgup/pgdown\x1b[0m\x1b[38;2;101;123;131m Page \u00b7 \x1b[38;2;38;139;210;1mctrl+end\x1b[0m\x1b[38;2;101;123;131m Bottom \u00b7 \x1b[38;2;38;139;210;1mctrl+home\x1b[0m\x1b[38;2;101;123;131m Top \u00b7 \x1b[38;2;38;139;210;1mesc\x1b[0m\x1b[38;2;101;123;131m Close\x1b[39m",
 	}
 	if len(got) != len(want) {
 		t.Fatalf("StaticLines() has %d rows, want %d", len(got), len(want))

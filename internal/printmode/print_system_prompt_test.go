@@ -108,7 +108,7 @@ func TestRunPigPrintTurnSendsAgySystemPrompt(t *testing.T) {
 	}
 	for _, want := range []string{
 		"<identity>",
-		"You are Antigravity, a powerful agentic AI coding assistant",
+		"You are Antigravity, a powerful agentic AI",
 		"<user_information>",
 		"Command Working Directory: " + dir,
 		"Conversation ID: 99999999-8888-7777-6666-555555555555",

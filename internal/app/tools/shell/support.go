@@ -84,6 +84,16 @@ type BackgroundTask struct {
 	// task reports "was canceled", not a result.
 	killed bool
 	killFn func() error
+
+	finishOnce sync.Once
+}
+
+func (t *BackgroundTask) finish() {
+	if t != nil && t.finished != nil {
+		t.finishOnce.Do(func() {
+			close(t.finished)
+		})
+	}
 }
 
 type bgTable struct {
@@ -215,7 +225,7 @@ func (t *BackgroundTask) monitor(wait func() error, stdin io.Closer) {
 		t.done = true
 		t.completed = true
 		t.mu.Unlock()
-		close(t.finished)
+		t.finish()
 	}()
 
 	waitErr := wait()
@@ -452,11 +462,7 @@ func (t *BackgroundTask) Kill() (string, error) {
 		if t.cancel != nil {
 			t.cancel()
 		}
-		select {
-		case <-t.finished:
-		default:
-			close(t.finished)
-		}
+		t.finish()
 		// The task's own registry row has to follow: a killed timer used to
 		// stay StateRunning in the package-level registry, so the
 		// active-items tray kept drawing it in every later model of the
@@ -479,11 +485,7 @@ func (t *BackgroundTask) Kill() (string, error) {
 		if t.cancel != nil {
 			t.cancel()
 		}
-		select {
-		case <-t.finished:
-		default:
-			close(t.finished)
-		}
+		t.finish()
 		markRegistryState(t.id, taskregistry.StateKilled)
 		return fmt.Sprintf("Task %s killed.", t.id), nil
 	}

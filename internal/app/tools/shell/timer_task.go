@@ -147,11 +147,7 @@ func runOneShotTimer(ctx context.Context, t *BackgroundTask, record *activeTimer
 		t.completed = true
 		t.killed = true
 		t.mu.Unlock()
-		select {
-		case <-t.finished:
-		default:
-			close(t.finished)
-		}
+		t.finish()
 		return
 
 	case <-timer.C:
@@ -159,11 +155,7 @@ func runOneShotTimer(ctx context.Context, t *BackgroundTask, record *activeTimer
 		t.done = true
 		t.completed = true
 		t.mu.Unlock()
-		select {
-		case <-t.finished:
-		default:
-			close(t.finished)
-		}
+		t.finish()
 
 		_ = appendTaskLogFile(opts.LogPath, fmt.Sprintf("Timer fired at %s\n", time.Now().Format(time.RFC3339)))
 
@@ -195,11 +187,7 @@ func runRecurringCron(ctx context.Context, t *BackgroundTask, record *activeTime
 			t.done = true
 			t.completed = true
 			t.mu.Unlock()
-			select {
-			case <-t.finished:
-			default:
-				close(t.finished)
-			}
+			t.finish()
 			return
 		}
 
@@ -217,11 +205,7 @@ func runRecurringCron(ctx context.Context, t *BackgroundTask, record *activeTime
 			t.completed = true
 			t.killed = true
 			t.mu.Unlock()
-			select {
-			case <-t.finished:
-			default:
-				close(t.finished)
-			}
+			t.finish()
 			return
 
 		case <-timer.C:
@@ -241,11 +225,7 @@ func runRecurringCron(ctx context.Context, t *BackgroundTask, record *activeTime
 				t.done = true
 				t.completed = true
 				t.mu.Unlock()
-				select {
-				case <-t.finished:
-				default:
-					close(t.finished)
-				}
+				t.finish()
 				return
 			}
 		}

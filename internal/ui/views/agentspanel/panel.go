@@ -287,6 +287,13 @@ func (p *Panel) SetCursor(idx int) {
 	p.cursor = idx
 }
 
+// SetExpandedSubagents sets the expansion state of the subagents accordion.
+func (p *Panel) SetExpandedSubagents(expanded bool) {
+	if p != nil {
+		p.expandedSubagents = expanded
+	}
+}
+
 // Prepared reports whether the panel holds a prepared switch.
 //
 // The reference keeps the panel open after Enter and applies the switch

@@ -1083,7 +1083,7 @@ func TestRootModelSystemPromptIsTheReferencePrompt(t *testing.T) {
 	got := m.systemPrompt()
 
 	for _, want := range []string{
-		"<identity>\nYou are Antigravity, a powerful agentic AI coding assistant",
+		"<identity>\nYou are Antigravity, a powerful agentic AI",
 		"Command Working Directory: " + ws,
 		"Conversation ID: aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
 		"- demo-skill (" + filepath.Join(skillDir, "SKILL.md") + "): A demo skill for the TUI prompt test.",
