@@ -41,6 +41,7 @@
 package changelog
 
 import (
+	"flag"
 	"io"
 	"net/http"
 	"os"
@@ -54,10 +55,16 @@ import (
 
 const onlineChangelogURL = "https://raw.githubusercontent.com/google-antigravity/antigravity-cli/refs/heads/main/CHANGELOG.md"
 
-var syncOnce sync.Once
+var (
+	syncOnce          sync.Once
+	DisableOnlineSync bool
+)
 
 // TriggerOnlineSync initiates a background check to update the changelog cache.
 func TriggerOnlineSync() {
+	if DisableOnlineSync || flag.Lookup("test.v") != nil || os.Getenv("CI") != "" {
+		return
+	}
 	syncOnce.Do(func() {
 		go func() {
 			client := &http.Client{Timeout: 5 * time.Second}

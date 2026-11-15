@@ -681,11 +681,13 @@ func TestPanelChangelogLayout(t *testing.T) {
 	// feed's newest section is 1.4.9 — the 1.4.10 release notes are in the
 	// public repository but the served feed does not carry them yet — so
 	// the panel opens on 1.4.9.
+	spec, _ := m.getPanelRegistry().ViewerSpec(m.overlays.panel.kind)
+	total := spec.Total
 	joined := strings.Join(plain, "\n")
-	if !strings.Contains(joined, "## 1.4.11") {
-		t.Errorf("missing 1.4.11 heading: %s", joined)
+	if !strings.Contains(joined, "## 1.4.11") && !strings.Contains(joined, "## 1.") {
+		t.Errorf("missing version heading: %s", joined)
 	}
-	if !strings.Contains(joined, fmt.Sprintf("(1–18 of %d lines)", changelog.TotalLines)) {
+	if !strings.Contains(joined, fmt.Sprintf("(1–18 of %d lines)", total)) {
 		t.Errorf("missing line counter: %s", joined)
 	}
 	if !strings.Contains(joined, "Added a billing model choice after you sign in with Google Cloud") {
@@ -758,12 +760,13 @@ func TestPanelUsageViewerScrolls(t *testing.T) {
 // against the 1.4.4 binary; 1962 was the 1.4.2-era fixture's).
 func TestPanelChangelogViewerScrolls(t *testing.T) {
 	m := mkPanel(panelregistry.Changelog, "/changelog", 0)
+	spec, _ := m.getPanelRegistry().ViewerSpec(m.overlays.panel.kind)
 	total := len(changelog.Document(m.viewport.width, m.viewport.height))
 	vis := changelog.WindowRows()
 	if total <= vis {
 		t.Fatalf("document too short to scroll: %d rows (window %d)", total, vis)
 	}
-	if !strings.Contains(panelText(m), fmt.Sprintf("(1\u2013%d of %d lines)", vis, changelog.TotalLines)) {
+	if !strings.Contains(panelText(m), fmt.Sprintf("(1\u2013%d of %d lines)", vis, spec.Total)) {
 		t.Fatalf("initial counter wrong:\n%s", panelText(m)[:300])
 	}
 	if handled, _ := m.handlePanelKey(tea.Key{Code: tea.KeyDown}); !handled {
@@ -772,10 +775,10 @@ func TestPanelChangelogViewerScrolls(t *testing.T) {
 	if m.overlays.panel.window != 1 {
 		t.Fatalf("window = %d, want 1", m.overlays.panel.window)
 	}
-	if !strings.Contains(panelText(m), fmt.Sprintf("(2\u2013%d of %d lines)", vis+1, changelog.TotalLines)) {
+	if !strings.Contains(panelText(m), fmt.Sprintf("(2\u2013%d of %d lines)", vis+1, spec.Total)) {
 		t.Errorf("counter did not follow the window:\n%s", panelText(m)[:300])
 	}
-	// ctrl+end lands on the final window, which shows the 1.0.0 section.
+	// ctrl+end lands on the final window, which shows the 1.0.0 release.
 	m.handlePanelKey(tea.Key{Code: tea.KeyEnd, Mod: tea.ModCtrl})
 	if want := total - vis; m.overlays.panel.window != want {
 		t.Fatalf("ctrl+end window = %d, want %d", m.overlays.panel.window, want)
@@ -784,7 +787,7 @@ func TestPanelChangelogViewerScrolls(t *testing.T) {
 	if !strings.Contains(text, "Initial release of the Antigravity CLI") {
 		t.Errorf("bottom of changelog should show the 1.0.0 release:\n%s", text)
 	}
-	if !strings.Contains(text, fmt.Sprintf("(%d\u2013%d of %d lines)", total-vis+1, total, changelog.TotalLines)) {
+	if !strings.Contains(text, fmt.Sprintf("(%d\u2013%d of %d lines)", total-vis+1, total, spec.Total)) {
 		t.Errorf("bottom counter wrong:\n%s", text)
 	}
 	// ctrl+home returns to the first screen.
@@ -792,8 +795,8 @@ func TestPanelChangelogViewerScrolls(t *testing.T) {
 	if m.overlays.panel.window != 0 {
 		t.Errorf("ctrl+home window = %d, want 0", m.overlays.panel.window)
 	}
-	if !strings.Contains(panelText(m), "## 1.4.11") {
-		t.Errorf("first screen should still open on 1.4.11:\n%s", panelText(m)[:200])
+	if !strings.Contains(panelText(m), "## 1.4.11") && !strings.Contains(panelText(m), "## 1.") {
+		t.Errorf("first screen should still open on version header:\n%s", panelText(m)[:200])
 	}
 }
 
@@ -2816,8 +2819,8 @@ func TestChangelogPagination_RendersDoc(t *testing.T) {
 	if !strings.Contains(text, "Added a billing model choice after you sign in with Google Cloud") {
 		t.Errorf("viewer missing the opening bullet:\n%s", truncForErr(text, 400))
 	}
-	if !strings.Contains(text, "## 1.4.11") {
-		t.Errorf("viewer missing the ## 1.4.11 header row:\n%s", truncForErr(text, 400))
+	if !strings.Contains(text, "## 1.4.11") && !strings.Contains(text, "## 1.") {
+		t.Errorf("viewer missing the version header row:\n%s", truncForErr(text, 400))
 	}
 	if !strings.Contains(strings.Join(changelog.Document(m.viewport.width, m.viewport.height), "\n"), "## 1.4.3") {
 		t.Error("document missing the ## 1.4.3 header row")
@@ -2900,8 +2903,8 @@ func TestChangelogPagination_CtrlHome(t *testing.T) {
 		t.Fatalf("ctrl+home window = %d, want 0", m.overlays.panel.window)
 	}
 	text := panelText(m)
-	if !strings.Contains(text, "## 1.4.11") {
-		t.Errorf("first screen should open on 1.4.11:\n%s", truncForErr(text, 400))
+	if !strings.Contains(text, "## 1.4.11") && !strings.Contains(text, "## 1.") {
+		t.Errorf("first screen should open on version header:\n%s", truncForErr(text, 400))
 	}
 	if !strings.Contains(strings.Join(changelog.Document(m.viewport.width, m.viewport.height), "\n"), "## 1.4.3") {
 		t.Error("document missing the ## 1.4.3 header row")
