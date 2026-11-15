@@ -942,3 +942,28 @@ func TestWrapQuarantinesOnToSEvenWhenRoutingIsOff(t *testing.T) {
 		t.Errorf("banned@example.com should be quarantined even when account pool is disabled")
 	}
 }
+
+func TestUnquarantine_ClearsStatus(t *testing.T) {
+	r := setup(t, map[string]any{
+		"enabled":  true,
+		"strategy": "round_robin",
+	},
+		accounts.Account{Email: "recovered@example.com", Quota: quotaSnapshot(0.9), Token: token("recovered")},
+	)
+	r.Quarantine("recovered@example.com", "Terms of Service violation")
+	if isQ, _ := r.IsQuarantined("recovered@example.com"); !isQ {
+		t.Fatalf("expected recovered@example.com to be quarantined")
+	}
+	r.Unquarantine("recovered@example.com")
+	if isQ, _ := r.IsQuarantined("recovered@example.com"); isQ {
+		t.Errorf("expected recovered@example.com to no longer be quarantined")
+	}
+	st, err := accounts.Load()
+	if err != nil {
+		t.Fatalf("accounts.Load: %v", err)
+	}
+	acc, ok := st.Find("recovered@example.com")
+	if !ok || acc.Disabled {
+		t.Errorf("expected account to be enabled in store, got disabled=%v", acc.Disabled)
+	}
+}

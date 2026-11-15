@@ -108,7 +108,7 @@ func markdownRows(md string, skipSections int) []string {
 				continue
 			}
 			out = append(out, "",
-				"  \x1b[1m\x1b[38;5;27m"+line+"\x1b[0m")
+				HeaderOpen+line+HeaderEnd)
 			continue
 		}
 		if headers < skipSections+1 {
@@ -119,7 +119,7 @@ func markdownRows(md string, skipSections int) []string {
 		switch {
 		case strings.HasPrefix(line, "- "):
 			out = append(out,
-				"  \x1b[38;5;235m• "+PlainInline(line[2:])+"\x1b[39m")
+				"  "+TextOpen+"• "+PlainInline(line[2:])+TextClose)
 		case line == "":
 			out = append(out, "")
 		}

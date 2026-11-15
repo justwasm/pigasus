@@ -212,6 +212,7 @@ func executePrintModelTurn(w io.Writer, fs *flag.FlagSet, cfg *printRunConfig) e
 		JSONSchema:     printInitJSONSchema(fs),
 		AgentBody:      agents.AgentBody(agents.CustomAgentFromFlags(fs)),
 		Definitions:    rehydratePrintConversation(cfg.sel, cfg.conversationID),
+		Sandbox:        printModeSandbox(fs, workspace, cfg.conversationID),
 		Supervisor:     cfg.sel.Supervisor,
 		Selection:      cfg.sel,
 	})

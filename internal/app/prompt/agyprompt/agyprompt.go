@@ -24,7 +24,7 @@
 //	user_rules, user_information — assembled from the host, not from a file.
 //
 // The ground truth is the captured request body:
-// testdata/capture_1.5.5.txt (earlier captures kept beside it as history).
+// testdata/capture_1.5.9.txt.
 // Rendering the reference's own templates reproduces it byte for byte —
 // see TestBuildMatchesCapture.
 //
@@ -123,6 +123,11 @@ type Options struct {
 	// names; the reference's literal is
 	// "<appDataDir>/brain/<conversation-id>/.system_generated/logs".
 	TranscriptLogsPath string
+	// Sandboxed controls whether <terminal_sandbox> is rendered. In AGY 1.5.9+,
+	// terminal sandbox instructions are only included when running in sandboxed mode.
+	Sandboxed bool
+	// SectionOrder overrides the tag emission order. When empty, sectionOrder is used.
+	SectionOrder []string
 	// KnowledgeDirectoryPath and MetadataFileName feed the reference's
 	// test_funcmap.tmpl, a self-check template that is not part of the
 	// shipped prompt.
@@ -141,8 +146,8 @@ var sectionOrder = []string{
 	"slash_commands",
 	"messaging",
 	"subagents",
-	"user_rules",
 	"skills",
+	"user_rules",
 	"user_information",
 }
 
@@ -152,9 +157,17 @@ var sectionOrder = []string{
 func Build(o Options) string {
 	bodies := sectionBodies(o)
 
+	order := sectionOrder
+	if len(o.SectionOrder) > 0 {
+		order = o.SectionOrder
+	}
+
 	var b strings.Builder
 	first := true
-	for _, name := range sectionOrder {
+	for _, name := range order {
+		if name == "terminal_sandbox" && !o.Sandboxed {
+			continue
+		}
 		if name == "user_rules" && len(o.UserRules) == 0 {
 			continue
 		}
@@ -430,7 +443,11 @@ func renderUserInformation(o Options) string {
 	}
 	b.WriteString("Command Working Directory: ")
 	b.WriteString(o.CWD)
-	b.WriteString("\nCode relating to the user's requests should be written in the locations listed above. Avoid writing project code files to tmp, in the .gemini dir, or directly to the Desktop and similar folders unless explicitly asked.\nApp Data Directory: ")
+	if o.Experiments != nil && o.Experiments["generic-system-prompt"] {
+		b.WriteString("\nFiles relating to the user's requests should be written in the locations listed above. Avoid writing project files to tmp, in the .gemini dir, or directly to the Desktop and similar folders unless explicitly asked.\nApp Data Directory: ")
+	} else {
+		b.WriteString("\nCode relating to the user's requests should be written in the locations listed above. Avoid writing project code files to tmp, in the .gemini dir, or directly to the Desktop and similar folders unless explicitly asked.\nApp Data Directory: ")
+	}
 	b.WriteString(o.AppDataDir)
 	b.WriteString("\nConversation ID: ")
 	b.WriteString(o.ConversationID)
@@ -473,9 +490,10 @@ func BuiltinSubagents() []Subagent {
 		{
 			Name: "research",
 			Description: "Research subagent with read-only tools for exploring the codebase, searching the web, and reading files. " +
-				"Delegate to this agent when you need to run a task in a separate conversation context but with the same capabilities as the current agent, " +
+				"Delegate to this agent when you need to run a task in a separate conversation context, " +
 				"when a research task requires many search and file-reading steps that would clutter your context, or when you need a broad survey of the codebase or documentation. " +
-				"Prefer doing research yourself for quick, targeted lookups.",
+				"Prefer doing research yourself for quick, targeted lookups. " +
+				"This agent runs in a read-only sandbox with no network access.",
 		},
 		{
 			Name:        "image-generator",
@@ -496,6 +514,9 @@ func DefaultOptions(cwd, appDataDir, conversationID string) Options {
 		ConversationID: conversationID,
 		Subagents:      BuiltinSubagents(),
 		SlashCommands:  DefaultSlashCommands(),
+		Experiments: map[string]bool{
+			"generic-system-prompt": true,
+		},
 		// The reference names the artifact and transcript directories with
 		// placeholders, not with the real paths — the real paths are in
 		// <user_information>. Both literals are in the reference binary.

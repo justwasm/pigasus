@@ -1,4 +1,4 @@
-.PHONY: build test quick arch align verify help
+.PHONY: build test quick arch align wirealign verify help
 
 all: quick
 
@@ -22,6 +22,9 @@ arch:
 
 align:
 	./scripts/verify.sh align
+
+wirealign:
+	./scripts/wire-align.sh test
 
 verify:
 	./scripts/verify.sh all

@@ -42,6 +42,7 @@ import (
 	"github.com/justwasm/pigasus/geminicode"
 	"github.com/justwasm/pigasus/internal/core/apierror"
 	"github.com/justwasm/pigasus/internal/core/backend"
+	"github.com/justwasm/pigasus/internal/core/compaction"
 	"github.com/justwasm/pigasus/internal/features/auth/credential"
 	"github.com/justwasm/pigasus/internal/infra/backend/retry"
 )
@@ -198,13 +199,23 @@ func (c *CloudCodeClient) turn(req backend.StreamRequest, model string) geminico
 		SessionID:       strconv.FormatInt(c.sessionID, 10),
 		// The request id is minted once, so a retry of a dropped connection
 		// re-sends the same body.
-		RequestID: geminicode.NewRequestID(),
+		RequestID:   geminicode.NewRequestID(),
+		RequestType: req.RequestType,
+	}
+	if req.MaxTokens > 0 {
+		turn.MaxOutputTokens = req.MaxTokens
 	}
 	for _, m := range req.Messages {
 		content := m.Content
 		if m.WireContent != "" {
 			content = m.WireContent
-		} else if m.Role == "user" && !strings.HasPrefix(strings.TrimSpace(content), "<USER_REQUEST>") && !strings.HasPrefix(content, "Step Id:") {
+		} else if compaction.IsResumeBlock(content) {
+			content = compaction.FormatContextSummary(content, time.Now())
+		} else if m.Role == "user" &&
+			!strings.HasPrefix(strings.TrimSpace(content), "<USER_REQUEST>") &&
+			!strings.HasPrefix(strings.TrimSpace(content), "<CONTEXT_SUMMARY>") &&
+			!strings.HasPrefix(strings.TrimSpace(content), "The following is a <SYSTEM_MESSAGE>") &&
+			!strings.HasPrefix(content, "Step Id:") {
 			content = backend.WrapUserContent(content, model, false, time.Now())
 		}
 		msg := geminicode.TurnMessage{

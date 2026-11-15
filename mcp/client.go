@@ -59,6 +59,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"os/exec"
 	"sort"
 	"strings"
@@ -507,16 +508,36 @@ func (p *Pool) connect(ctx context.Context, spec ServerSpec) (*sdk.ClientSession
 	return session, nil
 }
 
-// headerTransport adds configured HTTP headers to outbound requests.
+// headerTransport adds configured HTTP headers to outbound requests,
+// ensuring headers are only sent to the configured origin and not leaked on redirect.
 type headerTransport struct {
 	base    http.RoundTripper
 	headers map[string]string
+	origin  *url.URL
+}
+
+func sameOrigin(a, b *url.URL) bool {
+	if a == nil || b == nil {
+		return false
+	}
+	return strings.EqualFold(a.Scheme, b.Scheme) && strings.EqualFold(a.Host, b.Host)
 }
 
 func (t *headerTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 	clone := req.Clone(req.Context())
-	for k, v := range t.headers {
-		clone.Header.Set(k, v)
+	if t.origin != nil && sameOrigin(req.URL, t.origin) {
+		for k, v := range t.headers {
+			clone.Header.Set(k, v)
+		}
+	} else if t.origin != nil {
+		// Do not leak sensitive configured headers across origins on redirect.
+		for k := range t.headers {
+			clone.Header.Del(k)
+		}
+	} else {
+		for k, v := range t.headers {
+			clone.Header.Set(k, v)
+		}
 	}
 	base := t.base
 	if base == nil {
@@ -532,6 +553,10 @@ func transportFor(spec ServerSpec) (sdk.Transport, error) {
 		if spec.URL == "" {
 			return nil, fmt.Errorf("mcp server %q: no url", spec.Name)
 		}
+		var originURL *url.URL
+		if parsed, err := url.Parse(spec.URL); err == nil && parsed.Host != "" {
+			originURL = parsed
+		}
 		headers := spec.Headers
 		if len(headers) > 0 {
 			headers = SubstituteHeaderVars(headers, ServerFile{Env: spec.Env}.MergedEnv())
@@ -539,6 +564,7 @@ func transportFor(spec ServerSpec) (sdk.Transport, error) {
 		httpClient := &http.Client{
 			Transport: &headerTransport{
 				headers: headers,
+				origin:  originURL,
 			},
 		}
 		return &sdk.StreamableClientTransport{

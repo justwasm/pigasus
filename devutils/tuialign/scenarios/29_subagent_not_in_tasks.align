@@ -8,7 +8,7 @@ TARGET both
 # `● Agent(<type>: <role>)`.
 MOCK_TURN
   THOUGHT "This is self-contained; delegating it." TOKENS 60 DELAY 100ms
-  TOOL invoke_subagent {"prompt":"查询当前上海的天气情况","type_name":"research","role":"Weather Researcher","workspace":"inherit"}
+  TOOL invoke_subagent {"Prompt":"查询当前上海的天气情况","TypeName":"research","Role":"Weather Researcher","Workspace":"inherit"}
   USAGE PROMPT 18200 CANDIDATES 30 THOUGHTS 60
   FINISH STOP
 

@@ -3,6 +3,7 @@ package panels
 import (
 	tea "charm.land/bubbletea/v2"
 	subagent "github.com/justwasm/pigasus/internal/app/subagent/core"
+	taskregistry "github.com/justwasm/pigasus/internal/app/task"
 	lifecycle "github.com/justwasm/pigasus/internal/core/lifecycle"
 	"github.com/justwasm/pigasus/internal/features/agents"
 	"github.com/justwasm/pigasus/internal/ui/views/agentspanel"
@@ -12,6 +13,7 @@ import (
 type AgentsHost interface {
 	ActiveAgentName() string
 	RunningSubagents() []*subagent.Subagent
+	LookupTask(id string) *taskregistry.Task
 	HasSessionTurns() bool
 	SlashRespond(cmd, msg string, extra ...string)
 	ApplyAgentSwitch(name, body string)
@@ -21,6 +23,7 @@ type AgentsHost interface {
 	AnswerSubagentAuthorization(approvalID string, approved bool) bool
 	AgentsWorkspace() string
 	TerminalSize() (width int, height int)
+	ConversationTitle() string
 }
 
 // NewAgentsPanel builds the /agents panel with the given host seams.
@@ -29,6 +32,8 @@ func NewAgentsPanel(h AgentsHost) *agentspanel.Panel {
 	return agentspanel.New(agentspanel.Seams{
 		ActiveAgent: h.ActiveAgentName,
 		Subagents:   h.RunningSubagents,
+		TaskLookup:  h.LookupTask,
+		GroupTitle:  h.ConversationTitle,
 		HasSession:  h.HasSessionTurns,
 		Respond: func(msg string) {
 			h.SlashRespond("/agents", msg)

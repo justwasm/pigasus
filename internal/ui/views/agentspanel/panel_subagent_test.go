@@ -74,9 +74,10 @@ func panelWithManager(mgr *subagent.Manager) (*Panel, *[]string) {
 // cursorOnSubagent puts the cursor on the row of the named subagent.
 func cursorOnSubagent(t *testing.T, p *Panel, id string) {
 	t.Helper()
+	p.expandedSubagents = true
 	for i, sa := range p.subagents() {
 		if sa != nil && sa.ID == id {
-			p.SetCursor(p.agentRowCount() + i)
+			p.SetCursor(1 + i)
 			return
 		}
 	}
@@ -251,6 +252,7 @@ func TestAgentsPanelRendersTheInlineApproval(t *testing.T) {
 	sa := startRunningSubagent(t, mgr)
 	mgr.RequestAuthorization(sa.ID, lifecycle.ApprovalToolConfirm, "write_file", "")
 	p, _ := panelWithManager(mgr)
+	p.expandedSubagents = true
 
 	rows := plainLines(p.Lines())
 	want := "awaiting approval: write_file  [A] Yes, allow tool call  [D] No, deny tool call"
@@ -267,12 +269,12 @@ func TestAgentsPanelCursorReachesTheSubagentRows(t *testing.T) {
 	sa := startRunningSubagent(t, mgr)
 	p, _ := panelWithManager(mgr)
 
-	if got := p.RowCount(); got != 2 {
-		t.Fatalf("the row count = %d, want 2 (the default agent and the subagent)", got)
-	}
 	cursorOnSubagent(t, p, sa.ID)
+	if got := p.RowCount(); got != 3 {
+		t.Fatalf("the row count = %d, want 3 (the header, subagent and default agent)", got)
+	}
 	rows := plainLines(p.Lines())
-	if !containsRow(rows, "> "+sa.Name+"  "+sa.StatusLine()) {
+	if !containsRow(rows, "Agent("+sa.Name+")") {
 		t.Fatalf("the cursor is not on the subagent's row:\n got: %v", rows)
 	}
 }

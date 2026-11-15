@@ -41,6 +41,8 @@
 package changelog
 
 import (
+	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
@@ -49,6 +51,35 @@ import (
 
 	"github.com/justwasm/pigasus/internal/core/confhome"
 )
+
+const onlineChangelogURL = "https://raw.githubusercontent.com/google-antigravity/antigravity-cli/refs/heads/main/CHANGELOG.md"
+
+var syncOnce sync.Once
+
+// TriggerOnlineSync initiates a background check to update the changelog cache.
+func TriggerOnlineSync() {
+	syncOnce.Do(func() {
+		go func() {
+			client := &http.Client{Timeout: 5 * time.Second}
+			resp, err := client.Get(onlineChangelogURL)
+			if err != nil || resp.StatusCode != http.StatusOK {
+				if resp != nil && resp.Body != nil {
+					resp.Body.Close()
+				}
+				return
+			}
+			defer resp.Body.Close()
+			data, err := io.ReadAll(resp.Body)
+			if err != nil || len(data) == 0 {
+				return
+			}
+			path := cachePath()
+			_ = os.MkdirAll(filepath.Dir(path), 0755)
+			_ = os.WriteFile(path, data, 0644)
+			InvalidateMemo()
+		}()
+	})
+}
 
 // cacheFile is the file name of the cached release notes.
 const cacheFile = "CHANGELOG.md"
@@ -99,5 +130,6 @@ func cachedMarkdown() (string, bool) {
 		entry.ok = strings.TrimSpace(entry.text) != ""
 	}
 	cacheMemo[path] = entry
+	InvalidateMemo()
 	return entry.text, entry.ok
 }

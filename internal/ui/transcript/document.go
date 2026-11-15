@@ -334,15 +334,19 @@ func (d *Document) FinaliseTurnReply(msg toolsteps.TurnDoneMsg, opts Options) bo
 			Verbosity:    opts.Verbosity,
 			TokenMetrics: msg.TokenMetrics,
 		})
-		final := make([]string, 0, len(block)+len(replyLines)+2)
+		blockLines := block
+		if opts.Expanded && len(block) > 0 && isPureThoughtSteps(msg.Steps) {
+			blockLines = append(append([]string{}, block...), "")
+		}
+		final := make([]string, 0, len(blockLines)+len(replyLines)+2)
 		pad := d.LiveStart > 0 && strings.TrimSpace(diffaction.StripANSI(d.Lines[d.LiveStart-1])) != ""
 		if pad {
 			final = append(final, "")
 		}
-		final = append(final, block...)
+		final = append(final, blockLines...)
 		// AGY 1.4.5+: a blank line separates the collapsed/expanded thought
 		// or tool block from the assistant response.
-		if len(block) > 0 && len(replyLines) > 0 {
+		if len(block) > 0 && len(replyLines) > 0 && !isPureThoughtSteps(msg.Steps) {
 			final = append(final, "")
 		}
 		replyStart := d.LiveStart + len(final)
@@ -355,11 +359,11 @@ func (d *Document) FinaliseTurnReply(msg toolsteps.TurnDoneMsg, opts Options) bo
 			}
 			d.Blocks = append(d.Blocks, NewBlock(Block{
 				Start:    start,
-				Lines:    len(block),
+				Lines:    len(blockLines),
 				Steps:    msg.Steps,
 				Metrics:  msg.TokenMetrics,
 				Expanded: opts.Expanded,
-			}, block, opts.Width, opts.Verbosity))
+			}, blockLines, opts.Width, opts.Verbosity))
 			d.Blocks = DeduplicateBlocks(d.Blocks)
 		}
 		if len(replyLines) > 0 {

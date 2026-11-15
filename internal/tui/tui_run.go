@@ -453,7 +453,7 @@ func setupTUIToolsAndPolicy(m *RootModel, fs *flag.FlagSet) {
 	sessionPolicy := printmode.PrintModePolicy(fs)
 	sessionSandbox := printmode.PrintModeSandbox(fs, workspace, m.session.conversationID)
 	m.tools.sandbox = sessionSandbox
-	m.enableTools(toolrunner.AdvertisedToolDecls(m.session.agentBody, catalog), &permissionRunner{
+	m.enableTools(toolrunner.AdvertisedToolDeclsWithSandbox(m.session.agentBody, catalog, sessionSandbox.Enabled), &permissionRunner{
 		inner:   &toolrunner.RegistryRunner{Reg: catalog},
 		policy:  &sessionPolicy,
 		sandbox: sessionSandbox,
@@ -487,6 +487,14 @@ func setupTUIConversation(m *RootModel, fs *flag.FlagSet, canonicalCwd string) {
 	}
 	m.seedConversation(sel.Store)
 	m.remoteStartupConversation()
+
+	interPrompt := cliflags.StringValue(fs, "prompt-interactive")
+	if interPrompt == "" {
+		interPrompt = cliflags.StringValue(fs, "i")
+	}
+	if strings.TrimSpace(interPrompt) != "" {
+		m.prompt.initialPrompt = strings.TrimSpace(interPrompt)
+	}
 }
 
 // RunLiveTUI launches the interactive Bubbletea TUI session (or renders static snapshot if non-interactive).

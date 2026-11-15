@@ -948,7 +948,11 @@ func (m *RootModel) statusLineScriptActive() bool {
 }
 
 func (m *RootModel) statusAreaState() statusline.AreaState {
-	return m.statusLine.AreaState(statusrow.Render(m.statusRowState()))
+	as := m.statusLine.AreaState(statusrow.Render(m.statusRowState()))
+	if m.display.transientNotice != "" {
+		as.Notice = m.display.transientNotice
+	}
+	return as
 }
 
 func (m *RootModel) windowTitleText() string {
@@ -1118,12 +1122,51 @@ func (m *RootModel) agentsPanel() *agentspanel.Panel {
 	}
 	return m.overlays.panel.ag
 }
-func (m *RootModel) runningSubagents() []*subagent.Subagent {
-	mgr := m.tasks.subagentManager
-	if mgr == nil {
-		return nil
+func (m *RootModel) LookupTask(id string) *taskregistry.Task {
+	if m.tasks.reg != nil {
+		if t := m.tasks.reg.Get(id); t != nil {
+			return t
+		}
 	}
-	return mgr.List()
+	if m.tasks.ctrl != nil && m.tasks.ctrl.Registry() != nil {
+		return m.tasks.ctrl.Registry().Get(id)
+	}
+	return nil
+}
+func (m *RootModel) runningSubagents() []*subagent.Subagent {
+	var out []*subagent.Subagent
+	seen := make(map[string]bool)
+	if m.tasks.subagentManager != nil {
+		for _, sa := range m.tasks.subagentManager.List() {
+			if sa != nil {
+				seen[sa.ID] = true
+				out = append(out, sa)
+			}
+		}
+	}
+	reg := m.tasks.reg
+	if reg == nil && m.tasks.ctrl != nil {
+		reg = m.tasks.ctrl.Registry()
+	}
+	if reg != nil {
+		for _, t := range reg.List() {
+			if t != nil && t.Kind == taskregistry.KindSubagent && !seen[t.ID] {
+				seen[t.ID] = true
+				sa := &subagent.Subagent{
+					ID:     t.ID,
+					Name:   t.Name,
+					Title:  t.Name,
+					State:  string(t.State),
+					Model:  t.Model,
+					Effort: t.Effort,
+					Result: t.Output,
+					Err:    t.Err,
+				}
+				out = append(out, sa)
+			}
+		}
+	}
+	return out
 }
 func (m *RootModel) killAgentsSubagent(sa *subagent.Subagent) bool {
 	mgr := m.tasks.subagentManager
@@ -1231,37 +1274,18 @@ func (m *RootModel) codesearchSendComments(text string) tea.Cmd {
 // statusModeLabel is the agent mode the built-in status row and the status
 // line's `cycle_mode` name — the mode's own word, or "" while the session
 // has no configured mode.
-//
-// When running in the default mode (no agentMode set in settings or flags),
-// agy 1.5.8 omits the mode label from the status line. When explicitly configured
-// (e.g. {"agentMode": "auto"} in settings/--settings) or cycled away from start,
-// agy explicitly renders "auto · " (in cyan).
 func (m *RootModel) statusModeLabel() string {
-	mode := strings.TrimSpace(m.session.mode)
-	if mode == "" {
-		return ""
-	}
-	if mode == permissions.ModeAuto && !settings.Has("agentMode") && m.session.startMode == permissions.ModeAuto {
-		return ""
-	}
-	return mode
+	return strings.TrimSpace(m.session.mode)
 }
 
 func modeLabelFrom(mode, start string) string {
-	mode = strings.TrimSpace(mode)
-	if mode == "" || mode == strings.TrimSpace(start) {
-		return ""
-	}
-	return mode
+	return strings.TrimSpace(mode)
 }
 
 // promptPlaceholder is the composer's placeholder for a session: the live
-// mode's banner, measured against the mode the session started in.
-//
-// agy 1.5.8 starts in Auto with an empty prompt and shows nothing, while a session
-// that started in Default names the mode it cycles to.
+// mode's banner.
 func (m *RootModel) promptPlaceholder(mode string) string {
-	return permissions.ModeBanner(modeLabelFrom(mode, m.session.startMode))
+	return permissions.ModeBanner(strings.TrimSpace(mode))
 }
 
 func (m *RootModel) ApplyModel(label string) {
@@ -1363,6 +1387,10 @@ func (m *RootModel) handleViewerPanelKey(key tea.Key) (bool, tea.Cmd) {
 	handled, cmd, offset := m.viewerPanel().HandleKey(key, m.overlays.panel.window)
 	m.overlays.panel.window = offset
 	return handled, cmd
+}
+
+func (m *RootModel) scrollViewerPanel(delta int) {
+	m.overlays.panel.window = m.viewerPanel().Scroll(delta, m.overlays.panel.window)
 }
 
 // listResumeConversations returns the store's conversations for the /resume picker.
@@ -1497,7 +1525,7 @@ func (m *RootModel) statusRowState() statusrow.State {
 			}
 			return sm
 		}(),
-		AgentName: m.session.agentName,
+		AgentName:    m.session.agentName,
 		Mode:         m.statusModeLabel(),
 		EffortSuffix: m.statusEffortSuffix(),
 		TaskSuffix:   m.tasksStatusSuffix(),
@@ -1853,7 +1881,7 @@ func (m *RootModel) panelView() string {
 		b.WriteString(l)
 		b.WriteString("\n")
 	}
-	if m.overlays.panel.kind.TrailingBlank() {
+	if m.overlays.panel.kind.TrailingBlank() && !m.isFullViewportPanel() {
 		b.WriteString("\n")
 	}
 	return b.String()
@@ -2079,6 +2107,9 @@ func (m *RootModel) initOpenedSlashPanelData(kind panelregistry.Kind) {
 	}
 	if kind.IsViewer() {
 		m.initViewerViewport()
+	}
+	if kind == panelregistry.Changelog {
+		changelog.TriggerOnlineSync()
 	}
 	if initFn, ok := panelInitializers[kind]; ok {
 		initFn(m)

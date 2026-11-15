@@ -73,8 +73,49 @@ func (p *Panel) HandleKey(key tea.Key) (bool, tea.Cmd) {
 			return true, nil
 		}
 		return true, nil
+	case tea.KeyHome:
+		if p.detailMode {
+			p.window = 0
+			return true, nil
+		}
+		return true, nil
+	case tea.KeyEnd:
+		if p.detailMode {
+			p.window = 999999
+			return true, nil
+		}
+		return true, nil
 	case tea.KeyEnter:
 		p.prepare()
+		return true, nil
+	}
+
+	if ((key.Code == 'o' || key.Code == 'O') && key.Mod.Contains(tea.ModCtrl)) || key.String() == "ctrl+o" {
+		if p.detailMode {
+			p.expandedDetail = !p.expandedDetail
+			return true, nil
+		}
+	}
+	if key.String() == "ctrl+home" {
+		if p.detailMode {
+			p.window = 0
+			return true, nil
+		}
+	}
+	if key.String() == "ctrl+end" {
+		if p.detailMode {
+			p.window = 999999
+			return true, nil
+		}
+	}
+
+	// In detail mode, 'k' or 'shift+k' kills the subagent being inspected.
+	if p.detailMode && (letterKey(key, 'k') || key.Code == 'k' || key.Code == 'K' || key.String() == "shift+k") {
+		sa := p.detailSubagent
+		if sa != nil && p.seams.Kill != nil {
+			p.seams.Kill(sa)
+			return true, func() tea.Msg { return MsgKillSubagent{Subagent: sa} }
+		}
 		return true, nil
 	}
 	// The three subagent keys.
@@ -181,53 +222,58 @@ func (p *Panel) answerHighlighted(approve bool) {
 	p.seams.Deny(appr.ID)
 }
 
-// prepare handles the Enter on an agent row or subagent row.
+// prepare handles the Enter on an accordion header, subagent row, or agent row.
 //
 // The reference keeps the panel open and *prepares* the switch: the
 // title gains the fork notice and the transcript carries the prepared
 // message. The switch itself is applied when the panel is left.
 //
+// The Enter on an accordion header toggles expand/collapse.
 // The Enter on a *subagent* row opens the reference's Subagent Detail
 // View (official-docs/cli/commands/agents.md:85).
 func (p *Panel) prepare() {
-	if p.cursor >= p.agentRowCount() {
-		// Enter on subagent row opens detail view
-		sa := p.highlightedSubagent()
+	kind, sa, agentIdx := p.classifyRow(p.cursor)
+	switch kind {
+	case rowAccordionHeader:
+		p.expandedSubagents = !p.expandedSubagents
+		return
+	case rowSubagent:
 		if sa != nil {
 			p.detailMode = true
 			p.detailSubagent = sa
 			p.window = 0
 		}
 		return
-	}
-	rows := p.agentRowCount()
-	cursor := p.cursor
-	if cursor < 0 || cursor >= rows {
-		cursor = 0
-	}
-	name, body := "", ""
-	if cursor > 0 {
-		a := p.agents[cursor-1]
-		name, body = a.Name, a.Body
-	}
-	if name == p.activeAgent() {
-		if name == "" {
-			p.respond("Already using default agent.")
-		} else {
-			p.respond("Already selected agent: " + name)
+	case rowAgent:
+		cursor := agentIdx
+		rows := p.agentRowCount()
+		if cursor < 0 || cursor >= rows {
+			cursor = 0
 		}
-		return
-	}
-	p.prepared = true
-	p.preparedName = name
-	p.preparedBody = body
-	verb := "create a new conversation"
-	if p.hasSession() {
-		verb = "fork the current conversation"
-	}
-	if name == "" {
-		p.respond("Prepared switch to default agent (will " + verb + " on exit).")
-	} else {
-		p.respond("Prepared selection: " + name + " (will " + verb + " on exit).")
+		name, body := "", ""
+		if cursor > 0 {
+			a := p.agents[cursor-1]
+			name, body = a.Name, a.Body
+		}
+		if name == p.activeAgent() {
+			if name == "" {
+				p.respond("Already using default agent.")
+			} else {
+				p.respond("Already selected agent: " + name)
+			}
+			return
+		}
+		p.prepared = true
+		p.preparedName = name
+		p.preparedBody = body
+		verb := "create a new conversation"
+		if p.hasSession() {
+			verb = "fork the current conversation"
+		}
+		if name == "" {
+			p.respond("Prepared switch to default agent (will " + verb + " on exit).")
+		} else {
+			p.respond("Prepared selection: " + name + " (will " + verb + " on exit).")
+		}
 	}
 }

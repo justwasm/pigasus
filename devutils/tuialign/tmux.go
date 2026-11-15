@@ -156,6 +156,11 @@ func (d *TmuxDriver) Launch(target TmuxTarget) error {
 	if data, err := os.ReadFile(realSettings); err == nil {
 		_ = os.WriteFile(filepath.Join(pigasusHome, "settings.json"), data, 0600)
 	}
+	realCache := filepath.Join(os.Getenv("HOME"), ".gemini", "antigravity-cli", "cache", "CHANGELOG.md")
+	if data, err := os.ReadFile(realCache); err == nil {
+		_ = os.MkdirAll(filepath.Join(pigasusHome, "cache"), 0700)
+		_ = os.WriteFile(filepath.Join(pigasusHome, "cache", "CHANGELOG.md"), data, 0600)
+	}
 
 	switch target {
 	case TargetAgy:

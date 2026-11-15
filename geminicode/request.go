@@ -50,6 +50,9 @@ type Turn struct {
 	// functionCall part of the next turn — Gemini 3 rejects the turn
 	// without it.
 	Signatures map[string]string
+	// RequestType is the request_type member in the GenerateContentRequest envelope.
+	// Defaults to "agent" when empty. Set to "checkpoint" for compaction / titles.
+	RequestType string
 }
 
 // TurnMessage is one round of a conversation.
@@ -138,13 +141,18 @@ func BuildRequest(t Turn) GenerateContentRequest {
 	inner.Labels = ModelLabels(t.Model)
 	inner.SessionID = t.SessionID
 
+	requestType := t.RequestType
+	if requestType == "" {
+		requestType = "agent"
+	}
+
 	env := GenerateContentRequest{
 		Project:     t.Project,
 		RequestID:   t.RequestID,
 		Request:     &inner,
 		Model:       t.Model,
 		UserAgent:   "antigravity",
-		RequestType: "agent",
+		RequestType: requestType,
 	}
 	if env.RequestID == "" {
 		env.RequestID = NewRequestID()

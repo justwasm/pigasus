@@ -169,12 +169,10 @@ func TestPanelAgentsRunningAgents(t *testing.T) {
 	p := New(Seams{Subagents: func() []*subagent.Subagent { return mgr.List() }}, nil)
 	plain := plainLines(p.Lines())
 
-	// Header row: the reference's own group header, with the two
-	// counts the reference's `%d running, %d done` carries. Both
-	// subagents here have finished, so none of them is running.
+	// Header row: the reference's group header carries "(2 done)".
 	hasHeader := false
 	for _, l := range plain {
-		if l == "▸ Subagents (0 running, 2 done)" {
+		if strings.Contains(l, "▸ Subagents  (2 done)") {
 			hasHeader = true
 			break
 		}
@@ -183,19 +181,22 @@ func TestPanelAgentsRunningAgents(t *testing.T) {
 		t.Fatalf("expected the reference's group header, got: %v", plain)
 	}
 
+	p.expandedSubagents = true
+	plainExpanded := plainLines(p.Lines())
+
 	// Failed row carries "Error:" and the reason.
-	if !containsRow(plain, "explore-bot  Error: quota exceeded") {
-		t.Fatalf("expected errored row with reason, got: %v", plain)
+	if !containsRow(plainExpanded, "explore-bot") || !containsRow(plainExpanded, "Error: quota exceeded") {
+		t.Fatalf("expected errored row with reason, got: %v", plainExpanded)
 	}
 
 	// Successful row carries "Done".
-	if !containsRow(plain, "true  Done") {
-		t.Fatalf("expected successful row with \"Done\", got: %v", plain)
+	if !containsRow(plainExpanded, "true") || !containsRow(plainExpanded, "Done") {
+		t.Fatalf("expected successful row with \"Done\", got: %v", plainExpanded)
 	}
 
 	// The errored row must NOT be displayed as "Done" — this is
 	// the bug AGY 1.3.1 closed.
-	for _, l := range plain {
+	for _, l := range plainExpanded {
 		if strings.Contains(l, "explore-bot") && strings.HasSuffix(l, "  Done") {
 			t.Fatalf("errored subagent rendered as Done: %q", l)
 		}

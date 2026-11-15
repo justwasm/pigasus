@@ -1755,13 +1755,13 @@ func TestSlashCompact_PreCompactStats(t *testing.T) {
 	if be.lastRequest.SystemPrompt != "" {
 		t.Errorf("SystemPrompt = %q, want empty (the caller supplies it)", be.lastRequest.SystemPrompt)
 	}
-	if len(be.lastRequest.Messages) != 2 {
-		t.Fatalf("Request.Messages should be the transcript + the instruction; got %+v", be.lastRequest.Messages)
+	if be.lastRequest.RequestType != "checkpoint" {
+		t.Errorf("RequestType = %q, want checkpoint", be.lastRequest.RequestType)
 	}
-	if be.lastRequest.Messages[0].Role != "user" {
-		t.Errorf("first message role = %q, want user", be.lastRequest.Messages[0].Role)
+	if len(be.lastRequest.Messages) != len(sess)+1 {
+		t.Fatalf("Request.Messages should be the transcript turns + the instruction; got %+v", be.lastRequest.Messages)
 	}
-	last := be.lastRequest.Messages[1]
+	last := be.lastRequest.Messages[len(be.lastRequest.Messages)-1]
 	if last.Role != "user" {
 		t.Errorf("last message role = %q, want user", last.Role)
 	}

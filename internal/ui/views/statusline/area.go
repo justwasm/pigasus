@@ -62,15 +62,23 @@ type AreaState struct {
 	State *State
 	// LogPath is the log file the error card points the user at.
 	LogPath string
+	// Notice is an active transient notification (e.g. "Copied...",
+	// permission reloaded, exit confirmation). When non-empty, custom
+	// status lines yield to it and return cleanly once it expires.
+	Notice string
 }
 
 // AreaRows returns the rows the status area occupies, top to bottom.
 //
 // A script that is not configured, or that has not run yet, leaves the
-// built-in row alone. A script that failed shows the reference's error
-// card in the custom row's place, and a script that failed 30 times in a
-// row shows the disabled message — the two are the package's own.
+// built-in row alone. When a transient notification is active, custom
+// status lines yield to it. A script that failed shows the reference's
+// error card in the custom row's place, and a script that failed 30 times
+// in a row shows the disabled message — the two are the package's own.
 func AreaRows(s AreaState) []string {
+	if s.Notice != "" {
+		return []string{s.Notice}
+	}
 	builtin := s.Builtin
 	if !s.Active || s.State == nil {
 		return []string{builtin}

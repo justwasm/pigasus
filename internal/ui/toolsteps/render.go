@@ -129,7 +129,17 @@ func RenderBlock(steps []Step, opts RenderOptions) []string {
 	// In the reference (1.4.5+ / 1.5.8), pure thought steps never emit a token
 	// metrics table summary, and never attach "(ctrl+o to expand/collapse)"
 	// hint text to the thought header or reasoning text.
+	// When finished and collapsed, pure thought is hidden until expanded (ctrl+o).
 	if len(tools) == 0 {
+		if !opts.Expanded {
+			var running []string
+			for _, s := range thoughts {
+				if s.Running {
+					running = append(running, thoughtStepLines(s, false, opts.Width)...)
+				}
+			}
+			return running
+		}
 		var out []string
 		for _, s := range thoughts {
 			out = append(out, thoughtStepLines(s, opts.Expanded, opts.Width)...)
@@ -275,28 +285,29 @@ func groupLines(tools []Step, expanded bool, width int) []string {
 	return out
 }
 
-// thoughtStepLines renders a thought step: "▸ Thought for 3s" plus, when
-// expanded, the reasoning body.
+// thoughtStepLines renders a thought step: "▾ Thought Process" (expanded) or "▸ Thought Process"
+// (collapsed) plus, when expanded, the reasoning body.
 func thoughtStepLines(s Step, expanded bool, width int) []string {
-	bullet := thoughtBulletOpen
-	if expanded {
-		bullet = palette.ThoughtBulletOpen + "▾" + palette.ThoughtBulletClose
-	}
-	title := tuitools.ThoughtTitle(s.Dur, s.Tokens)
 	if s.Running {
-		title = "Thinking..."
+		bullet := thoughtBulletOpen
+		if expanded {
+			bullet = palette.ThoughtBulletOpen + "▾" + palette.ThoughtBulletClose
+		}
+		return []string{bullet + " Thinking..."}
 	}
-	head := bullet + " " + title
-	if !expanded {
-		return []string{head}
+	title := "Thought Process"
+	if expanded {
+		head := palette.ThoughtBulletOpen + "▾ " + title + palette.ThoughtBulletClose
+		out := []string{head}
+		return append(out, thoughtDetailLines(s, width)...)
 	}
-	out := []string{head}
-	return append(out, thoughtDetailLines(s, width)...)
+	head := palette.ThoughtBulletOpen + "▸ " + title + palette.ThoughtBulletClose
+	return []string{head}
 }
 
 // thoughtDetailLines renders the reasoning text of an expanded thought step.
 // Thoughts following a tool result are rendered with clean 2-space indentation
-// rather than being formatted as tool detail bullets (  ⎿  ) (AGY 1.5.4).
+// styled with the muted thought color (AGY 1.5.8).
 func thoughtDetailLines(s Step, width int) []string {
 	raw := s.Result
 	if raw == "" {
@@ -317,7 +328,7 @@ func thoughtDetailLines(s Step, width int) []string {
 	out := make([]string, 0, len(wrappedLines))
 	const indent = "  "
 	for _, wl := range wrappedLines {
-		out = append(out, indent+wl)
+		out = append(out, palette.ThoughtBulletOpen+indent+wl+palette.ThoughtBulletClose)
 	}
 	return out
 }

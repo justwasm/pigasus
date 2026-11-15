@@ -181,6 +181,9 @@ type StreamRequest struct {
 	// Tools, when non-empty, is the advertised tool set. The model may
 	// answer with ToolCalls instead of (or before) text.
 	Tools []ToolDecl `json:"tools,omitempty"`
+	// RequestType is the request type passed to CloudCode / upstream backend
+	// (e.g. "agent", "checkpoint").
+	RequestType string `json:"request_type,omitempty"`
 }
 
 // Client is the minimal interface shims need. NewMock is the default in the

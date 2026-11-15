@@ -388,36 +388,39 @@ func TestOpenSubagentDetailFromTheTray(t *testing.T) {
 		// The reference's subagent-detail header is five lines deep and
 		// has no "Agent(...)" title.
 		// 【反编译】 model.SubagentDetailModel.buildHeaderLines.
-		"main ▸ review the diff",
+		"main › review the diff",
 		"worked 12s",
-		"done review the diff · subagent · 3 steps",
+		"● done",
 		"ID: sub-2",
 		strings.Repeat("─", 60),
-		// The body is indented by two cells, the tool list by four.
+		// The body contains Prompt, Tools, Answer, and Trajectory.
 		// 【反编译】 model.SubagentDetailModel.buildContentLines.
-		"  Prompt",
-		"  review the diff please",
-		"  Tools",
-		"    read_file",
-		"    run_command",
-		"  Answer",
-		"  the answer",
-		// The trajectory section comes after the answer and numbers its
-		// steps.
+		"Prompt",
+		"review the diff please",
+		"Tools",
+		"ReadFile, Bash",
+		"Answer",
+		"the answer",
+		// The trajectory section renders rich main-session like steps with bullet markers.
 		// 【反编译】 model.SubagentDetailModel.buildContentLines.
-		"  Trajectory — review the diff (3 steps)",
-		"    1. read_file",
-		"    2. run_command",
+		"Trajectory — review the diff",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("subagent detail missing %q:\n%s", want, got)
 		}
 	}
-	// The last step sits below the fold — the body scrolls.
-	p.HandleKey(tea.Key{Code: tea.KeyDown})
-	got = strings.Join(plainLines(p), "\n")
-	if !strings.Contains(got, "    3. the answer") {
-		t.Errorf("subagent detail missing %q:\n%s", "    3. the answer", got)
+
+	// Scroll down to view the trajectory steps below the fold.
+	p.HandleKey(tea.Key{Code: tea.KeyEnd})
+	gotEnd := strings.Join(plainLines(p), "\n")
+	for _, want := range []string{
+		"● ReadFile",
+		"● Bash",
+		"(ctrl+o to expand)",
+	} {
+		if !strings.Contains(gotEnd, want) {
+			t.Errorf("subagent detail scrolled missing %q:\n%s", want, gotEnd)
+		}
 	}
 }
 
@@ -430,7 +433,7 @@ func TestDetailEmptyForms(t *testing.T) {
 	// Subagents are reachable only from the active-items tray.
 	p.OpenTaskDetail("sub-3", true)
 	got := strings.Join(plainLines(p), "\n")
-	for _, want := range []string{"(no prompt available)", "No tools used yet", "(no output)", "No steps yet"} {
+	for _, want := range []string{"(no prompt available)", "No tools used yet", "No steps yet"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("subagent detail missing %q:\n%s", want, got)
 		}
@@ -793,5 +796,65 @@ func TestPanel_DetailEscFromActiveItemsVsList(t *testing.T) {
 	dis, ok := cmd().(DismissedMsg)
 	if !ok || !dis.FromActiveItems {
 		t.Fatalf("expected DismissedMsg{FromActiveItems: true}, got %#v", cmd())
+	}
+}
+
+func TestTaskPanel_SubagentDetailToggleExpanded(t *testing.T) {
+	reg := taskregistry.New()
+	task := seedTask(reg, "sub-expand-test", "weather researcher", taskregistry.KindSubagent, taskregistry.StateRunning)
+	task.Prompt = "query weather in shanghai"
+	task.Steps = []string{
+		"run_command: curl -s wttr.in/Shanghai",
+		"weather summary: 22C sunny",
+	}
+
+	p, _ := testPanelSized(t, reg, 80, 24)
+	p.OpenTaskDetail("sub-expand-test", true)
+	if !p.Detail() || !p.DetailSubagent() {
+		t.Fatal("expected subagent detail to be open")
+	}
+
+	// 1. Initial state: collapsed
+	if p.ExpandedDetail() {
+		t.Fatal("expected initial state to be collapsed")
+	}
+	linesCollapsed := strings.Join(plainLines(p), "\n")
+	if strings.Contains(linesCollapsed, "1. ") || strings.Contains(linesCollapsed, "2. ") {
+		t.Errorf("did not expect numbered markdown list in trajectory, got:\n%s", linesCollapsed)
+	}
+	if !strings.Contains(linesCollapsed, "● Bash(curl -s wttr.in/Shanghai)") {
+		t.Errorf("expected '● Bash(curl -s wttr.in/Shanghai)' in collapsed mode, got:\n%s", linesCollapsed)
+	}
+	if strings.Count(linesCollapsed, "(ctrl+o to expand)") != 1 {
+		t.Errorf("expected exactly 1 '(ctrl+o to expand)' in collapsed mode, got:\n%s", linesCollapsed)
+	}
+	if strings.Contains(linesCollapsed, "(ctrl+o to collapse)") {
+		t.Errorf("did not expect '(ctrl+o to collapse)' in collapsed mode")
+	}
+	if !strings.Contains(linesCollapsed, "ctrl+o Expand") {
+		t.Errorf("expected footer to have 'ctrl+o Expand', got:\n%s", linesCollapsed)
+	}
+
+	// 2. Toggle via key: Ctrl+O
+	handled, _ := p.HandleKey(tea.Key{Code: 'o', Mod: tea.ModCtrl})
+	if !handled || !p.ExpandedDetail() {
+		t.Fatalf("expected ctrl+o key to expand detail")
+	}
+
+	linesExpanded := strings.Join(plainLines(p), "\n")
+	if strings.Contains(linesExpanded, "(ctrl+o to expand)") {
+		t.Errorf("did not expect '(ctrl+o to expand)' in expanded mode")
+	}
+	if strings.Count(linesExpanded, "(ctrl+o to collapse)") != 1 {
+		t.Errorf("expected exactly 1 '(ctrl+o to collapse)' in expanded mode, got:\n%s", linesExpanded)
+	}
+	if !strings.Contains(linesExpanded, "ctrl+o Collapse") {
+		t.Errorf("expected footer to have 'ctrl+o Collapse', got:\n%s", linesExpanded)
+	}
+
+	// 3. Toggle via method: ToggleExpandedDetail
+	p.ToggleExpandedDetail()
+	if p.ExpandedDetail() {
+		t.Fatalf("expected ToggleExpandedDetail to collapse")
 	}
 }

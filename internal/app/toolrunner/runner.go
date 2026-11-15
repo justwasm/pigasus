@@ -30,10 +30,15 @@ func ToolDeclsFromRegistry(reg *tools.Registry) []backend.ToolDecl {
 
 // AdvertisedToolDecls returns the declaration list the model sees.
 func AdvertisedToolDecls(agentBody string, reg *tools.Registry) []backend.ToolDecl {
+	return AdvertisedToolDeclsWithSandbox(agentBody, reg, false)
+}
+
+// AdvertisedToolDeclsWithSandbox returns the declaration list the model sees, customized by sandbox mode.
+func AdvertisedToolDeclsWithSandbox(agentBody string, reg *tools.Registry, sandboxed bool) []backend.ToolDecl {
 	if agentBody != "" {
 		return ToolDeclsFromRegistry(reg)
 	}
-	model := surface.ModelDeclarations()
+	model := surface.ModelDeclarationsFor(sandboxed)
 	decls := make([]backend.ToolDecl, 0, len(model))
 	for _, d := range model {
 		decls = append(decls, backend.ToolDecl{

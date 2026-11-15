@@ -20,52 +20,59 @@ type invokeTool struct {
 }
 
 func (t *invokeTool) Name() string        { return "invoke_subagent" }
-func (t *invokeTool) Description() string { return invokeSubagentDescription(BuiltinSubagentCatalog()) }
+func (t *invokeTool) Description() string { return invokeSubagentDescription("") }
 
 func (t *invokeTool) RequiresApproval(_ string) bool { return false }
 
 func (t *invokeTool) Definition() actor.ToolDefinition {
 	return actor.ToolDefinition{
 		Name:        "invoke_subagent",
-		Description: invokeSubagentDescription(BuiltinSubagentCatalog()),
+		Description: invokeSubagentDescription(""),
 		Parameters: map[string]any{
-			"type": "object",
+			"type": "OBJECT",
 			"properties": map[string]any{
-				"prompt": map[string]any{
-					"type":        "string",
-					"description": "The self-contained task to delegate to the subagent.",
+				"TypeName": map[string]any{
+					"type":        "STRING",
+					"description": "Type name of the subagent to invoke.",
 				},
-				"agent_name": map[string]any{
-					"type":        "string",
-					"description": "Optional name of a built-in subagent to invoke (e.g. \"image-generator\"). When set, the request is routed to the named built-in handler and the parent's model is NOT contacted; the handler's structured result is returned directly. Leave empty to spawn a fresh Actor.",
+				"Role": map[string]any{
+					"type":        "STRING",
+					"description": "A 2-5 word description of the subagent's role. Should read similar to a job title, e.g. 'Codebase Researcher', 'Database Debugger', etc. Should also be detailed enough to distinguish between different subagents who might share similar purposes.",
 				},
-				"model": map[string]any{
-					"type":        "string",
-					"description": "Optional model id override; defaults to the parent's model.",
+				"Prompt": map[string]any{
+					"type":        "STRING",
+					"description": "A clear, actionable task description for the subagent. Be specific about what the subagent should do and what information it should return.",
 				},
-				"system_prompt": map[string]any{
-					"type":        "string",
-					"description": "Optional system prompt override; defaults to the parent's system prompt.",
+				"Model": map[string]any{
+					"type":        "STRING",
+					"description": "Model for the subagent. 'inherit' (default): Uses your model. Default to 'inherit' unless the user explicitly requests a different model. 'flash_lite': The lightest, fastest model for trivial or high-volume tasks. 'flash': A lighter, faster model for simple tasks. 'pro': A larger model for complex work.",
+					"enum": []string{
+						"inherit",
+						"flash_lite",
+						"flash",
+						"pro",
+					},
 				},
-				"worktree": map[string]any{
-					"type":        "string",
-					"description": "Optional absolute path the subagent runs in; defaults to the parent's cwd.",
+				"Workspace": map[string]any{
+					"type":        "STRING",
+					"description": "Workspace mode for the subagent. 'inherit' (default) uses the same workspace as the parent. 'branch' creates a new isolated workspace branched or cloned from the parent. 'share' creates a new workspace sharing the parent's underlying repository directory (similar to a git worktree or Mercurial 'hg share'), allowing independent branching without duplicating storage. If omitted, defaults to 'inherit'.",
 				},
 			},
-			"required": []string{"prompt"},
+			"required": []string{
+				"TypeName",
+				"Role",
+				"Prompt",
+			},
 		},
 	}
 }
 
-func invokeSubagentDescription(catalog string) string {
-	const base = "Delegate a self-contained sub-task to a fresh agent with its own transcript. " +
-		"Use when the task is self-contained and can run independently. " +
-		"The subagent's final answer is returned as the tool result; intermediate tool calls " +
-		"inside the subagent are NOT visible to the parent."
-	if strings.TrimSpace(catalog) == "" {
-		return base
-	}
-	return base + "\n\nBuilt-in subagents (set `agent_name` to route here):\n" + catalog
+func invokeSubagentDescription(_ string) string {
+	return "Launch a subagent. It runs in the background with its own prompt and sends you a message when it completes or needs guidance; there is no need to poll.\n\n" +
+		"Guidelines:\n" +
+		"* The subagent is identified by the conversationId returned; message it with the send_message tool.\n" +
+		"* Multiple subagents may share a type name; each still gets a unique conversationId.\n" +
+		"* If a task continues an existing subagent's work, message that subagent instead of launching a new one."
 }
 
 type invokeArgs struct {

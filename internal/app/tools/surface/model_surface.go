@@ -82,10 +82,7 @@ var (
 	modelTools     []ModelToolDecl
 )
 
-// ModelDeclarations returns the twelve declarations the reference sends to the
-// default agent, in capture order. The slice is copied so a caller cannot
-// mutate the cached fixture.
-func ModelDeclarations() []ModelToolDecl {
+func loadModelTools() {
 	modelToolsOnce.Do(func() {
 		if err := json.Unmarshal(modelToolsJSON, &modelTools); err != nil {
 			// The fixture is embedded at build time; a parse failure is a
@@ -93,8 +90,80 @@ func ModelDeclarations() []ModelToolDecl {
 			panic("tools: model_tools_1.4.6.json: " + err.Error())
 		}
 	})
+}
+
+// ModelDeclarations returns the twelve declarations the reference sends to the
+// default (unsandboxed) agent, in capture order.
+func ModelDeclarations() []ModelToolDecl {
+	return ModelDeclarationsFor(false)
+}
+
+// RawModelDeclarations returns the raw embedded 1.4.6 declarations.
+func RawModelDeclarations() []ModelToolDecl {
+	loadModelTools()
 	out := make([]ModelToolDecl, len(modelTools))
 	copy(out, modelTools)
+	return out
+}
+
+// ModelDeclarationsFor returns the declarations customized for sandboxed or unsandboxed execution.
+func ModelDeclarationsFor(sandboxed bool) []ModelToolDecl {
+	loadModelTools()
+	out := make([]ModelToolDecl, len(modelTools))
+	copy(out, modelTools)
+	for i, d := range out {
+		switch d.Name {
+		case "run_command":
+			if !sandboxed {
+				out[i].Parameters = stripBypassSandbox(d.Parameters)
+			}
+		case "invoke_subagent":
+			out[i].Description = "Launch a subagent. It runs in the background with its own prompt and sends you a message when it completes or needs guidance; there is no need to poll.\n\nGuidelines:\n* The subagent is identified by the conversationId returned; message it with the send_message tool.\n* Multiple subagents may share a type name; each still gets a unique conversationId.\n* If a task continues an existing subagent's work, message that subagent instead of launching a new one."
+			out[i].Parameters = updateParamProperty(d.Parameters, "Model", "description",
+				"Model for the subagent. 'inherit' (default): Uses your model. Default to 'inherit' unless the user explicitly requests a different model. 'flash_lite': The lightest, fastest model for trivial or high-volume tasks. 'flash': A lighter, faster model for simple tasks. 'pro': A larger model for complex work.")
+		case "manage_subagents":
+			out[i].Parameters = updateParamProperty(d.Parameters, "Action", "description",
+				"'list' lists active direct subagents; 'kill' terminates the subagents named in ConversationIds; 'kill_all' terminates all.")
+		}
+	}
+	return out
+}
+
+func stripBypassSandbox(raw json.RawMessage) json.RawMessage {
+	var m map[string]any
+	if err := json.Unmarshal(raw, &m); err != nil {
+		return raw
+	}
+	props, ok := m["properties"].(map[string]any)
+	if !ok {
+		return raw
+	}
+	delete(props, "BypassSandbox")
+	out, err := json.Marshal(m)
+	if err != nil {
+		return raw
+	}
+	return out
+}
+
+func updateParamProperty(raw json.RawMessage, propName, key, val string) json.RawMessage {
+	var m map[string]any
+	if err := json.Unmarshal(raw, &m); err != nil {
+		return raw
+	}
+	props, ok := m["properties"].(map[string]any)
+	if !ok {
+		return raw
+	}
+	prop, ok := props[propName].(map[string]any)
+	if !ok {
+		return raw
+	}
+	prop[key] = val
+	out, err := json.Marshal(m)
+	if err != nil {
+		return raw
+	}
 	return out
 }
 

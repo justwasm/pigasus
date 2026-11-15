@@ -61,11 +61,17 @@ func assertInvokeSchema(t *testing.T, s actor.ToolDefinition) {
 	if s.Name != "invoke_subagent" {
 		t.Fatalf("invoke schema.Name = %q, want invoke_subagent", s.Name)
 	}
-	if !hasRequiredProperty(s.Parameters, "prompt") {
-		t.Fatalf("invoke_subagent parameters missing required=%q: %+v", "prompt", s.Parameters)
+	if !hasRequiredProperty(s.Parameters, "Prompt") {
+		t.Fatalf("invoke_subagent parameters missing required=%q: %+v", "Prompt", s.Parameters)
 	}
-	if hasRequiredProperty(s.Parameters, "model") {
-		t.Fatalf("invoke_subagent.parameters should NOT mark model as required: %+v", s.Parameters)
+	if !hasRequiredProperty(s.Parameters, "TypeName") {
+		t.Fatalf("invoke_subagent parameters missing required=%q: %+v", "TypeName", s.Parameters)
+	}
+	if !hasRequiredProperty(s.Parameters, "Role") {
+		t.Fatalf("invoke_subagent parameters missing required=%q: %+v", "Role", s.Parameters)
+	}
+	if hasRequiredProperty(s.Parameters, "Model") {
+		t.Fatalf("invoke_subagent.parameters should NOT mark Model as required: %+v", s.Parameters)
 	}
 }
 

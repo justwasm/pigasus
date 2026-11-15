@@ -8,7 +8,8 @@ WAIT_READY 10s
 # Type /changelog to open changelog view
 TYPE "/changelog"
 ENTER
-SLEEP 500ms
+WAIT_TEXT "Navigate" 10s
+SLEEP 300ms
 SNAPSHOT "01_changelog_open"
 
 # Navigate down

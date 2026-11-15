@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/justwasm/pigasus/internal/core/apierror"
 	"github.com/justwasm/pigasus/internal/features/auth"
 )
 
@@ -93,17 +94,32 @@ func FetchQuota(ctx context.Context, email string) (*auth.QuotaSummary, error) {
 	}
 	tok, err := AccessToken(ctx, email, acc)
 	if err != nil {
+		if apierror.IsAccountDisabledErr(err) {
+			_ = MarkDisabled(email, apierror.AccountDisabledReason(err))
+		}
 		return nil, err
 	}
 	summary, err := auth.FetchQuotaSummaryWithToken(ctx, tok.Token.AccessToken)
 	if err != nil {
+		if apierror.IsAccountDisabledErr(err) {
+			_ = MarkDisabled(email, apierror.AccountDisabledReason(err))
+		}
 		return nil, err
 	}
 	snap := summary.Snapshot()
+	wasDisabled := false
 	_ = Update(email, func(a *Account) {
 		a.Token = tok
 		a.Quota = snap
+		if a.Disabled {
+			wasDisabled = true
+			a.Disabled = false
+			a.DisabledReason = ""
+		}
 	})
+	if wasDisabled {
+		notifyStatusHooks(email, false, "")
+	}
 	return summary, nil
 }
 

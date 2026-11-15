@@ -19,7 +19,22 @@ func RunGenericTask(
 	started time.Time,
 	onDone func(GenericDoneMsg),
 ) {
-	summary, err := ComputeSummary(ctx, backendClient, model, systemPrompt, sessSnap)
+	RunGenericTaskWithTools(ctx, backendClient, model, systemPrompt, overhead, sessSnap, nil, customInstructions, started, onDone)
+}
+
+// RunGenericTaskWithTools executes ComputeSummaryWithTools and emits a GenericDoneMsg on onDone.
+func RunGenericTaskWithTools(
+	ctx context.Context,
+	backendClient backend.Client,
+	model, systemPrompt string,
+	overhead int,
+	sessSnap []backend.Message,
+	tools []backend.ToolDecl,
+	customInstructions string,
+	started time.Time,
+	onDone func(GenericDoneMsg),
+) {
+	summary, err := ComputeSummaryWithTools(ctx, backendClient, model, systemPrompt, sessSnap, tools)
 
 	var msg GenericDoneMsg
 	msg.CustomInstructions = customInstructions

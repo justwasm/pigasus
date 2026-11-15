@@ -308,6 +308,9 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
+		if msg.Width <= 0 || msg.Height <= 0 || msg.Width > 2000 || msg.Height > 1000 {
+			return m, nil
+		}
 		m.SetWidth(msg.Width)
 		return m, nil
 

@@ -89,6 +89,9 @@ type Panel struct {
 	// detailSubagent says the open detail view is the subagent one.
 	detailSubagent bool
 
+	// detailExpanded indicates whether the subagent trajectory details are expanded (toggled with ctrl+o).
+	detailExpanded bool
+
 	// fromActiveItems indicates that the detail view was opened directly
 	// from the active items list below composer.
 	fromActiveItems bool
@@ -147,6 +150,36 @@ func (p *Panel) DetailID() string {
 		return ""
 	}
 	return p.detailID
+}
+
+// DetailSubagent reports whether the open detail view is for a subagent.
+func (p *Panel) DetailSubagent() bool {
+	if p == nil {
+		return false
+	}
+	return p.detailSubagent
+}
+
+// ExpandedDetail reports whether the subagent trajectory details are expanded.
+func (p *Panel) ExpandedDetail() bool {
+	if p == nil {
+		return false
+	}
+	return p.detailExpanded
+}
+
+// SetExpandedDetail sets whether the subagent trajectory details are expanded.
+func (p *Panel) SetExpandedDetail(expanded bool) {
+	if p != nil {
+		p.detailExpanded = expanded
+	}
+}
+
+// ToggleExpandedDetail toggles whether the subagent trajectory details are expanded.
+func (p *Panel) ToggleExpandedDetail() {
+	if p != nil {
+		p.detailExpanded = !p.detailExpanded
+	}
 }
 
 // OpenTaskDetail opens the detail view directly for a specific task ID.

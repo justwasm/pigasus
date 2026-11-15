@@ -57,9 +57,10 @@ func TestModelToolsFixtureMatchesDisk(t *testing.T) {
 
 // 1.4.6 added a BypassSandbox flag to the run_command declaration (【一手】,
 // live 1.4.6 request body; the 1.4.5 capture does not have it).
+// In AGY 1.4.7+, BypassSandbox is conditional on running with --sandbox.
 func TestRunCommandDeclarationCarriesBypassSandbox(t *testing.T) {
 	var decl ModelToolDecl
-	for _, d := range ModelDeclarations() {
+	for _, d := range ModelDeclarationsFor(true) {
 		if d.Name == "run_command" {
 			decl = d
 		}
@@ -85,6 +86,36 @@ func TestRunCommandDeclarationCarriesBypassSandbox(t *testing.T) {
 	}
 	if !strings.Contains(bypass.Description, "Set to true to run outside the sandbox") {
 		t.Errorf("BypassSandbox description is not the 1.4.6 text: %q", bypass.Description)
+	}
+}
+
+func TestRunCommandDeclarationOmitsBypassSandboxWhenUnsandboxed(t *testing.T) {
+	var decl ModelToolDecl
+	for _, d := range ModelDeclarationsFor(false) {
+		if d.Name == "run_command" {
+			decl = d
+		}
+	}
+	if decl.Name == "" {
+		t.Fatal("no run_command declaration")
+	}
+	if strings.Contains(string(decl.Parameters), "BypassSandbox") {
+		t.Fatalf("unsandboxed run_command declaration has BypassSandbox: %s", decl.Parameters)
+	}
+}
+
+func TestInvokeSubagentDeclarationMatchesAGY159(t *testing.T) {
+	var decl ModelToolDecl
+	for _, d := range ModelDeclarations() {
+		if d.Name == "invoke_subagent" {
+			decl = d
+		}
+	}
+	if strings.Contains(decl.Description, "Default the Model argument to 'inherit'") {
+		t.Errorf("invoke_subagent description still contains redundant model default bullet")
+	}
+	if !strings.Contains(string(decl.Parameters), "Default to 'inherit' unless the user explicitly requests a different model") {
+		t.Errorf("invoke_subagent parameters missing model default description")
 	}
 }
 

@@ -420,6 +420,9 @@ func (r *RunCommand) runWithAsyncWindow(ctx context.Context, p runCommandParams)
 	backgroundTasks.watch(t, wait, stdin)
 
 	window := time.Duration(p.WaitMsBeforeAsync) * time.Millisecond
+	if !p.IsDaemon && !p.Background && p.WaitMsBeforeAsync >= 5000 && window < 10*time.Second {
+		window = 10 * time.Second
+	}
 	timer := time.NewTimer(window)
 	defer timer.Stop()
 	select {

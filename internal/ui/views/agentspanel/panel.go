@@ -42,6 +42,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	subagent "github.com/justwasm/pigasus/internal/app/subagent/core"
+	taskregistry "github.com/justwasm/pigasus/internal/app/task"
 	lifecycle "github.com/justwasm/pigasus/internal/core/lifecycle"
 	"github.com/justwasm/pigasus/internal/features/agents"
 	"github.com/justwasm/pigasus/internal/ui/mdrender"
@@ -97,6 +98,10 @@ type Seams struct {
 	Approve func(approvalID string) bool
 	// Deny answers a pending authorization with "no".
 	Deny func(approvalID string) bool
+	// TaskLookup looks up the taskregistry.Task by ID (for full subagent detail).
+	TaskLookup func(id string) *taskregistry.Task
+	// GroupTitle returns the title for the subagents accordion group (e.g. current conversation title).
+	GroupTitle func() string
 	// Size returns the terminal's width and height in cells.
 	Size func() (width, height int)
 }
@@ -139,6 +144,39 @@ func (p *Panel) DetailSubagent() *subagent.Subagent {
 	return p.detailSubagent
 }
 
+// ExpandedDetail reports whether the trajectory in detail view is expanded.
+func (p *Panel) ExpandedDetail() bool {
+	if p == nil {
+		return false
+	}
+	return p.expandedDetail
+}
+
+// SetExpandedDetail sets whether the trajectory in detail view is expanded.
+func (p *Panel) SetExpandedDetail(expanded bool) {
+	if p != nil {
+		p.expandedDetail = expanded
+	}
+}
+
+// ToggleExpandedDetail toggles whether the trajectory in detail view is expanded.
+func (p *Panel) ToggleExpandedDetail() {
+	if p != nil {
+		p.expandedDetail = !p.expandedDetail
+	}
+}
+
+// OpenDetail opens the subagent detail view for sa.
+func (p *Panel) OpenDetail(sa *subagent.Subagent) {
+	if p == nil {
+		return
+	}
+	p.detailMode = true
+	p.detailSubagent = sa
+	p.expandedDetail = false
+	p.window = 0
+}
+
 // Panel is the /agents panel.
 //
 // The panel owns the whole surface: the agent list, the running-agent
@@ -176,6 +214,37 @@ type Panel struct {
 
 	// window is the scroll offset in the detail view.
 	window int
+
+	// expandedSubagents indicates whether the subagents accordion is expanded.
+	expandedSubagents bool
+
+	// expandedDetail indicates whether the subagent trajectory details are expanded (toggled with ctrl+o).
+	expandedDetail bool
+}
+
+type rowKind int
+
+const (
+	rowAccordionHeader rowKind = iota
+	rowSubagent
+	rowAgent
+)
+
+func (p *Panel) classifyRow(idx int) (rowKind, *subagent.Subagent, int) {
+	subs := p.subagents()
+	if len(subs) == 0 {
+		return rowAgent, nil, idx
+	}
+	if idx == 0 {
+		return rowAccordionHeader, nil, 0
+	}
+	if p.expandedSubagents {
+		if idx <= len(subs) {
+			return rowSubagent, subs[idx-1], 0
+		}
+		return rowAgent, nil, idx - 1 - len(subs)
+	}
+	return rowAgent, nil, idx - 1
 }
 
 // New builds the /agents panel.
@@ -183,7 +252,11 @@ type Panel struct {
 // The catalogue is the markdown agents the panel lists: the host
 // discovers them when the panel opens and hands them over here.
 func New(seams Seams, catalogue []agents.Agent) *Panel {
-	return &Panel{seams: seams, agents: catalogue}
+	p := &Panel{seams: seams, agents: catalogue}
+	if len(p.subagents()) > 0 {
+		p.cursor = 1
+	}
+	return p
 }
 
 // ---- the panel's state, read from outside --------------------------------
@@ -235,26 +308,24 @@ func (p *Panel) PreparedName() string {
 	return p.preparedName
 }
 
-// RowCount is the number of selectable rows: the built-in default plus
-// the catalogue's agents plus the subagent rows.
-//
-// The subagent rows are part of the row list because the reference's
-// cursor moves over them: its keybinding table says "Move the cursor
-// between headers, subagents, and available agents"
-// (official-docs/cli/commands/agents.md:112), and the kill and the
-// inline approvals act on the subagent row under the cursor.
+// RowCount is the number of selectable rows: the subagent accordion header
+// (plus expanded subagents when open) followed by the agent rows.
 func (p *Panel) RowCount() int {
 	if p == nil {
 		return 1
 	}
-	return p.agentRowCount() + len(p.subagents())
+	subs := p.subagents()
+	if len(subs) == 0 {
+		return p.agentRowCount()
+	}
+	if p.expandedSubagents {
+		return 1 + len(subs) + p.agentRowCount()
+	}
+	return 1 + p.agentRowCount()
 }
 
 // agentRowCount is the number of agent rows: the built-in default plus
 // the catalogue's agents.
-//
-// The agent rows come first in the panel's frame, so their indices are
-// the cursor's first ones.
 func (p *Panel) agentRowCount() int {
 	if p == nil {
 		return 1
@@ -307,19 +378,24 @@ func (p *Panel) subagents() []*subagent.Subagent {
 }
 
 // highlightedSubagent is the subagent under the cursor, if any.
-//
-// The panel's rows are the agent rows first and the subagent rows
-// after them, so a cursor past the agent rows names a subagent.
 func (p *Panel) highlightedSubagent() *subagent.Subagent {
 	if p == nil {
 		return nil
 	}
-	subs := p.subagents()
-	idx := p.cursor - p.agentRowCount()
-	if idx < 0 || idx >= len(subs) {
-		return nil
+	kind, sa, _ := p.classifyRow(p.cursor)
+	if kind == rowSubagent {
+		return sa
 	}
-	return subs[idx]
+	return nil
+}
+
+func (p *Panel) groupTitle() string {
+	if p != nil && p.seams.GroupTitle != nil {
+		if t := p.seams.GroupTitle(); t != "" {
+			return t
+		}
+	}
+	return "Subagents"
 }
 
 // pendingAuthorization is the protected operation the given subagent

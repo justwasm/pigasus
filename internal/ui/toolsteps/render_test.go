@@ -891,19 +891,9 @@ func TestRenderBlock_PureThought_Collapsed(t *testing.T) {
 			TokenMetrics: tm,
 			Width:        80,
 		})
-		if len(lines) != 1 {
-			t.Fatalf("[%v] expected 1 collapsed thought line, got %d:\n%v", v, len(lines), lines)
-		}
-		// Pure thought step MUST NOT emit token metrics table
-		if strings.Contains(lines[0], "18.2k in") || strings.Contains(lines[0], "thinking") {
-			t.Errorf("[%v] collapsed pure thought unexpectedly emitted token metrics: %q", v, lines[0])
-		}
-		// Pure thought step MUST NOT attach ctrl+o hint
-		if strings.Contains(lines[0], "ctrl+o") {
-			t.Errorf("[%v] collapsed pure thought unexpectedly carries hint: %q", v, lines[0])
-		}
-		if !strings.Contains(lines[0], "Thought for 64ms, 130 tokens") {
-			t.Errorf("[%v] line 0 missing Thought for 64ms, 130 tokens: %q", v, lines[0])
+		// Pure thought completed turn collapses to 0 lines in reference agy 1.5.8+
+		if len(lines) != 0 {
+			t.Fatalf("[%v] expected 0 collapsed thought lines for finished pure thought, got %d:\n%v", v, len(lines), lines)
 		}
 	}
 }
@@ -933,8 +923,8 @@ func TestRenderBlock_PureThought_Expanded(t *testing.T) {
 		if len(lines) != 2 {
 			t.Fatalf("[%v] expected 2 expanded thought lines (header + 1 reasoning), got %d:\n%v", v, len(lines), lines)
 		}
-		if !strings.Contains(lines[0], "Thought for 64ms, 130 tokens") {
-			t.Errorf("[%v] line 0 missing Thought for 64ms, 130 tokens: %q", v, lines[0])
+		if !strings.Contains(lines[0], "Thought Process") {
+			t.Errorf("[%v] line 0 missing Thought Process: %q", v, lines[0])
 		}
 		if !strings.Contains(lines[1], "  I'm thinking through how to approach this.") {
 			t.Errorf("[%v] line 1 missing 2-space indented reasoning: %q", v, lines[1])
@@ -1044,5 +1034,19 @@ func TestStepDetailLines_DiffRemoveOutputWrap(t *testing.T) {
 		if !strings.HasPrefix(lines[i], tuitools.DetailIndent) {
 			t.Errorf("diff line %d not indented with DetailIndent: %q", i, lines[i])
 		}
+	}
+}
+
+func TestStepDetailLines_ManageTaskPreservesBackticks(t *testing.T) {
+	logWithBackticks := "task-1\trunning\tgo test\t1.5s\n`foo` and ```go func() {}``` and `pkg.Bar`"
+	s := Step{
+		Name:   "manage_task",
+		Title:  "manage_task(status)",
+		Detail: logWithBackticks,
+	}
+	lines := stepDetailLines(s, 80)
+	joined := strings.Join(lines, "\n")
+	if !strings.Contains(joined, "`foo`") || !strings.Contains(joined, "`pkg.Bar`") {
+		t.Errorf("manage_task output did not preserve backticks verbatim:\n%s", joined)
 	}
 }

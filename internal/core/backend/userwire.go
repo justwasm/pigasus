@@ -40,7 +40,16 @@ const (
 // now supplies the local-time line; modelLabel and settingsChanged add the
 // <USER_SETTINGS_CHANGE> block the reference sends when the model selection is
 // new or has just changed.
+// System messages (<SYSTEM_MESSAGE>) are not user requests and are returned verbatim.
 func WrapUserContent(raw, modelLabel string, settingsChanged bool, now time.Time) string {
+	trimmed := strings.TrimSpace(raw)
+	if strings.HasPrefix(trimmed, "<USER_REQUEST>") ||
+		strings.HasPrefix(trimmed, "<CONTEXT_SUMMARY>") ||
+		strings.HasPrefix(trimmed, "# Resuming from a compaction") ||
+		strings.HasPrefix(trimmed, "The following is a <SYSTEM_MESSAGE>") ||
+		strings.HasPrefix(raw, "Step Id:") {
+		return raw
+	}
 	var b strings.Builder
 	b.WriteString(userRequestOpen)
 	b.WriteString(raw)

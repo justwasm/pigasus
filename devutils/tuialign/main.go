@@ -15,6 +15,7 @@ func printUsage() {
 
 Usage:
   tuialign run <scenario.align>       Run scripted parity test against agy & pigasus
+  tuialign report [-dir DIR] [-out FILE] [--open]  Aggregate all snapshot HTMLs into one master report
   tuialign live [scenario.align]      Launch interactive side-by-side tmux session (sync typing)
   tuialign server [-addr ADDR]        Run standalone mock CloudCode server
   tuialign diff <left.txt> <right.txt> Compare two captured terminal screens
@@ -38,6 +39,8 @@ func main() {
 	switch cmd {
 	case "run":
 		runScenarioCmd(args)
+	case "report":
+		runReportCmd(args)
 	case "live":
 		runLiveCmd(args)
 	case "server":
@@ -233,6 +236,12 @@ func runDiffCmd(args []string) {
 	label := fmt.Sprintf("%s vs %s", filepath.Base(args[0]), filepath.Base(args[1]))
 	res := CompareSnapshots(string(leftBytes), string(rightBytes), label)
 	fmt.Print(res.Report)
+
+	htmlPath := "/tmp/tuialign_diff.html"
+	txtPath := "/tmp/tuialign_diff.txt"
+	_ = os.WriteFile(htmlPath, []byte(res.HTMLReport), 0644)
+	_ = os.WriteFile(txtPath, []byte(res.Report), 0644)
+	fmt.Printf("[tuialign:diff] Visual parity reports saved:\n  HTML: %s (file://%s)\n  TXT:  %s\n", htmlPath, htmlPath, txtPath)
 }
 
 func isTerminal() bool {

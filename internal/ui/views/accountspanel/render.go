@@ -52,9 +52,12 @@ func (p *Panel) accountsLines() []string {
 	if p.cursor >= 0 && p.cursor < len(p.rows) {
 		selected := p.rows[p.cursor]
 		if isQ, qReason := accountrouting.Shared().IsQuarantined(selected.Email); isQ {
-			selected.Disabled = true
-			if selected.DisabledReason == "" {
-				selected.DisabledReason = qReason
+			if selected.Disabled {
+				if selected.DisabledReason == "" {
+					selected.DisabledReason = qReason
+				}
+			} else {
+				accountrouting.Shared().Unquarantine(selected.Email)
 			}
 		}
 		if selected.Disabled && selected.DisabledReason != "" {

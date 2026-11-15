@@ -10,6 +10,7 @@ package compaction
 import (
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/justwasm/pigasus/internal/core/backend"
 )
@@ -324,5 +325,51 @@ func TestResumeBlock_ParentMessagesMostRecent(t *testing.T) {
 	})
 	if !strings.Contains(block, "The following were the most recent messages from your parent agent in chronological order:\n") {
 		t.Errorf("missing the most-recent preamble: %q", block)
+	}
+}
+
+// TestFormatContextSummary_MatchesReference verifies the 1.5.9 wire transformation
+// from the stored checkpoint step to the <CONTEXT_SUMMARY> payload sent to CloudCode.
+func TestFormatContextSummary_MatchesReference(t *testing.T) {
+	now, err := time.Parse(time.RFC3339, "2026-11-15T08:57:20+08:00")
+	if err != nil {
+		t.Fatal(err)
+	}
+	stepContent := "# Resuming from a compaction\n\n" +
+		"You are continuing work on the task described above, but you have lost access to the full conversation history, and need to resume work efficiently using the progress summary below:\n\n" +
+		"# User Requests\n" +
+		"The following were user requests from the truncated conversation in chronological order:\n" +
+		"1. task 1\n" +
+		"2. /compact\n\n" +
+		"<summary>\n" +
+		"### 1. Task Overview\n" +
+		"- done\n" +
+		"</summary>\n\n" +
+		ConversationLogs
+
+	got := FormatContextSummary(stepContent, now)
+
+	want := "<CONTEXT_SUMMARY>\n" +
+		"The following is a summary of the conversation history that has been truncated to fit within the context window:\n\n" +
+		"This summary was generated at 2026-11-15T08:57:20+08:00.\n\n" +
+		"# User Requests\n" +
+		"The following were the most recent user requests in chronological order:\n" +
+		"1. task 1\n" +
+		"2. /compact\n\n" +
+		"# Previous Session Summary:\n" +
+		"<summary>\n" +
+		"### 1. Task Overview\n" +
+		"- done\n" +
+		"</summary>\n\n" +
+		ConversationLogs + "\n" +
+		"</CONTEXT_SUMMARY>"
+
+	if got != want {
+		t.Errorf("FormatContextSummary mismatch:\n got: %q\nwant: %q", got, want)
+	}
+
+	// Idempotent if already formatted
+	if gotAgain := FormatContextSummary(got, now); gotAgain != want {
+		t.Errorf("FormatContextSummary not idempotent:\n got: %q\nwant: %q", gotAgain, want)
 	}
 }

@@ -37,6 +37,7 @@ It eliminates non-determinism from real LLM APIs and network latency by orchestr
    - Distinguishes **Text Diffs** (`✗`) vs **Color Diffs** (`~` e.g. text matches, but `fg #5F6368` vs `#657B83`).
    - Strips dynamic non-functional jitters (elapsed durations like `149ms` vs `152ms`, temp paths, email/account lines).
    - Generates standalone **HTML Visual Parity Reports** (`/tmp/tuialign_<snapshot>.html`) where ANSI is mapped to inline CSS spans, viewable in any browser.
+   - Aggregates all snapshots into a single **Master HTML Dashboard** (`/tmp/tuialign_master_report.html`) with sidebar navigation, real-time search, diff filtering, and shortcut key navigation (`j`/`k`).
 
 ---
 
@@ -44,7 +45,8 @@ It eliminates non-determinism from real LLM APIs and network latency by orchestr
 
 ```
 devutils/tuialign/
-├── main.go                     # CLI entrypoint (run, live, server, diff)
+├── main.go                     # CLI entrypoint (run, report, live, server, diff)
+├── report.go                   # Single-page master HTML report compiler & aggregator
 ├── server.go                   # Mock CloudCode HTTP/SSE server & REST control API
 ├── fixture.go                  # Embedded CloudCode RPC payloads
 ├── fixtures/
@@ -98,11 +100,21 @@ scripts/
 ### Running an Automated Scenario
 
 ```bash
-# Run thinking toggle alignment test
+# Run thinking toggle alignment test (automatically outputs /tmp/tuialign_<scenario>_report.html)
 ./scripts/tui-align.sh run devutils/tuialign/scenarios/01_thinking_toggle.align
 
 # Run message queue alignment test
 ./scripts/tui-align.sh run devutils/tuialign/scenarios/02_queued_message.align
+```
+
+### Aggregating All Results into a Single HTML Dashboard
+
+```bash
+# Compile all generated snapshots into one consolidated master report:
+./scripts/tui-align.sh report
+
+# Automatically open in your default browser:
+./scripts/tui-align.sh report --open
 ```
 
 ### Running a Native Bash Test Script

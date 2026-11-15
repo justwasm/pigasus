@@ -422,7 +422,7 @@ func (t *Trajectory) CheckpointView() CheckpointView {
 				input = turn.Input
 			}
 			msgs := stepConversationMessages(step, input)
-			if si == len(turn.Steps)-1 && turn.FinalOutput != "" {
+			if si == len(turn.Steps)-1 && turn.FinalOutput != "" && step.Delta == "" {
 				msgs = append(msgs, ConversationMessage{Role: RoleAssistant, Content: turn.FinalOutput})
 			}
 			view.Steps = append(view.Steps, CheckpointStep{GlobalIndex: step.GlobalIndex, Messages: msgs})
@@ -589,6 +589,7 @@ func (t *Trajectory) ToConversationMessages() []ConversationMessage {
 			}
 			continue
 		}
+		hasStepAssistant := false
 		for si, step := range turn.Steps {
 			if boundary >= 0 && step.GlobalIndex <= boundary {
 				continue
@@ -597,9 +598,15 @@ func (t *Trajectory) ToConversationMessages() []ConversationMessage {
 			if si == 0 && keepTurnInput && (boundary < 0 || turn.StartStep > boundary) {
 				input = turn.Input
 			}
-			msgs = append(msgs, stepConversationMessages(step, input)...)
+			stepMsgs := stepConversationMessages(step, input)
+			for _, sm := range stepMsgs {
+				if sm.Role == RoleAssistant && (sm.Content != "" || len(sm.ToolCalls) > 0) {
+					hasStepAssistant = true
+				}
+			}
+			msgs = append(msgs, stepMsgs...)
 		}
-		if len(turn.Steps) > 0 && turn.FinalOutput != "" {
+		if len(turn.Steps) > 0 && turn.FinalOutput != "" && !hasStepAssistant {
 			last := turn.Steps[len(turn.Steps)-1]
 			if boundary < 0 || last.GlobalIndex > boundary {
 				msgs = append(msgs, ConversationMessage{Role: RoleAssistant, Content: turn.FinalOutput})

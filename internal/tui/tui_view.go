@@ -766,12 +766,10 @@ func (m *RootModel) handleMouseWheel(msg tea.MouseMsg) bool {
 		}
 		if m.overlays.panel.kind.IsViewer() {
 			step := m.wheelScrollRows()
-			for i := 0; i < step; i++ {
-				key := tea.Key{Code: tea.KeyDown}
-				if up {
-					key.Code = tea.KeyUp
-				}
-				m.handleViewerPanelKey(key)
+			if up {
+				m.scrollViewerPanel(-step)
+			} else {
+				m.scrollViewerPanel(step)
 			}
 			return true
 		}
@@ -810,6 +808,20 @@ func (m *RootModel) handleMouseWheel(msg tea.MouseMsg) bool {
 //
 // Upstream: google3/third_party/jetski/cli/model/model.(*ConversationModel).scrollWheel (0x102bb5430)
 func (m *RootModel) wheelScrollRows() int {
+	if m.overlays.panel.kind.IsViewer() {
+		avail := m.viewport.height - 4
+		if avail < 1 {
+			avail = 1
+		}
+		step := avail / 3
+		if step < 1 {
+			step = 1
+		}
+		if step > mouseWheelRows {
+			step = mouseWheelRows
+		}
+		return step
+	}
 	avail := m.viewportHeight()
 	step := avail / 3
 	if step < 1 {

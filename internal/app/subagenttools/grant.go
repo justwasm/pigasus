@@ -44,8 +44,9 @@ type Grant struct {
 var (
 	// researchToolNames are the always-on research tools: explore the
 	// codebase (grep_search, list_dir), search the web (search_web,
-	// read_url_content) and read files (view_file).
+	// read_url_content) and read files (read_file, view_file).
 	researchToolNames = []string{
+		"read_file",
 		"view_file",
 		"grep_search",
 		"list_dir",
@@ -54,16 +55,18 @@ var (
 	}
 
 	// writeToolNames are the tools the write grant adds: create and
-	// edit files (write_to_file, replace_file_content,
+	// edit files (write_file, edit_file, write_to_file, replace_file_content,
 	// multi_replace_file_content, notebook_edit, sed_file) and run
 	// commands (run_command, command_status).
 	writeToolNames = []string{
+		"write_file",
+		"edit_file",
+		"run_command",
 		"write_to_file",
 		"replace_file_content",
 		"multi_replace_file_content",
 		"notebook_edit",
 		"sed_file",
-		"run_command",
 		"command_status",
 	}
 

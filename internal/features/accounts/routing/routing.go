@@ -181,6 +181,25 @@ var shared = sync.OnceValue(func() *Router {
 // Shared returns the process-wide router.
 func Shared() *Router { return shared() }
 
+func init() {
+	accounts.RegisterStatusHook(func(email string, disabled bool, reason string) {
+		r := Shared()
+		norm := strings.ToLower(strings.TrimSpace(email))
+		r.mu.Lock()
+		if !disabled {
+			delete(r.quarantined, norm)
+			delete(r.excluded, norm)
+		} else {
+			if reason == "" {
+				reason = "account disabled / Terms of Service violation"
+			}
+			r.quarantined[norm] = reason
+			r.excluded[norm] = time.Now().Add(100 * 365 * 24 * time.Hour)
+		}
+		r.mu.Unlock()
+	})
+}
+
 // NewRouter returns a fresh Router instance.
 func NewRouter() *Router {
 	ctx, cancel := context.WithCancel(context.Background())
@@ -763,7 +782,12 @@ func (r *Router) statesForModel(ctx context.Context, cfg accountpool.Config, mod
 		r.mu.Lock()
 		excluded, expired := r.isExcludedLocked(email, modelFamily, cfg.CooldownDuration(), now)
 		qReason, isQuarantined := r.quarantined[strings.ToLower(email)]
-		if !isQuarantined && acc.Disabled {
+		if isQuarantined && !acc.Disabled {
+			delete(r.quarantined, strings.ToLower(email))
+			delete(r.excluded, strings.ToLower(email))
+			isQuarantined = false
+			qReason = ""
+		} else if !isQuarantined && acc.Disabled {
 			isQuarantined = true
 			qReason = acc.DisabledReason
 		}
@@ -865,8 +889,12 @@ func (r *Router) refreshQuota(email string) {
 			summary, err := accounts.FetchQuota(ctx, email)
 			if err != nil {
 				r.logf("[account-pool] the quota of %s could not be read: %v", email, err)
+				if apierror.IsAccountDisabledErr(err) {
+					r.Quarantine(email, apierror.AccountDisabledReason(err))
+				}
 				return nil, err
 			}
+			r.Unquarantine(email)
 			snap := summary.Snapshot()
 			remAll, knownAll := remainingForModelFamily(snap, "")
 			remGemini, knownGemini := remainingForModelFamily(snap, "gemini")
@@ -1256,6 +1284,7 @@ func (c *routedClient) Stream(ctx context.Context, req backend.StreamRequest) (<
 			}
 			return nil, err
 		}
+		c.router.Unquarantine(activeEmail)
 		return c.watchPrefixedList(ctx, nil, backend.StreamChunk{}, out, activeEmail, ""), nil
 	}
 	cfg := policy.Normalised()
@@ -1394,6 +1423,7 @@ func (c *routedClient) Stream(ctx context.Context, req backend.StreamRequest) (<
 		}
 
 		if hasContent {
+			c.router.Unquarantine(slot.email)
 			return c.watchPrefixedList(ctx, buffered, firstNonEmpty, out, slot.email, family), nil
 		}
 	}

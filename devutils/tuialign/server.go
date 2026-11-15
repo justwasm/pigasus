@@ -8,6 +8,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -132,6 +133,11 @@ func (s *MockServer) Requests() []RecordedRequest {
 }
 
 func (s *MockServer) logf(format string, args ...any) {
+	msg := fmt.Sprintf(format, args...)
+	if f, err := os.OpenFile("/tmp/tuialign_server.log", os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644); err == nil {
+		_, _ = fmt.Fprintf(f, "[%s] %s\n", time.Now().Format("15:04:05.000"), msg)
+		_ = f.Close()
+	}
 	if s.verboseLogs {
 		fmt.Printf("[tuialign:mock] "+format+"\n", args...)
 	}
@@ -194,6 +200,23 @@ func (s *MockServer) handleDispatch(w http.ResponseWriter, r *http.Request) {
 	case strings.HasSuffix(path, ":countTokens"):
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"totalTokens":10}`))
+
+	case strings.HasSuffix(path, ":listExperiments"):
+		w.Header().Set("Content-Type", "application/json")
+		b := true
+		resp := map[string]any{
+			"flags": []map[string]any{
+				{
+					"name":        "invoke-subagent-config",
+					"stringValue": `{"enabled": true, "always_inherit_model": false}`,
+				},
+				{
+					"name":      "enable-subagent-user-messaging",
+					"boolValue": b,
+				},
+			},
+		}
+		_ = json.NewEncoder(w).Encode(resp)
 
 	default:
 		// Default stub 200 OK for other metadata RPCs (listExperiments, writeTrajectoryAcls, fetchAdminControls, etc.)
@@ -260,6 +283,28 @@ func (s *MockServer) handleStreamGenerateContent(w http.ResponseWriter, r *http.
 		snippet = snippet[:300]
 	}
 	s.logf("[streamGenerateContent] resolved clientKey=%q, User-Agent=%q, snippet=%s", clientKey, r.UserAgent(), snippet)
+	if f, err := os.OpenFile("/tmp/tuialign_requests.jsonl", os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644); err == nil {
+		_, _ = f.Write(body)
+		_, _ = f.WriteString("\n")
+		_ = f.Close()
+	}
+
+	var reqObj struct {
+		Tools []struct {
+			FunctionDeclarations []struct {
+				Name string `json:"name"`
+			} `json:"functionDeclarations"`
+		} `json:"tools"`
+	}
+	if err := json.Unmarshal(body, &reqObj); err == nil && len(reqObj.Tools) > 0 {
+		var names []string
+		for _, t := range reqObj.Tools {
+			for _, fd := range t.FunctionDeclarations {
+				names = append(names, fd.Name)
+			}
+		}
+		s.logf("[%s] advertised tools: %v", clientKey, names)
+	}
 
 	// Background title generator shouldn't consume user turn mocks
 	if strings.Contains(string(body), "conversation title generator") || strings.Contains(string(body), `"requestId":"checkpoint/`) {

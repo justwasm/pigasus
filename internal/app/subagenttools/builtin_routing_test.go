@@ -80,26 +80,26 @@ func TestInvokeSubagentBuiltinRouting_UnknownName(t *testing.T) {
 	}
 }
 
-func TestInvokeSubagentBuiltinRouting_SchemaMentionsBuiltins(t *testing.T) {
+func TestInvokeSubagentBuiltinRouting_SchemaMatchesAGY159(t *testing.T) {
 	resetBuiltinRegistry(t)
 	tool := &invokeTool{}
 	def := tool.Definition()
-	if !strings.Contains(def.Description, "image-generator") {
-		t.Errorf("def.Description does not mention image-generator:\n%s", def.Description)
+	if strings.Contains(def.Description, "Built-in subagents") {
+		t.Errorf("def.Description should not include catalogue block in 1.5.9:\n%s", def.Description)
 	}
-	if !strings.Contains(def.Description, "Built-in subagents") {
-		t.Errorf("def.Description does not include the catalogue block:\n%s", def.Description)
+	if !strings.Contains(def.Description, "Guidelines:\n* The subagent is identified by the conversationId returned") {
+		t.Errorf("def.Description missing guidelines:\n%s", def.Description)
 	}
 	props, ok := def.Parameters["properties"].(map[string]any)
 	if !ok {
 		t.Fatalf("def.Parameters properties is %T, want map[string]any", def.Parameters["properties"])
 	}
-	agentName, ok := props["agent_name"].(map[string]any)
+	typeName, ok := props["TypeName"].(map[string]any)
 	if !ok {
-		t.Fatalf("def.Parameters missing agent_name entry: %+v", props)
+		t.Fatalf("def.Parameters missing TypeName entry: %+v", props)
 	}
-	if desc, _ := agentName["description"].(string); !strings.Contains(desc, "image-generator") {
-		t.Errorf("agent_name.description does not reference image-generator:\n%s", desc)
+	if desc, _ := typeName["description"].(string); desc == "" {
+		t.Errorf("TypeName.description is empty")
 	}
 }
 

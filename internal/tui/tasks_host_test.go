@@ -257,3 +257,32 @@ func TestTasksPanel_ActiveItemsMsgOpenDetail(t *testing.T) {
 		t.Fatalf("expected detail ID 'sub-item', got %q", m.overlays.panel.tp.DetailID())
 	}
 }
+
+func TestTasksPanel_SubagentDetailCtrlOTogglesExpanded(t *testing.T) {
+	m := seedRootModel()
+	task := seedTask(m.tasks.reg, "sub-weather-1", "Query weather", taskregistry.KindSubagent, taskregistry.StateDone)
+	task.Steps = []string{"run_command(curl -s wttr.in/Shanghai?format=j1)"}
+	task.StepOutputs = []string{"Command exited with code 0.\n\nCommand output:\nTemp: 18C"}
+
+	m.openSlashPanel("tasks")
+	m.tasksPanel().OpenTaskDetail("sub-weather-1", true)
+	if !m.tasksPanel().Detail() || !m.tasksPanel().DetailSubagent() {
+		t.Fatal("expected detail view to be open for subagent")
+	}
+
+	if m.tasksPanel().ExpandedDetail() {
+		t.Fatal("expected initial state to be collapsed")
+	}
+
+	// Send ctrl+o via Update
+	m.Update(ctrlKey('o'))
+	if !m.tasksPanel().ExpandedDetail() {
+		t.Fatalf("expected ctrlKey('o') to expand subagent detail")
+	}
+
+	// Send ctrl+o again
+	m.Update(ctrlKey('o'))
+	if m.tasksPanel().ExpandedDetail() {
+		t.Fatalf("expected second ctrlKey('o') to collapse subagent detail")
+	}
+}

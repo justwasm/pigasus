@@ -159,3 +159,22 @@ func TestQuotaPolicy(t *testing.T) {
 		t.Errorf("QuotaFreshness = %v, want 2m", core.QuotaFreshness)
 	}
 }
+
+func TestClearDisabled_TriggersStatusHook(t *testing.T) {
+	quotaTestRegister(t, "banned@example.com")
+	if err := core.MarkDisabled("banned@example.com", "Terms of Service violation"); err != nil {
+		t.Fatalf("MarkDisabled: %v", err)
+	}
+	var gotEmail string
+	var gotDisabled bool
+	core.RegisterStatusHook(func(email string, disabled bool, reason string) {
+		gotEmail = email
+		gotDisabled = disabled
+	})
+	if err := core.ClearDisabled("banned@example.com"); err != nil {
+		t.Fatalf("ClearDisabled: %v", err)
+	}
+	if gotEmail != "banned@example.com" || gotDisabled {
+		t.Errorf("hook got email=%q disabled=%v, want banned@example.com false", gotEmail, gotDisabled)
+	}
+}

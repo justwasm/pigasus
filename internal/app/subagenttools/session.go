@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/justwasm/pigasus/actor"
 	taskregistry "github.com/justwasm/pigasus/internal/app/task"
+	"github.com/justwasm/pigasus/internal/core/confhome"
 	"github.com/justwasm/pigasus/internal/features/checkpoint"
 )
 
@@ -254,6 +256,10 @@ func Invoke(ctx context.Context, inv Invocation, deps Deps) (Result, error) {
 			t.Output = outputText
 			t.Tools = usedTools(msgs)
 			t.Steps = usedSteps(msgs)
+			t.StepCount = len(msgs)
+			if t.StepCount < len(t.Steps)+1 {
+				t.StepCount = len(t.Steps) + 1
+			}
 			t.CurrentTool = ""
 			if runErr != nil {
 				t.State = taskregistry.StateFailed
@@ -313,12 +319,176 @@ func usedSteps(msgs []SubagentMessage) []string {
 			continue
 		}
 		if m.ToolName != "" {
-			out = append(out, m.ToolName)
+			stepStr := formatToolStep(m.ToolName, m.Content)
+			out = append(out, stepStr)
 		} else if line := firstLine(m.Content); line != "" {
 			out = append(out, line)
 		}
 	}
 	return out
+}
+
+// usedOutputs lists the output for each tool call in usedSteps in corresponding order.
+func usedOutputs(msgs []SubagentMessage) []string {
+	var outputs []string
+	toolResults := make(map[string]string)
+	var orderedResults []string
+	for _, m := range msgs {
+		if m.Role == "toolResult" {
+			if m.ToolCallID != "" {
+				toolResults[m.ToolCallID] = m.Content
+			}
+			orderedResults = append(orderedResults, m.Content)
+		}
+	}
+	resultIdx := 0
+	for _, m := range msgs {
+		if m.Role != "assistant" {
+			continue
+		}
+		if m.ToolName != "" {
+			out := ""
+			if m.ToolCallID != "" && toolResults[m.ToolCallID] != "" {
+				out = toolResults[m.ToolCallID]
+			} else if resultIdx < len(orderedResults) {
+				out = orderedResults[resultIdx]
+				resultIdx++
+			}
+			outputs = append(outputs, out)
+		}
+	}
+	return outputs
+}
+
+func formatToolStep(toolName, content string) string {
+	toolName = strings.TrimSpace(toolName)
+	if toolName == "" {
+		return ""
+	}
+	args := extractToolArgs(toolName, content)
+	if args != "" {
+		return fmt.Sprintf("%s(%s)", toolName, args)
+	}
+	return toolName
+}
+
+func extractToolArgs(toolName, content string) string {
+	content = strings.TrimSpace(content)
+	if content == "" {
+		return ""
+	}
+	var m map[string]any
+	if err := json.Unmarshal([]byte(content), &m); err != nil {
+		var s string
+		if err2 := json.Unmarshal([]byte(content), &s); err2 == nil {
+			_ = json.Unmarshal([]byte(s), &m)
+		}
+		if len(m) == 0 {
+			s = strings.Trim(content, "\"")
+			s = strings.ReplaceAll(s, `\"`, `"`)
+			return s
+		}
+	}
+	cleanVal := func(v any) string {
+		if v == nil {
+			return ""
+		}
+		str := fmt.Sprint(v)
+		str = strings.TrimSpace(str)
+		if strings.HasPrefix(str, "\"") && strings.HasSuffix(str, "\"") && len(str) >= 2 {
+			var unquoted string
+			if err := json.Unmarshal([]byte(str), &unquoted); err == nil {
+				str = unquoted
+			} else {
+				str = str[1 : len(str)-1]
+			}
+		}
+		str = strings.ReplaceAll(str, `\"`, `"`)
+		if idx := strings.Index(str, "\n"); idx != -1 {
+			str = strings.TrimSpace(str[:idx])
+			if !strings.HasSuffix(str, "...") {
+				str += " ..."
+			}
+		}
+		if len([]rune(str)) > 80 {
+			runes := []rune(str)
+			str = string(runes[:77]) + "..."
+		}
+		return str
+	}
+
+	switch strings.ToLower(toolName) {
+	case "run_command", "bash":
+		for _, k := range []string{"CommandLine", "command_line", "command", "cmd"} {
+			if v, ok := m[k]; ok {
+				return cleanVal(v)
+			}
+		}
+	case "search_web", "websearch", "web_search":
+		for _, k := range []string{"query", "Query", "q"} {
+			if v, ok := m[k]; ok {
+				return cleanVal(v)
+			}
+		}
+	case "send_message", "message":
+		recip := cleanVal(m["Recipient"])
+		if recip == "" {
+			recip = cleanVal(m["recipient"])
+		}
+		msg := cleanVal(m["Message"])
+		if msg == "" {
+			msg = cleanVal(m["message"])
+		}
+		fl := firstLine(msg)
+		if len(fl) > 60 {
+			fl = fl[:57] + "..."
+		}
+		if recip != "" && fl != "" {
+			return recip + ": " + fl
+		}
+		if fl != "" {
+			return fl
+		}
+		if recip != "" {
+			return recip
+		}
+	case "read_file", "view_file", "write_file", "edit_file":
+		for _, k := range []string{"Path", "path", "AbsolutePath", "TargetFile", "file"} {
+			if v, ok := m[k]; ok {
+				return cleanVal(v)
+			}
+		}
+	case "manage_task":
+		action := cleanVal(m["action"])
+		if action == "" {
+			action = cleanVal(m["Action"])
+		}
+		id := cleanVal(m["id"])
+		if id == "" {
+			id = cleanVal(m["TaskId"])
+		}
+		if action != "" && id != "" {
+			return action + " " + id
+		}
+		if action != "" {
+			return action
+		}
+		if id != "" {
+			return id
+		}
+	case "read_url_content":
+		for _, k := range []string{"Url", "url", "URL"} {
+			if v, ok := m[k]; ok {
+				return cleanVal(v)
+			}
+		}
+	}
+	for _, v := range m {
+		if s := cleanVal(v); s != "" && len(s) < 100 {
+			return s
+		}
+	}
+	return ""
 }
 
 // firstLine returns a text block's first non-empty line, trimmed.
@@ -433,6 +603,11 @@ func persistTranscript(subDir, subID string, msgs []SubagentMessage, runErr erro
 		_ = os.Rename(tmpPath, path)
 	} else {
 		_ = os.WriteFile(path, buf.Bytes(), 0o644)
+	}
+
+	brainLogDir := filepath.Join(confhome.Antigravity(), "brain", subID, ".system_generated", "logs")
+	if err := os.MkdirAll(brainLogDir, 0o755); err == nil {
+		_ = os.WriteFile(filepath.Join(brainLogDir, "transcript.jsonl"), buf.Bytes(), 0o644)
 	}
 }
 

@@ -235,6 +235,29 @@ func (s *Store) Emails() []string {
 	return out
 }
 
+var (
+	statusHookMu sync.RWMutex
+	statusHooks  []func(email string, disabled bool, reason string)
+)
+
+// RegisterStatusHook registers a callback that fires when an account is marked
+// disabled or cleared.
+func RegisterStatusHook(fn func(email string, disabled bool, reason string)) {
+	statusHookMu.Lock()
+	defer statusHookMu.Unlock()
+	statusHooks = append(statusHooks, fn)
+}
+
+func notifyStatusHooks(email string, disabled bool, reason string) {
+	statusHookMu.RLock()
+	hooks := make([]func(string, bool, string), len(statusHooks))
+	copy(hooks, statusHooks)
+	statusHookMu.RUnlock()
+	for _, fn := range hooks {
+		fn(email, disabled, reason)
+	}
+}
+
 // MarkDisabled sets an account's disabled status and reason and persists it.
 func MarkDisabled(email, reason string) error {
 	email = strings.TrimSpace(email)
@@ -242,14 +265,18 @@ func MarkDisabled(email, reason string) error {
 		return nil
 	}
 	mu.Lock()
-	defer mu.Unlock()
 	st, err := loadLocked()
 	if err != nil {
+		mu.Unlock()
 		return err
 	}
 	found := false
+	changed := false
 	for i := range st.Accounts {
 		if strings.EqualFold(st.Accounts[i].Email, email) {
+			if !st.Accounts[i].Disabled || st.Accounts[i].DisabledReason != reason {
+				changed = true
+			}
 			st.Accounts[i].Disabled = true
 			st.Accounts[i].DisabledReason = reason
 			found = true
@@ -257,9 +284,18 @@ func MarkDisabled(email, reason string) error {
 		}
 	}
 	if !found {
+		mu.Unlock()
 		return fmt.Errorf("account %q not found", email)
 	}
-	return st.saveLocked()
+	if err := st.saveLocked(); err != nil {
+		mu.Unlock()
+		return err
+	}
+	mu.Unlock()
+	if changed {
+		notifyStatusHooks(email, true, reason)
+	}
+	return nil
 }
 
 // ClearDisabled clears an account's disabled status and persists it.
@@ -269,14 +305,18 @@ func ClearDisabled(email string) error {
 		return nil
 	}
 	mu.Lock()
-	defer mu.Unlock()
 	st, err := loadLocked()
 	if err != nil {
+		mu.Unlock()
 		return err
 	}
 	found := false
+	changed := false
 	for i := range st.Accounts {
 		if strings.EqualFold(st.Accounts[i].Email, email) {
+			if st.Accounts[i].Disabled {
+				changed = true
+			}
 			st.Accounts[i].Disabled = false
 			st.Accounts[i].DisabledReason = ""
 			found = true
@@ -284,7 +324,16 @@ func ClearDisabled(email string) error {
 		}
 	}
 	if !found {
+		mu.Unlock()
 		return fmt.Errorf("account %q not found", email)
 	}
-	return st.saveLocked()
+	if err := st.saveLocked(); err != nil {
+		mu.Unlock()
+		return err
+	}
+	mu.Unlock()
+	if changed {
+		notifyStatusHooks(email, false, "")
+	}
+	return nil
 }

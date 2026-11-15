@@ -33,7 +33,7 @@ func Test_AgentsPanelPureMessagePassing(t *testing.T) {
 	}
 
 	// 2. Cursor on agent, Enter prepares, Esc emits MsgSwitchAgent
-	p.cursor = 1 // on "custom" agent
+	p.cursor = 2 // row 0 is accordion header, row 1 is default agent, row 2 is custom agent
 	p.HandleKey(tea.Key{Code: tea.KeyEnter})
 	claimed, cmd = p.HandleKey(tea.Key{Code: tea.KeyEsc})
 	if !claimed || cmd == nil {
@@ -46,7 +46,8 @@ func Test_AgentsPanelPureMessagePassing(t *testing.T) {
 	}
 
 	// 3. Cursor on subagent row, 'k' emits MsgKillSubagent
-	p.cursor = p.agentRowCount() // on subagent
+	p.expandedSubagents = true
+	p.cursor = 1 // on subagent
 	claimed, cmd = p.HandleKey(tea.Key{Code: 'k', Text: "k"})
 	if !claimed || cmd == nil {
 		t.Fatalf("expected 'k' to be claimed with command")

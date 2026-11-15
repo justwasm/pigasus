@@ -608,13 +608,9 @@ func (m *RootModel) promptOptions() agyprompt.Options {
 	}
 	opts.UserRules = agyprompt.DiscoverUserRules(workspace, agentDir)
 	opts.Skills = agyprompt.DiscoverSkills(agyprompt.AgySkillPaths(agentDir, m.session.cwd))
+	opts.Sandboxed = cliflags.BoolValue(m.session.flags, "sandbox")
 	opts.PlanningMode = (m.session.mode == permissions.ModePlan)
 	if m.session.agentBody == "" {
-		// The browser agent is one of the built-in subagent types, and it
-		// comes before the user's own agents: the reference's list puts
-		// its built-ins first (the 1.4.6 capture lists self, research and
-		// image-generator ahead of the user's alpha and zeta).
-		opts.Subagents = append(opts.Subagents, browsersubagent.Subagent())
 		opts.Subagents = append(opts.Subagents, setup.CustomSubagents()...)
 	}
 	return opts
@@ -830,7 +826,20 @@ func (m *RootModel) Init() tea.Cmd {
 		m.session.store.StatusLineTickArmed = true
 		cmds = append(cmds, armExternalStatusLineTick())
 	}
+	if m.prompt.initialPrompt != "" {
+		p := m.prompt.initialPrompt
+		m.prompt.initialPrompt = ""
+		cmds = append(cmds, m.submitInitialPrompt(p))
+	}
 	return tea.Batch(cmds...)
+}
+
+func (m *RootModel) submitInitialPrompt(prompt string) tea.Cmd {
+	prompt = PrependSlashPlanIfNeeded(prompt, m.session.mode)
+	if handled, cmd := m.dispatchPromptPrefix(prompt); handled {
+		return cmd
+	}
+	return m.startModelTurn(prompt)
 }
 
 func (m *RootModel) cycleMode() {
@@ -898,7 +907,7 @@ func (m *RootModel) applyAgentSwitch(name, body string) {
 	if m.session.policy != nil {
 		catalog := agentToolRegistry(workspace, body)
 		m.registerSubagentQuestionTool(catalog)
-		m.enableTools(toolrunner.AdvertisedToolDecls(body, catalog), &permissionRunner{
+		m.enableTools(toolrunner.AdvertisedToolDeclsWithSandbox(body, catalog, m.tools.sandbox.Enabled), &permissionRunner{
 			inner:   &toolrunner.RegistryRunner{Reg: catalog},
 			policy:  m.session.policy,
 			sandbox: m.tools.sandbox,
@@ -990,8 +999,31 @@ func allCatalogActorTools(reg *tools.Registry) []actor.Tool {
 	if reg == nil {
 		return nil
 	}
+	_, hasReadFile := reg.Get("read_file")
+	_, hasWriteFile := reg.Get("write_file")
+	_, hasEditFile := reg.Get("edit_file")
+
 	var out []actor.Tool
 	for _, name := range reg.List() {
+		// Filter out obsolete 1.3.6 tools and duplicate legacy aliases
+		// so subagents receive modern, lean tool declarations.
+		switch name {
+		case "command_status", "wait", "notebook_edit", "notebook_execution", "sed_file":
+			continue
+		case "view_file":
+			if hasReadFile {
+				continue
+			}
+		case "write_to_file":
+			if hasWriteFile {
+				continue
+			}
+		case "replace_file_content", "multi_replace_file_content":
+			if hasEditFile {
+				continue
+			}
+		}
+
 		tool, ok := reg.Get(name)
 		if !ok || tool == nil {
 			continue
@@ -1657,6 +1689,13 @@ func (m *RootModel) drainTaskNotifications() {
 	for _, item := range items {
 		msg := agentturn.TaskNotificationMessage(item)
 		m.session.appendMessage(msg)
+		if m.isSubagentNotification(item) || item.Title != "Notification timeout reached" {
+			// Subagent responses and task completion notifications are delivered
+			// as internal system messages to the model context only, and are NOT
+			// echoed directly into the visible user-facing transcript.
+			// Only in-flight warnings (like "Notification timeout reached") show up in the transcript.
+			continue
+		}
 		lines := uirows.NotificationRows(item)
 		if trailingUser && len(m.conversation.userBlocks) > 0 {
 			ub := m.conversation.userBlocks[len(m.conversation.userBlocks)-1]
@@ -1721,6 +1760,25 @@ func (m *RootModel) ensureSubagentRegistry() *subagenttools.Registry {
 	return m.agents.registry
 }
 
+// isSubagentNotification reports whether the notification was emitted by a
+// child subagent rather than an external background shell task.
+func (m *RootModel) isSubagentNotification(item shell.TaskNotification) bool {
+	if m.agents.subagentSenders != nil && m.agents.subagentSenders[item.TaskID] {
+		return true
+	}
+	if m.agents.registry != nil {
+		if _, ok := m.agents.registry.Get(item.TaskID); ok {
+			return true
+		}
+	}
+	if m.tasks.ctrl != nil && m.tasks.ctrl.Registry() != nil {
+		if t := m.tasks.ctrl.Registry().Get(item.TaskID); t != nil && t.Kind == taskregistry.KindSubagent {
+			return true
+		}
+	}
+	return false
+}
+
 // notifySubagentMessage hands a subagent's message to the session.
 //
 // It travels the way a background task's notification travels: into the
@@ -1728,6 +1786,10 @@ func (m *RootModel) ensureSubagentRegistry() *subagenttools.Registry {
 // text the model reads is the reference's own envelope, with the
 // subagent's conversation id as the sender.
 func (m *RootModel) notifySubagentMessage(sender, content string) {
+	if m.agents.subagentSenders == nil {
+		m.agents.subagentSenders = make(map[string]bool)
+	}
+	m.agents.subagentSenders[sender] = true
 	if m.tasks.ctrl != nil {
 		m.tasks.ctrl.Inbox().Add(taskregistry.TaskNotification{
 			TaskID:   sender,

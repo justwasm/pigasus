@@ -6,8 +6,13 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	subagent "github.com/justwasm/pigasus/internal/app/subagent/core"
 	subagentquestions "github.com/justwasm/pigasus/internal/app/subagent/questions"
+	taskregistry "github.com/justwasm/pigasus/internal/app/task"
 	"github.com/justwasm/pigasus/internal/ui/editor/keybind"
+	"github.com/justwasm/pigasus/internal/ui/panelregistry"
+	"github.com/justwasm/pigasus/internal/ui/views/agentspanel"
+	"github.com/justwasm/pigasus/internal/ui/views/taskspanel"
 )
 
 // TestCtrlDForwardDeleteWinsOverCLIExitBinding pins the keybinding
@@ -266,5 +271,82 @@ func TestDispatchKeyAction_FullReferenceKeybindings(t *testing.T) {
 				t.Errorf("ActionForExactKey(%q) returned empty for action %q", k, action)
 			}
 		}
+	}
+}
+
+func TestDispatchKeyAction_ViewToggleTrajectory_Panels(t *testing.T) {
+	// 1. Agents panel in DetailMode
+	m := &RootModel{}
+	m.overlays.panel = slashPanel{kind: panelregistry.Agents, cmd: "/agents"}
+	ag := agentspanel.New(agentspanel.Seams{}, nil)
+	ag.OpenDetail(&subagent.Subagent{ID: "sub-1", Name: "worker-1"})
+	m.overlays.panel.ag = ag
+
+	if !m.agentsPanel().DetailMode() {
+		t.Fatal("expected Agents panel to be in DetailMode")
+	}
+	if m.agentsPanel().ExpandedDetail() {
+		t.Fatal("expected initial ExpandedDetail to be false")
+	}
+
+	// Toggle via dispatchKeyAction("view.toggle_trajectory")
+	_, _, handled := m.dispatchKeyAction("view.toggle_trajectory")
+	if !handled {
+		t.Fatal("expected view.toggle_trajectory to be handled in agents detail mode")
+	}
+	if !m.agentsPanel().ExpandedDetail() {
+		t.Fatal("expected ExpandedDetail to be true after view.toggle_trajectory")
+	}
+
+	// Toggle back via key 'o' + ModCtrl
+	_, _, handledKey := m.handleGlobalOrModalKeys(tea.Key{Code: 'o', Mod: tea.ModCtrl})
+	if !handledKey {
+		t.Fatal("expected ctrl+o key to be handled in agents detail mode")
+	}
+	if m.agentsPanel().ExpandedDetail() {
+		t.Fatal("expected ExpandedDetail to be false after second toggle")
+	}
+
+	// 2. Tasks panel in DetailSubagent
+	reg := taskregistry.New()
+	task := &taskregistry.Task{
+		ID:    "task-sub-1",
+		Name:  "worker-1",
+		Kind:  taskregistry.KindSubagent,
+		State: taskregistry.StateRunning,
+	}
+	reg.Register(task)
+	tp := taskspanel.New(taskspanel.Seams{
+		Registry: func() *taskregistry.Registry { return reg },
+	})
+	tp.OpenTaskDetail("task-sub-1", true)
+
+	m2 := &RootModel{}
+	m2.overlays.panel = slashPanel{kind: panelregistry.Tasks, cmd: "/tasks"}
+	m2.overlays.panel.tp = tp
+
+	if !m2.tasksPanel().DetailSubagent() {
+		t.Fatal("expected Tasks panel to be in DetailSubagent mode")
+	}
+	if m2.tasksPanel().ExpandedDetail() {
+		t.Fatal("expected initial ExpandedDetail to be false")
+	}
+
+	// Toggle via dispatchKeyAction("view.toggle_trajectory")
+	_, _, handledTasks := m2.dispatchKeyAction("view.toggle_trajectory")
+	if !handledTasks {
+		t.Fatal("expected view.toggle_trajectory to be handled in tasks subagent detail")
+	}
+	if !m2.tasksPanel().ExpandedDetail() {
+		t.Fatal("expected ExpandedDetail to be true after view.toggle_trajectory")
+	}
+
+	// Toggle back via key 'o' + ModCtrl
+	_, _, handledTasksKey := m2.handleGlobalOrModalKeys(tea.Key{Code: 'o', Mod: tea.ModCtrl})
+	if !handledTasksKey {
+		t.Fatal("expected ctrl+o key to be handled in tasks subagent detail")
+	}
+	if m2.tasksPanel().ExpandedDetail() {
+		t.Fatal("expected ExpandedDetail to be false after second toggle")
 	}
 }

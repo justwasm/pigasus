@@ -97,3 +97,31 @@ func TestAgentsPanelDenialReachesTheSessionManager(t *testing.T) {
 		t.Error("the authorization is still pending after 'd'")
 	}
 }
+
+func TestAgentsPanel_SubagentDetailCtrlOTogglesExpanded(t *testing.T) {
+	m := seedAgentsRootModel()
+	sa := subagent.NewSubagent("sh", "-c", "echo ok")
+	m.tasks.subagentManager.Add(sa)
+
+	m.openSlashPanel("agents")
+	p := m.agentsPanel()
+	p.OpenDetail(sa)
+	if !p.DetailMode() {
+		t.Fatal("expected DetailMode")
+	}
+
+	if p.ExpandedDetail() {
+		t.Fatal("expected initially collapsed")
+	}
+
+	// Update with ctrl+o
+	m.Update(ctrlKey('o'))
+	if !p.ExpandedDetail() {
+		t.Fatal("expected ctrl+o to expand agents detail")
+	}
+
+	m.Update(ctrlKey('o'))
+	if p.ExpandedDetail() {
+		t.Fatal("expected second ctrl+o to collapse agents detail")
+	}
+}

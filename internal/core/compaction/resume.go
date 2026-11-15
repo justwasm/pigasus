@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/justwasm/pigasus/internal/core/backend"
 )
@@ -28,13 +29,17 @@ import (
 // ResumeHeader is the first line of the post-compaction block.
 const ResumeHeader = "# Resuming from a compaction"
 
+// ContextSummaryTag is the opening tag of the 1.5.9 wire checkpoint envelope.
+const ContextSummaryTag = "<CONTEXT_SUMMARY>"
+
 // IsResumeBlock reports whether a message is the post-compaction block.
 //
 // The block is installed as a user-role message, but it is not something the
 // user typed: a later checkpoint must not list it as a request (the reference
 // keeps the original request list in the checkpoint instead).
 func IsResumeBlock(text string) bool {
-	return strings.HasPrefix(strings.TrimSpace(text), ResumeHeader)
+	trimmed := strings.TrimSpace(text)
+	return strings.HasPrefix(trimmed, ContextSummaryTag) || strings.HasPrefix(trimmed, ResumeHeader)
 }
 
 // MaxUserRequests is the reference's cap on the "# User Requests" list.
@@ -102,6 +107,58 @@ func CarriedBlock(userRequests []string) string {
 // resumePreamble is the fixed lead-in every carried block shares.
 const resumePreamble = "# Resuming from a compaction\n\n" +
 	"You are continuing work on the task described above, but you have lost access to the full conversation history, and need to resume work efficiently using the progress summary below:\n\n"
+
+// FormatContextSummary formats a checkpoint / resume block into the 1.5.9
+// wire `<CONTEXT_SUMMARY>` envelope expected by CloudCode models.
+func FormatContextSummary(text string, now time.Time) string {
+	trimmed := strings.TrimSpace(text)
+	if strings.HasPrefix(trimmed, ContextSummaryTag) {
+		return text
+	}
+	if now.IsZero() {
+		now = time.Now()
+	}
+	tsStr := now.Format("2006-01-02T15:04:05-07:00")
+
+	const oldPreamble = "# Resuming from a compaction\n\n" +
+		"You are continuing work on the task described above, but you have lost access to the full conversation history, and need to resume work efficiently using the progress summary below:\n\n"
+
+	newPreamble := fmt.Sprintf("<CONTEXT_SUMMARY>\nThe following is a summary of the conversation history that has been truncated to fit within the context window:\n\nThis summary was generated at %s.\n\n", tsStr)
+
+	res := text
+	if strings.HasPrefix(res, oldPreamble) {
+		res = newPreamble + res[len(oldPreamble):]
+	} else if strings.HasPrefix(trimmed, ResumeHeader) {
+		if strings.Contains(res, "# User Requests") {
+			parts := strings.SplitN(res, "# User Requests", 2)
+			res = newPreamble + "# User Requests" + parts[1]
+		} else if strings.Contains(res, "# Parent Agent Messages") {
+			parts := strings.SplitN(res, "# Parent Agent Messages", 2)
+			res = newPreamble + "# Parent Agent Messages" + parts[1]
+		}
+	}
+
+	res = strings.Replace(
+		res,
+		"The following were user requests from the truncated conversation in chronological order:\n",
+		"The following were the most recent user requests in chronological order:\n",
+		1,
+	)
+
+	if strings.Contains(res, "<summary>") && !strings.Contains(res, "# Previous Session Summary:") {
+		res = strings.Replace(res, "<summary>", "# Previous Session Summary:\n<summary>", 1)
+	}
+
+	if strings.Contains(res, "following artifacts written to the artifacts directory:") && !strings.Contains(res, "# Artifacts") {
+		idx := strings.Index(res, "You have the ")
+		if idx != -1 {
+			res = res[:idx] + "# Artifacts\n" + res[idx:]
+		}
+	}
+
+	res = strings.TrimRight(res, "\n") + "\n</CONTEXT_SUMMARY>"
+	return res
+}
 
 // ParentBlock builds the carried half of a subagent's checkpoint: the task
 // the parent gave the child and the parent's later messages, instead of the

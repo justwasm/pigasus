@@ -109,7 +109,12 @@ var ErrEmptyTranscript = errors.New("compaction: empty transcript")
 // The original transcript is preserved on the caller side; this
 // function never mutates sess.
 func ComputeSummary(ctx context.Context, client backend.Client, model, systemPrompt string, sess []backend.Message) (Summary, error) {
-	return computeSummary(ctx, client, model, systemPrompt, sess, SummarizePrompt+OnDemandCompactionSuffix)
+	return computeSummary(ctx, client, model, systemPrompt, sess, SummarizePrompt+OnDemandCompactionSuffix, nil)
+}
+
+// ComputeSummaryWithTools runs ComputeSummary with tool declarations included in the request.
+func ComputeSummaryWithTools(ctx context.Context, client backend.Client, model, systemPrompt string, sess []backend.Message, tools []backend.ToolDecl) (Summary, error) {
+	return computeSummary(ctx, client, model, systemPrompt, sess, SummarizePrompt+OnDemandCompactionSuffix, tools)
 }
 
 // ComputeSummaryAuto runs the reference's automatic checkpoint instruction:
@@ -117,10 +122,15 @@ func ComputeSummary(ctx context.Context, client backend.Client, model, systemPro
 // observed automatic tail; carrying the on-demand one here made the automatic
 // request differ from the checkpoint payload's session_summary_prompt_override.
 func ComputeSummaryAuto(ctx context.Context, client backend.Client, model, systemPrompt string, sess []backend.Message) (Summary, error) {
-	return computeSummary(ctx, client, model, systemPrompt, sess, SummarizePrompt)
+	return computeSummary(ctx, client, model, systemPrompt, sess, SummarizePrompt, nil)
 }
 
-func computeSummary(ctx context.Context, client backend.Client, model, systemPrompt string, sess []backend.Message, instruction string) (Summary, error) {
+// ComputeSummaryAutoWithTools runs ComputeSummaryAuto with tool declarations included.
+func ComputeSummaryAutoWithTools(ctx context.Context, client backend.Client, model, systemPrompt string, sess []backend.Message, tools []backend.ToolDecl) (Summary, error) {
+	return computeSummary(ctx, client, model, systemPrompt, sess, SummarizePrompt, tools)
+}
+
+func computeSummary(ctx context.Context, client backend.Client, model, systemPrompt string, sess []backend.Message, instruction string, tools []backend.ToolDecl) (Summary, error) {
 	before := Stats{
 		Messages: len(sess),
 		Tokens:   TranscriptTokens(sess),
@@ -134,7 +144,7 @@ func computeSummary(ctx context.Context, client backend.Client, model, systemPro
 	if model == "" {
 		model = "claude-sonnet-4-6"
 	}
-	req := buildSummarizeRequest(model, systemPrompt, sess, instruction)
+	req := buildSummarizeRequest(model, systemPrompt, sess, instruction, tools)
 
 	chunks, err := client.Stream(ctx, req)
 	if err != nil {
@@ -201,14 +211,17 @@ func stripThinkBlocks(text string) string {
 	}
 }
 
-func buildSummarizeRequest(model, systemPrompt string, sess []backend.Message, instruction string) backend.StreamRequest {
+func buildSummarizeRequest(model, systemPrompt string, sess []backend.Message, instruction string, tools []backend.ToolDecl) backend.StreamRequest {
+	msgs := make([]backend.Message, 0, len(sess)+1)
+	msgs = append(msgs, sess...)
+	msgs = append(msgs, backend.Message{Role: "user", Content: instruction})
 	return backend.StreamRequest{
 		Model:        model,
 		SystemPrompt: systemPrompt,
-		Messages: []backend.Message{
-			{Role: "user", Content: transcriptText(sess)},
-			{Role: "user", Content: instruction},
-		},
+		RequestType:  "checkpoint",
+		MaxTokens:    32768,
+		Messages:     msgs,
+		Tools:        tools,
 	}
 }
 

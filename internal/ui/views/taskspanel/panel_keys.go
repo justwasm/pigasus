@@ -157,6 +157,18 @@ func (p *Panel) handleDetailKey(key tea.Key) (bool, tea.Cmd) {
 	case tea.KeyRight, tea.KeyPgDown:
 		p.scroll(p.detailVisibleRows(p.detailHeaderRows()))
 		return true, nil
+	case tea.KeyHome:
+		p.window = 0
+		return true, nil
+	case tea.KeyEnd:
+		p.scroll(1000)
+		return true, nil
+	}
+	if ((key.Code == 'o' || key.Code == 'O') && key.Mod.Contains(tea.ModCtrl)) || key.String() == "ctrl+o" {
+		if p.detailSubagent {
+			p.detailExpanded = !p.detailExpanded
+			return true, nil
+		}
 	}
 	return true, nil
 }
@@ -209,6 +221,7 @@ func (p *Panel) closeDetail() {
 	p.detail = false
 	p.detailID = ""
 	p.detailSubagent = false
+	p.detailExpanded = false
 	p.fromActiveItems = false
 	p.window = 0
 }

@@ -17,7 +17,8 @@ import (
 
 // AgentsModel owns the subagent definitions, live children and router.
 type AgentsModel struct {
-	defs     *subagenttools.Store
-	registry *subagenttools.Registry
-	router   *subagentrouter.Manager
+	defs            *subagenttools.Store
+	registry        *subagenttools.Registry
+	router          *subagentrouter.Manager
+	subagentSenders map[string]bool
 }

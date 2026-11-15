@@ -64,6 +64,38 @@ func TestPanel_ScrollsOneLine(t *testing.T) {
 	}
 }
 
+// Scroll directly moves by delta and clamps between 0 and maxOffset.
+func TestPanel_Scroll(t *testing.T) {
+	h := newHarness(20, 5) // 20 lines, 5 visible => maxOffset = 15
+
+	offset := h.panel.Scroll(3, 0)
+	if offset != 3 {
+		t.Errorf("Scroll(3, 0) = %d, want 3", offset)
+	}
+
+	offset = h.panel.Scroll(5, offset)
+	if offset != 8 {
+		t.Errorf("Scroll(5, 3) = %d, want 8", offset)
+	}
+
+	offset = h.panel.Scroll(-4, offset)
+	if offset != 4 {
+		t.Errorf("Scroll(-4, 8) = %d, want 4", offset)
+	}
+
+	// Clamping top:
+	offset = h.panel.Scroll(-10, offset)
+	if offset != 0 {
+		t.Errorf("Scroll(-10, 4) = %d, want 0", offset)
+	}
+
+	// Clamping bottom:
+	offset = h.panel.Scroll(100, offset)
+	if offset != 15 {
+		t.Errorf("Scroll(100, 0) = %d, want 15 (maxOffset)", offset)
+	}
+}
+
 // g and G jump to the two ends of the document.
 func TestPanel_GotoTopAndBottom(t *testing.T) {
 	h := newHarness(20, 5)

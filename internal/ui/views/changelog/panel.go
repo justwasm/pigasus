@@ -13,9 +13,29 @@
 package changelog
 
 import (
+	"sync"
+
 	tuiviewer "github.com/justwasm/pigasus/internal/ui/foundations/viewer"
 	"github.com/justwasm/pigasus/internal/ui/tuilib"
 )
+
+var (
+	docMu         sync.Mutex
+	docMemoWidth  int
+	docMemoHeight int
+	docMemoKey    string
+	docMemoResult []string
+)
+
+// InvalidateMemo clears the memoized changelog document.
+func InvalidateMemo() {
+	docMu.Lock()
+	docMemoResult = nil
+	docMemoWidth = 0
+	docMemoHeight = 0
+	docMemoKey = ""
+	docMu.Unlock()
+}
 
 // Document is the /changelog document for a terminal of the given size.
 //
@@ -30,20 +50,39 @@ import (
 // the styled source, or the excerpt followed by the remainder of the
 // release notes.
 func Document(width, height int) []string {
-	if md, ok := cachedMarkdown(); ok {
-		return markdownDocument(md, width, height)
+	md, hasCached := cachedMarkdown()
+	docMu.Lock()
+	defer docMu.Unlock()
+
+	key := md
+	if !hasCached {
+		key = "__nocache__"
 	}
-	if src := Lines(); src != nil {
+	if docMemoResult != nil && docMemoWidth == width && docMemoHeight == height && docMemoKey == key {
+		return docMemoResult
+	}
+
+	var res []string
+	if hasCached {
+		res = markdownDocument(md, width, height)
+	} else if src := Lines(); src != nil {
 		if width > 0 && height > 0 {
-			return Wrapped(src, width)
+			res = Wrapped(src, width)
+		} else {
+			res = Styled(src)
 		}
-		return Styled(src)
+	} else if width > 0 && height > 0 {
+		res = PanelDoc(width)
+	} else {
+		out := append([]string{}, ExcerptRows()...)
+		res = append(out, BuildRestRows()...)
 	}
-	if width > 0 && height > 0 {
-		return PanelDoc(width)
-	}
-	out := append([]string{}, ExcerptRows()...)
-	return append(out, BuildRestRows()...)
+
+	docMemoWidth = width
+	docMemoHeight = height
+	docMemoKey = key
+	docMemoResult = res
+	return res
 }
 
 // markdownDocument renders a markdown release-notes document — the cached

@@ -9,18 +9,16 @@ import (
 	"testing"
 )
 
-// The capture is a real agy 1.4.6 request body recorded by the cycle-274
-// wrapper (the 1.4.4 capture is kept beside it as history). Reproducing it
-// byte for byte is the whole point of this package: every static section,
-// the list rendering, and the user_information layout are pinned by the
-// reference rather than by our reading of it.
+// The capture is a real AGY 1.5.9 request body recorded from live proxy
+// interception. Reproducing it byte for byte is the whole point of this
+// package: every static section, the list rendering, and the user_information
+// layout are pinned by the reference rather than by our reading of it.
 //
-// The 1.4.6 fixture carries a <user_rules> section — this repository's own
-// AGENTS.md was one of the discovered rule files — so the options carry the
+// The 1.5.9 fixture carries a <user_rules> section so the options carry the
 // rules too. That is what pins the rule rendering (labels, verbatim bodies,
-// the 24,000-byte truncation) against the reference.
+// the token truncation) against the reference.
 func TestBuildMatchesCapture(t *testing.T) {
-	raw, err := os.ReadFile("testdata/capture_1.5.5.json")
+	raw, err := os.ReadFile("testdata/capture_1.5.9.json")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -38,7 +36,7 @@ func TestBuildMatchesCapture(t *testing.T) {
 	if err := json.Unmarshal(raw, &fx); err != nil {
 		t.Fatal(err)
 	}
-	want, err := os.ReadFile("testdata/capture_1.5.5.txt")
+	want, err := os.ReadFile("testdata/capture_1.5.9.txt")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -53,6 +51,9 @@ func TestBuildMatchesCapture(t *testing.T) {
 		Subagents:      fx.Subagents,
 		Skills:         fx.Skills,
 		UserRules:      fx.UserRules,
+		Experiments: map[string]bool{
+			"generic-system-prompt": true,
+		},
 	})
 	if got != string(want) {
 		// Report the first divergence rather than dumping 34 KB.
@@ -75,7 +76,7 @@ func TestSectionOrderAndFraming(t *testing.T) {
 			names = append(names, m[1])
 		}
 	}
-	want := []string{"identity", "terminal_sandbox", "artifacts", "conversation_transcript", "guidelines",
+	want := []string{"identity", "artifacts", "conversation_transcript", "guidelines",
 		"communication_style", "slash_commands", "messaging", "subagents", "skills", "user_information"}
 	if strings.Join(names, ",") != strings.Join(want, ",") {
 		t.Fatalf("sections = %v, want %v", names, want)
@@ -83,17 +84,35 @@ func TestSectionOrderAndFraming(t *testing.T) {
 	if strings.HasSuffix(got, "\n") {
 		t.Fatal("prompt ends with a newline; the capture does not")
 	}
+
+	// Verify sandboxed mode emits terminal_sandbox between identity and artifacts.
+	sandboxedOpts := DefaultOptions("/tmp/ws", "/tmp/agent", "00000000-0000-0000-0000-000000000000")
+	sandboxedOpts.Sandboxed = true
+	gotSandboxed := Build(sandboxedOpts)
+	var sandboxedNames []string
+	for _, line := range strings.Split(gotSandboxed, "\n") {
+		if m := re.FindStringSubmatch(line); m != nil {
+			sandboxedNames = append(sandboxedNames, m[1])
+		}
+	}
+	wantSandboxed := []string{"identity", "terminal_sandbox", "artifacts", "conversation_transcript", "guidelines",
+		"communication_style", "slash_commands", "messaging", "subagents", "skills", "user_information"}
+	if strings.Join(sandboxedNames, ",") != strings.Join(wantSandboxed, ",") {
+		t.Fatalf("sandboxed sections = %v, want %v", sandboxedNames, wantSandboxed)
+	}
 }
 
 func TestBuiltinSubagentsMatchCapture(t *testing.T) {
-	want, err := os.ReadFile("testdata/capture_1.4.4.txt")
-	if err != nil {
-		t.Fatal(err)
-	}
-	body := sectionBody(string(want), "subagents")
 	got := renderSubagents(BuiltinSubagents())
-	if got != body {
-		t.Fatalf("builtin subagents differ from the capture\n got: %q\nwant: %q", got, body)
+	// 1.5.9 research subagent text includes read-only sandbox restriction.
+	if !strings.Contains(got, "This agent runs in a read-only sandbox with no network access.") {
+		t.Fatalf("research subagent does not mention sandbox restriction:\n%s", got)
+	}
+	if !strings.Contains(got, "image-generator: Generates or edits images from a brief and replies with the saved file paths.") {
+		t.Fatalf("image-generator subagent missing:\n%s", got)
+	}
+	if !strings.Contains(got, "- self: Subagent that inherits the parent agent's full configuration") {
+		t.Fatalf("self subagent missing:\n%s", got)
 	}
 }
 

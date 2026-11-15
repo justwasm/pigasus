@@ -74,16 +74,16 @@ func TestFlagsReachTheTemplates(t *testing.T) {
 		t.Error("the default prompt has the LaTeX branch")
 	}
 
-	gen := base
-	gen.Experiments = map[string]bool{"generic-system-prompt": true}
-	if got := SectionBody(gen, "communication_style"); !strings.Contains(got, "clickable links for all files you reference") {
-		t.Error("the generic-system-prompt branch of communication_style.tmpl is not reachable")
+	if got := SectionBody(base, "communication_style"); !strings.Contains(got, "clickable links for all files you reference") {
+		t.Error("the default generic-system-prompt branch of communication_style.tmpl is not active")
 	}
-	if got := SectionBody(base, "communication_style"); !strings.Contains(got, "classes, types, functions, structs") {
-		t.Error("the default branch of communication_style.tmpl is missing code symbols link instruction")
+	legacy := base
+	legacy.Experiments = map[string]bool{"generic-system-prompt": false}
+	if got := SectionBody(legacy, "communication_style"); !strings.Contains(got, "classes, types, functions, structs") {
+		t.Error("the non-generic branch of communication_style.tmpl is not reachable")
 	}
-	if got := SectionBody(gen, "identity"); !strings.Contains(got, "powerful agentic AI assistant") {
-		t.Error("the generic-system-prompt branch of identity.tmpl is not reachable")
+	if got := SectionBody(base, "identity"); !strings.Contains(got, "powerful agentic AI assistant") {
+		t.Error("the default generic-system-prompt branch of identity.tmpl is not active")
 	}
 
 	exp := base

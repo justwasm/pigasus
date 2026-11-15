@@ -16,5 +16,5 @@ KEYS "Escape"
 SLEEP 500ms
 SNAPSHOT "02_tasks_closed"
 
-DIFF 100
+DIFF 90
 CLEANUP

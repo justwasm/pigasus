@@ -816,4 +816,22 @@ func TestPanelQuarantinedAccountDisplay(t *testing.T) {
 	if !strings.Contains(linesAfterSwitch, "(active)") || !strings.Contains(linesAfterSwitch, "[ToS Banned]") {
 		t.Errorf("expected both (active) and [ToS Banned] badges, got:\n%s", linesAfterSwitch)
 	}
+
+	// Quota refresh succeeds for banned@example.com (ToS ban lifted by provider):
+	p.QuotaDone("banned@example.com", true, nil)
+	linesAfterRefresh := strings.Join(p.Lines(), "\n")
+	if strings.Contains(linesAfterRefresh, "[ToS Banned]") {
+		t.Errorf("expected [ToS Banned] to be cleared after successful quota refresh, got:\n%s", linesAfterRefresh)
+	}
+	if strings.Contains(linesAfterRefresh, "⚠ Quarantined:") {
+		t.Errorf("expected quarantine detail to be cleared after successful quota refresh, got:\n%s", linesAfterRefresh)
+	}
+	st, err := accounts.Load()
+	if err != nil {
+		t.Fatalf("Load(): %v", err)
+	}
+	acc, ok := st.Find("banned@example.com")
+	if !ok || acc.Disabled {
+		t.Errorf("expected banned@example.com Disabled=false in store, got disabled=%v", acc.Disabled)
+	}
 }

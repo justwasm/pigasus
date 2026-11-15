@@ -63,6 +63,8 @@ type PromptModel struct {
 	enterBurstCount int
 	// Pasted text blocks folded into placeholders ([Pasted text #N +M lines] or [Pasted text #N M chars]).
 	pastedBlocks map[string]string
+	// initialPrompt carries the -i/--prompt-interactive prompt to be submitted on startup.
+	initialPrompt string
 	nextPasteID  int
 	// Cycle 381: the prompt history is a list
 	// (internal/ui/foundations/history). It owns the remembered prompts,

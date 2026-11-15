@@ -368,9 +368,9 @@ Use the optimized extractor in [`devutils/embedextract`](../../devutils/embedext
 go run ./devutils/embedextract /path/to/agy /path/to/output_dir
 ```
 
-For `agy 1.5.3`:
+For `agy 1.5.9`:
 ```bash
-go run ./devutils/embedextract ~/.local/bin/agy out/extracted-1.5.3
+go run ./devutils/embedextract ~/.local/bin/agy out/extracted-1.5.9
 ```
 
 **Output Layout**:
@@ -393,29 +393,29 @@ Protobuf runtime files in Go binaries retain serialized `FileDescriptorProto` st
 # 1. Remote Agent Proxy Service
 python3 out/local-macos/extract_descriptors.py ~/.local/bin/agy \
   google/gca/aicode/v1main/remote_agent_proxy.proto \
-  > out/extracted-1.5.3/protos/remote_agent_proxy_1.5.3.txt
+  > out/extracted-1.5.9/protos/remote_agent_proxy_1.5.9.txt
 
 # 2. Jetski Remote Agent PB
 python3 out/local-macos/extract_descriptors.py ~/.local/bin/agy \
   third_party/jetski/remote_agent_proxy_pb/remote_agent_proxy.proto \
-  > out/extracted-1.5.3/protos/remote_agent_proxy_pb_1.5.3.txt
+  > out/extracted-1.5.9/protos/remote_agent_proxy_pb_1.5.9.txt
 
 # 3. Cortex PB
 python3 out/local-macos/extract_descriptors.py ~/.local/bin/agy \
   third_party/jetski/cortex_pb/cortex.proto \
-  > out/extracted-1.5.3/protos/cortex_1.5.3.txt
+  > out/extracted-1.5.9/protos/cortex_1.5.9.txt
 
 # 4. Trajectory & Trajectory Steps
 python3 out/local-macos/extract_descriptors.py ~/.local/bin/agy \
   third_party/gemini_coder/proto/trajectory.proto \
-  > out/extracted-1.5.3/protos/trajectory_1.5.3.txt
+  > out/extracted-1.5.9/protos/trajectory_1.5.9.txt
 
 python3 out/local-macos/extract_descriptors.py ~/.local/bin/agy \
   third_party/gemini_coder/cider/proto/trajectory_steps.proto \
-  > out/extracted-1.5.3/protos/trajectory_steps_1.5.3.txt
+  > out/extracted-1.5.9/protos/trajectory_steps_1.5.9.txt
 ```
 
-### 4.3 Version Diffing Methodology (e.g. 1.4.8 vs 1.5.3)
+### 4.3 Version Diffing Methodology (e.g. 1.4.8 vs 1.5.9)
 
 Run a fast diff comparison script against extracted descriptors:
 
@@ -423,10 +423,10 @@ Run a fast diff comparison script against extracted descriptors:
 import re
 
 m148 = set(re.findall(r'message_type\s*\{\s*name:\s*\"([^\"]+)\"', open('out/local-macos/protos/remote_agent_proxy_1.4.8.txt').read()))
-m153 = set(re.findall(r'^message\s+([A-Za-z0-9_]+)\s*\{', open('out/extracted-1.5.3/protos/remote_agent_proxy_1.5.3.txt').read(), re.M))
+m159 = set(re.findall(r'^message\s+([A-Za-z0-9_]+)\s*\{', open('out/extracted-1.5.9/protos/remote_agent_proxy_1.5.9.txt').read(), re.M))
 
-print("New Messages in 1.5.3:", sorted(list(m153 - m148)))
-print("Removed Messages in 1.5.3:", sorted(list(m148 - m153)))
+print("New Messages in 1.5.9:", sorted(list(m159 - m148)))
+print("Removed Messages in 1.5.9:", sorted(list(m148 - m159)))
 ```
 
 #### Key Findings from the 1.4.8 $\to$ 1.5.3 Drift:

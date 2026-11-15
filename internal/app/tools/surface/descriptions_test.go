@@ -101,6 +101,7 @@ func TestModelFacingTextsAgreeWithTheDeclarationFixture(t *testing.T) {
 	changed := map[string]bool{
 		"manage_subagents": true,
 		"send_message":     true,
+		"invoke_subagent":  true,
 	}
 	checked := 0
 	for name, desc := range descriptions {

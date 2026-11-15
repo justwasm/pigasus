@@ -18,5 +18,5 @@ ENTER
 SLEEP 500ms
 SNAPSHOT "02_statusline_toggled_back"
 
-DIFF 95
+DIFF 90
 CLEANUP

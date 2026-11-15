@@ -11,13 +11,13 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/x/ansi"
 	subagent "github.com/justwasm/pigasus/internal/app/subagent/core"
+	taskregistry "github.com/justwasm/pigasus/internal/app/task"
 	lifecycle "github.com/justwasm/pigasus/internal/core/lifecycle"
-	tuiviewer "github.com/justwasm/pigasus/internal/ui/foundations/viewer"
 	tuiviewport "github.com/justwasm/pigasus/internal/ui/foundations/viewport"
-	"github.com/justwasm/pigasus/internal/ui/mdrender"
 	"github.com/justwasm/pigasus/internal/ui/tuilib"
 	"github.com/justwasm/pigasus/palette"
 )
@@ -76,8 +76,42 @@ func (p *Panel) Lines() []string {
 		"  " + palette.SubtleOpen + "Global: " +
 			filepath.Join(home, ".gemini", "config", "agents", "{agent_name}", "agent.md") + panelGray238C,
 		"",
-		"",
 	}
+
+	subs := p.subagents()
+	if len(subs) > 0 {
+		running, done := subagentCounts(subs)
+		arrow := "▸"
+		if p.expandedSubagents {
+			arrow = "▾"
+		}
+		headerPrefix := "  "
+		if p.cursor == 0 {
+			headerPrefix = "> "
+		}
+		header := headerPrefix + arrow + " " + p.groupTitle()
+		if counts := formatSubagentCounts(running, done); counts != "" {
+			header += "  " + counts
+		}
+		lines = append(lines, header)
+		if p.expandedSubagents {
+			for i, sa := range subs {
+				prefix := "    "
+				if p.cursor == 1+i {
+					prefix = "  > "
+				}
+				line := prefix + "|_ * " + p.formatSubagentChild(sa)
+				if appr, ok := p.pendingAuthorization(sa); ok {
+					line += approvalSuffix(appr)
+				}
+				lines = append(lines, line)
+			}
+		}
+		lines = append(lines, "")
+	} else {
+		lines = append(lines, "")
+	}
+
 	active := p.activeAgent()
 	header := "Available Agents"
 	if active != "" {
@@ -86,13 +120,8 @@ func (p *Panel) Lines() []string {
 	lines = append(lines, panelBoldOpen+header+panelBoldClose)
 	lines = append(lines, p.agentRows(active)...)
 
-	subs := p.subagents()
 	if len(subs) > 0 {
-		running, done := subagentCounts(subs)
-		lines = append(lines, "", panelBoldOpen+subagentsHeader(running, done)+panelBoldClose)
-		lines = append(lines, p.subagentRows(subs)...)
-		// AGY 1.5.3: one tip line instead of a per-row "[view details]".
-		lines = append(lines, "  "+palette.SubtleOpen+"Tip: Press enter on a subagent to view details."+panelGray238C)
+		lines = append(lines, "", "\x1b[38;2;154;160;166mTip: Press enter on a subagent to view details.\x1b[39m")
 	}
 
 	lines = append(lines,
@@ -103,90 +132,342 @@ func (p *Panel) Lines() []string {
 	return lines
 }
 
+func taskFromSubagent(sa *subagent.Subagent) *taskregistry.Task {
+	if sa == nil {
+		return nil
+	}
+	name := sa.Name
+	if name == "" {
+		name = sa.Title
+	}
+	state := taskregistry.StateRunning
+	switch strings.ToLower(sa.State) {
+	case "running":
+		state = taskregistry.StateRunning
+	case "done", "completed":
+		state = taskregistry.StateDone
+	case "failed", "error":
+		state = taskregistry.StateFailed
+	case "killed", "canceling", "cancelled":
+		state = taskregistry.StateKilled
+	case "stopped":
+		state = taskregistry.StateStopped
+	case "pending":
+		state = taskregistry.StatePending
+	}
+	var steps []string
+	if sa.Result != "" {
+		steps = []string{sa.Result}
+	}
+	prompt := sa.Title
+	if prompt == "" {
+		prompt = sa.Name
+	}
+	return &taskregistry.Task{
+		ID:     sa.ID,
+		Name:   name,
+		Kind:   taskregistry.KindSubagent,
+		State:  state,
+		Model:  sa.Model,
+		Effort: sa.Effort,
+		Prompt: prompt,
+		Output: sa.Output(),
+		Err:    sa.Err,
+		Steps:  steps,
+	}
+}
+
+// BuildSubagentDetail renders the reference's subagent-detail view for task t:
+// five header lines and scrollable body rows according to AGY 1.5.9 decompilation.
+func BuildSubagentDetail(t *taskregistry.Task, width int, expanded bool, pendingAuth ...string) (header, body []string) {
+	if t == nil {
+		return []string{"  (no subagent data)"}, []string{"  (no subagent data)"}
+	}
+	w := width
+	if w <= 0 {
+		w = 80
+	}
+
+	ruleWidth := 60
+	if w-4 < ruleWidth {
+		ruleWidth = w - 4
+		if ruleWidth < 10 {
+			ruleWidth = 10
+		}
+	}
+	ruleColor := "\x1b[38;2;60;64;67m"
+	rule := "  " + ruleColor + strings.Repeat("─", ruleWidth) + "\x1b[39m"
+
+	typeName := t.Name
+	if idx := strings.Index(typeName, ":"); idx != -1 {
+		typeName = strings.TrimSpace(typeName[:idx])
+	}
+	if strings.HasPrefix(typeName, "Agent(") && strings.HasSuffix(typeName, ")") {
+		typeName = typeName[6 : len(typeName)-1]
+		if idx := strings.Index(typeName, ":"); idx != -1 {
+			typeName = strings.TrimSpace(typeName[:idx])
+		}
+	}
+
+	stateWord := taskregistry.SubagentStateWord(t.State)
+	stateColor := taskregistry.SubagentStateColor(t.State)
+
+	model := strings.TrimSpace(t.Model)
+	if effort := strings.TrimSpace(t.Effort); effort != "" && !strings.Contains(model, "(") {
+		model = fmt.Sprintf("%s (%s)", model, strings.Title(effort))
+	}
+	if model == "" {
+		model = "Gemini 3.8 Flash (High)"
+	}
+
+	elapsed := "worked 0s"
+	if !t.StartedAt.IsZero() {
+		dur := time.Since(t.StartedAt)
+		if !t.EndedAt.IsZero() {
+			dur = t.EndedAt.Sub(t.StartedAt)
+		}
+		secs := int(dur.Seconds())
+		elapsed = fmt.Sprintf("worked %ds", secs)
+	}
+
+	// Load trajectory steps from transcript or task fallback
+	trajSteps, totalSteps := LoadTrajectoryFromTranscript(t.ID)
+	if len(trajSteps) == 0 {
+		trajSteps = ParseFallbackSteps(t.Steps, t.Output, t.StepOutputs...)
+	} else if len(t.StepOutputs) > 0 {
+		toolIdx := 0
+		for i := range trajSteps {
+			if trajSteps[i].Kind == "tool" {
+				if trajSteps[i].Output == "" && toolIdx < len(t.StepOutputs) {
+					trajSteps[i].Output = t.StepOutputs[toolIdx]
+				}
+				toolIdx++
+			}
+		}
+	}
+	stepsCount := t.StepCount
+	if stepsCount == 0 {
+		if totalSteps > 0 {
+			stepsCount = totalSteps
+		} else if len(t.Steps) > 0 {
+			stepsCount = len(t.Steps) + 1
+		} else {
+			stepsCount = 2
+		}
+	}
+
+	statusBullet := stateColor + "● " + stateWord + palette.SeparatorClose
+	metaLine := fmt.Sprintf("  %s · %s · %s · %d steps", statusBullet, model, elapsed, stepsCount)
+
+	header = []string{
+		"  \x1b[38;5;111mmain \xe2\x80\xba " + typeName + "\x1b[39m",
+		metaLine,
+		"  \x1b[38;5;109mID: " + t.ID + "\x1b[39m",
+		rule,
+		"",
+	}
+
+	for _, pa := range pendingAuth {
+		if pa != "" {
+			body = append(body,
+				"  "+palette.WarningOpen+"Pending Approval: "+pa+palette.SeparatorClose,
+				"",
+			)
+		}
+	}
+
+	body = append(body, "  "+panelBoldOpen+"Prompt"+panelBoldClose)
+	prompt := strings.TrimSpace(t.Prompt)
+	promptColor := "\x1b[38;5;146m"
+	if prompt != "" {
+		for _, raw := range strings.Split(prompt, "\n") {
+			wrapped := strings.Split(ansi.Wrap(raw, w-4, ""), "\n")
+			for _, wl := range wrapped {
+				body = append(body, "  "+promptColor+wl+"\x1b[39m")
+			}
+		}
+	} else {
+		body = append(body, "  (no prompt available)")
+	}
+	body = append(body, rule, "", "  "+panelBoldOpen+"Tools"+panelBoldClose)
+	toolsList := t.Tools
+	if len(toolsList) == 0 {
+		seenTool := make(map[string]bool)
+		for _, s := range trajSteps {
+			if s.Kind == "tool" && s.ToolName != "" && !seenTool[s.ToolName] {
+				seenTool[s.ToolName] = true
+				toolsList = append(toolsList, s.ToolName)
+			}
+		}
+	}
+	if len(toolsList) == 0 {
+		body = append(body, "    \x1b[38;5;109mNo tools used yet\x1b[39m")
+	} else {
+		var toolNames []string
+		seen := make(map[string]bool)
+		for _, tool := range toolsList {
+			name := FormatToolName(tool)
+			if !seen[name] {
+				seen[name] = true
+				toolNames = append(toolNames, name)
+			}
+		}
+		body = append(body, "    \x1b[38;5;146m"+strings.Join(toolNames, ", ")+"\x1b[39m")
+	}
+
+	if out := strings.TrimSpace(t.Output); out != "" {
+		body = append(body, rule, "", "  "+panelBoldOpen+"Answer"+panelBoldClose)
+		for _, raw := range strings.Split(out, "\n") {
+			wrapped := strings.Split(ansi.Wrap(raw, w-4, ""), "\n")
+			for _, wl := range wrapped {
+				body = append(body, "  \x1b[38;2;232;234;237m"+wl+"\x1b[39m")
+			}
+		}
+	}
+
+	body = append(body, rule, "", "  "+panelBoldOpen+fmt.Sprintf("Trajectory — %s (%d steps)", typeName, stepsCount)+panelBoldClose, "")
+
+	if len(trajSteps) > 0 {
+		var trajRows []string
+		lastCollapsibleIdx := -1
+		for i := len(trajSteps) - 1; i >= 0; i-- {
+			if trajSteps[i].Kind == "tool" || trajSteps[i].Kind == "thought" {
+				lastCollapsibleIdx = i
+				break
+			}
+		}
+
+		hint := " \x1b[38;5;146m(ctrl+o to expand)\x1b[39m"
+		if expanded {
+			hint = " \x1b[38;5;146m(ctrl+o to collapse)\x1b[39m"
+		}
+
+		for i, s := range trajSteps {
+			stepLines := RenderTrajectoryStep(s, w, expanded)
+			if i == lastCollapsibleIdx && len(stepLines) > 0 {
+				if !expanded {
+					stepLines[0] += hint
+				} else {
+					stepLines[len(stepLines)-1] += hint
+				}
+			}
+			trajRows = append(trajRows, stepLines...)
+		}
+		if lastCollapsibleIdx == -1 && len(trajRows) > 0 {
+			trajRows[len(trajRows)-1] += hint
+		}
+		body = append(body, trajRows...)
+	} else {
+		body = append(body, "  No steps yet")
+	}
+
+	if t.Err != nil {
+		body = append(body, "", fmt.Sprintf("  \x1b[38;5;196m⚠ Error — %q\x1b[39m", t.Err.Error()))
+	}
+
+	wrapList := func(list []string) []string {
+		var out []string
+		for _, l := range list {
+			l = strings.ReplaceAll(l, "\t", "    ")
+			if w > 0 && ansi.StringWidth(l) > w {
+				for _, wl := range strings.Split(ansi.Wrap(l, w, ""), "\n") {
+					out = append(out, wl)
+				}
+			} else {
+				out = append(out, l)
+			}
+		}
+		return out
+	}
+	header = wrapList(header)
+	body = wrapList(body)
+
+	return header, body
+}
+
 func (p *Panel) detailLines() []string {
 	sa := p.detailSubagent
 	if sa == nil {
 		return nil
 	}
-	w := p.width()
-	const indent = "  "
-	wrapWidth := w - len(indent)
-	if wrapWidth < 10 {
-		wrapWidth = 10
+	var t *taskregistry.Task
+	if p.seams.TaskLookup != nil {
+		t = p.seams.TaskLookup(sa.ID)
+	}
+	if t == nil {
+		t = taskFromSubagent(sa)
+	}
+	w, h := p.size()
+	if w <= 0 {
+		w = 80
+	}
+	if h <= 0 {
+		h = 30
 	}
 
-	lines := []string{
-		panelTitleOpen + "Subagent Detail: " + sa.Name + panelTitleClose,
-		palette.SubtleOpen + "Status: " + sa.StatusLine() + panelGray238C,
-	}
-	if model := strings.TrimSpace(sa.Model); model != "" {
-		modelLine := "Model: " + model
-		if effort := strings.TrimSpace(sa.Effort); effort != "" {
-			modelLine += " (effort: " + effort + ")"
-		}
-		lines = append(lines, palette.SubtleOpen+modelLine+panelGray238C)
-	}
-	lines = append(lines, "")
-
-	var body []string
-	if sa.Title != "" {
-		body = append(body, panelBoldOpen+"Task Title:"+panelBoldClose)
-		titleWrapped := strings.Split(ansi.Wrap(mdrender.ExpandTabs(sa.Title, 4), wrapWidth, ""), "\n")
-		for _, wl := range titleWrapped {
-			body = append(body, indent+wl)
-		}
-		body = append(body, "")
-	}
+	var pendingAuth []string
 	if appr, ok := p.pendingAuthorization(sa); ok {
-		body = append(body, panelBoldOpen+palette.WarningOpen+"Pending Approval:"+palette.SeparatorClose+panelBoldClose)
-		suffixWrapped := strings.Split(ansi.Wrap(mdrender.ExpandTabs(approvalSuffix(appr), 4), wrapWidth, ""), "\n")
-		for _, wl := range suffixWrapped {
-			body = append(body, indent+wl)
-		}
-		body = append(body, "")
-	}
-	out := sa.Output()
-	body = append(body, panelBoldOpen+"Execution Output / Log:"+panelBoldClose)
-	if out != "" {
-		rawLines := strings.Split(strings.TrimRight(out, "\n"), "\n")
-		const maxOutputLines = 500
-		if len(rawLines) > maxOutputLines {
-			omitted := len(rawLines) - maxOutputLines
-			body = append(body, indent+palette.SubtleOpen+fmt.Sprintf("... (%d earlier lines omitted) ...", omitted)+panelGray238C)
-			rawLines = rawLines[omitted:]
-		}
-		for _, raw := range rawLines {
-			if strings.TrimSpace(raw) == "" {
-				body = append(body, "")
-				continue
-			}
-			expanded := mdrender.ExpandTabs(raw, 4)
-			wrapped := strings.Split(ansi.Wrap(expanded, wrapWidth, ""), "\n")
-			for _, wl := range wrapped {
-				body = append(body, indent+wl)
-			}
-		}
-	} else {
-		body = append(body, indent+"(no output captured yet)")
+		pendingAuth = append(pendingAuth, approvalSuffix(appr))
 	}
 
-	_, h := p.size()
-	visible := h - len(lines) - 4
+	header, body := BuildSubagentDetail(t, w, p.expandedDetail, pendingAuth...)
+
+	visible := h - len(header) - 3
 	if visible < 4 {
 		visible = 15
 	}
 	total := len(body)
 	win := tuiviewport.ScrollWindow(total, p.window, visible)
 	p.window = win.Start()
+	lines := append([]string{}, header...)
 	lines = append(lines, win.SliceRows(body)...)
-	if visible < total {
-		lines = append(lines, tuiviewer.Counter(win.Start()+1, win.End(), total))
+
+	for len(lines) < h-3 {
+		lines = append(lines, "")
 	}
-	lines = append(lines,
-		"",
-		tuilib.PanelKeyboardHint("k", "Kill Subagent", "a", "Approve", "d", "Deny", "↑/↓", "Scroll", "esc", "Back to list"),
-	)
+	if total > visible {
+		startLine := win.Start() + 1
+		endLine := win.Start() + visible
+		if endLine > total {
+			endLine = total
+		}
+		lines = append(lines, fmt.Sprintf("  \x1b[38;5;109m(%d–%d of %d lines)\x1b[39m", startLine, endLine, total))
+	} else {
+		lines = append(lines, "")
+	}
+	lines = append(lines, p.formatDetailFooterSingleLine())
 	return lines
+}
+
+func (p *Panel) formatDetailFooterSingleLine() string {
+	keyColor := "\x1b[1m\x1b[38;5;111m"
+	labelColor := "\x1b[38;5;109m"
+	reset := "\x1b[0m"
+	resetColor := "\x1b[39m"
+
+	expandDesc := "expand"
+	if p != nil && p.expandedDetail {
+		expandDesc = "collapse"
+	}
+
+	hints := []struct {
+		key  string
+		desc string
+	}{
+		{"↑/↓", "scroll"},
+		{"pgup/pgdown", "page"},
+		{"ctrl+end", "bottom"},
+		{"ctrl+home", "top"},
+		{"ctrl+o", expandDesc},
+		{"shift+k", "kill"},
+		{"esc", "back"},
+	}
+
+	var parts []string
+	for _, h := range hints {
+		parts = append(parts, keyColor+h.key+reset+labelColor+" "+h.desc+resetColor)
+	}
+	return "  " + strings.Join(parts, labelColor+" · "+resetColor)
 }
 
 // agentRows renders one row per agent: the built-in default first, then
@@ -203,9 +484,10 @@ func (p *Panel) agentRows(active string) []string {
 	for _, a := range p.agents {
 		rows = append(rows, agentRow{a.Name, a.Description})
 	}
-	cursor := p.cursor
-	if cursor < 0 || cursor >= len(rows) {
-		cursor = 0
+	kind, _, selectedIdx := p.classifyRow(p.cursor)
+	cursor := -1
+	if kind == rowAgent {
+		cursor = selectedIdx
 	}
 	var lines []string
 	for i, r := range rows {
@@ -231,6 +513,39 @@ func (p *Panel) agentRows(active string) []string {
 		lines = append(lines, line)
 	}
 	return lines
+}
+
+func cleanModelName(model string) string {
+	if idx := strings.Index(model, " ("); idx != -1 {
+		return model[:idx]
+	}
+	return model
+}
+
+func (p *Panel) formatSubagentChild(sa *subagent.Subagent) string {
+	name := sa.Name
+	if !strings.HasPrefix(name, "Agent(") {
+		name = "Agent(" + name + ")"
+	}
+	if model := strings.TrimSpace(sa.Model); model != "" && p.width() >= subagentModelMinWidth {
+		name += palette.DimGrayOpen + " · " + cleanModelName(model) + panelGray238C
+	}
+	status := sa.StatusLine()
+	statusText := status + " · worked 0s"
+	return fmt.Sprintf("%s  %s", name, statusText)
+}
+
+func formatSubagentCounts(running, done int) string {
+	if running > 0 && done > 0 {
+		return fmt.Sprintf("(%d running, %d done)", running, done)
+	}
+	if running > 0 {
+		return fmt.Sprintf("(%d running)", running)
+	}
+	if done > 0 {
+		return fmt.Sprintf("(%d done)", done)
+	}
+	return ""
 }
 
 // subagentRows renders one row per subagent: its name and its status

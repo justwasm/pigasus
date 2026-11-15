@@ -241,3 +241,38 @@ func TestModalOverlays_AbsorbMouseWheelAndNeverLeak(t *testing.T) {
 		m.closePanel()
 	}
 }
+
+func TestMouseWheel_ChangelogPanel(t *testing.T) {
+	m := seedRootModel()
+	m.viewport.altScreen = true
+	m.viewport.width = 100
+	m.viewport.height = 30
+
+	if !m.openSlashPanel("changelog") {
+		t.Fatal("openSlashPanel(changelog) = false, want true")
+	}
+
+	if m.overlays.panel.window != 0 {
+		t.Fatalf("initial window = %d, want 0", m.overlays.panel.window)
+	}
+
+	wheelDown := tea.MouseWheelMsg(tea.Mouse{Button: tea.MouseWheelDown})
+	if !m.handleMouseWheel(wheelDown) {
+		t.Fatal("handleMouseWheel(down) returned false")
+	}
+	step := m.wheelScrollRows()
+	if step != 3 {
+		t.Errorf("wheelScrollRows() = %d, want 3", step)
+	}
+	if m.overlays.panel.window != step {
+		t.Errorf("window after wheel down = %d, want %d", m.overlays.panel.window, step)
+	}
+
+	wheelUp := tea.MouseWheelMsg(tea.Mouse{Button: tea.MouseWheelUp})
+	if !m.handleMouseWheel(wheelUp) {
+		t.Fatal("handleMouseWheel(up) returned false")
+	}
+	if m.overlays.panel.window != 0 {
+		t.Errorf("window after wheel up = %d, want 0", m.overlays.panel.window)
+	}
+}

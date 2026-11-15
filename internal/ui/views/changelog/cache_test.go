@@ -95,11 +95,11 @@ func TestDocument_CacheStaticShape(t *testing.T) {
 	if doc[2] != changelog.Tagline {
 		t.Errorf("the third row = %q, want the tagline %q", doc[2], changelog.Tagline)
 	}
-	want := "  \x1b[1m\x1b[38;5;27m## 9.9.9\x1b[0m"
+	want := changelog.HeaderOpen + "## 9.9.9" + changelog.HeaderEnd
 	if !containsRow(doc, want) {
 		t.Errorf("the document does not carry the header row %q:\n%q", want, doc)
 	}
-	wantBullet := "  \x1b[38;5;235m• Cached bullet one.\x1b[39m"
+	wantBullet := "  " + changelog.TextOpen + "• Cached bullet one." + changelog.TextClose
 	if !containsRow(doc, wantBullet) {
 		t.Errorf("the document does not carry the bullet row %q:\n%q", wantBullet, doc)
 	}

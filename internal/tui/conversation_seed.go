@@ -20,6 +20,7 @@
 package tui
 
 import (
+	"bufio"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -32,7 +33,10 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"golang.org/x/term"
 
+	subagent "github.com/justwasm/pigasus/internal/app/subagent/core"
+	taskregistry "github.com/justwasm/pigasus/internal/app/task"
 	"github.com/justwasm/pigasus/internal/app/tools"
+	"github.com/justwasm/pigasus/internal/core/confhome"
 	"github.com/justwasm/pigasus/internal/ui/mdrender"
 	"github.com/justwasm/pigasus/internal/ui/tuilib"
 
@@ -200,6 +204,168 @@ func (m *RootModel) rehydrateConversation(c *convstore.Conversation) {
 		Tasks:          m.tasks.reg,
 	}
 	rehydration.Restore(c.RehydrationSteps(), state)
+	m.rehydrateSubagents(convID)
+}
+
+func (m *RootModel) rehydrateSubagents(convID string) {
+	if convID == "" {
+		return
+	}
+	candidates := []string{
+		filepath.Join(confhome.Antigravity(), "brain", convID, ".system_generated", "subagents"),
+	}
+	if home := os.Getenv("HOME"); home != "" {
+		candidates = append(candidates,
+			filepath.Join(home, ".gemini", "antigravity-cli", "brain", convID, ".system_generated", "subagents"),
+		)
+	}
+
+	for _, subagentsDir := range candidates {
+		entries, err := os.ReadDir(subagentsDir)
+		if err != nil {
+			continue
+		}
+		for _, entry := range entries {
+			if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".json") {
+				continue
+			}
+			path := filepath.Join(subagentsDir, entry.Name())
+			data, err := os.ReadFile(path)
+			if err != nil {
+				continue
+			}
+			var record struct {
+				ConversationID     string `json:"conversationId"`
+				SubagentDescriptor struct {
+					TypeName string `json:"typeName"`
+					Role     string `json:"role"`
+				} `json:"subagentDescriptor"`
+				State string `json:"state"`
+			}
+			if err := json.Unmarshal(data, &record); err != nil || record.ConversationID == "" {
+				continue
+			}
+			subID := record.ConversationID
+			name := record.SubagentDescriptor.TypeName
+			if record.SubagentDescriptor.Role != "" {
+				if name != "" {
+					name += ": " + record.SubagentDescriptor.Role
+				} else {
+					name = record.SubagentDescriptor.Role
+				}
+			}
+
+			// Read subagent transcript for metadata if available
+			transcriptPath := filepath.Join(confhome.Antigravity(), "brain", subID, ".system_generated", "logs", "transcript.jsonl")
+			task := parseSubagentTaskRecord(subID, name, transcriptPath)
+			if m.tasks.reg != nil {
+				m.tasks.reg.Register(task)
+			}
+			if m.tasks.subagentManager != nil {
+				m.tasks.subagentManager.Add(&subagent.Subagent{
+					ID:     subID,
+					Name:   name,
+					Title:  name,
+					State:  string(task.State),
+					Model:  task.Model,
+					Effort: task.Effort,
+					Result: task.Output,
+					Err:    task.Err,
+				})
+			}
+		}
+		break
+	}
+}
+
+func parseSubagentTaskRecord(subID, name, transcriptPath string) *taskregistry.Task {
+	task := &taskregistry.Task{
+		ID:        subID,
+		Name:      name,
+		Kind:      taskregistry.KindSubagent,
+		State:     taskregistry.StateDone,
+		Model:     "Gemini 3.8 Flash (High)",
+		Prompt:    name,
+		StepCount: 2,
+	}
+
+	f, err := os.Open(transcriptPath)
+	if err != nil {
+		return task
+	}
+	defer f.Close()
+
+	scanner := bufio.NewScanner(f)
+	var firstTime, lastTime time.Time
+	seenTools := make(map[string]bool)
+	var stepCount int
+
+	for scanner.Scan() {
+		line := scanner.Bytes()
+		if len(line) == 0 {
+			continue
+		}
+		var r struct {
+			StepIndex int    `json:"step_index"`
+			Source    string `json:"source"`
+			Type      string `json:"type"`
+			Model     string `json:"model"`
+			Content   string `json:"content"`
+			CreatedAt string `json:"created_at"`
+			ToolCalls []struct {
+				Name string `json:"name"`
+			} `json:"tool_calls"`
+		}
+		if err := json.Unmarshal(line, &r); err != nil {
+			continue
+		}
+		stepCount++
+		t, _ := time.Parse(time.RFC3339Nano, r.CreatedAt)
+		if t.IsZero() {
+			t, _ = time.Parse(time.RFC3339, r.CreatedAt)
+		}
+		if !t.IsZero() {
+			if firstTime.IsZero() {
+				firstTime = t
+			}
+			lastTime = t
+		}
+		if r.Model != "" {
+			task.Model = r.Model
+		}
+		if r.StepIndex == 0 && r.Content != "" {
+			if idx := strings.Index(r.Content, "content="); idx != -1 {
+				promptText := r.Content[idx+8:]
+				if endIdx := strings.Index(promptText, "\n</SYSTEM_MESSAGE>"); endIdx != -1 {
+					promptText = promptText[:endIdx]
+				}
+				task.Prompt = strings.TrimSpace(promptText)
+			} else {
+				task.Prompt = strings.TrimSpace(r.Content)
+			}
+		}
+		for _, tc := range r.ToolCalls {
+			if tc.Name != "" && !seenTools[tc.Name] {
+				seenTools[tc.Name] = true
+				task.Tools = append(task.Tools, tc.Name)
+			}
+			task.Steps = append(task.Steps, tc.Name)
+		}
+		if r.Type == "PLANNER_RESPONSE" && r.Content != "" {
+			task.Output = r.Content
+		}
+	}
+
+	if stepCount > 0 {
+		task.StepCount = stepCount
+	}
+	if !firstTime.IsZero() {
+		task.StartedAt = firstTime
+	}
+	if !lastTime.IsZero() {
+		task.EndedAt = lastTime
+	}
+	return task
 }
 
 func (m *RootModel) seedToolGroup(steps []convstore.Step, startIdx int) int {

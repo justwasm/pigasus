@@ -13,6 +13,7 @@ package tui
 import (
 	"context"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -25,6 +26,7 @@ import (
 	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/justwasm/pigasus/internal/app/agenttools"
+	"github.com/justwasm/pigasus/internal/app/prompt/agyprompt"
 	"github.com/justwasm/pigasus/internal/app/session/setup"
 	"github.com/justwasm/pigasus/internal/app/toolrunner"
 	"github.com/justwasm/pigasus/internal/app/tools/surface"
@@ -1025,11 +1027,14 @@ func TestAdvertisedToolDeclsDefaultAgent(t *testing.T) {
 		}
 	}
 
-	// 13,701 bytes at agy 1.4.6: the 1.4.5 capture was 13,530 and the
-	// run_command declaration gained the BypassSandbox boolean (【一手】,
-	// docs/cycles/reference-drift-146/).
-	if got, want := len(cloudcode.WireToolsJSON(decls)), 13701; got != want {
+	// In AGY 1.5.9, default unsandboxed execution omits BypassSandbox (13,602 B).
+	// With --sandbox enabled, run_command carries BypassSandbox (13,773 B).
+	if got, want := len(cloudcode.WireToolsJSON(decls)), 13602; got != want {
 		t.Errorf("tools wire bytes = %d, want %d", got, want)
+	}
+	sandboxedDecls := toolrunner.AdvertisedToolDeclsWithSandbox("", reg, true)
+	if got, want := len(cloudcode.WireToolsJSON(sandboxedDecls)), 13773; got != want {
+		t.Errorf("sandboxed tools wire bytes = %d, want %d", got, want)
 	}
 
 	required := func(name string) []string {
@@ -1520,6 +1525,13 @@ func TestTUITools_CtrlO_NoDuplicationAndCleanToggle(t *testing.T) {
 		}
 	}
 	if thoughtBlocks != 1 {
+		t.Logf("blocks: %d blocks", len(m.conversation.blocks))
+		for i, b := range m.conversation.blocks {
+			t.Logf("  block[%d]: steps=%d, bash=%v", i, len(b.Steps), b.Bash != nil)
+			for j, s := range b.Steps {
+				t.Logf("    step[%d]: kind=%v, name=%s, detail=%s", j, s.Kind, s.Name, s.Detail)
+			}
+		}
 		t.Fatalf("expected exactly 1 thought block in m.conversation.blocks, got %d", thoughtBlocks)
 	}
 
@@ -1651,5 +1663,63 @@ func TestTUITools_BatchGrouping_WithIntermediateText(t *testing.T) {
 	}
 	if !(idxBatch1 < idxText && idxText < idxBatch2) {
 		t.Fatalf("expected order Batch1 < Text < Batch2, got indices %d, %d, %d:\n%s", idxBatch1, idxText, idxBatch2, contentAfterBreak)
+	}
+}
+
+func TestPromptOptions_ParityWithAGY159(t *testing.T) {
+	ws := t.TempDir()
+	m := &RootModel{
+		session: sessionState{
+			cwd:            ws,
+			conversationID: "00000000-0000-0000-0000-000000000000",
+		},
+	}
+	opts := m.promptOptions()
+	if opts.Sandboxed {
+		t.Errorf("default promptOptions should not be sandboxed")
+	}
+	prompt := agyprompt.Build(opts)
+	if strings.Contains(prompt, "<terminal_sandbox>") {
+		t.Errorf("default prompt should not contain <terminal_sandbox>")
+	}
+	if !strings.Contains(prompt, "powerful agentic AI assistant") {
+		t.Errorf("default prompt should use generic-system-prompt identity ('agentic AI assistant')")
+	}
+	if strings.Contains(prompt, "agentic AI coding assistant") {
+		t.Errorf("default prompt should not contain coding assistant identity")
+	}
+
+	// Verify section ordering: <skills> must appear before <user_rules>
+	optsWithRules := opts
+	optsWithRules.UserRules = []agyprompt.UserRule{
+		{Label: "rule.md", Content: "Rule content"},
+	}
+	promptWithRules := agyprompt.Build(optsWithRules)
+	skillsIdx := strings.Index(promptWithRules, "<skills>")
+	rulesIdx := strings.Index(promptWithRules, "<user_rules>")
+	if skillsIdx == -1 || rulesIdx == -1 {
+		t.Fatalf("prompt missing skills or user_rules tags: skills=%d, rules=%d", skillsIdx, rulesIdx)
+	}
+	if skillsIdx > rulesIdx {
+		t.Errorf("<skills> (idx %d) must appear before <user_rules> (idx %d)", skillsIdx, rulesIdx)
+	}
+
+	// Verify sandboxed mode includes <terminal_sandbox>
+	fs := flag.NewFlagSet("test", flag.ContinueOnError)
+	fs.Bool("sandbox", true, "")
+	mSandboxed := &RootModel{
+		session: sessionState{
+			cwd:            ws,
+			conversationID: "00000000-0000-0000-0000-000000000000",
+			flags:          fs,
+		},
+	}
+	sbOpts := mSandboxed.promptOptions()
+	if !sbOpts.Sandboxed {
+		t.Errorf("mSandboxed.promptOptions should be sandboxed")
+	}
+	sbPrompt := agyprompt.Build(sbOpts)
+	if !strings.Contains(sbPrompt, "<terminal_sandbox>") {
+		t.Errorf("sandboxed prompt should contain <terminal_sandbox>")
 	}
 }

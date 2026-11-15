@@ -234,15 +234,20 @@ func (m *RootModel) SetSessionTier(tier, account string) { m.session.SetSessionT
 func (m *RootModel) IsTierFetched() bool                 { return m.session.IsTierFetched() }
 func (m *RootModel) CurrentConversationID() string       { return m.session.CurrentConversationID() }
 func (m *RootModel) SetCurrentConversationID(id string)  { m.session.SetCurrentConversationID(id) }
-func (m *RootModel) ConversationTitle() string           { return m.session.ConversationTitle() }
-func (m *RootModel) SetConversationTitle(title string)   { m.session.SetConversationTitle(title) }
-func (m *RootModel) IsConversationStarted() bool         { return m.session.IsConversationStarted() }
-func (m *RootModel) MarkConversationStarted()            { m.session.MarkConversationStarted() }
-func (m *RootModel) SessionGoal() string                 { return m.session.SessionGoal() }
-func (m *RootModel) SetSessionGoal(goal string)          { m.session.SetSessionGoal(goal) }
-func (m *RootModel) SessionLearnings() []string          { return m.session.SessionLearnings() }
-func (m *RootModel) AddSessionLearning(item string)      { m.session.AddSessionLearning(item) }
-func (m *RootModel) DomainSession() *session.Session     { return m.session.EnsureDomain() }
+func (m *RootModel) ConversationTitle() string {
+	if title := m.session.ConversationTitle(); title != "" {
+		return title
+	}
+	return m.conversationTitle()
+}
+func (m *RootModel) SetConversationTitle(title string) { m.session.SetConversationTitle(title) }
+func (m *RootModel) IsConversationStarted() bool       { return m.session.IsConversationStarted() }
+func (m *RootModel) MarkConversationStarted()          { m.session.MarkConversationStarted() }
+func (m *RootModel) SessionGoal() string               { return m.session.SessionGoal() }
+func (m *RootModel) SetSessionGoal(goal string)        { m.session.SetSessionGoal(goal) }
+func (m *RootModel) SessionLearnings() []string        { return m.session.SessionLearnings() }
+func (m *RootModel) AddSessionLearning(item string)    { m.session.AddSessionLearning(item) }
+func (m *RootModel) DomainSession() *session.Session   { return m.session.EnsureDomain() }
 
 // SessionMessages returns the active transcript.
 //

@@ -189,14 +189,14 @@ func runManualCompactionTask(compactor manualCompactor, customInstructions strin
 // user's history (TestSlashCompact_CancelRestoresSession).
 type genericCompactDoneMsg = compaction.GenericDoneMsg
 
-func runGenericCompactionTask(backendClient backend.Client, model, systemPrompt string, overhead int, sessSnap []backend.Message, customInstructions string, started time.Time, prog *tea.Program, onDone func(genericCompactDoneMsg)) {
+func runGenericCompactionTask(backendClient backend.Client, model, systemPrompt string, overhead int, sessSnap []backend.Message, tools []backend.ToolDecl, customInstructions string, started time.Time, prog *tea.Program, onDone func(genericCompactDoneMsg)) {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 
 	cleanup := compaction.InstallCancel(cancel)
 	defer cleanup()
 
-	compaction.RunGenericTask(ctx, backendClient, model, systemPrompt, overhead, sessSnap, customInstructions, started, func(msg genericCompactDoneMsg) {
+	compaction.RunGenericTaskWithTools(ctx, backendClient, model, systemPrompt, overhead, sessSnap, tools, customInstructions, started, func(msg genericCompactDoneMsg) {
 		if prog != nil {
 			prog.Send(msg)
 		} else if onDone != nil {
@@ -212,7 +212,12 @@ func (m *RootModel) startGenericCompact(customInstructions string) {
 		return
 	}
 
+	echoCmd := "/compact"
+	if trimmed := strings.TrimSpace(customInstructions); trimmed != "" {
+		echoCmd = "/compact " + trimmed
+	}
 	m.conversation.response = append(m.conversation.response,
+		"> "+echoCmd,
 		rows.NoticeCompact("Compacting conversation\u2026"),
 		"",
 	)
@@ -227,11 +232,12 @@ func (m *RootModel) startGenericCompact(customInstructions string) {
 
 	systemPrompt := m.systemPrompt()
 	overhead := compaction.ContextOverheadTokens(systemPrompt, modelDeclarationsJSON())
+	tools := m.tools.decls
 
 	if prog != nil {
 		// Production: the result travels as a tea.Msg and is applied by
 		// the Update loop, on the UI goroutine.
-		go runGenericCompactionTask(backendClient, model, systemPrompt, overhead, sessSnap, customInstructions, started, prog, nil)
+		go runGenericCompactionTask(backendClient, model, systemPrompt, overhead, sessSnap, tools, customInstructions, started, prog, nil)
 		return
 	}
 	// No program to post to (the test path). Hand the result over a
@@ -239,7 +245,7 @@ func (m *RootModel) startGenericCompact(customInstructions string) {
 	// which belong to the goroutine that owns the RootModel.
 	ch := make(chan genericCompactDoneMsg, 1)
 	m.compaction.SetDone(ch)
-	go runGenericCompactionTask(backendClient, model, systemPrompt, overhead, sessSnap, customInstructions, started, nil, func(msg genericCompactDoneMsg) {
+	go runGenericCompactionTask(backendClient, model, systemPrompt, overhead, sessSnap, tools, customInstructions, started, nil, func(msg genericCompactDoneMsg) {
 		ch <- msg
 	})
 }
@@ -336,7 +342,25 @@ func (m *RootModel) applyGenericCompactSuccess(msg genericCompactDoneMsg, custom
 	return nil
 }
 
+func (m *RootModel) cleanCompactingNotice() {
+	for len(m.conversation.response) > 0 {
+		last := m.conversation.response[len(m.conversation.response)-1]
+		if last == "" {
+			m.conversation.response = m.conversation.response[:len(m.conversation.response)-1]
+			continue
+		}
+		if strings.Contains(last, "Compacting conversation") {
+			m.conversation.response = m.conversation.response[:len(m.conversation.response)-1]
+		}
+		break
+	}
+	if len(m.conversation.response) > 0 && m.conversation.response[len(m.conversation.response)-1] != "" {
+		m.conversation.response = append(m.conversation.response, "")
+	}
+}
+
 func (m *RootModel) applyGenericCompactResult(msg genericCompactDoneMsg, customInstructions string) tea.Cmd {
+	m.cleanCompactingNotice()
 	switch {
 	case msg.Cancelled:
 		m.conversation.response = append(m.conversation.response,

@@ -113,6 +113,10 @@ type Task struct {
 	// is "No steps yet" (0x10346f0a3); see
 	// docs/cycles/cycle-317-tui-subagent-trajectory/deliverable.md.
 	Steps []string
+	// StepOutputs holds the corresponding execution output for each tool step.
+	StepOutputs []string
+	// StepCount is the total step count of the trajectory (including initial prompt).
+	StepCount int
 	// CurrentTool is the name of the tool currently executing, or empty
 	// if the task/subagent is not in a tool call.
 	CurrentTool string
@@ -137,6 +141,9 @@ func (t *Task) Clone() *Task {
 	}
 	if len(t.Steps) > 0 {
 		cp.Steps = append([]string(nil), t.Steps...)
+	}
+	if len(t.StepOutputs) > 0 {
+		cp.StepOutputs = append([]string(nil), t.StepOutputs...)
 	}
 	return &cp
 }

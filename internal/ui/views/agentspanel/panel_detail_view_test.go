@@ -1,13 +1,17 @@
 package agentspanel
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 
 	subagent "github.com/justwasm/pigasus/internal/app/subagent/core"
+	taskregistry "github.com/justwasm/pigasus/internal/app/task"
 )
 
 func TestAgentsPanel_SubagentDetailView(t *testing.T) {
@@ -27,8 +31,8 @@ func TestAgentsPanel_SubagentDetailView(t *testing.T) {
 		HasSession: func() bool { return false },
 	}, nil)
 
-	// Available agents: index 0 (default).
-	// Subagent row: index 1.
+	// Expand subagents accordion and position on subagent row (index 1).
+	p.expandedSubagents = true
 	p.SetCursor(1)
 
 	// Press Enter to open Subagent Detail View
@@ -38,15 +42,38 @@ func TestAgentsPanel_SubagentDetailView(t *testing.T) {
 	}
 
 	lines := strings.Join(p.Lines(), "\n")
-	if !strings.Contains(lines, "Subagent Detail: worker-1") {
-		t.Errorf("expected detail title, got:\n%s", lines)
+	if !strings.Contains(lines, "main \xe2\x80\xba worker-1") {
+		t.Errorf("expected detail title path, got:\n%s", lines)
 	}
-	if !strings.Contains(lines, "Task Title:") || !strings.Contains(lines, "Analyze Repository") {
-		t.Errorf("expected task title in detail view, got:\n%s", lines)
+	if !strings.Contains(lines, "ID: sub-1") {
+		t.Errorf("expected ID in detail view, got:\n%s", lines)
 	}
-	// AGY 1.5.3: the detail view carries the full model and effort.
-	if !strings.Contains(lines, "Model: Gemini 3.8 Flash (High) (effort: high)") {
-		t.Errorf("expected model and effort in detail view, got:\n%s", lines)
+	// AGY 1.5.9: the detail view carries the model and effort in the status line.
+	if !strings.Contains(lines, "Gemini 3.8 Flash (High)") {
+		t.Errorf("expected model in detail view, got:\n%s", lines)
+	}
+	if !strings.Contains(lines, "Prompt") {
+		t.Errorf("expected Prompt section in detail view, got:\n%s", lines)
+	}
+
+	// AGY 1.5.9: Trajectory expand/collapse via Ctrl+O
+	if p.ExpandedDetail() {
+		t.Errorf("expected initial detail view to be collapsed")
+	}
+	handledCtrlO, _ := p.HandleKey(tea.Key{Code: 'o', Mod: tea.ModCtrl})
+	if !handledCtrlO || !p.ExpandedDetail() {
+		t.Fatalf("expected Ctrl+O to expand detail trajectory")
+	}
+	handledCtrlO2, _ := p.HandleKey(tea.Key{Code: 'o', Mod: tea.ModCtrl})
+	if !handledCtrlO2 || p.ExpandedDetail() {
+		t.Fatalf("expected Ctrl+O to collapse detail trajectory")
+	}
+
+	// Home / End navigation
+	p.HandleKey(tea.Key{Code: tea.KeyEnd})
+	p.HandleKey(tea.Key{Code: tea.KeyHome})
+	if p.window != 0 {
+		t.Errorf("expected Home to reset scroll window to 0, got %d", p.window)
 	}
 
 	// Press Esc to exit detail mode and return to list
@@ -102,6 +129,7 @@ func TestAgentsPanel_SubagentDetailView_LineWrapping(t *testing.T) {
 		},
 	}, nil)
 
+	p.expandedSubagents = true
 	p.SetCursor(1)
 	p.HandleKey(tea.Key{Code: tea.KeyEnter})
 	if !p.DetailMode() {
@@ -136,8 +164,9 @@ func TestAgentsPanel_SubagentRowsShowModelAndOneTip(t *testing.T) {
 		Size:      func() (int, int) { return 120, 40 },
 		Subagents: func() []*subagent.Subagent { return []*subagent.Subagent{sa} },
 	}, nil)
+	p.expandedSubagents = true
 	plain := ansi.Strip(strings.Join(p.Lines(), "\n"))
-	if !strings.Contains(plain, "worker-1 · Gemini 3.8 Flash (High)") {
+	if !strings.Contains(plain, "worker-1") || !strings.Contains(plain, "Gemini 3.8 Flash") {
 		t.Errorf("subagent row does not carry the model:\n%s", plain)
 	}
 	if got := strings.Count(plain, "Tip: Press enter on a subagent to view details."); got != 1 {
@@ -145,5 +174,250 @@ func TestAgentsPanel_SubagentRowsShowModelAndOneTip(t *testing.T) {
 	}
 	if strings.Contains(plain, "[view details]") {
 		t.Errorf("the panel repeats a per-row [view details]:\n%s", plain)
+	}
+}
+
+func TestAgentsPanel_SubagentDetailTrajectorySingleHint(t *testing.T) {
+	sa := &subagent.Subagent{
+		ID:     "sub-multi",
+		Name:   "worker-multi",
+		Title:  "Multi-step task",
+		State:  "running",
+		Model:  "Gemini 3.8 Flash (High)",
+		Effort: "high",
+	}
+
+	task := &taskregistry.Task{
+		ID:    "sub-multi",
+		Name:  "worker-multi",
+		Kind:  taskregistry.KindSubagent,
+		State: taskregistry.StateRunning,
+		Steps: []string{
+			"Thought: Check weather for Shanghai",
+			"read_file(/tmp/weather.json)",
+			"Thought: Format the weather output",
+			"write_file(/tmp/report.md)",
+		},
+	}
+
+	p := New(Seams{
+		Subagents: func() []*subagent.Subagent {
+			return []*subagent.Subagent{sa}
+		},
+		TaskLookup: func(id string) *taskregistry.Task {
+			if id == "sub-multi" {
+				return task
+			}
+			return nil
+		},
+		HasSession: func() bool { return false },
+		Size: func() (int, int) {
+			return 100, 40
+		},
+	}, nil)
+
+	p.OpenDetail(sa)
+	if !p.DetailMode() {
+		t.Fatalf("expected OpenDetail to open DetailMode")
+	}
+
+	// In collapsed mode:
+	plainCollapsed := ansi.Strip(strings.Join(p.Lines(), "\n"))
+	expandCount := strings.Count(plainCollapsed, "(ctrl+o to expand)")
+	collapseCount := strings.Count(plainCollapsed, "(ctrl+o to collapse)")
+	if expandCount != 1 {
+		t.Errorf("expected exactly 1 '(ctrl+o to expand)' in collapsed mode, got %d:\n%s", expandCount, plainCollapsed)
+	}
+	if collapseCount != 0 {
+		t.Errorf("expected 0 '(ctrl+o to collapse)' in collapsed mode, got %d", collapseCount)
+	}
+	if !strings.Contains(plainCollapsed, "ctrl+o expand") {
+		t.Errorf("expected footer to show 'ctrl+o expand', got:\n%s", plainCollapsed)
+	}
+
+	// Toggle expand with ctrl+o key
+	handled, _ := p.HandleKey(tea.Key{Code: 'o', Mod: tea.ModCtrl})
+	if !handled || !p.ExpandedDetail() {
+		t.Fatalf("expected ctrl+o to toggle expanded detail")
+	}
+
+	plainExpanded := ansi.Strip(strings.Join(p.Lines(), "\n"))
+	expandCountExp := strings.Count(plainExpanded, "(ctrl+o to expand)")
+	collapseCountExp := strings.Count(plainExpanded, "(ctrl+o to collapse)")
+	if expandCountExp != 0 {
+		t.Errorf("expected 0 '(ctrl+o to expand)' in expanded mode, got %d", expandCountExp)
+	}
+	if collapseCountExp != 1 {
+		t.Errorf("expected exactly 1 '(ctrl+o to collapse)' in expanded mode, got %d:\n%s", collapseCountExp, plainExpanded)
+	}
+	if !strings.Contains(plainExpanded, "ctrl+o collapse") {
+		t.Errorf("expected footer to show 'ctrl+o collapse', got:\n%s", plainExpanded)
+	}
+}
+
+func TestAgentsPanel_SubagentDetailView_TranscriptWithOutput(t *testing.T) {
+	tempDir := t.TempDir()
+	t.Setenv("ANTIGRAVITY_HOME", tempDir)
+
+	subID := "sub-live-weather"
+	logDir := filepath.Join(tempDir, "brain", subID, ".system_generated", "logs")
+	if err := os.MkdirAll(logDir, 0755); err != nil {
+		t.Fatalf("failed to create log dir: %v", err)
+	}
+
+	jsonlContent := strings.Join([]string{
+		`{"step_index":0,"source":"SYSTEM","type":"SYSTEM_MESSAGE","status":"DONE","created_at":"2026-11-15T12:00:00Z","content":"<SYSTEM_MESSAGE>Query weather</SYSTEM_MESSAGE>"}`,
+		`{"step_index":1,"source":"MODEL","type":"PLANNER_RESPONSE","status":"DONE","created_at":"2026-11-15T12:00:01Z","input_tokens":100,"output_tokens":42,"thinking":"Checking the weather in Shanghai.\nNeed to run curl.","tool_calls":[{"name":"run_command","args":{"CommandLine":"curl -s wttr.in/Shanghai?format=j1"}}]}`,
+		`{"step_index":2,"source":"MODEL","type":"GENERIC","status":"DONE","created_at":"2026-11-15T12:00:03Z","content":"Created At: 2026-11-15T12:00:01Z\nCompleted At: 2026-11-15T12:00:03Z\nCommand exited with code 0.\n\nCommand output:\nTemp: 22C\nCondition: Sunny"}`,
+		`{"step_index":3,"source":"MODEL","type":"PLANNER_RESPONSE","status":"DONE","created_at":"2026-11-15T12:00:04Z","input_tokens":150,"output_tokens":20,"content":"Shanghai is sunny and 22C."}`,
+	}, "\n") + "\n"
+
+	if err := os.WriteFile(filepath.Join(logDir, "transcript.jsonl"), []byte(jsonlContent), 0644); err != nil {
+		t.Fatalf("failed to write transcript: %v", err)
+	}
+
+	task := &taskregistry.Task{
+		ID:        subID,
+		Name:      "weather researcher",
+		Kind:      taskregistry.KindSubagent,
+		State:     taskregistry.StateDone,
+		Prompt:    "Query weather for Shanghai",
+		StartedAt: time.Now().Add(-5 * time.Second),
+		EndedAt:   time.Now(),
+	}
+
+	// 1. In collapsed mode:
+	_, bodyCollapsed := BuildSubagentDetail(task, 100, false)
+	joinedCollapsed := ansi.Strip(strings.Join(bodyCollapsed, "\n"))
+
+	if strings.Contains(joinedCollapsed, "1. ") || strings.Contains(joinedCollapsed, "2. ") {
+		t.Errorf("did not expect numbered markdown list in trajectory:\n%s", joinedCollapsed)
+	}
+	if !strings.Contains(joinedCollapsed, "● Bash(curl -s wttr.in/Shanghai?format=j1)") {
+		t.Errorf("expected tool call '● Bash(...)', got:\n%s", joinedCollapsed)
+	}
+	if !strings.Contains(joinedCollapsed, "▸ Thought for") {
+		t.Errorf("expected thought bullet '▸ Thought for', got:\n%s", joinedCollapsed)
+	}
+	if strings.Contains(joinedCollapsed, "Condition: Sunny") {
+		t.Errorf("did not expect tool execution output visible in collapsed mode:\n%s", joinedCollapsed)
+	}
+	if strings.Count(joinedCollapsed, "(ctrl+o to expand)") != 1 {
+		t.Errorf("expected exactly 1 '(ctrl+o to expand)' in collapsed mode, got:\n%s", joinedCollapsed)
+	}
+
+	// 2. In expanded mode:
+	_, bodyExpanded := BuildSubagentDetail(task, 100, true)
+	joinedExpanded := ansi.Strip(strings.Join(bodyExpanded, "\n"))
+
+	if !strings.Contains(joinedExpanded, "▾ Thought for") {
+		t.Errorf("expected expanded thought bullet '▾ Thought for', got:\n%s", joinedExpanded)
+	}
+	if !strings.Contains(joinedExpanded, "Checking the weather in Shanghai.") {
+		t.Errorf("expected full thought reasoning text in expanded mode:\n%s", joinedExpanded)
+	}
+	if !strings.Contains(joinedExpanded, "Command output:") || !strings.Contains(joinedExpanded, "Condition: Sunny") {
+		t.Errorf("expected tool execution output visible in expanded mode:\n%s", joinedExpanded)
+	}
+	if strings.Count(joinedExpanded, "(ctrl+o to collapse)") != 1 {
+		t.Errorf("expected exactly 1 '(ctrl+o to collapse)' in expanded mode, got:\n%s", joinedExpanded)
+	}
+}
+
+func TestAgentsPanel_SubagentDetailView_FormatB_SubagentsDir(t *testing.T) {
+	tempDir := t.TempDir()
+	t.Setenv("ANTIGRAVITY_HOME", tempDir)
+
+	subID := "48e453d0-weather-format-b"
+	subDir := filepath.Join(tempDir, "subagents")
+	if err := os.MkdirAll(subDir, 0755); err != nil {
+		t.Fatalf("failed to create subagents dir: %v", err)
+	}
+
+	jsonlContent := strings.Join([]string{
+		`{"index":0,"role":"user","subagent":"` + subID + `","message":{"role":"user","content":"<SYSTEM_MESSAGE>Query weather</SYSTEM_MESSAGE>"}}`,
+		`{"index":1,"role":"assistant","subagent":"` + subID + `","message":{"role":"assistant","tool_name":"run_command","tool_call_id":"call_123","content":"{\"CommandLine\": \"curl -s \\\"wttr.in/Shanghai?format=j1\\\"\"}"}}`,
+		`{"index":2,"role":"toolResult","subagent":"` + subID + `","message":{"role":"toolResult","tool_call_id":"call_123","content":"Command exited with code 0.\n\nCommand output:\nTemp: 18C\nCondition: Cloudy"}}`,
+		`{"index":3,"role":"assistant","subagent":"` + subID + `","message":{"role":"assistant","content":"# Shanghai Weather Report"}}`,
+	}, "\n") + "\n"
+
+	if err := os.WriteFile(filepath.Join(subDir, subID+".jsonl"), []byte(jsonlContent), 0644); err != nil {
+		t.Fatalf("failed to write subagents jsonl: %v", err)
+	}
+
+	steps, total := LoadTrajectoryFromTranscript(subID)
+	if total != 4 {
+		t.Fatalf("expected total = 4, got %d", total)
+	}
+	if len(steps) != 1 { // 1 tool step (final message omitted from trajectory as it belongs to answer)
+		t.Fatalf("expected 1 trajectory step, got %d", len(steps))
+	}
+	if steps[0].ToolName != "Bash" {
+		t.Errorf("expected ToolName 'Bash', got %q", steps[0].ToolName)
+	}
+	if steps[0].Args != `curl -s "wttr.in/Shanghai?format=j1"` {
+		t.Errorf("expected clean args with quotes unescaped, got %q", steps[0].Args)
+	}
+	if !strings.Contains(steps[0].Output, "Temp: 18C") {
+		t.Errorf("expected output to be populated from toolResult, got %q", steps[0].Output)
+	}
+
+	task := &taskregistry.Task{
+		ID:        subID,
+		Name:      "weather researcher",
+		Kind:      taskregistry.KindSubagent,
+		State:     taskregistry.StateDone,
+		Prompt:    "Query weather for Shanghai",
+		StartedAt: time.Now().Add(-5 * time.Second),
+		EndedAt:   time.Now(),
+	}
+
+	// 1. Collapsed mode:
+	_, bodyCollapsed := BuildSubagentDetail(task, 100, false)
+	joinedCollapsed := ansi.Strip(strings.Join(bodyCollapsed, "\n"))
+
+	expectedLine := `● Bash(curl -s "wttr.in/Shanghai?format=j1") (ctrl+o to expand)`
+	if !strings.Contains(joinedCollapsed, expectedLine) {
+		t.Errorf("expected collapsed trajectory line %q, got:\n%s", expectedLine, joinedCollapsed)
+	}
+
+	// 2. Expanded mode:
+	_, bodyExpanded := BuildSubagentDetail(task, 100, true)
+	joinedExpanded := ansi.Strip(strings.Join(bodyExpanded, "\n"))
+
+	if !strings.Contains(joinedExpanded, `● Bash(curl -s "wttr.in/Shanghai?format=j1")`) {
+		t.Errorf("expected expanded tool header, got:\n%s", joinedExpanded)
+	}
+	if !strings.Contains(joinedExpanded, "Command output:") || !strings.Contains(joinedExpanded, "Temp: 18C") {
+		t.Errorf("expected tool output visible in expanded mode:\n%s", joinedExpanded)
+	}
+	if !strings.Contains(joinedExpanded, "(ctrl+o to collapse)") {
+		t.Errorf("expected '(ctrl+o to collapse)' in expanded mode, got:\n%s", joinedExpanded)
+	}
+
+	// 3. Test panel key handling with both modifier and string formats
+	sa := &subagent.Subagent{
+		ID:    subID,
+		Name:  "weather researcher",
+		State: "running",
+	}
+	p := New(Seams{
+		Subagents: func() []*subagent.Subagent { return []*subagent.Subagent{sa} },
+	}, nil)
+	p.OpenDetail(sa)
+	if !p.DetailMode() {
+		t.Fatal("expected DetailMode")
+	}
+
+	// ctrl+o via key.Mod
+	handled, _ := p.HandleKey(tea.Key{Code: 'o', Mod: tea.ModCtrl})
+	if !handled || !p.ExpandedDetail() {
+		t.Fatalf("expected ctrl+o with ModCtrl to expand detail")
+	}
+
+	// ctrl+o via key.Text / key.String()
+	handled2, _ := p.HandleKey(tea.Key{Text: "ctrl+o"})
+	if !handled2 || p.ExpandedDetail() {
+		t.Fatalf("expected 'ctrl+o' string to collapse detail")
 	}
 }

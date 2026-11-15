@@ -12,15 +12,16 @@ import (
 
 // Scenario represents an executable testing scenario.
 type Scenario struct {
-	Name         string
-	Width        int
-	Height       int
-	Target       TmuxTarget
-	SettingsJSON string
-	Turns        []MockTurn
-	Commands     []ScenarioCmd
-	Snapshots    map[string]DiffResult
-	LastSnapshot string
+	Name          string
+	Width         int
+	Height        int
+	Target        TmuxTarget
+	SettingsJSON  string
+	Turns         []MockTurn
+	Commands      []ScenarioCmd
+	Snapshots     map[string]DiffResult
+	SnapshotOrder []string
+	LastSnapshot  string
 }
 
 // ScenarioCmd represents one step executed during the run.
@@ -471,12 +472,17 @@ func (sc *Scenario) Run(srv *MockServer, driver *TmuxDriver) error {
 					return err
 				}
 				res := CompareSnapshots(left, right, label)
+				if _, exists := sc.Snapshots[label]; !exists {
+					sc.SnapshotOrder = append(sc.SnapshotOrder, label)
+				}
 				sc.Snapshots[label] = res
 				fmt.Print(res.Report)
 
-				// Save HTML visual diff report
+				// Save standalone HTML & TXT visual diff reports
 				htmlPath := fmt.Sprintf("/tmp/tuialign_%s.html", label)
+				txtPath := fmt.Sprintf("/tmp/tuialign_%s.txt", label)
 				_ = os.WriteFile(htmlPath, []byte(res.HTMLReport), 0644)
+				_ = os.WriteFile(txtPath, []byte(res.Report), 0644)
 			} else {
 				out, err := driver.CapturePane("", true)
 				if err != nil {
@@ -524,6 +530,40 @@ func (sc *Scenario) Run(srv *MockServer, driver *TmuxDriver) error {
 				fmt.Println(">>> PERFECT ALIGNMENT: 100% PARITY! <<<")
 			}
 			fmt.Println("======================================================")
+
+			// Aggregate all snapshots from this scenario run into a single cohesive HTML report
+			var snapItems []SnapshotItem
+			for _, l := range sc.SnapshotOrder {
+				if r, ok := sc.Snapshots[l]; ok {
+					bMatches := htmlTbodyRe.FindSubmatch([]byte(r.HTMLReport))
+					tbody := ""
+					if len(bMatches) > 1 {
+						tbody = string(bMatches[1])
+					}
+					snapItems = append(snapItems, SnapshotItem{
+						ID:           sanitizeID(l),
+						Label:        l,
+						ScenarioName: sc.Name,
+						ParityScore:  r.ParityScore,
+						MatchLines:   r.MatchLines,
+						TotalLines:   r.TotalLines,
+						DiffLines:    r.DiffLines,
+						ColorDiffs:   r.ColorDiffs,
+						Identical:    r.Identical,
+						TableBody:    tbody,
+						TextReport:   r.Report,
+					})
+				}
+			}
+			if len(snapItems) > 0 {
+				masterHTML := RenderMasterHTMLReport(sc.Name+" Parity Report", snapItems)
+				scenarioReportPath := fmt.Sprintf("/tmp/tuialign_%s_report.html", sanitizeID(sc.Name))
+				_ = os.WriteFile(scenarioReportPath, []byte(masterHTML), 0644)
+				_ = os.WriteFile("/tmp/tuialign_latest_report.html", []byte(masterHTML), 0644)
+				fmt.Printf("[tuialign:report] Aggregated scenario HTML report generated:\n")
+				fmt.Printf("  File: %s\n", scenarioReportPath)
+				fmt.Printf("  URL:  file://%s\n", scenarioReportPath)
+			}
 			if len(cmd.Args) > 0 {
 				minP, perr := strconv.ParseFloat(cmd.Args[0], 64)
 				if perr != nil {

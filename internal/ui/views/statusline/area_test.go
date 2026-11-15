@@ -78,6 +78,32 @@ func TestAreaRows_ReplacesTheBuiltInRow(t *testing.T) {
 	}
 }
 
+// TestAreaRows_YieldsToTransientNotice pins that a custom status line yields
+// to transient notifications (e.g. copied notices, reload messages) and returns
+// cleanly once the notice is cleared (AGY 1.5.8).
+func TestAreaRows_YieldsToTransientNotice(t *testing.T) {
+	state := &statusline.State{}
+	state.SetRendered("CUSTOM", nil)
+	s := statusline.AreaState{
+		Builtin: "BUILTIN",
+		Active:  true,
+		Config:  statusline.Config{Enabled: true, Command: "echo hi"},
+		State:   state,
+		Notice:  "Copied 3 lines to clipboard.",
+	}
+	rows := statusline.AreaRows(s)
+	if len(rows) != 1 || rows[0] != "Copied 3 lines to clipboard." {
+		t.Fatalf("rows = %q, want notice %q", rows, "Copied 3 lines to clipboard.")
+	}
+
+	// Returns cleanly once notice is cleared
+	s.Notice = ""
+	rows = statusline.AreaRows(s)
+	if len(rows) != 1 || rows[0] != "CUSTOM" {
+		t.Fatalf("rows = %q, want custom status line restored", rows)
+	}
+}
+
 // TestAreaRows_Disabled pins the reference's disabled message: it takes
 // the custom row's place.
 func TestAreaRows_Disabled(t *testing.T) {

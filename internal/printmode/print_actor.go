@@ -45,6 +45,7 @@ type actorPrintConfig struct {
 	History        []printHistoryTurn
 	Catalog        *tools.Registry
 	Policy         *permissions.Policy
+	Sandbox        sandbox.Sandbox
 	Handler        func(backend.StreamChunk) error
 	Workspace      string
 	Workspaces     []string
@@ -148,6 +149,7 @@ func buildPrintSystemPrompt(cfg actorPrintConfig) string {
 	}
 	skillPaths := agyprompt.AgySkillPaths(cfg.AgentDir, cfg.Workspace)
 	promptOpts := agyprompt.DefaultOptions(cfg.Workspace, cfg.AgentDir, convID)
+	promptOpts.Sandboxed = cfg.Sandbox.Enabled
 	if len(cfg.Workspaces) > 0 {
 		promptOpts.Workspaces = cfg.Workspaces
 	}

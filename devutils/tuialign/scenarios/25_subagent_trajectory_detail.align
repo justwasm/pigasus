@@ -1,12 +1,12 @@
-NAME "Subagent Trajectory Detail Alignment (/tasks ▸ subagent) (1.5.6)"
+NAME "Subagent Trajectory Detail Alignment (/agents ▸ subagent) (1.5.8)"
 WINDOW 100 30
 TARGET both
 
 # Turn 1: the model delegates a self-contained task to a subagent.
-# The reference's own schema keys are snake_case (type_name / role / prompt).
+# The reference's schema keys are PascalCase (TypeName / Role / Prompt / Workspace).
 MOCK_TURN
   THOUGHT "This is a self-contained task; delegating it to a subagent." TOKENS 90 DELAY 100ms
-  TOOL invoke_subagent {"prompt":"查询当前上海的天气情况","type_name":"research","role":"Weather Researcher","workspace":"inherit"}
+  TOOL invoke_subagent {"Prompt":"查询当前上海的天气情况","TypeName":"research","Role":"Weather Researcher","Workspace":"inherit"}
   USAGE PROMPT 18200 CANDIDATES 40 THOUGHTS 90
   FINISH STOP
 
@@ -26,16 +26,25 @@ TYPE "查一下上海天气"
 ENTER
 
 # Let the subagent launch, run, and report back.
-SLEEP 6s
+WAIT_TEXT "OK (mock response from tuialign)" 15s
+SLEEP 1s
 SNAPSHOT "01_parent_turn"
 
-# Open the background-task list; the subagent is one of its rows.
-TYPE "/tasks"
+# Open the agents list; the running/recent subagent is one of its rows.
+TYPE "/agents"
 ENTER
 SLEEP 1s
-SNAPSHOT "02_tasks_list"
+SNAPSHOT "02_agents_list"
 
-# Enter opens the row's detail view — the subagent detail.
+# Move up to the subagent accordion header and toggle it open.
+KEYS "Up"
+SLEEP 500ms
+KEYS "Enter"
+SLEEP 500ms
+
+# Move down into the expanded subagent row and open detail view.
+KEYS "Down"
+SLEEP 500ms
 KEYS "Enter"
 SLEEP 1s
 SNAPSHOT "03_subagent_detail"

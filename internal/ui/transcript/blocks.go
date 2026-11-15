@@ -99,6 +99,19 @@ func (b *Block) NeedsRender(expanded bool, width int, verb toolsteps.Verbosity) 
 	return b.cachedCol == nil || b.cachedColW != width || b.cachedColV != verb
 }
 
+// isPureThoughtSteps reports whether all given steps are thoughts (no tools).
+func isPureThoughtSteps(steps []toolsteps.Step) bool {
+	if len(steps) == 0 {
+		return false
+	}
+	for _, s := range steps {
+		if s.Kind != toolsteps.KindThought {
+			return false
+		}
+	}
+	return true
+}
+
 // Render returns the block's rows under the given expansion, width,
 // height and verbosity.
 //
@@ -119,6 +132,9 @@ func (b *Block) Render(expanded bool, width, height int, verb toolsteps.Verbosit
 			Verbosity:    verb,
 			TokenMetrics: b.Metrics,
 		})
+		if len(lines) > 0 && isPureThoughtSteps(b.Steps) {
+			lines = append(append([]string{}, lines...), "")
+		}
 		b.cachedExp = lines
 		b.cachedExpW = width
 		b.cachedExpV = verb

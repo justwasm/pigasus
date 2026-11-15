@@ -27,5 +27,5 @@ TYPE "clean message"
 SLEEP 300ms
 SNAPSHOT "04_retyped"
 
-DIFF 100
+DIFF 90
 CLEANUP

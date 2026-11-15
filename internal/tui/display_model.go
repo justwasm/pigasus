@@ -25,6 +25,9 @@ type DisplayModel struct {
 	// confirmation; exitConfirmAt records when it was armed.
 	exitConfirm   bool
 	exitConfirmAt time.Time
+	// transientNotice is a temporary notification (e.g. "Copied...",
+	// permission reloaded, etc.) that the status line temporarily yields to.
+	transientNotice string
 	// verbosity overrides the settings.json verbosity when non-empty.
 	verbosity string
 	// quotaFrame is the /usage quota spinner frame.

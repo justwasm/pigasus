@@ -130,6 +130,33 @@ func (p *Panel) Sync(offset int) int {
 	return p.vp.YOffset()
 }
 
+// Scroll adjusts the viewport window offset by delta rows (+ for down, - for up),
+// clamped to the valid scroll range [0, max(0, totalLines - visibleLines)].
+func (p *Panel) Scroll(delta int, offset int) int {
+	if p == nil || delta == 0 {
+		return offset
+	}
+	spec, ok := p.spec()
+	if !ok {
+		return offset
+	}
+	maxOffset := len(spec.Lines) - spec.Visible
+	if maxOffset < 0 {
+		maxOffset = 0
+	}
+	newOffset := offset + delta
+	if newOffset < 0 {
+		newOffset = 0
+	}
+	if newOffset > maxOffset {
+		newOffset = maxOffset
+	}
+	p.vp.SetHeight(spec.Visible)
+	p.vp.SetWidth(p.width())
+	p.vp.SetYOffset(newOffset)
+	return newOffset
+}
+
 // HandleKey routes one key to the panel.
 //
 // The returned bool says whether the panel owned the key; the returned

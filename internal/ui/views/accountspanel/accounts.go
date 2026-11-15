@@ -25,6 +25,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/justwasm/pigasus/internal/core/apierror"
 	accounts "github.com/justwasm/pigasus/internal/features/accounts/core"
 	accountrouting "github.com/justwasm/pigasus/internal/features/accounts/routing"
 	"github.com/justwasm/pigasus/internal/ui/tuilib"
@@ -76,9 +77,12 @@ func currentAccountEmail(st *accounts.Store) string {
 // accountRowLine renders one account row.
 func (p *Panel) accountRowLine(acc accounts.Account, cursor bool) string {
 	if isQ, qReason := accountrouting.Shared().IsQuarantined(acc.Email); isQ {
-		acc.Disabled = true
-		if acc.DisabledReason == "" {
-			acc.DisabledReason = qReason
+		if acc.Disabled {
+			if acc.DisabledReason == "" {
+				acc.DisabledReason = qReason
+			}
+		} else {
+			accountrouting.Shared().Unquarantine(acc.Email)
 		}
 	}
 	if strings.TrimSpace(acc.PlanTier) == "" {
@@ -239,8 +243,12 @@ func (p *Panel) QuotaDone(email string, gotSummary bool, err error) tea.Cmd {
 	switch {
 	case err != nil:
 		p.quotaErr = err.Error()
+		if apierror.IsAccountDisabledErr(err) {
+			accountrouting.Shared().Quarantine(email, apierror.AccountDisabledReason(err))
+		}
 	case gotSummary:
 		p.quotaErr = ""
+		accountrouting.Shared().Unquarantine(email)
 	}
 	// Pick up the snapshot the fetch cached in the registry.
 	p.Reload()

@@ -63,6 +63,9 @@ var (
 	// Spinner
 	SpinnerBaseOpen = "\x1b[38;2;101;123;131m"
 	SpinnerHiOpen   = "\x1b[38;2;38;139;210m"
+
+	// Panel hint blue
+	PanelBoldBlueOpen = "\x1b[1m\x1b[38;2;138;180;248m"
 )
 
 // The colours the reference hard-codes. They are not scheme slots, so
@@ -107,7 +110,6 @@ const (
 	BoldClose       = "\x1b[22m"
 
 	// Panel hint blue
-	PanelBoldBlueOpen  = "\x1b[1m\x1b[38;5;69m"
 	PanelBoldBlueClose = "\x1b[0m"
 
 	// Standard closes
@@ -183,6 +185,9 @@ func applyScheme(sc SchemeColors) {
 	// Thought & body
 	ThoughtBulletOpen = sc.MutedFg.Seq(false)
 	BodyOpen = sc.Fg.Seq(false)
+
+	// Panel hint
+	PanelBoldBlueOpen = seqWith(sc.Accent, false, "1")
 
 	// Spinner
 	SpinnerBaseOpen = sc.DimFg.Seq(false)

@@ -1,6 +1,6 @@
 {
   "title": "OpenAGY / Pigasus TUI Component Inventory \u0026 Atomic Design Mapping",
-  "reference_version": "jetski/cortex 1.5.8",
+  "reference_version": "jetski/cortex 1.5.9",
   "total_components": 76,
   "covered_count": 76,
   "coverage_percent": 100,

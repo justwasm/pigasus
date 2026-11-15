@@ -30,6 +30,7 @@ import (
 	tuiviewport "github.com/justwasm/pigasus/internal/ui/foundations/viewport"
 	"github.com/justwasm/pigasus/internal/ui/mdrender"
 	"github.com/justwasm/pigasus/internal/ui/tuilib"
+	"github.com/justwasm/pigasus/internal/ui/views/agentspanel"
 	"github.com/justwasm/pigasus/palette"
 )
 
@@ -113,13 +114,10 @@ func (p *Panel) detailLines() []string {
 		width = 80
 	}
 	if p.detailSubagent {
-		header = taskregistry.SubagentDetailHeader(t, taskregistry.SubagentHeaderContext{
-			Width: width,
-		})
+		header, body = agentspanel.BuildSubagentDetail(t, width, p.detailExpanded)
 		if len(header) > 0 {
 			header[0] = panelTitleOpen + header[0] + panelTitleClose
 		}
-		body = taskregistry.SubagentDetailBody(t, width)
 	} else {
 		header = []string{panelTitleOpen + taskregistry.TaskDetailTitle + panelTitleClose}
 		body = taskregistry.TaskDetailBody(t, width)
@@ -140,8 +138,18 @@ func (p *Panel) detailView(header, body []string) []string {
 	if visible < total {
 		lines = append(lines, tuiviewer.Counter(win.Start()+1, win.End(), total))
 	}
-	lines = append(lines, "",
-		tuilib.PanelDotHint("  ", "↑/↓", "Scroll", "←/→", "Page", "esc", "Close"))
+	width, _ := p.size()
+	if p.detailSubagent && (width <= 0 || width >= 55) {
+		expandHint := "Expand"
+		if p.detailExpanded {
+			expandHint = "Collapse"
+		}
+		lines = append(lines, "",
+			tuilib.PanelDotHint("  ", "↑/↓", "Scroll", "←/→", "Page", "ctrl+o", expandHint, "esc", "Close"))
+	} else {
+		lines = append(lines, "",
+			tuilib.PanelDotHint("  ", "↑/↓", "Scroll", "←/→", "Page", "esc", "Close"))
+	}
 	return lines
 }
 
@@ -180,6 +188,9 @@ func (p *Panel) detailHeaderRows() int {
 		return 1
 	}
 	width, _ := p.size()
-	return len(taskregistry.SubagentDetailHeader(p.detailTask(),
-		taskregistry.SubagentHeaderContext{Width: width}))
+	header, _ := agentspanel.BuildSubagentDetail(p.detailTask(), width, p.detailExpanded)
+	if len(header) > 0 {
+		return len(header)
+	}
+	return 5
 }

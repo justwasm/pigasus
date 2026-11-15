@@ -97,6 +97,14 @@ func (m *RootModel) dispatchKeyAction(action string) (tea.Model, tea.Cmd, bool) 
 			}
 			return m, nil, true
 		}
+		if m.overlays.panel.kind == panelregistry.Agents && m.agentsPanel().DetailMode() {
+			m.agentsPanel().ToggleExpandedDetail()
+			return m, nil, true
+		}
+		if m.overlays.panel.kind == panelregistry.Tasks && m.tasksPanel().DetailSubagent() {
+			m.tasksPanel().ToggleExpandedDetail()
+			return m, nil, true
+		}
 		if m.overlays.panel.kind != panelregistry.None {
 			break
 		}
@@ -588,13 +596,21 @@ func (m *RootModel) handleGlobalOrModalKeys(key tea.Key) (tea.Model, tea.Cmd, bo
 		m.viewport.scroll = 0
 		return m, tea.ClearScreen, true
 	}
-	if key.Code == 'o' && key.Mod.Contains(tea.ModCtrl) && !m.overlays.resumePicker.Active() {
+	if ((key.Code == 'o' || key.Code == 'O') && key.Mod.Contains(tea.ModCtrl) || key.String() == "ctrl+o") && !m.overlays.resumePicker.Active() {
 		if m.overlays.panel.kind == panelregistry.Diff {
 			// Cycle 381: the /diff panel owns the fold state, so the
 			// toggle is the panel's.
 			if m.diffPanel().View() != 0 {
 				m.diffPanel().ToggleFoldAtCursor()
 			}
+			return m, nil, true
+		}
+		if m.overlays.panel.kind == panelregistry.Agents && m.agentsPanel().DetailMode() {
+			m.agentsPanel().ToggleExpandedDetail()
+			return m, nil, true
+		}
+		if m.overlays.panel.kind == panelregistry.Tasks && m.tasksPanel().DetailSubagent() {
+			m.tasksPanel().ToggleExpandedDetail()
 			return m, nil, true
 		}
 		if m.overlays.panel.kind != panelregistry.None {
@@ -1333,7 +1349,22 @@ func (m *RootModel) composerSeams() composer.Seams {
 
 // ---- tui_update_mouse.go ----
 
+const (
+	maxTerminalWidth  = 2000
+	maxTerminalHeight = 1000
+)
+
+// isPlausibleWindowSize guards against negative or implausibly huge resize
+// events (e.g. from stray escape sequences or corrupted terminal reports)
+// that would otherwise cause freezing, division by zero, or unbounded allocations.
+func isPlausibleWindowSize(msg tea.WindowSizeMsg) bool {
+	return msg.Width > 0 && msg.Height > 0 && msg.Width <= maxTerminalWidth && msg.Height <= maxTerminalHeight
+}
+
 func (m *RootModel) updateWindowSize(msg tea.WindowSizeMsg) (tea.Model, tea.Cmd) {
+	if !isPlausibleWindowSize(msg) {
+		return m, nil
+	}
 	oldW := m.viewport.width
 	oldH := m.viewport.height
 	m.viewport.width, m.viewport.height = msg.Width, msg.Height
@@ -2001,6 +2032,9 @@ func (m *RootModel) updateLogin(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
 	}
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
+		if !isPlausibleWindowSize(msg) {
+			return m, nil, true
+		}
 		m.viewport.width, m.viewport.height = msg.Width, msg.Height
 		m.auth.login.Width, m.auth.login.Height = msg.Width, msg.Height
 		return m, nil, true

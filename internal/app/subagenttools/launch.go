@@ -137,7 +137,10 @@ func Launch(ctx context.Context, inv Invocation, deps Deps) (Launched, error) {
 		childRunCtx, runCancel := context.WithCancel(context.WithoutCancel(runCtx))
 		child.SetCancel(runCancel)
 		child.setState(StateRunning)
-		go runChild(childRunCtx, child, deps, model, provider, systemPrompt, cwd, worktreePath, subDir, inv, gatedTools, startedAt, initialMsg)
+		go func() {
+			time.Sleep(150 * time.Millisecond)
+			runChild(childRunCtx, child, deps, model, provider, systemPrompt, cwd, worktreePath, subDir, inv, gatedTools, startedAt, initialMsg)
+		}()
 	}
 	child.SetLaunch(launchFn)
 	launchFn(childCtx, nil)
@@ -364,13 +367,14 @@ func runChild(
 					taskReg.Update(child.ConversationID, func(t *taskregistry.Task) {
 						if ev.ToolCall != nil {
 							t.CurrentTool = ev.ToolCall.Name
-							// The trajectory fills while the child
-							// works: a detail view opened mid-run
-							// shows the steps taken so far instead
-							// of "No steps yet". The turn's end
-							// replaces the list with usedSteps(msgs),
-							// so nothing is counted twice.
-							t.Steps = append(t.Steps, ev.ToolCall.Name)
+							stepStr := ev.ToolCall.Name
+							if len(ev.ToolCall.Input) > 0 {
+								args := extractToolArgs(ev.ToolCall.Name, string(ev.ToolCall.Input))
+								if args != "" {
+									stepStr = fmt.Sprintf("%s(%s)", ev.ToolCall.Name, args)
+								}
+							}
+							t.Steps = append(t.Steps, stepStr)
 						}
 					})
 				}
@@ -382,6 +386,13 @@ func runChild(
 					taskReg.RecordActivity(child.ConversationID)
 					taskReg.Update(child.ConversationID, func(t *taskregistry.Task) {
 						t.CurrentTool = ""
+						if ev.ToolResult != nil {
+							out := ev.ToolResult.Output
+							if out == "" && ev.ToolResult.Error != "" {
+								out = ev.ToolResult.Error
+							}
+							t.StepOutputs = append(t.StepOutputs, out)
+						}
 					})
 				}
 			}
@@ -578,6 +589,11 @@ func recordChildTurnWithMeta(
 				t.Output = assistantText(msgs)
 				t.Tools = usedTools(msgs)
 				t.Steps = usedSteps(msgs)
+				t.StepOutputs = usedOutputs(msgs)
+				t.StepCount = len(msgs)
+				if t.StepCount < len(t.Steps)+1 {
+					t.StepCount = len(t.Steps) + 1
+				}
 				t.CurrentTool = ""
 				t.EndedAt = time.Now()
 				t.LastActivityAt = time.Now()
@@ -587,6 +603,8 @@ func recordChildTurnWithMeta(
 			taskReg.Update(child.ConversationID, func(t *taskregistry.Task) {
 				t.State = taskregistry.StateFailed
 				t.Err = runErr
+				t.Steps = usedSteps(msgs)
+				t.StepOutputs = usedOutputs(msgs)
 				t.CurrentTool = ""
 				t.EndedAt = time.Now()
 				t.LastActivityAt = time.Now()
@@ -598,6 +616,11 @@ func recordChildTurnWithMeta(
 				t.Output = assistantText(msgs)
 				t.Tools = usedTools(msgs)
 				t.Steps = usedSteps(msgs)
+				t.StepOutputs = usedOutputs(msgs)
+				t.StepCount = len(msgs)
+				if t.StepCount < len(t.Steps)+1 {
+					t.StepCount = len(t.Steps) + 1
+				}
 				t.CurrentTool = ""
 				if t.State != taskregistry.StateFailed && t.State != taskregistry.StateStopped {
 					t.State = taskregistry.StateDone

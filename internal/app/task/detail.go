@@ -372,13 +372,30 @@ func SubagentStateColor(s State) string {
 //
 // The reference also renders a "User Backgrounded" badge; the clone
 // has no such badge.
+// SubagentDetailBody renders the reference's subagent-detail content
+// for t.
+//
+// 【反编译】 model.SubagentDetailModel.buildContentLines renders the
+// prompt, the tools the subagent called, its answer and its
+// trajectory, with "(no prompt available)", "No tools used yet" and
+// "No steps yet" as the empty forms. Every line is indented by two
+// cells and the lists' items by four.
+//
+// The reference also renders a "User Backgrounded" badge; the clone
+// has no such badge.
 func SubagentDetailBody(t *Task, widthOpt ...int) []string {
-	if t == nil {
-		return []string{detailNoSubagentData}
-	}
 	width := 0
 	if len(widthOpt) > 0 {
 		width = widthOpt[0]
+	}
+	return SubagentDetailBodyWithExpanded(t, width, false)
+}
+
+// SubagentDetailBodyWithExpanded renders the reference's subagent-detail content for t
+// with trajectory expand/collapse state.
+func SubagentDetailBodyWithExpanded(t *Task, width int, expanded bool) []string {
+	if t == nil {
+		return []string{detailNoSubagentData}
 	}
 	lines := []string{
 		detailIndent + detailSectionPrompt,
@@ -407,7 +424,15 @@ func SubagentDetailBody(t *Task, widthOpt ...int) []string {
 		lines = append(lines, detailIndent+detailNoSteps)
 	} else {
 		for i, step := range t.Steps {
-			lines = append(lines, formatDetailItem(fmt.Sprintf(detailStepFormat, i+1, step), detailItemIndent, width)...)
+			text := fmt.Sprintf(detailStepFormat, i+1, step)
+			if i == len(t.Steps)-1 {
+				hint := " (ctrl+o to expand)"
+				if expanded {
+					hint = " (ctrl+o to collapse)"
+				}
+				text += hint
+			}
+			lines = append(lines, formatDetailItem(text, detailItemIndent, width)...)
 		}
 	}
 	if t.Err != nil {

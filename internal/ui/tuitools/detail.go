@@ -334,6 +334,7 @@ func PreformattedDetail(name string) bool {
 	case "run_command", "run_shell_command", "exec_command",
 		"bash", "exec", "execute_command", "execute", "terminal", "sh",
 		"command_status", "send_command_input",
+		"manage_task", "manage_tasks", "task_status",
 		"grep_search", "grep", "find_by_name", "list_dir", "list_directory",
 		"list_processes":
 		return true

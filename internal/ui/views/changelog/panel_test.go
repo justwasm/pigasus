@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	tuiviewer "github.com/justwasm/pigasus/internal/ui/foundations/viewer"
+	"github.com/justwasm/pigasus/internal/ui/tuilib"
 	"github.com/justwasm/pigasus/internal/ui/views/changelog"
 	"github.com/justwasm/pigasus/palette"
 )
@@ -145,9 +146,9 @@ func TestPanelLines(t *testing.T) {
 		"alpha",
 		"beta",
 		"gamma",
-		"\x1b[38;2;101;123;131m  (1\u20133 of 3 lines)\x1b[39m",
+		tuiviewer.Counter(1, 3, 3),
 		"",
-		"  \x1b[1m\x1b[38;5;69m\u2191/\u2193\x1b[0m\x1b[38;2;101;123;131m Navigate \u00b7 \x1b[1m\x1b[38;5;69mesc\x1b[0m\x1b[38;2;101;123;131m Cancel\x1b[39m",
+		tuilib.PanelDotHint("  ", "↑/↓", "Navigate", "esc", "Cancel"),
 	}
 	if !sameRows(got, want) {
 		t.Errorf("PanelLines() =\n%q\nwant\n%q", got, want)

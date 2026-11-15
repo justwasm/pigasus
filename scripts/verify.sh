@@ -27,6 +27,8 @@ case "$MODE" in
   align)
     echo "==> Running tuialign scenario DSL tests..."
     go test ./devutils/tuialign/...
+    echo "==> Running wirealign wire parity scenario tests..."
+    go test ./devutils/wirealign/...
 
     # The live half needs the reference binary and tmux; it is skipped
     # rather than failed on a machine that has neither, because the
