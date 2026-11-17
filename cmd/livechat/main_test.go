@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -458,6 +459,12 @@ func TestExtractURLs(t *testing.T) {
 }
 
 func TestExecuteThinkerTask_CalCommand(t *testing.T) {
+	// `cal` is a bsdmainutils/ncal binary, not a Go stdlib call: a Linux CI
+	// image that does not ship it answers 127 and the test would be measuring
+	// the runner's package list instead of the thinker's command routing.
+	if _, err := exec.LookPath("cal"); err != nil {
+		t.Skip("cal is not installed on this machine")
+	}
 	out, err := executeThinkerTask("/tmp", "run the cal command in the terminal and report the output.")
 	if err != nil {
 		t.Fatalf("executeThinkerTask(cal) failed: %v", err)
