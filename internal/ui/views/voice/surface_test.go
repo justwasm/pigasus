@@ -6,6 +6,8 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+
+	termcolor "github.com/justwasm/pigasus/internal/ui/render/color"
 )
 
 // surface_test.go — the state machine's own behaviour.
@@ -184,5 +186,108 @@ func TestSurface_FailureEchoesTheReferenceNotice(t *testing.T) {
 	}
 	if !strings.Contains(replies[0][1], "Voice dictation needs a permission your current sign-in does not carry") {
 		t.Errorf("the hint reads %q", replies[0][1])
+	}
+}
+
+func TestSurface_LiveMode(t *testing.T) {
+	var liveStarted, liveStopped bool
+	var muted bool
+	s := New(Seams{
+		StartLive: func() error {
+			liveStarted = true
+			return nil
+		},
+		StopLive: func() error {
+			liveStopped = true
+			return nil
+		},
+		ToggleMute: func() bool {
+			muted = !muted
+			return muted
+		},
+		IsMuted: func() bool {
+			return muted
+		},
+		Width: func() int { return 80 },
+	})
+
+	cmd := s.Start("/voice live")
+	if cmd == nil {
+		t.Fatal("expected non-nil tea.Cmd from Start('/voice live')")
+	}
+	msg := cmd()
+	s.HandleConnectDone(msg.(ConnectDoneMsg))
+
+	if !s.Active() {
+		t.Fatal("expected surface to be active in live mode")
+	}
+	if s.Phase() != PhaseLive {
+		t.Fatalf("expected phase == PhaseLive (%d), got %d", PhaseLive, s.Phase())
+	}
+	if !liveStarted {
+		t.Fatal("expected StartLive seam to be called")
+	}
+
+	view := termcolor.StripSGR(s.View())
+	if !strings.Contains(view, "Live") || !strings.Contains(view, "f6 mute") || !strings.Contains(view, "listening") {
+		t.Fatalf("expected Live banner, got %q", view)
+	}
+
+	// In live mode, regular typing ('a') should fall through to composer (handled=false)
+	handledText, _ := s.HandleKey(tea.Key{Code: 'a'})
+	if handledText {
+		t.Fatal("expected regular typing to pass through to composer (handled=false)")
+	}
+
+	// Toggle mute via F6 key
+	handled, _ := s.HandleKey(tea.Key{Code: tea.KeyF6})
+	if !handled || !muted {
+		t.Fatalf("expected F6 key to toggle mute, handled=%v, muted=%v", handled, muted)
+	}
+	viewMuted := termcolor.StripSGR(s.View())
+	if !strings.Contains(viewMuted, "muted") || !strings.Contains(viewMuted, "f6 unmute") {
+		t.Fatalf("expected muted banner, got %q", viewMuted)
+	}
+
+	// Hang up via Esc (when prompt is empty)
+	handled, _ = s.HandleKey(tea.Key{Code: tea.KeyEsc})
+	if !handled || s.Active() {
+		t.Fatalf("expected Esc on empty prompt to hang up, active=%v", s.Active())
+	}
+	if !liveStopped {
+		t.Fatal("expected StopLive seam to be called")
+	}
+}
+
+func TestSurface_BareVoiceLiveFallbackDictation(t *testing.T) {
+	var liveAttempted, dictConnected bool
+	s := New(Seams{
+		IsLiveAvailable: func() bool { return true },
+		StartLive: func() error {
+			liveAttempted = true
+			return errors.New("Live mode isn't available in this session.")
+		},
+		Connect: func() error {
+			dictConnected = true
+			return nil
+		},
+		Width: func() int { return 80 },
+	})
+
+	cmd := s.Start("/voice")
+	if cmd == nil {
+		t.Fatal("expected non-nil tea.Cmd from Start('/voice')")
+	}
+	msg := cmd()
+	s.HandleConnectDone(msg.(ConnectDoneMsg))
+
+	if !liveAttempted {
+		t.Fatal("expected StartLive to be attempted first")
+	}
+	if !dictConnected {
+		t.Fatal("expected Connect (dictation) to be called as fallback")
+	}
+	if s.Phase() != PhaseRecording {
+		t.Fatalf("expected phase to be PhaseRecording after fallback, got %v", s.Phase())
 	}
 }

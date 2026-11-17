@@ -81,6 +81,7 @@ var ValidKeys = map[string]bool{
 	"useTerminalCursor":       true,
 	"verbosity":               true,
 	"vimInsertFirst":          true,
+	"voice":                   true,
 }
 
 var (

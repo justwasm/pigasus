@@ -196,6 +196,27 @@ func executePrintModelTurn(w io.Writer, fs *flag.FlagSet, cfg *printRunConfig) e
 		tools.SetExtraWorkspaces(workspaces[1:])
 	}
 
+	ctx = backend.ContextWithRetryNotifier(ctx, func(p backend.RetryProgress) {
+		if p.Attempt > 0 {
+			var attemptStr string
+			if p.Attempt > 0 && p.MaxAttempts > 0 {
+				attemptStr = fmt.Sprintf(" (attempt %d/%d)", p.Attempt, p.MaxAttempts)
+			}
+			rem := 0
+			if !p.RetryAt.IsZero() {
+				rem = int(math.Ceil(time.Until(p.RetryAt).Seconds()))
+				if rem < 0 {
+					rem = 0
+				}
+			}
+			if rem > 0 {
+				fmt.Fprintf(os.Stderr, "Model unavailable, retrying in %ds%s\n", rem, attemptStr)
+			} else {
+				fmt.Fprintf(os.Stderr, "Model unavailable, retrying%s\n", attemptStr)
+			}
+		}
+	})
+
 	denials, runErr := runActorPrintTurn(ctx, actorPrintConfig{
 		Backend:        be,
 		Model:          cfg.modelName,

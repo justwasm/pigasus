@@ -127,6 +127,9 @@ const (
 	// SendSignaling is the cloud RPC that posts a WebRTC mesh signaling message.
 	// It lives on the tunnel's own host unless the configuration file overrides it.
 	SendSignaling = "send_signaling"
+
+	// Voice is the real-time voice streaming endpoint (Gemini Multimodal Live WebSocket).
+	Voice = "voice"
 )
 
 // The compiled-in defaults. They are what the clone used before the
@@ -151,6 +154,7 @@ const (
 	DefaultAutoUpdater        = "https://antigravity-cli-auto-updater-974169037036.us-central1.run.app"
 	DefaultPollSignaling      = "https://jetski-webchannel.googleapis.com/v1internal:pollSignalingMessages"
 	DefaultSendSignaling      = "https://jetski-webchannel.googleapis.com/v1internal:sendSignalingMessage"
+	DefaultVoice              = "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContent"
 )
 
 // DefaultOriginPatterns is the browser Origin allowlist the remote-control
@@ -199,6 +203,7 @@ func Names() []Name {
 		{AutoUpdater, DefaultAutoUpdater},
 		{PollSignaling, DefaultPollSignaling},
 		{SendSignaling, DefaultSendSignaling},
+		{Voice, DefaultVoice},
 	}
 }
 
@@ -253,6 +258,8 @@ type Set struct {
 	// It is derived from the WebChannel endpoint unless the configuration
 	// file names one; see SendSignalingURL.
 	SendSignaling string
+	// Voice is the real-time voice streaming endpoint (Gemini Multimodal Live WebSocket).
+	Voice string
 }
 
 // Current returns the resolved endpoint set.
@@ -281,7 +288,29 @@ func Current() Set {
 		AutoUpdater:        pick(o, AutoUpdater, DefaultAutoUpdater),
 		PollSignaling:      pick(o, PollSignaling, ""),
 		SendSignaling:      pick(o, SendSignaling, ""),
+		Voice:              voice(o),
 	}
+}
+
+// voice resolves the real-time voice endpoint: OPENAGY_VOICE_URL, then
+// GOOGLE_GEMINI_BASE_URL (converted to ws/wss with live path), then the
+// file's override, then DefaultVoice.
+func voice(o map[string]string) string {
+	if v := strings.TrimSpace(os.Getenv("OPENAGY_VOICE_URL")); v != "" {
+		return v
+	}
+	if v := strings.TrimSpace(os.Getenv("GOOGLE_GEMINI_BASE_URL")); v != "" {
+		if strings.HasPrefix(v, "http://") {
+			v = "ws://" + strings.TrimPrefix(v, "http://")
+		} else if strings.HasPrefix(v, "https://") {
+			v = "wss://" + strings.TrimPrefix(v, "https://")
+		}
+		if !strings.Contains(v, "BidiGenerateContent") {
+			v = strings.TrimSuffix(v, "/") + "/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContent"
+		}
+		return v
+	}
+	return pick(o, Voice, DefaultVoice)
 }
 
 // cloudCode resolves the Code Assist host: CLOUD_CODE_URL, then the file's

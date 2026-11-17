@@ -126,3 +126,55 @@ func TestDefineSubagentRejectsReservedNames(t *testing.T) {
 		})
 	}
 }
+
+// TestBoostOrchestratorWorkflow tests that Boost mode's subagent invocations
+// for DeepCoder (coding) and DeepInvestigator (investigation) resolve properly
+// with exact system prompts, appropriate write/subagent grants, and no shadowing.
+func TestBoostOrchestratorWorkflow(t *testing.T) {
+	tool := &invokeTool{
+		deps: subagentTestServices(t),
+		defs: NewStore(),
+	}
+
+	// 1. Boost coding delegation to DeepCoder (with empty role to verify default)
+	coderInv, _, _, err := tool.resolve(context.Background(), invokeArgs{
+		TypeName: "DeepCoder",
+		Prompt:   "Task: Implement connection retry ceiling\nAdditional Context: none",
+	})
+	if err != nil {
+		t.Fatalf("resolve DeepCoder error: %v", err)
+	}
+	if coderInv.Role != builtinsubagent.RoleDeepCoder {
+		t.Errorf("DeepCoder default role = %q, want %q", coderInv.Role, builtinsubagent.RoleDeepCoder)
+	}
+	if !coderInv.Grant.Write {
+		t.Errorf("DeepCoder should have Write permissions enabled")
+	}
+	if !coderInv.Grant.Subagent {
+		t.Errorf("DeepCoder coordinator should have Subagent invocation permissions")
+	}
+	if !strings.Contains(coderInv.SystemPrompt, "DeepCoderWorkerL0") {
+		t.Errorf("DeepCoder system prompt should coordinate DeepCoderWorkerL0")
+	}
+
+	// 2. Boost investigation delegation to DeepInvestigator
+	investigatorInv, _, _, err := tool.resolve(context.Background(), invokeArgs{
+		TypeName: "DeepInvestigator",
+		Prompt:   "Task: Investigate latency regression\nAdditional Context: none",
+	})
+	if err != nil {
+		t.Fatalf("resolve DeepInvestigator error: %v", err)
+	}
+	if investigatorInv.Role != builtinsubagent.RoleDeepInvestigator {
+		t.Errorf("DeepInvestigator default role = %q, want %q", investigatorInv.Role, builtinsubagent.RoleDeepInvestigator)
+	}
+	if investigatorInv.Grant.Write {
+		t.Errorf("DeepInvestigator should have read-only permissions (Write=false)")
+	}
+	if !investigatorInv.Grant.Subagent {
+		t.Errorf("DeepInvestigator coordinator should have Subagent invocation permissions")
+	}
+	if !strings.Contains(investigatorInv.SystemPrompt, "DeepInvestigatorWorkerL0") {
+		t.Errorf("DeepInvestigator system prompt should coordinate DeepInvestigatorWorkerL0")
+	}
+}

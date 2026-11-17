@@ -215,6 +215,8 @@ func (c *CloudCodeClient) turn(req backend.StreamRequest, model string) geminico
 			!strings.HasPrefix(strings.TrimSpace(content), "<USER_REQUEST>") &&
 			!strings.HasPrefix(strings.TrimSpace(content), "<CONTEXT_SUMMARY>") &&
 			!strings.HasPrefix(strings.TrimSpace(content), "The following is a <SYSTEM_MESSAGE>") &&
+			!strings.HasPrefix(strings.TrimSpace(content), "<SYSTEM_MESSAGE>") &&
+			!strings.Contains(strings.TrimSpace(content), "<SYSTEM_MESSAGE>") &&
 			!strings.HasPrefix(content, "Step Id:") {
 			content = backend.WrapUserContent(content, model, false, time.Now())
 		}
@@ -330,12 +332,15 @@ func toBackendError(err error, url string) error {
 		}
 		return apierror.NewHTTPError(code, []byte(se.Error()), url)
 	}
-	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+	if errors.Is(err, context.Canceled) || err == context.DeadlineExceeded {
 		return err
 	}
 	classified := retry.ClassifyTransportError(err, url)
 	if classified != err {
 		return classified
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return err
 	}
 	return fmt.Errorf("cloudcode: %w", err)
 }

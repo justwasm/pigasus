@@ -5,12 +5,11 @@ import (
 	"testing"
 )
 
-// TestCatalogueSize pins the recovered catalogue: 20 top-level rows plus
-// the "Editor Mode › Insert First" child row, which the gate adds when
-// Editor Mode is vim.
+// TestCatalogueSize pins the recovered catalogue: 21 top-level rows plus
+// five gated child rows ("Editor Mode › Insert First" and four Voice Mode child rows).
 func TestCatalogueSize(t *testing.T) {
-	if got := len(SettingsRows); got != 21 {
-		t.Fatalf("catalogue has %d rows, want 21", got)
+	if got := len(SettingsRows); got != 26 {
+		t.Fatalf("catalogue has %d rows, want 26", got)
 	}
 	gated := 0
 	for _, r := range SettingsRows {
@@ -18,14 +17,14 @@ func TestCatalogueSize(t *testing.T) {
 			gated++
 		}
 	}
-	if gated != 1 {
-		t.Errorf("gated rows = %d, want 1", gated)
+	if gated != 5 {
+		t.Errorf("gated rows = %d, want 5", gated)
 	}
 }
 
 // TestCatalogueKeys pins the recovered name→settings.json key mapping
-// (probe_ref_walk2.py). A wrong key here silently writes the wrong
-// setting.
+// (probe_ref_walk2.py and AGY 1.5.9). A wrong key here silently writes
+// the wrong setting.
 func TestCatalogueKeys(t *testing.T) {
 	want := []struct{ name, key string }{
 		{"Agent Mode", "agentMode"},
@@ -47,8 +46,13 @@ func TestCatalogueKeys(t *testing.T) {
 		{"Show Feedback Survey", "showFeedbackSurvey"},
 		{"Show Tips", "showTips"},
 		{"Tool Permission", "toolPermission"},
-		{"Use G1 Credits", "useG1Credits"},
+		{"Use AI Credits", "useG1Credits"},
 		{"Verbosity", "verbosity"},
+		{"Voice Mode", "voice.voiceMode"},
+		{"Voice Mode › Full Duplex", "voice.fullDuplex"},
+		{"Voice Mode › Playback Speed", "voice.playbackSpeed"},
+		{"Voice Mode › Voice", "voice.voice"},
+		{"Voice Mode › Volume", "voice.volume"},
 	}
 	for i, w := range want {
 		got := SettingsRows[i]
@@ -138,7 +142,7 @@ func TestRawString(t *testing.T) {
 	}
 }
 
-// TestJSONLeafEqual pins the nil-only-equals-nil rule.
+// TestJSONLeafEqual pins the nil-only-equals-nil rule and numeric matching.
 func TestJSONLeafEqual(t *testing.T) {
 	if !JSONLeafEqual(nil, nil) {
 		t.Error("nil != nil")
@@ -148,6 +152,12 @@ func TestJSONLeafEqual(t *testing.T) {
 	}
 	if !JSONLeafEqual("a", "a") || JSONLeafEqual("a", "b") {
 		t.Error("string comparison wrong")
+	}
+	if !JSONLeafEqual(25, float64(25)) || !JSONLeafEqual(float64(25), 25) {
+		t.Error("numeric int/float64 mismatch")
+	}
+	if !JSONLeafEqual(0.75, 0.75) {
+		t.Error("float equality mismatch")
 	}
 }
 

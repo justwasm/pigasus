@@ -811,6 +811,10 @@ func (m *RootModel) handleEscKeyMsg() (tea.Model, tea.Cmd) {
 
 	// Priority 3: Composer input editing state (selection, draft text)
 	compaction.TriggerCancel()
+	if m.hasBtwSelection() {
+		m.ResetBtwSelection()
+		return m, nil
+	}
 	if m.prompt.HasInputSelection() {
 		m.ResetInputSelection()
 		return m, nil
@@ -834,6 +838,11 @@ func (m *RootModel) handleEscKeyMsg() (tea.Model, tea.Cmd) {
 		m.prompt.pastedBlocks = nil
 		m.prompt.nextPasteID = 0
 		return m, nil
+	}
+
+	// Priority 3.5: Empty prompt Esc in Live mode hangs up the voice session (agy parity).
+	if m.audio.Surface != nil && m.audio.Surface.Active() && m.audio.Surface.Phase() == voice.PhaseLive {
+		return m, m.audio.Surface.Stop()
 	}
 
 	// Priority 4: Background announcement cards (dismissed on empty prompt when not streaming)
@@ -1279,7 +1288,16 @@ func (m *RootModel) handleWordMoveAndChords(key tea.Key) (tea.Model, tea.Cmd, bo
 			return m, nil, true
 		}
 	}
-	if key.Code == 'v' && key.Mod.Contains(tea.ModCtrl) && !key.Mod.Contains(tea.ModAlt) {
+	if m.hasBtwSelection() && (key.Code == 'c' || key.Code == 'C') && (key.Mod.Contains(tea.ModSuper) || key.Mod.Contains(tea.ModCtrl)) && !key.Mod.Contains(tea.ModAlt) {
+		text := m.btwSelectionText()
+		m.ResetBtwSelection()
+		if text != "" {
+			_ = clipboard.Write(text)
+			return m, m.copySelectionCmd(text), true
+		}
+		return m, nil, true
+	}
+	if (key.Code == 'v' || key.Code == 'V') && (key.Mod.Contains(tea.ModCtrl) || key.Mod.Contains(tea.ModSuper)) && !key.Mod.Contains(tea.ModAlt) {
 		// The paste key's image half (agy 1.4.9): an image on the
 		// clipboard is attached, a dropped image file is attached, and
 		// only a clipboard with neither stays text.
@@ -1341,6 +1359,7 @@ func (m *RootModel) composerSeams() composer.Seams {
 			_ = clipboard.Write(text)
 			return m.copySelectionCmd(text)
 		},
+		Paste:                  m.handlePasteContent,
 		ClearEligibilityNotice: m.clearEligibilityNotice,
 		DismissModeHint:        func() { m.prompt.modeHintDismissed = true },
 		UndoMgr:                m.prompt.undoMgr,
@@ -1406,6 +1425,7 @@ func (m *RootModel) updateMouseClick(ev tea.Mouse) (tea.Model, tea.Cmd) {
 	}
 	if m.prompt.IsInputY(ev.Y) {
 		m.ResetSelection()
+		m.ResetBtwSelection()
 		offset := m.prompt.InputOffsetAt(ev.X, ev.Y)
 		m.prompt.SetInputCursorOffset(offset)
 		m.prompt.InputSelDragging = true
@@ -1413,7 +1433,19 @@ func (m *RootModel) updateMouseClick(ev tea.Mouse) (tea.Model, tea.Cmd) {
 		m.prompt.InputSelEnd = offset
 		return m, nil
 	}
+	if m.IsBtwCardY(ev.Y) {
+		m.ResetSelection()
+		m.ResetInputSelection()
+		cardRelY := ev.Y - m.overlays.btwScreenY
+		m.overlays.btwSelection.SelDragging = true
+		m.overlays.btwSelection.SelStartRow = cardRelY
+		m.overlays.btwSelection.SelStartCol = ev.X
+		m.overlays.btwSelection.SelEndRow = cardRelY
+		m.overlays.btwSelection.SelEndCol = ev.X
+		return m, nil
+	}
 	m.ResetInputSelection()
+	m.ResetBtwSelection()
 	row, col, ok := tuiviewport.TranscriptCellAt(ev.X, ev.Y, m.viewportHeight(), m.viewport.width)
 	if !ok {
 		return m, nil
@@ -1434,6 +1466,20 @@ func (m *RootModel) updateMouseMotion(ev tea.Mouse) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	}
+	if m.overlays.btwSelection.SelDragging && m.viewport.altScreen {
+		cardRelY := ev.Y - m.overlays.btwScreenY
+		if cardRelY < 0 {
+			cardRelY = 0
+		}
+		if cardRelY >= m.overlays.btwHeight {
+			cardRelY = m.overlays.btwHeight - 1
+		}
+		if cardRelY != m.overlays.btwSelection.SelEndRow || ev.X != m.overlays.btwSelection.SelEndCol {
+			m.overlays.btwSelection.SelEndRow = cardRelY
+			m.overlays.btwSelection.SelEndCol = ev.X
+		}
+		return m, nil
+	}
 	if !m.viewport.SelDragging || !m.viewport.altScreen {
 		return m, nil
 	}
@@ -1443,6 +1489,31 @@ func (m *RootModel) updateMouseMotion(ev tea.Mouse) (tea.Model, tea.Cmd) {
 	}
 	if row != m.viewport.SelEndRow || col != m.viewport.SelEndCol {
 		m.viewport.SelEndRow, m.viewport.SelEndCol = row, col
+	}
+	return m, nil
+}
+
+func (m *RootModel) updateMouseReleaseBtwSel(ev tea.Mouse) (tea.Model, tea.Cmd) {
+	m.overlays.btwSelection.SelDragging = false
+	if ev.Button != tea.MouseLeft {
+		m.ResetBtwSelection()
+		return m, nil
+	}
+	cardRelY := ev.Y - m.overlays.btwScreenY
+	if cardRelY < 0 {
+		cardRelY = 0
+	}
+	if cardRelY >= m.overlays.btwHeight {
+		cardRelY = m.overlays.btwHeight - 1
+	}
+	m.overlays.btwSelection.SelEndRow = cardRelY
+	m.overlays.btwSelection.SelEndCol = ev.X
+
+	text := m.btwSelectionText()
+	m.ResetBtwSelection()
+	if text != "" {
+		_ = clipboard.Write(text)
+		return m, m.copySelectionCmd(text)
 	}
 	return m, nil
 }
@@ -1469,6 +1540,9 @@ func (m *RootModel) updateMouseReleaseInputSel(ev tea.Mouse) (tea.Model, tea.Cmd
 func (m *RootModel) updateMouseRelease(ev tea.Mouse) (tea.Model, tea.Cmd) {
 	if m.prompt.InputSelDragging {
 		return m.updateMouseReleaseInputSel(ev)
+	}
+	if m.overlays.btwSelection.SelDragging {
+		return m.updateMouseReleaseBtwSel(ev)
 	}
 	if !m.viewport.SelDragging {
 		return m, nil
@@ -2146,7 +2220,7 @@ func (m *RootModel) armEscReleaseTick() tea.Cmd {
 func (m *RootModel) canConsumeAltEsc() bool {
 	if m.overlays.panel.kind != panelregistry.None || m.help.Panel.Active() || (m.swarm.Board != nil && m.swarm.Board.Active()) ||
 		m.prompt.picker.Visible() || m.prompt.atFilePicker.Visible() ||
-		m.overlays.resumePicker.Active() || m.audio.Surface.Active() ||
+		m.overlays.resumePicker.Active() || (m.audio.Surface != nil && m.audio.Surface.Active() && m.audio.Surface.Phase() != voice.PhaseLive) ||
 		m.prompt.mediaExpanded || m.isBtwCardVisible() ||
 		m.conversation.streaming || m.session.store.BashRunning() ||
 		// Bash mode's Esc leaves the mode: holding it for an alt pair

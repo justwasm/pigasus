@@ -77,6 +77,13 @@ Presentation / Entry Surfaces
     - No reading from or migration from deprecated `~/.config/openagy`.
 12. **Quarantined Binary Compatibility**: High-fidelity reverse-engineering quirks, odd-width terminal compensations, and byte-level parity shims live isolated in `internal/features/compat/agy`. Do not pollute standard domain packages with ad-hoc binary workarounds.
 
+### Verification, Wire Transparency & Anti-Phantom Invariant
+13. **No Phantom Capabilities & Ground-Truth Guardrails (无虚设能力与事实闭环宪章)**:
+    - **UI Render Assertion**: Any capability claimed in the UI layer (text selection, cursor roaming, reverse-video styling, modal popovers, indicators) MUST be backed by test assertions inspecting rendered ANSI sequences or viewport character grids (`v.Content` / PTY capture), never solely by in-memory model fields.
+    - **Wire Transparency**: Duplex streaming protocols (WebSocket, Gemini Live, micwire) MUST provide an observable diagnostic channel (e.g. `--debug-wire`) exposing real-time packet counts, chunk bytes, and end-of-speech latency.
+    - **Subprocess Isolation**: Background thinker / command execution MUST run under an isolated process group (`syscall.SysProcAttr{Setpgid: true}`) and strict context deadlines; failures must surface explicitly rather than leaking signals (e.g. SIGTERM 143) or falsely reporting completion.
+    - **Ground-Truth Closure**: Never claim that a bug is fixed or a feature is implemented without running the tool to observe the actual execution output in the current turn. Speculative closure is strictly prohibited.
+
 ---
 
 ## 4. Standard Toolchain & Verification (工具链规范)
@@ -113,7 +120,7 @@ When working on specific subsystems, refer to the focused manuals under `docs/gu
 | Plugins & Marketplace | [`docs/guide/plugins.md`](docs/guide/plugins.md) | `internal/features/plugins/*`, `internal/ui/views/pluginsui` |
 | Localharness SDK Wire | [`docs/guide/localharness.md`](docs/guide/localharness.md) | `localharness/`, `cmd/harness`, `budget/`, `lifecyclehooks/` |
 | Remote Control & Web UI Wire | [`docs/guide/remote-control.md`](docs/guide/remote-control.md) | `internal/remotecontrol/*`, `remotetransport/`, `rcmesh/` |
-| Remote Agents Protocol & Mock | [`docs/guide/remote-agents.md`](docs/guide/remote-agents.md) | `internal/infra/mockremoteagent`, `cmd/mock-remote-agent`, `out/extracted-1.5.9/` |
+| Remote Agents Protocol & Mock | [`docs/guide/remote-agents.md`](docs/guide/remote-agents.md) | `internal/infra/mockremoteagent`, `cmd/mock-remote-agent`, `out/extracted-1.5.10/` |
 | pigasus-only surfaces (index) | [`docs/guide/pigasus-extensions.md`](docs/guide/pigasus-extensions.md) | `internal/tui/remote_*.go`, `internal/infra/remoteagentclient`, `internal/rchost/agentserver` |
 | Architecture Tier Ledger | [`docs/guide/architecture-tiers.md`](docs/guide/architecture-tiers.md) | `internal/core/architecture` |
 | Reverse-Engineering SOP | [`docs/guide/reverse-engineering.md`](docs/guide/reverse-engineering.md) | `scripts/re/`, `out/` |

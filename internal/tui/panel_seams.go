@@ -20,6 +20,8 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"charm.land/lipgloss/v2"
 
+	"github.com/justwasm/pigasus/agentlink"
+	"github.com/justwasm/pigasus/endpoints"
 	"github.com/justwasm/pigasus/internal/app/agentturn"
 	"github.com/justwasm/pigasus/internal/app/prompt/agyprompt"
 	"github.com/justwasm/pigasus/internal/app/session/convstore"
@@ -30,6 +32,7 @@ import (
 	"github.com/justwasm/pigasus/internal/core/backend"
 	"github.com/justwasm/pigasus/internal/core/cliflags"
 	confhome "github.com/justwasm/pigasus/internal/core/confhome"
+	"github.com/justwasm/pigasus/internal/core/interaction"
 	"github.com/justwasm/pigasus/internal/core/policy/permissions"
 	settings "github.com/justwasm/pigasus/internal/core/settings"
 	"github.com/justwasm/pigasus/internal/features/auth"
@@ -99,6 +102,7 @@ import (
 	"github.com/justwasm/pigasus/internal/ui/views/taskspanel"
 	"github.com/justwasm/pigasus/internal/ui/views/viewerpanel"
 	"github.com/justwasm/pigasus/internal/ui/views/voice"
+	voicebackend "github.com/justwasm/pigasus/internal/voice"
 )
 
 var (
@@ -201,15 +205,25 @@ func (m *RootModel) tasksStatusSuffix() string {
 }
 
 func (m *RootModel) shouldTickTasks() bool {
-	if m.overlays.panel.kind == panelregistry.Tasks {
-		return true
-	}
 	reg := m.tasks.reg
 	if m.tasks.ctrl != nil && m.tasks.ctrl.Registry() != nil {
 		reg = m.tasks.ctrl.Registry()
 	}
 	if reg != nil && reg.CountRunning() > 0 {
 		return true
+	}
+	if m.overlays.panel.kind == panelregistry.Tasks {
+		if m.overlays.panel.tp != nil && m.overlays.panel.tp.Detail() {
+			t := m.overlays.panel.tp.DetailTask()
+			return t != nil && t.State == taskregistry.StateRunning
+		}
+		return reg != nil && reg.CountRunning() > 0
+	}
+	if m.overlays.panel.kind == panelregistry.Agents {
+		if m.overlays.panel.ag != nil && m.overlays.panel.ag.DetailMode() {
+			sa := m.overlays.panel.ag.DetailSubagent()
+			return sa != nil && strings.ToLower(sa.State) == "running"
+		}
 	}
 	return false
 }
@@ -1769,6 +1783,258 @@ func (m *RootModel) ConnectVoice() error {
 		_ = conn.Close()
 	}
 	return nil
+}
+
+func (m *RootModel) IsLiveVoiceAvailable() bool {
+	if endpoints.CurrentGeminiAPIKey() != "" {
+		return true
+	}
+	if endpoints.Current().Voice != endpoints.DefaultVoice {
+		return true
+	}
+	if os.Getenv("PIGASUS_MOCK_VOICE") != "" || os.Getenv("OPENAGY_MOCK_VOICE") != "" {
+		return true
+	}
+	return false
+}
+
+func (m *RootModel) StartLiveVoice() error {
+	if !m.IsLiveVoiceAvailable() {
+		return errors.New("Live mode isn't available in this session.")
+	}
+
+	voiceName := m.audio.voice
+	if voiceName == "" {
+		voiceName = "Finn"
+	}
+	cfg := voicebackend.LiveSessionConfig{
+		Voice: voiceName,
+	}
+
+	apiKey := endpoints.CurrentGeminiAPIKey()
+
+	voiceEndpoint := endpoints.Current().Voice
+	var backend voicebackend.LiveBackend
+
+	if apiKey != "" {
+		backend = voicebackend.NewGeminiLiveBackend(apiKey)
+	} else if voiceEndpoint != endpoints.DefaultVoice {
+		var bearerToken string
+		if tok, err := auth.LoadTokenUnified(); err == nil && tok != nil && tok.Token.AccessToken != "" {
+			bearerToken = tok.Token.AccessToken
+		}
+		if bearerToken != "" {
+			backend = voicebackend.NewGeminiLiveBackendWithBearer(bearerToken)
+		} else {
+			backend = voicebackend.NewGeminiLiveBackend("")
+		}
+	} else if os.Getenv("PIGASUS_MOCK_VOICE") != "" || os.Getenv("OPENAGY_MOCK_VOICE") != "" {
+		backend = voicebackend.NewMockLiveBackend()
+	} else {
+		return errors.New("Live mode isn't available in this session.")
+	}
+
+	sess := voicebackend.NewNativeLiveSession(backend, &tuiLiveHandler{m: m})
+	sess.SetDuplex(m.audio.duplex)
+	if err := sess.Start(context.Background(), cfg); err != nil {
+		return err
+	}
+	m.audio.liveSession = sess
+	return nil
+}
+
+func (m *RootModel) StopLiveVoice() error {
+	if m.audio.liveSession != nil {
+		_ = m.audio.liveSession.HangUp()
+		m.audio.liveSession = nil
+	}
+	return nil
+}
+
+func (m *RootModel) ToggleLiveMute() bool {
+	if m.audio.liveSession != nil {
+		m.audio.muted = m.audio.liveSession.ToggleMute()
+		return m.audio.muted
+	}
+	m.audio.muted = !m.audio.muted
+	return m.audio.muted
+}
+
+func (m *RootModel) IsLiveMuted() bool {
+	if m.audio.liveSession != nil {
+		return m.audio.liveSession.IsMuted()
+	}
+	return m.audio.muted
+}
+
+func (m *RootModel) IsLiveSpeaking() bool {
+	if m.audio.liveSession != nil {
+		return m.audio.liveSession.Speaking()
+	}
+	return false
+}
+
+func (m *RootModel) IsPromptEmpty() bool {
+	return strings.TrimSpace(m.prompt.input.Value()) == ""
+}
+
+type tuiLiveHandler struct {
+	m *RootModel
+}
+
+func (h *tuiLiveHandler) OnUserSpeech(text string, interim bool) {
+	if !interim && text != "" && h.m != nil {
+		h.m.slashRespond("/voice", fmt.Sprintf("You: %s", text))
+	}
+}
+
+func (h *tuiLiveHandler) OnAgentSpeech(text string) {
+	if text != "" && h.m != nil {
+		h.m.slashRespond("/voice", fmt.Sprintf("Agent: %s", text))
+	}
+}
+
+func (h *tuiLiveHandler) OnAgentSpeechDelta(delta string) {}
+
+func (h *tuiLiveHandler) OnTurnComplete() {}
+
+func (h *tuiLiveHandler) OnInterrupted() {
+	if h.m != nil {
+		h.m.slashRespond("/voice", "[Barge-in interrupted]")
+	}
+}
+
+func (h *tuiLiveHandler) OnToolCall(call voicebackend.LiveToolCall) {}
+
+func (h *tuiLiveHandler) OnThinkerHandoff(invocationID string, task string) {
+	if h.m == nil || strings.TrimSpace(task) == "" {
+		return
+	}
+
+	h.m.slashRespond("/voice", fmt.Sprintf("[Thinker Handoff] %s", task))
+
+	// Acknowledge the tool invocation to Talker immediately
+	if h.m.audio.liveSession != nil {
+		_ = h.m.audio.liveSession.CompleteHandoff(invocationID, map[string]any{
+			"status":  "dispatched",
+			"task":    task,
+			"message": "Thinker agent has started working on the task.",
+		})
+		_ = h.m.audio.liveSession.SendThinkerNote(fmt.Sprintf("Started working on: %s", task))
+	}
+
+	// Run Thinker task asynchronously in background
+	go func() {
+		sess := h.m.audio.liveSession
+		result, err := h.m.RunThinkerTask(task, func(note string) {
+			if sess != nil && sess.IsActive() {
+				_ = sess.SendThinkerNote(note)
+			}
+		})
+		if err != nil {
+			if sess != nil && sess.IsActive() {
+				_ = sess.SendThinkerNote(fmt.Sprintf("Task failed: %v", err))
+			}
+			h.m.slashRespond("/voice", fmt.Sprintf("[Thinker Error] %v", err))
+			return
+		}
+		if sess != nil && sess.IsActive() {
+			_ = sess.SendThinkerAnswer(result)
+		}
+		h.m.slashRespond("/voice", fmt.Sprintf("[Thinker Completed] %s", result))
+	}()
+}
+
+// RunThinkerTask executes a Thinker turn using the active turn engine and tools.
+func (m *RootModel) RunThinkerTask(task string, onProgress func(string)) (string, error) {
+	bridge := NewEngineBridge(BridgeOptions{
+		Engine:    m.turnEngine(),
+		Program:   m.turn.prog,
+		PromptMgr: DefaultPermissionPrompts,
+		OnUsage:   m.recordTurnUsage,
+		OnFrame: func(f agentlink.Frame) {
+			if f.Tool != nil && onProgress != nil {
+				onProgress(fmt.Sprintf("Running tool: %s", f.Tool.Name))
+			}
+		},
+		HookStart:    m.hookSessionStart,
+		HookPre:      m.hookPreInvocation,
+		HookStop:     m.hookStop,
+		HookPost:     m.hookPostInvocation,
+		SessionEpoch: func() uint64 { return m.session.epoch() },
+	})
+
+	turnCtx, endTurn := bridge.turns.Begin(context.Background())
+	defer endTurn()
+	turnCtx = interaction.WithHost(turnCtx, m.turnInteractionHost())
+
+	msgs := []backend.Message{
+		{
+			Role:        "user",
+			Content:     task,
+			WireContent: backend.WrapUserContent(task, m.turnModel(), m.session.wireSettingsPending, time.Now()),
+		},
+	}
+
+	rawMsg := bridge.runTurnOn(turnCtx, m.turnModel(), msgs)
+	if done, ok := rawMsg.(toolsteps.TurnDoneMsg); ok {
+		if done.Err != nil {
+			return "", done.Err
+		}
+		if done.Reply != "" {
+			return done.Reply, nil
+		}
+		if len(done.Steps) > 0 {
+			lastStep := done.Steps[len(done.Steps)-1]
+			if lastStep.Result != "" {
+				return lastStep.Result, nil
+			}
+			return fmt.Sprintf("Completed %d tool steps", len(done.Steps)), nil
+		}
+		return "Task completed successfully.", nil
+	}
+	return "Task completed.", nil
+}
+
+func (h *tuiLiveHandler) OnError(err error) {
+	if h.m != nil && err != nil {
+		errMsg := err.Error()
+		if strings.Contains(errMsg, "insufficient authentication scopes") {
+			errMsg = "Google AI Studio live connection rejected (insufficient authentication scopes). Set GEMINI_API_KEY or configure a proxy endpoint in ~/.openagy/config.json."
+		}
+		h.m.slashRespond("/voice", fmt.Sprintf("Live error: %s", errMsg))
+		if h.m.audio.liveSession != nil {
+			_ = h.m.audio.liveSession.HangUp()
+			h.m.audio.liveSession = nil
+		}
+		if h.m.audio.Surface != nil && h.m.audio.Surface.Active() {
+			h.m.audio.Surface.Discard()
+		}
+	}
+}
+
+func (h *tuiLiveHandler) OnClose() {
+	if h.m != nil {
+		if h.m.audio.liveSession != nil {
+			_ = h.m.audio.liveSession.HangUp()
+			h.m.audio.liveSession = nil
+		}
+		if h.m.audio.Surface != nil && h.m.audio.Surface.Active() {
+			_ = h.m.audio.Surface.Stop()
+		}
+	}
+}
+
+func (h *tuiLiveHandler) OnReconnecting(attempt int, maxAttempts int, err error) {
+	if h.m != nil {
+		h.m.slashRespond("/voice", fmt.Sprintf("Live session reconnecting (%d/%d)...", attempt, maxAttempts))
+	}
+}
+
+func (h *tuiLiveHandler) OnReconnected() {
+	if h.m != nil {
+		h.m.slashRespond("/voice", "Live session reconnected successfully.")
+	}
 }
 
 // deadcode: staged (voice connection seam tested in slash_content_test.go)

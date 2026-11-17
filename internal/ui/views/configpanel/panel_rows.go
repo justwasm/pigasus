@@ -24,7 +24,11 @@ func (p *Panel) Catalogue() []Row {
 	out := make([]Row, 0, len(SettingsRows)+1)
 	for _, r := range SettingsRows {
 		if r.ShowWhenKey != "" {
-			if raw, _ := settings.Field(r.ShowWhenKey); RawString(raw) != r.ShowWhenVal {
+			raw, _ := settings.Field(r.ShowWhenKey)
+			if r.ShowWhenVal != "" && RawString(raw) != r.ShowWhenVal {
+				continue
+			}
+			if r.ShowWhenNotVal != "" && RawString(raw) == r.ShowWhenNotVal {
 				continue
 			}
 		}

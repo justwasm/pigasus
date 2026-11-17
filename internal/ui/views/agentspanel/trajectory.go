@@ -2,11 +2,13 @@ package agentspanel
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/charmbracelet/x/ansi"
@@ -184,10 +186,10 @@ func formatToolArgs(toolName string, raw json.RawMessage) string {
 	return ""
 }
 
-// LoadTrajectoryFromTranscript loads trajectory steps and total steps from disk.
-func LoadTrajectoryFromTranscript(subID string) ([]TrajectoryStep, int) {
+// TranscriptFileStat returns the path, mtime, and size of the transcript file on disk for subID, if any.
+func TranscriptFileStat(subID string) (path string, mtime time.Time, size int64) {
 	if subID == "" {
-		return nil, 0
+		return "", time.Time{}, 0
 	}
 	candidates := []string{
 		filepath.Join(confhome.Antigravity(), "subagents", subID+".jsonl"),
@@ -200,15 +202,55 @@ func LoadTrajectoryFromTranscript(subID string) ([]TrajectoryStep, int) {
 			filepath.Join(home, ".gemini", "antigravity-cli", "brain", subID, ".system_generated", "logs", "transcript.jsonl"),
 		)
 	}
-	var f *os.File
-	var err error
 	for _, p := range candidates {
-		f, err = os.Open(p)
-		if err == nil {
-			break
+		if fi, err := os.Stat(p); err == nil && !fi.IsDir() {
+			return p, fi.ModTime(), fi.Size()
 		}
 	}
-	if f == nil {
+	return "", time.Time{}, 0
+}
+
+type transcriptMemoEntry struct {
+	mtime time.Time
+	size  int64
+	steps []TrajectoryStep
+	total int
+}
+
+var (
+	transcriptMemoMu sync.Mutex
+	transcriptMemo   = map[string]transcriptMemoEntry{}
+)
+
+// InvalidateTranscriptMemo clears the in-memory transcript cache.
+func InvalidateTranscriptMemo() {
+	transcriptMemoMu.Lock()
+	transcriptMemo = map[string]transcriptMemoEntry{}
+	transcriptMemoMu.Unlock()
+}
+
+// LoadTrajectoryFromTranscript loads trajectory steps and total steps from disk.
+func LoadTrajectoryFromTranscript(subID string) ([]TrajectoryStep, int) {
+	if subID == "" {
+		return nil, 0
+	}
+	p, mtime, size := TranscriptFileStat(subID)
+	if p == "" {
+		return nil, 0
+	}
+
+	transcriptMemoMu.Lock()
+	if entry, ok := transcriptMemo[p]; ok && entry.mtime.Equal(mtime) && entry.size == size {
+		steps := make([]TrajectoryStep, len(entry.steps))
+		copy(steps, entry.steps)
+		total := entry.total
+		transcriptMemoMu.Unlock()
+		return steps, total
+	}
+	transcriptMemoMu.Unlock()
+
+	f, err := os.Open(p)
+	if err != nil {
 		return nil, 0
 	}
 	defer f.Close()
@@ -259,19 +301,24 @@ func LoadTrajectoryFromTranscript(subID string) ([]TrajectoryStep, int) {
 	}
 
 	// Detect if file is Format B (subagents/<subID>.jsonl with message wrapper)
-	var subRecs []subagentRecord
 	isFormatB := false
 	for _, l := range rawLines {
-		var sr subagentRecord
-		if err := json.Unmarshal(l, &sr); err == nil {
-			if sr.Message.ToolName != "" || sr.Role == "toolResult" || sr.Message.Role == "toolResult" {
-				isFormatB = true
-			}
-			subRecs = append(subRecs, sr)
+		if bytes.Contains(l, []byte(`"tool_name"`)) ||
+			bytes.Contains(l, []byte(`"toolResult"`)) ||
+			(bytes.Contains(l, []byte(`"subagent"`)) && bytes.Contains(l, []byte(`"message"`))) {
+			isFormatB = true
+			break
 		}
 	}
 
-	if isFormatB && len(subRecs) > 0 {
+	if isFormatB {
+		var subRecs []subagentRecord
+		for _, l := range rawLines {
+			var sr subagentRecord
+			if err := json.Unmarshal(l, &sr); err == nil {
+				subRecs = append(subRecs, sr)
+			}
+		}
 		toolResults := make(map[string]string)
 		var orderedResults []string
 		for _, r := range subRecs {
@@ -325,7 +372,7 @@ func LoadTrajectoryFromTranscript(subID string) ([]TrajectoryStep, int) {
 				})
 			} else if r.Message.Content != "" {
 				text := strings.TrimSpace(r.Message.Content)
-				if !strings.HasPrefix(text, "<SYSTEM_MESSAGE>") && recIdx < len(subRecs)-1 {
+				if !strings.HasPrefix(text, "<SYSTEM_MESSAGE>") && !strings.HasPrefix(text, "The following is a <SYSTEM_MESSAGE>") && !strings.Contains(text, "<SYSTEM_MESSAGE>") && recIdx < len(subRecs)-1 {
 					steps = append(steps, TrajectoryStep{
 						Kind: "message",
 						Text: r.Message.Content,
@@ -337,7 +384,7 @@ func LoadTrajectoryFromTranscript(subID string) ([]TrajectoryStep, int) {
 			for _, r := range subRecs {
 				if (r.Role == "assistant" || r.Message.Role == "assistant") && r.Message.Content != "" {
 					text := strings.TrimSpace(r.Message.Content)
-					if !strings.HasPrefix(text, "<SYSTEM_MESSAGE>") {
+					if !strings.HasPrefix(text, "<SYSTEM_MESSAGE>") && !strings.HasPrefix(text, "The following is a <SYSTEM_MESSAGE>") && !strings.Contains(text, "<SYSTEM_MESSAGE>") {
 						steps = append(steps, TrajectoryStep{
 							Kind: "message",
 							Text: r.Message.Content,
@@ -347,7 +394,17 @@ func LoadTrajectoryFromTranscript(subID string) ([]TrajectoryStep, int) {
 				}
 			}
 		}
-		return steps, len(subRecs)
+		transcriptMemoMu.Lock()
+		transcriptMemo[p] = transcriptMemoEntry{
+			mtime: mtime,
+			size:  size,
+			steps: steps,
+			total: len(subRecs),
+		}
+		transcriptMemoMu.Unlock()
+		outSteps := make([]TrajectoryStep, len(steps))
+		copy(outSteps, steps)
+		return outSteps, len(subRecs)
 	}
 
 	// Format A: Brain transcript
@@ -429,7 +486,17 @@ func LoadTrajectoryFromTranscript(subID string) ([]TrajectoryStep, int) {
 		}
 	}
 
-	return steps, totalSteps
+	transcriptMemoMu.Lock()
+	transcriptMemo[p] = transcriptMemoEntry{
+		mtime: mtime,
+		size:  size,
+		steps: steps,
+		total: totalSteps,
+	}
+	transcriptMemoMu.Unlock()
+	outSteps := make([]TrajectoryStep, len(steps))
+	copy(outSteps, steps)
+	return outSteps, totalSteps
 }
 
 // ParseFallbackSteps parses synthetic/in-memory steps when no transcript JSONL file is available on disk.

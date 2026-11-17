@@ -9,11 +9,21 @@ package tui
 //
 // Upstream: google3/third_party/jetski/cli/model/model.AudioModel.
 
-import "github.com/justwasm/pigasus/internal/ui/views/voice"
+import (
+	voiceviews "github.com/justwasm/pigasus/internal/ui/views/voice"
+	"github.com/justwasm/pigasus/internal/voice"
+)
 
 // AudioModel owns the dictation surface. connect is the host's transport
 // hook; the surface calls it when the user starts dictation.
 type AudioModel struct {
-	*voice.Surface
-	connect func() error
+	*voiceviews.Surface
+	connect     func() error
+	muted       bool
+	duplex      bool
+	voice       string
+	volume      string
+	speed       string
+	speaker     string
+	liveSession *voice.NativeLiveSession
 }

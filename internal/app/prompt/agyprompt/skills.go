@@ -96,7 +96,11 @@ func skillFrontmatter(path string) (name, description string, ok bool) {
 	if err := yaml.Unmarshal(bytes.Join(lines[1:close], []byte("\n")), &doc); err != nil {
 		return "", "", false
 	}
-	return doc.Name, strings.TrimSpace(doc.Description), true
+	name = strings.TrimSpace(doc.Name)
+	if name == "" {
+		name = filepath.Base(filepath.Dir(path))
+	}
+	return name, strings.TrimSpace(doc.Description), true
 }
 
 // AgySkillPaths returns the skill directories whose entries appear in the

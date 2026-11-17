@@ -142,6 +142,23 @@ func TestGemini4CarbonADC(t *testing.T) {
 		t.Fatalf("gemini-4-hydrogen-high missing from ReferenceModels() under AGY_ADC_AUTH=true")
 	}
 
+	foundOrchestrator := false
+	foundOrchestratorArgon := false
+	for _, m := range ReferenceModels() {
+		if m.ID == "gemini-pro-orchestrator" && m.Label == "Orchestrator" {
+			foundOrchestrator = true
+		}
+		if m.ID == "gemini-pro-orchestrator-argon" && m.Label == "Orchestrator (Argon)" {
+			foundOrchestratorArgon = true
+		}
+	}
+	if !foundOrchestrator {
+		t.Fatalf("gemini-pro-orchestrator missing from ReferenceModels() under AGY_ADC_AUTH=true")
+	}
+	if !foundOrchestratorArgon {
+		t.Fatalf("gemini-pro-orchestrator-argon missing from ReferenceModels() under AGY_ADC_AUTH=true")
+	}
+
 	hTiers := EffortTiersFor("gemini-4-hydrogen")
 	if len(hTiers) != 4 || hTiers[0] != "low" || hTiers[1] != "medium" || hTiers[2] != "high" || hTiers[3] != "xhigh" {
 		t.Fatalf("EffortTiersFor(gemini-4-hydrogen) = %v, want [low, medium, high, xhigh]", hTiers)

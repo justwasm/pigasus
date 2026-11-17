@@ -9,13 +9,14 @@ import (
 )
 
 var (
-	catMu       sync.RWMutex
-	catCached   []ModelEntry
-	catLastReg  *models.Registry
-	catLastGen  uint64
-	catLastGate bool
-	catLastADC  bool
-	catLastKey  bool
+	catMu        sync.RWMutex
+	catCached    []ModelEntry
+	catLastReg   *models.Registry
+	catLastGen   uint64
+	catLastGate  bool
+	catLastADC   bool
+	catLastKey   bool
+	catLastUndoc bool
 )
 
 // ModelCatalogue returns every model the CLI can select: the reference's own
@@ -38,13 +39,14 @@ func ModelCatalogue() []ModelEntry {
 	gate := Claude55Available()
 	adc := ADCAuthAvailable()
 	key := GeminiAPIKeyAvailable()
+	undoc := UndocumentedModelsEnabled()
 	var gen uint64
 	if reg != nil {
 		gen = reg.Gen()
 	}
 
 	catMu.RLock()
-	if catCached != nil && catLastReg == reg && catLastGen == gen && catLastGate == gate && catLastADC == adc && catLastKey == key {
+	if catCached != nil && catLastReg == reg && catLastGen == gen && catLastGate == gate && catLastADC == adc && catLastKey == key && catLastUndoc == undoc {
 		out := make([]ModelEntry, len(catCached))
 		copy(out, catCached)
 		catMu.RUnlock()
@@ -54,13 +56,16 @@ func ModelCatalogue() []ModelEntry {
 
 	catMu.Lock()
 	defer catMu.Unlock()
-	if catCached != nil && catLastReg == reg && catLastGen == gen && catLastGate == gate && catLastADC == adc && catLastKey == key {
+	if catCached != nil && catLastReg == reg && catLastGen == gen && catLastGate == gate && catLastADC == adc && catLastKey == key && catLastUndoc == undoc {
 		out := make([]ModelEntry, len(catCached))
 		copy(out, catCached)
 		return out
 	}
 
 	out := ReferenceModels()
+	for _, m := range UndocumentedModels() {
+		out = appendUniqueEntry(out, m)
+	}
 	seen := make(map[string]bool, len(out)*2)
 	for _, m := range out {
 		seen[m.ID] = true
@@ -82,6 +87,7 @@ func ModelCatalogue() []ModelEntry {
 	catLastGate = gate
 	catLastADC = adc
 	catLastKey = key
+	catLastUndoc = undoc
 
 	return out
 }

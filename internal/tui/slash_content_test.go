@@ -24,6 +24,7 @@ import (
 	"github.com/justwasm/pigasus/internal/core/backend"
 	confhome "github.com/justwasm/pigasus/internal/core/confhome"
 	"github.com/justwasm/pigasus/internal/features/plugins/hooks"
+	"github.com/justwasm/pigasus/internal/features/tools/clipboard"
 	"github.com/justwasm/pigasus/internal/features/tools/isolation"
 	"github.com/justwasm/pigasus/internal/printmode"
 	"github.com/justwasm/pigasus/internal/ui/mdrender"
@@ -2866,5 +2867,99 @@ func TestBtw_AsyncCancellationOnEsc(t *testing.T) {
 	}
 	if card.Err == nil || !strings.Contains(card.Err.Error(), "cancelled") {
 		t.Errorf("card.Err = %v, want cancelled", card.Err)
+	}
+}
+
+// TestBtwCard_MouseSelectionAndCopy verifies mouse text selection, dragging,
+// highlighting, and clipboard copying on the /btw card.
+func TestBtwCard_MouseSelectionAndCopy(t *testing.T) {
+	cleanup := withBtwManager(t)
+	defer cleanup()
+
+	m := newSlashModel(t)
+	m.viewport.altScreen = true
+	m.viewport.width = 80
+	m.viewport.height = 24
+
+	c := &sidequestion.Card{
+		ID:       "card-select",
+		Question: "Explain concurrency",
+		Answer:   "Concurrency is about dealing with lots of things at once.",
+		State:    sidequestion.StateDone,
+	}
+	m.overlays.btwCards = []*sidequestion.Card{c}
+	m.overlays.activeBtwIndex = 0
+	m.overlays.activeBtwID = c.ID
+
+	// Render view to populate layout and screen coordinates
+	v := m.View()
+	if !m.isBtwCardVisible() {
+		t.Fatal("expected /btw card to be visible")
+	}
+	if m.overlays.btwScreenY < 0 || m.overlays.btwHeight <= 0 {
+		t.Fatalf("btwScreenY = %d, btwHeight = %d, want valid card screen bounds",
+			m.overlays.btwScreenY, m.overlays.btwHeight)
+	}
+
+	// 1. Mouse click inside /btw card
+	cardY := m.overlays.btwScreenY + 2
+	m.Update(mouseClick(4, cardY, tea.MouseLeft))
+	if !m.overlays.btwSelection.SelDragging {
+		t.Fatal("expected btwSelection.SelDragging to be true after click")
+	}
+
+	// 2. Mouse motion / dragging
+	m.Update(mouseMotion(30, cardY))
+	if !m.hasBtwSelection() {
+		t.Fatal("expected hasBtwSelection() to be true during drag")
+	}
+
+	// Highlight should be visible in rendered view
+	v = m.View()
+	if !strings.Contains(v.Content, "\x1b[7m") {
+		t.Errorf("expected rendered card to contain reverse-video highlight (\\x1b[7m), got:\n%s", v.Content)
+	}
+
+	// 3. Mouse release copies selected text to clipboard
+	var copiedText string
+	prevWriter := clipboard.Writer
+	clipboard.Writer = func(text string) error {
+		copiedText = text
+		return nil
+	}
+	defer func() { clipboard.Writer = prevWriter }()
+
+	m.Update(mouseRelease(30, cardY, tea.MouseLeft))
+	if m.overlays.btwSelection.SelDragging {
+		t.Error("expected btwSelection.SelDragging to be false after release")
+	}
+	if copiedText == "" {
+		t.Fatal("expected copied text from /btw card, got empty string")
+	}
+	if strings.Contains(copiedText, "┃") {
+		t.Errorf("copied text should not include card border ┃, got %q", copiedText)
+	}
+
+	// 4. Esc clears selection without closing the card
+	m.Update(mouseClick(4, cardY, tea.MouseLeft))
+	m.Update(mouseMotion(25, cardY))
+	if !m.hasBtwSelection() {
+		t.Fatal("expected active selection before Esc")
+	}
+	m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyEsc}))
+	if m.hasBtwSelection() {
+		t.Error("expected selection cleared after Esc")
+	}
+	if !m.isBtwCardVisible() {
+		t.Error("first Esc on selection should clear selection, not close the card")
+	}
+
+	// 5. Cmd+C / Ctrl+C copies active card selection
+	m.Update(mouseClick(4, cardY, tea.MouseLeft))
+	m.Update(mouseMotion(25, cardY))
+	copiedText = ""
+	m.Update(tea.KeyPressMsg(tea.Key{Code: 'c', Mod: tea.ModSuper}))
+	if copiedText == "" {
+		t.Error("expected Cmd+C to copy active /btw card selection")
 	}
 }

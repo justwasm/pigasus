@@ -28,6 +28,7 @@ import (
 )
 
 func (m *RootModel) updateTurnDoneMsg(msg toolsteps.TurnDoneMsg) (tea.Model, tea.Cmd) {
+	m.conversation.ClearModelRetry()
 	m.turn.activeBridge = nil
 	// A remote turn just learned its cascade id; the save below names the
 	// conversation after it so `/continue` can resume the remote cascade.
@@ -259,7 +260,21 @@ func (m *RootModel) updateStreamingMsg(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
 	case steerAppliedMsg:
 		m.updateSteerAppliedMsg(msg)
 		return m, nil, true
+	case modelRetryStatusMsg:
+		if msg.attempt == 0 {
+			m.conversation.ClearModelRetry()
+		} else {
+			var retryAt time.Time
+			if msg.retryAtUnixMS > 0 {
+				retryAt = time.UnixMilli(msg.retryAtUnixMS)
+			}
+			m.conversation.SetModelRetry(msg.attempt, msg.maxAttempts, retryAt)
+		}
+		m.viewport.rowsCacheDirty = true
+		m.invalidateViewCache()
+		return m, nil, true
 	case backendDoneMsg:
+		m.conversation.ClearModelRetry()
 		m.turn.activeBridge = nil
 		m.conversation.EndStream()
 		m.saveSession()

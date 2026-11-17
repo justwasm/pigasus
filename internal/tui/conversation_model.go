@@ -15,6 +15,8 @@ package tui
 // render/turn owner.
 
 import (
+	"fmt"
+	"math"
 	"time"
 
 	sp "charm.land/bubbles/v2/spinner"
@@ -87,6 +89,56 @@ type ConversationModel struct {
 
 	// spinner is the streaming spinner.
 	spinner sp.Model
+
+	// modelRetry tracks in-progress unavailable model retry countdown.
+	modelRetry *ModelRetry
+}
+
+// ModelRetry tracks model unavailable retry countdown.
+type ModelRetry struct {
+	Attempt     int
+	MaxAttempts int
+	RetryAt     time.Time
+}
+
+func (c *ConversationModel) SetModelRetry(attempt, maxAttempts int, retryAt time.Time) {
+	c.modelRetry = &ModelRetry{
+		Attempt:     attempt,
+		MaxAttempts: maxAttempts,
+		RetryAt:     retryAt,
+	}
+}
+
+func (c *ConversationModel) ClearModelRetry() {
+	c.modelRetry = nil
+}
+
+// ModelRetryStatus formats the current model retry countdown line according
+// to reference parity:
+//
+//	when remaining > 0: "Model unavailable, retrying in 12s (attempt 2/10)"
+//	when remaining <= 0: "Model unavailable, retrying (attempt 2/10)"
+func (c *ConversationModel) ModelRetryStatus() (string, bool) {
+	if c.modelRetry == nil {
+		return "", false
+	}
+	attempt := c.modelRetry.Attempt
+	maxAttempts := c.modelRetry.MaxAttempts
+	var attemptStr string
+	if attempt > 0 && maxAttempts > 0 {
+		attemptStr = fmt.Sprintf(" (attempt %d/%d)", attempt, maxAttempts)
+	}
+	rem := 0
+	if !c.modelRetry.RetryAt.IsZero() {
+		rem = int(math.Ceil(time.Until(c.modelRetry.RetryAt).Seconds()))
+		if rem < 0 {
+			rem = 0
+		}
+	}
+	if rem > 0 {
+		return fmt.Sprintf("Model unavailable, retrying in %ds%s", rem, attemptStr), true
+	}
+	return fmt.Sprintf("Model unavailable, retrying%s", attemptStr), true
 }
 
 // ---- turn lifecycle ----
@@ -168,4 +220,5 @@ func (c *ConversationModel) EndStream() {
 	c.liveReplyIdx = -1
 	c.streaming = false
 	c.thinking = false
+	c.modelRetry = nil
 }

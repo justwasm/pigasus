@@ -49,16 +49,41 @@ func TestExecuteWithRetry_RetryThenSuccess(t *testing.T) {
 	}
 }
 
-func TestExecuteWithRetry_NonRetryable(t *testing.T) {
-	ctx := context.Background()
-	calls := 0
-	nonRetry := errors.New("bad request")
-	_, err := ExecuteWithRetry(ctx, "http://test", func(ctx context.Context) (string, error) {
-		calls++
-		return "", nonRetry
+func TestExecuteWithRetry_DNSTimeoutAndNotifier(t *testing.T) {
+	origInitial := retry.InitialConnectionRetryInterval
+	origMax := retry.MaxConnectionRetryInterval
+	retry.InitialConnectionRetryInterval = 1 * time.Millisecond
+	retry.MaxConnectionRetryInterval = 5 * time.Millisecond
+	defer func() {
+		retry.InitialConnectionRetryInterval = origInitial
+		retry.MaxConnectionRetryInterval = origMax
+	}()
+
+	var progressReports []backend.RetryProgress
+	ctx := backend.ContextWithRetryNotifier(context.Background(), func(p backend.RetryProgress) {
+		progressReports = append(progressReports, p)
 	})
-	if err != nonRetry || calls != 1 {
-		t.Fatalf("expected nonRetry immediately, got err=%v calls=%d", err, calls)
+
+	calls := 0
+	dnsErr := errors.New("Post \"https://daily-cloudcode-pa.googleapis.com/v1internal:streamGenerateContent?alt=sse\": dial tcp: lookup daily-cloudcode-pa.googleapis.com: i/o timeout")
+	val, err := ExecuteWithRetry(ctx, "https://daily-cloudcode-pa.googleapis.com", func(ctx context.Context) (string, error) {
+		calls++
+		if calls < 4 {
+			return "", retry.ClassifyTransportError(dnsErr, "https://daily-cloudcode-pa.googleapis.com")
+		}
+		return "recovered", nil
+	})
+
+	if err != nil || val != "recovered" || calls != 4 {
+		t.Fatalf("expected 4 calls and success, got calls=%d val=%q err=%v", calls, val, err)
+	}
+
+	if len(progressReports) == 0 {
+		t.Fatal("expected retry progress reports, got none")
+	}
+	// Check that first report had attempt 2 and maxAttempts 10
+	if progressReports[0].Attempt != 2 || progressReports[0].MaxAttempts != 10 {
+		t.Errorf("expected attempt 2 / 10, got %+v", progressReports[0])
 	}
 }
 

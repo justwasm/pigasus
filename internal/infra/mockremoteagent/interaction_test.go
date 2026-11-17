@@ -196,6 +196,18 @@ func TestPermissionPresetRoundTrip(t *testing.T) {
 	defer srv.Close()
 
 	rec := httptest.NewRecorder()
+	srv.service.handleGetPermissionSettings(rec)
+	var initial struct {
+		PermissionPreset string `json:"permissionPreset"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &initial); err != nil {
+		t.Fatalf("decode initial: %v", err)
+	}
+	if initial.PermissionPreset != "DEFAULT" {
+		t.Errorf("initial permissionPreset = %q, want DEFAULT", initial.PermissionPreset)
+	}
+
+	rec = httptest.NewRecorder()
 	srv.service.handleSetPermissionPreset(rec, []byte(`{"preset":"TURBO"}`))
 
 	rec = httptest.NewRecorder()

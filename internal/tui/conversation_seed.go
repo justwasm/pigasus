@@ -431,10 +431,32 @@ func (m *RootModel) seedNonToolStep(s convstore.Step) {
 	case "checkpoint":
 		m.conversation.response = append(m.conversation.response, "  ⎿  Conversation compacted", "")
 		return
+	case "system":
+		if strings.TrimSpace(s.Text) == "" {
+			return
+		}
+		m.session.appendMessage(backend.Message{Role: "system", Content: s.Text})
+		if isInternalSystemMessage(s.Text) {
+			// Internal system messages (background tasks, subagent notifications)
+			// belong to the model context only and must never leak into the visible transcript.
+			return
+		}
+		m.conversation.response = append(m.conversation.response, "  "+tuilib.FirstLine(s.Text), "")
+		return
 	default:
+		if isInternalSystemMessage(s.Text) {
+			return
+		}
 		m.conversation.response = append(m.conversation.response, "  "+tuilib.FirstLine(s.Text))
 	}
 	m.conversation.response = append(m.conversation.response, "")
+}
+
+func isInternalSystemMessage(text string) bool {
+	trimmed := strings.TrimSpace(text)
+	return strings.HasPrefix(trimmed, "<SYSTEM_MESSAGE>") ||
+		strings.HasPrefix(trimmed, "The following is a <SYSTEM_MESSAGE>") ||
+		strings.Contains(trimmed, "<SYSTEM_MESSAGE>")
 }
 
 func loadedToolStep(s convstore.Step) toolsteps.Step {

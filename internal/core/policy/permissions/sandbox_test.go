@@ -29,6 +29,39 @@ func TestDefaultDenyPaths_IncludesApplicationSupport(t *testing.T) {
 	t.Errorf("DefaultDenyPaths = %v, missing %q (AGY 1.3.3 line 44)", DefaultDenyPaths, want)
 }
 
+// TestDefaultDenyPaths_Includes1510Paths pins AGY 1.5.10 default terminal sandbox
+// blocks: ~/.config, ~/.git-credentials, AppData/Roaming.
+func TestDefaultDenyPaths_Includes1510Paths(t *testing.T) {
+	required := []string{".config", ".git-credentials", "AppData/Roaming"}
+	for _, req := range required {
+		found := false
+		for _, p := range DefaultDenyPaths {
+			if p == req {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("DefaultDenyPaths = %v, missing %q (AGY 1.5.10)", DefaultDenyPaths, req)
+		}
+	}
+}
+
+// TestRender_DevToolsAllowlist pins AGY 1.5.10: common dev tool directories within .config
+// (git, go, npm, python, pip) remain accessible.
+func TestRender_DevToolsAllowlist(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("darwin-only assertion")
+	}
+	out := SeatbeltProfile{HomeDir: "/Users/example"}.Render()
+	for _, tool := range []string{"git", "go", "npm", "python", "pip"} {
+		want := `(subpath (string-append (param "HOME") "/.config/` + tool + `"))`
+		if !strings.Contains(out, want) {
+			t.Errorf("Render() missing dev tool allow rule for %q:\n%s", tool, out)
+		}
+	}
+}
+
 // TestRender_ReturnsEmptyOnNonDarwin pins the platform no-op property.
 // On Linux/Windows the runner does not invoke sandbox-exec at all, so
 // Render must return "". The same gate guards future cycles that wire

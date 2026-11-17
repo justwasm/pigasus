@@ -95,8 +95,11 @@ type Row struct {
 	// ShowWhenKey/ShowWhenVal gate a child row on another setting's raw
 	// value ("Editor Mode › Insert First" is drawn only while
 	// editorMode == "vim").
-	ShowWhenKey string
-	ShowWhenVal string
+	// ShowWhenNotVal hides the row when the setting equals this value
+	// (Voice Mode child rows are hidden while voiceMode == "dictation").
+	ShowWhenKey    string
+	ShowWhenVal    string
+	ShowWhenNotVal string
 	// MemoryOnly: the reference toggles the value but writes nothing to
 	// settings.json (Enable Telemetry). The clone keeps it in panel
 	// state so the row still responds.
@@ -237,7 +240,7 @@ var SettingsRows = []Row{
 			V("strict", "strict"), V("always-proceed", "always-proceed"),
 		},
 		Description: "Controls when the agent asks for your approval before it uses a tool. 'request-review': prompts before running write, bash, web, or MCP tools, unless an allow rule covers the action. 'proceed-in-sandbox': runs terminal commands without prompting when Sandbox Mode is on. 'strict': prompts before every tool action. 'always-proceed': runs terminal commands, web requests, and MCP tools without prompting."},
-	{Name: "Use G1 Credits", SettingsKey: "useG1Credits",
+	{Name: "Use AI Credits", SettingsKey: "useG1Credits",
 		Values:      []Val{B("off", nil), B("on", true)},
 		Description: "Use your AI credits for model calls once your plan's quota runs out"},
 	{Name: "Verbosity", SettingsKey: "verbosity",
@@ -245,6 +248,49 @@ var SettingsRows = []Row{
 			V("medium", ""), V("low", "low"), V("high", "high"),
 		},
 		Description: "Controls how much detail is shown for the agent's tool calls, commands, and thoughts."},
+	{Name: "Voice Mode", SettingsKey: "voice.voiceMode",
+		Values: []Val{
+			V("auto", ""), V("live", "live"), V("dictation", "dictation"),
+		},
+		Description: "What /voice alone starts. On dictation, the other Voice Mode settings are hidden; /voice live still starts a call."},
+	{Name: "Voice Mode › Full Duplex", SettingsKey: "voice.fullDuplex",
+		Values:      []Val{B("off", nil), B("on", true)},
+		Description: "Keep the microphone open while the agent speaks, so you can interrupt it. Use headphones.",
+		ShowWhenKey: "voice.voiceMode", ShowWhenNotVal: "dictation"},
+	{Name: "Voice Mode › Playback Speed", SettingsKey: "voice.playbackSpeed",
+		Values: []Val{
+			{Display: "1", Stored: nil},
+			{Display: "0.75", Stored: 0.75},
+			{Display: "1.25", Stored: 1.25},
+			{Display: "1.5", Stored: 1.5},
+			{Display: "2", Stored: 2.0},
+		},
+		Description: "How fast the agent speaks (0.5x to 3x). Applies at once.",
+		ShowWhenKey: "voice.voiceMode", ShowWhenNotVal: "dictation"},
+	{Name: "Voice Mode › Voice", SettingsKey: "voice.voice",
+		Values: []Val{
+			V("default", ""),
+			V("Fola", "Fola"),
+			V("Arlo", "Arlo"),
+			V("Cleo", "Cleo"),
+			V("Finn", "Finn"),
+			V("Gero", "Gero"),
+			V("Lora", "Lora"),
+			V("Neno", "Neno"),
+			V("Olin", "Olin"),
+			V("Tari", "Tari"),
+		},
+		Description: "The agent's voice in live mode (/voice speaker). Applies from the next call.",
+		ShowWhenKey: "voice.voiceMode", ShowWhenNotVal: "dictation"},
+	{Name: "Voice Mode › Volume", SettingsKey: "voice.volume",
+		Values: []Val{
+			{Display: "100", Stored: nil},
+			{Display: "25", Stored: 25},
+			{Display: "50", Stored: 50},
+			{Display: "75", Stored: 75},
+		},
+		Description: "The agent's voice volume in percent (0 to 100). Applies at once.",
+		ShowWhenKey: "voice.voiceMode", ShowWhenNotVal: "dictation"},
 }
 
 // RowsFiltered returns the configuration rows matching the search query.
@@ -289,12 +335,26 @@ func RawString(v any) string {
 }
 
 // JSONLeafEqual compares two settings.json leaves for cycle matching.
-// nil (key absent) only equals nil.
+// nil (key absent) only equals nil. Numbers compare equal across int and
+// float64 representations from JSON parsing.
 func JSONLeafEqual(a, b any) bool {
 	if a == nil || b == nil {
 		return a == nil && b == nil
 	}
-	return a == b
+	if a == b {
+		return true
+	}
+	switch va := a.(type) {
+	case int:
+		if vb, ok := b.(float64); ok {
+			return float64(va) == vb
+		}
+	case float64:
+		if vb, ok := b.(int); ok {
+			return va == float64(vb)
+		}
+	}
+	return false
 }
 
 // DisplayFor maps a stored leaf back to the display form of the

@@ -24,6 +24,9 @@ package codesearchpanel
 
 import (
 	tea "charm.land/bubbletea/v2"
+
+	"github.com/justwasm/pigasus/internal/features/tools/codesearch"
+	"github.com/justwasm/pigasus/internal/ui/tuilib"
 )
 
 // Update owns the keys of a live /codesearch result list in Elm unidirectional style.
@@ -49,16 +52,32 @@ func (p *Panel) HandleKey(key tea.Key) (handled bool, cmd tea.Cmd, ok bool) {
 		// The file viewer owns the keys while a file is open.
 		return p.viewerKey(key)
 	}
-	switch key.Code {
-	case tea.KeyUp:
+	if key.Code == 'g' && key.Mod.Contains(tea.ModCtrl) {
+		// Ctrl+G opens the highlighted result in the external
+		// editor.
+		hit := p.current()
+		return true, p.openEditor(hit.File, hit.Line), true
+	}
+	switch tuilib.ClassifyListNavKey(key) {
+	case tuilib.NavUp:
 		p.moveCursor(-1)
-	case tea.KeyDown:
+	case tuilib.NavDown:
 		p.moveCursor(1)
-	case tea.KeyLeft:
+	case tuilib.NavLeft:
 		p.moveFile(-1)
-	case tea.KeyRight:
+	case tuilib.NavRight:
 		p.moveFile(1)
-	case tea.KeyEsc:
+	case tuilib.NavPageUp:
+		p.moveCursor(-p.pageSize())
+	case tuilib.NavPageDown:
+		p.moveCursor(p.pageSize())
+	case tuilib.NavTop:
+		p.cursor = 0
+		p.follow()
+	case tuilib.NavBottom:
+		p.cursor = len(p.hits) - 1
+		p.follow()
+	case tuilib.NavCancel:
 		// Esc during a live search cancels the rg child and closes the
 		// panel. When the search has already settled the host's own Esc
 		// closes it.
@@ -67,22 +86,29 @@ func (p *Panel) HandleKey(key tea.Key) (handled bool, cmd tea.Cmd, ok bool) {
 			return true, p.close(), true
 		}
 		return false, nil, false
-	case tea.KeyEnter:
+	case tuilib.NavSelect:
 		// Enter opens the highlighted result in the file viewer, at
 		// the matching line.
 		hit := p.current()
 		p.openViewer(hit)
 		return true, OpenFileCmd(hit.File, hit.Line), true
 	default:
-		if key.Code == 'g' && key.Mod.Contains(tea.ModCtrl) {
-			// Ctrl+G opens the highlighted result in the external
-			// editor.
-			hit := p.current()
-			return true, p.openEditor(hit.File, hit.Line), true
-		}
 		return false, nil, false
 	}
 	return true, nil, true
+}
+
+func (p *Panel) pageSize() int {
+	_, height := p.size()
+	budget := codesearch.ListBudget(height)
+	if budget <= 0 {
+		return 5
+	}
+	size := budget / 2
+	if size < 1 {
+		return 1
+	}
+	return size
 }
 
 // moveCursor moves the item cursor by delta, clamped to the result set,

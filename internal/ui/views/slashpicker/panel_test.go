@@ -363,3 +363,173 @@ func Test_SlashPickerPureMessagePassing(t *testing.T) {
 		t.Fatalf("expected DismissedMsg, got %T", cmd())
 	}
 }
+
+func TestPicker_VoiceAutocompletion(t *testing.T) {
+	var currentBuffer string
+	p := New(Seams{
+		SetBuffer: func(s string) {
+			currentBuffer = s
+		},
+		Buffer: func() string {
+			return currentBuffer
+		},
+	})
+
+	// 1. /voice with trailing space should stay visible and list subcommands + voices
+	currentBuffer = "/voice "
+	p.Update([]rune(currentBuffer))
+	if !p.Visible() {
+		t.Fatal("picker should stay visible when typing '/voice '")
+	}
+	if !p.voiceMode {
+		t.Fatal("expected voiceMode to be true")
+	}
+	if len(p.all) != 26 {
+		t.Fatalf("expected 26 voice subcommands and personas, got %d", len(p.all))
+	}
+
+	// 2. Filter subcommand: /voice sp -> should match speaker, speed
+	currentBuffer = "/voice sp"
+	p.Update([]rune(currentBuffer))
+	if len(p.all) != 2 {
+		t.Fatalf("expected 2 subcommands matching 'sp', got %d", len(p.all))
+	}
+	if p.all[0].Name != "speaker" && p.all[1].Name != "speaker" {
+		t.Fatalf("expected 'speaker' in matches, got %+v", p.all)
+	}
+
+	// 3. Tab on 'speaker' completes '/voice speaker ' and reloads speaker choices
+	p.idx = 0 // assuming speaker or speed
+	for i, c := range p.all {
+		if c.Name == "speaker" {
+			p.idx = i
+			break
+		}
+	}
+	handled, cmd := p.CommitSelectionCmd()
+	if !handled || cmd == nil {
+		t.Fatal("expected CommitSelectionCmd to succeed")
+	}
+	if currentBuffer != "/voice speaker " {
+		t.Fatalf("expected currentBuffer == '/voice speaker ', got %q", currentBuffer)
+	}
+	if !p.Visible() {
+		t.Fatal("picker should remain open after selecting 'speaker'")
+	}
+	if p.voiceSubcmd != "speaker" {
+		t.Fatalf("expected voiceSubcmd == 'speaker', got %q", p.voiceSubcmd)
+	}
+	if len(p.all) != 17 {
+		t.Fatalf("expected 17 speaker voices, got %d", len(p.all))
+	}
+
+	// 4. Tab on 'fola' completes '/voice speaker fola' and dismisses
+	p.idx = 0
+	for i, c := range p.all {
+		if c.Name == "fola" {
+			p.idx = i
+			break
+		}
+	}
+	handled, _ = p.CommitSelectionCmd()
+	if !handled {
+		t.Fatal("expected CommitSelectionCmd on voice name to succeed")
+	}
+	if currentBuffer != "/voice speaker fola" {
+		t.Fatalf("expected '/voice speaker fola', got %q", currentBuffer)
+	}
+
+	// 5. Test direct /speaker prefix
+	currentBuffer = "/speaker p"
+	p.Update([]rune(currentBuffer))
+	if !p.Visible() || !p.voiceMode || p.voiceSubcmd != "speaker" {
+		t.Fatalf("expected /speaker to trigger speaker autocompletion")
+	}
+	// 'p' matches 'puck'
+	puckFound := false
+	for i, c := range p.all {
+		if c.Name == "puck" {
+			p.idx = i
+			puckFound = true
+			break
+		}
+	}
+	if !puckFound {
+		t.Fatalf("expected 'puck' in matches for '/speaker p', got %+v", p.all)
+	}
+	handled, _ = p.CommitSelectionCmd()
+	if !handled || currentBuffer != "/speaker puck" {
+		t.Fatalf("expected '/speaker puck', got %q", currentBuffer)
+	}
+	if p.Visible() {
+		t.Fatal("picker should dismiss after completing terminal voice name")
+	}
+
+	// 5. Duplex subcommands
+	currentBuffer = "/voice duplex "
+	p.Update([]rune(currentBuffer))
+	if !p.Visible() || len(p.all) != 2 {
+		t.Fatalf("expected 2 duplex options (on, off), got visible=%v, count=%d", p.Visible(), len(p.all))
+	}
+}
+
+func TestPicker_VoicePreviewAutocompletion(t *testing.T) {
+	var currentBuffer string
+	p := New(Seams{
+		SetBuffer: func(s string) { currentBuffer = s },
+		Buffer:    func() string { return currentBuffer },
+	})
+
+	// 1. "/voice preview " lists only the personas that ship a recording.
+	currentBuffer = "/voice preview "
+	p.Update([]rune(currentBuffer))
+	if !p.Visible() || !p.voiceMode || p.voiceSubcmd != "preview" {
+		t.Fatalf("expected /voice preview to trigger preview-mode completion (visible=%v subcmd=%q)", p.Visible(), p.voiceSubcmd)
+	}
+	if len(p.all) != 9 {
+		t.Fatalf("expected 9 recorded personas, got %d (%+v)", len(p.all), p.all)
+	}
+	seen := map[string]bool{}
+	for _, c := range p.all {
+		seen[c.Name] = true
+	}
+	for _, want := range []string{"fola", "arlo", "cleo", "finn", "gero", "lora", "neno", "olin", "tari"} {
+		if !seen[want] {
+			t.Errorf("expected %q among the preview personas, got %+v", want, p.all)
+		}
+	}
+	for _, absent := range []string{"zephyr", "leda", "orus", "puck", "aoede"} {
+		if seen[absent] {
+			t.Errorf("%q has no recording and must not be offered", absent)
+		}
+	}
+
+	// 2. Filtering narrows to the persona prefix.
+	currentBuffer = "/voice preview ta"
+	p.Update([]rune(currentBuffer))
+	if len(p.all) != 1 || p.all[0].Name != "tari" {
+		t.Fatalf("expected only 'tari' for prefix 'ta', got %+v", p.all)
+	}
+
+	// 3. Tab completes the persona and keeps the picker open for the variant.
+	p.idx = 0
+	if handled, _ := p.CommitSelectionCmd(); !handled {
+		t.Fatal("expected CommitSelectionCmd to succeed for a preview persona")
+	}
+	if currentBuffer != "/voice preview tari" {
+		t.Fatalf("expected '/voice preview tari', got %q", currentBuffer)
+	}
+
+	// 4. "preview" itself is offered among the root subcommands.
+	currentBuffer = "/voice pre"
+	p.Update([]rune(currentBuffer))
+	found := false
+	for _, c := range p.all {
+		if c.Name == "preview" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected 'preview' among /voice subcommands, got %+v", p.all)
+	}
+}

@@ -1,6 +1,7 @@
 package tui
 
 import (
+	tuiviewport "github.com/justwasm/pigasus/internal/ui/foundations/viewport"
 	"github.com/justwasm/pigasus/internal/ui/panelregistry"
 	"github.com/justwasm/pigasus/internal/ui/views/sidequestion"
 )
@@ -43,6 +44,26 @@ func (o *OverlayModel) HasAnnouncement() bool {
 	return o.announceQueue.Active() != nil
 }
 
+// HasBtwSelection reports whether a text selection is active or being dragged on the /btw card.
+func (o *OverlayModel) HasBtwSelection() bool {
+	if o == nil {
+		return false
+	}
+	_, _, _, _, ok := tuiviewport.SelectionRange(
+		o.btwSelection.SelStartRow, o.btwSelection.SelStartCol,
+		o.btwSelection.SelEndRow, o.btwSelection.SelEndCol,
+		o.btwSelection.SelDragging,
+	)
+	return ok || o.btwSelection.SelDragging
+}
+
+// ResetBtwSelection clears the /btw card selection.
+func (o *OverlayModel) ResetBtwSelection() {
+	if o != nil {
+		o.btwSelection.ResetSelection()
+	}
+}
+
 // Delegators on RootModel for backward compatibility and domain access:
 func (m *RootModel) HasActiveOverlay() bool                 { return m.auth.Active() || m.overlays.HasActiveOverlay() }
 func (m *RootModel) HasActivePanel() bool                   { return m.overlays.HasActivePanel() }
@@ -54,3 +75,5 @@ func (m *RootModel) ActiveSideQuestion() *sidequestion.Card { return m.overlays.
 func (m *RootModel) HasAnnouncement() bool                  { return m.overlays.HasAnnouncement() }
 func (m *RootModel) HasActiveModal() bool                   { return m.auth.Active() || m.overlays.HasActiveModal() }
 func (m *RootModel) ActiveCard() bool                       { return m.overlays.ActiveCard() }
+func (m *RootModel) hasBtwSelection() bool                  { return m.overlays.HasBtwSelection() }
+func (m *RootModel) ResetBtwSelection()                     { m.overlays.ResetBtwSelection() }

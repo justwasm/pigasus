@@ -212,6 +212,19 @@ func (b *EngineBridge) runTurnOn(turnCtx context.Context, model string, msgs []b
 	if b.sessionEpoch != nil {
 		epoch = b.sessionEpoch()
 	}
+	turnCtx = backend.ContextWithRetryNotifier(turnCtx, func(p backend.RetryProgress) {
+		if b.prog != nil {
+			var ms int64
+			if !p.RetryAt.IsZero() {
+				ms = p.RetryAt.UnixMilli()
+			}
+			b.prog.Send(modelRetryStatusMsg{
+				attempt:       p.Attempt,
+				maxAttempts:   p.MaxAttempts,
+				retryAtUnixMS: ms,
+			})
+		}
+	})
 	frames, err := b.engine.Turn(turnCtx, agentturn.Turn{
 		Model:        model,
 		History:      agentturn.ToWireMessages(msgs),

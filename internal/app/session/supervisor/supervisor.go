@@ -235,6 +235,7 @@ func (s *Supervisor) RewindPopTail() rewind.Result {
 	if s.trajSeededLen > len(s.session) {
 		s.trajSeededLen = len(s.session)
 	}
+	s.pruneTrajLoadedLocked()
 	return r
 }
 
@@ -247,7 +248,34 @@ func (s *Supervisor) RewindToStep(index int) rewind.Result {
 	if s.trajSeededLen > len(s.session) {
 		s.trajSeededLen = len(s.session)
 	}
+	s.pruneTrajLoadedLocked()
 	return r
+}
+
+func (s *Supervisor) pruneTrajLoadedLocked() {
+	if len(s.session) == 0 {
+		s.trajLoaded = nil
+		s.trajCalls = nil
+		s.trajSeededLen = 0
+		return
+	}
+	targetCount := len(s.session)
+	seen := 0
+	cutoff := len(s.trajLoaded)
+	for i, step := range s.trajLoaded {
+		if step.Type == convstore.StepUserInput || step.Type == convstore.StepModelResponse {
+			seen++
+			if seen == targetCount {
+				cutoff = i + 1
+				break
+			}
+		}
+	}
+	if cutoff < len(s.trajLoaded) {
+		s.trajLoaded = s.trajLoaded[:cutoff]
+	}
+	s.trajCalls = nil
+	s.trajSeededLen = len(s.session)
 }
 
 // RewindSteps returns the available rewind steps for the current session.
@@ -338,8 +366,8 @@ func (s *Supervisor) TrajectoryCounts() (loaded int, calls int, seededLen int) {
 
 // Save writes the conversation to disk using convstore.
 func (s *Supervisor) Save(conversationID, autoTitle string) error {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if conversationID == "" || len(s.session) == 0 {
 		return nil
 	}
@@ -356,6 +384,12 @@ func (s *Supervisor) Save(conversationID, autoTitle string) error {
 	if err := convstore.SaveConversation(conversationID, s.cwd, steps); err != nil {
 		return err
 	}
+	// Advance durable seeded boundary so subsequent turns append cleanly without
+	// dumping their tool calls into Turn 1 or breaking causal step order.
+	s.trajLoaded = steps
+	s.trajCalls = nil
+	s.trajSeededLen = len(s.session)
+
 	if autoTitle != "" {
 		_ = convstore.WriteSummariesTitle(conversationID, autoTitle)
 		_ = convstore.WriteCacheTitle(conversationID, autoTitle)

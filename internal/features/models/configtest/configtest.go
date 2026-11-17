@@ -18,10 +18,18 @@ import (
 
 // Isolate points the provider configuration at an empty scratch file, so the
 // catalogue a test sees is the reference's own and nothing else.
+//
+// It also pins the undocumented-model gate shut
+// (OPENAGY_UNDOCUMENTED_MODELS=off). Those rows appear on a run that talks to
+// a reverse-proxied CloudCode host, and a test machine may well be one; a
+// catalogue test that silently gained a row because of how the machine is
+// wired would be testing the machine. A test that exercises the gate sets the
+// variable itself after this call.
 func Isolate(t *testing.T) {
 	t.Helper()
 	dir := t.TempDir()
 	t.Setenv("OPENAGY_PROVIDERS_CONFIG", filepath.Join(dir, "providers.json"))
+	t.Setenv("OPENAGY_UNDOCUMENTED_MODELS", "off")
 }
 
 // WriteProviders writes a provider configuration document and points the

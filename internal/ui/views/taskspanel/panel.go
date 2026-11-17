@@ -33,6 +33,8 @@
 package taskspanel
 
 import (
+	"time"
+
 	tea "charm.land/bubbletea/v2"
 
 	taskregistry "github.com/justwasm/pigasus/internal/app/task"
@@ -61,6 +63,24 @@ type Seams struct {
 	Size func() (width, height int)
 	// Close leaves the panel.
 	Close func() tea.Cmd
+}
+
+type detailCache struct {
+	valid        bool
+	taskID       string
+	isSubagent   bool
+	width        int
+	expanded     bool
+	taskState    taskregistry.State
+	taskStepCnt  int
+	taskStepsLen int
+	taskOutLen   int
+	taskErr      string
+	transPath    string
+	transMtime   time.Time
+	transSize    int64
+	header       []string
+	body         []string
 }
 
 // Panel is the /tasks panel.
@@ -98,6 +118,9 @@ type Panel struct {
 
 	// window is the detail view's scroll offset, in body rows.
 	window int
+
+	// detailCache caches rendered header and body lines across scrolling frames.
+	detailCache detailCache
 }
 
 // New builds the /tasks panel.
@@ -192,6 +215,7 @@ func (p *Panel) OpenTaskDetail(id string, isSubagent bool) {
 	p.detailSubagent = isSubagent
 	p.fromActiveItems = true
 	p.window = 0
+	p.detailCache.valid = false
 }
 
 // SetFromActiveItems sets whether the detail view was opened from active items.
@@ -328,4 +352,27 @@ func (p *Panel) detailTask() *taskregistry.Task {
 		return nil
 	}
 	return reg.Get(p.detailID)
+}
+
+// DetailTask returns the task currently inspected in the detail view.
+func (p *Panel) DetailTask() *taskregistry.Task {
+	return p.detailTask()
+}
+
+// pageStep computes the scroll distance for PgUp / PgDown in detail mode.
+func (p *Panel) pageStep() int {
+	step := p.detailVisibleRows(p.detailHeaderRows()) - 1
+	if step < 1 {
+		step = 1
+	}
+	return step
+}
+
+// halfPageStep computes the scroll distance for Shift+Up / Shift+Down in detail mode.
+func (p *Panel) halfPageStep() int {
+	step := p.pageStep() / 2
+	if step < 1 {
+		step = 1
+	}
+	return step
 }

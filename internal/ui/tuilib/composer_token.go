@@ -57,17 +57,37 @@ func StyleComposerCommandToken(inputView, value string) string {
 }
 
 // ComposerArgumentHint returns the argument hint the reference shows for
-// an empty argument. Only "/model" carries one: "/agent " shows nothing
-// (【一手】 agy 1.4.6, live).
+// empty or sub-arguments ("/model ", "/voice ").
 func ComposerArgumentHint(value string) (string, bool) {
-	const prefix = "/model "
-	if !strings.HasPrefix(value, prefix) {
+	const modelPrefix = "/model "
+	if strings.HasPrefix(value, modelPrefix) {
+		if strings.TrimSpace(value[len(modelPrefix):]) == "" {
+			return "[model]", true
+		}
 		return "", false
 	}
-	if strings.TrimSpace(value[len(prefix):]) != "" {
+	const voicePrefix = "/voice "
+	if strings.HasPrefix(value, voicePrefix) {
+		rest := strings.TrimSpace(value[len(voicePrefix):])
+		if rest == "" {
+			return "[live|dictate|stop|mute|speaker|duplex|volume|speed]", true
+		}
+		parts := strings.Fields(rest)
+		if len(parts) == 1 && strings.HasSuffix(value, " ") {
+			switch strings.ToLower(parts[0]) {
+			case "speaker":
+				return "[name]", true
+			case "duplex":
+				return "[on|off]", true
+			case "volume":
+				return "[0-100]", true
+			case "speed":
+				return "[0.5-3]", true
+			}
+		}
 		return "", false
 	}
-	return "[model]", true
+	return "", false
 }
 
 // AppendComposerHint inserts the hint into the composer view right after

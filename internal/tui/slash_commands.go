@@ -44,6 +44,7 @@ import (
 	"github.com/justwasm/pigasus/internal/rchost"
 	"github.com/justwasm/pigasus/internal/tui/commands"
 	"github.com/justwasm/pigasus/internal/ui/editor/editorkit"
+	tuiviewport "github.com/justwasm/pigasus/internal/ui/foundations/viewport"
 	"github.com/justwasm/pigasus/internal/ui/keybindings"
 	"github.com/justwasm/pigasus/internal/ui/mdrender"
 	"github.com/justwasm/pigasus/internal/ui/rows"
@@ -59,6 +60,7 @@ import (
 	"github.com/justwasm/pigasus/internal/ui/views/skillsui"
 	"github.com/justwasm/pigasus/internal/ui/views/slashquote"
 	"github.com/justwasm/pigasus/internal/ui/views/statusline"
+	"github.com/justwasm/pigasus/internal/voice"
 	"github.com/justwasm/pigasus/urlchunk"
 )
 
@@ -1468,7 +1470,217 @@ func (m *RootModel) slashUsage(args string) (bool, tea.Cmd) {
 }
 
 func (m *RootModel) slashVoice(args string) (bool, tea.Cmd) {
-	return true, m.audio.Surface.Start("/voice")
+	trimmed := strings.TrimSpace(args)
+	if trimmed == "" {
+		if m.audio.Surface != nil && m.audio.Surface.Active() {
+			return true, m.audio.Surface.Stop()
+		}
+		return true, m.audio.Surface.Start("/voice")
+	}
+
+	parts := strings.Fields(trimmed)
+	subcmd := strings.ToLower(parts[0])
+
+	switch subcmd {
+	case "stop":
+		if m.audio.Surface != nil && m.audio.Surface.Active() {
+			return true, m.audio.Surface.Stop()
+		}
+		m.slashRespond("/voice", "Voice session stopped.")
+		return true, nil
+
+	case "dictate", "dictation":
+		return true, m.audio.Surface.Start("/voice dictate")
+
+	case "live":
+		if m.audio.Surface != nil && m.audio.Surface.Active() {
+			return true, m.audio.Surface.Stop()
+		}
+		return true, m.audio.Surface.Start("/voice live")
+
+	case "mute":
+		if m.audio.Surface == nil || !m.audio.Surface.Active() {
+			m.slashRespond("/voice", "Live mode is not on. Start it with /voice live.")
+			return true, nil
+		}
+		muted := m.ToggleLiveMute()
+		if muted {
+			m.slashRespond("/voice", "Microphone muted. The agent can't hear you until you unmute.")
+		} else {
+			m.slashRespond("/voice", "Microphone unmuted.")
+		}
+		return true, nil
+
+	case "duplex":
+		if len(parts) > 1 {
+			val := strings.ToLower(parts[1])
+			if val == "off" || val == "false" || val == "0" {
+				m.audio.duplex = false
+				if m.audio.liveSession != nil {
+					m.audio.liveSession.SetDuplex(false)
+				}
+				m.slashRespond("/voice", "Half duplex: the microphone is muted while the agent speaks.")
+				return true, nil
+			} else if val == "on" || val == "true" || val == "1" {
+				m.audio.duplex = true
+				if m.audio.liveSession != nil {
+					m.audio.liveSession.SetDuplex(true)
+				}
+				m.slashRespond("/voice", "Full duplex: you can interrupt the agent while it speaks. Use headphones, or it will hear itself.")
+				return true, nil
+			}
+			m.slashRespond("/voice", "Usage: /voice duplex [on|off]")
+			return true, nil
+		}
+		m.audio.duplex = !m.audio.duplex
+		if m.audio.liveSession != nil {
+			m.audio.liveSession.SetDuplex(m.audio.duplex)
+		}
+		if m.audio.duplex {
+			m.slashRespond("/voice", "Full duplex: you can interrupt the agent while it speaks. Use headphones, or it will hear itself.")
+		} else {
+			m.slashRespond("/voice", "Half duplex: the microphone is muted while the agent speaks.")
+		}
+		return true, nil
+
+	case "speed":
+		if len(parts) > 1 {
+			val, err := strconv.ParseFloat(parts[1], 64)
+			if err != nil || val < 0.5 || val > 3.0 {
+				m.slashRespond("/voice", "Usage: /voice speed [0.5-3]")
+				return true, nil
+			}
+			m.audio.speed = strconv.FormatFloat(val, 'f', -1, 64)
+			m.slashRespond("/voice", fmt.Sprintf("Playback speed: %sx.", m.audio.speed))
+		} else {
+			spd := m.audio.speed
+			if spd == "" {
+				spd = "1.0"
+			}
+			m.slashRespond("/voice", fmt.Sprintf("Playback speed: %sx.", spd))
+		}
+		return true, nil
+
+	case "volume":
+		if len(parts) > 1 {
+			val, err := strconv.Atoi(parts[1])
+			if err != nil || val < 0 || val > 100 {
+				m.slashRespond("/voice", "Usage: /voice volume [0-100]")
+				return true, nil
+			}
+			m.audio.volume = strconv.Itoa(val)
+			m.slashRespond("/voice", fmt.Sprintf("Volume: %d%%.", val))
+		} else {
+			vol := m.audio.volume
+			if vol == "" {
+				vol = "100"
+			}
+			v, _ := strconv.Atoi(vol)
+			m.slashRespond("/voice", fmt.Sprintf("Volume: %d%%.", v))
+		}
+		return true, nil
+
+	case "preview":
+		return m.slashVoicePreview(parts[1:])
+
+	case "speaker":
+		availableVoices := []string{"fola", "arlo", "cleo", "finn", "gero", "lora", "neno", "olin", "tari"}
+		voicesListStr := "fola, arlo, cleo, finn, gero, lora, neno, olin, tari"
+		voicesDisplayList := "Fola, Arlo, Cleo, Finn, Gero, Lora, Neno, Olin, Tari"
+		if len(parts) > 1 {
+			voiceName := strings.ToLower(parts[1])
+			valid := false
+			for _, v := range availableVoices {
+				if v == voiceName {
+					valid = true
+					break
+				}
+			}
+			if !valid {
+				m.slashRespond("/voice", fmt.Sprintf("Unknown voice %q.\nTry: %s.", parts[1], voicesListStr))
+				return true, nil
+			}
+			name := strings.ToUpper(voiceName[:1]) + voiceName[1:]
+			m.audio.voice = name
+			if m.audio.Surface != nil && m.audio.Surface.Active() {
+				m.slashRespond("/voice", fmt.Sprintf("Voice set to %s. It takes effect the next time live mode starts.", name))
+			} else {
+				m.slashRespond("/voice", fmt.Sprintf("Voice set to %s.", name))
+			}
+		} else {
+			v := m.audio.voice
+			if v == "" {
+				v = "Fola"
+			}
+			m.slashRespond("/voice", fmt.Sprintf("Voice: %s.\nChange it with /voice speaker <name>: %s.", v, voicesDisplayList))
+		}
+		return true, nil
+
+	case "fola", "arlo", "cleo", "finn", "gero", "lora", "neno", "olin", "tari":
+		name := strings.ToUpper(subcmd[:1]) + subcmd[1:]
+		m.audio.voice = name
+		if m.audio.Surface != nil && m.audio.Surface.Active() {
+			m.slashRespond("/voice", fmt.Sprintf("Voice set to %s. It takes effect the next time live mode starts.", name))
+		} else {
+			m.slashRespond("/voice", fmt.Sprintf("Voice set to %s.", name))
+		}
+		return true, nil
+
+	default:
+		m.slashRespond("/voice", fmt.Sprintf("Unknown /voice option %q.\nTry: /voice, /voice live, /voice dictate, /voice stop, /voice mute, /voice speaker [name], /voice preview [name] [1-3|all], /voice duplex [on|off], /voice volume [0-100], /voice speed [0.5-3].", parts[0]))
+		return true, nil
+	}
+}
+
+// slashVoicePreview auditions one of the recorded persona clips that ship in
+// internal/voice/previews, so a speaker can be heard before it is selected.
+func (m *RootModel) slashVoicePreview(args []string) (bool, tea.Cmd) {
+	if len(args) == 0 {
+		m.slashRespond("/voice", fmt.Sprintf("Recorded samples: %s.\nUsage: /voice preview <name> [1-%d|all].",
+			strings.Join(voice.VoicePreviewPersonas(), ", "), voice.VoicePreviewVariants))
+		return true, nil
+	}
+	switch strings.ToLower(args[0]) {
+	case "on", "off":
+		m.slashRespond("/voice", "The TUI plays a preview only when asked; switch-time clips are a livechat feature (/voice preview off there).")
+		return true, nil
+	}
+
+	variant, playAll, err := voice.ParseVoicePreviewVariant(strings.Join(args[1:], " "))
+	if err != nil {
+		m.slashRespond("/voice", err.Error())
+		return true, nil
+	}
+	target := args[0]
+	first := variant
+	if first == 0 {
+		first = 1
+	}
+	sample, err := voice.ResolveVoicePreviewSample(target, first)
+	if err != nil {
+		m.slashRespond("/voice", err.Error())
+		return true, nil
+	}
+	if playAll {
+		m.slashRespond("/voice", fmt.Sprintf("Playing all %d samples of %s...", voice.VoicePreviewVariants, sample.Persona))
+	} else {
+		m.slashRespond("/voice", fmt.Sprintf("Playing %s...", sample))
+	}
+
+	return true, func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), voice.VoicePreviewTimeout)
+		defer cancel()
+		last := first
+		if playAll {
+			last = voice.VoicePreviewVariants
+		}
+		for v := first; v <= last; v++ {
+			if _, playErr := voice.PlayVoicePreview(ctx, target, v); playErr != nil {
+				return nil
+			}
+		}
+		return nil
+	}
 }
 
 func (m *RootModel) slashAddDir(args string) (bool, tea.Cmd) {
@@ -2080,6 +2292,7 @@ func (m *RootModel) DismissBtwResponse() {
 	m.overlays.activeBtwIndex = -1
 	m.overlays.activeBtwID = ""
 	m.overlays.btwScroll = 0
+	m.ResetBtwSelection()
 }
 
 // ToggleBtwExpanded flips the active BTW card's expansion state.
@@ -2153,8 +2366,8 @@ func (m *RootModel) currentBtwResponse() *sidequestion.Card {
 
 func (m *RootModel) isBtwCardVisible() bool { return m.overlays.BtwCardVisible() }
 
-// renderBtwCard renders the active side-question card.
-func (m *RootModel) renderBtwCard() string {
+// renderBtwCardPlain renders the active side-question card without any selection highlight.
+func (m *RootModel) renderBtwCardPlain() string {
 	card := m.currentBtwResponse()
 	if card == nil {
 		return ""
@@ -2166,6 +2379,59 @@ func (m *RootModel) renderBtwCard() string {
 		Scroll:    m.overlays.btwScroll,
 		RenderMd:  mdrender.RenderMarkdown,
 	})
+}
+
+// renderBtwCard renders the active side-question card, applying selection highlights if active.
+func (m *RootModel) renderBtwCard() string {
+	cardStr := m.renderBtwCardPlain()
+	if cardStr == "" {
+		return ""
+	}
+	if m.hasBtwSelection() {
+		sr, sc, er, ec, ok := tuiviewport.SelectionRange(
+			m.overlays.btwSelection.SelStartRow, m.overlays.btwSelection.SelStartCol,
+			m.overlays.btwSelection.SelEndRow, m.overlays.btwSelection.SelEndCol,
+			m.overlays.btwSelection.SelDragging,
+		)
+		if ok {
+			rows := strings.Split(cardStr, "\n")
+			highlighted := tuiviewport.SelectionPass(rows, sr, sc, er, ec, true)
+			return strings.Join(highlighted, "\n")
+		}
+	}
+	return cardStr
+}
+
+// btwSelectionText extracts and returns the clean text of the highlighted range within the /btw card.
+func (m *RootModel) btwSelectionText() string {
+	if !m.isBtwCardVisible() {
+		return ""
+	}
+	cardStr := m.renderBtwCardPlain()
+	if cardStr == "" {
+		return ""
+	}
+	rows := strings.Split(cardStr, "\n")
+	sr, sc, er, ec, ok := tuiviewport.SelectionRange(
+		m.overlays.btwSelection.SelStartRow, m.overlays.btwSelection.SelStartCol,
+		m.overlays.btwSelection.SelEndRow, m.overlays.btwSelection.SelEndCol,
+		false,
+	)
+	if !ok {
+		return ""
+	}
+	selected := tuiviewport.SelectionText(rows, sr, sc, er, ec)
+	return cleanCardSelectedText(selected)
+}
+
+func cleanCardSelectedText(raw string) string {
+	lines := strings.Split(raw, "\n")
+	for i, l := range lines {
+		trimmed := strings.TrimPrefix(l, "┃")
+		trimmed = strings.TrimPrefix(trimmed, " ")
+		lines[i] = trimmed
+	}
+	return strings.Join(lines, "\n")
 }
 
 // aboveInputCard renders the card directly above the input prompt.

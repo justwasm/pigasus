@@ -595,6 +595,11 @@ func callPart(tc TurnToolCall, signatures map[string]string) Part {
 // A Claude model is marked with three members, any other non-Gemini model
 // with one. A Gemini model carries no labels at all.
 func ModelLabels(model string) map[string]string {
+	if model == "gemini-pro-orchestrator" || model == "gemini-pro-orchestrator-argon" {
+		return map[string]string{
+			"plan-execute-config": `{"executionModel": "gemini-4-hydrogen-high"}`,
+		}
+	}
 	if IsClaudeModel(model) {
 		return map[string]string{
 			"used_claude":              "true",

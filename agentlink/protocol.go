@@ -107,6 +107,8 @@ const (
 	NoticeError NoticeKind = "error"
 	// NoticeSteerApplied reports that pending steering guidance was applied at step boundary.
 	NoticeSteerApplied NoticeKind = "steer_applied"
+	// NoticeModelRetry reports an in-progress model unavailable retry countdown.
+	NoticeModelRetry NoticeKind = "model_retry"
 )
 
 // Frame is one message on the wire.
@@ -256,6 +258,12 @@ type Notice struct {
 	Depth int `json:"depth,omitempty"`
 	// MaxDepth is how many auto-continue attempts the turn allows.
 	MaxDepth int `json:"max_depth,omitempty"`
+	// Attempt is the current model request attempt number.
+	Attempt int `json:"attempt,omitempty"`
+	// MaxAttempts is the total model request attempts allowed.
+	MaxAttempts int `json:"max_attempts,omitempty"`
+	// RetryAtUnixMS is the millisecond timestamp when the retry will fire.
+	RetryAtUnixMS int64 `json:"retry_at_unix_ms,omitempty"`
 }
 
 // Usage is a turn's token accounting.

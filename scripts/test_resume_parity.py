@@ -276,7 +276,9 @@ def main():
         print(f"   Aligned Expanded read_file content present: {a_has_read_body}")
 
         print("\n=== SUMMARY COMPARISON ===")
-        print(f"Ready Time:      Legacy = {l_ready:.2f}s vs Aligned = {a_ready:.2f}s")
+        l_str = f"{l_ready:.2f}s" if l_ready is not None else "> 3.0s (slow replay)"
+        a_str = f"{a_ready:.2f}s" if a_ready is not None else "> 3.0s"
+        print(f"Ready Time:      Legacy = {l_str} vs Aligned = {a_str}")
         print(f"Tool Read Body:  Legacy = {l_has_read_body} vs Aligned = {a_has_read_body}")
 
     finally:

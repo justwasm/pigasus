@@ -292,6 +292,77 @@ func TestParity_AgyResumesPigasusDB(t *testing.T) {
 	}
 }
 
+func TestParity_AgyResumesMultiTurnPigasusDB(t *testing.T) {
+	agyBin := "/Users/gear/.local/bin/agy"
+	if _, err := os.Stat(agyBin); err != nil {
+		t.Skip("official agy binary not found, skipping live TUI test")
+	}
+
+	convID := "test-pigasus-agy-multiturn"
+	dbPath := filepath.Join(os.ExpandEnv("$HOME/.gemini/antigravity-cli/conversations"), convID+".db")
+	_ = os.Remove(dbPath)
+	// defer os.Remove(dbPath)
+
+	steps := []Step{
+		// Turn 1
+		{Idx: 0, Type: StepUserInput, Status: 3, Text: "Turn 1: check git status"},
+		{Idx: 1, Type: StepToolCall, Status: 3, ToolName: "run_command",
+			ToolArgs:    `{"CommandLine":"git status"}`,
+			ToolResult:  "On branch main\nnothing to commit, working tree clean",
+			ToolSummary: "git status"},
+		{Idx: 2, Type: StepModelResponse, Status: 3, Text: "Turn 1 reply: working tree clean."},
+		// Turn 2
+		{Idx: 3, Type: StepUserInput, Status: 3, Text: "Turn 2: list internal files"},
+		{Idx: 4, Type: StepToolCall, Status: 3, ToolName: "run_command",
+			ToolArgs:    `{"CommandLine":"ls -la internal"}`,
+			ToolResult:  "drwxr-xr-x app\ndrwxr-xr-x core\n",
+			ToolSummary: "list internal files"},
+		{Idx: 5, Type: StepModelResponse, Status: 3, Text: "Turn 2 reply: here are the directories."},
+	}
+
+	if err := SaveConversation(convID, "/Users/gear/GitHub/openagy", steps); err != nil {
+		t.Fatalf("SaveConversation failed: %v", err)
+	}
+
+	// Launch agy in tmux
+	sname := "test-tmux-agy-multiturn"
+	_ = execCommand("tmux", "kill-session", "-t", sname)
+	if err := execCommand("tmux", "new-session", "-d", "-s", sname, "-x", "120", "-y", "40", agyBin+" --conversation="+convID); err != nil {
+		t.Fatalf("failed to start tmux: %v", err)
+	}
+	defer func() {
+		_ = execCommand("tmux", "kill-session", "-t", sname)
+	}()
+
+	ready := false
+	var lastPane []byte
+	t0 := time.Now()
+	for i := 0; i < 40; i++ {
+		time.Sleep(100 * time.Millisecond)
+		out, err := execCommandOutput("tmux", "capture-pane", "-p", "-S", "-", "-t", sname)
+		if err == nil {
+			lastPane = out
+			if bytes.Contains(out, []byte("Do you trust")) {
+				_ = execCommand("tmux", "send-keys", "-t", sname, "C-m")
+			}
+			if bytes.Contains(out, []byte("Turn 2 reply")) {
+				ready = true
+				break
+			}
+		}
+	}
+	elapsed := time.Since(t0)
+	if !ready {
+		t.Fatalf("Official agy 1.5.9 failed to render multi-turn conversation created by pigasus!\nLast pane:\n%s", string(lastPane))
+	}
+	t.Logf("Agy resumed multi-turn Pigasus DB in %v", elapsed)
+
+	// Verify both tool blocks are visible
+	if !bytes.Contains(lastPane, []byte("Bash(git status)")) || !bytes.Contains(lastPane, []byte("Bash(ls -la internal)")) {
+		t.Errorf("Expected both tool steps in visible pane, got:\n%s", string(lastPane))
+	}
+}
+
 func execCommand(name string, args ...string) error {
 	cmd := exec.Command(name, args...)
 	return cmd.Run()

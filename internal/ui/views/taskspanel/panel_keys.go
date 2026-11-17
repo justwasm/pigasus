@@ -132,8 +132,8 @@ func (p *Panel) handleListKey(key tea.Key) (bool, tea.Cmd) {
 // so ↑/↓ move a line, ←/→ move a page and Esc leaves the view. The
 // detail view is modal, so every other key is swallowed too.
 func (p *Panel) handleDetailKey(key tea.Key) (bool, tea.Cmd) {
-	switch key.Code {
-	case tea.KeyEsc:
+	switch {
+	case key.Code == tea.KeyEsc:
 		if p.fromActiveItems {
 			p.fromActiveItems = false
 			p.closeDetail()
@@ -145,23 +145,41 @@ func (p *Panel) handleDetailKey(key tea.Key) (bool, tea.Cmd) {
 		}
 		p.closeDetail()
 		return true, nil
-	case tea.KeyUp:
+	case key.Code == tea.KeyUp && key.Mod.Contains(tea.ModShift), key.String() == "shift+up":
+		p.scroll(-p.halfPageStep())
+		return true, nil
+	case key.Code == tea.KeyDown && key.Mod.Contains(tea.ModShift), key.String() == "shift+down":
+		p.scroll(p.halfPageStep())
+		return true, nil
+	case key.Code == tea.KeyUp:
 		p.scroll(-1)
 		return true, nil
-	case tea.KeyDown:
+	case key.Code == tea.KeyDown:
 		p.scroll(1)
 		return true, nil
-	case tea.KeyLeft, tea.KeyPgUp:
-		p.scroll(-p.detailVisibleRows(p.detailHeaderRows()))
+	case key.Code == tea.KeyLeft, key.Code == tea.KeyPgUp, key.String() == "pgup":
+		p.scroll(-p.pageStep())
 		return true, nil
-	case tea.KeyRight, tea.KeyPgDown:
-		p.scroll(p.detailVisibleRows(p.detailHeaderRows()))
+	case key.Code == tea.KeyRight, key.Code == tea.KeyPgDown, key.String() == "pgdown":
+		p.scroll(p.pageStep())
 		return true, nil
-	case tea.KeyHome:
+	case (key.Code == tea.KeyHome && key.Mod.Contains(tea.ModCtrl)), key.String() == "ctrl+home", key.Code == tea.KeyHome:
 		p.window = 0
 		return true, nil
-	case tea.KeyEnd:
-		p.scroll(1000)
+	case (key.Code == tea.KeyEnd && key.Mod.Contains(tea.ModCtrl)), key.String() == "ctrl+end", key.Code == tea.KeyEnd:
+		p.window = 1 << 30
+		return true, nil
+	case (key.Code == 'u' || key.Code == 'U') && key.Mod.Contains(tea.ModCtrl), key.String() == "ctrl+u":
+		p.scroll(-p.halfPageStep())
+		return true, nil
+	case (key.Code == 'd' || key.Code == 'D') && key.Mod.Contains(tea.ModCtrl), key.String() == "ctrl+d":
+		p.scroll(p.halfPageStep())
+		return true, nil
+	case (key.Code == 'b' || key.Code == 'B') && key.Mod.Contains(tea.ModCtrl), key.String() == "ctrl+b":
+		p.scroll(-p.pageStep())
+		return true, nil
+	case (key.Code == 'f' || key.Code == 'F') && key.Mod.Contains(tea.ModCtrl), key.String() == "ctrl+f":
+		p.scroll(p.pageStep())
 		return true, nil
 	}
 	if ((key.Code == 'o' || key.Code == 'O') && key.Mod.Contains(tea.ModCtrl)) || key.String() == "ctrl+o" {
@@ -224,6 +242,7 @@ func (p *Panel) closeDetail() {
 	p.detailExpanded = false
 	p.fromActiveItems = false
 	p.window = 0
+	p.detailCache.valid = false
 }
 
 // killSelected kills the row under the cursor.

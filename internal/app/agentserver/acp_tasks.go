@@ -6,6 +6,7 @@ import (
 
 	"github.com/justwasm/pigasus/internal/app/task"
 	"github.com/justwasm/pigasus/internal/app/tools"
+	"github.com/justwasm/pigasus/internal/app/tools/shell"
 )
 
 // formatTasksSummary formats the background tasks in the shared registry into a readable Markdown report.
@@ -55,4 +56,22 @@ func formatTasksSummary() string {
 		sb.WriteString(fmt.Sprintf("| `%s` | %s | `%s` | %s | %s |\n", t.ID, t.State, cmd, startedStr, exitStr))
 	}
 	return sb.String()
+}
+
+// stopSessionTasks stops running subagents and background tasks for a session.
+// Upstream 1.5.10: canceling or closing a session stops them, even when no prompt is running.
+func stopSessionTasks(sessID string) {
+	if sessID == "" {
+		return
+	}
+	_ = shell.KillConversationTasks(sessID)
+
+	if reg := tools.SharedTaskRegistry(); reg != nil {
+		prefix := sessID + "/"
+		for _, t := range reg.List() {
+			if (strings.HasPrefix(t.ID, prefix) || t.OwnerID == sessID) && t.State == task.StateRunning {
+				reg.Kill(t.ID)
+			}
+		}
+	}
 }

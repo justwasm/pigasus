@@ -276,3 +276,15 @@ func (a *ACPV2Agent) runTurn(ctx context.Context, stream *acp2.SessionStream, s 
 
 	return stopReason, nil
 }
+
+// CancelSession implements acp2.Agent, stopping background tasks and subagents.
+func (a *ACPV2Agent) CancelSession(ctx context.Context, params *acp2.CancelSessionNotification) error {
+	stopSessionTasks(string(params.SessionID))
+	return a.SessionManager.CancelSession(ctx, params)
+}
+
+// CloseSession implements acp2.Agent, stopping background tasks and subagents.
+func (a *ACPV2Agent) CloseSession(ctx context.Context, params *acp2.CloseSessionRequest) (*acp2.CloseSessionResponse, error) {
+	stopSessionTasks(string(params.SessionID))
+	return a.SessionManager.CloseSession(ctx, params)
+}

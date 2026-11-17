@@ -14,6 +14,7 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/tailscale/hujson"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/pretty"
 	"github.com/tidwall/sjson"
@@ -47,6 +48,13 @@ type Config struct {
 	// endpoints.go) to the URL to use instead of the compiled-in
 	// default.
 	Endpoints map[string]string `json:"endpoints,omitempty"`
+
+	// GeminiAPIKey is an optional API key for Gemini models and real-time voice (Gemini Live).
+	GeminiAPIKey string `json:"gemini_api_key,omitempty"`
+
+	// GeminiLiveModel is an optional override for the real-time voice model
+	// (e.g. "models/gemini-3.8-live" or "models/gemini-3.8-live-extended-thinking").
+	GeminiLiveModel string `json:"gemini_live_model,omitempty"`
 
 	// AccountPool is the account-routing policy: which account a turn
 	// runs on, and how the pool rotates. It is nil when the file carries
@@ -88,6 +96,9 @@ func Load(path string) (Config, error) {
 			return Config{}, nil
 		}
 		return Config{}, fmt.Errorf("endpoints: read %s: %w", path, err)
+	}
+	if std, herr := hujson.Standardize(raw); herr == nil {
+		raw = std
 	}
 	var doc Config
 	if err := json.Unmarshal(raw, &doc); err != nil {
@@ -135,6 +146,36 @@ func currentOverrides() map[string]string {
 	snapshot := &overrides{stamp: stamp, values: values}
 	overridesCache.Store(snapshot)
 	return snapshot.values
+}
+
+// CurrentGeminiAPIKey returns the Gemini API key from GEMINI_API_KEY, OPENAGY_API_KEY,
+// or the configuration file's gemini_api_key field.
+func CurrentGeminiAPIKey() string {
+	if v := strings.TrimSpace(os.Getenv("GEMINI_API_KEY")); v != "" {
+		return v
+	}
+	if v := strings.TrimSpace(os.Getenv("OPENAGY_API_KEY")); v != "" {
+		return v
+	}
+	if cfg, err := Load(Path()); err == nil && strings.TrimSpace(cfg.GeminiAPIKey) != "" {
+		return strings.TrimSpace(cfg.GeminiAPIKey)
+	}
+	return ""
+}
+
+// CurrentGeminiLiveModel returns the live voice model override from GEMINI_LIVE_MODEL,
+// OPENAGY_LIVE_MODEL, or the configuration file's gemini_live_model field.
+func CurrentGeminiLiveModel() string {
+	if v := strings.TrimSpace(os.Getenv("GEMINI_LIVE_MODEL")); v != "" {
+		return v
+	}
+	if v := strings.TrimSpace(os.Getenv("OPENAGY_LIVE_MODEL")); v != "" {
+		return v
+	}
+	if cfg, err := Load(Path()); err == nil && strings.TrimSpace(cfg.GeminiLiveModel) != "" {
+		return strings.TrimSpace(cfg.GeminiLiveModel)
+	}
+	return ""
 }
 
 // accountPool is one resolved snapshot of the file's account-routing

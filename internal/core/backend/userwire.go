@@ -47,6 +47,8 @@ func WrapUserContent(raw, modelLabel string, settingsChanged bool, now time.Time
 		strings.HasPrefix(trimmed, "<CONTEXT_SUMMARY>") ||
 		strings.HasPrefix(trimmed, "# Resuming from a compaction") ||
 		strings.HasPrefix(trimmed, "The following is a <SYSTEM_MESSAGE>") ||
+		strings.HasPrefix(trimmed, "<SYSTEM_MESSAGE>") ||
+		strings.Contains(trimmed, "<SYSTEM_MESSAGE>") ||
 		strings.HasPrefix(raw, "Step Id:") {
 		return raw
 	}

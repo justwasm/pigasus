@@ -229,6 +229,18 @@ func TestNextMode(t *testing.T) {
 	}
 }
 
+func TestNextRemoteAgentMode(t *testing.T) {
+	if got := NextRemoteAgentMode(""); got != ModeAcceptEdits {
+		t.Errorf("NextRemoteAgentMode(\"\") = %q, want %q", got, ModeAcceptEdits)
+	}
+	if got := NextRemoteAgentMode(ModeAcceptEdits); got != "" {
+		t.Errorf("NextRemoteAgentMode(ModeAcceptEdits) = %q, want \"\"", got)
+	}
+	if got := NextRemoteAgentMode(ModeAuto); got != ModeAcceptEdits {
+		t.Errorf("NextRemoteAgentMode(ModeAuto) = %q, want %q", got, ModeAcceptEdits)
+	}
+}
+
 func TestRuleMatches_MultilineAndRegex(t *testing.T) {
 	// 1. Multiline script matching with \r\n vs \n
 	multilineCmd := "python -c '\r\nimport os\r\nprint(os.getcwd())\r\n'"
@@ -294,5 +306,35 @@ func TestSuggestAllowAlwaysPattern(t *testing.T) {
 	chained := "git fetch origin && git rebase origin/main"
 	if got := SuggestAllowAlwaysPattern(chained); got != chained {
 		t.Errorf("chained command suggestion = %q, want %q", got, chained)
+	}
+}
+
+// TestAutoModeNonWorkspaceAccess pins AGY 1.5.10: Auto mode honors allowNonWorkspaceAccess
+// without prompting to read files outside the workspace.
+func TestAutoModeNonWorkspaceAccess(t *testing.T) {
+	ws := "/Users/example/project"
+
+	// 1. allowNonWorkspaceAccess = false: reads outside workspace ask
+	polDenied := Policy{
+		Mode:                    ModeAuto,
+		WorkspaceRoots:          []string{ws},
+		AllowNonWorkspaceAccess: false,
+	}
+	if got := polDenied.Decide(Request{Tool: "read_file", Target: "/etc/hosts"}); got != Ask {
+		t.Errorf("polDenied.Decide(/etc/hosts) = %v, want Ask", got)
+	}
+	// Reads inside workspace still allowed
+	if got := polDenied.Decide(Request{Tool: "read_file", Target: "/Users/example/project/main.go"}); got != Allow {
+		t.Errorf("polDenied.Decide(main.go) = %v, want Allow", got)
+	}
+
+	// 2. allowNonWorkspaceAccess = true: reads outside workspace allowed without prompt
+	polAllowed := Policy{
+		Mode:                    ModeAuto,
+		WorkspaceRoots:          []string{ws},
+		AllowNonWorkspaceAccess: true,
+	}
+	if got := polAllowed.Decide(Request{Tool: "read_file", Target: "/etc/hosts"}); got != Allow {
+		t.Errorf("polAllowed.Decide(/etc/hosts) = %v, want Allow", got)
 	}
 }

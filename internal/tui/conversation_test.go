@@ -908,6 +908,64 @@ func TestContinueNoBlankTurns(t *testing.T) {
 	}
 }
 
+// TestSeedConversation_SystemMessageNotLeakedToTranscript asserts that
+// internal <SYSTEM_MESSAGE> prompt framings (background task completions,
+// subagent deliverables) preserved as StepSystemNotice (101) do not leak into
+// the visible conversation response transcript during reseed/resume, while still
+// being kept in session messages for the model context.
+func TestSeedConversation_SystemMessageNotLeakedToTranscript(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("ANTIGRAVITY_HOME", dir)
+	if err := os.MkdirAll(filepath.Join(dir, "conversations"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	const id = "11111111-2222-4000-8000-00000000ea03"
+	sysMsg := "The following is a <SYSTEM_MESSAGE> not actually sent by the user. " +
+		"It is provided by the system as important information to pay attention to.\n\n" +
+		"<SYSTEM_MESSAGE>\n" +
+		"[Message] timestamp=2026-11-16T00:00:00Z sender=test-task priority=MESSAGE_PRIORITY_HIGH content=Task finished\n" +
+		"</SYSTEM_MESSAGE>"
+
+	steps := []convstore.Step{
+		{Idx: 0, Type: convstore.StepUserInput, Status: 3, Text: "run something"},
+		{Idx: 1, Type: convstore.StepSystemNotice, Status: 3, Text: sysMsg},
+		{Idx: 2, Type: convstore.StepModelResponse, Status: 3, Text: "all done!"},
+	}
+	dbPath := filepath.Join(dir, "conversations", id+".db")
+	if err := convstore.WriteConversation(dbPath, id, steps); err != nil {
+		t.Fatalf("WriteConversation: %v", err)
+	}
+
+	c, err := convstore.LoadConversation(dbPath)
+	if err != nil {
+		t.Fatalf("LoadConversation: %v", err)
+	}
+
+	m := newRootModel(&fakeClient{}, "u@t", "Gemini 3.8 Flash (High)", "t", "/", true)
+	m.session.conversationID = id
+	m.seedConversation(c)
+
+	// Verify that the prompt framing never leaked into the visible transcript
+	for _, row := range m.conversation.response {
+		if strings.Contains(row, "<SYSTEM_MESSAGE>") || strings.Contains(row, "not actually sent by the user") {
+			t.Errorf("visible transcript leaked system message prompt: %q", row)
+		}
+	}
+
+	// Verify that the system message is preserved in m.session for model turns
+	var foundSys bool
+	for _, msg := range m.SessionMessages() {
+		if msg.Role == "system" && strings.Contains(msg.Content, "Task finished") {
+			foundSys = true
+			break
+		}
+	}
+	if !foundSys {
+		t.Errorf("system message was not preserved in session: %+v", m.SessionMessages())
+	}
+}
+
 // TestSessionToStepsIdxUnchanged — a focused regression for the
 // internal Idx invariant: dropping a step in the middle of sess must
 // not shift the Idx of later steps. Idx must keep tracking the

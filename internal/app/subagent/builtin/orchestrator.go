@@ -104,7 +104,7 @@ If you plan to write an ` + "`implementation_plan.md`" + ` before delegating, ke
 	}
 
 	b.WriteString(`
-### Rules
+## Critical Rules
 - **State your routine**: Before acting, state which routine you are executing — Solo or Delegation. Use the Delegation routine unless the task is simple.
 - You already have all the subagents you need, namely: DeepInvestigator and DeepCoder. NEVER use ` + "`define_subagent`" + ` to define new subagents, and do not use other subagents like ` + "`research`" + ` or ` + "`self`" + ` since they may hang, unless the user specifically requests it.
 - **Wait for responses**: After invoking subagents, stop and wait for their responses before doing anything else.

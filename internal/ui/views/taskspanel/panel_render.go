@@ -24,6 +24,7 @@ package taskspanel
 
 import (
 	"fmt"
+	"time"
 
 	taskregistry "github.com/justwasm/pigasus/internal/app/task"
 	tuiviewer "github.com/justwasm/pigasus/internal/ui/foundations/viewer"
@@ -105,7 +106,9 @@ func (p *Panel) listLines() []string {
 // paints as the panel's title.
 func (p *Panel) detailLines() []string {
 	t := p.detailTask()
-	var header, body []string
+	if t == nil {
+		return nil
+	}
 	width, _ := p.size()
 	if width <= 0 {
 		width = mdrender.CurrentWidth()
@@ -113,15 +116,64 @@ func (p *Panel) detailLines() []string {
 	if width <= 0 {
 		width = 80
 	}
+
+	taskErrStr := ""
+	if t.Err != nil {
+		taskErrStr = t.Err.Error()
+	}
+
+	var transPath string
+	var transMtime time.Time
+	var transSize int64
+	if p.detailSubagent {
+		transPath, transMtime, transSize = agentspanel.TranscriptFileStat(t.ID)
+	}
+
+	c := &p.detailCache
+	if c.valid &&
+		c.taskID == t.ID &&
+		c.isSubagent == p.detailSubagent &&
+		c.width == width &&
+		c.expanded == p.detailExpanded &&
+		c.taskState == t.State &&
+		c.taskStepCnt == t.StepCount &&
+		c.taskStepsLen == len(t.Steps) &&
+		c.taskOutLen == len(t.Output) &&
+		c.taskErr == taskErrStr &&
+		c.transPath == transPath &&
+		c.transMtime.Equal(transMtime) &&
+		c.transSize == transSize {
+		return p.detailView(c.header, c.body)
+	}
+
+	var header, body []string
 	if p.detailSubagent {
 		header, body = agentspanel.BuildSubagentDetail(t, width, p.detailExpanded)
 		if len(header) > 0 {
+			header = append([]string{}, header...)
 			header[0] = panelTitleOpen + header[0] + panelTitleClose
 		}
 	} else {
 		header = []string{panelTitleOpen + taskregistry.TaskDetailTitle + panelTitleClose}
 		body = taskregistry.TaskDetailBody(t, width)
 	}
+
+	c.valid = true
+	c.taskID = t.ID
+	c.isSubagent = p.detailSubagent
+	c.width = width
+	c.expanded = p.detailExpanded
+	c.taskState = t.State
+	c.taskStepCnt = t.StepCount
+	c.taskStepsLen = len(t.Steps)
+	c.taskOutLen = len(t.Output)
+	c.taskErr = taskErrStr
+	c.transPath = transPath
+	c.transMtime = transMtime
+	c.transSize = transSize
+	c.header = header
+	c.body = body
+
 	return p.detailView(header, body)
 }
 

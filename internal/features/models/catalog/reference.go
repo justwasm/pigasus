@@ -125,6 +125,8 @@ func ReferenceModels() []ModelEntry {
 			ModelEntry{"gemini-4-carbon-high", "Gemini 4 Carbon (High)"},
 			ModelEntry{"gemini-4-carbon-medium", "Gemini 4 Carbon (Medium)"},
 			ModelEntry{"gemini-4-carbon-low", "Gemini 4 Carbon (Low)"},
+			ModelEntry{"gemini-pro-orchestrator", "Orchestrator"},
+			ModelEntry{"gemini-pro-orchestrator-argon", "Orchestrator (Argon)"},
 		)
 	}
 	if Claude55Available() {

@@ -44,7 +44,7 @@ func NewService(cm *CascadeManager) *Service {
 	s := &Service{
 		cascades:         cm,
 		projects:         make(map[string]ProjectConfig),
-		permissionPreset: "AUTO_APPROVE",
+		permissionPreset: "DEFAULT",
 		terminals:        newTerminalManager(),
 		triggers:         make(map[string]Trigger),
 	}
@@ -739,7 +739,7 @@ func (s *Service) handleGetPermissionSettings(w http.ResponseWriter) {
 	preset := s.permissionPreset
 	s.mu.Unlock()
 	if preset == "" {
-		preset = "AUTO_APPROVE"
+		preset = "DEFAULT"
 	}
 	writeJSON(w, map[string]any{
 		"permissionPreset":   preset,

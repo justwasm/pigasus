@@ -61,6 +61,22 @@ type Panel struct {
 	effortCursor int
 	// window is the index of the first visible row in Rows().
 	window int
+	// variantChoices records the chosen variant index for rows with Variants.
+	variantChoices map[string]int
+}
+
+// cycleVariant steps the active variant for rows with Variants (e.g. Carbon <-> Argon).
+func (p *Panel) cycleVariant(delta int) {
+	row, ok := p.currentRow()
+	if !ok || !row.HasVariants() {
+		return
+	}
+	if p.variantChoices == nil {
+		p.variantChoices = make(map[string]int)
+	}
+	cur := p.variantChoices[row.Slug]
+	cur = (cur + delta + len(row.Variants)) % len(row.Variants)
+	p.variantChoices[row.Slug] = cur
 }
 
 // New builds the /model panel.

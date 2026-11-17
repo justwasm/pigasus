@@ -12,6 +12,8 @@
 package slashpicker
 
 import (
+	"strings"
+
 	tea "charm.land/bubbletea/v2"
 )
 
@@ -88,6 +90,47 @@ func (p *Panel) CommitSelectionCmd() (bool, tea.Cmd) {
 		p.setBuffer(text)
 		p.Reset()
 		return true, CompletedCmd(text, true, sel.Name)
+	}
+	if p.voiceMode {
+		if p.voiceSubcmd == "" {
+			switch sel.Name {
+			case "speaker", "duplex", "volume", "speed":
+				text = "/voice " + sel.Name + " "
+				p.setBuffer(text)
+				p.Update([]rune(text))
+				return true, CompletedCmd(text, false, sel.Name)
+			default:
+				text = "/voice " + sel.Name
+				p.setBuffer(text)
+				p.Reset()
+				return true, CompletedCmd(text, true, sel.Name)
+			}
+		} else {
+			text = "/voice " + p.voiceSubcmd + " " + sel.Name
+			if p.seams.Buffer != nil && strings.HasPrefix(p.seams.Buffer(), "/speaker ") {
+				text = "/speaker " + sel.Name
+			}
+			p.setBuffer(text)
+			p.Reset()
+			return true, CompletedCmd(text, true, sel.Name)
+		}
+	}
+	if p.resumeMode {
+		bufStr := ""
+		if p.seams.Buffer != nil {
+			bufStr = p.seams.Buffer()
+		}
+		prefix := "/resume "
+		if strings.HasPrefix(bufStr, "/sessions ") {
+			prefix = "/sessions "
+		}
+		text = prefix + sel.Name
+		p.setBuffer(text)
+		p.Reset()
+		return true, CompletedCmd(text, true, sel.Name)
+	}
+	if sel.Name == "/voice" || sel.Name == "/speaker" || sel.Name == "/model" || sel.Name == "/resume" || sel.Name == "/sessions" {
+		text += " "
 	}
 	p.setBuffer(text)
 	p.Update([]rune(text))

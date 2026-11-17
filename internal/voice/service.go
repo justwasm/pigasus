@@ -43,6 +43,9 @@ type Service struct {
 	recordingsDir string
 	recordings    atomic.Int64 // total bytes
 
+	// LiveBackend provides real-time upstream voice synthesis & conversation
+	liveBackend LiveBackend
+
 	// Chats by conversation_id
 	chatsMu sync.RWMutex
 	chats   map[string][]*voicepb.VoiceChat
@@ -52,6 +55,7 @@ type Service struct {
 type Config struct {
 	WorkspaceDir string
 	CSRFToken    string
+	LiveBackend  LiveBackend
 }
 
 // NewService creates a new voice Service.
@@ -60,14 +64,37 @@ func NewService(cfg Config) *Service {
 	if cfg.WorkspaceDir != "" {
 		recDir = filepath.Join(cfg.WorkspaceDir, ".antigravity", "voice_recordings")
 	}
+	liveB := cfg.LiveBackend
+	if liveB == nil {
+		if apiKey := os.Getenv("GEMINI_API_KEY"); apiKey != "" {
+			liveB = NewGeminiLiveBackend(apiKey)
+		} else {
+			liveB = NewMockLiveBackend()
+		}
+	}
 	s := &Service{
 		workspaceDir:  cfg.WorkspaceDir,
 		csrfToken:     cfg.CSRFToken,
 		recordingsDir: recDir,
+		liveBackend:   liveB,
 		chats:         make(map[string][]*voicepb.VoiceChat),
 	}
 	s.initRecordings()
 	return s
+}
+
+// SetLiveBackend sets the backend used for real-time live voice sessions.
+func (s *Service) SetLiveBackend(b LiveBackend) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.liveBackend = b
+}
+
+// getLiveBackend retrieves the current LiveBackend safely.
+func (s *Service) getLiveBackend() LiveBackend {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.liveBackend
 }
 
 func (s *Service) initRecordings() {
@@ -316,10 +343,28 @@ func (s *Service) HandleWS(w http.ResponseWriter, r *http.Request) {
 	s.runVoiceSession(r.Context(), c, convID, sampleRate)
 }
 
+// wsSafeWriter serializes writes to a websocket connection.
+type wsSafeWriter struct {
+	c  *websocket.Conn
+	mu sync.Mutex
+}
+
+func (w *wsSafeWriter) write(ctx context.Context, msg *voicepb.VoiceServerMessage) error {
+	b, err := proto.Marshal(msg)
+	if err != nil {
+		return err
+	}
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.c.Write(ctx, websocket.MessageBinary, b)
+}
+
 // runVoiceSession runs the full duplex real-time voice streaming loop.
 func (s *Service) runVoiceSession(ctx context.Context, c *websocket.Conn, convID string, sampleRate int) {
 	sessCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
+
+	writer := &wsSafeWriter{c: c}
 
 	// Initial session state: LISTENING
 	initStatus := &voicepb.VoiceServerMessage{
@@ -332,9 +377,7 @@ func (s *Service) runVoiceSession(ctx context.Context, c *websocket.Conn, convID
 			},
 		},
 	}
-	if b, err := proto.Marshal(initStatus); err == nil {
-		_ = c.Write(sessCtx, websocket.MessageBinary, b)
-	}
+	_ = writer.write(sessCtx, initStatus)
 
 	currentChat := &voicepb.VoiceChat{
 		StartedAt: timestamppb.Now(),
@@ -349,6 +392,101 @@ func (s *Service) runVoiceSession(ctx context.Context, c *websocket.Conn, convID
 			s.chatsMu.Unlock()
 		}
 	}()
+
+	backend := s.getLiveBackend()
+	if backend == nil {
+		backend = NewMockLiveBackend()
+	}
+
+	liveSess, err := backend.CreateSession(sessCtx, LiveSessionConfig{
+		CascadeID:  convID,
+		SampleRate: sampleRate,
+	})
+	if err == nil && liveSess != nil {
+		defer liveSess.Close()
+
+		var voiceSeq atomic.Int32
+		go func() {
+			for {
+				ev, err := liveSess.Receive()
+				if err != nil {
+					return
+				}
+				if ev == nil {
+					continue
+				}
+
+				if ev.Interrupted {
+					_ = writer.write(sessCtx, &voicepb.VoiceServerMessage{
+						Kind: &voicepb.VoiceServerMessage_ClearAudio_{
+							ClearAudio: &voicepb.VoiceServerMessage_ClearAudio{},
+						},
+					})
+				}
+
+				if len(ev.Audio) > 0 {
+					seq := voiceSeq.Add(1)
+					audioMs := int32((len(ev.Audio) * 1000) / 48000) // 24kHz 16-bit mono = 48000 bytes/sec
+					_ = writer.write(sessCtx, &voicepb.VoiceServerMessage{
+						Kind: &voicepb.VoiceServerMessage_AudioTiming_{
+							AudioTiming: &voicepb.VoiceServerMessage_AudioTiming{
+								Seq:           seq,
+								AudioMs:       audioMs,
+								PlaybackSpeed: 1.0,
+							},
+						},
+					})
+					_ = writer.write(sessCtx, &voicepb.VoiceServerMessage{
+						Kind: &voicepb.VoiceServerMessage_VoiceAudio{
+							VoiceAudio: ev.Audio,
+						},
+					})
+				}
+
+				if ev.VoiceTranscript != "" {
+					seq := voiceSeq.Load()
+					s.chatsMu.Lock()
+					currentChat.Lines = append(currentChat.Lines, &voicepb.VoiceChatLine{
+						Role: voicepb.VoiceChatLine_ROLE_VOICE,
+						Text: ev.VoiceTranscript,
+						Time: timestamppb.Now(),
+					})
+					s.chatsMu.Unlock()
+
+					_ = writer.write(sessCtx, &voicepb.VoiceServerMessage{
+						Kind: &voicepb.VoiceServerMessage_VoiceTranscript_{
+							VoiceTranscript: &voicepb.VoiceServerMessage_VoiceTranscript{
+								Text:    ev.VoiceTranscript,
+								Seq:     seq,
+								AudioMs: int32((len(ev.Audio) * 1000) / 48000),
+							},
+						},
+					})
+				}
+
+				if ev.UserSpeech != "" {
+					seq := voiceSeq.Load()
+					s.chatsMu.Lock()
+					currentChat.Lines = append(currentChat.Lines, &voicepb.VoiceChatLine{
+						Role: voicepb.VoiceChatLine_ROLE_USER,
+						Text: ev.UserSpeech,
+						Time: timestamppb.Now(),
+					})
+					s.chatsMu.Unlock()
+
+					_ = writer.write(sessCtx, &voicepb.VoiceServerMessage{
+						Kind: &voicepb.VoiceServerMessage_UserSpeech_{
+							UserSpeech: &voicepb.VoiceServerMessage_UserSpeech{
+								Text:    ev.UserSpeech,
+								Seq:     seq,
+								Interim: ev.Interim,
+							},
+						},
+					})
+				}
+			}
+		}()
+	}
 
 	for {
 		msgType, data, err := c.Read(sessCtx)
@@ -366,7 +504,6 @@ func (s *Service) runVoiceSession(ctx context.Context, c *websocket.Conn, convID
 
 		switch k := clientMsg.Kind.(type) {
 		case *voicepb.VoiceClientMessage_Setup_:
-			// Acknowledge setup
 			status := &voicepb.VoiceServerMessage{
 				Kind: &voicepb.VoiceServerMessage_Status{
 					Status: &voicepb.VoiceServerMessage_SessionStatus{
@@ -377,15 +514,10 @@ func (s *Service) runVoiceSession(ctx context.Context, c *websocket.Conn, convID
 					},
 				},
 			}
-			if b, err := proto.Marshal(status); err == nil {
-				_ = c.Write(sessCtx, websocket.MessageBinary, b)
-			}
+			_ = writer.write(sessCtx, status)
 
 		case *voicepb.VoiceClientMessage_MicAudio:
-			// Client sent mic audio bytes.
-			// When mic audio chunk is received, echo transcription or speech events if needed
 			if len(k.MicAudio) > 0 {
-				// Record audio if recordings directory is active
 				if s.recordingsDir != "" {
 					filename := fmt.Sprintf("rec_%d.raw", time.Now().UnixNano())
 					filePath := filepath.Join(s.recordingsDir, filename)
@@ -393,28 +525,35 @@ func (s *Service) runVoiceSession(ctx context.Context, c *websocket.Conn, convID
 						s.recordings.Add(int64(len(k.MicAudio)))
 					}
 				}
+				if liveSess != nil {
+					_ = liveSess.SendAudio(k.MicAudio)
+				}
 			}
 
 		case *voicepb.VoiceClientMessage_UserTranscript_:
 			if k.UserTranscript != nil && k.UserTranscript.Text != "" {
+				s.chatsMu.Lock()
 				currentChat.Lines = append(currentChat.Lines, &voicepb.VoiceChatLine{
 					Role: voicepb.VoiceChatLine_ROLE_USER,
 					Text: k.UserTranscript.Text,
 					Time: timestamppb.Now(),
 				})
+				seq := int32(len(currentChat.Lines))
+				s.chatsMu.Unlock()
 
-				// Echo back UserSpeech recognition event
 				speechEvent := &voicepb.VoiceServerMessage{
 					Kind: &voicepb.VoiceServerMessage_UserSpeech_{
 						UserSpeech: &voicepb.VoiceServerMessage_UserSpeech{
 							Text:    k.UserTranscript.Text,
-							Seq:     int32(len(currentChat.Lines)),
+							Seq:     seq,
 							Interim: !k.UserTranscript.IsFinal,
 						},
 					},
 				}
-				if b, err := proto.Marshal(speechEvent); err == nil {
-					_ = c.Write(sessCtx, websocket.MessageBinary, b)
+				_ = writer.write(sessCtx, speechEvent)
+
+				if liveSess != nil {
+					_ = liveSess.SendText(k.UserTranscript.Text)
 				}
 			}
 

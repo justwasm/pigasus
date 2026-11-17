@@ -97,7 +97,9 @@ func ModelSupported(name string, catalogueID CatalogueIDFunc) bool {
 }
 
 // IsReferenceModel reports whether name resolves to a model the reference
-// serves itself — one of the models in its own catalogue.
+// serves itself — one of the models in its own catalogue, or an undocumented
+// id the CloudCode endpoint serves without advertising (catalog's
+// undocumented table; the gate decides whether it is in force).
 //
 // A model the user configured is not one of those: it has its own endpoint,
 // and the configured transport is what reaches it.
@@ -106,7 +108,7 @@ func IsReferenceModel(name string, catalogueID CatalogueIDFunc) bool {
 	if slug == "" {
 		return false
 	}
-	for _, m := range catalog.ReferenceModels() {
+	for _, m := range catalog.ReferenceServedModels() {
 		if m.ID == slug {
 			return true
 		}

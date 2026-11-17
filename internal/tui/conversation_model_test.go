@@ -94,3 +94,41 @@ func TestConversationModel_ToolLifecycle(t *testing.T) {
 		t.Fatalf("BeginToolResult = %+v", c)
 	}
 }
+
+// TestConversationModel_ModelRetryStatus pins the official agy 1.4.6 / 1.5.9
+// status line formatting for unavailable model retries.
+func TestConversationModel_ModelRetryStatus(t *testing.T) {
+	var c ConversationModel
+
+	// No retry active
+	if status, ok := c.ModelRetryStatus(); ok || status != "" {
+		t.Errorf("expected empty retry status, got %q (ok=%v)", status, ok)
+	}
+
+	// Active retry countdown (12s)
+	c.SetModelRetry(2, 10, time.Now().Add(12*time.Second))
+	status, ok := c.ModelRetryStatus()
+	if !ok || status != "Model unavailable, retrying in 12s (attempt 2/10)" {
+		t.Errorf("expected countdown string, got %q (ok=%v)", status, ok)
+	}
+
+	// Retry timer expired / firing now
+	c.SetModelRetry(2, 10, time.Time{})
+	status, ok = c.ModelRetryStatus()
+	if !ok || status != "Model unavailable, retrying (attempt 2/10)" {
+		t.Errorf("expected firing string, got %q (ok=%v)", status, ok)
+	}
+
+	// Cleared retry
+	c.ClearModelRetry()
+	if status, ok := c.ModelRetryStatus(); ok || status != "" {
+		t.Errorf("expected cleared retry, got %q (ok=%v)", status, ok)
+	}
+
+	// Cleared on EndStream
+	c.SetModelRetry(3, 10, time.Now().Add(5*time.Second))
+	c.EndStream()
+	if status, ok := c.ModelRetryStatus(); ok || status != "" {
+		t.Errorf("expected EndStream to clear retry status, got %q (ok=%v)", status, ok)
+	}
+}

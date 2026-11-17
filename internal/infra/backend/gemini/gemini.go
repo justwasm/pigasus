@@ -309,6 +309,9 @@ func (c *GeminiClient) Stream(ctx context.Context, req backend.StreamRequest) (<
 // run opens the request and consumes the response body.
 func (c *GeminiClient) run(ctx context.Context, body []byte, out chan<- backend.StreamChunk) error {
 	var lastErr error
+	maxAttempts := retry.MaxConnectionRetries + 1
+	notify := backend.RetryNotifierFromContext(ctx)
+
 	for attempt := 0; attempt <= retry.MaxConnectionRetries; attempt++ {
 		if attempt > 0 {
 			delay := retry.NextConnectionRetryDelay(attempt - 1)
@@ -318,20 +321,48 @@ func (c *GeminiClient) run(ctx context.Context, body []byte, out chan<- backend.
 					delay = retry.MaxConnectionRetryInterval
 				}
 			}
+			if notify != nil {
+				notify(backend.RetryProgress{
+					Attempt:     attempt + 1,
+					MaxAttempts: maxAttempts,
+					RetryAt:     time.Now().Add(delay),
+					Err:         lastErr,
+				})
+			}
 			select {
 			case <-ctx.Done():
+				if notify != nil {
+					notify(backend.RetryProgress{})
+				}
 				return ctx.Err()
 			case <-time.After(delay):
+			}
+			if notify != nil {
+				notify(backend.RetryProgress{
+					Attempt:     attempt + 1,
+					MaxAttempts: maxAttempts,
+					RetryAt:     time.Time{},
+					Err:         nil,
+				})
 			}
 		}
 		err := c.runOnce(ctx, body, out)
 		if err == nil {
+			if notify != nil {
+				notify(backend.RetryProgress{})
+			}
 			return nil
 		}
 		if !retry.IsConnectionDropped(err) && !apierror.IsRetryableStatusErr(err) {
+			if notify != nil {
+				notify(backend.RetryProgress{})
+			}
 			return err
 		}
 		lastErr = err
+	}
+	if notify != nil {
+		notify(backend.RetryProgress{})
 	}
 	if lastErr == nil {
 		lastErr = &retry.ConnectionDroppedError{URL: c.baseURL, Err: fmt.Errorf("max retries exceeded")}

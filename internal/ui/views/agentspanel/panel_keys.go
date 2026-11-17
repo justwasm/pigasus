@@ -28,6 +28,7 @@ func (p *Panel) HandleKey(key tea.Key) (bool, tea.Cmd) {
 			p.detailMode = false
 			p.detailSubagent = nil
 			p.window = 0
+			p.detailCache.valid = false
 			return true, nil
 		}
 		// The reference applies a prepared switch when the panel is
@@ -45,6 +46,10 @@ func (p *Panel) HandleKey(key tea.Key) (bool, tea.Cmd) {
 		return true, func() tea.Msg { return MsgClose{} }
 	case tea.KeyUp:
 		if p.detailMode {
+			if key.Mod.Contains(tea.ModShift) {
+				p.scroll(-p.halfPageStep())
+				return true, nil
+			}
 			p.scroll(-1)
 			return true, nil
 		}
@@ -54,6 +59,10 @@ func (p *Panel) HandleKey(key tea.Key) (bool, tea.Cmd) {
 		return true, nil
 	case tea.KeyDown:
 		if p.detailMode {
+			if key.Mod.Contains(tea.ModShift) {
+				p.scroll(p.halfPageStep())
+				return true, nil
+			}
 			p.scroll(1)
 			return true, nil
 		}
@@ -63,13 +72,13 @@ func (p *Panel) HandleKey(key tea.Key) (bool, tea.Cmd) {
 		return true, nil
 	case tea.KeyPgUp:
 		if p.detailMode {
-			p.scroll(-10)
+			p.scroll(-p.pageStep())
 			return true, nil
 		}
 		return true, nil
 	case tea.KeyPgDown:
 		if p.detailMode {
-			p.scroll(10)
+			p.scroll(p.pageStep())
 			return true, nil
 		}
 		return true, nil
@@ -81,7 +90,7 @@ func (p *Panel) HandleKey(key tea.Key) (bool, tea.Cmd) {
 		return true, nil
 	case tea.KeyEnd:
 		if p.detailMode {
-			p.window = 999999
+			p.window = 1 << 30
 			return true, nil
 		}
 		return true, nil
@@ -90,21 +99,38 @@ func (p *Panel) HandleKey(key tea.Key) (bool, tea.Cmd) {
 		return true, nil
 	}
 
+	if p.detailMode {
+		switch {
+		case key.String() == "shift+up":
+			p.scroll(-p.halfPageStep())
+			return true, nil
+		case key.String() == "shift+down":
+			p.scroll(p.halfPageStep())
+			return true, nil
+		case (key.Code == 'u' || key.Code == 'U') && key.Mod.Contains(tea.ModCtrl), key.String() == "ctrl+u":
+			p.scroll(-p.halfPageStep())
+			return true, nil
+		case (key.Code == 'd' || key.Code == 'D') && key.Mod.Contains(tea.ModCtrl), key.String() == "ctrl+d":
+			p.scroll(p.halfPageStep())
+			return true, nil
+		case (key.Code == 'b' || key.Code == 'B') && key.Mod.Contains(tea.ModCtrl), key.String() == "ctrl+b":
+			p.scroll(-p.pageStep())
+			return true, nil
+		case (key.Code == 'f' || key.Code == 'F') && key.Mod.Contains(tea.ModCtrl), key.String() == "ctrl+f":
+			p.scroll(p.pageStep())
+			return true, nil
+		case key.String() == "ctrl+home" || (key.Code == tea.KeyHome && key.Mod.Contains(tea.ModCtrl)):
+			p.window = 0
+			return true, nil
+		case key.String() == "ctrl+end" || (key.Code == tea.KeyEnd && key.Mod.Contains(tea.ModCtrl)):
+			p.window = 1 << 30
+			return true, nil
+		}
+	}
+
 	if ((key.Code == 'o' || key.Code == 'O') && key.Mod.Contains(tea.ModCtrl)) || key.String() == "ctrl+o" {
 		if p.detailMode {
 			p.expandedDetail = !p.expandedDetail
-			return true, nil
-		}
-	}
-	if key.String() == "ctrl+home" {
-		if p.detailMode {
-			p.window = 0
-			return true, nil
-		}
-	}
-	if key.String() == "ctrl+end" {
-		if p.detailMode {
-			p.window = 999999
 			return true, nil
 		}
 	}
@@ -242,6 +268,7 @@ func (p *Panel) prepare() {
 			p.detailMode = true
 			p.detailSubagent = sa
 			p.window = 0
+			p.detailCache.valid = false
 		}
 		return
 	case rowAgent:

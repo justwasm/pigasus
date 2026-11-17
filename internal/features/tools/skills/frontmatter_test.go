@@ -135,6 +135,29 @@ func TestSkillFrontmatterYAMLv3Only(t *testing.T) {
 	}
 }
 
+// TestSkillFrontmatter_DefaultsNameToDirectory pins AGY 1.5.10: Skill loader now defaults
+// the skill name to the enclosing directory name when SKILL.md frontmatter lacks name.
+func TestSkillFrontmatter_DefaultsNameToDirectory(t *testing.T) {
+	dir := t.TempDir()
+	skillDir := filepath.Join(dir, "my-awesome-skill")
+	if err := os.MkdirAll(skillDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	skillPath := filepath.Join(skillDir, "SKILL.md")
+	content := "---\ndescription: Skill without explicit name.\n---\n\nSkill body\n"
+	if err := os.WriteFile(skillPath, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	f := skillFrontmatterFields(skillPath)
+	if f.Name != "my-awesome-skill" {
+		t.Errorf("skillFrontmatterFields Name = %q, want %q", f.Name, "my-awesome-skill")
+	}
+	name, desc := skillFrontmatter(skillPath)
+	if name != "my-awesome-skill" || desc != "Skill without explicit name." {
+		t.Errorf("skillFrontmatter = (%q, %q), want ('my-awesome-skill', 'Skill without explicit name.')", name, desc)
+	}
+}
+
 // TestDispatchPrintSlash_Usage pins the /usage answer's shape. REF v1.4.0
 // resolves it from a live weekly-quota service, so the clone emits the
 // recovered payload with frozen placeholder figures (see

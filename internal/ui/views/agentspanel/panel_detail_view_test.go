@@ -83,6 +83,91 @@ func TestAgentsPanel_SubagentDetailView(t *testing.T) {
 	}
 }
 
+func TestAgentsPanel_SubagentDetailView_NavigationAlignedWithMainChat(t *testing.T) {
+	// Setup 200 lines of output
+	var lines []string
+	for i := 0; i < 200; i++ {
+		lines = append(lines, "step output line")
+	}
+	sa := &subagent.Subagent{
+		ID:     "sub-nav",
+		Name:   "worker-nav",
+		State:  "running",
+		Result: strings.Join(lines, "\n"),
+	}
+
+	height := 30
+	p := New(Seams{
+		Subagents: func() []*subagent.Subagent { return []*subagent.Subagent{sa} },
+		Size:      func() (int, int) { return 80, height },
+	}, nil)
+
+	p.OpenDetail(sa)
+	p.HandleKey(tea.Key{Code: 'o', Mod: tea.ModCtrl}) // expand detail
+
+	pageStep := p.pageStep()
+	halfStep := p.halfPageStep()
+	if pageStep < 5 || halfStep < 2 {
+		t.Fatalf("expected meaningful page/half-page steps, got page=%d, half=%d", pageStep, halfStep)
+	}
+
+	// 1. Shift+Down (half page down)
+	p.HandleKey(tea.Key{Code: tea.KeyDown, Mod: tea.ModShift})
+	if p.window != halfStep {
+		t.Errorf("after Shift+Down: window = %d, want %d", p.window, halfStep)
+	}
+
+	// 2. Ctrl+D (half page down)
+	p.HandleKey(tea.Key{Code: 'd', Mod: tea.ModCtrl})
+	if p.window != halfStep*2 {
+		t.Errorf("after Ctrl+D: window = %d, want %d", p.window, halfStep*2)
+	}
+
+	// 3. Shift+Up (half page up)
+	p.HandleKey(tea.Key{Code: tea.KeyUp, Mod: tea.ModShift})
+	if p.window != halfStep {
+		t.Errorf("after Shift+Up: window = %d, want %d", p.window, halfStep)
+	}
+
+	// 4. Ctrl+U (half page up)
+	p.HandleKey(tea.Key{Code: 'u', Mod: tea.ModCtrl})
+	if p.window != 0 {
+		t.Errorf("after Ctrl+U: window = %d, want 0", p.window)
+	}
+
+	// 5. PgDown / Ctrl+F (page down)
+	p.HandleKey(tea.Key{Code: tea.KeyPgDown})
+	if p.window != pageStep {
+		t.Errorf("after PgDown: window = %d, want %d", p.window, pageStep)
+	}
+	p.HandleKey(tea.Key{Code: 'f', Mod: tea.ModCtrl})
+	if p.window != pageStep*2 {
+		t.Errorf("after Ctrl+F: window = %d, want %d", p.window, pageStep*2)
+	}
+
+	// 6. PgUp / Ctrl+B (page up)
+	p.HandleKey(tea.Key{Code: tea.KeyPgUp})
+	if p.window != pageStep {
+		t.Errorf("after PgUp: window = %d, want %d", p.window, pageStep)
+	}
+	p.HandleKey(tea.Key{Code: 'b', Mod: tea.ModCtrl})
+	if p.window != 0 {
+		t.Errorf("after Ctrl+B: window = %d, want 0", p.window)
+	}
+
+	// 7. Ctrl+End (jump to bottom)
+	p.HandleKey(tea.Key{Code: tea.KeyEnd, Mod: tea.ModCtrl})
+	if p.window <= pageStep*2 {
+		t.Errorf("after Ctrl+End: window = %d, expected near bottom", p.window)
+	}
+
+	// 8. Ctrl+Home (jump to top)
+	p.HandleKey(tea.Key{Code: tea.KeyHome, Mod: tea.ModCtrl})
+	if p.window != 0 {
+		t.Errorf("after Ctrl+Home: window = %d, want 0", p.window)
+	}
+}
+
 func TestAgentsPanel_SwitchConversationNotice(t *testing.T) {
 	// 1. Without active session -> "create a new conversation"
 	pNoSession := New(Seams{
@@ -419,5 +504,67 @@ func TestAgentsPanel_SubagentDetailView_FormatB_SubagentsDir(t *testing.T) {
 	handled2, _ := p.HandleKey(tea.Key{Text: "ctrl+o"})
 	if !handled2 || p.ExpandedDetail() {
 		t.Fatalf("expected 'ctrl+o' string to collapse detail")
+	}
+}
+
+func TestAgentsPanel_SubagentDetailView_1000LinesScrollPerformance(t *testing.T) {
+	// Build a 1000-line output
+	var longLines []string
+	for i := 1; i <= 1000; i++ {
+		longLines = append(longLines, "line "+string(rune('0'+(i/1000)%10))+string(rune('0'+(i/100)%10))+string(rune('0'+(i/10)%10))+string(rune('0'+i%10))+": output content of the subagent turn")
+	}
+	longOutput := strings.Join(longLines, "\n")
+
+	sa := &subagent.Subagent{
+		ID:     "sub-perf-1000",
+		Name:   "perf-worker",
+		Title:  "Large output test",
+		State:  "running",
+		Result: longOutput,
+	}
+
+	p := New(Seams{
+		Subagents: func() []*subagent.Subagent { return []*subagent.Subagent{sa} },
+		Size:      func() (int, int) { return 80, 24 },
+	}, nil)
+
+	p.OpenDetail(sa)
+	if !p.DetailMode() {
+		t.Fatal("expected DetailMode")
+	}
+
+	// Expand detail with Ctrl+O
+	p.HandleKey(tea.Key{Code: 'o', Mod: tea.ModCtrl})
+	if !p.ExpandedDetail() {
+		t.Fatal("expected ExpandedDetail")
+	}
+
+	// Warm-up initial render
+	initialLines := p.Lines()
+	if len(initialLines) == 0 {
+		t.Fatal("expected non-empty lines")
+	}
+
+	// Scroll 1000 times and measure execution time
+	start := time.Now()
+	for i := 0; i < 1000; i++ {
+		p.HandleKey(tea.Key{Code: tea.KeyDown})
+		lines := p.Lines()
+		if len(lines) == 0 {
+			t.Fatalf("empty lines at scroll %d", i)
+		}
+	}
+	elapsed := time.Since(start)
+
+	// 1000 scroll frames must take well under 1 second (typically < 30ms with cache)
+	if elapsed > 2*time.Second {
+		t.Fatalf("1000 scroll frames took %v, expected under 2s (previously took 10 minutes)", elapsed)
+	}
+	t.Logf("1000 scroll frames completed in %v", elapsed)
+
+	// Verify line counter shows scrolled position
+	joined := strings.Join(p.Lines(), "\n")
+	if !strings.Contains(joined, "lines") {
+		t.Errorf("expected line counter indicator in scrolled view:\n%s", joined)
 	}
 }

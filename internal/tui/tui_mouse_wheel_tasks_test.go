@@ -261,8 +261,8 @@ func TestMouseWheel_ChangelogPanel(t *testing.T) {
 		t.Fatal("handleMouseWheel(down) returned false")
 	}
 	step := m.wheelScrollRows()
-	if step != 3 {
-		t.Errorf("wheelScrollRows() = %d, want 3", step)
+	if step != 1 {
+		t.Errorf("wheelScrollRows() = %d, want 1", step)
 	}
 	if m.overlays.panel.window != step {
 		t.Errorf("window after wheel down = %d, want %d", m.overlays.panel.window, step)

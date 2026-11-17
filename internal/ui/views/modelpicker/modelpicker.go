@@ -44,6 +44,16 @@ type Row struct {
 	// DefaultTier is the tier the row's model runs at when nothing
 	// else says. The reference's own default is high.
 	DefaultTier string
+
+	// Variants are optional variant choices for the row (e.g. ["Carbon", "Argon"]).
+	Variants []string
+	// VariantChoice is the currently selected variant.
+	VariantChoice string
+}
+
+// HasVariants reports whether the row offers multiple planner variants.
+func (r Row) HasVariants() bool {
+	return len(r.Variants) > 1
 }
 
 // Rows is the static, always-present portion of the /model picker.
@@ -80,6 +90,22 @@ func Rows55() []Row {
 	return []Row{
 		{Display: "Claude Opus 5.5", Slug: "claude-opus-5-5"},
 		{Display: "Claude Sonnet 5.5", Slug: "claude-sonnet-5-5"},
+	}
+}
+
+// RowsADC returns the conditional synthesized Orchestrator picker row.
+// Synthesized under Gemini Enterprise & ADC (AGY_ADC_AUTH=true).
+func RowsADC() []Row {
+	if !catalog.ADCAuthAvailable() {
+		return nil
+	}
+	return []Row{
+		{
+			Display:       "Orchestrator",
+			Slug:          "gemini-pro-orchestrator",
+			Variants:      []string{"Carbon", "Argon"},
+			VariantChoice: "Carbon",
+		},
 	}
 }
 
@@ -139,20 +165,48 @@ func ConfiguredRows() []Row {
 	return out
 }
 
+// RowsUndocumented returns the conditional rows for the wire ids the
+// CloudCode endpoint serves without advertising — today
+// "Gemini 4 Hydrogen (Sonar)".
+//
+// The row is a fixed model (no effort slider): the endpoint publishes no
+// `sonar` tier alongside low/medium/high/xhigh, so the id carries the variant
+// itself. It is drawn like any other row, not dim: unlike Gemini 4 Argon it is
+// not refused for plan reasons — it is simply not in the reference's catalogue.
+//
+// Empty unless catalog.UndocumentedModelsEnabled() is true — a stock run, and
+// every alignment harness (which points the clone at a loopback mock), sees
+// exactly the reference's rows.
+func RowsUndocumented() []Row {
+	entries := catalog.UndocumentedModels()
+	if len(entries) == 0 {
+		return nil
+	}
+	out := make([]Row, 0, len(entries))
+	for _, m := range entries {
+		out = append(out, Row{Display: m.Label, Slug: m.ID})
+	}
+	return out
+}
+
 // RowsView returns the full picker view: Rows + any conditional 5.5
-// entries + the models the user configured. The picker always renders
-// Rows first so cursor indices 0–4 are stable across ADC state changes;
-// the 5.5 rows are appended at the end when present, and the configured
-// rows follow them.
+// entries + the undocumented (reverse-proxy) rows + the models the user
+// configured. The picker always renders Rows first so cursor indices 0–4
+// are stable across ADC state changes; the conditional rows are appended at
+// the end when present, and the configured rows follow them.
 func RowsView() []Row {
 	extra := Rows55()
+	adc := RowsADC()
+	undoc := RowsUndocumented()
 	configured := ConfiguredRows()
-	if len(extra) == 0 && len(configured) == 0 {
+	if len(extra) == 0 && len(adc) == 0 && len(undoc) == 0 && len(configured) == 0 {
 		return Rows
 	}
-	out := make([]Row, 0, len(Rows)+len(extra)+len(configured))
+	out := make([]Row, 0, len(Rows)+len(extra)+len(adc)+len(undoc)+len(configured))
 	out = append(out, Rows...)
 	out = append(out, extra...)
+	out = append(out, adc...)
+	out = append(out, undoc...)
 	out = append(out, configured...)
 	return out
 }
@@ -279,6 +333,12 @@ func SearchMatch(label, query string) (boundary, first int, ok bool) {
 // still spells its tier into the id, so the three-tier geometry keeps
 // working for a row assembled outside this package.
 func (r Row) CatalogueID(effortCursor int) string {
+	if len(r.Variants) > 0 {
+		if strings.EqualFold(r.VariantChoice, "argon") {
+			return "gemini-pro-orchestrator-argon"
+		}
+		return "gemini-pro-orchestrator"
+	}
 	tiers := r.Tiers
 	if len(tiers) == 0 && r.Slug == GeminiFlashSlug {
 		tiers = effortpanel.EffortTiers

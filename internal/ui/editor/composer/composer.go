@@ -63,6 +63,8 @@ type Editor interface {
 	CursorOffset() int
 	// InsertRune inserts one rune at the cursor.
 	InsertRune(r rune)
+	// InsertString inserts a string at the cursor.
+	InsertString(s string)
 	// Backspace removes the character before the cursor.
 	Backspace()
 	// Update feeds one message to the widget and answers the command
@@ -100,6 +102,9 @@ func (a *TextArea) CursorOffset() int { return tuilib.InputCursorByteOffset(*a.m
 
 // InsertRune inserts one rune at the cursor.
 func (a *TextArea) InsertRune(r rune) { a.m.InsertRune(r) }
+
+// InsertString inserts a string at the cursor.
+func (a *TextArea) InsertString(s string) { a.m.InsertString(s) }
 
 // Backspace removes the character before the cursor.
 func (a *TextArea) Backspace() {
@@ -171,18 +176,20 @@ type Seams struct {
 	ReplaceSelection func(s string)
 
 	// Copy writes text to the system clipboard and answers the
-	// command that announces the copy.
-	//
-	// The write is OS I/O and stays on the host's side of this seam:
-	// the composer decides *that* a selection is copied, the host
-	// performs the write.
+	// command that announces the copy. Optional: when nil, composer
+	// falls back to writing directly to clipboard.Write.
 	Copy func(text string) tea.Cmd
 
-	// ClearEligibilityNotice drops the session's eligibility notice.
+	// Paste delegates paste handling to the host (e.g. for media
+	// attachment or placeholder folding). Optional: when nil, composer
+	// natively inserts the text at the cursor (or replaces active selection).
+	Paste func(text string) tea.Cmd
+
+	// ClearEligibilityNotice drops the session's eligibility notice. Optional.
 	ClearEligibilityNotice func()
 
 	// DismissModeHint dismisses the mode hint the composer shows
-	// when the user starts typing.
+	// when the user starts typing. Optional.
 	DismissModeHint func()
 
 	// UndoMgr is the multi-level undo and redo manager. Optional (nil-safe).
@@ -202,11 +209,36 @@ func (s Seams) MoveCursor(offset int) {
 // the two dropdowns re-filter against the new value, the eligibility
 // notice is cleared and the prompt history's navigation is reset.
 func (s Seams) afterEdit() {
-	s.DismissModeHint()
-	s.Picker.Update([]rune(tuilib.FirstLine(s.Editor.Value())))
-	s.ClearEligibilityNotice()
-	s.Files.Update()
+	if s.DismissModeHint != nil {
+		s.DismissModeHint()
+	}
+	if s.Picker != nil {
+		s.Picker.Update([]rune(tuilib.FirstLine(s.Editor.Value())))
+	}
+	if s.ClearEligibilityNotice != nil {
+		s.ClearEligibilityNotice()
+	}
+	if s.Files != nil {
+		s.Files.Update()
+	}
 	if s.History != nil {
 		s.History.Reset()
 	}
+}
+
+// Update feeds a message to the composer, handling editing keys, word jumps,
+// clipboard paste, bracketed paste, selection and dropdown updates.
+// It answers the command produced and whether the message was consumed.
+func Update(s Seams, msg tea.Msg) (tea.Cmd, bool) {
+	switch msg := msg.(type) {
+	case tea.PasteMsg:
+		return HandlePaste(s, msg.Content), true
+	case tea.KeyMsg:
+		key := msg.Key()
+		if cmd, handled := HandleKey(s, key); handled {
+			return cmd, true
+		}
+		return UpdateTextarea(s, msg), true
+	}
+	return nil, false
 }

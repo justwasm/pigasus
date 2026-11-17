@@ -1,7 +1,7 @@
 {
   "version": "1.5.7",
-  "lag_acknowledged_through": "1.5.9",
-  "lag_note": "Upstream 1.5.6-1.5.9 releases acknowledged; extracted artifacts in out/extracted-1.5.9 and alignment in progress.",
+  "lag_acknowledged_through": "1.5.10",
+  "lag_note": "Upstream 1.5.6-1.5.10 releases acknowledged; extracted artifacts in out/extracted-1.5.10 and alignment in progress.",
   "artifacts": [
     {
       "path": "internal/cli/testdata/changelog_reference.txt",
@@ -64,36 +64,6 @@
       "how": "extract the uncompressed FileDescriptorProto for google/gca/aicode/v1main/remote_agent_proxy.proto from the agy binary (see out/local-macos/protos/README.md) and emit one <RPC>\\t<Request>\\t<Response> line per method; TestReferenceRPCMethodsMatchFixture pins the order. Still seventy-nine methods at 1.4.8 - the method list did not move, but the descriptor gained one field (ProjectResource.default_branch, field 13, string); the 1.4.7, 1.4.6, 1.4.5 and 1.4.4 captures remain on disk as the previous releases' evidence"
     },
     {
-      "path": "out/local-macos/protos/remote_agent_proxy_1.4.8.txt",
-      "captured_at": "1.4.8",
-      "digest": "6286b1dcb269e13c3b3e5509af01052587054d3a152789f1517e41b90d9ea1ed",
-      "how": "decode the FileDescriptorProto at the offset named in out/local-macos/protos/README.md (0x3b5e9c6, 46,352 B) with descriptor_pb2 and print it with text_format; the offset moves on every agy release, and the naive top-level field walk overshoots the public descriptor - the syntax:\"proto3\" marker is the reliable end. At 1.4.8 the descriptor is byte-identical to the 1.4.7 one apart from one field: ProjectResource.default_branch, field 13, string"
-    },
-    {
-      "path": "out/local-macos/protos/remote_agent_proxy_pb_1.4.8.txt",
-      "captured_at": "1.4.8",
-      "digest": "e18ac4ea487ddeb3267c162e03fcc55e1d4f79a39a15b52859a87069206ff217",
-      "how": "same procedure as remote_agent_proxy_1.4.8.txt, for third_party/jetski/remote_agent_proxy_pb/remote_agent_proxy.proto (package exa.remote_agent_proxy_pb) at file offset 0x37e3e81 (4,361 B). The internal descriptor is byte-identical to the 1.4.7 one: ConfigOverrides still carries bool is_cel_only = 8 and string cel_type = 9"
-    },
-    {
-      "path": "out/local-macos/protos/prompt_1.4.8.txt",
-      "captured_at": "1.4.8",
-      "digest": "64573c86caec38489271c421b5878a271fd66d96cbb312788061a46058bab7ec",
-      "how": "same procedure as remote_agent_proxy_1.4.8.txt, for third_party/jetski/prompt_pb/prompt.proto (package exa.prompt_pb) - decoded with protoc --decode=google.protobuf.FileDescriptorProto at the offset named in out/local-macos/protos/README.md (0x37b5315, 3,785 B). The file's six messages are the prompt-construction config family; CumulativePromptConfig carries the nineteen fields the cumulative prompt is driven by. The descriptor is byte-identical to the 1.4.7 one. The offset moves on every agy release, and the syntax:\"proto3\" marker is the reliable end"
-    },
-    {
-      "path": "out/local-macos/seeds/seeds.txt",
-      "captured_at": "1.4.11",
-      "digest": "c1084acd08ed5906a45fbef58cc60fc9f78bd1b2323e5c5fd833c2adab8cfa92",
-      "how": "cd rea-go-seeds && mkdir -p <outdir> && go run . ~/.local/bin/agy <outdir>. Regenerated at 1.4.11 (2026-10-30): 168,548 recovered names."
-    },
-    {
-      "path": "out/local-macos/seeds/funcs.txt",
-      "captured_at": "1.4.11",
-      "digest": "5fb32f97976fa57f5abc2e44ad4b6fb71ace292fb13b7d61252a26256b1e3b18",
-      "how": "written by the same rea-go-seeds run as seeds.txt; regenerated at 1.4.11 (2026-10-30) together with seeds.txt (168,548 names)."
-    },
-    {
       "path": "internal/cli/testdata/help_1.4.6.txt",
       "captured_at": "1.4.8",
       "digest": "013de32c86279aeac72325e13507cdd36e4148f19b3e8ee5c013e3fa26db1166",
@@ -152,7 +122,7 @@
       "path": "internal/app/tools/surface/testdata/tool_errors_1.4.8.txt",
       "captured_at": "1.4.8",
       "digest": "3ca6401d24418c1ddaf87ee54029c6f474d29fd8dd033aa47463a2170ef52d80",
-      "how": "run the real agy with CLOUD_CODE_URL pointed at devutils/refcapture, a mock that forwards every RPC except streamGenerateContent to the real CloudCode endpoint, answers the agent turn with one functionCall, and then reads the functionResponse the reference sends back in the follow-up request body. Three captures: a call that succeeded (read_file on a file that exists, under `output`), a call whose tool failed (read_file on a file that does not exist, under `error`, with the reference's \"Encountered error in tool execution: file does not exist\"), and a call that never ran (view_file, which is one of the 63 known names but not one of the twelve model-facing ones, under `error`, with \"Encountered error in tool validation: unknown tool: \\\"view_file\\\" — check spelling\"). This is the 1.4.8 change the 1.4.7 capture's header describes: \"Every result is a plain string under functionResponse.response.output, never an error\". Drive it in print mode (agy -p) with --dangerously-skip-permissions and the workspace under /tmp"
+      "how": "run the real agy with CLOUD_CODE_URL pointed at devutils/refcapture, a mock that forwards every RPC except streamGenerateContent to the real CloudCode endpoint, answers the agent turn with one functionCall, and then reads the functionResponse the reference sends back in the follow-up request body. Three captures: a call that succeeded (read_file on a file that exists, under `output`), a call whose tool failed (read_file on a file that does not exist, under `error`, with the reference's \"Encountered error in tool execution: file does not exist\"), and a call that never ran (view_file, which is one of the 63 known names but not one of the twelve model-facing ones, under `error`, with \"Encountered error in tool validation: unknown tool: \\\"view_file\\\" \u2014 check spelling\"). This is the 1.4.8 change the 1.4.7 capture's header describes: \"Every result is a plain string under functionResponse.response.output, never an error\". Drive it in print mode (agy -p) with --dangerously-skip-permissions and the workspace under /tmp"
     },
     {
       "path": "internal/remotecontrol/testdata/language_server_rpcs_1.4.8.txt",
@@ -165,18 +135,6 @@
       "captured_at": "1.4.8",
       "digest": "e4dc81d610a06af51209790af7da3d9400e973b014a78d0e917fb6dc9f3e640b",
       "how": "the three codeium_common_pb types the new language-server permission RPCs speak, extracted from the uncompressed FileDescriptorProto of codeium_common_pb.proto at file offset 0x3cd5130 (185,828 B) and rendered in the proto-JSON spelling the wire uses. It pins the reference's own enum names - AGENT_PERMISSION_PRESET_DEFAULT / _REQUEST_REVIEW / _NONE, ARTIFACT_REVIEW_MODE_ALWAYS / _TURBO / _AUTO - and the spelling of the grant lists"
-    },
-    {
-      "path": "out/local-macos/seeds/diff_1.4.7_1.4.8.txt",
-      "captured_at": "1.4.8",
-      "digest": "85def99084b4d31e3eecebb36a806fbfdf68d4276cfc56cb3be1b01fa387be80",
-      "how": "the name-level difference between the pclntab seed sets of the two binaries: cd rea-go-seeds && go run . ~/.local/bin/agy <outdir> for each release, then diff the recovered names. 166,181 names at 1.4.8 against 165,692 at 1.4.7 - 782 added, 293 removed."
-    },
-    {
-      "path": "out/local-macos/seeds/diff_1.4.8_1.4.10.txt",
-      "captured_at": "1.4.10",
-      "digest": "a497c0da22849312f9502ef8c172760c74f228c89f7134316059e1806f5ee5ee",
-      "how": "the name-level difference between the pclntab seed sets of the two binaries: cd rea-go-seeds && go run . ~/.local/bin/agy <outdir> for each release, then diff the recovered names. 167,678 names at 1.4.10 against 166,181 at 1.4.8 - 3,751 added, 2,255 removed."
     }
   ]
 }

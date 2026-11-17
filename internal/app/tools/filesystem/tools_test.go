@@ -96,3 +96,33 @@ func TestListDir(t *testing.T) {
 		t.Errorf("got %d entries, want >= 2", len(entries))
 	}
 }
+
+func TestAppendFile_PreservesCRLF(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "crlf.txt")
+	// Existing file with CRLF line endings
+	initial := "line1\r\nline2\r\n"
+	if err := os.WriteFile(path, []byte(initial), 0644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	a := &AppendFile{Workspace: dir}
+	// Content with LF line endings only
+	appendContent := "line3\nline4\n"
+	args, _ := json.Marshal(map[string]string{
+		"path":    "crlf.txt",
+		"content": appendContent,
+	})
+	if _, err := a.Run(context.Background(), args); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	want := "line1\r\nline2\r\nline3\r\nline4\r\n"
+	if string(data) != want {
+		t.Errorf("got %q, want %q (CRLF preserved)", string(data), want)
+	}
+}

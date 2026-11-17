@@ -22,12 +22,28 @@ func (p *Panel) Rows() []Row {
 	if p == nil {
 		return nil
 	}
+	var raw []Row
 	if p.seams.CustomRows != nil {
 		if custom := p.seams.CustomRows(); custom != nil {
-			return FilterRows(custom, p.query)
+			raw = FilterRows(custom, p.query)
 		}
 	}
-	return RowsFiltered(p.query)
+	if raw == nil {
+		raw = RowsFiltered(p.query)
+	}
+	if len(p.variantChoices) == 0 {
+		return raw
+	}
+	out := make([]Row, len(raw))
+	copy(out, raw)
+	for i, r := range out {
+		if r.HasVariants() {
+			if idx, ok := p.variantChoices[r.Slug]; ok && idx >= 0 && idx < len(r.Variants) {
+				out[i].VariantChoice = r.Variants[idx]
+			}
+		}
+	}
+	return out
 }
 
 // RowCount is the number of rows the cursor moves over.

@@ -10,6 +10,13 @@ type VoiceHost interface {
 	InsertDraft(text string)
 	SlashRespond(cmd, msg string, extra ...string)
 	TerminalWidth() int
+	StartLiveVoice() error
+	StopLiveVoice() error
+	ToggleLiveMute() bool
+	IsLiveMuted() bool
+	IsLiveSpeaking() bool
+	IsPromptEmpty() bool
+	IsLiveVoiceAvailable() bool
 }
 
 // NewVoiceSurface builds the voice dictation surface with the host's seams.
@@ -20,6 +27,13 @@ func NewVoiceSurface(h VoiceHost) *voice.Surface {
 		Respond: func(msg string, extra ...string) {
 			h.SlashRespond("/voice", msg, extra...)
 		},
-		Width: h.TerminalWidth,
+		Width:           h.TerminalWidth,
+		StartLive:       h.StartLiveVoice,
+		StopLive:        h.StopLiveVoice,
+		ToggleMute:      h.ToggleLiveMute,
+		IsMuted:         h.IsLiveMuted,
+		IsSpeaking:      h.IsLiveSpeaking,
+		PromptEmpty:     h.IsPromptEmpty,
+		IsLiveAvailable: h.IsLiveVoiceAvailable,
 	})
 }

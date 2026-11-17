@@ -706,3 +706,23 @@ func TestReconcileThoughtSignatures_Gemini(t *testing.T) {
 		t.Errorf("call_2 signature = %q, want %q", contents[0].Parts[2].ThoughtSignature, SkipThoughtSignature)
 	}
 }
+
+func TestBuildRequest_OrchestratorPlanExecuteConfig(t *testing.T) {
+	for _, m := range []string{"gemini-pro-orchestrator", "gemini-pro-orchestrator-argon"} {
+		req := BuildRequest(Turn{
+			Model: m,
+			Messages: []TurnMessage{
+				{Role: "user", Content: "hello"},
+			},
+		})
+		inner := req.Inner()
+		if inner == nil || inner.Labels == nil {
+			t.Fatalf("model %s: missing inner labels", m)
+		}
+		got := inner.Labels["plan-execute-config"]
+		want := `{"executionModel": "gemini-4-hydrogen-high"}`
+		if got != want {
+			t.Errorf("model %s: plan-execute-config = %q, want %q", m, got, want)
+		}
+	}
+}

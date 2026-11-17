@@ -1,6 +1,7 @@
 package filesystem
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -172,11 +173,16 @@ func (a *AppendFile) Run(ctx context.Context, args json.RawMessage) (any, error)
 	if err := os.MkdirAll(filepath.Dir(full), 0755); err != nil {
 		return nil, err
 	}
+	content := p.Content
+	// AGY 1.5.10: File append tool now preserves CRLF line endings when appending to a CRLF file.
+	if existing, err := os.ReadFile(full); err == nil && bytes.Contains(existing, []byte("\r\n")) {
+		content = strings.ReplaceAll(strings.ReplaceAll(content, "\r\n", "\n"), "\n", "\r\n")
+	}
 	f, err := os.OpenFile(full, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
 		return nil, err
 	}
 	defer f.Close()
-	_, err = f.WriteString(p.Content)
+	_, err = f.WriteString(content)
 	return nil, err
 }

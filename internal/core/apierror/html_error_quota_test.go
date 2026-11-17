@@ -300,6 +300,30 @@ func TestQuota(t *testing.T) {
 			want: true,
 		},
 		{
+			name: "spend cap exhausted trips (AGY 1.5.10)",
+			err: &HTTPError{
+				StatusCode: 402,
+				Body:       []byte(`{"error":{"message":"You have exceeded your monthly spend cap"}}`),
+			},
+			want: true,
+		},
+		{
+			name: "prepaid balance exhausted trips (AGY 1.5.10)",
+			err: &HTTPError{
+				StatusCode: 402,
+				Body:       []byte(`{"error":{"message":"Prepaid balance has been fully consumed"}}`),
+			},
+			want: true,
+		},
+		{
+			name: "weekly quota exhausted trips (AGY 1.5.10)",
+			err: &HTTPError{
+				StatusCode: 429,
+				Body:       []byte(`{"error":{"message":"Weekly quota limit reached for this account"}}`),
+			},
+			want: true,
+		},
+		{
 			name: "rate-limit 429 does NOT trip",
 			err: &HTTPError{
 				StatusCode: 429,

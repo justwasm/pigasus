@@ -41,6 +41,7 @@ package slashpicker
 import (
 	"strings"
 
+	"github.com/carapace-sh/carapace-shlex"
 	"github.com/justwasm/pigasus/internal/ui/slashcommands"
 )
 
@@ -99,11 +100,21 @@ type Panel struct {
 	// modelMode says the popup holds the model list rather than the
 	// command list — the buffer is "/model <query>".
 	modelMode bool
+	// voiceMode says the popup holds voice subcommands or subarguments.
+	voiceMode bool
+	// voiceSubcmd is the current subcommand being completed ("" for root subcommands).
+	voiceSubcmd string
+	// resumeMode says the popup holds saved session IDs for /resume.
+	resumeMode bool
 	// modelSource returns the catalogue the model mode filters. It is
 	// a function so the catalogue can change under the popup (the
 	// user edited the provider configuration) without the caller
 	// re-arming the popup on every keystroke.
 	modelSource func() []ModelRow
+	// resumeSource returns available saved sessions for /resume autocompletion.
+	resumeSource func() []slashcommands.Command
+	// commandSource overrides default command catalogue filtering if set.
+	commandSource func(prefix string) []slashcommands.Command
 	// query is the text after "/model " in the model mode.
 	query string
 
@@ -137,6 +148,9 @@ func (p *Panel) Reset() {
 	p.all = nil
 	p.idx = -1
 	p.modelMode = false
+	p.voiceMode = false
+	p.voiceSubcmd = ""
+	p.resumeMode = false
 	p.query = ""
 }
 
@@ -153,12 +167,29 @@ func (p *Panel) SetModelCatalogueSource(fn func() []ModelRow) {
 }
 
 // SetCustomCommandsSource installs the function that returns dynamic slash commands
+// SetCustomCommandsSource installs the function that returns dynamic slash commands
 // offered by the active agent backend.
 func (p *Panel) SetCustomCommandsSource(fn func() []slashcommands.Command) {
 	if p == nil {
 		return
 	}
 	p.customCommandsSource = fn
+}
+
+// SetResumeSource installs the function returning session items for the "/resume <query>" popup.
+func (p *Panel) SetResumeSource(fn func() []slashcommands.Command) {
+	if p == nil {
+		return
+	}
+	p.resumeSource = fn
+}
+
+// SetCommandSource overrides default command catalogue filtering if set.
+func (p *Panel) SetCommandSource(fn func(prefix string) []slashcommands.Command) {
+	if p == nil {
+		return
+	}
+	p.commandSource = fn
 }
 
 // IsModelMode reports whether the popup holds the model list rather
@@ -230,6 +261,8 @@ func (p *Panel) Update(buffer []rune) bool {
 	prevLen := len(p.all)
 	if query, ok := modelQuery(buffer); ok {
 		p.modelMode = true
+		p.voiceMode = false
+		p.voiceSubcmd = ""
 		p.query = query
 		p.all = p.filterModels(query)
 		p.visible = true
@@ -237,6 +270,29 @@ func (p *Panel) Update(buffer []rune) bool {
 		return true
 	}
 	p.modelMode = false
+
+	if subcmd, query, ok := voiceQuery(buffer); ok {
+		p.voiceMode = true
+		p.voiceSubcmd = subcmd
+		p.resumeMode = false
+		p.query = query
+		p.all = p.filterVoice(subcmd, query)
+		p.visible = true
+		p.clampSelection()
+		return true
+	}
+	p.voiceMode = false
+	p.voiceSubcmd = ""
+
+	if query, ok := resumeQuery(buffer); ok {
+		p.resumeMode = true
+		p.query = query
+		p.all = p.filterResume(query)
+		p.visible = true
+		p.clampSelection()
+		return true
+	}
+	p.resumeMode = false
 	p.query = ""
 	if len(buffer) == 0 || buffer[0] != '/' {
 		p.Reset()
@@ -271,6 +327,9 @@ func (p *Panel) clampSelection() {
 // filterVisibleCommands returns the rows the buffer's token matches,
 // minus the hidden names, merging in dynamic agent commands when available.
 func (p *Panel) filterVisibleCommands(prefix string) []slashcommands.Command {
+	if p.commandSource != nil {
+		return p.commandSource(prefix)
+	}
 	var sctx slashcommands.ScopeContext
 	if p.seams.ScopeContext != nil {
 		sctx = p.seams.ScopeContext()
@@ -446,4 +505,191 @@ func modelQuery(buffer []rune) (string, bool) {
 		return "", false
 	}
 	return s[len(prefix):], true
+}
+
+// voiceQuery reports whether the buffer is a "/voice <query>" or "/speaker <query>" line and returns
+// the subcommand and the query after it.
+func voiceQuery(buffer []rune) (subcmd string, query string, ok bool) {
+	s := string(buffer)
+	const prefixVoice = "/voice "
+	const prefixSpeaker = "/speaker "
+	var after string
+	var forceSpeaker bool
+	if strings.HasPrefix(s, prefixVoice) {
+		after = s[len(prefixVoice):]
+	} else if strings.HasPrefix(s, prefixSpeaker) {
+		after = s[len(prefixSpeaker):]
+		forceSpeaker = true
+	} else {
+		return "", "", false
+	}
+	tokens, err := shlex.Split(after)
+	var words []string
+	if err == nil {
+		for _, tok := range tokens {
+			words = append(words, tok.Value)
+		}
+	} else {
+		words = strings.Fields(after)
+	}
+	if forceSpeaker {
+		if len(words) == 0 {
+			return "speaker", "", true
+		}
+		return "speaker", words[0], true
+	}
+	if len(words) == 0 {
+		return "", "", true
+	}
+	if len(words) == 1 && !strings.HasSuffix(after, " ") {
+		return "", words[0], true
+	}
+	sub := strings.ToLower(words[0])
+	switch sub {
+	case "speaker", "duplex", "volume", "speed", "preview":
+		if len(words) == 1 {
+			return sub, "", true
+		}
+		return sub, words[1], true
+	default:
+		return sub, "", false
+	}
+}
+
+// resumeQuery reports whether the buffer is a "/resume <query>" or "/sessions <query>" line.
+func resumeQuery(buffer []rune) (query string, ok bool) {
+	s := string(buffer)
+	const prefixResume = "/resume "
+	const prefixSessions = "/sessions "
+	if strings.HasPrefix(s, prefixResume) {
+		return strings.TrimSpace(s[len(prefixResume):]), true
+	}
+	if strings.HasPrefix(s, prefixSessions) {
+		return strings.TrimSpace(s[len(prefixSessions):]), true
+	}
+	return "", false
+}
+
+func (p *Panel) filterResume(query string) []slashcommands.Command {
+	if p.resumeSource == nil {
+		return nil
+	}
+	pool := p.resumeSource()
+	if query == "" {
+		out := make([]slashcommands.Command, len(pool))
+		copy(out, pool)
+		return out
+	}
+	q := strings.ToLower(query)
+	var out []slashcommands.Command
+	for _, c := range pool {
+		if strings.HasPrefix(strings.ToLower(c.Name), q) {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
+var voiceSubcommands = []slashcommands.Command{
+	{Name: "speaker", Description: "Set or view text-to-speech speaker voice"},
+	{Name: "preview", Description: "Audition a recorded voice sample (1-3, or all)"},
+	{Name: "live", Description: "Start a live voice call"},
+	{Name: "dictate", Description: "Dictate a prompt using your microphone"},
+	{Name: "stop", Description: "End the active voice call"},
+	{Name: "mute", Description: "Toggle microphone mute state"},
+	{Name: "duplex", Description: "Toggle full-duplex barge-in audio"},
+	{Name: "volume", Description: "Set playback volume (0-100)"},
+	{Name: "speed", Description: "Set playback speed (0.5-3.0)"},
+}
+
+var voiceSpeakers = []slashcommands.Command{
+	// Antigravity Personas
+	{Name: "fola", Description: "Speaker voice: Fola (Antigravity default)"},
+	{Name: "arlo", Description: "Speaker voice: Arlo (Antigravity)"},
+	{Name: "cleo", Description: "Speaker voice: Cleo (Antigravity)"},
+	{Name: "finn", Description: "Speaker voice: Finn (Antigravity)"},
+	{Name: "gero", Description: "Speaker voice: Gero (Antigravity)"},
+	{Name: "lora", Description: "Speaker voice: Lora (Antigravity)"},
+	{Name: "neno", Description: "Speaker voice: Neno (Antigravity)"},
+	{Name: "olin", Description: "Speaker voice: Olin (Antigravity)"},
+	{Name: "tari", Description: "Speaker voice: Tari (Antigravity)"},
+	// Gemini Prebuilt Voices
+	{Name: "aoede", Description: "Speaker voice: Aoede (Gemini)"},
+	{Name: "puck", Description: "Speaker voice: Puck (Gemini)"},
+	{Name: "kore", Description: "Speaker voice: Kore (Gemini)"},
+	{Name: "fenrir", Description: "Speaker voice: Fenrir (Gemini)"},
+	{Name: "charon", Description: "Speaker voice: Charon (Gemini)"},
+	{Name: "zephyr", Description: "Speaker voice: Zephyr (Gemini)"},
+	{Name: "leda", Description: "Speaker voice: Leda (Gemini)"},
+	{Name: "orus", Description: "Speaker voice: Orus (Gemini)"},
+}
+
+// voicePreviewSpeakers lists the personas that ship a recorded sample, so
+// "/voice preview <tab>" completes only names that can actually be auditioned.
+// keep in sync with internal/voice/previews/.
+var voicePreviewSpeakers = []slashcommands.Command{
+	{Name: "fola", Description: "Preview Fola (Antigravity default, 3 samples)"},
+	{Name: "arlo", Description: "Preview Arlo (Antigravity, 3 samples)"},
+	{Name: "cleo", Description: "Preview Cleo (Antigravity, 3 samples)"},
+	{Name: "finn", Description: "Preview Finn (Antigravity, 3 samples)"},
+	{Name: "gero", Description: "Preview Gero (Antigravity, 3 samples)"},
+	{Name: "lora", Description: "Preview Lora (Antigravity, 3 samples)"},
+	{Name: "neno", Description: "Preview Neno (Antigravity, 3 samples)"},
+	{Name: "olin", Description: "Preview Olin (Antigravity, 3 samples)"},
+	{Name: "tari", Description: "Preview Tari (Antigravity, 3 samples)"},
+}
+
+var voiceDuplexOptions = []slashcommands.Command{
+	{Name: "on", Description: "Enable full-duplex voice mode"},
+	{Name: "off", Description: "Disable full-duplex voice mode"},
+}
+
+var voiceVolumeOptions = []slashcommands.Command{
+	{Name: "100", Description: "Full volume (100%)"},
+	{Name: "75", Description: "High volume (75%)"},
+	{Name: "50", Description: "Medium volume (50%)"},
+	{Name: "25", Description: "Low volume (25%)"},
+	{Name: "0", Description: "Mute volume (0%)"},
+}
+
+var voiceSpeedOptions = []slashcommands.Command{
+	{Name: "1.0", Description: "Normal speed (1.0x)"},
+	{Name: "1.2", Description: "Fast speed (1.2x)"},
+	{Name: "1.5", Description: "Faster speed (1.5x)"},
+	{Name: "2.0", Description: "Double speed (2.0x)"},
+	{Name: "0.8", Description: "Slower speed (0.8x)"},
+	{Name: "0.5", Description: "Half speed (0.5x)"},
+}
+
+func (p *Panel) filterVoice(subcmd, query string) []slashcommands.Command {
+	var pool []slashcommands.Command
+	switch subcmd {
+	case "speaker":
+		pool = voiceSpeakers
+	case "preview":
+		pool = voicePreviewSpeakers
+	case "duplex":
+		pool = voiceDuplexOptions
+	case "volume":
+		pool = voiceVolumeOptions
+	case "speed":
+		pool = voiceSpeedOptions
+	default:
+		pool = make([]slashcommands.Command, 0, len(voiceSubcommands)+len(voiceSpeakers))
+		pool = append(pool, voiceSubcommands...)
+		pool = append(pool, voiceSpeakers...)
+	}
+	if query == "" {
+		out := make([]slashcommands.Command, len(pool))
+		copy(out, pool)
+		return out
+	}
+	q := strings.ToLower(query)
+	var out []slashcommands.Command
+	for _, c := range pool {
+		if strings.HasPrefix(strings.ToLower(c.Name), q) {
+			out = append(out, c)
+		}
+	}
+	return out
 }

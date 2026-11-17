@@ -90,11 +90,24 @@ func (p *Panel) HandleKey(key tea.Key) (bool, tea.Cmd) {
 		p.setCursor(nav.Cursor)
 		return true, nil
 	case tea.KeyLeft:
+		if row, ok := p.currentRow(); ok && row.HasVariants() {
+			p.cycleVariant(-1)
+			return true, nil
+		}
 		p.cycleEffort(-1)
 		return true, nil
 	case tea.KeyRight:
+		if row, ok := p.currentRow(); ok && row.HasVariants() {
+			p.cycleVariant(+1)
+			return true, nil
+		}
 		p.cycleEffort(+1)
 		return true, nil
+	case tea.KeyTab:
+		if row, ok := p.currentRow(); ok && row.HasVariants() {
+			p.cycleVariant(+1)
+			return true, nil
+		}
 	case tea.KeyHome:
 		nav := tuiviewport.ListNav{Cursor: p.cursor}
 		nav.Home(p.RowCount(), 0)

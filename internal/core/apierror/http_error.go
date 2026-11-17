@@ -257,36 +257,47 @@ func LooksHTML(body []byte) bool {
 	return bytes.HasPrefix(low, []byte("<html"))
 }
 
-// quotaKeyword is the lower-case substring that tags a response as the
-// "individual quota reached" case. The recovered AGY 1.3.6 capture
-// (`{"error":{"message":"Individual quota reached. …"}}`, status 429)
-// carries this token; we look for it case-insensitively over the body so
-// non-canonical wrappers ("Your personal quota has been reached", etc.)
-// still trip the rule.
-const quotaKeyword = "quota"
+// quotaKeywords are the lower-case substrings that tag a response as an
+// exhausted quota, spend cap, or prepaid balance error.
+// AGY 1.3.6 added "quota". AGY 1.5.10 added "spend cap", "prepaid balance", and "weekly quota".
+var quotaKeywords = []string{
+	"quota",
+	"spend cap",
+	"prepaid balance",
+	"weekly quota",
+}
 
-// IsQuotaReached reports whether this error is the AGY "individual quota
-// reached" case. The check is status 429 plus a body / message that
-// carries the quotaKeyword substring. The status guard prevents a 200
-// with the word "quota" in a legitimate payload from being misclassified.
+// IsQuotaReached reports whether this error is the AGY "individual quota reached",
+// spend cap exhausted, prepaid balance exhausted, or weekly quota error.
+// The check is status 429, 402, or 403 plus a body / message that carries
+// any of the quotaKeywords substrings.
 //
 // Changelog 1.3.3: "reaching your individual quota is reported right away
-// instead of being retried" — this method is the predicate the auto-
-// continue layers in internal/agent and internal/pigrt read to short-
-// circuit their retry loops.
+// instead of being retried"
+// Changelog 1.5.10: "Upstream errors indicating an exhausted spend cap, prepaid
+// balance, or weekly quota now abort immediately instead of retrying."
 func (e *HTTPError) IsQuotaReached() bool {
-	if e == nil || e.StatusCode != 429 {
+	if e == nil {
 		return false
 	}
-	if bytes.Contains(bytes.ToLower(bytes.TrimSpace(e.Body)), []byte(quotaKeyword)) {
-		return true
+	if e.StatusCode != http.StatusTooManyRequests && e.StatusCode != http.StatusPaymentRequired && e.StatusCode != http.StatusForbidden {
+		return false
+	}
+	bodyLower := bytes.ToLower(bytes.TrimSpace(e.Body))
+	for _, kw := range quotaKeywords {
+		if bytes.Contains(bodyLower, []byte(kw)) {
+			return true
+		}
 	}
 	// The Message() helper already strips the JSON `error.message` /
 	// top-level `message` field; fall back to it so a body the JSON
 	// parser rejected (or a future shape) still trips the rule as long as
-	// the user-facing message mentions quota.
-	if msg := strings.ToLower(e.Message()); strings.Contains(msg, quotaKeyword) {
-		return true
+	// the user-facing message mentions any of the quota keywords.
+	msgLower := strings.ToLower(e.Message())
+	for _, kw := range quotaKeywords {
+		if strings.Contains(msgLower, kw) {
+			return true
+		}
 	}
 	return false
 }

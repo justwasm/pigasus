@@ -9,6 +9,7 @@ import (
 
 	"github.com/justwasm/pigasus/agentlink"
 	"github.com/justwasm/pigasus/internal/app/agentturn"
+	"github.com/justwasm/pigasus/internal/app/tools/shell"
 	"github.com/justwasm/pigasus/internal/core/backend"
 )
 
@@ -532,5 +533,33 @@ func TestACPServer_ToolCallStreaming_V1(t *testing.T) {
 	}
 	if !sawResult {
 		t.Errorf("expected result frame from ACP v1 turn")
+	}
+}
+
+func TestACPAgent_CancelAndClose_StopsTasks(t *testing.T) {
+	sessID := "sess-acp-test-kill"
+	taskID := "task-1"
+	_, err := shell.StartScheduledTask(shell.ScheduledTaskOptions{
+		ConvID:   sessID,
+		TaskID:   taskID,
+		Duration: 10 * time.Minute,
+		Prompt:   "poll",
+	})
+	if err != nil {
+		t.Fatalf("StartScheduledTask failed: %v", err)
+	}
+
+	// Verify task is running
+	snapshots := shell.RunningTaskSnapshots(sessID)
+	if len(snapshots) == 0 {
+		t.Fatalf("expected running task for %s", sessID)
+	}
+
+	// Stop session tasks (AGY 1.5.10 behavior: canceling or closing session stops them)
+	stopSessionTasks(sessID)
+
+	after := shell.RunningTaskSnapshots(sessID)
+	if len(after) != 0 {
+		t.Fatalf("expected no running tasks after stopSessionTasks, got %d", len(after))
 	}
 }

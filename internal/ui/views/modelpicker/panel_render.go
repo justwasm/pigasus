@@ -152,6 +152,11 @@ func (p *Panel) footer(lines []string, height int) []string {
 	// Gemini); a configured model that declares tiers gets the same
 	// slider, widened to fit its own tier count.
 	row, ok := p.currentRow()
+	if ok && row.HasVariants() {
+		return append(lines, "",
+			tuilib.PanelKeyboardHint("↑/↓", "Navigate", "←/→", "Planner", "tab", "Planner",
+				"enter", "Select", "esc", back))
+	}
 	if !ok || !row.HasEffortSlider() {
 		return append(lines, "",
 			tuilib.PanelKeyboardHint("↑/↓", "Navigate",

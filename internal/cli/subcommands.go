@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"math/rand/v2"
-	"net"
 	"os"
 	"path/filepath"
 	"sort"
@@ -15,6 +14,7 @@ import (
 
 	"github.com/justwasm/pigasus/internal/features/models/catalog"
 	"github.com/justwasm/pigasus/internal/ui/views/seasonal"
+	"github.com/justwasm/pigasus/internal/voice"
 	"github.com/justwasm/pigasus/mcp"
 )
 
@@ -686,22 +686,10 @@ func runMicServe(j *JetskiCLI, args []string) error {
 		fmt.Fprint(j.ErrOut, usage)
 		return nil
 	}
-	// The reference binds first, then prints its two banner lines, so a
-	// bind failure surfaces only the error.
-	ln, err := net.Listen("tcp", addr)
-	if err != nil {
+	if err := voice.RunMicServer(addr, j.ErrOut); err != nil {
 		return errExitCodeMsg(1, fmt.Sprintf("Error: cannot listen on %s: %v", addr, err))
 	}
-	defer ln.Close()
-	fmt.Fprintf(j.ErrOut, "Serving the microphone on %s. Press ctrl+c to stop.\n", addr)
-	fmt.Fprintln(j.ErrOut, "Note: Ensure this terminal has microphone access.")
-	for {
-		conn, err := ln.Accept()
-		if err != nil {
-			return nil
-		}
-		_ = conn.Close()
-	}
+	return nil
 }
 
 // ---- changelog ------------------------------------------------------------

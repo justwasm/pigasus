@@ -1,6 +1,7 @@
 package composer
 
 import (
+	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
@@ -29,9 +30,42 @@ func (e *fakeEditor) SetValue(s string)     { e.value = s }
 func (e *fakeEditor) Line() int             { return e.line }
 func (e *fakeEditor) Column() int           { return e.col }
 func (e *fakeEditor) CursorOffset() int     { return e.offset }
-func (e *fakeEditor) InsertRune(r rune)     { e.value += string(r) }
+func (e *fakeEditor) InsertRune(r rune) {
+	if e.offset <= len(e.value) {
+		e.value = e.value[:e.offset] + string(r) + e.value[e.offset:]
+		e.offset += len(string(r))
+	} else {
+		e.value += string(r)
+		e.offset = len(e.value)
+	}
+}
+func (e *fakeEditor) InsertString(s string) {
+	if e.offset <= len(e.value) {
+		e.value = e.value[:e.offset] + s + e.value[e.offset:]
+		e.offset += len(s)
+	} else {
+		e.value += s
+		e.offset = len(e.value)
+	}
+}
 func (e *fakeEditor) Backspace()            { e.value = e.value[:len(e.value)-1] }
-func (e *fakeEditor) MoveCursorTo(l, c int) { e.moves = append(e.moves, move{l, c}) }
+func (e *fakeEditor) MoveCursorTo(l, c int) {
+	e.moves = append(e.moves, move{l, c})
+	e.line = l
+	e.col = c
+	lines := strings.Split(e.value, "\n")
+	off := 0
+	for i := 0; i < l && i < len(lines); i++ {
+		off += len(lines[i]) + 1
+	}
+	if l < len(lines) {
+		if c > len(lines[l]) {
+			c = len(lines[l])
+		}
+		off += c
+	}
+	e.offset = off
+}
 
 func (e *fakeEditor) Update(msg tea.Msg) tea.Cmd {
 	e.applied = append(e.applied, msg)
@@ -182,6 +216,53 @@ func TestHandleKeyDeleteSelection(t *testing.T) {
 	}
 	if hist.Index() != 0 {
 		t.Errorf("history index = %d, want 0", hist.Index())
+	}
+}
+
+// TestHandlePasteNative verifies that HandlePaste inserts text directly when Paste seam is nil.
+func TestHandlePasteNative(t *testing.T) {
+	initial := "prefix "
+	e := &fakeEditor{value: initial, offset: len(initial)}
+	st := &fakeState{}
+	seams := newSeams(e, st, Range{}, nil)
+
+	HandlePaste(seams, "pasted content\n")
+	if e.value != "prefix pasted content\n" {
+		t.Errorf("e.value = %q, want 'prefix pasted content\\n'", e.value)
+	}
+}
+
+// TestHandlePasteReplaceSelection verifies that pasting with active selection replaces the selection.
+func TestHandlePasteReplaceSelection(t *testing.T) {
+	e := &fakeEditor{value: "hello world"}
+	st := &fakeState{}
+	seams := newSeams(e, st, Range{Start: 6, End: 11}, nil)
+
+	HandlePaste(seams, "pigasus")
+	if len(st.replaceSel) != 1 || st.replaceSel[0] != "pigasus" {
+		t.Errorf("st.replaceSel = %v, want ['pigasus']", st.replaceSel)
+	}
+	if st.clearSel != 1 {
+		t.Errorf("st.clearSel = %d, want 1", st.clearSel)
+	}
+}
+
+// TestUpdatePasteMsg verifies that Update handles tea.PasteMsg properly.
+func TestUpdatePasteMsg(t *testing.T) {
+	initial := "data: "
+	e := &fakeEditor{value: initial, offset: len(initial)}
+	st := &fakeState{}
+	seams := newSeams(e, st, Range{}, nil)
+
+	cmd, handled := Update(seams, tea.PasteMsg{Content: "streaming text"})
+	if !handled {
+		t.Fatalf("Update(PasteMsg) was not handled")
+	}
+	if cmd != nil {
+		t.Errorf("cmd = %v, want nil", cmd)
+	}
+	if e.value != "data: streaming text" {
+		t.Errorf("e.value = %q, want 'data: streaming text'", e.value)
 	}
 }
 
@@ -400,5 +481,183 @@ func TestUpdateTextareaKeepsIdleHistory(t *testing.T) {
 	UpdateTextarea(seams, tea.KeyPressMsg{Code: 'x', Text: "x"})
 	if hist.Index() != 0 {
 		t.Errorf("history index = %d, want 0", hist.Index())
+	}
+}
+
+// TestHandlePaste_InsertAndReplace pins HandlePaste directly and via selection.
+func TestHandlePaste_InsertAndReplace(t *testing.T) {
+	// 1. Insert at cursor
+	e := &fakeEditor{value: "hello world", offset: 5}
+	st := &fakeState{}
+	seams := newSeams(e, st, Range{}, nil)
+	_ = HandlePaste(seams, " beautiful")
+	if e.value != "hello beautiful world" {
+		t.Errorf("value after paste = %q, want 'hello beautiful world'", e.value)
+	}
+
+	// 2. Replace active selection
+	e2 := &fakeEditor{value: "foo bar baz", offset: 4}
+	st2 := &fakeState{}
+	seams2 := newSeams(e2, st2, Range{Start: 4, End: 7}, nil)
+	_ = HandlePaste(seams2, "qux")
+	if len(st2.replaceSel) != 1 || st2.replaceSel[0] != "qux" {
+		t.Errorf("replaceSel = %v, want ['qux']", st2.replaceSel)
+	}
+
+	// 3. Custom s.Paste seam delegation
+	var customPasted string
+	seams3 := newSeams(e, st, Range{}, nil)
+	seams3.Paste = func(text string) tea.Cmd {
+		customPasted = text
+		return nil
+	}
+	_ = HandlePaste(seams3, "custom text")
+	if customPasted != "custom text" {
+		t.Errorf("customPasted = %q, want 'custom text'", customPasted)
+	}
+}
+
+// TestHandleKey_CutAndPaste pins Cmd+X, Ctrl+X, Cmd+V, and Ctrl+V keys.
+func TestHandleKey_CutAndPaste(t *testing.T) {
+	// 1. Cut selection with Cmd+X
+	e := &fakeEditor{value: "abcdef", offset: 2}
+	st := &fakeState{}
+	seams := newSeams(e, st, Range{Start: 2, End: 4}, nil)
+	_, handled := HandleKey(seams, tea.Key{Code: 'x', Mod: tea.ModSuper})
+	if !handled {
+		t.Fatalf("Cmd+X was not handled")
+	}
+	if len(st.copied) != 1 || st.copied[0] != "cd" {
+		t.Errorf("copied = %v, want ['cd']", st.copied)
+	}
+	if st.deleteSel != 1 {
+		t.Errorf("deleteSel = %d, want 1", st.deleteSel)
+	}
+
+	// 2. Cut with Ctrl+X without selection should not be consumed (preserves host bindings)
+	seamsNoSel := newSeams(e, st, Range{}, nil)
+	_, handled = HandleKey(seamsNoSel, tea.Key{Code: 'x', Mod: tea.ModCtrl})
+	if handled {
+		t.Fatalf("Ctrl+X without selection should not be handled")
+	}
+
+	// 3. Copy with Ctrl+C with selection
+	e2 := &fakeEditor{value: "abcdef", offset: 2}
+	st2 := &fakeState{}
+	seams2 := newSeams(e2, st2, Range{Start: 1, End: 3}, nil)
+	_, handled = HandleKey(seams2, tea.Key{Code: 'c', Mod: tea.ModCtrl})
+	if !handled {
+		t.Fatalf("Ctrl+C with selection was not handled")
+	}
+	if len(st2.copied) != 1 || st2.copied[0] != "bc" {
+		t.Errorf("copied = %v, want ['bc']", st2.copied)
+	}
+
+	// 4. Copy with Ctrl+C without selection should NOT be consumed (preserves SIGINT)
+	_, handled = HandleKey(seamsNoSel, tea.Key{Code: 'c', Mod: tea.ModCtrl})
+	if handled {
+		t.Fatalf("Ctrl+C without selection should not be handled (preserve SIGINT)")
+	}
+}
+
+// TestUpdate_PasteMsg pins the high-level composer.Update with tea.PasteMsg.
+func TestUpdate_PasteMsg(t *testing.T) {
+	e := &fakeEditor{value: "first line\n", offset: 11}
+	st := &fakeState{}
+	seams := newSeams(e, st, Range{}, nil)
+
+	cmd, handled := Update(seams, tea.PasteMsg{Content: "second line\r\nthird line"})
+	if !handled {
+		t.Fatalf("Update(PasteMsg) was not handled")
+	}
+	if cmd != nil {
+		t.Errorf("cmd = %v, want nil", cmd)
+	}
+	want := "first line\nsecond line\nthird line"
+	if e.value != want {
+		t.Errorf("value after Update(PasteMsg) = %q, want %q", e.value, want)
+	}
+}
+
+// TestNilSeamsSafety verifies that a minimal Seams with only Editor does not panic.
+func TestNilSeamsSafety(t *testing.T) {
+	e := &fakeEditor{value: "test text", offset: 4}
+	minimalSeams := Seams{
+		Editor:    e,
+		Selection: Range{Start: 0, End: 4},
+	}
+
+	// Delete selection with minimal seams
+	_, handled := HandleKey(minimalSeams, tea.Key{Code: tea.KeyBackspace})
+	if !handled {
+		t.Fatalf("Backspace was not handled with minimal seams")
+	}
+	if e.value != " text" {
+		t.Errorf("value after delete selection = %q, want ' text'", e.value)
+	}
+
+	// Paste into minimal seams
+	minimalSeams.Selection = Range{}
+	_ = HandlePaste(minimalSeams, "fresh")
+	if e.value != "fresh text" {
+		t.Errorf("value after paste = %q, want 'fresh text'", e.value)
+	}
+
+	// Backslash newline with minimal seams
+	e.value = "abc\\"
+	e.offset = 4
+	if !BackslashNewline(minimalSeams) {
+		t.Fatalf("BackslashNewline failed on minimal seams")
+	}
+	if e.value != "abc\n" {
+		t.Errorf("value after BackslashNewline = %q, want 'abc\\n'", e.value)
+	}
+}
+
+// TestHandleKey_CtrlJAndShiftEnterInsertNewline pins that Ctrl+J and Shift+Enter
+// insert newlines and replace selection directly through HandleKey.
+func TestHandleKey_CtrlJAndShiftEnterInsertNewline(t *testing.T) {
+	e := &fakeEditor{value: "first line", offset: 10}
+	st := &fakeState{}
+	seams := newSeams(e, st, Range{}, nil)
+
+	// Ctrl+J inserts newline
+	cmd, handled := HandleKey(seams, tea.Key{Code: 'j', Mod: tea.ModCtrl})
+	if !handled {
+		t.Fatalf("HandleKey(Ctrl+J) not handled")
+	}
+	if cmd != nil {
+		t.Errorf("expected nil cmd from Ctrl+J")
+	}
+	if e.value != "first line\n" {
+		t.Errorf("value after Ctrl+J = %q, want 'first line\\n'", e.value)
+	}
+
+	// Shift+Enter inserts newline
+	cmd, handled = HandleKey(seams, tea.Key{Code: tea.KeyEnter, Mod: tea.ModShift})
+	if !handled {
+		t.Fatalf("HandleKey(Shift+Enter) not handled")
+	}
+	if e.value != "first line\n\n" {
+		t.Errorf("value after Shift+Enter = %q, want 'first line\\n\\n'", e.value)
+	}
+
+	// Backslash + unmodified Enter converts backslash into newline
+	e.value = "line 1\\"
+	e.offset = 7
+	cmd, handled = HandleKey(seams, tea.Key{Code: tea.KeyEnter})
+	if !handled {
+		t.Fatalf("HandleKey(Backslash+Enter) not handled")
+	}
+	if e.value != "line 1\n" {
+		t.Errorf("value after Backslash+Enter = %q, want 'line 1\\n'", e.value)
+	}
+
+	// Normal Enter without backslash is NOT handled by composer (left to host submit)
+	e.value = "submit me"
+	e.offset = 9
+	_, handled = HandleKey(seams, tea.Key{Code: tea.KeyEnter})
+	if handled {
+		t.Errorf("HandleKey(normal Enter) should NOT be handled by composer (must leave to host to submit)")
 	}
 }

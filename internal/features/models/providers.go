@@ -9,6 +9,8 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/tailscale/hujson"
+
 	"github.com/justwasm/pigasus/atomicfile"
 	"github.com/justwasm/pigasus/configdir"
 	"github.com/justwasm/pigasus/envref"
@@ -618,6 +620,9 @@ func configStamp(paths []string) string {
 
 // ParseProviders decodes the provider section of a configuration document.
 func ParseProviders(raw []byte) (map[string]ProviderConfig, error) {
+	if std, err := hujson.Standardize(raw); err == nil {
+		raw = std
+	}
 	var doc struct {
 		Providers map[string]ProviderConfig `json:"providers"`
 	}

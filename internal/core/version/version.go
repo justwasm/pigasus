@@ -38,9 +38,9 @@ package version
 // 1.4.11 → 1.4.12 delta); 1.4.12 is the cycle-377 bump (the installed
 // binary prints 1.4.12 — see docs/cycles/cycle-377-agy-1.4.12-alignment/deliverable.md
 // for the 1.4.11 → 1.4.12 delta); 1.5.0 was the cycle-380 bump. The
-// installed binary now prints 1.5.9 (see CHANGELOG.md for the
-// 1.4.12 → 1.5.9 delta; the notes are in the public repository
-// and out/extracted-1.5.9/ carries the recovered assets).
-// The installed binary now aligns to official 1.5.9 release.
+// installed binary now prints 1.5.10 (see CHANGELOG.md for the
+// 1.4.12 → 1.5.10 delta; the notes are in the public repository
+// and out/extracted-1.5.10/ carries the recovered assets).
+// The installed binary now aligns to official 1.5.10 release.
 // 1.5.7 aligns subagent trajectory details, expand/collapse shortcuts, and latest agy descriptors.
 const Reference = "1.5.7"

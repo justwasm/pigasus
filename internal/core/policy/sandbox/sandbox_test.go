@@ -80,6 +80,53 @@ func TestSandboxSafeSSHCarveOut(t *testing.T) {
 	}
 }
 
+// TestSandbox1510BlockingAndAllowlist pins AGY 1.5.10 default terminal sandbox
+// blocks: ~/.config, $XDG_CONFIG_HOME, ~/.git-credentials, and AppData/Roaming,
+// while keeping common dev tools accessible (git, go, npm, python, pip).
+func TestSandbox1510BlockingAndAllowlist(t *testing.T) {
+	s := Resolve(true, "/work", "/home/.gemini/antigravity-cli", "conv-a")
+
+	// Dev tool allowlist under .config should be allowed
+	allowedDevPaths := []string{
+		"/home/user/.config/git/config",
+		"/home/user/.config/go/env",
+		"/home/user/.config/npm/npmrc",
+		"/home/user/.config/python/startup.py",
+		"/home/user/.config/pip/pip.conf",
+	}
+	for _, p := range allowedDevPaths {
+		if !s.Allowed(p) {
+			t.Errorf("Allowed(%q) = false, want true (dev tool allowlist in .config)", p)
+		}
+	}
+
+	// Sensitive paths must be blocked
+	blockedPaths := []string{
+		"/home/user/.config/fish/config.fish",
+		"/home/user/.config/gcloud/credentials.db",
+		"/home/user/.config/gh/hosts.yml",
+		"/home/user/.git-credentials",
+		"/home/user/.git-credentials.backup",
+		"C:/Users/user/AppData/Roaming/Discord/token",
+		"AppData/Roaming/secret",
+		"/Users/user/Library/Application Support/Foo/token",
+	}
+	for _, p := range blockedPaths {
+		if s.Allowed(p) {
+			t.Errorf("Allowed(%q) = true, want false (sensitive path blocked)", p)
+		}
+	}
+
+	// Test XDG_CONFIG_HOME handling
+	t.Setenv("XDG_CONFIG_HOME", "/custom/xdg")
+	if !s.Allowed("/custom/xdg/git/config") {
+		t.Errorf("Allowed(/custom/xdg/git/config) = false, want true")
+	}
+	if s.Allowed("/custom/xdg/secret.txt") {
+		t.Errorf("Allowed(/custom/xdg/secret.txt) = true, want false")
+	}
+}
+
 func TestSandboxArtifactDirAllowed(t *testing.T) {
 	root := "/home/.gemini/antigravity-cli/artifacts"
 	s := Resolve(true, "/work", "/home/.gemini/antigravity-cli", "conv-a")

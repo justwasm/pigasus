@@ -10,6 +10,7 @@ build:
 	ln -sf /tmp/storybook /tmp/storyboard
 	go build -o /tmp/tui-inventory ./cmd/tui-inventory
 	go build -o /tmp/herdr ./cmd/herdr
+	go build -o /tmp/livechat ./cmd/livechat
 
 test:
 	./scripts/verify.sh all

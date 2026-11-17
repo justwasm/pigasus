@@ -17,12 +17,35 @@ func RenderModelPickerRow(r Row, i, cursor int, isCurrent bool) string {
 	if r.Dim {
 		ink = palette.DimGrayOpen
 	}
+	variantChip := ""
+	if r.HasVariants() {
+		choice := r.VariantChoice
+		if choice == "" && len(r.Variants) > 0 {
+			choice = r.Variants[0]
+		}
+		if i == cursor {
+			variantChip = strings.Repeat(" ", RowPad(r.Display)) +
+				palette.DimGrayOpen + "Planner: ◂ " + palette.DimGrayClose +
+				palette.BlueOpen + choice + palette.BlueClose +
+				palette.DimGrayOpen + " ▸" + palette.DimGrayClose
+		} else {
+			variantChip = strings.Repeat(" ", RowPad(r.Display)) +
+				palette.DimGrayOpen + "Planner: ◂ " + palette.DimGrayClose +
+				choice +
+				palette.DimGrayOpen + " ▸" + palette.DimGrayClose
+		}
+	}
+
 	if i == cursor {
 		// The cursor row is padded to column 30 before the reset, so the
 		// reference's "> Claude Opus 4.6 (Thinking)  " keeps its trailing
 		// spaces (agy 1.4.5, live).
-		row = palette.BlueOpen + "> " + r.Display + strings.Repeat(" ", RowPad(r.Display))
-		row += palette.BlueClose
+		if variantChip != "" {
+			row = palette.BlueOpen + "> " + r.Display + palette.BlueClose + variantChip
+		} else {
+			row = palette.BlueOpen + "> " + r.Display + strings.Repeat(" ", RowPad(r.Display))
+			row += palette.BlueClose
+		}
 		if isCurrent {
 			row += PanelGray238 + " (current)" + PanelGray238C
 		}
@@ -31,9 +54,14 @@ func RenderModelPickerRow(r Row, i, cursor int, isCurrent bool) string {
 		if ink != "" {
 			row += palette.DimGrayClose
 		}
+		if variantChip != "" {
+			row += variantChip
+		}
 		if isCurrent {
-			row += strings.Repeat(" ", RowPad(r.Display)) +
-				PanelGray238 + " (current)" + PanelGray238C
+			if variantChip == "" {
+				row += strings.Repeat(" ", RowPad(r.Display))
+			}
+			row += PanelGray238 + " (current)" + PanelGray238C
 		}
 	}
 	if r.Note != "" {

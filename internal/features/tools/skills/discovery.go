@@ -395,8 +395,14 @@ func skillFrontmatterFields(path string) skillFrontmatterValues {
 	if err := yaml.Unmarshal(normalizeFrontmatter(fm), &doc); err != nil {
 		return skillFrontmatterValues{}
 	}
+	name := strings.TrimSpace(doc.Name)
+	if name == "" {
+		// AGY 1.5.10: Skill loader now defaults the skill name to the enclosing
+		// directory name when SKILL.md frontmatter lacks name.
+		name = filepath.Base(filepath.Dir(path))
+	}
 	out := skillFrontmatterValues{
-		Name:        strings.TrimSpace(doc.Name),
+		Name:        name,
 		Description: strings.TrimRight(doc.Description, "\n"),
 	}
 	if meta, ok := doc.Metadata.(map[string]any); ok {

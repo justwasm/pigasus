@@ -265,7 +265,7 @@ func buildCatalogue() []Command {
 		},
 		{Name: "/title", Description: "Toggle custom terminal window title", Dispatched: true},
 		{Name: "/usage", Description: "View model quota usage", Aliases: []string{"quota"}, Dispatched: true},
-		{Name: "/voice", Description: "Dictate a prompt using your microphone", Aliases: []string{"record"}, Dispatched: true},
+		{Name: "/voice", Description: "Dictate a prompt or talk with the agent by voice", Aliases: []string{"record"}, Dispatched: true},
 		{Name: "/accounts", Description: "Manage and switch signed-in Google accounts"},
 		{Name: "/pool", Description: "Configure the account-pool routing policy"},
 		{Name: "/provider", Description: "Manage custom model providers and endpoints", Aliases: []string{"providers"}},

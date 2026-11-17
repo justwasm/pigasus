@@ -259,7 +259,11 @@ func skillFrontmatter(path string) (name, description string) {
 	if err := yaml.Unmarshal(bytes.Join(lines[1:close], []byte("\n")), &doc); err != nil {
 		return "", ""
 	}
-	return strings.TrimSpace(doc.Name), strings.TrimSpace(doc.Description)
+	name = strings.TrimSpace(doc.Name)
+	if name == "" {
+		name = filepath.Base(filepath.Dir(path))
+	}
+	return name, strings.TrimSpace(doc.Description)
 }
 
 // ParseError describes a failure to parse a single agent file.

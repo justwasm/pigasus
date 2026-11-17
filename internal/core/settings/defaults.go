@@ -66,6 +66,7 @@ var defaults = map[string]any{
 	"useTerminalCursor":       false,
 	"verbosity":               "medium",
 	"vimInsertFirst":          false,
+	"voice":                   nil,
 }
 
 // Default returns the compiled default of one settings key.

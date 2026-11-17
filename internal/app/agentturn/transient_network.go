@@ -107,7 +107,7 @@ func IsTransientNetworkErr(err error) bool {
 	// Caller's own cancellation must always surface immediately;
 	// auto-continue would burn quota on a session the user no
 	// longer wants.
-	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+	if errors.Is(err, context.Canceled) || err == context.DeadlineExceeded {
 		return false
 	}
 	// Walk the error chain so a wrapped *net.OpError surfaces its
@@ -127,6 +127,9 @@ func IsTransientNetworkErr(err error) bool {
 			// back on themselves.
 			break
 		}
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return false
 	}
 	return false
 }

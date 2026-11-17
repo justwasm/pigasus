@@ -38,6 +38,7 @@ package agentspanel
 
 import (
 	"sort"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -175,6 +176,25 @@ func (p *Panel) OpenDetail(sa *subagent.Subagent) {
 	p.detailSubagent = sa
 	p.expandedDetail = false
 	p.window = 0
+	p.detailCache.valid = false
+}
+
+type detailCache struct {
+	valid        bool
+	subagentID   string
+	width        int
+	expanded     bool
+	pendingAuth  string
+	taskState    taskregistry.State
+	taskStepCnt  int
+	taskStepsLen int
+	taskOutLen   int
+	taskErr      string
+	transPath    string
+	transMtime   time.Time
+	transSize    int64
+	header       []string
+	body         []string
 }
 
 // Panel is the /agents panel.
@@ -220,6 +240,9 @@ type Panel struct {
 
 	// expandedDetail indicates whether the subagent trajectory details are expanded (toggled with ctrl+o).
 	expandedDetail bool
+
+	// detailCache caches rendered header and body lines across scrolling frames.
+	detailCache detailCache
 }
 
 type rowKind int
@@ -449,6 +472,34 @@ func (p *Panel) scroll(delta int) {
 	if p.window < 0 {
 		p.window = 0
 	}
+}
+
+// pageStep computes the scroll distance for PgUp / PgDown in detail mode,
+// matching the main chat's full viewport page scroll.
+func (p *Panel) pageStep() int {
+	_, h := p.size()
+	if h <= 0 {
+		h = 30
+	}
+	visible := h - 8
+	if visible < 4 {
+		visible = 15
+	}
+	step := visible - 1
+	if step < 1 {
+		step = 1
+	}
+	return step
+}
+
+// halfPageStep computes the scroll distance for Shift+Up / Shift+Down (and Ctrl+U / Ctrl+D)
+// in detail mode, aligning with the main chat's half-page scroll.
+func (p *Panel) halfPageStep() int {
+	step := p.pageStep() / 2
+	if step < 1 {
+		step = 1
+	}
+	return step
 }
 
 // HandleWheel handles a mouse wheel event while the panel is visible.

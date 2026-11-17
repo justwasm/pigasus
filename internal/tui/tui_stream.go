@@ -357,7 +357,21 @@ func (c *turnCollector) notice(n *agentlink.Notice) {
 		if c.prog != nil {
 			c.prog.Send(steerAppliedMsg{instruction: n.Text})
 		}
+	case agentlink.NoticeModelRetry:
+		if c.prog != nil {
+			c.prog.Send(modelRetryStatusMsg{
+				attempt:       n.Attempt,
+				maxAttempts:   n.MaxAttempts,
+				retryAtUnixMS: n.RetryAtUnixMS,
+			})
+		}
 	}
+}
+
+type modelRetryStatusMsg struct {
+	attempt       int
+	maxAttempts   int
+	retryAtUnixMS int64
 }
 
 type steerAppliedMsg struct {
@@ -843,7 +857,12 @@ func (m *RootModel) submitInitialPrompt(prompt string) tea.Cmd {
 }
 
 func (m *RootModel) cycleMode() {
-	next := permissions.NextMode(m.session.mode)
+	var next string
+	if m.session.remoteAgent {
+		next = permissions.NextRemoteAgentMode(m.session.mode)
+	} else {
+		next = permissions.NextMode(m.session.mode)
+	}
 	m.session.mode = next
 	if m.session.policy != nil {
 		m.session.policy.Mode = next

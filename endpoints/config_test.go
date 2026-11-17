@@ -400,3 +400,53 @@ func TestSaveWrapperRemovesTheSection(t *testing.T) {
 		t.Errorf("CurrentWrapper() = %q, want nothing", got)
 	}
 }
+
+func TestCurrentGeminiAPIKey(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.json")
+	t.Setenv(ConfigPathEnvVar, path)
+
+	t.Setenv("GEMINI_API_KEY", "env-key-1")
+	t.Setenv("OPENAGY_API_KEY", "env-key-2")
+	if got := CurrentGeminiAPIKey(); got != "env-key-1" {
+		t.Errorf("CurrentGeminiAPIKey() = %q, want env-key-1", got)
+	}
+
+	t.Setenv("GEMINI_API_KEY", "")
+	if got := CurrentGeminiAPIKey(); got != "env-key-2" {
+		t.Errorf("CurrentGeminiAPIKey() = %q, want env-key-2", got)
+	}
+
+	t.Setenv("OPENAGY_API_KEY", "")
+	if err := os.WriteFile(path, []byte(`{"gemini_api_key":"file-key-123"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := CurrentGeminiAPIKey(); got != "file-key-123" {
+		t.Errorf("CurrentGeminiAPIKey() = %q, want file-key-123", got)
+	}
+}
+
+func TestCurrentGeminiLiveModel(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.json")
+	t.Setenv(ConfigPathEnvVar, path)
+
+	t.Setenv("GEMINI_LIVE_MODEL", "models/custom-live-1")
+	t.Setenv("OPENAGY_LIVE_MODEL", "models/custom-live-2")
+	if got := CurrentGeminiLiveModel(); got != "models/custom-live-1" {
+		t.Errorf("CurrentGeminiLiveModel() = %q, want models/custom-live-1", got)
+	}
+
+	t.Setenv("GEMINI_LIVE_MODEL", "")
+	if got := CurrentGeminiLiveModel(); got != "models/custom-live-2" {
+		t.Errorf("CurrentGeminiLiveModel() = %q, want models/custom-live-2", got)
+	}
+
+	t.Setenv("OPENAGY_LIVE_MODEL", "")
+	if err := os.WriteFile(path, []byte(`{"gemini_live_model":"models/gemini-3.8-live-extended-thinking"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := CurrentGeminiLiveModel(); got != "models/gemini-3.8-live-extended-thinking" {
+		t.Errorf("CurrentGeminiLiveModel() = %q, want models/gemini-3.8-live-extended-thinking", got)
+	}
+}

@@ -119,3 +119,68 @@ func TestSupervisor_QueuedCheckpointsKeepInsertionOrder(t *testing.T) {
 		t.Fatalf("a second flush inserted again: %d calls", got)
 	}
 }
+
+func TestSupervisor_MultiTurnPersistenceStepOrder(t *testing.T) {
+	tempHome := t.TempDir()
+	t.Setenv("HOME", tempHome)
+	t.Setenv("ANTIGRAVITY_HOME", tempHome)
+
+	s := New("/test/ws")
+	convID := "test-multi-turn-order"
+
+	// Turn 1
+	s.Append(backend.Message{Role: "user", Content: "turn 1 request"})
+	s.RecordTrajectoryCalls([]convstore.Step{
+		{Type: convstore.StepToolCall, Status: 3, ToolName: "tool_t1", ToolArgs: `{"cmd":"ls"}`},
+	})
+	s.Append(backend.Message{Role: "assistant", Content: "turn 1 reply"})
+	if err := s.Save(convID, "Test Title"); err != nil {
+		t.Fatalf("Save turn 1 failed: %v", err)
+	}
+
+	// Turn 2
+	s.Append(backend.Message{Role: "user", Content: "turn 2 request"})
+	s.RecordTrajectoryCalls([]convstore.Step{
+		{Type: convstore.StepToolCall, Status: 3, ToolName: "tool_t2", ToolArgs: `{"cmd":"pwd"}`},
+	})
+	s.Append(backend.Message{Role: "assistant", Content: "turn 2 reply"})
+	if err := s.Save(convID, "Test Title"); err != nil {
+		t.Fatalf("Save turn 2 failed: %v", err)
+	}
+
+	// Load steps directly from DB and assert step ordering
+	dbPath := convstore.ConversationPath(convID)
+	c, err := convstore.LoadConversation(dbPath)
+	if err != nil {
+		t.Fatalf("LoadConversation failed: %v", err)
+	}
+
+	if len(c.Steps) != 6 {
+		t.Fatalf("expected 6 steps across 2 turns, got %d: %+v", len(c.Steps), c.Steps)
+	}
+
+	// Step 0: User turn 1
+	if c.Steps[0].Type != convstore.StepUserInput || c.Steps[0].Text != "turn 1 request" {
+		t.Errorf("step 0 = %+v, want User 'turn 1 request'", c.Steps[0])
+	}
+	// Step 1: Tool turn 1
+	if c.Steps[1].Type != convstore.StepToolCall || c.Steps[1].ToolName != "tool_t1" {
+		t.Errorf("step 1 = %+v, want Tool 'tool_t1'", c.Steps[1])
+	}
+	// Step 2: Assistant turn 1
+	if c.Steps[2].Type != convstore.StepModelResponse || c.Steps[2].Text != "turn 1 reply" {
+		t.Errorf("step 2 = %+v, want Assistant 'turn 1 reply'", c.Steps[2])
+	}
+	// Step 3: User turn 2
+	if c.Steps[3].Type != convstore.StepUserInput || c.Steps[3].Text != "turn 2 request" {
+		t.Errorf("step 3 = %+v, want User 'turn 2 request'", c.Steps[3])
+	}
+	// Step 4: Tool turn 2 (MUST NOT have been dumped into turn 1!)
+	if c.Steps[4].Type != convstore.StepToolCall || c.Steps[4].ToolName != "tool_t2" {
+		t.Errorf("step 4 = %+v, want Tool 'tool_t2'", c.Steps[4])
+	}
+	// Step 5: Assistant turn 2
+	if c.Steps[5].Type != convstore.StepModelResponse || c.Steps[5].Text != "turn 2 reply" {
+		t.Errorf("step 5 = %+v, want Assistant 'turn 2 reply'", c.Steps[5])
+	}
+}

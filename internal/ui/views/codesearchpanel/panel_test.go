@@ -211,6 +211,60 @@ func TestPanelKeyNavigation(t *testing.T) {
 	}
 }
 
+// TestPanelVimKeyNavigation drives j / k / h / l / g / G navigation on the populated list.
+func TestPanelVimKeyNavigation(t *testing.T) {
+	p := testPanel(t, panelTree(t))
+	p.Start("needle")
+	if len(p.Hits()) < 2 {
+		t.Fatalf("need ≥2 hits, got %d", len(p.Hits()))
+	}
+	if p.Cursor() != 0 {
+		t.Errorf("Start must reset cursor to 0, got %d", p.Cursor())
+	}
+
+	// 'j' moves cursor down
+	for i := 0; i < 3; i++ {
+		handled, _, ok := p.HandleKey(tea.Key{Code: 'j'})
+		if !handled || !ok {
+			t.Fatalf("'j' must be handled by the panel")
+		}
+	}
+	if p.Cursor() != 3 {
+		t.Errorf("after 'j' ×3 cursor = %d, want 3", p.Cursor())
+	}
+
+	// 'k' moves cursor up
+	handled, _, ok := p.HandleKey(tea.Key{Code: 'k'})
+	if !handled || !ok {
+		t.Fatalf("'k' must be handled by the panel")
+	}
+	if p.Cursor() != 2 {
+		t.Errorf("after 'k' cursor = %d, want 2", p.Cursor())
+	}
+
+	// 'G' jumps to bottom
+	p.HandleKey(tea.Key{Code: 'G', Mod: tea.ModShift})
+	if p.Cursor() != len(p.Hits())-1 {
+		t.Errorf("after 'G' cursor = %d, want %d", p.Cursor(), len(p.Hits())-1)
+	}
+
+	// 'g' jumps to top
+	p.HandleKey(tea.Key{Code: 'g'})
+	if p.Cursor() != 0 {
+		t.Errorf("after 'g' cursor = %d, want 0", p.Cursor())
+	}
+
+	// 'l' jumps to next file, 'h' jumps to previous file
+	p.HandleKey(tea.Key{Code: 'l'})
+	if f := p.Hits()[p.Cursor()].File; f == "a.txt" {
+		t.Errorf("'l' should leave a.txt, got file %s", f)
+	}
+	p.HandleKey(tea.Key{Code: 'h'})
+	if f := p.Hits()[p.Cursor()].File; f != "a.txt" {
+		t.Errorf("'h' should return to a.txt, got file %s", f)
+	}
+}
+
 // TestPanelKeyInertOnEmpty: the usage form owns no key — the host's
 // generic list handling takes it, so Ctrl+C still leaves the panel.
 func TestPanelKeyInertOnEmpty(t *testing.T) {

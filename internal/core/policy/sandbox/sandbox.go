@@ -36,6 +36,7 @@
 package sandbox
 
 import (
+	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -139,6 +140,12 @@ func (s Sandbox) Allowed(p string) bool {
 	if isSafeSSHRead(p) {
 		return true
 	}
+	if isSafeDevConfigRead(p) {
+		return true
+	}
+	if isBlockedSandboxPath(p) {
+		return false
+	}
 	for _, root := range s.AllowedPaths() {
 		root = filepath.Clean(root)
 		if root == "" {
@@ -231,6 +238,80 @@ func (s Sandbox) CheckCommandWithBypass(cmd string, bypassed bool) CommandResult
 		return CommandResult{}
 	}
 	return s.CheckCommand(cmd)
+}
+
+// AllowedDevConfigDirs lists developer tool directories inside .config or $XDG_CONFIG_HOME
+// that remain accessible under the terminal sandbox (AGY 1.5.10).
+var AllowedDevConfigDirs = map[string]bool{
+	"git":    true,
+	"go":     true,
+	"npm":    true,
+	"python": true,
+	"pip":    true,
+}
+
+// isSafeDevConfigRead reports whether p is within an allowlisted developer tool
+// configuration directory under .config or $XDG_CONFIG_HOME (AGY 1.5.10).
+func isSafeDevConfigRead(p string) bool {
+	p = filepath.ToSlash(filepath.Clean(p))
+	parts := strings.Split(p, "/")
+	for i, part := range parts {
+		if part == ".config" && i+1 < len(parts) {
+			if AllowedDevConfigDirs[parts[i+1]] {
+				return true
+			}
+		}
+	}
+	if xdg := os.Getenv("XDG_CONFIG_HOME"); xdg != "" {
+		xdgSlash := filepath.ToSlash(filepath.Clean(xdg))
+		if strings.HasPrefix(p, xdgSlash+"/") {
+			rel := strings.TrimPrefix(p, xdgSlash+"/")
+			first := strings.Split(rel, "/")[0]
+			if AllowedDevConfigDirs[first] {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// isBlockedSandboxPath reports whether p points to a sensitive path blocked by default
+// under the terminal sandbox (AGY 1.3.3, AGY 1.5.10): ~/.config, $XDG_CONFIG_HOME,
+// ~/.git-credentials, Windows AppData/Roaming, and ~/Library/Application Support.
+func isBlockedSandboxPath(p string) bool {
+	p = filepath.ToSlash(filepath.Clean(p))
+	if isSafeSSHRead(p) || isSafeDevConfigRead(p) {
+		return false
+	}
+	// Check for .git-credentials
+	for _, part := range strings.Split(p, "/") {
+		if part == ".git-credentials" {
+			return true
+		}
+	}
+	// Check for AppData/Roaming (Windows)
+	pLower := strings.ToLower(p)
+	if strings.Contains(pLower, "appdata/roaming") {
+		return true
+	}
+	// Check for Library/Application Support (macOS)
+	if strings.Contains(p, "Library/Application Support") {
+		return true
+	}
+	// Check for .config
+	for _, part := range strings.Split(p, "/") {
+		if part == ".config" {
+			return true
+		}
+	}
+	// Check for XDG_CONFIG_HOME
+	if xdg := os.Getenv("XDG_CONFIG_HOME"); xdg != "" {
+		xdgSlash := filepath.ToSlash(filepath.Clean(xdg))
+		if p == xdgSlash || strings.HasPrefix(p, xdgSlash+"/") {
+			return true
+		}
+	}
+	return false
 }
 
 // isSafeSSHRead reports whether p is a safe non-secret SSH configuration or public key file (AGY 1.5.6).

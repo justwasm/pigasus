@@ -32,6 +32,7 @@
 package permissions
 
 import (
+	"os"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -502,6 +503,39 @@ type Policy struct {
 	// leaves it empty, and a relative grant is then matched against the
 	// components of the concrete path (see matchPath).
 	WorkspaceRoots []string
+	// AllowNonWorkspaceAccess reports whether access outside workspace is permitted
+	// without prompting (settings key "allowNonWorkspaceAccess", AGY 1.5.10).
+	AllowNonWorkspaceAccess bool
+}
+
+// isInsideWorkspace reports whether target is within the workspace roots.
+func (p Policy) isInsideWorkspace(target string) bool {
+	target = strings.TrimSpace(target)
+	if target == "" || target == "." {
+		return true
+	}
+	roots := p.WorkspaceRoots
+	if len(roots) == 0 {
+		if cwd, err := os.Getwd(); err == nil && cwd != "" {
+			roots = []string{cwd}
+		} else {
+			return true
+		}
+	}
+	concrete := normalisePath(target)
+	if !strings.HasPrefix(concrete, "/") {
+		return true
+	}
+	for _, root := range roots {
+		base := normalisePath(root)
+		if base == "" {
+			continue
+		}
+		if pathContains(base, concrete) {
+			return true
+		}
+	}
+	return false
 }
 
 // ruleList names the three rule lists, so that the implicit rules are
@@ -678,6 +712,15 @@ func (p Policy) DecideNames(target string, names ...string) Verdict {
 		}
 	case ModeAuto:
 		if cls == ClassEdit || cls == ClassCommand {
+			return Allow
+		}
+		if cls == ClassRead {
+			if !p.isInsideWorkspace(target) {
+				if p.AllowNonWorkspaceAccess {
+					return Allow
+				}
+				return Ask
+			}
 			return Allow
 		}
 	case ModePlan:
@@ -888,6 +931,16 @@ func NextMode(cur string) string {
 		}
 	}
 	return CycleModes[0]
+}
+
+// NextRemoteAgentMode returns the mode that follows cur in the Shift+Tab cycle
+// when connected to a remote agent. Remote agents only toggle between default ("")
+// and accept-edits.
+func NextRemoteAgentMode(cur string) string {
+	if cur == ModeAcceptEdits {
+		return ""
+	}
+	return ModeAcceptEdits
 }
 
 // ModeBanner returns the status-line banner for a mode, or "" for the default

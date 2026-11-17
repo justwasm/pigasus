@@ -71,6 +71,7 @@ func StartScheduledTask(opts ScheduledTaskOptions) (*BackgroundTask, error) {
 		logPath:  opts.LogPath,
 		cancel:   cancel,
 		finished: make(chan struct{}),
+		isDaemon: opts.IsDaemon,
 	}
 
 	t.killFn = func() error {

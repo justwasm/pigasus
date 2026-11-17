@@ -368,8 +368,10 @@ func BuildSubagentDetail(t *taskregistry.Task, width int, expanded bool, pending
 	wrapList := func(list []string) []string {
 		var out []string
 		for _, l := range list {
-			l = strings.ReplaceAll(l, "\t", "    ")
-			if w > 0 && ansi.StringWidth(l) > w {
+			if strings.IndexByte(l, '\t') != -1 {
+				l = strings.ReplaceAll(l, "\t", "    ")
+			}
+			if w > 0 && len(l) > w && ansi.StringWidth(l) > w {
 				for _, wl := range strings.Split(ansi.Wrap(l, w, ""), "\n") {
 					out = append(out, wl)
 				}
@@ -409,8 +411,50 @@ func (p *Panel) detailLines() []string {
 	if appr, ok := p.pendingAuthorization(sa); ok {
 		pendingAuth = append(pendingAuth, approvalSuffix(appr))
 	}
+	pendingAuthStr := strings.Join(pendingAuth, "|")
 
-	header, body := BuildSubagentDetail(t, w, p.expandedDetail, pendingAuth...)
+	taskErrStr := ""
+	if t.Err != nil {
+		taskErrStr = t.Err.Error()
+	}
+
+	transPath, transMtime, transSize := TranscriptFileStat(sa.ID)
+
+	var header, body []string
+	c := &p.detailCache
+	if c.valid &&
+		c.subagentID == sa.ID &&
+		c.width == w &&
+		c.expanded == p.expandedDetail &&
+		c.pendingAuth == pendingAuthStr &&
+		c.taskState == t.State &&
+		c.taskStepCnt == t.StepCount &&
+		c.taskStepsLen == len(t.Steps) &&
+		c.taskOutLen == len(t.Output) &&
+		c.taskErr == taskErrStr &&
+		c.transPath == transPath &&
+		c.transMtime.Equal(transMtime) &&
+		c.transSize == transSize {
+		header = c.header
+		body = c.body
+	} else {
+		header, body = BuildSubagentDetail(t, w, p.expandedDetail, pendingAuth...)
+		c.valid = true
+		c.subagentID = sa.ID
+		c.width = w
+		c.expanded = p.expandedDetail
+		c.pendingAuth = pendingAuthStr
+		c.taskState = t.State
+		c.taskStepCnt = t.StepCount
+		c.taskStepsLen = len(t.Steps)
+		c.taskOutLen = len(t.Output)
+		c.taskErr = taskErrStr
+		c.transPath = transPath
+		c.transMtime = transMtime
+		c.transSize = transSize
+		c.header = header
+		c.body = body
+	}
 
 	visible := h - len(header) - 3
 	if visible < 4 {

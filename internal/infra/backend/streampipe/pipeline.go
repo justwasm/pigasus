@@ -20,6 +20,9 @@ import (
 func ExecuteWithRetry[T any](ctx context.Context, endpointURL string, op func(ctx context.Context) (T, error)) (T, error) {
 	var zero T
 	var lastErr error
+	maxAttempts := retry.MaxConnectionRetries + 1
+	notify := backend.RetryNotifierFromContext(ctx)
+
 	for attempt := 0; attempt <= retry.MaxConnectionRetries; attempt++ {
 		if attempt > 0 {
 			delay := retry.NextConnectionRetryDelay(attempt - 1)
@@ -29,22 +32,50 @@ func ExecuteWithRetry[T any](ctx context.Context, endpointURL string, op func(ct
 					delay = retry.MaxConnectionRetryInterval
 				}
 			}
+			if notify != nil {
+				notify(backend.RetryProgress{
+					Attempt:     attempt + 1,
+					MaxAttempts: maxAttempts,
+					RetryAt:     time.Now().Add(delay),
+					Err:         lastErr,
+				})
+			}
 			select {
 			case <-ctx.Done():
+				if notify != nil {
+					notify(backend.RetryProgress{})
+				}
 				return zero, ctx.Err()
 			case <-time.After(delay):
+			}
+			if notify != nil {
+				notify(backend.RetryProgress{
+					Attempt:     attempt + 1,
+					MaxAttempts: maxAttempts,
+					RetryAt:     time.Time{},
+					Err:         nil,
+				})
 			}
 		}
 
 		result, err := op(ctx)
 		if err == nil {
+			if notify != nil {
+				notify(backend.RetryProgress{})
+			}
 			return result, nil
 		}
 		isRetryable := retry.IsConnectionDropped(err) || apierror.IsRetryableStatusErr(err)
 		if !isRetryable {
+			if notify != nil {
+				notify(backend.RetryProgress{})
+			}
 			return zero, err
 		}
 		lastErr = err
+	}
+	if notify != nil {
+		notify(backend.RetryProgress{})
 	}
 	if lastErr == nil {
 		lastErr = &retry.ConnectionDroppedError{URL: endpointURL, Err: errors.New("max connection retries exceeded")}
@@ -81,13 +112,21 @@ func (p Pipeline[Req]) Run(ctx context.Context, initialResp *http.Response, req 
 	if maxRetries <= 0 {
 		maxRetries = retry.MaxConnectionRetries
 	}
+	maxAttempts := maxRetries + 1
+	notify := backend.RetryNotifierFromContext(ctx)
 
 	for attempt := 0; ; attempt++ {
 		err := p.ReadBody(ctx, resp, out)
 		if err == nil || !retry.IsConnectionDropped(err) {
+			if notify != nil {
+				notify(backend.RetryProgress{})
+			}
 			return
 		}
 		if attempt >= maxRetries {
+			if notify != nil {
+				notify(backend.RetryProgress{})
+			}
 			out <- backend.StreamChunk{Error: err, Done: true}
 			return
 		}
@@ -96,11 +135,30 @@ func (p Pipeline[Req]) Run(ctx context.Context, initialResp *http.Response, req 
 		}
 
 		delay := retry.NextConnectionRetryDelay(attempt)
+		if notify != nil {
+			notify(backend.RetryProgress{
+				Attempt:     attempt + 2,
+				MaxAttempts: maxAttempts,
+				RetryAt:     time.Now().Add(delay),
+				Err:         err,
+			})
+		}
 		select {
 		case <-ctx.Done():
+			if notify != nil {
+				notify(backend.RetryProgress{})
+			}
 			out <- backend.StreamChunk{Error: ctx.Err(), Done: true}
 			return
 		case <-time.After(delay):
+		}
+		if notify != nil {
+			notify(backend.RetryProgress{
+				Attempt:     attempt + 2,
+				MaxAttempts: maxAttempts,
+				RetryAt:     time.Time{},
+				Err:         nil,
+			})
 		}
 
 		newResp, openErr := p.Open(ctx, req)

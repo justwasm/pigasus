@@ -41,6 +41,7 @@ import (
 	"github.com/justwasm/pigasus/internal/ui/views/announce"
 	"github.com/justwasm/pigasus/internal/ui/views/programstatus"
 	"github.com/justwasm/pigasus/internal/ui/views/statusline"
+	"github.com/justwasm/pigasus/internal/ui/views/voice"
 	"github.com/justwasm/pigasus/palette"
 	"github.com/justwasm/pigasus/procgroup"
 )
@@ -74,6 +75,11 @@ func (m *RootModel) clipViewBody(body string, cursorY int) (string, int) {
 	m.prompt.picker.ClipBody(drop)
 	if m.prompt.promptBodyStart >= drop {
 		m.prompt.promptScreenY = m.prompt.promptBodyStart - drop
+	}
+	if m.overlays.btwBodyStart >= 0 {
+		m.overlays.btwScreenY = m.overlays.btwBodyStart - drop
+	} else {
+		m.overlays.btwScreenY = -1
 	}
 	return body, cursorY
 }
@@ -181,7 +187,7 @@ func (m *RootModel) shouldShowInputCursor(cursorX, cursorY int) bool {
 	if m.overlays.resumePicker != nil && m.overlays.resumePicker.Active() {
 		return false
 	}
-	if m.audio.Surface != nil && m.audio.Surface.Active() {
+	if m.audio.Surface != nil && m.audio.Surface.Active() && m.audio.Surface.Phase() != voice.PhaseLive {
 		return false
 	}
 	if m.activeItems.Panel != nil && m.activeItems.Panel.Focused() {
@@ -242,7 +248,7 @@ func (m *RootModel) isViewCacheValid() bool {
 	if m.swarm.Board != nil && m.swarm.Board.Active() {
 		return false
 	}
-	if m.prompt.picker.Visible() || m.hasActiveModal() || (m.audio.Surface != nil && m.audio.Surface.Active()) || (m.activeItems.Panel != nil && m.activeItems.Panel.Focused()) || m.askQuestion.Active() || (m.askQuestion.panel != nil && m.askQuestion.panel.Active()) || m.hasSelection() || m.prompt.HasInputSelection() {
+	if m.prompt.picker.Visible() || m.hasActiveModal() || (m.audio.Surface != nil && m.audio.Surface.Active() && m.audio.Surface.Phase() != voice.PhaseLive) || (m.activeItems.Panel != nil && m.activeItems.Panel.Focused()) || m.askQuestion.Active() || (m.askQuestion.panel != nil && m.askQuestion.panel.Active()) || m.hasSelection() || m.prompt.HasInputSelection() || m.hasBtwSelection() {
 		return false
 	}
 	if m.viewport.cachedScroll != m.viewport.scroll || m.viewport.cachedAutoScroll != m.viewport.autoScroll {
@@ -342,13 +348,27 @@ func (m *RootModel) renderBodyQueuesAndCard(b *strings.Builder) {
 		}
 	}
 	if row := m.aboveInputCard(); row != "" {
+		m.overlays.btwBodyStart = tuilib.ViewRows(b.String())
+		m.overlays.btwHeight = tuilib.ViewRows(row)
 		b.WriteString(row + "\n")
+	} else {
+		m.overlays.btwBodyStart = -1
+		m.overlays.btwHeight = 0
+		m.overlays.btwScreenY = -1
 	}
+}
+
+// IsBtwCardY reports whether the screen row y falls within the visible /btw card.
+func (m *RootModel) IsBtwCardY(y int) bool {
+	if !m.isBtwCardVisible() || m.overlays.btwScreenY < 0 || m.overlays.btwHeight <= 0 {
+		return false
+	}
+	return y >= m.overlays.btwScreenY && y < m.overlays.btwScreenY+m.overlays.btwHeight
 }
 
 func (m *RootModel) syncInputPlaceholder() {
 	switch {
-	case m.prompt.picker.Visible() || m.hasActiveModal() || m.audio.Surface.Active():
+	case m.prompt.picker.Visible() || m.hasActiveModal() || (m.audio.Surface != nil && m.audio.Surface.Active() && m.audio.Surface.Phase() != voice.PhaseLive):
 		m.prompt.input.Placeholder = ""
 	case m.viewport.inputNotice != "":
 		m.prompt.input.Placeholder = m.viewport.inputNotice
@@ -548,9 +568,29 @@ func (m *RootModel) programStatus() *tea.ProgramStatus {
 	})
 }
 
-// isAgentBusy is true while a model turn is in flight.
+// isAgentBusy is true while a model turn is in flight or background work is running.
 func (m *RootModel) isAgentBusy() bool {
-	return m.conversation.streaming || (m.turn.activeBridge != nil && m.turn.activeBridge.IsRunning()) || m.conversation.thinking
+	if m.conversation.streaming || (m.turn.activeBridge != nil && m.turn.activeBridge.IsRunning()) || m.conversation.thinking {
+		return true
+	}
+	// AGY 1.5.10: OSC 7501 terminal status shows the session as working while
+	// waiting for background subagents or non-daemon tasks to finish. Daemon tasks
+	// such as dev servers don't count.
+	return m.hasActiveBackgroundWork()
+}
+
+func (m *RootModel) hasActiveBackgroundWork() bool {
+	if m.agents.registry != nil && m.agents.registry.Busy() {
+		return true
+	}
+	if m.session.conversationID != "" {
+		for _, task := range shell.RunningTaskSnapshots(m.session.conversationID) {
+			if !task.IsDaemon {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // recordTurnOutcome records how the open turn ended.
@@ -735,6 +775,15 @@ func (m *RootModel) handleMouseWheel(msg tea.MouseMsg) bool {
 		return true
 	}
 	up := msg.Mouse().Button == tea.MouseWheelUp
+	if m.isBtwCardVisible() && m.IsBtwCardY(msg.Mouse().Y) {
+		delta := 1
+		if up {
+			delta = -1
+		}
+		if m.btwScrollBy(delta) {
+			return true
+		}
+	}
 	if m.overlays.resumePicker != nil && m.overlays.resumePicker.Active() {
 		key := tea.Key{Code: tea.KeyDown}
 		if up {
@@ -799,45 +848,29 @@ func (m *RootModel) handleMouseWheel(msg tea.MouseMsg) bool {
 	return false
 }
 
-// wheelScrollRows returns the dynamic scroll step for mouse wheel events,
-// deriving the step from the available viewport height:
+// wheelScrollRows returns the scroll step for mouse wheel events.
+// In upstream agy, the base wheel step is 1 line per notch:
 //
-//	availableLines = totalHeight - chromeLines
-//	step = max(1, availableLines / 3)
-//	step = min(step, mouseWheelRows)
+//	speed = 1 (or accelerated via render.WheelSpeed)
+//	maxSpeed = max(1, availableLines / 3)
+//	step = min(speed, maxSpeed) // evaluates to 1 for discrete ticks
 //
-// Upstream: google3/third_party/jetski/cli/model/model.(*ConversationModel).scrollWheel (0x102bb5430)
+// In previous versions of pigasus, the formula mistakenly set step = availableLines / 3,
+// which evaluated to 2 (or 3) rows on standard terminal sizes.
+//
+// Upstream:
+//   - google3/third_party/jetski/cli/model/model.(*ConversationModel).scrollWheel (0x10303dbd0)
+//   - google3/third_party/jetski/cli/render/render.WheelSpeed (0x102e1d340)
+//   - google3/third_party/jetski/cli/model/model.(*scrollPanel).handleScroll (0x103137040)
 func (m *RootModel) wheelScrollRows() int {
-	if m.overlays.panel.kind.IsViewer() {
-		avail := m.viewport.height - 4
-		if avail < 1 {
-			avail = 1
-		}
-		step := avail / 3
-		if step < 1 {
-			step = 1
-		}
-		if step > mouseWheelRows {
-			step = mouseWheelRows
-		}
-		return step
-	}
-	avail := m.viewportHeight()
-	step := avail / 3
-	if step < 1 {
-		step = 1
-	}
-	if step > mouseWheelRows {
-		step = mouseWheelRows
-	}
-	return step
+	return mouseWheelRows
 }
 
 type wrapSlot = tuiviewport.WrapSlot
 type composedRows = tuiviewport.ComposedRows
 
 const (
-	mouseWheelRows   = 3
+	mouseWheelRows   = 1
 	viewOverflowRows = tuiviewport.ViewOverflowRows
 )
 
@@ -929,7 +962,9 @@ func (m *RootModel) liveRows(width int) []string {
 	if m.conversation.anyToolRun {
 		phrase = "Working"
 	}
-	if m.conversation.thinking && m.conversation.activeTool == "" {
+	if retryText, ok := m.conversation.ModelRetryStatus(); ok {
+		line += " " + retryText
+	} else if m.conversation.thinking && m.conversation.activeTool == "" {
 		if m.conversation.liveThinkingSnippet != "" {
 			line += " " + palette.SpinnerBaseOpen + m.conversation.liveThinkingSnippet + "\x1b[m"
 		} else {

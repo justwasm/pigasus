@@ -89,6 +89,45 @@ clone. Their ids are recovered, not guessed: 【一手】 agy 1.4.2's own `agy
 models` output and 【strings】 agy 1.4.12's tier table. Report:
 `out/model-catalogue-3x/`.
 
+### Undocumented ids (`internal/features/models/catalog/undocumented.go`)
+
+The CloudCode endpoint answers a few ids the reference's catalogue has no row
+for: the model is served, the vendor picker simply never draws it. The table
+ships one of them today:
+
+| Wire id | Label | Where it comes from |
+|---|---|---|
+| `gemini-4-hydrogen-sonar` | Gemini 4 Hydrogen (Sonar) | 【一手】 2026-11-17: a Jio account reached through a reverse-proxied CloudCode host answers it; the vendor tier table has no `sonar` tier and `agy models` prints none |
+
+The row is **gated**, because `agy models` parity is the point of the
+catalogue:
+
+- `OPENAGY_UNDOCUMENTED_MODELS=1|true|on|yes` turns it on,
+  `=0|false|off|no` turns it off — the explicit answer always wins;
+- otherwise it follows `endpoints.Current().CloudCode`: a host that is neither
+  Google's own nor a **loopback** listener is a reverse proxy, and the row
+  appears. Loopback is excluded on purpose — tuialign boots the clone against a
+  local mock CloudCode proxy and `pigasus agy` points the vendor binary at the
+  clone's own loopback relay; a row that appeared there would make the clone's
+  picker differ from the reference's for a reason unrelated to the model.
+
+When the gate is open the row appears in `/model` (appended after the
+reference's rows, with no effort slider — the id carries the variant, so
+`--effort` conflicts the way the reference's tier-spelled ids do), in
+`pigasus models`, and it resolves by id and by label. The dispatch sends it to
+CloudCode (`catalog.ReferenceServedModels`, consumed by
+`backendselect.IsReferenceModel`) rather than looking for a configured
+endpoint and falling through to the shim. `ReferenceModels()` itself is
+untouched either way.
+
+```sh
+# a reverse-proxied host is enough
+CLOUD_CODE_URL=https://relay.example.com pigasus --model gemini-4-hydrogen-sonar -p "ping"
+
+# or pin the gate on an otherwise stock run
+OPENAGY_UNDOCUMENTED_MODELS=1 pigasus --model "Gemini 4 Hydrogen (Sonar)" -p "ping"
+```
+
 ---
 
 ## The per-model budget (`internal/features/models/ctx`, cycle `303-cascade-model-profiles`)

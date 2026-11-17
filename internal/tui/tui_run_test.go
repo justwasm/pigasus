@@ -41,6 +41,7 @@ import (
 	"github.com/justwasm/pigasus/internal/app/session/convstore"
 	"github.com/justwasm/pigasus/internal/app/subagent/questions"
 	"github.com/justwasm/pigasus/internal/app/tools"
+	"github.com/justwasm/pigasus/internal/app/tools/shell"
 	"github.com/justwasm/pigasus/internal/app/tuistore"
 	"github.com/justwasm/pigasus/internal/cli"
 	"github.com/justwasm/pigasus/internal/core/apierror"
@@ -3118,6 +3119,64 @@ func TestRecordTurnOutcomeClears(t *testing.T) {
 	m.clearLastTurnOutcome()
 	if got := m.programStatus(); got.State != tea.ProgramStateIdle {
 		t.Errorf("after clearLastTurnOutcome: state = %q, want %q", got.State, tea.ProgramStateIdle)
+	}
+}
+
+func TestProgramStatus_1510_ActiveBackgroundWork(t *testing.T) {
+	convID := "conv-osc7501-test"
+	m := newPSModel()
+	m.session.conversationID = convID
+	m.recordTurnOutcome(tea.ProgramStateDone)
+
+	// Case 1: No background tasks or subagents -> Done
+	if got := m.programStatus(); got.State != tea.ProgramStateDone {
+		t.Errorf("idle with no background tasks: got %q, want %q", got.State, tea.ProgramStateDone)
+	}
+
+	// Case 2: Daemon task running (e.g. dev server) -> still Done (daemon tasks don't count)
+	daemonID := convID + "/daemon-task"
+	_, err := shell.StartScheduledTask(shell.ScheduledTaskOptions{
+		ConvID:   convID,
+		TaskID:   "daemon-task",
+		Duration: 10 * time.Minute,
+		Prompt:   "poll",
+		IsDaemon: true,
+	})
+	if err != nil {
+		t.Fatalf("start daemon task: %v", err)
+	}
+	defer func() {
+		_ = shell.KillBackgroundTask(daemonID)
+	}()
+
+	if got := m.programStatus(); got.State != tea.ProgramStateDone {
+		t.Errorf("with daemon task: got %q, want %q (daemon tasks should not count)", got.State, tea.ProgramStateDone)
+	}
+
+	// Case 3: Non-daemon background task running -> Working
+	nonDaemonID := convID + "/nondaemon-task"
+	_, err = shell.StartScheduledTask(shell.ScheduledTaskOptions{
+		ConvID:   convID,
+		TaskID:   "nondaemon-task",
+		Duration: 10 * time.Minute,
+		Prompt:   "poll non daemon",
+		IsDaemon: false,
+	})
+	if err != nil {
+		t.Fatalf("start non-daemon task: %v", err)
+	}
+	defer func() {
+		_ = shell.KillBackgroundTask(nonDaemonID)
+	}()
+
+	if got := m.programStatus(); got.State != tea.ProgramStateWorking {
+		t.Errorf("with non-daemon task: got %q, want %q", got.State, tea.ProgramStateWorking)
+	}
+
+	// Kill non-daemon task -> returns to Done
+	_ = shell.KillBackgroundTask(nonDaemonID)
+	if got := m.programStatus(); got.State != tea.ProgramStateDone {
+		t.Errorf("after killing non-daemon task: got %q, want %q", got.State, tea.ProgramStateDone)
 	}
 }
 
@@ -6387,6 +6446,22 @@ func TestPasteMsgInsertsAtCursor(t *testing.T) {
 	}
 	if got, want := m.prompt.input.Value(), "XYab"; got != want {
 		t.Fatalf("input = %q, want %q", got, want)
+	}
+}
+
+func TestSuperVPastesFromClipboard(t *testing.T) {
+	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/tmp", true)
+	m.prompt.input.SetValue("foo")
+	m.prompt.input.CursorEnd()
+
+	prev := clipboardReadText
+	clipboardReadText = func() string { return "bar" }
+	defer func() { clipboardReadText = prev }()
+
+	// Press Cmd+V (ModSuper)
+	m.Update(tea.KeyPressMsg(tea.Key{Code: 'v', Mod: tea.ModSuper}))
+	if got, want := m.prompt.input.Value(), "foobar"; got != want {
+		t.Fatalf("input after Super+V = %q, want %q", got, want)
 	}
 }
 

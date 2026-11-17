@@ -368,13 +368,13 @@ Use the optimized extractor in [`devutils/embedextract`](../../devutils/embedext
 go run ./devutils/embedextract /path/to/agy /path/to/output_dir
 ```
 
-For `agy 1.5.9`:
+For `agy 1.5.10`:
 ```bash
-go run ./devutils/embedextract ~/.local/bin/agy out/extracted-1.5.9
+go run ./devutils/embedextract -bin ~/.local/bin/agy -embed-out out/extracted-1.5.10/embed -zip-out out/extracted-1.5.10/web-assets -zip-index 1
 ```
 
 **Output Layout**:
-- `embed/`: 499 embedded files:
+- `embed/`: 503 embedded files:
   - Built-in syntax highlighting lexers (`*.xml`) and color themes.
   - Native Swarm plugin with the `swarm_board` Sidecar UI (`index.html`, `hive.js`, etc.).
   - Built-in skills (`native_swarm`, `generative_ui`, `antigravity_guide`, etc.).
@@ -385,37 +385,37 @@ go run ./devutils/embedextract ~/.local/bin/agy out/extracted-1.5.9
 
 ### 4.2 Extract Protobuf Descriptors Directly from Binary
 
-Protobuf runtime files in Go binaries retain serialized `FileDescriptorProto` structures. Use [`out/local-macos/extract_descriptors.py`](../../out/local-macos/extract_descriptors.py):
+Protobuf runtime files in Go binaries retain serialized `FileDescriptorProto` structures. Use [`scripts/re/extract_descriptors.py`](../../scripts/re/extract_descriptors.py):
 
 ```bash
-# Usage: python3 out/local-macos/extract_descriptors.py <binary> <proto-path> > <outfile.txt>
+# Usage: python3 scripts/re/extract_descriptors.py <binary> <proto-path> > <outfile.txt>
 
 # 1. Remote Agent Proxy Service
-python3 out/local-macos/extract_descriptors.py ~/.local/bin/agy \
+python3 scripts/re/extract_descriptors.py ~/.local/bin/agy \
   google/gca/aicode/v1main/remote_agent_proxy.proto \
-  > out/extracted-1.5.9/protos/remote_agent_proxy_1.5.9.txt
+  > out/extracted-1.5.10/protos/remote_agent_proxy_1.5.10.txt
 
 # 2. Jetski Remote Agent PB
-python3 out/local-macos/extract_descriptors.py ~/.local/bin/agy \
+python3 scripts/re/extract_descriptors.py ~/.local/bin/agy \
   third_party/jetski/remote_agent_proxy_pb/remote_agent_proxy.proto \
-  > out/extracted-1.5.9/protos/remote_agent_proxy_pb_1.5.9.txt
+  > out/extracted-1.5.10/protos/remote_agent_proxy_pb_1.5.10.txt
 
 # 3. Cortex PB
-python3 out/local-macos/extract_descriptors.py ~/.local/bin/agy \
+python3 scripts/re/extract_descriptors.py ~/.local/bin/agy \
   third_party/jetski/cortex_pb/cortex.proto \
-  > out/extracted-1.5.9/protos/cortex_1.5.9.txt
+  > out/extracted-1.5.10/protos/cortex_1.5.10.txt
 
 # 4. Trajectory & Trajectory Steps
-python3 out/local-macos/extract_descriptors.py ~/.local/bin/agy \
+python3 scripts/re/extract_descriptors.py ~/.local/bin/agy \
   third_party/gemini_coder/proto/trajectory.proto \
-  > out/extracted-1.5.9/protos/trajectory_1.5.9.txt
+  > out/extracted-1.5.10/protos/trajectory_1.5.10.txt
 
-python3 out/local-macos/extract_descriptors.py ~/.local/bin/agy \
+python3 scripts/re/extract_descriptors.py ~/.local/bin/agy \
   third_party/gemini_coder/cider/proto/trajectory_steps.proto \
-  > out/extracted-1.5.9/protos/trajectory_steps_1.5.9.txt
+  > out/extracted-1.5.10/protos/trajectory_steps_1.5.10.txt
 ```
 
-### 4.3 Version Diffing Methodology (e.g. 1.4.8 vs 1.5.9)
+### 4.3 Version Diffing Methodology (e.g. 1.4.8 vs 1.5.10)
 
 Run a fast diff comparison script against extracted descriptors:
 
@@ -423,10 +423,10 @@ Run a fast diff comparison script against extracted descriptors:
 import re
 
 m148 = set(re.findall(r'message_type\s*\{\s*name:\s*\"([^\"]+)\"', open('out/local-macos/protos/remote_agent_proxy_1.4.8.txt').read()))
-m159 = set(re.findall(r'^message\s+([A-Za-z0-9_]+)\s*\{', open('out/extracted-1.5.9/protos/remote_agent_proxy_1.5.9.txt').read(), re.M))
+m1510 = set(re.findall(r'^message\s+([A-Za-z0-9_]+)\s*\{', open('out/extracted-1.5.10/protos/remote_agent_proxy_1.5.10.txt').read(), re.M))
 
-print("New Messages in 1.5.9:", sorted(list(m159 - m148)))
-print("Removed Messages in 1.5.9:", sorted(list(m148 - m159)))
+print("New Messages in 1.5.10:", sorted(list(m1510 - m148)))
+print("Removed Messages in 1.5.10:", sorted(list(m148 - m1510)))
 ```
 
 #### Key Findings from the 1.4.8 $\to$ 1.5.3 Drift:

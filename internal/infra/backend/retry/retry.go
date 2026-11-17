@@ -65,37 +65,29 @@ import (
 
 // StreamIdleTimeout is the maximum duration a model response stream may stall
 // with no incoming data before being aborted and retried automatically.
-// Matches AGY 1.3.6 (5 minutes).
-var StreamIdleTimeout = 5 * time.Minute
+// Raised from 5 to 10 minutes in AGY 1.5.10 to accommodate long-running reasoning phases.
+var StreamIdleTimeout = 10 * time.Minute
 
 // ErrConnectionStalled is the sentinel returned when a model stream stalls
 // for longer than StreamIdleTimeout.
-var ErrConnectionStalled = errors.New("gemini-api-key: connection stalled (no data received for 5 minutes)")
+var ErrConnectionStalled = errors.New("gemini-api-key: connection stalled (no data received for 10 minutes)")
 
 // MaxConnectionRetries is the retry budget for a request whose
-// connection to the Gemini API was dropped internally. The AGY 1.3.1
-// changelog does not name the budget; AGY 1.3.4 line 29 / 1.3.6 line
-// 5 describe a cap change (4 min → 30 s) without naming the budget
-// either. Five is the budget PiG's provider-retry transport uses
-// for OpenAI-shaped gateways, and it matches the upstream AGY
-// retry-loop evidence for the per-request transport: a request gets
-// five chances to succeed before the failure is surfaced to the user.
+// connection to the Gemini API was dropped internally.
+// Official agy provides 9 retries (10 attempts total: attempt 1/10 to 10/10).
 //
 // Declared as a var (not const) so the test suite can shorten the
 // schedule for runtime-sensitive cases. Production code reads the
 // value; only the test file under the same package reassigns.
-var MaxConnectionRetries = 5
+var MaxConnectionRetries = 9
 
-// MaxConnectionRetryInterval is the per-retry backoff cap. AGY 1.3.4
-// lowered this from 4 minutes to 30 seconds. The clone's exponential
-// schedule 1s → 2s → 4s → 8s → 16s never reaches 30s inside the
-// budget itself; the cap fires for code that asks for a sleep between
-// two arbitrary operations, the case the changelog targets.
+// MaxConnectionRetryInterval is the per-retry backoff cap.
+// Raised from 30 seconds to 4 minutes in AGY 1.5.10 to better handle transient upstream throttling.
 //
 // Declared as a var (not const) for the same reason as
 // MaxConnectionRetries: tests shorten the schedule to keep the test
 // runtime in milliseconds.
-var MaxConnectionRetryInterval = 30 * time.Second
+var MaxConnectionRetryInterval = 4 * time.Minute
 
 // InitialConnectionRetryInterval is the first backoff delay. The AGY
 // changelog explicitly kept this unchanged across the 1.3.4 cut.
@@ -210,7 +202,12 @@ func IsConnectionDropped(err error) bool {
 // returned *ConnectionDroppedError so logs can identify the failing
 // hop when the error escapes a retry context.
 func ClassifyTransportError(err error, url string) error {
-	if err == nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+	if err == nil || errors.Is(err, context.Canceled) {
+		return err
+	}
+	// A bare context.DeadlineExceeded passed directly indicates the caller's
+	// own context deadline expired (turn timeout).
+	if err == context.DeadlineExceeded {
 		return err
 	}
 	if cde, ok := err.(*ConnectionDroppedError); ok {
@@ -221,6 +218,9 @@ func ClassifyTransportError(err error, url string) error {
 	}
 	if isTypedConnectionDropped(err) || isStringConnectionDropped(err.Error()) {
 		return &ConnectionDroppedError{Err: err, URL: url}
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return err
 	}
 	return err
 }
@@ -236,6 +236,14 @@ func isTypedConnectionDropped(err error) bool {
 		errors.Is(err, syscall.ENETDOWN) ||
 		errors.Is(err, syscall.ENETUNREACH) ||
 		errors.Is(err, syscall.EHOSTUNREACH) {
+		return true
+	}
+	var netErr net.Error
+	if errors.As(err, &netErr) && netErr.Timeout() {
+		return true
+	}
+	var dnsErr *net.DNSError
+	if errors.As(err, &dnsErr) {
 		return true
 	}
 	var opErr *net.OpError
@@ -263,6 +271,15 @@ func isStringConnectionDropped(msg string) bool {
 		"connection reset",
 		"connection stalled",
 		"EOF",
+		"i/o timeout",
+		"lookup ",
+		"dial tcp",
+		"dial udp",
+		"TLS handshake timeout",
+		"Client.Timeout exceeded",
+		"operation timed out",
+		"network timeout",
+		"temporary failure in name resolution",
 	}
 	for _, p := range phrases {
 		if strings.Contains(msg, p) {

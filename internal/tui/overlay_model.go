@@ -19,6 +19,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	tuiviewport "github.com/justwasm/pigasus/internal/ui/foundations/viewport"
 	"github.com/justwasm/pigasus/internal/ui/panelregistry"
 	"github.com/justwasm/pigasus/internal/ui/resumepicker"
 	"github.com/justwasm/pigasus/internal/ui/views/announce"
@@ -42,6 +43,10 @@ type OverlayModel struct {
 	activeBtwCancel context.CancelFunc
 	btwScroll       int
 	asyncBtw        bool
+	btwSelection    tuiviewport.TextSelection
+	btwScreenY      int
+	btwHeight       int
+	btwBodyStart    int
 
 	// Notice & Announcement Cards
 	announceQueue     announce.Queue
@@ -81,6 +86,10 @@ func (o *OverlayModel) Dismiss(host OverlayDismissHost) (tea.Cmd, bool) {
 		return o.resumePicker.HandleKey(tea.Key{Code: tea.KeyEsc}, host.ViewportHeight()), true
 	}
 	if o.BtwCardVisible() {
+		if o.HasBtwSelection() {
+			o.ResetBtwSelection()
+			return nil, true
+		}
 		host.DismissBtwResponse()
 		return nil, true
 	}

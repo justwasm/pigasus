@@ -89,6 +89,9 @@ func TestCurrentReturnsTheCompiledInDefaults(t *testing.T) {
 	if got.SendSignalingURL() != DefaultSendSignaling {
 		t.Errorf("SendSignalingURL = %q, want %q", got.SendSignalingURL(), DefaultSendSignaling)
 	}
+	if got.Voice != DefaultVoice {
+		t.Errorf("Voice = %q, want %q", got.Voice, DefaultVoice)
+	}
 	if len(got.OriginPatterns) != len(DefaultOriginPatterns) {
 		t.Errorf("OriginPatterns = %v, want %v", got.OriginPatterns, DefaultOriginPatterns)
 	}
@@ -417,5 +420,33 @@ func TestSignalingURLsDeriveFromWebChannel(t *testing.T) {
 	}
 	if overridden.SendSignalingURL() != "http://127.0.0.1:9999/customSend" {
 		t.Errorf("SendSignalingURL = %q, want customSend", overridden.SendSignalingURL())
+	}
+}
+
+func TestVoiceEndpointResolution(t *testing.T) {
+	// 1. Config override
+	writeConfig(t, `{
+		"endpoints": {
+			"voice": "wss://custom.proxy.com/ws/live"
+		}
+	}`)
+	got := Current()
+	if got.Voice != "wss://custom.proxy.com/ws/live" {
+		t.Errorf("got.Voice = %q, want custom endpoint", got.Voice)
+	}
+
+	// 2. GOOGLE_GEMINI_BASE_URL override
+	t.Setenv("GOOGLE_GEMINI_BASE_URL", "https://gemini-proxy.example.com")
+	gotEnv := Current()
+	wantEnv := "wss://gemini-proxy.example.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContent"
+	if gotEnv.Voice != wantEnv {
+		t.Errorf("got.Voice = %q, want %q", gotEnv.Voice, wantEnv)
+	}
+
+	// 3. OPENAGY_VOICE_URL explicit override beats all
+	t.Setenv("OPENAGY_VOICE_URL", "wss://direct-voice.example.com")
+	gotExplicit := Current()
+	if gotExplicit.Voice != "wss://direct-voice.example.com" {
+		t.Errorf("got.Voice = %q, want wss://direct-voice.example.com", gotExplicit.Voice)
 	}
 }

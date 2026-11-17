@@ -149,10 +149,10 @@ func TestPanelLayout(t *testing.T) {
 		t.Errorf("title = %q", plain[0])
 	}
 	// Cursor-bearing list: 10 setting rows; the counter reads
-	// "[1-10 of 20 items]" verbatim from REF.
+	// "[1-10 of 25 items]" verbatim from REF.
 	joined := strings.Join(plain, "\n")
-	if !strings.Contains(joined, "[1-10 of 20 items]") {
-		t.Errorf("missing 1-10 of 20 counter: %s", joined)
+	if !strings.Contains(joined, "[1-10 of 25 items]") {
+		t.Errorf("missing 1-10 of 25 counter: %s", joined)
 	}
 	// Cursor movement shifts the "> " marker. Cycle 193 finds it
 	// by scanning rather than depending on row-index arithmetic
@@ -188,24 +188,30 @@ func TestPanelLayout(t *testing.T) {
 // ---- the catalogue's dynamic gate ----------------------------------------
 
 // TestCatalogueGate pins the gate on the "Editor Mode › Insert First"
-// child row: the reference draws it immediately after Editor Mode while
-// editorMode == "vim" (probe_ref_walk2.py row 8).
+// child row (drawn while editorMode == "vim") and the Voice Mode child rows
+// (hidden while voiceMode == "dictation").
 func TestCatalogueGate(t *testing.T) {
 	testHome(t, map[string]any{})
 	p := New(Seams{})
-	if got := len(p.Catalogue()); got != 20 {
-		t.Errorf("catalogue with editorMode unset = %d rows, want 20", got)
+	if got := len(p.Catalogue()); got != 25 {
+		t.Errorf("catalogue with default settings = %d rows, want 25", got)
 	}
 
 	testHome(t, map[string]any{"editorMode": "vim"})
 	p = New(Seams{})
 	rows := p.Catalogue()
-	if len(rows) != 21 {
-		t.Fatalf("catalogue with editorMode=vim = %d rows, want 21", len(rows))
+	if len(rows) != 26 {
+		t.Fatalf("catalogue with editorMode=vim = %d rows, want 26", len(rows))
 	}
 	if rows[7].Name != "Editor Mode" || rows[8].Name != "Editor Mode › Insert First" {
 		t.Errorf("rows[7]=%q rows[8]=%q, want Editor Mode then its Insert First child",
 			rows[7].Name, rows[8].Name)
+	}
+
+	testHome(t, map[string]any{"voice": map[string]any{"voiceMode": "dictation"}})
+	p = New(Seams{})
+	if got := len(p.Catalogue()); got != 21 {
+		t.Errorf("catalogue with voiceMode=dictation = %d rows, want 21", got)
 	}
 }
 
@@ -362,8 +368,8 @@ func TestCycle197_ConfigPanelNoCounterWhenAllFit(t *testing.T) {
 	testHome(t, map[string]any{})
 	p := New(Seams{})
 	lines := plainLines(p, 50, 0)
-	if len(lines) != 31 {
-		t.Errorf("panel = %d lines at height 50, want 31 (live REF)", len(lines))
+	if len(lines) != 36 {
+		t.Errorf("panel = %d lines at height 50, want 36 (live REF)", len(lines))
 	}
 	for _, l := range lines {
 		if strings.Contains(l, "items]") {
@@ -373,7 +379,7 @@ func TestCycle197_ConfigPanelNoCounterWhenAllFit(t *testing.T) {
 	// The windowed fallback (height unknown) still shows the counter.
 	p2 := New(Seams{})
 	joined := strings.Join(plainLines(p2, 0, 0), "\n")
-	if !strings.Contains(joined, "[1-10 of 20 items]") {
+	if !strings.Contains(joined, "[1-10 of 25 items]") {
 		t.Errorf("unknown height should keep the windowed counter:\n%s", joined)
 	}
 }

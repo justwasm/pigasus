@@ -571,3 +571,15 @@ func (a *ACPV1Agent) runTurn(ctx context.Context, sessID acp1.SessionID, s *acpV
 func (a *ACPV1Agent) ListSessions(ctx context.Context, params *acp1.ListSessionsRequest) (*acp1.ListSessionsResponse, error) {
 	return a.SessionManager.List(ctx, params)
 }
+
+// CancelSession implements acp1.Agent, stopping background tasks and subagents.
+func (a *ACPV1Agent) CancelSession(ctx context.Context, params *acp1.CancelNotification) error {
+	stopSessionTasks(string(params.SessionID))
+	return a.SessionManager.CancelSession(ctx, params)
+}
+
+// CloseSession implements acp1.SessionCloser, stopping background tasks and subagents.
+func (a *ACPV1Agent) CloseSession(ctx context.Context, params *acp1.CloseSessionRequest) (*acp1.CloseSessionResponse, error) {
+	stopSessionTasks(string(params.SessionID))
+	return a.SessionManager.CloseSession(ctx, params)
+}

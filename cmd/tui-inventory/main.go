@@ -51,13 +51,13 @@ type InventoryReport struct {
 
 func main() {
 	jsonOut := flag.String("json", "docs/guide/tui_component_inventory.json", "Path to output JSON inventory")
-	funcsFile := flag.String("funcs", "out/extracted-1.5.9/seeds/funcs.txt", "Path to decompiled 1.5.9 funcs.txt")
+	funcsFile := flag.String("funcs", "out/extracted-1.5.10/seeds/funcs.txt", "Path to decompiled 1.5.10 funcs.txt")
 	flag.Parse()
 
-	fmt.Println("❖ Extracting AST & Reverse-Engineered TUI Symbol Inventory (jetski/cortex 1.5.9)...")
+	fmt.Println("❖ Extracting AST & Reverse-Engineered TUI Symbol Inventory (jetski/cortex 1.5.10)...")
 
 	upstreamModels := extractUpstreamModels(*funcsFile)
-	fmt.Printf("✔ Loaded %d upstream Model symbols from 1.5.9 seeds (%s)\n", len(upstreamModels), *funcsFile)
+	fmt.Printf("✔ Loaded %d upstream Model symbols from 1.5.10 seeds (%s)\n", len(upstreamModels), *funcsFile)
 
 	localTypes := scanLocalAST("internal/ui")
 	fmt.Printf("✔ Parsed AST across internal/ui: found %d view-bearing types\n", len(localTypes))
@@ -76,7 +76,7 @@ func main() {
 
 	report := InventoryReport{
 		Title:            "OpenAGY / Pigasus TUI Component Inventory & Atomic Design Mapping",
-		ReferenceVersion: "jetski/cortex 1.5.9",
+		ReferenceVersion: "jetski/cortex 1.5.10",
 		TotalComponents:  len(inventory),
 		CoveredCount:     covered,
 		CoveragePercent:  float64(covered) / float64(len(inventory)) * 100.0,

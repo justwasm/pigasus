@@ -69,6 +69,32 @@ type ChunkMeta struct {
 	SystemFingerprint string `json:"system_fingerprint,omitempty"`
 }
 
+// RetryProgress reports transient retry state for an in-flight model request.
+type RetryProgress struct {
+	Attempt     int       // 1-based attempt index (e.g. 2 for attempt 2/10)
+	MaxAttempts int       // Total attempt budget (e.g. 10)
+	RetryAt     time.Time // When retry will fire (zero if firing immediately or complete)
+	Err         error     // The transient error causing the retry
+}
+
+// RetryNotifier is invoked when a model request enters or leaves a retry countdown.
+type RetryNotifier func(p RetryProgress)
+
+type retryNotifierKey struct{}
+
+// ContextWithRetryNotifier returns a context carrying the given RetryNotifier.
+func ContextWithRetryNotifier(ctx context.Context, fn RetryNotifier) context.Context {
+	return context.WithValue(ctx, retryNotifierKey{}, fn)
+}
+
+// RetryNotifierFromContext extracts a RetryNotifier from the context, or returns nil.
+func RetryNotifierFromContext(ctx context.Context) RetryNotifier {
+	if fn, ok := ctx.Value(retryNotifierKey{}).(RetryNotifier); ok {
+		return fn
+	}
+	return nil
+}
+
 // ImagePart is one image a user attached to a message.
 //
 // The neutral shape is the mime type and the bytes: every transport

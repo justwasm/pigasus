@@ -30,6 +30,8 @@ import (
 	"time"
 
 	tea "charm.land/bubbletea/v2"
+
+	"github.com/justwasm/pigasus/palette"
 )
 
 // Seams are the host's answers the surface cannot answer itself.
@@ -53,6 +55,20 @@ type Seams struct {
 	Respond func(msg string, extra ...string)
 	// Width is the terminal's width. The banner pads itself to it.
 	Width func() int
+	// StartLive initiates a terminal full-duplex live audio session.
+	StartLive func() error
+	// StopLive terminates the active live audio session.
+	StopLive func() error
+	// ToggleMute toggles microphone mute in live call mode.
+	ToggleMute func() bool
+	// IsMuted reports whether microphone is muted in live call mode.
+	IsMuted func() bool
+	// IsSpeaking reports whether the agent is currently speaking in live call mode.
+	IsSpeaking func() bool
+	// PromptEmpty reports whether the composer prompt is empty.
+	PromptEmpty func() bool
+	// IsLiveAvailable reports whether live mode is available in this session.
+	IsLiveAvailable func() bool
 }
 
 // Surface is the voice dictation state machine.
@@ -121,6 +137,10 @@ func (s *Surface) Recorder() *Recorder {
 type ConnectDoneMsg struct {
 	// Err is the failure. Nil means the session is up.
 	Err error
+	// FallbackDictation indicates fallback from unavailable live mode to dictation.
+	FallbackDictation bool
+	// LiveStarted indicates live full-duplex session was established.
+	LiveStarted bool
 }
 
 // TickMsg is sent periodically during active recording to update the
@@ -143,13 +163,45 @@ func (s *Surface) Start(trigger string) tea.Cmd {
 		// If already dictating, pressing F5 / invoking again confirms and inserts the draft.
 		return s.confirm()
 	}
+
 	s.active = true
 	s.phase = PhaseConnecting
 	s.trigger = trigger
 	s.cancel = false
 
+	if trigger == "/voice live" {
+		rec, _ := NewRecorder("voice-live-"+fmt.Sprintf("%d", time.Now().UnixNano()), 0, nil)
+		s.rec = rec
+		if s.seams.StartLive != nil {
+			return func() tea.Msg {
+				err := s.seams.StartLive()
+				return ConnectDoneMsg{Err: err}
+			}
+		}
+		return s.connectCmd()
+	}
+
 	rec, _ := NewRecorder("voice-"+fmt.Sprintf("%d", time.Now().UnixNano()), MaxRecordingDuration, nil)
 	s.rec = rec
+
+	// Bare /voice: "Live mode when it is available, else dictation" (upstream agy 1.5.9).
+	if trigger == "/voice" && s.seams.IsLiveAvailable != nil && s.seams.IsLiveAvailable() && s.seams.StartLive != nil {
+		return func() tea.Msg {
+			err := s.seams.StartLive()
+			if err != nil {
+				// Live mode isn't available: seamlessly fallback to dictation
+				if strings.Contains(err.Error(), "isn't available") || strings.Contains(err.Error(), "required") {
+					var dictErr error
+					if s.seams.Connect != nil {
+						dictErr = s.seams.Connect()
+					}
+					return ConnectDoneMsg{Err: dictErr, FallbackDictation: true}
+				}
+				return ConnectDoneMsg{Err: err}
+			}
+			return ConnectDoneMsg{Err: nil, LiveStarted: true}
+		}
+	}
 
 	return s.connectCmd()
 }
@@ -183,10 +235,40 @@ func (s *Surface) confirm() tea.Cmd {
 	return nil
 }
 
+// Stop aborts or finishes the active voice session.
+func (s *Surface) Stop() tea.Cmd {
+	return s.cancelSession()
+}
+
+// Discard aborts voice mode without echoing a stopped notice.
+func (s *Surface) Discard() {
+	if s == nil {
+		return
+	}
+	s.cancel = true
+	s.active = false
+	s.phase = PhaseNone
+	if s.rec != nil {
+		s.rec.Reset()
+	}
+}
+
 // cancel aborts voice mode without inserting text or printing an error.
 func (s *Surface) cancelSession() tea.Cmd {
 	if s == nil {
 		return nil
+	}
+	if s.phase == PhaseLive {
+		elapsed := time.Duration(0)
+		if s.rec != nil {
+			_, _, _, elapsed = s.rec.Snapshot()
+		}
+		if s.seams.StopLive != nil {
+			_ = s.seams.StopLive()
+		}
+		mins := int(elapsed.Minutes())
+		secs := int(elapsed.Seconds()) % 60
+		s.respond(fmt.Sprintf("🎤 Stopped voice chat · %02d:%02d", mins, secs))
 	}
 	s.cancel = true
 	s.active = false
@@ -203,6 +285,22 @@ func (s *Surface) cancelSession() tea.Cmd {
 // the surface's and the host may keep it.
 func (s *Surface) HandleKey(key tea.Key) (bool, tea.Cmd) {
 	if s == nil || !s.active {
+		return false, nil
+	}
+	if s.phase == PhaseLive {
+		switch key.Code {
+		case tea.KeyF6:
+			if s.seams.ToggleMute != nil {
+				s.seams.ToggleMute()
+			}
+			return true, nil
+		case tea.KeyEsc:
+			if s.seams.PromptEmpty == nil || s.seams.PromptEmpty() {
+				return true, s.cancelSession()
+			}
+			return false, nil
+		}
+		// In Live mode, typing, Enter, arrows, etc. are passed through to the composer!
 		return false, nil
 	}
 	switch key.Code {
@@ -232,7 +330,9 @@ func (s *Surface) HandleConnectDone(msg ConnectDoneMsg) tea.Cmd {
 	if msg.Err != nil {
 		s.active = false
 		s.phase = PhaseNone
-		if strings.Contains(msg.Err.Error(), "cannot reach the mic server") {
+		if s.trigger == "/voice live" {
+			s.respond(msg.Err.Error())
+		} else if strings.Contains(msg.Err.Error(), "cannot reach the mic server") {
 			s.respond("Could not start transcription: " + msg.Err.Error())
 		} else {
 			s.respond("Could not start transcription: "+msg.Err.Error(),
@@ -240,7 +340,18 @@ func (s *Surface) HandleConnectDone(msg ConnectDoneMsg) tea.Cmd {
 		}
 		return nil
 	}
-	s.phase = PhaseRecording
+	if msg.FallbackDictation {
+		s.phase = PhaseRecording
+	} else if s.trigger == "/voice live" || msg.LiveStarted {
+		s.phase = PhaseLive
+		timeStr := time.Now().Format("3:04PM")
+		s.respond(
+			fmt.Sprintf("🎤 Started voice chat · %s", timeStr),
+			"     "+palette.SubtleOpen+"Talk to the agent; typed prompts still work. f6 mutes the microphone; Esc on an empty prompt hangs up."+"\x1b[39m",
+		)
+	} else {
+		s.phase = PhaseRecording
+	}
 	if s.rec != nil {
 		_ = s.rec.Start()
 	}
@@ -253,6 +364,10 @@ func (s *Surface) HandleTick() tea.Cmd {
 	if s == nil {
 		return nil
 	}
+	if s.active && s.phase == PhaseLive && s.rec != nil {
+		s.rec.Tick(time.Second)
+		return tickCmd()
+	}
 	if s.active && s.phase == PhaseRecording && s.rec != nil {
 		s.rec.Tick(time.Second)
 		state, _, _, _ := s.rec.Snapshot()
@@ -264,7 +379,7 @@ func (s *Surface) HandleTick() tea.Cmd {
 	return nil
 }
 
-// View renders the voice banner overlay (matching AGY 1.4.3 AudioModel.Banner).
+// View renders the voice banner overlay (matching AGY AudioModel.Banner).
 func (s *Surface) View() string {
 	if s == nil || !s.active {
 		return ""
@@ -273,7 +388,18 @@ func (s *Surface) View() string {
 	if s.rec != nil {
 		_, _, _, elapsed = s.rec.Snapshot()
 	}
-	return FormatBanner(s.phase, elapsed, s.width())
+	muted := false
+	if s.seams.IsMuted != nil {
+		muted = s.seams.IsMuted()
+	}
+	speaking := false
+	if s.seams.IsSpeaking != nil {
+		speaking = s.seams.IsSpeaking()
+	}
+	if s.phase == PhaseLive {
+		return FormatBannerLive(elapsed, s.width(), muted, speaking)
+	}
+	return FormatBannerMuted(s.phase, elapsed, s.width(), muted)
 }
 
 // tickCmd returns the command that advances the timer by one second.

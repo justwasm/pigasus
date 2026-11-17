@@ -73,12 +73,17 @@ func PolicyFrom(mode string, skipPermissions bool) permissions.Policy {
 			}
 		}
 	}
+	allowNonWS := false
+	if v, ok := settings.Bool("allowNonWorkspaceAccess"); ok {
+		allowNonWS = v
+	}
 	p := permissions.Policy{
-		Mode:            mode,
-		SkipPermissions: skipPermissions,
-		Strict:          permissions.StrictFromEnv(os.Getenv("OPENAGY_PERMISSION_POLICY")),
-		ToolPermission:  settings.String("toolPermission"),
-		SandboxEnabled:  sandboxEnabled(skipPermissions),
+		Mode:                    mode,
+		SkipPermissions:         skipPermissions,
+		Strict:                  permissions.StrictFromEnv(os.Getenv("OPENAGY_PERMISSION_POLICY")),
+		ToolPermission:          settings.String("toolPermission"),
+		SandboxEnabled:          sandboxEnabled(skipPermissions),
+		AllowNonWorkspaceAccess: allowNonWS,
 	}
 	if rules, err := permissions.LoadRules(filepath.Join(auth.AntigravityHome(), "settings.json")); err == nil {
 		p.Allow = rules.Allow
