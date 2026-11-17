@@ -4,7 +4,6 @@ package voice
 
 import (
 	"errors"
-	"fmt"
 	"sync"
 
 	"github.com/gen2brain/malgo"
