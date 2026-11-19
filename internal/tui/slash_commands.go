@@ -246,6 +246,9 @@ func (m *RootModel) handleSlashCommand(buf string) (bool, tea.Cmd) {
 	}
 	m.prompt.picker.Reset()
 	m.prompt.promptHistory.Reset()
+	if m.prompt.vimEng != nil {
+		m.prompt.vimEng.SetText("")
+	}
 
 	disp := m.commandDispatcher()
 	handled, cmd := disp.Dispatch(buf)

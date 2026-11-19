@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -128,6 +129,27 @@ func (d *TmuxDriver) SetupWorkspace() (string, error) {
 	return dir, nil
 }
 
+// resolveSettingsJSON ensures that test runs default to "editorMode": "default"
+// unless explicitly specified otherwise by the scenario.
+func resolveSettingsJSON(raw string) string {
+	raw = strings.TrimSpace(raw)
+	var m map[string]any
+	if raw != "" {
+		_ = json.Unmarshal([]byte(raw), &m)
+	}
+	if m == nil {
+		m = make(map[string]any)
+	}
+	if _, ok := m["editorMode"]; !ok {
+		m["editorMode"] = "default"
+	}
+	out, err := json.Marshal(m)
+	if err != nil {
+		return raw
+	}
+	return string(out)
+}
+
 // Launch boots the session with the requested target (agy, pigasus, or both in split panes).
 func (d *TmuxDriver) Launch(target TmuxTarget) error {
 	ws, err := d.SetupWorkspace()
@@ -144,8 +166,9 @@ func (d *TmuxDriver) Launch(target TmuxTarget) error {
 
 	buildEnvCmd := func(bin string, extraEnv string) string {
 		settingsArg := ""
-		if d.cfg.SettingsJSON != "" {
-			settingsArg = fmt.Sprintf(" --settings %q", d.cfg.SettingsJSON)
+		effectiveSettings := resolveSettingsJSON(d.cfg.SettingsJSON)
+		if effectiveSettings != "" {
+			settingsArg = fmt.Sprintf(" --settings %q", effectiveSettings)
 		}
 		envPrefix := fmt.Sprintf("env COLORTERM=truecolor TERM=xterm-256color CLOUD_CODE_URL=%s JETSKI_OAUTH_TOKEN=tuialign-token OPENAGY_TRUST=1", d.cfg.CloudCodeURL)
 		if extraEnv != "" {
@@ -326,9 +349,14 @@ func (d *TmuxDriver) WaitForText(pane string, substring string, timeout time.Dur
 	for time.Now().Before(deadline) {
 		out, err := d.CapturePane(pane, false)
 		if err == nil {
-			if !acceptedTrust && (strings.Contains(out, "Do you trust") || strings.Contains(out, "Trust this folder")) {
+			if strings.Contains(out, "Do you trust") || strings.Contains(out, "Trust this folder") {
+				if !acceptedTrust {
+					_ = d.SendKeys(pane, "C-m")
+					acceptedTrust = true
+				}
+			}
+			if strings.Contains(out, "Run this command?") || strings.Contains(out, "Requesting permission for:") || strings.Contains(out, "Yes, run command") {
 				_ = d.SendKeys(pane, "C-m")
-				acceptedTrust = true
 			}
 			if strings.Contains(out, substring) {
 				return out, nil
@@ -350,16 +378,26 @@ func (d *TmuxDriver) WaitForBoth(substring string, timeout time.Duration) (strin
 		right, errR := d.CapturePane("1", false)
 		if errL == nil {
 			lastLeft = left
-			if !leftAcceptedTrust && (strings.Contains(left, "Do you trust") || strings.Contains(left, "Trust this folder")) {
+			if strings.Contains(left, "Do you trust") || strings.Contains(left, "Trust this folder") {
+				if !leftAcceptedTrust {
+					_ = d.SendKeys("0", "C-m")
+					leftAcceptedTrust = true
+				}
+			}
+			if strings.Contains(left, "Run this command?") || strings.Contains(left, "Requesting permission for:") || strings.Contains(left, "Yes, run command") {
 				_ = d.SendKeys("0", "C-m")
-				leftAcceptedTrust = true
 			}
 		}
 		if errR == nil {
 			lastRight = right
-			if !rightAcceptedTrust && (strings.Contains(right, "Do you trust") || strings.Contains(right, "Trust this folder")) {
+			if strings.Contains(right, "Do you trust") || strings.Contains(right, "Trust this folder") {
+				if !rightAcceptedTrust {
+					_ = d.SendKeys("1", "C-m")
+					rightAcceptedTrust = true
+				}
+			}
+			if strings.Contains(right, "Run this command?") || strings.Contains(right, "Requesting permission for:") || strings.Contains(right, "Yes, run command") {
 				_ = d.SendKeys("1", "C-m")
-				rightAcceptedTrust = true
 			}
 		}
 		if errL == nil && errR == nil {

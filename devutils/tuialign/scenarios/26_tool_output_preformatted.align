@@ -1,6 +1,7 @@
 NAME "Tool Output Is Preformatted (run_command) (1.5.8)"
 WINDOW 100 30
 TARGET both
+SETTINGS '{"editorMode":"default"}'
 
 # A `run_command` body is machine output, so it is drawn preformatted: the
 # source's own leading whitespace survives and backtick-quoted struct tags

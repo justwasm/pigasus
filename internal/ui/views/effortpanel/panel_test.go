@@ -42,7 +42,7 @@ func TestPanelLinesLayout(t *testing.T) {
 		{
 			level:  EffortHigh,
 			bar:    "  ◂        ●━━━━━━━━━━━━━━●━━━━━━━━━━━━━━◉        ▸",
-			blurb:  "    Deepest reasoning for complex problems — slower but strongest  (current)",
+			blurb:  "    Deeper reasoning for complex problems — slower but stronger  (current)",
 			active: PanelEffHighOpen,
 			head:   "       ●━━━━━━━━━━━━━━●━━━━━━━━━━━━━━◉",
 		},
@@ -290,7 +290,7 @@ func TestPanelFiveTiers(t *testing.T) {
 	if got[3] != wantLabels {
 		t.Errorf("labels:\n got: %q\nwant: %q", got[3], wantLabels)
 	}
-	wantBlurb := "    Deepest reasoning for complex problems — slower but strongest  (current)"
+	wantBlurb := "    Deeper reasoning for complex problems — slower but stronger  (current)"
 	if got[4] != wantBlurb {
 		t.Errorf("blurb:\n got: %q\nwant: %q", got[4], wantBlurb)
 	}

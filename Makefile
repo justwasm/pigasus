@@ -8,6 +8,7 @@ all: quick
 build:
 	@mkdir -p $(BIN_DIR)
 	go build -o $(BIN_DIR)/pigasus ./cmd/pigasus
+	go build -o $(BIN_DIR)/pigga ./cmd/pigga
 	go build -o $(BIN_DIR)/harness ./cmd/harness
 	go build -o $(BIN_DIR)/mock-remote-agent ./cmd/mock-remote-agent
 	go build -o $(BIN_DIR)/storybook ./cmd/storybook

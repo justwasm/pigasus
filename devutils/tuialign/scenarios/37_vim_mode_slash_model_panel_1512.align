@@ -1,0 +1,25 @@
+NAME "Vim Mode Slash Model Panel (/model) (1.5.12)"
+WINDOW 100 30
+TARGET both
+SETTINGS '{"editorMode":"vim"}'
+
+BOOT_BOTH
+WAIT_READY 10s
+
+# Type /model in Vim mode: autocomplete popup appears with /model highlighted
+TYPE "/model"
+SLEEP 500ms
+SNAPSHOT "01_vim_slash_model_popup"
+
+# Press Enter to open the Switch Model panel
+ENTER
+SLEEP 500ms
+SNAPSHOT "02_vim_switch_model_panel"
+
+# Press Escape to exit the panel back to prompt
+KEYS "Escape"
+SLEEP 500ms
+SNAPSHOT "03_vim_model_panel_exited"
+
+DIFF
+CLEANUP

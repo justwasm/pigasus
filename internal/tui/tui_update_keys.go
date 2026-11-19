@@ -793,6 +793,9 @@ func (m *RootModel) handleEscKeyMsg() (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	if cmd, handled := m.overlays.Dismiss(m); handled {
+		if m.prompt.vimEng != nil {
+			m.prompt.vimEng.Mode = vim.Normal
+		}
 		return m, cmd
 	}
 	if m.prompt.CollapseMedia() {
@@ -872,6 +875,10 @@ func (m *RootModel) handleTabCompletion(key tea.Key) bool {
 			if comp, ok := msg.(slashpicker.CompletedMsg); ok {
 				m.prompt.input.SetValue(comp.Text)
 				m.prompt.picker.Reset()
+				if m.prompt.vimEng != nil {
+					m.prompt.vimEng.SetTextKeepingPending(comp.Text)
+					m.syncVimInput()
+				}
 			}
 		}
 		return true
@@ -1043,9 +1050,37 @@ func (m *RootModel) updateKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return mod, cmd
 	}
 	// Global terminal exit on empty prompt.
-	if m.vimEnabled() && !m.help.Panel.Active() && !m.prompt.picker.Visible() && !m.overlays.resumePicker.Active() &&
+	if m.vimEnabled() && !m.help.Panel.Active() && !m.overlays.resumePicker.Active() &&
 		!m.isBtwCardVisible() && m.overlays.announceQueue.Active() == nil && !m.prompt.mediaExpanded &&
 		m.overlays.panel.kind == panelregistry.None {
+		// When picker (slash or @file) is visible, navigation/completion/dismiss keys belong to the picker.
+		if m.prompt.picker.Visible() || m.prompt.atFilePicker.Visible() {
+			switch key.Code {
+			case tea.KeyUp, tea.KeyDown:
+				if m.prompt.picker.HandleKey(key) || m.prompt.atFilePicker.HandleKey(key) {
+					return m, nil
+				}
+			case tea.KeyTab:
+				if !key.Mod.Contains(tea.ModShift) {
+					if m.handleTabCompletion(key) {
+						return m, nil
+					}
+				}
+			case tea.KeyEsc:
+				if m.prompt.DismissPopups() {
+					return m, nil
+				}
+			case tea.KeyEnter:
+				m.syncVimInput()
+				cmd := m.submitPrompt()
+				if m.prompt.vimEng != nil {
+					m.prompt.vimEng.SetTextKeepingPending(m.prompt.input.Value())
+				}
+				m.syncVimInput()
+				return m, cmd
+			}
+		}
+
 		if cmd, handled := m.handleVimKey(key); handled {
 			m.display.exitConfirm = false
 			return m, cmd
@@ -2380,6 +2415,21 @@ func (m *RootModel) syncVimInput() {
 		m.prompt.input.CursorUp()
 	}
 	m.prompt.input.SetCursorColumn(eng.Col)
+
+	if m.prompt.picker != nil {
+		if eng.Mode == vim.Insert {
+			m.prompt.picker.Update([]rune(tuilib.FirstLine(m.prompt.input.Value())))
+		} else {
+			m.prompt.picker.Reset()
+		}
+	}
+	if m.prompt.atFilePicker != nil {
+		if eng.Mode == vim.Insert {
+			m.prompt.atFilePicker.Update()
+		} else {
+			m.prompt.atFilePicker.Reset()
+		}
+	}
 }
 
 // handleVimKey feeds one key to the engine. handled is false when the
@@ -2431,6 +2481,17 @@ func (m *RootModel) handleVimKey(key tea.Key) (tea.Cmd, bool) {
 					return cmd, true
 				}
 			}
+		}
+	}
+
+	if key.Code == tea.KeyEnter && eng.Mode == vim.Insert {
+		line := strings.TrimSpace(eng.Text())
+		if strings.HasPrefix(line, "/") && !strings.Contains(line, "\n") {
+			m.syncVimInput()
+			cmd := m.submitPrompt()
+			m.prompt.vimEng.SetTextKeepingPending(m.prompt.input.Value())
+			m.syncVimInput()
+			return cmd, true
 		}
 	}
 

@@ -86,7 +86,7 @@ var EffortTiers = catalog.ReferenceEffortTiers()
 var EffortDescriptions = [3]string{
 	"Faster responses, lighter reasoning — great for simpler tasks",
 	"Balanced speed and reasoning quality for most tasks",
-	"Deepest reasoning for complex problems — slower but strongest",
+	"Deeper reasoning for complex problems — slower but stronger",
 }
 
 // cloneEffortDescriptions are the blurbs for the tiers the reference

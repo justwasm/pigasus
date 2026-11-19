@@ -3,6 +3,8 @@ package tui
 import (
 	"testing"
 
+	tea "charm.land/bubbletea/v2"
+	"github.com/justwasm/pigasus/internal/ui/panelregistry"
 	"github.com/justwasm/pigasus/vim"
 )
 
@@ -73,5 +75,68 @@ func TestVimBangIsNotShellOutsideVimMode(t *testing.T) {
 	}
 	if got := m.prompt.input.Value(); got != "" {
 		t.Fatalf("composer = %q, want empty (the ! is the mode marker)", got)
+	}
+}
+
+// TestVimSlashModelOpensPanel verifies that typing "/model" and pressing Enter in
+// Vim mode (both directly and in Insert mode) opens the Switch Model panel,
+// rather than inserting a literal newline into the composer.
+func TestVimSlashModelOpensPanel(t *testing.T) {
+	m := vimTestMode(t, map[string]any{"editorMode": "vim"})
+	vimType(t, m, "/model")
+	if got := m.prompt.input.Value(); got != "/model" {
+		t.Fatalf("composer = %q, want %q", got, "/model")
+	}
+	if !m.prompt.picker.Visible() {
+		t.Fatal("slash picker popup should be visible while typing /model in vim mode")
+	}
+
+	vimPress(t, m, tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+	if m.overlays.panel.kind != panelregistry.Model {
+		t.Fatalf("panel kind = %v, want panelregistry.Model", m.overlays.panel.kind)
+	}
+	if got := m.prompt.input.Value(); got != "" {
+		t.Fatalf("composer after opening panel = %q, want empty", got)
+	}
+
+	vimPress(t, m, vimEscKey())
+	if m.overlays.panel.kind != panelregistry.None {
+		t.Fatalf("panel kind after esc = %v, want None", m.overlays.panel.kind)
+	}
+	if m.prompt.vimEng.Mode != vim.Normal {
+		t.Fatalf("vim mode after exiting panel = %v, want Normal", m.prompt.vimEng.Mode)
+	}
+}
+
+func TestVimSlashModelInInsertModeOpensPanel(t *testing.T) {
+	m := vimTestMode(t, map[string]any{"editorMode": "vim"})
+	// Press 'i' to explicitly enter Insert mode
+	vimPress(t, m, runeKey('i'))
+	if m.prompt.vimEng.Mode != vim.Insert {
+		t.Fatalf("vim mode after 'i' = %v, want Insert", m.prompt.vimEng.Mode)
+	}
+
+	vimType(t, m, "/model")
+	if got := m.prompt.input.Value(); got != "/model" {
+		t.Fatalf("composer = %q, want %q", got, "/model")
+	}
+	if !m.prompt.picker.Visible() {
+		t.Fatal("slash picker popup should be visible while typing /model in Insert mode")
+	}
+
+	vimPress(t, m, tea.KeyPressMsg(tea.Key{Code: tea.KeyEnter}))
+	if m.overlays.panel.kind != panelregistry.Model {
+		t.Fatalf("panel kind = %v, want panelregistry.Model", m.overlays.panel.kind)
+	}
+	if got := m.prompt.input.Value(); got != "" {
+		t.Fatalf("composer after opening panel = %q, want empty", got)
+	}
+
+	vimPress(t, m, vimEscKey())
+	if m.overlays.panel.kind != panelregistry.None {
+		t.Fatalf("panel kind after esc = %v, want None", m.overlays.panel.kind)
+	}
+	if m.prompt.vimEng.Mode != vim.Normal {
+		t.Fatalf("vim mode after exiting panel = %v, want Normal", m.prompt.vimEng.Mode)
 	}
 }

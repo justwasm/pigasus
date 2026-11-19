@@ -2193,7 +2193,9 @@ func (m *RootModel) reloadConfigSettings() {
 		if raw, err := settings.Field("agentMode"); err == nil {
 			mode := configpanel.RawString(raw)
 			m.session.mode = mode
-			m.session.policy.Mode = mode
+			if m.session.policy != nil {
+				m.session.policy.Mode = mode
+			}
 			m.prompt.input.Placeholder = m.promptPlaceholder(mode)
 		}
 	}

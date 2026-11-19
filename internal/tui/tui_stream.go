@@ -1955,6 +1955,9 @@ func (m *RootModel) dispatchSlashLine(buf string) (bool, tea.Cmd) {
 		m.prompt.promptHistory.Reset()
 		m.prompt.picker.Reset()
 		m.prompt.atFilePicker.Reset()
+		if m.prompt.vimEng != nil {
+			m.prompt.vimEng.SetText("")
+		}
 		if m.overlays.panel.kind == panelregistry.Usage && m.viewport.height > 0 {
 			m.display.quotaFrame = 0
 			return true, tea.Batch(syncCmd, usagepanel.QuotaTick(), m.fetchQuotaSummaryCmd())
@@ -2205,6 +2208,9 @@ func (m *RootModel) checkStreamingQueue(prompt string) (bool, tea.Cmd) {
 		m.prompt.promptHistory.Reset()
 		m.prompt.picker.Reset()
 		m.prompt.atFilePicker.Reset()
+		if m.prompt.vimEng != nil {
+			m.prompt.vimEng.SetText("")
+		}
 		m.prompt.modeHintDismissed = true
 		return true, nil
 	}
@@ -2244,6 +2250,9 @@ func (m *RootModel) checkStreamingQueue(prompt string) (bool, tea.Cmd) {
 		m.prompt.promptHistory.Reset()
 		m.prompt.picker.Reset()
 		m.prompt.atFilePicker.Reset()
+		if m.prompt.vimEng != nil {
+			m.prompt.vimEng.SetText("")
+		}
 		m.prompt.modeHintDismissed = true
 		return true, nil
 	}
@@ -2272,6 +2281,9 @@ func (m *RootModel) checkStreamingQueue(prompt string) (bool, tea.Cmd) {
 		m.prompt.promptHistory.Reset()
 		m.prompt.picker.Reset()
 		m.prompt.atFilePicker.Reset()
+		if m.prompt.vimEng != nil {
+			m.prompt.vimEng.SetText("")
+		}
 		m.prompt.modeHintDismissed = true
 		return true, nil
 	}
@@ -2341,6 +2353,9 @@ func (m *RootModel) resetLiveTurnState(prompt string) {
 	m.prompt.nextPasteID = 0
 	m.ResetInputSelection()
 	m.prompt.atFilePicker.Reset()
+	if m.prompt.vimEng != nil {
+		m.prompt.vimEng.SetText("")
+	}
 	m.clearEligibilityNotice()
 	m.conversation.streaming = true
 	// A new turn replaces the interrupted one: the reference's composer
