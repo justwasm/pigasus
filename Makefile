@@ -1,5 +1,6 @@
 .PHONY: build test quick arch align wirealign verify help \
-        fetch-upstream extract-agy extract-ls extract-localharness extract-all check-reproducibility
+        fetch-upstream extract-agy extract-ls extract-localharness extract-all check-reproducibility \
+        sync-official-docs sync-docs official-docs
 
 BIN_DIR ?= ./bin
 
@@ -54,6 +55,13 @@ extract-all:
 check-reproducibility:
 	python3 scripts/re/verify_reproducibility.py --target all
 
+# Documentation sync target
+sync-official-docs:
+	python3 scripts/crawl_official_docs.py
+
+sync-docs: sync-official-docs
+official-docs: sync-official-docs
+
 help:
 	@echo "OpenAGY / Pigasus Build & Test targets:"
 	@echo "  make build                - Build all binaries into $(BIN_DIR)/"
@@ -61,7 +69,9 @@ help:
 	@echo "  make test                 - Run complete standard test suite"
 	@echo "  make arch                 - Run architecture layering compliance guard"
 	@echo "  make align                - Run tuialign scenarios (skips the live half without agy/tmux)"
+	@echo "  make wirealign            - Run wirealign protocol test suite"
 	@echo "  make verify               - Full verification suite via scripts/verify.sh"
+	@echo "  make sync-official-docs   - Crawl and sync latest official markdown docs from gweb-jetski"
 	@echo ""
 	@echo "Reverse-engineering extraction SOP targets:"
 	@echo "  make fetch-upstream       - Fetch reference binaries from official distribution endpoints"
