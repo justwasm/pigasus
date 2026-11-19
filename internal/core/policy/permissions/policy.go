@@ -52,6 +52,19 @@ const (
 // for safety reviews in Auto mode when commands attempt to leave the sandbox (AGY 1.5.4).
 const AutoModeReviewerModel = "gemini-3.8-flash-low"
 
+// AutoModeHydrogenReviewerModel is used when the review runs on Gemini 4 Hydrogen,
+// using medium instead of high thinking (AGY 1.5.12).
+const AutoModeHydrogenReviewerModel = "gemini-4-hydrogen-medium"
+
+// ReviewerModelForBase returns the sandbox review model for the session model.
+// When running on Gemini 4 Hydrogen, it uses medium thinking (AGY 1.5.12).
+func ReviewerModelForBase(baseModel string) string {
+	if strings.Contains(strings.ToLower(baseModel), "hydrogen") {
+		return AutoModeHydrogenReviewerModel
+	}
+	return AutoModeReviewerModel
+}
+
 // Modes is the accepted --mode set in the order the reference prints it.
 var Modes = []string{ModeAcceptEdits, ModeAuto, ModePlan}
 

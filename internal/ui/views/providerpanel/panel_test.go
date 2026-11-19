@@ -184,6 +184,14 @@ func TestPanel_ChoiceFieldCycles(t *testing.T) {
 	if got := p.form.Value(FieldType); got != "anthropic" {
 		t.Fatalf("type = %q, want anthropic", got)
 	}
+	p.HandleKey(tea.Key{Code: tea.KeyRight})
+	if got := p.form.Value(FieldType); got != "responses" {
+		t.Fatalf("type = %q, want responses", got)
+	}
+	p.HandleKey(tea.Key{Code: tea.KeyLeft})
+	if got := p.form.Value(FieldType); got != "anthropic" {
+		t.Fatalf("type = %q, want anthropic", got)
+	}
 	p.HandleKey(tea.Key{Code: tea.KeyLeft})
 	if got := p.form.Value(FieldType); got != "openai" {
 		t.Fatalf("type = %q, want openai", got)

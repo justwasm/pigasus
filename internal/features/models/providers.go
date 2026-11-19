@@ -302,6 +302,8 @@ const (
 	ProviderTypeOpenAI = "openai"
 	// ProviderTypeAnthropic is the Anthropic Messages dialect.
 	ProviderTypeAnthropic = "anthropic"
+	// ProviderTypeResponses is the OpenAI Responses API dialect.
+	ProviderTypeResponses = "responses"
 )
 
 // WireType returns the provider's protocol, lowercased, defaulting to the
@@ -329,6 +331,11 @@ func (p ProviderConfig) Endpoint() string {
 	switch p.WireType() {
 	case ProviderTypeAnthropic:
 		return base + "/v1/messages"
+	case ProviderTypeResponses:
+		if strings.HasSuffix(base, "/v1") {
+			return base + "/responses"
+		}
+		return base + "/v1/responses"
 	default:
 		return base + "/chat/completions"
 	}

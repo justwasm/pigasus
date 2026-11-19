@@ -439,6 +439,18 @@ func handlePrintChunkText(w, out io.Writer, text string, cfg *printRunConfig, st
 	if err := st.textRouter.Push(sanitized, out); err != nil {
 		return err
 	}
+	if cfg.format == printFormatStreamJSON && sanitized != "" {
+		_ = writeJSONLine(w, jsonStreamEvent{
+			Event: streamEventStepUpdate,
+			StepUpdate: &jsonStepUpdate{
+				ConversationID: cfg.conversationID,
+				StepIndex:      1,
+				State:          "ACTIVE",
+				StepType:       "agent_response",
+				TextDelta:      sanitized,
+			},
+		})
+	}
 	if cfg.rcDaemon != nil && !st.textRouter.UseGlamour() {
 		cfg.rcSess.AppendTurnOutput(sanitized)
 	}
@@ -641,7 +653,11 @@ func emitFinalStreamJSON(w io.Writer, fs *flag.FlagSet, cfg *printRunConfig, st 
 		// the tokens it spent. The doc's example carries the three on the
 		// `agent_response` step (`official-docs/cli/headless.md:144`).
 		update := newStepUpdate(cfg.conversationID, 1, stepType)
-		update.TextDelta = st.responseBuf.String()
+		if cfg.format == printFormatStreamJSON {
+			update.TextDelta = "\n"
+		} else {
+			update.TextDelta = st.responseBuf.String()
+		}
 		update.DurationSeconds = st.DurationSeconds()
 		if st.turnUsage.known() {
 			update.Usage = &st.turnUsage

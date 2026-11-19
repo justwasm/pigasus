@@ -215,13 +215,15 @@ func renderWithFallthrough(v mdVariant, src string, width int) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	pre := preprocessCJKStrong(src)
 	mu := lockRenderer(r)
 	mu.Lock()
-	out, gErr := r.Render(src)
+	out, gErr := r.Render(pre)
 	mu.Unlock()
 	if gErr != nil {
 		return "", fmt.Errorf("mdrender: glamour: %w", gErr)
 	}
+	out = cleanCJKStrongSentinels(out)
 	return transformRenderOutput(v, out), nil
 }
 

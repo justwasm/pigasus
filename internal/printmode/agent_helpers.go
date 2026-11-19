@@ -21,8 +21,10 @@ const (
 
 // GlamourTTYCheck decides whether the print-mode text-format chunk handler routes
 // through the markdown glamour renderer.
+// In reference agy (v1.5.12), print mode does not render markdown via glamour;
+// it streams raw text chunks directly to stdout.
 var GlamourTTYCheck = func() bool {
-	return term.IsTerminal(int(os.Stdout.Fd()))
+	return false
 }
 
 var glamourTTYCheck = func() bool {

@@ -9,7 +9,8 @@ func TestSlashCommands_GeminiAPIKeyExclusion(t *testing.T) {
 
 	ctx := ScopeContext{IsGeminiAPIKey: true}
 
-	for _, name := range []string{"/usage", "/quota", "/credits"} {
+	excluded := []string{"/usage", "/quota", "/credits", "/remote-control", "/voice", "/record"}
+	for _, name := range excluded {
 		if !IsGeminiAPIKeyExcluded(name, ctx) {
 			t.Errorf("IsGeminiAPIKeyExcluded(%q) = false, want true", name)
 		}
@@ -22,8 +23,10 @@ func TestSlashCommands_GeminiAPIKeyExclusion(t *testing.T) {
 
 	filtered := FilterScoped("", ctx)
 	for _, c := range filtered {
-		if c.Name == "/usage" || c.Name == "/quota" || c.Name == "/credits" {
-			t.Errorf("FilterScoped contains %s under GEMINI_API_KEY", c.Name)
+		for _, name := range excluded {
+			if c.Name == name {
+				t.Errorf("FilterScoped contains %s under GEMINI_API_KEY", c.Name)
+			}
 		}
 	}
 

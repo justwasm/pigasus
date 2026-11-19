@@ -21,6 +21,15 @@ func TestModes_MatchReference(t *testing.T) {
 	}
 }
 
+func TestReviewerModelForBase_HydrogenUsesMedium(t *testing.T) {
+	if got := ReviewerModelForBase("gemini-4-hydrogen-high"); got != "gemini-4-hydrogen-medium" {
+		t.Errorf("ReviewerModelForBase(hydrogen-high) = %q, want gemini-4-hydrogen-medium", got)
+	}
+	if got := ReviewerModelForBase("gemini-3.8-flash-high"); got != "gemini-3.8-flash-low" {
+		t.Errorf("ReviewerModelForBase(flash-high) = %q, want gemini-3.8-flash-low", got)
+	}
+}
+
 func TestVerdict_WireNames(t *testing.T) {
 	cases := map[Verdict]string{
 		Allow: "allow", Deny: "deny", Ask: "ask",

@@ -8,6 +8,9 @@
 package configpanel
 
 import (
+	"os"
+	"strings"
+
 	settings "github.com/justwasm/pigasus/internal/core/settings"
 	"github.com/justwasm/pigasus/internal/features/auth"
 	"github.com/justwasm/pigasus/internal/ui/views/seasonal"
@@ -21,8 +24,12 @@ import (
 // The seasonal row is not part of the static catalogue: the reference
 // draws it only while a seasonal event is in season.
 func (p *Panel) Catalogue() []Row {
+	isGeminiAPIKey := strings.TrimSpace(os.Getenv("GEMINI_API_KEY")) != ""
 	out := make([]Row, 0, len(SettingsRows)+1)
 	for _, r := range SettingsRows {
+		if isGeminiAPIKey && r.SettingsKey == "useG1Credits" {
+			continue
+		}
 		if r.ShowWhenKey != "" {
 			raw, _ := settings.Field(r.ShowWhenKey)
 			if r.ShowWhenVal != "" && RawString(raw) != r.ShowWhenVal {

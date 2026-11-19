@@ -253,7 +253,7 @@ func ProviderFields(p models.ProviderConfig, isNew bool) []FormField {
 			Label:   FieldType,
 			Value:   p.WireType(),
 			Kind:    FieldChoice,
-			Choices: []string{models.ProviderTypeOpenAI, models.ProviderTypeAnthropic},
+			Choices: []string{models.ProviderTypeOpenAI, models.ProviderTypeAnthropic, models.ProviderTypeResponses},
 		},
 		FormField{Label: FieldBaseURL, Value: p.BaseURL,
 			Placeholder: "https://host/v1"},

@@ -5,6 +5,7 @@ import (
 
 	"github.com/charmbracelet/x/ansi"
 	"github.com/justwasm/pigasus/internal/ui/tuilib"
+	"github.com/justwasm/pigasus/palette"
 )
 
 // SelHighlightOpen and SelHighlightClose wrap the selected cells in reverse video.
@@ -108,15 +109,40 @@ func SelectionText(rows []string, sr, sc, er, ec int) string {
 			from = to
 		}
 		text := ansi.Cut(plain, from, to)
-		if r > sr && sameLink(rows[r-1], rows[r]) {
-			text = strings.TrimLeft(text, " \t")
+		if r > sr {
+			if sameLink(rows[r-1], rows[r]) || isPromptContinuation(rows[r-1], rows[r]) {
+				text = strings.TrimLeft(text, " \t")
+			}
 		}
 		out = append(out, text...)
-		if r != er && !sameLink(rows[r], rows[r+1]) {
+		if r != er && !sameLink(rows[r], rows[r+1]) && !isPromptContinuation(rows[r], rows[r+1]) {
 			out = append(out, '\n')
 		}
 	}
 	return string(out)
+}
+
+// isPromptContinuation reports whether row b is a soft-wrapped continuation of user prompt row a.
+// In AGY 1.5.12: copying a long prompt with the mouse in altscreen mode no longer puts a line break
+// wherever the prompt wrapped on screen; a prompt you sent now copies as you typed it without soft-wrap newlines.
+func isPromptContinuation(a, b string) bool {
+	if !IsUserPromptRow(a) && !isIndentedPromptContinuation(a) {
+		return false
+	}
+	if IsUserPromptRow(b) {
+		return false
+	}
+	return isIndentedPromptContinuation(b)
+}
+
+func isIndentedPromptContinuation(row string) bool {
+	plain := ansi.Strip(row)
+	if strings.HasPrefix(plain, "  ") && len(strings.TrimSpace(plain)) > 0 {
+		return strings.HasPrefix(row, palette.UserFgBoldOpen) ||
+			strings.HasPrefix(row, palette.WarningBlueOpen) ||
+			strings.HasPrefix(row, "\x1b[38;2;38;139;210")
+	}
+	return false
 }
 
 // sameLink reports whether two rows are pieces of the same hyperlink.

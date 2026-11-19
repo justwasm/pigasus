@@ -127,7 +127,11 @@ func (c *GatewayClient) openGatewayOnce(ctx context.Context, raw []byte) (*http.
 	}
 	httpReq.Header.Set("content-type", "application/json")
 	c.applyProtocolHeaders(httpReq)
-	httpReq.Header.Set("User-Agent", GatewayUserAgent)
+	ua := GatewayUserAgent
+	if c.cfg.protocol() == GatewayProtocolResponses {
+		ua = "opencode/2.3.2"
+	}
+	httpReq.Header.Set("User-Agent", ua)
 	for name, value := range c.cfg.Headers {
 		httpReq.Header.Set(name, value)
 	}
@@ -158,10 +162,14 @@ func (c *GatewayClient) runGatewayStreamBodyWithRetry(ctx context.Context, resp 
 
 // readGatewayBodyOnce reads one response body to completion.
 func (c *GatewayClient) readGatewayBodyOnce(ctx context.Context, resp *http.Response, externalModel string, out chan<- backend.StreamChunk) error {
-	if c.cfg.protocol() == GatewayProtocolAnthropic {
+	switch c.cfg.protocol() {
+	case GatewayProtocolAnthropic:
 		return c.readAnthropicBody(ctx, resp, externalModel, out)
+	case GatewayProtocolResponses:
+		return c.readResponsesBody(ctx, resp, externalModel, out)
+	default:
+		return c.readOpenAIBody(ctx, resp, externalModel, out)
 	}
-	return c.readOpenAIBody(ctx, resp, externalModel, out)
 }
 
 // readOpenAIBody reads one Chat Completions response body to completion.

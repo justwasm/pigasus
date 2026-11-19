@@ -36,6 +36,11 @@ func NewProvider(m Model) (Provider, error) {
 			model:      m,
 			httpClient: httpClient,
 		}, nil
+	case "responses":
+		return &responsesProvider{
+			model:      m,
+			httpClient: httpClient,
+		}, nil
 	case "google":
 		return &googleProvider{model: m, httpClient: httpClient}, nil
 	default:

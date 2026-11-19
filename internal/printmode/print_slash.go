@@ -195,6 +195,11 @@ func dispatchPrintSlashCommand(name, args string, fs *flag.FlagSet) (printSlashR
 			return rejected(2, fmt.Sprintf("/%s failed: not available with a Gemini API key; see https://aistudio.google.com/usage for the key's usage", name)), true
 		}
 		return handlePrintSlashCredits(), true
+	case "remote-control", "voice", "record":
+		if isGeminiAPIKeyActive() {
+			return rejected(2, fmt.Sprintf("/%s failed: not available with a Gemini API key", name)), true
+		}
+		return rejected(2, fmt.Sprintf("/%s is only available in interactive mode", name)), true
 	case "plugin":
 		return rejected(2, strings.TrimPrefix(printSlashPluginRejection, "error: ")), true
 	case "accounts":

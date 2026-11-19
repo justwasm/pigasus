@@ -211,6 +211,23 @@ func TestPromptAndScrollHelpers(t *testing.T) {
 	}
 }
 
+func TestSelectionText_WrappedPromptNoLineBreaks(t *testing.T) {
+	// A user prompt wrapped across 2 lines
+	row0 := palette.UserFgBoldOpen + "> " + "first part of long prompt " + palette.BlueBoldClose
+	row1 := palette.UserFgBoldOpen + "  " + "second part of long prompt" + palette.BlueBoldClose
+	rows := []string{row0, row1}
+
+	// Select from row 0, col 2 (start of prompt text) to end of row 1
+	sel := tuiviewport.SelectionText(rows, 0, 2, 1, 30)
+	if strings.Contains(sel, "\n") {
+		t.Errorf("SelectionText unexpectedly contains line break: %q", sel)
+	}
+	want := "first part of long prompt second part of long prompt"
+	if !strings.Contains(sel, want) {
+		t.Errorf("SelectionText = %q, want to contain %q", sel, want)
+	}
+}
+
 func TestFormatVisibleRows_AltScreenAlignment(t *testing.T) {
 	visible := []string{"row1", "row2"}
 	// When altScreen is false, no sticky header must be prepended even if stickyBarRow or pinnedPromptText are set

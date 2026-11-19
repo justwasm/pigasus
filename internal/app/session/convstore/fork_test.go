@@ -295,3 +295,44 @@ func TestForkConversationFull(t *testing.T) {
 		t.Errorf("expected error when forking with no conversation and no steps")
 	}
 }
+
+func TestCopyArtifactTree_ScratchSymlinked(t *testing.T) {
+	srcDir := t.TempDir()
+	dstDir := filepath.Join(t.TempDir(), "dst")
+
+	// Regular artifact file
+	_ = os.WriteFile(filepath.Join(srcDir, "report.md"), []byte("# Report"), 0o644)
+
+	// Scratch dir with large build output
+	scratchDir := filepath.Join(srcDir, "scratch")
+	_ = os.MkdirAll(scratchDir, 0o755)
+	_ = os.WriteFile(filepath.Join(scratchDir, "binary.bin"), []byte("large build binary"), 0o644)
+
+	if err := CopyArtifactTree(srcDir, dstDir); err != nil {
+		t.Fatalf("CopyArtifactTree failed: %v", err)
+	}
+
+	// Regular file must be copied as regular file
+	copiedReport := filepath.Join(dstDir, "report.md")
+	data, err := os.ReadFile(copiedReport)
+	if err != nil || string(data) != "# Report" {
+		t.Errorf("expected copied report.md, got data=%q, err=%v", string(data), err)
+	}
+
+	// Scratch dir must be a symlink pointing to srcDir/scratch
+	dstScratch := filepath.Join(dstDir, "scratch")
+	info, err := os.Lstat(dstScratch)
+	if err != nil {
+		t.Fatalf("Lstat(dstScratch) failed: %v", err)
+	}
+	if info.Mode()&os.ModeSymlink == 0 {
+		t.Errorf("expected dstScratch to be a symlink, got mode=%v", info.Mode())
+	}
+	target, err := os.Readlink(dstScratch)
+	if err != nil {
+		t.Fatalf("Readlink(dstScratch) failed: %v", err)
+	}
+	if target != scratchDir {
+		t.Errorf("symlink target = %q, want %q", target, scratchDir)
+	}
+}

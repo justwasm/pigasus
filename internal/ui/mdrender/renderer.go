@@ -59,14 +59,28 @@ func (wk *walker) Walk(n ast.Node, entering bool) (ast.WalkStatus, error) {
 func (wk *walker) walkHeading(v *ast.Heading, entering bool) (ast.WalkStatus, error) {
 	if entering {
 		wk.emitLeadingBlank()
-		prefix := bytes.Repeat([]byte("#"), v.Level-1)
-		wk.emit(string(prefix) + "# ")
-		if wk.colour {
-			wk.emit("\033[1m")
+		if !wk.colour {
+			prefix := bytes.Repeat([]byte("#"), v.Level-1)
+			wk.emit(string(prefix) + "# ")
+		} else {
+			switch v.Level {
+			case 1:
+				wk.emit("\033[1m\033[4m")
+			case 2:
+				wk.emit("\033[1m")
+			case 3:
+				wk.emit("\033[1m\033[3m")
+			case 4:
+				wk.emit("\033[3m\033[4m")
+			case 5:
+				wk.emit("\033[3m")
+			default:
+				wk.emit("\033[4m")
+			}
 		}
 	} else {
 		if wk.colour {
-			wk.emit("\033[22m")
+			wk.emit("\033[22m\033[23m\033[24m")
 		}
 		wk.emit("\n")
 		wk.firstPara = false

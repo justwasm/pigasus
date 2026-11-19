@@ -44,6 +44,7 @@ import (
 	featdiff "github.com/justwasm/pigasus/internal/ui/views/diff/feat"
 	"github.com/justwasm/pigasus/internal/ui/views/modelpicker"
 	"github.com/justwasm/pigasus/internal/ui/views/onboarding"
+	"github.com/justwasm/pigasus/palette"
 )
 
 const cliVersion = cli.ReferenceVersion
@@ -85,6 +86,9 @@ func Run(args []string) int {
 	// their default value. The error is advisory — a settings file that
 	// cannot be normalised must not keep the CLI from starting.
 	_ = settings.NormalizeOnStartup()
+	if sc := settings.String("colorScheme"); sc != "" {
+		palette.SetScheme(sc)
+	}
 	_ = cli.RunPluginCleanupOnStartup(confhome.Antigravity())
 	// The reference unpacks its builtin skill bundle into
 	// <AppDataDir>/builtin/skills on startup; the clone ships the same
@@ -327,6 +331,16 @@ func checkRootShortCircuits(fs *flag.FlagSet, p *cli.Parser, out io.Writer) (boo
 func validateRootFlags(fs *flag.FlagSet, printMode bool) error {
 	if err := rchost.CheckRemoteControlADC(fs); err != nil {
 		return err
+	}
+	if strings.TrimSpace(os.Getenv("GEMINI_API_KEY")) != "" || modelcatalog.GeminiAPIKeyAvailable() {
+		if cliflags.BoolValue(fs, "remote-control") {
+			fmt.Fprintln(os.Stderr, "error: --remote-control is not available with a Gemini API key")
+			return cli.ExitCodeError(2, "error: --remote-control is not available with a Gemini API key")
+		}
+		if cliflags.BoolValue(fs, "remote-agent") {
+			fmt.Fprintln(os.Stderr, "error: --remote-agent is not available with a Gemini API key")
+			return cli.ExitCodeError(2, "error: --remote-agent is not available with a Gemini API key")
+		}
 	}
 	promptInter := cliflags.WasSet(fs, "prompt-interactive") || cliflags.WasSet(fs, "i")
 	if printMode && promptInter {

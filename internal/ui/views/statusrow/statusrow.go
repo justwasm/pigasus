@@ -140,6 +140,10 @@ type State struct {
 	// It is a separate fact from Credits because a balance of zero is a
 	// balance, and an unknown balance is not a zero.
 	CreditsKnown bool
+	// OutOfCredits reports whether the account is out of credits.
+	OutOfCredits bool
+	// IsGeminiAPIKey reports whether the active connection uses GEMINI_API_KEY.
+	IsGeminiAPIKey bool
 }
 
 // Compact is the state of a context compaction.
@@ -364,7 +368,9 @@ func statusCells(s State) string {
 	if s.ContextUsedPercent > 0 {
 		b.WriteString(fmt.Sprintf(" · %.1f%%", s.ContextUsedPercent))
 	}
-	if s.CreditsKnown {
+	if s.OutOfCredits && !s.IsGeminiAPIKey {
+		b.WriteString(" · \x1b[38;2;220;50;47mAI: Out of credits\x1b[39m")
+	} else if s.CreditsKnown && !s.IsGeminiAPIKey {
 		b.WriteString(fmt.Sprintf(" · AI Credits: %d", s.Credits))
 	}
 	return b.String()

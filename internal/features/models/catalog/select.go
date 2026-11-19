@@ -20,6 +20,7 @@ var BaseModelEfforts = map[string]BaseModelSpec{
 	"gemini-3.8-flash":  {Levels: []string{"low", "medium", "high"}, Def: "high"},
 	"gemini-4-carbon":   {Levels: []string{"low", "medium", "high"}, Def: "high"},
 	"gemini-4-hydrogen": {Levels: []string{"low", "medium", "high", "xhigh"}, Def: "high"},
+	"gemini-4-neon":     {Levels: []string{"low", "medium", "high", "xhigh"}, Def: "high"},
 	"gpt-oss-120b":      {Levels: []string{"medium"}, Def: "medium"},
 }
 

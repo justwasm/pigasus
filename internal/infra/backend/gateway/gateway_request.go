@@ -77,10 +77,14 @@ type gatewayToolCall struct {
 
 // buildRequest renders the wire-neutral request in the configured protocol.
 func (c *GatewayClient) buildRequest(req backend.StreamRequest, externalModel string) ([]byte, error) {
-	if c.cfg.protocol() == GatewayProtocolAnthropic {
+	switch c.cfg.protocol() {
+	case GatewayProtocolAnthropic:
 		return c.buildAnthropicRequest(req, externalModel)
+	case GatewayProtocolResponses:
+		return c.buildResponsesRequest(req, externalModel)
+	default:
+		return c.buildOpenAIRequest(req, externalModel)
 	}
-	return c.buildOpenAIRequest(req, externalModel)
 }
 
 // buildOpenAIRequest renders the Chat Completions body.

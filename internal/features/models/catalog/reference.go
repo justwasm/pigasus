@@ -107,6 +107,10 @@ func ReferenceModels() []ModelEntry {
 	}
 	if GeminiAPIKeyAvailable() {
 		appendUnique(
+			ModelEntry{"gemini-4-neon-xhigh", "Gemini 4 Neon (XHigh)"},
+			ModelEntry{"gemini-4-neon-high", "Gemini 4 Neon (High)"},
+			ModelEntry{"gemini-4-neon-medium", "Gemini 4 Neon (Medium)"},
+			ModelEntry{"gemini-4-neon-low", "Gemini 4 Neon (Low)"},
 			ModelEntry{"gemini-4-hydrogen-xhigh", "Gemini 4 Hydrogen (XHigh)"},
 			ModelEntry{"gemini-4-hydrogen-high", "Gemini 4 Hydrogen (High)"},
 			ModelEntry{"gemini-4-hydrogen-medium", "Gemini 4 Hydrogen (Medium)"},

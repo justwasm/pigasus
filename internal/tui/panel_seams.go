@@ -1565,6 +1565,7 @@ func (m *RootModel) statusRowState() statusrow.State {
 			}
 			return 0
 		}(),
+		IsGeminiAPIKey: strings.TrimSpace(os.Getenv("GEMINI_API_KEY")) != "" || endpoints.CurrentGeminiAPIKey() != "",
 	}
 }
 
@@ -1977,7 +1978,7 @@ func (m *RootModel) RunThinkerTask(task string, onProgress func(string)) (string
 		{
 			Role:        "user",
 			Content:     task,
-			WireContent: backend.WrapUserContent(task, m.turnModel(), m.session.wireSettingsPending, time.Now()),
+			WireContent: backend.WrapUserContent(task, modelcatalog.FormatModelLabel(m.turnModel()), m.session.wireSettingsPending, time.Now()),
 		},
 	}
 

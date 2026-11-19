@@ -123,6 +123,36 @@ func TestVerifyProvider_AnthropicListingPath(t *testing.T) {
 	}
 }
 
+func TestVerifyProvider_ResponsesListingPath(t *testing.T) {
+	srv := newProbeServer(t, 200, `{"data":[]}`)
+	p := ProviderConfig{ID: "gw", Type: ProviderTypeResponses, BaseURL: srv.URL + "/v1"}
+	res := VerifyProvider(context.Background(), p, "sk-test", "")
+	if !res.OK {
+		t.Fatalf("OK = false, want true (%s)", res.Detail)
+	}
+	if len(srv.paths) != 1 || srv.paths[0] != "/v1/models" {
+		t.Fatalf("paths = %v, want one call to /v1/models", srv.paths)
+	}
+	if srv.auth != "Bearer sk-test" {
+		t.Fatalf("auth = %q, want Authorization: Bearer sk-test", srv.auth)
+	}
+}
+
+func TestVerifyProvider_ResponsesChatProbe(t *testing.T) {
+	srv := newProbeServer(t, 200, "data: {\"type\":\"response.output_text.delta\",\"delta\":\"pong\"}\n\ndata: {\"type\":\"response.completed\",\"response\":{\"status\":\"completed\",\"usage\":{\"input_tokens\":5,\"output_tokens\":2,\"total_tokens\":7}}}\n\n")
+	p := ProviderConfig{ID: "gw", Type: ProviderTypeResponses, BaseURL: srv.URL + "/v1"}
+	res := VerifyProvider(context.Background(), p, "sk-test", "gpt-6.1-sol")
+	if !res.OK {
+		t.Fatalf("OK = false, want true (%s)", res.Detail)
+	}
+	if len(srv.paths) != 1 || srv.paths[0] != "/v1/responses" {
+		t.Fatalf("paths = %v, want one call to /v1/responses", srv.paths)
+	}
+	if srv.auth != "Bearer sk-test" {
+		t.Fatalf("auth = %q, want Authorization: Bearer sk-test", srv.auth)
+	}
+}
+
 func TestVerifyProvider_ExpandsAnEnvironmentReference(t *testing.T) {
 	t.Setenv("WAGYU_VERIFY_KEY", "sk-from-env")
 	srv := newProbeServer(t, 200, `{"data":[]}`)
@@ -199,6 +229,16 @@ func TestListingURL(t *testing.T) {
 		{
 			name: "a verbatim endpoint is recovered",
 			p:    ProviderConfig{APIURL: "https://host/v1/chat/completions"},
+			want: "https://host/v1/models",
+		},
+		{
+			name: "the responses base carries the version",
+			p:    ProviderConfig{Type: ProviderTypeResponses, BaseURL: "https://host/v1"},
+			want: "https://host/v1/models",
+		},
+		{
+			name: "a verbatim responses endpoint is recovered",
+			p:    ProviderConfig{Type: ProviderTypeResponses, APIURL: "https://host/v1/responses"},
 			want: "https://host/v1/models",
 		},
 	}

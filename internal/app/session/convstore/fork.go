@@ -160,6 +160,18 @@ func CopyArtifactTree(srcDir, dstDir string) error {
 			if shouldSkipDir(rel, d.Name()) {
 				return filepath.SkipDir
 			}
+			// AGY 1.5.12: Large scratch directory (e.g. repo clones, build outputs) is not
+			// deep-copied; the fork symlinks to the original conversation's scratch directory
+			// so forking takes seconds instead of up to an hour, and deleting the original
+			// conversation also deletes those files.
+			cleanRel := filepath.ToSlash(filepath.Clean(rel))
+			if cleanRel == "scratch" || strings.HasSuffix(cleanRel, "/scratch") {
+				targetLink := filepath.Join(dstDir, rel)
+				_ = os.Remove(targetLink)
+				if err := os.Symlink(path, targetLink); err == nil {
+					return filepath.SkipDir
+				}
+			}
 			targetDir := filepath.Join(dstDir, rel)
 			info, err := d.Info()
 			perm := os.FileMode(0o755)

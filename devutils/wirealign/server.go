@@ -153,7 +153,7 @@ func (ps *ProxyServer) handleDispatch(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write(DefaultMockCodeAssist())
 	case strings.Contains(path, "onboardUser"):
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"done":true,"response":{"cloudaicompanionProject":"aicode-consumers"}}`))
+		_, _ = w.Write([]byte(`{"done":true,"response":{"@type":"type.googleapis.com/google.internal.cloud.code.v1internal.OnboardUserResponse","cloudaicompanionProject":"aicode-consumers"}}`))
 	case strings.Contains(path, "retrieveUserQuotaSummary"):
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"quotas":[]}`))
@@ -241,6 +241,18 @@ func DefaultMockCodeAssist() []byte {
 			"id":          "standard-tier",
 			"name":        "Antigravity Pro",
 			"description": "Google AI Pro (WireAlign)",
+		},
+		"allowedTiers": []map[string]any{
+			{
+				"id":        "free-tier",
+				"name":      "Antigravity",
+				"isDefault": false,
+			},
+			{
+				"id":        "standard-tier",
+				"name":      "Antigravity Pro",
+				"isDefault": true,
+			},
 		},
 		"cloudaicompanionProject": "aicode-consumers",
 		"gcpManaged":              false,

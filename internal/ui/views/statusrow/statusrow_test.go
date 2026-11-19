@@ -359,3 +359,20 @@ func TestStatic(t *testing.T) {
 		t.Errorf("row is %d cells wide, want 220", len([]rune(plain(row))))
 	}
 }
+
+func TestStatusRow_OutOfCredits(t *testing.T) {
+	s := base()
+	s.OutOfCredits = true
+	s.IsGeminiAPIKey = false
+	rendered := Render(s)
+	if !strings.Contains(rendered, "AI: Out of credits") {
+		t.Errorf("rendered missing AI: Out of credits: %q", rendered)
+	}
+
+	// Under GEMINI_API_KEY, AI: Out of credits must NOT appear (1.5.12).
+	s.IsGeminiAPIKey = true
+	renderedAPIKey := Render(s)
+	if strings.Contains(renderedAPIKey, "AI: Out of credits") {
+		t.Errorf("rendered under GEMINI_API_KEY unexpectedly contains AI: Out of credits: %q", renderedAPIKey)
+	}
+}

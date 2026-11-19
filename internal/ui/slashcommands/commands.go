@@ -154,16 +154,15 @@ func (ctx ScopeContext) hasGeminiAPIKey() bool {
 	return strings.TrimSpace(os.Getenv("GEMINI_API_KEY")) != ""
 }
 
-// IsGeminiAPIKeyExcluded reports whether name is an account quota command excluded under GEMINI_API_KEY.
+// IsGeminiAPIKeyExcluded reports whether name is an account quota command or unsupported feature excluded under GEMINI_API_KEY.
 func IsGeminiAPIKeyExcluded(name string, ctx ScopeContext) bool {
 	clean := strings.TrimPrefix(name, "/")
-	return (clean == "usage" || clean == "quota" || clean == "credits") && ctx.hasGeminiAPIKey()
+	return (clean == "usage" || clean == "quota" || clean == "credits" || clean == "remote-control" || clean == "voice" || clean == "record") && ctx.hasGeminiAPIKey()
 }
 
 // IsAvailable checks whether a command is accessible within the given ScopeContext.
 func IsAvailable(c Command, ctx ScopeContext) bool {
-	clean := strings.TrimPrefix(c.Name, "/")
-	if (clean == "usage" || clean == "quota" || clean == "credits") && ctx.hasGeminiAPIKey() {
+	if IsGeminiAPIKeyExcluded(c.Name, ctx) {
 		return false
 	}
 

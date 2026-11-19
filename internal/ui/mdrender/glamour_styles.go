@@ -270,13 +270,14 @@ func applyANSIHeadings(cfg *ansi.StyleConfig, headColor, h1Bg string) {
 			Color:           strPtr("228"),
 			BackgroundColor: strPtr(h1Bg),
 			Bold:            boolPtr(true),
+			Underline:       boolPtr(true),
 		},
 	}
-	cfg.H2 = ansi.StyleBlock{StylePrimitive: ansi.StylePrimitive{Prefix: "## "}}
-	cfg.H3 = ansi.StyleBlock{StylePrimitive: ansi.StylePrimitive{Prefix: "### "}}
-	cfg.H4 = ansi.StyleBlock{StylePrimitive: ansi.StylePrimitive{Prefix: "#### "}}
-	cfg.H5 = ansi.StyleBlock{StylePrimitive: ansi.StylePrimitive{Prefix: "##### "}}
-	cfg.H6 = ansi.StyleBlock{StylePrimitive: ansi.StylePrimitive{Prefix: "###### ", Bold: boolPtr(false)}}
+	cfg.H2 = ansi.StyleBlock{StylePrimitive: ansi.StylePrimitive{Bold: boolPtr(true)}}
+	cfg.H3 = ansi.StyleBlock{StylePrimitive: ansi.StylePrimitive{Bold: boolPtr(true), Italic: boolPtr(true)}}
+	cfg.H4 = ansi.StyleBlock{StylePrimitive: ansi.StylePrimitive{Italic: boolPtr(true), Underline: boolPtr(true)}}
+	cfg.H5 = ansi.StyleBlock{StylePrimitive: ansi.StylePrimitive{Italic: boolPtr(true)}}
+	cfg.H6 = ansi.StyleBlock{StylePrimitive: ansi.StylePrimitive{Underline: boolPtr(true)}}
 }
 
 func applyANSITextAndCodeStyles(cfg *ansi.StyleConfig, accentColor string, isDark bool) {

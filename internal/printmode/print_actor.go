@@ -29,6 +29,7 @@ import (
 	"github.com/justwasm/pigasus/internal/core/policy/permissions"
 	"github.com/justwasm/pigasus/internal/core/policy/sandbox"
 	"github.com/justwasm/pigasus/internal/features/checkpoint"
+	modelcatalog "github.com/justwasm/pigasus/internal/features/models/catalog"
 )
 
 // printHistoryTurn is one turn to replay ahead of the new prompt.
@@ -291,7 +292,8 @@ func executeActorPrintRun(ctx context.Context, act *actor.Actor, cfg actorPrintC
 	})
 	defer policy.Close()
 
-	prompt := cfg.Prompt
+	modelLabel := modelcatalog.FormatModelLabel(cfg.Model)
+	prompt := backend.WrapUserContent(cfg.Prompt, modelLabel, true, time.Now())
 	if len(cfg.JSONSchema) > 0 {
 		prompt = fmt.Sprintf("%s\n\n[System constraint: You must output ONLY valid JSON matching this schema exactly, with no markdown code fences and no extra text:\n%s]", prompt, string(cfg.JSONSchema))
 	}

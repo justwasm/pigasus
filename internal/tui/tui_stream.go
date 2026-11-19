@@ -58,6 +58,7 @@ import (
 	"github.com/justwasm/pigasus/internal/ui/editor/composer"
 	"github.com/justwasm/pigasus/internal/ui/editor/keybind"
 	"github.com/justwasm/pigasus/internal/ui/foundations/history"
+	tuiviewport "github.com/justwasm/pigasus/internal/ui/foundations/viewport"
 	"github.com/justwasm/pigasus/internal/ui/mdrender"
 	"github.com/justwasm/pigasus/internal/ui/panelregistry"
 	"github.com/justwasm/pigasus/internal/ui/resumepicker"
@@ -1513,13 +1514,59 @@ func (m *RootModel) separator() string {
 	return separator
 }
 
+// scrollPositionIndicator returns the 1.5.12 indicator when scrolled up in altscreen mode,
+// such as "↓ 25 lines · 2 turns".
+func (m *RootModel) scrollPositionIndicator() string {
+	if !m.viewport.altScreen || m.viewport.autoScroll {
+		return ""
+	}
+	rows := m.viewport.rowsView.Rows
+	if len(rows) == 0 {
+		return ""
+	}
+	avail := m.viewport.vpRows
+	if avail <= 0 {
+		if m.viewport.height > 6 {
+			avail = m.viewport.height - 6
+		} else {
+			avail = 10
+		}
+	}
+	if len(rows) <= avail {
+		return ""
+	}
+	lastVisible := m.viewport.scroll + avail
+	if m.viewport.pinnedPromptText != "" && avail > 2 {
+		lastVisible -= 2
+	}
+	if lastVisible >= len(rows) {
+		return ""
+	}
+	linesBelow := len(rows) - lastVisible
+	turnsBelow := 0
+	for _, pRow := range m.viewport.userPromptRows {
+		if pRow >= lastVisible {
+			turnsBelow++
+		}
+	}
+	return tuiviewport.FormatScrollPositionIndicator(linesBelow, turnsBelow)
+}
+
 // promptRule returns the rule that frames the prompt box.
 //
 // 【一手】 agy 1.4.7: with a seasonal event switched on the prompt box's
 // two rules become the event's own — a gradient rule with face motifs in
 // it (out/changelog-147/ref/seasonal-prompt.txt) — while the rule that
 // separates the queued messages from the transcript stays plain.
+//
+// agy 1.5.12 item 3: while scrolled up in full screen (altscreen) mode,
+// the line above the prompt shows the scroll position indicator (e.g. "↓ 25 lines · 2 turns").
 func (m *RootModel) promptRule(top bool) string {
+	if top && m.viewport.altScreen && !m.viewport.autoScroll {
+		if ind := m.scrollPositionIndicator(); ind != "" {
+			return palette.DimGrayOpen + ind + palette.DimGrayClose
+		}
+	}
 	if m.viewport.seasonal == nil {
 		return m.separator()
 	}
@@ -2420,7 +2467,7 @@ func (m *RootModel) appendUserTurn(text string) {
 	msg := backend.Message{
 		Role:        "user",
 		Content:     text,
-		WireContent: backend.WrapUserContent(text, m.session.model, m.session.wireSettingsPending, time.Now()),
+		WireContent: backend.WrapUserContent(text, modelcatalog.FormatModelLabel(m.session.model), m.session.wireSettingsPending, time.Now()),
 	}
 	// The images the user attached ride along with the turn (agy 1.4.9's
 	// image pasting). The transports carry them as image parts, so the

@@ -159,6 +159,11 @@ func verifyListing(ctx context.Context, p ProviderConfig, key string) VerifyResu
 			req.Header.Set("x-api-key", key)
 		}
 		req.Header.Set("anthropic-version", "2023-06-01")
+	case ProviderTypeResponses:
+		if key != "" {
+			req.Header.Set("Authorization", "Bearer "+key)
+		}
+		req.Header.Set("User-Agent", "opencode/2.3.2")
 	default:
 		if key != "" {
 			req.Header.Set("Authorization", "Bearer "+key)
@@ -215,6 +220,8 @@ func listingURL(p ProviderConfig) string {
 		switch p.WireType() {
 		case ProviderTypeAnthropic:
 			base = strings.TrimSuffix(endpoint, "/v1/messages")
+		case ProviderTypeResponses:
+			base = strings.TrimSuffix(endpoint, "/responses")
 		default:
 			base = strings.TrimSuffix(endpoint, "/chat/completions")
 		}
@@ -292,6 +299,11 @@ func FetchListedModels(ctx context.Context, p ProviderConfig, key string) ([]Pro
 			req.Header.Set("x-api-key", key)
 		}
 		req.Header.Set("anthropic-version", "2023-06-01")
+	case ProviderTypeResponses:
+		if key != "" {
+			req.Header.Set("Authorization", "Bearer "+key)
+		}
+		req.Header.Set("User-Agent", "opencode/2.3.2")
 	default:
 		if key != "" {
 			req.Header.Set("Authorization", "Bearer "+key)

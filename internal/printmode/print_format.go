@@ -254,10 +254,10 @@ const (
 // They are `omitempty`, so a run that overrode nothing carries the three
 // members the clone always carried.
 type jsonInitPayload struct {
+	Model          string          `json:"model,omitempty"`
 	CWD            string          `json:"cwd"`
 	Tools          []string        `json:"tools"`
 	PermissionMode string          `json:"permission_mode"`
-	Model          string          `json:"model,omitempty"`
 	Agent          string          `json:"agent,omitempty"`
 	JSONSchema     json.RawMessage `json:"json_schema,omitempty"`
 }

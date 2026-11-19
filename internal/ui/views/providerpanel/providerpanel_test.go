@@ -294,6 +294,9 @@ func TestEndpoint(t *testing.T) {
 	if got := Endpoint(models.ProviderConfig{BaseURL: "https://host/anthropic", Type: models.ProviderTypeAnthropic}); got != "https://host/anthropic/v1/messages" {
 		t.Errorf("Endpoint = %q, want the Anthropic path", got)
 	}
+	if got := Endpoint(models.ProviderConfig{BaseURL: "https://host/v1", Type: models.ProviderTypeResponses}); got != "https://host/v1/responses" {
+		t.Errorf("Endpoint = %q, want the Responses path", got)
+	}
 	if got := Endpoint(models.ProviderConfig{}); got != "(no endpoint)" {
 		t.Errorf("Endpoint = %q, want the placeholder", got)
 	}

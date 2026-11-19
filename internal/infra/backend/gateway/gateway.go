@@ -104,6 +104,8 @@ const (
 	GatewayProtocolOpenAI = "openai"
 	// GatewayProtocolAnthropic is the Anthropic Messages dialect.
 	GatewayProtocolAnthropic = "anthropic"
+	// GatewayProtocolResponses is the OpenAI Responses API dialect.
+	GatewayProtocolResponses = "responses"
 )
 
 // GatewayConfig is the knob set for one configured upstream endpoint.
@@ -145,12 +147,17 @@ func (c GatewayConfig) withDefaults() GatewayConfig {
 
 // protocol returns the normalised wire protocol.
 func (c GatewayConfig) protocol() string {
-	switch strings.ToLower(strings.TrimSpace(c.Type)) {
+	t := strings.ToLower(strings.TrimSpace(c.Type))
+	switch t {
 	case GatewayProtocolAnthropic:
 		return GatewayProtocolAnthropic
-	default:
-		return GatewayProtocolOpenAI
+	case GatewayProtocolResponses:
+		return GatewayProtocolResponses
 	}
+	if strings.HasSuffix(strings.TrimRight(c.URL, "/"), "/responses") {
+		return GatewayProtocolResponses
+	}
+	return GatewayProtocolOpenAI
 }
 
 // GatewayClient is a backend.Client that streams from one configured

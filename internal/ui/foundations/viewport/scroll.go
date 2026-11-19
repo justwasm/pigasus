@@ -1,6 +1,7 @@
 package viewport
 
 import (
+	"fmt"
 	"sort"
 	"strings"
 
@@ -8,6 +9,26 @@ import (
 	"github.com/charmbracelet/x/ansi"
 	"github.com/justwasm/pigasus/palette"
 )
+
+// FormatScrollPositionIndicator formats the scroll position indicator (AGY 1.5.12 item 3).
+// Example: "↓ 25 lines · 2 turns", "↓ 1 line · 1 turn", "↓ 10 lines".
+func FormatScrollPositionIndicator(linesBelow, turnsBelow int) string {
+	if linesBelow <= 0 {
+		return ""
+	}
+	lineStr := fmt.Sprintf("%d lines", linesBelow)
+	if linesBelow == 1 {
+		lineStr = "1 line"
+	}
+	if turnsBelow <= 0 {
+		return fmt.Sprintf("↓ %s", lineStr)
+	}
+	turnStr := fmt.Sprintf("%d turns", turnsBelow)
+	if turnsBelow == 1 {
+		turnStr = "1 turn"
+	}
+	return fmt.Sprintf("↓ %s · %s", lineStr, turnStr)
+}
 
 // PinnedPromptJumpHint is retained as empty string for package compatibility.
 // agy 1.4.10 renders no hint suffix on the pinned prompt header.

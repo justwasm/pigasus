@@ -203,7 +203,7 @@ func TestProviderAnthropic(t *testing.T) {
 }
 
 func TestNewProviderDispatch(t *testing.T) {
-	supported := []string{"openai", "anthropic", "ollama", "openrouter", "google", "custom"}
+	supported := []string{"openai", "anthropic", "responses", "ollama", "openrouter", "google", "custom"}
 	for _, prov := range supported {
 		m := Model{
 			Name: "x", Provider: prov,

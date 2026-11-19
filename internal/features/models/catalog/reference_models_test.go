@@ -181,6 +181,7 @@ func TestGemini4HydrogenAndCarbonAPIKey(t *testing.T) {
 	}
 	foundHydrogen := false
 	foundCarbon := false
+	foundNeon := false
 	for _, m := range ReferenceModels() {
 		if m.ID == "gemini-4-hydrogen-xhigh" && m.Label == "Gemini 4 Hydrogen (XHigh)" {
 			foundHydrogen = true
@@ -188,12 +189,22 @@ func TestGemini4HydrogenAndCarbonAPIKey(t *testing.T) {
 		if m.ID == "gemini-4-carbon-high" && m.Label == "Gemini 4 Carbon (High)" {
 			foundCarbon = true
 		}
+		if m.ID == "gemini-4-neon-high" && m.Label == "Gemini 4 Neon (High)" {
+			foundNeon = true
+		}
 	}
 	if !foundHydrogen {
 		t.Errorf("gemini-4-hydrogen-xhigh missing under GEMINI_API_KEY")
 	}
 	if !foundCarbon {
 		t.Errorf("gemini-4-carbon-high missing under GEMINI_API_KEY")
+	}
+	if !foundNeon {
+		t.Errorf("gemini-4-neon-high missing under GEMINI_API_KEY")
+	}
+	neonTiers := EffortTiersFor("gemini-4-neon")
+	if len(neonTiers) != 4 || neonTiers[0] != "low" || neonTiers[3] != "xhigh" {
+		t.Fatalf("EffortTiersFor(gemini-4-neon) = %v, want [low, medium, high, xhigh]", neonTiers)
 	}
 }
 

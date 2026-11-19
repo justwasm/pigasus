@@ -250,7 +250,7 @@ func RunStreamJSON(w io.Writer, r io.Reader, fs *flag.FlagSet) error {
 		// the tokens it spent (the doc's example carries the three on the
 		// `agent_response` step — `official-docs/cli/headless.md:144`).
 		update := newStepUpdate(cfg.conversationID, stepIndex, stepType)
-		update.TextDelta = turnState.responseBuf.String()
+		update.TextDelta = "\n"
 		update.DurationSeconds = turnState.DurationSeconds()
 		if turnState.turnUsage.known() {
 			update.Usage = &turnState.turnUsage

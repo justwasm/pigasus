@@ -147,3 +147,24 @@ func TestRun_AgyVersionDispatches(t *testing.T) {
 		})
 	}
 }
+
+func TestRemoteControlAndAgentRejectedUnderGeminiAPIKey(t *testing.T) {
+	t.Setenv("GEMINI_API_KEY", "test-key-123")
+
+	for _, flag := range []string{"--remote-control", "--remote-agent"} {
+		t.Run(flag, func(t *testing.T) {
+			p := clirunner.SetupCLIParser("pigasus")
+			var out, errOut bytes.Buffer
+			p.SetOut(&out)
+			p.SetErr(&errOut)
+
+			_ = p.ExecuteArgs([]string{flag})
+			if p.ExitCode() != 2 {
+				t.Errorf("ExecuteArgs([%s]) exit code = %d, want 2", flag, p.ExitCode())
+			}
+			if !strings.Contains(errOut.String(), "not available with a Gemini API key") {
+				t.Errorf("stderr missing 'not available with a Gemini API key': %q", errOut.String())
+			}
+		})
+	}
+}

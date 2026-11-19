@@ -215,6 +215,17 @@ func TestCatalogueGate(t *testing.T) {
 	}
 }
 
+func TestGeminiAPIKeyHidesAICredits(t *testing.T) {
+	t.Setenv("GEMINI_API_KEY", "test-key")
+	testHome(t, map[string]any{})
+	p := New(Seams{})
+	for _, r := range p.Catalogue() {
+		if r.SettingsKey == "useG1Credits" || r.Name == "Use AI Credits" {
+			t.Errorf("found %q under GEMINI_API_KEY, should be hidden", r.Name)
+		}
+	}
+}
+
 // ---- the value cycle ------------------------------------------------------
 
 // TestCycle197_ConfigDefaultDeletesKey is the headline correctness fix:

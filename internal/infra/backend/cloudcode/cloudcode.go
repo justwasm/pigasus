@@ -44,6 +44,7 @@ import (
 	"github.com/justwasm/pigasus/internal/core/backend"
 	"github.com/justwasm/pigasus/internal/core/compaction"
 	"github.com/justwasm/pigasus/internal/features/auth/credential"
+	modelcatalog "github.com/justwasm/pigasus/internal/features/models/catalog"
 	"github.com/justwasm/pigasus/internal/infra/backend/retry"
 )
 
@@ -218,7 +219,8 @@ func (c *CloudCodeClient) turn(req backend.StreamRequest, model string) geminico
 			!strings.HasPrefix(strings.TrimSpace(content), "<SYSTEM_MESSAGE>") &&
 			!strings.Contains(strings.TrimSpace(content), "<SYSTEM_MESSAGE>") &&
 			!strings.HasPrefix(content, "Step Id:") {
-			content = backend.WrapUserContent(content, model, false, time.Now())
+			label := modelcatalog.FormatModelLabel(model)
+			content = backend.WrapUserContent(content, label, true, time.Now())
 		}
 		msg := geminicode.TurnMessage{
 			Role:       m.Role,
