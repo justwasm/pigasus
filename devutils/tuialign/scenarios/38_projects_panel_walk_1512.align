@@ -1,0 +1,35 @@
+NAME "Projects Panel Alignment (/projects) (1.5.12)"
+WINDOW 100 30
+TARGET both
+
+BOOT_BOTH
+WAIT_READY 10s
+
+# Type /projects and open panel
+TYPE "/projects"
+ENTER
+SLEEP 800ms
+SNAPSHOT "01_projects_open"
+
+# Navigate down to first project row
+KEYS "Down"
+SLEEP 400ms
+SNAPSHOT "02_projects_navigated"
+
+# Enter on project row to expand inline actions
+ENTER
+SLEEP 400ms
+SNAPSHOT "03_projects_actions_expanded"
+
+# Escape to collapse actions
+KEYS "Escape"
+SLEEP 400ms
+SNAPSHOT "04_projects_actions_collapsed"
+
+# Escape to close panel back to main prompt
+KEYS "Escape"
+SLEEP 500ms
+SNAPSHOT "05_projects_closed"
+
+DIFF
+CLEANUP

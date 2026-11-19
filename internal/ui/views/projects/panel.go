@@ -2,7 +2,9 @@ package projects
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -13,15 +15,38 @@ import (
 	"github.com/justwasm/pigasus/palette"
 )
 
-type Mode int
+const (
+	ansiBold  = "\x1b[1m"
+	ansiReset = "\x1b[0m"
+)
+
+// Phase defines whether the projects panel is in the list view or the editor wizard.
+type Phase int
 
 const (
-	ModeList Mode = iota
-	ModeCreateName
-	ModeCreateFolders
-	ModeRename
-	ModeEditFolders
+	PhaseList Phase = iota
+	PhaseEditor
 )
+
+// Mode is an alias for Phase for backward compatibility.
+type Mode = Phase
+
+const (
+	ModeList   = PhaseList
+	ModeEditor = PhaseEditor
+
+	// Backward-compatible mode constants
+	ModeCreateName    = PhaseEditor
+	ModeCreateFolders = PhaseEditor
+	ModeRename        = PhaseEditor
+	ModeEditFolders   = PhaseEditor
+)
+
+// FolderItem represents an associated folder checkbox entry in the editor.
+type FolderItem struct {
+	Path    string
+	Checked bool
+}
 
 // Seams are the host interactions needed by the projects panel.
 type Seams struct {
@@ -35,15 +60,30 @@ type Panel struct {
 	Workspace string
 	Projects  []coreprojects.LocalProject
 	CurrentID string
-	Cursor    int
-	Mode      Mode
 
-	InputBuffer  string
-	CreatingName string
-	TargetID     string
+	// List phase state
+	Cursor          int
+	SearchQuery     string
+	ExpandedID      string
+	ActionCursor    int
+	SwitchConfirmID string
+	StatusMessage   string
 
-	StatusMessage string
-	seams         Seams
+	// Editor phase state
+	Mode           Mode
+	IsNew          bool
+	OriginalProj   coreprojects.LocalProject
+	Tab            int // 0 = Name, 1 = Folders
+	NameInput      string
+	NameError      string
+	Folders        []FolderItem
+	FolderCursor   int
+	AddingFolder   bool
+	AddFolderInput string
+	AddFolderError string
+	ExitConfirm    bool
+
+	seams Seams
 }
 
 // New constructs a new projects panel with seams.
@@ -69,21 +109,223 @@ func (p *Panel) Reload() {
 	if err == nil {
 		p.Projects = list
 	}
+	sort.Slice(p.Projects, func(i, j int) bool {
+		return strings.ToLower(p.Projects[i].Name) < strings.ToLower(p.Projects[j].Name)
+	})
 	p.CurrentID = coreprojects.CurrentLocalProjectID(p.Home, p.Workspace)
-	if p.Cursor >= len(p.Projects) {
-		p.Cursor = len(p.Projects) - 1
+	p.clampListCursor()
+}
+
+func (p *Panel) filteredProjects() []coreprojects.LocalProject {
+	q := strings.TrimSpace(strings.ToLower(p.SearchQuery))
+	if q == "" {
+		return p.Projects
+	}
+	var out []coreprojects.LocalProject
+	for _, pr := range p.Projects {
+		if strings.Contains(strings.ToLower(pr.Name), q) {
+			out = append(out, pr)
+			continue
+		}
+		for _, f := range pr.Folders {
+			if strings.Contains(strings.ToLower(f), q) {
+				out = append(out, pr)
+				break
+			}
+		}
+	}
+	return out
+}
+
+func (p *Panel) clampListCursor() {
+	filtered := p.filteredProjects()
+	maxCursor := len(filtered)
+	if p.Cursor > maxCursor {
+		p.Cursor = maxCursor
 	}
 	if p.Cursor < 0 {
 		p.Cursor = 0
 	}
 }
 
-// Selected returns the currently selected project, or nil.
+// Selected returns the currently selected project in list mode, or nil.
 func (p *Panel) Selected() *coreprojects.LocalProject {
-	if len(p.Projects) == 0 || p.Cursor < 0 || p.Cursor >= len(p.Projects) {
+	filtered := p.filteredProjects()
+	if p.Cursor <= 0 || p.Cursor > len(filtered) {
 		return nil
 	}
-	return &p.Projects[p.Cursor]
+	return &filtered[p.Cursor-1]
+}
+
+// StartCreate transitions to the editor wizard to create a new project.
+func (p *Panel) StartCreate() {
+	p.Mode = ModeEditor
+	p.IsNew = true
+	p.OriginalProj = coreprojects.LocalProject{}
+	p.Tab = 0
+	defaultName := ""
+	if p.Workspace != "" {
+		defaultName = filepath.Base(p.Workspace)
+	}
+	p.NameInput = defaultName
+	p.NameError = ""
+	p.Folders = nil
+	if p.Workspace != "" {
+		p.Folders = append(p.Folders, FolderItem{Path: p.Workspace, Checked: true})
+	}
+	p.FolderCursor = 0
+	p.AddingFolder = false
+	p.AddFolderInput = ""
+	p.AddFolderError = ""
+	p.ExitConfirm = false
+	p.StatusMessage = ""
+}
+
+// StartEdit transitions to the editor wizard to edit an existing project.
+func (p *Panel) StartEdit(proj coreprojects.LocalProject) {
+	p.Mode = ModeEditor
+	p.IsNew = false
+	p.OriginalProj = proj
+	p.Tab = 0
+	p.NameInput = proj.Name
+	p.NameError = ""
+	p.Folders = nil
+	for _, f := range proj.Folders {
+		p.Folders = append(p.Folders, FolderItem{Path: f, Checked: true})
+	}
+	p.FolderCursor = 0
+	p.AddingFolder = false
+	p.AddFolderInput = ""
+	p.AddFolderError = ""
+	p.ExitConfirm = false
+	p.StatusMessage = ""
+}
+
+func (p *Panel) isDirty() bool {
+	if p.IsNew {
+		defaultName := ""
+		if p.Workspace != "" {
+			defaultName = filepath.Base(p.Workspace)
+		}
+		if p.NameInput != defaultName {
+			return true
+		}
+		if p.Workspace != "" {
+			if len(p.Folders) != 1 || p.Folders[0].Path != p.Workspace || !p.Folders[0].Checked {
+				return true
+			}
+		} else {
+			if len(p.Folders) > 0 {
+				return true
+			}
+		}
+		return false
+	}
+	if p.NameInput != p.OriginalProj.Name {
+		return true
+	}
+	var sel []string
+	for _, f := range p.Folders {
+		if f.Checked {
+			sel = append(sel, f.Path)
+		}
+	}
+	if len(sel) != len(p.OriginalProj.Folders) {
+		return true
+	}
+	for i := range sel {
+		if sel[i] != p.OriginalProj.Folders[i] {
+			return true
+		}
+	}
+	return false
+}
+
+func (p *Panel) nameExists(name string) bool {
+	for _, pr := range p.Projects {
+		if !p.IsNew && pr.ID == p.OriginalProj.ID {
+			continue
+		}
+		if strings.EqualFold(pr.Name, name) {
+			return true
+		}
+	}
+	return false
+}
+
+func (p *Panel) validateName() bool {
+	name := strings.TrimSpace(p.NameInput)
+	if name == "" {
+		p.NameError = "Enter a project name."
+		p.Tab = 0
+		return false
+	}
+	if p.nameExists(name) {
+		p.NameError = "A project with this name already exists."
+		p.Tab = 0
+		return false
+	}
+	p.NameError = ""
+	return true
+}
+
+func (p *Panel) submit() (bool, tea.Cmd) {
+	if !p.validateName() {
+		return true, nil
+	}
+	name := strings.TrimSpace(p.NameInput)
+	var checkedFolders []string
+	for _, f := range p.Folders {
+		if f.Checked {
+			checkedFolders = append(checkedFolders, f.Path)
+		}
+	}
+
+	if p.IsNew {
+		projID := fmt.Sprintf("proj-%d", time.Now().UnixNano())
+		proj := coreprojects.LocalProject{
+			ID:      projID,
+			Name:    name,
+			Folders: checkedFolders,
+		}
+		if err := coreprojects.SaveLocalProject(p.Home, proj); err != nil {
+			p.NameError = "Failed to save: " + err.Error()
+			p.Tab = 0
+			return true, nil
+		}
+		p.StatusMessage = fmt.Sprintf("(Created %s)", name)
+		p.Mode = ModeList
+		p.SearchQuery = ""
+		p.Reload()
+		for i, pr := range p.filteredProjects() {
+			if pr.ID == projID {
+				p.Cursor = i + 1
+				break
+			}
+		}
+		return true, nil
+	}
+
+	// Editing existing project
+	proj := p.OriginalProj
+	proj.Name = name
+	proj.Folders = checkedFolders
+	if err := coreprojects.SaveLocalProject(p.Home, proj); err != nil {
+		p.NameError = "Failed to save: " + err.Error()
+		p.Tab = 0
+		return true, nil
+	}
+	p.StatusMessage = fmt.Sprintf("(Saved %s)", name)
+	p.Mode = ModeList
+	p.SearchQuery = ""
+	p.Reload()
+	for i, pr := range p.filteredProjects() {
+		if pr.ID == proj.ID {
+			p.Cursor = i + 1
+			break
+		}
+	}
+	return true, nil
 }
 
 func (p *Panel) close() tea.Cmd {
@@ -108,204 +350,310 @@ func (p *Panel) HandleKey(key tea.Key) (bool, tea.Cmd) {
 
 	switch p.Mode {
 	case ModeList:
-		switch {
-		case key.Code == tea.KeyEsc:
-			return true, p.close()
-		case key.Code == tea.KeyUp || (key.Code == 'k' && key.Mod == 0):
-			if p.Cursor > 0 {
-				p.Cursor--
-			}
-			return true, nil
-		case key.Code == tea.KeyDown || (key.Code == 'j' && key.Mod == 0):
-			if p.Cursor < len(p.Projects)-1 {
-				p.Cursor++
-			}
-			return true, nil
-		case key.Code == tea.KeyEnter:
-			if sel := p.Selected(); sel != nil {
-				coreprojects.SetCurrentLocalProject(p.Home, p.Workspace, sel.ID)
-				p.CurrentID = sel.ID
-				return true, p.switchProject(*sel)
-			}
-			return true, nil
-		case (key.Code == 'c' || key.Code == 'n') && key.Mod == 0:
-			p.Mode = ModeCreateName
-			p.InputBuffer = ""
-			p.StatusMessage = ""
-			return true, nil
-		case key.Code == 'r' && key.Mod == 0:
-			if sel := p.Selected(); sel != nil {
-				p.Mode = ModeRename
-				p.TargetID = sel.ID
-				p.InputBuffer = sel.Name
-				p.StatusMessage = ""
-			}
-			return true, nil
-		case key.Code == 'e' && key.Mod == 0:
-			if sel := p.Selected(); sel != nil {
-				p.Mode = ModeEditFolders
-				p.TargetID = sel.ID
-				p.InputBuffer = strings.Join(sel.Folders, ", ")
-				p.StatusMessage = ""
-			}
-			return true, nil
-		case key.Code == 'd' && key.Mod == 0:
-			if sel := p.Selected(); sel != nil && sel.ID != coreprojects.DefaultProjectID {
-				_ = coreprojects.DeleteLocalProject(p.Home, sel.ID)
-				p.Reload()
-			}
-			return true, nil
-		}
+		return p.handleListKey(key)
+	case ModeEditor:
+		return p.handleEditorKey(key)
+	}
+	return false, nil
+}
 
-	case ModeCreateName:
-		switch {
-		case key.Code == tea.KeyEsc:
-			p.Mode = ModeList
-			p.InputBuffer = ""
-			return true, nil
-		case key.Code == tea.KeyEnter:
-			name := strings.TrimSpace(p.InputBuffer)
-			if name == "" {
-				p.StatusMessage = "Project name cannot be empty."
-				return true, nil
-			}
-			p.CreatingName = name
-			p.Mode = ModeCreateFolders
-			p.InputBuffer = ""
-			p.StatusMessage = ""
-			return true, nil
-		case key.Code == tea.KeyBackspace:
-			if r := []rune(p.InputBuffer); len(r) > 0 {
-				p.InputBuffer = string(r[:len(r)-1])
-			}
-			return true, nil
-		default:
-			if keybind.IsTypedText(key) {
-				p.InputBuffer += key.Text
-				return true, nil
-			}
-		}
+func (p *Panel) handleListKey(key tea.Key) (bool, tea.Cmd) {
+	filtered := p.filteredProjects()
 
-	case ModeCreateFolders:
+	// 1. Switch confirmation prompt
+	if p.SwitchConfirmID != "" {
 		switch {
-		case key.Code == tea.KeyEsc:
-			p.Mode = ModeList
-			p.InputBuffer = ""
-			return true, nil
-		case key.Code == tea.KeyEnter:
-			folders := p.parseFolders(p.InputBuffer)
-			projID := fmt.Sprintf("proj-%d", time.Now().UnixNano())
-			proj := coreprojects.LocalProject{
-				ID:      projID,
-				Name:    p.CreatingName,
-				Folders: folders,
-			}
-			if err := coreprojects.SaveLocalProject(p.Home, proj); err != nil {
-				p.StatusMessage = "Failed to save: " + err.Error()
-				return true, nil
-			}
-			p.Reload()
-			for i, pr := range p.Projects {
-				if pr.ID == projID {
-					p.Cursor = i
+		case key.Code == 'y' || key.Code == 'Y':
+			var target *coreprojects.LocalProject
+			for _, pr := range p.Projects {
+				if pr.ID == p.SwitchConfirmID {
+					target = &pr
 					break
 				}
 			}
-			p.Mode = ModeList
-			p.InputBuffer = ""
-			return true, nil
-		case key.Code == tea.KeyBackspace:
-			if r := []rune(p.InputBuffer); len(r) > 0 {
-				p.InputBuffer = string(r[:len(r)-1])
+			p.SwitchConfirmID = ""
+			if target != nil {
+				coreprojects.SetCurrentLocalProject(p.Home, p.Workspace, target.ID)
+				p.CurrentID = target.ID
+				return true, p.switchProject(*target)
 			}
 			return true, nil
-		default:
-			if keybind.IsTypedText(key) {
-				p.InputBuffer += key.Text
+		case key.Code == 'n' || key.Code == 'N' || key.Code == tea.KeyEsc:
+			p.SwitchConfirmID = ""
+			return true, nil
+		}
+		return true, nil
+	}
+
+	// 2. Inline actions expanded
+	if p.ExpandedID != "" {
+		isCurrent := p.ExpandedID == p.CurrentID
+		maxAction := 1
+		if isCurrent {
+			maxAction = 0 // only Edit
+		}
+
+		switch {
+		case key.Code == tea.KeyEsc:
+			p.ExpandedID = ""
+			return true, nil
+		case key.Code == tea.KeyUp || (key.Code == 'k' && key.Mod == 0):
+			if p.ActionCursor > 0 {
+				p.ActionCursor--
+			}
+			return true, nil
+		case key.Code == tea.KeyDown || (key.Code == 'j' && key.Mod == 0):
+			if p.ActionCursor < maxAction {
+				p.ActionCursor++
+			}
+			return true, nil
+		case key.Code == tea.KeyEnter:
+			var target *coreprojects.LocalProject
+			for _, pr := range p.Projects {
+				if pr.ID == p.ExpandedID {
+					target = &pr
+					break
+				}
+			}
+			if target == nil {
+				p.ExpandedID = ""
+				return true, nil
+			}
+			if isCurrent {
+				p.ExpandedID = ""
+				p.StartEdit(*target)
+				return true, nil
+			}
+			if p.ActionCursor == 0 {
+				p.SwitchConfirmID = target.ID
+				p.ExpandedID = ""
+				return true, nil
+			} else {
+				p.ExpandedID = ""
+				p.StartEdit(*target)
 				return true, nil
 			}
 		}
+		return true, nil
+	}
 
-	case ModeRename:
-		switch {
-		case key.Code == tea.KeyEsc:
-			p.Mode = ModeList
-			p.InputBuffer = ""
+	// 3. Normal list navigation & search
+	switch {
+	case key.Code == tea.KeyEsc:
+		if p.SearchQuery != "" {
+			p.SearchQuery = ""
+			p.clampListCursor()
 			return true, nil
-		case key.Code == tea.KeyEnter:
-			name := strings.TrimSpace(p.InputBuffer)
-			if name == "" {
-				p.StatusMessage = "Project name cannot be empty."
-				return true, nil
-			}
-			if sel := p.Selected(); sel != nil {
-				sel.Name = name
-				_ = coreprojects.SaveLocalProject(p.Home, *sel)
-				p.Reload()
-			}
-			p.Mode = ModeList
-			p.InputBuffer = ""
-			return true, nil
-		case key.Code == tea.KeyBackspace:
-			if r := []rune(p.InputBuffer); len(r) > 0 {
-				p.InputBuffer = string(r[:len(r)-1])
-			}
-			return true, nil
-		default:
-			if keybind.IsTypedText(key) {
-				p.InputBuffer += key.Text
-				return true, nil
-			}
 		}
+		return true, p.close()
 
-	case ModeEditFolders:
-		switch {
-		case key.Code == tea.KeyEsc:
-			p.Mode = ModeList
-			p.InputBuffer = ""
+	case key.Code == tea.KeyUp || (key.Code == 'k' && key.Mod == 0):
+		if p.Cursor > 0 {
+			p.Cursor--
+		}
+		return true, nil
+
+	case key.Code == tea.KeyDown || (key.Code == 'j' && key.Mod == 0):
+		if p.Cursor < len(filtered) {
+			p.Cursor++
+		}
+		return true, nil
+
+	case key.Code == tea.KeyEnter:
+		if p.Cursor == 0 {
+			p.StartCreate()
 			return true, nil
-		case key.Code == tea.KeyEnter:
-			folders := p.parseFolders(p.InputBuffer)
-			if sel := p.Selected(); sel != nil {
-				sel.Folders = folders
-				_ = coreprojects.SaveLocalProject(p.Home, *sel)
-				p.Reload()
-			}
-			p.Mode = ModeList
-			p.InputBuffer = ""
+		}
+		if p.Cursor <= len(filtered) {
+			target := filtered[p.Cursor-1]
+			p.ExpandedID = target.ID
+			p.ActionCursor = 0
 			return true, nil
-		case key.Code == tea.KeyBackspace:
-			if r := []rune(p.InputBuffer); len(r) > 0 {
-				p.InputBuffer = string(r[:len(r)-1])
-			}
+		}
+		return true, nil
+
+	case key.Code == tea.KeyBackspace:
+		if p.SearchQuery != "" {
+			runes := []rune(p.SearchQuery)
+			p.SearchQuery = string(runes[:len(runes)-1])
+			p.clampListCursor()
 			return true, nil
-		default:
-			if keybind.IsTypedText(key) {
-				p.InputBuffer += key.Text
-				return true, nil
-			}
+		}
+		return true, nil
+
+	default:
+		if keybind.IsTypedText(key) {
+			p.SearchQuery += key.Text
+			p.clampListCursor()
+			return true, nil
 		}
 	}
 
 	return false, nil
 }
 
-func (p *Panel) parseFolders(raw string) []string {
-	parts := strings.Split(raw, ",")
-	var out []string
-	for _, part := range parts {
-		trimmed := strings.TrimSpace(part)
-		if trimmed == "" {
-			continue
+func (p *Panel) handleEditorKey(key tea.Key) (bool, tea.Cmd) {
+	// 1. Exit confirm prompt
+	if p.ExitConfirm {
+		switch {
+		case key.Code == 'y' || key.Code == 'Y':
+			p.ExitConfirm = false
+			p.Mode = ModeList
+			p.SearchQuery = ""
+			p.clampListCursor()
+			return true, nil
+		case key.Code == 'n' || key.Code == 'N' || key.Code == tea.KeyEsc:
+			p.ExitConfirm = false
+			return true, nil
 		}
-		resolved, err := coreprojects.ResolveFolderPath(p.Workspace, trimmed)
-		if err == nil {
-			out = append(out, resolved)
-		} else {
-			out = append(out, filepath.Clean(trimmed))
-		}
+		return true, nil
 	}
-	return out
+
+	// 2. Global editor shortcut: ctrl+s to submit
+	if (key.Code == 's' || key.Code == 'S') && (key.Mod&tea.ModCtrl != 0) {
+		return p.submit()
+	}
+
+	// 3. Tab 0: Name
+	if p.Tab == 0 {
+		switch {
+		case key.Code == tea.KeyEsc:
+			if p.isDirty() {
+				p.ExitConfirm = true
+				return true, nil
+			}
+			p.Mode = ModeList
+			p.SearchQuery = ""
+			p.clampListCursor()
+			return true, nil
+
+		case key.Code == tea.KeyRight || key.Code == tea.KeyTab || key.Code == tea.KeyEnter:
+			if p.validateName() {
+				p.Tab = 1
+				p.FolderCursor = 0
+			}
+			return true, nil
+
+		case key.Code == tea.KeyBackspace:
+			if r := []rune(p.NameInput); len(r) > 0 {
+				p.NameInput = string(r[:len(r)-1])
+			}
+			p.NameError = ""
+			return true, nil
+
+		default:
+			if keybind.IsTypedText(key) {
+				p.NameInput += key.Text
+				p.NameError = ""
+				return true, nil
+			}
+		}
+		return true, nil
+	}
+
+	// 4. Tab 1: Folders
+	if p.Tab == 1 {
+		if p.AddingFolder {
+			switch {
+			case key.Code == tea.KeyEsc:
+				p.AddingFolder = false
+				p.AddFolderInput = ""
+				p.AddFolderError = ""
+				return true, nil
+
+			case key.Code == tea.KeyEnter:
+				raw := strings.TrimSpace(p.AddFolderInput)
+				if raw == "" {
+					p.AddFolderError = "Folder path cannot be empty."
+					return true, nil
+				}
+				resolved, err := coreprojects.ResolveFolderPath(p.Workspace, raw)
+				if err != nil {
+					p.AddFolderError = err.Error()
+					return true, nil
+				}
+				info, err := os.Stat(resolved)
+				if err != nil {
+					p.AddFolderError = err.Error()
+					return true, nil
+				}
+				if !info.IsDir() {
+					p.AddFolderError = fmt.Sprintf("%s is not a directory", resolved)
+					return true, nil
+				}
+				for _, f := range p.Folders {
+					if f.Path == resolved {
+						p.AddFolderError = "Folder already added."
+						return true, nil
+					}
+				}
+				p.Folders = append(p.Folders, FolderItem{Path: resolved, Checked: true})
+				p.FolderCursor = len(p.Folders) - 1
+				p.AddingFolder = false
+				p.AddFolderInput = ""
+				p.AddFolderError = ""
+				return true, nil
+
+			case key.Code == tea.KeyBackspace:
+				if r := []rune(p.AddFolderInput); len(r) > 0 {
+					p.AddFolderInput = string(r[:len(r)-1])
+				}
+				p.AddFolderError = ""
+				return true, nil
+
+			default:
+				if keybind.IsTypedText(key) {
+					p.AddFolderInput += key.Text
+					p.AddFolderError = ""
+					return true, nil
+				}
+			}
+			return true, nil
+		}
+
+		// Normal Folders navigation
+		switch {
+		case key.Code == tea.KeyEsc:
+			if p.isDirty() {
+				p.ExitConfirm = true
+				return true, nil
+			}
+			p.Mode = ModeList
+			p.SearchQuery = ""
+			p.clampListCursor()
+			return true, nil
+
+		case key.Code == tea.KeyLeft || (key.Code == tea.KeyTab && (key.Mod&tea.ModShift != 0)):
+			p.Tab = 0
+			return true, nil
+
+		case key.Code == tea.KeyUp || (key.Code == 'k' && key.Mod == 0):
+			if p.FolderCursor > 0 {
+				p.FolderCursor--
+			}
+			return true, nil
+
+		case key.Code == tea.KeyDown || (key.Code == 'j' && key.Mod == 0):
+			if p.FolderCursor < len(p.Folders) {
+				p.FolderCursor++
+			}
+			return true, nil
+
+		case key.Code == tea.KeySpace || key.Code == tea.KeyEnter:
+			if p.FolderCursor < len(p.Folders) {
+				p.Folders[p.FolderCursor].Checked = !p.Folders[p.FolderCursor].Checked
+				return true, nil
+			}
+			// Cursor is on "+ Add a folder..."
+			p.AddingFolder = true
+			p.AddFolderInput = ""
+			p.AddFolderError = ""
+			return true, nil
+		}
+		return true, nil
+	}
+
+	return false, nil
 }
 
 // Lines renders the panel lines for display.
@@ -318,83 +666,251 @@ func (p *Panel) Lines(width int) []string {
 
 // Render produces the view string for the projects panel.
 func (p *Panel) Render(width int) string {
+	if p.Mode == ModeEditor {
+		return p.renderEditor(width)
+	}
+	return p.renderList(width)
+}
+
+func (p *Panel) renderList(width int) string {
 	var lines []string
 
-	lines = append(lines, "  \x1b[1;4m"+palette.BlueOpen+"Projects\x1b[0m "+palette.DimGrayOpen+"(tab / esc to exit)"+palette.DimGrayClose, "")
+	// Header line 1
+	header := ansiBold + "  Projects" + ansiReset
+	if p.StatusMessage != "" {
+		header += " " + palette.DimGrayOpen + p.StatusMessage + palette.DimGrayClose
+	}
+	lines = append(lines, header)
 
-	switch p.Mode {
-	case ModeList:
-		for i, pr := range p.Projects {
-			isCursor := i == p.Cursor
+	// Search line 2
+	if p.SearchQuery == "" {
+		lines = append(lines, palette.DimGrayOpen+"  Type to search projects..."+palette.DimGrayClose)
+	} else {
+		lines = append(lines, palette.DimGrayOpen+"  Search: "+palette.DimGrayClose+p.SearchQuery+"\x1b[7m\x1b[37m \x1b[0m")
+	}
+
+	filtered := p.filteredProjects()
+
+	// Row 0: + New project...
+	if p.Cursor == 0 {
+		lines = append(lines, palette.BlueOpen+"> "+ansiReset+ansiBold+"+ New project..."+ansiReset)
+	} else {
+		lines = append(lines, "  "+ansiBold+"+ New project..."+ansiReset)
+	}
+
+	// Projects rows
+	if len(filtered) == 0 && p.SearchQuery != "" {
+		lines = append(lines, palette.DimGrayOpen+"  No projects match your search."+palette.DimGrayClose)
+	} else {
+		for i, pr := range filtered {
+			rowIdx := i + 1
+			isCursor := rowIdx == p.Cursor
 			isCurrent := pr.ID == p.CurrentID
 
-			prefix := "  "
-			if isCursor {
-				prefix = palette.BlueOpen + "> " + palette.BlueClose
-			}
-
-			bullet := palette.DimGrayOpen + "●" + palette.DimGrayClose
+			bullet := "\x1b[38;5;238m●\x1b[39m"
 			if isCurrent {
 				bullet = palette.AgentFgOpen + "●" + palette.AgentFgClose
 			}
 
-			nameStyle := pr.Name
-			if isCursor {
-				nameStyle = "\x1b[1m" + palette.BlueOpen + pr.Name + "\x1b[0m"
-			} else {
-				nameStyle = "\x1b[1m" + pr.Name + "\x1b[0m"
-			}
-
 			currentBadge := ""
 			if isCurrent {
-				currentBadge = " " + palette.AgentFgOpen + "(current)" + palette.AgentFgClose
+				currentBadge = "  " + palette.AgentFgOpen + "current" + palette.AgentFgClose
 			}
 
-			lines = append(lines, prefix+bullet+" "+nameStyle+currentBadge)
-
-			folderText := strings.Join(pr.Folders, ", ")
-			if folderText == "" {
-				folderText = "(no folders configured)"
+			if isCursor {
+				if p.SwitchConfirmID == pr.ID {
+					// In switch confirmation
+					nameStr := ansiBold + palette.BlueOpen + pr.Name + ansiReset
+					lines = append(lines, palette.BlueOpen+"> "+ansiReset+bullet+" "+nameStr+" \x1b[38;5;214m[Switch? Starts a new conversation (y/n)]\x1b[39m")
+				} else if p.ExpandedID == pr.ID {
+					// Expanded actions
+					nameStr := ansiBold + pr.Name + ansiReset
+					lines = append(lines, "  "+bullet+" "+nameStr+currentBadge)
+					if isCurrent {
+						// Only "Edit"
+						lines = append(lines, "    "+palette.BlueOpen+"> "+ansiReset+ansiBold+"Edit"+ansiReset)
+					} else {
+						if p.ActionCursor == 0 {
+							lines = append(lines, "    "+palette.BlueOpen+"> "+ansiReset+ansiBold+"Switch to project"+ansiReset)
+							lines = append(lines, "      Edit")
+						} else {
+							lines = append(lines, "      Switch to project")
+							lines = append(lines, "    "+palette.BlueOpen+"> "+ansiReset+ansiBold+"Edit"+ansiReset)
+						}
+					}
+				} else {
+					// Normal selected row
+					nameStr := ansiBold + palette.BlueOpen + pr.Name + ansiReset
+					lines = append(lines, palette.BlueOpen+"> "+ansiReset+bullet+" "+nameStr+currentBadge)
+				}
+			} else {
+				// Unselected row
+				nameStr := ansiBold + pr.Name + ansiReset
+				lines = append(lines, "  "+bullet+" "+nameStr+currentBadge)
 			}
-			lines = append(lines, "    "+palette.DimGrayOpen+folderText+palette.DimGrayClose)
+		}
+	}
+
+	lines = append(lines, "")
+
+	// Keyboard footer
+	var kbd []string
+	if p.SwitchConfirmID != "" {
+		kbd = append(kbd, p.kbdHint("y", "Switch"), p.kbdHint("n", "Cancel"))
+	} else if p.ExpandedID != "" {
+		kbd = append(kbd, p.kbdHint("↑/↓", "Navigate"), p.kbdHint("enter", "Select"), p.kbdHint("esc", "Cancel"))
+	} else if p.Cursor == 0 {
+		escDesc := "Close"
+		if p.SearchQuery != "" {
+			escDesc = "Clear Search"
+		}
+		kbd = append(kbd, p.kbdHint("↑/↓", "Navigate"), p.kbdHint("enter", "New Project"), p.kbdHint("esc", escDesc))
+	} else {
+		escDesc := "Close"
+		if p.SearchQuery != "" {
+			escDesc = "Clear Search"
+		}
+		kbd = append(kbd, p.kbdHint("↑/↓", "Navigate"), p.kbdHint("enter", "Actions"), p.kbdHint("esc", escDesc))
+	}
+	lines = append(lines, ansiBold+"Keyboard: "+ansiReset+strings.Join(kbd, "  "))
+
+	return strings.Join(lines, "\n")
+}
+
+func (p *Panel) renderEditor(width int) string {
+	var lines []string
+
+	subTitle := "New Project"
+	if !p.IsNew {
+		subTitle = p.OriginalProj.Name
+	}
+	header := "  " + ansiBold + "Projects" + ansiReset + "\x1b[38;5;238m › \x1b[1m" + subTitle + ansiReset
+	if p.ExitConfirm {
+		if p.IsNew {
+			header += "\x1b[38;5;214m [Cancel project creation? (y/n)]\x1b[39m"
+		} else {
+			header += "\x1b[38;5;214m [Discard changes? (y/n)]\x1b[39m"
+		}
+	}
+	lines = append(lines, header)
+
+	// Tabs line
+	if p.Tab == 0 {
+		lines = append(lines, "  \x1b[1;4m"+palette.BlueOpen+"Name"+ansiReset+"    \x1b[38;5;238mFolders\x1b[39m")
+	} else {
+		lines = append(lines, "  "+palette.AgentFgOpen+"✓ Name"+palette.AgentFgClose+"    \x1b[1;4m"+palette.BlueOpen+"Folders"+ansiReset)
+	}
+
+	if p.Tab == 0 {
+		lines = append(lines, "")
+		lines = append(lines, palette.BlueOpen+"> "+ansiReset+ansiBold+"Project Name"+ansiReset+"\x1b[38;5;210m *\x1b[39m")
+		if p.NameInput == "" {
+			lines = append(lines, "    \x1b[38;5;238m└─ \x1b[7m\x1b[37m \x1b[0m\x1b[38;5;146mEnter project name...\x1b[39m")
+		} else {
+			lines = append(lines, "    \x1b[38;5;238m└─ \x1b[39m"+p.NameInput+"\x1b[7m\x1b[37m \x1b[0m")
+		}
+		if p.NameError != "" {
+			lines = append(lines, "       \x1b[38;5;210m"+p.NameError+"\x1b[39m")
+		}
+		lines = append(lines, "")
+
+		var kbd []string
+		if p.ExitConfirm {
+			if p.IsNew {
+				kbd = append(kbd, p.kbdHint("y", "Cancel Project"), p.kbdHint("n", "Keep Editing"))
+			} else {
+				kbd = append(kbd, p.kbdHint("y", "Discard"), p.kbdHint("n", "Keep Editing"))
+			}
+		} else {
+			saveText := "Save"
+			if p.IsNew {
+				saveText = "Create"
+			}
+			escText := "Close"
+			if p.IsNew {
+				escText = "Cancel"
+			} else if p.isDirty() {
+				escText = "Discard"
+			}
+			kbd = append(kbd, p.kbdHint("→", "Next"), p.kbdHint("ctrl+s", saveText), p.kbdHint("esc", escText))
+		}
+		lines = append(lines, ansiBold+"Keyboard: "+ansiReset+strings.Join(kbd, "  "))
+
+	} else {
+		// Tab 1: Folders
+		for i, f := range p.Folders {
+			check := "[ ]"
+			if f.Checked {
+				check = "[x]"
+			}
+			if i == p.FolderCursor && !p.AddingFolder {
+				lines = append(lines, palette.BlueOpen+"> "+ansiReset+"    "+palette.BlueOpen+check+ansiReset+" "+ansiBold+palette.BlueOpen+f.Path+ansiReset)
+			} else {
+				lines = append(lines, "      "+palette.BlueOpen+check+ansiReset+" "+f.Path)
+			}
 		}
 
-		lines = append(lines, "", "  "+palette.DimGrayOpen+"Enter Switch · c Create · e Edit folders · r Rename · d Delete · Esc Close"+palette.DimGrayClose)
-
-	case ModeCreateName:
-		lines = append(lines, "  Create New Project", "")
-		lines = append(lines, "  Name: "+p.InputBuffer+"█")
-		if p.StatusMessage != "" {
-			lines = append(lines, "", "  \x1b[31m"+p.StatusMessage+"\x1b[0m")
+		if p.AddingFolder {
+			inputDisp := p.AddFolderInput + "\x1b[7m\x1b[37m \x1b[0m"
+			if p.AddFolderInput == "" {
+				inputDisp = "\x1b[7m\x1b[37m \x1b[0m\x1b[38;5;146m~/path/to/folder\x1b[39m"
+			}
+			lines = append(lines, palette.BlueOpen+"> "+ansiReset+"    "+ansiBold+palette.BlueOpen+"+ "+ansiReset+inputDisp)
+			if p.AddFolderError != "" {
+				lines = append(lines, "\t\x1b[38;5;210m"+p.AddFolderError+"\x1b[39m")
+			}
+		} else {
+			if p.FolderCursor == len(p.Folders) {
+				lines = append(lines, palette.BlueOpen+"> "+ansiReset+"    "+ansiBold+palette.BlueOpen+"+ Add a folder..."+ansiReset)
+			} else {
+				lines = append(lines, "      "+ansiBold+"+ Add a folder..."+ansiReset)
+			}
 		}
-		lines = append(lines, "", "  "+palette.DimGrayOpen+"Enter Next · Esc Cancel"+palette.DimGrayClose)
 
-	case ModeCreateFolders:
-		lines = append(lines, "  Create Project: "+p.CreatingName, "")
-		lines = append(lines, "  Folders (comma-separated, absolute, ~, or relative):")
-		lines = append(lines, "  > "+p.InputBuffer+"█")
-		if p.StatusMessage != "" {
-			lines = append(lines, "", "  \x1b[31m"+p.StatusMessage+"\x1b[0m")
-		}
-		lines = append(lines, "", "  "+palette.DimGrayOpen+"Enter Create · Esc Cancel"+palette.DimGrayClose)
+		lines = append(lines, "")
 
-	case ModeRename:
-		lines = append(lines, "  Rename Project", "")
-		lines = append(lines, "  New Name: "+p.InputBuffer+"█")
-		if p.StatusMessage != "" {
-			lines = append(lines, "", "  \x1b[31m"+p.StatusMessage+"\x1b[0m")
+		var kbd []string
+		if p.ExitConfirm {
+			if p.IsNew {
+				kbd = append(kbd, p.kbdHint("y", "Cancel Project"), p.kbdHint("n", "Keep Editing"))
+			} else {
+				kbd = append(kbd, p.kbdHint("y", "Discard"), p.kbdHint("n", "Keep Editing"))
+			}
+		} else if p.AddingFolder {
+			kbd = append(kbd, p.kbdHint("enter", "Add"), p.kbdHint("esc", "Cancel"))
+		} else {
+			toggleText := "Add Folder"
+			if p.FolderCursor < len(p.Folders) {
+				if p.Folders[p.FolderCursor].Checked {
+					toggleText = "Deselect"
+				} else {
+					toggleText = "Select"
+				}
+			}
+			saveText := "Save"
+			if p.IsNew {
+				saveText = "Create"
+			}
+			escText := "Close"
+			if p.IsNew {
+				escText = "Cancel"
+			} else if p.isDirty() {
+				escText = "Discard"
+			}
+			kbd = append(kbd,
+				p.kbdHint("↑/↓", "Navigate"),
+				p.kbdHint("enter/space", toggleText),
+				p.kbdHint("ctrl+s", saveText),
+				p.kbdHint("←", "Back"),
+				p.kbdHint("esc", escText),
+			)
 		}
-		lines = append(lines, "", "  "+palette.DimGrayOpen+"Enter Save · Esc Cancel"+palette.DimGrayClose)
-
-	case ModeEditFolders:
-		lines = append(lines, "  Edit Folders", "")
-		lines = append(lines, "  Folders (comma-separated):")
-		lines = append(lines, "  > "+p.InputBuffer+"█")
-		if p.StatusMessage != "" {
-			lines = append(lines, "", "  \x1b[31m"+p.StatusMessage+"\x1b[0m")
-		}
-		lines = append(lines, "", "  "+palette.DimGrayOpen+"Enter Save · Esc Cancel"+palette.DimGrayClose)
+		lines = append(lines, ansiBold+"Keyboard: "+ansiReset+strings.Join(kbd, "  "))
 	}
 
 	return strings.Join(lines, "\n")
+}
+
+func (p *Panel) kbdHint(key, desc string) string {
+	return palette.BlueOpen + key + palette.BlueClose + " " + palette.DimGrayOpen + desc + palette.DimGrayClose
 }

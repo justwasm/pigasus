@@ -207,6 +207,9 @@ type resources struct {
 // folder is one folder a project covers.
 type folder struct {
 	FolderURI string `json:"folderUri"`
+	GitFolder *struct {
+		FolderURI string `json:"folderUri"`
+	} `json:"gitFolder,omitempty"`
 }
 
 // storeDir is the reference's project directory.
@@ -348,8 +351,13 @@ func ListLocalProjects(home string) ([]LocalProject, error) {
 			var folders []string
 			for _, r := range p.ProjectResources.Resources {
 				uri := r.FolderURI
+				if uri == "" && r.GitFolder != nil {
+					uri = r.GitFolder.FolderURI
+				}
 				path := strings.TrimPrefix(uri, "file://")
-				folders = append(folders, path)
+				if path != "" {
+					folders = append(folders, path)
+				}
 			}
 			list = append(list, LocalProject{
 				ID:      p.ID,
