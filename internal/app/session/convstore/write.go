@@ -328,6 +328,11 @@ func WriteConversation(path, trajectoryID string, steps []Step) error {
 	_, _ = sdb.Exec(`CREATE INDEX IF NOT EXISTS idx_steps_status ON steps(status)`)
 	_, _ = sdb.Exec(`CREATE INDEX IF NOT EXISTS idx_steps_step_type ON steps(step_type)`)
 	_, _ = sdb.Exec(`CREATE TABLE IF NOT EXISTS trajectory_metadata_blob (id text DEFAULT "main", data blob, PRIMARY KEY (id))`)
+	_, _ = sdb.Exec(`CREATE TABLE IF NOT EXISTS gen_metadata (idx integer, data blob, size integer NOT NULL DEFAULT 0, PRIMARY KEY (idx))`)
+	_, _ = sdb.Exec(`CREATE TABLE IF NOT EXISTS executor_metadata (idx integer, data blob, PRIMARY KEY (idx))`)
+	_, _ = sdb.Exec(`CREATE TABLE IF NOT EXISTS parent_references (idx integer, data blob, PRIMARY KEY (idx))`)
+	_, _ = sdb.Exec(`CREATE TABLE IF NOT EXISTS battle_mode_infos (idx integer, data blob, PRIMARY KEY (idx))`)
+	_, _ = sdb.Exec(`PRAGMA user_version = 1`)
 	if trajectoryID != "" {
 		_, _ = sdb.Exec(`INSERT INTO trajectory_metadata_blob (id, data) VALUES ('main', ?)
 			ON CONFLICT(id) DO NOTHING`, encodeTrajectoryMetadata(trajectoryID, ""))

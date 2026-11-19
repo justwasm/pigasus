@@ -842,7 +842,7 @@ func (m *RootModel) buildStatusLinePayload() statusline.Payload {
 		Model:                    m.session.model,
 		Effort:                   m.currentEffortName(),
 		AgentName:                m.session.agentName,
-		CycleMode:                m.statusModeLabel(),
+		CycleMode:                m.cycleModeLabel(),
 		PlanTier:                 m.session.tier,
 		Email:                    m.session.email,
 		TerminalWidth:            m.viewport.width,
@@ -1285,10 +1285,16 @@ func (m *RootModel) codesearchSendComments(text string) tea.Cmd {
 }
 
 // Model
-// statusModeLabel is the agent mode the built-in status row and the status
-// line's `cycle_mode` name — the mode's own word, or "" while the session
-// has no configured mode.
+// statusModeLabel is the agent mode the built-in status row displays:
+// "auto", "plan", "accept-edits", or "" while the session has no configured mode.
 func (m *RootModel) statusModeLabel() string {
+	return strings.TrimSpace(m.session.mode)
+}
+
+// cycleModeLabel is the agent mode reported in the external statusline JSON
+// script's `cycle_mode` field — omitted when the session runs in the mode it
+// started in.
+func (m *RootModel) cycleModeLabel() string {
 	return modeLabelFrom(m.session.mode, m.session.startMode)
 }
 
@@ -1303,7 +1309,7 @@ func modeLabelFrom(mode, start string) string {
 // promptPlaceholder is the composer's placeholder for a session: the live
 // mode's banner.
 func (m *RootModel) promptPlaceholder(mode string) string {
-	return permissions.ModeBanner(modeLabelFrom(mode, m.session.startMode))
+	return permissions.ModeBanner(strings.TrimSpace(mode))
 }
 
 func (m *RootModel) ApplyModel(label string) {

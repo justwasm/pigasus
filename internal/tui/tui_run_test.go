@@ -1555,6 +1555,29 @@ func TestShiftTab_StatusLineReflects(t *testing.T) {
 	}
 }
 
+// TestAutoMode_StartupStatusRowAndPlaceholder pins the reference's startup
+// behavior in default auto mode (AGY 1.5.12): the status row displays "auto · <model>"
+// and the composer displays AutoBanner even when startMode == mode == "auto".
+func TestAutoMode_StartupStatusRowAndPlaceholder(t *testing.T) {
+	policy := permissions.Policy{Mode: permissions.ModeAuto}
+	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/", true)
+	m.session.policy = &policy
+	m.session.mode = policy.Mode
+	m.session.startMode = policy.Mode
+	m.session.statusModel = "Gemini 3.8 Flash"
+	m.prompt.input.Placeholder = m.promptPlaceholder(m.session.mode)
+
+	if got := m.statusModeLabel(); got != "auto" {
+		t.Errorf("statusModeLabel() = %q, want %q", got, "auto")
+	}
+	if got := m.prompt.input.Placeholder; got != permissions.AutoBanner {
+		t.Errorf("composer placeholder = %q, want AutoBanner", got)
+	}
+	if row := plainRow(m.statusRow()); !strings.Contains(row, "auto · Gemini 3.8 Flash") {
+		t.Errorf("status row = %q, want it to contain %q", row, "auto · Gemini 3.8 Flash")
+	}
+}
+
 // TestModeHintHidesAfterEdit pins the reference's placeholder lifetime
 // (agy 1.4.3, 200x40): the cue is shown at startup and after Shift+Tab,
 // and any keystroke in the textarea removes it for good — emptying the

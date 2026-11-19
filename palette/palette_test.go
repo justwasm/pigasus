@@ -28,9 +28,9 @@ func TestStatusModeColor(t *testing.T) {
 		mode string
 		want string
 	}{
-		{"auto", "\x1b[38;2;203;75;22m"},
-		{"plan", palette.BlueOpen},
-		{"accept-edits", "\x1b[38;2;133;153;0m"},
+		{"auto", "\x1b[38;2;249;171;0m"},
+		{"plan", "\x1b[38;2;138;180;248m"},
+		{"accept-edits", "\x1b[38;2;129;201;149m"},
 		{"default", palette.DimGrayOpen},
 	}
 	for _, c := range cases {

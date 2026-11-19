@@ -549,11 +549,11 @@ func (c *checkpointTestClient) Stream(ctx context.Context, req backend.StreamReq
 			out <- backend.StreamChunk{
 				ToolCalls: []backend.ToolCall{{ID: fmt.Sprintf("c%d", c.calls), Name: "noop", Arguments: []byte("{}")}},
 			}
-			out <- backend.StreamChunk{Done: true, Meta: &backend.ChunkMeta{PromptTokens: 10, CompletionTokens: 1}}
+			out <- backend.StreamChunk{Done: true}
 			return
 		}
 		out <- backend.StreamChunk{Text: "Hello there!"}
-		out <- backend.StreamChunk{Done: true, Meta: &backend.ChunkMeta{PromptTokens: 10, CompletionTokens: 1}}
+		out <- backend.StreamChunk{Done: true}
 	}()
 	return out, nil
 }

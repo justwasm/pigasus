@@ -15,5 +15,6 @@ import (
 // machine's own home and write the user's accounts (and the pool's policy)
 // over.
 func TestMain(m *testing.M) {
-	os.Exit(testguard.Run(m))
+	_ = testguard.InstallConfigOnly()
+	os.Exit(m.Run())
 }

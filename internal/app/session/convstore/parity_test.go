@@ -236,7 +236,8 @@ func TestParity_AgyResumesPigasusDB(t *testing.T) {
 		},
 	}
 
-	if err := SaveConversation(convID, "/Users/gear/GitHub/openagy", steps); err != nil {
+	cwd, _ := os.Getwd()
+	if err := SaveConversation(convID, cwd, steps); err != nil {
 		t.Fatalf("SaveConversation failed: %v", err)
 	}
 
@@ -320,7 +321,8 @@ func TestParity_AgyResumesMultiTurnPigasusDB(t *testing.T) {
 		{Idx: 5, Type: StepModelResponse, Status: 3, Text: "Turn 2 reply: here are the directories."},
 	}
 
-	if err := SaveConversation(convID, "/Users/gear/GitHub/openagy", steps); err != nil {
+	cwd, _ := os.Getwd()
+	if err := SaveConversation(convID, cwd, steps); err != nil {
 		t.Fatalf("SaveConversation failed: %v", err)
 	}
 
@@ -512,4 +514,3 @@ func TestParity_NonDestructiveStoragePreservesRawBlobs(t *testing.T) {
 		t.Errorf("RawMetadata was overwritten/corrupted! got %x, want %x", gotMeta, fakeCustomMetadata)
 	}
 }
-
