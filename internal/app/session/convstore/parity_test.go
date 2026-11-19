@@ -209,8 +209,12 @@ func TestParity_AgyResumesPigasusDB(t *testing.T) {
 
 	convID := "test-pigasus-agy-e2e"
 	dbPath := filepath.Join(os.ExpandEnv("$HOME/.gemini/antigravity-cli/conversations"), convID+".db")
+	_ = DeleteConversation(convID)
 	_ = os.Remove(dbPath)
-	defer os.Remove(dbPath)
+	defer func() {
+		_ = DeleteConversation(convID)
+		_ = os.Remove(dbPath)
+	}()
 
 	steps := []Step{
 		{
@@ -301,8 +305,12 @@ func TestParity_AgyResumesMultiTurnPigasusDB(t *testing.T) {
 
 	convID := "test-pigasus-agy-multiturn"
 	dbPath := filepath.Join(os.ExpandEnv("$HOME/.gemini/antigravity-cli/conversations"), convID+".db")
+	_ = DeleteConversation(convID)
 	_ = os.Remove(dbPath)
-	// defer os.Remove(dbPath)
+	defer func() {
+		_ = DeleteConversation(convID)
+		_ = os.Remove(dbPath)
+	}()
 
 	steps := []Step{
 		// Turn 1
@@ -362,6 +370,144 @@ func TestParity_AgyResumesMultiTurnPigasusDB(t *testing.T) {
 	// Verify both tool blocks are visible
 	if !bytes.Contains(lastPane, []byte("Bash(git status)")) || !bytes.Contains(lastPane, []byte("Bash(ls -la internal)")) {
 		t.Errorf("Expected both tool steps in visible pane, got:\n%s", string(lastPane))
+	}
+}
+
+func findRepoRoot(t *testing.T) string {
+	t.Helper()
+	dir, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	for {
+		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
+			return dir
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			t.Fatal("could not find repo root with go.mod")
+		}
+		dir = parent
+	}
+}
+
+func TestParity_BidirectionalInteractiveResume(t *testing.T) {
+	agyBin := "/Users/gear/.local/bin/agy"
+	if _, err := os.Stat(agyBin); err != nil {
+		t.Skip("official agy binary not found, skipping live TUI test")
+	}
+	pigasusBin := filepath.Join(findRepoRoot(t), "bin", "pigasus")
+	if _, err := os.Stat(pigasusBin); err != nil {
+		t.Skip("pigasus binary not found, skipping live TUI test")
+	}
+
+	convID := "test-pigasus-agy-bidirectional"
+	agyHome := os.ExpandEnv("$HOME/.gemini/antigravity-cli")
+	dbPath := filepath.Join(agyHome, "conversations", convID+".db")
+	_ = DeleteConversation(convID)
+	_ = os.Remove(dbPath)
+	defer func() {
+		_ = DeleteConversation(convID)
+		_ = os.Remove(dbPath)
+	}()
+
+	steps := []Step{
+		{Idx: 0, Type: StepUserInput, Status: 3, Text: "Turn 1: Check status"},
+		{Idx: 1, Type: StepToolCall, Status: 3, ToolName: "run_command",
+			ToolArgs:    `{"CommandLine":"git status"}`,
+			ToolResult:  "On branch main\nnothing to commit",
+			ToolSummary: "git status"},
+		{Idx: 2, Type: StepModelResponse, Status: 3, Text: "Turn 1: Working tree clean."},
+		{Idx: 3, Type: StepUserInput, Status: 3, Text: "Turn 2: Show version"},
+		{Idx: 4, Type: StepToolCall, Status: 3, ToolName: "run_command",
+			ToolArgs:    `{"CommandLine":"go version"}`,
+			ToolResult:  "go version go1.24 darwin/arm64",
+			ToolSummary: "go version"},
+		{Idx: 5, Type: StepModelResponse, Status: 3, Text: "Turn 2: Go compiler is ready."},
+	}
+
+	testDir := t.TempDir()
+	if err := SaveConversation(convID, testDir, steps); err != nil {
+		t.Fatalf("SaveConversation failed: %v", err)
+	}
+
+	// 1. Verify official AGY can resume
+	snameAgy := "test-tmux-bidir-agy"
+	_ = execCommand("tmux", "kill-session", "-t", snameAgy)
+	if err := execCommand("tmux", "new-session", "-d", "-s", snameAgy, "-c", testDir, "-x", "120", "-y", "40", agyBin+" --conversation="+convID); err != nil {
+		t.Fatalf("failed to start agy tmux: %v", err)
+	}
+	defer func() { _ = execCommand("tmux", "kill-session", "-t", snameAgy) }()
+
+	readyAgy := false
+	var lastPaneAgy []byte
+	for i := 0; i < 40; i++ {
+		time.Sleep(100 * time.Millisecond)
+		out, err := execCommandOutput("tmux", "capture-pane", "-p", "-S", "-", "-t", snameAgy)
+		if err == nil {
+			lastPaneAgy = out
+			if bytes.Contains(out, []byte("Do you trust")) {
+				_ = execCommand("tmux", "send-keys", "-t", snameAgy, "C-m")
+			}
+			if bytes.Contains(out, []byte("Go compiler is ready")) {
+				readyAgy = true
+				break
+			}
+		}
+	}
+	if !readyAgy {
+		t.Fatalf("Official agy failed to render conversation!\nLast pane:\n%s", string(lastPaneAgy))
+	}
+	if !bytes.Contains(lastPaneAgy, []byte("Bash(git status)")) || !bytes.Contains(lastPaneAgy, []byte("Bash(go version)")) {
+		t.Errorf("Tool steps not visible in agy pane:\n%s", string(lastPaneAgy))
+	}
+	_ = execCommand("tmux", "send-keys", "-t", snameAgy, "C-o")
+	time.Sleep(250 * time.Millisecond)
+	expAgy, _ := execCommandOutput("tmux", "capture-pane", "-p", "-S", "-", "-t", snameAgy)
+	if !bytes.Contains(expAgy, []byte("go1.24")) {
+		t.Errorf("Expanded agy pane missing 'go1.24':\n%s", string(expAgy))
+	}
+	_ = execCommand("tmux", "kill-session", "-t", snameAgy)
+
+	// 2. Verify Pigasus can resume the exact same conversation
+	snamePig := "test-tmux-bidir-pig"
+	_ = execCommand("tmux", "kill-session", "-t", snamePig)
+	if err := execCommand("tmux", "new-session", "-d", "-s", snamePig, "-c", testDir, "-x", "120", "-y", "40", pigasusBin+" --conversation="+convID); err != nil {
+		t.Fatalf("failed to start pigasus tmux: %v", err)
+	}
+	defer func() { _ = execCommand("tmux", "kill-session", "-t", snamePig) }()
+
+	readyPig := false
+	var lastPanePig []byte
+	for i := 0; i < 40; i++ {
+		time.Sleep(100 * time.Millisecond)
+		out, err := execCommandOutput("tmux", "capture-pane", "-p", "-S", "-", "-t", snamePig)
+		if err == nil {
+			lastPanePig = out
+			if bytes.Contains(out, []byte("Go compiler is ready")) {
+				readyPig = true
+				break
+			}
+		}
+	}
+	if !readyPig {
+		t.Fatalf("Pigasus failed to render conversation!\nLast pane:\n%s", string(lastPanePig))
+	}
+	if !bytes.Contains(lastPanePig, []byte("Bash(git status)")) || !bytes.Contains(lastPanePig, []byte("Bash(go version)")) {
+		t.Errorf("Tool steps not visible in pigasus pane:\n%s", string(lastPanePig))
+	}
+	_ = execCommand("tmux", "send-keys", "-t", snamePig, "C-o")
+	time.Sleep(250 * time.Millisecond)
+	expPig, _ := execCommandOutput("tmux", "capture-pane", "-p", "-S", "-", "-t", snamePig)
+	if !bytes.Contains(expPig, []byte("go1.24")) {
+		t.Errorf("Expanded pigasus pane missing 'go1.24':\n%s", string(expPig))
+	}
+	_ = execCommand("tmux", "kill-session", "-t", snamePig)
+
+	// 3. Verify --continue / -c resolution
+	resID := LookupLastConversation(testDir)
+	if resID != convID {
+		t.Errorf("LookupLastConversation(%s) = %q, want %q", testDir, resID, convID)
 	}
 }
 
