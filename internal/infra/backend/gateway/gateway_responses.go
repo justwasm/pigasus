@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
 	"strings"
 
 	"github.com/justwasm/pigasus/geminicode"
@@ -309,6 +310,9 @@ func (c *GatewayClient) readResponsesBody(ctx context.Context, resp *http.Respon
 }
 
 func (c *GatewayClient) handleResponsesSSELine(ctx context.Context, line string, tracker *responsesToolTracker, meta **backend.ChunkMeta, externalModel string, out chan<- backend.StreamChunk) (bool, error) {
+	if os.Getenv("DEBUG_RESPONSES") == "1" {
+		fmt.Fprintf(os.Stderr, "[RESPONSES LINE] %s\n", line)
+	}
 	if !strings.HasPrefix(line, "data:") {
 		return false, nil
 	}

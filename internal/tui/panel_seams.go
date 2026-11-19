@@ -2180,11 +2180,23 @@ func (m *RootModel) closePanel() tea.Cmd {
 	notice := m.overlays.panel.kind.ExitNotice()
 	m.overlays.panel.csp.Cancel()
 	m.overlays.panel = slashPanel{}
-	m.reloadVimSettings()
+	m.reloadConfigSettings()
 	if notice && cmd != "" {
 		m.conversation.response = append(m.conversation.response, tuilib.SlashEchoLines(cmd, "Exited "+cmd+" command")...)
 	}
 	return nil
+}
+
+func (m *RootModel) reloadConfigSettings() {
+	m.reloadVimSettings()
+	if cliflags.StringValue(m.session.flags, "mode") == "" {
+		if raw, err := settings.Field("agentMode"); err == nil {
+			mode := configpanel.RawString(raw)
+			m.session.mode = mode
+			m.session.policy.Mode = mode
+			m.prompt.input.Placeholder = m.promptPlaceholder(mode)
+		}
+	}
 }
 
 func (m *RootModel) closePanelSilent() tea.Cmd {
@@ -2195,7 +2207,7 @@ func (m *RootModel) closePanelSilent() tea.Cmd {
 	}
 	m.overlays.panel.csp.Cancel()
 	m.overlays.panel = slashPanel{}
-	m.reloadVimSettings()
+	m.reloadConfigSettings()
 	return nil
 }
 

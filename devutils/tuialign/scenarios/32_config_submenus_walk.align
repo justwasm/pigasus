@@ -1,0 +1,55 @@
+NAME "Config Panel Submenu Interaction Walk"
+WINDOW 100 30
+TARGET both
+
+BOOT_BOTH
+WAIT_READY 10s
+
+# Type /config and open panel
+TYPE "/config"
+ENTER
+SLEEP 500ms
+SNAPSHOT "01_config_open"
+
+# Press Enter to open submenu on Agent Mode (first row)
+ENTER
+SLEEP 300ms
+SNAPSHOT "02_agent_mode_submenu_open"
+
+# Navigate down in submenu options
+KEYS "Down"
+SLEEP 300ms
+SNAPSHOT "03_agent_mode_submenu_navigated"
+
+# Press Enter to commit choice and close submenu
+ENTER
+SLEEP 300ms
+SNAPSHOT "04_agent_mode_submenu_closed"
+
+# Cycle value in-place with Right arrow
+KEYS "Right"
+SLEEP 300ms
+
+# Navigate down to next row (Animation Speed)
+KEYS "Down"
+SLEEP 300ms
+
+# Open Animation Speed submenu
+ENTER
+SLEEP 300ms
+SNAPSHOT "05_animation_speed_submenu_open"
+
+# Dismiss submenu with Escape
+KEYS "Escape"
+SLEEP 300ms
+SNAPSHOT "06_animation_speed_submenu_dismissed"
+
+# Escape back to main view
+KEYS "Escape"
+SLEEP 500ms
+SNAPSHOT "07_config_closed"
+
+EXPECT_TEXT "Exited /config command" 5s
+
+DIFF
+CLEANUP

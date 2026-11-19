@@ -144,6 +144,7 @@ type printTurnState struct {
 	deadline      time.Time
 	textRouter    *printTextRouter
 	sanitizer     *agentturn.Sanitizer
+	emittedActive bool
 }
 
 // DurationSeconds returns how long the turn ran, in seconds — the value the
@@ -440,6 +441,7 @@ func handlePrintChunkText(w, out io.Writer, text string, cfg *printRunConfig, st
 		return err
 	}
 	if cfg.format == printFormatStreamJSON && sanitized != "" {
+		st.emittedActive = true
 		_ = writeJSONLine(w, jsonStreamEvent{
 			Event: streamEventStepUpdate,
 			StepUpdate: &jsonStepUpdate{
@@ -653,7 +655,7 @@ func emitFinalStreamJSON(w io.Writer, fs *flag.FlagSet, cfg *printRunConfig, st 
 		// the tokens it spent. The doc's example carries the three on the
 		// `agent_response` step (`official-docs/cli/headless.md:144`).
 		update := newStepUpdate(cfg.conversationID, 1, stepType)
-		if cfg.format == printFormatStreamJSON {
+		if st.emittedActive {
 			update.TextDelta = "\n"
 		} else {
 			update.TextDelta = st.responseBuf.String()

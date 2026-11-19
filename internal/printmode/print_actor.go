@@ -472,7 +472,7 @@ func savePrintConversation(cfg actorPrintConfig, act *actor.Actor, reply string)
 			for _, tr := range newTurns {
 				// User step
 				userText := cfg.Prompt
-				if tr.Input != "" {
+				if userText == "" && tr.Input != "" {
 					userText = tr.Input
 				}
 				steps = append(steps, convstore.Step{

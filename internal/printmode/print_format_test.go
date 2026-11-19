@@ -409,7 +409,7 @@ func TestJSONStreamEventFieldOrder(t *testing.T) {
 					JSONSchema:     json.RawMessage(`{"type":"object"}`),
 				},
 			},
-			want: `{"event":"init","conversation_id":"c","init":{"cwd":"/tmp","tools":["a"],"permission_mode":"request-review","model":"gemini-3-pro","agent":"reviewer","json_schema":{"type":"object"}}}`,
+			want: `{"event":"init","conversation_id":"c","init":{"model":"gemini-3-pro","cwd":"/tmp","tools":["a"],"permission_mode":"request-review","agent":"reviewer","json_schema":{"type":"object"}}}`,
 		},
 		{
 			name: "step_update",

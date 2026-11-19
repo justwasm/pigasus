@@ -239,8 +239,8 @@ func TestRunStreamJSON_EndToEndEventLineFormatting(t *testing.T) {
 	}
 	lines := strings.Split(strings.TrimRight(output, "\n"), "\n")
 
-	if len(lines) != 4 {
-		t.Fatalf("expected 4 event lines, got %d. Output:\n%s", len(lines), output)
+	if len(lines) != 5 {
+		t.Fatalf("expected 5 event lines, got %d. Output:\n%s", len(lines), output)
 	}
 
 	// Verify line 1: init
@@ -292,7 +292,7 @@ func TestRunStreamJSON_EndToEndEventLineFormatting(t *testing.T) {
 		t.Errorf("line 2 step_index = %d, want 0", line2.StepUpdate.StepIndex)
 	}
 
-	// Verify line 3: step_update (agent_response)
+	// Verify line 3: step_update (agent_response ACTIVE)
 	var line3 struct {
 		Event      string `json:"event"`
 		StepUpdate struct {
@@ -304,7 +304,7 @@ func TestRunStreamJSON_EndToEndEventLineFormatting(t *testing.T) {
 		} `json:"step_update"`
 	}
 	if err := json.Unmarshal([]byte(lines[2]), &line3); err != nil {
-		t.Fatalf("line 3 (step_update agent_response) invalid json: %v. Line: %s", err, lines[2])
+		t.Fatalf("line 3 (step_update agent_response ACTIVE) invalid json: %v. Line: %s", err, lines[2])
 	}
 	if line3.Event != "step_update" {
 		t.Errorf("line 3 event = %q, want step_update", line3.Event)
@@ -312,15 +312,36 @@ func TestRunStreamJSON_EndToEndEventLineFormatting(t *testing.T) {
 	if line3.StepUpdate.StepType != "agent_response" {
 		t.Errorf("line 3 step_type = %q, want agent_response", line3.StepUpdate.StepType)
 	}
-	if line3.StepUpdate.StepIndex != 1 {
-		t.Errorf("line 3 step_index = %d, want 1", line3.StepUpdate.StepIndex)
+	if line3.StepUpdate.State != "ACTIVE" {
+		t.Errorf("line 3 state = %q, want ACTIVE", line3.StepUpdate.State)
 	}
 	if line3.StepUpdate.TextDelta != "orange\n" {
 		t.Errorf("line 3 text_delta = %q, want %q", line3.StepUpdate.TextDelta, "orange\n")
 	}
 
-	// Verify line 4: result
+	// Verify line 4: step_update (agent_response DONE)
 	var line4 struct {
+		Event      string `json:"event"`
+		StepUpdate struct {
+			ConversationID string `json:"conversation_id"`
+			StepIndex      int    `json:"step_index"`
+			State          string `json:"state"`
+			StepType       string `json:"step_type"`
+			TextDelta      string `json:"text_delta"`
+		} `json:"step_update"`
+	}
+	if err := json.Unmarshal([]byte(lines[3]), &line4); err != nil {
+		t.Fatalf("line 4 (step_update agent_response DONE) invalid json: %v. Line: %s", err, lines[3])
+	}
+	if line4.Event != "step_update" {
+		t.Errorf("line 4 event = %q, want step_update", line4.Event)
+	}
+	if line4.StepUpdate.State != "DONE" {
+		t.Errorf("line 4 state = %q, want DONE", line4.StepUpdate.State)
+	}
+
+	// Verify line 5: result
+	var line5 struct {
 		Event  string `json:"event"`
 		Result struct {
 			ConversationID  string    `json:"conversation_id"`
@@ -331,20 +352,20 @@ func TestRunStreamJSON_EndToEndEventLineFormatting(t *testing.T) {
 			Usage           jsonUsage `json:"usage"`
 		} `json:"result"`
 	}
-	if err := json.Unmarshal([]byte(lines[3]), &line4); err != nil {
-		t.Fatalf("line 4 (result) invalid json: %v. Line: %s", err, lines[3])
+	if err := json.Unmarshal([]byte(lines[4]), &line5); err != nil {
+		t.Fatalf("line 5 (result) invalid json: %v. Line: %s", err, lines[4])
 	}
-	if line4.Event != "result" {
-		t.Errorf("line 4 event = %q, want result", line4.Event)
+	if line5.Event != "result" {
+		t.Errorf("line 5 event = %q, want result", line5.Event)
 	}
-	if line4.Result.Status != "SUCCESS" {
-		t.Errorf("line 4 result.status = %q, want SUCCESS", line4.Result.Status)
+	if line5.Result.Status != "SUCCESS" {
+		t.Errorf("line 5 result.status = %q, want SUCCESS", line5.Result.Status)
 	}
-	if line4.Result.Response != "orange\n" {
-		t.Errorf("line 4 result.response = %q, want %q", line4.Result.Response, "orange\n")
+	if line5.Result.Response != "orange\n" {
+		t.Errorf("line 5 result.response = %q, want %q", line5.Result.Response, "orange\n")
 	}
-	if line4.Result.NumTurns != 1 {
-		t.Errorf("line 4 result.num_turns = %d, want 1", line4.Result.NumTurns)
+	if line5.Result.NumTurns != 1 {
+		t.Errorf("line 5 result.num_turns = %d, want 1", line5.Result.NumTurns)
 	}
 }
 

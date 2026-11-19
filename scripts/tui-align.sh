@@ -13,4 +13,5 @@ if [ ! -f "$pigasus_bin" ] || [ "${FORCE_BUILD:-0}" = "1" ]; then
   (cd "$ROOT_DIR" && mkdir -p "$(dirname "$pigasus_bin")" && go build -o "$pigasus_bin" ./cmd/pigasus)
 fi
 
+export PIGASUS_BIN="$pigasus_bin"
 exec go run "$ROOT_DIR/devutils/tuialign" "$@"
