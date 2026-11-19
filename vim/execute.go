@@ -36,15 +36,16 @@ func (s *State) executeEdit(c command) (Result, bool) {
 func (s *State) executeVisual(c command) Result {
 	switch c.kind {
 	case cmdVisDelete:
-		s.pushUndo(false)
 		st, en, lw := s.visualRange()
+		s.recordUndo(snapshot{copyLines(s.Lines), st.row, st.col})
 		s.deleteRange(st, en, lw)
 		s.Mode = Normal
 		s.dropNoopUndo()
 	case cmdVisChange:
-		s.pushUndo(false)
 		st, en, lw := s.visualRange()
+		s.recordUndo(snapshot{copyLines(s.Lines), st.row, st.col})
 		s.changeRange(st, en, lw)
+		s.undoOpen = true
 		s.dropNoopUndo()
 	case cmdVisYank:
 		st, en, lw := s.visualRange()
@@ -151,12 +152,13 @@ func (s *State) runOperator(c command) {
 	case 'y':
 		s.yank(start, end, linewise)
 	case 'd':
-		s.pushUndo(false)
+		s.recordUndo(snapshot{copyLines(s.Lines), start.row, start.col})
 		s.deleteRange(start, end, linewise)
 		s.dropNoopUndo()
 	case 'c':
-		s.pushUndo(false)
+		s.recordUndo(snapshot{copyLines(s.Lines), start.row, start.col})
 		s.changeRange(start, end, linewise)
+		s.undoOpen = true
 		s.dropNoopUndo()
 	}
 }
@@ -271,10 +273,11 @@ func (s *State) deleteToEnd(change bool) {
 	if s.Col >= len(rl) {
 		if change {
 			s.Mode = Insert
+			s.undoOpen = true
 		}
 		return
 	}
-	s.pushUndo(false)
+	s.recordUndo(snapshot{copyLines(s.Lines), s.Row, s.Col})
 	s.register = string(rl[s.Col:])
 	s.registerLinewise = false
 	s.Lines[s.Row] = string(rl[:s.Col])
@@ -285,6 +288,7 @@ func (s *State) deleteToEnd(change bool) {
 		s.Mode = Insert
 		s.Col = s.lineLen(s.Row)
 		s.desiredCol = s.Col
+		s.undoOpen = true
 		return
 	}
 	s.clampCursor()

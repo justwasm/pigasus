@@ -2,6 +2,8 @@ package clirunner_test
 
 import (
 	"bytes"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -117,6 +119,30 @@ func TestRun_MultiCallBinaryACP(t *testing.T) {
 			}
 			if !foundModel {
 				t.Errorf("expected --model custom-model in captured args: %v", captured.RawArgs)
+			}
+		})
+	}
+}
+
+func TestRun_AgyVersionDispatches(t *testing.T) {
+	tmpDir := t.TempDir()
+	mockBin := filepath.Join(tmpDir, "mock-agy")
+	script := "#!/bin/sh\nif [ \"$1\" = \"--version\" ]; then echo '1.5.11'; exit 0; fi\nexit 0\n"
+	if err := os.WriteFile(mockBin, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Setenv("AGY_REAL_BIN", mockBin)
+	t.Setenv("AGY_NO_AUTO_DOWNLOAD", "1")
+	binDir := filepath.Join(tmpDir, "openagy", "bin")
+	_ = os.MkdirAll(binDir, 0o755)
+	t.Setenv("XDG_CACHE_HOME", tmpDir)
+
+	for _, sub := range []string{"agy", "agy@1.5.11", "agy@latest", "agy@v1.5.11"} {
+		t.Run(sub, func(t *testing.T) {
+			code := clirunner.Run([]string{"pigasus", sub, "--version"})
+			if code != 0 {
+				t.Errorf("clirunner.Run([pigasus, %s, --version]) exit code = %d, want 0", sub, code)
 			}
 		})
 	}

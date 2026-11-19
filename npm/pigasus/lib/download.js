@@ -155,7 +155,9 @@ async function ensureBinary(version) {
 
   const platformInfo = getPlatformInfo();
   const cacheDir = getCacheDir();
-  const binaryFileName = `pigasus-${binaryVersion}-${platformInfo.os}-${platformInfo.arch}`;
+  const binaryFileName = platformInfo.os === 'Windows'
+    ? `pigasus-${binaryVersion}-${platformInfo.os}-${platformInfo.arch}.exe`
+    : `pigasus-${binaryVersion}-${platformInfo.os}-${platformInfo.arch}`;
   const targetBinaryPath = path.join(cacheDir, binaryFileName);
 
   // If cached and executable, return immediately
@@ -237,14 +239,31 @@ async function ensureBinary(version) {
       }
     }
 
-    // Extract using system tar
+    // Extract using system tar or powershell Expand-Archive on Windows
     fs.mkdirSync(tmpExtractDir, { recursive: true });
-    await new Promise((resolve, reject) => {
-      execFile('tar', ['-xzf', tmpArchive, '-C', tmpExtractDir], (err) => {
-        if (err) return reject(new Error(`Failed to extract tar archive: ${err.message}`));
-        resolve();
+    if (archiveName.endsWith('.zip')) {
+      await new Promise((resolve, reject) => {
+        execFile('tar', ['-xf', tmpArchive, '-C', tmpExtractDir], (err) => {
+          if (!err) return resolve();
+          // Fall back to powershell Expand-Archive if tar fails
+          execFile(
+            'powershell',
+            ['-NoProfile', '-NonInteractive', '-Command', `Expand-Archive -Path '${tmpArchive}' -DestinationPath '${tmpExtractDir}' -Force`],
+            (psErr) => {
+              if (psErr) return reject(new Error(`Failed to extract zip archive: ${psErr.message}`));
+              resolve();
+            }
+          );
+        });
       });
-    });
+    } else {
+      await new Promise((resolve, reject) => {
+        execFile('tar', ['-xzf', tmpArchive, '-C', tmpExtractDir], (err) => {
+          if (err) return reject(new Error(`Failed to extract tar archive: ${err.message}`));
+          resolve();
+        });
+      });
+    }
 
     // Locate binary in extracted dir (supports flat or nested release archives)
     const extractedBinary = findBinary(tmpExtractDir, platformInfo.binaryName);

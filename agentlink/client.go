@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/coder/websocket"
+	ws "github.com/justwasm/pigasus/websocket"
 )
 
 // MaxFrameBytes is the largest frame the client accepts.
@@ -64,14 +65,14 @@ func Dial(ctx context.Context, url string, opts DialOptions) (*Client, error) {
 		ctx, cancel = context.WithTimeout(ctx, opts.HandshakeTimeout)
 		defer cancel()
 	}
-	dialOpts := &websocket.DialOptions{}
+	dialOpts := &ws.DialOptions{}
 	if opts.Token != "" {
 		dialOpts.HTTPHeader = http.Header{TokenHeader: []string{"Bearer " + opts.Token}}
 	}
 	if opts.HTTPClient != nil {
 		dialOpts.HTTPClient = opts.HTTPClient
 	}
-	conn, _, err := websocket.Dial(ctx, url, dialOpts)
+	conn, _, err := ws.Dial(ctx, url, dialOpts)
 	if err != nil {
 		return nil, fmt.Errorf("agentlink: cannot reach %s: %w", url, err)
 	}

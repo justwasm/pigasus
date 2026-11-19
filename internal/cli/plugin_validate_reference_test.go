@@ -379,15 +379,14 @@ func TestPluginValidate_UnknownFieldSuggestions(t *testing.T) {
 func TestPluginValidate_ByteOrderMarks(t *testing.T) {
 	const bom = "\ufeff"
 
-	// Manifest BOM: a specific error, no name, no summary.
-	root := newValidatePlugin(t, bom+`{"name":"bom"}`)
+	// AGY 1.5.11: plugin.json BOM is tolerated by the loader and validator.
+	root := newValidatePlugin(t, bom+`{"name":"bom","version":"1.0.0"}`)
 	out, stderr, code := runValidateRef(t, root)
-	if code != 1 || !strings.Contains(out, "starts with a UTF-8 byte order mark") ||
-		!strings.Contains(out, ". The loader skips this plugin") {
-		t.Errorf("manifest BOM: code=%d out=%q err=%q", code, out, stderr)
+	if code != 0 {
+		t.Errorf("manifest BOM in 1.5.11: code=%d out=%q err=%q", code, out, stderr)
 	}
-	if strings.Contains(out, "Validating bom (") {
-		t.Errorf("BOM manifest should not name the plugin:\n%s", out)
+	if !strings.Contains(out, "Validating bom (") {
+		t.Errorf("BOM manifest should name the plugin:\n%s", out)
 	}
 
 	// hooks.json BOM is a component error; mcp_config.json tolerates one.

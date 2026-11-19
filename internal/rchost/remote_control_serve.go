@@ -26,7 +26,6 @@ import (
 	"github.com/justwasm/pigasus/internal/rctunnel"
 	"github.com/justwasm/pigasus/internal/remotecontrol"
 	"github.com/justwasm/pigasus/internal/remotecontrol/cascades"
-	"github.com/justwasm/pigasus/internal/voice"
 	"github.com/justwasm/pigasus/originpolicy"
 	"github.com/justwasm/pigasus/rcmesh"
 	_ "github.com/justwasm/pigasus/rcmesh/pion"
@@ -379,10 +378,7 @@ func startServeServer(disp *remotecontrol.Dispatcher, addr, token string) (*remo
 		AccountEmail:       activeAccount,
 		CSRFToken:          token,
 	})
-	voiceSvc := voice.NewService(voice.Config{
-		WorkspaceDir: cwd,
-		CSRFToken:    token,
-	})
+	voiceSvc := buildHostVoiceService(cwd, token)
 	srv, err := remotetransport.NewTCPServer(context.Background(), disp, remotetransport.TCPConfig{
 		Addr:         addr,
 		Path:         "/rpc",

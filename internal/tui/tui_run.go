@@ -537,6 +537,11 @@ func runLiveTUI(w io.Writer, fs *flag.FlagSet) error {
 		if err != nil || shouldExit {
 			return err
 		}
+		if !auth.HasKeychainToken() {
+			if tok, email := accounts.Current(); email != "" && tok != nil {
+				_, _ = accounts.Activate(context.Background(), email)
+			}
+		}
 		if err := checkStartupAuthGate(fs); err != nil {
 			return err
 		}

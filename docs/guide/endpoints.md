@@ -196,6 +196,36 @@ The dead `var`s in `internal/features/auth/oauth.go` (`IamCredsURL`, `AICodeAPI`
 *duplicate* a live default (`CloudCodeAPI`, `CloudCodeDaily`, `GeminiAPI`)
 are aliases of the endpoint package's constants, so the two cannot drift.
 
+## Discovered Reference Endpoints and OAuth Identities
+
+Reverse engineering of the official binary (`jetski/cortex`, versions 1.3.3 through 1.5.11) identified the complete set of Google-internal and public endpoints, client IDs, and OAuth scopes used across the CLI and Code Assist client:
+
+### Discovered Service Hosts
+
+| Service / Purpose | Host URL | Description |
+|---|---|---|
+| Code Assist Public (Prod) | `https://cloudcode-pa.googleapis.com` | Production Code Assist gateway (`CloudCodeAPI`) |
+| Code Assist Daily | `https://daily-cloudcode-pa.googleapis.com` | Staging/daily gateway used for consumer accounts (`CloudCodeDaily`) |
+| Code Assist Sandbox | `https://autopush-cloudcode-pa.sandbox.googleapis.com` | Internal Google autopush sandbox (`CloudCodeStage`) |
+| AI Code License Management | `https://aicode.googleapis.com` | ManagementService RPCs (`FetchLicenses`) (`AICodeAPI`) |
+| OAuth2 Device Code | `https://oauth2.googleapis.com/device/code` | Device flow challenge endpoint |
+| OAuth2 Token (Standard) | `https://oauth2.googleapis.com/token` | Standard OAuth token exchange and refresh |
+| OAuth2 Token (mTLS) | `https://oauth2.mtls.googleapis.com/token` | Enterprise mTLS token endpoint |
+| GCP IAM Credentials | `https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/...` | ADC service account impersonation (`IamCredsURL`) |
+| Generative Language API | `https://generativelanguage.googleapis.com` | Gemini developer API endpoint (`GeminiAPI`) |
+
+### Discovered OAuth Client IDs & Scopes
+
+- **OAuth Client ID 1 (CLI / Public Antigravity):**
+  `1071006060591-tmhssin2h21lcre235vtolojh4g403ep.apps.googleusercontent.com`
+- **OAuth Client ID 2 (IDE / Internal):**
+  `884354919052-36trc1jjb3tguiac32ov6cod268c5blh.apps.googleusercontent.com`
+- **OAuth Scopes:**
+  - `https://www.googleapis.com/auth/cloud-platform`
+  - `https://www.googleapis.com/auth/cclog`
+  - `https://www.googleapis.com/auth/aicode`
+  - `https://www.googleapis.com/auth/drive.readonly` (and drive related scopes)
+
 ## Reports
 
 `docs/cycles/cycle-351-configurable-endpoints/deliverable.md`,

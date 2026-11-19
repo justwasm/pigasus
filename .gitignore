@@ -28,6 +28,7 @@ jdk/README.md
 # Downloaded artifacts
 install/
 ghidra/
+.cache/
 *.tar.gz
 *.zip
 package.json
@@ -66,7 +67,9 @@ out/local-macos/gosrc/
 # /go-recovered/internal/tools/git.go
 /antigravity
 internal/tools/.finished
+# Built binaries directory
 /bin/
+bin/
 
 # Per-session scratchpad (fails to build against current bubbletea)
 scratch/
@@ -83,11 +86,13 @@ out/local-macos/xref/xrefs.tsv
 
 # Local Ghidra run against the IDE language server (the committed seeds stay;
 # the project and the decompile dumps are local)
-out/ide-language-server/proj/
-out/ide-language-server/proj-*/
-out/ide-language-server/dec/
-out/ide-language-server/dec-cli/
-out/ide-language-server/ghidra-snapshot.json
+out/ide-language-server*/proj/
+out/ide-language-server*/proj-*/
+out/ide-language-server*/dec/
+out/ide-language-server*/dec-cli/
+out/ide-language-server*/decompile-*.md
+out/ide-language-server*/web-assets/
+out/ide-language-server*/ghidra-snapshot.json
 
 # Local debug scratch test (not part of the suite)
 cmd/pigasus/inspect_hometest_test.go
@@ -104,4 +109,6 @@ __pycache__/
 
 # The clone's own runtime artifacts (the browser tool's screenshots)
 .pigasus/
+.crush/
+.freebuff/
 

@@ -132,6 +132,13 @@ Each individual hook handler object supports:
 *   **`timeout`** (int, optional): Execution timeout in seconds. Defaults to
     `30`.
 
+Command hooks that ship with a plugin also get `PLUGIN_ROOT` (the plugin
+directory) and, for installed plugins, `PLUGIN_DATA` (the plugin's persistent
+data directory) as environment variables, the same paths the plugin's MCP
+servers get. They are not substituted into `command`: hooks run in the plugin
+folder, so refer to bundled files with a relative path, and use the variables
+for the rest, e.g. `"command": "./hooks/check.sh --cache \"$PLUGIN_DATA\""`.
+
 --------------------------------------------------------------------------------
 
 ## Input/Output Contract
@@ -153,9 +160,15 @@ Every hook payload sent to `stdin` includes these common system metadata fields:
   "transcriptPath": "/path/to/workspace/.gemini/antigravity/transcript.jsonl",
   "artifactDirectoryPath": "/path/to/workspace/.gemini/antigravity/artifacts",
   "modelName": "auto",
-  "lastUserInput": "Fix the failing unit test"
+  "lastUserInput": "Fix the failing unit test",
+  "hookEventName": "PreToolUse",
+  "cwd": "/path/to/workspace"
 }
 ```
+
+`hookEventName` is the event being run, as written in `hooks.json`. `cwd` is the
+agent's working directory, where its commands run by default; it is not the hook
+process's working directory.
 
 > [!NOTE]
 > The `transcriptPath` and `artifactDirectoryPath` are product-specific. The
@@ -176,6 +189,7 @@ Use to gate, block, or audit tool executions.
     ```json
     {
       "toolCall": {
+        "id": "toolu_01",
         "name": "run_command",
         "args": {
           "CommandLine": "npm test"
@@ -236,6 +250,7 @@ Use for post-execution cleanup, auto-fixes, or analysis.
     ```json
     {
       "toolCall": {
+        "id": "toolu_01", // Same id as in PreToolUse for this call
         "name": "run_command",
         "args": {
           "CommandLine": "npm test"
@@ -300,7 +315,9 @@ runs.
     {
       "injectSteps": [
         {
-          "ephemeralMessage": "Remember to check for lint errors before proposing changes."
+          "systemMessage": {
+            "systemMessage": "Remember to check for lint errors before proposing changes."
+          }
         }
       ],
       "terminationBehavior": ""
@@ -317,8 +334,8 @@ runs.
             collapsible "System Message" row, and the model sees only the
             `systemMessage` text (leave it `""` to send the model nothing).
         *   `{"userMessage": "..."}` (plain string)
-        *   `{"ephemeralMessage": "..."}` (plain string; transient message
-            dropped after the current turn)
+        *   `{"ephemeralMessage": "..."}` *(deprecated — use `systemMessage`
+            instead; converted to a hidden system message)*
         *   `{"errorMessage": {"userMessage": "..."}}` (shows an error message
             to the user without sending it to the model. Marks the turn as
             errored with a non-zero exit code in non-interactive `-p` mode, and
@@ -368,9 +385,14 @@ Use to prevent the agent from stopping if goals are not met.
       "terminationReason": "NO_TOOL_CALL", // e.g., "NO_TOOL_CALL", "MAX_INVOCATIONS", "ERROR", "USER_CANCELED", "TERMINAL_STEP_TYPE"
       "error": "", // Present if stopped due to error
       "fullyIdle": true, // true if all background tasks are done
+      "continuationActive": true, // true after a Stop hook kept the agent going this turn (executionNum > 0)
       ... (common fields)
     }
     ```
+    *   **`continuationActive`** (boolean): `true` while the agent is doing
+        work that a `Stop` hook asked for in this turn; `false` again once a
+        new user message starts a turn. Check it so a hook that asks the agent
+        to continue doesn't ask again in a loop.
     *   **`terminationReason`** (string): The `ExecutorTerminationReason` enum
         name with the `EXECUTOR_TERMINATION_REASON_` prefix stripped:
         *   `"NO_TOOL_CALL"`: Normal turn completion (model finished without

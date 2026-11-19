@@ -8,6 +8,7 @@ import (
 	"time"
 
 	persistentrc "github.com/justwasm/pigasus/internal/infra/remote/persistent"
+	"github.com/justwasm/pigasus/internal/testguard"
 )
 
 // TestMain points $ANTIGRAVITY_HOME at a scratch tree for the whole
@@ -37,6 +38,13 @@ import (
 // t.Setenv("ANTIGRAVITY_HOME", …) and are unaffected: t.Setenv
 // restores the value this function installed.
 func TestMain(m *testing.M) {
+	// The configuration files are pinned for the whole package, before any
+	// test runs: `config.json` and `accounts.json` — which carries the pool's
+	// policy — must never be the machine's own, even for a test whose own
+	// isolation has already been restored. $HOME and the AGY home are this
+	// function's own business (below).
+	testguard.InstallConfigOnly()
+
 	root, err := os.MkdirTemp("", "pigasus-cliapp-home-")
 	if err != nil {
 		panic(err)

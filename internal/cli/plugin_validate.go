@@ -372,7 +372,11 @@ func outputValidateHuman(j *JetskiCLI, res *validateResult, strict bool) error {
 // parsed.
 func writeValidateHuman(w io.Writer, res *validateResult) {
 	if res.ManifestOK {
-		fmt.Fprintf(w, "Validating %s (%s)\n", res.HeaderName, filepath.Join(res.HeaderPath, res.Report.Manifest))
+		if res.IsArchive && res.ArchiveSource != "" {
+			fmt.Fprintf(w, "Validating %s (%s in %s)\n", res.HeaderName, res.Report.Manifest, res.ArchiveSource)
+		} else {
+			fmt.Fprintf(w, "Validating %s (%s)\n", res.HeaderName, filepath.Join(res.HeaderPath, res.Report.Manifest))
+		}
 	} else {
 		fmt.Fprintf(w, "Validating %s\n", res.HeaderPath)
 	}
@@ -715,14 +719,17 @@ type validateReport struct {
 // validateResult bundles the report with the two pieces of state the human
 // writer needs but the JSON schema does not carry.
 type validateResult struct {
-	Report      *validateReport
-	ManifestOK  bool // manifest parsed: header names it, summary line prints
-	HeaderName  string
-	HeaderPath  string
-	Strict      bool
-	ErrorCount  int
-	WarnCount   int
-	ColorOutput bool
+	Report        *validateReport
+	ManifestOK    bool // manifest parsed: header names it, summary line prints
+	HeaderName    string
+	HeaderPath    string
+	Strict        bool
+	ErrorCount    int
+	WarnCount     int
+	ColorOutput   bool
+	IsArchive     bool
+	ArchiveSource string
+	cleanup       func()
 }
 
 type validateFlags struct {
@@ -779,7 +786,10 @@ func runPluginValidateReference(j *JetskiCLI, args []string) error {
 		return nil
 	}
 
-	res := buildValidateResult(flags.path)
+	res := buildValidateResultWithOut(flags.path, j.Out)
+	if res.cleanup != nil {
+		defer res.cleanup()
+	}
 	res.Strict = flags.strict
 	res.ColorOutput = isTerminalWriter(j.Out)
 
@@ -832,9 +842,17 @@ func outputValidateJSON(j *JetskiCLI, res *validateResult, strict bool) error {
 // buildValidateResult resolves the path, parses the manifest, walks the
 // components, and returns the report plus the header/footer state.
 func buildValidateResult(inputPath string) *validateResult {
-	dir, manifestRel, errRes := resolveValidateDirAndManifest(inputPath)
+	return buildValidateResultWithOut(inputPath, nil)
+}
+
+func buildValidateResultWithOut(inputPath string, out io.Writer) *validateResult {
+	dir, manifestRel, isArchive, archiveSource, cleanup, errRes := resolveValidateSource(inputPath, out)
 	if errRes != nil {
 		return errRes
+	}
+	headerPath := dir
+	if isArchive && archiveSource != "" {
+		headerPath = archiveSource
 	}
 	res := &validateResult{
 		Report: &validateReport{
@@ -842,7 +860,10 @@ func buildValidateResult(inputPath string) *validateResult {
 			Manifest: filepath.ToSlash(manifestRel),
 			Findings: []validateFinding{},
 		},
-		HeaderPath: dir,
+		HeaderPath:    headerPath,
+		IsArchive:     isArchive,
+		ArchiveSource: archiveSource,
+		cleanup:       cleanup,
 	}
 	validateManifest(dir, manifestRel, res)
 	if !res.ManifestOK {
@@ -1418,15 +1439,7 @@ func validateManifest(dir, manifestRel string, res *validateResult) {
 		finaliseValidateResult(res)
 		return
 	}
-	if bytes.HasPrefix(raw, utf8BOM) {
-		rep.Findings = append(rep.Findings, validateFinding{
-			Severity: validateError,
-			File:     filepath.ToSlash(manifestRel),
-			Message:  "starts with a UTF-8 byte order mark, which the loader can't parse. Save the file without one. The loader skips this plugin",
-		})
-		finaliseValidateResult(res)
-		return
-	}
+	raw = bytes.TrimPrefix(raw, utf8BOM)
 	var generic map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &generic); err != nil {
 		rep.Findings = append(rep.Findings, validateFinding{

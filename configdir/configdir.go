@@ -55,6 +55,9 @@ func Dir() string {
 	if home := strings.TrimSpace(os.Getenv("HOME")); home != "" {
 		return filepath.Join(home, homeName)
 	}
+	if home, err := os.UserHomeDir(); err == nil && home != "" {
+		return filepath.Join(home, homeName)
+	}
 	return ""
 }
 

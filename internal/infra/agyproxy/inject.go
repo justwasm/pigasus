@@ -1,7 +1,9 @@
 package agyproxy
 
 import (
+	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -144,22 +146,56 @@ func capabilityEntry(m models.Model) map[string]any {
 	if limit <= 0 {
 		limit = 1048576
 	}
+	reserve := m.DefaultMaxTokens
+	if reserve <= 0 {
+		reserve = 8192
+	}
+	if reserve >= limit {
+		reserve = limit / 4
+		if reserve == 0 {
+			reserve = 1
+		}
+	}
 	apiProvider := "API_PROVIDER_GOOGLE_GEMINI"
 	modelProvider := "MODEL_PROVIDER_GOOGLE"
 	if !IsGoogleModel(m) && m.Provider != "" {
 		apiProvider = m.Provider
 		modelProvider = m.Provider
 	}
+	placeholder := Placeholder(m)
+
+	ckptConfig := map[string]any{
+		"strategy":                        "CHECKPOINT_STRATEGY_SAME_MODEL",
+		"max_token_limit":                 fmt.Sprintf("%d", limit),
+		"token_threshold":                 "50000",
+		"max_overhead_ratio":              "0.15",
+		"moving_window_size":              "1",
+		"enabled":                         true,
+		"max_output_tokens":               fmt.Sprintf("%d", reserve),
+		"checkpoint_model":                placeholder,
+		"use_last_planner_model":          true,
+		"is_sync":                         true,
+		"max_user_requests":               10,
+		"include_last_user_message":       true,
+		"include_conversation_log":        false,
+		"include_running_task_snapshots":  true,
+		"include_subagent_snapshots":      true,
+		"include_artifact_snapshots":      true,
+		"session_summary_prompt_override": "",
+		"use_model_reported_token_count":  true,
+	}
+	ckptBytes, _ := json.Marshal(ckptConfig)
+
 	return map[string]any{
 		"displayName":                displayName(m),
 		"description":                modelDescription(m),
 		"version":                    "1.0",
 		"recommended":                true,
 		"maxTokens":                  limit,
-		"maxOutputTokens":            8192,
+		"maxOutputTokens":            reserve,
 		"inputTokenLimit":            limit,
-		"outputTokenLimit":           8192,
-		"model":                      Placeholder(m),
+		"outputTokenLimit":           reserve,
+		"model":                      placeholder,
 		"apiProvider":                apiProvider,
 		"modelProvider":              modelProvider,
 		"tokenizerType":              "LLAMA_WITH_SPECIAL",
@@ -169,6 +205,13 @@ func capabilityEntry(m models.Model) map[string]any {
 		"temperature":                0.7,
 		"topP":                       0.9,
 		"topK":                       40,
+		"modelExperiments": map[string]any{
+			"experiments": map[string]any{
+				"CASCADE_USE_EXPERIMENT_CHECKPOINTER": map[string]any{
+					"stringValue": string(ckptBytes),
+				},
+			},
+		},
 	}
 }
 
@@ -389,41 +432,119 @@ func containsString(hay []any, needle string) bool {
 
 // ---- handlers ----------------------------------------------------------
 
+// hasUpstreamCatalog reports whether raw is a model catalogue the vendor
+// binary can use. `{}`, an empty models map, a bare error object and a
+// truncated body all fail: merging custom models into one of those would
+// produce a 200 that drops every upstream model id, and agy then answers
+// "unknown model key MODEL_PLACEHOLDER_M318: model not found" on the next
+// turn.
+func hasUpstreamCatalog(raw []byte) bool {
+	if len(bytes.TrimSpace(raw)) == 0 {
+		return false
+	}
+	doc := map[string]any{}
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		return false
+	}
+	switch models := doc["models"].(type) {
+	case []any:
+		return len(models) > 0
+	case map[string]any:
+		return len(models) > 0
+	}
+	return false
+}
+
+// rememberUpstreamModels keeps a successful catalogue for the life of the
+// proxy process. The body is copied: the caller's read buffer is not
+// retained.
+func (s *Server) rememberUpstreamModels(raw []byte) {
+	if s == nil {
+		return
+	}
+	s.modelsMu.Lock()
+	s.cachedModels = append([]byte(nil), raw...)
+	s.modelsMu.Unlock()
+}
+
+// lastGoodUpstreamModels returns the remembered catalogue, if any.
+func (s *Server) lastGoodUpstreamModels() []byte {
+	if s == nil {
+		return nil
+	}
+	s.modelsMu.RLock()
+	defer s.modelsMu.RUnlock()
+	return append([]byte(nil), s.cachedModels...)
+}
+
 // handleFetchAvailableModels forwards the RPC, then merges the custom models
-// into the reply. If upstream is unreachable or answers with a non-JSON body
-// (Google returns protobuf on some auth failures) we still answer 200 with the
-// custom models only: a wrapper that cannot advertise MiniMax M3 when Google
-// is down is useless. The upstream status is echoed in a response header so
-// `pigasus proxy doctor` and the capture files can show what happened.
+// into the reply.
+//
+// A failed refresh must never answer with a catalogue that carries only the
+// custom models: the vendor binary treats the reply as its model table, so
+// every upstream id it does not see disappears, and the next turn fails with
+// "unknown model key MODEL_PLACEHOLDER_M318: model not found" until a later
+// refresh succeeds. When upstream is unreachable, truncated, non-2xx or
+// empty, the last good catalogue is served instead; only a proxy that has
+// never seen a success falls back to custom models alone. The upstream status
+// is echoed in a response header so `pigasus proxy doctor` and the capture
+// files can show what happened.
 func (s *Server) handleFetchAvailableModels(w http.ResponseWriter, r *http.Request, body []byte) {
 	if len(s.models()) == 0 {
 		s.passthrough(w, r, body)
 		return
 	}
+	raw, status, cause := s.fetchUpstreamCatalogue(r, body)
+	if cause == nil {
+		if merged, mergeErr := MergeAvailableModels(raw, s.models()); mergeErr == nil {
+			s.rememberUpstreamModels(raw)
+			writeMergedResponse(w, merged, fmt.Sprintf("%d", status))
+			return
+		} else {
+			cause = mergeErr
+		}
+	}
+	if cached := s.lastGoodUpstreamModels(); len(cached) > 0 {
+		if merged, mergeErr := MergeAvailableModels(cached, s.models()); mergeErr == nil {
+			s.logf("fetchAvailableModels: serving last good catalogue (%v)", cause)
+			writeMergedResponse(w, merged, "cached")
+			return
+		}
+	}
+	s.writeMergedModels(w, nil, cause)
+}
+
+// fetchUpstreamCatalogue performs the upstream call and returns its body only
+// when it is a usable catalogue. An empty body, a truncated read and a JSON
+// error object all report a cause instead.
+func (s *Server) fetchUpstreamCatalogue(r *http.Request, body []byte) ([]byte, int, error) {
 	req, err := s.upstreamRequest(r, body)
 	if err != nil {
-		s.writeMergedModels(w, nil, err)
-		return
+		return nil, 0, err
 	}
 	resp, err := s.client.Do(req)
 	if err != nil {
-		s.logf("fetchAvailableModels: upstream error: %v", err)
-		s.writeMergedModels(w, nil, err)
-		return
+		return nil, 0, fmt.Errorf("upstream request: %w", err)
 	}
 	defer resp.Body.Close()
 	raw, readErr := io.ReadAll(io.LimitReader(resp.Body, 16<<20))
 	if readErr != nil {
-		s.logf("fetchAvailableModels: read upstream: %v", readErr)
+		return nil, resp.StatusCode, fmt.Errorf("read upstream: %w", readErr)
 	}
-	merged, mergeErr := MergeAvailableModels(raw, s.models())
-	if mergeErr != nil {
-		s.logf("fetchAvailableModels: upstream HTTP %d, %v — custom models only", resp.StatusCode, mergeErr)
-		s.writeMergedModels(w, nil, mergeErr)
-		return
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, resp.StatusCode, fmt.Errorf("upstream HTTP %d", resp.StatusCode)
 	}
+	if !hasUpstreamCatalog(raw) {
+		return nil, resp.StatusCode, errors.New("upstream body carries no model catalogue")
+	}
+	return raw, resp.StatusCode, nil
+}
+
+// writeMergedResponse answers a fetchAvailableModels with a catalogue and the
+// header that records where it came from ("200", "cached" or "error").
+func writeMergedResponse(w http.ResponseWriter, merged []byte, upstreamStatus string) {
 	w.Header().Set("Content-Type", "application/json")
-	w.Header().Set("X-Openagy-Upstream-Status", fmt.Sprintf("%d", resp.StatusCode))
+	w.Header().Set("X-Openagy-Upstream-Status", upstreamStatus)
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(merged)
 }
@@ -434,10 +555,7 @@ func (s *Server) writeMergedModels(w http.ResponseWriter, upstream []byte, cause
 		writeJSONError(w, http.StatusBadGateway, "upstream models unavailable: "+err.Error())
 		return
 	}
-	w.Header().Set("Content-Type", "application/json")
-	w.Header().Set("X-Openagy-Upstream-Status", "error")
-	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write(merged)
+	writeMergedResponse(w, merged, "error")
 	if cause != nil {
 		s.logf("fetchAvailableModels: serving custom models only (%v)", cause)
 	}

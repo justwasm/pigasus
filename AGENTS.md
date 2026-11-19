@@ -7,7 +7,7 @@
 ## 1. System Identity & Mission
 
 `pigasus` (repo: `openagy`) is a dual-capability agent engine:
-1. **Clean-room Reference Compatibility**: High-fidelity reimplementation of the Antigravity agent CLI/backend (`jetski/cortex`, reference version **1.5.7** / `internal/cli.ReferenceVersion`).
+1. **Clean-room Reference Compatibility**: High-fidelity reimplementation of the Antigravity agent CLI/backend (`jetski/cortex`, reference version **1.5.12** / `internal/cli.ReferenceVersion`).
 2. **Modern Agent Runtime**: An extensible agent harness supporting multiple providers (CloudCode, OpenAI, Anthropic, ACP, Gateway), plugins, tools, sandboxed execution, and headless/server orchestration.
 
 > **Single Source of Truth Notice**: Always consult [`docs/guide/`](docs/guide/) for active subsystem facts. Historical reports under [`docs/cycles/`](docs/cycles/) represent exploratory or past iterations and are secondary to [`docs/guide/`](docs/guide/).
@@ -73,7 +73,8 @@ Presentation / Entry Surfaces
 ### Configuration & Data Boundaries
 11. **Single Configuration Home**: All user configuration resides under `~/.openagy` (or `$OPENAGY_CONFIG_HOME`):
     - `providers.json`: Model-to-provider mappings.
-    - `config.json`: Named service endpoints and account routing policies (`accountpool`).
+    - `accounts.json`: Account credentials and account pool routing policies (`accountpool`).
+    - `config.json`: Named service endpoints.
     - No reading from or migration from deprecated `~/.config/openagy`.
 12. **Quarantined Binary Compatibility**: High-fidelity reverse-engineering quirks, odd-width terminal compensations, and byte-level parity shims live isolated in `internal/features/compat/agy`. Do not pollute standard domain packages with ad-hoc binary workarounds.
 
@@ -92,7 +93,7 @@ Use the project `Makefile` or `scripts/verify.sh` to avoid running into uncompil
 
 | Command | Action | Description |
 |---|---|---|
-| `make build` | `go build` | Builds `/tmp/pigasus` and `/tmp/harness` |
+| `make build` | `go build` | Builds binaries into `./bin/` (`pigasus`, `harness`, etc.) |
 | `make quick` | Quick verify | Runs architecture guard, core unit tests, and builds binaries |
 | `make arch` | Layering guard | Runs `internal/core/architecture/...` checking R1–R6 rules |
 | `make test` / `make verify` | Full test suite | Runs all safe package tests across `cmd/`, `internal/`, and root packages |
@@ -120,7 +121,7 @@ When working on specific subsystems, refer to the focused manuals under `docs/gu
 | Plugins & Marketplace | [`docs/guide/plugins.md`](docs/guide/plugins.md) | `internal/features/plugins/*`, `internal/ui/views/pluginsui` |
 | Localharness SDK Wire | [`docs/guide/localharness.md`](docs/guide/localharness.md) | `localharness/`, `cmd/harness`, `budget/`, `lifecyclehooks/` |
 | Remote Control & Web UI Wire | [`docs/guide/remote-control.md`](docs/guide/remote-control.md) | `internal/remotecontrol/*`, `remotetransport/`, `rcmesh/` |
-| Remote Agents Protocol & Mock | [`docs/guide/remote-agents.md`](docs/guide/remote-agents.md) | `internal/infra/mockremoteagent`, `cmd/mock-remote-agent`, `out/extracted-1.5.10/` |
+| Remote Agents Protocol & Mock | [`docs/guide/remote-agents.md`](docs/guide/remote-agents.md) | `internal/infra/mockremoteagent`, `cmd/mock-remote-agent`, `out/extracted-1.5.12/` |
 | pigasus-only surfaces (index) | [`docs/guide/pigasus-extensions.md`](docs/guide/pigasus-extensions.md) | `internal/tui/remote_*.go`, `internal/infra/remoteagentclient`, `internal/rchost/agentserver` |
 | Architecture Tier Ledger | [`docs/guide/architecture-tiers.md`](docs/guide/architecture-tiers.md) | `internal/core/architecture` |
-| Reverse-Engineering SOP | [`docs/guide/reverse-engineering.md`](docs/guide/reverse-engineering.md) | `scripts/re/`, `out/` |
+| Reverse-Engineering SOP | [`docs/guide/reverse-engineering-sop.md`](docs/guide/reverse-engineering-sop.md) | `scripts/re/`, `Makefile` |

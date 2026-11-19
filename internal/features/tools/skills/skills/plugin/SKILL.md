@@ -32,7 +32,7 @@ After writing `/tmp/lsrpc.sh` in **Step 0**, prefix `lsrpc GetAllPlugins` with
 | **Enable / Disable plugin** (Step 2A) | Give the user `[<name>](customization://<dir>)` so they can toggle it on the Customizations page | Takes effect live (no restart). Never call `JetboxWriteState` (restricted in `run_command`) or hand-edit `~/.gemini/config/config.json`. |
 | **Uninstall user plugin** (Step 2A) | Give the user `[<name>](customization://<dir>)` so they can uninstall it on the Customizations page | If `.path` contains `/builtin/plugins/`, explain that built-in plugins cannot be uninstalled and can only be disabled on that page. Never call `DeletePlugin` (restricted in `run_command`). |
 | **Install Marketplace plugin** (Step 2A) | Call `search_marketplace` (if the ID is unknown) and emit `<plugin-card catalog-id="<marketplace-id>"></plugin-card>` on its own line | Never call `InstallCustomization` (restricted in `run_command`) or guess `<marketplace-id>` from `name`. Tell the user they can install it from the card. |
-| **Author / consolidate plugin** (Steps 2B–4) | Create `~/.gemini/config/plugins/<name>/plugin.json` (or in source repo if published) + used subdirectories (`skills/`, `agents/`, `rules/AGENTS.md`, `mcp_config.json`, `hooks.json`, `assets/logo.svg`) | Check Step 0 inventory for `name` collisions first; re-run Step 0 inventory, tell the user to restart, and link as `[<name>](customization://<dir>)` (never `plugin://`). |
+| **Author / consolidate plugin** (Steps 2B–4) | Create `~/.gemini/config/plugins/<name>/plugin.json` (or in source repo if published) + used subdirectories (`skills/`, `agents/`, `rules/AGENTS.md`, `mcp_config.json`, `hooks.json`, `assets/logo.svg`) | Check Step 0 inventory for `name` collisions first; re-run Step 0 inventory and link as `[<name>](customization://<dir>)` (never `plugin://`). |
 <!-- mdformat on -->
 
 ## Step 0: Preflight and inventory
@@ -88,9 +88,9 @@ source /tmp/lsrpc.sh && lsrpc GetAllPlugins '{"workspaceUris":["file:///path/to/
 
 **`dir` is the identifier that matters.** It is the install directory name — the
 last path segment — and it is what every `customization://<dir>` link is keyed
-on. It is frequently **not** the same as `name` from `plugin.json`: a plugin
-installed from the Marketplace lands in a directory named after a signed 64-bit
-hash, so a plugin displayed as `data-tools` may live in a directory called
+on. It can differ from `name` in `plugin.json`: a plugin written by hand can
+sit in a directory of any name, and a Marketplace plugin installed by an older
+release sits in a directory named after its numeric catalog ID, such as
 `-1870732469773246571`. Using `name` where `dir` is expected builds a broken
 link or path.
 
@@ -276,15 +276,13 @@ Re-run the Step 0 inventory and confirm the plugin appears with the components
 you expect. Then tell the user:
 
 -   What changed, and which plugin now owns it.
--   Whether a **restart** is required. Creating or installing a new plugin
-    directory needs one; enabling, disabling and uninstalling do not.
 -   Where to manage it, as a link: `[<name>](customization://<dir>)` opens the
     plugin's own page, which lists what it provides and can turn it on and off.
 
-`<dir>` is the install directory from Step 0, never the manifest `name`. A
-plugin directory created in this session is not discovered until a restart, and
-until then its page reports nothing installed under that id, so give the link
-and the restart together.
+`<dir>` is the install directory from Step 0, never the manifest `name`.
+
+If the user asks how the plugin takes effect, tell them that it loads by itself,
+and its skills are available from the agent's next turn.
 
 Do not emit `plugin://` or `plugins://` links; they are not handled and render
 as dead text.

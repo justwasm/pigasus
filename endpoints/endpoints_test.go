@@ -92,6 +92,9 @@ func TestCurrentReturnsTheCompiledInDefaults(t *testing.T) {
 	if got.Voice != DefaultVoice {
 		t.Errorf("Voice = %q, want %q", got.Voice, DefaultVoice)
 	}
+	if got.VoiceAICode != DefaultVoiceAICode {
+		t.Errorf("VoiceAICode = %q, want %q", got.VoiceAICode, DefaultVoiceAICode)
+	}
 	if len(got.OriginPatterns) != len(DefaultOriginPatterns) {
 		t.Errorf("OriginPatterns = %v, want %v", got.OriginPatterns, DefaultOriginPatterns)
 	}
@@ -366,7 +369,7 @@ func TestNamesCoversEveryEndpoint(t *testing.T) {
 		CloudCode, CloudCodeProd, OAuth2Token, OAuth2Auth, OAuth2Device,
 		OAuthRedirect, UserInfo, WebChannel, GenerativeLanguage,
 		CompanionOrigin, OriginPatterns, Terms, Privacy, Marketplace,
-		AutoUpdater, PollSignaling, SendSignaling,
+		AutoUpdater, PollSignaling, SendSignaling, Voice, VoiceAICode,
 	} {
 		if !seen[key] {
 			t.Errorf("the name %q is not in the table", key)
@@ -448,5 +451,45 @@ func TestVoiceEndpointResolution(t *testing.T) {
 	gotExplicit := Current()
 	if gotExplicit.Voice != "wss://direct-voice.example.com" {
 		t.Errorf("got.Voice = %q, want wss://direct-voice.example.com", gotExplicit.Voice)
+	}
+}
+
+func TestVoiceAICodeEndpointResolution(t *testing.T) {
+	// 1. Default
+	writeConfig(t, `{}`)
+	if got := Current().VoiceAICode; got != DefaultVoiceAICode {
+		t.Errorf("default VoiceAICode = %q, want %q", got, DefaultVoiceAICode)
+	}
+
+	// 2. Config "voice_aicode" override
+	writeConfig(t, `{
+		"endpoints": {
+			"voice_aicode": "custom-voice.corp.google.com:443"
+		}
+	}`)
+	if got := Current().VoiceAICode; got != "custom-voice.corp.google.com:443" {
+		t.Errorf("got.VoiceAICode = %q, want custom-voice.corp.google.com:443", got)
+	}
+
+	// 3. Config "aicode" alias override
+	writeConfig(t, `{
+		"endpoints": {
+			"aicode": "alias-voice.corp.google.com:443"
+		}
+	}`)
+	if got := Current().VoiceAICode; got != "alias-voice.corp.google.com:443" {
+		t.Errorf("got.VoiceAICode = %q, want alias-voice.corp.google.com:443", got)
+	}
+
+	// 4. OPENAGY_VOICE_AICODE override beats config
+	t.Setenv("OPENAGY_VOICE_AICODE", "openagy-env.corp.google.com:443")
+	if got := Current().VoiceAICode; got != "openagy-env.corp.google.com:443" {
+		t.Errorf("got.VoiceAICode = %q, want openagy-env.corp.google.com:443", got)
+	}
+
+	// 5. JETSKI_VOICE_ADDR override beats OPENAGY_VOICE_AICODE and config
+	t.Setenv("JETSKI_VOICE_ADDR", "jetski-env.corp.google.com:443")
+	if got := Current().VoiceAICode; got != "jetski-env.corp.google.com:443" {
+		t.Errorf("got.VoiceAICode = %q, want jetski-env.corp.google.com:443", got)
 	}
 }

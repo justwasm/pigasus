@@ -11,12 +11,17 @@ const os = require('os');
  * - Linux_arm64
  * - Linux_x86_64
  * - Android_arm64
+ * - Windows_x86_64
+ * - Windows_arm64
  */
 function getPlatformInfo() {
   const platform = os.platform();
   const arch = os.arch();
 
   let osName = '';
+  let ext = 'tar.gz';
+  let binaryName = 'pigasus';
+
   if (platform === 'darwin') {
     osName = 'Darwin';
   } else if (platform === 'linux') {
@@ -24,10 +29,9 @@ function getPlatformInfo() {
   } else if (platform === 'android') {
     osName = 'Android';
   } else if (platform === 'win32') {
-    throw new Error(
-      'Pigasus currently does not provide native Windows binaries. ' +
-      'Please run Pigasus inside WSL2 (Windows Subsystem for Linux).'
-    );
+    osName = 'Windows';
+    ext = 'zip';
+    binaryName = 'pigasus.exe';
   } else {
     throw new Error(`Unsupported operating system: ${platform}`);
   }
@@ -41,8 +45,7 @@ function getPlatformInfo() {
     throw new Error(`Unsupported CPU architecture: ${arch}`);
   }
 
-  const binaryName = 'pigasus';
-  const archiveSuffix = `${osName}_${archName}.tar.gz`;
+  const archiveSuffix = `${osName}_${archName}.${ext}`;
 
   return {
     os: osName,

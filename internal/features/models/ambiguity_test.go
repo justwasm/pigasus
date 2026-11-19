@@ -121,6 +121,84 @@ func TestRegistry_DisambiguatesQualifiedModels(t *testing.T) {
 	}
 }
 
+func TestRegistry_SlashContainingModelWithCollidingProviderPrefix(t *testing.T) {
+	// Setup scenario: "deepseek" provider exists with "deepseek-v4-flash".
+	// "openrouter" provider exists with "deepseek/deepseek-v4.1-flash" (model ID has slash starting with "deepseek/").
+	reg := &Registry{
+		providers: map[string]ProviderConfig{
+			"deepseek": {
+				ID:   "deepseek",
+				Type: "openai",
+				Models: []ProviderModel{
+					{
+						ID:               "deepseek-v4-flash",
+						Name:             "DeepSeek-V4-Flash",
+						ReasoningEfforts: []string{"low", "high", "max"},
+					},
+					{
+						ID:               "deepseek-v4-pro",
+						Name:             "DeepSeek-V4-Pro",
+						ReasoningEfforts: []string{"low", "high", "max"},
+					},
+				},
+			},
+			"openrouter": {
+				ID:   "openrouter",
+				Type: "openai",
+				Models: []ProviderModel{
+					{
+						ID:               "deepseek/deepseek-v4.1-flash",
+						Name:             "OpenRouter: DeepSeek V4.1 Flash",
+						ReasoningEfforts: []string{"low", "medium", "high"},
+					},
+					{
+						ID:               "deepseek/deepseek-v4-pro",
+						Name:             "OpenRouter: DeepSeek V4 Pro 0423",
+						ReasoningEfforts: []string{"low", "medium", "high"},
+					},
+				},
+			},
+		},
+	}
+
+	// 1. Bare model ID that starts with a known provider name, but doesn't exist under that provider.
+	// Must fall through and find the model in openrouter!
+	m, ok := reg.GetByName("deepseek/deepseek-v4.1-flash")
+	if !ok || m == nil {
+		t.Fatal("GetByName(deepseek/deepseek-v4.1-flash) not found")
+	}
+	if m.ProviderID != "openrouter" {
+		t.Errorf("expected provider openrouter, got %q", m.ProviderID)
+	}
+
+	// 2. Tiered row: deepseek/deepseek-v4.1-flash-high
+	mTier, ok := reg.GetByName("deepseek/deepseek-v4.1-flash-high")
+	if !ok || mTier == nil {
+		t.Fatal("GetByName(deepseek/deepseek-v4.1-flash-high) not found")
+	}
+	if mTier.ProviderID != "openrouter" || mTier.ReasoningEffort != "high" {
+		t.Errorf("expected openrouter model at tier high, got provider=%q effort=%q", mTier.ProviderID, mTier.ReasoningEffort)
+	}
+
+	// 3. Model with collision in base name, but tier only exists in openrouter (medium)
+	mMedium, ok := reg.GetByName("deepseek/deepseek-v4-pro-medium")
+	if !ok || mMedium == nil {
+		t.Fatal("GetByName(deepseek/deepseek-v4-pro-medium) not found")
+	}
+	if mMedium.ProviderID != "openrouter" || mMedium.ReasoningEffort != "medium" {
+		t.Errorf("expected openrouter model at tier medium, got provider=%q effort=%q", mMedium.ProviderID, mMedium.ReasoningEffort)
+	}
+
+	// 4. ResolveModel on deepseek/deepseek-v4.1-flash
+	resolved, err := reg.ResolveModel("deepseek/deepseek-v4.1-flash")
+	if err != nil || resolved == nil {
+		t.Fatalf("ResolveModel(deepseek/deepseek-v4.1-flash) failed: %v", err)
+	}
+	if resolved.ProviderID != "openrouter" {
+		t.Errorf("expected provider openrouter, got %q", resolved.ProviderID)
+	}
+}
+
 func TestEditor_DeleteModelFromProvider(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "providers.json")

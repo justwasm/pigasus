@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/justwasm/pigasus/configdir"
 )
 
 // TestWriteFile_CreatesWithTheGivenMode pins the mode of a file that
@@ -78,5 +80,30 @@ func TestWriteFile_LeavesNoTempFile(t *testing.T) {
 			names = append(names, e.Name())
 		}
 		t.Fatalf("directory holds %v, want just the target", names)
+	}
+}
+
+// TestWriteFileRefusesTheStartupHome is the chokepoint every configuration
+// writer goes through: a test binary must not replace the machine's own
+// configuration, and the refusal must leave no file behind.
+func TestWriteFileRefusesTheStartupHome(t *testing.T) {
+	startup := configdir.StartupDir()
+	if startup == "" {
+		t.Skip("this process started without a configuration home")
+	}
+	if !configdir.IsTestBinary() {
+		t.Skip("not a test binary")
+	}
+	probe := filepath.Join(startup, ".guard-probe")
+	if _, err := os.Stat(probe); err == nil {
+		t.Skipf("%s already exists; not touching it", probe)
+	}
+	if err := WriteFile(probe, []byte("x"), 0o600); err == nil {
+		_ = os.Remove(probe)
+		t.Fatal("WriteFile into the startup home succeeded, want a refusal")
+	}
+	if _, err := os.Stat(probe); err == nil {
+		_ = os.Remove(probe)
+		t.Fatalf("%s was created despite the refusal", probe)
 	}
 }

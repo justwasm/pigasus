@@ -12,8 +12,9 @@
 // The rows are the policy's own fields:
 //
 //	Enabled            on / off
-//	Strategy           sticky · round_robin · quota_aware · failover · aggregate
-//	Threshold          the quota floor, in percent
+//	Aggregate          on / off — the pool answered as one virtual account
+//	Threshold (5h)     the five-hour floor, in percent
+//	Threshold (weekly) the weekly floor, in percent
 //	Refresh interval   how often a quota figure is read again
 //	Cooldown           how long a spent account stays out
 //	Max attempts       how many accounts one turn may try
@@ -27,16 +28,16 @@
 //
 // # One writer
 //
-// Every write goes through endpoints.SaveAccountPool — the same layer
-// the file's reader is in. The tab holds no configuration logic of its
-// own: it builds an accountpool.Config and hands it over, and the
-// writer rewrites the one section that changed and leaves the rest of
-// the document alone.
+// Every write goes through accounts.SaveAccountPool — the same layer the
+// file's reader is in. The tab holds no configuration logic of its own: it
+// builds an accountpool.Config and hands it over, and the writer rewrites the
+// one section of `accounts.json` and leaves the accounts alone.
 
 package accountspanel
 
 import (
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 	"time"
@@ -45,7 +46,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/justwasm/pigasus/accountpool"
-	"github.com/justwasm/pigasus/endpoints"
+	accounts "github.com/justwasm/pigasus/internal/features/accounts/core"
 	"github.com/justwasm/pigasus/internal/ui/tuilib"
 	"github.com/justwasm/pigasus/palette"
 )
@@ -83,8 +84,9 @@ type poolState struct {
 // The Pool tab's rows, in the order they are shown.
 const (
 	poolRowEnabled = iota
-	poolRowStrategy
-	poolRowThreshold
+	poolRowAggregate
+	poolRowThresholdFiveHour
+	poolRowThresholdWeekly
 	poolRowRefresh
 	poolRowCooldown
 	poolRowAttempts
@@ -96,8 +98,9 @@ const (
 // poolRowLabels are the row names, in the order the rows are shown.
 var poolRowLabels = [poolRowCount]string{
 	"Enabled",
-	"Strategy",
-	"Threshold",
+	"Aggregate",
+	"Threshold (5h)",
+	"Threshold (weekly)",
 	"Refresh interval",
 	"Cooldown",
 	"Max attempts",
@@ -122,7 +125,7 @@ func (p *Panel) ReloadPolicy() {
 	if p == nil {
 		return
 	}
-	policy := endpoints.CurrentAccountPool()
+	policy := accounts.CurrentAccountPool()
 	if policy == nil {
 		p.pool.policy = accountpool.Config{}.Normalised()
 		p.pool.present = false
@@ -159,7 +162,7 @@ func (p *Panel) poolLines() []string {
 		}
 		lines = append(lines, "", styled)
 	}
-	lines = append(lines, "", "  "+palette.SubtleOpen+endpoints.Path()+"\x1b[39m")
+	lines = append(lines, "", "  "+palette.SubtleOpen+accounts.PoolPath()+"\x1b[39m")
 	if p.pool.allowOpen {
 		lines = append(lines, tuilib.PanelKeyboardHint("↑/↓", "Navigate", "space", "Include", "esc", "Back"))
 		return lines
@@ -205,11 +208,11 @@ func (p *Panel) poolRowLine(row int, cursor bool) string {
 		value = p.textInput.Value() + searchCursorBlock
 	} else if cursor {
 		switch row {
-		case poolRowEnabled, poolRowSwitchOnQuota:
+		case poolRowEnabled, poolRowAggregate, poolRowSwitchOnQuota:
 			value = "‹ " + value + " ›  " + palette.DimGrayOpen + "(space to toggle)" + palette.DimGrayClose
-		case poolRowStrategy, poolRowRefresh, poolRowCooldown, poolRowAttempts:
+		case poolRowRefresh, poolRowCooldown, poolRowAttempts:
 			value = "‹ " + value + " ›  " + palette.DimGrayOpen + "(←/→ to cycle)" + palette.DimGrayClose
-		case poolRowThreshold:
+		case poolRowThresholdFiveHour, poolRowThresholdWeekly:
 			value = value + "  " + palette.DimGrayOpen + "(enter to edit)" + palette.DimGrayClose
 		case poolRowAccounts:
 			value = value + "  " + palette.DimGrayOpen + "(enter to manage)" + palette.DimGrayClose
@@ -230,11 +233,15 @@ func (p *Panel) poolRowValue(row int) string {
 	pol := p.pool.policy
 	switch row {
 	case poolRowEnabled:
-		return poolOnOff(pol.Enabled)
-	case poolRowStrategy:
-		return string(pol.Strategy)
-	case poolRowThreshold:
-		return fmt.Sprintf("%.0f%%", pol.Threshold*100)
+		// The row shows what the proxy does, not the raw field: a section
+		// that does not name "enabled" routes (see Config.RoutingEnabled).
+		return poolOnOff(pol.RoutingEnabled())
+	case poolRowAggregate:
+		return poolOnOff(pol.AggregateEnabled())
+	case poolRowThresholdFiveHour:
+		return fmt.Sprintf("%.0f%%", pol.ThresholdFiveHour*100)
+	case poolRowThresholdWeekly:
+		return fmt.Sprintf("%.0f%%", pol.ThresholdWeekly*100)
 	case poolRowRefresh:
 		return poolDurationText(pol.RefreshInterval, accountpool.DefaultRefreshInterval)
 	case poolRowCooldown:
@@ -349,7 +356,7 @@ func (p *Panel) poolMoveCursor(delta int) {
 // row opens the submenu.
 func (p *Panel) poolActivateRow() tea.Cmd {
 	switch p.cursor {
-	case poolRowThreshold, poolRowRefresh, poolRowCooldown, poolRowAttempts:
+	case poolRowThresholdFiveHour, poolRowThresholdWeekly, poolRowRefresh, poolRowCooldown, poolRowAttempts:
 		p.openPoolEdit()
 		return nil
 	case poolRowAccounts:
@@ -380,13 +387,20 @@ func (p *Panel) openPoolEdit() {
 func (p *Panel) poolCommitEdit() tea.Cmd {
 	raw := strings.TrimSpace(p.textInput.Value())
 	switch p.pool.editRow {
-	case poolRowThreshold:
+	case poolRowThresholdFiveHour:
 		value, err := parsePoolThreshold(raw)
 		if err != nil {
 			p.pool.notice = err.Error()
 			return nil
 		}
-		p.pool.policy.Threshold = value
+		p.pool.policy.ThresholdFiveHour = value
+	case poolRowThresholdWeekly:
+		value, err := parsePoolThreshold(raw)
+		if err != nil {
+			p.pool.notice = err.Error()
+			return nil
+		}
+		p.pool.policy.ThresholdWeekly = value
 	case poolRowRefresh:
 		d, err := parsePoolDuration(raw)
 		if err != nil {
@@ -420,11 +434,13 @@ func (p *Panel) poolCommitEdit() tea.Cmd {
 func (p *Panel) poolChange(delta int) {
 	switch p.cursor {
 	case poolRowEnabled:
-		p.pool.policy.Enabled = !p.pool.policy.Enabled
-	case poolRowStrategy:
-		p.pool.policy.Strategy = poolNextStrategy(p.pool.policy.Strategy, delta)
-	case poolRowThreshold:
-		p.pool.policy.Threshold = clampPoolThreshold(p.pool.policy.Threshold + float64(delta)*0.05)
+		p.pool.policy.SetEnabled(!p.pool.policy.RoutingEnabled())
+	case poolRowAggregate:
+		p.pool.policy.SetAggregate(!p.pool.policy.AggregateEnabled())
+	case poolRowThresholdFiveHour:
+		p.pool.policy.ThresholdFiveHour = clampPoolThreshold(p.pool.policy.ThresholdFiveHour + float64(delta)*accountpool.DefaultThresholdStep)
+	case poolRowThresholdWeekly:
+		p.pool.policy.ThresholdWeekly = clampPoolThreshold(p.pool.policy.ThresholdWeekly + float64(delta)*accountpool.DefaultThresholdStep)
 	case poolRowRefresh:
 		p.pool.policy.RefreshInterval = poolNextDuration(p.pool.policy.RefreshInterval, accountpool.DefaultRefreshInterval, delta)
 	case poolRowCooldown:
@@ -487,7 +503,7 @@ func (p *Panel) poolToggleAllow() {
 // to rebuild and nothing to confirm.
 func (p *Panel) savePoolPolicy() tea.Cmd {
 	policy := p.pool.policy
-	if err := endpoints.SaveAccountPool(&policy); err != nil {
+	if err := accounts.SaveAccountPool(&policy); err != nil {
 		p.pool.notice = "error: " + err.Error()
 		return nil
 	}
@@ -503,20 +519,6 @@ const (
 	poolInputLimit = 32
 	poolInputWidth = 24
 )
-
-// poolNextStrategy walks the strategy list.
-func poolNextStrategy(current accountpool.Strategy, delta int) accountpool.Strategy {
-	list := accountpool.Strategies()
-	idx := 0
-	for i, s := range list {
-		if s == current {
-			idx = i
-			break
-		}
-	}
-	idx = (idx + delta + len(list)) % len(list)
-	return list[idx]
-}
 
 // poolNextDuration walks the duration ladder.
 func poolNextDuration(current string, fallback time.Duration, delta int) string {
@@ -585,7 +587,7 @@ func parsePoolThreshold(raw string) (float64, error) {
 	return clampPoolThreshold(value), nil
 }
 
-// clampPoolThreshold keeps the threshold inside 0..1.
+// clampPoolThreshold keeps the threshold inside 0..1 rounded to 2 decimal places.
 func clampPoolThreshold(value float64) float64 {
 	if value < 0 {
 		return 0
@@ -593,7 +595,7 @@ func clampPoolThreshold(value float64) float64 {
 	if value > 1 {
 		return 1
 	}
-	return value
+	return math.Round(value*100) / 100
 }
 
 // parsePoolDuration reads a duration and renders it the way the policy

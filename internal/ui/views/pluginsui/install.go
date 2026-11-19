@@ -1,6 +1,7 @@
 package pluginsui
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -64,6 +65,7 @@ func InstallLocalPlugin(src string) error {
 	if err != nil {
 		return fmt.Errorf("directory %q does not contain a valid plugin", src)
 	}
+	raw = bytes.TrimPrefix(raw, []byte{0xEF, 0xBB, 0xBF})
 	var man struct {
 		Name string `json:"name"`
 	}

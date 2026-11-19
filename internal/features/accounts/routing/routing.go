@@ -53,7 +53,6 @@ import (
 	"golang.org/x/sync/singleflight"
 
 	"github.com/justwasm/pigasus/accountpool"
-	"github.com/justwasm/pigasus/endpoints"
 	"github.com/justwasm/pigasus/internal/core/apierror"
 	"github.com/justwasm/pigasus/internal/core/backend"
 	accounts "github.com/justwasm/pigasus/internal/features/accounts/core"
@@ -73,8 +72,18 @@ const DebugEnvVar = "OPENAGY_ACCOUNT_POOL_DEBUG"
 type Router struct {
 	mu sync.Mutex
 
-	// cursor is the round-robin rotation's position.
-	cursor int
+	// activeSeen is the registry's active account as of the last decision,
+	// so a change — `/accounts`, `agy accounts switch` — can be told apart
+	// from the pool having moved a turn by itself. A change drops the pins:
+	// an explicit switch outranks them.
+	activeSeen string
+
+	// pin holds, per model family, the account an aggregate pool is
+	// pinned to. Aggregate is a sticky session — the pool stays on one
+	// account until its window drops below the threshold — so the choice
+	// has to outlive the turn that made it. A family with no entry has
+	// not been routed yet.
+	pin map[string]string
 
 	// remaining holds the last quota figure per account.
 	remaining map[string]quota
@@ -86,9 +95,6 @@ type Router struct {
 	// quarantined holds accounts that are permanently disabled (e.g. Terms
 	// of Service violation), mapped to the quarantine reason.
 	quarantined map[string]string
-
-	// lastUsed holds when an account last served a turn.
-	lastUsed map[string]time.Time
 
 	// refreshing marks the accounts whose quota is being read right now,
 	// so a second turn does not start a second read.
@@ -169,6 +175,13 @@ type quota struct {
 	// known reports whether the figure was measured.
 	known bool
 
+	// weekly is the weekly window's fraction. It is carried so the state
+	// can report it; the threshold is not measured in it.
+	weekly float64
+
+	// weeklyKnown reports whether weekly was measured.
+	weeklyKnown bool
+
 	// fetchedAt is when the figure was read.
 	fetchedAt time.Time
 }
@@ -207,8 +220,8 @@ func NewRouter() *Router {
 		remaining:   map[string]quota{},
 		excluded:    map[string]time.Time{},
 		quarantined: map[string]string{},
-		lastUsed:    map[string]time.Time{},
 		refreshing:  map[string]bool{},
+		pin:         map[string]string{},
 		log:         defaultLogWriter(),
 		ctx:         ctx,
 		cancel:      cancel,
@@ -257,7 +270,7 @@ func (r *Router) Close() {
 //
 // The file is re-read when it changes on disk, so a policy the user edits
 // mid-session takes effect on the next turn.
-func Policy() *accountpool.Config { return endpoints.CurrentAccountPool() }
+func Policy() *accountpool.Config { return accounts.CurrentAccountPool() }
 
 // Enabled reports whether the routing is on.
 //
@@ -267,7 +280,7 @@ func Policy() *accountpool.Config { return endpoints.CurrentAccountPool() }
 // the turns right now?"
 func Enabled() bool {
 	p := Policy()
-	return p != nil && p.Enabled
+	return p != nil && p.RoutingEnabled()
 }
 
 // SetLogWriter sets where the routing's lines go. The transport's own log
@@ -315,7 +328,7 @@ type RouteResult struct {
 // between selecting an account and querying LastRouted().
 func (r *Router) RouteTurn(ctx context.Context, modelFamily ...string) (RouteResult, error) {
 	policy := r.currentPolicy()
-	if policy == nil || !policy.Enabled {
+	if policy == nil || !policy.RoutingEnabled() {
 		tok, err := r.defaultToken(ctx)
 		if err != nil {
 			return RouteResult{}, err
@@ -417,7 +430,7 @@ func (r *Router) SetPolicy(fn func() *accountpool.Config) {
 	r.policyOverride = fn
 	r.mu.Unlock()
 	if fn != nil {
-		if cfg := fn(); cfg != nil && cfg.Enabled {
+		if cfg := fn(); cfg != nil && cfg.RoutingEnabled() {
 			go r.PrewarmCandidates(context.Background())
 		}
 	}
@@ -505,7 +518,7 @@ func (r *Router) Decide(ctx context.Context) (accountpool.Decision, error) {
 // DecideForModel asks the policy which account the next turn should use for a specific model family.
 func (r *Router) DecideForModel(ctx context.Context, modelFamily string) (accountpool.Decision, error) {
 	policy := r.currentPolicy()
-	if policy == nil || !policy.Enabled {
+	if policy == nil || !policy.RoutingEnabled() {
 		return accountpool.Decision{}, errors.New("accountpool: the routing is off")
 	}
 	cfg := policy.Normalised()
@@ -515,20 +528,44 @@ func (r *Router) DecideForModel(ctx context.Context, modelFamily string) (accoun
 		return accountpool.Decision{}, err
 	}
 
+	family := strings.ToLower(strings.TrimSpace(modelFamily))
 	r.mu.Lock()
-	cursor := r.cursor
+	pinned := r.pin[family]
 	r.mu.Unlock()
 
-	decision := accountpool.Choose(cfg, states, cursor)
+	// An explicit account switch — `/accounts`, `agy accounts switch`, which
+	// writes the registry's Active field — outranks the pin. Without this the
+	// pool would keep serving the account the user just switched away from,
+	// and the switch would look like it did nothing. A pin the pool set by
+	// itself (an account ran out) does not move Active, so it survives.
+	if current := currentOf(states); current != "" && r.noteActive(current) {
+		pinned = ""
+		r.mu.Lock()
+		delete(r.pin, family)
+		r.mu.Unlock()
+	}
+
+	decision := accountpool.ChooseWithPin(cfg, states, pinned)
 
 	r.mu.Lock()
-	r.cursor = decision.NextCursor
 	r.lastRouted = decision.Email
 	if decision.Email != "" {
-		r.lastUsed[decision.Email] = time.Now()
+		r.pin[family] = decision.Email
 	}
 	r.mu.Unlock()
 	return decision, nil
+}
+
+// Pinned returns the account the pool is pinned to for a model family. An
+// empty family is the pool-wide pin.//
+// It is the account the last turn of that family used, and — because the pool
+// stays on one account until that account's window runs down — the account the
+// next turn will use too.
+func (r *Router) Pinned(modelFamily string) string {
+	family := strings.ToLower(strings.TrimSpace(modelFamily))
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.pin[family]
 }
 
 // LastRouted returns the account the last turn was routed to.
@@ -536,6 +573,25 @@ func (r *Router) LastRouted() string {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return r.lastRouted
+}
+
+// noteActive records the registry's active account and reports whether it
+// changed since the last call.
+//
+// A change means the user switched accounts — `/accounts`, `agy accounts
+// switch` — and is the one signal that outranks the pin: the pool must not
+// keep serving the account the user just left. The first call only records
+// the value; there is no "before" to compare against, so it reports no change.
+func (r *Router) noteActive(email string) bool {
+	email = strings.TrimSpace(email)
+	if email == "" {
+		return false
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	previous := r.activeSeen
+	r.activeSeen = email
+	return previous != "" && !strings.EqualFold(previous, email)
 }
 
 // Exclude puts an account out of the pool globally for the policy's cooldown.
@@ -731,7 +787,7 @@ func (r *Router) CandidateAccounts(ctx context.Context) ([]accounts.Account, err
 // warming OAuth tokens in the background so turn transitions avoid refresh latency.
 func (r *Router) PrewarmCandidates(ctx context.Context) {
 	policy := r.currentPolicy()
-	if policy == nil || !policy.Enabled {
+	if policy == nil || !policy.RoutingEnabled() {
 		return
 	}
 	candidates, err := r.CandidateAccounts(ctx)
@@ -778,7 +834,7 @@ func (r *Router) statesForModel(ctx context.Context, cfg accountpool.Config, mod
 		if email == "" {
 			continue
 		}
-		remaining, known := r.quotaForModel(ctx, cfg, acc, modelFamily)
+		remaining, known, weekly, weeklyKnown := r.quotaForModel(ctx, cfg, acc, modelFamily)
 		r.mu.Lock()
 		excluded, expired := r.isExcludedLocked(email, modelFamily, cfg.CooldownDuration(), now)
 		qReason, isQuarantined := r.quarantined[strings.ToLower(email)]
@@ -791,7 +847,6 @@ func (r *Router) statesForModel(ctx context.Context, cfg accountpool.Config, mod
 			isQuarantined = true
 			qReason = acc.DisabledReason
 		}
-		lastUsed := r.lastUsed[email]
 		r.mu.Unlock()
 		if len(expired) > 0 {
 			toRefresh = append(toRefresh, expired...)
@@ -800,11 +855,12 @@ func (r *Router) statesForModel(ctx context.Context, cfg accountpool.Config, mod
 			Email:            email,
 			Remaining:        remaining,
 			Known:            known,
+			WeeklyRemaining:  weekly,
+			WeeklyKnown:      weeklyKnown,
 			Current:          strings.EqualFold(email, current),
 			Excluded:         excluded,
 			Quarantined:      isQuarantined,
 			QuarantineReason: qReason,
-			LastUsed:         lastUsed,
 		})
 	}
 	for _, exp := range toRefresh {
@@ -819,11 +875,15 @@ func quotaKey(email, family string) string {
 
 // quotaFor returns an account's remaining quota across all models.
 func (r *Router) quotaFor(ctx context.Context, cfg accountpool.Config, acc accounts.Account) (float64, bool) {
-	return r.quotaForModel(ctx, cfg, acc, "")
+	rem, known, _, _ := r.quotaForModel(ctx, cfg, acc, "")
+	return rem, known
 }
 
-// quotaForModel returns an account's remaining quota for a given model family.
-func (r *Router) quotaForModel(ctx context.Context, cfg accountpool.Config, acc accounts.Account, modelFamily string) (float64, bool) {
+// quotaForModel returns an account's quota for a given model family: the
+// figure the threshold is judged on (the five-hour window, see
+// accountpool.Config.Window) and the weekly figure, which is reported but
+// does not decide anything.
+func (r *Router) quotaForModel(ctx context.Context, cfg accountpool.Config, acc accounts.Account, modelFamily string) (remaining float64, known bool, weekly float64, weeklyKnown bool) {
 	email := acc.Email
 	key := quotaKey(email, modelFamily)
 
@@ -832,16 +892,22 @@ func (r *Router) quotaForModel(ctx context.Context, cfg accountpool.Config, acc 
 	r.mu.Unlock()
 
 	if haveCached && time.Since(cached.fetchedAt) < cfg.RefreshDuration() {
-		return cached.remaining, cached.known
+		return cached.remaining, cached.known, cached.weekly, cached.weeklyKnown
 	}
 
 	// The registry's own snapshot is the seed: it costs nothing to read
 	// and the panel keeps it fresh.
 	if acc.Quota != nil {
-		if rem, known := remainingForModelFamily(acc.Quota, modelFamily); known {
+		if w := windowsForModelFamily(acc.Quota, modelFamily); w.Known {
 			r.mu.Lock()
 			if !haveCached || acc.Quota.FetchedAt.After(cached.fetchedAt) {
-				r.remaining[key] = quota{remaining: rem, known: true, fetchedAt: acc.Quota.FetchedAt}
+				r.remaining[key] = quota{
+					remaining:   w.Remaining,
+					known:       true,
+					weekly:      w.Weekly,
+					weeklyKnown: w.WeeklyKnown,
+					fetchedAt:   acc.Quota.FetchedAt,
+				}
 				cached = r.remaining[key]
 				haveCached = true
 			}
@@ -856,9 +922,9 @@ func (r *Router) quotaForModel(ctx context.Context, cfg accountpool.Config, acc 
 	}
 
 	if haveCached {
-		return cached.remaining, cached.known
+		return cached.remaining, cached.known, cached.weekly, cached.weeklyKnown
 	}
-	return 0, false
+	return 0, false, 0, false
 }
 
 // refreshQuota reads one account's quota in the background, deduplicated with quotaFlight.
@@ -896,19 +962,20 @@ func (r *Router) refreshQuota(email string) {
 			}
 			r.Unquarantine(email)
 			snap := summary.Snapshot()
-			remAll, knownAll := remainingForModelFamily(snap, "")
-			remGemini, knownGemini := remainingForModelFamily(snap, "gemini")
-			remClaude, knownClaude := remainingForModelFamily(snap, "claude")
+			winAll := windowsForModelFamily(snap, "")
+			winGemini := windowsForModelFamily(snap, "gemini")
+			winClaude := windowsForModelFamily(snap, "claude")
 			now := time.Now()
 			r.mu.Lock()
-			r.remaining[quotaKey(email, "")] = quota{remaining: remAll, known: knownAll, fetchedAt: now}
-			r.remaining[quotaKey(email, "gemini")] = quota{remaining: remGemini, known: knownGemini, fetchedAt: now}
-			r.remaining[quotaKey(email, "claude")] = quota{remaining: remClaude, known: knownClaude, fetchedAt: now}
+			r.remaining[quotaKey(email, "")] = winAll.cached(now)
+			r.remaining[quotaKey(email, "gemini")] = winGemini.cached(now)
+			r.remaining[quotaKey(email, "claude")] = winClaude.cached(now)
 			r.mu.Unlock()
-			if knownAll {
-				r.logf("[account-pool] %s has %.1f%% left", email, remAll*100)
+			if winAll.Known {
+				r.logf("[account-pool] %s has %.1f%% of its five-hour window left (weekly %.1f%%)",
+					email, winAll.Remaining*100, winAll.Weekly*100)
 			}
-			return remAll, nil
+			return winAll.Remaining, nil
 		})
 	}()
 }
@@ -1004,6 +1071,17 @@ func (r *Router) tokenForDirect(ctx context.Context, email string) (*auth.Antigr
 		return updated, nil
 	}
 	return acc.Token, nil
+}
+
+// currentOf returns the email of the state marked Current — the account the
+// session is signed in with — or "" when the list holds none.
+func currentOf(states []accountpool.State) string {
+	for _, s := range states {
+		if s.Current {
+			return s.Email
+		}
+	}
+	return ""
 }
 
 // activeAccount returns the account the session is signed in with, as the
@@ -1134,27 +1212,79 @@ func ModelFamily(model string) string {
 	}
 }
 
-// remainingForModelFamily returns the lowest remaining fraction for a specific model family.
-// If family is empty, it defaults to Gemini models. Claude and GPT groups are ignored for
-// Gemini routing.
-func remainingForModelFamily(snap *auth.QuotaSnapshot, family string) (float64, bool) {
+// windows is an account's quota read as the two windows it is measured in.
+type windows struct {
+	// Remaining is the fraction the threshold is judged on.
+	Remaining float64
+	// Known reports whether Remaining was measured.
+	Known bool
+	// Weekly is the weekly window's fraction.
+	Weekly float64
+	// WeeklyKnown reports whether Weekly was measured.
+	WeeklyKnown bool
+}
+
+// cached is the windows as the router's cache stores them.
+func (w windows) cached(at time.Time) quota {
+	return quota{
+		remaining:   w.Remaining,
+		known:       w.Known,
+		weekly:      w.Weekly,
+		weeklyKnown: w.WeeklyKnown,
+		fetchedAt:   at,
+	}
+}
+
+// windowsForModelFamily reads a snapshot as the two windows the policy cares
+// about.
+//
+// The five-hour figure decides whether the *next* turn can be served; the
+// weekly one decides how much longer the account is worth holding, and has a
+// floor of its own. A snapshot with no five-hour bucket (an older response, a
+// plan without one) falls back to the lowest figure across the account's
+// buckets, so an account is never treated as unlimited because a field is
+// missing.
+func windowsForModelFamily(snap *auth.QuotaSnapshot, family string) windows {
+	weekly, weeklyKnown := remainingInWindow(snap, family, auth.QuotaWindowWeekly)
+	five, known := remainingInWindow(snap, family, auth.QuotaWindowFiveHour)
+	if !known {
+		five, known = lowestInFamily(snap, family)
+	}
+	return windows{Remaining: five, Known: known, Weekly: weekly, WeeklyKnown: weeklyKnown}
+}
+
+// remainingInWindow returns the lowest remaining fraction of the buckets of
+// one window across a model family's groups.
+func remainingInWindow(snap *auth.QuotaSnapshot, family, window string) (float64, bool) {
 	if snap == nil {
 		return 0, false
 	}
-	target := strings.ToLower(strings.TrimSpace(family))
-	if target == "" {
-		target = "gemini"
+	found := false
+	lowest := 0.0
+	consider := func(g auth.QuotaGroupSnapshot) {
+		for _, b := range g.Buckets {
+			if auth.QuotaWindow(b.DisplayName, b.Window) != window {
+				continue
+			}
+			if !found || b.RemainingFraction < lowest {
+				lowest = b.RemainingFraction
+				found = true
+			}
+		}
+	}
+	groupsInFamily(snap, family, consider)
+	return lowest, found
+}
+
+// lowestInFamily returns the lowest remaining fraction across every bucket
+// of a model family — the figure that binds, whatever window it is in.
+func lowestInFamily(snap *auth.QuotaSnapshot, family string) (float64, bool) {
+	if snap == nil {
+		return 0, false
 	}
 	found := false
 	lowest := 0.0
-	for _, g := range snap.Groups {
-		gName := strings.ToLower(g.Name)
-		if target == "claude" && !strings.Contains(gName, "claude") && !strings.Contains(gName, "gpt") {
-			continue
-		}
-		if target == "gemini" && !strings.Contains(gName, "gemini") {
-			continue
-		}
+	consider := func(g auth.QuotaGroupSnapshot) {
 		for _, b := range g.Buckets {
 			if !found || b.RemainingFraction < lowest {
 				lowest = b.RemainingFraction
@@ -1162,30 +1292,62 @@ func remainingForModelFamily(snap *auth.QuotaSnapshot, family string) (float64, 
 			}
 		}
 	}
-	if !found {
-		// Fallback for snapshots where group names do not explicitly mention the model family
-		// (e.g. generic single-group test fixtures), skipping claude/gpt if targeting gemini.
-		for _, g := range snap.Groups {
-			gName := strings.ToLower(g.Name)
-			if target == "gemini" && (strings.Contains(gName, "claude") || strings.Contains(gName, "gpt")) {
-				continue
-			}
-			for _, b := range g.Buckets {
-				if !found || b.RemainingFraction < lowest {
-					lowest = b.RemainingFraction
-					found = true
-				}
-			}
-		}
-	}
+	groupsInFamily(snap, family, consider)
 	return lowest, found
 }
 
-// remainingOf returns the lowest remaining fraction across a snapshot's
-// buckets.
+// groupsInFamily calls fn for every group that belongs to a model family.
 //
-// The lowest figure is the one that decides whether the account can serve
-// a turn: the five-hour window runs out long before the weekly one.
+// A family is matched by the group's name ("GEMINI MODELS", "CLAUDE AND GPT
+// MODELS"). When no group names it — the generic single-group fixtures, and
+// responses that leave the names out — the non-Claude/GPT groups stand in
+// for Gemini, since that is the family a family-less lookup asks about.
+func groupsInFamily(snap *auth.QuotaSnapshot, family string, fn func(auth.QuotaGroupSnapshot)) {
+	if snap == nil {
+		return
+	}
+	target := strings.ToLower(strings.TrimSpace(family))
+	if target == "" {
+		target = "gemini"
+	}
+	matched := false
+	for _, g := range snap.Groups {
+		gName := strings.ToLower(g.Name)
+		if target == "claude" {
+			if !strings.Contains(gName, "claude") && !strings.Contains(gName, "gpt") {
+				continue
+			}
+		} else if !strings.Contains(gName, target) {
+			continue
+		}
+		matched = true
+		fn(g)
+	}
+	if matched {
+		return
+	}
+	for _, g := range snap.Groups {
+		gName := strings.ToLower(g.Name)
+		if target == "gemini" && (strings.Contains(gName, "claude") || strings.Contains(gName, "gpt")) {
+			continue
+		}
+		fn(g)
+	}
+}
+
+// remainingForModelFamily returns the figure that decides whether the
+// account can serve a turn: the five-hour window's remaining fraction,
+// falling back to the lowest figure across its buckets.
+func remainingForModelFamily(snap *auth.QuotaSnapshot, family string) (float64, bool) {
+	w := windowsForModelFamily(snap, family)
+	return w.Remaining, w.Known
+}
+
+// remainingOf returns the deciding fraction across a snapshot's buckets.
+//
+// The five-hour window is the one that decides whether the account can
+// serve a turn: it runs out long before the weekly one, and refills long
+// before it too.
 func remainingOf(snap *auth.QuotaSnapshot) (float64, bool) {
 	return remainingForModelFamily(snap, "")
 }
@@ -1268,7 +1430,7 @@ func (c *routedClient) Unwrap() backend.Client { return c.inner }
 //     without erroring or interrupting the turn.
 func (c *routedClient) Stream(ctx context.Context, req backend.StreamRequest) (<-chan backend.StreamChunk, error) {
 	policy := Policy()
-	if policy == nil || !policy.Enabled {
+	if policy == nil || !policy.RoutingEnabled() {
 		// The routing is off: the transport answers for itself.
 		// However, if the active account hits a permanent ToS violation, quarantine it immediately.
 		var slot routeSlot

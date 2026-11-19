@@ -27,6 +27,7 @@ package core
 import (
 	"errors"
 	"fmt"
+	"math"
 	"strings"
 
 	"github.com/justwasm/pigasus/internal/features/auth"
@@ -74,9 +75,93 @@ func Update(email string, fn func(*Account)) error {
 	if !ok {
 		return fmt.Errorf("accounts: unknown account %q", email)
 	}
+	before := acc
 	fn(&acc)
+	if !accountSubstantivelyChanged(before, acc) {
+		return nil
+	}
 	st.Put(acc)
 	return st.saveLocked()
+}
+
+// accountSubstantivelyChanged reports whether any durable data of the
+// account (tier, credentials, disabled status, or actual quota figures)
+// changed. It ignores client-side polling timestamps like Quota.FetchedAt,
+// ensuring routine background quota polling does not churn disk writes.
+func accountSubstantivelyChanged(a, b Account) bool {
+	if a.Email != b.Email {
+		return true
+	}
+	if a.PlanTier != b.PlanTier {
+		return true
+	}
+	if a.Disabled != b.Disabled || a.DisabledReason != b.DisabledReason {
+		return true
+	}
+	if !tokensEqual(a.Token, b.Token) {
+		return true
+	}
+	if !quotasEqual(a.Quota, b.Quota) {
+		return true
+	}
+	return false
+}
+
+func tokensEqual(a, b *auth.AntigravityToken) bool {
+	if a == nil && b == nil {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	if a.AuthMethod != b.AuthMethod || a.IDToken != b.IDToken || a.IDTokenEmail != b.IDTokenEmail {
+		return false
+	}
+	if a.Token.AccessToken != b.Token.AccessToken ||
+		a.Token.RefreshToken != b.Token.RefreshToken ||
+		a.Token.Expiry != b.Token.Expiry {
+		return false
+	}
+	return true
+}
+
+func quotasEqual(a, b *auth.QuotaSnapshot) bool {
+	if a == nil && b == nil {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	if a.Description != b.Description {
+		return false
+	}
+	if len(a.Groups) != len(b.Groups) {
+		return false
+	}
+	for i := range a.Groups {
+		gA := a.Groups[i]
+		gB := b.Groups[i]
+		if gA.Name != gB.Name || gA.Description != gB.Description {
+			return false
+		}
+		if len(gA.Buckets) != len(gB.Buckets) {
+			return false
+		}
+		for j := range gA.Buckets {
+			bA := gA.Buckets[j]
+			bB := gB.Buckets[j]
+			if bA.ID != bB.ID || bA.DisplayName != bB.DisplayName || bA.Window != bB.Window {
+				return false
+			}
+			if !bA.ResetTime.Equal(bB.ResetTime) {
+				return false
+			}
+			if math.Abs(bA.RemainingFraction-bB.RemainingFraction) > 1e-6 {
+				return false
+			}
+		}
+	}
+	return true
 }
 
 // SetPlanTier caches the account's plan tier. An empty tier clears the

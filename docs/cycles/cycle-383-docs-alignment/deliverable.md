@@ -532,7 +532,8 @@ number was an artefact of the deleted file; the *fact* is the string.
 Each comment quotes the string verbatim and names the **surviving
 copy** — the pruned `strings-index.txt`, the cited window under
 `docs/legacy-re/extracts/`, the live `out/local-macos/seeds/`, the
-`re-docs/` report copy, the `internal/app/prompt/agytemplates/templates/`
+`re-docs/` report copy (consolidated into `docs/legacy-re/extracts/` on
+2026-11-18), the `internal/app/prompt/agytemplates/templates/`
 bundle.
 
 **History is not rewritten into fiction.** The cycle reports that

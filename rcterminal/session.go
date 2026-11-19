@@ -8,6 +8,7 @@ package rcterminal
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"sync"
 	"time"
@@ -20,6 +21,12 @@ const subscriberQueue = 256
 // scrollbackLimit is how many bytes of history a terminal keeps for
 // the replay frames.
 const scrollbackLimit = 64 * 1024
+
+// terminalDevice wraps the underlying platform terminal (PTY on Unix, ConPTY on Windows).
+type terminalDevice interface {
+	io.ReadWriteCloser
+	Resize(cols, rows int) error
+}
 
 // Session is one live terminal: a shell on a pty, the readers of
 // its output, and the bookkeeping the registry needs.
@@ -35,7 +42,7 @@ type Session struct {
 	splitGroupID   string
 
 	cmd  *os.Process
-	ptmx *os.File
+	ptmx terminalDevice
 	// waitExit reaps the shell and answers its exit code. It is
 	// nil on the platforms that have no pty.
 	waitExit func() int

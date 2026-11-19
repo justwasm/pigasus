@@ -131,6 +131,16 @@ func (b *GeminiLiveBackend) SetBearerToken(token string) {
 	b.bearerToken = token
 }
 
+// BearerToken returns the current OAuth Bearer token, if configured.
+func (b *GeminiLiveBackend) BearerToken() string {
+	return b.bearerToken
+}
+
+// APIKey returns the current Gemini API key, if configured.
+func (b *GeminiLiveBackend) APIKey() string {
+	return b.apiKey
+}
+
 // SetEndpoint overrides the WebSocket endpoint.
 func (b *GeminiLiveBackend) SetEndpoint(ep string) {
 	b.endpoint = ep
@@ -166,6 +176,13 @@ func (b *GeminiLiveBackend) CreateSession(ctx context.Context, cfg LiveSessionCo
 		HTTPOptions: genai.HTTPOptions{
 			APIVersion: "v1alpha",
 		},
+	}
+
+	if b.bearerToken != "" {
+		if clientCfg.HTTPOptions.Headers == nil {
+			clientCfg.HTTPOptions.Headers = make(map[string][]string)
+		}
+		clientCfg.HTTPOptions.Headers["Authorization"] = []string{"Bearer " + b.bearerToken}
 	}
 
 	if endpoint != "" && endpoint != endpoints.DefaultVoice {

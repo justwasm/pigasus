@@ -126,6 +126,7 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	pb "github.com/justwasm/pigasus/localharness/pb/localharness"
+	ws "github.com/justwasm/pigasus/websocket"
 )
 
 const (
@@ -774,7 +775,7 @@ func connectWebSocket(ctx context.Context, urls []string, apiKey string, retries
 func dialWebSocket(ctx context.Context, target, apiKey string) (*websocket.Conn, error) {
 	header := http.Header{}
 	header.Set(apiKeyHeader, apiKey)
-	conn, resp, err := websocket.Dial(ctx, target, &websocket.DialOptions{HTTPHeader: header})
+	conn, resp, err := ws.Dial(ctx, target, &ws.DialOptions{HTTPHeader: header})
 	if err != nil {
 		if resp != nil {
 			return nil, fmt.Errorf("dial %s: %w (http %s)", target, err, resp.Status)

@@ -211,7 +211,7 @@ func New(cfg Config) *Policy {
 			IsSync:                     true,
 			MaxUserRequests:            compaction.MaxUserRequests,
 			MovingWindowSize:           1,
-			UseModelReportedTokenCount: false,
+			UseModelReportedTokenCount: true,
 		}
 	}
 	baseCtx, cancel := context.WithCancel(context.Background())
@@ -585,7 +585,13 @@ func (p *Policy) projected(probe actor.CheckpointProbe, view actor.CheckpointVie
 		compaction.ContextOverheadTokens(p.cfg.SystemPrompt, p.cfg.ToolDeclarations)
 	if p.profile.UseModelReportedTokenCount && probe.LastStep != nil && probe.LastStep.Usage != nil {
 		reported := probe.LastStep.Usage.PromptTokens + probe.LastStep.Usage.OutputTokens
-		if reported > estimated {
+		if reported == 0 && probe.LastStep.Usage.TotalTokens > 0 {
+			reported = probe.LastStep.Usage.TotalTokens
+		}
+		if reported > 0 {
+			if len(view.Pending) > 0 {
+				reported += compaction.TranscriptTokens(toBackend(view.Pending))
+			}
 			return reported
 		}
 	}

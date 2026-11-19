@@ -536,7 +536,7 @@ func runAuth(d *dispatchContext) error {
 	if tok, err := auth.LoadTokenUnified(); err == nil && tok != nil && tok.Token.AccessToken != "" {
 		fmt.Fprintf(d.Out, "active token:    ya29...%s\n", tok.Token.AccessToken[len(tok.Token.AccessToken)-12:])
 	} else {
-		fmt.Fprintln(d.Out, "active token:    (none — populate ~/.config/antigravity/oauth-token or $JETSKI_OAUTH_TOKEN)")
+		fmt.Fprintln(d.Out, "active token:    (none — populate ~/.gemini/antigravity-cli/antigravity-oauth-token or $JETSKI_OAUTH_TOKEN)")
 	}
 	return nil
 }

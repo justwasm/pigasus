@@ -20,9 +20,18 @@ import (
 	"github.com/justwasm/pigasus/internal/features/auth"
 )
 
-func writeTestRegistry(t *testing.T, path, active string, accs ...accounts.Account) {
+// writeTestRegistry writes the registry, with the pool policy beside the
+// accounts it is about — the same file the product reads both from.
+func writeTestRegistry(t *testing.T, path, active string, pool map[string]any, accs ...accounts.Account) {
 	t.Helper()
-	st := accounts.Store{Version: accounts.Version, Active: active, Accounts: accs}
+	st := map[string]any{
+		"version":  accounts.Version,
+		"active":   active,
+		"accounts": accs,
+	}
+	if pool != nil {
+		st["account_pool"] = pool
+	}
 	raw, err := json.MarshalIndent(st, "", "  ")
 	if err != nil {
 		t.Fatalf("encode registry: %v", err)
@@ -32,12 +41,11 @@ func writeTestRegistry(t *testing.T, path, active string, accs ...accounts.Accou
 	}
 }
 
-func writeTestConfig(t *testing.T, path string, pool map[string]any) {
+// writeTestConfig writes a configuration document with no pool section: the
+// policy lives in the registry now.
+func writeTestConfig(t *testing.T, path string) {
 	t.Helper()
 	doc := map[string]any{"endpoints": map[string]string{}}
-	if pool != nil {
-		doc["account_pool"] = pool
-	}
 	raw, err := json.MarshalIndent(doc, "", "  ")
 	if err != nil {
 		t.Fatalf("encode config: %v", err)
@@ -83,8 +91,8 @@ func setupTestEnvironment(t *testing.T, pool map[string]any, accs ...accounts.Ac
 	if len(accs) > 0 {
 		active = accs[0].Email
 	}
-	writeTestRegistry(t, registry, active, accs...)
-	writeTestConfig(t, config, pool)
+	writeTestRegistry(t, registry, active, pool, accs...)
+	writeTestConfig(t, config)
 	t.Setenv("OPENAGY_ACCOUNTS_CONFIG", registry)
 	t.Setenv("OPENAGY_CONFIG", config)
 	// The configuration home too: the capture directory, the log and the
@@ -225,8 +233,7 @@ func TestBalanceFeatureFlagOptIn(t *testing.T) {
 
 	// 1. Balance off: standard passthrough preserves client's inbound Authorization.
 	setupTestEnvironment(t, map[string]any{
-		"enabled":  true,
-		"strategy": "quota_aware",
+		"enabled": true,
 	}, acc1, acc2)
 
 	router := newTestRouter(acc1, acc2)
@@ -260,7 +267,9 @@ func TestBalanceFeatureFlagOptIn(t *testing.T) {
 	mu.Unlock()
 	_ = srv.Close()
 
-	// 2. Balance on via Config: routes to beta (most quota: 0.9 vs 0.2).
+	// 2. Balance on via Config: the pool starts on the account the session
+	// is signed in with (alpha) and keeps it, even though beta has more
+	// quota left. A conversation must not hop accounts.
 	srvBal, err := New(Config{
 		Addr:     "127.0.0.1:0",
 		Upstream: upstream.URL,
@@ -285,8 +294,8 @@ func TestBalanceFeatureFlagOptIn(t *testing.T) {
 	_ = resp2.Body.Close()
 
 	mu.Lock()
-	if receivedAuth != "Bearer beta" {
-		t.Errorf("balance on: expected beta token, got %q", receivedAuth)
+	if receivedAuth != "Bearer alpha" {
+		t.Errorf("balance on: expected the signed-in account's token, got %q", receivedAuth)
 	}
 	mu.Unlock()
 	_ = srvBal.Close()
@@ -316,8 +325,8 @@ func TestBalanceFeatureFlagOptIn(t *testing.T) {
 	_ = resp3.Body.Close()
 
 	mu.Lock()
-	if receivedAuth != "Bearer beta" {
-		t.Errorf("balance via env: expected beta token, got %q", receivedAuth)
+	if receivedAuth != "Bearer alpha" {
+		t.Errorf("balance via env: expected the signed-in account's token, got %q", receivedAuth)
 	}
 	mu.Unlock()
 }
@@ -328,7 +337,6 @@ func TestBalanceFailoverOnQuotaError(t *testing.T) {
 
 	setupTestEnvironment(t, map[string]any{
 		"enabled":               true,
-		"strategy":              "sticky", // starts on alpha (active)
 		"max_attempts":          3,
 		"switch_on_quota_error": true,
 	}, acc1, acc2)
@@ -403,7 +411,6 @@ func TestBalanceStreamFailoverOnQuotaError(t *testing.T) {
 
 	setupTestEnvironment(t, map[string]any{
 		"enabled":               true,
-		"strategy":              "sticky",
 		"max_attempts":          3,
 		"switch_on_quota_error": true,
 	}, acc1, acc2)
@@ -491,7 +498,6 @@ func TestBalanceMaxAttemptsExhausted(t *testing.T) {
 
 	setupTestEnvironment(t, map[string]any{
 		"enabled":               true,
-		"strategy":              "round_robin",
 		"max_attempts":          2,
 		"switch_on_quota_error": true,
 	}, acc1, acc2)
@@ -542,7 +548,6 @@ func TestBalanceSwitchOnQuotaErrorDisabled(t *testing.T) {
 	switchOnQuota := false
 	setupTestEnvironment(t, map[string]any{
 		"enabled":               true,
-		"strategy":              "round_robin",
 		"max_attempts":          3,
 		"switch_on_quota_error": &switchOnQuota,
 	}, acc1, acc2)
@@ -587,13 +592,16 @@ func TestBalanceSwitchOnQuotaErrorDisabled(t *testing.T) {
 	_ = srv.Close()
 }
 
-func TestBalanceRoundRobinRotation(t *testing.T) {
+// The pool stays on one account for the whole session: four consecutive turns
+// all run on the account the session is signed in with. That is the point of
+// the pool — a conversation must not change account midway — and there is no
+// configuration that turns it into a rotation.
+func TestBalanceStaysOnOneAccount(t *testing.T) {
 	acc1 := accounts.Account{Email: "alpha@example.com", Token: testToken("alpha"), Quota: testQuotaSnapshot(1.0)}
 	acc2 := accounts.Account{Email: "beta@example.com", Token: testToken("beta"), Quota: testQuotaSnapshot(1.0)}
 
 	setupTestEnvironment(t, map[string]any{
-		"enabled":  true,
-		"strategy": "round_robin",
+		"enabled": true,
 	}, acc1, acc2)
 
 	var authCalls []string
@@ -633,13 +641,12 @@ func TestBalanceRoundRobinRotation(t *testing.T) {
 
 	mu.Lock()
 	defer mu.Unlock()
-	want := []string{"Bearer alpha", "Bearer beta", "Bearer alpha", "Bearer beta"}
 	if len(authCalls) != 4 {
 		t.Fatalf("expected 4 calls, got %v", authCalls)
 	}
-	for i := range want {
-		if authCalls[i] != want[i] {
-			t.Errorf("call %d = %q, want %q", i, authCalls[i], want[i])
+	for i, got := range authCalls {
+		if got != "Bearer alpha" {
+			t.Errorf("call %d = %q, want the pinned account's token (Bearer alpha)", i, got)
 		}
 	}
 }
@@ -649,8 +656,7 @@ func TestBalanceMidStreamQuotaExclusion(t *testing.T) {
 	acc2 := accounts.Account{Email: "beta@example.com", Token: testToken("beta"), Quota: testQuotaSnapshot(0.5)}
 
 	setupTestEnvironment(t, map[string]any{
-		"enabled":  true,
-		"strategy": "sticky",
+		"enabled": true,
 	}, acc1, acc2)
 
 	router := newTestRouter(acc1, acc2)
@@ -704,9 +710,8 @@ func TestDoctorBalanceOutput(t *testing.T) {
 	acc2 := accounts.Account{Email: "beta@example.com", Token: testToken("beta")}
 
 	setupTestEnvironment(t, map[string]any{
-		"enabled":   true,
-		"strategy":  "quota_aware",
-		"threshold": 0.25,
+		"enabled":      true,
+		"threshold_5h": 0.25,
 	}, acc1, acc2)
 
 	// Upstream test server so probe finishes immediately
@@ -718,7 +723,9 @@ func TestDoctorBalanceOutput(t *testing.T) {
 	t.Setenv("AGY_REAL_BIN", "/nonexistent")
 	t.Setenv("OPENAGY_CONFIG_HOME", t.TempDir())
 
-	// 1. Balance off by default
+	// 1. The proxy is an aggregate pool by default: balance is on, and the
+	// pool line names the rotation and the window the threshold is
+	// measured in.
 	t.Setenv("OPENAGY_ACCOUNT_BALANCE", "")
 	var out bytes.Buffer
 	var errOut bytes.Buffer
@@ -731,23 +738,22 @@ func TestDoctorBalanceOutput(t *testing.T) {
 		t.Fatalf("cmdDoctor failed: %v", err)
 	}
 	output := out.String()
-	if !strings.Contains(output, "balance     off") {
-		t.Errorf("expected 'balance     off' in doctor output, got:\n%s", output)
-	}
-	if !strings.Contains(output, "pool        on (strategy: quota_aware, threshold: 25.0%)") {
+	// One line for the pool: routing, the merged view, the rotation and the
+	// window the threshold is measured in.
+	if !strings.Contains(output, "pool        on (aggregate: on, thresholds: 25.0% of 5h, 0.0% of the week)") {
 		t.Errorf("expected pool info in doctor output, got:\n%s", output)
 	}
 
-	// 2. Balance on via env var
-	t.Setenv("OPENAGY_ACCOUNT_BALANCE", "true")
+	// 2. Balance off via env var — and the unified view goes with it.
+	t.Setenv("OPENAGY_ACCOUNT_BALANCE", "0")
 	out.Reset()
 	errOut.Reset()
 	if err := cmdDoctor(opts, []string{"-probe-timeout=100ms"}); err != nil {
 		t.Fatalf("cmdDoctor failed: %v", err)
 	}
 	output2 := out.String()
-	if !strings.Contains(output2, "balance     on") {
-		t.Errorf("expected 'balance     on' in doctor output, got:\n%s", output2)
+	if !strings.Contains(output2, "pool        off (aggregate: off,") {
+		t.Errorf("expected the pool off in doctor output, got:\n%s", output2)
 	}
 }
 
@@ -756,8 +762,7 @@ func TestBalanceModelCandidateTextNotExcluded(t *testing.T) {
 	acc2 := accounts.Account{Email: "beta@example.com", Token: testToken("beta"), Quota: testQuotaSnapshot(0.5)}
 
 	setupTestEnvironment(t, map[string]any{
-		"enabled":  true,
-		"strategy": "sticky",
+		"enabled": true,
 	}, acc1, acc2)
 
 	router := newTestRouter(acc1, acc2)
@@ -809,7 +814,6 @@ func TestBalanceStreamImmediateQuotaErrorFailover(t *testing.T) {
 
 	setupTestEnvironment(t, map[string]any{
 		"enabled":               true,
-		"strategy":              "sticky",
 		"max_attempts":          3,
 		"switch_on_quota_error": true,
 	}, acc1, acc2)
@@ -878,22 +882,43 @@ func TestAdminBalanceToggle(t *testing.T) {
 	setupTestEnvironment(t, nil)
 	dir := t.TempDir()
 	cfgPath := filepath.Join(dir, "config.json")
+	registryPath := filepath.Join(dir, "accounts.json")
 	t.Setenv("OPENAGY_CONFIG", cfgPath)
+	// The switches live in the registry now: a test that toggles them must
+	// point the registry at the scratch directory too, or it writes the
+	// machine's own policy.
+	t.Setenv("OPENAGY_ACCOUNTS_CONFIG", registryPath)
 	t.Setenv("OPENAGY_CONFIG_HOME", dir)
 
 	var out bytes.Buffer
 	var errOut bytes.Buffer
 	opts := AdminOptions{Prog: "pigasus", Out: &out, Err: &errOut}
 
-	// 1. Initially off
+	// 1. Initially on: the proxy is an aggregate pool.
 	if err := cmdBalance(opts, nil); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "balance: on") {
+		t.Errorf("expected balance: on, got %s", out.String())
+	}
+
+	// 2. Turn off, then on again
+	out.Reset()
+	if err := cmdBalance(opts, []string{"off"}); err != nil {
 		t.Fatal(err)
 	}
 	if !strings.Contains(out.String(), "balance: off") {
 		t.Errorf("expected balance: off, got %s", out.String())
 	}
+	out.Reset()
+	if err := cmdBalance(opts, nil); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(out.String(), "balance: off") {
+		t.Errorf("expected the persisted off, got %s", out.String())
+	}
 
-	// 2. Turn on
+	// 3. Turn on
 	out.Reset()
 	if err := cmdBalance(opts, []string{"on"}); err != nil {
 		t.Fatal(err)
@@ -902,10 +927,14 @@ func TestAdminBalanceToggle(t *testing.T) {
 		t.Errorf("expected balance: on, got %s", out.String())
 	}
 
-	// Verify persisted
+	// Verify persisted: the switch lives in the routing policy, not in the
+	// "wrapper" section, which is now legacy and cleared on write.
 	c := loadConfig()
-	if c.Balance == nil || !*c.Balance {
-		t.Fatalf("expected Balance true in config, got %v", c.Balance)
+	if c.Balance != nil || c.Aggregate != nil {
+		t.Fatalf("expected the legacy wrapper switches to be cleared, got balance=%v aggregate=%v", c.Balance, c.Aggregate)
+	}
+	if pol := accounts.CurrentAccountPool(); pol == nil || !pol.Enabled {
+		t.Fatalf("expected the policy's routing to be on, got %+v", pol)
 	}
 
 	// 3. Turn off
@@ -918,8 +947,11 @@ func TestAdminBalanceToggle(t *testing.T) {
 	}
 
 	c = loadConfig()
-	if c.Balance == nil || *c.Balance {
-		t.Fatalf("expected Balance false in config, got %v", c.Balance)
+	if c.Balance != nil || c.Aggregate != nil {
+		t.Fatalf("expected the legacy wrapper switches cleared, got balance=%v aggregate=%v", c.Balance, c.Aggregate)
+	}
+	if pol := accounts.CurrentAccountPool(); pol == nil || pol.Enabled {
+		t.Fatalf("expected the policy's routing off, got %+v", pol)
 	}
 }
 
@@ -1009,8 +1041,7 @@ func TestBalanceRespectsConfigJson(t *testing.T) {
 	setupTestEnvironment(t, map[string]any{
 		"enabled":       false,
 		"proxy_balance": true,
-		"strategy":      "quota_aware",
-		"threshold":     0.25,
+		"threshold_5h":  0.25,
 	}, acc1)
 
 	// 1. In config.json, proxy_balance: true enables proxy balancing
@@ -1031,11 +1062,11 @@ func TestBalanceRespectsConfigJson(t *testing.T) {
 	defer srv.Close()
 
 	pol := srv.effectivePolicy()
-	if pol.Strategy != "quota_aware" {
-		t.Errorf("expected effectivePolicy strategy quota_aware, got %s", pol.Strategy)
+	if !pol.RoutingEnabled() {
+		t.Error("expected effectivePolicy to keep the routing on")
 	}
-	if pol.Threshold != 0.25 {
-		t.Errorf("expected effectivePolicy threshold 0.25, got %f", pol.Threshold)
+	if pol.ThresholdFiveHour != 0.25 {
+		t.Errorf("expected effectivePolicy threshold_5h 0.25, got %f", pol.ThresholdFiveHour)
 	}
 }
 
@@ -1045,7 +1076,6 @@ func TestBalanceStreamLeadingKeepaliveAndNewlinesFailover(t *testing.T) {
 
 	setupTestEnvironment(t, map[string]any{
 		"enabled":               true,
-		"strategy":              "sticky",
 		"max_attempts":          3,
 		"switch_on_quota_error": true,
 	}, acc1, acc2)
@@ -1116,7 +1146,6 @@ func TestBalanceStreamMultilineDataErrorFailover(t *testing.T) {
 
 	setupTestEnvironment(t, map[string]any{
 		"enabled":               true,
-		"strategy":              "sticky",
 		"max_attempts":          3,
 		"switch_on_quota_error": true,
 	}, acc1, acc2)

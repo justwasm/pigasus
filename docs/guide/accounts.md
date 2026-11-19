@@ -19,6 +19,18 @@ the accounts the user signed in to and lets the user pick the active one
 | `internal/cli/accounts_cmds.go` | the `pigasus accounts {list,show,add,switch,remove}` subcommands (visible since commit `78f4a3b9`) |
 | `internal/printmode/print_slash.go` | print mode's `/accounts` |
 
+> [!IMPORTANT]
+> **A test never writes this file.** Environment isolation alone cannot
+> promise that: a path is resolved when the write happens, so a test that
+> repoints `$HOME` for a while leaves a later, deferred save pointing at the
+> real home again. Two rules close it. `internal/testguard` pins the
+> configuration environment for a whole package from its `TestMain`, and
+> `configdir.RefuseTestWrite` — called by `atomicfile.WriteFile`, the one
+> writer every configuration file goes through — refuses the machine's own
+> home outright when the running binary is a test binary. `go test` therefore
+> cannot replace `accounts.json`, `config.json` or `providers.json`, whatever
+> a test does to its environment.
+
 Five things that are easy to get wrong:
 
 - **The active account IS the shared credential.** A switch is
@@ -134,43 +146,136 @@ The registry answers "which account did the user pick?". The **policy** answers
 "which account serves *this* turn?" — automatically, driven by the accounts'
 remaining quota.
 
-The policy is a section of `~/.openagy/config.json`, beside the
-endpoint overrides. It is **not** in `providers.json`: that file answers
-"which model talks to which provider", and its only writer is
-`internal/features/models.Editor`.
+The policy is a section of `~/.openagy/accounts.json`, beside the accounts it is
+about — the same file an account is added to, disabled in and signed in with. It
+is **not** in `config.json` (that file is the endpoint overrides and the proxy's
+own state) and **not** in `providers.json` (that one answers "which model talks
+to which provider", and its only writer is `internal/features/models.Editor`).
 
 ```json
 {
-  "endpoints": { },
+  "version": 1,
+  "active": "a@example.com",
+  "accounts": [ /* … */ ],
   "account_pool": {
     "enabled": true,
-    "strategy": "quota_aware",
-    "threshold": 0.15,
+    "threshold_5h": 0.15,
+    "threshold_weekly": 0.10,
     "refresh_interval": "2m",
     "cooldown": "5m",
     "accounts": ["a@example.com", "b@example.com"],
     "max_attempts": 3,
-    "switch_on_quota_error": true
+    "switch_on_quota_error": true,
+    "aggregate": { "enabled": true }
   }
 }
 ```
 
 | File | What it is |
 |---|---|
-| `accountpool/accountpool.go` | the policy: the `Config` shape, the five strategies, the threshold, `Choose` — **pure**, no I/O, no `internal/` dependency, so it is importable on its own |
-| `internal/features/accounts/routing/routing.go` | the runtime: the router, the quota cache, the credential lookup, the failover wrapper |
-| `endpoints/config.go` | `Config.AccountPool`, `CurrentAccountPool()` and `SaveAccountPool()` — the file's only reader **and** writer |
+| `accountpool/accountpool.go` | the policy: the `Config` shape, the aggregate switch, the two thresholds, `Choose` — **pure**, no I/O, no `internal/` dependency, so it is importable on its own |
+| `internal/features/accounts/routing/routing.go` | the runtime: the router, the pin, the quota cache, the credential lookup, the failover wrapper |
+| `internal/features/accounts/core/pool.go` | `CurrentAccountPool()` and `SaveAccountPool()` — the registry's section, and its only reader **and** writer |
+| `endpoints/config.go` | the endpoint overrides and the proxy's opaque `"wrapper"` section — the configuration document keeps a single reader |
 | `internal/infra/backend/select/backendselect.go` | installs the token function and the wrapper — **always**, so the policy can be turned on live |
 
-| strategy | what it does |
-|---|---|
-| `sticky` | the account the session is signed in with, until its quota drops below the threshold |
-| `round_robin` | the next account of the pool, in turn |
-| `quota_aware` | the account with the most quota left |
-| `failover` | the account the session is signed in with, until a quota error comes back |
-| `aggregate` | the account with the most quota left, **and** the pool's quota is answered as one virtual account's — see *The virtual unified pool account* below |
+### The pool is aggregate, and it stays on one account
 
-Six things that are easy to get wrong:
+There is one **mode** — aggregate, several accounts answered as one virtual
+account — and **one rule** for which account serves a turn. There is no
+rotation to configure.
+
+**Nothing has to be written.** The proxy runs an aggregate pool, and the
+minimal policy is a threshold and a list of accounts:
+
+```json
+{
+  "account_pool": {
+    "threshold_5h": 0.15,
+    "accounts": ["a@example.com", "b@example.com"]
+  }
+}
+```
+
+Say more only to change something:
+
+```json
+"threshold_weekly": 0.10            // also leave an account whose week is nearly spent
+"aggregate": { "enabled": false }   // route turns, but answer each account's own quota
+"enabled": false                    // no routing: pure passthrough
+```
+
+The rule, in full:
+
+- The pool serves from **one account** — the one the last turn used — and keeps
+  it for as long as it can serve a turn: its five-hour window is above
+  `threshold_5h`, its week is above `threshold_weekly`, it is not in cooldown
+  after a quota error, and it is not quarantined.
+- The two floors are why the pool leaves in time. A week spent down to a few
+  percent is not refilled before the week resets, while the five-hour figure can
+  still read comfortably for days — an account can pass the five-hour test all
+  week and still be the wrong account to start on.
+- When the pin can no longer serve a turn, the turn moves to the eligible account
+  with the **most five-hour quota left**; between two accounts whose five-hour
+  figures are within 5 points of each other, the one with the **higher weekly
+  figure** wins. The five-hour figure is what the next turn spends, so it
+  decides; the week separates the accounts the day cannot.
+- A pool with no pin yet starts on the account the session is signed in with
+  when that account can serve a turn, and on the fullest one otherwise.
+- A tie in "the most left" goes to the account earlier in the pool's list, so
+  the same state always answers the same account.
+
+That is the whole policy. There is deliberately no `round_robin`, no
+`quota_aware` and no `failover`: each of them is a way to *spread* turns
+across accounts, and spreading them spends several accounts' five-hour windows
+at once instead of spending one and keeping the rest in reserve — while also
+handing two turns of one conversation to two different accounts.
+
+A section that exists but omits `"enabled"` counts as **on**
+(`Config.RoutingEnabled`): writing a threshold or an allow-list is asking for a
+pool. `"enabled": false` is what turns it off.
+
+`enabled` is therefore a **three-state** field — on, off, and *not said* — and
+a plain boolean cannot carry the third state. A save writes the key only when
+the document named it (`Config.MarshalJSON`, `Config.SetEnabled`): marshalling
+a section that never mentioned it would write `"enabled": false`, and the next
+read would see an explicit off. That is what a background quota refresh used to
+do to a live pool — it saved the registry back and switched routing off.
+
+The policy lives in `accounts.json`, beside the accounts it is about — not in
+`config.json`. `pigasus agy` reads it from there, and the `/accounts` → Pool tab
+writes it there:
+
+```json
+// ~/.openagy/accounts.json
+{
+  "version": 1,
+  "active": "a@example.com",
+  "accounts": [ /* … */ ],
+  "account_pool": {
+    "threshold_5h": 0.15,
+    "threshold_weekly": 0.10,
+    "accounts": ["a@example.com", "b@example.com"]
+  }
+}
+```
+
+There is nothing to migrate — the old `config.json` section is simply no longer
+read. If you have one, move the fields you care about into `account_pool` in
+`accounts.json` and delete the old section. `strategy` does not exist any more:
+there is one rule, so a document that still names one parses and the key is
+ignored.
+
+> [!NOTE]
+> **What `balance` meant.** It was "may this turn be retried on another
+> account of the pool" — the switch that made the proxy a proxy rather than a
+> passthrough. It is now the policy's `"enabled"`: `pigasus proxy balance
+> on|off` writes that field, and `pigasus proxy doctor` prints it as the
+> `pool` line. `aggregate` is the layer on top — whether the pool's numbers
+> are *merged* — and it implies `balance`, because a proxy that does not move
+> turns has nothing to merge.
+
+Five things that are easy to get wrong:
 
 - **The shared credential is NOT rewritten.** The routed account is *this
   process's* account; the keychain entry and the three on-disk copies keep
@@ -182,12 +287,18 @@ Six things that are easy to get wrong:
   `RefreshIfNeeded`.** The latter *writes* the shared credential (it would
   switch the active account) and *clears* it on a rejection (it would sign the
   user out) — the same rule the tier/quota cache follows.
-- **The quota figure is the LOWEST bucket** across the account's windows, not
-  the weekly one: the five-hour window runs out long before the weekly one.
-  An **unknown** figure is not a zero — the account is eligible and ranks
-  last. A pool does not punish an account for not having been asked.
-- **The threshold is a preference, not a wall.** When every account is below
-  it, the one with the most left is used: a turn with no account cannot be
+- **The five-hour figure is the one that decides the next turn.** It is what a
+  turn spends, and it refills within hours; `threshold_5h` is its floor. An
+  **unknown** figure is not a zero — the account is eligible and ranks last. A
+  pool does not punish an account for not having been asked. A snapshot with no
+  five-hour bucket (an older response, a plan without one) falls back to the
+  lowest bucket, so a missing field never reads as "unlimited".
+- **`threshold_weekly` is not a second opinion on the day.** It is what stops a
+  pool from starting on an account with three percent of the week left, whose
+  five-hour figure still looks fine — the week cannot be refilled, the day can.
+  Set it once, low, and leave it.
+- **The thresholds are a preference, not a wall.** When every account is below
+  them, the one with the most left is used: a turn with no account cannot be
   served at all.
 - **The decision is per turn.** The CloudCode client holds a `TokenFunc` and
   the geminicode client calls it before **every** request, so the router is
@@ -234,8 +345,9 @@ one credential and no switcher — so the whole panel is clone-only.
 | Row | What it does |
 |---|---|
 | Enabled | turns the routing on or off |
-| Strategy | walks the five strategies |
-| Threshold | the quota floor, in percent (`25%` and `0.25` both read) |
+| Aggregate | whether the pool's quota and tier are answered as one virtual account's |
+| Threshold (5h) | the day's floor, in percent (`25%` and `0.25` both read) |
+| Threshold (weekly) | the week's floor, in percent — what moves a turn off an account whose week is nearly spent |
 | Refresh interval | how often a quota figure is read again |
 | Cooldown | how long a spent account stays out |
 | Max attempts | how many accounts one turn may try |
@@ -248,10 +360,10 @@ Five things that are easy to get wrong:
   is staged: the panel writes the section on every committed change, and the
   routing reads the policy per turn, so the **next** turn runs on the new
   policy. Nothing is rebuilt and nothing has to be confirmed.
-- **The panel writes through the file's own writer.** `endpoints.SaveAccountPool`
-  is the only writer of `config.json`; the panel builds an `accountpool.Config`
-  and hands it over. The edit is made on the raw document, so the endpoint
-  overrides and any section a newer version wrote survive byte for byte.
+- **The panel writes through the registry's own writer.**
+  `accounts.SaveAccountPool` is the only writer of the policy; the panel builds
+  an `accountpool.Config` and hands it over, and the writer replaces that one
+  section of `accounts.json` and leaves the accounts alone.
 - **The router must already be installed.** The panel's "immediate effect" is
   only true because the transport carries the router whether the policy is on
   or not; the off-path answers with `backend.DefaultTokenSource()`, so the
@@ -267,55 +379,72 @@ Report: `docs/cycles/cycle-361-account-pool-panel/`.
 
 ## The virtual unified pool account (cycle `cycle-368-unified-pool-aggregate`)
 
-`quota_aware` picks **one** account per turn, and the vendor `agy` shows *that*
-account's quota. The **aggregate** strategy adds a second layer: the proxy
-answers the quota and the tier calls with **one virtual account** whose
-numbers are the pool's merged, so the vendor CLI's quota panel reads like a
-single account with a large allowance instead of the allowance of whichever
-account happened to serve the last turn.
+The **aggregate** mode is what makes the pool a *pool*: the proxy answers the
+quota and the tier calls with **one virtual account** whose numbers are the
+pool's merged, so the vendor CLI's quota panel reads like a single account
+with a large allowance instead of the allowance of whichever account happened
+to serve the last turn. It is the proxy's default.
 
-The *routing* half is the same as `quota_aware` — the account with the most
-quota left. The difference is the *presentation*: the pool's quota is
-answered as one account's.
+The pool is a **sticky session**: it answers every turn with the account it is
+pinned to, and moves only when that account falls below one of the two floors —
+`threshold_5h` for the day, `threshold_weekly` for the week — at which point it
+moves to the eligible account with the most of the five-hour window left, and to
+the one with the fuller week when two of them are within five points. A per-turn
+"who has the most left?" rule would hand two consecutive
+sentences of one answer to two different accounts, and a conversation that
+changes account mid-flight changes the plan, the project and the caches behind
+it — and would spend several accounts' five-hour windows at once. There is no
+configuration that turns the pool into a rotation.
+
+The pin lives on the router (`Router.pin`, per model family, `Router.Pinned()`
+to read it), because it has to outlive the turn that made it. A pool with no
+pin yet — the first turn after the proxy started — starts on the signed-in
+account when it can serve a turn, and on the fullest one otherwise, so the
+first turn is not a surprise. The vendor CLI shows the pinned account's
+numbers merged with the pool's.
 
 | File | What it is |
 |---|---|
 | `internal/infra/agyproxy/aggregate.go` | the three interceptions: the quota merge, the tier merge, the synthesized fallback |
 | `internal/infra/agyproxy/server.go` | `aggregateActive()` — the switch; the dispatch that routes the two quota methods and `loadCodeAssist` into the interception |
 | `internal/infra/agyproxy/admin.go` | `pigasus proxy aggregate [on\|off]` — the toggle and the status |
-| `internal/infra/agyproxy/fileconfig.go` | the persisted `aggregate` flag in the `"wrapper"` section of `~/.openagy/config.json`, and the two environment variables |
+| `internal/features/accounts/core/pool.go` | the policy's `aggregate.enabled` in `~/.openagy/accounts.json`, which is what `pigasus proxy aggregate on\|off` writes |
+| `internal/infra/agyproxy/fileconfig.go` | the two environment variables and the resolution order (env > policy > default) |
 | `internal/infra/agyproxy/passthrough.go` | the `maxAttempts` scaling — one turn may try every candidate account |
-| `accountpool/accountpool.go` | `StrategyAggregate` and its aliases (`agg`, `unified`, `super`, `pool_aggregate`) |
+| `accountpool/accountpool.go` | `Aggregate` (the switch) and `Choose`/`ChooseWithPin` (the one rule) |
 
-### Turning it on
+### Turning it off
 
-Four ways; the proxy treats them as the same switch.
+Aggregate is **on**: `pigasus agy` starts an aggregate pool, and
+`resolveSettings` resolves both switches to true. Each of these turns it off,
+and they are the same switch:
 
 ```bash
-pigasus proxy aggregate on      # persisted in the config document
-pigasus proxy aggregate         # the status: "aggregate: off"
-pigasus proxy doctor            # the "aggregate   on|off" line
+pigasus agy --no-aggregate                 # one run
+pigasus proxy aggregate off                # persisted in the config document
+pigasus proxy balance off                  # persisted; balance is the master switch
+OPENAGY_PROXY_AGGREGATE=0 pigasus agy      # the environment variable
 ```
 
 ```json
-// ~/.openagy/config.json
-{ "account_pool": { "enabled": true, "strategy": "aggregate" } }
-```
-
-```bash
-OPENAGY_PROXY_AGGREGATE=1 pigasus agy     # the environment variable
-pigasus agy --aggregate                   # the launcher's own flag
+// ~/.openagy/accounts.json
+{ "account_pool": { "aggregate": { "enabled": false } } }
 ```
 
 The environment variables are `OPENAGY_PROXY_AGGREGATE` and
-`OPENAGY_ACCOUNT_POOL_AGGREGATE`; `--aggregate` / `--no-aggregate` on the
-`pigasus agy` command line are the same switch for one run.
+`OPENAGY_ACCOUNT_POOL_AGGREGATE` (and `OPENAGY_ACCOUNT_BALANCE` /
+`OPENAGY_ACCOUNT_POOL` for the master switch); `--aggregate` /
+`--no-aggregate` on the `pigasus agy` command line are the same switch for one
+run.
 
-**Aggregate implies balance.** The pool has to be able to move a turn between
-accounts before the merged numbers mean anything, so turning aggregate on
-turns balance on too: `pigasus proxy aggregate on` writes *both* flags into the
-`"wrapper"` section of `~/.openagy/config.json`, and a policy whose strategy is `aggregate` turns
-the balancer on through the proxy's own `resolveSettings` / `balanceEnabled`.
+**Balance is the master switch, and aggregate implies it.** The pool has to be
+able to move a turn between accounts before the merged numbers mean anything,
+so `pigasus proxy aggregate on` writes *both* flags, and a policy whose
+`aggregate.enabled` is true turns the balancer on through `resolveSettings` /
+`balanceEnabled`. The implication runs one way: turning **balance** off turns
+the unified view off with it — there is nothing to merge in a proxy that does
+not move turns — while turning aggregate off leaves the routing intact and
+simply answers each turn's real quota.
 
 ### What the proxy answers
 
@@ -334,15 +463,21 @@ The quota merge, exactly:
   60 % each read as 60 %, not 360 %: the figure is "how much of the pool is
   left", not "how much allowance exists".
 - An account **in cooldown** contributes 0 and does not count as active.
-- An account whose quota could not be read is in the denominator but not in the
-  numerator: a pool of six with one unreachable account reads five sixths.
+- An account whose quota could not be read is **out of the denominator** too: the
+  average is taken over the accounts that answered for that bucket, so a pool of
+  six with one unreachable account still reads the five that answered, instead
+  of being dragged down by a figure that is not a measurement.
 - The average is floored at `0.01` when any account has quota, so a nearly
   spent pool does not read as exactly zero.
 - A bucket is `disabled` when no account is active or the average is zero; the
   `resetTime` is the **earliest** reset in the pool, and the description reads
   `Unified Pool: N/M accounts ready (X% capacity)`.
-- The top-level description is
-  `OpenAGY Unified Pool (N accounts). Automatic load balancing and failover active.`
+- The **five-hour** bucket's description names the window as the one the pool is
+  routed on and adds `Next turn uses <email>` for the pinned account, so the
+  quota panel shows which account the next turn will spend.
+- The top-level description is `OpenAGY Unified Pool (N accounts). Pinned to
+  <email> until its 5h window runs down.` (or `One account at a time, switched
+  only when its 5h window runs down.` before the first turn is routed).
 
 The tier merge reads the **cached** plan tier of each account in the registry
 (`Google AI Pro`, …), not a live call. When the upstream `loadCodeAssist`
@@ -587,6 +722,45 @@ a 320 px viewport, and the wheel moves it.
   bundle would not carry it.
 - The registry's accounts are the clone's; the reference `agy` has exactly one
   credential and no switcher, so none of this has a byte-for-byte counterpart.
+
+## Reference Auth Architecture & Providers (from reverse engineering)
+
+Clean-room reverse engineering of the official Antigravity binary (`jetski/cortex`, `language_server/code_assist_client/codeassistclient` and `cli/store/Manager`) revealed the underlying auth architecture, the 7 canonical `AuthProvider` implementations, the token refreshing mechanism, and the licensing lifecycle.
+
+### The 7 Canonical AuthProviders
+
+In the official `codeassistclient` package, all backend token acquisition routes through the `AuthProvider` interface (`GetTokenSource(ctx) (oauth2.TokenSource, error)`):
+
+1. **`CLIAuthProvider`**: The default provider for interactive CLI sessions. Returns a `RefreshingTokenSource` that wraps stored OAuth refresh tokens (read from OS keychain or `~/.gemini/antigravity-cli/antigravity-oauth-token`) and automatically refreshes short-lived access tokens.
+2. **`AntigravityHubAuthProvider`**: Used when executing embedded inside the Antigravity IDE (Hub). Instead of managing its own tokens, it communicates over a local IPC socket / Unix domain socket provisioned by the IDE host to fetch live session tokens.
+3. **`HostAuthProvider`**: Used for host (server / headless daemon) mode. Reads bearer tokens from a shared filesystem path (such as `/var/run/antigravity/auth.json` or daemon token store).
+4. **`StandaloneAuthProvider`**: Designed for standalone headless runs outside IDE environments. Functionally mirrors `CLIAuthProvider` token renewal logic under a distinct runner context.
+5. **`StubbyAuthProvider`**: Internal Google corporate environment provider. Fetches tokens via Google's internal Stubby RPC proxy when executed on corporate dev workstations.
+6. **`IDEAuthProvider`**: Legacy IDE extension auth provider. Reads credentials from IDE-specific environment variables or configuration files.
+7. **`GeminiAPIKeyAuthProvider`**: API-key-only provider. Skips OAuth flows and device registration entirely, attaching direct Gemini Developer API keys for unary/streaming calls against `generativelanguage.googleapis.com`.
+
+### Token Lifecycle & `RefreshingTokenSource`
+
+All OAuth providers wrap their underlying credential in a `RefreshingTokenSource`. This wrapper intercepts HTTP 401 Unauthorized or expiry errors and transparently issues refresh grants against `https://oauth2.googleapis.com/token` (or `oauth2.mtls.googleapis.com/token` when mTLS is armed) before retrying the failed RPC.
+
+### License Claim & Eligibility RPCs
+
+Session initialization and tier gating in `cli/store/Manager` and `codeassistclient` follow a deterministic state machine:
+
+- **`waitForEligibility`**: A startup synchronization barrier in `cli/store/Manager`. Blocks CLI interaction until the backend reports eligibility (user tier, quota tier, business/enterprise flags) via the Language Server `GetStatus` RPC.
+- **`FetchLicensesFromAICode`**: Calls the `aicode.googleapis.com` `ManagementService.FetchLicenses` RPC to discover available licenses bound to the Google account (Free, Standard, Pro, Enterprise).
+- **`SelectLicense` / `SelfAssignLicense`**: Protocol buffer RPCs (`language_server_pb`) that bind an entitlement license to the current user or machine session.
+- **`parseIDToken`**: Lightweight client-side helper that parses the unverified JWT payload of the OAuth `id_token` to extract user email, avatar URL, and subscription tier claims without incurring a signature verification round-trip.
+
+### Store Auth State Machine (`cli/store/Manager`)
+
+The local credential lifecycle manages multiple auth entry points:
+- **`StartOAuthProcess`**: Requests an OAuth device code from `https://oauth2.googleapis.com/device/code`, launches the browser for user consent, and polls the token endpoint.
+- **`StartGCPAuthProcess` & `CompleteGCPSetup`**: Application Default Credentials (ADC) flow via `https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/...`, persisting credentials to `~/.config/gcloud/application_default_credentials.json`.
+- **`TrySilentAuth`**: Attempts silent resumption using cached refresh tokens from the OS keyring or configuration file without opening interactive prompts.
+- **`SubmitOAuthAuthorizationCode`**: Exchanges PKCE authorization codes for access and refresh tokens, writing them to the platform keyring (macOS Keychain / Linux Secret Service).
+- **`SubmitVertexAPIKey`**: Directly records a Vertex AI API key in the keyring.
+- **`Logout` & `commitAuth`**: Clears stored credentials, purges cached entitlement status in the LSP server, and updates the Manager's transactional auth state.
 
 ## Logging in on Android/Termux (cycle `android`)
 

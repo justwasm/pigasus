@@ -40,6 +40,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/justwasm/pigasus/internal/features/models"
 	"github.com/justwasm/pigasus/internal/features/models/catalog"
 	"github.com/justwasm/pigasus/internal/ui/views/slashpicker"
 )
@@ -48,13 +49,29 @@ import (
 // reference's own models first, then the ones the user configured
 // (catalog.ModelCatalogue).
 //
+// For configured models, the full ID (with provider prefix, e.g.
+// "openrouter/deepseek/deepseek-v4.1-flash-high") is used so autocompletion
+// and selection use the full unambiguous identifier.
+//
 // The rows are re-read on every keystroke, so a catalogue that changed
 // (the user edited the provider configuration) shows up immediately.
 func Rows() []slashpicker.ModelRow {
 	entries := catalog.ModelCatalogue()
+	reg := models.CachedRegistry()
+	var configuredMap map[string]string
+	if reg != nil {
+		configuredMap = make(map[string]string)
+		for _, m := range models.TierRows(reg.List()) {
+			configuredMap[m.Name] = m.QualifiedName()
+		}
+	}
 	out := make([]slashpicker.ModelRow, 0, len(entries))
 	for _, e := range entries {
-		out = append(out, slashpicker.ModelRow{Label: e.Label, ID: e.ID})
+		id := e.ID
+		if qid, ok := configuredMap[e.ID]; ok && qid != "" {
+			id = qid
+		}
+		out = append(out, slashpicker.ModelRow{Label: e.Label, ID: id})
 	}
 	return out
 }
@@ -71,9 +88,54 @@ func Resolve(arg string) (catalog.ModelEntry, bool) {
 	if arg == "" {
 		return catalog.ModelEntry{}, false
 	}
+	reg := models.CachedRegistry()
+	var configuredMap map[string]string
+	if reg != nil {
+		configuredMap = make(map[string]string)
+		for _, m := range models.TierRows(reg.List()) {
+			configuredMap[m.Name] = m.QualifiedName()
+		}
+	}
 	for _, e := range catalog.ModelCatalogue() {
 		if strings.EqualFold(e.Label, arg) || strings.EqualFold(e.ID, arg) {
+			if qid, ok := configuredMap[e.ID]; ok && qid != "" {
+				e.ID = qid
+			}
 			return e, true
+		}
+	}
+	if reg := models.CachedRegistry(); reg != nil {
+		if m, ok := reg.GetByName(arg); ok {
+			label := strings.TrimSpace(m.DisplayName)
+			if label == "" {
+				label = m.Name
+			}
+			return catalog.ModelEntry{ID: m.QualifiedName(), Label: label}, true
+		}
+		for _, m := range append(models.TierRows(reg.List()), reg.List()...) {
+			if strings.EqualFold(m.QualifiedName(), arg) || strings.EqualFold(m.Name, arg) || strings.EqualFold(m.DisplayName, arg) {
+				label := strings.TrimSpace(m.DisplayName)
+				if label == "" {
+					label = m.Name
+				}
+				return catalog.ModelEntry{ID: m.QualifiedName(), Label: label}, true
+			}
+		}
+	}
+	if id, err := catalog.ResolveModelSelection(arg, ""); err == nil && id != "" {
+		for _, e := range catalog.ModelCatalogue() {
+			if strings.EqualFold(e.ID, id) {
+				return e, true
+			}
+		}
+		if reg := models.CachedRegistry(); reg != nil {
+			if m, ok := reg.GetByName(id); ok {
+				label := strings.TrimSpace(m.DisplayName)
+				if label == "" {
+					label = m.Name
+				}
+				return catalog.ModelEntry{ID: m.QualifiedName(), Label: label}, true
+			}
 		}
 	}
 	return catalog.ModelEntry{}, false

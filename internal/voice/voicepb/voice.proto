@@ -214,3 +214,14 @@ message VoiceEvent {
   string event_name = 1;
   repeated AttributesEntry attributes = 2;
 }
+
+// StreamVoiceRequest wraps a VoiceClientMessage for the AICode/RAP StreamVoice RPC.
+message StreamVoiceRequest {
+  VoiceClientMessage message = 1;
+}
+
+// StreamVoiceResponse wraps a VoiceServerMessage for the AICode/RAP StreamVoice RPC.
+message StreamVoiceResponse {
+  VoiceServerMessage message = 1;
+}
+

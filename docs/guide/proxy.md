@@ -84,10 +84,18 @@ deleted in cycle `wrapper-merge`; the legacy `agy wrapper providers|models`
 spelling was deleted in cycle `wrapper-flatten` along with the binary that
 owned it — `pigasus providers` is the alias that survives.
 
-Five things that bite:
+Six things that bite:
 
 - **Only a literal first arg `agy` selects the launcher.** Everything else
   (`pigasus models`, `pigasus --version`, `pigasus -p …`) is the clone's own.
+- **A failed catalogue refresh reuses the last good one.** `fetchAvailableModels`
+  must never answer a transient upstream failure with custom models alone: the
+  vendor binary treats the reply as its model table, so a reset or
+  `unexpected EOF` used to drop every Gemini id and the next turn died with
+  `unknown model key MODEL_PLACEHOLDER_M318: model not found`. The last
+  successful body is kept in memory and served with
+  `X-Openagy-Upstream-Status: cached`; only a launch that never reached Google
+  falls back to custom models only.
 - **Proxy logs go to `~/.openagy/wrapper.log`, never stderr.** fd 2 is the
   terminal the TUI owns; writing request lines there smears the screen. Tail it
   with `pigasus proxy log`; `OPENAGY_WRAPPER_LOG=stderr` is the debugging escape
@@ -154,25 +162,29 @@ turn that picks one is translated to the operator's provider, exactly as
 on the `agy` path. With no configured model there is no proxy at all.
 
 **A third user: the account pool.** The proxy can drive a **pool** of Google
-accounts instead of the one the credential names. Two switches, both persisted
-in the `"wrapper"` section of `~/.openagy/config.json`:
+accounts instead of the one the credential names. **It does so by default**:
+`pigasus agy` starts an aggregate pool, and the switches exist to turn it off.
+Both live in the `account_pool` section of `~/.openagy/accounts.json` — see
+[`accounts.md`](accounts.md) — not in the proxy's own `"wrapper"` section,
+which used to carry copies of them and now carries neither.
 
 | switch | what it does |
 |---|---|
-| `balance` | one turn may be tried on another account of the pool when the account it ran on is out of quota |
-| `aggregate` | the pool's quota and tier are answered as **one virtual account's** — the merged view |
+| `account_pool.enabled` | *was `balance`*: whether a turn may move to another account of the pool at all; off means pure passthrough. The master switch. |
+| `account_pool.aggregate` | whether the pool's quota and tier are answered as **one virtual account's**. |
 
 ```sh
-pigasus proxy balance on|off      # the load balancer
-pigasus proxy aggregate on|off    # the virtual unified account
-pigasus proxy doctor              # both lines, plus the pool's strategy
+pigasus proxy balance on|off      # account_pool.enabled (the master switch)
+pigasus proxy aggregate on|off    # account_pool.aggregate.enabled
+pigasus proxy doctor              # one "pool" line: routing, merged view, both thresholds
 ```
 
-`aggregate` implies `balance`, and it is reachable four ways: the admin
-command, the account-routing policy (`"strategy": "aggregate"` in
-`config.json`), `OPENAGY_PROXY_AGGREGATE=1`, and `pigasus agy --aggregate`.
-The interceptions, the merge algorithm and the two things the mode does *not*
-touch are in the account guide: [`accounts.md`](accounts.md).
+`aggregate` implies `balance`, and can only be on where `balance` is: turning
+balance off turns the unified view off with it. Each is reachable from the
+environment (`OPENAGY_ACCOUNT_BALANCE`, `OPENAGY_PROXY_AGGREGATE`) and from
+`pigasus agy` (`--balance` / `--no-balance`, `--aggregate` /
+`--no-aggregate`) for one run. The interceptions, the merge algorithm and the
+two things the mode does *not* touch are in the account guide.
 
 Known limits before trusting a capture: the Google path is location-blocked for
 this account (403 passthrough only, so Google-turn fidelity is **unproven**),

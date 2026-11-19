@@ -24,7 +24,6 @@ import (
 	"github.com/justwasm/pigasus/internal/infra/refbackend"
 	"github.com/justwasm/pigasus/internal/rcfrontend"
 	"github.com/justwasm/pigasus/internal/remotecontrol"
-	"github.com/justwasm/pigasus/internal/voice"
 	"github.com/justwasm/pigasus/originpolicy"
 	"github.com/justwasm/pigasus/remotetransport"
 )
@@ -114,10 +113,7 @@ func RunWeb(j *cli.JetskiCLI, args cli.WebArgs) error {
 
 	// Use empty pattern OriginPolicy ("allow all") to enable local LAN sharing without CORS blocks.
 	seed := originpolicy.OriginPolicy{}
-	voiceSvc := voice.NewService(voice.Config{
-		WorkspaceDir: cwd,
-		CSRFToken:    token,
-	})
+	voiceSvc := buildHostVoiceService(cwd, token)
 	srv, err := remotetransport.NewTCPServer(context.Background(), disp, remotetransport.TCPConfig{
 		Addr:         addr,
 		Path:         "/rpc",

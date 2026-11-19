@@ -14,7 +14,9 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/justwasm/pigasus/accountpool"
 	"github.com/justwasm/pigasus/endpoints"
+	accounts "github.com/justwasm/pigasus/internal/features/accounts/core"
 	"github.com/justwasm/pigasus/internal/features/models"
 	agybin "github.com/justwasm/pigasus/internal/infra/proxy/bin"
 )
@@ -114,33 +116,39 @@ func captureMaxDetail(n int64) string {
 
 // ---- balance -------------------------------------------------------------
 
+// cmdBalance reads and writes the pool's routing switch.
+//
+// `balance` is the older name of `"enabled"` in the routing policy: it decides
+// whether a turn may be moved to another account of the pool at all. It is
+// written there — the one place either switch lives now — never into the
+// "wrapper" section, and turning it off also turns the merged view off,
+// because a proxy that does not move turns has nothing to merge.
 func cmdBalance(opts AdminOptions, args []string) error {
 	c := loadConfig()
 	if len(args) == 0 {
-		s := resolveSettings(c)
-		fmt.Fprintf(opts.Out, "balance: %s\n", onOff(s.Balance))
+		fmt.Fprintf(opts.Out, "balance: %s\n", onOff(resolveSettings(c).Balance))
 		return nil
 	}
+	var on bool
 	switch strings.ToLower(args[0]) {
 	case "on", "enable", "enabled", "1", "true":
-		b := true
-		c.Balance = &b
-		if err := saveConfig(c); err != nil {
-			return err
-		}
-		fmt.Fprintln(opts.Out, "balance: on")
-		return nil
+		on = true
 	case "off", "disable", "disabled", "0", "false":
-		b := false
-		c.Balance = &b
-		if err := saveConfig(c); err != nil {
-			return err
-		}
-		fmt.Fprintln(opts.Out, "balance: off")
-		return nil
+		on = false
 	default:
 		return fmt.Errorf("balance: unknown subcommand %q (want on|off)", args[0])
 	}
+	policy := editablePool()
+	policy.SetEnabled(on)
+	if !on {
+		// A pool that does not route has nothing to merge.
+		policy.SetAggregate(false)
+	}
+	if err := savePool(policy); err != nil {
+		return err
+	}
+	fmt.Fprintf(opts.Out, "balance: %s\n", onOff(on))
+	return nil
 }
 
 // ---- aggregate -----------------------------------------------------------
@@ -148,32 +156,60 @@ func cmdBalance(opts AdminOptions, args []string) error {
 func cmdAggregate(opts AdminOptions, args []string) error {
 	c := loadConfig()
 	if len(args) == 0 {
-		s := resolveSettings(c)
-		fmt.Fprintf(opts.Out, "aggregate: %s\n", onOff(s.Aggregate))
+		fmt.Fprintf(opts.Out, "aggregate: %s\n", onOff(resolveSettings(c).Aggregate))
 		return nil
 	}
+	var on bool
 	switch strings.ToLower(args[0]) {
 	case "on", "enable", "enabled", "1", "true":
-		b := true
-		c.Aggregate = &b
-		// Enabling aggregate automatically enables balance
-		c.Balance = &b
-		if err := saveConfig(c); err != nil {
-			return err
-		}
-		fmt.Fprintln(opts.Out, "aggregate: on (virtual unified account across pool)")
-		return nil
+		on = true
 	case "off", "disable", "disabled", "0", "false":
-		b := false
-		c.Aggregate = &b
-		if err := saveConfig(c); err != nil {
-			return err
-		}
-		fmt.Fprintln(opts.Out, "aggregate: off")
-		return nil
+		on = false
 	default:
 		return fmt.Errorf("aggregate: unknown subcommand %q (want on|off)", args[0])
 	}
+	policy := editablePool()
+	policy.SetAggregate(on)
+	if on {
+		// Aggregate implies routing: the merged numbers are the pool's, and
+		// there is no pool without a turn moving between accounts.
+		policy.SetEnabled(true)
+	}
+	if err := savePool(policy); err != nil {
+		return err
+	}
+	if on {
+		fmt.Fprintln(opts.Out, "aggregate: on (virtual unified account across pool)")
+	} else {
+		fmt.Fprintln(opts.Out, "aggregate: off")
+	}
+	return nil
+}
+
+// editablePool returns a copy of the routing policy, or a fresh one when the
+// document carries none.
+func editablePool() *accountpool.Config {
+	if p := accounts.CurrentAccountPool(); p != nil {
+		copied := *p
+		return &copied
+	}
+	return &accountpool.Config{Enabled: true}
+}
+
+// savePool writes the policy and drops the legacy copies of the two switches
+// from the configuration document's "wrapper" section, so the file has one
+// place to look at.
+func savePool(policy *accountpool.Config) error {
+	if err := accounts.SaveAccountPool(policy); err != nil {
+		return err
+	}
+	c := loadConfig()
+	if c.Balance != nil || c.Aggregate != nil {
+		c.Balance = nil
+		c.Aggregate = nil
+		_ = saveConfig(c)
+	}
+	return nil
 }
 
 func onOff(b bool) string {
@@ -277,17 +313,18 @@ func doctorPrintServer(opts AdminOptions, set settings, configured []models.Mode
 			countCaptureFiles(set.CaptureDir), plural(countCaptureFiles(set.CaptureDir)),
 			dirSize(set.CaptureDir), captureMaxText(set.CaptureMaxBytes))
 	}
-	fmt.Fprintf(opts.Out, "balance     %s\n", onOff(set.Balance))
-	if set.Balance {
-		fmt.Fprintf(opts.Out, "aggregate   %s\n", onOff(set.Aggregate))
+	// One line for the pool: routing, the merged view, and the two floors —
+	// one per quota window. There is no rotation to print: the pool stays on
+	// one account until a floor takes it out, and that is the only rule.
+	if pol := accounts.CurrentAccountPool(); pol != nil {
+		fmt.Fprintf(opts.Out, "pool        %s (aggregate: %s, thresholds: %.1f%% of 5h, %.1f%% of the week)\n",
+			onOff(set.Balance), onOff(set.Aggregate), pol.ThresholdFiveHour*100, pol.ThresholdWeekly*100)
+	} else {
+		fmt.Fprintf(opts.Out, "pool        %s (aggregate: %s)\n",
+			onOff(set.Balance), onOff(set.Aggregate))
 	}
-	if pol := endpoints.CurrentAccountPool(); pol != nil {
-		strategy := pol.Strategy
-		if strategy == "" {
-			strategy = pol.Normalised().Strategy
-		}
-		fmt.Fprintf(opts.Out, "pool        %s (strategy: %s, threshold: %.1f%%)\n",
-			onOff(pol.Enabled), strategy, pol.Threshold*100)
+	if set.Balance && !set.Aggregate {
+		fmt.Fprintln(opts.Out, "            (the pool moves turns, but answers each account's own quota)")
 	}
 }
 

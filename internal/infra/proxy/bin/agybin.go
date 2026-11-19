@@ -38,61 +38,160 @@ var DefaultPaths = []string{
 // auto-download from the autoupdater manifest. It never returns the currently
 // running executable.
 func Path(explicit string) (string, error) {
-	self, selfInfo := selfIdentity()
+	return PathForVersionWithExplicit(explicit, "")
+}
 
-	var seen []string
-	var rejectedSelf []string
+// PathForVersion resolves the real agy binary for a given version specification (e.g. "1.5.11", "v1.5.11", "latest").
+func PathForVersion(versionSpec string) (string, error) {
+	return PathForVersionWithExplicit("", versionSpec)
+}
+
+// PathForVersionWithExplicit resolves the real agy binary for a given version specification with an optional explicit path.
+func PathForVersionWithExplicit(explicit, versionSpec string) (string, error) {
+	self, selfInfo := selfIdentity()
+	norm := NormalizeVersion(versionSpec)
+
+	// If no specific version requested, run general discovery.
+	if norm == "" {
+		var seen []string
+		var rejectedSelf []string
+		for _, cand := range candidates(explicit) {
+			resolved, err := resolve(cand)
+			if err != nil {
+				seen = append(seen, fmt.Sprintf("%s (%v)", cand, err))
+				continue
+			}
+			info, err := os.Stat(resolved)
+			if err != nil {
+				seen = append(seen, fmt.Sprintf("%s (%v)", resolved, err))
+				continue
+			}
+			if info.IsDir() {
+				seen = append(seen, resolved+" (directory)")
+				continue
+			}
+			if !isExecutable(info) {
+				seen = append(seen, resolved+" (not executable)")
+				continue
+			}
+			if isSelf(resolved, info, self, selfInfo) {
+				rejectedSelf = append(rejectedSelf, resolved)
+				continue
+			}
+			return resolved, nil
+		}
+
+		if explicit == "" && os.Getenv(EnvRealBin) == "" && autoDownloadAllowed() {
+			downloaded, dlErr := AutoDownload(context.Background())
+			if dlErr == nil {
+				info, err := os.Stat(downloaded)
+				if err == nil && !info.IsDir() && isExecutable(info) && !isSelf(downloaded, info, self, selfInfo) {
+					return downloaded, nil
+				}
+				if err != nil {
+					seen = append(seen, fmt.Sprintf("auto-download stat (%v)", err))
+				} else if isSelf(downloaded, info, self, selfInfo) {
+					rejectedSelf = append(rejectedSelf, downloaded)
+				} else if !isExecutable(info) {
+					seen = append(seen, downloaded+" (downloaded binary not executable)")
+				}
+			} else {
+				seen = append(seen, fmt.Sprintf("auto-download (%v)", dlErr))
+			}
+		}
+
+		msg := "agybin: no agy binary found (tried: " + strings.Join(seen, ", ") + ")"
+		if len(rejectedSelf) > 0 {
+			msg += "; refusing to exec self: " + strings.Join(rejectedSelf, ", ")
+		}
+		msg += "; set " + EnvRealBin + " to the real binary"
+		return "", errors.New(msg)
+	}
+
+	// Case: "latest"
+	if strings.EqualFold(norm, "latest") {
+		if autoDownloadAllowed() {
+			if dl, err := AutoDownloadVersion(context.Background(), "latest"); err == nil {
+				if info, err := os.Stat(dl); err == nil && !info.IsDir() && isExecutable(info) && !isSelf(dl, info, self, selfInfo) {
+					return dl, nil
+				}
+			}
+		}
+		// 1. Check general cache path ~/.openagy/bin/agy
+		gCachePath := CacheBinaryPath()
+		if resolved, err := resolve(gCachePath); err == nil {
+			if info, err := os.Stat(resolved); err == nil && !info.IsDir() && isExecutable(info) && !isSelf(resolved, info, self, selfInfo) {
+				return resolved, nil
+			}
+		}
+		// 2. Check if any versioned binary exists in CacheDir()
+		if entries, err := os.ReadDir(CacheDir()); err == nil {
+			var bestPath string
+			for _, e := range entries {
+				if !e.IsDir() && strings.HasPrefix(e.Name(), "agy-") {
+					p := filepath.Join(CacheDir(), e.Name())
+					if info, err := e.Info(); err == nil && isExecutable(info) && !isSelf(p, info, self, selfInfo) {
+						bestPath = p
+					}
+				}
+			}
+			if bestPath != "" {
+				return bestPath, nil
+			}
+		}
+		// Fallback to unversioned Path() if latest auto-download fails or is disabled
+		return Path(explicit)
+	}
+
+	// Case: specific version (e.g. "1.5.11")
+	// 1. Check versioned cache path ~/.openagy/bin/agy-<version>
+	vCachePath := CacheBinaryPathForVersion(norm)
+	if resolved, err := resolve(vCachePath); err == nil {
+		if info, err := os.Stat(resolved); err == nil && !info.IsDir() && isExecutable(info) && !isSelf(resolved, info, self, selfInfo) {
+			return resolved, nil
+		}
+	}
+
+	// 2. Check general cache path ~/.openagy/bin/agy
+	gCachePath := CacheBinaryPath()
+	if resolved, err := resolve(gCachePath); err == nil {
+		if info, err := os.Stat(resolved); err == nil && !info.IsDir() && isExecutable(info) && !isSelf(resolved, info, self, selfInfo) {
+			if ver, err := Version(resolved); err == nil && NormalizeVersion(ver) == norm {
+				linkOrCopy(resolved, vCachePath)
+				return resolved, nil
+			}
+		}
+	}
+
+	// 3. Check candidates (explicit, EnvRealBin, DefaultPaths, LookPath)
 	for _, cand := range candidates(explicit) {
 		resolved, err := resolve(cand)
 		if err != nil {
-			seen = append(seen, fmt.Sprintf("%s (%v)", cand, err))
 			continue
 		}
 		info, err := os.Stat(resolved)
-		if err != nil {
-			seen = append(seen, fmt.Sprintf("%s (%v)", resolved, err))
+		if err != nil || info.IsDir() || !isExecutable(info) || isSelf(resolved, info, self, selfInfo) {
 			continue
 		}
-		if info.IsDir() {
-			seen = append(seen, resolved+" (directory)")
-			continue
+		if ver, err := Version(resolved); err == nil && NormalizeVersion(ver) == norm {
+			return resolved, nil
 		}
-		if !isExecutable(info) {
-			seen = append(seen, resolved+" (not executable)")
-			continue
-		}
-		if isSelf(resolved, info, self, selfInfo) {
-			rejectedSelf = append(rejectedSelf, resolved)
-			continue
-		}
-		return resolved, nil
 	}
 
-	if explicit == "" && os.Getenv(EnvRealBin) == "" && autoDownloadAllowed() {
-		downloaded, dlErr := AutoDownload(context.Background())
+	// 4. Try auto-download if allowed
+	if autoDownloadAllowed() {
+		downloaded, dlErr := AutoDownloadVersion(context.Background(), norm)
 		if dlErr == nil {
 			info, err := os.Stat(downloaded)
 			if err == nil && !info.IsDir() && isExecutable(info) && !isSelf(downloaded, info, self, selfInfo) {
 				return downloaded, nil
 			}
-			if err != nil {
-				seen = append(seen, fmt.Sprintf("auto-download stat (%v)", err))
-			} else if isSelf(downloaded, info, self, selfInfo) {
-				rejectedSelf = append(rejectedSelf, downloaded)
-			} else if !isExecutable(info) {
-				seen = append(seen, downloaded+" (downloaded binary not executable)")
-			}
 		} else {
-			seen = append(seen, fmt.Sprintf("auto-download (%v)", dlErr))
+			return "", fmt.Errorf("agybin: version %s: %w", versionSpec, dlErr)
 		}
 	}
 
-	msg := "agybin: no agy binary found (tried: " + strings.Join(seen, ", ") + ")"
-	if len(rejectedSelf) > 0 {
-		msg += "; refusing to exec self: " + strings.Join(rejectedSelf, ", ")
-	}
-	msg += "; set " + EnvRealBin + " to the real binary"
-	return "", errors.New(msg)
+	return "", fmt.Errorf("agybin: no agy binary found for version %s", versionSpec)
 }
 
 // Version runs `agy --version` and returns the trimmed first line. agy 1.4.2

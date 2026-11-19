@@ -147,7 +147,7 @@ func TestChangelogReference_NewestBulletIsUpstream(t *testing.T) {
 		t.Fatalf("read %s: %v", path, err)
 	}
 	text := string(data)
-	const want = "1.4.12:\n\u00b7 Added `\"optional\": true` for API key providers in a plugin's `auth.json`, for services that work without a key but raise rate limits with one: when you haven't set the key, the plugin's commands now see the variable as unset and make unauthenticated requests at the free rate limit, instead of failing with `401` errors or asking you to sign in."
+	const want = "1.5.10:\n\u00b7 Added `accept-edits` mode to `--remote-agent` sessions: `Shift+Tab` now switches between the default mode and `accept-edits` instead of doing nothing."
 	if !strings.HasPrefix(text, want) {
 		t.Errorf("newest section is not the upstream capture:\n  want prefix: %q\n  file head: %.200q\u2026", want, text)
 	}

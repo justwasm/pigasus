@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -28,11 +29,10 @@ func TestAggregateQuota_Calculation(t *testing.T) {
 	router.SetPolicy(func() *accountpool.Config {
 		return &accountpool.Config{
 			Enabled:            true,
-			Strategy:           accountpool.StrategyAggregate,
-			Threshold:          0.15,
+			Aggregate:          &accountpool.Aggregate{Enabled: accountpool.Bool(true)},
+			ThresholdFiveHour:  0.15,
 			MaxAttempts:        3,
 			SwitchOnQuotaError: &t1,
-			Aggregate:          true,
 		}
 	})
 
@@ -93,7 +93,7 @@ func TestAggregateQuota_Calculation(t *testing.T) {
 		},
 	}
 
-	merged := srv.mergeQuotaSummaries(accs, summaries)
+	merged := srv.mergeQuotaSummaries(accs, summaries, "")
 	if len(merged.Groups) != 1 {
 		t.Fatalf("merged groups count = %d, want 1", len(merged.Groups))
 	}
@@ -167,7 +167,7 @@ func TestAggregateQuota_AllExhausted(t *testing.T) {
 		},
 	}
 
-	merged := srv.mergeQuotaSummaries(accs, summaries)
+	merged := srv.mergeQuotaSummaries(accs, summaries, "")
 	b := merged.Groups[0].Buckets[0]
 	if b.RemainingFraction != 0.0 {
 		t.Errorf("RemainingFraction = %f, want 0.0", b.RemainingFraction)
@@ -228,7 +228,7 @@ func TestAggregateQuota_WithCooldown(t *testing.T) {
 		},
 	}
 
-	merged := srv.mergeQuotaSummaries(accs, summaries)
+	merged := srv.mergeQuotaSummaries(accs, summaries, "")
 	b := merged.Groups[0].Buckets[0]
 	// alpha is excluded -> 0.0, beta is 0.6 -> avg = (0.0 + 0.6)/2 = 0.30
 	if b.RemainingFraction != 0.30 {
@@ -315,11 +315,10 @@ func TestAggregateHTTPDispatch_Intercept(t *testing.T) {
 	router.SetPolicy(func() *accountpool.Config {
 		return &accountpool.Config{
 			Enabled:            true,
-			Strategy:           accountpool.StrategyAggregate,
-			Threshold:          0.15,
+			Aggregate:          &accountpool.Aggregate{Enabled: accountpool.Bool(true)},
+			ThresholdFiveHour:  0.15,
 			MaxAttempts:        3,
 			SwitchOnQuotaError: &t1,
-			Aggregate:          true,
 		}
 	})
 
@@ -430,6 +429,13 @@ func TestAggregateHTTPDispatch_CodeAssist(t *testing.T) {
 }
 
 func TestAggregateAdminCommand(t *testing.T) {
+	// The switch lives in the account registry now, so point it at a scratch
+	// file: a test must not rewrite the machine's own policy.
+	dir := t.TempDir()
+	t.Setenv("OPENAGY_CONFIG", filepath.Join(dir, "config.json"))
+	t.Setenv("OPENAGY_ACCOUNTS_CONFIG", filepath.Join(dir, "accounts.json"))
+	t.Setenv("OPENAGY_CONFIG_HOME", dir)
+
 	var out bytes.Buffer
 	var errOut bytes.Buffer
 	opts := AdminOptions{

@@ -1051,8 +1051,7 @@ func TestProxyServeLogAccountInformation(t *testing.T) {
 	acc2 := accounts.Account{Email: "user2@example.com", Token: testToken("token2"), Quota: testQuotaSnapshot(1.0)}
 
 	setupTestEnvironment(t, map[string]any{
-		"enabled":  true,
-		"strategy": "round_robin",
+		"enabled": true,
 	}, acc1, acc2)
 
 	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -1104,7 +1103,8 @@ func TestProxyServeLogAccountInformation(t *testing.T) {
 		t.Fatalf("POST 1 got status %d, want 200", resp1.StatusCode)
 	}
 
-	// 2. Send second chat completion -> routes to user2@example.com
+	// 2. Send second chat completion -> the same account: the pool stays
+	// on one until its window runs down.
 	payload2 := `{"model":"gemini-2.5-flash","messages":[{"role":"user","content":"hi 2"}]}`
 	resp2, err := client.Post("http://"+addr+"/v1/chat/completions", "application/json", strings.NewReader(payload2))
 	if err != nil {
@@ -1136,14 +1136,13 @@ func TestProxyServeLogAccountInformation(t *testing.T) {
 		t.Fatalf("expected at least 3 request logs, got %d: %v", len(reqLogs), reqLogs)
 	}
 
-	// First request log must mention user1@example.com
+	// Both request logs must mention user1@example.com: the pool is pinned.
 	if !strings.Contains(reqLogs[0], "POST /v1/chat/completions [user1@example.com] -> 200") {
 		t.Errorf("log 0 = %q, want it to contain 'POST /v1/chat/completions [user1@example.com] -> 200'", reqLogs[0])
 	}
 
-	// Second request log must mention user2@example.com
-	if !strings.Contains(reqLogs[1], "POST /v1/chat/completions [user2@example.com] -> 200") {
-		t.Errorf("log 1 = %q, want it to contain 'POST /v1/chat/completions [user2@example.com] -> 200'", reqLogs[1])
+	if !strings.Contains(reqLogs[1], "POST /v1/chat/completions [user1@example.com] -> 200") {
+		t.Errorf("log 1 = %q, want the pinned account, 'POST /v1/chat/completions [user1@example.com] -> 200'", reqLogs[1])
 	}
 
 	// Third request log (GET /v1/models) should NOT have bracketed account

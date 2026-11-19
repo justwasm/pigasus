@@ -286,18 +286,21 @@ func isDirFollowingLinks(path string) bool {
 }
 
 // builtinListed is the subset of the builtin skill bundle the
-// reference's `/skills` panel lists. It is deliberately NOT the prompt
-// allowlist (agyprompt.BuiltinSkillDirs): agy 1.4.3 lists five builtin
-// skills, while its system prompt advertises only agy-customizations and
-// antigravity-guide. The remaining four directories (generative_ui,
-// permissioned-github, plugin, ui-plugin-navigation) are internal and stay
-// out of both surfaces. Verified live at 120x40 on agy 1.4.3.
+// reference's `/skills` panel lists. In 1.5.11, the reference lists the
+// user-facing and workflow/swarm skills while keeping purely internal shims
+// (generative_ui, permissioned-github, plugin, ui-plugin-navigation) unlisted.
 var builtinListed = map[string]bool{
-	"agy-customizations": true,
-	"antigravity_guide":  true,
-	"automation":         true,
-	"migrate-workflows":  true,
-	"run-workflow":       true,
+	"agy-customizations":     true,
+	"antigravity_guide":      true,
+	"automation":             true,
+	"mcp-app-development":    true,
+	"migrate-agent-settings": true,
+	"migrate-workflows":      true,
+	"native_swarm":           true,
+	"run-workflow":           true,
+	"swarm_monitor":          true,
+	"swarm_narrator":         true,
+	"swarm_pane":             true,
 }
 
 func extractFrontmatterBytes(b []byte) ([]byte, bool) {

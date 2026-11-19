@@ -14,12 +14,14 @@ import (
 )
 
 // BuiltinSkillDirs is the subset of the shipped builtin bundle that appears in
-// the prompt and in `/skills`. The bundle contains nine directories; the other
-// seven are internal and have no marker that distinguishes them, so the set is
-// empirical (1.4.2/1.4.3 captures).
+// the prompt and in `/skills`. In 1.5.11, the reference advertises agy-customizations,
+// antigravity_guide, native_swarm, run-workflow, and swarm_monitor.
 var BuiltinSkillDirs = map[string]bool{
 	"agy-customizations": true,
 	"antigravity_guide":  true,
+	"native_swarm":       true,
+	"run-workflow":       true,
+	"swarm_monitor":      true,
 }
 
 // DiscoverSkills lists the skills under each root, one level deep, then sorts

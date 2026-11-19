@@ -293,6 +293,7 @@ func loadInstallManifest(j *JetskiCLI, target string) (string, error) {
 	if err != nil {
 		return "", fail(j, 1, "Error: missing plugin.json: file does not exist")
 	}
+	manifestRaw = plugins.StripBOM(manifestRaw)
 	var p legacyPlugin
 	if err := json.Unmarshal(manifestRaw, &p); err != nil {
 		return "", fail(j, 1, fmt.Sprintf("Error: invalid plugin.json: %s", err))

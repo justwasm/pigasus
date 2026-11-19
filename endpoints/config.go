@@ -19,7 +19,6 @@ import (
 	"github.com/tidwall/pretty"
 	"github.com/tidwall/sjson"
 
-	"github.com/justwasm/pigasus/accountpool"
 	"github.com/justwasm/pigasus/atomicfile"
 	"github.com/justwasm/pigasus/configdir"
 )
@@ -32,17 +31,18 @@ const ConfigPathEnvVar = "OPENAGY_CONFIG"
 // Config is the configuration document.
 //
 // The document is a map of sections rather than a bare map of endpoints so
-// that the file can grow a second section without a format change. There
-// are three today:
+// that the file can grow a second section without a format change. There are
+// two today:
 //
 //   - "endpoints" — the endpoint overrides.
-//   - "account_pool" — the account-routing policy, the shape of which
-//     belongs to the accountpool package. This package only carries it,
-//     so the configuration file keeps a single reader.
 //   - "wrapper" — the proxy's own persisted state. Its shape belongs to
 //     internal/agyproxy, so this package carries it as an opaque section:
 //     the file has one reader, and the section's owner still owns the
 //     shape.
+//
+// The account pool's policy is **not** here: it lives in `accounts.json`,
+// beside the accounts it is about. See
+// `internal/features/accounts/core.CurrentAccountPool`.
 type Config struct {
 	// Endpoints maps an endpoint name (see the name constants in
 	// endpoints.go) to the URL to use instead of the compiled-in
@@ -55,12 +55,6 @@ type Config struct {
 	// GeminiLiveModel is an optional override for the real-time voice model
 	// (e.g. "models/gemini-3.8-live" or "models/gemini-3.8-live-extended-thinking").
 	GeminiLiveModel string `json:"gemini_live_model,omitempty"`
-
-	// AccountPool is the account-routing policy: which account a turn
-	// runs on, and how the pool rotates. It is nil when the file carries
-	// no such section, which means "no routing" — the behaviour without
-	// the policy.
-	AccountPool *accountpool.Config `json:"account_pool,omitempty"`
 
 	// Wrapper is the proxy's persisted state, carried verbatim. It is
 	// nil when the file carries no such section.
@@ -178,70 +172,6 @@ func CurrentGeminiLiveModel() string {
 	return ""
 }
 
-// accountPool is one resolved snapshot of the file's account-routing
-// policy.
-type accountPool struct {
-	stamp  string
-	policy *accountpool.Config
-}
-
-// accountPoolCache holds the last snapshot, with the stamp of the file it
-// was built from.
-var accountPoolCache atomic.Pointer[accountPool]
-
-// CurrentAccountPool returns the account-routing policy the configuration
-// file carries, or nil when it carries none.
-//
-// The file is re-read only when it changed on disk — the same stamp the
-// endpoint overrides use — so a policy the user edits mid-session takes
-// effect on the next read.
-//
-// The returned policy is a copy: the caller may normalise it (fill in the
-// defaults) without touching the cached one.
-func CurrentAccountPool() *accountpool.Config {
-	path := Path()
-	stamp := fileStamp(path)
-
-	if cached := accountPoolCache.Load(); cached != nil && cached.stamp == stamp {
-		return cached.policy
-	}
-
-	var policy *accountpool.Config
-	if cfg, err := Load(path); err == nil && cfg.AccountPool != nil {
-		copied := *cfg.AccountPool
-		policy = &copied
-	}
-	snapshot := &accountPool{stamp: stamp, policy: policy}
-	accountPoolCache.Store(snapshot)
-	return snapshot.policy
-}
-
-// SaveAccountPool writes the account-routing policy into the
-// configuration file.
-//
-// It rewrites the "account_pool" section and leaves the rest of the
-// document — the endpoint overrides, and any section a newer version
-// wrote — byte for byte as it was: the edit is made on the raw document,
-// so the key order survives. A nil policy removes the section.
-//
-// The write is atomic, and the cached snapshot is dropped, so the policy
-// the routing reads is the one that was just written — the turn after the
-// write runs on it.
-func SaveAccountPool(policy *accountpool.Config) error {
-	if policy == nil {
-		return updateDocument(accountPoolKey, nil, true)
-	}
-	encoded, err := json.Marshal(policy)
-	if err != nil {
-		return fmt.Errorf("endpoints: encode the account pool: %w", err)
-	}
-	return updateDocument(accountPoolKey, encoded, false)
-}
-
-// accountPoolKey is the section name the account-routing policy lives
-// under in the configuration document.
-const accountPoolKey = "account_pool"
-
 // wrapperKey is the section name the proxy's persisted state lives under in
 // the configuration document.
 const wrapperKey = "wrapper"
@@ -351,7 +281,6 @@ func updateDocument(key string, value []byte, remove bool) error {
 	}
 	// The cached snapshots describe the file before the write: drop them,
 	// so the next read picks the new one up.
-	accountPoolCache.Store(nil)
 	wrapperCache.Store(nil)
 	return nil
 }

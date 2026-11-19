@@ -3,8 +3,10 @@ package rchost
 
 import (
 	"flag"
+	"os"
 	"path/filepath"
 
+	"github.com/justwasm/pigasus/endpoints"
 	"github.com/justwasm/pigasus/internal/app/session/convstore"
 	"github.com/justwasm/pigasus/internal/features/auth"
 	"github.com/justwasm/pigasus/internal/remotecontrol/fastpush"
@@ -13,6 +15,7 @@ import (
 	"github.com/justwasm/pigasus/internal/remotecontrol/plugins"
 	"github.com/justwasm/pigasus/internal/remotecontrol/projects"
 	"github.com/justwasm/pigasus/internal/remotecontrol/triggers"
+	"github.com/justwasm/pigasus/internal/voice"
 )
 
 // buildHostFSProvider returns the production files.Provider the two read-only
@@ -95,4 +98,41 @@ func buildHostTriggerStore() triggers.Store {
 func buildHostFastpushStore() fastpush.Store {
 	root := filepath.Join(auth.AntigravityHome(), "fastpush.json")
 	return fastpush.NewFSStore(root, nil)
+}
+
+// buildHostVoiceBackend resolves the live voice backend honoring OAuth access tokens
+// (antigravity-oauth-token / auth.LoadTokenUnified) and fallback GEMINI_API_KEY.
+func buildHostVoiceBackend() voice.LiveBackend {
+	if os.Getenv("PIGASUS_MOCK_VOICE") != "" || os.Getenv("OPENAGY_MOCK_VOICE") != "" {
+		return voice.NewMockLiveBackend()
+	}
+	apiKey := endpoints.CurrentGeminiAPIKey()
+	if os.Getenv("OPENAGY_VOICE_FORCE_API_KEY") != "" && apiKey != "" {
+		return voice.NewGeminiLiveBackend(apiKey)
+	}
+	if tok, err := auth.LoadTokenUnified(); err == nil && tok != nil && tok.Token.AccessToken != "" {
+		var fallback voice.LiveBackend
+		if apiKey != "" {
+			fallback = voice.NewGeminiLiveBackend(apiKey)
+		} else {
+			fallback = voice.NewGeminiLiveBackendWithBearer(tok.Token.AccessToken)
+		}
+		return voice.NewAICodeLiveBackendWithFallback(tok.Token.AccessToken, fallback)
+	}
+	if apiKey != "" {
+		return voice.NewGeminiLiveBackend(apiKey)
+	}
+	if ep := endpoints.Current().Voice; ep != "" && ep != endpoints.DefaultVoice {
+		return voice.NewGeminiLiveBackend("")
+	}
+	return voice.NewMockLiveBackend()
+}
+
+// buildHostVoiceService builds the production voice Service using buildHostVoiceBackend.
+func buildHostVoiceService(workspaceDir, csrfToken string) *voice.Service {
+	return voice.NewService(voice.Config{
+		WorkspaceDir: workspaceDir,
+		CSRFToken:    csrfToken,
+		LiveBackend:  buildHostVoiceBackend(),
+	})
 }

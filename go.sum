@@ -48,6 +48,8 @@ github.com/aymerick/douceur v0.2.0 h1:Mv+mAeH1Q+n9Fr+oyamOlAkUNPWPlA8PPGR0QAaYuP
 github.com/aymerick/douceur v0.2.0/go.mod h1:wlT5vV2O3h55X9m7iVYN0TBM0NH/MmbLnd30/FjWUq4=
 github.com/bmatcuk/doublestar/v4 v4.10.0 h1:zU9WiOla1YA122oLM6i4EXvGW62DvKZVxIe6TYWexEs=
 github.com/bmatcuk/doublestar/v4 v4.10.0/go.mod h1:xBQ8jztBU6kakFMg+8WGxn0c6z1fTSPVIjEY1Wr7jzc=
+github.com/bubbletui/bubbletea/v2 v2.1.1 h1:+bgyvAXDo4Dz4U5037mLq0JpXwSi3tJkgJ9S7lW6nj4=
+github.com/bubbletui/bubbletea/v2 v2.1.1/go.mod h1:xWHeyxIX9/wiFU2kgPW04ojOZyTzrWf+8lGjUCaftiU=
 github.com/carapace-sh/carapace-shlex v1.1.1 h1:ccmNeetAYZOk4IcV36youFDsXusT9uCNW2Njkw+QS+Q=
 github.com/carapace-sh/carapace-shlex v1.1.1/go.mod h1:lJ4ZsdxytE0wHJ8Ta9S7Qq0XpjgjU0mdfCqiI2FHx7M=
 github.com/census-instrumentation/opencensus-proto v0.2.1/go.mod h1:f6KPmirojxKA12rnyqOA5BBL4O983OfeGPqjHWSTneU=
@@ -199,6 +201,8 @@ github.com/ironpark/acp-go v0.3.0 h1:27H14aTPuOfzi12Caz6DSm1NW7JeD8XTTw4FrcQryJQ
 github.com/ironpark/acp-go v0.3.0/go.mod h1:2dZrZ7GT5wXb4Hd9S1qiscj5xU1VmxJAr+Y3IMQHcpE=
 github.com/jfreymuth/pulse v0.1.3 h1:bc5TdxiB8E+2INnFjFWWgyfgXtz2IyNNNCX+Wt/ZD14=
 github.com/jfreymuth/pulse v0.1.3/go.mod h1:cpYspI6YljhkUf1WLXLLDmeaaPFc3CnGLjDZf9dZ4no=
+github.com/justwasm/clipboard v0.1.6 h1:CP7oDCiJY2Ch1MnTyhmntiwCZ6AT6iOrF3BsBlZwe+c=
+github.com/justwasm/clipboard v0.1.6/go.mod h1:/DAAkFJ5FXAhcMkYjz/d8cgu4J01Jexs7C4jf/OV68c=
 github.com/justwasm/storybook v0.0.1 h1:vSSSrT5mxmT8sOKE4D/UnpFSVIUv1+RJTlyx6SUmJOA=
 github.com/justwasm/storybook v0.0.1/go.mod h1:LsDlcB4ZJKjsthtnrVuNXOUmPbMmzPmL4XMYQW16qb0=
 github.com/klauspost/compress v1.19.2 h1:hMRETovs/pu/dVWN7zIT1PGG8t509MwT6bO7XSi26R8=

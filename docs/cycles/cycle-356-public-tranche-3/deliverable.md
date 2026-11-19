@@ -219,7 +219,7 @@ before and after the move — the move added none.
 
 ---
 
-Reports: [`docs/guide/public-packages.md`](../../docs/guide/public-packages.md)
+Reports: [`docs/guide/public-packages.md`](../../guide/public-packages.md)
 (the current state and the ranking),
 [`cycle-355-public-tranche-2`](../cycle-355-public-tranche-2/deliverable.md)
 (the T2 move),

@@ -193,7 +193,7 @@ Pigasus 拥有干净的**五层架构**（`core` → `features` → `infra` → 
 | `internal/ui/slashcommands/` | 基于能力（Capability）与作用域（Scope）的命令过滤目录 |
 | `geminicode/`, `agentlink/`, `endpoints/`, `configdir/`, `accountpool/` 等 | **30+ 个独立公开包**，无 `internal/` 依赖，供第三方开发者直接引用 |
 | `docs/guide/` | 详尽的开发与维护指南（Agent loop、模型路由、权限策略、工具调用等） |
-| `REVIEW.md` | 项目架构深度评审、工程哲学分析与现代化演进路线图 |
+| `docs/architecture/REVIEW.md` | 项目架构深度评审、工程哲学分析与现代化演进路线图 |
 
 ---
 

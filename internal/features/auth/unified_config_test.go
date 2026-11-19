@@ -58,18 +58,18 @@ func TestLoadTokenUnified_EnvVar(t *testing.T) {
 }
 
 func TestLoadTokenUnified_CascadeFromFile(t *testing.T) {
-	// Mock 1.3.5 真 binary path 写 token
+	// Modern official binary path: ~/.gemini/antigravity-cli/antigravity-oauth-token
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	os.Unsetenv("JETSKI_OAUTH_TOKEN")
 
-	legacyDir := filepath.Join(home, ".config", "antigravity")
-	if err := os.MkdirAll(legacyDir, 0700); err != nil {
+	modernDir := filepath.Join(home, ".gemini", "antigravity-cli")
+	if err := os.MkdirAll(modernDir, 0700); err != nil {
 		t.Fatal(err)
 	}
-	legacyTok := &AntigravityToken{
+	modernTok := &AntigravityToken{
 		Token: AntigravityAccessToken{
-			AccessToken:  "ya29.from-legacy-path",
+			AccessToken:  "ya29.from-modern-path",
 			TokenType:    "Bearer",
 			RefreshToken: "1//fake-refresh",
 			Expiry:       time.Now().Add(2 * time.Hour).Format(time.RFC3339Nano),
@@ -77,7 +77,7 @@ func TestLoadTokenUnified_CascadeFromFile(t *testing.T) {
 		AuthMethod: "consumer",
 		IDToken:    "eyJ.fake.idtoken",
 	}
-	if err := SaveAntigravityTokenTo(filepath.Join(legacyDir, "oauth-token"), legacyTok); err != nil {
+	if err := SaveAntigravityTokenTo(filepath.Join(modernDir, "antigravity-oauth-token"), modernTok); err != nil {
 		t.Fatal(err)
 	}
 
@@ -85,42 +85,64 @@ func TestLoadTokenUnified_CascadeFromFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("LoadTokenUnified: %v", err)
 	}
-	if tok.Token.AccessToken != "ya29.from-legacy-path" {
-		t.Errorf("expected legacy token, got %q", tok.Token.AccessToken)
+	if tok.Token.AccessToken != "ya29.from-modern-path" {
+		t.Errorf("expected modern token, got %q", tok.Token.AccessToken)
 	}
 }
 
 func TestLoadTokenUnified_PriorityOrder(t *testing.T) {
-	// 多个 path 都有 token, 应该走 priority 1 (v1.3.5 真 binary path)
+	// Priority order: Env > Modern CLI path > accounts.json
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	os.Unsetenv("JETSKI_OAUTH_TOKEN")
 
-	// priority 2: v3 残留
-	v3Dir := filepath.Join(home, ".config", "antigravity")
-	os.MkdirAll(v3Dir, 0700)
-	SaveAntigravityTokenTo(filepath.Join(v3Dir, "antigravity-auth.json"), &AntigravityToken{
-		Token: AntigravityAccessToken{AccessToken: "ya29.v3"},
-	})
+	LoadKeychainTokenFn = func() (*AntigravityToken, error) {
+		return nil, ErrNoToken
+	}
+	defer func() { LoadKeychainTokenFn = nil }()
 
-	// priority 1: v1.3.5 真 binary
-	SaveAntigravityTokenTo(filepath.Join(v3Dir, "oauth-token"), &AntigravityToken{
-		Token: AntigravityAccessToken{AccessToken: "ya29.legacy-priority"},
-	})
-
-	// priority 3: v4 binary
-	v4Dir := filepath.Join(home, ".gemini", "antigravity-cli")
-	os.MkdirAll(v4Dir, 0700)
-	SaveAntigravityTokenTo(filepath.Join(v4Dir, "antigravity-oauth-token"), &AntigravityToken{
-		Token: AntigravityAccessToken{AccessToken: "ya29.v4"},
-	})
+	// 1. Setup accounts.json (lowest priority)
+	openagyDir := filepath.Join(home, ".openagy")
+	os.MkdirAll(openagyDir, 0700)
+	os.WriteFile(filepath.Join(openagyDir, "accounts.json"), []byte(`{
+		"version": 1,
+		"active": "acc@example.com",
+		"accounts": [
+			{"email": "acc@example.com", "token": {"token": {"access_token": "ya29.from-accounts-json"}}}
+		]
+	}`), 0600)
 
 	tok, err := LoadTokenUnified()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if tok.Token.AccessToken != "ya29.legacy-priority" {
-		t.Errorf("expected priority 1 (legacy), got %q", tok.Token.AccessToken)
+	if tok.Token.AccessToken != "ya29.from-accounts-json" {
+		t.Errorf("expected accounts.json token, got %q", tok.Token.AccessToken)
+	}
+
+	// 2. Setup modern CLI on-disk token (beats accounts.json)
+	modernDir := filepath.Join(home, ".gemini", "antigravity-cli")
+	os.MkdirAll(modernDir, 0700)
+	SaveAntigravityTokenTo(filepath.Join(modernDir, "antigravity-oauth-token"), &AntigravityToken{
+		Token: AntigravityAccessToken{AccessToken: "ya29.from-modern-cli"},
+	})
+
+	tok, err = LoadTokenUnified()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tok.Token.AccessToken != "ya29.from-modern-cli" {
+		t.Errorf("expected modern CLI token, got %q", tok.Token.AccessToken)
+	}
+
+	// 3. Set JETSKI_OAUTH_TOKEN (beats on-disk token)
+	t.Setenv("JETSKI_OAUTH_TOKEN", "ya29.from-env")
+	tok, err = LoadTokenUnified()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tok.Token.AccessToken != "ya29.from-env" {
+		t.Errorf("expected env token, got %q", tok.Token.AccessToken)
 	}
 }
 
@@ -255,9 +277,9 @@ func TestUnifiedTokenCache_AutoRefresh(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	os.Unsetenv("JETSKI_OAUTH_TOKEN")
-	legacyDir := filepath.Join(home, ".config", "antigravity")
-	os.MkdirAll(legacyDir, 0700)
-	SaveAntigravityTokenTo(filepath.Join(legacyDir, "oauth-token"), &AntigravityToken{
+	modernDir := filepath.Join(home, ".gemini", "antigravity-cli")
+	os.MkdirAll(modernDir, 0700)
+	SaveAntigravityTokenTo(filepath.Join(modernDir, "antigravity-oauth-token"), &AntigravityToken{
 		Token: AntigravityAccessToken{
 			AccessToken:  "ya29.expired",
 			RefreshToken: "1//fake",
@@ -275,5 +297,55 @@ func TestUnifiedTokenCache_AutoRefresh(t *testing.T) {
 	}
 	if atomic.LoadInt32(&calls) != 1 {
 		t.Errorf("expected 1 refresh call, got %d", calls)
+	}
+}
+
+func TestLoadTokenUnified_AccountsJSONFallback(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("JETSKI_OAUTH_TOKEN", "")
+	t.Setenv("ANTIGRAVITY_REFRESH_TOKEN", "")
+
+	// No keychain, no agy config files
+	LoadKeychainTokenFn = func() (*AntigravityToken, error) {
+		return nil, ErrNoToken
+	}
+	defer func() { LoadKeychainTokenFn = nil }()
+
+	// Write accounts.json
+	openagyDir := filepath.Join(home, ".openagy")
+	os.MkdirAll(openagyDir, 0700)
+	accountsPath := filepath.Join(openagyDir, "accounts.json")
+	accountsData := `{
+		"version": 1,
+		"active": "standalone@example.com",
+		"accounts": [
+			{
+				"email": "standalone@example.com",
+				"token": {
+					"token": {
+						"access_token": "ya29.standalone-account",
+						"refresh_token": "1//refresh-standalone",
+						"token_type": "Bearer"
+					},
+					"auth_method": "consumer",
+					"id_token_email": "standalone@example.com"
+				}
+			}
+		]
+	}`
+	if err := os.WriteFile(accountsPath, []byte(accountsData), 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	tok, err := LoadTokenUnified()
+	if err != nil {
+		t.Fatalf("expected token from accounts.json, got error: %v", err)
+	}
+	if tok.Token.AccessToken != "ya29.standalone-account" {
+		t.Errorf("expected ya29.standalone-account, got %q", tok.Token.AccessToken)
+	}
+	if !TokenFileExists() {
+		t.Errorf("expected TokenFileExists=true with accounts.json present")
 	}
 }

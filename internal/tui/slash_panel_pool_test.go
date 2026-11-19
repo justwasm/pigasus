@@ -18,7 +18,7 @@ import (
 	"testing"
 
 	"github.com/justwasm/pigasus/accountpool"
-	"github.com/justwasm/pigasus/endpoints"
+	accounts "github.com/justwasm/pigasus/internal/features/accounts/core"
 	accountrouting "github.com/justwasm/pigasus/internal/features/accounts/routing"
 	"github.com/justwasm/pigasus/internal/ui/panelregistry"
 	"github.com/justwasm/pigasus/internal/ui/slashcommands"
@@ -53,25 +53,27 @@ func TestPoolCommandIsListedInCatalogue(t *testing.T) {
 	}
 }
 
-// TestPoolPolicyWriteLandsInTheConfigurationFile is the host's half of
-// the pool tab: the policy the tab writes is the section the
-// configuration file carries, and the endpoints layer is the only
-// writer.
-func TestPoolPolicyWriteLandsInTheConfigurationFile(t *testing.T) {
+// TestPoolPolicyWriteLandsInTheRegistry is the host's half of the pool tab:
+// the policy the tab writes is the section the **registry** carries — beside
+// the accounts it is about — and the configuration document is not touched.
+func TestPoolPolicyWriteLandsInTheRegistry(t *testing.T) {
 	dir := poolIsolate(t)
-	accountsIsolate(t)
-	if err := endpoints.SaveAccountPool(&accountpool.Config{
-		Enabled:  true,
-		Strategy: accountpool.StrategyRoundRobin,
+	home := accountsIsolate(t)
+	if err := accounts.SaveAccountPool(&accountpool.Config{
+		Enabled:   true,
+		Aggregate: &accountpool.Aggregate{Enabled: accountpool.Bool(true)},
 	}); err != nil {
 		t.Fatalf("SaveAccountPool: %v", err)
 	}
-	raw, err := os.ReadFile(filepath.Join(dir, "config.json"))
+	raw, err := os.ReadFile(filepath.Join(home, "accounts.json"))
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("the registry was not written: %v", err)
 	}
 	if !strings.Contains(string(raw), "account_pool") {
-		t.Errorf("the policy was not written: %s", raw)
+		t.Errorf("the policy was not written into the registry: %s", raw)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "config.json")); err == nil {
+		t.Error("the configuration document was written; the policy does not live there")
 	}
 }
 
@@ -82,7 +84,7 @@ func TestPoolPolicyWriteLandsInTheConfigurationFile(t *testing.T) {
 func TestPoolToggleWritesTheSectionAndTheRoutingSeesIt(t *testing.T) {
 	poolIsolate(t)
 	accountsIsolate(t)
-	if err := endpoints.SaveAccountPool(&accountpool.Config{Enabled: true}); err != nil {
+	if err := accounts.SaveAccountPool(&accountpool.Config{Enabled: true}); err != nil {
 		t.Fatalf("SaveAccountPool: %v", err)
 	}
 	if !accountrouting.Enabled() {

@@ -15,6 +15,9 @@ import (
 // The temp file is a sibling of the target (same directory, same
 // filesystem), so the rename cannot cross a mount point.
 func WriteFile(path string, data []byte, perm os.FileMode) error {
+	if err := guard(path); err != nil {
+		return err
+	}
 	f, err := renameio.NewPendingFile(path, renameio.WithStaticPermissions(perm))
 	if err != nil {
 		return err

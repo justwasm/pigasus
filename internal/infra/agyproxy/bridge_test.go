@@ -503,8 +503,7 @@ func TestBridge_AggregateAccountFailover(t *testing.T) {
 	}
 	setupTestEnvironment(t, map[string]any{
 		"enabled":   true,
-		"aggregate": true,
-		"strategy":  "aggregate",
+		"aggregate": map[string]any{"enabled": true},
 	}, accA, accB)
 
 	router := newTestRouter(accA, accB)

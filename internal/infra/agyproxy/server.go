@@ -84,6 +84,14 @@ type Server struct {
 	ln      net.Listener
 	addr    string
 
+	// cachedModels is the last successful upstream fetchAvailableModels
+	// body. It keeps a transient upstream failure from replacing the
+	// vendor binary's catalogue with a custom-models-only document (which
+	// makes every Gemini model "unknown model key" until the next fetch
+	// succeeds). It lives for the life of the proxy process.
+	modelsMu     sync.RWMutex
+	cachedModels []byte
+
 	closeOnce sync.Once
 	closeErr  error
 	closed    atomic.Bool
@@ -155,8 +163,8 @@ func (s *Server) balanceEnabled() bool {
 			}
 		}
 	}
-	if p := endpoints.CurrentAccountPool(); p != nil {
-		if p.ProxyBalance || p.Aggregate || p.Strategy == accountpool.StrategyAggregate {
+	if p := accounts.CurrentAccountPool(); p != nil {
+		if p.ProxyBalance || p.AggregateEnabled() {
 			return true
 		}
 	}
@@ -164,6 +172,12 @@ func (s *Server) balanceEnabled() bool {
 }
 
 // aggregateActive reports whether virtual unified account aggregation is active.
+//
+// The proxy is an aggregate pool: several accounts answered as one. It is on
+// unless something turns it off — `--no-aggregate`, the environment, the
+// persisted switch, or a policy section that says so. `s.cfg.Aggregate` is
+// where that resolved answer arrives: the launcher resolves env > file >
+// default and passes it in.
 func (s *Server) aggregateActive() bool {
 	if s.cfg.Aggregate {
 		return true
@@ -178,44 +192,36 @@ func (s *Server) aggregateActive() bool {
 			}
 		}
 	}
-	if p := endpoints.CurrentAccountPool(); p != nil {
-		if p.Aggregate || p.Strategy == accountpool.StrategyAggregate {
-			return true
-		}
+	if p := accounts.CurrentAccountPool(); p != nil {
+		return p.AggregateEnabled()
 	}
 	return false
 }
 
-// effectivePolicy returns the account-routing policy from endpoints/config.json,
-// filling in enabled state and sensible defaults for proxy balancing.
+// effectivePolicy returns the account-routing policy the router is installed
+// with: the document's section, plus what the proxy insists on.
+//
+// The proxy insists on two things. The routing is on — a proxy whose pool is
+// switched off is a proxy with one account, and the user started it to have
+// several. And the unified pool is on unless the operator turned it off:
+// aggregate is the proxy's default mode, not an optional extra.
 func (s *Server) effectivePolicy() *accountpool.Config {
-	p := endpoints.CurrentAccountPool()
-	if p == nil {
-		t := true
-		cp := &accountpool.Config{
-			Enabled:            true,
-			Strategy:           accountpool.DefaultStrategy,
-			Threshold:          0.15,
-			MaxAttempts:        3,
-			SwitchOnQuotaError: &t,
-		}
-		if s.aggregateActive() {
-			cp.Aggregate = true
-			cp.Strategy = accountpool.StrategyAggregate
-		}
-		return cp
+	p := accounts.CurrentAccountPool()
+	var cp accountpool.Config
+	if p != nil {
+		cp = *p
 	}
-	cp := *p
-	cp.Enabled = true
-	if cp.Strategy == "" {
-		cp.Strategy = accountpool.DefaultStrategy
+	cp.SetEnabled(true)
+	if cp.Aggregate == nil {
+		cp.Aggregate = &accountpool.Aggregate{}
+	} else {
+		aggregate := *cp.Aggregate
+		cp.Aggregate = &aggregate
 	}
-	if s.aggregateActive() {
-		cp.Aggregate = true
-		if cp.Strategy == accountpool.DefaultStrategy {
-			cp.Strategy = accountpool.StrategyAggregate
-		}
-	}
+	// A caller may read the policy back, so say what the proxy actually
+	// resolved rather than leaving the switch unstated.
+	on := s.aggregateActive()
+	cp.Aggregate.Enabled = &on
 	if cp.MaxAttempts <= 1 && cp.SwitchOnQuotaErrorEnabled() {
 		cp.MaxAttempts = 3
 	}

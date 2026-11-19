@@ -53,7 +53,7 @@ func (s *Server) handleAggregatedQuota(w http.ResponseWriter, r *http.Request, b
 		return
 	}
 
-	out := s.mergeQuotaSummaries(candidateAccounts, summaries)
+	out := s.mergeQuotaSummaries(candidateAccounts, summaries, s.pinnedAccount())
 	respBytes, err := json.Marshal(out)
 	if err != nil {
 		s.logf("aggregate quota: marshal error: %v", err)
@@ -148,7 +148,7 @@ func (s *Server) collectQuotaSummaries(ctx context.Context, accs []accounts.Acco
 	return out
 }
 
-func (s *Server) mergeQuotaSummaries(accs []accounts.Account, summaries map[string]*auth.QuotaSummary) aggregatedQuotaWire {
+func (s *Server) mergeQuotaSummaries(accs []accounts.Account, summaries map[string]*auth.QuotaSummary, pinned string) aggregatedQuotaWire {
 	var activeAccs []accounts.Account
 	for _, acc := range accs {
 		if acc.Disabled {
@@ -180,6 +180,7 @@ func (s *Server) mergeQuotaSummaries(accs []accounts.Account, summaries map[stri
 		window        string
 		sumFraction   float64
 		activeCount   int
+		contribCount  int
 		earliestReset time.Time
 		latestReset   time.Time
 	}
@@ -238,6 +239,7 @@ func (s *Server) mergeQuotaSummaries(accs []accounts.Account, summaries map[stri
 				}
 
 				agg.sumFraction += effectiveFraction
+				agg.contribCount++
 				if effectiveFraction > 0 && !isExcluded {
 					agg.activeCount++
 				}
@@ -258,7 +260,14 @@ func (s *Server) mergeQuotaSummaries(accs []accounts.Account, summaries map[stri
 	groupBucketsMap := make(map[string][]aggregatedBucketWire)
 	for _, key := range order {
 		agg := aggs[key]
-		avgFraction := agg.sumFraction / float64(totalPool)
+		// The average is per account that has a figure for this bucket, not
+		// per account in the pool: an account whose quota could not be read
+		// must not drag the pool's headline figure down.
+		denom := agg.contribCount
+		if denom == 0 {
+			denom = totalPool
+		}
+		avgFraction := agg.sumFraction / float64(denom)
 		if avgFraction > 1 {
 			avgFraction = 1
 		}
@@ -273,8 +282,18 @@ func (s *Server) mergeQuotaSummaries(accs []accounts.Account, summaries map[stri
 			resetStr = agg.earliestReset.UTC().Format(time.RFC3339)
 		}
 
+		window := auth.QuotaWindow(agg.displayName, agg.window)
 		desc := fmt.Sprintf("Unified Pool: %d/%d accounts ready (%.0f%% capacity)",
 			agg.activeCount, totalPool, avgFraction*100)
+		if window == auth.QuotaWindowFiveHour {
+			// The five-hour window is the one the pool is routed on: say so,
+			// and say whose window the next turn will spend.
+			desc = fmt.Sprintf("Unified Pool (%s window, routed on): %d/%d accounts ready (%.0f%% capacity)",
+				auth.QuotaWindowFiveHour, agg.activeCount, totalPool, avgFraction*100)
+			if pinned != "" {
+				desc += fmt.Sprintf(". Next turn uses %s", pinned)
+			}
+		}
 		if disabled && !agg.earliestReset.IsZero() {
 			desc += fmt.Sprintf(". Quota refreshes at %s", agg.earliestReset.Format("15:04 UTC"))
 		}
@@ -300,10 +319,26 @@ func (s *Server) mergeQuotaSummaries(accs []accounts.Account, summaries map[stri
 		})
 	}
 
+	summary := fmt.Sprintf("OpenAGY Unified Pool (%d accounts). One account at a time, switched only when its %s window runs down.",
+		totalPool, auth.QuotaWindowFiveHour)
+	if pinned != "" {
+		summary = fmt.Sprintf("OpenAGY Unified Pool (%d accounts). Pinned to %s until its %s window runs down.",
+			totalPool, pinned, auth.QuotaWindowFiveHour)
+	}
+
 	return aggregatedQuotaWire{
-		Description: fmt.Sprintf("OpenAGY Unified Pool (%d accounts). Automatic load balancing and failover active.", totalPool),
+		Description: summary,
 		Groups:      groupsWire,
 	}
+}
+
+// pinnedAccount is the pool account aggregate mode is currently routed to,
+// or "" when no turn has been routed yet.
+func (s *Server) pinnedAccount() string {
+	if s.router == nil {
+		return ""
+	}
+	return s.router.Pinned("")
 }
 
 func round2(val float64) float64 {

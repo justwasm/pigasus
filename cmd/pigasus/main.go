@@ -1,5 +1,5 @@
 // Command pigasus is the openagy recovered 1:1 parse-parity shell of Google
-// Antigravity CLI v1.5.7.
+// Antigravity CLI v1.5.12.
 package main
 
 import (

@@ -130,6 +130,9 @@ const (
 
 	// Voice is the real-time voice streaming endpoint (Gemini Multimodal Live WebSocket).
 	Voice = "voice"
+
+	// VoiceAICode is the real-time voice gRPC endpoint for Google Remote Agent Proxy (RAP).
+	VoiceAICode = "voice_aicode"
 )
 
 // The compiled-in defaults. They are what the clone used before the
@@ -155,6 +158,7 @@ const (
 	DefaultPollSignaling      = "https://jetski-webchannel.googleapis.com/v1internal:pollSignalingMessages"
 	DefaultSendSignaling      = "https://jetski-webchannel.googleapis.com/v1internal:sendSignalingMessage"
 	DefaultVoice              = "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContent"
+	DefaultVoiceAICode        = "aicode.googleapis.com:443"
 )
 
 // DefaultOriginPatterns is the browser Origin allowlist the remote-control
@@ -204,6 +208,7 @@ func Names() []Name {
 		{PollSignaling, DefaultPollSignaling},
 		{SendSignaling, DefaultSendSignaling},
 		{Voice, DefaultVoice},
+		{VoiceAICode, DefaultVoiceAICode},
 	}
 }
 
@@ -260,6 +265,8 @@ type Set struct {
 	SendSignaling string
 	// Voice is the real-time voice streaming endpoint (Gemini Multimodal Live WebSocket).
 	Voice string
+	// VoiceAICode is the real-time voice gRPC endpoint for Google Remote Agent Proxy (RAP).
+	VoiceAICode string
 }
 
 // Current returns the resolved endpoint set.
@@ -289,7 +296,27 @@ func Current() Set {
 		PollSignaling:      pick(o, PollSignaling, ""),
 		SendSignaling:      pick(o, SendSignaling, ""),
 		Voice:              voice(o),
+		VoiceAICode:        voiceAICode(o),
 	}
+}
+
+// voiceAICode resolves the real-time voice gRPC endpoint: JETSKI_VOICE_ADDR, then
+// OPENAGY_VOICE_AICODE, then the file's override (VoiceAICode or alias "aicode"),
+// then DefaultVoiceAICode.
+func voiceAICode(o map[string]string) string {
+	if v := strings.TrimSpace(os.Getenv("JETSKI_VOICE_ADDR")); v != "" {
+		return v
+	}
+	if v := strings.TrimSpace(os.Getenv("OPENAGY_VOICE_AICODE")); v != "" {
+		return v
+	}
+	if v := pick(o, VoiceAICode, ""); v != "" {
+		return v
+	}
+	if v := pick(o, "aicode", ""); v != "" {
+		return v
+	}
+	return DefaultVoiceAICode
 }
 
 // voice resolves the real-time voice endpoint: OPENAGY_VOICE_URL, then

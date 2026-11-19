@@ -1,14 +1,12 @@
 {
-  "version": "1.5.7",
-  "lag_acknowledged_through": "1.5.10",
-  "lag_note": "Upstream 1.5.6-1.5.10 releases acknowledged; extracted artifacts in out/extracted-1.5.10 and alignment in progress.",
+  "version": "1.5.12",
   "artifacts": [
     {
       "path": "internal/cli/testdata/changelog_reference.txt",
-      "captured_at": "1.4.12",
-      "digest": "34d2421bd2bbc414e7b9dc92661647cdcdc6622ee72f9265ef41efa905bf3dc8",
+      "captured_at": "1.5.12",
+      "digest": "3f25bfd0d6a3f7da01d0c1cd1f7e6656c6deba00fb70babb83cff87250cf5874",
       "live": true,
-      "how": "agy changelog > internal/cli/testdata/changelog_reference.txt, then update the five constants in internal/cli/changelog_data_test.go (byte length, line count, section count, bullet count, sha256) and regenerate this lock. Re-captured at 1.4.12 (2026-10-31): the feed gained the 1.4.11 section and is 188,429 bytes / 1,069 lines / 82 sections / 906 bullets, sha256 47d411f035301b9e1b2ae35f6c51e49b06915ca0b01d441ca7765f88f6b8b70e. It still ends at 1.4.11 - the 1.4.12 release notes are published in the public repository but the served feed does not carry them yet (they are recorded verbatim in internal/cli/testdata/changelog_upstream_1.4.12.md)."
+      "how": "agy changelog > internal/cli/testdata/changelog_reference.txt, then update the five constants in internal/cli/changelog_data_test.go (byte length, line count, section count, bullet count, sha256) and regenerate this lock. Re-captured at 1.5.11 (2026-11-19): the feed gained the 1.5.0-1.5.10 sections and the 1.3.7/1.3.8/1.3.9 sections the 1.4.x feeds skipped, and is now 241,807 bytes / 1,278 lines / 94 sections / 1091 bullets, sha256 3f25bfd0d6a3f7da01d0c1cd1f7e6656c6deba00fb70babb83cff87250cf5874. It still tops out at 1.5.10 - the 1.5.11 release notes are served nowhere yet (the public docs page stops at 1.5.9), so there is no changelog_upstream_1.5.11.md to record."
     },
     {
       "path": "internal/app/prompt/agyprompt/testdata/capture_1.5.9.txt",

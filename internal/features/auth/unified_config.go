@@ -22,37 +22,38 @@ package auth
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
+	"github.com/justwasm/pigasus/configdir"
 	"golang.org/x/oauth2"
 )
 
-// LegacyTokenPath = v1.3.5 真 binary 用的 oauth-token path (cycle 42 实证 keyring auto-load)
-const LegacyTokenPath = ".config/antigravity/oauth-token"
+// ConfigPathModern = 现代 Antigravity 官方 binary 用的 antigravity-oauth-token 相对路径
+const ConfigPathModern = ".gemini/antigravity-cli/antigravity-oauth-token"
 
-// LegacyAuthPath = v1.3.5 binary antigravity-auth.json 备用 (旧 v3 残留)
-// Cycle 35 写过这路径, 现在 fallback 兼容
-const LegacyAuthPath = ".config/antigravity/antigravity-auth.json"
+// ConfigPathV4 is kept as an alias for ConfigPathModern.
+const ConfigPathV4 = ConfigPathModern
 
-// ConfigPathV4 = v4 binary 用的 antigravity-oauth-token (recovered 之前唯一)
-const ConfigPathV4 = ".gemini/antigravity-cli/antigravity-oauth-token"
-
-// AllTokenPaths 列出 v1.3.5 + v4 binary 所有可能 token 路径 (cascade priority)
+// AllTokenPaths 列出现代 Antigravity 官方规范的 on-disk token 路径:
+// ~/.gemini/antigravity-cli/antigravity-oauth-token (或 $ANTIGRAVITY_HOME/antigravity-oauth-token).
 func AllTokenPaths() []string {
 	home := os.Getenv("HOME")
 	if home == "" {
 		home = "/root"
 	}
-	return []string{
-		filepath.Join(home, LegacyTokenPath), // v1.3.5 binary 真值
-		filepath.Join(home, LegacyAuthPath),  // cycle 35 v3 残留
-		filepath.Join(home, ConfigPathV4),    // v4 binary (recovered 之前读这个)
+	primary := TokenFilePath()
+	homePath := filepath.Join(home, ConfigPathModern)
+	if homePath == primary {
+		return []string{primary}
 	}
+	return []string{primary, homePath}
 }
 
 // Public client_secret 配对 client_id
@@ -65,21 +66,23 @@ func EnvOAuthToken() string { return os.Getenv("JETSKI_OAUTH_TOKEN") }
 // EnvRefreshToken = ANTIGRAVITY_REFRESH_TOKEN env var 支持 (让 CI/沙箱可以预存)
 func EnvRefreshToken() string { return os.Getenv("ANTIGRAVITY_REFRESH_TOKEN") }
 
-// TokenFileExists reports whether a saved token file exists in any recognized token path (AGY 1.5.4).
+// TokenFileExists reports whether a saved token file exists in any recognized token path (AGY 1.5.4)
+// or in ~/.openagy/accounts.json.
 func TokenFileExists() bool {
 	for _, p := range AllTokenPaths() {
 		if st, err := os.Stat(p); err == nil && st.Size() > 0 {
 			return true
 		}
 	}
-	return false
+	_, ok := loadTokenFromAccountsRegistry()
+	return ok
 }
 
 // LoadTokenUnified cascade priority:
-//  1. JETSKI_OAUTH_TOKEN env var (cycle 42 实证, 最简 path)
-//  2. ~/.config/antigravity/oauth-token (v1.3.5 binary 真值)
-//  3. ~/.config/antigravity/antigravity-auth.json (v3 残留)
-//  4. ~/.gemini/antigravity-cli/antigravity-oauth-token (v4 binary)
+//  1. JETSKI_OAUTH_TOKEN env var (最高优先级)
+//  2. 系统 Keychain (service="gemini", account="antigravity" —— macOS/Linux 官方首选)
+//  3. ~/.gemini/antigravity-cli/antigravity-oauth-token (现代官方 CLI / Headless / Linux 凭证)
+//  4. ~/.openagy/accounts.json (Pigasus 独立活跃账号)
 //  5. ANTIGRAVITY_REFRESH_TOKEN env var (只用 refresh_token 走 refresh flow)
 //
 // Returns *AntigravityToken 或 error. Priority 1-4 直接有 access_token,
@@ -97,6 +100,9 @@ func LoadTokenUnified() (*AntigravityToken, error) {
 			return tok, nil
 		}
 	}
+	if tok, ok := loadTokenFromAccountsRegistry(); ok {
+		return tok, nil
+	}
 	if rt := EnvRefreshToken(); rt != "" {
 		return &AntigravityToken{
 			Token: AntigravityAccessToken{
@@ -107,6 +113,44 @@ func LoadTokenUnified() (*AntigravityToken, error) {
 		}, nil
 	}
 	return nil, ErrNoToken
+}
+
+// loadTokenFromAccountsRegistry loads the active account's token from
+// ~/.openagy/accounts.json (or $OPENAGY_ACCOUNTS_CONFIG).
+func loadTokenFromAccountsRegistry() (*AntigravityToken, bool) {
+	p := os.Getenv("OPENAGY_ACCOUNTS_CONFIG")
+	if strings.TrimSpace(p) == "" {
+		p = configdir.Path("accounts.json")
+	}
+	if p == "" {
+		return nil, false
+	}
+	data, err := os.ReadFile(p)
+	if err != nil {
+		return nil, false
+	}
+	var doc struct {
+		Active   string `json:"active"`
+		Accounts []struct {
+			Email    string            `json:"email"`
+			Token    *AntigravityToken `json:"token"`
+			Disabled bool              `json:"disabled"`
+		} `json:"accounts"`
+	}
+	if err := json.Unmarshal(data, &doc); err != nil {
+		return nil, false
+	}
+	active := strings.TrimSpace(doc.Active)
+	if active != "" {
+		for _, a := range doc.Accounts {
+			if strings.EqualFold(a.Email, active) && !a.Disabled && a.Token != nil {
+				if a.Token.Token.AccessToken != "" || a.Token.Token.RefreshToken != "" {
+					return a.Token, true
+				}
+			}
+		}
+	}
+	return nil, false
 }
 
 func loadTokenFromEnv() (*AntigravityToken, bool) {

@@ -2,6 +2,10 @@ module github.com/justwasm/pigasus
 
 go 1.27.2
 
+replace github.com/atotto/clipboard => github.com/justwasm/clipboard v0.1.6
+
+replace charm.land/bubbletea/v2 => github.com/bubbletui/bubbletea/v2 v2.1.1
+
 require (
 	charm.land/bubbles/v2 v2.1.1
 	charm.land/bubbletea/v2 v2.1.0

@@ -338,6 +338,19 @@ The turn is not the only call the clone makes to this host:
 `pluginType` — and answers with the tier list and the project id
 (`aicode-consumers`).
 
+### A.11 Entitlement & License RPCs (`aicode.googleapis.com` & `language_server_pb`)
+
+In addition to `loadCodeAssist` and quota summaries on CloudCode, session entitlement resolution uses dedicated management RPCs discovered during reverse engineering:
+
+| RPC | Service | Purpose |
+|---|---|---|
+| `ManagementService.FetchLicenses` | `aicode.googleapis.com` | Queries available license tiers (Free, Standard, Pro, Enterprise) for the authenticated Google identity |
+| `LanguageServerService.SelectLicense` | `language_server_pb` | Binds an active entitlement license to the current user session |
+| `LanguageServerService.SelfAssignLicense` | `language_server_pb` | Claims or self-assigns an unallocated license |
+| `LanguageServerService.GetStatus` | `language_server_pb` | Returns engine status, license tier, and eligibility flags (polled by `waitForEligibility`) |
+
+All requests are authenticated via bearer tokens supplied by `RefreshingTokenSource`, which intercepts HTTP 401 / gRPC Unauthenticated errors and triggers an automatic refresh grant against `oauth2.googleapis.com/token`.
+
 ---
 
 ## Part B — how the dialect was derived

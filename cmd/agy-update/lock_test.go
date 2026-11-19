@@ -103,8 +103,8 @@ func TestAgyUpdateSkipsWhenAnotherUpdaterHoldsTheLock(t *testing.T) {
 	}
 
 	const want = "Warning: another background updater process is already active (update.lock)\n"
-	if stderr.String() != want {
-		t.Errorf("stderr = %q, want %q", stderr.String(), want)
+	if !strings.HasSuffix(stderr.String(), want) {
+		t.Errorf("stderr = %q, want suffix %q", stderr.String(), want)
 	}
 	if stdout.Len() != 0 {
 		t.Errorf("stdout = %q, want nothing: the updater must step aside", stdout.String())

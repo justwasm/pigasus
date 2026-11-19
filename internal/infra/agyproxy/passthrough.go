@@ -252,7 +252,7 @@ func (s *Server) handleBalancedPassthrough(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	policy := s.effectivePolicy()
-	if policy == nil || !policy.Enabled {
+	if policy == nil || !policy.RoutingEnabled() {
 		s.passthrough(w, r, body)
 		return
 	}

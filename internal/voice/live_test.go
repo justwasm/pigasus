@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/coder/websocket"
+	"github.com/justwasm/pigasus/websocket"
 	"google.golang.org/protobuf/proto"
 
 	"github.com/justwasm/pigasus/internal/voice/voicepb"
@@ -70,12 +70,17 @@ func TestMapVoiceName(t *testing.T) {
 
 func TestGeminiLiveBackend_BearerToken(t *testing.T) {
 	b := NewGeminiLiveBackendWithBearer("test-oauth-token")
-	if b.bearerToken != "test-oauth-token" {
-		t.Fatalf("expected bearerToken == test-oauth-token, got %q", b.bearerToken)
+	if b.BearerToken() != "test-oauth-token" {
+		t.Fatalf("expected BearerToken() == test-oauth-token, got %q", b.BearerToken())
 	}
 	b.SetBearerToken("updated-token")
-	if b.bearerToken != "updated-token" {
-		t.Fatalf("expected updated bearerToken, got %q", b.bearerToken)
+	if b.BearerToken() != "updated-token" {
+		t.Fatalf("expected updated bearerToken, got %q", b.BearerToken())
+	}
+
+	apiKeyBackend := NewGeminiLiveBackend("test-api-key")
+	if apiKeyBackend.APIKey() != "test-api-key" {
+		t.Fatalf("expected APIKey() == test-api-key, got %q", apiKeyBackend.APIKey())
 	}
 }
 

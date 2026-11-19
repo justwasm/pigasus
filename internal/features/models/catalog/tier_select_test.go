@@ -58,6 +58,11 @@ func TestResolveModelSelectionWithConfiguredTiers(t *testing.T) {
 		{"minimax-m3", "high", "",
 			`error: invalid model selection (--model "minimax-m3" --effort "high"): --model minimax-m3 conflicts with --effort=high`},
 		{"minimax-m3", "", "minimax-m3", ""},
+		// Qualified provider/model selections:
+		{"agw/minimax-m3.1-flash-high", "", "agw/minimax-m3.1-flash-high", ""},
+		{"agw/minimax-m3.1-flash", "", "agw/minimax-m3.1-flash-high", ""},
+		{"agw/minimax-m3.1-flash", "low", "agw/minimax-m3.1-flash-low", ""},
+		{"agw/minimax-m3.1-flash-high", "low", "agw/minimax-m3.1-flash-low", ""},
 	} {
 		gotID, err := ResolveModelSelection(tc.model, tc.effort)
 		if tc.wantErr == "" {

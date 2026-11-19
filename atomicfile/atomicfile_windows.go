@@ -13,6 +13,9 @@ import (
 
 // WriteFile writes data to path, replacing the file atomically on Windows.
 func WriteFile(path string, data []byte, perm os.FileMode) error {
+	if err := guard(path); err != nil {
+		return err
+	}
 	dir := filepath.Dir(path)
 	base := filepath.Base(path)
 

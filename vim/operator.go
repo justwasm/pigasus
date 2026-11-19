@@ -52,7 +52,7 @@ func (s *State) undoOp() bool {
 	}
 	snap := s.undo[len(s.undo)-1]
 	s.undo = s.undo[:len(s.undo)-1]
-	s.redo = append(s.redo, snapshot{copyLines(s.Lines), s.Row, s.Col})
+	s.redo = append(s.redo, snapshot{copyLines(s.Lines), snap.row, snap.col})
 	s.restore(snap)
 	return true
 }
@@ -64,7 +64,7 @@ func (s *State) redoOp() bool {
 	}
 	snap := s.redo[len(s.redo)-1]
 	s.redo = s.redo[:len(s.redo)-1]
-	s.undo = append(s.undo, snapshot{copyLines(s.Lines), s.Row, s.Col})
+	s.undo = append(s.undo, snapshot{copyLines(s.Lines), snap.row, snap.col})
 	s.restore(snap)
 	return true
 }
@@ -177,6 +177,7 @@ func (s *State) changeRange(start, end pos, linewise bool) {
 		s.deleteRange(start, end, false)
 		s.Mode = Insert
 		s.clampCursor()
+		s.undoOpen = true
 		return
 	}
 	s.register = s.rangeText(start, end, true)
@@ -191,7 +192,7 @@ func (s *State) changeRange(start, end pos, linewise bool) {
 	s.Col = len([]rune(indent))
 	s.Mode = Insert
 	s.desiredCol = s.Col
-	s.breakUndo()
+	s.undoOpen = true
 }
 
 // leadingWhitespace returns the run of spaces/tabs that starts line.

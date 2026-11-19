@@ -2,15 +2,18 @@
 // inside its binary and unpacks into the config home.
 //
 // The reference embeds two asset trees under assets/ in its //go:embed file
-// system (【一手】, recovered from the agy 1.4.7 binary):
+// system (【一手】, recovered from the agy 1.5.11 binary):
 //
 //	assets/external/skills/agy-customizations   (SKILL.md + docs/)
 //	assets/external/skills/antigravity_guide    (SKILL.md + references/)
+//	assets/external/skills/mcp-app-development
+//	assets/external/skills/migrate-agent-settings
 //	assets/shared/skills/{automation,generative_ui,migrate-workflows,
-//	                      permissioned-github,plugin,run-workflow,
-//	                      ui-plugin-navigation}   (SKILL.md each)
+//	                      native_swarm,permissioned-github,plugin,
+//	                      run-workflow,swarm_monitor,swarm_narrator,
+//	                      swarm_pane,ui-plugin-navigation}
 //
-// and unpacks all nine into <AppDataDir>/builtin/skills/ — the tree the
+// and unpacks all fifteen into <AppDataDir>/builtin/skills/ — the tree the
 // clone's skill discovery reads and the reference's <skills> section
 // advertises. The installed layout is flat: the external/shared split is an
 // asset-path detail and does not survive the unpacking.
@@ -18,9 +21,9 @@
 // The files under skills/ are the reference's, recovered verbatim from the
 // binary; see skills/PROVENANCE.md.
 //
-// Which of the nine appear in the prompt is a separate question. The
+// Which of the fifteen appear in the prompt is a separate question. The
 // reference advertises only agy-customizations and antigravity_guide in the
-// CLI's <skills> section — the seven shared skills sit behind server-side
+// CLI's <skills> section — the shared skills sit behind server-side
 // feature flags — and agyprompt.BuiltinSkillDirs is that allowlist.
 //
 // # Installing

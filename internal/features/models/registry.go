@@ -163,7 +163,11 @@ func (m *Model) QualifiedName() string {
 	if pid == "" {
 		return name
 	}
-	return pid + "/" + name
+	prefix := pid + "/"
+	if strings.HasPrefix(strings.ToLower(name), strings.ToLower(prefix)) {
+		return name
+	}
+	return prefix + name
 }
 
 // Timeout returns the per-request timeout, defaulting to 60s.
@@ -324,14 +328,17 @@ func (r *Registry) GetByName(name string) (*Model, bool) {
 				if strings.EqualFold(m.ProviderID, targetProv) && m.Name == base {
 					if modelHasTier(m, tier) {
 						cp := m
-						cp.Name = name
+						cp.Name = targetModel
 						cp.ReasoningEffort = tier
 						return &cp, true
 					}
 				}
 			}
 		}
-		return nil, false
+		// If targetProv did not match any model under that provider, targetProv
+		// was likely a false-positive prefix parse on a slash-containing model
+		// identifier (e.g. "deepseek/deepseek-v4.1-flash" under "openrouter" when
+		// a "deepseek" provider also exists). Fall through to bare-name matching.
 	}
 
 	// 2. Bare name exact match
@@ -383,11 +390,9 @@ func (r *Registry) ResolveModel(name string) (*Model, error) {
 	targetProv, targetModel := ParseModelRef(name, provMap)
 
 	if targetProv != "" {
-		m, ok := r.getByNameLocked(name, targetProv, targetModel)
-		if !ok {
-			return nil, fmt.Errorf("model %q not found under provider %q", targetModel, targetProv)
+		if m, ok := r.getByNameLocked(name, targetProv, targetModel); ok {
+			return m, nil
 		}
-		return m, nil
 	}
 
 	// Bare model: check across all models for ambiguity
@@ -421,6 +426,9 @@ func (r *Registry) ResolveModel(name string) (*Model, error) {
 
 	switch len(matches) {
 	case 0:
+		if targetProv != "" {
+			return nil, fmt.Errorf("model %q not found under provider %q", targetModel, targetProv)
+		}
 		return nil, fmt.Errorf("model %q not found", name)
 	case 1:
 		cp := matches[0]
@@ -452,7 +460,7 @@ func (r *Registry) getByNameLocked(fullName, targetProv, targetModel string) (*M
 			if strings.EqualFold(m.ProviderID, targetProv) && m.Name == base {
 				if modelHasTier(m, tier) {
 					cp := m
-					cp.Name = fullName
+					cp.Name = targetModel
 					cp.ReasoningEffort = tier
 					return &cp, true
 				}

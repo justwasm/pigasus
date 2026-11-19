@@ -366,6 +366,55 @@ func TestCapabilityEntryPreservesNonGoogleProvider(t *testing.T) {
 	}
 }
 
+func TestCapabilityEntryInjectsCheckpointerExperiment(t *testing.T) {
+	m := models.Model{
+		Name:             "deepseek-chat",
+		DisplayName:      "DeepSeek V3",
+		Provider:         "openai",
+		ContextWindow:    65536,
+		DefaultMaxTokens: 4096,
+	}
+	entry := capabilityEntry(m)
+	if entry["maxTokens"] != 65536 {
+		t.Errorf("maxTokens = %v, want 65536", entry["maxTokens"])
+	}
+	if entry["maxOutputTokens"] != 4096 {
+		t.Errorf("maxOutputTokens = %v, want 4096", entry["maxOutputTokens"])
+	}
+	exp, ok := entry["modelExperiments"].(map[string]any)
+	if !ok {
+		t.Fatalf("modelExperiments missing from capabilityEntry: %+v", entry)
+	}
+	exps, ok := exp["experiments"].(map[string]any)
+	if !ok {
+		t.Fatalf("experiments map missing: %+v", exp)
+	}
+	ckpt, ok := exps["CASCADE_USE_EXPERIMENT_CHECKPOINTER"].(map[string]any)
+	if !ok {
+		t.Fatalf("CASCADE_USE_EXPERIMENT_CHECKPOINTER missing: %+v", exps)
+	}
+	strVal, _ := ckpt["stringValue"].(string)
+	if strVal == "" {
+		t.Fatalf("stringValue is empty in checkpointer experiment")
+	}
+	var parsed map[string]any
+	if err := json.Unmarshal([]byte(strVal), &parsed); err != nil {
+		t.Fatalf("unmarshal checkpointer payload: %v", err)
+	}
+	if parsed["enabled"] != true {
+		t.Errorf("enabled = %v, want true", parsed["enabled"])
+	}
+	if parsed["max_token_limit"] != "65536" {
+		t.Errorf("max_token_limit = %v, want 65536", parsed["max_token_limit"])
+	}
+	if parsed["max_output_tokens"] != "4096" {
+		t.Errorf("max_output_tokens = %v, want 4096", parsed["max_output_tokens"])
+	}
+	if parsed["use_model_reported_token_count"] != true {
+		t.Errorf("use_model_reported_token_count = %v, want true", parsed["use_model_reported_token_count"])
+	}
+}
+
 func anySlice(in []string) []any {
 	out := make([]any, len(in))
 	for i, s := range in {

@@ -6,12 +6,10 @@
 // surfaces those models only when the operator's Google Cloud project
 // is on the allowlist. The recovered shell has no live gcloud ADC
 // chain — the upstream `adcAuth.TryAuth` path is a stub in the
-// decompiled binary (the decompile report that indexes it survives at
-// re-docs/decompile-google3_third_party_jetski_cli_backend_auth_auth..md;
-// the ELF-sandbox report that stood here before is retired. That surviving
-// report only *indexes* `auth.(*adcAuth).TryAuth` — the decompiled body
-// it links to did not survive — so "is a stub" is the clone's own
-// reading, not something the surviving copy re-verifies) — so the gate
+// decompiled binary (the legacy decompile finding is recorded in
+// docs/legacy-re/extracts/decompile-summary.md and docs/guide/accounts.md;
+// the decompiled body did not survive the 1.3.x sweep — so "is a stub" is
+// the clone's own reading, not something the surviving copy re-verifies) — so the gate
 // stands in for the real
 // project check: both `AGY_ADC_AUTH=true` and a non-empty project id
 // must be set for the entries to appear.

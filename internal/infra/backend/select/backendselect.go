@@ -195,6 +195,17 @@ func resolveConfigured(name string, catalogueID CatalogueIDFunc) (models.Model, 
 	if requested == "" {
 		return models.Model{}, false
 	}
+
+	// 1. If requested matches a model's DisplayName (e.g. "OpenRouter: DeepSeek V4.1 Flash (High)"),
+	// honor that first. The display label is explicit and avoids ambiguous prefix collisions.
+	want := strings.ToLower(requested)
+	allModels := append(models.TierRows(reg.List()), reg.List()...)
+	for _, m := range allModels {
+		if m.DisplayName != "" && strings.ToLower(strings.TrimSpace(m.DisplayName)) == want {
+			return m, true
+		}
+	}
+
 	candidates := []string{requested}
 	if id := strings.TrimSpace(catalogueSlug(requested, catalogueID)); id != "" {
 		candidates = append(candidates, id)
@@ -206,9 +217,8 @@ func resolveConfigured(name string, catalogueID CatalogueIDFunc) (models.Model, 
 	}
 	// The registry's own Name is the catalogue id; the label and the upstream
 	// spelling are what a picker row and an external model menu carry.
-	want := strings.ToLower(requested)
-	for _, m := range reg.List() {
-		for _, v := range []string{m.DisplayName, m.ExternalModelName, m.QualifiedName()} {
+	for _, m := range allModels {
+		for _, v := range []string{m.DisplayName, m.ExternalModelName, m.QualifiedName(), m.Name} {
 			if v != "" && strings.ToLower(strings.TrimSpace(v)) == want {
 				return m, true
 			}
@@ -234,7 +244,7 @@ func resolveConfigured(name string, catalogueID CatalogueIDFunc) (models.Model, 
 // TUI's own panel takes effect on the next turn, without a restart.
 func newOfficialBackend(modelName string, logWriter io.Writer, catalogueID CatalogueIDFunc) backend.Client {
 	if !HasOAuthToken() {
-		writeLog(logWriter, "[warn] no OAuth token found (need $JETSKI_OAUTH_TOKEN or ~/.config/antigravity/oauth-token); falling back to shim backend\n")
+		writeLog(logWriter, "[warn] no OAuth token found (need $JETSKI_OAUTH_TOKEN, system keychain, ~/.gemini/antigravity-cli/antigravity-oauth-token, or ~/.openagy/accounts.json); falling back to shim backend\n")
 		return backend.NewMock()
 	}
 	slug := ""
@@ -275,7 +285,7 @@ func Resolve(fs *flag.FlagSet, logWriter io.Writer) (string, bool) {
 	}
 	resolved := Normalise(raw, logWriter)
 	if resolved == "cloudcode" && !HasOAuthToken() {
-		writeLog(logWriter, "[warn] %s=%s requested but no OAuth token found (need $JETSKI_OAUTH_TOKEN or ~/.config/antigravity/oauth-token); falling back to shim backend\n", source, resolved)
+		writeLog(logWriter, "[warn] %s=%s requested but no OAuth token found (need $JETSKI_OAUTH_TOKEN, system keychain, ~/.gemini/antigravity-cli/antigravity-oauth-token, or ~/.openagy/accounts.json); falling back to shim backend\n", source, resolved)
 		resolved = "shim"
 	}
 	return resolved, fromFlag
@@ -298,7 +308,8 @@ func Normalise(raw string, logWriter io.Writer) string {
 	}
 }
 
-// HasOAuthToken returns true if an OAuth token exists in env, on disk, or in Keychain.
+// HasOAuthToken returns true if an OAuth token exists in env, on disk, in Keychain,
+// or in ~/.openagy/accounts.json.
 func HasOAuthToken() bool {
 	if v := strings.TrimSpace(os.Getenv("JETSKI_OAUTH_TOKEN")); v != "" {
 		return true
@@ -306,29 +317,12 @@ func HasOAuthToken() bool {
 	if v := strings.TrimSpace(os.Getenv("ANTIGRAVITY_REFRESH_TOKEN")); v != "" {
 		return true
 	}
-	candidates := []string{
-		filepath.Join(AuthHome(), "oauth-token"),
-		filepath.Join(AuthHome(), "antigravity-auth.json"),
-		auth.TokenFilePath(),
+	if fi, err := os.Stat(auth.TokenFilePath()); err == nil && !fi.IsDir() && fi.Size() > 0 {
+		return true
 	}
-	for _, p := range candidates {
-		if p == "" {
-			continue
-		}
-		if fi, err := os.Stat(p); err == nil && !fi.IsDir() && fi.Size() > 0 {
-			return true
-		}
+	if auth.HasKeychainToken() {
+		return true
 	}
-	return auth.HasKeychainToken()
-}
-
-// AuthHome returns $XDG_CONFIG_HOME/antigravity or $HOME/.config/antigravity.
-func AuthHome() string {
-	if h := strings.TrimSpace(os.Getenv("XDG_CONFIG_HOME")); h != "" {
-		return filepath.Join(h, "antigravity")
-	}
-	if h := strings.TrimSpace(os.Getenv("HOME")); h != "" {
-		return filepath.Join(h, ".config", "antigravity")
-	}
-	return ""
+	tok, err := auth.LoadTokenUnified()
+	return err == nil && tok != nil && (tok.Token.AccessToken != "" || tok.Token.RefreshToken != "")
 }

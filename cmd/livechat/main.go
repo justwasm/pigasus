@@ -13,7 +13,6 @@ import (
 	"regexp"
 	"strings"
 	"sync/atomic"
-	"syscall"
 	"time"
 
 	tas "charm.land/bubbles/v2/textarea"
@@ -33,6 +32,7 @@ import (
 	"github.com/justwasm/pigasus/internal/ui/slashcommands"
 	"github.com/justwasm/pigasus/internal/ui/views/slashpicker"
 	"github.com/justwasm/pigasus/internal/voice"
+	"github.com/justwasm/pigasus/procgroup"
 )
 
 // performWebSearch is the pluggable web search function, defaulting to web.PerformWebSearch.
@@ -1914,7 +1914,7 @@ func executeRawCommand(ctx context.Context, ws string, cmdStr string) (string, e
 	}
 	cmd := exec.CommandContext(ctx, shell, "-c", cmdStr)
 	cmd.Dir = ws
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	procgroup.Set(cmd)
 
 	out, err := cmd.CombinedOutput()
 	outStr := strings.TrimSpace(string(out))
@@ -2285,17 +2285,15 @@ func main() {
 		fmt.Printf("%sResuming LiveChat session [%s] (%d turns)...%s\n", ansiGreen, resumed.ID, len(resumed.Turns), ansiReset)
 	}
 
-	// 1. Resolve Credentials (Reusing Pigasus credential priority cascade)
+	// 1. Resolve Credentials (Reusing Pigasus credential priority cascade: OAuth first, fallback to API key)
+	var bearerToken string
+	if tok, err := auth.LoadTokenUnified(); err == nil && tok != nil && tok.Token.AccessToken != "" {
+		bearerToken = tok.Token.AccessToken
+	}
+
 	apiKey := *apiKeyFlag
 	if apiKey == "" {
 		apiKey = endpoints.CurrentGeminiAPIKey()
-	}
-
-	var bearerToken string
-	if apiKey == "" {
-		if tok, err := auth.LoadTokenUnified(); err == nil && tok != nil && tok.Token.AccessToken != "" {
-			bearerToken = tok.Token.AccessToken
-		}
 	}
 
 	var liveBackend voice.LiveBackend
@@ -2303,15 +2301,23 @@ func main() {
 		mockB := voice.NewMockLiveBackend()
 		mockB.SetAutoEcho(true)
 		liveBackend = mockB
-	} else if apiKey != "" {
+	} else if *apiKeyFlag != "" || (os.Getenv("OPENAGY_VOICE_FORCE_API_KEY") != "" && apiKey != "") {
 		liveBackend = voice.NewGeminiLiveBackend(apiKey)
 	} else if bearerToken != "" {
-		liveBackend = voice.NewGeminiLiveBackendWithBearer(bearerToken)
+		var fallback voice.LiveBackend
+		if apiKey != "" {
+			fallback = voice.NewGeminiLiveBackend(apiKey)
+		} else {
+			fallback = voice.NewGeminiLiveBackendWithBearer(bearerToken)
+		}
+		liveBackend = voice.NewAICodeLiveBackendWithFallback(bearerToken, fallback)
+	} else if apiKey != "" {
+		liveBackend = voice.NewGeminiLiveBackend(apiKey)
 	} else {
-		fmt.Printf("%s⚠️  No Gemini API Key or active Pigasus session found.%s\n", ansiRed+ansiBold, ansiReset)
-		fmt.Println("To connect to Google Gemini Multimodal Live:")
-		fmt.Println("  1. Add \"gemini_api_key\" to ~/.openagy/config.json")
-		fmt.Println("  2. Or set export GEMINI_API_KEY=\"...\"")
+		fmt.Printf("%s⚠️  No active Google session or Gemini API Key found.%s\n", ansiRed+ansiBold, ansiReset)
+		fmt.Println("To connect to Google Voice Live:")
+		fmt.Println("  1. Sign in with Google: pigasus login")
+		fmt.Println("  2. Or add \"gemini_api_key\" to ~/.openagy/config.json")
 		fmt.Println("  3. Or run with --mock for an interactive offline simulation")
 		os.Exit(1)
 	}

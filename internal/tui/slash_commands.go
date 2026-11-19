@@ -1465,6 +1465,10 @@ func (m *RootModel) setTitleEnabled(enabled bool, command string) tea.Cmd {
 }
 
 func (m *RootModel) slashUsage(args string) (bool, tea.Cmd) {
+	if strings.TrimSpace(os.Getenv("GEMINI_API_KEY")) != "" {
+		m.slashContent("error: /usage failed: not available with a Gemini API key; see https://aistudio.google.com/usage for the key's usage")
+		return true, nil
+	}
 	m.slashContent("error: /usage failed: retrieving quota summary: failed to retrieve user quota summary: no quota summary is available for this account")
 	return true, nil
 }

@@ -70,6 +70,7 @@
 package slashcommands
 
 import (
+	"os"
 	"sort"
 	"strings"
 	"unicode"
@@ -140,13 +141,32 @@ type Command struct {
 
 // ScopeContext provides the runtime environment for filtering slash commands.
 type ScopeContext struct {
-	EngineName   string
-	Capabilities agentturn.Capability
-	Dynamic      []Command
+	EngineName     string
+	Capabilities   agentturn.Capability
+	Dynamic        []Command
+	IsGeminiAPIKey bool
+}
+
+func (ctx ScopeContext) hasGeminiAPIKey() bool {
+	if ctx.IsGeminiAPIKey {
+		return true
+	}
+	return strings.TrimSpace(os.Getenv("GEMINI_API_KEY")) != ""
+}
+
+// IsGeminiAPIKeyExcluded reports whether name is an account quota command excluded under GEMINI_API_KEY.
+func IsGeminiAPIKeyExcluded(name string, ctx ScopeContext) bool {
+	clean := strings.TrimPrefix(name, "/")
+	return (clean == "usage" || clean == "quota" || clean == "credits") && ctx.hasGeminiAPIKey()
 }
 
 // IsAvailable checks whether a command is accessible within the given ScopeContext.
 func IsAvailable(c Command, ctx ScopeContext) bool {
+	clean := strings.TrimPrefix(c.Name, "/")
+	if (clean == "usage" || clean == "quota" || clean == "credits") && ctx.hasGeminiAPIKey() {
+		return false
+	}
+
 	engineName := ctx.EngineName
 	if engineName == "" {
 		engineName = "pigasus"
@@ -264,7 +284,7 @@ func buildCatalogue() []Command {
 			Dispatched:  true,
 		},
 		{Name: "/title", Description: "Toggle custom terminal window title", Dispatched: true},
-		{Name: "/usage", Description: "View model quota usage", Aliases: []string{"quota"}, Dispatched: true},
+		{Name: "/usage", Description: "View model quota usage", Aliases: []string{"quota", "credits"}, Dispatched: true},
 		{Name: "/voice", Description: "Dictate a prompt or talk with the agent by voice", Aliases: []string{"record"}, Dispatched: true},
 		{Name: "/accounts", Description: "Manage and switch signed-in Google accounts"},
 		{Name: "/pool", Description: "Configure the account-pool routing policy"},
@@ -552,6 +572,16 @@ func Known(token string) bool {
 // The sort key is the Name as stored (the "/clear" of the display
 // form "/clear (new)"), which reproduces REF's ordering exactly.
 func Sorted() []Command {
+	if strings.TrimSpace(os.Getenv("GEMINI_API_KEY")) != "" {
+		var out []Command
+		for _, c := range Default {
+			if c.Name != "/usage" && c.Name != "/quota" && c.Name != "/credits" {
+				out = append(out, c)
+			}
+		}
+		sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+		return out
+	}
 	out := make([]Command, len(Default))
 	copy(out, Default)
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })

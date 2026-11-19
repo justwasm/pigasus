@@ -20,7 +20,8 @@ case "$MODE" in
     go test ./internal/core/architecture/...
     go test ./endpoints/... ./configdir/... ./render/... ./palette/...
     echo "==> Verifying main build..."
-    go build -o /tmp/pigasus ./cmd/pigasus
+    mkdir -p ./bin
+    go build -o ./bin/pigasus ./cmd/pigasus
     echo "==> Quick verification passed!"
     ;;
 
@@ -54,7 +55,8 @@ case "$MODE" in
     go test ./internal/core/... ./internal/features/... ./internal/infra/...
 
     echo "==> Verifying main binary build..."
-    go build -o /tmp/pigasus ./cmd/pigasus
+    mkdir -p ./bin
+    go build -o ./bin/pigasus ./cmd/pigasus
 
     echo "==> All verification checks passed!"
     ;;

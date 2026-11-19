@@ -10,6 +10,7 @@ import (
 
 	termcolor "github.com/justwasm/pigasus/internal/ui/render/color"
 	"github.com/justwasm/pigasus/internal/ui/views/voice"
+	"github.com/justwasm/pigasus/internal/features/auth"
 	voicebackend "github.com/justwasm/pigasus/internal/voice"
 )
 
@@ -317,4 +318,42 @@ func voiceResponseText(m *RootModel) string {
 		b.WriteString("\n")
 	}
 	return b.String()
+}
+
+func TestLiveVoiceAvailability_OAuthToken(t *testing.T) {
+	m := diffTestModel()
+
+	// Clear out any host environment variables that might influence the check.
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("OPENAGY_CONFIG_HOME", t.TempDir())
+	t.Setenv("ANTIGRAVITY_APP_DATA_DIR", t.TempDir())
+	t.Setenv("GEMINI_API_KEY", "")
+	t.Setenv("OPENAGY_API_KEY", "")
+	t.Setenv("PIGASUS_MOCK_VOICE", "")
+	t.Setenv("OPENAGY_MOCK_VOICE", "")
+	t.Setenv("JETSKI_OAUTH_TOKEN", "")
+	t.Setenv("ANTIGRAVITY_ACCESS_TOKEN", "")
+
+	auth.LoadKeychainTokenFn = func() (*auth.AntigravityToken, error) {
+		return nil, auth.ErrNoToken
+	}
+	defer func() { auth.LoadKeychainTokenFn = nil }()
+
+	// 0. With no credentials and default voice endpoint, live voice is unavailable.
+	if m.IsLiveVoiceAvailable() {
+		t.Fatalf("expected IsLiveVoiceAvailable() == false with no credentials")
+	}
+
+	// 1. With OAuth token set via env, live voice should be available.
+	t.Setenv("JETSKI_OAUTH_TOKEN", "ya29.test-oauth-token")
+	if !m.IsLiveVoiceAvailable() {
+		t.Fatalf("expected IsLiveVoiceAvailable() == true when JETSKI_OAUTH_TOKEN is set")
+	}
+
+	// 2. With API key set, live voice should be available.
+	t.Setenv("JETSKI_OAUTH_TOKEN", "")
+	t.Setenv("GEMINI_API_KEY", "test-api-key")
+	if !m.IsLiveVoiceAvailable() {
+		t.Fatalf("expected IsLiveVoiceAvailable() == true when GEMINI_API_KEY is set")
+	}
 }

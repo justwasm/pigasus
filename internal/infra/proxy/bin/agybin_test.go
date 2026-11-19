@@ -582,3 +582,84 @@ func TestAutoDownload_OverwriteExistingTarget(t *testing.T) {
 		t.Fatalf("Version = %q, want 1.4.12", ver)
 	}
 }
+
+func TestNormalizeVersion(t *testing.T) {
+	cases := []struct {
+		in   string
+		want string
+	}{
+		{"", ""},
+		{"1.5.11", "1.5.11"},
+		{"v1.5.11", "1.5.11"},
+		{"V1.5.11", "1.5.11"},
+		{" latest ", "latest"},
+		{" v1.4.2 ", "1.4.2"},
+	}
+	for _, c := range cases {
+		if got := NormalizeVersion(c.in); got != c.want {
+			t.Errorf("NormalizeVersion(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}
+
+func TestCacheBinaryNameForVersion(t *testing.T) {
+	t.Logf("CacheDir: %s", CacheDir())
+	t.Logf("CacheBinaryPath: %s", CacheBinaryPath())
+	t.Logf("CacheBinaryPathForVersion(1.5.11): %s", CacheBinaryPathForVersion("1.5.11"))
+	if got := CacheBinaryNameForVersion(""); got != CacheBinaryName() {
+		t.Errorf("CacheBinaryNameForVersion(\"\") = %q, want %q", got, CacheBinaryName())
+	}
+	if got := CacheBinaryNameForVersion("latest"); got != CacheBinaryName() {
+		t.Errorf("CacheBinaryNameForVersion(\"latest\") = %q, want %q", got, CacheBinaryName())
+	}
+	ver := CacheBinaryNameForVersion("1.5.11")
+	if !strings.Contains(ver, "1.5.11") {
+		t.Errorf("CacheBinaryNameForVersion(\"1.5.11\") = %q, should contain 1.5.11", ver)
+	}
+}
+
+func TestPathForVersion_CachedAndCandidates(t *testing.T) {
+	sandbox(t)
+	cacheDir := t.TempDir()
+	t.Setenv("XDG_CACHE_HOME", cacheDir)
+
+	binDir := filepath.Join(cacheDir, "openagy", "bin")
+	_ = os.MkdirAll(binDir, 0o755)
+
+	v1File := fakeAgy(t, binDir, "1.5.11")
+	v1Target := filepath.Join(binDir, CacheBinaryNameForVersion("1.5.11"))
+	_ = os.Rename(v1File, v1Target)
+
+	// Test resolving exact version
+	got, err := PathForVersion("1.5.11")
+	if err != nil {
+		t.Fatalf("PathForVersion(1.5.11) failed: %v", err)
+	}
+	if !same(t, got, v1Target) {
+		t.Fatalf("PathForVersion(1.5.11) = %q, want %q", got, v1Target)
+	}
+
+	// Test resolving with v prefix
+	gotV, err := PathForVersion("v1.5.11")
+	if err != nil {
+		t.Fatalf("PathForVersion(v1.5.11) failed: %v", err)
+	}
+	if !same(t, gotV, v1Target) {
+		t.Fatalf("PathForVersion(v1.5.11) = %q, want %q", gotV, v1Target)
+	}
+
+	// Test resolving latest when local exists
+	gotLatest, err := PathForVersion("latest")
+	if err != nil {
+		t.Fatalf("PathForVersion(latest) failed: %v", err)
+	}
+	if gotLatest == "" {
+		t.Fatal("PathForVersion(latest) returned empty")
+	}
+
+	// Test requesting non-existent version without auto-download allowed
+	_, errNotFound := PathForVersion("9.9.9")
+	if errNotFound == nil {
+		t.Fatal("expected error for non-existent version, got nil")
+	}
+}

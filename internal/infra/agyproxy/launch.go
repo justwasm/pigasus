@@ -18,7 +18,13 @@ import (
 //
 // The clone calls this for `pigasus agy`; see cmd/pigasus/main.go.
 func Launch(args []string) int {
-	real, err := agybin.Path(os.Getenv(agybin.EnvRealBin))
+	return LaunchWithVersion("", args)
+}
+
+// LaunchWithVersion starts the proxy and execs the agy binary corresponding to
+// versionSpec (e.g. "1.5.11", "v1.5.11", "latest", or "" for default resolution).
+func LaunchWithVersion(versionSpec string, args []string) int {
+	real, err := agybin.PathForVersion(versionSpec)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "agy proxy: %v\n", err)
 		return 127

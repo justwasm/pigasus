@@ -105,6 +105,7 @@ var unclassifiedSubsystems = map[string]string{
 	"internal/language_server":           "language server domain handler",
 	"internal/language_server_pb":        "generated protobuf contracts",
 	"internal/planrender":                "markdown plan rendering helper",
+	"internal/testguard":                 "test-only configuration isolation (imported by tests only)",
 	"internal/rcaudio":                   "remote control audio streamer",
 	"internal/rcfrontend":                "remote control web UI assets and routes",
 	"internal/rctunnel":                  "remote control tunnel manager",

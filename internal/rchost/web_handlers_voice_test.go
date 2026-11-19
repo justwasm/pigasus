@@ -9,8 +9,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/coder/websocket"
+	"github.com/justwasm/pigasus/internal/features/auth"
 	"github.com/justwasm/pigasus/internal/voice"
+	"github.com/justwasm/pigasus/websocket"
 )
 
 func TestWebHandlers_VoiceEndpoints(t *testing.T) {
@@ -92,5 +93,89 @@ func TestWebHandlers_VoiceEndpoints(t *testing.T) {
 
 	if c.Subprotocol() != voice.Subprotocol {
 		t.Fatalf("expected subprotocol %q, got %q", voice.Subprotocol, c.Subprotocol())
+	}
+}
+
+func TestBuildHostVoiceBackend_Priorities(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("OPENAGY_CONFIG_HOME", t.TempDir())
+	t.Setenv("ANTIGRAVITY_APP_DATA_DIR", t.TempDir())
+	t.Setenv("GEMINI_API_KEY", "")
+	t.Setenv("OPENAGY_API_KEY", "")
+	t.Setenv("PIGASUS_MOCK_VOICE", "")
+	t.Setenv("OPENAGY_MOCK_VOICE", "")
+	t.Setenv("JETSKI_OAUTH_TOKEN", "")
+	t.Setenv("ANTIGRAVITY_ACCESS_TOKEN", "")
+
+	auth.LoadKeychainTokenFn = func() (*auth.AntigravityToken, error) {
+		return nil, auth.ErrNoToken
+	}
+	defer func() { auth.LoadKeychainTokenFn = nil }()
+
+	// 1. With OAuth token, resolves to AICodeLiveBackend with fallback to GeminiLiveBackend
+	t.Setenv("JETSKI_OAUTH_TOKEN", "ya29.host-oauth-token")
+	be := buildHostVoiceBackend()
+	ac, ok := be.(*voice.AICodeLiveBackend)
+	if !ok {
+		t.Fatalf("expected *voice.AICodeLiveBackend, got %T", be)
+	}
+	if ac.AccessToken() != "ya29.host-oauth-token" {
+		t.Fatalf("expected AccessToken == 'ya29.host-oauth-token', got %q", ac.AccessToken())
+	}
+	gl, ok := ac.Fallback().(*voice.GeminiLiveBackend)
+	if !ok {
+		t.Fatalf("expected fallback to be *voice.GeminiLiveBackend, got %T", ac.Fallback())
+	}
+	if gl.BearerToken() != "ya29.host-oauth-token" {
+		t.Fatalf("expected BearerToken == 'ya29.host-oauth-token', got %q", gl.BearerToken())
+	}
+
+	// 1b. When BOTH OAuth token and GEMINI_API_KEY are present, OAuth takes precedence!
+	t.Setenv("GEMINI_API_KEY", "test-host-api-key")
+	be = buildHostVoiceBackend()
+	ac, ok = be.(*voice.AICodeLiveBackend)
+	if !ok {
+		t.Fatalf("expected OAuth to take precedence over GEMINI_API_KEY, got %T", be)
+	}
+	if ac.AccessToken() != "ya29.host-oauth-token" {
+		t.Fatalf("expected AccessToken == 'ya29.host-oauth-token', got %q", ac.AccessToken())
+	}
+	gl, ok = ac.Fallback().(*voice.GeminiLiveBackend)
+	if !ok {
+		t.Fatalf("expected fallback to be *voice.GeminiLiveBackend, got %T", ac.Fallback())
+	}
+	if gl.APIKey() != "test-host-api-key" {
+		t.Fatalf("expected fallback APIKey == 'test-host-api-key', got %q", gl.APIKey())
+	}
+
+	// 1c. With OPENAGY_VOICE_FORCE_API_KEY, forces GeminiLiveBackend even when OAuth is present
+	t.Setenv("OPENAGY_VOICE_FORCE_API_KEY", "1")
+	be = buildHostVoiceBackend()
+	gl, ok = be.(*voice.GeminiLiveBackend)
+	if !ok {
+		t.Fatalf("expected *voice.GeminiLiveBackend when forced, got %T", be)
+	}
+	if gl.APIKey() != "test-host-api-key" {
+		t.Fatalf("expected APIKey == 'test-host-api-key', got %q", gl.APIKey())
+	}
+	t.Setenv("OPENAGY_VOICE_FORCE_API_KEY", "")
+
+	// 2. With GEMINI_API_KEY and no OAuth token, resolves to GeminiLiveBackend with API key
+	t.Setenv("JETSKI_OAUTH_TOKEN", "")
+	t.Setenv("GEMINI_API_KEY", "test-host-api-key")
+	be = buildHostVoiceBackend()
+	gl, ok = be.(*voice.GeminiLiveBackend)
+	if !ok {
+		t.Fatalf("expected *voice.GeminiLiveBackend, got %T", be)
+	}
+	if gl.APIKey() != "test-host-api-key" {
+		t.Fatalf("expected APIKey == 'test-host-api-key', got %q", gl.APIKey())
+	}
+
+	// 3. Without credentials, falls back to MockLiveBackend
+	t.Setenv("GEMINI_API_KEY", "")
+	be = buildHostVoiceBackend()
+	if _, ok := be.(*voice.MockLiveBackend); !ok {
+		t.Fatalf("expected *voice.MockLiveBackend fallback, got %T", be)
 	}
 }

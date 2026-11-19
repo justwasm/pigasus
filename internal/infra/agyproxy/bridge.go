@@ -1410,7 +1410,7 @@ func (s *Server) executeBridgeRequest(ctx context.Context, turn geminicode.Turn,
 	maxAttempts := 1
 	if s.balanceActive() {
 		policy := s.effectivePolicy()
-		if policy != nil && policy.Enabled {
+		if policy != nil && policy.RoutingEnabled() {
 			cfg := policy.Normalised()
 			maxAttempts = cfg.MaxAttempts
 			if s.aggregateActive() {

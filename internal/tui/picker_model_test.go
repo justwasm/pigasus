@@ -100,15 +100,15 @@ func TestModelPopup_EmptyQueryListsEveryModel(t *testing.T) {
 	}
 }
 
-// Tab completes the highlighted label into the composer and closes the
+// Tab completes the highlighted row's catalogue id into the composer and closes the
 // popup.
 func TestModelPopup_TabCompletesTheLabel(t *testing.T) {
 	configtest.Isolate(t)
 	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/", true)
 	typeModelLine(m, "/model claude")
 	m.Update(key(tea.KeyTab, 0))
-	if got := m.prompt.input.Value(); got != "/model Claude Sonnet 4.6 (Thinking)" {
-		t.Errorf("composer = %q, want the completed label", got)
+	if got := m.prompt.input.Value(); got != "/model claude-sonnet-4-6" {
+		t.Errorf("composer = %q, want the completed id", got)
 	}
 	if m.prompt.picker.Visible() {
 		t.Error("the popup should close after Tab")
@@ -154,8 +154,8 @@ func TestModelPopup_EnterCompletesTheHighlightedRow(t *testing.T) {
 	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/", true)
 	typeModelLine(m, "/model claude")
 	m.Update(enterKey())
-	if got := m.prompt.input.Value(); got != "/model Claude Sonnet 4.6 (Thinking)" {
-		t.Errorf("composer = %q, want the completed label", got)
+	if got := m.prompt.input.Value(); got != "/model claude-sonnet-4-6" {
+		t.Errorf("composer = %q, want the completed id", got)
 	}
 	if m.prompt.picker.Visible() {
 		t.Error("the popup should close after Enter")

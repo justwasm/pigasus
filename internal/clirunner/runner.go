@@ -51,13 +51,25 @@ const cliVersion = cli.ReferenceVersion
 // Run is the main CLI entrypoint.
 func Run(args []string) int {
 	// `pigasus agy` runs the vendor Antigravity CLI behind the local
-	// CloudCode proxy (internal/agyproxy). It is dispatched before the
-	// clone's startup work — compat defaults, plugin cleanup, signal
-	// handlers — because the vendor binary owns those, and because the
-	// command line must reach it untouched: `pigasus agy --help` prints the
-	// vendor's help, not the clone's.
-	if len(args) > 1 && args[1] == "agy" {
-		return agyproxy.Launch(args[2:])
+	// CloudCode proxy (internal/agyproxy). It supports `pigasus agy`,
+	// `pigasus agy@latest`, `pigasus agy@1.5.11`, `pigasus agy@v1.5.11`.
+	// It is dispatched before the clone's startup work — compat defaults,
+	// plugin cleanup, signal handlers — because the vendor binary owns those,
+	// and because the command line must reach it untouched: `pigasus agy --help`
+	// prints the vendor's help, not the clone's.
+	actualArgs := args
+	if len(actualArgs) == 0 {
+		actualArgs = os.Args
+	}
+	if len(actualArgs) > 1 {
+		sub := actualArgs[1]
+		if sub == "agy" || strings.HasPrefix(sub, "agy@") {
+			ver := ""
+			if strings.HasPrefix(sub, "agy@") {
+				ver = strings.TrimPrefix(sub, "agy@")
+			}
+			return agyproxy.LaunchWithVersion(ver, actualArgs[2:])
+		}
 	}
 
 	daemon.InstallSignalHandlers()

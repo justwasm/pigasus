@@ -73,8 +73,7 @@ func TermNeedsOptionMeta() bool {
 // unchanged.
 //
 // The path was first recovered from the v1.3.4 decompilation
-// (re-docs/decompile-google3_third_party_jetski_cli_backend_backend..md,
-// KeybindingsFilePath @ 0x1023c8ee0). That address is a v1.3.4 one —
+// (legacy KeybindingsFilePath @ 0x1023c8ee0; see docs/legacy-re/). That address is a v1.3.4 one —
 // every address moves on every release, and at 1.4.8 that address holds
 // pion/dtls/v3/dtls.flight5Generate.
 //

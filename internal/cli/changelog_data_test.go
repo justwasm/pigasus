@@ -1,23 +1,17 @@
 // Tests for changelog_data.go: byte-level 1:1 of referenceChangelog against
-// the v1.4.11 binary's `antigravity changelog` output.
+// the v1.5.11 binary's `antigravity changelog` output.
 //
-// The v1.4.2 binary's release-notes block is 160,313 bytes / 938 lines
-// holding 72 version sections (1.4.1, 1.4.0, 1.3.6 down to 1.0.0 — note
-// the binary always ships one release behind, so the binary at v1.4.2
-// reports up to v1.4.1, with 1.3.7/1.3.8/1.3.9 still missing between
-// 1.4.0 and 1.3.6). Cycle 235 prepends a placeholder 1.4.2: block
-// ("(release notes not yet recovered from AGY binary; ...)") ahead of
-// the captured binary output. The total grows to 160,422 bytes / 941
-// lines / 73 version sections / 796 top-level bullets.
-//
-// The embedded reference still byte-for-byte matches the leading
-// `1.4.2:` stub + captured v1.4.2 binary output, so the embed test
-// below pins both the size and the SHA-256 of the combined blob.
+// The v1.5.11 binary's release-notes block is 241,807 bytes / 1,278 lines
+// holding 94 version sections (1.5.10 down to 1.0.0). The reference binary
+// always ships one release behind its own version, so the newest section is
+// 1.5.10 while the binary reports 1.5.11; every 1.5.x release from 1.5.0 to
+// 1.5.10 is now in the feed, and 1.3.7/1.3.8/1.3.9 — which the 1.4.x feeds
+// skipped — are present too.
 //
 // The gates below are hard equality checks, not contains-checks, so any
 // edit to a bullet line fails loudly:
 //
-//  1. exact byte length (186,601)
+//  1. exact byte length (241,807)
 //  2. exact SHA-256 of the embedded bytes
 //  3. the block shape (first/last version header, section and bullet
 //     counts, absence of a 1.4.0 section)
@@ -43,17 +37,18 @@ import (
 
 const (
 	// referenceChangelogByteLen is the size of the embedded blob, a
-	// verbatim `agy changelog` capture from the v1.5.0 binary.
-	referenceChangelogByteLen = 189039
+	// verbatim `agy changelog` capture from the v1.5.11 binary.
+	referenceChangelogByteLen = 241807
 	// referenceChangelogLines is the embedded blob's line count.
-	referenceChangelogLines = 1073
+	referenceChangelogLines = 1278
 	// referenceChangelogSections is the number of `X.Y.Z:` version headers
-	// (1.4.12 down to 1.0.0; 1.3.7/1.3.8/1.3.9 are absent upstream too).
-	referenceChangelogSections = 83
+	// (1.5.10 down to 1.0.0; the 1.5.x series filled in 1.5.0-1.5.10 and
+	// 1.3.7/1.3.8/1.3.9, which earlier feeds omitted).
+	referenceChangelogSections = 94
 	// referenceChangelogBullets is the number of `· ` top-level bullets.
-	referenceChangelogBullets = 908
+	referenceChangelogBullets = 1091
 	// referenceChangelogSHA256 is the SHA-256 of the embedded bytes.
-	referenceChangelogSHA256 = "34d2421bd2bbc414e7b9dc92661647cdcdc6622ee72f9265ef41efa905bf3dc8"
+	referenceChangelogSHA256 = "3f25bfd0d6a3f7da01d0c1cd1f7e6656c6deba00fb70babb83cff87250cf5874"
 )
 
 // TestReferenceVersion_MatchesDriftLock pins cli.ReferenceVersion -- the
@@ -102,14 +97,14 @@ func TestChangelog_SHA256(t *testing.T) {
 }
 
 // TestChangelog_Shape asserts the release-notes structure: it starts at
-// 1.4.11 (the 1.4.12 binary ships the 1.4.12 release notes nowhere — its
-// changelog feed's newest section is still 1.4.11), carries 82 version
-// headers and 906 top-level bullets, contains the 1.4.2, 1.4.1 and
+// 1.5.10 (the 1.5.11 binary ships the 1.5.11 release notes nowhere — its
+// changelog feed's newest section is still 1.5.10), carries 94 version
+// headers and 1091 top-level bullets, contains the 1.4.2, 1.4.1 and
 // 1.4.0 sections from the binary capture, and ends at the 1.0.0
 // initial-release section.
 func TestChangelog_Shape(t *testing.T) {
-	if !strings.HasPrefix(referenceChangelog, "1.4.12:\n") {
-		t.Errorf("referenceChangelog must start with %q", "1.4.12:\n")
+	if !strings.HasPrefix(referenceChangelog, "1.5.10:\n") {
+		t.Errorf("referenceChangelog must start with %q", "1.5.10:\n")
 	}
 	if !strings.Contains(referenceChangelog, "\n1.4.1:\n") {
 		t.Errorf("referenceChangelog must contain a 1.4.1 section")

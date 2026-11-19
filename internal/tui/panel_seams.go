@@ -1786,6 +1786,9 @@ func (m *RootModel) ConnectVoice() error {
 }
 
 func (m *RootModel) IsLiveVoiceAvailable() bool {
+	if tok, err := auth.LoadTokenUnified(); err == nil && tok != nil && tok.Token.AccessToken != "" {
+		return true
+	}
 	if endpoints.CurrentGeminiAPIKey() != "" {
 		return true
 	}
@@ -1816,22 +1819,24 @@ func (m *RootModel) StartLiveVoice() error {
 	voiceEndpoint := endpoints.Current().Voice
 	var backend voicebackend.LiveBackend
 
-	if apiKey != "" {
+	if os.Getenv("PIGASUS_MOCK_VOICE") != "" || os.Getenv("OPENAGY_MOCK_VOICE") != "" {
+		backend = voicebackend.NewMockLiveBackend()
+	} else if os.Getenv("OPENAGY_VOICE_FORCE_API_KEY") != "" && apiKey != "" {
+		backend = voicebackend.NewGeminiLiveBackend(apiKey)
+	} else if tok, err := auth.LoadTokenUnified(); err == nil && tok != nil && tok.Token.AccessToken != "" {
+		var fallback voicebackend.LiveBackend
+		if apiKey != "" {
+			fallback = voicebackend.NewGeminiLiveBackend(apiKey)
+		} else {
+			fallback = voicebackend.NewGeminiLiveBackendWithBearer(tok.Token.AccessToken)
+		}
+		backend = voicebackend.NewAICodeLiveBackendWithFallback(tok.Token.AccessToken, fallback)
+	} else if apiKey != "" {
 		backend = voicebackend.NewGeminiLiveBackend(apiKey)
 	} else if voiceEndpoint != endpoints.DefaultVoice {
-		var bearerToken string
-		if tok, err := auth.LoadTokenUnified(); err == nil && tok != nil && tok.Token.AccessToken != "" {
-			bearerToken = tok.Token.AccessToken
-		}
-		if bearerToken != "" {
-			backend = voicebackend.NewGeminiLiveBackendWithBearer(bearerToken)
-		} else {
-			backend = voicebackend.NewGeminiLiveBackend("")
-		}
-	} else if os.Getenv("PIGASUS_MOCK_VOICE") != "" || os.Getenv("OPENAGY_MOCK_VOICE") != "" {
-		backend = voicebackend.NewMockLiveBackend()
+		backend = voicebackend.NewGeminiLiveBackend("")
 	} else {
-		return errors.New("Live mode isn't available in this session.")
+		return errors.New("Live mode isn't available in this session. Sign in with 'pigasus login' or configure a Gemini API key.")
 	}
 
 	sess := voicebackend.NewNativeLiveSession(backend, &tuiLiveHandler{m: m})

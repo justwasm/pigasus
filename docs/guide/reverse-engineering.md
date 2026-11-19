@@ -1,6 +1,7 @@
 # Reverse engineering the reference binary
 
 > pclntab → seeds → Ghidra → decompiled reports, the file formats, and the analysis gotchas.
+> For the automated, one-click asset extraction SOP across `agy`, `language_server`, and `localharness`, see [`reverse-engineering-sop.md`](reverse-engineering-sop.md).
 
 ## Commands
 

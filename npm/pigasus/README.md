@@ -43,7 +43,7 @@ pigasus
 
 ## How It Works
 
-1. **Automatic Architecture Detection**: Detects your operating system (`Darwin`, `Linux`) and CPU architecture (`arm64`, `x86_64`).
+1. **Automatic Architecture Detection**: Detects your operating system (`Darwin`, `Linux`, `Windows`) and CPU architecture (`arm64`, `x86_64`).
 2. **Automated Download**: Downloads the prebuilt native binary from [GitHub Releases](https://github.com/justwasm/pigasus/releases).
 3. **SHA-256 Integrity Verification**: Verifies the archive against official release `checksums.txt`.
 4. **Local Caching**: Caches the unpacked native binary under `~/.cache/pigasus/bin/` so subsequent runs launch with zero delay.

@@ -43,7 +43,7 @@ captured 2026-10-30). Its string table is in
 (the pruned index of the retired `strings.txt` dump — see `out/RETIRED.md`),
 and the reference's 1.4.11 `hooks.md` — the document the clone ships — was
 captured to
-[`docs/guide/hooks.md`](../../../docs/guide/hooks.md)
+[`docs/guide/hooks.md`](../../guide/hooks.md)
 (the retired `out/local-macos-1.4.11/hooks-doc.txt` dump — see `out/RETIRED.md`).
 
 The version pin and the drift lock move with the binary — that is the RE
@@ -501,5 +501,5 @@ the 1.4.11 string table is in
 [`out/local-macos-1.4.11/strings-index.txt`](../../../out/local-macos-1.4.11/strings-index.txt)
 (the pruned index of the retired `strings.txt` dump — see `out/RETIRED.md`),
 and the reference's 1.4.11 `hooks.md` in
-[`docs/guide/hooks.md`](../../../docs/guide/hooks.md)
+[`docs/guide/hooks.md`](../../guide/hooks.md)
 (the retired `out/local-macos-1.4.11/hooks-doc.txt` dump — see `out/RETIRED.md`).

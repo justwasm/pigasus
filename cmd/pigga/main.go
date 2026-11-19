@@ -13,7 +13,7 @@ import (
 	"github.com/justwasm/pigasus/internal/modular"
 )
 
-var version = "1.5.7-wasm"
+var version = "1.5.12-wasm"
 
 func main() {
 	app := modular.NewApp(modular.AppOptions{

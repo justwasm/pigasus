@@ -102,6 +102,10 @@ func (d *Dispatcher) Dispatch(buf string) (bool, tea.Cmd) {
 	if cmdInfo, found := slashcommands.Find(name); found {
 		sctx := d.host.SlashScopeContext()
 		if !slashcommands.IsAvailable(cmdInfo, sctx) {
+			if slashcommands.IsGeminiAPIKeyExcluded(name, sctx) {
+				d.host.SlashRespond("/"+name, fmt.Sprintf("error: /%s failed: not available with a Gemini API key; see https://aistudio.google.com/usage for the key's usage", name))
+				return true, nil
+			}
 			d.host.SlashRespond("/"+name, fmt.Sprintf("%s is not supported by the %s backend", "/"+name, sctx.EngineName))
 			return true, nil
 		}

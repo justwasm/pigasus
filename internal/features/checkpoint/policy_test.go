@@ -411,3 +411,53 @@ func TestPolicy_SetSnapshotParentMessages(t *testing.T) {
 		t.Errorf("subagent resume must not carry # User Requests: %q", decision.ResumeText)
 	}
 }
+
+func TestBeforeStep_ThirdPartyModelAdoptsReportedUsageAndTriggersCompaction(t *testing.T) {
+	be := &summaryBackend{text: "<summary>ok</summary>"}
+	// Non-catalogue third-party model
+	p := New(Config{
+		Model:        "deepseek-chat",
+		SystemPrompt: "sys",
+		Backend:      be,
+	})
+	defer p.Close()
+
+	if !p.Profile().UseModelReportedTokenCount {
+		t.Fatal("expected UseModelReportedTokenCount to be true for third-party models")
+	}
+
+	act := testActor(t)
+	probe := probeFor(t, act)
+
+	// 1. Below threshold: no checkpoint
+	probe.LastStep = &actor.Step{
+		ToolResults: []actor.ToolResult{{ToolCallID: "c1", Output: "x"}},
+		Usage: &actor.TokenUsage{
+			PromptTokens: 10_000,
+			OutputTokens: 500,
+		},
+	}
+	decision, err := p.BeforeStep(context.Background(), act, probe)
+	if err != nil {
+		t.Fatalf("BeforeStep: %v", err)
+	}
+	if decision.Apply {
+		t.Fatalf("expected no checkpoint at 10500 tokens, got %+v", decision)
+	}
+
+	// 2. High reported usage exceeds threshold (200k window - 16384 reserve = 183616)
+	probe.LastStep.Usage = &actor.TokenUsage{
+		PromptTokens: 185_000,
+		OutputTokens: 2_000,
+	}
+	decision, err = p.BeforeStep(context.Background(), act, probe)
+	if err != nil {
+		t.Fatalf("BeforeStep: %v", err)
+	}
+	if !decision.Apply {
+		t.Fatal("expected auto-checkpoint triggered by real model usage")
+	}
+	if decision.TokensBefore != 187_000 {
+		t.Errorf("decision.TokensBefore = %d, want 187000 (adopted from Usage)", decision.TokensBefore)
+	}
+}

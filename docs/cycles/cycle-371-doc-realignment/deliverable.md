@@ -228,9 +228,9 @@ subcommands" — both numbers were from v1.3.5.
 
 | item | why it was left |
 |---|---|
-| `re-decompiled-1.3.3/` (2,152 files, 43 MB) | the evidence backing the 1.3.3-era cycle reports; the reports cite it by path. The `c-1.3.4/` duplicate inside it was retired on 2026-11-02 — see `docs/legacy-re/README.md` |
+| `re-decompiled-1.3.3/` (2,152 files, 43 MB) | the evidence backing the 1.3.3-era cycle reports. Fully retired on 2026-11-18 — see `docs/legacy-re/README.md` |
 | `go-recovered/` (861 files, 14 MB) | same — the 1.3.3 recovered Go tree, cited by `docs/legacy-re/extracts/decompiled-v1.3.4/README.md` (the surviving copy of the retired `docs/decompiled-v1.3.4/README.md`) and `README-recovered.md` |
-| `re-docs/` (31 files) | the 1.3.3-era RE documents |
+| `re-docs/` (31 files) | the 1.3.3-era RE documents; consolidated into `docs/cycles/` and `docs/legacy-re/extracts/` on 2026-11-18 |
 | `v4-captures/` (16 files) | the v4 TUI capture cited by `docs/architecture/v1.3.5-tui-panels-real.md` |
 | `memory/` (5 files) | the working notes cited by the old cycle reports |
 | `out/ide-language-server/README.md` | carries its own "do not edit by hand" rule; its numbers belong to a dated IDE-side run |
@@ -293,6 +293,10 @@ reports' evidence; keeping them keeps a large, old tree in the checkout.
   deleted — the call belongs to the owner of the historical reports.
   **Update (2026-11-02):** the call was taken the other way for the
   rebuildable bulk; see `docs/legacy-re/README.md`.
+  **Update (2026-11-18):** `re-decompiled-1.3.3/` (30.4 MB) and `re-docs/`
+  were fully retired and consolidated into active guides under `docs/guide/`,
+  with evidence preserved in `docs/legacy-re/extracts/` and index in
+  `docs/legacy-re/README.md`.
 - **`internal/features/auth/mcpoauth` is still dead code** (1,477 LOC +
   829 LOC of tests, zero importers). Its shell was removed; the
   implementation waits on the 1.3.4 changelog line it answers.

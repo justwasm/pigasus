@@ -86,10 +86,14 @@ func (p *Panel) CommitSelectionCmd() (bool, tea.Cmd) {
 	}
 	text := sel.Name
 	if p.modelMode {
-		text = "/model " + sel.Name
+		target := sel.Description
+		if target == "" {
+			target = sel.Name
+		}
+		text = "/model " + target
 		p.setBuffer(text)
 		p.Reset()
-		return true, CompletedCmd(text, true, sel.Name)
+		return true, CompletedCmd(text, true, target)
 	}
 	if p.voiceMode {
 		if p.voiceSubcmd == "" {

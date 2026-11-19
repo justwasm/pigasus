@@ -8,18 +8,24 @@ import (
 	"testing"
 )
 
-// wantDirs is the reference's builtin bundle: the two external skills and the
-// seven shared ones (【一手】, the reference's own install on this machine
-// lists exactly these nine).
+// wantDirs is the reference's builtin bundle: the four external skills and the
+// eleven shared ones (【一手】, the reference's own install on this machine
+// lists exactly these fifteen at 1.5.11).
 var wantDirs = []string{
 	"agy-customizations",
 	"antigravity_guide",
 	"automation",
 	"generative_ui",
+	"mcp-app-development",
+	"migrate-agent-settings",
 	"migrate-workflows",
+	"native_swarm",
 	"permissioned-github",
 	"plugin",
 	"run-workflow",
+	"swarm_monitor",
+	"swarm_narrator",
+	"swarm_pane",
 	"ui-plugin-navigation",
 }
 

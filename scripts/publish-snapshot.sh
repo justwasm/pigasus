@@ -193,7 +193,7 @@ ALLOWLIST=(
   Makefile
   AGENTS.md
   README.md
-  REVIEW.md
+  docs/architecture/REVIEW.md
   LICENSE
   .gitignore
 )
@@ -214,6 +214,7 @@ else
         --exclude=".DS_Store" \
         "${ROOT_DIR}/${item}/" "${TARGET_DIR}/${item}/"
     elif [[ -f "${ROOT_DIR}/${item}" ]]; then
+      mkdir -p "$(dirname "${TARGET_DIR}/${item}")"
       cp "${ROOT_DIR}/${item}" "${TARGET_DIR}/${item}"
     fi
   done

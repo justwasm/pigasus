@@ -27,7 +27,7 @@ copying it.
 
 ## 1. Why this tranche was second
 
-The ROI ranking in [`docs/guide/public-packages.md`](../../docs/guide/public-packages.md)
+The ROI ranking in [`docs/guide/public-packages.md`](../../guide/public-packages.md)
 puts the Web UI's wire in Tier 1 (protocol) behind only the SDK family,
 and its score is the highest of the queued Tier 1 items: a second
 implementation of the Web UI's client **cannot exist** without these
@@ -200,7 +200,7 @@ generated files) — the move added none.
 
 ---
 
-Reports: [`docs/guide/public-packages.md`](../../docs/guide/public-packages.md)
+Reports: [`docs/guide/public-packages.md`](../../guide/public-packages.md)
 (the current state and the ranking),
 [`cycle-354-public-packages`](../cycle-354-public-packages/deliverable.md)
 (the T1 move),

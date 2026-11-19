@@ -33,6 +33,17 @@ const (
 	defaultCols = 80
 )
 
+type unixPTY struct {
+	file *os.File
+}
+
+func (u *unixPTY) Read(p []byte) (int, error)  { return u.file.Read(p) }
+func (u *unixPTY) Write(p []byte) (int, error) { return u.file.Write(p) }
+func (u *unixPTY) Close() error                { return u.file.Close() }
+func (u *unixPTY) Resize(cols, rows int) error {
+	return pty.Setsize(u.file, &pty.Winsize{Rows: uint16(rows), Cols: uint16(cols)})
+}
+
 // spawn starts a shell on a fresh pty.
 func spawn(dir string) (*Session, error) {
 	shell := shellPath()
@@ -63,7 +74,7 @@ func spawn(dir string) (*Session, error) {
 
 	session := newSession(newTerminalID(), cmd.Process.Pid, filepath.Base(shell))
 	session.cmd = cmd.Process
-	session.ptmx = ptmx
+	session.ptmx = &unixPTY{file: ptmx}
 	session.waitExit = func() int {
 		if err := cmd.Wait(); err != nil {
 			var exitErr *exec.ExitError
@@ -117,7 +128,10 @@ func (s *Session) resize(cols, rows int) error {
 	if s.exited || s.closed {
 		return ErrClosed
 	}
-	return pty.Setsize(s.ptmx, &pty.Winsize{Rows: uint16(rows), Cols: uint16(cols)})
+	if s.ptmx == nil {
+		return ErrClosed
+	}
+	return s.ptmx.Resize(cols, rows)
 }
 
 // close ends the terminal: the shell is signalled, the pty is

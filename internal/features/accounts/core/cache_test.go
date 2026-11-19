@@ -164,3 +164,117 @@ func TestGetRejectsAnEmptyEmail(t *testing.T) {
 		t.Fatal("Get(\"  \") = nil error")
 	}
 }
+
+// TestUpdateSkipsWriteWhenUnchanged verifies that Update and SetQuota do NOT
+// touch the disk when there are no meaningful changes, preventing SSD churn and
+// file watcher loops during background quota polling.
+func TestUpdateSkipsWriteWhenUnchanged(t *testing.T) {
+	cacheIsolate(t)
+	if _, _, err := Register(cacheFakeToken(t, "a@example.com")); err != nil {
+		t.Fatalf("Register: %v", err)
+	}
+	snap1 := &auth.QuotaSnapshot{
+		FetchedAt: time.Now(),
+		Groups: []auth.QuotaGroupSnapshot{{
+			Name: "GEMINI MODELS",
+			Buckets: []auth.QuotaBucketSnapshot{{
+				ID:                "gemini-5h",
+				DisplayName:       "Five Hour Limit Remaining",
+				Window:            "5h",
+				RemainingFraction: 0.95,
+				ResetTime:         time.Now().Add(2 * time.Hour).Truncate(time.Second),
+			}},
+		}},
+	}
+	if err := SetQuota("a@example.com", snap1); err != nil {
+		t.Fatalf("SetQuota: %v", err)
+	}
+
+	path := Path()
+	info1, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("Stat: %v", err)
+	}
+	content1, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+
+	time.Sleep(10 * time.Millisecond)
+
+	// 1. No-op update must not write to disk.
+	if err := Update("a@example.com", func(a *Account) {}); err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+	info2, _ := os.Stat(path)
+	if !info1.ModTime().Equal(info2.ModTime()) {
+		t.Errorf("no-op Update modified accounts.json (modtime changed)")
+	}
+
+	// 2. SetQuota with identical figures but newer FetchedAt must not write to disk.
+	snapSame := &auth.QuotaSnapshot{
+		FetchedAt: time.Now().Add(5 * time.Minute),
+		Groups: []auth.QuotaGroupSnapshot{{
+			Name: "GEMINI MODELS",
+			Buckets: []auth.QuotaBucketSnapshot{{
+				ID:                "gemini-5h",
+				DisplayName:       "Five Hour Limit Remaining",
+				Window:            "5h",
+				RemainingFraction: 0.95,
+				ResetTime:         snap1.Groups[0].Buckets[0].ResetTime,
+			}},
+		}},
+	}
+	if err := SetQuota("a@example.com", snapSame); err != nil {
+		t.Fatalf("SetQuota: %v", err)
+	}
+	info3, _ := os.Stat(path)
+	if !info1.ModTime().Equal(info3.ModTime()) {
+		t.Errorf("quota refresh with unchanged numbers modified accounts.json")
+	}
+
+	// 3. Meaningful change (PlanTier) MUST write to disk.
+	if err := SetPlanTier("a@example.com", "Google AI Pro"); err != nil {
+		t.Fatalf("SetPlanTier: %v", err)
+	}
+	info4, _ := os.Stat(path)
+	if info1.ModTime().Equal(info4.ModTime()) {
+		t.Errorf("SetPlanTier should have updated accounts.json on disk")
+	}
+
+	// 4. Setting the same PlanTier again must NOT write to disk.
+	time.Sleep(10 * time.Millisecond)
+	if err := SetPlanTier("a@example.com", "Google AI Pro"); err != nil {
+		t.Fatalf("SetPlanTier: %v", err)
+	}
+	info5, _ := os.Stat(path)
+	if !info4.ModTime().Equal(info5.ModTime()) {
+		t.Errorf("re-setting identical PlanTier modified accounts.json")
+	}
+
+	// 5. Meaningful quota change (RemainingFraction changed) MUST write to disk.
+	snapChanged := &auth.QuotaSnapshot{
+		FetchedAt: time.Now(),
+		Groups: []auth.QuotaGroupSnapshot{{
+			Name: "GEMINI MODELS",
+			Buckets: []auth.QuotaBucketSnapshot{{
+				ID:                "gemini-5h",
+				DisplayName:       "Five Hour Limit Remaining",
+				Window:            "5h",
+				RemainingFraction: 0.80, // changed from 0.95!
+				ResetTime:         snap1.Groups[0].Buckets[0].ResetTime,
+			}},
+		}},
+	}
+	if err := SetQuota("a@example.com", snapChanged); err != nil {
+		t.Fatalf("SetQuota: %v", err)
+	}
+	info6, _ := os.Stat(path)
+	if info5.ModTime().Equal(info6.ModTime()) {
+		t.Errorf("SetQuota with changed quota should have updated accounts.json on disk")
+	}
+	contentFinal, _ := os.ReadFile(path)
+	if string(contentFinal) == string(content1) {
+		t.Errorf("accounts.json content should have changed after quota reduction")
+	}
+}

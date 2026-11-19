@@ -12,15 +12,12 @@ import (
 	"syscall"
 	"time"
 
-	"golang.org/x/sys/unix"
-
 	"github.com/justwasm/pigasus/agentbrowser"
 	"github.com/justwasm/pigasus/internal/app/session/convstore"
 	"github.com/justwasm/pigasus/internal/cli"
 	"github.com/justwasm/pigasus/internal/features/auth"
 	persistentrc "github.com/justwasm/pigasus/internal/infra/remote/persistent"
 	"github.com/justwasm/pigasus/internal/remotecontrol"
-	"github.com/justwasm/pigasus/internal/voice"
 	"github.com/justwasm/pigasus/originpolicy"
 	"github.com/justwasm/pigasus/remotetransport"
 )
@@ -147,10 +144,7 @@ func buildForegroundDispatcher(cwd, model, addr string, sess *remotecontrol.Sess
 func startForegroundServer(disp *remotecontrol.Dispatcher, addr, token string) (*remotetransport.TCPServer, error) {
 	seed := originpolicy.LoadOriginPolicyFromEnv()
 	cwd, _ := os.Getwd()
-	voiceSvc := voice.NewService(voice.Config{
-		WorkspaceDir: cwd,
-		CSRFToken:    token,
-	})
+	voiceSvc := buildHostVoiceService(cwd, token)
 	srv, err := remotetransport.NewTCPServer(context.Background(), disp, remotetransport.TCPConfig{
 		Addr:         addr,
 		Path:         "/rpc",
@@ -182,23 +176,6 @@ func runForegroundEventLoop(srv *remotetransport.TCPServer, name string) error {
 		fmt.Fprintf(os.Stderr, "remote-control-foreground: shutdown error: %v\n", err)
 		return cli.ExitCodeError(1, fmt.Sprintf("Error: shutdown failed: %v", err))
 	}
-	return nil
-}
-
-func redirectToLogFile(logFile string) error {
-	f, err := os.OpenFile(logFile, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
-	if err != nil {
-		return err
-	}
-	if err := unix.Dup2(int(f.Fd()), int(os.Stdout.Fd())); err != nil {
-		_ = f.Close()
-		return err
-	}
-	if err := unix.Dup2(int(f.Fd()), int(os.Stderr.Fd())); err != nil {
-		_ = f.Close()
-		return err
-	}
-	_ = f.Close()
 	return nil
 }
 

@@ -13,7 +13,7 @@ import (
 	"testing"
 
 	"github.com/justwasm/pigasus/accountpool"
-	"github.com/justwasm/pigasus/endpoints"
+	accounts "github.com/justwasm/pigasus/internal/features/accounts/core"
 )
 
 // TestPrintSlashPoolShowsThePolicy pins that /pool answers with the
@@ -21,13 +21,14 @@ import (
 func TestPrintSlashPoolShowsThePolicy(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("OPENAGY_CONFIG", filepath.Join(dir, "config.json"))
-	if err := endpoints.SaveAccountPool(&accountpool.Config{
-		Enabled:         true,
-		Strategy:        accountpool.StrategyQuotaAware,
-		Threshold:       0.25,
-		RefreshInterval: "2m",
-		Cooldown:        "5m",
-		MaxAttempts:     3,
+	t.Setenv("OPENAGY_ACCOUNTS_CONFIG", filepath.Join(dir, "accounts.json"))
+	if err := accounts.SaveAccountPool(&accountpool.Config{
+		Enabled:           true,
+		Aggregate:         &accountpool.Aggregate{Enabled: accountpool.Bool(true)},
+		ThresholdFiveHour: 0.25,
+		RefreshInterval:   "2m",
+		Cooldown:          "5m",
+		MaxAttempts:       3,
 	}); err != nil {
 		t.Fatalf("SaveAccountPool: %v", err)
 	}
@@ -36,7 +37,7 @@ func TestPrintSlashPoolShowsThePolicy(t *testing.T) {
 	if !res.Handled {
 		t.Fatal("/pool was not handled locally")
 	}
-	for _, want := range []string{"on", "quota_aware", "25%", "2m", "5m"} {
+	for _, want := range []string{"on", "aggregate", "25%", "5h", "2m", "5m"} {
 		if !strings.Contains(res.Output, want) {
 			t.Errorf("the output does not carry %q: %q", want, res.Output)
 		}
@@ -48,6 +49,7 @@ func TestPrintSlashPoolShowsThePolicy(t *testing.T) {
 func TestPrintSlashPoolWithoutAPolicy(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("OPENAGY_CONFIG", filepath.Join(dir, "config.json"))
+	t.Setenv("OPENAGY_ACCOUNTS_CONFIG", filepath.Join(dir, "accounts.json"))
 
 	res := handlePrintSlashPool()
 	if !res.Handled {

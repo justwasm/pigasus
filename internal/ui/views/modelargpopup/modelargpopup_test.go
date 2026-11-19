@@ -114,3 +114,56 @@ func TestInvalidMessage_IsTheReferenceText(t *testing.T) {
 		t.Errorf("InvalidMessage = %q, want %q", got, want)
 	}
 }
+
+func TestConfiguredModel_RowsAndResolveFullID(t *testing.T) {
+	configtest.WriteProviders(t, `{"providers": {
+		"openrouter": {
+			"type": "openai",
+			"api_url": "https://openrouter.ai/api/v1/chat/completions",
+			"api_key": "sk-or-test",
+			"models": [{
+				"id": "deepseek/deepseek-v4.1-flash",
+				"name": "OpenRouter: DeepSeek V4.1 Flash",
+				"model": "deepseek/deepseek-v4.1-flash",
+				"reasoning_efforts": ["low", "high"],
+				"reasoning_effort": "high"
+			}]
+		}
+	}}`)
+
+	// 1. Verify Rows() uses the full qualified ID
+	rows := Rows()
+	var foundHigh, foundLow bool
+	for _, r := range rows {
+		if r.ID == "openrouter/deepseek/deepseek-v4.1-flash-high" {
+			foundHigh = true
+			if r.Label != "OpenRouter: DeepSeek V4.1 Flash (High)" {
+				t.Errorf("row label = %q, want %q", r.Label, "OpenRouter: DeepSeek V4.1 Flash (High)")
+			}
+		}
+		if r.ID == "openrouter/deepseek/deepseek-v4.1-flash-low" {
+			foundLow = true
+		}
+	}
+	if !foundHigh || !foundLow {
+		t.Fatalf("Rows() missing qualified openrouter models: high=%v, low=%v in %v", foundHigh, foundLow, rows)
+	}
+
+	// 2. Verify Resolve matches full qualified ID, bare ID, and display name
+	for _, query := range []string{
+		"openrouter/deepseek/deepseek-v4.1-flash-high",
+		"openrouter/deepseek/deepseek-v4.1-flash",
+		"deepseek/deepseek-v4.1-flash-high",
+		"deepseek/deepseek-v4.1-flash",
+		"OpenRouter: DeepSeek V4.1 Flash (High)",
+	} {
+		entry, ok := Resolve(query)
+		if !ok {
+			t.Errorf("Resolve(%q) = false, want true", query)
+			continue
+		}
+		if entry.ID != "openrouter/deepseek/deepseek-v4.1-flash-high" && entry.ID != "openrouter/deepseek/deepseek-v4.1-flash" {
+			t.Errorf("Resolve(%q).ID = %q, want qualified ID", query, entry.ID)
+		}
+	}
+}

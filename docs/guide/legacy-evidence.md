@@ -28,6 +28,7 @@ Two sweeps, both local commits, both verified against the evidence gate.
 |---|---|---|
 | **S** — `docs/` | ten 1.3.x-era trees under `docs/` (a 293 MiB Ghidra project database, a 79 MiB decompile tree, the 1.3.4/1.3.5 seed and string dumps, the 1.3.5 decompiled C for 50 packages, the v135 PTY captures, the cycle-20-to-23 binaries) plus the root-level duplicate `re-decompiled-1.3.3/c-1.3.4/` | 561 501 053 B (535.5 MiB) |
 | **U** — `out/` | the rebuildable bulk: the 1.4.11 raw `strings` dump, the 1.3.3 ELF seed set, the duplicated IDE frontend bundle, the duplicated `.tmpl` templates, the duplicated `decompile-*.md` reports, the redundant changelog copy, the unreferenced wasm probe | 92 345 977 B (88.1 MiB) |
+| **R** — `re-decompiled-1.3.3/` & `re-docs/` | the final 1.3.3 decompiled set (860 .c files, funcs.txt, priority list) and 26 machine-generated dead address tables under `re-docs/`; key findings consolidated into `docs/guide/` and extracts | 30 409 485 B (29.0 MiB) |
 
 **The pipeline's scripts moved.** `out/local-macos/{build_priority.py,
 build_plan.py, build_reports.py, plan-local.jsonl, ghidra-scripts/**}` are

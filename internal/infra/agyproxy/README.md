@@ -143,6 +143,16 @@ name, `N` in 400..599) and their `custom-…` slug is appended to every
 `agentModelSorts[].groups[].modelIds`. Upstream models are never removed and
 merging is idempotent.
 
+The last successful upstream catalogue is also kept, in memory for the life
+of the proxy process. If a refresh fails — timeout, connection reset,
+`unexpected EOF`, non-2xx, empty body — the proxy answers from that copy
+(`X-Openagy-Upstream-Status: cached`) instead of synthesising a
+custom-models-only reply. That fallback used to make the vendor binary forget
+every upstream id mid-session, and the next turn failed with
+`unknown model key MODEL_PLACEHOLDER_M318: model not found` until a later
+refresh happened to succeed. A cold start that has never reached Google still
+gets the custom-only reply, because that is the case it exists for.
+
 A request is treated as a custom model when the model string contains the
 placeholder, the slug, the registry name or the external model name
 (case-insensitive).

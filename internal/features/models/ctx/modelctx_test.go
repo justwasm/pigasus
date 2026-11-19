@@ -129,6 +129,54 @@ func TestConfiguredModelWithoutNumbersFallsBack(t *testing.T) {
 	}
 }
 
+func TestConfiguredModelLookupVariations(t *testing.T) {
+	configtest.WriteProviders(t, `{"providers": {"gateway": {
+		"type": "openai", "base_url": "https://host/v1",
+		"models": [{"id": "deepseek-chat", "name": "DeepSeek V3",
+		            "model": "deepseek-ai/DeepSeek-V3", "context_window": 65536,
+		            "default_max_tokens": 4096}]}}}`)
+
+	tests := []string{
+		"deepseek-chat",
+		"DEEPSEEK-CHAT",
+		"DeepSeek-Chat",
+		"DeepSeek V3",
+		"deepseek v3",
+		"gateway/deepseek-chat",
+		"GATEWAY/deepseek-chat",
+		"gateway/DeepSeek V3",
+		"deepseek-ai/DeepSeek-V3",
+		"deepseek-ai/deepseek-v3",
+	}
+
+	for _, cand := range tests {
+		got := For(cand)
+		if got.ContextWindow != 65_536 {
+			t.Errorf("For(%q).ContextWindow = %d, want 65536", cand, got.ContextWindow)
+		}
+		if got.ReserveTokens != 4_096 {
+			t.Errorf("For(%q).ReserveTokens = %d, want 4096", cand, got.ReserveTokens)
+		}
+	}
+}
+
+func TestConfiguredModelReserveClamping(t *testing.T) {
+	configtest.WriteProviders(t, `{"providers": {"local": {
+		"type": "openai", "base_url": "http://localhost:8000/v1",
+		"models": [{"id": "tiny", "name": "Tiny", "context_window": 8192}]}}}`)
+
+	got := For("tiny")
+	if got.ContextWindow != 8192 {
+		t.Errorf("window = %d, want 8192", got.ContextWindow)
+	}
+	if got.ReserveTokens >= got.ContextWindow {
+		t.Errorf("reserve = %d leaves no room in window %d", got.ReserveTokens, got.ContextWindow)
+	}
+	if got.ReserveTokens != 8192/4 {
+		t.Errorf("reserve = %d, want %d (clamped to window/4)", got.ReserveTokens, 8192/4)
+	}
+}
+
 // TestForUnknownModelFallsBack pins the unknown-model fallback.
 func TestForUnknownModelFallsBack(t *testing.T) {
 	configtest.Isolate(t)

@@ -9,9 +9,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/justwasm/pigasus/accountpool"
 	"github.com/justwasm/pigasus/configdir"
 	"github.com/justwasm/pigasus/endpoints"
+	accounts "github.com/justwasm/pigasus/internal/features/accounts/core"
 	"github.com/justwasm/pigasus/internal/features/models"
 )
 
@@ -49,8 +49,17 @@ type fileConfig struct {
 	CaptureMaxBytes *int64 `json:"capture_max_bytes,omitempty"`
 	Upstream        string `json:"upstream,omitempty"`
 	Addr            string `json:"addr,omitempty"`
-	Balance         *bool  `json:"balance,omitempty"`
-	Aggregate       *bool  `json:"aggregate,omitempty"`
+
+	// Balance and Aggregate are **legacy**: the pool's switches moved to the
+	// account-routing policy's `aggregate` section, which is the only place
+	// they are written now. These fields are read so a document written by an
+	// older build keeps meaning what it meant, and they are never written
+	// back — the next `proxy balance` / `proxy aggregate` write drops them.
+	//
+	// Deleting the whole "wrapper" section is safe: both switches default to
+	// on, which is what the section would say.
+	Balance   *bool `json:"balance,omitempty"`
+	Aggregate *bool `json:"aggregate,omitempty"`
 }
 
 // defaultCaptureDir is where captures land: <the configuration home>/captures.
@@ -95,15 +104,20 @@ func saveConfig(c fileConfig) error {
 	return endpoints.SaveWrapper(buf)
 }
 
-// settings is the resolved (env > file > default) view used by the launcher.
+// settings is the resolved (env > policy > legacy file > default) view used by
+// the launcher.
 type settings struct {
 	Addr            string
 	Upstream        string
 	CaptureOn       bool
 	CaptureDir      string
 	CaptureMaxBytes int64
-	Balance         bool
-	Aggregate       bool
+	// Balance is whether a turn may be moved to another account of the pool.
+	// It is the pool's routing switch; Aggregate implies it.
+	Balance bool
+	// Aggregate is whether the pool answers quota and plan tier as one
+	// virtual account.
+	Aggregate bool
 }
 
 func resolveSettings(c fileConfig) settings {
@@ -112,8 +126,6 @@ func resolveSettings(c fileConfig) settings {
 		Upstream:   firstNonEmpty(os.Getenv(EnvUpstream), c.Upstream, ""),
 		CaptureDir: firstNonEmpty(os.Getenv(EnvCaptureDir), c.CaptureDir, defaultCaptureDir()),
 		CaptureOn:  true,
-		Balance:    resolveBool([]string{EnvBalance, EnvAccountPool}, c.Balance, false),
-		Aggregate:  resolveBool([]string{EnvAggregate, EnvAccountPoolAggregate}, c.Aggregate, false),
 	}
 	if c.Capture != nil {
 		s.CaptureOn = *c.Capture
@@ -122,19 +134,77 @@ func resolveSettings(c fileConfig) settings {
 	if !s.CaptureOn {
 		s.CaptureDir = ""
 	}
-	if p := endpoints.CurrentAccountPool(); p != nil {
-		if p.ProxyBalance {
-			s.Balance = true
-		}
-		if p.Aggregate || p.Strategy == accountpool.StrategyAggregate {
-			s.Aggregate = true
-			s.Balance = true
-		}
+
+	// The two pool switches, in one precedence order: the environment (a
+	// one-off run), then the routing policy (where they live now), then the
+	// legacy "wrapper" copies, then the default.
+	//
+	// Both default to **on**: the proxy is an account pool, that is what
+	// `pigasus agy` starts, and a pool that does not move a turn is a proxy
+	// with one account.
+	policy := accounts.CurrentAccountPool()
+	var policyOn, policyAggregate, policyAggregateStated bool
+	if policy != nil {
+		policyOn = policy.RoutingEnabled() || policy.ProxyBalance
+		policyAggregate, policyAggregateStated = policy.AggregateStated()
 	}
-	if s.Aggregate {
-		s.Balance = true
+
+	s.Balance = resolveBoolChoice(
+		[]string{EnvBalance, EnvAccountPool},
+		policy != nil, policyOn,
+		c.Balance,
+		true,
+	)
+	s.Aggregate = resolveBoolChoice(
+		[]string{EnvAggregate, EnvAccountPoolAggregate},
+		policyAggregateStated, policyAggregate,
+		c.Aggregate,
+		true,
+	)
+	if s.Aggregate && !s.Balance {
+		// Balance is the master switch: it is what makes a turn run on
+		// another account at all. A proxy that does not move turns has
+		// nothing to merge, so the unified view goes with it.
+		s.Aggregate = false
 	}
 	return s
+}
+
+// resolveBoolChoice answers a switch from the layers around it, in order:
+// the environment, a stated value from the policy, the legacy file field, and
+// the default.
+//
+// `stated` separates "the policy says false" from "the policy says nothing":
+// only the first overrides the layers below it.
+func resolveBoolChoice(envVars []string, stated, statedValue bool, legacy *bool, def bool) bool {
+	if v, ok := lookupBool(envVars); ok {
+		return v
+	}
+	if stated {
+		return statedValue
+	}
+	if legacy != nil {
+		return *legacy
+	}
+	return def
+}
+
+// lookupBool reads the first of the named environment variables that is set to
+// something recognisable as a boolean.
+func lookupBool(envVars []string) (bool, bool) {
+	for _, env := range envVars {
+		val, ok := os.LookupEnv(env)
+		if !ok || strings.TrimSpace(val) == "" {
+			continue
+		}
+		if isTruthy(val) {
+			return true, true
+		}
+		if isFalsy(val) {
+			return false, true
+		}
+	}
+	return false, false
 }
 
 // resolveCaptureMax resolves the capture ceiling: env > file > default.

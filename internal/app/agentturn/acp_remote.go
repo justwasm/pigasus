@@ -26,6 +26,7 @@ import (
 	schemav2 "github.com/ironpark/acp-go/schema/v2"
 	"github.com/justwasm/pigasus/agentlink"
 	coreversion "github.com/justwasm/pigasus/internal/core/version"
+	ws "github.com/justwasm/pigasus/websocket"
 )
 
 // ACPRemote runs turns against an ACP (Agent Client Protocol) server,
@@ -392,7 +393,7 @@ func DialACPRemote(ctx context.Context, rawURL, token, cwd string, acpVersion ..
 		u = strings.TrimRight(u, "/") + "/acp"
 	}
 
-	opts := &websocket.DialOptions{}
+	opts := &ws.DialOptions{}
 	if strings.TrimSpace(token) != "" {
 		opts.HTTPHeader = http.Header{
 			"Authorization": []string{"Bearer " + strings.TrimSpace(token)},
@@ -405,7 +406,7 @@ func DialACPRemote(ctx context.Context, rawURL, token, cwd string, acpVersion ..
 	}
 
 	dial := func(dialCtx context.Context) (acp.Transport, error) {
-		wsConn, _, err := websocket.Dial(dialCtx, u, opts)
+		wsConn, _, err := ws.Dial(dialCtx, u, opts)
 		if err != nil {
 			return nil, fmt.Errorf("acp: dial %s: %w", u, err)
 		}

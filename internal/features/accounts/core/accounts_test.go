@@ -41,6 +41,7 @@ func isolate(t *testing.T) string {
 	t.Helper()
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("ANTIGRAVITY_HOME", filepath.Join(home, ".gemini", "antigravity-cli"))
 	t.Setenv("OPENAGY_ACCOUNTS_CONFIG", filepath.Join(home, "accounts.json"))
 	t.Setenv("OPENAGY_DISABLE_KEYCHAIN", "1")
 	t.Setenv("JETSKI_OAUTH_TOKEN", "")

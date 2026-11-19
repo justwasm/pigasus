@@ -155,7 +155,11 @@ func resolveModelWithEffort(model, effort string) (string, error) {
 					fmt.Sprintf("%s has no %q effort (available: %s)", model, effort, strings.Join(tiers, ", ")))
 			}
 			m, _ := configuredModel(model)
-			return models.TierRowID(m.Name, effort), nil
+			base := models.BaseModelID(m.Name)
+			if m.ProviderID != "" && strings.HasPrefix(strings.ToLower(model), strings.ToLower(m.ProviderID)+"/") {
+				base = m.ProviderID + "/" + base
+			}
+			return models.TierRowID(base, effort), nil
 		} else if _, ok := CatalogueIDBySlug(model); ok {
 			return "", invalidModelSelection(model, effort,
 				fmt.Sprintf("--model %s conflicts with --effort=%s", model, effort))
@@ -188,8 +192,22 @@ func resolveModelWithoutEffort(model string) (string, error) {
 	// the model's default tier — the reference's own rule ("--model
 	// <name>" without "--effort" picks the model's server default).
 	if m, ok := configuredModel(model); ok {
+		// If the user's requested model string already has a tier, honor it directly.
+		if tier := models.TierFromID(model); tier != "" {
+			return model, nil
+		}
+		if tier := models.TierFromID(m.Name); tier != "" {
+			return m.Name, nil
+		}
 		if tier := models.DefaultEffort(m); tier != "" {
-			return models.TierRowID(m.Name, tier), nil
+			base := models.BaseModelID(m.Name)
+			if m.ProviderID != "" && strings.HasPrefix(strings.ToLower(model), strings.ToLower(m.ProviderID)+"/") {
+				base = m.ProviderID + "/" + base
+			}
+			return models.TierRowID(base, tier), nil
+		}
+		if m.ProviderID != "" && strings.HasPrefix(strings.ToLower(model), strings.ToLower(m.ProviderID)+"/") {
+			return m.ProviderID + "/" + m.Name, nil
 		}
 		return m.Name, nil
 	}
@@ -214,6 +232,19 @@ func configuredModel(name string) (models.Model, bool) {
 	for _, m := range reg.List() {
 		if m.Name == name || strings.TrimSpace(m.DisplayName) == name {
 			return m, true
+		}
+	}
+	for _, m := range models.TierRows(reg.List()) {
+		if m.Name == name || strings.TrimSpace(m.DisplayName) == name {
+			return m, true
+		}
+	}
+	want := strings.ToLower(name)
+	for _, m := range append(models.TierRows(reg.List()), reg.List()...) {
+		for _, v := range []string{m.DisplayName, m.ExternalModelName, m.QualifiedName(), m.Name} {
+			if v != "" && (strings.ToLower(strings.TrimSpace(v)) == want || strings.ToLower(ModelSlug(v)) == want) {
+				return m, true
+			}
 		}
 	}
 	return models.Model{}, false

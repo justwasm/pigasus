@@ -33,6 +33,7 @@
 package core
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -42,6 +43,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/justwasm/pigasus/accountpool"
 	"github.com/justwasm/pigasus/atomicfile"
 	"github.com/justwasm/pigasus/configdir"
 	"github.com/justwasm/pigasus/internal/features/auth"
@@ -86,6 +88,86 @@ type Store struct {
 	Version  int       `json:"version"`
 	Active   string    `json:"active,omitempty"`
 	Accounts []Account `json:"accounts"`
+
+	// AccountPool is the pool's policy: which accounts a turn may run on and
+	// how much quota one needs. It lives here because it is a statement about
+	// these accounts, and because the file that is edited when an account is
+	// added is the file that should say how accounts are used. A registry
+	// without the section is a pool that has never been configured.
+	AccountPool *accountpool.Config `json:"account_pool,omitempty"`
+
+	// extra holds the top-level keys this build does not know, so a save
+	// writes them back unchanged.
+	//
+	// A writer reads the whole registry, changes one account and writes the
+	// whole file — the quota cache, the token refresher and the accounts API
+	// all do. Without this, a build that predates a section deletes it: every
+	// save re-emits only the fields it has, and the section a newer build
+	// wrote disappears on the next quota read. That is not hypothetical — a
+	// `remote-control serve` from before the pool moved here kept erasing
+	// `account_pool` every few seconds while the Web UI polled it.
+	//
+	// So the registry is preserved rather than modelled: a key this build does
+	// not understand survives a round trip, and an older binary that has this
+	// code cannot destroy a newer section.
+	extra map[string]json.RawMessage
+}
+
+// registryKeys are the top-level keys Store models.
+var registryKeys = map[string]bool{
+	"version":      true,
+	"active":       true,
+	"accounts":     true,
+	"account_pool": true,
+}
+
+// UnmarshalJSON reads the registry and keeps the keys this build does not
+// model in extra.
+func (s *Store) UnmarshalJSON(data []byte) error {
+	type plain Store
+	var known plain
+	if err := json.Unmarshal(data, &known); err != nil {
+		return err
+	}
+	var all map[string]json.RawMessage
+	if err := json.Unmarshal(data, &all); err != nil {
+		return err
+	}
+	*s = Store(known)
+	for key, raw := range all {
+		if registryKeys[key] {
+			continue
+		}
+		if s.extra == nil {
+			s.extra = make(map[string]json.RawMessage, len(all))
+		}
+		s.extra[key] = raw
+	}
+	return nil
+}
+
+// MarshalJSON writes the registry, including the keys this build does not
+// model.
+func (s Store) MarshalJSON() ([]byte, error) {
+	type plain Store
+	known, err := json.Marshal(plain(s))
+	if err != nil {
+		return nil, err
+	}
+	if len(s.extra) == 0 {
+		return known, nil
+	}
+	var out map[string]json.RawMessage
+	if err := json.Unmarshal(known, &out); err != nil {
+		return nil, err
+	}
+	for key, raw := range s.extra {
+		if _, taken := out[key]; taken {
+			continue
+		}
+		out[key] = raw
+	}
+	return json.Marshal(out)
 }
 
 // Path returns the conventional path of the account registry:
@@ -159,6 +241,9 @@ func (s *Store) saveLocked() error {
 		return fmt.Errorf("accounts: encode: %w", err)
 	}
 	raw = append(raw, '\n')
+	if existing, err := os.ReadFile(path); err == nil && bytes.Equal(existing, raw) {
+		return nil
+	}
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return fmt.Errorf("accounts: create %s: %w", dir, err)

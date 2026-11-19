@@ -37,6 +37,15 @@ var printSlashHelpCommands = []jsonHelpCommand{
 
 // helpCommandsData renders the `/help` command payload.
 func helpCommandsData() any {
+	if isGeminiAPIKeyActive() {
+		var filtered []jsonHelpCommand
+		for _, c := range printSlashHelpCommands {
+			if c.Name != "usage" && c.Name != "quota" && c.Name != "credits" {
+				filtered = append(filtered, c)
+			}
+		}
+		return map[string]any{"commands": filtered}
+	}
 	return map[string]any{"commands": printSlashHelpCommands}
 }
 

@@ -297,7 +297,7 @@ test about SIGTERM escalation, with no dependency on any moved package.
 
 ---
 
-Reports: [`docs/guide/public-packages.md`](../../docs/guide/public-packages.md)
+Reports: [`docs/guide/public-packages.md`](../../guide/public-packages.md)
 (the current state and the ranking),
 [`cycle-357-public-tranche-4`](../cycle-357-public-tranche-4/deliverable.md)
 (the T4 move),

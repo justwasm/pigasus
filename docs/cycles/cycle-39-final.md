@@ -367,9 +367,11 @@ agy-recovered/
 - `go-recovered/decompiled/` → `/re-decompiled-1.3.3/` (1.3.3 c2go 860 .go)
 - `go-recovered/docs/` → `/re-docs/` (cycle 17-22 docs)
 
-> **Retirement note (2026-11-02).** `re-decompiled-1.3.3/` still holds the
-> 1.3.3 `.c` files, but its `c-1.3.4/` copy — the one this move created —
-> was retired after this cycle as a byte-identical duplicate. See
+> **Retirement note (2026-11-18).** `re-decompiled-1.3.3/` and `re-docs/`
+> have been fully retired. Their business and architectural findings (7 AuthProviders,
+> licensing RPCs, endpoints) have been consolidated into `docs/guide/{accounts,endpoints,cloudcode-dialect}.md`,
+> reports moved to `docs/cycles/` and `docs/legacy-re/extracts/`, and original 1.3.3
+> files can be retrieved via `git show 0aae7e47:re-decompiled-1.3.3/<path>`. See
 > `docs/legacy-re/README.md`.
 
 #### 留在 `go-recovered/` (RE artifacts)

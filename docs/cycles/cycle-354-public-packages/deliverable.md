@@ -20,7 +20,7 @@ judgement, and the guide says so
 | the limit manager | `internal/budget` | **`budget/`** |
 | the harness prompt | `internal/harnessprompt` | **`harnessprompt/`** |
 | the CloudCode dialect | `internal/backend` + `internal/geminiwire` | **`geminicode/`** (cycle 353) |
-| the queue for the rest | — | **ranked**, in [`docs/guide/public-packages.md`](../../docs/guide/public-packages.md) |
+| the queue for the rest | — | **ranked**, in [`docs/guide/public-packages.md`](../../guide/public-packages.md) |
 
 40,872 LOC of protocol and limits became importable by a third party, and
 the next three tranches are written down with their dependency work
@@ -192,7 +192,7 @@ generated `content.pb.go` at 5,043) — the move added none.
 
 ---
 
-Reports: [`docs/guide/public-packages.md`](../../docs/guide/public-packages.md)
+Reports: [`docs/guide/public-packages.md`](../../guide/public-packages.md)
 (the current state),
 [`cycle-353-cloudcode-dialect`](../cycle-353-cloudcode-dialect/deliverable.md)
 (the first public package),

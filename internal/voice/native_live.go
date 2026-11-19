@@ -12,7 +12,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/coder/websocket"
+	"github.com/justwasm/pigasus/websocket"
 )
 
 // NativeLiveHandler receives live events (user/model transcripts, turn states).

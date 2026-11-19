@@ -109,9 +109,9 @@ func (s *TCPServer) handleWS(w http.ResponseWriter, r *http.Request) {
 		// more for us to do.
 		return
 	}
-	// Limit a single message to 16 MiB to match the Unix-socket
-	// transport's bufio.Scanner buffer ceiling.
-	c.SetReadLimit(16 << 20)
+	// Limit a single message to 32 MiB to accommodate up to 20 MB attachments
+	// (plus base64 JSON framing) matching AGY 1.5.11.
+	c.SetReadLimit(32 << 20)
 
 	s.dispatcher.MarkAccepted()
 	s.dispatcher.NotifyConnected()

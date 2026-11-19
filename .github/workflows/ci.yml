@@ -38,6 +38,12 @@ jobs:
       - name: Build (every cmd)
         run: go build ./cmd/...
 
+      - name: Cross-build Windows (cmd/pigasus)
+        env:
+          GOOS: windows
+          GOARCH: amd64
+        run: go build -o /tmp/pigasus.exe ./cmd/pigasus
+
       - name: Show built binary size
         run: |
           ls -la /tmp/pigasus

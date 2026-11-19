@@ -192,7 +192,7 @@ func (s *TCPServer) handleRPCCall(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	method := methodFromPath(r.URL.Path)
-	bodyBytes, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 16<<20))
+	bodyBytes, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 32<<20))
 	if err != nil {
 		http.Error(w, "request body exceeds the RPC limit or could not be read", http.StatusRequestEntityTooLarge)
 		return

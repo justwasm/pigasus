@@ -7,13 +7,12 @@
 package voicepb
 
 import (
-	reflect "reflect"
-	sync "sync"
-	unsafe "unsafe"
-
 	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
 	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	timestamppb "google.golang.org/protobuf/types/known/timestamppb"
+	reflect "reflect"
+	sync "sync"
+	unsafe "unsafe"
 )
 
 const (
@@ -1266,6 +1265,96 @@ func (x *VoiceEvent) GetAttributes() []*VoiceEvent_AttributesEntry {
 	return nil
 }
 
+// StreamVoiceRequest wraps a VoiceClientMessage for the AICode/RAP StreamVoice RPC.
+type StreamVoiceRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Message       *VoiceClientMessage    `protobuf:"bytes,1,opt,name=message,proto3" json:"message,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *StreamVoiceRequest) Reset() {
+	*x = StreamVoiceRequest{}
+	mi := &file_internal_voice_voicepb_voice_proto_msgTypes[10]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *StreamVoiceRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*StreamVoiceRequest) ProtoMessage() {}
+
+func (x *StreamVoiceRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_internal_voice_voicepb_voice_proto_msgTypes[10]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use StreamVoiceRequest.ProtoReflect.Descriptor instead.
+func (*StreamVoiceRequest) Descriptor() ([]byte, []int) {
+	return file_internal_voice_voicepb_voice_proto_rawDescGZIP(), []int{10}
+}
+
+func (x *StreamVoiceRequest) GetMessage() *VoiceClientMessage {
+	if x != nil {
+		return x.Message
+	}
+	return nil
+}
+
+// StreamVoiceResponse wraps a VoiceServerMessage for the AICode/RAP StreamVoice RPC.
+type StreamVoiceResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	Message       *VoiceServerMessage    `protobuf:"bytes,1,opt,name=message,proto3" json:"message,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *StreamVoiceResponse) Reset() {
+	*x = StreamVoiceResponse{}
+	mi := &file_internal_voice_voicepb_voice_proto_msgTypes[11]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *StreamVoiceResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*StreamVoiceResponse) ProtoMessage() {}
+
+func (x *StreamVoiceResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_internal_voice_voicepb_voice_proto_msgTypes[11]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use StreamVoiceResponse.ProtoReflect.Descriptor instead.
+func (*StreamVoiceResponse) Descriptor() ([]byte, []int) {
+	return file_internal_voice_voicepb_voice_proto_rawDescGZIP(), []int{11}
+}
+
+func (x *StreamVoiceResponse) GetMessage() *VoiceServerMessage {
+	if x != nil {
+		return x.Message
+	}
+	return nil
+}
+
 type VoiceClientMessage_Setup struct {
 	state                 protoimpl.MessageState        `protogen:"open.v1"`
 	CascadeId             string                        `protobuf:"bytes,1,opt,name=cascade_id,json=cascadeId,proto3" json:"cascade_id,omitempty"`
@@ -1287,7 +1376,7 @@ type VoiceClientMessage_Setup struct {
 
 func (x *VoiceClientMessage_Setup) Reset() {
 	*x = VoiceClientMessage_Setup{}
-	mi := &file_internal_voice_voicepb_voice_proto_msgTypes[10]
+	mi := &file_internal_voice_voicepb_voice_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1299,7 +1388,7 @@ func (x *VoiceClientMessage_Setup) String() string {
 func (*VoiceClientMessage_Setup) ProtoMessage() {}
 
 func (x *VoiceClientMessage_Setup) ProtoReflect() protoreflect.Message {
-	mi := &file_internal_voice_voicepb_voice_proto_msgTypes[10]
+	mi := &file_internal_voice_voicepb_voice_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1419,7 +1508,7 @@ type VoiceClientMessage_AsrHint struct {
 
 func (x *VoiceClientMessage_AsrHint) Reset() {
 	*x = VoiceClientMessage_AsrHint{}
-	mi := &file_internal_voice_voicepb_voice_proto_msgTypes[11]
+	mi := &file_internal_voice_voicepb_voice_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1431,7 +1520,7 @@ func (x *VoiceClientMessage_AsrHint) String() string {
 func (*VoiceClientMessage_AsrHint) ProtoMessage() {}
 
 func (x *VoiceClientMessage_AsrHint) ProtoReflect() protoreflect.Message {
-	mi := &file_internal_voice_voicepb_voice_proto_msgTypes[11]
+	mi := &file_internal_voice_voicepb_voice_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1492,7 +1581,7 @@ type VoiceClientMessage_SettingsUpdate struct {
 
 func (x *VoiceClientMessage_SettingsUpdate) Reset() {
 	*x = VoiceClientMessage_SettingsUpdate{}
-	mi := &file_internal_voice_voicepb_voice_proto_msgTypes[12]
+	mi := &file_internal_voice_voicepb_voice_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1504,7 +1593,7 @@ func (x *VoiceClientMessage_SettingsUpdate) String() string {
 func (*VoiceClientMessage_SettingsUpdate) ProtoMessage() {}
 
 func (x *VoiceClientMessage_SettingsUpdate) ProtoReflect() protoreflect.Message {
-	mi := &file_internal_voice_voicepb_voice_proto_msgTypes[12]
+	mi := &file_internal_voice_voicepb_voice_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1544,7 +1633,7 @@ type VoiceClientMessage_UserTranscript struct {
 
 func (x *VoiceClientMessage_UserTranscript) Reset() {
 	*x = VoiceClientMessage_UserTranscript{}
-	mi := &file_internal_voice_voicepb_voice_proto_msgTypes[13]
+	mi := &file_internal_voice_voicepb_voice_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1556,7 +1645,7 @@ func (x *VoiceClientMessage_UserTranscript) String() string {
 func (*VoiceClientMessage_UserTranscript) ProtoMessage() {}
 
 func (x *VoiceClientMessage_UserTranscript) ProtoReflect() protoreflect.Message {
-	mi := &file_internal_voice_voicepb_voice_proto_msgTypes[13]
+	mi := &file_internal_voice_voicepb_voice_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1600,7 +1689,7 @@ type VoiceServerMessage_SessionStatus struct {
 
 func (x *VoiceServerMessage_SessionStatus) Reset() {
 	*x = VoiceServerMessage_SessionStatus{}
-	mi := &file_internal_voice_voicepb_voice_proto_msgTypes[14]
+	mi := &file_internal_voice_voicepb_voice_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1612,7 +1701,7 @@ func (x *VoiceServerMessage_SessionStatus) String() string {
 func (*VoiceServerMessage_SessionStatus) ProtoMessage() {}
 
 func (x *VoiceServerMessage_SessionStatus) ProtoReflect() protoreflect.Message {
-	mi := &file_internal_voice_voicepb_voice_proto_msgTypes[14]
+	mi := &file_internal_voice_voicepb_voice_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1681,7 +1770,7 @@ type VoiceServerMessage_VoiceTranscript struct {
 
 func (x *VoiceServerMessage_VoiceTranscript) Reset() {
 	*x = VoiceServerMessage_VoiceTranscript{}
-	mi := &file_internal_voice_voicepb_voice_proto_msgTypes[15]
+	mi := &file_internal_voice_voicepb_voice_proto_msgTypes[17]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1693,7 +1782,7 @@ func (x *VoiceServerMessage_VoiceTranscript) String() string {
 func (*VoiceServerMessage_VoiceTranscript) ProtoMessage() {}
 
 func (x *VoiceServerMessage_VoiceTranscript) ProtoReflect() protoreflect.Message {
-	mi := &file_internal_voice_voicepb_voice_proto_msgTypes[15]
+	mi := &file_internal_voice_voicepb_voice_proto_msgTypes[17]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1741,7 +1830,7 @@ type VoiceServerMessage_AudioTiming struct {
 
 func (x *VoiceServerMessage_AudioTiming) Reset() {
 	*x = VoiceServerMessage_AudioTiming{}
-	mi := &file_internal_voice_voicepb_voice_proto_msgTypes[16]
+	mi := &file_internal_voice_voicepb_voice_proto_msgTypes[18]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1753,7 +1842,7 @@ func (x *VoiceServerMessage_AudioTiming) String() string {
 func (*VoiceServerMessage_AudioTiming) ProtoMessage() {}
 
 func (x *VoiceServerMessage_AudioTiming) ProtoReflect() protoreflect.Message {
-	mi := &file_internal_voice_voicepb_voice_proto_msgTypes[16]
+	mi := &file_internal_voice_voicepb_voice_proto_msgTypes[18]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1801,7 +1890,7 @@ type VoiceServerMessage_UserSpeech struct {
 
 func (x *VoiceServerMessage_UserSpeech) Reset() {
 	*x = VoiceServerMessage_UserSpeech{}
-	mi := &file_internal_voice_voicepb_voice_proto_msgTypes[17]
+	mi := &file_internal_voice_voicepb_voice_proto_msgTypes[19]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1813,7 +1902,7 @@ func (x *VoiceServerMessage_UserSpeech) String() string {
 func (*VoiceServerMessage_UserSpeech) ProtoMessage() {}
 
 func (x *VoiceServerMessage_UserSpeech) ProtoReflect() protoreflect.Message {
-	mi := &file_internal_voice_voicepb_voice_proto_msgTypes[17]
+	mi := &file_internal_voice_voicepb_voice_proto_msgTypes[19]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1858,7 +1947,7 @@ type VoiceServerMessage_ClearAudio struct {
 
 func (x *VoiceServerMessage_ClearAudio) Reset() {
 	*x = VoiceServerMessage_ClearAudio{}
-	mi := &file_internal_voice_voicepb_voice_proto_msgTypes[18]
+	mi := &file_internal_voice_voicepb_voice_proto_msgTypes[20]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1870,7 +1959,7 @@ func (x *VoiceServerMessage_ClearAudio) String() string {
 func (*VoiceServerMessage_ClearAudio) ProtoMessage() {}
 
 func (x *VoiceServerMessage_ClearAudio) ProtoReflect() protoreflect.Message {
-	mi := &file_internal_voice_voicepb_voice_proto_msgTypes[18]
+	mi := &file_internal_voice_voicepb_voice_proto_msgTypes[20]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1896,7 +1985,7 @@ type LanguageServerCall_Start struct {
 
 func (x *LanguageServerCall_Start) Reset() {
 	*x = LanguageServerCall_Start{}
-	mi := &file_internal_voice_voicepb_voice_proto_msgTypes[19]
+	mi := &file_internal_voice_voicepb_voice_proto_msgTypes[21]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1908,7 +1997,7 @@ func (x *LanguageServerCall_Start) String() string {
 func (*LanguageServerCall_Start) ProtoMessage() {}
 
 func (x *LanguageServerCall_Start) ProtoReflect() protoreflect.Message {
-	mi := &file_internal_voice_voicepb_voice_proto_msgTypes[19]
+	mi := &file_internal_voice_voicepb_voice_proto_msgTypes[21]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1946,7 +2035,7 @@ type LanguageServerCall_Cancel struct {
 
 func (x *LanguageServerCall_Cancel) Reset() {
 	*x = LanguageServerCall_Cancel{}
-	mi := &file_internal_voice_voicepb_voice_proto_msgTypes[20]
+	mi := &file_internal_voice_voicepb_voice_proto_msgTypes[22]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1958,7 +2047,7 @@ func (x *LanguageServerCall_Cancel) String() string {
 func (*LanguageServerCall_Cancel) ProtoMessage() {}
 
 func (x *LanguageServerCall_Cancel) ProtoReflect() protoreflect.Message {
-	mi := &file_internal_voice_voicepb_voice_proto_msgTypes[20]
+	mi := &file_internal_voice_voicepb_voice_proto_msgTypes[22]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1984,7 +2073,7 @@ type VoiceEvent_AttributesEntry struct {
 
 func (x *VoiceEvent_AttributesEntry) Reset() {
 	*x = VoiceEvent_AttributesEntry{}
-	mi := &file_internal_voice_voicepb_voice_proto_msgTypes[21]
+	mi := &file_internal_voice_voicepb_voice_proto_msgTypes[23]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1996,7 +2085,7 @@ func (x *VoiceEvent_AttributesEntry) String() string {
 func (*VoiceEvent_AttributesEntry) ProtoMessage() {}
 
 func (x *VoiceEvent_AttributesEntry) ProtoReflect() protoreflect.Message {
-	mi := &file_internal_voice_voicepb_voice_proto_msgTypes[21]
+	mi := &file_internal_voice_voicepb_voice_proto_msgTypes[23]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -2183,7 +2272,11 @@ const file_internal_voice_voicepb_voice_proto_rawDesc = "" +
 	"attributes\x1a9\n" +
 	"\x0fAttributesEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
-	"\x05value\x18\x02 \x01(\tR\x05value*q\n" +
+	"\x05value\x18\x02 \x01(\tR\x05value\"]\n" +
+	"\x12StreamVoiceRequest\x12G\n" +
+	"\amessage\x18\x01 \x01(\v2-.exa.remote_agent_proxy_pb.VoiceClientMessageR\amessage\"^\n" +
+	"\x13StreamVoiceResponse\x12G\n" +
+	"\amessage\x18\x01 \x01(\v2-.exa.remote_agent_proxy_pb.VoiceServerMessageR\amessage*q\n" +
 	"\x05Model\x12\x15\n" +
 	"\x11MODEL_UNSPECIFIED\x10\x00\x12\x1a\n" +
 	"\x16MODEL_GEMINI_2_5_FLASH\x10\x01\x12\x18\n" +
@@ -2211,7 +2304,7 @@ func file_internal_voice_voicepb_voice_proto_rawDescGZIP() []byte {
 }
 
 var file_internal_voice_voicepb_voice_proto_enumTypes = make([]protoimpl.EnumInfo, 7)
-var file_internal_voice_voicepb_voice_proto_msgTypes = make([]protoimpl.MessageInfo, 22)
+var file_internal_voice_voicepb_voice_proto_msgTypes = make([]protoimpl.MessageInfo, 24)
 var file_internal_voice_voicepb_voice_proto_goTypes = []any{
 	(Model)(0),              // 0: exa.remote_agent_proxy_pb.Model
 	(RuntimeEnvironment)(0), // 1: exa.remote_agent_proxy_pb.RuntimeEnvironment
@@ -2230,57 +2323,61 @@ var file_internal_voice_voicepb_voice_proto_goTypes = []any{
 	(*LanguageServerCall)(nil),                          // 14: exa.remote_agent_proxy_pb.LanguageServerCall
 	(*LanguageServerReply)(nil),                         // 15: exa.remote_agent_proxy_pb.LanguageServerReply
 	(*VoiceEvent)(nil),                                  // 16: exa.remote_agent_proxy_pb.VoiceEvent
-	(*VoiceClientMessage_Setup)(nil),                    // 17: exa.remote_agent_proxy_pb.VoiceClientMessage.Setup
-	(*VoiceClientMessage_AsrHint)(nil),                  // 18: exa.remote_agent_proxy_pb.VoiceClientMessage.AsrHint
-	(*VoiceClientMessage_SettingsUpdate)(nil),           // 19: exa.remote_agent_proxy_pb.VoiceClientMessage.SettingsUpdate
-	(*VoiceClientMessage_UserTranscript)(nil),           // 20: exa.remote_agent_proxy_pb.VoiceClientMessage.UserTranscript
-	(*VoiceServerMessage_SessionStatus)(nil),            // 21: exa.remote_agent_proxy_pb.VoiceServerMessage.SessionStatus
-	(*VoiceServerMessage_VoiceTranscript)(nil),          // 22: exa.remote_agent_proxy_pb.VoiceServerMessage.VoiceTranscript
-	(*VoiceServerMessage_AudioTiming)(nil),              // 23: exa.remote_agent_proxy_pb.VoiceServerMessage.AudioTiming
-	(*VoiceServerMessage_UserSpeech)(nil),               // 24: exa.remote_agent_proxy_pb.VoiceServerMessage.UserSpeech
-	(*VoiceServerMessage_ClearAudio)(nil),               // 25: exa.remote_agent_proxy_pb.VoiceServerMessage.ClearAudio
-	(*LanguageServerCall_Start)(nil),                    // 26: exa.remote_agent_proxy_pb.LanguageServerCall.Start
-	(*LanguageServerCall_Cancel)(nil),                   // 27: exa.remote_agent_proxy_pb.LanguageServerCall.Cancel
-	(*VoiceEvent_AttributesEntry)(nil),                  // 28: exa.remote_agent_proxy_pb.VoiceEvent.AttributesEntry
-	(*timestamppb.Timestamp)(nil),                       // 29: google.protobuf.Timestamp
+	(*StreamVoiceRequest)(nil),                          // 17: exa.remote_agent_proxy_pb.StreamVoiceRequest
+	(*StreamVoiceResponse)(nil),                         // 18: exa.remote_agent_proxy_pb.StreamVoiceResponse
+	(*VoiceClientMessage_Setup)(nil),                    // 19: exa.remote_agent_proxy_pb.VoiceClientMessage.Setup
+	(*VoiceClientMessage_AsrHint)(nil),                  // 20: exa.remote_agent_proxy_pb.VoiceClientMessage.AsrHint
+	(*VoiceClientMessage_SettingsUpdate)(nil),           // 21: exa.remote_agent_proxy_pb.VoiceClientMessage.SettingsUpdate
+	(*VoiceClientMessage_UserTranscript)(nil),           // 22: exa.remote_agent_proxy_pb.VoiceClientMessage.UserTranscript
+	(*VoiceServerMessage_SessionStatus)(nil),            // 23: exa.remote_agent_proxy_pb.VoiceServerMessage.SessionStatus
+	(*VoiceServerMessage_VoiceTranscript)(nil),          // 24: exa.remote_agent_proxy_pb.VoiceServerMessage.VoiceTranscript
+	(*VoiceServerMessage_AudioTiming)(nil),              // 25: exa.remote_agent_proxy_pb.VoiceServerMessage.AudioTiming
+	(*VoiceServerMessage_UserSpeech)(nil),               // 26: exa.remote_agent_proxy_pb.VoiceServerMessage.UserSpeech
+	(*VoiceServerMessage_ClearAudio)(nil),               // 27: exa.remote_agent_proxy_pb.VoiceServerMessage.ClearAudio
+	(*LanguageServerCall_Start)(nil),                    // 28: exa.remote_agent_proxy_pb.LanguageServerCall.Start
+	(*LanguageServerCall_Cancel)(nil),                   // 29: exa.remote_agent_proxy_pb.LanguageServerCall.Cancel
+	(*VoiceEvent_AttributesEntry)(nil),                  // 30: exa.remote_agent_proxy_pb.VoiceEvent.AttributesEntry
+	(*timestamppb.Timestamp)(nil),                       // 31: google.protobuf.Timestamp
 }
 var file_internal_voice_voicepb_voice_proto_depIdxs = []int32{
 	3,  // 0: exa.remote_agent_proxy_pb.VoiceChatLine.role:type_name -> exa.remote_agent_proxy_pb.VoiceChatLine.Role
-	29, // 1: exa.remote_agent_proxy_pb.VoiceChatLine.time:type_name -> google.protobuf.Timestamp
-	29, // 2: exa.remote_agent_proxy_pb.VoiceChat.started_at:type_name -> google.protobuf.Timestamp
-	29, // 3: exa.remote_agent_proxy_pb.VoiceChat.stopped_at:type_name -> google.protobuf.Timestamp
+	31, // 1: exa.remote_agent_proxy_pb.VoiceChatLine.time:type_name -> google.protobuf.Timestamp
+	31, // 2: exa.remote_agent_proxy_pb.VoiceChat.started_at:type_name -> google.protobuf.Timestamp
+	31, // 3: exa.remote_agent_proxy_pb.VoiceChat.stopped_at:type_name -> google.protobuf.Timestamp
 	8,  // 4: exa.remote_agent_proxy_pb.VoiceChat.lines:type_name -> exa.remote_agent_proxy_pb.VoiceChatLine
 	9,  // 5: exa.remote_agent_proxy_pb.VoiceChats.chats:type_name -> exa.remote_agent_proxy_pb.VoiceChat
-	17, // 6: exa.remote_agent_proxy_pb.VoiceClientMessage.setup:type_name -> exa.remote_agent_proxy_pb.VoiceClientMessage.Setup
-	19, // 7: exa.remote_agent_proxy_pb.VoiceClientMessage.settings_update:type_name -> exa.remote_agent_proxy_pb.VoiceClientMessage.SettingsUpdate
+	19, // 6: exa.remote_agent_proxy_pb.VoiceClientMessage.setup:type_name -> exa.remote_agent_proxy_pb.VoiceClientMessage.Setup
+	21, // 7: exa.remote_agent_proxy_pb.VoiceClientMessage.settings_update:type_name -> exa.remote_agent_proxy_pb.VoiceClientMessage.SettingsUpdate
 	15, // 8: exa.remote_agent_proxy_pb.VoiceClientMessage.language_server_reply:type_name -> exa.remote_agent_proxy_pb.LanguageServerReply
-	20, // 9: exa.remote_agent_proxy_pb.VoiceClientMessage.user_transcript:type_name -> exa.remote_agent_proxy_pb.VoiceClientMessage.UserTranscript
-	21, // 10: exa.remote_agent_proxy_pb.VoiceServerMessage.status:type_name -> exa.remote_agent_proxy_pb.VoiceServerMessage.SessionStatus
+	22, // 9: exa.remote_agent_proxy_pb.VoiceClientMessage.user_transcript:type_name -> exa.remote_agent_proxy_pb.VoiceClientMessage.UserTranscript
+	23, // 10: exa.remote_agent_proxy_pb.VoiceServerMessage.status:type_name -> exa.remote_agent_proxy_pb.VoiceServerMessage.SessionStatus
 	14, // 11: exa.remote_agent_proxy_pb.VoiceServerMessage.language_server_call:type_name -> exa.remote_agent_proxy_pb.LanguageServerCall
 	16, // 12: exa.remote_agent_proxy_pb.VoiceServerMessage.event:type_name -> exa.remote_agent_proxy_pb.VoiceEvent
 	9,  // 13: exa.remote_agent_proxy_pb.VoiceServerMessage.voice_chat:type_name -> exa.remote_agent_proxy_pb.VoiceChat
 	11, // 14: exa.remote_agent_proxy_pb.VoiceServerMessage.snapshot:type_name -> exa.remote_agent_proxy_pb.VoiceContextSnapshot
-	22, // 15: exa.remote_agent_proxy_pb.VoiceServerMessage.voice_transcript:type_name -> exa.remote_agent_proxy_pb.VoiceServerMessage.VoiceTranscript
-	24, // 16: exa.remote_agent_proxy_pb.VoiceServerMessage.user_speech:type_name -> exa.remote_agent_proxy_pb.VoiceServerMessage.UserSpeech
-	25, // 17: exa.remote_agent_proxy_pb.VoiceServerMessage.clear_audio:type_name -> exa.remote_agent_proxy_pb.VoiceServerMessage.ClearAudio
-	23, // 18: exa.remote_agent_proxy_pb.VoiceServerMessage.audio_timing:type_name -> exa.remote_agent_proxy_pb.VoiceServerMessage.AudioTiming
-	26, // 19: exa.remote_agent_proxy_pb.LanguageServerCall.start:type_name -> exa.remote_agent_proxy_pb.LanguageServerCall.Start
-	27, // 20: exa.remote_agent_proxy_pb.LanguageServerCall.cancel:type_name -> exa.remote_agent_proxy_pb.LanguageServerCall.Cancel
+	24, // 15: exa.remote_agent_proxy_pb.VoiceServerMessage.voice_transcript:type_name -> exa.remote_agent_proxy_pb.VoiceServerMessage.VoiceTranscript
+	26, // 16: exa.remote_agent_proxy_pb.VoiceServerMessage.user_speech:type_name -> exa.remote_agent_proxy_pb.VoiceServerMessage.UserSpeech
+	27, // 17: exa.remote_agent_proxy_pb.VoiceServerMessage.clear_audio:type_name -> exa.remote_agent_proxy_pb.VoiceServerMessage.ClearAudio
+	25, // 18: exa.remote_agent_proxy_pb.VoiceServerMessage.audio_timing:type_name -> exa.remote_agent_proxy_pb.VoiceServerMessage.AudioTiming
+	28, // 19: exa.remote_agent_proxy_pb.LanguageServerCall.start:type_name -> exa.remote_agent_proxy_pb.LanguageServerCall.Start
+	29, // 20: exa.remote_agent_proxy_pb.LanguageServerCall.cancel:type_name -> exa.remote_agent_proxy_pb.LanguageServerCall.Cancel
 	7,  // 21: exa.remote_agent_proxy_pb.LanguageServerReply.end:type_name -> exa.remote_agent_proxy_pb.Status
-	28, // 22: exa.remote_agent_proxy_pb.VoiceEvent.attributes:type_name -> exa.remote_agent_proxy_pb.VoiceEvent.AttributesEntry
-	0,  // 23: exa.remote_agent_proxy_pb.VoiceClientMessage.Setup.plan_model:type_name -> exa.remote_agent_proxy_pb.Model
-	1,  // 24: exa.remote_agent_proxy_pb.VoiceClientMessage.Setup.runtime_environment:type_name -> exa.remote_agent_proxy_pb.RuntimeEnvironment
-	2,  // 25: exa.remote_agent_proxy_pb.VoiceClientMessage.Setup.backend:type_name -> exa.remote_agent_proxy_pb.BackendType
-	18, // 26: exa.remote_agent_proxy_pb.VoiceClientMessage.Setup.asr_hints:type_name -> exa.remote_agent_proxy_pb.VoiceClientMessage.AsrHint
-	0,  // 27: exa.remote_agent_proxy_pb.VoiceClientMessage.SettingsUpdate.plan_model:type_name -> exa.remote_agent_proxy_pb.Model
-	4,  // 28: exa.remote_agent_proxy_pb.VoiceServerMessage.SessionStatus.state:type_name -> exa.remote_agent_proxy_pb.VoiceServerMessage.SessionStatus.State
-	5,  // 29: exa.remote_agent_proxy_pb.VoiceServerMessage.SessionStatus.failure_reason:type_name -> exa.remote_agent_proxy_pb.VoiceServerMessage.SessionStatus.FailureReason
-	6,  // 30: exa.remote_agent_proxy_pb.LanguageServerCall.Start.method:type_name -> exa.remote_agent_proxy_pb.LanguageServerCall.Method
-	31, // [31:31] is the sub-list for method output_type
-	31, // [31:31] is the sub-list for method input_type
-	31, // [31:31] is the sub-list for extension type_name
-	31, // [31:31] is the sub-list for extension extendee
-	0,  // [0:31] is the sub-list for field type_name
+	30, // 22: exa.remote_agent_proxy_pb.VoiceEvent.attributes:type_name -> exa.remote_agent_proxy_pb.VoiceEvent.AttributesEntry
+	12, // 23: exa.remote_agent_proxy_pb.StreamVoiceRequest.message:type_name -> exa.remote_agent_proxy_pb.VoiceClientMessage
+	13, // 24: exa.remote_agent_proxy_pb.StreamVoiceResponse.message:type_name -> exa.remote_agent_proxy_pb.VoiceServerMessage
+	0,  // 25: exa.remote_agent_proxy_pb.VoiceClientMessage.Setup.plan_model:type_name -> exa.remote_agent_proxy_pb.Model
+	1,  // 26: exa.remote_agent_proxy_pb.VoiceClientMessage.Setup.runtime_environment:type_name -> exa.remote_agent_proxy_pb.RuntimeEnvironment
+	2,  // 27: exa.remote_agent_proxy_pb.VoiceClientMessage.Setup.backend:type_name -> exa.remote_agent_proxy_pb.BackendType
+	20, // 28: exa.remote_agent_proxy_pb.VoiceClientMessage.Setup.asr_hints:type_name -> exa.remote_agent_proxy_pb.VoiceClientMessage.AsrHint
+	0,  // 29: exa.remote_agent_proxy_pb.VoiceClientMessage.SettingsUpdate.plan_model:type_name -> exa.remote_agent_proxy_pb.Model
+	4,  // 30: exa.remote_agent_proxy_pb.VoiceServerMessage.SessionStatus.state:type_name -> exa.remote_agent_proxy_pb.VoiceServerMessage.SessionStatus.State
+	5,  // 31: exa.remote_agent_proxy_pb.VoiceServerMessage.SessionStatus.failure_reason:type_name -> exa.remote_agent_proxy_pb.VoiceServerMessage.SessionStatus.FailureReason
+	6,  // 32: exa.remote_agent_proxy_pb.LanguageServerCall.Start.method:type_name -> exa.remote_agent_proxy_pb.LanguageServerCall.Method
+	33, // [33:33] is the sub-list for method output_type
+	33, // [33:33] is the sub-list for method input_type
+	33, // [33:33] is the sub-list for extension type_name
+	33, // [33:33] is the sub-list for extension extendee
+	0,  // [0:33] is the sub-list for field type_name
 }
 
 func init() { file_internal_voice_voicepb_voice_proto_init() }
@@ -2321,7 +2418,7 @@ func file_internal_voice_voicepb_voice_proto_init() {
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_internal_voice_voicepb_voice_proto_rawDesc), len(file_internal_voice_voicepb_voice_proto_rawDesc)),
 			NumEnums:      7,
-			NumMessages:   22,
+			NumMessages:   24,
 			NumExtensions: 0,
 			NumServices:   0,
 		},

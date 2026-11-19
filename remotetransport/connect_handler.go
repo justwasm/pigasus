@@ -80,7 +80,7 @@ func (s *TCPServer) serveHTTPRPC(w http.ResponseWriter, r *http.Request, method 
 	opts := []connect.HandlerOption{
 		connect.WithCodec(rpcCodec{"json", method, s}),
 		connect.WithCodec(rpcCodec{"proto", method, s}),
-		connect.WithReadMaxBytes(16 << 20),
+		connect.WithReadMaxBytes(32 << 20),
 		// Reference responses are uncompressed unless the caller explicitly asks.
 		connect.WithCompressMinBytes(1024),
 	}

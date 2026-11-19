@@ -314,21 +314,65 @@ func configuredLimit(modelID string) (Limit, bool) {
 	if reg == nil {
 		return Limit{}, false
 	}
-	m, ok := reg.GetByName(name)
-	if !ok {
-		// The TUI records the display label as the model id, so a lookup by
-		// the catalogue id alone would miss.
-		for _, entry := range reg.List() {
-			if strings.TrimSpace(entry.DisplayName) == name {
-				m = &entry
-				ok = true
-				break
+
+	// 1. Direct registry lookup
+	if m, ok := reg.GetByName(name); ok && m != nil {
+		return limitFromModel(m), true
+	}
+
+	// Build candidate variants
+	cands := []string{
+		name,
+		strings.ToLower(name),
+		slugify(strings.ToLower(name)),
+	}
+
+	// If name has provider prefix(es), add stripped suffixes
+	if idx := strings.Index(name, "/"); idx != -1 {
+		withoutPrefix := strings.TrimSpace(name[idx+1:])
+		if withoutPrefix != "" {
+			cands = append(cands, withoutPrefix, strings.ToLower(withoutPrefix), slugify(strings.ToLower(withoutPrefix)))
+		}
+	}
+	if lastIdx := strings.LastIndex(name, "/"); lastIdx != -1 && lastIdx != strings.Index(name, "/") {
+		lastPart := strings.TrimSpace(name[lastIdx+1:])
+		if lastPart != "" {
+			cands = append(cands, lastPart, strings.ToLower(lastPart), slugify(strings.ToLower(lastPart)))
+		}
+	}
+
+	// Also check base model ID for reasoning tier suffixes (e.g. -high, -low)
+	for _, c := range append([]string(nil), cands...) {
+		base := models.BaseModelID(c)
+		if base != c && base != "" {
+			cands = append(cands, base, strings.ToLower(base))
+		}
+	}
+
+	// 2. Try GetByName with candidate forms
+	for _, c := range cands {
+		if m, ok := reg.GetByName(c); ok && m != nil {
+			return limitFromModel(m), true
+		}
+	}
+
+	// 3. Match against entries in reg.List()
+	entries := reg.List()
+	for _, c := range cands {
+		for _, entry := range entries {
+			if strings.EqualFold(entry.Name, c) ||
+				strings.EqualFold(entry.DisplayName, c) ||
+				strings.EqualFold(entry.ExternalModelName, c) ||
+				strings.EqualFold(entry.QualifiedName(), c) {
+				return limitFromModel(&entry), true
 			}
 		}
 	}
-	if !ok {
-		return Limit{}, false
-	}
+
+	return Limit{}, false
+}
+
+func limitFromModel(m *models.Model) Limit {
 	window := m.ContextWindow
 	if window <= 0 {
 		window = DefaultContextWindow
@@ -337,7 +381,13 @@ func configuredLimit(modelID string) (Limit, bool) {
 	if reserve <= 0 {
 		reserve = DefaultReserveTokens
 	}
-	return Limit{ContextWindow: window, ReserveTokens: reserve}, true
+	if reserve >= window {
+		reserve = window / 4
+		if reserve == 0 {
+			reserve = 1
+		}
+	}
+	return Limit{ContextWindow: window, ReserveTokens: reserve}
 }
 
 // PublishedContextWindow returns the model's published input token limit

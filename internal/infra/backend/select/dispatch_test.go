@@ -126,3 +126,89 @@ func TestModelSupportedAndWarningLogged(t *testing.T) {
 		t.Fatalf("expected warning in log, got %q", buf.String())
 	}
 }
+
+func TestOpenRouterWithDeepSeekProviderPrefixResolves(t *testing.T) {
+	configtest.WriteProviders(t, `{
+		"providers": {
+			"deepseek": {
+				"type": "openai",
+				"api_url": "https://api.deepseek.com/v1/chat/completions",
+				"api_key": "sk-deepseek",
+				"models": [
+					{"id": "deepseek-v4-flash", "name": "DeepSeek-V4-Flash"}
+				]
+			},
+			"openrouter": {
+				"type": "openai",
+				"api_url": "https://openrouter.ai/api/v1/chat/completions",
+				"api_key": "sk-openrouter",
+				"models": [
+					{
+						"id": "deepseek/deepseek-v4.1-flash",
+						"name": "OpenRouter: DeepSeek V4.1 Flash",
+						"reasoning_efforts": ["low", "medium", "high"],
+						"reasoning_effort": "high"
+					},
+					{
+						"id": "deepseek/deepseek-v4.1-flash-1017",
+						"name": "OpenRouter: DeepSeek V4.1 Flash 1017",
+						"reasoning_efforts": ["low", "medium", "high"],
+						"reasoning_effort": "high"
+					},
+					{
+						"id": "deepseek/deepseek-v4-pro",
+						"name": "OpenRouter: DeepSeek V4 Pro 0423",
+						"reasoning_efforts": ["low", "medium", "high"],
+						"reasoning_effort": "medium"
+					}
+				]
+			}
+		}
+	}`)
+
+	// Test resolving by exact DisplayName (which is what TUI sets m.session.model to)
+	for _, tc := range []struct {
+		name      string
+		wantTier  string
+		wantModel string
+	}{
+		{
+			name:      "OpenRouter: DeepSeek V4.1 Flash (High)",
+			wantTier:  "high",
+			wantModel: "deepseek/deepseek-v4.1-flash",
+		},
+		{
+			name:      "OpenRouter: DeepSeek V4.1 Flash 1017 (High)",
+			wantTier:  "high",
+			wantModel: "deepseek/deepseek-v4.1-flash-1017",
+		},
+		{
+			name:      "OpenRouter: DeepSeek V4 Pro 0423 (Medium)",
+			wantTier:  "medium",
+			wantModel: "deepseek/deepseek-v4-pro",
+		},
+		{
+			name:      "deepseek/deepseek-v4.1-flash-high",
+			wantTier:  "high",
+			wantModel: "deepseek/deepseek-v4.1-flash",
+		},
+	} {
+		m, ok := resolveConfigured(tc.name, noCatalogueLookup)
+		if !ok {
+			t.Errorf("resolveConfigured(%q) returned false, want true", tc.name)
+			continue
+		}
+		if m.ProviderID != "openrouter" {
+			t.Errorf("resolveConfigured(%q) provider = %q, want openrouter", tc.name, m.ProviderID)
+		}
+		if m.APIKey != "sk-openrouter" {
+			t.Errorf("resolveConfigured(%q) APIKey = %q, want sk-openrouter", tc.name, m.APIKey)
+		}
+		if m.ReasoningEffort != tc.wantTier {
+			t.Errorf("resolveConfigured(%q) ReasoningEffort = %q, want %q", tc.name, m.ReasoningEffort, tc.wantTier)
+		}
+		if m.ExternalModelName != tc.wantModel {
+			t.Errorf("resolveConfigured(%q) ExternalModelName = %q, want %q", tc.name, m.ExternalModelName, tc.wantModel)
+		}
+	}
+}

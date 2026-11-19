@@ -20,12 +20,12 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/coder/websocket"
-	"google.golang.org/protobuf/proto"
-	"google.golang.org/protobuf/types/known/timestamppb"
-
+	"github.com/justwasm/pigasus/endpoints"
 	"github.com/justwasm/pigasus/internal/voice/voicepb"
 	"github.com/justwasm/pigasus/rctoken"
+	"github.com/justwasm/pigasus/websocket"
+	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 const (
@@ -66,8 +66,12 @@ func NewService(cfg Config) *Service {
 	}
 	liveB := cfg.LiveBackend
 	if liveB == nil {
-		if apiKey := os.Getenv("GEMINI_API_KEY"); apiKey != "" {
+		if apiKey := endpoints.CurrentGeminiAPIKey(); apiKey != "" {
 			liveB = NewGeminiLiveBackend(apiKey)
+		} else if apiKey := os.Getenv("GEMINI_API_KEY"); apiKey != "" {
+			liveB = NewGeminiLiveBackend(apiKey)
+		} else if ep := endpoints.Current().Voice; ep != "" && ep != endpoints.DefaultVoice {
+			liveB = NewGeminiLiveBackend("")
 		} else {
 			liveB = NewMockLiveBackend()
 		}
@@ -339,8 +343,9 @@ func (s *Service) HandleWS(w http.ResponseWriter, r *http.Request) {
 	if sr, err := strconv.Atoi(sampleRateStr); err == nil && sr > 0 {
 		sampleRate = sr
 	}
+	voiceName := r.URL.Query().Get("voice")
 
-	s.runVoiceSession(r.Context(), c, convID, sampleRate)
+	s.runVoiceSession(r.Context(), c, convID, sampleRate, voiceName)
 }
 
 // wsSafeWriter serializes writes to a websocket connection.
@@ -360,7 +365,7 @@ func (w *wsSafeWriter) write(ctx context.Context, msg *voicepb.VoiceServerMessag
 }
 
 // runVoiceSession runs the full duplex real-time voice streaming loop.
-func (s *Service) runVoiceSession(ctx context.Context, c *websocket.Conn, convID string, sampleRate int) {
+func (s *Service) runVoiceSession(ctx context.Context, c *websocket.Conn, convID string, sampleRate int, voiceName string) {
 	sessCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
@@ -401,7 +406,19 @@ func (s *Service) runVoiceSession(ctx context.Context, c *websocket.Conn, convID
 	liveSess, err := backend.CreateSession(sessCtx, LiveSessionConfig{
 		CascadeID:  convID,
 		SampleRate: sampleRate,
+		Voice:      voiceName,
 	})
+	if err != nil {
+		_ = writer.write(sessCtx, &voicepb.VoiceServerMessage{
+			Kind: &voicepb.VoiceServerMessage_Status{
+				Status: &voicepb.VoiceServerMessage_SessionStatus{
+					State:         voicepb.VoiceServerMessage_SessionStatus_FAILED,
+					FailureReason: voicepb.VoiceServerMessage_SessionStatus_CONNECTION_FAILED,
+					CascadeId:     convID,
+				},
+			},
+		})
+	}
 	if err == nil && liveSess != nil {
 		defer liveSess.Close()
 

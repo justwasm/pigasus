@@ -20,33 +20,27 @@ import (
 // document. Both have an environment override, so a test can point them
 // at a scratch directory and stay hermetic.
 
-// writeRegistry writes an account registry with the given accounts.
-func writeRegistry(t *testing.T, path string, active string, accs ...accounts.Account) {
+// writeRegistry writes an account registry with the given accounts, and the
+// given pool policy beside them.
+//
+// The policy is a section of the registry now, so a test states both in one
+// place — the same place the product reads them from.
+func writeRegistry(t *testing.T, path string, active string, section map[string]any, accs ...accounts.Account) {
 	t.Helper()
-	st := accounts.Store{Version: accounts.Version, Active: active, Accounts: accs}
+	st := map[string]any{
+		"version":  accounts.Version,
+		"active":   active,
+		"accounts": accs,
+	}
+	if section != nil {
+		st["account_pool"] = section
+	}
 	raw, err := json.MarshalIndent(st, "", "  ")
 	if err != nil {
 		t.Fatalf("encode the registry: %v", err)
 	}
 	if err := os.WriteFile(path, raw, 0o600); err != nil {
 		t.Fatalf("write the registry: %v", err)
-	}
-}
-
-// writeConfig writes a configuration document with the given
-// "account_pool" section.
-func writeConfig(t *testing.T, path string, section map[string]any) {
-	t.Helper()
-	doc := map[string]any{"endpoints": map[string]string{}}
-	if section != nil {
-		doc["account_pool"] = section
-	}
-	raw, err := json.MarshalIndent(doc, "", "  ")
-	if err != nil {
-		t.Fatalf("encode the configuration: %v", err)
-	}
-	if err := os.WriteFile(path, raw, 0o600); err != nil {
-		t.Fatalf("write the configuration: %v", err)
 	}
 }
 
@@ -91,8 +85,7 @@ func setup(t *testing.T, section map[string]any, accs ...accounts.Account) *Rout
 	if len(accs) > 0 {
 		active = accs[0].Email
 	}
-	writeRegistry(t, registry, active, accs...)
-	writeConfig(t, config, section)
+	writeRegistry(t, registry, active, section, accs...)
 	t.Setenv("OPENAGY_ACCOUNTS_CONFIG", registry)
 	t.Setenv("OPENAGY_CONFIG", config)
 	// A fresh router per test: the shared one keeps the pool's state.
@@ -117,28 +110,34 @@ func setup(t *testing.T, section map[string]any, accs ...accounts.Account) *Rout
 	return r
 }
 
-func TestDecidePicksTheAccountWithTheMostQuota(t *testing.T) {
+// The pool starts on the account the session is signed in with, and keeps it
+// even when a neighbouring account has more quota: one conversation, one
+// account.
+func TestDecideStartsOnTheActiveAccount(t *testing.T) {
 	r := setup(t, map[string]any{
-		"enabled":  true,
-		"strategy": "quota_aware",
+		"enabled": true,
 	},
 		accounts.Account{Email: "a@example.com", Quota: quotaSnapshot(0.2), Token: token("a")},
 		accounts.Account{Email: "b@example.com", Quota: quotaSnapshot(0.8), Token: token("b")},
 	)
 
-	d, err := r.Decide(context.Background())
-	if err != nil {
-		t.Fatalf("Decide: %v", err)
+	for i := 0; i < 3; i++ {
+		d, err := r.Decide(context.Background())
+		if err != nil {
+			t.Fatalf("Decide: %v", err)
+		}
+		if d.Email != "a@example.com" {
+			t.Fatalf("decision %d chose %q, want the active account a@example.com", i, d.Email)
+		}
 	}
-	if d.Email != "b@example.com" {
-		t.Errorf("the decision chose %q, want the account with the most quota", d.Email)
+	if got := r.Pinned(""); got != "a@example.com" {
+		t.Errorf("Pinned() = %q, want a@example.com", got)
 	}
 }
 
 func TestDecideStickyFollowsTheActiveAccount(t *testing.T) {
 	r := setup(t, map[string]any{
-		"enabled":  true,
-		"strategy": "sticky",
+		"enabled": true,
 	},
 		accounts.Account{Email: "a@example.com", Quota: quotaSnapshot(0.9), Token: token("a")},
 		accounts.Account{Email: "b@example.com", Quota: quotaSnapshot(0.1), Token: token("b")},
@@ -153,11 +152,12 @@ func TestDecideStickyFollowsTheActiveAccount(t *testing.T) {
 	}
 }
 
-func TestDecideSkipsTheAccountsBelowTheThreshold(t *testing.T) {
+// A pinned account below the threshold falls out, and the turn moves to the
+// account with the most left.
+func TestDecideMovesWhenThePinDropsBelowTheThreshold(t *testing.T) {
 	r := setup(t, map[string]any{
-		"enabled":   true,
-		"strategy":  "quota_aware",
-		"threshold": 0.5,
+		"enabled":      true,
+		"threshold_5h": 0.5,
 	},
 		accounts.Account{Email: "a@example.com", Quota: quotaSnapshot(0.2), Token: token("a")},
 		accounts.Account{Email: "b@example.com", Quota: quotaSnapshot(0.8), Token: token("b")},
@@ -170,30 +170,32 @@ func TestDecideSkipsTheAccountsBelowTheThreshold(t *testing.T) {
 	if d.Email != "b@example.com" {
 		t.Errorf("the decision chose %q, want the account above the threshold", d.Email)
 	}
+	if len(d.Skipped) != 1 || d.Skipped[0].Email != "a@example.com" {
+		t.Errorf("the skipped list = %+v, want a@example.com", d.Skipped)
+	}
 }
 
-func TestDecideRoundRobinRotates(t *testing.T) {
+// The pin is per model family: a claude turn and a gemini turn each keep their
+// own account, because the quota windows are separate.
+func TestDecidePinsPerModelFamily(t *testing.T) {
 	r := setup(t, map[string]any{
-		"enabled":  true,
-		"strategy": "round_robin",
+		"enabled": true,
 	},
-		accounts.Account{Email: "a@example.com", Quota: quotaSnapshot(0.9), Token: token("a")},
-		accounts.Account{Email: "b@example.com", Quota: quotaSnapshot(0.9), Token: token("b")},
+		accounts.Account{Email: "a@example.com", Quota: quotaSnapshotMulti(0.9, 0.9), Token: token("a")},
+		accounts.Account{Email: "b@example.com", Quota: quotaSnapshotMulti(0.9, 0.9), Token: token("b")},
 	)
 
-	seen := []string{}
-	for i := 0; i < 4; i++ {
-		d, err := r.Decide(context.Background())
-		if err != nil {
-			t.Fatalf("Decide: %v", err)
-		}
-		seen = append(seen, d.Email)
+	if d, err := r.DecideForModel(context.Background(), "gemini"); err != nil || d.Email != "a@example.com" {
+		t.Fatalf("gemini decision = (%v, %v), want a@example.com", d.Email, err)
 	}
-	want := []string{"a@example.com", "b@example.com", "a@example.com", "b@example.com"}
-	for i := range want {
-		if seen[i] != want[i] {
-			t.Fatalf("the rotation was %v, want %v", seen, want)
-		}
+	if d, err := r.DecideForModel(context.Background(), "claude"); err != nil || d.Email != "a@example.com" {
+		t.Fatalf("claude decision = (%v, %v), want a@example.com", d.Email, err)
+	}
+	if got := r.Pinned("gemini"); got != "a@example.com" {
+		t.Errorf("Pinned(gemini) = %q", got)
+	}
+	if got := r.Pinned("claude"); got != "a@example.com" {
+		t.Errorf("Pinned(claude) = %q", got)
 	}
 }
 
@@ -208,8 +210,7 @@ func TestDecideIsOffWithoutThePolicy(t *testing.T) {
 
 func TestDecideIsOffWhenThePolicyIsDisabled(t *testing.T) {
 	r := setup(t, map[string]any{
-		"enabled":  false,
-		"strategy": "quota_aware",
+		"enabled": false,
 	},
 		accounts.Account{Email: "a@example.com", Quota: quotaSnapshot(0.9), Token: token("a")},
 	)
@@ -220,8 +221,7 @@ func TestDecideIsOffWhenThePolicyIsDisabled(t *testing.T) {
 
 func TestTokenFuncAnswersTheRoutedAccountsCredential(t *testing.T) {
 	r := setup(t, map[string]any{
-		"enabled":  true,
-		"strategy": "quota_aware",
+		"enabled": true,
 	},
 		accounts.Account{Email: "a@example.com", Quota: quotaSnapshot(0.2), Token: token("a")},
 		accounts.Account{Email: "b@example.com", Quota: quotaSnapshot(0.8), Token: token("b")},
@@ -231,18 +231,19 @@ func TestTokenFuncAnswersTheRoutedAccountsCredential(t *testing.T) {
 	if err != nil {
 		t.Fatalf("TokenFunc: %v", err)
 	}
-	if got != "b" {
-		t.Errorf("the credential = %q, want the routed account's access token", got)
+	// The pool starts on the active account and stays there, so the
+	// credential is that account's — not the fullest one's.
+	if got != "a" {
+		t.Errorf("the credential = %q, want the served account's access token", got)
 	}
-	if r.LastRouted() != "b@example.com" {
-		t.Errorf("the routed account = %q, want b@example.com", r.LastRouted())
+	if r.LastRouted() != "a@example.com" {
+		t.Errorf("the routed account = %q, want a@example.com", r.LastRouted())
 	}
 }
 
 func TestTokenFuncAnswersTheSharedCredentialForTheActiveAccount(t *testing.T) {
 	r := setup(t, map[string]any{
-		"enabled":  true,
-		"strategy": "sticky",
+		"enabled": true,
 	},
 		accounts.Account{Email: "a@example.com", Quota: quotaSnapshot(0.9), Token: token("a")},
 		accounts.Account{Email: "b@example.com", Quota: quotaSnapshot(0.1), Token: token("b")},
@@ -311,8 +312,7 @@ func TestSetFallbackIgnoresANilSource(t *testing.T) {
 
 func TestExcludeKeepsAnAccountOutForTheCooldown(t *testing.T) {
 	r := setup(t, map[string]any{
-		"enabled":  true,
-		"strategy": "quota_aware",
+		"enabled": true,
 	},
 		accounts.Account{Email: "a@example.com", Quota: quotaSnapshot(0.9), Token: token("a")},
 		accounts.Account{Email: "b@example.com", Quota: quotaSnapshot(0.1), Token: token("b")},
@@ -377,7 +377,6 @@ func (c *quotaClient) Stream(ctx context.Context, req backend.StreamRequest) (<-
 func TestWrapRetriesTheTurnOnAnotherAccountAfterAQuotaError(t *testing.T) {
 	r := setup(t, map[string]any{
 		"enabled":      true,
-		"strategy":     "round_robin",
 		"max_attempts": 3,
 	},
 		accounts.Account{Email: "a@example.com", Quota: quotaSnapshot(0.9), Token: token("a")},
@@ -408,7 +407,6 @@ func TestWrapRetriesTheTurnOnAnotherAccountAfterAQuotaError(t *testing.T) {
 func TestWrapGivesUpAfterThePolicysAttemptCount(t *testing.T) {
 	r := setup(t, map[string]any{
 		"enabled":      true,
-		"strategy":     "round_robin",
 		"max_attempts": 2,
 	},
 		accounts.Account{Email: "a@example.com", Quota: quotaSnapshot(0.9), Token: token("a")},
@@ -428,7 +426,6 @@ func TestWrapGivesUpAfterThePolicysAttemptCount(t *testing.T) {
 func TestWrapDoesNotRetryWhenThePolicySaysNotTo(t *testing.T) {
 	r := setup(t, map[string]any{
 		"enabled":               true,
-		"strategy":              "round_robin",
 		"max_attempts":          3,
 		"switch_on_quota_error": false,
 	},
@@ -498,8 +495,7 @@ func quotaSnapshotMulti(geminiRem, claudeRem float64) *auth.QuotaSnapshot {
 
 func TestRouteTurn_AtomicResult(t *testing.T) {
 	r := setup(t, map[string]any{
-		"enabled":  true,
-		"strategy": "round_robin",
+		"enabled": true,
 	},
 		accounts.Account{Email: "a@example.com", Quota: quotaSnapshot(0.9), Token: token("a")},
 		accounts.Account{Email: "b@example.com", Quota: quotaSnapshot(0.9), Token: token("b")},
@@ -525,8 +521,7 @@ func TestModelFamily_Routing_ClaudeAndGemini(t *testing.T) {
 	// Account A: 0% Gemini, 90% Claude
 	// Account B: 90% Gemini, 0% Claude
 	r := setup(t, map[string]any{
-		"enabled":  true,
-		"strategy": "quota_aware",
+		"enabled": true,
 	},
 		accounts.Account{Email: "a@example.com", Quota: quotaSnapshotMulti(0.0, 0.9), Token: token("a")},
 		accounts.Account{Email: "b@example.com", Quota: quotaSnapshotMulti(0.9, 0.0), Token: token("b")},
@@ -555,8 +550,7 @@ func TestModelFamily_Routing_ClaudeAndGemini(t *testing.T) {
 	// Also verify with aggregate strategy
 	rAgg := setup(t, map[string]any{
 		"enabled":   true,
-		"strategy":  "aggregate",
-		"aggregate": true,
+		"aggregate": map[string]any{"enabled": true},
 	},
 		accounts.Account{Email: "a@example.com", Quota: quotaSnapshotMulti(0.0, 0.9), Token: token("a")},
 		accounts.Account{Email: "b@example.com", Quota: quotaSnapshotMulti(0.9, 0.0), Token: token("b")},
@@ -584,8 +578,7 @@ func TestModelFamily_Routing_ClaudeAndGemini(t *testing.T) {
 
 func TestSingleFlight_ConcurrentTokenRefreshes(t *testing.T) {
 	r := setup(t, map[string]any{
-		"enabled":  true,
-		"strategy": "round_robin",
+		"enabled": true,
 	},
 		accounts.Account{Email: "a@example.com", Quota: quotaSnapshot(0.8), Token: token("a")},
 	)
@@ -618,8 +611,7 @@ func TestModelFamily_ExclusionIsolation(t *testing.T) {
 	// Account A: 90% Gemini, 90% Claude
 	// Account B: 80% Gemini, 80% Claude
 	r := setup(t, map[string]any{
-		"enabled":  true,
-		"strategy": "quota_aware",
+		"enabled": true,
 	},
 		accounts.Account{Email: "a@example.com", Quota: quotaSnapshotMulti(0.9, 0.9), Token: token("a")},
 		accounts.Account{Email: "b@example.com", Quota: quotaSnapshotMulti(0.8, 0.8), Token: token("b")},
@@ -680,8 +672,7 @@ func TestModelFamily_ExclusionIsolation(t *testing.T) {
 
 func TestPrewarmCandidates(t *testing.T) {
 	r := setup(t, map[string]any{
-		"enabled":  true,
-		"strategy": "round_robin",
+		"enabled": true,
 	},
 		accounts.Account{Email: "a@example.com", Quota: quotaSnapshot(0.9), Token: token("a")},
 		accounts.Account{Email: "b@example.com", Quota: quotaSnapshot(0.8), Token: token("b")},
@@ -706,7 +697,6 @@ func TestPrewarmCandidates(t *testing.T) {
 func TestCooldown_AutoQuotaRefresh(t *testing.T) {
 	r := setup(t, map[string]any{
 		"enabled":  true,
-		"strategy": "round_robin",
 		"cooldown": "50ms",
 	},
 		accounts.Account{Email: "a@example.com", Quota: quotaSnapshot(0.9), Token: token("a")},
@@ -770,7 +760,7 @@ func TestDefaultTokenRebuildsOnAnAccountSwitch(t *testing.T) {
 
 	// The switch writes the registry's Active field (and the shared
 	// credential); the router is not rebuilt.
-	writeRegistry(t, os.Getenv("OPENAGY_ACCOUNTS_CONFIG"), "b@example.com", accs...)
+	writeRegistry(t, os.Getenv("OPENAGY_ACCOUNTS_CONFIG"), "b@example.com", nil, accs...)
 
 	got, err = r.TokenFunc(context.Background())
 	if err != nil {
@@ -819,8 +809,7 @@ func (c *streamErrorClient) Stream(ctx context.Context, req backend.StreamReques
 
 func TestRoutedClientFailover_ToSQuarantine(t *testing.T) {
 	r := setup(t, map[string]any{
-		"enabled":  true,
-		"strategy": "round_robin",
+		"enabled": true,
 	},
 		accounts.Account{Email: "banned@example.com", Quota: quotaSnapshot(0.9), Token: token("banned")},
 		accounts.Account{Email: "healthy@example.com", Quota: quotaSnapshot(0.9), Token: token("healthy")},
@@ -873,8 +862,7 @@ func TestRoutedClientFailover_ToSQuarantine(t *testing.T) {
 
 func TestRoutedClientFailover_AuthFailure(t *testing.T) {
 	r := setup(t, map[string]any{
-		"enabled":  true,
-		"strategy": "round_robin",
+		"enabled": true,
 	},
 		accounts.Account{Email: "authfail@example.com", Quota: quotaSnapshot(0.9), Token: token("authfail")},
 		accounts.Account{Email: "healthy@example.com", Quota: quotaSnapshot(0.9), Token: token("healthy")},
@@ -945,8 +933,7 @@ func TestWrapQuarantinesOnToSEvenWhenRoutingIsOff(t *testing.T) {
 
 func TestUnquarantine_ClearsStatus(t *testing.T) {
 	r := setup(t, map[string]any{
-		"enabled":  true,
-		"strategy": "round_robin",
+		"enabled": true,
 	},
 		accounts.Account{Email: "recovered@example.com", Quota: quotaSnapshot(0.9), Token: token("recovered")},
 	)

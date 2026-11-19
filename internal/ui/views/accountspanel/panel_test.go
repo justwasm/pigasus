@@ -21,7 +21,6 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/justwasm/pigasus/accountpool"
-	"github.com/justwasm/pigasus/endpoints"
 	accounts "github.com/justwasm/pigasus/internal/features/accounts/core"
 	"github.com/justwasm/pigasus/internal/features/auth"
 )
@@ -68,6 +67,9 @@ func poolIsolate(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
 	t.Setenv("OPENAGY_CONFIG", filepath.Join(dir, "config.json"))
+	// The pool's policy lives in the registry now: isolate that too, or a
+	// test would rewrite the machine's own policy.
+	t.Setenv("OPENAGY_ACCOUNTS_CONFIG", filepath.Join(dir, "accounts.json"))
 	t.Setenv("OPENAGY_CONFIG_HOME", dir)
 	return dir
 }
@@ -470,21 +472,22 @@ func TestPoolPanelShowsThePolicy(t *testing.T) {
 	poolIsolate(t)
 	accountsIsolate(t)
 	p := mkPanel(t, "a@example.com", "b@example.com")
-	if err := endpoints.SaveAccountPool(&accountpool.Config{
-		Enabled:         true,
-		Strategy:        accountpool.StrategyQuotaAware,
-		Threshold:       0.25,
-		RefreshInterval: "2m",
-		Cooldown:        "5m",
-		MaxAttempts:     3,
+	if err := accounts.SaveAccountPool(&accountpool.Config{
+		Enabled:           true,
+		Aggregate:         &accountpool.Aggregate{Enabled: accountpool.Bool(true)},
+		ThresholdFiveHour: 0.25,
+		RefreshInterval:   "2m",
+		Cooldown:          "5m",
+		MaxAttempts:       3,
 	}); err != nil {
 		t.Fatalf("SaveAccountPool: %v", err)
 	}
 	p.SetTab(TabPool)
 
 	joined := strings.Join(plainLines(p.Panel), "\n")
-	for _, want := range []string{"Enabled", "Strategy", "Threshold", "Refresh interval",
-		"Cooldown", "Max attempts", "Switch on quota error", "Accounts in pool"} {
+	for _, want := range []string{"Enabled", "Aggregate", "Threshold (5h)",
+		"Threshold (weekly)", "Refresh interval", "Cooldown", "Max attempts",
+		"Switch on quota error", "Accounts in pool"} {
 		if !strings.Contains(joined, want) {
 			t.Errorf("the panel does not show the %q row: %q", want, joined)
 		}
@@ -492,8 +495,8 @@ func TestPoolPanelShowsThePolicy(t *testing.T) {
 	if !strings.Contains(joined, "on") {
 		t.Errorf("the enabled policy is not shown as on: %q", joined)
 	}
-	if !strings.Contains(joined, "quota_aware") {
-		t.Errorf("the strategy is not shown: %q", joined)
+	if !strings.Contains(joined, "5h") {
+		t.Errorf("the threshold window is not shown: %q", joined)
 	}
 	if !strings.Contains(joined, "25%") {
 		t.Errorf("the threshold is not shown: %q", joined)
@@ -547,6 +550,10 @@ func TestPanelSwitchesTabs(t *testing.T) {
 // TestPoolToggleWritesTheSection pins that a change made in the panel
 // is written out — the policy is read per turn, so nothing has to be
 // rebuilt.
+//
+// The row shows what the proxy does: a registry with no section routes, so the
+// first press states the opposite — an explicit off — and the switch survives
+// the save that follows.
 func TestPoolToggleWritesTheSection(t *testing.T) {
 	poolIsolate(t)
 	accountsIsolate(t)
@@ -555,32 +562,20 @@ func TestPoolToggleWritesTheSection(t *testing.T) {
 	p.SetCursor(poolRowEnabled)
 	p.HandleKey(tea.Key{Code: ' '})
 
-	policy := endpoints.CurrentAccountPool()
+	policy := accounts.CurrentAccountPool()
 	if policy == nil {
 		t.Fatal("the policy was not written")
 	}
-	if !policy.Enabled {
-		t.Error("the written policy is not enabled")
+	if !policy.RoutingStated() {
+		t.Fatal("the written policy does not state the switch")
 	}
-}
-
-// TestPoolStrategyCycles pins that the arrow keys walk the strategy list
-// and that the walk is written out.
-func TestPoolStrategyCycles(t *testing.T) {
-	poolIsolate(t)
-	accountsIsolate(t)
-	p := mkPanel(t, "a@example.com")
-	p.SetTab(TabPool)
-	p.SetCursor(poolRowStrategy)
-	p.HandleKey(tea.Key{Code: tea.KeyRight})
-
-	policy := endpoints.CurrentAccountPool()
-	if policy == nil {
-		t.Fatal("the policy was not written")
+	if policy.RoutingEnabled() {
+		t.Error("the toggle did not turn the shown \"on\" off")
 	}
-	want := accountpool.Strategies()[1]
-	if policy.Strategy != want {
-		t.Errorf("the strategy = %q, want %q", policy.Strategy, want)
+	// A second press states it back on.
+	p.HandleKey(tea.Key{Code: ' '})
+	if again := accounts.CurrentAccountPool(); again == nil || !again.RoutingEnabled() {
+		t.Errorf("the second press did not turn it back on: %+v", again)
 	}
 }
 
@@ -591,20 +586,20 @@ func TestPoolThresholdEdit(t *testing.T) {
 	accountsIsolate(t)
 	p := mkPanel(t, "a@example.com")
 	p.SetTab(TabPool)
-	p.SetCursor(poolRowThreshold)
+	p.SetCursor(poolRowThresholdFiveHour)
 	p.HandleKey(tea.Key{Code: tea.KeyEnter})
-	if !p.pool.editing || p.pool.editRow != poolRowThreshold {
+	if !p.pool.editing || p.pool.editRow != poolRowThresholdFiveHour {
 		t.Fatalf("the editing row = %d, want the threshold", p.pool.editRow)
 	}
 	p.textInput.SetValue("25%")
 	p.HandleKey(tea.Key{Code: tea.KeyEnter})
 
-	policy := endpoints.CurrentAccountPool()
+	policy := accounts.CurrentAccountPool()
 	if policy == nil {
 		t.Fatal("the policy was not written")
 	}
-	if policy.Threshold != 0.25 {
-		t.Errorf("the threshold = %v, want 0.25", policy.Threshold)
+	if policy.ThresholdFiveHour != 0.25 {
+		t.Errorf("threshold_5h = %v, want 0.25", policy.ThresholdFiveHour)
 	}
 }
 
@@ -615,15 +610,15 @@ func TestPoolThresholdRefusesAValueItCannotRead(t *testing.T) {
 	accountsIsolate(t)
 	p := mkPanel(t, "a@example.com")
 	p.SetTab(TabPool)
-	p.SetCursor(poolRowThreshold)
+	p.SetCursor(poolRowThresholdFiveHour)
 	p.HandleKey(tea.Key{Code: tea.KeyEnter})
 	p.textInput.SetValue("soon")
 	p.HandleKey(tea.Key{Code: tea.KeyEnter})
 
-	if !p.pool.editing || p.pool.editRow != poolRowThreshold {
+	if !p.pool.editing || p.pool.editRow != poolRowThresholdFiveHour {
 		t.Error("the row closed on a value that does not parse")
 	}
-	if endpoints.CurrentAccountPool() != nil {
+	if accounts.CurrentAccountPool() != nil {
 		t.Error("a policy was written from a value that does not parse")
 	}
 }
@@ -636,13 +631,53 @@ func TestPoolThresholdShowsWhatIsTyped(t *testing.T) {
 	accountsIsolate(t)
 	p := mkPanel(t, "a@example.com")
 	p.SetTab(TabPool)
-	p.SetCursor(poolRowThreshold)
+	p.SetCursor(poolRowThresholdFiveHour)
 	p.HandleKey(tea.Key{Code: tea.KeyEnter})
 	p.textInput.SetValue("25%")
 
 	joined := strings.Join(plainLines(p.Panel), "\n")
 	if !strings.Contains(joined, "25%") {
 		t.Errorf("the typed text is not shown: %q", joined)
+	}
+}
+
+// TestPoolThresholdStepIsOnePercent pins that pressing arrow keys steps the threshold by 1% (0.01).
+func TestPoolThresholdStepIsOnePercent(t *testing.T) {
+	poolIsolate(t)
+	accountsIsolate(t)
+	p := mkPanel(t, "a@example.com")
+	p.SetTab(TabPool)
+	p.SetCursor(poolRowThresholdFiveHour)
+
+	p.pool.policy.ThresholdFiveHour = 0.05
+	p.savePoolPolicy()
+
+	// Step +1 (right arrow)
+	p.HandleKey(tea.Key{Code: tea.KeyRight})
+	policy := accounts.CurrentAccountPool()
+	if policy == nil {
+		t.Fatal("policy not written")
+	}
+	if policy.ThresholdFiveHour != 0.06 {
+		t.Errorf("ThresholdFiveHour after right arrow = %v, want 0.06", policy.ThresholdFiveHour)
+	}
+
+	// Step -1 (left arrow)
+	p.HandleKey(tea.Key{Code: tea.KeyLeft})
+	policy = accounts.CurrentAccountPool()
+	if policy.ThresholdFiveHour != 0.05 {
+		t.Errorf("ThresholdFiveHour after left arrow = %v, want 0.05", policy.ThresholdFiveHour)
+	}
+
+	// Step on weekly threshold
+	p.SetCursor(poolRowThresholdWeekly)
+	p.pool.policy.ThresholdWeekly = 0.10
+	p.savePoolPolicy()
+
+	p.HandleKey(tea.Key{Code: tea.KeyRight})
+	policy = accounts.CurrentAccountPool()
+	if policy.ThresholdWeekly != 0.11 {
+		t.Errorf("ThresholdWeekly after right arrow = %v, want 0.11", policy.ThresholdWeekly)
 	}
 }
 
@@ -664,7 +699,7 @@ func TestPoolAllowList(t *testing.T) {
 	p.pool.allowCursor = 1
 	p.HandleKey(tea.Key{Code: ' '})
 
-	policy := endpoints.CurrentAccountPool()
+	policy := accounts.CurrentAccountPool()
 	if policy == nil {
 		t.Fatal("the policy was not written")
 	}
@@ -675,7 +710,7 @@ func TestPoolAllowList(t *testing.T) {
 	// Back to "(all accounts)": the list is cleared.
 	p.pool.allowCursor = 0
 	p.HandleKey(tea.Key{Code: ' '})
-	policy = endpoints.CurrentAccountPool()
+	policy = accounts.CurrentAccountPool()
 	if policy == nil {
 		t.Fatal("the policy was not written")
 	}
@@ -684,30 +719,36 @@ func TestPoolAllowList(t *testing.T) {
 	}
 }
 
-// TestPoolWritesLeaveTheOtherSectionsAlone pins the one-writer rule at
-// the panel's level too: the endpoints section survives the write.
+// TestPoolWritesLeaveTheOtherSectionsAlone pins the one-writer rule at the
+// panel's level: the policy lands in the registry, and the configuration
+// document — the endpoint overrides — is not touched at all.
 func TestPoolWritesLeaveTheOtherSectionsAlone(t *testing.T) {
 	dir := poolIsolate(t)
-	path := filepath.Join(dir, "config.json")
+	configPath := filepath.Join(dir, "config.json")
 	original := `{"endpoints": {"cloud_code": "http://127.0.0.1:8080"}}`
-	if err := os.WriteFile(path, []byte(original), 0o600); err != nil {
+	if err := os.WriteFile(configPath, []byte(original), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	accountsIsolate(t)
+	registryHome := accountsIsolate(t)
 	p := mkPanel(t, "a@example.com")
 	p.SetTab(TabPool)
 	p.SetCursor(poolRowEnabled)
 	p.HandleKey(tea.Key{Code: ' '})
 
-	raw, err := os.ReadFile(path)
+	raw, err := os.ReadFile(configPath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(raw), "127.0.0.1:8080") {
-		t.Errorf("the endpoint override was lost: %s", raw)
+	if string(raw) != original {
+		t.Errorf("the configuration document was touched: %s", raw)
 	}
-	if !strings.Contains(string(raw), "account_pool") {
-		t.Errorf("the policy was not written: %s", raw)
+
+	registry, err := os.ReadFile(filepath.Join(registryHome, "accounts.json"))
+	if err != nil {
+		t.Fatalf("the registry was not written: %v", err)
+	}
+	if !strings.Contains(string(registry), "account_pool") {
+		t.Errorf("the policy was not written into the registry: %s", registry)
 	}
 }
 
@@ -729,8 +770,8 @@ func TestPoolRowLineStyling(t *testing.T) {
 	}
 
 	// Unfocused row has neutral prefix.
-	unfocused := p.poolRowLine(poolRowStrategy, false)
-	if !strings.HasPrefix(unfocused, "  Strategy") {
+	unfocused := p.poolRowLine(poolRowThresholdWeekly, false)
+	if !strings.HasPrefix(unfocused, "  Threshold (weekly)") {
 		t.Errorf("unfocused row missing two-space indent: %q", unfocused)
 	}
 

@@ -156,7 +156,6 @@ func TestBridgeFailoverOnTOSViolation(t *testing.T) {
 
 	setupTestEnvironment(t, map[string]any{
 		"enabled":               true,
-		"strategy":              "sticky", // starts on banned
 		"max_attempts":          2,
 		"switch_on_quota_error": true,
 	}, acc1, acc2)
@@ -263,7 +262,6 @@ func TestBridgeErrorLogsIncludeAccountOnFailure(t *testing.T) {
 
 	setupTestEnvironment(t, map[string]any{
 		"enabled":      true,
-		"strategy":     "sticky",
 		"max_attempts": 1,
 	}, acc1)
 

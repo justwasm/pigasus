@@ -34,6 +34,7 @@ package printmode
 import (
 	"flag"
 	"fmt"
+	"os"
 	"sort"
 	"strings"
 	"time"
@@ -41,7 +42,6 @@ import (
 	"github.com/justwasm/pigasus/internal/ui/views/changelog"
 
 	"github.com/justwasm/pigasus/accountpool"
-	"github.com/justwasm/pigasus/endpoints"
 	"github.com/justwasm/pigasus/internal/cli"
 	"github.com/justwasm/pigasus/internal/core/slashparse"
 	accounts "github.com/justwasm/pigasus/internal/features/accounts/core"
@@ -160,7 +160,11 @@ func dispatchPrintSlash(prompt string, fs *flag.FlagSet) printSlashResult {
 func dispatchPrintSlashCommand(name, args string, fs *flag.FlagSet) (printSlashResult, bool) {
 	switch name {
 	case "help":
-		return printSlashResult{Handled: true, Output: printSlashHelpText, Name: "help", Data: helpCommandsData()}, true
+		helpText := printSlashHelpText
+		if isGeminiAPIKeyActive() {
+			helpText = printSlashHelpTextWithoutUsage()
+		}
+		return printSlashResult{Handled: true, Output: helpText, Name: "help", Data: helpCommandsData()}, true
 	case "changelog":
 		return printSlashResult{Handled: true, Output: printSlashChangelog, Name: "changelog", Data: map[string]any{"changelog": printSlashChangelog}}, true
 	case "feature-diff", "featdiff", "diff-agy":
@@ -181,9 +185,15 @@ func dispatchPrintSlashCommand(name, args string, fs *flag.FlagSet) (printSlashR
 		return printSlashResult{Handled: true, Output: printSlashPermissions(), Name: "permissions", Data: printSlashPermissionsData()}, true
 	case "skills":
 		return printSlashSkillsResult(args), true
-	case "usage":
+	case "usage", "quota":
+		if isGeminiAPIKeyActive() {
+			return rejected(2, fmt.Sprintf("/%s failed: not available with a Gemini API key; see https://aistudio.google.com/usage for the key's usage", name)), true
+		}
 		return handlePrintSlashUsage(fs), true
 	case "credits":
+		if isGeminiAPIKeyActive() {
+			return rejected(2, fmt.Sprintf("/%s failed: not available with a Gemini API key; see https://aistudio.google.com/usage for the key's usage", name)), true
+		}
 		return handlePrintSlashCredits(), true
 	case "plugin":
 		return rejected(2, strings.TrimPrefix(printSlashPluginRejection, "error: ")), true
@@ -275,7 +285,7 @@ func printSlashAccountsData(st *accounts.Store, active string) map[string]any {
 // with its defaults filled in. A file without the section is a pool that
 // is switched off, and that is what it says.
 func handlePrintSlashPool() printSlashResult {
-	policy := endpoints.CurrentAccountPool()
+	policy := accounts.CurrentAccountPool()
 	present := policy != nil
 	if !present {
 		policy = &accountpool.Config{}
@@ -286,9 +296,10 @@ func handlePrintSlashPool() printSlashResult {
 		allow = strings.Join(cfg.Accounts, ", ")
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "routing      %s\n", printSlashOnOff(cfg.Enabled))
-	fmt.Fprintf(&b, "strategy     %s\n", cfg.Strategy)
-	fmt.Fprintf(&b, "threshold    %.0f%%\n", cfg.Threshold*100)
+	fmt.Fprintf(&b, "routing      %s\n", printSlashOnOff(cfg.RoutingEnabled()))
+	fmt.Fprintf(&b, "aggregate    %s\n", printSlashOnOff(cfg.AggregateEnabled()))
+	fmt.Fprintf(&b, "threshold_5h %.0f%%\n", cfg.ThresholdFiveHour*100)
+	fmt.Fprintf(&b, "threshold_wk %.0f%%\n", cfg.ThresholdWeekly*100)
 	fmt.Fprintf(&b, "refresh      %s\n", cfg.RefreshInterval)
 	fmt.Fprintf(&b, "cooldown     %s\n", cfg.Cooldown)
 	fmt.Fprintf(&b, "attempts     %d\n", cfg.MaxAttempts)
@@ -319,10 +330,15 @@ func printSlashPoolData(cfg accountpool.Config, present bool) map[string]any {
 	switchOnQuota := cfg.SwitchOnQuotaErrorEnabled()
 	return map[string]any{
 		"pool": map[string]any{
-			"present":               present,
-			"enabled":               cfg.Enabled,
-			"strategy":              string(cfg.Strategy),
-			"threshold":             cfg.Threshold,
+			"present": present,
+			"enabled": cfg.RoutingEnabled(),
+			// aggregate is the pool's mode: the switch that answers the
+			// quota and the tier as one virtual account's.
+			"aggregate": map[string]any{
+				"enabled": cfg.AggregateEnabled(),
+			},
+			"threshold_5h":          cfg.ThresholdFiveHour,
+			"threshold_weekly":      cfg.ThresholdWeekly,
 			"refresh_interval":      cfg.RefreshInterval,
 			"cooldown":              cfg.Cooldown,
 			"max_attempts":          cfg.MaxAttempts,
@@ -499,3 +515,19 @@ const printSlashHelpText = `/agents	List available custom agents
 /skills	List available skills
 /usage (quota)	View model quota usage
 `
+
+func isGeminiAPIKeyActive() bool {
+	return strings.TrimSpace(os.Getenv("GEMINI_API_KEY")) != ""
+}
+
+func printSlashHelpTextWithoutUsage() string {
+	lines := strings.Split(printSlashHelpText, "\n")
+	var out []string
+	for _, l := range lines {
+		if strings.HasPrefix(l, "/usage") || strings.HasPrefix(l, "/quota") || strings.HasPrefix(l, "/credits") {
+			continue
+		}
+		out = append(out, l)
+	}
+	return strings.Join(out, "\n")
+}

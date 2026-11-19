@@ -14,6 +14,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -73,6 +74,14 @@ func CacheDir() string {
 	return filepath.Join(os.TempDir(), "openagy", "bin")
 }
 
+// NormalizeVersion trims leading 'v', spaces, and converts to canonical version string.
+func NormalizeVersion(v string) string {
+	v = strings.TrimSpace(v)
+	v = strings.TrimPrefix(v, "v")
+	v = strings.TrimPrefix(v, "V")
+	return v
+}
+
 // CacheBinaryName returns "agy" ("agy.exe" on Windows).
 func CacheBinaryName() string {
 	if runtime.GOOS == "windows" {
@@ -81,15 +90,40 @@ func CacheBinaryName() string {
 	return "agy"
 }
 
+// CacheBinaryNameForVersion returns "agy-<version>" ("agy-<version>.exe" on Windows).
+// If version is empty or "latest", returns CacheBinaryName().
+func CacheBinaryNameForVersion(version string) string {
+	norm := NormalizeVersion(version)
+	if norm == "" || strings.EqualFold(norm, "latest") {
+		return CacheBinaryName()
+	}
+	if runtime.GOOS == "windows" {
+		return fmt.Sprintf("agy-%s.exe", norm)
+	}
+	return fmt.Sprintf("agy-%s", norm)
+}
+
 // CacheBinaryPath returns the full path to the cached agy binary.
 func CacheBinaryPath() string {
 	return filepath.Join(CacheDir(), CacheBinaryName())
+}
+
+// CacheBinaryPathForVersion returns the full path to the cached agy binary for a given version.
+func CacheBinaryPathForVersion(version string) string {
+	return filepath.Join(CacheDir(), CacheBinaryNameForVersion(version))
 }
 
 // AutoDownload fetches the manifest for the current GOOS/GOARCH, downloads
 // the agy tar.gz archive, verifies its checksum, and extracts the binary to
 // the persistent cache directory.
 func AutoDownload(ctx context.Context) (string, error) {
+	return AutoDownloadVersion(ctx, "")
+}
+
+// AutoDownloadVersion fetches the manifest, validates the requested version (or "latest" / empty),
+// downloads the binary if not already cached, and saves it to the versioned cache path as well as
+// the active binary path.
+func AutoDownloadVersion(ctx context.Context, versionSpec string) (string, error) {
 	manifestURL := endpoints.Current().AutoUpdaterManifestURL(runtime.GOOS, runtime.GOARCH)
 	if env := os.Getenv("OPENAGY_AUTO_UPDATER_URL"); env != "" {
 		manifestURL = endpoints.Set{AutoUpdater: env}.AutoUpdaterManifestURL(runtime.GOOS, runtime.GOARCH)
@@ -120,6 +154,51 @@ func AutoDownload(ctx context.Context) (string, error) {
 		return "", fmt.Errorf("decode manifest: %w", err)
 	}
 
+	manifestVer := strings.TrimSpace(m.Version)
+	if versionSpec != "" && !strings.EqualFold(versionSpec, "latest") {
+		wantedNorm := NormalizeVersion(versionSpec)
+		manifestNorm := NormalizeVersion(manifestVer)
+		if wantedNorm != manifestNorm {
+			return "", fmt.Errorf("requested version %s is not available (upstream latest is %s)", versionSpec, manifestVer)
+		}
+	}
+
+	destDir := CacheDir()
+	if err := os.MkdirAll(destDir, 0o755); err != nil {
+		return "", fmt.Errorf("create cache dir: %w", err)
+	}
+
+	targetPath := CacheBinaryPathForVersion(manifestVer)
+	latestPath := CacheBinaryPath()
+
+	// If already downloaded and executable, link to latestPath and return.
+	if info, err := os.Stat(targetPath); err == nil && !info.IsDir() && isExecutable(info) {
+		if targetPath != latestPath {
+			linkOrCopy(targetPath, latestPath)
+		}
+		if runtime.GOOS == "darwin" {
+			_ = exec.Command("xattr", "-d", "com.apple.quarantine", targetPath).Run()
+			_ = exec.Command("xattr", "-d", "com.apple.quarantine", latestPath).Run()
+		}
+		return targetPath, nil
+	}
+
+	// Check if any local candidate already matches manifestVer
+	self, selfInfo := selfIdentity()
+	for _, cand := range candidates("") {
+		if resolved, err := resolve(cand); err == nil {
+			if info, err := os.Stat(resolved); err == nil && !info.IsDir() && isExecutable(info) && !isSelf(resolved, info, self, selfInfo) {
+				if ver, err := Version(resolved); err == nil && NormalizeVersion(ver) == NormalizeVersion(manifestVer) {
+					linkOrCopy(resolved, targetPath)
+					if targetPath != latestPath {
+						linkOrCopy(resolved, latestPath)
+					}
+					return targetPath, nil
+				}
+			}
+		}
+	}
+
 	downloadURL := m.URL
 	if downloadURL == "" {
 		downloadURL = m.PackageURL
@@ -141,16 +220,10 @@ func AutoDownload(ctx context.Context) (string, error) {
 	}
 
 	// User feedback before starting download
-	ver := strings.TrimSpace(m.Version)
-	if ver != "" {
-		fmt.Fprintf(os.Stderr, "⟳ Downloading agy %s...\n", ver)
+	if manifestVer != "" {
+		fmt.Fprintf(os.Stderr, "⟳ Downloading agy %s...\n", manifestVer)
 	} else {
 		fmt.Fprintf(os.Stderr, "⟳ Downloading agy...\n")
-	}
-
-	destDir := CacheDir()
-	if err := os.MkdirAll(destDir, 0o755); err != nil {
-		return "", fmt.Errorf("create cache dir: %w", err)
 	}
 
 	tempArchive, err := os.CreateTemp(destDir, "agy-download-*.tar.gz")
@@ -217,7 +290,6 @@ func AutoDownload(ctx context.Context) (string, error) {
 		bytes.HasPrefix(magic, []byte{'#', '!'}) ||
 		strings.HasSuffix(strings.ToLower(downloadURL), ".exe")
 
-	targetPath := CacheBinaryPath()
 	if isGzip || strings.HasSuffix(strings.ToLower(downloadURL), ".tar.gz") || strings.HasSuffix(strings.ToLower(downloadURL), ".tgz") {
 		if err := extractFromTar(tempArchiveName, destDir, targetPath); err != nil {
 			return "", err
@@ -237,6 +309,16 @@ func AutoDownload(ctx context.Context) (string, error) {
 			}
 		}
 	}
+
+	if targetPath != latestPath {
+		linkOrCopy(targetPath, latestPath)
+	}
+
+	if runtime.GOOS == "darwin" {
+		_ = exec.Command("xattr", "-d", "com.apple.quarantine", targetPath).Run()
+		_ = exec.Command("xattr", "-d", "com.apple.quarantine", latestPath).Run()
+	}
+
 	return targetPath, nil
 }
 

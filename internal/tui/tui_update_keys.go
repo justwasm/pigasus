@@ -2667,7 +2667,11 @@ func (m *RootModel) submitModelCompletion() (bool, tea.Cmd) {
 	// The argument names no model: the highlighted row is completed into
 	// the composer instead of running the command.
 	if sel := m.prompt.picker.Selected(); sel != nil {
-		m.prompt.input.SetValue("/model " + sel.Name)
+		target := sel.Description
+		if target == "" {
+			target = sel.Name
+		}
+		m.prompt.input.SetValue("/model " + target)
 		m.prompt.picker.Reset()
 		m.prompt.promptHistory.Reset()
 		return true, nil
