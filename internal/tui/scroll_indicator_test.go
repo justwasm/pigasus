@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	"github.com/charmbracelet/x/ansi"
-	"github.com/justwasm/pigasus/palette"
 )
 
 func TestScrollPositionIndicator_1512(t *testing.T) {
@@ -43,20 +42,20 @@ func TestScrollPositionIndicator_1512(t *testing.T) {
 
 	// 3. scrolled up in altscreen:
 	// total = 50 rows, height = 24.
-	// promptRule(true) should contain the indicator and down arrow.
-	rule := m.promptRule(true)
-	stripped := ansi.Strip(rule)
-	if !strings.Contains(stripped, "↓") {
-		t.Errorf("promptRule(true) stripped = %q, want containing '↓'", stripped)
+	// scrollPositionIndicator() should contain the indicator and down arrow.
+	ind := m.scrollPositionIndicator()
+	if !strings.Contains(ind, "↓") {
+		t.Errorf("indicator = %q, want containing '↓'", ind)
 	}
-	if !strings.Contains(stripped, "lines") {
-		t.Errorf("promptRule(true) stripped = %q, want containing 'lines'", stripped)
-	}
-	if !strings.HasPrefix(rule, palette.DimGrayOpen) {
-		t.Errorf("promptRule(true) = %q, want starting with DimGrayOpen", rule)
+	if !strings.Contains(ind, "lines") {
+		t.Errorf("indicator = %q, want containing 'lines'", ind)
 	}
 
-	// 4. promptRule(false) should remain the bottom rule separator
+	// 4. promptRule(true) and (false) remain clean separator rules
+	topRule := m.promptRule(true)
+	if strings.Contains(ansi.Strip(topRule), "↓") {
+		t.Errorf("promptRule(true) should not contain indicator: %q", topRule)
+	}
 	bottomRule := m.promptRule(false)
 	if strings.Contains(ansi.Strip(bottomRule), "↓") {
 		t.Errorf("promptRule(false) should not contain indicator: %q", bottomRule)

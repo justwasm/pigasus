@@ -12,6 +12,8 @@ import (
 	"io"
 	"net/http"
 	"strings"
+
+	"github.com/justwasm/pigasus/geminicode"
 )
 
 // responsesProvider talks to the OpenAI Responses API (/v1/responses).
@@ -134,11 +136,22 @@ func formatResponsesTools(tools []ToolSpec) []responsesTool {
 	}
 	out := make([]responsesTool, 0, len(tools))
 	for _, t := range tools {
+		if strings.TrimSpace(t.Name) == "" {
+			continue
+		}
+		params := t.Parameters
+		if len(strings.TrimSpace(string(params))) == 0 {
+			params = json.RawMessage(`{"type":"object","properties":{}}`)
+		} else if norm := geminicode.NormalizeToolSchema(params, true); norm != nil {
+			if b, err := json.Marshal(norm); err == nil {
+				params = b
+			}
+		}
 		out = append(out, responsesTool{
 			Type:        "function",
 			Name:        t.Name,
 			Description: t.Description,
-			Parameters:  t.Parameters,
+			Parameters:  params,
 		})
 	}
 	return out

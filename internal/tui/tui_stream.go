@@ -1562,11 +1562,6 @@ func (m *RootModel) scrollPositionIndicator() string {
 // agy 1.5.12 item 3: while scrolled up in full screen (altscreen) mode,
 // the line above the prompt shows the scroll position indicator (e.g. "↓ 25 lines · 2 turns").
 func (m *RootModel) promptRule(top bool) string {
-	if top && m.viewport.altScreen && !m.viewport.autoScroll {
-		if ind := m.scrollPositionIndicator(); ind != "" {
-			return palette.DimGrayOpen + ind + palette.DimGrayClose
-		}
-	}
 	if m.viewport.seasonal == nil {
 		return m.separator()
 	}

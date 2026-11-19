@@ -1,0 +1,53 @@
+NAME "Config Editor Mode Vim Gating (1.5.12)"
+WINDOW 100 30
+TARGET both
+SETTINGS '{"editorMode":"default"}'
+
+BOOT_BOTH
+WAIT_READY 10s
+
+# Type /config and open panel
+TYPE "/config"
+ENTER
+SLEEP 500ms
+
+# Type "editor" into search box to filter to Editor rows
+TYPE "editor"
+SLEEP 300ms
+SNAPSHOT "01_config_editor_filtered"
+
+# Verify Insert First is NOT visible initially
+ASSERT_NOT_TEXT "Insert First"
+
+# Select Editor Mode row (down to Editor Mode)
+KEYS "Down"
+SLEEP 200ms
+
+# Open Editor Mode submenu
+ENTER
+SLEEP 300ms
+
+# Select vim (second option)
+KEYS "Down"
+SLEEP 200ms
+ENTER
+SLEEP 300ms
+SNAPSHOT "02_editor_mode_vim_selected"
+
+# Escape clears search query so catalogue refreshes
+KEYS "Escape"
+SLEEP 300ms
+TYPE "editor"
+SLEEP 300ms
+SNAPSHOT "03_editor_mode_insert_first_visible"
+
+# Expect child row "Insert First" to be present
+EXPECT_TEXT "Insert First" 5s
+
+# Close config panel
+KEYS "Escape"
+KEYS "Escape"
+SLEEP 500ms
+
+DIFF
+CLEANUP

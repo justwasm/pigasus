@@ -352,6 +352,12 @@ func Field(key string) (any, error) {
 // had no live persistence; settings.json only updated via the /statusline
 // and /title slash-command toggles.
 func SetField(key string, value any) error {
+	sessionSettingsMu.Lock()
+	if sessionSettingsOverlay != nil {
+		sessionSettingsOverlay[key] = value
+	}
+	sessionSettingsMu.Unlock()
+
 	return modifySettings(true, false, func(data []byte) ([]byte, error) {
 		switch v := value.(type) {
 		case bool, int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64, float32, float64, string, nil:
@@ -376,6 +382,12 @@ func SetField(key string, value any) error {
 // no-op. Parent objects left empty are kept, matching the reference which
 // never prunes `statusLine`/`title` shells.
 func DeleteField(key string) error {
+	sessionSettingsMu.Lock()
+	if sessionSettingsOverlay != nil {
+		delete(sessionSettingsOverlay, key)
+	}
+	sessionSettingsMu.Unlock()
+
 	return modifySettings(true, true, func(data []byte) ([]byte, error) {
 		return sjson.DeleteBytes(data, key)
 	})

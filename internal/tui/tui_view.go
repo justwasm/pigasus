@@ -44,6 +44,7 @@ import (
 	"github.com/justwasm/pigasus/internal/ui/views/voice"
 	"github.com/justwasm/pigasus/palette"
 	"github.com/justwasm/pigasus/procgroup"
+	"github.com/mattn/go-runewidth"
 )
 
 // ---- tui_view.go ----
@@ -408,6 +409,16 @@ func (m *RootModel) formatInputView() string {
 
 func (m *RootModel) renderBodyPrompt(b *strings.Builder) int {
 	m.renderBodyQueuesAndCard(b)
+	if m.viewport.altScreen && !m.viewport.autoScroll {
+		if ind := m.scrollPositionIndicator(); ind != "" {
+			rw := runewidth.StringWidth(ind)
+			pad := m.viewport.width - rw
+			if pad < 0 {
+				pad = 0
+			}
+			b.WriteString(palette.DimGrayOpen + strings.Repeat(" ", pad) + ind + palette.DimGrayClose + "\n")
+		}
+	}
 	b.WriteString(m.promptRule(true) + "\n")
 
 	rowsAbovePrompt := tuilib.ViewRows(b.String())

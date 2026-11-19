@@ -1,0 +1,48 @@
+NAME "Config Search Filter and Value Cycling (1.5.12)"
+WINDOW 100 30
+TARGET both
+SETTINGS '{"editorMode":"default","showTips":false}'
+
+BOOT_BOTH
+WAIT_READY 10s
+
+# Open /config
+TYPE "/config"
+ENTER
+SLEEP 500ms
+SNAPSHOT "01_config_open"
+
+# Filter to "permission"
+TYPE "permission"
+SLEEP 300ms
+SNAPSHOT "02_permission_filtered"
+
+# Verify Tool Permission row is visible
+EXPECT_TEXT "Tool Permission" 5s
+
+# Navigate down to Tool Permission row
+KEYS "Down"
+SLEEP 200ms
+
+# Cycle value in-place using Right arrow (changes from request-review to proceed-in-sandbox)
+KEYS "Right"
+SLEEP 300ms
+SNAPSHOT "03_permission_cycled_right"
+
+# Cycle value again
+KEYS "Right"
+SLEEP 300ms
+SNAPSHOT "04_permission_cycled_again"
+
+# Escape clears search box
+KEYS "Escape"
+SLEEP 300ms
+SNAPSHOT "05_search_cleared"
+
+# Second Escape exits config panel
+KEYS "Escape"
+SLEEP 500ms
+SNAPSHOT "06_config_closed"
+
+DIFF
+CLEANUP

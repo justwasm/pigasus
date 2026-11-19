@@ -1,0 +1,42 @@
+NAME "Scroll Position Indicator in Altscreen (1.5.12)"
+WINDOW 100 24
+TARGET both
+SETTINGS '{"editorMode":"default","showTips":false}'
+
+MOCK_TURN
+THOUGHT "Generating long response to test scroll indicator..." TOKENS 10 DELAY 50ms
+TEXT "Line 01\nLine 02\nLine 03\nLine 04\nLine 05\nLine 06\nLine 07\nLine 08\nLine 09\nLine 10\nLine 11\nLine 12\nLine 13\nLine 14\nLine 15\nLine 16\nLine 17\nLine 18\nLine 19\nLine 20\nLine 21\nLine 22\nLine 23\nLine 24\nLine 25\nLine 26\nLine 27\nLine 28\nLine 29\nLine 30\nLine 31\nLine 32\nLine 33\nLine 34\nLine 35\nEnd of output.\n" DELAY 50ms
+USAGE PROMPT 50 CANDIDATES 50
+
+BOOT_BOTH
+WAIT_READY 10s
+
+TYPE "generate long text"
+ENTER
+
+WAIT_TEXT "End of output." 15s
+SLEEP 500ms
+SNAPSHOT "01_full_output_at_bottom"
+
+# Scroll up in transcript
+KEYS "PageUp"
+SLEEP 300ms
+KEYS "Up"
+KEYS "Up"
+KEYS "Up"
+SLEEP 300ms
+SNAPSHOT "02_scrolled_up_indicator_visible"
+
+# Verify scroll position indicator is present
+EXPECT_TEXT "↓" 5s
+
+# Scroll back down
+KEYS "PageDown"
+SLEEP 300ms
+KEYS "Down"
+KEYS "Down"
+SLEEP 300ms
+SNAPSHOT "03_scrolled_down_auto_scroll"
+
+DIFF
+CLEANUP

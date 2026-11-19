@@ -1,0 +1,27 @@
+NAME "Markdown CJK Bold and Headings (1.5.12)"
+WINDOW 100 30
+TARGET both
+
+MOCK_TURN
+THOUGHT "Rendering markdown with headings and CJK bold..." TOKENS 15 DELAY 50ms
+TEXT "## 核心功能介绍\n\n**注意：**系统已更新，请查看**重要！**提示。\n" DELAY 50ms
+USAGE PROMPT 50 CANDIDATES 30
+
+BOOT_BOTH
+WAIT_READY 10s
+
+TYPE "explain features"
+ENTER
+
+WAIT_TEXT "核心功能介绍" 15s
+SLEEP 500ms
+SNAPSHOT "01_cjk_bold_and_heading_rendered"
+
+# Assert ## is stripped in rendered response
+ASSERT_NOT_TEXT "## 核心功能介绍"
+EXPECT_TEXT "核心功能介绍" 5s
+EXPECT_TEXT "注意：" 5s
+EXPECT_TEXT "重要！" 5s
+
+DIFF
+CLEANUP

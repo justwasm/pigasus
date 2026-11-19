@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"os"
 	"strings"
 
 	"github.com/justwasm/pigasus/geminicode"
@@ -157,9 +156,16 @@ func formatResponsesTools(req backend.StreamRequest) []responsesToolDef {
 	}
 	out := make([]responsesToolDef, 0, len(req.Tools))
 	for _, t := range req.Tools {
+		if strings.TrimSpace(t.Name) == "" {
+			continue
+		}
 		params := t.Parameters
-		if len(params) == 0 {
-			params = json.RawMessage(`{"type":"object"}`)
+		if len(strings.TrimSpace(string(params))) == 0 {
+			params = json.RawMessage(`{"type":"object","properties":{}}`)
+		} else if norm := geminicode.NormalizeToolSchema(params, true); norm != nil {
+			if b, err := json.Marshal(norm); err == nil {
+				params = b
+			}
 		}
 		out = append(out, responsesToolDef{
 			Type:        "function",
@@ -279,6 +285,10 @@ type responsesSSEItem struct {
 
 type responsesSSEResponse struct {
 	ID    string `json:"id,omitempty"`
+	Error *struct {
+		Message string `json:"message"`
+		Code    string `json:"code"`
+	} `json:"error,omitempty"`
 	Usage *struct {
 		InputTokens  int `json:"input_tokens"`
 		OutputTokens int `json:"output_tokens"`
@@ -310,9 +320,6 @@ func (c *GatewayClient) readResponsesBody(ctx context.Context, resp *http.Respon
 }
 
 func (c *GatewayClient) handleResponsesSSELine(ctx context.Context, line string, tracker *responsesToolTracker, meta **backend.ChunkMeta, externalModel string, out chan<- backend.StreamChunk) (bool, error) {
-	if os.Getenv("DEBUG_RESPONSES") == "1" {
-		fmt.Fprintf(os.Stderr, "[RESPONSES LINE] %s\n", line)
-	}
 	if !strings.HasPrefix(line, "data:") {
 		return false, nil
 	}
@@ -330,24 +337,25 @@ func (c *GatewayClient) handleResponsesSSELine(ctx context.Context, line string,
 
 	var ev responsesSSEEvent
 	if err := json.Unmarshal([]byte(payload), &ev); err != nil {
-		select {
-		case <-ctx.Done():
-			out <- backend.StreamChunk{Error: ctx.Err(), Done: true}
-		default:
-			out <- backend.StreamChunk{Error: fmt.Errorf("gateway: responses sse decode: %w", err), Done: true}
-		}
-		return true, fmt.Errorf("gateway: responses sse decode: %w", err)
+		return false, nil
 	}
 
+	var errMsg string
 	if ev.Error != nil {
-		msg := ev.Error.Message
-		if msg == "" {
-			msg = ev.Error.Code
+		errMsg = ev.Error.Message
+		if errMsg == "" {
+			errMsg = ev.Error.Code
 		}
-		if msg == "" {
-			msg = "unknown responses error"
+	} else if ev.Response != nil && ev.Response.Error != nil {
+		errMsg = ev.Response.Error.Message
+		if errMsg == "" {
+			errMsg = ev.Response.Error.Code
 		}
-		err := fmt.Errorf("gateway: %s", msg)
+	} else if ev.Type == "response.failed" {
+		errMsg = "responses api call failed"
+	}
+	if errMsg != "" {
+		err := fmt.Errorf("gateway: %s", errMsg)
 		out <- backend.StreamChunk{Error: err, Done: true}
 		return true, err
 	}
