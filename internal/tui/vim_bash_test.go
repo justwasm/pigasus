@@ -83,6 +83,7 @@ func TestVimBangIsNotShellOutsideVimMode(t *testing.T) {
 // rather than inserting a literal newline into the composer.
 func TestVimSlashModelOpensPanel(t *testing.T) {
 	m := vimTestMode(t, map[string]any{"editorMode": "vim"})
+	m.prompt.keybindings = nil
 	vimType(t, m, "/model")
 	if got := m.prompt.input.Value(); got != "/model" {
 		t.Fatalf("composer = %q, want %q", got, "/model")
@@ -110,6 +111,7 @@ func TestVimSlashModelOpensPanel(t *testing.T) {
 
 func TestVimSlashModelInInsertModeOpensPanel(t *testing.T) {
 	m := vimTestMode(t, map[string]any{"editorMode": "vim"})
+	m.prompt.keybindings = nil
 	// Press 'i' to explicitly enter Insert mode
 	vimPress(t, m, runeKey('i'))
 	if m.prompt.vimEng.Mode != vim.Insert {

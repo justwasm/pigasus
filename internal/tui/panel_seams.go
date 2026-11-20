@@ -53,6 +53,7 @@ import (
 	"github.com/justwasm/pigasus/internal/ui/views/themepreview"
 	"github.com/justwasm/pigasus/internal/ui/views/usagepanel"
 	"github.com/justwasm/pigasus/palette"
+	"github.com/justwasm/pigasus/vim"
 
 	atfiles "github.com/justwasm/pigasus/internal/app/prompt/mentions/files"
 	"github.com/justwasm/pigasus/internal/app/session/rewind"
@@ -2199,6 +2200,9 @@ func (m *RootModel) closePanel() tea.Cmd {
 	m.overlays.panel.csp.Cancel()
 	m.overlays.panel = slashPanel{}
 	m.reloadConfigSettings()
+	if m.prompt.vimEng != nil {
+		m.prompt.vimEng.Mode = vim.Normal
+	}
 	if notice && cmd != "" {
 		m.conversation.response = append(m.conversation.response, tuilib.SlashEchoLines(cmd, "Exited "+cmd+" command")...)
 	}
@@ -2228,6 +2232,9 @@ func (m *RootModel) closePanelSilent() tea.Cmd {
 	m.overlays.panel.csp.Cancel()
 	m.overlays.panel = slashPanel{}
 	m.reloadConfigSettings()
+	if m.prompt.vimEng != nil {
+		m.prompt.vimEng.Mode = vim.Normal
+	}
 	return nil
 }
 
