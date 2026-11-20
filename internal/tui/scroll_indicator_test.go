@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/ansi"
 )
 
@@ -70,9 +71,9 @@ func TestScrollIndicator_StreamingWithoutTip_SameRowAboveQueue(t *testing.T) {
 	m.viewport.autoScroll = false
 	m.viewport.scroll = 5
 	m.viewport.userPromptRows = []int{0, 10, 25}
-	m.viewport.rowsView.Rows = make([]string, 50)
-	for i := range m.viewport.rowsView.Rows {
-		m.viewport.rowsView.Rows[i] = "line"
+	m.conversation.response = make([]string, 50)
+	for i := range m.conversation.response {
+		m.conversation.response[i] = "line"
 	}
 	m.conversation.streaming = true
 	m.conversation.spinFrame = 9
@@ -119,9 +120,9 @@ func TestScrollIndicator_StreamingWithTip_SameRowAsTipAboveQueue(t *testing.T) {
 	m.viewport.autoScroll = false
 	m.viewport.scroll = 5
 	m.viewport.userPromptRows = []int{0, 10, 25}
-	m.viewport.rowsView.Rows = make([]string, 50)
-	for i := range m.viewport.rowsView.Rows {
-		m.viewport.rowsView.Rows[i] = "line"
+	m.conversation.response = make([]string, 50)
+	for i := range m.conversation.response {
+		m.conversation.response[i] = "line"
 	}
 	m.conversation.streaming = true
 	m.viewport.activeTip = "Press esc to interrupt generation."
@@ -170,9 +171,9 @@ func TestScrollIndicator_Idle_DedicatedRowAboveQueue(t *testing.T) {
 	m.viewport.autoScroll = false
 	m.viewport.scroll = 5
 	m.viewport.userPromptRows = []int{0, 10, 25}
-	m.viewport.rowsView.Rows = make([]string, 50)
-	for i := range m.viewport.rowsView.Rows {
-		m.viewport.rowsView.Rows[i] = "line"
+	m.conversation.response = make([]string, 50)
+	for i := range m.conversation.response {
+		m.conversation.response[i] = "line"
 	}
 	m.conversation.streaming = false
 	m.session.store.StreamQueue = []string{"queued follow-up message"}
@@ -195,5 +196,127 @@ func TestScrollIndicator_Idle_DedicatedRowAboveQueue(t *testing.T) {
 	}
 	if indIdx >= queuedIdx {
 		t.Errorf("expected indicator to appear ABOVE queued message: indIdx=%d, queuedIdx=%d", indIdx, queuedIdx)
+	}
+}
+
+func TestScrollIndicator_ClickToScrollToBottom_Idle(t *testing.T) {
+	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/tmp", true)
+	m.viewport.width = 80
+	m.viewport.height = 24
+	m.viewport.altScreen = true
+	m.viewport.autoScroll = false
+	m.viewport.scroll = 5
+	m.viewport.userPromptRows = []int{0, 10, 25}
+	m.conversation.response = make([]string, 50)
+	for i := range m.conversation.response {
+		m.conversation.response[i] = "line"
+	}
+	m.conversation.streaming = false
+
+	// Render view to populate scrollIndScreenY
+	_ = m.View()
+	indY := m.viewport.scrollIndScreenY
+	if indY < 0 {
+		t.Fatalf("expected scrollIndScreenY >= 0, got %d", indY)
+	}
+
+	// Verify cell detection
+	if !m.IsScrollIndicatorCell(70, indY) {
+		t.Fatalf("expected IsScrollIndicatorCell(70, %d) to be true", indY)
+	}
+
+	// Click indicator -> should jump to bottom (autoScroll becomes true)
+	m.Update(mouseClick(70, indY, tea.MouseLeft))
+	if !m.viewport.autoScroll {
+		t.Errorf("expected autoScroll to become true after clicking indicator, got false")
+	}
+
+	// Re-render -> indicator should disappear
+	_ = m.View()
+	if got := m.scrollPositionIndicator(); got != "" {
+		t.Errorf("expected empty indicator after scrolling to bottom, got %q", got)
+	}
+}
+
+func TestScrollIndicator_ClickToScrollToBottom_StreamingWithoutTip(t *testing.T) {
+	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/tmp", true)
+	m.viewport.width = 80
+	m.viewport.height = 24
+	m.viewport.altScreen = true
+	m.viewport.autoScroll = false
+	m.viewport.scroll = 5
+	m.viewport.userPromptRows = []int{0, 10, 25}
+	m.conversation.response = make([]string, 50)
+	for i := range m.conversation.response {
+		m.conversation.response[i] = "line"
+	}
+	m.conversation.streaming = true
+	m.conversation.spinFrame = 9
+	m.viewport.activeTip = ""
+
+	// Render view to populate scrollIndScreenY
+	_ = m.View()
+	indY := m.viewport.scrollIndScreenY
+	if indY < 0 {
+		t.Fatalf("expected scrollIndScreenY >= 0, got %d", indY)
+	}
+
+	// Clicking on the left side (spinner text at x=5) should NOT trigger scroll to bottom
+	if m.IsScrollIndicatorCell(5, indY) {
+		t.Errorf("IsScrollIndicatorCell(5, %d) should be false (spinner area)", indY)
+	}
+	m.Update(mouseClick(5, indY, tea.MouseLeft))
+	if m.viewport.autoScroll {
+		t.Errorf("clicking spinner text at x=5 should not set autoScroll=true")
+	}
+
+	// Clicking on the right side (indicator at x=70) should trigger scroll to bottom
+	if !m.IsScrollIndicatorCell(70, indY) {
+		t.Errorf("IsScrollIndicatorCell(70, %d) should be true (indicator area)", indY)
+	}
+	m.Update(mouseClick(70, indY, tea.MouseLeft))
+	if !m.viewport.autoScroll {
+		t.Errorf("expected autoScroll to become true after clicking indicator, got false")
+	}
+}
+
+func TestScrollIndicator_ClickToScrollToBottom_StreamingWithTip(t *testing.T) {
+	m := newRootModel(&fakeClient{}, "u@t", "m", "t", "/tmp", true)
+	m.viewport.width = 80
+	m.viewport.height = 24
+	m.viewport.altScreen = true
+	m.viewport.autoScroll = false
+	m.viewport.scroll = 5
+	m.viewport.userPromptRows = []int{0, 10, 25}
+	m.conversation.response = make([]string, 50)
+	for i := range m.conversation.response {
+		m.conversation.response[i] = "line"
+	}
+	m.conversation.streaming = true
+	m.viewport.activeTip = "Press esc to interrupt generation."
+
+	// Render view to populate scrollIndScreenY
+	_ = m.View()
+	indY := m.viewport.scrollIndScreenY
+	if indY < 0 {
+		t.Fatalf("expected scrollIndScreenY >= 0, got %d", indY)
+	}
+
+	// Clicking on tip text at x=5 should NOT trigger scroll to bottom
+	if m.IsScrollIndicatorCell(5, indY) {
+		t.Errorf("IsScrollIndicatorCell(5, %d) should be false (tip text area)", indY)
+	}
+	m.Update(mouseClick(5, indY, tea.MouseLeft))
+	if m.viewport.autoScroll {
+		t.Errorf("clicking tip text at x=5 should not set autoScroll=true")
+	}
+
+	// Clicking on indicator at x=70 should trigger scroll to bottom
+	if !m.IsScrollIndicatorCell(70, indY) {
+		t.Errorf("IsScrollIndicatorCell(70, %d) should be true (indicator area)", indY)
+	}
+	m.Update(mouseClick(70, indY, tea.MouseLeft))
+	if !m.viewport.autoScroll {
+		t.Errorf("expected autoScroll to become true after clicking indicator, got false")
 	}
 }

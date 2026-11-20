@@ -169,6 +169,11 @@ type uiState struct {
 	// Cycle 253: AGY 1.3.3 pinned-prompt header. In altscreen mode the
 	pinnedPromptRowIdx int
 	pinnedPromptText   string
+	// Scroll position indicator screen bounds (for mouse click to jump to bottom)
+	scrollIndBodyStart int
+	scrollIndScreenY   int
+	scrollIndStartX    int
+	scrollIndEndX      int
 	// vpRows is the transcript viewport's height in rows, recorded on every
 	vpRows int
 	// Cycle 122: per-width caches of the wrapped m.conversation.response rows. The

@@ -1466,6 +1466,10 @@ func (m *RootModel) updateMouseClick(ev tea.Mouse) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 	}
+	if m.IsScrollIndicatorCell(ev.X, ev.Y) {
+		m.gotoBottom()
+		return m, nil
+	}
 	if m.prompt.IsInputY(ev.Y) {
 		m.ResetSelection()
 		m.ResetBtwSelection()

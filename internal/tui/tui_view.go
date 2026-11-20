@@ -81,6 +81,11 @@ func (m *RootModel) clipViewBody(body string, cursorY int) (string, int) {
 	} else {
 		m.overlays.btwScreenY = -1
 	}
+	if m.viewport.scrollIndBodyStart >= 0 && m.viewport.scrollIndBodyStart >= drop {
+		m.viewport.scrollIndScreenY = m.viewport.scrollIndBodyStart - drop
+	} else {
+		m.viewport.scrollIndScreenY = -1
+	}
 	return body, cursorY
 }
 
@@ -366,6 +371,28 @@ func (m *RootModel) IsBtwCardY(y int) bool {
 	return y >= m.overlays.btwScreenY && y < m.overlays.btwScreenY+m.overlays.btwHeight
 }
 
+// IsScrollIndicatorCell reports whether (x, y) on the screen falls on the
+// scroll position indicator ("↓ 42 lines · 2 turns").
+func (m *RootModel) IsScrollIndicatorCell(x, y int) bool {
+	if !m.viewport.altScreen || m.viewport.autoScroll || m.hasActiveModal() || m.isFullViewportPanel() {
+		return false
+	}
+	if m.viewport.scrollIndScreenY < 0 || m.viewport.scrollIndScreenY >= m.viewport.height {
+		return false
+	}
+	if y != m.viewport.scrollIndScreenY {
+		return false
+	}
+	if !m.conversation.streaming {
+		return true
+	}
+	minX := m.viewport.scrollIndStartX - 2
+	if minX < 0 {
+		minX = 0
+	}
+	return x >= minX
+}
+
 func (m *RootModel) syncInputPlaceholder() {
 	switch {
 	case m.prompt.picker.Visible() || m.hasActiveModal() || (m.audio.Surface != nil && m.audio.Surface.Active() && m.audio.Surface.Phase() != voice.PhaseLive):
@@ -414,6 +441,9 @@ func (m *RootModel) renderBodyPrompt(b *strings.Builder) int {
 			if pad < 0 {
 				pad = 0
 			}
+			m.viewport.scrollIndBodyStart = tuilib.ViewRows(b.String())
+			m.viewport.scrollIndStartX = pad
+			m.viewport.scrollIndEndX = m.viewport.width
 			b.WriteString(palette.DimGrayOpen + strings.Repeat(" ", pad) + ind + palette.DimGrayClose + "\n")
 		}
 	}
@@ -523,6 +553,10 @@ func (m *RootModel) viewBody(transcript []string) (string, int) {
 	var b strings.Builder
 	m.prompt.picker.ResetGeom()
 	m.prompt.promptScreenY = -1
+	m.viewport.scrollIndBodyStart = -1
+	m.viewport.scrollIndScreenY = -1
+	m.viewport.scrollIndStartX = -1
+	m.viewport.scrollIndEndX = -1
 
 	if m.isFullViewportPanel() && m.viewport.height > 0 {
 		b.WriteString(m.panelView())
@@ -536,7 +570,25 @@ func (m *RootModel) viewBody(transcript []string) (string, int) {
 		b.WriteString(line + "\n")
 	}
 
-	for _, line := range m.liveRows(m.viewport.width) {
+	transcriptRowCount := tuilib.ViewRows(b.String())
+	live := m.liveRows(m.viewport.width)
+	if m.conversation.streaming && m.viewport.altScreen && !m.viewport.autoScroll {
+		if ind := m.scrollPositionIndicator(); ind != "" {
+			rw := ansi.StringWidth(ind)
+			pad := m.viewport.width - rw
+			if pad < 0 {
+				pad = 0
+			}
+			m.viewport.scrollIndStartX = pad
+			m.viewport.scrollIndEndX = m.viewport.width
+			if m.viewport.activeTip != "" {
+				m.viewport.scrollIndBodyStart = transcriptRowCount + 1
+			} else {
+				m.viewport.scrollIndBodyStart = transcriptRowCount
+			}
+		}
+	}
+	for _, line := range live {
 		b.WriteString(line + "\n")
 	}
 
@@ -1111,8 +1163,22 @@ func (m *RootModel) viewportHeight() int {
 	if m.viewport.height <= 0 {
 		return 0
 	}
+	savedIndY := m.viewport.scrollIndScreenY
+	savedIndBody := m.viewport.scrollIndBodyStart
+	savedIndStartX := m.viewport.scrollIndStartX
+	savedIndEndX := m.viewport.scrollIndEndX
+	savedPromptY := m.prompt.promptScreenY
+	savedBtwY := m.overlays.btwScreenY
+
 	body, _ := m.viewBody(nil)
 	extra := tuilib.ViewRows(body)
+
+	m.viewport.scrollIndScreenY = savedIndY
+	m.viewport.scrollIndBodyStart = savedIndBody
+	m.viewport.scrollIndStartX = savedIndStartX
+	m.viewport.scrollIndEndX = savedIndEndX
+	m.prompt.promptScreenY = savedPromptY
+	m.overlays.btwScreenY = savedBtwY
 	if m.help.Panel.Active() {
 		extra -= tuilib.ViewRows(m.help.Panel.Rows())
 	}
