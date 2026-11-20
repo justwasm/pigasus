@@ -1,0 +1,36 @@
+NAME "Context Panel & Compaction Alignment (/context & /compact) (1.5.13)"
+WINDOW 100 30
+TARGET both
+
+BOOT_BOTH
+WAIT_READY 10s
+
+# 1. Open /context initially before compaction
+TYPE "/context"
+ENTER
+SLEEP 800ms
+SNAPSHOT "01_context_before_compact"
+
+# 2. Escape to close /context panel
+KEYS "Escape"
+SLEEP 400ms
+
+# 3. Trigger manual compaction via /compact
+TYPE "/compact"
+ENTER
+SLEEP 800ms
+SNAPSHOT "02_compact_executed"
+
+# 4. Open /context immediately following compaction
+TYPE "/context"
+ENTER
+SLEEP 800ms
+SNAPSHOT "03_context_after_compact"
+
+# 5. Escape to close /context back to main prompt
+KEYS "Escape"
+SLEEP 400ms
+SNAPSHOT "04_context_closed"
+
+DIFF
+CLEANUP

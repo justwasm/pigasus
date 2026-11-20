@@ -1897,9 +1897,22 @@ func (m *RootModel) updateCompactEndMsg(msg compactEndMsg) (tea.Model, tea.Cmd) 
 	m.session.store.CompactReason = msg.Reason
 	m.session.store.CompactTokensBefore = msg.TokensBefore
 	m.session.store.CompactTokensAfter = msg.EstimatedTokensAfter
+	m.session.store.CompactStepsSummarized = msg.Steps
+	m.session.store.CompactJustHappened = true
+	m.conversation.compactHappenedThisTurn = true
+	m.conversation.compactBlockIdx = len(m.conversation.blocks)
+	m.conversation.compactStepIdx = len(m.conversation.liveSteps)
 
 	if msg.Summary != "" || msg.Resume != "" {
 		requests := compaction.UserRequests(m.SessionMessages(), compaction.MaxUserRequests)
+		currentSteps := convstore.BuildSteps(m.trajectoryFacts())
+		includedEnd := msg.Steps
+		if includedEnd <= 0 {
+			includedEnd = len(currentSteps)
+		}
+		if includedEnd <= 0 {
+			includedEnd = 1
+		}
 		m.session.queueCheckpoint(convstore.Step{
 			Type:            convstore.StepCheckpoint,
 			Status:          3,
@@ -1909,13 +1922,14 @@ func (m *RootModel) updateCompactEndMsg(msg compactEndMsg) (tea.Model, tea.Cmd) 
 			CheckpointModel: msg.SummaryModel,
 			TokensBefore:    msg.TokensBefore,
 			TokensAfter:     msg.EstimatedTokensAfter,
+			IncludedStart:   1,
+			IncludedEnd:     includedEnd,
 		}, m.checkpointInsertionPoint(msg.KeepRecent))
 		resume := msg.Resume
 		if resume == "" {
 			resume = compaction.ResumingBlock(requests, msg.Summary)
 		}
 		carriedTokens := compaction.EstimateTokens(compaction.CarriedBlock(requests))
-		currentSteps := convstore.BuildSteps(m.trajectoryFacts())
 		m.setSessionMessages([]backend.Message{{
 			Role:    "user",
 			Content: resume,

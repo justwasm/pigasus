@@ -3,6 +3,7 @@
 package contextpanel
 
 import (
+	"fmt"
 	"strings"
 	"time"
 
@@ -178,6 +179,14 @@ func FormatPercentage(part, total int) string {
 	return Pct(part, total)
 }
 
+// IsResumeBlock reports whether the message content is a compaction resume block.
+func IsResumeBlock(content string) bool {
+	trimmed := strings.TrimSpace(content)
+	return strings.HasPrefix(trimmed, "# Resuming from a compaction") ||
+		strings.HasPrefix(trimmed, "<CONTEXT_SUMMARY>") ||
+		strings.HasPrefix(trimmed, resumeHeader())
+}
+
 // UserMessageTokens counts tokens across all user messages in a session.
 func UserMessageTokens(messages []backend.Message) int {
 	var user int
@@ -199,6 +208,9 @@ func AdjustStreamingUserTokens(messages []backend.Message, user int) int {
 	for i := len(messages) - 1; i >= 0; i-- {
 		msg := messages[i]
 		if msg.Role != "user" {
+			continue
+		}
+		if IsResumeBlock(msg.Content) {
 			continue
 		}
 		wire := msg.WireContent
@@ -255,15 +267,13 @@ func SystemMessageTokens(messages []backend.Message) int {
 // A session that was never compacted has no checkpoint, and the count is
 // zero.
 func CheckpointBufferTokens(messages []backend.Message) int {
-	header := resumeHeader()
 	for _, msg := range messages {
 		if msg.Role != "user" {
 			continue
 		}
-		if !strings.HasPrefix(msg.Content, header) {
-			return 0
+		if IsResumeBlock(msg.Content) {
+			return compaction.EstimateTokens(msg.Content)
 		}
-		return compaction.EstimateTokens(msg.Content)
 	}
 	return 0
 }
@@ -284,6 +294,22 @@ func AgentTokens(sessionCompletionTokens, lastTurnCompletionTokens int64) int {
 		return 0
 	}
 	return completed
+}
+
+// AgentMessageTokens counts tokens across all assistant messages in an active session.
+func AgentMessageTokens(messages []backend.Message) int {
+	var total int
+	for _, msg := range messages {
+		if msg.Role != "assistant" {
+			continue
+		}
+		wire := msg.WireContent
+		if wire == "" {
+			wire = backend.WrapUserContent(msg.Content, "", false, time.Now())
+		}
+		total += backend.UserContentTokenCount(wire)
+	}
+	return total
 }
 
 // StreamingAgentTokens computes agent tokens including the in-flight reply buffer.
@@ -330,14 +356,23 @@ func SystemPromptTokens(fullPromptLen, skillsTokens, subagentsTokens int) int {
 
 // EmptyRows returns the 7 descriptor rows of the empty context state.
 func EmptyRows(model string) []Row {
+	return EmptyRowsWithLimit(model, MaxContextTokens)
+}
+
+// EmptyRowsWithLimit returns the 7 descriptor rows formatted with the given contextMax.
+func EmptyRowsWithLimit(model string, contextMax int) []Row {
+	if contextMax <= 0 {
+		contextMax = MaxContextTokens
+	}
+	maxStr := FormatContextLimit(contextMax)
 	return []Row{
-		{model + " · 0/1.0M tokens", 5},
+		{fmt.Sprintf("%s · 0/%s tokens", model, maxStr), 5},
 		{"(0.0%)", 6},
 		{"\x1b[1m" + palette.SubtleOpen + "Estimated usage (awaiting generation)\x1b[0m", 5},
 		{UserRowMarker + " User messages: 0 tokens (0.0%)", 5},
 		{AgentGlyph + " Agent responses: 0 tokens (0.0%)", 5},
 		{EmptyToolRowMarker + " Tool calls: 0 tokens (0.0%)", 5},
-		{palette.DimGrayOpen + "□\x1b[39m Free space: 1.0M (100.0%)", 5},
+		{FormatFreeSpaceRow(contextMax, contextMax), 5},
 	}
 }
 
@@ -352,7 +387,12 @@ func RenderGridLines(rows []Row, fill []string, cols int) []string {
 
 // EmptyGridLines renders the visual grid bar lines for the empty context state.
 func EmptyGridLines(model string, width int) []string {
-	return RenderGridLines(EmptyRows(model), nil, ColsFor(width))
+	return EmptyGridLinesWithLimit(model, width, MaxContextTokens)
+}
+
+// EmptyGridLinesWithLimit renders the visual grid bar lines with the specified contextMax.
+func EmptyGridLinesWithLimit(model string, width, contextMax int) []string {
+	return RenderGridLines(EmptyRowsWithLimit(model, contextMax), nil, ColsFor(width))
 }
 
 // StreamingGridLines renders the visual grid bar lines for an in-flight turn.
@@ -364,16 +404,18 @@ func StreamingGridLines(model string, width, contextMax, user, agent, tool int) 
 }
 
 // LiveGridLines renders the visual grid bar lines for a completed turn.
-//
-// The rows are the breakdown's visible categories and the free-space
-// row; the cells are painted in the reference's own order.
 func LiveGridLines(model string, width, contextMax int, cats []Category) []string {
+	return LiveGridLinesWithCompacted(model, width, contextMax, cats, false)
+}
+
+// LiveGridLinesWithCompacted renders the visual grid bar lines for a completed turn with optional post-compaction state.
+func LiveGridLinesWithCompacted(model string, width, contextMax int, cats []Category, compactJustHappened bool) []string {
 	total := 0
 	for _, c := range cats {
 		total += c.Tokens
 	}
 	used, free := ClampedUsage(contextMax, total)
 	fill := LiveFill(cats)
-	rows := LiveRows(model, used, free, contextMax, cats)
+	rows := LiveRowsWithCompacted(model, used, free, contextMax, cats, compactJustHappened)
 	return RenderGridLines(rows, fill, ColsFor(width))
 }

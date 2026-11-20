@@ -98,6 +98,16 @@ var AllScenarios = []ScenarioSpec{
 		Subagent:  true,
 		AgentBody: "# Role: Weather Researcher\nInvestigate weather in Shanghai.",
 	},
+	{
+		Name:        "compaction_turn",
+		Description: "Turn resuming after compaction: <CONTEXT_SUMMARY> and # Resuming from a compaction replace prior messages",
+		Options: agyprompt.DefaultOptions(
+			"/tmp/workspace",
+			"/tmp/appdata",
+			"00000000-0000-0000-0000-000000000000",
+		),
+		Sandboxed: false,
+	},
 }
 
 // BuildReferenceWire generates the ground-truth wire payload directly by executing

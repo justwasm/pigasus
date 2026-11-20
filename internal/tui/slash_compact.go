@@ -323,6 +323,11 @@ func (m *RootModel) applyGenericCompactSuccess(msg genericCompactDoneMsg, custom
 		if sup := m.session.sup(); sup != nil {
 			sup.SetSeededConversation(currentSteps, m.session.messageCount())
 		}
+		m.session.store.CompactJustHappened = true
+		m.conversation.compactHappenedThisTurn = true
+		m.session.store.CompactTokensBefore = msg.StatsBefore.Tokens
+		m.session.store.CompactTokensAfter = msg.StatsAfter.Tokens
+		m.session.store.CompactEnd = time.Now()
 	}
 	beforeTokens, afterTokens, summaryTokens := compaction.ComputeCompactTokens(msg.StatsBefore.Tokens, msg.InputTokens, msg.StatsAfter.Tokens, msg.OutputTokens, msg.Overhead, msg.Summary, carriedTokens)
 	m.conversation.response = append(m.conversation.response,

@@ -44,6 +44,13 @@ type ConversationModel struct {
 
 	// streaming is true while a turn's stream is being applied.
 	streaming bool
+	// compactHappenedThisTurn records whether a compaction was performed during this turn.
+	compactHappenedThisTurn bool
+	// compactBlockIdx marks the index in blocks where the latest compaction occurred.
+	// Tool blocks before this index were compacted and are excluded from active context usage.
+	compactBlockIdx int
+	// compactStepIdx marks the index in liveSteps where compaction occurred in the active turn.
+	compactStepIdx int
 	// turnInterrupted is true when the user cancelled the latest turn with
 	// Esc; the composer hint and the absence of an error row follow it.
 	turnInterrupted bool

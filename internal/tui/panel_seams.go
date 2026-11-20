@@ -1441,9 +1441,15 @@ func (m *RootModel) ContextState() contextpanel.State {
 }
 
 func (m *RootModel) contextState() contextpanel.State {
+	ctxMax := modelctx.PublishedContextWindow(m.session.model)
+	if ctxMax <= 0 {
+		ctxMax = contextpanel.MaxContextTokens
+	}
 	st := contextpanel.State{
-		Model: m.contextModel(),
-		Width: m.viewport.width,
+		Model:               m.contextModel(),
+		ContextMax:          ctxMax,
+		Width:               m.viewport.width,
+		CompactJustHappened: m.session.store.CompactJustHappened,
 	}
 	switch {
 	case m.conversation.streaming:
@@ -1470,7 +1476,44 @@ func (m *RootModel) contextState() contextpanel.State {
 	if st.User < 0 {
 		st.User = 0
 	}
+	st.TotalCheckpoints, st.ActiveCheckpointIndex, st.ActiveCheckpointStart, st.ActiveCheckpointEnd, st.HistoricalCheckpoints = m.checkpointStats()
 	return st
+}
+
+func (m *RootModel) checkpointStats() (total, activeIdx, startStep, endStep, historicalCount int) {
+	steps := convstore.BuildSteps(m.trajectoryFacts())
+	for _, s := range steps {
+		if s.Type == convstore.StepCheckpoint {
+			total++
+			activeIdx = total
+			startStep = s.IncludedStart
+			endStep = s.IncludedEnd
+		}
+	}
+	if total == 0 {
+		if m.session.store.CompactTokensAfter > 0 || m.session.store.CompactTokensBefore > 0 {
+			total = 1
+			activeIdx = 1
+			startStep = 1
+			endStep = m.session.store.CompactStepsSummarized
+			if endStep <= 0 {
+				endStep = len(steps)
+			}
+			if endStep < startStep {
+				endStep = startStep
+			}
+		}
+	}
+	if startStep <= 0 {
+		startStep = 1
+	}
+	if endStep < startStep {
+		endStep = startStep
+	}
+	if total > 1 {
+		historicalCount = total - 1
+	}
+	return total, activeIdx, startStep, endStep, historicalCount
 }
 
 func (m *RootModel) promptCategoryTokens() (base, rules, skills, subagents int) {
@@ -1488,11 +1531,19 @@ func (m *RootModel) contextModel() string {
 }
 
 func (m *RootModel) streamingTokenCounts() (user, agent, tool int) {
-	user, _, tool = m.sessionTokenCounts()
+	user, agent, tool = m.sessionTokenCounts()
 	user = contextpanel.AdjustStreamingUserTokens(m.SessionMessages(), user)
-	completed := atomic.LoadInt64(&m.session.store.SessionCompletionTokens)
-	lastTurn := atomic.LoadInt64(&m.session.store.LastTurnCompletionTokens)
-	agent = contextpanel.StreamingAgentTokens(completed, lastTurn, len(m.conversation.liveReplyBuf))
+	hasCompacted := m.session.store.CompactJustHappened ||
+		m.session.store.CompactTokensAfter > 0 ||
+		m.conversation.compactBlockIdx > 0 ||
+		contextpanel.CheckpointBufferTokens(m.SessionMessages()) > 0
+	if hasCompacted {
+		agent += len(m.conversation.liveReplyBuf) / 4
+	} else {
+		completed := atomic.LoadInt64(&m.session.store.SessionCompletionTokens)
+		lastTurn := atomic.LoadInt64(&m.session.store.LastTurnCompletionTokens)
+		agent = contextpanel.StreamingAgentTokens(completed, lastTurn, len(m.conversation.liveReplyBuf))
+	}
 	return user, agent, tool
 }
 
@@ -1502,14 +1553,39 @@ func (m *RootModel) wireToolDecls() []backend.ToolDecl {
 
 func (m *RootModel) sessionTokenCounts() (user, agent, tool int) {
 	user = contextpanel.UserMessageTokens(m.SessionMessages())
-	completed := atomic.LoadInt64(&m.session.store.SessionCompletionTokens)
-	lastTurn := atomic.LoadInt64(&m.session.store.LastTurnCompletionTokens)
-	agent = contextpanel.AgentTokens(completed, lastTurn)
+
+	hasCompacted := m.session.store.CompactJustHappened ||
+		m.session.store.CompactTokensAfter > 0 ||
+		m.conversation.compactBlockIdx > 0 ||
+		contextpanel.CheckpointBufferTokens(m.SessionMessages()) > 0
+
+	if hasCompacted {
+		agent = contextpanel.AgentMessageTokens(m.SessionMessages())
+	} else {
+		completed := atomic.LoadInt64(&m.session.store.SessionCompletionTokens)
+		lastTurn := atomic.LoadInt64(&m.session.store.LastTurnCompletionTokens)
+		agent = contextpanel.AgentTokens(completed, lastTurn)
+	}
+
 	var steps []toolsteps.Step
-	for _, b := range m.conversation.blocks {
+	startBlock := 0
+	if hasCompacted && m.conversation.compactBlockIdx > 0 {
+		startBlock = m.conversation.compactBlockIdx
+		if startBlock > len(m.conversation.blocks) {
+			startBlock = len(m.conversation.blocks)
+		}
+	}
+	for _, b := range m.conversation.blocks[startBlock:] {
 		steps = append(steps, b.Steps...)
 	}
-	steps = append(steps, m.conversation.liveSteps...)
+	startLiveStep := 0
+	if hasCompacted && m.conversation.compactStepIdx > 0 {
+		startLiveStep = m.conversation.compactStepIdx
+		if startLiveStep > len(m.conversation.liveSteps) {
+			startLiveStep = len(m.conversation.liveSteps)
+		}
+	}
+	steps = append(steps, m.conversation.liveSteps[startLiveStep:]...)
 	tool = contextpanel.ToolResultTokens(toolsteps.ToolResults(steps)...)
 	return user, agent, tool
 }

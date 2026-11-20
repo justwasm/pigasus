@@ -391,12 +391,13 @@ func (l *Local) run(ctx context.Context, env Env, model string, t Turn, emit fun
 		e := checkpoint.NewEmitter()
 		l.checkpointEmitter = e
 		l.checkpoint = checkpoint.New(checkpoint.Config{
-			Model:            model,
-			SystemPrompt:     env.SystemPrompt,
-			ToolDeclarations: toolDecls,
-			Backend:          env.Backend,
-			BackendFor:       env.BackendFor,
-			Emit:             e.Emit,
+			Model:               model,
+			SystemPrompt:        env.SystemPrompt,
+			ToolDeclarations:    toolDecls,
+			Backend:             env.Backend,
+			BackendFor:          env.BackendFor,
+			EnableSoftThreshold: true,
+			Emit:                e.Emit,
 		})
 		l.checkpointModel = model
 		created = true

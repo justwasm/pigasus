@@ -13,6 +13,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
+	"strconv"
 	"sync"
 	"time"
 
@@ -206,6 +208,7 @@ func New(cfg Config) *Policy {
 			Strategy:                   ctx.StrategySameModel,
 			MaxTokenLimit:              limit.ContextWindow,
 			MaxOutputTokens:            limit.ReserveTokens,
+			TokenThreshold:             50000,
 			Enabled:                    true,
 			CheckpointModel:            cfg.Model,
 			IsSync:                     true,
@@ -618,10 +621,16 @@ func (p *Policy) should(probe actor.CheckpointProbe, projected int, hard bool) b
 	if !p.cfg.EnableSoftThreshold {
 		return false
 	}
-	// token_threshold's consumer was not located in the binary. Live 1.5.3
-	// checkpoints were hard-limit checkpoints (~258k), so the soft trigger is
-	// opt-in; the guide records the inference.
-	return p.profile.TokenThreshold > 0 && projected >= p.profile.TokenThreshold
+	threshold := p.profile.TokenThreshold
+	if threshold <= 0 {
+		threshold = 50000
+	}
+	if envVal := os.Getenv("OPENAGY_COMPACT_TOKEN_THRESHOLD"); envVal != "" {
+		if val, err := strconv.Atoi(envVal); err == nil && val > 0 {
+			threshold = val
+		}
+	}
+	return threshold > 0 && projected >= threshold
 }
 
 func (p *Policy) emitStart(j *job) {

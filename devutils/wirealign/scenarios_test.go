@@ -100,6 +100,14 @@ func TestAllScenarios_RenderFromTemplates(t *testing.T) {
 				if strings.Contains(msgSec.Content, "peer") {
 					t.Errorf("subagent messaging section must omit peer agents")
 				}
+
+			case "compaction_turn":
+				if tDec.Count != 12 {
+					t.Errorf("compaction turn must expose full 12 tools, got %d", tDec.Count)
+				}
+				if !pDec.IsGenericPrompt {
+					t.Errorf("compaction turn must preserve generic system prompt")
+				}
 			}
 		})
 	}

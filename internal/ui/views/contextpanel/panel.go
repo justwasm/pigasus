@@ -78,6 +78,10 @@ type State struct {
 	// five columns.
 	Width int
 
+	// ContextMax is the total context window size for the model.
+	// When zero or negative, MaxContextTokens (1.0M) is used as default.
+	ContextMax int
+
 	// Mode picks the layout.
 	Mode Mode
 
@@ -111,14 +115,34 @@ type State struct {
 	// checkpoint holds. It is reported outside the grid and is not part
 	// of the usage total.
 	CheckpointBuffer int
+
+	// CompactJustHappened indicates that a compaction occurred during this or the
+	// immediately preceding turn, showing "Estimated after compaction · updates next turn".
+	CompactJustHappened bool
+
+	// Checkpoint telemetry for the Checkpoints (%d) section:
+	TotalCheckpoints      int
+	ActiveCheckpointIndex int
+	ActiveCheckpointStart int
+	ActiveCheckpointEnd   int
+	HistoricalCheckpoints int
+}
+
+// TotalUsed returns the unclamped sum of active token categories counted in usage.
+func (st State) TotalUsed() int {
+	return st.breakdown().TotalUsed()
 }
 
 // breakdown is the panel's view of the session's counts: the categories
 // the reference reports, in its order.
 func (st State) breakdown() Breakdown {
+	ctxMax := st.ContextMax
+	if ctxMax <= 0 {
+		ctxMax = MaxContextTokens
+	}
 	return Breakdown{
 		Model:            st.Model,
-		ContextMax:       MaxContextTokens,
+		ContextMax:       ctxMax,
 		User:             st.User,
 		Agent:            st.Agent,
 		Tool:             st.Tool,
@@ -139,7 +163,7 @@ func (st State) breakdown() Breakdown {
 // Lines renders the /context usage panel.
 //
 // The panel is the title row, the layout's grid, the checkpoint-buffer
-// row and the shared tail.
+// row, the Checkpoints (%d) list and the shared tail.
 //
 // The checkpoint row is outside the grid: the reference tracks the
 // checkpoint's tokens separately, so the summarized history they stand
@@ -149,19 +173,26 @@ func Lines(st State) []string {
 	if st.CheckpointBuffer > 0 {
 		lines = append(lines, CheckpointRow(st.CheckpointBuffer))
 	}
+	if st.TotalCheckpoints > 0 || st.ActiveCheckpointIndex > 0 {
+		lines = append(lines, RenderCheckpoints(st.TotalCheckpoints, st.ActiveCheckpointIndex, st.ActiveCheckpointStart, st.ActiveCheckpointEnd, st.HistoricalCheckpoints)...)
+	}
 	return append(lines, TailLines()...)
 }
 
 // gridLines is the layout's own block: the descriptor rows painted
 // over the usage grid.
 func (st State) gridLines() []string {
+	ctxMax := st.ContextMax
+	if ctxMax <= 0 {
+		ctxMax = MaxContextTokens
+	}
 	switch st.Mode {
 	case ModeStreaming:
-		return StreamingGridLines(st.Model, st.Width, MaxContextTokens, st.User, st.Agent, st.Tool)
+		return StreamingGridLines(st.Model, st.Width, ctxMax, st.User, st.Agent, st.Tool)
 	case ModeLive:
-		return LiveGridLines(st.Model, st.Width, MaxContextTokens, st.breakdown().Categories())
+		return LiveGridLinesWithCompacted(st.Model, st.Width, ctxMax, st.breakdown().Categories(), st.CompactJustHappened)
 	default:
-		return EmptyGridLines(st.Model, st.Width)
+		return EmptyGridLinesWithLimit(st.Model, st.Width, ctxMax)
 	}
 }
 

@@ -68,6 +68,7 @@ import (
 	"github.com/justwasm/pigasus/internal/ui/transcript"
 	"github.com/justwasm/pigasus/internal/ui/tuilib"
 	"github.com/justwasm/pigasus/internal/ui/tuitools"
+	"github.com/justwasm/pigasus/internal/ui/views/contextpanel"
 	"github.com/justwasm/pigasus/internal/ui/views/loginui"
 	"github.com/justwasm/pigasus/internal/ui/views/modelargpopup"
 	"github.com/justwasm/pigasus/internal/ui/views/modelpicker"
@@ -723,20 +724,24 @@ func (m *RootModel) recordTurnCompletion(msg toolsteps.TurnDoneMsg) {
 	}
 
 	lastMsg, hasLast := m.session.lastMessage()
-	isCompactedResumption := m.session.messageCount() == 1 && hasLast &&
+	isCompactedResumption := m.session.messageCount() >= 1 && hasLast &&
 		lastMsg.Role == "user" &&
-		strings.HasPrefix(lastMsg.Content, "# Resuming from a compaction")
+		contextpanel.IsResumeBlock(lastMsg.Content)
 
 	if !agentturn.IsEmptyAssistantTurn(msg.Reply, nil, msg.Reasoning) {
-		// If a compaction just replaced the session with a ResumingBlock during this turn,
-		// the assistant's reply was already captured in the compacted summary.
-		if !isCompactedResumption {
-			if m.conversation.liveReplyIdx >= 0 && m.conversation.liveReplyIdx < m.session.messageCount() {
-				m.session.setMessageContent(m.conversation.liveReplyIdx, msg.Reply)
-			} else {
-				m.session.appendMessage(backend.Message{Role: "assistant", Content: msg.Reply})
-			}
+		if m.conversation.liveReplyIdx >= 0 && m.conversation.liveReplyIdx < m.session.messageCount() {
+			m.session.setMessageContent(m.conversation.liveReplyIdx, msg.Reply)
+		} else {
+			m.session.appendMessage(backend.Message{Role: "assistant", Content: msg.Reply})
 		}
+	}
+	if m.conversation.compactHappenedThisTurn {
+		m.session.store.CompactJustHappened = true
+		m.conversation.compactHappenedThisTurn = false
+		m.conversation.compactBlockIdx = len(m.conversation.blocks)
+		m.conversation.compactStepIdx = 0
+	} else {
+		m.session.store.CompactJustHappened = false
 	}
 	// The turn's tool calls join the trajectory before the save: the
 	// calls are what the rehydration pass reads back.

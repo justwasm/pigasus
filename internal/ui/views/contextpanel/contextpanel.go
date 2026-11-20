@@ -191,19 +191,77 @@ const EmptyToolRowMarker = "\x1b[1m\x1b[38;5;172m◉\x1b[0m"
 // hard-codes, so it does not move with the scheme.
 const ToolGlyph = "\x1b[38;5;172m◉\x1b[39m"
 
+// FormatContextLimit formats the context window limit matching reference fmtCtxLimit.
+func FormatContextLimit(limit int) string {
+	if limit >= 1_000_000 {
+		f := float64(limit) / 1_000_000
+		if f == float64(int(f)) {
+			if limit == 1_000_000 {
+				return "1.0M"
+			}
+			return fmt.Sprintf("%.0fM", f)
+		}
+		return fmt.Sprintf("%.1fM", f)
+	}
+	if limit >= 1000 {
+		f := float64(limit) / 1000
+		if f == float64(int(f)) {
+			return fmt.Sprintf("%.0fk", f)
+		}
+		return fmt.Sprintf("%.1fk", f)
+	}
+	if limit <= 0 {
+		return "Unknown"
+	}
+	return strconv.Itoa(limit)
+}
+
+// FormatFreeSpaceRow formats the free space row for the given free and total capacity.
+func FormatFreeSpaceRow(free, contextMax int) string {
+	maxStr := FormatContextLimit(contextMax)
+	if contextMax <= 0 {
+		maxStr = "1.0M"
+	}
+	return fmt.Sprintf(palette.DimGrayOpen+"□\x1b[39m Free space: %s %s", maxStr, Pct(free, contextMax))
+}
+
+// RenderCheckpoints renders the Checkpoints (%d) section:
+//
+//	Checkpoints (1)
+//	  └ Checkpoint 1 (active, in context): steps 1–3
+//	  1 historical checkpoint(s) (summarized, not in context)
+func RenderCheckpoints(totalCheckpoints, activeIndex, startStep, endStep, historicalCount int) []string {
+	if totalCheckpoints <= 0 && activeIndex <= 0 {
+		return nil
+	}
+	if totalCheckpoints <= 0 {
+		totalCheckpoints = 1 + historicalCount
+	}
+	var lines []string
+	lines = append(lines, "\x1b[1m"+palette.SubtleOpen+fmt.Sprintf("Checkpoints (%d)", totalCheckpoints)+"\x1b[0m")
+	if activeIndex > 0 {
+		lines = append(lines, fmt.Sprintf("  "+palette.SubtleOpen+"└ Checkpoint %d (active, in context): steps %d–%d\x1b[39m", activeIndex, startStep, endStep))
+	}
+	if historicalCount > 0 {
+		lines = append(lines, fmt.Sprintf("  "+palette.SubtleOpen+"%d historical checkpoint(s) (summarized, not in context)\x1b[39m", historicalCount))
+	}
+	return lines
+}
+
 // StreamingRows are the descriptor rows of the in-flight layout (cycle 289):
 // a turn in flight shows only the user/agent/tool rows and one grid cell
 // per non-empty category — the system categories appear once the turn
 // completes.
 func StreamingRows(model string, used, free, contextMax, user, agent, tool int) []Row {
+	maxStr := FormatContextLimit(contextMax)
 	return []Row{
-		{fmt.Sprintf("%s · %s/1.0M tokens", model, TokenLabel(used)), 5},
+		{fmt.Sprintf("%s · %s/%s tokens", model, TokenLabel(used), maxStr), 5},
 		{Pct(used, contextMax), 6},
 		{"\x1b[1m" + palette.SubtleOpen + "Estimated usage (awaiting generation)\x1b[0m", 5},
 		{fmt.Sprintf("%s User messages: %s tokens %s", UserRowMarker, TokenLabel(user), Pct(user, contextMax)), 5},
 		{fmt.Sprintf("%s Agent responses: %s tokens %s", AgentGlyph, TokenLabel(agent), Pct(agent, contextMax)), 5},
 		{fmt.Sprintf("%s Tool calls: %s tokens %s", ToolRowMarker, TokenLabel(tool), Pct(tool, contextMax)), 5},
-		{fmt.Sprintf(FreeSpaceRow, Pct(free, contextMax)), 5},
+		{FormatFreeSpaceRow(free, contextMax), 5},
 	}
 }
 
@@ -213,10 +271,20 @@ func StreamingRows(model string, used, free, contextMax, user, agent, tool int) 
 // its order, and the free-space row that closes the grid. A category
 // that consumes no tokens is not a row (see Category).
 func LiveRows(model string, used, free, contextMax int, cats []Category) []Row {
+	return LiveRowsWithCompacted(model, used, free, contextMax, cats, false)
+}
+
+// LiveRowsWithCompacted renders LiveRows with the optional post-compaction header.
+func LiveRowsWithCompacted(model string, used, free, contextMax int, cats []Category, compactJustHappened bool) []Row {
+	maxStr := FormatContextLimit(contextMax)
+	preamble := "Token usage by category"
+	if compactJustHappened {
+		preamble = "Estimated after compaction · updates next turn"
+	}
 	rows := []Row{
-		{fmt.Sprintf("%s · %s/1.0M tokens", model, TokenLabel(used)), 5},
+		{fmt.Sprintf("%s · %s/%s tokens", model, TokenLabel(used), maxStr), 5},
 		{Pct(used, contextMax), 6},
-		{"\x1b[1m" + palette.SubtleOpen + "Token usage by category\x1b[0m", 5},
+		{"\x1b[1m" + palette.SubtleOpen + preamble + "\x1b[0m", 5},
 	}
 	for _, c := range cats {
 		rows = append(rows, Row{
@@ -224,7 +292,7 @@ func LiveRows(model string, used, free, contextMax int, cats []Category) []Row {
 			Pad:  5,
 		})
 	}
-	return append(rows, Row{Text: fmt.Sprintf(FreeSpaceRow, Pct(free, contextMax)), Pad: 5})
+	return append(rows, Row{Text: FormatFreeSpaceRow(free, contextMax), Pad: 5})
 }
 
 // CheckpointRow is the checkpoint-buffer row.
