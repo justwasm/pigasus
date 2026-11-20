@@ -185,6 +185,7 @@ ALLOWLIST=(
   scripts
   urlchunk
   vim
+  websocket
   docs/guide
   docs/cycles
   docs/research
