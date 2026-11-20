@@ -44,7 +44,6 @@ import (
 	"github.com/justwasm/pigasus/internal/ui/views/voice"
 	"github.com/justwasm/pigasus/palette"
 	"github.com/justwasm/pigasus/procgroup"
-	"github.com/mattn/go-runewidth"
 )
 
 // ---- tui_view.go ----
@@ -408,10 +407,9 @@ func (m *RootModel) formatInputView() string {
 }
 
 func (m *RootModel) renderBodyPrompt(b *strings.Builder) int {
-	m.renderBodyQueuesAndCard(b)
-	if m.viewport.altScreen && !m.viewport.autoScroll {
+	if !m.conversation.streaming && m.viewport.altScreen && !m.viewport.autoScroll {
 		if ind := m.scrollPositionIndicator(); ind != "" {
-			rw := runewidth.StringWidth(ind)
+			rw := ansi.StringWidth(ind)
 			pad := m.viewport.width - rw
 			if pad < 0 {
 				pad = 0
@@ -419,6 +417,7 @@ func (m *RootModel) renderBodyPrompt(b *strings.Builder) int {
 			b.WriteString(palette.DimGrayOpen + strings.Repeat(" ", pad) + ind + palette.DimGrayClose + "\n")
 		}
 	}
+	m.renderBodyQueuesAndCard(b)
 	b.WriteString(m.promptRule(true) + "\n")
 
 	rowsAbovePrompt := tuilib.ViewRows(b.String())
@@ -963,6 +962,34 @@ func (m *RootModel) wrappedResponseCounts(width int) []int {
 	return m.viewport.rowsCacheN1.Counts
 }
 
+func attachRightIndicator(left string, ind string, width int) string {
+	if ind == "" {
+		if width > 0 {
+			return tuilib.Truncate(left, width, "...")
+		}
+		return left
+	}
+	indStyled := palette.DimGrayOpen + ind + palette.DimGrayClose
+	indW := ansi.StringWidth(ind)
+	if width <= 0 {
+		return left + "  " + indStyled
+	}
+	if width <= indW {
+		return tuilib.Truncate(indStyled, width, "")
+	}
+	maxLeft := width - indW - 1
+	leftW := ansi.StringWidth(left)
+	if leftW > maxLeft {
+		left = tuilib.Truncate(left, maxLeft, "...")
+		leftW = ansi.StringWidth(left)
+	}
+	pad := width - leftW - indW
+	if pad < 1 {
+		pad = 1
+	}
+	return left + strings.Repeat(" ", pad) + indStyled
+}
+
 func (m *RootModel) liveRows(width int) []string {
 	if !m.conversation.streaming {
 		return nil
@@ -986,18 +1013,39 @@ func (m *RootModel) liveRows(width int) []string {
 	} else {
 		line += " " + tuitools.SpinnerText(phrase, m.conversation.spinFrame)
 	}
-	if width > 0 {
-		line = tuilib.Truncate(line, width, "...")
+
+	ind := ""
+	if m.viewport.altScreen && !m.viewport.autoScroll {
+		ind = m.scrollPositionIndicator()
 	}
-	rows = append(rows, line)
+
+	hasTip := false
+	var tipLine string
 	if m.viewport.activeTip != "" {
-		tipLine := tuitools.FormatTip(m.viewport.activeTip)
+		tipLine = tuitools.FormatTip(m.viewport.activeTip)
 		if tipLine != "" {
-			if width > 0 {
-				tipLine = tuilib.Truncate(tipLine, width, "...")
-			}
-			rows = append(rows, tipLine)
+			hasTip = true
 		}
+	}
+
+	if hasTip {
+		if width > 0 {
+			line = tuilib.Truncate(line, width, "...")
+		}
+		rows = append(rows, line)
+		if ind != "" {
+			tipLine = attachRightIndicator(tipLine, ind, width)
+		} else if width > 0 {
+			tipLine = tuilib.Truncate(tipLine, width, "...")
+		}
+		rows = append(rows, tipLine)
+	} else {
+		if ind != "" {
+			line = attachRightIndicator(line, ind, width)
+		} else if width > 0 {
+			line = tuilib.Truncate(line, width, "...")
+		}
+		rows = append(rows, line)
 	}
 	return rows
 }
