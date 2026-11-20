@@ -33,6 +33,19 @@ func (p *Panel) HandleKey(key tea.Key) (bool, tea.Cmd) {
 		return p.handleFormKey(key)
 	}
 
+	// 0. Pending delete confirmation prompt (y/n or d)
+	if p.confirm >= 0 {
+		switch {
+		case key.Code == 'y' || key.Code == 'Y' || ((key.Code == 'd' || key.Code == 'D') && key.Mod == 0):
+			p.deleteRow()
+			return true, nil
+		case key.Code == 'n' || key.Code == 'N' || key.Code == tea.KeyEsc:
+			p.confirm = -1
+			p.notice = ""
+			return true, nil
+		}
+	}
+
 	// 1. Tab switches tabs
 	if key.Code == tea.KeyTab {
 		if key.Mod.Contains(tea.ModShift) {
@@ -133,6 +146,10 @@ func (p *Panel) HandleKey(key tea.Key) (bool, tea.Cmd) {
 		}
 		return true, p.closePanel()
 	case tea.KeyEnter:
+		if p.cursor == -1 {
+			p.openAddForm()
+			return true, nil
+		}
 		if row, ok := p.CurrentRow(); ok {
 			switch row.Kind {
 			case RowProvider:
@@ -294,6 +311,11 @@ func (p *Panel) handleFormKey(key tea.Key) (bool, tea.Cmd) {
 			}
 		}
 		return true, nil
+	}
+
+	// Ctrl+S: save form (matching /projects)
+	if (key.Code == 's' || key.Code == 'S') && key.Mod.Contains(tea.ModCtrl) {
+		return true, p.saveForm()
 	}
 
 	// Ctrl+B: start browser authentication if editing a provider

@@ -342,6 +342,28 @@ func (d *TmuxDriver) Resize(target TmuxTarget, width, height int) error {
 	return nil
 }
 
+// CursorPosition queries the current cursor coordinates (x, y) for a pane.
+func (d *TmuxDriver) CursorPosition(pane string) (int, int, error) {
+	target := d.cfg.SessionName
+	if pane != "" {
+		target = fmt.Sprintf("%s.%s", d.cfg.SessionName, pane)
+	}
+	out, err := d.ExecTmux("display-message", "-p", "-t", target, "#{cursor_x},#{cursor_y}")
+	if err != nil {
+		return 0, 0, err
+	}
+	parts := strings.Split(strings.TrimSpace(out), ",")
+	if len(parts) != 2 {
+		return 0, 0, fmt.Errorf("unexpected cursor format: %q", out)
+	}
+	x, errX := strconv.Atoi(parts[0])
+	y, errY := strconv.Atoi(parts[1])
+	if errX != nil || errY != nil {
+		return 0, 0, fmt.Errorf("failed to parse cursor coords: %q", out)
+	}
+	return x, y, nil
+}
+
 // WaitForText polls a pane until target substring appears or timeout is reached.
 func (d *TmuxDriver) WaitForText(pane string, substring string, timeout time.Duration) (string, error) {
 	deadline := time.Now().Add(timeout)

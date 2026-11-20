@@ -446,3 +446,80 @@ func TestCursor_ChineseInputAndStreamingStability(t *testing.T) {
 		t.Error("expected live thinking snippet row to be present in view")
 	}
 }
+
+func TestCursor_SlashCommandTabCompletionCursorPosition(t *testing.T) {
+	for _, withVim := range []bool{false, true} {
+		name := "no-vim"
+		if withVim {
+			name = "vim"
+		}
+		t.Run(name, func(t *testing.T) {
+			var m *RootModel
+			if withVim {
+				m = vimTestMode(t, map[string]any{"editorMode": "vim"})
+			} else {
+				m = newRootModel(&fakeClient{}, "u@t", "m", "t", "/tmp", true)
+			}
+			m.viewport.width = 100
+			m.viewport.height = 30
+
+			// In vim normal mode, start typing with 'i' (insert mode)
+			if withVim {
+				vimPress(t, m, runeKey('i'))
+			}
+
+			// Type "/conf"
+			for _, r := range "/conf" {
+				m.Update(runeKey(r))
+			}
+
+			if m.prompt.input.Value() != "/conf" {
+				t.Fatalf("input value = %q, want /conf", m.prompt.input.Value())
+			}
+			if !m.prompt.picker.Visible() {
+				t.Fatal("picker should be visible while typing /conf")
+			}
+
+			// Press Tab to complete /config
+			m.Update(tea.KeyPressMsg(tea.Key{Code: tea.KeyTab}))
+
+			// 1. Should complete to "/config " (with trailing space)
+			if got := m.prompt.input.Value(); got != "/config " {
+				t.Fatalf("after Tab, input value = %q, want %q", got, "/config ")
+			}
+
+			// 2. Picker should be dismissed
+			if m.prompt.picker.Visible() {
+				t.Fatalf("after Tab completing /config, picker should be dismissed")
+			}
+
+			// 3. View cursor X should be at column 10 (>  = 2 cols, /config  = 8 cols)
+			v := m.View()
+			if v.Cursor == nil {
+				t.Fatal("cursor should be visible after Tab completion")
+			}
+			if v.Cursor.X != 10 {
+				t.Fatalf("cursor X after Tab = %d, want 10", v.Cursor.X)
+			}
+
+			// 4. Type "foo" immediately
+			for _, r := range "foo" {
+				m.Update(runeKey(r))
+			}
+
+			// 5. Input should now be "/config foo" (NOT /conffooig)
+			if got := m.prompt.input.Value(); got != "/config foo" {
+				t.Fatalf("after typing foo, input value = %q, want %q", got, "/config foo")
+			}
+
+			// 6. View cursor X should be at column 13
+			v = m.View()
+			if v.Cursor == nil {
+				t.Fatal("cursor should be visible after typing foo")
+			}
+			if v.Cursor.X != 13 {
+				t.Fatalf("cursor X after typing foo = %d, want 13", v.Cursor.X)
+			}
+		})
+	}
+}

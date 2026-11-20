@@ -45,6 +45,7 @@ import (
 	"github.com/justwasm/pigasus/internal/ui/views/modelpicker"
 	"github.com/justwasm/pigasus/internal/ui/views/onboarding"
 	"github.com/justwasm/pigasus/palette"
+	"golang.org/x/term"
 )
 
 const cliVersion = cli.ReferenceVersion
@@ -267,6 +268,21 @@ func runRoot(args []string, p *cli.Parser) error {
 	if cliflags.WasSet(fs, "prompt-interactive") || cliflags.WasSet(fs, "i") {
 		return dispatchInteractiveMode(fs, out)
 	}
+
+	stdinPrompt, hasStdinPrompt, err := detectStdinPrompt(p.Root().InReader(), p.Root().Name)
+	if err != nil {
+		return err
+	}
+	if hasStdinPrompt {
+		if err := validateRootFlags(fs, true); err != nil {
+			return err
+		}
+		if cliflags.StringValue(fs, "mode") == "auto" {
+			fmt.Fprintln(os.Stderr, cli.AutoUnavailableWarning("auto"))
+		}
+		return dispatchPrintModeWithPrompt(fs, out, stdinPrompt)
+	}
+
 	if cliflags.ResolveBoolAlias(fs, "continue", "c") {
 		return dispatchInteractiveMode(fs, out)
 	}
@@ -368,6 +384,32 @@ func validateRootFlags(fs *flag.FlagSet, printMode bool) error {
 	return nil
 }
 
+func detectStdinPrompt(r io.Reader, prog string) (string, bool, error) {
+	if r == nil {
+		r = os.Stdin
+	}
+	if f, ok := r.(*os.File); ok {
+		if term.IsTerminal(int(f.Fd())) {
+			return "", false, nil
+		}
+	}
+	raw, err := io.ReadAll(r)
+	if err != nil {
+		return "", false, err
+	}
+	if len(raw) == 0 {
+		return "", false, nil
+	}
+	trimmed := strings.TrimSpace(string(raw))
+	if trimmed == "" {
+		if prog == "" {
+			prog = filepath.Base(os.Args[0])
+		}
+		return "", false, cli.ExitCodeError(1, fmt.Sprintf("error: Error: empty prompt. Usage: %s --print \"your prompt here\"", prog))
+	}
+	return strings.TrimRight(string(raw), "\r\n"), true, nil
+}
+
 func dispatchPrintMode(fs *flag.FlagSet, out io.Writer) error {
 	if cliflags.StringValue(fs, "input-format") == "stream-json" {
 		warnAgentMode(fs, false)
@@ -378,6 +420,10 @@ func dispatchPrintMode(fs *flag.FlagSet, out io.Writer) error {
 		fmt.Fprintln(os.Stderr, "antigravity: --print requires a positional prompt argument")
 		return fmt.Errorf("missing prompt")
 	}
+	return dispatchPrintModeWithPrompt(fs, out, prompt)
+}
+
+func dispatchPrintModeWithPrompt(fs *flag.FlagSet, out io.Writer, prompt string) error {
 	if cliflags.ResolveBoolAlias(fs, "continue", "c") {
 		cwd, _ := os.Getwd()
 		id, _, err := convstore.ResolveContinue(cwd)

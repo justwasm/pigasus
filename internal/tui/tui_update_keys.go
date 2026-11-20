@@ -874,9 +874,17 @@ func (m *RootModel) handleTabCompletion(key tea.Key) bool {
 			msg := cmd()
 			if comp, ok := msg.(slashpicker.CompletedMsg); ok {
 				m.prompt.input.SetValue(comp.Text)
-				m.prompt.picker.Reset()
+				m.prompt.SetInputCursorOffset(len(comp.Text))
+				m.prompt.input.CursorEnd()
+				if !m.prompt.picker.Visible() {
+					m.prompt.picker.Reset()
+				}
 				if m.prompt.vimEng != nil {
 					m.prompt.vimEng.SetTextKeepingPending(comp.Text)
+					m.prompt.vimEng.Row = len(m.prompt.vimEng.Lines) - 1
+					if m.prompt.vimEng.Row >= 0 && m.prompt.vimEng.Row < len(m.prompt.vimEng.Lines) {
+						m.prompt.vimEng.Col = len([]rune(m.prompt.vimEng.Lines[m.prompt.vimEng.Row]))
+					}
 					m.syncVimInput()
 				}
 			}
@@ -1701,7 +1709,19 @@ func (m *RootModel) updateMouseAndMiscMsg(msg tea.Msg) (tea.Model, tea.Cmd, bool
 		return m, nil, true
 	case slashpicker.CompletedMsg:
 		m.prompt.input.SetValue(msg.Text)
-		m.prompt.picker.Reset()
+		m.prompt.SetInputCursorOffset(len(msg.Text))
+		m.prompt.input.CursorEnd()
+		if !m.prompt.picker.Visible() {
+			m.prompt.picker.Reset()
+		}
+		if m.prompt.vimEng != nil {
+			m.prompt.vimEng.SetTextKeepingPending(msg.Text)
+			m.prompt.vimEng.Row = len(m.prompt.vimEng.Lines) - 1
+			if m.prompt.vimEng.Row >= 0 && m.prompt.vimEng.Row < len(m.prompt.vimEng.Lines) {
+				m.prompt.vimEng.Col = len([]rune(m.prompt.vimEng.Lines[m.prompt.vimEng.Row]))
+			}
+			m.syncVimInput()
+		}
 		return m, nil, true
 	case slashpicker.DismissedMsg:
 		m.prompt.picker.Reset()

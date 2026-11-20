@@ -53,8 +53,8 @@ func TestPickerMouse_ClickOnPaintedRowCompletesTheCommand(t *testing.T) {
 	row := paintedRow(t, m, "/agents")
 	m.Update(tea.MouseClickMsg(tea.Mouse{X: 5, Y: row, Button: tea.MouseLeft}))
 
-	if got := m.prompt.input.Value(); got != "/agents" {
-		t.Errorf("the composer after the click = %q, want %q", got, "/agents")
+	if got := m.prompt.input.Value(); got != "/agents " {
+		t.Errorf("the composer after the click = %q, want %q", got, "/agents ")
 	}
 }
 

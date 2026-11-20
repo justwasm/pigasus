@@ -1,0 +1,32 @@
+NAME "Slash Tab Completion Cursor Alignment"
+WINDOW 100 30
+TARGET both
+
+BOOT_BOTH
+WAIT_READY 10s
+
+# 1. Type '/conf' to trigger slash command picker
+TYPE "/conf"
+SLEEP 500ms
+EXPECT_TEXT "> /conf"
+SNAPSHOT "01_slash_conf_typed"
+
+# 2. Press Tab to autocomplete /config with trailing space & end cursor
+KEYS "Tab"
+SLEEP 500ms
+EXPECT_TEXT "> /config"
+ASSERT_NOT_TEXT "Open settings panel"
+ASSERT_CURSOR_PARITY
+ASSERT_CURSOR_X 10
+SNAPSHOT "02_slash_config_completed"
+
+# 3. Type 'foo' immediately to verify cursor stays after the trailing space
+TYPE "foo"
+SLEEP 500ms
+EXPECT_TEXT "> /config foo"
+ASSERT_CURSOR_PARITY
+ASSERT_CURSOR_X 13
+SNAPSHOT "03_type_after_completion"
+
+DIFF
+CLEANUP

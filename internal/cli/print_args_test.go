@@ -62,6 +62,18 @@ func TestPrintModeArgs_1to1(t *testing.T) {
 			wantRC:  1,
 		},
 		{
+			name:    "whitespace_prompt",
+			args:    []string{"-p=   "},
+			wantErr: "error: Error: empty prompt. Usage: antigravity --print \"your prompt here\"\n",
+			wantRC:  1,
+		},
+		{
+			name:    "input_format_stream_json_rejects_interactive_prompt",
+			args:    []string{"--input-format", "stream-json", "--output-format", "stream-json", "-i", "hi"},
+			wantErr: "Error: --input-format stream-json reads prompts from stdin, so a prompt given on the command line would be ignored\n",
+			wantRC:  2,
+		},
+		{
 			name:    "mutually_exclusive",
 			args:    []string{"-p", "/help", "-i", "bye"},
 			wantErr: "error: --print and --prompt-interactive are mutually exclusive\n",

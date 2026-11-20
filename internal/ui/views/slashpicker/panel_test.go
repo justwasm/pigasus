@@ -346,8 +346,8 @@ func Test_SlashPickerPureMessagePassing(t *testing.T) {
 	if !ok {
 		t.Fatalf("expected CompletedMsg, got %T", msg)
 	}
-	if comp.Text != "/add-dir" {
-		t.Fatalf("expected /add-dir completion, got %q", comp.Text)
+	if comp.Text != "/add-dir " {
+		t.Fatalf("expected /add-dir completion with space, got %q", comp.Text)
 	}
 
 	// Esc cancels with DismissedMsg

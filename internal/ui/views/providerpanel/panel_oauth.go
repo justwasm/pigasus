@@ -399,8 +399,7 @@ func (p *Panel) oauthLines(width ...int) []string {
 	isGoogle := oauth.Provider == "google-antigravity" || oauth.Provider == "antigravity"
 
 	lines := []string{
-		panelTitleOpen + "Authenticate with " + oauth.Name + panelTitleClose,
-		"  " + searchUnderline,
+		"  " + ansiBold + "Providers" + ansiReset + "\x1b[38;5;238m › \x1b[1m" + "Authenticate with " + oauth.Name + ansiReset,
 		"",
 		"  " + palette.DimGrayOpen + "Follow the instructions below to complete sign-in in your browser:" + palette.DimGrayClose,
 		"",

@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/charmbracelet/x/ansi"
+	"github.com/justwasm/pigasus/internal/features/models"
 	"github.com/justwasm/pigasus/palette"
 )
 
@@ -32,20 +33,39 @@ func (p *Panel) Lines(height int, width ...int) []string {
 	if p.form != nil {
 		return p.formLines(w)
 	}
-	lines := []string{
-		panelTitleOpen + "Providers" + panelTitleClose,
-		p.TabBar(),
-		"",
-	}
 
-	searchLine := "  Search: " + p.searchContent()
+	var lines []string
+
+	// Header line 1
+	header := "  " + ansiBold + "Providers" + ansiReset
+	lines = append(lines, header)
+
+	// Tab bar line 2
+	lines = append(lines, p.TabBar(), "")
+
+	// Search line 3
+	var searchLine string
+	if p.query == "" {
+		searchLine = palette.DimGrayOpen + "  Type to search providers and models..." + palette.DimGrayClose
+	} else {
+		searchLine = palette.DimGrayOpen + "  Search: " + palette.DimGrayClose + p.query + searchCursorBlock
+	}
 	if w > 4 {
 		searchLine = ansi.Truncate(searchLine, w-2, "…")
 	}
-	lines = append(lines, searchLine, "          "+searchUnderline, "")
+	lines = append(lines, searchLine, "")
+
+	// Top action row in Configured and All tabs (when query is empty)
+	if p.tab != int(TabPresets) && p.query == "" {
+		if p.cursor == -1 {
+			lines = append(lines, palette.BlueOpen+"> "+ansiReset+ansiBold+"+ Add a provider..."+ansiReset)
+		} else {
+			lines = append(lines, "  "+ansiBold+"+ Add a provider..."+ansiReset)
+		}
+	}
 
 	// Onboarding hint if no custom providers configured
-	if len(p.providers) == 0 && p.query == "" {
+	if len(p.providers) == 0 && p.query == "" && p.tab == int(TabConfigured) {
 		onboarding := "  " + palette.SubtleOpen + "No custom providers configured. Press enter on a preset below or a to add." + panelGray238C
 		if w > 4 {
 			onboarding = ansi.Truncate(onboarding, w-2, "…")
@@ -76,9 +96,6 @@ func (p *Panel) Lines(height int, width ...int) []string {
 	} else {
 		if p.cursor >= total {
 			p.cursor = total - 1
-		}
-		if p.cursor < 0 {
-			p.cursor = 0
 		}
 		p.adjustWindow(p.cursor, visible, total)
 		end := p.window + visible
@@ -112,7 +129,15 @@ func (p *Panel) Lines(height int, width ...int) []string {
 	lines = append(lines, "")
 
 	var hint string
-	if w > 0 && w < 90 {
+	if p.cursor == -1 {
+		escDesc := "Close"
+		if p.query != "" {
+			escDesc = "Clear"
+		}
+		hint = panelKeyboardHint("↑/↓", "Navigate", "enter", "Add Provider", "tab", "Switch Tab", "esc", escDesc)
+	} else if p.confirm >= 0 {
+		hint = panelKeyboardHint("y/d", "Confirm Delete", "n/esc", "Cancel")
+	} else if w > 0 && w < 90 {
 		hint = panelKeyboardHint("↑/↓", "Move", "enter", "Edit",
 			"tab", "Tab", "ctrl+a", "Add", "ctrl+d", "Del", "esc", "Exit")
 	} else if w >= 90 && w < 115 {
@@ -160,9 +185,22 @@ func (p *Panel) rowLine(row Row, cursor bool, width ...int) string {
 	if maxW <= 0 {
 		maxW = 0
 	}
+
+	lead := "  "
+	if cursor {
+		lead = palette.BlueOpen + "> " + ansiReset
+	}
+
 	switch row.Kind {
 	case RowProvider:
 		cfg := p.providers[row.Provider]
+		isCurrent := p.isProviderCurrent(row.Provider)
+
+		bullet := "\x1b[38;5;238m●\x1b[39m"
+		if isCurrent {
+			bullet = palette.AgentFgOpen + "●" + palette.AgentFgClose
+		}
+
 		marker := ""
 		if len(cfg.EffectiveModels()) > 0 {
 			if row.Expanded {
@@ -171,45 +209,156 @@ func (p *Panel) rowLine(row Row, cursor bool, width ...int) string {
 				marker = "▸ "
 			}
 		}
-		name := marker + row.Provider
-		return RowText(name, ProviderRowValue(cfg), cursor, false, palette.BlueOpen, palette.BlueClose, maxW)
+
+		nameStr := ansiBold + marker + row.Provider + ansiReset
+		if cursor {
+			nameStr = ansiBold + palette.BlueOpen + marker + row.Provider + ansiReset
+		}
+
+		wire := cfg.WireType()
+		endpoint := Endpoint(cfg)
+		modelsNote := ""
+		if n := len(cfg.EffectiveModels()); n == 1 {
+			modelsNote = " (1 model)"
+		} else if n > 1 {
+			modelsNote = fmt.Sprintf(" (%d models)", n)
+		}
+		meta := palette.DimGrayOpen + fmt.Sprintf("%s · %s%s", wire, endpoint, modelsNote) + palette.DimGrayClose
+
+		currentBadge := ""
+		if isCurrent {
+			currentBadge = "  " + palette.AgentFgOpen + "(current)" + palette.ToolBulletClose
+		}
+
+		confirmBadge := ""
+		if p.confirm >= 0 && p.cursor >= 0 && p.cursor < len(p.Rows()) && p.Rows()[p.cursor].Provider == row.Provider && p.Rows()[p.cursor].Kind == RowProvider {
+			confirmBadge = " \x1b[38;5;214m[Delete provider " + row.Provider + "? (y/n)]\x1b[39m"
+		}
+
+		var line string
+		if confirmBadge != "" {
+			line = lead + bullet + " " + nameStr + currentBadge + confirmBadge
+		} else {
+			line = lead + bullet + " " + nameStr + "  " + meta + currentBadge
+		}
+		if maxW > 0 {
+			return ansi.Truncate(line, maxW, "…")
+		}
+		return line
+
 	case RowModel:
 		cfg := p.providers[row.Provider]
-		val := ModelRowValue(cfg, row.Model, w)
-		if p.IsCurrentModel(row.Model) {
-			val += "  " + palette.AgentFgOpen + "(current)" + palette.ToolBulletClose
+		isCurrent := p.IsCurrentModel(row.Model)
+
+		bullet := "\x1b[38;5;238m○\x1b[39m"
+		if isCurrent {
+			bullet = palette.AgentFgOpen + "○" + palette.AgentFgClose
 		}
-		return RowText(row.Model, val, cursor, true, palette.BlueOpen, palette.BlueClose, maxW)
+
+		nameStr := row.Model
+		if cursor {
+			nameStr = ansiBold + palette.BlueOpen + row.Model + ansiReset
+		}
+
+		val := ModelRowValue(cfg, row.Model, w)
+		currentBadge := ""
+		if isCurrent {
+			currentBadge = "  " + palette.AgentFgOpen + "(current)" + palette.ToolBulletClose
+		}
+
+		confirmBadge := ""
+		if p.confirm >= 0 && p.cursor >= 0 && p.cursor < len(p.Rows()) && p.Rows()[p.cursor].Model == row.Model && p.Rows()[p.cursor].Kind == RowModel {
+			confirmBadge = " \x1b[38;5;214m[Delete model " + row.Model + "? (y/n)]\x1b[39m"
+		}
+
+		childLead := "    "
+		if cursor {
+			childLead = "  " + palette.BlueOpen + "> " + ansiReset
+		}
+
+		var line string
+		if confirmBadge != "" {
+			line = childLead + bullet + " " + nameStr + currentBadge + confirmBadge
+		} else {
+			line = childLead + bullet + " " + nameStr + "  " + palette.DimGrayOpen + val + palette.DimGrayClose + currentBadge
+		}
+		if maxW > 0 {
+			return ansi.Truncate(line, maxW, "…")
+		}
+		return line
+
 	case RowBuiltin:
 		if row.Model == "" {
-			// The group's header.
+			bullet := "\x1b[38;5;238m●\x1b[39m"
 			marker := ""
 			if row.Expanded {
 				marker = "▾ "
 			} else {
 				marker = "▸ "
 			}
-			line := "  " + palette.SubtleOpen + marker + "── " + row.Provider + " ──" + panelGray238C
+			nameStr := ansiBold + marker + row.Provider + ansiReset
+			if cursor {
+				nameStr = ansiBold + palette.BlueOpen + marker + row.Provider + ansiReset
+			}
+			line := lead + bullet + " " + nameStr
 			if maxW > 0 {
 				return ansi.Truncate(line, maxW, "…")
 			}
 			return line
 		}
-		val := row.Label
-		if p.IsCurrentModel(row.Model) {
-			val += "  " + palette.AgentFgOpen + "(current)" + palette.ToolBulletClose
+
+		isCurrent := p.IsCurrentModel(row.Model)
+		bullet := "\x1b[38;5;238m○\x1b[39m"
+		if isCurrent {
+			bullet = palette.AgentFgOpen + "○" + palette.AgentFgClose
 		}
-		return RowText(row.Model, val, cursor, true, palette.BlueOpen, palette.BlueClose, maxW)
+		nameStr := row.Model
+		if cursor {
+			nameStr = ansiBold + palette.BlueOpen + row.Model + ansiReset
+		}
+		currentBadge := ""
+		if isCurrent {
+			currentBadge = "  " + palette.AgentFgOpen + "(current)" + palette.ToolBulletClose
+		}
+		childLead := "    "
+		if cursor {
+			childLead = "  " + palette.BlueOpen + "> " + ansiReset
+		}
+		line := childLead + bullet + " " + nameStr + "  " + palette.DimGrayOpen + row.Label + palette.DimGrayClose + currentBadge
+		if maxW > 0 {
+			return ansi.Truncate(line, maxW, "…")
+		}
+		return line
+
 	case RowPreset:
 		if row.Model == "" && row.Label == "" {
-			// The group's header.
-			line := "  " + palette.SubtleOpen + "── " + row.Provider + " ──" + panelGray238C
+			bullet := "\x1b[38;5;238m●\x1b[39m"
+			nameStr := ansiBold + row.Provider + ansiReset
+			if cursor {
+				nameStr = ansiBold + palette.BlueOpen + row.Provider + ansiReset
+			}
+			line := lead + bullet + " " + nameStr
 			if maxW > 0 {
 				return ansi.Truncate(line, maxW, "…")
 			}
 			return line
 		}
-		return RowText(row.Provider, row.Label, cursor, true, palette.BlueOpen, palette.BlueClose, maxW)
+		bullet := "\x1b[38;5;238m●\x1b[39m"
+		nameStr := ansiBold + row.Provider + ansiReset
+		if cursor {
+			nameStr = ansiBold + palette.BlueOpen + row.Provider + ansiReset
+		}
+		authMethod := models.CatwalkAuthMethod(row.Provider)
+		authLabel := "API Key"
+		if authMethod == "browser" {
+			authLabel = "Browser OAuth"
+		}
+		meta := palette.DimGrayOpen + fmt.Sprintf("%s · %s", row.Label, authLabel) + palette.DimGrayClose
+		line := lead + bullet + " " + nameStr + "  " + meta
+		if maxW > 0 {
+			return ansi.Truncate(line, maxW, "…")
+		}
+		return line
 	}
 	return ""
 }
@@ -225,12 +374,12 @@ func (p *Panel) formLines(width ...int) []string {
 		w = width[0]
 	}
 	lines := []string{
-		panelTitleOpen + form.Title() + panelTitleClose,
-		"  " + searchUnderline,
+		"  " + ansiBold + "Providers" + ansiReset + "\x1b[38;5;238m › \x1b[1m" + form.Title() + ansiReset,
 		"",
 	}
 	for i, f := range form.Fields {
-		lines = append(lines, p.formFieldLine(f, i == form.Cursor, w))
+		fl := p.formFieldLine(f, i == form.Cursor, w)
+		lines = append(lines, strings.Split(fl, "\n")...)
 	}
 	if p.notice != "" {
 		notice := p.notice
@@ -271,10 +420,6 @@ func (p *Panel) formFieldLine(f FormField, cursor bool, width ...int) string {
 	if len(width) > 0 {
 		w = width[0]
 	}
-	pad := 20 - len(f.Label)
-	if pad < 1 {
-		pad = 1
-	}
 	value := f.Display()
 	var res string
 	if cursor {
@@ -284,17 +429,21 @@ func (p *Panel) formFieldLine(f FormField, cursor bool, width ...int) string {
 		case FieldText:
 			value = p.input.View()
 		}
-		res = palette.BlueOpen + "> " + f.Label + palette.BlueClose + strings.Repeat(" ", pad) + value
+		res = palette.BlueOpen + "> " + ansiReset + ansiBold + f.Label + ansiReset + "\n    \x1b[38;5;238m└─ \x1b[39m" + value
 	} else {
 		if f.Kind == FieldChoice {
 			value = "[ " + value + " ]"
 		} else if strings.TrimSpace(value) == "" && f.Placeholder != "" {
 			value = palette.DimGrayOpen + f.Placeholder + palette.DimGrayClose
 		}
-		res = "  " + f.Label + strings.Repeat(" ", pad) + value
+		res = "  " + ansiBold + f.Label + ansiReset + "\n    \x1b[38;5;238m└─ \x1b[39m" + value
 	}
 	if w > 2 {
-		return ansi.Truncate(res, w-2, "…")
+		parts := strings.Split(res, "\n")
+		for i, part := range parts {
+			parts[i] = ansi.Truncate(part, w-2, "…")
+		}
+		return strings.Join(parts, "\n")
 	}
 	return res
 }

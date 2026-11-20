@@ -240,7 +240,7 @@ func (p *Panel) deleteRow() {
 		} else if row.Kind == RowProvider {
 			target = "provider " + row.Provider
 		}
-		p.Notice("press d again to delete " + target)
+		p.Notice("press d or y again to delete " + target)
 		return
 	}
 	p.confirm = -1

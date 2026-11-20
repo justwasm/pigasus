@@ -146,6 +146,11 @@ func buildJetskiSubSubcommand(jc *JetskiCLI, ss SubSubSpec, use string) *JetskiS
 	}
 }
 
+// SetIn redirects parser standard input.
+func (p *Parser) SetIn(r io.Reader) {
+	p.root.In = r
+}
+
 // SetOut redirects parser output (used by tests to capture --help).
 func (p *Parser) SetOut(w io.Writer) {
 	p.out = w

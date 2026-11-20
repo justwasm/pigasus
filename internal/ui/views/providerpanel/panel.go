@@ -17,7 +17,6 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/justwasm/pigasus/internal/features/models"
-	tuiviewport "github.com/justwasm/pigasus/internal/ui/foundations/viewport"
 	"github.com/justwasm/pigasus/internal/ui/views/modelpicker"
 	"github.com/justwasm/pigasus/palette"
 )
@@ -102,7 +101,7 @@ type Panel struct {
 // are re-read on every open and after every write, so the panel shows
 // what is on disk and not what was on disk when it was last used.
 func New(seams Seams) *Panel {
-	return &Panel{seams: seams}
+	return &Panel{seams: seams, confirm: -1}
 }
 
 // Reload re-reads the configuration and rebuilds the rows.
@@ -183,7 +182,7 @@ func (p *Panel) Notice(msg string) {
 	p.notice = msg
 }
 
-// TabBar renders the tab bar modeled after /resume and /accounts:
+// TabBar renders the tab bar aligned with /projects:
 // Configured, Presets, and All.
 func (p *Panel) TabBar() string {
 	if p == nil {
@@ -192,18 +191,17 @@ func (p *Panel) TabBar() string {
 	var b strings.Builder
 	writeTab := func(name string, active bool) {
 		if active {
-			b.WriteString("\x1b[1;4m" + palette.BlueOpen + name + keyClose)
+			b.WriteString("\x1b[1;4m" + palette.BlueOpen + name + ansiReset)
 			return
 		}
-		b.WriteString(palette.DimGrayOpen + name + keyClose)
+		b.WriteString(palette.DimGrayOpen + name + ansiReset)
 	}
-	b.WriteString("   ")
+	b.WriteString("  ")
 	writeTab("Configured", p.tab == int(TabConfigured))
 	b.WriteString("    ")
 	writeTab("Presets", p.tab == int(TabPresets))
 	b.WriteString("    ")
 	writeTab("All", p.tab == int(TabAll))
-	b.WriteString(" " + palette.DimGrayOpen + "  (tab to cycle)" + keyClose)
 	return b.String()
 }
 
@@ -296,10 +294,39 @@ func visibleRowsFor(height, total int) int {
 	return n
 }
 
+// isProviderCurrent reports whether the provider serves the session's active model.
+func (p *Panel) isProviderCurrent(providerID string) bool {
+	if p == nil || p.seams.CurrentModel == nil {
+		return false
+	}
+	curr := p.seams.CurrentModel()
+	if curr == "" {
+		return false
+	}
+	if curr == providerID {
+		return true
+	}
+	cfg, ok := p.providers[providerID]
+	if !ok {
+		return false
+	}
+	for _, m := range cfg.EffectiveModels() {
+		if m.ID == curr || m.Model == curr {
+			return true
+		}
+	}
+	return false
+}
+
 // adjustWindow keeps the visible window around the cursor.
 func (p *Panel) adjustWindow(cursor, visible, total int) {
-	if p.window < 0 {
+	if visible <= 0 || total <= 0 {
 		p.window = 0
+		return
+	}
+	if cursor < 0 {
+		p.window = 0
+		return
 	}
 	if cursor < p.window {
 		p.window = cursor
@@ -316,23 +343,32 @@ func (p *Panel) adjustWindow(cursor, visible, total int) {
 }
 
 // moveCursor moves the list cursor by delta rows.
+// When in Configured or All tabs and search query is empty, cursor can move to -1
+// to select the top "+ Add a provider..." action row.
 func (p *Panel) moveCursor(delta int) {
 	if p == nil {
 		return
 	}
 	rows := p.Rows()
 	n := len(rows)
+	minCursor := 0
+	if p.tab != int(TabPresets) && p.query == "" {
+		minCursor = -1
+	}
 	if n == 0 {
+		p.cursor = minCursor
+		p.confirm = -1
 		return
 	}
-	nav := tuiviewport.ListNav{Cursor: p.cursor}
-	if delta < 0 {
-		nav.MoveUp(-delta, n, 0)
-	} else {
-		nav.MoveDown(delta, n, 0)
+	next := p.cursor + delta
+	if next < minCursor {
+		next = minCursor
 	}
-	if nav.Cursor != p.cursor {
+	if next >= n {
+		next = n - 1
+	}
+	if next != p.cursor {
 		p.confirm = -1
 	}
-	p.cursor = nav.Cursor
+	p.cursor = next
 }

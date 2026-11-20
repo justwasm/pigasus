@@ -654,6 +654,9 @@ type JetskiCLI struct {
 	flagSet *flag.FlagSet
 	args    []string
 
+	// In is the reader for standard input. Defaults to os.Stdin.
+	In io.Reader
+
 	// Output destination. Defaults to os.Stdout. Subcommand *results*
 	// (mcp list, plugin list, remote-control status, ...) print here.
 	Out io.Writer
@@ -746,11 +749,20 @@ func NewJetski(name, version string) *JetskiCLI {
 	return &JetskiCLI{
 		Name:    name,
 		Version: version,
+		In:      os.Stdin,
 		Out:     os.Stdout,
 		ErrOut:  os.Stderr,
 		byName:  map[string]*JetskiSubcommand{},
 		byAlias: map[string]*JetskiSubcommand{},
 	}
+}
+
+// InReader returns the standard input reader for this CLI, defaulting to os.Stdin.
+func (j *JetskiCLI) InReader() io.Reader {
+	if j.In != nil {
+		return j.In
+	}
+	return os.Stdin
 }
 
 // AddSubcommand registers a subcommand with the root CLI.
@@ -862,12 +874,12 @@ func (j *JetskiCLI) validatePrintFlags(fs *flag.FlagSet, printFlag, interFlag st
 		fmt.Fprintln(j.ErrOut, "error: --print and --prompt-interactive are mutually exclusive")
 		return 2, false
 	}
-	if printFlag != "" && flagStrValue(fs, printFlag) == "" {
+	if printFlag != "" && strings.TrimSpace(flagStrValue(fs, printFlag)) == "" {
 		fmt.Fprintf(j.ErrOut, "error: Error: empty prompt. Usage: %s --print \"your prompt here\"\n", j.Name)
 		return 1, false
 	}
 	if isStreamJSON := flagStrValue(fs, "input-format") == "stream-json"; isStreamJSON {
-		if printFlag != "" {
+		if printFlag != "" || interFlag != "" {
 			fmt.Fprintf(j.ErrOut, "Error: --input-format stream-json reads prompts from stdin, so a prompt given on the command line would be ignored\n")
 			return 2, false
 		}

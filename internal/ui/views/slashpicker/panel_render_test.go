@@ -290,25 +290,12 @@ func TestPickerMouse_ClickOnOptionSelects(t *testing.T) {
 	if startBuf != "/" {
 		t.Errorf("pre-click buffer %q should be '/'", startBuf)
 	}
-	if h.buffer != want.Name {
-		t.Errorf("buffer after click = %q, want %q (the clicked command's name)",
-			h.buffer, want.Name)
+	if h.buffer != want.Name+" " {
+		t.Errorf("buffer after click = %q, want %q (the clicked command's name with trailing space)",
+			h.buffer, want.Name+" ")
 	}
-	if !p.Visible() {
-		t.Errorf("click on a list row should keep the popup visible (new buffer starts with '/'); got hidden")
-	}
-	if got := p.Len(); got != 1 {
-		t.Errorf("after click, the popup holds %d rows, want 1 (only /artifact etc. matches)", got)
-	}
-	if got := p.Idx(); got != 0 {
-		t.Errorf("after click, the highlight is at %d, want 0 (re-derived for the new buffer)", got)
-	}
-	paint(p, 10)
-	if !p.geom.Valid {
-		t.Errorf("after re-render with the new popup, the rectangle should be valid")
-	}
-	if !p.geom.HasList {
-		t.Errorf("after re-render, the rectangle should carry a list")
+	if p.Visible() {
+		t.Errorf("click on a terminal command row should dismiss the popup; got visible")
 	}
 }
 

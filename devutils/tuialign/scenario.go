@@ -379,6 +379,60 @@ func (sc *Scenario) Run(srv *MockServer, driver *TmuxDriver) error {
 			}
 			fmt.Printf("   [ASSERT PASS] Forbidden text %q is absent\n", forbidden)
 
+		case "ASSERT_CURSOR_PARITY":
+			if sc.Target == TargetBoth {
+				x0, y0, err0 := driver.CursorPosition("0")
+				if err0 != nil {
+					return fmt.Errorf("cursor position left: %w", err0)
+				}
+				x1, y1, err1 := driver.CursorPosition("1")
+				if err1 != nil {
+					return fmt.Errorf("cursor position right: %w", err1)
+				}
+				if x0 != x1 {
+					return fmt.Errorf("ASSERT_CURSOR_PARITY failed: cursor X mismatch (agy=%d, pigasus=%d; y0=%d, y1=%d)", x0, x1, y0, y1)
+				}
+				fmt.Printf("   [ASSERT PASS] Cursor parity verified at X=%d (agy Y=%d, pigasus Y=%d)\n", x0, y0, y1)
+			} else {
+				x, y, err := driver.CursorPosition("")
+				if err != nil {
+					return fmt.Errorf("cursor position: %w", err)
+				}
+				fmt.Printf("   [ASSERT PASS] Cursor verified at X=%d, Y=%d\n", x, y)
+			}
+
+		case "ASSERT_CURSOR_X":
+			if len(cmd.Args) == 0 {
+				return fmt.Errorf("ASSERT_CURSOR_X requires expected X coordinate")
+			}
+			expectedX, err := strconv.Atoi(cmd.Args[0])
+			if err != nil {
+				return fmt.Errorf("invalid expected X coordinate %q: %w", cmd.Args[0], err)
+			}
+			if sc.Target == TargetBoth {
+				x0, _, err0 := driver.CursorPosition("0")
+				if err0 != nil {
+					return fmt.Errorf("cursor position left: %w", err0)
+				}
+				x1, _, err1 := driver.CursorPosition("1")
+				if err1 != nil {
+					return fmt.Errorf("cursor position right: %w", err1)
+				}
+				if x0 != expectedX || x1 != expectedX {
+					return fmt.Errorf("ASSERT_CURSOR_X failed: want %d, got agy=%d, pigasus=%d", expectedX, x0, x1)
+				}
+				fmt.Printf("   [ASSERT PASS] Cursor X=%d verified across both panes\n", expectedX)
+			} else {
+				x, _, err := driver.CursorPosition("")
+				if err != nil {
+					return fmt.Errorf("cursor position: %w", err)
+				}
+				if x != expectedX {
+					return fmt.Errorf("ASSERT_CURSOR_X failed: want %d, got %d", expectedX, x)
+				}
+				fmt.Printf("   [ASSERT PASS] Cursor X=%d verified\n", expectedX)
+			}
+
 		case "STEER":
 			if len(cmd.Args) == 0 {
 				continue

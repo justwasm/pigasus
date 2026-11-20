@@ -1680,7 +1680,19 @@ func (m *RootModel) newSubAgentQuestionPanel() *subagentquestionpanel.Panel {
 
 // Mention
 func (m *RootModel) InputValue() string                     { return m.prompt.input.Value() }
-func (m *RootModel) SetInputValue(val string)               { m.prompt.input.SetValue(val) }
+func (m *RootModel) SetInputValue(val string) {
+	m.prompt.input.SetValue(val)
+	m.prompt.SetInputCursorOffset(len(val))
+	m.prompt.input.CursorEnd()
+	if m.prompt.vimEng != nil {
+		m.prompt.vimEng.SetTextKeepingPending(val)
+		m.prompt.vimEng.Row = len(m.prompt.vimEng.Lines) - 1
+		if m.prompt.vimEng.Row >= 0 && m.prompt.vimEng.Row < len(m.prompt.vimEng.Lines) {
+			m.prompt.vimEng.Col = len([]rune(m.prompt.vimEng.Lines[m.prompt.vimEng.Row]))
+		}
+		m.syncVimInput()
+	}
+}
 func (m *RootModel) TerminalWidth() int                     { return m.viewport.width }
 func (m *RootModel) TerminalHeight() int                    { return m.viewport.height }
 func (m *RootModel) newMentionPicker() *mentionpicker.Panel { return panels.NewMentionPicker(m) }

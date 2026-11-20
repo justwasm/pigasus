@@ -133,9 +133,7 @@ func (p *Panel) CommitSelectionCmd() (bool, tea.Cmd) {
 		p.Reset()
 		return true, CompletedCmd(text, true, sel.Name)
 	}
-	if sel.Name == "/voice" || sel.Name == "/speaker" || sel.Name == "/model" || sel.Name == "/resume" || sel.Name == "/sessions" {
-		text += " "
-	}
+	text += " "
 	p.setBuffer(text)
 	p.Update([]rune(text))
 	return true, CompletedCmd(text, false, sel.Name)

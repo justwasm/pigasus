@@ -8,11 +8,13 @@ package providerpanel
 
 import (
 	"github.com/justwasm/pigasus/internal/ui/tuilib"
-	"github.com/justwasm/pigasus/palette"
 )
 
 // The panel's own frame. The title is bold on the default foreground.
 const (
+	ansiBold  = "\x1b[1m"
+	ansiReset = "\x1b[0m"
+
 	panelTitleOpen  = "\x1b[1m\x1b[39m"
 	panelTitleClose = "\x1b[0m"
 
@@ -37,9 +39,8 @@ const (
 // reverse-video cell.
 const searchCursorBlock = "\x1b[7m\x1b[37m \x1b[0m"
 
-// searchUnderline is the 20-cell `─` row under the Search: input, in the
-// selected scheme's separator colour.
-var searchUnderline = palette.SeparatorOpen + "────────────────────\x1b[39m"
+// searchUnderline is preserved for backward compatibility if referenced.
+var searchUnderline = ""
 
 // panelKeyboardHint builds the `Keyboard: <key> <label>  <key> <label>`
 // legend row.

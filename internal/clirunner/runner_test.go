@@ -168,3 +168,40 @@ func TestRemoteControlAndAgentRejectedUnderGeminiAPIKey(t *testing.T) {
 		})
 	}
 }
+
+func TestSetupCLIParser_StdinEmpty_TriggersUsageError(t *testing.T) {
+	for _, raw := range []string{"\n", "   \n\t"} {
+		t.Run("empty_whitespace", func(t *testing.T) {
+			p := clirunner.SetupCLIParser("pigasus")
+			var out, errOut bytes.Buffer
+			p.SetOut(&out)
+			p.SetErr(&errOut)
+			p.SetIn(strings.NewReader(raw))
+
+			_ = p.ExecuteArgs([]string{})
+			if p.ExitCode() != 1 {
+				t.Errorf("empty stdin whitespace exit code = %d, want 1", p.ExitCode())
+			}
+			wantMsg := "error: Error: empty prompt. Usage: pigasus --print \"your prompt here\"\n"
+			if errOut.String() != wantMsg {
+				t.Errorf("empty stdin stderr = %q, want %q", errOut.String(), wantMsg)
+			}
+		})
+	}
+}
+
+func TestSetupCLIParser_UnexpectedPositionalArg_PrintsPromptsReadOnlyFrom(t *testing.T) {
+	p := clirunner.SetupCLIParser("pigasus")
+	var out, errOut bytes.Buffer
+	p.SetOut(&out)
+	p.SetErr(&errOut)
+
+	_ = p.ExecuteArgs([]string{"skill"})
+	if p.ExitCode() != 2 {
+		t.Errorf("exit code = %d, want 2", p.ExitCode())
+	}
+	want := "Error: unexpected argument \"skill\".\nPrompts are read only from -p/--print, -i/--prompt-interactive, or stdin, so this argument would have been ignored.\n"
+	if errOut.String() != want {
+		t.Errorf("stderr = %q, want %q", errOut.String(), want)
+	}
+}
