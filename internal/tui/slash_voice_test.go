@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -321,18 +322,20 @@ func voiceResponseText(m *RootModel) string {
 }
 
 func TestLiveVoiceAvailability_OAuthToken(t *testing.T) {
-	m := diffTestModel()
-
 	// Clear out any host environment variables that might influence the check.
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("OPENAGY_CONFIG_HOME", t.TempDir())
+	t.Setenv("OPENAGY_ACCOUNTS_CONFIG", filepath.Join(t.TempDir(), "accounts.json"))
 	t.Setenv("ANTIGRAVITY_APP_DATA_DIR", t.TempDir())
+	t.Setenv("ANTIGRAVITY_HOME", t.TempDir())
 	t.Setenv("GEMINI_API_KEY", "")
 	t.Setenv("OPENAGY_API_KEY", "")
 	t.Setenv("PIGASUS_MOCK_VOICE", "")
 	t.Setenv("OPENAGY_MOCK_VOICE", "")
 	t.Setenv("JETSKI_OAUTH_TOKEN", "")
 	t.Setenv("ANTIGRAVITY_ACCESS_TOKEN", "")
+
+	m := diffTestModel()
 
 	auth.LoadKeychainTokenFn = func() (*auth.AntigravityToken, error) {
 		return nil, auth.ErrNoToken

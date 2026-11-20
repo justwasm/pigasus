@@ -1522,6 +1522,9 @@ func (m *RootModel) scrollPositionIndicator() string {
 	}
 	rows := m.viewport.rowsView.Rows
 	if len(rows) == 0 {
+		rows, _, _ = m.syncRowsView()
+	}
+	if len(rows) == 0 {
 		return ""
 	}
 	avail := m.viewport.vpRows
@@ -2354,7 +2357,7 @@ func (m *RootModel) resetLiveTurnState(prompt string) {
 	m.ResetInputSelection()
 	m.prompt.atFilePicker.Reset()
 	if m.prompt.vimEng != nil {
-		m.prompt.vimEng.SetText("")
+		m.prompt.vimEng.SetTextKeepingPending("")
 	}
 	m.clearEligibilityNotice()
 	m.conversation.streaming = true

@@ -690,7 +690,7 @@ func TestPanelChangelogLayout(t *testing.T) {
 	if !strings.Contains(joined, fmt.Sprintf("(1–18 of %d lines)", total)) {
 		t.Errorf("missing line counter: %s", joined)
 	}
-	if !strings.Contains(joined, "Added a billing model choice after you sign in with Google Cloud") {
+	if !strings.Contains(joined, "Added a billing model choice after you sign in with Google Cloud") && !strings.Contains(joined, "Added accept-edits mode to --remote-agent sessions") {
 		t.Errorf("missing opening bullet: %s", joined)
 	}
 	last := termcolor.StripSGR(plain[len(plain)-1])
@@ -2816,7 +2816,7 @@ func TestChangelogPagination_RendersDoc(t *testing.T) {
 	}
 	m := mkPanel(panelregistry.Changelog, "/changelog", 0)
 	text := panelText(m)
-	if !strings.Contains(text, "Added a billing model choice after you sign in with Google Cloud") {
+	if !strings.Contains(text, "Added a billing model choice after you sign in with Google Cloud") && !strings.Contains(text, "Added accept-edits mode to --remote-agent sessions") {
 		t.Errorf("viewer missing the opening bullet:\n%s", truncForErr(text, 400))
 	}
 	if !strings.Contains(text, "## 1.4.11") && !strings.Contains(text, "## 1.") {
