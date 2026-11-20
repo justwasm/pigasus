@@ -291,3 +291,46 @@ type silentReader struct{ r io.Reader }
 func (s *silentReader) Read(p []byte) (int, error) { return s.r.Read(p) }
 
 var _ = silentReader{}
+
+func TestOpenAI_ModelFeatures_DisableThinkingAndTools(t *testing.T) {
+	var captured openAIRequestBody
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewDecoder(r.Body).Decode(&captured)
+		w.Header().Set("content-type", "application/json")
+		_ = json.NewEncoder(w).Encode(openAIResponseBody{
+			ID: "chatcmpl-test",
+			Choices: []struct {
+				Index        int           `json:"index"`
+				Message      openAIMessage `json:"message"`
+				FinishReason string        `json:"finish_reason"`
+			}{{Index: 0, Message: openAIMessage{Role: "assistant", Content: "ok"}, FinishReason: "stop"}},
+		})
+	}))
+	defer srv.Close()
+
+	no := false
+	m := Model{
+		Name: "openai", Provider: "openai",
+		APIURL: srv.URL, ExternalModelName: "gpt-test", APIKey: "sk-test",
+		SupportsThinking:  &no,
+		SupportsToolCalls: &no,
+	}
+	p, err := NewProvider(m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = p.Chat(context.Background(), ChatRequest{
+		Messages:        []ChatMessage{{Role: "user", Content: "hi"}},
+		ReasoningEffort: "high",
+		Tools:           []ToolSpec{{Name: "bash", Description: "run command"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if captured.ReasoningEffort != "" {
+		t.Errorf("expected empty ReasoningEffort when SupportsThinking=false, got %q", captured.ReasoningEffort)
+	}
+	if len(captured.Tools) != 0 {
+		t.Errorf("expected 0 Tools when SupportsToolCalls=false, got %d", len(captured.Tools))
+	}
+}

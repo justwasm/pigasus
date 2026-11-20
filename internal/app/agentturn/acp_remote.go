@@ -369,15 +369,26 @@ func (r *ACPRemote) setAvailableCommandsV2(cmds []schemav2.AvailableCommand) {
 	defer r.mu.Unlock()
 	out := make([]CommandInfo, 0, len(cmds))
 	for _, c := range cmds {
+		name := ""
+		desc := ""
 		hint := ""
-		if txt, ok := c.Input.As[schemav2.AvailableCommandInputText](); ok {
-			hint = txt.Hint
+		if cmd, ok := c.As[schemav2.AvailableCommandCommand](); ok {
+			name = cmd.Name
+			desc = cmd.Description
+			if txt, ok := cmd.Input.As[schemav2.AvailableCommandInputText](); ok {
+				hint = txt.Hint
+			}
+		} else if skill, ok := c.As[schemav2.AvailableCommandSkill](); ok {
+			name = skill.Name
+			desc = skill.Description
 		}
-		out = append(out, CommandInfo{
-			Name:        c.Name,
-			Description: c.Description,
-			InputHint:   hint,
-		})
+		if name != "" {
+			out = append(out, CommandInfo{
+				Name:        name,
+				Description: desc,
+				InputHint:   hint,
+			})
+		}
 	}
 	r.availableCmds = out
 }

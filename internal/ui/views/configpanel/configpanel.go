@@ -47,8 +47,9 @@ import (
 //
 // and silently run with defaults — so the clone must delete, not write.
 type Val struct {
-	Display string
-	Stored  any
+	Display     string
+	Stored      any
+	Description string
 }
 
 // Row is one rendered line of the /config picker. The table below is
@@ -113,6 +114,13 @@ func V(display, stored string) Val {
 		return Val{Display: display, Stored: nil}
 	}
 	return Val{Display: display, Stored: stored}
+}
+
+// VD builds a Val with a description.
+func VD(display, stored string, desc string) Val {
+	v := V(display, stored)
+	v.Description = desc
+	return v
 }
 
 // B builds a boolean Val. The default reads as absent (nil);
@@ -189,7 +197,8 @@ var SettingsRows = []Row{
 		Description: "Bell + desktop notification on tool confirmation and agent completion"},
 	{Name: "Queued Messages", SettingsKey: "queuedMessages",
 		Values: []Val{
-			V("Queue", ""), V("Send Immediately", "send-immediately"),
+			V("Queue", ""),
+			VD("Send Immediately", "send-immediately", "Send into the current turn; the agent reads it after its current step."),
 		},
 		Description: "Configure when follow-up messages are sent."},
 	{Name: "Rendering Mode", SettingsKey: "altScreenMode",

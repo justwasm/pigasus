@@ -2506,7 +2506,7 @@ func (m *RootModel) handleVimKey(key tea.Key) (tea.Cmd, bool) {
 
 	if key.Code == tea.KeyEnter && eng.Mode == vim.Insert {
 		line := strings.TrimSpace(eng.Text())
-		if strings.HasPrefix(line, "/") && !strings.Contains(line, "\n") {
+		if (strings.HasPrefix(line, "/") || strings.HasPrefix(line, "!")) && !strings.Contains(line, "\n") {
 			m.syncVimInput()
 			cmd := m.submitPrompt()
 			m.prompt.vimEng.SetTextKeepingPending(m.prompt.input.Value())

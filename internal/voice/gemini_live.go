@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net/url"
 	"strings"
 	"sync"
 
@@ -113,6 +114,15 @@ func NewGeminiLiveBackend(apiKey string) *GeminiLiveBackend {
 	}
 }
 
+// NewGeminiLiveBackendWithEndpoint creates a GeminiLiveBackend pointing at a custom endpoint.
+func NewGeminiLiveBackendWithEndpoint(apiKey string, endpoint string) *GeminiLiveBackend {
+	b := NewGeminiLiveBackend(apiKey)
+	if endpoint != "" {
+		b.SetEndpoint(endpoint)
+	}
+	return b
+}
+
 // NewGeminiLiveBackendWithBearer creates a GeminiLiveBackend using an OAuth Bearer token.
 func NewGeminiLiveBackendWithBearer(bearerToken string) *GeminiLiveBackend {
 	model := endpoints.CurrentGeminiLiveModel()
@@ -146,6 +156,11 @@ func (b *GeminiLiveBackend) SetEndpoint(ep string) {
 	b.endpoint = ep
 }
 
+// Endpoint returns the current WebSocket endpoint.
+func (b *GeminiLiveBackend) Endpoint() string {
+	return b.endpoint
+}
+
 // SetModel overrides the default live model.
 func (b *GeminiLiveBackend) SetModel(model string) {
 	b.model = model
@@ -166,8 +181,14 @@ func (b *GeminiLiveBackend) CreateSession(ctx context.Context, cfg LiveSessionCo
 		endpoint = cfg.Endpoint
 	}
 
-	if key == "" && (endpoint == "" || endpoint == endpoints.DefaultVoice) {
+	isCustomProxy := endpoint != "" && endpoint != endpoints.DefaultVoice
+	if key == "" && !isCustomProxy {
 		return nil, fmt.Errorf("gemini live: API key or OAuth bearer token is required")
+	}
+	// For custom local proxies (e.g. pigasus proxy), supply a placeholder key if none is given,
+	// because google.golang.org/genai requires a non-empty APIKey to construct the WebSocket URL.
+	if key == "" && isCustomProxy {
+		key = "alt-backend"
 	}
 
 	clientCfg := &genai.ClientConfig{
@@ -185,8 +206,25 @@ func (b *GeminiLiveBackend) CreateSession(ctx context.Context, cfg LiveSessionCo
 		clientCfg.HTTPOptions.Headers["Authorization"] = []string{"Bearer " + b.bearerToken}
 	}
 
-	if endpoint != "" && endpoint != endpoints.DefaultVoice {
-		clientCfg.HTTPOptions.BaseURL = endpoint
+	if isCustomProxy {
+		// Clean and normalize endpoint for genai:
+		// 1. Strip the /ws/... RPC suffix because genai's Live.Connect appends it internally.
+		// 2. Ensure scheme is ws:// (if http/ws) or wss:// (if https/wss) so genai does not force TLS on local loopback proxies.
+		cleaned := endpoint
+		if u, err := url.Parse(endpoint); err == nil && u.Host != "" {
+			scheme := "ws"
+			if u.Scheme == "https" || u.Scheme == "wss" {
+				scheme = "wss"
+			}
+			p := u.Path
+			if idx := strings.Index(p, "/ws/"); idx >= 0 {
+				p = p[:idx]
+			}
+			u.Scheme = scheme
+			u.Path = p
+			cleaned = u.String()
+		}
+		clientCfg.HTTPOptions.BaseURL = cleaned
 	}
 
 	client, err := genai.NewClient(ctx, clientCfg)

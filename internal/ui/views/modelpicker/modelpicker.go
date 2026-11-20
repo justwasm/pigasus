@@ -34,10 +34,11 @@ import (
 // configured may declare more (the Web UI's dispatcher accepts five
 // words), and it gets the same slider, widened to fit.
 type Row struct {
-	Display string // label column, verbatim from REF
-	Slug    string // catalogue base ID (no effort suffix)
-	Dim     bool   // row is drawn in dim gray 241
-	Note    string // optional trailing description (custom registry models)
+	Display           string // label column, verbatim from REF
+	Slug              string // catalogue base ID (no effort suffix)
+	Dim               bool   // row is drawn in dim gray 241
+	UnavailableReason string // reason shown in footer when dim row selected
+	Note              string // optional trailing description (custom registry models)
 
 	// Tiers are the effort levels the row's model offers.
 	Tiers []string
@@ -57,8 +58,9 @@ func (r Row) HasVariants() bool {
 }
 
 // Rows is the static, always-present portion of the /model picker.
-// Order is the live 1.4.3 list captured at 120x40: Gemini 3.8 Flash,
-// Claude Sonnet 4.6, Claude Opus 4.6, GPT-OSS 120B, Gemini 4 Argon.
+// Order is the live 1.5.13 list: Gemini 3.8 Flash, Claude Sonnet 4.6,
+// Claude Opus 4.6, GPT-OSS 120B, Gemini 4 Carbon, Gemini 4 Argon,
+// Gemini 4 Hydrogen, Gemini 4 Neon.
 // Cycle model-catalog-claude-55 adds Claude Opus 5.5 / Claude Sonnet 5.5
 // as a conditional suffix via Rows55(); the picker iterates the
 // concatenation (see RowsView).
@@ -72,7 +74,10 @@ var Rows = []Row{
 	{Display: "Claude Sonnet 4.6 (Thinking)", Slug: "claude-sonnet-4-6"},
 	{Display: "Claude Opus 4.6 (Thinking)", Slug: "claude-opus-4-6-thinking"},
 	{Display: "GPT-OSS 120B (Medium)", Slug: "gpt-oss-120b-medium"},
-	{Display: "Gemini 4 Argon", Dim: true}, // slug unknown (not in `agy models`); cannot be selected
+	{Display: "Gemini 4 Carbon", Dim: true, UnavailableReason: "Gemini 4 Carbon is currently available to Ultra plan subscribers."},
+	{Display: "Gemini 4 Argon", Dim: true, UnavailableReason: "Gemini 4 Argon is currently available to Ultra and paid Pro plan subscribers."},
+	{Display: "Gemini 4 Hydrogen", Dim: true, UnavailableReason: "Gemini 4 Hydrogen is currently available to paid Pro and Ultra subscribers."},
+	{Display: "Gemini 4 Neon", Dim: true, UnavailableReason: "Gemini 4 Neon is currently available to paid Pro and Ultra subscribers."},
 }
 
 // Rows55 returns the conditional Claude Opus 5.5 / Claude Sonnet

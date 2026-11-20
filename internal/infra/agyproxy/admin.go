@@ -479,6 +479,7 @@ func cmdServe(opts AdminOptions, args []string) error {
 	fmt.Fprintf(opts.Out, "  OpenAI endpoint:    http://%s/v1/chat/completions\n", boundAddr)
 	fmt.Fprintf(opts.Out, "  Anthropic endpoint: http://%s/v1/messages\n", boundAddr)
 	fmt.Fprintf(opts.Out, "  Responses endpoint: http://%s/v1/responses (WebSocket + HTTP)\n", boundAddr)
+	fmt.Fprintf(opts.Out, "  LiveChat endpoint:  ws://%s/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContent\n", boundAddr)
 	fmt.Fprintf(opts.Out, "  Models endpoint:    http://%s/v1/models\n", boundAddr)
 	fmt.Fprintf(opts.Out, "  CloudCode upstream: %s\n", srv.upstream)
 	fmt.Fprintf(opts.Out, "  Aggregate mode:     %v (balancing: %v)\n", srv.aggregateActive(), srv.balanceActive())

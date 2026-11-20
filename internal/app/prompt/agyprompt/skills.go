@@ -92,10 +92,14 @@ func skillFrontmatter(path string) (name, description string, ok bool) {
 		return "", "", false
 	}
 	var doc struct {
-		Name        string `yaml:"name"`
-		Description string `yaml:"description"`
+		Name                   string `yaml:"name"`
+		Description            string `yaml:"description"`
+		DisableModelInvocation bool   `yaml:"disable-model-invocation"`
 	}
 	if err := yaml.Unmarshal(bytes.Join(lines[1:close], []byte("\n")), &doc); err != nil {
+		return "", "", false
+	}
+	if doc.DisableModelInvocation {
 		return "", "", false
 	}
 	name = strings.TrimSpace(doc.Name)

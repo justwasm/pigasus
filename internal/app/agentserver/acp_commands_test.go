@@ -7,6 +7,7 @@ import (
 
 	"github.com/ironpark/acp-go/acp1"
 	"github.com/ironpark/acp-go/acp2"
+	schemav2 "github.com/ironpark/acp-go/schema/v2"
 )
 
 // writeACPTestFile writes content under root, creating parents.
@@ -40,7 +41,11 @@ func v1NamesOf(cmds []acp1.AvailableCommand) []string {
 func v2NamesOf(cmds []acp2.AvailableCommand) []string {
 	out := make([]string, len(cmds))
 	for i, cmd := range cmds {
-		out[i] = cmd.Name
+		if c, ok := cmd.As[schemav2.AvailableCommandCommand](); ok {
+			out[i] = c.Name
+		} else if s, ok := cmd.As[schemav2.AvailableCommandSkill](); ok {
+			out[i] = s.Name
+		}
 	}
 	return out
 }
@@ -61,12 +66,15 @@ func TestACPCommands_DefaultCatalogue(t *testing.T) {
 	}
 
 	v2 := v2CommandsFor(cfg)
-	if len(v2) != len(defaultV2Commands()) {
-		t.Fatalf("v2 commands = %d, want %d", len(v2), len(defaultV2Commands()))
+	def2 := defaultV2Commands()
+	if len(v2) != len(def2) {
+		t.Fatalf("v2 commands = %d, want %d", len(v2), len(def2))
 	}
 	for i := range v2 {
-		if v2[i].Name != defaultV2Commands()[i].Name {
-			t.Errorf("v2[%d] = %q, want %q", i, v2[i].Name, defaultV2Commands()[i].Name)
+		c2, _ := v2[i].As[schemav2.AvailableCommandCommand]()
+		d2, _ := def2[i].As[schemav2.AvailableCommandCommand]()
+		if c2.Name != d2.Name {
+			t.Errorf("v2[%d] = %q, want %q", i, c2.Name, d2.Name)
 		}
 	}
 	for _, cmd := range v1 {

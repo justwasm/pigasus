@@ -319,23 +319,38 @@ func voiceAICode(o map[string]string) string {
 	return DefaultVoiceAICode
 }
 
-// voice resolves the real-time voice endpoint: OPENAGY_VOICE_URL, then
-// GOOGLE_GEMINI_BASE_URL (converted to ws/wss with live path), then the
-// file's override, then DefaultVoice.
+// normalizeVoiceURL ensures a voice endpoint string has a valid ws/wss scheme
+// and the canonical BidiGenerateContent RPC path.
+func normalizeVoiceURL(v string) string {
+	v = strings.TrimSpace(v)
+	if v == "" {
+		return ""
+	}
+	if strings.HasPrefix(v, "http://") {
+		v = "ws://" + strings.TrimPrefix(v, "http://")
+	} else if strings.HasPrefix(v, "https://") {
+		v = "wss://" + strings.TrimPrefix(v, "https://")
+	}
+	if !strings.Contains(v, "BidiGenerateContent") {
+		v = strings.TrimSuffix(v, "/") + "/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContent"
+	}
+	return v
+}
+
+// voice resolves the real-time voice endpoint: OPENAGY_VOICE_ALT_BACKEND / PIGASUS_VOICE_ALT_BACKEND,
+// then OPENAGY_VOICE_URL, then GOOGLE_GEMINI_BASE_URL (converted to ws/wss with live path),
+// then the file's override, then DefaultVoice.
 func voice(o map[string]string) string {
+	for _, env := range []string{"OPENAGY_VOICE_ALT_BACKEND", "PIGASUS_VOICE_ALT_BACKEND"} {
+		if v := strings.TrimSpace(os.Getenv(env)); v != "" {
+			return normalizeVoiceURL(v)
+		}
+	}
 	if v := strings.TrimSpace(os.Getenv("OPENAGY_VOICE_URL")); v != "" {
-		return v
+		return normalizeVoiceURL(v)
 	}
 	if v := strings.TrimSpace(os.Getenv("GOOGLE_GEMINI_BASE_URL")); v != "" {
-		if strings.HasPrefix(v, "http://") {
-			v = "ws://" + strings.TrimPrefix(v, "http://")
-		} else if strings.HasPrefix(v, "https://") {
-			v = "wss://" + strings.TrimPrefix(v, "https://")
-		}
-		if !strings.Contains(v, "BidiGenerateContent") {
-			v = strings.TrimSuffix(v, "/") + "/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContent"
-		}
-		return v
+		return normalizeVoiceURL(v)
 	}
 	return pick(o, Voice, DefaultVoice)
 }

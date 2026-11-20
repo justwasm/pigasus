@@ -10,6 +10,7 @@ import (
 
 	acp "github.com/ironpark/acp-go"
 	"github.com/ironpark/acp-go/acp2"
+	schemav2 "github.com/ironpark/acp-go/schema/v2"
 	"github.com/justwasm/pigasus/agentlink"
 	"github.com/justwasm/pigasus/internal/app/agentturn"
 	"github.com/justwasm/pigasus/internal/app/toolrunner"
@@ -37,13 +38,13 @@ func (s *acpV2Session) AvailableCommands() []acp2.AvailableCommand {
 
 func defaultV2Commands() []acp2.AvailableCommand {
 	return []acp2.AvailableCommand{
-		{Name: "/model", Description: "Set a model, or run a single prompt on another model"},
-		{Name: "/clear", Description: "Clear conversation and start a new one"},
-		{Name: "/plan", Description: "Plan carefully before executing a task"},
-		{Name: "/goal", Description: "Run until the specified goal is completely finished"},
-		{Name: "/tasks", Description: "View background tasks"},
-		{Name: "/agents", Description: "List available custom agents"},
-		{Name: "/context", Description: "Visualize current context usage"},
+		acp2.SlashCommand("/model", "Set a model, or run a single prompt on another model"),
+		acp2.SlashCommand("/clear", "Clear conversation and start a new one"),
+		acp2.SlashCommand("/plan", "Plan carefully before executing a task"),
+		acp2.SlashCommand("/goal", "Run until the specified goal is completely finished"),
+		acp2.SlashCommand("/tasks", "View background tasks"),
+		acp2.SlashCommand("/agents", "List available custom agents"),
+		acp2.SlashCommand("/context", "Visualize current context usage"),
 	}
 }
 
@@ -65,7 +66,8 @@ func NewACPV2Agent(srv *Server, client acp2.Client) *ACPV2Agent {
 	a.SessionManager = acp2.NewSessionManager(
 		acp2.NewMemoryStore[*acpV2Session](),
 		func(ctx context.Context, params *acp2.NewSessionRequest) (acp2.SessionID, *acpV2Session, error) {
-			sess, err := srv.session()
+			cwd := string(params.Cwd)
+			sess, err := srv.sessionFor(cwd, srv.cfg.Model)
 			if err != nil {
 				return "", nil, err
 			}
@@ -73,12 +75,11 @@ func NewACPV2Agent(srv *Server, client acp2.Client) *ACPV2Agent {
 			if sessID == "" {
 				sessID = acp2.SessionID(fmt.Sprintf("sess_%d", time.Now().UnixNano()))
 			}
-			cwd := params.Cwd
 			if cwd == "" {
-				cwd = acp2.AbsolutePath(sess.Workspace)
+				cwd = sess.Workspace
 			}
 			return sessID, &acpV2Session{
-				cwd:      cwd,
+				cwd:      acp2.AbsolutePath(cwd),
 				session:  sess,
 				commands: v2CommandsFor(srv.cfg),
 			}, nil
@@ -131,7 +132,7 @@ func (a *ACPV2Agent) Prompt(ctx context.Context, params *acp2.PromptRequest) (*a
 		return nil, err
 	}
 
-	promptText := acp2.JoinTexts(params.Prompt)
+	promptText := extractPromptTextV2(params.Prompt)
 	if _, err := a.StartTurn(ctx, params.SessionID, stream, func(turnCtx context.Context, s *acpV2Session) (acp2.StopReason, error) {
 		return a.runTurn(turnCtx, stream, s, promptText)
 	}); err != nil {
@@ -139,6 +140,37 @@ func (a *ACPV2Agent) Prompt(ctx context.Context, params *acp2.PromptRequest) (*a
 	}
 
 	return &acp2.PromptResponse{MessageID: userMessageID}, nil
+}
+
+func extractPromptTextV2(blocks []acp2.ContentBlock) string {
+	var texts []string
+	var resources []string
+	for _, block := range blocks {
+		if txt, ok := block.As[schemav2.ContentBlockText](); ok {
+			texts = append(texts, txt.Text)
+		} else if res, ok := block.As[schemav2.ContentBlockResource](); ok {
+			if tr, err := res.Resource.As[schemav2.TextResourceContents](); err == nil {
+				uri := tr.URI
+				path := uri
+				if strings.HasPrefix(path, "file://") {
+					path = strings.TrimPrefix(path, "file://")
+				}
+				header := uri
+				if path != "" {
+					header = path + " (editor contents)"
+				}
+				resources = append(resources, fmt.Sprintf("\n[Attached Resource: %s]\n%s", header, tr.Text))
+			}
+		}
+	}
+	prompt := strings.Join(texts, "\n")
+	if len(resources) > 0 {
+		if prompt != "" {
+			prompt += "\n"
+		}
+		prompt += strings.Join(resources, "\n")
+	}
+	return prompt
 }
 
 func (a *ACPV2Agent) runTurn(ctx context.Context, stream *acp2.SessionStream, s *acpV2Session, promptText string) (acp2.StopReason, error) {

@@ -43,8 +43,20 @@ func StepDetailText(name, detail string, isThought bool) string {
 		if text, ok := CommandDetailText(detail); ok {
 			return text
 		}
+		return CleanBackgroundTaskDetail(detail)
 	case "view_file", "read_file":
 		return ReadDetailText(detail)
+	default:
+		return CleanBackgroundTaskDetail(detail)
+	}
+}
+
+// CleanBackgroundTaskDetail strips model-steering prompt instructions
+// (e.g. "YOU MUST TAKE ONE OF THE FOLLOWING TWO ACTIONS...") so the user-facing
+// UI displays only clean execution metadata (timestamp, task ID, log path).
+func CleanBackgroundTaskDetail(detail string) string {
+	if idx := strings.Index(detail, "YOU MUST TAKE ONE OF THE FOLLOWING"); idx >= 0 {
+		return strings.TrimRight(detail[:idx], "\r\n ")
 	}
 	return detail
 }

@@ -302,31 +302,37 @@ func (p *openAIShapeProvider) buildBody(req ChatRequest, stream bool) openAIRequ
 	if ext == "" {
 		ext = p.model.ExternalModelName
 	}
+	reasoningEffort := req.ReasoningEffort
+	if p.model.SupportsThinking != nil && !*p.model.SupportsThinking {
+		reasoningEffort = ""
+	}
 	body := openAIRequestBody{
 		Model:           ext,
 		Messages:        msgs,
 		Stream:          stream,
 		MaxTokens:       req.MaxTokens,
 		Temperature:     req.Temperature,
-		ReasoningEffort: req.ReasoningEffort,
+		ReasoningEffort: reasoningEffort,
 	}
-	for _, t := range req.Tools {
-		params := t.Parameters
-		if len(params) == 0 {
-			params = json.RawMessage(`{"type":"object","properties":{}}`)
-		} else if norm := geminicode.NormalizeToolSchema(params, true); norm != nil {
-			if b, err := json.Marshal(norm); err == nil {
-				params = b
+	if p.model.SupportsToolCalls == nil || *p.model.SupportsToolCalls {
+		for _, t := range req.Tools {
+			params := t.Parameters
+			if len(params) == 0 {
+				params = json.RawMessage(`{"type":"object","properties":{}}`)
+			} else if norm := geminicode.NormalizeToolSchema(params, true); norm != nil {
+				if b, err := json.Marshal(norm); err == nil {
+					params = b
+				}
 			}
+			body.Tools = append(body.Tools, openAITool{
+				Type: "function",
+				Function: openAIFunction{
+					Name:        t.Name,
+					Description: t.Description,
+					Parameters:  params,
+				},
+			})
 		}
-		body.Tools = append(body.Tools, openAITool{
-			Type: "function",
-			Function: openAIFunction{
-				Name:        t.Name,
-				Description: t.Description,
-				Parameters:  params,
-			},
-		})
 	}
 	if stream {
 		body.StreamOptions = &openAIStreamOpts{IncludeUsage: true}

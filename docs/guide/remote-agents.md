@@ -368,18 +368,18 @@ Use the optimized extractor in [`devutils/embedextract`](../../devutils/embedext
 go run ./devutils/embedextract /path/to/agy /path/to/output_dir
 ```
 
-For `agy 1.5.12`:
+For `agy 1.5.13`:
 ```bash
-go run ./devutils/embedextract -bin ~/.local/bin/agy -embed-out out/extracted-1.5.12/embed -zip-out out/extracted-1.5.12/web-assets -zip-index 1
+go run ./devutils/embedextract -bin ~/.local/bin/agy -embed-out out/extracted-1.5.13/embed -zip-out out/extracted-1.5.13/web-assets -zip-index 1
 ```
 
 **Output Layout**:
 - `embed/`: 504 embedded files (445 after the extractor flattens the three `//go:embed` roots):
   - Built-in syntax highlighting lexers (`*.xml`) and color themes.
   - Native Swarm plugin with the `swarm_board` Sidecar UI (`index.html`, `hive.js`, `gif.js`, etc.).
-  - Built-in skills (`agy-customizations`, `antigravity_guide`, `mcp-app-development`, `migrate-agent-settings`, `native_swarm`, `swarm_monitor`, `swarm_narrator`, `swarm_pane`, `generative_ui`, etc. — fifteen at 1.5.12).
+  - Built-in skills (`agy-customizations`, `antigravity_guide`, `mcp-app-development`, `migrate-agent-settings`, `native_swarm`, `swarm_monitor`, `swarm_narrator`, `swarm_pane`, `generative_ui`, etc. — fifteen at 1.5.13).
 - `web-assets/`: 548 uncompressed web frontend assets (from embedded ZIP archive 1, ~20 MB):
-  - Frontend SPA: `main.js` (12.5 MB at 1.5.12), `index.html`, `jetbox.css`, `compiled_tailwind.css`.
+  - Frontend SPA: `main.js` (12.5 MB at 1.5.13), `index.html`, `jetbox.css`, `compiled_tailwind.css`.
   - Voices: Audio models in `voices/` (`arlo`, `cleo`, `finn`, `fola`, `gero`, `lora`, etc.).
   - Workers: `pdf.worker.mjs`, `shiki_worker.js`, `diff_worker.js`.
 
@@ -393,29 +393,29 @@ Protobuf runtime files in Go binaries retain serialized `FileDescriptorProto` st
 # 1. Remote Agent Proxy Service
 python3 scripts/re/extract_descriptors.py ~/.local/bin/agy \
   google/gca/aicode/v1main/remote_agent_proxy.proto \
-  > out/extracted-1.5.12/protos/remote_agent_proxy_1.5.12.txt
+  > out/extracted-1.5.13/protos/remote_agent_proxy_1.5.13.txt
 
 # 2. Jetski Remote Agent PB
 python3 scripts/re/extract_descriptors.py ~/.local/bin/agy \
   third_party/jetski/remote_agent_proxy_pb/remote_agent_proxy.proto \
-  > out/extracted-1.5.12/protos/remote_agent_proxy_pb_1.5.12.txt
+  > out/extracted-1.5.13/protos/remote_agent_proxy_pb_1.5.13.txt
 
 # 3. Cortex PB
 python3 scripts/re/extract_descriptors.py ~/.local/bin/agy \
   third_party/jetski/cortex_pb/cortex.proto \
-  > out/extracted-1.5.12/protos/cortex_1.5.12.txt
+  > out/extracted-1.5.13/protos/cortex_1.5.13.txt
 
 # 4. Trajectory & Trajectory Steps
 python3 scripts/re/extract_descriptors.py ~/.local/bin/agy \
   third_party/gemini_coder/proto/trajectory.proto \
-  > out/extracted-1.5.12/protos/trajectory_1.5.12.txt
+  > out/extracted-1.5.13/protos/trajectory_1.5.13.txt
 
 python3 scripts/re/extract_descriptors.py ~/.local/bin/agy \
   third_party/gemini_coder/cider/proto/trajectory_steps.proto \
-  > out/extracted-1.5.12/protos/trajectory_steps_1.5.12.txt
+  > out/extracted-1.5.13/protos/trajectory_steps_1.5.13.txt
 ```
 
-### 4.3 Version Diffing Methodology (e.g. 1.4.8 vs 1.5.12)
+### 4.3 Version Diffing Methodology (e.g. 1.4.8 vs 1.5.13)
 
 Run a fast diff comparison script against extracted descriptors:
 
@@ -423,10 +423,10 @@ Run a fast diff comparison script against extracted descriptors:
 import re
 
 m148 = set(re.findall(r'message_type\s*\{\s*name:\s*\"([^\"]+)\"', open('out/local-macos/protos/remote_agent_proxy_1.4.8.txt').read()))
-m1512 = set(re.findall(r'^message\s+([A-Za-z0-9_]+)\s*\{', open('out/extracted-1.5.12/protos/remote_agent_proxy_1.5.12.txt').read(), re.M))
+m1513 = set(re.findall(r'^message\s+([A-Za-z0-9_]+)\s*\{', open('out/extracted-1.5.13/protos/remote_agent_proxy_1.5.13.txt').read(), re.M))
 
-print("New Messages in 1.5.12:", sorted(list(m1512 - m148)))
-print("Removed Messages in 1.5.12:", sorted(list(m148 - m1512)))
+print("New Messages in 1.5.13:", sorted(list(m1513 - m148)))
+print("Removed Messages in 1.5.13:", sorted(list(m148 - m1513)))
 ```
 
 #### Key Findings from the 1.4.8 $\to$ 1.5.3 Drift:

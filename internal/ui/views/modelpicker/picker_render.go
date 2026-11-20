@@ -40,7 +40,9 @@ func RenderModelPickerRow(r Row, i, cursor int, isCurrent bool) string {
 		// The cursor row is padded to column 30 before the reset, so the
 		// reference's "> Claude Opus 4.6 (Thinking)  " keeps its trailing
 		// spaces (agy 1.4.5, live).
-		if variantChip != "" {
+		if r.Dim {
+			row = palette.BlueOpen + "> " + palette.DimGrayOpen + r.Display + strings.Repeat(" ", RowPad(r.Display)) + palette.DimGrayClose
+		} else if variantChip != "" {
 			row = palette.BlueOpen + "> " + r.Display + palette.BlueClose + variantChip
 		} else {
 			row = palette.BlueOpen + "> " + r.Display + strings.Repeat(" ", RowPad(r.Display))

@@ -201,6 +201,12 @@ type ProviderModel struct {
 	//
 	// It is a pointer for the same reason SupportsImages is.
 	EffortSupported *bool `json:"effort_supported,omitempty"`
+	// SupportsThinking says whether the model supports thinking/reasoning.
+	SupportsThinking *bool `json:"supports_thinking,omitempty"`
+	// SupportsToolCalls says whether the model supports tool calls / function calling.
+	SupportsToolCalls *bool `json:"supports_tool_calls,omitempty"`
+	// ModelFeatures maps raw modelFeatures flags from settings.json or config.
+	ModelFeatures map[string]any `json:"model_features,omitempty"`
 }
 
 // EffectiveID returns the catalogue id: ID if set, otherwise Model.
@@ -448,6 +454,20 @@ func (p ProviderConfig) Flatten() []Model {
 		}
 		wire := m.EffectiveWire()
 		label := m.EffectiveName()
+		supportsThinking := m.SupportsThinking
+		supportsToolCalls := m.SupportsToolCalls
+		if m.ModelFeatures != nil {
+			if st, ok := m.ModelFeatures["supportsThinking"].(bool); ok && supportsThinking == nil {
+				supportsThinking = &st
+			} else if st, ok := m.ModelFeatures["supports_thinking"].(bool); ok && supportsThinking == nil {
+				supportsThinking = &st
+			}
+			if stc, ok := m.ModelFeatures["supportsToolCalls"].(bool); ok && supportsToolCalls == nil {
+				supportsToolCalls = &stc
+			} else if stc, ok := m.ModelFeatures["supports_tool_calls"].(bool); ok && supportsToolCalls == nil {
+				supportsToolCalls = &stc
+			}
+		}
 		out = append(out, Model{
 			Name:                       id,
 			DisplayName:                label,
@@ -470,6 +490,9 @@ func (p ProviderConfig) Flatten() []Model {
 			TagTitle:                   strings.TrimSpace(m.TagTitle),
 			TagDescription:             strings.TrimSpace(m.TagDescription),
 			EffortSupported:            m.EffortSupported,
+			SupportsThinking:           supportsThinking,
+			SupportsToolCalls:          supportsToolCalls,
+			ModelFeatures:              m.ModelFeatures,
 			TimeoutSeconds:             p.TimeoutSeconds,
 			MaxRetries:                 p.MaxRetries,
 			ExtraHeaders:               copyHeaders(p.EffectiveHeaders()),

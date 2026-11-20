@@ -11,6 +11,7 @@ import (
 
 	acp "github.com/ironpark/acp-go"
 	"github.com/ironpark/acp-go/acp1"
+	schemav1 "github.com/ironpark/acp-go/schema/v1"
 	"github.com/justwasm/pigasus/agentlink"
 	"github.com/justwasm/pigasus/internal/app/agentturn"
 	"github.com/justwasm/pigasus/internal/app/toolrunner"
@@ -114,7 +115,8 @@ func NewACPV1Agent(srv *Server, client acp1.Client) *ACPV1Agent {
 	a.SessionManager = acp1.NewSessionManager(
 		acp1.NewMemoryStore[*acpV1Session](),
 		func(ctx context.Context, params *acp1.NewSessionRequest) (acp1.SessionID, *acpV1Session, error) {
-			sess, err := srv.session()
+			cwd := params.Cwd
+			sess, err := srv.sessionFor(cwd, srv.cfg.Model)
 			if err != nil {
 				return "", nil, err
 			}
@@ -122,7 +124,6 @@ func NewACPV1Agent(srv *Server, client acp1.Client) *ACPV1Agent {
 			if sessID == "" {
 				sessID = acp1.SessionID(fmt.Sprintf("sess_%d", time.Now().UnixNano()))
 			}
-			cwd := params.Cwd
 			if cwd == "" {
 				cwd = sess.Workspace
 			}
@@ -219,10 +220,23 @@ func buildV1ConfigOptions(s *acpV1Session) []acp1.SessionConfigOption {
 	descEffort := "Thinking budget and reasoning effort"
 
 	var modelChoices []acp1.SessionConfigSelectOption
+	labelCounts := make(map[string]int)
+	var rawModels []catalog.ModelEntry
 	for _, m := range catalog.ModelCatalogue() {
+		if strings.HasPrefix(m.ID, "MODEL_PLACEHOLDER_") || strings.Contains(m.ID, "PLACEHOLDER") {
+			continue
+		}
+		labelCounts[m.Label]++
+		rawModels = append(rawModels, m)
+	}
+	for _, m := range rawModels {
+		displayName := m.Label
+		if labelCounts[m.Label] > 1 {
+			displayName = fmt.Sprintf("%s (%s)", m.Label, m.ID)
+		}
 		modelChoices = append(modelChoices, acp1.SessionConfigSelectOption{
 			Value: acp1.SessionConfigValueID(m.ID),
-			Name:  m.Label,
+			Name:  displayName,
 		})
 	}
 	if len(modelChoices) == 0 {
@@ -404,8 +418,39 @@ func ptr[T any](v T) *T {
 // Prompt implements acp1.Agent.
 func (a *ACPV1Agent) Prompt(ctx context.Context, params *acp1.PromptRequest) (*acp1.PromptResponse, error) {
 	return a.RunTurnResponse(ctx, params.SessionID, func(turnCtx context.Context, s *acpV1Session) (*acp1.PromptResponse, error) {
-		return a.runTurn(turnCtx, params.SessionID, s, acp1.JoinTexts(params.Prompt))
+		return a.runTurn(turnCtx, params.SessionID, s, extractPromptTextV1(params.Prompt))
 	})
+}
+
+func extractPromptTextV1(blocks []acp1.ContentBlock) string {
+	var texts []string
+	var resources []string
+	for _, block := range blocks {
+		if txt, ok := block.As[schemav1.ContentBlockText](); ok {
+			texts = append(texts, txt.Text)
+		} else if res, ok := block.As[schemav1.ContentBlockResource](); ok {
+			if tr, err := res.Resource.As[schemav1.TextResourceContents](); err == nil {
+				uri := tr.URI
+				path := uri
+				if strings.HasPrefix(path, "file://") {
+					path = strings.TrimPrefix(path, "file://")
+				}
+				header := uri
+				if path != "" {
+					header = path + " (editor contents)"
+				}
+				resources = append(resources, fmt.Sprintf("\n[Attached Resource: %s]\n%s", header, tr.Text))
+			}
+		}
+	}
+	prompt := strings.Join(texts, "\n")
+	if len(resources) > 0 {
+		if prompt != "" {
+			prompt += "\n"
+		}
+		prompt += strings.Join(resources, "\n")
+	}
+	return prompt
 }
 
 func (a *ACPV1Agent) runTurn(ctx context.Context, sessID acp1.SessionID, s *acpV1Session, promptText string) (*acp1.PromptResponse, error) {

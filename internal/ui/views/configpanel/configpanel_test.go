@@ -280,3 +280,23 @@ func TestWrapText(t *testing.T) {
 		t.Errorf("wrap lost words: %q", joined)
 	}
 }
+
+func TestQueuedMessagesDescription(t *testing.T) {
+	var row *Row
+	for i := range SettingsRows {
+		if SettingsRows[i].Name == "Queued Messages" {
+			row = &SettingsRows[i]
+			break
+		}
+	}
+	if row == nil {
+		t.Fatal("Queued Messages row not found")
+	}
+	if len(row.Values) < 2 {
+		t.Fatalf("expected at least 2 values, got %d", len(row.Values))
+	}
+	wantDesc := "Send into the current turn; the agent reads it after its current step."
+	if row.Values[1].Display != "Send Immediately" || row.Values[1].Description != wantDesc {
+		t.Errorf("Send Immediately description = %q, want %q", row.Values[1].Description, wantDesc)
+	}
+}

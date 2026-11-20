@@ -147,11 +147,15 @@ func TestDiscoverSkills(t *testing.T) {
 	write("delta", "---\nname: delta\ndescription: \"Quoted: value\"\n---\nbody\n")
 	write("epsilon", "no frontmatter here\n")
 	write("zeta", "---\ndescription: No name key.\n---\nbody\n")
+	write("swarm", "---\nname: swarm\ndescription: Swarm skill\ndisable-model-invocation: true\n---\nbody\n")
 
 	got := DiscoverSkills([]string{root})
 	byName := map[string]Skill{}
 	for _, s := range got {
 		byName[s.Name] = s
+	}
+	if _, ok := byName["swarm"]; ok {
+		t.Fatal("a skill with disable-model-invocation was unexpectedly listed")
 	}
 	if _, ok := byName["epsilon"]; ok {
 		t.Fatal("a SKILL.md without frontmatter was listed")

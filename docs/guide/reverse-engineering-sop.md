@@ -19,7 +19,7 @@
 
 ## 2. 干净提交准则 (Anti-Bloat Standards)
 
-所有逆向提取工作**严格遵循 1.5.12 资产规范**：
+所有逆向提取工作**严格遵循 1.5.13 资产规范**：
 
 ### ✅ 允许跟踪的核心契约
 1. `seeds/` (`seeds.txt`, `funcs.txt`): 函数符号映射与 pclntab 入口表；
@@ -62,8 +62,8 @@ python3 scripts/re/fetch_binaries.py --target agy --os linux --arch amd64
 # 抓取 Linux aarch64 版的 localharness wheel
 python3 scripts/re/fetch_binaries.py --target localharness --os linux --arch arm64
 
-# 抓取指定版本 (例如 1.5.12 / 0.1.23)
-python3 scripts/re/fetch_binaries.py --target all --version 1.5.12
+# 抓取指定版本 (例如 1.5.13 / 0.1.23)
+python3 scripts/re/fetch_binaries.py --target all --version 1.5.13
 ```
 
 所有抓取产物自动校验官方公布的校验和（SHA-512 / SHA-256），并缓存于 `.cache/upstream/` 中，下次运行秒级命中。
@@ -79,6 +79,6 @@ make check-reproducibility
 ```
 
 该测试将：
-1. **`agy` 校验**：在独立沙箱临时目录中重新解构 `agy`，比对 997 个文件与 `out/extracted-1.5.12` 的 SHA-256，断言 0 差异；
+1. **`agy` 校验**：在独立沙箱临时目录中重新解构 `agy`，比对 997 个文件与 `out/extracted-1.5.13` 的 SHA-256，断言 0 差异；
 2. **`language_server` 校验**：在临时沙箱中重新解包，验证 `seeds`、`embed-fs`、`protos`、`ide-js`（共 263 个文件）与 `out/ide-language-server-2.33.0` 完全一致；
 3. **`localharness` 校验**：进行两次独立解包并比对 Run A 与 Run B，断言 7 个 `.proto` 文件与函数符号表完全重现。

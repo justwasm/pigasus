@@ -1,10 +1,10 @@
 {
-  "version": "1.5.12",
+  "version": "1.5.13",
   "artifacts": [
     {
       "path": "internal/cli/testdata/changelog_reference.txt",
-      "captured_at": "1.5.12",
-      "digest": "3f25bfd0d6a3f7da01d0c1cd1f7e6656c6deba00fb70babb83cff87250cf5874",
+      "captured_at": "1.5.13",
+      "digest": "18f5b65bd202977dda65b1aa00b27f8bade482dfb9f6d1ff9f14846ebe0f41aa",
       "live": true,
       "how": "agy changelog > internal/cli/testdata/changelog_reference.txt, then update the five constants in internal/cli/changelog_data_test.go (byte length, line count, section count, bullet count, sha256) and regenerate this lock. Re-captured at 1.5.11 (2026-11-19): the feed gained the 1.5.0-1.5.10 sections and the 1.3.7/1.3.8/1.3.9 sections the 1.4.x feeds skipped, and is now 241,807 bytes / 1,278 lines / 94 sections / 1091 bullets, sha256 3f25bfd0d6a3f7da01d0c1cd1f7e6656c6deba00fb70babb83cff87250cf5874. It still tops out at 1.5.10 - the 1.5.11 release notes are served nowhere yet (the public docs page stops at 1.5.9), so there is no changelog_upstream_1.5.11.md to record."
     },

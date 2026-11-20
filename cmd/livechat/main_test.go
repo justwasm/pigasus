@@ -1691,3 +1691,19 @@ func TestLiveChatModel_VoicePreviewCmdUsesBoundedContext(t *testing.T) {
 		t.Fatal("preview playback must run under a context deadline")
 	}
 }
+
+func TestLiveChat_AltBackendProxyIntegration(t *testing.T) {
+	// 1. Verify environment variable priority
+	t.Setenv("OPENAGY_VOICE_ALT_BACKEND", "http://127.0.0.1:62371")
+	ep := voice.NewGeminiLiveBackend("").Endpoint()
+	wantSuffix := "/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContent"
+	if !strings.HasPrefix(ep, "ws://127.0.0.1:62371") || !strings.HasSuffix(ep, wantSuffix) {
+		t.Errorf("expected endpoint pointing at proxy ws://127.0.0.1:62371/..., got %q", ep)
+	}
+
+	// 2. Verify backend with custom endpoint
+	be := voice.NewGeminiLiveBackendWithEndpoint("", "http://127.0.0.1:8080")
+	if be.Endpoint() != "http://127.0.0.1:8080" {
+		t.Errorf("be.Endpoint() = %q, want http://127.0.0.1:8080", be.Endpoint())
+	}
+}

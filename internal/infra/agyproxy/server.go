@@ -440,6 +440,9 @@ func (s *Server) dispatch(w http.ResponseWriter, r *http.Request, body []byte, i
 
 	lp := strings.TrimSuffix(strings.ToLower(r.URL.Path), "/")
 	switch {
+	case isLiveWebSocket(r):
+		s.serveLiveSocket(w, r)
+		return
 	case lp == "/v1/models" || lp == "/models":
 		s.handleModelsList(w, r)
 	case lp == "/v1/chat/completions" || lp == "/chat/completions":

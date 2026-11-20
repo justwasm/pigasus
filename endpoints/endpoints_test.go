@@ -446,11 +446,28 @@ func TestVoiceEndpointResolution(t *testing.T) {
 		t.Errorf("got.Voice = %q, want %q", gotEnv.Voice, wantEnv)
 	}
 
-	// 3. OPENAGY_VOICE_URL explicit override beats all
+	// 3. OPENAGY_VOICE_URL explicit override beats config and base url
 	t.Setenv("OPENAGY_VOICE_URL", "wss://direct-voice.example.com")
 	gotExplicit := Current()
-	if gotExplicit.Voice != "wss://direct-voice.example.com" {
-		t.Errorf("got.Voice = %q, want wss://direct-voice.example.com", gotExplicit.Voice)
+	if gotExplicit.Voice != "wss://direct-voice.example.com/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContent" {
+		t.Errorf("got.Voice = %q, want wss://direct-voice.example.com/...", gotExplicit.Voice)
+	}
+
+	// 4. OPENAGY_VOICE_ALT_BACKEND beats OPENAGY_VOICE_URL and normalizes http to ws
+	t.Setenv("OPENAGY_VOICE_ALT_BACKEND", "http://127.0.0.1:62371")
+	gotAlt := Current()
+	wantAlt := "ws://127.0.0.1:62371/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContent"
+	if gotAlt.Voice != wantAlt {
+		t.Errorf("got.Voice = %q, want %q", gotAlt.Voice, wantAlt)
+	}
+
+	// 5. PIGASUS_VOICE_ALT_BACKEND also recognized
+	t.Setenv("OPENAGY_VOICE_ALT_BACKEND", "")
+	t.Setenv("PIGASUS_VOICE_ALT_BACKEND", "http://127.0.0.1:8080/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContent")
+	gotPigasus := Current()
+	wantPigasus := "ws://127.0.0.1:8080/ws/google.ai.generativelanguage.v1alpha.GenerativeService.BidiGenerateContent"
+	if gotPigasus.Voice != wantPigasus {
+		t.Errorf("got.Voice = %q, want %q", gotPigasus.Voice, wantPigasus)
 	}
 }
 

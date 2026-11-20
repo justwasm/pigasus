@@ -51,6 +51,9 @@ func (p *Panel) HandleKey(key tea.Key) (bool, tea.Cmd) {
 		}
 		return true, cmd
 	case tea.KeyEnter:
+		if row, ok := p.currentRow(); ok && row.Dim {
+			return true, nil
+		}
 		label := p.selectModel()
 		var cmds []tea.Cmd
 		if label != "" {

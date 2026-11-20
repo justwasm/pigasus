@@ -141,17 +141,31 @@ func (p *Panel) footer(lines []string, height int) []string {
 	}
 	// At short terminal heights (< 24), the reference hides the effort slider
 	// to ensure the panel fits within available viewport.
+	row, ok := p.currentRow()
 	if height > 0 && height < 24 {
+		if ok && row.Dim {
+			return append(lines, "",
+				tuilib.PanelKeyboardHint("↑/↓", "Navigate", "esc", back))
+		}
 		return append(lines, "",
 			tuilib.PanelKeyboardHint("↑/↓", "Navigate",
 				"enter", "Select", "esc", back))
+	}
+	if ok && row.Dim {
+		var linesRet []string
+		linesRet = append(linesRet, "")
+		if row.UnavailableReason != "" {
+			linesRet = append(linesRet, "  \x1b[3m\x1b[38;5;146mUnavailable · "+row.UnavailableReason+"\x1b[0m")
+		}
+		linesRet = append(linesRet, "",
+			tuilib.PanelKeyboardHint("↑/↓", "Navigate", "esc", back))
+		return append(lines, linesRet...)
 	}
 	// Cycle 208: the slider (and its legend entry) only exist while the
 	// cursor is on a row that offers more than one effort. The
 	// reference's own picker has exactly one such row (the three-tier
 	// Gemini); a configured model that declares tiers gets the same
 	// slider, widened to fit its own tier count.
-	row, ok := p.currentRow()
 	if ok && row.HasVariants() {
 		return append(lines, "",
 			tuilib.PanelKeyboardHint("↑/↓", "Navigate", "←/→", "Planner", "tab", "Planner",

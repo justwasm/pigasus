@@ -527,6 +527,59 @@ func TestPanelArgonIsNotSelectable(t *testing.T) {
 	}
 }
 
+func TestPanelDimRowsUnavailableReasons(t *testing.T) {
+	isolateCatalogue(t)
+	p := newTestPanel(t)
+
+	cases := []struct {
+		display string
+		reason  string
+	}{
+		{"Gemini 4 Carbon", "Gemini 4 Carbon is currently available to Ultra plan subscribers."},
+		{"Gemini 4 Argon", "Gemini 4 Argon is currently available to Ultra and paid Pro plan subscribers."},
+		{"Gemini 4 Hydrogen", "Gemini 4 Hydrogen is currently available to paid Pro and Ultra subscribers."},
+		{"Gemini 4 Neon", "Gemini 4 Neon is currently available to paid Pro and Ultra subscribers."},
+	}
+
+	for _, tc := range cases {
+		idx := -1
+		for i, r := range RowsView() {
+			if r.Display == tc.display {
+				idx = i
+				if !r.Dim {
+					t.Fatalf("%s must be Dim: true", tc.display)
+				}
+				if r.UnavailableReason != tc.reason {
+					t.Fatalf("%s reason = %q, want %q", tc.display, r.UnavailableReason, tc.reason)
+				}
+				break
+			}
+		}
+		if idx < 0 {
+			t.Fatalf("%s is missing from RowsView()", tc.display)
+		}
+		p.SetCursor(idx)
+		lines := p.Lines()
+		joined := strings.Join(lines, "\n")
+		if !strings.Contains(joined, "Unavailable · "+tc.reason) {
+			t.Errorf("Lines for %s missing reason banner:\n%s", tc.display, joined)
+		}
+		if strings.Contains(joined, "enter Select") {
+			t.Errorf("Lines for %s should omit 'enter Select':\n%s", tc.display, joined)
+		}
+		if strings.Contains(joined, "Effort") {
+			t.Errorf("Lines for %s should omit effort slider:\n%s", tc.display, joined)
+		}
+		handled, cmd := p.HandleKey(tea.Key{Code: tea.KeyEnter})
+		if !handled {
+			t.Errorf("Enter on %s should be handled", tc.display)
+		}
+		if cmd != nil {
+			t.Errorf("Enter on %s should return nil Cmd (no-op), got %v", tc.display, cmd)
+		}
+	}
+}
+
 // ---- the search box -------------------------------------------------------
 
 // TestPanelSearchFiltersAndParksTheCursorOnTheFirstHit pins that the typed
@@ -664,8 +717,8 @@ func TestPanelRowCountFollowsTheRows(t *testing.T) {
 	p := newTestPanel(t)
 
 	n := p.RowCount()
-	if n != 7 {
-		t.Fatalf("row count = %d, want 7 (five reference rows + two configured)", n)
+	if n != 10 {
+		t.Fatalf("row count = %d, want 10 (eight reference rows + two configured)", n)
 	}
 	// Walk to the last row the way a user does.
 	for i := 0; i < n+3; i++ {
@@ -869,15 +922,15 @@ func TestModelPickerWindowingPagination(t *testing.T) {
 	testHome(t, map[string]any{})
 	p := newTestPanel(t)
 
-	// Total rows = 5 reference + 5 configured = 10 rows.
-	if p.RowCount() != 10 {
-		t.Fatalf("row count = %d, want 10", p.RowCount())
+	// Total rows = 8 reference + 5 configured = 13 rows.
+	if p.RowCount() != 13 {
+		t.Fatalf("row count = %d, want 13", p.RowCount())
 	}
 
-	// At height 20, VisibleRowsFor(20, 10) = 3 rows.
+	// At height 20, VisibleRowsFor(20, 13) = 3 rows.
 	lines := p.Lines(20)
 	joined := strings.Join(lines, "\n")
-	if !strings.Contains(joined, "[1-3 of 10 items]") {
+	if !strings.Contains(joined, "[1-3 of 13 items]") {
 		t.Errorf("height 20 lines missing pagination indicator:\n%s", joined)
 	}
 
@@ -890,16 +943,16 @@ func TestModelPickerWindowingPagination(t *testing.T) {
 	p.SetCursor(4) // 5th row (0-indexed)
 	scrolledLines := p.Lines(20)
 	scrolledJoined := strings.Join(scrolledLines, "\n")
-	if !strings.Contains(scrolledJoined, "[3-5 of 10 items]") {
+	if !strings.Contains(scrolledJoined, "[3-5 of 13 items]") {
 		t.Errorf("after moving cursor, pagination indicator not updated:\n%s", scrolledJoined)
 	}
 
-	// Reset cursor to 0. At height 40, max visible is 7. Total 10 rows -> [1-7 of 10 items].
+	// Reset cursor to 0. At height 40, max visible is 7. Total 13 rows -> [1-7 of 13 items].
 	p.SetCursor(0)
 	lines40 := p.Lines(40)
 	joined40 := strings.Join(lines40, "\n")
-	if !strings.Contains(joined40, "[1-7 of 10 items]") {
-		t.Errorf("height 40 lines missing [1-7 of 10 items]:\n%s", joined40)
+	if !strings.Contains(joined40, "[1-7 of 13 items]") {
+		t.Errorf("height 40 lines missing [1-7 of 13 items]:\n%s", joined40)
 	}
 	// At height 40, Effort slider should be present for Gemini row (cursor at 0).
 	if !strings.Contains(joined40, "Effort") || !strings.Contains(joined40, "←/→") {

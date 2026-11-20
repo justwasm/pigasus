@@ -56,6 +56,12 @@ func TestStepDetailText_Commands(t *testing.T) {
 			detail: "Created At: x\nCompleted At: y\nCommand exited with code 0.\n\nNo output from the command.",
 			want:   "Created At: x\nCompleted At: y\nCommand exited with code 0.\n\nNo output from the command.",
 		},
+		{
+			name:   "background task strips prompt guidance suffix",
+			tool:   "run_command",
+			detail: "Created At: 2026-11-20T18:25:48+08:00\nTool is running as a background task with task id: schedule-45612/task-111\nTask logs are available at: file:///path/to/task-111.log\nYOU MUST TAKE ONE OF THE FOLLOWING TWO ACTIONS: A) either proceed to other relevant work (if any) or, B) simply update the user with a short message (that you have launched the command and will wait for it to finish) and end the turn.\n DO NOTHING ELSE.",
+			want:   "Created At: 2026-11-20T18:25:48+08:00\nTool is running as a background task with task id: schedule-45612/task-111\nTask logs are available at: file:///path/to/task-111.log",
+		},
 	}
 	for _, c := range cases {
 		if got := StepDetailText(c.tool, c.detail, false); got != c.want {

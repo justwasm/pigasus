@@ -69,6 +69,13 @@ func (p *Panel) Lines(height, width int) []string {
 		lines = append(lines, p.renderItemRow(rows[i], p.Value(rows[i]), i == cursor))
 	}
 	desc := rows[cursor].Description
+	currVal := p.rawDisplayValue(rows[cursor])
+	for _, v := range rows[cursor].Values {
+		if v.Display == currVal && v.Description != "" {
+			desc = v.Description
+			break
+		}
+	}
 	if IsTelemetryRow(rows[cursor]) && auth.IsBusinessAccount() {
 		desc = auth.TelemetryBusinessDescription()
 	}
@@ -119,7 +126,9 @@ func (p *Panel) submenuLines(rows []Row, height, width int) []string {
 	lines = append(lines, p.submenuRowLines(rows, currentVal, visible)...)
 
 	desc := row.Description
-	if IsTelemetryRow(row) && auth.IsBusinessAccount() {
+	if p.submenuCursor >= 0 && p.submenuCursor < len(row.Values) && row.Values[p.submenuCursor].Description != "" {
+		desc = row.Values[p.submenuCursor].Description
+	} else if IsTelemetryRow(row) && auth.IsBusinessAccount() {
 		desc = auth.TelemetryBusinessDescription()
 	}
 	lines = append(lines, "")

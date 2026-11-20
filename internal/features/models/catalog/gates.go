@@ -44,9 +44,24 @@ type GatedModel struct {
 // silently lose the "why".
 var referenceGatedModels = []GatedModel{
 	{
+		ID:     "gemini-4-carbon-disabled",
+		Label:  "Gemini 4 Carbon",
+		Reason: "Gemini 4 Carbon is currently available to Ultra plan subscribers",
+	},
+	{
 		ID:     "gemini-4-argon-disabled",
 		Label:  "Gemini 4 Argon",
 		Reason: "Gemini 4 Argon is currently available to Ultra and paid Pro plan subscribers",
+	},
+	{
+		ID:     "gemini-4-hydrogen-disabled",
+		Label:  "Gemini 4 Hydrogen",
+		Reason: "Gemini 4 Hydrogen is currently available to paid Pro and Ultra subscribers",
+	},
+	{
+		ID:     "gemini-4-neon-disabled",
+		Label:  "Gemini 4 Neon",
+		Reason: "Gemini 4 Neon is currently available to paid Pro and Ultra subscribers",
 	},
 }
 

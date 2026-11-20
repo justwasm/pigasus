@@ -2246,6 +2246,8 @@ func main() {
 	resumeFlag := flag.String("resume", "", "Resume a saved LiveChat session by ID, prefix, index (e.g. 1), or 'latest'")
 	listSessionsFlag := flag.Bool("list-sessions", false, "List all saved LiveChat sessions and exit")
 	noPreviewFlag := flag.Bool("no-voice-preview", false, "Do not play a recorded persona clip when the voice switches")
+	altBackendFlag := flag.String("alt-backend", "", "Alternative Live API backend endpoint (or env $OPENAGY_VOICE_ALT_BACKEND / $OPENAGY_VOICE_URL)")
+	endpointFlag := flag.String("endpoint", "", "Override voice WebSocket endpoint (alias for --alt-backend)")
 	flag.Parse()
 
 	absWs, err := filepath.Abs(*workspaceFlag)
@@ -2296,11 +2298,43 @@ func main() {
 		apiKey = endpoints.CurrentGeminiAPIKey()
 	}
 
+	altBackend := strings.TrimSpace(*altBackendFlag)
+	if altBackend == "" {
+		altBackend = strings.TrimSpace(*endpointFlag)
+	}
+	if altBackend == "" {
+		altBackend = strings.TrimSpace(os.Getenv("OPENAGY_VOICE_ALT_BACKEND"))
+	}
+	if altBackend == "" {
+		altBackend = strings.TrimSpace(os.Getenv("PIGASUS_VOICE_ALT_BACKEND"))
+	}
+	if altBackend == "" {
+		altBackend = strings.TrimSpace(os.Getenv("OPENAGY_VOICE_URL"))
+	}
+
 	var liveBackend voice.LiveBackend
 	if *mockFlag || os.Getenv("PIGASUS_MOCK_VOICE") != "" || os.Getenv("OPENAGY_MOCK_VOICE") != "" {
 		mockB := voice.NewMockLiveBackend()
 		mockB.SetAutoEcho(true)
 		liveBackend = mockB
+	} else if altBackend != "" {
+		// User specified an alternative backend / proxy (e.g. pigasus proxy or custom endpoint).
+		var altLive *voice.GeminiLiveBackend
+		if bearerToken != "" {
+			altLive = voice.NewGeminiLiveBackendWithBearer(bearerToken)
+		} else {
+			altLive = voice.NewGeminiLiveBackend(apiKey)
+		}
+		altLive.SetEndpoint(altBackend)
+
+		// If user has a Google OAuth session and didn't explicitly force the alt backend,
+		// use AICode as primary with altLive as the automatic fallback backend;
+		// otherwise connect directly to the alt backend proxy.
+		if bearerToken != "" && os.Getenv("OPENAGY_VOICE_FORCE_ALT_BACKEND") == "" && *altBackendFlag == "" && *endpointFlag == "" {
+			liveBackend = voice.NewAICodeLiveBackendWithFallback(bearerToken, altLive)
+		} else {
+			liveBackend = altLive
+		}
 	} else if *apiKeyFlag != "" || (os.Getenv("OPENAGY_VOICE_FORCE_API_KEY") != "" && apiKey != "") {
 		liveBackend = voice.NewGeminiLiveBackend(apiKey)
 	} else if bearerToken != "" {
@@ -2318,7 +2352,8 @@ func main() {
 		fmt.Println("To connect to Google Voice Live:")
 		fmt.Println("  1. Sign in with Google: pigasus login")
 		fmt.Println("  2. Or add \"gemini_api_key\" to ~/.openagy/config.json")
-		fmt.Println("  3. Or run with --mock for an interactive offline simulation")
+		fmt.Println("  3. Or run with Pigasus proxy: OPENAGY_VOICE_ALT_BACKEND=http://127.0.0.1:<port> livechat")
+		fmt.Println("  4. Or run with --mock for an interactive offline simulation")
 		os.Exit(1)
 	}
 

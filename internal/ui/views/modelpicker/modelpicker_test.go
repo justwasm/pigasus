@@ -89,13 +89,16 @@ func TestRowsFilteredIgnoresTheCatalogueID(t *testing.T) {
 
 func TestRowsFilteredDimSortsLast(t *testing.T) {
 	isolateCatalogue(t)
-	// "Gemini 4 Argon" is the dim, unselectable row. The reference keeps
-	// it last even though its label is the shortest.
+	// The dim, unselectable rows are kept last even though their labels
+	// may be shorter than selectable rows.
 	rows := labelOrder(RowsFiltered("4"))
 	want := []string{
 		"Claude Opus 4.6 (Thinking)",
 		"Claude Sonnet 4.6 (Thinking)",
+		"Gemini 4 Neon",
 		"Gemini 4 Argon",
+		"Gemini 4 Carbon",
+		"Gemini 4 Hydrogen",
 	}
 	if len(rows) != len(want) {
 		t.Fatalf("4 → %v, want %v", rows, want)

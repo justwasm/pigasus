@@ -128,6 +128,12 @@ type Model struct {
 	// EffortSupported says the model exposes a reasoning level: nil
 	// means "not stated".
 	EffortSupported *bool `json:"effort_supported,omitempty"`
+	// SupportsThinking says whether the model supports thinking/reasoning.
+	SupportsThinking *bool `json:"supports_thinking,omitempty"`
+	// SupportsToolCalls says whether the model supports tool calls / function calling.
+	SupportsToolCalls *bool `json:"supports_tool_calls,omitempty"`
+	// ModelFeatures maps raw modelFeatures flags from settings.json or config.
+	ModelFeatures map[string]any `json:"model_features,omitempty"`
 	// TimeoutSeconds is the per-request timeout. 0 defaults to 60s.
 	TimeoutSeconds int `json:"timeout_seconds,omitempty"`
 	// MaxRetries is the number of retries on 5xx / network. 0 means 1 try.

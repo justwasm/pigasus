@@ -171,7 +171,9 @@ func newConfiguredBackend(modelName string, timeoutSeconds int, logWriter io.Wri
 		// The reasoning level the model runs at. On a tier row
 		// ("minimax-m3.1-flash-xhigh") this is the tier itself, so
 		// the tier rides the row into the request.
-		ReasoningEffort: strings.TrimSpace(m.ReasoningEffort),
+		ReasoningEffort:   strings.TrimSpace(m.ReasoningEffort),
+		SupportsThinking:  m.SupportsThinking,
+		SupportsToolCalls: m.SupportsToolCalls,
 	})
 }
 

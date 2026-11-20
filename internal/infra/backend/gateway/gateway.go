@@ -123,8 +123,10 @@ type GatewayConfig struct {
 	//
 	// The Anthropic dialect has no such field, so the hint is dropped
 	// there: the Messages API spells its thinking budget differently.
-	ReasoningEffort string
-	HTTPClient      *http.Client
+	ReasoningEffort   string
+	SupportsThinking  *bool
+	SupportsToolCalls *bool
+	HTTPClient        *http.Client
 }
 
 // withDefaults fills in the values that can be defaulted without inventing

@@ -89,6 +89,14 @@ func (c *GatewayClient) buildRequest(req backend.StreamRequest, externalModel st
 
 // buildOpenAIRequest renders the Chat Completions body.
 func (c *GatewayClient) buildOpenAIRequest(req backend.StreamRequest, externalModel string) ([]byte, error) {
+	reasoningEffort := strings.TrimSpace(c.cfg.ReasoningEffort)
+	if c.cfg.SupportsThinking != nil && !*c.cfg.SupportsThinking {
+		reasoningEffort = ""
+	}
+	var tools []gatewayTool
+	if c.cfg.SupportsToolCalls == nil || *c.cfg.SupportsToolCalls {
+		tools = formatOpenAITools(req)
+	}
 	body := gatewayRequestBody{
 		Model:       externalModel,
 		Messages:    formatOpenAIMessages(req),
@@ -98,11 +106,11 @@ func (c *GatewayClient) buildOpenAIRequest(req backend.StreamRequest, externalMo
 		// The reasoning level the model runs at — the tier of a model
 		// that declares tiers. It rides the model the client was built
 		// for, not the turn: the turn's own level is PiG's business.
-		ReasoningEffort: strings.TrimSpace(c.cfg.ReasoningEffort),
+		ReasoningEffort: reasoningEffort,
 		StreamOptions: &gatewayStreamOpts{
 			IncludeUsage: true,
 		},
-		Tools: formatOpenAITools(req),
+		Tools: tools,
 	}
 	raw, err := json.Marshal(body)
 	if err != nil {

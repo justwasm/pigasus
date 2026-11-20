@@ -38,6 +38,7 @@ const (
 type clientSockets struct {
 	mu      sync.Mutex
 	m       map[*responsesSocket]bool
+	live    map[*liveSocket]bool
 	closing bool
 	done    chan struct{}
 }
@@ -55,6 +56,19 @@ func (cs *clientSockets) add(s *responsesSocket) bool {
 	return true
 }
 
+func (cs *clientSockets) addLive(s *liveSocket) bool {
+	cs.mu.Lock()
+	defer cs.mu.Unlock()
+	if cs.closing {
+		return false
+	}
+	if cs.live == nil {
+		cs.live = map[*liveSocket]bool{}
+	}
+	cs.live[s] = true
+	return true
+}
+
 func (cs *clientSockets) ending() bool {
 	cs.mu.Lock()
 	defer cs.mu.Unlock()
@@ -65,7 +79,17 @@ func (cs *clientSockets) remove(s *responsesSocket) {
 	cs.mu.Lock()
 	defer cs.mu.Unlock()
 	delete(cs.m, s)
-	if cs.closing && len(cs.m) == 0 && cs.done != nil {
+	if cs.closing && len(cs.m) == 0 && len(cs.live) == 0 && cs.done != nil {
+		close(cs.done)
+		cs.done = nil
+	}
+}
+
+func (cs *clientSockets) removeLive(s *liveSocket) {
+	cs.mu.Lock()
+	defer cs.mu.Unlock()
+	delete(cs.live, s)
+	if cs.closing && len(cs.m) == 0 && len(cs.live) == 0 && cs.done != nil {
 		close(cs.done)
 		cs.done = nil
 	}
@@ -75,7 +99,7 @@ func (cs *clientSockets) drain(ctx context.Context) {
 	cs.mu.Lock()
 	cs.closing = true
 	var done chan struct{}
-	if len(cs.m) > 0 {
+	if len(cs.m) > 0 || len(cs.live) > 0 {
 		done = make(chan struct{})
 		cs.done = done
 	}
@@ -83,9 +107,16 @@ func (cs *clientSockets) drain(ctx context.Context) {
 	for s := range cs.m {
 		all = append(all, s)
 	}
+	allLive := make([]*liveSocket, 0, len(cs.live))
+	for s := range cs.live {
+		allLive = append(allLive, s)
+	}
 	cs.mu.Unlock()
 
 	for _, s := range all {
+		s.goingAway()
+	}
+	for _, s := range allLive {
 		s.goingAway()
 	}
 	if done == nil {
@@ -96,6 +127,9 @@ func (cs *clientSockets) drain(ctx context.Context) {
 	case <-ctx.Done():
 		for _, s := range all {
 			s.c.CloseNow()
+		}
+		for _, s := range allLive {
+			s.closeNow()
 		}
 	}
 }

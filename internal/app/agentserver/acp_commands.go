@@ -77,16 +77,10 @@ func v1CommandsFor(cfg Config) []acp1.AvailableCommand {
 func v2CommandsFor(cfg Config) []acp2.AvailableCommand {
 	cmds := defaultV2Commands()
 	if name := strings.TrimSpace(cfg.AgentName); name != "" {
-		cmds = append(cmds, acp2.AvailableCommand{
-			Name:        "/agent",
-			Description: "Active custom agent: " + name,
-		})
+		cmds = append(cmds, acp2.SlashCommand("/agent", "Active custom agent: "+name))
 	}
 	for _, skill := range agentSkills(cfg) {
-		cmds = append(cmds, acp2.AvailableCommand{
-			Name:        "/" + skill.Name,
-			Description: skillDescription(skill),
-		})
+		cmds = append(cmds, acp2.SlashCommand("/"+skill.Name, skillDescription(skill)))
 	}
 	return cmds
 }

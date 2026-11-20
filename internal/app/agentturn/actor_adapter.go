@@ -550,7 +550,9 @@ func (s *ChunkSink) OnError(err error) {
 
 func (s *ChunkSink) OnTurnCompleted(summary *actor.TurnSummary) {
 	s.summary = summary
-	if summary != nil && summary.Status == "error" && s.turnErr == nil {
+	if summary != nil && (summary.Status == "success" || summary.Status == "done") {
+		s.turnErr = nil
+	} else if summary != nil && summary.Status == "error" && s.turnErr == nil {
 		s.turnErr = errors.New("turn completed with error")
 	}
 	if s.turnErr == nil && s.handler != nil {
@@ -648,7 +650,17 @@ func ExecuteActorTurnRequest(ctx context.Context, act *actor.Actor, req actor.Tu
 				sink.OnError(errVal)
 			}
 		case actor.EventTurnCompleted:
-			if turnErr == nil {
+			if ev.TurnSummary != nil && (ev.TurnSummary.Status == "success" || ev.TurnSummary.Status == "done") && ev.Err == nil && ev.Error == "" {
+				turnErr = nil
+				if cs, ok := sink.(*ChunkSink); ok {
+					cs.turnErr = nil
+				}
+				if fs, ok := sink.(*FrameSink); ok {
+					fs.mu.Lock()
+					fs.turnErr = ""
+					fs.mu.Unlock()
+				}
+			} else if turnErr == nil {
 				if ev.Err != nil {
 					turnErr = ev.Err
 				} else if ev.Error != "" {
