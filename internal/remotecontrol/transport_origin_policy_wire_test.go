@@ -303,6 +303,10 @@ func TestSetRemoteControlOriginPatterns_WS_BroadcastCrossConn(t *testing.T) {
 	cA := dialWS(t, srv.HTTPURL())
 	defer cA.CloseNow()
 
+	// Wait for both connections to be registered by the server
+	// so the broadcast does not drop connection B.
+	waitForTwoConnIDs(t, srv)
+
 	writeJSONRPC(t, cA, map[string]any{
 		"jsonrpc": "2.0",
 		"id":      1,

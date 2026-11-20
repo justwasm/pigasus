@@ -284,7 +284,11 @@ func TestACPHost_AgentFlagAdvertisesSkills(t *testing.T) {
 
 	var names []string
 	for _, cmd := range sessResp.AvailableCommands {
-		names = append(names, cmd.Name)
+		if c, ok := cmd.As[acp2.AvailableCommandCommand](); ok {
+			names = append(names, c.Name)
+		} else if s, ok := cmd.As[acp2.AvailableCommandSkill](); ok {
+			names = append(names, s.Name)
+		}
 	}
 	for _, want := range []string{"/agent", "/code-reviewer"} {
 		found := false
