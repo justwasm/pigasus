@@ -516,4 +516,21 @@ func TestPolicy_ConfiguredCompactThreshold(t *testing.T) {
 	if !decision.Apply {
 		t.Fatal("expected auto-checkpoint triggered at 26000 tokens exceeding 25000 threshold")
 	}
+
+	// 3. Clamped by min(specified, default): if specified is 80000 (> 50000 default), clamps to 50000
+	configtest.WriteProviders(t, `{"providers": {"gateway": {
+		"type": "openai", "base_url": "https://host/v1",
+		"models": [{"id": "custom-large", "name": "Custom Large",
+		            "context_window": 128000, "default_max_tokens": 4096,
+		            "compact_threshold": 80000}]}}}`)
+	pLarge := New(Config{
+		Model:               "custom-large",
+		SystemPrompt:        "sys",
+		Backend:             be,
+		EnableSoftThreshold: true,
+	})
+	defer pLarge.Close()
+	if pLarge.Profile().TokenThreshold != 50000 {
+		t.Fatalf("expected TokenThreshold clamped to min(80000, 50000) = 50000, got %d", pLarge.Profile().TokenThreshold)
+	}
 }

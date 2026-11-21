@@ -147,6 +147,30 @@ func TestConfiguredModelUsesItsOwnCompactThreshold(t *testing.T) {
 	if !ok || threshLabel != 32000 {
 		t.Fatalf("ConfiguredCompactThreshold(display label) = %d, %v; want 32000, true", threshLabel, ok)
 	}
+
+	// For a catalogue model, ProfileFor applies min(configured, default)
+	configtest.WriteProviders(t, `{"providers": {"anthropic": {
+		"type": "anthropic",
+		"models": [{"id": "claude-sonnet-4-6", "compact_threshold": 30000}]}}}`)
+	p, ok := ProfileFor("claude-sonnet-4-6")
+	if !ok {
+		t.Fatalf("ProfileFor(claude-sonnet-4-6) not found")
+	}
+	if p.TokenThreshold != 30000 {
+		t.Fatalf("ProfileFor.TokenThreshold = %d; want 30000 (specified < default)", p.TokenThreshold)
+	}
+
+	// When compact_threshold > default, min(specified, default) clamps to default
+	configtest.WriteProviders(t, `{"providers": {"anthropic": {
+		"type": "anthropic",
+		"models": [{"id": "claude-sonnet-4-6", "compact_threshold": 90000}]}}}`)
+	pLarge, ok := ProfileFor("claude-sonnet-4-6")
+	if !ok {
+		t.Fatalf("ProfileFor(claude-sonnet-4-6) not found")
+	}
+	if pLarge.TokenThreshold != 50000 {
+		t.Fatalf("ProfileFor.TokenThreshold = %d; want 50000 (clamped by min(90000, 50000))", pLarge.TokenThreshold)
+	}
 }
 
 func TestConfiguredModelLookupVariations(t *testing.T) {
