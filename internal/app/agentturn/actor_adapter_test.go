@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -531,11 +532,17 @@ func (c *thresholdTestClient) Stream(ctx context.Context, req backend.StreamRequ
 }
 
 type checkpointTestClient struct {
-	calls       int
-	summaryText string
+	mu           sync.Mutex
+	calls        int
+	summaryText  string
+	recordedReqs []backend.StreamRequest
 }
 
 func (c *checkpointTestClient) Stream(ctx context.Context, req backend.StreamRequest) (<-chan backend.StreamChunk, error) {
+	c.mu.Lock()
+	c.recordedReqs = append(c.recordedReqs, req)
+	c.mu.Unlock()
+
 	out := make(chan backend.StreamChunk, 4)
 	go func() {
 		defer close(out)
@@ -544,10 +551,15 @@ func (c *checkpointTestClient) Stream(ctx context.Context, req backend.StreamReq
 			out <- backend.StreamChunk{Done: true}
 			return
 		}
+
+		c.mu.Lock()
 		c.calls++
-		if c.calls <= 2 {
+		callIdx := c.calls
+		c.mu.Unlock()
+
+		if callIdx <= 2 {
 			out <- backend.StreamChunk{
-				ToolCalls: []backend.ToolCall{{ID: fmt.Sprintf("c%d", c.calls), Name: "noop", Arguments: []byte("{}")}},
+				ToolCalls: []backend.ToolCall{{ID: fmt.Sprintf("c%d", callIdx), Name: "noop", Arguments: []byte("{}")}},
 			}
 			out <- backend.StreamChunk{Done: true}
 			return
@@ -662,5 +674,68 @@ func TestLocalTurn_ThresholdAutoCompaction(t *testing.T) {
 	}
 	if cps[0].IncludedThroughStep != 0 {
 		t.Errorf("included through = %d, want 0", cps[0].IncludedThroughStep)
+	}
+
+	// Turn 2 continuation: verify the session carries on smoothly after compaction
+	frames2, err := engine.Turn(ctx, Turn{
+		Model: "gpt-oss-120b-medium",
+		History: []agentlink.Message{
+			{Role: "user", Content: endResume},
+			{Role: "assistant", Content: "Hello there!"},
+			{Role: "user", Content: "Calculate more math"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Turn 2 failed: %v", err)
+	}
+
+	got2 := collect(t, frames2)
+	var sawTurn2Text bool
+	var sawTurn2Result bool
+	for _, f := range got2 {
+		if f.Kind == agentlink.KindText && f.Text == "Hello there!" {
+			sawTurn2Text = true
+		}
+		if f.Kind == agentlink.KindResult && f.Error == "" {
+			sawTurn2Result = true
+		}
+	}
+	if !sawTurn2Text || !sawTurn2Result {
+		t.Fatalf("expected Turn 2 text and success result, got: %+v", got2)
+	}
+
+	turns = act.Trajectory().Turns()
+	if len(turns) != 2 {
+		t.Fatalf("expected two turns in trajectory, got %d", len(turns))
+	}
+	if turns[1].Status != "done" {
+		t.Errorf("turn 2 status = %q, want done", turns[1].Status)
+	}
+
+	client.mu.Lock()
+	reqs := client.recordedReqs
+	client.mu.Unlock()
+
+	lastReq := reqs[len(reqs)-1]
+	var sawResume, sawTurn2Prompt, sawHugeToolOutput bool
+	for _, m := range lastReq.Messages {
+		if strings.HasPrefix(m.Content, "# Resuming from a compaction") {
+			sawResume = true
+		}
+		if m.Content == "Calculate more math" {
+			sawTurn2Prompt = true
+		}
+		if len(m.Content) >= 100_000 {
+			sawHugeToolOutput = true
+		}
+	}
+	if !sawResume {
+		t.Error("Turn 2 request did not start from the compaction resume block")
+	}
+	if !sawTurn2Prompt {
+		t.Error("Turn 2 request missing the Turn 2 user prompt")
+	}
+	if sawHugeToolOutput {
+		t.Error("Turn 2 request unexpectedly leaked the folded massive tool output from Turn 1")
 	}
 }

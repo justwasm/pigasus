@@ -194,6 +194,108 @@ func TestCheckpoint_KeepRecentStep(t *testing.T) {
 	}
 }
 
+// TestCheckpoint_MultiTurnContinuation tests that after a checkpoint occurs in Turn 1,
+// Turn 2 can be prompted and proceeds with the compacted context.
+func TestCheckpoint_MultiTurnContinuation(t *testing.T) {
+	mock := actor.NewMockProvider()
+	// Turn 1: tool call -> checkpoint -> model finishes
+	mock.EnqueueChunks([]actor.StreamChunk{
+		{Delta: "first", ToolCalls: []actor.ToolCall{{ID: "c1", Name: "noop", Input: "{}"}}},
+	})
+	mock.EnqueueChunks([]actor.StreamChunk{{Delta: "answer 1", FinishReason: "stop"}})
+	// Turn 2: model answers immediately
+	mock.EnqueueChunks([]actor.StreamChunk{{Delta: "answer 2", FinishReason: "stop"}})
+
+	tool := actor.NewFuncTool("noop", "no-op", func(ctx context.Context, input string) (string, error) {
+		return "tool output", nil
+	})
+
+	act, err := actor.Spawn(actor.Config{
+		Default: actor.TurnConfig{
+			Provider: mock,
+			Tools:    []actor.Tool{tool},
+			Checkpoint: func(ctx context.Context, p actor.CheckpointProbe) (actor.CheckpointDecision, error) {
+				if p.StepIndex == 0 {
+					return actor.CheckpointDecision{}, nil
+				}
+				return actor.CheckpointDecision{
+					Apply:               true,
+					ResumeText:          "# Resuming from a compaction\n\nsummary",
+					Summary:             "<summary>summary</summary>",
+					IncludedThroughStep: 0,
+					KeepRecent:          0,
+					KeepInput:           false,
+				}, nil
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("spawn: %v", err)
+	}
+	defer act.Close()
+
+	// 1. Run Turn 1
+	turn1, err := act.Prompt(context.Background(), "prompt 1")
+	if err != nil {
+		t.Fatalf("prompt 1: %v", err)
+	}
+	for range turn1.Events() {
+	}
+	if err := turn1.Err(); err != nil {
+		t.Fatalf("turn 1 error = %v", err)
+	}
+	if last := act.Trajectory().LastTurn(); last.FinalOutput != "answer 1" {
+		t.Fatalf("turn 1 output = %q, want 'answer 1'", last.FinalOutput)
+	}
+
+	// 2. Run Turn 2 immediately
+	turn2, err := act.Prompt(context.Background(), "prompt 2")
+	if err != nil {
+		t.Fatalf("prompt 2: %v", err)
+	}
+	for range turn2.Events() {
+	}
+	if err := turn2.Err(); err != nil {
+		t.Fatalf("turn 2 error = %v", err)
+	}
+	if last := act.Trajectory().LastTurn(); last.FinalOutput != "answer 2" {
+		t.Fatalf("turn 2 output = %q, want 'answer 2'", last.FinalOutput)
+	}
+
+	// 3. Inspect messages sent to model in Turn 2
+	if len(mock.Requests) != 3 {
+		t.Fatalf("expected 3 provider requests, got %d", len(mock.Requests))
+	}
+	turn2Req := mock.Requests[2]
+	var sawResume, sawPrompt1, sawAnswer1, sawPrompt2 bool
+	for _, m := range turn2Req.Messages {
+		if strings.HasPrefix(m.Content, "# Resuming from a compaction") {
+			sawResume = true
+		}
+		if m.Content == "prompt 1" {
+			sawPrompt1 = true
+		}
+		if m.Content == "answer 1" {
+			sawAnswer1 = true
+		}
+		if m.Content == "prompt 2" {
+			sawPrompt2 = true
+		}
+	}
+	if !sawResume {
+		t.Errorf("turn 2 missing resume block")
+	}
+	if sawPrompt1 {
+		t.Errorf("turn 2 unexpectedly included folded prompt 1")
+	}
+	if !sawAnswer1 {
+		t.Errorf("turn 2 missing answer 1")
+	}
+	if !sawPrompt2 {
+		t.Errorf("turn 2 missing prompt 2")
+	}
+}
+
 // TestCheckpoint_SoftErrorKeepsFullContext pins that a soft checkpoint failure
 // does not fail or truncate the turn.
 func TestCheckpoint_SoftErrorKeepsFullContext(t *testing.T) {

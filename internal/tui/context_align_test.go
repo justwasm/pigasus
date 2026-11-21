@@ -132,6 +132,21 @@ func TestCompactAndContextAlignment(t *testing.T) {
 	}
 
 	// 3. User submits next turn and it completes without compaction.
+	m.AppendUserMessage("Turn 2 user prompt")
+	turn2Msgs := m.prepareStreamTurnMessages()
+	if len(turn2Msgs) != 3 {
+		t.Fatalf("expected 3 messages for Turn 2, got %d: %+v", len(turn2Msgs), turn2Msgs)
+	}
+	if !strings.HasPrefix(turn2Msgs[0].Content, "# Resuming from a compaction") {
+		t.Errorf("turn 2 msg 0 want resume block, got %q", turn2Msgs[0].Content)
+	}
+	if turn2Msgs[1].Content != finalTurnReply {
+		t.Errorf("turn 2 msg 1 want %q, got %q", finalTurnReply, turn2Msgs[1].Content)
+	}
+	if turn2Msgs[2].Content != "Turn 2 user prompt" {
+		t.Errorf("turn 2 msg 2 want 'Turn 2 user prompt', got %q", turn2Msgs[2].Content)
+	}
+
 	m.Update(toolsteps.TurnDoneMsg{
 		Reply: "Subsequent turn answer without compaction",
 	})
