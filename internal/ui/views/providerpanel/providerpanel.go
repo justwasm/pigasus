@@ -120,9 +120,10 @@ const (
 	FieldTimeout   = "Timeout (s)"
 	FieldRetries   = "Max retries"
 	FieldUpstream  = "Upstream id"
-	FieldContext   = "Context window"
-	FieldMaxTokens = "Max output tokens"
-	FieldEffort    = "Reasoning effort"
+	FieldContext          = "Context window"
+	FieldMaxTokens        = "Max output tokens"
+	FieldCompactThreshold = "Compact threshold"
+	FieldEffort           = "Reasoning effort"
 	FieldTiers     = "Reasoning tiers"
 )
 
@@ -282,6 +283,7 @@ func ModelFields(m models.ProviderModel, isNew bool) []FormField {
 			Placeholder: "the id sent on the wire"},
 		FormField{Label: FieldContext, Value: strconv.Itoa(m.ContextWindow)},
 		FormField{Label: FieldMaxTokens, Value: strconv.Itoa(m.DefaultMaxTokens)},
+		FormField{Label: FieldCompactThreshold, Value: strconv.Itoa(m.CompactThreshold), Placeholder: "tokens (0 = default)"},
 		FormField{
 			Label:   FieldEffort,
 			Value:   effort,
@@ -367,6 +369,9 @@ func ProviderModel(f *Form, existing models.ProviderModel) (models.ProviderModel
 	}
 	if v := f.IntValue(FieldMaxTokens); v > 0 {
 		entry.DefaultMaxTokens = v
+	}
+	if v := f.IntValue(FieldCompactThreshold); v > 0 {
+		entry.CompactThreshold = v
 	}
 	if v := strings.TrimSpace(f.Value(FieldEffort)); v != "" {
 		entry.ReasoningEffort = v

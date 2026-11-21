@@ -124,6 +124,9 @@ type ProviderModel struct {
 	// DefaultMaxTokens is the model's output cap in tokens. 0 means "not
 	// known".
 	DefaultMaxTokens int `json:"default_max_tokens,omitempty"`
+	// CompactThreshold is the model's soft auto-compaction trigger in tokens.
+	// 0 means use the default threshold.
+	CompactThreshold int `json:"compact_threshold,omitempty"`
 	// ReasoningEffort is the sampling hint for models that take one
 	// ("low", "medium", "high", "default"). Empty means "do not send it".
 	//
@@ -479,6 +482,7 @@ func (p ProviderConfig) Flatten() []Model {
 			ExternalModelName:          wire,
 			ContextWindow:              m.ContextWindow,
 			DefaultMaxTokens:           m.DefaultMaxTokens,
+			CompactThreshold:           m.CompactThreshold,
 			ReasoningEffort:            strings.TrimSpace(m.ReasoningEffort),
 			ReasoningEfforts:           copyStrings(NormalizeEfforts(m.ReasoningEfforts)),
 			SupportsImages:             m.SupportsImages,

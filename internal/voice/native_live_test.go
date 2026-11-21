@@ -802,3 +802,33 @@ func TestNativeLiveSession_ContinuousReconnectAndManualTrigger(t *testing.T) {
 		t.Fatal("session failed to reconnect immediately upon ReconnectNow()")
 	}
 }
+
+func TestNativeLiveSession_SwitchModel(t *testing.T) {
+	mockBackend := NewMockLiveBackend()
+	handler := &mockLiveHandler{}
+	sess := NewNativeLiveSession(mockBackend, handler)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	cfg := LiveSessionConfig{
+		Model: "gemini-3.8-live",
+		Voice: "Fola",
+	}
+	if err := sess.Start(ctx, cfg); err != nil {
+		t.Fatalf("Start failed: %v", err)
+	}
+	defer sess.HangUp()
+
+	if err := sess.SwitchModel(ctx, "gemini-3.8-live-extended-thinking"); err != nil {
+		t.Fatalf("SwitchModel failed: %v", err)
+	}
+
+	last := mockBackend.LastSession()
+	if last == nil {
+		t.Fatal("expected LastSession() != nil")
+	}
+	if last.cfg.Model != "gemini-3.8-live-extended-thinking" {
+		t.Fatalf("expected switched model to be gemini-3.8-live-extended-thinking, got %s", last.cfg.Model)
+	}
+}

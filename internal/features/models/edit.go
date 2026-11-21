@@ -258,6 +258,9 @@ func updateModelFields(raw []byte, target string, m ProviderModel) ([]byte, erro
 	if raw, err = setOrDeleteInt(raw, target+".default_max_tokens", m.DefaultMaxTokens); err != nil {
 		return nil, err
 	}
+	if raw, err = setOrDeleteInt(raw, target+".compact_threshold", m.CompactThreshold); err != nil {
+		return nil, err
+	}
 	if raw, err = setOrDeleteBool(raw, target+".supports_images", m.SupportsImages); err != nil {
 		return nil, err
 	}
@@ -305,6 +308,9 @@ func modelToMap(m ProviderModel) map[string]any {
 	}
 	if m.DefaultMaxTokens != 0 {
 		out["default_max_tokens"] = m.DefaultMaxTokens
+	}
+	if m.CompactThreshold != 0 {
+		out["compact_threshold"] = m.CompactThreshold
 	}
 	if m.ReasoningEffort != "" {
 		out["reasoning_effort"] = m.ReasoningEffort

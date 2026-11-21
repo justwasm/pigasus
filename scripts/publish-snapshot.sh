@@ -155,6 +155,7 @@ ALLOWLIST=(
   celpolicy
   cmd
   configdir
+  demo
   devutils
   diffsyntax
   dns

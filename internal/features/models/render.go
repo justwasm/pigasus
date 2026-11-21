@@ -151,6 +151,9 @@ func RenderModelDetail(w io.Writer, m Model) {
 	if m.DefaultMaxTokens > 0 {
 		fmt.Fprintf(w, "  max tokens:   %d\n", m.DefaultMaxTokens)
 	}
+	if m.CompactThreshold > 0 {
+		fmt.Fprintf(w, "  compact threshold: %d\n", m.CompactThreshold)
+	}
 	if m.ReasoningEffort != "" {
 		fmt.Fprintf(w, "  effort:       %s\n", m.ReasoningEffort)
 	}

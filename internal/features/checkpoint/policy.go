@@ -204,11 +204,15 @@ func New(cfg Config) *Policy {
 	profile, ok := ctx.ProfileFor(cfg.Model)
 	if !ok {
 		limit := ctx.For(cfg.Model)
+		threshold := 50000
+		if cp, ok := ctx.ConfiguredCompactThreshold(cfg.Model); ok && cp > 0 {
+			threshold = cp
+		}
 		profile = ctx.Profile{
 			Strategy:                   ctx.StrategySameModel,
 			MaxTokenLimit:              limit.ContextWindow,
 			MaxOutputTokens:            limit.ReserveTokens,
-			TokenThreshold:             50000,
+			TokenThreshold:             threshold,
 			Enabled:                    true,
 			CheckpointModel:            cfg.Model,
 			IsSync:                     true,

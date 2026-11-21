@@ -768,6 +768,35 @@ func (n *NativeLiveSession) SwitchVoice(ctx context.Context, voiceName string) e
 	return nil
 }
 
+// SwitchModel switches the active Gemini Live model dynamically in real time and rehydrates context.
+func (n *NativeLiveSession) SwitchModel(ctx context.Context, modelName string) error {
+	n.mu.Lock()
+	n.cfg.Model = modelName
+	callCtx := n.callCtx
+	if callCtx == nil {
+		callCtx = ctx
+	}
+	oldSess := n.session
+	cfg := n.cfg
+	n.mu.Unlock()
+
+	if oldSess != nil {
+		newSess, err := n.backend.CreateSession(callCtx, cfg)
+		if err != nil {
+			return fmt.Errorf("native live: switch model failed: %w", err)
+		}
+
+		n.mu.Lock()
+		n.session = newSess
+		n.mu.Unlock()
+
+		_ = oldSess.Close()
+		n.rehydrateContext(newSess)
+		go n.receivePump(callCtx, newSess)
+	}
+	return nil
+}
+
 // SendToolResponse sends the execution result of any tool call back to the live talker session.
 func (n *NativeLiveSession) SendToolResponse(id string, name string, result any) error {
 	n.mu.RLock()

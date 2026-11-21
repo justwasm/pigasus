@@ -147,6 +147,13 @@ func MicServeSubcommand() SubcommandSpec {
 	return SubcommandSpec{Name: "mic-serve"}
 }
 
+func LiveChatSubcommand() SubcommandSpec {
+	if fn := GetProvider("livechat"); fn != nil {
+		return fn()
+	}
+	return SubcommandSpec{Name: "livechat"}
+}
+
 func RCSubcommands() []SubcommandSpec {
 	if fn := GetMultiProvider("rc"); fn != nil {
 		return fn()

@@ -111,6 +111,9 @@ func Run(args []string) int {
 	if (appName == "agy-acp-server" || appName == "pigcap") && (len(cmdArgs) == 0 || cmdArgs[0] != "acp") {
 		cmdArgs = append([]string{"acp"}, cmdArgs...)
 	}
+	if appName == "livechat" && (len(cmdArgs) == 0 || cmdArgs[0] != "livechat") {
+		cmdArgs = append([]string{"livechat"}, cmdArgs...)
+	}
 
 	p := SetupCLIParserWithProg(appName)
 	if err := p.ExecuteArgs(cmdArgs); err != nil {
@@ -142,7 +145,7 @@ func buildSubcommands() []cliflags.SubcommandSpec {
 	}
 
 	// Root extensions.
-	for _, ext := range []cliflags.SubcommandSpec{proxySubcommand(), cli.WebSubcommand(), cli.ServerSubcommand(), cli.TUISubcommand()} {
+	for _, ext := range []cliflags.SubcommandSpec{proxySubcommand(), cli.WebSubcommand(), cli.ServerSubcommand(), cli.TUISubcommand(), cli.LiveChatSubcommand()} {
 		if !names[ext.Name] {
 			subs = append(subs, ext)
 			names[ext.Name] = true

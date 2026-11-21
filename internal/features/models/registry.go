@@ -93,6 +93,9 @@ type Model struct {
 	// reserve the context budget holds back for the next step's answer.
 	// 0 means "not known".
 	DefaultMaxTokens int `json:"default_max_tokens,omitempty"`
+	// CompactThreshold is the model's soft auto-compaction trigger in tokens.
+	// 0 means use the default threshold.
+	CompactThreshold int `json:"compact_threshold,omitempty"`
 	// ReasoningEffort is the OpenAI o-series hint: "low"/"medium"/"high"/
 	// "default". Empty means "don't send the hint".
 	//

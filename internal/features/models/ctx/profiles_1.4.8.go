@@ -392,6 +392,9 @@ func ProfileFor(modelID string) (Profile, bool) {
 			// 1.5.3 set use_model_reported_token_count on every shipped
 			// profile; the 1.4.8 document (kept as evidence) has false.
 			p.UseModelReportedTokenCount = true
+			if cp, ok := ConfiguredCompactThreshold(modelID); ok && cp > 0 {
+				p.TokenThreshold = cp
+			}
 			return p, true
 		}
 	}

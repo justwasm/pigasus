@@ -20,6 +20,7 @@ import (
 	"github.com/justwasm/pigasus/internal/clirunner"
 	_ "github.com/justwasm/pigasus/internal/rchost/agentserver"
 	_ "github.com/justwasm/pigasus/internal/tui"
+	_ "github.com/justwasm/pigasus/internal/ui/livechat"
 )
 
 func main() {

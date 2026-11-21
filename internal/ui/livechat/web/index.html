@@ -1,0 +1,630 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1.0, interactive-widget=resizes-content">
+  <title>Pigasus · Multimodal Live & Modern Chatbot</title>
+  
+  <!-- Preconnect to Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  
+  <link rel="stylesheet" href="style.css?v=20261121_modern_v2">
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>">
+  
+  <script>
+    // Anti-flash dark theme boot (Reference: Jetski Web / Antigravity)
+    (() => {
+      document.documentElement.style.colorScheme = 'dark';
+    })();
+  </script>
+</head>
+<body class="theme-dark">
+  <div class="chat-app-layout">
+    <!-- =========================================================================
+         LEFT SIDEBAR: CONVERSATION HISTORY & NAVIGATION
+         ========================================================================= -->
+    <aside id="chat-sidebar" class="chat-sidebar" aria-label="Conversation History and Navigation">
+      <!-- Sidebar Header -->
+      <div class="sidebar-header">
+        <div class="sidebar-brand">
+          <div class="brand-spark-icon">⚡</div>
+          <div class="brand-text">
+            <h2>Pigasus Live</h2>
+            <span class="brand-sub">Antigravity Reference</span>
+          </div>
+        </div>
+        <button type="button" id="btn-close-sidebar" class="btn-icon btn-sidebar-collapse" title="Collapse Sidebar (Ctrl+B)" aria-label="Collapse Sidebar">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="3" y="3" width="18" height="18" rx="2" ry="2"></rect>
+            <line x1="9" y1="3" x2="9" y2="21"></line>
+            <path d="M15 9l-3 3 3 3"></path>
+          </svg>
+        </button>
+      </div>
+
+      <!-- New Chat Action Button -->
+      <div class="sidebar-action-wrap">
+        <button type="button" id="sidebar-btn-new-chat" class="btn-new-chat">
+          <span class="plus-icon">+</span>
+          <span>New Chat</span>
+          <kbd class="key-hint">⌘N</kbd>
+        </button>
+      </div>
+
+      <!-- Session Filter / Search Bar -->
+      <div class="sidebar-search-wrap">
+        <span class="search-icon">🔍</span>
+        <input type="text" id="sidebar-session-search" placeholder="Search conversations..." class="sidebar-search-input" autocomplete="off">
+      </div>
+
+      <!-- Saved Sessions List -->
+      <div class="sidebar-session-section">
+        <div class="session-section-label">
+          <span>Recent Conversations</span>
+          <span id="session-count-badge" class="session-counter-pill">1</span>
+        </div>
+        <div id="sidebar-session-list" class="sidebar-session-list" role="navigation" aria-label="Session list">
+          <!-- Dynamically populated session items -->
+        </div>
+      </div>
+
+      <!-- Hidden Select for Legacy Binding Parity -->
+      <select id="live-session-select" class="visually-hidden" aria-hidden="true"></select>
+
+      <!-- Sidebar Footer / Clean Minimal User Profile -->
+      <div class="sidebar-footer">
+        <button type="button" id="btn-open-settings" class="user-profile-button" title="Open Settings & Credentials">
+          <div class="avatar-ring">
+            <span class="avatar-glyph">👤</span>
+            <span class="status-indicator-dot online"></span>
+          </div>
+          <div class="user-profile-info">
+            <div id="bar-auth-identity" class="user-email">Not Signed In</div>
+            <div class="user-meta-sub">
+              <span id="bar-auth-mode">Google OAuth</span>
+            </div>
+          </div>
+          <div class="settings-gear-icon" aria-hidden="true">⚙️</div>
+        </button>
+
+        <!-- Hidden elements for legacy ID binding -->
+        <span id="app-status" class="visually-hidden"></span>
+        <code id="bar-proxy-route" class="visually-hidden"></code>
+      </div>
+    </aside>
+
+    <!-- Mobile Drawer Overlay Backdrop -->
+    <div id="sidebar-overlay" class="sidebar-overlay" aria-hidden="true"></div>
+
+    <!-- =========================================================================
+         MAIN CHAT WORKSPACE
+         ========================================================================= -->
+    <main class="chat-workspace">
+      <!-- Top Workspace Header -->
+      <header class="workspace-header">
+        <div class="header-left">
+          <button type="button" id="btn-toggle-sidebar" class="btn-icon header-sidebar-toggle" title="Toggle Sidebar (Ctrl+B)" aria-label="Toggle Sidebar">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="3" y1="12" x2="21" y2="12"></line>
+              <line x1="3" y1="6" x2="21" y2="6"></line>
+              <line x1="3" y1="18" x2="21" y2="18"></line>
+            </svg>
+          </button>
+          <div class="active-session-title-wrap">
+            <h1 id="header-session-title" class="header-session-title" title="Click to rename session">New Live Session</h1>
+            <button type="button" id="btn-header-rename" class="btn-rename-icon" title="Rename Session">✏️</button>
+          </div>
+          <button type="button" id="header-model-pill" class="model-pill model-pill-interactive" title="Click to toggle Extended Thinking Mode">
+            <span class="pill-spark">✨</span>
+            <span id="header-model-name">Gemini 3.8 Live</span>
+            <span id="header-think-badge" class="pill-badge-think hidden">Thinking 💭</span>
+          </button>
+        </div>
+
+        <!-- Live Controls Pill Bar -->
+        <div class="header-right">
+          <!-- Duplex Status Pill -->
+          <div class="live-status-pill" title="Live audio stream connection status">
+            <span id="live-dot" class="dot dot-disconnected"></span>
+            <span id="live-status-text" class="status-label">Disconnected</span>
+            <span id="live-duplex-state" class="duplex-tag">Full Duplex</span>
+          </div>
+
+          <!-- Quick Voice Persona Selector -->
+          <div class="header-control-group voice-group">
+            <label for="live-voice-select" class="control-label">Voice:</label>
+            <select id="live-voice-select" class="header-select voice-select">
+              <optgroup label="Antigravity 9 Canonical Personas (♪ with MP3 previews)">
+                <option value="Fola" data-preview="fola" selected>Fola · Friendly (Default)</option>
+                <option value="Arlo" data-preview="arlo">Arlo · Confident</option>
+                <option value="Cleo" data-preview="cleo">Cleo · Warm</option>
+                <option value="Finn" data-preview="finn">Finn · Approachable</option>
+                <option value="Gero" data-preview="gero">Gero · Clear</option>
+                <option value="Lora" data-preview="lora">Lora · Friendly</option>
+                <option value="Neno" data-preview="neno">Neno · Deep Velvet</option>
+                <option value="Olin" data-preview="olin">Olin · Light & Precise</option>
+                <option value="Tari" data-preview="tari">Tari · Confident</option>
+              </optgroup>
+              <optgroup label="Direct Gemini Prebuilt Voices">
+                <option value="Aoede" data-preview="fola">Aoede</option>
+                <option value="Puck" data-preview="arlo">Puck</option>
+                <option value="Kore" data-preview="cleo">Kore</option>
+                <option value="Fenrir" data-preview="finn">Fenrir</option>
+                <option value="Charon" data-preview="neno">Charon</option>
+                <option value="Zephyr" data-preview="tari">Zephyr</option>
+                <option value="Leda">Leda</option>
+                <option value="Orus">Orus</option>
+              </optgroup>
+            </select>
+            <select id="voice-sample-variant" class="visually-hidden">
+              <option value="1">1</option>
+              <option value="2">2</option>
+              <option value="3">3</option>
+            </select>
+            <button type="button" id="btn-audition-voice" class="btn-audition-pill" title="Audition MP3 sample for selected voice">
+              <span>♪</span> Audition
+            </button>
+          </div>
+
+          <!-- Quick Microphone Selector with Hotplug Detection -->
+          <div class="header-control-group mic-group">
+            <label for="live-mic-select" class="control-label">Mic:</label>
+            <select id="live-mic-select" class="header-select mic-select">
+              <option value="">Default System Microphone</option>
+            </select>
+            <span id="mic-hotplug-indicator" class="mic-hotplug-badge" title="Hotplug auto-detection active (detects plug & unplug without page refresh)">⚡ Auto</span>
+          </div>
+
+          <!-- Primary Live Connection & Mute Buttons -->
+          <div class="header-action-buttons">
+            <button type="button" id="btn-toggle-live" class="btn-connect-live">
+              <span class="btn-live-icon">▶</span>
+              <span class="btn-live-text">Connect Live</span>
+            </button>
+            <button type="button" id="btn-toggle-mic" class="btn-mute-toggle" disabled title="Mute/Unmute Microphone">
+              🎤
+            </button>
+            <button type="button" id="btn-theme-toggle" class="btn-theme-toggle" title="Toggle Light / Dark Mode" aria-label="Toggle Light or Dark Mode">
+              <span id="theme-toggle-icon" class="theme-icon">🌙</span>
+            </button>
+            <button type="button" id="btn-open-settings-top" class="btn-icon-setting" title="Settings, API Keys & OAuth">
+              ⚙️
+            </button>
+          </div>
+        </div>
+      </header>
+
+      <!-- Floating Live Audio Visualizer Banner (Visible when Live Audio is Streaming) -->
+      <div id="live-visualizer-bar" class="live-visualizer-bar hidden" aria-label="Audio stream visualizer">
+        <div class="vis-pill-wrap">
+          <div class="vis-wave-container">
+            <canvas id="waveform-canvas" width="240" height="32" class="vis-canvas"></canvas>
+          </div>
+          <div class="vis-meter-container">
+            <div class="mic-meter-track">
+              <div id="mic-meter-fill" class="mic-meter-fill"></div>
+            </div>
+            <div class="vis-meter-meta">
+              <span class="mic-val-wrap">Mic: <strong id="mic-meter-val">0%</strong></span>
+              <span id="mic-status-text" class="mic-status-label">Muted</span>
+              <span id="audio-state-indicator" class="audio-state-pill">Idle</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Central Scrollable Message Viewport -->
+      <div class="chat-stream-viewport">
+        <div id="live-transcript" class="chat-scroll-container" role="log" aria-live="polite">
+          <!-- Welcome Hero Screen (Displayed when session is empty) -->
+          <div class="welcome-hero-container">
+            <div class="hero-sparkle-icon">
+              <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="url(#hero-gemini-grad)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+                <defs>
+                  <linearGradient id="hero-gemini-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+                    <stop offset="0%" stop-color="#38bdf8" />
+                    <stop offset="50%" stop-color="#818cf8" />
+                    <stop offset="100%" stop-color="#34d399" />
+                  </linearGradient>
+                </defs>
+                <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"></path>
+              </svg>
+            </div>
+            <h2 class="hero-title">How can I help you today?</h2>
+            <p class="hero-subtitle">
+              Pigasus Multimodal LiveChat · Real-time bidirectional voice & text streaming with seamless multi-language switching.
+            </p>
+
+            <!-- Starter Prompt Suggestions -->
+            <div class="prompt-starter-grid">
+              <button type="button" class="prompt-chip" data-prompt="你好！请问你能用中文和我聊天吗？">
+                <span class="chip-icon">🌏</span>
+                <span class="chip-text">你好！请问你能用中文和我聊天吗？</span>
+              </button>
+              <button type="button" class="prompt-chip" data-prompt="Let's practice an English conversation for a tech job interview.">
+                <span class="chip-icon">💼</span>
+                <span class="chip-text">Practice English tech job interview</span>
+              </button>
+              <button type="button" class="prompt-chip" data-prompt="What is the difference between WebSocket live streaming and standard text generation?">
+                <span class="chip-icon">⚡</span>
+                <span class="chip-text">Explain live duplex barge-in audio streaming</span>
+              </button>
+              <button type="button" class="prompt-chip" data-prompt="Write a Python script that calculates Fibonacci numbers efficiently.">
+                <span class="chip-icon">💻</span>
+                <span class="chip-text">Write a Python Fibonacci algorithm</span>
+              </button>
+            </div>
+          </div>
+          <!-- Bottom scroll anchor ensuring last message is never covered by composer -->
+          <div id="chat-bottom-anchor" class="chat-bottom-anchor" aria-hidden="true"></div>
+        </div>
+
+        <!-- Floating Scroll to Bottom Button -->
+        <button type="button" id="btn-scroll-bottom" class="btn-scroll-bottom hidden" aria-label="Scroll to bottom">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="12" y1="5" x2="12" y2="19"></line>
+            <polyline points="19 12 12 19 5 12"></polyline>
+          </svg>
+        </button>
+      </div>
+
+      <!-- Floating Bottom Composer Area -->
+      <footer class="chat-composer-section">
+        <div class="composer-box">
+          <form id="live-text-form" class="composer-form">
+            <div class="composer-input-row">
+              <textarea
+                id="live-text-input"
+                rows="1"
+                placeholder="Type a message or speak in any language... (Enter to send, Shift+Enter for newline)"
+                autocomplete="off"
+                required
+              ></textarea>
+              <div class="composer-action-group">
+                <button type="button" id="btn-clear-transcript" class="btn-composer-icon" title="Clear current transcript view (memory preserved)">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="3 6 5 6 21 6"></polyline>
+                    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                  </svg>
+                </button>
+                <button type="submit" id="btn-live-text-send" class="btn-send-round" aria-label="Send message">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                    <line x1="22" y1="2" x2="11" y2="13"></line>
+                    <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+                  </svg>
+                </button>
+              </div>
+            </div>
+            <div class="composer-toolbar-bottom">
+              <div class="composer-controls-left">
+                <!-- Functional Live Model Selector Capsule -->
+                <div class="model-select-capsule" title="Switch Live Model Variant">
+                  <span class="capsule-icon">✨</span>
+                  <select id="composer-model-select" class="composer-model-select" aria-label="Switch Live Model Variant">
+                    <option value="models/gemini-3.8-live" selected>Gemini 3.8 Live (Standard ⚡)</option>
+                    <option value="models/gemini-3.8-live-extended-thinking">Gemini 3.8 Live (Extended Thinking 💭)</option>
+                    <option value="models/gemini-2.0-flash-realtime-exp">Gemini 2.0 Flash Realtime 🚀</option>
+                  </select>
+                  <span class="capsule-chevron">▾</span>
+                </div>
+
+                <!-- Interactive Barge-in Toggle -->
+                <button type="button" id="btn-toggle-bargein" class="composer-toolbar-btn bargein-toggle active" title="Toggle Full-Duplex Instant Barge-in (Interruption)">
+                  <span id="bargein-badge-icon">⚡</span>
+                  <span id="bargein-badge-text">Barge-in On</span>
+                </button>
+
+                <!-- Interactive Voice Indicator -->
+                <button type="button" id="btn-composer-voice" class="composer-toolbar-btn voice-indicator" title="Current voice persona (Click to select voice)">
+                  <span>🎙️</span>
+                  <span id="composer-voice-label">Voice: Fola</span>
+                </button>
+              </div>
+
+              <!-- Engine & Reference Tag -->
+              <div class="composer-disclaimer-wrap">
+                <span class="composer-engine-tag" title="Powered by Pigasus Engine & Google Antigravity Architecture">Antigravity Reference · Pigasus</span>
+              </div>
+            </div>
+          </form>
+        </div>
+      </footer>
+    </main>
+  </div>
+
+  <!-- =========================================================================
+       COMPREHENSIVE SETTINGS & AUTHENTICATION MODAL
+       ========================================================================= -->
+  <div id="settings-modal" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="settings-modal-title">
+    <div class="settings-modal-dialog">
+      <!-- Modal Header -->
+      <div class="modal-header">
+        <div class="modal-title-wrap">
+          <span class="modal-header-icon">⚙️</span>
+          <h3 id="settings-modal-title">Settings & Credentials</h3>
+        </div>
+        <button type="button" id="btn-close-settings-modal" class="btn-modal-close" aria-label="Close settings">&times;</button>
+      </div>
+
+      <!-- Modal Body with Left Navigation Tabs & Right Content -->
+      <div class="settings-modal-body">
+        <!-- Sidebar Navigation Tabs -->
+        <nav class="settings-sidebar-nav" aria-label="Settings Categories">
+          <button type="button" class="settings-nav-item active" data-tab="st-auth-tab">
+            <span class="nav-icon">🔐</span>
+            <span>Google OAuth</span>
+          </button>
+          <button type="button" class="settings-nav-item" data-tab="st-apikey-tab">
+            <span class="nav-icon">✨</span>
+            <span>Gemini API Key</span>
+          </button>
+          <button type="button" class="settings-nav-item" data-tab="st-proxy-tab">
+            <span class="nav-icon">📡</span>
+            <span>Proxy & Routing</span>
+          </button>
+          <button type="button" class="settings-nav-item" data-tab="st-voice-tab">
+            <span class="nav-icon">🎙️</span>
+            <span>Voice & System</span>
+          </button>
+          <button type="button" class="settings-nav-item" data-tab="st-sessions-tab">
+            <span class="nav-icon">📁</span>
+            <span>All Sessions</span>
+          </button>
+        </nav>
+
+        <!-- Right Content Panes -->
+        <div class="settings-content-wrap">
+          <!-- PANE 1: Google OAuth 2.0 PKCE -->
+          <div id="st-auth-tab" class="settings-pane active">
+            <div class="pane-header">
+              <h4>Google OAuth 2.0 PKCE Authorization</h4>
+              <p>Authenticates with Google Cloud Antigravity client credentials. Generates a cryptographic PKCE challenge, opens Google's sign-in page, and exchanges the authorization code for an OAuth Bearer token.</p>
+            </div>
+
+            <!-- Step 1: Start Flow -->
+            <div class="flow-step-box">
+              <div class="step-num-badge">1</div>
+              <div class="step-body">
+                <h5>Initiate PKCE Authorization</h5>
+                <p>Generate a unique PKCE verifier and Google consent URL.</p>
+                <div class="btn-group-row">
+                  <button type="button" id="btn-start-oauth" class="btn btn-primary">
+                    Start Google OAuth Login
+                  </button>
+                  <button type="button" id="btn-load-cli-token" class="btn btn-outline" title="Imports token from ~/.openagy or ~/.gemini">
+                    Auto-Fill Active CLI Token
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <!-- Auth URL Display -->
+            <div id="auth-url-container" class="url-box-modern hidden">
+              <label for="auth-url-input">Google Consent URL:</label>
+              <div class="input-with-button">
+                <input type="text" id="auth-url-input" readonly>
+                <button type="button" id="btn-copy-url" class="btn btn-sm btn-outline">Copy</button>
+                <button type="button" id="btn-open-url" class="btn btn-sm btn-primary">Open ↗</button>
+              </div>
+              <small class="helper-note">Click <strong>Open ↗</strong>, approve access with your Google account, then copy the resulting code from the browser redirect address.</small>
+            </div>
+
+            <!-- Step 2: Code Exchange Form -->
+            <form id="code-exchange-form" class="flow-step-box">
+              <div class="step-num-badge">2</div>
+              <div class="step-body">
+                <h5>Exchange Authorization Code</h5>
+                <div class="form-field">
+                  <label for="auth-code-input">Paste Authorization Code or Redirect URL:</label>
+                  <input type="text" id="auth-code-input" name="code" placeholder="4/0Abc... or https://antigravity.google/oauth-callback?code=..." required autocomplete="off">
+                </div>
+                <button type="submit" id="btn-exchange-code" class="btn btn-success">
+                  Exchange for OAuth Token
+                </button>
+              </div>
+            </form>
+
+            <div id="auth-status-msg" class="status-msg-modern hidden" role="status" aria-live="polite"></div>
+
+            <!-- Active Token Card -->
+            <div class="token-summary-card">
+              <div class="card-title-row">
+                <h5>Cached OAuth Credentials (accounts.json)</h5>
+              </div>
+              <div class="token-meta-grid">
+                <div><span>Email:</span> <strong id="token-account-email">None</strong></div>
+                <div><span>Tier:</span> <span id="token-plan-tier" class="badge-tier">Consumer OAuth</span></div>
+                <div><span>Expiry:</span> <span id="token-expiry-val">-</span></div>
+              </div>
+              <div class="form-field">
+                <label for="oauth-token-display">Access Token (Bearer ya29...):</label>
+                <textarea id="oauth-token-display" rows="2" readonly placeholder="No access token acquired yet..."></textarea>
+              </div>
+              <div class="form-field">
+                <label for="oauth-refresh-token-display">Refresh Token (1//...):</label>
+                <input type="password" id="oauth-refresh-token-display" readonly placeholder="No refresh token cached..." autocomplete="off">
+              </div>
+              <details class="advanced-code-details">
+                <summary>View Cached Raw Auth Code / Callback</summary>
+                <textarea id="oauth-raw-code-display" rows="2" readonly placeholder="No raw code cached..."></textarea>
+              </details>
+              <div class="btn-group-row">
+                <button type="button" id="btn-copy-token" class="btn btn-sm btn-outline">Copy Token</button>
+                <button type="button" id="btn-refresh-token" class="btn btn-sm btn-outline">🔄 Refresh</button>
+                <button type="button" id="btn-use-token-chat" class="btn btn-sm btn-primary">Apply to LiveChat</button>
+                <button type="button" id="btn-clear-token" class="btn btn-sm btn-danger">Clear</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- PANE 2: Gemini API Key -->
+          <div id="st-apikey-tab" class="settings-pane">
+            <div class="pane-header">
+              <h4>Google AI Studio (Gemini API Key)</h4>
+              <p>Direct authentication via Google AI Studio API key without requiring OAuth login.</p>
+            </div>
+            <form id="apikey-form" class="settings-form">
+              <div class="form-field">
+                <label for="gemini-api-key">Gemini API Key (AIzaSy...):</label>
+                <input type="password" id="gemini-api-key" placeholder="AIzaSy..." autocomplete="off">
+              </div>
+              <div class="btn-group-row">
+                <button type="submit" id="btn-save-key" class="btn btn-primary">Save Key</button>
+                <button type="button" id="btn-use-key-chat" class="btn btn-outline">Set as Active Auth</button>
+              </div>
+            </form>
+          </div>
+
+          <!-- PANE 3: Pigasus Proxy & Alt-Backend -->
+          <div id="st-proxy-tab" class="settings-pane">
+            <div class="pane-header">
+              <h4>Pigasus Proxy & Route Settings</h4>
+              <p>Configure local proxy forwarding (e.g. <code>pigproxy</code> / <code>agyproxy</code>). Auto-injects credentials and bypasses browser CORS limitations.</p>
+            </div>
+            <form id="proxy-config-form" class="settings-form">
+              <div class="form-field">
+                <label for="cfg-proxy-url">Pigasus Proxy Address:</label>
+                <input type="url" id="cfg-proxy-url" placeholder="http://127.0.0.1:8085" value="http://127.0.0.1:8085">
+                <small class="helper-note">Forwarding paths include <code>/v1/live</code> and <code>/v1internal:streamGenerateContent</code>.</small>
+              </div>
+              <fieldset class="auth-radio-fieldset">
+                <legend>Default Authentication Mode</legend>
+                <div class="radio-options">
+                  <label class="radio-item">
+                    <input type="radio" name="default_auth" value="oauth" checked>
+                    <span>Google OAuth Bearer Token (Antigravity)</span>
+                  </label>
+                  <label class="radio-item">
+                    <input type="radio" name="default_auth" value="api_key">
+                    <span>Google AI Studio Gemini API Key</span>
+                  </label>
+                  <label class="radio-item">
+                    <input type="radio" name="default_auth" value="proxy">
+                    <span>Local Pigasus Proxy (Auto-Credential Injection)</span>
+                  </label>
+                </div>
+              </fieldset>
+              <div class="btn-group-row">
+                <button type="submit" class="btn btn-primary">Save Settings</button>
+                <button type="button" id="btn-test-proxy" class="btn btn-outline">Test Proxy Connectivity</button>
+              </div>
+              <div id="proxy-test-result" class="status-msg-modern hidden"></div>
+            </form>
+          </div>
+
+          <!-- PANE 4: Voice & System Prompts -->
+          <div id="st-voice-tab" class="settings-pane">
+            <div class="pane-header">
+              <h4>Multimodal Live Model & Voice Instructions</h4>
+              <p>Fine-tune real-time latency, model behavior, barge-in options, and multilingual instructions.</p>
+            </div>
+            <form id="live-config-form" class="settings-form">
+              <div class="form-field">
+                <label for="live-model-select">Live Model:</label>
+                <select id="live-model-select">
+                  <option value="models/gemini-3.8-live" selected>Gemini 3.8 Live (Standard Low-Latency)</option>
+                  <option value="models/gemini-3.8-live-extended-thinking">Gemini 3.8 Live (Extended Thinking Mode)</option>
+                </select>
+              </div>
+              <div class="form-field">
+                <label for="live-auth-select">Live Auth Routing:</label>
+                <select id="live-auth-select">
+                  <option value="oauth">OAuth Token via Demo Bridge</option>
+                  <option value="api_key">Gemini API Key (Direct / Bridge)</option>
+                  <option value="proxy">Pigasus Proxy (Alt-Backend)</option>
+                </select>
+              </div>
+              <div class="form-field">
+                <label for="live-system-prompt">Custom Multilingual System Prompt:</label>
+                <textarea id="live-system-prompt" rows="3">You are LiveChat, an intelligent multilingual voice assistant. Always respond in the exact same language the user speaks to you in (respond in Chinese if the user speaks Chinese, respond in English if the user speaks English). Keep spoken answers natural, friendly, and concise in 1-2 sentences.</textarea>
+              </div>
+              <div class="form-field">
+                <label>Appearance & Theme:</label>
+                <div class="theme-switch-group">
+                  <button type="button" class="btn-theme-choice" data-theme="dark">
+                    <span>🌙</span> Dark Mode
+                  </button>
+                  <button type="button" class="btn-theme-choice" data-theme="light">
+                    <span>☀️</span> Light Mode
+                  </button>
+                  <button type="button" class="btn-theme-choice" data-theme="system">
+                    <span>💻</span> System Auto
+                  </button>
+                </div>
+              </div>
+              <div class="checkbox-group">
+                <label class="check-item" title="Full-duplex allows simultaneous speaking and instant barge-in interruption. Use headphones to prevent microphone echo.">
+                  <input type="checkbox" id="live-duplex-toggle" checked>
+                  <span><strong>Full Duplex Barge-in</strong> (Headphones recommended)</span>
+                </label>
+                <label class="check-item">
+                  <input type="checkbox" id="live-proactive-greeting" checked>
+                  <span>Proactive Bilingual Greeting (like ./cmd/livechat)</span>
+                </label>
+                <label class="check-item">
+                  <input type="checkbox" id="live-auto-reconnect" checked>
+                  <span>Auto-reconnect on unexpected disconnect</span>
+                </label>
+              </div>
+            </form>
+          </div>
+
+          <!-- PANE 5: Sessions Management -->
+          <div id="st-sessions-tab" class="settings-pane">
+            <div class="pane-header">
+              <h4>All Conversation Sessions</h4>
+              <p>Inspect, search, rename, or purge all local conversation histories.</p>
+            </div>
+            <div class="session-modal-toolbar">
+              <input type="text" id="session-search-input" placeholder="Search sessions by title or turn text..." class="session-search-input">
+              <button type="button" id="btn-modal-new-session" class="btn btn-primary btn-sm">+ New Session</button>
+            </div>
+            <div id="session-list-container" class="session-list-container">
+              <!-- Dynamically populated cards -->
+            </div>
+            <div class="session-pane-footer">
+              <span id="modal-session-total-badge" class="badge-tier">1 session</span>
+              <button type="button" id="btn-clear-all-sessions" class="btn btn-sm btn-danger-outline">Clear All Sessions</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Modal Footer -->
+      <div class="modal-footer">
+        <button type="button" id="btn-modal-done" class="btn btn-primary">Done</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Legacy Session Modal & Nav Tabs Compatibility Hooks -->
+  <div id="session-modal" class="visually-hidden" aria-hidden="true">
+    <button type="button" id="btn-new-live-session"></button>
+    <button type="button" id="btn-manage-sessions"></button>
+    <button type="button" id="btn-close-session-modal"></button>
+  </div>
+  <div class="visually-hidden" aria-hidden="true">
+    <button class="nav-tab active" data-tab="live-tab"></button>
+    <button class="nav-tab" data-tab="auth-tab"></button>
+    <button class="nav-tab" data-tab="chat-tab"></button>
+    <button class="nav-tab" data-tab="settings-tab"></button>
+    <div id="auth-tab" class="tab-pane"></div>
+    <div id="chat-tab" class="tab-pane">
+      <select id="chat-auth-select"><option value="oauth">OAuth</option></select>
+      <select id="chat-model-select"><option value="gemini-3.8-flash">Gemini 3.8 Flash</option></select>
+      <button id="btn-clear-chat"></button>
+      <div id="chat-messages"></div>
+      <form id="chat-form">
+        <textarea id="chat-input"></textarea>
+        <button id="chat-send-btn"></button>
+      </form>
+    </div>
+    <div id="live-tab" class="tab-pane active"></div>
+    <div id="settings-tab" class="tab-pane"></div>
+  </div>
+
+  <script src="app.js?v=20261121_modern_v2"></script>
+</body>
+</html>

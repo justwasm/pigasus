@@ -721,6 +721,10 @@ func MicServeSubcommand() SubcommandSpec {
 	return rcAndMediaSubcommands(standardRCSubs())[0]
 }
 
+func LiveChatSubcommand() SubcommandSpec {
+	return cliflags.LiveChatSubcommand()
+}
+
 func RCSubcommands() []SubcommandSpec {
 	return rcAndMediaSubcommands(standardRCSubs())[1:]
 }

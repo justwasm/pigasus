@@ -306,18 +306,34 @@ func catalogueID(name string) (string, bool) {
 // reference holds back so the next step has room to answer. A model that
 // does not state them falls back to the package defaults.
 func configuredLimit(modelID string) (Limit, bool) {
+	if m, ok := configuredModel(modelID); ok {
+		return limitFromModel(m), true
+	}
+	return Limit{}, false
+}
+
+// ConfiguredCompactThreshold returns the model's soft auto-compaction trigger in tokens,
+// if configured in providers.json.
+func ConfiguredCompactThreshold(modelID string) (int, bool) {
+	if m, ok := configuredModel(modelID); ok && m.CompactThreshold > 0 {
+		return m.CompactThreshold, true
+	}
+	return 0, false
+}
+
+func configuredModel(modelID string) (*models.Model, bool) {
 	name := strings.TrimSpace(modelID)
 	if name == "" {
-		return Limit{}, false
+		return nil, false
 	}
 	reg := models.CachedRegistry()
 	if reg == nil {
-		return Limit{}, false
+		return nil, false
 	}
 
 	// 1. Direct registry lookup
 	if m, ok := reg.GetByName(name); ok && m != nil {
-		return limitFromModel(m), true
+		return m, true
 	}
 
 	// Build candidate variants
@@ -352,7 +368,7 @@ func configuredLimit(modelID string) (Limit, bool) {
 	// 2. Try GetByName with candidate forms
 	for _, c := range cands {
 		if m, ok := reg.GetByName(c); ok && m != nil {
-			return limitFromModel(m), true
+			return m, true
 		}
 	}
 
@@ -364,12 +380,12 @@ func configuredLimit(modelID string) (Limit, bool) {
 				strings.EqualFold(entry.DisplayName, c) ||
 				strings.EqualFold(entry.ExternalModelName, c) ||
 				strings.EqualFold(entry.QualifiedName(), c) {
-				return limitFromModel(&entry), true
+				return &entry, true
 			}
 		}
 	}
 
-	return Limit{}, false
+	return nil, false
 }
 
 func limitFromModel(m *models.Model) Limit {
