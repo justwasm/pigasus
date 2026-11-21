@@ -1,0 +1,88 @@
+package voice
+
+import (
+	"context"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/justwasm/pigasus/actor"
+)
+
+func TestThinkerBridge_DispatchSuccess(t *testing.T) {
+	mockProv := actor.NewMockProvider()
+	mockProv.EnqueueChunks([]actor.StreamChunk{
+		{
+			ToolCalls: []actor.ToolCall{
+				{ID: "tc-1", Name: "read_file", Input: `{"path": "/app/main.go"}`},
+			},
+		},
+	})
+	mockProv.EnqueueChunks([]actor.StreamChunk{
+		{Delta: "Refactoring completed successfully.", FinishReason: "stop"},
+	})
+
+	tool := actor.NewFuncTool("read_file", "reads file", func(ctx context.Context, input string) (string, error) {
+		return "package main\nfunc main() {}", nil
+	})
+
+	act, err := actor.Spawn(actor.Config{
+		Default: actor.TurnConfig{
+			Provider: mockProv,
+			Tools:    []actor.Tool{tool},
+		},
+	})
+	if err != nil {
+		t.Fatalf("failed to spawn actor: %v", err)
+	}
+	defer act.Close()
+
+	bridge := NewThinkerBridge(act)
+	mockBackend := NewMockLiveBackend()
+	sess, err := mockBackend.CreateSession(context.Background(), LiveSessionConfig{Voice: "Puck"})
+	if err != nil {
+		t.Fatalf("failed to create live session: %v", err)
+	}
+	defer sess.Close()
+
+	err = bridge.Dispatch(context.Background(), sess, "inv-100", "Please inspect main.go")
+	if err != nil {
+		t.Fatalf("Dispatch failed: %v", err)
+	}
+
+	// Wait for background turn completion
+	deadline := time.Now().Add(2 * time.Second)
+	mockSess := sess.(*MockLiveSession)
+	for time.Now().Before(deadline) {
+		if len(mockSess.InAnswers()) > 0 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	answers := mockSess.InAnswers()
+	if len(answers) == 0 {
+		t.Fatalf("expected thinker answer to be sent to live session")
+	}
+	if !strings.Contains(answers[0], "Refactoring completed successfully.") {
+		t.Errorf("unexpected answer: %q", answers[0])
+	}
+
+	notes := mockSess.InNotes()
+	if len(notes) == 0 {
+		t.Errorf("expected thinker progress notes to be sent to live session")
+	}
+
+	toolResponses := mockSess.ToolResponses()
+	if _, ok := toolResponses["inv-100"]; !ok {
+		t.Errorf("expected tool response for inv-100, got: %+v", toolResponses)
+	}
+}
+
+func TestThinkerBridge_NilActor(t *testing.T) {
+	bridge := NewThinkerBridge(nil)
+	err := bridge.Dispatch(context.Background(), nil, "inv-1", "test")
+	if err == nil {
+		t.Fatal("expected error with nil actor")
+	}
+}

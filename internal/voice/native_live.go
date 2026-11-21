@@ -151,6 +151,7 @@ type NativeLiveSession struct {
 	historyMu    sync.RWMutex
 	historyTurns []LiveTurnRecord
 	maxHistory   int
+	compactor    *VoiceHistoryCompactor
 }
 
 // NewNativeLiveSession creates a new terminal native live session manager.
@@ -171,6 +172,7 @@ func NewNativeLiveSession(backend LiveBackend, handler NativeLiveHandler) *Nativ
 			MaxBackoff:     8 * time.Second,
 		},
 		maxHistory: 10,
+		compactor:  NewVoiceHistoryCompactor(),
 	}
 	n.state.Store(int32(StateDisconnected))
 	return n
@@ -466,8 +468,11 @@ func (n *NativeLiveSession) receivePump(ctx context.Context, sess LiveSession) {
 			for _, tc := range ev.ToolCalls {
 				if n.handler != nil {
 					n.handler.OnToolCall(tc)
-					if tc.Name == "delegate_to_thinker" {
+					if tc.Name == "delegate_to_thinker" || tc.Name == "call_thinker_agent" {
 						task, _ := tc.Args["task"].(string)
+						if task == "" {
+							task, _ = tc.Args["query"].(string)
+						}
 						n.handler.OnThinkerHandoff(tc.ID, task)
 					}
 				}
@@ -975,6 +980,9 @@ func (n *NativeLiveSession) recordTurn(role, text string) {
 		Role:    role,
 		Content: text,
 	})
+	if n.compactor != nil {
+		n.compactor.AddTurn(role, text)
+	}
 	if len(n.historyTurns) > n.maxHistory {
 		n.historyTurns = n.historyTurns[len(n.historyTurns)-n.maxHistory:]
 	}
@@ -995,9 +1003,20 @@ func (n *NativeLiveSession) SetConversationHistory(turns []LiveTurnRecord) {
 	defer n.historyMu.Unlock()
 	n.historyTurns = make([]LiveTurnRecord, len(turns))
 	copy(n.historyTurns, turns)
+	if n.compactor != nil {
+		n.compactor.SetTurns(turns)
+	}
 	if n.maxHistory > 0 && len(n.historyTurns) > n.maxHistory {
 		n.historyTurns = n.historyTurns[len(n.historyTurns)-n.maxHistory:]
 	}
+}
+
+// Compactor returns the speech transcript compactor managing session context.
+func (n *NativeLiveSession) Compactor() *VoiceHistoryCompactor {
+	if n == nil {
+		return nil
+	}
+	return n.compactor
 }
 
 // RehydrateSessionContext sends stored conversation context into the active live session after reconnection.
@@ -1020,6 +1039,9 @@ func (n *NativeLiveSession) RehydrateResumeContext() error {
 	if sess == nil {
 		return errors.New("live session not currently connected")
 	}
+	if n.compactor != nil && len(n.ConversationHistory()) > 0 {
+		return sess.SendText(n.compactor.FormatResumeContext())
+	}
 	turns := n.ConversationHistory()
 	if len(turns) == 0 {
 		return nil
@@ -1034,6 +1056,10 @@ func (n *NativeLiveSession) RehydrateResumeContext() error {
 }
 
 func (n *NativeLiveSession) rehydrateContext(sess LiveSession) {
+	if n.compactor != nil && len(n.ConversationHistory()) > 0 {
+		_ = sess.SendText(n.compactor.FormatReconnectionContext())
+		return
+	}
 	turns := n.ConversationHistory()
 	if len(turns) == 0 {
 		return

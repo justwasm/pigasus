@@ -226,6 +226,24 @@ func (s *MockLiveSession) ToolResponses() map[string]any {
 	return res
 }
 
+// InNotes returns a copy of thinker progress notes sent to this mock session.
+func (s *MockLiveSession) InNotes() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	res := make([]string, len(s.inNotes))
+	copy(res, s.inNotes)
+	return res
+}
+
+// InAnswers returns a copy of final thinker answers sent to this mock session.
+func (s *MockLiveSession) InAnswers() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	res := make([]string, len(s.inAnswers))
+	copy(res, s.inAnswers)
+	return res
+}
+
 // SendThinkerNote records a thinker note and simulates a speech update.
 func (s *MockLiveSession) SendThinkerNote(note string) error {
 	s.mu.Lock()
