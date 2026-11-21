@@ -1906,8 +1906,13 @@ func (m *RootModel) StartLiveVoice() error {
 	if voiceName == "" {
 		voiceName = "Finn"
 	}
+	liveModel := endpoints.CurrentGeminiLiveModel()
+	if liveModel == "" {
+		liveModel = voicebackend.DefaultGeminiLiveModel
+	}
 	cfg := voicebackend.LiveSessionConfig{
 		Voice: voiceName,
+		Model: liveModel,
 	}
 
 	apiKey := endpoints.CurrentGeminiAPIKey()
@@ -1917,18 +1922,11 @@ func (m *RootModel) StartLiveVoice() error {
 
 	if os.Getenv("PIGASUS_MOCK_VOICE") != "" || os.Getenv("OPENAGY_MOCK_VOICE") != "" {
 		backend = voicebackend.NewMockLiveBackend()
-	} else if os.Getenv("OPENAGY_VOICE_FORCE_API_KEY") != "" && apiKey != "" {
-		backend = voicebackend.NewGeminiLiveBackend(apiKey)
-	} else if tok, err := auth.LoadTokenUnified(); err == nil && tok != nil && tok.Token.AccessToken != "" {
-		var fallback voicebackend.LiveBackend
-		if apiKey != "" {
-			fallback = voicebackend.NewGeminiLiveBackend(apiKey)
-		} else {
-			fallback = voicebackend.NewGeminiLiveBackendWithBearer(tok.Token.AccessToken)
-		}
-		backend = voicebackend.NewAICodeLiveBackendWithFallback(tok.Token.AccessToken, fallback)
 	} else if apiKey != "" {
 		backend = voicebackend.NewGeminiLiveBackend(apiKey)
+	} else if tok, err := auth.LoadTokenUnified(); err == nil && tok != nil && tok.Token.AccessToken != "" {
+		fallback := voicebackend.NewGeminiLiveBackendWithBearer(tok.Token.AccessToken)
+		backend = voicebackend.NewAICodeLiveBackendWithFallback(tok.Token.AccessToken, fallback)
 	} else if voiceEndpoint != endpoints.DefaultVoice {
 		backend = voicebackend.NewGeminiLiveBackend("")
 	} else {
@@ -2027,8 +2025,9 @@ func (h *tuiLiveHandler) OnThinkerHandoff(invocationID string, task string) {
 	// Run Thinker task asynchronously in background
 	go func() {
 		sess := h.m.audio.liveSession
+		throttler := voicebackend.NewNoteThrottler(voicebackend.DefaultNoteInterval)
 		result, err := h.m.RunThinkerTask(task, func(note string) {
-			if sess != nil && sess.IsActive() {
+			if sess != nil && sess.IsActive() && throttler.ShouldSend(time.Now(), note, false) {
 				_ = sess.SendThinkerNote(note)
 			}
 		})
@@ -2055,7 +2054,7 @@ func (m *RootModel) RunThinkerTask(task string, onProgress func(string)) (string
 		OnUsage:   m.recordTurnUsage,
 		OnFrame: func(f agentlink.Frame) {
 			if f.Tool != nil && onProgress != nil {
-				onProgress(fmt.Sprintf("Running tool: %s", f.Tool.Name))
+				onProgress(voicebackend.HumanizeTool(f.Tool.Name, f.Tool.Args))
 			}
 		},
 		HookStart:    m.hookSessionStart,

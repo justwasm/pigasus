@@ -65,6 +65,7 @@ type AICodeLiveBackend struct {
 	languageServerVersion string
 	accessToken           string
 	fallback              LiveBackend
+	fallbackOnly          bool
 
 	// streamFactory allows tests to inject custom streams without making network calls.
 	streamFactory func(ctx context.Context, endpoint string, token string) (AICodeStream, func(), error)
@@ -141,9 +142,28 @@ func (b *AICodeLiveBackend) SetStreamFactory(fn func(ctx context.Context, endpoi
 	b.streamFactory = fn
 }
 
+// MarkFallbackOnly locks this backend to route all future CreateSession calls to fallback.
+func (b *AICodeLiveBackend) MarkFallbackOnly() {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.fallbackOnly = true
+}
+
+// IsFallbackOnly returns whether this backend has fallen back permanently.
+func (b *AICodeLiveBackend) IsFallbackOnly() bool {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	return b.fallbackOnly
+}
+
 // CreateSession establishes a bi-directional live session with Google's AICode proxy.
 func (b *AICodeLiveBackend) CreateSession(ctx context.Context, cfg LiveSessionConfig) (LiveSession, error) {
 	b.mu.RLock()
+	if b.fallbackOnly && b.fallback != nil {
+		fb := b.fallback
+		b.mu.RUnlock()
+		return fb.CreateSession(ctx, cfg)
+	}
 	endpoint := b.endpoint
 	token := b.accessToken
 	clientVer := b.clientVersion
@@ -155,6 +175,7 @@ func (b *AICodeLiveBackend) CreateSession(ctx context.Context, cfg LiveSessionCo
 
 	if token == "" && factory == nil {
 		if fallback != nil {
+			b.MarkFallbackOnly()
 			return fallback.CreateSession(ctx, cfg)
 		}
 		return nil, errors.New("aicode live: no OAuth access token provided")
@@ -170,6 +191,7 @@ func (b *AICodeLiveBackend) CreateSession(ctx context.Context, cfg LiveSessionCo
 		if err != nil {
 			cancel()
 			if fallback != nil {
+				b.MarkFallbackOnly()
 				return fallback.CreateSession(ctx, cfg)
 			}
 			return nil, fmt.Errorf("aicode live: stream factory failed: %w", err)
@@ -187,6 +209,7 @@ func (b *AICodeLiveBackend) CreateSession(ctx context.Context, cfg LiveSessionCo
 		if err != nil {
 			cancel()
 			if fallback != nil {
+				b.MarkFallbackOnly()
 				return fallback.CreateSession(ctx, cfg)
 			}
 			return nil, fmt.Errorf("aicode live: grpc dial failed: %w", err)
@@ -209,6 +232,7 @@ func (b *AICodeLiveBackend) CreateSession(ctx context.Context, cfg LiveSessionCo
 			_ = conn.Close()
 			cancel()
 			if fallback != nil {
+				b.MarkFallbackOnly()
 				return fallback.CreateSession(ctx, cfg)
 			}
 			return nil, fmt.Errorf("aicode live: NewStream failed: %w", err)
@@ -259,12 +283,14 @@ func (b *AICodeLiveBackend) CreateSession(ctx context.Context, cfg LiveSessionCo
 		}
 		cancel()
 		if fallback != nil {
+			b.MarkFallbackOnly()
 			return fallback.CreateSession(ctx, cfg)
 		}
 		return nil, fmt.Errorf("aicode live: send setup failed: %w", err)
 	}
 
 	sess := &AICodeLiveSession{
+		backend:  b,
 		ctx:      sessionCtx,
 		cancel:   cancel,
 		cfg:      cfg,
@@ -283,6 +309,7 @@ func (b *AICodeLiveBackend) CreateSession(ctx context.Context, cfg LiveSessionCo
 
 // AICodeLiveSession represents an active full-duplex session with AICode StreamVoice.
 type AICodeLiveSession struct {
+	backend         *AICodeLiveBackend
 	ctx             context.Context
 	cancel          context.CancelFunc
 	cfg             LiveSessionConfig
@@ -390,9 +417,16 @@ func (s *AICodeLiveSession) readLoop() {
 func (s *AICodeLiveSession) tryActivateFallback(upstreamErr error) bool {
 	var activated bool
 	s.fallbackOnce.Do(func() {
+		if s.fallback == nil {
+			return
+		}
 		fbSess, err := s.fallback.CreateSession(s.ctx, s.cfg)
 		if err != nil {
 			return
+		}
+
+		if s.backend != nil {
+			s.backend.MarkFallbackOnly()
 		}
 
 		s.mu.Lock()
@@ -465,8 +499,20 @@ func (s *AICodeLiveSession) SendAudio(pcm16k []byte) error {
 	}
 
 	s.writeMu.Lock()
-	defer s.writeMu.Unlock()
-	return s.stream.SendMsg(req)
+	err := s.stream.SendMsg(req)
+	s.writeMu.Unlock()
+	if err != nil {
+		if s.fallback != nil && s.tryActivateFallback(err) {
+			s.mu.Lock()
+			fb := s.fallbackSession
+			s.mu.Unlock()
+			if fb != nil {
+				return fb.SendAudio(pcm16k)
+			}
+		}
+		return err
+	}
+	return nil
 }
 
 // SendText injects a user transcript / text into the live session.

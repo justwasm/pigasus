@@ -832,3 +832,22 @@ func TestNativeLiveSession_SwitchModel(t *testing.T) {
 		t.Fatalf("expected switched model to be gemini-3.8-live-extended-thinking, got %s", last.cfg.Model)
 	}
 }
+
+func TestNativeLiveSession_FatalErrorDoesNotLoop(t *testing.T) {
+	mockBackend := NewMockLiveBackend()
+	mockBackend.SetFailAttempts(1, errors.New("websocket: close 1008 (policy violation): Request had insufficient authentication scopes"))
+	handler := &mockLiveHandler{}
+	sess := NewNativeLiveSession(mockBackend, handler)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	err := sess.Start(ctx, LiveSessionConfig{Voice: "Fola"})
+	if err == nil {
+		t.Fatal("expected Start to fail with fatal error, got nil")
+	}
+
+	if !isFatalLiveError(err) {
+		t.Fatalf("expected isFatalLiveError(err) to be true for %v", err)
+	}
+}

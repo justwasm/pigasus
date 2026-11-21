@@ -332,10 +332,10 @@ func (n *NativeLiveSession) Start(ctx context.Context, cfg LiveSessionConfig) er
 
 		if err := sess.SendAudio(pcm16k); err != nil {
 			if !isBenignClose(err) && n.active.Load() {
-				if n.reconnectCfg.Enabled {
-					n.triggerReconnect(err)
-				} else {
+				if isFatalLiveError(err) || !n.reconnectCfg.Enabled {
 					n.fail(err)
+				} else {
+					n.triggerReconnect(err)
 				}
 			}
 		} else {
@@ -401,6 +401,22 @@ func (n *NativeLiveSession) Start(ctx context.Context, cfg LiveSessionConfig) er
 	return nil
 }
 
+func isFatalLiveError(err error) bool {
+	if err == nil {
+		return false
+	}
+	status := websocket.CloseStatus(err)
+	if status == websocket.StatusPolicyViolation { // 1008
+		return true
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "insufficient authentication scopes") ||
+		strings.Contains(msg, "you exceeded your current quota") ||
+		strings.Contains(msg, "resource_exhausted") ||
+		strings.Contains(msg, "permissiondenied") ||
+		strings.Contains(msg, "the caller does not have permission")
+}
+
 func isBenignClose(err error) bool {
 	if err == nil {
 		return true
@@ -446,10 +462,10 @@ func (n *NativeLiveSession) receivePump(ctx context.Context, sess LiveSession) {
 		ev, err := sess.Receive()
 		if err != nil {
 			if !isBenignClose(err) && n.active.Load() {
-				if n.reconnectCfg.Enabled {
-					n.triggerReconnect(err)
-				} else {
+				if isFatalLiveError(err) || !n.reconnectCfg.Enabled {
 					n.fail(err)
+				} else {
+					n.triggerReconnect(err)
 				}
 			}
 			return
@@ -833,6 +849,13 @@ func (n *NativeLiveSession) triggerReconnect(err error) {
 }
 
 func (n *NativeLiveSession) reconnectWorker(ctx context.Context, triggerErr error) {
+	if isFatalLiveError(triggerErr) {
+		n.reconnecting.Store(false)
+		n.state.Store(int32(StateClosed))
+		n.fail(triggerErr)
+		return
+	}
+
 	cfg := n.reconnectCfg
 	maxAttempts := cfg.MaxAttempts
 	if maxAttempts <= 0 {
@@ -867,6 +890,12 @@ func (n *NativeLiveSession) reconnectWorker(ctx context.Context, triggerErr erro
 		newSess, err := n.backend.CreateSession(ctx, n.cfg)
 		if err != nil {
 			lastErr = err
+			if isFatalLiveError(err) {
+				n.reconnecting.Store(false)
+				n.state.Store(int32(StateClosed))
+				n.fail(err)
+				return
+			}
 			continue
 		}
 

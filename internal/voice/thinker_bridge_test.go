@@ -71,6 +71,8 @@ func TestThinkerBridge_DispatchSuccess(t *testing.T) {
 	notes := mockSess.InNotes()
 	if len(notes) == 0 {
 		t.Errorf("expected thinker progress notes to be sent to live session")
+	} else if notes[0] != "Reading file main.go" {
+		t.Errorf("expected canonical semantic note 'Reading file main.go', got: %q", notes[0])
 	}
 
 	toolResponses := mockSess.ToolResponses()
@@ -84,5 +86,132 @@ func TestThinkerBridge_NilActor(t *testing.T) {
 	err := bridge.Dispatch(context.Background(), nil, "inv-1", "test")
 	if err == nil {
 		t.Fatal("expected error with nil actor")
+	}
+}
+
+func TestHumanizeTool(t *testing.T) {
+	tests := []struct {
+		name     string
+		tool     string
+		input    string
+		expected string
+	}{
+		{
+			name:     "read_file with path",
+			tool:     "read_file",
+			input:    `{"path": "/app/main.go"}`,
+			expected: "Reading file main.go",
+		},
+		{
+			name:     "read_file without path",
+			tool:     "read_file",
+			input:    `{}`,
+			expected: "Reading code file",
+		},
+		{
+			name:     "edit_file",
+			tool:     "edit_file",
+			input:    `{"path": "internal/auth.go"}`,
+			expected: "Editing file auth.go",
+		},
+		{
+			name:     "go test",
+			tool:     "run_command",
+			input:    `{"CommandLine": "go test ./..."}`,
+			expected: "Running unit tests",
+		},
+		{
+			name:     "make build",
+			tool:     "run_command",
+			input:    `{"CommandLine": "make build"}`,
+			expected: "Building project",
+		},
+		{
+			name:     "git diff",
+			tool:     "run_command",
+			input:    `{"CommandLine": "git diff HEAD~1"}`,
+			expected: "Checking git diff",
+		},
+		{
+			name:     "git status",
+			tool:     "run_command",
+			input:    `{"CommandLine": "git status"}`,
+			expected: "Checking git status",
+		},
+		{
+			name:     "arbitrary command",
+			tool:     "run_command",
+			input:    `{"CommandLine": "docker-compose up -d"}`,
+			expected: "Running command: docker-compose up -d",
+		},
+		{
+			name:     "search_web",
+			tool:     "search_web",
+			input:    `{"query": "gemini live api"}`,
+			expected: "Searching web for: gemini live api",
+		},
+		{
+			name:     "list_dir",
+			tool:     "list_dir",
+			input:    `{}`,
+			expected: "Listing directory contents",
+		},
+		{
+			name:     "invoke_subagent",
+			tool:     "invoke_subagent",
+			input:    `{}`,
+			expected: "Dispatching specialized subagent",
+		},
+		{
+			name:     "unknown tool",
+			tool:     "custom_tool",
+			input:    `{}`,
+			expected: "Calling tool: custom_tool",
+		},
+		{
+			name:     "empty tool name",
+			tool:     "",
+			input:    `{}`,
+			expected: "Processing background task",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := HumanizeTool(tt.tool, tt.input)
+			if got != tt.expected {
+				t.Errorf("HumanizeTool(%q, %q) = %q, want %q", tt.tool, tt.input, got, tt.expected)
+			}
+		})
+	}
+}
+
+func TestNoteThrottler(t *testing.T) {
+	throttler := NewNoteThrottler(500 * time.Millisecond)
+	baseTime := time.Now()
+
+	// First note should pass
+	if !throttler.ShouldSend(baseTime, "note 1", false) {
+		t.Errorf("expected first note to pass")
+	}
+
+	// Repeated duplicate note should be suppressed even after time passes
+	if throttler.ShouldSend(baseTime.Add(1*time.Second), "note 1", false) {
+		t.Errorf("expected duplicate note to be suppressed")
+	}
+
+	// Rapid distinct note within interval should be suppressed
+	if throttler.ShouldSend(baseTime.Add(200*time.Millisecond), "note 2", false) {
+		t.Errorf("expected note within minInterval to be throttled")
+	}
+
+	// Distinct note after interval should pass
+	if !throttler.ShouldSend(baseTime.Add(600*time.Millisecond), "note 2", false) {
+		t.Errorf("expected distinct note after minInterval to pass")
+	}
+
+	// Force note should always pass even if within interval
+	if !throttler.ShouldSend(baseTime.Add(650*time.Millisecond), "critical milestone", true) {
+		t.Errorf("expected force note to bypass throttling")
 	}
 }

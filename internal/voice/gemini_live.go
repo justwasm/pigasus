@@ -336,6 +336,7 @@ func (b *GeminiLiveBackend) CreateSession(ctx context.Context, cfg LiveSessionCo
 
 	if strings.Contains(modelName, "extended-thinking") {
 		liveCfg.ThinkingConfig = &genai.ThinkingConfig{
+			ThinkingLevel:  genai.ThinkingLevelLow,
 			ThinkingBudget: genai.Ptr(int32(1024)),
 		}
 	}

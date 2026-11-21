@@ -11,11 +11,13 @@ import (
 )
 
 type mockAICodeStream struct {
-	mu       sync.Mutex
-	sentMsgs []any
-	recvMsgs []any
-	recvErr  error
-	closed   bool
+	mu        sync.Mutex
+	sentMsgs  []any
+	recvMsgs  []any
+	sendCalls int
+	sendErr   error
+	recvErr   error
+	closed    bool
 }
 
 func (m *mockAICodeStream) SendMsg(msg any) error {
@@ -23,6 +25,10 @@ func (m *mockAICodeStream) SendMsg(msg any) error {
 	defer m.mu.Unlock()
 	if m.closed {
 		return io.ErrClosedPipe
+	}
+	m.sendCalls++
+	if m.sendErr != nil && m.sendCalls > 1 {
+		return m.sendErr
 	}
 	m.sentMsgs = append(m.sentMsgs, msg)
 	return nil
@@ -360,5 +366,44 @@ func TestAICodeLiveSession_ToolResponseAndClose(t *testing.T) {
 	// Sending audio after close should return error
 	if err := sess.SendAudio([]byte{1, 2}); err == nil {
 		t.Fatalf("expected error sending audio after close")
+	}
+}
+
+func TestAICodeLiveBackend_FallbackLatchingAndSendAudio(t *testing.T) {
+	mockStream := &mockAICodeStream{
+		sendErr: io.EOF,
+		recvErr: errors.New("rpc error: code = PermissionDenied desc = The caller does not have permission"),
+	}
+
+	mockFallback := NewMockLiveBackend()
+	backend := NewAICodeLiveBackendWithFallback("ya29.test-token", mockFallback)
+	backend.SetStreamFactory(func(ctx context.Context, endpoint string, token string) (AICodeStream, func(), error) {
+		return mockStream, func() {}, nil
+	})
+
+	sess, err := backend.CreateSession(context.Background(), LiveSessionConfig{Voice: "Finn"})
+	if err != nil {
+		t.Fatalf("CreateSession: %v", err)
+	}
+	defer sess.Close()
+
+	// SendAudio with sendErr triggers fallback
+	if err := sess.SendAudio(make([]byte, 3200)); err != nil {
+		t.Fatalf("SendAudio should activate fallback, got err: %v", err)
+	}
+
+	if !backend.IsFallbackOnly() {
+		t.Fatal("expected backend to latch FallbackOnly after fallback activation")
+	}
+
+	// Subsequent CreateSession should route directly to fallback
+	sess2, err := backend.CreateSession(context.Background(), LiveSessionConfig{Voice: "Finn"})
+	if err != nil {
+		t.Fatalf("CreateSession 2: %v", err)
+	}
+	defer sess2.Close()
+
+	if _, ok := sess2.(*MockLiveSession); !ok {
+		t.Fatalf("expected *MockLiveSession from latched fallback, got %T", sess2)
 	}
 }

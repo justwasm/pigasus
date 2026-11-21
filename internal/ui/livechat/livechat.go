@@ -2424,18 +2424,11 @@ func Run(args []string) error {
 		} else {
 			liveBackend = altLive
 		}
-	} else if *apiKeyFlag != "" || (os.Getenv("OPENAGY_VOICE_FORCE_API_KEY") != "" && apiKey != "") {
-		liveBackend = voice.NewGeminiLiveBackend(apiKey)
-	} else if bearerToken != "" {
-		var fallback voice.LiveBackend
-		if apiKey != "" {
-			fallback = voice.NewGeminiLiveBackend(apiKey)
-		} else {
-			fallback = voice.NewGeminiLiveBackendWithBearer(bearerToken)
-		}
-		liveBackend = voice.NewAICodeLiveBackendWithFallback(bearerToken, fallback)
 	} else if apiKey != "" {
 		liveBackend = voice.NewGeminiLiveBackend(apiKey)
+	} else if bearerToken != "" {
+		fallback := voice.NewGeminiLiveBackendWithBearer(bearerToken)
+		liveBackend = voice.NewAICodeLiveBackendWithFallback(bearerToken, fallback)
 	} else {
 		fmt.Printf("%s⚠️  No active Google session or Gemini API Key found.%s\n", ansiRed+ansiBold, ansiReset)
 		fmt.Println("To connect to Google Voice Live:")
