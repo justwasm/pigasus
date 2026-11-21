@@ -267,6 +267,30 @@ func TestModelAdd_MergesIntoAnExistingModel(t *testing.T) {
 	}
 }
 
+func TestModelAdd_CompactThreshold(t *testing.T) {
+	configtest.Isolate(t)
+	if _, _, err := runProviderCmd(t, runProviderAdd,
+		"gateway", "--base-url", "https://gw.example/v1"); err != nil {
+		t.Fatalf("provider add: %v", err)
+	}
+	if _, _, err := runProviderCmd(t, runModelAdd, "custom-qwen", "--provider", "gateway",
+		"--compact-threshold", "25000"); err != nil {
+		t.Fatalf("model add: %v", err)
+	}
+	body := readProviders(t)
+	if !strings.Contains(body, `"compact_threshold": 25000`) {
+		t.Fatalf("compact_threshold was not written to providers.json:\n%s", body)
+	}
+
+	stdout, _, err := runProviderCmd(t, runModelShow, "custom-qwen")
+	if err != nil {
+		t.Fatalf("model show: %v", err)
+	}
+	if !strings.Contains(stdout, "compact threshold: 25000") {
+		t.Errorf("model show missing compact threshold:\n%s", stdout)
+	}
+}
+
 // TestModelAdd_CarriesTheSupportsImagesMarker pins the per-model
 // marker that says a model takes pictures — the flag's three states:
 // unstated (no key at all), stated yes, stated no.

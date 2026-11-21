@@ -14,7 +14,7 @@ var embeddedWebFS embed.FS
 // resolveWebFileSystem returns an http.FileSystem and a description string of where assets are loaded from.
 // Priority:
 // 1. Explicit customDir if specified and valid
-// 2. Development disk directories (cmd/livechat/web or demo/web) if present with index.html
+// 2. Development disk directory (internal/ui/livechat/web) if present with index.html
 // 3. Embedded binary filesystem (//go:embed web)
 func resolveWebFileSystem(customDir string) (http.FileSystem, string) {
 	if customDir != "" {
@@ -26,11 +26,7 @@ func resolveWebFileSystem(customDir string) (http.FileSystem, string) {
 
 	candidates := []string{
 		"internal/ui/livechat/web",
-		"cmd/livechat/web",
-		"demo/web",
 		filepath.Join(os.Getenv("OPENAGY_ROOT"), "internal/ui/livechat/web"),
-		filepath.Join(os.Getenv("OPENAGY_ROOT"), "cmd/livechat/web"),
-		filepath.Join(os.Getenv("OPENAGY_ROOT"), "demo/web"),
 	}
 	for _, c := range candidates {
 		if fi, err := os.Stat(filepath.Join(c, "index.html")); err == nil && !fi.IsDir() {

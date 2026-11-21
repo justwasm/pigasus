@@ -129,6 +129,26 @@ func TestConfiguredModelWithoutNumbersFallsBack(t *testing.T) {
 	}
 }
 
+// TestConfiguredModelUsesItsOwnCompactThreshold pins that a model configured with
+// compact_threshold reports that threshold.
+func TestConfiguredModelUsesItsOwnCompactThreshold(t *testing.T) {
+	configtest.WriteProviders(t, `{"providers": {"gateway": {
+		"type": "openai", "base_url": "https://host/v1",
+		"models": [{"id": "custom-thresh", "name": "Custom Thresh",
+		            "context_window": 64000, "default_max_tokens": 4096,
+		            "compact_threshold": 32000}]}}}`)
+
+	thresh, ok := ConfiguredCompactThreshold("custom-thresh")
+	if !ok || thresh != 32000 {
+		t.Fatalf("ConfiguredCompactThreshold = %d, %v; want 32000, true", thresh, ok)
+	}
+
+	threshLabel, ok := ConfiguredCompactThreshold("Custom Thresh")
+	if !ok || threshLabel != 32000 {
+		t.Fatalf("ConfiguredCompactThreshold(display label) = %d, %v; want 32000, true", threshLabel, ok)
+	}
+}
+
 func TestConfiguredModelLookupVariations(t *testing.T) {
 	configtest.WriteProviders(t, `{"providers": {"gateway": {
 		"type": "openai", "base_url": "https://host/v1",

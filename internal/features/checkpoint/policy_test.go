@@ -10,6 +10,7 @@ import (
 	"github.com/justwasm/pigasus/actor"
 	"github.com/justwasm/pigasus/internal/core/backend"
 	"github.com/justwasm/pigasus/internal/core/compaction"
+	"github.com/justwasm/pigasus/internal/features/models/configtest"
 )
 
 type summaryBackend struct {
@@ -459,5 +460,60 @@ func TestBeforeStep_ThirdPartyModelAdoptsReportedUsageAndTriggersCompaction(t *t
 	}
 	if decision.TokensBefore != 187_000 {
 		t.Errorf("decision.TokensBefore = %d, want 187000 (adopted from Usage)", decision.TokensBefore)
+	}
+}
+
+// TestPolicy_ConfiguredCompactThreshold verifies that a configured model's
+// compact_threshold takes precedence over the default 50000 threshold.
+func TestPolicy_ConfiguredCompactThreshold(t *testing.T) {
+	configtest.WriteProviders(t, `{"providers": {"gateway": {
+		"type": "openai", "base_url": "https://host/v1",
+		"models": [{"id": "custom-qwen", "name": "Custom Qwen",
+		            "context_window": 64000, "default_max_tokens": 4096,
+		            "compact_threshold": 25000}]}}}`)
+
+	be := &summaryBackend{text: "<summary>continuation summary</summary>"}
+	p := New(Config{
+		Model:               "custom-qwen",
+		SystemPrompt:        "sys",
+		Backend:             be,
+		EnableSoftThreshold: true,
+	})
+	defer p.Close()
+
+	if p.Profile().TokenThreshold != 25000 {
+		t.Fatalf("expected TokenThreshold = 25000, got %d", p.Profile().TokenThreshold)
+	}
+
+	act := testActor(t)
+	probe := probeFor(t, act)
+
+	// 1. Reported usage below 25000: no checkpoint
+	probe.LastStep = &actor.Step{
+		ToolResults: []actor.ToolResult{{ToolCallID: "c1", Output: "x"}},
+		Usage: &actor.TokenUsage{
+			PromptTokens: 20_000,
+			OutputTokens: 1_000,
+		},
+	}
+	decision, err := p.BeforeStep(context.Background(), act, probe)
+	if err != nil {
+		t.Fatalf("BeforeStep: %v", err)
+	}
+	if decision.Apply {
+		t.Fatalf("expected no checkpoint at 21000 tokens (below 25000), got %+v", decision)
+	}
+
+	// 2. Reported usage reaches 26000: checkpoint triggers!
+	probe.LastStep.Usage = &actor.TokenUsage{
+		PromptTokens: 25_000,
+		OutputTokens: 1_000,
+	}
+	decision, err = p.BeforeStep(context.Background(), act, probe)
+	if err != nil {
+		t.Fatalf("BeforeStep: %v", err)
+	}
+	if !decision.Apply {
+		t.Fatal("expected auto-checkpoint triggered at 26000 tokens exceeding 25000 threshold")
 	}
 }

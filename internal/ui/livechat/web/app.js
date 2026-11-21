@@ -7,7 +7,7 @@
  *    - Direct CORS token exchange against https://oauth2.googleapis.com/token.
  *    - In-browser JWT parsing for account identification.
  *    - Direct Gemini AI Studio REST SSE streaming & Native Multimodal Live WebSocket.
- * 2. Backend Bridge Mode (when paired with demo/server or pigasus proxy).
+ * 2. Backend Bridge Mode (when paired with pigasus livechat --web or pigasus proxy).
  *    - Local CLI token auto-detection (~/.openagy / ~/.gemini).
  *    - Proxy route auto-configuration and CORS bypass.
  */
@@ -359,7 +359,7 @@
       elems.btnLiveTextSend.disabled = false;
     }
 
-    // Check if running alongside demo/server or as pure static website
+    // Check if running alongside backend server (pigasus livechat --web) or as pure static website
     await detectServerCapabilities();
   }
 
@@ -392,7 +392,7 @@
     state.hasServer = false;
     elems.appStatus.textContent = 'Static Standalone';
     elems.appStatus.className = 'badge badge-static';
-    elems.btnLoadCLIToken.title = 'CLI auto-detection requires demo/server; paste your token or use Google OAuth login directly.';
+    elems.btnLoadCLIToken.title = 'CLI auto-detection requires pigasus livechat server; paste your token or use Google OAuth login directly.';
   }
 
   async function syncSessionsFromServer() {
@@ -893,7 +893,7 @@
     // 2. Load Existing CLI Token
     elems.btnLoadCLIToken.addEventListener('click', async () => {
       if (!state.hasServer) {
-        showStatusMsg('Local CLI token auto-detection requires demo/server. Please use "Start Google OAuth Login" or paste your token.', 'info');
+        showStatusMsg('Local CLI token auto-detection requires pigasus livechat server. Please use "Start Google OAuth Login" or paste your token.', 'info');
         return;
       }
       showStatusMsg('Checking local Pigasus CLI token (~/.openagy / ~/.gemini)...', 'info');
