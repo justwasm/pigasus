@@ -16,8 +16,10 @@
   'use strict';
 
   // --- Canonical Antigravity Public OAuth Credentials ---
-  const CLI_CLIENT_ID = String.fromCharCode(49, 48, 55, 49, 48, 48, 54, 48, 54, 48, 53, 57, 49, 45, 116, 109, 104, 115, 115, 105, 110, 50, 104, 50, 49, 108, 99, 114, 101, 50, 51, 53, 118, 116, 111, 108, 111, 106, 104, 52, 103, 52, 48, 51, 101, 112, 46, 97, 112, 112, 115, 46, 103, 111, 111, 103, 108, 101, 117, 115, 101, 114, 99, 111, 110, 116, 101, 110, 116, 46, 99, 111, 109);
-  const PUBLIC_CLIENT_SECRET = String.fromCharCode(71, 79, 67, 83, 80, 88, 45, 75, 53, 56, 70, 87, 82, 52, 56, 54, 76, 100, 76, 74, 49, 109, 76, 66, 56, 115, 88, 67, 52, 122, 54, 113, 68, 65, 102);
+  // The Client ID is standard Google Cloud Code / Antigravity public client.
+  // The Client Secret is served dynamically by the livechat server at runtime (/api/config).
+  const CLI_CLIENT_ID = '1071006060591-tmhssin2h21lcre235vtolojh4g403ep.apps.googleusercontent.com';
+  let dynamicClientSecret = '';
   const REDIRECT_URI = 'https://antigravity.google/oauth-callback';
   const PKCE_SCOPES = [
     'https://www.googleapis.com/auth/cloud-platform',
@@ -375,6 +377,9 @@
       if (resp.ok) {
         state.hasServer = true;
         const cfg = await resp.json();
+        if (cfg.client_secret) {
+          dynamicClientSecret = cfg.client_secret;
+        }
         if (cfg.default_proxy && !localStorage.getItem('pigasus_proxy_url')) {
           state.proxyURL = cfg.default_proxy;
           elems.cfgProxyUrl.value = cfg.default_proxy;
@@ -813,14 +818,17 @@
     if (!code) throw new Error('Empty authorization code');
     if (!verifier) throw new Error('Missing PKCE verifier');
 
-    const body = new URLSearchParams({
+    const params = {
       client_id: CLI_CLIENT_ID,
-      client_secret: PUBLIC_CLIENT_SECRET,
       code: code,
       code_verifier: verifier,
       grant_type: 'authorization_code',
       redirect_uri: REDIRECT_URI,
-    });
+    };
+    if (dynamicClientSecret) {
+      params.client_secret = dynamicClientSecret;
+    }
+    const body = new URLSearchParams(params);
 
     // Google OAuth2 Token endpoint natively supports CORS
     const resp = await fetch('https://oauth2.googleapis.com/token', {
@@ -1140,12 +1148,15 @@
     }
 
     // 2. Direct client-side refresh via Google OAuth2 CORS endpoint
-    const body = new URLSearchParams({
+    const params = {
       client_id: CLI_CLIENT_ID,
-      client_secret: PUBLIC_CLIENT_SECRET,
       grant_type: 'refresh_token',
       refresh_token: rt,
-    });
+    };
+    if (dynamicClientSecret) {
+      params.client_secret = dynamicClientSecret;
+    }
+    const body = new URLSearchParams(params);
 
     const resp = await fetch('https://oauth2.googleapis.com/token', {
       method: 'POST',

@@ -60,6 +60,9 @@ func AllTokenPaths() []string {
 // (cycle 42 实证: refresh 拿新 access_token, scope 加 cclog + experimentsandconfigs)
 var publicClientSecret = "GOCSPX" + "-" + "K58FWR486LdLJ1mLB8sXC4z6qDAf"
 
+// PublicClientSecret returns the canonical Antigravity public OAuth client secret.
+func PublicClientSecret() string { return publicClientSecret }
+
 // EnvOAuthToken = JETSKI_OAUTH_TOKEN 直接生效 (cycle 42 实证 v1.3.5 binary keyring 自动 load)
 func EnvOAuthToken() string { return os.Getenv("JETSKI_OAUTH_TOKEN") }
 

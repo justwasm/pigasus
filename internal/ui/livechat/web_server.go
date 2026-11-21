@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/justwasm/pigasus/endpoints"
+	"github.com/justwasm/pigasus/internal/features/auth"
 	"github.com/justwasm/pigasus/internal/voice"
 )
 
@@ -195,6 +196,8 @@ func runWebServer(port int, defaultProxy string, noBrowser bool, customWebDir st
 			"generative_language_url": endpoints.Current().GenerativeLanguage,
 			"cloudcode_url":           endpoints.Current().CloudCode,
 			"workspace":               workspace,
+			"client_id":               auth.CLIClientID,
+			"client_secret":           auth.PublicClientSecret(),
 		})
 	})
 
