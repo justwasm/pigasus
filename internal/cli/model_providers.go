@@ -84,6 +84,7 @@ type modelAddFlags struct {
 	name      string
 	ctxWindow int
 	maxTokens int
+	compactThreshold int
 	effort    string
 	// reasoningEfforts are the reasoning tiers the model offers — the
 	// levels it can be selected at. The list is the closed set the Web
@@ -124,6 +125,8 @@ func newModelAddFlagSet(errOut io.Writer, f *modelAddFlags) *flag.FlagSet {
 	fs.IntVar(&f.ctxWindow, "context_window", 0, "declared context window in tokens")
 	fs.IntVar(&f.maxTokens, "default-max-tokens", 0, "declared output cap in tokens")
 	fs.IntVar(&f.maxTokens, "default_max_tokens", 0, "declared output cap in tokens")
+	fs.IntVar(&f.compactThreshold, "compact-threshold", 0, "soft auto-compaction trigger in tokens")
+	fs.IntVar(&f.compactThreshold, "compact_threshold", 0, "soft auto-compaction trigger in tokens")
 	fs.StringVar(&f.effort, "reasoning-effort", "", "low|medium|high|default")
 	fs.StringVar(&f.effort, "reasoning_effort", "", "low|medium|high|default")
 	fs.StringVar(&f.reasoningEfforts, "reasoning-efforts", "",
@@ -164,6 +167,9 @@ func applyModelFlags(entry *models.ProviderModel, f *modelAddFlags, set map[stri
 	}
 	if set["default-max-tokens"] || set["default_max_tokens"] {
 		entry.DefaultMaxTokens = f.maxTokens
+	}
+	if set["compact-threshold"] || set["compact_threshold"] {
+		entry.CompactThreshold = f.compactThreshold
 	}
 	if set["reasoning-effort"] || set["reasoning_effort"] {
 		entry.ReasoningEffort = f.effort
@@ -926,6 +932,7 @@ func usageModelAdd(n string) string {
 		"  --name                     Display name\n" +
 		"  --context-window           Declared context window in tokens\n" +
 		"  --default-max-tokens       Declared output cap in tokens\n" +
+		"  --compact-threshold        Soft auto-compaction trigger in tokens\n" +
 		"  --reasoning-effort         low, medium, high or default\n" +
 		"  --reasoning-efforts        The reasoning tiers the model offers,\n" +
 		"                             comma separated: low, medium, high,\n" +

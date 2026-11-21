@@ -236,6 +236,7 @@ func TestProviderModel(t *testing.T) {
 			{Label: FieldUpstream, Value: " minimax-m3 "},
 			{Label: FieldContext, Value: "128000"},
 			{Label: FieldMaxTokens, Value: "4096"},
+			{Label: FieldCompactThreshold, Value: "32000"},
 			{Label: FieldEffort, Value: "high"},
 		},
 	}
@@ -251,6 +252,9 @@ func TestProviderModel(t *testing.T) {
 	}
 	if m.ContextWindow != 128000 || m.DefaultMaxTokens != 4096 {
 		t.Errorf("ctx/max = %d/%d, want 128000/4096", m.ContextWindow, m.DefaultMaxTokens)
+	}
+	if m.CompactThreshold != 32000 {
+		t.Errorf("CompactThreshold = %d, want 32000", m.CompactThreshold)
 	}
 	if m.ReasoningEffort != "high" {
 		t.Errorf("ReasoningEffort = %q, want %q", m.ReasoningEffort, "high")
