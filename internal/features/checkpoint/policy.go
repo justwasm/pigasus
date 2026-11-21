@@ -204,9 +204,12 @@ func New(cfg Config) *Policy {
 	profile, ok := ctx.ProfileFor(cfg.Model)
 	if !ok {
 		limit := ctx.For(cfg.Model)
-		threshold := 50000
+		defaultThreshold := 50000
+		threshold := defaultThreshold
 		if cp, ok := ctx.ConfiguredCompactThreshold(cfg.Model); ok && cp > 0 {
-			threshold = cp
+			if cp < defaultThreshold {
+				threshold = cp
+			}
 		}
 		profile = ctx.Profile{
 			Strategy:                   ctx.StrategySameModel,

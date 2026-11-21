@@ -393,7 +393,9 @@ func ProfileFor(modelID string) (Profile, bool) {
 			// profile; the 1.4.8 document (kept as evidence) has false.
 			p.UseModelReportedTokenCount = true
 			if cp, ok := ConfiguredCompactThreshold(modelID); ok && cp > 0 {
-				p.TokenThreshold = cp
+				if p.TokenThreshold > 0 && cp < p.TokenThreshold {
+					p.TokenThreshold = cp
+				}
 			}
 			return p, true
 		}

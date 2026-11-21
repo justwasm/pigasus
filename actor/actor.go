@@ -168,6 +168,18 @@ func (a *Actor) resolveTurnConfig(req TurnRequest) (TurnConfig, error) {
 	if req.Checkpoint != nil {
 		cfg.Checkpoint = req.Checkpoint
 	}
+	if req.Budget != nil {
+		cfg.Budget = req.Budget
+	}
+	if req.MaxInputTokens != 0 {
+		cfg.MaxInputTokens = req.MaxInputTokens
+	}
+	if req.ToolPruningTurns != 0 {
+		cfg.ToolPruningTurns = req.ToolPruningTurns
+	}
+	if cfg.Budget == nil {
+		cfg.Budget = DefaultBudgetManager()
+	}
 	if cfg.Provider == nil {
 		return cfg, fmt.Errorf("actor: turn has no provider")
 	}

@@ -107,6 +107,14 @@ type TurnConfig struct {
 	// returns a decision; it must not mutate the actor or cancel the turn.
 	Checkpoint CheckpointFunc
 
+	// Budget manages message materialization, sliding windows, and pruning.
+	// Defaults to DefaultBudgetManager() if nil.
+	Budget ContextBudgetManager
+	// MaxInputTokens sets the token budget ceiling for context materialization (0 = unbounded).
+	MaxInputTokens int
+	// ToolPruningTurns sets the number of recent turns that retain full tool outputs (0 = no pruning).
+	ToolPruningTurns int
+
 	// tools is the resolved snapshot a turn executes against. It is set when
 	// the request is submitted, never by a caller.
 	tools *ToolRegistry

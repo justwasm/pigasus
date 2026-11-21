@@ -239,11 +239,27 @@ func (a *Actor) executeTurn(env *turnEnvelope) {
 			}
 		}
 
-		// Build conversation messages for the model. The staged turn is
-		// excluded from the trajectory history; it is added below.
-		history := a.trajectory.ToConversationMessages()
-		from, hasCheckpoint, keepInput := a.trajectory.ContextFor(turnRecord.ID)
-		history = append(history, a.buildCurrentTurnMessages(input, turnRecord.Steps, steerInstructions, from, hasCheckpoint, keepInput, turnRecord.StartStep)...)
+		// Build conversation messages for the model via BudgetManager. The staged turn is
+		// materialized along with history, honoring compaction, pruning, and budget.
+		bm := cfg.Budget
+		if bm == nil {
+			bm = DefaultBudgetManager()
+		}
+		history, bErr := bm.MaterializeContext(turnCtx, ContextRequest{
+			Trajectory:        a.trajectory,
+			TurnRecord:        turnRecord,
+			Input:             input,
+			SteerInstructions: steerInstructions,
+			Model:             cfg.Model,
+			MaxInputTokens:    cfg.MaxInputTokens,
+			ToolPruningTurns:  cfg.ToolPruningTurns,
+		})
+		if bErr != nil {
+			turnStatus = "error"
+			turnErr = bErr
+			a.emitError(h, bErr)
+			break
+		}
 
 		req := GenerateRequest{
 			Model:        cfg.Model,
@@ -740,63 +756,6 @@ func (a *Actor) finishTurn(h *TurnHandle, err error) {
 	delete(a.pending, h)
 	a.mu.Unlock()
 	h.complete(err)
-}
-
-func (a *Actor) buildCurrentTurnMessages(input string, steps []Step, steer []string, from int, hasCheckpoint, keepInput bool, turnStart int) []ConversationMessage {
-	var msgs []ConversationMessage
-
-	includeInput := !hasCheckpoint || keepInput
-	if len(steer) > 0 && len(steps) == 0 && includeInput {
-		input += "\n\n[Active Guidance]: " + strings.Join(steer, "; ")
-	}
-
-	if includeInput {
-		msgs = append(msgs, ConversationMessage{
-			Role:    RoleUser,
-			Content: input,
-		})
-	}
-
-	for _, step := range steps {
-		if hasCheckpoint && step.GlobalIndex <= from {
-			continue
-		}
-		if len(step.Steer) > 0 {
-			msgs = append(msgs, ConversationMessage{
-				Role:    RoleUser,
-				Content: "[Active Guidance]: " + strings.Join(step.Steer, "; "),
-			})
-		}
-		if step.Delta != "" || step.Thought != "" || len(step.ToolCalls) > 0 {
-			msgs = append(msgs, ConversationMessage{
-				Role:      RoleAssistant,
-				Content:   step.Delta,
-				Thought:   step.Thought,
-				ToolCalls: step.ToolCalls,
-			})
-
-			for _, res := range step.ToolResults {
-				content := res.Output
-				if res.Error != "" {
-					content = fmt.Sprintf("Error: %s", res.Error)
-				}
-				msgs = append(msgs, ConversationMessage{
-					Role:       RoleTool,
-					Content:    content,
-					ToolCallID: res.ToolCallID,
-				})
-			}
-		}
-	}
-
-	if len(steer) > 0 && (includeInput || len(msgs) > 0) {
-		msgs = append(msgs, ConversationMessage{
-			Role:    RoleUser,
-			Content: "[Active Guidance]: " + strings.Join(steer, "; "),
-		})
-	}
-
-	return msgs
 }
 
 // lastStepCopy returns a copy of the most recent step, or nil.
