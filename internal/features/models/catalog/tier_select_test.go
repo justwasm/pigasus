@@ -112,6 +112,7 @@ func TestResolveModelSelectionRefusesAnUndeclaredTier(t *testing.T) {
 // error advertises: a model that declares tiers is listed once per tier.
 func TestAvailableModelsBlockListsTheTiers(t *testing.T) {
 	configtest.WriteProviders(t, tieredProviders)
+	t.Setenv("OPENAGY_UNDOCUMENTED_MODELS", "off")
 	got := availableModelsBlock()
 	want := "Available models:\n" +
 		"  Gemini 3.8 Flash (High)\n" +

@@ -138,6 +138,7 @@ func TestAvailableModelsBlockIncludesConfiguredModels(t *testing.T) {
 	configtest.WriteProviders(t, `{"providers": {"gateway": {
 		"type": "openai", "base_url": "https://host/v1",
 		"models": [{"id": "minimax-m3", "name": "MiniMax M3", "model": "MiniMax-M3"}]}}}`)
+	t.Setenv("OPENAGY_UNDOCUMENTED_MODELS", "off")
 	want := availableAll + "\n  MiniMax M3"
 	if got := availableModelsBlock(); got != want {
 		t.Errorf("availableModelsBlock() =\n%s\nwant\n%s", got, want)

@@ -38,42 +38,35 @@ func containsRow(t *testing.T) bool {
 	return false
 }
 
-func TestSonarIsHiddenOnAStockRun(t *testing.T) {
+func TestSonarIsEnabledByDefault(t *testing.T) {
 	withGate(t, "", "")
-	if UndocumentedModelsEnabled() {
-		t.Fatal("gate open on a stock run")
-	}
-	if containsRow(t) {
-		t.Errorf("%s is in the catalogue on a stock run", SonarModelID)
-	}
-	if _, ok := CatalogueID(SonarModelID); ok {
-		t.Errorf("CatalogueID(%q) resolved on a stock run", SonarModelID)
-	}
-	if _, err := ResolveModelSelection(SonarModelID, ""); err == nil {
-		t.Errorf("ResolveModelSelection(%q) succeeded on a stock run", SonarModelID)
-	}
-}
-
-func TestSonarFollowsTheReverseProxy(t *testing.T) {
-	withGate(t, "", "https://relay.example.com")
 	if !UndocumentedModelsEnabled() {
-		t.Fatal("gate closed against a reverse-proxied CloudCode host")
+		t.Fatal("gate closed by default")
 	}
 	if !containsRow(t) {
-		t.Fatalf("%s missing from the catalogue against a reverse-proxied host", SonarModelID)
+		t.Errorf("%s missing from the catalogue by default", SonarModelID)
+	}
+	if _, ok := CatalogueID(SonarModelID); !ok {
+		t.Errorf("CatalogueID(%q) did not resolve by default", SonarModelID)
+	}
+	if got, err := ResolveModelSelection(SonarModelID, ""); err != nil || got != SonarModelID {
+		t.Errorf("ResolveModelSelection(%q) failed by default: %v", SonarModelID, err)
 	}
 }
 
-func TestSonarStaysHiddenBehindALoopbackHarness(t *testing.T) {
-	for _, host := range []string{
-		"http://127.0.0.1:8080",
-		"http://localhost:9999",
-		"http://[::1]:1234",
-	} {
-		withGate(t, "", host)
-		if UndocumentedModelsEnabled() {
-			t.Errorf("gate open against loopback host %s", host)
-		}
+func TestSonarIsHiddenWhenExplicitlyDisabled(t *testing.T) {
+	withGate(t, "off", "")
+	if UndocumentedModelsEnabled() {
+		t.Fatal("gate open when explicitly disabled")
+	}
+	if containsRow(t) {
+		t.Errorf("%s is in the catalogue when disabled", SonarModelID)
+	}
+	if _, ok := CatalogueID(SonarModelID); ok {
+		t.Errorf("CatalogueID(%q) resolved when disabled", SonarModelID)
+	}
+	if _, err := ResolveModelSelection(SonarModelID, ""); err == nil {
+		t.Errorf("ResolveModelSelection(%q) succeeded when disabled", SonarModelID)
 	}
 }
 

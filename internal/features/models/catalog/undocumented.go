@@ -73,14 +73,16 @@ var undocumentedModels = []ModelEntry{
 
 // UndocumentedModelsEnabled reports whether the picker and the catalogue may
 // list the undocumented rows on this run.
+//
+// By default, Pigasus enables verified live models (such as gemini-4-hydrogen-sonar),
+// which have been confirmed to respond directly on CloudCode upstreams.
+// A user can explicitly disable them by setting OPENAGY_UNDOCUMENTED_MODELS=0/false/off/no.
 func UndocumentedModelsEnabled() bool {
 	switch strings.ToLower(strings.TrimSpace(os.Getenv(UndocumentedModelsEnv))) {
-	case "1", "true", "on", "yes", "enable", "enabled":
-		return true
 	case "0", "false", "off", "no", "disable", "disabled":
 		return false
 	}
-	return cloudCodeRelayed()
+	return true
 }
 
 // UndocumentedModels returns the undocumented rows when the gate is open, and
