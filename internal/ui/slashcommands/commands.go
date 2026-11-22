@@ -223,7 +223,6 @@ var Hidden = []Command{
 	{Name: "/share", Dispatched: true},
 	// openagy-only host surfaces. They are remote-agent commands; the
 	// reference has no CLI equivalent, so they stay off the picker.
-	{Name: "/terminal", Dispatched: true},
 	{Name: "/upload", Dispatched: true},
 	{Name: "/triggers", Dispatched: true},
 }
@@ -281,6 +280,12 @@ func buildCatalogue() []Command {
 			Description: "View background tasks",
 			Scope:       ScopeCapability,
 			RequiredCap: agentturn.CapTasks,
+			Dispatched:  true,
+		},
+		{
+			Name:        "/terminal",
+			Description: "Open an interactive terminal or run shell commands",
+			Panel:       panelregistry.Terminal,
 			Dispatched:  true,
 		},
 		{
@@ -381,7 +386,7 @@ func assignCommandScope(c *Command) {
 	switch name {
 	case "help", "clear", "exit", "copy", "codesearch", "keybindings",
 		"open", "statusline", "title", "diff", "artifact", "changelog",
-		"btw", "resume", "rename", "rewind", "feedback", "logout":
+		"btw", "resume", "rename", "rewind", "feedback", "logout", "terminal":
 		c.Scope = ScopeHost
 	case "model":
 		c.Scope = ScopeCapability

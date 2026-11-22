@@ -44,6 +44,8 @@ var commandPanels = map[string]Kind{
 	// /pool is the /accounts panel's Pool tab on its own: the policy
 	// that decides which account serves a turn.
 	"pool": Accounts,
+	// /terminal opens the interactive virtual terminal panel.
+	"terminal": Terminal,
 }
 
 // CommandPanel returns the panel a slash command opens.

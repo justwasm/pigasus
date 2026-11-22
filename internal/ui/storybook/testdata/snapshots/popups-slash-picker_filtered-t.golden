@@ -4,19 +4,19 @@
 01: |  Input Buffer: /t                                                              |
 02: |                                                                                |
 03: |> /tasks                                           View background tasks        |
-04: |  /thinking                                        Toggle streaming the model's |
-05: |full thinking in...                                                             |
-06: |  /title                                           Toggle custom terminal window|
-07: | title                                                                          |
-08: |  /teamwork-preview (teamwork)                     Invoke a team of agents to au|
-09: |tonomously tackl...                                                             |
-10: |  /terminal-browser                                A real browser running inside|
-11: | the terminal. I...                                                             |
-12: |                                                                                |
-13: |  ↑/↓ Navigate · enter Select · tab Complete                                    |
-14: |                                                                                |
-15: |Catalogue stats: 115 total registered commands                                  |
-16: |                                                                                |
+04: |  /terminal                                        Open an interactive terminal |
+05: |or run shell com...                                                             |
+06: |  /thinking                                        Toggle streaming the model's |
+07: |full thinking in...                                                             |
+08: |  /title                                           Toggle custom terminal window|
+09: | title                                                                          |
+10: |  /teamwork-preview (teamwork)                     Invoke a team of agents to au|
+11: |tonomously tackl...                                                             |
+12: |   ↓ 1 more                                                                     |
+13: |                                                                                |
+14: |  ↑/↓ Navigate · enter Select · tab Complete                                    |
+15: |                                                                                |
+16: |Catalogue stats: 116 total registered commands                                  |
 17: |                                                                                |
 18: |                                                                                |
 19: |                                                                                |
@@ -32,16 +32,16 @@
 04: [51:80] fg=#586e75
 05: [0:19] fg=#586e75
 06: [51:80] fg=#586e75
-07: [0:6] fg=#586e75
+07: [0:19] fg=#586e75
 08: [51:80] fg=#586e75
-09: [0:19] fg=#586e75
+09: [0:6] fg=#586e75
 10: [51:80] fg=#586e75
 11: [0:19] fg=#586e75
-12: (plain)
-13: [2:5] fg=#268bd2,bold | [5:17] fg=#657b83 | [17:22] fg=#268bd2,bold | [22:32] fg=#657b83 | [32:35] fg=#268bd2,bold | [35:44] fg=#657b83
-14: (plain)
-15: [0:46] fg=#657b83
-16: (plain)
+12: [0:11] fg=#586e75
+13: (plain)
+14: [2:5] fg=#268bd2,bold | [5:17] fg=#657b83 | [17:22] fg=#268bd2,bold | [22:32] fg=#657b83 | [32:35] fg=#268bd2,bold | [35:44] fg=#657b83
+15: (plain)
+16: [0:46] fg=#657b83
 17: (plain)
 18: (plain)
 19: (plain)

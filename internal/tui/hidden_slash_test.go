@@ -12,6 +12,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/justwasm/pigasus/internal/ui/panelregistry"
 	"github.com/justwasm/pigasus/internal/ui/slashcommands"
 )
 
@@ -20,7 +21,7 @@ import (
 func TestHiddenSlashCommands(t *testing.T) {
 	for _, name := range []string{
 		"login", "narration", "quote", "share",
-		"terminal", "upload", "triggers",
+		"upload", "triggers",
 	} {
 		if _, ok := slashHandlers[name]; !ok {
 			t.Errorf("slashHandlers[%q] is missing; the command would fall through to the model", name)
@@ -53,7 +54,7 @@ func TestHiddenSlashCommandsAreNotTheCatalog(t *testing.T) {
 	sort.Strings(hidden)
 	want := []string{
 		"login", "narration", "quote", "share",
-		"terminal", "triggers", "upload",
+		"triggers", "upload",
 	}
 	if len(hidden) != len(want) {
 		t.Fatalf("hidden slash commands = %v\nwant %v", hidden, want)
@@ -137,11 +138,11 @@ func listed(name string) bool {
 	return false
 }
 
-// TestHiddenOpenagyCommandsDispatch pins that the three openagy-only
+// TestHiddenOpenagyCommandsDispatch pins that the remaining openagy-only
 // hidden commands still reach their handlers now that they are registered
 // in the vocabulary's Hidden list.
 func TestHiddenOpenagyCommandsDispatch(t *testing.T) {
-	for _, command := range []string{"/terminal", "/upload", "/triggers"} {
+	for _, command := range []string{"/upload", "/triggers"} {
 		m := &RootModel{}
 		initRootModelInput(m)
 		handled, _ := m.handleSlashCommand(command)
@@ -152,5 +153,22 @@ func TestHiddenOpenagyCommandsDispatch(t *testing.T) {
 		if !strings.Contains(joined, "only available in a --remote-agent session") {
 			t.Errorf("%s in a local session = %q", command, joined)
 		}
+	}
+}
+
+// TestSlashTerminal_LocalSessionDispatches verifies that /terminal opens the
+// interactive terminal panel in a local session instead of rejecting with an error.
+func TestSlashTerminal_LocalSessionDispatches(t *testing.T) {
+	m := &RootModel{}
+	initRootModelInput(m)
+	handled, _ := m.handleSlashCommand("/terminal")
+	if !handled {
+		t.Fatalf("/terminal was not dispatched")
+	}
+	if m.overlays.panel.kind != panelregistry.Terminal {
+		t.Errorf("expected panel kind Terminal, got %v", m.overlays.panel.kind)
+	}
+	if m.remote.terminalID == "" {
+		t.Errorf("expected non-empty terminal ID, got %q", m.remote.terminalID)
 	}
 }

@@ -10,6 +10,7 @@ import (
 
 	"github.com/justwasm/pigasus/internal/app/agentturn"
 	"github.com/justwasm/pigasus/internal/infra/remoteagentclient"
+	"github.com/justwasm/pigasus/internal/ui/panelregistry"
 )
 
 func TestSlashTerminalCreatesAndLists(t *testing.T) {
@@ -70,13 +71,21 @@ func TestSlashTerminalCreatesAndLists(t *testing.T) {
 	}
 }
 
-func TestSlashTerminalIsRemoteOnly(t *testing.T) {
-	m := &RootModel{}
+func TestSlashTerminalLocalSession(t *testing.T) {
+	dir := t.TempDir()
+	m := &RootModel{session: sessionState{cwd: dir}}
 	if handled, _ := m.slashTerminal(""); !handled {
 		t.Fatal("/terminal was not handled")
 	}
-	if !strings.Contains(strings.Join(m.conversation.response, "\n"), "only available in a --remote-agent session") {
-		t.Errorf("response = %q", m.conversation.response)
+	if m.overlays.panel.kind != panelregistry.Terminal {
+		t.Errorf("expected panel kind Terminal, got %v", m.overlays.panel.kind)
+	}
+	if m.remote.terminalID == "" {
+		t.Fatalf("expected terminal id to be set")
+	}
+	joined := strings.Join(m.conversation.response, "\n")
+	if !strings.Contains(joined, "Terminal "+m.remote.terminalID+" created") {
+		t.Errorf("response = %q", joined)
 	}
 }
 

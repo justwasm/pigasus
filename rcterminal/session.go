@@ -211,6 +211,20 @@ func (s *Session) sendInput(streamID string, offset int64, data []byte) (int64, 
 	return acked, nil
 }
 
+// writeRaw writes bytes directly to the ptmx device without requiring a stream offset.
+func (s *Session) writeRaw(data []byte) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.exited || s.closed {
+		return ErrClosed
+	}
+	if s.ptmx == nil {
+		return fmt.Errorf("rcterminal: device is nil")
+	}
+	_, err := s.ptmx.Write(data)
+	return err
+}
+
 // stream serves the terminal's output until the terminal ends or
 // emit fails.
 func (s *Session) stream(emit func(Frame) error) error {

@@ -2945,18 +2945,26 @@ func (m *RootModel) newTerminalPanel() *terminalpanel.Panel {
 	}
 	return terminalpanel.New(h, w, terminalpanel.Seams{
 		WriteInput: func(data []byte) error {
-			if engine, ok := m.turn.engine.(*agentturn.RemoteAgentEngine); ok && m.remote.terminalID != "" {
+			if svc := m.terminalService(); svc != nil && m.remote.terminalID != "" {
 				ctx, cancel := remoteTerminalContext()
 				defer cancel()
-				return engine.SendTerminalInput(ctx, m.remote.terminalID, data)
+				return svc.SendTerminalInput(ctx, m.remote.terminalID, data)
+			}
+			return nil
+		},
+		Resize: func(rows, cols int) error {
+			if svc := m.terminalService(); svc != nil && m.remote.terminalID != "" {
+				ctx, cancel := remoteTerminalContext()
+				defer cancel()
+				return svc.Resize(ctx, m.remote.terminalID, rows, cols)
 			}
 			return nil
 		},
 		Close: func() tea.Cmd {
-			if engine, ok := m.turn.engine.(*agentturn.RemoteAgentEngine); ok && m.remote.terminalID != "" {
+			if svc := m.terminalService(); svc != nil && m.remote.terminalID != "" {
 				ctx, cancel := remoteTerminalContext()
 				defer cancel()
-				_ = engine.CloseTerminal(ctx, m.remote.terminalID)
+				_ = svc.CloseTerminal(ctx, m.remote.terminalID)
 				m.remote.terminalID = ""
 			}
 			return m.closePanel()
@@ -2966,7 +2974,7 @@ func (m *RootModel) newTerminalPanel() *terminalpanel.Panel {
 		},
 		Title: func() string {
 			if m.remote.terminalID != "" {
-				return "Remote Terminal (" + m.remote.terminalID + ")"
+				return "Terminal (" + m.remote.terminalID + ")"
 			}
 			return "Terminal"
 		},

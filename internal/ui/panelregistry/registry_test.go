@@ -119,6 +119,8 @@ func TestCommandPanel(t *testing.T) {
 		"hist":         History,
 		// /pool is the /accounts panel's Pool tab on its own.
 		"pool": Accounts,
+		// /terminal opens the interactive virtual terminal panel.
+		"terminal": Terminal,
 	}
 	for cmd, k := range want {
 		got, ok := CommandPanel(cmd)

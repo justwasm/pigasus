@@ -1,13 +1,12 @@
-// remote_terminal.go — the smallest remote-terminal output path.
+// remote_terminal.go — terminal management and execution path.
 //
-// The terminal RPCs are the IDE/web surface, not a reference CLI command.
-// For `pigasus --remote-agent` they are exposed as a host-only /terminal
-// command so the create → input → stream → close cycle is usable from the
-// TUI, and the output lands in the transcript.
+// Supports /terminal in local sessions (via rcterminal), remote agent sessions
+// (via RemoteAgentEngine), and client/server sessions.
 package tui
 
 import (
 	"context"
+	"os"
 	"strings"
 	"time"
 
@@ -19,11 +18,27 @@ import (
 	termcolor "github.com/justwasm/pigasus/internal/ui/render/color"
 )
 
-// slashTerminal handles /terminal in a remote session.
+func (m *RootModel) terminalService() TerminalService {
+	if m.session.remoteAgent {
+		if engine, ok := m.turn.engine.(*agentturn.RemoteAgentEngine); ok {
+			return NewRemoteAgentTerminalService(engine)
+		}
+	}
+	if m.remote.termService == nil {
+		ws := m.session.cwd
+		if ws == "" {
+			ws, _ = os.Getwd()
+		}
+		m.remote.termService = NewLocalTerminalService(ws)
+	}
+	return m.remote.termService
+}
+
+// slashTerminal handles /terminal across local and remote sessions.
 func (m *RootModel) slashTerminal(args string) (bool, tea.Cmd) {
-	engine, ok := m.turn.engine.(*agentturn.RemoteAgentEngine)
-	if !ok || !m.session.remoteAgent {
-		m.slashRespond("/terminal", "Remote terminals are only available in a --remote-agent session.")
+	svc := m.terminalService()
+	if svc == nil {
+		m.slashRespond("/terminal", "Terminal is not available.")
 		return true, nil
 	}
 	trimmed := slashparse.Trim(args)
@@ -33,13 +48,13 @@ func (m *RootModel) slashTerminal(args string) (bool, tea.Cmd) {
 
 	switch {
 	case trimmed == "" || strings.EqualFold(verb, "list"):
-		terminals, err := engine.Terminals(ctx)
+		terminals, err := svc.ListTerminals(ctx)
 		if err != nil {
 			m.slashRespond("/terminal", "error: "+err.Error())
 			return true, nil
 		}
 		if len(terminals) == 0 {
-			info, err := engine.CreateTerminal(ctx)
+			info, err := svc.CreateTerminal(ctx, m.session.cwd)
 			if err != nil {
 				m.slashRespond("/terminal", "error: "+err.Error())
 				return true, nil
@@ -47,16 +62,16 @@ func (m *RootModel) slashTerminal(args string) (bool, tea.Cmd) {
 			m.remote.terminalID = info.TerminalID
 			m.slashRespond("/terminal", "Terminal "+info.TerminalID+" created in "+info.Cwd+".")
 			m.openTerminalOverlay()
-			return true, nil
+			return true, m.startTerminalStream(info.TerminalID)
 		}
 		if trimmed == "" {
 			if m.remote.terminalID == "" {
 				m.remote.terminalID = terminals[0].TerminalID
 			}
 			m.openTerminalOverlay()
-			return true, nil
+			return true, m.startTerminalStream(m.remote.terminalID)
 		}
-		lines := []string{"Remote terminals:"}
+		lines := []string{"Active terminals:"}
 		for _, info := range terminals {
 			line := "  " + info.TerminalID
 			if info.Title != "" {
@@ -70,7 +85,7 @@ func (m *RootModel) slashTerminal(args string) (bool, tea.Cmd) {
 		m.slashContent(strings.Join(lines, "\n"))
 		return true, nil
 	case strings.EqualFold(verb, "open") || strings.EqualFold(verb, "attach"):
-		terminals, err := engine.Terminals(ctx)
+		terminals, err := svc.ListTerminals(ctx)
 		if err != nil {
 			m.slashRespond("/terminal", "error: "+err.Error())
 			return true, nil
@@ -82,9 +97,9 @@ func (m *RootModel) slashTerminal(args string) (bool, tea.Cmd) {
 			m.remote.terminalID = terminals[0].TerminalID
 		}
 		m.openTerminalOverlay()
-		return true, nil
+		return true, m.startTerminalStream(m.remote.terminalID)
 	case strings.EqualFold(verb, "new"):
-		info, err := engine.CreateTerminal(ctx)
+		info, err := svc.CreateTerminal(ctx, m.session.cwd)
 		if err != nil {
 			m.slashRespond("/terminal", "error: "+err.Error())
 			return true, nil
@@ -92,7 +107,7 @@ func (m *RootModel) slashTerminal(args string) (bool, tea.Cmd) {
 		m.remote.terminalID = info.TerminalID
 		m.slashRespond("/terminal", "Terminal "+info.TerminalID+" created in "+info.Cwd+".")
 		m.openTerminalOverlay()
-		return true, nil
+		return true, m.startTerminalStream(info.TerminalID)
 	case strings.EqualFold(verb, "close"):
 		id := slashparse.Trim(rest)
 		if id == "" {
@@ -102,7 +117,7 @@ func (m *RootModel) slashTerminal(args string) (bool, tea.Cmd) {
 			m.slashRespond("/terminal", "Usage: /terminal close <terminal-id>")
 			return true, nil
 		}
-		if err := engine.CloseTerminal(ctx, id); err != nil {
+		if err := svc.CloseTerminal(ctx, id); err != nil {
 			m.slashRespond("/terminal", "error: "+err.Error())
 			return true, nil
 		}
@@ -130,25 +145,59 @@ func (m *RootModel) openTerminalOverlay() {
 	m.initOpenedSlashPanel(panelregistry.Terminal)
 }
 
-// startRemoteTerminal creates a terminal, runs the command, and streams its
-// output to the transcript until it exits.
-func (m *RootModel) startRemoteTerminal(command string) tea.Cmd {
-	engine, ok := m.turn.engine.(*agentturn.RemoteAgentEngine)
-	if !ok {
+// startTerminalStream streams output from the specified terminal into the active terminal panel.
+func (m *RootModel) startTerminalStream(terminalID string) tea.Cmd {
+	if terminalID == "" {
+		return nil
+	}
+	svc := m.terminalService()
+	if svc == nil {
 		return nil
 	}
 	prog := m.turn.prog
 	return func() tea.Msg {
 		ctx := context.Background()
-		info, err := engine.CreateTerminal(ctx)
+		events, err := svc.StreamTerminal(ctx, terminalID, 0)
+		if err != nil {
+			return nil
+		}
+		go func() {
+			for event := range events {
+				if len(event.Output) > 0 && prog != nil {
+					prog.Send(terminalChunkMsg{Text: string(event.Output)})
+				}
+				if event.ExitCode != nil {
+					if prog != nil {
+						prog.Send(terminalExitMsg{Code: int(*event.ExitCode)})
+					}
+					return
+				}
+			}
+		}()
+		return nil
+	}
+}
+
+// startRemoteTerminal creates a terminal, runs the command, and streams its
+// output to the transcript until it exits.
+func (m *RootModel) startRemoteTerminal(command string) tea.Cmd {
+	svc := m.terminalService()
+	if svc == nil {
+		return nil
+	}
+	prog := m.turn.prog
+	cwd := m.session.cwd
+	return func() tea.Msg {
+		ctx := context.Background()
+		info, err := svc.CreateTerminal(ctx, cwd)
 		if err != nil {
 			return terminalExitMsg{Err: err}
 		}
 		// The shell exits after the command, so the output stream ends.
-		if err := engine.SendTerminalInput(ctx, info.TerminalID, []byte(command+"\nexit\n")); err != nil {
+		if err := svc.SendTerminalInput(ctx, info.TerminalID, []byte(command+"\nexit\n")); err != nil {
 			return terminalExitMsg{Err: err}
 		}
-		events, err := engine.StreamTerminal(ctx, info.TerminalID, 0)
+		events, err := svc.StreamTerminal(ctx, info.TerminalID, 0)
 		if err != nil {
 			return terminalExitMsg{Err: err}
 		}

@@ -27,6 +27,8 @@ type RemoteModel struct {
 	files *remoteFileCache
 	// terminalID is the last terminal /terminal created.
 	terminalID string
+	// termService is the active TerminalService (local, remote agent, or server).
+	termService TerminalService
 	// controlStop stops the in-process remote-control server if one was
 	// started.
 	controlStop func()

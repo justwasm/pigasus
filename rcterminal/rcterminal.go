@@ -331,6 +331,40 @@ func (r *Registry) SendInput(terminalID, streamID string, offset int64, data []b
 	return s.sendInput(streamID, offset, data)
 }
 
+// Write writes raw bytes directly to the terminal PTY.
+func (r *Registry) Write(terminalID string, data []byte) error {
+	r.mu.Lock()
+	s := r.sessions[terminalID]
+	r.mu.Unlock()
+	if s == nil {
+		return &NotFoundError{TerminalID: terminalID}
+	}
+	return s.writeRaw(data)
+}
+
+// StreamChannel returns a receive-only channel of Frames for the given terminal.
+func (r *Registry) StreamChannel(ctx context.Context, terminalID string) (<-chan Frame, error) {
+	r.mu.Lock()
+	s := r.sessions[terminalID]
+	r.mu.Unlock()
+	if s == nil {
+		return nil, &NotFoundError{TerminalID: terminalID}
+	}
+	ch := make(chan Frame, subscriberQueue)
+	go func() {
+		defer close(ch)
+		_ = s.streamContext(ctx, func(f Frame) error {
+			select {
+			case ch <- f:
+				return nil
+			case <-ctx.Done():
+				return ctx.Err()
+			}
+		})
+	}()
+	return ch, nil
+}
+
 // Resize changes a terminal's window size.
 func (r *Registry) Resize(terminalID string, cols, rows int) error {
 	r.mu.Lock()
