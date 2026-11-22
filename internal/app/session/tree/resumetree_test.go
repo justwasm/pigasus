@@ -128,8 +128,8 @@ func TestBuildGroupOrder(t *testing.T) {
 	if groups[len(groups)-1].Label != NoWorkspaceLabel {
 		t.Errorf("the last group is %q, want the no-workspace group", groups[len(groups)-1].Label)
 	}
-	if groups[0].Label != "gear" {
-		t.Errorf("the pinned group is labelled %q, want %q", groups[0].Label, "gear")
+	if groups[0].Label != "workspace" {
+		t.Errorf("the pinned group is labelled %q, want %q", groups[0].Label, "workspace")
 	}
 }
 
@@ -138,12 +138,12 @@ func TestBuildGroupOrder(t *testing.T) {
 func TestBuildGroupOrderWithoutPin(t *testing.T) {
 	base := time.Date(2026, 10, 26, 15, 0, 0, 0, time.UTC)
 	items := []Item{
-		{ID: "a", Time: base, WorkspaceURIs: []string{"file:///Users/gear"}},
+		{ID: "a", Time: base, WorkspaceURIs: []string{"file:///workspace"}},
 		{ID: "b", Time: base.Add(-time.Hour), WorkspaceURIs: []string{"file:///tmp/agyprobe"}},
 	}
 	groups := Build(items, "")
-	if groups[0].Key != "/Users/gear" {
-		t.Errorf("the first group = %q, want the newest group %q", groups[0].Key, "/Users/gear")
+	if groups[0].Key != "/workspace" {
+		t.Errorf("the first group = %q, want the newest group %q", groups[0].Key, "/workspace")
 	}
 }
 

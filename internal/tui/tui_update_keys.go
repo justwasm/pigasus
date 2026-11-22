@@ -1191,6 +1191,11 @@ func (m *RootModel) updateKeyMsg(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 					return m, nil
 				}
 			case tea.KeyEnter:
+				if m.prompt.picker.Visible() {
+					if handled, cmd := m.handleSlashPickerEnter(); handled {
+						return m, cmd
+					}
+				}
 				m.syncVimInput()
 				cmd := m.submitPrompt()
 				if m.prompt.vimEng != nil {
@@ -1408,7 +1413,69 @@ func (m *RootModel) handleEnterKey(key tea.Key) (tea.Model, tea.Cmd, bool) {
 		}
 		return m, nil, true
 	}
+	if m.prompt.picker != nil && m.prompt.picker.Visible() {
+		if handled, cmd := m.handleSlashPickerEnter(); handled {
+			return m, cmd, true
+		}
+	}
 	return m, m.submitOrQueuePrompt(), true
+}
+
+func (m *RootModel) handleSlashPickerEnter() (bool, tea.Cmd) {
+	if m.prompt.picker == nil || !m.prompt.picker.Visible() {
+		return false, nil
+	}
+	if m.prompt.picker.IsModelMode() {
+		return m.submitModelCompletion()
+	}
+	sel := m.prompt.picker.Selected()
+	if sel == nil {
+		return false, nil
+	}
+	handled, compCmd := m.prompt.picker.CommitSelectionCmd()
+	if !handled {
+		return false, nil
+	}
+	completedText := sel.Name + " "
+	if compCmd != nil {
+		if comp, ok := compCmd().(slashpicker.CompletedMsg); ok && comp.Text != "" {
+			completedText = comp.Text
+		}
+	}
+	m.prompt.input.SetValue(completedText)
+	m.prompt.SetInputCursorOffset(len(completedText))
+	m.prompt.input.CursorEnd()
+	m.prompt.promptHistory.Reset()
+	m.prompt.picker.Reset()
+	if m.prompt.vimEng != nil {
+		m.prompt.vimEng.SetTextKeepingPending(completedText)
+		m.prompt.vimEng.Row = len(m.prompt.vimEng.Lines) - 1
+		if m.prompt.vimEng.Row >= 0 && m.prompt.vimEng.Row < len(m.prompt.vimEng.Lines) {
+			m.prompt.vimEng.Col = len([]rune(m.prompt.vimEng.Lines[m.prompt.vimEng.Row]))
+		}
+		m.syncVimInput()
+	}
+
+	cleanCmd, cmdArgs := slashparse.Split(strings.TrimSpace(completedText))
+	if m.openSlashPanelArgs(cleanCmd, cmdArgs) {
+		syncCmd := m.syncAccountIdentity()
+		if m.overlays.panel.kind == panelregistry.Usage && m.viewport.height > 0 {
+			m.display.quotaFrame = 0
+			return true, tea.Batch(syncCmd, usagepanel.QuotaTick(), m.fetchQuotaSummaryCmd())
+		}
+		if m.overlays.panel.kind == panelregistry.Accounts {
+			return true, tea.Batch(syncCmd, m.accountsPanel().QueueQuota())
+		}
+		if m.overlays.panel.kind == panelregistry.CodeSearch && m.viewport.height > 0 {
+			return true, tea.Batch(syncCmd, m.codesearchPanel().Tick())
+		}
+		return true, syncCmd
+	}
+	if cleanCmd == "clear" {
+		_, cmd := m.handleSlashCommand("/clear")
+		return true, cmd
+	}
+	return true, nil
 }
 
 func (m *RootModel) handleWordMoveAndChords(key tea.Key) (tea.Model, tea.Cmd, bool) {
