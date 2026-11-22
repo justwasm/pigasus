@@ -116,8 +116,10 @@ func (p *Panel) HandleKey(key tea.Key) (bool, tea.Cmd) {
 		p.scroll = maxScroll
 		return true, nil
 	case tuilib.NavCancel:
-		if p.seams.Close != nil {
-			return true, p.seams.Close()
+		if key.Code == tea.KeyEsc || key.String() == "esc" {
+			if p.seams.Close != nil {
+				return true, p.seams.Close()
+			}
 		}
 		return true, nil
 	}

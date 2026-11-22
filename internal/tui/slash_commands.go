@@ -188,6 +188,7 @@ func init() {
 		"feature-diff":     (*RootModel).slashFeatureDiff,
 		"fork":             (*RootModel).slashFork,
 		"hooks":            (*RootModel).slashHooks,
+		"history":          (*RootModel).slashHistory,
 		"keybindings":      (*RootModel).slashKeybindings,
 		"logout":           (*RootModel).slashLogout,
 		"login":            (*RootModel).slashLogin,

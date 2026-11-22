@@ -59,3 +59,10 @@ func (m *RootModel) newHistoryPanel() *historypanel.Panel {
 		},
 	})
 }
+
+func (m *RootModel) slashHistory(args string) (bool, tea.Cmd) {
+	if m.openSlashPanel("history") {
+		return true, nil
+	}
+	return false, nil
+}

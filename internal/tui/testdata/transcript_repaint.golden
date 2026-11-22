@@ -80,22 +80,23 @@ row 4 ""
 row 5 "  \x1b[38;2;232;234;237m• \x1b[m\x1b[38;5;222;48;5;237mTestOne\x1b[m\x1b[38;2;232;234;237m                                    \x1b[m"
 row 6 "  \x1b[38;2;232;234;237m• \x1b[m\x1b[38;5;222;48;5;237mTestTwo\x1b[m\x1b[38;2;232;234;237m                                    \x1b[m"
 row 7 ""
-row 8 "\x1b[38;2;129;201;149m●\x1b[39m \x1b[38;2;253;214;99;1mBash\x1b[0m\x1b[38;2;189;193;198m(go test ./internal/...)\x1b[39m \x1b[38;2;189;193;198m(ctrl+o to collapse)\x1b[39m"
-row 9 "\x1b[38;2;129;201;149m●\x1b[39m \x1b[38;2;253;214;99;1mRead\x1b[0m\x1b[38;2;189;193;198m(/tmp/report.txt)\x1b[39m"
-row 10 "\x1b[38;2;189;193;198m  ⎿  \x1b[mRead 3 lines \x1b[38;2;189;193;198m(ctrl+o to collapse)\x1b[39m"
-row 11 "\x1b[38;2;138;180;248;1m> a plain prompt row\x1b[0m"
-row 12 "\x1b[38;2;138;180;248;1m> /config\x1b[0m"
-row 13 "\x1b[38;2;138;180;248;1m  ⎿  \x1b[0m\x1b[38;2;189;193;198mExited /config command\x1b[39m"
-row 14 ""
-row 15 "\x1b[38;2;253;214;99m●\x1b[39m \x1b[38;2;253;214;99;1mBash\x1b[0m\x1b[38;2;189;193;198m(git status)\x1b[39m \x1b[38;2;189;193;198m(ctrl+o to collapse)\x1b[39m"
-row 16 "  \x1b[38;2;232;234;237mA streaming reply that wraps across several  \x1b[m"
-row 17 "  \x1b[38;2;232;234;237mrows at the current width.                   \x1b[m"
-block 0 start=8 lines=1 expanded=true
-block 1 start=9 lines=2 expanded=true
+row 8 "\x1b[38;2;129;201;149m●\x1b[39m \x1b[38;2;253;214;99;1mBash\x1b[0m\x1b[38;2;189;193;198m(go test ./internal/...)\x1b[39m"
+row 9 "     \x1b[38;2;189;193;198m(ctrl+o to collapse)\x1b[39m"
+row 10 "\x1b[38;2;129;201;149m●\x1b[39m \x1b[38;2;253;214;99;1mRead\x1b[0m\x1b[38;2;189;193;198m(/tmp/report.txt)\x1b[39m"
+row 11 "\x1b[38;2;189;193;198m  ⎿  \x1b[mRead 3 lines \x1b[38;2;189;193;198m(ctrl+o to collapse)\x1b[39m"
+row 12 "\x1b[38;2;138;180;248;1m> a plain prompt row\x1b[0m"
+row 13 "\x1b[38;2;138;180;248;1m> /config\x1b[0m"
+row 14 "\x1b[38;2;138;180;248;1m  ⎿  \x1b[0m\x1b[38;2;189;193;198mExited /config command\x1b[39m"
+row 15 ""
+row 16 "\x1b[38;2;253;214;99m●\x1b[39m \x1b[38;2;253;214;99;1mBash\x1b[0m\x1b[38;2;189;193;198m(git status)\x1b[39m \x1b[38;2;189;193;198m(ctrl+o to collapse)\x1b[39m"
+row 17 "  \x1b[38;2;232;234;237mA streaming reply that wraps across several  \x1b[m"
+row 18 "  \x1b[38;2;232;234;237mrows at the current width.                   \x1b[m"
+block 0 start=8 lines=2 expanded=true
+block 1 start=10 lines=2 expanded=true
 assistant 0 start=3 lines=4
 user 0 start=1 lines=1
-run 0 start=15 lines=1 kind=0 batch=1
-liveStart=0 replyStart=16 liveThoughtRunIdx=-1 liveTextLines=2 liveBatch=0 batchBreak=false
+run 0 start=16 lines=1 kind=0 batch=1
+liveStart=0 replyStart=17 liveThoughtRunIdx=-1 liveTextLines=2 liveBatch=0 batchBreak=false
 === expanded ===
 row 0 "\x1b[38;2;60;64;67m───────────────────────────────────────────────\x1b[0m"
 row 1 "\x1b[38;2;138;180;248;1m> Please run the tests and tell me what broke.\x1b[0m"
@@ -105,22 +106,23 @@ row 4 ""
 row 5 "  \x1b[38;2;232;234;237m• \x1b[m\x1b[38;5;222;48;5;237mTestOne\x1b[m\x1b[38;2;232;234;237m                                    \x1b[m"
 row 6 "  \x1b[38;2;232;234;237m• \x1b[m\x1b[38;5;222;48;5;237mTestTwo\x1b[m\x1b[38;2;232;234;237m                                    \x1b[m"
 row 7 ""
-row 8 "\x1b[38;2;129;201;149m●\x1b[39m \x1b[38;2;253;214;99;1mBash\x1b[0m\x1b[38;2;189;193;198m(go test ./internal/...)\x1b[39m \x1b[38;2;189;193;198m(ctrl+o to collapse)\x1b[39m"
-row 9 "\x1b[38;2;129;201;149m●\x1b[39m \x1b[38;2;253;214;99;1mRead\x1b[0m\x1b[38;2;189;193;198m(/tmp/report.txt)\x1b[39m"
-row 10 "\x1b[38;2;189;193;198m  ⎿  \x1b[mRead 3 lines \x1b[38;2;189;193;198m(ctrl+o to collapse)\x1b[39m"
-row 11 "\x1b[38;2;138;180;248;1m> a plain prompt row\x1b[0m"
-row 12 "\x1b[38;2;138;180;248;1m> /config\x1b[0m"
-row 13 "\x1b[38;2;138;180;248;1m  ⎿  \x1b[0m\x1b[38;2;189;193;198mExited /config command\x1b[39m"
-row 14 ""
-row 15 "\x1b[38;2;253;214;99m●\x1b[39m \x1b[38;2;253;214;99;1mBash\x1b[0m\x1b[38;2;189;193;198m(git status)\x1b[39m \x1b[38;2;189;193;198m(ctrl+o to collapse)\x1b[39m"
-row 16 "  \x1b[38;2;232;234;237mA streaming reply that wraps across several  \x1b[m"
-row 17 "  \x1b[38;2;232;234;237mrows at the current width.                   \x1b[m"
-block 0 start=8 lines=1 expanded=true
-block 1 start=9 lines=2 expanded=true
+row 8 "\x1b[38;2;129;201;149m●\x1b[39m \x1b[38;2;253;214;99;1mBash\x1b[0m\x1b[38;2;189;193;198m(go test ./internal/...)\x1b[39m"
+row 9 "     \x1b[38;2;189;193;198m(ctrl+o to collapse)\x1b[39m"
+row 10 "\x1b[38;2;129;201;149m●\x1b[39m \x1b[38;2;253;214;99;1mRead\x1b[0m\x1b[38;2;189;193;198m(/tmp/report.txt)\x1b[39m"
+row 11 "\x1b[38;2;189;193;198m  ⎿  \x1b[mRead 3 lines \x1b[38;2;189;193;198m(ctrl+o to collapse)\x1b[39m"
+row 12 "\x1b[38;2;138;180;248;1m> a plain prompt row\x1b[0m"
+row 13 "\x1b[38;2;138;180;248;1m> /config\x1b[0m"
+row 14 "\x1b[38;2;138;180;248;1m  ⎿  \x1b[0m\x1b[38;2;189;193;198mExited /config command\x1b[39m"
+row 15 ""
+row 16 "\x1b[38;2;253;214;99m●\x1b[39m \x1b[38;2;253;214;99;1mBash\x1b[0m\x1b[38;2;189;193;198m(git status)\x1b[39m \x1b[38;2;189;193;198m(ctrl+o to collapse)\x1b[39m"
+row 17 "  \x1b[38;2;232;234;237mA streaming reply that wraps across several  \x1b[m"
+row 18 "  \x1b[38;2;232;234;237mrows at the current width.                   \x1b[m"
+block 0 start=8 lines=2 expanded=true
+block 1 start=10 lines=2 expanded=true
 assistant 0 start=3 lines=4
 user 0 start=1 lines=1
-run 0 start=15 lines=1 kind=0 batch=1
-liveStart=0 replyStart=16 liveThoughtRunIdx=-1 liveTextLines=2 liveBatch=0 batchBreak=false
+run 0 start=16 lines=1 kind=0 batch=1
+liveStart=0 replyStart=17 liveThoughtRunIdx=-1 liveTextLines=2 liveBatch=0 batchBreak=false
 === live-thought ===
 row 0 "\x1b[38;2;60;64;67m───────────────────────────────────────────────\x1b[0m"
 row 1 "\x1b[38;2;138;180;248;1m> Please run the tests and tell me what broke.\x1b[0m"
@@ -130,25 +132,26 @@ row 4 ""
 row 5 "  \x1b[38;2;232;234;237m• \x1b[m\x1b[38;5;222;48;5;237mTestOne\x1b[m\x1b[38;2;232;234;237m                                    \x1b[m"
 row 6 "  \x1b[38;2;232;234;237m• \x1b[m\x1b[38;5;222;48;5;237mTestTwo\x1b[m\x1b[38;2;232;234;237m                                    \x1b[m"
 row 7 ""
-row 8 "\x1b[38;2;129;201;149m●\x1b[39m \x1b[38;2;253;214;99;1mBash\x1b[0m\x1b[38;2;189;193;198m(go test ./internal/...)\x1b[39m \x1b[38;2;189;193;198m(ctrl+o to collapse)\x1b[39m"
-row 9 "\x1b[38;2;129;201;149m●\x1b[39m \x1b[38;2;253;214;99;1mRead\x1b[0m\x1b[38;2;189;193;198m(/tmp/report.txt)\x1b[39m"
-row 10 "\x1b[38;2;189;193;198m  ⎿  \x1b[mRead 3 lines \x1b[38;2;189;193;198m(ctrl+o to collapse)\x1b[39m"
-row 11 "\x1b[38;2;138;180;248;1m> a plain prompt row\x1b[0m"
-row 12 "\x1b[38;2;138;180;248;1m> /config\x1b[0m"
-row 13 "\x1b[38;2;138;180;248;1m  ⎿  \x1b[0m\x1b[38;2;189;193;198mExited /config command\x1b[39m"
-row 14 ""
-row 15 "\x1b[38;2;253;214;99m●\x1b[39m \x1b[38;2;253;214;99;1mBash\x1b[0m\x1b[38;2;189;193;198m(git status)\x1b[39m \x1b[38;2;189;193;198m(ctrl+o to collapse)\x1b[39m"
-row 16 "  \x1b[38;2;232;234;237mA streaming reply that wraps across several  \x1b[m"
-row 17 "  \x1b[38;2;232;234;237mrows at the current width.                   \x1b[m"
-row 18 "\x1b[38;2;189;193;198m▾\x1b[39m Thinking..."
-row 19 "\x1b[38;2;189;193;198m  the model reasons about the failing check\x1b[39m"
-block 0 start=8 lines=1 expanded=true
-block 1 start=9 lines=2 expanded=true
+row 8 "\x1b[38;2;129;201;149m●\x1b[39m \x1b[38;2;253;214;99;1mBash\x1b[0m\x1b[38;2;189;193;198m(go test ./internal/...)\x1b[39m"
+row 9 "     \x1b[38;2;189;193;198m(ctrl+o to collapse)\x1b[39m"
+row 10 "\x1b[38;2;129;201;149m●\x1b[39m \x1b[38;2;253;214;99;1mRead\x1b[0m\x1b[38;2;189;193;198m(/tmp/report.txt)\x1b[39m"
+row 11 "\x1b[38;2;189;193;198m  ⎿  \x1b[mRead 3 lines \x1b[38;2;189;193;198m(ctrl+o to collapse)\x1b[39m"
+row 12 "\x1b[38;2;138;180;248;1m> a plain prompt row\x1b[0m"
+row 13 "\x1b[38;2;138;180;248;1m> /config\x1b[0m"
+row 14 "\x1b[38;2;138;180;248;1m  ⎿  \x1b[0m\x1b[38;2;189;193;198mExited /config command\x1b[39m"
+row 15 ""
+row 16 "\x1b[38;2;253;214;99m●\x1b[39m \x1b[38;2;253;214;99;1mBash\x1b[0m\x1b[38;2;189;193;198m(git status)\x1b[39m \x1b[38;2;189;193;198m(ctrl+o to collapse)\x1b[39m"
+row 17 "  \x1b[38;2;232;234;237mA streaming reply that wraps across several  \x1b[m"
+row 18 "  \x1b[38;2;232;234;237mrows at the current width.                   \x1b[m"
+row 19 "\x1b[38;2;189;193;198m▾\x1b[39m Thinking..."
+row 20 "\x1b[38;2;189;193;198m  the model reasons about the failing check\x1b[39m"
+block 0 start=8 lines=2 expanded=true
+block 1 start=10 lines=2 expanded=true
 assistant 0 start=3 lines=4
 user 0 start=1 lines=1
-run 0 start=15 lines=1 kind=0 batch=1
-run 1 start=18 lines=2 kind=1 batch=0
-liveStart=0 replyStart=16 liveThoughtRunIdx=1 liveTextLines=2 liveBatch=0 batchBreak=false
+run 0 start=16 lines=1 kind=0 batch=1
+run 1 start=19 lines=2 kind=1 batch=0
+liveStart=0 replyStart=17 liveThoughtRunIdx=1 liveTextLines=2 liveBatch=0 batchBreak=false
 === finished-thought ===
 row 0 "\x1b[38;2;60;64;67m───────────────────────────────────────────────\x1b[0m"
 row 1 "\x1b[38;2;138;180;248;1m> Please run the tests and tell me what broke.\x1b[0m"
@@ -158,25 +161,26 @@ row 4 ""
 row 5 "  \x1b[38;2;232;234;237m• \x1b[m\x1b[38;5;222;48;5;237mTestOne\x1b[m\x1b[38;2;232;234;237m                                    \x1b[m"
 row 6 "  \x1b[38;2;232;234;237m• \x1b[m\x1b[38;5;222;48;5;237mTestTwo\x1b[m\x1b[38;2;232;234;237m                                    \x1b[m"
 row 7 ""
-row 8 "\x1b[38;2;129;201;149m●\x1b[39m \x1b[38;2;253;214;99;1mBash\x1b[0m\x1b[38;2;189;193;198m(go test ./internal/...)\x1b[39m \x1b[38;2;189;193;198m(ctrl+o to collapse)\x1b[39m"
-row 9 "\x1b[38;2;129;201;149m●\x1b[39m \x1b[38;2;253;214;99;1mRead\x1b[0m\x1b[38;2;189;193;198m(/tmp/report.txt)\x1b[39m"
-row 10 "\x1b[38;2;189;193;198m  ⎿  \x1b[mRead 3 lines \x1b[38;2;189;193;198m(ctrl+o to collapse)\x1b[39m"
-row 11 "\x1b[38;2;138;180;248;1m> a plain prompt row\x1b[0m"
-row 12 "\x1b[38;2;138;180;248;1m> /config\x1b[0m"
-row 13 "\x1b[38;2;138;180;248;1m  ⎿  \x1b[0m\x1b[38;2;189;193;198mExited /config command\x1b[39m"
-row 14 ""
-row 15 "\x1b[38;2;253;214;99m●\x1b[39m \x1b[38;2;253;214;99;1mBash\x1b[0m\x1b[38;2;189;193;198m(git status)\x1b[39m \x1b[38;2;189;193;198m(ctrl+o to collapse)\x1b[39m"
-row 16 "  \x1b[38;2;232;234;237mA streaming reply that wraps across several  \x1b[m"
-row 17 "  \x1b[38;2;232;234;237mrows at the current width.                   \x1b[m"
-row 18 "\x1b[38;2;189;193;198m▾\x1b[39m Thought for <dur>"
-row 19 "\x1b[38;2;189;193;198m  the model reasons about the failing check\x1b[39m"
-block 0 start=8 lines=1 expanded=true
-block 1 start=9 lines=2 expanded=true
+row 8 "\x1b[38;2;129;201;149m●\x1b[39m \x1b[38;2;253;214;99;1mBash\x1b[0m\x1b[38;2;189;193;198m(go test ./internal/...)\x1b[39m"
+row 9 "     \x1b[38;2;189;193;198m(ctrl+o to collapse)\x1b[39m"
+row 10 "\x1b[38;2;129;201;149m●\x1b[39m \x1b[38;2;253;214;99;1mRead\x1b[0m\x1b[38;2;189;193;198m(/tmp/report.txt)\x1b[39m"
+row 11 "\x1b[38;2;189;193;198m  ⎿  \x1b[mRead 3 lines \x1b[38;2;189;193;198m(ctrl+o to collapse)\x1b[39m"
+row 12 "\x1b[38;2;138;180;248;1m> a plain prompt row\x1b[0m"
+row 13 "\x1b[38;2;138;180;248;1m> /config\x1b[0m"
+row 14 "\x1b[38;2;138;180;248;1m  ⎿  \x1b[0m\x1b[38;2;189;193;198mExited /config command\x1b[39m"
+row 15 ""
+row 16 "\x1b[38;2;253;214;99m●\x1b[39m \x1b[38;2;253;214;99;1mBash\x1b[0m\x1b[38;2;189;193;198m(git status)\x1b[39m \x1b[38;2;189;193;198m(ctrl+o to collapse)\x1b[39m"
+row 17 "  \x1b[38;2;232;234;237mA streaming reply that wraps across several  \x1b[m"
+row 18 "  \x1b[38;2;232;234;237mrows at the current width.                   \x1b[m"
+row 19 "\x1b[38;2;189;193;198m▾\x1b[39m Thought for <dur>"
+row 20 "\x1b[38;2;189;193;198m  the model reasons about the failing check\x1b[39m"
+block 0 start=8 lines=2 expanded=true
+block 1 start=10 lines=2 expanded=true
 assistant 0 start=3 lines=4
 user 0 start=1 lines=1
-run 0 start=15 lines=1 kind=0 batch=1
-run 1 start=18 lines=2 kind=1 batch=0
-liveStart=0 replyStart=16 liveThoughtRunIdx=1 liveTextLines=2 liveBatch=0 batchBreak=false
+run 0 start=16 lines=1 kind=0 batch=1
+run 1 start=19 lines=2 kind=1 batch=0
+liveStart=0 replyStart=17 liveThoughtRunIdx=1 liveTextLines=2 liveBatch=0 batchBreak=false
 === visible-window ===
 row 0 "\x1b[38;2;60;64;67m───────────────────────────────────────────────\x1b[0m"
 row 1 "\x1b[38;2;138;180;248;1m> Please run the tests and tell me what broke.\x1b[0m"

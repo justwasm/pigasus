@@ -505,6 +505,7 @@ func TestTUISessionPersistence(t *testing.T) {
 	}
 
 	_, _ = m.Update(backendChunkMsg("I am MiniMax M3, ready to help."))
+	_, _ = m.Update(backendDoneMsg{})
 
 	dbPath := filepath.Join(tempHome, "conversations", m.session.conversationID+".db")
 	conv, err := convstore.LoadConversation(dbPath)

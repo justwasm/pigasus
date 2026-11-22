@@ -1606,9 +1606,6 @@ func (m *RootModel) sessionTokenCounts() (user, agent, tool int) {
 		completed := atomic.LoadInt64(&m.session.store.SessionCompletionTokens)
 		lastTurn := atomic.LoadInt64(&m.session.store.LastTurnCompletionTokens)
 		agent = contextpanel.AgentTokens(completed, lastTurn)
-		if agent <= 0 {
-			agent = contextpanel.AgentMessageTokens(m.SessionMessages())
-		}
 	}
 
 	var steps []toolsteps.Step

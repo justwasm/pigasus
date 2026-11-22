@@ -75,6 +75,7 @@ func TestHiddenExtraFlags(t *testing.T) {
 		"desktop",
 		"diff-with-agy",
 		"experimental-rc-v2",
+		"fallback-chain",
 		"max-thinking-budget",
 		"no-alt-screen",
 		"remote-control-socket",
