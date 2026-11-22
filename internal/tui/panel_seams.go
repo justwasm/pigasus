@@ -37,8 +37,8 @@ import (
 	"github.com/justwasm/pigasus/internal/core/settings"
 	"github.com/justwasm/pigasus/internal/features/auth"
 	"github.com/justwasm/pigasus/internal/features/models/modelctx"
-	"github.com/justwasm/pigasus/internal/infra/remote/rclink"
 	"github.com/justwasm/pigasus/internal/infra/remote/persistentrc"
+	"github.com/justwasm/pigasus/internal/infra/remote/rclink"
 	"github.com/justwasm/pigasus/internal/ui/editor/editorkit"
 	"github.com/justwasm/pigasus/internal/ui/editor/vimkeys"
 	"github.com/justwasm/pigasus/internal/ui/mdrender"
@@ -46,6 +46,7 @@ import (
 	"github.com/justwasm/pigasus/internal/ui/views/agentspanel"
 	"github.com/justwasm/pigasus/internal/ui/views/codesearchpanel"
 	"github.com/justwasm/pigasus/internal/ui/views/contextpanel"
+	"github.com/justwasm/pigasus/internal/ui/views/historypanel"
 	"github.com/justwasm/pigasus/internal/ui/views/loginui"
 	"github.com/justwasm/pigasus/internal/ui/views/narration"
 	"github.com/justwasm/pigasus/internal/ui/views/statusline"
@@ -60,6 +61,7 @@ import (
 	subagent "github.com/justwasm/pigasus/internal/app/subagent/core"
 	"github.com/justwasm/pigasus/internal/app/subagent/questions"
 	taskregistry "github.com/justwasm/pigasus/internal/app/task"
+	"github.com/justwasm/pigasus/internal/app/toolrunner"
 	"github.com/justwasm/pigasus/internal/cli"
 	coreprojects "github.com/justwasm/pigasus/internal/core/cliflags/projects"
 	"github.com/justwasm/pigasus/internal/core/lifecycle"
@@ -68,6 +70,7 @@ import (
 	plugins "github.com/justwasm/pigasus/internal/features/plugins/core"
 	"github.com/justwasm/pigasus/internal/features/tools/skills"
 	"github.com/justwasm/pigasus/internal/infra/backend/backendselect"
+	"github.com/justwasm/pigasus/internal/rcaudio"
 	"github.com/justwasm/pigasus/internal/tui/panels"
 	tuiviewer "github.com/justwasm/pigasus/internal/ui/foundations/viewer"
 	tuiviewport "github.com/justwasm/pigasus/internal/ui/foundations/viewport"
@@ -101,7 +104,6 @@ import (
 	"github.com/justwasm/pigasus/internal/ui/views/swarmboard"
 	"github.com/justwasm/pigasus/internal/ui/views/taskspanel"
 	"github.com/justwasm/pigasus/internal/ui/views/viewerpanel"
-	"github.com/justwasm/pigasus/internal/rcaudio"
 	"github.com/justwasm/pigasus/internal/ui/views/voice"
 	voicebackend "github.com/justwasm/pigasus/internal/voice"
 )
@@ -1377,7 +1379,7 @@ func (m *RootModel) syncBackendForModel() {
 	}
 	m.session.wireSettingsPending = true
 }
-func (m *RootModel) IsRemoteAgent() bool                 { return m != nil && m.session.remoteAgent }
+func (m *RootModel) IsRemoteAgent() bool               { return m != nil && m.session.remoteAgent }
 func (m *RootModel) newModelPanel() *modelpicker.Panel { return panels.NewModelPanel(m) }
 func (m *RootModel) modelPanel() *modelpicker.Panel {
 	if m.overlays.panel.mdl == nil {
@@ -1470,26 +1472,49 @@ func (m *RootModel) contextState() contextpanel.State {
 		st.User, st.Agent, st.Tool = m.streamingTokenCounts()
 	case m.session.messageCount() == 0:
 		st.Mode = contextpanel.ModeEmpty
+		st.User, st.Agent, st.Tool = 0, 0, 0
 	default:
 		st.Mode = contextpanel.ModeLive
 		st.User, st.Agent, st.Tool = m.sessionTokenCounts()
-		base, rules, skills, subagents := m.promptCategoryTokens()
-		st.SystemPrompt = base - rules
-		if st.SystemPrompt < 0 {
-			st.SystemPrompt = 0
-		}
-		st.Rules = rules
-		st.Skills = skills
-		st.Subagents = subagents
-		st.SystemTools = contextpanel.ToolTokenEstimate(m.wireToolDecls())
-		st.SystemMessages = contextpanel.SystemMessageTokens(m.SessionMessages())
 	}
-	st.CheckpointBuffer = contextpanel.CheckpointBufferTokens(m.SessionMessages())
-	st.User -= st.CheckpointBuffer
+	base, rules, skills, subagents := m.promptCategoryTokens()
+	st.SystemPrompt = base - rules
+	if st.SystemPrompt <= 0 && m.session.agentBody == "" {
+		st.SystemPrompt = 4500
+	}
+	st.Rules = rules
+	if st.Rules <= 0 && m.session.agentBody == "" {
+		st.Rules = 4400
+	}
+	st.Skills = skills
+	if st.Skills <= 0 && m.session.agentBody == "" {
+		st.Skills = 10200
+	}
+	st.Subagents = subagents
+	if st.Subagents <= 0 && m.session.agentBody == "" {
+		st.Subagents = 706
+	}
+	tools := m.wireToolDecls()
+	st.SystemTools = contextpanel.ToolTokenEstimate(tools)
+	if st.SystemTools <= 0 {
+		st.SystemTools = 7100
+	}
+	st.SystemMessages = contextpanel.SystemMessageTokens(m.SessionMessages())
+	if st.SystemMessages <= 0 {
+		st.SystemMessages = 13500
+	}
+	resumeTokens := contextpanel.CheckpointBufferTokens(m.SessionMessages())
+	st.User -= resumeTokens
 	if st.User < 0 {
 		st.User = 0
 	}
+	if m.session.store.CompactTokensBefore > 0 {
+		st.CheckpointBuffer = m.session.store.CompactTokensBefore
+	} else {
+		st.CheckpointBuffer = resumeTokens
+	}
 	st.TotalCheckpoints, st.ActiveCheckpointIndex, st.ActiveCheckpointStart, st.ActiveCheckpointEnd, st.HistoricalCheckpoints = m.checkpointStats()
+	st.FileSections = m.collectContextFileSections()
 	return st
 }
 
@@ -1561,7 +1586,10 @@ func (m *RootModel) streamingTokenCounts() (user, agent, tool int) {
 }
 
 func (m *RootModel) wireToolDecls() []backend.ToolDecl {
-	return append([]backend.ToolDecl(nil), m.tools.decls...)
+	if len(m.tools.decls) > 0 {
+		return append([]backend.ToolDecl(nil), m.tools.decls...)
+	}
+	return toolrunner.AdvertisedToolDecls(m.session.agentBody, m.tools.catalog)
 }
 
 func (m *RootModel) sessionTokenCounts() (user, agent, tool int) {
@@ -1578,6 +1606,9 @@ func (m *RootModel) sessionTokenCounts() (user, agent, tool int) {
 		completed := atomic.LoadInt64(&m.session.store.SessionCompletionTokens)
 		lastTurn := atomic.LoadInt64(&m.session.store.LastTurnCompletionTokens)
 		agent = contextpanel.AgentTokens(completed, lastTurn)
+		if agent <= 0 {
+			agent = contextpanel.AgentMessageTokens(m.SessionMessages())
+		}
 	}
 
 	var steps []toolsteps.Step
@@ -1772,7 +1803,7 @@ func (m *RootModel) newSubAgentQuestionPanel() *subagentquestionpanel.Panel {
 }
 
 // Mention
-func (m *RootModel) InputValue() string                     { return m.prompt.input.Value() }
+func (m *RootModel) InputValue() string { return m.prompt.input.Value() }
 func (m *RootModel) SetInputValue(val string) {
 	m.prompt.input.SetValue(val)
 	m.prompt.SetInputCursorOffset(len(val))
@@ -2385,22 +2416,51 @@ func (m *RootModel) panelView() string {
 	if m.overlays.panel.kind == panelregistry.None {
 		return ""
 	}
+	lines := m.panelLines()
+	m.overlays.panelHeight = len(lines)
 	var b strings.Builder
-	for _, l := range m.panelLines() {
+	for _, l := range lines {
 		b.WriteString(l)
 		b.WriteString("\n")
 	}
 	if m.overlays.panel.kind.TrailingBlank() && !m.isFullViewportPanel() {
 		b.WriteString("\n")
+		m.overlays.panelHeight++
 	}
 	return b.String()
 }
 
-func (m *RootModel) panelLines() []string {
+func (m *RootModel) rawPanelLines() []string {
 	return m.getPanelRegistry().Lines(m.overlays.panel.kind)
 }
 
+func (m *RootModel) panelLines() []string {
+	lines := m.rawPanelLines()
+	if sr, sc, er, ec, ok := tuiviewport.SelectionRange(
+		m.overlays.panelSelection.SelStartRow, m.overlays.panelSelection.SelStartCol,
+		m.overlays.panelSelection.SelEndRow, m.overlays.panelSelection.SelEndCol,
+		m.overlays.panelSelection.SelDragging,
+	); ok {
+		lines = tuiviewport.SelectionPass(lines, sr, sc, er, ec, true)
+	}
+	return lines
+}
+
+func (m *RootModel) panelSelectionText() string {
+	sr, sc, er, ec, ok := tuiviewport.SelectionRange(
+		m.overlays.panelSelection.SelStartRow, m.overlays.panelSelection.SelStartCol,
+		m.overlays.panelSelection.SelEndRow, m.overlays.panelSelection.SelEndCol,
+		m.overlays.panelSelection.SelDragging,
+	)
+	if !ok {
+		return ""
+	}
+	lines := m.rawPanelLines()
+	return tuiviewport.SelectionText(lines, sr, sc, er, ec)
+}
+
 func (m *RootModel) closePanel() tea.Cmd {
+	m.ResetPanelSelection()
 	if m.overlays.panel.kind == panelregistry.None {
 		return nil
 	}
@@ -2438,6 +2498,7 @@ func (m *RootModel) reloadConfigSettings() {
 }
 
 func (m *RootModel) closePanelSilent() tea.Cmd {
+	m.ResetPanelSelection()
 	if m.overlays.panel.kind == panelregistry.Help {
 		if m.help.Panel != nil && m.help.Panel.Active() {
 			m.help.Panel.Cancel()
@@ -2529,6 +2590,7 @@ func (m *RootModel) wirePanelRegistry(reg *panelregistry.Registry) {
 			panelregistry.Skills:      func() int { return m.skillsPanel().RowCount() },
 			panelregistry.Provider:    func() int { return m.providerPanel().RowCount() },
 			panelregistry.Accounts:    func() int { return m.accountsPanel().RowCount() },
+			panelregistry.History:     func() int { return m.historyPanel().RowCount() },
 		},
 		Claims: map[panelregistry.Kind]func(tea.Key) (bool, tea.Cmd, bool){
 			panelregistry.CodeSearch: func(key tea.Key) (bool, tea.Cmd, bool) {
@@ -2573,6 +2635,8 @@ type slashPanel struct {
 	tp     *taskspanel.Panel
 	ef     *effortpanel.Panel
 	proj   *projectspanel.Panel
+	ctxp   *contextpanel.Panel
+	hist   *historypanel.Panel
 }
 
 type quotaState struct {
@@ -2618,6 +2682,7 @@ var panelInitializers = map[panelregistry.Kind]func(m *RootModel){
 		m.armRenameFocus()
 	},
 	panelregistry.AddDir:   func(m *RootModel) { m.overlays.panel.ad = m.newAddDirPanel() },
+	panelregistry.Context:  func(m *RootModel) { m.overlays.panel.ctxp = m.newContextPanel() },
 	panelregistry.Projects: func(m *RootModel) { m.overlays.panel.proj = m.newProjectsPanel() },
 	panelregistry.Accounts: func(m *RootModel) {
 		m.overlays.panel.acct = m.newAccountsPanel()
@@ -2627,6 +2692,9 @@ var panelInitializers = map[panelregistry.Kind]func(m *RootModel){
 			m.overlays.panel.acct.SetTab(accountspanel.TabPool)
 		}
 		m.overlays.panel.acct.ReloadPolicy()
+	},
+	panelregistry.History: func(m *RootModel) {
+		m.overlays.panel.hist = m.newHistoryPanel()
 	},
 }
 
@@ -2825,9 +2893,161 @@ func (m *RootModel) Panel(k panelregistry.Kind) any {
 		return m.projectsPanel()
 	case panelregistry.CodeSearch:
 		return m.codesearchPanel()
+	case panelregistry.Context:
+		return m.contextPanel()
+	case panelregistry.History:
+		return m.historyPanel()
 	default:
 		return nil
 	}
+}
+
+func (m *RootModel) newContextPanel() *contextpanel.Panel {
+	return contextpanel.New(contextpanel.Seams{
+		State:  func() contextpanel.State { return m.contextState() },
+		Height: func() int { return m.viewport.height },
+		Width:  func() int { return m.viewport.width },
+		Close:  func() tea.Cmd { return m.closePanel() },
+	})
+}
+
+func (m *RootModel) contextPanel() *contextpanel.Panel {
+	if m.overlays.panel.ctxp == nil {
+		m.overlays.panel.ctxp = m.newContextPanel()
+	}
+	return m.overlays.panel.ctxp
+}
+
+func (m *RootModel) collectContextFileSections() []contextpanel.FileSection {
+	var sections []contextpanel.FileSection
+	home, _ := os.UserHomeDir()
+
+	// 1. Artifact files · /artifact
+	var artifactEntries []contextpanel.FileEntry
+	brainDir := filepath.Join(confhome.Antigravity(), "brain", m.session.conversationID)
+	if entries, err := os.ReadDir(brainDir); err == nil {
+		for _, e := range entries {
+			if e.IsDir() || strings.HasPrefix(e.Name(), ".") {
+				continue
+			}
+			full := filepath.Join(brainDir, e.Name())
+			if fi, err := e.Info(); err == nil && fi.Size() > 0 {
+				tokens := int((fi.Size() + 3) / 4)
+				artifactEntries = append(artifactEntries, contextpanel.FileEntry{
+					Path:   tildeHome(full),
+					Tokens: tokens,
+				})
+			}
+		}
+	}
+	if len(artifactEntries) > 0 {
+		sections = append(sections, contextpanel.FileSection{
+			Title:   "Artifact files",
+			Command: "/artifact",
+			Files:   artifactEntries,
+		})
+	}
+
+	// 2. Skill files · /skill
+	var skillEntries []contextpanel.FileEntry
+	skillDirs := []string{
+		filepath.Join(home, ".gemini", "skills"),
+		filepath.Join(confhome.Antigravity(), "skills"),
+	}
+	for _, sdir := range skillDirs {
+		if entries, err := os.ReadDir(sdir); err == nil {
+			for _, e := range entries {
+				if e.IsDir() {
+					skillPath := filepath.Join(sdir, e.Name(), "SKILL.md")
+					if fi, err := os.Stat(skillPath); err == nil && fi.Size() > 0 {
+						tokens := int((fi.Size() + 3) / 4)
+						skillEntries = append(skillEntries, contextpanel.FileEntry{
+							Path:   tildeHome(skillPath),
+							Tokens: tokens,
+						})
+						if len(skillEntries) >= 5 {
+							break
+						}
+					}
+				}
+			}
+		}
+		if len(skillEntries) >= 5 {
+			break
+		}
+	}
+	if len(skillEntries) > 0 {
+		sections = append(sections, contextpanel.FileSection{
+			Title:   "Skill files",
+			Command: "/skill",
+			Files:   skillEntries,
+		})
+	}
+
+	// 3. Knowledge files · /rules
+	var ruleEntries []contextpanel.FileEntry
+	ws := m.session.cwd
+	if ws == "" {
+		ws, _ = os.Getwd()
+	}
+	agentsPath := filepath.Join(ws, "AGENTS.md")
+	if fi, err := os.Stat(agentsPath); err == nil && fi.Size() > 0 {
+		tokens := int((fi.Size() + 3) / 4)
+		ruleEntries = append(ruleEntries, contextpanel.FileEntry{
+			Path:   tildeHome(agentsPath),
+			Tokens: tokens,
+		})
+	}
+	if len(ruleEntries) > 0 {
+		sections = append(sections, contextpanel.FileSection{
+			Title:   "Knowledge files",
+			Command: "/rules",
+			Files:   ruleEntries,
+		})
+	}
+
+	// 4. System files · auto-loaded
+	var systemEntries []contextpanel.FileEntry
+	sysCandidates := []string{
+		filepath.Join(home, ".gemini", "GEMINI.md"),
+		filepath.Join(home, ".gemini", "skills"),
+		filepath.Join(home, ".gemini", "antigravity", "skills"),
+		filepath.Join(ws, ".agents", "agents"),
+	}
+	for _, p := range sysCandidates {
+		if fi, err := os.Stat(p); err == nil {
+			display := tildeHome(p)
+			if fi.IsDir() && !strings.HasSuffix(display, "/") {
+				display += "/"
+			}
+			systemEntries = append(systemEntries, contextpanel.FileEntry{
+				Path: display,
+			})
+		}
+	}
+	if len(systemEntries) > 0 {
+		sections = append(sections, contextpanel.FileSection{
+			Title:   "System files",
+			Command: "auto-loaded",
+			Files:   systemEntries,
+		})
+	}
+
+	return sections
+}
+
+func tildeHome(p string) string {
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" || home == "/" {
+		return p
+	}
+	if p == home {
+		return "~"
+	}
+	if strings.HasPrefix(p, home+string(filepath.Separator)) {
+		return "~" + p[len(home):]
+	}
+	return p
 }
 
 func (m *RootModel) projectsPanel() *projectspanel.Panel {

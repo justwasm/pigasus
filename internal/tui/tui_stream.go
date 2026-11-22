@@ -934,17 +934,27 @@ func (m *RootModel) reloadPluginsAndMCP() {
 	}
 	setup.InstallMCPProvider(auth.AntigravityHome(), workspace)
 	catalog := agentToolRegistry(workspace, m.session.agentBody)
-	m.tools.catalog = catalog
-	m.registerSubagentQuestionTool(catalog)
+	if m.tools.catalog != nil {
+		m.tools.catalog.ReplaceWith(catalog)
+	} else {
+		m.tools.catalog = catalog
+	}
+	m.registerSubagentQuestionTool(m.tools.catalog)
+
+	decls := toolrunner.AdvertisedToolDeclsWithSandbox(m.session.agentBody, m.tools.catalog, m.tools.sandbox.Enabled)
+	var runner backend.ToolRunner
 	if m.session.policy != nil {
-		m.enableTools(toolrunner.AdvertisedToolDeclsWithSandbox(m.session.agentBody, catalog, m.tools.sandbox.Enabled), &permissionRunner{
-			inner:   &toolrunner.RegistryRunner{Reg: catalog},
+		runner = &permissionRunner{
+			inner:   &toolrunner.RegistryRunner{Reg: m.tools.catalog},
 			policy:  m.session.policy,
 			sandbox: m.tools.sandbox,
 			hook:    m.hookToolGate,
 			post:    m.hookPostToolUse,
-		})
+		}
+	} else {
+		runner = &toolrunner.RegistryRunner{Reg: m.tools.catalog}
 	}
+	m.enableTools(decls, runner)
 }
 
 func agentToolRegistry(workspace, agentBody string) *tools.Registry {
@@ -2503,6 +2513,77 @@ func (m *RootModel) startModelTurn(prompt string) tea.Cmd {
 	m.saveSession()
 	tickCmd := func() tea.Msg { return m.conversation.spinner.Tick() }
 	return tea.Batch(m.streamPrompt(prompt), tickCmd, syncCmd)
+}
+
+// hasInterruptedTurn reports whether the active conversation has an interrupted or uncompleted turn.
+func (m *RootModel) hasInterruptedTurn() bool {
+	if m == nil {
+		return false
+	}
+	if m.conversation.turnInterrupted {
+		return true
+	}
+	msgs := m.SessionMessages()
+	if len(msgs) > 0 && msgs[len(msgs)-1].Role == "user" {
+		return true
+	}
+	return false
+}
+
+// continueInterruptedTurn resumes the last interrupted turn without initiating a new user turn.
+func (m *RootModel) continueInterruptedTurn() tea.Cmd {
+	if m == nil {
+		return nil
+	}
+	syncCmd := m.syncAccountIdentity()
+	m.session.conversationStarted = true
+	m.drainTaskNotifications()
+
+	m.conversation.turnInterrupted = false
+	m.conversation.streaming = true
+	m.viewport.inputNotice = ""
+	m.prompt.input.Reset()
+	m.ResetInputSelection()
+	m.prompt.promptHistory.Reset()
+
+	// If the assistant was interrupted while already streaming text,
+	// inject the reference recovery steer instruction so backend LLM APIs
+	// receive a compliant user message.
+	msgs := m.SessionMessages()
+	if len(msgs) > 0 && msgs[len(msgs)-1].Role == "assistant" {
+		m.appendUserTurn(actor.StreamInterruptedMessage)
+	}
+
+	const banner = "  ⎿  Continuing interrupted turn…"
+	m.conversation.response = append(m.conversation.response, banner)
+	m.conversation.liveStart = len(m.conversation.response)
+	m.conversation.replyStart = -1
+	m.conversation.liveReplyIdx = -1
+	m.conversation.liveSteps = nil
+	m.conversation.liveStepRuns = nil
+	m.conversation.activeTool = ""
+	m.conversation.thinking = false
+	m.conversation.liveThinking = ""
+	m.conversation.liveThinkingSnippet = ""
+	m.conversation.liveThoughtRunIdx = -1
+	m.conversation.liveTextLines = 0
+	m.conversation.liveReplyBuf = ""
+	m.conversation.voiceReplyStart = -1
+	m.conversation.voiceReplyBuf = ""
+	m.conversation.voiceTextLines = 0
+	m.conversation.steerReplyPrefix = ""
+	m.conversation.lastStreamSave = time.Time{}
+	m.conversation.streamedText = false
+	m.conversation.liveBatch = 0
+	m.conversation.batchBreak = false
+	m.conversation.anyToolRun = false
+	m.conversation.spinFrame = 0
+	m.prompt.picker.Reset()
+	m.session.store.ResetCompaction()
+
+	m.saveSession()
+	tickCmd := func() tea.Msg { return m.conversation.spinner.Tick() }
+	return tea.Batch(m.streamPrompt(""), tickCmd, syncCmd)
 }
 
 func (m *RootModel) submitPrompt() tea.Cmd {

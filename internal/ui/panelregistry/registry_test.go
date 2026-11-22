@@ -68,6 +68,7 @@ func TestKindRoutes(t *testing.T) {
 		Accounts:    RoutePanel,
 		Projects:    RoutePanel,
 		Help:        RoutePanel,
+		History:     RoutePanel,
 		// The search route: the panel owns the keys of its result list
 		// and lets the rest through to the list rule.
 		CodeSearch: RouteSearch,
@@ -113,6 +114,8 @@ func TestCommandPanel(t *testing.T) {
 		"feature-diff": FeatDiff,
 		"provider":     Provider,
 		"accounts":     Accounts,
+		"history":      History,
+		"hist":         History,
 		// /pool is the /accounts panel's Pool tab on its own.
 		"pool": Accounts,
 	}

@@ -111,20 +111,20 @@ type Form struct {
 // constants below are the single source of truth for both the form and the
 // write.
 const (
-	FieldID        = "ID"
-	FieldName      = "Name"
-	FieldType      = "Type"
-	FieldBaseURL   = "Base URL"
-	FieldAPIURL    = "API URL"
-	FieldAPIKey    = "API Key"
-	FieldTimeout   = "Timeout (s)"
-	FieldRetries   = "Max retries"
-	FieldUpstream  = "Upstream id"
+	FieldID               = "ID"
+	FieldName             = "Name"
+	FieldType             = "Type"
+	FieldBaseURL          = "Base URL"
+	FieldAPIURL           = "API URL"
+	FieldAPIKey           = "API Key"
+	FieldTimeout          = "Timeout (s)"
+	FieldRetries          = "Max retries"
+	FieldUpstream         = "Upstream id"
 	FieldContext          = "Context window"
 	FieldMaxTokens        = "Max output tokens"
 	FieldCompactThreshold = "Compact threshold"
 	FieldEffort           = "Reasoning effort"
-	FieldTiers     = "Reasoning tiers"
+	FieldTiers            = "Reasoning tiers"
 )
 
 // FormInputWidth is the width of the form's text input.

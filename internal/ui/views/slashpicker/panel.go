@@ -41,7 +41,7 @@ package slashpicker
 import (
 	"strings"
 
-	"github.com/carapace-sh/carapace-shlex"
+	shlex "github.com/carapace-sh/carapace-shlex"
 	"github.com/justwasm/pigasus/internal/ui/slashcommands"
 )
 

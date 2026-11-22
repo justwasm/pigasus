@@ -40,12 +40,34 @@ func AdvertisedToolDeclsWithSandbox(agentBody string, reg *tools.Registry, sandb
 	}
 	model := surface.ModelDeclarationsFor(sandboxed)
 	decls := make([]backend.ToolDecl, 0, len(model))
+	seen := make(map[string]bool, len(model))
 	for _, d := range model {
+		seen[d.Name] = true
 		decls = append(decls, backend.ToolDecl{
 			Name:        d.Name,
 			Description: d.Description,
 			Parameters:  d.Parameters,
 		})
+	}
+	if reg != nil {
+		dynamicNames := reg.List()
+		sort.Strings(dynamicNames)
+		for _, n := range dynamicNames {
+			if !seen[n] {
+				if t, ok := reg.Get(n); ok {
+					seen[n] = true
+					params := t.Schema()
+					if len(params) == 0 {
+						params = json.RawMessage(`{"type":"object","properties":{}}`)
+					}
+					decls = append(decls, backend.ToolDecl{
+						Name:        n,
+						Description: tools.Describe(t),
+						Parameters:  params,
+					})
+				}
+			}
+		}
 	}
 	return decls
 }

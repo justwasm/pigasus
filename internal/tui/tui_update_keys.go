@@ -85,6 +85,12 @@ func (m *RootModel) dispatchKeyAction(action string) (tea.Model, tea.Cmd, bool) 
 				return m, nil, true
 			}
 		}
+	case "view.history":
+		if !m.overlays.resumePicker.Active() && m.overlays.panel.kind == panelregistry.None {
+			if m.openSlashPanel("history") {
+				return m, nil, true
+			}
+		}
 	case "view.toggle_trajectory":
 		if m.overlays.resumePicker.Active() {
 			break
@@ -504,6 +510,24 @@ func (m *RootModel) fastApproveSubagent() bool {
 }
 
 func (m *RootModel) handleGlobalOrModalKeys(key tea.Key) (tea.Model, tea.Cmd, bool) {
+	if m.hasPanelSelection() && (key.Code == 'c' || key.Code == 'C') && (key.Mod.Contains(tea.ModSuper) || key.Mod.Contains(tea.ModCtrl)) && !key.Mod.Contains(tea.ModAlt) {
+		text := m.panelSelectionText()
+		m.ResetPanelSelection()
+		if text != "" {
+			_ = clipboard.Write(text)
+			return m, m.copySelectionCmd(text), true
+		}
+		return m, nil, true
+	}
+	if m.hasBtwSelection() && (key.Code == 'c' || key.Code == 'C') && (key.Mod.Contains(tea.ModSuper) || key.Mod.Contains(tea.ModCtrl)) && !key.Mod.Contains(tea.ModAlt) {
+		text := m.btwSelectionText()
+		m.ResetBtwSelection()
+		if text != "" {
+			_ = clipboard.Write(text)
+			return m, m.copySelectionCmd(text), true
+		}
+		return m, nil, true
+	}
 	if m.prompt.keybindings != nil {
 		if act := m.prompt.keybindings.ActionForKey(key); act != "" {
 			if act == "cli.escape" && key.Code == 'c' && key.Mod.Contains(tea.ModCtrl) {
@@ -643,6 +667,15 @@ func (m *RootModel) handleGlobalOrModalKeys(key tea.Key) (tea.Model, tea.Cmd, bo
 			return m, nil, false
 		}
 		if m.openSlashPanel("artifact") {
+			return m, nil, true
+		}
+		return m, nil, false
+	}
+	if key.Code == 'h' && (key.Mod.Contains(tea.ModCtrl) || key.Mod.Contains(tea.ModAlt)) && !m.overlays.resumePicker.Active() {
+		if m.overlays.panel.kind != panelregistry.None {
+			return m, nil, false
+		}
+		if m.openSlashPanel("history") {
 			return m, nil, true
 		}
 		return m, nil, false
@@ -1419,6 +1452,15 @@ func (m *RootModel) handleWordMoveAndChords(key tea.Key) (tea.Model, tea.Cmd, bo
 		}
 		return m, nil, true
 	}
+	if m.hasPanelSelection() && (key.Code == 'c' || key.Code == 'C') && (key.Mod.Contains(tea.ModSuper) || key.Mod.Contains(tea.ModCtrl)) && !key.Mod.Contains(tea.ModAlt) {
+		text := m.panelSelectionText()
+		m.ResetPanelSelection()
+		if text != "" {
+			_ = clipboard.Write(text)
+			return m, m.copySelectionCmd(text), true
+		}
+		return m, nil, true
+	}
 	if (key.Code == 'v' || key.Code == 'V') && (key.Mod.Contains(tea.ModCtrl) || key.Mod.Contains(tea.ModSuper)) && !key.Mod.Contains(tea.ModAlt) {
 		// The paste key's image half (agy 1.4.9): an image on the
 		// clipboard is attached, a dropped image file is attached, and
@@ -1531,7 +1573,7 @@ func (m *RootModel) updateWindowSize(msg tea.WindowSizeMsg) (tea.Model, tea.Cmd)
 }
 
 func (m *RootModel) updateMouseClick(ev tea.Mouse) (tea.Model, tea.Cmd) {
-	if !m.viewport.altScreen || ev.Button != tea.MouseLeft {
+	if (!m.viewport.altScreen && m.overlays.panel.kind == panelregistry.None) || ev.Button != tea.MouseLeft {
 		return m, nil
 	}
 	if m.prompt.picker.HandleClick(ev) {
@@ -1570,8 +1612,21 @@ func (m *RootModel) updateMouseClick(ev tea.Mouse) (tea.Model, tea.Cmd) {
 		m.overlays.btwSelection.SelEndCol = ev.X
 		return m, nil
 	}
+	if m.IsPanelY(ev.Y) {
+		m.ResetSelection()
+		m.ResetInputSelection()
+		m.ResetBtwSelection()
+		panelRelY := ev.Y - m.overlays.panelScreenY
+		m.overlays.panelSelection.SelDragging = true
+		m.overlays.panelSelection.SelStartRow = panelRelY
+		m.overlays.panelSelection.SelStartCol = ev.X
+		m.overlays.panelSelection.SelEndRow = panelRelY
+		m.overlays.panelSelection.SelEndCol = ev.X
+		return m, nil
+	}
 	m.ResetInputSelection()
 	m.ResetBtwSelection()
+	m.ResetPanelSelection()
 	row, col, ok := tuiviewport.TranscriptCellAt(ev.X, ev.Y, m.viewportHeight(), m.viewport.width)
 	if !ok {
 		return m, nil
@@ -1603,6 +1658,20 @@ func (m *RootModel) updateMouseMotion(ev tea.Mouse) (tea.Model, tea.Cmd) {
 		if cardRelY != m.overlays.btwSelection.SelEndRow || ev.X != m.overlays.btwSelection.SelEndCol {
 			m.overlays.btwSelection.SelEndRow = cardRelY
 			m.overlays.btwSelection.SelEndCol = ev.X
+		}
+		return m, nil
+	}
+	if m.overlays.panelSelection.SelDragging && (m.viewport.altScreen || m.overlays.panel.kind != panelregistry.None) {
+		panelRelY := ev.Y - m.overlays.panelScreenY
+		if panelRelY < 0 {
+			panelRelY = 0
+		}
+		if panelRelY >= m.overlays.panelHeight {
+			panelRelY = m.overlays.panelHeight - 1
+		}
+		if panelRelY != m.overlays.panelSelection.SelEndRow || ev.X != m.overlays.panelSelection.SelEndCol {
+			m.overlays.panelSelection.SelEndRow = panelRelY
+			m.overlays.panelSelection.SelEndCol = ev.X
 		}
 		return m, nil
 	}
@@ -1663,12 +1732,40 @@ func (m *RootModel) updateMouseReleaseInputSel(ev tea.Mouse) (tea.Model, tea.Cmd
 	return m, nil
 }
 
+func (m *RootModel) updateMouseReleasePanelSel(ev tea.Mouse) (tea.Model, tea.Cmd) {
+	m.overlays.panelSelection.SelDragging = false
+	if ev.Button != tea.MouseLeft {
+		m.ResetPanelSelection()
+		return m, nil
+	}
+	panelRelY := ev.Y - m.overlays.panelScreenY
+	if panelRelY < 0 {
+		panelRelY = 0
+	}
+	if panelRelY >= m.overlays.panelHeight {
+		panelRelY = m.overlays.panelHeight - 1
+	}
+	m.overlays.panelSelection.SelEndRow = panelRelY
+	m.overlays.panelSelection.SelEndCol = ev.X
+
+	text := m.panelSelectionText()
+	m.ResetPanelSelection()
+	if text != "" {
+		_ = clipboard.Write(text)
+		return m, m.copySelectionCmd(text)
+	}
+	return m, nil
+}
+
 func (m *RootModel) updateMouseRelease(ev tea.Mouse) (tea.Model, tea.Cmd) {
 	if m.prompt.InputSelDragging {
 		return m.updateMouseReleaseInputSel(ev)
 	}
 	if m.overlays.btwSelection.SelDragging {
 		return m.updateMouseReleaseBtwSel(ev)
+	}
+	if m.overlays.panelSelection.SelDragging {
+		return m.updateMouseReleasePanelSel(ev)
 	}
 	if !m.viewport.SelDragging {
 		return m, nil

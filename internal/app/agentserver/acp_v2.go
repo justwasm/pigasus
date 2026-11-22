@@ -63,25 +63,43 @@ func NewACPV2Agent(srv *Server, client acp2.Client) *ACPV2Agent {
 		srv:    srv,
 		client: client,
 	}
+	var store acp2.SessionStore[*acpV2Session]
+	if srv != nil {
+		store = srv.getACPV2Store()
+	} else {
+		store = acp2.NewMemoryStore[*acpV2Session]()
+	}
 	a.SessionManager = acp2.NewSessionManager(
-		acp2.NewMemoryStore[*acpV2Session](),
+		store,
 		func(ctx context.Context, params *acp2.NewSessionRequest) (acp2.SessionID, *acpV2Session, error) {
 			cwd := string(params.Cwd)
-			sess, err := srv.sessionFor(cwd, srv.cfg.Model)
-			if err != nil {
-				return "", nil, err
+			var sess *Session
+			var err error
+			if srv != nil {
+				sess, err = srv.sessionFor(cwd, srv.cfg.Model)
+				if err != nil {
+					return "", nil, err
+				}
 			}
-			sessID := acp2.SessionID(sess.ConversationID)
-			if sessID == "" {
+			var sessID acp2.SessionID
+			if sess != nil && sess.ConversationID != "" {
+				sessID = acp2.SessionID(sess.ConversationID)
+			} else {
 				sessID = acp2.SessionID(fmt.Sprintf("sess_%d", time.Now().UnixNano()))
 			}
-			if cwd == "" {
+			if cwd == "" && sess != nil {
 				cwd = sess.Workspace
+			}
+			var cmds []acp2.AvailableCommand
+			if srv != nil {
+				cmds = v2CommandsFor(srv.cfg)
+			} else {
+				cmds = defaultV2Commands()
 			}
 			return sessID, &acpV2Session{
 				cwd:      acp2.AbsolutePath(cwd),
 				session:  sess,
-				commands: v2CommandsFor(srv.cfg),
+				commands: cmds,
 			}, nil
 		},
 	)
@@ -118,6 +136,86 @@ func (a *ACPV2Agent) NewSession(ctx context.Context, params *acp2.NewSessionRequ
 		}
 	}
 	return resp, nil
+}
+
+// ResumeSession implements acp2.Agent, continuing a session and replaying history if requested.
+func (a *ACPV2Agent) ResumeSession(ctx context.Context, params *acp2.ResumeSessionRequest) (*acp2.ResumeSessionResponse, error) {
+	if params == nil {
+		return nil, fmt.Errorf("resume session: nil params")
+	}
+	s, err := a.Lookup(ctx, params.SessionID)
+	if err != nil {
+		cwd := string(params.Cwd)
+		if cwd == "" && a.srv != nil {
+			cwd = a.srv.cfg.Workspace
+		}
+		var sess *Session
+		var sErr error
+		if a.srv != nil {
+			sess, sErr = a.srv.sessionFor(cwd, a.srv.cfg.Model)
+			if sErr != nil {
+				return nil, err
+			}
+		}
+		recoveredHist := loadHistoryFromTranscript(string(params.SessionID))
+		var cmds []acp2.AvailableCommand
+		if a.srv != nil {
+			cmds = v2CommandsFor(a.srv.cfg)
+		} else {
+			cmds = defaultV2Commands()
+		}
+		s = &acpV2Session{
+			cwd:      acp2.AbsolutePath(cwd),
+			session:  sess,
+			history:  recoveredHist,
+			commands: cmds,
+		}
+		if saveErr := a.SessionManager.Save(ctx, params.SessionID, s); saveErr != nil {
+			return nil, saveErr
+		}
+	}
+
+	if params.Cwd != "" {
+		s.cwd = params.Cwd
+	}
+
+	for _, opt := range params.ConfigOptions {
+		if idOpt, ok := opt.As[schemav2.InitialSessionConfigOptionID](); ok {
+			switch idOpt.ConfigID {
+			case "model":
+				if s.session != nil {
+					s.session.Model = string(idOpt.Value)
+				}
+			case "thinking_level":
+				if s.session != nil {
+					s.session.Effort = string(idOpt.Value)
+				}
+			}
+		}
+	}
+
+	if a.client != nil {
+		stream := acp2.NewSessionStream(a.client, params.SessionID)
+		_ = stream.SendCommands(ctx, s.AvailableCommands())
+		if !params.ReplayFrom.IsZero() {
+			s.mu.Lock()
+			hist := slices.Clone(s.history)
+			s.mu.Unlock()
+			for _, msg := range hist {
+				msgID := acp2.GenerateMessageID()
+				switch msg.Role {
+				case "user":
+					_ = stream.SendUserMessage(ctx, msgID, acp2.TextBlock(msg.Content))
+				case "assistant":
+					_ = stream.SendText(ctx, msgID, msg.Content)
+				}
+			}
+		}
+	}
+
+	return &acp2.ResumeSessionResponse{
+		AvailableCommands: s.AvailableCommands(),
+	}, nil
 }
 
 // Prompt implements acp2.Agent.

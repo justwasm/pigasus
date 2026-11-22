@@ -383,7 +383,7 @@ func (s *slashQuoteStory) View() string {
 	b.WriteString(bold("Turn Quotation Preview (/quote 1)") + "\n")
 	b.WriteString(dim("────────────────────────────────────────────────────────────") + "\n")
 	if errText != "" {
-		b.WriteString(red("Error: " + errText) + "\n")
+		b.WriteString(red("Error: "+errText) + "\n")
 	} else {
 		b.WriteString(blue("Quoted Content:") + "\n")
 		lines := strings.Split(res, "\n")
@@ -407,4 +407,3 @@ func RegisterCollaborationStories(c *Catalog) {
 	c.Register(newRenamePanelStory())
 	c.Register(newSlashQuoteStory())
 }
-

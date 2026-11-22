@@ -338,14 +338,21 @@ func (a *Actor) executeTurn(env *turnEnvelope) {
 		var stepUsage TokenUsage
 		var finishReason string
 		interrupted := false
+		normalizer := NewThoughtNormalizer()
 
 		// Stream chunks.
 		for {
 			chunk, rErr := stream.Recv()
 			if rErr == io.EOF {
+				for _, flushed := range normalizer.Flush() {
+					a.emitNormalizedChunk(h, flushed, &stepThought, &stepText, &step, &stepUsage, &turnUsage, &finishReason)
+				}
 				break
 			}
 			if rErr != nil {
+				for _, flushed := range normalizer.Flush() {
+					a.emitNormalizedChunk(h, flushed, &stepThought, &stepText, &step, &stepUsage, &turnUsage, &finishReason)
+				}
 				switch {
 				case turnCtx.Err() != nil:
 					turnStatus = "cancelled"
@@ -362,43 +369,9 @@ func (a *Actor) executeTurn(env *turnEnvelope) {
 				break
 			}
 
-			if chunk.FinishReason != "" {
-				finishReason = chunk.FinishReason
-			}
-
-			if chunk.Thought != "" {
-				stepThought.WriteString(chunk.Thought)
-				h.emit(Event{
-					Type:      EventThought,
-					ActorID:   a.id,
-					Timestamp: a.now(),
-					Thought:   chunk.Thought,
-				})
-			}
-
-			if chunk.Delta != "" {
-				stepText.WriteString(chunk.Delta)
-				h.emit(Event{
-					Type:      EventDelta,
-					ActorID:   a.id,
-					Timestamp: a.now(),
-					Delta:     chunk.Delta,
-				})
-			}
-
-			if len(chunk.ToolCalls) > 0 {
-				step.ToolCalls = append(step.ToolCalls, chunk.ToolCalls...)
-			}
-
-			if chunk.Usage != nil {
-				stepUsage.Add(chunk.Usage)
-				turnUsage.Add(chunk.Usage)
-				h.emit(Event{
-					Type:      EventUsage,
-					ActorID:   a.id,
-					Timestamp: a.now(),
-					Usage:     chunk.Usage,
-				})
+			normChunks := normalizer.Feed(chunk)
+			for _, nc := range normChunks {
+				a.emitNormalizedChunk(h, nc, &stepThought, &stepText, &step, &stepUsage, &turnUsage, &finishReason)
 			}
 		}
 		_ = stream.Close()
@@ -781,4 +754,58 @@ func (a *Actor) emitError(h *TurnHandle, err error) {
 		Error:     err.Error(),
 		Err:       err,
 	})
+}
+
+func (a *Actor) emitNormalizedChunk(
+	h *TurnHandle,
+	chunk StreamChunk,
+	stepThought *strings.Builder,
+	stepText *strings.Builder,
+	step *Step,
+	stepUsage *TokenUsage,
+	turnUsage *TokenUsage,
+	finishReason *string,
+) {
+	if chunk.FinishReason != "" && finishReason != nil {
+		*finishReason = chunk.FinishReason
+	}
+	if chunk.Thought != "" {
+		stepThought.WriteString(chunk.Thought)
+		te := chunk.ThoughtEvent
+		if te == nil {
+			te = &ThoughtEvent{
+				Source:  ThoughtSourceGeneric,
+				Content: chunk.Thought,
+			}
+		}
+		h.emit(Event{
+			Type:         EventThought,
+			ActorID:      a.id,
+			Timestamp:    a.now(),
+			Thought:      chunk.Thought,
+			ThoughtEvent: te,
+		})
+	}
+	if chunk.Delta != "" {
+		stepText.WriteString(chunk.Delta)
+		h.emit(Event{
+			Type:      EventDelta,
+			ActorID:   a.id,
+			Timestamp: a.now(),
+			Delta:     chunk.Delta,
+		})
+	}
+	if len(chunk.ToolCalls) > 0 {
+		step.ToolCalls = append(step.ToolCalls, chunk.ToolCalls...)
+	}
+	if chunk.Usage != nil {
+		stepUsage.Add(chunk.Usage)
+		turnUsage.Add(chunk.Usage)
+		h.emit(Event{
+			Type:      EventUsage,
+			ActorID:   a.id,
+			Timestamp: a.now(),
+			Usage:     chunk.Usage,
+		})
+	}
 }

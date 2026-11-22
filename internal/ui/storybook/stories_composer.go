@@ -228,7 +228,7 @@ type attachmentsStory struct {
 	h     int
 }
 
-func (s *attachmentsStory) SetState(idx int)  { s.state = idx }
+func (s *attachmentsStory) SetState(idx int) { s.state = idx }
 func (s *attachmentsStory) SetSize(w, h int) { s.width, s.h = w, h }
 func (s *attachmentsStory) HandleKey(key tea.KeyMsg) (tea.Cmd, bool) {
 	if isCtrlO(key) {

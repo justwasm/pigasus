@@ -141,6 +141,21 @@ func BuildSteps(t Trajectory) []Step {
 		steps = append(steps, call)
 		idx++
 	}
+	// Synchronize any assistant step in Loaded if its content was updated in Session (e.g. streaming finished).
+	if seededLen > 0 && seededLen <= len(t.Session) {
+		lastMsg := t.Session[seededLen-1]
+		if lastMsg.Role == "assistant" && len(lastMsg.Content) > 0 {
+			for i := len(steps) - 1; i >= 0; i-- {
+				if steps[i].Type == StepModelResponse {
+					if steps[i].Text != lastMsg.Content && len(lastMsg.Content) > len(steps[i].Text) {
+						steps[i].Text = lastMsg.Content
+						steps[i].RawPayload = nil // Force re-encoding with complete content
+					}
+					break
+				}
+			}
+		}
+	}
 	if n := len(steps); n > 0 && steps[n-1].Type == StepModelResponse {
 		steps[n-1].Text = backend.TrimTrailingBlankLines(steps[n-1].Text)
 	}

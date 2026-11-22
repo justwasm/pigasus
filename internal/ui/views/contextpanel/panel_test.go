@@ -43,8 +43,8 @@ func TestLinesEmptyLayout(t *testing.T) {
 		Mode:  ModeEmpty,
 		Model: "Gemini 3.8 Flash (High)",
 	}))
-	if len(plain) != 19 {
-		t.Fatalf("line count = %d, want 19\nplain:\n%s", len(plain), strings.Join(plain, "\n"))
+	if len(plain) != 17 {
+		t.Fatalf("line count = %d, want 17\nplain:\n%s", len(plain), strings.Join(plain, "\n"))
 	}
 	if plain[0] != "└ Context Usage" {
 		t.Errorf("row 0 = %q, want the title", plain[0])
@@ -85,8 +85,8 @@ func TestLinesStreamingLayout(t *testing.T) {
 		User:  6,
 		Agent: 29,
 	}))
-	if len(plain) != 19 {
-		t.Fatalf("line count = %d, want 19\nplain:\n%s", len(plain), strings.Join(plain, "\n"))
+	if len(plain) != 17 {
+		t.Fatalf("line count = %d, want 17\nplain:\n%s", len(plain), strings.Join(plain, "\n"))
 	}
 	if !strings.Contains(plain[3], "awaiting generation") {
 		t.Errorf("row 3 = %q, want the awaiting-generation row", plain[3])
@@ -129,8 +129,8 @@ func TestLinesLiveLayout(t *testing.T) {
 		MCPTools:       3,
 		SystemMessages: 2,
 	}))
-	if len(plain) != 29 {
-		t.Fatalf("line count = %d, want 29\nplain:\n%s", len(plain), strings.Join(plain, "\n"))
+	if len(plain) != 27 {
+		t.Fatalf("line count = %d, want 27\nplain:\n%s", len(plain), strings.Join(plain, "\n"))
 	}
 	if !strings.Contains(plain[1], "Gemini 3.8 Flash (High) · 1.9k/1.0M tokens") {
 		t.Errorf("row 1 = %q, want the used/1.0M descriptor", plain[1])
@@ -232,16 +232,6 @@ func TestLinesCheckpointBufferRow(t *testing.T) {
 
 // TestLinesTail — the shared bottom of every layout: the auto-loaded
 // system files, the Related rows and the scroll legend.
-//
-// The three Related rows are the reference's own bytes: its string
-// table carries `Related: /artifact \n /skill \n /rewind` with the
-// *two characters* `\n` between the commands
-// (the surviving pruned index of that table,
-// out/local-macos-1.4.11/strings-index.txt, carries the head
-// "Related: /artifact" and, in the context window around it, the tail
-// " /skill " and " /rewind"; the full dump is retired), so the hint is
-// three rows
-// and the spaces around the separator are kept.
 func TestLinesTail(t *testing.T) {
 	tail := plainLines(TailLines())
 	want := []string{
@@ -252,9 +242,7 @@ func TestLinesTail(t *testing.T) {
 		" └ ~/.gemini/antigravity/skills/",
 		" └ .agents/agents/",
 		"",
-		"Related: /artifact ",
-		" /skill ",
-		" /rewind",
+		"Related: /artifact · /skill · /rewind",
 	}
 	if len(tail) != len(want)+1 {
 		t.Fatalf("tail length = %d, want %d (the rows plus the legend)", len(tail), len(want)+1)
@@ -281,9 +269,7 @@ func TestLinesNondescriptorRowsUnchanged(t *testing.T) {
 		" └ ~/.gemini/skills/",
 		" └ ~/.gemini/antigravity/skills/",
 		" └ .agents/agents/",
-		"Related: /artifact ",
-		" /skill ",
-		" /rewind",
+		"Related: /artifact · /skill · /rewind",
 	} {
 		if !containsLine(ep, want) || !containsLine(lp, want) {
 			t.Errorf("row %q missing from one layout (empty=%v live=%v)",

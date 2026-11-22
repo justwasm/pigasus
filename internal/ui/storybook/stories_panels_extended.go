@@ -17,6 +17,7 @@ import (
 	"github.com/justwasm/pigasus/internal/ui/views/changelog"
 	"github.com/justwasm/pigasus/internal/ui/views/contextpanel"
 	featdiff "github.com/justwasm/pigasus/internal/ui/views/diff/feat"
+	"github.com/justwasm/pigasus/internal/ui/views/historypanel"
 	"github.com/justwasm/pigasus/internal/ui/views/mcppanel"
 	"github.com/justwasm/pigasus/internal/ui/views/onboarding"
 	"github.com/justwasm/pigasus/internal/ui/views/permissionspanel"
@@ -242,6 +243,26 @@ func RegisterPanelsExtendedStories(c *Catalog) {
 		},
 		Factory: func() StoryInstance {
 			inst := &featDiffPanelStory{width: 80, height: 24}
+			return inst
+		},
+	})
+
+	// 13. PromptHistoryPanel
+	c.Register(Story{
+		ID:          "panel-prompt-history",
+		Name:        "PromptHistoryPanel (Prompt History Picker)",
+		Category:    CategoryPanels,
+		Description: "Interactive prompt history picker (/history, ctrl+h, alt+h) with live search, scope toggling, multi-line preview, and selection into composer.",
+		UpstreamSym: "jetski/cli/panel.PromptHistoryPanel",
+		States: []State{
+			{ID: "workspace-scope", Name: "Current Workspace", Description: "Recent prompt inputs in the active workspace with multi-line preview"},
+			{ID: "all-scope", Name: "All Workspaces", Description: "Global cross-session prompt history across all repositories"},
+			{ID: "filtered-search", Name: "Live Search Filter", Description: "Instant keyword search query matching prompts"},
+			{ID: "empty-history", Name: "Empty History", Description: "Empty prompt history list with legend"},
+		},
+		Factory: func() StoryInstance {
+			inst := &promptHistoryPanelStory{width: 80, height: 24}
+			inst.SetState(0)
 			return inst
 		},
 	})
@@ -1230,6 +1251,88 @@ func (s *featDiffPanelStory) HandleMouse(msg tea.MouseMsg) (tea.Cmd, bool) {
 			s.offset = max(0, s.offset-3)
 		}
 		return nil, true
+	}
+	return nil, false
+}
+
+// ---------------------------------------------------------------- PromptHistoryPanel Story
+
+type promptHistoryPanelStory struct {
+	state  int
+	width  int
+	height int
+	panel  *historypanel.Panel
+}
+
+func (s *promptHistoryPanelStory) SetState(idx int) {
+	s.state = idx
+	now := time.Now().UnixMilli()
+
+	var entries []historypanel.Entry
+	switch idx {
+	case 0:
+		// Default workspace with multi-line preview
+		entries = []historypanel.Entry{
+			{Text: "fix sqlite premature saving bug", Workspace: "/workspace/openagy", Timestamp: now - 3600000},
+			{Text: "git status && make quick", Workspace: "/workspace/openagy", Timestamp: now - 1800000},
+			{Text: "refactor storybook to include new TUI components\nadd historypanel and wirehud\nverify with make arch", Workspace: "/workspace/openagy", Timestamp: now - 60000},
+			{Text: "/plan compare with upstream CHANGELOG.md", Workspace: "/workspace/openagy", Timestamp: now - 1000},
+		}
+	case 1:
+		// All workspaces (cross-repository)
+		entries = []historypanel.Entry{
+			{Text: "cargo build --release", Workspace: "/workspace/crush", Timestamp: now - 7200000},
+			{Text: "git status && make quick", Workspace: "/workspace/openagy", Timestamp: now - 3600000},
+			{Text: "bun run dev --port 3000", Workspace: "/workspace/frontend", Timestamp: now - 1800000},
+			{Text: "pigasus --conversation=4b06846d", Workspace: "/workspace/openagy", Timestamp: now - 60000},
+		}
+	case 2:
+		// Search query filtered
+		entries = []historypanel.Entry{
+			{Text: "go test ./internal/ui/...", Workspace: "/workspace/openagy", Timestamp: now - 3600000},
+			{Text: "test wire telemetry protocol", Workspace: "/workspace/openagy", Timestamp: now - 1800000},
+			{Text: "run full test suite with make verify", Workspace: "/workspace/openagy", Timestamp: now - 60000},
+		}
+	case 3:
+		// Empty history
+		entries = nil
+	}
+
+	s.panel = historypanel.New(historypanel.Seams{
+		Entries:          func() []historypanel.Entry { return entries },
+		CurrentWorkspace: func() string { return "/workspace/openagy" },
+		Height: func() int {
+			if s.height <= 0 {
+				return 24
+			}
+			return s.height
+		},
+		Pick:  func(string) tea.Cmd { return nil },
+		Close: func() tea.Cmd { return nil },
+	})
+
+	if idx == 1 {
+		s.panel.SetScope(historypanel.ScopeAll)
+	} else if idx == 2 {
+		s.panel.SetQuery("test")
+	}
+}
+
+func (s *promptHistoryPanelStory) SetSize(w, h int) {
+	s.width, s.height = w, h
+}
+
+func (s *promptHistoryPanelStory) View() string {
+	if s.panel == nil {
+		return ""
+	}
+	return strings.Join(s.panel.Lines(), "\n")
+}
+
+func (s *promptHistoryPanelStory) HandleKey(key tea.KeyMsg) (tea.Cmd, bool) {
+	if s.panel != nil {
+		handled, cmd := s.panel.HandleKey(key.Key())
+		return cmd, handled
 	}
 	return nil, false
 }

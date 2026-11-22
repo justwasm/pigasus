@@ -14,7 +14,7 @@ import (
 // reformat, a "typo fix" — would silently change what the clone sends. The
 // digests make that a test failure instead.
 var templateDigests = map[string]string{
-	"helpers/errors.tmpl":                                    "5d37ed29f71d8da88f2eea9a1ebf5db8cbee22be4bde63506f1887f7da0ff0ea",
+	"helpers/errors.tmpl": "5d37ed29f71d8da88f2eea9a1ebf5db8cbee22be4bde63506f1887f7da0ff0ea",
 	"step_strings/helpers/default_status_output_string.tmpl": "c9d1a48159f15ad0ebbac54129db898fcc8276ade3765e8ca3bd8bc29c560504",
 	"step_strings/run_command.tmpl":                          "4edd693408313c291eff37e3554b7a05e3a77107a97686632c54fd560ee6755f",
 	"step_strings/send_command_input.tmpl":                   "704a1b6454a8b3d988ea62f0ac5aae50e0b5dc11b6e652d81844dea2880379b9",

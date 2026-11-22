@@ -64,6 +64,11 @@ type Lock struct {
 	// importable from `internal/cli`'s own tests without an import cycle.
 	Version string `json:"version"`
 
+	// BinarySHA256 is the hex sha256 of the reference binary at Version.
+	// Optional; when present, agy-canary verifies that the binary on disk
+	// matches this exact hash.
+	BinarySHA256 string `json:"binary_sha256,omitempty"`
+
 	// LagAcknowledgedThrough is the highest upstream version we have decided
 	// not to re-evidence. Empty means "no lag tolerated at all". Compare
 	// with CompareVersions, not string equality -- "1.4.10" > "1.4.9".

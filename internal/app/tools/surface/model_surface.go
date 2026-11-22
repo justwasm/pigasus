@@ -147,7 +147,7 @@ func ModelDeclarationsFor(sandboxed bool) []ModelToolDecl {
 // SwarmDeclaration returns the reference model tool declaration for the swarm coordinator tool.
 func SwarmDeclaration() ModelToolDecl {
 	return ModelToolDecl{
-		Name: "swarm",
+		Name:        "swarm",
 		Description: "Manage the swarm of agents working with you on the shared message board. ONLY call this tool when the user explicitly invoked `/swarm`, a skill you read explicitly instructs you to call it, or this conversation already has an active swarm. NEVER start or inspect a swarm on your own (do not call `add`, `title`, `status`, or `models` unprompted); use `invoke_subagent` for normal subagent delegation instead. Actions: `add` spawns a worker under a roster name (or `<name>-1`..`<name>-<k>` when `tasks` or `n` is set), pinned to a model, and posts `brief` on the board as an @mention of it, which is where the swarm sees its assignment -- by default a worker starts fresh and sees nothing of this conversation, so the brief must say what it owns and what done looks like; pass `fork:\"<member>\"` (or `\"coordinator\"`) to branch the new worker from that member's conversation history instead. `workspace:\"share\"` gives each worker its own working copy of your repository, for authors who edit or build at the same time as others; `\"branch\"` gives an isolated clone; readers and verifiers keep the default `inherit`. Briefs are public: every member can read them. `models` lists the models to choose from (`all:true` lists every model `add` accepts); with no model, a worker runs on your own model, which is what to use unless the user asks for another. `status` lists every member, the model it runs on, and its state: `waiting` is asleep on the board, costing nothing until somebody posts; `working` is somewhere in a turn; `stopped` is not loaded (e.g. after a restart) and a post naming it revives it; `killed` is gone. `model` switches a `waiting` worker (or yourself, when `name` is your own name or omitted) to another model, keeping its conversation: it is told of the switch, resumes any unfinished work on the new model, and runs on it from then on. Use it only when a worker or you run out of quota or capacity, or the user asks for another model, and say why; never `kill` and `add` instead. `kill` ends a worker PERMANENTLY and deletes its own workspace, so land its work first (uploaded for review, or its branch merged into your working copy; push to a remote only when the user asks): a killed worker cannot be revived, so use it when the work is over, never as a pause -- bringing one back means `add`ing a new worker with a new conversation. `title` names the swarm. Workers may call `status`, `models` and `add` too, to bring in helpers for their own work: the helper's brief is posted as you, it works in your workspace (or a share/branch of it), and should report back to you by name. A worker may `kill` only the workers it added, and `model` itself or the workers it added; killing a worker does not kill its helpers. The coordinator may `kill` any worker and `model` itself or any worker, and `title` is the coordinator's alone.",
 		Parameters: json.RawMessage(`{
 			"type": "OBJECT",
@@ -359,9 +359,46 @@ func protoCountSchemaKey(k string) bool {
 // ModelDeclarations is what gets advertised. This registry only decides what
 // can *execute*, so adding entries here does not change init.tools in print
 // mode (that list is built from Catalog).
+var (
+	dynamicPluginToolsMu sync.RWMutex
+	dynamicPluginTools   = make(map[string]tools.Tool)
+)
+
+// RegisterPluginTool registers a dynamic plugin tool that will be included in RuntimeCatalog on every reload.
+func RegisterPluginTool(t tools.Tool) {
+	if t == nil {
+		return
+	}
+	dynamicPluginToolsMu.Lock()
+	defer dynamicPluginToolsMu.Unlock()
+	dynamicPluginTools[t.Name()] = t
+}
+
+// UnregisterPluginTool removes a dynamically registered plugin tool.
+func UnregisterPluginTool(name string) {
+	dynamicPluginToolsMu.Lock()
+	defer dynamicPluginToolsMu.Unlock()
+	delete(dynamicPluginTools, name)
+}
+
+// ClearPluginTools unregisters all dynamically registered plugin tools.
+func ClearPluginTools() {
+	dynamicPluginToolsMu.Lock()
+	defer dynamicPluginToolsMu.Unlock()
+	dynamicPluginTools = make(map[string]tools.Tool)
+}
+
+// RuntimeCatalog returns the runtime tool registry for ws: it holds the 60
+// advertised names plus the three 1.4.4-only reference executors
+// (ReadFile/WriteFile/EditFile), plus any dynamically registered plugin tools.
 func RuntimeCatalog(ws string) *tools.Registry {
 	reg := Catalog(ws)
 	AddReferenceTools(reg, ws)
+	dynamicPluginToolsMu.RLock()
+	for _, t := range dynamicPluginTools {
+		reg.Register(t)
+	}
+	dynamicPluginToolsMu.RUnlock()
 	return reg
 }
 

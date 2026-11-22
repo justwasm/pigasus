@@ -102,6 +102,9 @@ var PanelSpecs = []PanelSpec{
 	{
 		Kind: panelregistry.Context,
 		Handler: func(h RegistryHost) panelregistry.Handler {
+			if p, ok := h.Panel(panelregistry.Context).(panelregistry.StandardPanel); ok && p != nil {
+				return panelregistry.FromPanel(p)
+			}
 			return panelregistry.FuncHandler{
 				OnLines: func() []string { return contextpanel.Lines(h.ContextState()) },
 			}
@@ -135,6 +138,7 @@ var PanelSpecs = []PanelSpec{
 	makeStandardSpec(panelregistry.Diff),
 	makeStandardSpec(panelregistry.AddDir),
 	makeStandardSpec(panelregistry.Rename),
+	makeStandardSpec(panelregistry.History),
 	{
 		Kind: panelregistry.Help,
 		Handler: func(h RegistryHost) panelregistry.Handler {

@@ -12,8 +12,8 @@ import (
 
 	"github.com/justwasm/pigasus/atomicfile"
 	plugins "github.com/justwasm/pigasus/internal/features/plugins/core"
-	"github.com/justwasm/pigasus/internal/features/plugins/pluginimport"
 	"github.com/justwasm/pigasus/internal/features/plugins/marketinstall"
+	"github.com/justwasm/pigasus/internal/features/plugins/pluginimport"
 )
 
 // ---- subcommand_plugin.go ----

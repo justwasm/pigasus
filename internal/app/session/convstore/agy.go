@@ -255,6 +255,33 @@ func parseStepPayload(s *Step, payload []byte, renderInfo ...[]byte) {
 		return
 	}
 	top := protoFields(payload)
+
+	// In reference agy databases (e.g. 732a8b90 and other official sessions),
+	// the step_type column in SQLite is often 0 for user inputs and model responses.
+	// The true step type is encoded in the protobuf payload (field 1 as varint, or
+	// defined by the oneof payload tag: 19 = user input, 20 = model response,
+	// 140/5 = tool call, 30 = checkpoint, 24 = system/error).
+	if s.Type == 0 {
+		if t := protoVarint(top, 1); t > 0 {
+			s.Type = int64(t)
+		} else if protoBytes(top, 19) != nil {
+			s.Type = StepUserInput
+		} else if protoBytes(top, 20) != nil {
+			s.Type = StepModelResponse
+		} else if protoBytes(top, 140) != nil || protoBytes(top, 5) != nil {
+			s.Type = StepToolCall
+		} else if protoBytes(top, 30) != nil {
+			s.Type = StepCheckpoint
+		} else if protoBytes(top, 24) != nil {
+			s.Type = StepSystemNotice
+		}
+	}
+	if s.Status == 0 {
+		if st := protoVarint(top, 4); st > 0 {
+			s.Status = int64(st)
+		}
+	}
+
 	switch s.Type {
 	case StepUserInput:
 		parseUserInputStep(s, top)

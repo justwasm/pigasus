@@ -39,6 +39,8 @@ var commandPanels = map[string]Kind{
 	"provider": Provider,
 	"accounts": Accounts,
 	"projects": Projects,
+	"history":  History,
+	"hist":     History,
 	// /pool is the /accounts panel's Pool tab on its own: the policy
 	// that decides which account serves a turn.
 	"pool": Accounts,

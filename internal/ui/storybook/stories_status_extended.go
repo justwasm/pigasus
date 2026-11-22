@@ -3,6 +3,7 @@ package storybook
 import (
 	"bytes"
 	"fmt"
+	"strings"
 	"time"
 
 	tea "charm.land/bubbletea/v2"
@@ -13,6 +14,7 @@ import (
 	"github.com/justwasm/pigasus/internal/ui/views/seasonal"
 	"github.com/justwasm/pigasus/internal/ui/views/statusrow"
 	"github.com/justwasm/pigasus/internal/ui/views/voice"
+	"github.com/justwasm/pigasus/internal/ui/views/wirehud"
 )
 
 // RegisterStatusExtendedStories registers additional status, voice, and system overlay stories.
@@ -130,6 +132,25 @@ func RegisterStatusExtendedStories(c *Catalog) {
 		Factory: func() StoryInstance {
 			inst := &programStatusStory{width: 80, height: 24}
 			inst.SetState(0)
+			return inst
+		},
+	})
+
+	// 7. WireHUD
+	c.Register(Story{
+		ID:          "status-wire-hud",
+		Name:        "WireHUD (Streaming Diagnostics Overlay)",
+		Category:    CategoryStatus,
+		Description: "Real-time wire diagnostics HUD overlay (/wire) displaying protocol, RTT, TTFT, throughput, and token rate.",
+		UpstreamSym: "jetski/cli/model.WireHUD",
+		States: []State{
+			{ID: "idle", Name: "Idle State", Description: "Connected protocol awaiting active stream turn"},
+			{ID: "streaming", Name: "Active Streaming", Description: "Active token generation with live RTT, TTFT, throughput, and token/sec"},
+			{ID: "done", Name: "Completed Summary", Description: "Post-turn metrics summary with final tokens/sec rate"},
+		},
+		Factory: func() StoryInstance {
+			inst := &wireHUDStory{width: 80, height: 24}
+			inst.SetState(1)
 			return inst
 		},
 	})
@@ -380,5 +401,81 @@ func (s *programStatusStory) View() string {
 }
 
 func (s *programStatusStory) HandleKey(key tea.KeyMsg) (tea.Cmd, bool) {
+	return nil, false
+}
+
+// -----------------------------------------------------------------------------
+// 7. WireHUD Story
+// -----------------------------------------------------------------------------
+
+type wireHUDStory struct {
+	state  int
+	width  int
+	height int
+	hud    *wirehud.HUD
+}
+
+func (s *wireHUDStory) SetState(idx int) {
+	s.state = idx
+	s.hud = wirehud.New()
+	s.hud.SetVisible(true)
+
+	switch idx {
+	case 0:
+		// Idle
+		s.hud.UpdateMetrics(wirehud.Metrics{
+			Protocol: "CloudCode/gRPC (HTTP/2)",
+			Status:   "IDLE",
+			RTT:      45 * time.Millisecond,
+		})
+	case 1:
+		// Active Streaming
+		s.hud.UpdateMetrics(wirehud.Metrics{
+			Protocol:     "CloudCode/gRPC (HTTP/2)",
+			Status:       "STREAMING",
+			RTT:          42 * time.Millisecond,
+			TTFT:         215 * time.Millisecond,
+			SentPkts:     4,
+			SentBytes:    1420,
+			RecvPkts:     38,
+			RecvBytes:    12480,
+			TokensPerSec: 64.8,
+		})
+	case 2:
+		// Done
+		s.hud.UpdateMetrics(wirehud.Metrics{
+			Protocol:     "CloudCode/gRPC (HTTP/2)",
+			Status:       "DONE",
+			RTT:          38 * time.Millisecond,
+			TTFT:         195 * time.Millisecond,
+			SentPkts:     5,
+			SentBytes:    1820,
+			RecvPkts:     72,
+			RecvBytes:    28400,
+			TokensPerSec: 71.2,
+		})
+	}
+}
+
+func (s *wireHUDStory) SetSize(w, h int) {
+	s.width, s.height = w, h
+}
+
+func (s *wireHUDStory) View() string {
+	if s.hud == nil {
+		return ""
+	}
+	w := s.width
+	if w <= 0 {
+		w = 80
+	}
+	box := s.hud.RenderBox(w)
+	var sb strings.Builder
+	sb.WriteString("Wire HUD Telemetry Overlay Preview:\n\n")
+	sb.WriteString(strings.Join(box, "\n"))
+	return sb.String()
+}
+
+func (s *wireHUDStory) HandleKey(key tea.KeyMsg) (tea.Cmd, bool) {
 	return nil, false
 }

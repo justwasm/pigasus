@@ -79,13 +79,13 @@ func runModelShow(j *JetskiCLI, args []string) error {
 }
 
 type modelAddFlags struct {
-	provider  string
-	external  string
-	name      string
-	ctxWindow int
-	maxTokens int
+	provider         string
+	external         string
+	name             string
+	ctxWindow        int
+	maxTokens        int
 	compactThreshold int
-	effort    string
+	effort           string
 	// reasoningEfforts are the reasoning tiers the model offers — the
 	// levels it can be selected at. The list is the closed set the Web
 	// UI's dispatcher accepts (low|medium|high|xhigh|max).

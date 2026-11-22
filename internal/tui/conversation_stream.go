@@ -185,13 +185,11 @@ func (m *RootModel) updateBackendChunkMsg(msg backendChunkMsg) {
 }
 
 func (m *RootModel) saveSessionStreamDebounced() {
-	now := time.Now()
-	// Persist the first chunk immediately so initial step is written to disk,
-	// then throttle subsequent disk writes to at most once every 1.5 seconds.
-	if m.conversation.lastStreamSave.IsZero() || now.Sub(m.conversation.lastStreamSave) >= 1500*time.Millisecond {
-		m.saveSession()
-		m.conversation.lastStreamSave = now
-	}
+	m.conversation.lastStreamSave = time.Now()
+	// Do NOT commit in-flight turn to durable SQLite store mid-stream.
+	// Committing mid-stream permanently bakes partial chunks into trajLoaded
+	// and breaks tool-call ordering. Durable trajectory commit occurs upon turn
+	// completion in recordTurnCompletion / backendDoneMsg.
 }
 
 func (m *RootModel) updateStreamingMsg(msg tea.Msg) (tea.Model, tea.Cmd, bool) {

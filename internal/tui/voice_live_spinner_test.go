@@ -532,4 +532,3 @@ func TestVoiceLive_ProgramSpinnerContinuousAnimation(t *testing.T) {
 		t.Fatalf("expected liveRows=nil after voiceAgentDoneMsg, got %v", live)
 	}
 }
-

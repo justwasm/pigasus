@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/http"
 	"strings"
+	"sync"
 
 	"github.com/coder/websocket"
 	acp "github.com/ironpark/acp-go"
@@ -13,6 +14,34 @@ import (
 	"github.com/ironpark/acp-go/acp2"
 	"github.com/ironpark/acp-go/router"
 )
+
+var (
+	acpStoreMu     sync.Mutex
+	serverV1Stores = make(map[*Server]acp.SessionStore[acp1.SessionID, *acpV1Session])
+	serverV2Stores = make(map[*Server]acp.SessionStore[acp2.SessionID, *acpV2Session])
+)
+
+func (s *Server) getACPV1Store() acp.SessionStore[acp1.SessionID, *acpV1Session] {
+	acpStoreMu.Lock()
+	defer acpStoreMu.Unlock()
+	store, ok := serverV1Stores[s]
+	if !ok {
+		store = acp1.NewMemoryStore[*acpV1Session]()
+		serverV1Stores[s] = store
+	}
+	return store
+}
+
+func (s *Server) getACPV2Store() acp.SessionStore[acp2.SessionID, *acpV2Session] {
+	acpStoreMu.Lock()
+	defer acpStoreMu.Unlock()
+	store, ok := serverV2Stores[s]
+	if !ok {
+		store = acp2.NewMemoryStore[*acpV2Session]()
+		serverV2Stores[s] = store
+	}
+	return store
+}
 
 // ACPRouter returns the configured ProtocolRouter according to ACPVersion.
 // In "auto" / default mode, it configures both v1 and draft v2, dynamically negotiating

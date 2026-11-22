@@ -95,19 +95,19 @@ type StartCascadeResponse struct {
 
 // SendUserCascadeMessageRequest represents the request to SendUserCascadeMessage.
 type SendUserCascadeMessageRequest struct {
-	CascadeID        string            `json:"cascadeId"`
-	Text             string            `json:"text,omitempty"`
-	MessageText      string            `json:"messageText,omitempty"`
-	Items            []TextOrScopeItem `json:"items,omitempty"`
-	DeliveryStrategy int               `json:"deliveryStrategy,omitempty"`
+	CascadeID         string            `json:"cascadeId"`
+	Text              string            `json:"text,omitempty"`
+	MessageText       string            `json:"messageText,omitempty"`
+	Items             []TextOrScopeItem `json:"items,omitempty"`
+	DeliveryStrategy  int               `json:"deliveryStrategy,omitempty"`
 	ContinueExecution bool              `json:"continueExecution,omitempty"`
-	ConfigOverrides  map[string]any    `json:"configOverrides,omitempty"`
-	Media            []map[string]any  `json:"media,omitempty"`
-	ArtifactComments []map[string]any  `json:"artifactComments,omitempty"`
-	FileDiffComments []map[string]any  `json:"fileDiffComments,omitempty"`
-	FileComments     []map[string]any  `json:"fileComments,omitempty"`
-	Tags             []string          `json:"tags,omitempty"`
-	ClientMessageID  string            `json:"clientMessageId,omitempty"`
+	ConfigOverrides   map[string]any    `json:"configOverrides,omitempty"`
+	Media             []map[string]any  `json:"media,omitempty"`
+	ArtifactComments  []map[string]any  `json:"artifactComments,omitempty"`
+	FileDiffComments  []map[string]any  `json:"fileDiffComments,omitempty"`
+	FileComments      []map[string]any  `json:"fileComments,omitempty"`
+	Tags              []string          `json:"tags,omitempty"`
+	ClientMessageID   string            `json:"clientMessageId,omitempty"`
 }
 
 // SendUserCascadeMessageResponse represents the response to SendUserCascadeMessage.

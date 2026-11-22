@@ -434,4 +434,3 @@ func RegisterAuthFeedbackStories(c *Catalog) {
 	c.Register(newViewerPanelStory())
 	c.Register(newLineCommentsStory())
 }
-

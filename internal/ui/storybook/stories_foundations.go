@@ -119,8 +119,8 @@ type themePreviewStory struct {
 	w, h  int
 }
 
-func (s *themePreviewStory) SetState(idx int)            { s.state = idx }
-func (s *themePreviewStory) SetSize(w, h int)           { s.w, s.h = w, h }
+func (s *themePreviewStory) SetState(idx int)                     { s.state = idx }
+func (s *themePreviewStory) SetSize(w, h int)                     { s.w, s.h = w, h }
 func (s *themePreviewStory) HandleKey(tea.KeyMsg) (tea.Cmd, bool) { return nil, false }
 
 func (s *themePreviewStory) View() string {
@@ -148,8 +148,8 @@ type markdownStory struct {
 	h     int
 }
 
-func (s *markdownStory) SetState(idx int)            { s.state = idx }
-func (s *markdownStory) SetSize(w, h int)           { s.width, s.h = w, h }
+func (s *markdownStory) SetState(idx int)                     { s.state = idx }
+func (s *markdownStory) SetSize(w, h int)                     { s.width, s.h = w, h }
 func (s *markdownStory) HandleKey(tea.KeyMsg) (tea.Cmd, bool) { return nil, false }
 
 func (s *markdownStory) View() string {
@@ -241,8 +241,8 @@ type rulesStory struct {
 	h     int
 }
 
-func (s *rulesStory) SetState(idx int)            { s.state = idx }
-func (s *rulesStory) SetSize(w, h int)           { s.width, s.h = w, h }
+func (s *rulesStory) SetState(idx int)                     { s.state = idx }
+func (s *rulesStory) SetSize(w, h int)                     { s.width, s.h = w, h }
 func (s *rulesStory) HandleKey(tea.KeyMsg) (tea.Cmd, bool) { return nil, false }
 
 func (s *rulesStory) View() string {
@@ -279,8 +279,8 @@ type logoTransformsStory struct {
 	h     int
 }
 
-func (s *logoTransformsStory) SetState(idx int)            { s.state = idx }
-func (s *logoTransformsStory) SetSize(w, h int)           { s.width, s.h = w, h }
+func (s *logoTransformsStory) SetState(idx int)                     { s.state = idx }
+func (s *logoTransformsStory) SetSize(w, h int)                     { s.width, s.h = w, h }
 func (s *logoTransformsStory) HandleKey(tea.KeyMsg) (tea.Cmd, bool) { return nil, false }
 
 func (s *logoTransformsStory) View() string {

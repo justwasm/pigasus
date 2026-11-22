@@ -96,6 +96,10 @@ type ProviderConfig struct {
 	Accounts []ProviderAccount `json:"accounts,omitempty"`
 	// ActiveAccount names the currently active account ID.
 	ActiveAccount string `json:"active_account,omitempty"`
+	// Fallbacks holds secondary provider/model handles to failover to.
+	Fallbacks []string `json:"fallbacks,omitempty"`
+	// FallbackChain is an alias for Fallbacks in providers.json.
+	FallbackChain []string `json:"fallback_chain,omitempty"`
 }
 
 // ProviderAccount represents one account, token, or API key under a multi-account provider.
@@ -210,6 +214,26 @@ type ProviderModel struct {
 	SupportsToolCalls *bool `json:"supports_tool_calls,omitempty"`
 	// ModelFeatures maps raw modelFeatures flags from settings.json or config.
 	ModelFeatures map[string]any `json:"model_features,omitempty"`
+	// Fallbacks holds secondary provider/model handles to failover to.
+	Fallbacks []string `json:"fallbacks,omitempty"`
+	// FallbackChain is an alias for Fallbacks.
+	FallbackChain []string `json:"fallback_chain,omitempty"`
+}
+
+// EffectiveFallbacks returns the configured fallback chain for this model.
+func (m ProviderModel) EffectiveFallbacks() []string {
+	if len(m.Fallbacks) > 0 {
+		return copyStrings(m.Fallbacks)
+	}
+	return copyStrings(m.FallbackChain)
+}
+
+// EffectiveFallbacks returns the configured fallback chain for this provider.
+func (p ProviderConfig) EffectiveFallbacks() []string {
+	if len(p.Fallbacks) > 0 {
+		return copyStrings(p.Fallbacks)
+	}
+	return copyStrings(p.FallbackChain)
 }
 
 // EffectiveID returns the catalogue id: ID if set, otherwise Model.
@@ -471,6 +495,10 @@ func (p ProviderConfig) Flatten() []Model {
 				supportsToolCalls = &stc
 			}
 		}
+		fallbacks := m.EffectiveFallbacks()
+		if len(fallbacks) == 0 {
+			fallbacks = p.EffectiveFallbacks()
+		}
 		out = append(out, Model{
 			Name:                       id,
 			DisplayName:                label,
@@ -500,6 +528,7 @@ func (p ProviderConfig) Flatten() []Model {
 			TimeoutSeconds:             p.TimeoutSeconds,
 			MaxRetries:                 p.MaxRetries,
 			ExtraHeaders:               copyHeaders(p.EffectiveHeaders()),
+			Fallbacks:                  copyStrings(fallbacks),
 		})
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })

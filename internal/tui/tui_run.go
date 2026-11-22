@@ -49,6 +49,7 @@ import (
 	"github.com/justwasm/pigasus/internal/ui/views/loginui"
 	"github.com/justwasm/pigasus/internal/ui/views/modelpicker"
 	"github.com/justwasm/pigasus/internal/ui/views/seasonal"
+	"github.com/justwasm/pigasus/mcp"
 	"github.com/justwasm/pigasus/palette"
 	"github.com/justwasm/pigasus/render"
 	"golang.org/x/term"
@@ -422,7 +423,17 @@ func initTUIRootModel(fs *flag.FlagSet, be backend.Client, modelName, unavailabl
 		m.session.modelWarning = fmt.Sprintf("Model %q is not configured in %s. Falling back to mock shim.", modelName, models.ProvidersPath())
 	}
 	watchCtx, watchCancel := context.WithCancel(context.Background())
-	if w, werr := pluginwatch.New(confhome.Antigravity()); werr == nil && w != nil {
+	workspace, _ := os.Getwd()
+	var extraPaths []string
+	for _, cs := range mcp.ConfigPaths(auth.AntigravityHome(), workspace) {
+		if cs.Path != "" {
+			extraPaths = append(extraPaths, cs.Path)
+		}
+	}
+	if wsPluginDir := filepath.Join(workspace, ".gemini", "plugins"); wsPluginDir != "" {
+		extraPaths = append(extraPaths, wsPluginDir)
+	}
+	if w, werr := pluginwatch.NewWithExtra(confhome.Antigravity(), extraPaths...); werr == nil && w != nil {
 		m.viewport.pluginWatcher = w
 		pluginWatcherPtr.Store(w)
 		w.SetOnChange(func() {
@@ -720,7 +731,7 @@ func (m *RootModel) interruptedHintRow() string {
 	line := agentturn.InterruptedHintLine(branding.Current().CLIName)
 	const hook = "  ⎿  "
 	return cWarningBlueOpen + hook + cWarningBlueClose +
-		cDimGrayOpen + strings.TrimPrefix(line, hook) + cDimGrayClose
+		cDimGrayOpen + strings.TrimPrefix(line, hook) + " (type /continue to resume)" + cDimGrayClose
 }
 
 // ---- tui_implicit.go ----

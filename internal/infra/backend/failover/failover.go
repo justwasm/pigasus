@@ -5,7 +5,9 @@ package failover
 import (
 	"context"
 	"errors"
+	"net"
 	"strings"
+	"sync"
 
 	"github.com/justwasm/pigasus/internal/core/apierror"
 	"github.com/justwasm/pigasus/internal/core/backend"
@@ -29,6 +31,43 @@ type Event struct {
 
 // Notifier is called whenever an active target fails over to the next target.
 type Notifier func(Event)
+
+var (
+	globalNotifiersMu sync.RWMutex
+	globalNotifiers   []Notifier
+)
+
+// RegisterGlobalNotifier registers a global notifier called on any failover event across all clients.
+func RegisterGlobalNotifier(n Notifier) {
+	if n == nil {
+		return
+	}
+	globalNotifiersMu.Lock()
+	defer globalNotifiersMu.Unlock()
+	globalNotifiers = append(globalNotifiers, n)
+}
+
+// ResetGlobalNotifiers clears registered global notifiers (primarily for tests).
+func ResetGlobalNotifiers() {
+	globalNotifiersMu.Lock()
+	defer globalNotifiersMu.Unlock()
+	globalNotifiers = nil
+}
+
+func broadcastEvent(e Event, local Notifier) {
+	if local != nil {
+		local(e)
+	}
+	globalNotifiersMu.RLock()
+	var notifiers []Notifier
+	if len(globalNotifiers) > 0 {
+		notifiers = append([]Notifier(nil), globalNotifiers...)
+	}
+	globalNotifiersMu.RUnlock()
+	for _, n := range notifiers {
+		n(e)
+	}
+}
 
 // Client is a resilient backend.Client that wraps an ordered chain of Targets.
 type Client struct {
@@ -90,14 +129,12 @@ func (c *Client) runStream(ctx context.Context, req backend.StreamRequest, out c
 		if err != nil {
 			lastErr = err
 			if IsFailoverEligible(err) && i+1 < len(c.targets) {
-				if c.notify != nil {
-					c.notify(Event{
-						FromTarget: target.Name,
-						ToTarget:   c.targets[i+1].Name,
-						Model:      curReq.Model,
-						Err:        err,
-					})
-				}
+				broadcastEvent(Event{
+					FromTarget: target.Name,
+					ToTarget:   c.targets[i+1].Name,
+					Model:      curReq.Model,
+					Err:        err,
+				}, c.notify)
 				continue
 			}
 			out <- backend.StreamChunk{Error: err, Done: true}
@@ -106,27 +143,52 @@ func (c *Client) runStream(ctx context.Context, req backend.StreamRequest, out c
 
 		var hasEmittedContent bool
 		var targetFailedEarly bool
+		var seenDone bool
+		var pending []backend.StreamChunk
 
 		for chunk := range inCh {
-			// If target fails on the very first chunk without having produced any
-			// text or tool calls, check if failover is eligible.
+			// If target fails on the initial chunk(s) before producing any text, tool calls,
+			// or thinking blocks, check if failover is eligible.
 			if !hasEmittedContent && chunk.Error != nil && IsFailoverEligible(chunk.Error) && i+1 < len(c.targets) {
 				lastErr = chunk.Error
 				targetFailedEarly = true
-				if c.notify != nil {
-					c.notify(Event{
-						FromTarget: target.Name,
-						ToTarget:   c.targets[i+1].Name,
-						Model:      curReq.Model,
-						Err:        chunk.Error,
-					})
-				}
-				// Drain the rest of this channel to prevent leaking resources
+				broadcastEvent(Event{
+					FromTarget: target.Name,
+					ToTarget:   c.targets[i+1].Name,
+					Model:      curReq.Model,
+					Err:        chunk.Error,
+				}, c.notify)
+				// Drain the rest of inCh in background to prevent leaking upstream goroutines
+				go func(drain <-chan backend.StreamChunk) {
+					for range drain {
+					}
+				}(inCh)
 				break
 			}
 
 			if chunk.Text != "" || len(chunk.ToolCalls) > 0 || len(chunk.ThinkingBlocks) > 0 {
 				hasEmittedContent = true
+				// Flush any buffered non-content chunks prior to real content
+				if len(pending) > 0 {
+					for _, p := range pending {
+						select {
+						case <-ctx.Done():
+							out <- backend.StreamChunk{Error: ctx.Err(), Done: true}
+							return
+						case out <- p:
+						}
+					}
+					pending = nil
+				}
+			}
+
+			if !hasEmittedContent {
+				pending = append(pending, chunk)
+				if chunk.Done {
+					seenDone = true
+					break
+				}
+				continue
 			}
 
 			select {
@@ -137,12 +199,39 @@ func (c *Client) runStream(ctx context.Context, req backend.StreamRequest, out c
 			}
 
 			if chunk.Done {
+				seenDone = true
 				return
 			}
 		}
 
 		if targetFailedEarly {
 			continue
+		}
+
+		// If the channel closed without ever producing content or marking done, treat as dropped stream
+		if !hasEmittedContent && !seenDone {
+			lastErr = errors.New("stream closed without content")
+			if i+1 < len(c.targets) {
+				broadcastEvent(Event{
+					FromTarget: target.Name,
+					ToTarget:   c.targets[i+1].Name,
+					Model:      curReq.Model,
+					Err:        lastErr,
+				}, c.notify)
+				continue
+			}
+		}
+
+		// Flush any remaining clean empty response chunks if marked done
+		if len(pending) > 0 {
+			for _, p := range pending {
+				select {
+				case <-ctx.Done():
+					out <- backend.StreamChunk{Error: ctx.Err(), Done: true}
+					return
+				case out <- p:
+				}
+			}
 		}
 		return
 	}
@@ -159,12 +248,19 @@ func IsFailoverEligible(err error) bool {
 	if err == nil {
 		return false
 	}
+	if apierror.IsQuotaReachedErr(err) {
+		return true
+	}
 	var he *apierror.HTTPError
 	if errors.As(err, &he) {
 		switch he.StatusCode {
 		case 401, 403, 429, 500, 502, 503, 504:
 			return true
 		}
+	}
+	var netErr net.Error
+	if errors.As(err, &netErr) {
+		return true
 	}
 	if retry.IsConnectionDropped(err) {
 		return true
@@ -177,7 +273,18 @@ func IsFailoverEligible(err error) bool {
 		strings.Contains(msg, "credit") ||
 		strings.Contains(msg, "unauthorized") ||
 		strings.Contains(msg, "overloaded") ||
-		strings.Contains(msg, "service unavailable") {
+		strings.Contains(msg, "service unavailable") ||
+		strings.Contains(msg, "connection refused") ||
+		strings.Contains(msg, "connection reset") ||
+		strings.Contains(msg, "broken pipe") ||
+		strings.Contains(msg, "context deadline exceeded") ||
+		strings.Contains(msg, "i/o timeout") ||
+		strings.Contains(msg, "timed out") ||
+		strings.Contains(msg, "no such host") ||
+		strings.Contains(msg, "network is unreachable") ||
+		strings.Contains(msg, "stream closed without content") ||
+		strings.Contains(msg, "server outage") ||
+		strings.Contains(msg, "server error") {
 		return true
 	}
 	return false

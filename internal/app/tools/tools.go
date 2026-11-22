@@ -22,6 +22,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sync"
 )
 
 // Tool is the recovered tool interface. Source: agent.Tool.
@@ -32,7 +33,9 @@ type Tool interface {
 }
 
 // Registry is the recovered tool registry. Source: agent.Registry.
+// Thread-safe for concurrent read and runtime hot-reload.
 type Registry struct {
+	mu    sync.RWMutex
 	tools map[string]Tool
 	mws   []Middleware
 }
@@ -45,6 +48,8 @@ func (r *Registry) Use(mws ...Middleware) {
 	if len(mws) == 0 {
 		return
 	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	r.mws = append(r.mws, mws...)
 	for name, t := range r.tools {
 		r.tools[name] = Wrap(t, mws...)
@@ -53,6 +58,8 @@ func (r *Registry) Use(mws ...Middleware) {
 
 // Middlewares returns a copy of the registry's active middlewares.
 func (r *Registry) Middlewares() []Middleware {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
 	if len(r.mws) == 0 {
 		return nil
 	}
@@ -62,16 +69,30 @@ func (r *Registry) Middlewares() []Middleware {
 }
 
 func (r *Registry) Register(t Tool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	if len(r.mws) > 0 {
 		t = Wrap(t, r.mws...)
 	}
 	r.tools[t.Name()] = t
 }
+
+func (r *Registry) Unregister(name string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	delete(r.tools, name)
+}
+
 func (r *Registry) Get(name string) (Tool, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
 	t, ok := r.tools[name]
 	return t, ok
 }
+
 func (r *Registry) List() []string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
 	names := make([]string, 0, len(r.tools))
 	for n := range r.tools {
 		names = append(names, n)
@@ -80,7 +101,33 @@ func (r *Registry) List() []string {
 }
 
 // Size returns the number of registered tools.
-func (r *Registry) Size() int { return len(r.tools) }
+func (r *Registry) Size() int {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return len(r.tools)
+}
+
+// ReplaceWith replaces the tool set and middlewares in-place thread-safely.
+// Any existing runner or turn holding this *Registry reference will immediately
+// observe the updated tools without recreation.
+func (r *Registry) ReplaceWith(other *Registry) {
+	if r == nil || other == nil {
+		return
+	}
+	other.mu.RLock()
+	newTools := make(map[string]Tool, len(other.tools))
+	for k, v := range other.tools {
+		newTools[k] = v
+	}
+	newMws := make([]Middleware, len(other.mws))
+	copy(newMws, other.mws)
+	other.mu.RUnlock()
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.tools = newTools
+	r.mws = newMws
+}
 
 // ErrNotImplemented is returned by tools whose real implementation
 // is not yet available in the recovered build. Cycle 50: the error

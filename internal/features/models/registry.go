@@ -141,6 +141,9 @@ type Model struct {
 	TimeoutSeconds int `json:"timeout_seconds,omitempty"`
 	// MaxRetries is the number of retries on 5xx / network. 0 means 1 try.
 	MaxRetries int `json:"max_retries,omitempty"`
+	// Fallbacks is the list of secondary provider or model handles to failover
+	// to when this model encounters quota limits (429), 5xx server outage, or fatal network failure.
+	Fallbacks []string `json:"fallbacks,omitempty"`
 }
 
 // Validate checks the fields needed for a usable Model. It's called by

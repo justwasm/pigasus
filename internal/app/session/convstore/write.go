@@ -60,16 +60,18 @@ func AppendHistoryEntry(entry HistoryEntry) error {
 	return err
 }
 
-// LoadHistory reads recent display prompts from history.jsonl, returning
-// them in chronological order up to maxCount.
-func LoadHistory(workspace string, maxCount int) []string {
+// LoadHistoryEntries reads recent entries from history.jsonl in chronological order.
+// If workspace is non-empty, only entries matching workspace (or with empty workspace) are returned.
+// If workspace is empty, all entries are returned.
+// Up to maxCount entries are returned (0 means unlimited).
+func LoadHistoryEntries(workspace string, maxCount int) []HistoryEntry {
 	path := filepath.Join(StoreDir(), "history.jsonl")
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil
 	}
 	lines := strings.Split(string(data), "\n")
-	var prompts []string
+	var entries []HistoryEntry
 	for _, line := range lines {
 		line = strings.TrimSpace(line)
 		if line == "" {
@@ -82,13 +84,30 @@ func LoadHistory(workspace string, maxCount int) []string {
 		if entry.Display == "" {
 			continue
 		}
-		if len(prompts) > 0 && prompts[len(prompts)-1] == entry.Display {
+		if workspace != "" && entry.Workspace != "" && entry.Workspace != workspace {
 			continue
 		}
-		prompts = append(prompts, entry.Display)
+		if len(entries) > 0 && entries[len(entries)-1].Display == entry.Display {
+			continue
+		}
+		entries = append(entries, entry)
 	}
-	if maxCount > 0 && len(prompts) > maxCount {
-		prompts = prompts[len(prompts)-maxCount:]
+	if maxCount > 0 && len(entries) > maxCount {
+		entries = entries[len(entries)-maxCount:]
+	}
+	return entries
+}
+
+// LoadHistory reads recent display prompts from history.jsonl, returning
+// them in chronological order up to maxCount.
+func LoadHistory(workspace string, maxCount int) []string {
+	entries := LoadHistoryEntries(workspace, maxCount)
+	if len(entries) == 0 {
+		return nil
+	}
+	prompts := make([]string, len(entries))
+	for i, e := range entries {
+		prompts[i] = e.Display
 	}
 	return prompts
 }
@@ -448,6 +467,16 @@ func encodeTrajectoryMetadata(convID, workspace string) []byte {
 // We use the wire format directly (varint tag, length-delimited) so
 // the clone and the reference can both re-load the resulting db.
 func encodeForkPayload(s Step) []byte {
+	var payload []byte
+	if s.Type != 0 {
+		payload = append(payload, encodeProtoVarint(1, uint64(s.Type))...)
+	}
+	status := s.Status
+	if status == 0 {
+		status = 3 // DONE
+	}
+	payload = append(payload, encodeProtoVarint(4, uint64(status))...)
+
 	switch s.Type {
 	case StepUserInput:
 		// field 19 (length-delimited) -> field 3 (length-delimited) -> field 1 (text)
@@ -461,7 +490,7 @@ func encodeForkPayload(s Step) []byte {
 		// leaking into the loaded string.
 		inner := encodeProtoField(1, 2, []byte(text))
 		mid := encodeProtoField(3, 2, inner)
-		return encodeProtoField(19, 2, mid)
+		return append(payload, encodeProtoField(19, 2, mid)...)
 	case StepModelResponse:
 		// field 20 (the planner response) -> field 1 (the answer),
 		// field 3 (the thinking), field 11 (the duration).
@@ -482,7 +511,7 @@ func encodeForkPayload(s Step) []byte {
 			}
 			planner = append(planner, encodeProtoField(11, 2, duration)...)
 		}
-		return encodeProtoField(20, 2, planner)
+		return append(payload, encodeProtoField(20, 2, planner)...)
 	case StepToolCall:
 		return encodeToolCallPayload(s)
 	case StepCheckpoint:
@@ -491,7 +520,7 @@ func encodeForkPayload(s Step) []byte {
 		// field 24 -> field 3 -> field 1 (text)
 		inner := encodeProtoField(1, 2, []byte(s.Text))
 		mid := encodeProtoField(3, 2, inner)
-		return encodeProtoField(24, 2, mid)
+		return append(payload, encodeProtoField(24, 2, mid)...)
 	}
 	return nil
 }

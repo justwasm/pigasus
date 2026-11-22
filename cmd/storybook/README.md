@@ -100,6 +100,8 @@ All component names, types, and roles strictly align 1:1 with official reverse-e
 | `TranscriptDocument` | `internal/ui/transcript` | `jetski/cli/transcript.Document` |
 | `TrajectoryToggle` | `internal/ui/toolsteps` | `jetski/cli.ToggleTrajectory` |
 | `FeatDiffPanel` | `internal/ui/views/diff/feat` | `jetski/cli/panel.FeatDiff` |
+| `PromptHistoryPanel` | `internal/ui/views/historypanel` | `jetski/cli/panel.PromptHistoryPanel` |
+| `WireHUD` | `internal/ui/views/wirehud` | `jetski/cli/model.WireHUD` |
 | `StatusRow` | `internal/ui/views/statusrow` | `jetski/cli.StatusRow` |
 | `Narration` | `internal/ui/views/narration` | `jetski/cli.Narration` |
 | `ProgramStatus` | `internal/ui/views/programstatus` | `jetski/cli.ProgramStatus` |

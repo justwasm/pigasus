@@ -213,8 +213,6 @@ Speak concisely in 2 sentences.`,
 	t.Logf("Total audio chunks: %d, Interrupted: %v", audioChunks, interrupted)
 }
 
-
-
 func TestMockLiveSession(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()

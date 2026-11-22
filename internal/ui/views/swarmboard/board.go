@@ -3,6 +3,7 @@ package swarmboard
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/justwasm/pigasus/palette"
@@ -10,27 +11,34 @@ import (
 
 // Pane identifiers
 const (
-	PaneRoster  = 0
-	PanePosts   = 1
-	PaneMessage = 2
+	PaneRoster      = 0 // classic left pane (alias for PaneCoordinator)
+	PanePosts       = 1 // posts list
+	PaneMessage     = 2 // message detail
+	PaneWorkers     = 3 // workers partition (htop/lazygit mode)
+	PaneMonitor     = 4 // monitor partition (htop/lazygit mode)
+	PaneCoordinator = 0 // coordinator partition
 )
 
-// Board is the 3-pane Swarm Board overlay view.
+// Board is the interactive Swarm Board overlay view supporting both classic 3-pane
+// and lazygit/htop-like 4-block partitioned layout.
 type Board struct {
 	active bool
 	title  string
 
-	roster []Member
-	posts  []Post
-	isDone bool
+	roster  []Member
+	posts   []Post
+	isDone  bool
+	monitor *MonitorStatus
 
-	focusPane    int  // PaneRoster, PanePosts, PaneMessage
+	focusPane    int  // PaneCoordinator (0), PanePosts (1), PaneMessage (2), PaneWorkers (3), PaneMonitor (4)
 	zoomed       bool // zoomed to full screen
 	showMessage  bool // whether message pane is shown
 	follow       bool // whether following new posts
 	filterMember string
+	partitioned  bool // whether lazygit/htop partitioned mode is enabled
 
 	rosterCursor  int
+	workersCursor int
 	postsCursor   int
 	messageScroll int
 
@@ -92,6 +100,96 @@ func (b *Board) SetSize(width, height int) {
 	b.height = height
 }
 
+// Partitioned reports whether the lazygit/htop partitioned layout is active.
+func (b *Board) Partitioned() bool {
+	return b != nil && b.partitioned
+}
+
+// SetPartitioned toggles partitioned view mode.
+func (b *Board) SetPartitioned(partitioned bool) {
+	if b == nil {
+		return
+	}
+	b.partitioned = partitioned
+	if !b.partitioned && (b.focusPane == PaneWorkers || b.focusPane == PaneMonitor) {
+		b.focusPane = PaneRoster
+	}
+	b.normalizeCursors()
+}
+
+// TogglePartitioned toggles partitioned view mode.
+func (b *Board) TogglePartitioned() {
+	if b == nil {
+		return
+	}
+	b.SetPartitioned(!b.partitioned)
+}
+
+// SetMonitor updates the health/stall monitor status.
+func (b *Board) SetMonitor(m *MonitorStatus) {
+	if b == nil {
+		return
+	}
+	b.monitor = m
+}
+
+// Monitor returns the current monitor status, synthesizing one if none was set.
+func (b *Board) Monitor() *MonitorStatus {
+	if b == nil {
+		return nil
+	}
+	if b.monitor != nil {
+		return b.monitor
+	}
+	// Synthesize monitor state from roster
+	var stalled []string
+	for _, m := range b.roster {
+		if strings.EqualFold(m.State, "waiting") || strings.EqualFold(m.State, "blocked") {
+			stalled = append(stalled, m.Name)
+		}
+	}
+	state := "healthy"
+	msg := "All workers healthy and responsive"
+	if len(stalled) > 0 {
+		state = "monitoring"
+		msg = fmt.Sprintf("Monitoring %d waiting worker(s)", len(stalled))
+	}
+	return &MonitorStatus{
+		Enabled:        true,
+		State:          state,
+		LastHeartbeat:  time.Now(),
+		StalledWorkers: stalled,
+		Message:        msg,
+	}
+}
+
+// Coordinator returns the coordinator member if one is designated.
+func (b *Board) Coordinator() (Member, bool) {
+	if b == nil || len(b.roster) == 0 {
+		return Member{}, false
+	}
+	for _, m := range b.roster {
+		if m.IsCoordinator || strings.EqualFold(m.Name, "coordinator") {
+			return m, true
+		}
+	}
+	return b.roster[0], true
+}
+
+// Workers returns all non-coordinator members.
+func (b *Board) Workers() []Member {
+	if b == nil {
+		return nil
+	}
+	var out []Member
+	for _, m := range b.roster {
+		if !m.IsCoordinator && !strings.EqualFold(m.Name, "coordinator") {
+			out = append(out, m)
+		}
+	}
+	return out
+}
+
 // ApplySnapshot updates the swarm state from a snapshot.
 func (b *Board) ApplySnapshot(snap *SwarmSnapshot) {
 	if b == nil || snap == nil {
@@ -100,6 +198,9 @@ func (b *Board) ApplySnapshot(snap *SwarmSnapshot) {
 	b.title = snap.Title
 	b.roster = snap.Members
 	b.isDone = snap.IsDone
+	if snap.Monitor != nil {
+		b.monitor = snap.Monitor
+	}
 
 	prevPostCount := len(b.posts)
 	b.posts = snap.Posts
@@ -173,6 +274,14 @@ func (b *Board) normalizeCursors() {
 		b.rosterCursor = len(b.roster) - 1
 	}
 
+	workers := b.Workers()
+	if b.workersCursor < 0 {
+		b.workersCursor = 0
+	}
+	if len(workers) > 0 && b.workersCursor >= len(workers) {
+		b.workersCursor = len(workers) - 1
+	}
+
 	filtered := b.filteredPosts()
 	if b.postsCursor < 0 {
 		b.postsCursor = 0
@@ -224,7 +333,39 @@ func (b *Board) HandleKey(key tea.Key) (bool, tea.Cmd) {
 		return true, nil
 	}
 
-	// 2. Tab / Shift+Tab - cycle panes
+	// 2. Direct Number Key Partition Navigation (lazygit style: '1'..'5')
+	if key.Mod == 0 {
+		switch key.Code {
+		case '1':
+			b.focusPane = PaneCoordinator
+			return true, nil
+		case '2':
+			if b.partitioned {
+				b.focusPane = PaneWorkers
+			} else {
+				b.focusPane = PaneRoster
+			}
+			return true, nil
+		case '3':
+			if b.partitioned {
+				b.focusPane = PaneMonitor
+			} else {
+				b.focusPane = PanePosts
+			}
+			return true, nil
+		case '4':
+			b.focusPane = PanePosts
+			return true, nil
+		case '5':
+			b.focusPane = PaneMessage
+			return true, nil
+		case 'm', 'M':
+			b.TogglePartitioned()
+			return true, nil
+		}
+	}
+
+	// 3. Tab / Shift+Tab - cycle panes
 	if key.Code == tea.KeyTab {
 		if key.Mod.Contains(tea.ModShift) {
 			b.cycleFocus(-1)
@@ -234,13 +375,13 @@ func (b *Board) HandleKey(key tea.Key) (bool, tea.Cmd) {
 		return true, nil
 	}
 
-	// 3. 'z' - zoom focused pane
+	// 4. 'z' - zoom focused pane
 	if (key.Code == 'z' || key.Text == "z") && key.Mod == 0 {
 		b.zoomed = !b.zoomed
 		return true, nil
 	}
 
-	// 4. 'f' - toggle follow
+	// 5. 'f' - toggle follow
 	if (key.Code == 'f' || key.Text == "f") && key.Mod == 0 {
 		b.follow = !b.follow
 		if b.follow && len(b.posts) > 0 {
@@ -249,7 +390,7 @@ func (b *Board) HandleKey(key tea.Key) (bool, tea.Cmd) {
 		return true, nil
 	}
 
-	// 5. '[' and ']' - step through posts
+	// 6. '[' and ']' - step through posts
 	if (key.Code == '[' || key.Text == "[") && key.Mod == 0 {
 		b.stepPost(-1)
 		return true, nil
@@ -259,19 +400,19 @@ func (b *Board) HandleKey(key tea.Key) (bool, tea.Cmd) {
 		return true, nil
 	}
 
-	// 6. 'p' - filter feed to selected member
+	// 7. 'p' - filter feed to selected member
 	if (key.Code == 'p' || key.Text == "p") && key.Mod == 0 {
 		b.toggleFilter()
 		return true, nil
 	}
 
-	// 7. 'o' - open member's subagent details
+	// 8. 'o' - open member's subagent details
 	if (key.Code == 'o' || key.Text == "o") && key.Mod == 0 {
 		b.openSubagentDetails()
 		return true, nil
 	}
 
-	// 8. Enter - toggle message pane
+	// 9. Enter - toggle message pane
 	if key.Code == tea.KeyEnter && key.Mod == 0 {
 		b.showMessage = !b.showMessage
 		if !b.showMessage && b.focusPane == PaneMessage {
@@ -280,7 +421,7 @@ func (b *Board) HandleKey(key tea.Key) (bool, tea.Cmd) {
 		return true, nil
 	}
 
-	// 9. Navigation within focused pane
+	// 10. Navigation within focused pane
 	switch key.Code {
 	case tea.KeyUp:
 		b.navigate(-1)
@@ -318,6 +459,28 @@ func (b *Board) HandleKey(key tea.Key) (bool, tea.Cmd) {
 }
 
 func (b *Board) cycleFocus(delta int) {
+	if b.partitioned {
+		// Lazygit partitioned order: Coordinator (0) -> Workers (3) -> Monitor (4) -> Posts (1) -> Message (2)
+		cycle := []int{PaneCoordinator, PaneWorkers, PaneMonitor, PanePosts}
+		if b.showMessage {
+			cycle = append(cycle, PaneMessage)
+		}
+		currIdx := 0
+		for i, p := range cycle {
+			if p == b.focusPane {
+				currIdx = i
+				break
+			}
+		}
+		nextIdx := (currIdx + delta) % len(cycle)
+		if nextIdx < 0 {
+			nextIdx += len(cycle)
+		}
+		b.focusPane = cycle[nextIdx]
+		return
+	}
+
+	// Classic 3-pane order
 	maxPane := PanePosts
 	if b.showMessage {
 		maxPane = PaneMessage
@@ -348,9 +511,14 @@ func (b *Board) stepPost(delta int) {
 
 func (b *Board) toggleFilter() {
 	var target string
-	if b.focusPane == PaneRoster {
+	if b.focusPane == PaneRoster || b.focusPane == PaneCoordinator {
 		if b.rosterCursor >= 0 && b.rosterCursor < len(b.roster) {
 			target = b.roster[b.rosterCursor].Name
+		}
+	} else if b.focusPane == PaneWorkers {
+		workers := b.Workers()
+		if b.workersCursor >= 0 && b.workersCursor < len(workers) {
+			target = workers[b.workersCursor].Name
 		}
 	} else {
 		filtered := b.filteredPosts()
@@ -374,9 +542,14 @@ func (b *Board) toggleFilter() {
 
 func (b *Board) openSubagentDetails() {
 	var convID string
-	if b.focusPane == PaneRoster {
+	if b.focusPane == PaneRoster || b.focusPane == PaneCoordinator {
 		if b.rosterCursor >= 0 && b.rosterCursor < len(b.roster) {
 			convID = b.roster[b.rosterCursor].ConversationID
+		}
+	} else if b.focusPane == PaneWorkers {
+		workers := b.Workers()
+		if b.workersCursor >= 0 && b.workersCursor < len(workers) {
+			convID = workers[b.workersCursor].ConversationID
 		}
 	} else {
 		filtered := b.filteredPosts()
@@ -398,7 +571,7 @@ func (b *Board) openSubagentDetails() {
 
 func (b *Board) navigate(delta int) {
 	switch b.focusPane {
-	case PaneRoster:
+	case PaneCoordinator:
 		if len(b.roster) == 0 {
 			return
 		}
@@ -409,6 +582,20 @@ func (b *Board) navigate(delta int) {
 		if b.rosterCursor >= len(b.roster) {
 			b.rosterCursor = len(b.roster) - 1
 		}
+	case PaneWorkers:
+		workers := b.Workers()
+		if len(workers) == 0 {
+			return
+		}
+		b.workersCursor += delta
+		if b.workersCursor < 0 {
+			b.workersCursor = 0
+		}
+		if b.workersCursor >= len(workers) {
+			b.workersCursor = len(workers) - 1
+		}
+	case PaneMonitor:
+		// Monitor has no internal item cursor, scroll if needed
 	case PanePosts:
 		filtered := b.filteredPosts()
 		if len(filtered) == 0 {
@@ -432,8 +619,10 @@ func (b *Board) navigate(delta int) {
 
 func (b *Board) navigateStart() {
 	switch b.focusPane {
-	case PaneRoster:
+	case PaneCoordinator:
 		b.rosterCursor = 0
+	case PaneWorkers:
+		b.workersCursor = 0
 	case PanePosts:
 		b.postsCursor = 0
 		b.messageScroll = 0
@@ -444,9 +633,14 @@ func (b *Board) navigateStart() {
 
 func (b *Board) navigateEnd() {
 	switch b.focusPane {
-	case PaneRoster:
+	case PaneCoordinator:
 		if len(b.roster) > 0 {
 			b.rosterCursor = len(b.roster) - 1
+		}
+	case PaneWorkers:
+		workers := b.Workers()
+		if len(workers) > 0 {
+			b.workersCursor = len(workers) - 1
 		}
 	case PanePosts:
 		filtered := b.filteredPosts()
@@ -485,11 +679,15 @@ func (b *Board) View() string {
 	if b.isDone {
 		statusBadge = palette.AgentDoneOpen + "✓ DONE" + palette.BlueClose
 	}
+	var modeBadge string
+	if b.partitioned {
+		modeBadge = " " + palette.AgentActiveOpen + "[HTOP/LAZYGIT]" + palette.BlueClose
+	}
 	var zoomBadge string
 	if b.zoomed {
 		zoomBadge = " " + palette.AgentActiveOpen + "[ZOOMED]" + palette.BlueClose
 	}
-	headerLine := fmt.Sprintf("%s%s %s%s%s", palette.BoldOpen, titleText, statusBadge, zoomBadge, palette.BoldClose)
+	headerLine := fmt.Sprintf("%s%s %s%s%s%s", palette.BoldOpen, titleText, statusBadge, modeBadge, zoomBadge, palette.BoldClose)
 	sb.WriteString(headerLine + "\n\n")
 
 	contentHeight := h - 4
@@ -497,7 +695,22 @@ func (b *Board) View() string {
 		contentHeight = 6
 	}
 
-	if h >= 28 && !b.zoomed {
+	if b.partitioned {
+		sb.WriteString(b.renderPartitionedView(w, contentHeight))
+	} else {
+		sb.WriteString(b.renderClassicView(w, contentHeight))
+	}
+
+	// Footer Hints
+	sb.WriteString("\n")
+	sb.WriteString(b.renderFooterHints(w))
+
+	return sb.String()
+}
+
+func (b *Board) renderClassicView(w, contentHeight int) string {
+	var sb strings.Builder
+	if b.height >= 28 && !b.zoomed {
 		ov := b.renderOverview(w)
 		sb.WriteString(ov)
 		ovLines := strings.Count(ov, "\n")
@@ -508,7 +721,6 @@ func (b *Board) View() string {
 	}
 
 	if b.zoomed {
-		// Render only the focused pane
 		switch b.focusPane {
 		case PaneRoster:
 			sb.WriteString(b.renderRosterPane(w, contentHeight))
@@ -582,12 +794,281 @@ func (b *Board) View() string {
 			sb.WriteString("\n")
 		}
 	}
+	return sb.String()
+}
 
-	// Footer Hints
-	sb.WriteString("\n")
-	sb.WriteString(b.renderFooterHints(w))
+// renderPartitionedView renders lazygit/htop-like 4-block layout:
+// Left: [1] Coordinator, [2] Workers, [3] Monitor
+// Right: [4] Posts, [5] Message Detail
+func (b *Board) renderPartitionedView(w, contentHeight int) string {
+	if b.zoomed {
+		switch b.focusPane {
+		case PaneCoordinator:
+			return b.renderCoordinatorBlock(w, contentHeight)
+		case PaneWorkers:
+			return b.renderWorkersBlock(w, contentHeight)
+		case PaneMonitor:
+			return b.renderMonitorBlock(w, contentHeight)
+		case PanePosts:
+			return b.renderPostsPane(w, contentHeight)
+		case PaneMessage:
+			return b.renderMessagePane(w, contentHeight)
+		default:
+			return b.renderCoordinatorBlock(w, contentHeight)
+		}
+	}
+
+	leftWidth := w * 42 / 100
+	if leftWidth < 30 {
+		leftWidth = 30
+	}
+	if leftWidth > 45 {
+		leftWidth = 45
+	}
+	rightWidth := w - leftWidth - 3
+	if rightWidth < 35 {
+		rightWidth = 35
+	}
+
+	// Height split for Left:
+	// Coordinator: fixed 6 lines
+	// Workers: remaining * 60%
+	// Monitor: remaining * 40%
+	coordH := 6
+	remLeft := contentHeight - coordH - 2
+	if remLeft < 6 {
+		remLeft = 6
+	}
+	workersH := remLeft * 60 / 100
+	if workersH < 4 {
+		workersH = 4
+	}
+	monitorH := remLeft - workersH
+	if monitorH < 3 {
+		monitorH = 3
+	}
+
+	coordLines := strings.Split(b.renderCoordinatorBlock(leftWidth, coordH), "\n")
+	workerLines := strings.Split(b.renderWorkersBlock(leftWidth, workersH), "\n")
+	monitorLines := strings.Split(b.renderMonitorBlock(leftWidth, monitorH), "\n")
+
+	var leftLines []string
+	leftLines = append(leftLines, coordLines...)
+	leftLines = append(leftLines, workerLines...)
+	leftLines = append(leftLines, monitorLines...)
+
+	// Height split for Right:
+	postsH := contentHeight * 55 / 100
+	msgH := contentHeight - postsH - 1
+	if postsH < 4 {
+		postsH = 4
+	}
+	if msgH < 3 {
+		msgH = 3
+	}
+	pLines := strings.Split(b.renderPostsPane(rightWidth, postsH), "\n")
+	mLines := strings.Split(b.renderMessagePane(rightWidth, msgH), "\n")
+
+	var rightLines []string
+	rightLines = append(rightLines, pLines...)
+	rightLines = append(rightLines, palette.DimGrayOpen+strings.Repeat("─", rightWidth)+palette.DimGrayClose)
+	rightLines = append(rightLines, mLines...)
+
+	maxRows := len(leftLines)
+	if len(rightLines) > maxRows {
+		maxRows = len(rightLines)
+	}
+	if maxRows > contentHeight {
+		maxRows = contentHeight
+	}
+
+	var sb strings.Builder
+	for i := 0; i < maxRows; i++ {
+		lLine := ""
+		if i < len(leftLines) {
+			lLine = leftLines[i]
+		}
+		rLine := ""
+		if i < len(rightLines) {
+			rLine = rightLines[i]
+		}
+
+		lPlain := stripANSI(lLine)
+		pad := leftWidth - len(lPlain)
+		if pad < 0 {
+			pad = 0
+		}
+		sb.WriteString(lLine + strings.Repeat(" ", pad))
+		sb.WriteString(palette.DimGrayOpen + " │ " + palette.DimGrayClose)
+		sb.WriteString(rLine)
+		sb.WriteString("\n")
+	}
 
 	return sb.String()
+}
+
+func (b *Board) renderCoordinatorBlock(width, height int) string {
+	var lines []string
+	header := "[1] COORDINATOR"
+	if b.focusPane == PaneCoordinator {
+		header = palette.BoldOpen + palette.BlueOpen + "▶ [1] COORDINATOR" + palette.BlueClose + palette.BoldClose
+	} else {
+		header = palette.DimGrayOpen + header + palette.DimGrayClose
+	}
+	lines = append(lines, header)
+
+	coord, hasCoord := b.Coordinator()
+	if !hasCoord {
+		lines = append(lines, "  (no coordinator)")
+		return strings.Join(lines, "\n")
+	}
+
+	nameStr := fmt.Sprintf("  Leader: %s%s%s", palette.BoldOpen, coord.Name, palette.BoldClose)
+	if coord.Model != "" {
+		nameStr += fmt.Sprintf(" (%s)", coord.Model)
+	}
+	lines = append(lines, nameStr)
+
+	// Progress Meter (Htop style)
+	done, total, pct := b.OverallProgress()
+	meter := renderProgressBar(pct, width-4)
+	lines = append(lines, fmt.Sprintf("  Tasks:  %s (%d/%d done)", meter, done, total))
+
+	if b.title != "" && len(lines) < height {
+		goalSnippet := b.formatSnippet(b.title, width-10)
+		lines = append(lines, fmt.Sprintf("  Goal:   %s%s%s", palette.DimGrayOpen, goalSnippet, palette.DimGrayClose))
+	}
+
+	lines = append(lines, palette.DimGrayOpen+strings.Repeat("─", width)+palette.DimGrayClose)
+	return strings.Join(lines, "\n")
+}
+
+func (b *Board) renderWorkersBlock(width, height int) string {
+	var lines []string
+	workers := b.Workers()
+	header := fmt.Sprintf("[2] WORKERS (%d)", len(workers))
+	if b.focusPane == PaneWorkers {
+		header = palette.BoldOpen + palette.BlueOpen + "▶ " + header + palette.BlueClose + palette.BoldClose
+	} else {
+		header = palette.DimGrayOpen + header + palette.DimGrayClose
+	}
+	lines = append(lines, header)
+
+	if len(workers) == 0 {
+		lines = append(lines, palette.DimGrayOpen+"  (no workers registered)"+palette.DimGrayClose)
+		lines = append(lines, palette.DimGrayOpen+strings.Repeat("─", width)+palette.DimGrayClose)
+		return strings.Join(lines, "\n")
+	}
+
+	for i, w := range workers {
+		if len(lines) >= height-1 {
+			break
+		}
+		cursor := "  "
+		if i == b.workersCursor && b.focusPane == PaneWorkers {
+			cursor = palette.BlueOpen + "> " + palette.BlueClose
+		}
+		bullet := b.memberBullet(w.State)
+		modelStr := ""
+		if w.Model != "" {
+			modelStr = fmt.Sprintf(" (%s)", w.Model)
+		}
+		line := fmt.Sprintf("%s%s %s%s", cursor, bullet, w.Name, modelStr)
+		lines = append(lines, line)
+
+		if len(lines) < height-1 {
+			// Sub-line with progress and state
+			prog := w.Progress
+			if prog == 0 && (strings.EqualFold(w.State, "done") || strings.EqualFold(w.State, "completed")) {
+				prog = 100
+			}
+			meter := renderProgressBar(prog, 18)
+			detail := fmt.Sprintf("    %s %s%s%s", meter, palette.DimGrayOpen, w.State, palette.DimGrayClose)
+			if w.ActiveTurns > 0 {
+				detail += fmt.Sprintf(" · %dT", w.ActiveTurns)
+			}
+			lines = append(lines, detail)
+		}
+	}
+
+	lines = append(lines, palette.DimGrayOpen+strings.Repeat("─", width)+palette.DimGrayClose)
+	return strings.Join(lines, "\n")
+}
+
+func (b *Board) renderMonitorBlock(width, height int) string {
+	var lines []string
+	header := "[3] MONITOR"
+	if b.focusPane == PaneMonitor {
+		header = palette.BoldOpen + palette.BlueOpen + "▶ [3] MONITOR" + palette.BlueClose + palette.BoldClose
+	} else {
+		header = palette.DimGrayOpen + header + palette.DimGrayClose
+	}
+	lines = append(lines, header)
+
+	mon := b.Monitor()
+	var stateBadge string
+	switch strings.ToLower(mon.State) {
+	case "healthy":
+		stateBadge = palette.AgentDoneOpen + "● HEALTHY" + palette.BlueClose
+	case "stalled":
+		stateBadge = palette.AgentErrorOpen + "▲ STALLED" + palette.BlueClose
+	case "monitoring":
+		stateBadge = palette.AgentActiveOpen + "○ MONITORING" + palette.BlueClose
+	default:
+		stateBadge = palette.DimGrayOpen + "○ " + mon.State + palette.DimGrayClose
+	}
+
+	lines = append(lines, fmt.Sprintf("  Pulse: %s", stateBadge))
+	if !mon.LastHeartbeat.IsZero() {
+		lines = append(lines, fmt.Sprintf("  Beat:  %s%s%s", palette.DimGrayOpen, mon.LastHeartbeat.Format("15:04:05"), palette.DimGrayClose))
+	}
+	if mon.Message != "" && len(lines) < height {
+		msg := b.formatSnippet(mon.Message, width-8)
+		lines = append(lines, fmt.Sprintf("  Msg:   %s%s%s", palette.DimGrayOpen, msg, palette.DimGrayClose))
+	}
+
+	return strings.Join(lines, "\n")
+}
+
+// OverallProgress computes task completion statistics across workers.
+func (b *Board) OverallProgress() (done int, total int, pct int) {
+	workers := b.Workers()
+	total = len(workers)
+	if total == 0 {
+		return 0, 0, 0
+	}
+	var totalProg int
+	for _, w := range workers {
+		if strings.EqualFold(w.State, "done") || strings.EqualFold(w.State, "completed") || w.Progress >= 100 {
+			done++
+			totalProg += 100
+		} else {
+			totalProg += w.Progress
+		}
+	}
+	pct = totalProg / total
+	return done, total, pct
+}
+
+// renderProgressBar formats an htop-style ASCII progress bar.
+func renderProgressBar(pct int, width int) string {
+	if pct < 0 {
+		pct = 0
+	}
+	if pct > 100 {
+		pct = 100
+	}
+	barWidth := width - 7
+	if barWidth < 4 {
+		barWidth = 4
+	}
+	filled := (pct * barWidth) / 100
+	empty := barWidth - filled
+	if empty < 0 {
+		empty = 0
+	}
+	bar := strings.Repeat("|", filled) + strings.Repeat(".", empty)
+	return fmt.Sprintf("[%s] %3d%%", bar, pct)
 }
 
 func (b *Board) renderRosterPane(width, height int) string {
@@ -650,6 +1131,9 @@ func (b *Board) renderPostsPane(width, height int) string {
 	filtered := b.filteredPosts()
 
 	header := fmt.Sprintf("POSTS (%d)", len(filtered))
+	if b.partitioned {
+		header = fmt.Sprintf("[4] POSTS (%d)", len(filtered))
+	}
 	if b.filterMember != "" {
 		header += fmt.Sprintf(" %s[filter: @%s]%s", palette.AgentActiveOpen, b.filterMember, palette.BlueClose)
 	}
@@ -708,8 +1192,11 @@ func (b *Board) renderMessagePane(width, height int) string {
 	}
 
 	header := "MESSAGE"
+	if b.partitioned {
+		header = "[5] MESSAGE DETAIL"
+	}
 	if hasSelected {
-		header = fmt.Sprintf("MESSAGE (#%d from @%s)", selected.Seq, selected.Author)
+		header = fmt.Sprintf("%s (#%d from @%s)", header, selected.Seq, selected.Author)
 	}
 	if b.focusPane == PaneMessage {
 		header = palette.BoldOpen + palette.BlueOpen + "▶ " + palette.BlueClose + header + palette.BoldClose
@@ -748,10 +1235,12 @@ func (b *Board) formatSnippet(body string, maxLen int) string {
 
 func (b *Board) renderFooterHints(width int) string {
 	hints := []string{
-		palette.BlueOpen + "Tab" + palette.BlueClose + ": switch pane",
+		palette.BlueOpen + "Tab" + palette.BlueClose + ": next",
+		palette.BlueOpen + "1-5" + palette.BlueClose + ": jump",
+		palette.BlueOpen + "m" + palette.BlueClose + ": htop layout",
 		palette.BlueOpen + "z" + palette.BlueClose + ": zoom",
-		palette.BlueOpen + "Enter" + palette.BlueClose + ": toggle message",
-		palette.BlueOpen + "[ ]" + palette.BlueClose + ": prev/next post",
+		palette.BlueOpen + "Enter" + palette.BlueClose + ": msg",
+		palette.BlueOpen + "[ ]" + palette.BlueClose + ": post",
 		palette.BlueOpen + "p" + palette.BlueClose + ": filter",
 		palette.BlueOpen + "o" + palette.BlueClose + ": subagent",
 		palette.BlueOpen + "f" + palette.BlueClose + ": follow",

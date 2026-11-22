@@ -165,7 +165,19 @@ func RenderBlock(steps []Step, opts RenderOptions) []string {
 	if opts.Expanded {
 		hint = "ctrl+o to collapse"
 	}
-	out[len(out)-1] = out[len(out)-1] + " " + styledHint(hint)
+	hintText := styledHint(hint)
+	lastLine := out[len(out)-1]
+	if opts.Width > 0 && ansi.StringWidth(lastLine)+1+ansi.StringWidth(hintText) > opts.Width {
+		hasGutter := strings.HasPrefix(lastLine, palette.DimGrayOpen+"│ "+palette.DimGrayClose) || strings.HasPrefix(ansi.Strip(lastLine), "│ ")
+		if hasGutter {
+			gutter := palette.DimGrayOpen + "│ " + palette.DimGrayClose
+			out = append(out, gutter+tuitools.DetailIndent+hintText)
+		} else {
+			out = append(out, tuitools.DetailIndent+hintText)
+		}
+	} else {
+		out[len(out)-1] = lastLine + " " + hintText
+	}
 	return out
 }
 
@@ -204,7 +216,13 @@ func CollapsedLowVerbosityGroup(steps []Step, metrics TokenMetrics, width int) [
 		return nil
 	}
 	if len(tools) > 0 {
-		out[len(out)-1] = out[len(out)-1] + " " + styledHint("ctrl+o to expand")
+		hintText := styledHint("ctrl+o to expand")
+		lastLine := out[len(out)-1]
+		if width > 0 && ansi.StringWidth(lastLine)+1+ansi.StringWidth(hintText) > width {
+			out = append(out, tuitools.DetailIndent+hintText)
+		} else {
+			out[len(out)-1] = lastLine + " " + hintText
+		}
 	}
 	return out
 }
@@ -285,8 +303,15 @@ func groupLines(tools []Step, expanded bool, width int) []string {
 	var out []string
 	out = append(out, header)
 	gutter := palette.DimGrayOpen + "│ " + palette.DimGrayClose
+	innerWidth := width
+	if width > 0 {
+		innerWidth = width - 2
+		if innerWidth < tuitools.DetailMinWrapWidth+tuitools.DetailIndentWidth {
+			innerWidth = tuitools.DetailMinWrapWidth + tuitools.DetailIndentWidth
+		}
+	}
 	for _, s := range tools {
-		callLines := append(renderStepTitle(s, true), stepDetailLines(s, width)...)
+		callLines := append(renderStepTitle(s, true), stepDetailLines(s, innerWidth)...)
 		for _, cl := range callLines {
 			out = append(out, gutter+cl)
 		}
@@ -386,8 +411,19 @@ func stepDetailLines(s Step, width int) []string {
 			wrappedLines = append(wrappedLines, tuitools.WrapDiffLine(l, wrapWidth)...)
 		} else {
 			l = tuitools.ExpandTabs(l, 4)
-			wrapped := ansi.Wrap(l, wrapWidth, "")
-			wrappedLines = append(wrappedLines, strings.Split(wrapped, "\n")...)
+			trimmed := strings.TrimLeft(l, " ")
+			k := len(l) - len(trimmed)
+			if k > 0 && k < wrapWidth-10 && trimmed != "" {
+				wrapped := ansi.Wrap(trimmed, wrapWidth-k, "")
+				parts := strings.Split(wrapped, "\n")
+				indent := strings.Repeat(" ", k)
+				for _, p := range parts {
+					wrappedLines = append(wrappedLines, indent+p)
+				}
+			} else {
+				wrapped := ansi.Wrap(l, wrapWidth, "")
+				wrappedLines = append(wrappedLines, strings.Split(wrapped, "\n")...)
+			}
 		}
 	}
 	return tuitools.FormatDetailLines(wrappedLines, diffMode)

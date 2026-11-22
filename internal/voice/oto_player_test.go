@@ -128,7 +128,3 @@ func TestOtoPlayer_MultipleInit(t *testing.T) {
 	}
 	_ = p2.Close()
 }
-
-
-
-

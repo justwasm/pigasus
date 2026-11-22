@@ -482,4 +482,3 @@ func RenderHTMLComparison(leftRaw, rightRaw, label string) string {
 </html>
 `, label, label, rows.String())
 }
-

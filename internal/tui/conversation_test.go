@@ -1469,6 +1469,9 @@ func TestSeedConversation_PreservesFullHistoryWithCheckpoint(t *testing.T) {
 	if !foundMarker {
 		t.Errorf("expected Conversation compacted marker in m.conversation.response")
 	}
+	if m.conversation.compactBlockIdx != 1 {
+		t.Errorf("compactBlockIdx = %d, want 1", m.conversation.compactBlockIdx)
+	}
 
 	// Backend messages should still start at the compaction resume block for LLM context.
 	msgs := m.SessionMessages()

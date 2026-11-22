@@ -345,6 +345,7 @@ func ExtraFlags() []FlagSpec {
 func extraFlagsCore() []FlagSpec {
 	return []FlagSpec{
 		{Name: "backend", Type: "string", Hidden: true, Usage: "Backend type: gateway (real) or shim (mock). Default: gateway (auto-falls back to shim if no OAuth token)"},
+		{Name: "fallback-chain", Type: "string", Def: "", Hidden: true, Usage: "Comma-separated list of fallback provider models or backends for dynamic failover"},
 		{Name: "alt-screen", Type: "bool", Def: "true", Hidden: true, Usage: "Use the terminal's alternate screen buffer (default true; an explicit --alt-screen/--no-alt-screen overrides the /config Rendering Mode setting)"},
 		{Name: "no-alt-screen", Type: "bool", Def: "false", Hidden: true, Usage: "Disable the terminal's alternate screen buffer (overrides --alt-screen and the /config Rendering Mode setting)"},
 		{Name: "trust-cwd", Type: "bool", Def: "false", Hidden: true, Usage: "Skip the on-startup workspace-trust dialog (or set $OPENAGY_TRUST=1)"},
@@ -612,9 +613,16 @@ func hiddenUtilitySubcommands() []SubcommandSpec {
 		{Name: "http", Short: "Start the recovered HTTP server", Run: wrapRunXxx("http"), Hidden: true},
 		{Name: "hooks", Short: "List configured lifecycle hooks", Run: wrapRunXxx("hooks"), Hidden: true},
 		{Name: "migrate", Short: "Migrate legacy config to the v4 layout", Run: wrapRunXxx("migrate"), Hidden: true},
-		{Name: "stats", Short: "Show on-disk session statistics", Run: wrapRunXxx("stats"), Hidden: true},
+		statsSubcommandEntry(wrapRunXxx("stats")),
 		{Name: "logo", Short: "Print the startup banner logo (hidden)", HelpFn: tuilib.UsageLogo, Run: runLogoHandler, Hidden: true},
 	}
+}
+
+func statsSubcommandEntry(defaultRun func(w io.Writer, args []string) error) SubcommandSpec {
+	if s := cliflags.StatsSubcommand(); s.Run != nil || s.RunJ != nil {
+		return s
+	}
+	return SubcommandSpec{Name: "stats", Short: "Show on-disk session statistics", Run: defaultRun, Hidden: true}
 }
 
 func providerSubcommand() SubcommandSpec {

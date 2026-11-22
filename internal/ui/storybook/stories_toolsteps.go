@@ -323,18 +323,18 @@ func (s *trajectoryToggleStory) View() string {
 
 	steps := []toolsteps.Step{
 		{
-			Kind:     toolsteps.KindTool,
-			Name:     "run_command",
-			Title:    "Bash(echo one)",
-			Summary:  "Ran 2 commands (echo one · echo two)",
-			Detail:   "one",
+			Kind:    toolsteps.KindTool,
+			Name:    "run_command",
+			Title:   "Bash(echo one)",
+			Summary: "Ran 2 commands (echo one · echo two)",
+			Detail:  "one",
 		},
 		{
-			Kind:     toolsteps.KindTool,
-			Name:     "run_command",
-			Title:    "Bash(echo two)",
-			Summary:  "Ran 2 commands (echo one · echo two)",
-			Detail:   "two",
+			Kind:    toolsteps.KindTool,
+			Name:    "run_command",
+			Title:   "Bash(echo two)",
+			Summary: "Ran 2 commands (echo one · echo two)",
+			Detail:  "two",
 		},
 	}
 

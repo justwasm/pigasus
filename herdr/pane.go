@@ -482,4 +482,3 @@ func (p *Pane) ForegroundAgent() (string, bool) {
 	p.cachedAgent = ""
 	return "", false
 }
-

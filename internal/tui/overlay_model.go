@@ -32,9 +32,12 @@ import (
 // Eligibility Notices, and Login Dialog).
 type OverlayModel struct {
 	// Modal Panels & Pickers
-	panel        slashPanel
-	panelReg     *panelregistry.Registry
-	resumePicker *resumepicker.Picker
+	panel          slashPanel
+	panelReg       *panelregistry.Registry
+	resumePicker   *resumepicker.Picker
+	panelSelection tuiviewport.TextSelection
+	panelScreenY   int
+	panelHeight    int
 
 	// Wire Diagnostics HUD Overlay (--debug-wire / /wire)
 	wireHUD *wirehud.HUD
@@ -115,4 +118,25 @@ func (o *OverlayModel) BtwCardVisible() bool {
 // is currently visible.
 func (o *OverlayModel) ActiveCard() bool {
 	return o.BtwCardVisible() || (o != nil && o.announceQueue.Active() != nil)
+}
+
+// HasPanelSelection reports whether the active panel has a text selection.
+func (o *OverlayModel) HasPanelSelection() bool {
+	if o == nil {
+		return false
+	}
+	_, _, _, _, ok := tuiviewport.SelectionRange(
+		o.panelSelection.SelStartRow, o.panelSelection.SelStartCol,
+		o.panelSelection.SelEndRow, o.panelSelection.SelEndCol,
+		o.panelSelection.SelDragging,
+	)
+	return ok || o.panelSelection.SelDragging
+}
+
+// ResetPanelSelection clears the active panel text selection.
+func (o *OverlayModel) ResetPanelSelection() {
+	if o == nil {
+		return
+	}
+	o.panelSelection.ResetSelection()
 }

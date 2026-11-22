@@ -65,7 +65,7 @@ type PromptModel struct {
 	pastedBlocks map[string]string
 	// initialPrompt carries the -i/--prompt-interactive prompt to be submitted on startup.
 	initialPrompt string
-	nextPasteID  int
+	nextPasteID   int
 	// Cycle 381: the prompt history is a list
 	// (internal/ui/foundations/history). It owns the remembered prompts,
 	// the navigation's index and the draft the navigation stashed; the

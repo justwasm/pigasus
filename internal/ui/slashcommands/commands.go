@@ -217,7 +217,6 @@ var Default = buildCatalogue()
 // even though the catalogue lists the word as an alias of "/fork".
 var Hidden = []Command{
 	{Name: "/branch", Dispatched: true},
-	{Name: "/continue", Dispatched: true},
 	{Name: "/login", Dispatched: true},
 	{Name: "/narration", Dispatched: true},
 	{Name: "/quote", Dispatched: true},
@@ -251,6 +250,7 @@ func buildCatalogue() []Command {
 		{Name: "/codesearch", Description: "Search code in the workspace (usage: /codesearch <query>)", Aliases: []string{"cs", "search"}, Dispatched: true},
 		{Name: "/config", Description: "Open settings panel", Aliases: []string{"settings"}, Dispatched: true},
 		{Name: "/context", Description: "Visualize current context usage", Dispatched: true},
+		{Name: "/continue", Description: "Resume an interrupted turn without starting a new turn", Dispatched: true},
 		{Name: "/copy", Description: "Copy the last planner response to the clipboard, the n-th with '/copy n', or the /btw answer with '/copy btw'", Dispatched: true},
 		{Name: "/credits", Description: "Show remaining G1 credits and purchase link", Dispatched: true},
 		{Name: "/diff", Description: "View uncommitted changes and per-turn diffs", Dispatched: true},
@@ -260,6 +260,7 @@ func buildCatalogue() []Command {
 		{Name: "/feedback", Description: "Submit qualitative feedback to improve the agent", Dispatched: true},
 		{Name: "/fork", Description: "Create a branch of the current conversation at this point, optionally specifying a project ID to fork into", Aliases: []string{"branch"}, Dispatched: true},
 		{Name: "/help", Description: "Show available commands and keybindings", Dispatched: true},
+		{Name: "/history", Description: "Browse and select past prompt history", Aliases: []string{"hist"}, Panel: panelregistry.History, Dispatched: true},
 		{Name: "/hooks", Description: "Manage hook configurations for tool events", Dispatched: true},
 		{Name: "/keybindings", Description: "Set custom keybindings", Dispatched: true},
 		{Name: "/logout", Description: "Log out", Dispatched: true},

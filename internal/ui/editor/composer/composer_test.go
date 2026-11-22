@@ -25,11 +25,11 @@ type move struct {
 	line, col int
 }
 
-func (e *fakeEditor) Value() string         { return e.value }
-func (e *fakeEditor) SetValue(s string)     { e.value = s }
-func (e *fakeEditor) Line() int             { return e.line }
-func (e *fakeEditor) Column() int           { return e.col }
-func (e *fakeEditor) CursorOffset() int     { return e.offset }
+func (e *fakeEditor) Value() string     { return e.value }
+func (e *fakeEditor) SetValue(s string) { e.value = s }
+func (e *fakeEditor) Line() int         { return e.line }
+func (e *fakeEditor) Column() int       { return e.col }
+func (e *fakeEditor) CursorOffset() int { return e.offset }
 func (e *fakeEditor) InsertRune(r rune) {
 	if e.offset <= len(e.value) {
 		e.value = e.value[:e.offset] + string(r) + e.value[e.offset:]
@@ -48,7 +48,7 @@ func (e *fakeEditor) InsertString(s string) {
 		e.offset = len(e.value)
 	}
 }
-func (e *fakeEditor) Backspace()            { e.value = e.value[:len(e.value)-1] }
+func (e *fakeEditor) Backspace() { e.value = e.value[:len(e.value)-1] }
 func (e *fakeEditor) MoveCursorTo(l, c int) {
 	e.moves = append(e.moves, move{l, c})
 	e.line = l

@@ -1,9 +1,14 @@
 package agentserver
 
 import (
+	"bufio"
+	"bytes"
 	"context"
+	"encoding/json"
 	"encoding/json/jsontext"
 	"fmt"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
@@ -16,6 +21,7 @@ import (
 	"github.com/justwasm/pigasus/internal/app/agentturn"
 	"github.com/justwasm/pigasus/internal/app/toolrunner"
 	"github.com/justwasm/pigasus/internal/core/backend"
+	"github.com/justwasm/pigasus/internal/core/confhome"
 	"github.com/justwasm/pigasus/internal/core/policy/permissions"
 	"github.com/justwasm/pigasus/internal/features/models/catalog"
 )
@@ -112,26 +118,44 @@ func NewACPV1Agent(srv *Server, client acp1.Client) *ACPV1Agent {
 		srv:    srv,
 		client: client,
 	}
+	var store acp1.SessionStore[*acpV1Session]
+	if srv != nil {
+		store = srv.getACPV1Store()
+	} else {
+		store = acp1.NewMemoryStore[*acpV1Session]()
+	}
 	a.SessionManager = acp1.NewSessionManager(
-		acp1.NewMemoryStore[*acpV1Session](),
+		store,
 		func(ctx context.Context, params *acp1.NewSessionRequest) (acp1.SessionID, *acpV1Session, error) {
 			cwd := params.Cwd
-			sess, err := srv.sessionFor(cwd, srv.cfg.Model)
-			if err != nil {
-				return "", nil, err
+			var sess *Session
+			var err error
+			if srv != nil {
+				sess, err = srv.sessionFor(cwd, srv.cfg.Model)
+				if err != nil {
+					return "", nil, err
+				}
 			}
-			sessID := acp1.SessionID(sess.ConversationID)
-			if sessID == "" {
+			var sessID acp1.SessionID
+			if sess != nil && sess.ConversationID != "" {
+				sessID = acp1.SessionID(sess.ConversationID)
+			} else {
 				sessID = acp1.SessionID(fmt.Sprintf("sess_%d", time.Now().UnixNano()))
 			}
-			if cwd == "" {
+			if cwd == "" && sess != nil {
 				cwd = sess.Workspace
+			}
+			var cmds []acp1.AvailableCommand
+			if srv != nil {
+				cmds = v1CommandsFor(srv.cfg)
+			} else {
+				cmds = defaultV1Commands()
 			}
 			return sessID, &acpV1Session{
 				cwd:      cwd,
 				mode:     "default",
 				session:  sess,
-				commands: v1CommandsFor(srv.cfg),
+				commands: cmds,
 			}, nil
 		},
 	)
@@ -386,19 +410,204 @@ func (a *ACPV1Agent) SetSessionMode(ctx context.Context, params *acp1.SetSession
 	return &acp1.SetSessionModeResponse{}, nil
 }
 
-// LoadSession implements acp1.SessionLoader.
+// LoadSession implements acp1.SessionLoader, restoring conversation state and replaying history for editors (Zed, VS Code, JetBrains).
 func (a *ACPV1Agent) LoadSession(ctx context.Context, params *acp1.LoadSessionRequest) (*acp1.LoadSessionResponse, error) {
 	if params == nil {
 		return nil, fmt.Errorf("load session: nil params")
 	}
 	s, err := a.Lookup(ctx, params.SessionID)
 	if err != nil {
-		return nil, err
+		// External editor reconnection (e.g. Zed / VS Code): session might need restoration
+		cwd := params.Cwd
+		if cwd == "" && a.srv != nil {
+			cwd = a.srv.cfg.Workspace
+		}
+		var sess *Session
+		var sErr error
+		if a.srv != nil {
+			sess, sErr = a.srv.sessionFor(cwd, a.srv.cfg.Model)
+			if sErr != nil {
+				return nil, err
+			}
+		}
+		recoveredHist := loadHistoryFromTranscript(string(params.SessionID))
+		var cmds []acp1.AvailableCommand
+		if a.srv != nil {
+			cmds = v1CommandsFor(a.srv.cfg)
+		} else {
+			cmds = defaultV1Commands()
+		}
+		s = &acpV1Session{
+			cwd:      cwd,
+			mode:     "default",
+			session:  sess,
+			history:  recoveredHist,
+			commands: cmds,
+		}
+		if saveErr := a.SessionManager.Save(ctx, params.SessionID, s); saveErr != nil {
+			return nil, saveErr
+		}
 	}
+
+	if params.Cwd != "" {
+		s.cwd = params.Cwd
+	}
+
+	// Apply any initial config options requested by client
+	for _, opt := range params.ConfigOptions {
+		if u, ok := opt.As[schemav1.InitialSessionConfigOptionUntagged](); ok {
+			switch u.ConfigID {
+			case "model":
+				if s.session != nil {
+					s.session.Model = string(u.Value)
+				}
+			case "thinking_level":
+				if s.session != nil {
+					s.session.Effort = string(u.Value)
+				}
+			case "mode":
+				s.applyMode(string(u.Value))
+			}
+		}
+	}
+
+	// Replay retained history and slash commands to client upon reconnection
+	if a.client != nil {
+		stream := acp1.NewSessionStream(a.client, params.SessionID)
+		_ = stream.SendCommands(ctx, sessionCommandsV1(s))
+		s.mu.Lock()
+		hist := slices.Clone(s.history)
+		s.mu.Unlock()
+		for _, msg := range hist {
+			switch msg.Role {
+			case "user":
+				_ = stream.SendUserMessage(ctx, msg.Content)
+			case "assistant":
+				_ = stream.SendText(ctx, msg.Content)
+			}
+		}
+	}
+
 	return &acp1.LoadSessionResponse{
 		Modes:         a.buildModes(s),
 		ConfigOptions: a.buildConfigOptions(s),
 	}, nil
+}
+
+// ResumeSession implements acp1.SessionResumer.
+func (a *ACPV1Agent) ResumeSession(ctx context.Context, params *acp1.ResumeSessionRequest) (*acp1.ResumeSessionResponse, error) {
+	if params == nil {
+		return nil, fmt.Errorf("resume session: nil params")
+	}
+	s, err := a.Lookup(ctx, params.SessionID)
+	if err != nil {
+		cwd := params.Cwd
+		if cwd == "" && a.srv != nil {
+			cwd = a.srv.cfg.Workspace
+		}
+		var sess *Session
+		var sErr error
+		if a.srv != nil {
+			sess, sErr = a.srv.sessionFor(cwd, a.srv.cfg.Model)
+			if sErr != nil {
+				return nil, err
+			}
+		}
+		recoveredHist := loadHistoryFromTranscript(string(params.SessionID))
+		var cmds []acp1.AvailableCommand
+		if a.srv != nil {
+			cmds = v1CommandsFor(a.srv.cfg)
+		} else {
+			cmds = defaultV1Commands()
+		}
+		s = &acpV1Session{
+			cwd:      cwd,
+			mode:     "default",
+			session:  sess,
+			history:  recoveredHist,
+			commands: cmds,
+		}
+		if saveErr := a.SessionManager.Save(ctx, params.SessionID, s); saveErr != nil {
+			return nil, saveErr
+		}
+	}
+
+	if params.Cwd != "" {
+		s.cwd = params.Cwd
+	}
+
+	for _, opt := range params.ConfigOptions {
+		if u, ok := opt.As[schemav1.InitialSessionConfigOptionUntagged](); ok {
+			switch u.ConfigID {
+			case "model":
+				if s.session != nil {
+					s.session.Model = string(u.Value)
+				}
+			case "thinking_level":
+				if s.session != nil {
+					s.session.Effort = string(u.Value)
+				}
+			case "mode":
+				s.applyMode(string(u.Value))
+			}
+		}
+	}
+
+	if a.client != nil {
+		stream := acp1.NewSessionStream(a.client, params.SessionID)
+		_ = stream.SendCommands(ctx, sessionCommandsV1(s))
+	}
+
+	return &acp1.ResumeSessionResponse{
+		Modes:         a.buildModes(s),
+		ConfigOptions: a.buildConfigOptions(s),
+	}, nil
+}
+
+type transcriptRecord struct {
+	Source  string `json:"source"`
+	Content string `json:"content"`
+	Type    string `json:"type"`
+}
+
+func loadHistoryFromTranscript(convID string) []agentlink.Message {
+	if convID == "" {
+		return nil
+	}
+	transcriptPath := filepath.Join(confhome.Antigravity(), "brain", convID, ".system_generated", "logs", "transcript.jsonl")
+	data, err := os.ReadFile(transcriptPath)
+	if err != nil {
+		return nil
+	}
+	var messages []agentlink.Message
+	scanner := bufio.NewScanner(bytes.NewReader(data))
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" {
+			continue
+		}
+		var rec transcriptRecord
+		if err := json.Unmarshal([]byte(line), &rec); err != nil {
+			continue
+		}
+		switch rec.Source {
+		case "USER", "USER_EXPLICIT":
+			if rec.Content != "" {
+				messages = append(messages, agentlink.Message{
+					Role:    "user",
+					Content: rec.Content,
+				})
+			}
+		case "MODEL":
+			if rec.Content != "" && rec.Type != "PLANNER_RESPONSE" {
+				messages = append(messages, agentlink.Message{
+					Role:    "assistant",
+					Content: rec.Content,
+				})
+			}
+		}
+	}
+	return messages
 }
 
 // Authenticate implements acp1.Authenticator.

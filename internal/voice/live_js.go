@@ -9,15 +9,15 @@ import (
 
 // JSWebVoiceBridge connects the Go duplex voice session with the browser's JavaScript runtime.
 type JSWebVoiceBridge struct {
-	mu            sync.RWMutex
-	onAudioCb     js.Value
-	onUserCb      js.Value
-	onAgentCb     js.Value
+	mu             sync.RWMutex
+	onAudioCb      js.Value
+	onUserCb       js.Value
+	onAgentCb      js.Value
 	onAgentDeltaCb js.Value
-	onTurnCb      js.Value
-	onInterruptCb js.Value
-	onErrorCb     js.Value
-	onCloseCb     js.Value
+	onTurnCb       js.Value
+	onInterruptCb  js.Value
+	onErrorCb      js.Value
+	onCloseCb      js.Value
 }
 
 var globalJSVoiceBridge = &JSWebVoiceBridge{}

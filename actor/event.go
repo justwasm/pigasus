@@ -29,6 +29,7 @@ type Event struct {
 	// Specific event payload fields
 	Delta            string         `json:"delta,omitempty"`
 	Thought          string         `json:"thought,omitempty"`
+	ThoughtEvent     *ThoughtEvent  `json:"thought_event,omitempty"`
 	SteerInstruction string         `json:"steer_instruction,omitempty"`
 	ToolCall         *ToolCall      `json:"tool_call,omitempty"`
 	ToolResult       *ToolResult    `json:"tool_result,omitempty"`

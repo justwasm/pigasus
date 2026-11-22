@@ -1,0 +1,151 @@
+# yaml-language-server: $schema=https://json.schemastore.org/github-workflow.json
+# ==============================================================================
+# OpenAGY / Pigasus: Official Unattended Code Analysis & Repair Action Template
+# ==============================================================================
+# This template demonstrates how to integrate OpenAGY / Pigasus into an enterprise
+# CI/CD pipeline for autonomous, unattended code analysis, architecture guardrails,
+# security auditing, and automated patch creation (Anywhere Agent & Industrial Ecosystem).
+#
+# Supported Triggers:
+#   1. Pull Request: Automatically reviews changed code and checks architecture tiers.
+#   2. Manual Dispatch: On-demand analysis or repair with custom target path & prompt.
+#   3. Nightly Cron: Regular codebase health check and dependency drift scan.
+#
+# Prerequisites / Secrets:
+#   - PIGASUS_API_KEY / GEMINI_API_KEY / OPENAI_API_KEY / ANTHROPIC_API_KEY
+#     (Stored in GitHub Repository Secrets -> Settings > Secrets and variables > Actions)
+
+name: "Pigasus Autonomous Code Analysis & Repair"
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "**.go"
+      - "go.mod"
+      - "go.sum"
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "Execution mode (analyze: report only, repair: apply automated fixes)"
+        required: true
+        default: "analyze"
+        type: choice
+        options:
+          - analyze
+          - repair
+      target_path:
+        description: "Target package or path to analyze/repair"
+        required: false
+        default: "./..."
+        type: string
+      prompt:
+        description: "Custom instruction or focus for the autonomous agent"
+        required: false
+        default: "Analyze codebase for performance bottlenecks, deadlocks, and architecture layering violations. If in repair mode, fix them."
+        type: string
+      auto_pr:
+        description: "Automatically create a Pull Request if repairs are applied"
+        required: false
+        default: false
+        type: boolean
+  schedule:
+    # Run nightly at 02:00 UTC (Unattended Code Maintenance)
+    - cron: "0 2 * * *"
+
+concurrency:
+  group: pigasus-agent-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+  pull-requests: write
+  issues: write
+
+jobs:
+  pigasus-agent:
+    name: "Autonomous Agent Turn (${{ github.event_name }})"
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install Go Toolchain
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.27"
+          cache: true
+          cache-dependency-path: go.sum
+
+      - name: Show Go Environment
+        run: |
+          go version
+          go env GOOS GOARCH GOPATH
+
+      - name: Download Go dependencies
+        run: go mod download
+
+      - name: Build Pigasus Agent CLI
+        run: |
+          mkdir -p ./bin
+          go build -o ./bin/pigasus ./cmd/pigasus
+          ./bin/pigasus --version
+
+      - name: Architecture Charter Enforcement
+        run: |
+          echo "Verifying Clean Architecture Charter (Tiers 1-5, no upward edges)..."
+          go test -v ./internal/core/architecture/...
+
+      - name: Run Pigasus Autonomous Agent
+        env:
+          OPENAGY_MODE: ${{ inputs.mode || 'analyze' }}
+          AGENT_TARGET: ${{ inputs.target_path || './...' }}
+          AGENT_PROMPT: ${{ inputs.prompt || 'Review recent code changes for safety, deadlocks, and protocol conformity.' }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          PIGASUS_API_KEY: ${{ secrets.PIGASUS_API_KEY }}
+        run: |
+          echo "Starting Pigasus Agent in Headless Mode..."
+          echo "Mode: $OPENAGY_MODE | Target: $AGENT_TARGET"
+          
+          # Run unattended turn using pigasus headless print mode
+          # If API key is configured, invoke the model backend; otherwise run verification suite
+          if [ -n "$GEMINI_API_KEY" ] || [ -n "$PIGASUS_API_KEY" ]; then
+            ./bin/pigasus --print "$AGENT_PROMPT on $AGENT_TARGET" || true
+          else
+            echo "Notice: No API key detected in GitHub Secrets. Running static verification baseline."
+            go vet $AGENT_TARGET
+            go test -short $AGENT_TARGET
+          fi
+
+      - name: Verify Code Integrity Post-Agent
+        run: |
+          echo "Checking git working tree status..."
+          git status --short
+          echo "Running quick architecture and compilation guard..."
+          go build ./cmd/pigasus
+
+      - name: Create Pull Request with Automated Repairs
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.auto_pr == true }}
+        uses: peter-evans/create-pull-request@v6
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          commit-message: "chore(pigasus): automated autonomous code repair"
+          title: "🤖 [Pigasus Autonomous Agent] Automated Code Repairs"
+          body: |
+            ## Automated Code Repair Report
+            
+            This pull request was automatically generated by **OpenAGY / Pigasus Autonomous Agent** in unattended CI/CD mode.
+            
+            - **Target Path**: `${{ inputs.target_path }}`
+            - **Original Goal**: `${{ inputs.prompt }}`
+            - **Triggered By**: @${{ github.actor }}
+            
+            ### Verification Checklist
+            - [x] Architecture Charter Guard (`internal/core/architecture/...`) passed
+            - [x] Code compiles cleanly
+            - [ ] Manual review by maintainers
+          branch: "pigasus/auto-repair-${{ github.run_id }}"
+          delete-branch: true

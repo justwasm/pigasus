@@ -227,8 +227,8 @@ func FormatFreeSpaceRow(free, contextMax int) string {
 
 // RenderCheckpoints renders the Checkpoints (%d) section:
 //
-//	Checkpoints (1)
-//	  └ Checkpoint 1 (active, in context): steps 1–3
+//	Checkpoints (1) · /rewind
+//	└ Checkpoint 1 (active, in context): steps 1–3
 //	  1 historical checkpoint(s) (summarized, not in context)
 func RenderCheckpoints(totalCheckpoints, activeIndex, startStep, endStep, historicalCount int) []string {
 	if totalCheckpoints <= 0 && activeIndex <= 0 {
@@ -238,12 +238,46 @@ func RenderCheckpoints(totalCheckpoints, activeIndex, startStep, endStep, histor
 		totalCheckpoints = 1 + historicalCount
 	}
 	var lines []string
-	lines = append(lines, "\x1b[1m"+palette.SubtleOpen+fmt.Sprintf("Checkpoints (%d)", totalCheckpoints)+"\x1b[0m")
+	lines = append(lines, fmt.Sprintf("Checkpoints (%d)", totalCheckpoints)+" · "+palette.DimGrayOpen+"/rewind\x1b[39m")
 	if activeIndex > 0 {
-		lines = append(lines, fmt.Sprintf("  "+palette.SubtleOpen+"└ Checkpoint %d (active, in context): steps %d–%d\x1b[39m", activeIndex, startStep, endStep))
+		lines = append(lines, fmt.Sprintf(palette.SubtleOpen+"└ Checkpoint %d (active, in context): steps %d–%d\x1b[39m", activeIndex, startStep, endStep))
 	}
 	if historicalCount > 0 {
-		lines = append(lines, fmt.Sprintf("  "+palette.SubtleOpen+"%d historical checkpoint(s) (summarized, not in context)\x1b[39m", historicalCount))
+		lines = append(lines, fmt.Sprintf("  "+palette.DimGrayOpen+"%d historical checkpoint(s) (summarized, not in context)\x1b[39m", historicalCount))
+	}
+	return lines
+}
+
+// FileEntry represents a file and its estimated token count in context.
+type FileEntry struct {
+	Path   string
+	Tokens int
+}
+
+// FileSection represents a grouped section of context files.
+type FileSection struct {
+	Title   string
+	Command string
+	Files   []FileEntry
+}
+
+// RenderFileSection formats one file section (e.g. Artifact files, Skill files, Knowledge files, System files).
+func RenderFileSection(sec FileSection) []string {
+	if len(sec.Files) == 0 {
+		return nil
+	}
+	var lines []string
+	header := sec.Title
+	if sec.Command != "" {
+		header += " · " + palette.DimGrayOpen + sec.Command + "\x1b[39m"
+	}
+	lines = append(lines, header)
+	for _, f := range sec.Files {
+		if f.Tokens > 0 {
+			lines = append(lines, fmt.Sprintf(" "+palette.DimGrayOpen+"└ %s: %s tokens\x1b[39m", f.Path, TokenLabel(f.Tokens)))
+		} else {
+			lines = append(lines, fmt.Sprintf(" "+palette.DimGrayOpen+"└ %s\x1b[39m", f.Path))
+		}
 	}
 	return lines
 }
@@ -274,12 +308,16 @@ func LiveRows(model string, used, free, contextMax int, cats []Category) []Row {
 	return LiveRowsWithCompacted(model, used, free, contextMax, cats, false)
 }
 
-// LiveRowsWithCompacted renders LiveRows with the optional post-compaction header.
-func LiveRowsWithCompacted(model string, used, free, contextMax int, cats []Category, compactJustHappened bool) []Row {
+// LiveRowsWithPreamble renders LiveRows with a custom preamble header.
+func LiveRowsWithPreamble(model string, used, free, contextMax int, cats []Category, preamble string) []Row {
+	return LiveRowsWithPreambleAndCheckpoint(model, used, free, contextMax, cats, preamble, 0)
+}
+
+// LiveRowsWithPreambleAndCheckpoint renders LiveRows with a custom preamble header and optional checkpoint buffer row.
+func LiveRowsWithPreambleAndCheckpoint(model string, used, free, contextMax int, cats []Category, preamble string, checkpointBuffer int) []Row {
 	maxStr := FormatContextLimit(contextMax)
-	preamble := "Token usage by category"
-	if compactJustHappened {
-		preamble = "Estimated after compaction · updates next turn"
+	if preamble == "" {
+		preamble = "Token usage by category"
 	}
 	rows := []Row{
 		{fmt.Sprintf("%s · %s/%s tokens", model, TokenLabel(used), maxStr), 5},
@@ -292,7 +330,20 @@ func LiveRowsWithCompacted(model string, used, free, contextMax int, cats []Cate
 			Pad:  5,
 		})
 	}
-	return append(rows, Row{Text: FormatFreeSpaceRow(free, contextMax), Pad: 5})
+	rows = append(rows, Row{Text: FormatFreeSpaceRow(free, contextMax), Pad: 5})
+	if checkpointBuffer > 0 {
+		rows = append(rows, Row{Text: CheckpointRow(checkpointBuffer), Pad: 5})
+	}
+	return rows
+}
+
+// LiveRowsWithCompacted renders LiveRows with the optional post-compaction header.
+func LiveRowsWithCompacted(model string, used, free, contextMax int, cats []Category, compactJustHappened bool) []Row {
+	preamble := "Token usage by category"
+	if compactJustHappened {
+		preamble = "Estimated after compaction · updates next turn"
+	}
+	return LiveRowsWithPreamble(model, used, free, contextMax, cats, preamble)
 }
 
 // CheckpointRow is the checkpoint-buffer row.
@@ -305,6 +356,63 @@ func LiveRowsWithCompacted(model string, used, free, contextMax int, cats []Cate
 func CheckpointRow(tokens int) string {
 	return fmt.Sprintf("%s Checkpoint buffer: %s tokens (not counted in usage)",
 		CheckpointGlyph, TokenLabel(tokens))
+}
+
+// ProportionalFill computes the visual grid-cell fill for a set of categories,
+// allocating cells proportional to tokens/contextMax of totalDots, matching
+// reference agy 1.5.14 ContextModel.renderGrid (0x103243d50 - 0x103244860).
+func ProportionalFill(cats []Category, contextMax, totalDots int) []string {
+	if contextMax <= 0 || totalDots <= 0 {
+		return nil
+	}
+	type catDot struct {
+		cell string
+		dots int
+		lead bool
+	}
+	var items []catDot
+	sumDots := 0
+	for _, c := range cats {
+		if c.Tokens <= 0 {
+			continue
+		}
+		d := int(float64(c.Tokens) / float64(contextMax) * float64(totalDots))
+		if d <= 0 && c.Tokens > 0 {
+			d = 1
+		}
+		items = append(items, catDot{cell: c.Cell, dots: d, lead: c.Lead})
+		sumDots += d
+	}
+	if sumDots > totalDots && sumDots > 0 {
+		scale := float64(totalDots) / float64(sumDots)
+		sumDots = 0
+		for i := range items {
+			items[i].dots = int(float64(items[i].dots) * scale)
+			if items[i].dots <= 0 {
+				items[i].dots = 1
+			}
+			sumDots += items[i].dots
+		}
+	}
+	var fill []string
+	for _, it := range items {
+		if it.lead {
+			for i := 0; i < it.dots; i++ {
+				fill = append(fill, it.cell)
+			}
+		}
+	}
+	for _, it := range items {
+		if !it.lead {
+			for i := 0; i < it.dots; i++ {
+				fill = append(fill, it.cell)
+			}
+		}
+	}
+	if len(fill) > totalDots {
+		fill = fill[:totalDots]
+	}
+	return fill
 }
 
 // StreamingFill is the grid-cell fill of the in-flight layout: one cell

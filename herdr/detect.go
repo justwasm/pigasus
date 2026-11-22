@@ -8,22 +8,22 @@ import (
 
 // Recognized canonical agent identifiers matching upstream Herdr detect manifests.
 const (
-	AgentAgy       = "agy"
-	AgentClaude    = "claude"
-	AgentCodex     = "codex"
-	AgentCrush     = "crush"
-	AgentGemini    = "gemini"
-	AgentCursor    = "cursor"
-	AgentDevin     = "devin"
-	AgentCopilot   = "copilot"
-	AgentKimi      = "kimi"
-	AgentQwen      = "qwen"
-	AgentPi        = "pi"
-	AgentHermes    = "hermes"
-	AgentCollie    = "collie"
-	AgentOpenCode  = "opencode"
-	AgentAmp       = "amp"
-	AgentDroid     = "droid"
+	AgentAgy      = "agy"
+	AgentClaude   = "claude"
+	AgentCodex    = "codex"
+	AgentCrush    = "crush"
+	AgentGemini   = "gemini"
+	AgentCursor   = "cursor"
+	AgentDevin    = "devin"
+	AgentCopilot  = "copilot"
+	AgentKimi     = "kimi"
+	AgentQwen     = "qwen"
+	AgentPi       = "pi"
+	AgentHermes   = "hermes"
+	AgentCollie   = "collie"
+	AgentOpenCode = "opencode"
+	AgentAmp      = "amp"
+	AgentDroid    = "droid"
 )
 
 // LookupAgent maps any process name, alias, command, or label to its canonical Herdr agent ID.

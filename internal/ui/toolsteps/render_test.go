@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/charmbracelet/x/ansi"
 	"github.com/justwasm/pigasus/internal/ui/tuitools"
 	"github.com/justwasm/pigasus/palette"
 )
@@ -1062,4 +1063,147 @@ func TestStepDetailLines_ManageTaskPreservesBackticks(t *testing.T) {
 	if !strings.Contains(joined, "`foo`") || !strings.Contains(joined, "`pkg.Bar`") {
 		t.Errorf("manage_task output did not preserve backticks verbatim:\n%s", joined)
 	}
+}
+
+func TestToolBlockLines_GroupedGutterWidthDoesNotExceedWidth(t *testing.T) {
+	steps := []Step{
+		{
+			Name:   "custom_task",
+			Title:  "custom_task(1)",
+			Detail: "        +- `media`: An array of media (e.g. images) attached to the step, each with a `mime_type` and a `uri` referencing the media file on disk. Media bytes are not stored in the transcript; view the `uri` path to see the media.",
+		},
+		{
+			Name:   "custom_task",
+			Title:  "custom_task(2)",
+			Detail: "Line 1 of details.\nLine 2 of details is quite a bit longer to test line wrapping under constraints.",
+		},
+	}
+
+	widths := []int{40, 60, 80, 100, 120}
+	for _, w := range widths {
+		t.Run(fmt.Sprintf("Width_%d", w), func(t *testing.T) {
+			lines := RenderBlock(steps, RenderOptions{Expanded: true, Width: w})
+			for idx, line := range lines {
+				width := ansi.StringWidth(line)
+				if width > w {
+					t.Errorf("line %d exceeded terminal width %d (got %d): %q", idx, w, width, line)
+				}
+			}
+		})
+	}
+}
+
+func TestStepDetailLines_HangingIndentPreserved(t *testing.T) {
+	s := Step{
+		Name:   "custom_task",
+		Title:  "custom_task(test.go)",
+		Detail: "        +- `media`: An array of media (e.g. images) attached to the step, each with a `mime_type` and a `uri` referencing the media file on disk. Media bytes are not stored in the transcript; view the `uri` path to see the media.",
+	}
+
+	widths := []int{50, 60, 80}
+	for _, w := range widths {
+		t.Run(fmt.Sprintf("Width_%d", w), func(t *testing.T) {
+			lines := stepDetailLines(s, w)
+			if len(lines) < 2 {
+				t.Fatalf("expected wrapped lines, got %d lines: %v", len(lines), lines)
+			}
+			expectedPrefix := tuitools.DetailIndent + "        "
+			for idx, line := range lines {
+				plain := ansi.Strip(line)
+				if idx == 0 {
+					if !strings.Contains(plain, "⎿") || !strings.Contains(plain, "+- `media`") {
+						t.Errorf("line 0 missing bullet/content: %q", plain)
+					}
+				} else {
+					if !strings.HasPrefix(plain, expectedPrefix) {
+						t.Errorf("line %d lost hanging indentation: expected prefix %q, got line %q", idx, expectedPrefix, plain)
+					}
+				}
+				lineWidth := ansi.StringWidth(line)
+				if lineWidth > w {
+					t.Errorf("line %d exceeded width %d (got %d): %q", idx, w, lineWidth, line)
+				}
+			}
+		})
+	}
+}
+
+func TestRenderBlock_CollapseExpandHintWrapping(t *testing.T) {
+	// 1. Single expanded step with last line near terminal width
+	t.Run("SingleStep_HintWrapsWhenExceedingWidth", func(t *testing.T) {
+		w := 50
+		longLine := strings.Repeat("A", w-5)
+		steps := []Step{
+			{
+				Name:   "read_file",
+				Title:  "read_file(short)",
+				Detail: longLine,
+			},
+		}
+		lines := RenderBlock(steps, RenderOptions{Expanded: true, Width: w})
+		for idx, line := range lines {
+			if ansi.StringWidth(line) > w {
+				t.Errorf("line %d exceeded width %d (got %d): %q", idx, w, ansi.StringWidth(line), line)
+			}
+		}
+		lastLine := lines[len(lines)-1]
+		if !strings.Contains(lastLine, "ctrl+o to collapse") {
+			t.Errorf("expected last line to contain hint, got: %q", lastLine)
+		}
+	})
+
+	// 2. Grouped expanded step with last line near terminal width
+	t.Run("GroupedSteps_HintWrapsWithGutter", func(t *testing.T) {
+		w := 60
+		longLine := strings.Repeat("B", w-6)
+		steps := []Step{
+			{
+				Name:   "read_file",
+				Title:  "read_file(1)",
+				Detail: "first file content",
+			},
+			{
+				Name:   "read_file",
+				Title:  "read_file(2)",
+				Detail: longLine,
+			},
+		}
+		lines := RenderBlock(steps, RenderOptions{Expanded: true, Width: w})
+		for idx, line := range lines {
+			if ansi.StringWidth(line) > w {
+				t.Errorf("line %d exceeded width %d (got %d): %q", idx, w, ansi.StringWidth(line), line)
+			}
+		}
+		lastLine := lines[len(lines)-1]
+		if !strings.Contains(lastLine, "ctrl+o to collapse") {
+			t.Errorf("expected last line to contain hint, got: %q", lastLine)
+		}
+		// Must include gutter
+		stripped := ansi.Strip(lastLine)
+		if !strings.HasPrefix(stripped, "│ ") {
+			t.Errorf("expected continuation hint line to preserve gutter prefix, got: %q", stripped)
+		}
+	})
+
+	// 3. Collapsed low verbosity group where title + hint exceeds width
+	t.Run("CollapsedLowVerbosityGroup_HintWraps", func(t *testing.T) {
+		w := 50
+		steps := []Step{
+			{
+				Name:    "run_command",
+				Title:   "Bash(" + strings.Repeat("x", 40) + ")",
+				Summary: "Ran (" + strings.Repeat("x", 40) + ")",
+			},
+		}
+		lines := CollapsedLowVerbosityGroup(steps, TokenMetrics{}, w)
+		for idx, line := range lines {
+			if ansi.StringWidth(line) > w {
+				t.Errorf("line %d exceeded width %d (got %d): %q", idx, w, ansi.StringWidth(line), line)
+			}
+		}
+		lastLine := lines[len(lines)-1]
+		if !strings.Contains(lastLine, "ctrl+o to expand") {
+			t.Errorf("expected last line to contain hint, got: %q", lastLine)
+		}
+	})
 }

@@ -160,3 +160,14 @@ func RCSubcommands() []SubcommandSpec {
 	}
 	return []SubcommandSpec{{Name: "remote-control"}}
 }
+
+func StatsSubcommand() SubcommandSpec {
+	if fn := GetProvider("stats"); fn != nil {
+		return fn()
+	}
+	return SubcommandSpec{
+		Name:   "stats",
+		Short:  "Show usage statistics and analytics",
+		Hidden: true,
+	}
+}

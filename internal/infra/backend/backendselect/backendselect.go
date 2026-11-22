@@ -60,25 +60,164 @@ func PickWithLog(fs *flag.FlagSet, modelName string, logWriter io.Writer, gatewa
 	explicit := fromFlag || strings.TrimSpace(os.Getenv("OPENAGY_BACKEND")) != ""
 	switch resolved {
 	case "cloudcode":
-		return newOfficialBackend(modelName, logWriter, catalogueID)
+		primary := newOfficialBackend(modelName, logWriter, catalogueID)
+		return buildFailoverChain(fs, modelName, primary, "cloudcode", gatewayTimeout, logWriter, catalogueID)
 	case "gateway":
 		if !explicit && IsReferenceModel(modelName, catalogueID) {
 			primary := newOfficialBackend(modelName, logWriter, catalogueID)
-			if fallbackClient, ok := fallbackConfiguredBackend(modelName, gatewayTimeout, logWriter, catalogueID); ok {
-				return failover.New([]failover.Target{
-					{Name: "cloudcode", Client: primary},
-					{Name: "gateway-fallback", Client: fallbackClient},
-				}, func(ev failover.Event) {
-					writeLog(logWriter, "[failover] %s failed with %v -> switching to %s (model: %s)\n", ev.FromTarget, ev.Err, ev.ToTarget, ev.Model)
-				})
-			}
-			return primary
+			return buildFailoverChain(fs, modelName, primary, "cloudcode", gatewayTimeout, logWriter, catalogueID)
 		}
-		return newConfiguredBackend(modelName, gatewayTimeout, logWriter, catalogueID)
+		primary := newConfiguredBackend(modelName, gatewayTimeout, logWriter, catalogueID)
+		return buildFailoverChain(fs, modelName, primary, "configured:"+modelName, gatewayTimeout, logWriter, catalogueID)
 	case "shim":
 		return backend.NewMock()
 	}
 	return backend.NewMock()
+}
+
+// buildFailoverChain constructs an ordered failover.Client whenever secondary fallback
+// providers or models are configured, either per-model or through OPENAGY_FALLBACK_CHAIN.
+func buildFailoverChain(fs *flag.FlagSet, modelName string, primary backend.Client, primaryName string, gatewayTimeout int, logWriter io.Writer, catalogueID CatalogueIDFunc) backend.Client {
+	targets := []failover.Target{
+		{Name: primaryName, Client: primary},
+	}
+	seenModels := map[string]bool{
+		strings.ToLower(strings.TrimSpace(modelName)): true,
+	}
+	seenTargets := map[string]bool{
+		primaryName: true,
+	}
+
+	var candidateFallbacks []string
+
+	// 1. Model-specific fallbacks if configured model
+	if m, ok := resolveConfigured(modelName, catalogueID); ok {
+		candidateFallbacks = append(candidateFallbacks, m.Fallbacks...)
+	}
+
+	// 2. Fallback configured backend for reference models if none explicitly listed
+	if len(candidateFallbacks) == 0 && IsReferenceModel(modelName, catalogueID) {
+		if _, ok := resolveConfigured(modelName, catalogueID); ok {
+			candidateFallbacks = append(candidateFallbacks, modelName)
+		}
+	}
+
+	// 3. Command-line flag or environment variable fallback chain
+	chainVal := ""
+	if fs != nil {
+		chainVal = cliflags.StringValue(fs, "fallback-chain")
+	}
+	if chainVal == "" {
+		chainVal = os.Getenv("OPENAGY_FALLBACK_CHAIN")
+	}
+	if strings.TrimSpace(chainVal) != "" {
+		for _, part := range strings.Split(chainVal, ",") {
+			p := strings.TrimSpace(part)
+			if p != "" {
+				candidateFallbacks = append(candidateFallbacks, p)
+			}
+		}
+	}
+
+	// 4. Resolve each candidate fallback
+	for _, fb := range candidateFallbacks {
+		fbClean := strings.TrimSpace(fb)
+		if fbClean == "" {
+			continue
+		}
+		normFB := strings.ToLower(fbClean)
+		targetName := "fallback:" + fbClean
+
+		// Special case: shim/mock
+		if strings.EqualFold(fbClean, "shim") || strings.EqualFold(fbClean, "mock") {
+			if !seenTargets[targetName] {
+				seenTargets[targetName] = true
+				targets = append(targets, failover.Target{
+					Name:   targetName,
+					Client: backend.NewMock(),
+				})
+			}
+			continue
+		}
+
+		if seenModels[normFB] {
+			// If primary is cloudcode and the user also configured a gateway endpoint for this same model name,
+			// allow it as an explicit cross-provider downgrade fallback once.
+			if primaryName == "cloudcode" && !seenTargets[targetName] {
+				if _, ok := resolveConfigured(fbClean, catalogueID); !ok {
+					continue
+				}
+			} else {
+				continue
+			}
+		}
+		seenModels[normFB] = true
+
+		// Configured model
+		if m, ok := resolveConfigured(fbClean, catalogueID); ok {
+			if seenTargets[targetName] {
+				continue
+			}
+			seenTargets[targetName] = true
+			timeout := gatewayTimeout
+			if m.TimeoutSeconds > 0 {
+				timeout = m.TimeoutSeconds
+			}
+			client := gateway.NewGatewayWithConfig(gateway.GatewayConfig{
+				URL:               strings.TrimSpace(m.APIURL),
+				APIKey:            strings.TrimSpace(m.APIKey),
+				ExternalModel:     strings.TrimSpace(m.ExternalModelName),
+				Type:              strings.TrimSpace(m.Type),
+				Headers:           m.ExtraHeaders,
+				TimeoutSeconds:    timeout,
+				DefaultMaxTokens:  m.DefaultMaxTokens,
+				ReasoningEffort:   strings.TrimSpace(m.ReasoningEffort),
+				SupportsThinking:  m.SupportsThinking,
+				SupportsToolCalls: m.SupportsToolCalls,
+			})
+			wireModel := strings.TrimSpace(m.ExternalModelName)
+			targets = append(targets, failover.Target{
+				Name:   targetName,
+				Client: client,
+				ModelMap: func(string) string {
+					if wireModel != "" {
+						return wireModel
+					}
+					return fbClean
+				},
+			})
+			continue
+		}
+
+		// Reference model
+		if IsReferenceModel(fbClean, catalogueID) && HasOAuthToken() {
+			if seenTargets[targetName] {
+				continue
+			}
+			seenTargets[targetName] = true
+			client := newOfficialBackend(fbClean, logWriter, catalogueID)
+			refSlug := catalogueSlug(fbClean, catalogueID)
+			targets = append(targets, failover.Target{
+				Name:   targetName,
+				Client: client,
+				ModelMap: func(string) string {
+					if refSlug != "" {
+						return refSlug
+					}
+					return fbClean
+				},
+			})
+			continue
+		}
+	}
+
+	if len(targets) == 1 {
+		return primary
+	}
+
+	return failover.New(targets, func(ev failover.Event) {
+		writeLog(logWriter, "[failover] %s failed with %v -> switching to %s (model: %s)\n", ev.FromTarget, ev.Err, ev.ToTarget, ev.Model)
+	})
 }
 
 // writeLog emits a warning message to the provided logWriter and also appends

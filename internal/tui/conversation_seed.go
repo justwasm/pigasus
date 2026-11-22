@@ -429,6 +429,7 @@ func (m *RootModel) seedNonToolStep(s convstore.Step) {
 		m.session.appendMessage(backend.Message{Role: "assistant", Content: s.Text})
 		m.conversation.assistants = append(m.conversation.assistants, transcript.AssistantBlock{Start: start, Lines: len(lines), Raw: s.Text})
 	case "checkpoint":
+		m.conversation.compactBlockIdx = len(m.conversation.blocks)
 		m.conversation.response = append(m.conversation.response, "  ⎿  Conversation compacted", "")
 		return
 	case "system":

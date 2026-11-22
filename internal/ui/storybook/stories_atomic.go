@@ -227,8 +227,8 @@ func (s *canvasHighlightsStory) View() string {
 			{
 				Content: "在深思熟虑之后，我们决定构建一个专用的前端 Storybook 预览系统。",
 				Highlights: []canvas.Range{
-					{Start: 0, End: 18},   // "在深思熟虑"
-					{Start: 45, End: 54},  // "Storybook"
+					{Start: 0, End: 18},  // "在深思熟虑"
+					{Start: 45, End: 54}, // "Storybook"
 				},
 			},
 			{

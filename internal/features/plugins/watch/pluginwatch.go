@@ -141,6 +141,10 @@ type Watcher struct {
 	// closed flips on Close; Run observes it and exits.
 	closeMu sync.Mutex
 	closed  bool
+
+	// watched tracks paths already added to fsw to ensure AddPath idempotency.
+	watchedMu sync.Mutex
+	watched   map[string]bool
 }
 
 // New constructs a watcher rooted at homeDir. When homeDir is empty
@@ -151,22 +155,23 @@ type Watcher struct {
 // unsupported platform, etc.); the caller should treat that the same
 // as (nil, nil) for runtime behaviour.
 //
-// New never reads or writes ~/.gemini; the existence check is purely
-// a "should we bother starting the loop" decision. A root that
-// exists at New time but is removed later is silently dropped from
-// the watch — its events are not delivered, and the next /plugin
-// invocation will still re-scan and surface the absence.
+// New constructs a watcher rooted at homeDir. When homeDir is empty
+// or none of the watched subtrees exist, New returns
+// (nil, nil) — the loaders' empty-state behaviour is the right
+// fallback for a first-launch machine.
 func New(homeDir string) (*Watcher, error) {
-	if homeDir == "" {
+	return NewWithExtra(homeDir)
+}
+
+// NewWithExtra constructs a watcher rooted at homeDir and also watches any specified
+// extra paths (such as workspace plugin directories, skill folders, or MCP config files).
+func NewWithExtra(homeDir string, extraPaths ...string) (*Watcher, error) {
+	if homeDir == "" && len(extraPaths) == 0 {
 		return nil, nil
 	}
 	w := &Watcher{}
 	fsw, err := fsnotify.NewWatcher()
 	if err != nil {
-		// fsnotify failed — return the error so the caller can log it
-		// and decide to fall back. (nil, nil) is reserved for the
-		// "nothing to watch" case, which is a *successful* outcome
-		// on a fresh install.
 		return nil, err
 	}
 	w.fsw = fsw
@@ -175,24 +180,59 @@ func New(homeDir string) (*Watcher, error) {
 	for _, root := range roots(homeDir) {
 		info, statErr := os.Stat(root)
 		if statErr != nil || !info.IsDir() {
-			// Missing root is fine — the user has never installed a
-			// plugin, or this is the marketplace-cache root before
-			// the first marketplace fetch. Skip silently.
 			continue
 		}
 		if addErr := fsw.Add(root); addErr != nil {
-			w.debugf("pluginwatch: skip %s: %v", root, addErr)
+			if w.debugf != nil {
+				w.debugf("pluginwatch: skip %s: %v", root, addErr)
+			}
 			continue
 		}
 		added++
 	}
+	for _, p := range extraPaths {
+		if p == "" {
+			continue
+		}
+		if err := w.AddPath(p); err == nil {
+			added++
+		}
+	}
 	if added == 0 {
-		// Nothing to watch. Close the fsnotify watcher so we do not
-		// leak a goroutine, and signal "no-op watcher" via nil.
 		_ = fsw.Close()
 		return nil, nil
 	}
 	return w, nil
+}
+
+// AddPath registers an additional file or directory path to be monitored for changes.
+func (w *Watcher) AddPath(path string) error {
+	if w == nil || w.fsw == nil || path == "" {
+		return nil
+	}
+	info, err := os.Stat(path)
+	watchTarget := path
+	if err != nil || !info.IsDir() {
+		// If path is a file or does not exist yet, watch its parent directory if accessible
+		parent := filepath.Dir(path)
+		if pInfo, pErr := os.Stat(parent); pErr == nil && pInfo.IsDir() {
+			watchTarget = parent
+		} else {
+			return err
+		}
+	}
+	w.watchedMu.Lock()
+	if w.watched == nil {
+		w.watched = make(map[string]bool)
+	}
+	if w.watched[watchTarget] {
+		w.watchedMu.Unlock()
+		return nil
+	}
+	w.watched[watchTarget] = true
+	w.watchedMu.Unlock()
+
+	return w.fsw.Add(watchTarget)
 }
 
 // SetDebugf replaces the diagnostic sink. nil silences all messages.
@@ -252,6 +292,13 @@ func (w *Watcher) loop(ctx context.Context) {
 // without firing. When the timer fires, the staleness flag flips
 // once.
 func (w *Watcher) queueFlip() {
+	w.closeMu.Lock()
+	if w.closed {
+		w.closeMu.Unlock()
+		return
+	}
+	w.closeMu.Unlock()
+
 	w.debounceMu.Lock()
 	defer w.debounceMu.Unlock()
 	if w.debounceTimer != nil {
@@ -329,6 +376,14 @@ func (w *Watcher) Close() error {
 		return nil
 	}
 	w.closed = true
+
+	w.debounceMu.Lock()
+	if w.debounceTimer != nil {
+		w.debounceTimer.Stop()
+		w.debounceTimer = nil
+	}
+	w.debounceMu.Unlock()
+
 	err := w.fsw.Close()
 	if errors.Is(err, fsnotify.ErrClosed) {
 		return nil

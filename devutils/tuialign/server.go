@@ -51,15 +51,15 @@ type RecordedRequest struct {
 
 // MockServer provides the local HTTP service serving deterministic CloudCode endpoints.
 type MockServer struct {
-	mu           sync.Mutex
-	listener     net.Listener
-	httpServer   *http.Server
-	addr         string
-	turns        []MockTurn
-	clientTurns  map[string]int // client identifier -> current turn index
-	requests     []RecordedRequest
-	upStreamURL  string
-	verboseLogs  bool
+	mu          sync.Mutex
+	listener    net.Listener
+	httpServer  *http.Server
+	addr        string
+	turns       []MockTurn
+	clientTurns map[string]int // client identifier -> current turn index
+	requests    []RecordedRequest
+	upStreamURL string
+	verboseLogs bool
 }
 
 // NewMockServer creates a new mock server.

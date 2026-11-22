@@ -230,3 +230,34 @@ func TestBuildStepsInsertsCheckpoints(t *testing.T) {
 		t.Errorf("checkpoint index = %d, want 0", cp.CheckpointIndex)
 	}
 }
+
+// TestBuildStepsSynchronizesUpdatedAssistantStep verifies that if an assistant step
+// was previously loaded/frozen into Loaded with partial/truncated content (e.g. from
+// an in-flight stream save), when the turn completes and the session's assistant message
+// has full content, BuildSteps synchronizes the step's text and clears RawPayload.
+func TestBuildStepsSynchronizesUpdatedAssistantStep(t *testing.T) {
+	steps := BuildSteps(Trajectory{
+		Loaded: []Step{
+			{Idx: 0, Type: StepUserInput, Status: 3, Text: "tell me a story"},
+			{Idx: 1, Type: StepModelResponse, Status: 3, Text: "Once upon", RawPayload: []byte("old_truncated_blob")},
+		},
+		Calls: nil,
+		Session: []backend.Message{
+			{Role: "user", Content: "tell me a story"},
+			{Role: "assistant", Content: "Once upon a time in a faraway kingdom, there lived a brave coder."},
+		},
+		SeededLen: 2,
+	})
+
+	if len(steps) != 2 {
+		t.Fatalf("expected 2 steps, got %d", len(steps))
+	}
+	modelStep := steps[1]
+	wantText := "Once upon a time in a faraway kingdom, there lived a brave coder."
+	if modelStep.Text != wantText {
+		t.Fatalf("expected model step text %q, got %q", wantText, modelStep.Text)
+	}
+	if len(modelStep.RawPayload) != 0 {
+		t.Fatalf("expected RawPayload to be cleared for re-encoding, got %v", modelStep.RawPayload)
+	}
+}

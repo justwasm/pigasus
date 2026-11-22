@@ -341,7 +341,7 @@ func renderColorSchemeLines(selected ColorScheme, width int) []string {
 	// Left Column Lines
 	leftCol := make([]string, 0, 22)
 	leftCol = append(leftCol, ansiBold+stepNameColorScheme+ansiReset) // row 0: Choose your color scheme:
-	leftCol = append(leftCol, "")                                    // row 1: blank
+	leftCol = append(leftCol, "")                                     // row 1: blank
 	for _, scheme := range AllSchemes() {                             // rows 2..9: 8 schemes
 		marker := " "
 		if scheme == selected {

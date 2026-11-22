@@ -29,6 +29,7 @@ func RegisterPanelsStories(c *Catalog) {
 			{ID: "filtered-claude", Name: "Filtered ('claude')", Description: "Subsequence filtered to Claude models"},
 			{ID: "custom-models", Name: "Custom Providers", Description: "Configured models from gateway / providers"},
 			{ID: "no-matches", Name: "No Matches ('xyz')", Description: "Empty search query result"},
+			{ID: "orchestrator", Name: "Orchestrator Composite Row (1.5.14)", Description: "Composite Planner and Executor model selector with reasoning effort controls"},
 		},
 		Factory: func() StoryInstance {
 			inst := &modelPickerStory{width: 80, height: 24}
@@ -171,6 +172,18 @@ func (s *modelPickerStory) SetState(idx int) {
 			},
 		}
 		currentModel = "MiniMax M3"
+	} else if idx == 4 {
+		s.custom = []modelpicker.Row{
+			{
+				Display:       "Orchestrator",
+				Slug:          "gemini-pro-orchestrator",
+				Variants:      []string{"Carbon", "Argon"},
+				VariantChoice: "Carbon",
+				Tiers:         []string{"low", "medium", "high"},
+				DefaultTier:   "high",
+			},
+		}
+		currentModel = "Orchestrator"
 	}
 
 	s.panel = modelpicker.New(modelpicker.Seams{

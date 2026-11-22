@@ -264,7 +264,7 @@ func (m *RootModel) isViewCacheValid() bool {
 	if m.overlays.wireHUD != nil && m.overlays.wireHUD.IsVisible() {
 		return false
 	}
-	if m.prompt.picker.Visible() || m.hasActiveModal() || (m.audio.Surface != nil && m.audio.Surface.Active() && m.audio.Surface.Phase() != voice.PhaseLive) || (m.activeItems.Panel != nil && m.activeItems.Panel.Focused()) || m.askQuestion.Active() || (m.askQuestion.panel != nil && m.askQuestion.panel.Active()) || m.hasSelection() || m.prompt.HasInputSelection() || m.hasBtwSelection() {
+	if m.prompt.picker.Visible() || m.hasActiveModal() || (m.audio.Surface != nil && m.audio.Surface.Active() && m.audio.Surface.Phase() != voice.PhaseLive) || (m.activeItems.Panel != nil && m.activeItems.Panel.Focused()) || m.askQuestion.Active() || (m.askQuestion.panel != nil && m.askQuestion.panel.Active()) || m.hasSelection() || m.prompt.HasInputSelection() || m.hasBtwSelection() || m.hasPanelSelection() {
 		return false
 	}
 	if m.viewport.cachedScroll != m.viewport.scroll || m.viewport.cachedAutoScroll != m.viewport.autoScroll {
@@ -513,6 +513,7 @@ func (m *RootModel) renderBodyOverlays(b *strings.Builder) {
 	if resumeRows := m.overlays.resumePicker.View(m.viewport.width, m.viewport.height); resumeRows != "" {
 		b.WriteString(resumeRows)
 	}
+	m.overlays.panelScreenY = tuilib.ViewRows(b.String())
 	if panelRows := m.panelView(); panelRows != "" {
 		b.WriteString(panelRows)
 	}
@@ -570,6 +571,8 @@ func (m *RootModel) viewBody(transcript []string) (string, int) {
 	m.viewport.scrollIndEndX = -1
 
 	if m.isFullViewportPanel() && m.viewport.height > 0 {
+		m.overlays.panelScreenY = 0
+		m.overlays.panelHeight = m.viewport.height
 		b.WriteString(m.panelView())
 		if m.statusLine.visible != "off" {
 			m.writeStatusArea(&b)

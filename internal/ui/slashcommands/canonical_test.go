@@ -142,6 +142,8 @@ func TestPanelFor(t *testing.T) {
 		"accounts":     panelregistry.Accounts,
 		"feature-diff": panelregistry.FeatDiff,
 		"plugins":      panelregistry.Plugin,
+		"history":      panelregistry.History,
+		"hist":         panelregistry.History,
 	}
 	for name, want := range cases {
 		got, ok := PanelFor(name)

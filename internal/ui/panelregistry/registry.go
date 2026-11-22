@@ -37,6 +37,7 @@ const (
 	Accounts
 	Projects
 	Help
+	History
 )
 
 // ExitNotice reports whether closing the panel displays an exit notice.
@@ -44,7 +45,7 @@ func (k Kind) ExitNotice() bool {
 	switch k {
 	case None, Help, MCP, Permissions, CodeSearch, Feedback,
 		Rewind, Context, Plugin, Changelog,
-		Usage, AddDir, Rename, FeatDiff, Projects:
+		Usage, AddDir, Rename, FeatDiff, Projects, History:
 		return false
 	}
 	return true
@@ -70,7 +71,7 @@ func (k Kind) TrailingBlank() bool {
 // before the generic list handlers.
 func (k Kind) OwnsEarlyKeys() bool {
 	switch k {
-	case Help, Permissions, Hooks, Agents, Provider, Accounts, Plugin, Skills, Effort, Projects:
+	case Help, Permissions, Hooks, Agents, Provider, Accounts, Plugin, Skills, Effort, Projects, History:
 		return true
 	default:
 		return false
@@ -298,6 +299,9 @@ func (r *Registry) HandleKey(k Kind, key tea.Key) (bool, tea.Cmd, bool) {
 		// The panel did not own the key: the list rule takes it.
 		return r.listKey(key)
 	case RouteList:
+		if h, c := r.panelKey(k, key); h {
+			return h, c, true
+		}
 		return r.listKey(key)
 	case RouteViewer:
 		h, c := r.viewerKey(key)

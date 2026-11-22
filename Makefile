@@ -1,4 +1,4 @@
-.PHONY: build test quick arch align wirealign parity-fuzz verify help \
+.PHONY: build test quick arch align wirealign canary parity-fuzz verify help \
         fetch-upstream extract-agy extract-ls extract-localharness extract-all check-reproducibility \
         sync-official-docs sync-docs official-docs
 
@@ -11,6 +11,7 @@ build:
 	go build -o $(BIN_DIR)/pigasus ./cmd/pigasus
 	go build -o $(BIN_DIR)/pigga ./cmd/pigga
 	go build -o $(BIN_DIR)/harness ./cmd/harness
+	go build -o $(BIN_DIR)/agy-canary ./cmd/agy-canary
 	go build -o $(BIN_DIR)/mock-remote-agent ./cmd/mock-remote-agent
 	go build -o $(BIN_DIR)/storybook ./cmd/storybook
 	ln -sf storybook $(BIN_DIR)/storyboard
@@ -32,6 +33,9 @@ align:
 
 wirealign:
 	./scripts/wire-align.sh test
+
+canary:
+	./scripts/canary-pipeline.sh
 
 parity-fuzz:
 	python3 scripts/re/parity_fuzz.py

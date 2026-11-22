@@ -38,7 +38,7 @@ var (
 		Name:        "catppuccin",
 		IsDark:      true,
 		AccentBg:    "\x1b[48;2;137;180;250m", // #89b4fa
-		AccentFg:    "\x1b[38;2;17;17;27m",     // #11111b
+		AccentFg:    "\x1b[38;2;17;17;27m",    // #11111b
 		PanelBg:     "\x1b[48;2;24;24;37m",    // #181825
 		ActiveRowBg: "\x1b[48;2;30;30;46m",    // #1e1e2e
 		SelectionBg: "\x1b[48;2;49;50;68m",    // #313244
@@ -75,9 +75,9 @@ var (
 		Subtext0:    "\x1b[38;2;108;111;133m", // #6c6f85 (Secondary info)
 		Mauve:       "\x1b[38;2;136;57;239m",  // #8839ef
 		MauveBg:     "\x1b[48;2;136;57;239m",
-		Green:       "\x1b[38;2;64;160;43m",   // #40a02b (Idle green)
-		Yellow:      "\x1b[38;2;223;142;29m",  // #df8e1d (Working amber)
-		Red:         "\x1b[38;2;210;15;57m",   // #d20f39 (Blocked red)
+		Green:       "\x1b[38;2;64;160;43m",  // #40a02b (Idle green)
+		Yellow:      "\x1b[38;2;223;142;29m", // #df8e1d (Working amber)
+		Red:         "\x1b[38;2;210;15;57m",  // #d20f39 (Blocked red)
 	}
 )
 

@@ -398,24 +398,66 @@ func EmptyGridLinesWithLimit(model string, width, contextMax int) []string {
 // StreamingGridLines renders the visual grid bar lines for an in-flight turn.
 func StreamingGridLines(model string, width, contextMax, user, agent, tool int) []string {
 	used, free := ClampedUsage(contextMax, user+agent+tool)
-	fill := StreamingFill(user, agent, tool)
+	cols := ColsFor(width)
 	rows := StreamingRows(model, used, free, contextMax, user, agent, tool)
-	return RenderGridLines(rows, fill, ColsFor(width))
+	totalDots := len(rows) * cols
+	cats := []Category{
+		{Tokens: user, Cell: UserGlyph},
+		{Tokens: agent, Cell: AgentGlyph},
+		{Tokens: tool, Cell: ToolGlyph},
+	}
+	fill := ProportionalFill(cats, contextMax, totalDots)
+	if len(fill) == 0 {
+		fill = StreamingFill(user, agent, tool)
+	}
+	return RenderGridLines(rows, fill, cols)
 }
 
-// LiveGridLines renders the visual grid bar lines for a completed turn.
-func LiveGridLines(model string, width, contextMax int, cats []Category) []string {
-	return LiveGridLinesWithCompacted(model, width, contextMax, cats, false)
-}
-
-// LiveGridLinesWithCompacted renders the visual grid bar lines for a completed turn with optional post-compaction state.
-func LiveGridLinesWithCompacted(model string, width, contextMax int, cats []Category, compactJustHappened bool) []string {
+// LiveGridLinesWithEmpty renders the visual grid bar lines for an empty session awaiting generation,
+// displaying all initialized system categories with the "Estimated usage (awaiting generation)" header.
+func LiveGridLinesWithEmpty(model string, width, contextMax int, cats []Category, checkpointBuffer int) []string {
 	total := 0
 	for _, c := range cats {
 		total += c.Tokens
 	}
 	used, free := ClampedUsage(contextMax, total)
-	fill := LiveFill(cats)
-	rows := LiveRowsWithCompacted(model, used, free, contextMax, cats, compactJustHappened)
-	return RenderGridLines(rows, fill, ColsFor(width))
+	cols := ColsFor(width)
+	rows := LiveRowsWithPreambleAndCheckpoint(model, used, free, contextMax, cats, "Estimated usage (awaiting generation)", checkpointBuffer)
+	totalDots := len(rows) * cols
+	fill := ProportionalFill(cats, contextMax, totalDots)
+	if len(fill) == 0 {
+		fill = LiveFill(cats)
+	}
+	return RenderGridLines(rows, fill, cols)
+}
+
+// LiveGridLines renders the visual grid bar lines for a completed turn.
+func LiveGridLines(model string, width, contextMax int, cats []Category) []string {
+	return LiveGridLinesWithCompactedAndCheckpoint(model, width, contextMax, cats, false, 0)
+}
+
+// LiveGridLinesWithCompacted renders the visual grid bar lines for a completed turn with optional post-compaction state.
+func LiveGridLinesWithCompacted(model string, width, contextMax int, cats []Category, compactJustHappened bool) []string {
+	return LiveGridLinesWithCompactedAndCheckpoint(model, width, contextMax, cats, compactJustHappened, 0)
+}
+
+// LiveGridLinesWithCompactedAndCheckpoint renders the visual grid bar lines for a completed turn with optional post-compaction state and checkpoint buffer row.
+func LiveGridLinesWithCompactedAndCheckpoint(model string, width, contextMax int, cats []Category, compactJustHappened bool, checkpointBuffer int) []string {
+	total := 0
+	for _, c := range cats {
+		total += c.Tokens
+	}
+	used, free := ClampedUsage(contextMax, total)
+	cols := ColsFor(width)
+	preamble := "Token usage by category"
+	if compactJustHappened {
+		preamble = "Estimated after compaction · updates next turn"
+	}
+	rows := LiveRowsWithPreambleAndCheckpoint(model, used, free, contextMax, cats, preamble, checkpointBuffer)
+	totalDots := len(rows) * cols
+	fill := ProportionalFill(cats, contextMax, totalDots)
+	if len(fill) == 0 {
+		fill = LiveFill(cats)
+	}
+	return RenderGridLines(rows, fill, cols)
 }

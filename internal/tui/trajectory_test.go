@@ -282,3 +282,75 @@ func TestTrajectoryCompactionResumption_NoSliceBoundsPanic(t *testing.T) {
 		t.Fatalf("expected steps > 0")
 	}
 }
+
+// TestTrajectory_StreamingDoesNotTruncateAssistantResponse verifies that when assistant
+// replies are streamed in multiple chunks, the durable saved steps in SQLite contain the full,
+// complete reply text and are NOT truncated to the first chunk.
+func TestTrajectory_StreamingDoesNotTruncateAssistantResponse(t *testing.T) {
+	tempHome := t.TempDir()
+	t.Setenv("HOME", tempHome)
+	convID := "test-conv-no-truncation"
+
+	m := newRootModel(nil, "", "Gemini 3.8 Flash (High)", "", tempHome, true)
+	m.session.conversationID = convID
+
+	// Turn 1: user prompt
+	m.session.appendMessage(backend.Message{Role: "user", Content: "Hello assistant"})
+
+	// Assistant streaming chunks
+	m.updateBackendChunkMsg(backendChunkMsg("First chunk. "))
+	m.updateBackendChunkMsg(backendChunkMsg("Second chunk with more details. "))
+	m.updateBackendChunkMsg(backendChunkMsg("Final complete paragraph."))
+
+	// Turn 1 ends
+	fullReply := "First chunk. Second chunk with more details. Final complete paragraph."
+	m.updateTurnDoneMsg(toolsteps.TurnDoneMsg{
+		Reply: fullReply,
+	})
+
+	// Load the conversation from SQLite
+	dbPath := convstore.ConversationPath(convID)
+	c, err := convstore.LoadConversation(dbPath)
+	if err != nil {
+		t.Fatalf("LoadConversation failed: %v", err)
+	}
+
+	if len(c.Steps) < 2 {
+		t.Fatalf("expected at least 2 steps, got %d", len(c.Steps))
+	}
+	modelStep := c.Steps[1]
+	if modelStep.Type != convstore.StepModelResponse {
+		t.Fatalf("expected step 1 to be StepModelResponse, got %d", modelStep.Type)
+	}
+	if modelStep.Text != fullReply {
+		t.Fatalf("step 1 was truncated! got %q (len=%d), want %q (len=%d)",
+			modelStep.Text, len(modelStep.Text), fullReply, len(fullReply))
+	}
+
+	// Turn 2: another prompt and stream
+	m.session.appendMessage(backend.Message{Role: "user", Content: "Second user question"})
+	m.updateBackendChunkMsg(backendChunkMsg("Turn 2 initial chunk. "))
+	m.updateBackendChunkMsg(backendChunkMsg("Turn 2 second chunk. "))
+	m.updateBackendChunkMsg(backendChunkMsg("Turn 2 concluding sentence."))
+
+	fullReply2 := "Turn 2 initial chunk. Turn 2 second chunk. Turn 2 concluding sentence."
+	m.updateTurnDoneMsg(toolsteps.TurnDoneMsg{
+		Reply: fullReply2,
+	})
+
+	// Reload from SQLite and verify both turns are complete
+	c2, err := convstore.LoadConversation(dbPath)
+	if err != nil {
+		t.Fatalf("LoadConversation round 2 failed: %v", err)
+	}
+	if len(c2.Steps) < 4 {
+		t.Fatalf("expected at least 4 steps in round 2, got %d", len(c2.Steps))
+	}
+	if c2.Steps[1].Text != fullReply {
+		t.Fatalf("step 1 corrupted in round 2! got %q, want %q", c2.Steps[1].Text, fullReply)
+	}
+	if c2.Steps[3].Text != fullReply2 {
+		t.Fatalf("step 3 truncated in round 2! got %q (len=%d), want %q (len=%d)",
+			c2.Steps[3].Text, len(c2.Steps[3].Text), fullReply2, len(fullReply2))
+	}
+}

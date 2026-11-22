@@ -584,6 +584,62 @@ func TestParity_PigasusResumesAgyDB(t *testing.T) {
 	}
 }
 
+func TestParity_PigasusResumesAgyDB_TypeZero(t *testing.T) {
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "agy_typezero.db")
+
+	// In official agy 1.5.14 databases, step_type is often stored as 0 in the SQLite table,
+	// and the payload oneof defines whether it is user input (field 19) or model response (field 20).
+	pUser := encodeProtoField(19, 2, encodeProtoField(3, 2, encodeProtoField(1, 2, []byte("How does memory trim work?"))))
+	pModel := encodeProtoField(20, 2, encodeProtoField(1, 2, []byte("Memory trim frees unneeded cache pages.")))
+
+	sdb, err := sql.Open("sqlite3", "file:"+dbPath+"?mode=rwc")
+	if err != nil {
+		t.Fatalf("sql.Open failed: %v", err)
+	}
+	_, _ = sdb.Exec(`CREATE TABLE trajectory_meta (trajectory_id text, cascade_id text, trajectory_type integer, source integer, PRIMARY KEY (trajectory_id))`)
+	_, _ = sdb.Exec(`CREATE TABLE steps (idx integer, step_type integer, status integer, metadata blob, render_info blob, step_payload blob, PRIMARY KEY (idx))`)
+	_, _ = sdb.Exec(`INSERT INTO trajectory_meta VALUES ('traj-typezero', 'traj-typezero', 4, 17)`)
+	_, _ = sdb.Exec(`INSERT INTO steps VALUES (0, 0, 0, NULL, NULL, ?)`, pUser)
+	_, _ = sdb.Exec(`INSERT INTO steps VALUES (1, 0, 0, NULL, NULL, ?)`, pModel)
+	sdb.Close()
+
+	c, err := LoadConversation(dbPath)
+	if err != nil {
+		t.Fatalf("LoadConversation failed: %v", err)
+	}
+	if len(c.Steps) != 2 {
+		t.Fatalf("Loaded %d steps, want 2", len(c.Steps))
+	}
+
+	step0 := c.Steps[0]
+	if step0.Type != StepUserInput {
+		t.Errorf("step 0 Type = %d, want StepUserInput (%d)", step0.Type, StepUserInput)
+	}
+	if step0.Role() != "user" {
+		t.Errorf("step 0 Role = %q, want 'user'", step0.Role())
+	}
+	if step0.Text != "How does memory trim work?" {
+		t.Errorf("step 0 Text = %q, want 'How does memory trim work?'", step0.Text)
+	}
+
+	step1 := c.Steps[1]
+	if step1.Type != StepModelResponse {
+		t.Errorf("step 1 Type = %d, want StepModelResponse (%d)", step1.Type, StepModelResponse)
+	}
+	if step1.Role() != "model" {
+		t.Errorf("step 1 Role = %q, want 'model'", step1.Role())
+	}
+	if step1.Text != "Memory trim frees unneeded cache pages." {
+		t.Errorf("step 1 Text = %q, want 'Memory trim frees unneeded cache pages.'", step1.Text)
+	}
+
+	transcript := c.Transcript()
+	if len(transcript) != 2 {
+		t.Fatalf("Transcript dropped type-zero steps! len = %d, want 2", len(transcript))
+	}
+}
+
 func execCommandOutput(name string, args ...string) ([]byte, error) {
 	cmd := exec.Command(name, args...)
 	return cmd.Output()

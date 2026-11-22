@@ -24,24 +24,14 @@
 package contextpanel
 
 import (
-	"strings"
+	"fmt"
 
 	"github.com/justwasm/pigasus/internal/ui/tuilib"
 	"github.com/justwasm/pigasus/palette"
 )
 
-// relatedHint is the reference's own "Related:" hint, byte for byte.
-//
-// The reference's string table carries the *two characters* `\` and `n`
-// between the three commands
-// (`Related: /artifact \n /skill \n /rewind` — a string of the
-// reference's own table; the surviving pruned index of that table,
-// out/local-macos-1.4.11/strings-index.txt, carries the head
-// "Related: /artifact" and, in the context window around it, the tail
-// " /skill " and " /rewind", while the full dump is retired), so the hint
-// is three rows and not one. The raw string
-// literal below keeps that separator exactly as the reference stores it.
-const relatedHint = `Related: /artifact \n /skill \n /rewind`
+// relatedHint is the reference's own "Related:" hint on a single line.
+const relatedHint = `Related: /artifact · /skill · /rewind`
 
 // Mode is the layout the /context panel draws.
 //
@@ -126,6 +116,15 @@ type State struct {
 	ActiveCheckpointStart int
 	ActiveCheckpointEnd   int
 	HistoricalCheckpoints int
+
+	// FileSections represents the contextual files breakdown (artifacts, skills, rules, system).
+	FileSections []FileSection
+
+	// MaxRows is the height limit for scrolling when displayed in the TUI viewport.
+	MaxRows int
+
+	// ScrollOffset is the vertical scroll offset in rows.
+	ScrollOffset int
 }
 
 // TotalUsed returns the unclamped sum of active token categories counted in usage.
@@ -160,23 +159,90 @@ func (st State) breakdown() Breakdown {
 	}
 }
 
-// Lines renders the /context usage panel.
-//
-// The panel is the title row, the layout's grid, the checkpoint-buffer
-// row, the Checkpoints (%d) list and the shared tail.
-//
-// The checkpoint row is outside the grid: the reference tracks the
-// checkpoint's tokens separately, so the summarized history they stand
-// in for does not inflate the grid's picture.
-func Lines(st State) []string {
-	lines := append([]string{Header}, st.gridLines()...)
-	if st.CheckpointBuffer > 0 {
-		lines = append(lines, CheckpointRow(st.CheckpointBuffer))
-	}
+// AllLines returns the complete unwindowed rendered lines of the /context panel.
+func AllLines(st State) []string {
+	var lines []string
+	lines = append(lines, Header)
+	lines = append(lines, st.gridLines()...)
+	lines = append(lines, "")
+
 	if st.TotalCheckpoints > 0 || st.ActiveCheckpointIndex > 0 {
-		lines = append(lines, RenderCheckpoints(st.TotalCheckpoints, st.ActiveCheckpointIndex, st.ActiveCheckpointStart, st.ActiveCheckpointEnd, st.HistoricalCheckpoints)...)
+		cpLines := RenderCheckpoints(st.TotalCheckpoints, st.ActiveCheckpointIndex, st.ActiveCheckpointStart, st.ActiveCheckpointEnd, st.HistoricalCheckpoints)
+		if len(cpLines) > 0 {
+			lines = append(lines, cpLines...)
+			lines = append(lines, "")
+		}
 	}
-	return append(lines, TailLines()...)
+
+	if len(st.FileSections) > 0 {
+		for _, sec := range st.FileSections {
+			if fLines := RenderFileSection(sec); len(fLines) > 0 {
+				lines = append(lines, fLines...)
+				lines = append(lines, "")
+			}
+		}
+	} else {
+		lines = append(lines, defaultSystemFileLines()...)
+		lines = append(lines, "")
+	}
+
+	lines = append(lines, relatedRows()...)
+	lines = append(lines, tuilib.PanelDotHint("  ", "↑/↓", "Scroll", "pgup/pgdown", "Page",
+		"ctrl+end", "Bottom", "ctrl+home", "Top", "esc", "Close"))
+	return lines
+}
+
+func defaultSystemFileLines() []string {
+	return []string{
+		"System files · auto-loaded",
+		" " + palette.DimGrayOpen + "└ ~/.gemini/GEMINI.md\x1b[39m",
+		" " + palette.DimGrayOpen + "└ ~/.gemini/skills/\x1b[39m",
+		" " + palette.DimGrayOpen + "└ ~/.gemini/antigravity/skills/\x1b[39m",
+		" " + palette.DimGrayOpen + "└ .agents/agents/\x1b[39m",
+	}
+}
+
+// Lines renders the /context usage panel, windowed if MaxRows is set.
+func Lines(st State) []string {
+	all := AllLines(st)
+	if st.MaxRows <= 0 || len(all) <= st.MaxRows {
+		return all
+	}
+	header := all[0]
+	footer := all[len(all)-2:] // related line + key hint line
+	body := all[1 : len(all)-2]
+
+	avail := st.MaxRows - 3 // header + 2 footer lines
+	bodyAvail := avail - 2  // reserve 1 line for pager + 1 line for blank separator
+	if bodyAvail < 1 {
+		bodyAvail = 1
+	}
+
+	offset := st.ScrollOffset
+	if offset < 0 {
+		offset = 0
+	}
+	if offset > len(body)-bodyAvail {
+		offset = len(body) - bodyAvail
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	end := offset + bodyAvail
+	if end > len(body) {
+		end = len(body)
+	}
+
+	visibleBody := body[offset:end]
+	pager := fmt.Sprintf("  (%d–%d of %d lines)", offset+1, end, len(all))
+
+	result := make([]string, 0, len(visibleBody)+5)
+	result = append(result, header)
+	result = append(result, visibleBody...)
+	result = append(result, pager)
+	result = append(result, "")
+	result = append(result, footer...)
+	return result
 }
 
 // gridLines is the layout's own block: the descriptor rows painted
@@ -188,45 +254,36 @@ func (st State) gridLines() []string {
 	}
 	switch st.Mode {
 	case ModeStreaming:
+		cats := st.breakdown().Categories()
+		if len(cats) > 3 {
+			return LiveGridLinesWithEmpty(st.Model, st.Width, ctxMax, cats, st.CheckpointBuffer)
+		}
 		return StreamingGridLines(st.Model, st.Width, ctxMax, st.User, st.Agent, st.Tool)
-	case ModeLive:
-		return LiveGridLinesWithCompacted(st.Model, st.Width, ctxMax, st.breakdown().Categories(), st.CompactJustHappened)
-	default:
+	case ModeEmpty:
+		cats := st.breakdown().Categories()
+		if len(cats) > 3 {
+			return LiveGridLinesWithEmpty(st.Model, st.Width, ctxMax, cats, st.CheckpointBuffer)
+		}
 		return EmptyGridLinesWithLimit(st.Model, st.Width, ctxMax)
+	case ModeLive:
+		return LiveGridLinesWithCompactedAndCheckpoint(st.Model, st.Width, ctxMax, st.breakdown().Categories(), st.CompactJustHappened, st.CheckpointBuffer)
+	default:
+		return LiveGridLinesWithCompactedAndCheckpoint(st.Model, st.Width, ctxMax, st.breakdown().Categories(), st.CompactJustHappened, st.CheckpointBuffer)
 	}
 }
 
 // TailLines is the shared bottom of every /context state: the
 // auto-loaded system files, the Related rows and the scroll legend.
-//
-// The three layouts differ in their grid only — the rows below the
-// grid are the same in all of them.
 func TailLines() []string {
-	rows := []string{
-		"",
-		"System files · auto-loaded",
-		" " + palette.DimGrayOpen + "└ ~/.gemini/GEMINI.md\x1b[39m",
-		" " + palette.DimGrayOpen + "└ ~/.gemini/skills/\x1b[39m",
-		" " + palette.DimGrayOpen + "└ ~/.gemini/antigravity/skills/\x1b[39m",
-		" " + palette.DimGrayOpen + "└ .agents/agents/\x1b[39m",
-		"",
-	}
+	rows := []string{""}
+	rows = append(rows, defaultSystemFileLines()...)
+	rows = append(rows, "")
 	rows = append(rows, relatedRows()...)
 	return append(rows, tuilib.PanelDotHint("  ", "↑/↓", "Scroll", "pgup/pgdown", "Page",
 		"ctrl+end", "Bottom", "ctrl+home", "Top", "esc", "Close"))
 }
 
-// relatedRows splits the reference's hint on its own two-character
-// separator and paints each row dim.
-//
-// The separator is the literal `\n` the reference's string carries, so
-// the split keeps the reference's spaces: the first row ends with a
-// space and the other two start with one.
+// relatedRows formats the reference's hint on a single row.
 func relatedRows() []string {
-	parts := strings.Split(relatedHint, `\n`)
-	rows := make([]string, 0, len(parts))
-	for _, p := range parts {
-		rows = append(rows, palette.DimGrayOpen+p+"\x1b[39m")
-	}
-	return rows
+	return []string{palette.DimGrayOpen + relatedHint + "\x1b[39m"}
 }

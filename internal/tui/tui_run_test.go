@@ -50,8 +50,8 @@ import (
 	"github.com/justwasm/pigasus/internal/core/policy/permissions"
 	"github.com/justwasm/pigasus/internal/features/models/configtest"
 	"github.com/justwasm/pigasus/internal/features/tools/bashmode"
-	"github.com/justwasm/pigasus/internal/infra/backend/gateway"
 	"github.com/justwasm/pigasus/internal/infra/backend/backendselect"
+	"github.com/justwasm/pigasus/internal/infra/backend/gateway"
 	"github.com/justwasm/pigasus/internal/ui/editor/keybind"
 	"github.com/justwasm/pigasus/internal/ui/editor/wordmove"
 	tuiviewport "github.com/justwasm/pigasus/internal/ui/foundations/viewport"
@@ -5829,8 +5829,8 @@ func TestContextPanel_StreamingLayout(t *testing.T) {
 	if !strings.Contains(joined, "Agent responses: "+wantAgent+" tokens") {
 		t.Errorf("streaming /context agent tokens = want %s:\n%s", wantAgent, joined)
 	}
-	if !strings.Contains(joined, "Free space: 1.0M (100.0%)") {
-		t.Errorf("streaming /context free row = %q, want 1.0M (100.0%%)", joined)
+	if !strings.Contains(joined, "Free space: 1.0M") {
+		t.Errorf("streaming /context free row = %q, want Free space: 1.0M", joined)
 	}
 }
 

@@ -773,10 +773,27 @@ func (m *RootModel) slashContinue(args string) (bool, tea.Cmd) {
 	if m.session.remoteAgent {
 		return m.slashContinueRemote()
 	}
-	id, _, err := convstore.ResolveContinue(m.session.cwd)
-	if err != nil {
-		m.slashRespond("/continue", "error: "+err.Error())
+
+	// 1. If the current conversation has an interrupted turn, resume it immediately.
+	if m.hasInterruptedTurn() {
+		return true, m.continueInterruptedTurn()
+	}
+
+	// 2. If the current conversation already completed its turns, report status.
+	if m.session.messageCount() > 0 {
+		m.slashRespond("/continue", "Last turn completed normally. Nothing to continue. Type a new message to start a turn.")
 		return true, nil
+	}
+
+	// 3. Fresh session: resolve the most recent conversation in cwd and resume it.
+	id := strings.TrimSpace(args)
+	if id == "" {
+		resolved, _, err := convstore.ResolveContinue(m.session.cwd)
+		if err != nil {
+			m.slashRespond("/continue", "error: "+err.Error())
+			return true, nil
+		}
+		id = resolved
 	}
 	if id == "" {
 		m.slashRespond("/continue", "No previous conversation to continue.")

@@ -13,14 +13,14 @@ import (
 type Workspace struct {
 	mu sync.RWMutex
 
-	ID         string   // e.g. "ws-1", "openagy"
-	Name       string   // e.g. "openagy", "herdr", "tuios"
-	Dir        string   // absolute path to project directory
-	Branch     string   // git branch name e.g. "main", "feat/sidebar"
-	Ahead      int      // commits ahead upstream
-	Behind     int      // commits behind upstream
-	Panes      []*Pane  // tabs belonging to this workspace
-	ActivePane int      // active tab index
+	ID         string  // e.g. "ws-1", "openagy"
+	Name       string  // e.g. "openagy", "herdr", "tuios"
+	Dir        string  // absolute path to project directory
+	Branch     string  // git branch name e.g. "main", "feat/sidebar"
+	Ahead      int     // commits ahead upstream
+	Behind     int     // commits behind upstream
+	Panes      []*Pane // tabs belonging to this workspace
+	ActivePane int     // active tab index
 }
 
 // NewWorkspace creates a workspace initialized with Git branch metadata.

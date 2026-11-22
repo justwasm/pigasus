@@ -12,8 +12,8 @@ import (
 
 	accounts "github.com/justwasm/pigasus/internal/features/accounts/core"
 	"github.com/justwasm/pigasus/internal/features/auth"
-	"github.com/justwasm/pigasus/internal/infra/remote/rclink"
 	"github.com/justwasm/pigasus/internal/infra/remote/persistentrc"
+	"github.com/justwasm/pigasus/internal/infra/remote/rclink"
 )
 
 // ---- subcommand_rc.go ----

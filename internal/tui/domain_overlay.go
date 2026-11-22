@@ -77,3 +77,12 @@ func (m *RootModel) HasActiveModal() bool                   { return m.auth.Acti
 func (m *RootModel) ActiveCard() bool                       { return m.overlays.ActiveCard() }
 func (m *RootModel) hasBtwSelection() bool                  { return m.overlays.HasBtwSelection() }
 func (m *RootModel) ResetBtwSelection()                     { m.overlays.ResetBtwSelection() }
+func (m *RootModel) hasPanelSelection() bool                { return m.overlays.HasPanelSelection() }
+func (m *RootModel) HasPanelSelection() bool                { return m.overlays.HasPanelSelection() }
+func (m *RootModel) ResetPanelSelection()                   { m.overlays.ResetPanelSelection() }
+func (m *RootModel) IsPanelY(y int) bool {
+	if m.overlays.panel.kind == panelregistry.None {
+		return false
+	}
+	return y >= m.overlays.panelScreenY && y < m.overlays.panelScreenY+m.overlays.panelHeight
+}

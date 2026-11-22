@@ -46,6 +46,22 @@ func TestHistoryPersistence(t *testing.T) {
 		t.Fatalf("prompts = %v", prompts)
 	}
 
+	entries := LoadHistoryEntries("/workspace/test", 10)
+	if len(entries) != 2 {
+		t.Fatalf("got %d entries, want 2", len(entries))
+	}
+	if entries[0].Display != "hello agy" || entries[1].Display != "/help" {
+		t.Fatalf("entries = %+v", entries)
+	}
+	if entries[1].ConversationID != "conv-123" {
+		t.Errorf("ConversationID = %q, want conv-123", entries[1].ConversationID)
+	}
+
+	// Mismatched workspace should return empty
+	if other := LoadHistoryEntries("/other/ws", 10); len(other) != 0 {
+		t.Errorf("expected 0 entries for other workspace, got %d", len(other))
+	}
+
 	// Verify JSON structure of second line
 	lines := splitLines(string(data))
 	if len(lines) < 2 {

@@ -44,7 +44,7 @@ func TestWheelSpeed(t *testing.T) {
 	}
 
 	// tick 4 (streak 4): sqrt(4)+1 = 3
-	WheelSpeed(&tracker, start.Add(300*time.Millisecond))        // streak 3
+	WheelSpeed(&tracker, start.Add(300*time.Millisecond))         // streak 3
 	speed = WheelSpeed(&tracker, start.Add(320*time.Millisecond)) // streak 4
 	if speed != 3 {
 		t.Fatalf("rapid tick 4 speed = %d, want 3", speed)

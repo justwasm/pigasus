@@ -175,7 +175,7 @@ func TestSwarmTabCompletion(t *testing.T) {
 	initRootModelInput(m)
 	m.prompt.picker = m.newSlashPicker()
 
-	// 1. /sw + Tab completes to /swarm 
+	// 1. /sw + Tab completes to /swarm
 	m.prompt.input.SetValue("/sw")
 	m.prompt.picker.Update([]rune("/sw"))
 	handled := m.handleTabCompletion(tea.Key{Code: tea.KeyTab})

@@ -23,8 +23,8 @@ import (
 	"os"
 
 	"github.com/justwasm/pigasus/internal/core/backend"
-	"github.com/justwasm/pigasus/internal/infra/backend/gateway"
 	"github.com/justwasm/pigasus/internal/infra/backend/backendselect"
+	"github.com/justwasm/pigasus/internal/infra/backend/gateway"
 	"github.com/justwasm/pigasus/internal/rchost"
 	"github.com/justwasm/pigasus/internal/ui/views/modelpicker"
 )

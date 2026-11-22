@@ -35,8 +35,8 @@ import (
 	modelcatalog "github.com/justwasm/pigasus/internal/features/models/catalog"
 	builtinskills "github.com/justwasm/pigasus/internal/features/tools/skills"
 	"github.com/justwasm/pigasus/internal/infra/agyproxy"
-	"github.com/justwasm/pigasus/internal/infra/backend/gateway"
 	"github.com/justwasm/pigasus/internal/infra/backend/backendselect"
+	"github.com/justwasm/pigasus/internal/infra/backend/gateway"
 	"github.com/justwasm/pigasus/internal/infra/daemon"
 	"github.com/justwasm/pigasus/internal/printmode"
 	"github.com/justwasm/pigasus/internal/rchost"
@@ -138,7 +138,15 @@ func buildSubcommands() []cliflags.SubcommandSpec {
 
 	// Dynamic subcommands from internal/app/subcommands registry.
 	for _, s := range subcommands.GetSubcommands() {
-		if !names[s.Name] {
+		replaced := false
+		for i, existing := range subs {
+			if existing.Name == s.Name {
+				subs[i] = s
+				replaced = true
+				break
+			}
+		}
+		if !replaced && !names[s.Name] {
 			subs = append(subs, s)
 			names[s.Name] = true
 		}

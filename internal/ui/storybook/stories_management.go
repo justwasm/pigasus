@@ -444,4 +444,3 @@ func RegisterManagementStories(c *Catalog) {
 	c.Register(newHooksStory())
 	c.Register(newProviderStory())
 }
-

@@ -192,3 +192,43 @@ func TestLiveFill(t *testing.T) {
 		t.Errorf("fill[0] = %q, want the gray system glyph", got[0])
 	}
 }
+
+// TestProportionalFill validates proportional allocation matching reference agy 1.5.14
+// ContextModel.renderGrid (0x103243d50 - 0x103244860).
+func TestProportionalFill(t *testing.T) {
+	cats := []Category{
+		{Tokens: 70, Cell: UserGlyph},
+		{Tokens: 55, Cell: AgentGlyph},
+		{Tokens: 782800, Cell: ToolGlyph},
+	}
+	totalDots := 224
+	contextMax := 1_000_000
+	fill := ProportionalFill(cats, contextMax, totalDots)
+	if len(fill) == 0 {
+		t.Fatalf("ProportionalFill returned empty fill")
+	}
+	userCount, agentCount, toolCount := 0, 0, 0
+	for _, cell := range fill {
+		switch cell {
+		case UserGlyph:
+			userCount++
+		case AgentGlyph:
+			agentCount++
+		case ToolGlyph:
+			toolCount++
+		}
+	}
+	if userCount != 1 {
+		t.Errorf("userCount = %d, want 1", userCount)
+	}
+	if agentCount != 1 {
+		t.Errorf("agentCount = %d, want 1", agentCount)
+	}
+	// 782800 / 1000000 * 224 = 175
+	if toolCount < 170 || toolCount > 180 {
+		t.Errorf("toolCount = %d, want ~175 (74.7%% of 224)", toolCount)
+	}
+	if len(fill) > totalDots {
+		t.Errorf("len(fill) = %d > totalDots %d", len(fill), totalDots)
+	}
+}

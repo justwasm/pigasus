@@ -3,6 +3,7 @@ package failover
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/justwasm/pigasus/internal/core/apierror"
@@ -260,5 +261,198 @@ func TestFailover_AllTargetsFailPreservesHTTPError(t *testing.T) {
 	}
 	if he.StatusCode != 429 {
 		t.Errorf("expected StatusCode 429, got %d", he.StatusCode)
+	}
+}
+
+func TestFailover_MultiHopAndGlobalNotifier(t *testing.T) {
+	ResetGlobalNotifiers()
+	defer ResetGlobalNotifiers()
+
+	var globalEvents []Event
+	RegisterGlobalNotifier(func(e Event) {
+		globalEvents = append(globalEvents, e)
+	})
+
+	primary := &mockClient{
+		streamFn: func(ctx context.Context, req backend.StreamRequest) (<-chan backend.StreamChunk, error) {
+			return nil, &apierror.HTTPError{StatusCode: 503, Body: []byte(`{"error":"outage"}`)}
+		},
+	}
+	secondary := &mockClient{
+		streamFn: func(ctx context.Context, req backend.StreamRequest) (<-chan backend.StreamChunk, error) {
+			return nil, &apierror.HTTPError{StatusCode: 429, Body: []byte(`{"error":"quota"}`)}
+		},
+	}
+	tertiary := &mockClient{
+		streamFn: func(ctx context.Context, req backend.StreamRequest) (<-chan backend.StreamChunk, error) {
+			ch := make(chan backend.StreamChunk, 2)
+			ch <- backend.StreamChunk{Text: "tertiary-success", Done: false}
+			ch <- backend.StreamChunk{Done: true}
+			close(ch)
+			return ch, nil
+		},
+	}
+
+	var localEvents []Event
+	client := New([]Target{
+		{Name: "primary", Client: primary},
+		{Name: "secondary", Client: secondary},
+		{Name: "tertiary", Client: tertiary},
+	}, func(e Event) {
+		localEvents = append(localEvents, e)
+	})
+
+	ch, err := client.Stream(context.Background(), backend.StreamRequest{Model: "gpt"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var text string
+	for c := range ch {
+		text += c.Text
+	}
+
+	if text != "tertiary-success" {
+		t.Errorf("got %q, want 'tertiary-success'", text)
+	}
+	if len(localEvents) != 2 {
+		t.Fatalf("expected 2 local events, got %d", len(localEvents))
+	}
+	if localEvents[0].FromTarget != "primary" || localEvents[0].ToTarget != "secondary" {
+		t.Errorf("event 0 mismatch: %+v", localEvents[0])
+	}
+	if localEvents[1].FromTarget != "secondary" || localEvents[1].ToTarget != "tertiary" {
+		t.Errorf("event 1 mismatch: %+v", localEvents[1])
+	}
+
+	// Verify global notifier also caught both events
+	if len(globalEvents) != 2 {
+		t.Errorf("expected 2 global events, got %d", len(globalEvents))
+	}
+}
+
+func TestFailover_NetworkErrorTriggersFailover(t *testing.T) {
+	primary := &mockClient{
+		streamFn: func(ctx context.Context, req backend.StreamRequest) (<-chan backend.StreamChunk, error) {
+			return nil, errors.New("dial tcp: connection refused")
+		},
+	}
+	secondary := &mockClient{
+		streamFn: func(ctx context.Context, req backend.StreamRequest) (<-chan backend.StreamChunk, error) {
+			ch := make(chan backend.StreamChunk, 2)
+			ch <- backend.StreamChunk{Text: "backup-ok", Done: false}
+			ch <- backend.StreamChunk{Done: true}
+			close(ch)
+			return ch, nil
+		},
+	}
+
+	client := New([]Target{
+		{Name: "primary", Client: primary},
+		{Name: "secondary", Client: secondary},
+	}, nil)
+
+	ch, err := client.Stream(context.Background(), backend.StreamRequest{Model: "gpt"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var text string
+	for c := range ch {
+		text += c.Text
+	}
+	if text != "backup-ok" {
+		t.Errorf("got text %q, want 'backup-ok'", text)
+	}
+}
+
+func TestFailover_NonContentChunksDiscardedOnFailover(t *testing.T) {
+	primary := &mockClient{
+		streamFn: func(ctx context.Context, req backend.StreamRequest) (<-chan backend.StreamChunk, error) {
+			ch := make(chan backend.StreamChunk, 2)
+			// Non-content ping/metadata chunk before error
+			ch <- backend.StreamChunk{Text: "", Done: false}
+			ch <- backend.StreamChunk{Error: &apierror.HTTPError{StatusCode: 429, Body: []byte(`{"error":"quota"}`)}, Done: false}
+			close(ch)
+			return ch, nil
+		},
+	}
+	secondary := &mockClient{
+		streamFn: func(ctx context.Context, req backend.StreamRequest) (<-chan backend.StreamChunk, error) {
+			ch := make(chan backend.StreamChunk, 2)
+			ch <- backend.StreamChunk{Text: "clean-secondary", Done: false}
+			ch <- backend.StreamChunk{Done: true}
+			close(ch)
+			return ch, nil
+		},
+	}
+
+	client := New([]Target{
+		{Name: "primary", Client: primary},
+		{Name: "secondary", Client: secondary},
+	}, nil)
+
+	ch, err := client.Stream(context.Background(), backend.StreamRequest{Model: "gpt"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var chunks []backend.StreamChunk
+	for c := range ch {
+		chunks = append(chunks, c)
+	}
+
+	if len(chunks) != 2 {
+		t.Fatalf("expected exactly 2 chunks from secondary, got %d", len(chunks))
+	}
+	if chunks[0].Text != "clean-secondary" {
+		t.Errorf("chunk 0 text = %q, want 'clean-secondary'", chunks[0].Text)
+	}
+}
+
+func TestFailover_StreamClosedWithoutContentTriggersFailover(t *testing.T) {
+	primary := &mockClient{
+		streamFn: func(ctx context.Context, req backend.StreamRequest) (<-chan backend.StreamChunk, error) {
+			ch := make(chan backend.StreamChunk)
+			// Dropped immediately (0 chunks, premature EOF)
+			close(ch)
+			return ch, nil
+		},
+	}
+	secondary := &mockClient{
+		streamFn: func(ctx context.Context, req backend.StreamRequest) (<-chan backend.StreamChunk, error) {
+			ch := make(chan backend.StreamChunk, 2)
+			ch <- backend.StreamChunk{Text: "recovered-content", Done: false}
+			ch <- backend.StreamChunk{Done: true}
+			close(ch)
+			return ch, nil
+		},
+	}
+
+	var events []Event
+	client := New([]Target{
+		{Name: "primary", Client: primary},
+		{Name: "secondary", Client: secondary},
+	}, func(e Event) {
+		events = append(events, e)
+	})
+
+	ch, err := client.Stream(context.Background(), backend.StreamRequest{Model: "gpt"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var text string
+	for c := range ch {
+		text += c.Text
+	}
+	if text != "recovered-content" {
+		t.Errorf("got text %q, want 'recovered-content'", text)
+	}
+	if len(events) != 1 {
+		t.Fatalf("expected 1 failover event, got %d", len(events))
+	}
+	if !strings.Contains(events[0].Err.Error(), "stream closed without content") {
+		t.Errorf("expected 'stream closed without content', got %v", events[0].Err)
 	}
 }

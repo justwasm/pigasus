@@ -7,6 +7,7 @@ import (
 
 	tea "charm.land/bubbletea/v2"
 
+	tuiviewport "github.com/justwasm/pigasus/internal/ui/foundations/viewport"
 	"github.com/justwasm/pigasus/internal/ui/views/permissionprompt"
 	"github.com/justwasm/pigasus/internal/ui/views/sidequestion"
 	"github.com/justwasm/pigasus/internal/ui/views/statusrow"
@@ -28,6 +29,7 @@ func RegisterStatusStories(c *Catalog) {
 			{ID: "streaming", Name: "Streaming Turn", Description: "Cancel hint with active background tasks"},
 			{ID: "compacting", Name: "Context Compacting", Description: "Live animated context window compaction"},
 			{ID: "bash-mode", Name: "Bash Mode Armed", Description: "Exclamation prompt with bash cancellation hint"},
+			{ID: "scroll-indicator", Name: "Scroll Position (Altscreen)", Description: "AGY 1.5.12 indicator showing '↓ 25 lines · 2 turns' when scrolled up"},
 		},
 		Factory: func() StoryInstance {
 			inst := &statusLineStory{width: 80}
@@ -87,6 +89,7 @@ func RegisterStatusStories(c *Catalog) {
 			{ID: "3-pane", Name: "3-Pane Overview", Description: "Roster, posts, and message panes active"},
 			{ID: "filtered", Name: "Filtered Member", Description: "Thread posts filtered to researcher"},
 			{ID: "zoomed", Name: "Zoomed Pane", Description: "Full-width message detail view"},
+			{ID: "overview-28h", Name: "Overview Header (≥28 Rows)", Description: "AGY 1.5.14 live overview: goal, progress counter, and workstream indicators"},
 		},
 		Factory: func() StoryInstance {
 			inst := &swarmBoardStory{width: 80, height: 24}
@@ -148,6 +151,20 @@ func (s *statusLineStory) View() string {
 	case 4:
 		// Bash mode armed
 		st.BashMode = true
+	case 5:
+		// Scroll position indicator
+		st.Width = 80
+		indicator := tuiviewport.FormatScrollPositionIndicator(25, 2)
+		var b strings.Builder
+		b.WriteString(bold("StatusLine Row View with Scroll Indicator (AGY 1.5.12):") + "\n\n")
+		b.WriteString("  " + indicator + "\n")
+		b.WriteString(dim("─ Status Frame (Width="+fmt.Sprintf("%d cols", st.Width)+") ───────────────────────────") + "\n")
+		b.WriteString(statusrow.Render(st) + "\n")
+		b.WriteString(dim("──────────────────────────────────────────────────────") + "\n\n")
+		b.WriteString(bold("Segment Breakdown:") + "\n")
+		b.WriteString("  • Scroll Position: " + indicator + "\n")
+		b.WriteString(fmt.Sprintf("  • Model: %s%s\n", st.Model, st.EffortSuffix))
+		return b.String()
 	}
 
 	var b strings.Builder
@@ -390,6 +407,10 @@ func (s *swarmBoardStory) SetState(idx int) {
 	case 2:
 		// Zoomed message
 		s.board.HandleKey(tea.Key{Code: 'z'})
+	case 3:
+		// Overview header at >= 28 rows (AGY 1.5.14)
+		s.height = 32
+		s.board.SetSize(s.width, 32)
 	}
 }
 

@@ -629,4 +629,3 @@ func (m *Manager) ToggleTheme() Palette {
 	}
 	return m.theme
 }
-

@@ -38,11 +38,12 @@ type GenerateRequest struct {
 
 // StreamChunk is one incremental delta emitted by a ResponseStream.
 type StreamChunk struct {
-	Delta        string      `json:"delta,omitempty"`
-	Thought      string      `json:"thought,omitempty"`
-	ToolCalls    []ToolCall  `json:"tool_calls,omitempty"`
-	Usage        *TokenUsage `json:"usage,omitempty"`
-	FinishReason string      `json:"finish_reason,omitempty"`
+	Delta        string        `json:"delta,omitempty"`
+	Thought      string        `json:"thought,omitempty"`
+	ThoughtEvent *ThoughtEvent `json:"thought_event,omitempty"`
+	ToolCalls    []ToolCall    `json:"tool_calls,omitempty"`
+	Usage        *TokenUsage   `json:"usage,omitempty"`
+	FinishReason string        `json:"finish_reason,omitempty"`
 }
 
 // ResponseStream consumes incremental streaming responses from a Provider.

@@ -103,6 +103,7 @@ var actionLabels = map[string]string{
 	"subagent.jump_to_waiting":  "Manage subagent",
 	"swarm.board":               "Swarm board",
 	"swarm.dismiss":             "Dismiss swarm",
+	"view.history":              "View prompt history",
 	"view.review_artifact":      "Review artifact",
 	"view.toggle_trajectory":    "Toggle trajectory view",
 	"vim.insert.insert_newline": "Insert newline (Vim insert)",
