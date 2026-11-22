@@ -263,7 +263,10 @@ func notifyOnCompletion(t *BackgroundTask) {
 	}
 	go func() {
 		<-t.finished
-		updateShellBackgroundTaskCompletion(t, t.err)
+		t.mu.Lock()
+		err := t.err
+		t.mu.Unlock()
+		updateShellBackgroundTaskCompletion(t, err)
 		t.NotifyCompletion()
 	}()
 }
@@ -404,7 +407,8 @@ func (t *BackgroundTask) RawOutput() string {
 func (t *BackgroundTask) Status() string {
 	t.mu.Lock()
 	state := "running"
-	if t.done {
+	done := t.done
+	if done {
 		state = "finished"
 		if t.err != nil {
 			state = "failed: " + t.err.Error()
@@ -421,7 +425,7 @@ func (t *BackgroundTask) Status() string {
 	// For tasks that are still running we keep the live buffer, which
 	// reflects what the agent has seen so far.
 	var body string
-	if t.done {
+	if done {
 		body = t.log.String()
 	} else {
 		body = t.out.String()
