@@ -15,6 +15,7 @@ import (
 
 	"github.com/justwasm/pigasus/internal/app/agentturn"
 	"github.com/justwasm/pigasus/internal/core/slashparse"
+	"github.com/justwasm/pigasus/internal/ui/panelregistry"
 	termcolor "github.com/justwasm/pigasus/internal/ui/render/color"
 )
 
@@ -45,6 +46,14 @@ func (m *RootModel) slashTerminal(args string) (bool, tea.Cmd) {
 			}
 			m.remote.terminalID = info.TerminalID
 			m.slashRespond("/terminal", "Terminal "+info.TerminalID+" created in "+info.Cwd+".")
+			m.openTerminalOverlay()
+			return true, nil
+		}
+		if trimmed == "" {
+			if m.remote.terminalID == "" {
+				m.remote.terminalID = terminals[0].TerminalID
+			}
+			m.openTerminalOverlay()
 			return true, nil
 		}
 		lines := []string{"Remote terminals:"}
@@ -60,6 +69,20 @@ func (m *RootModel) slashTerminal(args string) (bool, tea.Cmd) {
 		}
 		m.slashContent(strings.Join(lines, "\n"))
 		return true, nil
+	case strings.EqualFold(verb, "open") || strings.EqualFold(verb, "attach"):
+		terminals, err := engine.Terminals(ctx)
+		if err != nil {
+			m.slashRespond("/terminal", "error: "+err.Error())
+			return true, nil
+		}
+		id := slashparse.Trim(rest)
+		if id != "" {
+			m.remote.terminalID = id
+		} else if m.remote.terminalID == "" && len(terminals) > 0 {
+			m.remote.terminalID = terminals[0].TerminalID
+		}
+		m.openTerminalOverlay()
+		return true, nil
 	case strings.EqualFold(verb, "new"):
 		info, err := engine.CreateTerminal(ctx)
 		if err != nil {
@@ -68,6 +91,7 @@ func (m *RootModel) slashTerminal(args string) (bool, tea.Cmd) {
 		}
 		m.remote.terminalID = info.TerminalID
 		m.slashRespond("/terminal", "Terminal "+info.TerminalID+" created in "+info.Cwd+".")
+		m.openTerminalOverlay()
 		return true, nil
 	case strings.EqualFold(verb, "close"):
 		id := slashparse.Trim(rest)
@@ -98,6 +122,12 @@ func (m *RootModel) slashTerminal(args string) (bool, tea.Cmd) {
 		m.slashRespond("/terminal", "Usage: /terminal [list|new|close <id>|run <command>]")
 		return true, nil
 	}
+}
+
+// openTerminalOverlay displays the interactive virtual terminal panel modal.
+func (m *RootModel) openTerminalOverlay() {
+	m.overlays.panel = slashPanel{kind: panelregistry.Terminal, cmd: "/terminal"}
+	m.initOpenedSlashPanel(panelregistry.Terminal)
 }
 
 // startRemoteTerminal creates a terminal, runs the command, and streams its

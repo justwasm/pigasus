@@ -18,6 +18,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/justwasm/pigasus/procgroup"
 )
 
 // terminalEvent is one StreamTerminalOutput frame. Bytes marshal as
@@ -205,7 +207,7 @@ func (t *terminalSession) close() {
 		return
 	}
 	if t.cmd.Process != nil {
-		_ = t.cmd.Process.Kill()
+		_ = procgroup.Kill(t.cmd)
 	}
 	_ = t.file.Close()
 }

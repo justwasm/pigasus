@@ -1,0 +1,51 @@
+=== 2D SCREEN BUFFER [80x24] ===
+--- TEXT MATRIX ---
+00: |Diff (git)  All Changes  Per Turn  Commit Tree                                  |
+01: |  4 file(s) changed                                                             |
+02: |                                                                                |
+03: |> internal/ui/storybook/model.go  +42 -8                                        |
+04: |  internal/ui/storybook/sidebar.go  +15 -2                                      |
+05: |  internal/ui/storybook/canvas.go  +88                                          |
+06: |                                                                                |
+07: |  cmd/storybook/main.go  +35                                                    |
+08: |                                                                                |
+09: |  ←/→ switch view · ↑/↓/j/k navigate · enter view diff · esc dismiss            |
+10: |                                                                                |
+11: |                                                                                |
+12: |                                                                                |
+13: |                                                                                |
+14: |                                                                                |
+15: |                                                                                |
+16: |                                                                                |
+17: |                                                                                |
+18: |                                                                                |
+19: |                                                                                |
+20: |                                                                                |
+21: |                                                                                |
+22: |                                                                                |
+23: |                                                                                |
+--- ATTRIBUTE MATRIX ---
+00: [0:10] bold | [12:23] fg=#268bd2
+01: [0:19] fg=#586e75
+02: (plain)
+03: [0:32] fg=#268bd2 | [34:37] fg=#859900 | [38:40] fg=#dc322f
+04: [36:39] fg=#859900 | [40:42] fg=#dc322f
+05: [35:38] fg=#859900
+06: (plain)
+07: [25:28] fg=#859900
+08: (plain)
+09: [2:5] fg=#268bd2,bold | [5:20] fg=#657b83 | [20:27] fg=#268bd2,bold | [27:39] fg=#657b83 | [39:44] fg=#268bd2,bold | [44:57] fg=#657b83 | [57:60] fg=#268bd2,bold | [60:68] fg=#657b83
+10: (plain)
+11: (plain)
+12: (plain)
+13: (plain)
+14: (plain)
+15: (plain)
+16: (plain)
+17: (plain)
+18: (plain)
+19: (plain)
+20: (plain)
+21: (plain)
+22: (plain)
+23: (plain)

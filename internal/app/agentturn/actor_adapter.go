@@ -743,13 +743,12 @@ func RunActorTurnOnActorWithPermHandler(
 	if policy == nil {
 		toolDecls, _ := json.Marshal(env.Tools)
 		policy = checkpoint.New(checkpoint.Config{
-			Model:               model,
-			SystemPrompt:        env.SystemPrompt,
-			ToolDeclarations:    toolDecls,
-			Backend:             env.Backend,
-			BackendFor:          env.BackendFor,
-			EnableSoftThreshold: true,
-			Emit:                func(ev checkpoint.Event) { emitCheckpointEvent(emit, ev) },
+			Model:            model,
+			SystemPrompt:     env.SystemPrompt,
+			ToolDeclarations: toolDecls,
+			Backend:          env.Backend,
+			BackendFor:       env.BackendFor,
+			Emit:             func(ev checkpoint.Event) { emitCheckpointEvent(emit, ev) },
 		})
 		defer policy.Close()
 	}

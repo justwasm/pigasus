@@ -233,6 +233,13 @@ func (s *lsThoughtSink) OnTextDelta(cascade *cascades.Cascade, delta string) {
 	}
 }
 
+// OnToolCallStart forwards the tool start event.
+func (s *lsThoughtSink) OnToolCallStart(cascade *cascades.Cascade, call cascades.ToolCall) {
+	if s.inner != nil {
+		s.inner.OnToolCallStart(cascade, call)
+	}
+}
+
 // OnToolCall forwards the tool call.
 func (s *lsThoughtSink) OnToolCall(cascade *cascades.Cascade, call cascades.ToolCall) {
 	if s.inner != nil {

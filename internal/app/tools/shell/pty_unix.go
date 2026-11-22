@@ -108,11 +108,13 @@ func startWithPTYStdin(cmd *exec.Cmd, eof bool) (func() error, io.WriteCloser, e
 	if err != nil {
 		// No pty (e.g. a resource-limited host): fall back to running with
 		// the caller's stdio rather than failing the command.
+		setProcessGroup(cmd)
 		return func() error { return cmd.Run() }, nil, nil
 	}
 	if err := pty.Setsize(ptmx, &pty.Winsize{Rows: referencePTYRows, Cols: referencePTYCols}); err != nil {
 		tty.Close()
 		ptmx.Close()
+		setProcessGroup(cmd)
 		return func() error { return cmd.Run() }, nil, nil
 	}
 
@@ -125,6 +127,8 @@ func startWithPTYStdin(cmd *exec.Cmd, eof bool) (func() error, io.WriteCloser, e
 	cmd.Stdin = tty
 	// New session + controlling terminal, the same disposition creack/pty's
 	// own Start uses. ctty 0 is the child's fd for Stdin, i.e. the pty slave.
+	// Setsid creates a new session and sets pgid=pid. On Darwin, Setpgid must
+	// not be set when Setsid is true (causes EPERM).
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true, Setctty: true, Ctty: 0}
 
 	if err := cmd.Start(); err != nil {

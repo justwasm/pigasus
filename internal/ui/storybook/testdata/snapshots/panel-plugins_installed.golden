@@ -1,0 +1,51 @@
+=== 2D SCREEN BUFFER [80x24] ===
+--- TEXT MATRIX ---
+00: |  Plugins                                                                       |
+01: |  Installed (5)    Discover (27)   (tab to cycle)                               |
+02: |  Type to search plugins...                                                     |
+03: |> [enabled]  agents-json-plugin JSON-only agents fixture                        |
+04: |  [enabled]  chrome-devtools-plugin Reliable automation, in-depth debugging...  |
+05: |  [enabled]  google-antigravity-sdk Using the Google Antigravity Python SDK...  |
+06: |  [enabled]  modern-web-guidance-plugin Keep your coding agent up to date w...  |
+07: |  [enabled]  science Curated collection of agent skills for science tasks.      |
+08: |                                                                                |
+09: |Keyboard: ↑/↓ Navigate  ←/→ Page  tab Cycle Tabs  enter Expand Details  space To|
+10: |ggle Enable  ctrl+s Uninstall  esc Exit                                         |
+11: |                                                                                |
+12: |                                                                                |
+13: |                                                                                |
+14: |                                                                                |
+15: |                                                                                |
+16: |                                                                                |
+17: |                                                                                |
+18: |                                                                                |
+19: |                                                                                |
+20: |                                                                                |
+21: |                                                                                |
+22: |                                                                                |
+23: |                                                                                |
+--- ATTRIBUTE MATRIX ---
+00: [0:9] bold
+01: [2:11] fg=#268bd2,bold,ul | [11:12] fg=#268bd2,ul | [12:15] fg=#268bd2,bold,ul | [19:32] fg=#eee8d5 | [33:49] fg=#eee8d5
+02: [0:27] fg=#586e75
+03: [0:2] fg=#268bd2 | [2:12] fg=#859900 | [13:31] fg=#268bd2,bold | [32:56] fg=#657b83
+04: [2:12] fg=#859900 | [13:35] bold | [36:78] fg=#657b83
+05: [2:12] fg=#859900 | [13:35] bold | [36:78] fg=#657b83
+06: [2:12] fg=#859900 | [13:39] bold | [40:78] fg=#657b83
+07: [2:12] fg=#859900 | [13:20] bold | [21:74] fg=#657b83
+08: (plain)
+09: [0:10] bold | [10:13] fg=#268bd2 | [14:22] fg=#657b83 | [24:27] fg=#268bd2 | [28:32] fg=#657b83 | [34:37] fg=#268bd2 | [38:48] fg=#657b83 | [50:55] fg=#268bd2 | [56:70] fg=#657b83 | [72:77] fg=#268bd2 | [78:80] fg=#657b83
+10: [0:11] fg=#657b83 | [13:19] fg=#268bd2 | [20:29] fg=#657b83 | [31:34] fg=#268bd2 | [35:39] fg=#657b83
+11: (plain)
+12: (plain)
+13: (plain)
+14: (plain)
+15: (plain)
+16: (plain)
+17: (plain)
+18: (plain)
+19: (plain)
+20: (plain)
+21: (plain)
+22: (plain)
+23: (plain)

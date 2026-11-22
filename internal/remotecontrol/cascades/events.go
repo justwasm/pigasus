@@ -145,6 +145,9 @@ type EventSink interface {
 	// of text. delta is the new text fragment (the dashboard
 	// concatenates successive deltas to assemble the reply).
 	OnTextDelta(cascade *Cascade, delta string)
+	// OnToolCallStart is called when the assistant begins invoking a tool.
+	// call.Name / Args are populated; Result is empty.
+	OnToolCallStart(cascade *Cascade, call ToolCall)
 	// OnToolCall is called when the assistant invokes a tool.
 	// call.Name / Args / Result / OK are the same fields the
 	// cycle-4 Result carries.

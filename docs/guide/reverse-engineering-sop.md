@@ -82,3 +82,30 @@ make check-reproducibility
 1. **`agy` 校验**：在独立沙箱临时目录中重新解构 `agy`，比对 999 个文件与 `out/extracted-1.5.14` 的 SHA-256，断言 0 差异；
 2. **`language_server` 校验**：在临时沙箱中重新解包，验证 `seeds`、`embed-fs`、`protos`、`ide-js`（共 263 个文件）与 `out/ide-language-server-2.33.0` 完全一致；
 3. **`localharness` 校验**：进行两次独立解包并比对 Run A 与 Run B，断言 7 个 `.proto` 文件与函数符号表完全重现。
+
+---
+
+## 6. 上游版本漂移感知与巡检 SOP (`scripts/re/drift_check.sh`)
+
+当上游发布新版本（或本地升级 Antigravity 二进制）时，必须执行自动化版本漂移巡检与契约差异比对：
+
+```bash
+# 运行标准漂移巡检并自动更新契约报告
+make drift-check
+# 或直接指定候选二进制与输出
+./scripts/re/drift_check.sh --binary /path/to/new-agy --report-json out/drift.json
+```
+
+### 巡检与比对流水线包括：
+1. **AST 与符号差异自动化分析**：
+   - 通过 `rea-go-seeds` 与 Go AST 提取新版本 pclntab 函数符号与源码声明；
+   - 细粒度比对 `cortex`、`remote_agent_proxy`、`tools_pb`、`subagent_swarm` 等核心子系统符号增删；
+2. **Schema & Flag 漂移报警**：
+   - **CLI Flags**：自动比对上游命令行 Flag 与 `internal/cli/parser.go` / `internal/core/cliflags`；
+   - **Slash Commands**：比对上游斜杠命令目录与 `internal/ui/slashcommands/commands.go`；
+   - **Tool Schemas 深度比对**：比对模型工具定义（`internal/app/tools/surface/model_tools_1.5.14.json` 及 `Swarm` 工具），检测新增工具、新增必填参数（CRITICAL 破坏性变更）、新增可选参数（WARNING）以及字段类型/枚举变更；
+3. **自动同步契约文档**：
+   - 自动格式化 Markdown 报告并幂等更新 [`docs/guide/reference-drift.md`](reference-drift.md)；
+4. **金丝雀模拟与 CI 防御**：
+   - 支持 `--simulate-canary` 注入模拟破坏性变更用于 SOP 测试；
+   - 支持 `--fail-on-drift` 在发现未对齐的 CRITICAL 漂移时以非零状态码退出，作为 CI 门禁。

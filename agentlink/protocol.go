@@ -33,6 +33,11 @@ const (
 	// KindCancel asks the server to stop the turn with the given ID.
 	KindCancel Kind = "cancel"
 
+	// KindSubscribe asks the server to stream events for the given Session
+	// without initiating a turn. External tools/IDEs (Cursor/Zed/VS Code)
+	// use this to observe turns in non-interactive mode.
+	KindSubscribe Kind = "subscribe"
+
 	// KindState reports that the turn's phase changed.
 	KindState Kind = "state"
 

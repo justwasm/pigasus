@@ -161,6 +161,7 @@ type recordingSink struct {
 
 func (r *recordingSink) OnState(cascade *cascades.Cascade, frame cascades.StateFrame)          {}
 func (r *recordingSink) OnTextDelta(cascade *cascades.Cascade, delta string)                   { r.text += delta }
+func (r *recordingSink) OnToolCallStart(cascade *cascades.Cascade, call cascades.ToolCall)     {}
 func (r *recordingSink) OnToolCall(cascade *cascades.Cascade, call cascades.ToolCall)          {}
 func (r *recordingSink) OnError(cascade *cascades.Cascade, err error)                          {}
 func (r *recordingSink) OnUserInteraction(c *cascades.Cascade, i *cascades.PendingInteraction) {}

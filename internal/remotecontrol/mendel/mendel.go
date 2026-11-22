@@ -90,6 +90,7 @@ package mendel
 import (
 	"context"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -318,6 +319,54 @@ func liveExperiments(ctx context.Context, userAgent string) []auth.MendelFlag {
 	return flags
 }
 
+func isDesktopUserAgent(userAgent string) bool {
+	return strings.Contains(userAgent, "hub")
+}
+
+// DesktopExperiments are the desktop features guaranteed for the
+// desktop/hub UI so that offline execution or non-CloudCode provider
+// configurations don't drop voice input or modern desktop panes.
+func DesktopExperiments() []Experiment {
+	return []Experiment{
+		{
+			KeyString: "enable-audio-transcription",
+			Source:    experimentSourceLanguageServer,
+		},
+		{
+			KeyString: "enable-jetbox-terminal-v2",
+			Source:    experimentSourceLanguageServer,
+		},
+		{
+			KeyString: "enable-aux-pane-redesign",
+			Source:    experimentSourceLanguageServer,
+		},
+		{
+			KeyString: "enable-split-view",
+			Source:    experimentSourceLanguageServer,
+		},
+		{
+			KeyString: "enable-permissions-selector",
+			Source:    experimentSourceLanguageServer,
+		},
+		{
+			KeyString: "enable-conversation-search-v2",
+			Source:    experimentSourceLanguageServer,
+		},
+		{
+			KeyString: "enable-plugins",
+			Source:    experimentSourceLanguageServer,
+		},
+		{
+			KeyString: "enable-sidecars",
+			Source:    experimentSourceLanguageServer,
+		},
+		{
+			KeyString: "enable-pdf-viewer",
+			Source:    experimentSourceLanguageServer,
+		},
+	}
+}
+
 // fetchTimeout bounds the read of the live set.
 //
 // The remote-control page asks for the flags while it boots, and its
@@ -342,7 +391,23 @@ func Answer(ctx context.Context, userAgent string) Flags {
 	ctx, cancel := context.WithTimeout(ctx, fetchTimeout)
 	defer cancel()
 	experiments := LocalExperiments()
-	experiments = append(experiments, RemoteExperiments(liveExperiments(ctx, userAgent))...)
+	if isDesktopUserAgent(userAgent) {
+		experiments = append(experiments, DesktopExperiments()...)
+	}
+	remote := RemoteExperiments(liveExperiments(ctx, userAgent))
+	if len(remote) > 0 {
+		remoteKeys := make(map[string]bool, len(remote))
+		for _, r := range remote {
+			remoteKeys[r.KeyString] = true
+		}
+		filtered := make([]Experiment, 0, len(experiments))
+		for _, e := range experiments {
+			if !remoteKeys[e.KeyString] {
+				filtered = append(filtered, e)
+			}
+		}
+		experiments = append(filtered, remote...)
+	}
 	meshReady := webRTCMeshEnabled()
 	return Flags{
 		ExperimentConfig: ExperimentConfig{

@@ -1,0 +1,51 @@
+=== 2D SCREEN BUFFER [80x24] ===
+--- TEXT MATRIX ---
+00: |  Projects                                                                      |
+01: |  Type to search projects...                                                    |
+02: |> + New project...                                                              |
+03: |  ● OpenAGY Reference Agent  current                                            |
+04: |  ● Cloudflare Agents SDK                                                       |
+05: |  ● Bubbletea Components                                                        |
+06: |                                                                                |
+07: |Keyboard: ↑/↓ Navigate  enter New Project  esc Close                            |
+08: |                                                                                |
+09: |                                                                                |
+10: |                                                                                |
+11: |                                                                                |
+12: |                                                                                |
+13: |                                                                                |
+14: |                                                                                |
+15: |                                                                                |
+16: |                                                                                |
+17: |                                                                                |
+18: |                                                                                |
+19: |                                                                                |
+20: |                                                                                |
+21: |                                                                                |
+22: |                                                                                |
+23: |                                                                                |
+--- ATTRIBUTE MATRIX ---
+00: [0:10] bold
+01: [0:28] fg=#657b83
+02: [0:2] fg=#268bd2 | [2:18] bold
+03: [2:3] fg=#859900 | [4:27] bold | [29:36] fg=#859900
+04: [2:3] fg=color256:238 | [4:25] bold
+05: [2:3] fg=color256:238 | [4:24] bold
+06: (plain)
+07: [0:10] bold | [10:13] fg=#268bd2 | [14:22] fg=#657b83 | [24:29] fg=#268bd2 | [30:41] fg=#657b83 | [43:46] fg=#268bd2 | [47:52] fg=#657b83
+08: (plain)
+09: (plain)
+10: (plain)
+11: (plain)
+12: (plain)
+13: (plain)
+14: (plain)
+15: (plain)
+16: (plain)
+17: (plain)
+18: (plain)
+19: (plain)
+20: (plain)
+21: (plain)
+22: (plain)
+23: (plain)

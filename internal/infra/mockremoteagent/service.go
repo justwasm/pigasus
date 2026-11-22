@@ -18,6 +18,7 @@ import (
 
 	"github.com/justwasm/pigasus/internal/core/interaction"
 	"github.com/justwasm/pigasus/internal/features/auth"
+	"github.com/justwasm/pigasus/procgroup"
 )
 
 // Service implements the google.gca.aicode.v1main.JetskiRemoteAgentProxyService RPC surface.
@@ -66,6 +67,7 @@ func executeHostCommand(ctx context.Context, cmdStr, wsDir string) (stdout strin
 		shell = "zsh"
 	}
 	cmd := exec.CommandContext(ctx, shell, "-c", cmdStr)
+	procgroup.Set(cmd)
 	if wsDir != "" {
 		cmd.Dir = wsDir
 	}

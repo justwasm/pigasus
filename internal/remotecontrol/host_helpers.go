@@ -152,5 +152,6 @@ func ConfigFromHost(hc HostConfig, sock string) Config {
 		// today — the canonical all-false
 		// default is what the branch ships.
 		DeferredFeatures: hc.DeferredFeatures,
+		MendelUserAgent:  hc.MendelUserAgent,
 	}
 }

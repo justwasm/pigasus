@@ -423,6 +423,17 @@ type HostConfig struct {
 	// Cycle rc-webrtc-mesh-defer adds
 	// this.
 	DeferredFeatures map[string]bool
+
+	// MendelUserAgent is the identity the GetMendelFlags answer's
+	// backend read carries.
+	//
+	// Empty → the CLI's own identity (auth.MendelUserAgentCLI), which
+	// gets the CLI's flag set.
+	//
+	// A hub identity (auth.MendelHubUserAgent) gets the desktop app's
+	// flag set — the one with the voice input, the jetbox terminal and
+	// the aux pane redesign on.
+	MendelUserAgent string
 }
 
 // StartHostSession brings up the daemon with the production wiring

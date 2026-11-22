@@ -344,21 +344,22 @@ func (s *narrationStory) SetSize(w, h int) {
 }
 
 func (s *narrationStory) View() string {
+	fixedTime := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	switch s.state {
 	case 1:
-		text, echo, _, _ := narration.Feedback("off", time.Now(), false)
+		text, echo, _, _ := narration.Feedback("off", fixedTime, false)
 		if text != "" {
 			return text
 		}
 		return echo
 	case 2:
-		text, echo, _, _ := narration.Feedback("off", time.Now(), true)
+		text, echo, _, _ := narration.Feedback("off", fixedTime, true)
 		if text != "" {
 			return text
 		}
 		return echo
 	default:
-		return narration.SelectText("", time.Now())
+		return narration.SelectText("", fixedTime)
 	}
 }
 

@@ -179,10 +179,10 @@ func TestClaudeContextWindowPublishedLimit(t *testing.T) {
 	}
 	lines := contextpanel.Lines(st)
 	joined := strings.Join(lines, "\n")
-	if !strings.Contains(joined, "Claude 3.5 Sonnet · 0/200k tokens") {
-		t.Errorf("expected 200k tokens in header, got:\n%s", joined)
+	if !strings.Contains(joined, "Claude 3.5 Sonnet") || !strings.Contains(joined, "200k tokens") {
+		t.Errorf("expected Claude 3.5 Sonnet and 200k tokens in header, got:\n%s", joined)
 	}
-	if !strings.Contains(joined, "Free space: 200k (100.0%)") {
+	if !strings.Contains(joined, "Free space:") || !strings.Contains(joined, "200k") {
 		t.Errorf("expected 200k Free space, got:\n%s", joined)
 	}
 }

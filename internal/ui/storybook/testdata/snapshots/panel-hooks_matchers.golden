@@ -1,0 +1,51 @@
+=== 2D SCREEN BUFFER [80x24] ===
+--- TEXT MATRIX ---
+00: | PreToolUse — Matchers                                                          |
+01: |   Before tool execution                                                        |
+02: |                                                                                |
+03: | > + Add new matcher...                                                         |
+04: |   + Match all (no filter)                                                      |
+05: |   No hooks configured                                                          |
+06: |                                                                                |
+07: |   ↑/↓ Navigate · enter Select · e Toggle · backspace Delete · esc Back         |
+08: |                                                                                |
+09: |                                                                                |
+10: |                                                                                |
+11: |                                                                                |
+12: |                                                                                |
+13: |                                                                                |
+14: |                                                                                |
+15: |                                                                                |
+16: |                                                                                |
+17: |                                                                                |
+18: |                                                                                |
+19: |                                                                                |
+20: |                                                                                |
+21: |                                                                                |
+22: |                                                                                |
+23: |                                                                                |
+--- ATTRIBUTE MATRIX ---
+00: [1:22] bold
+01: [1:24] fg=#586e75
+02: (plain)
+03: [1:23] fg=#268bd2
+04: (plain)
+05: [3:22] fg=#586e75
+06: (plain)
+07: [3:6] fg=#268bd2,bold | [6:18] fg=#657b83 | [18:23] fg=#268bd2,bold | [23:33] fg=#657b83 | [33:34] fg=#268bd2,bold | [34:44] fg=#657b83 | [44:53] fg=#268bd2,bold | [53:63] fg=#657b83 | [63:66] fg=#268bd2,bold | [66:71] fg=#657b83
+08: (plain)
+09: (plain)
+10: (plain)
+11: (plain)
+12: (plain)
+13: (plain)
+14: (plain)
+15: (plain)
+16: (plain)
+17: (plain)
+18: (plain)
+19: (plain)
+20: (plain)
+21: (plain)
+22: (plain)
+23: (plain)

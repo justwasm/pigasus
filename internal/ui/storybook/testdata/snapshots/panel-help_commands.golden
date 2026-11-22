@@ -1,0 +1,51 @@
+=== 2D SCREEN BUFFER [80x24] ===
+--- TEXT MATRIX ---
+00: |Pigasus CLI   general    commands    shortcuts    vim   (←/→ or tab to cycle)   |
+01: |Available Commands                                                              |
+02: |                                                                                |
+03: |> /accounts                                        Manage and switch signed-... |
+04: |  /add-dir                                         Add a directory to the wo... |
+05: |  /agents                                          List available custom agents |
+06: |  /agents-sdk                                      Build AI agents on Cloudf... |
+07: |  /agy-customizations                              Comprehensive guide and r... |
+08: |  /antigravity-guide                               Provides a comprehensive ... |
+09: |  /artifact                                        View and review artifacts    |
+10: |  /boost                                           Invoke the Boost multi-ag... |
+11: |  /browser                                         Invoke a browser agent fo... |
+12: |  /btw                                             Ask a side question witho... |
+13: |  /changelog                                       Show release notes and ch... |
+14: |  /chrome-devtools-plugin:a11y-debugging           Uses Chrome DevTools MCP ... |
+15: |  /chrome-devtools-plugin:chrome-devtools          Uses Chrome DevTools via ... |
+16: |  /chrome-devtools-plugin:cookie-debugging         Uses Chrome DevTools MCP ... |
+17: |  [1-14 of 115 items]                                                           |
+18: |                                                                                |
+19: |Keyboard: ↑/↓ Navigate  ←/→ Switch View  esc Close                              |
+20: |                                                                                |
+21: |                                                                                |
+22: |                                                                                |
+23: |                                                                                |
+--- ATTRIBUTE MATRIX ---
+00: [0:11] fg=#268bd2 | [14:21] fg=#eee8d5 | [25:33] fg=#268bd2,bold,ul | [37:46] fg=#eee8d5 | [50:53] fg=#eee8d5 | [54:77] fg=#eee8d5
+01: [0:18] fg=#586e75,bold
+02: (plain)
+03: [0:11] fg=#268bd2 | [51:79] fg=#586e75
+04: [51:79] fg=#586e75
+05: [51:79] fg=#586e75
+06: [51:79] fg=#586e75
+07: [51:79] fg=#586e75
+08: [51:79] fg=#586e75
+09: [51:76] fg=#586e75
+10: [51:79] fg=#586e75
+11: [51:79] fg=#586e75
+12: [51:79] fg=#586e75
+13: [51:79] fg=#586e75
+14: [51:79] fg=#586e75
+15: [51:79] fg=#586e75
+16: [51:79] fg=#586e75
+17: [0:21] fg=#657b83
+18: (plain)
+19: [0:10] bold | [10:13] fg=#268bd2 | [14:22] fg=#657b83 | [24:27] fg=#268bd2 | [28:39] fg=#657b83 | [41:44] fg=#268bd2 | [45:50] fg=#657b83
+20: (plain)
+21: (plain)
+22: (plain)
+23: (plain)

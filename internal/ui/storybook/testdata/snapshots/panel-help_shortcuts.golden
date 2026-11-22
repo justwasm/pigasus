@@ -1,0 +1,51 @@
+=== 2D SCREEN BUFFER [80x24] ===
+--- TEXT MATRIX ---
+00: |Pigasus CLI   general    commands    shortcuts    vim   (←/→ or tab to cycle)   |
+01: |Keyboard Shortcuts                                                              |
+02: |  /keybindings to customize                                                     |
+03: |                                                                                |
+04: |> /                               Open slash commands                           |
+05: |  \ + enter                       Insert newline fallback                       |
+06: |  alt+enter, ctrl+j, shift+enter  Insert newline                                |
+07: |  alt+j                           Toggle active items                           |
+08: |  alt+m                           Send with opposite Queued Messages setting    |
+09: |  alt+v, ctrl+v                   Paste image/video                             |
+10: |  ctrl+c, esc                     Go back / dismiss                             |
+11: |  ctrl+d                          Exit                                          |
+12: |  ctrl+end                        Go to bottom                                  |
+13: |  ctrl+g                          Open prompt in $EDITOR                        |
+14: |  ctrl+home                       Go to top                                     |
+15: |  ctrl+k                          Subagent questions                            |
+16: |  ctrl+l                          Clear CLI screen                              |
+17: |  ctrl+o                          Toggle trajectory view                        |
+18: |  [1-14 of 25 items]                                                            |
+19: |                                                                                |
+20: |Keyboard: ↑/↓ Navigate  ←/→ Switch View  esc Close                              |
+21: |                                                                                |
+22: |                                                                                |
+23: |                                                                                |
+--- ATTRIBUTE MATRIX ---
+00: [0:11] fg=#268bd2 | [14:21] fg=#eee8d5 | [25:33] fg=#eee8d5 | [37:46] fg=#268bd2,bold,ul | [50:53] fg=#eee8d5 | [54:77] fg=#eee8d5
+01: [0:18] fg=#586e75,bold
+02: [2:14] fg=#268bd2 | [15:27] fg=#657b83
+03: (plain)
+04: [0:3] fg=#268bd2 | [34:53] fg=#586e75
+05: [2:11] fg=#268bd2 | [34:57] fg=#657b83
+06: [2:32] fg=#268bd2 | [34:48] fg=#657b83
+07: [2:7] fg=#268bd2 | [34:53] fg=#657b83
+08: [2:7] fg=#268bd2 | [34:76] fg=#657b83
+09: [2:15] fg=#268bd2 | [34:51] fg=#657b83
+10: [2:13] fg=#268bd2 | [34:51] fg=#657b83
+11: [2:8] fg=#268bd2 | [34:38] fg=#657b83
+12: [2:10] fg=#268bd2 | [34:46] fg=#657b83
+13: [2:8] fg=#268bd2 | [34:56] fg=#657b83
+14: [2:11] fg=#268bd2 | [34:43] fg=#657b83
+15: [2:8] fg=#268bd2 | [34:52] fg=#657b83
+16: [2:8] fg=#268bd2 | [34:50] fg=#657b83
+17: [2:8] fg=#268bd2 | [34:56] fg=#657b83
+18: [0:20] fg=#657b83
+19: (plain)
+20: [0:10] bold | [10:13] fg=#268bd2 | [14:22] fg=#657b83 | [24:27] fg=#268bd2 | [28:39] fg=#657b83 | [41:44] fg=#268bd2 | [45:50] fg=#657b83
+21: (plain)
+22: (plain)
+23: (plain)

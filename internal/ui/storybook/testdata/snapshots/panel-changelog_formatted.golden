@@ -1,0 +1,51 @@
+=== 2D SCREEN BUFFER [80x24] ===
+--- TEXT MATRIX ---
+00: |   Pigasus CLI Changelog                                                        |
+01: |                                                                                |
+02: |  The terminal-first surface to interact with Antigravity agents. Stay in your  |
+03: |  flow without context switching.                                               |
+04: |                                                                                |
+05: |  ## 1.5.14                                                                     |
+06: |                                                                                |
+07: |  • Added /thinking (/thinking [on|off], saved as "showThinking" in             |
+08: |  settings.json and off by default) to stream the model's full thinking live    |
+09: |  in the transcript while it thinks and keep finished thoughts expanded         |
+10: |  without pressing Ctrl+O.                                                      |
+11: |  • Added a live Overview section to /swarm board on terminals at least 28      |
+12: |  rows tall, showing the swarm's goal, overall task progress (Overview · N of   |
+13: |  M tasks done and any blocked count), and up to six workstream threads with    |
+14: |  status indicators for which workers are working, in review, waiting on a      |
+15: |  peer, failed, or done.                                                        |
+16: |  • Added plan mode to --remote-agent sessions, so a remote agent can research  |
+17: |  and write a plan for your review before editing files or running commands:    |
+18: |  switch to it with Shift+Tab, start in it with --mode plan, or choose plan     |
+19: |  under Agent Mode on the Remote Agent tab of /config.                          |
+20: |  (0–20 of 4245 lines)                                                          |
+21: |                                                                                |
+22: |  ↑/↓ Navigate · esc Cancel                                                     |
+23: |                                                                                |
+--- ATTRIBUTE MATRIX ---
+00: [2:25] fg=color256:228,bg=color256:63,bold
+01: (plain)
+02: [2:78] fg=#e8eaed
+03: [2:33] fg=#e8eaed
+04: (plain)
+05: [2:11] fg=#0099ff,bold
+06: (plain)
+07: [2:10] fg=#e8eaed | [10:19] fg=#8ab4f8,bg=#303030 | [19:21] fg=#e8eaed | [21:39] fg=#8ab4f8,bg=#303030 | [39:50] fg=#e8eaed | [50:64] fg=#8ab4f8,bg=#303030 | [64:78] fg=#e8eaed
+08: [2:15] fg=#8ab4f8,bg=#303030 | [15:78] fg=#e8eaed
+09: [2:78] fg=#e8eaed
+10: [2:19] fg=#e8eaed | [19:25] fg=#8ab4f8,bg=#303030 | [25:26] fg=#e8eaed
+11: [2:17] fg=#e8eaed | [17:25] fg=#8ab4f8,bg=#303030 | [25:37] fg=#e8eaed | [37:49] fg=#8ab4f8,bg=#303030 | [49:78] fg=#e8eaed
+12: [2:62] fg=#e8eaed | [62:77] fg=#8ab4f8,bg=#303030 | [77:78] fg=#e8eaed
+13: [2:14] fg=#8ab4f8,bg=#303030 | [14:78] fg=#e8eaed
+14: [2:78] fg=#e8eaed
+15: [2:24] fg=#e8eaed
+16: [2:10] fg=#e8eaed | [10:14] fg=#8ab4f8,bg=#303030 | [14:23] fg=#e8eaed | [23:37] fg=#8ab4f8,bg=#303030 | [37:78] fg=#e8eaed
+17: [2:78] fg=#e8eaed
+18: [2:20] fg=#e8eaed | [20:29] fg=#8ab4f8,bg=#303030 | [29:48] fg=#e8eaed | [48:59] fg=#8ab4f8,bg=#303030 | [59:71] fg=#e8eaed | [71:75] fg=#8ab4f8,bg=#303030 | [75:78] fg=#e8eaed
+19: [2:8] fg=#e8eaed | [8:18] fg=#8ab4f8,bg=#303030 | [18:26] fg=#e8eaed | [26:38] fg=#8ab4f8,bg=#303030 | [38:46] fg=#e8eaed | [46:53] fg=#8ab4f8,bg=#303030 | [53:54] fg=#e8eaed
+20: [0:22] fg=#657b83
+21: (plain)
+22: [2:5] fg=#268bd2,bold | [5:17] fg=#657b83 | [17:20] fg=#268bd2,bold | [20:27] fg=#657b83
+23: (plain)

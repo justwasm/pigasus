@@ -132,6 +132,7 @@ func buildHostConfig(fs *flag.FlagSet, sess *remotecontrol.SessionState, sockPat
 		WebTerminals:            buildHostWebTerminalsRegistry(cwd),
 		WebAudio:                buildHostWebAudioRegistry(),
 		OriginPolicyStore:       buildHostOriginPolicyStore(),
+		MendelUserAgent:         desktopMendelUserAgent(flagBoolValue(fs, "desktop")),
 	}
 }
 

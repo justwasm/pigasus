@@ -1,0 +1,51 @@
+=== 2D SCREEN BUFFER [80x24] ===
+--- TEXT MATRIX ---
+00: |  > terminal                      │                                            │|
+01: |                                                                                |
+02: |    light                         │   Here's the change:                       │|
+03: |                                                                                |
+04: |    solarized light               │                                            │|
+05: |                                                                                |
+06: |    colorblind-friendly light     │   3     import  "fmt"                      │|
+07: |                                                                                |
+08: |    dark                          │   4                                        │|
+09: |                                                                                |
+10: |    solarized dark                │   5  -   func  main() {                    │|
+11: |                                                                                |
+12: |    colorblind-friendly dark      │   5  +   func  greet(name  string) {       │|
+13: |                                                                                |
+14: |    tokyo night                   │   6  +       fmt.Printf("Hello, %s!\n", nam│|
+15: |                                                                                |
+16: |                                  │   7    }                                   │|
+17: |                                                                                |
+18: |                                  │                                            │|
+19: |                                                                                |
+20: |                                  │    ▾ Thought Process                       │|
+21: |                                                                                |
+22: |                                  │      I need to add a greeting function. I'l│|
+23: |                                                                                |
+--- ATTRIBUTE MATRIX ---
+00: [34:35] fg=ansi:8 | [79:80] fg=ansi:8
+01: (plain)
+02: [34:35] fg=ansi:8 | [38:56] fg=ansi:2,bold | [79:80] fg=ansi:8
+03: (plain)
+04: [34:35] fg=ansi:8 | [79:80] fg=ansi:8
+05: (plain)
+06: [34:35] fg=ansi:8 | [38:39] fg=ansi:8 | [44:50] fg=color256:12,bold | [52:57] fg=color256:3 | [79:80] fg=ansi:8
+07: (plain)
+08: [34:35] fg=ansi:8 | [38:39] fg=ansi:8 | [79:80] fg=ansi:8
+09: (plain)
+10: [34:35] fg=ansi:8 | [38:39] fg=ansi:8 | [39:41] bg=color256:131 | [41:45] fg=ansi:1,bg=color256:131 | [45:49] fg=color256:12,bg=color256:131,bold | [49:51] bg=color256:131 | [51:55] fg=color256:4,bg=color256:131 | [55:79] bg=color256:131 | [79:80] fg=ansi:8
+11: (plain)
+12: [34:35] fg=ansi:8 | [38:39] fg=ansi:8 | [39:41] bg=color256:65 | [41:45] fg=ansi:2,bg=color256:65 | [45:49] fg=color256:12,bg=color256:65,bold | [49:51] bg=color256:65 | [51:56] fg=color256:4,bg=color256:65 | [56:63] bg=color256:65 | [63:69] fg=color256:5,bg=color256:65 | [69:79] bg=color256:65 | [79:80] fg=ansi:8
+13: (plain)
+14: [34:35] fg=ansi:8 | [38:39] fg=ansi:8 | [39:41] bg=color256:65 | [41:45] fg=ansi:2,bg=color256:65 | [45:53] bg=color256:65 | [53:59] fg=color256:4,bg=color256:65 | [59:60] bg=color256:65 | [60:74] fg=color256:3,bg=color256:65 | [74:79] bg=color256:65 | [79:80] fg=ansi:8
+15: (plain)
+16: [34:35] fg=ansi:8 | [38:39] fg=ansi:8 | [79:80] fg=ansi:8
+17: (plain)
+18: [34:35] fg=ansi:8 | [79:80] fg=ansi:8
+19: (plain)
+20: [34:35] fg=ansi:8 | [37:56] fg=ansi:7 | [79:80] fg=ansi:8
+21: (plain)
+22: [34:35] fg=ansi:8 | [37:79] fg=ansi:7 | [79:80] fg=ansi:8
+23: (plain)

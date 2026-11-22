@@ -103,6 +103,51 @@ type Server struct {
 	mu       sync.Mutex
 	prepared bool
 	ahpHost  *AHPHost
+
+	sessionsMu sync.RWMutex
+	sessions   map[string]*serverSession
+}
+
+type serverSession struct {
+	id        string
+	workspace string
+	model     string
+	session   *Session
+	engine    agentturn.Engine
+
+	mu           sync.Mutex
+	activeCancel context.CancelFunc
+
+	subsMu sync.Mutex
+	subs   map[chan agentlink.Frame]struct{}
+}
+
+func (ss *serverSession) broadcast(frame agentlink.Frame) {
+	ss.subsMu.Lock()
+	defer ss.subsMu.Unlock()
+	for ch := range ss.subs {
+		select {
+		case ch <- frame:
+		default:
+			// Backpressure protection: non-blocking drop if subscriber buffer is full
+		}
+	}
+}
+
+func (ss *serverSession) subscribe() (chan agentlink.Frame, func()) {
+	ss.subsMu.Lock()
+	defer ss.subsMu.Unlock()
+	if ss.subs == nil {
+		ss.subs = make(map[chan agentlink.Frame]struct{})
+	}
+	ch := make(chan agentlink.Frame, 128)
+	ss.subs[ch] = struct{}{}
+	cleanup := func() {
+		ss.subsMu.Lock()
+		delete(ss.subs, ch)
+		ss.subsMu.Unlock()
+	}
+	return ch, cleanup
 }
 
 // New returns a server.
@@ -111,7 +156,10 @@ type Server struct {
 // a server always demands one: it runs shell commands against its own
 // workspace.
 func New(cfg Config) (*Server, error) {
-	srv := &Server{cfg: cfg}
+	srv := &Server{
+		cfg:      cfg,
+		sessions: make(map[string]*serverSession),
+	}
 	link, err := agentlink.NewServer(agentlink.ServerConfig{
 		Addr:  cfg.Addr,
 		Token: cfg.Token,
@@ -212,27 +260,54 @@ func (s *Server) logf(format string, args ...any) {
 	fmt.Fprintf(s.cfg.Log, format+"\n", args...)
 }
 
+// getOrCreateSession returns an isolated serverSession by ID.
+// If id is empty, a new unique conversation ID is minted.
+// If ws or model is non-empty, they override the session's workspace/model.
+func (s *Server) getOrCreateSession(id, ws, model string) (*serverSession, error) {
+	s.sessionsMu.Lock()
+	defer s.sessionsMu.Unlock()
+	id = strings.TrimSpace(id)
+	if id != "" {
+		if ss, ok := s.sessions[id]; ok {
+			return ss, nil
+		}
+	}
+	sess, err := s.sessionForID(id, ws, model)
+	if err != nil {
+		return nil, err
+	}
+	engine := agentturn.NewLocal(sess.env)
+	ss := &serverSession{
+		id:        sess.ConversationID,
+		workspace: sess.Workspace,
+		model:     sess.Model,
+		session:   sess,
+		engine:    engine,
+		subs:      make(map[chan agentlink.Frame]struct{}),
+	}
+	s.sessions[ss.id] = ss
+	return ss, nil
+}
+
+// SessionByID returns the Session with the given ID, if it exists.
+func (s *Server) SessionByID(id string) (*Session, bool) {
+	s.sessionsMu.RLock()
+	defer s.sessionsMu.RUnlock()
+	ss, ok := s.sessions[id]
+	if !ok || ss == nil {
+		return nil, false
+	}
+	return ss.session, true
+}
+
 // serve answers one client connection.
 func (s *Server) serve(ctx context.Context, conn *agentlink.Conn) error {
-	session, err := s.session()
-	if err != nil {
-		s.logf("session init failed: %v", err)
-		_ = conn.Send(ctx, agentlink.Frame{Kind: agentlink.KindResult, Error: err.Error()})
-		return err
-	}
-	engine := agentturn.NewLocal(session.env)
-	defer engine.Close()
-
-	var (
-		mu     sync.Mutex
-		cancel context.CancelFunc
-	)
+	var activeSess *serverSession
+	var unsubs []func()
 	defer func() {
-		mu.Lock()
-		if cancel != nil {
-			cancel()
+		for _, unsub := range unsubs {
+			unsub()
 		}
-		mu.Unlock()
 	}()
 
 	for {
@@ -242,87 +317,153 @@ func (s *Server) serve(ctx context.Context, conn *agentlink.Conn) error {
 		}
 		switch f.Kind {
 		case agentlink.KindHello:
-			s.logf("client hello (session=%s, model=%s)", session.ConversationID, session.Model)
+			ss, err := s.getOrCreateSession(f.Session, f.Workspace, f.Model)
+			if err != nil {
+				s.logf("session init failed: %v", err)
+				_ = conn.Send(ctx, agentlink.Frame{Kind: agentlink.KindResult, Error: err.Error()})
+				return err
+			}
+			activeSess = ss
+			s.logf("client hello (session=%s, model=%s)", ss.id, ss.model)
 			if err := conn.Send(ctx, agentlink.Frame{
 				Kind:      agentlink.KindHello,
 				Version:   Version,
-				Workspace: session.Workspace,
-				Model:     session.Model,
-				Session:   session.ConversationID,
+				Workspace: ss.workspace,
+				Model:     ss.model,
+				Session:   ss.id,
 			}); err != nil {
 				return err
 			}
+		case agentlink.KindSubscribe:
+			targetID := f.Session
+			if targetID == "" && activeSess != nil {
+				targetID = activeSess.id
+			}
+			ss, err := s.getOrCreateSession(targetID, f.Workspace, f.Model)
+			if err != nil {
+				s.logf("subscribe session init failed: %v", err)
+				_ = conn.Send(ctx, agentlink.Frame{Kind: agentlink.KindResult, ID: f.ID, Error: err.Error()})
+				continue
+			}
+			activeSess = ss
+			s.logf("client subscribed (session=%s, id=%s)", ss.id, f.ID)
+			// Acknowledge subscription with state frame
+			_ = conn.Send(ctx, agentlink.Frame{
+				Kind:      agentlink.KindState,
+				ID:        f.ID,
+				Session:   ss.id,
+				Workspace: ss.workspace,
+				Model:     ss.model,
+				Phase:     agentlink.PhaseStarting,
+			})
+			subCh, unsub := ss.subscribe()
+			unsubs = append(unsubs, unsub)
+			go func(subConn *agentlink.Conn, ch chan agentlink.Frame) {
+				for frame := range ch {
+					if err := subConn.Send(ctx, frame); err != nil {
+						return
+					}
+				}
+			}(conn, subCh)
 		case agentlink.KindPrompt:
+			targetID := f.Session
+			if targetID == "" && activeSess != nil {
+				targetID = activeSess.id
+			}
+			ss, err := s.getOrCreateSession(targetID, f.Workspace, f.Model)
+			if err != nil {
+				s.logf("prompt session init failed: %v", err)
+				_ = conn.Send(ctx, agentlink.Frame{Kind: agentlink.KindResult, ID: f.ID, Error: err.Error()})
+				continue
+			}
+			activeSess = ss
 			turnModel := f.Model
 			if turnModel == "" {
-				turnModel = session.Model
+				turnModel = ss.model
 			}
-			s.logf("turn started (id=%s, model=%s)", f.ID, turnModel)
+			s.logf("turn started (session=%s, id=%s, model=%s)", ss.id, f.ID, turnModel)
 			turnCtx, cancelTurn := context.WithCancel(ctx)
-			mu.Lock()
-			if cancel != nil {
-				cancel()
+			ss.mu.Lock()
+			if ss.activeCancel != nil {
+				ss.activeCancel()
 			}
-			cancel = cancelTurn
-			mu.Unlock()
-			go func(f agentlink.Frame) {
+			ss.activeCancel = cancelTurn
+			ss.mu.Unlock()
+
+			go func(f agentlink.Frame, targetSess *serverSession) {
 				defer cancelTurn()
 				// The frames are written with the *connection's*
 				// context, not the turn's: a cancelled turn still
 				// owes the client its terminator, and a write on a
 				// cancelled context would fail exactly then.
-				s.runTurn(turnCtx, ctx, conn, engine, f)
-			}(f)
+				s.runTurn(turnCtx, ctx, conn, targetSess, f)
+			}(f, ss)
 		case agentlink.KindCancel:
-			s.logf("turn cancelled (id=%s)", f.ID)
-			mu.Lock()
-			if cancel != nil {
-				cancel()
+			targetID := f.Session
+			if targetID == "" && activeSess != nil {
+				targetID = activeSess.id
 			}
-			mu.Unlock()
+			s.logf("turn cancelled (session=%s, id=%s)", targetID, f.ID)
+			s.sessionsMu.RLock()
+			targetSess := s.sessions[targetID]
+			s.sessionsMu.RUnlock()
+			if targetSess != nil {
+				targetSess.mu.Lock()
+				if targetSess.activeCancel != nil {
+					targetSess.activeCancel()
+				}
+				targetSess.mu.Unlock()
+			}
 		}
 	}
 }
 
-// runTurn runs one turn and forwards its frames to the client.
+// runTurn runs one turn and forwards its frames to the client and session subscribers.
 //
-// Every frame carries the turn's identifier, so a client that has two
+// Every frame carries the turn's identifier and session ID, so a client that has two
 // turns in flight can tell them apart.
 //
 // The turn runs under turnCtx — the cancel frame cancels it — but the
 // frames are written under writeCtx, the connection's own context: a
 // cancelled turn still owes the client its terminator, and a write on
 // the cancelled context would fail exactly when it is needed.
-func (s *Server) runTurn(turnCtx, writeCtx context.Context, conn *agentlink.Conn, engine agentturn.Engine, f agentlink.Frame) {
-	frames, err := engine.Turn(turnCtx, agentturn.Turn{
+func (s *Server) runTurn(turnCtx, writeCtx context.Context, conn *agentlink.Conn, ss *serverSession, f agentlink.Frame) {
+	frames, err := ss.engine.Turn(turnCtx, agentturn.Turn{
 		Model:   f.Model,
 		History: f.History,
 	})
 	if err != nil {
-		s.logf("turn failed (id=%s): %v", f.ID, err)
-		_ = conn.Send(writeCtx, agentlink.Frame{Kind: agentlink.KindResult, ID: f.ID, Error: err.Error()})
+		s.logf("turn failed (session=%s, id=%s): %v", ss.id, f.ID, err)
+		resFrame := agentlink.Frame{Kind: agentlink.KindResult, ID: f.ID, Session: ss.id, Error: err.Error()}
+		_ = conn.Send(writeCtx, resFrame)
+		ss.broadcast(resFrame)
 		return
 	}
 	terminated := false
 	for frame := range frames {
 		frame.ID = f.ID
+		frame.Session = ss.id
 		if frame.Kind == agentlink.KindResult {
 			terminated = true
 			if frame.Error != "" {
-				s.logf("turn finished with error (id=%s): %s", f.ID, frame.Error)
+				s.logf("turn finished with error (session=%s, id=%s): %s", ss.id, f.ID, frame.Error)
 			} else {
-				s.logf("turn finished successfully (id=%s)", f.ID)
+				s.logf("turn finished successfully (session=%s, id=%s)", ss.id, f.ID)
 			}
 		}
 		if err := conn.Send(writeCtx, frame); err != nil {
+			ss.broadcast(frame)
 			return
 		}
+		ss.broadcast(frame)
 	}
 	if !terminated {
 		// The turn ended without a terminator. The client waits for
 		// one, so it is sent here rather than left hanging.
-		s.logf("turn finished (id=%s)", f.ID)
-		_ = conn.Send(writeCtx, agentlink.Frame{Kind: agentlink.KindResult, ID: f.ID})
+		s.logf("turn finished (session=%s, id=%s)", ss.id, f.ID)
+		resFrame := agentlink.Frame{Kind: agentlink.KindResult, ID: f.ID, Session: ss.id}
+		_ = conn.Send(writeCtx, resFrame)
+		ss.broadcast(resFrame)
 	}
 }
 
@@ -384,6 +525,10 @@ func (s *Server) session() (*Session, error) {
 }
 
 func (s *Server) sessionFor(ws, model string) (*Session, error) {
+	return s.sessionForID("", ws, model)
+}
+
+func (s *Server) sessionForID(id, ws, model string) (*Session, error) {
 	workspace := strings.TrimSpace(ws)
 	if workspace == "" {
 		workspace = s.cfg.Workspace
@@ -405,7 +550,10 @@ func (s *Server) sessionFor(ws, model string) (*Session, error) {
 		model = s.cfg.Model
 	}
 
-	conversationID := agyprompt.NewConversationID()
+	conversationID := strings.TrimSpace(id)
+	if conversationID == "" {
+		conversationID = agyprompt.NewConversationID()
+	}
 	agentDir := confhome.Antigravity()
 
 	catalog := surface.RuntimeCatalog(workspace)

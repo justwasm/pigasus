@@ -1,0 +1,51 @@
+=== 2D SCREEN BUFFER [80x24] ===
+--- TEXT MATRIX ---
+00: | Hooks                                                                          |
+01: |   6 hook types                                                                 |
+02: |                                                                                |
+03: | > PreToolUse      Before tool execution                                        |
+04: |   PostToolUse     After tool execution                                         |
+05: |   PreInvocation   Before each LLM invocation                                   |
+06: |   PostInvocation  After each LLM invocation                                    |
+07: |   Stop            When agent tries to exit                                     |
+08: |   SessionStart    When a session starts                                        |
+09: |                                                                                |
+10: |   ↑/↓ Navigate · enter Select                                                  |
+11: |                                                                                |
+12: |                                                                                |
+13: |                                                                                |
+14: |                                                                                |
+15: |                                                                                |
+16: |                                                                                |
+17: |                                                                                |
+18: |                                                                                |
+19: |                                                                                |
+20: |                                                                                |
+21: |                                                                                |
+22: |                                                                                |
+23: |                                                                                |
+--- ATTRIBUTE MATRIX ---
+00: [1:6] bold
+01: [1:15] fg=#586e75
+02: (plain)
+03: [1:17] fg=#268bd2 | [19:40] fg=#586e75
+04: [19:39] fg=#586e75
+05: [19:45] fg=#586e75
+06: [19:44] fg=#586e75
+07: [19:43] fg=#586e75
+08: [19:40] fg=#586e75
+09: (plain)
+10: [3:6] fg=#268bd2,bold | [6:18] fg=#657b83 | [18:23] fg=#268bd2,bold | [23:30] fg=#657b83
+11: (plain)
+12: (plain)
+13: (plain)
+14: (plain)
+15: (plain)
+16: (plain)
+17: (plain)
+18: (plain)
+19: (plain)
+20: (plain)
+21: (plain)
+22: (plain)
+23: (plain)

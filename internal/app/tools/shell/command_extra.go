@@ -91,6 +91,7 @@ func (e *ExecCommand) Run(ctx context.Context, args json.RawMessage) (any, error
 		}
 	}
 	cmd.Env = env
+	setProcessGroup(cmd)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr

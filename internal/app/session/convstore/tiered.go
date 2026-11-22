@@ -86,6 +86,9 @@ type TieredTrajectoryStore interface {
 	// ArchiveCold compresses steps with Idx < cutoffIdx from warm into cold tier.
 	ArchiveCold(convID string, cutoffIdx int64) (*ArchiveInfo, error)
 
+	// ArchiveColdSST serializes steps with Idx < cutoffIdx from warm into an immutable SST chunk file.
+	ArchiveColdSST(convID string, cutoffIdx int64) (*SSTChunkMeta, error)
+
 	// RestoreCold decompresses an archived partition from cold tier back into warm tier.
 	RestoreCold(convID string, archiveID string) (int, error)
 
@@ -348,6 +351,63 @@ func (s *tieredTrajectoryStore) ArchiveCold(convID string, cutoffIdx int64) (*Ar
 	return info, nil
 }
 
+// ArchiveColdSST writes completed steps before cutoffIdx into an immutable SST chunk file.
+func (s *tieredTrajectoryStore) ArchiveColdSST(convID string, cutoffIdx int64) (*SSTChunkMeta, error) {
+	s.mu.Lock()
+	if s.closed {
+		s.mu.Unlock()
+		return nil, errors.New("tiered store is closed")
+	}
+
+	// 1. Flush any hot steps < cutoffIdx to warm tier first
+	if hotSteps, ok := s.hot[convID]; ok {
+		var remainingHot []Step
+		var flushSteps []Step
+		for _, st := range hotSteps {
+			if st.Idx < cutoffIdx {
+				flushSteps = append(flushSteps, st)
+			} else {
+				remainingHot = append(remainingHot, st)
+			}
+		}
+		if len(flushSteps) > 0 {
+			if err := s.warm.SaveSteps(convID, flushSteps); err != nil {
+				s.mu.Unlock()
+				return nil, fmt.Errorf("flush hot before sst: %w", err)
+			}
+			s.hot[convID] = remainingHot
+		}
+	}
+	s.mu.Unlock()
+
+	// 2. Fetch steps from warm storage
+	steps, err := s.warm.GetStepsBefore(convID, cutoffIdx)
+	if err != nil {
+		return nil, fmt.Errorf("fetch warm steps for sst: %w", err)
+	}
+	if len(steps) == 0 {
+		return nil, nil
+	}
+
+	chunkID := fmt.Sprintf("sst_%s_%d_%d", convID, steps[0].Idx, steps[len(steps)-1].Idx)
+	dir := s.cfg.ColdDir
+	if dir == "" {
+		dir = filepath.Join(os.TempDir(), "openagy_sst_chunks")
+	}
+
+	meta, err := WriteSSTChunk(dir, convID, chunkID, steps)
+	if err != nil {
+		return nil, err
+	}
+
+	// 3. Delete archived steps from warm storage
+	if err := s.warm.DeleteBefore(convID, cutoffIdx); err != nil {
+		return nil, fmt.Errorf("delete warm steps after sst: %w", err)
+	}
+
+	return meta, nil
+}
+
 // RestoreCold decompresses an archived block from cold tier back into warm tier.
 func (s *tieredTrajectoryStore) RestoreCold(convID string, archiveID string) (int, error) {
 	s.mu.Lock()
@@ -496,6 +556,7 @@ func (w *sqliteWarmStore) SaveSteps(convID string, steps []Step) error {
 
 	now := time.Now().UnixMilli()
 	for _, step := range steps {
+		NormalizeType0Step(&step)
 		data, err := json.Marshal(step)
 		if err != nil {
 			return fmt.Errorf("marshal step %d: %w", step.Idx, err)
@@ -522,6 +583,7 @@ func (w *sqliteWarmStore) GetStep(convID string, idx int64) (Step, bool, error) 
 	if err := json.Unmarshal(data, &st); err != nil {
 		return Step{}, false, err
 	}
+	NormalizeType0Step(&st)
 	return st, true, nil
 }
 
@@ -546,6 +608,7 @@ func (w *sqliteWarmStore) GetStepsBefore(convID string, cutoffIdx int64) ([]Step
 		if err := json.Unmarshal(data, &st); err != nil {
 			return nil, err
 		}
+		NormalizeType0Step(&st)
 		steps = append(steps, st)
 	}
 	return steps, rows.Err()
@@ -572,6 +635,7 @@ func (w *sqliteWarmStore) GetAllSteps(convID string) ([]Step, error) {
 		if err := json.Unmarshal(data, &st); err != nil {
 			return nil, err
 		}
+		NormalizeType0Step(&st)
 		steps = append(steps, st)
 	}
 	return steps, rows.Err()
@@ -696,13 +760,24 @@ func (c *coldStore) Archive(convID string, archiveID string, steps []Step) (*Arc
 	// Persist to disk if dir configured
 	if c.dir != "" {
 		path := filepath.Join(c.dir, fmt.Sprintf("%s.gz", archiveID))
-		if err := os.WriteFile(path, compressedBytes, 0o600); err != nil {
+		tmpPath := filepath.Join(c.dir, fmt.Sprintf("%s.tmp.gz", archiveID))
+		if err := os.WriteFile(tmpPath, compressedBytes, 0o600); err != nil {
 			return nil, fmt.Errorf("write cold archive file: %w", err)
 		}
+		if err := os.Rename(tmpPath, path); err != nil {
+			_ = os.Remove(tmpPath)
+			return nil, fmt.Errorf("commit cold archive file: %w", err)
+		}
+
 		metaPath := filepath.Join(c.dir, fmt.Sprintf("%s.meta.json", archiveID))
+		metaTmpPath := filepath.Join(c.dir, fmt.Sprintf("%s.meta.tmp.json", archiveID))
 		metaBytes, _ := json.Marshal(info)
-		if err := os.WriteFile(metaPath, metaBytes, 0o600); err != nil {
+		if err := os.WriteFile(metaTmpPath, metaBytes, 0o600); err != nil {
 			return nil, fmt.Errorf("write cold meta file: %w", err)
+		}
+		if err := os.Rename(metaTmpPath, metaPath); err != nil {
+			_ = os.Remove(metaTmpPath)
+			return nil, fmt.Errorf("commit cold meta file: %w", err)
 		}
 	}
 
@@ -760,6 +835,9 @@ func (c *coldStore) Restore(convID string, archiveID string) ([]Step, error) {
 	if err := json.Unmarshal(decompressed, &steps); err != nil {
 		return nil, fmt.Errorf("unmarshal cold steps: %w", err)
 	}
+	for i := range steps {
+		NormalizeType0Step(&steps[i])
+	}
 
 	return steps, nil
 }
@@ -787,16 +865,27 @@ func (c *coldStore) GetStep(convID string, idx int64) (Step, bool, error) {
 	defer c.mu.RUnlock()
 
 	convArchives, ok := c.archives[convID]
-	if !ok {
-		return Step{}, false, nil
+	if ok {
+		for _, entry := range convArchives {
+			if idx >= entry.info.StartIdx && idx <= entry.info.EndIdx {
+				for _, st := range entry.steps {
+					if st.Idx == idx {
+						NormalizeType0Step(&st)
+						return st, true, nil
+					}
+				}
+			}
+		}
 	}
 
-	for _, entry := range convArchives {
-		if idx >= entry.info.StartIdx && idx <= entry.info.EndIdx {
-			for _, st := range entry.steps {
-				if st.Idx == idx {
-					return st, true, nil
-				}
+	// Disk discovery for .sst chunk files
+	if c.dir != "" {
+		sstFiles, _ := filepath.Glob(filepath.Join(c.dir, "*.sst"))
+		for _, sf := range sstFiles {
+			st, found, err := ReadSSTStep(sf, idx)
+			if err == nil && found {
+				NormalizeType0Step(&st)
+				return st, true, nil
 			}
 		}
 	}
@@ -808,14 +897,26 @@ func (c *coldStore) GetAllSteps(convID string) ([]Step, error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
-	convArchives, ok := c.archives[convID]
-	if !ok {
-		return nil, nil
+	var all []Step
+	if convArchives, ok := c.archives[convID]; ok {
+		for _, entry := range convArchives {
+			all = append(all, entry.steps...)
+		}
 	}
 
-	var all []Step
-	for _, entry := range convArchives {
-		all = append(all, entry.steps...)
+	// Disk discovery for .sst chunk files
+	if c.dir != "" {
+		sstFiles, _ := filepath.Glob(filepath.Join(c.dir, "*.sst"))
+		for _, sf := range sstFiles {
+			chunk, err := ReadSSTChunk(sf)
+			if err == nil && (chunk.Meta.ConvID == convID || convID == "") {
+				all = append(all, chunk.Steps...)
+			}
+		}
+	}
+
+	for i := range all {
+		NormalizeType0Step(&all[i])
 	}
 
 	sort.Slice(all, func(i, j int) bool {
@@ -829,15 +930,24 @@ func (c *coldStore) Count(convID string) (int, error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
-	convArchives, ok := c.archives[convID]
-	if !ok {
-		return 0, nil
+	count := 0
+	if convArchives, ok := c.archives[convID]; ok {
+		for _, entry := range convArchives {
+			count += entry.info.StepCount
+		}
 	}
 
-	count := 0
-	for _, entry := range convArchives {
-		count += entry.info.StepCount
+	// Count from .sst chunk files on disk
+	if c.dir != "" {
+		sstFiles, _ := filepath.Glob(filepath.Join(c.dir, "*.sst"))
+		for _, sf := range sstFiles {
+			chunk, err := ReadSSTChunk(sf)
+			if err == nil && (chunk.Meta.ConvID == convID || convID == "") {
+				count += chunk.Meta.StepCount
+			}
+		}
 	}
+
 	return count, nil
 }
 

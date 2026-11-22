@@ -211,3 +211,39 @@ func TestServerServesOnItsOwnListener(t *testing.T) {
 		t.Error("Serve did not return after the context was cancelled")
 	}
 }
+
+// TestKindSubscribeFrame ensures KindSubscribe frames round-trip correctly.
+func TestKindSubscribeFrame(t *testing.T) {
+	const token = "sub-test-token"
+	addr, _ := startServer(t, ServerConfig{Token: token}, HandlerFunc(func(ctx context.Context, conn *Conn) error {
+		f, err := conn.Next(ctx)
+		if err != nil {
+			return err
+		}
+		if f.Kind != KindSubscribe {
+			t.Errorf("expected KindSubscribe, got %v", f.Kind)
+		}
+		return conn.Send(ctx, Frame{Kind: KindState, ID: f.ID, Session: f.Session, Phase: PhaseStarting})
+	}))
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	client, err := Dial(ctx, "ws://"+addr, DialOptions{Token: token})
+	if err != nil {
+		t.Fatalf("Dial: %v", err)
+	}
+	defer client.Close()
+
+	if err := client.Send(ctx, Frame{Kind: KindSubscribe, ID: "sub-99", Session: "conv-xyz"}); err != nil {
+		t.Fatalf("Send: %v", err)
+	}
+
+	f, err := client.Next(ctx)
+	if err != nil {
+		t.Fatalf("Next: %v", err)
+	}
+	if f.Kind != KindState || f.Session != "conv-xyz" || f.Phase != PhaseStarting {
+		t.Errorf("unexpected answer frame: %+v", f)
+	}
+}

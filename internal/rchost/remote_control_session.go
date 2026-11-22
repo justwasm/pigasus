@@ -197,6 +197,20 @@ func (s *remoteCascadeSession) Send(ctx context.Context, promptText string, even
 						Delta: ev.Delta,
 					}
 				}
+			case actor.EventToolCallStarted:
+				if ev.ToolCall != nil {
+					raw := []byte(ev.ToolCall.Input)
+					if len(raw) == 0 {
+						raw = []byte("{}")
+					}
+					events <- remotecontrol.SessionEvent{
+						Type: remotecontrol.SessionEventToolStart,
+						ToolCall: cascades.ToolCall{
+							Name: ev.ToolCall.Name,
+							Args: raw,
+						},
+					}
+				}
 			case actor.EventToolCallFinished:
 				if ev.ToolCall != nil {
 					raw := []byte(ev.ToolCall.Input)

@@ -51,6 +51,7 @@ import (
 	"github.com/justwasm/pigasus/internal/ui/views/narration"
 	"github.com/justwasm/pigasus/internal/ui/views/statusline"
 	"github.com/justwasm/pigasus/internal/ui/views/statusrow"
+	"github.com/justwasm/pigasus/internal/ui/views/terminalpanel"
 	"github.com/justwasm/pigasus/internal/ui/views/themepreview"
 	"github.com/justwasm/pigasus/internal/ui/views/usagepanel"
 	"github.com/justwasm/pigasus/palette"
@@ -2588,6 +2589,7 @@ func (m *RootModel) wirePanelRegistry(reg *panelregistry.Registry) {
 			panelregistry.Provider:    func() int { return m.providerPanel().RowCount() },
 			panelregistry.Accounts:    func() int { return m.accountsPanel().RowCount() },
 			panelregistry.History:     func() int { return m.historyPanel().RowCount() },
+			panelregistry.Terminal:    func() int { return m.terminalPanel().RowCount() },
 		},
 		Claims: map[panelregistry.Kind]func(tea.Key) (bool, tea.Cmd, bool){
 			panelregistry.CodeSearch: func(key tea.Key) (bool, tea.Cmd, bool) {
@@ -2634,6 +2636,7 @@ type slashPanel struct {
 	proj   *projectspanel.Panel
 	ctxp   *contextpanel.Panel
 	hist   *historypanel.Panel
+	term   *terminalpanel.Panel
 }
 
 type quotaState struct {
@@ -2692,6 +2695,9 @@ var panelInitializers = map[panelregistry.Kind]func(m *RootModel){
 	},
 	panelregistry.History: func(m *RootModel) {
 		m.overlays.panel.hist = m.newHistoryPanel()
+	},
+	panelregistry.Terminal: func(m *RootModel) {
+		m.overlays.panel.term = m.newTerminalPanel()
 	},
 }
 
@@ -2894,6 +2900,8 @@ func (m *RootModel) Panel(k panelregistry.Kind) any {
 		return m.contextPanel()
 	case panelregistry.History:
 		return m.historyPanel()
+	case panelregistry.Terminal:
+		return m.terminalPanel()
 	default:
 		return nil
 	}
@@ -2913,6 +2921,54 @@ func (m *RootModel) contextPanel() *contextpanel.Panel {
 		m.overlays.panel.ctxp = m.newContextPanel()
 	}
 	return m.overlays.panel.ctxp
+}
+
+func (m *RootModel) terminalPanel() *terminalpanel.Panel {
+	if m.overlays.panel.term == nil {
+		m.overlays.panel.term = m.newTerminalPanel()
+	}
+	return m.overlays.panel.term
+}
+
+func (m *RootModel) newTerminalPanel() *terminalpanel.Panel {
+	h := m.viewport.height
+	if h < 10 {
+		h = 24
+	}
+	w := m.viewport.width
+	if w < 20 {
+		w = 80
+	}
+	return terminalpanel.New(h, w, terminalpanel.Seams{
+		WriteInput: func(data []byte) error {
+			if engine, ok := m.turn.engine.(*agentturn.RemoteAgentEngine); ok && m.remote.terminalID != "" {
+				ctx, cancel := remoteTerminalContext()
+				defer cancel()
+				return engine.SendTerminalInput(ctx, m.remote.terminalID, data)
+			}
+			return nil
+		},
+		Close: func() tea.Cmd {
+			if engine, ok := m.turn.engine.(*agentturn.RemoteAgentEngine); ok && m.remote.terminalID != "" {
+				ctx, cancel := remoteTerminalContext()
+				defer cancel()
+				_ = engine.CloseTerminal(ctx, m.remote.terminalID)
+				m.remote.terminalID = ""
+			}
+			return m.closePanel()
+		},
+		Detach: func() tea.Cmd {
+			return m.closePanel()
+		},
+		Title: func() string {
+			if m.remote.terminalID != "" {
+				return "Remote Terminal (" + m.remote.terminalID + ")"
+			}
+			return "Terminal"
+		},
+		Height: func() int { return m.viewport.height },
+		Width:  func() int { return m.viewport.width },
+	})
 }
 
 func (m *RootModel) collectContextFileSections() []contextpanel.FileSection {

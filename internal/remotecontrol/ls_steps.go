@@ -98,14 +98,26 @@ func lsDurationJSON(d time.Duration) string {
 	}
 }
 
+// lsStepStatusRunning is CORTEX_STEP_STATUS_RUNNING — the tool is
+// currently executing.
+const lsStepStatusRunning = 2
+
 // lsToolCallStep builds the generic step the Web UI renders as a tool
 // call. The tool's name and arguments ride in the step metadata
 // (exa.codeium_common_pb.ChatToolCall) because that is where the
 // Web UI's renderer looks for them.
 func lsToolCallStep(name string, argsJSON string, result string) map[string]any {
+	return lsToolCallStepAt(lsStepStatusDone, name, argsJSON, result)
+}
+
+// lsToolCallStepAt builds the generic tool-call step with an explicit status.
+//
+// The status is RUNNING while the tool is executing (triggering the Web UI's
+// tool spinner card) and DONE once execution completes with its result.
+func lsToolCallStepAt(status int, name string, argsJSON string, result string) map[string]any {
 	step := map[string]any{
 		"type":   lsStepTypeGeneric,
-		"status": lsStepStatusDone,
+		"status": status,
 		"generic": map[string]any{
 			"args": map[string]any{},
 			"result": map[string]any{

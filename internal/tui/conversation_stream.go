@@ -200,9 +200,15 @@ func (m *RootModel) updateStreamingMsg(msg tea.Msg) (tea.Model, tea.Cmd, bool) {
 			"  ⎿  Terminal "+msg.Info.TerminalID+" created in "+msg.Info.Cwd)
 		return m, nil, true
 	case terminalChunkMsg:
+		if m.overlays.panel.term != nil {
+			m.overlays.panel.term.WriteOutput([]byte(msg.Text))
+		}
 		m.conversation.response = append(m.conversation.response, terminalOutputRows(msg.Text)...)
 		return m, nil, true
 	case terminalExitMsg:
+		if m.overlays.panel.term != nil {
+			m.overlays.panel.term.SetExitStatus(msg.Code, msg.Err)
+		}
 		if msg.Err != nil {
 			m.conversation.response = append(m.conversation.response, "  ⎿  terminal: "+msg.Err.Error())
 		} else if msg.Code != 0 {

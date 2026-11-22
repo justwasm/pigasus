@@ -1,0 +1,51 @@
+=== 2D SCREEN BUFFER [80x24] ===
+--- TEXT MATRIX ---
+00: |  GPT-6.1 Sol                   via openai                                      |
+01: |  GPT-6.1 Terra                 via openai                                      |
+02: |  Inkling                       via hyper                                       |
+03: |  Kimi K2 Thinking              via hyper                                       |
+04: |  Kimi K2.7 Code                via hyper                                       |
+05: |  Kimi K3                       via hyper                                       |
+06: |  MiniMax M2.7                  via hyper                                       |
+07: |  MiniMax M3                    via agw                                         |
+08: |  MiniMax M3                    via hyper                                       |
+09: |  MiniMax M3.1 Flash            via agw-ant                                     |
+10: |  Prism                         via hyper                                       |
+11: |  Qwen3.7-Max                   via hyper                                       |
+12: |  Qwen3.7-Flash                 via hyper                                       |
+13: |  Qwen3.7-Plus                  via hyper                                       |
+14: |  Qwen3.8-Max                   via hyper                                       |
+15: |  Qwen3.8-2.4T-A95B             via hyper                                       |
+16: |  Qwen3.8-27B                   via hyper                                       |
+17: |  Qwen3.8-Flash                 via hyper                                       |
+18: |                                                                                |
+19: |  Effort  ◂        ●━━━━━━━━━━━━━━●━━━━━━━━━━━━━━◉        ▸                     |
+20: |                  low          medium          high                             |
+21: |            Deeper reasoning for complex problems — slower but stronger         |
+22: |                                                                                |
+23: |Keyboard: ↑/↓ Navigate  ←/→ Effort  enter Select  esc Go Back                   |
+--- ATTRIBUTE MATRIX ---
+00: [32:42] fg=color256:60
+01: [32:42] fg=color256:60
+02: [32:41] fg=color256:60
+03: [32:41] fg=color256:60
+04: [32:41] fg=color256:60
+05: [32:41] fg=color256:60
+06: [32:41] fg=color256:60
+07: [32:39] fg=color256:60
+08: [32:41] fg=color256:60
+09: [32:43] fg=color256:60
+10: [32:41] fg=color256:60
+11: [32:41] fg=color256:60
+12: [32:41] fg=color256:60
+13: [32:41] fg=color256:60
+14: [32:41] fg=color256:60
+15: [32:41] fg=color256:60
+16: [32:41] fg=color256:60
+17: [32:41] fg=color256:60
+18: (plain)
+19: [10:11] fg=#268bd2 | [12:50] fg=color256:166 | [50:57] fg=#586e75 | [58:59] fg=#586e75
+20: [12:42] fg=#586e75 | [42:57] fg=color256:166,bold
+21: [12:71] fg=#586e75,italic
+22: (plain)
+23: [0:10] bold | [10:13] fg=#268bd2 | [14:22] fg=#657b83 | [24:27] fg=#268bd2 | [28:34] fg=#657b83 | [36:41] fg=#268bd2 | [42:48] fg=#657b83 | [50:53] fg=#268bd2 | [54:61] fg=#657b83

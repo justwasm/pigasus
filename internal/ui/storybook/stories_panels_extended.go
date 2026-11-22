@@ -24,6 +24,7 @@ import (
 	"github.com/justwasm/pigasus/internal/ui/views/pluginsui"
 	"github.com/justwasm/pigasus/internal/ui/views/rewindpanel"
 	"github.com/justwasm/pigasus/internal/ui/views/skillsui"
+	"github.com/justwasm/pigasus/internal/ui/views/terminalpanel"
 	"github.com/justwasm/pigasus/internal/ui/views/usagepanel"
 )
 
@@ -262,6 +263,26 @@ func RegisterPanelsExtendedStories(c *Catalog) {
 		},
 		Factory: func() StoryInstance {
 			inst := &promptHistoryPanelStory{width: 80, height: 24}
+			inst.SetState(0)
+			return inst
+		},
+	})
+
+	// 14. TerminalPanel
+	c.Register(Story{
+		ID:          "panel-terminal",
+		Name:        "TerminalPanel (Interactive Virtual Terminal)",
+		Category:    CategoryPanels,
+		Description: "Interactive PTY virtual terminal panel (/terminal) powered by vito/midterm with ANSI decoding, scrollback browsing, and modal isolation.",
+		UpstreamSym: "pigasus/terminal.InteractivePanel",
+		States: []State{
+			{ID: "standard-running", Name: "Interactive Shell Running", Description: "Active shell session with color output and prompt"},
+			{ID: "scrollback-history", Name: "Scrollback History Browsing", Description: "Historical output scrollback view with offset badge"},
+			{ID: "narrow-compact", Name: "Constrained Viewport", Description: "Narrow 50-column terminal layout"},
+			{ID: "process-exited", Name: "Process Exited", Description: "Shell process exited with exit status badge"},
+		},
+		Factory: func() StoryInstance {
+			inst := &terminalPanelStory{width: 80, height: 24}
 			inst.SetState(0)
 			return inst
 		},
@@ -1330,6 +1351,85 @@ func (s *promptHistoryPanelStory) View() string {
 }
 
 func (s *promptHistoryPanelStory) HandleKey(key tea.KeyMsg) (tea.Cmd, bool) {
+	if s.panel != nil {
+		handled, cmd := s.panel.HandleKey(key.Key())
+		return cmd, handled
+	}
+	return nil, false
+}
+
+// ---------------------------------------------------------------- TerminalPanel Story
+
+type terminalPanelStory struct {
+	state  int
+	width  int
+	height int
+	panel  *terminalpanel.Panel
+}
+
+func (s *terminalPanelStory) SetState(idx int) {
+	s.state = idx
+	w := s.width
+	if w <= 0 {
+		w = 80
+	}
+	h := s.height
+	if h <= 0 {
+		h = 24
+	}
+	if idx == 2 { // narrow-compact
+		w = 50
+		h = 16
+	}
+
+	p := terminalpanel.New(h-4, w-4, terminalpanel.Seams{
+		Title: func() string {
+			return "Remote Terminal (term-prod-01)"
+		},
+		Width:  func() int { return w },
+		Height: func() int { return h },
+	})
+
+	// Feed simulation output
+	p.WriteOutput([]byte("\x1b[38;2;38;139;210m~/workspace/openagy\x1b[0m (main)\r\n$ make quick\r\n\x1b[38;2;133;153;0m==> [verify] Mode: quick\x1b[0m\r\n==> Running architecture layering guard...\r\nok   internal/core/architecture (0.37s)\r\nok   endpoints (cached)\r\nok   render (cached)\r\n==> Verifying main build...\r\n\x1b[1;32m==> Quick verification passed!\x1b[0m\r\n"))
+
+	switch idx {
+	case 0:
+		// Standard running
+		p.WriteOutput([]byte("\x1b[38;2;38;139;210m~/workspace/openagy\x1b[0m (main)\r\n$ "))
+	case 1:
+		// Scrollback history
+		for i := 1; i <= 35; i++ {
+			p.WriteOutput([]byte("build step " + string(rune('0'+i%10)) + ": compiling package...\r\n"))
+		}
+		p.HandleKey(tea.Key{Code: tea.KeyPgUp})
+		p.HandleKey(tea.Key{Code: tea.KeyPgUp})
+	case 2:
+		// Narrow compact
+		p.WriteOutput([]byte("\x1b[33m[warn] narrow viewport (50 cols)\x1b[0m\r\n$ "))
+	case 3:
+		// Process exited
+		p.SetExitStatus(0, nil)
+	}
+
+	s.panel = p
+}
+
+func (s *terminalPanelStory) SetSize(w, h int) {
+	s.width, s.height = w, h
+	if s.panel != nil {
+		s.panel.Resize(h-4, w-4)
+	}
+}
+
+func (s *terminalPanelStory) View() string {
+	if s.panel == nil {
+		return ""
+	}
+	return s.panel.Render()
+}
+
+func (s *terminalPanelStory) HandleKey(key tea.KeyMsg) (tea.Cmd, bool) {
 	if s.panel != nil {
 		handled, cmd := s.panel.HandleKey(key.Key())
 		return cmd, handled

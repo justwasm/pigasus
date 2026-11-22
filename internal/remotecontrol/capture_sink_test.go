@@ -50,6 +50,8 @@ func (s *captureSink) OnTextDelta(_ *cascades.Cascade, d string) {
 	s.mu.Unlock()
 }
 
+func (s *captureSink) OnToolCallStart(_ *cascades.Cascade, _ cascades.ToolCall) {}
+
 func (s *captureSink) OnToolCall(_ *cascades.Cascade, c cascades.ToolCall) {
 	if s == nil {
 		return

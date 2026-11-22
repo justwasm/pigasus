@@ -15,6 +15,7 @@ type SessionEventType string
 const (
 	SessionEventStart     SessionEventType = "start"
 	SessionEventTextDelta SessionEventType = "text_delta"
+	SessionEventToolStart SessionEventType = "tool_start"
 	SessionEventToolCall  SessionEventType = "tool_call"
 	SessionEventDone      SessionEventType = "done"
 	SessionEventError     SessionEventType = "error"

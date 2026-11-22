@@ -120,6 +120,11 @@ func (s *ConnNotifierSink) OnTextDelta(cascade *cascades.Cascade, delta string) 
 	s.cascade.AppendReplyText(delta)
 }
 
+// OnToolCallStart is called when tool execution begins.
+func (s *ConnNotifierSink) OnToolCallStart(cascade *cascades.Cascade, call cascades.ToolCall) {
+	// ConnNotifierSink emits only on tool completion via OnToolCall; no-op for start.
+}
+
 // OnToolCall emits a cascade/tool_call notification. The
 // cascade parameter is accepted for interface symmetry; the
 // captured cascade is what the sink uses for the cascade_id

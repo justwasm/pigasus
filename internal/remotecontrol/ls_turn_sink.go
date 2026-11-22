@@ -38,14 +38,16 @@ type lsTrajectorySink struct {
 	inner cascades.EventSink
 	traj  *lsTrajectory
 
-	mu        sync.Mutex
-	replyStep int
-	reply     strings.Builder
-	thinking  strings.Builder
-	viewable  time.Time
-	thinkFrom time.Time
-	thinkTo   time.Time
-	tools     int
+	mu              sync.Mutex
+	replyStep       int
+	runningToolIdx  int
+	runningStoreIdx int
+	reply           strings.Builder
+	thinking        strings.Builder
+	viewable        time.Time
+	thinkFrom       time.Time
+	thinkTo         time.Time
+	tools           int
 	// stored holds the turn's steps in the shape the conversation
 	// store keeps them. The store's rows are the reference's own, so
 	// the turn is appended to them in the order the reference uses:
@@ -57,7 +59,13 @@ type lsTrajectorySink struct {
 // newLSTrajectorySink returns a sink that writes onto traj and
 // forwards every event to inner.
 func newLSTrajectorySink(traj *lsTrajectory, inner cascades.EventSink) *lsTrajectorySink {
-	return &lsTrajectorySink{traj: traj, inner: inner, replyStep: -1}
+	return &lsTrajectorySink{
+		traj:            traj,
+		inner:           inner,
+		replyStep:       -1,
+		runningToolIdx:  -1,
+		runningStoreIdx: -1,
+	}
 }
 
 // OnState forwards the state frame.
@@ -101,10 +109,40 @@ func (s *lsTrajectorySink) OnThought(cascade *cascades.Cascade, text string) {
 	s.publishLocked(lsStepStatusGenerating, 0)
 }
 
-// OnToolCall publishes the tool call as it completes.
+// OnToolCallStart publishes the tool call as it begins executing.
 //
 // The tool call ends the message that asked for it, so the reply step
-// is closed before the tool-call step is appended.
+// is closed before the running tool step is appended. This marks the step
+// as RUNNING so the Web UI displays its loading/spinner card.
+func (s *lsTrajectorySink) OnToolCallStart(cascade *cascades.Cascade, call cascades.ToolCall) {
+	if s.inner != nil {
+		s.inner.OnToolCallStart(cascade, call)
+	}
+	if call.Name == "" {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.closeReplyLocked(lsStepStatusDone, s.thinkingDurationLocked())
+	step := lsToolCallStepAt(lsStepStatusRunning, call.Name, string(call.Args), "")
+	if s.traj != nil {
+		s.runningToolIdx = s.traj.Append(step)
+	}
+	s.stored = append(s.stored, convstore.Step{
+		Type:     convstore.StepToolCall,
+		Status:   lsStepStatusRunning,
+		ToolName: call.Name,
+		ToolArgs: string(call.Args),
+	})
+	s.runningStoreIdx = len(s.stored) - 1
+}
+
+// OnToolCall publishes the tool call as it completes.
+//
+// If OnToolCallStart was previously called, the step is updated in place
+// to DONE status with the tool's result, waking any waiting Web UI stream.
+// Otherwise, the reply step is closed and a new completed step is appended.
 func (s *lsTrajectorySink) OnToolCall(cascade *cascades.Cascade, call cascades.ToolCall) {
 	if s.inner != nil {
 		s.inner.OnToolCall(cascade, call)
@@ -114,9 +152,27 @@ func (s *lsTrajectorySink) OnToolCall(cascade *cascades.Cascade, call cascades.T
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
 	s.tools++
+	if s.runningToolIdx >= 0 {
+		step := lsToolCallStepAt(lsStepStatusDone, call.Name, string(call.Args), call.Result)
+		if s.traj != nil {
+			lsStampStepInfo(step, s.traj.conversationID, s.traj.trajectoryID, s.runningToolIdx)
+			s.traj.Update(s.runningToolIdx, step)
+		}
+		if s.runningStoreIdx >= 0 && s.runningStoreIdx < len(s.stored) {
+			s.stored[s.runningStoreIdx].Status = lsStepStatusDone
+			s.stored[s.runningStoreIdx].ToolResult = call.Result
+		}
+		s.runningToolIdx = -1
+		s.runningStoreIdx = -1
+		return
+	}
+
 	s.closeReplyLocked(lsStepStatusDone, s.thinkingDurationLocked())
-	s.traj.Append(lsToolCallStep(call.Name, string(call.Args), call.Result))
+	if s.traj != nil {
+		s.traj.Append(lsToolCallStep(call.Name, string(call.Args), call.Result))
+	}
 	s.stored = append(s.stored, convstore.Step{
 		Type:       convstore.StepToolCall,
 		Status:     lsStepStatusDone,
@@ -149,6 +205,19 @@ func (s *lsTrajectorySink) OnUserInteraction(cascade *cascades.Cascade, intr *ca
 func (s *lsTrajectorySink) Finish(res cascades.Result, duration time.Duration) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.runningToolIdx >= 0 {
+		status := s.finishStatus()
+		if s.runningStoreIdx >= 0 && s.runningStoreIdx < len(s.stored) {
+			s.stored[s.runningStoreIdx].Status = int64(status)
+			step := lsToolCallStepAt(status, s.stored[s.runningStoreIdx].ToolName, s.stored[s.runningStoreIdx].ToolArgs, s.stored[s.runningStoreIdx].ToolResult)
+			if s.traj != nil {
+				lsStampStepInfo(step, s.traj.conversationID, s.traj.trajectoryID, s.runningToolIdx)
+				s.traj.Update(s.runningToolIdx, step)
+			}
+		}
+		s.runningToolIdx = -1
+		s.runningStoreIdx = -1
+	}
 	if s.reply.Len() == 0 && res.Reply != "" {
 		s.reply.WriteString(lsStripThink(res.Reply))
 	}

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"hash/crc32"
 	"os"
 	"path/filepath"
 	"strings"
@@ -30,6 +31,20 @@ func (u *TokenUsage) Add(other *TokenUsage) {
 	u.TotalTokens += other.TotalTokens
 	u.CachedTokens += other.CachedTokens
 	u.ThoughtsTokens += other.ThoughtsTokens
+}
+
+// Reconcile aligns the token usage against actual provider reported values.
+func (u *TokenUsage) Reconcile(reportedPrompt, reportedOutput, reportedCached int) {
+	if reportedPrompt > 0 {
+		u.PromptTokens = reportedPrompt
+	}
+	if reportedOutput > 0 {
+		u.OutputTokens = reportedOutput
+	}
+	if reportedCached > 0 {
+		u.CachedTokens = reportedCached
+	}
+	u.TotalTokens = u.PromptTokens + u.OutputTokens
 }
 
 // Step status values. A step is "running" while it is being generated, and
@@ -80,6 +95,11 @@ type TurnRecord struct {
 	Status      string     `json:"status"` // "running", "done", "error", "cancelled"
 	Error       string     `json:"error,omitempty"`
 	Usage       TokenUsage `json:"usage"`
+
+	// Cold Storage tracking
+	ColdStored  bool   `json:"cold_stored,omitempty"`
+	ColdChunkID string `json:"cold_chunk_id,omitempty"`
+	StepCount   int    `json:"step_count,omitempty"`
 }
 
 // Trajectory manages the ordered history of turns and steps executed by an Actor.
@@ -125,13 +145,16 @@ type CheckpointView struct {
 }
 
 type Trajectory struct {
-	mu          sync.RWMutex
-	turns       []*TurnRecord
-	checkpoints []Checkpoint
-	staged      int
-	revision    uint64
-	resetEpoch  uint64
-	now         func() time.Time
+	mu            sync.RWMutex
+	turns         []*TurnRecord
+	checkpoints   []Checkpoint
+	staged        int
+	revision      uint64
+	resetEpoch    uint64
+	now           func() time.Time
+	coldDir       string
+	coldChunks    []ColdChunk
+	slidingWindow int
 }
 
 // NewTrajectory allocates a new empty trajectory.
@@ -548,7 +571,11 @@ func (t *Trajectory) TotalSteps() int {
 	defer t.mu.RUnlock()
 	count := 0
 	for _, tr := range t.turns {
-		count += len(tr.Steps)
+		if tr.ColdStored && len(tr.Steps) == 0 {
+			count += tr.StepCount
+		} else {
+			count += len(tr.Steps)
+		}
 	}
 	return count
 }
@@ -582,6 +609,11 @@ func (t *Trajectory) ToConversationMessages() []ConversationMessage {
 	}
 	for ti, turn := range t.turns[:limit] {
 		keepTurnInput := boundary < 0 || ti > cpTurn || (ti == cpTurn && cpKeepInput)
+		if turn.ColdStored && len(turn.Steps) == 0 && (boundary < 0 || turn.StartStep > boundary) && t.coldDir != "" {
+			if hydrated, err := t.loadColdTurnLocked(t.coldDir, ti); err == nil && hydrated != nil {
+				turn = hydrated
+			}
+		}
 		if len(turn.Steps) == 0 {
 			if turn.StartStep > boundary {
 				if keepTurnInput {
@@ -700,4 +732,381 @@ func LoadColdStepResults(coldDir string, globalIndex int) ([]ToolResult, error) 
 		return nil, err
 	}
 	return results, nil
+}
+
+// CumulativeUsage aggregates token usage across all turns.
+func (t *Trajectory) CumulativeUsage() TokenUsage {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	var total TokenUsage
+	for _, tr := range t.turns {
+		total.Add(&tr.Usage)
+	}
+	return total
+}
+
+// ReconcileLatestTurnUsage reconciles the latest turn's token usage with upstream provider metrics.
+func (t *Trajectory) ReconcileLatestTurnUsage(reportedPrompt, reportedOutput, reportedCached int) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if len(t.turns) == 0 {
+		return
+	}
+	last := t.turns[len(t.turns)-1]
+	last.Usage.Reconcile(reportedPrompt, reportedOutput, reportedCached)
+	t.revision++
+}
+
+// ColdChunk describes an SST-like immutable disk chunk storing a sequence of historical turns.
+type ColdChunk struct {
+	ID        string    `json:"id"`
+	StartTurn int       `json:"start_turn"`
+	EndTurn   int       `json:"end_turn"`
+	StartStep int       `json:"start_step"`
+	EndStep   int       `json:"end_step"`
+	TurnCount int       `json:"turn_count"`
+	StepCount int       `json:"step_count"`
+	SizeBytes int64     `json:"size_bytes"`
+	Checksum  uint32    `json:"checksum"` // CRC32 IEEE
+	CreatedAt time.Time `json:"created_at"`
+	FilePath  string    `json:"file_path"`
+}
+
+// SSTChunkFile models the on-disk SST chunk container with header, index and payload.
+type SSTChunkFile struct {
+	Magic string        `json:"magic"` // "PIGASST1"
+	Chunk ColdChunk     `json:"chunk"`
+	Index []SSTIndexRow `json:"index"`
+	Turns []*TurnRecord `json:"turns"`
+}
+
+// SSTIndexRow records point lookup metadata for a turn within an SST chunk.
+type SSTIndexRow struct {
+	TurnIndex int    `json:"turn_index"`
+	TurnID    string `json:"turn_id"`
+	StartStep int    `json:"start_step"`
+	StepCount int    `json:"step_count"`
+}
+
+// SetColdDir configures the directory used for persistent cold storage.
+func (t *Trajectory) SetColdDir(dir string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.coldDir = dir
+}
+
+// ColdDir returns the configured cold storage directory.
+func (t *Trajectory) ColdDir() string {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	return t.coldDir
+}
+
+// SetSlidingWindow configures the number of recent active turns to retain in RAM.
+func (t *Trajectory) SetSlidingWindow(w int) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	t.slidingWindow = w
+}
+
+// SlidingWindow returns the configured sliding window size.
+func (t *Trajectory) SlidingWindow() int {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	return t.slidingWindow
+}
+
+// ColdChunks returns copies of all active cold chunk descriptors.
+func (t *Trajectory) ColdChunks() []ColdChunk {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	out := make([]ColdChunk, len(t.coldChunks))
+	copy(out, t.coldChunks)
+	return out
+}
+
+// TierColdTurns writes completed historical turns before the compaction boundary
+// (or outside the sliding window) into an SST-like immutable disk chunk, freeing
+// memory while keeping context summaries and active sliding window turns hot.
+func (t *Trajectory) TierColdTurns(coldDir string, slidingWindowTurns int) (*ColdChunk, error) {
+	if coldDir == "" {
+		coldDir = t.coldDir
+	}
+	if coldDir == "" {
+		return nil, errors.New("coldDir is required")
+	}
+	if slidingWindowTurns <= 0 {
+		slidingWindowTurns = t.slidingWindow
+	}
+	if slidingWindowTurns <= 0 {
+		slidingWindowTurns = 20
+	}
+
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	boundary := -1
+	if len(t.checkpoints) > 0 {
+		boundary = t.checkpoints[len(t.checkpoints)-1].IncludedThroughStep
+	}
+
+	limit := len(t.turns)
+	if t.staged >= 0 && t.staged < limit {
+		limit = t.staged
+	}
+
+	slidingCutoff := limit - slidingWindowTurns
+	if slidingCutoff < 0 {
+		slidingCutoff = 0
+	}
+
+	var targetIndices []int
+	for i := 0; i < limit; i++ {
+		turn := t.turns[i]
+		if turn.ColdStored {
+			continue
+		}
+		isEligible := false
+		if boundary >= 0 {
+			// When compaction boundary is present, tier historical turns folded into checkpoint
+			if turn.StartStep <= boundary {
+				isEligible = true
+				if slidingWindowTurns > 0 && i >= slidingCutoff {
+					// Retain sliding window turns hot in RAM
+					isEligible = false
+				}
+			}
+		} else {
+			// No checkpoint yet: tier completed turns outside sliding window
+			if i < slidingCutoff {
+				isEligible = true
+			}
+		}
+
+		if isEligible {
+			targetIndices = append(targetIndices, i)
+		}
+	}
+
+	if len(targetIndices) == 0 {
+		return nil, nil
+	}
+
+	if err := os.MkdirAll(coldDir, 0o755); err != nil {
+		return nil, err
+	}
+
+	startIdx := targetIndices[0]
+	endIdx := targetIndices[len(targetIndices)-1]
+
+	chunkID := fmt.Sprintf("chunk_%06d_%06d_%d", startIdx, endIdx, time.Now().UnixNano())
+	fileName := chunkID + ".sst"
+	finalPath := filepath.Join(coldDir, fileName)
+	tmpPath := filepath.Join(coldDir, chunkID+".tmp")
+
+	chunk := ColdChunk{
+		ID:        chunkID,
+		StartTurn: startIdx,
+		EndTurn:   endIdx,
+		StartStep: t.turns[startIdx].StartStep,
+		TurnCount: len(targetIndices),
+		CreatedAt: t.now(),
+		FilePath:  finalPath,
+	}
+
+	lastTurn := t.turns[endIdx]
+	lastStep := lastTurn.StartStep
+	if len(lastTurn.Steps) > 0 {
+		lastStep = lastTurn.Steps[len(lastTurn.Steps)-1].GlobalIndex
+	}
+	chunk.EndStep = lastStep
+
+	turnsToSerialize := make([]*TurnRecord, 0, len(targetIndices))
+	indexRows := make([]SSTIndexRow, 0, len(targetIndices))
+	totalSteps := 0
+
+	for _, idx := range targetIndices {
+		tr := t.turns[idx]
+		stepCount := len(tr.Steps)
+		totalSteps += stepCount
+		turnsToSerialize = append(turnsToSerialize, cloneTurnRecord(tr))
+		indexRows = append(indexRows, SSTIndexRow{
+			TurnIndex: idx,
+			TurnID:    tr.ID,
+			StartStep: tr.StartStep,
+			StepCount: stepCount,
+		})
+	}
+	chunk.StepCount = totalSteps
+
+	sstFile := SSTChunkFile{
+		Magic: "PIGASST1",
+		Chunk: chunk,
+		Index: indexRows,
+		Turns: turnsToSerialize,
+	}
+
+	rawBytes, err := json.Marshal(sstFile)
+	if err != nil {
+		return nil, fmt.Errorf("marshal sst chunk: %w", err)
+	}
+
+	checksum := crc32.ChecksumIEEE(rawBytes)
+	chunk.Checksum = checksum
+	chunk.SizeBytes = int64(len(rawBytes))
+	sstFile.Chunk = chunk
+
+	finalBytes, err := json.Marshal(sstFile)
+	if err != nil {
+		return nil, fmt.Errorf("marshal final sst chunk: %w", err)
+	}
+
+	// Atomic write via .tmp and rename to prevent mid-stream corruption
+	if err := os.WriteFile(tmpPath, finalBytes, 0o600); err != nil {
+		return nil, fmt.Errorf("write tmp sst chunk: %w", err)
+	}
+	if err := os.Rename(tmpPath, finalPath); err != nil {
+		_ = os.Remove(tmpPath)
+		return nil, fmt.Errorf("commit sst chunk: %w", err)
+	}
+
+	// Evict heavy in-memory payload for cold-stored turns
+	for _, idx := range targetIndices {
+		tr := t.turns[idx]
+		tr.StepCount = len(tr.Steps)
+		tr.Steps = nil
+		tr.Steers = nil
+		tr.ColdStored = true
+		tr.ColdChunkID = chunkID
+	}
+
+	t.coldChunks = append(t.coldChunks, chunk)
+	t.coldDir = coldDir
+	t.revision++
+
+	return &chunk, nil
+}
+
+// TierColdTurnsAsync executes TierColdTurns in a background goroutine.
+func (t *Trajectory) TierColdTurnsAsync(coldDir string, slidingWindowTurns int) <-chan error {
+	ch := make(chan error, 1)
+	go func() {
+		_, err := t.TierColdTurns(coldDir, slidingWindowTurns)
+		ch <- err
+		close(ch)
+	}()
+	return ch
+}
+
+// LoadColdTurn reads and returns a specific historical turn from its SST chunk on demand.
+func (t *Trajectory) LoadColdTurn(coldDir string, turnIndex int) (*TurnRecord, error) {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	return t.loadColdTurnLocked(coldDir, turnIndex)
+}
+
+func (t *Trajectory) loadColdTurnLocked(coldDir string, turnIndex int) (*TurnRecord, error) {
+	if coldDir == "" {
+		coldDir = t.coldDir
+	}
+	if coldDir == "" {
+		return nil, errors.New("coldDir is required")
+	}
+
+	var targetChunk *ColdChunk
+	for i := range t.coldChunks {
+		c := &t.coldChunks[i]
+		if turnIndex >= c.StartTurn && turnIndex <= c.EndTurn {
+			targetChunk = c
+			break
+		}
+	}
+
+	var filePath string
+	if targetChunk != nil {
+		filePath = targetChunk.FilePath
+	} else {
+		// Multi-process / resumed session fallback: inspect on-disk .sst files
+		pattern := filepath.Join(coldDir, "*.sst")
+		matches, _ := filepath.Glob(pattern)
+		for _, m := range matches {
+			data, err := os.ReadFile(m)
+			if err != nil {
+				continue
+			}
+			var sst SSTChunkFile
+			if err := json.Unmarshal(data, &sst); err == nil && sst.Magic == "PIGASST1" {
+				if turnIndex >= sst.Chunk.StartTurn && turnIndex <= sst.Chunk.EndTurn {
+					filePath = m
+					break
+				}
+			}
+		}
+	}
+
+	if filePath == "" {
+		return nil, fmt.Errorf("cold chunk for turn %d not found in %s", turnIndex, coldDir)
+	}
+
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		return nil, fmt.Errorf("read cold chunk: %w", err)
+	}
+
+	var sst SSTChunkFile
+	if err := json.Unmarshal(data, &sst); err != nil {
+		return nil, fmt.Errorf("unmarshal cold chunk: %w", err)
+	}
+
+	if sst.Magic != "PIGASST1" {
+		return nil, fmt.Errorf("invalid sst magic: %q", sst.Magic)
+	}
+
+	for i, row := range sst.Index {
+		if row.TurnIndex == turnIndex && i < len(sst.Turns) {
+			return cloneTurnRecord(sst.Turns[i]), nil
+		}
+	}
+
+	relIdx := turnIndex - sst.Chunk.StartTurn
+	if relIdx >= 0 && relIdx < len(sst.Turns) {
+		return cloneTurnRecord(sst.Turns[relIdx]), nil
+	}
+
+	return nil, fmt.Errorf("turn index %d not found in chunk %s", turnIndex, filePath)
+}
+
+// HydrateTurns restores all cold-stored turns back into full in-memory turns.
+func (t *Trajectory) HydrateTurns(coldDir string) error {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	for i, tr := range t.turns {
+		if tr.ColdStored {
+			hydrated, err := t.loadColdTurnLocked(coldDir, i)
+			if err != nil {
+				return err
+			}
+			t.turns[i] = hydrated
+		}
+	}
+	t.revision++
+	return nil
+}
+
+// TurnAt returns the turn record at idx, transparently hydrating it if cold-stored.
+func (t *Trajectory) TurnAt(idx int) (*TurnRecord, error) {
+	t.mu.RLock()
+	if idx < 0 || idx >= len(t.turns) {
+		t.mu.RUnlock()
+		return nil, fmt.Errorf("turn index %d out of bounds (len=%d)", idx, len(t.turns))
+	}
+	tr := t.turns[idx]
+	if !tr.ColdStored {
+		defer t.mu.RUnlock()
+		return cloneTurnRecord(tr), nil
+	}
+	t.mu.RUnlock()
+
+	return t.LoadColdTurn(t.coldDir, idx)
 }

@@ -1,0 +1,51 @@
+=== 2D SCREEN BUFFER [80x24] ===
+--- TEXT MATRIX ---
+00: |❖ Border Style: Dashed & Dotted (Subordinate / Scratch Box)                     |
+01: |  Glyphs: ┌ U+250C  ·  ┐ U+2510  ·  └ U+2514  ·  ┘ U+2518  ·  ┈ U+2548  ·  ┊ U+2|
+02: |50A                                                                             |
+03: |  Usage:  Subagent scratchpad drawers, ephemeral thought steps, and secondary pr|
+04: |eview panes.                                                                    |
+05: |                                                                                |
+06: |  ┌┈ Permission Approval: execute_command ┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┐                    |
+07: |  ┊ Tool:    run_command                                   ┊                    |
+08: |  ┊ Command: go test -v ./...                              ┊                    |
+09: |  ┊ Reason:  verifying all box border rendering invariants ┊                    |
+10: |  ┊ [y] Approve once  [a] Always allow  [n] Deny           ┊                    |
+11: |  └┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┘                    |
+12: |                                                                                |
+13: |Interactive Controls: [+/-] Resize width (60)  ·  [Space/c] Toggle tagged header|
+14: |  ·  [Tab] Cycle styles                                                         |
+15: |                                                                                |
+16: |                                                                                |
+17: |                                                                                |
+18: |                                                                                |
+19: |                                                                                |
+20: |                                                                                |
+21: |                                                                                |
+22: |                                                                                |
+23: |                                                                                |
+--- ATTRIBUTE MATRIX ---
+00: [0:59] bold
+01: [0:10] fg=#657b83 | [10:80] fg=ansi:6
+02: [0:3] fg=ansi:6
+03: [0:10] fg=#657b83
+04: (plain)
+05: (plain)
+06: [2:4] fg=#657b83 | [4:42] fg=#268bd2,bold | [42:60] fg=#657b83
+07: [2:3] fg=#657b83 | [59:60] fg=#657b83
+08: [2:3] fg=#657b83 | [59:60] fg=#657b83
+09: [2:3] fg=#657b83 | [59:60] fg=#657b83
+10: [2:3] fg=#657b83 | [4:48] fg=#657b83 | [59:60] fg=#657b83
+11: [2:60] fg=#657b83
+12: (plain)
+13: [0:80] fg=#657b83
+14: [0:23] fg=#657b83
+15: (plain)
+16: (plain)
+17: (plain)
+18: (plain)
+19: (plain)
+20: (plain)
+21: (plain)
+22: (plain)
+23: (plain)

@@ -11,6 +11,7 @@ import (
 	"uuid"
 
 	"github.com/creack/pty"
+	"github.com/justwasm/pigasus/procgroup"
 	"github.com/microsoft/agent-host-protocol/clients/go/ahptypes"
 )
 
@@ -115,7 +116,7 @@ func (t *ahpTerminal) close() {
 	t.mu.Unlock()
 
 	if proc != nil && proc.Process != nil {
-		_ = proc.Process.Kill()
+		_ = procgroup.Kill(proc)
 	}
 	if ptmx != nil {
 		_ = ptmx.Close()

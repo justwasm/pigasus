@@ -1,0 +1,51 @@
+=== 2D SCREEN BUFFER [80x24] ===
+--- TEXT MATRIX ---
+00: |  Thick / Heavy ┏ ┓ ┗ ┛      ━ ┃          High-priority focus rings, primary act|
+01: |ion dialogs, and active tool containers.                                        |
+02: |  Double Line ╔ ╗ ╚ ╝      ═ ║          Security boundary prompts, critical moda|
+03: |l confirmation, and classical system barriers.                                  |
+04: |  Dashed & Dotted ┌ ┐ └ ┘      ┈ ┊          Subagent scratchpad drawers, ephemer|
+05: |al thought steps, and secondary preview panes.                                  |
+06: |  Left Accent Callout  (none)        ┃          Side-question /btw floating card|
+07: |s, markdown blockquotes (> ), and streaming reasoning snippets.                 |
+08: |                                                                                |
+09: |1. Sharp (NormalBorder)             2. Rounded (RoundedBorder)                  |
+10: |  ┌─ Standard Dialog ──────────────┐    ╭─ Modern Card ──────────────────╮      |
+11: |  │ PermissionPrompt / Notices     │    │ Toasts & floating popovers     │      |
+12: |  └────────────────────────────────┘    ╰────────────────────────────────╯      |
+13: |                                                                                |
+14: |3. Thick (HeavyBorder)              4. Double (ClassicalRuled)                  |
+15: |  ┏━ High Priority ━━━━━━━━━━━━━━━━┓    ╔═ Security Boundary ════════════╗      |
+16: |  ┃ Active focus boundaries        ┃    ║ Critical system alert          ║      |
+17: |  ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛    ╚════════════════════════════════╝      |
+18: |                                                                                |
+19: |5. Dotted / Dashed                  6. Left Accent Callout                      |
+20: |  ┌┈ Scratch Drawer ┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┐    ┃ Side Question                         |
+21: |  ┊ Subagent thinking steps        ┊    ┃ /btw floating card answer             |
+22: |  └┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┈┘    ┃ ┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄┄       |
+23: |                                                                                |
+--- ATTRIBUTE MATRIX ---
+00: [2:15] bold | [42:80] fg=#657b83
+01: [0:40] fg=#657b83
+02: [2:13] bold | [40:80] fg=#657b83
+03: [0:46] fg=#657b83
+04: [2:17] bold | [44:80] fg=#657b83
+05: [0:46] fg=#657b83
+06: [2:21] bold | [48:80] fg=#657b83
+07: [0:63] fg=#657b83
+08: (plain)
+09: [0:62] fg=ansi:6
+10: [2:4] fg=#657b83 | [4:21] fg=#268bd2 | [21:36] fg=#657b83 | [40:42] fg=#657b83 | [42:55] fg=#268bd2 | [55:74] fg=#657b83
+11: [2:3] fg=#657b83 | [35:36] fg=#657b83 | [40:41] fg=#657b83 | [73:74] fg=#657b83
+12: [2:36] fg=#657b83 | [40:74] fg=#657b83
+13: (plain)
+14: [0:62] fg=ansi:6
+15: [2:4] fg=#657b83 | [4:19] fg=#268bd2 | [19:36] fg=#657b83 | [40:42] fg=#657b83 | [42:61] fg=#268bd2 | [61:74] fg=#657b83 | [74:80] fg=ansi:6
+16: [2:3] fg=#657b83 | [35:36] fg=#657b83 | [40:41] fg=#657b83 | [73:74] fg=#657b83
+17: [2:36] fg=#657b83 | [40:74] fg=#657b83
+18: (plain)
+19: [0:58] fg=ansi:6
+20: [2:4] fg=#657b83 | [4:20] fg=#268bd2 | [20:36] fg=#657b83 | [40:41] fg=#268bd2 | [42:55] bold | [55:80] fg=ansi:6
+21: [2:3] fg=#657b83 | [35:36] fg=#657b83 | [40:41] fg=#268bd2 | [42:67] fg=#657b83
+22: [2:36] fg=#657b83 | [40:41] fg=#268bd2
+23: (plain)

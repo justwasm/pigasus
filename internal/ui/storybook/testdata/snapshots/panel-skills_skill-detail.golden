@@ -1,0 +1,51 @@
+=== 2D SCREEN BUFFER [80x24] ===
+--- TEXT MATRIX ---
+00: |bubbletea                                                                       |
+01: |Build terminal user interfaces with Go and Bubbletea framework                  |
+02: |/workspace/.gemini/skills/bubbletea/SKILL.md                                    |
+03: |                                                                                |
+04: |   Bubbletea TUI Development                                                    |
+05: |                                                                                |
+06: |  Production-ready skill for building beautiful terminal user interfaces with Go|
+07: |, Bubbletea, and Lipgloss.                                                      |
+08: |  (1–7 of 276 lines)                                                            |
+09: |                                                                                |
+10: |  ↑/↓ scroll · pgup/pgdown page · ctrl+end bottom · ctrl+home top · esc back    |
+11: |                                                                                |
+12: |                                                                                |
+13: |                                                                                |
+14: |                                                                                |
+15: |                                                                                |
+16: |                                                                                |
+17: |                                                                                |
+18: |                                                                                |
+19: |                                                                                |
+20: |                                                                                |
+21: |                                                                                |
+22: |                                                                                |
+23: |                                                                                |
+--- ATTRIBUTE MATRIX ---
+00: [0:9] bold
+01: [0:62] fg=#586e75
+02: [0:44] fg=#657b83
+03: (plain)
+04: [2:29] fg=color256:228,bg=color256:63,bold
+05: (plain)
+06: [2:80] fg=color256:235
+07: [0:26] fg=color256:235
+08: [0:20] fg=#657b83
+09: (plain)
+10: [2:5] fg=#268bd2,bold | [5:15] fg=#657b83 | [15:26] fg=#268bd2,bold | [26:34] fg=#657b83 | [34:42] fg=#268bd2,bold | [42:52] fg=#657b83 | [52:61] fg=#268bd2,bold | [61:68] fg=#657b83 | [68:71] fg=#268bd2,bold | [71:76] fg=#657b83
+11: (plain)
+12: (plain)
+13: (plain)
+14: (plain)
+15: (plain)
+16: (plain)
+17: (plain)
+18: (plain)
+19: (plain)
+20: (plain)
+21: (plain)
+22: (plain)
+23: (plain)

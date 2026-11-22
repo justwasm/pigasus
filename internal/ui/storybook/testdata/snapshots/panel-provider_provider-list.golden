@@ -1,0 +1,51 @@
+=== 2D SCREEN BUFFER [80x24] ===
+--- TEXT MATRIX ---
+00: |  Providers                                                                     |
+01: |  Configured    Presets    All                                                  |
+02: |                                                                                |
+03: |  Type to search providers and models...                                        |
+04: |                                                                                |
+05: |  + Add a provider...                                                           |
+06: |> ● ▾ agw  openai · https://agw.k0s.io/v1/chat/completions (1 model)            |
+07: |    ○ minimax-m3  MiniMax M3       model=MiniMax-M3       ctx=1000k             |
+08: |  ● ▾ agw-ant  openai · https://agw.k0s.io/v1/chat/completions (1 model)        |
+09: |    ○ minimax-m3.1-flash  MiniMax M3.1 Flash model=MiniMax-M3.1-Flash ctx=102…  |
+10: |  ● ▾ deepseek  openai · https://api.deepseek.com/v1/chat/completions (2 mode…  |
+11: |    ○ deepseek-v4-flash  DeepSeek-V4-Flash model=deepseek-v4-flash ctx=1000k …  |
+12: |    ○ deepseek-v4-pro  DeepSeek-V4-Pro  model=deepseek-v4-pro  ctx=1000k  eff…  |
+13: |  ● ▾ hiyo-free  openai · https://codexfree.xiaotuxp.com/v1/chat/completions …  |
+14: |  [1-8 of 86 items]                                                             |
+15: |                                                                                |
+16: |Keyboard: ↑/↓ Move  enter Edit  tab Tab  ctrl+a Add  ctrl+d Del  esc Exit       |
+17: |                                                                                |
+18: |                                                                                |
+19: |                                                                                |
+20: |                                                                                |
+21: |                                                                                |
+22: |                                                                                |
+23: |                                                                                |
+--- ATTRIBUTE MATRIX ---
+00: [2:11] bold
+01: [2:12] fg=#268bd2,bold,ul | [16:23] fg=#657b83 | [27:30] fg=#657b83
+02: (plain)
+03: [0:40] fg=#657b83
+04: (plain)
+05: [2:21] bold
+06: [0:2] fg=#268bd2 | [2:3] fg=color256:238 | [4:9] fg=#268bd2,bold | [11:68] fg=#657b83
+07: [4:5] fg=color256:238 | [18:67] fg=#657b83
+08: [2:3] fg=color256:238 | [4:13] bold | [15:72] fg=#657b83
+09: [4:5] fg=color256:238 | [26:78] fg=#657b83
+10: [2:3] fg=color256:238 | [4:14] bold | [16:78] fg=#657b83
+11: [4:5] fg=color256:238 | [25:78] fg=#657b83
+12: [4:5] fg=color256:238 | [23:78] fg=#657b83
+13: [2:3] fg=color256:238 | [4:15] bold | [17:78] fg=#657b83
+14: [0:19] fg=#657b83
+15: (plain)
+16: [0:10] bold | [10:13] fg=#268bd2 | [14:18] fg=#657b83 | [20:25] fg=#268bd2 | [26:30] fg=#657b83 | [32:35] fg=#268bd2 | [36:39] fg=#657b83 | [41:47] fg=#268bd2 | [48:51] fg=#657b83 | [53:59] fg=#268bd2 | [60:63] fg=#657b83 | [65:68] fg=#268bd2 | [69:73] fg=#657b83
+17: (plain)
+18: (plain)
+19: (plain)
+20: (plain)
+21: (plain)
+22: (plain)
+23: (plain)

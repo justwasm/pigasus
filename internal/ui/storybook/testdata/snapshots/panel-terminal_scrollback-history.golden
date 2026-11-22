@@ -1,0 +1,51 @@
+=== 2D SCREEN BUFFER [80x24] ===
+--- TEXT MATRIX ---
+00: |                                                                                |
+01: |│ build step 6: compiling package...                                           │|
+02: |                                                                                |
+03: |│ build step 7: compiling package...                                           │|
+04: |                                                                                |
+05: |│ build step 8: compiling package...                                           │|
+06: |                                                                                |
+07: |│ build step 9: compiling package...                                           │|
+08: |                                                                                |
+09: |│ build step 0: compiling package...                                           │|
+10: |                                                                                |
+11: |│ build step 1: compiling package...                                           │|
+12: |                                                                                |
+13: |│ build step 2: compiling package...                                           │|
+14: |                                                                                |
+15: |│ build step 3: compiling package...                                           │|
+16: |                                                                                |
+17: |│ build step 4: compiling package...                                           │|
+18: |                                                                                |
+19: |│ build step 5: compiling package...                                           │|
+20: |                                                                                |
+21: |│ build step 6: compiling package...                                           │|
+22: |                                                                                |
+23: |╰─ 76x20 ────────────────────────────────────────────────────── cursor 0,19 ─╯  |
+--- ATTRIBUTE MATRIX ---
+00: (plain)
+01: [0:2] fg=#657b83 | [78:80] fg=#657b83
+02: (plain)
+03: [0:2] fg=#657b83 | [78:80] fg=#657b83
+04: (plain)
+05: [0:2] fg=#657b83 | [78:80] fg=#657b83
+06: (plain)
+07: [0:2] fg=#657b83 | [78:80] fg=#657b83
+08: (plain)
+09: [0:2] fg=#657b83 | [78:80] fg=#657b83
+10: (plain)
+11: [0:2] fg=#657b83 | [78:80] fg=#657b83
+12: (plain)
+13: [0:2] fg=#657b83 | [78:80] fg=#657b83
+14: (plain)
+15: [0:2] fg=#657b83 | [78:80] fg=#657b83
+16: (plain)
+17: [0:2] fg=#657b83 | [78:80] fg=#657b83
+18: (plain)
+19: [0:2] fg=#657b83 | [78:80] fg=#657b83
+20: (plain)
+21: [0:2] fg=#657b83 | [78:80] fg=#657b83
+22: (plain)
+23: [3:8] faint | [9:63] fg=#657b83 | [64:75] faint

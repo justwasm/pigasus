@@ -1,0 +1,51 @@
+=== 2D SCREEN BUFFER [80x24] ===
+--- TEXT MATRIX ---
+00: |                                                                                |
+01: |  Auto-continue has separate network retry budget (8)     ✓  ✓    266    aligned|
+02: |                                                                                |
+03: |  Background-step cache eviction                          ✓  ✓    167    aligned|
+04: |                                                                                |
+05: |  Stall detection (5 min cancel + retry)                  ✓  ✓    230    aligned|
+06: |                                                                                |
+07: |  AGY_ADC_AUTH business sign-in flow                      ✓  ✗    —      gap    |
+08: |  Authentication expired banner                           ✓  ✓    100    aligned|
+09: |                                                                                |
+10: |  Eligibility retry on transient errors                   ✓  ✓    224    aligned|
+11: |                                                                                |
+12: |  OAuth code paste via /dev/tty in print mode             ✓  ✓    261    aligned|
+13: |                                                                                |
+14: |  OAuth device-flow recovery on rate limit                ✓  ✓    224    aligned|
+15: |                                                                                |
+16: |  OAuth scope error includes /logout + /login hint        ✓  ✓    263    aligned|
+17: |                                                                                |
+18: |  Remote MCP OAuth sign-in retention                      ✓  ✓    230    aligned|
+19: |                                                                                |
+20: |  AGY_CLI_HIDE_LOGO env var                               ✓  ✓    255    aligned|
+21: |                                                                                |
+22: |                                                                                |
+23: |  (0–20 of 110 lines)                                                           |
+--- ATTRIBUTE MATRIX ---
+00: (plain)
+01: [73:80] fg=color256:34
+02: (plain)
+03: [73:80] fg=color256:34
+04: (plain)
+05: [73:80] fg=color256:34
+06: (plain)
+07: [73:76] fg=color256:166
+08: [73:80] fg=color256:34
+09: (plain)
+10: [73:80] fg=color256:34
+11: (plain)
+12: [73:80] fg=color256:34
+13: (plain)
+14: [73:80] fg=color256:34
+15: (plain)
+16: [73:80] fg=color256:34
+17: (plain)
+18: [73:80] fg=color256:34
+19: (plain)
+20: [73:80] fg=color256:34
+21: (plain)
+22: (plain)
+23: [0:80] fg=#657b83

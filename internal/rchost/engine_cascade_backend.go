@@ -129,9 +129,15 @@ func (b *EngineCascadeBackend) SendStream(ctx context.Context, prompt cascades.P
 					Result: f.Tool.Result,
 					OK:     !f.Tool.Err,
 				}
-				toolCalls = append(toolCalls, tc)
-				if sink != nil {
-					sink.OnToolCall(nil, tc)
+				if f.Tool.Phase == agentlink.ToolStart {
+					if sink != nil {
+						sink.OnToolCallStart(nil, tc)
+					}
+				} else {
+					toolCalls = append(toolCalls, tc)
+					if sink != nil {
+						sink.OnToolCall(nil, tc)
+					}
 				}
 			}
 		case agentlink.KindResult:

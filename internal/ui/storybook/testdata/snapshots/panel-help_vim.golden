@@ -1,0 +1,51 @@
+=== 2D SCREEN BUFFER [80x24] ===
+--- TEXT MATRIX ---
+00: |Pigasus CLI   general    commands    shortcuts    vim   (←/→ or tab to cycle)   |
+01: |Vim Modal Shortcuts                                                             |
+02: |  Standard Vim key bindings active in Vim Mode                                  |
+03: |                                                                                |
+04: |> i, a, I, A, o, O                Enter Insert mode                             |
+05: |  / !                            Insert the character, enter Insert mode        |
+06: |  esc                            Insert/Visual → Normal                         |
+07: |  h j k l                        Left / down / up / right                       |
+08: |  w b e, W B E                   Word / WORD motions                            |
+09: |  0 ^ $, gg G                    Line and buffer bounds                         |
+10: |  f F t T, ; ,                   Find character, repeat                         |
+11: |  d c y                          Delete / change / yank (motion or object)      |
+12: |  x X D C                        Delete char / back / to end, change to end     |
+13: |  iw aw iW aW ip ap              Text objects                                   |
+14: |  i( a( i" a" ...                Bracket and quote pairs                        |
+15: |  v V                            Visual / Visual line                           |
+16: |  p P                            Paste after / before                           |
+17: |  u, U                           Undo / redo                                    |
+18: |  [1-14 of 21 items]                                                            |
+19: |                                                                                |
+20: |Keyboard: ↑/↓ Navigate  ←/→ Switch View  esc Close                              |
+21: |                                                                                |
+22: |                                                                                |
+23: |                                                                                |
+--- ATTRIBUTE MATRIX ---
+00: [0:11] fg=#268bd2 | [14:21] fg=#eee8d5 | [25:33] fg=#eee8d5 | [37:46] fg=#eee8d5 | [50:53] fg=#268bd2,bold,ul | [54:77] fg=#eee8d5
+01: [0:19] fg=#586e75,bold
+02: [2:46] fg=#657b83
+03: (plain)
+04: [0:18] fg=#268bd2 | [34:51] fg=#586e75
+05: [2:34] fg=#268bd2 | [34:72] fg=#657b83
+06: [2:34] fg=#268bd2 | [34:55] fg=#657b83
+07: [2:34] fg=#268bd2 | [34:57] fg=#657b83
+08: [2:34] fg=#268bd2 | [34:52] fg=#657b83
+09: [2:34] fg=#268bd2 | [34:55] fg=#657b83
+10: [2:34] fg=#268bd2 | [34:55] fg=#657b83
+11: [2:34] fg=#268bd2 | [34:74] fg=#657b83
+12: [2:34] fg=#268bd2 | [34:75] fg=#657b83
+13: [2:34] fg=#268bd2 | [34:45] fg=#657b83
+14: [2:34] fg=#268bd2 | [34:56] fg=#657b83
+15: [2:34] fg=#268bd2 | [34:53] fg=#657b83
+16: [2:34] fg=#268bd2 | [34:53] fg=#657b83
+17: [2:34] fg=#268bd2 | [34:44] fg=#657b83
+18: [0:20] fg=#657b83
+19: (plain)
+20: [0:10] bold | [10:13] fg=#268bd2 | [14:22] fg=#657b83 | [24:27] fg=#268bd2 | [28:39] fg=#657b83 | [41:44] fg=#268bd2 | [45:50] fg=#657b83
+21: (plain)
+22: (plain)
+23: (plain)

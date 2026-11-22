@@ -349,6 +349,7 @@ func (r *RunCommand) Run(ctx context.Context, args json.RawMessage) (any, error)
 	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
 	cmd.Dir = resolveCwd(r.Workspace, p.Cwd)
 	cmd.Env = AgentShellEnv()
+	setProcessGroup(cmd)
 	cmd.Stdout = &out
 	cmd.Stderr = &out
 	// Cycle 277: the reference runs the command with a pty on stdin and
@@ -397,6 +398,7 @@ func (r *RunCommand) runWithAsyncWindow(ctx context.Context, p runCommandParams)
 	cmd := exec.CommandContext(context.Background(), argv[0], argv[1:]...)
 	cmd.Dir = resolveCwd(r.Workspace, p.Cwd)
 	cmd.Env = AgentShellEnv()
+	setProcessGroup(cmd)
 
 	// The task is created before the command starts: the command's
 	// output is the task's output, and the task may yet become a

@@ -160,7 +160,7 @@ func TestConfiguredModelUsesItsOwnCompactThreshold(t *testing.T) {
 		t.Fatalf("ProfileFor.TokenThreshold = %d; want 30000 (specified < default)", p.TokenThreshold)
 	}
 
-	// When compact_threshold > default, min(specified, default) clamps to default
+	// When compact_threshold > default, configured threshold is honored
 	configtest.WriteProviders(t, `{"providers": {"anthropic": {
 		"type": "anthropic",
 		"models": [{"id": "claude-sonnet-4-6", "compact_threshold": 90000}]}}}`)
@@ -168,8 +168,8 @@ func TestConfiguredModelUsesItsOwnCompactThreshold(t *testing.T) {
 	if !ok {
 		t.Fatalf("ProfileFor(claude-sonnet-4-6) not found")
 	}
-	if pLarge.TokenThreshold != 50000 {
-		t.Fatalf("ProfileFor.TokenThreshold = %d; want 50000 (clamped by min(90000, 50000))", pLarge.TokenThreshold)
+	if pLarge.TokenThreshold != 90000 {
+		t.Fatalf("ProfileFor.TokenThreshold = %d; want 90000 (configured threshold)", pLarge.TokenThreshold)
 	}
 }
 

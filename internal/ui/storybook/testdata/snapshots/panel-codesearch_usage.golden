@@ -1,0 +1,51 @@
+=== 2D SCREEN BUFFER [80x24] ===
+--- TEXT MATRIX ---
+00: |Code Search:                                                                    |
+01: |  Usage: /codesearch [-F|--literal] <query>                                     |
+02: |                                                                                |
+03: |Keyboard: ↑/↓ Navigate  ←/→ Prev/Next File  enter Open File  ctrl+g Open in Edit|
+04: |or  esc Close Search                                                            |
+05: |                                                                                |
+06: |                                                                                |
+07: |                                                                                |
+08: |                                                                                |
+09: |                                                                                |
+10: |                                                                                |
+11: |                                                                                |
+12: |                                                                                |
+13: |                                                                                |
+14: |                                                                                |
+15: |                                                                                |
+16: |                                                                                |
+17: |                                                                                |
+18: |                                                                                |
+19: |                                                                                |
+20: |                                                                                |
+21: |                                                                                |
+22: |                                                                                |
+23: |                                                                                |
+--- ATTRIBUTE MATRIX ---
+00: [0:11] bold
+01: [0:43] fg=#657b83
+02: (plain)
+03: [0:10] bold | [10:13] fg=#268bd2 | [14:22] fg=#657b83 | [24:27] fg=#268bd2 | [28:42] fg=#657b83 | [44:49] fg=#268bd2 | [50:59] fg=#657b83 | [61:67] fg=#268bd2 | [68:80] fg=#657b83
+04: [0:2] fg=#657b83 | [4:7] fg=#268bd2 | [8:20] fg=#657b83
+05: (plain)
+06: (plain)
+07: (plain)
+08: (plain)
+09: (plain)
+10: (plain)
+11: (plain)
+12: (plain)
+13: (plain)
+14: (plain)
+15: (plain)
+16: (plain)
+17: (plain)
+18: (plain)
+19: (plain)
+20: (plain)
+21: (plain)
+22: (plain)
+23: (plain)

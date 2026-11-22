@@ -270,6 +270,38 @@ func TestTheMendelCacheIsKeyedByTheIdentity(t *testing.T) {
 	}
 }
 
+// TestTheMendelAnswerDesktopOfflineGuaranteesDesktopFlags pins that
+// running in desktop mode guarantees essential desktop features (such as
+// audio transcription / dictation and jetbox terminal v2) even if the
+// remote CloudCode fetcher fails (offline or non-Google-OAuth environments).
+func TestTheMendelAnswerDesktopOfflineGuaranteesDesktopFlags(t *testing.T) {
+	installMendelFetcher(t, nil)
+
+	const hubUA = "antigravity/hub/1.5.14 (aidev_client; os_type=darwin; arch=arm64)"
+	ans := Answer(context.Background(), hubUA)
+
+	required := map[string]bool{
+		"enable-audio-transcription": false,
+		"enable-jetbox-terminal-v2":  false,
+		"enable-aux-pane-redesign":   false,
+	}
+
+	for _, e := range ans.ExperimentConfig.Experiments {
+		if _, ok := required[e.KeyString]; ok {
+			if e.Disabled {
+				t.Errorf("experiment %q is disabled, want enabled", e.KeyString)
+			}
+			required[e.KeyString] = true
+		}
+	}
+
+	for k, found := range required {
+		if !found {
+			t.Errorf("desktop experiment %q was not found in offline answer", k)
+		}
+	}
+}
+
 // installMendelFetcher installs a Fetcher for one test and restores
 // the live one afterwards.
 func installMendelFetcher(t *testing.T, flags []auth.MendelFlag) {

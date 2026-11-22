@@ -710,3 +710,31 @@ func TestFocusCircleTransition_HollowToSolid(t *testing.T) {
 		t.Errorf("expected view after Esc to return to hollow circle ○, got:\n%s", viewReturned)
 	}
 }
+
+func TestSnapshotRegression(t *testing.T) {
+	cat := storybook.DefaultCatalog()
+	stories := cat.Stories()
+
+	for _, s := range stories {
+		t.Run(s.ID, func(t *testing.T) {
+			for stateIdx, st := range s.States {
+				// State 0 of workspace-herdr spawns an unmocked live shell process with machine-dependent prompt
+				if s.ID == "workspace-herdr" && st.ID == "live-pane" {
+					continue
+				}
+				// States 1 & 2 of panel-codesearch perform live regex searches across the active Git workspace
+				if s.ID == "panel-codesearch" && (st.ID == "results" || st.ID == "file-viewer") {
+					continue
+				}
+
+				t.Run(st.ID, func(t *testing.T) {
+					inst := s.Factory()
+					if inst == nil {
+						t.Fatalf("Factory() returned nil for story %s", s.ID)
+					}
+					storybook.CaptureAndAssertStory(t, inst, stateIdx, s.ID, st.ID, 80, 24)
+				})
+			}
+		})
+	}
+}

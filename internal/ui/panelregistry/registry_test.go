@@ -69,6 +69,7 @@ func TestKindRoutes(t *testing.T) {
 		Projects:    RoutePanel,
 		Help:        RoutePanel,
 		History:     RoutePanel,
+		Terminal:    RoutePanel,
 		// The search route: the panel owns the keys of its result list
 		// and lets the rest through to the list rule.
 		CodeSearch: RouteSearch,

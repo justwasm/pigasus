@@ -1,0 +1,51 @@
+=== 2D SCREEN BUFFER [80x24] ===
+--- TEXT MATRIX ---
+00: |Model Completion Popup Simulation:                                              |
+01: |  Input Buffer: /model claude                                                   |
+02: |                                                                                |
+03: |> Claude Sonnet 4.6 (Thinking)  claude-sonnet-4-6                               |
+04: |  Claude Opus 4.6 (Thinking)    claude-opus-4-6-thinking                        |
+05: |                                                                                |
+06: |  ↑/↓ Navigate · enter Select · tab Complete                                    |
+07: |                                                                                |
+08: |                                                                                |
+09: |                                                                                |
+10: |                                                                                |
+11: |                                                                                |
+12: |                                                                                |
+13: |                                                                                |
+14: |                                                                                |
+15: |                                                                                |
+16: |                                                                                |
+17: |                                                                                |
+18: |                                                                                |
+19: |                                                                                |
+20: |                                                                                |
+21: |                                                                                |
+22: |                                                                                |
+23: |                                                                                |
+--- ATTRIBUTE MATRIX ---
+00: [0:34] bold
+01: [16:29] fg=#268bd2
+02: (plain)
+03: [0:30] fg=#268bd2 | [32:49] fg=#586e75
+04: [32:56] fg=#586e75
+05: (plain)
+06: [2:5] fg=#268bd2,bold | [5:17] fg=#657b83 | [17:22] fg=#268bd2,bold | [22:32] fg=#657b83 | [32:35] fg=#268bd2,bold | [35:44] fg=#657b83
+07: (plain)
+08: (plain)
+09: (plain)
+10: (plain)
+11: (plain)
+12: (plain)
+13: (plain)
+14: (plain)
+15: (plain)
+16: (plain)
+17: (plain)
+18: (plain)
+19: (plain)
+20: (plain)
+21: (plain)
+22: (plain)
+23: (plain)

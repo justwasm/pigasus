@@ -31,5 +31,6 @@ func startWithPTYStdin(cmd *exec.Cmd, eof bool) (func() error, io.WriteCloser, e
 	if cmd.WaitDelay <= 0 {
 		cmd.WaitDelay = 800 * time.Millisecond
 	}
+	setProcessGroup(cmd)
 	return func() error { return cmd.Run() }, nil, nil
 }

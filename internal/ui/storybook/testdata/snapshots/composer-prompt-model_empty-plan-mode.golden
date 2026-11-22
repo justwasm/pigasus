@@ -1,0 +1,51 @@
+=== 2D SCREEN BUFFER [80x24] ===
+--- TEXT MATRIX ---
+00: |─ Composer Frame ─────────────────────────────────────                          |
+01: |>   1 Plan mode: research & plan only (shift+tab to cycle)                      |
+02: |──────────────────────────────────────────────────────                          |
+03: |                                                                                |
+04: |Cursor & Widget Metrics:                                                        |
+05: |  • Value Length: 0 chars                                                       |
+06: |  • Line: 0, Column: 0                                                          |
+07: |  • Hardware Cursor: (X=6, Y=0)                                                 |
+08: |  • Virtual Cursor Disabled: true (Hardware Cursor active)                      |
+09: |                                                                                |
+10: |                                                                                |
+11: |                                                                                |
+12: |                                                                                |
+13: |                                                                                |
+14: |                                                                                |
+15: |                                                                                |
+16: |                                                                                |
+17: |                                                                                |
+18: |                                                                                |
+19: |                                                                                |
+20: |                                                                                |
+21: |                                                                                |
+22: |                                                                                |
+23: |                                                                                |
+--- ATTRIBUTE MATRIX ---
+00: [0:54] fg=#657b83
+01: [0:2] fg=ansi:7,bg=ansi:0 | [2:58] fg=color256:240,bg=ansi:0 | [58:74] bg=ansi:0
+02: [0:54] fg=#657b83
+03: (plain)
+04: [0:24] bold
+05: (plain)
+06: (plain)
+07: (plain)
+08: (plain)
+09: (plain)
+10: (plain)
+11: (plain)
+12: (plain)
+13: (plain)
+14: (plain)
+15: (plain)
+16: (plain)
+17: (plain)
+18: (plain)
+19: (plain)
+20: (plain)
+21: (plain)
+22: (plain)
+23: (plain)

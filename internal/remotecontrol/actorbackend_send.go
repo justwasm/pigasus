@@ -90,6 +90,10 @@ func applyEvent(ev SessionEvent, state *drainState, sink cascades.EventSink) {
 				sink.OnTextDelta(nil, ev.Delta)
 			}
 		}
+	case SessionEventToolStart:
+		if sink != nil {
+			sink.OnToolCallStart(nil, ev.ToolCall)
+		}
 	case SessionEventToolCall:
 		state.result.ToolCalls = append(state.result.ToolCalls, ev.ToolCall)
 		if sink != nil {

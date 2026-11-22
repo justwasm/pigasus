@@ -1,0 +1,51 @@
+=== 2D SCREEN BUFFER [80x24] ===
+--- TEXT MATRIX ---
+00: |❖ Border Style: Left Accent Callout (Open Side Callout)                         |
+01: |  Glyphs: ┃ U+2503 (Thick Left Border)  /  ▌ U+258C (Left Half Block)           |
+02: |  Usage:  Side-question /btw floating cards, markdown blockquotes (> ), and stre|
+03: |aming reasoning snippets.                                                       |
+04: |                                                                                |
+05: |  ┃  Side Question (/btw) · Gemini 3.8 Flash                                    |
+06: |  ┃  "How does box-drawing character rendering work?"                           |
+07: |  ┃                                                                             |
+08: |  ┃  Terminal box drawing characters reside in Unicode block U+2500–U+257F.     |
+09: |  ┃  They allow full-terminal framing without graphics APIs.                    |
+10: |  ┃                                                                             |
+11: |  ┃  Tab to collapse · Enter/Esc to dismiss                                     |
+12: |                                                                                |
+13: |Interactive Controls: [+/-] Resize width (60)  ·  [Space/c] Toggle tagged header|
+14: |  ·  [Tab] Cycle styles                                                         |
+15: |                                                                                |
+16: |                                                                                |
+17: |                                                                                |
+18: |                                                                                |
+19: |                                                                                |
+20: |                                                                                |
+21: |                                                                                |
+22: |                                                                                |
+23: |                                                                                |
+--- ATTRIBUTE MATRIX ---
+00: [0:55] bold
+01: [0:10] fg=#657b83 | [10:69] fg=ansi:6
+02: [0:10] fg=#657b83
+03: (plain)
+04: (plain)
+05: [2:3] fg=#268bd2 | [5:44] fg=#268bd2,bold
+06: [2:3] fg=#268bd2 | [5:53] bold
+07: [2:3] fg=#268bd2
+08: [2:3] fg=#268bd2
+09: [2:3] fg=#268bd2
+10: [2:3] fg=#268bd2
+11: [2:3] fg=#268bd2 | [5:43] fg=#657b83
+12: (plain)
+13: [0:80] fg=#657b83
+14: [0:23] fg=#657b83
+15: (plain)
+16: (plain)
+17: (plain)
+18: (plain)
+19: (plain)
+20: (plain)
+21: (plain)
+22: (plain)
+23: (plain)

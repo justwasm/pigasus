@@ -43,9 +43,14 @@ func TestConfigFromHost_CarriesTheDroppedFields(t *testing.T) {
 		FastpushPath:     "/tmp/fastpush.json",
 		ResourcePath:     "/tmp/resources.json",
 		OriginPolicyPath: "/tmp/origin_policy.json",
+		MendelUserAgent:  "antigravity/hub/1.5.14 (test)",
 	}
 
 	cfg := ConfigFromHost(hc, "/tmp/remote-control.sock")
+
+	if cfg.MendelUserAgent != "antigravity/hub/1.5.14 (test)" {
+		t.Errorf("MendelUserAgent = %q, want %q", cfg.MendelUserAgent, "antigravity/hub/1.5.14 (test)")
+	}
 
 	if cfg.Browser != broker {
 		t.Errorf("Browser = %v, want the host's broker", cfg.Browser)

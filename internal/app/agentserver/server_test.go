@@ -209,3 +209,132 @@ func TestServerStopsACancelledTurn(t *testing.T) {
 		t.Fatalf("the server answered the greeting with %q", f.Kind)
 	}
 }
+
+// TestServerMultiSessionIsolation tests session isolation across multiple external clients.
+func TestServerMultiSessionIsolation(t *testing.T) {
+	srv, addr := startServer(t, Config{Model: "test-model"})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	// Client 1: Cursor
+	clientA, err := agentlink.Dial(ctx, "ws://"+addr, agentlink.DialOptions{Token: srv.Token()})
+	if err != nil {
+		t.Fatalf("Dial A: %v", err)
+	}
+	defer clientA.Close()
+
+	if err := clientA.Send(ctx, agentlink.Frame{Kind: agentlink.KindHello, Session: "session-cursor-001"}); err != nil {
+		t.Fatalf("Send A: %v", err)
+	}
+	fA, err := clientA.Next(ctx)
+	if err != nil {
+		t.Fatalf("Next A: %v", err)
+	}
+	if fA.Session != "session-cursor-001" {
+		t.Errorf("expected session-cursor-001, got %s", fA.Session)
+	}
+
+	// Client 2: Zed
+	clientB, err := agentlink.Dial(ctx, "ws://"+addr, agentlink.DialOptions{Token: srv.Token()})
+	if err != nil {
+		t.Fatalf("Dial B: %v", err)
+	}
+	defer clientB.Close()
+
+	if err := clientB.Send(ctx, agentlink.Frame{Kind: agentlink.KindHello, Session: "session-zed-002"}); err != nil {
+		t.Fatalf("Send B: %v", err)
+	}
+	fB, err := clientB.Next(ctx)
+	if err != nil {
+		t.Fatalf("Next B: %v", err)
+	}
+	if fB.Session != "session-zed-002" {
+		t.Errorf("expected session-zed-002, got %s", fB.Session)
+	}
+
+	// Verify both sessions exist in the server registry
+	sessA, okA := srv.SessionByID("session-cursor-001")
+	if !okA || sessA.ConversationID != "session-cursor-001" {
+		t.Errorf("expected session-cursor-001 in registry")
+	}
+
+	sessB, okB := srv.SessionByID("session-zed-002")
+	if !okB || sessB.ConversationID != "session-zed-002" {
+		t.Errorf("expected session-zed-002 in registry")
+	}
+}
+
+// TestServerNonInteractiveSubscription tests that external clients can attach
+// and stream events non-interactively via KindSubscribe.
+func TestServerNonInteractiveSubscription(t *testing.T) {
+	srv, addr := startServer(t, Config{Model: "test-model"})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	const sessionID = "session-stream-sync"
+
+	// 1. Client A: Non-interactive subscriber (e.g. IDE event watcher)
+	subClient, err := agentlink.Dial(ctx, "ws://"+addr, agentlink.DialOptions{Token: srv.Token()})
+	if err != nil {
+		t.Fatalf("Dial Subscriber: %v", err)
+	}
+	defer subClient.Close()
+
+	if err := subClient.Send(ctx, agentlink.Frame{
+		Kind:    agentlink.KindSubscribe,
+		ID:      "sub-1",
+		Session: sessionID,
+	}); err != nil {
+		t.Fatalf("Send Subscribe: %v", err)
+	}
+
+	ackFrame, err := subClient.Next(ctx)
+	if err != nil {
+		t.Fatalf("Next ack: %v", err)
+	}
+	if ackFrame.Kind != agentlink.KindState {
+		t.Errorf("expected KindState ack, got %s", ackFrame.Kind)
+	}
+	if ackFrame.Session != sessionID {
+		t.Errorf("expected ack session %s, got %s", sessionID, ackFrame.Session)
+	}
+
+	// 2. Client B: Execution client submits a prompt
+	execClient, err := agentlink.Dial(ctx, "ws://"+addr, agentlink.DialOptions{Token: srv.Token()})
+	if err != nil {
+		t.Fatalf("Dial ExecClient: %v", err)
+	}
+	defer execClient.Close()
+
+	if err := execClient.Send(ctx, agentlink.Frame{
+		Kind:    agentlink.KindPrompt,
+		ID:      "turn-stream-1",
+		Session: sessionID,
+		History: []agentlink.Message{{Role: "user", Content: "stream check"}},
+	}); err != nil {
+		t.Fatalf("Send Prompt: %v", err)
+	}
+
+	// 3. Verify subscriber client receives broadcast frames
+	gotResult := false
+	subDeadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(subDeadline) && !gotResult {
+		f, err := subClient.Next(ctx)
+		if err != nil {
+			t.Fatalf("Subscriber Next error: %v", err)
+		}
+		if f.Session != sessionID {
+			t.Errorf("expected frame session %s, got %s", sessionID, f.Session)
+		}
+		if f.Kind == agentlink.KindResult {
+			gotResult = true
+			break
+		}
+	}
+
+	if !gotResult {
+		t.Fatal("subscriber did not receive broadcast KindResult frame")
+	}
+}

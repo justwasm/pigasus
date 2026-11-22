@@ -694,6 +694,7 @@ func TestConnNotifierSink_NilSafe(t *testing.T) {
 	var s *ConnNotifierSink
 	s.OnState(&cascades.Cascade{ID: "x"}, cascades.StateFrame{Phase: cascades.StatePhaseDone}) // must not panic
 	s.OnTextDelta(&cascades.Cascade{ID: "x"}, "x")                                             // must not panic
+	s.OnToolCallStart(&cascades.Cascade{ID: "x"}, cascades.ToolCall{Name: "x"})                // must not panic
 	s.OnToolCall(&cascades.Cascade{ID: "x"}, cascades.ToolCall{Name: "x"})                     // must not panic
 	s.OnError(&cascades.Cascade{ID: "x"}, errors.New("x"))                                     // must not panic
 	s.OnUserInteraction(&cascades.Cascade{ID: "x"}, &cascades.PendingInteraction{ID: "x"})     // must not panic
@@ -702,6 +703,7 @@ func TestConnNotifierSink_NilSafe(t *testing.T) {
 	s2 := NewConnNotifierSink(nil, "", nil)
 	s2.OnState(nil, cascades.StateFrame{Phase: cascades.StatePhaseDone})
 	s2.OnTextDelta(nil, "x")
+	s2.OnToolCallStart(nil, cascades.ToolCall{Name: "x"})
 	s2.OnToolCall(nil, cascades.ToolCall{Name: "x"})
 	s2.OnError(nil, errors.New("x"))
 	s2.OnUserInteraction(nil, &cascades.PendingInteraction{ID: "x"})

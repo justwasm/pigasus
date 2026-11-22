@@ -1,0 +1,51 @@
+=== 2D SCREEN BUFFER [80x24] ===
+--- TEXT MATRIX ---
+00: |                                                                                |
+01: |                                                                                |
+02: |                                                                                |
+03: |                                                                                |
+04: |                                                                                |
+05: |                                                                                |
+06: | Your browser should open automatically. If not:                                |
+07: |                                                                                |
+08: | https://accounts.google.com/o/oauth2/v2/auth?client_id=123&response_type=code  |
+09: |                                                                                |
+10: | Copy and paste the URL or click on the link below:                             |
+11: | ───────────────────────────────────────────────────────────────────────────────|
+12: |                                                                                |
+13: | → Click here to authenticate                                                   |
+14: | ───────────────────────────────────────────────────────────────────────────────|
+15: |                                                                                |
+16: |                                                                                |
+17: | If you aren't automatically redirected, paste the authorization code below:    |
+18: |                                                                                |
+19: | 4/0AeanS0Y7g-auth-code-preset                                                  |
+20: |                                                                                |
+21: |                                                                                |
+22: |  esc Back · enter Submit                                                       |
+23: |                                                                                |
+--- ATTRIBUTE MATRIX ---
+00: [2:4] bg=#3d85fc | [4:6] bg=#3883f9 | [10:12] bg=#64b6f6 | [12:14] bg=#67b9f4
+01: [4:6] bg=#4a80ea | [10:12] bg=#61c37d
+02: [4:6] bg=#995da8 | [6:8] bg=#746fc3 | [8:10] bg=#5ca98f | [10:12] bg=#7cc251
+03: [4:6] bg=#ef5442 | [6:8] bg=#f67a34 | [8:10] bg=#e2993d | [10:12] bg=#9ec345
+04: [6:8] bg=#f07236 | [8:10] bg=#f2922e
+05: (plain)
+06: (plain)
+07: (plain)
+08: [1:78] fg=ansi:4,ul
+09: (plain)
+10: (plain)
+11: (plain)
+12: (plain)
+13: [1:29] fg=ansi:4,ul
+14: (plain)
+15: (plain)
+16: (plain)
+17: (plain)
+18: (plain)
+19: [30:31] rev
+20: (plain)
+21: (plain)
+22: [2:5] fg=ansi:12,bold | [5:13] fg=ansi:8 | [13:18] fg=ansi:12,bold | [18:25] fg=ansi:8
+23: [0:80] fg=ansi:8

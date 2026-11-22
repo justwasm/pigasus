@@ -38,6 +38,7 @@ const (
 	Projects
 	Help
 	History
+	Terminal
 )
 
 // ExitNotice reports whether closing the panel displays an exit notice.
@@ -45,7 +46,7 @@ func (k Kind) ExitNotice() bool {
 	switch k {
 	case None, Help, MCP, Permissions, CodeSearch, Feedback,
 		Rewind, Context, Plugin, Changelog,
-		Usage, AddDir, Rename, FeatDiff, Projects, History:
+		Usage, AddDir, Rename, FeatDiff, Projects, History, Terminal:
 		return false
 	}
 	return true
@@ -71,7 +72,7 @@ func (k Kind) TrailingBlank() bool {
 // before the generic list handlers.
 func (k Kind) OwnsEarlyKeys() bool {
 	switch k {
-	case Help, Permissions, Hooks, Agents, Provider, Accounts, Plugin, Skills, Effort, Projects, History:
+	case Help, Permissions, Hooks, Agents, Provider, Accounts, Plugin, Skills, Effort, Projects, History, Terminal:
 		return true
 	default:
 		return false

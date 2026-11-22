@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -260,5 +261,48 @@ func TestRunCommandDaemonRegistersInSharedTaskRegistry(t *testing.T) {
 	taskAfter := reg.Get(fullID)
 	if taskAfter.State != "killed" {
 		t.Errorf("expected task to be killed, got state %v", taskAfter.State)
+	}
+}
+
+// TestRunCommand_ProcessGroupIsolation guards AGENTS.md §3 Rule 13:
+// background worker and command subprocesses must run under an isolated process group (Setpgid: true).
+func TestRunCommand_ProcessGroupIsolation(t *testing.T) {
+	home := t.TempDir()
+	conv := "conv-pgid-guard"
+	cmd := &RunCommand{Workspace: t.TempDir(), ConversationID: conv, Home: home}
+
+	out, err := cmd.Run(context.Background(), json.RawMessage(
+		`{"command":"sleep 30","is_daemon":true}`))
+	if err != nil {
+		t.Fatalf("run_command: %v", err)
+	}
+	text, _ := out.(string)
+	if !strings.Contains(text, "Tool is running as a background task") {
+		t.Fatalf("expected background task launch, got %s", text)
+	}
+
+	fullID := conv + "/task-1"
+	bgTask, ok := backgroundTasks.get(fullID)
+	if !ok {
+		t.Fatalf("task %s not found in bgTable", fullID)
+	}
+	defer bgTask.Kill()
+
+	if runtime.GOOS != "windows" && runtime.GOOS != "js" {
+		if bgTask.cmd == nil || bgTask.cmd.SysProcAttr == nil {
+			t.Fatal("expected bgTask.cmd.SysProcAttr to be non-nil")
+		}
+		if !bgTask.cmd.SysProcAttr.Setpgid && !bgTask.cmd.SysProcAttr.Setsid {
+			t.Errorf("expected Setpgid: true or Setsid: true on Unix, got %+v", bgTask.cmd.SysProcAttr)
+		}
+	}
+
+	// Kill and ensure clean exit
+	killMsg, err := bgTask.Kill()
+	if err != nil {
+		t.Fatalf("bgTask.Kill: %v", err)
+	}
+	if !strings.Contains(strings.ToLower(killMsg), "kill") {
+		t.Errorf("expected kill message to contain 'kill', got %s", killMsg)
 	}
 }

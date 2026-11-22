@@ -214,3 +214,40 @@ Two things this cycle could **not** do, and therefore did not do:
   recoverable statically. Two citations that used one were replaced with
   evidence that *is* recoverable, rather than being carried forward.
 
+---
+
+<!-- BEGIN AUTOMATED DRIFT REPORT -->
+## Automated Reference Drift Inspection & Parity Audit
+
+> **Inspection Timestamp**: `2026-11-22T17:51:48Z`  
+> **Baseline Version**: `agy 1.5.14` | **Candidate**: `1.5.14`  
+> **Overall Parity Status**: `CLEAN`
+
+### 1. Parity Audit Summary
+
+| Surface / Subsystem | Baseline (1.5.14) | Candidate (1.5.14) | Status | Unaligned Diff |
+|---|---|---|---|---|
+| **Pclntab Symbols** | 183,446 | 183,446 | CLEAN | +0 / -0 |
+| **CLI Flags** | 28 | 28 | CLEAN | +0 / unmapped: 0 |
+| **Slash Commands** | 47 | 47 | CLEAN | +0 / missing: 0 |
+| **Tool Schemas** | 13 tools | 13 tools | CLEAN | +0 / modified: 0 |
+
+### 2. Surface Breakdown
+
+#### Architectural Symbols by Subsystem
+| Subsystem | Baseline Count | Candidate Count | Delta |
+|---|---|---|---|
+| `cascade_plugins` | 93 | 93 | 0 |
+| `cortex_agent` | 67,390 | 67,390 | 0 |
+| `language_server` | 412 | 412 | 0 |
+| `other` | 99,709 | 99,709 | 0 |
+| `prompt_engine` | 574 | 574 | 0 |
+| `remote_agent_proxy` | 6,328 | 6,328 | 0 |
+| `subagent_swarm` | 111 | 111 | 0 |
+| `tools_pb` | 8,829 | 8,829 | 0 |
+
+### 3. Actionable Drift Alerts & Remediation
+
+All upstream reference contracts align with Pigasus implementation. Zero unaligned drift detected.
+
+<!-- END AUTOMATED DRIFT REPORT -->

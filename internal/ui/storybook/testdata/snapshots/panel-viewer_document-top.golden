@@ -1,0 +1,51 @@
+=== 2D SCREEN BUFFER [80x24] ===
+--- TEXT MATRIX ---
+00: |Pigasus Agent Engine — Reference System Architecture                            |
+01: |============================================================                    |
+02: |                                                                                |
+03: |1. Clean-room Reference Compatibility                                           |
+04: |   Clean-room reimplementation of jetski/cortex CLI reference 1.5.5.            |
+05: |   Zero binary leakage, identical terminal escape sequences and glyph metrics.  |
+06: |                                                                                |
+07: |2. Multi-Model Provider Architecture                                            |
+08: |                                                                                |
+09: |[Lines 1-8 of 17]  Keyboard: ↑/↓ Scroll  esc Dismiss                            |
+10: |                                                                                |
+11: |                                                                                |
+12: |                                                                                |
+13: |                                                                                |
+14: |                                                                                |
+15: |                                                                                |
+16: |                                                                                |
+17: |                                                                                |
+18: |                                                                                |
+19: |                                                                                |
+20: |                                                                                |
+21: |                                                                                |
+22: |                                                                                |
+23: |                                                                                |
+--- ATTRIBUTE MATRIX ---
+00: [0:52] bold
+01: [0:60] fg=#657b83
+02: (plain)
+03: [0:37] fg=#268bd2
+04: (plain)
+05: (plain)
+06: (plain)
+07: [0:36] fg=#268bd2
+08: (plain)
+09: [0:19] fg=#657b83 | [19:29] fg=#657b83,bold | [29:32] fg=#268bd2 | [33:39] fg=#657b83 | [41:44] fg=#268bd2 | [45:52] fg=#657b83
+10: (plain)
+11: (plain)
+12: (plain)
+13: (plain)
+14: (plain)
+15: (plain)
+16: (plain)
+17: (plain)
+18: (plain)
+19: (plain)
+20: (plain)
+21: (plain)
+22: (plain)
+23: (plain)

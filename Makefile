@@ -1,6 +1,6 @@
 .PHONY: build test quick arch align wirealign canary parity-fuzz verify help \
         fetch-upstream extract-agy extract-ls extract-localharness extract-all check-reproducibility \
-        sync-official-docs sync-docs official-docs
+        drift-check sync-official-docs sync-docs official-docs
 
 BIN_DIR ?= ./bin
 
@@ -62,6 +62,9 @@ extract-all:
 check-reproducibility:
 	python3 scripts/re/verify_reproducibility.py --target all
 
+drift-check:
+	bash scripts/re/drift_check.sh
+
 # Documentation sync target
 sync-official-docs:
 	python3 scripts/crawl_official_docs.py
@@ -87,3 +90,4 @@ help:
 	@echo "  make extract-localharness - Extract seeds & protos from google-antigravity wheel"
 	@echo "  make extract-all          - Run all extraction pipelines"
 	@echo "  make check-reproducibility- Verify 100% byte-for-byte reproducibility of all extractions"
+	@echo "  make drift-check          - Run automated reference drift inspection (symbols, flags, schemas)"

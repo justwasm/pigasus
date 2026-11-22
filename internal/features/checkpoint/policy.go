@@ -204,12 +204,13 @@ func New(cfg Config) *Policy {
 	profile, ok := modelctx.ProfileFor(cfg.Model)
 	if !ok {
 		limit := modelctx.For(cfg.Model)
-		defaultThreshold := 50000
+		defaultThreshold := limit.ContextWindow - limit.ReserveTokens
+		if defaultThreshold <= 0 {
+			defaultThreshold = 50000
+		}
 		threshold := defaultThreshold
 		if cp, ok := modelctx.ConfiguredCompactThreshold(cfg.Model); ok && cp > 0 {
-			if cp < defaultThreshold {
-				threshold = cp
-			}
+			threshold = cp
 		}
 		profile = modelctx.Profile{
 			Strategy:                   modelctx.StrategySameModel,
@@ -625,17 +626,26 @@ func (p *Policy) should(probe actor.CheckpointProbe, projected int, hard bool) b
 	if hard {
 		return true
 	}
-	if !p.cfg.EnableSoftThreshold {
-		return false
-	}
-	threshold := p.profile.TokenThreshold
-	if threshold <= 0 {
-		threshold = 50000
+	hasCustom := false
+	threshold := 0
+	if cp, ok := modelctx.ConfiguredCompactThreshold(p.cfg.Model); ok && cp > 0 {
+		hasCustom = true
+		threshold = cp
 	}
 	if envVal := os.Getenv("OPENAGY_COMPACT_TOKEN_THRESHOLD"); envVal != "" {
 		if val, err := strconv.Atoi(envVal); err == nil && val > 0 {
+			hasCustom = true
 			threshold = val
 		}
+	}
+	if !hasCustom && !p.cfg.EnableSoftThreshold {
+		return false
+	}
+	if threshold <= 0 {
+		threshold = p.profile.TokenThreshold
+	}
+	if threshold <= 0 {
+		threshold = 50000
 	}
 	return threshold > 0 && projected >= threshold
 }
